@@ -1,0 +1,264 @@
+//! jsonrpc module helps with implementing jsonrpc handlers on the server
+//! side. It registers handler with spdk and provides simple (de)serialization
+//! of arguments using serde rust library. It makes use of async/await futures
+//! for executing async code in jsonrpc handlers.
+
+use crate::executor;
+use futures::{future::Future, task::LocalSpawnExt};
+use nix::errno::Errno;
+use serde::{Deserialize, Serialize};
+use spdk_sys::{
+    spdk_json_val,
+    spdk_json_write_val_raw,
+    spdk_jsonrpc_begin_result,
+    spdk_jsonrpc_end_result,
+    spdk_jsonrpc_request,
+    spdk_jsonrpc_send_error_response,
+    spdk_rpc_register_method,
+    SPDK_JSONRPC_ERROR_INTERNAL_ERROR,
+    SPDK_JSONRPC_ERROR_INVALID_PARAMS,
+    SPDK_JSONRPC_ERROR_INVALID_REQUEST,
+    SPDK_JSONRPC_ERROR_METHOD_NOT_FOUND,
+    SPDK_JSONRPC_ERROR_PARSE_ERROR,
+    SPDK_JSON_VAL_OBJECT_BEGIN,
+    SPDK_RPC_RUNTIME,
+};
+use std::{
+    boxed::Box,
+    ffi::{c_void, CStr, CString},
+    fmt,
+    os::raw::c_char,
+    pin::Pin,
+};
+
+/// Possible json-rpc return codes from method handlers
+#[derive(Debug)]
+pub enum Code {
+    ParseError,
+    InvalidRequest,
+    MethodNotFound,
+    InvalidParams,
+    InternalError,
+    NotFound,
+    AlreadyExists,
+}
+
+/// Error object returned from json-rpc method handlers
+pub struct JsonRpcError {
+    pub code: Code,
+    pub message: String,
+}
+
+impl JsonRpcError {
+    /// Create json-rpc error object
+    pub fn new<T>(code: Code, message: T) -> Self
+    where
+        T: ToString,
+    {
+        Self {
+            code,
+            message: message.to_string(),
+        }
+    }
+
+    /// Map json-rpc error code to integer defined in json-rpc spec.
+    /// Then we have server implementation specific error codes which in case
+    /// of SPDK are inverted errno values so for example ENOENT becomes
+    /// -ENOENT jsonrpc error code.
+    pub fn json_code(&self) -> i32 {
+        match &self.code {
+            Code::ParseError => SPDK_JSONRPC_ERROR_PARSE_ERROR,
+            Code::InvalidRequest => SPDK_JSONRPC_ERROR_INVALID_REQUEST,
+            Code::MethodNotFound => SPDK_JSONRPC_ERROR_METHOD_NOT_FOUND,
+            Code::InvalidParams => SPDK_JSONRPC_ERROR_INVALID_PARAMS,
+            Code::InternalError => SPDK_JSONRPC_ERROR_INTERNAL_ERROR,
+            Code::NotFound => -(Errno::ENOENT as i32),
+            Code::AlreadyExists => -(Errno::EEXIST as i32),
+        }
+    }
+}
+
+impl fmt::Display for JsonRpcError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.message)
+    }
+}
+
+impl fmt::Debug for JsonRpcError {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}: {}", self.code, self.message)
+    }
+}
+
+impl std::error::Error for JsonRpcError {}
+
+pub type Result<T> = std::result::Result<T, JsonRpcError>;
+
+/// Extract JSON object from text, trim any pending characters which follow
+/// the closing bracket of the object.
+fn extract_json_object(
+    params: &spdk_json_val,
+) -> std::result::Result<String, String> {
+    if params.type_ != SPDK_JSON_VAL_OBJECT_BEGIN {
+        return Err("JSON parameters must be an object".to_owned());
+    }
+    let text = unsafe {
+        CStr::from_ptr(params.start as *const c_char)
+            .to_str()
+            .unwrap()
+    };
+    // find corresponding '}' for the object
+    let mut level = 0;
+    for (i, c) in text.chars().enumerate() {
+        if c == '{' {
+            level += 1;
+        } else if c == '}' {
+            level -= 1;
+            if level == 0 {
+                return Ok(text[0 ..= i].to_string());
+            }
+        }
+    }
+    // should not happen as params are validated by spdk before passed to us
+    Err("JSON parameters object not properly terminated".to_owned())
+}
+
+/// Generic handler called by spdk for handling incoming jsonrpc call. The task
+/// of this handler is to parse input parameters, invoke user-supplied handler,
+/// and encode output parameters.
+unsafe extern "C" fn jsonrpc_handler<H, P, R>(
+    request: *mut spdk_jsonrpc_request,
+    params: *const spdk_json_val,
+    arg: *mut c_void,
+) where
+    H: 'static + Fn(P) -> Pin<Box<dyn Future<Output = Result<R>>>>,
+    P: 'static + for<'de> Deserialize<'de>,
+    R: Serialize,
+{
+    let handler: Box<H> = Box::from_raw(arg as *mut H);
+
+    // get json parameters in form of a string
+    let params = if params.is_null() {
+        "null".to_owned()
+    } else {
+        match extract_json_object(&*params) {
+            Ok(val) => val,
+            Err(msg) => {
+                let msg = CString::new(msg).unwrap();
+                spdk_jsonrpc_send_error_response(
+                    request,
+                    SPDK_JSONRPC_ERROR_INVALID_PARAMS,
+                    msg.as_ptr(),
+                );
+                return;
+            }
+        }
+    };
+    // deserialize parameters
+    match serde_json::from_str::<P>(&params) {
+        Ok(args) => {
+            let fut = async move {
+                // call user provided handler for the method
+                let res = handler(args).await;
+                // encode return value
+                match res {
+                    Ok(val) => {
+                        // print json-rpc header
+                        let w_ctx = spdk_jsonrpc_begin_result(request);
+                        if w_ctx.is_null() {
+                            // request is freed in begin_result if it fails
+                            error!("Failed to write json-rpc message header");
+                            return;
+                        }
+                        // serialize result to string
+                        let data =
+                            CString::new(serde_json::to_string(&val).unwrap())
+                                .unwrap();
+                        spdk_json_write_val_raw(
+                            w_ctx,
+                            data.as_ptr() as *const c_void,
+                            data.as_bytes().len(),
+                        );
+                        spdk_jsonrpc_end_result(request, w_ctx);
+                    }
+                    Err(err) => {
+                        error!("{}", err.message);
+                        let code = err.json_code();
+                        let cerr = CString::new(err.message).unwrap();
+                        spdk_jsonrpc_send_error_response(
+                            request,
+                            code,
+                            cerr.as_ptr(),
+                        );
+                    }
+                }
+            };
+            executor::get_spawner().spawn_local(fut).unwrap();
+        }
+        Err(err) => {
+            // parameters are not what is expected
+            let msg = CString::new(err.to_string()).unwrap();
+            spdk_jsonrpc_send_error_response(
+                request,
+                SPDK_JSONRPC_ERROR_INVALID_PARAMS,
+                msg.as_ptr(),
+            );
+        }
+    }
+}
+
+/// Register new json-rpc method with given name and handler having form of
+/// a closure returning a future.
+///
+/// We use serde library with serialize/deserialize macro on structs which
+/// represent arguments and return values to allow us to define new
+/// json-rpc methods in rust with minimum code.
+///
+/// # Example:
+/// ```ignore
+/// use futures::future::Future;
+/// use serde::{Deserialize, Serialize};
+/// use mayastor::jsonrpc::{jsonrpc_register, Result};
+/// use std::pin::Pin;
+/// use futures::{future, FutureExt};
+/// use futures_util::future::FutureExt;
+/// #[derive(Deserialize)]
+/// struct Args {
+///     name: String,
+/// }
+///
+/// #[derive(Serialize)]
+/// struct Reply {
+///     result: String,
+/// }
+///
+/// pub fn init() {
+///     jsonrpc_register(
+///         "hello",
+///         |args: Args| -> Pin<Box<dyn Future<Output = Result<Reply>>>> {
+///             future::ok(Reply {
+///                 result: format!("Hello {}!", args.name),
+///             })
+///             .boxed_local()
+///         },
+///     );
+/// }
+/// ```
+pub fn jsonrpc_register<P, H, R>(name: &str, handler: H)
+where
+    H: 'static + Fn(P) -> Pin<Box<dyn Future<Output = Result<R>>>>,
+    P: 'static + for<'de> Deserialize<'de>,
+    R: Serialize,
+{
+    let name = CString::new(name).unwrap();
+    let handler_ptr = Box::into_raw(Box::new(handler)) as *mut c_void;
+
+    unsafe {
+        spdk_rpc_register_method(
+            name.as_ptr(),
+            Some(jsonrpc_handler::<H, P, R>),
+            handler_ptr,
+            SPDK_RPC_RUNTIME,
+        );
+    }
+}

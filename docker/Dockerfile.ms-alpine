@@ -1,0 +1,29 @@
+#
+# Eventually we want to base production shaheen images on alpine, however
+# for that to work we would need to disable debugging features:
+#
+#   1) backtrace support (RTE_BACKTRACE macro)
+#   2) runtime fortify extensions (__strncpy_chk, __longjmp_chk, __fprintf_chk,
+#      __printf_chk, __poll_chk, __memcpy_chk, __vsnprintf_chk, ...)
+#
+# glibc supports these extensions but minimal libc implementation on alpine
+# linux - "musl" - does not.
+#
+# TODO: dockerfile was taken from SPDK repo, it needs to be adapted for shaheen
+
+FROM alpine:3.8
+
+# numactl and crypto++ are considered unstable on alpine so we need to
+# enable testing repository for them
+RUN echo "http://dl-cdn.alpinelinux.org/alpine/edge/testing" >>/etc/apk/repositories
+
+RUN apk add --update \
+    libc6-compat libuuid libaio crypto++ libssl1.0 numactl py-configshell \
+    && rm -rf /var/cache/apk/*
+
+COPY scripts/rpc.py /usr/local/bin
+COPY scripts/rpc/ /usr/local/bin/rpc/
+# the main SPDK binary which contains everything
+COPY app/spdk_tgt/spdk_tgt /usr/local/bin
+
+ENTRYPOINT ["/usr/local/bin/spdk_tgt"]

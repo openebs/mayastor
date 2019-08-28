@@ -1,0 +1,30 @@
+dist: bionic
+language: rust
+cache:
+  cargo: true
+  directories:
+    - csi/moac/node_modules
+    - mayastor-test/node_modules
+
+rust:
+  - nightly
+
+before_script:
+  - sudo modprobe nbd
+  - sudo modprobe xfs
+  - sudo sysctl -w vm.nr_hugepages=512
+  - source $HOME/.nvm/nvm.sh
+  - nvm install 10
+  - sudo apt-get update
+
+script:
+  - sudo make depend
+  - make test
+  - sudo $(find target/debug -maxdepth 1 -name 'reconfigure-*' -executable)
+  - sudo $(find target/debug -maxdepth 1 -name 'io-*' -executable)
+  - sudo $(find target/debug -maxdepth 1 -name 'jsonrpc-*' -executable)
+  - pushd csi/moac && npm install && ./node_modules/mocha/bin/mocha && popd
+  - pushd mayastor-test && npm install && ./node_modules/mocha/bin/mocha test_cli.js && popd
+  - pushd mayastor-test && ./node_modules/mocha/bin/mocha test_grpc.js && popd
+  - pushd mayastor-test && ./node_modules/mocha/bin/mocha test_csi.js && popd
+  - pushd mayastor-test && ./node_modules/mocha/bin/mocha test_nexus_grpc.js && popd

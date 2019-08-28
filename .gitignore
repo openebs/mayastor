@@ -1,0 +1,7 @@
+**/target
+**/*.rs.bak
+**/cscope.*
+**/rust-tags.*
+/Dockerfile.debug
+/Dockerfile.release
+/.vagrant

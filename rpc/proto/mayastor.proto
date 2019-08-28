@@ -1,0 +1,222 @@
+// The definition of mayastor gRPC interface.
+// This interface is supposed to be independent on particular computing
+// environment (i.e. kubernetes).
+
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "io.openebs.mayastor";
+option java_outer_classname = "MayastorProto";
+
+package mayastor;
+
+// Means no arguments or no return value.
+message Null {}
+
+// Create pool arguments.
+// Currently we support only concatenation of disks (RAID-0).
+message CreatePoolRequest {
+  string name = 1;           // name of the pool
+  repeated string disks = 2; // absolute disk device paths to be claimed by the pool
+  uint32 block_size = 3; // when using files, we need to specify the block_size
+}
+
+// State of the storage pool (terminology comes from ZFS).
+enum PoolState {
+  ONLINE = 0;   // the pool is in normal working order
+  DEGRADED = 1; // the pool has experienced a failure but can still function
+  FAULTY = 2;   // the pool is completely inaccessible
+}
+
+// Storage pool properties
+message Pool {
+  string name = 1;            // name of the pool
+  repeated string disks = 2;  // absolute disk paths claimed by the pool
+  PoolState state = 3;        // current state of the pool
+  uint64 capacity = 5;        // size of the pool in bytes
+  uint64 used = 6;            // used bytes from the pool
+}
+
+// Destroy pool arguments.
+message DestroyPoolRequest {
+  string name = 1;  // name of the pool
+}
+
+// List of pools and their properties.
+message ListPoolsReply {
+  repeated Pool pools = 1;  // list of the pools
+}
+
+// Create replica arguments.
+message CreateReplicaRequest {
+  string uuid = 1;  // uuid of the replica
+  string pool = 2;  // name of the pool
+  uint64 size = 3;  // size of the replica in bytes
+  bool thin = 4;    // thin provisioning
+}
+
+// Destroy replica arguments.
+message DestroyReplicaRequest {
+  string uuid = 1;  // name of the replica
+}
+
+// Replica properties
+message Replica {
+  string uuid = 1;  // uuid of the replica
+  string pool = 2;  // name of the pool
+  bool thin = 3;    // thin provisioning
+  uint64 size = 4;  // size of the replica in bytes
+}
+
+// List of replicas and their properties.
+message ListReplicasReply {
+  repeated Replica replicas = 1;  // list of the replicas
+}
+
+// NOTE: We use struct instead of more suitable map type, because JS protobuf
+// lib has problem (yields garbage) when decoding maps containing u64:
+// https://github.com/protobufjs/protobuf.js/issues/1203
+message Stats {
+  uint64 num_read_ops = 1;
+  uint64 num_write_ops = 2;
+  uint64 bytes_read = 3;
+  uint64 bytes_written = 4;
+}
+
+// Replica stats
+message ReplicaStats {
+  string uuid = 1;  // uuid of the replica
+  string pool = 2;  // name of the pool
+  Stats stats = 3;  // stat counters
+}
+
+// List of replicas and their properties.
+message StatReplicasReply {
+  repeated ReplicaStats replicas = 1;  // list of the replicas
+}
+
+// Create volume arguments.
+//
+// Just now, replicas can be only local devices created by storage
+// service above. Later we will support arbitrary remote replicas as well and
+// to anticipate those changes we require replicas to be specified in form of
+// a URL: lvol://<pool>/<replica> (and in future iscsi://..., etc.).
+// “lvol” protocol specifier comes from SPDK and signifies how the replica is
+// accessed when used by the volume.
+message CreateVolumeRequest {
+  string name = 1;              // name of the volume
+  repeated string replicas = 2; // URLs of replicas which comprise the volume
+                                // (only single entry is supported currently).
+}
+
+// Destroy volume arguments.
+message DestroyVolumeRequest {
+  string name = 1;  // name of the volume
+}
+
+// Volume properties
+//
+// We intentionally don't reveal the block size of the volume device in API
+// until the use cases for it become clear.
+message Volume {
+  string name = 1;              // name of the volume
+  uint64 size = 3;              // size of the volume in bytes
+  string device_path = 4;       // path to device file for the volume (missing if not published)
+  repeated string replicas = 2; // URLs of replicas which comprise the volume
+}
+
+// A list of volumes and their properties.
+message ListVolumesReply {
+  repeated Volume volumes = 1;  // list of the volumes
+}
+
+// Publish volume arguments.
+message PublishVolumeRequest {
+  string name = 1;  // name of the volume
+}
+
+// Publish volume return value.
+message PublishVolumeReply {
+  string device_path = 1;  // absolute path to block device
+}
+
+// Unpublish volume arguments.
+message UnpublishVolumeRequest {
+  string name = 1;  // name of the Volume
+}
+
+message CreateBlkdevRequest {
+  string uuid = 1;   // uuid of the replica which to create device for
+}
+
+message DestroyBlkdevRequest {
+  string uuid = 1;   // uuid of the replica which to destroy
+}
+
+message CreateBlkdevReply {
+  string blk_dev = 1;   // i.e. /dev/nvmeX
+}
+
+message CreateNexusRequest {
+  string name = 1; // name of the nexus should match the PVC-UUID
+  string uuid = 2; // this UUID will be set in as the UUID
+  uint32 block_len = 3; // length in bytes
+  uint64 size = 4; // size of the device in bytes
+  repeated string replicas = 5; // uris to the targets we connect to
+}
+
+// represents a child device part of a nexus
+message Child {
+  // name of the child device which corresponds to the uri used to connect
+  string name = 1;
+  // refers to the nexus this child belongs too
+  string state = 2;
+}
+
+// represents a nexus device
+message Nexus {
+  // name of the nexus
+  string name = 1;
+  // current state of the nexus
+  string state = 2;
+  // array of children
+  repeated Child children = 3;
+}
+
+message ListNexusReply {
+  repeated Nexus nexus_list = 1;
+}
+
+message CreateNexusReply {
+  string name = 1; // name of the created nexus
+}
+
+message DestroyNexusRequest   {
+  string name = 1;
+}
+
+/// this message will be subject to change as we will move to something else later
+message PublishNexusRequest {
+  string bdev_name = 1; // name of the nexus we want to publish on node
+  string nbd_device = 2;
+}
+
+message PublishNexusReply{
+  string device_path = 1;
+}
+
+enum ChildAction {
+  offline= 0;
+  online = 1;
+}
+
+message ChildNexusRequest {
+  string name = 1;
+  string child_name =2;
+  ChildAction action = 3;
+}
+
+message ChildNexusReply {
+  string name = 1;
+  bool success = 2;
+}

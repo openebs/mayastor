@@ -1,0 +1,58 @@
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  name: mayastorpools.openebs.io
+spec:
+  group: openebs.io
+  version: v1alpha1
+  scope: Cluster
+  names:
+    kind: MayastorPool
+    listKind: MayastorPoolList
+    plural: mayastorpools
+    singular: mayastorpool
+    shortNames: ["msp"]
+  additionalPrinterColumns:
+  - name: Node
+    type: string
+    description: Node where the storage pool is located
+    JSONPath: .spec.node
+  - name: State
+    type: string
+    description: State of the storage pool
+    JSONPath: .status.state
+  - name: Age
+    type: date
+    JSONPath: .metadata.creationTimestamp
+  subresources:
+    # TODO: How to define status properties?
+    #status:
+    #  description: Pool status one of pending (default), online, offline.
+    #  type: string
+    #reason:
+    #  description: Reason for the pool status value if applicable.
+    #  type: string
+    #capacity:
+    #  description: Capacity of the pool in bytes.
+    #  type: integer
+    #used:
+    #  description: How many bytes are used in the pool.
+    #  type: integer
+    status: {}
+  validation:
+    openAPIV3Schema:
+      properties:
+        spec:
+          description: Specification of the mayastor pool.
+          required:
+          - node
+          - disks
+          properties:
+            node:
+              description: Name of the k8s node where the storage pool is located.
+              type: string
+            disks:
+              description: Disk device names from /dev which comprise the storage pool.
+              type: array
+              items:
+                type: string

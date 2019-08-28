@@ -1,0 +1,143 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  namespace: mayastor
+  name: mayastor
+  labels:
+    openebs/engine: mayastor
+spec:
+  selector:
+    matchLabels:
+      app: mayastor
+  updateStrategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
+  minReadySeconds: 10
+  template:
+    metadata:
+      labels:
+        app: mayastor
+    spec:
+      nodeSelector:
+        openebs.io/engine: mayastor
+        kubernetes.io/arch: amd64
+      # NOTE: Each container must have mem/cpu limits defined in order to
+      # belong to Guaranteed QoS class, hence can never get evicted in case of
+      # pressure unless they exceed those limits. limits and requests must be
+      # the same.
+      containers:
+      - name: mayastor
+        image: mayadata/mayastor:latest
+        imagePullPolicy: Always
+        args: ["--rpc-socket", "/mayastor/spdk.sock"]
+        securityContext:
+          privileged: true
+        volumeMounts:
+        - name: device
+          mountPath: /dev
+        - name: dshm
+          mountPath: /dev/shm
+        - name: mayastor-dir
+          mountPath: /mayastor
+        resources:
+          limits:
+            cpu: "1"
+            memory: "2Gi"
+            hugepages-2Mi: "1Gi"
+          requests:
+            cpu: "1"
+            memory: "2Gi"
+            hugepages-2Mi: "1Gi"
+      - name: mayastor-grpc
+        image: mayadata/mayastor-grpc:latest
+        imagePullPolicy: Always
+        # we need privileged because we mount filesystems and use mknod
+        securityContext:
+          privileged: true
+        env:
+        - name: MY_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        - name: MY_POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
+        - name: RUST_BACKTRACE
+          value: "1"
+        args:
+        - "--csi-socket=/csi/csi.sock"
+        - "--mayastor-socket=/mayastor/spdk.sock"
+        - "--node-name=$(MY_NODE_NAME)"
+        - "--address=$(MY_POD_IP)"
+        - "-v"
+        volumeMounts:
+        - name: device
+          mountPath: /dev
+        - name: mayastor-dir
+          mountPath: /mayastor
+        - name: plugin-dir
+          mountPath: /csi
+        - name: kubelet-dir
+          mountPath: /var/lib/kubelet
+          mountPropagation: "Bidirectional"
+        resources:
+          limits:
+            cpu: "100m"
+            memory: "500Mi"
+          requests:
+            cpu: "100m"
+            memory: "500Mi"
+        ports:
+        - containerPort: 10124
+          protocol: TCP
+          name: mayastor
+      - name: csi-driver-registrar
+        image: quay.io/k8scsi/csi-node-driver-registrar:v1.1.0
+        args:
+        - "--csi-address=/csi/csi.sock"
+        - "--kubelet-registration-path=/var/lib/kubelet/plugins/mayastor.openebs.io/csi.sock"
+        lifecycle:
+          preStop:
+            exec:
+              # this is needed in order for CSI to detect that the plugin is gone
+              command: ["/bin/sh", "-c", "rm -f /registration/io.openebs.csi-mayastor-reg.sock /csi/csi.sock"]
+        volumeMounts:
+        - name: plugin-dir
+          mountPath: /csi
+        - name: registration-dir
+          mountPath: /registration
+        resources:
+          limits:
+            cpu: "100m"
+            memory: "500Mi"
+          requests:
+            cpu: "100m"
+            memory: "500Mi"
+      volumes:
+      - name: device
+        hostPath:
+          path: /dev
+          type: Directory
+      - name: dshm
+        emptyDir:
+          medium: Memory
+          sizeLimit: "1Gi"
+      - name: hugepage
+        emptyDir:
+          medium: HugePages
+      - name: mayastor-dir
+        emptyDir: {}
+      - name: registration-dir
+        hostPath:
+          path: /var/lib/kubelet/plugins_registry/
+          type: Directory
+      - name: plugin-dir
+        hostPath:
+          path: /var/lib/kubelet/plugins/mayastor.openebs.io/
+          type: DirectoryOrCreate
+      - name: kubelet-dir
+        hostPath:
+          path: /var/lib/kubelet
+          type: Directory

@@ -1,0 +1,15 @@
+# changed from 100 to 80
+max_width = 80
+# default is false
+wrap_comments = true
+comment_width = 80
+# was true
+struct_lit_single_line = false
+#changed from Mixed
+imports_layout = "HorizontalVertical"
+# changed from false
+merge_imports = true
+#default false
+spaces_around_ranges = true
+# was 2015
+edition = "2018"

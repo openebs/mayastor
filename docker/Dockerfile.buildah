@@ -1,0 +1,16 @@
+# projectatomic repo is not avail for ubuntu disco hence we must use LTS here
+FROM ubuntu:18.04
+
+RUN apt-get update -qq && \
+  apt-get install -qq -y software-properties-common && \
+  add-apt-repository -y ppa:projectatomic/ppa && \
+  apt-get update -qq && \
+  apt-get -qq -y install buildah podman && \
+  apt-get -qq -y install git && \
+  rm -rf /var/lib/apt/lists/*
+
+COPY etc/registries.conf /etc/containers/
+
+# Not necessary for buildah but we use this image for deploy stage as well
+ADD https://storage.googleapis.com/kubernetes-release/release/v1.14.0/bin/linux/amd64/kubectl /usr/local/bin/
+RUN chmod a+x /usr/local/bin/kubectl

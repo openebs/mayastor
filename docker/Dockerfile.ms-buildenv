@@ -1,0 +1,82 @@
+FROM ubuntu:19.04
+
+# either set root as user or set CARGO_HOME a cargo home.
+USER root
+ENV USER root
+
+ENV PATH="$PATH:/root/.cargo/bin"
+
+# this is rather a big FAT container but once pulled you don't 'feel it anymore
+# several things in there might make you think "huh?" so here is some insight
+#
+# The container is used to build everything that is in the repo, which this, also
+# includes:
+#
+#	- ISAL
+#	- DPDK
+#	- SPDK
+#
+# Once built we go ahead and compile Mayastor which is written in RUST however
+# some libs (RDMA, aio etc) are runtime dependencies and thus are needed during
+# the final linking phase.
+#
+# Lastly, there are things like git, and ssh in there. This is because cargo and
+# SPDK, might check things out during a build (sub repo)
+#
+# One thing that is a plus though, is that with this container and you need to
+# debug a CI issue, it becomes very very easy to do. As you can simply docker
+# run it, with a volume mount to your code. As you might need an editor while
+# doing so, VIM is added there as well.
+
+# Install system dependencies
+#
+# gawk is required by configure script of SPDK (mawk does not work)
+#
+RUN apt-get update && apt-get -y install --no-install-recommends \
+	autoconf \
+	automake \
+	binutils-dev \
+	clang \
+	cmake \
+	curl \
+	file \
+	g++ \
+	gawk \
+	gcc \
+	git \
+	jq \
+	lcov \
+	libaio-dev \
+	libblkid-dev \
+	libibverbs-dev librdmacm-dev \
+	libiscsi-dev \
+	libnuma-dev nasm \
+	libssl-dev \
+	libtool \
+	libunwind-dev \
+	lsof \
+	make \
+	nasm \
+	openssh-server \
+	pciutils \
+	pkgconf \
+	python-pip python3-pip \
+	sudo \
+	uuid-dev \
+	vim \
+	zlib1g-dev \
+	xfsprogs \
+	&& rm -rf /var/lib/apt/lists/*
+
+RUN curl https://sh.rustup.rs -sSf | sh -s -- --default-toolchain nightly-2019-08-01 -y \
+	&& rustup target add x86_64-unknown-linux-gnu \
+	&& rustup component add rustfmt \
+	&& rustup component add clippy \
+	&& cargo install --force cargo-make \
+	&& curl -sL https://deb.nodesource.com/setup_10.x | bash  - \
+	&& apt-get update && apt-get install nodejs \
+	&& npm install -g prettier jshint
+
+# SPDK library is needed for building mayastor
+COPY spdk-sys/build/libspdk_fat.so /usr/lib
+COPY spdk-sys/spdk/include/spdk /usr/local/include/spdk

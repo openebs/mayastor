@@ -1,0 +1,18 @@
+kind: Pod
+apiVersion: v1
+metadata:
+  name: fio
+spec:
+  volumes:
+    - name: ms-volume
+      persistentVolumeClaim:
+       claimName: ms-volume-claim
+  containers:
+    - name: fio
+      image: dmonakhov/alpine-fio
+      args:
+        - sleep
+        - "1000000"
+      volumeMounts:
+        - mountPath: "/volume"
+          name: ms-volume

@@ -1,0 +1,175 @@
+#![feature(async_await)]
+#![feature(try_trait)]
+#![feature(drain_filter)]
+#[macro_use]
+extern crate log;
+#[macro_use]
+extern crate lazy_static;
+#[macro_use]
+extern crate serde;
+extern crate serde_json;
+extern crate spdk_sys;
+
+#[macro_use]
+extern crate num_derive;
+pub mod aio_dev;
+pub mod bdev;
+pub mod descriptor;
+pub mod executor;
+pub mod iscsi_dev;
+pub mod jsonrpc;
+pub mod nexus_uri;
+pub mod nvme_dev;
+pub mod nvmf_target;
+pub mod pool;
+pub mod replica;
+pub mod spdklog;
+
+use futures::task::LocalSpawnExt;
+use libc::{c_char, c_int};
+use spdk_sys::{
+    spdk_app_fini,
+    spdk_app_opts,
+    spdk_app_opts_init,
+    spdk_app_parse_args,
+    spdk_app_start,
+    spdk_app_stop,
+};
+use std::{
+    boxed::Box,
+    ffi::{c_void, CString},
+    iter::Iterator,
+    ptr::null_mut,
+    time::Duration,
+    vec::Vec,
+};
+
+#[macro_export]
+macro_rules! CPS_INIT {
+    () => {
+        #[link_section = ".init_array"]
+        #[used]
+        pub static INITIALIZE: extern "C" fn() = ::mayastor::cps_init;
+    };
+}
+
+pub extern "C" fn cps_init() {
+    bdev::nexus::register_module();
+}
+
+// A callback to print help for extra options that we use.
+// TODO: This will be closure provided by app writer when we add
+// support for specifying extra arguments.
+extern "C" fn usage() {
+    // i.e. println!(" -f <path>                 save pid to this file");
+}
+
+/// Rust friendly wrapper around SPDK app start function.
+/// The application code is a closure passed as argument and called
+/// when spdk initialization is done.
+///
+/// TODO: When needed add possibility to specify additional program
+/// arguments.
+pub fn mayastor_start<T, F>(name: &str, mut args: Vec<T>, start_cb: F) -> i32
+where
+    T: Into<Vec<u8>>,
+    F: FnOnce(),
+{
+    // hand over command line args to spdk arg parser
+    let args = args
+        .drain(..)
+        .map(|arg| CString::new(arg).unwrap())
+        .collect::<Vec<CString>>();
+    let mut c_args = args
+        .iter()
+        .map(|arg| arg.as_ptr())
+        .collect::<Vec<*const c_char>>();
+    c_args.push(std::ptr::null());
+
+    let mut opts: spdk_app_opts = Default::default();
+
+    unsafe {
+        spdk_app_opts_init(&mut opts as *mut spdk_app_opts);
+        opts.rpc_addr =
+            CString::new("/var/tmp/mayastor.sock").unwrap().into_raw();
+        opts.print_level = spdk_sys::SPDK_LOG_INFO;
+        if spdk_app_parse_args(
+            (c_args.len() as c_int) - 1,
+            c_args.as_ptr() as *mut *mut i8,
+            &mut opts,
+            null_mut(), // extra short options i.e. "f:S:"
+            null_mut(), // extra long options
+            None,       // extra options parse callback
+            Some(usage),
+        ) != spdk_sys::SPDK_APP_PARSE_ARGS_SUCCESS
+        {
+            return -1;
+        }
+    }
+
+    opts.name = CString::new(name).unwrap().into_raw();
+    opts.shutdown_cb = Some(mayastor_shutdown_cb);
+
+    unsafe {
+        let rc = spdk_app_start(
+            &mut opts,
+            Some(app_start_cb::<F>),
+            // Double box to convert from fat to thin pointer
+            Box::into_raw(Box::new(Box::new(start_cb))) as *mut c_void,
+        );
+
+        // this will remove shm file in /dev/shm and do other cleanups
+        spdk_app_fini();
+
+        rc
+    }
+}
+
+extern "C" fn developer_delay(_ctx: *mut c_void) -> i32 {
+    std::thread::sleep(Duration::from_millis(1));
+    0
+}
+
+/// spdk_all_start callback which starts the future executor and finally calls
+/// user provided start callback.
+extern "C" fn app_start_cb<F>(arg1: *mut c_void)
+where
+    F: FnOnce(),
+{
+    if cfg!(debug_assertions) {
+        if let Some(_key) = std::env::var_os("DELAY") {
+            warn!("*** Delaying reactor every 1000us ***");
+            unsafe {
+                spdk_sys::spdk_poller_register(
+                    Some(developer_delay),
+                    std::ptr::null_mut(),
+                    1000,
+                )
+            };
+        }
+    }
+    executor::start_executor();
+    pool::register_pool_methods();
+    replica::register_replica_methods();
+    let fut = async move {
+        if let Err(msg) = nvmf_target::init_nvmf().await {
+            error!("Failed to initialize Mayastor nvmf target: {}", msg);
+            //spdk_stop(-1);
+            return;
+        }
+        let cb: Box<Box<F>> = unsafe { Box::from_raw(arg1 as *mut Box<F>) };
+        cb();
+    };
+    executor::get_spawner().spawn_local(fut).unwrap();
+}
+
+/// Cleanly exit from program.
+pub fn spdk_stop(rc: i32) {
+    executor::stop_executor();
+    unsafe { spdk_app_stop(rc) };
+}
+
+/// A callback called by spdk when it is shutting down.
+extern "C" fn mayastor_shutdown_cb() {
+    spdk_stop(0);
+}

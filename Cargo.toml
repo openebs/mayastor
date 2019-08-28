@@ -1,0 +1,12 @@
+[patch.crates-io]
+h2 = { git = "https://github.com/jkryl/h2" }
+
+[workspace]
+members = [
+  "cli",
+  "csi",
+  "jsonrpc",
+  "mayastor",
+  "rpc",
+  "sysfs",
+]

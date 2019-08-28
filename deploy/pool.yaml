@@ -1,0 +1,8 @@
+apiVersion: "openebs.io/v1alpha1"
+kind: MayastorPool
+metadata:
+  name: pool
+spec:
+  node: MYHOSTNAME
+  disks: ["MYBLOCKDEVICE"]
+
