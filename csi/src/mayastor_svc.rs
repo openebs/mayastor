@@ -208,6 +208,17 @@ impl service::server::Mayastor for MayastorService {
 
         let uuid = msg.uuid;
         let pool = msg.pool;
+        let share = match ShareProtocol::from_i32(msg.share) {
+            Some(ShareProtocol::None) => jsondata::ShareProtocol::None,
+            Some(ShareProtocol::Nvmf) => jsondata::ShareProtocol::Nvmf,
+            None => {
+                return Box::new(future::err(Status::new(
+                    Code::InvalidArgument,
+                    "Invalid value of share protocol".to_owned(),
+                )))
+            }
+        };
+
         debug!("Creating replica {} on {} ...", uuid, pool);
 
         let args = Some(jsondata::CreateReplicaArgs {
@@ -215,6 +226,7 @@ impl service::server::Mayastor for MayastorService {
             pool: pool.clone(),
             thin_provision: msg.thin,
             size: msg.size,
+            share,
         });
 
         let f = jsonrpc::call::<_, ()>(&self.socket, "create_replica", args)
@@ -283,6 +295,14 @@ impl service::server::Mayastor for MayastorService {
                         pool: r.pool.clone(),
                         thin: r.thin_provision,
                         size: r.size,
+                        share: match r.share {
+                            jsondata::ShareProtocol::None => {
+                                ShareProtocol::None
+                            }
+                            jsondata::ShareProtocol::Nvmf => {
+                                ShareProtocol::Nvmf
+                            }
+                        } as i32,
                     })
                     .collect(),
             });

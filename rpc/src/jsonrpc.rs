@@ -31,6 +31,12 @@ pub struct Pool {
     pub used: u64,
 }
 
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
+pub enum ShareProtocol {
+    None,
+    Nvmf,
+}
+
 /// create replica arguments
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CreateReplicaArgs {
@@ -40,6 +46,8 @@ pub struct CreateReplicaArgs {
     pub pool: String,
     /// thin provision
     pub thin_provision: bool,
+    /// protocol used for exposing the replica
+    pub share: ShareProtocol,
     /// size of the replica in bytes
     pub size: u64,
 }
@@ -58,6 +66,7 @@ pub struct Replica {
     pub pool: String,
     pub size: u64,
     pub thin_provision: bool,
+    pub share: ShareProtocol,
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]

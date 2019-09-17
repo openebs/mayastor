@@ -151,6 +151,8 @@ where
     executor::start_executor();
     pool::register_pool_methods();
     replica::register_replica_methods();
+
+    // asynchronous initialization routines
     let fut = async move {
         if let Err(msg) = nvmf_target::init_nvmf().await {
             error!("Failed to initialize Mayastor nvmf target: {}", msg);
@@ -164,9 +166,17 @@ where
 }
 
 /// Cleanly exit from program.
+/// NOTE: cannot be called from a future -> double borrow of executor.
 pub fn spdk_stop(rc: i32) {
-    executor::stop_executor();
-    unsafe { spdk_app_stop(rc) };
+    let fut = async move {
+        if let Err(msg) = nvmf_target::fini_nvmf().await {
+            error!("Failed to finalize nvmf target: {}", msg);
+        }
+    };
+    executor::stop_executor(
+        fut,
+        Box::new(move || unsafe { spdk_app_stop(rc) }),
+    );
 }
 
 /// A callback called by spdk when it is shutting down.

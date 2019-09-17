@@ -47,12 +47,19 @@ message ListPoolsReply {
   repeated Pool pools = 1;  // list of the pools
 }
 
+// Protocol for remote storage access which exposes a replica.
+enum ShareProtocol {
+  NONE = 0;   // not exposed
+  NVMF = 1;   // NVMe over Fabrics (TCP)
+}
+
 // Create replica arguments.
 message CreateReplicaRequest {
   string uuid = 1;  // uuid of the replica
   string pool = 2;  // name of the pool
   uint64 size = 3;  // size of the replica in bytes
   bool thin = 4;    // thin provisioning
+  ShareProtocol share = 5;  // protocol to expose the replica over
 }
 
 // Destroy replica arguments.
@@ -66,6 +73,7 @@ message Replica {
   string pool = 2;  // name of the pool
   bool thin = 3;    // thin provisioning
   uint64 size = 4;  // size of the replica in bytes
+  ShareProtocol share = 5;  // protocol used for exposing the replica
 }
 
 // List of replicas and their properties.

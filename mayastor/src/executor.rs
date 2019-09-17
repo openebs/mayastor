@@ -2,53 +2,94 @@
 //! The executor is started on current thread and saved to TLS.
 //! It is a local single-threaded executor.
 //! Any code wishing to spawn a future and runnig on the same thread
-//! can obtain the spawner from TLS and spawn it.
+//! can obtain the spawner for executor in TLS and spawn it.
 
 use futures::{
     channel::oneshot,
     executor::{LocalPool, LocalSpawner},
+    future::Future,
+    task::LocalSpawnExt,
 };
 use libc::c_void;
 use spdk_sys::{spdk_poller, spdk_poller_register, spdk_poller_unregister};
-use std::{cell::RefCell, fmt, thread};
+use std::{cell::RefCell, fmt, ptr, thread};
+
+/// Everything we need to store to thread local storage (kinda global state) to
+/// manage and dispatch tasks to executor.
+struct ExecutorCtx {
+    pool: LocalPool,
+    poller: *mut spdk_poller,
+}
 
 thread_local! {
-    static LOCAL_SPAWNER: RefCell<Option<LocalSpawner>> = RefCell::new(None);
-    static EXECUTOR_POLLER: RefCell<Option<*mut spdk_poller>> = RefCell::new(None);
+    /// Executor context.
+    static EXECUTOR_CTX: RefCell<Option<ExecutorCtx>> = RefCell::new(None);
+    /// Shutdown callback. If set, the executor poller is unregistered and
+    /// the executor destroyed. The callback is called afterwards.
+    ///
+    /// NOTE: The reason why shutdown cb cannot be part of executor context
+    /// above is that we need to be able to set it from a future executing on
+    /// the executor. If it was placed in executor ctx it would result in
+    /// double mutable reference.
+    static SHUTDOWN_CB: RefCell<Option<Box<dyn FnOnce()>>> = RefCell::new(None);
 }
 
 /// Run whatever work might be queued for the executor without blocking.
-extern "C" fn tick(ctx: *mut c_void) -> i32 {
-    let mut pool: Box<futures::executor::LocalPool> =
-        unsafe { Box::from_raw(ctx as *mut futures::executor::LocalPool) };
-    // Tasks which are generated while the executor runs are left in the queue
-    // until the tick() is called again.
-    let _work = pool.try_run_one();
-    std::mem::forget(pool);
+/// Or shutdown executor if "global" shutdown callback is set.
+extern "C" fn tick(_ctx: *mut c_void) -> i32 {
+    let shutdown_cb_maybe = SHUTDOWN_CB.with(|cb| cb.borrow_mut().take());
+
+    EXECUTOR_CTX.with(move |ctx| {
+        if let Some(shutdown_cb) = shutdown_cb_maybe {
+            debug!(
+                "Stopping future executor on thread {:?}",
+                thread::current().id()
+            );
+            match ctx.borrow_mut().take() {
+                Some(mut ctx) => unsafe {
+                    // unregister will write NULL pointer to poller but that
+                    // should be ok as we won't be using
+                    // poller pointer anymore
+                    spdk_poller_unregister(&mut ctx.poller)
+                },
+                None => panic!("Executor was not started on this thread"),
+            }
+            shutdown_cb();
+        } else {
+            match &mut *ctx.borrow_mut() {
+                Some(ctx) => {
+                    // Tasks which are generated while the executor runs are
+                    // left in the queue until the tick() is
+                    // called again.
+                    let _work = ctx.pool.try_run_one();
+                }
+                None => panic!(
+                    "tick was called while the executor has been shut down"
+                ),
+            }
+        }
+    });
     0
 }
 
 /// Start future executor and register its poll method with spdk so that the
 /// tasks can make steady progress.
 pub fn start_executor() {
-    let pool = Box::new(LocalPool::new());
-    let spawner = pool.spawner();
-    let pool_ptr = Box::into_raw(pool) as *mut c_void;
-    let executor_poller = unsafe {
-        spdk_poller_register(Some(tick), pool_ptr as *mut c_void, 1000)
-    };
-    EXECUTOR_POLLER.with(|poller| {
-        if (*poller.borrow()).is_some() {
+    EXECUTOR_CTX.with(|ctx| {
+        if (*ctx.borrow()).is_some() {
             panic!("Executor was already started on this thread");
         }
-        *poller.borrow_mut() = Some(executor_poller);
+
+        let pool = LocalPool::new();
+        let poller =
+            unsafe { spdk_poller_register(Some(tick), ptr::null_mut(), 1000) };
+
+        *ctx.borrow_mut() = Some(ExecutorCtx {
+            pool,
+            poller,
+        });
     });
-    LOCAL_SPAWNER.with(|local_spawner| {
-        if (*local_spawner.borrow()).is_some() {
-            panic!("Executor was already started on this thread");
-        }
-        *local_spawner.borrow_mut() = Some(spawner);
-    });
+
     debug!(
         "Started future executor on thread {:?}",
         thread::current().id()
@@ -57,38 +98,26 @@ pub fn start_executor() {
 
 /// Return task spawner for executor started on current thread.
 pub fn get_spawner() -> LocalSpawner {
-    LOCAL_SPAWNER.with(|local_spawner| match &*local_spawner.borrow() {
-        Some(spawner) => spawner.clone(),
+    EXECUTOR_CTX.with(|ctx| match &*ctx.borrow() {
+        Some(ctx) => ctx.pool.spawner(),
         None => panic!("Executor was not started on this thread"),
     })
 }
 
-/// Deallocate executor.
-pub fn stop_executor() {
-    debug!(
-        "Stopping future executor on thread {:?}",
-        thread::current().id()
-    );
-
-    crate::nvmf_target::NVMF_TGT.with(move |nvmf_tgt| {
-        let _ = nvmf_tgt.borrow_mut().take();
-    });
-
-    EXECUTOR_POLLER.with(|poller| {
-        let poller = poller.borrow_mut().take();
-        match poller {
-            Some(mut poller) => unsafe {
-                // unregister will write NULL pointer to poller but that should
-                // be ok as we won't be using poller pointer anymore
-                spdk_poller_unregister(&mut poller)
-            },
-            None => panic!("Executor was not started on this thread"),
-        }
-    });
-    LOCAL_SPAWNER.with(|local_spawner| {
-        // free the spawner
-        let _ = local_spawner.borrow_mut().take();
-    });
+/// Stop and deallocate executor but only after the provided future has
+/// completed. When done, call the provided callback function.
+pub fn stop_executor<T, F>(fut: T, cb: Box<F>)
+where
+    T: Future<Output = ()> + 'static,
+    F: FnOnce() + 'static,
+{
+    // Chain provided future with a code indicating that the future has
+    // completed.
+    let fut = async {
+        fut.await;
+        SHUTDOWN_CB.with(|shutdown_cb| *shutdown_cb.borrow_mut() = Some(cb));
+    };
+    get_spawner().spawn_local(fut).unwrap();
 }
 
 /// Construct callback argument for spdk async function.

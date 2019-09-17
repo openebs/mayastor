@@ -35,8 +35,6 @@ const CONFIG = `
 [Malloc]
 NumberOfLuns 1
 LunSizeInMB  100
-[Transport]
-Type TCP
 `;
 // uuid without the last digit
 const BASE_UUID = '13dd12ee-7455-44d3-b295-afbbe32ec2e';

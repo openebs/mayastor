@@ -130,6 +130,15 @@ fn create_replica(
     let uuid = matches.value_of("UUID").unwrap().to_owned();
     let size = value_t!(matches.value_of("size"), u64).unwrap();
     let thin = matches.is_present("thin");
+    let share = match matches.value_of("protocol") {
+        None => rpc::mayastor::ShareProtocol::None as i32,
+        Some("nvmf") => rpc::mayastor::ShareProtocol::Nvmf as i32,
+        Some(_) => {
+            return Box::new(future::err(
+                "Invalid value of share protocol".to_owned(),
+            ))
+        }
+    };
 
     if verbose {
         println!("Creating replica {} on pool {}", uuid, pool);
@@ -142,6 +151,7 @@ fn create_replica(
                     uuid,
                     pool,
                     thin,
+                    share,
                     size: size * (1024 * 1024),
                 },
             ))
@@ -194,16 +204,27 @@ fn list_replicas(
                 } else {
                     if !quiet {
                         println!(
-                            "{: <20} {: <36} {: <8} {: >10}",
-                            "POOL", "NAME", "THIN", "SIZE"
+                            "{: <20} {: <36} {: <8} {: <8} {: >10}",
+                            "POOL", "NAME", "THIN", "SHARE", "SIZE"
                         );
                     }
                     for r in replicas {
                         println!(
-                            "{: <20} {: <36} {: <8} {: >10}",
+                            "{: <20} {: <36} {: <8} {: <8} {: >10}",
                             r.pool,
                             r.uuid,
                             r.thin,
+                            match rpc::mayastor::ShareProtocol::from_i32(
+                                r.share
+                            ) {
+                                Some(rpc::mayastor::ShareProtocol::None) => {
+                                    "none"
+                                }
+                                Some(rpc::mayastor::ShareProtocol::Nvmf) => {
+                                    "nvmf"
+                                }
+                                None => "unknown",
+                            },
                             ByteSize::b(r.size).to_string_as(true),
                         );
                     }
@@ -396,6 +417,14 @@ pub fn main() {
                                 .help("Unique replica uuid")
                                 .required(true)
                                 .index(2),
+                        )
+                        .arg(
+                            Arg::with_name("protocol")
+                                .short("p")
+                                .long("protocol")
+                                .value_name("PROTOCOL")
+                                .help("Name of a protocol (nvmf) used for sharing the replica (default none)")
+                                .takes_value(true),
                         )
                         .arg(
                             Arg::with_name("size")

@@ -65,7 +65,17 @@ function startMayastor(config, done) {
     cmd = cmd.concat(['-c', CONFIG_PATH]);
   }
 
-  mayastorProc = sudo(cmd, {}, 'reactor_0');
+  mayastorProc = sudo(
+    cmd,
+    {
+      spawnOptions: {
+        env: {
+          RUST_BACKTRACE: 1,
+        },
+      },
+    },
+    'reactor_0'
+  );
 
   mayastorProc.stdout.on('data', data => {
     mayastorOutput.push(data);

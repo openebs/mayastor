@@ -271,11 +271,28 @@ describe('grpc', function() {
           uuid: UUID,
           pool: POOL,
           thin: true,
+          share: 'NONE',
           size: 8 * (1024 * 1024), // keep this multiple of cluster size (4MB)
         },
         (err, res) => {
           if (err) return done(err);
           assert.lengthOf(Object.keys(res), 0);
+          done();
+        }
+      );
+    });
+
+    it('should fail if creating replica which already exists', done => {
+      client.createReplica(
+        {
+          uuid: UUID,
+          pool: POOL,
+          thin: true,
+          share: 'NONE',
+          size: 8 * (1024 * 1024), // keep this multiple of cluster size (4MB)
+        },
+        (err, res) => {
+          assert.equal(err.code, grpc.status.ALREADY_EXISTS);
           done();
         }
       );
@@ -388,6 +405,7 @@ describe('grpc', function() {
               uuid: BASE_UUID + n,
               pool: POOL,
               thin: true,
+              share: 'NONE',
               size: 8 * (1024 * 1024), // keep this multiple of cluster size (4MB)
             },
             next

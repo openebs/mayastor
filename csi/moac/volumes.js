@@ -218,6 +218,7 @@ class VolumeOperator {
         pool: poolName,
         size: size,
         thin: false,
+        share: 'NONE',
       });
     } catch (err) {
       throw new GrpcError(

@@ -23,7 +23,7 @@ fn main() -> Result<(), String> {
                 .short("s")
                 .long("socket")
                 .value_name("PATH")
-                .help("Unix domain socket of the server (default /var/tmp/spdk.sock)")
+                .help("Unix domain socket of the server (default /var/tmp/mayastor.sock)")
                 .takes_value(true),
         )
         .arg(
@@ -41,7 +41,7 @@ fn main() -> Result<(), String> {
 
     let socket = matches
         .value_of("socket")
-        .unwrap_or("/var/tmp/spdk.sock")
+        .unwrap_or("/var/tmp/mayastor.sock")
         .to_string();
     let method = matches.value_of("method").unwrap().to_string();
 

@@ -1,20 +1,31 @@
-//! Methods for  creating nvmf targets
+//! Methods for creating nvmf targets
+
 use crate::executor::{cb_arg, complete_callback_1};
 use futures::channel::oneshot;
 use spdk_sys::{
     spdk_bdev,
     spdk_nvme_transport_id,
+    spdk_nvmf_poll_group,
+    spdk_nvmf_poll_group_add,
+    spdk_nvmf_poll_group_create,
+    spdk_nvmf_poll_group_destroy,
+    spdk_nvmf_qpair,
+    spdk_nvmf_qpair_disconnect,
     spdk_nvmf_subsystem,
     spdk_nvmf_subsystem_add_listener,
     spdk_nvmf_subsystem_add_ns,
     spdk_nvmf_subsystem_create,
     spdk_nvmf_subsystem_destroy,
+    spdk_nvmf_subsystem_get_first,
+    spdk_nvmf_subsystem_get_next,
+    spdk_nvmf_subsystem_get_nqn,
     spdk_nvmf_subsystem_set_allow_any_host,
     spdk_nvmf_subsystem_set_mn,
     spdk_nvmf_subsystem_set_sn,
     spdk_nvmf_subsystem_start,
     spdk_nvmf_subsystem_stop,
     spdk_nvmf_tgt,
+    spdk_nvmf_tgt_accept,
     spdk_nvmf_tgt_add_transport,
     spdk_nvmf_tgt_create,
     spdk_nvmf_tgt_destroy,
@@ -23,6 +34,9 @@ use spdk_sys::{
     spdk_nvmf_transport_create,
     spdk_nvmf_transport_opts,
     spdk_nvmf_transport_opts_init,
+    spdk_poller,
+    spdk_poller_register,
+    spdk_poller_unregister,
     SPDK_NVME_TRANSPORT_TCP,
     SPDK_NVMF_ADRFAM_IPV4,
     SPDK_NVMF_SUBTYPE_NVME,
@@ -33,6 +47,7 @@ use std::{
     cell::RefCell,
     ffi::{c_void, CStr, CString},
     fmt,
+    os::raw::c_int,
     ptr::{self, copy_nonoverlapping},
 };
 
@@ -41,7 +56,7 @@ thread_local! {
     /// It is thread-local because TLS is safe to access in rust without any
     /// synchronization overhead. It should be accessed only from
     /// reactor_0 thread.
-    pub (crate) static NVMF_TGT: RefCell<Option<Target>> = RefCell::new(None);
+    static NVMF_TGT: RefCell<Option<Box<Target>>> = RefCell::new(None);
 }
 
 /// Given a bdev uuid return a NQN used to connect to the bdev from outside.
@@ -86,6 +101,18 @@ impl Subsystem {
         })
     }
 
+    /// Convert raw subsystem pointer to subsystem object.
+    pub unsafe fn from_ptr(inner: *mut spdk_nvmf_subsystem) -> Self {
+        let nqn = CStr::from_ptr(spdk_nvmf_subsystem_get_nqn(inner))
+            .to_str()
+            .unwrap()
+            .to_string();
+        Self {
+            inner,
+            nqn,
+        }
+    }
+
     /// Start the subsystem (it cannot be modified afterwards)
     pub async fn start(&mut self) -> Result<(), String> {
         let (sender, receiver) = oneshot::channel::<i32>();
@@ -109,7 +136,7 @@ impl Subsystem {
         }
     }
 
-    /// Start the subsystem (it cannot be modified afterwards)
+    /// Stop the subsystem (it cannot be modified afterwards)
     pub async fn stop(&mut self) -> Result<(), String> {
         let (sender, receiver) = oneshot::channel::<i32>();
         unsafe {
@@ -156,6 +183,15 @@ impl Subsystem {
         }
     }
 
+    pub fn get_nqn(&mut self) -> String {
+        unsafe {
+            CStr::from_ptr(spdk_nvmf_subsystem_get_nqn(self.inner))
+                .to_str()
+                .unwrap()
+                .to_string()
+        }
+    }
+
     /// Add nvme subsystem to the target and return it.
     pub fn destroy(self) {
         unsafe { spdk_nvmf_subsystem_destroy(self.inner) };
@@ -173,6 +209,40 @@ impl Subsystem {
     }
 }
 
+impl fmt::Debug for Subsystem {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.nqn)
+    }
+}
+
+/// Iterator over nvmf subsystems of a nvmf target
+struct SubsystemIter {
+    ss_ptr: *mut spdk_nvmf_subsystem,
+}
+
+impl SubsystemIter {
+    fn new(tgt_ptr: *mut spdk_nvmf_tgt) -> Self {
+        Self {
+            ss_ptr: unsafe { spdk_nvmf_subsystem_get_first(tgt_ptr) },
+        }
+    }
+}
+
+impl Iterator for SubsystemIter {
+    type Item = Subsystem;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let ss_ptr = self.ss_ptr;
+        if ss_ptr.is_null() {
+            return None;
+        }
+        unsafe {
+            self.ss_ptr = spdk_nvmf_subsystem_get_next(ss_ptr);
+            Some(Subsystem::from_ptr(ss_ptr))
+        }
+    }
+}
+
 /// Wrapper around spdk nvmf target providing rust friendly api.
 /// nvmf target binds listen addresses and nvmf subsystems with namespaces
 /// together.
@@ -181,6 +251,10 @@ pub(crate) struct Target {
     /// Endpoint where this nvmf target listens for incoming connections.
     trid: spdk_nvme_transport_id,
     opts: spdk_nvmf_transport_opts,
+    acceptor_poll_rate: u64,
+    acceptor_poller: *mut spdk_poller,
+    /// TODO: One poll group per target does not scale
+    pg: *mut spdk_nvmf_poll_group,
 }
 
 impl Target {
@@ -220,6 +294,9 @@ impl Target {
             inner,
             trid,
             opts: spdk_nvmf_transport_opts::default(),
+            acceptor_poll_rate: 1000, // 1ms
+            acceptor_poller: ptr::null_mut(),
+            pg: ptr::null_mut(),
         })
     }
 
@@ -261,7 +338,7 @@ impl Target {
                 errno
             ))
         } else {
-            info!("Added transport {:?}", self);
+            info!("Added tcp nvmf transport {:?}", self);
             Ok(())
         }
     }
@@ -281,9 +358,59 @@ impl Target {
         if errno != 0 {
             Err(format!("Listen for nvmf target failed (errno {})", errno))
         } else {
-            info!("{:?} is accepting new connections", self);
+            info!("nvmf target listens on {:?}", self);
             Ok(())
         }
+    }
+
+    /// A callback called by spdk when a new connection is accepted by nvmf
+    /// transport. Assign new qpair to a poll group. We have just one poll
+    /// group so we don't need fancy scheduling algorithm.
+    extern "C" fn new_qpair(
+        qpair: *mut spdk_nvmf_qpair,
+        target_ptr: *mut c_void,
+    ) {
+        unsafe {
+            let target = &*(target_ptr as *mut Self);
+            if spdk_nvmf_poll_group_add(target.pg, qpair) != 0 {
+                error!("Unable to add the qpair to a poll group");
+                spdk_nvmf_qpair_disconnect(qpair, None, ptr::null_mut());
+            }
+        }
+    }
+
+    /// Called by SPDK poller to test if there is a new connection on
+    /// nvmf transport.
+    extern "C" fn acceptor_poll(target_ptr: *mut c_void) -> c_int {
+        unsafe {
+            let target = &mut *(target_ptr as *mut Self);
+            spdk_nvmf_tgt_accept(
+                target.inner,
+                Some(Self::new_qpair),
+                target as *mut Self as *mut c_void,
+            );
+        }
+        -1
+    }
+
+    /// Create poll group and assign accepted connections (new qpairs) to
+    /// the poll group.
+    pub fn accept(&mut self) -> Result<(), String> {
+        // create one poll group per target
+        self.pg = unsafe { spdk_nvmf_poll_group_create(self.inner) };
+        if self.pg.is_null() {
+            return Err("Failed to create a poll group".to_owned());
+        }
+
+        self.acceptor_poller = unsafe {
+            spdk_poller_register(
+                Some(Self::acceptor_poll),
+                self as *mut _ as *mut c_void,
+                self.acceptor_poll_rate,
+            )
+        };
+        info!("nvmf target {:?} accepts new connections", self);
+        Ok(())
     }
 
     /// Add nvme subsystem to the target and return it.
@@ -321,24 +448,54 @@ impl Target {
     }
 
     /// Callback for async destroy operation.
-    extern "C" fn destroy_cb(_ctx: *mut c_void, errno: i32) {
-        if errno == 0 {
-            info!("nvmf target was destroyed");
-        } else {
-            error!("Failed to destroy nvmf target (errno {})", errno);
-        }
+    extern "C" fn destroy_cb(sender_ptr: *mut c_void, errno: i32) {
+        let sender =
+            unsafe { Box::from_raw(sender_ptr as *mut oneshot::Sender<i32>) };
+        sender.send(errno).expect("Receiver is gone");
     }
-}
 
-impl Drop for Target {
-    fn drop(&mut self) {
-        debug!("Destroying {:?}", self);
+    /// Stop nvmf target's subsystems and destroy it.
+    ///
+    /// NOTE: we cannot do this in drop because target destroy is asynchronous
+    /// operation.
+    pub async fn destroy(mut self) -> Result<(), String> {
+        debug!("Destroying nvmf target {:?}", self);
+
+        // stop accepting new connections
+        if !self.acceptor_poller.is_null() {
+            unsafe { spdk_poller_unregister(&mut self.acceptor_poller) };
+        }
+
+        // stop io processing
+        if !self.pg.is_null() {
+            unsafe { spdk_nvmf_poll_group_destroy(self.pg) };
+        }
+
+        // first we need to inactivate all subsystems of the target
+        for mut ss in SubsystemIter::new(self.inner) {
+            if let Err(msg) = ss.stop().await {
+                return Err(format!("Failed to destroy a subsystem {:?} of nvmf target {:?}: {}", ss, self, msg));
+            }
+        }
+
+        let (sender, receiver) = oneshot::channel::<i32>();
         unsafe {
             spdk_nvmf_tgt_destroy(
                 self.inner,
                 Some(Self::destroy_cb),
-                ptr::null_mut(),
+                cb_arg(sender),
             );
+        }
+
+        let errno = receiver.await.expect("Cancellation is not supported");
+        if errno == 0 {
+            info!("nvmf target was destroyed");
+            Ok(())
+        } else {
+            Err(format!(
+                "Failed to destroy nvmf target {:?} (errno {})",
+                self, errno
+            ))
         }
     }
 }
@@ -348,7 +505,7 @@ impl fmt::Debug for Target {
         unsafe {
             write!(
                 f,
-                "nvmf target {}:{}",
+                "{}:{}",
                 CStr::from_ptr(&self.trid.traddr[0]).to_str().unwrap(),
                 CStr::from_ptr(&self.trid.trsvcid[0]).to_str().unwrap(),
             )
@@ -358,20 +515,37 @@ impl fmt::Debug for Target {
 
 /// Create nvmf target which will be used for exporting the replicas.
 pub async fn init_nvmf() -> Result<(), String> {
-    let mut tgt = match Target::create("127.0.0.1", 4401) {
-        Ok(tgt) => tgt,
+    let mut boxed_tgt = match Target::create("127.0.0.1", 4401) {
+        Ok(tgt) => Box::new(tgt),
         Err(msg) => return Err(msg),
     };
-    if let Err(msg) = tgt.add_tcp_transport().await {
+    if let Err(msg) = boxed_tgt.add_tcp_transport().await {
         return Err(msg);
     };
-    if let Err(msg) = tgt.listen().await {
+    if let Err(msg) = boxed_tgt.listen().await {
+        return Err(msg);
+    };
+    if let Err(msg) = boxed_tgt.accept() {
         return Err(msg);
     };
     NVMF_TGT.with(move |nvmf_tgt| {
-        *nvmf_tgt.borrow_mut() = Some(tgt);
+        if nvmf_tgt.borrow().is_some() {
+            panic!("Double initialization of nvmf");
+        }
+        *nvmf_tgt.borrow_mut() = Some(boxed_tgt);
     });
     Ok(())
+}
+
+/// Destroy nvmf target with all its subsystems.
+pub async fn fini_nvmf() -> Result<(), String> {
+    let tgt = NVMF_TGT.with(move |nvmf_tgt| {
+        nvmf_tgt
+            .borrow_mut()
+            .take()
+            .expect("Called nvmf fini without init")
+    });
+    tgt.destroy().await
 }
 
 /// Export given bdev over nvmf target.
@@ -386,6 +560,7 @@ pub async fn share(uuid: &str, bdev: *mut spdk_bdev) -> Result<(), String> {
 }
 
 /// Un-export given bdev from nvmf target.
+/// Unsharing replica which is not shared is not an error.
 pub async fn unshare(uuid: &str) -> Result<(), String> {
     let res = NVMF_TGT.with(move |maybe_tgt| {
         let mut maybe_tgt = maybe_tgt.borrow_mut();
@@ -394,11 +569,22 @@ pub async fn unshare(uuid: &str) -> Result<(), String> {
     });
 
     match res {
-        None => Err(format!("nvmf subsystem {} not found", uuid)),
+        None => debug!("nvmf subsystem {} was not shared", uuid),
         Some(mut ss) => {
             ss.stop().await?;
             ss.destroy();
-            Ok(())
         }
     }
+    Ok(())
+}
+
+pub fn get_nqn(uuid: &str) -> Option<String> {
+    NVMF_TGT.with(move |maybe_tgt| {
+        let mut maybe_tgt = maybe_tgt.borrow_mut();
+        let tgt = maybe_tgt.as_mut().unwrap();
+        match tgt.lookup_subsystem(uuid) {
+            Some(mut ss) => Some(ss.get_nqn()),
+            None => None,
+        }
+    })
 }

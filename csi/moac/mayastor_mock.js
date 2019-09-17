@@ -69,7 +69,7 @@ class MayastorServer {
       },
       createReplica: (call, cb) => {
         let args = call.request;
-        assert.hasAllKeys(args, ['uuid', 'pool', 'size', 'thin']);
+        assert.hasAllKeys(args, ['uuid', 'pool', 'size', 'thin', 'share']);
         if (self.replicas.find(r => r.uuid == args.uuid)) {
           let err = new Error('already exists');
           err.code = grpc.status.ALREADY_EXISTS;
@@ -90,6 +90,7 @@ class MayastorServer {
           pool: args.pool,
           size: args.size,
           thin: args.thin,
+          share: args.share,
         });
         cb(null, {});
       },

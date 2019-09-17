@@ -15,7 +15,7 @@ function sudo(command, options, bin) {
   var prompt = '#node-sudo-passwd#';
   var prompts = 0;
 
-  var args = ['-S', '-p', prompt];
+  var args = ['-S', '-E', '-p', prompt];
   args.push.apply(args, command);
 
   if (!bin) {

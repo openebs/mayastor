@@ -7,6 +7,7 @@ use crate::{
     bdev::{bdev_first, bdev_lookup_by_name, Bdev},
     executor::{cb_arg, complete_callback_1},
     jsonrpc::{jsonrpc_register, Code, JsonRpcError, Result},
+    nvmf_target,
     pool::Pool,
 };
 use futures::{
@@ -23,17 +24,6 @@ use spdk_sys::{
 };
 use std::ffi::{c_void, CStr, CString};
 
-/// Callback called from SPDK for replica create method.
-extern "C" fn replica_done_cb(
-    sender_ptr: *mut c_void,
-    _lvol_ptr: *mut spdk_lvol,
-    errno: i32,
-) {
-    let sender =
-        unsafe { Box::from_raw(sender_ptr as *mut oneshot::Sender<i32>) };
-    sender.send(errno).expect("Receiver is gone");
-}
-
 /// Structure representing a replica which is basically SPDK lvol.
 ///
 /// Note about safety: The structure wraps raw C pointer from SPDK.
@@ -46,16 +36,12 @@ struct Replica {
 
 impl Replica {
     /// Create replica on storage pool.
-    ///
-    /// Contrary to expectation this method does not return created Replica.
-    /// It can be added later when needed.
-    // TODO: Check if the lvol exists, if it does then return "exist error".
     pub async fn create(
         uuid: &str,
         pool: &str,
         size: u64,
         thin: bool,
-    ) -> Result<()> {
+    ) -> Result<Self> {
         let lvs = match Pool::lookup(pool) {
             Some(p) => p.as_ptr(),
             None => {
@@ -65,8 +51,15 @@ impl Replica {
                 ));
             }
         };
+        if Self::lookup(uuid).is_some() {
+            return Err(JsonRpcError::new(
+                Code::AlreadyExists,
+                format!("Replica {} already exists", uuid),
+            ));
+        }
         let c_uuid = CString::new(uuid).unwrap();
-        let (sender, receiver) = oneshot::channel::<i32>();
+        let (sender, receiver) =
+            oneshot::channel::<std::result::Result<*mut spdk_lvol, i32>>();
         let rc = unsafe {
             vbdev_lvol_create_with_uuid(
                 lvs,
@@ -78,7 +71,7 @@ impl Replica {
                 // cleared?
                 LVOL_CLEAR_WITH_DEFAULT,
                 c_uuid.as_ptr(),
-                Some(replica_done_cb),
+                Some(Self::replica_done_cb),
                 cb_arg(sender),
             )
         };
@@ -89,14 +82,14 @@ impl Replica {
             ));
         }
 
-        let errno = receiver.await.expect("Cancellation is not supported");
-        if errno != 0 {
-            Err(JsonRpcError::new(
+        match receiver.await.expect("Cancellation is not supported") {
+            Ok(lvol_ptr) => Ok(Self {
+                lvol_ptr,
+            }),
+            Err(errno) => Err(JsonRpcError::new(
                 Code::InvalidParams,
                 format!("Failed to create replica {} (errno={})", uuid, errno),
-            ))
-        } else {
-            Ok(())
+            )),
         }
     }
 
@@ -122,7 +115,6 @@ impl Replica {
     //
     // TODO: Error value should contain self so that it can be used when
     // destroy fails.
-    // TODO: Check if it exists and return ENOENT if it does not.
     pub async fn destroy(self) -> Result<()> {
         let (sender, receiver) = oneshot::channel::<i32>();
         unsafe {
@@ -146,6 +138,45 @@ impl Replica {
         } else {
             Ok(())
         }
+    }
+
+    /// Expose replica over supported remote access storage protocols (nvmf
+    /// and iscsi).
+    pub async fn share(&self) -> Result<()> {
+        let bdev_ptr = unsafe { (*self.lvol_ptr).bdev };
+
+        match nvmf_target::share(self.get_uuid(), bdev_ptr).await {
+            Ok(_) => Ok(()),
+            Err(msg) => Err(JsonRpcError::new(
+                Code::InternalError,
+                format!(
+                    "Failed to share replica {} over nvmf: {}",
+                    self.get_uuid(),
+                    msg
+                ),
+            )),
+        }
+    }
+
+    /// The opposite of share.
+    pub async fn unshare(&self) -> Result<()> {
+        match nvmf_target::unshare(self.get_uuid()).await {
+            Ok(_) => Ok(()),
+            Err(msg) => Err(JsonRpcError::new(
+                Code::InternalError,
+                format!(
+                    "Failed to unshare replica {}: {}",
+                    self.get_uuid(),
+                    msg
+                ),
+            )),
+        }
+    }
+
+    /// Return a string identifying the share (i.e. for nvmf it is nqn) or
+    /// none if the replica is not shared.
+    pub fn get_share_id(&self) -> Option<String> {
+        nvmf_target::get_nqn(self.get_uuid())
     }
 
     /// Get size of the replica in bytes.
@@ -179,6 +210,24 @@ impl Replica {
     /// Return raw pointer to lvol (C struct spdk_lvol).
     pub fn as_ptr(&self) -> *mut spdk_lvol {
         self.lvol_ptr
+    }
+
+    /// Callback called from SPDK for replica create method.
+    extern "C" fn replica_done_cb(
+        sender_ptr: *mut c_void,
+        lvol_ptr: *mut spdk_lvol,
+        errno: i32,
+    ) {
+        let sender = unsafe {
+            Box::from_raw(
+                sender_ptr
+                    as *mut oneshot::Sender<
+                        std::result::Result<*mut spdk_lvol, i32>,
+                    >,
+            )
+        };
+        let res = if errno == 0 { Ok(lvol_ptr) } else { Err(errno) };
+        sender.send(res).expect("Receiver is gone");
     }
 }
 
@@ -244,13 +293,19 @@ impl Iterator for ReplicaIter {
 pub fn register_replica_methods() {
     jsonrpc_register("create_replica", |args: jsondata::CreateReplicaArgs| {
         let fut = async move {
-            Replica::create(
+            let replica = Replica::create(
                 &args.uuid,
                 &args.pool,
                 args.size,
                 args.thin_provision,
             )
-            .await
+            .await?;
+
+            if args.share == jsondata::ShareProtocol::Nvmf {
+                replica.share().await
+            } else {
+                Ok(())
+            }
         };
         fut.boxed_local()
     });
@@ -260,7 +315,10 @@ pub fn register_replica_methods() {
         |args: jsondata::DestroyReplicaArgs| {
             let fut = async move {
                 match Replica::lookup(&args.uuid) {
-                    Some(replica) => replica.destroy().await,
+                    Some(replica) => {
+                        replica.unshare().await?;
+                        replica.destroy().await
+                    }
                     None => Err(JsonRpcError::new(
                         Code::NotFound,
                         format!("Replica {} does not exist", args.uuid),
@@ -279,6 +337,10 @@ pub fn register_replica_methods() {
                     pool: r.get_pool_name().to_owned(),
                     size: r.get_size(),
                     thin_provision: r.is_thin(),
+                    share: match r.get_share_id() {
+                        Some(_) => jsondata::ShareProtocol::Nvmf,
+                        None => jsondata::ShareProtocol::None,
+                    },
                 })
                 .collect::<Vec<jsondata::Replica>>(),
         )

@@ -102,6 +102,7 @@ describe('cli', function() {
             pool: POOL,
             size: { low: 1000 * (1024 * 1024), high: 0, unsigned: true },
             thin: true,
+            share: 1,
           },
           output: {},
         },
@@ -121,12 +122,14 @@ describe('cli', function() {
                 uuid: UUID1,
                 pool: POOL,
                 thin: true,
+                share: 0,
                 size: 10000 * (1024 * 1024),
               },
               {
                 uuid: UUID2,
                 pool: POOL,
                 thin: false,
+                share: 1,
                 size: 10 * (1024 * 1024),
               },
             ],
@@ -256,7 +259,7 @@ describe('cli', function() {
 
     it('should create a replica', function(done) {
       const cmd = util.format(
-        '%s replica create %s %s --size=1000 --thin',
+        '%s replica create %s %s --size=1000 --thin --protocol=nvmf',
         EGRESS_CMD,
         POOL,
         UUID
@@ -297,8 +300,9 @@ describe('cli', function() {
             pool: parts[0],
             name: parts[1],
             thin: parts[2],
-            size: parts[3],
-            size_unit: parts[4],
+            share: parts[3],
+            size: parts[4],
+            size_unit: parts[5],
           });
         });
 
@@ -307,12 +311,14 @@ describe('cli', function() {
         assert.equal(repls[0].name, UUID1);
         assert.equal(repls[0].pool, POOL);
         assert.equal(repls[0].thin, 'true');
+        assert.equal(repls[0].share, 'none');
         assert.equal(repls[0].size, '9.8'); // 10000MiB -> 9.8 GiB
         assert.equal(repls[0].size_unit, 'GiB');
 
         assert.equal(repls[1].name, UUID2);
         assert.equal(repls[1].pool, POOL);
         assert.equal(repls[1].thin, 'false');
+        assert.equal(repls[1].share, 'nvmf');
         assert.equal(repls[1].size, '10.0');
         assert.equal(repls[1].size_unit, 'MiB');
 

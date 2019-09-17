@@ -14,13 +14,6 @@ const sudo = require('./sudo');
 var endpoint = process.env.MAYASTOR_ENDPOINT;
 
 let config = `
-[Transport]
-Type TCP
-
-[Nvme]
-RetryCount 1000
-TimeOutUsec 30000000
-ActionOneTimeout Reset
 [ISCSI]
   NodeBase "iqn.2016-06.io.openebs"
   # Socket I/O timeout sec. (0 is infinite)
