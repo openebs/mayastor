@@ -3,6 +3,7 @@
 [![Slack](https://img.shields.io/badge/JOIN-SLACK-blue)]( https://openebs-community.slack.com)
 [![Build Status](https://travis-ci.org/openebs/MayaStor.svg?branch=master)](https://travis-ci.org/openebs/MayaStor)
 [![pipeline status](https://gitlab.com/mayastor/MayaStor/badges/master/pipeline.svg)](https://gitlab.com/mayastor/MayaStor/commits/master)
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fopenebs%2FMayaStor.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2Fopenebs%2FMayaStor?ref=badge_shield)
 
 <img width="300" align="right" alt="OpenEBS Logo" src="https://raw.githubusercontent.com/cncf/artwork/master/projects/openebs/stacked/color/openebs-stacked-color.png" xmlns="http://www.w3.org/1999/html">
 
@@ -177,6 +178,9 @@ Mayastor is developed under Apache 2.0 license at the project level. Some compon
 other open source projects and are distributed under their respective licenses.
 
 ```http://www.apache.org/licenses/LICENSE-2.0```
+
+
+[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fopenebs%2FMayaStor.svg?type=large)](https://app.fossa.io/projects/git%2Bgithub.com%2Fopenebs%2FMayaStor?ref=badge_large)
 
 ### Contributions
 
