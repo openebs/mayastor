@@ -265,7 +265,120 @@ describe('grpc', function() {
       });
     });
 
-    it('should create the replica', done => {
+    // For nvmf we can't test anything more than just create and destroy
+    // because nvme initiator is available only in latest linux kernels.
+    it('should create replica exported over nvmf', done => {
+      client.createReplica(
+        {
+          uuid: UUID,
+          pool: POOL,
+          thin: true,
+          share: 'NVMF',
+          size: 8 * (1024 * 1024), // keep this multiple of cluster size (4MB)
+        },
+        (err, res) => {
+          if (err) return done(err);
+          assert.lengthOf(Object.keys(res), 0);
+          done();
+        }
+      );
+    });
+
+    it('should list nvmf replica', done => {
+      client.listReplicas({}, (err, res) => {
+        if (err) return done(err);
+        res = res.replicas.filter(ent => {
+          return ent.uuid == UUID;
+        });
+        assert.lengthOf(res, 1);
+        res = res[0];
+        assert.equal(res.pool, POOL);
+        assert.equal(res.thin, true);
+        assert.equal(res.size, 8 * 1024 * 1024);
+        assert.equal(res.share, 'NVMF');
+        done();
+      });
+    });
+
+    it('should destroy nvmf replica', done => {
+      client.destroyReplica({ uuid: UUID }, (err, res) => {
+        if (err) return done(err);
+        assert.lengthOf(Object.keys(res), 0);
+        done();
+      });
+    });
+
+    it('should create replica exported over iscsi', done => {
+      client.createReplica(
+        {
+          uuid: UUID,
+          pool: POOL,
+          thin: true,
+          share: 'ISCSI',
+          size: 8 * (1024 * 1024), // keep this multiple of cluster size (4MB)
+        },
+        (err, res) => {
+          if (err) return done(err);
+          assert.lengthOf(Object.keys(res), 0);
+          done();
+        }
+      );
+    });
+
+    it('should list iscsi replica', done => {
+      client.listReplicas({}, (err, res) => {
+        if (err) return done(err);
+        res = res.replicas.filter(ent => {
+          return ent.uuid == UUID;
+        });
+        assert.lengthOf(res, 1);
+        res = res[0];
+        assert.equal(res.pool, POOL);
+        assert.equal(res.thin, true);
+        assert.equal(res.size, 8 * 1024 * 1024);
+        assert.equal(res.share, 'ISCSI');
+        done();
+      });
+    });
+
+    it('should discover iscsi replica using iscsiadm', done => {
+      let stderr = '';
+      let stdout = '';
+      let child = sudo([
+        'iscsiadm',
+        '-m',
+        'discovery',
+        '-t',
+        'sendtargets',
+        '-p',
+        '127.0.0.1',
+      ]);
+
+      child.stderr.on('data', data => {
+        stderr += data;
+      });
+      child.stdout.on('data', data => {
+        stdout += data;
+      });
+      child.on('close', (code, signal) => {
+        if (code != 0) {
+          done(stderr);
+        } else {
+          assert(stdout.indexOf(':' + UUID) >= 0);
+          done();
+        }
+      });
+    });
+
+    it('should destroy iscsi replica', done => {
+      client.destroyReplica({ uuid: UUID }, (err, res) => {
+        if (err) return done(err);
+        assert.lengthOf(Object.keys(res), 0);
+        done();
+      });
+    });
+
+    it('should create unexported replica', done => {
       client.createReplica(
         {
           uuid: UUID,

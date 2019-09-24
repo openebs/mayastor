@@ -17,6 +17,7 @@ pub mod bdev;
 pub mod descriptor;
 pub mod executor;
 pub mod iscsi_dev;
+pub mod iscsi_target;
 pub mod jsonrpc;
 pub mod nexus_uri;
 pub mod nvme_dev;
@@ -151,6 +152,11 @@ where
     executor::start_executor();
     pool::register_pool_methods();
     replica::register_replica_methods();
+    if let Err(msg) = iscsi_target::init_iscsi() {
+        error!("Failed to initialize Mayastor iscsi: {}", msg);
+        spdk_stop(-1);
+        return;
+    }
 
     // asynchronous initialization routines
     let fut = async move {
@@ -168,6 +174,9 @@ where
 /// Cleanly exit from program.
 /// NOTE: cannot be called from a future -> double borrow of executor.
 pub fn spdk_stop(rc: i32) {
+    if let Err(msg) = iscsi_target::fini_iscsi() {
+        error!("Failed to finalize iscsi: {}", msg);
+    }
     let fut = async move {
         if let Err(msg) = nvmf_target::fini_nvmf().await {
             error!("Failed to finalize nvmf target: {}", msg);

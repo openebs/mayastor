@@ -1,9 +1,15 @@
 //! Methods for creating nvmf targets
+//!
+//! We create a default nvmf target when mayastor starts up. Then for each
+//! replica which is to be exported, we create a subsystem in that default
+//! target. Each subsystem has one namespace backed by the lvol.
 
-use crate::executor::{cb_arg, complete_callback_1};
+use crate::{
+    bdev::Bdev,
+    executor::{cb_arg, complete_callback_1},
+};
 use futures::channel::oneshot;
 use spdk_sys::{
-    spdk_bdev,
     spdk_nvme_transport_id,
     spdk_nvmf_poll_group,
     spdk_nvmf_poll_group_add,
@@ -160,14 +166,11 @@ impl Subsystem {
     }
 
     /// Add nvme subsystem to the target
-    pub fn add_namespace(
-        &mut self,
-        bdev: *mut spdk_bdev,
-    ) -> Result<(), String> {
+    pub fn add_namespace(&mut self, bdev: &Bdev) -> Result<(), String> {
         let ns_id = unsafe {
             spdk_nvmf_subsystem_add_ns(
                 self.inner,
-                bdev,
+                bdev.as_ptr(),
                 ptr::null_mut(),
                 0,
                 ptr::null_mut(),
@@ -549,7 +552,7 @@ pub async fn fini_nvmf() -> Result<(), String> {
 }
 
 /// Export given bdev over nvmf target.
-pub async fn share(uuid: &str, bdev: *mut spdk_bdev) -> Result<(), String> {
+pub async fn share(uuid: &str, bdev: &Bdev) -> Result<(), String> {
     let mut ss = NVMF_TGT.with(move |maybe_tgt| {
         let mut maybe_tgt = maybe_tgt.borrow_mut();
         let tgt = maybe_tgt.as_mut().unwrap();

@@ -20,6 +20,7 @@ const DISK = '/dev/disk';
 const UUID = '753b391c-9b04-4ce3-9c74-9d949152e547';
 const UUID1 = '753b391c-9b04-4ce3-9c74-9d949152e541';
 const UUID2 = '753b391c-9b04-4ce3-9c74-9d949152e542';
+const UUID3 = '753b391c-9b04-4ce3-9c74-9d949152e543';
 const CLIENT_CMD = path.join(
   __dirname,
   '..',
@@ -130,6 +131,13 @@ describe('cli', function() {
                 pool: POOL,
                 thin: false,
                 share: 1,
+                size: 10 * (1024 * 1024),
+              },
+              {
+                uuid: UUID3,
+                pool: POOL,
+                thin: false,
+                share: 2,
                 size: 10 * (1024 * 1024),
               },
             ],
@@ -306,7 +314,7 @@ describe('cli', function() {
           });
         });
 
-        assert.lengthOf(repls, 2);
+        assert.lengthOf(repls, 3);
 
         assert.equal(repls[0].name, UUID1);
         assert.equal(repls[0].pool, POOL);
@@ -321,6 +329,13 @@ describe('cli', function() {
         assert.equal(repls[1].share, 'nvmf');
         assert.equal(repls[1].size, '10.0');
         assert.equal(repls[1].size_unit, 'MiB');
+
+        assert.equal(repls[2].name, UUID3);
+        assert.equal(repls[2].pool, POOL);
+        assert.equal(repls[2].thin, 'false');
+        assert.equal(repls[2].share, 'iscsi');
+        assert.equal(repls[2].size, '10.0');
+        assert.equal(repls[2].size_unit, 'MiB');
 
         done();
       });

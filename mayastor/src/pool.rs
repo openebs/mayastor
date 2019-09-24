@@ -7,6 +7,7 @@ use crate::{
     bdev::{bdev_lookup_by_name, Bdev},
     executor::{cb_arg, complete_callback_1},
     jsonrpc::{jsonrpc_register, Code, JsonRpcError, Result},
+    replica::ReplicaIter,
 };
 use futures::{
     channel::oneshot,
@@ -251,6 +252,15 @@ impl Pool {
         let name = self.get_name().to_string();
         let base_bdev_name = self.get_base_bdev().name();
 
+        debug!("Destroying the pool {}", name);
+
+        // unshare all replicas on the pool at first
+        for replica in ReplicaIter::new() {
+            if replica.get_pool_name() == name {
+                replica.unshare().await?;
+            }
+        }
+
         // we will destroy lvol store now
         let (sender, receiver) = oneshot::channel::<i32>();
         unsafe {
@@ -326,7 +336,6 @@ impl PoolsIter {
 }
 
 impl Iterator for PoolsIter {
-    //type Item = *mut lvol_store_bdev;
     type Item = Pool;
 
     fn next(&mut self) -> Option<Self::Item> {

@@ -6,6 +6,7 @@
 use crate::{
     bdev::{bdev_first, bdev_lookup_by_name, Bdev},
     executor::{cb_arg, complete_callback_1},
+    iscsi_target,
     jsonrpc::{jsonrpc_register, Code, JsonRpcError, Result},
     nvmf_target,
     pool::Pool,
@@ -30,8 +31,27 @@ use std::ffi::{c_void, CStr, CString};
 /// It is safe to use only in synchronous context. If you keep Replica for
 /// longer than that then something else can run on reactor_0 inbetween
 /// which may destroy the replica and invalidate the pointer!
-struct Replica {
+pub struct Replica {
     lvol_ptr: *mut spdk_lvol,
+}
+
+/// Types of remote access storage protocols and IDs for sharing replicas.
+pub enum ShareType {
+    Nvmf,
+    Iscsi,
+}
+
+/// Detect share protocol (if any) for replica with given uuid and share ID
+/// string.
+fn detect_share(uuid: &str) -> Option<(ShareType, String)> {
+    // first try nvmf and then try iscsi
+    match nvmf_target::get_nqn(uuid) {
+        Some(id) => Some((ShareType::Nvmf, id)),
+        None => match iscsi_target::get_iqn(uuid) {
+            Some(id) => Some((ShareType::Iscsi, id)),
+            None => None,
+        },
+    }
 }
 
 impl Replica {
@@ -83,9 +103,12 @@ impl Replica {
         }
 
         match receiver.await.expect("Cancellation is not supported") {
-            Ok(lvol_ptr) => Ok(Self {
-                lvol_ptr,
-            }),
+            Ok(lvol_ptr) => {
+                info!("Created replica {} on pool {}", uuid, pool);
+                Ok(Self {
+                    lvol_ptr,
+                })
+            }
             Err(errno) => Err(JsonRpcError::new(
                 Code::InvalidParams,
                 format!("Failed to create replica {} (errno={})", uuid, errno),
@@ -94,14 +117,14 @@ impl Replica {
     }
 
     /// Lookup replica by uuid (=name).
-    pub fn lookup(uuid: &str) -> Option<Replica> {
+    pub fn lookup(uuid: &str) -> Option<Self> {
         match bdev_lookup_by_name(uuid) {
             Some(bdev) => {
                 let lvol = unsafe { vbdev_lvol_get_from_bdev(bdev.as_ptr()) };
                 if lvol.is_null() {
                     None
                 } else {
-                    Some(Replica {
+                    Some(Self {
                         lvol_ptr: lvol,
                     })
                 }
@@ -111,11 +134,15 @@ impl Replica {
     }
 
     /// Destroy replica. Consumes the "self" so after calling this method self
-    /// can't be used anymore.
+    /// can't be used anymore. If the replica is shared, it is unshared before
+    /// the destruction.
     //
     // TODO: Error value should contain self so that it can be used when
     // destroy fails.
     pub async fn destroy(self) -> Result<()> {
+        self.unshare().await?;
+
+        let uuid = self.get_uuid();
         let (sender, receiver) = oneshot::channel::<i32>();
         unsafe {
             vbdev_lvol_destroy(
@@ -129,54 +156,90 @@ impl Replica {
         if errno != 0 {
             Err(JsonRpcError::new(
                 Code::InternalError,
-                format!(
-                    "Failed to destroy replica {} (errno={})",
-                    self.get_uuid(),
-                    errno
-                ),
+                format!("Failed to destroy replica {} (errno={})", uuid, errno),
             ))
         } else {
+            info!("Destroyed replica {}", uuid);
             Ok(())
         }
     }
 
     /// Expose replica over supported remote access storage protocols (nvmf
     /// and iscsi).
-    pub async fn share(&self) -> Result<()> {
-        let bdev_ptr = unsafe { (*self.lvol_ptr).bdev };
-
-        match nvmf_target::share(self.get_uuid(), bdev_ptr).await {
-            Ok(_) => Ok(()),
-            Err(msg) => Err(JsonRpcError::new(
+    pub async fn share(&self, kind: ShareType) -> Result<()> {
+        if detect_share(self.get_uuid()).is_some() {
+            return Err(JsonRpcError::new(
                 Code::InternalError,
-                format!(
-                    "Failed to share replica {} over nvmf: {}",
-                    self.get_uuid(),
-                    msg
-                ),
-            )),
+                format!("Cannot share the replica {} twice", self.get_uuid()),
+            ));
+        }
+
+        let bdev = unsafe { Bdev::from_ptr((*self.lvol_ptr).bdev) };
+
+        match kind {
+            ShareType::Nvmf => {
+                match nvmf_target::share(self.get_uuid(), &bdev).await {
+                    Ok(_) => Ok(()),
+                    Err(msg) => Err(JsonRpcError::new(
+                        Code::InternalError,
+                        format!(
+                            "Failed to share replica {} over nvmf: {}",
+                            self.get_uuid(),
+                            msg
+                        ),
+                    )),
+                }
+            }
+            ShareType::Iscsi => {
+                match iscsi_target::share(self.get_uuid(), &bdev) {
+                    Ok(_) => Ok(()),
+                    Err(msg) => Err(JsonRpcError::new(
+                        Code::InternalError,
+                        format!(
+                            "Failed to share replica {} over iscsi: {}",
+                            self.get_uuid(),
+                            msg
+                        ),
+                    )),
+                }
+            }
         }
     }
 
-    /// The opposite of share.
+    /// The opposite of share. It is no error to call unshare on a replica
+    /// which is not shared.
     pub async fn unshare(&self) -> Result<()> {
-        match nvmf_target::unshare(self.get_uuid()).await {
-            Ok(_) => Ok(()),
-            Err(msg) => Err(JsonRpcError::new(
-                Code::InternalError,
-                format!(
-                    "Failed to unshare replica {}: {}",
-                    self.get_uuid(),
-                    msg
-                ),
-            )),
+        match detect_share(self.get_uuid()) {
+            Some((share_type, _)) => {
+                let res = match share_type {
+                    ShareType::Nvmf => {
+                        nvmf_target::unshare(self.get_uuid()).await
+                    }
+                    ShareType::Iscsi => {
+                        iscsi_target::unshare(self.get_uuid()).await
+                    }
+                };
+                match res {
+                    Ok(_) => Ok(()),
+                    Err(msg) => Err(JsonRpcError::new(
+                        Code::InternalError,
+                        format!(
+                            "Failed to unshare replica {}: {}",
+                            self.get_uuid(),
+                            msg
+                        ),
+                    )),
+                }
+            }
+            None => Ok(()),
         }
     }
 
-    /// Return a string identifying the share (i.e. for nvmf it is nqn) or
-    /// none if the replica is not shared.
-    pub fn get_share_id(&self) -> Option<String> {
-        nvmf_target::get_nqn(self.get_uuid())
+    /// Return either a type of share and a string identifying the share
+    /// (nqn for nvmf and iqn for iscsi) or none if the replica is not
+    /// shared.
+    pub fn get_share_id(&self) -> Option<(ShareType, String)> {
+        detect_share(self.get_uuid())
     }
 
     /// Get size of the replica in bytes.
@@ -232,13 +295,14 @@ impl Replica {
 }
 
 /// Iterator over replicas
-struct ReplicaIter {
+#[derive(Default)]
+pub struct ReplicaIter {
     /// Last bdev examined by the iterator during the call to next()
     bdev: Option<Bdev>,
 }
 
 impl ReplicaIter {
-    fn new() -> ReplicaIter {
+    pub fn new() -> ReplicaIter {
         ReplicaIter {
             bdev: None,
         }
@@ -301,10 +365,14 @@ pub fn register_replica_methods() {
             )
             .await?;
 
-            if args.share == jsondata::ShareProtocol::Nvmf {
-                replica.share().await
-            } else {
-                Ok(())
+            match args.share {
+                jsondata::ShareProtocol::Nvmf => {
+                    replica.share(ShareType::Nvmf).await
+                }
+                jsondata::ShareProtocol::Iscsi => {
+                    replica.share(ShareType::Iscsi).await
+                }
+                jsondata::ShareProtocol::None => Ok(()),
             }
         };
         fut.boxed_local()
@@ -315,10 +383,7 @@ pub fn register_replica_methods() {
         |args: jsondata::DestroyReplicaArgs| {
             let fut = async move {
                 match Replica::lookup(&args.uuid) {
-                    Some(replica) => {
-                        replica.unshare().await?;
-                        replica.destroy().await
-                    }
+                    Some(replica) => replica.destroy().await,
                     None => Err(JsonRpcError::new(
                         Code::NotFound,
                         format!("Replica {} does not exist", args.uuid),
@@ -338,7 +403,10 @@ pub fn register_replica_methods() {
                     size: r.get_size(),
                     thin_provision: r.is_thin(),
                     share: match r.get_share_id() {
-                        Some(_) => jsondata::ShareProtocol::Nvmf,
+                        Some((share_type, _)) => match share_type {
+                            ShareType::Iscsi => jsondata::ShareProtocol::Iscsi,
+                            ShareType::Nvmf => jsondata::ShareProtocol::Nvmf,
+                        },
                         None => jsondata::ShareProtocol::None,
                     },
                 })

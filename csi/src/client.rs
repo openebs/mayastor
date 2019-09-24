@@ -133,6 +133,7 @@ fn create_replica(
     let share = match matches.value_of("protocol") {
         None => rpc::mayastor::ShareProtocol::None as i32,
         Some("nvmf") => rpc::mayastor::ShareProtocol::Nvmf as i32,
+        Some("iscsi") => rpc::mayastor::ShareProtocol::Iscsi as i32,
         Some(_) => {
             return Box::new(future::err(
                 "Invalid value of share protocol".to_owned(),
@@ -222,6 +223,9 @@ fn list_replicas(
                                 }
                                 Some(rpc::mayastor::ShareProtocol::Nvmf) => {
                                     "nvmf"
+                                }
+                                Some(rpc::mayastor::ShareProtocol::Iscsi) => {
+                                    "iscsi"
                                 }
                                 None => "unknown",
                             },
@@ -423,7 +427,7 @@ pub fn main() {
                                 .short("p")
                                 .long("protocol")
                                 .value_name("PROTOCOL")
-                                .help("Name of a protocol (nvmf) used for sharing the replica (default none)")
+                                .help("Name of a protocol (nvmf, iscsi) used for sharing the replica (default none)")
                                 .takes_value(true),
                         )
                         .arg(

@@ -13,7 +13,7 @@ use spdk_sys::{
     spdk_bdev_get_uuid,
     spdk_bdev_io_stat,
     spdk_bdev_io_type_supported,
-    spdk_bdev_next_leaf,
+    spdk_bdev_next,
     spdk_conf_section,
     spdk_conf_section_get_nmval,
     spdk_uuid,
@@ -106,6 +106,12 @@ pub struct Stat {
 }
 
 impl Bdev {
+    pub unsafe fn from_ptr(inner: *mut spdk_bdev) -> Self {
+        Bdev {
+            inner,
+        }
+    }
+
     /// returns the block_size of the underlying device
     pub fn block_size(&self) -> u32 {
         unsafe { spdk_bdev_get_block_size(self.inner) }
@@ -280,11 +286,12 @@ impl From<*mut spdk_bdev> for Bdev {
         }
     }
 }
+
 /// iterator over the bdevs in the global bdev list
 impl Iterator for Bdev {
     type Item = Bdev;
     fn next(&mut self) -> Option<Bdev> {
-        let bdev = unsafe { spdk_bdev_next_leaf(self.inner) };
+        let bdev = unsafe { spdk_bdev_next(self.inner) };
         if !bdev.is_null() {
             self.inner = bdev;
             Some(Bdev {

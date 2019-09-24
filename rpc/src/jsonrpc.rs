@@ -35,6 +35,7 @@ pub struct Pool {
 pub enum ShareProtocol {
     None,
     Nvmf,
+    Iscsi,
 }
 
 /// create replica arguments

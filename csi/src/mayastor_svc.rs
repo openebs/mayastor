@@ -211,6 +211,7 @@ impl service::server::Mayastor for MayastorService {
         let share = match ShareProtocol::from_i32(msg.share) {
             Some(ShareProtocol::None) => jsondata::ShareProtocol::None,
             Some(ShareProtocol::Nvmf) => jsondata::ShareProtocol::Nvmf,
+            Some(ShareProtocol::Iscsi) => jsondata::ShareProtocol::Iscsi,
             None => {
                 return Box::new(future::err(Status::new(
                     Code::InvalidArgument,
@@ -301,6 +302,9 @@ impl service::server::Mayastor for MayastorService {
                             }
                             jsondata::ShareProtocol::Nvmf => {
                                 ShareProtocol::Nvmf
+                            }
+                            jsondata::ShareProtocol::Iscsi => {
+                                ShareProtocol::Iscsi
                             }
                         } as i32,
                     })
