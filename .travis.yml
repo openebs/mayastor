@@ -1,30 +1,24 @@
 dist: bionic
-language: rust
 cache:
   cargo: true
   directories:
     - csi/moac/node_modules
     - mayastor-test/node_modules
 
-rust:
-  - nightly
-
 before_script:
+  - sudo mkdir /etc/nix && echo 'sandbox = true' | sudo tee /etc/nix/nix.conf
   - sudo modprobe nbd
+  - sudo modprobe iscsi_tcp
   - sudo modprobe xfs
   - sudo sysctl -w vm.nr_hugepages=512
   - source $HOME/.nvm/nvm.sh
   - nvm install 10
-  - sudo apt-get update
+  - curl -sSf https://build.travis-ci.org/files/rustup-init.sh | sh -s -- --default-toolchain=nightly -y
+  - git submodule update --init --recursive
+language: nix
 
 script:
-  - sudo make depend
-  - make test
-  - sudo $(find target/debug -maxdepth 1 -name 'reconfigure-*' -executable)
-  - sudo $(find target/debug -maxdepth 1 -name 'io-*' -executable)
-  - sudo $(find target/debug -maxdepth 1 -name 'jsonrpc-*' -executable)
-  - pushd csi/moac && npm install && ./node_modules/mocha/bin/mocha && popd
-  - pushd mayastor-test && npm install && ./node_modules/mocha/bin/mocha test_cli.js && popd
-  - pushd mayastor-test && ./node_modules/mocha/bin/mocha test_grpc.js && popd
-  - pushd mayastor-test && ./node_modules/mocha/bin/mocha test_csi.js && popd
-  - pushd mayastor-test && ./node_modules/mocha/bin/mocha test_nexus_grpc.js && popd
+  - glibcLocales=$(nix-build --no-out-link "<nixpkgs>" -A glibcLocales)
+  - echo $glibcLocales
+  - export LOCALE_ARCHIVE_2_27="${glibcLocales}/lib/locale/locale-archive"
+  - nix-shell --run ./test.sh
