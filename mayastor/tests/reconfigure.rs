@@ -1,6 +1,5 @@
 #![feature(async_await)]
 #![allow(clippy::cognitive_complexity)]
-use futures::task::LocalSpawnExt;
 use mayastor::{
     bdev::{
         nexus::nexus_bdev::{nexus_create, nexus_lookup},
@@ -43,8 +42,7 @@ fn reconfigure() {
     assert_eq!(output.status.success(), true);
 
     let rc = mayastor_start("test", args, || {
-        let mut spawn = mayastor::executor::get_spawner();
-        spawn.spawn_local(works()).unwrap();
+        mayastor::executor::spawn(works());
     });
 
     assert_eq!(rc, 0);

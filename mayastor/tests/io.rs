@@ -1,5 +1,4 @@
 #![feature(async_await)]
-use futures::task::LocalSpawnExt;
 use mayastor::{mayastor_start, spdk_stop};
 
 use mayastor::{
@@ -24,8 +23,7 @@ fn io_test() {
     assert_eq!(output.status.success(), true);
 
     mayastor_start("io-testing", vec![""], || {
-        let mut spawn = mayastor::executor::get_spawner();
-        spawn.spawn_local(start()).unwrap();
+        mayastor::executor::spawn(start());
     });
 
     let output = Command::new("rm")

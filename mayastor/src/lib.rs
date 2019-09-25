@@ -26,7 +26,6 @@ pub mod pool;
 pub mod replica;
 pub mod spdklog;
 
-use futures::task::LocalSpawnExt;
 use libc::{c_char, c_int};
 use spdk_sys::{
     spdk_app_fini,
@@ -149,7 +148,7 @@ where
             };
         }
     }
-    executor::start_executor();
+    executor::start();
     pool::register_pool_methods();
     replica::register_replica_methods();
     if let Err(msg) = iscsi_target::init_iscsi() {
@@ -168,7 +167,7 @@ where
         let cb: Box<Box<F>> = unsafe { Box::from_raw(arg1 as *mut Box<F>) };
         cb();
     };
-    executor::get_spawner().spawn_local(fut).unwrap();
+    executor::spawn(fut);
 }
 
 /// Cleanly exit from program.
@@ -182,10 +181,7 @@ pub fn spdk_stop(rc: i32) {
             error!("Failed to finalize nvmf target: {}", msg);
         }
     };
-    executor::stop_executor(
-        fut,
-        Box::new(move || unsafe { spdk_app_stop(rc) }),
-    );
+    executor::stop(fut, Box::new(move || unsafe { spdk_app_stop(rc) }));
 }
 
 /// A callback called by spdk when it is shutting down.

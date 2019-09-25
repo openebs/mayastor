@@ -1,5 +1,4 @@
 #![feature(async_await)]
-use futures::task::LocalSpawnExt;
 use log::error;
 use mayastor::{
     bdev::nexus::nexus_bdev::nexus_create,
@@ -13,8 +12,7 @@ fn main() {
     mayastor::CPS_INIT!();
     let args = vec!["-c", "../etc/test.conf"];
     mayastor_start("test", args, || {
-        let mut spawn = mayastor::executor::get_spawner();
-        spawn.spawn_local(works()).unwrap();
+        mayastor::executor::spawn(works());
     });
 }
 async fn works() {

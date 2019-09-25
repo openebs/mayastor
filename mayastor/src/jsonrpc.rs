@@ -4,7 +4,7 @@
 //! for executing async code in jsonrpc handlers.
 
 use crate::executor;
-use futures::{future::Future, task::LocalSpawnExt};
+use futures::future::Future;
 use nix::errno::Errno;
 use serde::{Deserialize, Serialize};
 use spdk_sys::{
@@ -193,7 +193,7 @@ unsafe extern "C" fn jsonrpc_handler<H, P, R>(
                     }
                 }
             };
-            executor::get_spawner().spawn_local(fut).unwrap();
+            executor::spawn(fut);
         }
         Err(err) => {
             // parameters are not what is expected
