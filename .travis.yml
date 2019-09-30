@@ -2,6 +2,8 @@ dist: bionic
 cache:
   cargo: true
   directories:
+    - $HOME/.cargo
+    - $TRAVIS_BUILD_DIR/target
     - csi/moac/node_modules
     - mayastor-test/node_modules
 
