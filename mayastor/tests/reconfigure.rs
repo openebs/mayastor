@@ -108,8 +108,13 @@ async fn works() {
 
     // compare all buffers byte for byte
     for i in 0 .. 10 {
-        cd1.read_at(i * 4096, &mut buf1).await.unwrap();
-        cd2.read_at(i * 4096, &mut buf2).await.unwrap();
+        // account for the offset (in number of blocks)
+        cd1.read_at((i * 4096) + (10240 * 512), &mut buf1)
+            .await
+            .unwrap();
+        cd2.read_at((i * 4096) + (10240 * 512), &mut buf2)
+            .await
+            .unwrap();
         buf_compare(buf1.as_slice(), buf2.as_slice());
     }
 
@@ -129,8 +134,12 @@ async fn works() {
         buf1.fill(0x0);
         buf2.fill(0x0);
 
-        cd1.read_at(i * 4096, &mut buf1).await.unwrap();
-        cd2.read_at(i * 4096, &mut buf2).await.unwrap();
+        cd1.read_at((i * 4096) + (10240 * 512), &mut buf1)
+            .await
+            .unwrap();
+        cd2.read_at((i * 4096) + (10240 * 512), &mut buf2)
+            .await
+            .unwrap();
 
         buf1.as_slice()
             .iter()
@@ -156,8 +165,12 @@ async fn works() {
     for i in 0 .. 10 {
         buf1.fill(0x0);
         buf2.fill(0x0);
-        cd1.read_at(i * 4096, &mut buf1).await.unwrap();
-        cd2.read_at(i * 4096, &mut buf2).await.unwrap();
+        cd1.read_at((i * 4096) + (10240 * 512), &mut buf1)
+            .await
+            .unwrap();
+        cd2.read_at((i * 4096) + (10240 * 512), &mut buf2)
+            .await
+            .unwrap();
         buf1.as_slice()
             .iter()
             .map(|b| assert_eq!(*b, 0xAA))
