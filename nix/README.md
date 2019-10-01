@@ -8,16 +8,15 @@ run NixOS, read the following section.
 
 ## Adding adding the overlay(s)
 ```
-mkdir -p ~/.config/nixpkgs/overlays
-ln -s $(pwd)/nix/mayastor-overlay.nix ~/.config/nixpkgs/overlays/rust-overlay.nix
+$ mkdir -p ~/.config/nixpkgs/overlays
+$ ln -s $(pwd)/nix/mayastor-overlay.nix ~/.config/nixpkgs/overlays/rust-overlay.nix
 ```
 
 Now the package is integrated natively:
 
 ```
-nix-env -qaP libiscsi
+$ nix-env -qaP libiscsi
 nixos.libiscsi  libiscsi-1.19.0
-gila@gixos ~/MayaStor>
 ```
 
 Like wise for rust nightly:
