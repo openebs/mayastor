@@ -3,7 +3,16 @@ use crate::bdev::{
     Bdev,
 };
 
-use crate::nexus_uri::{nexus_parse_uri, BdevType};
+use crate::{
+    bdev::nexus::{
+        nexus_label::{GPTHeader, GptEntry, NexusLabel},
+        Error,
+    },
+    descriptor::Descriptor,
+    nexus_uri::{nexus_parse_uri, BdevType},
+};
+
+use crate::descriptor::DmaBuf;
 use serde::{export::Formatter, Serialize};
 use spdk_sys::{
     spdk_bdev_close,
@@ -43,7 +52,7 @@ impl ToString for ChildState {
 }
 
 #[derive(Debug, Serialize)]
-pub(crate) struct NexusChild {
+pub struct NexusChild {
     /// name of the parent this child belongs too
     pub(crate) parent: String,
     ///  name of the child itself
@@ -59,6 +68,8 @@ pub(crate) struct NexusChild {
     pub(crate) ch: *mut spdk_io_channel,
     /// current state of the child
     pub(crate) state: ChildState,
+    #[serde(skip_serializing)]
+    pub(crate) descriptor: Option<Descriptor>,
 }
 
 impl Display for NexusChild {
@@ -86,7 +97,7 @@ impl NexusChild {
         num_blocks: u64,
         blk_size: u32,
     ) -> Result<String, nexus::Error> {
-        debug!("{}: Opening child {}", self.parent, self.name);
+        trace!("{}: Opening child {}", self.parent, self.name);
 
         if self.bdev.as_ref()?.block_size() != blk_size {
             error!(
@@ -153,6 +164,17 @@ impl NexusChild {
         }
 
         self.state = ChildState::Open;
+
+        // used for internal IOS like updating labels
+        self.descriptor = Some(Descriptor {
+            desc: self.desc,
+            ch: self.get_io_channel(),
+            alignment: self.bdev.as_ref()?.alignment(),
+            blk_size: self.bdev.as_ref()?.block_size(),
+        });
+
+        trace!("{}: child {} opened successfully", self.parent, self.name);
+
         Ok(self.name.clone())
     }
 
@@ -168,12 +190,11 @@ impl NexusChild {
         if let Some(bdev) = self.bdev.as_ref() {
             unsafe {
                 spdk_bdev_module_release_bdev(bdev.inner);
-                spdk_bdev_close(self.desc);
             }
         }
 
+        let _ = self.descriptor.take();
         // we leave the bdev structure around for when we want reopen it
-        self.desc = std::ptr::null_mut();
         self.state = ChildState::Closed;
         Ok(self.state)
     }
@@ -197,11 +218,16 @@ impl NexusChild {
             desc: std::ptr::null_mut(),
             ch: std::ptr::null_mut(),
             state: ChildState::Init,
+            descriptor: None,
         }
     }
 
     /// destroy the child bdev
-    pub async fn destroy(&self) -> Result<(), nexus::Error> {
+    pub(crate) async fn destroy(&mut self) -> Result<(), nexus::Error> {
+        if self.state == ChildState::Open {
+            self.close().unwrap();
+        }
+
         if let Ok(child_type) = nexus_parse_uri(&self.name) {
             match child_type {
                 BdevType::Aio(args) => args.destroy().await,
@@ -212,5 +238,102 @@ impl NexusChild {
             // a bdev type we dont support is being used by the nexus
             Err(nexus::Error::Invalid)
         }
+    }
+
+    pub fn can_rw(&self) -> bool {
+        self.state == ChildState::Open
+    }
+
+    pub async fn probe_label(&mut self) -> Result<NexusLabel, nexus::Error> {
+        if !self.can_rw() {
+            info!(
+                "{}: Trying to read from closed child: {}",
+                self.parent, self.name
+            );
+            // TODO add better errors
+            return Err(nexus::Error::Invalid);
+        }
+
+        let block_size = self.bdev.as_ref()?.block_size();
+
+        let primary = block_size as u64;
+        let secondary = self.bdev.as_ref()?.num_blocks() - 1;
+
+        let mut buf =
+            self.descriptor.as_ref()?.dma_malloc(block_size as usize)?;
+
+        self.read_at(primary, &mut buf).await?;
+        let mut label = GPTHeader::from_slice(buf.as_slice());
+
+        if label.is_err() {
+            info!("{}: {}: Primary label is invalid!", self.parent, self.name);
+            self.read_at(secondary, &mut buf).await?;
+            label = GPTHeader::from_slice(buf.as_slice());
+        }
+
+        if label.is_err() {
+            info!(
+                "{}: {}: Primary and backup label are invalid!",
+                self.parent, self.name
+            );
+            return Err(Error::Invalid);
+        }
+
+        let label = label.unwrap();
+
+        // determine number of blocks we need to read for the partition table
+        let num_blocks =
+            ((label.entry_size * label.num_entries) / block_size) + 1;
+
+        let mut buf = self
+            .descriptor
+            .as_ref()?
+            .dma_malloc((num_blocks * block_size) as usize)?;
+
+        self.read_at(label.lba_table * block_size as u64, &mut buf)
+            .await?;
+
+        let mut partitions =
+            GptEntry::from_slice(&buf.as_slice(), label.num_entries)?;
+
+        if GptEntry::checksum(&partitions) != label.table_crc {
+            info!("{}: {}: Partition crc invalid!", self.parent, self.name);
+            return Err(Error::Invalid);
+        }
+
+        // some tools write 128 partition entries, even though only two are
+        // created, in any case we are only ever interested in the first two
+        // partitions so we drain the others.
+        let parts = partitions.drain(.. 2).collect::<Vec<_>>();
+
+        let nl = NexusLabel {
+            primary: label,
+            partitions: parts,
+        };
+
+        Ok(nl)
+    }
+
+    /// write to this child
+    pub async fn write_at(
+        &self,
+        offset: u64,
+        buf: &DmaBuf,
+    ) -> Result<usize, Error> {
+        Ok(self.descriptor.as_ref()?.write_at(offset, buf).await?)
+    }
+
+    /// read from this child device
+    pub async fn read_at(
+        &self,
+        offset: u64,
+        buf: &mut DmaBuf,
+    ) -> Result<usize, Error> {
+        Ok(self.descriptor.as_ref()?.read_at(offset, buf).await?)
+    }
+
+    /// get a dmba buffer that is aligned to this child
+    pub fn get_buf(&self, size: usize) -> Option<DmaBuf> {
+        self.descriptor.as_ref()?.dma_malloc(size)
     }
 }

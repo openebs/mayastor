@@ -9,7 +9,6 @@ use crate::{
     nexus_uri::{self, UriError},
 };
 use std::option::NoneError;
-
 #[derive(Debug)]
 pub enum Error {
     /// Nobody knows
@@ -36,6 +35,8 @@ pub enum Error {
     ChildExists,
     /// the nexus is does not have enough children to come online
     NexusIncomplete,
+    /// error during serial or deserialize
+    SerDerError,
 }
 
 impl From<std::ffi::NulError> for Error {
@@ -47,6 +48,12 @@ impl From<std::ffi::NulError> for Error {
 impl From<nexus_uri::UriError> for Error {
     fn from(_: UriError) -> Self {
         Error::Invalid
+    }
+}
+
+impl From<bincode::Error> for Error {
+    fn from(_e: bincode::Error) -> Self {
+        Error::SerDerError
     }
 }
 
@@ -74,8 +81,10 @@ mod nexus_child;
 mod nexus_config;
 mod nexus_fn_table;
 mod nexus_io;
+pub mod nexus_label;
 pub mod nexus_module;
 pub mod nexus_rpc;
+pub mod nexus_bdev_children;
 
 /// public function which simply calls register module
 pub fn register_module() {

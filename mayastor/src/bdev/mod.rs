@@ -122,6 +122,12 @@ impl Bdev {
         unsafe { spdk_bdev_get_num_blocks(self.inner) }
     }
 
+    pub fn set_num_blocks(&self, count: u64) {
+        unsafe {
+            (*self.inner).blockcnt = count;
+        }
+    }
+
     /// whenever the underlying device needs alignment to the page size
     /// this is typically the case with io_uring and AIO. The value represents
     /// as a shift/exponent

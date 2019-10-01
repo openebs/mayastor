@@ -55,7 +55,6 @@
 /// nexus.share().unwrap();
 /// ```
 use crate::bdev::{
-    bdev_lookup_by_name,
     nexus::{
         self,
         nexus_channel::NexusChannel,
@@ -66,9 +65,9 @@ use crate::bdev::{
     Bdev,
 };
 
-use crate::{
-    bdev::nexus::{nexus_channel::NexusChannelInner, nexus_io::IoStatus},
-    nexus_uri::BdevType,
+use crate::bdev::nexus::{
+    nexus_channel::NexusChannelInner,
+    nexus_io::IoStatus,
 };
 
 use crate::bdev::nexus::instances;
@@ -83,14 +82,11 @@ use spdk_sys::{
     spdk_bdev_unmap_blocks,
     spdk_bdev_unregister,
     spdk_bdev_writev_blocks,
-    spdk_get_io_channel,
     spdk_io_channel,
     spdk_io_device_register,
     spdk_io_device_unregister,
-    spdk_put_io_channel,
 };
 
-use futures::future::join_all;
 use std::{
     fmt::{Display, Formatter},
     ops::Neg,
@@ -98,10 +94,19 @@ use std::{
 };
 
 use crate::{
-    bdev::nexus::{nexus_channel::DREvent, Error::Internal},
-    nexus_uri::nexus_parse_uri,
+    bdev::nexus::{
+        nexus_channel::DREvent,
+        nexus_label::{GPTHeader, GptEntry, GptGuid, GptName, NexusLabel},
+        Error::Internal,
+    },
+    descriptor::DmaBuf,
 };
+use bincode::serialize_into;
 use futures::channel::oneshot;
+use std::{
+    io::{Cursor, Seek, SeekFrom},
+    str::FromStr,
+};
 
 pub(crate) static NEXUS_PRODUCT_ID: &str = "Nexus CAS Driver v0.0.1";
 
@@ -109,19 +114,20 @@ pub(crate) static NEXUS_PRODUCT_ID: &str = "Nexus CAS Driver v0.0.1";
 #[derive(Debug)]
 pub struct Nexus {
     /// Name of the Nexus instance
-    name: String,
+    pub(crate) name: String,
     /// number of children part of this nexus
-    child_count: u32,
+    pub(crate) child_count: u32,
     /// vector of children
     pub(crate) children: Vec<NexusChild>,
     /// inner bdev
-    pub bdev: Bdev,
+    pub(crate) bdev: Bdev,
     /// raw pointer to bdev (to destruct it later using Box::from_raw())
     bdev_raw: *mut spdk_bdev,
     /// represents the current state of the Nexus
     pub(crate) state: NexusState,
     /// Dynamic Reconfigure event
     pub dr_complete_notify: Option<oneshot::Sender<i32>>,
+    pub offset: u64,
 }
 
 unsafe impl core::marker::Sync for Nexus {}
@@ -188,6 +194,7 @@ impl Nexus {
             state: NexusState::Init,
             bdev_raw: Box::into_raw(b),
             dr_complete_notify: None,
+            offset: 0,
         });
 
         n.bdev.set_uuid(uuid);
@@ -203,8 +210,16 @@ impl Nexus {
         Ok(n)
     }
 
+    /// get a mutable reference to a child at index
+    pub fn get_child_as_mut_ref(
+        &mut self,
+        index: usize,
+    ) -> Option<&mut NexusChild> {
+        Some(&mut self.children[index])
+    }
+
     /// set the state of the nexus
-    fn set_state(&mut self, state: NexusState) {
+    pub(crate) fn set_state(&mut self, state: NexusState) {
         debug!(
             "{} Transitioned state from {:?} to {:?}",
             self.name, self.state, state
@@ -212,7 +227,7 @@ impl Nexus {
         self.state = state;
     }
 
-    fn is_healty(&self) -> bool {
+    pub(crate) fn is_healthy(&self) -> bool {
         !self.children.iter().any(|c| c.state != ChildState::Open)
     }
 
@@ -221,94 +236,8 @@ impl Nexus {
         &self.name
     }
 
-    /// add the child bdevs to the nexus instance in the "init state"
-    /// this function should be used when bdevs are added asynchronously
-    /// like for example, when parsing the init file. The examine callback
-    /// will iterate through the list and invoke nexus::online once completed
-    pub fn add_children(&mut self, dev_name: &[String]) {
-        self.child_count = dev_name.len() as u32;
-        dev_name
-            .iter()
-            .map(|c| {
-                debug!("{}: Adding child {}", self.name(), c);
-                self.children.push(NexusChild::new(
-                    c.clone(),
-                    self.name.clone(),
-                    bdev_lookup_by_name(c),
-                ))
-            })
-            .for_each(drop);
-    }
-
-    /// create a bdev based on its URL and add it to the nexus
-    pub async fn create_and_add_child(
-        &mut self,
-        uri: &str,
-    ) -> Result<String, Error> {
-        let bdev_type = nexus_parse_uri(uri)?;
-
-        // workaround until we can get async fn trait
-        let name = match bdev_type {
-            BdevType::Aio(args) => args.create().await?,
-            BdevType::Iscsi(args) => args.create().await?,
-            BdevType::Nvmf(args) => args.create().await?,
-        };
-
-        self.children.push(NexusChild::new(
-            name.clone(),
-            self.name.clone(),
-            bdev_lookup_by_name(&name),
-        ));
-
-        self.child_count += 1;
-
-        Ok(name)
-    }
-
-    /// offline a child device and reconfigure the IO channels
-    pub async fn offline_child(
-        &mut self,
-        name: &str,
-    ) -> Result<NexusState, nexus::Error> {
-        trace!("{}: Offline child request for {}", self.name(), name);
-
-        if let Some(child) = self.children.iter_mut().find(|c| c.name == name) {
-            child.close()?;
-            let ch = unsafe { spdk_get_io_channel(self.as_ptr()) };
-            self.reconfigure(DREvent::ChildOffline).await;
-            unsafe { spdk_put_io_channel(ch) }
-            self.set_state(NexusState::Degraded);
-            Ok(NexusState::Degraded)
-        } else {
-            Err(Error::NotFound)
-        }
-    }
-
-    /// online a chilld and reconfigure the IO channels
-    pub async fn online_child(
-        &mut self,
-        name: &str,
-    ) -> Result<NexusState, nexus::Error> {
-        trace!("{} Online child request", self.name());
-
-        if let Some(child) = self.children.iter_mut().find(|c| c.name == name) {
-            child.open(self.bdev.num_blocks(), self.bdev.block_size())?;
-            let ch = unsafe { spdk_get_io_channel(self.as_ptr()) };
-            self.reconfigure(DREvent::ChildOnline).await;
-            unsafe { spdk_put_io_channel(ch) };
-            if self.is_healty() {
-                self.set_state(NexusState::Online);
-                Ok(NexusState::Online)
-            } else {
-                Ok(NexusState::Degraded)
-            }
-        } else {
-            Err(Error::NotFound)
-        }
-    }
-
     /// reconfigure the child event handler
-    async fn reconfigure(&mut self, event: DREvent) {
+    pub(crate) async fn reconfigure(&mut self, event: DREvent) {
         let (s, r) = oneshot::channel::<i32>();
         assert!(self.dr_complete_notify.is_none());
         self.dr_complete_notify = Some(s);
@@ -331,54 +260,47 @@ impl Nexus {
         );
     }
 
-    /// destroy all children that are part of this nexus
-    async fn destroy_children(&mut self) {
-        let futures = self.children.iter().map(|c| c.destroy());
-        let results = join_all(futures).await;
-        if results.iter().any(|c| c.is_err()) {
-            error!("{}: Failed to destroy child", self.name);
-        }
-    }
-
-    /// Add a child to the configuration when when an example callback is run.
-    /// The nexus is not opened implicitly, call .open() for this manually.
-    pub fn examine_child(&mut self, name: &str) -> bool {
-        for mut c in &mut self.children {
-            if c.name == name && c.state == ChildState::Init {
-                if let Some(bdev) = bdev_lookup_by_name(name) {
-                    debug!("{}: Adding child {}", self.name, name);
-                    c.bdev = Some(bdev);
-                    return true;
-                }
-            }
-        }
-        false
-    }
-
     /// Opens the Nexus instance for IO
-    pub fn open(&mut self) -> Result<(), nexus::Error> {
+    pub async fn open(&mut self) -> Result<(), nexus::Error> {
         debug!("Opening nexus {}", self.name);
 
-        // if the child list is empty -- we can't go online
+        self.try_open_children()?;
 
-        if self.children.is_empty() {
-            return Err(Error::NexusIncomplete);
-        }
+        // during open all label information needs to be consistent among the
+        // children
+        if let Ok(label) = self.update_child_labels().await {
+            // now register the bdev but update its size first to ensure we
+            // adhere to the partitions
 
-        // if one of the children does not have bdev struct yet we are
-        // considered to be incomplete.
-
-        if !self.children.iter().any(|c| c.bdev.is_none()) {
-            if let Err(register) = self.register() {
-                error!("{}: Failed to register nexus", self.name());
-                Err(register)
-            } else {
-                Ok(())
-            }
+            info!("{}: {} ", self.name, label);
+            self.offset = label.offset();
+            self.bdev.set_num_blocks(label.num_blocks());
         } else {
-            debug!("{}: config incomplete deferring open", self.name);
-            Err(Error::NexusIncomplete)
+            // one or more children do not have, or have an invalid gpt label.
+            // Recalculate that the header should have been and
+            // write them out
+
+            info!(
+                "{}: Child label(s) mismatch or absent, applying new label(s)",
+                self.name
+            );
+
+            let mut label = self.generate_label();
+            self.offset = label.offset();
+            self.bdev.set_num_blocks(label.num_blocks());
+
+            let blk_size = self.bdev.block_size();
+            let mut buf = DmaBuf::new(
+                (blk_size * (((1 << 14) / blk_size) + 1)) as usize,
+                self.bdev.alignment(),
+            )?;
+
+            self.write_label(&mut buf, &mut label, true).await?;
+            self.write_label(&mut buf, &mut label, false).await?;
+            info!("{}: {} ", self.name, label);
         }
+
+        self.register()
     }
 
     /// close the nexus and any children that are open
@@ -411,59 +333,12 @@ impl Nexus {
     /// Each io device is registered using a io_device as a key, and/or name. In
     /// our case, we dont actually create a channel ourselves but we reference
     /// channels of the underlying bdevs.
+
     pub fn register(&mut self) -> Result<(), nexus::Error> {
         if self.state != NexusState::Init {
             error!("{}: Can only call register once", self.name);
             return Err(Error::AlreadyClaimed);
         }
-
-        let num_blocks = self.bdev.num_blocks();
-        let block_size = self.bdev.block_size();
-
-        let (open, error): (Vec<_>, Vec<_>) = self
-            .children
-            .iter_mut()
-            .map(|c| c.open(num_blocks, block_size))
-            .partition(Result::is_ok);
-
-        // depending on IO consistency policies, we might be able to go online
-        // even if one of the children failed to open. This is work is not
-        // completed yet so we fail the registration all together for now.
-
-        if !error.is_empty() {
-            open.into_iter()
-                .map(Result::unwrap)
-                .map(|name| {
-                    if let Some(child) =
-                        self.children.iter_mut().find(|c| c.name == name)
-                    {
-                        let _ = child.close();
-                    } else {
-                        error!("{}: child opened but found!", self.name());
-                    }
-                })
-                .for_each(drop);
-
-            return Err(Error::NexusIncomplete);
-        }
-
-        // all children opened successfully, register the nexus, make sure we
-        // have proper alignment for all the children by simply setting the
-        // alignment to the highest value found on children.
-
-        self.children
-            .iter()
-            .map(|c| c.bdev.as_ref().unwrap().alignment())
-            .collect::<Vec<_>>()
-            .iter()
-            .map(|s| {
-                if self.bdev.alignment() < *s {
-                    unsafe {
-                        (*self.bdev.inner).required_alignment = *s;
-                    }
-                }
-            })
-            .for_each(drop);
 
         unsafe {
             spdk_io_device_register(
@@ -498,8 +373,104 @@ impl Nexus {
         Ok(())
     }
 
+    /// generate a new nexus label based on the nexus configuration. The meta
+    /// partition is fixed in size and aligned to a 1MB boundary
+    pub(crate) fn generate_label(&mut self) -> NexusLabel {
+        let mut hdr = GPTHeader::new(
+            self.bdev.block_size(),
+            self.min_num_blocks(),
+            self.bdev.uuid().into(),
+        );
+
+        let mut entries = vec![GptEntry::default(); hdr.num_entries as usize];
+
+        entries[0] = GptEntry {
+            ent_type: GptGuid::from_str("27663382-e5e6-11e9-81b4-ca5ca5ca5ca5")
+                .unwrap(),
+            ent_guid: GptGuid::new_random(),
+            // 1MB aligned
+            ent_start: hdr.lba_start,
+            // 4MB
+            ent_end: hdr.lba_start
+                + ((4 << 20) / self.bdev.block_size()) as u64
+                - 1,
+            ent_attr: 0,
+            ent_name: GptName {
+                name: "MayaMeta".into(),
+            },
+        };
+
+        entries[1] = GptEntry {
+            ent_type: GptGuid::from_str("27663382-e5e6-11e9-81b4-ca5ca5ca5ca5")
+                .unwrap(),
+            ent_guid: GptGuid::new_random(),
+            ent_start: entries[0].ent_end + 1,
+            ent_end: hdr.lba_end,
+            ent_attr: 0,
+            ent_name: GptName {
+                name: "MayaData".into(),
+            },
+        };
+
+        hdr.table_crc = GptEntry::checksum(&entries);
+
+        NexusLabel {
+            primary: hdr,
+            partitions: entries,
+        }
+    }
+
+    pub async fn write_label(
+        &mut self,
+        buf: &mut DmaBuf,
+        label: &mut NexusLabel,
+        primary: bool,
+    ) -> Result<(), Error> {
+        let blk_size = self.bdev.block_size();
+        let mut writer = Cursor::new(buf.as_mut_slice());
+        if primary {
+            label.primary.checksum();
+
+            serialize_into(&mut writer, &label.primary)?;
+
+            writer.seek(SeekFrom::Start(blk_size as u64)).unwrap();
+
+            for p in &label.partitions {
+                serialize_into(&mut writer, &p)?;
+            }
+
+            for child in &mut self.children {
+                child.write_at(blk_size as u64, &buf).await?;
+                child.probe_label().await?;
+            }
+        } else {
+            // now, write the backup label
+            writer.seek(SeekFrom::Start(0)).unwrap();
+            let mut backup = label.primary.to_backup();
+            backup.checksum();
+
+            for p in &label.partitions {
+                serialize_into(&mut writer, &p)?;
+            }
+
+            serialize_into(&mut writer, &backup)?;
+
+            for child in &mut self.children {
+                child
+                    .write_at(
+                        (blk_size as u64 * (backup.lba_end + 1)) as u64,
+                        &buf,
+                    )
+                    .await?;
+                child.probe_label().await?;
+            }
+        }
+
+        Ok(())
+    }
+
     /// takes self and converts into a raw pointer
-    fn as_ptr(&self) -> *mut c_void {
+    pub(crate) fn as_ptr(&self) -> *mut c_void {
         self as *const _ as *mut _
     }
 
@@ -620,14 +591,14 @@ impl Nexus {
         ch: *mut spdk_io_channel,
     ) -> i32 {
         let io = Nio::from(pio);
-
+        let nexus = io.nexus_as_ref();
         unsafe {
             spdk_bdev_readv_blocks(
                 desc,
                 ch,
                 io.iovs(),
                 io.iov_count(),
-                io.offset(),
+                io.offset() + nexus.offset,
                 io.num_blocks(),
                 Some(Self::io_completion),
                 pio as *mut _,
@@ -642,7 +613,6 @@ impl Nexus {
         channels: &NexusChannelInner,
     ) {
         let mut io = Nio::from(pio);
-
         // in case of writes, we want to write to all underlying children
         io.set_outstanding(channels.ch.len());
         let results = channels
@@ -654,7 +624,7 @@ impl Nexus {
                     c.1,
                     io.iovs(),
                     io.iov_count(),
-                    io.offset(),
+                    io.offset() + io.nexus_as_ref().offset,
                     io.num_blocks(),
                     Some(Self::io_completion),
                     pio as *mut _,
@@ -686,7 +656,7 @@ impl Nexus {
                 spdk_bdev_unmap_blocks(
                     c.0,
                     c.1,
-                    io.offset(),
+                    io.offset() + io.nexus_as_ref().offset,
                     io.num_blocks(),
                     Some(Self::io_completion),
                     pio as *mut _,
@@ -735,7 +705,9 @@ pub async fn nexus_create(
         }
     }
 
-    if ni.open().is_ok() {
+    let opened = ni.open().await;
+
+    if opened.is_ok() {
         nexus_list.push(ni);
         Ok(name)
     } else {

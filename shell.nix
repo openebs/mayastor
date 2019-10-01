@@ -33,6 +33,7 @@ stdenv.mkDerivation rec {
   ];
 
   propagatedBuildInputs = [ clang ];
+  hardeningDisable = [ "all" ];
 
   LIBCLANG_PATH = "${pkgs.llvmPackages.libclang}/lib";
   PROTOC = "${pkgs.protobuf}/bin/protoc";

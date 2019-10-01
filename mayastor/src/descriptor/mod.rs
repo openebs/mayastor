@@ -12,7 +12,7 @@
 //! The callbacks are implemented by the regular oneshot channels. As the unsync
 //! features of futures 0.2 are not part of futures 0.3 yet (if ever?) it is
 //! not optimized for performance yet. Its not our goal to directly have a user
-//! space API to be consumable for this purpose either but they might be usefull
+//! space API to be consumable for this purpose either but they might be useful
 //! for other scenarios in the future.
 //!
 //! Also, it would be nice to support, future, the AsyncRead/Write traits such
@@ -88,6 +88,27 @@ impl DmaBuf {
             )
         }
     }
+
+    pub fn new(size: usize, alignment: u8) -> Option<Self> {
+        let buf;
+        unsafe {
+            buf = spdk_dma_zmalloc(
+                size,
+                1 << alignment as usize,
+                std::ptr::null_mut(),
+            )
+        };
+
+        if buf.is_null() {
+            trace!("zmalloc for size {} failed", size);
+            None
+        } else {
+            Some(DmaBuf {
+                buf,
+                len: size,
+            })
+        }
+    }
 }
 
 impl Drop for DmaBuf {
@@ -103,13 +124,13 @@ type Reply = bool;
 #[derive(Debug)]
 pub struct Descriptor {
     /// the allocated descriptor
-    desc: *mut spdk_bdev_desc,
+    pub desc: *mut spdk_bdev_desc,
     /// the io channel
-    ch: *mut spdk_io_channel,
+    pub ch: *mut spdk_io_channel,
     /// alignment requirements of the underlying bdev
-    alignment: u8,
+    pub alignment: u8,
     /// the blk_size of the underlying bdev
-    blk_size: u32,
+    pub blk_size: u32,
 }
 
 impl Descriptor {
@@ -146,6 +167,7 @@ impl Descriptor {
         };
 
         if buf.is_null() {
+            trace!("Zmalloc for size {} failed", size);
             None
         } else {
             Some(DmaBuf {
@@ -167,6 +189,7 @@ impl Descriptor {
         };
 
         if buf.is_null() {
+            trace!("Malloc for size {} failed", size);
             None
         } else {
             Some(DmaBuf {
@@ -222,7 +245,6 @@ impl Descriptor {
         if offset % u64::from(self.blk_size) != 0 {
             return Err(-1);
         }
-
         let (s, r) = oneshot::channel::<Reply>();
         let rc = unsafe {
             spdk_bdev_read(
