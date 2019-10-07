@@ -34,7 +34,8 @@ var endpoint = common.endpoint;
 const CONFIG = `
 [Malloc]
 NumberOfLuns 1
-LunSizeInMB  100
+LunSizeInMB  150
+BlockSize    4096
 `;
 // uuid without the last digit
 const BASE_UUID = '13dd12ee-7455-44d3-b295-afbbe32ec2e';
@@ -175,12 +176,13 @@ describe('csi', function() {
             function(n, next) {
               let uuid = BASE_UUID + n;
               common.dumbCommand(
-                'construct_ms_lvol_bdev',
+                'create_replica',
                 {
-                  lvs_name: 'tpool',
                   uuid: uuid,
-                  lvol_name: uuid,
-                  size: 15 * 1024 * 1024,
+                  pool: 'tpool',
+                  thin_provision: false,
+                  size: 25 * 1024 * 1024,
+                  share: 'None',
                 },
                 next
               );
@@ -193,15 +195,27 @@ describe('csi', function() {
             5,
             function(n, next) {
               let uuid = BASE_UUID + n;
-              common.rpcCommand(
-                'start_nbd_disk ' + uuid + ' /dev/nbd' + n,
+              common.dumbCommand(
+                'create_nexus',
+                {
+                  uuid: uuid,
+                  size: 25 * 1024 * 1024,
+                  children: ['bdev:///' + BASE_UUID + n],
+                },
                 next
               );
             },
-            function(err, res) {
-              // if device are there already we get an error ignore it
-              next();
-            }
+            next
+          );
+        },
+        next => {
+          async.times(
+            5,
+            function(n, next) {
+              let uuid = BASE_UUID + n;
+              common.dumbCommand('publish_nexus', { uuid: uuid }, next);
+            },
+            next
           );
         },
       ],
@@ -221,7 +235,7 @@ describe('csi', function() {
             5,
             function(n, next) {
               let uuid = BASE_UUID + n;
-              common.rpcCommand('stop_nbd_disk /dev/nbd' + n, next);
+              common.dumbCommand('unpublish_nexus', { uuid: uuid }, next);
             },
             function(err, res) {
               next();
@@ -384,8 +398,8 @@ describe('csi', function() {
           if (err) return done(err);
           assert.lengthOf(res.usage, 1);
           assert.equal(res.usage[0].unit, 'BYTES');
-          // 20MB size of base bdev - 4MB size of metadata
-          assert.equal(res.usage[0].total, 16 * 1024 * 1024);
+          // 25MB size of the bdev - something for the metadata
+          assert.equal(res.usage[0].total, 24092672);
           // TODO: These are not available yet:
           //assert.equal(res.usage[0].available, 1);
           //assert.equal(res.usage[0].used, 0);

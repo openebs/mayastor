@@ -130,7 +130,9 @@ impl NvmfBdev {
         };
 
         if ret != 0 {
-            return Err(nexus::Error::Internal);
+            return Err(nexus::Error::Internal(
+                "Failed to create nvme bdev".to_owned(),
+            ));
         }
 
         let result = receiver

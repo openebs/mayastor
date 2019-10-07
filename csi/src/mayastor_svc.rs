@@ -1,13 +1,9 @@
 //! Implementation of gRPC methods from mayastor gRPC service.
 
-use crate::{
-    device,
-    nbd,
-    rpc::{mayastor::*, service},
-};
+use crate::rpc::{mayastor::*, service};
 
 use enclose::enclose;
-use futures::future::{self, Either};
+use futures::future;
 
 use futures::future::Future;
 use jsonrpc;
@@ -45,35 +41,22 @@ impl service::server::Mayastor for MayastorService {
         dyn future::Future<Item = Response<StatReplicasReply>, Error = Status>
             + Send,
     >;
-    type CreateBlkdevFuture = Box<
-        dyn future::Future<Item = Response<CreateBlkdevReply>, Error = Status>
-            + Send,
-    >;
-    type DestroyBlkdevFuture =
+    type CreateNexusFuture =
         Box<dyn future::Future<Item = Response<Null>, Error = Status> + Send>;
-
-    type CreateNexusFuture = Box<
-        dyn future::Future<Item = Response<CreateNexusReply>, Error = Status>
-            + Send,
-    >;
-
     type DestroyNexusFuture =
         Box<dyn future::Future<Item = Response<Null>, Error = Status> + Send>;
-
     type ListNexusFuture = Box<
         dyn future::Future<Item = Response<ListNexusReply>, Error = Status>
             + Send,
     >;
-
     type PublishNexusFuture = Box<
         dyn future::Future<Item = Response<PublishNexusReply>, Error = Status>
             + Send,
     >;
-
-    type ChildOperationFuture = Box<
-        dyn future::Future<Item = Response<ChildNexusReply>, Error = Status>
-            + Send,
-    >;
+    type UnpublishNexusFuture =
+        Box<dyn future::Future<Item = Response<Null>, Error = Status> + Send>;
+    type ChildOperationFuture =
+        Box<dyn future::Future<Item = Response<Null>, Error = Status> + Send>;
 
     /// Create storage pool (or import it if it already exists on the
     /// specified disk).
@@ -363,20 +346,6 @@ impl service::server::Mayastor for MayastorService {
         Box::new(f)
     }
 
-    fn create_blkdev(
-        &mut self,
-        request: Request<CreateBlkdevRequest>,
-    ) -> Self::CreateBlkdevFuture {
-        nbd::create_blkdev(self.socket.clone(), &request.into_inner())
-    }
-
-    fn destroy_blkdev(
-        &mut self,
-        request: Request<DestroyBlkdevRequest>,
-    ) -> Self::DestroyPoolFuture {
-        nbd::destroy_blkdev(self.socket.clone(), &request.into_inner())
-    }
-
     fn create_nexus(
         &mut self,
         request: Request<CreateNexusRequest>,
@@ -385,13 +354,9 @@ impl service::server::Mayastor for MayastorService {
         trace!("{:?}", msg);
 
         Box::new(
-            jsonrpc::call(&self.socket, "create_nexus", Some(msg))
+            jsonrpc::call::<_, ()>(&self.socket, "create_nexus", Some(msg))
                 .map_err(|e| e.into_status())
-                .map(|name| {
-                    Response::new(CreateNexusReply {
-                        name,
-                    })
-                }),
+                .map(|_| Response::new(Null {})),
         )
     }
 
@@ -402,9 +367,9 @@ impl service::server::Mayastor for MayastorService {
         let msg = request.into_inner();
         trace!("{:?}", msg);
         Box::new(
-            jsonrpc::call(&self.socket, "destroy_nexus", Some(msg))
+            jsonrpc::call::<_, ()>(&self.socket, "destroy_nexus", Some(msg))
                 .map_err(|e| e.into_status())
-                .map(|_: String| Response::new(Null {})),
+                .map(|_| Response::new(Null {})),
         )
     }
 
@@ -424,75 +389,26 @@ impl service::server::Mayastor for MayastorService {
         &mut self,
         request: Request<PublishNexusRequest>,
     ) -> Self::PublishNexusFuture {
-        let mut msg = request.into_inner();
+        let msg = request.into_inner();
         trace!("{:?}", msg);
+        Box::new(
+            jsonrpc::call(&self.socket, "publish_nexus", Some(msg))
+                .map_err(|e| e.into_status())
+                .map(Response::new),
+        )
+    }
 
-        if let Some(d) = nbd::NbdDevInfo::new() {
-            let socket = self.socket.clone();
-
-            if msg.nbd_device.is_empty() {
-                msg.nbd_device = d.to_string();
-            }
-
-            Box::new(
-                jsonrpc::call::<(), _>(&self.socket, "get_nbd_disks", None)
-                    .map_err(|e| e.into_status())
-                    .and_then(move |nbds: Vec<jsondata::NbdDisk>| {
-                        if let Some(nbd) =
-                            nbds.iter().find(|n| n.bdev_name == msg.bdev_name)
-                        {
-                            info!(
-                                "{} already published on {}",
-                                msg.bdev_name, nbd.nbd_device
-                            );
-                            d.put_back();
-                            Either::A(future::ok(Response::new(
-                                PublishNexusReply {
-                                    device_path: nbd.nbd_device.clone(),
-                                },
-                            )))
-                        } else {
-                            Either::B(
-                                jsonrpc::call(
-                                    &socket,
-                                    "start_nbd_disk",
-                                    Some(msg.clone()),
-                                )
-                                .map_err(move |e| {
-                                    d.put_back();
-                                    e.into_status()
-                                })
-                                .and_then(
-                                    move |device_path: String| {
-                                        info!(
-                                            "{} published on {}",
-                                            msg.bdev_name, device_path
-                                        );
-
-                                        // we assume to succeed if it failed the
-                                        // IO will simply fail
-                                        // with ENOSPC.
-
-                                        let _ =
-                                            device::await_size(&device_path);
-
-                                        future::ok(Response::new(
-                                            PublishNexusReply {
-                                                device_path,
-                                            },
-                                        ))
-                                    },
-                                ),
-                            )
-                        }
-                    }),
-            )
-        } else {
-            Box::new(future::err(Status::new(
-                Code::Internal,
-                String::from("EAGAIN"),
-            )))
-        }
+    fn unpublish_nexus(
+        &mut self,
+        request: Request<UnpublishNexusRequest>,
+    ) -> Self::UnpublishNexusFuture {
+        let msg = request.into_inner();
+        trace!("{:?}", msg);
+        Box::new(
+            jsonrpc::call::<_, ()>(&self.socket, "unpublish_nexus", Some(msg))
+                .map_err(|e| e.into_status())
+                .map(|_| Response::new(Null {})),
+        )
     }
 
     fn child_operation(
@@ -501,14 +417,9 @@ impl service::server::Mayastor for MayastorService {
     ) -> Self::ChildOperationFuture {
         let msg = request.into_inner();
         Box::new(
-            jsonrpc::call(&self.socket, "offline_child", Some(msg))
+            jsonrpc::call::<_, ()>(&self.socket, "offline_child", Some(msg))
                 .map_err(|e| e.into_status())
-                .and_then(|name| {
-                    future::ok(Response::new(ChildNexusReply {
-                        name,
-                        success: true,
-                    }))
-                }),
+                .map(|_| Response::new(Null {})),
         )
     }
 }

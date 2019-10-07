@@ -20,7 +20,7 @@ impl AioBdev {
     /// create an AIO bdev. The reason this is async is to avoid type errors
     /// when creating things concurrently.
     pub async fn create(self) -> Result<String, nexus::Error> {
-        if crate::bdev::bdev_lookup_by_name(&self.name).is_some() {
+        if bdev_lookup_by_name(&self.name).is_some() {
             info!("A bdev with name already exists {} exists", self.name);
             return Err(nexus::Error::ChildExists);
         }
@@ -55,7 +55,7 @@ impl AioBdev {
                 )
             };
             if r.await.unwrap() != 0 {
-                Err(nexus::Error::Internal)
+                Err(nexus::Error::Internal("Delete AIO bdev failed".to_owned()))
             } else {
                 Ok(())
             }

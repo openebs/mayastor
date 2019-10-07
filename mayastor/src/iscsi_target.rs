@@ -54,6 +54,7 @@ pub fn init_iscsi() -> Result<(), String> {
     let portal_host = CString::new("0.0.0.0").unwrap();
     let portal_port = CString::new("3260").unwrap();
     let initiator_host = CString::new("ANY").unwrap();
+    let initiator_netmask = CString::new("ANY").unwrap();
 
     let pg = unsafe { spdk_iscsi_portal_grp_create(0) };
     if pg.is_null() {
@@ -88,8 +89,8 @@ pub fn init_iscsi() -> Result<(), String> {
             0,
             1,
             &mut (initiator_host.as_ptr() as *mut c_char) as *mut _,
-            0,
-            &mut ptr::null_mut() as *mut *mut _ as *mut *mut c_char,
+            1,
+            &mut (initiator_netmask.as_ptr() as *mut c_char) as *mut _,
         ) != 0
         {
             spdk_iscsi_portal_grp_release(pg);
@@ -140,7 +141,7 @@ pub fn share(uuid: &str, bdev: &Bdev) -> Result<(), String> {
             &mut lun_id as *mut _,
             1,     // length of lun id list
             128,   // max queue depth
-            true,  // disable chap
+            false, // disable chap
             false, // require chap
             false, // mutual chap
             0,     // chap group

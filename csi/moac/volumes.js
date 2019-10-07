@@ -7,27 +7,15 @@ const assert = require('assert');
 const EventEmitter = require('events');
 const grpc = require('grpc-uds');
 const grpc_promise = require('grpc-promise');
+const _ = require('lodash');
 const { mayastor, GrpcError } = require('./common');
 const log = require('./logger').Logger('volumes');
-
-// Create k8s volume object as returned by CSI list volumes method.
-function createK8sVolumeObject(obj) {
-  if (!obj) return obj;
-  return {
-    volumeId: obj.uuid,
-    capacityBytes: obj.size,
-    accessibleTopology: [
-      {
-        segments: { 'kubernetes.io/hostname': obj.node },
-      },
-    ],
-  };
-}
 
 // Volume cache with create, destroy and list methods.
 class VolumeOperator {
   constructor(nodeOperator) {
-    this.volumes = {};
+    this.replicas = {};
+    this.nexus = {};
     this.nodes = nodeOperator;
     this.addNodeListener = null;
     this.modPoolListener = null;
@@ -37,8 +25,6 @@ class VolumeOperator {
     this.retrySync = {};
   }
 
-  // TODO: We use Mayastor for v0.1 but later moac will have to use ingress
-  // service for handling multiple replicas
   _createClient(node) {
     let client = new mayastor.Mayastor(
       node.endpoint,
@@ -59,7 +45,7 @@ class VolumeOperator {
     return this._createClient(node);
   }
 
-  // Do a complete sync of all volumes on all nodes.
+  // Do a complete sync of all volumes (replicas and nexus's) on all nodes.
   // We do not remove any volume from cache, because just because the storage
   // node disappeared does not mean the volume stopped to exist. It may rejoin
   // the cluster later and from k8s perspective the PV is still there until
@@ -101,10 +87,11 @@ class VolumeOperator {
       clearTimeout(this.retrySync[i]);
     }
     this.retrySync = {};
-    this.volumes = [];
+    this.replicas = {};
+    this.nexus = {};
   }
 
-  // Add volumes from a particular storage node to the cache.
+  // Add replicas and nexus's from a particular storage node to the cache.
   // Return false if the sync failed, otherwise true.
   //
   // TODO: Implement node sync retry. So when a list of volumes on node fails,
@@ -117,27 +104,45 @@ class VolumeOperator {
       log.error(`Failed to get client for node "${nodeName}"`);
       return false;
     }
-    var res;
+    var replicas;
+    var nexus;
     try {
-      res = await client.listReplicas().sendMessage({});
+      replicas = await client.listReplicas().sendMessage({});
+      nexus = await client.listNexus().sendMessage({});
     } catch (err) {
-      log.error(`Failed to list replicas on node "${nodeName}": ` + err);
+      log.error(`Failed to list volumes on node "${nodeName}": ` + err);
       return false;
     } finally {
       client.close();
     }
-    for (let i = 0; i < res.replicas.length; i++) {
-      let r = res.replicas[i];
-      if (this.volumes[r.uuid]) {
-        log.debug(`Adding volume ${r.uuid} to the cache`);
+    for (let i = 0; i < replicas.replicas.length; i++) {
+      let r = replicas.replicas[i];
+      if (this.replicas[r.uuid]) {
+        log.debug(`Updating replica ${r.uuid} in the cache`);
       } else {
-        log.debug(`Updating volume ${r.uuid} in the cache`);
+        log.debug(`Adding replica ${r.uuid} to the cache`);
       }
-      this.volumes[r.uuid] = {
+      this.replicas[r.uuid] = {
         uuid: r.uuid,
         pool: r.pool,
         node: nodeName,
         size: r.size,
+      };
+    }
+    for (let i = 0; i < nexus.nexusList.length; i++) {
+      let n = nexus.nexusList[i];
+      if (this.nexus[n.name]) {
+        log.debug(`Updating nexus ${n.uuid} in the cache`);
+      } else {
+        log.debug(`Adding nexus ${n.uuid} to the cache`);
+      }
+      this.nexus[n.uuid] = {
+        uuid: n.uuid,
+        state: n.state,
+        children: _.map(n.children, 'uri'),
+        size: n.size,
+        node: nodeName,
+        devicePath: n.devicePath || null,
       };
     }
     return true;
@@ -176,9 +181,9 @@ class VolumeOperator {
     }
   }
 
-  // Destroy volume on storage node and remove it from the cache.
+  // Destroy replica on storage node and remove it from the cache.
   // Throws grpc error if error.
-  async destroy(nodeName, uuid) {
+  async destroyReplica(nodeName, uuid) {
     let client = this._getNodeClient(nodeName);
     if (!client) {
       throw new GrpcError(
@@ -201,12 +206,40 @@ class VolumeOperator {
     }
 
     // remove it from the cache
-    delete this.volumes[uuid];
+    delete this.replicas[uuid];
   }
 
-  // Create volume and add it to the cache.
+  // Destroy nexus on storage node and remove it from the cache.
+  // Throws grpc error if error.
+  async destroyNexus(nodeName, uuid) {
+    let client = this._getNodeClient(nodeName);
+    if (!client) {
+      throw new GrpcError(
+        grpc.status.INTERNAL,
+        `Failed to obtain grpc client for node "${nodeName}"`
+      );
+    }
+
+    try {
+      await client.destroyNexus().sendMessage({ name: uuid });
+    } catch (err) {
+      if (err.code != grpc.status.NOT_FOUND) {
+        throw new GrpcError(
+          grpc.status.INTERNAL,
+          'Failed to destroy nexus: ' + err
+        );
+      }
+    } finally {
+      client.close();
+    }
+
+    // remove it from the cache
+    delete this.nexus[uuid];
+  }
+
+  // Create replica and add it to the cache.
   // Throws a string (error message) if error.
-  async create(nodeName, poolName, uuid, size) {
+  async createReplica(nodeName, poolName, uuid, size) {
     let client = this._getNodeClient(nodeName);
     if (!client) {
       throw `Failed to obtain grpc client for node "${nodeName}"`;
@@ -223,14 +256,14 @@ class VolumeOperator {
     } catch (err) {
       throw new GrpcError(
         grpc.status.INTERNAL,
-        `Failed to create volume ${uuid} on pool "${poolName}": ` + err
+        `Failed to create replica ${uuid} on pool "${poolName}": ` + err
       );
     } finally {
       client.close();
     }
 
     // add it to the cache
-    this.volumes[uuid] = {
+    this.replicas[uuid] = {
       uuid: uuid,
       pool: poolName,
       node: nodeName,
@@ -238,40 +271,63 @@ class VolumeOperator {
     };
   }
 
-  async listReplicas(nodeName) {
+  // Create nexus and add it to the cache.
+  // Throws a string (error message) if error.
+  async createNexus(nodeName, uuid, size, children) {
     let client = this._getNodeClient(nodeName);
-    let volumes = await client.listReplicas().sendMessage({});
     if (!client) {
       throw `Failed to obtain grpc client for node "${nodeName}"`;
     }
+
     try {
+      await client.createNexus().sendMessage({
+        uuid: uuid,
+        size: size,
+        children: children,
+      });
     } catch (err) {
       throw new GrpcError(
         grpc.status.INTERNAL,
-        `Failed to list replicas for  node "${nodeName}"`
+        `Failed to create nexus ${uuid} on node "${nodeName}": ` + err
       );
     } finally {
       client.close();
     }
-    return volumes;
+
+    // add it to the cache
+    this.nexus[uuid] = {
+      uuid: uuid,
+      node: nodeName,
+      children: children,
+      size: size,
+      state: 'online', // XXX is the state correct?
+      devicePath: null,
+    };
   }
 
-  // Get volume (internal representation) with given uuid or all if uuid
-  // is not specified.
+  // Get internal representation of replica with given uuid or all replicas
+  // if uuid is not specified.
   // NOTE: The returned value must not be modified!
-  get(uuid) {
+  getReplica(uuid) {
     if (uuid) {
-      return this.volumes[uuid];
+      return this.replicas[uuid];
     } else {
-      return Object.values(this.volumes);
+      return Object.values(this.replicas);
     }
   }
 
-  // Return snapshot (shallow-copy) of volume k8s objects
-  snapshot() {
-    return Object.values(this.volumes).map(createK8sVolumeObject);
+  // Get internal representation of nexus with given uuid or all nexus's
+  // if uuid is not specified.
+  // NOTE: The returned value must not be modified!
+  getNexus(uuid) {
+    if (uuid) {
+      return this.nexus[uuid];
+    } else {
+      return Object.values(this.nexus);
+    }
   }
 
+  // TODO: should return stats for nexus rather than for replica
   async getStats() {
     var self = this;
     var vols = [];
@@ -297,7 +353,7 @@ class VolumeOperator {
       // jshint ignore:start
       vols = vols.concat(
         res.replicas
-          .filter(r => !!self.volumes[r.uuid])
+          .filter(r => !!self.replicas[r.uuid])
           .map(r => {
             return {
               volume: r.uuid,
@@ -317,37 +373,75 @@ class VolumeOperator {
     return vols;
   }
 
-  async createBlkdev(nodeName, uuid) {
-    let client = this._getNodeClient(nodeName);
-    if (!client) {
-      throw `Failed to obtain grpc client handle for node  "${nodeName}"`;
+  // Publish nexus and return the device path under which it got shared
+  async publishNexus(uuid) {
+    let nexus = this.nexus[uuid];
+    if (!nexus) {
+      throw new GrpcError(
+        grpc.status.INTERNAL,
+        `Nexus "${uuid}" to be published does not exist`
+      );
     }
+    let client = this._getNodeClient(nexus.node);
+    if (!client) {
+      throw new GrpcError(
+        grpc.status.INTERNAL,
+        `Failed to obtain grpc client handle for node "${nexus.node}"`
+      );
+    }
+    var res;
     try {
-      await client.createBlkdev().sendMessage({
-        replica: uuid,
-      });
+      res = await client.publishNexus().sendMessage({ uuid: uuid });
     } catch (err) {
       throw new GrpcError(
         grpc.status.INTERNAL,
-        `Failed to create blkdev for volume ${uuid}: ` + err
+        `Failed to publish nexus ${uuid}: ` + err
+      );
+    } finally {
+      client.close();
+    }
+    // we got switched off the cpu and the nexus might be gone now
+    nexus = this.nexus[uuid];
+    if (!nexus) {
+      throw new GrpcError(
+        grpc.status.INTERNAL,
+        `Nexus ${uuid} was destroyed before it got shared`
       );
     }
+    nexus.devicePath = res.devicePath;
+    return res.devicePath;
   }
 
-  async destroyBlkdev(nodeName, uuid) {
-    let client = this._getNodeClient(nodeName);
+  // Unpublish nexus
+  async unpublishNexus(uuid) {
+    let nexus = this.nexus[uuid];
+    if (!nexus) {
+      throw new GrpcError(
+        grpc.status.INTERNAL,
+        `Nexus "${uuid}" to be unpublished does not exist`
+      );
+    }
+    let client = this._getNodeClient(nexus.node);
     if (!client) {
-      throw `Failed to obtain grpc client handle for node  "${nodeName}"`;
+      throw new GrpcError(
+        grpc.status.INTERNAL,
+        `Failed to obtain grpc client handle for node "${nexus.node}"`
+      );
     }
     try {
-      await client.destroyBlkdev().sendMessage({
-        replica: uuid,
-      });
+      await client.unpublishNexus().sendMessage({ uuid: uuid });
     } catch (err) {
       throw new GrpcError(
         grpc.status.INTERNAL,
-        `Failed to destroy blkdev for volume ${uuid}: ` + err
+        `Failed to unpublish nexus ${uuid}: ` + err
       );
+    } finally {
+      client.close();
+    }
+    // we got switched off the cpu and the nexus might be gone now
+    nexus = this.nexus[uuid];
+    if (nexus) {
+      nexus.devicePath = null;
     }
   }
 }
@@ -356,28 +450,31 @@ class VolumeOperator {
 class VolumeOperatorMock extends EventEmitter {
   // The first arg is list of volumes which will be put into the cache
   // Second arg is stat value returned by getStats call.
-  constructor(volumes, stat) {
+  constructor(nexus, replicas, stat) {
     super();
-    this.volumes = volumes || [];
+    this.nexus = nexus || [];
+    this.replicas = replicas || [];
     this.errors = [];
     this.stat = stat || 0;
   }
 
-  // Get volume with given name
-  get(uuid) {
+  getReplica(uuid) {
     if (uuid) {
-      return this.volumes.find(v => v.uuid == uuid);
+      return this.replicas.find(r => r.uuid == uuid);
     } else {
-      return this.volumes;
+      return this.replicas;
     }
   }
 
-  // Return snapshot (shallow-copy) of volume list
-  snapshot() {
-    return this.volumes.map(createK8sVolumeObject);
+  getNexus(uuid) {
+    if (uuid) {
+      return this.nexus.find(n => n.uuid == uuid);
+    } else {
+      return this.nexus;
+    }
   }
 
-  async create(nodeName, poolName, uuid, size) {
+  async createReplica(nodeName, poolName, uuid, size) {
     let err = this.errors.shift();
     if (err) {
       throw err;
@@ -387,30 +484,57 @@ class VolumeOperatorMock extends EventEmitter {
       pool: poolName,
       node: nodeName,
       size: size,
-      dev: null, // a field only present in mock for testing (un)publish
     };
-    let idx = this.volumes.findIndex(v => v.uuid == uuid);
+    let idx = this.replicas.findIndex(r => r.uuid == uuid);
     if (idx >= 0) {
-      this.volumes[idx] = obj;
+      this.replicas[idx] = obj;
     } else {
-      this.volumes.push(obj);
+      this.replicas.push(obj);
     }
   }
 
-  async destroy(nodeName, uuid) {
+  async createNexus(nodeName, uuid, size, children) {
     let err = this.errors.shift();
     if (err) {
       throw err;
     }
-    this.volumes = this.volumes.filter(v => v.uuid != uuid);
+    let obj = {
+      uuid: uuid,
+      node: nodeName,
+      size: size,
+      children: children,
+      devicePath: null,
+    };
+    let idx = this.nexus.findIndex(n => n.uuid == uuid);
+    if (idx >= 0) {
+      this.nexus[idx] = obj;
+    } else {
+      this.nexus.push(obj);
+    }
+  }
+
+  async destroyReplica(nodeName, uuid) {
+    let err = this.errors.shift();
+    if (err) {
+      throw err;
+    }
+    this.replicas = this.replicas.filter(r => r.uuid != uuid);
+  }
+
+  async destroyNexus(nodeName, uuid) {
+    let err = this.errors.shift();
+    if (err) {
+      throw err;
+    }
+    this.nexus = this.nexus.filter(n => n.uuid != uuid);
   }
 
   async getStats() {
     var self = this;
-    return this.volumes.map(v => {
+    return this.replicas.map(r => {
       return {
-        volume: v.uuid,
-        pool: v.pool,
+        uuid: r.uuid,
+        pool: r.pool,
         stats: {
           num_read_ops: self.stat,
           num_write_ops: self.stat,
@@ -421,18 +545,26 @@ class VolumeOperatorMock extends EventEmitter {
     });
   }
 
-  async createBlkdev(noneName, uuid) {
-    let vol = this.volumes.find(v => v.uuid == uuid);
-    assert(vol);
-    assert(!vol.dev);
-    vol.dev = '/dev/nbd0';
+  async publishNexus(uuid) {
+    let nexus = this.nexus.find(n => n.uuid == uuid);
+    if (!nexus) {
+      throw new GrpcError(
+        grpc.status.INTERNAL,
+        `Nexus "${uuid}" to be published does not exist`
+      );
+    }
+    nexus.devicePath = '/dev/nbd0';
   }
 
-  async destroyBlkdev(noneName, uuid) {
-    let vol = this.volumes.find(v => v.uuid == uuid);
-    assert(vol);
-    assert(vol.dev);
-    delete vol.dev;
+  async unpublishNexus(uuid) {
+    let nexus = this.nexus.find(n => n.uuid == uuid);
+    if (!nexus) {
+      throw new GrpcError(
+        grpc.status.INTERNAL,
+        `Nexus "${uuid}" to be unpublished does not exist`
+      );
+    }
+    nexus.devicePath = null;
   }
 
   injectError(err) {

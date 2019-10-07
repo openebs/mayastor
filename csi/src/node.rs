@@ -1,13 +1,15 @@
 use crate::csi::*;
+use enclose::enclose;
 use futures::future::{err, ok, Either, Future, FutureResult};
+use glob::glob;
 use jsonrpc;
-use rpc::jsonrpc as jsondata;
+use rpc::mayastor::{ListNexusReply, Nexus};
 use std::{boxed::Box, fs, io::ErrorKind, path::PathBuf, vec::Vec};
 use tower_grpc::{Code, Request, Response, Status};
 
 use crate::{
+    format::probed_format,
     mount::{match_mount, mount_fs, mount_opts_compare, unmount_fs, Fs},
-    nbd::{self, nbd_stage_volume},
 };
 
 #[derive(Clone, Debug)]
@@ -71,6 +73,27 @@ fn check_access_mode(
     }
 }
 
+/// Return a future which lists nexus's from mayastor and returns the one with
+/// matching uuid or None.
+fn lookup_nexus(
+    socket: &str,
+    uuid: &str,
+) -> Box<dyn Future<Item = Option<Nexus>, Error = Status> + Send + 'static> {
+    let uuid = uuid.to_string();
+
+    let f = jsonrpc::call::<(), ListNexusReply>(socket, "list_nexus", None)
+        .map_err(|e| e.into_status())
+        .and_then(move |reply| {
+            for nexus in reply.nexus_list.iter() {
+                if nexus.uuid == uuid {
+                    return ok(Some(nexus.clone()));
+                }
+            }
+            ok(None)
+        });
+    Box::new(f)
+}
+
 impl Node {}
 
 impl server::Node for Node {
@@ -111,7 +134,8 @@ impl server::Node for Node {
             "mayastor://{}/{}:{}",
             &self.node_name, &self.addr, self.port,
         );
-        let max_volumes_per_node = nbd::NbdDevInfo::num_devices() as i64;
+        let max_volumes_per_node =
+            glob("/dev/nbd*").expect("Invalid glob pattern").count() as i64;
 
         debug!(
             "NodeGetInfo request: ID={}, max volumes={}",
@@ -347,54 +371,30 @@ impl server::Node for Node {
     ) -> Self::NodeGetVolumeStatsFuture {
         let msg = request.into_inner();
         trace!("{:?}", msg);
-        // self is a reference and we can't use it in the closure below
-        let socket = self.socket.clone();
         let volume_id = msg.volume_id;
 
-        let bdev_to_stats = |bdev: jsondata::Bdev| {
-            NodeGetVolumeStatsResponse {
-                usage: vec![VolumeUsage {
-                    total: i64::from(bdev.block_size) * bdev.num_blocks as i64,
-                    unit: volume_usage::Unit::Bytes as i32,
-                    // TODO: set available and used when we know how to
-                    // find out their values
-                    available: 0,
-                    used: 0,
-                }],
-            }
-        };
-
-        let f = nbd::get_nbd_instance(&self.socket, &volume_id)
-            .and_then(move |res| {
-                if let Some(disk) = res {
-                    assert_eq!(disk.bdev_name, volume_id);
-                    Either::A(
-                        jsonrpc::call(
-                            &socket,
-                            "get_bdevs",
-                            Some(jsondata::GetBdevsArgs {
-                                name: volume_id.to_owned(),
-                            }),
-                        )
-                        .map_err(|err| err.into_status())
-                        .and_then(move |mut bdevs: Vec<jsondata::Bdev>| {
-                            if bdevs.is_empty() {
-                                return err(Status::new(
-                                    Code::Internal,
-                                    format!("Cannot find underlying bdev for volume {}", volume_id),
-                                ));
-                            }
-                            assert_eq!(bdevs.len(), 1);
-                            ok(Response::new(bdev_to_stats(bdevs.remove(0))))
-                        }),
-                    )
-                } else {
-                    Either::B(err(Status::new(
+        let f = lookup_nexus(&self.socket, &volume_id).and_then(
+            move |maybe_nexus| {
+                let nexus = match maybe_nexus {
+                    Some(nexus) => nexus,
+                    None => grpc_return!(
                         Code::NotFound,
-                        format!("Volume {} not found", volume_id),
-                    )))
-                }
-            });
+                        format!("Volume {} not found", volume_id)
+                    ),
+                };
+                Box::new(ok(Response::new(NodeGetVolumeStatsResponse {
+                    usage: vec![VolumeUsage {
+                        total: nexus.size as i64,
+                        unit: volume_usage::Unit::Bytes as i32,
+                        // TODO: set available and used when we
+                        // know how to
+                        // find out their values
+                        available: 0,
+                        used: 0,
+                    }],
+                })))
+            },
+        );
         Box::new(f)
     }
 
@@ -415,11 +415,13 @@ impl server::Node for Node {
         request: Request<NodeStageVolumeRequest>,
     ) -> Self::NodeStageVolumeFuture {
         let msg = request.into_inner();
-        let volume_id = msg.volume_id.clone();
+        let volume_id = &msg.volume_id;
+        let staging_path = &msg.staging_target_path;
+        let mount_fail = msg.publish_context.contains_key("mount");
 
         trace!("{:?}", msg);
 
-        if msg.staging_target_path == "" || msg.volume_id == "" {
+        if staging_path == "" || volume_id == "" {
             grpc_return!(
                 Code::InvalidArgument,
                 "Invalid target path or volume id"
@@ -469,27 +471,108 @@ impl server::Node for Node {
             }
         };
 
-        debug!(
-            "Staging volume {} to {}",
-            volume_id, msg.staging_target_path
-        );
+        debug!("Staging volume {} to {}", volume_id, staging_path);
 
-        if let Err(err) =
-            fs::create_dir_all(PathBuf::from(&msg.staging_target_path))
-        {
+        if let Err(err) = fs::create_dir_all(PathBuf::from(&staging_path)) {
             if err.kind() != ErrorKind::AlreadyExists {
                 grpc_return!(
                     Code::Internal,
                     format!(
                         "Failed to create mountpoint {} for volume {}: {}",
-                        &msg.staging_target_path, volume_id, err
+                        &staging_path, volume_id, err
                     )
                 );
             }
         }
 
-        nbd_stage_volume(self.socket.clone(), &msg, filesystem, mnt.mount_flags)
+        let f = lookup_nexus(&self.socket, &volume_id)
+            .and_then(enclose! { (volume_id, staging_path) move |maybe_nexus| {
+                let nexus = match maybe_nexus {
+                    Some(nexus) => nexus,
+                    None => return err(
+                        Status::new(
+                            Code::NotFound,
+                            format!("Volume {} not found", volume_id)
+                        )
+                    )
+                };
+                if &nexus.device_path == "" {
+                    return err(
+                        Status::new(
+                            Code::InvalidArgument,
+                            format!(
+                                "The volume {} has not been published",
+                                volume_id,
+                            )
+                        )
+                    );
+                }
+                if let Some(mount) = match_mount(
+                    Some(&nexus.device_path),
+                    Some(&staging_path),
+                    false,
+                ) {
+                    if mount.source == nexus.device_path
+                        && mount.dest == staging_path
+                    {
+                        // the device is already mounted we should
+                        // return OK
+                        ok((true, nexus.device_path))
+                    } else {
+                        // something else is there already
+                        err(Status::new(
+                            Code::AlreadyExists,
+                            format!(
+                                "Mountpoint {} is already used",
+                                staging_path,
+                            ),
+                        ))
+                    }
+                } else {
+                    ok((false, nexus.device_path))
+                }
+            }})
+            .and_then(enclose! { (volume_id, staging_path) move |mounted| {
+                if !mounted.0 {
+                    Either::A(probed_format(&mounted.1, &filesystem.name).then(
+                        move |format_result| {
+                            let mnt_result = if mount_fail || format_result.is_err()
+                            {
+                                if !mount_fail {
+                                    Err(format_result.unwrap_err())
+                                } else {
+                                    debug!("Simulating mount failure");
+                                    Err("simulated".to_owned())
+                                }
+                            } else {
+                                mount_fs(
+                                    &mounted.1,
+                                    &staging_path,
+                                    false,
+                                    &filesystem.name,
+                                    &mnt.mount_flags,
+                                )
+                            };
+
+                            if let Err(reason) = mnt_result {
+                                Box::new(err(Status::new(Code::Internal, reason)))
+                            } else {
+                                info!("Staged {} on {}", volume_id, staging_path);
+                                Box::new(ok(Response::new(
+                                    NodeStageVolumeResponse {},
+                                )))
+                            }
+                        },
+                    ))
+                } else {
+                    Either::B(Box::new(ok(Response::new(
+                        NodeStageVolumeResponse {},
+                    ))))
+                }
+            }});
+        Box::new(f)
     }
+
     // A Node Plugin MUST implement this RPC call if it has STAGE_UNSTAGE_VOLUME
     // node capability. This RPC is a reverse operation of NodeStageVolume.
     // This RPC MUST undo the work by the corresponding NodeStageVolume. This
@@ -522,48 +605,37 @@ impl server::Node for Node {
 
         debug!("Unstaging volume {} at {}", volume_id, stage_path);
 
-        let f = nbd::get_nbd_instance(&self.socket.clone(), &msg.volume_id)
-            .and_then(move |nbd_disk| {
-                if nbd_disk.is_none() {
-                    // if we dont have a nbd device with a corresponding bdev,
-                    // its an error ass it should
-                    error!(
-                        "No device instance found for {}, likely a bug",
-                        &msg.volume_id
-                    );
-
-                    return err(Status::new(
+        let f = lookup_nexus(&self.socket, &volume_id).and_then(
+            move |maybe_nexus| {
+                let nexus = match maybe_nexus {
+                    Some(nexus) => nexus,
+                    None => grpc_return!(
                         Code::NotFound,
-                        "no such bdev exists".to_string(),
-                    ));
-                }
-
-                let nbd_disk = nbd_disk.unwrap();
-
-                if let Some(mount) = match_mount(
-                    Some(&nbd_disk.nbd_device),
-                    Some(&msg.staging_target_path),
-                    true,
-                ) {
-                    // we have an exact match unmount
-                    if mount.source == nbd_disk.nbd_device
-                        && msg.staging_target_path == mount.dest
-                    {
-                        return ok(true);
+                        format!("Volume {} not found", volume_id)
+                    ),
+                };
+                if nexus.device_path != "" {
+                    if let Some(mount) = match_mount(
+                        Some(&nexus.device_path),
+                        Some(&stage_path),
+                        true,
+                    ) {
+                        if mount.source == nexus.device_path
+                            && stage_path == mount.dest
+                        {
+                            // we have an exact match -> unmount
+                            if let Err(reason) = unmount_fs(&stage_path, false)
+                            {
+                                grpc_return!(Code::Internal, reason);
+                            }
+                        }
                     }
                 }
-                // staging does not match target path must reply OK
-                ok(false)
-            })
-            .and_then(move |res| {
-                if res {
-                    if let Err(reason) = unmount_fs(&stage_path, false) {
-                        dbg!(&reason);
-                        grpc_return!(Code::Internal, reason);
-                    }
-                }
+                // if already unstaged or staging does not match target path -
+                // must reply OK
                 Box::new(ok(Response::new(NodeUnstageVolumeResponse {})))
-            });
+            },
+        );
 
         Box::new(f)
     }

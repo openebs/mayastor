@@ -17,6 +17,7 @@ module.exports = function() {
 
   before(() => {
     volumeOperator = new VolumeOperatorMock(
+      [],
       [
         {
           uuid: UUID,
@@ -48,7 +49,7 @@ module.exports = function() {
         resp.on('end', () => {
           let vols = JSON.parse(data);
           assert.lengthOf(vols, 1);
-          assert.equal(vols[0].volume, UUID);
+          assert.equal(vols[0].uuid, UUID);
           assert.equal(vols[0].pool, 'pool');
           assert.equal(vols[0].stats.num_read_ops, STAT_COUNTER);
           assert.equal(vols[0].stats.num_write_ops, STAT_COUNTER);

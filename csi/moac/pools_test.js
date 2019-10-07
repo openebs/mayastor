@@ -206,7 +206,7 @@ module.exports = function() {
         assert.equal(stat.reason, '');
 
         // verify state in the mocked mayastor server
-        let plist = srv.get();
+        let plist = srv.getPools();
         assert.lengthOf(plist, 1);
         assert.equal(plist[0].name, 'pool');
         assert.lengthOf(plist[0].disks, 1);
@@ -378,7 +378,7 @@ module.exports = function() {
           });
         });
 
-        let plist = srv.get();
+        let plist = srv.getPools();
         assert.lengthOf(plist, 0);
         plist = oper.get();
         assert.lengthOf(plist, 0);
@@ -422,7 +422,7 @@ module.exports = function() {
           setTimeout(resolve, 10);
         });
 
-        let plist = srv.get();
+        let plist = srv.getPools();
         assert.lengthOf(plist, 1);
         // Although not destroyed it is still removed from internal state
         plist = oper.get();
@@ -523,7 +523,7 @@ module.exports = function() {
         assert.equal(stat.state, 'ONLINE');
         assert.equal(stat.reason, '');
 
-        let plist = srv.get();
+        let plist = srv.getPools();
         assert.lengthOf(plist, 1);
         assert.equal(plist[0].name, 'pool');
         assert.equal(plist[0].state, 0);
@@ -589,7 +589,7 @@ module.exports = function() {
       assert.equal(stat.state, 'ONLINE');
       assert.equal(stat.reason, '');
 
-      let plist = srv.get();
+      let plist = srv.getPools();
       assert.lengthOf(plist, 1);
       assert.equal(plist[0].name, 'pool');
       assert.equal(plist[0].state, 0);
@@ -619,7 +619,7 @@ module.exports = function() {
         oper.once('destroy', resolve);
       });
 
-      let plist = srv.get();
+      let plist = srv.getPools();
       assert.lengthOf(plist, 0);
       plist = oper.get();
       assert.lengthOf(plist, 0);
@@ -646,7 +646,7 @@ module.exports = function() {
       assert.equal(stat.state, 'DEGRADED');
       assert.equal(stat.reason, '');
 
-      let plist = srv.get();
+      let plist = srv.getPools();
       assert.lengthOf(plist, 1);
       assert.equal(plist[0].name, 'pool');
 
@@ -712,7 +712,7 @@ module.exports = function() {
 
       await oper.start();
 
-      let pools = srv.get();
+      let pools = srv.getPools();
       assert.lengthOf(pools, 2);
       assert.equal(pools[0].name, 'pool');
       assert.equal(pools[0].state, 1);
@@ -754,7 +754,7 @@ module.exports = function() {
       await sleep(1500);
       poolsModule.syncInterval = 60;
 
-      let pools = srv.get();
+      let pools = srv.getPools();
       assert.lengthOf(pools, 2);
       assert.equal(pools[0].name, 'pool');
       assert.equal(pools[0].state, 0);
@@ -798,7 +798,7 @@ module.exports = function() {
 
       await oper.syncNode('node');
 
-      let pools = srv.get();
+      let pools = srv.getPools();
       assert.lengthOf(pools, 2);
       assert.equal(pools[0].name, 'pool');
       assert.equal(pools[0].state, 1);
@@ -842,7 +842,7 @@ module.exports = function() {
 
       await oper.syncNode();
 
-      let pools = srv.get();
+      let pools = srv.getPools();
       assert.lengthOf(pools, 2);
       assert.equal(pools[0].name, 'pool');
       assert.equal(pools[0].state, 0);

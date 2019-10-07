@@ -79,39 +79,3 @@ pub struct Stats {
     pub bytes_read: u64,
     pub bytes_written: u64,
 }
-
-// the underlying fields will be removed shortly
-
-#[derive(Clone, Debug, Serialize)]
-pub struct GetBdevsArgs {
-    pub name: String,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct Bdev {
-    pub name: String,
-    pub aliases: Vec<String>,
-    pub product_name: String,
-    pub block_size: u32,
-    pub num_blocks: u64,
-    pub uuid: Option<String>,
-    // ... other fields which are not used by us (i.e. uuid, qos, etc.)
-    pub driver_specific: serde_json::Value,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct StartNbdDiskArgs {
-    pub bdev_name: String,
-    pub nbd_device: String,
-}
-
-#[derive(Clone, Debug, Serialize)]
-pub struct StopNbdDiskArgs {
-    pub nbd_device: String,
-}
-
-#[derive(Clone, Debug, Deserialize)]
-pub struct NbdDisk {
-    pub nbd_device: String,
-    pub bdev_name: String,
-}

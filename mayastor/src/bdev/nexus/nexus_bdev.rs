@@ -1,76 +1,80 @@
-///
-/// The nexus is one of core components, next to the target services. With
-/// the nexus a developer is able to construct a per application volume
-/// optimized for the perceived intent. For example, depending on
-/// application needs synchronous mirroring may be required.
-///
-/// In order to create a nexus, it requires storage target URI's.
-///
-/// Creating a 3 way replica nexus example:
-///
-/// # example
-/// ```ignore
-/// use mayastor::descriptor::{Descriptor, DmaBuf};
-/// use mayastor::bdev::nexus::nexus_bdev::nexus_create;
-/// let children = vec![
-///        "aio:////disk1.img?blk_size=512".to_string(),
-///        "iscsi://foobar/iqn.2019-05.io.openebs:disk0".into(),
-///        "nvmf://fooo/nqn.2019-05.io-openebs:disk0".into(),
-///    ];
-///
-/// // if no UUID given, one will be generated for you
-/// let uuid = "b6565df-af19-4645-9f98-e6a8b8c13b58".to_string();
-///
-/// // create the nexus using the vector of child devices
-/// let nexus = nexus_create("mynexus", 4096, 131_027, Some(uuid),  &children).await.unwrap();
-///
-/// // open a block descriptor
-/// let bd = Descriptor::open(&nexus, true).unwrap();
-///
-/// // only use DMA buffers to issue IO, as its a member of the opened device
-/// // alignment is handled implicitly
-/// let mut buf = bd.dma_zmalloc(4096).unwrap();
-///
-/// // fill the buffer with a know value
-/// buf.fill(0xff);
-///
-/// // write out the buffer to the nexus, all child devices will receive the
-/// // same IO. Put differently. A single IO becomes three IOs
-/// bd.write_at(0, &mut buf).await.unwrap();
-///
-/// // fill the buffer with zeroes and read back the data
-/// buf.fill(0x00);
-/// bd.read_at(0, &mut buf).await.unwrap();
-///
-/// // verify that the buffer is filled with wrote previously
-/// buf.as_slice().into_iter().map(|b| assert_eq!(b, 0xff)).for_each(drop);
-/// ```
-///
-/// The nexus itself can be exported over the network as well
-///
-/// # share
-/// ```ignore
-/// // make the nexus available over the network, the network settings depend
-/// // on other configuration factors
-/// nexus.share().unwrap();
-/// ```
-use crate::bdev::{
-    nexus::{
-        self,
-        nexus_channel::NexusChannel,
-        nexus_child::{ChildState, NexusChild},
-        nexus_io::Nio,
-        Error,
+//!
+//! The nexus is one of core components, next to the target services. With
+//! the nexus a developer is able to construct a per application volume
+//! optimized for the perceived intent. For example, depending on
+//! application needs synchronous mirroring may be required.
+//!
+//! In order to create a nexus, it requires storage target URI's.
+//!
+//! Creating a 3 way replica nexus example:
+//!
+//! # example
+//! ```ignore
+//! use mayastor::descriptor::{Descriptor, DmaBuf};
+//! use mayastor::bdev::nexus::nexus_bdev::nexus_create;
+//! let children = vec![
+//!        "aio:////disk1.img?blk_size=512".to_string(),
+//!        "iscsi://foobar/iqn.2019-05.io.openebs:disk0".into(),
+//!        "nvmf://fooo/nqn.2019-05.io-openebs:disk0".into(),
+//!    ];
+//!
+//! // create the nexus using the vector of child devices
+//! let nexus = nexus_create(
+//!     "nexus-b6565df-af19-4645-9f98-e6a8b8c13b58",
+//!     4096,
+//!     131_027,
+//!     Some("b6565df-af19-4645-9f98-e6a8b8c13b58"),
+//!     &children,
+//! ).await.unwrap();
+//!
+//! // open a block descriptor
+//! let bd = Descriptor::open(&nexus, true).unwrap();
+//!
+//! // only use DMA buffers to issue IO, as its a member of the opened device
+//! // alignment is handled implicitly
+//! let mut buf = bd.dma_zmalloc(4096).unwrap();
+//!
+//! // fill the buffer with a know value
+//! buf.fill(0xff);
+//!
+//! // write out the buffer to the nexus, all child devices will receive the
+//! // same IO. Put differently. A single IO becomes three IOs
+//! bd.write_at(0, &mut buf).await.unwrap();
+//!
+//! // fill the buffer with zeroes and read back the data
+//! buf.fill(0x00);
+//! bd.read_at(0, &mut buf).await.unwrap();
+//!
+//! // verify that the buffer is filled with wrote previously
+//! buf.as_slice().into_iter().map(|b| assert_eq!(b, 0xff)).for_each(drop);
+//! ```
+//!
+//! The nexus itself can be exported over the network as well
+//!
+//! # share
+//! ```ignore
+//! // make the nexus available as a block device to the rest of the system
+//! let _device_path = nexus.share().unwrap();
+//! ```
+
+use crate::{
+    bdev::{
+        nexus::{
+            self,
+            instances,
+            nexus_channel::{DREvent, NexusChannel, NexusChannelInner},
+            nexus_child::{ChildState, NexusChild},
+            nexus_io::{IoStatus, Nio},
+            nexus_label::{GPTHeader, GptEntry, GptGuid, GptName, NexusLabel},
+            nexus_nbd as nbd,
+            Error,
+        },
+        Bdev,
     },
-    Bdev,
+    descriptor::DmaBuf,
 };
-
-use crate::bdev::nexus::{
-    nexus_channel::NexusChannelInner,
-    nexus_io::IoStatus,
-};
-
-use crate::bdev::nexus::instances;
+use bincode::serialize_into;
+use futures::channel::oneshot;
 use serde::Serialize;
 use spdk_sys::{
     spdk_bdev,
@@ -86,25 +90,11 @@ use spdk_sys::{
     spdk_io_device_register,
     spdk_io_device_unregister,
 };
-
 use std::{
     fmt::{Display, Formatter},
+    io::{Cursor, Seek, SeekFrom},
     ops::Neg,
     os::raw::c_void,
-};
-
-use crate::{
-    bdev::nexus::{
-        nexus_channel::DREvent,
-        nexus_label::{GPTHeader, GptEntry, GptGuid, GptName, NexusLabel},
-        Error::Internal,
-    },
-    descriptor::DmaBuf,
-};
-use bincode::serialize_into;
-use futures::channel::oneshot;
-use std::{
-    io::{Cursor, Seek, SeekFrom},
     str::FromStr,
 };
 
@@ -128,6 +118,8 @@ pub struct Nexus {
     /// Dynamic Reconfigure event
     pub dr_complete_notify: Option<oneshot::Sender<i32>>,
     pub offset: u64,
+    /// nbd device which the nexus is exposed through
+    nbd_disk: Option<nbd::Disk>,
 }
 
 unsafe impl core::marker::Sync for Nexus {}
@@ -174,8 +166,8 @@ impl Nexus {
         name: &str,
         block_len: u32,
         block_cnt: u64,
+        uuid: Option<&str>,
         child_bdevs: Option<&[String]>,
-        uuid: Option<String>,
     ) -> Result<Box<Self>, nexus::Error> {
         let mut b = Box::new(spdk_bdev::default());
         b.name = c_str!(name);
@@ -195,9 +187,13 @@ impl Nexus {
             bdev_raw: Box::into_raw(b),
             dr_complete_notify: None,
             offset: 0,
+            nbd_disk: None,
         });
 
-        n.bdev.set_uuid(uuid);
+        n.bdev.set_uuid(match uuid {
+            Some(uuid) => Some(uuid.to_string()),
+            None => None,
+        });
 
         if let Some(child_bdevs) = child_bdevs {
             n.add_children(child_bdevs);
@@ -234,6 +230,11 @@ impl Nexus {
     /// returns the name of the nexus instance
     pub fn name(&self) -> &str {
         &self.name
+    }
+
+    /// returns the size of the nexus instance
+    pub fn size(&self) -> u64 {
+        u64::from(self.bdev.block_size()) * self.bdev.num_blocks()
     }
 
     /// reconfigure the child event handler
@@ -322,6 +323,37 @@ impl Nexus {
         Ok(())
     }
 
+    /// Destroy the nexus.
+    ///
+    /// NOTE: The nexus may still live after returning from this method
+    /// the close method is called from SPDK close callback any time after
+    /// the bdev unregister is called so keep this call at the end of this
+    /// method!
+    pub async fn destroy(&mut self) {
+        // doing this in the context of nexus_close() would be better
+        // however we can not change the function in async there so we
+        // do it here.
+        for child in self.children.iter_mut() {
+            if child.state == ChildState::Open {
+                let _ = child.close();
+            }
+            info!("Destroying child bdev {}", child.name);
+
+            let r = child.destroy().await;
+            if r.is_err() {
+                warn!("Failed to destroy child {}", child.name);
+            }
+        }
+
+        info!("Destroying nexus {}", self.name);
+
+        unsafe {
+            // This will trigger spdk callback to close() which removes
+            // the device from global list of nexus's
+            spdk_bdev_unregister(self.bdev_raw, None, std::ptr::null_mut());
+        }
+    }
+
     /// register the bdev with SPDK and set the callbacks for io channel
     /// creation. Once this function is called, the device is visible and can
     /// be used for IO.
@@ -364,7 +396,7 @@ impl Nexus {
                 libc::EINVAL => Error::Invalid,
                 libc::EEXIST => Error::Exists,
                 libc::ENOMEM => Error::OutOfMemory,
-                _ => Error::Internal,
+                _ => Error::Internal("Failed to register bdev".to_owned()),
             });
         }
 
@@ -392,7 +424,7 @@ impl Nexus {
             ent_start: hdr.lba_start,
             // 4MB
             ent_end: hdr.lba_start
-                + ((4 << 20) / self.bdev.block_size()) as u64
+                + u64::from((4 << 20) / self.bdev.block_size())
                 - 1,
             ent_attr: 0,
             ent_name: GptName {
@@ -433,14 +465,14 @@ impl Nexus {
 
             serialize_into(&mut writer, &label.primary)?;
 
-            writer.seek(SeekFrom::Start(blk_size as u64)).unwrap();
+            writer.seek(SeekFrom::Start(u64::from(blk_size))).unwrap();
 
             for p in &label.partitions {
                 serialize_into(&mut writer, &p)?;
             }
 
             for child in &mut self.children {
-                child.write_at(blk_size as u64, &buf).await?;
+                child.write_at(u64::from(blk_size), &buf).await?;
                 child.probe_label().await?;
             }
         } else {
@@ -460,16 +492,49 @@ impl Nexus {
 
             for child in &mut self.children {
                 child
-                    .write_at(
-                        (blk_size as u64 * (backup.lba_end + 1)) as u64,
-                        &buf,
-                    )
+                    .write_at(u64::from(blk_size) * (backup.lba_end + 1), &buf)
                     .await?;
                 child.probe_label().await?;
             }
         }
 
         Ok(())
+    }
+
+    /// Publish the nexus to system using nbd device and return the path to
+    /// nbd device.
+    pub async fn share(&mut self) -> Result<String, Error> {
+        if self.nbd_disk.is_some() {
+            return Err(Error::Exists);
+        }
+        match nbd::Disk::create(&self.name).await {
+            Ok(disk) => {
+                let device_path = disk.get_path();
+                self.nbd_disk = Some(disk);
+                Ok(device_path)
+            }
+            Err(err) => Err(err),
+        }
+    }
+
+    /// Undo share operation on nexus.
+    pub async fn unshare(&mut self) -> Result<(), Error> {
+        match self.nbd_disk.take() {
+            Some(disk) => {
+                disk.destroy();
+                Ok(())
+            }
+            None => Err(Error::Invalid),
+        }
+    }
+
+    /// Return path /dev/... under which the nexus is shared or None if not
+    /// shared.
+    pub fn get_share_path(&self) -> Option<String> {
+        match self.nbd_disk {
+            Some(ref disk) => Some(disk.get_path()),
+            None => None,
+        }
     }
 
     /// takes self and converts into a raw pointer
@@ -485,7 +550,6 @@ impl Nexus {
     /// determine if any of the children do not support the requested
     /// io type. Brake the loop on first occurrence.
     /// TODO: optionally add this check during nexus creation
-
     pub fn io_is_supported(&self, io_type: u32) -> bool {
         self.children
             .iter()
@@ -686,18 +750,17 @@ pub async fn nexus_create(
     name: &str,
     block_len: u32,
     block_cnt: u64,
-    uuid: Option<String>,
+    uuid: Option<&str>,
     children: &[String],
-) -> Result<String, Error> {
+) -> Result<(), Error> {
     // global variable defined in the nexus module
-    let name = name.to_string();
     let nexus_list = instances();
     if nexus_list.iter().any(|n| n.name == name) {
         info!("Nexus with name {} already exists", name);
         return Err(Error::Exists);
     }
 
-    let mut ni = Nexus::new(&name, block_len, block_cnt, None, uuid)
+    let mut ni = Nexus::new(name, block_len, block_cnt, uuid, None)
         .expect("Failed to allocate Nexus instance");
 
     for child in children {
@@ -712,61 +775,19 @@ pub async fn nexus_create(
 
     if opened.is_ok() {
         nexus_list.push(ni);
-        Ok(name)
+        Ok(())
     } else {
         ni.destroy_children().await;
-        Err(Internal)
+        Err(Error::Internal("Failed to open the nexus".to_owned()))
     }
 }
 
-/// lookup a nexus by its name
+/// Lookup a nexus by its name (currently used only by test functions).
 pub fn nexus_lookup(name: &str) -> Option<&mut Nexus> {
     if let Some(nexus) = instances().iter_mut().find(|n| n.name() == name) {
         Some(nexus)
     } else {
         None
-    }
-}
-
-/// destroy the a nexus by name
-pub async fn nexus_destroy(name: &str) -> Result<String, Error> {
-    let nexus_list = instances();
-    let name = name.to_string();
-    if !nexus_list.iter().any(|n| n.name == name) {
-        info!("Nexus with name {} does not exist", name);
-        return Err(Error::NotFound);
-    }
-
-    let mut removed = nexus_list
-        .drain_filter(|n| name == n.name)
-        .collect::<Vec<_>>();
-
-    if let Some(mut nexus) = removed.pop() {
-        unsafe {
-            spdk_bdev_unregister(nexus.bdev_raw, None, std::ptr::null_mut())
-        }
-
-        // doing this in the context of nexus_close() would be better
-        // however we can not change the the function in async there so we
-        // do it here.
-
-        for child in nexus.children.iter_mut() {
-            if child.state == ChildState::Open {
-                let _ = child.close();
-            }
-            info!("Destroying child bdev {}", child.name);
-
-            let r = child.destroy().await;
-            if r.is_err() {
-                warn!("Failed to destroy child {}", child.name);
-            }
-        }
-
-        info!("Nexus {} destroyed", name);
-        Ok(name)
-    } else {
-        error!("{} Disappeared while trying to delete it", name);
-        Err(Error::Internal)
     }
 }
 

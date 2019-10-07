@@ -9,6 +9,7 @@ const grpc = require('grpc-uds');
 const grpc_promise = require('grpc-promise');
 const { CsiServer, csi, GrpcError } = require('./csi');
 const { VolumeOperatorMock } = require('./volumes');
+const { shouldFailWith } = require('./test_utils');
 
 const SOCKPATH = '/tmp/csi_controller_test.sock';
 // uuid used whenever we need some uuid and don't care about which one
@@ -20,20 +21,6 @@ function getCsiClient(svc) {
   assert(client);
   grpc_promise.promisifyAll(client);
   return client;
-}
-
-// Check that the test callback which should return a future fails with
-// given grpc error code.
-async function shouldFailWith(code, test) {
-  try {
-    await test();
-  } catch (err) {
-    if (err.code != code) {
-      throw err;
-    }
-    return;
-  }
-  throw new Error('Expected error');
 }
 
 // Pool operator mock
@@ -133,12 +120,12 @@ module.exports = function() {
   describe('controller', function() {
     var client;
 
-    async function mockedServer(pools, volumes) {
+    async function mockedServer(pools, replicas, nexus) {
       var server = new CsiServer(SOCKPATH);
       await server.start();
       server.makeReady(
         new FakePoolOperator(pools || []),
-        new VolumeOperatorMock(volumes)
+        new VolumeOperatorMock(nexus, replicas)
       );
       return server;
     }
@@ -432,10 +419,17 @@ module.exports = function() {
             requisite: [{ segments: { 'kubernetes.io/hostname': 'node' } }],
           },
         });
-        let vols = server.volumes.get();
-        assert.lengthOf(vols, 1);
-        assert.equal(vols[0].uuid, UUID);
-        assert.equal(vols[0].pool, 'degraded');
+        let repls = server.volumes.getReplica();
+        assert.lengthOf(repls, 1);
+        assert.equal(repls[0].uuid, UUID);
+        assert.equal(repls[0].pool, 'degraded');
+        assert.equal(repls[0].node, 'node');
+        let nexus = server.volumes.getNexus();
+        assert.lengthOf(nexus, 1);
+        assert.equal(nexus[0].uuid, UUID);
+        assert.equal(nexus[0].node, 'node');
+        assert.lengthOf(nexus[0].children, 1);
+        assert.equal(nexus[0].children[0], 'bdev:///' + UUID);
 
         // simulate pool sync
         server.pools.once('sync', () => {
@@ -508,10 +502,17 @@ module.exports = function() {
             ],
           },
         });
-        let vols = server.volumes.get();
-        assert.lengthOf(vols, 1);
-        assert.equal(vols[0].uuid, UUID);
-        assert.equal(vols[0].pool, 'degraded');
+        let repls = server.volumes.getReplica();
+        assert.lengthOf(repls, 1);
+        assert.equal(repls[0].uuid, UUID);
+        assert.equal(repls[0].pool, 'degraded');
+        assert.equal(repls[0].node, 'node');
+        let nexus = server.volumes.getNexus();
+        assert.lengthOf(nexus, 1);
+        assert.equal(nexus[0].uuid, UUID);
+        assert.equal(nexus[0].node, 'node');
+        assert.lengthOf(nexus[0].children, 1);
+        assert.equal(nexus[0].children[0], 'bdev:///' + UUID);
       });
 
       it('should prefer ONLINE pool', async () => {
@@ -543,6 +544,15 @@ module.exports = function() {
               node: 'node',
               size: 50,
             },
+          ],
+          [
+            {
+              uuid: uuidBusy,
+              node: 'node',
+              size: 50,
+              state: 'online',
+              children: ['bdev:///' + uuidBusy],
+            },
           ]
         );
 
@@ -556,12 +566,24 @@ module.exports = function() {
             },
           ],
         });
-        let vols = server.volumes.get();
-        assert.lengthOf(vols, 2);
-        assert.equal(vols[0].uuid, uuidBusy);
-        assert.equal(vols[0].pool, 'online');
-        assert.equal(vols[1].uuid, UUID);
-        assert.equal(vols[1].pool, 'online');
+        let repls = server.volumes.getReplica();
+        assert.lengthOf(repls, 2);
+        assert.equal(repls[0].uuid, uuidBusy);
+        assert.equal(repls[0].pool, 'online');
+        assert.equal(repls[0].node, 'node');
+        assert.equal(repls[1].uuid, UUID);
+        assert.equal(repls[1].pool, 'online');
+        assert.equal(repls[1].node, 'node');
+        let nexus = server.volumes.getNexus();
+        assert.lengthOf(nexus, 2);
+        assert.equal(nexus[0].uuid, uuidBusy);
+        assert.equal(nexus[0].node, 'node');
+        assert.lengthOf(nexus[0].children, 1);
+        assert.equal(nexus[0].children[0], 'bdev:///' + uuidBusy);
+        assert.equal(nexus[1].uuid, UUID);
+        assert.equal(nexus[1].node, 'node');
+        assert.lengthOf(nexus[1].children, 1);
+        assert.equal(nexus[1].children[0], 'bdev:///' + UUID);
       });
 
       it('should prefer pool with fewer volumes', async () => {
@@ -593,6 +615,15 @@ module.exports = function() {
               node: 'node',
               size: 50,
             },
+          ],
+          [
+            {
+              uuid: uuidBusy,
+              node: 'node',
+              size: 50,
+              state: 'online',
+              children: ['bdev:///' + uuidBusy],
+            },
           ]
         );
 
@@ -606,12 +637,24 @@ module.exports = function() {
             },
           ],
         });
-        let vols = server.volumes.get();
-        assert.lengthOf(vols, 2);
-        assert.equal(vols[0].uuid, uuidBusy);
-        assert.equal(vols[0].pool, 'busy');
-        assert.equal(vols[1].uuid, UUID);
-        assert.equal(vols[1].pool, 'idle');
+        let repls = server.volumes.getReplica();
+        assert.lengthOf(repls, 2);
+        assert.equal(repls[0].uuid, uuidBusy);
+        assert.equal(repls[0].pool, 'busy');
+        assert.equal(repls[0].node, 'node');
+        assert.equal(repls[1].uuid, UUID);
+        assert.equal(repls[1].pool, 'idle');
+        assert.equal(repls[1].node, 'node');
+        let nexus = server.volumes.getNexus();
+        assert.lengthOf(nexus, 2);
+        assert.equal(nexus[0].uuid, uuidBusy);
+        assert.equal(nexus[0].node, 'node');
+        assert.lengthOf(nexus[0].children, 1);
+        assert.equal(nexus[0].children[0], 'bdev:///' + uuidBusy);
+        assert.equal(nexus[1].uuid, UUID);
+        assert.equal(nexus[1].node, 'node');
+        assert.lengthOf(nexus[1].children, 1);
+        assert.equal(nexus[1].children[0], 'bdev:///' + UUID);
       });
 
       it('should prefer pool with more free space', async () => {
@@ -645,10 +688,17 @@ module.exports = function() {
             },
           ],
         });
-        let vols = server.volumes.get();
-        assert.lengthOf(vols, 1);
-        assert.equal(vols[0].uuid, UUID);
-        assert.equal(vols[0].pool, 'bigger');
+        let repls = server.volumes.getReplica();
+        assert.lengthOf(repls, 1);
+        assert.equal(repls[0].uuid, UUID);
+        assert.equal(repls[0].pool, 'bigger');
+        assert.equal(repls[0].node, 'node');
+        let nexus = server.volumes.getNexus();
+        assert.lengthOf(nexus, 1);
+        assert.equal(nexus[0].uuid, UUID);
+        assert.equal(nexus[0].node, 'node');
+        assert.lengthOf(nexus[0].children, 1);
+        assert.equal(nexus[0].children[0], 'bdev:///' + UUID);
       });
 
       it('should not create volume with zero size', async () => {
@@ -705,11 +755,19 @@ module.exports = function() {
             },
           ],
         });
-        let vols = server.volumes.get();
-        assert.lengthOf(vols, 1);
-        assert.equal(vols[0].uuid, UUID);
-        assert.equal(vols[0].pool, 'online');
-        assert.equal(vols[0].size, 50);
+        let repls = server.volumes.getReplica();
+        assert.lengthOf(repls, 1);
+        assert.equal(repls[0].uuid, UUID);
+        assert.equal(repls[0].pool, 'online');
+        assert.equal(repls[0].node, 'node');
+        assert.equal(repls[0].size, 50);
+        let nexus = server.volumes.getNexus();
+        assert.lengthOf(nexus, 1);
+        assert.equal(nexus[0].uuid, UUID);
+        assert.equal(nexus[0].node, 'node');
+        assert.equal(nexus[0].size, 50);
+        assert.lengthOf(nexus[0].children, 1);
+        assert.equal(nexus[0].children[0], 'bdev:///' + UUID);
       });
 
       it('should create volume with min size', async () => {
@@ -737,11 +795,19 @@ module.exports = function() {
             },
           ],
         });
-        let vols = server.volumes.get();
-        assert.lengthOf(vols, 1);
-        assert.equal(vols[0].uuid, UUID);
-        assert.equal(vols[0].pool, 'online');
-        assert.equal(vols[0].size, 50);
+        let repls = server.volumes.getReplica();
+        assert.lengthOf(repls, 1);
+        assert.equal(repls[0].uuid, UUID);
+        assert.equal(repls[0].pool, 'online');
+        assert.equal(repls[0].node, 'node');
+        assert.equal(repls[0].size, 50);
+        let nexus = server.volumes.getNexus();
+        assert.lengthOf(nexus, 1);
+        assert.equal(nexus[0].uuid, UUID);
+        assert.equal(nexus[0].node, 'node');
+        assert.equal(nexus[0].size, 50);
+        assert.lengthOf(nexus[0].children, 1);
+        assert.equal(nexus[0].children[0], 'bdev:///' + UUID);
       });
 
       it('should not fail if it already exists', async () => {
@@ -777,11 +843,19 @@ module.exports = function() {
             },
           ],
         });
-        let vols = server.volumes.get();
-        assert.lengthOf(vols, 1);
-        assert.equal(vols[0].uuid, UUID);
-        assert.equal(vols[0].pool, 'pool2');
-        assert.equal(vols[0].size, 50);
+        let repls = server.volumes.getReplica();
+        assert.lengthOf(repls, 1);
+        assert.equal(repls[0].uuid, UUID);
+        assert.equal(repls[0].pool, 'pool2');
+        assert.equal(repls[0].node, 'node');
+        assert.equal(repls[0].size, 50);
+        let nexus = server.volumes.getNexus();
+        assert.lengthOf(nexus, 1);
+        assert.equal(nexus[0].uuid, UUID);
+        assert.equal(nexus[0].node, 'node');
+        assert.equal(nexus[0].size, 50);
+        assert.lengthOf(nexus[0].children, 1);
+        assert.equal(nexus[0].children[0], 'bdev:///' + UUID);
 
         // note that the capacity is different but it is compatible
         await client.createVolume().sendMessage({
@@ -797,11 +871,19 @@ module.exports = function() {
             },
           ],
         });
-        vols = server.volumes.get();
-        assert.lengthOf(vols, 1);
-        assert.equal(vols[0].uuid, UUID);
-        assert.equal(vols[0].pool, 'pool2');
-        assert.equal(vols[0].size, 50);
+        repls = server.volumes.getReplica();
+        assert.lengthOf(repls, 1);
+        assert.equal(repls[0].uuid, UUID);
+        assert.equal(repls[0].pool, 'pool2');
+        assert.equal(repls[0].node, 'node');
+        assert.equal(repls[0].size, 50);
+        nexus = server.volumes.getNexus();
+        assert.lengthOf(nexus, 1);
+        assert.equal(nexus[0].uuid, UUID);
+        assert.equal(nexus[0].node, 'node');
+        assert.equal(nexus[0].size, 50);
+        assert.lengthOf(nexus[0].children, 1);
+        assert.equal(nexus[0].children[0], 'bdev:///' + UUID);
       });
 
       it('should fail if it exists but is incompatible', async () => {
@@ -837,11 +919,19 @@ module.exports = function() {
             },
           ],
         });
-        let vols = server.volumes.get();
-        assert.lengthOf(vols, 1);
-        assert.equal(vols[0].uuid, UUID);
-        assert.equal(vols[0].pool, 'pool2');
-        assert.equal(vols[0].size, 50);
+        let repls = server.volumes.getReplica();
+        assert.lengthOf(repls, 1);
+        assert.equal(repls[0].uuid, UUID);
+        assert.equal(repls[0].pool, 'pool2');
+        assert.equal(repls[0].node, 'node');
+        assert.equal(repls[0].size, 50);
+        let nexus = server.volumes.getNexus();
+        assert.lengthOf(nexus, 1);
+        assert.equal(nexus[0].uuid, UUID);
+        assert.equal(nexus[0].node, 'node');
+        assert.equal(nexus[0].size, 50);
+        assert.lengthOf(nexus[0].children, 1);
+        assert.equal(nexus[0].children[0], 'bdev:///' + UUID);
 
         // note that the capacity is different and incompatible
         await shouldFailWith(grpc.status.ALREADY_EXISTS, () =>
@@ -907,12 +997,23 @@ module.exports = function() {
               node: 'node',
               size: 50,
             },
+          ],
+          [
+            {
+              uuid: UUID,
+              node: 'node',
+              size: 50,
+              state: 'online',
+              children: ['bdev:///' + UUID],
+            },
           ]
         );
 
-        assert.lengthOf(server.volumes.get(), 1);
+        assert.lengthOf(server.volumes.getReplica(), 1);
+        assert.lengthOf(server.volumes.getNexus(), 1);
         await client.deleteVolume().sendMessage({ volumeId: UUID });
-        assert.lengthOf(server.volumes.get(), 0);
+        assert.lengthOf(server.volumes.getReplica(), 0);
+        assert.lengthOf(server.volumes.getNexus(), 0);
       });
 
       it('should not fail if not found', async () => {
@@ -927,9 +1028,9 @@ module.exports = function() {
           },
         ]);
 
-        assert.lengthOf(server.volumes.get(), 0);
+        assert.lengthOf(server.volumes.getReplica(), 0);
         await client.deleteVolume().sendMessage({ volumeId: UUID });
-        assert.lengthOf(server.volumes.get(), 0);
+        assert.lengthOf(server.volumes.getReplica(), 0);
       });
 
       it('should fail if backend grpc call fails', async () => {
@@ -973,7 +1074,8 @@ module.exports = function() {
       // On each node is one pool.
       before(async () => {
         var pools = [];
-        var volumes = [];
+        var replicas = [];
+        var nexus = [];
 
         for (let i = 0; i < 10; i++) {
           pools.push({
@@ -985,15 +1087,22 @@ module.exports = function() {
             used: 50,
           });
           for (let j = 0; j < 10; j++) {
-            volumes.push({
+            replicas.push({
               uuid: uuidBase + i + j,
               pool: 'pool' + i,
               node: 'node' + i,
               size: 10,
             });
+            nexus.push({
+              uuid: uuidBase + i + j,
+              node: 'node' + i,
+              size: 10,
+              state: 'online',
+              children: ['bdev:///' + UUID],
+            });
           }
         }
-        server = await mockedServer(pools, volumes);
+        server = await mockedServer(pools, replicas, nexus);
       });
 
       after(async () => {
@@ -1053,7 +1162,6 @@ module.exports = function() {
     describe('ControllerPublishVolume', function() {
       var server;
       var unknownUuid = '86705387-a323-4632-9faa-5e4f2162c142';
-      var offlineUuid = '86705387-a323-4632-9faa-5e4f2162c143';
 
       before(async () => {
         server = await mockedServer(
@@ -1066,14 +1174,6 @@ module.exports = function() {
               capacity: 100,
               used: 50,
             },
-            {
-              name: 'offline',
-              node: 'node',
-              disks: ['/dev/sda'],
-              state: 'OFFLINE',
-              capacity: 100,
-              used: 50,
-            },
           ],
           [
             {
@@ -1082,11 +1182,15 @@ module.exports = function() {
               node: 'node',
               size: 10,
             },
+          ],
+          [
             {
-              uuid: offlineUuid,
-              pool: 'offline',
+              uuid: UUID,
               node: 'node',
-              size: 10,
+              size: 50,
+              state: 'online',
+              children: ['bdev:///' + UUID],
+              devicePath: null,
             },
           ]
         );
@@ -1100,6 +1204,11 @@ module.exports = function() {
       });
 
       it('should publish volume', async () => {
+        let nexus = server.volumes.getNexus();
+        assert.lengthOf(nexus, 1);
+        assert.equal(nexus[0].uuid, UUID);
+        assert.isNull(nexus[0].devicePath);
+
         await client.controllerPublishVolume().sendMessage({
           volumeId: UUID,
           nodeId: 'mayastor://node/10.244.2.15:10124',
@@ -1112,35 +1221,14 @@ module.exports = function() {
             },
           },
         });
-        let vols = server.volumes.get();
-        assert.lengthOf(vols, 2);
-        assert.equal(vols[0].uuid, UUID);
-        assert.isNotNull(vols[0].dev);
-        assert.equal(vols[1].uuid, offlineUuid);
-        assert(!vols[1].dev);
+        nexus = server.volumes.getNexus();
+        assert.equal(nexus[0].devicePath, '/dev/nbd0');
       });
 
       it('should not publish volume if it does not exist', async () => {
         await shouldFailWith(grpc.status.NOT_FOUND, () =>
           client.controllerPublishVolume().sendMessage({
             volumeId: unknownUuid,
-            nodeId: 'mayastor://node/10.244.2.15:10124',
-            readonly: false,
-            volumeCapability: {
-              accessMode: { mode: 'SINGLE_NODE_WRITER' },
-              mount: {
-                fsType: 'xfs',
-                mount_flags: 'ro',
-              },
-            },
-          })
-        );
-      });
-
-      it('should not publish volume if pool inaccessible', async () => {
-        await shouldFailWith(grpc.status.INVALID_ARGUMENT, () =>
-          client.controllerPublishVolume().sendMessage({
-            volumeId: offlineUuid,
             nodeId: 'mayastor://node/10.244.2.15:10124',
             readonly: false,
             volumeCapability: {
@@ -1225,7 +1313,6 @@ module.exports = function() {
 
     describe('ControllerUnpublishVolume', function() {
       var unknownUuid = '86705387-a323-4632-9faa-5e4f2162c142';
-      var offlineUuid = '86705387-a323-4632-9faa-5e4f2162c143';
       var server;
 
       before(async () => {
@@ -1239,14 +1326,6 @@ module.exports = function() {
               capacity: 100,
               used: 50,
             },
-            {
-              name: 'offline',
-              node: 'node',
-              disks: ['/dev/sda'],
-              state: 'OFFLINE',
-              capacity: 100,
-              used: 50,
-            },
           ],
           [
             {
@@ -1254,13 +1333,15 @@ module.exports = function() {
               pool: 'pool',
               node: 'node',
               size: 10,
-              dev: '/dev/something',
             },
+          ],
+          [
             {
-              uuid: offlineUuid,
-              pool: 'offline',
+              uuid: UUID,
               node: 'node',
-              size: 10,
+              size: 50,
+              state: 'online',
+              children: ['bdev:///' + UUID],
             },
           ]
         );
@@ -1273,29 +1354,16 @@ module.exports = function() {
         }
       });
 
+      // make the volume published before each test case
+      beforeEach(() => {
+        server.volumes.publishNexus(UUID);
+      });
+
       it('should not unpublish volume if it does not exist', async () => {
         await shouldFailWith(grpc.status.NOT_FOUND, () =>
           client.controllerUnpublishVolume().sendMessage({
             volumeId: unknownUuid,
             nodeId: 'mayastor://node/10.244.2.15:10124',
-          })
-        );
-      });
-
-      it('should not unpublish volume if pool inaccessible', async () => {
-        await shouldFailWith(grpc.status.INVALID_ARGUMENT, () =>
-          client.controllerUnpublishVolume().sendMessage({
-            volumeId: offlineUuid,
-            nodeId: 'mayastor://node/10.244.2.15:10124',
-          })
-        );
-      });
-
-      it('should not unpublish volume on a different node', async () => {
-        await shouldFailWith(grpc.status.INVALID_ARGUMENT, () =>
-          client.controllerUnpublishVolume().sendMessage({
-            volumeId: UUID,
-            nodeId: 'mayastor://another-node/10.244.2.15:10124',
           })
         );
       });
@@ -1310,16 +1378,25 @@ module.exports = function() {
       });
 
       it('should unpublish volume', async () => {
+        let nexus = server.volumes.getNexus();
+        assert.lengthOf(nexus, 1);
+        assert.equal(nexus[0].uuid, UUID);
+        assert.equal(nexus[0].devicePath, '/dev/nbd0');
         await client.controllerUnpublishVolume().sendMessage({
           volumeId: UUID,
           nodeId: 'mayastor://node/10.244.2.15:10124',
         });
-        let vols = server.volumes.get();
-        assert.lengthOf(vols, 2);
-        assert.equal(vols[0].uuid, UUID);
-        assert(!vols[0].dev);
-        assert.equal(vols[1].uuid, offlineUuid);
-        assert(!vols[1].dev);
+        nexus = server.volumes.getNexus();
+        assert.lengthOf(nexus, 1);
+        assert.equal(nexus[0].uuid, UUID);
+        assert.isNull(nexus[0].devicePath);
+      });
+
+      it('should unpublish volume even if on a different node', async () => {
+        client.controllerUnpublishVolume().sendMessage({
+          volumeId: UUID,
+          nodeId: 'mayastor://another-node/10.244.2.15:10124',
+        });
       });
     });
 
@@ -1344,6 +1421,15 @@ module.exports = function() {
               pool: 'pool',
               node: 'node',
               size: 10,
+            },
+          ],
+          [
+            {
+              uuid: UUID,
+              node: 'node',
+              size: 50,
+              state: 'online',
+              children: ['bdev:///' + UUID],
             },
           ]
         );

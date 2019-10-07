@@ -406,7 +406,7 @@ pub fn register_pool_methods() {
                     ));
                 }
                 if let Err(err) =
-                    create_base_bdev(disk, args.block_size.unwrap_or(0))
+                    create_base_bdev(disk, args.block_size.unwrap_or(4096))
                 {
                     return Err(err);
                 };

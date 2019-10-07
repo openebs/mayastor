@@ -12,7 +12,7 @@ use std::option::NoneError;
 #[derive(Debug)]
 pub enum Error {
     /// Nobody knows
-    Internal,
+    Internal(String),
     /// spdk functions are called on a non SPDK thread
     InvalidThread,
     /// OOM but its not possible to know if this is spdk_dma_malloc() or
@@ -64,7 +64,7 @@ impl From<i32> for Error {
     fn from(e: i32) -> Self {
         match e {
             libc::ENOMEM => Error::OutOfMemory,
-            _ => Error::Internal,
+            _ => Error::Internal(format!("errno {}", e)),
         }
     }
 }
@@ -76,6 +76,7 @@ impl From<NoneError> for Error {
 }
 
 pub mod nexus_bdev;
+pub mod nexus_bdev_children;
 mod nexus_channel;
 mod nexus_child;
 mod nexus_config;
@@ -83,8 +84,8 @@ mod nexus_fn_table;
 mod nexus_io;
 pub mod nexus_label;
 pub mod nexus_module;
+pub mod nexus_nbd;
 pub mod nexus_rpc;
-pub mod nexus_bdev_children;
 
 /// public function which simply calls register module
 pub fn register_module() {
@@ -115,7 +116,7 @@ pub fn nexus_instance_new(
     children: Vec<String>,
 ) {
     let list = instances();
-    if let Ok(nexus) = Nexus::new(&name, blksize, size, Some(&children), None) {
+    if let Ok(nexus) = Nexus::new(&name, blksize, size, None, Some(&children)) {
         list.push(nexus);
     }
 }

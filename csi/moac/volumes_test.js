@@ -9,33 +9,19 @@ const sleep = require('sleep-promise');
 const { MayastorServer, STAT_DELTA } = require('./mayastor_mock');
 const { NodeOperatorMock } = require('./nodes');
 const volumesMod = require('./volumes');
-const { waitUntil } = require('./test_utils');
+const { shouldFailWith, waitUntil } = require('./test_utils');
 
 const EGRESS_ENDPOINT = '127.0.0.1:1235';
 const VolumeOperator = volumesMod.VolumeOperator;
 
 const UUID = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cbb';
 
-function startMayastorServer(pools, replicas) {
-  return new MayastorServer(EGRESS_ENDPOINT, pools, replicas).start();
+function startMayastorServer(pools, replicas, nexus) {
+  return new MayastorServer(EGRESS_ENDPOINT, pools, replicas, nexus).start();
 }
 
 function mockedVolumeOperator(nodeOperator) {
   let volumeOperator = new VolumeOperator(nodeOperator);
-}
-
-// Check that the test callback which should return a future fails with
-// given grpc error code.
-async function shouldFailWith(code, test) {
-  try {
-    await test();
-  } catch (err) {
-    if (err.code != code) {
-      throw err;
-    }
-    return;
-  }
-  throw new Error('Expected error');
 }
 
 module.exports = function() {
@@ -53,7 +39,7 @@ module.exports = function() {
     }
   });
 
-  it('should create the volume', async () => {
+  it('should create a nexus with replica', async () => {
     mayastorSrv = startMayastorServer([
       {
         name: 'pool',
@@ -70,19 +56,27 @@ module.exports = function() {
       },
     ]);
     volumeOperator = new VolumeOperator(nodeOperator);
-    await volumeOperator.create('node', 'pool', UUID, 10);
+    await volumeOperator.createReplica('node', 'pool', UUID, 10);
 
-    let vols = volumeOperator.snapshot();
-    assert.lengthOf(vols, 1);
-    assert.equal(vols[0].volumeId, UUID);
-    assert.equal(vols[0].capacityBytes, 10);
-    assert.equal(
-      vols[0].accessibleTopology[0].segments['kubernetes.io/hostname'],
-      'node'
-    );
+    let repls = volumeOperator.getReplica();
+    assert.lengthOf(repls, 1);
+    assert.equal(repls[0].uuid, UUID);
+    assert.equal(repls[0].size, 10);
+    assert.equal(repls[0].node, 'node');
+    assert.equal(repls[0].pool, 'pool');
+
+    await volumeOperator.createNexus('node', UUID, 10, ['bdev:///' + UUID]);
+
+    let nexus = volumeOperator.getNexus();
+    assert.lengthOf(nexus, 1);
+    assert.equal(nexus[0].uuid, UUID);
+    assert.equal(nexus[0].size, 10);
+    assert.equal(nexus[0].node, 'node');
+    assert.lengthOf(nexus[0].children, 1);
+    assert.equal(nexus[0].children[0], 'bdev:///' + UUID);
   });
 
-  it('should not create volume if grpc fails', async () => {
+  it('should create neither replica nor nexus if grpc fails', async () => {
     let nodeOperator = new NodeOperatorMock([
       {
         node: 'node',
@@ -91,11 +85,65 @@ module.exports = function() {
     ]);
     volumeOperator = new VolumeOperator(nodeOperator);
     await shouldFailWith(grpc.status.INTERNAL, () =>
-      volumeOperator.create('node', 'pool', UUID, 10)
+      volumeOperator.createReplica('node', 'pool', UUID, 10)
+    );
+    await shouldFailWith(grpc.status.INTERNAL, () =>
+      volumeOperator.createNexus('node', UUID, 10, ['bdev:///' + UUID])
     );
   });
 
-  it('should destroy the volume', async () => {
+  it('should publish and unpublish the nexus', async () => {
+    mayastorSrv = startMayastorServer(
+      [],
+      [],
+      [
+        {
+          uuid: UUID,
+          size: 10,
+          state: 'online',
+          children: [
+            {
+              uri: 'bdev:///' + UUID,
+              state: 'offline',
+            },
+          ],
+        },
+      ]
+    );
+    let nodeOperator = new NodeOperatorMock([
+      {
+        node: 'node',
+        endpoint: EGRESS_ENDPOINT,
+      },
+    ]);
+    volumeOperator = new VolumeOperator(nodeOperator);
+    await volumeOperator.start();
+
+    let devicePath = await volumeOperator.publishNexus(UUID);
+    assert.equal(devicePath, '/dev/nbd0');
+    let n = volumeOperator.getNexus()[0];
+    assert.equal(n.devicePath, '/dev/nbd0');
+
+    await volumeOperator.unpublishNexus(UUID);
+    assert.isNull(n.devicePath);
+  });
+
+  it('should not publish nexus if grpc fails', async () => {
+    let nodeOperator = new NodeOperatorMock([
+      {
+        node: 'node',
+        endpoint: EGRESS_ENDPOINT,
+      },
+    ]);
+    volumeOperator = new VolumeOperator(nodeOperator);
+    await volumeOperator.start();
+
+    await shouldFailWith(grpc.status.INTERNAL, () =>
+      volumeOperator.publishNexus(UUID)
+    );
+  });
+
+  it('should destroy the nexus and replica', async () => {
     mayastorSrv = startMayastorServer(
       [
         {
@@ -113,6 +161,19 @@ module.exports = function() {
           size: 10,
           thin: false,
         },
+      ],
+      [
+        {
+          uuid: UUID,
+          size: 10,
+          state: 'online',
+          children: [
+            {
+              uri: 'bdev:///' + UUID,
+              state: 'online',
+            },
+          ],
+        },
       ]
     );
     let nodeOperator = new NodeOperatorMock([
@@ -123,12 +184,15 @@ module.exports = function() {
     ]);
     volumeOperator = new VolumeOperator(nodeOperator);
     await volumeOperator.start();
-    assert.lengthOf(volumeOperator.snapshot(), 1);
-    await volumeOperator.destroy('node', UUID);
-    assert.lengthOf(volumeOperator.snapshot(), 0);
+    assert.lengthOf(volumeOperator.getReplica(), 1);
+    await volumeOperator.destroyReplica('node', UUID);
+    assert.lengthOf(volumeOperator.getReplica(), 0);
+    assert.lengthOf(volumeOperator.getNexus(), 1);
+    await volumeOperator.destroyNexus('node', UUID);
+    assert.lengthOf(volumeOperator.getNexus(), 0);
   });
 
-  it('should not destroy volume if grpc fails', async () => {
+  it('should destroy neither replica nor nexus if grpc fails', async () => {
     let nodeOperator = new NodeOperatorMock([
       {
         node: 'node',
@@ -137,11 +201,14 @@ module.exports = function() {
     ]);
     volumeOperator = new VolumeOperator(nodeOperator);
     await shouldFailWith(grpc.status.INTERNAL, () =>
-      volumeOperator.destroy('node', UUID)
+      volumeOperator.destroyReplica('node', UUID)
+    );
+    await shouldFailWith(grpc.status.INTERNAL, () =>
+      volumeOperator.destroyNexus('node', UUID)
     );
   });
 
-  it('should stat volumes even if one of grpc call fails', async () => {
+  it('should stat replicas even if one of grpc call fails', async () => {
     mayastorSrv = startMayastorServer(
       [
         {
@@ -212,21 +279,45 @@ module.exports = function() {
           size: 10,
           thin: false,
         },
+      ],
+      [
+        {
+          uuid: UUID,
+          size: 10,
+          state: 'online',
+          children: [
+            {
+              uri: 'bdev:///' + UUID,
+              state: 'online',
+            },
+          ],
+        },
       ]
     );
     let nodeOperator = new NodeOperatorMock();
     volumeOperator = new VolumeOperator(nodeOperator);
     await volumeOperator.start();
-    let promise = waitUntil(
-      () => volumeOperator.snapshot().length == 1,
-      1500,
-      'volume'
-    );
     nodeOperator.addNode('node', EGRESS_ENDPOINT);
-    await promise;
-    let vol = volumeOperator.snapshot()[0];
-    assert.equal(vol.volumeId, UUID);
-    assert.equal(vol.capacityBytes, 10);
+
+    await waitUntil(
+      () => volumeOperator.getReplica().length == 1,
+      1500,
+      'replica'
+    );
+    let r = volumeOperator.getReplica()[0];
+    assert.equal(r.uuid, UUID);
+    assert.equal(r.node, 'node');
+    assert.equal(r.pool, 'pool');
+    assert.equal(r.size, 10);
+
+    await waitUntil(() => volumeOperator.getNexus().length == 1, 1500, 'nexus');
+    let n = volumeOperator.getNexus()[0];
+    assert.equal(n.uuid, UUID);
+    assert.equal(n.node, 'node');
+    assert.equal(n.size, 10);
+    assert.equal(n.state, 'online');
+    assert.lengthOf(n.children, 1);
+    assert.equal(n.children[0], 'bdev:///' + UUID);
   });
 
   it('should sync volumes upon start', async () => {
@@ -247,6 +338,19 @@ module.exports = function() {
           size: 10,
           thin: false,
         },
+      ],
+      [
+        {
+          uuid: UUID,
+          size: 10,
+          state: 'online',
+          children: [
+            {
+              uri: 'bdev:///' + UUID,
+              state: 'online',
+            },
+          ],
+        },
       ]
     );
     let nodeOperator = new NodeOperatorMock([
@@ -257,14 +361,22 @@ module.exports = function() {
     ]);
     volumeOperator = new VolumeOperator(nodeOperator);
     await volumeOperator.start();
-    let vols = volumeOperator.snapshot();
-    assert.lengthOf(vols, 1);
-    assert.equal(vols[0].volumeId, UUID);
-    assert.equal(vols[0].capacityBytes, 10);
-    assert.equal(
-      vols[0].accessibleTopology[0].segments['kubernetes.io/hostname'],
-      'node'
-    );
+
+    let repls = volumeOperator.getReplica();
+    assert.lengthOf(repls, 1);
+    assert.equal(repls[0].uuid, UUID);
+    assert.equal(repls[0].node, 'node');
+    assert.equal(repls[0].pool, 'pool');
+    assert.equal(repls[0].size, 10);
+
+    let nexus = volumeOperator.getNexus();
+    assert.lengthOf(nexus, 1);
+    assert.equal(nexus[0].uuid, UUID);
+    assert.equal(nexus[0].node, 'node');
+    assert.equal(nexus[0].size, 10);
+    assert.equal(nexus[0].state, 'online');
+    assert.lengthOf(nexus[0].children, 1);
+    assert.equal(nexus[0].children[0], 'bdev:///' + UUID);
   });
 
   it('should retry sync of volumes after failure', async () => {
@@ -279,7 +391,8 @@ module.exports = function() {
     ]);
     volumeOperator = new VolumeOperator(nodeOperator);
     await volumeOperator.start();
-    assert.lengthOf(volumeOperator.snapshot(), 0);
+    assert.lengthOf(volumeOperator.getReplica(), 0);
+    assert.lengthOf(volumeOperator.getNexus(), 0);
 
     mayastorSrv = startMayastorServer(
       [
@@ -298,15 +411,39 @@ module.exports = function() {
           size: 10,
           thin: false,
         },
+      ],
+      [
+        {
+          uuid: UUID,
+          size: 10,
+          state: 'online',
+          children: [
+            {
+              uri: 'bdev:///' + UUID,
+              state: 'online',
+            },
+          ],
+        },
       ]
     );
     await waitUntil(
-      () => volumeOperator.snapshot().length == 1,
+      () => volumeOperator.getReplica().length == 1,
       1500,
-      'volume'
+      'replica'
     );
-    let vol = volumeOperator.snapshot()[0];
-    assert.equal(vol.volumeId, UUID);
-    assert.equal(vol.capacityBytes, 10);
+    let r = volumeOperator.getReplica()[0];
+    assert.equal(r.uuid, UUID);
+    assert.equal(r.node, 'node');
+    assert.equal(r.pool, 'pool');
+    assert.equal(r.size, 10);
+
+    await waitUntil(() => volumeOperator.getNexus().length == 1, 1500, 'nexus');
+    let n = volumeOperator.getNexus()[0];
+    assert.equal(n.uuid, UUID);
+    assert.equal(n.node, 'node');
+    assert.equal(n.size, 10);
+    assert.equal(n.state, 'online');
+    assert.lengthOf(n.children, 1);
+    assert.equal(n.children[0], 'bdev:///' + UUID);
   });
 };

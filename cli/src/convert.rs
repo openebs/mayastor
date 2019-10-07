@@ -1,5 +1,7 @@
 use byte_unit::Byte;
+
 /// converts a human string into a blocklen
+#[allow(dead_code)]
 pub(crate) fn parse_block_len(src: &str) -> Result<u32, String> {
     if let Ok(val) = Byte::from_str(src) {
         let val = val.get_bytes() as u32;
