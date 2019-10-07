@@ -18,7 +18,7 @@ use futures::{
 use rpc::jsonrpc as jsondata;
 use spdk_sys::{
     spdk_lvol,
-    vbdev_lvol_create_with_uuid,
+    vbdev_lvol_create,
     vbdev_lvol_destroy,
     vbdev_lvol_get_from_bdev,
     LVOL_CLEAR_WITH_DEFAULT,
@@ -81,7 +81,7 @@ impl Replica {
         let (sender, receiver) =
             oneshot::channel::<std::result::Result<*mut spdk_lvol, i32>>();
         let rc = unsafe {
-            vbdev_lvol_create_with_uuid(
+            vbdev_lvol_create(
                 lvs,
                 c_uuid.as_ptr(),
                 size,
@@ -90,7 +90,6 @@ impl Replica {
                 // TODO: what if device does not support unmap, will it get
                 // cleared?
                 LVOL_CLEAR_WITH_DEFAULT,
-                c_uuid.as_ptr(),
                 Some(Self::replica_done_cb),
                 cb_arg(sender),
             )
@@ -259,7 +258,7 @@ impl Replica {
     /// Get uuid (= name) of the replica.
     pub fn get_uuid(&self) -> &str {
         unsafe {
-            CStr::from_ptr(&(*self.lvol_ptr).uuid_str as *const i8)
+            CStr::from_ptr(&(*self.lvol_ptr).name as *const i8)
                 .to_str()
                 .unwrap()
         }
@@ -338,12 +337,9 @@ impl Iterator for ReplicaIter {
                         };
 
                         if replica.get_pool_name() == parts[0] {
-                            // our lvols have uuid == name
-                            if bdev.name() == replica.get_uuid() {
-                                // we found a replica
-                                self.bdev = Some(bdev);
-                                return Some(replica);
-                            }
+                            // we found a replica
+                            self.bdev = Some(bdev);
+                            return Some(replica);
                         }
                     }
                 }

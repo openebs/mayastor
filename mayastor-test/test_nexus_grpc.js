@@ -10,6 +10,10 @@ const grpc = require('grpc');
 const common = require('./test_common');
 const sudo = require('./sudo');
 
+// just some UUID used for nexus ID
+const UUID = 'dbe4d7eb-118a-4d15-b789-a18d9af6ff21';
+const UUID2 = 'dbe4d7eb-118a-4d15-b789-a18d9af6ff22';
+
 // tunables of the test suite
 var endpoint = process.env.MAYASTOR_ENDPOINT;
 
@@ -27,6 +31,7 @@ let config = `
 [Malloc]
   NumberOfLuns 2
   LunSizeInMB  64
+  BlockSize    4096
 
 [PortalGroup1]
   Portal GR1 0.0.0.0:3261
@@ -165,28 +170,24 @@ describe('nexus_grpc', function() {
 
     it('it should be able to create a Nexus using two iSCSI URI', done => {
       let args = {
-        name: 'nexus0',
+        uuid: UUID,
         size: 131072,
-        block_len: 512,
-        replicas: [
+        children: [
           'iscsi://127.0.0.1:3261/iqn.2016-06.io.openebs:disk0',
           'iscsi://127.0.0.1:3261/iqn.2016-06.io.openebs:disk1',
         ],
       };
 
-      client.CreateNexus(args, (err, res) => {
-        assert(res.name === 'nexus0');
-        done();
-      });
+      client.CreateNexus(args, done);
     });
 
-    it('should be able to list the created nexus nexus0', done => {
+    it('should be able to list the created nexus', done => {
       client.ListNexus({}, (err, res) => {
         assert(res.nexus_list.length !== 0);
 
         let nexus = res.nexus_list[0];
 
-        assert(nexus.name === 'nexus0');
+        assert(nexus.uuid === UUID);
         assert(nexus.state === 'online');
         assert(nexus.children.length === 2);
         assert(nexus.children[0].state === nexus.children[1].state);
@@ -194,46 +195,37 @@ describe('nexus_grpc', function() {
       });
     });
 
-    it('should succeed creating the same nexus0 again', done => {
+    it('should succeed creating the same nexus again', done => {
       let args = {
-        name: 'nexus0',
+        uuid: UUID,
         size: 131072,
-        block_len: 512,
-        replicas: [
+        children: [
           'iscsi://127.0.0.1:3261/iqn.2016-06.io.openebs:disk0',
           'iscsi://127.0.0.1:3261/iqn.2016-06.io.openebs:disk1',
         ],
       };
 
-      client.CreateNexus(args, (err, res) => {
-        assert(res.name === 'nexus0');
-        done();
-      });
+      client.CreateNexus(args, done);
     });
 
-    it('should succeed creating the same nexus nexus0 again but with different URIs', done => {
+    it('should succeed creating the same nexus nexus again but with different URIs', done => {
       let args = {
-        name: 'nexus0',
+        uuid: UUID,
         size: 131072,
-        block_len: 512,
-        replicas: [
+        children: [
           'iscsi://127.0.0.1:3261/iqn.2016-06.io.openebs:disk2',
           'iscsi://127.0.0.1:3261/iqn.2016-06.io.openebs:disk3',
         ],
       };
 
-      client.CreateNexus(args, (err, res) => {
-        assert(res.name === 'nexus0');
-        done();
-      });
+      client.CreateNexus(args, done);
     });
 
-    it('should fail to create a nexus: nexus1  with in use URIs', done => {
+    it('should fail to create another nexus with in use URIs', done => {
       let args = {
-        name: 'nexus1',
+        uuid: UUID2,
         size: 131072,
-        block_len: 512,
-        replicas: [
+        children: [
           'iscsi://127.0.0.1:3261/iqn.2016-06.io.openebs:disk0',
           'iscsi://127.0.0.1:3261/iqn.2016-06.io.openebs:disk1',
         ],
@@ -247,10 +239,9 @@ describe('nexus_grpc', function() {
 
     it('should fail creating a nexus with non existing URIs', done => {
       let args = {
-        name: 'nexus1',
+        uuid: UUID2,
         size: 131072,
-        block_len: 512,
-        replicas: [
+        children: [
           'iscsi://127.0.0.1:3261/iqn.2016-06.io.spdk:disk2',
           'iscsi://127.0.0.1:3261/iqn.2016-06.io.spdk:disk3',
         ],
@@ -263,7 +254,7 @@ describe('nexus_grpc', function() {
     });
 
     it('should be able to publish a nexus device using nbd', done => {
-      client.PublishNexus({ bdev_name: 'nexus0' }, (err, res) => {
+      client.PublishNexus({ uuid: UUID }, (err, res) => {
         assert(res.device_path);
         nbd_device = res.device_path;
         done();
@@ -310,11 +301,12 @@ describe('nexus_grpc', function() {
       });
     });
 
+    it('should be able to unpublish the nexus device', done => {
+      client.unpublishNexus({ uuid: UUID }, done);
+    });
+
     it('should be able to destroy the nexus', done => {
-      client.DestroyNexus({ name: 'nexus0' }, (err, res) => {
-        if (err) done(err);
-        done();
-      });
+      client.DestroyNexus({ uuid: UUID }, done);
     });
   });
 });

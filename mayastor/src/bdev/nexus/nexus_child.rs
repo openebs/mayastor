@@ -173,7 +173,7 @@ impl NexusChild {
             blk_size: self.bdev.as_ref()?.block_size(),
         });
 
-        trace!("{}: child {} opened successfully", self.parent, self.name);
+        debug!("{}: child {} opened successfully", self.parent, self.name);
 
         Ok(self.name.clone())
     }
@@ -233,6 +233,7 @@ impl NexusChild {
                 BdevType::Aio(args) => args.destroy().await,
                 BdevType::Iscsi(args) => args.destroy().await,
                 BdevType::Nvmf(args) => args.destroy(),
+                BdevType::Bdev(_name) => Ok(()),
             }
         } else {
             // a bdev type we dont support is being used by the nexus
@@ -256,7 +257,7 @@ impl NexusChild {
 
         let block_size = self.bdev.as_ref()?.block_size();
 
-        let primary = block_size as u64;
+        let primary = u64::from(block_size);
         let secondary = self.bdev.as_ref()?.num_blocks() - 1;
 
         let mut buf =
@@ -290,7 +291,7 @@ impl NexusChild {
             .as_ref()?
             .dma_malloc((num_blocks * block_size) as usize)?;
 
-        self.read_at(label.lba_table * block_size as u64, &mut buf)
+        self.read_at(label.lba_table * u64::from(block_size), &mut buf)
             .await?;
 
         let mut partitions =

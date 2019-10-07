@@ -53,7 +53,9 @@ impl IscsiBdev {
         };
 
         if ret != 0 {
-            return Err(Error::Internal);
+            return Err(Error::Internal(
+                "Failed to create iscsi bdev".to_owned(),
+            ));
         }
 
         ret = r.await.expect("completion failure for iscsi create");

@@ -33,27 +33,20 @@ enum Sub {
     #[structopt(name = "destroy")]
     /// destroy a nexus and its children (does not delete the data)
     Destroy {
-        #[structopt(name = "name")]
-        name: String,
+        #[structopt(name = "uuid")]
+        uuid: String,
     },
     #[structopt(name = "create")]
     /// Create a nexus using the given uri's
     Create {
-        #[structopt(name = "name")]
-        name: String,
-        #[structopt(
-            short,
-            long,
-            parse(try_from_str = "convert::parse_block_len")
-        )]
-        /// the block_size given in bytes
-        blk_len: u32,
+        #[structopt(name = "uuid")]
+        uuid: String,
         #[structopt(short, long, parse(try_from_str = "convert::parse_size"))]
         /// the size of the nexus to be created i.e 100MiB
         size: u64,
         #[structopt(short, long, required = true, min_values = 1)]
         /// the uris which should constitute the nexus
-        replicas: Vec<String>,
+        children: Vec<String>,
     },
     #[structopt(name = "list")]
     /// List the nexus instances on the system
@@ -62,41 +55,41 @@ enum Sub {
     #[structopt(name = "offline")]
     /// Offline a child bdev from the nexus
     Offline {
-        #[structopt(name = "name")]
-        /// name of the nexus
-        name: String,
+        #[structopt(name = "uuid")]
+        /// uuid of the nexus
+        uuid: String,
         #[structopt(name = "child_name")]
-        /// name of the child
-        child_name: String,
+        /// uri of the child
+        uri: String,
     },
 
     #[structopt(name = "online")]
     /// Online a child from the nexus
     Online {
-        #[structopt(name = "name")]
-        /// name of the nexus
-        name: String,
+        #[structopt(name = "uuid")]
+        /// uuid of the nexus
+        uuid: String,
         #[structopt(name = "child_name")]
-        /// name of the child
-        child_name: String,
+        /// uri of the child
+        uri: String,
     },
-    #[structopt(name = "share")]
+    #[structopt(name = "publish")]
     /// Share the nexus
     ///
     /// Currently only NBD is supported
-    Share {
-        #[structopt(name = "name")]
-        /// name of the nexus
-        name: String,
+    Publish {
+        #[structopt(name = "uuid")]
+        /// uuid of the nexus
+        uuid: String,
     },
-    #[structopt(name = "unshare")]
+    #[structopt(name = "unpublish")]
     /// Unshare the nexus
     ///
     /// Currently only NBD is supported
-    UnShare {
-        #[structopt(name = "name")]
-        /// name of the nbd device to unshare
-        name: String,
+    Unpublish {
+        #[structopt(name = "uuid")]
+        /// uuid of the nbd device to unshare
+        uuid: String,
     },
 }
 
@@ -128,56 +121,52 @@ fn main() -> Result<(), ()> {
 
     let fut = match opt.cmd {
         Sub::Create {
-            name,
-            blk_len,
+            uuid,
             size,
-            replicas,
+            children,
         } => fut(
             opt.socket,
             "create_nexus",
-            json!({ "name": name,
-                "block_len": blk_len,
+            json!({
+                "uuid": uuid,
                 "size": size,
-                "replicas": replicas,
-                "uuid": "",
+                "children": children,
             }),
         ),
         Sub::Destroy {
-            name,
-        } => fut(opt.socket, "destroy_nexus", json!({ "name": name })),
+            uuid,
+        } => fut(opt.socket, "destroy_nexus", json!({ "uuid": uuid })),
         Sub::List => fut(opt.socket, "list_nexus", json!(null)),
         Sub::Offline {
-            name,
-            child_name,
+            uuid,
+            uri,
         } => fut(
             opt.socket,
             "offline_child",
             json!({
-                "name": name,
-                "child_name": child_name,
+                "uuid": uuid,
+                "uri": uri,
                 "action" : ChildAction::Offline as i32,
             }),
         ),
         Sub::Online {
-            name,
-            child_name,
+            uuid,
+            uri,
         } => fut(
             opt.socket,
             "online_child",
             json!({
-                "name": name,
-                "child_name": child_name,
+                "uuid": uuid,
+                "uri": uri,
                 "action" : ChildAction::Online as i32,
             }),
         ),
-        // just for demo purposes the share/unshare methods should be
-        // implemented by the nexus itself and default to nvmf.
-        Sub::Share {
-            name,
-        } => fut(opt.socket, "start_nbd_disk", json!({ "bdev_name": name })),
-        Sub::UnShare {
-            name,
-        } => fut(opt.socket, "stop_nbd_disk", json!({ "bdev_name": name })),
+        Sub::Publish {
+            uuid,
+        } => fut(opt.socket, "publish_nexus", json!({ "uuid": uuid })),
+        Sub::Unpublish {
+            uuid,
+        } => fut(opt.socket, "unpublish_nexus", json!({ "uuid": uuid })),
     };
 
     let _res = rt.block_on(fut);

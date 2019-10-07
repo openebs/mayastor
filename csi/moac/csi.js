@@ -52,6 +52,21 @@ function checkCapabilities(caps) {
   }
 }
 
+// Create k8s volume object as returned by CSI list volumes method.
+// Input is nexus object returned by volume operator.
+function createK8sVolumeObject(nexus) {
+  if (!nexus) return nexus;
+  return {
+    volumeId: nexus.uuid,
+    capacityBytes: nexus.size,
+    accessibleTopology: [
+      {
+        segments: { 'kubernetes.io/hostname': nexus.node },
+      },
+    ],
+  };
+}
+
 // CSI Controller implementation.
 //
 // It implements Identity and Controller grpc services from csi proto file.
@@ -180,7 +195,7 @@ class CsiServer {
   //   2) must have sufficient space
   //   3) least busy pools first
   choosePools(requiredBytes, mustNodes, shouldNodes) {
-    let vols = this.volumes.snapshot();
+    let replicas = this.volumes.getReplica();
     let pools = this.pools.get().filter(p => {
       return (
         isPoolAccessible(p) &&
@@ -191,10 +206,9 @@ class CsiServer {
     // construct a map of how many volumes has each pool (how busy it is)
     let busy = {};
     pools.forEach(p => (busy[p.name] = 0));
-    vols.forEach(v => {
-      let pool = v.volumeId.split('/')[0];
-      if (busy[pool] != null) {
-        busy[pool]++;
+    replicas.forEach(r => {
+      if (busy[r.pool] != null) {
+        busy[r.pool]++;
       }
     });
 
@@ -359,13 +373,14 @@ class CsiServer {
         }
       }
     }
-    let vol = this.volumes.get(uuid);
-    if (vol) {
+    // check if the nexus already exists
+    let nexus = this.volumes.getNexus(uuid);
+    if (nexus) {
       // see if the volume is compatible in which case it is ok (be idempotent)
       if (
-        vol.size < args.capacityRange.requiredBytes ||
+        nexus.size < args.capacityRange.requiredBytes ||
         (args.capacityRange.limitBytes != 0 &&
-          vol.size > args.capacityRange.limitBytes)
+          nexus.size > args.capacityRange.limitBytes)
       ) {
         return cb(
           new GrpcError(
@@ -373,10 +388,22 @@ class CsiServer {
             `A different volume with name "${args.name}" already exists`
           )
         );
+      }
+      // check if the replica belonging to nexus already exists
+      let replica = this.volumes.getReplica(uuid);
+      if (!replica) {
+        // TODO: recover from this by syncing the nexus configuration
+        return cb(
+          new GrpcError(
+            grpc.status.ALREADY_EXISTS,
+            `The volume "${args.name}" exists but it is missing a replica`
+          )
+        );
       } else {
-        return cb(null, vol);
+        return cb(null, nexus);
       }
     }
+
     // limitBytes is 0 if not set, so fix it to be at least what is required
     if (args.capacityRange.requiredBytes > args.capacityRange.limitBytes) {
       args.capacityRange.limitBytes = args.capacityRange.requiredBytes;
@@ -434,10 +461,29 @@ class CsiServer {
       }
 
       try {
-        await this.volumes.create(pool.node, pool.name, uuid, size);
+        await this.volumes.createReplica(pool.node, pool.name, uuid, size);
       } catch (err) {
         log.error(err.message);
         errors.push(err.message);
+        continue;
+      }
+
+      try {
+        await this.volumes.createNexus(pool.node, uuid, size, [
+          'bdev:///' + uuid,
+        ]);
+      } catch (err) {
+        log.error(err.message);
+        errors.push(err.message);
+        // undo the replica creation
+        try {
+          await this.volumes.destroyReplica(pool.node, uuid);
+        } catch (err) {
+          let msg = `Failed to destroy partially instantiated volume "${args.name}"`;
+          log.error(msg);
+          errors.push(msg);
+          break; // unrecoverable error
+        }
         continue;
       }
 
@@ -467,26 +513,36 @@ class CsiServer {
 
     log.debug(`Request to destroy volume "${args.volumeId}"`);
 
-    let vol = this.volumes.get(args.volumeId);
-    if (!vol) {
+    let nexus = this.volumes.getNexus(args.volumeId);
+    let replica = this.volumes.getReplica(args.volumeId);
+    if (!nexus && !replica) {
       // most likely already deleted
       return cb();
     }
-    let pool = this.pools.get(vol.pool);
-    assert(pool, 'Volume exists but pool does not');
-    if (!isPoolAccessible(pool)) {
-      return cb(
-        new GrpcError(
-          grpc.status.INTERNAL,
-          `Storage pool "${pool.name}" not accessible`
-        )
-      );
-    }
 
-    try {
-      await this.volumes.destroy(pool.node, args.volumeId);
-    } catch (err) {
-      return cb(err);
+    if (nexus) {
+      try {
+        await this.volumes.destroyNexus(nexus.node, args.volumeId);
+      } catch (err) {
+        return cb(err);
+      }
+    }
+    if (replica) {
+      let pool = this.pools.get(replica.pool);
+      assert(pool, 'Volume exists but pool does not');
+      if (!isPoolAccessible(pool)) {
+        return cb(
+          new GrpcError(
+            grpc.status.INTERNAL,
+            `Storage pool "${pool.name}" not accessible`
+          )
+        );
+      }
+      try {
+        await this.volumes.destroyReplica(pool.node, args.volumeId);
+      } catch (err) {
+        return cb(err);
+      }
     }
     log.info(`Volume "${args.volumeId}" destroyed`);
     cb();
@@ -510,9 +566,12 @@ class CsiServer {
     } else {
       log.debug('Request to list volumes');
       ctx = {
-        volumes: this.volumes.snapshot().map(v => {
-          return { volume: v };
-        }),
+        volumes: this.volumes
+          .getNexus()
+          .map(createK8sVolumeObject)
+          .map(v => {
+            return { volume: v };
+          }),
       };
     }
     // default max entries
@@ -542,22 +601,12 @@ class CsiServer {
       `Request to publish volume "${args.volumeId}" on "${args.nodeId}"`
     );
 
-    let vol = this.volumes.get(args.volumeId);
-    if (!vol) {
+    let nexus = this.volumes.getNexus(args.volumeId);
+    if (!nexus) {
       return cb(
         new GrpcError(
           grpc.status.NOT_FOUND,
           `Volume "${args.volumeId}" does not exist`
-        )
-      );
-    }
-    var pool = this.pools.get(vol.pool);
-    assert(pool, 'Volume exists but the pool does not');
-    if (!isPoolAccessible(pool)) {
-      return cb(
-        new GrpcError(
-          grpc.status.INVALID_ARGUMENT,
-          `Pool "${args.volumeId}" is not accessible`
         )
       );
     }
@@ -567,12 +616,12 @@ class CsiServer {
     } catch (err) {
       return cb(err);
     }
-    if (nodeId.node != pool.node) {
+    if (nodeId.node != nexus.node) {
       return cb(
         new GrpcError(
           grpc.status.INVALID_ARGUMENT,
           `Cannot publish the volume "${args.volumeId}" on a different ` +
-            `node "${nodeId.node}" than it was created "${pool.node}"`
+            `node "${nodeId.node}" than it was created "${nexus.node}"`
         )
       );
     }
@@ -596,14 +645,15 @@ class CsiServer {
     }
 
     try {
-      await this.volumes.createBlkdev(pool.node, args.volumeId);
+      await this.volumes.publishNexus(nexus.uuid);
     } catch (err) {
       if (err.code === grpc.status.ALREADY_EXISTS) {
         log.debug(`Volume "${args.volumeId}" already published on this node`);
         cb(null, {});
       } else {
-        return cb(err);
+        cb(err);
       }
+      return;
     }
 
     log.info(`Published volume "${args.volumeId}"`);
@@ -615,22 +665,12 @@ class CsiServer {
 
     log.debug(`Request to unpublish volume "${args.volumeId}"`);
 
-    let vol = this.volumes.get(args.volumeId);
-    if (!vol) {
+    let nexus = this.volumes.getNexus(args.volumeId);
+    if (!nexus) {
       return cb(
         new GrpcError(
           grpc.status.NOT_FOUND,
           `Volume "${args.volumeId}" does not exist`
-        )
-      );
-    }
-    var pool = this.pools.get(vol.pool);
-    assert(pool, 'Volume exists but the pool does not');
-    if (!isPoolAccessible(pool)) {
-      return cb(
-        new GrpcError(
-          grpc.status.INVALID_ARGUMENT,
-          `Pool "${vol.pool}" is not accessible`
         )
       );
     }
@@ -640,18 +680,16 @@ class CsiServer {
     } catch (err) {
       return cb(err);
     }
-    if (nodeId.node != pool.node) {
-      return cb(
-        new GrpcError(
-          grpc.status.INVALID_ARGUMENT,
-          `Cannot publish the volume "${args.volumeId}" on a different ` +
-            `node "${nodeId.node}" than it was created "${pool.node}"`
-        )
+    if (nodeId.node != nexus.node) {
+      // we unpublish the volume anyway but at least we log a message
+      log.warn(
+        `Request to unpublish volume "${args.volumeId}" from a node ` +
+          `"${nodeId.node}" when it was published on the node "${nexus.node}"`
       );
     }
 
     try {
-      await this.volumes.destroyBlkdev(pool.node, args.volumeId);
+      await this.volumes.unpublishNexus(nexus.uuid);
     } catch (err) {
       return cb(err);
     }
@@ -664,7 +702,7 @@ class CsiServer {
 
     log.debug(`Request to validate volume capabilities for "${args.volumeId}"`);
 
-    if (!this.volumes.get(args.volumeId)) {
+    if (!this.volumes.getNexus(args.volumeId)) {
       return cb(
         new GrpcError(
           grpc.status.NOT_FOUND,

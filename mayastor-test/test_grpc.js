@@ -22,6 +22,8 @@ const DISK_FILE = '/tmp/mayastor_test_disk';
 const UUID = 'dbe4d7eb-118a-4d15-b789-a18d9af6ff21';
 // uuid without the last digit for generating a set of uuids
 const BASE_UUID = 'c35fa4dd-d527-4b7b-9cf0-436b8bb0ba7';
+// Prefix of IQNs of mayastor iscsi targets
+const IQN_PREFIX = 'iqn.2019-09.org.openebs.mayastor:';
 
 // tunables of the test suite
 var endpoint = process.env.MAYASTOR_ENDPOINT;
@@ -341,33 +343,18 @@ describe('grpc', function() {
       });
     });
 
-    it('should discover iscsi replica using iscsiadm', done => {
-      let stderr = '';
-      let stdout = '';
-      let child = sudo([
-        'iscsiadm',
-        '-m',
-        'discovery',
-        '-t',
-        'sendtargets',
-        '-p',
-        '127.0.0.1',
-      ]);
-
-      child.stderr.on('data', data => {
-        stderr += data;
-      });
-      child.stdout.on('data', data => {
-        stdout += data;
-      });
-      child.on('close', (code, signal) => {
-        if (code != 0) {
-          done(stderr);
-        } else {
-          assert(stdout.indexOf(':' + UUID) >= 0);
-          done();
+    it('should do io to iscsi replica', done => {
+      // runs the perf test for 1 second
+      exec(
+        'iscsi-perf -t 1 iscsi://127.0.0.1/' + IQN_PREFIX + UUID + '/0',
+        (error, stdout, stderr) => {
+          if (error) {
+            done(stderr);
+          } else {
+            done();
+          }
         }
-      });
+      );
     });
 
     it('should destroy iscsi replica', done => {
@@ -445,42 +432,6 @@ describe('grpc', function() {
       });
     });
 
-    it('should be able to create and write block device for replica', done => {
-      let buflen = 4096;
-
-      client.CreateBlkdev({ uuid: UUID }, (err, res) => {
-        if (err) return done(err);
-        assert.match(res.blk_dev, /^\/dev\/nbd\d+$/);
-        // write something to the dev and read it back so that:
-        //  1) we test basic IO
-        //  2) we can test later that the dev is cleared when reused.
-        fs.writeFile(res.blk_dev, Buffer.alloc(buflen, 1), err => {
-          let fd = fs.openSync(res.blk_dev, 'r');
-          try {
-            let buf = Buffer.alloc(buflen);
-            let len = fs.readSync(fd, buf, 0, buflen);
-            assert.equal(len, buflen);
-            for (let i = 0; i < buf.length; i++) {
-              if (buf[i] != 1) {
-                throw new Error(
-                  'Invalid byte ' + buf[i] + ' in buffer at index ' + i
-                );
-              }
-            }
-          } finally {
-            fs.close(fd, done);
-          }
-        });
-      });
-    });
-
-    it('should be able to destroy a block device for the replica', done => {
-      client.listReplicas({}, (err, res) => {
-        if (err) return done(err);
-        client.DestroyBlkdev({ uuid: UUID }, done);
-      });
-    });
-
     it('should return NotFound for a non existing replica', done => {
       let unknownUuid = 'c35fa4dd-d527-4b7b-9cf0-436b8bb0ba77';
       client.destroyReplica({ uuid: unknownUuid }, (err, res) => {
@@ -526,74 +477,6 @@ describe('grpc', function() {
         },
         done
       );
-    });
-
-    it('should clear previous data from replica when creating a new one', done => {
-      let buflen = 4096;
-
-      client.CreateBlkdev({ uuid: BASE_UUID + '0' }, (err, res) => {
-        if (err) return done(err);
-        assert.match(res.blk_dev, /^\/dev\/nbd\d+$/);
-        let fd = fs.openSync(res.blk_dev, 'r');
-        try {
-          let buf = Buffer.alloc(buflen);
-          let len = fs.readSync(fd, buf, 0, buflen);
-          assert.equal(len, buflen);
-          for (let i = 0; i < buf.length; i++) {
-            if (buf[i] != 0) {
-              throw new Error(
-                'Device was not cleared: found ' + buf[i] + ' at index ' + i
-              );
-            }
-          }
-          done();
-        } catch (err) {
-          done(err);
-        } finally {
-          fs.closeSync(fd);
-        }
-      });
-    });
-
-    it('should be able to create blk devices in series', done => {
-      // skip the first dev creation done already above
-      async.times(
-        4,
-        function(n, next) {
-          client.createBlkdev({ uuid: BASE_UUID + (n + 1) }, next);
-        },
-        done
-      );
-    });
-
-    it('should fail to create the blk devices in series twice', done => {
-      client.listReplicas({}, (err, res) => {
-        if (err) return done(err);
-        async.times(
-          5,
-          function(n, next) {
-            client.createBlkdev({ uuid: BASE_UUID + n }, (err, res) => {
-              // TODO: return a better code like ALREADY_EXISTS
-              assert.equal(err.code, grpc.status.INTERNAL);
-              next();
-            });
-          },
-          done
-        );
-      });
-    });
-
-    it('should be able to destroy blk devices in series', done => {
-      client.listReplicas({}, (err, res) => {
-        if (err) return done(err);
-        async.times(
-          5,
-          function(n, next) {
-            client.destroyBlkdev({ uuid: BASE_UUID + n }, next);
-          },
-          done
-        );
-      });
     });
 
     it('should destroy the pool', done => {

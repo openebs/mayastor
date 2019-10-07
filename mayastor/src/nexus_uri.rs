@@ -20,6 +20,8 @@ pub enum BdevType {
     Iscsi(IscsiBdev),
     /// backend NVMF target pretty unstable as of Linux 5.2
     Nvmf(NvmfBdev),
+    /// bdev type is arbitrary bdev found in spdk (used for local replicas)
+    Bdev(String),
 }
 
 /// Converts an array of Strings into the appropriate args type
@@ -39,6 +41,8 @@ pub fn nexus_parse_uri(uri: &str) -> Result<BdevType, UriError> {
             "aio" => BdevType::Aio(AioBdev::try_from(&uri)?),
             "iscsi" => BdevType::Iscsi(IscsiBdev::try_from(&uri)?),
             "nvmf" => BdevType::Nvmf(NvmfBdev::try_from(&uri)?),
+            // strip the first slash in uri path
+            "bdev" => BdevType::Bdev(uri.path()[1 ..].to_string()),
             _ => {
                 warn!("Unknown URL scheme {}", uri.to_string());
                 return Err(UriError::Unsupported);

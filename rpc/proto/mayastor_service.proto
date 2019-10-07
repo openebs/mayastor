@@ -1,9 +1,7 @@
-// Egress service for management of storage pools and replicas.
-// These are holding the actual user data. From user application the
-// data are accessed indirectly through "volume" object (mayastor.see below).
-//
-// Data are served (mayastor.going out) from replicas/pools where they are
-// persistently stored, hence the name "egress".
+// Service for managing storage pools, replicas and nexus's.
+// Replica holds the actual user data. From user application the
+// data are accessed indirectly through nexus object.
+
 syntax = "proto3";
 
 package mayastor_service;
@@ -21,31 +19,27 @@ service Mayastor {
 
 	// Replica related methods.
 	//
-	// Replica allocates space from storage pool thin provisioning
-	// is possible).
+	// Replica allocates space from storage pool.
 
 	rpc CreateReplica (mayastor.CreateReplicaRequest) returns (mayastor.Null) {}
 	rpc DestroyReplica (mayastor.DestroyReplicaRequest) returns (mayastor.Null) {}
 	rpc ListReplicas (mayastor.Null) returns (mayastor.ListReplicasReply) {}
-
 	rpc StatReplicas (mayastor.Null) returns (mayastor.StatReplicasReply) {}
 
-	// This method is called by control plane to construct a block device
-	// (/dev/...) that will be used to connect the lvol to the OS.
-	// Note that for now these are always local.
-	rpc CreateBlkdev (mayastor.CreateBlkdevRequest) returns (mayastor.CreateBlkdevReply) {}
-	rpc DestroyBlkdev (mayastor.DestroyBlkdevRequest) returns (mayastor.Null) {}
+	// Nexus related methods.
+  //
+  // Nexus is a logical frontend representing a data volume taking care of
+  // replication and rebuild in the background.
 
-	// export and un-export replica methods will be added later when support for
-	// remote replicas is added. Just now the replica must be on the same
-	// node as the volume and the application).
-
-	rpc CreateNexus (mayastor.CreateNexusRequest) returns (mayastor.CreateNexusReply){}
+	rpc CreateNexus (mayastor.CreateNexusRequest) returns (mayastor.Null){}
 	rpc DestroyNexus (mayastor.DestroyNexusRequest) returns (mayastor.Null) {}
 	rpc ListNexus (mayastor.Null) returns (mayastor.ListNexusReply) {}
+
+	// This method is called by control plane to construct a block device
+	// (/dev/...) that will be used to connect the nexus to the OS.
 	rpc PublishNexus (mayastor.PublishNexusRequest) returns (mayastor.PublishNexusReply) {}
+	rpc UnpublishNexus (mayastor.UnpublishNexusRequest) returns (mayastor.Null) {}
 
-	// child operations
-	rpc ChildOperation(mayastor.ChildNexusRequest) returns (mayastor.ChildNexusReply) {}
-
+	// Nexus child operations
+	rpc ChildOperation(mayastor.ChildNexusRequest) returns (mayastor.Null) {}
 }

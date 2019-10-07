@@ -60,7 +60,10 @@ use serde::{
     de::{Deserialize, Deserializer, SeqAccess, Unexpected, Visitor},
     ser::{Serialize, SerializeTuple, Serializer},
 };
-use std::{fmt, fmt::Display, io::Cursor};
+use std::{
+    fmt::{self, Display},
+    io::Cursor,
+};
 use uuid::{self, parser};
 
 #[derive(Debug, Deserialize, PartialEq, Default, Serialize, Clone, Copy)]
@@ -195,7 +198,7 @@ impl GPTHeader {
             reserved: [0; 4],
             lba_self: 1,
             lba_alt: num_blocks - 1,
-            lba_start: ((1 << 20) / blk_size) as u64,
+            lba_start: u64::from((1 << 20) / blk_size),
             lba_end: ((num_blocks - 1) - u64::from((1 << 14) / blk_size)) - 1,
             guid: GptGuid {
                 time_low: fields.0,

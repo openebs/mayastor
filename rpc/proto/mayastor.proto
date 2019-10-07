@@ -104,114 +104,52 @@ message StatReplicasReply {
   repeated ReplicaStats replicas = 1;  // list of the replicas
 }
 
-// Create volume arguments.
-//
-// Just now, replicas can be only local devices created by storage
-// service above. Later we will support arbitrary remote replicas as well and
-// to anticipate those changes we require replicas to be specified in form of
-// a URL: lvol://<pool>/<replica> (and in future iscsi://..., etc.).
-// “lvol” protocol specifier comes from SPDK and signifies how the replica is
-// accessed when used by the volume.
-message CreateVolumeRequest {
-  string name = 1;              // name of the volume
-  repeated string replicas = 2; // URLs of replicas which comprise the volume
-                                // (only single entry is supported currently).
-}
-
-// Destroy volume arguments.
-message DestroyVolumeRequest {
-  string name = 1;  // name of the volume
-}
-
-// Volume properties
-//
-// We intentionally don't reveal the block size of the volume device in API
-// until the use cases for it become clear.
-message Volume {
-  string name = 1;              // name of the volume
-  uint64 size = 3;              // size of the volume in bytes
-  string device_path = 4;       // path to device file for the volume (missing if not published)
-  repeated string replicas = 2; // URLs of replicas which comprise the volume
-}
-
-// A list of volumes and their properties.
-message ListVolumesReply {
-  repeated Volume volumes = 1;  // list of the volumes
-}
-
-// Publish volume arguments.
-message PublishVolumeRequest {
-  string name = 1;  // name of the volume
-}
-
-// Publish volume return value.
-message PublishVolumeReply {
-  string device_path = 1;  // absolute path to block device
-}
-
-// Unpublish volume arguments.
-message UnpublishVolumeRequest {
-  string name = 1;  // name of the Volume
-}
-
-message CreateBlkdevRequest {
-  string uuid = 1;   // uuid of the replica which to create device for
-}
-
-message DestroyBlkdevRequest {
-  string uuid = 1;   // uuid of the replica which to destroy
-}
-
-message CreateBlkdevReply {
-  string blk_dev = 1;   // i.e. /dev/nvmeX
-}
-
+// Create nexus arguments.
 message CreateNexusRequest {
-  string name = 1; // name of the nexus should match the PVC-UUID
-  string uuid = 2; // this UUID will be set in as the UUID
-  uint32 block_len = 3; // length in bytes
-  uint64 size = 4; // size of the device in bytes
-  repeated string replicas = 5; // uris to the targets we connect to
+  string uuid = 1; // this UUID will be set in as the UUID
+  uint64 size = 2; // size of the device in bytes
+  // replica can be iscsi and nvmf remote targets or a local spdk bdev
+  // (i.e. bdev:///name-of-the-bdev).
+  repeated string children = 3; // uris to the targets we connect to
 }
 
 // represents a child device part of a nexus
 message Child {
-  // name of the child device which corresponds to the uri used to connect
-  string name = 1;
-  // refers to the nexus this child belongs too
-  string state = 2;
+  string uri = 1;   // uri of the child device
+  string state = 2; // TODO: enum
 }
 
 // represents a nexus device
 message Nexus {
-  // name of the nexus
-  string name = 1;
-  // current state of the nexus
-  string state = 2;
-  // array of children
-  repeated Child children = 3;
+  string uuid = 1;             // name of the nexus
+  uint64 size = 2;             // size of the volume in bytes
+  string state = 3;            // current state of the nexus (TODO: enum)
+  repeated Child children = 4; // array of children
+  // Path to device file for the volume (missing if not published).
+  // Missing property and empty string are treated the same.
+  string device_path = 5;
 }
 
 message ListNexusReply {
   repeated Nexus nexus_list = 1;
 }
 
-message CreateNexusReply {
-  string name = 1; // name of the created nexus
-}
-
 message DestroyNexusRequest   {
-  string name = 1;
+  string uuid = 1;
 }
 
-/// this message will be subject to change as we will move to something else later
+// this message will be subject to change as we will add support for remote
+// storage protocols.
 message PublishNexusRequest {
-  string bdev_name = 1; // name of the nexus we want to publish on node
-  string nbd_device = 2;
+  string uuid = 1;        // uuid of the nexus which to create device for
 }
 
-message PublishNexusReply{
-  string device_path = 1;
+message PublishNexusReply {
+  string device_path = 1; // i.e. /dev/nbdX
+}
+
+message UnpublishNexusRequest {
+  string uuid = 1;   // uuid of the nexus which to destroy
 }
 
 enum ChildAction {
@@ -220,12 +158,7 @@ enum ChildAction {
 }
 
 message ChildNexusRequest {
-  string name = 1;
-  string child_name =2;
+  string uuid = 1;
+  string uri =2;
   ChildAction action = 3;
-}
-
-message ChildNexusReply {
-  string name = 1;
-  bool success = 2;
 }

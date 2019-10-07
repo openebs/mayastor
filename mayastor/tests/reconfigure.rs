@@ -74,11 +74,11 @@ async fn works() {
 
     let children = vec![child1.clone(), child2.clone()];
 
-    let name = nexus_create("hello", 512, 131_072, None, &children)
+    nexus_create("hello", 512, 131_072, None, &children)
         .await
         .unwrap();
 
-    let nexus = nexus_lookup(&name).unwrap();
+    let nexus = nexus_lookup("hello").unwrap();
 
     // open the nexus in read write
     let nd = Descriptor::open("hello", true).expect("failed open bdev");

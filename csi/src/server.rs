@@ -3,10 +3,9 @@
 //! It is a kind of proxy. Input request is gRPC, which is translated to
 //! JSON-RPC understood by mayastor (SPDK). The return value goes through the
 //! same transformation in opposite direction. The only exception is mounting
-//! and device creation code, which is actually done here in the proxy rather
-//! than in mayastor. Don't think that all mappings between the two RPCs are
-//! 1:1. gRPC API is at higher abstraction layer. One gRPC call can involve N
-//! JSON-RPC calls.
+//! of volumes, which is actually done here in the proxy rather than in
+//! mayastor. We aim for 1:1 mapping between the two RPCs.
+
 #![warn(unused_extern_crates)]
 #[macro_use]
 extern crate clap;
@@ -15,17 +14,11 @@ extern crate log;
 #[macro_use]
 extern crate run_script;
 use tokio;
-#[macro_use]
-extern crate ioctl_gen;
-#[macro_use]
-extern crate lazy_static;
 
-mod device;
 mod format;
 mod identity;
 mod mayastor_svc;
 mod mount;
-mod nbd;
 #[macro_use]
 mod node;
 // These libs are needed for gRPC generated code
@@ -124,7 +117,7 @@ pub fn main() {
     let addr = matches.value_of("address").unwrap();
     let ms_socket = matches
         .value_of("mayastor-socket")
-        .unwrap_or("/var/tmp/spdk.sock");
+        .unwrap_or("/var/tmp/mayastor.sock");
     let csi_socket = matches
         .value_of("csi-socket")
         .unwrap_or("/var/tmp/csi.sock");

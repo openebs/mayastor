@@ -6,11 +6,11 @@ const grpc = require('grpc');
 // each stat is incremented by this each time when stat method is called
 const STAT_DELTA = 1000;
 
-// Create mayastor mock grpc server with preconfigured storage pools.
-// Pools can be added & deleted by means of grpc calls. The actual state
-// (list of pools) can be retrieved by get() method.
+// Create mayastor mock grpc server with preconfigured storage pools and nexus
+// objects. Pools can be added & deleted by means of grpc calls. The actual
+// state (list of pools) can be retrieved by get() method.
 class MayastorServer {
-  constructor(endpoint, pools, replicas) {
+  constructor(endpoint, pools, replicas, nexus) {
     var packageDefinition = protoLoader.loadSync(
       path.join(__dirname, '../', '../rpc', 'proto', 'mayastor_service.proto'),
       {
@@ -27,6 +27,7 @@ class MayastorServer {
 
     this.pools = pools || [];
     this.replicas = replicas || [];
+    this.nexus = nexus || [];
     this.statCounter = 0;
 
     var self = this;
@@ -131,17 +132,91 @@ class MayastorServer {
           }),
         });
       },
+      createNexus: (call, cb) => {
+        let args = call.request;
+        assert.hasAllKeys(args, ['uuid', 'size', 'children']);
+        if (self.nexus.find(r => r.uuid == args.uuid)) {
+          let err = new Error('already exists');
+          err.code = grpc.status.ALREADY_EXISTS;
+          return cb(err);
+        }
+        self.nexus.push({
+          uuid: args.uuid,
+          size: args.size,
+          state: 'online',
+          children: args.children.map(r => {
+            return {
+              uri: r,
+              state: 'online',
+            };
+          }),
+          // device_path omitted
+        });
+        cb(null, {});
+      },
+      destroyNexus: (call, cb) => {
+        var args = call.request;
+        assert.hasAllKeys(args, ['uuid']);
+        var idx = self.nexus.findIndex(n => n.uuid == args.uuid);
+        if (idx >= 0) {
+          let n = self.nexus.splice(idx, 1)[0];
+          cb(null, {});
+        } else {
+          let err = new Error('not found');
+          err.code = grpc.status.NOT_FOUND;
+          cb(err);
+        }
+      },
+      listNexus: (_, cb) => {
+        cb(null, { nexusList: self.nexus });
+      },
+      publishNexus: (call, cb) => {
+        var args = call.request;
+        assert.hasAllKeys(args, ['uuid']);
+        var idx = self.nexus.findIndex(n => n.uuid == args.uuid);
+        if (idx >= 0) {
+          self.nexus[idx].devicePath = '/dev/nbd0';
+          cb(null, {
+            devicePath: '/dev/nbd0',
+          });
+        } else {
+          let err = new Error('not found');
+          err.code = grpc.status.NOT_FOUND;
+          cb(err);
+        }
+      },
+      unpublishNexus: (call, cb) => {
+        var args = call.request;
+        assert.hasAllKeys(args, ['uuid']);
+        var idx = self.nexus.findIndex(n => n.uuid == args.uuid);
+        if (idx >= 0) {
+          delete self.nexus[idx].devicePath;
+          cb(null, {});
+        } else {
+          let err = new Error('not found');
+          err.code = grpc.status.NOT_FOUND;
+          cb(err);
+        }
+      },
+      // dummy impl to silence the warning about unimplemented method
+      childOperation: (_, cb) => {
+        cb();
+      },
     });
     srv.bind(endpoint, grpc.ServerCredentials.createInsecure());
     this.srv = srv;
   }
 
-  get() {
+  getPools() {
     return this.pools;
   }
 
   getReplicas() {
     return this.replicas;
+  }
+
+  getNexus() {
+    return this.nexus;
   }
 
   start() {

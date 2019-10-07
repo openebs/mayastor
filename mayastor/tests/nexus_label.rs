@@ -116,7 +116,7 @@ fn test_known_label() {
 /// device
 async fn make_nexus() {
     let ch = vec![BDEVNAME1.to_string(), BDEVNAME2.to_string()];
-    let _nexus = nexus_create("gpt_nexus", 512, 131_072, None, &ch)
+    nexus_create("gpt_nexus", 512, 131_072, None, &ch)
         .await
         .unwrap();
 }

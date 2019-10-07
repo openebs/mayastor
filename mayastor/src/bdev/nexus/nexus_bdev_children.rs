@@ -49,10 +49,11 @@ impl Nexus {
             BdevType::Aio(args) => args.create().await?,
             BdevType::Iscsi(args) => args.create().await?,
             BdevType::Nvmf(args) => args.create().await?,
+            BdevType::Bdev(name) => name,
         };
 
         self.children.push(NexusChild::new(
-            name.clone(),
+            uri.to_string(),
             self.name.clone(),
             bdev_lookup_by_name(&name),
         ));
@@ -119,7 +120,7 @@ impl Nexus {
         }
     }
 
-    /// Add a child to the configuration when when an example callback is run.
+    /// Add a child to the configuration when an example callback is run.
     /// The nexus is not opened implicitly, call .open() for this manually.
     pub fn examine_child(&mut self, name: &str) -> bool {
         for mut c in &mut self.children {

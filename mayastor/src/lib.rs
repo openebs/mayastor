@@ -2,6 +2,8 @@
 #![feature(try_trait)]
 #![feature(drain_filter)]
 #[macro_use]
+extern crate ioctl_gen;
+#[macro_use]
 extern crate log;
 #[macro_use]
 extern crate lazy_static;

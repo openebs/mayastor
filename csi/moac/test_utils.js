@@ -24,6 +24,21 @@ async function waitUntil(test, timeout, name) {
   }
 }
 
+// Check that the test callback which should return a future fails with
+// given grpc error code.
+async function shouldFailWith(code, test) {
+  try {
+    await test();
+  } catch (err) {
+    if (err.code != code) {
+      throw err;
+    }
+    return;
+  }
+  throw new Error('Expected error');
+}
+
 module.exports = {
+  shouldFailWith,
   waitUntil,
 };
