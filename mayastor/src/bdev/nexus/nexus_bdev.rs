@@ -453,6 +453,9 @@ impl Nexus {
                 serialize_into(&mut writer, &p)?;
             }
 
+            // depending on the number of entries we need to adjust cursor
+            writer.seek(SeekFrom::Start((1 << 14) as u64)).unwrap();
+
             serialize_into(&mut writer, &backup)?;
 
             for child in &mut self.children {
