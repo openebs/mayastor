@@ -8,13 +8,13 @@ stdenv.mkDerivation rec {
   name = "MayaStor";
 
   buildInputs = [
-    bash
     binutils
     gcc
     git
     gptfdisk
     libaio
     libiscsi
+    libspdk
     libuuid
     llvmPackages.libclang
     nasm

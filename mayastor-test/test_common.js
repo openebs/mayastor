@@ -204,20 +204,6 @@ function restartMayastor(ping, done) {
   );
 }
 
-// Execute spdk's rpc.py with given arguments
-function rpcCommand(args, done) {
-  exec(
-    '../spdk-sys/spdk/scripts/rpc.py -s ' + SOCK + ' ' + args,
-    (err, stdout, stderr) => {
-      if (err) {
-        done(new Error(stderr));
-      } else {
-        done();
-      }
-    }
-  );
-}
-
 // Execute rpc method using dumb jsonrpc client
 function dumbCommand(method, args, done) {
   exec(
@@ -247,6 +233,5 @@ module.exports = {
   waitForMayastor,
   restartMayastor,
   endpoint,
-  rpcCommand,
   dumbCommand,
 };

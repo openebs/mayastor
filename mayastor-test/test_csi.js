@@ -168,7 +168,7 @@ describe('csi', function() {
           }, next);
         },
         next => {
-          common.rpcCommand('construct_lvol_store Malloc0 tpool', next);
+          common.dumbCommand('construct_lvol_store', {'bdev_name': 'Malloc0', 'lvs_name': 'tpool'}, next);
         },
         next => {
           async.times(

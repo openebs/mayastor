@@ -1,6 +1,5 @@
 #!/usr/bin/env bash
 set -euxo pipefail
-spdk-sys/build.sh --enable-debug
 export PATH=$PATH:${HOME}/.cargo/bin
 cargo build --all
 
