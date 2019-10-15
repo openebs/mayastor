@@ -1,6 +1,6 @@
 use crate::{
     bdev::{bdev_lookup_by_name, nexus},
-    executor::{cb_arg, complete_callback_1},
+    executor::{cb_arg, done_cb},
     nexus_uri::UriError,
 };
 use futures::{channel::oneshot, future};
@@ -47,13 +47,7 @@ impl AioBdev {
         type AioT = i32;
         if let Some(bdev) = bdev_lookup_by_name(&self.name) {
             let (s, r) = oneshot::channel::<AioT>();
-            unsafe {
-                delete_aio_bdev(
-                    bdev.as_ptr(),
-                    Some(complete_callback_1),
-                    cb_arg(s),
-                )
-            };
+            unsafe { delete_aio_bdev(bdev.as_ptr(), Some(done_cb), cb_arg(s)) };
             if r.await.unwrap() != 0 {
                 Err(nexus::Error::Internal("Delete AIO bdev failed".to_owned()))
             } else {
@@ -75,7 +69,7 @@ impl TryFrom<&Url> for AioBdev {
             .map(std::iter::Iterator::collect::<Vec<_>>)
         {
             None => return Err(UriError::InvalidPathSegment),
-            Some(s) => format!("/{}", s.join("/").to_string()),
+            Some(s) => format!("/{}", s.join("/")),
         };
         n.blk_size = 0;
 

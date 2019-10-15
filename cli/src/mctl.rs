@@ -31,21 +31,33 @@ struct Opt {
 #[derive(StructOpt, Debug)]
 enum Sub {
     #[structopt(name = "destroy")]
-    /// destroy a nexus and its children (does not delete the data)
+    /// Destroy a nexus and its children (does not delete the data)
     Destroy {
         #[structopt(name = "uuid")]
         uuid: String,
     },
     #[structopt(name = "create")]
-    /// Create a nexus using the given uri's
+    ///
+    /// Create a nexus using the given URI's. The UUID should be a valid v4
+    /// UUID
+    ///
+    /// Example:
+    ///
+    /// mctl create `uuidgen -r` -c nvmf://host1/nqn nvmf://host2/nqn -s 1GiB
+    ///
+    /// The child URI's should be in the form of:
+    ///
+    /// nvmf://host/nqn
+    /// iscsi://host/iqn
+    /// aio:///path/to/file
     Create {
         #[structopt(name = "uuid")]
         uuid: String,
         #[structopt(short, long, parse(try_from_str = "convert::parse_size"))]
-        /// the size of the nexus to be created i.e 100MiB
+        /// The size of the nexus to be created i.e 100MiB
         size: u64,
         #[structopt(short, long, required = true, min_values = 1)]
-        /// the uris which should constitute the nexus
+        /// The URI's to be should for this nexus
         children: Vec<String>,
     },
     #[structopt(name = "list")]
@@ -56,10 +68,10 @@ enum Sub {
     /// Offline a child bdev from the nexus
     Offline {
         #[structopt(name = "uuid")]
-        /// uuid of the nexus
+        /// UUID of the nexus
         uuid: String,
         #[structopt(name = "child_name")]
-        /// uri of the child
+        /// URI of the child
         uri: String,
     },
 
@@ -67,10 +79,10 @@ enum Sub {
     /// Online a child from the nexus
     Online {
         #[structopt(name = "uuid")]
-        /// uuid of the nexus
+        /// UUID of the nexus
         uuid: String,
         #[structopt(name = "child_name")]
-        /// uri of the child
+        /// URI of the child
         uri: String,
     },
     #[structopt(name = "publish")]
@@ -79,16 +91,20 @@ enum Sub {
     /// Currently only NBD is supported
     Publish {
         #[structopt(name = "uuid")]
-        /// uuid of the nexus
+        /// UUID of the nexus to be published
         uuid: String,
+        /// 128 bit encryption key to be used for encrypting the data section
+        /// of the nexus.
+        #[structopt(name = "key", default_value = "")]
+        key: String,
     },
     #[structopt(name = "unpublish")]
-    /// Unshare the nexus
+    /// Unpublish the nexus
     ///
     /// Currently only NBD is supported
     Unpublish {
         #[structopt(name = "uuid")]
-        /// uuid of the nbd device to unshare
+        /// The UUID of the nexus device to unpublish
         uuid: String,
     },
 }
@@ -163,7 +179,12 @@ fn main() -> Result<(), ()> {
         ),
         Sub::Publish {
             uuid,
-        } => fut(opt.socket, "publish_nexus", json!({ "uuid": uuid })),
+            key,
+        } => fut(
+            opt.socket,
+            "publish_nexus",
+            json!({ "uuid": uuid , "key" : key}),
+        ),
         Sub::Unpublish {
             uuid,
         } => fut(opt.socket, "unpublish_nexus", json!({ "uuid": uuid })),

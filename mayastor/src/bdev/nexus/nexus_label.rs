@@ -373,7 +373,7 @@ impl<'de> Visitor<'de> for GpEntryNameVisitor {
 
         if end {
             Ok(GptName {
-                name: String::from_utf16_lossy(&out).to_string(),
+                name: String::from_utf16_lossy(&out),
             })
         } else {
             Err(serde::de::Error::invalid_value(Unexpected::Seq, &self))

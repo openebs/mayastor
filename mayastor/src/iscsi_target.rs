@@ -7,7 +7,7 @@
 
 use crate::{
     bdev::Bdev,
-    executor::{cb_arg, complete_callback_1},
+    executor::{cb_arg, done_cb},
 };
 use futures::channel::oneshot;
 use spdk_sys::{
@@ -168,7 +168,7 @@ pub async fn unshare(uuid: &str) -> Result<(), String> {
     unsafe {
         spdk_iscsi_shutdown_tgt_node_by_name(
             c_iqn.as_ptr(),
-            Some(complete_callback_1),
+            Some(done_cb),
             cb_arg(sender),
         );
     }

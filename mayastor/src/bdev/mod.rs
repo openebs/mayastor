@@ -106,6 +106,8 @@ pub struct Stat {
 }
 
 impl Bdev {
+    /// # Safety
+    /// we assume pointers passed in are valid.
     pub unsafe fn from_ptr(inner: *mut spdk_bdev) -> Self {
         Bdev {
             inner,

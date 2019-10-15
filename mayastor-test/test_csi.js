@@ -168,7 +168,11 @@ describe('csi', function() {
           }, next);
         },
         next => {
-          common.dumbCommand('construct_lvol_store', {'bdev_name': 'Malloc0', 'lvs_name': 'tpool'}, next);
+          common.dumbCommand(
+            'construct_lvol_store',
+            { bdev_name: 'Malloc0', lvs_name: 'tpool' },
+            next
+          );
         },
         next => {
           async.times(
@@ -213,7 +217,11 @@ describe('csi', function() {
             5,
             function(n, next) {
               let uuid = BASE_UUID + n;
-              common.dumbCommand('publish_nexus', { uuid: uuid }, next);
+              common.dumbCommand(
+                'publish_nexus',
+                { uuid: uuid, key: '' },
+                next
+              );
             },
             next
           );

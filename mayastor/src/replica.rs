@@ -5,7 +5,7 @@
 
 use crate::{
     bdev::{bdev_first, bdev_lookup_by_name, Bdev},
-    executor::{cb_arg, complete_callback_1},
+    executor::{cb_arg, done_cb},
     iscsi_target,
     jsonrpc::{jsonrpc_register, Code, JsonRpcError, Result},
     nvmf_target,
@@ -144,11 +144,7 @@ impl Replica {
         let uuid = self.get_uuid();
         let (sender, receiver) = oneshot::channel::<i32>();
         unsafe {
-            vbdev_lvol_destroy(
-                self.lvol_ptr,
-                Some(complete_callback_1),
-                cb_arg(sender),
-            );
+            vbdev_lvol_destroy(self.lvol_ptr, Some(done_cb), cb_arg(sender));
         }
 
         let errno = receiver.await.expect("Cancellation is not supported");

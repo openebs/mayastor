@@ -5,7 +5,7 @@
 
 use crate::{
     bdev::{bdev_lookup_by_name, Bdev},
-    executor::{cb_arg, complete_callback_1},
+    executor::{cb_arg, done_cb},
     jsonrpc::{jsonrpc_register, Code, JsonRpcError, Result},
     replica::ReplicaIter,
 };
@@ -264,11 +264,7 @@ impl Pool {
         // we will destroy lvol store now
         let (sender, receiver) = oneshot::channel::<i32>();
         unsafe {
-            vbdev_lvs_destruct(
-                self.lvs_ptr,
-                Some(complete_callback_1),
-                cb_arg(sender),
-            );
+            vbdev_lvs_destruct(self.lvs_ptr, Some(done_cb), cb_arg(sender));
         }
         let lvs_errno = receiver.await.expect("Cancellation is not supported");
         if lvs_errno != 0 {
@@ -296,11 +292,7 @@ impl Pool {
         };
         let (sender, receiver) = oneshot::channel::<i32>();
         unsafe {
-            delete_aio_bdev(
-                base_bdev.as_ptr(),
-                Some(complete_callback_1),
-                cb_arg(sender),
-            );
+            delete_aio_bdev(base_bdev.as_ptr(), Some(done_cb), cb_arg(sender));
         }
         let bdev_errno = receiver.await.expect("Cancellation is not supported");
         if bdev_errno != 0 {

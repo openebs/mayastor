@@ -172,7 +172,7 @@ class MayastorServer {
       },
       publishNexus: (call, cb) => {
         var args = call.request;
-        assert.hasAllKeys(args, ['uuid']);
+        assert.hasAllKeys(args, ['uuid', 'key']);
         var idx = self.nexus.findIndex(n => n.uuid == args.uuid);
         if (idx >= 0) {
           self.nexus[idx].devicePath = '/dev/nbd0';

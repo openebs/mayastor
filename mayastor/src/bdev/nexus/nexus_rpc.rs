@@ -20,7 +20,7 @@ use rpc::mayastor::{
 };
 use uuid::Uuid;
 
-/// Convert UUID to a nexus name of form "nexus-{uuid}".
+/// Convert the UUID to a nexus name in the form of "nexus-{uuid}".
 /// Return error if the UUID is not valid.
 fn uuid_to_name(uuid: &str) -> Result<String, JsonRpcError> {
     match Uuid::parse_str(uuid) {
@@ -127,14 +127,33 @@ pub(crate) fn register_rpc_methods() {
 
     jsonrpc_register("publish_nexus", |args: PublishNexusRequest| {
         let fut = async move {
+            // the key has to be 16 characters if it contains "" we consider it
+            // to be empty
+
+            if args.key != "" && args.key.len() != 16 {
+                info!("Invalid key specified, are we under attack?!?");
+                return Err(JsonRpcError::new(
+                    Code::InvalidParams,
+                    "Invalid key specified".to_string(),
+                ));
+            }
+
+            // We have no means to validate key correctness right now, this is
+            // fine as we currently, do not support raw block
+            // devices being consumed directly within k8s
+            // the mount will fail if the key is wrong.
+
+            let key: Option<String> =
+                if args.key == "" { None } else { Some(args.key) };
+
             let nexus = nexus_lookup(&args.uuid)?;
-            match nexus.share().await {
+            match nexus.share(key).await {
                 Ok(device_path) => Ok(PublishNexusReply {
                     device_path,
                 }),
                 Err(err) => Err(JsonRpcError::new(
                     Code::InternalError,
-                    format!("Internal error {:?}", err),
+                    format!("{:?}", err),
                 )),
             }
         };
@@ -148,7 +167,7 @@ pub(crate) fn register_rpc_methods() {
                 Ok(_) => Ok(()),
                 Err(err) => Err(JsonRpcError::new(
                     Code::InternalError,
-                    format!("Internal error {:?}", err),
+                    format!("{:?}", err),
                 )),
             }
         };
@@ -163,7 +182,7 @@ pub(crate) fn register_rpc_methods() {
                 Err(Error::NotFound) => Ok(()),
                 Err(e) => Err(JsonRpcError::new(
                     Code::InternalError,
-                    format!("Internal error {:?}", e),
+                    format!("{:?}", e),
                 )),
             }
         };
@@ -178,7 +197,7 @@ pub(crate) fn register_rpc_methods() {
                 Err(Error::NotFound) => Ok(()),
                 Err(e) => Err(JsonRpcError::new(
                     Code::InternalError,
-                    format!("Internal error {:?}", e),
+                    format!("{:?}", e),
                 )),
             }
         };
