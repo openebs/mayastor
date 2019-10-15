@@ -1,4 +1,4 @@
-{ stdenv, fetchgit, autoreconfHook}:
+{ stdenv, fetchgit, autoreconfHook }:
 
 stdenv.mkDerivation rec {
   version = "1.19.0";
@@ -10,6 +10,7 @@ stdenv.mkDerivation rec {
     sha256 = "0ajrkkg5awmi8m4b3mha7h07ylg18k252qprvk1sgq0qbyd66zy7";
   };
 
+  outputs = [ "out" "bin" "lib" "dev" ];
   nativeBuildInputs = [ autoreconfHook ];
   meta = {
     description = "User space iscsi library";
@@ -21,8 +22,7 @@ stdenv.mkDerivation rec {
       but a synchronous layer is also provided for ease of use for simpler
       applications.
     '';
-    homepage =
-      "https://github.com/sahlberg/libiscsi";
+    homepage = "https://github.com/sahlberg/libiscsi";
     licenses = stdenv.lib.licenses.gpl2;
     maintainers = "gila@openebs.io";
     platforms = stdenv.lib.platforms.x86_64;

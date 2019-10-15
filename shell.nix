@@ -8,13 +8,14 @@ stdenv.mkDerivation rec {
   name = "MayaStor";
 
   buildInputs = [
-    bash
     binutils
     gcc
     git
     gptfdisk
     libaio
-    libiscsi
+    libiscsi.lib
+    libiscsi.bin
+    libspdk
     libuuid
     llvmPackages.libclang
     nasm
@@ -30,6 +31,7 @@ stdenv.mkDerivation rec {
     gdb
     utillinux
     xfsprogs
+    pre-commit
   ];
 
   propagatedBuildInputs = [ clang ];

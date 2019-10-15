@@ -5,19 +5,29 @@ stdenv.mkDerivation rec {
   version = "19.07.x-mayastor";
   name = "libspdk";
   src = fetchFromGitHub {
-    rev = "1274d250a6f49731aecbbcc925fff208a25f4b95";
-    repo = "spdk";
     owner = "openebs";
-    sha256 = "148dp6nm8a2dglc8wk5yakjjd8r6s6drn1afff5afafa50fkcjgd";
+    repo = "spdk";
+    rev = "0deb6044b7e4dd5073f7070378bb69942c53b78a";
+    sha256 = "0qm5df0jrmqbhp5bzkmgpapzy3b6x69k2wnpf8f0bcbxh75pfx9s";
     fetchSubmodules = true;
   };
 
-  buildInputs =
-    [ binutils libaio libiscsi libuuid nasm numactl openssl python rdma-core ];
+  buildInputs = [
+    binutils
+    libaio
+    libiscsi.dev
+    libuuid
+    nasm
+    numactl
+    openssl
+    python
+    rdma-core
+  ];
 
   CONFIGURE_OPTS = ''
-    --enable-debug --without-isal --with-iscsi-initiator --with-rdma   
-        --with-internal-vhost-lib --disable-tests --with-dpdk-machine=native'';
+    --enable-debug --without-isal --with-iscsi-initiator --with-rdma
+    --with-internal-vhost-lib --disable-tests --with-dpdk-machine=native
+  '';
 
   enableParallelBuilding = true;
 
@@ -53,8 +63,11 @@ stdenv.mkDerivation rec {
 
   # todo -- split out in dev and normal pkg
   installPhase = ''
+    find include/ -type f -name "*.h" -exec install -D "{}" $out/{} \;
+    pushd lib
+    find . -type f -name "*.h" -exec install -D "{}" $out/include/{} \;
+    popd
     mkdir -p $out/lib
-    cp -ar include $out
     cp libspdk_fat.so $out/lib
   '';
 
