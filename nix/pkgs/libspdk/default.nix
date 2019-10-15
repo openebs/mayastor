@@ -12,8 +12,17 @@ stdenv.mkDerivation rec {
     fetchSubmodules = true;
   };
 
-  buildInputs =
-    [ binutils libaio libiscsi libuuid nasm numactl openssl python rdma-core ];
+  buildInputs = [
+    binutils
+    libaio
+    libiscsi.dev
+    libuuid
+    nasm
+    numactl
+    openssl
+    python
+    rdma-core
+  ];
 
   CONFIGURE_OPTS = ''
     --enable-debug --without-isal --with-iscsi-initiator --with-rdma
@@ -55,7 +64,9 @@ stdenv.mkDerivation rec {
   # todo -- split out in dev and normal pkg
   installPhase = ''
     find include/ -type f -name "*.h" -exec install -D "{}" $out/{} \;
-    find lib/ -type f -name "*.h" -exec install -D "{}" $out/include/{} \;
+    pushd lib
+    find . -type f -name "*.h" -exec install -D "{}" $out/include/{} \;
+    popd
     mkdir -p $out/lib
     cp libspdk_fat.so $out/lib
   '';

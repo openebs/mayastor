@@ -13,7 +13,8 @@ stdenv.mkDerivation rec {
     git
     gptfdisk
     libaio
-    libiscsi
+    libiscsi.lib
+    libiscsi.bin
     libspdk
     libuuid
     llvmPackages.libclang
@@ -30,6 +31,7 @@ stdenv.mkDerivation rec {
     gdb
     utillinux
     xfsprogs
+    pre-commit
   ];
 
   propagatedBuildInputs = [ clang ];
