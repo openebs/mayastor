@@ -8,7 +8,6 @@ cache:
   directories:
     - $HOME/.cargo
     - $TRAVIS_BUILD_DIR/target
-    - csi/moac/node_modules
     - mayastor-test/node_modules
 
 before_script:
@@ -30,3 +29,7 @@ script:
   - echo $glibcLocales
   - export LOCALE_ARCHIVE_2_27="${glibcLocales}/lib/locale/locale-archive"
   - nix-shell --run ./test.sh
+  # this will build moac package and place it to our PATH
+  - cd csi/moac && nix-env -f default.nix -iA package
+  - cd $(dirname $(readlink -f `which moac`))
+  - node_modules/mocha/bin/mocha test.js

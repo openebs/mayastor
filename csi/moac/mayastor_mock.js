@@ -1,7 +1,7 @@
 const assert = require('chai').assert;
 const path = require('path');
 const protoLoader = require('@grpc/proto-loader');
-const grpc = require('grpc');
+const grpc = require('grpc-uds');
 
 // each stat is incremented by this each time when stat method is called
 const STAT_DELTA = 1000;
@@ -12,7 +12,7 @@ const STAT_DELTA = 1000;
 class MayastorServer {
   constructor(endpoint, pools, replicas, nexus) {
     var packageDefinition = protoLoader.loadSync(
-      path.join(__dirname, '../', '../rpc', 'proto', 'mayastor_service.proto'),
+      path.join(__dirname, 'proto', 'mayastor_service.proto'),
       {
         keepCase: false,
         longs: String,

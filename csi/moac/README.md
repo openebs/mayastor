@@ -16,6 +16,8 @@ k8s api server. In a nutshell it is responsible for following things:
 
 ## Build it
 
+### Ubuntu
+
 Nodejs v10 is not available in default package repository on ubuntu.
 New package source has to be added and nodejs package installed from there:
 
@@ -29,6 +31,13 @@ Following command needs to be run just once to download and install npm
 dependencies of moac:
 
 ```bash
+npm install
+```
+
+### NixOS
+
+```bash
+nix-shell -p nodejs-10_x python
 npm install
 ```
 
@@ -76,6 +85,31 @@ To start moac type:
 ```bash
 ./index.js --kubeconfig
 ```
+
+## Building Nix Package
+
+Moac package for nix packaging system can be created as follows.
+
+1. Install a node2nix tool which automates nix package creation for npm
+   packages. On NixOS that can be done by following command:
+   ```bash
+   nix-env -f '<nixpkgs>' -iA nodePackages.node2nix
+   ```
+
+2. Generate nix package build files:
+   ```bash
+   node2nix --development -l package-lock.json --nodejs-10 -c node-composition.nix
+   ```
+
+3. Build the Nix moac package:
+   ```bash
+   nix-build default.nix -A package
+   ```
+
+4. Run moac from the package:
+   ```bash
+   ./result/...
+   ```
 
 ## Troubleshooting
 

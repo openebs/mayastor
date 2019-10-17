@@ -12,7 +12,7 @@ const {
   isPoolAccessible,
 } = require('./common');
 
-const PROTO_PATH = __dirname + '/../proto/csi.proto';
+const PROTO_PATH = __dirname + '/proto/csi.proto';
 // TODO: can we generate version with commit SHA dynamically?
 const VERSION = '0.1';
 const PVC_RE = /pvc-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/;
@@ -26,7 +26,7 @@ const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
   oneofs: true,
   // this is to load google/descriptor.proto, otherwise you would see error:
   // unresolvable extensions: 'extend google.protobuf.FieldOptions' in .csi.v1
-  includeDirs: ['./node_modules/protobufjs/src'],
+  includeDirs: [__dirname + '/node_modules/protobufjs/src'],
 });
 const csi = grpc.loadPackageDefinition(packageDefinition).csi.v1;
 

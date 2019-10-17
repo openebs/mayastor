@@ -3,16 +3,20 @@
   "version": "0.1.0",
   "description": "Mayastor's control plane",
   "main": "index.js",
+  "bin": {
+    "moac": "./index.js"
+  },
   "scripts": {
     "test": "node_modules/mocha/bin/mocha test.js",
-    "start": "node index.js"
+    "start": "node index.js",
+    "prepare": "./bundle_protos.sh"
   },
   "license": "ISC",
   "dependencies": {
     "@grpc/proto-loader": "^0.4.0",
     "express": "^4.17.1",
     "grpc-promise": "^1.4.0",
-    "grpc-uds": "0.1.0",
+    "grpc-uds": "^0.1.4",
     "js-yaml": "^3.13.1",
     "json-stream": "^1.0.0",
     "kubernetes-client": "^6.12.1",
@@ -22,8 +26,7 @@
   },
   "devDependencies": {
     "chai": "^4.2.0",
-    "grpc-mock": "^0.3.1",
-    "mocha": "^6.2.0",
+    "mocha": "^6.2.2",
     "sleep-promise": "^8.0.1",
     "wtfnode": "^0.8.0"
   }

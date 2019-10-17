@@ -6,7 +6,7 @@ const protoLoader = require('@grpc/proto-loader');
 const grpc = require('grpc-uds');
 
 const PLUGIN_NAME = 'io.openebs.csi-mayastor';
-const PROTO_PATH = __dirname + '../../../rpc/proto/mayastor_service.proto';
+const PROTO_PATH = __dirname + '/proto/mayastor_service.proto';
 
 // Load mayastor proto file with mayastor service
 const packageDefinition = protoLoader.loadSync(PROTO_PATH, {

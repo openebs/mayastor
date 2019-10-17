@@ -6,10 +6,10 @@ want to control the exact version(s) of.
 The packages are imported through the `nix-shell` automatically. If you
 run NixOS, read the following section.
 
-## Adding adding the overlay(s)
+## Adding the overlay(s)
 ```
 $ mkdir -p ~/.config/nixpkgs/overlays
-$ ln -s $(pwd)/nix/mayastor-overlay.nix ~/.config/nixpkgs/overlays/rust-overlay.nix
+$ ln -s $(pwd)/nix/mayastor-overlay.nix ~/.config/nixpkgs/overlays/mayastor-overlay.nix
 ```
 
 Now the package is integrated natively:

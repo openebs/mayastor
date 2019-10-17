@@ -304,13 +304,14 @@ module.exports = function() {
         let { name, stat } = await oper.client.called();
         assert.equal(name, 'pool');
         assert.equal(stat.state, 'PENDING');
-        assert.match(stat.reason, /Connect Failed/);
+        // The error msg varies according to nodejs version
+        assert.match(stat.reason, /(failed to connect)|(Connect Failed)/);
 
         let plist = oper.get();
         assert.lengthOf(plist, 1);
         assert.equal(plist[0].name, 'pool');
         assert.equal(plist[0].state, 'PENDING');
-        assert.match(plist[0].reason, /Connect Failed/);
+        assert.match(plist[0].reason, /(failed to connect)|(Connect Failed)/);
         assert.isUndefined(plist[0].capacity);
         assert.isUndefined(plist[0].used);
       });
