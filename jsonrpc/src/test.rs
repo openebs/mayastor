@@ -2,15 +2,13 @@
 
 use self::error::Error;
 use super::*;
-use futures::Stream;
 use nix::errno::Errno;
 use serde_json::json;
-use std::{fs, panic, path::Path, thread};
-use tokio::{
-    io::{read_to_end, write_all},
-    net::UnixListener,
-    runtime::current_thread::Runtime,
-};
+use std::{fs, panic, path::Path};
+use tokio::{net::UnixListener, runtime::current_thread::Runtime};
+
+use futures::StreamExt;
+use tokio::io::{AsyncReadExt, ErrorKind};
 
 /// Socket path to the test json-rpc server
 const SOCK_PATH: &str = "/tmp/jsonrpc-ut.sock";
@@ -29,21 +27,21 @@ struct EmptyArgs {}
 ///  2) test callback evaluating a return value from the json-rpc client call
 ///
 /// Beware that rust executes the tests in parallel so whatever is done in this
-/// function must preserve independance of the tests on each other.
+/// function must preserve independence of the tests on each other.
 fn run_test<A, R, H, T>(method: &str, arg: A, handler: H, test: T)
 where
     A: serde::ser::Serialize,
     R: 'static + serde::de::DeserializeOwned + panic::UnwindSafe + Send,
-    H: FnOnce(Request) -> Vec<u8> + 'static,
+    H: FnOnce(Request) -> Vec<u8> + 'static + Send,
     T: FnOnce(Result<R, Error>) -> () + panic::UnwindSafe,
 {
-    let sock = format!("{}.{:?}", SOCK_PATH, thread::current().id());
+    let sock = format!("{}.{:?}", SOCK_PATH, std::thread::current().id());
     let sock_path = Path::new(&sock);
     // Cleanup should be called at all places where we exit from this function
     let cleanup = || {
         let _ = fs::remove_file(&sock_path);
     };
-    let server = match UnixListener::bind(&sock_path) {
+    let mut server = match UnixListener::bind(&sock_path) {
         Ok(server) => server,
         Err(_) => {
             // most likely the socket file exists, remove it and retry
@@ -51,38 +49,23 @@ where
             UnixListener::bind(&sock_path).unwrap()
         }
     };
+
     // create tokio futures runtime
     let mut rt = Runtime::new().unwrap();
 
     // define handling of client requests at the server side
-    rt.spawn({
-        // stream of incoming connections from clients
-        server
-            .incoming()
-            .into_future()
-            .map_err(|(err, stream)| {
-                drop(stream);
-                err
-            })
-            // read client request
-            .and_then(move |(sock, stream)| {
-                drop(stream);
-                read_to_end(sock.unwrap(), Vec::new())
-            })
-            // create reply for the request and send it
-            .and_then(move |(sock, buf)| {
-                let req: Request = serde_json::from_slice(&buf).unwrap();
-                let resp = handler(req);
-                write_all(sock, resp)
-            })
-            // wait for the reply to be sent
-            .and_then(move |(_sock, _buf)| Ok(()))
-            .map_err(|e| panic!("err={:?}", e))
+    rt.spawn(async move {
+        let (mut socket, _) = server.accept().await.unwrap();
+        let mut buf = Vec::new();
+        let _len = socket.read_to_end(&mut buf).await.unwrap();
+        let req: Request = serde_json::from_slice(&buf).unwrap();
+        let resp = handler(req);
+        socket.write_all(&resp).await.unwrap();
+        socket.shutdown(Shutdown::Both).unwrap();
     });
 
     // write to the server using our jsonrpc client
     let call_res = rt.block_on(call(&sock, method, Some(arg)));
-    rt.run().unwrap();
 
     // test if the return value from client call is ok
     let res = panic::catch_unwind(move || test(call_res));
@@ -171,15 +154,17 @@ fn connect_error() {
     // try to connect to server which does not exist
     let call_res: Result<(), Error> =
         rt.block_on(call("/crazy/path/look", "method", Some(())));
-    rt.run().unwrap();
     match call_res {
         Ok(_) => panic!("Expected error and got ok"),
-        Err(Error::ConnectError {
-            sock: _sock,
-            err: _err,
-        }) => (),
-        Err(err) => panic!(format!("Wrong error type: {}", err)),
+        Err(Error::IoError(err)) => match err.kind() {
+            ErrorKind::NotFound => {}
+            _ => {
+                panic!("unexpected error");
+            }
+        },
+        _ => panic!("unexpected error"),
     }
+    rt.run().unwrap();
 }
 
 #[test]

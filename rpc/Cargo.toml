@@ -4,17 +4,16 @@ version = "0.1.0"
 authors = ["Jeffry Molanus <jeffry.molanus@gmail.com>"]
 edition = "2018"
 
+[build-dependencies]
+tonic-build = "0.1.0-alpha.3"
+prost-build = "0.5.0"
+
 [dependencies]
-bytes = "0.4.12"
+tonic = "0.1.0-alpha.3"
+bytes = "0.4"
+prost = "0.5"
+prost-derive = "0.5"
 prost-types = "0.5.0"
-prost-derive = "0.5.0"
-prost = "0.5.0"
-futures = "0.1.28"
-tower-grpc = "0.1.0"
-tower-hyper = "0.1.1"
 serde = { version = "1.0.98", features = ["derive"] }
 serde_derive = "1.0.99"
 serde_json = "1.0.40"
-[build-dependencies]
-tower-grpc-build = { version = "0.1.0", features = ["tower-hyper"] }
-prost-build = "0.5.0"

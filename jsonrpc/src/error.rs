@@ -2,7 +2,7 @@
 //! when sending request and processing reply from json-rpc server.
 
 use std::{convert::From, fmt, io};
-use tower_grpc::{Code, Status};
+use tonic::{Code, Status};
 
 #[derive(Debug, PartialEq)]
 pub enum RpcCode {
@@ -70,6 +70,11 @@ impl fmt::Display for Error {
     }
 }
 
+impl From<Error> for Status {
+    fn from(e: Error) -> Self {
+        e.into_status()
+    }
+}
 // Automatic conversion functions for simply using .into() on various return
 // types follow
 

@@ -35,6 +35,9 @@ pub struct NexusModule {
 unsafe impl Sync for NexusModule {}
 unsafe impl Sync for NexusInstances {}
 
+unsafe impl Send for NexusModule {}
+unsafe impl Send for NexusInstances {}
+
 impl From<*mut spdk_bdev_module> for NexusModule {
     // cant silence
     #![allow(clippy::not_unsafe_ptr_arg_deref)]

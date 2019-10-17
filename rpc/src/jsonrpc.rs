@@ -38,6 +38,17 @@ pub enum ShareProtocol {
     Iscsi,
 }
 
+impl ShareProtocol {
+    pub fn from_i32(value: i32) -> Option<Self> {
+        match value {
+            0 => Some(ShareProtocol::None),
+            1 => Some(ShareProtocol::Nvmf),
+            2 => Some(ShareProtocol::Iscsi),
+            _ => None,
+        }
+    }
+}
+
 /// create replica arguments
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CreateReplicaArgs {

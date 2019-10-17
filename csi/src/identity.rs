@@ -1,11 +1,12 @@
 //! Implementation of gRPC methods from CSI Identity gRPC service.
 
-use super::csi::*;
-use futures::{future, Future};
 use std::{boxed::Box, collections::HashMap};
-use tower_grpc::{Request, Response, Status};
 
-use jsonrpc::{self, error::Error as JsRpcError};
+use tonic::{Code, Request, Response, Status};
+
+use jsonrpc::{self};
+
+use super::csi::*;
 
 const PLUGIN_NAME: &str = "io.openebs.csi-mayastor";
 // TODO: can we generate version with commit SHA dynamically?
@@ -16,40 +17,33 @@ pub struct Identity {
     pub socket: String,
 }
 
+impl Identity {}
+#[tonic::async_trait]
 impl server::Identity for Identity {
-    type GetPluginInfoFuture =
-        future::FutureResult<Response<GetPluginInfoResponse>, Status>;
-    type GetPluginCapabilitiesFuture =
-        future::FutureResult<Response<GetPluginCapabilitiesResponse>, Status>;
-    type ProbeFuture = Box<
-        dyn future::Future<Item = Response<ProbeResponse>, Error = Status>
-            + Send,
-    >;
-
-    fn get_plugin_info(
-        &mut self,
+    async fn get_plugin_info(
+        &self,
         _request: Request<GetPluginInfoRequest>,
-    ) -> Self::GetPluginInfoFuture {
+    ) -> Result<Response<GetPluginInfoResponse>, Status> {
         debug!("GetPluginInfo request ({}:{})", PLUGIN_NAME, PLUGIN_VERSION);
 
-        future::ok(Response::new(GetPluginInfoResponse {
+        Ok(Response::new(GetPluginInfoResponse {
             name: PLUGIN_NAME.to_owned(),
             vendor_version: PLUGIN_VERSION.to_owned(),
             manifest: HashMap::new(),
         }))
     }
 
-    fn get_plugin_capabilities(
-        &mut self,
+    async fn get_plugin_capabilities(
+        &self,
         _request: Request<GetPluginCapabilitiesRequest>,
-    ) -> Self::GetPluginCapabilitiesFuture {
+    ) -> Result<Response<GetPluginCapabilitiesResponse>, Status> {
         let caps = vec![
             plugin_capability::service::Type::ControllerService,
             plugin_capability::service::Type::VolumeAccessibilityConstraints,
         ];
         debug!("GetPluginCapabilities request: {:?}", caps);
 
-        future::ok(Response::new(GetPluginCapabilitiesResponse {
+        Ok(Response::new(GetPluginCapabilitiesResponse {
             capabilities: caps
                 .into_iter()
                 .map(|c| PluginCapability {
@@ -63,34 +57,23 @@ impl server::Identity for Identity {
         }))
     }
 
-    fn probe(&mut self, _request: Request<ProbeRequest>) -> Self::ProbeFuture {
+    async fn probe(
+        &self,
+        _request: Request<ProbeRequest>,
+    ) -> Result<Response<ProbeResponse>, Status> {
         let f = jsonrpc::call::<(), bool>(
             &self.socket,
             "wait_subsystem_init",
             None,
         )
-        .then(move |result| match result {
-            Ok(val) => {
-                debug!("Probe request: ready={}", val);
-                future::ok(Response::new(ProbeResponse {
-                    ready: Some(val),
-                }))
-            }
-            Err(err) => match err {
-                JsRpcError::ConnectError {
-                    ..
-                } => {
-                    warn!("Probe request: mayastor not running");
-                    future::ok(Response::new(ProbeResponse {
-                        ready: Some(false),
-                    }))
-                }
-                _ => {
-                    error!("Probe request: {}", err);
-                    future::err(err.into_status())
-                }
-            },
-        });
-        Box::new(f)
+        .await;
+
+        if let Ok(f) = f {
+            Ok(Response::new(ProbeResponse {
+                ready: Some(f),
+            }))
+        } else {
+            Err(Status::new(Code::Unavailable, "MayaStor is is not running"))
+        }
     }
 }

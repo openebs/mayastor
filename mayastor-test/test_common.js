@@ -13,7 +13,7 @@ const sudo = require('./sudo');
 const SOCK = '/tmp/mayastor_test.sock';
 const CONFIG_PATH = '/tmp/mayastor_test.cfg';
 const GRPC_PORT = 10777;
-const CSI_ENDPOINT = '127.0.0.1:13987';
+const CSI_ENDPOINT = '127.0.0.1:10777';
 const CSI_ID = 'test-node-id';
 
 var endpoint = '127.0.0.1:' + GRPC_PORT;
@@ -207,8 +207,9 @@ function restartMayastor(ping, done) {
 // Execute rpc method using dumb jsonrpc client
 function dumbCommand(method, args, done) {
   exec(
-    '../target/debug/dumb -s ' +
+    '../target/debug/mctl -s ' +
       SOCK +
+      ' raw' +
       ' ' +
       method +
       " '" +

@@ -14,13 +14,13 @@ pub mod error;
 mod test;
 
 use self::error::{Error, RpcCode};
-use futures::future::{self, Future};
 use nix::errno::Errno;
-use std::{boxed::Box, io, net::Shutdown};
+use std::net::Shutdown;
 use tokio::{
-    io::{read_to_end, write_all},
+    io::{AsyncReadExt, AsyncWriteExt},
     net::UnixStream,
 };
+
 #[derive(Debug, Serialize, Deserialize)]
 /// A JSONRPC request object
 pub struct Request<'a> {
@@ -60,11 +60,11 @@ pub struct RpcError {
 }
 
 /// Make json-rpc request and parse reply and return user data to caller.
-pub fn call<A, R>(
+pub async fn call<A, R>(
     sock_path: &str,
     method: &str,
     args: Option<A>,
-) -> Box<dyn Future<Item = R, Error = Error> + Send>
+) -> Result<R, Error>
 where
     A: serde::ser::Serialize,
     R: 'static + serde::de::DeserializeOwned + Send,
@@ -73,52 +73,31 @@ where
         Some(val) => Some(serde_json::to_value(val).unwrap()),
         None => None,
     };
+
     let request = Request {
         method,
         params,
         id: From::from(0),
         jsonrpc: Some("2.0"),
     };
-    let request_raw = serde_json::to_vec(&request).unwrap();
+
+    let mut buf = serde_json::to_vec(&request)?;
     let sock = sock_path.to_string();
+    let mut socket = UnixStream::connect(sock).await?;
 
-    // We cannot send data, close connection and read data until connection
-    // closed, which would be the easist way. There is a bug in SPDK when
-    // write half of the connection can't be closed until the whole reply is
-    // read from the server (see https://github.com/spdk/spdk/issues/604).
-    // Hence we need to adopt more complex way of reading the data from the
-    // server in loop, trying to feed them to parser until we succeed or
-    // connection is closed.
-    let f = UnixStream::connect(sock_path)
-        .and_then(|socket| {
-            trace!("JSON request: {}", String::from_utf8_lossy(&request_raw));
-            write_all(socket, request_raw)
-        })
-        .and_then(|(socket, _request)| {
-            // XXX is unwrap safe?
-            socket.shutdown(Shutdown::Write).unwrap();
-            read_to_end(socket, Vec::new())
-        })
-        // map io error to jsonrpc error
-        .map_err(move |err| match err.kind() {
-            io::ErrorKind::NotFound | io::ErrorKind::PermissionDenied => {
-                Error::ConnectError {
-                    sock,
-                    err,
-                }
-            }
-            _ => err.into(),
-        })
-        .and_then(|(socket, reply_raw)| {
-            // XXX is unwrap safe?
-            socket.shutdown(Shutdown::Read).unwrap();
-            match parse_reply::<R>(&reply_raw) {
-                Ok(val) => future::ok(val),
-                Err(err) => future::err(err),
-            }
-        });
+    trace!("JSON request: {}", String::from_utf8_lossy(&buf));
 
-    Box::new(f)
+    socket.write_all(&buf).await?;
+    socket.shutdown(Shutdown::Write)?;
+
+    buf.clear();
+    socket.read_to_end(&mut buf).await?;
+    socket.shutdown(Shutdown::Both)?;
+
+    match parse_reply::<R>(&buf) {
+        Ok(val) => Ok(val),
+        Err(err) => Err(err),
+    }
 }
 
 /// Parse json-rpc reply (defined by spec) and return user data embedded in

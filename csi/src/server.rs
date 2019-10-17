@@ -6,54 +6,44 @@
 //! of volumes, which is actually done here in the proxy rather than in
 //! mayastor. We aim for 1:1 mapping between the two RPCs.
 
-#![warn(unused_extern_crates)]
 #[macro_use]
 extern crate clap;
 #[macro_use]
-extern crate log;
-#[macro_use]
 extern crate run_script;
-use tokio;
-
-mod format;
-mod identity;
-mod mayastor_svc;
-mod mount;
 #[macro_use]
-mod node;
+extern crate log;
+use std::{io::Write, path::Path};
+
+use crate::mount::probe_filesystems;
+use chrono::Local;
+use clap::{App, Arg};
+use env_logger::{Builder, Env};
+use git_version::git_version;
+use tokio;
+use tonic::transport::Server;
 // These libs are needed for gRPC generated code
 use rpc;
+
+use crate::{identity::Identity, mayastor_svc::MayastorService, node::Node};
 
 #[allow(dead_code)]
 #[allow(clippy::type_complexity)]
 #[allow(clippy::unit_arg)]
 #[allow(clippy::redundant_closure)]
 #[allow(clippy::enum_variant_names)]
-mod csi {
-    include!(concat!(env!("OUT_DIR"), "/csi.v1.rs"));
+pub mod csi {
+    tonic::include_proto!("csi.v1");
 }
 
-use crate::{
-    identity::Identity,
-    mayastor_svc::MayastorService,
-    mount::probe_filesystems,
-    node::Node,
-};
-use chrono::Local;
-use clap::{App, Arg};
-use env_logger::{Builder, Env};
-use futures::{Future, Stream};
-use git_version::git_version;
-use grpc_router::Router2;
-use std::{
-    fs,
-    io::{Error as IoError, Write},
-    path::Path,
-};
-use tokio::net::{TcpListener, UnixListener};
-use tower_hyper::server::{Http, Server};
+mod format;
+mod identity;
+mod mayastor_svc;
+mod mount;
+mod node;
+mod router;
 
-pub fn main() {
+#[tokio::main]
+async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let matches = App::new("Mayastor grpc server")
         .version(git_version!())
         .about("gRPC mayastor server with CSI and egress services")
@@ -118,7 +108,7 @@ pub fn main() {
     let ms_socket = matches
         .value_of("mayastor-socket")
         .unwrap_or("/var/tmp/mayastor.sock");
-    let csi_socket = matches
+    let _csi_socket = matches
         .value_of("csi-socket")
         .unwrap_or("/var/tmp/csi.sock");
     let level = match matches.occurrences_of("v") as usize {
@@ -152,95 +142,29 @@ pub fn main() {
     }
     builder.init();
 
-    let csi_svc = Router2::new(
-        "/csi.v1.Identity/",
-        csi::server::IdentityServer::new(Identity {
-            socket: ms_socket.to_owned(),
-        }),
-        csi::server::NodeServer::new(Node {
-            node_name: node_name.to_string(),
-            addr: addr.to_string(),
-            port,
-            socket: ms_socket.to_owned(),
-            filesystems: probe_filesystems()
-                .expect("Failed to probe filesystems"),
-        }),
-    );
-    let egress_svc =
-        rpc::service::server::MayastorServer::new(MayastorService {
-            socket: ms_socket.to_owned(),
-        });
+    let saddr = format!("{}:{}", addr, port).parse().unwrap();
+    let csi_builder = Server::builder();
+    // TODO need to listen on unix socket as well
+    csi_builder
+        .serve(
+            saddr,
+            router::Router {
+                node_service: std::sync::Arc::new(Node {
+                    node_name: node_name.into(),
+                    addr: addr.to_string(),
+                    port,
+                    socket: ms_socket.into(),
+                    filesystems: probe_filesystems().unwrap(),
+                }),
+                identity_service: std::sync::Arc::new(Identity {
+                    socket: ms_socket.into(),
+                }),
+                mayastor_service: std::sync::Arc::new(MayastorService {
+                    socket: ms_socket.into(),
+                }),
+            },
+        )
+        .await?;
 
-    let mut csi_server = Server::new(csi_svc);
-    let mut egress_server = Server::new(egress_svc);
-
-    let endpoint_egress = format!("0.0.0.0:{}", port).parse().unwrap();
-    let bind_egress = TcpListener::bind(&endpoint_egress).expect("bind");
-
-    info!("Egress listening on {}", endpoint_egress);
-
-    let accept_egress =
-        bind_egress.incoming().for_each(move |sock| {
-            debug!(
-                "New connection from {}",
-                match sock.peer_addr() {
-                    Ok(addr) => addr.to_string(),
-                    Err(_) => "unknown".to_owned(),
-                }
-            );
-            if let Err(e) = sock.set_nodelay(true) {
-                return Err(e);
-            }
-
-            let http = Http::new().http2_only(true).clone();
-            let serve = egress_server.serve_with(sock, http);
-            tokio::spawn(serve.map_err(|e| {
-                error!("http2 error on egress connection: {:?}", e)
-            }));
-            Ok(())
-        });
-
-    // Besides the obvious unix domain socket for CSI we need to support TCP
-    // as well, because grpc-node used in the tests does not support UDS:
-    // https://github.com/grpc/grpc-node/issues/258.
-    // Unfortunately we cannot abstract the differences between TCP and UDS
-    // by using Box<Stream> because the underlying Item type of Stream is
-    // different for each of TCP and UDS stream, so there is a little code
-    // duplication here.
-    let accept_csi: Box<dyn Future<Item = (), Error = IoError> + Send> =
-        if csi_socket.starts_with('/') {
-            // bind would fail if we did not remove stale socket
-            let _ = fs::remove_file(csi_socket);
-            let bind_csi = UnixListener::bind(csi_socket).expect("bind");
-            Box::new(bind_csi.incoming().for_each(move |sock| {
-                debug!("New csi connection");
-                let http = Http::new().http2_only(true).clone();
-                let serve = csi_server.serve_with(sock, http);
-                tokio::spawn(
-                    serve.map_err(|e| error!("error on CSI connection: {}", e)),
-                );
-                Ok(())
-            }))
-        } else {
-            let endpoint_csi = csi_socket.parse().unwrap();
-            let bind_csi = TcpListener::bind(&endpoint_csi).expect("bind");
-            Box::new(bind_csi.incoming().for_each(move |sock| {
-                debug!("New csi connection");
-                let http = Http::new().http2_only(true).clone();
-                let serve = csi_server.serve_with(sock, http);
-                tokio::spawn(
-                    serve.map_err(|e| error!("error on CSI connection: {}", e)),
-                );
-                Ok(())
-            }))
-        };
-
-    info!("CSI listening on {}", csi_socket);
-
-    tokio::run(accept_egress.join(accept_csi).then(|res| {
-        if let Err(err) = res {
-            error!("accept error: {}", err);
-        }
-        Ok(())
-    }))
+    Ok(())
 }
