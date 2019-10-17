@@ -1,78 +1,31 @@
 //! Implementation of gRPC methods from mayastor gRPC service.
 
-use crate::rpc::{mayastor::*, service};
+use tonic::{Code, Request, Response, Status};
 
-use enclose::enclose;
-use futures::future;
+use rpc::jsonrpc as jsondata;
 
-use futures::future::Future;
-use jsonrpc;
-use rpc::{jsonrpc as jsondata, mayastor::ListNexusReply};
-use std::{boxed::Box, vec::Vec};
-use tower_grpc::{Code, Request, Response, Status};
+use crate::rpc::{
+    mayastor::{ShareProtocol, *},
+    service,
+};
+
 /// mayastorService handles non CSI rpc calls
 #[derive(Clone, Debug)]
 pub struct MayastorService {
     pub socket: String,
 }
-
+impl MayastorService {}
+#[tonic::async_trait]
 impl service::server::Mayastor for MayastorService {
-    // Definition of exact return values from method handlers.
-    // We take the perf penalty of boxing the values and using virtual dispatch
-    // table on returned object to overcome otherwise different types of return
-    // values (future::ok vs jsonrpc::call).
-    type CreatePoolFuture =
-        Box<dyn future::Future<Item = Response<Null>, Error = Status> + Send>;
-    type DestroyPoolFuture =
-        Box<dyn future::Future<Item = Response<Null>, Error = Status> + Send>;
-    type ListPoolsFuture = Box<
-        dyn future::Future<Item = Response<ListPoolsReply>, Error = Status>
-            + Send,
-    >;
-    type CreateReplicaFuture =
-        Box<dyn future::Future<Item = Response<Null>, Error = Status> + Send>;
-    type DestroyReplicaFuture =
-        Box<dyn future::Future<Item = Response<Null>, Error = Status> + Send>;
-    type ListReplicasFuture = Box<
-        dyn future::Future<Item = Response<ListReplicasReply>, Error = Status>
-            + Send,
-    >;
-    type StatReplicasFuture = Box<
-        dyn future::Future<Item = Response<StatReplicasReply>, Error = Status>
-            + Send,
-    >;
-    type CreateNexusFuture =
-        Box<dyn future::Future<Item = Response<Null>, Error = Status> + Send>;
-    type DestroyNexusFuture =
-        Box<dyn future::Future<Item = Response<Null>, Error = Status> + Send>;
-    type ListNexusFuture = Box<
-        dyn future::Future<Item = Response<ListNexusReply>, Error = Status>
-            + Send,
-    >;
-    type PublishNexusFuture = Box<
-        dyn future::Future<Item = Response<PublishNexusReply>, Error = Status>
-            + Send,
-    >;
-    type UnpublishNexusFuture =
-        Box<dyn future::Future<Item = Response<Null>, Error = Status> + Send>;
-    type ChildOperationFuture =
-        Box<dyn future::Future<Item = Response<Null>, Error = Status> + Send>;
-
-    /// Create storage pool (or import it if it already exists on the
-    /// specified disk).
-    fn create_pool(
-        &mut self,
+    async fn create_pool(
+        &self,
         request: Request<CreatePoolRequest>,
-    ) -> Self::CreatePoolFuture {
+    ) -> Result<Response<Null>, Status> {
         let msg = request.into_inner();
 
         trace!("{:?}", msg);
-
         if msg.disks.is_empty() {
-            return Box::new(future::err(Status::new(
-                Code::InvalidArgument,
-                "Missing device".to_string(),
-            )));
+            return Err(Status::new(Code::InvalidArgument, "Missing devices"));
         }
 
         debug!(
@@ -91,25 +44,18 @@ impl service::server::Mayastor for MayastorService {
             block_size: Some(msg.block_size),
         });
 
-        let f =
-            jsonrpc::call::<_, ()>(&self.socket, "create_or_import_pool", args)
-                .map(enclose! { (pool_name) move |_| {
-                    info!("Created or imported pool {}", pool_name);
-                    Response::new(Null {})
-                }})
-                .map_err(enclose! { (pool_name) move |err| {
-                    error!("Failed to create pool {}: {}", pool_name, err);
-                    err.into_status()
-                }});
+        jsonrpc::call::<_, ()>(&self.socket, "create_or_import_pool", args)
+            .await?;
 
-        Box::new(f)
+        info!("Created or imported pool {}", pool_name);
+        Ok(Response::new(Null {}))
     }
 
     /// Destroy pool -> destroy lvol store and delete underlying base bdev.
-    fn destroy_pool(
-        &mut self,
+    async fn destroy_pool(
+        &self,
         request: Request<DestroyPoolRequest>,
-    ) -> Self::DestroyPoolFuture {
+    ) -> Result<Response<Null>, Status> {
         let msg = request.into_inner();
 
         trace!("{:?}", msg);
@@ -124,68 +70,57 @@ impl service::server::Mayastor for MayastorService {
 
         debug!("Destroying pool {} ...", pool_name);
 
-        let f = jsonrpc::call::<_, ()>(&socket, "destroy_pool", args)
-            .map(enclose! { (pool_name) move |_| {
-                info!("Destroyed pool {}", pool_name);
-                Response::new(Null {})
-            }})
-            .map_err(enclose! { (pool_name) move |err| {
-                error!("Failed to destroy pool {}: {}", pool_name, err);
-                err.into_status()
-            }});
-
-        Box::new(f)
+        jsonrpc::call::<_, ()>(&socket, "destroy_pool", args).await?;
+        info!("Destroyed pool {}", pool_name);
+        Ok(Response::new(Null {}))
     }
 
     /// Get list of lvol stores.
     ///
     /// TODO: There is a state field which is always set to "online" state.
     /// Figure out how to set it properly.
-    fn list_pools(&mut self, request: Request<Null>) -> Self::ListPoolsFuture {
+    async fn list_pools(
+        &self,
+        request: Request<Null>,
+    ) -> Result<Response<ListPoolsReply>, Status> {
         let msg = request.into_inner();
 
         trace!("{:?}", msg);
 
-        let f = jsonrpc::call::<(), Vec<jsondata::Pool>>(
+        let pools = jsonrpc::call::<(), Vec<jsondata::Pool>>(
             &self.socket,
             "list_pools",
             None,
         )
-        .map(move |pools| {
-            debug!("Got list of {} pools", pools.len());
-            let resp = Response::new(ListPoolsReply {
-                pools: pools
-                    .iter()
-                    .map(|p| Pool {
-                        name: p.name.clone(),
-                        disks: p.disks.clone(),
-                        capacity: p.capacity,
-                        used: p.used,
-                        state: match p.state.as_str() {
-                            "online" => PoolState::Online,
-                            "degraded" => PoolState::Degraded,
-                            "faulty" => PoolState::Faulty,
-                            _ => PoolState::Faulty,
-                        } as i32,
-                    })
-                    .collect(),
-            });
-            trace!("{:?}", resp);
-            resp
-        })
-        .map_err(|err| {
-            error!("Getting lvol stores failed: {}", err);
-            err.into_status()
-        });
+        .await?;
 
-        Box::new(f)
+        debug!("Got list of {} pools", pools.len());
+        let resp = Response::new(ListPoolsReply {
+            pools: pools
+                .iter()
+                .map(|p| Pool {
+                    name: p.name.clone(),
+                    disks: p.disks.clone(),
+                    capacity: p.capacity,
+                    used: p.used,
+                    state: match p.state.as_str() {
+                        "online" => PoolState::Online,
+                        "degraded" => PoolState::Degraded,
+                        "faulty" => PoolState::Faulty,
+                        _ => PoolState::Faulty,
+                    } as i32,
+                })
+                .collect(),
+        });
+        trace!("{:?}", resp);
+        Ok(resp)
     }
 
     /// Create replica
-    fn create_replica(
-        &mut self,
+    async fn create_replica(
+        &self,
         request: Request<CreateReplicaRequest>,
-    ) -> Self::CreateReplicaFuture {
+    ) -> Result<Response<Null>, Status> {
         let msg = request.into_inner();
         trace!("{:?}", msg);
 
@@ -196,10 +131,10 @@ impl service::server::Mayastor for MayastorService {
             Some(ShareProtocol::Nvmf) => jsondata::ShareProtocol::Nvmf,
             Some(ShareProtocol::Iscsi) => jsondata::ShareProtocol::Iscsi,
             None => {
-                return Box::new(future::err(Status::new(
+                return Err(Status::new(
                     Code::InvalidArgument,
                     "Invalid value of share protocol".to_owned(),
-                )))
+                ));
             }
         };
 
@@ -213,25 +148,24 @@ impl service::server::Mayastor for MayastorService {
             share,
         });
 
-        let f = jsonrpc::call::<_, ()>(&self.socket, "create_replica", args)
-            .map(enclose! { (uuid, pool) move |_| {
-                info!("Created replica {} on pool {}", uuid, pool);
-                Response::new(Null {})
-            }})
-            .map_err(enclose! { (uuid, pool) move |err| {
-                error!("Failed to create replica {} on {}: {}",
-                       uuid, pool, err);
-                err.into_status()
-            }});
-
-        Box::new(f)
+        match jsonrpc::call::<_, ()>(&self.socket, "create_replica", args).await
+        {
+            Ok(_) => Ok(Response::new(Null {})),
+            Err(err) => {
+                error!(
+                    "Failed to create replica {} on {}: {}",
+                    uuid, pool, err
+                );
+                Err(err.into())
+            }
+        }
     }
 
     /// Destroy replica
-    fn destroy_replica(
-        &mut self,
+    async fn destroy_replica(
+        &self,
         request: Request<DestroyReplicaRequest>,
-    ) -> Self::DestroyReplicaFuture {
+    ) -> Result<Response<Null>, Status> {
         let msg = request.into_inner();
         trace!("{:?}", msg);
 
@@ -242,184 +176,183 @@ impl service::server::Mayastor for MayastorService {
             uuid: uuid.clone(),
         });
 
-        let f = jsonrpc::call::<_, ()>(&self.socket, "destroy_replica", args)
-            .map(enclose! { (uuid) move |_| {
+        match jsonrpc::call::<_, ()>(&self.socket, "destroy_replica", args)
+            .await
+        {
+            Ok(_) => {
                 info!("Destroyed replica {}", uuid);
-                Response::new(Null {})
-            }})
-            .map_err(enclose! { (uuid) move |err| {
+                Ok(Response::new(Null {}))
+            }
+            Err(err) => {
                 error!("Failed to destroy replica {}: {}", uuid, err);
-                err.into_status()
-            }});
-
-        Box::new(f)
+                Err(err.into())
+            }
+        }
     }
 
     /// List replicas
-    fn list_replicas(
-        &mut self,
+    async fn list_replicas(
+        &self,
         request: Request<Null>,
-    ) -> Self::ListReplicasFuture {
+    ) -> Result<Response<ListReplicasReply>, Status> {
         let msg = request.into_inner();
 
         trace!("{:?}", msg);
 
-        let f = jsonrpc::call::<(), Vec<jsondata::Replica>>(
+        match jsonrpc::call::<(), Vec<jsondata::Replica>>(
             &self.socket,
             "list_replicas",
             None,
         )
-        .map(move |replicas| {
-            debug!("Got list of {} replicas", replicas.len());
-            let resp = Response::new(ListReplicasReply {
-                replicas: replicas
-                    .iter()
-                    .map(|r| Replica {
-                        uuid: r.uuid.clone(),
-                        pool: r.pool.clone(),
-                        thin: r.thin_provision,
-                        size: r.size,
-                        share: match r.share {
-                            jsondata::ShareProtocol::None => {
-                                ShareProtocol::None
-                            }
-                            jsondata::ShareProtocol::Nvmf => {
-                                ShareProtocol::Nvmf
-                            }
-                            jsondata::ShareProtocol::Iscsi => {
-                                ShareProtocol::Iscsi
-                            }
-                        } as i32,
-                    })
-                    .collect(),
-            });
-            trace!("{:?}", resp);
-            resp
-        })
-        .map_err(|err| {
-            error!("Getting replicas failed: {}", err);
-            err.into_status()
-        });
-
-        Box::new(f)
+        .await
+        {
+            Ok(replicas) => {
+                debug!("Got list of {} replicas", replicas.len());
+                let resp = Response::new(ListReplicasReply {
+                    replicas: replicas
+                        .iter()
+                        .map(|r| Replica {
+                            uuid: r.uuid.clone(),
+                            pool: r.pool.clone(),
+                            thin: r.thin_provision,
+                            size: r.size,
+                            share: match r.share {
+                                jsondata::ShareProtocol::None => {
+                                    ShareProtocol::None
+                                }
+                                jsondata::ShareProtocol::Nvmf => {
+                                    ShareProtocol::Nvmf
+                                }
+                                jsondata::ShareProtocol::Iscsi => {
+                                    ShareProtocol::Iscsi
+                                }
+                            } as i32,
+                        })
+                        .collect(),
+                });
+                trace!("{:?}", resp);
+                Ok(resp)
+            }
+            Err(err) => {
+                error!("Getting replicas failed: {}", err);
+                Err(err.into())
+            }
+        }
     }
 
     /// Return replica stats
-    fn stat_replicas(
-        &mut self,
+    async fn stat_replicas(
+        &self,
         request: Request<Null>,
-    ) -> Self::StatReplicasFuture {
+    ) -> Result<Response<StatReplicasReply>, Status> {
         let msg = request.into_inner();
         let socket = &self.socket;
 
         trace!("{:?}", msg);
 
-        let f = jsonrpc::call::<(), Vec<jsondata::Stats>>(
+        match jsonrpc::call::<(), Vec<jsondata::Stats>>(
             socket,
             "stat_replicas",
             None,
         )
-        .map(move |stats| {
-            let resp = Response::new(StatReplicasReply {
-                replicas: stats
-                    .iter()
-                    .map(|st| ReplicaStats {
-                        uuid: st.uuid.clone(),
-                        pool: st.pool.clone(),
-                        stats: Some(Stats {
-                            num_read_ops: st.num_read_ops,
-                            num_write_ops: st.num_write_ops,
-                            bytes_read: st.bytes_read,
-                            bytes_written: st.bytes_written,
-                        }),
-                    })
-                    .collect(),
-            });
-            trace!("{:?}", resp);
-            resp
-        })
-        .map_err(|err| {
-            error!("Getting replicas failed: {}", err);
-            err.into_status()
-        });
-
-        Box::new(f)
+        .await
+        {
+            Ok(stats) => {
+                let resp = Response::new(StatReplicasReply {
+                    replicas: stats
+                        .iter()
+                        .map(|st| ReplicaStats {
+                            uuid: st.uuid.clone(),
+                            pool: st.pool.clone(),
+                            stats: Some(Stats {
+                                num_read_ops: st.num_read_ops,
+                                num_write_ops: st.num_write_ops,
+                                bytes_read: st.bytes_read,
+                                bytes_written: st.bytes_written,
+                            }),
+                        })
+                        .collect(),
+                });
+                trace!("{:?}", resp);
+                Ok(resp)
+            }
+            Err(err) => {
+                error!("Getting replicas failed: {}", err);
+                Err(err.into_status())
+            }
+        }
     }
 
-    fn create_nexus(
-        &mut self,
+    async fn create_nexus(
+        &self,
         request: Request<CreateNexusRequest>,
-    ) -> Self::CreateNexusFuture {
+    ) -> Result<Response<Null>, Status> {
         let msg = request.into_inner();
         trace!("{:?}", msg);
 
-        Box::new(
-            jsonrpc::call::<_, ()>(&self.socket, "create_nexus", Some(msg))
-                .map_err(|e| e.into_status())
-                .map(|_| Response::new(Null {})),
-        )
+        jsonrpc::call::<_, ()>(&self.socket, "create_nexus", Some(msg)).await?;
+        Ok(Response::new(Null {}))
     }
 
-    fn destroy_nexus(
-        &mut self,
+    async fn destroy_nexus(
+        &self,
         request: Request<DestroyNexusRequest>,
-    ) -> Self::DestroyNexusFuture {
+    ) -> Result<Response<Null>, Status> {
         let msg = request.into_inner();
         trace!("{:?}", msg);
-        Box::new(
-            jsonrpc::call::<_, ()>(&self.socket, "destroy_nexus", Some(msg))
-                .map_err(|e| e.into_status())
-                .map(|_| Response::new(Null {})),
-        )
+        jsonrpc::call::<_, ()>(&self.socket, "destroy_nexus", Some(msg))
+            .await?;
+        Ok(Response::new(Null {}))
     }
 
-    fn list_nexus(&mut self, _request: Request<Null>) -> Self::ListNexusFuture {
-        Box::new(
-            jsonrpc::call::<(), ListNexusReply>(
-                &self.socket,
-                "list_nexus",
-                None,
-            )
-            .map_err(|e| e.into_status())
-            .map(Response::new),
+    async fn list_nexus(
+        &self,
+        _request: Request<Null>,
+    ) -> Result<Response<ListNexusReply>, Status> {
+        let list = jsonrpc::call::<(), ListNexusReply>(
+            &self.socket,
+            "list_nexus",
+            None,
         )
+        .await?;
+
+        Ok(Response::new(list))
     }
 
-    fn publish_nexus(
-        &mut self,
+    async fn publish_nexus(
+        &self,
         request: Request<PublishNexusRequest>,
-    ) -> Self::PublishNexusFuture {
+    ) -> Result<Response<PublishNexusReply>, Status> {
         let msg = request.into_inner();
         trace!("{:?}", msg);
-        Box::new(
-            jsonrpc::call(&self.socket, "publish_nexus", Some(msg))
-                .map_err(|e| e.into_status())
-                .map(Response::new),
+        let p = jsonrpc::call::<_, PublishNexusReply>(
+            &self.socket,
+            "publish_nexus",
+            Some(msg),
         )
+        .await?;
+        Ok(Response::new(p))
     }
 
-    fn unpublish_nexus(
-        &mut self,
+    async fn unpublish_nexus(
+        &self,
         request: Request<UnpublishNexusRequest>,
-    ) -> Self::UnpublishNexusFuture {
+    ) -> Result<Response<Null>, Status> {
         let msg = request.into_inner();
         trace!("{:?}", msg);
-        Box::new(
-            jsonrpc::call::<_, ()>(&self.socket, "unpublish_nexus", Some(msg))
-                .map_err(|e| e.into_status())
-                .map(|_| Response::new(Null {})),
-        )
+        jsonrpc::call::<_, ()>(&self.socket, "unpublish_nexus", Some(msg))
+            .await?;
+        Ok(Response::new(Null {}))
     }
 
-    fn child_operation(
-        &mut self,
+    async fn child_operation(
+        &self,
         request: Request<ChildNexusRequest>,
-    ) -> Self::ChildOperationFuture {
+    ) -> Result<Response<Null>, Status> {
         let msg = request.into_inner();
-        Box::new(
-            jsonrpc::call::<_, ()>(&self.socket, "offline_child", Some(msg))
-                .map_err(|e| e.into_status())
-                .map(|_| Response::new(Null {})),
-        )
+        trace!("{:?}", msg);
+        jsonrpc::call::<_, ()>(&self.socket, "offline_child", Some(msg))
+            .await?;
+        Ok(Response::new(Null {}))
     }
 }

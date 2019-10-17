@@ -2,7 +2,7 @@ extern crate bytes;
 extern crate prost;
 extern crate prost_derive;
 extern crate serde;
-extern crate tower_grpc;
+extern crate tonic;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde_json;

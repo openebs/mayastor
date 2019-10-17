@@ -22,7 +22,7 @@ before_script:
   - sudo sysctl -w vm.nr_hugepages=512
   - source $HOME/.nvm/nvm.sh
   - nvm install 10
-  - curl -sSf https://build.travis-ci.org/files/rustup-init.sh | sh -s -- --default-toolchain=nightly-2019-08-15 -y
+  - curl -sSf https://build.travis-ci.org/files/rustup-init.sh | sh -s -- --default-toolchain=nightly-2019-10-13 -y
 language: nix
 
 script:

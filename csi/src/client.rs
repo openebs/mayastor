@@ -3,27 +3,22 @@
 //! It is not expected to be used in production env but rather for testing and
 //! debugging of the server.
 
-#![feature(core_intrinsics)]
 #![warn(unused_extern_crates)]
 #[macro_use]
 extern crate clap;
 
 use bytesize::ByteSize;
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
-use futures::{future, Future};
-use hyper::client::connect::{Destination, HttpConnector};
-use rpc::{self, service::client::Mayastor};
-use tokio::runtime::Runtime;
-use tower_grpc::BoxBody;
-use tower_hyper::{client, util, Connection};
-use tower_request_modifier::{Builder, RequestModifier};
-use tower_util::MakeService;
+use tokio;
+use tonic::{transport::Channel, Code, Request, Status};
 
-fn create_pool(
-    mut client: Mayastor<RequestModifier<Connection<BoxBody>, BoxBody>>,
-    matches: &ArgMatches,
+use rpc::service::client::MayastorClient;
+
+async fn create_pool(
+    mut client: MayastorClient<Channel>,
+    matches: &ArgMatches<'_>,
     verbose: bool,
-) -> Box<dyn Future<Item = (), Error = String> + Send> {
+) -> Result<(), Status> {
     let name = matches.value_of("POOL").unwrap().to_owned();
     let disks = matches
         .values_of("DISK")
@@ -36,96 +31,87 @@ fn create_pool(
         println!("Creating the pool {}", name);
     }
 
-    Box::new(
-        client
-            .create_pool(tower_grpc::Request::new(
-                rpc::mayastor::CreatePoolRequest {
-                    name,
-                    disks,
-                    block_size,
-                },
-            ))
-            .map_err(|err| format!("Grpc failed: {}", err))
-            .map(|_null_resp| ()),
-    )
+    let _ = client
+        .create_pool(Request::new(rpc::mayastor::CreatePoolRequest {
+            name,
+            disks,
+            block_size,
+        }))
+        .await?;
+
+    Ok(())
 }
 
-fn destroy_pool(
-    mut client: Mayastor<RequestModifier<Connection<BoxBody>, BoxBody>>,
-    matches: &ArgMatches,
+async fn destroy_pool(
+    mut client: MayastorClient<Channel>,
+    matches: &ArgMatches<'_>,
     verbose: bool,
-) -> Box<dyn Future<Item = (), Error = String> + Send> {
+) -> Result<(), Status> {
     let name = matches.value_of("POOL").unwrap().to_owned();
 
     if verbose {
         println!("Destroying the pool {}", name);
     }
 
-    Box::new(
-        client
-            .destroy_pool(tower_grpc::Request::new(
-                rpc::mayastor::DestroyPoolRequest {
-                    name,
-                },
-            ))
-            .map_err(|err| format!("Grpc failed: {}", err))
-            .map(|_null_resp| ()),
-    )
+    client
+        .destroy_pool(Request::new(rpc::mayastor::DestroyPoolRequest {
+            name,
+        }))
+        .await?;
+
+    Ok(())
 }
 
-fn list_pools(
-    mut client: Mayastor<RequestModifier<Connection<BoxBody>, BoxBody>>,
+async fn list_pools(
+    mut client: MayastorClient<Channel>,
     verbose: bool,
     quiet: bool,
-) -> Box<dyn Future<Item = (), Error = String> + Send> {
+) -> Result<(), Status> {
     if verbose {
         println!("Requesting a list of pools");
     }
 
     let f = client
-        .list_pools(tower_grpc::Request::new(rpc::mayastor::Null {}))
-        .map_err(|err| format!("Grpc failed: {}", err))
-        .map(move |resp| {
-            let pools = &resp.get_ref().pools;
+        .list_pools(Request::new(rpc::mayastor::Null {}))
+        .await?;
 
-            if pools.is_empty() && !quiet {
-                println!("No pools have been created");
-            } else {
-                if !quiet {
-                    println!(
-                        "{: <20} {: <8} {: >12} {: >12}   DISKS",
-                        "NAME", "STATE", "CAPACITY", "USED"
-                    );
-                }
-                for p in pools {
-                    print!(
-                        "{: <20} {: <8} {: >12} {: >12}  ",
-                        p.name,
-                        match rpc::mayastor::PoolState::from_i32(p.state)
-                            .unwrap()
-                        {
-                            rpc::mayastor::PoolState::Online => "online",
-                            rpc::mayastor::PoolState::Degraded => "degraded",
-                            rpc::mayastor::PoolState::Faulty => "faulty",
-                        },
-                        ByteSize::b(p.capacity).to_string_as(true),
-                        ByteSize::b(p.used).to_string_as(true),
-                    );
-                    for disk in &p.disks {
-                        print!(" {}", disk);
-                    }
-                    println!();
-                }
+    let pools = &f.get_ref().pools;
+
+    if pools.is_empty() && !quiet {
+        println!("No pools have been created");
+    } else {
+        if !quiet {
+            println!(
+                "{: <20} {: <8} {: >12} {: >12}   DISKS",
+                "NAME", "STATE", "CAPACITY", "USED"
+            );
+        }
+        for p in pools {
+            print!(
+                "{: <20} {: <8} {: >12} {: >12}  ",
+                p.name,
+                match rpc::mayastor::PoolState::from_i32(p.state).unwrap() {
+                    rpc::mayastor::PoolState::Online => "online",
+                    rpc::mayastor::PoolState::Degraded => "degraded",
+                    rpc::mayastor::PoolState::Faulty => "faulty",
+                },
+                ByteSize::b(p.capacity).to_string_as(true),
+                ByteSize::b(p.used).to_string_as(true),
+            );
+            for disk in &p.disks {
+                print!(" {}", disk);
             }
-        });
-    Box::new(f)
+            println!();
+        }
+    }
+    Ok(())
 }
 
-fn create_replica(
-    mut client: Mayastor<RequestModifier<Connection<BoxBody>, BoxBody>>,
-    matches: &ArgMatches,
+async fn create_replica(
+    mut client: MayastorClient<Channel>,
+    matches: &ArgMatches<'_>,
     verbose: bool,
-) -> Box<dyn Future<Item = (), Error = String> + Send> {
+) -> Result<(), Status> {
     let pool = matches.value_of("POOL").unwrap().to_owned();
     let uuid = matches.value_of("UUID").unwrap().to_owned();
     let size = value_t!(matches.value_of("size"), u64).unwrap();
@@ -135,7 +121,8 @@ fn create_replica(
         Some("nvmf") => rpc::mayastor::ShareProtocol::Nvmf as i32,
         Some("iscsi") => rpc::mayastor::ShareProtocol::Iscsi as i32,
         Some(_) => {
-            return Box::new(future::err(
+            return Err(Status::new(
+                Code::Internal,
                 "Invalid value of share protocol".to_owned(),
             ))
         }
@@ -145,191 +132,127 @@ fn create_replica(
         println!("Creating replica {} on pool {}", uuid, pool);
     }
 
-    Box::new(
-        client
-            .create_replica(tower_grpc::Request::new(
-                rpc::mayastor::CreateReplicaRequest {
-                    uuid,
-                    pool,
-                    thin,
-                    share,
-                    size: size * (1024 * 1024),
-                },
-            ))
-            .map_err(|err| format!("Grpc failed: {}", err))
-            .map(|_null_resp| ()),
-    )
+    client
+        .create_replica(Request::new(rpc::mayastor::CreateReplicaRequest {
+            uuid,
+            pool,
+            thin,
+            share,
+            size: size * (1024 * 1024),
+        }))
+        .await?;
+    Ok(())
 }
 
-fn destroy_replica(
-    mut client: Mayastor<RequestModifier<Connection<BoxBody>, BoxBody>>,
-    matches: &ArgMatches,
+async fn destroy_replica(
+    mut client: MayastorClient<Channel>,
+    matches: &ArgMatches<'_>,
     verbose: bool,
-) -> Box<dyn Future<Item = (), Error = String> + Send> {
+) -> Result<(), Status> {
     let uuid = matches.value_of("UUID").unwrap().to_owned();
 
     if verbose {
         println!("Destroying replica {}", uuid);
     }
 
-    Box::new(
-        client
-            .destroy_replica(tower_grpc::Request::new(
-                rpc::mayastor::DestroyReplicaRequest {
-                    uuid,
-                },
-            ))
-            .map_err(|err| format!("Grpc failed: {}", err))
-            .map(|_null_resp| ()),
-    )
+    client
+        .destroy_replica(Request::new(rpc::mayastor::DestroyReplicaRequest {
+            uuid,
+        }))
+        .await?;
+    Ok(())
 }
 
-fn list_replicas(
-    mut client: Mayastor<RequestModifier<Connection<BoxBody>, BoxBody>>,
+async fn list_replicas(
+    mut client: MayastorClient<Channel>,
     verbose: bool,
     quiet: bool,
-) -> Box<dyn Future<Item = (), Error = String> + Send> {
+) -> Result<(), Status> {
     if verbose {
         println!("Requesting a list of replicas");
     }
 
-    Box::new(
-        client
-            .list_replicas(tower_grpc::Request::new(rpc::mayastor::Null {}))
-            .map_err(|err| format!("Grpc failed: {}", err))
-            .map(move |resp| {
-                let replicas = &resp.get_ref().replicas;
+    let resp = client
+        .list_replicas(Request::new(rpc::mayastor::Null {}))
+        .await?;
 
-                if replicas.is_empty() && !quiet {
-                    println!("No replicas have been created");
-                } else {
-                    if !quiet {
-                        println!(
-                            "{: <20} {: <36} {: <8} {: <8} {: >10}",
-                            "POOL", "NAME", "THIN", "SHARE", "SIZE"
-                        );
+    let replicas = &resp.get_ref().replicas;
+
+    if replicas.is_empty() && !quiet {
+        println!("No replicas have been created");
+    } else {
+        if !quiet {
+            println!(
+                "{: <20} {: <36} {: <8} {: <8} {: >10}",
+                "POOL", "NAME", "THIN", "SHARE", "SIZE"
+            );
+        }
+        for r in replicas {
+            println!(
+                "{: <20} {: <36} {: <8} {: <8} {: >10}",
+                r.pool,
+                r.uuid,
+                r.thin,
+                match rpc::mayastor::ShareProtocol::from_i32(r.share) {
+                    Some(rpc::mayastor::ShareProtocol::None) => {
+                        "none"
                     }
-                    for r in replicas {
-                        println!(
-                            "{: <20} {: <36} {: <8} {: <8} {: >10}",
-                            r.pool,
-                            r.uuid,
-                            r.thin,
-                            match rpc::mayastor::ShareProtocol::from_i32(
-                                r.share
-                            ) {
-                                Some(rpc::mayastor::ShareProtocol::None) => {
-                                    "none"
-                                }
-                                Some(rpc::mayastor::ShareProtocol::Nvmf) => {
-                                    "nvmf"
-                                }
-                                Some(rpc::mayastor::ShareProtocol::Iscsi) => {
-                                    "iscsi"
-                                }
-                                None => "unknown",
-                            },
-                            ByteSize::b(r.size).to_string_as(true),
-                        );
+                    Some(rpc::mayastor::ShareProtocol::Nvmf) => {
+                        "nvmf"
                     }
-                }
-            }),
-    )
+                    Some(rpc::mayastor::ShareProtocol::Iscsi) => {
+                        "iscsi"
+                    }
+                    None => "unknown",
+                },
+                ByteSize::b(r.size).to_string_as(true),
+            );
+        }
+    }
+    Ok(())
 }
 
-fn stat_replicas(
-    mut client: Mayastor<RequestModifier<Connection<BoxBody>, BoxBody>>,
+async fn stat_replicas(
+    mut client: MayastorClient<Channel>,
     verbose: bool,
     quiet: bool,
-) -> Box<dyn Future<Item = (), Error = String> + Send> {
+) -> Result<(), Status> {
     if verbose {
         println!("Requesting replicas stats");
     }
 
-    Box::new(
-        client
-            .stat_replicas(tower_grpc::Request::new(rpc::mayastor::Null {}))
-            .map_err(|err| format!("Grpc failed: {}", err))
-            .map(move |resp| {
-                let replicas = &resp.get_ref().replicas;
+    let resp = client
+        .stat_replicas(Request::new(rpc::mayastor::Null {}))
+        .await?;
+    let replicas = &resp.get_ref().replicas;
 
-                if replicas.is_empty() && !quiet {
-                    println!("No replicas have been created");
-                } else {
-                    if !quiet {
-                        println!(
-                            "{: <20} {: <36} {: >10} {: >10} {: >10} {: >10}",
-                            "POOL",
-                            "NAME",
-                            "RDCNT",
-                            "WRCNT",
-                            "RDBYTES",
-                            "WRBYTES",
-                        );
-                    }
-                    for r in replicas {
-                        let stats = r.stats.as_ref().unwrap();
-                        println!(
-                            "{: <20} {: <36} {: >10} {: >10} {: >10} {: >10}",
-                            r.pool,
-                            r.uuid,
-                            stats.num_read_ops,
-                            stats.num_write_ops,
-                            stats.bytes_read,
-                            stats.bytes_written,
-                        );
-                    }
-                }
-            }),
-    )
-}
-
-/// Call storage pool RPC method.
-///
-/// Function gets a gRPC client handle and invokes the right RPC method
-/// based on command line arguments parsed by clap lib.
-///
-/// NOTE: We need to return Boxed future with dynamic dispatch table because
-/// static templates for result futures of gRPC methods with different return
-/// values do not work.
-fn dispatch_pool_cmd(
-    client: Mayastor<RequestModifier<Connection<BoxBody>, BoxBody>>,
-    matches: &ArgMatches,
-    verbose: bool,
-    quiet: bool,
-) -> Box<dyn Future<Item = (), Error = String> + Send> {
-    match matches.subcommand() {
-        ("create", Some(matches)) => create_pool(client, matches, verbose),
-        ("destroy", Some(matches)) => destroy_pool(client, matches, verbose),
-        ("list", Some(_matches)) => list_pools(client, verbose, quiet),
-        _ => Box::new(future::err(format!(
-            "Command invalid\n {}",
-            matches.usage().to_string()
-        ))),
+    if replicas.is_empty() && !quiet {
+        println!("No replicas have been created");
+    } else {
+        if !quiet {
+            println!(
+                "{: <20} {: <36} {: >10} {: >10} {: >10} {: >10}",
+                "POOL", "NAME", "RDCNT", "WRCNT", "RDBYTES", "WRBYTES",
+            );
+        }
+        for r in replicas {
+            let stats = r.stats.as_ref().unwrap();
+            println!(
+                "{: <20} {: <36} {: >10} {: >10} {: >10} {: >10}",
+                r.pool,
+                r.uuid,
+                stats.num_read_ops,
+                stats.num_write_ops,
+                stats.bytes_read,
+                stats.bytes_written,
+            );
+        }
     }
+    Ok(())
 }
 
-/// The same dispatch function as for the pool commands above but this one
-/// is for replica commands.
-fn dispatch_replica_cmd(
-    client: Mayastor<RequestModifier<Connection<BoxBody>, BoxBody>>,
-    matches: &ArgMatches,
-    verbose: bool,
-    quiet: bool,
-) -> Box<dyn Future<Item = (), Error = String> + Send> {
-    match matches.subcommand() {
-        ("create", Some(matches)) => create_replica(client, matches, verbose),
-        ("destroy", Some(matches)) => destroy_replica(client, matches, verbose),
-        ("list", Some(_matches)) => list_replicas(client, verbose, quiet),
-        ("stats", Some(_matches)) => stat_replicas(client, verbose, quiet),
-        _ => Box::new(future::err(format!(
-            "Command invalid\n {}",
-            matches.usage().to_string()
-        ))),
-    }
-}
-
-pub fn main() {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let matches = App::new("Mayastor grpc client")
         .version("0.1")
         .settings(&[AppSettings::SubcommandRequiredElseHelp,
@@ -467,60 +390,39 @@ pub fn main() {
         let port = value_t!(matches.value_of("port"), u16).unwrap_or(10124);
         format!("{}:{}", addr, port)
     };
+
     let verbose = matches.occurrences_of("verbose") > 0;
     let quiet = matches.is_present("quiet");
 
-    let uri: http::Uri = format!("http://{}", endpoint).parse().unwrap();
-    let dst = Destination::try_from_uri(uri.clone()).unwrap();
-    let connector = util::Connector::new(HttpConnector::new(1));
-    let settings = client::Builder::new().http2_only(true).clone();
-    let mut make_client = client::Connect::with_builder(connector, settings);
+    let uri = format!("http://{}", endpoint);
 
-    // We explicitly create tokio runtime and use .block_on() method instead
-    // of simply calling tokio::run(f). That's because tokio::run used to hang
-    // at the end waiting for gRPC connection to be closed, but we couldn't do
-    // that as the connection was consumed by the gRPC service and we could no
-    // longer control it.
-    let mut rt = Runtime::new().unwrap();
+    let client = MayastorClient::connect(uri)?;
 
-    // connect to the server ...
-    if verbose {
-        println!("Connecting to {}", endpoint);
-    }
-    rt.block_on::<_, (), ()>(
-        make_client
-            .make_service(dst)
-            .map_err(move |err| {
-                format!("Failed to connect to {}: {}", endpoint, err)
-            })
-            // conn is tower_hyper::Connection<_>
-            .and_then(move |conn| {
-                let conn = Builder::new().set_origin(uri).build(conn).unwrap();
+    match matches.subcommand() {
+        ("pool", Some(m)) => match m.subcommand() {
+            ("create", Some(m)) => create_pool(client, &m, verbose).await?,
+            ("list", Some(_m)) => list_pools(client, verbose, quiet).await?,
+            ("destroy", Some(m)) => destroy_pool(client, &m, quiet).await?,
+            _ => {}
+        },
+        ("replica", Some(m)) => match m.subcommand() {
+            ("create", Some(matches)) => {
+                create_replica(client, matches, verbose).await?
+            }
+            ("destroy", Some(matches)) => {
+                destroy_replica(client, matches, verbose).await?
+            }
+            ("list", Some(_matches)) => {
+                list_replicas(client, verbose, quiet).await?
+            }
+            ("stats", Some(_matches)) => {
+                stat_replicas(client, verbose, quiet).await?
+            }
+            _ => {}
+        },
 
-                Mayastor::new(conn)
-                    .ready()
-                    .map_err(|err| format!("Error waiting for ready: {}", err))
-            })
-            .and_then(move |client| {
-                // dispatch command to appropriate group of handlers
-                match matches.subcommand() {
-                    ("pool", Some(m)) => {
-                        dispatch_pool_cmd(client, &m, verbose, quiet)
-                    }
-                    ("replica", Some(m)) => {
-                        dispatch_replica_cmd(client, &m, verbose, quiet)
-                    }
-                    _ => panic!("unexpected input"),
-                }
-            })
-            // Print the error if any
-            .then(|res: Result<_, String>| {
-                if let Err(err) = res {
-                    eprintln!("{}", err);
-                    ::std::process::exit(1);
-                }
-                future::ok(())
-            }),
-    )
-    .unwrap();
+        _ => {}
+    };
+
+    Ok(())
 }

@@ -1,8 +1,9 @@
 //! Utility functions for working with mountpoints
 
+use std::process::Command;
+
 use proc_mounts::MountIter;
 use run_script::ScriptOptions;
-use std::process::Command;
 use sys_mount::{unmount, FilesystemType, Mount, MountFlags, UnmountFlags};
 
 // Information about a mounted filesystem.

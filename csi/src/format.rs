@@ -1,29 +1,29 @@
 //! Utility function for formatting a device with filesystem
 
 use std::process::Command;
+
 // Move these to csi_common.rs in the future
 use blkid::probe::Probe;
-use futures::future::{err, ok, Future};
 
 /// We probe the device for a filesystem, if there we leave it as is. We do
 /// not check at current -- if the FS is the desired FS. This is done with the
 /// mindset of, never over write/delete data.
 
 // TODO implicit probed_format_and_mount()
-pub fn probed_format(
+pub(crate) async fn probed_format(
     device: &str,
     fstype: &str,
-) -> impl Future<Item = (), Error = String> {
+) -> Result<(), String> {
     let probe = Probe::new_from_filename(device);
 
     if probe.is_err() {
-        return err("Failed to init device probing".into());
+        return Err("Failed to init device probing".into());
     }
 
     let probe = probe.unwrap();
 
     if probe.do_probe().is_err() {
-        return err("Failed to probe device".into());
+        return Err("Failed to probe device".into());
     }
 
     // blkid used char **data as a buffer to fill in the value of the
@@ -44,7 +44,7 @@ pub fn probed_format(
                 String::from_utf8(output.stdout).unwrap()
             );
             if !output.status.success() {
-                return err(format!(
+                return Err(format!(
                     "Failed to format {} with {} fs: {}",
                     device,
                     fstype,
@@ -61,5 +61,5 @@ pub fn probed_format(
         }
     }
 
-    ok(())
+    Ok(())
 }

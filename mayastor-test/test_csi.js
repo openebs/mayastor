@@ -617,24 +617,6 @@ describe('csi', function() {
       );
     });
 
-    it('should clean up nbd dev upon mount failure', done => {
-      let args = {
-        volume_id: UUID3,
-        publish_context: {
-          mount: 'fail',
-        },
-        staging_target_path: mountTarget,
-        volume_capability: {
-          access_mode: {
-            mode: 'MULTI_NODE_READER_ONLY',
-          },
-          mount: {
-            fs_type: 'xfs',
-          },
-        },
-      };
-      client.nodeStageVolume(args, shouldFailWith(grpc.status.INTERNAL, done));
-    });
   });
 
   // The combinations of ro/rw and access mode flags are quite confusing.
