@@ -3,7 +3,7 @@
 
 use crate::{
     bdev::nexus,
-    executor::{cb_arg, complete_callback_1},
+    executor::{cb_arg, done_cb},
     nexus_uri::UriError,
 };
 use futures::channel::oneshot;
@@ -124,7 +124,7 @@ impl NvmfBdev {
                 &mut ctx.count,
                 hostnqn,
                 flags,
-                Some(complete_callback_1),
+                Some(done_cb),
                 cb_arg(sender),
             )
         };
@@ -153,7 +153,7 @@ impl NvmfBdev {
     /// destroy an nvme controller and its namespaces, it is not possible to
     /// destroy a nvme_bdev directly
     pub fn destroy(self) -> Result<(), nexus::Error> {
-        let mut name = self.name.clone();
+        let mut name = self.name;
         name.split_off(name.len() - 2);
         let cname = CString::new(name).unwrap();
         let res = unsafe { spdk_sys::spdk_bdev_nvme_delete(cname.as_ptr()) };

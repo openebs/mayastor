@@ -1,5 +1,17 @@
-{ stdenv, git, binutils, libaio, libuuid, numactl, openssl, python, rdma-core
-, fetchFromGitHub, nasm, callPackage, libiscsi }:
+{ stdenv
+, git
+, binutils
+, libaio
+, libuuid
+, numactl
+, openssl
+, python
+, rdma-core
+, fetchFromGitHub
+, nasm
+, callPackage
+, libiscsi
+}:
 
 stdenv.mkDerivation rec {
   version = "19.07.x-mayastor";
@@ -25,8 +37,9 @@ stdenv.mkDerivation rec {
   ];
 
   CONFIGURE_OPTS = ''
-    --enable-debug --without-isal --with-iscsi-initiator --with-rdma
-    --with-internal-vhost-lib --disable-tests --with-dpdk-machine=native
+      --enable-debug --without-isal --with-iscsi-initiator --with-rdma
+      --with-internal-vhost-lib --disable-tests --with-dpdk-machine=native
+    --with-crypto
   '';
 
   enableParallelBuilding = true;
@@ -58,6 +71,7 @@ stdenv.mkDerivation rec {
     -lc -lrdmacm -laio -libverbs -liscsi -lnuma -ldl -lrt -luuid -lpthread -lcrypto \
     -Wl,--whole-archive $(find build/lib -type f -name 'libspdk_*.a*' -o -name 'librte_*.a*') \
     -Wl,--whole-archive $(find dpdk/build/lib -type f -name 'librte_*.a*') \
+    -Wl,--whole-archive $(find intel-ipsec-mb -type f -name 'libIPSec_*.a*') \
     -Wl,--no-whole-archive
   '';
 
@@ -73,4 +87,3 @@ stdenv.mkDerivation rec {
 
   dontStrip = true;
 }
-

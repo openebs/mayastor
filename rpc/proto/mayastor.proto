@@ -141,7 +141,8 @@ message DestroyNexusRequest   {
 // this message will be subject to change as we will add support for remote
 // storage protocols.
 message PublishNexusRequest {
-  string uuid = 1;        // uuid of the nexus which to create device for
+  string uuid = 1; // uuid of the nexus which to create device for
+  string key = 2; // encryption key
 }
 
 message PublishNexusReply {

@@ -287,13 +287,9 @@ describe('nexus_grpc', function() {
 
         fs.read(fd, buffer, 0, 512, 0, (err, nr, buffer) => {
           if (err) done(err);
-
-          /*
-           * just check the last two bytes of the buffer as its not a data integrity test
-           */
-
-          assert(buffer[0] == 122);
-          assert(buffer[511] == 122);
+          buffer.forEach(function(e){
+              assert(e === 122);
+          });
           fs.close(fd, () => {
             done();
           });
@@ -308,5 +304,39 @@ describe('nexus_grpc', function() {
     it('should be able to destroy the nexus', done => {
       client.DestroyNexus({ uuid: UUID }, done);
     });
+
+    it('it should be able to re-create a Nexus using two iSCSI URI', done => {
+      let args = {
+        uuid: UUID,
+        size: 131072,
+        children: [
+          'iscsi://127.0.0.1:3261/iqn.2016-06.io.openebs:disk0',
+          'iscsi://127.0.0.1:3261/iqn.2016-06.io.openebs:disk1',
+        ],
+      };
+
+      client.CreateNexus(args, done);
+    });
+
+    it('should be able to publish the new nexus device using NBD and a crypto key', done => {
+      client.PublishNexus({ uuid: UUID, key: '0123456789123456' }, (err, res) => {
+        assert(res.device_path);
+        nbd_device = res.device_path;
+        done();
+      });
+    });
+
+    it('should be able to unpublish the encrypted nexus device', done => {
+      client.unpublishNexus({ uuid: UUID }, done);
+    });
+
+    it('should be able to publish a nexus device using NBD and a crypto key and then immediately destroy it', done => {
+      client.PublishNexus({ uuid: UUID, key: '0123456789123456' }, (err, res) => {
+        assert(res.device_path);
+        nbd_device = res.device_path;
+        client.DestroyNexus({ uuid: UUID }, done);
+      });
+    });
+
   });
 });

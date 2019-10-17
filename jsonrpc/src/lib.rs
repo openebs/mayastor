@@ -159,7 +159,7 @@ where
                             }
                         }
                     },
-                    msg: err.message.clone(),
+                    msg: err.message,
                 })
             } else {
                 match reply.result {

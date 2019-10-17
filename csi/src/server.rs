@@ -193,7 +193,7 @@ pub fn main() {
             }
 
             let http = Http::new().http2_only(true).clone();
-            let serve = egress_server.serve_with(sock, http.clone());
+            let serve = egress_server.serve_with(sock, http);
             tokio::spawn(serve.map_err(|e| {
                 error!("http2 error on egress connection: {:?}", e)
             }));
@@ -204,7 +204,7 @@ pub fn main() {
     // as well, because grpc-node used in the tests does not support UDS:
     // https://github.com/grpc/grpc-node/issues/258.
     // Unfortunately we cannot abstract the differences between TCP and UDS
-    // by using Box<Stream> because the underlaying Item type of Stream is
+    // by using Box<Stream> because the underlying Item type of Stream is
     // different for each of TCP and UDS stream, so there is a little code
     // duplication here.
     let accept_csi: Box<dyn Future<Item = (), Error = IoError> + Send> =
@@ -215,7 +215,7 @@ pub fn main() {
             Box::new(bind_csi.incoming().for_each(move |sock| {
                 debug!("New csi connection");
                 let http = Http::new().http2_only(true).clone();
-                let serve = csi_server.serve_with(sock, http.clone());
+                let serve = csi_server.serve_with(sock, http);
                 tokio::spawn(
                     serve.map_err(|e| error!("error on CSI connection: {}", e)),
                 );
@@ -227,7 +227,7 @@ pub fn main() {
             Box::new(bind_csi.incoming().for_each(move |sock| {
                 debug!("New csi connection");
                 let http = Http::new().http2_only(true).clone();
-                let serve = csi_server.serve_with(sock, http.clone());
+                let serve = csi_server.serve_with(sock, http);
                 tokio::spawn(
                     serve.map_err(|e| error!("error on CSI connection: {}", e)),
                 );

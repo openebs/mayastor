@@ -1,6 +1,6 @@
 use crate::{
     bdev::{bdev_lookup_by_name, nexus::Error},
-    executor::{cb_arg, complete_callback_1},
+    executor::{cb_arg, done_cb},
     nexus_uri::UriError,
 };
 use futures::channel::oneshot;
@@ -73,13 +73,7 @@ impl IscsiBdev {
 
         if let Some(bdev) = bdev_lookup_by_name(&self.name) {
             let (s, r) = oneshot::channel::<CbT>();
-            unsafe {
-                delete_iscsi_disk(
-                    bdev.inner,
-                    Some(complete_callback_1),
-                    cb_arg(s),
-                )
-            };
+            unsafe { delete_iscsi_disk(bdev.inner, Some(done_cb), cb_arg(s)) };
             if r.await.unwrap() != 0 {
                 Err(Error::CreateFailed)
             } else {
@@ -153,9 +147,7 @@ pub async fn iscsi_destroy(name: &str) -> Result<(), ()> {
 
     if let Some(bdev) = bdev_lookup_by_name(name) {
         let (s, r) = oneshot::channel::<CbT>();
-        unsafe {
-            delete_iscsi_disk(bdev.inner, Some(complete_callback_1), cb_arg(s))
-        };
+        unsafe { delete_iscsi_disk(bdev.inner, Some(done_cb), cb_arg(s)) };
         if r.await.unwrap() != 0 {
             Err(())
         } else {

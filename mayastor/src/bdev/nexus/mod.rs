@@ -23,9 +23,9 @@ pub enum Error {
     /// the bdev can can only be opened RO as its been claimed with write
     /// options already
     ReadOnly,
-    /// bdev does not exist
+    /// resource does not exist or can not be found (i.e bdev, share etc)
     NotFound,
-    /// Invalid arguments with the bdev struct
+    /// Invalid arguments
     Invalid,
     /// the bdev creation failed
     CreateFailed,
@@ -37,6 +37,10 @@ pub enum Error {
     NexusIncomplete,
     /// error during serial or deserialize
     SerDerError,
+    /// error indicating sharing failed for this nexus
+    ShareError(String),
+    /// resource unavailable
+    Unavailable(String),
 }
 
 impl From<std::ffi::NulError> for Error {
@@ -86,7 +90,7 @@ pub mod nexus_label;
 pub mod nexus_module;
 pub mod nexus_nbd;
 pub mod nexus_rpc;
-
+pub mod nexus_share;
 /// public function which simply calls register module
 pub fn register_module() {
     register_rpc_methods();

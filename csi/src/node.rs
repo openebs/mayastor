@@ -106,10 +106,8 @@ impl server::Node for Node {
             + Send,
     >;
     type NodeUnpublishVolumeFuture = Box<
-        dyn Future<
-                Item = Response<NodeUnpublishVolumeResponse>,
-                Error = Status,
-            > + Send,
+        dyn Future<Item = Response<NodeUnpublishVolumeResponse>, Error = Status>
+            + Send,
     >;
     type NodeGetVolumeStatsFuture = Box<
         dyn Future<Item = Response<NodeGetVolumeStatsResponse>, Error = Status>
@@ -601,7 +599,7 @@ impl server::Node for Node {
     ) -> Self::NodeUnstageVolumeFuture {
         let msg = request.into_inner();
         let volume_id = msg.volume_id.clone();
-        let stage_path = msg.staging_target_path.clone();
+        let stage_path = msg.staging_target_path;
 
         debug!("Unstaging volume {} at {}", volume_id, stage_path);
 

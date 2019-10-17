@@ -6,7 +6,7 @@
 
 use crate::{
     bdev::Bdev,
-    executor::{cb_arg, complete_callback_1},
+    executor::{cb_arg, done_cb},
 };
 use futures::channel::oneshot;
 use spdk_sys::{
@@ -329,7 +329,7 @@ impl Target {
             spdk_nvmf_tgt_add_transport(
                 self.inner,
                 transport,
-                Some(complete_callback_1),
+                Some(done_cb),
                 cb_arg(sender),
             );
         }
@@ -353,7 +353,7 @@ impl Target {
             spdk_nvmf_tgt_listen(
                 self.inner,
                 &mut self.trid as *mut _,
-                Some(complete_callback_1),
+                Some(done_cb),
                 cb_arg(sender),
             );
         }

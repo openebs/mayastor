@@ -58,8 +58,8 @@ Let's assume we have a local disk `/dev/sdb` and we want to make use of it. By m
 a URI to the resource and we can start using it:
 
 ```bash
-mctl create -r aio:///dev/sdb -b 512 -s 1GiB nexus0
-"nexus0"
+mctl create --children aio:///dev/sdb -b 512 -s 1GiB `uuidgen -r`
+null
 ```
 
 Now that was easy! Let us inspect 'nexus0':
@@ -74,8 +74,10 @@ Now that was easy! Let us inspect 'nexus0':
           "state": "open"
         }
       ],
-      "name": "nexus0",
-      "state": "online"
+      "device_path": "/dev/nbd0",
+      "size": 1068474368,
+      "state": "online",
+      "uuid": "6830e80b-9f14-4200-aa64-9939c29c2c10"
     }
   ]
 }
@@ -87,7 +89,7 @@ that [here](../mayastor-test/test_cli.js). We can also add files to the mix and 
 fine writing to it as it where a local disk.
 
 ```bash
-mctl create nexus0 -r aio:///1GB.img?blk_size=512 aio:///dev/sdb -b 512 -s 500MiB
+mctl create `uuidgen -r ` --children aio:///1GB.img?blk_size=512 aio:///dev/sdb -b 512 -s 500MiB
 "nexus0"
 ```
 
@@ -107,8 +109,10 @@ Notice how added a query parameter as files do not have block sizes.
           "state": "open"
         }
       ],
-      "name": "nexus0",
-      "state": "online"
+      "device_path": "/dev/nbd0",
+      "size": 1068474368,
+      "state": "online",
+      "uuid": "6830e80b-9f14-4200-aa64-9939c29c2c10"
     }
   ]
 }
@@ -118,7 +122,7 @@ As a foundation for rebuilding, we needed to add support for adding and removing
 yourself by running fio on top of the NBD device, it wont rebuild or anything just yet, but IO will flow:
 
 ```bash
-mctl offline nexus0 aio:///dev/sdb
+mctl offline $UUID  aio:///dev/sdb
 "nexus0"
 ```
 
@@ -260,8 +264,8 @@ Now, let's disconnect it and create a nexus that that consumes one of the NVMe t
 ```bash
     nvme disconnect -d {/dev/nvme1,/dev/nvme2}
     mctl create -r nvmf://192.168.1.2/nqn.2019-05.io.openebs:cnode2 \
-        nvmf://192.168.1.2/nqn.2019-05.io.openebs:cnode1 -b 512 -s 64MiB nexus0
-   "nexus0"
+        nvmf://192.168.1.2/nqn.2019-05.io.openebs:cnode1 -b 512 -s 64MiB `uuidgen -r`
+
 ```
 
 Ok we now have created a nexus0 that consists out of 2 replica's:
@@ -281,8 +285,10 @@ mctl list
           "state": "open"
         }
       ],
-      "name": "nexus0",
-      "state": "online"
+      "device_path": "/dev/nbd0",
+      "size": 1068474368,
+      "state": "online",
+      "uuid": "6830e80b-9f14-4200-aa64-9939c29c2c10"
     }
   ]
 }

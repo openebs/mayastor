@@ -202,11 +202,19 @@ pub fn cb_arg<T>(sender: oneshot::Sender<T>) -> *mut c_void {
 /// Generic callback for spdk async functions expecting to be called with
 /// single argument which is a sender channel to notify the other end about
 /// the result.
-pub extern "C" fn complete_callback_1<T>(sender_ptr: *mut c_void, val: T)
+pub extern "C" fn done_cb<T>(sender_ptr: *mut c_void, val: T)
 where
     T: fmt::Debug,
 {
     let sender =
         unsafe { Box::from_raw(sender_ptr as *mut oneshot::Sender<T>) };
-    sender.send(val).expect("Receiver is gone");
+
+    // the receiver side might be gone, if this happens it either means that the
+    // function has gone out of scope or that the future was cancelled. We can
+    // not cancel futures as they are driven by reactor. We currently fail
+    // hard if the receiver is gone but in reality the determination of it
+    // being fatal depends largely on what the future was supposed to do.
+    sender
+        .send(val)
+        .expect("done callback receiver side disappeared");
 }

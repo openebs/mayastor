@@ -57,6 +57,33 @@
 //! let _device_path = nexus.share().unwrap();
 //! ```
 
+use std::{
+    fmt::{Display, Formatter},
+    io::{Cursor, Seek, SeekFrom},
+    ops::Neg,
+    os::raw::c_void,
+    str::FromStr,
+};
+
+use bincode::serialize_into;
+use futures::channel::oneshot;
+use serde::Serialize;
+
+use spdk_sys::{
+    spdk_bdev,
+    spdk_bdev_desc,
+    spdk_bdev_io,
+    spdk_bdev_io_get_buf,
+    spdk_bdev_readv_blocks,
+    spdk_bdev_register,
+    spdk_bdev_unmap_blocks,
+    spdk_bdev_unregister,
+    spdk_bdev_writev_blocks,
+    spdk_io_channel,
+    spdk_io_device_register,
+    spdk_io_device_unregister,
+};
+
 use crate::{
     bdev::{
         nexus::{
@@ -72,30 +99,6 @@ use crate::{
         Bdev,
     },
     descriptor::DmaBuf,
-};
-use bincode::serialize_into;
-use futures::channel::oneshot;
-use serde::Serialize;
-use spdk_sys::{
-    spdk_bdev,
-    spdk_bdev_desc,
-    spdk_bdev_io,
-    spdk_bdev_io_get_buf,
-    spdk_bdev_readv_blocks,
-    spdk_bdev_register,
-    spdk_bdev_unmap_blocks,
-    spdk_bdev_unregister,
-    spdk_bdev_writev_blocks,
-    spdk_io_channel,
-    spdk_io_device_register,
-    spdk_io_device_unregister,
-};
-use std::{
-    fmt::{Display, Formatter},
-    io::{Cursor, Seek, SeekFrom},
-    ops::Neg,
-    os::raw::c_void,
-    str::FromStr,
 };
 
 pub(crate) static NEXUS_PRODUCT_ID: &str = "Nexus CAS Driver v0.0.1";
@@ -117,9 +120,13 @@ pub struct Nexus {
     pub(crate) state: NexusState,
     /// Dynamic Reconfigure event
     pub dr_complete_notify: Option<oneshot::Sender<i32>>,
-    pub offset: u64,
+    /// the offset in num blocks where the data partition starts
+    pub data_ent_offset: u64,
     /// nbd device which the nexus is exposed through
-    nbd_disk: Option<nbd::Disk>,
+    pub(crate) nbd_disk: Option<nbd::Disk>,
+    /// the handle to be used when sharing the nexus, this allows for the bdev
+    /// to be shared with vbdevs on top
+    pub(crate) share_handle: Option<String>,
 }
 
 unsafe impl core::marker::Sync for Nexus {}
@@ -186,8 +193,9 @@ impl Nexus {
             state: NexusState::Init,
             bdev_raw: Box::into_raw(b),
             dr_complete_notify: None,
-            offset: 0,
+            data_ent_offset: 0,
             nbd_disk: None,
+            share_handle: None,
         });
 
         n.bdev.set_uuid(match uuid {
@@ -273,8 +281,12 @@ impl Nexus {
             // now register the bdev but update its size first to ensure we
             // adhere to the partitions
 
+            // When the GUID does not match the given UUID it means that the PVC
+            // has been recreated, is such as case we should
+            // consider updating the labels
+
             info!("{}: {} ", self.name, label);
-            self.offset = label.offset();
+            self.data_ent_offset = label.offset();
             self.bdev.set_num_blocks(label.num_blocks());
         } else {
             // one or more children do not have, or have an invalid gpt label.
@@ -287,7 +299,7 @@ impl Nexus {
             );
 
             let mut label = self.generate_label();
-            self.offset = label.offset();
+            self.data_ent_offset = label.offset();
             self.bdev.set_num_blocks(label.num_blocks());
 
             let blk_size = self.bdev.block_size();
@@ -330,6 +342,10 @@ impl Nexus {
     /// the bdev unregister is called so keep this call at the end of this
     /// method!
     pub async fn destroy(&mut self) {
+        let _ = self.unshare().await;
+
+        assert_eq!(self.share_handle, None);
+
         // doing this in the context of nexus_close() would be better
         // however we can not change the function in async there so we
         // do it here.
@@ -501,42 +517,6 @@ impl Nexus {
         Ok(())
     }
 
-    /// Publish the nexus to system using nbd device and return the path to
-    /// nbd device.
-    pub async fn share(&mut self) -> Result<String, Error> {
-        if self.nbd_disk.is_some() {
-            return Err(Error::Exists);
-        }
-        match nbd::Disk::create(&self.name).await {
-            Ok(disk) => {
-                let device_path = disk.get_path();
-                self.nbd_disk = Some(disk);
-                Ok(device_path)
-            }
-            Err(err) => Err(err),
-        }
-    }
-
-    /// Undo share operation on nexus.
-    pub async fn unshare(&mut self) -> Result<(), Error> {
-        match self.nbd_disk.take() {
-            Some(disk) => {
-                disk.destroy();
-                Ok(())
-            }
-            None => Err(Error::Invalid),
-        }
-    }
-
-    /// Return path /dev/... under which the nexus is shared or None if not
-    /// shared.
-    pub fn get_share_path(&self) -> Option<String> {
-        match self.nbd_disk {
-            Some(ref disk) => Some(disk.get_path()),
-            None => None,
-        }
-    }
-
     /// takes self and converts into a raw pointer
     pub(crate) fn as_ptr(&self) -> *mut c_void {
         self as *const _ as *mut _
@@ -665,7 +645,7 @@ impl Nexus {
                 ch,
                 io.iovs(),
                 io.iov_count(),
-                io.offset() + nexus.offset,
+                io.offset() + nexus.data_ent_offset,
                 io.num_blocks(),
                 Some(Self::io_completion),
                 pio as *mut _,
@@ -691,7 +671,7 @@ impl Nexus {
                     c.1,
                     io.iovs(),
                     io.iov_count(),
-                    io.offset() + io.nexus_as_ref().offset,
+                    io.offset() + io.nexus_as_ref().data_ent_offset,
                     io.num_blocks(),
                     Some(Self::io_completion),
                     pio as *mut _,
@@ -723,7 +703,7 @@ impl Nexus {
                 spdk_bdev_unmap_blocks(
                     c.0,
                     c.1,
-                    io.offset() + io.nexus_as_ref().offset,
+                    io.offset() + io.nexus_as_ref().data_ent_offset,
                     io.num_blocks(),
                     Some(Self::io_completion),
                     pio as *mut _,

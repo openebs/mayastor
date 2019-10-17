@@ -235,7 +235,7 @@ impl service::server::Mayastor for MayastorService {
         let msg = request.into_inner();
         trace!("{:?}", msg);
 
-        let uuid = msg.uuid.clone();
+        let uuid = msg.uuid;
         debug!("Destroying replica {} ...", uuid);
 
         let args = Some(jsondata::DestroyReplicaArgs {
