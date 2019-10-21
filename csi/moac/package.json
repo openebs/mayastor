@@ -29,5 +29,10 @@
     "mocha": "^6.2.2",
     "sleep-promise": "^8.0.1",
     "wtfnode": "^0.8.0"
-  }
+  },
+  "files": [
+    "*.js",
+    "crds/*.yaml",
+    "bundle_protos.sh"
+  ]
 }

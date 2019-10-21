@@ -3,6 +3,7 @@
 #   node2nix -l package-lock.json --nodejs-10 -c node-composition.nix
 #
 # It is used to bundle rpc proto files from mayastor repo to moac nix package.
+# And to build docker image.
 
 {pkgs ? import <nixpkgs> {
   inherit system;
@@ -13,10 +14,38 @@ let
     inherit pkgs system;
   };
 in
-result // {
+result // rec {
   package = result.package.override {
     csiProto = ../proto/csi.proto;
     mayastorProto = ../../rpc/proto/mayastor.proto;
     mayastorServiceProto = ../../rpc/proto/mayastor_service.proto;
+  };
+  # The current way of creating a docker image has a number of issues.
+  # 1) The image size is almost 1G because it includes gcc, python and other
+  #    packages required by nodejs for building bindings, but not useful for
+  #    running scripts. We would like to strip them off.
+  # 2) Prod and dev flavours of the moac package would be nice.
+  #    Currently we include devDependencies (mocha, ...) in the package
+  #    because we run the tests on the created nix package, which is good for
+  #    QA but useless in production.
+  # 3) It would be cool to produce OCI image instead of docker image to
+  #    avoid dependency on docker tool chain. Though the maturity of oci
+  #    builder in nixpkgs is questionable which is why we delayed this step.
+  # 4) We would like to create a /bin/moac symlink so that we don't need to
+  #    remember a creeky path to moac script containing a hash. Trying to do
+  #    so in extraCommands script yields eperm error.
+  # 5) The algorithm for placing packages into the layers is not optimal.
+  #    There are a couple of layers with negligable size and then there is
+  #    one big layer (~800MB) with everything else. That defeats the purpose
+  #    of layering.
+  buildImage = pkgs.dockerTools.buildLayeredImage {
+    name = "moac";
+    tag = "latest";
+    created = "now";
+    contents = [ pkgs.bash pkgs.coreutils pkgs.nano pkgs.less package ];
+    config = {
+      Entrypoint = [ "${package.out}/bin/moac" ];
+      ExposedPorts = { "3000/tcp" = {}; };
+    };
   };
 }
