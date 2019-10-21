@@ -8,7 +8,6 @@ const { exec } = require('child_process');
 const { createClient } = require('grpc-kit');
 const grpc = require('grpc');
 const common = require('./test_common');
-const sudo = require('./sudo');
 
 // just some UUID used for nexus ID
 const UUID = 'dbe4d7eb-118a-4d15-b789-a18d9af6ff21';
@@ -120,7 +119,7 @@ describe('nexus_grpc', function() {
           },
           next => {
             // We need to read/write the raw device from test suite
-            let child = sudo(['sh', '-c', 'chmod o+rw /dev/nbd*']);
+            let child = common.runAsRoot('sh', ['-c', 'chmod o+rw /dev/nbd*']);
             child.stderr.on('data', data => {
               console.log(data.toString());
             });
@@ -142,7 +141,7 @@ describe('nexus_grpc', function() {
         [
           next => {
             // Undo change of permissions on /dev/nbd*
-            let child = sudo(['sh', '-c', 'chmod o-rw /dev/nbd*']);
+            let child = common.runAsRoot('sh', ['-c', 'chmod o-rw /dev/nbd*']);
             child.on('close', (code, signal) => {
               if (code != 0) {
                 next(new Error('Failed to chmod nbd devs'));

@@ -7,13 +7,14 @@
     "async": "^2.6.3",
     "chai": "^4.2.0",
     "find-process": "^1.4.2",
-    "grpc": "^1.23.3",
+    "grpc": "^1.24.1",
     "grpc-kit": "^0.2.0",
     "grpc-mock": "^0.7.0",
     "inpath": "^1.0.2",
+    "lodash": "^4.17.15",
     "pidof": "^1.0.2",
     "read": "^1.0.7",
-    "systeminformation": "^4.14.8"
+    "systeminformation": "^4.14.17"
   },
   "devDependencies": {
     "mocha": "^5.2.0",

@@ -1,7 +1,8 @@
-'use strict';
-
 // Common utility functions shared by grpc tests.
 
+'use strict';
+
+const _ = require('lodash');
 const assert = require('assert');
 const async = require('async');
 const find = require('find-process');
@@ -25,6 +26,25 @@ var mayastorGrpcOutput = [];
 // Construct path to a rust binary in target/debug/... dir.
 function getCmdPath(name) {
   return path.join(__dirname, '..', 'target', 'debug', name);
+}
+
+// Run the command as root. We use sudo to gain root privileges.
+// If already running with euid = 0, then just spawn the command.
+// Return child process handle.
+function runAsRoot(cmd, args, nameInPs) {
+  let env = _.assignIn({}, process.env, {
+    RUST_BACKTRACE: 1
+  });
+  if (process.geteuid() === 0) {
+    return spawn(cmd, args || [], {
+      env,
+      shell: true
+    });
+  } else {
+    return sudo([cmd].concat(args || []), {
+      spawnOptions: { env }
+    }, nameInPs);
+  }
 }
 
 // Periodically ping mayastor until up and running.
@@ -58,24 +78,14 @@ function waitForMayastor(ping, done) {
 
 // Start mayastor process and wait for them to come up.
 function startMayastor(config, done) {
-  let cmd = [getCmdPath('mayastor'), '-r', SOCK, '-Lnbd'];
+  let args = ['-r', SOCK, '-Lnbd'];
 
   if (config) {
     fs.writeFileSync(CONFIG_PATH, config);
-    cmd = cmd.concat(['-c', CONFIG_PATH]);
+    args = args.concat(['-c', CONFIG_PATH]);
   }
 
-  mayastorProc = sudo(
-    cmd,
-    {
-      spawnOptions: {
-        env: {
-          RUST_BACKTRACE: 1,
-        },
-      },
-    },
-    'reactor_0'
-  );
+  mayastorProc = runAsRoot(getCmdPath('mayastor'), args, 'reactor_0');
 
   mayastorProc.stdout.on('data', data => {
     mayastorOutput.push(data);
@@ -96,24 +106,19 @@ function startMayastor(config, done) {
 
 // Start mayastor-agent processes and wait for them to come up.
 function startMayastorGrpc(done) {
-  mayastorGrpcProc = sudo(
-    [
-      getCmdPath('mayastor-agent'),
-      '-v',
-      '-n',
-      'test-node-id',
-      '-a',
-      '127.0.0.1',
-      '-p',
-      GRPC_PORT.toString(),
-      '-c',
-      CSI_ENDPOINT,
-      '-s',
-      SOCK,
-    ],
-    {},
-    'mayastor-agent'
-  );
+  mayastorGrpcProc = runAsRoot(getCmdPath('mayastor-agent'), [
+    '-v',
+    '-n',
+    'test-node-id',
+    '-a',
+    '127.0.0.1',
+    '-p',
+    GRPC_PORT.toString(),
+    '-c',
+    CSI_ENDPOINT,
+    '-s',
+    SOCK,
+  ]);
 
   mayastorGrpcProc.stdout.on('data', data => {
     mayastorGrpcOutput.push(data);
@@ -138,7 +143,7 @@ function killSudoedProcess(name, pid, done) {
     if (res.length == 0) {
       return done();
     }
-    let child = sudo(['kill', '-s', 'SIGTERM', res[0].pid.toString()]);
+    let child = runAsRoot('kill', ['-s', 'SIGTERM', res[0].pid.toString()]);
     child.stderr.on('data', data => {
       console.log('kill', name, 'error:', data.toString());
     });
@@ -235,4 +240,5 @@ module.exports = {
   restartMayastor,
   endpoint,
   dumbCommand,
+  runAsRoot,
 };

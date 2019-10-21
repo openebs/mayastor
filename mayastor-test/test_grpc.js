@@ -14,7 +14,6 @@ const { exec } = require('child_process');
 const { createClient } = require('grpc-kit');
 const grpc = require('grpc');
 const common = require('./test_common');
-const sudo = require('./sudo');
 
 const POOL = 'tpool';
 const DISK_FILE = '/tmp/mayastor_test_disk';
@@ -39,7 +38,7 @@ function createTestDisk(done) {
 
     stderr = '';
     stdout = '';
-    let child = sudo(['losetup', '--show', '-f', DISK_FILE]);
+    let child = common.runAsRoot('losetup', ['--show', '-f', DISK_FILE]);
 
     child.stderr.on('data', data => {
       stderr += data;
@@ -60,7 +59,7 @@ function createTestDisk(done) {
 // Destroy the fake disk used for testing
 function destroyTestDisk(done) {
   if (implicitDisk != null) {
-    let child = sudo(['losetup', '-d', implicitDisk]);
+    let child = common.runAsRoot('losetup', ['-d', implicitDisk]);
 
     child.on('close', (code, signal) => {
       fs.unlink(DISK_FILE, err => done());
@@ -159,7 +158,7 @@ describe('grpc', function() {
           },
           next => {
             // We need to read/write the raw device from test suite
-            let child = sudo(['sh', '-c', 'chmod o+rw /dev/nbd*']);
+            let child = common.runAsRoot('sh', ['-c', 'chmod o+rw /dev/nbd*']);
             child.stderr.on('data', data => {
               console.log(data.toString());
             });
@@ -189,7 +188,7 @@ describe('grpc', function() {
           },
           next => {
             // Undo change of permissions on /dev/nbd*
-            let child = sudo(['sh', '-c', 'chmod o-rw /dev/nbd*']);
+            let child = common.runAsRoot('sh', ['-c', 'chmod o-rw /dev/nbd*']);
             child.on('close', (code, signal) => {
               if (code != 0) {
                 next(new Error('Failed to chmod nbd devs'));

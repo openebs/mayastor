@@ -123,7 +123,7 @@ pub fn probe_filesystems() -> Result<Vec<Fs>, String> {
     let (code, _stdout, stderr) = run_script!(
         r#"
         truncate -s 64m /tmp/fs.img
-        mkdir /tmp/fs_default
+        mkdir -p /tmp/fs_default
         "#,
         &options
     )

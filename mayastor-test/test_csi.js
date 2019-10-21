@@ -22,7 +22,6 @@ const { execSync } = require('child_process');
 const { createClient } = require('grpc-kit');
 const grpc = require('grpc');
 const common = require('./test_common');
-const sudo = require('./sudo');
 // Without requiring wtf module the ts hangs at the end. It seems that it is
 // waiting for sudo'd mayastor progress which has already exited!?
 const wtfnode = require('wtfnode');
@@ -93,7 +92,7 @@ function createGrpcClient(service) {
 }
 
 function cleanPublishDir(mountTarget, done) {
-  let proc = sudo(['umount', '-f', mountTarget]);
+  let proc = common.runAsRoot('umount', ['-f', mountTarget]);
   proc.once('close', (code, signal) => {
     try {
       fs.rmdirSync(mountTarget);

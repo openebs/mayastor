@@ -1,30 +1,23 @@
 'use strict';
 
 var spawn = require('child_process').spawn;
+var path = require('path');
 var read = require('read');
 var inpathSync = require('inpath').sync;
 var pidof = require('pidof');
 
-var path = process.env.PATH.split(':');
-var sudoBin = inpathSync('sudo', path);
+const sudoBin = inpathSync('sudo', process.env.PATH.split(':'));
 
 var cachedPassword;
 var lastAnswer;
 
-function sudo(command, options, bin) {
+function sudo(command, options, nameInPs) {
   var prompt = '#node-sudo-passwd#';
   var prompts = 0;
+  var nameInPs = nameInPs || path.basename(command[0]);
 
   var args = ['-S', '-E', '-p', prompt];
   args.push.apply(args, command);
-
-  if (!bin) {
-    // The binary is the first non-dashed parameter to sudo
-    bin = command.filter(function(i) {
-      return i.indexOf('-') !== 0;
-    })[0];
-  }
-
   options = options || {};
   var spawnOptions = options.spawnOptions || {};
   spawnOptions.stdio = 'pipe';
@@ -34,18 +27,18 @@ function sudo(command, options, bin) {
   // Wait for the sudo:d binary to start up
   function waitForStartup(err, pid) {
     if (err) {
-      throw new Error("Couldn't start " + bin);
+      throw new Error("Couldn't start " + nameInPs);
     }
 
     if (pid || child.exitCode !== null) {
       child.emit('started');
     } else {
       setTimeout(function() {
-        pidof(bin, waitForStartup);
+        pidof(nameInPs, waitForStartup);
       }, 100);
     }
   }
-  pidof(bin, waitForStartup);
+  pidof(nameInPs, waitForStartup);
 
   // FIXME: Remove this handler when the child has successfully started
   child.stderr.on('data', function(data) {
