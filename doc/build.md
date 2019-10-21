@@ -8,7 +8,7 @@ MayaStor makes use of subsystems that are not yet part of major distributions, f
 Fortunately, this is something that will be solved over time automatically. In the meantime, we have
 tried to make it as simple as possible by providing several options for you.
 
-Mayastor, in all cases, **requires the nightly rust compiler**.
+Mayastor, in all cases, **requires the nightly rust compiler with async support**.
 
 ## Installing RUST
 
@@ -20,40 +20,18 @@ a version.
 
 If you already have rust installed but not nightly, use rustup to install it before continuing.
 
-## Good old make
+## Building the sources with nixpkg (advised)
 
-If you chose to use good old make, everything will be done automatically and no external files from the repo
-will be installed except some distribution packages that are required for building it. If you want more fine-grained
-control over spdk-sys please read the spdk-sys section below.
+To make things easier to install, we have provided a `shell.nix` file that can be used to build and compile MayaStor from source without impacting your system. The only requirement is that you have to have [Nixpkg](https://nixos.org/nix/download.html) installed. Once installed:
 
 ```bash
- make
-
-        Available targets:
-
-        init   : checkout the required git submodules
-        depend : Install and build runtime dependencies (requires sudo)
-        build  : Build mayastor
+ $ cd MayaStor
+ $ nix-shell
+ $ cargo build --all
 ```
+Binaries will be installed in `$(CURDIR)/target/release` after running the build you can use `$(CURDIR)/target/release/mctl` to create a Nexus.
 
-Once you have checked out the source code, simply work from the top:
-
-```bash
-make init
-sudo make depend
-make build
-```
-Binaries will be installed `$(CURDIR)/target/release` after running the build you use `$(CURDIR)/target/release/mctl` to create a Nexus.
-
-### spdk-sys (optional step)
-
-The crate that provides the glue between SPDK and Mayastor is hosted in this [repo](https://github.com/openebs/spdk-sys)
-feel free to go through it and determine if you want to install libspdk using those instructions or directly from
-[here](https://github.com/openebs/spdk). If you chose either of these methods, make sure you install such that
-during linking, it can be found.
-
-
-## Using the Dockerfile
+## Build in side docker
 
 We provide a [DockerFile](../docker/Dockerfile.ms-buildenv) which you can use to build Mayastor as well. This uses a more
 recent userland so some optimizations are enabled.
@@ -140,3 +118,34 @@ If you wish to run the MayaStor data path tests, make sure you specify `test-thr
 ```bash
 cargo test  -- --test-threads=1
 ```
+
+## Build it the hardway
+
+When you really want to build everything manually, the biggest hurdle to overcome is to install the SPDK/DPDK. As these
+are not packaged (or not recent) by most distro's its a manual step. We have provided scripts to make this as easy as 
+possible but they only work for Ubuntu and Fedora. 
+
+The basic steps are:
+
+```
+git submodule update --init --recursive
+sudo ./spdk-sys/spdk/scripts/pkgdep
+./spdk-sys/build.sh --without-isal --with-crypto
+```
+At this point you will have a .so file in `spdk-sys/build` you can leave it there and set a runpath flag for rustc to find it:
+
+```
+export RUSTFLAGS="-C link-args=-Wl,-rpath=$(pwd)/spdk-sys/build"
+```
+
+Or, you can copy over the .so to `/usr/local/lib` or something similar. 
+
+One this is done, you should be able to run `cargo build --all`
+
+### spdk-sys 
+The crate that provides the glue between SPDK and Mayastor is hosted in this [repo](https://github.com/openebs/spdk-sys)
+feel free to go through it and determine if you want to install libspdk using those instructions or directly from
+[here](https://github.com/openebs/spdk). If you chose either of these methods, make sure you install such that
+during linking, it can be found.
+
+
