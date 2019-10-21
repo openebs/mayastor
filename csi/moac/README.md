@@ -111,6 +111,22 @@ Moac package for nix packaging system can be created as follows.
    ./result/...
    ```
 
+## Building a Docker image
+
+You can build a docker image from the nix package by running:
+
+```bash
+nix-build default.nix -A buildImage
+```
+
+At the end of the build is printed path to docker image tar archive. Import
+it to a docker (don't use *import* command) and run bash to poke around:
+
+```bash
+docker load -i /nix/store/hash-docker-image-moac.tar.gz
+docker run --rm -it image-hash /bin/bash
+```
+
 ## Troubleshooting
 
 Running moac with trace log level enabled (`-vv`) prints all details about
