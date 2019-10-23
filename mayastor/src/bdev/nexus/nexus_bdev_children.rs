@@ -3,6 +3,8 @@ use crate::bdev::{
     nexus::{self, nexus_child::NexusChild, Error},
 };
 
+use crate::descriptor::IoChannel;
+
 use crate::nexus_uri::BdevType;
 
 use spdk_sys::{spdk_get_io_channel, spdk_put_io_channel};
@@ -17,6 +19,10 @@ use crate::bdev::nexus::{
 use futures::future::join_all;
 
 impl Nexus {
+    fn hold_io_channel(&self) -> IoChannel {
+        IoChannel::new(self.as_ptr())
+    }
+
     /// Add the child bdevs to the nexus instance in the "init state"
     /// this function should be used when bdevs are added asynchronously
     /// like for example, when parsing the init file. The examine callback
@@ -72,9 +78,10 @@ impl Nexus {
 
         if let Some(child) = self.children.iter_mut().find(|c| c.name == name) {
             child.close()?;
-            let ch = unsafe { spdk_get_io_channel(self.as_ptr()) };
-            self.reconfigure(DREvent::ChildOffline).await;
-            unsafe { spdk_put_io_channel(ch) }
+            {
+                let _ch = self.hold_io_channel();
+                self.reconfigure(DREvent::ChildOffline).await;
+            }
             self.set_state(NexusState::Degraded);
             Ok(NexusState::Degraded)
         } else {
