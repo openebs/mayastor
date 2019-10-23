@@ -1,54 +1,113 @@
-## Building from source
+## RUST
 
-MayaStor makes use of subsystems that are not yet part of major distributions, for example:
+We make use of async/await and therefor we *need* a compiler that supports that. We currently
+use the nightly compiler. Nightly is required in all of the provided build possibilities listed below
 
-     - nvme-tcp initiator (Linux 5.x and newer)
-     - Recent DPDK version (i.e 19.x)
+Build options
+==================
+- [Building with Nix (recommended)](Building-the-sources-with-nixpkg)
+- [Build inside docker](Build-inside-docker)
+- [Building the hard way](Build-it-the-hard-way)
 
-Fortunately, this is something that will be solved over time automatically. In the meantime, we have
-tried to make it as simple as possible by providing several options for you.
+## Building the sources with nixpkg
 
-Mayastor, in all cases, **requires the nightly rust compiler with async support**.
+We have provided a `shell.nix` file that can be used to build and compile MayaStor from source without impacting your system.
+The only requirement is that you have to have [Nixpkg](https://nixos.org/nix/download.html) installed. Once installed:
 
-## Installing RUST
+To install nixpkg:
 
-Before you can start the build, Rust must be installed on the system. We recommend to use [rustup](https://rustup.rs/).
-If you have not installed it, during install it will ask you what what channel to install, type `nightly` there.
+```bash
+curl https://nixos.org/nix/install | sh
+```
 
-After install make sure you source the environment i.e `source ~/.cargo/env`. And run `cargo -V` to see if it reports
-a version.
-
-If you already have rust installed but not nightly, use rustup to install it before continuing.
-
-## Building the sources with nixpkg (advised)
-
-To make things easier to install, we have provided a `shell.nix` file that can be used to build and compile MayaStor from source without impacting your system. The only requirement is that you have to have [Nixpkg](https://nixos.org/nix/download.html) installed. Once installed:
+Follow the short instruction and you should be all set!
 
 ```bash
  $ cd MayaStor
  $ nix-shell
+ $ git submodule update --init
  $ cargo build --all
 ```
-Binaries will be installed in `$(CURDIR)/target/release` after running the build you can use `$(CURDIR)/target/release/mctl` to create a Nexus.
+Binaries will be installed in `$(CURDIR)/target/release` after running the build you can use
+`$(CURDIR)/target/release/mctl` to create a Nexus.
 
-## Build in side docker
-
-We provide a [DockerFile](../docker/Dockerfile.ms-buildenv) which you can use to build Mayastor as well. This uses a more
-recent userland so some optimizations are enabled.
-
-If you do not want to build it in a container you can  pull `mayadata/ms-buildenv:latest` and use ours. We use it in our
-CI/CD on a daily basis but might not be up2date with latest and greatest packages. Note, that the cargo cache will not
-be preserved across container instantiation and the resulting binaries are owned by root. There are various ways to get
-around that (for example set `$CARGO_HOME` to for example to `$PWD/.cargo`) but we leave that up for yourself to decide
-as it is likely varies per system. If you are using the container you can make use of [cargo-make](https://github.com/sagiegurari/cargo-make)
-
-To start the container use something like:
+As an example here is the output we get when running the above steps on Ubuntu 18.04.3 LTS:
 
 ```bash
-sudo docker run -it --privileged  -v /dev:/dev:rw -v /dev/shm:/dev/shm:rw --network host -v /code/MayaSto
-r:/MayaStor mayadata/ms-buildenv:latest /bin/bash
+Finished dev [unoptimized + debuginfo] target(s) in 32.75s
+
+[nix-shell:~/MayaStor]$ uname -r
+4.15.0-66-generic
+
+[nix-shell:~/MayaStor]$ cat /etc/lsb-release
+DISTRIB_ID=Ubuntu
+DISTRIB_RELEASE=18.04
+DISTRIB_CODENAME=bionic
+DISTRIB_DESCRIPTION="Ubuntu 18.04.3 LTS"
+
+[nix-shell:~/MayaStor]$
 ```
-Justifications for the volume mounts:
+
+## Build inside docker
+
+```bash
+sudo docker run -it --privileged  -v /dev:/dev:rw -v /dev/shm:/dev/shm:rw \
+    --network host -v /code/MayaStor:/MayaStor mayadata/ms-buildenv:latest /bin/bash
+```
+
+Now, in order to build, we need to ensure we have all sub modules checked out as well. This is needed because
+we need to include some header files (you can see them in `spdk-sys/wrapper.h`). When using nixpkgs, these
+headers are installed by package manager, so extra step we need to take here (and the only one):
+
+```bash
+$ cd MayaStor
+$ git submodule update --init --recursive
+$ cd spdk-sys
+$ ./build.sh --enable-debug --without-isal --with-iscsi-initiator --with-rdma \
+             --with-internal-vhost-lib --disable-tests \
+             --with-crypto
+
+$ cp build/libspdkfat.so /lib
+$ cd ..
+```
+
+Now you can run, but lets ensure we have recent nightly first:
+
+```bash
+rustup update nightly
+rustup default nightly
+cargo build --all
+```
+
+After that you should be able to start MayaStor:
+
+```bash
+$ ./target/debug/mayastor
+main.rs:  28:: *NOTICE*: free_pages: 658 nr_pages: 1024
+Starting SPDK v19.07 / DPDK 19.05.0 initialization...
+[ DPDK EAL parameters: MayaStor --no-shconf -c 0x1 --log-level=lib.eal:6 --log-level=lib.cryptodev:5 --log-level=user1:6 --base-virtaddr=0x200000000000 --match-allocations --file-prefix=spdk_pid57086 ]
+app.c: 627:spdk_app_start: *NOTICE*: Total cores available: 1
+reactor.c: 251:_spdk_reactor_run: *NOTICE*: Reactor started on core 0
+nexus_module.rs: 105:: *NOTICE*: Initializing Nexus CAS Module
+cryptodev_aesni_mb_create() line 1304: IPSec Multi-buffer library version used: 0.52.0
+
+executor.rs:  94:: *INFO*: Started future executor on thread ThreadId(1)
+iscsi_target.rs:  85:: *INFO*: Created default iscsi portal group
+iscsi_target.rs: 100:: *INFO*: Created default iscsi initiator group
+nvmf_target.rs: 294:: *NOTICE*: Created nvmf target at 127.0.0.1:4401
+tcp.c: 535:spdk_nvmf_tcp_create: *NOTICE*: *** TCP Transport Init ***
+nvmf_target.rs: 344:: *NOTICE*: Added tcp nvmf transport 127.0.0.1:4401
+tcp.c: 730:spdk_nvmf_tcp_listen: *NOTICE*: *** NVMe/TCP Target Listening on 127.0.0.1 port 4401 ***
+nvmf_target.rs: 364:: *NOTICE*: nvmf target listens on 127.0.0.1:4401
+nvmf_target.rs: 415:: *NOTICE*: nvmf target 127.0.0.1:4401 accepts new connections
+main.rs:  31:: *NOTICE*: MayaStor started (fcaf10b-modified)...
+
+```
+
+Feel free to change the [DockerFile](../docker/Dockerfile.ms-buildenv) to your convenience.
+If you are using the container you can also make use of [cargo-make](https://github.com/sagiegurari/cargo-make)
+
+### Justifications for the volume mounts:
 
 - `/dev` is needed to get access to any raw device you might want to consume as local storage and huge pages
 - `/dev/shm` is needed as for a circular buffer that can trace any IO operations as they happen
@@ -119,30 +178,46 @@ If you wish to run the MayaStor data path tests, make sure you specify `test-thr
 cargo test  -- --test-threads=1
 ```
 
-## Build it the hardway
+## Build it the hard way
 
 When you really want to build everything manually, the biggest hurdle to overcome is to install the SPDK/DPDK. As these
-are not packaged (or not recent) by most distro's its a manual step. We have provided scripts to make this as easy as 
-possible but they only work for Ubuntu and Fedora. 
+are not packaged (or not recent) by most distro's its a manual step. We have provided scripts to make this as easy as
+possible but they only work for Ubuntu and Fedora.
 
 The basic steps are:
 
 ```
 git submodule update --init --recursive
 sudo ./spdk-sys/spdk/scripts/pkgdep
-./spdk-sys/build.sh --without-isal --with-crypto
+./spdk-sys/build.sh --enable-debug --without-isal --with-iscsi-initiator --with-rdma \
+             --with-internal-vhost-lib --disable-tests \
+             --with-crypto
 ```
-At this point you will have a .so file in `spdk-sys/build` you can leave it there and set a runpath flag for rustc to find it:
+At this point you will have a .so file in `spdk-sys/build` you can leave it there and set the run path flag for rustc to find it:
 
 ```
 export RUSTFLAGS="-C link-args=-Wl,-rpath=$(pwd)/spdk-sys/build"
 ```
 
-Or, you can copy over the .so to `/usr/local/lib` or something similar. 
+Or, you can copy over the .so to `/usr/local/lib` or something similar.
 
 One this is done, you should be able to run `cargo build --all`
 
-### spdk-sys 
+## Some background information
+
+MayaStor makes use of subsystems that are not yet part of major distributions, for example:
+
+     - nvme-tcp initiator (Linux 5.x and newer)
+     - Recent DPDK version (i.e 19.x)
+
+Fortunately, this is something that will be solved over time automatically. In the meantime, we have
+tried to make it as simple as possible by providing several options for you.
+
+Mayastor, in all cases, **requires the nightly rust compiler with async support**.
+You don't need to have a 5.x kernel unless you want to use NVMF.
+
+If you already have rust installed but not nightly, use rustup to install it before continuing.
+### spdk-sys
 The crate that provides the glue between SPDK and Mayastor is hosted in this [repo](https://github.com/openebs/spdk-sys)
 feel free to go through it and determine if you want to install libspdk using those instructions or directly from
 [here](https://github.com/openebs/spdk). If you chose either of these methods, make sure you install such that
