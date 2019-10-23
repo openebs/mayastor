@@ -47,11 +47,13 @@ use spdk_sys::{
     spdk_bdev_write,
     spdk_dma_free,
     spdk_dma_zmalloc,
+    spdk_get_io_channel,
     spdk_io_channel,
     spdk_put_io_channel,
 };
 use std::{
     ffi::c_void,
+    ops::{Deref, DerefMut},
     slice::{from_raw_parts, from_raw_parts_mut},
 };
 
@@ -331,5 +333,46 @@ impl Drop for Descriptor {
                 spdk_bdev_close(self.desc)
             }
         };
+    }
+}
+
+/// Automatic IO channel handle
+#[derive(Debug)]
+pub struct IoChannel {
+    /// the channel handle
+    handle: *mut spdk_io_channel,
+}
+
+impl IoChannel {
+    /// Acquire an io channel for the given nexus.
+    /// This channel has guard semantics, and will be released when dropped.
+    pub fn new(nexus: *mut c_void) -> Self {
+        unsafe {
+            IoChannel {
+                handle: spdk_get_io_channel(nexus),
+            }
+        }
+    }
+}
+
+impl Drop for IoChannel {
+    fn drop(&mut self) {
+        unsafe {
+            spdk_put_io_channel(self.handle);
+        };
+    }
+}
+
+impl Deref for IoChannel {
+    type Target = *mut spdk_io_channel;
+
+    fn deref(&self) -> &Self::Target {
+        &self.handle
+    }
+}
+
+impl DerefMut for IoChannel {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.handle
     }
 }
