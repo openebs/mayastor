@@ -39,7 +39,7 @@ stdenv.mkDerivation rec {
   CONFIGURE_OPTS = ''
       --enable-debug --without-isal --with-iscsi-initiator --with-rdma
       --with-internal-vhost-lib --disable-tests --with-dpdk-machine=native
-    --with-crypto
+      --with-crypto
   '';
 
   enableParallelBuilding = true;
@@ -47,8 +47,10 @@ stdenv.mkDerivation rec {
   postPatch = ''
     patchShebangs ./.
     substituteInPlace dpdk/config/defconfig_x86_64-native-linux-gcc --replace native default
-    substituteInPlace Makefile --replace examples ""
-    substituteInPlace Makefile --replace app ""
+    # Do not build examples and app directories
+    substituteInPlace Makefile --replace "examples app" ""
+    # A workaround for https://bugs.dpdk.org/show_bug.cgi?id=356
+    substituteInPlace dpdk/lib/Makefile --replace 'DEPDIRS-librte_vhost :=' 'DEPDIRS-librte_vhost := librte_hash'
   '';
 
   NIX_CFLAGS_COMPILE = "-mno-movbe -mno-lzcnt -mno-bmi -mno-bmi2 -march=corei7";
@@ -59,19 +61,18 @@ stdenv.mkDerivation rec {
   '';
 
   buildPhase = ''
-    TARGET_ARCHITECTURE=corei7 make -j4
+    TARGET_ARCHITECTURE=corei7 make -j $NIX_BUILD_CORES
 
-    # this should not be needed in the future as fixes are upstream that
-    # are supposed to fix the shared lib building.
-
+    # see README in spdk-sys why this needs to be done
     find . -type f -name 'libspdk_ut_mock.a' -delete
     find . -type f -name 'librte_vhost.a' -delete
 
     $CC -shared -o libspdk_fat.so \
     -lc -lrdmacm -laio -libverbs -liscsi -lnuma -ldl -lrt -luuid -lpthread -lcrypto \
-    -Wl,--whole-archive $(find build/lib -type f -name 'libspdk_*.a*' -o -name 'librte_*.a*') \
-    -Wl,--whole-archive $(find dpdk/build/lib -type f -name 'librte_*.a*') \
-    -Wl,--whole-archive $(find intel-ipsec-mb -type f -name 'libIPSec_*.a*') \
+    -Wl,--whole-archive \
+    $(find build/lib -type f -name 'libspdk_*.a*' -o -name 'librte_*.a*') \
+    $(find dpdk/build/lib -type f -name 'librte_*.a*') \
+    $(find intel-ipsec-mb -type f -name 'libIPSec_*.a*') \
     -Wl,--no-whole-archive
   '';
 
