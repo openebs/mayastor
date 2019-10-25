@@ -20,29 +20,19 @@
 }:
 
 let
-  mozilla = fetchFromGitHub {
-    owner = "mozilla";
-    repo = "nixpkgs-mozilla";
-    rev = "ac8e9d7bbda8fb5e45cae20c5b7e44c52da3ac0c";
-    sha256 = "1irlkqc0jdkxdfznq7r52ycnf0kcvvrz416qc7346xhmilrx2gy6";
+  channel = import ../../lib/rust.nix {
+    inherit fetchFromGitHub;
+    inherit pkgs;
   };
-
-  overlay = import "${mozilla}/package-set.nix" { inherit pkgs; };
-  channel = overlay.rustChannelOf {
-    date = "2019-10-14";
-    channel = "nightly";
-  };
-
-  nightly = makeRustPlatform {
+  rustPlatform = makeRustPlatform {
     rustc = channel.rust;
     cargo = channel.cargo;
   };
-
 in
 rec {
   # An alternative approach is to build separate outputs for the workspaces:
   #
-  # sidecar = nightly.buildRustPackage rec {
+  # sidecar = rustPlatform.buildRustPackage rec {
   #   name = "mayastor-sidecar";
   #   ....
   #
@@ -55,7 +45,7 @@ rec {
   #   The downside of this is that we compile twice but maybe that is not the case
   #   if the src are fetched from github instead of the working as it is right now.
 
-  mayastor = nightly.buildRustPackage rec {
+  mayastor = rustPlatform.buildRustPackage rec {
     name = "mayastor";
     cargoSha256 = "150w3paf53104vqr45z3nw2kyb08zi90ccxwf39k3rp6gsid06gr";
     version = "unstable";

@@ -23,11 +23,12 @@ curl https://nixos.org/nix/install | sh
 Follow the short instruction and you should be all set!
 
 ```bash
- $ cd MayaStor
- $ nix-shell
- $ git submodule update --init
- $ cargo build --all
+cd MayaStor
+nix-shell
+git submodule update --init
+cargo build --all
 ```
+
 Binaries will be installed in `$(CURDIR)/target/release` after running the build you can use
 `$(CURDIR)/target/release/mctl` to create a Nexus.
 

@@ -1,3 +1,7 @@
+# Beware this file is OBSOLETE! It is left around only until all its
+# functionality that it provides is acquired by nix, ci/cd scripts and
+# other tools.
+
 [env]
 REV_TAG = { script = ["git rev-parse --short HEAD"] }
 
