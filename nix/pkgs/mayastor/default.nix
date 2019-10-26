@@ -16,6 +16,7 @@
 , utillinux
 , makeRustPlatform
 , fetchFromGitHub
+, dockerTools
 , pkgs ? import <nixpkgs>
 }:
 let
@@ -38,33 +39,43 @@ let
   };
 
 in
-nightly.buildRustPackage rec {
-  pname = "mayastor";
-  cargoSha256 = "04pbdjd7vbdfraw2n8pn5jfv7kl8sd99wic8yj8my3w4rj55nvhn";
-  version = "unstable";
-  src = ../../../.;
+rec {
 
-  # crates that run bindgen (blkid) require these to be set
-  propagatedBuildInputs = [ clang ];
-  LIBCLANG_PATH = "${pkgs.llvmPackages.libclang}/lib";
+  mayastor = nightly.buildRustPackage rec {
+    name = "mayastor";
+    cargoSha256 = "02h4f930aj5yf3bz3l1dfaxl0795sbh86339yc9llq36a72wyri2";
+    version = "unstable";
+    src = ../../../.;
 
-  # these are requirerd for building the proto files that tonic can't find otherwise.
-  PROTOC = "${pkgs.protobuf}/bin/protoc";
-  PROTOC_INCLUDE = "${pkgs.protobuf}/include";
+    # crates that run bindgen (blkid) require these to be set
+    # propagatedBuildInputs = [ clang ];
+    LIBCLANG_PATH = "${pkgs.llvmPackages.libclang}/lib";
 
-  buildInputs = [
-    libaio
-    libiscsi.lib
-    libspdk
-    llvmPackages.libclang
-    numactl
-    openssl
-    pkg-config
-    protobuf
-    rdma-core
-    utillinux
-  ];
+    # these are requirerd for building the proto files that tonic can't find otherwise.
+    PROTOC = "${pkgs.protobuf}/bin/protoc";
+    PROTOC_INCLUDE = "${pkgs.protobuf}/include";
 
-  doCheck = false;
-  meta = { platforms = stdenv.lib.platforms.linux; };
+    buildInputs = [
+      pkgs.clang
+      libaio
+      libiscsi.lib
+      libspdk
+      llvmPackages.libclang
+      numactl
+      openssl
+      pkg-config
+      protobuf
+      rdma-core
+      utillinux.dev
+    ];
+
+    doCheck = false;
+    meta = { platforms = stdenv.lib.platforms.linux; };
+  };
+  buildImage = pkgs.dockerTools.buildLayeredImage {
+    name = "MayaStor";
+    tag = "latest";
+    created = "now";
+    contents = [ pkgs.bash mayastor ];
+  };
 }

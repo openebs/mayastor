@@ -155,7 +155,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 [[package]]
 name = "blkid"
 version = "0.2.1"
-source = "git+https://github.com/openebs/blkid?branch=blkid-sys#bc54122685da03a299077062cbf08048a1504a80"
+source = "git+https://github.com/openebs/blkid?branch=blkid-sys#e153bea2c68f4bacf922b6cd3d1915b3b79844f0"
 dependencies = [
  "blkid-sys 0.1.4 (git+https://github.com/openebs/blkid?branch=blkid-sys)",
  "err-derive 0.1.6 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -165,7 +165,7 @@ dependencies = [
 [[package]]
 name = "blkid-sys"
 version = "0.1.4"
-source = "git+https://github.com/openebs/blkid?branch=blkid-sys#bc54122685da03a299077062cbf08048a1504a80"
+source = "git+https://github.com/openebs/blkid?branch=blkid-sys#e153bea2c68f4bacf922b6cd3d1915b3b79844f0"
 dependencies = [
  "bindgen 0.48.1 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -285,7 +285,7 @@ dependencies = [
 
 [[package]]
 name = "crc"
-version = "1.9.0"
+version = "1.8.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "build_const 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -543,7 +543,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 
 [[package]]
 name = "getrandom"
-version = "0.1.12"
+version = "0.1.13"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
  "cfg-if 0.1.10 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -816,7 +816,7 @@ version = "0.1.0"
 dependencies = [
  "bincode 1.2.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "bytes 0.4.12 (registry+https://github.com/rust-lang/crates.io-index)",
- "crc 1.9.0 (registry+https://github.com/rust-lang/crates.io-index)",
+ "crc 1.8.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures-preview 0.3.0-alpha.19 (registry+https://github.com/rust-lang/crates.io-index)",
  "futures-timer 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "git-version 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1251,7 +1251,7 @@ name = "rand"
 version = "0.7.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
- "getrandom 0.1.12 (registry+https://github.com/rust-lang/crates.io-index)",
+ "getrandom 0.1.13 (registry+https://github.com/rust-lang/crates.io-index)",
  "libc 0.2.65 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand_chacha 0.2.1 (registry+https://github.com/rust-lang/crates.io-index)",
  "rand_core 0.5.1 (registry+https://github.com/rust-lang/crates.io-index)",
@@ -1294,7 +1294,7 @@ name = "rand_core"
 version = "0.5.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 dependencies = [
- "getrandom 0.1.12 (registry+https://github.com/rust-lang/crates.io-index)",
+ "getrandom 0.1.13 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
 
 [[package]]
@@ -2245,7 +2245,7 @@ dependencies = [
 "checksum clang-sys 0.26.4 (registry+https://github.com/rust-lang/crates.io-index)" = "6ef0c1bcf2e99c649104bd7a7012d8f8802684400e03db0ec0af48583c6fa0e4"
 "checksum clap 2.33.0 (registry+https://github.com/rust-lang/crates.io-index)" = "5067f5bb2d80ef5d68b4c87db81601f0b75bca627bc2ef76b141d7b846a3c6d9"
 "checksum cloudabi 0.0.3 (registry+https://github.com/rust-lang/crates.io-index)" = "ddfc5b9aa5d4507acaf872de71051dfd0e309860e88966e1051e462a077aac4f"
-"checksum crc 1.9.0 (registry+https://github.com/rust-lang/crates.io-index)" = "a0a8ca6452ccb182917f0e5d67bef0d46c3c7cfe8081089b9d2fc0c9588b8fdb"
+"checksum crc 1.8.1 (registry+https://github.com/rust-lang/crates.io-index)" = "d663548de7f5cca343f1e0a48d14dcfb0e9eb4e079ec58883b7251539fa10aeb"
 "checksum crossbeam-channel 0.3.9 (registry+https://github.com/rust-lang/crates.io-index)" = "c8ec7fcd21571dc78f96cc96243cab8d8f035247c3efd16c687be154c3fa9efa"
 "checksum crossbeam-deque 0.7.1 (registry+https://github.com/rust-lang/crates.io-index)" = "b18cd2e169ad86297e6bc0ad9aa679aee9daa4f19e8163860faf7c164e4f5a71"
 "checksum crossbeam-epoch 0.7.2 (registry+https://github.com/rust-lang/crates.io-index)" = "fedcd6772e37f3da2a9af9bf12ebe046c0dfe657992377b4df982a2b54cd37a9"
@@ -2271,7 +2271,7 @@ dependencies = [
 "checksum futures-timer 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)" = "878f1d2fc31355fa02ed2372e741b0c17e58373341e6a122569b4623a14a7d33"
 "checksum futures-util-preview 0.3.0-alpha.19 (registry+https://github.com/rust-lang/crates.io-index)" = "5ce968633c17e5f97936bd2797b6e38fb56cf16a7422319f7ec2e30d3c470e8d"
 "checksum gcc 0.3.55 (registry+https://github.com/rust-lang/crates.io-index)" = "8f5f3913fa0bfe7ee1fd8248b6b9f42a5af4b9d65ec2dd2c3c26132b950ecfc2"
-"checksum getrandom 0.1.12 (registry+https://github.com/rust-lang/crates.io-index)" = "473a1265acc8ff1e808cd0a1af8cee3c2ee5200916058a2ca113c29f2d903571"
+"checksum getrandom 0.1.13 (registry+https://github.com/rust-lang/crates.io-index)" = "e7db7ca94ed4cd01190ceee0d8a8052f08a247aa1b469a7f68c6a3b71afcf407"
 "checksum git-version 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)" = "2ec7e5984df8e27b2387a44b442376e72f7cf779dd61a94cf73f876fe39964ac"
 "checksum git-version-macro 0.3.3 (registry+https://github.com/rust-lang/crates.io-index)" = "b3e3ccc888320973ac873ca5068b1126726d5ad7c034188ca086d74be5ff34fa"
 "checksum glob 0.2.11 (registry+https://github.com/rust-lang/crates.io-index)" = "8be18de09a56b60ed0edf84bc9df007e30040691af7acd1c41874faac5895bfb"
