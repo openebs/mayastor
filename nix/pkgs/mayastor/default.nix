@@ -1,7 +1,5 @@
 # As soon as async becomes stable; we dont need to import the mozilla overlay
-# anymore. This will greatly simplyfy the expression.
-#
-# runtime dependencies are determined by elf magic on the build artifacts
+# anymore. This will greatly simplify the expression.
 { stdenv
 , libaio
 , libiscsi
@@ -16,8 +14,11 @@
 , utillinux
 , makeRustPlatform
 , fetchFromGitHub
+, dockerTools
 , pkgs ? import <nixpkgs>
+, buildType ? "release"
 }:
+
 let
   mozilla = fetchFromGitHub {
     owner = "mozilla";
@@ -38,33 +39,63 @@ let
   };
 
 in
-nightly.buildRustPackage rec {
-  pname = "mayastor";
-  cargoSha256 = "04pbdjd7vbdfraw2n8pn5jfv7kl8sd99wic8yj8my3w4rj55nvhn";
-  version = "unstable";
-  src = ../../../.;
+rec {
+  # An alternative approach is to build separate outputs for the workspaces:
+  #
+  # sidecar = nightly.buildRustPackage rec {
+  #   name = "mayastor-sidecar";
+  #   ....
+  #
+  #   buildPhase = ''
+  #    cargo build ${stdenv.lib.optionalString (buildType == "release") "--release"} \
+  #    --target ${stdenv.hostPlatform.config} -p csi
+  #    '';
+  #   };
+  #
+  #   The downside of this is that we compile twice but maybe that is not the case
+  #   if the src are fetched from github instead of the working as it is right now.
 
-  # crates that run bindgen (blkid) require these to be set
-  propagatedBuildInputs = [ clang ];
-  LIBCLANG_PATH = "${pkgs.llvmPackages.libclang}/lib";
+  mayastor = nightly.buildRustPackage rec {
+    name = "mayastor";
+    cargoSha256 = "150w3paf53104vqr45z3nw2kyb08zi90ccxwf39k3rp6gsid06gr";
+    version = "unstable";
+    src = ../../../.;
 
-  # these are requirerd for building the proto files that tonic can't find otherwise.
-  PROTOC = "${pkgs.protobuf}/bin/protoc";
-  PROTOC_INCLUDE = "${pkgs.protobuf}/include";
+    LIBCLANG_PATH = "${pkgs.llvmPackages.libclang}/lib";
 
-  buildInputs = [
-    libaio
-    libiscsi.lib
-    libspdk
-    llvmPackages.libclang
-    numactl
-    openssl
-    pkg-config
-    protobuf
-    rdma-core
-    utillinux
-  ];
+    # these are required for building the proto files that tonic can't find otherwise.
+    PROTOC = "${pkgs.protobuf}/bin/protoc";
+    PROTOC_INCLUDE = "${pkgs.protobuf}/include";
 
-  doCheck = false;
-  meta = { platforms = stdenv.lib.platforms.linux; };
+    buildInputs = [
+      pkgs.clang
+      libaio
+      libiscsi.lib
+      libspdk
+      llvmPackages.libclang
+      numactl
+      openssl
+      pkg-config
+      protobuf
+      rdma-core
+      utillinux.dev
+    ];
+
+    doCheck = false;
+    meta = { platforms = stdenv.lib.platforms.linux; };
+  };
+
+  mayastorImage = pkgs.dockerTools.buildLayeredImage {
+    name = "mayastor";
+    tag = "latest";
+    created = "now";
+    contents = [ mayastor ];
+  };
+
+  mayastorCSIImage = pkgs.dockerTools.buildLayeredImage {
+    name = "mayastor-csi";
+    tag = "latest";
+    created = "now";
+    contents = [ mayastor ];
+  };
 }

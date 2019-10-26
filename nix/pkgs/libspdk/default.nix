@@ -37,9 +37,9 @@ stdenv.mkDerivation rec {
   ];
 
   CONFIGURE_OPTS = ''
-      --enable-debug --without-isal --with-iscsi-initiator --with-rdma
-      --with-internal-vhost-lib --disable-tests --with-dpdk-machine=native
-      --with-crypto
+    --without-isal --with-iscsi-initiator --with-rdma
+    --with-internal-vhost-lib --disable-tests --with-dpdk-machine=native
+    --with-crypto
   '';
 
   enableParallelBuilding = true;
@@ -86,5 +86,6 @@ stdenv.mkDerivation rec {
     cp libspdk_fat.so $out/lib
   '';
 
-  dontStrip = true;
+  separateDebugInfo = true;
+
 }
