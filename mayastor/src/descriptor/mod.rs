@@ -346,11 +346,14 @@ pub struct IoChannel {
 impl IoChannel {
     /// Acquire an io channel for the given nexus.
     /// This channel has guard semantics, and will be released when dropped.
-    pub fn new(nexus: *mut c_void) -> Self {
-        unsafe {
-            IoChannel {
-                handle: spdk_get_io_channel(nexus),
-            }
+    ///
+    /// # Safety
+    ///
+    /// The pointer specified must be io_device pointer which has been
+    /// previously registered using spdk_io_device_register()
+    pub unsafe fn new(nexus: *mut c_void) -> Self {
+        IoChannel {
+            handle: spdk_get_io_channel(nexus),
         }
     }
 }

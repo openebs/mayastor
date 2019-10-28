@@ -1,4 +1,3 @@
-#![feature(async_await)]
 use mayastor::{mayastor_start, spdk_stop};
 
 use mayastor::{

@@ -1,4 +1,3 @@
-#![feature(async_await)]
 use log::error;
 use mayastor::{
     bdev::nexus::nexus_bdev::nexus_create,

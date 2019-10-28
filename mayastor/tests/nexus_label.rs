@@ -1,4 +1,3 @@
-#![feature(async_await)]
 use mayastor::bdev::nexus::nexus_label::{GPTHeader, GptEntry};
 use std::io::{Cursor, Read};
 

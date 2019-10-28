@@ -1,4 +1,3 @@
-#![feature(async_await)]
 #![allow(clippy::cognitive_complexity)]
 use mayastor::{
     bdev::{

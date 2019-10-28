@@ -5,10 +5,11 @@ use super::*;
 use nix::errno::Errno;
 use serde_json::json;
 use std::{fs, panic, path::Path};
-use tokio::{net::UnixListener, runtime::current_thread::Runtime};
-
-use futures::StreamExt;
-use tokio::io::{AsyncReadExt, ErrorKind};
+use tokio::{
+    net::UnixListener,
+    runtime::current_thread::Runtime,
+    io::{AsyncReadExt, ErrorKind},
+};
 
 /// Socket path to the test json-rpc server
 const SOCK_PATH: &str = "/tmp/jsonrpc-ut.sock";

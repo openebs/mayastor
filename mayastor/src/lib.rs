@@ -1,4 +1,3 @@
-#![feature(async_await)]
 #![feature(try_trait)]
 #![feature(drain_filter)]
 #[macro_use]

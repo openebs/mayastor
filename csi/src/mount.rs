@@ -138,7 +138,7 @@ pub fn probe_filesystems() -> Result<Vec<Fs>, String> {
     for fsname in supported_fs.iter() {
         match probe_defaults(fsname) {
             Ok(opts) => filesystems.push(Fs {
-                name: fsname.to_string(),
+                name: (*fsname).to_string(),
                 defaults: opts,
             }),
             Err(err) => {

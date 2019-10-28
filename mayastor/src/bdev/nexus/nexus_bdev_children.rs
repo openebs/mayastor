@@ -20,7 +20,7 @@ use futures::future::join_all;
 
 impl Nexus {
     fn hold_io_channel(&self) -> IoChannel {
-        IoChannel::new(self.as_ptr())
+        unsafe { IoChannel::new(self.as_ptr()) }
     }
 
     /// Add the child bdevs to the nexus instance in the "init state"
