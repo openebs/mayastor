@@ -14,7 +14,7 @@ var lastAnswer;
 function sudo(command, options, nameInPs) {
   var prompt = '#node-sudo-passwd#';
   var prompts = 0;
-  var nameInPs = nameInPs || path.basename(command[0]);
+  nameInPs = nameInPs || path.basename(command[0]);
 
   var args = ['-S', '-E', '-p', prompt];
   args.push.apply(args, command);

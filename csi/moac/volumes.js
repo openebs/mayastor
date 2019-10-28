@@ -391,7 +391,7 @@ class VolumeOperator {
     }
     var res;
     try {
-      res = await client.publishNexus().sendMessage({ uuid: uuid , key : '' });
+      res = await client.publishNexus().sendMessage({ uuid: uuid, key: '' });
     } catch (err) {
       throw new GrpcError(
         grpc.status.INTERNAL,

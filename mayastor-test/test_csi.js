@@ -615,7 +615,6 @@ describe('csi', function() {
         shouldFailWith(grpc.status.INVALID_ARGUMENT, done)
       );
     });
-
   });
 
   // The combinations of ro/rw and access mode flags are quite confusing.

@@ -41,7 +41,9 @@ function printStatus(nodeOper, poolOper, volumeOper) {
   let pools = poolOper.get().map(p => p.name + '@' + p.node);
   log.info('List of storage pools: ' + pools.join(', '));
 
-  let repls = volumeOper.getReplica().map(r => r.pool + '/' + r.uuid + '@' + r.node);
+  let repls = volumeOper
+    .getReplica()
+    .map(r => r.pool + '/' + r.uuid + '@' + r.node);
   log.info('List of replicas: ' + repls.join(', '));
 
   let nexus = volumeOper.getNexus().map(n => n.uuid + '@' + n.node);

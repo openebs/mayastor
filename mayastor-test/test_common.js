@@ -33,17 +33,21 @@ function getCmdPath(name) {
 // Return child process handle.
 function runAsRoot(cmd, args, nameInPs) {
   let env = _.assignIn({}, process.env, {
-    RUST_BACKTRACE: 1
+    RUST_BACKTRACE: 1,
   });
   if (process.geteuid() === 0) {
     return spawn(cmd, args || [], {
       env,
-      shell: true
+      shell: true,
     });
   } else {
-    return sudo([cmd].concat(args || []), {
-      spawnOptions: { env }
-    }, nameInPs);
+    return sudo(
+      [cmd].concat(args || []),
+      {
+        spawnOptions: { env },
+      },
+      nameInPs
+    );
   }
 }
 

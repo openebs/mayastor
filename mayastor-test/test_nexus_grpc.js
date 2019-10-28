@@ -286,8 +286,8 @@ describe('nexus_grpc', function() {
 
         fs.read(fd, buffer, 0, 512, 0, (err, nr, buffer) => {
           if (err) done(err);
-          buffer.forEach(function(e){
-              assert(e === 122);
+          buffer.forEach(function(e) {
+            assert(e === 122);
           });
           fs.close(fd, () => {
             done();
@@ -318,11 +318,14 @@ describe('nexus_grpc', function() {
     });
 
     it('should be able to publish the new nexus device using NBD and a crypto key', done => {
-      client.PublishNexus({ uuid: UUID, key: '0123456789123456' }, (err, res) => {
-        assert(res.device_path);
-        nbd_device = res.device_path;
-        done();
-      });
+      client.PublishNexus(
+        { uuid: UUID, key: '0123456789123456' },
+        (err, res) => {
+          assert(res.device_path);
+          nbd_device = res.device_path;
+          done();
+        }
+      );
     });
 
     it('should be able to unpublish the encrypted nexus device', done => {
@@ -330,12 +333,14 @@ describe('nexus_grpc', function() {
     });
 
     it('should be able to publish a nexus device using NBD and a crypto key and then immediately destroy it', done => {
-      client.PublishNexus({ uuid: UUID, key: '0123456789123456' }, (err, res) => {
-        assert(res.device_path);
-        nbd_device = res.device_path;
-        client.DestroyNexus({ uuid: UUID }, done);
-      });
+      client.PublishNexus(
+        { uuid: UUID, key: '0123456789123456' },
+        (err, res) => {
+          assert(res.device_path);
+          nbd_device = res.device_path;
+          client.DestroyNexus({ uuid: UUID }, done);
+        }
+      );
     });
-
   });
 });
