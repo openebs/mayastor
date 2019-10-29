@@ -11,7 +11,7 @@ let
   };
 in
   mkShell {
-    inputsFrom = [ mayastor.mayastor ];
+    inputsFrom = [ mayastor ];
     buildInputs = [
       gptfdisk
       libiscsi.bin
@@ -30,7 +30,7 @@ in
       # TODO: Install cargo make
     ];
 
-    LIBCLANG_PATH = mayastor.mayastor.LIBCLANG_PATH;
-    PROTOC = mayastor.mayastor.PROTOC;
-    PROTOC_INCLUDE = mayastor.mayastor.PROTOC_INCLUDE;
+    LIBCLANG_PATH = mayastor.LIBCLANG_PATH;
+    PROTOC = mayastor.PROTOC;
+    PROTOC_INCLUDE = mayastor.PROTOC_INCLUDE;
   }
