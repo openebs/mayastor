@@ -53,30 +53,18 @@ DISTRIB_DESCRIPTION="Ubuntu 18.04.3 LTS"
 
 ```bash
 sudo docker run -it --privileged  -v /dev:/dev:rw -v /dev/shm:/dev/shm:rw \
-    --network host -v /code/MayaStor:/MayaStor mayadata/ms-buildenv:latest /bin/bash
+    --network host -v /code/MayaStor:/MayaStor mayadata/ms-buildenv:latest /bin/sh
 ```
 
-Now, in order to build, we need to ensure we have all sub modules checked out as well. This is needed because
-we need to include some header files (you can see them in `spdk-sys/wrapper.h`). When using nixpkgs, these
-headers are installed by package manager, so extra step we need to take here (and the only one):
+Docker image is essentially just a nixos image with a couple of
+utilities and cached mayastor nix-shell. That means that all mayastor
+dependencies have been already prebuilt for you and you can just
+enter the nix shell and build the mayastor.
 
 ```bash
-$ cd MayaStor
-$ git submodule update --init --recursive
-$ cd spdk-sys
-$ ./build.sh --enable-debug --without-isal --with-iscsi-initiator --with-rdma \
-             --with-internal-vhost-lib --disable-tests \
-             --with-crypto
-
-$ cp build/libspdkfat.so /lib
-$ cd ..
-```
-
-Now you can run, but lets ensure we have recent nightly first:
-
-```bash
-rustup update nightly
-rustup default nightly
+cd MayaStor
+nix-shell
+git submodule update --init
 cargo build --all
 ```
 
@@ -102,11 +90,9 @@ tcp.c: 730:spdk_nvmf_tcp_listen: *NOTICE*: *** NVMe/TCP Target Listening on 127.
 nvmf_target.rs: 364:: *NOTICE*: nvmf target listens on 127.0.0.1:4401
 nvmf_target.rs: 415:: *NOTICE*: nvmf target 127.0.0.1:4401 accepts new connections
 main.rs:  31:: *NOTICE*: MayaStor started (fcaf10b-modified)...
-
 ```
 
-Feel free to change the [DockerFile](../docker/Dockerfile.ms-buildenv) to your convenience.
-If you are using the container you can also make use of [cargo-make](https://github.com/sagiegurari/cargo-make)
+Feel free to change the [DockerFile](../Dockerfile) to your convenience.
 
 ### Justifications for the volume mounts:
 
