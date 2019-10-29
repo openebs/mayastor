@@ -6,6 +6,11 @@
   "bin": {
     "moac": "./index.js"
   },
+  "repository": {
+    "type" : "git",
+    "url" : "https://github.com/openebs/MayaStor.git",
+    "directory": "csi/moac"
+  },
   "scripts": {
     "test": "node_modules/mocha/bin/mocha test.js",
     "start": "node index.js",

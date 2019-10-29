@@ -24,17 +24,13 @@ result // rec {
   # 1) The image size is almost 1G because it includes gcc, python and other
   #    packages required by nodejs for building bindings, but not useful for
   #    running scripts. We would like to strip them off.
-  # 2) Prod and dev flavours of the moac package would be nice.
-  #    Currently we include devDependencies (mocha, ...) in the package
-  #    because we run the tests on the created nix package, which is good for
-  #    QA but useless in production.
-  # 3) It would be cool to produce OCI image instead of docker image to
+  # 2) It would be cool to produce OCI image instead of docker image to
   #    avoid dependency on docker tool chain. Though the maturity of oci
   #    builder in nixpkgs is questionable which is why we delayed this step.
-  # 4) We would like to create a /bin/moac symlink so that we don't need to
+  # 3) We would like to create a /bin/moac symlink so that we don't need to
   #    remember a creeky path to moac script containing a hash. Trying to do
   #    so in extraCommands script yields eperm error.
-  # 5) The algorithm for placing packages into the layers is not optimal.
+  # 4) The algorithm for placing packages into the layers is not optimal.
   #    There are a couple of layers with negligable size and then there is
   #    one big layer (~800MB) with everything else. That defeats the purpose
   #    of layering.
