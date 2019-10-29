@@ -1,0 +1,125 @@
+variables:
+  CARGO_HOME: $CI_PROJECT_DIR/cargo
+
+stages:
+  - build
+  - test
+  - image
+
+# Check code style and common programming errors in JS and rust
+# source code. Do this in parallel to the build of the product,
+# because cargo clippy takes time and we don't want to wait for it.
+lint:
+  stage: build
+  image: mayadata/ms-buildenv:latest
+  before_script:
+    - git submodule update --init
+  script:
+    - nix-shell --run 'prettier --version'
+    - nix-shell --run 'prettier --config .prettierrc --check csi/moac/*.js mayastor-test/*.js'
+    - nix-shell --run 'jshint --config .jshintrc csi/moac/*.js mayastor-test/*.js'
+    - nix-shell --run 'cargo fmt --all'
+    - nix-shell --run 'cargo clippy --all --all-targets -- -D warnings'
+
+# Build mayastor and grpc gateway (rust source code) and run rust unit tests.
+# Save built binaries for API tests done in the next stage.
+build-mayastor:
+  stage: build
+  image: mayadata/ms-buildenv:latest
+  cache:
+    paths:
+      - cargo/
+  before_script:
+    - git submodule update --init
+    # modprobe is symlink to /sbin/kmod invoking kmod "manually" does not work
+    # kmod is programmed such that is has to be invoked through the symlink (!!)
+    #
+    # So, the runner is configured to mount the hosts /bin to /host/bin and
+    # we create a symlink from there. Note that we also mount the hosts
+    # kernel modules. We do this loading of the kernel mod early so that we fail
+    # early.
+    - ln -s /host/bin/kmod /usr/local/bin/modprobe
+    - modprobe nbd
+    - modprobe xfs
+    # as we run on a auto scalar, we must set the hugepage sizes before we can
+    # run these tests.
+    - echo 512 >/sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
+  script:
+    - nix-shell --run 'cargo build --all-targets'
+    - nix-shell --run 'cd jsonrpc && cargo test'
+    # remove cargo-config to avoid sudo for running the tests (we run as root)
+    - nix-shell --run 'cd mayastor && rm .cargo/config && cargo test'
+    # reduce the artifact size
+    - find target/debug -type f ! -executable -exec rm {} +
+  artifacts:
+    expire_in: 1 day
+    paths:
+      - target/debug/
+
+# Test mayastor grpc & cli interfaces using JS mocha test framework.
+test-mayastor:
+  stage: test
+  image: mayadata/ms-buildenv:latest
+  dependencies:
+    - build-mayastor
+  cache:
+    paths:
+      - mayastor-test/node_modules/
+  before_script:
+    # TODO: Isolate this code to a shell script or cargo makefile to avoid
+    # repeating it
+    - ln -s /host/bin/kmod /usr/local/bin/modprobe
+    - modprobe nbd
+    - modprobe xfs
+    - echo 512 >/sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
+  script:
+    - nix-shell --run 'cd mayastor-test && npm install --unsafe-perm'
+    - nix-shell --run 'cd mayastor-test && ./node_modules/mocha/bin/mocha test_cli.js'
+    - nix-shell --run 'cd mayastor-test && ./node_modules/mocha/bin/mocha test_csi.js'
+    - nix-shell --run 'cd mayastor-test && ./node_modules/mocha/bin/mocha test_grpc.js'
+    - nix-shell --run 'cd mayastor-test && ./node_modules/mocha/bin/mocha test_nexus_grpc.js'
+  after_script:
+    - rm -rf /dev/shm/*
+    - rm -rf /dev/hugepages/spdk*
+
+# Build moac which comprises installation of npm dependencies and run
+# the tests on it.
+build-moac:
+  stage: build
+  image: mayadata/ms-buildenv:latest
+  cache:
+    paths:
+      - csi/moac/node_modules/
+  script:
+    - cd csi/moac
+    - nix-shell -p nodejs-10_x python --run 'npm install --unsafe-perm'
+    - nix-shell -p nodejs-10_x --run './node_modules/mocha/bin/mocha'
+
+# Build moac docker image using the NIX.
+image-moac:
+  stage: image
+  image: mayadata/ms-buildenv:latest
+  script:
+    - NIX_PATH="$NIX_PATH:nixpkgs-overlays=`pwd`/nix" nix-build '<nixpkgs>' -A node-moacImage
+    - cp result image-moac
+  artifacts:
+    expire_in: 1 day
+    paths:
+      - image-moac
+
+# Build mayastor docker images using the NIX.
+image-mayastor:
+  stage: image
+  image: mayadata/ms-buildenv:latest
+  before_script:
+    - git submodule update --init
+  script:
+    - NIX_PATH="$NIX_PATH:nixpkgs-overlays=`pwd`/nix" nix-build '<nixpkgs>' -A mayastorImage
+    - cp result image-mayastor
+    - NIX_PATH="$NIX_PATH:nixpkgs-overlays=`pwd`/nix" nix-build '<nixpkgs>' -A mayastorCSIImage
+    - cp result image-mayastor-csi
+  artifacts:
+    expire_in: 1 day
+    paths:
+      - image-mayastor
+      - image-mayastor-csi

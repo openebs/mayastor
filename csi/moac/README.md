@@ -98,7 +98,7 @@ Moac package for nix packaging system can be created as follows.
 
 2. Generate nix package build files:
    ```bash
-   node2nix --development -l package-lock.json --nodejs-10 -c node-composition.nix
+   node2nix -l package-lock.json --nodejs-10 -c node-composition.nix
    ```
 
 3. Build the Nix moac package:
