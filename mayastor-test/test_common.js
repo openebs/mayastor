@@ -82,7 +82,7 @@ function waitForMayastor(ping, done) {
 
 // Start mayastor process and wait for them to come up.
 function startMayastor(config, done) {
-  let args = ['-r', SOCK, '-Lnbd'];
+  let args = ['-r', SOCK];
 
   if (config) {
     fs.writeFileSync(CONFIG_PATH, config);
