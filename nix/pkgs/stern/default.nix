@@ -1,5 +1,5 @@
 { stdenv, pkgs ? import <nixpkgs> {} }:
-pkgs.stdenv.mkDerivation {
+pkgs.stdenv.mkDerivation rec {
   name = "stern";
   version = "1.11.9";
   src = pkgs.fetchurl {

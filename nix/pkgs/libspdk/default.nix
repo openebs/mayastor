@@ -11,7 +11,10 @@
 , nasm
 , callPackage
 , libiscsi
+, enableDebug ? false
 }:
+
+with stdenv.lib;
 
 stdenv.mkDerivation rec {
   version = "19.07.x-mayastor";
@@ -37,6 +40,7 @@ stdenv.mkDerivation rec {
   ];
 
   CONFIGURE_OPTS = ''
+    ${optionalString enableDebug "--enable-debug"}
     --without-isal --with-iscsi-initiator --with-rdma
     --with-internal-vhost-lib --disable-tests --with-dpdk-machine=native
     --with-crypto
@@ -86,6 +90,6 @@ stdenv.mkDerivation rec {
     cp libspdk_fat.so $out/lib
   '';
 
-  separateDebugInfo = true;
-
+  dontStrip = enableDebug;
+  separateDebugInfo = !enableDebug;
 }
