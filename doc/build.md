@@ -11,15 +11,45 @@ Build options
 
 ## Building the sources with nixpkg
 
-We have provided a `shell.nix` file that can be used to build and compile MayaStor from source without impacting your system.
-The only requirement is that you have to have [Nixpkg](https://nixos.org/nix/download.html) installed. Once installed:
+As the underlaying distribution you can use nixos or any other linux
+distribution if you install a nix package manager on top of it.
+Example of nixos system configuration `/etc/nixos/configuration.nix`
+suitable for a dev box:
 
-To install nixpkg:
+```nix
+{ config, pkgs, ... }:
+
+{
+  imports =
+    [ # Include the results of the hardware scan.
+      ./hardware-configuration.nix
+    ];
+  boot.loader.grub.enable = true;
+  boot.loader.grub.version = 2;
+  boot.loader.grub.device = "/dev/sda"; # or whatever is appropriate
+  boot.kernelModules = ["nbd" "xfs"];
+  boot.kernelParams = ["hugepages=512" "hugepagesz=2MB"];
+  services.openssh.enable = true;
+  virtualisation.docker.enable = true;
+  users.users.your_username = {
+    isNormalUser = true;
+    extraGroups = [ "wheel" "docker" ];
+  };
+  system.stateVersion = "19.03";
+  security.sudo.enable = true;
+  security.sudo.wheelNeedsPassword = false;
+}
+```
+
+Installation of a [nix package manager](https://nixos.org/nix/download.html) on
+other distros:
 
 ```bash
 curl https://nixos.org/nix/install | sh
 ```
 
+We have provided a `shell.nix` file that can be used to build and compile
+MayaStor from source without impacting your system.
 Follow the short instruction and you should be all set!
 
 ```bash
@@ -31,23 +61,6 @@ cargo build --all
 
 Binaries will be installed in `$(CURDIR)/target/release` after running the build you can use
 `$(CURDIR)/target/release/mctl` to create a Nexus.
-
-As an example here is the output we get when running the above steps on Ubuntu 18.04.3 LTS:
-
-```bash
-Finished dev [unoptimized + debuginfo] target(s) in 32.75s
-
-[nix-shell:~/MayaStor]$ uname -r
-4.15.0-66-generic
-
-[nix-shell:~/MayaStor]$ cat /etc/lsb-release
-DISTRIB_ID=Ubuntu
-DISTRIB_RELEASE=18.04
-DISTRIB_CODENAME=bionic
-DISTRIB_DESCRIPTION="Ubuntu 18.04.3 LTS"
-
-[nix-shell:~/MayaStor]$
-```
 
 ## Build inside docker
 
