@@ -1,6 +1,7 @@
 # As soon as async becomes stable; we dont need to import the mozilla overlay
 # anymore. This will greatly simplify the expression.
 { stdenv
+, e2fsprogs
 , libaio
 , libiscsi
 , libspdk
@@ -12,6 +13,7 @@
 , rdma-core
 , clang
 , utillinux
+, xfsprogs
 , makeRustPlatform
 , fetchFromGitHub
 , dockerTools
@@ -58,7 +60,8 @@ rec {
     PROTOC_INCLUDE = "${pkgs.protobuf}/include";
 
     buildInputs = [
-      pkgs.clang
+      clang
+      e2fsprogs
       libaio
       libiscsi.lib
       libspdk
@@ -69,6 +72,7 @@ rec {
       protobuf
       rdma-core
       utillinux.dev
+      xfsprogs
     ];
 
     doCheck = false;
