@@ -120,9 +120,11 @@ pub fn probe_filesystems() -> Result<Vec<Fs>, String> {
     let mut options = ScriptOptions::new();
     options.exit_on_error = true;
 
+    // truncate in busybox does not support units, so be express the size in
+    // bytes
     let (code, _stdout, stderr) = run_script!(
         r#"
-        truncate -s 64m /tmp/fs.img
+        truncate -s 67108864 /tmp/fs.img
         mkdir -p /tmp/fs_default
         "#,
         &options

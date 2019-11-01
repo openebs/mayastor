@@ -9,22 +9,29 @@
 #[macro_use]
 extern crate clap;
 #[macro_use]
-extern crate run_script;
-#[macro_use]
 extern crate log;
+#[macro_use]
+extern crate run_script;
+
 use std::{io::Write, path::Path};
 
-use crate::mount::probe_filesystems;
 use chrono::Local;
 use clap::{App, Arg};
 use env_logger::{Builder, Env};
-use git_version::git_version;
 use tokio;
 use tonic::transport::Server;
-// These libs are needed for gRPC generated code
-use rpc;
 
-use crate::{identity::Identity, mayastor_svc::MayastorService, node::Node};
+use csi::server::{IdentityServer, NodeServer};
+use git_version::git_version;
+// These libs are needed for gRPC generated code
+use rpc::{self, service::server::MayastorServer};
+
+use crate::{
+    identity::Identity,
+    mayastor_svc::MayastorService,
+    mount::probe_filesystems,
+    node::Node,
+};
 
 #[allow(dead_code)]
 #[allow(clippy::type_complexity)]
@@ -40,7 +47,6 @@ mod identity;
 mod mayastor_svc;
 mod mount;
 mod node;
-mod router;
 
 #[tokio::main]
 async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
@@ -108,7 +114,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let ms_socket = matches
         .value_of("mayastor-socket")
         .unwrap_or("/var/tmp/mayastor.sock");
-    let _csi_socket = matches
+    let csi_socket = matches
         .value_of("csi-socket")
         .unwrap_or("/var/tmp/csi.sock");
     let level = match matches.occurrences_of("v") as usize {
@@ -143,28 +149,36 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     builder.init();
 
     let saddr = format!("{}:{}", addr, port).parse().unwrap();
-    let csi_builder = Server::builder();
-    // TODO need to listen on unix socket as well
-    csi_builder
-        .serve(
-            saddr,
-            router::Router {
-                node_service: std::sync::Arc::new(Node {
-                    node_name: node_name.into(),
-                    addr: addr.to_string(),
-                    port,
-                    socket: ms_socket.into(),
-                    filesystems: probe_filesystems().unwrap(),
-                }),
-                identity_service: std::sync::Arc::new(Identity {
-                    socket: ms_socket.into(),
-                }),
-                mayastor_service: std::sync::Arc::new(MayastorService {
-                    socket: ms_socket.into(),
-                }),
-            },
-        )
-        .await?;
 
+    let tcp = Server::builder()
+        .add_service(NodeServer::new(Node {
+            node_name: node_name.into(),
+            addr: addr.to_string(),
+            port,
+            socket: ms_socket.into(),
+            filesystems: probe_filesystems().unwrap(),
+        }))
+        .add_service(IdentityServer::new(Identity {
+            socket: ms_socket.into(),
+        }))
+        .add_service(MayastorServer::new(MayastorService {
+            socket: ms_socket.into(),
+        }))
+        .serve(saddr);
+
+    let uds = Server::builder()
+        .add_service(NodeServer::new(Node {
+            node_name: node_name.into(),
+            addr: addr.to_string(),
+            port,
+            socket: ms_socket.into(),
+            filesystems: probe_filesystems().unwrap(),
+        }))
+        .add_service(IdentityServer::new(Identity {
+            socket: ms_socket.into(),
+        }))
+        .serve_uds(csi_socket);
+
+    let _ = futures::future::join(uds, tcp).await;
     Ok(())
 }

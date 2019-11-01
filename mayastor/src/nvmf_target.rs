@@ -265,7 +265,7 @@ impl TargetOpts {
             std::ptr::copy_nonoverlapping(
                 name.as_ptr() as *const _ as *mut libc::c_void,
                 &mut opts.name[0] as *const _ as *mut libc::c_void,
-                256,
+                255,
             );
         }
 
