@@ -50,6 +50,7 @@ run_script = "*"
 tokio-net = "0.2.0-alpha.6"
 tonic = "0.1.0-alpha.3"
 tower = "=0.3.0-alpha.2"
+tracing-log = {version = "0.1.1", features = ["env_logger"] }
 [dependencies.blkid]
 branch = "blkid-sys"
 git = "https://github.com/openebs/blkid"

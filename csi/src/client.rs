@@ -396,7 +396,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let uri = format!("http://{}", endpoint);
 
-    let client = MayastorClient::connect(uri)?;
+    let client = MayastorClient::connect(uri).await?;
 
     match matches.subcommand() {
         ("pool", Some(m)) => match m.subcommand() {
