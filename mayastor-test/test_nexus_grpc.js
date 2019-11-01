@@ -117,47 +117,19 @@ describe('nexus_grpc', function() {
               client.listPools({}, pingDone);
             }, next);
           },
-          next => {
-            // We need to read/write the raw device from test suite
-            let child = common.runAsRoot('sh', ['-c', 'chmod o+rw /dev/nbd*']);
-            child.stderr.on('data', data => {
-              console.log(data.toString());
-            });
-            child.on('close', (code, signal) => {
-              if (code != 0) {
-                next(new Error('Failed to chmod nbd devs'));
-              } else {
-                next();
-              }
-            });
-          },
+          common.ensureNbdWritable,
         ],
         done
       );
     });
 
     after(done => {
-      async.series(
-        [
-          next => {
-            // Undo change of permissions on /dev/nbd*
-            let child = common.runAsRoot('sh', ['-c', 'chmod o-rw /dev/nbd*']);
-            child.on('close', (code, signal) => {
-              if (code != 0) {
-                next(new Error('Failed to chmod nbd devs'));
-              } else {
-                next();
-              }
-            });
-          },
-        ],
-        err => {
-          if (client != null) {
-            client.close();
-          }
-          done(err);
+      async.series([common.restoreNbdPerms], err => {
+        if (client != null) {
+          client.close();
         }
-      );
+        done(err);
+      });
     });
 
     it('Should not list any nexus devices', done => {

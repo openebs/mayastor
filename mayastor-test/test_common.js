@@ -31,6 +31,10 @@ function getCmdPath(name) {
 // Run the command as root. We use sudo to gain root privileges.
 // If already running with euid = 0, then just spawn the command.
 // Return child process handle.
+//
+// TODO: Beware that glob expansion of file names works differently
+// between the two cases. When using just spawn() file names are not
+// expanded.
 function runAsRoot(cmd, args, nameInPs) {
   let env = _.assignIn({}, process.env, {
     RUST_BACKTRACE: 1,
@@ -143,7 +147,13 @@ function startMayastorGrpc(done) {
 
 function killSudoedProcess(name, pid, done) {
   find('name', name).then(res => {
-    res = res.filter(ent => ent.ppid == pid);
+    var whichPid;
+    if (process.geteuid() === 0) {
+      whichPid = 'pid';
+    } else {
+      whichPid = 'ppid';
+    }
+    res = res.filter(ent => ent[whichPid] == pid);
     if (res.length == 0) {
       return done();
     }
@@ -234,6 +244,42 @@ function dumbCommand(method, args, done) {
   );
 }
 
+// Ensure that /dev/nbd* devices are writable by the current process.
+// If running as root this is a noop.
+function ensureNbdWritable(done) {
+  if (process.geteuid() != 0) {
+    let child = runAsRoot('sh', ['-c', 'chmod o+rw /dev/nbd*']);
+    child.stderr.on('data', data => {
+      console.log(data.toString());
+    });
+    child.on('close', (code, signal) => {
+      if (code != 0) {
+        done(new Error('Failed to chmod nbd devs'));
+      } else {
+        done();
+      }
+    });
+  } else {
+    done();
+  }
+}
+
+// Undo change to perms of nbd devices done in ensureNbdWritable().
+function restoreNbdPerms(done) {
+  if (process.geteuid() != 0) {
+    let child = runAsRoot('sh', ['-c', 'chmod o-rw /dev/nbd*']);
+    child.on('close', (code, signal) => {
+      if (code != 0) {
+        done(new Error('Failed to chmod nbd devs'));
+      } else {
+        done();
+      }
+    });
+  } else {
+    done();
+  }
+}
+
 module.exports = {
   CSI_ENDPOINT,
   CSI_ID,
@@ -245,4 +291,6 @@ module.exports = {
   endpoint,
   dumbCommand,
   runAsRoot,
+  ensureNbdWritable,
+  restoreNbdPerms,
 };

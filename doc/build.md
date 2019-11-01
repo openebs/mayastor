@@ -64,14 +64,20 @@ Binaries will be installed in `$(CURDIR)/target/release` after running the build
 
 ## Build inside docker
 
+This is most close to the environment used for building and testing of
+MayaStor in our gitlab CI/CD pipeline. But could be used for other purposes
+as well. The following command starts a container with build environment
+for MayaStor. The sources are mounted from the host at /code/MayaStor.
+That is optional. You can clone the sources from github instead.
+
 ```bash
-sudo docker run -it --privileged  -v /dev:/dev:rw -v /dev/shm:/dev/shm:rw \
-    --network host -v /code/MayaStor:/MayaStor mayadata/ms-buildenv:latest /bin/sh
+docker run -it --privileged -v /dev:/dev:rw -v /dev/shm:/dev/shm:rw \
+    -v /dev/hugepages:/dev/hugepages:rw --network host \
+    -v /code/MayaStor:/MayaStor mayadata/ms-buildenv:latest /bin/sh
 ```
 
 Docker image is essentially just a nixos image with a couple of
-utilities and cached mayastor nix-shell. That means that all mayastor
-dependencies have been already prebuilt for you and you can just
+utilities and pre-built mayastor dependencies. You can just
 enter the nix shell and build the mayastor.
 
 ```bash
