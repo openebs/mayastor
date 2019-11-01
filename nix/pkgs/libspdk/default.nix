@@ -1,29 +1,29 @@
-{ stdenv
+{ binutils
+, callPackage
+, enableDebug ? false
+, fetchFromGitHub
 , git
-, binutils
 , libaio
+, libiscsi
 , libuuid
+, nasm
 , numactl
 , openssl
 , python
 , rdma-core
-, fetchFromGitHub
-, nasm
-, callPackage
-, libiscsi
-, enableDebug ? false
+, stdenv
 }:
 
 with stdenv.lib;
 
 stdenv.mkDerivation rec {
-  version = "19.07.x-mayastor";
+  version = "19.10.x-mayastor";
   name = "libspdk";
   src = fetchFromGitHub {
     owner = "openebs";
     repo = "spdk";
-    rev = "0deb6044b7e4dd5073f7070378bb69942c53b78a";
-    sha256 = "0qm5df0jrmqbhp5bzkmgpapzy3b6x69k2wnpf8f0bcbxh75pfx9s";
+    rev = "83c1aebfcd6e4c80d3fdc8c2b97520ca4ce8e67e";
+    sha256 = "04r1c6xs18cgigg7w3gndhrji3wgnl9a1g83n6bib65i3cai9vam";
     fetchSubmodules = true;
   };
 
@@ -51,8 +51,10 @@ stdenv.mkDerivation rec {
   postPatch = ''
     patchShebangs ./.
     substituteInPlace dpdk/config/defconfig_x86_64-native-linux-gcc --replace native default
+
     # Do not build examples and app directories
     substituteInPlace Makefile --replace "examples app" ""
+
     # A workaround for https://bugs.dpdk.org/show_bug.cgi?id=356
     substituteInPlace dpdk/lib/Makefile --replace 'DEPDIRS-librte_vhost :=' 'DEPDIRS-librte_vhost := librte_hash'
   '';
@@ -82,10 +84,20 @@ stdenv.mkDerivation rec {
 
   # todo -- split out in dev and normal pkg
   installPhase = ''
+    # copy the public headers
     find include/ -type f -name "*.h" -exec install -D "{}" $out/{} \;
+
+    # copy headers found in lib which are private
     pushd lib
     find . -type f -name "*.h" -exec install -D "{}" $out/include/{} \;
     popd
+
+    # copy private headers from bdev modules needed for creating of bdevs
+    pushd module
+    find . -type f -name "*.h" -exec install -D "{}" $out/include/{} \;
+    popd
+
+    # copy over the library
     mkdir -p $out/lib
     cp libspdk_fat.so $out/lib
   '';

@@ -64,7 +64,6 @@ pub fn init_iscsi() -> Result<(), String> {
         let p = spdk_iscsi_portal_create(
             portal_host.as_ptr(),
             portal_port.as_ptr(),
-            ptr::null_mut(),
         );
         if p.is_null() {
             spdk_iscsi_portal_grp_release(pg);

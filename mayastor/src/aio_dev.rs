@@ -4,7 +4,7 @@ use crate::{
     nexus_uri::UriError,
 };
 use futures::{channel::oneshot, future};
-use spdk_sys::{create_aio_bdev, delete_aio_bdev};
+use spdk_sys::{bdev_aio_delete, create_aio_bdev};
 use std::{convert::TryFrom, ffi::CString};
 use url::Url;
 
@@ -47,7 +47,7 @@ impl AioBdev {
         type AioT = i32;
         if let Some(bdev) = bdev_lookup_by_name(&self.name) {
             let (s, r) = oneshot::channel::<AioT>();
-            unsafe { delete_aio_bdev(bdev.as_ptr(), Some(done_cb), cb_arg(s)) };
+            unsafe { bdev_aio_delete(bdev.as_ptr(), Some(done_cb), cb_arg(s)) };
             if r.await.unwrap() != 0 {
                 Err(nexus::Error::Internal("Delete AIO bdev failed".to_owned()))
             } else {

@@ -15,8 +15,8 @@ use futures::{
 };
 use rpc::jsonrpc as jsondata;
 use spdk_sys::{
+    bdev_aio_delete,
     create_aio_bdev,
-    delete_aio_bdev,
     lvol_store_bdev,
     spdk_bs_free_cluster_count,
     spdk_bs_get_cluster_size,
@@ -292,7 +292,7 @@ impl Pool {
         };
         let (sender, receiver) = oneshot::channel::<i32>();
         unsafe {
-            delete_aio_bdev(base_bdev.as_ptr(), Some(done_cb), cb_arg(sender));
+            bdev_aio_delete(base_bdev.as_ptr(), Some(done_cb), cb_arg(sender));
         }
         let bdev_errno = receiver.await.expect("Cancellation is not supported");
         if bdev_errno != 0 {
