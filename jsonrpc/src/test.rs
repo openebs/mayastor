@@ -6,9 +6,9 @@ use nix::errno::Errno;
 use serde_json::json;
 use std::{fs, panic, path::Path};
 use tokio::{
+    io::{AsyncReadExt, ErrorKind},
     net::UnixListener,
     runtime::current_thread::Runtime,
-    io::{AsyncReadExt, ErrorKind},
 };
 
 /// Socket path to the test json-rpc server

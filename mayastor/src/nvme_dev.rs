@@ -1,18 +1,14 @@
 // see https://github.com/rust-lang/rust-clippy/issues/3988
 #![allow(clippy::needless_lifetimes)]
 
-use crate::{
-    bdev::nexus,
-    executor::{cb_arg, done_cb},
-    nexus_uri::UriError,
-};
+use crate::{bdev::nexus, executor::cb_arg, nexus_uri::UriError};
 use futures::channel::oneshot;
 use spdk_sys::{
     spdk_bdev_nvme_create,
     SPDK_NVME_TRANSPORT_TCP,
     SPDK_NVMF_ADRFAM_IPV4,
 };
-use std::{convert::TryFrom, ffi::CString, fmt};
+use std::{convert::TryFrom, ffi::CString, fmt, os::raw::c_void};
 use url::Url;
 
 /// NVMe error is purposely kept simple (just an enum) as we deal with lots of
@@ -85,12 +81,20 @@ pub struct NvmfBdev {
 }
 
 impl NvmfBdev {
+    unsafe extern "C" fn nvme_done(
+        ctx: *mut c_void,
+        _bdev_count: usize,
+        rc: i32,
+    ) {
+        let sender = Box::from_raw(ctx as *mut oneshot::Sender<i32>);
+
+        sender.send(rc).expect("NVMe creation cb receiver is gone");
+    }
+
     /// async function to construct a bdev given a NvmfUri
     pub async fn create(self) -> Result<String, nexus::Error> {
-        type CbType = i32;
-
         let mut ctx = NvmeCreateCtx::new(&self);
-        let (sender, receiver) = oneshot::channel::<CbType>();
+        let (sender, receiver) = oneshot::channel::<u32>();
 
         if crate::bdev::bdev_lookup_by_name(&self.name).is_some() {
             return Err(nexus::Error::ChildExists);
@@ -121,10 +125,10 @@ impl NvmfBdev {
                 &mut ctx.host_id,
                 ctx.name,
                 &mut ctx.names[0],
-                &mut ctx.count,
+                ctx.count,
                 hostnqn,
                 flags,
-                Some(done_cb),
+                Some(NvmfBdev::nvme_done),
                 cb_arg(sender),
             )
         };
@@ -243,7 +247,7 @@ pub struct NvmeCreateCtx {
     /// my_name{n}{i}
     pub names: [*const libc::c_char; MAX_NAMESPACES],
     /// the amount of actual bdevs that are created
-    pub count: usize,
+    pub count: u32,
     /// nvme transport id contains the information needed to connect to a
     /// remote target
     pub transport_id: spdk_sys::spdk_nvme_transport_id,
@@ -318,7 +322,7 @@ impl NvmeCreateCtx {
         NvmeCreateCtx {
             host_id: hostid,
             transport_id: transport,
-            count: MAX_NAMESPACES,
+            count: MAX_NAMESPACES as u32,
             name: CString::new(args.name.clone()).unwrap().into_raw(), /* drop this */
             names: [std::ptr::null_mut() as *mut libc::c_char; MAX_NAMESPACES],
         }

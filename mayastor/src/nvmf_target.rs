@@ -30,6 +30,7 @@ use spdk_sys::{
     spdk_nvmf_subsystem_set_sn,
     spdk_nvmf_subsystem_start,
     spdk_nvmf_subsystem_stop,
+    spdk_nvmf_target_opts,
     spdk_nvmf_tgt,
     spdk_nvmf_tgt_accept,
     spdk_nvmf_tgt_add_transport,
@@ -98,7 +99,7 @@ impl Subsystem {
 
         // make it listen on target's trid
         if spdk_nvmf_subsystem_add_listener(inner, trid) != 0 {
-            return Err("listen on nvmf subsystem failed".to_owned());
+            return Err("listening on nvmf subsystem failed".to_owned());
         }
 
         Ok(Self {
@@ -245,6 +246,37 @@ impl Iterator for SubsystemIter {
         }
     }
 }
+///
+/// Some options can be passed into each target that gets created.
+///
+/// Currently the options are limited to the name of the target to be created
+/// and the max number of subsystems this target supports. We set this number
+/// equal to the number of pods that can get scheduled on a node which is, by
+/// default 110.
+pub(crate) struct TargetOpts {
+    inner: spdk_nvmf_target_opts,
+}
+
+impl TargetOpts {
+    fn new(name: &str, max_subsystems: u32) -> Self {
+        let mut opts = spdk_nvmf_target_opts::default();
+
+        unsafe {
+            std::ptr::copy_nonoverlapping(
+                name.as_ptr() as *const _ as *mut libc::c_void,
+                &mut opts.name[0] as *const _ as *mut libc::c_void,
+                256,
+            );
+        }
+
+        // same as max pods by default
+        opts.max_subsystems = max_subsystems;
+
+        Self {
+            inner: opts,
+        }
+    }
+}
 
 /// Wrapper around spdk nvmf target providing rust friendly api.
 /// nvmf target binds listen addresses and nvmf subsystems with namespaces
@@ -263,7 +295,9 @@ pub(crate) struct Target {
 impl Target {
     /// Create preconfigured nvmf target with tcp transport and default options.
     pub fn create(addr: &str, port: u16) -> Result<Self, String> {
-        let inner = unsafe { spdk_nvmf_tgt_create(0) };
+        let mut tgt_opts = TargetOpts::new("MayaStor", 110);
+
+        let inner = unsafe { spdk_nvmf_tgt_create(&mut tgt_opts.inner) };
         if inner.is_null() {
             return Err("Failed to create nvmf target".to_owned());
         }
