@@ -11,7 +11,7 @@ const PROTO_PATH = __dirname + '/proto/mayastor_service.proto';
 // Load mayastor proto file with mayastor service
 const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
   keepCase: false,
-  longs: String,
+  longs: Number,
   enums: String,
   defaults: true,
   oneofs: true,

@@ -281,16 +281,14 @@ impl server::Node for Node {
         }
     }
 
-    // This RPC is called by the CO when a workload that wants to use the
-    // specified volume is placed (scheduled) on a node. The Plugin SHALL
-    // assume    // that this RPC will be executed on the node where the volume
-    // will be used.    //
-    // If the corresponding Controller Plugin has PUBLISH_UNPUBLISH_VOLUME
-    // controller capability, the CO MUST guarantee that this RPC is called
-    // after ControllerPublishVolume is called for the given volume on the
-    // given    // node and returns a success.
-    //
-    // This operation MUST be idempotent.
+    /// This RPC is called by the CO when a workload using the specified
+    /// volume is removed (unscheduled) from a node.
+    /// If the corresponding Controller Plugin has PUBLISH_UNPUBLISH_VOLUME
+    /// controller capability, the CO MUST guarantee that this RPC is called
+    /// after ControllerPublishVolume is called for the given volume on the
+    /// given node and returns a success.
+    ///
+    /// This operation MUST be idempotent.
     async fn node_unpublish_volume(
         &self,
         request: Request<NodeUnpublishVolumeRequest>,

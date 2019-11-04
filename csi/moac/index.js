@@ -11,6 +11,7 @@ const logger = require('./logger');
 const { NodeOperator } = require('./nodes');
 const { PoolOperator } = require('./pools');
 const { VolumeOperator } = require('./volumes');
+const { Commander } = require('./commander');
 const { ApiServer } = require('./rest_api');
 const CsiServer = require('./csi').CsiServer;
 
@@ -42,18 +43,19 @@ function printStatus(nodeOper, poolOper, volumeOper) {
   log.info('List of storage pools: ' + pools.join(', '));
 
   let repls = volumeOper
-    .getReplica()
+    .getReplicaSet()
     .map(r => r.pool + '/' + r.uuid + '@' + r.node);
   log.info('List of replicas: ' + repls.join(', '));
 
   let nexus = volumeOper.getNexus().map(n => n.uuid + '@' + n.node);
-  log.info('List of nexus: ' + nexus.join(', '));
+  log.info("List of nexus's: " + nexus.join(', '));
 }
 
 async function main() {
   var volumeOper;
   var poolOper;
   var nodeOper;
+  var commander;
   var csiServer;
   var apiServer;
 
@@ -102,10 +104,11 @@ async function main() {
   async function cleanUp() {
     csiServer.undoReady();
     if (apiServer) await apiServer.stop();
+    if (csiServer) await csiServer.stop();
+    if (commander) await commander.stop();
     if (volumeOper) await volumeOper.stop();
     if (poolOper) await poolOper.stop();
     if (nodeOper) await nodeOper.stop();
-    if (csiServer) await csiServer.stop();
     process.exit(0);
   }
   process.on('SIGTERM', async () => {
@@ -118,7 +121,7 @@ async function main() {
   });
 
   // Create csi server before starting lengthy initialization so that we can
-  // server csi.identity calls in the meantime.
+  // serve csi.identity() calls while getting ready.
   csiServer = new CsiServer(opts.csiAddress);
   await csiServer.start();
 
@@ -134,14 +137,16 @@ async function main() {
   await poolOper.init(client, nodeOper);
 
   volumeOper = new VolumeOperator(nodeOper);
+  commander = new Commander(poolOper, volumeOper);
   apiServer = new ApiServer(volumeOper);
 
   await nodeOper.start();
   await apiServer.start(opts.port);
   await poolOper.start();
   await volumeOper.start();
+  await commander.start(60);
 
-  csiServer.makeReady(poolOper, volumeOper);
+  csiServer.makeReady(poolOper, volumeOper, commander);
 
   // print node, pool & volume list when we start
   printStatus(nodeOper, poolOper, volumeOper);

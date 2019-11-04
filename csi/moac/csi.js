@@ -1,3 +1,6 @@
+// Implementation of K8S CSI controller interface which is mostly
+// about volume creation and destruction.
+
 'use strict';
 
 const assert = require('assert');
@@ -20,13 +23,13 @@ const PVC_RE = /pvc-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 // Load csi proto file with controller and identity services
 const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
   keepCase: false,
-  longs: String,
+  longs: Number,
   enums: String,
   defaults: true,
   oneofs: true,
   // this is to load google/descriptor.proto, otherwise you would see error:
   // unresolvable extensions: 'extend google.protobuf.FieldOptions' in .csi.v1
-  includeDirs: [__dirname + '/node_modules/protobufjs/src'],
+  includeDirs: [__dirname + '/node_modules/protobufjs'],
 });
 const csi = grpc.loadPackageDefinition(packageDefinition).csi.v1;
 
@@ -79,6 +82,8 @@ class CsiServer {
     this.server = new grpc.Server();
     this.ready = false;
     this.pools = null;
+    this.volumes = null;
+    this.commander = null;
     this.sockPath = sockPath;
     this.nextListContextId = 1;
     this.listContexts = {};
@@ -175,80 +180,17 @@ class CsiServer {
 
   // Switch csi server to ready state (returned by identity.probe method).
   // This will enable serving controller grpc service requests.
-  makeReady(poolOperator, volumeOperator) {
+  makeReady(poolOperator, volumeOperator, commander) {
     this.ready = true;
     this.pools = poolOperator;
     this.volumes = volumeOperator;
+    this.commander = commander;
   }
 
   // Stop serving controller requests, but the identity service still works.
   // This is usually preparation for a shutdown.
   undoReady() {
     this.ready = false;
-  }
-
-  // Return list of storage pools sorted by preference where a new volume
-  // can be provisioned.
-  //
-  // The rules are simple:
-  //   1) must be online (or degraded if there are no online pools)
-  //   2) must have sufficient space
-  //   3) least busy pools first
-  choosePools(requiredBytes, mustNodes, shouldNodes) {
-    let replicas = this.volumes.getReplica();
-    let pools = this.pools.get().filter(p => {
-      return (
-        isPoolAccessible(p) &&
-        p.capacity - p.used >= requiredBytes &&
-        (mustNodes.length == 0 || mustNodes.indexOf(p.node) >= 0)
-      );
-    });
-    // construct a map of how many volumes has each pool (how busy it is)
-    let busy = {};
-    pools.forEach(p => (busy[p.name] = 0));
-    replicas.forEach(r => {
-      if (busy[r.pool] != null) {
-        busy[r.pool]++;
-      }
-    });
-
-    pools.sort((a, b) => {
-      // Rule #1: User preference
-      if (shouldNodes.length > 0) {
-        if (
-          shouldNodes.indexOf(a.node) >= 0 &&
-          shouldNodes.indexOf(b.node) < 0
-        ) {
-          return -1;
-        } else if (
-          shouldNodes.indexOf(a.node) < 0 &&
-          shouldNodes.indexOf(b.node) >= 0
-        ) {
-          return 1;
-        }
-      }
-
-      // Rule #2: Avoid degraded pools whenever possible
-      if (a.state == 'ONLINE' && b.state == 'DEGRADED') {
-        return -1;
-      } else if (a.state == 'DEGRADED' && b.state == 'ONLINE') {
-        return 1;
-      }
-
-      // Rule #3: Use the least busy pool in terms of number of volumes
-      if (busy[a.name] < busy[b.name]) {
-        return -1;
-      } else if (busy[a.name] > busy[b.name]) {
-        return 1;
-      }
-
-      // Rule #4: Pools with more free space take precedence
-      let aFree = a.capacity - a.used;
-      let bFree = b.capacity - b.used;
-      return bFree - aFree;
-    });
-
-    return pools;
   }
 
   //
@@ -373,139 +315,56 @@ class CsiServer {
         }
       }
     }
-    // check if the nexus already exists
-    let nexus = this.volumes.getNexus(uuid);
-    if (nexus) {
-      // see if the volume is compatible in which case it is ok (be idempotent)
-      if (
-        nexus.size < args.capacityRange.requiredBytes ||
-        (args.capacityRange.limitBytes != 0 &&
-          nexus.size > args.capacityRange.limitBytes)
-      ) {
+
+    let count = args.parameters.repl;
+    if (count) {
+      count = parseInt(count);
+      if (isNaN(count) || count <= 0) {
         return cb(
-          new GrpcError(
-            grpc.status.ALREADY_EXISTS,
-            `A different volume with name "${args.name}" already exists`
-          )
+          new GrpcError(grpc.status.INVALID_ARGUMENT, 'Invalid replica count')
         );
       }
-      // check if the replica belonging to nexus already exists
-      let replica = this.volumes.getReplica(uuid);
-      if (!replica) {
-        // TODO: recover from this by syncing the nexus configuration
-        return cb(
-          new GrpcError(
-            grpc.status.ALREADY_EXISTS,
-            `The volume "${args.name}" exists but it is missing a replica`
-          )
-        );
-      } else {
-        return cb(null, nexus);
-      }
+    } else {
+      count = 1;
     }
 
-    // limitBytes is 0 if not set, so fix it to be at least what is required
-    if (args.capacityRange.requiredBytes > args.capacityRange.limitBytes) {
-      args.capacityRange.limitBytes = args.capacityRange.requiredBytes;
-    }
-
-    // sync used and capacity pool properties before making the decision
-    // of where to provision the volume
-    await this.pools.syncNode();
-    let pools = this.choosePools(
-      args.capacityRange.requiredBytes,
-      mustNodes,
-      shouldNodes
-    );
-    if (pools.length == 0) {
-      log.error(
-        'No suitable pool for the volume "' +
-          args.name +
-          '" with capacity range ' +
-          args.capacityRange.requiredBytes +
-          ' - ' +
-          args.capacityRange.limitBytes
-      );
-
-      return cb(
-        new GrpcError(
-          grpc.status.RESOURCE_EXHAUSTED,
-          'Cannot find suitable storage pool for the volume'
-        )
-      );
-    }
-
-    // we record all failures as we try to create the volume on pools
-    // to return them to user at the end
-    var errors = [];
-    // try one pool after another until success
-    for (let i = 0; i < pools.length; i++) {
-      let pool = pools[i];
-
-      // calculate a size of the volume
-      let free = pool.capacity - pool.used;
-      let size;
-      if (free > args.capacityRange.limitBytes) {
-        size = args.capacityRange.limitBytes;
-      } else {
-        size = Math.max(free, args.capacityRange.requiredBytes);
-      }
-      if (size <= 0) {
-        // No point in trying other pools if even with the better pool the size is 0
-        return cb(
-          new GrpcError(
-            grpc.status.INVALID_ARGUMENT,
-            'Cannot create zero sized volume'
-          )
-        );
-      }
-
-      try {
-        await this.volumes.createReplica(pool.node, pool.name, uuid, size);
-      } catch (err) {
-        log.error(err.message);
-        errors.push(err.message);
-        continue;
-      }
-
-      try {
-        await this.volumes.createNexus(pool.node, uuid, size, [
-          'bdev:///' + uuid,
-        ]);
-      } catch (err) {
-        log.error(err.message);
-        errors.push(err.message);
-        // undo the replica creation
-        try {
-          await this.volumes.destroyReplica(pool.node, uuid);
-        } catch (err) {
-          let msg = `Failed to destroy partially instantiated volume "${args.name}"`;
-          log.error(msg);
-          errors.push(msg);
-          break; // unrecoverable error
-        }
-        continue;
-      }
-
-      log.info(
-        `Volume "${args.name}" with size ${size} created on pool "${pool.name}"`
-      );
-
-      return cb(null, {
-        volume: {
-          capacityBytes: size,
-          volumeId: uuid,
-          // enfore local access to the volume
-          accessibleTopology: [
-            {
-              segments: { 'kubernetes.io/hostname': pool.node },
-            },
-          ],
-        },
+    // create the volume
+    var nexus;
+    try {
+      nexus = await this.commander.ensureVolume(uuid, {
+        requiredBytes: args.capacityRange.requiredBytes,
+        limitBytes: args.capacityRange.limitBytes,
+        mustNodes,
+        shouldNodes,
+        count,
       });
+    } catch (err) {
+      if (err instanceof GrpcError) {
+        cb(err);
+      } else {
+        cb(
+          new GrpcError(
+            grpc.status.UNKNOWN,
+            `Unexpected error when creating volume "${args.name}": ` +
+              err.toString()
+          )
+        );
+      }
+      return;
     }
 
-    cb(new GrpcError(grpc.status.INTERNAL, errors.join('\n')));
+    cb(null, {
+      volume: {
+        capacityBytes: nexus.size,
+        volumeId: uuid,
+        // enfore local access to the volume
+        accessibleTopology: [
+          {
+            segments: { 'kubernetes.io/hostname': nexus.node },
+          },
+        ],
+      },
+    });
   }
 
   async deleteVolume(call, cb) {
@@ -514,38 +373,33 @@ class CsiServer {
     log.debug(`Request to destroy volume "${args.volumeId}"`);
 
     let nexus = this.volumes.getNexus(args.volumeId);
-    let replica = this.volumes.getReplica(args.volumeId);
-    if (!nexus && !replica) {
-      // most likely already deleted
-      return cb();
-    }
+    let replicaSet = this.volumes.getReplicaSet(args.volumeId);
 
+    // try to destroy as much as we can - don't stop at the first error
+    let errors = [];
     if (nexus) {
       try {
         await this.volumes.destroyNexus(nexus.node, args.volumeId);
       } catch (err) {
-        return cb(err);
+        errors.push(err);
       }
     }
-    if (replica) {
-      let pool = this.pools.get(replica.pool);
-      assert(pool, 'Volume exists but pool does not');
-      if (!isPoolAccessible(pool)) {
-        return cb(
-          new GrpcError(
-            grpc.status.INTERNAL,
-            `Storage pool "${pool.name}" not accessible`
-          )
-        );
-      }
+    for (let i = 0; i < replicaSet.length; i++) {
+      let r = replicaSet[i];
       try {
-        await this.volumes.destroyReplica(pool.node, args.volumeId);
+        await this.volumes.destroyReplica(r.node, r.uuid);
       } catch (err) {
-        return cb(err);
+        errors.push(err);
       }
     }
-    log.info(`Volume "${args.volumeId}" destroyed`);
-    cb();
+    if (errors.length > 0) {
+      let msg = `Failed to delete volume "${args.volumeId}": `;
+      msg += errors.join('. ');
+      cb(new GrpcError(grpc.status.INTERNAL, msg));
+    } else {
+      log.info(`Volume "${args.volumeId}" destroyed`);
+      cb();
+    }
   }
 
   async listVolumes(call, cb) {

@@ -292,9 +292,9 @@ pub fn unmount_fs(from: &str, bound: bool) -> Result<(), String> {
         flags.insert(UnmountFlags::DETACH);
     }
 
-    debug!("Unmounting {} ...", from);
+    debug!("Unmounting {} (flags={:?}) ...", from, flags);
 
-    match unmount(&from, UnmountFlags::DETACH) {
+    match unmount(&from, flags) {
         Ok(_) => {
             info!("Filesystem at {} has been unmounted", from);
             Ok(())
