@@ -618,5 +618,27 @@ class PoolOperator extends EventEmitter {
   }
 }
 
+// Pool operator mock for simulating the real pool operator in tests.
+class PoolOperatorMock extends EventEmitter {
+  constructor(pools) {
+    super();
+    this.pools = pools || [];
+  }
+
+  get(name) {
+    if (name) {
+      return this.pools.find(ent => ent.name == name);
+    } else {
+      return this.pools;
+    }
+  }
+
+  syncNode(nodeName) {
+    // event for the tests to know when syncNode is called
+    this.emit('sync', nodeName);
+  }
+}
+
 exports.PoolOperator = PoolOperator;
+exports.PoolOperatorMock = PoolOperatorMock;
 module.exports = exports;

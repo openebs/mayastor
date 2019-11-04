@@ -7,8 +7,8 @@
     "moac": "./index.js"
   },
   "repository": {
-    "type" : "git",
-    "url" : "https://github.com/openebs/MayaStor.git",
+    "type": "git",
+    "url": "https://github.com/openebs/MayaStor.git",
     "directory": "csi/moac"
   },
   "scripts": {
@@ -26,13 +26,13 @@
     "json-stream": "^1.0.0",
     "kubernetes-client": "^6.12.1",
     "lodash": "^4.17.15",
+    "sleep-promise": "^8.0.1",
     "winston": "^3.2.1",
     "yargs": "^13.3.0"
   },
   "devDependencies": {
     "chai": "^4.2.0",
     "mocha": "^6.2.2",
-    "sleep-promise": "^8.0.1",
     "wtfnode": "^0.8.0"
   },
   "files": [

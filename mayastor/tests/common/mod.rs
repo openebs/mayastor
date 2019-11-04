@@ -84,9 +84,9 @@ pub fn compare_files(a: &str, b: &str) {
 }
 
 pub fn mount_umount(device: &str) -> String {
-    let (exit, stdout, _stderr) = run_script::run(
+    let (exit, stdout, stderr) = run_script::run(
         r#"
-        mkdir /tmp/__test
+        mkdir -p /tmp/__test
         mount $1 /tmp/__test
         umount /tmp/__test
         exit 0
@@ -95,7 +95,9 @@ pub fn mount_umount(device: &str) -> String {
         &run_script::ScriptOptions::new(),
     )
     .unwrap();
-    assert_eq!(exit, 0);
+    if exit != 0 {
+        panic!("Script failed with error: {}", stderr);
+    }
     stdout
 }
 
@@ -105,9 +107,9 @@ pub fn mount_and_write_file(device: &str) -> String {
     options.exit_on_error = true;
     options.print_commands = false;
 
-    let (exit, stdout, _stderr) = run_script::run(
+    let (exit, stdout, stderr) = run_script::run(
         r#"
-        mkdir /tmp/__test
+        mkdir -p /tmp/__test
         mount $1 /tmp/__test
         echo test > /tmp/__test/test
         md5sum /tmp/__test/test
@@ -119,14 +121,16 @@ pub fn mount_and_write_file(device: &str) -> String {
         &options,
     )
     .unwrap();
-    assert_eq!(exit, 0);
+    if exit != 0 {
+        panic!("Script failed with error: {}", stderr);
+    }
     stdout.trim_end().to_string()
 }
 
 pub fn mount_and_get_md5(device: &str) -> String {
-    let (exit, stdout, _stderr) = run_script::run(
+    let (exit, stdout, stderr) = run_script::run(
         r#"
-        mkdir /tmp/__test
+        mkdir -p /tmp/__test
         mount $1 /tmp/__test
         md5sum /tmp/__test/test
         umount /tmp/__test
@@ -137,7 +141,9 @@ pub fn mount_and_get_md5(device: &str) -> String {
         &run_script::ScriptOptions::new(),
     )
     .unwrap();
-    assert_eq!(exit, 0);
+    if exit != 0 {
+        panic!("Script failed with error: {}", stderr);
+    }
     stdout
 }
 

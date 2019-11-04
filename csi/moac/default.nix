@@ -5,9 +5,11 @@
 # It is used to bundle rpc proto files from mayastor repo to moac nix package.
 # And to build docker image.
 
-{pkgs ? import <nixpkgs> {
-  inherit system;
-}, system ? builtins.currentSystem}:
+{ pkgs ? import <nixpkgs> {
+    inherit system;
+  }
+, system ? builtins.currentSystem
+}:
 
 let
   result = import ./node-composition.nix {
@@ -19,6 +21,10 @@ result // rec {
     csiProto = ../proto/csi.proto;
     mayastorProto = ../../rpc/proto/mayastor.proto;
     mayastorServiceProto = ../../rpc/proto/mayastor_service.proto;
+    # Prepare script is executed only if npm install is run without any
+    # arguments. node2path runs it with a number of args so we must run
+    # in manually in postInstall hook :-/
+    postInstall = "npm run prepare";
   };
   # The current way of creating a docker image has a number of issues.
   # 1) The image size is almost 1G because it includes gcc, python and other
@@ -38,10 +44,12 @@ result // rec {
     name = "mayadata/moac";
     tag = "latest";
     created = "now";
-    contents = [ pkgs.bash pkgs.coreutils pkgs.nano pkgs.less package ];
+    contents = [ pkgs.busybox package ];
     config = {
       Entrypoint = [ "${package.out}/bin/moac" ];
       ExposedPorts = { "3000/tcp" = {}; };
+      Env = [ "PATH=${package.out}/bin:$PATH" ];
+      WorkDir = "${package.out}";
     };
   };
 }

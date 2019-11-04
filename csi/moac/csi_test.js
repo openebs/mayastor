@@ -4,11 +4,12 @@
 
 const assert = require('chai').assert;
 const fs = require('fs').promises;
-const EventEmitter = require('events');
 const grpc = require('grpc-uds');
 const grpc_promise = require('grpc-promise');
 const { CsiServer, csi, GrpcError } = require('./csi');
 const { VolumeOperatorMock } = require('./volumes');
+const { PoolOperatorMock } = require('./pools');
+const { Commander } = require('./commander');
 const { shouldFailWith } = require('./test_utils');
 
 const SOCKPATH = '/tmp/csi_controller_test.sock';
@@ -21,27 +22,6 @@ function getCsiClient(svc) {
   assert(client);
   grpc_promise.promisifyAll(client);
   return client;
-}
-
-// Pool operator mock
-class FakePoolOperator extends EventEmitter {
-  constructor(pools) {
-    super();
-    this.pools = pools || [];
-  }
-
-  get(name) {
-    if (name) {
-      return this.pools.find(ent => ent.name == name);
-    } else {
-      return this.pools;
-    }
-  }
-
-  syncNode(nodeName) {
-    // event allows us to change arbitrarily pool values upon sync
-    this.emit('sync', nodeName);
-  }
 }
 
 module.exports = function() {
@@ -123,10 +103,10 @@ module.exports = function() {
     async function mockedServer(pools, replicas, nexus) {
       var server = new CsiServer(SOCKPATH);
       await server.start();
-      server.makeReady(
-        new FakePoolOperator(pools || []),
-        new VolumeOperatorMock(nexus, replicas)
-      );
+      var poolOper = new PoolOperatorMock(pools || []);
+      var volOper = new VolumeOperatorMock(nexus, replicas);
+      var commander = new Commander(poolOper, volOper);
+      server.makeReady(poolOper, volOper, commander);
       return server;
     }
 
@@ -419,7 +399,7 @@ module.exports = function() {
             requisite: [{ segments: { 'kubernetes.io/hostname': 'node' } }],
           },
         });
-        let repls = server.volumes.getReplica();
+        let repls = server.volumes.getReplicaSet();
         assert.lengthOf(repls, 1);
         assert.equal(repls[0].uuid, UUID);
         assert.equal(repls[0].pool, 'degraded');
@@ -502,7 +482,7 @@ module.exports = function() {
             ],
           },
         });
-        let repls = server.volumes.getReplica();
+        let repls = server.volumes.getReplicaSet();
         assert.lengthOf(repls, 1);
         assert.equal(repls[0].uuid, UUID);
         assert.equal(repls[0].pool, 'degraded');
@@ -515,190 +495,71 @@ module.exports = function() {
         assert.equal(nexus[0].children[0], 'bdev:///' + UUID);
       });
 
-      it('should prefer ONLINE pool', async () => {
-        let uuidBusy = '7c2c6500-2289-4385-9421-be7cdd5a811b';
-        server = await mockedServer(
-          [
-            {
-              // by all measures this one would normally be preferred
-              name: 'online',
-              node: 'node',
-              disks: ['/dev/sdb'],
-              state: 'ONLINE',
-              capacity: 100,
-              used: 50,
-            },
-            {
-              name: 'degraded',
-              node: 'node',
-              disks: ['/dev/sda'],
-              state: 'DEGRADED',
-              capacity: 100,
-              used: 0,
-            },
-          ],
-          [
-            {
-              uuid: uuidBusy,
-              pool: 'online',
-              node: 'node',
-              size: 50,
-            },
-          ],
-          [
-            {
-              uuid: uuidBusy,
-              node: 'node',
-              size: 50,
-              state: 'online',
-              children: ['bdev:///' + uuidBusy],
-            },
-          ]
-        );
-
-        await client.createVolume().sendMessage({
-          name: 'pvc-' + UUID,
-          capacityRange: { requiredBytes: 50 },
-          volumeCapabilities: [
-            {
-              accessMode: { mode: 'SINGLE_NODE_WRITER' },
-              block: {},
-            },
-          ],
-        });
-        let repls = server.volumes.getReplica();
-        assert.lengthOf(repls, 2);
-        assert.equal(repls[0].uuid, uuidBusy);
-        assert.equal(repls[0].pool, 'online');
-        assert.equal(repls[0].node, 'node');
-        assert.equal(repls[1].uuid, UUID);
-        assert.equal(repls[1].pool, 'online');
-        assert.equal(repls[1].node, 'node');
-        let nexus = server.volumes.getNexus();
-        assert.lengthOf(nexus, 2);
-        assert.equal(nexus[0].uuid, uuidBusy);
-        assert.equal(nexus[0].node, 'node');
-        assert.lengthOf(nexus[0].children, 1);
-        assert.equal(nexus[0].children[0], 'bdev:///' + uuidBusy);
-        assert.equal(nexus[1].uuid, UUID);
-        assert.equal(nexus[1].node, 'node');
-        assert.lengthOf(nexus[1].children, 1);
-        assert.equal(nexus[1].children[0], 'bdev:///' + UUID);
-      });
-
-      it('should prefer pool with fewer volumes', async () => {
-        let uuidBusy = '7c2c6500-2289-4385-9421-be7cdd5a811b';
-        server = await mockedServer(
-          [
-            {
-              // by all measures this one would normally be preferred
-              name: 'idle',
-              node: 'node',
-              disks: ['/dev/sdb'],
-              state: 'ONLINE',
-              capacity: 100,
-              used: 50,
-            },
-            {
-              name: 'busy',
-              node: 'node',
-              disks: ['/dev/sda'],
-              state: 'ONLINE',
-              capacity: 100,
-              used: 50,
-            },
-          ],
-          [
-            {
-              uuid: uuidBusy,
-              pool: 'busy',
-              node: 'node',
-              size: 50,
-            },
-          ],
-          [
-            {
-              uuid: uuidBusy,
-              node: 'node',
-              size: 50,
-              state: 'online',
-              children: ['bdev:///' + uuidBusy],
-            },
-          ]
-        );
-
-        await client.createVolume().sendMessage({
-          name: 'pvc-' + UUID,
-          capacityRange: { requiredBytes: 50 },
-          volumeCapabilities: [
-            {
-              accessMode: { mode: 'SINGLE_NODE_WRITER' },
-              block: {},
-            },
-          ],
-        });
-        let repls = server.volumes.getReplica();
-        assert.lengthOf(repls, 2);
-        assert.equal(repls[0].uuid, uuidBusy);
-        assert.equal(repls[0].pool, 'busy');
-        assert.equal(repls[0].node, 'node');
-        assert.equal(repls[1].uuid, UUID);
-        assert.equal(repls[1].pool, 'idle');
-        assert.equal(repls[1].node, 'node');
-        let nexus = server.volumes.getNexus();
-        assert.lengthOf(nexus, 2);
-        assert.equal(nexus[0].uuid, uuidBusy);
-        assert.equal(nexus[0].node, 'node');
-        assert.lengthOf(nexus[0].children, 1);
-        assert.equal(nexus[0].children[0], 'bdev:///' + uuidBusy);
-        assert.equal(nexus[1].uuid, UUID);
-        assert.equal(nexus[1].node, 'node');
-        assert.lengthOf(nexus[1].children, 1);
-        assert.equal(nexus[1].children[0], 'bdev:///' + UUID);
-      });
-
-      it('should prefer pool with more free space', async () => {
+      it('should create volume with specified number of replicas', async () => {
         server = await mockedServer([
           {
-            // by all measures this one would normally be preferred
-            name: 'smaller',
-            node: 'node',
+            name: 'pool1',
+            node: 'node1',
             disks: ['/dev/sdb'],
             state: 'ONLINE',
             capacity: 100,
-            used: 40,
+            used: 0,
           },
           {
-            name: 'bigger',
-            node: 'node',
+            name: 'pool2',
+            node: 'node2',
+            disks: ['/dev/sda'],
+            state: 'DEGRADED',
+            capacity: 100,
+            used: 50,
+          },
+          {
+            name: 'pool3',
+            node: 'node3',
             disks: ['/dev/sda'],
             state: 'ONLINE',
             capacity: 100,
-            used: 39,
+            used: 10,
           },
         ]);
 
         await client.createVolume().sendMessage({
           name: 'pvc-' + UUID,
-          capacityRange: { requiredBytes: 50 },
+          capacityRange: {
+            requiredBytes: 50,
+            limitBytes: 70,
+          },
           volumeCapabilities: [
             {
               accessMode: { mode: 'SINGLE_NODE_WRITER' },
               block: {},
             },
           ],
+          parameters: { repl: '3' },
         });
-        let repls = server.volumes.getReplica();
-        assert.lengthOf(repls, 1);
-        assert.equal(repls[0].uuid, UUID);
-        assert.equal(repls[0].pool, 'bigger');
-        assert.equal(repls[0].node, 'node');
+        let rs = server.volumes.getReplicaSet(UUID);
+        assert.lengthOf(rs, 3);
+        rs.sort((a, b) => (a.node < b.node ? -1 : 1));
+        assert.equal(rs[0].uuid, UUID);
+        assert.equal(rs[0].pool, 'pool1');
+        assert.equal(rs[0].node, 'node1');
+        assert.equal(rs[0].size, 50);
+        assert.equal(rs[1].uuid, UUID);
+        assert.equal(rs[1].pool, 'pool2');
+        assert.equal(rs[1].node, 'node2');
+        assert.equal(rs[1].size, 50);
+        assert.equal(rs[2].uuid, UUID);
+        assert.equal(rs[2].pool, 'pool3');
+        assert.equal(rs[2].node, 'node3');
+        assert.equal(rs[2].size, 50);
         let nexus = server.volumes.getNexus();
         assert.lengthOf(nexus, 1);
         assert.equal(nexus[0].uuid, UUID);
-        assert.equal(nexus[0].node, 'node');
-        assert.lengthOf(nexus[0].children, 1);
+        assert.equal(nexus[0].node, 'node1');
+        assert.lengthOf(nexus[0].children, 3);
         assert.equal(nexus[0].children[0], 'bdev:///' + UUID);
+        assert.match(nexus[0].children[1], /^nvmf:\/\//);
+        assert.match(nexus[0].children[2], /^nvmf:\/\//);
       });
 
       it('should not create volume with zero size', async () => {
@@ -755,7 +616,7 @@ module.exports = function() {
             },
           ],
         });
-        let repls = server.volumes.getReplica();
+        let repls = server.volumes.getReplicaSet();
         assert.lengthOf(repls, 1);
         assert.equal(repls[0].uuid, UUID);
         assert.equal(repls[0].pool, 'online');
@@ -795,7 +656,7 @@ module.exports = function() {
             },
           ],
         });
-        let repls = server.volumes.getReplica();
+        let repls = server.volumes.getReplicaSet();
         assert.lengthOf(repls, 1);
         assert.equal(repls[0].uuid, UUID);
         assert.equal(repls[0].pool, 'online');
@@ -843,7 +704,7 @@ module.exports = function() {
             },
           ],
         });
-        let repls = server.volumes.getReplica();
+        let repls = server.volumes.getReplicaSet();
         assert.lengthOf(repls, 1);
         assert.equal(repls[0].uuid, UUID);
         assert.equal(repls[0].pool, 'pool2');
@@ -871,7 +732,7 @@ module.exports = function() {
             },
           ],
         });
-        repls = server.volumes.getReplica();
+        repls = server.volumes.getReplicaSet();
         assert.lengthOf(repls, 1);
         assert.equal(repls[0].uuid, UUID);
         assert.equal(repls[0].pool, 'pool2');
@@ -919,7 +780,7 @@ module.exports = function() {
             },
           ],
         });
-        let repls = server.volumes.getReplica();
+        let repls = server.volumes.getReplicaSet();
         assert.lengthOf(repls, 1);
         assert.equal(repls[0].uuid, UUID);
         assert.equal(repls[0].pool, 'pool2');
@@ -978,41 +839,79 @@ module.exports = function() {
         }
       });
 
-      it('should delete volume', async () => {
+      it('should delete volume with multiple replicas', async () => {
         server = await mockedServer(
           [
             {
-              name: 'pool',
-              node: 'node',
-              disks: ['/dev/sda'],
+              name: 'pool1',
+              node: 'node1',
+              disks: ['/dev/sdb'],
               state: 'ONLINE',
+              capacity: 100,
+              used: 0,
+            },
+            {
+              name: 'pool2',
+              node: 'node2',
+              disks: ['/dev/sda'],
+              state: 'DEGRADED',
               capacity: 100,
               used: 50,
             },
-          ],
-          [
             {
-              uuid: UUID,
-              pool: 'pool',
-              node: 'node',
-              size: 50,
+              name: 'pool3',
+              node: 'node3',
+              disks: ['/dev/sda'],
+              state: 'ONLINE',
+              capacity: 100,
+              used: 10,
             },
           ],
           [
             {
               uuid: UUID,
-              node: 'node',
+              pool: 'pool1',
+              node: 'node1',
+              size: 50,
+              share: 'NONE',
+              uri: 'bdev:///' + UUID,
+            },
+            {
+              uuid: UUID,
+              pool: 'pool2',
+              node: 'node2',
+              size: 50,
+              share: 'NVMF',
+              uri: 'nvmf://192.168.0.2:8420/' + UUID,
+            },
+            {
+              uuid: UUID,
+              pool: 'pool3',
+              node: 'node3',
+              size: 50,
+              share: 'NVMF',
+              uri: 'nvmf://192.168.0.3:8420/' + UUID,
+            },
+          ],
+          [
+            {
+              uuid: UUID,
+              node: 'node1',
               size: 50,
               state: 'online',
-              children: ['bdev:///' + UUID],
+              children: [
+                'bdev:///' + UUID,
+                'nvmf://192.168.0.2:8420/' + UUID,
+                'nvmf://192.168.0.3:8420/' + UUID,
+              ],
             },
           ]
         );
 
-        assert.lengthOf(server.volumes.getReplica(), 1);
+        assert.lengthOf(server.volumes.getReplicaSet(), 3);
         assert.lengthOf(server.volumes.getNexus(), 1);
         await client.deleteVolume().sendMessage({ volumeId: UUID });
-        assert.lengthOf(server.volumes.getReplica(), 0);
+        assert.lengthOf(server.volumes.getReplicaSet(), 0);
         assert.lengthOf(server.volumes.getNexus(), 0);
       });
 
@@ -1028,9 +927,9 @@ module.exports = function() {
           },
         ]);
 
-        assert.lengthOf(server.volumes.getReplica(), 0);
+        assert.lengthOf(server.volumes.getReplicaSet(), 0);
         await client.deleteVolume().sendMessage({ volumeId: UUID });
-        assert.lengthOf(server.volumes.getReplica(), 0);
+        assert.lengthOf(server.volumes.getReplicaSet(), 0);
       });
 
       it('should fail if backend grpc call fails', async () => {

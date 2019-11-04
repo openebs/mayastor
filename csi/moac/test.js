@@ -6,6 +6,7 @@ const watcherTest = require('./watcher_test.js');
 const nodesTest = require('./nodes_test.js');
 const poolsTest = require('./pools_test.js');
 const volumesTest = require('./volumes_test.js');
+const commanderTest = require('./commander_test.js');
 const csiTest = require('./csi_test.js');
 const restApiServer = require('./rest_api_test.js');
 
@@ -16,6 +17,7 @@ describe('moac', function() {
   describe('node operator', nodesTest);
   describe('pool operator', poolsTest);
   describe('volume operator', volumesTest);
+  describe('commander operator', commanderTest);
   describe('CSI controller', csiTest);
   describe('REST API server', restApiServer);
 });
