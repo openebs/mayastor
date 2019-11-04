@@ -79,7 +79,7 @@ impl NexusFnTable {
     }
 
     // Main entry point to submit IO to the underlying children this uses
-    // callbacks rather then futures and closures.
+    // callbacks rather than futures and closures.
 
     extern "C" fn io_submit(
         channel: *mut spdk_io_channel,
@@ -87,7 +87,6 @@ impl NexusFnTable {
     ) {
         if let Some(io_type) = Bio::io_type(io) {
             let nio = Bio::from(io);
-
             let mut ch = NexusChannel::inner_from_channel(channel);
             let nexus = nio.nexus_as_ref();
 
@@ -112,7 +111,7 @@ impl NexusFnTable {
                 _ => panic!("{} Received unsupported IO!", nexus.name()),
             };
         } else {
-            // something is every very wrong ...
+            // something is very wrong ...
             error!("Received unknown IO type {}", unsafe { (*io).type_ });
         }
     }
@@ -124,7 +123,7 @@ impl NexusFnTable {
         unsafe { spdk_get_io_channel(ctx) }
     }
 
-    /// called when the a nexus instance is unregister
+    /// called when the nexus instance is unregister
     extern "C" fn destruct(ctx: *mut c_void) -> i32 {
         let nexus = unsafe { Nexus::from_raw(ctx) };
         nexus.close().unwrap();

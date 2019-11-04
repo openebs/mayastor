@@ -137,7 +137,7 @@ pub enum NexusState {
     Init,
     /// Online
     Online,
-    /// The nexus can not do any IO
+    /// The nexus cannot perform any IO operation
     Faulted,
     /// Degraded, one or more child is missing but IO can still flow
     Degraded,
@@ -240,7 +240,7 @@ impl Nexus {
         &self.name
     }
 
-    /// returns the size of the nexus instance
+    /// returns the size in bytes of the nexus instance
     pub fn size(&self) -> u64 {
         u64::from(self.bdev.block_size()) * self.bdev.num_blocks()
     }
@@ -347,7 +347,7 @@ impl Nexus {
         assert_eq!(self.share_handle, None);
 
         // doing this in the context of nexus_close() would be better
-        // however we can not change the function in async there so we
+        // however, we cannot change the function in async there, so we
         // do it here.
         for child in self.children.iter_mut() {
             if child.state == ChildState::Open {
@@ -374,12 +374,12 @@ impl Nexus {
     /// creation. Once this function is called, the device is visible and can
     /// be used for IO.
     ///
-    /// The registering is implement such that any core can call get_io_channel
-    /// from the function table. The io_channels, are constructed on demand and
-    /// that's basically what this function does.
+    /// The registering is implemented such that any core can call
+    /// get_io_channel from the function table. The io_channels, are
+    /// constructed on demand and that's basically what this function does.
     ///
     /// Each io device is registered using a io_device as a key, and/or name. In
-    /// our case, we dont actually create a channel ourselves but we reference
+    /// our case, we dont actually create a channel ourselves, but we reference
     /// channels of the underlying bdevs.
 
     pub fn register(&mut self) -> Result<(), nexus::Error> {
@@ -545,24 +545,13 @@ impl Nexus {
     ) {
         let mut pio = Bio::from(parent_io);
 
-        // determining if an IO failed or succeeded is handled internally within
-        // this functions. it is very rudimentary now, and simply
-        // ensures all states are successful. In the longer run, the
-        // determination of success of failure should be policy driven.
-
-        if success {
-            pio.io_complete(IoStatus::Success);
-        } else {
-            let nexus = pio.nexus_as_ref();
-            trace!(
-                "{}: IO failed: parent_io {:p} child_io {:p}",
-                nexus.name(),
-                parent_io,
-                child_io,
-            );
-            pio.io_complete(IoStatus::Failed);
+        // if any child IO has failed record this within the io context
+        if !success {
+            pio.get_ctx().status = IoStatus::Failed as i32;
         }
 
+        pio.asses();
+        // always free the child IO
         Bio::io_free(child_io);
     }
 
@@ -576,8 +565,7 @@ impl Nexus {
             let nexus = Bio::from(io);
             let nexus = nexus.nexus_as_ref();
             warn!("{}: Failed to get io buffer for io {:p}", nexus.name(), io);
-            let mut pio = Bio::from(io);
-            pio.io_complete(IoStatus::Failed);
+            Bio::from(io).fail();
         }
 
         let ch = NexusChannel::inner_from_channel(ch);
@@ -598,9 +586,10 @@ impl Nexus {
     ) {
         let mut io = Bio::from(pio);
 
-        // we use RR to read from the children and also, set that we only need
+        // we use RR to read from the children also, set that we only need
         // to read from one child before we complete the IO to the callee.
-        io.set_outstanding(1);
+        io.get_ctx().pending = 1;
+
         let child = channels.child_select();
 
         // if there is no buffer space for us allocated within the request
@@ -626,8 +615,8 @@ impl Nexus {
                 io.nexus_as_ref().name(),
                 pio
             );
-            io.set_outstanding(0);
-            io.nio_set_status(IoStatus::Failed);
+
+            io.fail();
         }
     }
 
@@ -661,7 +650,7 @@ impl Nexus {
     ) {
         let mut io = Bio::from(pio);
         // in case of writes, we want to write to all underlying children
-        io.set_outstanding(channels.ch.len());
+        io.get_ctx().pending = channels.ch.len() as i8;
         let results = channels
             .ch
             .iter()
@@ -695,7 +684,7 @@ impl Nexus {
         channels: &NexusChannelInner,
     ) {
         let mut io = Bio::from(pio);
-        io.set_outstanding(channels.ch.len());
+        io.get_ctx().pending = channels.ch.len() as i8;
         let results = channels
             .ch
             .iter()
@@ -723,9 +712,9 @@ impl Nexus {
 
 /// If we fail to create one of the children we will fail the whole operation
 /// destroy any created children and return the error. Once created, and we
-/// bring the nexus online, there still might be a configuration mismatch which
+/// bring the nexus online, there still might be a configuration mismatch that
 /// would prevent the nexus to come online. We can only determine this
-/// (currently) when online so we check the errors twice for now.
+/// (currently) when online, so we check the errors twice for now.
 pub async fn nexus_create(
     name: &str,
     block_len: u32,

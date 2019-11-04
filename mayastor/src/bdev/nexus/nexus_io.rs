@@ -1,30 +1,27 @@
-//!
-//! wrappers around BIO's for the nexus driver none of this code is safe
+use libc::c_void;
+use num;
+
+use spdk_sys::{spdk_bdev_free_io, spdk_bdev_io, spdk_bdev_io_complete};
 
 use crate::bdev::{
     nexus::nexus_bdev::{Nexus, NEXUS_PRODUCT_ID},
     Bdev,
 };
-use spdk_sys::{
-    spdk_bdev_free_io,
-    spdk_bdev_io,
-    spdk_bdev_io_complete,
-    SPDK_BDEV_IO_STATUS_FAILED,
-    SPDK_BDEV_IO_STATUS_NOMEM,
-    SPDK_BDEV_IO_STATUS_NVME_ERROR,
-    SPDK_BDEV_IO_STATUS_PENDING,
-    SPDK_BDEV_IO_STATUS_SCSI_ERROR,
-    SPDK_BDEV_IO_STATUS_SUCCESS,
-};
 
-use libc::c_void;
-use num;
+/// NioCtx provides context on a per IO basis
+#[derive(Debug, Clone)]
+pub struct NioCtx {
+    /// read consistency
+    pub(crate) pending: i8,
+    /// status of the IO
+    pub(crate) status: i32,
+}
 
-/// Nexus IO is a wrapper to provides a "less unsafe" wrappers around raw
+/// BIO is a wrapper to provides a "less unsafe" wrappers around raw
 /// pointers only proper scenario testing and QA cycles can determine if this
 /// code is good
 ///
-/// We have tested this on an number of underlying devices using fio and turn on
+/// We have tested this on a number of underlying devices using fio and turn on
 /// verification that means that each write, is read back and checked with crc2c
 ///
 /// other testing performed is creating a mirror of two devices and deconstruct
@@ -74,15 +71,16 @@ impl From<u32> for BioType {
         num::FromPrimitive::from_u32(io).unwrap()
     }
 }
-/// IOStatus i32 in SPDK all non error states are negative
-#[derive(FromPrimitive, PartialEq, ToPrimitive, Debug)]
-pub(crate) enum IoStatus {
-    Pending = SPDK_BDEV_IO_STATUS_PENDING as isize,
-    Success = SPDK_BDEV_IO_STATUS_SUCCESS as isize,
-    Failed = SPDK_BDEV_IO_STATUS_FAILED as isize,
-    NvmeError = SPDK_BDEV_IO_STATUS_NVME_ERROR as isize,
-    ScsiError = SPDK_BDEV_IO_STATUS_SCSI_ERROR as isize,
-    NoMemory = SPDK_BDEV_IO_STATUS_NOMEM as isize,
+
+#[derive(Clone, Debug)]
+#[allow(dead_code)]
+pub enum IoStatus {
+    NoMem = -4,
+    ScsiError = -3,
+    NvmeError = -2,
+    Failed = -1,
+    Pending = 0,
+    Success = 1,
 }
 
 impl From<*mut spdk_bdev_io> for Bio {
@@ -107,6 +105,49 @@ impl Bio {
         unsafe { Bdev::from((*self.io).bdev) }
     }
 
+    /// complete an IO for the nexus. In the  IO completion routine in
+    /// `[nexus_bdev]` will set the IoStatus for each IO where success ==
+    /// false.
+    #[inline]
+    pub(crate) fn ok(&mut self) {
+        if cfg!(debug_assertions) {
+            // have a child IO that has failed
+            if self.get_ctx().status < 0 {
+                debug!("BIO for nexus {} failed", self.nexus_as_ref().name)
+            }
+            // we are marking the IO done but not all child IOs have returned,
+            // regardless of their state at this point
+            if self.get_ctx().pending != 0 && self.get_ctx().pending == 0 {
+                debug!("BIO for nexus marked completed but has outstanding")
+            }
+        }
+
+        unsafe { spdk_bdev_io_complete(self.io, IoStatus::Success as i32) }
+    }
+    /// mark the IO as failed
+    #[inline]
+    pub(crate) fn fail(&mut self) {
+        unsafe { spdk_bdev_io_complete(self.io, IoStatus::Failed as i32) }
+    }
+
+    /// asses the IO if we need to mark it failed or ok.
+    #[inline]
+    pub(crate) fn asses(&mut self) {
+        self.get_ctx().pending -= 1;
+
+        if cfg!(debug_assertions) {
+            assert_ne!(self.get_ctx().pending, -1);
+        }
+
+        if self.get_ctx().pending == 0 {
+            if self.get_ctx().status < IoStatus::Pending as i32 {
+                self.fail();
+            } else {
+                self.ok();
+            }
+        }
+    }
+
     /// obtain the Nexus struct embedded within the bdev
     pub(crate) fn nexus_as_ref(&self) -> &Nexus {
         let b = self.bdev_as_ref();
@@ -114,66 +155,14 @@ impl Bio {
         unsafe { Nexus::from_raw((*b.inner).ctxt) }
     }
 
-    /// complete the IO of the nexus depending on the state of the child IOs.
-    /// Right now, this is very simplistic. In the future we intent to implement
-    /// different policies based on intent. For example; create a policy where
-    /// we want each READ IO to be read of all 3 mirrors and verified before
-    /// returned to the user. Or we can say, for writes, write out a
-    /// majority of children and then return
-
-    //#[inline]
-    pub(crate) fn io_complete(&mut self, status: IoStatus) {
-        // update the status of the current Nexus IO
-        self.nio_set_status(status);
-        // get the policy based determination if the IO is completed
-        if self.outstanding_completed() {
-            // get the actual state of the completed IO and send up the chain
-            let nio_status = self.nio_get_status();
-            unsafe {
-                spdk_bdev_io_complete(
-                    self.io,
-                    num::ToPrimitive::to_i32(&nio_status).unwrap(),
-                )
-            }
-        }
-    }
-
-    /// obtain a mut slice to the driver ctx. When this structure requires more
-    /// space then an u8, we need to change this signature to *mut T and call
-    /// .as_mut_ptr()
-    //#[inline]
-    pub(crate) fn get_io_private(&mut self) -> &mut [u8] {
-        unsafe { (*self.io).driver_ctx.as_mut_slice(1) }
-    }
-
-    /// set the status of the nexus IO, typically its a one to one mapping of
-    /// the child IO. However, based on policy a failed child IO does not
-    /// always imply a failed nexus IO
-    //#[inline]
-    pub(crate) fn nio_set_status(&mut self, status: IoStatus) {
-        unsafe { (*self.io).u.bdev.split_outstanding -= 1 };
-        let io_private = self.get_io_private();
-        io_private[0] = num::ToPrimitive::to_i8(&status).unwrap() as u8;
-    }
-
-    /// get the "calculated" state of the IO
-    //#[inline]
-    pub(crate) fn nio_get_status(&mut self) -> IoStatus {
-        let io_private = self.get_io_private();
-        num::FromPrimitive::from_i8(io_private[0] as i8).unwrap()
-    }
-
-    /// set the total number of child ios associated with this nexus IO
-    //#[inline]
-    pub(crate) fn set_outstanding(&mut self, i: usize) {
-        unsafe { (*self.io).u.bdev.split_outstanding = 1 + i as u32 };
-        self.nio_set_status(IoStatus::Success)
-    }
-
-    /// determine if all the child IOS have completed. Depending on the policy
+    /// get the context of the given IO, which is used to determine the overall
+    /// state of the IO.
     #[inline]
-    pub(crate) fn outstanding_completed(&mut self) -> bool {
-        unsafe { (*self.io).u.bdev.split_outstanding == 0 }
+    pub(crate) fn get_ctx(&mut self) -> &mut NioCtx {
+        unsafe {
+            &mut *((*self.io).driver_ctx.as_mut_ptr() as *const c_void
+                as *mut NioCtx)
+        }
     }
 
     /// get a raw pointer to the base of the iov
@@ -201,7 +190,7 @@ impl Bio {
     }
 
     /// free the io directly without completion note that the IO is not freed
-    /// but rather put back into the mempool which is allocated during startup
+    /// but rather put back into the mempool, which is allocated during startup
     #[inline]
     pub(crate) fn io_free(io: *mut spdk_bdev_io) {
         unsafe { spdk_bdev_free_io(io) }
