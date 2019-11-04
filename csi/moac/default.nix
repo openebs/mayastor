@@ -35,7 +35,7 @@ result // rec {
   #    one big layer (~800MB) with everything else. That defeats the purpose
   #    of layering.
   buildImage = pkgs.dockerTools.buildLayeredImage {
-    name = "moac";
+    name = "mayadata/moac";
     tag = "latest";
     created = "now";
     contents = [ pkgs.bash pkgs.coreutils pkgs.nano pkgs.less package ];

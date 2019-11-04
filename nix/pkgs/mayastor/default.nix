@@ -49,7 +49,7 @@ rec {
 
   mayastor = rustPlatform.buildRustPackage rec {
     name = "mayastor";
-    cargoSha256 = "150w3paf53104vqr45z3nw2kyb08zi90ccxwf39k3rp6gsid06gr";
+    cargoSha256 = "1b5d7ji3dvk127ghycda4gy3c8pnkavw6wv32gwq7ixb45ah119v";
     version = "unstable";
     src = ../../../.;
 
@@ -80,16 +80,23 @@ rec {
   };
 
   mayastorImage = pkgs.dockerTools.buildLayeredImage {
-    name = "mayastor";
+    name = "mayadata/mayastor";
     tag = "latest";
     created = "now";
-    contents = [ mayastor ];
+    contents = [ pkgs.bash pkgs.coreutils mayastor ];
+    config = {
+      Entrypoint = [ "/bin/mayastor" ];
+    };
   };
 
   mayastorCSIImage = pkgs.dockerTools.buildLayeredImage {
-    name = "mayastor-csi";
+    name = "mayadata/mayastor-grpc";
     tag = "latest";
     created = "now";
-    contents = [ mayastor ];
+    contents = [ pkgs.bash pkgs.coreutils mayastor ];
+    config = {
+      Entrypoint = [ "/bin/mayastor-agent" ];
+      ExposedPorts = { "10124/tcp" = {}; };
+    };
   };
 }

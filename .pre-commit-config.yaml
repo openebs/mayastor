@@ -19,7 +19,7 @@ repos:
     -   id: rust-lint
         name: Rust lint
         description: Run cargo clippy on files included in the commit. clippy should be installed before-hand.
-        entry: cargo clippy --all --all-features --all-targets -- -D warnings
+        entry: cargo clippy --all --all-targets -- -D warnings
         pass_filenames: false
         types: [file, rust]
         language: system

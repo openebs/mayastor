@@ -49,6 +49,7 @@ use spdk_sys::{
     SPDK_NVMF_SUBTYPE_NVME,
     SPDK_NVMF_TRADDR_MAX_LEN,
     SPDK_NVMF_TRSVCID_MAX_LEN,
+    NVMF_TGT_NAME_MAX_LENGTH,
 };
 use std::{
     cell::RefCell,
@@ -265,7 +266,7 @@ impl TargetOpts {
             std::ptr::copy_nonoverlapping(
                 name.as_ptr() as *const _ as *mut libc::c_void,
                 &mut opts.name[0] as *const _ as *mut libc::c_void,
-                255,
+                NVMF_TGT_NAME_MAX_LENGTH as usize,
             );
         }
 

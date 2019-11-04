@@ -114,10 +114,18 @@ image-mayastor:
   before_script:
     - git submodule update --init
   script:
+    # This is a bit dirty but artifacts can be stored only in the source
+    # directory and we cannot store them there while building the images
+    # because it would clobber mayastor dir and change the hash of mayastor
+    # src in nix hence build the mayastor twice.
     - NIX_PATH="$NIX_PATH:nixpkgs-overlays=`pwd`/nix" nix-build '<nixpkgs>' -A mayastorImage
-    - cp result image-mayastor
+    - readlink -f result >/tmp/artifact1
+    - rm result
     - NIX_PATH="$NIX_PATH:nixpkgs-overlays=`pwd`/nix" nix-build '<nixpkgs>' -A mayastorCSIImage
-    - cp result image-mayastor-csi
+    - readlink -f result >/tmp/artifact2
+    - rm result
+    - cp `cat /tmp/artifact1` image-mayastor
+    - cp `cat /tmp/artifact2` image-mayastor-csi
   artifacts:
     expire_in: 1 day
     paths:
