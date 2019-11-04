@@ -7,7 +7,10 @@ use spdk_sys::{
 };
 
 use crate::bdev::{
-    nexus::nexus_bdev::{Nexus, NexusState},
+    nexus::{
+        nexus_bdev::{Nexus, NexusState},
+        nexus_io::NioCtx,
+    },
     Bdev,
 };
 use std::{cell::UnsafeCell, ffi::CString};
@@ -148,7 +151,7 @@ impl NexusModule {
     }
 
     extern "C" fn nexus_ctx_size() -> i32 {
-        0
+        std::mem::size_of::<NioCtx>() as i32
     }
 }
 
