@@ -2,7 +2,7 @@ use crate::bdev::nexus::{
     instances,
     nexus_bdev::Nexus,
     nexus_channel::NexusChannel,
-    nexus_io::{Nio, NioType},
+    nexus_io::{Bio, BioType},
 };
 use spdk_sys::{
     spdk_bdev_fn_table,
@@ -53,15 +53,15 @@ impl NexusFnTable {
         io_type: spdk_bdev_io_type,
     ) -> bool {
         let nexus = unsafe { Nexus::from_raw(ctx) };
-        match NioType::from(io_type) {
+        match BioType::from(io_type) {
             // we always assume  the device supports read/write commands
-            NioType::Read | NioType::Write => true,
-            NioType::Flush | NioType::Reset | NioType::Unmap => {
+            BioType::Read | BioType::Write => true,
+            BioType::Flush | BioType::Reset | BioType::Unmap => {
                 let supported = nexus.io_is_supported(io_type);
                 if !supported {
                     trace!(
                         "IO type {:?} not supported for {}",
-                        NioType::from(io_type),
+                        BioType::from(io_type),
                         nexus.bdev.name()
                     );
                 }
@@ -70,7 +70,7 @@ impl NexusFnTable {
             _ => {
                 trace!(
                     "IO type {:?} not supported for {}",
-                    NioType::from(io_type),
+                    BioType::from(io_type),
                     nexus.bdev.name()
                 );
                 false
@@ -85,8 +85,8 @@ impl NexusFnTable {
         channel: *mut spdk_io_channel,
         io: *mut spdk_bdev_io,
     ) {
-        if let Some(io_type) = Nio::io_type(io) {
-            let nio = Nio::from(io);
+        if let Some(io_type) = Bio::io_type(io) {
+            let nio = Bio::from(io);
 
             let mut ch = NexusChannel::inner_from_channel(channel);
             let nexus = nio.nexus_as_ref();
@@ -97,15 +97,15 @@ impl NexusFnTable {
             }
 
             match io_type {
-                NioType::Read => {
+                BioType::Read => {
                     //trace!("{}: Dispatching READ {:p}", nexus.name(), io);
                     nexus.readv(io, &mut ch)
                 }
-                NioType::Write => {
+                BioType::Write => {
                     //trace!("{}: Dispatching WRITE {:p}", nexus.name(), io);
                     nexus.writev(io, &ch)
                 }
-                NioType::Unmap => {
+                BioType::Unmap => {
                     trace!("{} Dispatching UNMAP {:p}", nexus.name(), io);
                     nexus.unmap(io, &ch)
                 }

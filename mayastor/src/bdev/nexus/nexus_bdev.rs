@@ -91,7 +91,7 @@ use crate::{
             instances,
             nexus_channel::{DREvent, NexusChannel, NexusChannelInner},
             nexus_child::{ChildState, NexusChild},
-            nexus_io::{IoStatus, Nio},
+            nexus_io::{Bio, IoStatus},
             nexus_label::{GPTHeader, GptEntry, GptGuid, GptName, NexusLabel},
             nexus_nbd as nbd,
             Error,
@@ -543,7 +543,7 @@ impl Nexus {
         success: bool,
         parent_io: *mut c_void,
     ) {
-        let mut pio = Nio::from(parent_io);
+        let mut pio = Bio::from(parent_io);
 
         // determining if an IO failed or succeeded is handled internally within
         // this functions. it is very rudimentary now, and simply
@@ -563,7 +563,7 @@ impl Nexus {
             pio.io_complete(IoStatus::Failed);
         }
 
-        Nio::io_free(child_io);
+        Bio::io_free(child_io);
     }
 
     /// callback when the IO has buffer associated with itself
@@ -573,10 +573,10 @@ impl Nexus {
         success: bool,
     ) {
         if !success {
-            let nexus = Nio::from(io);
+            let nexus = Bio::from(io);
             let nexus = nexus.nexus_as_ref();
             warn!("{}: Failed to get io buffer for io {:p}", nexus.name(), io);
-            let mut pio = Nio::from(io);
+            let mut pio = Bio::from(io);
             pio.io_complete(IoStatus::Failed);
         }
 
@@ -584,7 +584,7 @@ impl Nexus {
         let (desc, ch) = ch.ch[ch.previous];
         let ret = Self::readv_impl(io, desc, ch);
         if ret != 0 {
-            let nexus = Nio::from(io);
+            let nexus = Bio::from(io);
             let nexus = nexus.nexus_as_ref();
             error!("{}: Failed to submit IO {:p}", nexus.name(), io);
         }
@@ -596,7 +596,7 @@ impl Nexus {
         pio: *mut spdk_bdev_io,
         channels: &mut NexusChannelInner,
     ) {
-        let mut io = Nio::from(pio);
+        let mut io = Bio::from(pio);
 
         // we use RR to read from the children and also, set that we only need
         // to read from one child before we complete the IO to the callee.
@@ -637,7 +637,7 @@ impl Nexus {
         desc: *mut spdk_bdev_desc,
         ch: *mut spdk_io_channel,
     ) -> i32 {
-        let io = Nio::from(pio);
+        let io = Bio::from(pio);
         let nexus = io.nexus_as_ref();
         unsafe {
             spdk_bdev_readv_blocks(
@@ -659,7 +659,7 @@ impl Nexus {
         pio: *mut spdk_bdev_io,
         channels: &NexusChannelInner,
     ) {
-        let mut io = Nio::from(pio);
+        let mut io = Bio::from(pio);
         // in case of writes, we want to write to all underlying children
         io.set_outstanding(channels.ch.len());
         let results = channels
@@ -694,7 +694,7 @@ impl Nexus {
         pio: *mut spdk_bdev_io,
         channels: &NexusChannelInner,
     ) {
-        let mut io = Nio::from(pio);
+        let mut io = Bio::from(pio);
         io.set_outstanding(channels.ch.len());
         let results = channels
             .ch

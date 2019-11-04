@@ -173,7 +173,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
             uuid,
             key,
         } => serde_json::to_string_pretty(
-            &call(
+            &call::<_, PublishNexusReply>(
                 &opt.socket,
                 "publish_nexus",
                 Some(json!({ "uuid": uuid , "key" : key})),

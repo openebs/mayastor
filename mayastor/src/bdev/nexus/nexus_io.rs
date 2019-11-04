@@ -31,12 +31,12 @@ use num;
 /// the mirror and mount the individual children without a nexus driver, and use
 /// filesystem checks.
 #[derive(Debug)]
-pub(crate) struct Nio {
+pub(crate) struct Bio {
     pub io: *mut spdk_bdev_io,
 }
 
 #[derive(FromPrimitive, Debug)]
-pub enum NioType {
+pub enum BioType {
     /// an invalid IO type
     Invalid = 0,
     /// READ IO
@@ -63,13 +63,13 @@ pub enum NioType {
     NumTypes = 11,
 }
 
-impl From<i32> for NioType {
+impl From<i32> for BioType {
     fn from(io: i32) -> Self {
         num::FromPrimitive::from_i32(io).unwrap()
     }
 }
 
-impl From<u32> for NioType {
+impl From<u32> for BioType {
     fn from(io: u32) -> Self {
         num::FromPrimitive::from_u32(io).unwrap()
     }
@@ -85,23 +85,23 @@ pub(crate) enum IoStatus {
     NoMemory = SPDK_BDEV_IO_STATUS_NOMEM as isize,
 }
 
-impl From<*mut spdk_bdev_io> for Nio {
+impl From<*mut spdk_bdev_io> for Bio {
     fn from(io: *mut spdk_bdev_io) -> Self {
-        Nio {
+        Bio {
             io,
         }
     }
 }
 
-impl From<*mut c_void> for Nio {
+impl From<*mut c_void> for Bio {
     fn from(io: *mut c_void) -> Self {
-        Nio {
+        Bio {
             io: io as *const _ as *mut _,
         }
     }
 }
 
-impl Nio {
+impl Bio {
     /// obtain tbe Bdev this IO is associated with
     pub(crate) fn bdev_as_ref(&self) -> Bdev {
         unsafe { Bdev::from((*self.io).bdev) }
@@ -209,7 +209,7 @@ impl Nio {
 
     /// determine the type of this IO
     #[inline]
-    pub(crate) fn io_type(io: *mut spdk_bdev_io) -> Option<NioType> {
+    pub(crate) fn io_type(io: *mut spdk_bdev_io) -> Option<BioType> {
         unsafe { num::FromPrimitive::from_u8((*io).type_) }
     }
 
