@@ -17,6 +17,7 @@
 , makeRustPlatform
 , fetchFromGitHub
 , dockerTools
+, writeScriptBin
 , pkgs ? import <nixpkgs>
 , buildType ? "release"
 }:
@@ -71,7 +72,7 @@ rec {
       pkg-config
       protobuf
       rdma-core
-      utillinux.dev
+      utillinux
       xfsprogs
     ];
 
@@ -79,11 +80,20 @@ rec {
     meta = { platforms = stdenv.lib.platforms.linux; };
   };
 
+  # mkfs.* and mount commands need to be in the PATH for mayastor-agent to work.
+  # For NIX these run-time dependencies are hidden so it ignores them.
+  # The solution is to create shell script wrapper setting the PATH and calling
+  # mayastor-agent, which makes it apparent for the NIX.
+  mayastorAgent = writeScriptBin "mayastor-agent" ''
+    #!${pkgs.stdenv.shell}
+    PATH=${pkgs.e2fsprogs}/bin:${pkgs.utillinux}/bin:${pkgs.xfsprogs}/bin:$PATH ${mayastor}/bin/mayastor-agent "$@"
+  '';
+
   mayastorImage = pkgs.dockerTools.buildLayeredImage {
     name = "mayadata/mayastor";
     tag = "latest";
     created = "now";
-    contents = [ pkgs.bash pkgs.coreutils mayastor ];
+    contents = [ pkgs.busybox mayastor ];
     config = {
       Entrypoint = [ "/bin/mayastor" ];
     };
@@ -93,7 +103,7 @@ rec {
     name = "mayadata/mayastor-grpc";
     tag = "latest";
     created = "now";
-    contents = [ pkgs.bash pkgs.coreutils mayastor ];
+    contents = [ pkgs.busybox mayastorAgent ];
     config = {
       Entrypoint = [ "/bin/mayastor-agent" ];
       ExposedPorts = { "10124/tcp" = {}; };
