@@ -68,7 +68,10 @@ impl Nexus {
                 self.nbd_disk = Some(disk);
                 Ok(device_path)
             }
-            Err(err) => Err(err),
+            Err(err) => {
+                self.share_handle.take();
+                Err(err)
+            }
         }
     }
 
