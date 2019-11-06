@@ -19,14 +19,16 @@ const fs = require('fs');
 const path = require('path');
 const util = require('util');
 const { execSync } = require('child_process');
-const { createClient } = require('grpc-kit');
-const grpc = require('grpc');
+const protoLoader = require('@grpc/proto-loader');
+// we can't use grpc-kit because we need to connect to UDS and that's currently
+// possible only with grpc-uds.
+const grpc = require('grpc-uds');
 const common = require('./test_common');
 // Without requiring wtf module the ts hangs at the end. It seems that it is
 // waiting for sudo'd mayastor progress which has already exited!?
 const wtfnode = require('wtfnode');
 
-var csiSock;
+var csiSock = common.CSI_ENDPOINT;
 var endpoint = common.endpoint;
 
 // One big malloc bdev which we put lvol store on.
@@ -48,12 +50,10 @@ const UUID5 = BASE_UUID + '4';
 const UNKNOWN_UUID = BASE_UUID + '9';
 
 function createCsiClient(service) {
-  return createClient(
-    {
-      protoPath: path.join(__dirname, '..', 'csi', 'proto', 'csi.proto'),
-      packageName: 'csi.v1',
-      serviceName: service,
-      options: {
+  const pkgDef = grpc.loadPackageDefinition(
+    protoLoader.loadSync(
+      path.join(__dirname, '..', 'csi', 'proto', 'csi.proto'),
+      {
         // this is to load google/descriptor.proto
         includeDirs: ['./node_modules/protobufjs'],
         keepCase: true,
@@ -61,34 +61,11 @@ function createCsiClient(service) {
         enums: String,
         defaults: true,
         oneofs: true,
-      },
-    },
-    csiSock
+      }
+    )
   );
-}
-
-function createGrpcClient(service) {
-  return createClient(
-    {
-      protoPath: path.join(
-        __dirname,
-        '..',
-        'rpc',
-        'proto',
-        'mayastor_service.proto'
-      ),
-      packageName: 'mayastor_service',
-      serviceName: 'Mayastor',
-      options: {
-        keepCase: true,
-        longs: String,
-        enums: String,
-        defaults: true,
-        oneofs: true,
-      },
-    },
-    endpoint
-  );
+  const proto = pkgDef.csi.v1;
+  return new proto[service](csiSock, grpc.credentials.createInsecure());
 }
 
 function cleanPublishDir(mountTarget, done) {
@@ -139,10 +116,7 @@ describe('csi', function() {
   // NOTE: Don't use mayastor in setup - we test CSI interface and we don't want
   // to depend on correct function of mayastor iface in order to test CSI.
   before(done => {
-    csiSock = common.CSI_ENDPOINT;
-
     let identityClient = createCsiClient('Identity');
-    let mayastorClient = createGrpcClient('Mayastor');
 
     async.series(
       [
@@ -153,16 +127,23 @@ describe('csi', function() {
           common.startMayastorGrpc(next);
         },
         next => {
-          common.waitForMayastor(pingDone => {
-            // use harmless method to test if the mayastor is up and running
-            identityClient.probe({}, (err, res) => {
+          common.waitFor(pingDone => {
+            // fix the perms now - we can't do that before because it takes
+            // time to csi-agent to create it ..
+            common.fixSocketPerms(err => {
               if (err) {
-                pingDone(err);
-              } else if (!res.ready.value) {
-                pingDone(new Error('not ready'));
-              } else {
-                pingDone(undefined);
+                return pingDone(err);
               }
+              // use harmless method to test if the mayastor is up and running
+              identityClient.probe({}, (err, res) => {
+                if (err) {
+                  pingDone(err);
+                } else if (!res.ready.value) {
+                  pingDone(new Error('not ready'));
+                } else {
+                  pingDone(undefined);
+                }
+              });
             });
           }, next);
         },
@@ -255,6 +236,31 @@ describe('csi', function() {
       ],
       done
     );
+  });
+
+  describe('general', function() {
+    it('should start even if there is a stale csi socket file', done => {
+      var client = createCsiClient('Identity');
+
+      async.series(
+        [
+          next => {
+            common.restartMayastorGrpc(pingDone => {
+              // fix the perms now - we can't do that before because it takes
+              // time to csi-agent to create it ..
+              common.fixSocketPerms(err => {
+                if (err) {
+                  return pingDone(err);
+                }
+                // use harmless method to test if it is up and running
+                client.probe({}, pingDone);
+              });
+            }, next);
+          },
+        ],
+        done
+      );
+    });
   });
 
   describe('identity', function() {

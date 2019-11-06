@@ -60,6 +60,30 @@ let config = `
 
 let nbd_device;
 
+function createGrpcClient(service) {
+  return createClient(
+    {
+      protoPath: path.join(
+        __dirname,
+        '..',
+        'rpc',
+        'proto',
+        'mayastor_service.proto'
+      ),
+      packageName: 'mayastor_service',
+      serviceName: 'Mayastor',
+      options: {
+        keepCase: true,
+        longs: String,
+        enums: String,
+        defaults: true,
+        oneofs: true,
+      },
+    },
+    endpoint
+  );
+}
+
 after(common.stopMayastor);
 
 describe('nexus_grpc', function() {
@@ -83,28 +107,7 @@ describe('nexus_grpc', function() {
     var client;
 
     before(done => {
-      client = createClient(
-        {
-          protoPath: path.join(
-            __dirname,
-            '..',
-            'rpc',
-            'proto',
-            'mayastor_service.proto'
-          ),
-          packageName: 'mayastor_service',
-          serviceName: 'Mayastor',
-          options: {
-            keepCase: true,
-            longs: String,
-            enums: String,
-            defaults: true,
-            oneofs: true,
-          },
-        },
-        endpoint
-      );
-
+      client = createGrpcClient('MayaStor');
       if (!client) {
         return done(new Error('Failed to initialize grpc client'));
       }
@@ -112,7 +115,7 @@ describe('nexus_grpc', function() {
       async.series(
         [
           next => {
-            common.waitForMayastor(pingDone => {
+            common.waitFor(pingDone => {
               // use harmless method to test if the mayastor is up and running
               client.listPools({}, pingDone);
             }, next);

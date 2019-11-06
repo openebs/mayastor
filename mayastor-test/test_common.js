@@ -14,7 +14,7 @@ const sudo = require('./sudo');
 const SOCK = '/tmp/mayastor_test.sock';
 const CONFIG_PATH = '/tmp/mayastor_test.cfg';
 const GRPC_PORT = 10777;
-const CSI_ENDPOINT = '127.0.0.1:10777';
+const CSI_ENDPOINT = '/tmp/mayastor_csi_test.sock';
 const CSI_ID = 'test-node-id';
 
 var endpoint = '127.0.0.1:' + GRPC_PORT;
@@ -57,7 +57,7 @@ function runAsRoot(cmd, args, nameInPs) {
 
 // Periodically ping mayastor until up and running.
 // Ping cb with grpc call is provided by the caller.
-function waitForMayastor(ping, done) {
+function waitFor(ping, done) {
   let last_error;
   let iters = 0;
 
@@ -145,6 +145,22 @@ function startMayastorGrpc(done) {
   if (done) done();
 }
 
+// Unix domain socket client does not run with root privs (in general) so open
+// the socket to everyone.
+function fixSocketPerms(done) {
+  let child = runAsRoot('chmod', ['a+rw', CSI_ENDPOINT]);
+  child.stderr.on('data', data => {
+    //console.log('chmod', 'error:', data.toString());
+  });
+  child.on('close', code => {
+    if (code != 0) {
+      done('Failed to chmod the socket' + code);
+    } else {
+      done();
+    }
+  });
+}
+
 function killSudoedProcess(name, pid, done) {
   find('name', name).then(res => {
     var whichPid;
@@ -217,7 +233,33 @@ function restartMayastor(ping, done) {
         });
       },
       next => startMayastor(null, next),
-      next => waitForMayastor(ping, next),
+      next => waitFor(ping, next),
+    ],
+    done
+  );
+}
+
+function restartMayastorGrpc(ping, done) {
+  assert(mayastorGrpcProc);
+
+  async.series(
+    [
+      next => {
+        killSudoedProcess('mayastor-agent', mayastorGrpcProc.pid, err => {
+          if (err) return next(err);
+          if (mayastorGrpcProc) {
+            mayastorGrpcProc.once('close', next);
+          } else {
+            next();
+          }
+        });
+      },
+      next => {
+        startMayastorGrpc(next);
+      },
+      next => {
+        waitFor(ping, next);
+      },
     ],
     done
   );
@@ -286,8 +328,10 @@ module.exports = {
   startMayastor,
   startMayastorGrpc,
   stopMayastor,
-  waitForMayastor,
+  waitFor,
   restartMayastor,
+  restartMayastorGrpc,
+  fixSocketPerms,
   endpoint,
   dumbCommand,
   runAsRoot,
