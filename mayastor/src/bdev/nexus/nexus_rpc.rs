@@ -92,6 +92,8 @@ pub(crate) fn register_rpc_methods() {
                 Ok(name) => name,
                 Err(err) => return Err(err),
             };
+            // TODO: get rid of hardcoded nexus block size (possibly by
+            // deriving it from child bdevs's block sizes).
             match nexus_create(
                 &name,
                 4096,

@@ -38,7 +38,12 @@ function createTestDisk(done) {
 
     stderr = '';
     stdout = '';
-    let child = common.runAsRoot('losetup', ['--show', '-f', DISK_FILE]);
+    let child = common.runAsRoot(
+      'losetup',
+      // Explicitly set blksiz to 512 to be different from the
+      // default in mayastor (4096) to test it.
+      ['--show', '-b', '512', '-f', DISK_FILE]
+    );
 
     child.stderr.on('data', data => {
       stderr += data;
