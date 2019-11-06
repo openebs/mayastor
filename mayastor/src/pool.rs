@@ -397,9 +397,17 @@ pub fn register_pool_methods() {
                         format!("Base bdev {} already exists", disk),
                     ));
                 }
-                if let Err(err) =
-                    create_base_bdev(disk, args.block_size.unwrap_or(4096))
-                {
+                // The block size may be missing or explicitly set to zero. In
+                // both cases we want to provide our own default value instead
+                // of SPDK's default which is 512.
+                //
+                // NOTE: Keep this in sync with nexus block size which is
+                // hardcoded to 4096.
+                let mut block_size = args.block_size.unwrap_or(0);
+                if block_size == 0 {
+                    block_size = 4096;
+                }
+                if let Err(err) = create_base_bdev(disk, block_size) {
                     return Err(err);
                 };
 
