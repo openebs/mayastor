@@ -44,12 +44,12 @@ use spdk_sys::{
     spdk_poller,
     spdk_poller_register,
     spdk_poller_unregister,
+    NVMF_TGT_NAME_MAX_LENGTH,
     SPDK_NVME_TRANSPORT_TCP,
     SPDK_NVMF_ADRFAM_IPV4,
     SPDK_NVMF_SUBTYPE_NVME,
     SPDK_NVMF_TRADDR_MAX_LEN,
     SPDK_NVMF_TRSVCID_MAX_LEN,
-    NVMF_TGT_NAME_MAX_LENGTH,
 };
 use std::{
     cell::RefCell,

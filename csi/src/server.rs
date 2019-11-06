@@ -13,7 +13,11 @@ extern crate log;
 #[macro_use]
 extern crate run_script;
 
-use std::{io::Write, path::Path};
+use std::{
+    fs,
+    io::{ErrorKind, Write},
+    path::Path,
+};
 
 use chrono::Local;
 use clap::{App, Arg};
@@ -49,7 +53,7 @@ mod mount;
 mod node;
 
 #[tokio::main]
-async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
+async fn main() -> Result<(), String> {
     let matches = App::new("Mayastor grpc server")
         .version(git_version!())
         .about("gRPC mayastor server with CSI and egress services")
@@ -151,20 +155,23 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let saddr = format!("{}:{}", addr, port).parse().unwrap();
 
     let tcp = Server::builder()
-        .add_service(NodeServer::new(Node {
-            node_name: node_name.into(),
-            addr: addr.to_string(),
-            port,
-            socket: ms_socket.into(),
-            filesystems: probe_filesystems().unwrap(),
-        }))
-        .add_service(IdentityServer::new(Identity {
-            socket: ms_socket.into(),
-        }))
         .add_service(MayastorServer::new(MayastorService {
             socket: ms_socket.into(),
         }))
         .serve(saddr);
+
+    // Remove stale CSI socket from previous instance if there is any
+    match fs::remove_file(csi_socket) {
+        Ok(_) => info!("Removed stale CSI socket {}", csi_socket),
+        Err(err) => {
+            if err.kind() != ErrorKind::NotFound {
+                return Err(format!(
+                    "Error removing stale CSI socket {}: {}",
+                    csi_socket, err
+                ));
+            }
+        }
+    }
 
     let uds = Server::builder()
         .add_service(NodeServer::new(Node {

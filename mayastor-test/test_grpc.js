@@ -69,6 +69,30 @@ function destroyTestDisk(done) {
   }
 }
 
+function createGrpcClient(service) {
+  return createClient(
+    {
+      protoPath: path.join(
+        __dirname,
+        '..',
+        'rpc',
+        'proto',
+        'mayastor_service.proto'
+      ),
+      packageName: 'mayastor_service',
+      serviceName: 'Mayastor',
+      options: {
+        keepCase: true,
+        longs: String,
+        enums: String,
+        defaults: true,
+        oneofs: true,
+      },
+    },
+    endpoint
+  );
+}
+
 describe('grpc', function() {
   this.timeout(200000); // for network e2e tests we need long timeouts
 
@@ -102,28 +126,7 @@ describe('grpc', function() {
     }
 
     before(done => {
-      client = createClient(
-        {
-          protoPath: path.join(
-            __dirname,
-            '..',
-            'rpc',
-            'proto',
-            'mayastor_service.proto'
-          ),
-          packageName: 'mayastor_service',
-          serviceName: 'Mayastor',
-          options: {
-            keepCase: true,
-            longs: String,
-            enums: String,
-            defaults: true,
-            oneofs: true,
-          },
-        },
-        endpoint
-      );
-
+      client = createGrpcClient('MayaStor');
       if (!client) {
         return done(new Error('Failed to initialize grpc client'));
       }
@@ -148,7 +151,7 @@ describe('grpc', function() {
             }
           },
           next => {
-            common.waitForMayastor(pingDone => {
+            common.waitFor(pingDone => {
               // use harmless method to test if the mayastor is up and running
               client.listPools({}, pingDone);
             }, next);

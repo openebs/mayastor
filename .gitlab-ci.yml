@@ -73,7 +73,7 @@ test-mayastor:
     - modprobe xfs
     - echo 512 >/sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
   script:
-    - nix-shell --run 'cd mayastor-test && npm install --unsafe-perm'
+    - nix-shell -p nodejs-10_x python --run 'cd mayastor-test && npm install --unsafe-perm'
     - nix-shell --run 'cd mayastor-test && ./node_modules/mocha/bin/mocha test_cli.js'
     - nix-shell --run 'cd mayastor-test && ./node_modules/mocha/bin/mocha test_csi.js'
     - nix-shell --run 'cd mayastor-test && ./node_modules/mocha/bin/mocha test_grpc.js'
