@@ -261,10 +261,10 @@ pub(crate) struct TargetOpts {
 impl TargetOpts {
     fn new(name: &str, max_subsystems: u32) -> Self {
         let mut opts = spdk_nvmf_target_opts::default();
-
+        let cstr = CString::new(name).unwrap();
         unsafe {
             std::ptr::copy_nonoverlapping(
-                name.as_ptr() as *const _ as *mut libc::c_void,
+                cstr.as_ptr() as *const _ as *mut libc::c_void,
                 &mut opts.name[0] as *const _ as *mut libc::c_void,
                 NVMF_TGT_NAME_MAX_LENGTH as usize,
             );
