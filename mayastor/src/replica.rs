@@ -21,7 +21,9 @@ use spdk_sys::{
     vbdev_lvol_create,
     vbdev_lvol_destroy,
     vbdev_lvol_get_from_bdev,
-    LVOL_CLEAR_WITH_DEFAULT,
+    LVOL_CLEAR_WITH_UNMAP,
+    LVOL_CLEAR_WITH_WRITE_ZEROES,
+    SPDK_BDEV_IO_TYPE_UNMAP,
 };
 use std::ffi::{c_void, CStr, CString};
 
@@ -62,8 +64,8 @@ impl Replica {
         size: u64,
         thin: bool,
     ) -> Result<Self> {
-        let lvs = match Pool::lookup(pool) {
-            Some(p) => p.as_ptr(),
+        let pool = match Pool::lookup(pool) {
+            Some(p) => p,
             None => {
                 return Err(JsonRpcError::new(
                     Code::NotFound,
@@ -71,6 +73,15 @@ impl Replica {
                 ));
             }
         };
+        let clear_method = if pool
+            .get_base_bdev()
+            .io_type_supported(SPDK_BDEV_IO_TYPE_UNMAP)
+        {
+            LVOL_CLEAR_WITH_UNMAP
+        } else {
+            LVOL_CLEAR_WITH_WRITE_ZEROES
+        };
+
         if Self::lookup(uuid).is_some() {
             return Err(JsonRpcError::new(
                 Code::AlreadyExists,
@@ -82,14 +93,11 @@ impl Replica {
             oneshot::channel::<std::result::Result<*mut spdk_lvol, i32>>();
         let rc = unsafe {
             vbdev_lvol_create(
-                lvs,
+                pool.as_ptr(),
                 c_uuid.as_ptr(),
                 size,
                 thin,
-                // "clear with default" == unmap
-                // TODO: what if device does not support unmap, will it get
-                // cleared?
-                LVOL_CLEAR_WITH_DEFAULT,
+                clear_method,
                 Some(Self::replica_done_cb),
                 cb_arg(sender),
             )
@@ -103,7 +111,7 @@ impl Replica {
 
         match receiver.await.expect("Cancellation is not supported") {
             Ok(lvol_ptr) => {
-                info!("Created replica {} on pool {}", uuid, pool);
+                info!("Created replica {} on pool {}", uuid, pool.get_name());
                 Ok(Self {
                     lvol_ptr,
                 })
