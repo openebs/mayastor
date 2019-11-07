@@ -29,7 +29,7 @@ use spdk_sys::{
     vbdev_lvs_create,
     vbdev_lvs_destruct,
     vbdev_lvs_examine,
-    LVS_CLEAR_WITH_UNMAP,
+    LVS_CLEAR_WITH_NONE,
 };
 use std::{
     ffi::{c_void, CStr, CString},
@@ -161,10 +161,11 @@ impl Pool {
                 base_bdev.as_ptr(),
                 pool_name.as_ptr(),
                 0,
-                // Clearing pool is not strictly necessary so do it only if it
-                // can be done fast (unmap) otherwise it is a
-                // noop.
-                LVS_CLEAR_WITH_UNMAP,
+                // We used to clear a pool with UNMAP but that takes awfully
+                // long time on large SSDs (~ can take an hour). Clearing the
+                // pool is not necessary. Clearing the lvol must be done, but
+                // lvols tend to be small so there the overhead is acceptable.
+                LVS_CLEAR_WITH_NONE,
                 Some(pool_done_cb),
                 cb_arg(sender),
             )

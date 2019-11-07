@@ -53,10 +53,39 @@ function createTestDisk(done) {
     });
     child.on('close', (code, signal) => {
       if (code != 0) {
-        done(stderr);
-      } else {
-        done(null, stdout.trim());
+        return done(stderr);
       }
+      let dev = stdout.trim();
+      // Fill the device with garbage so that we can test that volumes are
+      // properly zeroed out when destroyed.
+      //
+      // TODO: Add test case for that. Currently we have iscsi and nvmf
+      // replicas, neither of them are mounted to the system (that brings
+      // other problems with cleaning up kernel state etc). If only there
+      // was a utility allowing us to read bytes from remote target without
+      // mounting the device ...
+      //
+      // NOTE: Due to following but in SPDK
+      // https://github.com/spdk/spdk/issues/944 the devices which don't
+      // support unmap are not cleared. We can have a test case for this
+      // when this is fixed.
+      let child = common.runAsRoot('dd', [
+        'bs=1024',
+        'count=100000',
+        'if=/dev/urandom',
+        'of=' + dev,
+      ]);
+      stderr = '';
+      child.stderr.on('data', data => {
+        stderr += data;
+      });
+      child.on('close', (code, signal) => {
+        if (code != 0) {
+          done(stderr);
+        } else {
+          done(null, dev);
+        }
+      });
     });
   });
 }
