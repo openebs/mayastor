@@ -68,7 +68,7 @@ pub(crate) fn parse_ini_config_file() -> i32 {
             name, lu_size, block_size, &child_bdevs
         );
 
-        nexus_instance_new(name, lu_size, block_size, child_bdevs);
+        nexus_instance_new(name, lu_size, child_bdevs);
         devnum += 1;
     }
     0

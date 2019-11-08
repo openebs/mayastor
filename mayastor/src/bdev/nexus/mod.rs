@@ -113,14 +113,9 @@ pub fn instances() -> &'static mut Vec<Box<Nexus>> {
 }
 
 /// function used to create a new nexus when parsing a config file
-pub fn nexus_instance_new(
-    name: String,
-    size: u64,
-    blksize: u32,
-    children: Vec<String>,
-) {
+pub fn nexus_instance_new(name: String, size: u64, children: Vec<String>) {
     let list = instances();
-    if let Ok(nexus) = Nexus::new(&name, blksize, size, None, Some(&children)) {
+    if let Ok(nexus) = Nexus::new(&name, size, None, Some(&children)) {
         list.push(nexus);
     }
 }

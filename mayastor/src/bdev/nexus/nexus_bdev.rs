@@ -104,6 +104,8 @@ pub(crate) static NEXUS_PRODUCT_ID: &str = "Nexus CAS Driver v0.0.1";
 pub struct Nexus {
     /// Name of the Nexus instance
     pub(crate) name: String,
+    /// the requested size of the nexus, children are allowed to be larger
+    pub(crate) size: u64,
     /// number of children part of this nexus
     pub(crate) child_count: u32,
     /// vector of children
@@ -167,8 +169,7 @@ impl Nexus {
     /// children to it.
     pub fn new(
         name: &str,
-        block_len: u32,
-        block_cnt: u64,
+        size: u64,
         uuid: Option<&str>,
         child_bdevs: Option<&[String]>,
     ) -> Result<Box<Self>, nexus::Error> {
@@ -177,8 +178,8 @@ impl Nexus {
         b.product_name = c_str!(NEXUS_PRODUCT_ID);
         b.fn_table = nexus::fn_table().unwrap();
         b.module = nexus::module().unwrap().as_ptr();
-        b.blocklen = block_len;
-        b.blockcnt = block_cnt;
+        b.blocklen = 0;
+        b.blockcnt = 0;
         b.required_alignment = 9;
 
         let mut n = Box::new(Nexus {
@@ -192,6 +193,7 @@ impl Nexus {
             data_ent_offset: 0,
             nbd_disk: None,
             share_handle: None,
+            size,
         });
 
         n.bdev.set_uuid(match uuid {
@@ -238,7 +240,7 @@ impl Nexus {
 
     /// returns the size in bytes of the nexus instance
     pub fn size(&self) -> u64 {
-        u64::from(self.bdev.block_size()) * self.bdev.num_blocks()
+        u64::from(self.bdev.block_len()) * self.bdev.num_blocks()
     }
 
     /// reconfigure the child event handler
@@ -285,7 +287,7 @@ impl Nexus {
 
             info!("{}: {} ", self.name, label);
             self.data_ent_offset = label.offset();
-            self.bdev.set_num_blocks(label.num_blocks());
+            self.bdev.set_block_count(label.get_block_count());
         } else {
             // one or more children do not have, or have an invalid gpt label.
             // Recalculate that the header should have been and
@@ -298,9 +300,9 @@ impl Nexus {
 
             let mut label = self.generate_label();
             self.data_ent_offset = label.offset();
-            self.bdev.set_num_blocks(label.num_blocks());
+            self.bdev.set_block_count(label.get_block_count());
 
-            let blk_size = self.bdev.block_size();
+            let blk_size = self.bdev.block_len();
             let mut buf = DmaBuf::new(
                 (blk_size * (((1 << 14) / blk_size) + 1)) as usize,
                 self.bdev.alignment(),
@@ -621,8 +623,7 @@ impl Nexus {
 /// (currently) when online, so we check the errors twice for now.
 pub async fn nexus_create(
     name: &str,
-    block_len: u32,
-    block_cnt: u64,
+    size: u64,
     uuid: Option<&str>,
     children: &[String],
 ) -> Result<(), Error> {
@@ -633,7 +634,7 @@ pub async fn nexus_create(
         return Err(Error::Exists);
     }
 
-    let mut ni = Nexus::new(name, block_len, block_cnt, uuid, None)
+    let mut ni = Nexus::new(name, size, uuid, None)
         .expect("Failed to allocate Nexus instance");
 
     for child in children {
@@ -672,7 +673,7 @@ impl Display for Nexus {
             self.name,
             self.state,
             self.bdev.num_blocks(),
-            self.bdev.block_size(),
+            self.bdev.block_len(),
         );
 
         self.children

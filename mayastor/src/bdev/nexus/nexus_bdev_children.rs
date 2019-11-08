@@ -97,7 +97,7 @@ impl Nexus {
         trace!("{} Online child request", self.name());
 
         if let Some(child) = self.children.iter_mut().find(|c| c.name == name) {
-            child.open(self.bdev.num_blocks(), self.bdev.block_size())?;
+            child.open(self.size)?;
 
             // TODO we need to get a reference to a channel before we can
             // process it would be nice to abstract this like
@@ -144,9 +144,6 @@ impl Nexus {
 
     /// try to open all the child devices
     pub(crate) fn try_open_children(&mut self) -> Result<(), nexus::Error> {
-        let num_blocks = self.bdev.num_blocks();
-        let block_size = self.bdev.block_size();
-
         if self.children.is_empty()
             || self.children.iter().any(|c| c.bdev.is_none())
         {
@@ -154,10 +151,25 @@ impl Nexus {
             return Err(Error::NexusIncomplete);
         }
 
+        let blk_size = self.children[0].bdev.as_ref().unwrap().block_len();
+
+        if self
+            .children
+            .iter()
+            .any(|b| b.bdev.as_ref().unwrap().block_len() != blk_size)
+        {
+            error!("{}: children have mixed block sizes", self.name);
+            return Err(Error::Invalid);
+        }
+
+        self.bdev.set_block_len(blk_size);
+
+        let size = self.size;
+
         let (open, error): (Vec<_>, Vec<_>) = self
             .children
             .iter_mut()
-            .map(|c| c.open(num_blocks, block_size))
+            .map(|c| c.open(size))
             .partition(Result::is_ok);
 
         // depending on IO consistency policies, we might be able to go online
@@ -243,7 +255,6 @@ impl Nexus {
                 }
             })
             .for_each(drop);
-        assert!(blockcnt >= self.bdev.num_blocks());
         blockcnt
     }
 }

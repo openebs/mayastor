@@ -76,7 +76,7 @@ impl Nexus {
     /// partition is fixed in size and aligned to a 1MB boundary
     pub(crate) fn generate_label(&mut self) -> NexusLabel {
         let mut hdr = GPTHeader::new(
-            self.bdev.block_size(),
+            self.bdev.block_len(),
             self.min_num_blocks(),
             self.bdev.uuid().into(),
         );
@@ -91,7 +91,7 @@ impl Nexus {
             ent_start: hdr.lba_start,
             // 4MB
             ent_end: hdr.lba_start
-                + u64::from((4 << 20) / self.bdev.block_size())
+                + u64::from((4 << 20) / self.bdev.block_len())
                 - 1,
             ent_attr: 0,
             ent_name: GptName {
@@ -122,16 +122,14 @@ impl Nexus {
     /// write the protective MBR to all children.
     pub async fn write_pmbr(&mut self) -> Result<(), Error> {
         let mut pmbr = Pmbr::default();
-        let mut buf = DmaBuf::new(
-            self.bdev.block_size() as usize,
-            self.bdev.alignment(),
-        )?;
+        let mut buf =
+            DmaBuf::new(self.bdev.block_len() as usize, self.bdev.alignment())?;
 
         // the max size with MBR is 2GB, if we are smaller however, we must
         // ensure that we reflect that in the MBR as well even though its not
         // used.
 
-        let size = self.bdev.num_blocks() * self.bdev.block_size() as u64;
+        let size = self.bdev.num_blocks() * self.bdev.block_len() as u64;
         pmbr.entries[0].attributes = 0x00;
         //
         pmbr.entries[0].chs_start = [0x00, 0x2, 0x00];
@@ -170,7 +168,7 @@ impl Nexus {
         label: &mut NexusLabel,
         primary: bool,
     ) -> Result<(), Error> {
-        let blk_size = self.bdev.block_size();
+        let blk_size = self.bdev.block_len();
         let mut writer = Cursor::new(buf.as_mut_slice());
         if primary {
             label.primary.checksum();
@@ -429,7 +427,7 @@ impl NexusLabel {
     }
 
     /// returns the number of total blocks in this segment
-    pub(crate) fn num_blocks(&self) -> u64 {
+    pub(crate) fn get_block_count(&self) -> u64 {
         self.partitions[1].ent_end - self.partitions[1].ent_start
     }
 }

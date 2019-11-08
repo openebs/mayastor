@@ -96,8 +96,7 @@ pub(crate) fn register_rpc_methods() {
             // deriving it from child bdevs's block sizes).
             match nexus_create(
                 &name,
-                4096,
-                args.size / 4096,
+                args.size,
                 Some(&args.uuid),
                 &args.children,
             )

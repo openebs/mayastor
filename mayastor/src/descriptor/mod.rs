@@ -302,7 +302,7 @@ impl Descriptor {
             desc,
             ch,
             alignment: bdev.alignment(),
-            blk_size: bdev.block_size(),
+            blk_size: bdev.block_len(),
         })
     }
 
