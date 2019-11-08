@@ -16,8 +16,6 @@
 //! $ rm /code/disk1.img; truncate -s 1GiB /code/disk1.img
 //! $ mctl create gpt  -r  aio:////code/disk1.img?blk_size=512 -s 1GiB -b
 //! $ sgdisk -p /code/disk1.img
-//! Found valid GPT with corrupt MBR; using GPT and will write new
-//! protective MBR on save.
 //! Disk /code//disk1.img: 2097152 sectors, 1024.0 MiB
 //! Sector size (logical): 512 bytes
 //! Disk identifier (GUID): EAB49A2F-EFEA-45E6-9A1B-61FECE3426DD
@@ -51,23 +49,171 @@
 //! nbd0     43:0    0 1019M  0 disk
 //! nvme0n1 259:0    0  200G  0 disk /code
 //!
-//! The nbd0 zero device does not show the partitions
+//! The nbd0 zero device does not show the partitions when mounting
+//! it without the nexus in the data path, there would be two paritions
 //! ```
-use crate::bdev::nexus::Error;
-use bincode::{deserialize_from, serialize};
+use std::{
+    fmt::{self, Display},
+    io::{Cursor, Seek, SeekFrom},
+    str::FromStr,
+};
+
+use bincode::{deserialize_from, serialize, serialize_into};
 use crc::{crc32, Hasher32};
 use serde::{
     de::{Deserialize, Deserializer, SeqAccess, Unexpected, Visitor},
     ser::{Serialize, SerializeTuple, Serializer},
 };
-use std::{
-    fmt::{self, Display},
-    io::Cursor,
-};
 use uuid::{self, parser};
 
-#[derive(Debug, Deserialize, PartialEq, Default, Serialize, Clone, Copy)]
+use crate::{
+    bdev::nexus::{nexus_bdev::Nexus, Error},
+    descriptor::DmaBuf,
+};
 
+impl Nexus {
+    /// generate a new nexus label based on the nexus configuration. The meta
+    /// partition is fixed in size and aligned to a 1MB boundary
+    pub(crate) fn generate_label(&mut self) -> NexusLabel {
+        let mut hdr = GPTHeader::new(
+            self.bdev.block_size(),
+            self.min_num_blocks(),
+            self.bdev.uuid().into(),
+        );
+
+        let mut entries = vec![GptEntry::default(); hdr.num_entries as usize];
+
+        entries[0] = GptEntry {
+            ent_type: GptGuid::from_str("27663382-e5e6-11e9-81b4-ca5ca5ca5ca5")
+                .unwrap(),
+            ent_guid: GptGuid::new_random(),
+            // 1MB aligned
+            ent_start: hdr.lba_start,
+            // 4MB
+            ent_end: hdr.lba_start
+                + u64::from((4 << 20) / self.bdev.block_size())
+                - 1,
+            ent_attr: 0,
+            ent_name: GptName {
+                name: "MayaMeta".into(),
+            },
+        };
+
+        entries[1] = GptEntry {
+            ent_type: GptGuid::from_str("27663382-e5e6-11e9-81b4-ca5ca5ca5ca5")
+                .unwrap(),
+            ent_guid: GptGuid::new_random(),
+            ent_start: entries[0].ent_end + 1,
+            ent_end: hdr.lba_end,
+            ent_attr: 0,
+            ent_name: GptName {
+                name: "MayaData".into(),
+            },
+        };
+
+        hdr.table_crc = GptEntry::checksum(&entries);
+
+        NexusLabel {
+            primary: hdr,
+            partitions: entries,
+        }
+    }
+
+    /// write the protective MBR to all children.
+    pub async fn write_pmbr(&mut self) -> Result<(), Error> {
+        let mut pmbr = Pmbr::default();
+        let mut buf = DmaBuf::new(
+            self.bdev.block_size() as usize,
+            self.bdev.alignment(),
+        )?;
+
+        // the max size with MBR is 2GB, if we are smaller however, we must
+        // ensure that we reflect that in the MBR as well even though its not
+        // used.
+
+        let size = self.bdev.num_blocks() * self.bdev.block_size() as u64;
+        pmbr.entries[0].attributes = 0x00;
+        //
+        pmbr.entries[0].chs_start = [0x00, 0x2, 0x00];
+        pmbr.entries[0].chs_last = [0xff, 0xff, 0xff];
+
+        // this indicated that we are "protective MBR", saying we use all
+        // use all storage on this device.
+
+        pmbr.entries[0].ent_type = 0xee;
+        pmbr.entries[0].num_sectors = if size < u32::max_value().into() {
+            size as u32
+        } else {
+            u32::max_value()
+        };
+
+        pmbr.signature = [0x55, 0xaa];
+
+        let mut writer = Cursor::new(buf.as_mut_slice());
+        // we seek 440 into the buffer here, this makes serialisation a little
+        // easier.
+
+        writer.seek(SeekFrom::Start(440)).unwrap();
+        serialize_into(&mut writer, &pmbr)?;
+
+        for child in &mut self.children {
+            child.write_at(0, &buf).await?;
+        }
+
+        Ok(())
+    }
+
+    /// write the gpt label to all the children.
+    pub async fn write_label(
+        &mut self,
+        buf: &mut DmaBuf,
+        label: &mut NexusLabel,
+        primary: bool,
+    ) -> Result<(), Error> {
+        let blk_size = self.bdev.block_size();
+        let mut writer = Cursor::new(buf.as_mut_slice());
+        if primary {
+            label.primary.checksum();
+
+            serialize_into(&mut writer, &label.primary)?;
+
+            writer.seek(SeekFrom::Start(u64::from(blk_size))).unwrap();
+
+            for p in &label.partitions {
+                serialize_into(&mut writer, &p)?;
+            }
+
+            for child in &mut self.children {
+                child.write_at(u64::from(blk_size), &buf).await?;
+                child.probe_label().await?;
+            }
+        } else {
+            // now, write the backup label
+            writer.seek(SeekFrom::Start(0)).unwrap();
+            let mut backup = label.primary.to_backup();
+            backup.checksum();
+
+            for p in &label.partitions {
+                serialize_into(&mut writer, &p)?;
+            }
+
+            writer.seek(SeekFrom::Start((1 << 14) as u64)).unwrap();
+
+            serialize_into(&mut writer, &backup)?;
+
+            for child in &mut self.children {
+                child
+                    .write_at(u64::from(blk_size) * (backup.lba_end + 1), &buf)
+                    .await?;
+                child.probe_label().await?;
+            }
+        }
+
+        Ok(())
+    }
+}
+
+#[derive(Debug, Deserialize, PartialEq, Default, Serialize, Clone, Copy)]
 /// based on RFC4122
 pub struct GptGuid {
     pub time_low: u32,
@@ -132,9 +278,9 @@ pub struct GPTHeader {
     /// CRC32  of the header.
     pub self_checksum: u32,
     pub reserved: [u8; 4],
-    /// primary lba where the header is located
+    /// primary lba where the header
     pub lba_self: u64,
-    /// alternative lba where the header is located (backup)
+    /// alternative lba
     pub lba_alt: u64,
     /// first usable lba
     pub lba_start: u64,
@@ -313,8 +459,8 @@ impl Display for NexusLabel {
     }
 }
 
-// for arrays bigger then 32 elements, things start to get unimplemented
-// in terms of derive and what not. So we create a struct with a string
+// for arrays bigger than 32 elements, things start to get unimplemented
+// in terms of derive and what not. So we create a struct with a string,
 // and tell serde how to use it during (de)serializing
 
 struct GpEntryNameVisitor;
@@ -336,7 +482,7 @@ impl Serialize for GptName {
     where
         S: Serializer,
     {
-        // we cant use serialize_type_struct here as we want exactly 72 bytes
+        // we can't use serialize_type_struct here as we want exactly 72 bytes
 
         let mut s = serializer.serialize_tuple(36)?;
         let mut out: Vec<u16> = vec![0; 36];
@@ -389,5 +535,52 @@ pub struct GptName {
 impl GptName {
     pub fn as_str(&self) -> &str {
         &self.name
+    }
+}
+
+/// although we don't use it, we must have a protective MBR to avoid systems
+/// to get confused about what's on the disk. Utils like sgdisk work fine
+/// without an MBR (but will warn) but as we want to be able to access the
+/// partitions with the nexus out of the data path, will create one here.
+///
+/// The struct should have a 440 byte code section here as well, this is
+/// omitted to make serialisation a bit easier.
+#[derive(Serialize, Deserialize)]
+struct Pmbr {
+    /// signature to uniquely ID the disk we do not use this
+    pub disk_signature: u32,
+    pub reserved: u16,
+    /// number of partition entries
+    pub entries: [MbrEntry; 4],
+    /// must be set to [0x55, 0xAA]
+    pub signature: [u8; 2],
+}
+
+/// the MBR partition entry
+#[derive(Serialize, Deserialize, Copy, Clone, Default)]
+pub struct MbrEntry {
+    /// attributes of this MBR partition we set these all to zero, which
+    /// includes the boot flag.
+    attributes: u8,
+    /// start in CHS format
+    chs_start: [u8; 3],
+    /// type of partition, in our case always 0xEE
+    ent_type: u8,
+    /// end of the partition
+    chs_last: [u8; 3],
+    /// lba start
+    lba_start: u32,
+    /// last sector of this partition
+    num_sectors: u32,
+}
+
+impl Default for Pmbr {
+    fn default() -> Self {
+        Pmbr {
+            disk_signature: 0,
+            reserved: 0,
+            entries: [MbrEntry::default(); 4],
+            signature: [0x55, 0xAA],
+        }
     }
 }
