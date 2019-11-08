@@ -59,13 +59,10 @@
 
 use std::{
     fmt::{Display, Formatter},
-    io::{Cursor, Seek, SeekFrom},
     ops::Neg,
     os::raw::c_void,
-    str::FromStr,
 };
 
-use bincode::serialize_into;
 use futures::channel::oneshot;
 use serde::Serialize;
 
@@ -92,7 +89,6 @@ use crate::{
             nexus_channel::{DREvent, NexusChannel, NexusChannelInner},
             nexus_child::{ChildState, NexusChild},
             nexus_io::{Bio, IoStatus},
-            nexus_label::{GPTHeader, GptEntry, GptGuid, GptName, NexusLabel},
             nexus_nbd as nbd,
             Error,
         },
@@ -274,16 +270,18 @@ impl Nexus {
         debug!("Opening nexus {}", self.name);
 
         self.try_open_children()?;
+        self.sync_labels().await?;
+        self.register()
+    }
 
-        // during open all label information needs to be consistent among the
-        // children
+    pub async fn sync_labels(&mut self) -> Result<(), Error> {
         if let Ok(label) = self.update_child_labels().await {
-            // now register the bdev but update its size first to ensure we
-            // adhere to the partitions
+            // now register the bdev but update its size first to
+            // ensure we  adhere to the partitions
 
-            // When the GUID does not match the given UUID it means that the PVC
-            // has been recreated, is such as case we should
-            // consider updating the labels
+            // When the GUID does not match the given UUID it means
+            // that the PVC has been recreated, is such as
+            // case we should consider updating the labels
 
             info!("{}: {} ", self.name, label);
             self.data_ent_offset = label.offset();
@@ -311,9 +309,11 @@ impl Nexus {
             self.write_label(&mut buf, &mut label, true).await?;
             self.write_label(&mut buf, &mut label, false).await?;
             info!("{}: {} ", self.name, label);
+
+            self.write_pmbr().await?;
         }
 
-        self.register()
+        Ok(())
     }
 
     /// close the nexus and any children that are open
@@ -418,102 +418,6 @@ impl Nexus {
 
         self.set_state(NexusState::Online);
         info!("{}", self);
-        Ok(())
-    }
-
-    /// generate a new nexus label based on the nexus configuration. The meta
-    /// partition is fixed in size and aligned to a 1MB boundary
-    pub(crate) fn generate_label(&mut self) -> NexusLabel {
-        let mut hdr = GPTHeader::new(
-            self.bdev.block_size(),
-            self.min_num_blocks(),
-            self.bdev.uuid().into(),
-        );
-
-        let mut entries = vec![GptEntry::default(); hdr.num_entries as usize];
-
-        entries[0] = GptEntry {
-            ent_type: GptGuid::from_str("27663382-e5e6-11e9-81b4-ca5ca5ca5ca5")
-                .unwrap(),
-            ent_guid: GptGuid::new_random(),
-            // 1MB aligned
-            ent_start: hdr.lba_start,
-            // 4MB
-            ent_end: hdr.lba_start
-                + u64::from((4 << 20) / self.bdev.block_size())
-                - 1,
-            ent_attr: 0,
-            ent_name: GptName {
-                name: "MayaMeta".into(),
-            },
-        };
-
-        entries[1] = GptEntry {
-            ent_type: GptGuid::from_str("27663382-e5e6-11e9-81b4-ca5ca5ca5ca5")
-                .unwrap(),
-            ent_guid: GptGuid::new_random(),
-            ent_start: entries[0].ent_end + 1,
-            ent_end: hdr.lba_end,
-            ent_attr: 0,
-            ent_name: GptName {
-                name: "MayaData".into(),
-            },
-        };
-
-        hdr.table_crc = GptEntry::checksum(&entries);
-
-        NexusLabel {
-            primary: hdr,
-            partitions: entries,
-        }
-    }
-
-    pub async fn write_label(
-        &mut self,
-        buf: &mut DmaBuf,
-        label: &mut NexusLabel,
-        primary: bool,
-    ) -> Result<(), Error> {
-        let blk_size = self.bdev.block_size();
-        let mut writer = Cursor::new(buf.as_mut_slice());
-        if primary {
-            label.primary.checksum();
-
-            serialize_into(&mut writer, &label.primary)?;
-
-            writer.seek(SeekFrom::Start(u64::from(blk_size))).unwrap();
-
-            for p in &label.partitions {
-                serialize_into(&mut writer, &p)?;
-            }
-
-            for child in &mut self.children {
-                child.write_at(u64::from(blk_size), &buf).await?;
-                child.probe_label().await?;
-            }
-        } else {
-            // now, write the backup label
-            writer.seek(SeekFrom::Start(0)).unwrap();
-            let mut backup = label.primary.to_backup();
-            backup.checksum();
-
-            for p in &label.partitions {
-                serialize_into(&mut writer, &p)?;
-            }
-
-            // depending on the number of entries we need to adjust cursor
-            writer.seek(SeekFrom::Start((1 << 14) as u64)).unwrap();
-
-            serialize_into(&mut writer, &backup)?;
-
-            for child in &mut self.children {
-                child
-                    .write_at(u64::from(blk_size) * (backup.lba_end + 1), &buf)
-                    .await?;
-                child.probe_label().await?;
-            }
-        }
-
         Ok(())
     }
 
