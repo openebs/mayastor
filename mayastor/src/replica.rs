@@ -248,7 +248,7 @@ impl Replica {
     /// Get size of the replica in bytes.
     pub fn get_size(&self) -> u64 {
         let bdev: Bdev = unsafe { (*self.lvol_ptr).bdev.into() };
-        u64::from(bdev.block_size()) * bdev.num_blocks()
+        u64::from(bdev.block_len()) * bdev.num_blocks()
     }
 
     /// Get name of the pool which replica belongs to.

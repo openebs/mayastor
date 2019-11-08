@@ -19,7 +19,7 @@ async fn works() {
         "aio:////disk1.img?blk_size=512".to_string(),
         "aio:////disk2.img?blk_size=512".into(),
     ];
-    let name = nexus_create("hello", 512, 131_072, None, &children).await;
+    let name = nexus_create("hello", 512 * 131_072, None, &children).await;
 
     if let Err(name) = name {
         error!("{:?}", name);

@@ -73,7 +73,7 @@ async fn works() {
 
     let children = vec![child1.clone(), child2.clone()];
 
-    nexus_create("hello", 512, 131_072, None, &children)
+    nexus_create("hello", 512 * 131_072, None, &children)
         .await
         .unwrap();
 

@@ -82,7 +82,7 @@ impl Display for NexusChild {
                 self.name,
                 self.state,
                 bdev.num_blocks(),
-                bdev.block_size(),
+                bdev.block_len(),
             )
         } else {
             writeln!(f, "{}: state {:?}", self.name, self.state)
@@ -94,29 +94,15 @@ impl NexusChild {
     /// open the child bdev, assumes RW
     pub(crate) fn open(
         &mut self,
-        num_blocks: u64,
-        blk_size: u32,
+        parent_size: u64,
     ) -> Result<String, nexus::Error> {
-        trace!("{}: Opening child {}", self.parent, self.name);
+        trace!("{}: Opening child device {}", self.parent, self.name);
 
-        if self.bdev.as_ref()?.block_size() != blk_size {
+        let child_size = self.bdev.as_ref()?.size_in_bytes();
+        if parent_size > child_size {
             error!(
-                "{}: Invalid block size for {}, wanted: {} got {}",
-                self.parent,
-                self.name,
-                blk_size,
-                self.bdev.as_ref()?.block_size(),
-            );
-            self.state = ChildState::ConfigInvalid;
-            return Err(nexus::Error::Invalid);
-        }
-
-        if num_blocks > self.bdev.as_ref()?.num_blocks() {
-            error!(
-                "{}: child can not be larger then parent {} >= {}",
-                self.parent,
-                num_blocks,
-                self.bdev.as_ref()?.num_blocks()
+                "{}: child {} to small  ({} vs {})",
+                self.parent, self.name, parent_size, child_size,
             );
 
             self.state = ChildState::ConfigInvalid;
@@ -170,7 +156,7 @@ impl NexusChild {
             desc: self.desc,
             ch: self.get_io_channel(),
             alignment: self.bdev.as_ref()?.alignment(),
-            blk_size: self.bdev.as_ref()?.block_size(),
+            blk_size: self.bdev.as_ref()?.block_len(),
         });
 
         debug!("{}: child {} opened successfully", self.parent, self.name);
@@ -255,7 +241,7 @@ impl NexusChild {
             return Err(nexus::Error::Invalid);
         }
 
-        let block_size = self.bdev.as_ref()?.block_size();
+        let block_size = self.bdev.as_ref()?.block_len();
 
         let primary = u64::from(block_size);
         let secondary = self.bdev.as_ref()?.num_blocks() - 1;
@@ -304,7 +290,7 @@ impl NexusChild {
 
         // some tools write 128 partition entries, even though only two are
         // created, in any case we are only ever interested in the first two
-        // partitions so we drain the others.
+        // partitions, so we drain the others.
         let parts = partitions.drain(.. 2).collect::<Vec<_>>();
 
         let nl = NexusLabel {
@@ -315,7 +301,7 @@ impl NexusChild {
         Ok(nl)
     }
 
-    /// write to this child
+    /// write the contents of the buffer to  this child
     pub async fn write_at(
         &self,
         offset: u64,
@@ -324,7 +310,7 @@ impl NexusChild {
         Ok(self.descriptor.as_ref()?.write_at(offset, buf).await?)
     }
 
-    /// read from this child device
+    /// read from this child device into the given buffer
     pub async fn read_at(
         &self,
         offset: u64,
@@ -333,7 +319,7 @@ impl NexusChild {
         Ok(self.descriptor.as_ref()?.read_at(offset, buf).await?)
     }
 
-    /// get a dmba buffer that is aligned to this child
+    /// get a dma buffer that is aligned to this child
     pub fn get_buf(&self, size: usize) -> Option<DmaBuf> {
         self.descriptor.as_ref()?.dma_malloc(size)
     }

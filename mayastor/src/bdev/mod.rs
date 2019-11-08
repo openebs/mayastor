@@ -115,7 +115,7 @@ impl Bdev {
     }
 
     /// returns the block_size of the underlying device
-    pub fn block_size(&self) -> u32 {
+    pub fn block_len(&self) -> u32 {
         unsafe { spdk_bdev_get_block_size(self.inner) }
     }
 
@@ -124,10 +124,22 @@ impl Bdev {
         unsafe { spdk_bdev_get_num_blocks(self.inner) }
     }
 
-    pub fn set_num_blocks(&self, count: u64) {
+    /// set the block count of this device
+    pub fn set_block_count(&self, count: u64) {
         unsafe {
             (*self.inner).blockcnt = count;
         }
+    }
+
+    /// set the blocklen of the device in bytes
+    pub fn set_block_len(&self, len: u32) {
+        unsafe {
+            (*self.inner).blocklen = len;
+        }
+    }
+
+    pub fn size_in_bytes(&self) -> u64 {
+        self.num_blocks() * self.block_len() as u64
     }
 
     /// whenever the underlying device needs alignment to the page size

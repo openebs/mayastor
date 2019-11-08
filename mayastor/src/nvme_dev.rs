@@ -158,7 +158,7 @@ impl NvmfBdev {
     /// destroy a nvme_bdev directly
     pub fn destroy(self) -> Result<(), nexus::Error> {
         let mut name = self.name;
-        name.split_off(name.len() - 2);
+        let name = name.split_off(name.len() - 2);
         let cname = CString::new(name).unwrap();
         let res = unsafe { spdk_sys::spdk_bdev_nvme_delete(cname.as_ptr()) };
 
