@@ -106,7 +106,10 @@ impl NexusChild {
             );
 
             self.state = ChildState::ConfigInvalid;
-            return Err(nexus::Error::Invalid);
+            return Err(nexus::Error::Invalid(
+                "requested nexus size is larger than some of its children"
+                    .into(),
+            ));
         }
 
         let mut rc = unsafe {
@@ -223,7 +226,10 @@ impl NexusChild {
             }
         } else {
             // a bdev type we dont support is being used by the nexus
-            Err(nexus::Error::Invalid)
+            Err(nexus::Error::Invalid(format!(
+                "requested bdev: {} type is not supported by the nexus",
+                self.name
+            )))
         }
     }
 
@@ -238,7 +244,10 @@ impl NexusChild {
                 self.parent, self.name
             );
             // TODO add better errors
-            return Err(nexus::Error::Invalid);
+            return Err(nexus::Error::Invalid(format!(
+                "{}: child {} is read only",
+                self.parent, self.name
+            )));
         }
 
         let block_size = self.bdev.as_ref()?.block_len();
@@ -263,7 +272,10 @@ impl NexusChild {
                 "{}: {}: Primary and backup label are invalid!",
                 self.parent, self.name
             );
-            return Err(Error::Invalid);
+            return Err(Error::Invalid(format!(
+                "{}: {}: Primary and backup label are invalid!",
+                self.parent, self.name
+            )));
         }
 
         let label = label.unwrap();
@@ -285,7 +297,10 @@ impl NexusChild {
 
         if GptEntry::checksum(&partitions) != label.table_crc {
             info!("{}: {}: Partition crc invalid!", self.parent, self.name);
-            return Err(Error::Invalid);
+            return Err(Error::Invalid(format!(
+                "{}: {}: Partition crc invalid!",
+                self.parent, self.name
+            )));
         }
 
         // some tools write 128 partition entries, even though only two are

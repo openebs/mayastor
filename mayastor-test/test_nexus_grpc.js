@@ -120,6 +120,12 @@ describe('nexus_grpc', function() {
               client.listPools({}, pingDone);
             }, next);
           },
+          next => {
+            exec('truncate -s 64m /tmp/nexus_disk1', (err, stdout, stderr) => {
+              if (err) return next(err);
+              next();
+            });
+          },
           common.ensureNbdWritable,
         ],
         done
@@ -316,6 +322,37 @@ describe('nexus_grpc', function() {
           client.DestroyNexus({ uuid: UUID }, done);
         }
       );
+    });
+
+    it('should fail to create a nexus with mixed block sizes', done => {
+      let args = {
+        uuid: UUID,
+        size: 131072,
+        children: [
+          'iscsi://127.0.0.1:3261/iqn.2016-06.io.openebs:disk0',
+          'aio:///tmp/nexus_disk1?blk_size=512',
+        ],
+      };
+      client.CreateNexus(args, (err, data) => {
+        if (err) return done();
+        done(err);
+      });
+    });
+
+    it('should fail to create a nexus where the requested size is larger than the largest child', done => {
+      let args = {
+        uuid: UUID,
+        size: 65 * 1024 * 1024,
+        children: [
+          'iscsi://127.0.0.1:3261/iqn.2016-06.io.openebs:disk0',
+          'aio:///tmp/nexus_disk1?blk_size=4096',
+        ],
+      };
+
+      client.CreateNexus(args, (err, data) => {
+        if (err) return done();
+        done(err);
+      });
     });
   });
 });

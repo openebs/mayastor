@@ -166,7 +166,9 @@ impl NvmfBdev {
             libc::ENODEV => Err(nexus::Error::NotFound),
             libc::ENOMEM => Err(nexus::Error::OutOfMemory),
             0 => Ok(()),
-            _ => Err(nexus::Error::Invalid),
+            _ => Err(nexus::Error::Internal(
+                "Failed to delete nvme device".into(),
+            )),
         }
     }
 }

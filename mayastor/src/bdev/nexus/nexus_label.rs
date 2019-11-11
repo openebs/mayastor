@@ -306,7 +306,7 @@ impl GPTHeader {
             || gpt.signature != [0x45, 0x46, 0x49, 0x20, 0x50, 0x41, 0x52, 0x54]
             || gpt.revision != [0x00, 0x00, 0x01, 0x00]
         {
-            return Err(Error::Invalid);
+            return Err(Error::Invalid("GPT header size is invalid".into()));
         }
 
         let crc = gpt.self_checksum;
@@ -315,7 +315,7 @@ impl GPTHeader {
 
         if gpt.self_checksum != crc {
             info!("GPT label crc mismatch");
-            return Err(Error::Invalid);
+            return Err(Error::Invalid("GPT label crc mismatch".into()));
         }
 
         if gpt.lba_self > gpt.lba_alt {

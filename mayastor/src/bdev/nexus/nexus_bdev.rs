@@ -411,7 +411,10 @@ impl Nexus {
             self.children.iter_mut().map(|c| c.close()).for_each(drop);
             self.set_state(NexusState::Faulted);
             return Err(match rc.neg() {
-                libc::EINVAL => Error::Invalid,
+                libc::EINVAL => Error::Invalid(
+                    "trying to register device that with invalid parameters"
+                        .into(),
+                ),
                 libc::EEXIST => Error::Exists,
                 libc::ENOMEM => Error::OutOfMemory,
                 _ => Error::Internal("Failed to register bdev".to_owned()),

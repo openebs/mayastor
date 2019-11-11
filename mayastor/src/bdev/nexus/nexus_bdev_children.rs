@@ -159,7 +159,9 @@ impl Nexus {
             .any(|b| b.bdev.as_ref().unwrap().block_len() != blk_size)
         {
             error!("{}: children have mixed block sizes", self.name);
-            return Err(Error::Invalid);
+            return Err(Error::Invalid(
+                "children have mixed block sizes".into(),
+            ));
         }
 
         self.bdev.set_block_len(blk_size);
@@ -224,7 +226,9 @@ impl Nexus {
         let (ret, err): (Vec<_>, Vec<_>) =
             join_all(futures).await.into_iter().partition(Result::is_ok);
         if !err.is_empty() {
-            return Err(Error::Invalid);
+            return Err(Error::Internal(
+                "failed to probe all child labels".into(),
+            ));
         }
 
         let mut ret: Vec<NexusLabel> =
@@ -232,7 +236,7 @@ impl Nexus {
 
         // verify that all labels are equal
         if ret.iter().skip(1).any(|e| e != &ret[0]) {
-            return Err(Error::Invalid);
+            return Err(Error::Invalid("GPT labels differ".into()));
         }
 
         Ok(ret.pop().unwrap())
