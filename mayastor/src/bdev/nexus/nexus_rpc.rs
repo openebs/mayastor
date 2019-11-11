@@ -50,7 +50,7 @@ fn nexus_lookup(uuid: &str) -> Result<&mut Nexus, JsonRpcError> {
 /// Convert nexus name to uuid.
 ///
 /// This function never fails which means that if there is a nexus with
-/// unconventional name which likely means it was not created using nexus
+/// unconventional name that likely means it was not created using nexus
 /// jsonrpc api, we return the whole name without modifications as it is.
 fn name_to_uuid(name: &str) -> &str {
     if name.starts_with("nexus-") {
@@ -108,6 +108,9 @@ pub(crate) fn register_rpc_methods() {
                     Code::InternalError,
                     "child bdev already exists",
                 )),
+                Err(Error::Invalid(msg)) => {
+                    Err(JsonRpcError::new(Code::InternalError, msg))
+                }
                 Err(_) => Err(JsonRpcError::new(
                     Code::InternalError,
                     "failed to create nexus",

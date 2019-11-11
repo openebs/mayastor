@@ -13,20 +13,20 @@ use std::option::NoneError;
 pub enum Error {
     /// Nobody knows
     Internal(String),
-    /// spdk functions are called on a non SPDK thread
+    /// function is not called in the context of an SPDK thread
     InvalidThread,
     /// OOM but its not possible to know if this is spdk_dma_malloc() or
     /// malloc()
     OutOfMemory,
-    /// the bdev is already claimed by some other parent
+    /// the bdev is already claimed by device
     AlreadyClaimed,
-    /// the bdev can can only be opened RO as its been claimed with write
+    /// the bdev can can only be opened RO as it's been claimed with write
     /// options already
     ReadOnly,
-    /// resource does not exist or can not be found (i.e bdev, share etc)
+    /// resource does not exist or cannot be found (i.e bdev, share etc)
     NotFound,
-    /// Invalid arguments
-    Invalid,
+    /// Invalid arguments or incompatible arguments for creating the nexus
+    Invalid(String),
     /// the bdev creation failed
     CreateFailed,
     /// a bdev with either the same name or alias already exists
@@ -50,8 +50,8 @@ impl From<std::ffi::NulError> for Error {
 }
 
 impl From<nexus_uri::UriError> for Error {
-    fn from(_: UriError) -> Self {
-        Error::Invalid
+    fn from(e: UriError) -> Self {
+        Error::Invalid(format!("{:?}", e))
     }
 }
 
@@ -75,7 +75,7 @@ impl From<i32> for Error {
 
 impl From<NoneError> for Error {
     fn from(_e: NoneError) -> Self {
-        Error::Invalid
+        Error::Internal("Expected Some(T) found None".into())
     }
 }
 
