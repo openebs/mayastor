@@ -16,13 +16,25 @@ use futures::{
     future::{self, FutureExt},
 };
 use rpc::mayastor::{
-    CreateReplicaReply, CreateReplicaRequest, DestroyReplicaRequest,
-    ListReplicasReply, Replica as ReplicaJson, ReplicaStats, ShareProtocol,
-    ShareReplicaReply, ShareReplicaRequest, StatReplicasReply, Stats,
+    CreateReplicaReply,
+    CreateReplicaRequest,
+    DestroyReplicaRequest,
+    ListReplicasReply,
+    Replica as ReplicaJson,
+    ReplicaStats,
+    ShareProtocol,
+    ShareReplicaReply,
+    ShareReplicaRequest,
+    StatReplicasReply,
+    Stats,
 };
 use spdk_sys::{
-    spdk_lvol, vbdev_lvol_create, vbdev_lvol_destroy, vbdev_lvol_get_from_bdev,
-    LVOL_CLEAR_WITH_UNMAP, LVOL_CLEAR_WITH_WRITE_ZEROES,
+    spdk_lvol,
+    vbdev_lvol_create,
+    vbdev_lvol_destroy,
+    vbdev_lvol_get_from_bdev,
+    LVOL_CLEAR_WITH_UNMAP,
+    LVOL_CLEAR_WITH_WRITE_ZEROES,
     SPDK_BDEV_IO_TYPE_UNMAP,
 };
 use std::ffi::{c_void, CStr, CString};
@@ -112,7 +124,9 @@ impl Replica {
         match receiver.await.expect("Cancellation is not supported") {
             Ok(lvol_ptr) => {
                 info!("Created replica {} on pool {}", uuid, pool.get_name());
-                Ok(Self { lvol_ptr })
+                Ok(Self {
+                    lvol_ptr,
+                })
             }
             Err(errno) => Err(JsonRpcError::new(
                 Code::InvalidParams,
@@ -129,7 +143,9 @@ impl Replica {
                 if lvol.is_null() {
                     None
                 } else {
-                    Some(Self { lvol_ptr: lvol })
+                    Some(Self {
+                        lvol_ptr: lvol,
+                    })
                 }
             }
             None => None,
@@ -313,7 +329,9 @@ pub struct ReplicaIter {
 
 impl ReplicaIter {
     pub fn new() -> ReplicaIter {
-        ReplicaIter { bdev: None }
+        ReplicaIter {
+            bdev: None,
+        }
     }
 }
 
@@ -341,7 +359,9 @@ impl Iterator for ReplicaIter {
                     let parts: Vec<&str> = alias.split('/').collect();
 
                     if parts.len() == 2 && bdev.name() == parts[1] {
-                        let replica = Replica { lvol_ptr: lvol };
+                        let replica = Replica {
+                            lvol_ptr: lvol,
+                        };
 
                         if replica.get_pool_name() == parts[0] {
                             // we found a replica
@@ -460,7 +480,9 @@ pub fn register_replica_methods() {
                     }
                 }
             }
-            Ok(StatReplicasReply { replicas: stats })
+            Ok(StatReplicasReply {
+                replicas: stats,
+            })
         };
         fut.boxed_local()
     });

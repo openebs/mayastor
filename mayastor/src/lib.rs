@@ -14,6 +14,7 @@ extern crate num_derive;
 pub mod aio_dev;
 pub mod bdev;
 pub mod descriptor;
+pub mod event;
 pub mod executor;
 pub mod iscsi_dev;
 pub mod iscsi_target;
@@ -21,17 +22,23 @@ pub mod jsonrpc;
 pub mod nexus_uri;
 pub mod nvme_dev;
 pub mod nvmf_target;
+pub mod poller;
 pub mod pool;
+pub mod rebuild;
 pub mod replica;
 pub mod spdklog;
-
 use libc::{c_char, c_int};
 use spdk_sys::{
-    spdk_app_fini, spdk_app_opts, spdk_app_opts_init, spdk_app_parse_args,
-    spdk_app_start, spdk_app_stop,
+    spdk_app_fini,
+    spdk_app_opts,
+    spdk_app_opts_init,
+    spdk_app_parse_args,
+    spdk_app_start,
+    spdk_app_stop,
 };
 use std::{
     boxed::Box,
+    env,
     ffi::{c_void, CString},
     iter::Iterator,
     ptr::null_mut,
@@ -87,7 +94,22 @@ where
         spdk_app_opts_init(&mut opts as *mut spdk_app_opts);
         opts.rpc_addr =
             CString::new("/var/tmp/mayastor.sock").unwrap().into_raw();
-        opts.print_level = spdk_sys::SPDK_LOG_INFO;
+
+        if let Ok(log_level) = env::var("MAYASTOR_LOGLEVEL") {
+            opts.print_level = match log_level.parse() {
+                Ok(-1) => spdk_sys::SPDK_LOG_DISABLED,
+                Ok(0) => spdk_sys::SPDK_LOG_ERROR,
+                Ok(1) => spdk_sys::SPDK_LOG_WARN,
+                Ok(2) => spdk_sys::SPDK_LOG_NOTICE,
+                Ok(3) => spdk_sys::SPDK_LOG_INFO,
+                Ok(4) => spdk_sys::SPDK_LOG_DEBUG,
+                // default
+                _ => spdk_sys::SPDK_LOG_DEBUG,
+            }
+        } else {
+            opts.print_level = spdk_sys::SPDK_LOG_NOTICE;
+        }
+
         if spdk_app_parse_args(
             (c_args.len() as c_int) - 1,
             c_args.as_ptr() as *mut *mut i8,
@@ -148,7 +170,7 @@ where
     replica::register_replica_methods();
     if let Err(msg) = iscsi_target::init_iscsi() {
         error!("Failed to initialize Mayastor iscsi: {}", msg);
-        spdk_stop(-1);
+        mayastor_stop(-1);
         return;
     }
 
@@ -165,9 +187,9 @@ where
     executor::spawn(fut);
 }
 
-/// Cleanly exit from program.
+/// Cleanly exit from the program.
 /// NOTE: cannot be called from a future -> double borrow of executor.
-pub fn spdk_stop(rc: i32) {
+pub fn mayastor_stop(rc: i32) {
     if let Err(msg) = iscsi_target::fini_iscsi() {
         error!("Failed to finalize iscsi: {}", msg);
     }
@@ -181,5 +203,5 @@ pub fn spdk_stop(rc: i32) {
 
 /// A callback called by spdk when it is shutting down.
 extern "C" fn mayastor_shutdown_cb() {
-    spdk_stop(0);
+    mayastor_stop(0);
 }

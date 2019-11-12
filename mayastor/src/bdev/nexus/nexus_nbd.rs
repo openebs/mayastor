@@ -5,8 +5,11 @@ use futures::channel::oneshot;
 use futures_timer::Delay;
 use nix::{convert_ioctl_res, libc};
 use spdk_sys::{
-    spdk_nbd_disk, spdk_nbd_disk_find_by_nbd_path, spdk_nbd_get_path,
-    spdk_nbd_start, spdk_nbd_stop,
+    spdk_nbd_disk,
+    spdk_nbd_disk_find_by_nbd_path,
+    spdk_nbd_get_path,
+    spdk_nbd_start,
+    spdk_nbd_stop,
 };
 use std::{
     convert::TryInto,
@@ -26,7 +29,7 @@ const IOCTL_BLKGETSIZE: u32 = ior!(0x12, 114, std::mem::size_of::<u64>());
 async fn wait_until_ready(path: &str) -> Result<(), ()> {
     let device_size: u32 = 0;
     // each iteration sleeps 100ms => total time out is 10s
-    for _i in 1i32..100 {
+    for _i in 1i32 .. 100 {
         let _ = Delay::new(Duration::from_millis(100)).await;
 
         let f = OpenOptions::new().read(true).open(Path::new(&path));
@@ -64,7 +67,7 @@ pub fn find_unused() -> Result<String, Error> {
         parse_value(Path::new("/sys/class/modules/nbd/parameters"), "nbds_max")
             .unwrap_or(16);
 
-    for i in 0..nbd_max {
+    for i in 0 .. nbd_max {
         let name = format!("nbd{}", i);
         match parse_value::<u32>(
             Path::new(&format!("/sys/class/block/{}", name)),
@@ -164,7 +167,9 @@ impl Disk {
                         device_path,
                     )
                 }
-                Ok(Self { nbd_ptr })
+                Ok(Self {
+                    nbd_ptr,
+                })
             }
             Err(e) => Err(e),
         }

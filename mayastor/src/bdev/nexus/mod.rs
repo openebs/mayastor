@@ -1,8 +1,10 @@
 #![allow(clippy::vec_box)]
 use crate::{
     bdev::nexus::{
-        nexus_bdev::Nexus, nexus_fn_table::NexusFnTable,
-        nexus_module::NexusModule, nexus_rpc::register_rpc_methods,
+        nexus_bdev::Nexus,
+        nexus_fn_table::NexusFnTable,
+        nexus_module::NexusModule,
+        nexus_rpc::register_rpc_methods,
     },
     nexus_uri::{self, UriError},
 };
@@ -77,7 +79,7 @@ mod nexus_channel;
 mod nexus_child;
 mod nexus_config;
 mod nexus_fn_table;
-mod nexus_io;
+pub mod nexus_io;
 pub mod nexus_label;
 pub mod nexus_module;
 pub mod nexus_nbd;

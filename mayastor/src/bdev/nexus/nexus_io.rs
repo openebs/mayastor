@@ -7,6 +7,8 @@ use crate::bdev::{
     nexus::nexus_bdev::{Nexus, NEXUS_PRODUCT_ID},
     Bdev,
 };
+use core::fmt;
+use std::fmt::{Debug, Formatter};
 
 /// NioCtx provides context on a per IO basis
 #[derive(Debug, Clone)]
@@ -27,7 +29,6 @@ pub struct NioCtx {
 /// other testing performed is creating a mirror of two devices and deconstruct
 /// the mirror and mount the individual children without a nexus driver, and use
 /// filesystem checks.
-#[derive(Debug)]
 pub(crate) struct Bio {
     pub io: *mut spdk_bdev_io,
 }
@@ -85,7 +86,9 @@ pub enum IoStatus {
 
 impl From<*mut spdk_bdev_io> for Bio {
     fn from(io: *mut spdk_bdev_io) -> Self {
-        Bio { io }
+        Bio {
+            io,
+        }
     }
 }
 
@@ -218,5 +221,17 @@ impl Bio {
 
             slice[0].iov_base.is_null()
         }
+    }
+}
+
+impl Debug for Bio {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        writeln!(
+            f,
+            "offset: {:?}, bytes: {:?}, type: {:?} ",
+            self.offset(),
+            self.num_blocks(),
+            Bio::io_type(self.io).unwrap()
+        )
     }
 }

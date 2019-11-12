@@ -4,7 +4,9 @@
 use crate::{bdev::nexus, executor::cb_arg, nexus_uri::UriError};
 use futures::channel::oneshot;
 use spdk_sys::{
-    spdk_bdev_nvme_create, SPDK_NVME_TRANSPORT_TCP, SPDK_NVMF_ADRFAM_IPV4,
+    spdk_bdev_nvme_create,
+    SPDK_NVME_TRANSPORT_TCP,
+    SPDK_NVMF_ADRFAM_IPV4,
 };
 use std::{convert::TryFrom, ffi::CString, fmt, os::raw::c_void};
 use url::Url;
