@@ -17,7 +17,9 @@ use libc::c_void;
 use spdk_sys::{spdk_poller, spdk_poller_register, spdk_poller_unregister};
 use std::{
     cell::{Cell, RefCell},
-    fmt, ptr, thread,
+    fmt,
+    ptr,
+    thread,
 };
 
 /// Everything we need to store to thread local storage (kinda global state) to

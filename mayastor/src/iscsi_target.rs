@@ -11,13 +11,19 @@ use crate::{
 };
 use futures::channel::oneshot;
 use spdk_sys::{
-    spdk_bdev_get_name, spdk_iscsi_find_tgt_node,
+    spdk_bdev_get_name,
+    spdk_iscsi_find_tgt_node,
     spdk_iscsi_init_grp_create_from_initiator_list,
-    spdk_iscsi_init_grp_destroy, spdk_iscsi_init_grp_unregister,
-    spdk_iscsi_portal_create, spdk_iscsi_portal_grp_add_portal,
-    spdk_iscsi_portal_grp_create, spdk_iscsi_portal_grp_open,
-    spdk_iscsi_portal_grp_register, spdk_iscsi_portal_grp_release,
-    spdk_iscsi_portal_grp_unregister, spdk_iscsi_shutdown_tgt_node_by_name,
+    spdk_iscsi_init_grp_destroy,
+    spdk_iscsi_init_grp_unregister,
+    spdk_iscsi_portal_create,
+    spdk_iscsi_portal_grp_add_portal,
+    spdk_iscsi_portal_grp_create,
+    spdk_iscsi_portal_grp_open,
+    spdk_iscsi_portal_grp_register,
+    spdk_iscsi_portal_grp_release,
+    spdk_iscsi_portal_grp_unregister,
+    spdk_iscsi_shutdown_tgt_node_by_name,
     spdk_iscsi_tgt_node_construct,
 };
 use std::{

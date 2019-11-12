@@ -33,7 +33,10 @@ impl Error {
     /// we can't since both Status type and From trait are external.
     pub fn into_status(self) -> Status {
         match self {
-            Error::RpcError { code, msg } => {
+            Error::RpcError {
+                code,
+                msg,
+            } => {
                 let code = match code {
                     RpcCode::InvalidParams => Code::InvalidArgument,
                     RpcCode::NotFound => Code::NotFound,
@@ -52,14 +55,16 @@ impl fmt::Display for Error {
         match self {
             Error::InvalidVersion => write!(f, "Invalid json-rpc version"),
             Error::InvalidReplyId => write!(f, "Invalid ID of json-rpc reply"),
-            Error::ConnectError { sock, err } => {
-                write!(f, "Error connecting to {}: {}", sock, err)
-            }
+            Error::ConnectError {
+                sock,
+                err,
+            } => write!(f, "Error connecting to {}: {}", sock, err),
             Error::IoError(err) => write!(f, "IO error: {}", err),
             Error::ParseError(err) => write!(f, "Invalid json reply: {}", err),
-            Error::RpcError { code, msg } => {
-                write!(f, "Json-rpc error {:?}: {}", code, msg)
-            }
+            Error::RpcError {
+                code,
+                msg,
+            } => write!(f, "Json-rpc error {:?}: {}", code, msg),
             Error::GenericError(msg) => write!(f, "{}", msg),
         }
     }

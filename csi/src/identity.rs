@@ -48,7 +48,9 @@ impl server::Identity for Identity {
                 .into_iter()
                 .map(|c| PluginCapability {
                     r#type: Some(plugin_capability::Type::Service(
-                        plugin_capability::Service { r#type: c as i32 },
+                        plugin_capability::Service {
+                            r#type: c as i32,
+                        },
                     )),
                 })
                 .collect(),
@@ -67,7 +69,9 @@ impl server::Identity for Identity {
         .await;
 
         if let Ok(f) = f {
-            Ok(Response::new(ProbeResponse { ready: Some(f) }))
+            Ok(Response::new(ProbeResponse {
+                ready: Some(f),
+            }))
         } else {
             Err(Status::new(Code::Unavailable, "MayaStor is is not running"))
         }

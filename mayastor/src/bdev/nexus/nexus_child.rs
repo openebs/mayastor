@@ -15,8 +15,11 @@ use crate::{
 use crate::descriptor::DmaBuf;
 use serde::{export::Formatter, Serialize};
 use spdk_sys::{
-    spdk_bdev_close, spdk_bdev_desc, spdk_bdev_get_io_channel,
-    spdk_bdev_module_release_bdev, spdk_io_channel,
+    spdk_bdev_close,
+    spdk_bdev_desc,
+    spdk_bdev_get_io_channel,
+    spdk_bdev_module_release_bdev,
+    spdk_io_channel,
 };
 use std::{fmt::Display, ops::Neg};
 
@@ -313,7 +316,7 @@ impl NexusChild {
         // some tools write 128 partition entries, even though only two are
         // created, in any case we are only ever interested in the first two
         // partitions, so we drain the others.
-        let parts = partitions.drain(..2).collect::<Vec<_>>();
+        let parts = partitions.drain(.. 2).collect::<Vec<_>>();
 
         let nl = NexusLabel {
             primary: label,

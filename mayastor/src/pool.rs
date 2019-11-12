@@ -15,12 +15,21 @@ use futures::{
 };
 use rpc::jsonrpc as jsondata;
 use spdk_sys::{
-    bdev_aio_delete, create_aio_bdev, lvol_store_bdev,
-    spdk_bs_free_cluster_count, spdk_bs_get_cluster_size,
-    spdk_bs_total_data_cluster_count, spdk_lvol_store,
-    vbdev_get_lvol_store_by_name, vbdev_get_lvs_bdev_by_lvs,
-    vbdev_lvol_store_first, vbdev_lvol_store_next, vbdev_lvs_create,
-    vbdev_lvs_destruct, vbdev_lvs_examine, LVS_CLEAR_WITH_NONE,
+    bdev_aio_delete,
+    create_aio_bdev,
+    lvol_store_bdev,
+    spdk_bs_free_cluster_count,
+    spdk_bs_get_cluster_size,
+    spdk_bs_total_data_cluster_count,
+    spdk_lvol_store,
+    vbdev_get_lvol_store_by_name,
+    vbdev_get_lvs_bdev_by_lvs,
+    vbdev_lvol_store_first,
+    vbdev_lvol_store_next,
+    vbdev_lvs_create,
+    vbdev_lvs_destruct,
+    vbdev_lvs_examine,
+    LVS_CLEAR_WITH_NONE,
 };
 use std::{
     ffi::{c_void, CStr, CString},
@@ -313,7 +322,9 @@ pub struct PoolsIter {
 
 impl PoolsIter {
     pub fn new() -> Self {
-        Self { lvs_bdev_ptr: None }
+        Self {
+            lvs_bdev_ptr: None,
+        }
     }
 }
 
