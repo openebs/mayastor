@@ -5,8 +5,7 @@ use mayastor::{
         Bdev,
     },
     descriptor::Descriptor,
-    mayastor_start,
-    spdk_stop,
+    mayastor_start, spdk_stop,
 };
 
 use std::process::Command;
@@ -55,7 +54,7 @@ fn reconfigure() {
 }
 
 fn buf_compare(first: &[u8], second: &[u8]) {
-    for i in 0 .. first.len() {
+    for i in 0..first.len() {
         assert_eq!(first[i], second[i]);
     }
 }
@@ -98,7 +97,7 @@ async fn works() {
     let mut buf2 = cd2.dma_zmalloc(4096).unwrap();
 
     // write out 0xff to the nexus, all children should have the same
-    for i in 0 .. 10 {
+    for i in 0..10 {
         nd.write_at(i * 4096, &buf).await.unwrap();
     }
 
@@ -106,7 +105,7 @@ async fn works() {
     stats_compare(&bdev1, &bdev2).await;
 
     // compare all buffers byte for byte
-    for i in 0 .. 10 {
+    for i in 0..10 {
         // account for the offset (in number of blocks)
         cd1.read_at((i * 4096) + (10240 * 512), &mut buf1)
             .await
@@ -124,12 +123,12 @@ async fn works() {
     nexus.offline_child(&child2).await.unwrap();
 
     // write 0xF0 to the nexus
-    for i in 0 .. 10 {
+    for i in 0..10 {
         nd.write_at(i * 4096, &buf).await.unwrap();
     }
 
     // verify that only child2 has the 0xF0 pattern set, child2 still has 0xff
-    for i in 0 .. 10 {
+    for i in 0..10 {
         buf1.fill(0x0);
         buf2.fill(0x0);
 
@@ -155,13 +154,13 @@ async fn works() {
 
     buf.fill(0xAA);
     // write 0xAA to the nexus
-    for i in 0 .. 10 {
+    for i in 0..10 {
         nd.write_at(i * 4096, &buf).await.unwrap();
     }
 
     // both children should have 0xAA set
 
-    for i in 0 .. 10 {
+    for i in 0..10 {
         buf1.fill(0x0);
         buf2.fill(0x0);
         cd1.read_at((i * 4096) + (10240 * 512), &mut buf1)

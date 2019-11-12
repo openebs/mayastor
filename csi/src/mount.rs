@@ -98,7 +98,7 @@ pub fn mount_opts_compare(m1: &[String], m2: &[String], ro: bool) -> bool {
         return false;
     }
 
-    for i in 0 .. m1.len() {
+    for i in 0..m1.len() {
         if m2[i] == "rw" && ro {
             debug!("we are mounted as RW but request is RO that is OK");
             continue;

@@ -67,30 +67,20 @@ use futures::channel::oneshot;
 use serde::Serialize;
 
 use spdk_sys::{
-    spdk_bdev,
-    spdk_bdev_desc,
-    spdk_bdev_io,
-    spdk_bdev_io_get_buf,
-    spdk_bdev_readv_blocks,
-    spdk_bdev_register,
-    spdk_bdev_unmap_blocks,
-    spdk_bdev_unregister,
-    spdk_bdev_writev_blocks,
-    spdk_io_channel,
-    spdk_io_device_register,
-    spdk_io_device_unregister,
+    spdk_bdev, spdk_bdev_desc, spdk_bdev_io, spdk_bdev_io_get_buf,
+    spdk_bdev_readv_blocks, spdk_bdev_register, spdk_bdev_unmap_blocks,
+    spdk_bdev_unregister, spdk_bdev_writev_blocks, spdk_io_channel,
+    spdk_io_device_register, spdk_io_device_unregister,
 };
 
 use crate::{
     bdev::{
         nexus::{
-            self,
-            instances,
+            self, instances,
             nexus_channel::{DREvent, NexusChannel, NexusChannelInner},
             nexus_child::{ChildState, NexusChild},
             nexus_io::{Bio, IoStatus},
-            nexus_nbd as nbd,
-            Error,
+            nexus_nbd as nbd, Error,
         },
         Bdev,
     },

@@ -172,9 +172,7 @@ impl service::server::Mayastor for MayastorService {
         let uuid = msg.uuid;
         debug!("Destroying replica {} ...", uuid);
 
-        let args = Some(jsondata::DestroyReplicaArgs {
-            uuid: uuid.clone(),
-        });
+        let args = Some(jsondata::DestroyReplicaArgs { uuid: uuid.clone() });
 
         match jsonrpc::call::<_, ()>(&self.socket, "destroy_replica", args)
             .await

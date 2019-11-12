@@ -1,14 +1,12 @@
 #![allow(clippy::vec_box)]
 use crate::{
     bdev::nexus::{
-        nexus_bdev::Nexus,
-        nexus_fn_table::NexusFnTable,
-        nexus_module::NexusModule,
-        nexus_rpc::register_rpc_methods,
+        nexus_bdev::Nexus, nexus_fn_table::NexusFnTable,
+        nexus_module::NexusModule, nexus_rpc::register_rpc_methods,
     },
     nexus_uri::{self, UriError},
 };
-use std::option::NoneError;
+
 #[derive(Debug)]
 pub enum Error {
     /// Nobody knows
@@ -70,12 +68,6 @@ impl From<i32> for Error {
             libc::ENOMEM => Error::OutOfMemory,
             _ => Error::Internal(format!("errno {}", e)),
         }
-    }
-}
-
-impl From<NoneError> for Error {
-    fn from(_e: NoneError) -> Self {
-        Error::Internal("Expected Some(T) found None".into())
     }
 }
 

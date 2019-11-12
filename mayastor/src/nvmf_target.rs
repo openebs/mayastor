@@ -10,45 +10,21 @@ use crate::{
 };
 use futures::channel::oneshot;
 use spdk_sys::{
-    spdk_nvme_transport_id,
-    spdk_nvmf_poll_group,
-    spdk_nvmf_poll_group_add,
-    spdk_nvmf_poll_group_create,
-    spdk_nvmf_poll_group_destroy,
-    spdk_nvmf_qpair,
-    spdk_nvmf_qpair_disconnect,
-    spdk_nvmf_subsystem,
-    spdk_nvmf_subsystem_add_listener,
-    spdk_nvmf_subsystem_add_ns,
-    spdk_nvmf_subsystem_create,
-    spdk_nvmf_subsystem_destroy,
-    spdk_nvmf_subsystem_get_first,
-    spdk_nvmf_subsystem_get_next,
-    spdk_nvmf_subsystem_get_nqn,
-    spdk_nvmf_subsystem_set_allow_any_host,
-    spdk_nvmf_subsystem_set_mn,
-    spdk_nvmf_subsystem_set_sn,
-    spdk_nvmf_subsystem_start,
-    spdk_nvmf_subsystem_stop,
-    spdk_nvmf_target_opts,
-    spdk_nvmf_tgt,
-    spdk_nvmf_tgt_accept,
-    spdk_nvmf_tgt_add_transport,
-    spdk_nvmf_tgt_create,
-    spdk_nvmf_tgt_destroy,
-    spdk_nvmf_tgt_find_subsystem,
-    spdk_nvmf_tgt_listen,
-    spdk_nvmf_transport_create,
-    spdk_nvmf_transport_opts,
-    spdk_nvmf_transport_opts_init,
-    spdk_poller,
-    spdk_poller_register,
-    spdk_poller_unregister,
-    NVMF_TGT_NAME_MAX_LENGTH,
-    SPDK_NVME_TRANSPORT_TCP,
-    SPDK_NVMF_ADRFAM_IPV4,
-    SPDK_NVMF_SUBTYPE_NVME,
-    SPDK_NVMF_TRADDR_MAX_LEN,
+    spdk_nvme_transport_id, spdk_nvmf_poll_group, spdk_nvmf_poll_group_add,
+    spdk_nvmf_poll_group_create, spdk_nvmf_poll_group_destroy, spdk_nvmf_qpair,
+    spdk_nvmf_qpair_disconnect, spdk_nvmf_subsystem,
+    spdk_nvmf_subsystem_add_listener, spdk_nvmf_subsystem_add_ns,
+    spdk_nvmf_subsystem_create, spdk_nvmf_subsystem_destroy,
+    spdk_nvmf_subsystem_get_first, spdk_nvmf_subsystem_get_next,
+    spdk_nvmf_subsystem_get_nqn, spdk_nvmf_subsystem_set_allow_any_host,
+    spdk_nvmf_subsystem_set_mn, spdk_nvmf_subsystem_set_sn,
+    spdk_nvmf_subsystem_start, spdk_nvmf_subsystem_stop, spdk_nvmf_target_opts,
+    spdk_nvmf_tgt, spdk_nvmf_tgt_accept, spdk_nvmf_tgt_add_transport,
+    spdk_nvmf_tgt_create, spdk_nvmf_tgt_destroy, spdk_nvmf_tgt_find_subsystem,
+    spdk_nvmf_tgt_listen, spdk_nvmf_transport_create, spdk_nvmf_transport_opts,
+    spdk_nvmf_transport_opts_init, spdk_poller, spdk_poller_register,
+    spdk_poller_unregister, NVMF_TGT_NAME_MAX_LENGTH, SPDK_NVME_TRANSPORT_TCP,
+    SPDK_NVMF_ADRFAM_IPV4, SPDK_NVMF_SUBTYPE_NVME, SPDK_NVMF_TRADDR_MAX_LEN,
     SPDK_NVMF_TRSVCID_MAX_LEN,
 };
 use std::{
@@ -103,10 +79,7 @@ impl Subsystem {
             return Err("listening on nvmf subsystem failed".to_owned());
         }
 
-        Ok(Self {
-            inner,
-            nqn,
-        })
+        Ok(Self { inner, nqn })
     }
 
     /// Convert raw subsystem pointer to subsystem object.
@@ -115,10 +88,7 @@ impl Subsystem {
             .to_str()
             .unwrap()
             .to_string();
-        Self {
-            inner,
-            nqn,
-        }
+        Self { inner, nqn }
     }
 
     /// Start the subsystem (it cannot be modified afterwards)
@@ -273,9 +243,7 @@ impl TargetOpts {
         // same as max pods by default
         opts.max_subsystems = max_subsystems;
 
-        Self {
-            inner: opts,
-        }
+        Self { inner: opts }
     }
 }
 
@@ -478,10 +446,7 @@ impl Target {
         if inner.is_null() {
             None
         } else {
-            Some(Subsystem {
-                inner,
-                nqn,
-            })
+            Some(Subsystem { inner, nqn })
         }
     }
 

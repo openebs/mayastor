@@ -15,11 +15,8 @@ use crate::{
 use crate::descriptor::DmaBuf;
 use serde::{export::Formatter, Serialize};
 use spdk_sys::{
-    spdk_bdev_close,
-    spdk_bdev_desc,
-    spdk_bdev_get_io_channel,
-    spdk_bdev_module_release_bdev,
-    spdk_io_channel,
+    spdk_bdev_close, spdk_bdev_desc, spdk_bdev_get_io_channel,
+    spdk_bdev_module_release_bdev, spdk_io_channel,
 };
 use std::{fmt::Display, ops::Neg};
 
@@ -98,73 +95,77 @@ impl NexusChild {
     ) -> Result<String, nexus::Error> {
         trace!("{}: Opening child device {}", self.parent, self.name);
 
-        let child_size = self.bdev.as_ref()?.size_in_bytes();
-        if parent_size > child_size {
-            error!(
-                "{}: child {} to small  ({} vs {})",
-                self.parent, self.name, parent_size, child_size,
-            );
+        if let Some(bdev) = self.bdev.as_ref() {
+            let child_size = bdev.size_in_bytes();
+            if parent_size > child_size {
+                error!(
+                    "{}: child {} to small  ({} vs {})",
+                    self.parent, self.name, parent_size, child_size,
+                );
 
-            self.state = ChildState::ConfigInvalid;
-            return Err(nexus::Error::Invalid(
-                "requested nexus size is larger than some of its children"
-                    .into(),
-            ));
-        }
+                self.state = ChildState::ConfigInvalid;
+                return Err(nexus::Error::Invalid(
+                    "requested nexus size is larger than some of its children"
+                        .into(),
+                ));
+            }
 
-        let mut rc = unsafe {
-            spdk_sys::spdk_bdev_open(
-                self.bdev.as_ref()?.inner,
-                true,
-                None,
-                std::ptr::null_mut(),
-                &mut self.desc,
-            )
-        };
+            let mut rc = unsafe {
+                spdk_sys::spdk_bdev_open(
+                    bdev.inner,
+                    true,
+                    None,
+                    std::ptr::null_mut(),
+                    &mut self.desc,
+                )
+            };
 
-        if rc != 0 {
-            error!("{}: Failed to open child {}", self.parent, self.name);
-            self.state = ChildState::Faulted;
-            self.desc = std::ptr::null_mut();
-            return Err(match rc.neg() {
-                libc::EPERM => nexus::Error::ReadOnly,
-                libc::ENOTSUP => nexus::Error::InvalidThread,
-                _ => nexus::Error::from(rc),
+            if rc != 0 {
+                error!("{}: Failed to open child {}", self.parent, self.name);
+                self.state = ChildState::Faulted;
+                self.desc = std::ptr::null_mut();
+                return Err(match rc.neg() {
+                    libc::EPERM => nexus::Error::ReadOnly,
+                    libc::ENOTSUP => nexus::Error::InvalidThread,
+                    _ => nexus::Error::from(rc),
+                });
+            }
+
+            rc = unsafe {
+                spdk_sys::spdk_bdev_module_claim_bdev(
+                    bdev.inner,
+                    std::ptr::null_mut(),
+                    &NEXUS_MODULE.module as *const _ as *mut _,
+                )
+            };
+
+            if rc != 0 {
+                self.state = ChildState::Faulted;
+                error!("{}: Failed to claim device {}", self.parent, self.name);
+                unsafe { spdk_bdev_close(self.desc) }
+                self.desc = std::ptr::null_mut();
+                return Err(match rc.neg() {
+                    libc::EPERM => nexus::Error::AlreadyClaimed,
+                    _ => nexus::Error::from(rc),
+                });
+            }
+
+            self.state = ChildState::Open;
+
+            // used for internal IOS like updating labels
+            self.descriptor = Some(Descriptor {
+                desc: self.desc,
+                ch: self.get_io_channel(),
+                alignment: bdev.alignment(),
+                blk_size: bdev.block_len(),
             });
+
+            debug!("{}: child {} opened successfully", self.parent, self.name);
+
+            Ok(self.name.clone())
+        } else {
+            Err(Error::NexusIncomplete)
         }
-
-        rc = unsafe {
-            spdk_sys::spdk_bdev_module_claim_bdev(
-                self.bdev.as_ref()?.inner,
-                std::ptr::null_mut(),
-                &NEXUS_MODULE.module as *const _ as *mut _,
-            )
-        };
-
-        if rc != 0 {
-            self.state = ChildState::Faulted;
-            error!("{}: Failed to claim device {}", self.parent, self.name);
-            unsafe { spdk_bdev_close(self.desc) }
-            self.desc = std::ptr::null_mut();
-            return Err(match rc.neg() {
-                libc::EPERM => nexus::Error::AlreadyClaimed,
-                _ => nexus::Error::from(rc),
-            });
-        }
-
-        self.state = ChildState::Open;
-
-        // used for internal IOS like updating labels
-        self.descriptor = Some(Descriptor {
-            desc: self.desc,
-            ch: self.get_io_channel(),
-            alignment: self.bdev.as_ref()?.alignment(),
-            blk_size: self.bdev.as_ref()?.block_len(),
-        });
-
-        debug!("{}: child {} opened successfully", self.parent, self.name);
-
-        Ok(self.name.clone())
     }
 
     /// close the bdev -- we have no means of determining if this succeeds
@@ -250,13 +251,22 @@ impl NexusChild {
             )));
         }
 
-        let block_size = self.bdev.as_ref()?.block_len();
+        let bdev = self.bdev.as_ref();
+        let desc = self.descriptor.as_ref();
+
+        if bdev.is_none() || desc.is_none() {
+            return Err(Error::Invalid("Bdev is invalid".into()));
+        }
+
+        let bdev = bdev.unwrap();
+        let desc = desc.unwrap();
+
+        let block_size = bdev.block_len();
 
         let primary = u64::from(block_size);
-        let secondary = self.bdev.as_ref()?.num_blocks() - 1;
+        let secondary = bdev.num_blocks() - 1;
 
-        let mut buf =
-            self.descriptor.as_ref()?.dma_malloc(block_size as usize)?;
+        let mut buf = desc.dma_malloc(block_size as usize)?;
 
         self.read_at(primary, &mut buf).await?;
         let mut label = GPTHeader::from_slice(buf.as_slice());
@@ -284,10 +294,7 @@ impl NexusChild {
         let num_blocks =
             ((label.entry_size * label.num_entries) / block_size) + 1;
 
-        let mut buf = self
-            .descriptor
-            .as_ref()?
-            .dma_malloc((num_blocks * block_size) as usize)?;
+        let mut buf = desc.dma_malloc((num_blocks * block_size) as usize)?;
 
         self.read_at(label.lba_table * u64::from(block_size), &mut buf)
             .await?;
@@ -306,7 +313,7 @@ impl NexusChild {
         // some tools write 128 partition entries, even though only two are
         // created, in any case we are only ever interested in the first two
         // partitions, so we drain the others.
-        let parts = partitions.drain(.. 2).collect::<Vec<_>>();
+        let parts = partitions.drain(..2).collect::<Vec<_>>();
 
         let nl = NexusLabel {
             primary: label,
@@ -322,7 +329,11 @@ impl NexusChild {
         offset: u64,
         buf: &DmaBuf,
     ) -> Result<usize, Error> {
-        Ok(self.descriptor.as_ref()?.write_at(offset, buf).await?)
+        if let Some(desc) = self.descriptor.as_ref() {
+            Ok(desc.write_at(offset, buf).await?)
+        } else {
+            Err(Error::Internal("Invalid descriptor for bdev".into()))
+        }
     }
 
     /// read from this child device into the given buffer
@@ -331,11 +342,21 @@ impl NexusChild {
         offset: u64,
         buf: &mut DmaBuf,
     ) -> Result<usize, Error> {
-        Ok(self.descriptor.as_ref()?.read_at(offset, buf).await?)
+        if let Some(desc) = self.descriptor.as_ref() {
+            Ok(desc.read_at(offset, buf).await?)
+        } else {
+            Err(Error::Internal("Invalid descriptor for bdev".into()))
+        }
     }
 
     /// get a dma buffer that is aligned to this child
     pub fn get_buf(&self, size: usize) -> Option<DmaBuf> {
-        self.descriptor.as_ref()?.dma_malloc(size)
+        match self.descriptor.as_ref() {
+            Some(descriptor) => match descriptor.dma_malloc(size) {
+                Ok(buf) => Some(buf),
+                Err(..) => None,
+            },
+            None => None,
+        }
     }
 }

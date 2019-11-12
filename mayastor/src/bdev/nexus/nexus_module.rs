@@ -1,9 +1,7 @@
 #![allow(clippy::vec_box)]
 use lazy_static;
 use spdk_sys::{
-    spdk_bdev_module,
-    spdk_bdev_module_examine_done,
-    spdk_bdev_module_list_add,
+    spdk_bdev_module, spdk_bdev_module_examine_done, spdk_bdev_module_list_add,
 };
 
 use crate::bdev::{
@@ -64,9 +62,7 @@ impl NexusModule {
         module.get_ctx_size = Some(Self::nexus_ctx_size);
         module.examine_config = Some(Self::examine);
         module.examine_disk = None;
-        NexusModule {
-            module,
-        }
+        NexusModule { module }
     }
 
     pub fn as_ptr(&self) -> *mut spdk_bdev_module {

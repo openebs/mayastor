@@ -1,6 +1,6 @@
 # As soon as async becomes stable; we dont need to import the mozilla overlay
 # anymore. This will greatly simplify the expression.
-{fetchFromGitHub, pkgs ? import <nixpkgs>}:
+{ fetchFromGitHub, pkgs ? import <nixpkgs> }:
 let
   mozilla = fetchFromGitHub {
     owner = "mozilla";
@@ -11,7 +11,6 @@ let
 
   overlay = import (builtins.toPath "${mozilla}/package-set.nix") { inherit pkgs; };
 in
-  overlay.rustChannelOf {
-    date = "2019-10-21";
-    channel = "nightly";
-  }
+overlay.rustChannelOf {
+  channel = "stable";
+}

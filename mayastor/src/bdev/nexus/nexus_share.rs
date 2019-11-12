@@ -61,22 +61,25 @@ impl Nexus {
         // The share handle is the actual bdev that is shared through the
         // various protocols.
         self.share_handle = Some(name);
-
-        match Disk::create(self.share_handle.as_ref()?).await {
-            Ok(disk) => {
-                let device_path = disk.get_path();
-                self.nbd_disk = Some(disk);
-                Ok(device_path)
+        if let Some(share_handle) = self.share_handle.as_ref() {
+            match Disk::create(share_handle).await {
+                Ok(disk) => {
+                    let device_path = disk.get_path();
+                    self.nbd_disk = Some(disk);
+                    Ok(device_path)
+                }
+                Err(err) => {
+                    self.share_handle.take();
+                    Err(err)
+                }
             }
-            Err(err) => {
-                self.share_handle.take();
-                Err(err)
-            }
+        } else {
+            Err(Error::ShareError("Unable to share bdev".into()))
         }
     }
 
     /// Undo share operation on nexus. To the chain of bdevs are all claimed
-    /// where the top level dev is claimed by subsystem that exports the
+    /// where the top-level dev is claimed by the subsystem that exports the
     /// bdev. As such, we must first destroy the share and move our way down
     /// from there.
     pub async fn unshare(&mut self) -> Result<(), Error> {
@@ -84,30 +87,38 @@ impl Nexus {
             Some(share) => {
                 share.destroy();
                 if let Some(bdev) = self.share_handle.take() {
-                    let bdev = bdev_lookup_by_name(&bdev)?;
-                    if self.name == bdev.name() {
-                        return Ok(());
-                    }
+                    if let Some(bdev) = bdev_lookup_by_name(&bdev) {
+                        // if there share handle is the same as bdev name it implies there
+                        // is no top level bdev, and we are done
+                        if self.name == bdev.name() {
+                            return Ok(());
+                        }
 
-                    let (s, r) = oneshot::channel::<u32>();
-                    // currently we only have the crypto vbdev
-                    unsafe {
-                        spdk_sys::delete_crypto_disk(
-                            bdev.inner,
-                            Some(done_cb),
-                            cb_arg(s),
-                        );
-                    }
+                        let (s, r) = oneshot::channel::<u32>();
+                        // currently, we only have the crypto vbdev
+                        unsafe {
+                            spdk_sys::delete_crypto_disk(
+                                bdev.inner,
+                                Some(done_cb),
+                                cb_arg(s),
+                            );
+                        }
 
-                    let rc = r.await.expect("crypto delete sender is gone");
-                    if rc != 0 {
-                        return Err(Error::Internal(format!(
-                            "Failed to destroy crypto device error: {}",
-                            rc
-                        )));
+                        let rc = r.await.expect("crypto delete sender is gone");
+                        if rc != 0 {
+                            return Err(Error::Internal(format!(
+                                "Failed to destroy crypto device error: {}",
+                                rc
+                            )));
+                        }
                     }
+                    Ok(())
+                } else {
+                    Err(Error::ShareError(format!(
+                        "{}: failed to fully unshare self",
+                        self.name
+                    )))
                 }
-                Ok(())
             }
             None => Err(Error::NotFound),
         }

@@ -2,21 +2,11 @@ use crate::executor::cb_arg;
 use futures::channel::oneshot;
 use libc::c_void;
 use spdk_sys::{
-    spdk_bdev,
-    spdk_bdev_first,
-    spdk_bdev_get_aliases,
-    spdk_bdev_get_block_size,
-    spdk_bdev_get_device_stat,
-    spdk_bdev_get_name,
-    spdk_bdev_get_num_blocks,
-    spdk_bdev_get_product_name,
-    spdk_bdev_get_uuid,
-    spdk_bdev_io_stat,
-    spdk_bdev_io_type_supported,
-    spdk_bdev_next,
-    spdk_conf_section,
-    spdk_conf_section_get_nmval,
-    spdk_uuid,
+    spdk_bdev, spdk_bdev_first, spdk_bdev_get_aliases,
+    spdk_bdev_get_block_size, spdk_bdev_get_device_stat, spdk_bdev_get_name,
+    spdk_bdev_get_num_blocks, spdk_bdev_get_product_name, spdk_bdev_get_uuid,
+    spdk_bdev_io_stat, spdk_bdev_io_type_supported, spdk_bdev_next,
+    spdk_conf_section, spdk_conf_section_get_nmval, spdk_uuid,
     spdk_uuid_generate,
 };
 use std::ffi::CStr;
@@ -109,9 +99,7 @@ impl Bdev {
     /// # Safety
     /// we assume pointers passed in are valid.
     pub unsafe fn from_ptr(inner: *mut spdk_bdev) -> Self {
-        Bdev {
-            inner,
-        }
+        Bdev { inner }
     }
 
     /// returns the block_size of the underlying device
@@ -301,9 +289,7 @@ impl From<*mut c_void> for Bdev {
 
 impl From<*mut spdk_bdev> for Bdev {
     fn from(bdev: *mut spdk_bdev) -> Self {
-        Bdev {
-            inner: bdev,
-        }
+        Bdev { inner: bdev }
     }
 }
 
@@ -314,9 +300,7 @@ impl Iterator for Bdev {
         let bdev = unsafe { spdk_bdev_next(self.inner) };
         if !bdev.is_null() {
             self.inner = bdev;
-            Some(Bdev {
-                inner: bdev,
-            })
+            Some(Bdev { inner: bdev })
         } else {
             None
         }

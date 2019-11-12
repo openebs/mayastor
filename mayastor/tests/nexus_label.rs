@@ -100,7 +100,7 @@ fn test_known_label() {
     let mut buf = DmaBuf::new(32 * 512, 9).unwrap();
 
     let mut writer = Cursor::new(buf.as_mut_slice());
-    for i in 0 .. hdr.num_entries {
+    for i in 0..hdr.num_entries {
         serialize_into(&mut writer, &partitions[i as usize]).unwrap();
     }
 

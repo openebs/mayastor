@@ -2,14 +2,9 @@
 //! IO is driven by means of so called channels.
 use crate::bdev::nexus::{nexus_child::ChildState, Nexus};
 use spdk_sys::{
-    spdk_bdev_desc,
-    spdk_for_each_channel,
-    spdk_for_each_channel_continue,
-    spdk_io_channel,
-    spdk_io_channel_iter,
-    spdk_io_channel_iter_get_channel,
-    spdk_io_channel_iter_get_io_device,
-    spdk_put_io_channel,
+    spdk_bdev_desc, spdk_for_each_channel, spdk_for_each_channel_continue,
+    spdk_io_channel, spdk_io_channel_iter, spdk_io_channel_iter_get_channel,
+    spdk_io_channel_iter_get_io_device, spdk_put_io_channel,
 };
 use std::ffi::c_void;
 

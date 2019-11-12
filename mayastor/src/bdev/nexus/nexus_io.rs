@@ -85,9 +85,7 @@ pub enum IoStatus {
 
 impl From<*mut spdk_bdev_io> for Bio {
     fn from(io: *mut spdk_bdev_io) -> Self {
-        Bio {
-            io,
-        }
+        Bio { io }
     }
 }
 
