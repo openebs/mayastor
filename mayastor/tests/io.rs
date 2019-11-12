@@ -1,4 +1,4 @@
-use mayastor::{mayastor_start, spdk_stop};
+use mayastor::{mayastor_start, mayastor_stop};
 
 use mayastor::{
     descriptor::Descriptor,
@@ -39,7 +39,7 @@ async fn start() {
     make_bdev().await;
     write_some().await;
     read_some().await;
-    spdk_stop(0);
+    mayastor_stop(0);
 }
 
 async fn make_bdev() {

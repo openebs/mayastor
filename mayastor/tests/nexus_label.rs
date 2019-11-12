@@ -6,7 +6,7 @@ const PART0_GUID: &str = "ea2872a6-02ce-3f4b-82c4-c2147f76e3ff";
 const PART1_GUID: &str = "a0ff1b47-2890-eb4c-a837-01df152f9442";
 
 const CRC32: u32 = 3_031_999_803;
-use mayastor::{mayastor_start, spdk_stop};
+use mayastor::{mayastor_start, mayastor_stop};
 
 use bincode::serialize_into;
 use mayastor::{
@@ -61,7 +61,7 @@ async fn start() {
     test_known_label();
     make_nexus().await;
     label_child().await;
-    spdk_stop(0);
+    mayastor_stop(0);
 }
 
 /// Test that we can deserialize a known good gpt label and parse it. After
@@ -100,7 +100,7 @@ fn test_known_label() {
     let mut buf = DmaBuf::new(32 * 512, 9).unwrap();
 
     let mut writer = Cursor::new(buf.as_mut_slice());
-    for i in 0..hdr.num_entries {
+    for i in 0 .. hdr.num_entries {
         serialize_into(&mut writer, &partitions[i as usize]).unwrap();
     }
 

@@ -36,10 +36,20 @@
 //! ```
 use crate::bdev::{bdev_lookup_by_name, Bdev};
 use spdk_sys::{
-    spdk_bdev_close, spdk_bdev_desc, spdk_bdev_desc_get_bdev,
-    spdk_bdev_free_io, spdk_bdev_get_io_channel, spdk_bdev_io, spdk_bdev_open,
-    spdk_bdev_read, spdk_bdev_write, spdk_dma_free, spdk_dma_zmalloc,
-    spdk_get_io_channel, spdk_io_channel, spdk_put_io_channel,
+    spdk_bdev_close,
+    spdk_bdev_desc,
+    spdk_bdev_desc_get_bdev,
+    spdk_bdev_free_io,
+    spdk_bdev_get_io_channel,
+    spdk_bdev_io,
+    spdk_bdev_open,
+    spdk_bdev_read,
+    spdk_bdev_write,
+    spdk_dma_free,
+    spdk_dma_zmalloc,
+    spdk_get_io_channel,
+    spdk_io_channel,
+    spdk_put_io_channel,
 };
 use std::{
     ffi::c_void,
@@ -47,15 +57,14 @@ use std::{
     slice::{from_raw_parts, from_raw_parts_mut},
 };
 
-use crate::bdev::nexus::Error;
-use crate::executor::cb_arg;
+use crate::{bdev::nexus::Error, executor::cb_arg};
 use futures::channel::oneshot;
 
-/// DmaBuf which is allocated from the memory pool
+/// DmaBuf that is allocated from the memory pool
 #[derive(Debug)]
 pub struct DmaBuf {
-    /// raw pointer to the buffer
-    buf: *mut c_void,
+    /// a raw pointer to the buffer
+    pub buf: *mut c_void,
     /// the length of the allocated buffer
     len: usize,
 }
@@ -63,6 +72,10 @@ pub struct DmaBuf {
 impl DmaBuf {
     /// convert the buffer to a slice
     pub fn as_slice(&self) -> &[u8] {
+        if cfg!(debug_assertions) && self.buf.is_null() {
+            panic!("self.buf is null");
+        }
+
         unsafe { from_raw_parts(self.buf as *mut u8, self.len as usize) }
     }
 
@@ -71,8 +84,12 @@ impl DmaBuf {
         unsafe { from_raw_parts_mut(self.buf as *mut u8, self.len as usize) }
     }
 
-    /// file the buffer with the given value
+    /// fill the buffer with the given value
     pub fn fill(&mut self, val: u8) {
+        if cfg!(debug_assertions) && self.buf.is_null() {
+            panic!("self buf is null");
+        }
+
         unsafe {
             std::ptr::write_bytes(
                 self.as_mut_slice().as_ptr() as *mut u8,
@@ -96,14 +113,35 @@ impl DmaBuf {
             trace!("zmalloc for size {} failed", size);
             Err(Error::OutOfMemory)
         } else {
-            Ok(DmaBuf { buf, len: size })
+            Ok(DmaBuf {
+                buf,
+                len: size,
+            })
         }
+    }
+}
+
+impl Deref for DmaBuf {
+    type Target = *mut c_void;
+
+    fn deref(&self) -> &Self::Target {
+        &self.buf
+    }
+}
+
+impl DerefMut for DmaBuf {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.buf
     }
 }
 
 impl Drop for DmaBuf {
     fn drop(&mut self) {
+        if cfg!(debug_assertions) {
+            trace!("dropping Dmabuf {:?}", self);
+        }
         unsafe { spdk_dma_free(self.buf as *mut c_void) }
+        self.buf = std::ptr::null_mut();
     }
 }
 
@@ -124,10 +162,11 @@ pub struct Descriptor {
 }
 
 impl Descriptor {
-    /// io completion callback which sends back the success of the IO
-    /// the io is freed and returned to the memory pool. The buffer is not freed
-    /// this is not very optimal right now, as we use oneshot channels from
-    /// futures 0.3 which (AFAIK) does not have unsync support yet.
+    /// io completion callback that sends back the success status of the IO.
+    /// When the IO is freed, it is returned to the memory pool. The buffer is
+    /// not freed this is not very optimal right now, as we use oneshot
+    /// channels from futures 0.3 which (AFAIK) does not have unsync support
+    /// yet.
     extern "C" fn io_completion_cb(
         io: *mut spdk_bdev_io,
         success: bool,
@@ -160,7 +199,10 @@ impl Descriptor {
             trace!("Zmalloc for size {} failed", size);
             Err(Error::OutOfMemory)
         } else {
-            Ok(DmaBuf { buf, len: size })
+            Ok(DmaBuf {
+                buf,
+                len: size,
+            })
         }
     }
 
@@ -179,7 +221,10 @@ impl Descriptor {
             trace!("Malloc for size {} failed", size);
             Err(Error::OutOfMemory)
         } else {
-            Ok(DmaBuf { buf, len: size })
+            Ok(DmaBuf {
+                buf,
+                len: size,
+            })
         }
     }
 
@@ -307,6 +352,9 @@ impl Descriptor {
 
 impl Drop for Descriptor {
     fn drop(&mut self) {
+        if cfg!(debug_assertions) {
+            trace!("Dropping descriptor {:?}", self);
+        }
         unsafe {
             if !self.ch.is_null() {
                 spdk_put_io_channel(self.ch);

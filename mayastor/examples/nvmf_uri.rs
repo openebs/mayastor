@@ -1,6 +1,8 @@
 use log::error;
 use mayastor::{
-    bdev::nexus::nexus_bdev::nexus_create, mayastor_start, spdk_stop,
+    bdev::nexus::nexus_bdev::nexus_create,
+    mayastor_start,
+    mayastor_stop,
 };
 
 fn main() {
@@ -22,5 +24,5 @@ async fn works() {
     if let Err(name) = name {
         error!("{:?}", name);
     }
-    spdk_stop(0);
+    mayastor_stop(0);
 }

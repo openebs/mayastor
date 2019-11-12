@@ -10,9 +10,9 @@ use url::Url;
 
 #[derive(Default, Debug)]
 pub struct AioBdev {
-    pub(crate) name: String,
-    pub(crate) file: String,
-    pub(crate) blk_size: u32,
+    pub name: String,
+    pub file: String,
+    pub blk_size: u32,
 }
 
 // XXX we cant use a trait as it does not support async yet

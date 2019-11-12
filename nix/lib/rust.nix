@@ -12,5 +12,6 @@ let
   overlay = import (builtins.toPath "${mozilla}/package-set.nix") { inherit pkgs; };
 in
 overlay.rustChannelOf {
-  channel = "stable";
+  date = "2019-11-25";
+  channel = "nightly";
 }
