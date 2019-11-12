@@ -16,7 +16,7 @@ fn is_submodule(parent: &str, possible_child: &str) -> bool {
     }
 
     // If the path up to the parent isn't the same as the child,
-    if parent != &possible_child[.. parent.len()] {
+    if parent != &possible_child[..parent.len()] {
         return false;
     }
 
@@ -24,7 +24,7 @@ fn is_submodule(parent: &str, possible_child: &str) -> bool {
     // after the length of the parent path. This prevents things like
     // 'a::bad' being considered a submodule of 'a::b'
     parent.len() == possible_child.len()
-        || possible_child.get(parent.len() .. parent.len() + 2) == Some(b"::")
+        || possible_child.get(parent.len()..parent.len() + 2) == Some(b"::")
 }
 
 // Rust wrapper to SPDK logger.
@@ -114,7 +114,7 @@ impl Log for SpdkLog {
         let msg = CString::new(format!("{}\n", record.args())).unwrap();
         let file = record.file().unwrap_or_default();
         // get basename i.e.: spdk/src/lib.rs -> lib.rs
-        let basename = &file[file.rfind('/').map_or(0, |v| v + 1) ..];
+        let basename = &file[file.rfind('/').map_or(0, |v| v + 1)..];
         let basename = CString::new(basename).unwrap();
         let line = record.line().unwrap_or_default() as i32;
         let empty = CString::new("").unwrap();

@@ -1,8 +1,6 @@
 use log::error;
 use mayastor::{
-    bdev::nexus::nexus_bdev::nexus_create,
-    mayastor_start,
-    spdk_stop,
+    bdev::nexus::nexus_bdev::nexus_create, mayastor_start, spdk_stop,
 };
 
 fn main() {

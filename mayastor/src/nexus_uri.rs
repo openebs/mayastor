@@ -42,7 +42,7 @@ pub fn nexus_parse_uri(uri: &str) -> Result<BdevType, UriError> {
             "iscsi" => BdevType::Iscsi(IscsiBdev::try_from(&uri)?),
             "nvmf" => BdevType::Nvmf(NvmfBdev::try_from(&uri)?),
             // strip the first slash in uri path
-            "bdev" => BdevType::Bdev(uri.path()[1 ..].to_string()),
+            "bdev" => BdevType::Bdev(uri.path()[1..].to_string()),
             _ => {
                 warn!("Unknown URL scheme {}", uri.to_string());
                 return Err(UriError::Unsupported);

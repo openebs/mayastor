@@ -5,10 +5,7 @@ use crate::bdev::nexus::{
     nexus_io::{Bio, BioType},
 };
 use spdk_sys::{
-    spdk_bdev_fn_table,
-    spdk_bdev_io,
-    spdk_bdev_io_type,
-    spdk_get_io_channel,
+    spdk_bdev_fn_table, spdk_bdev_io, spdk_bdev_io_type, spdk_get_io_channel,
     spdk_io_channel,
 };
 use std::ffi::c_void;
@@ -35,9 +32,7 @@ impl NexusFnTable {
         f_tbl.get_io_channel = Some(Self::io_channel);
         f_tbl.destruct = Some(Self::destruct);
 
-        NexusFnTable {
-            f_tbl,
-        }
+        NexusFnTable { f_tbl }
     }
 
     /// get a reference to this static function table to pass on to every

@@ -36,20 +36,10 @@
 //! ```
 use crate::bdev::{bdev_lookup_by_name, Bdev};
 use spdk_sys::{
-    spdk_bdev_close,
-    spdk_bdev_desc,
-    spdk_bdev_desc_get_bdev,
-    spdk_bdev_free_io,
-    spdk_bdev_get_io_channel,
-    spdk_bdev_io,
-    spdk_bdev_open,
-    spdk_bdev_read,
-    spdk_bdev_write,
-    spdk_dma_free,
-    spdk_dma_zmalloc,
-    spdk_get_io_channel,
-    spdk_io_channel,
-    spdk_put_io_channel,
+    spdk_bdev_close, spdk_bdev_desc, spdk_bdev_desc_get_bdev,
+    spdk_bdev_free_io, spdk_bdev_get_io_channel, spdk_bdev_io, spdk_bdev_open,
+    spdk_bdev_read, spdk_bdev_write, spdk_dma_free, spdk_dma_zmalloc,
+    spdk_get_io_channel, spdk_io_channel, spdk_put_io_channel,
 };
 use std::{
     ffi::c_void,
@@ -57,6 +47,7 @@ use std::{
     slice::{from_raw_parts, from_raw_parts_mut},
 };
 
+use crate::bdev::nexus::Error;
 use crate::executor::cb_arg;
 use futures::channel::oneshot;
 
@@ -91,7 +82,7 @@ impl DmaBuf {
         }
     }
 
-    pub fn new(size: usize, alignment: u8) -> Option<Self> {
+    pub fn new(size: usize, alignment: u8) -> Result<Self, Error> {
         let buf;
         unsafe {
             buf = spdk_dma_zmalloc(
@@ -103,12 +94,9 @@ impl DmaBuf {
 
         if buf.is_null() {
             trace!("zmalloc for size {} failed", size);
-            None
+            Err(Error::OutOfMemory)
         } else {
-            Some(DmaBuf {
-                buf,
-                len: size,
-            })
+            Ok(DmaBuf { buf, len: size })
         }
     }
 }
@@ -158,7 +146,7 @@ impl Descriptor {
 
     /// allocate zeroed memory from the memory pool with given size and proper
     /// alignment
-    pub fn dma_zmalloc(&self, size: usize) -> Option<DmaBuf> {
+    pub fn dma_zmalloc(&self, size: usize) -> Result<DmaBuf, Error> {
         let buf;
         unsafe {
             buf = spdk_dma_zmalloc(
@@ -170,17 +158,14 @@ impl Descriptor {
 
         if buf.is_null() {
             trace!("Zmalloc for size {} failed", size);
-            None
+            Err(Error::OutOfMemory)
         } else {
-            Some(DmaBuf {
-                buf,
-                len: size,
-            })
+            Ok(DmaBuf { buf, len: size })
         }
     }
 
     /// allocate memory from the memory pool that is not zeroed out
-    pub fn dma_malloc(&self, size: usize) -> Option<DmaBuf> {
+    pub fn dma_malloc(&self, size: usize) -> Result<DmaBuf, Error> {
         let buf;
         unsafe {
             buf = spdk_dma_zmalloc(
@@ -192,12 +177,9 @@ impl Descriptor {
 
         if buf.is_null() {
             trace!("Malloc for size {} failed", size);
-            None
+            Err(Error::OutOfMemory)
         } else {
-            Some(DmaBuf {
-                buf,
-                len: size,
-            })
+            Ok(DmaBuf { buf, len: size })
         }
     }
 
