@@ -16,12 +16,10 @@ class ApiServer {
     this.volumes = volumeOperator;
     this.app = express();
     this.app.get('/stats', (req, res) => {
-      self.volumes
-        .getStats()
-        .then(
-          stats => res.json(stats),
-          err => res.status(500).send(err.toString())
-        );
+      self.volumes.getStats().then(
+        stats => res.json(stats),
+        err => res.status(500).send(err.toString())
+      );
     });
   }
 

@@ -105,7 +105,9 @@ describe('cli', function() {
             thin: true,
             share: 1,
           },
-          output: {},
+          output: {
+            uri: 'nvmf://' + UUID,
+          },
         },
         {
           method: 'DestroyReplica',
@@ -113,6 +115,16 @@ describe('cli', function() {
             uuid: UUID,
           },
           output: {},
+        },
+        {
+          method: 'ShareReplica',
+          input: {
+            uuid: UUID,
+            share: 2,
+          },
+          output: {
+            uri: 'iscsi://' + UUID,
+          },
         },
         {
           method: 'ListReplicas',
@@ -124,6 +136,7 @@ describe('cli', function() {
                 pool: POOL,
                 thin: true,
                 share: 0,
+                uri: 'bdev://' + UUID,
                 size: 10000 * (1024 * 1024),
               },
               {
@@ -131,6 +144,7 @@ describe('cli', function() {
                 pool: POOL,
                 thin: false,
                 share: 1,
+                uri: 'nvmf://' + UUID,
                 size: 10 * (1024 * 1024),
               },
               {
@@ -138,6 +152,7 @@ describe('cli', function() {
                 pool: POOL,
                 thin: false,
                 share: 2,
+                uri: 'iscsi://' + UUID,
                 size: 10 * (1024 * 1024),
               },
             ],
@@ -278,7 +293,20 @@ describe('cli', function() {
           return done(err);
         }
         assert.isEmpty(stderr);
-        assert.isEmpty(stdout);
+        assert.match(stdout, /^nvmf:\/\//);
+        done();
+      });
+    });
+
+    it('should share the replica', function(done) {
+      const cmd = util.format('%s replica share %s iscsi', EGRESS_CMD, UUID);
+
+      exec(cmd, (err, stdout, stderr) => {
+        if (err) {
+          return done(err);
+        }
+        assert.isEmpty(stderr);
+        assert.match(stdout, /^iscsi:\/\//);
         done();
       });
     });
@@ -311,6 +339,7 @@ describe('cli', function() {
             share: parts[3],
             size: parts[4],
             size_unit: parts[5],
+            uri: parts[6],
           });
         });
 
@@ -322,6 +351,7 @@ describe('cli', function() {
         assert.equal(repls[0].share, 'none');
         assert.equal(repls[0].size, '9.8'); // 10000MiB -> 9.8 GiB
         assert.equal(repls[0].size_unit, 'GiB');
+        assert.match(repls[0].uri, /^bdev:\/\//);
 
         assert.equal(repls[1].name, UUID2);
         assert.equal(repls[1].pool, POOL);
@@ -329,6 +359,7 @@ describe('cli', function() {
         assert.equal(repls[1].share, 'nvmf');
         assert.equal(repls[1].size, '10.0');
         assert.equal(repls[1].size_unit, 'MiB');
+        assert.match(repls[1].uri, /^nvmf:\/\//);
 
         assert.equal(repls[2].name, UUID3);
         assert.equal(repls[2].pool, POOL);
@@ -336,6 +367,7 @@ describe('cli', function() {
         assert.equal(repls[2].share, 'iscsi');
         assert.equal(repls[2].size, '10.0');
         assert.equal(repls[2].size_unit, 'MiB');
+        assert.match(repls[2].uri, /^iscsi:\/\//);
 
         done();
       });
@@ -463,6 +495,17 @@ describe('cli', function() {
           },
         },
         {
+          method: 'ShareReplica',
+          input: {
+            uuid: UUID,
+            share: 1,
+          },
+          error: {
+            code: 5, // NOT_FOUND
+            message: 'Replica not found',
+          },
+        },
+        {
           method: 'ListReplicas',
           input: {},
           error: {
@@ -531,6 +574,17 @@ describe('cli', function() {
       exec(cmd, (err, stdout, stderr) => {
         assert(err, 'Expected the command "' + cmd + '" to exit with error');
         assert.match(stderr, /Replica already exists/);
+        assert.isEmpty(stdout);
+        done();
+      });
+    });
+
+    it('should not share the replica if it does not exist', function(done) {
+      const cmd = util.format('%s replica share %s nvmf', EGRESS_CMD, UUID);
+
+      exec(cmd, (err, stdout, stderr) => {
+        assert(err, 'Expected the command "' + cmd + '" to exit with error');
+        assert.match(stderr, /Replica not found/);
         assert.isEmpty(stdout);
         done();
       });

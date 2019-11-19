@@ -14,6 +14,19 @@ use tonic::{transport::Channel, Code, Request, Status};
 
 use rpc::service::client::MayastorClient;
 
+fn parse_share_protocol(pcol: Option<&str>) -> Result<i32, Status> {
+    match pcol {
+        None => Ok(rpc::mayastor::ShareProtocol::None as i32),
+        Some("nvmf") => Ok(rpc::mayastor::ShareProtocol::Nvmf as i32),
+        Some("iscsi") => Ok(rpc::mayastor::ShareProtocol::Iscsi as i32),
+        Some("none") => Ok(rpc::mayastor::ShareProtocol::None as i32),
+        Some(_) => Err(Status::new(
+            Code::Internal,
+            "Invalid value of share protocol".to_owned(),
+        )),
+    }
+}
+
 async fn create_pool(
     mut client: MayastorClient<Channel>,
     matches: &ArgMatches<'_>,
@@ -114,23 +127,13 @@ async fn create_replica(
     let uuid = matches.value_of("UUID").unwrap().to_owned();
     let size = value_t!(matches.value_of("size"), u64).unwrap();
     let thin = matches.is_present("thin");
-    let share = match matches.value_of("protocol") {
-        None => rpc::mayastor::ShareProtocol::None as i32,
-        Some("nvmf") => rpc::mayastor::ShareProtocol::Nvmf as i32,
-        Some("iscsi") => rpc::mayastor::ShareProtocol::Iscsi as i32,
-        Some(_) => {
-            return Err(Status::new(
-                Code::Internal,
-                "Invalid value of share protocol".to_owned(),
-            ))
-        }
-    };
+    let share = parse_share_protocol(matches.value_of("protocol"))?;
 
     if verbose {
         println!("Creating replica {} on pool {}", uuid, pool);
     }
 
-    client
+    let resp = client
         .create_replica(Request::new(rpc::mayastor::CreateReplicaRequest {
             uuid,
             pool,
@@ -139,6 +142,7 @@ async fn create_replica(
             size: size * (1024 * 1024),
         }))
         .await?;
+    println!("{}", resp.get_ref().uri);
     Ok(())
 }
 
@@ -158,6 +162,28 @@ async fn destroy_replica(
             uuid,
         }))
         .await?;
+    Ok(())
+}
+
+async fn share_replica(
+    mut client: MayastorClient<Channel>,
+    matches: &ArgMatches<'_>,
+    verbose: bool,
+) -> Result<(), Status> {
+    let uuid = matches.value_of("UUID").unwrap().to_owned();
+    let share = parse_share_protocol(matches.value_of("PROTOCOL"))?;
+
+    if verbose {
+        println!("Sharing replica {}", uuid);
+    }
+
+    let resp = client
+        .share_replica(Request::new(rpc::mayastor::ShareReplicaRequest {
+            uuid,
+            share,
+        }))
+        .await?;
+    println!("{}", resp.get_ref().uri);
     Ok(())
 }
 
@@ -181,13 +207,13 @@ async fn list_replicas(
     } else {
         if !quiet {
             println!(
-                "{: <20} {: <36} {: <8} {: <8} {: >10}",
-                "POOL", "NAME", "THIN", "SHARE", "SIZE"
+                "{: <15} {: <36} {: <8} {: <8} {: <10} URI",
+                "POOL", "NAME", "THIN", "SHARE", "SIZE",
             );
         }
         for r in replicas {
             println!(
-                "{: <20} {: <36} {: <8} {: <8} {: >10}",
+                "{: <15} {: <36} {: <8} {: <8} {: <10} {}",
                 r.pool,
                 r.uuid,
                 r.thin,
@@ -204,6 +230,7 @@ async fn list_replicas(
                     None => "unknown",
                 },
                 ByteSize::b(r.size).to_string_as(true),
+                r.uri,
             );
         }
     }
@@ -378,6 +405,23 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 .index(1),
                         ),
                 )
+                .subcommand(
+                    SubCommand::with_name("share")
+                        .about("Share or unshare replica")
+                        .arg(
+                            Arg::with_name("UUID")
+                                .help("Replica uuid")
+                                .required(true)
+                                .index(1),
+                        )
+                        .arg(
+                            Arg::with_name("PROTOCOL")
+                                .help("Replica uuid")
+                                .help("Name of a protocol (nvmf, iscsi) used for sharing or \"none\" to unshare the replica")
+                                .required(true)
+                                .index(2),
+                        ),
+                )
                 .subcommand(SubCommand::with_name("list").about("List replicas"))
                 .subcommand(SubCommand::with_name("stats").about("IO stats of replicas")),
         )
@@ -409,6 +453,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             ("destroy", Some(matches)) => {
                 destroy_replica(client, matches, verbose).await?
+            }
+            ("share", Some(matches)) => {
+                share_replica(client, matches, verbose).await?
             }
             ("list", Some(_matches)) => {
                 list_replicas(client, verbose, quiet).await?
