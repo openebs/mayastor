@@ -88,8 +88,9 @@ impl Nexus {
                 share.destroy();
                 if let Some(bdev) = self.share_handle.take() {
                     if let Some(bdev) = bdev_lookup_by_name(&bdev) {
-                        // if there share handle is the same as bdev name it implies there
-                        // is no top level bdev, and we are done
+                        // if there share handle is the same as bdev name it
+                        // implies there is no top level
+                        // bdev, and we are done
                         if self.name == bdev.name() {
                             return Ok(());
                         }

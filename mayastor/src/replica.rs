@@ -15,7 +15,11 @@ use futures::{
     channel::oneshot,
     future::{self, FutureExt},
 };
-use rpc::jsonrpc as jsondata;
+use rpc::mayastor::{
+    CreateReplicaReply, CreateReplicaRequest, DestroyReplicaRequest,
+    ListReplicasReply, Replica as ReplicaJson, ReplicaStats, ShareProtocol,
+    ShareReplicaReply, ShareReplicaRequest, StatReplicasReply, Stats,
+};
 use spdk_sys::{
     spdk_lvol, vbdev_lvol_create, vbdev_lvol_destroy, vbdev_lvol_get_from_bdev,
     LVOL_CLEAR_WITH_UNMAP, LVOL_CLEAR_WITH_WRITE_ZEROES,
@@ -237,6 +241,17 @@ impl Replica {
         detect_share(self.get_uuid())
     }
 
+    /// Return storage URI understood & used by nexus to access the replica.
+    pub fn get_share_uri(&self) -> String {
+        match detect_share(self.get_uuid()) {
+            Some((share_type, share_uri)) => match share_type {
+                ShareType::Iscsi => format!("iscsi://{}", share_uri),
+                ShareType::Nvmf => format!("nvmf://{}", share_uri),
+            },
+            None => format!("bdev://{}", self.get_uuid()),
+        }
+    }
+
     /// Get size of the replica in bytes.
     pub fn get_size(&self) -> u64 {
         let bdev: Bdev = unsafe { (*self.lvol_ptr).bdev.into() };
@@ -343,63 +358,68 @@ impl Iterator for ReplicaIter {
 
 /// Register replica json-rpc methods.
 pub fn register_replica_methods() {
-    jsonrpc_register("create_replica", |args: jsondata::CreateReplicaArgs| {
+    jsonrpc_register("create_replica", |args: CreateReplicaRequest| {
         let fut = async move {
-            let replica = Replica::create(
-                &args.uuid,
-                &args.pool,
-                args.size,
-                args.thin_provision,
-            )
-            .await?;
+            let want_share = match ShareProtocol::from_i32(args.share) {
+                Some(val) => val,
+                None => {
+                    return Err(JsonRpcError::new(
+                        Code::InvalidParams,
+                        format!(
+                            "Invalid share protocol {} in request",
+                            args.share
+                        ),
+                    ))
+                }
+            };
+            let replica =
+                Replica::create(&args.uuid, &args.pool, args.size, args.thin)
+                    .await?;
 
-            match args.share {
-                jsondata::ShareProtocol::Nvmf => {
-                    replica.share(ShareType::Nvmf).await
-                }
-                jsondata::ShareProtocol::Iscsi => {
-                    replica.share(ShareType::Iscsi).await
-                }
-                jsondata::ShareProtocol::None => Ok(()),
+            match want_share {
+                ShareProtocol::Nvmf => replica.share(ShareType::Nvmf).await?,
+                ShareProtocol::Iscsi => replica.share(ShareType::Iscsi).await?,
+                ShareProtocol::None => (),
+            }
+            Ok(CreateReplicaReply {
+                uri: replica.get_share_uri(),
+            })
+        };
+        fut.boxed_local()
+    });
+
+    jsonrpc_register("destroy_replica", |args: DestroyReplicaRequest| {
+        let fut = async move {
+            match Replica::lookup(&args.uuid) {
+                Some(replica) => replica.destroy().await,
+                None => Err(JsonRpcError::new(
+                    Code::NotFound,
+                    format!("Replica {} does not exist", args.uuid),
+                )),
             }
         };
         fut.boxed_local()
     });
 
-    jsonrpc_register(
-        "destroy_replica",
-        |args: jsondata::DestroyReplicaArgs| {
-            let fut = async move {
-                match Replica::lookup(&args.uuid) {
-                    Some(replica) => replica.destroy().await,
-                    None => Err(JsonRpcError::new(
-                        Code::NotFound,
-                        format!("Replica {} does not exist", args.uuid),
-                    )),
-                }
-            };
-            fut.boxed_local()
-        },
-    );
-
     jsonrpc_register::<(), _, _>("list_replicas", |_| {
-        future::ok(
-            ReplicaIter::new()
-                .map(|r| jsondata::Replica {
+        future::ok(ListReplicasReply {
+            replicas: ReplicaIter::new()
+                .map(|r| ReplicaJson {
                     uuid: r.get_uuid().to_owned(),
                     pool: r.get_pool_name().to_owned(),
                     size: r.get_size(),
-                    thin_provision: r.is_thin(),
+                    thin: r.is_thin(),
                     share: match r.get_share_id() {
                         Some((share_type, _)) => match share_type {
-                            ShareType::Iscsi => jsondata::ShareProtocol::Iscsi,
-                            ShareType::Nvmf => jsondata::ShareProtocol::Nvmf,
+                            ShareType::Iscsi => ShareProtocol::Iscsi as i32,
+                            ShareType::Nvmf => ShareProtocol::Nvmf as i32,
                         },
-                        None => jsondata::ShareProtocol::None,
+                        None => ShareProtocol::None as i32,
                     },
+                    uri: r.get_share_uri(),
                 })
-                .collect::<Vec<jsondata::Replica>>(),
-        )
+                .collect::<Vec<ReplicaJson>>(),
+        })
         .boxed_local()
     });
 
@@ -420,13 +440,15 @@ pub fn register_replica_methods() {
 
                 match st {
                     Ok(st) => {
-                        stats.push(jsondata::Stats {
+                        stats.push(ReplicaStats {
                             uuid,
                             pool,
-                            num_read_ops: st.num_read_ops,
-                            num_write_ops: st.num_write_ops,
-                            bytes_read: st.bytes_read,
-                            bytes_written: st.bytes_written,
+                            stats: Some(Stats {
+                                num_read_ops: st.num_read_ops,
+                                num_write_ops: st.num_write_ops,
+                                bytes_read: st.bytes_read,
+                                bytes_written: st.bytes_written,
+                            }),
                         });
                     }
                     Err(errno) => {
@@ -438,7 +460,60 @@ pub fn register_replica_methods() {
                     }
                 }
             }
-            Ok(stats)
+            Ok(StatReplicasReply { replicas: stats })
+        };
+        fut.boxed_local()
+    });
+
+    jsonrpc_register("share_replica", |args: ShareReplicaRequest| {
+        let fut = async move {
+            let want_share = match ShareProtocol::from_i32(args.share) {
+                Some(val) => val,
+                None => {
+                    return Err(JsonRpcError::new(
+                        Code::InvalidParams,
+                        format!(
+                            "Invalid share protocol {} in request",
+                            args.share
+                        ),
+                    ))
+                }
+            };
+            let replica = match Replica::lookup(&args.uuid) {
+                Some(replica) => replica,
+                None => {
+                    return Err(JsonRpcError::new(
+                        Code::NotFound,
+                        format!("Replica {} does not exist", args.uuid),
+                    ))
+                }
+            };
+            // first unshare the replica if there is a protocol change
+            let unshare = match replica.get_share_id() {
+                Some((share_type, _)) => match share_type {
+                    ShareType::Iscsi => want_share != ShareProtocol::Iscsi,
+                    ShareType::Nvmf => want_share != ShareProtocol::Nvmf,
+                },
+                None => false,
+            };
+            if unshare {
+                replica.unshare().await?;
+            }
+            // share the replica if it is not shared and we want it to be shared
+            if replica.get_share_id().is_none() {
+                match want_share {
+                    ShareProtocol::Iscsi => {
+                        replica.share(ShareType::Iscsi).await?
+                    }
+                    ShareProtocol::Nvmf => {
+                        replica.share(ShareType::Nvmf).await?
+                    }
+                    ShareProtocol::None => (),
+                }
+            }
+            Ok(ShareReplicaReply {
+                uri: replica.get_share_uri(),
+            })
         };
         fut.boxed_local()
     });

@@ -47,8 +47,7 @@ use std::{
     slice::{from_raw_parts, from_raw_parts_mut},
 };
 
-use crate::bdev::nexus::Error;
-use crate::executor::cb_arg;
+use crate::{bdev::nexus::Error, executor::cb_arg};
 use futures::channel::oneshot;
 
 /// DmaBuf which is allocated from the memory pool

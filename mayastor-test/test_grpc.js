@@ -291,7 +291,8 @@ describe('grpc', function() {
         },
         (err, res) => {
           if (err) return done(err);
-          assert.lengthOf(Object.keys(res), 0);
+          assert.hasAllKeys(res, ['uri']);
+          assert.match(res.uri, /^nvmf:\/\//);
           done();
         }
       );
@@ -309,6 +310,7 @@ describe('grpc', function() {
         assert.equal(res.thin, true);
         assert.equal(res.size, 8 * 1024 * 1024);
         assert.equal(res.share, 'NVMF');
+        assert.match(res.uri, /^nvmf:\/\//);
         done();
       });
     });
@@ -332,7 +334,8 @@ describe('grpc', function() {
         },
         (err, res) => {
           if (err) return done(err);
-          assert.lengthOf(Object.keys(res), 0);
+          assert.hasAllKeys(res, ['uri']);
+          assert.match(res.uri, /^iscsi:\/\//);
           done();
         }
       );
@@ -350,6 +353,7 @@ describe('grpc', function() {
         assert.equal(res.thin, true);
         assert.equal(res.size, 8 * 1024 * 1024);
         assert.equal(res.share, 'ISCSI');
+        assert.match(res.uri, /^iscsi:\/\//);
         done();
       });
     });
@@ -387,7 +391,8 @@ describe('grpc', function() {
         },
         (err, res) => {
           if (err) return done(err);
-          assert.lengthOf(Object.keys(res), 0);
+          assert.hasAllKeys(res, ['uri']);
+          assert.match(res.uri, /^bdev:\/\//);
           done();
         }
       );
@@ -420,8 +425,99 @@ describe('grpc', function() {
         assert.equal(res.pool, POOL);
         assert.equal(res.thin, true);
         assert.equal(res.size, 8 * 1024 * 1024);
+        assert.equal(res.share, 'NONE');
+        assert.match(res.uri, /^bdev:\/\//);
         done();
       });
+    });
+
+    it('should share the unexported replica', done => {
+      client.shareReplica(
+        {
+          uuid: UUID,
+          share: 'NVMF',
+        },
+        (err, res) => {
+          if (err) return done(err);
+          assert.match(res.uri, /^nvmf:\/\//);
+
+          client.listReplicas({}, (err, res) => {
+            if (err) return done(err);
+            res = res.replicas.filter(ent => {
+              return ent.uuid == UUID;
+            });
+            assert.lengthOf(res, 1);
+            res = res[0];
+            assert.equal(res.share, 'NVMF');
+            assert.match(res.uri, /^nvmf:\/\//);
+            done();
+          });
+        }
+      );
+    });
+
+    it('should not fail if shared again using the same protocol', done => {
+      client.shareReplica(
+        {
+          uuid: UUID,
+          share: 'NVMF',
+        },
+        (err, res) => {
+          if (err) return done(err);
+          assert.match(res.uri, /^nvmf:\/\//);
+          done();
+        }
+      );
+    });
+
+    it('should share the replica under a different protocol', done => {
+      client.shareReplica(
+        {
+          uuid: UUID,
+          share: 'ISCSI',
+        },
+        (err, res) => {
+          if (err) return done(err);
+          assert.match(res.uri, /^iscsi:\/\//);
+
+          client.listReplicas({}, (err, res) => {
+            if (err) return done(err);
+            res = res.replicas.filter(ent => {
+              return ent.uuid == UUID;
+            });
+            assert.lengthOf(res, 1);
+            res = res[0];
+            assert.equal(res.share, 'ISCSI');
+            assert.match(res.uri, /^iscsi:\/\//);
+            done();
+          });
+        }
+      );
+    });
+
+    it('should unshare the replica', done => {
+      client.shareReplica(
+        {
+          uuid: UUID,
+          share: 'NONE',
+        },
+        (err, res) => {
+          if (err) return done(err);
+          assert.match(res.uri, /^bdev:\/\//);
+
+          client.listReplicas({}, (err, res) => {
+            if (err) return done(err);
+            res = res.replicas.filter(ent => {
+              return ent.uuid == UUID;
+            });
+            assert.lengthOf(res, 1);
+            res = res[0];
+            assert.equal(res.share, 'NONE');
+            assert.match(res.uri, /^bdev:\/\//);
+            done();
+          });
+        }
+      );
     });
 
     it('should get stats for the replica', done => {

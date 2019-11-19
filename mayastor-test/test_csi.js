@@ -164,9 +164,9 @@ describe('csi', function() {
                 {
                   uuid: uuid,
                   pool: 'tpool',
-                  thin_provision: false,
+                  thin: false,
                   size: 25 * 1024 * 1024,
-                  share: 'None',
+                  share: 0, // "NONE"
                 },
                 next
               );

@@ -4,10 +4,7 @@ use tonic::{Code, Request, Response, Status};
 
 use rpc::jsonrpc as jsondata;
 
-use crate::rpc::{
-    mayastor::{ShareProtocol, *},
-    service,
-};
+use crate::rpc::{mayastor::*, service};
 
 /// mayastorService handles non CSI rpc calls
 #[derive(Clone, Debug)]
@@ -120,37 +117,22 @@ impl service::server::Mayastor for MayastorService {
     async fn create_replica(
         &self,
         request: Request<CreateReplicaRequest>,
-    ) -> Result<Response<Null>, Status> {
+    ) -> Result<Response<CreateReplicaReply>, Status> {
         let msg = request.into_inner();
         trace!("{:?}", msg);
 
-        let uuid = msg.uuid;
-        let pool = msg.pool;
-        let share = match ShareProtocol::from_i32(msg.share) {
-            Some(ShareProtocol::None) => jsondata::ShareProtocol::None,
-            Some(ShareProtocol::Nvmf) => jsondata::ShareProtocol::Nvmf,
-            Some(ShareProtocol::Iscsi) => jsondata::ShareProtocol::Iscsi,
-            None => {
-                return Err(Status::new(
-                    Code::InvalidArgument,
-                    "Invalid value of share protocol".to_owned(),
-                ));
-            }
-        };
-
+        let uuid = msg.uuid.clone();
+        let pool = msg.pool.clone();
         debug!("Creating replica {} on {} ...", uuid, pool);
 
-        let args = Some(jsondata::CreateReplicaArgs {
-            uuid: uuid.clone(),
-            pool: pool.clone(),
-            thin_provision: msg.thin,
-            size: msg.size,
-            share,
-        });
-
-        match jsonrpc::call::<_, ()>(&self.socket, "create_replica", args).await
+        match jsonrpc::call::<_, CreateReplicaReply>(
+            &self.socket,
+            "create_replica",
+            Some(msg),
+        )
+        .await
         {
-            Ok(_) => Ok(Response::new(Null {})),
+            Ok(val) => Ok(Response::new(val)),
             Err(err) => {
                 error!(
                     "Failed to create replica {} on {}: {}",
@@ -169,12 +151,10 @@ impl service::server::Mayastor for MayastorService {
         let msg = request.into_inner();
         trace!("{:?}", msg);
 
-        let uuid = msg.uuid;
+        let uuid = msg.uuid.clone();
         debug!("Destroying replica {} ...", uuid);
 
-        let args = Some(jsondata::DestroyReplicaArgs { uuid: uuid.clone() });
-
-        match jsonrpc::call::<_, ()>(&self.socket, "destroy_replica", args)
+        match jsonrpc::call::<_, ()>(&self.socket, "destroy_replica", Some(msg))
             .await
         {
             Ok(_) => {
@@ -188,54 +168,49 @@ impl service::server::Mayastor for MayastorService {
         }
     }
 
+    /// Share replica
+    async fn share_replica(
+        &self,
+        request: Request<ShareReplicaRequest>,
+    ) -> Result<Response<ShareReplicaReply>, Status> {
+        let msg = request.into_inner();
+        trace!("{:?}", msg);
+
+        let uuid = msg.uuid.clone();
+        debug!("Sharing replica {} ...", uuid);
+
+        match jsonrpc::call::<_, ShareReplicaReply>(
+            &self.socket,
+            "share_replica",
+            Some(msg),
+        )
+        .await
+        {
+            Ok(reply) => {
+                info!("Shared replica {}", uuid);
+                Ok(Response::new(reply))
+            }
+            Err(err) => {
+                error!("Failed to share replica {}: {}", uuid, err);
+                Err(err.into())
+            }
+        }
+    }
+
     /// List replicas
     async fn list_replicas(
         &self,
-        request: Request<Null>,
+        _request: Request<Null>,
     ) -> Result<Response<ListReplicasReply>, Status> {
-        let msg = request.into_inner();
-
-        trace!("{:?}", msg);
-
-        match jsonrpc::call::<(), Vec<jsondata::Replica>>(
+        let list = jsonrpc::call::<(), ListReplicasReply>(
             &self.socket,
             "list_replicas",
             None,
         )
-        .await
-        {
-            Ok(replicas) => {
-                debug!("Got list of {} replicas", replicas.len());
-                let resp = Response::new(ListReplicasReply {
-                    replicas: replicas
-                        .iter()
-                        .map(|r| Replica {
-                            uuid: r.uuid.clone(),
-                            pool: r.pool.clone(),
-                            thin: r.thin_provision,
-                            size: r.size,
-                            share: match r.share {
-                                jsondata::ShareProtocol::None => {
-                                    ShareProtocol::None
-                                }
-                                jsondata::ShareProtocol::Nvmf => {
-                                    ShareProtocol::Nvmf
-                                }
-                                jsondata::ShareProtocol::Iscsi => {
-                                    ShareProtocol::Iscsi
-                                }
-                            } as i32,
-                        })
-                        .collect(),
-                });
-                trace!("{:?}", resp);
-                Ok(resp)
-            }
-            Err(err) => {
-                error!("Getting replicas failed: {}", err);
-                Err(err.into())
-            }
-        }
+        .await?;
+        debug!("Got list of {} replicas", list.replicas.len());
+        trace!("{:?}", list);
+        Ok(Response::new(list))
     }
 
     /// Return replica stats
@@ -248,29 +223,15 @@ impl service::server::Mayastor for MayastorService {
 
         trace!("{:?}", msg);
 
-        match jsonrpc::call::<(), Vec<jsondata::Stats>>(
+        match jsonrpc::call::<(), StatReplicasReply>(
             socket,
             "stat_replicas",
             None,
         )
         .await
         {
-            Ok(stats) => {
-                let resp = Response::new(StatReplicasReply {
-                    replicas: stats
-                        .iter()
-                        .map(|st| ReplicaStats {
-                            uuid: st.uuid.clone(),
-                            pool: st.pool.clone(),
-                            stats: Some(Stats {
-                                num_read_ops: st.num_read_ops,
-                                num_write_ops: st.num_write_ops,
-                                bytes_read: st.bytes_read,
-                                bytes_written: st.bytes_written,
-                            }),
-                        })
-                        .collect(),
-                });
+            Ok(reply) => {
+                let resp = Response::new(reply);
                 trace!("{:?}", resp);
                 Ok(resp)
             }

@@ -21,10 +21,11 @@ service Mayastor {
 	//
 	// Replica allocates space from storage pool.
 
-	rpc CreateReplica (mayastor.CreateReplicaRequest) returns (mayastor.Null) {}
+	rpc CreateReplica (mayastor.CreateReplicaRequest) returns (mayastor.CreateReplicaReply) {}
 	rpc DestroyReplica (mayastor.DestroyReplicaRequest) returns (mayastor.Null) {}
 	rpc ListReplicas (mayastor.Null) returns (mayastor.ListReplicasReply) {}
 	rpc StatReplicas (mayastor.Null) returns (mayastor.StatReplicasReply) {}
+	rpc ShareReplica (mayastor.ShareReplicaRequest) returns (mayastor.ShareReplicaReply) {}
 
 	// Nexus related methods.
   //

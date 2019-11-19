@@ -63,6 +63,11 @@ message CreateReplicaRequest {
   ShareProtocol share = 5;  // protocol to expose the replica over
 }
 
+// Create replica response.
+message CreateReplicaReply {
+  string uri = 1;   // uri under which the replica is accessible by nexus
+}
+
 // Destroy replica arguments.
 message DestroyReplicaRequest {
   string uuid = 1;  // name of the replica
@@ -75,6 +80,7 @@ message Replica {
   bool thin = 3;    // thin provisioning
   uint64 size = 4;  // size of the replica in bytes
   ShareProtocol share = 5;  // protocol used for exposing the replica
+  string uri = 6;   // uri usable by nexus to access it
 }
 
 // List of replicas and their properties.
@@ -102,6 +108,18 @@ message ReplicaStats {
 // List of replicas and their properties.
 message StatReplicasReply {
   repeated ReplicaStats replicas = 1;  // list of the replicas
+}
+
+// Share replica request.
+message ShareReplicaRequest {
+  string uuid = 1;  // uuid of the replica
+  ShareProtocol share = 2;  // protocol used for exposing the replica
+                            // Use "NONE" to disable remote access.
+}
+
+// Share replica response.
+message ShareReplicaReply {
+  string uri = 1;   // uri under which the replica is accessible by nexus
 }
 
 // Create nexus arguments.
