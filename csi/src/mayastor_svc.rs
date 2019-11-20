@@ -314,4 +314,26 @@ impl service::server::Mayastor for MayastorService {
             .await?;
         Ok(Response::new(Null {}))
     }
+
+    async fn add_child_nexus(
+        &self,
+        request: Request<AddChildNexusRequest>,
+    ) -> Result<Response<Null>, Status> {
+        let msg = request.into_inner();
+        trace!("{:?}", msg);
+        jsonrpc::call::<_, ()>(&self.socket, "add_child_nexus", Some(msg))
+            .await?;
+        Ok(Response::new(Null {}))
+    }
+
+    async fn remove_child_nexus(
+        &self,
+        request: Request<RemoveChildNexusRequest>,
+    ) -> Result<Response<Null>, Status> {
+        let msg = request.into_inner();
+        trace!("{:?}", msg);
+        jsonrpc::call::<_, ()>(&self.socket, "remove_child_nexus", Some(msg))
+            .await?;
+        Ok(Response::new(Null {}))
+    }
 }

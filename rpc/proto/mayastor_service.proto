@@ -28,13 +28,15 @@ service Mayastor {
 	rpc ShareReplica (mayastor.ShareReplicaRequest) returns (mayastor.ShareReplicaReply) {}
 
 	// Nexus related methods.
-  //
-  // Nexus is a logical frontend representing a data volume taking care of
-  // replication and rebuild in the background.
+	//
+	// Nexus is a logical frontend representing a data volume taking care of
+	// replication and rebuild in the background.
 
 	rpc CreateNexus (mayastor.CreateNexusRequest) returns (mayastor.Null){}
 	rpc DestroyNexus (mayastor.DestroyNexusRequest) returns (mayastor.Null) {}
 	rpc ListNexus (mayastor.Null) returns (mayastor.ListNexusReply) {}
+	rpc AddChildNexus (mayastor.AddChildNexusRequest) returns (mayastor.Null) {}
+	rpc RemoveChildNexus (mayastor.RemoveChildNexusRequest) returns (mayastor.Null) {}
 
 	// This method is called by control plane to construct a block device
 	// (/dev/...) that will be used to connect the nexus to the OS.

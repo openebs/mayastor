@@ -69,6 +69,19 @@ impl Nexus {
         Ok(name)
     }
 
+    /// Destroy child with given uri.
+    /// If the child does not exist the method returns success.
+    pub async fn destroy_child(&mut self, uri: &str) -> Result<(), Error> {
+        let idx = match self.children.iter().position(|c| c.name == uri) {
+            None => return Ok(()),
+            Some(val) => val,
+        };
+        let mut child = self.children.remove(idx);
+        child.destroy().await?;
+        self.child_count -= 1;
+        Ok(())
+    }
+
     /// offline a child device and reconfigure the IO channels
     pub async fn offline_child(
         &mut self,

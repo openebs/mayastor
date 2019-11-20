@@ -163,6 +163,7 @@ describe('nexus_grpc', function() {
 
     it('should be able to list the created nexus', done => {
       client.ListNexus({}, (err, res) => {
+        if (err) return done(err);
         assert(res.nexus_list.length !== 0);
 
         let nexus = res.nexus_list[0];
@@ -172,6 +173,50 @@ describe('nexus_grpc', function() {
         assert(nexus.children.length === 2);
         assert(nexus.children[0].state === nexus.children[1].state);
         done();
+      });
+    });
+
+    it('it should be able to remove one of its child', done => {
+      let args = {
+        uuid: UUID,
+        uri: 'iscsi://127.0.0.1:3261/iqn.2016-06.io.openebs:disk0',
+      };
+
+      client.RemoveChildNexus(args, err => {
+        if (err) return done(err);
+
+        client.ListNexus({}, (err, res) => {
+          if (err) return done(err);
+          assert(res.nexus_list.length == 1);
+          let nexus = res.nexus_list[0];
+          assert.equal(nexus.uuid, UUID);
+          assert.equal(nexus.children.length, 1);
+          assert.equal(
+            nexus.children[0].uri,
+            'iscsi://127.0.0.1:3261/iqn.2016-06.io.openebs:disk1'
+          );
+          done();
+        });
+      });
+    });
+
+    it('it should be able to add the child back', done => {
+      let args = {
+        uuid: UUID,
+        uri: 'iscsi://127.0.0.1:3261/iqn.2016-06.io.openebs:disk0',
+      };
+
+      client.AddChildNexus(args, err => {
+        if (err) return done(err);
+
+        client.ListNexus({}, (err, res) => {
+          if (err) return done(err);
+          assert(res.nexus_list.length == 1);
+          let nexus = res.nexus_list[0];
+          assert.equal(nexus.uuid, UUID);
+          assert.equal(nexus.children.length, 2);
+          done();
+        });
       });
     });
 

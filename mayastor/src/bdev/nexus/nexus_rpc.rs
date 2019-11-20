@@ -8,9 +8,9 @@ use crate::{
 };
 use futures::{future, FutureExt};
 use rpc::mayastor::{
-    Child, ChildNexusRequest, CreateNexusRequest, DestroyNexusRequest,
-    ListNexusReply, Nexus as RpcNexus, PublishNexusReply, PublishNexusRequest,
-    UnpublishNexusRequest,
+    AddChildNexusRequest, Child, ChildNexusRequest, CreateNexusRequest,
+    DestroyNexusRequest, ListNexusReply, Nexus as RpcNexus, PublishNexusReply,
+    PublishNexusRequest, RemoveChildNexusRequest, UnpublishNexusRequest,
 };
 use uuid::Uuid;
 
@@ -194,6 +194,34 @@ pub(crate) fn register_rpc_methods() {
                 Err(e) => Err(JsonRpcError::new(
                     Code::InternalError,
                     format!("{:?}", e),
+                )),
+            }
+        };
+        fut.boxed_local()
+    });
+
+    jsonrpc_register("add_child_nexus", |args: AddChildNexusRequest| {
+        let fut = async move {
+            let nexus = nexus_lookup(&args.uuid)?;
+            match nexus.create_and_add_child(&args.uri).await {
+                Ok(_) => Ok(()),
+                Err(err) => Err(JsonRpcError::new(
+                    Code::InternalError,
+                    format!("{:?}", err),
+                )),
+            }
+        };
+        fut.boxed_local()
+    });
+
+    jsonrpc_register("remove_child_nexus", |args: RemoveChildNexusRequest| {
+        let fut = async move {
+            let nexus = nexus_lookup(&args.uuid)?;
+            match nexus.destroy_child(&args.uri).await {
+                Ok(_) => Ok(()),
+                Err(err) => Err(JsonRpcError::new(
+                    Code::InternalError,
+                    format!("{:?}", err),
                 )),
             }
         };

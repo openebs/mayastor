@@ -153,7 +153,17 @@ message ListNexusReply {
 }
 
 message DestroyNexusRequest   {
-  string uuid = 1;
+  string uuid = 1;    // uuid of the nexus
+}
+
+message AddChildNexusRequest {
+  string uuid = 1;    // uuid of the nexus
+  string uri = 2;     // URI of the child device to be added
+}
+
+message RemoveChildNexusRequest {
+  string uuid = 1;    // uuid of the nexus
+  string uri = 2;     // URI of the child device to be removed
 }
 
 // this message will be subject to change as we will add support for remote
