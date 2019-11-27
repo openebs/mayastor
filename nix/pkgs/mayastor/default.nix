@@ -19,7 +19,6 @@
 , dockerTools
 , writeScriptBin
 , pkgs ? import <nixpkgs>
-, buildType ? "release"
 }:
 
 let
@@ -28,25 +27,11 @@ let
     inherit pkgs;
   };
   rustPlatform = makeRustPlatform {
-    rustc = channel.rust;
-    cargo = channel.cargo;
+    rustc = channel.stable.rust;
+    cargo = channel.stable.cargo;
   };
 in
 rec {
-  # An alternative approach is to build separate outputs for the workspaces:
-  #
-  # sidecar = rustPlatform.buildRustPackage rec {
-  #   name = "mayastor-sidecar";
-  #   ....
-  #
-  #   buildPhase = ''
-  #    cargo build ${stdenv.lib.optionalString (buildType == "release") "--release"} \
-  #    --target ${stdenv.hostPlatform.config} -p csi
-  #    '';
-  #   };
-  #
-  #   The downside of this is that we compile twice but maybe that is not the case
-  #   if the src are fetched from github instead of the working as it is right now.
 
   mayastor = rustPlatform.buildRustPackage rec {
     name = "mayastor";

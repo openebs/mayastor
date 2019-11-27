@@ -1,7 +1,10 @@
-{ pkgs ? import <nixpkgs> {
-    # ensure that we import the mayastor-overlay
+{ channel ? "nightly"
+, pkgs ? import <nixpkgs> {
+
+    # import the mayastor-overlay
     overlays = [ (import ./nix/mayastor-overlay.nix) ];
   }
+,
 }:
 with pkgs;
 
@@ -10,10 +13,12 @@ let
     inherit fetchFromGitHub;
     inherit pkgs;
   };
+
+  libspdk = enableDebugging pkgs.libspdk;
 in
 mkShell {
-  inputsFrom = [ mayastor ];
   buildInputs = [
+    figlet
     gdb
     gptfdisk
     libiscsi.bin
@@ -23,15 +28,20 @@ mkShell {
     nvme-cli
     pre-commit
     python3
-    rustChannel.cargo
-    rustChannel.clippy-preview
-    rustChannel.rls-preview
-    rustChannel.rustfmt-preview
+    rustChannel.${channel}.clippy-preview
+    rustChannel.${channel}.rls-preview
+    rustChannel.${channel}.rust
+    rustChannel.${channel}.rust-src
+    rustChannel.${channel}.rustc
+    rustChannel.${channel}.rustfmt-preview
     xfsprogs
-    # TODO: Install cargo make
-  ];
+  ] ++ mayastor.buildInputs;
 
   LIBCLANG_PATH = mayastor.LIBCLANG_PATH;
   PROTOC = mayastor.PROTOC;
   PROTOC_INCLUDE = mayastor.PROTOC_INCLUDE;
+
+  shellHook = ''
+    figlet ${channel}
+  '';
 }
