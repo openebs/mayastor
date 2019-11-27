@@ -1,10 +1,8 @@
 { channel ? "nightly"
 , pkgs ? import <nixpkgs> {
-
     # import the mayastor-overlay
     overlays = [ (import ./nix/mayastor-overlay.nix) ];
   }
-,
 }:
 with pkgs;
 
@@ -14,9 +12,10 @@ let
     inherit pkgs;
   };
 
-  libspdk = enableDebugging pkgs.libspdk;
+  libspdk = pkgs.libspdk.override { enableDebug = true; };
 in
 mkShell {
+
   buildInputs = [
     figlet
     gdb
@@ -28,12 +27,7 @@ mkShell {
     nvme-cli
     pre-commit
     python3
-    rustChannel.${channel}.clippy-preview
-    rustChannel.${channel}.rls-preview
     rustChannel.${channel}.rust
-    rustChannel.${channel}.rust-src
-    rustChannel.${channel}.rustc
-    rustChannel.${channel}.rustfmt-preview
     xfsprogs
   ] ++ mayastor.buildInputs;
 
