@@ -1,28 +1,22 @@
-use crate::bdev::{
-    bdev_lookup_by_name,
-    nexus::{self, nexus_child::NexusChild, Error},
-};
-
-use crate::descriptor::IoChannel;
-
-use crate::nexus_uri::BdevType;
-
-use spdk_sys::{spdk_get_io_channel, spdk_put_io_channel};
-
-use crate::bdev::nexus::{
-    nexus_bdev::{Nexus, NexusState},
-    nexus_channel::DREvent,
-    nexus_child::ChildState,
-    nexus_label::NexusLabel,
-    nexus_uri::nexus_parse_uri,
-};
 use futures::future::join_all;
 
-impl Nexus {
-    fn hold_io_channel(&self) -> IoChannel {
-        unsafe { IoChannel::new(self.as_ptr()) }
-    }
+use crate::{
+    bdev::{
+        bdev_lookup_by_name,
+        nexus::{
+            self,
+            nexus_bdev::{Nexus, NexusState},
+            nexus_channel::DREvent,
+            nexus_child::{ChildState, NexusChild},
+            nexus_label::NexusLabel,
+            nexus_uri::nexus_parse_uri,
+            Error,
+        },
+    },
+    nexus_uri::BdevType,
+};
 
+impl Nexus {
     /// Add the child bdevs to the nexus instance in the "init state"
     /// this function should be used when bdevs are added asynchronously
     /// like for example, when parsing the init file. The examine callback
@@ -88,18 +82,14 @@ impl Nexus {
         name: &str,
     ) -> Result<NexusState, nexus::Error> {
         trace!("{}: Offline child request for {}", self.name(), name);
-
         if let Some(child) = self.children.iter_mut().find(|c| c.name == name) {
             child.close()?;
-            {
-                let _ch = self.hold_io_channel();
-                self.reconfigure(DREvent::ChildOffline).await;
-            }
-            self.set_state(NexusState::Degraded);
-            Ok(NexusState::Degraded)
         } else {
-            Err(Error::NotFound)
+            return Err(Error::NotFound);
         }
+
+        self.reconfigure(DREvent::ChildOffline).await;
+        Ok(self.set_state(NexusState::Degraded))
     }
 
     /// online a child and reconfigure the IO channels
@@ -111,20 +101,28 @@ impl Nexus {
 
         if let Some(child) = self.children.iter_mut().find(|c| c.name == name) {
             child.open(self.size)?;
-
-            // TODO we need to get a reference to a channel before we can
-            // process it would be nice to abstract this like
-            // self.channel_{hold/release}
-
-            let ch = unsafe { spdk_get_io_channel(self.as_ptr()) };
             self.reconfigure(DREvent::ChildOnline).await;
-            unsafe { spdk_put_io_channel(ch) };
             if self.is_healthy() {
-                self.set_state(NexusState::Online);
-                Ok(NexusState::Online)
+                Ok(self.set_state(NexusState::Online))
             } else {
                 Ok(NexusState::Degraded)
             }
+        } else {
+            Err(Error::NotFound)
+        }
+    }
+
+    /// fault a child and reconfigure the IO channels
+    pub async fn fault_child(
+        &mut self,
+        name: &str,
+    ) -> Result<NexusState, nexus::Error> {
+        trace!("{} fault child request", self.name());
+
+        if let Some(child) = self.children.iter_mut().find(|c| c.name == name) {
+            child.state = ChildState::Faulted;
+            self.reconfigure(DREvent::ChildFault).await;
+            Ok(NexusState::Degraded)
         } else {
             Err(Error::NotFound)
         }

@@ -1,6 +1,7 @@
 //!
 //! IO is driven by means of so called channels.
-use crate::bdev::nexus::{nexus_child::ChildState, Nexus};
+use std::ffi::c_void;
+
 use spdk_sys::{
     spdk_bdev_desc,
     spdk_for_each_channel,
@@ -11,7 +12,8 @@ use spdk_sys::{
     spdk_io_channel_iter_get_io_device,
     spdk_put_io_channel,
 };
-use std::ffi::c_void;
+
+use crate::bdev::nexus::{nexus_child::ChildState, Nexus};
 
 /// io channel, per core
 #[repr(C)]
@@ -34,6 +36,8 @@ pub enum DREvent {
     ChildOffline,
     /// Child online reconfiguration event
     ChildOnline,
+    /// mark the child as faulted
+    ChildFault,
 }
 
 impl NexusChannelInner {
@@ -143,7 +147,9 @@ impl NexusChannel {
     /// function called when we receive a Dynamic Reconfigure event (DR)
     pub extern "C" fn reconfigure(device: *mut c_void, event: &DREvent) {
         match event {
-            DREvent::ChildOffline | DREvent::ChildOnline => unsafe {
+            DREvent::ChildOffline
+            | DREvent::ChildOnline
+            | DREvent::ChildFault => unsafe {
                 spdk_for_each_channel(
                     device,
                     Some(NexusChannel::refresh_io_channels),
@@ -168,7 +174,7 @@ impl NexusChannel {
         sender.send(status).expect("reconfigure channel gone");
     }
 
-    /// Refresh the IO channels of the underlying children. Typically this is
+    /// Refresh the IO channels of the underlying children. Typically, this is
     /// called when a device is either added or removed. IO that has already
     /// may or may not complete. In case of remove that is fine.
 
