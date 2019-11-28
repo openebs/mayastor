@@ -1,19 +1,7 @@
-use crate::bdev::{
-    nexus::{self, nexus_module::NEXUS_MODULE},
-    Bdev,
-};
+use std::{fmt::Display, ops::Neg};
 
-use crate::{
-    bdev::nexus::{
-        nexus_label::{GPTHeader, GptEntry, NexusLabel},
-        Error,
-    },
-    descriptor::Descriptor,
-    nexus_uri::{nexus_parse_uri, BdevType},
-};
-
-use crate::descriptor::DmaBuf;
 use serde::{export::Formatter, Serialize};
+
 use spdk_sys::{
     spdk_bdev_close,
     spdk_bdev_desc,
@@ -21,7 +9,20 @@ use spdk_sys::{
     spdk_bdev_module_release_bdev,
     spdk_io_channel,
 };
-use std::{fmt::Display, ops::Neg};
+
+use crate::{
+    bdev::{
+        nexus::{
+            self,
+            nexus_label::{GPTHeader, GptEntry, NexusLabel},
+            nexus_module::NEXUS_MODULE,
+            Error,
+        },
+        Bdev,
+    },
+    descriptor::{Descriptor, DmaBuf},
+    nexus_uri::{nexus_parse_uri, BdevType},
+};
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq)]
 pub(crate) enum ChildState {
@@ -159,8 +160,6 @@ impl NexusChild {
             self.descriptor = Some(Descriptor {
                 desc: self.desc,
                 ch: self.get_io_channel(),
-                alignment: bdev.alignment(),
-                blk_size: bdev.block_len(),
             });
 
             debug!("{}: child {} opened successfully", self.parent, self.name);
