@@ -129,7 +129,7 @@ pub struct Nexus {
 
 unsafe impl core::marker::Sync for Nexus {}
 
-#[derive(Debug, Serialize, PartialEq)]
+#[derive(Debug, Serialize, Clone, Copy, PartialEq)]
 pub enum NexusState {
     /// nexus created but no children attached
     Init,
@@ -221,12 +221,13 @@ impl Nexus {
     }
 
     /// set the state of the nexus
-    pub(crate) fn set_state(&mut self, state: NexusState) {
+    pub(crate) fn set_state(&mut self, state: NexusState) -> NexusState {
         debug!(
             "{} Transitioned state from {:?} to {:?}",
             self.name, self.state, state
         );
         self.state = state;
+        state
     }
 
     pub(crate) fn is_healthy(&self) -> bool {
