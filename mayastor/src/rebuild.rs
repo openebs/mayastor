@@ -113,13 +113,14 @@ impl RebuildTask {
     pub fn start_rebuild(
         mut task: Box<RebuildTask>,
     ) -> Result<oneshot::Receiver<bool>, Error> {
+        //TODO: make dynamic
         let current_core = unsafe { spdk_env_get_current_core() };
         trace!("Will start rebuild task on core {}", current_core);
         trace!("rebuild started at: {:?}", std::time::SystemTime::now());
 
         let (s, r) = oneshot::channel::<bool>();
         task.sender = Some(s);
-        Event::new(0, Self::rebuild_init, task)?.call();
+        Event::new(current_core, Self::rebuild_init, task)?.call();
         Ok(r)
     }
 
@@ -178,14 +179,20 @@ impl RebuildTask {
     /// and average throughput mbs.
     fn rebuild_completed(&mut self) {
         let elapsed = self.start_time.unwrap().elapsed().unwrap();
-        let mbs = (self.source.get_bdev().block_len() as u64
+        let mb = (self.source.get_bdev().block_len() as u64
             * self.source.get_bdev().num_blocks())
             >> 20;
+
+        let mbs = if 0 < elapsed.as_secs() {
+            mb / elapsed.as_secs()
+        } else {
+            mb
+        };
         info!(
             "Rebuild completed after {:.} seconds total of {} ({}MBs) from {} to {}",
             elapsed.as_secs(),
+            mb,
             mbs,
-            mbs / elapsed.as_secs(),
             self.source.get_bdev().name(),
             self.target.get_bdev().name());
 

@@ -16,7 +16,7 @@ mod common;
 #[test]
 fn copy_task() {
     common::mayastor_test_init();
-    let args = vec!["rebuild_task"];
+    let args = vec!["rebuild_task", "-m", "0x2"];
 
     common::dd_random_file(DISKNAME1, "4096", "16384");
     common::truncate_file(DISKNAME2, "64M");
