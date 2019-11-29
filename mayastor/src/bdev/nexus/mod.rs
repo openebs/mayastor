@@ -83,6 +83,7 @@ pub mod nexus_io;
 pub mod nexus_label;
 pub mod nexus_module;
 pub mod nexus_nbd;
+pub mod nexus_rebuild;
 pub mod nexus_rpc;
 pub mod nexus_share;
 /// public function which simply calls register module

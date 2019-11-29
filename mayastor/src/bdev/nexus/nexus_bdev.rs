@@ -95,6 +95,8 @@ use crate::{
         Bdev,
     },
     descriptor::DmaBuf,
+    nexus_uri::{nexus_parse_uri, BdevType},
+    rebuild::RebuildTask,
 };
 
 pub(crate) static NEXUS_PRODUCT_ID: &str = "Nexus CAS Driver v0.0.1";
@@ -125,20 +127,27 @@ pub struct Nexus {
     /// the handle to be used when sharing the nexus, this allows for the bdev
     /// to be shared with vbdevs on top
     pub(crate) share_handle: Option<String>,
+    /// A handle to a rebuild task which may or may not be running
+    pub(crate) rebuild_handle: Option<Box<RebuildTask>>,
 }
 
 unsafe impl core::marker::Sync for Nexus {}
 
-#[derive(Debug, Serialize, Clone, Copy, PartialEq)]
+#[derive(Debug, Serialize, Clone, Copy, PartialEq, PartialOrd)]
 pub enum NexusState {
     /// nexus created but no children attached
     Init,
+    /// closed
+    Closed,
     /// Online
     Online,
     /// The nexus cannot perform any IO operation
     Faulted,
     /// Degraded, one or more child is missing but IO can still flow
     Degraded,
+    /// mule is moving blocks from A to B which is typical for an animal like
+    /// this
+    Remuling,
 }
 
 impl ToString for NexusState {
@@ -148,6 +157,8 @@ impl ToString for NexusState {
             NexusState::Online => "online",
             NexusState::Faulted => "faulted",
             NexusState::Degraded => "degraded",
+            NexusState::Closed => "closed",
+            NexusState::Remuling => "remuling",
         }
         .parse()
         .unwrap()
@@ -194,6 +205,7 @@ impl Nexus {
             nbd_disk: None,
             share_handle: None,
             size,
+            rebuild_handle: None,
         });
 
         n.bdev.set_uuid(match uuid {
@@ -280,7 +292,7 @@ impl Nexus {
     pub async fn sync_labels(&mut self) -> Result<(), Error> {
         if let Ok(label) = self.update_child_labels().await {
             // now register the bdev but update its size first to
-            // ensure we  adhere to the partitions
+            // ensure we adhere to the partitions
 
             // When the GUID does not match the given UUID it means
             // that the PVC has been recreated, is such as
@@ -320,13 +332,23 @@ impl Nexus {
     }
 
     /// close the nexus and any children that are open
-    pub fn close(&mut self) -> Result<(), ()> {
-        info!("{}: Closing", self.name);
+    pub fn close(&mut self) -> Result<NexusState, ()> {
+        // a closed operation might already be in progress calling unregister
+        // will trip an assertion within the external libraries
+        if self.state == NexusState::Closed {
+            trace!("{}: already closed", self.name);
+            return Ok(self.state);
+        }
+
+        trace!("{}: closing, from state: {:?} ", self.name, self.state);
         self.children
             .iter_mut()
             .map(|c| {
-                if c.state == ChildState::Open {
-                    let _ = c.close();
+                if c.state == ChildState::Open || c.state == ChildState::Faulted
+                {
+                    if let Err(e) = c.close() {
+                        info!("failed to close child {}: {:?}", c.name, e);
+                    }
                 }
             })
             .for_each(drop);
@@ -335,7 +357,8 @@ impl Nexus {
             spdk_io_device_unregister(self.as_ptr(), None);
         }
 
-        Ok(())
+        trace!("{}: closed", self.name);
+        Ok(self.set_state(NexusState::Closed))
     }
 
     /// Destroy the nexus.
@@ -642,7 +665,7 @@ pub async fn nexus_create(
         .expect("Failed to allocate Nexus instance");
 
     for child in children {
-        if let Err(result) = ni.create_and_add_child(child).await {
+        if let Err(result) = ni.register_child(child).await {
             error!("{}: Failed to create child bdev {}", ni.name, child);
             ni.destroy_children().await;
             return Err(result);
@@ -686,4 +709,26 @@ impl Display for Nexus {
             .for_each(drop);
         Ok(())
     }
+}
+
+pub async fn bdev_destroy(uri: &str) -> Result<(), Error> {
+    match nexus_parse_uri(uri)? {
+        BdevType::Aio(args) => args.destroy().await?,
+        BdevType::Iscsi(args) => args.destroy().await?,
+        BdevType::Nvmf(args) => args.destroy()?,
+        _ => {}
+    };
+
+    Ok(())
+}
+
+pub async fn bdev_create(uri: &str) -> Result<String, Error> {
+    let name = match nexus_parse_uri(uri)? {
+        BdevType::Aio(args) => args.create().await?,
+        BdevType::Iscsi(args) => args.create().await?,
+        BdevType::Nvmf(args) => args.create().await?,
+        BdevType::Bdev(name) => name,
+    };
+
+    Ok(name)
 }

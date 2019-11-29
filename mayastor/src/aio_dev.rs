@@ -8,7 +8,7 @@ use spdk_sys::{bdev_aio_delete, create_aio_bdev};
 use std::{convert::TryFrom, ffi::CString};
 use url::Url;
 
-#[derive(Default, Debug)]
+#[derive(Default, Clone, Debug)]
 pub struct AioBdev {
     pub name: String,
     pub file: String,

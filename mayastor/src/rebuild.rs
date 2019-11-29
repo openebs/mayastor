@@ -1,4 +1,4 @@
-use std::{convert::TryInto, os::raw::c_void, time::SystemTime};
+use std::{convert::TryInto, os::raw::c_void, rc::Rc, time::SystemTime};
 
 use futures::channel::oneshot;
 
@@ -6,34 +6,56 @@ use spdk_sys::{
     spdk_bdev_io,
     spdk_bdev_read_blocks,
     spdk_bdev_write_blocks,
-    spdk_env_get_current_core,
-    spdk_poller,
     SPDK_BDEV_LARGE_BUF_MAX_SIZE,
 };
 
 use crate::{
     bdev::nexus::{nexus_io::Bio, Error},
     descriptor::{Descriptor, DmaBuf},
-    event::Event,
-    poller::{register_poller, PollTask, SetPoller},
+    event::MayaCtx,
+    poller::{register_poller, PollTask},
 };
+
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
+pub enum RebuildState {
+    /// Initialized properly, but not running
+    Initialized,
+    /// Running
+    Running,
+    /// Completed
+    Completed,
+    /// the rebuild task has failed
+    Failed,
+    /// a request has been made to cancel the task
+    Cancelled,
+    /// Suspended
+    Suspended,
+}
+
+impl MayaCtx for RebuildTask {
+    type Item = RebuildTask;
+    #[inline]
+    fn into_ctx<'a>(arg: *mut c_void) -> &'a mut Self::Item {
+        unsafe { &mut *(arg as *const _ as *mut RebuildTask) }
+    }
+}
 
 /// struct that holds the state of a copy task. This struct
 /// is used during rebuild.
 #[derive(Debug)]
 pub struct RebuildTask {
+    pub state: RebuildState,
     /// the source where to copy from
-    pub source: Descriptor,
+    pub source: Rc<Descriptor>,
     /// the target where to copy to
-    pub target: Descriptor,
+    pub target: Rc<Descriptor>,
     /// the last LBA for which an io copy has been submitted
     current_lba: u64,
     /// used to provide progress indication
     previous_lba: u64,
-    /// the IO we are rebuilding
-    source_io: Option<*mut spdk_bdev_io>,
     /// used to signal completion to the callee
     sender: Option<oneshot::Sender<bool>>,
+    completed: Option<oneshot::Receiver<bool>>,
     /// progress reported to logs
     progress: Option<PollTask>,
     /// the number of segments we need to rebuild. The segment is derived from
@@ -47,22 +69,15 @@ pub struct RebuildTask {
     /// How many blocks per segments we have
     blocks_per_segment: u32,
     /// start time of the rebuild task
-    start_time: Option<SystemTime>,
-}
-
-impl SetPoller for RebuildTask {
-    fn set_inner_poller(&mut self, poller: *mut spdk_poller) {
-        self.progress = Some(PollTask {
-            poller,
-        });
-    }
+    pub start_time: Option<SystemTime>,
+    pub(crate) nexus: Option<String>,
 }
 
 impl RebuildTask {
     /// return a new rebuild task
     pub fn new(
-        source: Descriptor,
-        target: Descriptor,
+        source: Rc<Descriptor>,
+        target: Rc<Descriptor>,
     ) -> Result<Box<Self>, Error> {
         // if the target is to small, we bail out. A future extension is to see,
         // if we can grow; the target to match the size of the source.
@@ -91,7 +106,9 @@ impl RebuildTask {
                 as usize,
         )?;
 
-        Ok(Box::new(Self {
+        let (s, r) = oneshot::channel::<bool>();
+        let task = Box::new(Self {
+            state: RebuildState::Initialized,
             blocks_per_segment: blocks_per_segment as u32,
             buf,
             current_lba: 0,
@@ -99,29 +116,49 @@ impl RebuildTask {
             previous_lba: 0,
             progress: None,
             partial_segment: remainder.try_into().unwrap(),
-            sender: None,
+            sender: Some(s),
+            completed: Some(r),
             source,
-            source_io: None,
             target,
             start_time: None,
-        }))
+            nexus: None,
+        });
+
+        Ok(task)
     }
 
-    /// start the rebuild task specified in the RebuildTask struct this is the
-    /// only public function visible outside of the module.
+    pub fn suspend(&mut self) -> Result<RebuildState, Error> {
+        info!(
+            "{}: suspending rebuild task",
+            self.nexus.as_ref().unwrap_or(&String::from("unknown"))
+        );
 
-    pub fn start_rebuild(
-        mut task: Box<RebuildTask>,
-    ) -> Result<oneshot::Receiver<bool>, Error> {
-        //TODO: make dynamic
-        let current_core = unsafe { spdk_env_get_current_core() };
-        trace!("Will start rebuild task on core {}", current_core);
-        trace!("rebuild started at: {:?}", std::time::SystemTime::now());
+        if self.state == RebuildState::Completed {
+            Err(Error::Invalid(
+                "can not suspended already completed task".into(),
+            ))
+        } else {
+            self.state = RebuildState::Suspended;
+            Ok(self.state)
+        }
+    }
 
-        let (s, r) = oneshot::channel::<bool>();
-        task.sender = Some(s);
-        Event::new(current_core, Self::rebuild_init, task)?.call();
-        Ok(r)
+    pub fn resume(&mut self) -> Result<RebuildState, Error> {
+        info!(
+            "{}: resuming rebuild task",
+            self.nexus.as_ref().unwrap_or(&String::from("unknown"))
+        );
+
+        if self.state == RebuildState::Suspended {
+            self.state = RebuildState::Running;
+            self.next_segment()
+        } else {
+            Err(Error::Invalid("task not suspended".into()))
+        }
+    }
+
+    pub async fn completed(&mut self) -> Result<bool, oneshot::Canceled> {
+        self.completed.as_mut().unwrap().await
     }
 
     /// callback when the read of the rebuild progress has completed
@@ -130,14 +167,13 @@ impl RebuildTask {
         success: bool,
         ctx: *mut c_void,
     ) {
-        let mut task = RebuildTask::get_rebuild_ctx(ctx);
+        let task = RebuildTask::into_ctx(ctx);
         if success {
             let _r = task.target_write_blocks(io);
         } else {
             task.shutdown(false);
         }
 
-        std::mem::forget(task);
         Bio::io_free(io);
     }
 
@@ -147,7 +183,7 @@ impl RebuildTask {
         success: bool,
         ctx: *mut c_void,
     ) {
-        let mut task = RebuildTask::get_rebuild_ctx(ctx);
+        let task = RebuildTask::into_ctx(ctx);
         Bio::io_free(io);
 
         if !success {
@@ -156,21 +192,27 @@ impl RebuildTask {
             return;
         }
 
-        match task.dispatch_next_segment() {
-            Ok(next) => {
-                if next {
-                    task.rebuild_completed();
-                } else {
-                    // we are not done yet, forget the task to avoid dropping
-                    std::mem::forget(task);
-                }
-            }
+        if task.state == RebuildState::Suspended {
+            info!("{}: rebuild suspended", task.nexus.as_ref().unwrap());
+            return;
+        }
 
+        match task.next_segment() {
+            Ok(next) => match next {
+                RebuildState::Completed => task.rebuild_completed(),
+                RebuildState::Initialized => {}
+                RebuildState::Running => {}
+                RebuildState::Failed => {}
+                RebuildState::Cancelled => {}
+                RebuildState::Suspended => {
+                    info!("suspended rebuild!");
+                    dbg!(task);
+                }
+            },
             Err(e) => {
                 dbg!(e);
-                // task will be dropped
                 panic!("error during rebuild");
-            }
+            } // fallthrough
         }
     }
 
@@ -199,15 +241,17 @@ impl RebuildTask {
         self.shutdown(true)
     }
 
-    /// helper function to cast the void pointer to a rebuildtask
-    #[inline]
-    fn get_rebuild_ctx(arg: *mut c_void) -> Box<RebuildTask> {
-        unsafe { Box::from_raw(arg as *mut RebuildTask) }
-    }
-
     /// function used shutdown the rebuild task whenever it is successful or
     /// not.
-    fn shutdown(&mut self, success: bool) {
+    pub fn shutdown(&mut self, success: bool) {
+        if success {
+            self.state = RebuildState::Completed;
+        } else {
+            self.state = RebuildState::Failed;
+        }
+
+        let _ = self.progress.take();
+
         self.send_completion(success);
     }
 
@@ -221,6 +265,10 @@ impl RebuildTask {
             self.partial_segment
         }
     }
+
+    pub fn current(&self) -> u64 {
+        self.current_lba
+    }
     /// Copy blocks from source to target with increments of segment size.
     /// When the task has been completed, this function returns
     /// Ok(true). When a new IO has been successfully dispatched in returns
@@ -230,14 +278,14 @@ impl RebuildTask {
     /// be made to restart a build automatically, ideally we want this to be
     /// done from the control plane and not internally, but we will implement
     /// some form of implicit retries.
-    pub(crate) fn dispatch_next_segment(&mut self) -> Result<bool, Error> {
+    fn next_segment(&mut self) -> Result<RebuildState, Error> {
         let num_blocks = self.num_blocks();
 
         // if we are a multiple of the max segment size this will be 0 and thus
         // we have completed the job
         if num_blocks == 0 {
             self.shutdown(true);
-            return Ok(true);
+            return Ok(RebuildState::Completed);
         }
 
         if self.current_lba < self.source.get_bdev().num_blocks() {
@@ -245,13 +293,16 @@ impl RebuildTask {
         } else {
             assert_eq!(self.current_lba, self.source.get_bdev().num_blocks());
             trace!("Rebuild task completed! \\o/");
-            Ok(true)
+            Ok(RebuildState::Completed)
         }
     }
 
     // wrapper around read_blocks that handles error processing implicitly and
     // updates the internal data structures
-    fn source_read_blocks(&mut self, num_blocks: u32) -> Result<bool, Error> {
+    fn source_read_blocks(
+        &mut self,
+        num_blocks: u32,
+    ) -> Result<RebuildState, Error> {
         let ret = unsafe {
             spdk_bdev_read_blocks(
                 self.source.desc,
@@ -267,19 +318,20 @@ impl RebuildTask {
         if ret == 0 {
             self.current_lba += num_blocks as u64;
             self.num_segments -= 1;
-            Ok(false)
+            Ok(self.state)
         } else {
             // we should be able to retry later for now fail on all errors;
             // typically, with ENOMEM we should retry
             // however, we want to delay this so likely use a
             // (one time) poller?
+            self.state = RebuildState::Failed;
             Err(Error::Internal("failed to dispatch IO".into()))
         }
     }
 
     /// wrapper function around write_blocks
     pub(crate) fn target_write_blocks(
-        &self,
+        &mut self,
         io: *mut spdk_bdev_io,
     ) -> Result<(), Error> {
         let bio = Bio::from(io);
@@ -312,9 +364,10 @@ impl RebuildTask {
     /// progress function that prints to the log; this will be removed in the
     /// future and will be exposed via an API call
     extern "C" fn progress(ctx: *mut c_void) -> i32 {
-        let mut task = RebuildTask::get_rebuild_ctx(ctx);
+        let mut task = RebuildTask::into_ctx(ctx);
         info!(
-            "Rebuild from {} to {} MiBs: {}",
+            "Rebuild {:?} from {} to {} MiBs: {}",
+            task.state,
             task.source.get_bdev().name(),
             task.target.get_bdev().name(),
             (((task.current_lba - task.previous_lba)
@@ -324,22 +377,24 @@ impl RebuildTask {
         );
 
         task.previous_lba = task.current_lba;
-        std::mem::forget(task);
         0
     }
 
-    /// the actual start rebuild task in FFI context that is called by the
-    /// reactor
-    extern "C" fn rebuild_init(ctx: *mut c_void, _arg2: *mut c_void) {
-        let mut task = RebuildTask::get_rebuild_ctx(ctx);
-        task.start_time = Some(std::time::SystemTime::now());
-        match task.dispatch_next_segment() {
+    fn start_progress_poller(&mut self) {
+        self.progress =
+            Some(register_poller(Self::progress, &*self, 1_000_000).unwrap());
+    }
+
+    pub fn run(&mut self) {
+        self.start_time = Some(std::time::SystemTime::now());
+        match self.next_segment() {
             Err(next) => {
                 error!("{:?}", next);
-                let _ = task.sender.unwrap().send(false);
+                self.shutdown(false);
             }
             Ok(..) => {
-                register_poller(Self::progress, task, 1_000_000).unwrap();
+                self.state = RebuildState::Running;
+                self.start_progress_poller();
             }
         }
     }
