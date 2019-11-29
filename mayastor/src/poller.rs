@@ -1,6 +1,6 @@
 use crate::bdev::nexus::Error;
 use spdk_sys::{spdk_poller, spdk_poller_register, spdk_poller_unregister};
-use std::os::raw::c_void;
+use std::{ops::Deref, os::raw::c_void};
 
 #[derive(Debug)]
 pub struct PollTask {
@@ -25,31 +25,36 @@ pub trait SetPoller {
 /// Option
 pub type PollFunction = extern "C" fn(*mut c_void) -> i32;
 
-pub fn register_poller<T: SetPoller>(
+pub fn register_poller<T: Deref + std::fmt::Debug>(
     poll_fn: PollFunction,
-    ctx: Box<T>,
+    ctx: T,
     interval: u64,
-) -> Result<(), Error> {
+) -> Result<PollTask, Error> {
     // first try to see if we can create the poller to begin with
-    let ptr = Box::into_raw(ctx);
-
-    let poller =
-        unsafe { spdk_poller_register(Some(poll_fn), ptr as *mut _, interval) };
+    let ptr = &*ctx as *const _ as *mut c_void;
+    let poller = unsafe { spdk_poller_register(Some(poll_fn), ptr, interval) };
 
     // get hold of the pointer again such that the data is dropped
     // if there is an error or set the poller pointer within T otherwise
-    let mut ctx = unsafe { Box::from_raw(ptr) };
 
     if poller.is_null() {
         return Err(Error::Internal("failed to create poller".into()));
-    } else {
-        ctx.set_inner_poller(poller);
-        std::mem::forget(ctx);
     }
+    std::mem::forget(ctx);
 
-    Ok(())
+    Ok(PollTask {
+        poller,
+    })
 }
 
+impl PollTask {
+    pub fn stop(mut self) {
+        trace!("stopping poller!");
+        unsafe {
+            spdk_poller_unregister(&mut self.poller);
+        }
+    }
+}
 impl Drop for PollTask {
     fn drop(&mut self) {
         if !self.poller.is_null() {

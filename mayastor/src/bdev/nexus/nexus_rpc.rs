@@ -213,7 +213,7 @@ pub(crate) fn register_rpc_methods() {
     jsonrpc_register("add_child_nexus", |args: AddChildNexusRequest| {
         let fut = async move {
             let nexus = nexus_lookup(&args.uuid)?;
-            match nexus.create_and_add_child(&args.uri).await {
+            match nexus.register_child(&args.uri).await {
                 Ok(_) => Ok(()),
                 Err(err) => Err(JsonRpcError::new(
                     Code::InternalError,

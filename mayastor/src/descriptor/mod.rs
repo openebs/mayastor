@@ -2,20 +2,11 @@
 //! by a bdev descriptor.
 //!
 //! A descriptor is obtained by opening a bdev. Once opened, a reference to a
-//! channel is created and the two allow for submitting IO to the bdevs.
+//! channel is created, and the two allow for submitting IO to the bdevs.
 //!
 //! The buffers written to the bdev must be allocated by the provided allocation
 //! methods. These buffers are allocated from mem pools and huge pages and allow
 //! for DMA transfers in the case of, for example, NVMe devices.
-//!
-//! The callbacks are implemented by the regular oneshot channels. As the unsync
-//! features of futures 0.2 are not part of futures 0.3 yet (if ever?) it is
-//! not optimized for performance yet. Its not our goal to directly have a user
-//! space API to be consumable for this purpose either but they might be useful
-//! for other scenarios in the future.
-//!
-//! Also, it would be nice to support, future, the AsyncRead/Write traits such
-//! that any rust program, directly, can consume user space IO.
 //!
 //! # Example:
 //! ```ignore
@@ -34,11 +25,14 @@
 //! assert_eq!(slice[0], 0xff);
 //! ```
 
-use crate::{
-    bdev::{bdev_lookup_by_name, nexus::Error, Bdev},
-    executor::cb_arg,
+use std::{
+    ffi::c_void,
+    ops::{Deref, DerefMut},
+    slice::{from_raw_parts, from_raw_parts_mut},
 };
+
 use futures::channel::oneshot;
+
 use spdk_sys::{
     spdk_bdev_close,
     spdk_bdev_desc,
@@ -55,10 +49,10 @@ use spdk_sys::{
     spdk_io_channel,
     spdk_put_io_channel,
 };
-use std::{
-    ffi::c_void,
-    ops::{Deref, DerefMut},
-    slice::{from_raw_parts, from_raw_parts_mut},
+
+use crate::{
+    bdev::{bdev_lookup_by_name, nexus::Error, Bdev},
+    executor::cb_arg,
 };
 
 /// DmaBuf that is allocated from the memory pool
@@ -260,7 +254,7 @@ impl Descriptor {
     }
 
     /// read from the given `offset` into the `buffer` note that the buffer
-    /// is allocated internally and should be copied. Also its unknown to me
+    /// is allocated internally and should be copied. Also, its unknown to me
     /// what will happen if you for example, where to turn this into a vec
     /// but for sure -- not what you want.
     pub async fn read_at(

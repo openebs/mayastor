@@ -1,19 +1,15 @@
 use futures::future::join_all;
 
-use crate::{
-    bdev::{
-        bdev_lookup_by_name,
-        nexus::{
-            self,
-            nexus_bdev::{Nexus, NexusState},
-            nexus_channel::DREvent,
-            nexus_child::{ChildState, NexusChild},
-            nexus_label::NexusLabel,
-            nexus_uri::nexus_parse_uri,
-            Error,
-        },
+use crate::bdev::{
+    bdev_lookup_by_name,
+    nexus::{
+        self,
+        nexus_bdev::{bdev_create, bdev_destroy, Nexus, NexusState},
+        nexus_channel::DREvent,
+        nexus_child::{ChildState, NexusChild},
+        nexus_label::NexusLabel,
+        Error,
     },
-    nexus_uri::BdevType,
 };
 
 impl Nexus {
@@ -38,20 +34,8 @@ impl Nexus {
     }
 
     /// create a bdev based on its URL and add it to the nexus
-    pub async fn create_and_add_child(
-        &mut self,
-        uri: &str,
-    ) -> Result<String, Error> {
-        let bdev_type = nexus_parse_uri(uri)?;
-
-        // workaround until we can get async fn trait
-        let name = match bdev_type {
-            BdevType::Aio(args) => args.create().await?,
-            BdevType::Iscsi(args) => args.create().await?,
-            BdevType::Nvmf(args) => args.create().await?,
-            BdevType::Bdev(name) => name,
-        };
-
+    pub async fn register_child(&mut self, uri: &str) -> Result<String, Error> {
+        let name = bdev_create(&uri).await?;
         self.children.push(NexusChild::new(
             uri.to_string(),
             self.name.clone(),
@@ -61,6 +45,48 @@ impl Nexus {
         self.child_count += 1;
 
         Ok(name)
+    }
+
+    pub async fn add_child(&mut self, uri: &str) -> Result<String, Error> {
+        let name = bdev_create(&uri).await?;
+
+        if let Some(child) = bdev_lookup_by_name(&name) {
+            if child.block_len() != self.bdev.block_len()
+                || self.min_num_blocks() < child.num_blocks()
+            {
+                error!(
+                    ":{} child {} has invalid geometry",
+                    self.name,
+                    child.name()
+                );
+                bdev_destroy(uri).await?;
+            }
+        }
+
+        trace!("adding child {} to nexus {}", name, self.name);
+
+        let child = bdev_lookup_by_name(&name);
+        if child.is_none() {
+            error!(":{} child should be there but its not!", self.name);
+            return Err(Error::Internal("child does not exist".into()));
+        };
+
+        let mut child = NexusChild::new(name, self.name.clone(), child);
+
+        match child.open(self.size) {
+            Ok(name) => {
+                info!(":{} child opened successfully {}", self.name, name);
+                self.children.push(child);
+                self.child_count += 1;
+                self.sync_labels().await?;
+            }
+            Err(_) => {
+                error!("{}: failed to open child ", self.name);
+                bdev_destroy(&uri).await?;
+            }
+        }
+
+        Ok(uri.into())
     }
 
     /// Destroy child with given uri.
@@ -122,7 +148,7 @@ impl Nexus {
         if let Some(child) = self.children.iter_mut().find(|c| c.name == name) {
             child.state = ChildState::Faulted;
             self.reconfigure(DREvent::ChildFault).await;
-            Ok(NexusState::Degraded)
+            Ok(self.set_state(NexusState::Degraded))
         } else {
             Err(Error::NotFound)
         }

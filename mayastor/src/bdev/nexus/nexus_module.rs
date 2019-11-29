@@ -4,6 +4,7 @@ use spdk_sys::{
     spdk_bdev_module,
     spdk_bdev_module_examine_done,
     spdk_bdev_module_list_add,
+    spdk_get_thread,
 };
 
 use crate::bdev::{
@@ -86,8 +87,14 @@ impl NexusModule {
         }
     }
 
-    /// return instances
+    /// return instances, we ensure that this can only ever be called on a
+    /// properly allocated thread
     pub fn get_instances() -> &'static mut Vec<Box<Nexus>> {
+        let thread = unsafe { spdk_get_thread() };
+
+        if thread.is_null() {
+            panic!("not on spdk thread");
+        }
         unsafe { &mut (*NEXUS_INSTANCES.inner.get()) }
     }
 

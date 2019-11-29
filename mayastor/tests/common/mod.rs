@@ -7,7 +7,8 @@ pub fn mayastor_test_init() {
     mayastor::CPS_INIT!();
 }
 
-pub fn dd_random_file(path: &str, bs: &str, count: &str) {
+pub fn dd_random_file(path: &str, bs: u32, size: u64) {
+    let count = size * 1024 / bs as u64;
     let output = Command::new("dd")
         .args(&[
             "if=/dev/urandom",
@@ -21,9 +22,9 @@ pub fn dd_random_file(path: &str, bs: &str, count: &str) {
     assert_eq!(output.status.success(), true);
 }
 
-pub fn truncate_file(path: &str, size: &str) {
+pub fn truncate_file(path: &str, size: u64) {
     let output = Command::new("truncate")
-        .args(&["-s", size, path])
+        .args(&["-s", &format!("{}m", size / 1024), path])
         .output()
         .expect("failed exec truncate");
 
