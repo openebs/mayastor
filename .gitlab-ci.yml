@@ -76,8 +76,8 @@ test-mayastor:
     - nix-shell -p nodejs-10_x python --run 'cd mayastor-test && npm install --unsafe-perm'
     - nix-shell --run 'cd mayastor-test && ./node_modules/mocha/bin/mocha test_cli.js'
     - nix-shell --run 'cd mayastor-test && ./node_modules/mocha/bin/mocha test_csi.js'
-    - nix-shell --run 'cd mayastor-test && ./node_modules/mocha/bin/mocha test_grpc.js'
-    - nix-shell --run 'cd mayastor-test && ./node_modules/mocha/bin/mocha test_nexus_grpc.js'
+    - nix-shell --run 'cd mayastor-test && ./node_modules/mocha/bin/mocha test_replica.js'
+    - nix-shell --run 'cd mayastor-test && ./node_modules/mocha/bin/mocha test_nexus.js'
   after_script:
     - rm -rf /dev/shm/*
     - rm -rf /dev/hugepages/spdk*

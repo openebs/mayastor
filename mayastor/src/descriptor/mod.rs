@@ -1,4 +1,3 @@
-//!
 //! Analogous to a file descriptor, IO from a read-write perspective is driven
 //! by a bdev descriptor.
 //!
@@ -8,33 +7,7 @@
 //! The buffers written to the bdev must be allocated by the provided allocation
 //! methods. These buffers are allocated from mem pools and huge pages and allow
 //! for DMA transfers in the case of, for example, NVMe devices.
-use std::{
-    ffi::c_void,
-    ops::{Deref, DerefMut},
-    slice::{from_raw_parts, from_raw_parts_mut},
-};
-
-use futures::channel::oneshot;
-
-use spdk_sys::{
-    spdk_bdev_close,
-    spdk_bdev_desc,
-    spdk_bdev_desc_get_bdev,
-    spdk_bdev_free_io,
-    spdk_bdev_get_io_channel,
-    spdk_bdev_io,
-    spdk_bdev_open,
-    spdk_bdev_read,
-    spdk_bdev_write,
-    spdk_dma_free,
-    spdk_dma_zmalloc,
-    spdk_get_io_channel,
-    spdk_io_channel,
-    spdk_put_io_channel,
-};
-
-use crate::{bdev::nexus::Error, executor::cb_arg};
-//
+//!
 //! The callbacks are implemented by the regular oneshot channels. As the unsync
 //! features of futures 0.2 are not part of futures 0.3 yet (if ever?) it is
 //! not optimized for performance yet. Its not our goal to directly have a user
@@ -60,7 +33,33 @@ use crate::{bdev::nexus::Error, executor::cb_arg};
 //! let slice = buf.as_slice();
 //! assert_eq!(slice[0], 0xff);
 //! ```
-use crate::bdev::{Bdev, bdev_lookup_by_name};
+
+use crate::{
+    bdev::{bdev_lookup_by_name, nexus::Error, Bdev},
+    executor::cb_arg,
+};
+use futures::channel::oneshot;
+use spdk_sys::{
+    spdk_bdev_close,
+    spdk_bdev_desc,
+    spdk_bdev_desc_get_bdev,
+    spdk_bdev_free_io,
+    spdk_bdev_get_io_channel,
+    spdk_bdev_io,
+    spdk_bdev_open,
+    spdk_bdev_read,
+    spdk_bdev_write,
+    spdk_dma_free,
+    spdk_dma_zmalloc,
+    spdk_get_io_channel,
+    spdk_io_channel,
+    spdk_put_io_channel,
+};
+use std::{
+    ffi::c_void,
+    ops::{Deref, DerefMut},
+    slice::{from_raw_parts, from_raw_parts_mut},
+};
 
 /// DmaBuf that is allocated from the memory pool
 #[derive(Debug)]
