@@ -110,7 +110,7 @@ function getFsType(mp) {
 }
 
 describe('csi', function() {
-  this.timeout(20000); // for network e2e tests we need long timeouts
+  this.timeout(10000); // for network tests we need long timeouts
 
   // Start mayastor and create the lvol configuration needed for testing.
   // NOTE: Don't use mayastor in setup - we test CSI interface and we don't want
@@ -118,14 +118,11 @@ describe('csi', function() {
   before(done => {
     let identityClient = createCsiClient('Identity');
 
+    common.startMayastor(CONFIG);
+    common.startMayastorGrpc();
+
     async.series(
       [
-        next => {
-          common.startMayastor(CONFIG, next);
-        },
-        next => {
-          common.startMayastorGrpc(next);
-        },
         next => {
           common.waitFor(pingDone => {
             // fix the perms now - we can't do that before because it takes
@@ -231,7 +228,7 @@ describe('csi', function() {
           );
         },
         next => {
-          common.stopMayastor(next);
+          common.stopAll(next);
         },
       ],
       done

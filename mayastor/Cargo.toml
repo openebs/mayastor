@@ -8,6 +8,10 @@ edition = "2018"
 name = "mayastor"
 path = "src/bin/main.rs"
 
+[[bin]]
+name = "spdk"
+path = "src/bin/spdk.rs"
+
 [dependencies]
 bytes = "0.4.12"
 bincode = "1.2.0"

@@ -13,16 +13,15 @@ const { exec, spawn } = require('child_process');
 const sudo = require('./sudo');
 
 const SOCK = '/tmp/mayastor_test.sock';
-const CONFIG_PATH = '/tmp/mayastor_test.cfg';
+const MS_CONFIG_PATH = '/tmp/mayastor_test.cfg';
+const SPDK_CONFIG_PATH = '/tmp/spdk_test.cfg';
 const GRPC_PORT = 10777;
 const CSI_ENDPOINT = '/tmp/mayastor_csi_test.sock';
 const CSI_ID = 'test-node-id';
 
 var endpoint = '127.0.0.1:' + GRPC_PORT;
-var mayastorProc;
-var mayastorGrpcProc;
-var mayastorOutput = [];
-var mayastorGrpcOutput = [];
+// started processes indexed by the program name
+var procs = {};
 
 // Construct path to a rust binary in target/debug/... dir.
 function getCmdPath(name) {
@@ -101,44 +100,89 @@ function getMyIp() {
   return externIp;
 }
 
-// Start mayastor process and wait for them to come up.
-function startMayastor(config, done) {
-  let args = ['-r', SOCK];
+// Common code for starting mayastor, mayastor-grpc and spdk processes.
+function startProcess(command, args, env, closeCb, psName) {
+  assert(!procs[command]);
+  let proc = runAsRoot(getCmdPath(command), args, env, psName);
+  proc.output = [];
+
+  proc.stdout.on('data', data => {
+    proc.output.push(data);
+  });
+  proc.stderr.on('data', data => {
+    proc.output.push(data);
+  });
+  proc.once('close', (code, signal) => {
+    console.log(`${command} exited with code=${code} and signal=${signal}:`);
+    console.log('-----------------------------------------------------');
+    console.log(proc.output.join('').trim());
+    console.log('-----------------------------------------------------');
+    delete procs[command];
+    if (closeCb) closeCb();
+  });
+  procs[command] = proc;
+}
+
+// Start spdk process and return immediately.
+function startSpdk(config, args, env) {
+  args = args || ['-r', SOCK];
+  env = env || {};
 
   if (config) {
-    fs.writeFileSync(CONFIG_PATH, config);
-    args = args.concat(['-c', CONFIG_PATH]);
+    fs.writeFileSync(SPDK_CONFIG_PATH, config);
+    args = args.concat(['-c', SPDK_CONFIG_PATH]);
   }
 
-  mayastorProc = runAsRoot(
-    getCmdPath('mayastor'),
+  startProcess(
+    'spdk',
     args,
-    {
-      MY_POD_IP: getMyIp(),
+    _.assign(
+      {
+        DELAY: '1',
+      },
+      env
+    ),
+    () => {
+      try {
+        fs.unlinkSync(SPDK_CONFIG_PATH);
+      } catch (err) {}
     },
     'reactor_0'
   );
-
-  mayastorProc.stdout.on('data', data => {
-    mayastorOutput.push(data);
-  });
-  mayastorProc.stderr.on('data', data => {
-    mayastorOutput.push(data);
-  });
-  mayastorProc.once('close', (code, signal) => {
-    console.log('mayastor output:');
-    console.log('-----------------------------------------------------');
-    console.log(mayastorOutput.join('').trim());
-    console.log('-----------------------------------------------------');
-    mayastorProc = undefined;
-    mayastorOutput = [];
-  });
-  if (done) done();
 }
 
-// Start mayastor-agent processes and wait for them to come up.
-function startMayastorGrpc(done) {
-  mayastorGrpcProc = runAsRoot(getCmdPath('mayastor-agent'), [
+// Start mayastor process and return immediately.
+function startMayastor(config, args, env) {
+  args = args || ['-r', SOCK];
+  env = env || {};
+
+  if (config) {
+    fs.writeFileSync(MS_CONFIG_PATH, config);
+    args = args.concat(['-c', MS_CONFIG_PATH]);
+  }
+
+  startProcess(
+    'mayastor',
+    args,
+    _.assign(
+      {
+        MY_POD_IP: getMyIp(),
+        DELAY: '1',
+      },
+      env
+    ),
+    () => {
+      try {
+        fs.unlinkSync(MS_CONFIG_PATH);
+      } catch (err) {}
+    },
+    'reactor_0'
+  );
+}
+
+// Start mayastor-agent processes and return immediately.
+function startMayastorGrpc() {
+  startProcess('mayastor-agent', [
     '-v',
     '-n',
     'test-node-id',
@@ -151,38 +195,6 @@ function startMayastorGrpc(done) {
     '-s',
     SOCK,
   ]);
-
-  mayastorGrpcProc.stdout.on('data', data => {
-    mayastorGrpcOutput.push(data);
-  });
-  mayastorGrpcProc.stderr.on('data', data => {
-    mayastorGrpcOutput.push(data);
-  });
-  mayastorGrpcProc.once('close', (code, signal) => {
-    console.log('mayastor-agent output:');
-    console.log('-----------------------------------------------------');
-    console.log(mayastorGrpcOutput.join('').trim());
-    console.log('-----------------------------------------------------');
-    mayastorGrpcProc = undefined;
-    mayastorGrpcOutput = [];
-  });
-  if (done) done();
-}
-
-// Unix domain socket client does not run with root privs (in general) so open
-// the socket to everyone.
-function fixSocketPerms(done) {
-  let child = runAsRoot('chmod', ['a+rw', CSI_ENDPOINT]);
-  child.stderr.on('data', data => {
-    //console.log('chmod', 'error:', data.toString());
-  });
-  child.on('close', code => {
-    if (code != 0) {
-      done('Failed to chmod the socket' + code);
-    } else {
-      done();
-    }
-  });
 }
 
 function killSudoedProcess(name, pid, done) {
@@ -201,87 +213,97 @@ function killSudoedProcess(name, pid, done) {
     child.stderr.on('data', data => {
       console.log('kill', name, 'error:', data.toString());
     });
-    child.on('close', () => {
+    child.once('close', () => {
       done();
     });
   });
 }
 
-// Kill mayastor-agent and mayastor processes
-function stopMayastor(done) {
-  async.parallel(
-    [
-      async.reflect(cb => {
-        if (mayastorGrpcProc) {
-          killSudoedProcess('mayastor-agent', mayastorGrpcProc.pid, err => {
-            if (err) return cb(err);
-            if (mayastorGrpcProc) return mayastorGrpcProc.once('close', cb);
-            cb();
-          });
-        } else {
-          cb();
-        }
-      }),
-      async.reflect(cb => {
-        if (mayastorProc) {
-          try {
-            fs.unlinkSync(CONFIG_PATH);
-          } catch (err) {}
-
-          killSudoedProcess('mayastor', mayastorProc.pid, err => {
-            if (err) return cb(err);
-            if (mayastorProc) return mayastorProc.once('close', cb);
-            cb();
-          });
-        } else {
-          cb();
-        }
-      }),
-    ],
-    (err, results) => {
-      done(results[0].error || results[1].error);
+// Kill all previously started processes.
+function stopAll(done) {
+  // Unfortunately the order in which the procs are stopped matters (hence the
+  // sort()). In nexus tests if spdk proc with connected nvmf target is stopped
+  // before nvmf initiator in mayastor, it exits with segfault. That's also the
+  // reason why we use mapSeries instead of parallel map.
+  async.mapSeries(
+    Object.keys(procs).sort(),
+    (name, cb) => {
+      let proc = procs[name];
+      console.log(`Stopping ${name} with pid ${proc.pid} ...`);
+      killSudoedProcess(name, proc.pid, err => {
+        if (err) return cb(null, err);
+        // let other close event handlers on the process run
+        setTimeout(cb, 0);
+      });
+    },
+    (err, errors) => {
+      assert(!err);
+      procs = {};
+      // return the first found error
+      done(errors.find(e => !!e));
     }
   );
 }
 
+// Restart mayastor process.
+//
+// TODO: We don't restart the mayastor with the same parameters as we
+// don't remember params which were used for starting it.
 function restartMayastor(ping, done) {
-  assert(mayastorProc);
+  let proc = procs.mayastor;
+  assert(proc);
 
   async.series(
     [
       next => {
-        killSudoedProcess('mayastor', mayastorProc.pid, err => {
+        killSudoedProcess('mayastor', proc.pid, err => {
           if (err) return next(err);
-          if (mayastorProc) return mayastorProc.once('close', next);
-          next();
-        });
-      },
-      next => startMayastor(null, next),
-      next => waitFor(ping, next),
-    ],
-    done
-  );
-}
-
-function restartMayastorGrpc(ping, done) {
-  assert(mayastorGrpcProc);
-
-  async.series(
-    [
-      next => {
-        killSudoedProcess('mayastor-agent', mayastorGrpcProc.pid, err => {
-          if (err) return next(err);
-          if (mayastorGrpcProc) {
-            mayastorGrpcProc.once('close', next);
+          if (procs.mayastor) {
+            procs.mayastor.once('close', next);
           } else {
             next();
           }
         });
       },
       next => {
-        startMayastorGrpc(next);
+        // let other close event handlers on the process run
+        setTimeout(next, 0);
       },
       next => {
+        startMayastor();
+        waitFor(ping, next);
+      },
+    ],
+    done
+  );
+}
+
+// Restart mayastor-agent process.
+//
+// TODO: We don't restart the process with the same parameters as we
+// don't remember params which were used for starting it.
+function restartMayastorGrpc(ping, done) {
+  let proc = procs['mayastor-agent'];
+  assert(proc);
+
+  async.series(
+    [
+      next => {
+        killSudoedProcess('mayastor-agent', proc.pid, err => {
+          if (err) return next(err);
+          if (procs['mayastor-agent']) {
+            procs['mayastor-agent'].once('close', next);
+          } else {
+            next();
+          }
+        });
+      },
+      next => {
+        // let other close event handlers on the process run
+        setTimeout(next, 0);
+      },
+      next => {
+        startMayastorGrpc();
         waitFor(ping, next);
       },
     ],
@@ -330,6 +352,22 @@ function ensureNbdWritable(done) {
   }
 }
 
+// Unix domain socket client does not run with root privs (in general) so open
+// the socket to everyone.
+function fixSocketPerms(done) {
+  let child = runAsRoot('chmod', ['a+rw', CSI_ENDPOINT]);
+  child.stderr.on('data', data => {
+    //console.log('chmod', 'error:', data.toString());
+  });
+  child.on('close', code => {
+    if (code != 0) {
+      done('Failed to chmod the socket' + code);
+    } else {
+      done();
+    }
+  });
+}
+
 // Undo change to perms of nbd devices done in ensureNbdWritable().
 function restoreNbdPerms(done) {
   if (process.geteuid() != 0) {
@@ -349,9 +387,11 @@ function restoreNbdPerms(done) {
 module.exports = {
   CSI_ENDPOINT,
   CSI_ID,
+  SOCK,
+  startSpdk,
   startMayastor,
   startMayastorGrpc,
-  stopMayastor,
+  stopAll,
   waitFor,
   restartMayastor,
   restartMayastorGrpc,

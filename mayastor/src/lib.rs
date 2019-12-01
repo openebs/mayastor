@@ -153,7 +153,7 @@ where
     F: FnOnce(),
 {
     // use in cases when you want to burn less cpu and speed does not matter
-    if let Some(_key) = std::env::var_os("DELAY") {
+    if let Some(_key) = env::var_os("DELAY") {
         warn!("*** Delaying reactor every 1000us ***");
         unsafe {
             spdk_sys::spdk_poller_register(
@@ -163,7 +163,7 @@ where
             )
         };
     }
-    let address = match std::env::var("MY_POD_IP") {
+    let address = match env::var("MY_POD_IP") {
         Ok(val) => {
             let _ipv4: Ipv4Addr = match val.parse() {
                 Ok(val) => val,

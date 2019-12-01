@@ -38,6 +38,8 @@ function sudo(command, options, nameInPs) {
       }, 100);
     }
   }
+  // XXX this is not reliable in case of multiple instances of the same command
+  // (we cannot match by name in that case).
   pidof(nameInPs, waitForStartup);
 
   // FIXME: Remove this handler when the child has successfully started
