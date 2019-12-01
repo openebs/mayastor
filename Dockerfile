@@ -16,4 +16,6 @@ COPY shell.nix $NIX_EXPR_DIR/
 COPY nix $NIX_EXPR_DIR/nix
 COPY csi/moac/*.nix $NIX_EXPR_DIR/csi/moac/
 
-RUN cd $NIX_EXPR_DIR && nix-shell --command "echo Dependencies were pre-built"
+RUN cd $NIX_EXPR_DIR && \
+  nix-shell --argstr channel nightly --command "echo Debug dependencies done" && \
+  nix-shell --argstr channel stable --command "echo Release dependencies done"
