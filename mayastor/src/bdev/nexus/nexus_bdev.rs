@@ -88,7 +88,7 @@ use crate::{
             instances,
             nexus_channel::{DREvent, NexusChannel, NexusChannelInner},
             nexus_child::{ChildState, NexusChild},
-            nexus_io::{Bio, IoStatus},
+            nexus_io::{io_status, Bio},
             nexus_nbd as nbd,
             Error,
         },
@@ -457,7 +457,7 @@ impl Nexus {
 
         // if any child IO has failed record this within the io context
         if !success {
-            pio.get_ctx().status = IoStatus::Failed as i32;
+            pio.io_ctx_as_mut_ref().status = io_status::FAILED;
         }
 
         pio.asses();
@@ -498,7 +498,7 @@ impl Nexus {
 
         // we use RR to read from the children also, set that we only need
         // to read from one child before we complete the IO to the callee.
-        io.get_ctx().pending = 1;
+        io.io_ctx_as_mut_ref().in_flight = 1;
 
         let child = channels.child_select();
 
@@ -560,7 +560,7 @@ impl Nexus {
     ) {
         let mut io = Bio::from(pio);
         // in case of writes, we want to write to all underlying children
-        io.get_ctx().pending = channels.ch.len() as i8;
+        io.io_ctx_as_mut_ref().in_flight = channels.ch.len() as i8;
         let results = channels
             .ch
             .iter()
@@ -594,7 +594,7 @@ impl Nexus {
         channels: &NexusChannelInner,
     ) {
         let mut io = Bio::from(pio);
-        io.get_ctx().pending = channels.ch.len() as i8;
+        io.io_ctx_as_mut_ref().in_flight = channels.ch.len() as i8;
         let results = channels
             .ch
             .iter()

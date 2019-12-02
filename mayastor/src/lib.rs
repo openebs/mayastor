@@ -9,8 +9,6 @@ extern crate serde;
 extern crate serde_json;
 extern crate spdk_sys;
 
-#[macro_use]
-extern crate num_derive;
 pub mod aio_dev;
 pub mod bdev;
 pub mod descriptor;
