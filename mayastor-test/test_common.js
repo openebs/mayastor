@@ -7,6 +7,7 @@ const assert = require('assert');
 const async = require('async');
 const find = require('find-process');
 const fs = require('fs');
+const os = require('os');
 const path = require('path');
 const { exec, spawn } = require('child_process');
 const sudo = require('./sudo');
@@ -35,10 +36,16 @@ function getCmdPath(name) {
 // TODO: Beware that glob expansion of file names works differently
 // between the two cases. When using just spawn() file names are not
 // expanded.
-function runAsRoot(cmd, args, nameInPs) {
-  let env = _.assignIn({}, process.env, {
-    RUST_BACKTRACE: 1,
-  });
+function runAsRoot(cmd, args, env, nameInPs) {
+  env = env || {};
+  env = _.assignIn(
+    {},
+    process.env,
+    {
+      RUST_BACKTRACE: 1,
+    },
+    env
+  );
   if (process.geteuid() === 0) {
     return spawn(cmd, args || [], {
       env,
@@ -84,6 +91,16 @@ function waitFor(ping, done) {
   );
 }
 
+// Find the first usable external IPv4 address on the system
+function getMyIp() {
+  let externIp = _.map(
+    _.flatten(Object.values(os.networkInterfaces())),
+    'address'
+  ).find(addr => addr.indexOf(':') < 0 && !addr.match(/^127\./));
+  assert(externIp, 'Cannot determine external IP address of the system');
+  return externIp;
+}
+
 // Start mayastor process and wait for them to come up.
 function startMayastor(config, done) {
   let args = ['-r', SOCK];
@@ -93,7 +110,14 @@ function startMayastor(config, done) {
     args = args.concat(['-c', CONFIG_PATH]);
   }
 
-  mayastorProc = runAsRoot(getCmdPath('mayastor'), args, 'reactor_0');
+  mayastorProc = runAsRoot(
+    getCmdPath('mayastor'),
+    args,
+    {
+      MY_POD_IP: getMyIp(),
+    },
+    'reactor_0'
+  );
 
   mayastorProc.stdout.on('data', data => {
     mayastorOutput.push(data);
@@ -337,4 +361,5 @@ module.exports = {
   runAsRoot,
   ensureNbdWritable,
   restoreNbdPerms,
+  getMyIp,
 };

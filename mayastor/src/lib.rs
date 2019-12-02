@@ -39,6 +39,7 @@ use std::{
     env,
     ffi::{c_void, CString},
     iter::Iterator,
+    net::Ipv4Addr,
     ptr::null_mut,
     time::Duration,
     vec::Vec,
@@ -69,7 +70,7 @@ extern "C" fn usage() {
 /// when spdk initialization is done.
 ///
 /// TODO: When needed add possibility to specify additional program
-/// arguments.
+/// arguments (current workaround is to use env variables).
 pub fn mayastor_start<T, F>(name: &str, mut args: Vec<T>, start_cb: F) -> i32
 where
     T: Into<Vec<u8>>,
@@ -151,22 +152,35 @@ extern "C" fn app_start_cb<F>(arg1: *mut c_void)
 where
     F: FnOnce(),
 {
-    if cfg!(debug_assertions) {
-        if let Some(_key) = std::env::var_os("DELAY") {
-            warn!("*** Delaying reactor every 1000us ***");
-            unsafe {
-                spdk_sys::spdk_poller_register(
-                    Some(developer_delay),
-                    std::ptr::null_mut(),
-                    1000,
-                )
-            };
-        }
+    // use in cases when you want to burn less cpu and speed does not matter
+    if let Some(_key) = std::env::var_os("DELAY") {
+        warn!("*** Delaying reactor every 1000us ***");
+        unsafe {
+            spdk_sys::spdk_poller_register(
+                Some(developer_delay),
+                std::ptr::null_mut(),
+                1000,
+            )
+        };
     }
+    let address = match std::env::var("MY_POD_IP") {
+        Ok(val) => {
+            let _ipv4: Ipv4Addr = match val.parse() {
+                Ok(val) => val,
+                Err(_) => {
+                    error!("Invalid IP address: MY_POD_IP={}", val);
+                    mayastor_stop(-1);
+                    return;
+                }
+            };
+            val
+        }
+        Err(_) => "127.0.0.1".to_owned(),
+    };
     executor::start();
     pool::register_pool_methods();
     replica::register_replica_methods();
-    if let Err(msg) = iscsi_target::init_iscsi() {
+    if let Err(msg) = iscsi_target::init_iscsi(&address) {
         error!("Failed to initialize Mayastor iscsi: {}", msg);
         mayastor_stop(-1);
         return;
@@ -174,9 +188,9 @@ where
 
     // asynchronous initialization routines
     let fut = async move {
-        if let Err(msg) = nvmf_target::init_nvmf().await {
+        if let Err(msg) = nvmf_target::init_nvmf(&address).await {
             error!("Failed to initialize Mayastor nvmf target: {}", msg);
-            //spdk_stop(-1);
+            mayastor_stop(-1);
             return;
         }
         let cb: Box<Box<F>> = unsafe { Box::from_raw(arg1 as *mut Box<F>) };

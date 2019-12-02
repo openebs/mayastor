@@ -29,7 +29,7 @@ fn uuid_to_name(uuid: &str) -> Result<String, JsonRpcError> {
         Ok(uuid) => Ok(format!("nexus-{}", uuid.to_hyphenated().to_string())),
         Err(_) => Err(JsonRpcError::new(
             Code::InvalidParams,
-            "Invalid UUID".to_owned(),
+            format!("Invalid nexus uuid '{}'", uuid),
         )),
     }
 }

@@ -30,6 +30,11 @@ spec:
       - name: mayastor
         image: mayadata/mayastor:latest
         imagePullPolicy: Always
+        env:
+        - name: MY_POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
         args: ["--rpc-socket", "/mayastor/spdk.sock"]
         securityContext:
           privileged: true

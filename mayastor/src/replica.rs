@@ -59,10 +59,10 @@ pub enum ShareType {
 /// string.
 fn detect_share(uuid: &str) -> Option<(ShareType, String)> {
     // first try nvmf and then try iscsi
-    match nvmf_target::get_nqn(uuid) {
-        Some(id) => Some((ShareType::Nvmf, id)),
-        None => match iscsi_target::get_iqn(uuid) {
-            Some(id) => Some((ShareType::Iscsi, id)),
+    match nvmf_target::get_uri(uuid) {
+        Some(uri) => Some((ShareType::Nvmf, uri)),
+        None => match iscsi_target::get_uri(uuid) {
+            Some(uri) => Some((ShareType::Iscsi, uri)),
             None => None,
         },
     }
@@ -253,18 +253,15 @@ impl Replica {
     /// Return either a type of share and a string identifying the share
     /// (nqn for nvmf and iqn for iscsi) or none if the replica is not
     /// shared.
-    pub fn get_share_id(&self) -> Option<(ShareType, String)> {
-        detect_share(self.get_uuid())
+    pub fn get_share_type(&self) -> Option<ShareType> {
+        detect_share(self.get_uuid()).map(|val| val.0)
     }
 
     /// Return storage URI understood & used by nexus to access the replica.
     pub fn get_share_uri(&self) -> String {
         match detect_share(self.get_uuid()) {
-            Some((share_type, share_uri)) => match share_type {
-                ShareType::Iscsi => format!("iscsi://{}", share_uri),
-                ShareType::Nvmf => format!("nvmf://{}", share_uri),
-            },
-            None => format!("bdev://{}", self.get_uuid()),
+            Some((_, share_uri)) => share_uri,
+            None => format!("bdev:///{}", self.get_uuid()),
         }
     }
 
@@ -429,8 +426,8 @@ pub fn register_replica_methods() {
                     pool: r.get_pool_name().to_owned(),
                     size: r.get_size(),
                     thin: r.is_thin(),
-                    share: match r.get_share_id() {
-                        Some((share_type, _)) => match share_type {
+                    share: match r.get_share_type() {
+                        Some(share_type) => match share_type {
                             ShareType::Iscsi => ShareProtocol::Iscsi as i32,
                             ShareType::Nvmf => ShareProtocol::Nvmf as i32,
                         },
@@ -511,8 +508,8 @@ pub fn register_replica_methods() {
                 }
             };
             // first unshare the replica if there is a protocol change
-            let unshare = match replica.get_share_id() {
-                Some((share_type, _)) => match share_type {
+            let unshare = match replica.get_share_type() {
+                Some(share_type) => match share_type {
                     ShareType::Iscsi => want_share != ShareProtocol::Iscsi,
                     ShareType::Nvmf => want_share != ShareProtocol::Nvmf,
                 },
@@ -522,7 +519,7 @@ pub fn register_replica_methods() {
                 replica.unshare().await?;
             }
             // share the replica if it is not shared and we want it to be shared
-            if replica.get_share_id().is_none() {
+            if replica.get_share_type().is_none() {
                 match want_share {
                     ShareProtocol::Iscsi => {
                         replica.share(ShareType::Iscsi).await?

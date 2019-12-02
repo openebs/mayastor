@@ -21,8 +21,9 @@ const DISK_FILE = '/tmp/mayastor_test_disk';
 const UUID = 'dbe4d7eb-118a-4d15-b789-a18d9af6ff21';
 // uuid without the last digit for generating a set of uuids
 const BASE_UUID = 'c35fa4dd-d527-4b7b-9cf0-436b8bb0ba7';
-// Prefix of IQNs of mayastor iscsi targets
-const IQN_PREFIX = 'iqn.2019-09.org.openebs.mayastor:';
+// regexps for testing nvmf and iscsi URIs
+const NVMF_URI = /^nvmf:\/\/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):\d{1,5}\/nqn.2019-05.io.openebs:/;
+const ISCSI_URI = /^iscsi:\/\/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):\d{1,5}\/iqn.2019-05.io.openebs:/;
 
 // tunables of the test suite
 var endpoint = process.env.MAYASTOR_ENDPOINT;
@@ -292,7 +293,8 @@ describe('grpc', function() {
         (err, res) => {
           if (err) return done(err);
           assert.hasAllKeys(res, ['uri']);
-          assert.match(res.uri, /^nvmf:\/\//);
+          assert.match(res.uri, NVMF_URI);
+          assert.equal(res.uri.match(NVMF_URI)[1], common.getMyIp());
           done();
         }
       );
@@ -310,7 +312,8 @@ describe('grpc', function() {
         assert.equal(res.thin, true);
         assert.equal(res.size, 8 * 1024 * 1024);
         assert.equal(res.share, 'NVMF');
-        assert.match(res.uri, /^nvmf:\/\//);
+        assert.match(res.uri, NVMF_URI);
+        assert.equal(res.uri.match(NVMF_URI)[1], common.getMyIp());
         done();
       });
     });
@@ -335,13 +338,14 @@ describe('grpc', function() {
         (err, res) => {
           if (err) return done(err);
           assert.hasAllKeys(res, ['uri']);
-          assert.match(res.uri, /^iscsi:\/\//);
+          assert.match(res.uri, ISCSI_URI);
+          assert.equal(res.uri.match(ISCSI_URI)[1], common.getMyIp());
           done();
         }
       );
     });
 
-    it('should list iscsi replica', done => {
+    it('should list iscsi replica and do io', done => {
       client.listReplicas({}, (err, res) => {
         if (err) return done(err);
         res = res.replicas.filter(ent => {
@@ -353,23 +357,18 @@ describe('grpc', function() {
         assert.equal(res.thin, true);
         assert.equal(res.size, 8 * 1024 * 1024);
         assert.equal(res.share, 'ISCSI');
-        assert.match(res.uri, /^iscsi:\/\//);
-        done();
-      });
-    });
+        assert.match(res.uri, ISCSI_URI);
+        assert.equal(res.uri.match(ISCSI_URI)[1], common.getMyIp());
 
-    it('should do io to iscsi replica', done => {
-      // runs the perf test for 1 second
-      exec(
-        'iscsi-perf -t 1 iscsi://127.0.0.1/' + IQN_PREFIX + UUID + '/0',
-        (error, stdout, stderr) => {
+        // runs the perf test for 1 second
+        exec('iscsi-perf -t 1 ' + res.uri + '/0', (error, stdout, stderr) => {
           if (error) {
             done(stderr);
           } else {
             done();
           }
-        }
-      );
+        });
+      });
     });
 
     it('should destroy iscsi replica', done => {
@@ -392,7 +391,7 @@ describe('grpc', function() {
         (err, res) => {
           if (err) return done(err);
           assert.hasAllKeys(res, ['uri']);
-          assert.match(res.uri, /^bdev:\/\//);
+          assert.match(res.uri, /^bdev:\/\/\//);
           done();
         }
       );
@@ -426,7 +425,7 @@ describe('grpc', function() {
         assert.equal(res.thin, true);
         assert.equal(res.size, 8 * 1024 * 1024);
         assert.equal(res.share, 'NONE');
-        assert.match(res.uri, /^bdev:\/\//);
+        assert.match(res.uri, /^bdev:\/\/\//);
         done();
       });
     });
@@ -439,7 +438,8 @@ describe('grpc', function() {
         },
         (err, res) => {
           if (err) return done(err);
-          assert.match(res.uri, /^nvmf:\/\//);
+          assert.match(res.uri, NVMF_URI);
+          assert.equal(res.uri.match(NVMF_URI)[1], common.getMyIp());
 
           client.listReplicas({}, (err, res) => {
             if (err) return done(err);
@@ -449,7 +449,7 @@ describe('grpc', function() {
             assert.lengthOf(res, 1);
             res = res[0];
             assert.equal(res.share, 'NVMF');
-            assert.match(res.uri, /^nvmf:\/\//);
+            assert.match(res.uri, NVMF_URI);
             done();
           });
         }
@@ -464,7 +464,7 @@ describe('grpc', function() {
         },
         (err, res) => {
           if (err) return done(err);
-          assert.match(res.uri, /^nvmf:\/\//);
+          assert.match(res.uri, NVMF_URI);
           done();
         }
       );
@@ -478,7 +478,8 @@ describe('grpc', function() {
         },
         (err, res) => {
           if (err) return done(err);
-          assert.match(res.uri, /^iscsi:\/\//);
+          assert.match(res.uri, ISCSI_URI);
+          assert.equal(res.uri.match(ISCSI_URI)[1], common.getMyIp());
 
           client.listReplicas({}, (err, res) => {
             if (err) return done(err);
@@ -488,7 +489,7 @@ describe('grpc', function() {
             assert.lengthOf(res, 1);
             res = res[0];
             assert.equal(res.share, 'ISCSI');
-            assert.match(res.uri, /^iscsi:\/\//);
+            assert.match(res.uri, ISCSI_URI);
             done();
           });
         }
@@ -503,7 +504,7 @@ describe('grpc', function() {
         },
         (err, res) => {
           if (err) return done(err);
-          assert.match(res.uri, /^bdev:\/\//);
+          assert.match(res.uri, /^bdev:\/\/\//);
 
           client.listReplicas({}, (err, res) => {
             if (err) return done(err);
@@ -513,7 +514,7 @@ describe('grpc', function() {
             assert.lengthOf(res, 1);
             res = res[0];
             assert.equal(res.share, 'NONE');
-            assert.match(res.uri, /^bdev:\/\//);
+            assert.match(res.uri, /^bdev:\/\/\//);
             done();
           });
         }
