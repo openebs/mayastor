@@ -106,7 +106,7 @@ describe('cli', function() {
             share: 1,
           },
           output: {
-            uri: 'nvmf://' + UUID,
+            uri: 'nvmf://192.168.0.1:4444/' + UUID,
           },
         },
         {
@@ -123,7 +123,7 @@ describe('cli', function() {
             share: 2,
           },
           output: {
-            uri: 'iscsi://' + UUID,
+            uri: 'iscsi://192.168.0.1:4444/' + UUID,
           },
         },
         {
@@ -136,7 +136,7 @@ describe('cli', function() {
                 pool: POOL,
                 thin: true,
                 share: 0,
-                uri: 'bdev://' + UUID,
+                uri: 'bdev:///' + UUID,
                 size: 10000 * (1024 * 1024),
               },
               {
@@ -144,7 +144,7 @@ describe('cli', function() {
                 pool: POOL,
                 thin: false,
                 share: 1,
-                uri: 'nvmf://' + UUID,
+                uri: 'nvmf://192.168.0.1:4444/' + UUID,
                 size: 10 * (1024 * 1024),
               },
               {
@@ -152,7 +152,7 @@ describe('cli', function() {
                 pool: POOL,
                 thin: false,
                 share: 2,
-                uri: 'iscsi://' + UUID,
+                uri: 'iscsi://192.168.0.1:4444/' + UUID,
                 size: 10 * (1024 * 1024),
               },
             ],
@@ -351,7 +351,7 @@ describe('cli', function() {
         assert.equal(repls[0].share, 'none');
         assert.equal(repls[0].size, '9.8'); // 10000MiB -> 9.8 GiB
         assert.equal(repls[0].size_unit, 'GiB');
-        assert.match(repls[0].uri, /^bdev:\/\//);
+        assert.match(repls[0].uri, /^bdev:\/\/\/\d+/);
 
         assert.equal(repls[1].name, UUID2);
         assert.equal(repls[1].pool, POOL);
@@ -359,7 +359,7 @@ describe('cli', function() {
         assert.equal(repls[1].share, 'nvmf');
         assert.equal(repls[1].size, '10.0');
         assert.equal(repls[1].size_unit, 'MiB');
-        assert.match(repls[1].uri, /^nvmf:\/\//);
+        assert.match(repls[1].uri, /^nvmf:\/\/\d+/);
 
         assert.equal(repls[2].name, UUID3);
         assert.equal(repls[2].pool, POOL);
@@ -367,7 +367,7 @@ describe('cli', function() {
         assert.equal(repls[2].share, 'iscsi');
         assert.equal(repls[2].size, '10.0');
         assert.equal(repls[2].size_unit, 'MiB');
-        assert.match(repls[2].uri, /^iscsi:\/\//);
+        assert.match(repls[2].uri, /^iscsi:\/\/\d+/);
 
         done();
       });

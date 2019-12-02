@@ -33,26 +33,32 @@ use std::{
     ptr,
 };
 
+/// iscsi target port number
+const ISCSI_PORT: u16 = 3260;
+
 thread_local! {
-    /// iscsi global state. Currently just a counter used for assigning idx
-    /// to newly created iscsi targets.
+    /// iscsi global state.
     ///
     /// It is thread-local because TLS is safe to access in rust without any
     /// synchronization overhead. It should be accessed only from
     /// reactor_0 thread.
+    ///
+    /// A counter used for assigning idx to newly created iscsi targets.
     static ISCSI_IDX: RefCell<i32> = RefCell::new(0);
+    /// IP address of iscsi portal used for all created iscsi targets.
+    static ADDRESS: RefCell<Option<String>> = RefCell::new(None);
 }
 
 /// Generate iqn based on provided uuid
 fn target_name(uuid: &str) -> String {
-    format!("iqn.2019-09.org.openebs.mayastor:{}", uuid)
+    format!("iqn.2019-05.io.openebs:{}", uuid)
 }
 
 /// Create iscsi portal and initiator group which will be used later when
 /// creating iscsi targets.
-pub fn init_iscsi() -> Result<(), String> {
-    let portal_host = CString::new("0.0.0.0").unwrap();
-    let portal_port = CString::new("3260").unwrap();
+pub fn init_iscsi(address: &str) -> Result<(), String> {
+    let portal_host = CString::new(address.to_owned()).unwrap();
+    let portal_port = CString::new(ISCSI_PORT.to_string()).unwrap();
     let initiator_host = CString::new("ANY").unwrap();
     let initiator_netmask = CString::new("ANY").unwrap();
 
@@ -96,6 +102,9 @@ pub fn init_iscsi() -> Result<(), String> {
             return Err("Failed to create default initiator group".to_owned());
         }
     }
+    ADDRESS.with(move |addr| {
+        *addr.borrow_mut() = Some(address.to_owned());
+    });
     debug!("Created default iscsi initiator group");
 
     Ok(())
@@ -183,15 +192,19 @@ pub async fn unshare(uuid: &str) -> Result<(), String> {
     }
 }
 
-/// Return target iqn for a replica with uuid.
-pub fn get_iqn(uuid: &str) -> Option<String> {
+/// Return iscsi target URI understood by nexus
+pub fn get_uri(uuid: &str) -> Option<String> {
     let iqn = target_name(uuid);
-    let c_iqn = CString::new(target_name(uuid)).unwrap();
+    let c_iqn = CString::new(iqn.clone()).unwrap();
     let tgt = unsafe { spdk_iscsi_find_tgt_node(c_iqn.as_ptr()) };
 
     if tgt.is_null() {
-        None
-    } else {
-        Some(iqn)
+        return None;
     }
+
+    ADDRESS.with(move |a| {
+        let a_borrow = a.borrow();
+        let address = a_borrow.as_ref().unwrap();
+        Some(format!("iscsi://{}:{}/{}", address, ISCSI_PORT, iqn))
+    })
 }

@@ -59,6 +59,11 @@ use std::{
     ptr::{self, copy_nonoverlapping},
 };
 
+/// nvmf port used for replicas. It is different from standard nvmf
+/// port 4420, because we don't want to conflict with nexus exported
+/// over nvmf running on the same node.
+const NVMF_PORT: u16 = 8420;
+
 thread_local! {
     /// nvmf target provides a scope for creating transports, namespaces etc.
     /// It is thread-local because TLS is safe to access in rust without any
@@ -188,6 +193,7 @@ impl Subsystem {
         }
     }
 
+    /// Get nvme subsystem's NQN
     pub fn get_nqn(&mut self) -> String {
         unsafe {
             CStr::from_ptr(spdk_nvmf_subsystem_get_nqn(self.inner))
@@ -283,7 +289,10 @@ impl TargetOpts {
 /// nvmf target binds listen addresses and nvmf subsystems with namespaces
 /// together.
 pub(crate) struct Target {
+    /// Pointer to SPDK implementation of nvmf target
     inner: *mut spdk_nvmf_tgt,
+    /// Address where the target listens for incoming connections
+    address: String,
     /// Endpoint where this nvmf target listens for incoming connections.
     trid: spdk_nvme_transport_id,
     opts: spdk_nvmf_transport_opts,
@@ -330,6 +339,7 @@ impl Target {
 
         Ok(Self {
             inner,
+            address: addr.to_owned(),
             trid,
             opts: spdk_nvmf_transport_opts::default(),
             acceptor_poll_rate: 1000, // 1ms
@@ -536,6 +546,10 @@ impl Target {
             ))
         }
     }
+
+    pub fn get_address(&self) -> &str {
+        &self.address
+    }
 }
 
 impl fmt::Debug for Target {
@@ -552,8 +566,8 @@ impl fmt::Debug for Target {
 }
 
 /// Create nvmf target which will be used for exporting the replicas.
-pub async fn init_nvmf() -> Result<(), String> {
-    let mut boxed_tgt = match Target::create("127.0.0.1", 4401) {
+pub async fn init_nvmf(address: &str) -> Result<(), String> {
+    let mut boxed_tgt = match Target::create(address, NVMF_PORT) {
         Ok(tgt) => Box::new(tgt),
         Err(msg) => return Err(msg),
     };
@@ -616,12 +630,17 @@ pub async fn unshare(uuid: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn get_nqn(uuid: &str) -> Option<String> {
+pub fn get_uri(uuid: &str) -> Option<String> {
     NVMF_TGT.with(move |maybe_tgt| {
         let mut maybe_tgt = maybe_tgt.borrow_mut();
         let tgt = maybe_tgt.as_mut().unwrap();
         match tgt.lookup_subsystem(uuid) {
-            Some(mut ss) => Some(ss.get_nqn()),
+            Some(mut ss) => Some(format!(
+                "nvmf://{}:{}/{}",
+                tgt.get_address(),
+                NVMF_PORT,
+                ss.get_nqn()
+            )),
             None => None,
         }
     })

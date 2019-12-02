@@ -197,16 +197,10 @@ impl TryFrom<&Url> for NvmfBdev {
         // the storage service fabric (s) if that too fails, we error
         // out.
 
-        if let Some(port) = u.port() {
-            n.trsvcid = port.to_string();
-        } else {
-            n.trsvcid = match u.scheme() {
-                "nvmf" => "4420".into(),
-                "nvmfn" => "4420".into(),
-                "nvmfs" => "4421".into(),
-                _ => return Err(UriError::InvalidScheme),
-            }
-        }
+        n.trsvcid = match u.port() {
+            Some(port) => port.to_string(),
+            None => "4420".to_owned(),
+        };
 
         n.traddr = u.host_str().unwrap().to_string();
         n.name = u.to_string();

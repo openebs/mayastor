@@ -359,7 +359,7 @@ impl Nexus {
 
             let r = child.destroy().await;
             if r.is_err() {
-                warn!("Failed to destroy child {}", child.name);
+                error!("Failed to destroy child {}", child.name);
             }
         }
 
