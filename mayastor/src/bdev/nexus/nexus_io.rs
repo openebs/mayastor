@@ -1,5 +1,7 @@
+use core::fmt;
+use std::fmt::{Debug, Formatter};
+
 use libc::c_void;
-use num;
 
 use spdk_sys::{spdk_bdev_free_io, spdk_bdev_io, spdk_bdev_io_complete};
 
@@ -7,14 +9,12 @@ use crate::bdev::{
     nexus::nexus_bdev::{Nexus, NEXUS_PRODUCT_ID},
     Bdev,
 };
-use core::fmt;
-use std::fmt::{Debug, Formatter};
 
 /// NioCtx provides context on a per IO basis
 #[derive(Debug, Clone)]
 pub struct NioCtx {
     /// read consistency
-    pub(crate) pending: i8,
+    pub(crate) in_flight: i8,
     /// status of the IO
     pub(crate) status: i32,
 }
@@ -33,55 +33,37 @@ pub(crate) struct Bio {
     pub io: *mut spdk_bdev_io,
 }
 
-#[derive(FromPrimitive, Debug)]
-pub enum BioType {
-    /// an invalid IO type
-    Invalid = 0,
-    /// READ IO
-    Read,
-    /// WRITE IO
-    Write,
-    /// UNMAP
-    Unmap,
-    /// FLUSH
-    Flush,
-    /// RESET
-    Reset,
-    /// NVME admin command used during passtru
-    NvmeAdmin,
-    /// same as above but for regular IO
-    NvmeIo,
-    /// Metadata IO used for guards
-    NvmeIoMd,
-    /// writezeros to erase data on disk
-    WriteZeroes,
-    /// zero copy IO
-    Zcopy,
-    /// the number of IOs
-    NumTypes = 11,
+/// redefinition of IO types to make them (a) shorter and (b) get rid of the
+/// enum conversion bloat.
+///
+/// The commented types are currently not used in our code base, uncomment as
+/// needed.
+pub mod io_type {
+    pub const READ: u32 = 1;
+    pub const WRITE: u32 = 2;
+    pub const UNMAP: u32 = 3;
+    //    pub const INVALID: u32 = 0;
+    pub const FLUSH: u32 = 4;
+    pub const RESET: u32 = 5;
+    //    pub const NVME_ADMIN: u32 = 6;
+    //    pub const NVME_IO: u32 = 7;
+    //    pub const NVME_IO_MD: u32 = 8;
+    //    pub const WRITE_ZEROES: u32 = 9;
+    //    pub const ZCOPY: u32 = 10;
+    //    pub const GET_ZONE_INFO: u32 = 11;
+    //    pub const ZONE_MANAGMENT: u32 = 12;
+    //    pub const ZONE_APPEND: u32 = 13;
+    //    pub const IO_NUM_TYPES: u32 = 14;
 }
 
-impl From<i32> for BioType {
-    fn from(io: i32) -> Self {
-        num::FromPrimitive::from_i32(io).unwrap()
-    }
-}
-
-impl From<u32> for BioType {
-    fn from(io: u32) -> Self {
-        num::FromPrimitive::from_u32(io).unwrap()
-    }
-}
-
-#[derive(Clone, Debug)]
-#[allow(dead_code)]
-pub enum IoStatus {
-    NoMem = -4,
-    ScsiError = -3,
-    NvmeError = -2,
-    Failed = -1,
-    Pending = 0,
-    Success = 1,
+/// the status of an IO
+pub mod io_status {
+    pub const NOMEM: i32 = -4;
+    pub const SCSI_ERROR: i32 = -3;
+    pub const NVME_ERROR: i32 = -2;
+    pub const FAILED: i32 = -1;
+    pub const PENDING: i32 = 0;
+    pub const SUCCESS: i32 = 1;
 }
 
 impl From<*mut spdk_bdev_io> for Bio {
@@ -94,6 +76,9 @@ impl From<*mut spdk_bdev_io> for Bio {
 
 impl From<*mut c_void> for Bio {
     fn from(io: *mut c_void) -> Self {
+        if cfg!(debug_assertions) && io.is_null() {
+            panic!("bio is NULL")
+        }
         Bio {
             io: io as *const _ as *mut _,
         }
@@ -106,42 +91,42 @@ impl Bio {
         unsafe { Bdev::from((*self.io).bdev) }
     }
 
-    /// complete an IO for the nexus. In the  IO completion routine in
+    /// complete an IO for the nexus. In the IO completion routine in
     /// `[nexus_bdev]` will set the IoStatus for each IO where success ==
     /// false.
     #[inline]
     pub(crate) fn ok(&mut self) {
         if cfg!(debug_assertions) {
             // have a child IO that has failed
-            if self.get_ctx().status < 0 {
+            if self.io_ctx_as_mut_ref().status < 0 {
                 debug!("BIO for nexus {} failed", self.nexus_as_ref().name)
             }
             // we are marking the IO done but not all child IOs have returned,
             // regardless of their state at this point
-            if self.get_ctx().pending != 0 && self.get_ctx().pending == 0 {
+            if self.io_ctx_as_mut_ref().in_flight != 0 {
                 debug!("BIO for nexus marked completed but has outstanding")
             }
         }
 
-        unsafe { spdk_bdev_io_complete(self.io, IoStatus::Success as i32) }
+        unsafe { spdk_bdev_io_complete(self.io, io_status::SUCCESS) };
     }
     /// mark the IO as failed
     #[inline]
     pub(crate) fn fail(&mut self) {
-        unsafe { spdk_bdev_io_complete(self.io, IoStatus::Failed as i32) }
+        unsafe { spdk_bdev_io_complete(self.io, io_status::FAILED) };
     }
 
     /// asses the IO if we need to mark it failed or ok.
     #[inline]
     pub(crate) fn asses(&mut self) {
-        self.get_ctx().pending -= 1;
+        self.io_ctx_as_mut_ref().in_flight -= 1;
 
         if cfg!(debug_assertions) {
-            assert_ne!(self.get_ctx().pending, -1);
+            assert_ne!(self.io_ctx_as_mut_ref().in_flight, -1);
         }
 
-        if self.get_ctx().pending == 0 {
-            if self.get_ctx().status < IoStatus::Pending as i32 {
+        if self.io_ctx_as_mut_ref().in_flight == 0 {
+            if self.io_ctx_as_mut_ref().status < io_status::PENDING {
                 self.fail();
             } else {
                 self.ok();
@@ -159,7 +144,7 @@ impl Bio {
     /// get the context of the given IO, which is used to determine the overall
     /// state of the IO.
     #[inline]
-    pub(crate) fn get_ctx(&mut self) -> &mut NioCtx {
+    pub(crate) fn io_ctx_as_mut_ref(&mut self) -> &mut NioCtx {
         unsafe {
             &mut *((*self.io).driver_ctx.as_mut_ptr() as *const c_void
                 as *mut NioCtx)
@@ -199,8 +184,12 @@ impl Bio {
 
     /// determine the type of this IO
     #[inline]
-    pub(crate) fn io_type(io: *mut spdk_bdev_io) -> Option<BioType> {
-        unsafe { num::FromPrimitive::from_u8((*io).type_) }
+    pub(crate) fn io_type(io: *mut spdk_bdev_io) -> Option<u32> {
+        if io.is_null() {
+            trace!("io is null!!");
+            return None;
+        }
+        Some(unsafe { (*io).type_ } as u32)
     }
 
     /// get the block length of this IO
