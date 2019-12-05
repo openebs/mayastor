@@ -9,6 +9,7 @@ use mayastor::{
     mayastor_stop,
 };
 
+use mayastor::bdev::nexus::nexus_bdev::NexusState;
 use std::process::Command;
 
 static DISKNAME1: &str = "/tmp/disk1.img";
@@ -81,6 +82,7 @@ async fn works() {
 
     // open the nexus in read write
     let nd = Descriptor::open("hello", true).expect("failed open bdev");
+    assert_eq!(nexus.status(), NexusState::Online);
     // open the children in RO
 
     let cd1 = Descriptor::open(&child1, false).expect("failed open bdev");
@@ -122,6 +124,7 @@ async fn works() {
 
     // turn one child offline
     nexus.offline_child(&child2).await.unwrap();
+    assert_eq!(nexus.status(), NexusState::Degraded);
 
     // write 0xF0 to the nexus
     for i in 0 .. 10 {
@@ -152,6 +155,7 @@ async fn works() {
 
     // bring back the offlined child
     nexus.online_child(&child2).await.unwrap();
+    assert_eq!(nexus.status(), NexusState::Degraded);
 
     buf.fill(0xAA);
     // write 0xAA to the nexus

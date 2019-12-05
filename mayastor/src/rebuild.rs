@@ -54,8 +54,8 @@ pub struct RebuildTask {
     /// used to provide progress indication
     previous_lba: u64,
     /// used to signal completion to the callee
-    sender: Option<oneshot::Sender<bool>>,
-    completed: Option<oneshot::Receiver<bool>>,
+    sender: Option<oneshot::Sender<RebuildState>>,
+    completed: Option<oneshot::Receiver<RebuildState>>,
     /// progress reported to logs
     progress: Option<PollTask>,
     /// the number of segments we need to rebuild. The segment is derived from
@@ -106,7 +106,7 @@ impl RebuildTask {
                 as usize,
         )?;
 
-        let (s, r) = oneshot::channel::<bool>();
+        let (s, r) = oneshot::channel::<RebuildState>();
         let task = Box::new(Self {
             state: RebuildState::Initialized,
             blocks_per_segment: blocks_per_segment as u32,
@@ -157,7 +157,9 @@ impl RebuildTask {
         }
     }
 
-    pub async fn completed(&mut self) -> Result<bool, oneshot::Canceled> {
+    pub async fn completed(
+        &mut self,
+    ) -> Result<RebuildState, oneshot::Canceled> {
         self.completed.as_mut().unwrap().await
     }
 
@@ -252,7 +254,7 @@ impl RebuildTask {
 
         let _ = self.progress.take();
 
-        self.send_completion(success);
+        self.send_completion(self.state);
     }
 
     /// determine the next segment for which we will issue a rebuild
@@ -355,9 +357,9 @@ impl RebuildTask {
     }
 
     /// send the callee that we completed successfully
-    fn send_completion(&mut self, success: bool) {
+    fn send_completion(&mut self, state: RebuildState) {
         if let Some(sender) = self.sender.take() {
-            let _ = sender.send(success);
+            let _ = sender.send(state);
         }
     }
 

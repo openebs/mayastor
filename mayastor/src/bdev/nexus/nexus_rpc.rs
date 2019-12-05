@@ -213,7 +213,7 @@ pub(crate) fn register_rpc_methods() {
     jsonrpc_register("add_child_nexus", |args: AddChildNexusRequest| {
         let fut = async move {
             let nexus = nexus_lookup(&args.uuid)?;
-            match nexus.register_child(&args.uri).await {
+            match nexus.add_child(&args.uri).await {
                 Ok(_) => Ok(()),
                 Err(err) => Err(JsonRpcError::new(
                     Code::InternalError,
@@ -227,7 +227,7 @@ pub(crate) fn register_rpc_methods() {
     jsonrpc_register("remove_child_nexus", |args: RemoveChildNexusRequest| {
         let fut = async move {
             let nexus = nexus_lookup(&args.uuid)?;
-            match nexus.destroy_child(&args.uri).await {
+            match nexus.remove_child(&args.uri).await {
                 Ok(_) => Ok(()),
                 Err(err) => Err(JsonRpcError::new(
                     Code::InternalError,

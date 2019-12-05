@@ -41,7 +41,7 @@ impl Drop for Mthread {
 ///
 /// Async closures are not supported (yet) as there is only a single executor on
 /// core 0
-pub fn spawm_on_core<T, F>(
+pub fn spawn_on_core<T, F>(
     core: u32,
     arg: Box<T>,
     f: F,
