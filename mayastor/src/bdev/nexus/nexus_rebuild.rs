@@ -9,8 +9,8 @@ use crate::{
         Error,
     },
     descriptor::Descriptor,
-    event::spawm_on_core,
-    rebuild::RebuildTask,
+    event::spawn_on_core,
+    rebuild::{RebuildState, RebuildTask},
 };
 use std::rc::Rc;
 
@@ -73,7 +73,7 @@ impl Nexus {
         let copy_task =
             RebuildTask::new(source.unwrap(), target.unwrap()).unwrap();
 
-        let ctx = spawm_on_core(core, copy_task, |task| task.run());
+        let ctx = spawn_on_core(core, copy_task, |task| task.run());
 
         if let Ok(ctx) = ctx {
             self.rebuild_handle = Some(ctx);
@@ -83,14 +83,16 @@ impl Nexus {
         }
     }
 
-    pub async fn rebuild_completion(&mut self) -> Result<bool, Error> {
+    pub async fn rebuild_completion(&mut self) -> Result<RebuildState, Error> {
         if let Some(task) = self.rebuild_handle.as_mut() {
-            if let Ok(r) = task.completed().await {
-                let _ = self.rebuild_handle.take();
-                Ok(r)
-            } else {
-                Ok(false)
-            }
+            let result = match task.completed().await {
+                Ok(state) => Ok(state),
+                Err(_) => Err(Error::Internal(
+                    "rebuild failed; sender is gone".into(),
+                )),
+            };
+            let _ = self.rebuild_handle.take();
+            result
         } else {
             Err(Error::Invalid("No rebuild task registered".into()))
         }

@@ -1,3 +1,27 @@
+//!
+//! This file implements operations to the child bdevs from the context of its
+//! parent.
+//!
+//! `register_children` and `register_child` are should only be used when
+//! building up a new nexus
+//!
+//! `offline_child` and `online_child` should be used to include the child into
+//! the IO path of the nexus currently, online of a child will default the nexus
+//! into the degraded mode as it (may) require a rebuild. This will be changed
+//! in the near future -- online child will not determine if it SHOULD online
+//! but simply does what its told. Therefore, the callee must be careful when
+//! using this method.
+//!
+//! 'fault_child` will do the same as `offline_child` except, it will not close
+//! the child.
+//!
+//! `add_child` will construct a new `NexusChild` and add the bdev given by the
+//! uri to the nexus. The nexus will transition to degraded mode as the new
+//! child requires rebuild first.
+//!
+//! When reconfiguring the nexus, we traverse all our children, create new IO
+//! channels for all children that are in the open state.
+
 use futures::future::join_all;
 
 use crate::bdev::{
@@ -13,12 +37,10 @@ use crate::bdev::{
 };
 
 impl Nexus {
-    /// Add the child bdevs to the nexus instance in the "init state"
-    /// this function should be used when bdevs are added asynchronously
-    /// like for example, when parsing the init file. The examine callback
-    /// will iterate through the list and invoke nexus::online once completed
-
-    pub fn add_children(&mut self, dev_name: &[String]) {
+    /// register children with the nexus, only allowed during the nexus init
+    /// phase
+    pub fn register_children(&mut self, dev_name: &[String]) {
+        assert_eq!(self.state, NexusState::Init);
         self.child_count = dev_name.len() as u32;
         dev_name
             .iter()
@@ -33,8 +55,10 @@ impl Nexus {
             .for_each(drop);
     }
 
-    /// create a bdev based on its URL and add it to the nexus
+    /// register a single child the nexus, only allowed during the nexus init
+    /// phase
     pub async fn register_child(&mut self, uri: &str) -> Result<String, Error> {
+        assert_eq!(self.state, NexusState::Init);
         let name = bdev_create(&uri).await?;
         self.children.push(NexusChild::new(
             uri.to_string(),
@@ -47,7 +71,13 @@ impl Nexus {
         Ok(name)
     }
 
-    pub async fn add_child(&mut self, uri: &str) -> Result<String, Error> {
+    /// add a new child to an existing nexus. note that the child is added and
+    /// opened but not taking part of any new IO's that are submitted to the
+    /// nexus.
+    ///
+    /// The child may require a rebuild first, so the nexus will
+    /// transition to degraded mode when the addition has been successful.
+    pub async fn add_child(&mut self, uri: &str) -> Result<NexusState, Error> {
         let name = bdev_create(&uri).await?;
 
         if let Some(child) = bdev_lookup_by_name(&name) {
@@ -55,7 +85,7 @@ impl Nexus {
                 || self.min_num_blocks() < child.num_blocks()
             {
                 error!(
-                    ":{} child {} has invalid geometry",
+                    "{}: child {} has invalid geometry",
                     self.name,
                     child.name()
                 );
@@ -67,7 +97,7 @@ impl Nexus {
 
         let child = bdev_lookup_by_name(&name);
         if child.is_none() {
-            error!(":{} child should be there but its not!", self.name);
+            error!("{}: child should be there but its not!", self.name);
             return Err(Error::Internal("child does not exist".into()));
         };
 
@@ -75,30 +105,52 @@ impl Nexus {
 
         match child.open(self.size) {
             Ok(name) => {
-                info!(":{} child opened successfully {}", self.name, name);
+                // we have created the bdev, and created a nexusChild struct. To
+                // make use of the device itself the
+                // data and metadata must be validated. The child
+                // will be added and marked as faulted, once the rebuild has
+                // completed the device can transition to online
+
+                info!("{}: child opened successfully {}", self.name, name);
+
+                // mark faulted so that it can never take part in the IO path of
+                // the nexus until brought online.
+
+                child.state = ChildState::Faulted;
                 self.children.push(child);
                 self.child_count += 1;
-                self.sync_labels().await?;
+                // TODO -- rsync labels
+                Ok(self.set_state(NexusState::Degraded))
             }
-            Err(_) => {
+            Err(e) => {
                 error!("{}: failed to open child ", self.name);
                 bdev_destroy(&uri).await?;
+                Err(e)
             }
         }
-
-        Ok(uri.into())
     }
 
     /// Destroy child with given uri.
     /// If the child does not exist the method returns success.
-    pub async fn destroy_child(&mut self, uri: &str) -> Result<(), Error> {
+    pub async fn remove_child(&mut self, uri: &str) -> Result<(), Error> {
         let idx = match self.children.iter().position(|c| c.name == uri) {
             None => return Ok(()),
             Some(val) => val,
         };
+
+        self.children[idx].close()?;
+
+        if self.children[idx].state != ChildState::Closed {
+            error!(
+                ":{} cannot destroy child {:?} close it first {:?}",
+                self.name, self.children[idx].state, self.state
+            );
+            return Err(Error::Invalid("must close me".into()));
+        }
+
         let mut child = self.children.remove(idx);
-        child.destroy().await?;
         self.child_count -= 1;
+        child.destroy().await?;
         Ok(())
     }
 
@@ -118,7 +170,9 @@ impl Nexus {
         Ok(self.set_state(NexusState::Degraded))
     }
 
-    /// online a child and reconfigure the IO channels
+    /// online a child and reconfigure the IO channels. The child is already
+    /// registered, but simpy not opened. This can be required in case where
+    /// a child is misbehaving.
     pub async fn online_child(
         &mut self,
         name: &str,
@@ -126,12 +180,15 @@ impl Nexus {
         trace!("{} Online child request", self.name());
 
         if let Some(child) = self.children.iter_mut().find(|c| c.name == name) {
-            child.open(self.size)?;
-            self.reconfigure(DREvent::ChildOnline).await;
-            if self.is_healthy() {
-                Ok(self.set_state(NexusState::Online))
+            if child.state != ChildState::Closed {
+                Err(Error::Invalid(
+                    "Child is not closed so can not open".into(),
+                ))
             } else {
-                Ok(NexusState::Degraded)
+                child.open(self.size)?;
+                self.reconfigure(DREvent::ChildOnline).await;
+                //TODO should be rebuilding
+                Ok(self.set_state(NexusState::Degraded))
             }
         } else {
             Err(Error::NotFound)

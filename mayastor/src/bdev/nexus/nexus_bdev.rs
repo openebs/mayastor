@@ -214,7 +214,7 @@ impl Nexus {
         });
 
         if let Some(child_bdevs) = child_bdevs {
-            n.add_children(child_bdevs);
+            n.register_children(child_bdevs);
         }
 
         // store a reference to the Self in the bdev structure.
@@ -242,7 +242,19 @@ impl Nexus {
         state
     }
 
-    pub(crate) fn is_healthy(&self) -> bool {
+    /// return the current state of the nexus
+    pub fn status(&self) -> NexusState {
+        self.state
+    }
+
+    /// online is the state where the Nexus has all children in the healthy
+    /// state and is not rebuilding (for example)
+    pub fn is_online(&self) -> bool {
+        self.is_healthy() && self.state == NexusState::Online
+    }
+
+    /// returns true if all the children are open
+    pub fn is_healthy(&self) -> bool {
         !self.children.iter().any(|c| c.state != ChildState::Open)
     }
 
@@ -376,9 +388,7 @@ impl Nexus {
         // however, we cannot change the function in async there, so we
         // do it here.
         for child in self.children.iter_mut() {
-            if child.state == ChildState::Open {
-                let _ = child.close();
-            }
+            let _ = child.close();
             info!("Destroying child bdev {}", child.name);
 
             let r = child.destroy().await;
@@ -672,14 +682,12 @@ pub async fn nexus_create(
         }
     }
 
-    let opened = ni.open().await;
-
-    if opened.is_ok() {
-        nexus_list.push(ni);
-        Ok(())
-    } else {
-        ni.destroy_children().await;
-        Err(Error::Internal("Failed to open the nexus".to_owned()))
+    match ni.open().await {
+        Ok(_) => {
+            nexus_list.push(ni);
+            Ok(())
+        }
+        Err(e) => Err(e),
     }
 }
 

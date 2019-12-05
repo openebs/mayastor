@@ -9,7 +9,7 @@ use crate::{
     nexus_uri::{self, UriError},
 };
 
-#[derive(Debug)]
+#[derive(Debug, PartialOrd, PartialEq)]
 pub enum Error {
     /// Nobody knows
     Internal(String),

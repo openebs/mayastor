@@ -27,15 +27,15 @@ use std::rc::Rc;
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq)]
 pub(crate) enum ChildState {
-    /// child has not been opened but we are in the process of opening it
+    /// child has not been opened, but we are in the process of opening it
     Init,
-    /// can not add this bdev to the parent as its incompatible property wise
+    /// cannot add this bdev to the parent as its incompatible property wise
     ConfigInvalid,
     /// the child is open for RW
     Open,
     /// The child has been closed by its parent
     Closed,
-    /// a fatal error (or errors) have occurred on this child
+    /// a non-fatal have occurred on this child
     Faulted,
 }
 
@@ -93,14 +93,22 @@ impl Display for NexusChild {
 }
 
 impl NexusChild {
-    /// open the child bdev in RW mode. The bdev can only be opened once in RW
-    /// mode even by the same module. For multiple writers, use we use the
-    /// Descriptor.
+    /// Open the child in RW mode and claim the device to be ours. If the child
+    /// is already opened by someone else (i.e one of the targets) it will
+    /// error out.
+    ///
+    /// only devices in the closed or Init state can be opened.
     pub(crate) fn open(
         &mut self,
         parent_size: u64,
     ) -> Result<String, nexus::Error> {
         trace!("{}: Opening child device {}", self.parent, self.name);
+
+        if self.state != ChildState::Closed && self.state != ChildState::Init {
+            return Err(Error::Invalid(
+                "child is not closed can only open closed".into(),
+            ));
+        }
 
         if let Some(bdev) = self.bdev.as_ref() {
             let child_size = bdev.size_in_bytes();
@@ -176,20 +184,31 @@ impl NexusChild {
     /// close the bdev -- we have no means of determining if this succeeds
     pub(crate) fn close(&mut self) -> Result<ChildState, nexus::Error> {
         trace!("{}: Closing child {}", self.parent, self.name);
+
+        debug!(
+            ":{} has {} references to the descriptor",
+            self.parent,
+            Rc::strong_count(self.descriptor.as_ref().unwrap())
+        );
+
         if let Some(bdev) = self.bdev.as_ref() {
             unsafe {
                 spdk_bdev_module_release_bdev(bdev.inner);
             }
         }
 
-        let _ = self.descriptor.take();
-        // we leave the bdev structure around for when we want reopen it
+        // just to be explicit
+        let descriptor = self.descriptor.take();
+        drop(descriptor);
+
+        // we leave the child structure around for when we want reopen it
         self.state = ChildState::Closed;
         Ok(self.state)
     }
 
+    /// called to get a channel to this child
     pub(crate) fn get_io_channel(&self) -> *mut spdk_sys::spdk_io_channel {
-        assert_eq!(self.state, ChildState::Open);
+        assert_ne!(self.state, ChildState::Closed);
         unsafe { spdk_bdev_get_io_channel(self.desc) }
     }
 
@@ -208,9 +227,7 @@ impl NexusChild {
 
     /// destroy the child bdev
     pub(crate) async fn destroy(&mut self) -> Result<(), nexus::Error> {
-        if self.state == ChildState::Open {
-            self.close().unwrap();
-        }
+        assert_eq!(self.state, ChildState::Closed);
 
         if let Ok(child_type) = nexus_parse_uri(&self.name) {
             match child_type {
@@ -220,7 +237,7 @@ impl NexusChild {
                 BdevType::Bdev(_name) => Ok(()),
             }
         } else {
-            // a bdev type we dont support is being used by the nexus
+            // a bdev type we don't support is being used by the nexus
             Err(nexus::Error::Invalid(format!(
                 "requested bdev: {} type is not supported by the nexus",
                 self.name
@@ -228,8 +245,9 @@ impl NexusChild {
         }
     }
 
+    /// returns if a child can be written too
     pub fn can_rw(&self) -> bool {
-        self.state == ChildState::Open
+        self.state == ChildState::Open || self.state == ChildState::Faulted
     }
 
     pub async fn probe_label(&mut self) -> Result<NexusLabel, nexus::Error> {
@@ -266,7 +284,10 @@ impl NexusChild {
         let mut label = GPTHeader::from_slice(buf.as_slice());
 
         if label.is_err() {
-            info!("{}: {}: Primary label is invalid!", self.parent, self.name);
+            info!(
+                "{}: {}: The primary label is invalid!",
+                self.parent, self.name
+            );
             self.read_at(secondary, &mut buf).await?;
             label = GPTHeader::from_slice(buf.as_slice());
         }

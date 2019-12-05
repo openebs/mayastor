@@ -10,7 +10,7 @@ static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
 static DISKNAME2: &str = "/tmp/disk2.img";
 static BDEVNAME2: &str = "aio:///tmp/disk2.img?blk_size=512";
 
-mod common;
+pub mod common;
 #[test]
 fn copy_task() {
     common::mayastor_test_init();
