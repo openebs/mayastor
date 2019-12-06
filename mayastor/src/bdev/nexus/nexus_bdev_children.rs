@@ -133,6 +133,12 @@ impl Nexus {
     /// Destroy child with given uri.
     /// If the child does not exist the method returns success.
     pub async fn remove_child(&mut self, uri: &str) -> Result<(), Error> {
+        if self.child_count == 1 {
+            return Err(Error::Invalid(
+                "cannot delete the last replica".into(),
+            ));
+        }
+
         let idx = match self.children.iter().position(|c| c.name == uri) {
             None => return Ok(()),
             Some(val) => val,

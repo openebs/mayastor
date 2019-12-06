@@ -17,7 +17,7 @@ static DISKNAME2: &str = "/tmp/disk2.img";
 static BDEVNAME2: &str = "aio:///tmp/disk2.img?blk_size=512";
 
 static DISKNAME3: &str = "/tmp/disk3.img";
-//static BDEVNAME3: &str = "aio:///tmp/disk3.img?blk_size=512";
+static BDEVNAME3: &str = "aio:///tmp/disk3.img?blk_size=512";
 pub mod common;
 #[test]
 
@@ -26,8 +26,7 @@ fn nexus_add_remove() {
     common::mayastor_test_init();
     let args = vec!["rebuild_task", "-m", "0x3"];
 
-    //    common::dd_random_file(DISKNAME1, 4096, 64 * 1024);
-    common::truncate_file(DISKNAME1, 64 * 1024);
+    common::dd_random_file(DISKNAME1, 4096, 64 * 1024);
     common::truncate_file(DISKNAME2, 64 * 1024);
     common::truncate_file(DISKNAME3, 64 * 1024);
 
@@ -105,6 +104,7 @@ async fn nexus_add_step3() {
     assert_eq!(NexusState::Degraded, nexus.status());
 }
 
+/// add a replica and rebuild
 async fn nexus_rebuild_1() {
     let nexus = nexus_lookup("add_remove").unwrap();
     assert_eq!(NexusState::Degraded, nexus.status());
@@ -119,6 +119,98 @@ async fn nexus_rebuild_1() {
     assert_eq!(result, RebuildState::Completed);
 }
 
+/// once completed the nexus should be online
+async fn nexus_remove_1() {
+    let nexus = nexus_lookup("add_remove").unwrap();
+    assert_eq!(NexusState::Online, nexus.status());
+
+    // removing a child does not degrade a nexus
+    let result = nexus.remove_child(BDEVNAME1).await;
+
+    assert_eq!(result, Ok(()));
+    assert_eq!(nexus.status(), NexusState::Online);
+}
+
+/// add back the removed child and add a third replica
+async fn nexus_remove_2() {
+    let nexus = nexus_lookup("add_remove").unwrap();
+    assert_eq!(NexusState::Online, nexus.status());
+
+    let result = nexus.add_child(BDEVNAME1).await;
+    assert_eq!(result, Ok(NexusState::Degraded));
+    assert_eq!(NexusState::Degraded, nexus.status());
+
+    let result = nexus.add_child(BDEVNAME3).await;
+    assert_eq!(result, Ok(NexusState::Degraded));
+    assert_eq!(NexusState::Degraded, nexus.status());
+
+    assert_eq!(nexus.child_count(), 3);
+    assert_eq!(nexus.is_healthy(), false);
+    assert_eq!(nexus.is_online(), false);
+}
+/// we now have 3 replicas where two of them are degraded. we require two
+/// rebuilds
+async fn nexus_remove_3() {
+    let nexus = nexus_lookup("add_remove").unwrap();
+    assert_eq!(NexusState::Degraded, nexus.status());
+
+    let result = nexus.start_rebuild(1);
+    assert_eq!(result, Ok(NexusState::Remuling));
+    assert_eq!(nexus.status(), NexusState::Remuling);
+
+    let result = nexus.rebuild_completion().await;
+    assert_eq!(result, Ok(RebuildState::Completed));
+    assert_eq!(nexus.status(), NexusState::Degraded);
+    assert_eq!(nexus.is_online(), false);
+
+    let result = nexus.start_rebuild(0);
+
+    assert_eq!(result, Ok(NexusState::Remuling));
+    assert_eq!(nexus.status(), NexusState::Remuling);
+
+    let result = nexus.rebuild_completion().await;
+    assert_eq!(result, Ok(RebuildState::Completed));
+    assert_eq!(nexus.status(), NexusState::Online);
+}
+/// removing two replicas
+async fn nexus_remove_4() {
+    let nexus = nexus_lookup("add_remove").unwrap();
+    assert_eq!(NexusState::Online, nexus.status());
+
+    // removing a child does not degrade a nexus
+    let result = nexus.remove_child(BDEVNAME1).await;
+
+    assert_eq!(result, Ok(()));
+    assert_eq!(nexus.status(), NexusState::Online);
+
+    let result = nexus.remove_child(BDEVNAME2).await;
+
+    assert_eq!(result, Ok(()));
+    assert_eq!(nexus.status(), NexusState::Online);
+}
+
+/// removing the last replica should error out
+async fn nexus_remove_5() {
+    let nexus = nexus_lookup("add_remove").unwrap();
+    assert_eq!(NexusState::Online, nexus.status());
+
+    // removing a child does not degrade a nexus
+    let result = nexus.remove_child(BDEVNAME3).await;
+
+    assert_eq!(result.is_err(), true);
+    assert_eq!(nexus.status(), NexusState::Online);
+}
+
+/// rebuilding with only one replica should fail
+async fn rebuild_should_error() {
+    let nexus = nexus_lookup("add_remove").unwrap();
+    assert_eq!(NexusState::Online, nexus.status());
+
+    let result = nexus.start_rebuild(0);
+    assert_eq!(result.is_err(), true);
+    nexus.destroy().await;
+}
+
 async fn works() {
     create_nexus().await;
     nexus_add_invalid_schema().await;
@@ -130,5 +222,12 @@ async fn works() {
 
     nexus_rebuild_1().await;
 
+    nexus_remove_1().await;
+    nexus_remove_2().await;
+    nexus_remove_3().await;
+    nexus_remove_4().await;
+    nexus_remove_5().await;
+
+    rebuild_should_error().await;
     mayastor_stop(0)
 }

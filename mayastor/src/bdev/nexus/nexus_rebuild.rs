@@ -5,6 +5,7 @@
 use crate::{
     bdev::nexus::{
         nexus_bdev::{Nexus, NexusState},
+        nexus_channel::DREvent,
         nexus_child::ChildState,
         Error,
     },
@@ -27,13 +28,14 @@ impl Nexus {
             );
         }
 
-        for child in &self.children {
+        for child in &mut self.children {
             if child.state == ChildState::Faulted {
                 trace!(
                     "{}: child {} selected as rebuild target",
                     self.name,
                     child.name
                 );
+                child.repairing = true;
                 return Some(child.descriptor.as_ref()?.clone());
             }
         }
@@ -61,6 +63,14 @@ impl Nexus {
     }
 
     pub fn start_rebuild(&mut self, core: u32) -> Result<NexusState, Error> {
+        if self.state == NexusState::Remuling {
+            assert_eq!(true, self.children.iter().any(|c| c.repairing));
+            return Err(Error::Invalid(
+                "can only do one rebuild per nexus at the same time for now"
+                    .into(),
+            ));
+        }
+
         let target = self.find_rebuild_target();
         let source = self.find_rebuild_source();
 
@@ -70,10 +80,10 @@ impl Nexus {
             ));
         }
 
-        let copy_task =
+        let rebuild_task =
             RebuildTask::new(source.unwrap(), target.unwrap()).unwrap();
 
-        let ctx = spawn_on_core(core, copy_task, |task| task.run());
+        let ctx = spawn_on_core(core, rebuild_task, |task| task.run());
 
         if let Ok(ctx) = ctx {
             self.rebuild_handle = Some(ctx);
@@ -85,34 +95,62 @@ impl Nexus {
 
     pub async fn rebuild_completion(&mut self) -> Result<RebuildState, Error> {
         if let Some(task) = self.rebuild_handle.as_mut() {
-            let result = match task.completed().await {
-                Ok(state) => Ok(state),
-                Err(_) => Err(Error::Internal(
-                    "rebuild failed; sender is gone".into(),
-                )),
+            // get a hold of the child that is in the repairing state
+            let mut child = match self.children.iter_mut().find(|c| c.repairing)
+            {
+                Some(c) => c,
+                None => {
+                    return Err(Error::Internal(
+                        "rebuild process disappeared halfway?".into(),
+                    ))
+                }
             };
-            let _ = self.rebuild_handle.take();
+
+            child.repairing = false;
+
+            let result = match task.completed().await {
+                Ok(state) => {
+                    // mark the child that has been completed as healthy
+                    if state == RebuildState::Completed {
+                        trace!("setting child {} state to online", child.name);
+                        child.state = ChildState::Open;
+                        self.reconfigure(DREvent::ChildOnline).await;
+                    }
+
+                    if state == RebuildState::Completed && self.is_healthy() {
+                        self.set_state(NexusState::Online);
+                    } else {
+                        self.set_state(NexusState::Degraded);
+                    }
+                    Ok(state)
+                }
+
+                Err(_) => {
+                    self.set_state(NexusState::Degraded);
+                    Err(Error::Internal(
+                        "rebuild failed; sender is gone".into(),
+                    ))
+                }
+            };
+            let rebuild = self.rebuild_handle.take();
+            drop(rebuild);
             result
         } else {
             Err(Error::Invalid("No rebuild task registered".into()))
         }
     }
 
-    pub fn rebuild_suspend(&mut self) -> Result<(), Error> {
-        if let Some(mut task) = self.rebuild_handle.take() {
-            let _state = task.suspend().unwrap();
-            self.rebuild_handle = Some(task);
-            Ok(())
+    pub fn rebuild_suspend(&mut self) -> Result<RebuildState, Error> {
+        if let Some(task) = self.rebuild_handle.as_mut() {
+            Ok(task.suspend().unwrap())
         } else {
             Err(Error::Invalid("no rebuild task configured".into()))
         }
     }
 
-    pub fn rebuild_resume(&mut self) -> Result<(), Error> {
-        if let Some(mut task) = self.rebuild_handle.take() {
-            let _state = task.resume().unwrap();
-            self.rebuild_handle = Some(task);
-            Ok(())
+    pub fn rebuild_resume(&mut self) -> Result<RebuildState, Error> {
+        if let Some(task) = self.rebuild_handle.as_mut() {
+            Ok(task.resume().unwrap())
         } else {
             Err(Error::Invalid("no rebuild task configured".into()))
         }

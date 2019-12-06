@@ -263,6 +263,10 @@ impl Nexus {
         &self.name
     }
 
+    pub fn child_count(&self) -> u32 {
+        self.child_count
+    }
+
     /// returns the size in bytes of the nexus instance
     pub fn size(&self) -> u64 {
         u64::from(self.bdev.block_len()) * self.bdev.num_blocks()
