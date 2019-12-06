@@ -70,6 +70,7 @@ pub struct NexusChild {
     pub(crate) ch: *mut spdk_io_channel,
     /// current state of the child
     pub(crate) state: ChildState,
+    pub(crate) repairing: bool,
     #[serde(skip_serializing)]
     pub(crate) descriptor: Option<Rc<Descriptor>>,
 }
@@ -222,6 +223,7 @@ impl NexusChild {
             ch: std::ptr::null_mut(),
             state: ChildState::Init,
             descriptor: None,
+            repairing: false,
         }
     }
 
