@@ -1,10 +1,11 @@
-use mayastor::{mayastor_start, mayastor_stop};
+use std::process::Command;
 
 use mayastor::{
     descriptor::Descriptor,
+    environment::{args::MayastorCliArgs, env::MayastorEnvironment},
+    mayastor_stop,
     nexus_uri::{nexus_parse_uri, BdevType},
 };
-use std::process::Command;
 
 static DISKNAME: &str = "/tmp/disk.img";
 static BDEVNAME: &str = "aio:///tmp/disk.img?blk_size=512";
@@ -20,10 +21,11 @@ fn io_test() {
 
     assert_eq!(output.status.success(), true);
 
-    mayastor_start("io-testing", vec![""], || {
-        mayastor::executor::spawn(start());
-    });
+    let rc = MayastorEnvironment::new(MayastorCliArgs::default())
+        .start(|| mayastor::executor::spawn(start()))
+        .unwrap();
 
+    assert_eq!(rc, 0);
     let output = Command::new("rm")
         .args(&["-rf", DISKNAME])
         .output()

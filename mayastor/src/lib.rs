@@ -10,37 +10,35 @@ extern crate serde;
 extern crate serde_json;
 extern crate snafu;
 extern crate spdk_sys;
+use crate::environment::env::*;
+use env_logger::{Builder, Env};
 use log::{logger, Level, Record};
-
+use spdk_sys::{
+    maya_log,
+    spdk_app_opts,
+    spdk_app_opts_init,
+    spdk_app_parse_args,
+    spdk_app_start,
+    spdk_log_get_print_level,
+};
 use std::{
     boxed::Box,
     env,
-    ffi::CString,
+    ffi::{CStr, CString},
     io::Write,
     iter::Iterator,
     net::Ipv4Addr,
     os::raw::{c_char, c_int, c_void},
+    path::Path,
     ptr::null_mut,
     time::Duration,
     vec::Vec,
 };
 
-use env_logger::{Builder, Env};
-use spdk_sys::{
-    maya_log,
-    spdk_app_fini,
-    spdk_app_opts,
-    spdk_app_opts_init,
-    spdk_app_parse_args,
-    spdk_app_start,
-    spdk_app_stop,
-    spdk_log_get_print_level,
-};
-use std::{ffi::CStr, path::Path};
-
 pub mod aio_dev;
 pub mod bdev;
 pub mod descriptor;
+pub mod environment;
 pub mod event;
 pub mod executor;
 pub mod iscsi_dev;
@@ -156,6 +154,7 @@ extern "C" fn usage() {
 ///
 /// TODO: When needed add possibility to specify additional program
 /// arguments (current workaround is to use env variables).
+#[deprecated]
 pub fn mayastor_start<T, F>(name: &str, mut args: Vec<T>, start_cb: F) -> i32
 where
     T: Into<Vec<u8>>,
@@ -209,7 +208,7 @@ where
     }
 
     opts.name = CString::new(name).unwrap().into_raw();
-    opts.shutdown_cb = Some(mayastor_shutdown_cb);
+    //opts.shutdown_cb = Some(mayastor_shutdown_cb);
 
     // set the function pointer to use our maya_log function which is statically
     // linked into the sys create
@@ -230,7 +229,7 @@ where
         );
 
         // this will remove shm file in /dev/shm and do other cleanups
-        spdk_app_fini();
+        spdk_sys::spdk_app_fini();
 
         rc
     }
@@ -296,17 +295,30 @@ where
 
 /// Cleanly exit from the program.
 /// NOTE: cannot be called from a future -> double borrow of executor.
-pub fn mayastor_stop(rc: i32) {
+pub fn mayastor_stop(rc: i32) -> i32 {
+    if rc != 0 {
+        warn!("Mayastor stopped non-zero: {}", rc);
+    }
+
+    *GLOBAL_RC.lock().unwrap() = rc;
+
     iscsi_target::fini_iscsi();
     let fut = async move {
         if let Err(msg) = nvmf_target::fini_nvmf().await {
             error!("Failed to finalize nvmf target: {}", msg);
         }
     };
-    executor::stop(fut, Box::new(move || unsafe { spdk_app_stop(rc) }));
+    executor::stop(
+        fut,
+        Box::new(|| unsafe {
+            spdk_rpc_finish();
+            spdk_subsystem_fini(Some(spdk_reactors_stop), std::ptr::null_mut());
+        }),
+    );
+    rc
 }
 
 /// A callback called by spdk when it is shutting down.
-extern "C" fn mayastor_shutdown_cb() {
-    mayastor_stop(0);
+unsafe extern "C" fn mayastor_shutdown_cb(arg: *mut c_void) {
+    mayastor_stop(arg as i32);
 }

@@ -442,7 +442,7 @@ dependencies = [
  "humantime",
  "log",
  "regex",
- "termcolor 1.0.5",
+ "termcolor",
 ]
 
 [[package]]
@@ -455,7 +455,7 @@ dependencies = [
  "humantime",
  "log",
  "regex",
- "termcolor 1.0.5",
+ "termcolor",
 ]
 
 [[package]]
@@ -707,9 +707,9 @@ dependencies = [
 
 [[package]]
 name = "hermit-abi"
-version = "0.1.3"
+version = "0.1.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "307c3c9f937f38e3534b1d6447ecf090cafcc9744e4a6360e8b037b2cf5af120"
+checksum = "f629dc602392d3ec14bfc8a09b5e644d7ffd725102b48b81e59f90f2633621d7"
 dependencies = [
  "libc",
 ]
@@ -903,9 +903,9 @@ dependencies = [
 
 [[package]]
 name = "log"
-version = "0.4.8"
+version = "0.4.10"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "14b6052be84e6b71ab17edffc2eeabf5c2c3ae1fdb464aae35ac50c67a44e1f7"
+checksum = "1b9ad466a945c9c40f6f9a449c55675547e59bc75a2722d4689042ab3ae80c9c"
 dependencies = [
  "cfg-if",
 ]
@@ -932,7 +932,9 @@ version = "0.1.0"
 dependencies = [
  "assert_matches",
  "bincode",
+ "byte-unit",
  "bytes",
+ "clap",
  "crc",
  "env_logger 0.7.1",
  "futures-preview",
@@ -949,7 +951,7 @@ dependencies = [
  "serde_json",
  "snafu",
  "spdk-sys",
- "stderrlog",
+ "structopt",
  "sysfs",
  "url 2.1.0",
  "url_serde",
@@ -1586,18 +1588,18 @@ checksum = "388a1df253eca08550bef6c72392cfe7c30914bf41df5269b68cbd6ff8f570a3"
 
 [[package]]
 name = "serde"
-version = "1.0.103"
+version = "1.0.104"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1217f97ab8e8904b57dd22eb61cde455fa7446a9c1cf43966066da047c1f3702"
+checksum = "414115f25f818d7dfccec8ee535d76949ae78584fc4f79a6f45a904bf8ab4449"
 dependencies = [
  "serde_derive",
 ]
 
 [[package]]
 name = "serde_derive"
-version = "1.0.103"
+version = "1.0.104"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a8c6faef9a2e64b0064f48570289b4bf8823b7581f1d6157c1b52152306651d0"
+checksum = "128f9e303a5a29922045a830221b8f78ec74a5f544944f3d5984f8ec3895ef64"
 dependencies = [
  "proc-macro2 1.0.6",
  "quote 1.0.2",
@@ -1670,18 +1672,6 @@ name = "spin"
 version = "0.5.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "6e63cff320ae2c57904679ba7cb63280a3dc4613885beafb148ee7bf9aa9042d"
-
-[[package]]
-name = "stderrlog"
-version = "0.4.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "61dc66b7ae72b65636dbf36326f9638fb3ba27871bb737a62e2c309b87d91b70"
-dependencies = [
- "chrono",
- "log",
- "termcolor 0.3.6",
- "thread_local",
-]
 
 [[package]]
 name = "string"
@@ -1785,20 +1775,11 @@ dependencies = [
 
 [[package]]
 name = "termcolor"
-version = "0.3.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "adc4587ead41bf016f11af03e55a624c06568b5a19db4e90fde573d805074f83"
-dependencies = [
- "wincolor 0.1.6",
-]
-
-[[package]]
-name = "termcolor"
 version = "1.0.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "96d6098003bde162e4277c70665bd87c326f5a0c3f3fbfb285787fa482d54e6e"
 dependencies = [
- "wincolor 1.0.2",
+ "wincolor",
 ]
 
 [[package]]
@@ -2408,15 +2389,6 @@ name = "winapi-x86_64-pc-windows-gnu"
 version = "0.4.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "712e227841d057c1ee1cd2fb22fa7e5a5461ae8e48fa2ca79ec42cfc1931183f"
-
-[[package]]
-name = "wincolor"
-version = "0.1.6"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "eeb06499a3a4d44302791052df005d5232b927ed1a9658146d842165c4de7767"
-dependencies = [
- "winapi 0.3.8",
-]
 
 [[package]]
 name = "wincolor"

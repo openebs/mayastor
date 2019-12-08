@@ -1,23 +1,25 @@
-use mayastor::bdev::nexus::nexus_label::{GPTHeader, GptEntry};
-use std::io::{Cursor, Read};
+use std::{
+    io::{Cursor, Read, Seek, SeekFrom},
+    process::Command,
+};
+
+use bincode::serialize_into;
+
+use mayastor::{
+    bdev::nexus::{
+        nexus_bdev::{nexus_create, nexus_lookup},
+        nexus_label::{GPTHeader, GptEntry},
+    },
+    descriptor::DmaBuf,
+    environment::{args::MayastorCliArgs, env::MayastorEnvironment},
+    mayastor_stop,
+};
 
 const HDR_GUID: &str = "322974ae-5711-874b-bfbd-1a74df4dd714";
 const PART0_GUID: &str = "ea2872a6-02ce-3f4b-82c4-c2147f76e3ff";
 const PART1_GUID: &str = "a0ff1b47-2890-eb4c-a837-01df152f9442";
 
 const CRC32: u32 = 3_031_999_803;
-use mayastor::{mayastor_start, mayastor_stop};
-
-use bincode::serialize_into;
-use mayastor::{
-    bdev::nexus::nexus_bdev::{nexus_create, nexus_lookup},
-    descriptor::DmaBuf,
-};
-use std::{
-    io::{Seek, SeekFrom},
-    process::Command,
-};
-
 static DISKNAME1: &str = "/tmp/disk1.img";
 static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
 
@@ -41,10 +43,9 @@ fn read_label() {
 
     assert_eq!(output.status.success(), true);
 
-    let rc = mayastor_start("io-testing", vec!["-L", "all"], || {
-        mayastor::executor::spawn(start());
-    });
-
+    let rc = MayastorEnvironment::new(MayastorCliArgs::default())
+        .start(|| mayastor::executor::spawn(start()))
+        .unwrap();
     assert_eq!(rc, 0);
 
     let output = Command::new("rm")

@@ -6,7 +6,7 @@ use mayastor::{
         instances,
         nexus_bdev::{nexus_create, nexus_lookup, Error, NexusState},
     },
-    mayastor_start,
+    environment::{args::MayastorCliArgs, env::MayastorEnvironment},
     mayastor_stop,
     rebuild::RebuildState,
 };
@@ -21,22 +21,26 @@ static DISKNAME3: &str = "/tmp/disk3.img";
 static BDEVNAME3: &str = "aio:///tmp/disk3.img?blk_size=512";
 pub mod common;
 #[test]
-
 /// main test
 fn nexus_add_remove() {
     common::mayastor_test_init();
-    let args = vec!["rebuild_task", "-m", "0x3"];
 
     common::dd_random_file(DISKNAME1, 4096, 64 * 1024);
     common::truncate_file(DISKNAME2, 64 * 1024);
     common::truncate_file(DISKNAME3, 64 * 1024);
 
-    let rc: i32 = mayastor_start("test", args, || {
-        mayastor::executor::spawn(works());
-    });
+    let rc = MayastorEnvironment::new(MayastorCliArgs {
+        reactor_mask: "0x3".into(),
+        mem_size: 0,
+        rpc_address: "".to_string(),
+        no_pci: true,
+        config: None,
+        log_components: vec!["thread".into()],
+    })
+    .start(|| mayastor::executor::spawn(works()))
+    .unwrap();
 
     assert_eq!(rc, 0);
-
     //common::compare_files(DISKNAME1, DISKNAME2);
     //common::delete_file(&[DISKNAME1.into(), DISKNAME2.into()]);
 }
@@ -242,5 +246,6 @@ async fn works() {
     nexus_remove_5().await;
 
     rebuild_should_error().await;
-    mayastor_stop(0)
+    //mayastor_env_stop(0);
+    mayastor_stop(0);
 }

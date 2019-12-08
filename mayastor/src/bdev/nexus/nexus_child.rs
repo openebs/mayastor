@@ -161,6 +161,10 @@ impl NexusChild {
         if let Some(bdev) = self.bdev.as_ref() {
             let child_size = bdev.size_in_bytes();
             if parent_size > child_size {
+                error!(
+                    "{}: child to small parent size: {} child size: {}",
+                    self.name, parent_size, child_size
+                );
                 self.state = ChildState::ConfigInvalid;
                 return Err(ChildError::ChildTooSmall {
                     parent_size,

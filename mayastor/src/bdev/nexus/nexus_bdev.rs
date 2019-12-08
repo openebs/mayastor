@@ -621,7 +621,6 @@ impl Nexus {
 
             pio.io_ctx_as_mut_ref().status = io_status::FAILED;
         }
-
         pio.asses();
         // always free the child IO
         Bio::io_free(child_io);

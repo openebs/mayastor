@@ -1,16 +1,16 @@
 #![allow(clippy::cognitive_complexity)]
+
+use std::process::Command;
+
 use mayastor::{
     bdev::{
-        nexus::nexus_bdev::{nexus_create, nexus_lookup},
+        nexus::nexus_bdev::{nexus_create, nexus_lookup, NexusState},
         Bdev,
     },
     descriptor::Descriptor,
-    mayastor_start,
+    environment::{args::MayastorCliArgs, env::MayastorEnvironment},
     mayastor_stop,
 };
-
-use mayastor::bdev::nexus::nexus_bdev::NexusState;
-use std::process::Command;
 
 static DISKNAME1: &str = "/tmp/disk1.img";
 static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
@@ -21,7 +21,6 @@ pub mod common;
 #[test]
 fn reconfigure() {
     common::mayastor_test_init();
-    let args = vec!["-c", "../etc/test.conf"];
 
     // setup our test files
 
@@ -39,9 +38,9 @@ fn reconfigure() {
 
     assert_eq!(output.status.success(), true);
 
-    let rc = mayastor_start("test", args, || {
-        mayastor::executor::spawn(works());
-    });
+    let rc = MayastorEnvironment::new(MayastorCliArgs::default())
+        .start(|| mayastor::executor::spawn(works()))
+        .unwrap();
 
     assert_eq!(rc, 0);
 

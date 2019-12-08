@@ -11,7 +11,7 @@ pub mod nexus_bdev_children;
 mod nexus_channel;
 mod nexus_child;
 mod nexus_config;
-mod nexus_fn_table;
+pub mod nexus_fn_table;
 pub mod nexus_io;
 pub mod nexus_label;
 pub mod nexus_module;
