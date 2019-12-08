@@ -1,6 +1,6 @@
 use mayastor::{
     bdev::nexus::nexus_bdev::{nexus_create, nexus_lookup, NexusState},
-    mayastor_start,
+    environment::{args::MayastorCliArgs, env::MayastorEnvironment},
     mayastor_stop,
     poller::SetTimeout,
 };
@@ -15,14 +15,13 @@ pub mod common;
 #[test]
 fn copy_task() {
     common::mayastor_test_init();
-    let args = vec!["rebuild_task", "-m", "0x3"];
 
     common::dd_random_file(DISKNAME1, 4096, 64 * 1024);
     common::truncate_file(DISKNAME2, 64 * 1024);
 
-    let rc: i32 = mayastor_start("test", args, || {
-        mayastor::executor::spawn(works());
-    });
+    let rc = MayastorEnvironment::new(MayastorCliArgs::default())
+        .start(|| mayastor::executor::spawn(works()))
+        .unwrap();
 
     assert_eq!(rc, 0);
 

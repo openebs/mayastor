@@ -155,3 +155,12 @@ pub fn fio_run_verify(device: &str) -> String {
     assert_eq!(exit, 0);
     stdout
 }
+
+pub fn clean_up_temp() {
+    let (_exit, _stdout, _stderr) = run_script::run(
+        r#" rm -rf $1 "#,
+        &vec!["/tmp/__test".into()],
+        &run_script::ScriptOptions::new(),
+    )
+    .unwrap();
+}

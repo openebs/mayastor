@@ -24,10 +24,23 @@ pub trait MayaCtx {
 
 pub type EventFn = extern "C" fn(*mut c_void, *mut c_void);
 
-#[derive(Debug)]
-pub struct Mthread(*mut spdk_thread);
+#[derive(Debug, Copy, Clone)]
+/// struct that wraps an SPDK thread. The name thread is chosen poorly and
+/// should not be confused with an actual thread. Consider it more to be
+/// analogous to a container to which you can submit work and poll it to drive
+/// the submitted work to completion.
+pub struct Mthread(pub *mut spdk_thread);
 
 impl Mthread {
+    ///
+    /// With the given thread as context, execute the closure on that thread.
+    ///
+    /// Any function can be executed here however,this should typically be used
+    /// to execute functions that reference any FFI functions from SPDK.
+    ///
+    /// # Note
+    ///
+    /// Avoid any blocking calls as it will block the reactor.
     pub fn with<F: FnOnce()>(self, f: F) -> Self {
         unsafe { spdk_set_thread(self.0) };
 
@@ -44,21 +57,6 @@ impl Mthread {
     }
 }
 
-impl Drop for Mthread {
-    /// there is a bug in thread_destroy() as it does not remove the thread from
-    /// the lw_thread queue this results in a segfault when the reactor
-    /// shuts down.
-    ///
-    /// Workaround: dont free the thread for now, you can re-use the thread
-    fn drop(&mut self) {
-        if !self.0.is_null() {
-            //spdk_thread_exit(self.0);
-            //spdk_thread_destroy(self.0);
-        }
-    }
-}
-
-///
 /// spawn closure `F` on the reactor running on core `core`. This function must
 /// be called within the context of the reactor. This is verified at runtime, to
 /// accidental mistakes.
@@ -94,6 +92,7 @@ where
 
     let ptr = Box::into_raw(Box::new(f)) as *mut c_void;
     let arg_ptr = &*arg as *const _ as *mut c_void;
+
     let event = unsafe {
         spdk_event_allocate(core, Some(unwrap::<F, T>), ptr, arg_ptr)
     };
@@ -101,6 +100,10 @@ where
     if event.is_null() {
         panic!("failed to allocate event");
     }
+
+    // if the core != current core, the event will fire immediately even before
+    // we return. If core == current core, then this will return prior to the
+    // event being run.
     unsafe { spdk_event_call(event) };
     Ok(arg)
 }
@@ -136,6 +139,7 @@ where
     Ok(thread)
 }
 
+/// allocate an event on the core `core` and execute `f` on it.
 pub fn on_core<F: FnOnce()>(core: u32, f: F) {
     extern "C" fn unwrap<F>(args: *mut c_void, _arg2: *mut c_void)
     where
@@ -146,6 +150,7 @@ pub fn on_core<F: FnOnce()>(core: u32, f: F) {
             f()
         }
     }
+
     let ptr = Box::into_raw(Box::new(f)) as *mut c_void;
     let event = unsafe {
         spdk_event_allocate(core, Some(unwrap::<F>), ptr, std::ptr::null_mut())

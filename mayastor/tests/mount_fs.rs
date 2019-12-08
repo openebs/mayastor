@@ -1,11 +1,12 @@
 use futures::channel::oneshot;
 use log::*;
+
 use mayastor::{
     bdev::nexus::{
         nexus_bdev::{nexus_create, nexus_lookup},
         nexus_io,
     },
-    mayastor_start,
+    environment::{args::MayastorCliArgs, env::MayastorEnvironment},
     mayastor_stop,
 };
 
@@ -19,17 +20,18 @@ pub mod common;
 #[test]
 fn mount_fs() {
     common::mayastor_test_init();
-    let args = vec!["io_type", "-m", "0x3", "-L", "bdev"];
 
     common::truncate_file(DISKNAME1, 64 * 1024);
     common::truncate_file(DISKNAME2, 64 * 1024);
 
-    let rc: i32 = mayastor_start("test", args, || {
-        mayastor::executor::spawn(works());
-    });
+    let rc = MayastorEnvironment::new(MayastorCliArgs::default())
+        .start(|| mayastor::executor::spawn(works()))
+        .unwrap();
 
     assert_eq!(rc, 0);
+
     common::delete_file(&[DISKNAME1.into(), DISKNAME2.into()]);
+    common::clean_up_temp();
 }
 
 async fn create_nexus() {
@@ -139,6 +141,7 @@ async fn mount_unmount() {
 }
 
 async fn run_fio_on_nexus() {
+    println!("Starting FIO for one minute");
     create_nexus().await;
     let nexus = nexus_lookup("nexus").unwrap();
 
