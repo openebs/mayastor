@@ -64,7 +64,7 @@ fn name_to_uuid(name: &str) -> &str {
 
 pub(crate) fn register_rpc_methods() {
     // JSON rpc method to list the nexus and their states
-    jsonrpc_register::<(), _, _>("list_nexus", |_| {
+    jsonrpc_register::<(), _, _, JsonRpcError>("list_nexus", |_| {
         future::ok(ListNexusReply {
             nexus_list: instances()
                 .iter()
@@ -122,14 +122,17 @@ pub(crate) fn register_rpc_methods() {
         fut.boxed_local()
     });
 
-    jsonrpc_register("destroy_nexus", |args: DestroyNexusRequest| {
-        let fut = async move {
-            let nexus = nexus_lookup(&args.uuid)?;
-            nexus.destroy().await;
-            Ok(())
-        };
-        fut.boxed_local()
-    });
+    jsonrpc_register::<_, _, _, JsonRpcError>(
+        "destroy_nexus",
+        |args: DestroyNexusRequest| {
+            let fut = async move {
+                let nexus = nexus_lookup(&args.uuid)?;
+                nexus.destroy().await;
+                Ok(())
+            };
+            fut.boxed_local()
+        },
+    );
 
     jsonrpc_register("publish_nexus", |args: PublishNexusRequest| {
         let fut = async move {
