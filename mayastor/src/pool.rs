@@ -258,7 +258,10 @@ impl Pool {
         // unshare all replicas on the pool at first
         for replica in ReplicaIter::new() {
             if replica.get_pool_name() == name {
-                replica.unshare().await?;
+                // XXX temporary
+                replica.unshare().await.map_err(|err| {
+                    JsonRpcError::new(Code::InternalError, err.to_string())
+                })?;
             }
         }
 
@@ -440,7 +443,7 @@ pub fn register_pool_methods() {
         fut.boxed_local()
     });
 
-    jsonrpc_register::<(), _, _>("list_pools", |_| {
+    jsonrpc_register::<(), _, _, JsonRpcError>("list_pools", |_| {
         future::ok(list_pools()).boxed_local()
     });
 }

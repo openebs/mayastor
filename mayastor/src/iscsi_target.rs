@@ -7,9 +7,12 @@
 
 use crate::{
     bdev::Bdev,
-    executor::{cb_arg, done_cb},
+    executor::{cb_arg, done_errno_cb, ErrnoResult},
+    jsonrpc::{Code, RpcErrorCode},
 };
 use futures::channel::oneshot;
+use nix::errno::Errno;
+use snafu::{ResultExt, Snafu};
 use spdk_sys::{
     spdk_bdev_get_name,
     spdk_iscsi_find_tgt_node,
@@ -32,6 +35,33 @@ use std::{
     os::raw::{c_char, c_int},
     ptr,
 };
+
+/// iSCSI target related errors
+#[derive(Debug, Snafu)]
+pub enum Error {
+    #[snafu(display("Failed to create default portal group"))]
+    CreatePortalGroup {},
+    #[snafu(display("Failed to create default iscsi portal"))]
+    CreatePortal {},
+    #[snafu(display("Failed to add default portal to portal group"))]
+    AddPortal {},
+    #[snafu(display("Failed to register default portal group"))]
+    RegisterPortalGroup {},
+    #[snafu(display("Failed to create default initiator group"))]
+    CreateInitiatorGroup {},
+    #[snafu(display("Failed to create iscsi target"))]
+    CreateTarget {},
+    #[snafu(display("Failed to destroy iscsi target"))]
+    DestroyTarget { source: Errno },
+}
+
+impl RpcErrorCode for Error {
+    fn rpc_error_code(&self) -> Code {
+        Code::InternalError
+    }
+}
+
+type Result<T, E = Error> = std::result::Result<T, E>;
 
 /// iscsi target port number
 const ISCSI_PORT: u16 = 3260;
@@ -56,7 +86,7 @@ fn target_name(uuid: &str) -> String {
 
 /// Create iscsi portal and initiator group which will be used later when
 /// creating iscsi targets.
-pub fn init_iscsi(address: &str) -> Result<(), String> {
+pub fn init_iscsi(address: &str) -> Result<()> {
     let portal_host = CString::new(address.to_owned()).unwrap();
     let portal_port = CString::new(ISCSI_PORT.to_string()).unwrap();
     let initiator_host = CString::new("ANY").unwrap();
@@ -64,7 +94,7 @@ pub fn init_iscsi(address: &str) -> Result<(), String> {
 
     let pg = unsafe { spdk_iscsi_portal_grp_create(0) };
     if pg.is_null() {
-        return Err("Failed to create default portal group".to_owned());
+        return Err(Error::CreatePortalGroup {});
     }
     unsafe {
         let p = spdk_iscsi_portal_create(
@@ -73,18 +103,16 @@ pub fn init_iscsi(address: &str) -> Result<(), String> {
         );
         if p.is_null() {
             spdk_iscsi_portal_grp_release(pg);
-            return Err("Failed to create default iscsi portal".to_owned());
+            return Err(Error::CreatePortal {});
         }
         spdk_iscsi_portal_grp_add_portal(pg, p);
         if spdk_iscsi_portal_grp_open(pg) != 0 {
             spdk_iscsi_portal_grp_release(pg);
-            return Err(
-                "Failed to add default portal to portal group".to_owned()
-            );
+            return Err(Error::AddPortal {});
         }
         if spdk_iscsi_portal_grp_register(pg) != 0 {
             spdk_iscsi_portal_grp_release(pg);
-            return Err("Failed to register default portal group".to_owned());
+            return Err(Error::RegisterPortalGroup {});
         }
     }
     debug!("Created default iscsi portal group");
@@ -99,7 +127,7 @@ pub fn init_iscsi(address: &str) -> Result<(), String> {
         ) != 0
         {
             spdk_iscsi_portal_grp_release(pg);
-            return Err("Failed to create default initiator group".to_owned());
+            return Err(Error::CreateInitiatorGroup {});
         }
     }
     ADDRESS.with(move |addr| {
@@ -111,7 +139,7 @@ pub fn init_iscsi(address: &str) -> Result<(), String> {
 }
 
 /// Destroy iscsi default portal and initiator group.
-pub fn fini_iscsi() -> Result<(), String> {
+pub fn fini_iscsi() {
     unsafe {
         let ig = spdk_iscsi_init_grp_unregister(0);
         if !ig.is_null() {
@@ -122,12 +150,11 @@ pub fn fini_iscsi() -> Result<(), String> {
             spdk_iscsi_portal_grp_release(pg);
         }
     }
-    Ok(())
 }
 
 /// Export given bdev over iscsi. That involves creating iscsi target and
 /// adding the bdev as LUN to it.
-pub fn share(uuid: &str, bdev: &Bdev) -> Result<(), String> {
+pub fn share(uuid: &str, bdev: &Bdev) -> Result<()> {
     let iqn = target_name(uuid);
     let c_iqn = CString::new(iqn.clone()).unwrap();
     let mut group_idx: c_int = 0;
@@ -158,7 +185,7 @@ pub fn share(uuid: &str, bdev: &Bdev) -> Result<(), String> {
         )
     };
     if tgt.is_null() {
-        Err(format!("Failed to create iscsi target {}", uuid))
+        Err(Error::CreateTarget {})
     } else {
         info!("Created iscsi target {}", iqn);
         Ok(())
@@ -166,8 +193,8 @@ pub fn share(uuid: &str, bdev: &Bdev) -> Result<(), String> {
 }
 
 /// Undo export of a bdev over iscsi done above.
-pub async fn unshare(uuid: &str) -> Result<(), String> {
-    let (sender, receiver) = oneshot::channel::<i32>();
+pub async fn unshare(uuid: &str) -> Result<()> {
+    let (sender, receiver) = oneshot::channel::<ErrnoResult<()>>();
     let iqn = target_name(uuid);
     let c_iqn = CString::new(iqn.clone()).unwrap();
 
@@ -176,20 +203,16 @@ pub async fn unshare(uuid: &str) -> Result<(), String> {
     unsafe {
         spdk_iscsi_shutdown_tgt_node_by_name(
             c_iqn.as_ptr(),
-            Some(done_cb),
+            Some(done_errno_cb),
             cb_arg(sender),
         );
     }
-    let errno = receiver.await.expect("Cancellation is not supported");
-    if errno != 0 {
-        Err(format!(
-            "Failed to destroy iscsi target {} (errno {})",
-            uuid, errno
-        ))
-    } else {
-        info!("Destroyed iscsi target {}", uuid);
-        Ok(())
-    }
+    receiver
+        .await
+        .expect("Cancellation is not supported")
+        .context(DestroyTarget {})?;
+    info!("Destroyed iscsi target {}", uuid);
+    Ok(())
 }
 
 /// Return iscsi target URI understood by nexus

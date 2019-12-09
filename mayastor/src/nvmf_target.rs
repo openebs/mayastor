@@ -6,9 +6,12 @@
 
 use crate::{
     bdev::Bdev,
-    executor::{cb_arg, done_cb},
+    executor::{cb_arg, done_errno_cb, errno_result_from_i32, ErrnoResult},
+    jsonrpc::{Code, RpcErrorCode},
 };
 use futures::channel::oneshot;
+use nix::errno::Errno;
+use snafu::{ResultExt, Snafu};
 use spdk_sys::{
     spdk_nvme_transport_id,
     spdk_nvmf_poll_group,
@@ -59,6 +62,59 @@ use std::{
     ptr::{self, copy_nonoverlapping},
 };
 
+#[derive(Debug, Snafu)]
+pub enum Error {
+    #[snafu(display("Failed to create nvmf target {}:{}", addr, port))]
+    CreateTarget { addr: String, port: u16 },
+    #[snafu(display(
+        "Failed to destroy nvmf target {}: {}",
+        endpoint,
+        source
+    ))]
+    DestroyTarget { source: Errno, endpoint: String },
+    #[snafu(display("Invalid nvmf target address \"{}\"", addr))]
+    TargetAddress { addr: String },
+    #[snafu(display("Failed to init opts for nvmf tcp transport"))]
+    InitOpts {},
+    #[snafu(display("Failed to create nvmf tcp transport"))]
+    TcpTransport {},
+    #[snafu(display("Failed to add nvmf tcp transport: {}", source))]
+    AddTransport { source: Errno },
+    #[snafu(display("nvmf target listen failed: {}", source))]
+    ListenTarget { source: Errno },
+    #[snafu(display("Failed to create a poll group"))]
+    CreatePollGroup {},
+    #[snafu(display("Failed to create nvmf subsystem {}", nqn))]
+    CreateSubsystem { nqn: String },
+    #[snafu(display("Failed to start nvmf subsystem {}: {}", nqn, source))]
+    StartSubsystem { source: Errno, nqn: String },
+    #[snafu(display("Failed to stop nvmf subsystem {}: {}", nqn, source))]
+    StopSubsystem { source: Errno, nqn: String },
+    #[snafu(display(
+        "Failed to set property {} of the subsystem {}",
+        prop,
+        nqn
+    ))]
+    SetSubsystem { prop: &'static str, nqn: String },
+    #[snafu(display("Listen on nvmf subsystem {} failed", nqn))]
+    ListenSubsystem { nqn: String },
+    #[snafu(display("Failed to add namespace to nvmf subsystem {}", nqn))]
+    AddNamespace { nqn: String },
+}
+
+impl RpcErrorCode for Error {
+    fn rpc_error_code(&self) -> Code {
+        match self {
+            Error::TargetAddress {
+                ..
+            } => Code::InvalidParams,
+            _ => Code::InternalError,
+        }
+    }
+}
+
+type Result<T, E = Error> = std::result::Result<T, E>;
+
 /// nvmf port used for replicas. It is different from standard nvmf
 /// port 4420, because we don't want to conflict with nexus exported
 /// over nvmf running on the same node.
@@ -90,22 +146,28 @@ impl Subsystem {
         inner: *mut spdk_nvmf_subsystem,
         trid: *mut spdk_nvme_transport_id,
         nqn: String,
-    ) -> Result<Self, String> {
+    ) -> Result<Self> {
         let sn = CString::new("MayaData Inc.").unwrap();
         if spdk_nvmf_subsystem_set_sn(inner, sn.as_ptr()) != 0 {
-            return Err(
-                "Failed to set nvmf subsystem's serial number".to_owned()
-            );
+            return Err(Error::SetSubsystem {
+                prop: "serial number",
+                nqn,
+            });
         }
         let mn = CString::new("MayaStor NVMF controller").unwrap();
         if spdk_nvmf_subsystem_set_mn(inner, mn.as_ptr()) != 0 {
-            return Err("Failed to set nvmf subsystem's model name".to_owned());
+            return Err(Error::SetSubsystem {
+                prop: "model name",
+                nqn,
+            });
         }
         spdk_nvmf_subsystem_set_allow_any_host(inner, true);
 
         // make it listen on target's trid
         if spdk_nvmf_subsystem_add_listener(inner, trid) != 0 {
-            return Err("listening on nvmf subsystem failed".to_owned());
+            return Err(Error::ListenSubsystem {
+                nqn,
+            });
         }
 
         Ok(Self {
@@ -127,8 +189,8 @@ impl Subsystem {
     }
 
     /// Start the subsystem (it cannot be modified afterwards)
-    pub async fn start(&mut self) -> Result<(), String> {
-        let (sender, receiver) = oneshot::channel::<i32>();
+    pub async fn start(&mut self) -> Result<()> {
+        let (sender, receiver) = oneshot::channel::<ErrnoResult<()>>();
         unsafe {
             spdk_nvmf_subsystem_start(
                 self.inner,
@@ -137,21 +199,20 @@ impl Subsystem {
             );
         }
 
-        let errno = receiver.await.expect("Cancellation is not supported");
-        if errno != 0 {
-            Err(format!(
-                "Failed to start nvmf subsystem {} (errno {})",
-                self.nqn, errno
-            ))
-        } else {
-            info!("Started nvmf subsystem {}", self.nqn);
-            Ok(())
-        }
+        receiver
+            .await
+            .expect("Cancellation is not supported")
+            .context(StartSubsystem {
+                nqn: self.nqn.clone(),
+            })?;
+
+        info!("Started nvmf subsystem {}", self.nqn);
+        Ok(())
     }
 
     /// Stop the subsystem (it cannot be modified afterwards)
-    pub async fn stop(&mut self) -> Result<(), String> {
-        let (sender, receiver) = oneshot::channel::<i32>();
+    pub async fn stop(&mut self) -> Result<()> {
+        let (sender, receiver) = oneshot::channel::<ErrnoResult<()>>();
         unsafe {
             spdk_nvmf_subsystem_stop(
                 self.inner,
@@ -160,20 +221,19 @@ impl Subsystem {
             );
         }
 
-        let errno = receiver.await.expect("Cancellation is not supported");
-        if errno != 0 {
-            Err(format!(
-                "Failed to stop nvmf subsystem {} (errno {})",
-                self.nqn, errno
-            ))
-        } else {
-            info!("Stopped nvmf subsystem {}", self.nqn);
-            Ok(())
-        }
+        receiver
+            .await
+            .expect("Cancellation is not supported")
+            .context(StopSubsystem {
+                nqn: self.nqn.clone(),
+            })?;
+
+        info!("Stopped nvmf subsystem {}", self.nqn);
+        Ok(())
     }
 
     /// Add nvme subsystem to the target
-    pub fn add_namespace(&mut self, bdev: &Bdev) -> Result<(), String> {
+    pub fn add_namespace(&mut self, bdev: &Bdev) -> Result<()> {
         let ns_id = unsafe {
             spdk_nvmf_subsystem_add_ns(
                 self.inner,
@@ -184,10 +244,9 @@ impl Subsystem {
             )
         };
         if ns_id == 0 {
-            Err(format!(
-                "Failed to add namespace to nvmf subsystem {}",
-                self.nqn
-            ))
+            Err(Error::AddNamespace {
+                nqn: self.nqn.clone(),
+            })
         } else {
             Ok(())
         }
@@ -214,13 +273,16 @@ impl Subsystem {
         sender_ptr: *mut c_void,
         errno: i32,
     ) {
-        let sender =
-            unsafe { Box::from_raw(sender_ptr as *mut oneshot::Sender<i32>) };
-        sender.send(errno).expect("Receiver is gone");
+        let sender = unsafe {
+            Box::from_raw(sender_ptr as *mut oneshot::Sender<ErrnoResult<()>>)
+        };
+        sender
+            .send(errno_result_from_i32((), errno))
+            .expect("Receiver is gone");
     }
 }
 
-impl fmt::Debug for Subsystem {
+impl fmt::Display for Subsystem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.nqn)
     }
@@ -253,7 +315,7 @@ impl Iterator for SubsystemIter {
         }
     }
 }
-///
+
 /// Some options can be passed into each target that gets created.
 ///
 /// Currently the options are limited to the name of the target to be created
@@ -304,19 +366,24 @@ pub(crate) struct Target {
 
 impl Target {
     /// Create preconfigured nvmf target with tcp transport and default options.
-    pub fn create(addr: &str, port: u16) -> Result<Self, String> {
+    pub fn create(addr: &str, port: u16) -> Result<Self> {
         let mut tgt_opts = TargetOpts::new("MayaStor", 110);
 
         let inner = unsafe { spdk_nvmf_tgt_create(&mut tgt_opts.inner) };
         if inner.is_null() {
-            return Err("Failed to create nvmf target".to_owned());
+            return Err(Error::CreateTarget {
+                addr: addr.to_owned(),
+                port,
+            });
         }
 
         let mut trid: spdk_nvme_transport_id = Default::default();
         trid.trtype = SPDK_NVME_TRANSPORT_TCP;
         trid.adrfam = SPDK_NVMF_ADRFAM_IPV4;
         if addr.len() > SPDK_NVMF_TRADDR_MAX_LEN as usize {
-            return Err("Invalid nvmf target address".to_owned());
+            return Err(Error::TargetAddress {
+                addr: addr.to_owned(),
+            });
         }
         let c_addr = CString::new(addr).unwrap();
         let port = format!("{}", port);
@@ -349,9 +416,7 @@ impl Target {
     }
 
     /// Add tcp transport to nvmf target
-    pub async fn add_tcp_transport(&mut self) -> Result<(), String> {
-        //#[allow(deprecated, invalid_value)] // TODO dont use uninitialized
-
+    pub async fn add_tcp_transport(&mut self) -> Result<()> {
         let ok = unsafe {
             spdk_nvmf_transport_opts_init(
                 SPDK_NVME_TRANSPORT_TCP,
@@ -359,56 +424,50 @@ impl Target {
             )
         };
         if !ok {
-            return Err("Failed to init opts for nvmf tcp transport".to_owned());
+            return Err(Error::InitOpts {});
         }
 
         let transport = unsafe {
             spdk_nvmf_transport_create(SPDK_NVME_TRANSPORT_TCP, &mut self.opts)
         };
         if transport.is_null() {
-            return Err("Failed to create nvmf tcp transport".to_owned());
+            return Err(Error::TcpTransport {});
         }
 
-        let (sender, receiver) = oneshot::channel::<i32>();
+        let (sender, receiver) = oneshot::channel::<ErrnoResult<()>>();
         unsafe {
             spdk_nvmf_tgt_add_transport(
                 self.inner,
                 transport,
-                Some(done_cb),
+                Some(done_errno_cb),
                 cb_arg(sender),
             );
         }
-
-        let errno = receiver.await.expect("Cancellation is not supported");
-        if errno != 0 {
-            Err(format!(
-                "Failed to add nvmf tcp transport (errno {})",
-                errno
-            ))
-        } else {
-            debug!("Added TCP nvmf transport {:?}", self);
-            Ok(())
-        }
+        receiver
+            .await
+            .expect("Cancellation is not supported")
+            .context(AddTransport {})?;
+        info!("Added TCP nvmf transport {}", self);
+        Ok(())
     }
 
     /// Listen for incoming connections
-    pub async fn listen(&mut self) -> Result<(), String> {
-        let (sender, receiver) = oneshot::channel::<i32>();
+    pub async fn listen(&mut self) -> Result<()> {
+        let (sender, receiver) = oneshot::channel::<ErrnoResult<()>>();
         unsafe {
             spdk_nvmf_tgt_listen(
                 self.inner,
                 &mut self.trid as *mut _,
-                Some(done_cb),
+                Some(done_errno_cb),
                 cb_arg(sender),
             );
         }
-        let errno = receiver.await.expect("Cancellation is not supported");
-        if errno != 0 {
-            Err(format!("Listen for nvmf target failed (errno {})", errno))
-        } else {
-            debug!("nvmf target listening on {:?}", self);
-            Ok(())
-        }
+        receiver
+            .await
+            .expect("Cancellation is not supported")
+            .context(ListenTarget {})?;
+        debug!("nvmf target listening on {}", self);
+        Ok(())
     }
 
     /// A callback called by spdk when a new connection is accepted by nvmf
@@ -443,11 +502,11 @@ impl Target {
 
     /// Create poll group and assign accepted connections (new qpairs) to
     /// the poll group.
-    pub fn accept(&mut self) -> Result<(), String> {
+    pub fn accept(&mut self) -> Result<()> {
         // create one poll group per target
         self.pg = unsafe { spdk_nvmf_poll_group_create(self.inner) };
         if self.pg.is_null() {
-            return Err("Failed to create a poll group".to_owned());
+            return Err(Error::CreatePollGroup {});
         }
 
         self.acceptor_poller = unsafe {
@@ -458,14 +517,14 @@ impl Target {
             )
         };
         info!(
-            "nvmf target accepting new connections on {:?} and is ready to role..{}",
+            "nvmf target accepting new connections on {} and is ready to role..{}",
             self,'\u{1F483}'
         );
         Ok(())
     }
 
     /// Add nvme subsystem to the target and return it.
-    pub fn create_subsystem(&mut self, id: &str) -> Result<Subsystem, String> {
+    pub fn create_subsystem(&mut self, id: &str) -> Result<Subsystem> {
         let nqn = gen_nqn(id);
         let c_nqn = CString::new(nqn.clone()).unwrap();
         let ss = unsafe {
@@ -477,7 +536,9 @@ impl Target {
             )
         };
         if ss.is_null() {
-            return Err("Failed to create nvmf subsystem".to_owned());
+            return Err(Error::CreateSubsystem {
+                nqn,
+            });
         }
         unsafe { Subsystem::create(ss, &mut self.trid as *mut _, nqn) }
     }
@@ -500,17 +561,20 @@ impl Target {
 
     /// Callback for async destroy operation.
     extern "C" fn destroy_cb(sender_ptr: *mut c_void, errno: i32) {
-        let sender =
-            unsafe { Box::from_raw(sender_ptr as *mut oneshot::Sender<i32>) };
-        sender.send(errno).expect("Receiver is gone");
+        let sender = unsafe {
+            Box::from_raw(sender_ptr as *mut oneshot::Sender<ErrnoResult<()>>)
+        };
+        sender
+            .send(errno_result_from_i32((), errno))
+            .expect("Receiver is gone");
     }
 
     /// Stop nvmf target's subsystems and destroy it.
     ///
     /// NOTE: we cannot do this in drop because target destroy is asynchronous
     /// operation.
-    pub async fn destroy(mut self) -> Result<(), String> {
-        debug!("Destroying nvmf target {:?}", self);
+    pub async fn destroy(mut self) -> Result<()> {
+        debug!("Destroying nvmf target {}", self);
 
         // stop accepting new connections
         if !self.acceptor_poller.is_null() {
@@ -523,13 +587,11 @@ impl Target {
         }
 
         // first we need to inactivate all subsystems of the target
-        for mut ss in SubsystemIter::new(self.inner) {
-            if let Err(msg) = ss.stop().await {
-                return Err(format!("Failed to destroy a subsystem {:?} of nvmf target {:?}: {}", ss, self, msg));
-            }
+        for mut subsystem in SubsystemIter::new(self.inner) {
+            subsystem.stop().await?;
         }
 
-        let (sender, receiver) = oneshot::channel::<i32>();
+        let (sender, receiver) = oneshot::channel::<ErrnoResult<()>>();
         unsafe {
             spdk_nvmf_tgt_destroy(
                 self.inner,
@@ -538,28 +600,26 @@ impl Target {
             );
         }
 
-        let errno = receiver.await.expect("Cancellation is not supported");
-        if errno == 0 {
-            info!("nvmf target was destroyed");
-            Ok(())
-        } else {
-            Err(format!(
-                "Failed to destroy nvmf target {:?} (errno {})",
-                self, errno
-            ))
-        }
+        receiver
+            .await
+            .expect("Cancellation is not supported")
+            .context(DestroyTarget {
+                endpoint: self.endpoint(),
+            })?;
+
+        info!("nvmf target was destroyed");
+        Ok(())
     }
 
+    /// Return IP address where the target listens
     pub fn get_address(&self) -> &str {
         &self.address
     }
-}
 
-impl fmt::Debug for Target {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    /// Return address:port of the target
+    pub fn endpoint(&self) -> String {
         unsafe {
-            write!(
-                f,
+            format!(
                 "{}:{}",
                 CStr::from_ptr(&self.trid.traddr[0]).to_str().unwrap(),
                 CStr::from_ptr(&self.trid.trsvcid[0]).to_str().unwrap(),
@@ -568,21 +628,19 @@ impl fmt::Debug for Target {
     }
 }
 
+impl fmt::Display for Target {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.endpoint())
+    }
+}
+
 /// Create nvmf target which will be used for exporting the replicas.
-pub async fn init_nvmf(address: &str) -> Result<(), String> {
-    let mut boxed_tgt = match Target::create(address, NVMF_PORT) {
-        Ok(tgt) => Box::new(tgt),
-        Err(msg) => return Err(msg),
-    };
-    if let Err(msg) = boxed_tgt.add_tcp_transport().await {
-        return Err(msg);
-    };
-    if let Err(msg) = boxed_tgt.listen().await {
-        return Err(msg);
-    };
-    if let Err(msg) = boxed_tgt.accept() {
-        return Err(msg);
-    };
+pub async fn init_nvmf(address: &str) -> Result<()> {
+    let mut boxed_tgt = Box::new(Target::create(address, NVMF_PORT)?);
+    boxed_tgt.add_tcp_transport().await?;
+    boxed_tgt.listen().await?;
+    boxed_tgt.accept()?;
+
     NVMF_TGT.with(move |nvmf_tgt| {
         if nvmf_tgt.borrow().is_some() {
             panic!("Double initialization of nvmf");
@@ -593,7 +651,7 @@ pub async fn init_nvmf(address: &str) -> Result<(), String> {
 }
 
 /// Destroy nvmf target with all its subsystems.
-pub async fn fini_nvmf() -> Result<(), String> {
+pub async fn fini_nvmf() -> Result<()> {
     let tgt = NVMF_TGT.with(move |nvmf_tgt| {
         nvmf_tgt
             .borrow_mut()
@@ -604,7 +662,7 @@ pub async fn fini_nvmf() -> Result<(), String> {
 }
 
 /// Export given bdev over nvmf target.
-pub async fn share(uuid: &str, bdev: &Bdev) -> Result<(), String> {
+pub async fn share(uuid: &str, bdev: &Bdev) -> Result<()> {
     let mut ss = NVMF_TGT.with(move |maybe_tgt| {
         let mut maybe_tgt = maybe_tgt.borrow_mut();
         let tgt = maybe_tgt.as_mut().unwrap();
@@ -616,7 +674,7 @@ pub async fn share(uuid: &str, bdev: &Bdev) -> Result<(), String> {
 
 /// Un-export given bdev from nvmf target.
 /// Unsharing replica which is not shared is not an error.
-pub async fn unshare(uuid: &str) -> Result<(), String> {
+pub async fn unshare(uuid: &str) -> Result<()> {
     let res = NVMF_TGT.with(move |maybe_tgt| {
         let mut maybe_tgt = maybe_tgt.borrow_mut();
         let tgt = maybe_tgt.as_mut().unwrap();

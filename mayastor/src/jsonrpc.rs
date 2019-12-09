@@ -32,7 +32,7 @@ use std::{
 };
 
 /// Possible json-rpc return codes from method handlers
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum Code {
     ParseError,
     InvalidRequest,
@@ -41,6 +41,28 @@ pub enum Code {
     InternalError,
     NotFound,
     AlreadyExists,
+}
+
+impl From<Code> for i32 {
+    fn from(code: Code) -> i32 {
+        match code {
+            Code::ParseError => SPDK_JSONRPC_ERROR_PARSE_ERROR,
+            Code::InvalidRequest => SPDK_JSONRPC_ERROR_INVALID_REQUEST,
+            Code::MethodNotFound => SPDK_JSONRPC_ERROR_METHOD_NOT_FOUND,
+            Code::InvalidParams => SPDK_JSONRPC_ERROR_INVALID_PARAMS,
+            Code::InternalError => SPDK_JSONRPC_ERROR_INTERNAL_ERROR,
+            Code::NotFound => -(Errno::ENOENT as i32),
+            Code::AlreadyExists => -(Errno::EEXIST as i32),
+        }
+    }
+}
+
+/// A trait required to be implemented by error objects returned from
+/// RPC handlers.
+pub trait RpcErrorCode {
+    /// Get RPC error code which should be used for the error returned back
+    /// to the RPC client.
+    fn rpc_error_code(&self) -> Code;
 }
 
 /// Error object returned from json-rpc method handlers
@@ -66,15 +88,13 @@ impl JsonRpcError {
     /// of SPDK are inverted errno values so for example ENOENT becomes
     /// -ENOENT jsonrpc error code.
     pub fn json_code(&self) -> i32 {
-        match &self.code {
-            Code::ParseError => SPDK_JSONRPC_ERROR_PARSE_ERROR,
-            Code::InvalidRequest => SPDK_JSONRPC_ERROR_INVALID_REQUEST,
-            Code::MethodNotFound => SPDK_JSONRPC_ERROR_METHOD_NOT_FOUND,
-            Code::InvalidParams => SPDK_JSONRPC_ERROR_INVALID_PARAMS,
-            Code::InternalError => SPDK_JSONRPC_ERROR_INTERNAL_ERROR,
-            Code::NotFound => -(Errno::ENOENT as i32),
-            Code::AlreadyExists => -(Errno::EEXIST as i32),
-        }
+        self.code.into()
+    }
+}
+
+impl RpcErrorCode for JsonRpcError {
+    fn rpc_error_code(&self) -> Code {
+        self.code
     }
 }
 
@@ -92,7 +112,17 @@ impl fmt::Debug for JsonRpcError {
 
 impl std::error::Error for JsonRpcError {}
 
-pub type Result<T> = std::result::Result<T, JsonRpcError>;
+pub type Result<T, E = JsonRpcError> = std::result::Result<T, E>;
+
+fn print_error_chain(err: &dyn std::error::Error) -> String {
+    let mut msg = format!("{}", err);
+    let mut opt_source = err.source();
+    while let Some(source) = opt_source {
+        msg = format!("{}: {}", msg, source);
+        opt_source = source.source();
+    }
+    msg
+}
 
 /// Extract JSON object from text, trim any pending characters which follow
 /// the closing bracket of the object.
@@ -126,14 +156,16 @@ fn extract_json_object(
 /// Generic handler called by spdk for handling incoming jsonrpc call. The task
 /// of this handler is to parse input parameters, invoke user-supplied handler,
 /// and encode output parameters.
-unsafe extern "C" fn jsonrpc_handler<H, P, R>(
+unsafe extern "C" fn jsonrpc_handler<H, P, R, E>(
     request: *mut spdk_jsonrpc_request,
     params: *const spdk_json_val,
     arg: *mut c_void,
 ) where
-    H: 'static + Fn(P) -> Pin<Box<dyn Future<Output = Result<R>>>>,
+    H: 'static
+        + Fn(P) -> Pin<Box<dyn Future<Output = std::result::Result<R, E>>>>,
     P: 'static + for<'de> Deserialize<'de>,
     R: Serialize,
+    E: RpcErrorCode + std::error::Error,
 {
     let handler: Box<H> = Box::from_raw(arg as *mut H);
 
@@ -182,12 +214,13 @@ unsafe extern "C" fn jsonrpc_handler<H, P, R>(
                         spdk_jsonrpc_end_result(request, w_ctx);
                     }
                     Err(err) => {
-                        error!("{}", err.message);
-                        let code = err.json_code();
-                        let cerr = CString::new(err.message).unwrap();
+                        let code = err.rpc_error_code();
+                        let msg = print_error_chain(&err);
+                        error!("{}", msg);
+                        let cerr = CString::new(msg).unwrap();
                         spdk_jsonrpc_send_error_response(
                             request,
-                            code,
+                            code.into(),
                             cerr.as_ptr(),
                         );
                     }
@@ -222,6 +255,7 @@ unsafe extern "C" fn jsonrpc_handler<H, P, R>(
 /// use std::pin::Pin;
 /// use futures::{future, FutureExt};
 /// use futures_util::future::FutureExt;
+///
 /// #[derive(Deserialize)]
 /// struct Args {
 ///     name: String,
@@ -244,11 +278,12 @@ unsafe extern "C" fn jsonrpc_handler<H, P, R>(
 ///     );
 /// }
 /// ```
-pub fn jsonrpc_register<P, H, R>(name: &str, handler: H)
+pub fn jsonrpc_register<P, H, R, E>(name: &str, handler: H)
 where
-    H: 'static + Fn(P) -> Pin<Box<dyn Future<Output = Result<R>>>>,
+    H: 'static + Fn(P) -> Pin<Box<dyn Future<Output = Result<R, E>>>>,
     P: 'static + for<'de> Deserialize<'de>,
     R: Serialize,
+    E: RpcErrorCode + std::error::Error,
 {
     let name = CString::new(name).unwrap();
     let handler_ptr = Box::into_raw(Box::new(handler)) as *mut c_void;
@@ -256,7 +291,7 @@ where
     unsafe {
         spdk_rpc_register_method(
             name.as_ptr(),
-            Some(jsonrpc_handler::<H, P, R>),
+            Some(jsonrpc_handler::<H, P, R, E>),
             handler_ptr,
             SPDK_RPC_RUNTIME,
         );
