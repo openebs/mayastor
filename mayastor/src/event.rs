@@ -1,4 +1,5 @@
-use crate::bdev::nexus::Error;
+use std::os::raw::c_void;
+
 use spdk_sys::{
     spdk_event_allocate,
     spdk_event_call,
@@ -6,10 +7,10 @@ use spdk_sys::{
     spdk_set_thread,
     spdk_thread,
     spdk_thread_create,
-    spdk_thread_destroy,
-    spdk_thread_exit,
     spdk_thread_poll,
 };
+
+use crate::bdev::nexus::Error;
 
 /// trait that ensures we can get the context passed to FFI threads
 pub trait MayaCtx {
@@ -17,19 +18,38 @@ pub trait MayaCtx {
     fn into_ctx<'a>(arg: *mut c_void) -> &'a mut Self::Item;
 }
 
-use std::os::raw::c_void;
-
 pub type EventFn = extern "C" fn(*mut c_void, *mut c_void);
 
-struct Mthread(*mut spdk_thread);
+#[derive(Debug)]
+pub struct Mthread(*mut spdk_thread);
+
+impl Mthread {
+    pub fn with<F: FnOnce()>(self, f: F) -> Self {
+        unsafe { spdk_set_thread(self.0) };
+
+        f();
+        let mut done = false;
+
+        while !done {
+            let rc = unsafe { spdk_thread_poll(self.0, 0, 0) };
+            if rc < 1 {
+                done = true
+            }
+        }
+        self
+    }
+}
 
 impl Drop for Mthread {
+    /// there is a bug in thread_destroy() as it does not remove the thread from
+    /// the lw_thread queue this results in a segfault when the reactor
+    /// shuts down.
+    ///
+    /// Workaround: dont free the thread for now, you can re-use the thread
     fn drop(&mut self) {
-        unsafe {
-            if !self.0.is_null() {
-                spdk_thread_exit(self.0);
-                spdk_thread_destroy(self.0);
-            }
+        if !self.0.is_null() {
+            //spdk_thread_exit(self.0);
+            //spdk_thread_destroy(self.0);
         }
     }
 }
@@ -81,11 +101,11 @@ where
     Ok(arg)
 }
 
-/// create a new thread, on which core is unpredictable right now. Once the
-/// thread is created run the closure within that context of that thread until
-/// the reactor is empty. Once all events are processed the thread is
-/// destroyed.
-pub fn spawn_thread<F>(f: F) -> Result<(), Error>
+/// Create a new thread, the core that will execute the thread will be chosen in
+/// a RR fashion. Once created, the closure `F` is executed within the context
+/// of that thread. Once all events in the context of that thread have been
+/// processed, the execution context will return.
+pub fn spawn_thread<F>(f: F) -> Result<Mthread, Error>
 where
     F: FnOnce(),
 {
@@ -109,7 +129,7 @@ where
         }
     }
 
-    Ok(())
+    Ok(thread)
 }
 
 pub fn on_core<F: FnOnce()>(core: u32, f: F) {
