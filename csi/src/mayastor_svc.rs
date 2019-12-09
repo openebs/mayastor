@@ -134,10 +134,7 @@ impl service::server::Mayastor for MayastorService {
         {
             Ok(val) => Ok(Response::new(val)),
             Err(err) => {
-                error!(
-                    "Failed to create replica {} on {}: {}",
-                    uuid, pool, err
-                );
+                error!("{}", err);
                 Err(err.into())
             }
         }
@@ -162,7 +159,7 @@ impl service::server::Mayastor for MayastorService {
                 Ok(Response::new(Null {}))
             }
             Err(err) => {
-                error!("Failed to destroy replica {}: {}", uuid, err);
+                error!("{}", err);
                 Err(err.into())
             }
         }
@@ -191,7 +188,7 @@ impl service::server::Mayastor for MayastorService {
                 Ok(Response::new(reply))
             }
             Err(err) => {
-                error!("Failed to share replica {}: {}", uuid, err);
+                error!("{}", err);
                 Err(err.into())
             }
         }
@@ -236,7 +233,7 @@ impl service::server::Mayastor for MayastorService {
                 Ok(resp)
             }
             Err(err) => {
-                error!("Getting replicas failed: {}", err);
+                error!("{}", err);
                 Err(err.into_status())
             }
         }

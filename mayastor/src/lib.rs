@@ -2,11 +2,13 @@
 extern crate ioctl_gen;
 #[macro_use]
 extern crate lazy_static;
+extern crate nix;
 #[macro_use]
 extern crate log;
 #[macro_use]
 extern crate serde;
 extern crate serde_json;
+extern crate snafu;
 extern crate spdk_sys;
 use log::{logger, Level, Record};
 
@@ -295,9 +297,7 @@ where
 /// Cleanly exit from the program.
 /// NOTE: cannot be called from a future -> double borrow of executor.
 pub fn mayastor_stop(rc: i32) {
-    if let Err(msg) = iscsi_target::fini_iscsi() {
-        error!("Failed to finalize iscsi: {}", msg);
-    }
+    iscsi_target::fini_iscsi();
     let fut = async move {
         if let Err(msg) = nvmf_target::fini_nvmf().await {
             error!("Failed to finalize nvmf target: {}", msg);
