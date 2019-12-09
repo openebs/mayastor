@@ -1,7 +1,8 @@
 use mayastor::{
-    bdev::nexus::nexus_bdev::{nexus_create, nexus_lookup},
+    bdev::nexus::nexus_bdev::{nexus_create, nexus_lookup, NexusState},
     mayastor_start,
     mayastor_stop,
+    poller::SetTimeout,
 };
 
 static DISKNAME1: &str = "/tmp/disk1.img";
@@ -42,11 +43,20 @@ async fn rebuild_nexus_online() {
     nexus.fault_child(BDEVNAME1).await.unwrap();
     nexus.start_rebuild(0).unwrap();
     nexus.rebuild_completion().await.unwrap();
-    nexus.close().unwrap();
 }
 
 async fn works() {
+    // mostly to test the timeout function itself here the nexus does not even
+    // exist yet
+    SetTimeout::usec(
+        "rebuild_nexus".into(),
+        |nexus: String| {
+            let n = nexus_lookup(&nexus).unwrap();
+            assert_eq!(n.status(), NexusState::Online);
+            mayastor_stop(0);
+        },
+        5_000_000,
+    );
     create_nexus().await;
     rebuild_nexus_online().await;
-    mayastor_stop(0);
 }

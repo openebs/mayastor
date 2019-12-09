@@ -14,7 +14,6 @@ use crate::{
     rebuild::{RebuildState, RebuildTask},
 };
 use std::rc::Rc;
-
 impl Nexus {
     /// find any child that requires a rebuild. Children in the faulted state
     /// are eligible for a rebuild closed children are not and must be
@@ -93,6 +92,7 @@ impl Nexus {
         }
     }
 
+    /// await the completion of the rebuild.
     pub async fn rebuild_completion(&mut self) -> Result<RebuildState, Error> {
         if let Some(task) = self.rebuild_handle.as_mut() {
             // get a hold of the child that is in the repairing state
@@ -100,9 +100,13 @@ impl Nexus {
             {
                 Some(c) => c,
                 None => {
+                    // we were rebuilding, but for some reason it errored out
+                    // in case we did not handle properly.
+                    // The task is gone, but the state has not been updated
+                    // properly.
                     return Err(Error::Internal(
-                        "rebuild process disappeared halfway?".into(),
-                    ))
+                        "rebuild process disappeared halfway".into(),
+                    ));
                 }
             };
 
@@ -136,7 +140,10 @@ impl Nexus {
             drop(rebuild);
             result
         } else {
-            Err(Error::Invalid("No rebuild task registered".into()))
+            Err(Error::Invalid(
+                "No rebuild task registered or rebuild already completed"
+                    .into(),
+            ))
         }
     }
 

@@ -10,7 +10,11 @@ use spdk_sys::{
 };
 
 use crate::{
-    bdev::nexus::{nexus_io::Bio, Error},
+    bdev::nexus::{
+        nexus_bdev::{nexus_lookup, NexusState},
+        nexus_io::Bio,
+        Error,
+    },
     descriptor::{Descriptor, DmaBuf},
     event::MayaCtx,
     poller::{register_poller, PollTask},
@@ -55,7 +59,7 @@ pub struct RebuildTask {
     previous_lba: u64,
     /// used to signal completion to the callee
     sender: Option<oneshot::Sender<RebuildState>>,
-    completed: Option<oneshot::Receiver<RebuildState>>,
+    pub completed: Option<oneshot::Receiver<RebuildState>>,
     /// progress reported to logs
     progress: Option<PollTask>,
     /// the number of segments we need to rebuild. The segment is derived from
@@ -70,6 +74,7 @@ pub struct RebuildTask {
     blocks_per_segment: u32,
     /// start time of the rebuild task
     pub start_time: Option<SystemTime>,
+    /// the name of the nexus we refer are rebuilding
     pub(crate) nexus: Option<String>,
 }
 
@@ -135,7 +140,7 @@ impl RebuildTask {
 
         if self.state == RebuildState::Completed {
             Err(Error::Invalid(
-                "can not suspended already completed task".into(),
+                "cannot suspend an already completed task".into(),
             ))
         } else {
             self.state = RebuildState::Suspended;
@@ -253,7 +258,6 @@ impl RebuildTask {
         }
 
         let _ = self.progress.take();
-
         self.send_completion(self.state);
     }
 
@@ -389,6 +393,16 @@ impl RebuildTask {
 
     pub fn run(&mut self) {
         self.start_time = Some(std::time::SystemTime::now());
+
+        if let Some(name) = self.nexus.as_ref() {
+            if let Some(nexus) = nexus_lookup(name) {
+                nexus.set_state(NexusState::Remuling);
+            } else {
+                error!("nexus {} gone, aborting rebuild", name);
+                self.send_completion(RebuildState::Cancelled);
+            }
+        }
+
         match self.next_segment() {
             Err(next) => {
                 error!("{:?}", next);
