@@ -23,12 +23,11 @@ static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
 
 static DISKNAME2: &str = "/tmp/disk2.img";
 static BDEVNAME2: &str = "aio:///tmp/disk2.img?blk_size=512";
+pub mod common;
 
 #[test]
 fn read_label() {
-    let _log = mayastor::spdklog::SpdkLog::new();
-    let _l = _log.init();
-
+    common::mayastor_test_init();
     let output = Command::new("truncate")
         .args(&["-s", "64m", DISKNAME1])
         .output()
@@ -42,7 +41,6 @@ fn read_label() {
 
     assert_eq!(output.status.success(), true);
 
-    mayastor::CPS_INIT!();
     let rc = mayastor_start("io-testing", vec!["-L", "all"], || {
         mayastor::executor::spawn(start());
     });

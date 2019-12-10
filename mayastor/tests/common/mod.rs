@@ -1,8 +1,8 @@
+use mayastor::mayastor_logger_init;
 use std::{env, process::Command};
 
 pub fn mayastor_test_init() {
-    let log = mayastor::spdklog::SpdkLog::new();
-    let _ = log.init();
+    mayastor_logger_init("DEBUG");
     env::set_var("MAYASTOR_LOGLEVEL", "4");
     mayastor::CPS_INIT!();
 }
