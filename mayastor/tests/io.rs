@@ -8,12 +8,11 @@ use std::process::Command;
 
 static DISKNAME: &str = "/tmp/disk.img";
 static BDEVNAME: &str = "aio:///tmp/disk.img?blk_size=512";
+pub mod common;
 
 #[test]
 fn io_test() {
-    let _log = mayastor::spdklog::SpdkLog::new();
-    let _l = _log.init();
-    mayastor::CPS_INIT!();
+    common::mayastor_test_init();
     let output = Command::new("truncate")
         .args(&["-s", "64m", DISKNAME])
         .output()

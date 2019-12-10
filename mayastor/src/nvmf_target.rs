@@ -386,7 +386,7 @@ impl Target {
                 errno
             ))
         } else {
-            info!("Added tcp nvmf transport {:?}", self);
+            debug!("Added TCP nvmf transport {:?}", self);
             Ok(())
         }
     }
@@ -406,7 +406,7 @@ impl Target {
         if errno != 0 {
             Err(format!("Listen for nvmf target failed (errno {})", errno))
         } else {
-            info!("nvmf target listens on {:?}", self);
+            debug!("nvmf target listening on {:?}", self);
             Ok(())
         }
     }
@@ -457,7 +457,10 @@ impl Target {
                 self.acceptor_poll_rate,
             )
         };
-        info!("nvmf target {:?} accepts new connections", self);
+        info!(
+            "nvmf target accepting new connections on {:?} and is ready to role..{}",
+            self,'\u{1F483}'
+        );
         Ok(())
     }
 

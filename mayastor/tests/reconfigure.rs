@@ -17,12 +17,10 @@ static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
 
 static DISKNAME2: &str = "/tmp/disk2.img";
 static BDEVNAME2: &str = "aio:///tmp/disk2.img?blk_size=512";
-
+pub mod common;
 #[test]
 fn reconfigure() {
-    let log = mayastor::spdklog::SpdkLog::new();
-    let _ = log.init();
-    mayastor::CPS_INIT!();
+    common::mayastor_test_init();
     let args = vec!["-c", "../etc/test.conf"];
 
     // setup our test files
