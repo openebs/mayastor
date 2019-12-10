@@ -1,10 +1,10 @@
 # Errors in MayaStor
 
-This doc describes representation of errors, which happen in MayaStor and
-are expected. Unexpected errors end up with a crash or panic message with
+This document describes error handling within MayaStor.
+Unhandled errors result in a crash/panic message with
 a stack trace. The expected ones are represented by an object which bubbles
 up through the layers of the code up to the RPC method handler, where the
-error is serialized and sent to the client.
+error is serialized and sent back to the client.
 
 ## Background
 
@@ -14,19 +14,21 @@ limitation.
 
 Constructing error stacks is cumbersome. An error which originates deep
 in the code far from RPC method entry point needs to be augmented by
-a context information, which is not available when the error is created.
-Thus adding more context to an error from lower layer should be easy
-and it was not.
+contextual information, which is not available when the error occurs.
+Thus adding more context to an error from within lower layer should be easy,
+but it was not.
 
 ## Snafu crate
 
 Snafu is one of many libraries in rust for representing failures. We picked
-snafu because it seems popular in rust, it supports elegant stacking of errors
-and the definition of errors and error messages makes use of preprocessor and
-is easy.
+snafu because:
 
-Example of error definition follows. We introduce a new enum type with three
-variants. These are high-level errors for replica RPC methods. `source` field
+1. It seems relatively popular in rust
+2. It provides an elegant way of chaining errors and the definition of errors and error
+messages makes use of a preprocessor and is easy.
+
+An example of an error definition follows. We introduce a new enum type with three
+variants. These are high-level errors for the replica RPC methods. The`source` field
 is a link to lower level error describing the problem in more detail.
 
 ```rust
@@ -43,14 +45,14 @@ pub enum RpcError {
 
 ## SPDK errors
 
-MayaStor is essentially a wrapper around SPDK. Many errors originate in SPDK
-functions/callbacks which return some kind of boolean status (success/failure)
-or errno value. We want to make handling such errors straightforward. As soon
-as the errno gets to the rust code, an `nix::errno::Errno` object should be
-created for it. The object will take care of translating errno i32 value to
-a human readable text. Such errors are never returned directly from RPC methods.
-Instead they must be wrapped by snafu error, which provides more context than
-just meaning of the errno. There are utility functions for returning errno
+MayaStor, essentially wraps around the errors originating {S,D} PDK.
+Many errors originate in SPDK functions/callbacks which return some kind of boolean status
+(success/failure) or an `errno` value. We want to make handling such errors straightforward.
+As soon as the `errno` returns to rust a `nix::errno::Errno` object should be
+created for it. This object will take care of mapping the `errno` (i32) value to
+a human readable format. Such errors are never returned directly from RPC methods.
+Instead, they must be wrapped by a snafu error, which provides more context than
+just textual representation of the `errno`. There are utility functions for returning errno
 results from async callbacks to avoid code duplication.
 
 ## Design of the new errors
@@ -59,18 +61,18 @@ results from async callbacks to avoid code duplication.
    potential mayastor errors we want them to be defined where they are used.
    The error definition can be per file or per group of closely related files.
 
-2. Names of the errors should be short, clear and consistent across the whole
-   mayastor code. If the error is a high level error specifying context of the
-   error, its name should be `Operation``Object` (i.e. `CreateReplica`). If
+2. Error names should be short, clear and consistent across the whole
+   code base. If the error is a high level error specifying context of the
+   error, its name should be `Operation` + `Object` (i.e. `CreateReplica`). If
    the error describes the root cause of a problem, then the name should be
-   `Object``Problem` (i.e. `PoolNotFound`).
+   `Object` + `Problem` (i.e. `PoolNotFound`).
 
 3. Take care to assign the right context data to the right layer or errors.
    For example if we have a high level `CreateReplica` error, that's where
-   `uuid` of the replica should be mentioned. There might be 10 reasons why
-   the create operation can fail and those reasons (=errors) can contain more
-   detailed data. However those 10 errors don't need to contain uuid, because
-   that information is added by the `CreateReplica` context.
+   `uuid` of the replica should be mentioned. There may be 10 different reasons why
+   the create operation failed, and those reasons (errors) may contain more
+   detailed information. However, all those 10 errors don't need to contain uuid, because
+   that information is already added by the `CreateReplica` context.
 
 4. Errors returned by RPC methods must implement `RpcErrorCode` trait. This
    is a specific requirement to mayastor because the RPC handler must know
@@ -79,8 +81,8 @@ results from async callbacks to avoid code duplication.
 
 ## Example implementation
 
-Consider a model situation of adding new RPC methods for implementing
-replica RPC methods: create, destroy, share. We start with these high level
+Consider the situation of adding new RPC methods for implementing
+replica RPC methods: create, destroy and share. We start with these high level
 errors:
 
 ```rust
@@ -96,8 +98,8 @@ pub enum RpcError {
 }
 ```
 
-It has to implement `RpcErrorCode` trait because the error is used in RPC
-handlers. The trait impl is simple because we dive deeper along the error
+It has to implement `RpcErrorCode` trait because the errors are used in the RPC
+handlers. The impl trait is simple because we go deeper down the error
 chain to find out the appropriate RPC code.
 
 ```rust
@@ -112,8 +114,8 @@ impl RpcErrorCode for RpcError {
 }
 ```
 
-The second layer of errors are the errors used in Replica object methods.
-Some of them are terminal errors and some go even to deeper layer of code.
+The second layer of errors are the errors used in in the Replica object methods.
+Some of them are terminal errors, and some go even to deeper layers of code.
 
 ```rust
 #[derive(Debug, Snafu)]
@@ -163,8 +165,8 @@ impl RpcErrorCode for Error {
 }
 ```
 
-Sharing of replica is implemented either by nvmf target or iscsi target module.
-Each module comes with its own error type. For brevity we mention only nvmf
+Sharing of replica is implemented either by the nvmf or iscsi target module.
+Each module comes with its own error type. For brevity, we mention only nvmf
 target errors and not all of them:
 
 ```rust
@@ -205,8 +207,8 @@ impl RpcErrorCode for Error {
 }
 ```
 
-We have seen how the tree of errors from least specific context errors to
-most specific root cause errors is implemented. Now let's see it in action.
+We have seen how the tree of errors from the least specific context errors to
+most specific root cause errors implemented. Now let's see it in action.
 What is behind the following log file:
 
 ```
