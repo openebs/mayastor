@@ -58,18 +58,40 @@ use std::{
     str::FromStr,
 };
 
-use bincode::{deserialize_from, serialize, serialize_into};
+use bincode::{deserialize_from, serialize, serialize_into, Error};
 use crc::{crc32, Hasher32};
 use serde::{
     de::{Deserialize, Deserializer, SeqAccess, Unexpected, Visitor},
     ser::{Serialize, SerializeTuple, Serializer},
 };
+use snafu::{ResultExt, Snafu};
 use uuid::{self, parser};
 
 use crate::{
-    bdev::nexus::{nexus_bdev::Nexus, Error},
-    descriptor::DmaBuf,
+    bdev::nexus::{
+        nexus_bdev::Nexus,
+        nexus_child::{ChildError, ChildIoError},
+    },
+    descriptor::{DmaBuf, DmaError},
 };
+
+#[derive(Debug, Snafu)]
+pub enum LabelError {
+    #[snafu(display("Failed to allocate protective MBR"))]
+    WritePmbrAlloc { source: DmaError },
+    #[snafu(display("Label serialization error"))]
+    SerializeError { source: Error },
+    #[snafu(display("Label deserialization error"))]
+    DeserializeError { source: Error },
+    #[snafu(display("Write label error"))]
+    WriteError { source: ChildIoError },
+    #[snafu(display("Label probe error"))]
+    ProbeError { source: ChildError },
+    #[snafu(display("GPT header size is invalid"))]
+    HeaderSize {},
+    #[snafu(display("GPT label crc mismatch"))]
+    CrcMismatch {},
+}
 
 impl Nexus {
     /// generate a new nexus label based on the nexus configuration. The meta
@@ -120,10 +142,11 @@ impl Nexus {
     }
 
     /// write the protective MBR to all children.
-    pub async fn write_pmbr(&mut self) -> Result<(), Error> {
+    pub async fn write_pmbr(&mut self) -> Result<(), LabelError> {
         let mut pmbr = Pmbr::default();
         let mut buf =
-            DmaBuf::new(self.bdev.block_len() as usize, self.bdev.alignment())?;
+            DmaBuf::new(self.bdev.block_len() as usize, self.bdev.alignment())
+                .context(WritePmbrAlloc {})?;
 
         // the max size with MBR is 2GB, if we are smaller however, we must
         // ensure that we reflect that in the MBR as well even though its not
@@ -152,10 +175,10 @@ impl Nexus {
         // easier.
 
         writer.seek(SeekFrom::Start(440)).unwrap();
-        serialize_into(&mut writer, &pmbr)?;
+        serialize_into(&mut writer, &pmbr).context(SerializeError {})?;
 
         for child in &mut self.children {
-            child.write_at(0, &buf).await?;
+            child.write_at(0, &buf).await.context(WriteError {})?;
         }
 
         Ok(())
@@ -167,23 +190,27 @@ impl Nexus {
         buf: &mut DmaBuf,
         label: &mut NexusLabel,
         primary: bool,
-    ) -> Result<(), Error> {
+    ) -> Result<(), LabelError> {
         let blk_size = self.bdev.block_len();
         let mut writer = Cursor::new(buf.as_mut_slice());
         if primary {
             label.primary.checksum();
 
-            serialize_into(&mut writer, &label.primary)?;
+            serialize_into(&mut writer, &label.primary)
+                .context(SerializeError {})?;
 
             writer.seek(SeekFrom::Start(u64::from(blk_size))).unwrap();
 
             for p in &label.partitions {
-                serialize_into(&mut writer, &p)?;
+                serialize_into(&mut writer, &p).context(SerializeError {})?;
             }
 
             for child in &mut self.children {
-                child.write_at(u64::from(blk_size), &buf).await?;
-                child.probe_label().await?;
+                child
+                    .write_at(u64::from(blk_size), &buf)
+                    .await
+                    .context(WriteError {})?;
+                child.probe_label().await.context(ProbeError {})?;
             }
         } else {
             // now, write the backup label
@@ -192,18 +219,19 @@ impl Nexus {
             backup.checksum();
 
             for p in &label.partitions {
-                serialize_into(&mut writer, &p)?;
+                serialize_into(&mut writer, &p).context(SerializeError {})?;
             }
 
             writer.seek(SeekFrom::Start((1 << 14) as u64)).unwrap();
 
-            serialize_into(&mut writer, &backup)?;
+            serialize_into(&mut writer, &backup).context(SerializeError {})?;
 
             for child in &mut self.children {
                 child
                     .write_at(u64::from(blk_size) * (backup.lba_end + 1), &buf)
-                    .await?;
-                child.probe_label().await?;
+                    .await
+                    .context(WriteError {})?;
+                child.probe_label().await.context(ProbeError {})?;
             }
         }
 
@@ -298,7 +326,7 @@ pub struct GPTHeader {
 
 impl GPTHeader {
     /// converts a slice into a gpt header and verifies the validity of the data
-    pub fn from_slice(slice: &[u8]) -> Result<GPTHeader, Error> {
+    pub fn from_slice(slice: &[u8]) -> Result<GPTHeader, LabelError> {
         let mut reader = Cursor::new(slice);
         let mut gpt: GPTHeader = deserialize_from(&mut reader).unwrap();
 
@@ -306,7 +334,7 @@ impl GPTHeader {
             || gpt.signature != [0x45, 0x46, 0x49, 0x20, 0x50, 0x41, 0x52, 0x54]
             || gpt.revision != [0x00, 0x00, 0x01, 0x00]
         {
-            return Err(Error::Invalid("GPT header size is invalid".into()));
+            return Err(LabelError::HeaderSize {});
         }
 
         let crc = gpt.self_checksum;
@@ -315,7 +343,7 @@ impl GPTHeader {
 
         if gpt.self_checksum != crc {
             info!("GPT label crc mismatch");
-            return Err(Error::Invalid("GPT label crc mismatch".into()));
+            return Err(LabelError::CrcMismatch {});
         }
 
         if gpt.lba_self > gpt.lba_alt {
@@ -387,12 +415,14 @@ impl GptEntry {
     pub fn from_slice(
         slice: &[u8],
         parts: u32,
-    ) -> Result<Vec<GptEntry>, Error> {
+    ) -> Result<Vec<GptEntry>, LabelError> {
         let mut reader = Cursor::new(slice);
         let mut part_vec = Vec::new();
         // TODO 128 should be passed in as a argument
         for _ in 0 .. parts {
-            part_vec.push(deserialize_from(&mut reader)?);
+            part_vec.push(
+                deserialize_from(&mut reader).context(DeserializeError {})?,
+            );
         }
         Ok(part_vec)
     }

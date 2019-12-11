@@ -1,9 +1,10 @@
 //! Utility functions and wrappers for working with nbd devices in SPDK.
 
-use crate::{bdev::nexus::Error, executor::cb_arg};
+use crate::executor::{cb_arg, errno_result_from_i32, ErrnoResult};
 use futures::channel::oneshot;
 use futures_timer::Delay;
-use nix::{convert_ioctl_res, libc};
+use nix::{convert_ioctl_res, errno::Errno, libc};
+use snafu::{ResultExt, Snafu};
 use spdk_sys::{
     spdk_nbd_disk,
     spdk_nbd_disk_find_by_nbd_path,
@@ -16,13 +17,23 @@ use std::{
     ffi::{c_void, CStr, CString},
     fmt,
     fs::OpenOptions,
+    io,
     os::unix::io::AsRawFd,
     path::Path,
     time::Duration,
 };
 use sysfs::parse_value;
+
 // include/uapi/linux/fs.h
 const IOCTL_BLKGETSIZE: u32 = ior!(0x12, 114, std::mem::size_of::<u64>());
+
+#[derive(Debug, Snafu)]
+pub enum NbdError {
+    #[snafu(display("No free NBD devices available (is nbd kmod loaded?)"))]
+    Unavailable {},
+    #[snafu(display("Failed to start NBD on {}", dev))]
+    StartNbd { source: Errno, dev: String },
+}
 
 /// Wait until it is possible to read size of nbd device or time out with error.
 /// If we can read the size that means that the device is ready for IO.
@@ -62,7 +73,7 @@ async fn wait_until_ready(path: &str) -> Result<(), ()> {
 /// NOTE: We do a couple of syscalls in this function which by normal
 /// circumstances do not block. So it is reasonably safe to call this function
 /// from executor/reactor.
-pub fn find_unused() -> Result<String, Error> {
+pub fn find_unused() -> Result<String, NbdError> {
     let nbd_max =
         parse_value(Path::new("/sys/class/modules/nbd/parameters"), "nbds_max")
             .unwrap_or(16);
@@ -76,12 +87,13 @@ pub fn find_unused() -> Result<String, Error> {
             // if we find a pid file the device is in use
             Ok(_) => continue,
             Err(e) => match e.kind() {
-                std::io::ErrorKind::NotFound => {
+                io::ErrorKind::NotFound => {
                     // No PID file is found, which implies it is free to used.
                     // The kernel needs time to construct the device
                     // so we need to make sure we are not using it internally
                     // already.
-                    let nbd_device = CString::new(format!("/dev/{}", name))?;
+                    let nbd_device =
+                        CString::new(format!("/dev/{}", name)).unwrap();
                     let ptr = unsafe {
                         spdk_nbd_disk_find_by_nbd_path(nbd_device.as_ptr())
                     };
@@ -96,7 +108,7 @@ pub fn find_unused() -> Result<String, Error> {
         }
     }
 
-    Err(Error::Unavailable("No free NBD device available".into()))
+    Err(NbdError::Unavailable {})
 }
 
 /// Callback for spdk_nbd_start().
@@ -107,11 +119,11 @@ extern "C" fn start_cb(
 ) {
     let sender = unsafe {
         Box::from_raw(
-            sender_ptr as *mut oneshot::Sender<(i32, *mut spdk_nbd_disk)>,
+            sender_ptr as *mut oneshot::Sender<ErrnoResult<*mut spdk_nbd_disk>>,
         )
     };
     sender
-        .send((errno, nbd_disk))
+        .send(errno_result_from_i32(nbd_disk, errno))
         .expect("NBD start receiver is gone");
 }
 
@@ -119,10 +131,11 @@ extern "C" fn start_cb(
 pub async fn start(
     bdev_name: &str,
     device_path: &str,
-) -> Result<*mut spdk_nbd_disk, Error> {
-    let c_bdev_name = CString::new(bdev_name)?;
-    let c_device_path = CString::new(device_path)?;
-    let (sender, receiver) = oneshot::channel::<(i32, *mut spdk_nbd_disk)>();
+) -> Result<*mut spdk_nbd_disk, NbdError> {
+    let c_bdev_name = CString::new(bdev_name).unwrap();
+    let c_device_path = CString::new(device_path).unwrap();
+    let (sender, receiver) =
+        oneshot::channel::<ErrnoResult<*mut spdk_nbd_disk>>();
 
     unsafe {
         spdk_nbd_start(
@@ -132,16 +145,12 @@ pub async fn start(
             cb_arg(sender),
         );
     }
-    let res = receiver.await.expect("Cancellation is not supported");
-    if res.0 != 0 {
-        Err(Error::ShareError(format!(
-            "Failed to start NBD: {} for bdev {} (errno {})",
-            device_path, bdev_name, res.0
-        )))
-    } else {
-        info!("Started nbd disk {} for nexus {}", device_path, bdev_name);
-        Ok(res.1)
-    }
+    receiver
+        .await
+        .expect("Cancellation is not supported")
+        .context(StartNbd {
+            dev: device_path.to_owned(),
+        })
 }
 
 /// NBD disk representation.
@@ -152,27 +161,25 @@ pub struct Disk {
 impl Disk {
     /// Allocate nbd device for the bdev and start it.
     /// When the function returns the nbd disk is ready for IO.
-    pub async fn create(bdev_name: &str) -> Result<Self, Error> {
+    pub async fn create(bdev_name: &str) -> Result<Self, NbdError> {
         // find nbd device which is available
         let device_path = find_unused()?;
+        let nbd_ptr = start(bdev_name, &device_path).await?;
 
-        match start(bdev_name, &device_path).await {
-            Ok(nbd_ptr) => {
-                // we wait for the dev to come up online because
-                // otherwise the mount done too early would fail.
-                // If it times out, continue anyway and let the mount fail.
-                if wait_until_ready(&device_path).await.is_err() {
-                    error!(
-                        "Timed out waiting for nbd device {} to come up (10s)",
-                        device_path,
-                    )
-                }
-                Ok(Self {
-                    nbd_ptr,
-                })
-            }
-            Err(e) => Err(e),
+        info!("Started nbd disk {} for {}", device_path, bdev_name);
+
+        // we wait for the dev to come up online because
+        // otherwise the mount done too early would fail.
+        // If it times out, continue anyway and let the mount fail.
+        if wait_until_ready(&device_path).await.is_err() {
+            error!(
+                "Timed out waiting for nbd device {} to come up (10s)",
+                device_path,
+            )
         }
+        Ok(Self {
+            nbd_ptr,
+        })
     }
 
     /// Stop and release nbd device.

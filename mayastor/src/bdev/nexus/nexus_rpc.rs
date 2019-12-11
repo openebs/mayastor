@@ -1,10 +1,9 @@
 use crate::{
     bdev::nexus::{
         instances,
-        nexus_bdev::{nexus_create, Nexus},
-        Error,
+        nexus_bdev::{nexus_create, Error, Nexus},
     },
-    jsonrpc::{jsonrpc_register, Code, JsonRpcError},
+    jsonrpc::jsonrpc_register,
 };
 use futures::{future, FutureExt};
 use rpc::mayastor::{
@@ -24,28 +23,26 @@ use uuid::Uuid;
 
 /// Convert the UUID to a nexus name in the form of "nexus-{uuid}".
 /// Return error if the UUID is not valid.
-fn uuid_to_name(uuid: &str) -> Result<String, JsonRpcError> {
+fn uuid_to_name(uuid: &str) -> Result<String, Error> {
     match Uuid::parse_str(uuid) {
         Ok(uuid) => Ok(format!("nexus-{}", uuid.to_hyphenated().to_string())),
-        Err(_) => Err(JsonRpcError::new(
-            Code::InvalidParams,
-            format!("Invalid nexus uuid '{}'", uuid),
-        )),
+        Err(_) => Err(Error::InvalidUuid {
+            uuid: uuid.to_owned(),
+        }),
     }
 }
 
 /// Lookup a nexus by its uuid. Return error if uuid is invalid or nexus
 /// not found.
-fn nexus_lookup(uuid: &str) -> Result<&mut Nexus, JsonRpcError> {
+fn nexus_lookup(uuid: &str) -> Result<&mut Nexus, Error> {
     let name = uuid_to_name(uuid)?;
 
     if let Some(nexus) = instances().iter_mut().find(|n| n.name() == name) {
         Ok(nexus)
     } else {
-        Err(JsonRpcError::new(
-            Code::NotFound,
-            format!("Nexus {} not found", uuid),
-        ))
+        Err(Error::NexusNotFound {
+            name: uuid.to_owned(),
+        })
     }
 }
 
@@ -64,7 +61,7 @@ fn name_to_uuid(name: &str) -> &str {
 
 pub(crate) fn register_rpc_methods() {
     // JSON rpc method to list the nexus and their states
-    jsonrpc_register::<(), _, _, JsonRpcError>("list_nexus", |_| {
+    jsonrpc_register::<(), _, _, Error>("list_nexus", |_| {
         future::ok(ListNexusReply {
             nexus_list: instances()
                 .iter()
@@ -96,33 +93,13 @@ pub(crate) fn register_rpc_methods() {
             };
             // TODO: get rid of hardcoded nexus block size (possibly by
             // deriving it from child bdevs's block sizes).
-            match nexus_create(
-                &name,
-                args.size,
-                Some(&args.uuid),
-                &args.children,
-            )
-            .await
-            {
-                Ok(_) => Ok(()),
-                Err(Error::Exists) => Ok(()),
-                Err(Error::ChildExists) => Err(JsonRpcError::new(
-                    Code::InternalError,
-                    "child bdev already exists",
-                )),
-                Err(Error::Invalid(msg)) => {
-                    Err(JsonRpcError::new(Code::InternalError, msg))
-                }
-                Err(_) => Err(JsonRpcError::new(
-                    Code::InternalError,
-                    "failed to create nexus",
-                )),
-            }
+            nexus_create(&name, args.size, Some(&args.uuid), &args.children)
+                .await
         };
         fut.boxed_local()
     });
 
-    jsonrpc_register::<_, _, _, JsonRpcError>(
+    jsonrpc_register::<_, _, _, Error>(
         "destroy_nexus",
         |args: DestroyNexusRequest| {
             let fut = async move {
@@ -138,13 +115,9 @@ pub(crate) fn register_rpc_methods() {
         let fut = async move {
             // the key has to be 16 characters if it contains "" we consider it
             // to be empty
-
             if args.key != "" && args.key.len() != 16 {
-                info!("Invalid key specified, are we under attack?!?");
-                return Err(JsonRpcError::new(
-                    Code::InvalidParams,
-                    "Invalid key specified".to_string(),
-                ));
+                warn!("Invalid key specified, are we under attack?!?");
+                return Err(Error::InvalidKey {});
             }
 
             // We have no means to validate key correctness right now, this is
@@ -156,15 +129,9 @@ pub(crate) fn register_rpc_methods() {
                 if args.key == "" { None } else { Some(args.key) };
 
             let nexus = nexus_lookup(&args.uuid)?;
-            match nexus.share(key).await {
-                Ok(device_path) => Ok(PublishNexusReply {
-                    device_path,
-                }),
-                Err(err) => Err(JsonRpcError::new(
-                    Code::InternalError,
-                    format!("{:?}", err),
-                )),
-            }
+            nexus.share(key).await.map(|device_path| PublishNexusReply {
+                device_path,
+            })
         };
         fut.boxed_local()
     });
@@ -172,13 +139,7 @@ pub(crate) fn register_rpc_methods() {
     jsonrpc_register("unpublish_nexus", |args: UnpublishNexusRequest| {
         let fut = async move {
             let nexus = nexus_lookup(&args.uuid)?;
-            match nexus.unshare().await {
-                Ok(_) => Ok(()),
-                Err(err) => Err(JsonRpcError::new(
-                    Code::InternalError,
-                    format!("{:?}", err),
-                )),
-            }
+            nexus.unshare().await
         };
         fut.boxed_local()
     });
@@ -186,14 +147,7 @@ pub(crate) fn register_rpc_methods() {
     jsonrpc_register("offline_child", |args: ChildNexusRequest| {
         let fut = async move {
             let nexus = nexus_lookup(&args.uuid)?;
-            match nexus.offline_child(&args.uri).await {
-                Ok(_) => Ok(()),
-                Err(Error::NotFound) => Ok(()),
-                Err(e) => Err(JsonRpcError::new(
-                    Code::InternalError,
-                    format!("{:?}", e),
-                )),
-            }
+            nexus.offline_child(&args.uri).await
         };
         fut.boxed_local()
     });
@@ -201,14 +155,7 @@ pub(crate) fn register_rpc_methods() {
     jsonrpc_register("online_child", |args: ChildNexusRequest| {
         let fut = async move {
             let nexus = nexus_lookup(&args.uuid)?;
-            match nexus.online_child(&args.uri).await {
-                Ok(_) => Ok(()),
-                Err(Error::NotFound) => Ok(()),
-                Err(e) => Err(JsonRpcError::new(
-                    Code::InternalError,
-                    format!("{:?}", e),
-                )),
-            }
+            nexus.online_child(&args.uri).await
         };
         fut.boxed_local()
     });
@@ -216,13 +163,7 @@ pub(crate) fn register_rpc_methods() {
     jsonrpc_register("add_child_nexus", |args: AddChildNexusRequest| {
         let fut = async move {
             let nexus = nexus_lookup(&args.uuid)?;
-            match nexus.add_child(&args.uri).await {
-                Ok(_) => Ok(()),
-                Err(err) => Err(JsonRpcError::new(
-                    Code::InternalError,
-                    format!("{:?}", err),
-                )),
-            }
+            nexus.add_child(&args.uri).await.map(|_| ())
         };
         fut.boxed_local()
     });
@@ -230,13 +171,7 @@ pub(crate) fn register_rpc_methods() {
     jsonrpc_register("remove_child_nexus", |args: RemoveChildNexusRequest| {
         let fut = async move {
             let nexus = nexus_lookup(&args.uuid)?;
-            match nexus.remove_child(&args.uri).await {
-                Ok(_) => Ok(()),
-                Err(err) => Err(JsonRpcError::new(
-                    Code::InternalError,
-                    format!("{:?}", err),
-                )),
-            }
+            nexus.remove_child(&args.uri).await
         };
         fut.boxed_local()
     });

@@ -1,5 +1,4 @@
-use std::os::raw::c_void;
-
+use snafu::Snafu;
 use spdk_sys::{
     spdk_event_allocate,
     spdk_event_call,
@@ -9,8 +8,13 @@ use spdk_sys::{
     spdk_thread_create,
     spdk_thread_poll,
 };
+use std::os::raw::c_void;
 
-use crate::bdev::nexus::Error;
+#[derive(Debug, Snafu)]
+pub enum Error {
+    #[snafu(display("Event spawned from a non-spdk thread"))]
+    InvalidThread {},
+}
 
 /// trait that ensures we can get the context passed to FFI threads
 pub trait MayaCtx {
@@ -85,7 +89,7 @@ where
     let thread = { unsafe { spdk_get_thread() } };
 
     if thread.is_null() {
-        return Err(Error::InvalidThread);
+        return Err(Error::InvalidThread {});
     }
 
     let ptr = Box::into_raw(Box::new(f)) as *mut c_void;
@@ -114,7 +118,7 @@ where
     });
 
     if thread.0.is_null() {
-        return Err(Error::InvalidThread);
+        return Err(Error::InvalidThread {});
     }
 
     unsafe { spdk_set_thread(thread.0) };

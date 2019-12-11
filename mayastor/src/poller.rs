@@ -1,6 +1,12 @@
-use crate::bdev::nexus::Error;
+use snafu::Snafu;
 use spdk_sys::{spdk_poller, spdk_poller_register, spdk_poller_unregister};
 use std::{ops::Deref, os::raw::c_void};
+
+#[derive(Debug, Snafu)]
+pub enum Error {
+    #[snafu(display("Failed to create poller"))]
+    CreatePoller {},
+}
 
 /// NewType wrapper around the spdk_poller. NewTypes are preferred over
 /// structure wrappings as they impose no overhead.
@@ -83,7 +89,7 @@ pub fn register_poller<T: Deref + std::fmt::Debug>(
     let poller = unsafe { spdk_poller_register(Some(poll_fn), ptr, usec) };
 
     if poller.is_null() {
-        return Err(Error::Internal("failed to create poller".into()));
+        return Err(Error::CreatePoller {});
     }
 
     std::mem::forget(ctx);

@@ -1,24 +1,44 @@
-use std::{convert::TryInto, os::raw::c_void, rc::Rc, time::SystemTime};
-
 use futures::channel::oneshot;
-
+use nix::errno::Errno;
+use snafu::{ResultExt, Snafu};
 use spdk_sys::{
     spdk_bdev_io,
     spdk_bdev_read_blocks,
     spdk_bdev_write_blocks,
     SPDK_BDEV_LARGE_BUF_MAX_SIZE,
 };
+use std::{convert::TryInto, os::raw::c_void, rc::Rc, time::SystemTime};
 
 use crate::{
     bdev::nexus::{
         nexus_bdev::{nexus_lookup, NexusState},
         nexus_io::Bio,
-        Error,
     },
-    descriptor::{Descriptor, DmaBuf},
+    descriptor::{Descriptor, DmaBuf, DmaError},
     event::MayaCtx,
+    executor::errno_result_from_i32,
     poller::{register_poller, PollTask},
 };
+
+#[derive(Debug, Snafu)]
+pub enum Error {
+    #[snafu(display(
+        "Rebuild source {} is larger than the target {}",
+        src,
+        tgt
+    ))]
+    SourceBigger { src: String, tgt: String },
+    #[snafu(display("Cannot suspend an already completed rebuild task"))]
+    SuspendCompleted {},
+    #[snafu(display(
+        "Cannot resume a rebuild task which has not been suspended"
+    ))]
+    ResumeNotSuspended {},
+    #[snafu(display("Failed to dispatch rebuild IO"))]
+    DispatchIo { source: Errno },
+    #[snafu(display("Failed to allocate buffer for rebuild IO"))]
+    BufferAlloc { source: DmaError },
+}
 
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
 pub enum RebuildState {
@@ -88,14 +108,10 @@ impl RebuildTask {
         // if we can grow; the target to match the size of the source.
 
         if target.get_bdev().num_blocks() < source.get_bdev().num_blocks() {
-            let error = format!(
-                "source {} is larger than the target {}",
-                source.get_bdev().name(),
-                target.get_bdev().name()
-            );
-
-            error!("{}", &error);
-            return Err(Error::Invalid(error));
+            return Err(Error::SourceBigger {
+                src: source.get_bdev().name(),
+                tgt: target.get_bdev().name(),
+            });
         }
 
         let num_blocks = target.get_bdev().num_blocks();
@@ -106,10 +122,12 @@ impl RebuildTask {
         let num_segments = num_blocks / blocks_per_segment as u64;
         let remainder = num_blocks % blocks_per_segment;
 
-        let buf = source.dma_malloc(
-            (blocks_per_segment * source.get_bdev().block_len() as u64)
-                as usize,
-        )?;
+        let buf = source
+            .dma_malloc(
+                (blocks_per_segment * source.get_bdev().block_len() as u64)
+                    as usize,
+            )
+            .context(BufferAlloc {})?;
 
         let (s, r) = oneshot::channel::<RebuildState>();
         let task = Box::new(Self {
@@ -139,9 +157,7 @@ impl RebuildTask {
         );
 
         if self.state == RebuildState::Completed {
-            Err(Error::Invalid(
-                "cannot suspend an already completed task".into(),
-            ))
+            Err(Error::SuspendCompleted {})
         } else {
             self.state = RebuildState::Suspended;
             Ok(self.state)
@@ -158,7 +174,7 @@ impl RebuildTask {
             self.state = RebuildState::Running;
             self.next_segment()
         } else {
-            Err(Error::Invalid("task not suspended".into()))
+            Err(Error::ResumeNotSuspended {})
         }
     }
 
@@ -278,6 +294,7 @@ impl RebuildTask {
     pub fn current(&self) -> u64 {
         self.current_lba
     }
+
     /// Copy blocks from source to target with increments of segment size.
     /// When the task has been completed, this function returns
     /// Ok(true). When a new IO has been successfully dispatched in returns
@@ -312,7 +329,7 @@ impl RebuildTask {
         &mut self,
         num_blocks: u32,
     ) -> Result<RebuildState, Error> {
-        let ret = unsafe {
+        let errno = unsafe {
             spdk_bdev_read_blocks(
                 self.source.desc,
                 self.source.ch,
@@ -324,17 +341,20 @@ impl RebuildTask {
             )
         };
 
-        if ret == 0 {
-            self.current_lba += num_blocks as u64;
-            self.num_segments -= 1;
-            Ok(self.state)
-        } else {
-            // we should be able to retry later for now fail on all errors;
-            // typically, with ENOMEM we should retry
-            // however, we want to delay this so likely use a
-            // (one time) poller?
-            self.state = RebuildState::Failed;
-            Err(Error::Internal("failed to dispatch IO".into()))
+        match errno_result_from_i32((), errno) {
+            Ok(_) => {
+                self.current_lba += num_blocks as u64;
+                self.num_segments -= 1;
+                Ok(self.state)
+            }
+            Err(err) => {
+                // we should be able to retry later for now fail on all errors;
+                // typically, with ENOMEM we should retry
+                // however, we want to delay this so likely use a
+                // (one time) poller?
+                self.state = RebuildState::Failed;
+                Err(err).context(DispatchIo {})
+            }
         }
     }
 
@@ -344,7 +364,7 @@ impl RebuildTask {
         io: *mut spdk_bdev_io,
     ) -> Result<(), Error> {
         let bio = Bio(io);
-        let rc = unsafe {
+        let errno = unsafe {
             spdk_bdev_write_blocks(
                 self.target.desc,
                 self.target.ch,
@@ -356,11 +376,8 @@ impl RebuildTask {
             )
         };
 
-        if rc != 0 {
-            panic!("failed IO");
-        }
-
-        Ok(())
+        // XXX what do we need to set/clear when the write IO fails?
+        errno_result_from_i32((), errno).context(DispatchIo {})
     }
 
     /// send the callee that we completed successfully

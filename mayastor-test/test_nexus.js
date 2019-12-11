@@ -293,7 +293,7 @@ describe('nexus', function() {
 
     client.CreateNexus(args, (err, res) => {
       if (!err) return done(new Error('Expected error'));
-      assert.equal(err.code, 13);
+      assert.equal(err.code, grpc.status.INVALID_ARGUMENT);
       done();
     });
   });
@@ -309,7 +309,7 @@ describe('nexus', function() {
     };
 
     client.CreateNexus(args, (err, res) => {
-      assert.equal(err.code, 13);
+      assert.equal(err.code, grpc.status.INVALID_ARGUMENT);
       done();
     });
   });
@@ -393,7 +393,7 @@ describe('nexus', function() {
     };
     client.CreateNexus(args, (err, data) => {
       if (!err) return done(new Error('Expected error'));
-      assert.equal(err.code, 13);
+      assert.equal(err.code, grpc.status.INVALID_ARGUMENT);
       done();
     });
   });
@@ -410,7 +410,7 @@ describe('nexus', function() {
 
     client.CreateNexus(args, (err, data) => {
       if (!err) return done(new Error('Expected error'));
-      assert.equal(err.code, 13);
+      assert.equal(err.code, grpc.status.INVALID_ARGUMENT);
       done();
     });
   });

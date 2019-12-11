@@ -131,7 +131,7 @@ impl NexusFnTable {
     /// called when the nexus instance is unregister
     extern "C" fn destruct(ctx: *mut c_void) -> i32 {
         let nexus = unsafe { Nexus::from_raw(ctx) };
-        nexus.destruct().unwrap();
+        nexus.destruct();
         let instances = instances();
         // removing the nexus from the list should cause a drop
         instances.retain(|x| x.name() != nexus.name());

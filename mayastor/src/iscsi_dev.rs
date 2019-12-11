@@ -1,12 +1,18 @@
 use crate::{
-    bdev::{bdev_lookup_by_name, nexus::Error},
-    executor::{cb_arg, done_cb},
-    nexus_uri::UriError,
+    bdev::{bdev_lookup_by_name, Bdev},
+    executor::{cb_arg, done_errno_cb, errno_result_from_i32, ErrnoResult},
+    nexus_uri::{self, BdevError},
 };
 use futures::channel::oneshot;
+use snafu::{ResultExt, Snafu};
 use spdk_sys::{create_iscsi_disk, delete_iscsi_disk, spdk_bdev};
 use std::{convert::TryFrom, ffi::CString, os::raw::c_void};
 use url::Url;
+
+#[derive(Debug, Snafu)]
+pub enum ParseError {
+    // no parse errors for iscsi urls - we should have some probably
+}
 
 #[derive(Default, Debug)]
 pub struct IscsiBdev {
@@ -14,35 +20,34 @@ pub struct IscsiBdev {
     pub(crate) iqn: String,
     pub(crate) url: String,
 }
+
 impl IscsiBdev {
     /// create an iscsi target
-    pub async fn create(self) -> Result<String, Error> {
-        if crate::bdev::bdev_lookup_by_name(&self.name).is_some() {
-            info!("bdev with name {} exists", self.name);
-            return Err(Error::ChildExists);
+    pub async fn create(self) -> Result<String, BdevError> {
+        if bdev_lookup_by_name(&self.name).is_some() {
+            return Err(BdevError::BdevExists {
+                name: self.name.clone(),
+            });
         }
 
-        extern "C" fn wrap(
-            arg: *mut c_void,
-            _bdev: *mut spdk_bdev,
-            status: i32,
-        ) {
+        extern "C" fn wrap(arg: *mut c_void, bdev: *mut spdk_bdev, errno: i32) {
             let sender = unsafe {
-                Box::from_raw(arg as *const _ as *mut oneshot::Sender<i32>)
+                Box::from_raw(
+                    arg as *const _
+                        as *mut oneshot::Sender<ErrnoResult<*mut spdk_bdev>>,
+                )
             };
 
             sender
-                .send(status)
-                .expect("failed to execute iscsi create callback");
+                .send(errno_result_from_i32(bdev, errno))
+                .expect("Receiver is gone");
         }
 
-        let cname = CString::new(self.name.clone())?;
-        let cinitiator = CString::new(self.iqn)?;
-        let curl = CString::new(self.url)?;
-
-        let (s, r) = oneshot::channel::<i32>();
-
-        let mut ret = unsafe {
+        let cname = CString::new(self.name.clone()).unwrap();
+        let cinitiator = CString::new(self.iqn.clone()).unwrap();
+        let curl = CString::new(self.url.clone()).unwrap();
+        let (s, r) = oneshot::channel::<ErrnoResult<*mut spdk_bdev>>();
+        let errno = unsafe {
             create_iscsi_disk(
                 cname.as_ptr(),
                 curl.as_ptr(),
@@ -51,43 +56,45 @@ impl IscsiBdev {
                 cb_arg(s),
             )
         };
+        errno_result_from_i32((), errno).context(nexus_uri::InvalidParams {
+            name: self.name.clone(),
+        })?;
 
-        if ret != 0 {
-            return Err(Error::Internal(
-                "Failed to create iscsi bdev".to_owned(),
-            ));
-        }
+        let bdev_ptr = r
+            .await
+            .expect("Cancellation is not supported")
+            .context(nexus_uri::CreateBdev {
+                name: self.name.clone(),
+            })?;
 
-        ret = r.await.expect("completion failure for iscsi create");
-
-        if ret != 0 {
-            Err(Error::CreateFailed)
-        } else {
-            Ok(self.name)
-        }
+        Ok(Bdev::from(bdev_ptr).name())
     }
 
     // destroy the given bdev
-    pub async fn destroy(self) -> Result<(), Error> {
-        type CbT = i32;
-
-        if let Some(bdev) = bdev_lookup_by_name(&self.name) {
-            let (s, r) = oneshot::channel::<CbT>();
-            unsafe { delete_iscsi_disk(bdev.inner, Some(done_cb), cb_arg(s)) };
-            if r.await.unwrap() != 0 {
-                Err(Error::CreateFailed)
-            } else {
-                Ok(())
+    pub async fn destroy(self, bdev_name: &str) -> Result<(), BdevError> {
+        if let Some(bdev) = bdev_lookup_by_name(bdev_name) {
+            let (s, r) = oneshot::channel::<ErrnoResult<()>>();
+            unsafe {
+                delete_iscsi_disk(bdev.inner, Some(done_errno_cb), cb_arg(s));
             }
+            r.await.expect("Cancellation is not supported").context(
+                nexus_uri::DestroyBdev {
+                    name: self.name.clone(),
+                },
+            )
         } else {
-            Err(Error::Exists)
+            Err(BdevError::BdevNotFound {
+                name: bdev_name.to_owned(),
+            })
         }
     }
 }
+
 /// Converts an iSCSI url to a struct iSCSiArgs. NOTE do to a bug in SPDK
 /// providing a valid target with an invalid iqn, will crash the system.
 impl TryFrom<&Url> for IscsiBdev {
-    type Error = UriError;
+    type Error = ParseError;
+
     fn try_from(u: &Url) -> Result<Self, Self::Error> {
         let mut n = IscsiBdev::default();
         n.iqn = format!("iqn.1980-05.mayastor:{}", uuid::Uuid::new_v4());
@@ -95,65 +102,5 @@ impl TryFrom<&Url> for IscsiBdev {
         n.url = format!("{}/0", u.to_string());
 
         Ok(n)
-    }
-}
-
-/// create an iscsi target
-pub async fn iscsi_create(args: IscsiBdev) -> Result<String, i32> {
-    if crate::bdev::bdev_lookup_by_name(&args.name).is_some() {
-        info!("bdev with name {} exists", args.name);
-        return Err(-1);
-    }
-
-    extern "C" fn wrap(arg: *mut c_void, bdev: *mut spdk_bdev, status: i32) {
-        let sender = unsafe {
-            Box::from_raw(
-                arg as *const _ as *mut oneshot::Sender<Result<String, i32>>,
-            )
-        };
-
-        if status != 0 {
-            sender.send(Err(status)).unwrap();
-        } else {
-            sender
-                .send(Ok(crate::bdev::Bdev::from(bdev).name()))
-                .unwrap();
-        }
-    }
-
-    let cname = CString::new(args.name).unwrap();
-    let cinitiator = CString::new(args.iqn).unwrap();
-    let curl = CString::new(args.url).unwrap();
-
-    let (s, r) = oneshot::channel::<Result<String, i32>>();
-
-    let _ret = unsafe {
-        create_iscsi_disk(
-            cname.as_ptr(),
-            curl.as_ptr(),
-            cinitiator.as_ptr(),
-            Some(wrap),
-            cb_arg(s),
-        )
-    };
-
-    r.await.unwrap()
-}
-
-/// destroy the given bdev
-#[allow(clippy::needless_lifetimes)]
-pub async fn iscsi_destroy(name: &str) -> Result<(), ()> {
-    type CbT = i32;
-
-    if let Some(bdev) = bdev_lookup_by_name(name) {
-        let (s, r) = oneshot::channel::<CbT>();
-        unsafe { delete_iscsi_disk(bdev.inner, Some(done_cb), cb_arg(s)) };
-        if r.await.unwrap() != 0 {
-            Err(())
-        } else {
-            Ok(())
-        }
-    } else {
-        Err(())
     }
 }

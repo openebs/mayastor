@@ -1,9 +1,10 @@
+extern crate assert_matches;
+
+use assert_matches::assert_matches;
 use mayastor::{
     bdev::nexus::{
         instances,
-        nexus_bdev::{nexus_create, nexus_lookup, NexusState},
-        Error,
-        Error::{ChildExists, CreateFailed, Invalid},
+        nexus_bdev::{nexus_create, nexus_lookup, Error, NexusState},
     },
     mayastor_start,
     mayastor_stop,
@@ -44,7 +45,12 @@ fn nexus_add_remove() {
 async fn create_nexus() {
     let ch = vec![];
     let r = nexus_create("add_remove", 64 * 1024 * 1024, None, &ch).await;
-    assert_eq!(r, Err(Error::NexusIncomplete));
+    assert_matches!(
+        r,
+        Err(Error::NexusIncomplete {
+            ..
+        })
+    );
     assert!(instances().is_empty());
 
     let nexus = nexus_lookup("add_remove");
@@ -57,7 +63,12 @@ async fn nexus_add_invalid_schema() {
     let r = nexus_create("add_remove", 64 * 1024 * 1024, None, &ch).await;
 
     assert_eq!(true, r.is_err());
-    assert_eq!(r, Err(Invalid("InvalidScheme".into())));
+    assert_matches!(
+        r,
+        Err(Error::CreateChild {
+            ..
+        })
+    );
 
     let nexus = nexus_lookup("add_remove");
     assert_eq!(true, nexus.is_none());
@@ -68,7 +79,12 @@ async fn nexus_add_invalid_disk() {
     let ch = vec!["aio:///does/not/exist.img".to_string()];
     let r = nexus_create("add_remove", 64 * 1024 * 1024, None, &ch).await;
 
-    assert_eq!(r, Err(CreateFailed));
+    assert_matches!(
+        r,
+        Err(Error::CreateChild {
+            ..
+        })
+    );
 
     let nexus = nexus_lookup("add_remove");
     assert_eq!(true, nexus.is_none());
@@ -77,9 +93,9 @@ async fn nexus_add_invalid_disk() {
 /// create a nexus with one disk
 async fn nexus_add_step1() {
     let ch = vec![BDEVNAME1.to_string()];
-    let r = nexus_create("add_remove", 64 * 1024 * 1024, None, &ch).await;
-
-    assert_eq!(r, Ok(()));
+    nexus_create("add_remove", 64 * 1024 * 1024, None, &ch)
+        .await
+        .unwrap();
 
     let nexus = nexus_lookup("add_remove").unwrap();
     assert_eq!(NexusState::Online, nexus.status());
@@ -100,7 +116,12 @@ async fn nexus_add_step3() {
     assert_eq!(NexusState::Degraded, nexus.status());
 
     let result = nexus.add_child(BDEVNAME2).await;
-    assert_eq!(result, Err(ChildExists));
+    assert_matches!(
+        result,
+        Err(Error::CreateChild {
+            ..
+        })
+    );
     assert_eq!(NexusState::Degraded, nexus.status());
 }
 
@@ -114,9 +135,8 @@ async fn nexus_rebuild_1() {
     assert_eq!(NexusState::Remuling, nexus.status());
     assert_eq!(NexusState::Remuling, result);
 
-    let result = nexus.rebuild_completion().await.unwrap();
-
-    assert_eq!(result, RebuildState::Completed);
+    let state = nexus.rebuild_completion().await.unwrap();
+    assert_eq!(state, RebuildState::Completed);
 }
 
 /// once completed the nexus should be online
@@ -125,9 +145,7 @@ async fn nexus_remove_1() {
     assert_eq!(NexusState::Online, nexus.status());
 
     // removing a child does not degrade a nexus
-    let result = nexus.remove_child(BDEVNAME1).await;
-
-    assert_eq!(result, Ok(()));
+    nexus.remove_child(BDEVNAME1).await.unwrap();
     assert_eq!(nexus.status(), NexusState::Online);
 }
 
@@ -136,12 +154,12 @@ async fn nexus_remove_2() {
     let nexus = nexus_lookup("add_remove").unwrap();
     assert_eq!(NexusState::Online, nexus.status());
 
-    let result = nexus.add_child(BDEVNAME1).await;
-    assert_eq!(result, Ok(NexusState::Degraded));
+    let state = nexus.add_child(BDEVNAME1).await.unwrap();
+    assert_eq!(state, NexusState::Degraded);
     assert_eq!(NexusState::Degraded, nexus.status());
 
-    let result = nexus.add_child(BDEVNAME3).await;
-    assert_eq!(result, Ok(NexusState::Degraded));
+    let state = nexus.add_child(BDEVNAME3).await.unwrap();
+    assert_eq!(state, NexusState::Degraded);
     assert_eq!(NexusState::Degraded, nexus.status());
 
     assert_eq!(nexus.child_count(), 3);
@@ -154,22 +172,21 @@ async fn nexus_remove_3() {
     let nexus = nexus_lookup("add_remove").unwrap();
     assert_eq!(NexusState::Degraded, nexus.status());
 
-    let result = nexus.start_rebuild(1);
-    assert_eq!(result, Ok(NexusState::Remuling));
+    let state = nexus.start_rebuild(1).unwrap();
+    assert_eq!(state, NexusState::Remuling);
     assert_eq!(nexus.status(), NexusState::Remuling);
 
-    let result = nexus.rebuild_completion().await;
-    assert_eq!(result, Ok(RebuildState::Completed));
+    let state = nexus.rebuild_completion().await.unwrap();
+    assert_eq!(state, RebuildState::Completed);
     assert_eq!(nexus.status(), NexusState::Degraded);
     assert_eq!(nexus.is_online(), false);
 
-    let result = nexus.start_rebuild(0);
-
-    assert_eq!(result, Ok(NexusState::Remuling));
+    let state = nexus.start_rebuild(0).unwrap();
+    assert_eq!(state, NexusState::Remuling);
     assert_eq!(nexus.status(), NexusState::Remuling);
 
-    let result = nexus.rebuild_completion().await;
-    assert_eq!(result, Ok(RebuildState::Completed));
+    let state = nexus.rebuild_completion().await.unwrap();
+    assert_eq!(state, RebuildState::Completed);
     assert_eq!(nexus.status(), NexusState::Online);
 }
 /// removing two replicas
@@ -178,14 +195,10 @@ async fn nexus_remove_4() {
     assert_eq!(NexusState::Online, nexus.status());
 
     // removing a child does not degrade a nexus
-    let result = nexus.remove_child(BDEVNAME1).await;
-
-    assert_eq!(result, Ok(()));
+    nexus.remove_child(BDEVNAME1).await.unwrap();
     assert_eq!(nexus.status(), NexusState::Online);
 
-    let result = nexus.remove_child(BDEVNAME2).await;
-
-    assert_eq!(result, Ok(()));
+    nexus.remove_child(BDEVNAME2).await.unwrap();
     assert_eq!(nexus.status(), NexusState::Online);
 }
 

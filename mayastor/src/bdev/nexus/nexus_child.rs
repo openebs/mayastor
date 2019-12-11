@@ -1,29 +1,76 @@
-use std::{fmt::Display, ops::Neg};
-
+use nix::errno::Errno;
 use serde::{export::Formatter, Serialize};
-
+use snafu::{ResultExt, Snafu};
 use spdk_sys::{
     spdk_bdev_close,
     spdk_bdev_desc,
     spdk_bdev_get_io_channel,
+    spdk_bdev_module_claim_bdev,
     spdk_bdev_module_release_bdev,
+    spdk_bdev_open,
     spdk_io_channel,
 };
+use std::fmt::Display;
 
 use crate::{
     bdev::{
         nexus::{
-            self,
             nexus_label::{GPTHeader, GptEntry, NexusLabel},
             nexus_module::NEXUS_MODULE,
-            Error,
         },
         Bdev,
     },
-    descriptor::{Descriptor, DmaBuf},
-    nexus_uri::{nexus_parse_uri, BdevType},
+    descriptor::{Descriptor, DmaBuf, DmaError},
+    executor::errno_result_from_i32,
+    nexus_uri::{bdev_destroy, BdevError},
 };
 use std::rc::Rc;
+
+#[derive(Debug, Snafu)]
+pub enum ChildError {
+    #[snafu(display("Child is not closed"))]
+    ChildNotClosed {},
+    #[snafu(display(
+        "Child is smaller than parent {} vs {}",
+        child_size,
+        parent_size
+    ))]
+    ChildTooSmall { child_size: u64, parent_size: u64 },
+    #[snafu(display("Open child"))]
+    OpenChild { source: Errno },
+    #[snafu(display("Claim child"))]
+    ClaimChild { source: Errno },
+    #[snafu(display("Child is read-only"))]
+    ChildReadOnly {},
+    #[snafu(display("Invalid state of child"))]
+    ChildInvalid {},
+    #[snafu(display("Failed to allocate buffer for label"))]
+    LabelAlloc { source: DmaError },
+    #[snafu(display("Failed to read label from child"))]
+    LabelRead { source: ChildIoError },
+    #[snafu(display("Primary and backup labels are invalid"))]
+    LabelInvalid {},
+    #[snafu(display("Failed to allocate buffer for partition table"))]
+    PartitionTableAlloc { source: DmaError },
+    #[snafu(display("Failed to read partition table from child"))]
+    PartitionTableRead { source: ChildIoError },
+    #[snafu(display("Invalid partition table"))]
+    InvalidPartitionTable {},
+    #[snafu(display("Invalid partition table checksum"))]
+    PartitionTableChecksum {},
+    #[snafu(display("Opening child bdev without bdev pointer"))]
+    OpenWithoutBdev {},
+}
+
+#[derive(Debug, Snafu)]
+pub enum ChildIoError {
+    #[snafu(display("Error writing to {}", name))]
+    WriteError { source: DmaError, name: String },
+    #[snafu(display("Error reading from {}", name))]
+    ReadError { source: DmaError, name: String },
+    #[snafu(display("Invalid descriptor for child bdev {}", name))]
+    InvalidDescriptor { name: String },
+}
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq)]
 pub(crate) enum ChildState {
@@ -57,7 +104,8 @@ impl ToString for ChildState {
 pub struct NexusChild {
     /// name of the parent this child belongs too
     pub(crate) parent: String,
-    ///  name of the child itself
+    /// Name of the child is the URI used to create it.
+    /// Note that bdev name can differ from it!
     pub(crate) name: String,
     #[serde(skip_serializing)]
     /// the bdev wrapped in Bdev
@@ -102,32 +150,26 @@ impl NexusChild {
     pub(crate) fn open(
         &mut self,
         parent_size: u64,
-    ) -> Result<String, nexus::Error> {
+    ) -> Result<String, ChildError> {
         trace!("{}: Opening child device {}", self.parent, self.name);
 
         if self.state != ChildState::Closed && self.state != ChildState::Init {
-            return Err(Error::Invalid(
-                "child is not closed can only open closed".into(),
-            ));
+            return Err(ChildError::ChildNotClosed {});
         }
 
+        // TODO: I think this should be an assert (= unwrap)
         if let Some(bdev) = self.bdev.as_ref() {
             let child_size = bdev.size_in_bytes();
             if parent_size > child_size {
-                error!(
-                    "{}: child {} to small  ({} vs {})",
-                    self.parent, self.name, parent_size, child_size,
-                );
-
                 self.state = ChildState::ConfigInvalid;
-                return Err(nexus::Error::Invalid(
-                    "requested nexus size is larger than some of its children"
-                        .into(),
-                ));
+                return Err(ChildError::ChildTooSmall {
+                    parent_size,
+                    child_size,
+                });
             }
 
-            let mut rc = unsafe {
-                spdk_sys::spdk_bdev_open(
+            let mut errno = unsafe {
+                spdk_bdev_open(
                     bdev.inner,
                     true,
                     None,
@@ -136,34 +178,27 @@ impl NexusChild {
                 )
             };
 
-            if rc != 0 {
-                error!("{}: Failed to open child {}", self.parent, self.name);
+            if let Err(err) = errno_result_from_i32((), errno) {
                 self.state = ChildState::Faulted;
                 self.desc = std::ptr::null_mut();
-                return Err(match rc.neg() {
-                    libc::EPERM => nexus::Error::ReadOnly,
-                    libc::ENOTSUP => nexus::Error::InvalidThread,
-                    _ => nexus::Error::from(rc),
-                });
+                return Err(err).context(OpenChild {});
             }
 
-            rc = unsafe {
-                spdk_sys::spdk_bdev_module_claim_bdev(
+            errno = unsafe {
+                spdk_bdev_module_claim_bdev(
                     bdev.inner,
                     self.desc,
                     &NEXUS_MODULE.module as *const _ as *mut _,
                 )
             };
 
-            if rc != 0 {
+            if let Err(err) = errno_result_from_i32((), errno) {
                 self.state = ChildState::Faulted;
-                error!("{}: Failed to claim device {}", self.parent, self.name);
-                unsafe { spdk_bdev_close(self.desc) }
+                unsafe {
+                    spdk_bdev_close(self.desc);
+                }
                 self.desc = std::ptr::null_mut();
-                return Err(match rc.neg() {
-                    libc::EPERM => nexus::Error::AlreadyClaimed,
-                    _ => nexus::Error::from(rc),
-                });
+                return Err(err).context(ClaimChild {});
             }
 
             self.state = ChildState::Open;
@@ -178,16 +213,16 @@ impl NexusChild {
 
             Ok(self.name.clone())
         } else {
-            Err(Error::NexusIncomplete)
+            Err(ChildError::OpenWithoutBdev {})
         }
     }
 
     /// close the bdev -- we have no means of determining if this succeeds
-    pub(crate) fn close(&mut self) -> Result<ChildState, nexus::Error> {
+    pub(crate) fn close(&mut self) -> ChildState {
         trace!("{}: Closing child {}", self.parent, self.name);
 
         debug!(
-            ":{} has {} references to the descriptor",
+            "{} has {} references to the descriptor",
             self.parent,
             Rc::strong_count(self.descriptor.as_ref().unwrap())
         );
@@ -204,11 +239,11 @@ impl NexusChild {
 
         // we leave the child structure around for when we want reopen it
         self.state = ChildState::Closed;
-        Ok(self.state)
+        self.state
     }
 
     /// called to get a channel to this child
-    pub(crate) fn get_io_channel(&self) -> *mut spdk_sys::spdk_io_channel {
+    pub(crate) fn get_io_channel(&self) -> *mut spdk_io_channel {
         assert_ne!(self.state, ChildState::Closed);
         unsafe { spdk_bdev_get_io_channel(self.desc) }
     }
@@ -228,22 +263,13 @@ impl NexusChild {
     }
 
     /// destroy the child bdev
-    pub(crate) async fn destroy(&mut self) -> Result<(), nexus::Error> {
+    pub(crate) async fn destroy(&mut self) -> Result<(), BdevError> {
         assert_eq!(self.state, ChildState::Closed);
-
-        if let Ok(child_type) = nexus_parse_uri(&self.name) {
-            match child_type {
-                BdevType::Aio(args) => args.destroy().await,
-                BdevType::Iscsi(args) => args.destroy().await,
-                BdevType::Nvmf(args) => args.destroy(),
-                BdevType::Bdev(_name) => Ok(()),
-            }
+        if let Some(bdev) = &self.bdev {
+            bdev_destroy(&self.name, &bdev.name()).await
         } else {
-            // a bdev type we don't support is being used by the nexus
-            Err(nexus::Error::Invalid(format!(
-                "requested bdev: {} type is not supported by the nexus",
-                self.name
-            )))
+            warn!("Destroy child without bdev");
+            Ok(())
         }
     }
 
@@ -252,24 +278,20 @@ impl NexusChild {
         self.state == ChildState::Open || self.state == ChildState::Faulted
     }
 
-    pub async fn probe_label(&mut self) -> Result<NexusLabel, nexus::Error> {
+    pub async fn probe_label(&mut self) -> Result<NexusLabel, ChildError> {
         if !self.can_rw() {
             info!(
                 "{}: Trying to read from closed child: {}",
                 self.parent, self.name
             );
-            // TODO add better errors
-            return Err(nexus::Error::Invalid(format!(
-                "{}: child {} is read only",
-                self.parent, self.name
-            )));
+            return Err(ChildError::ChildReadOnly {});
         }
 
         let bdev = self.bdev.as_ref();
         let desc = self.descriptor.as_ref();
 
         if bdev.is_none() || desc.is_none() {
-            return Err(Error::Invalid("Bdev is invalid".into()));
+            return Err(ChildError::ChildInvalid {});
         }
 
         let bdev = bdev.unwrap();
@@ -280,51 +302,51 @@ impl NexusChild {
         let primary = u64::from(block_size);
         let secondary = bdev.num_blocks() - 1;
 
-        let mut buf = desc.dma_malloc(block_size as usize)?;
+        let mut buf = desc
+            .dma_malloc(block_size as usize)
+            .context(LabelAlloc {})?;
 
-        self.read_at(primary, &mut buf).await?;
+        self.read_at(primary, &mut buf)
+            .await
+            .context(LabelRead {})?;
+
         let mut label = GPTHeader::from_slice(buf.as_slice());
-
         if label.is_err() {
-            info!(
+            warn!(
                 "{}: {}: The primary label is invalid!",
                 self.parent, self.name
             );
-            self.read_at(secondary, &mut buf).await?;
+            self.read_at(secondary, &mut buf)
+                .await
+                .context(LabelRead {})?;
             label = GPTHeader::from_slice(buf.as_slice());
         }
 
-        if label.is_err() {
-            info!(
-                "{}: {}: Primary and backup label are invalid!",
-                self.parent, self.name
-            );
-            return Err(Error::Invalid(format!(
-                "{}: {}: Primary and backup label are invalid!",
-                self.parent, self.name
-            )));
-        }
+        let label = match label {
+            Ok(label) => label,
+            Err(_) => return Err(ChildError::LabelInvalid {}),
+        };
 
-        let label = label.unwrap();
-
-        // determine number of blocks we need to read for the partition table
+        // determine number of blocks we need to read from the partition table
         let num_blocks =
             ((label.entry_size * label.num_entries) / block_size) + 1;
 
-        let mut buf = desc.dma_malloc((num_blocks * block_size) as usize)?;
+        let mut buf = desc
+            .dma_malloc((num_blocks * block_size) as usize)
+            .context(PartitionTableAlloc {})?;
 
         self.read_at(label.lba_table * u64::from(block_size), &mut buf)
-            .await?;
+            .await
+            .context(PartitionTableRead {})?;
 
         let mut partitions =
-            GptEntry::from_slice(&buf.as_slice(), label.num_entries)?;
+            match GptEntry::from_slice(&buf.as_slice(), label.num_entries) {
+                Ok(parts) => parts,
+                Err(_) => return Err(ChildError::InvalidPartitionTable {}),
+            };
 
         if GptEntry::checksum(&partitions) != label.table_crc {
-            info!("{}: {}: Partition crc invalid!", self.parent, self.name);
-            return Err(Error::Invalid(format!(
-                "{}: {}: Partition crc invalid!",
-                self.parent, self.name
-            )));
+            return Err(ChildError::PartitionTableChecksum {});
         }
 
         // some tools write 128 partition entries, even though only two are
@@ -345,11 +367,15 @@ impl NexusChild {
         &self,
         offset: u64,
         buf: &DmaBuf,
-    ) -> Result<usize, Error> {
+    ) -> Result<usize, ChildIoError> {
         if let Some(desc) = self.descriptor.as_ref() {
-            Ok(desc.write_at(offset, buf).await?)
+            Ok(desc.write_at(offset, buf).await.context(WriteError {
+                name: self.name.clone(),
+            })?)
         } else {
-            Err(Error::Internal("Invalid descriptor for bdev".into()))
+            Err(ChildIoError::InvalidDescriptor {
+                name: self.name.clone(),
+            })
         }
     }
 
@@ -358,11 +384,15 @@ impl NexusChild {
         &self,
         offset: u64,
         buf: &mut DmaBuf,
-    ) -> Result<usize, Error> {
+    ) -> Result<usize, ChildIoError> {
         if let Some(desc) = self.descriptor.as_ref() {
-            Ok(desc.read_at(offset, buf).await?)
+            Ok(desc.read_at(offset, buf).await.context(ReadError {
+                name: self.name.clone(),
+            })?)
         } else {
-            Err(Error::Internal("Invalid descriptor for bdev".into()))
+            Err(ChildIoError::InvalidDescriptor {
+                name: self.name.clone(),
+            })
         }
     }
 

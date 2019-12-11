@@ -1,54 +1,26 @@
 // see https://github.com/rust-lang/rust-clippy/issues/3988
 #![allow(clippy::needless_lifetimes)]
 
-use crate::{bdev::nexus, executor::cb_arg, nexus_uri::UriError};
+use crate::{
+    bdev::bdev_lookup_by_name,
+    executor::{cb_arg, errno_result_from_i32, ErrnoResult},
+    nexus_uri::{self, BdevError},
+};
 use futures::channel::oneshot;
+use snafu::{ResultExt, Snafu};
 use spdk_sys::{
     spdk_bdev_nvme_create,
+    spdk_bdev_nvme_delete,
     SPDK_NVME_TRANSPORT_TCP,
     SPDK_NVMF_ADRFAM_IPV4,
 };
-use std::{convert::TryFrom, ffi::CString, fmt, os::raw::c_void};
+use std::{convert::TryFrom, ffi::CString, os::raw::c_void};
 use url::Url;
 
-/// NVMe error is purposely kept simple (just an enum) as we deal with lots of
-/// libc errors coming back from SPDK. In the future we can make it more of an
-/// object and create proper from/to implementations.
-#[derive(Debug)]
-pub enum Code {
-    /// construction arguments are invalid
-    InvalidArgs,
-    /// The URI we are connecting
-    Local,
-    /// Failed to create the bdev
-    Creation,
-    /// nvme controller exists
-    Exists,
-    /// nvme controller does not exists
-    NotFound,
-    /// not enough free memory to construct request
-    NoMemory,
-}
-
-impl From<std::ffi::NulError> for Code {
-    fn from(_: std::ffi::NulError) -> Self {
-        Code::NoMemory
-    }
-}
-
-impl fmt::Display for Code {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let p = match *self {
-            Code::InvalidArgs => "Invalid arguments",
-            Code::Local => "Uri points to a device that is local to this node",
-            Code::Creation => "Internal error during creation of target",
-            Code::Exists => "Target already exists",
-            Code::NotFound => "Target not found",
-            Code::NoMemory => "Not enough memory available to honour request",
-        };
-
-        write!(f, "{}", p)
-    }
+#[derive(Debug, Snafu)]
+pub enum ParseError {
+    #[snafu(display("Missing path component"))]
+    PathMissing {},
 }
 
 /// nvme_bdev create arguments, ideally you should not use this directly but use
@@ -86,27 +58,32 @@ impl NvmfBdev {
         _bdev_count: usize,
         rc: i32,
     ) {
-        let sender = Box::from_raw(ctx as *mut oneshot::Sender<i32>);
+        let sender =
+            Box::from_raw(ctx as *mut oneshot::Sender<ErrnoResult<()>>);
 
-        sender.send(rc).expect("NVMe creation cb receiver is gone");
+        sender
+            .send(errno_result_from_i32((), rc))
+            .expect("NVMe creation cb receiver is gone");
     }
 
     /// async function to construct a bdev given a NvmfUri
-    pub async fn create(self) -> Result<String, nexus::Error> {
+    pub async fn create(self) -> Result<String, BdevError> {
         let mut ctx = NvmeCreateCtx::new(&self);
-        let (sender, receiver) = oneshot::channel::<u32>();
+        let (sender, receiver) = oneshot::channel::<ErrnoResult<()>>();
 
-        if crate::bdev::bdev_lookup_by_name(&self.name).is_some() {
-            return Err(nexus::Error::ChildExists);
+        if bdev_lookup_by_name(&self.name).is_some() {
+            return Err(BdevError::BdevExists {
+                name: self.name.clone(),
+            });
         }
 
-        let str;
+        let c_hostnqn;
         // TODO add this to ctx
         let hostnqn = if self.hostnqn.is_empty() {
             std::ptr::null_mut()
         } else {
-            str = CString::new(self.hostnqn.clone()).unwrap();
-            str.as_ptr()
+            c_hostnqn = CString::new(self.hostnqn.clone()).unwrap();
+            c_hostnqn.as_ptr()
         };
 
         let mut flags: u32 = 0;
@@ -114,12 +91,11 @@ impl NvmfBdev {
         if self.prchk_reftag {
             flags |= spdk_sys::SPDK_NVME_IO_FLAGS_PRCHK_REFTAG;
         }
-
         if self.prchk_guard {
             flags |= spdk_sys::SPDK_NVME_IO_FLAGS_PRCHK_GUARD;
         }
 
-        let ret = unsafe {
+        let errno = unsafe {
             spdk_bdev_nvme_create(
                 &mut ctx.transport_id,
                 &mut ctx.host_id,
@@ -132,50 +108,46 @@ impl NvmfBdev {
                 cb_arg(sender),
             )
         };
+        errno_result_from_i32((), errno).context(nexus_uri::InvalidParams {
+            name: self.name.clone(),
+        })?;
 
-        if ret != 0 {
-            return Err(nexus::Error::Internal(
-                "Failed to create nvme bdev".to_owned(),
-            ));
-        }
-
-        let result = receiver
+        receiver
             .await
-            .expect("internal error in nvme bdev creation");
+            .expect("Cancellation is not supported")
+            .context(nexus_uri::CreateBdev {
+                name: self.name.clone(),
+            })?;
 
-        if result == 0 {
-            Ok(unsafe {
-                std::ffi::CStr::from_ptr(ctx.names[0])
-                    .to_str()
-                    .unwrap()
-                    .to_string()
-            })
-        } else {
-            Err(nexus::Error::CreateFailed)
-        }
+        Ok(unsafe {
+            std::ffi::CStr::from_ptr(ctx.names[0])
+                .to_str()
+                .unwrap()
+                .to_string()
+        })
     }
-    /// destroy an nvme controller and its namespaces, it is not possible to
-    /// destroy a nvme_bdev directly
-    pub fn destroy(self) -> Result<(), nexus::Error> {
-        let cname = CString::new(self.name).unwrap();
-        let res = unsafe { spdk_sys::spdk_bdev_nvme_delete(cname.as_ptr()) };
 
-        match res {
-            libc::ENODEV => Err(nexus::Error::NotFound),
-            libc::ENOMEM => Err(nexus::Error::OutOfMemory),
-            0 => Ok(()),
-            _ => Err(nexus::Error::Internal(
-                "Failed to delete nvme device".into(),
-            )),
+    /// destroy nvme bdev
+    pub fn destroy(self, bdev_name: &str) -> Result<(), BdevError> {
+        if bdev_lookup_by_name(bdev_name).is_none() {
+            return Err(BdevError::BdevNotFound {
+                name: bdev_name.to_owned(),
+            });
         }
+        let cname = CString::new(self.name.clone()).unwrap();
+        let errno = unsafe { spdk_bdev_nvme_delete(cname.as_ptr()) };
+
+        errno_result_from_i32((), errno).context(nexus_uri::DestroyBdev {
+            name: self.name,
+        })
     }
 }
 
 /// converts a nvmf URL to NVMF args
 impl TryFrom<&Url> for NvmfBdev {
-    type Error = UriError;
+    type Error = ParseError;
 
-    fn try_from(u: &Url) -> Result<Self, Self::Error> {
+    fn try_from(u: &Url) -> std::result::Result<Self, Self::Error> {
         let mut n = NvmfBdev::default();
 
         // defaults we currently only support
@@ -185,15 +157,10 @@ impl TryFrom<&Url> for NvmfBdev {
             .path_segments()
             .map(std::iter::Iterator::collect::<Vec<_>>)
         {
-            None => return Err(UriError::InvalidPathSegment),
+            None => return Err(ParseError::PathMissing {}),
             // TODO validate that the nqn is a valid v4 UUID
             Some(s) => s[0].to_string(),
         };
-
-        // if no port number is explicitly provided within the URL we can use
-        // the scheme to determine if the URL should use the nexus fabric (n) or
-        // the storage service fabric (s) if that too fails, we error
-        // out.
 
         n.trsvcid = match u.port() {
             Some(port) => port.to_string(),

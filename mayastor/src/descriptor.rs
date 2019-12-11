@@ -32,7 +32,8 @@ use std::{
 };
 
 use futures::channel::oneshot;
-
+use nix::errno::Errno;
+use snafu::{ResultExt, Snafu};
 use spdk_sys::{
     spdk_bdev_close,
     spdk_bdev_desc,
@@ -51,9 +52,41 @@ use spdk_sys::{
 };
 
 use crate::{
-    bdev::{bdev_lookup_by_name, nexus::Error, Bdev},
-    executor::cb_arg,
+    bdev::{bdev_lookup_by_name, Bdev},
+    executor::{cb_arg, errno_result_from_i32},
 };
+
+#[derive(Debug, Snafu)]
+pub enum DmaError {
+    #[snafu(display("Failed to allocate DMA buffer"))]
+    Alloc {},
+    #[snafu(display("Invalid IO offset {}", offset))]
+    InvalidOffset { offset: u64 },
+    #[snafu(display(
+        "Failed to dispatch write at offset {} length {}",
+        offset,
+        len
+    ))]
+    WriteError {
+        source: Errno,
+        offset: u64,
+        len: usize,
+    },
+    #[snafu(display(
+        "Failed to dispatch read at offset {} length {}",
+        offset,
+        len
+    ))]
+    ReadError {
+        source: Errno,
+        offset: u64,
+        len: usize,
+    },
+    #[snafu(display("Write failed at offset {} length {}", offset, len))]
+    WriteFailed { offset: u64, len: usize },
+    #[snafu(display("Read failed at offset {} length {}", offset, len))]
+    ReadFailed { offset: u64, len: usize },
+}
 
 /// DmaBuf that is allocated from the memory pool
 #[derive(Debug)]
@@ -94,7 +127,7 @@ impl DmaBuf {
         }
     }
 
-    pub fn new(size: usize, alignment: u8) -> Result<Self, Error> {
+    pub fn new(size: usize, alignment: u8) -> Result<Self, DmaError> {
         let buf;
         unsafe {
             buf = spdk_dma_zmalloc(
@@ -105,8 +138,7 @@ impl DmaBuf {
         };
 
         if buf.is_null() {
-            trace!("zmalloc for size {} failed", size);
-            Err(Error::OutOfMemory)
+            Err(DmaError::Alloc {})
         } else {
             Ok(DmaBuf {
                 buf,
@@ -176,7 +208,7 @@ impl Descriptor {
 
     /// allocate zeroed memory from the memory pool with given size and proper
     /// alignment
-    pub fn dma_zmalloc(&self, size: usize) -> Result<DmaBuf, Error> {
+    pub fn dma_zmalloc(&self, size: usize) -> Result<DmaBuf, DmaError> {
         let buf;
         unsafe {
             buf = spdk_dma_zmalloc(
@@ -187,8 +219,7 @@ impl Descriptor {
         };
 
         if buf.is_null() {
-            trace!("Zmalloc for size {} failed", size);
-            Err(Error::OutOfMemory)
+            Err(DmaError::Alloc {})
         } else {
             Ok(DmaBuf {
                 buf,
@@ -198,7 +229,7 @@ impl Descriptor {
     }
 
     /// allocate memory from the memory pool that is not zeroed out
-    pub fn dma_malloc(&self, size: usize) -> Result<DmaBuf, Error> {
+    pub fn dma_malloc(&self, size: usize) -> Result<DmaBuf, DmaError> {
         let buf;
         unsafe {
             buf = spdk_dma_zmalloc(
@@ -209,8 +240,7 @@ impl Descriptor {
         };
 
         if buf.is_null() {
-            trace!("Malloc for size {} failed", size);
-            Err(Error::OutOfMemory)
+            Err(DmaError::Alloc {})
         } else {
             Ok(DmaBuf {
                 buf,
@@ -224,13 +254,15 @@ impl Descriptor {
         &self,
         offset: u64,
         buffer: &DmaBuf,
-    ) -> Result<usize, i32> {
+    ) -> Result<usize, DmaError> {
         if offset % u64::from(self.get_bdev().block_len()) != 0 {
-            return Err(-1);
+            return Err(DmaError::InvalidOffset {
+                offset,
+            });
         }
 
         let (s, r) = oneshot::channel::<Reply>();
-        let rc = unsafe {
+        let errno = unsafe {
             spdk_bdev_write(
                 self.desc,
                 self.ch,
@@ -242,14 +274,18 @@ impl Descriptor {
             )
         };
 
-        if rc != 0 {
-            return Err(rc);
-        }
+        errno_result_from_i32((), errno).context(WriteError {
+            offset,
+            len: buffer.len,
+        })?;
 
         if r.await.expect("Failed awaiting write IO") {
             Ok(buffer.len as usize)
         } else {
-            Err(-1)
+            Err(DmaError::WriteFailed {
+                offset,
+                len: buffer.len,
+            })
         }
     }
 
@@ -261,12 +297,14 @@ impl Descriptor {
         &self,
         offset: u64,
         buffer: &mut DmaBuf,
-    ) -> Result<usize, i32> {
+    ) -> Result<usize, DmaError> {
         if offset % u64::from(self.get_bdev().block_len()) != 0 {
-            return Err(-1);
+            return Err(DmaError::InvalidOffset {
+                offset,
+            });
         }
         let (s, r) = oneshot::channel::<Reply>();
-        let rc = unsafe {
+        let errno = unsafe {
             spdk_bdev_read(
                 self.desc,
                 self.ch,
@@ -278,14 +316,18 @@ impl Descriptor {
             )
         };
 
-        if rc != 0 {
-            return Err(rc);
-        }
+        errno_result_from_i32((), errno).context(ReadError {
+            offset,
+            len: buffer.len,
+        })?;
 
         if r.await.expect("Failed awaiting read IO") {
             Ok(buffer.len)
         } else {
-            Err(-1)
+            Err(DmaError::ReadFailed {
+                offset,
+                len: buffer.len,
+            })
         }
     }
 

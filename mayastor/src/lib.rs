@@ -47,7 +47,7 @@ pub mod iscsi_dev;
 pub mod iscsi_target;
 pub mod jsonrpc;
 pub mod nexus_uri;
-pub mod nvme_dev;
+pub mod nvmf_dev;
 pub mod nvmf_target;
 pub mod poller;
 pub mod pool;

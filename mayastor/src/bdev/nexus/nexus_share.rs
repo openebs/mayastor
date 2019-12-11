@@ -1,16 +1,23 @@
-use std::ffi::CString;
-
-use futures::channel::oneshot;
-
-use spdk_sys::create_crypto_disk;
-
 use crate::{
     bdev::{
         bdev_lookup_by_name,
-        nexus::{nexus_bdev::Nexus, nexus_nbd::Disk, Error},
+        nexus::{
+            nexus_bdev::{
+                CreateCryptoBdev,
+                DestroyCryptoBdev,
+                Error,
+                Nexus,
+                ShareNexus,
+            },
+            nexus_nbd::Disk,
+        },
     },
-    executor::{cb_arg, done_cb},
+    executor::{cb_arg, done_errno_cb, errno_result_from_i32, ErrnoResult},
 };
+use futures::channel::oneshot;
+use snafu::ResultExt;
+use spdk_sys::create_crypto_disk;
+use std::ffi::CString;
 
 /// we are using the multi buffer encryption implementation using CBC as the
 /// algorithm
@@ -24,7 +31,9 @@ impl Nexus {
         key: Option<String>,
     ) -> Result<String, Error> {
         if self.nbd_disk.is_some() {
-            return Err(Error::Exists);
+            return Err(Error::AlreadyShared {
+                name: self.name.clone(),
+            });
         }
 
         assert_eq!(self.share_handle, None);
@@ -33,15 +42,15 @@ impl Nexus {
             let name = format!("crypto-{}", self.name);
 
             // constant
-            let flavour = CString::new(CRYPTO_FLAVOUR)?;
+            let flavour = CString::new(CRYPTO_FLAVOUR).unwrap();
             // name of the crypto device
-            let cname = CString::new(name.clone())?;
+            let cname = CString::new(name.clone()).unwrap();
             // the the nexus device itself
-            let base = CString::new(self.name.clone())?;
+            let base = CString::new(self.name.clone()).unwrap();
             // the keys to the castle
-            let key = CString::new(key)?;
+            let key = CString::new(key).unwrap();
 
-            let rc = unsafe {
+            let errno = unsafe {
                 create_crypto_disk(
                     base.as_ptr(),
                     cname.as_ptr(),
@@ -49,33 +58,22 @@ impl Nexus {
                     key.as_ptr(),
                 )
             };
-
-            if rc != 0 {
-                return Err(Error::CreateFailed);
-            }
-            name
+            errno_result_from_i32(name, errno).context(CreateCryptoBdev {
+                name: self.name.clone(),
+            })?
         } else {
             self.name.clone()
         };
 
         // The share handle is the actual bdev that is shared through the
         // various protocols.
+        let disk = Disk::create(&name).await.context(ShareNexus {
+            name: self.name.clone(),
+        })?;
+        let device_path = disk.get_path();
         self.share_handle = Some(name);
-        if let Some(share_handle) = self.share_handle.as_ref() {
-            match Disk::create(share_handle).await {
-                Ok(disk) => {
-                    let device_path = disk.get_path();
-                    self.nbd_disk = Some(disk);
-                    Ok(device_path)
-                }
-                Err(err) => {
-                    self.share_handle.take();
-                    Err(err)
-                }
-            }
-        } else {
-            Err(Error::ShareError("Unable to share bdev".into()))
-        }
+        self.nbd_disk = Some(disk);
+        Ok(device_path)
     }
 
     /// Undo share operation on nexus. To the chain of bdevs are all claimed
@@ -84,44 +82,36 @@ impl Nexus {
     /// from there.
     pub async fn unshare(&mut self) -> Result<(), Error> {
         match self.nbd_disk.take() {
-            Some(share) => {
-                share.destroy();
-                if let Some(bdev) = self.share_handle.take() {
-                    if let Some(bdev) = bdev_lookup_by_name(&bdev) {
-                        // if there share handle is the same as bdev name it
-                        // implies there is no top level
-                        // bdev, and we are done
-                        if self.name == bdev.name() {
-                            return Ok(());
-                        }
-
-                        let (s, r) = oneshot::channel::<u32>();
+            Some(disk) => {
+                disk.destroy();
+                let bdev_name = self.share_handle.take().unwrap();
+                if let Some(bdev) = bdev_lookup_by_name(&bdev_name) {
+                    // if the share handle is the same as bdev name it
+                    // implies there is no top level bdev, and we are done
+                    if self.name != bdev.name() {
+                        let (s, r) = oneshot::channel::<ErrnoResult<()>>();
                         // currently, we only have the crypto vbdev
                         unsafe {
                             spdk_sys::delete_crypto_disk(
                                 bdev.inner,
-                                Some(done_cb),
+                                Some(done_errno_cb),
                                 cb_arg(s),
                             );
                         }
-
-                        let rc = r.await.expect("crypto delete sender is gone");
-                        if rc != 0 {
-                            return Err(Error::Internal(format!(
-                                "Failed to destroy crypto device error: {}",
-                                rc
-                            )));
-                        }
+                        r.await
+                            .expect("crypto delete sender is gone")
+                            .context(DestroyCryptoBdev {
+                                name: self.name.clone(),
+                            })?;
                     }
-                    Ok(())
                 } else {
-                    Err(Error::ShareError(format!(
-                        "{}: failed to fully unshare self",
-                        self.name
-                    )))
+                    warn!("Missing bdev for a shared device");
                 }
+                Ok(())
             }
-            None => Err(Error::NotFound),
+            None => Err(Error::NotShared {
+                name: self.name.clone(),
+            }),
         }
     }
 

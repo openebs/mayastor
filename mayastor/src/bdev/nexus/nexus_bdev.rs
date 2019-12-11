@@ -59,13 +59,32 @@
 
 use std::{
     fmt::{Display, Formatter},
-    ops::Neg,
     os::raw::c_void,
 };
 
+use crate::{
+    bdev::{
+        nexus::{
+            self,
+            instances,
+            nexus_channel::{DREvent, NexusChannel, NexusChannelInner},
+            nexus_child::{ChildError, ChildState, NexusChild},
+            nexus_io::{io_status, Bio},
+            nexus_label::LabelError,
+            nexus_nbd::{Disk, NbdError},
+        },
+        Bdev,
+    },
+    descriptor::{DmaBuf, DmaError},
+    executor::errno_result_from_i32,
+    jsonrpc::{Code, RpcErrorCode},
+    nexus_uri::BdevError,
+    rebuild::RebuildTask,
+};
 use futures::channel::oneshot;
+use nix::errno::Errno;
 use serde::Serialize;
-
+use snafu::{ResultExt, Snafu};
 use spdk_sys::{
     spdk_bdev,
     spdk_bdev_desc,
@@ -81,24 +100,117 @@ use spdk_sys::{
     spdk_io_device_unregister,
 };
 
-use crate::{
-    bdev::{
-        nexus::{
-            self,
-            instances,
-            nexus_channel::{DREvent, NexusChannel, NexusChannelInner},
-            nexus_child::{ChildState, NexusChild},
-            nexus_io::{io_status, Bio},
-            nexus_nbd as nbd,
-            Error,
-        },
-        Bdev,
+/// Common errors for nexus basic operations and child operations
+/// which are part of nexus object.
+#[derive(Debug, Snafu)]
+#[snafu(visibility = "pub(crate)")]
+pub enum Error {
+    #[snafu(display("Nexus {} does not exist", name))]
+    NexusNotFound { name: String },
+    #[snafu(display("Invalid nexus uuid \"{}\"", uuid))]
+    InvalidUuid { uuid: String },
+    #[snafu(display("Invalid encryption key"))]
+    InvalidKey {},
+    #[snafu(display("Failed to create crypto bdev for nexus {}", name))]
+    CreateCryptoBdev { source: Errno, name: String },
+    #[snafu(display("Failed to destroy crypto bdev for nexus {}", name))]
+    DestroyCryptoBdev { source: Errno, name: String },
+    #[snafu(display("The nexus {} has been already shared", name))]
+    AlreadyShared { name: String },
+    #[snafu(display("The nexus {} has not been shared", name))]
+    NotShared { name: String },
+    #[snafu(display("Failed to share nexus {}", name))]
+    ShareNexus { source: NbdError, name: String },
+    #[snafu(display("Failed to allocate label of nexus {}", name))]
+    AllocLabel { source: DmaError, name: String },
+    #[snafu(display("Failed to write label of nexus {}", name))]
+    WriteLabel { source: LabelError, name: String },
+    #[snafu(display("Failed to read label from a child of nexus {}", name))]
+    ReadLabel { source: ChildError, name: String },
+    #[snafu(display("Labels of the nexus {} are not the same", name))]
+    CheckLabels { name: String },
+    #[snafu(display("Failed to write protective MBR of nexus {}", name))]
+    WritePmbr { source: LabelError, name: String },
+    #[snafu(display("Failed to register IO device nexus {}", name))]
+    RegisterNexus { source: Errno, name: String },
+    #[snafu(display("Failed to create child of nexus {}", name))]
+    CreateChild { source: BdevError, name: String },
+    #[snafu(display("Deferring open because nexus {} is incomplete", name))]
+    NexusIncomplete { name: String },
+    #[snafu(display("Children of nexus {} have mixed block sizes", name))]
+    MixedBlockSizes { name: String },
+    #[snafu(display(
+        "Child {} of nexus {} has incompatible size or block size",
+        child,
+        name
+    ))]
+    ChildGeometry { child: String, name: String },
+    #[snafu(display("Child {} of nexus {} cannot be found", child, name))]
+    ChildMissing { child: String, name: String },
+    #[snafu(display("Failed to open child {} of nexus {}", child, name))]
+    OpenChild {
+        source: ChildError,
+        child: String,
+        name: String,
     },
-    descriptor::DmaBuf,
-    nexus_uri::{nexus_parse_uri, BdevType},
-    rebuild::RebuildTask,
-};
-use futures::channel::oneshot::Sender;
+    #[snafu(display(
+        "Cannot delete the last child {} of nexus {}",
+        child,
+        name
+    ))]
+    DestroyLastChild { child: String, name: String },
+    #[snafu(display("Failed to destroy child {} of nexus {}", child, name))]
+    DestroyChild {
+        source: BdevError,
+        child: String,
+        name: String,
+    },
+    #[snafu(display("Child {} of nexus {} not found", child, name))]
+    ChildNotFound { child: String, name: String },
+    #[snafu(display("Child {} of nexus {} is not closed", child, name))]
+    ChildNotClosed { child: String, name: String },
+}
+
+impl RpcErrorCode for Error {
+    fn rpc_error_code(&self) -> Code {
+        match self {
+            Error::NexusNotFound {
+                ..
+            } => Code::NotFound,
+            Error::InvalidUuid {
+                ..
+            } => Code::InvalidParams,
+            Error::InvalidKey {
+                ..
+            } => Code::InvalidParams,
+            Error::AlreadyShared {
+                ..
+            } => Code::InvalidParams,
+            Error::NotShared {
+                ..
+            } => Code::InvalidParams,
+            Error::CreateChild {
+                ..
+            } => Code::InvalidParams,
+            Error::MixedBlockSizes {
+                ..
+            } => Code::InvalidParams,
+            Error::ChildGeometry {
+                ..
+            } => Code::InvalidParams,
+            Error::OpenChild {
+                ..
+            } => Code::InvalidParams,
+            Error::DestroyLastChild {
+                ..
+            } => Code::InvalidParams,
+            Error::ChildNotFound {
+                ..
+            } => Code::NotFound,
+            _ => Code::InternalError,
+        }
+    }
+}
 
 pub(crate) static NEXUS_PRODUCT_ID: &str = "Nexus CAS Driver v0.0.1";
 
@@ -124,7 +236,7 @@ pub struct Nexus {
     /// the offset in num blocks where the data partition starts
     pub data_ent_offset: u64,
     /// nbd device which the nexus is exposed through
-    pub(crate) nbd_disk: Option<nbd::Disk>,
+    pub(crate) nbd_disk: Option<Disk>,
     /// the handle to be used when sharing the nexus, this allows for the bdev
     /// to be shared with vbdevs on top
     pub(crate) share_handle: Option<String>,
@@ -184,7 +296,7 @@ impl Nexus {
         size: u64,
         uuid: Option<&str>,
         child_bdevs: Option<&[String]>,
-    ) -> Result<Box<Self>, nexus::Error> {
+    ) -> Box<Self> {
         let mut b = Box::new(spdk_bdev::default());
         b.name = c_str!(name);
         b.product_name = c_str!(NEXUS_PRODUCT_ID);
@@ -222,7 +334,7 @@ impl Nexus {
         unsafe {
             (*n.bdev.inner).ctxt = n.as_ref() as *const _ as *mut c_void;
         }
-        Ok(n)
+        n
     }
 
     /// get a mutable reference to a child at index
@@ -298,7 +410,7 @@ impl Nexus {
     }
 
     /// Opens the Nexus instance for IO
-    pub async fn open(&mut self) -> Result<(), nexus::Error> {
+    pub async fn open(&mut self) -> Result<(), Error> {
         debug!("Opening nexus {}", self.name);
 
         self.try_open_children()?;
@@ -312,7 +424,7 @@ impl Nexus {
             // ensure we adhere to the partitions
 
             // When the GUID does not match the given UUID it means
-            // that the PVC has been recreated, is such as
+            // that the PVC has been recreated, in such a
             // case we should consider updating the labels
 
             info!("{}: {} ", self.name, label);
@@ -320,7 +432,7 @@ impl Nexus {
             self.bdev.set_block_count(label.get_block_count());
         } else {
             // one or more children do not have, or have an invalid gpt label.
-            // Recalculate that the header should have been and
+            // Recalculate what the header should have been and
             // write them out
 
             info!(
@@ -336,25 +448,38 @@ impl Nexus {
             let mut buf = DmaBuf::new(
                 (blk_size * (((1 << 14) / blk_size) + 1)) as usize,
                 self.bdev.alignment(),
-            )?;
+            )
+            .context(AllocLabel {
+                name: self.name.clone(),
+            })?;
 
-            self.write_label(&mut buf, &mut label, true).await?;
-            self.write_label(&mut buf, &mut label, false).await?;
+            self.write_label(&mut buf, &mut label, true).await.context(
+                WriteLabel {
+                    name: self.name.clone(),
+                },
+            )?;
+            self.write_label(&mut buf, &mut label, false)
+                .await
+                .context(WriteLabel {
+                    name: self.name.clone(),
+                })?;
             info!("{}: {} ", self.name, label);
 
-            self.write_pmbr().await?;
+            self.write_pmbr().await.context(WritePmbr {
+                name: self.name.clone(),
+            })?;
         }
 
         Ok(())
     }
 
     /// close the nexus and any children that are open
-    pub(crate) fn destruct(&mut self) -> Result<NexusState, ()> {
+    pub(crate) fn destruct(&mut self) -> NexusState {
         // a closed operation might already be in progress calling unregister
         // will trip an assertion within the external libraries
         if self.state == NexusState::Closed {
             trace!("{}: already closed", self.name);
-            return Ok(self.state);
+            return self.state;
         }
 
         trace!("{}: closing, from state: {:?} ", self.name, self.state);
@@ -363,9 +488,7 @@ impl Nexus {
             .map(|c| {
                 if c.state == ChildState::Open || c.state == ChildState::Faulted
                 {
-                    if let Err(e) = c.close() {
-                        info!("failed to close child {}: {:?}", c.name, e);
-                    }
+                    c.close();
                 }
             })
             .for_each(drop);
@@ -375,14 +498,14 @@ impl Nexus {
         }
 
         trace!("{}: closed", self.name);
-        Ok(self.set_state(NexusState::Closed))
+        self.set_state(NexusState::Closed)
     }
 
     /// Destroy the nexus
     pub async fn destroy(&mut self) {
         // used to synchronize the destroy call
         extern "C" fn nexus_destroy_cb(arg: *mut c_void, rc: i32) {
-            let s = unsafe { Box::from_raw(arg as *mut Sender<bool>) };
+            let s = unsafe { Box::from_raw(arg as *mut oneshot::Sender<bool>) };
 
             if rc == 0 {
                 let _ = s.send(true);
@@ -424,11 +547,8 @@ impl Nexus {
     /// register the bdev with SPDK and set the callbacks for io channel
     /// creation. Once this function is called, the device is visible and can
     /// be used for IO.
-    pub fn register(&mut self) -> Result<(), nexus::Error> {
-        if self.state != NexusState::Init {
-            error!("{}: Can only call register once", self.name);
-            return Err(Error::AlreadyClaimed);
-        }
+    pub fn register(&mut self) -> Result<(), Error> {
+        assert_eq!(self.state, NexusState::Init);
 
         unsafe {
             spdk_io_device_register(
@@ -442,28 +562,24 @@ impl Nexus {
 
         debug!("{}: IO device registered at {:p}", self.name, self.as_ptr());
 
-        let rc = unsafe { spdk_bdev_register(self.bdev.inner) };
+        let errno = unsafe { spdk_bdev_register(self.bdev.inner) };
 
-        if rc != 0 {
-            error!("{}: Failed to register", self.bdev.name());
-
-            unsafe { spdk_io_device_unregister(self.as_ptr(), None) }
-            self.children.iter_mut().map(|c| c.close()).for_each(drop);
-            self.set_state(NexusState::Faulted);
-            return Err(match rc.neg() {
-                libc::EINVAL => Error::Invalid(
-                    "trying to register device that with invalid parameters"
-                        .into(),
-                ),
-                libc::EEXIST => Error::Exists,
-                libc::ENOMEM => Error::OutOfMemory,
-                _ => Error::Internal("Failed to register bdev".to_owned()),
-            });
+        match errno_result_from_i32((), errno) {
+            Ok(_) => {
+                self.set_state(NexusState::Online);
+                Ok(())
+            }
+            Err(err) => {
+                unsafe {
+                    spdk_io_device_unregister(self.as_ptr(), None);
+                }
+                self.children.iter_mut().map(|c| c.close()).for_each(drop);
+                self.set_state(NexusState::Faulted);
+                Err(err).context(RegisterNexus {
+                    name: self.name.clone(),
+                })
+            }
         }
-
-        self.set_state(NexusState::Online);
-        info!("{}", self);
-        Ok(())
     }
 
     /// takes self and converts into a raw pointer
@@ -679,28 +795,25 @@ pub async fn nexus_create(
     // global variable defined in the nexus module
     let nexus_list = instances();
     if nexus_list.iter().any(|n| n.name == name) {
-        info!("Nexus with name {} already exists", name);
-        return Err(Error::Exists);
+        // instead of error we return Ok without making sure that also the
+        // children are the same, which seems wrong
+        return Ok(());
     }
 
-    let mut ni = Nexus::new(name, size, uuid, None)
-        .expect("Failed to allocate Nexus instance");
+    let mut ni = Nexus::new(name, size, uuid, None);
 
     for child in children {
-        if let Err(result) = ni.register_child(child).await {
-            error!("{}: Failed to create child bdev {}", ni.name, child);
+        if let Err(err) = ni.register_child(child).await {
             ni.destroy_children().await;
-            return Err(result);
+            return Err(err).context(CreateChild {
+                name: ni.name.clone(),
+            });
         }
     }
 
-    match ni.open().await {
-        Ok(_) => {
-            nexus_list.push(ni);
-            Ok(())
-        }
-        Err(e) => Err(e),
-    }
+    ni.open().await?;
+    nexus_list.push(ni);
+    Ok(())
 }
 
 /// Lookup a nexus by its name (currently used only by test functions).
@@ -729,26 +842,4 @@ impl Display for Nexus {
             .for_each(drop);
         Ok(())
     }
-}
-
-pub async fn bdev_destroy(uri: &str) -> Result<(), Error> {
-    match nexus_parse_uri(uri)? {
-        BdevType::Aio(args) => args.destroy().await?,
-        BdevType::Iscsi(args) => args.destroy().await?,
-        BdevType::Nvmf(args) => args.destroy()?,
-        _ => {}
-    };
-
-    Ok(())
-}
-
-pub async fn bdev_create(uri: &str) -> Result<String, Error> {
-    let name = match nexus_parse_uri(uri)? {
-        BdevType::Aio(args) => args.create().await?,
-        BdevType::Iscsi(args) => args.create().await?,
-        BdevType::Nvmf(args) => args.create().await?,
-        BdevType::Bdev(name) => name,
-    };
-
-    Ok(name)
 }
