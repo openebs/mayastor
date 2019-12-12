@@ -88,7 +88,7 @@ impl NexusFnTable {
         io: *mut spdk_bdev_io,
     ) {
         if let Some(io_type) = Bio::io_type(io) {
-            let nio = Bio::from(io);
+            let mut nio = Bio::from(io);
             let mut ch = NexusChannel::inner_from_channel(channel);
             let nexus = nio.nexus_as_ref();
 
@@ -107,8 +107,11 @@ impl NexusFnTable {
                     nexus.writev(io, &ch)
                 }
                 io_type::UNMAP => {
-                    trace!("{} Dispatching UNMAP {:p}", nexus.name(), io);
-                    nexus.unmap(io, &ch)
+                    if nexus.io_is_supported(io_type) {
+                        nexus.unmap(io, &ch)
+                    } else {
+                        nio.fail();
+                    }
                 }
                 _ => panic!("{} Received unsupported IO!", nexus.name()),
             };

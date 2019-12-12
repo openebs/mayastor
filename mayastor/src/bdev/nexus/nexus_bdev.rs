@@ -494,6 +494,13 @@ impl Nexus {
 
         // if any child IO has failed record this within the io context
         if !success {
+            trace!(
+                "child IO {:p} ({}) of parent {:p} failed",
+                child_io,
+                (*child_io).type_,
+                parent_io
+            );
+
             pio.io_ctx_as_mut_ref().status = io_status::FAILED;
         }
 
