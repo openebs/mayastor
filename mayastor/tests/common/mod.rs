@@ -1,5 +1,5 @@
 use mayastor::mayastor_logger_init;
-use std::{env, process::Command};
+use std::{env, io, io::Write, process::Command};
 
 pub fn mayastor_test_init() {
     mayastor_logger_init("DEBUG");
@@ -28,6 +28,25 @@ pub fn truncate_file(path: &str, size: u64) {
         .output()
         .expect("failed exec truncate");
 
+    assert_eq!(output.status.success(), true);
+}
+
+pub fn mkfs(path: &str, fstype: &str) {
+    let (fs, args) = match fstype {
+        "xfs" => ("mkfs.xfs", ["-f", path]),
+        "ext4" => ("mkfs.ext4", ["-F", path]),
+        _ => {
+            panic!("unsupported fstype");
+        }
+    };
+
+    let output = Command::new(fs)
+        .args(&args)
+        .output()
+        .expect("mkfs exec truncate");
+
+    io::stdout().write_all(&output.stderr).unwrap();
+    io::stdout().write_all(&output.stdout).unwrap();
     assert_eq!(output.status.success(), true);
 }
 

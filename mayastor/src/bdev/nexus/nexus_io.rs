@@ -127,6 +127,9 @@ impl Bio {
 
         if self.io_ctx_as_mut_ref().in_flight == 0 {
             if self.io_ctx_as_mut_ref().status < io_status::PENDING {
+                trace!("failing parent IO {:p} ({})", self.io, unsafe {
+                    (*self.io).type_
+                });
                 self.fail();
             } else {
                 self.ok();
