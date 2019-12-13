@@ -23,6 +23,8 @@ use spdk_sys::{
 };
 
 use crate::executor::cb_arg;
+use serde::export::{fmt::Error, Formatter};
+use std::fmt::Debug;
 
 /// Allocate C string and return pointer to it.
 /// NOTE: you must explicitly free it, otherwise the memory is leaked!
@@ -62,9 +64,6 @@ where
     }
 }
 
-/// Wrapper interface over raw bdev pointers, currently bdevs are
-/// not held while processing.
-#[derive(Debug)]
 pub struct Bdev {
     pub inner: *mut spdk_bdev,
 }
@@ -347,5 +346,17 @@ pub fn bdev_lookup_by_name(name: &str) -> Option<Bdev> {
         } else {
             Some(Bdev::from(b))
         }
+    }
+}
+
+impl Debug for Bdev {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+        writeln!(
+            f,
+            "{} {} {}",
+            self.name(),
+            self.driver(),
+            self.product_name()
+        )
     }
 }

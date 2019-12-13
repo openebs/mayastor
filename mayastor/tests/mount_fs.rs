@@ -120,6 +120,24 @@ async fn mirror_fs_test<'a>(fstype: String) {
     assert_eq!(md5_left, md5_right);
 }
 
+async fn mount_unmount() {
+    create_nexus().await;
+    let nexus = nexus_lookup("nexus").unwrap();
+
+    let device = nexus.share(None).await.unwrap();
+    let (s, r) = oneshot::channel::<String>();
+
+    std::thread::spawn(move || {
+        for _i in 0 .. 10 {
+            common::mount_umount(&device);
+        }
+        s.send("".into())
+    });
+
+    r.await.unwrap();
+    nexus.destroy().await;
+}
+
 async fn run_fio_on_nexus() {
     create_nexus().await;
     let nexus = nexus_lookup("nexus").unwrap();
@@ -136,6 +154,7 @@ async fn run_fio_on_nexus() {
 async fn works() {
     mirror_fs_test("xfs".into()).await;
     mirror_fs_test("ext4".into()).await;
+    mount_unmount().await;
     run_fio_on_nexus().await;
 
     mayastor_stop(0);
