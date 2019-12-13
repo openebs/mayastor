@@ -2,7 +2,7 @@ use mayastor::mayastor_logger_init;
 use std::{env, io, io::Write, process::Command};
 
 pub fn mayastor_test_init() {
-    mayastor_logger_init("DEBUG");
+    mayastor_logger_init("TRACE");
     env::set_var("MAYASTOR_LOGLEVEL", "4");
     mayastor::CPS_INIT!();
 }

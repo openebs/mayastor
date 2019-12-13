@@ -490,15 +490,15 @@ impl Nexus {
         success: bool,
         parent_io: *mut c_void,
     ) {
-        let mut pio = Bio::from(parent_io);
+        let mut pio = Bio(parent_io as *mut _);
 
         // if any child IO has failed record this within the io context
         if !success {
             trace!(
-                "child IO {:p} ({}) of parent {:p} failed",
-                child_io,
+                "child IO {:?} ({}) of parent {:?} failed",
+                Bio(child_io),
                 (*child_io).type_,
-                parent_io
+                pio
             );
 
             pio.io_ctx_as_mut_ref().status = io_status::FAILED;
@@ -516,19 +516,18 @@ impl Nexus {
         success: bool,
     ) {
         if !success {
-            let nexus = Bio::from(io);
-            let nexus = nexus.nexus_as_ref();
-            warn!("{}: Failed to get io buffer for io {:p}", nexus.name(), io);
-            Bio::from(io).fail();
+            let bio = Bio(io);
+            let nexus = bio.nexus_as_ref();
+            warn!("{}: Failed to get io buffer for io {:?}", nexus.name(), bio);
         }
 
         let ch = NexusChannel::inner_from_channel(ch);
         let (desc, ch) = ch.ch[ch.previous];
         let ret = Self::readv_impl(io, desc, ch);
         if ret != 0 {
-            let nexus = Bio::from(io);
-            let nexus = nexus.nexus_as_ref();
-            error!("{}: Failed to submit IO {:p}", nexus.name(), io);
+            let bio = Bio(io);
+            let nexus = bio.nexus_as_ref();
+            error!("{}: Failed to submit IO {:?}", nexus.name(), bio);
         }
     }
 
@@ -538,7 +537,7 @@ impl Nexus {
         pio: *mut spdk_bdev_io,
         channels: &mut NexusChannelInner,
     ) {
-        let mut io = Bio::from(pio);
+        let mut io = Bio(pio);
 
         // we use RR to read from the children also, set that we only need
         // to read from one child before we complete the IO to the callee.
@@ -580,7 +579,7 @@ impl Nexus {
         desc: *mut spdk_bdev_desc,
         ch: *mut spdk_io_channel,
     ) -> i32 {
-        let io = Bio::from(pio);
+        let io = Bio(pio);
         let nexus = io.nexus_as_ref();
         unsafe {
             spdk_bdev_readv_blocks(
@@ -602,7 +601,7 @@ impl Nexus {
         pio: *mut spdk_bdev_io,
         channels: &NexusChannelInner,
     ) {
-        let mut io = Bio::from(pio);
+        let mut io = Bio(pio);
         // in case of writes, we want to write to all underlying children
         io.io_ctx_as_mut_ref().in_flight = channels.ch.len() as i8;
         let results = channels
@@ -625,7 +624,7 @@ impl Nexus {
         // if any of the children failed to dispatch
         if results.iter().any(|r| *r != 0) {
             error!(
-                "{}: Failed to submit dispatched IO {:p}",
+                "{}: Failed to submit dispatched IO {:?}",
                 io.nexus_as_ref().name(),
                 pio
             );
@@ -637,7 +636,7 @@ impl Nexus {
         pio: *mut spdk_bdev_io,
         channels: &NexusChannelInner,
     ) {
-        let mut io = Bio::from(pio);
+        let mut io = Bio(pio);
         io.io_ctx_as_mut_ref().in_flight = channels.ch.len() as i8;
         let results = channels
             .ch
@@ -656,7 +655,7 @@ impl Nexus {
 
         if results.iter().any(|r| *r != 0) {
             error!(
-                "{}: Failed to submit dispatched IO {:p}",
+                "{}: Failed to submit dispatched IO {:?}",
                 io.nexus_as_ref().name(),
                 pio
             );

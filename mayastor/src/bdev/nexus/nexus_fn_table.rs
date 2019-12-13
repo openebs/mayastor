@@ -88,7 +88,7 @@ impl NexusFnTable {
         io: *mut spdk_bdev_io,
     ) {
         if let Some(io_type) = Bio::io_type(io) {
-            let mut nio = Bio::from(io);
+            let mut nio = Bio(io);
             let mut ch = NexusChannel::inner_from_channel(channel);
             let nexus = nio.nexus_as_ref();
 
