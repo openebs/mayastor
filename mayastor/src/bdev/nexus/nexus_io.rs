@@ -29,9 +29,16 @@ pub struct NioCtx {
 /// other testing performed is creating a mirror of two devices and deconstruct
 /// the mirror and mount the individual children without a nexus driver, and use
 /// filesystem checks.
-pub(crate) struct Bio {
-    pub io: *mut spdk_bdev_io,
-}
+///
+///  # Safety
+///
+/// Some notes on the io pointer:
+///
+///  1. The pointers are never freed rather, they are put back in to the mem
+/// pool in effect     accessing the pointers from rust is to be considered a
+/// mutable borrow. 2.  The IO pointers are never accessed from any other thread
+/// and care must be taken that you     never pass an IO ptr to another core
+pub(crate) struct Bio(pub *mut spdk_bdev_io);
 
 /// redefinition of IO types to make them (a) shorter and (b) get rid of the
 /// enum conversion bloat.
@@ -66,29 +73,10 @@ pub mod io_status {
     pub const SUCCESS: i32 = 1;
 }
 
-impl From<*mut spdk_bdev_io> for Bio {
-    fn from(io: *mut spdk_bdev_io) -> Self {
-        Bio {
-            io,
-        }
-    }
-}
-
-impl From<*mut c_void> for Bio {
-    fn from(io: *mut c_void) -> Self {
-        if cfg!(debug_assertions) && io.is_null() {
-            panic!("bio is NULL")
-        }
-        Bio {
-            io: io as *const _ as *mut _,
-        }
-    }
-}
-
 impl Bio {
     /// obtain tbe Bdev this IO is associated with
     pub(crate) fn bdev_as_ref(&self) -> Bdev {
-        unsafe { Bdev::from((*self.io).bdev) }
+        unsafe { Bdev::from((*self.0).bdev) }
     }
 
     /// complete an IO for the nexus. In the IO completion routine in
@@ -108,12 +96,12 @@ impl Bio {
             }
         }
 
-        unsafe { spdk_bdev_io_complete(self.io, io_status::SUCCESS) };
+        unsafe { spdk_bdev_io_complete(self.0, io_status::SUCCESS) };
     }
     /// mark the IO as failed
     #[inline]
     pub(crate) fn fail(&mut self) {
-        unsafe { spdk_bdev_io_complete(self.io, io_status::FAILED) };
+        unsafe { spdk_bdev_io_complete(self.0, io_status::FAILED) };
     }
 
     /// asses the IO if we need to mark it failed or ok.
@@ -127,8 +115,8 @@ impl Bio {
 
         if self.io_ctx_as_mut_ref().in_flight == 0 {
             if self.io_ctx_as_mut_ref().status < io_status::PENDING {
-                trace!("failing parent IO {:p} ({})", self.io, unsafe {
-                    (*self.io).type_
+                trace!("failing parent IO {:p} ({})", self.0, unsafe {
+                    (*self.0).type_
                 });
                 self.fail();
             } else {
@@ -149,7 +137,7 @@ impl Bio {
     #[inline]
     pub(crate) fn io_ctx_as_mut_ref(&mut self) -> &mut NioCtx {
         unsafe {
-            &mut *((*self.io).driver_ctx.as_mut_ptr() as *const c_void
+            &mut *((*self.0).driver_ctx.as_mut_ptr() as *const c_void
                 as *mut NioCtx)
         }
     }
@@ -157,25 +145,25 @@ impl Bio {
     /// get a raw pointer to the base of the iov
     #[inline]
     pub(crate) fn iovs(&self) -> *mut spdk_sys::iovec {
-        unsafe { (*self.io).u.bdev.iovs }
+        unsafe { (*self.0).u.bdev.iovs }
     }
 
     /// number of iovs that are part of this IO
     #[inline]
     pub(crate) fn iov_count(&self) -> i32 {
-        unsafe { (*self.io).u.bdev.iovcnt }
+        unsafe { (*self.0).u.bdev.iovcnt }
     }
 
     /// offset where we do the IO on the device
     #[inline]
     pub(crate) fn offset(&self) -> u64 {
-        unsafe { (*self.io).u.bdev.offset_blocks }
+        unsafe { (*self.0).u.bdev.offset_blocks }
     }
 
     /// num of blocks this IO will read/write/unmap
     #[inline]
     pub(crate) fn num_blocks(&self) -> u64 {
-        unsafe { (*self.io).u.bdev.num_blocks }
+        unsafe { (*self.0).u.bdev.num_blocks }
     }
 
     /// free the io directly without completion note that the IO is not freed
@@ -198,7 +186,7 @@ impl Bio {
     /// get the block length of this IO
     #[inline]
     pub(crate) fn block_len(&self) -> u64 {
-        unsafe { u64::from((*(*self.io).bdev).blocklen) }
+        unsafe { u64::from((*(*self.0).bdev).blocklen) }
     }
 
     /// determine if the IO needs an indirect buffer this can happen for example
@@ -220,10 +208,12 @@ impl Debug for Bio {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         writeln!(
             f,
-            "offset: {:?}, bytes: {:?}, type: {:?} ",
+            "bdev: {} offset: {:?}, num_blocks: {:?}, type: {:?} {:p} ",
+            self.bdev_as_ref().name(),
             self.offset(),
             self.num_blocks(),
-            Bio::io_type(self.io).unwrap()
+            Bio::io_type(self.0).unwrap(),
+            self
         )
     }
 }

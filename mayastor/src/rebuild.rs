@@ -175,6 +175,7 @@ impl RebuildTask {
         ctx: *mut c_void,
     ) {
         let task = RebuildTask::into_ctx(ctx);
+        trace!("rebuild read complete {:?}", Bio(io));
         if success {
             let _r = task.target_write_blocks(io);
         } else {
@@ -191,6 +192,8 @@ impl RebuildTask {
         ctx: *mut c_void,
     ) {
         let task = RebuildTask::into_ctx(ctx);
+
+        trace!("rebuild write complete {:?}", Bio(io));
         Bio::io_free(io);
 
         if !success {
@@ -340,7 +343,7 @@ impl RebuildTask {
         &mut self,
         io: *mut spdk_bdev_io,
     ) -> Result<(), Error> {
-        let bio = Bio::from(io);
+        let bio = Bio(io);
         let rc = unsafe {
             spdk_bdev_write_blocks(
                 self.target.desc,
