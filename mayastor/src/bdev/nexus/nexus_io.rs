@@ -30,14 +30,16 @@ pub struct NioCtx {
 /// the mirror and mount the individual children without a nexus driver, and use
 /// filesystem checks.
 ///
-///  # Safety
+/// # Safety
 ///
 /// Some notes on the io pointer:
 ///
-///  1. The pointers are never freed rather, they are put back in to the mem
-/// pool in effect     accessing the pointers from rust is to be considered a
-/// mutable borrow. 2.  The IO pointers are never accessed from any other thread
-/// and care must be taken that you     never pass an IO ptr to another core
+/// 1. The pointers are never freed rather, they are put back in to the mem
+/// pool in effect accessing the pointers from rust is to be considered a
+/// mutable borrow.
+///
+/// 2.  The IO pointers are never accessed from any other thread
+/// and care must be taken that you never pass an IO ptr to another core
 pub(crate) struct Bio(pub *mut spdk_bdev_io);
 
 /// redefinition of IO types to make them (a) shorter and (b) get rid of the
