@@ -21,6 +21,7 @@ mkShell {
     gdb
     gptfdisk
     libiscsi.bin
+    libspdk
     nodePackages.jshint
     nodePackages.prettier
     nodejs-10_x

@@ -98,6 +98,7 @@ use crate::{
     nexus_uri::{nexus_parse_uri, BdevType},
     rebuild::RebuildTask,
 };
+use futures::channel::oneshot::Sender;
 
 pub(crate) static NEXUS_PRODUCT_ID: &str = "Nexus CAS Driver v0.0.1";
 
@@ -348,7 +349,7 @@ impl Nexus {
     }
 
     /// close the nexus and any children that are open
-    pub fn close(&mut self) -> Result<NexusState, ()> {
+    pub(crate) fn destruct(&mut self) -> Result<NexusState, ()> {
         // a closed operation might already be in progress calling unregister
         // will trip an assertion within the external libraries
         if self.state == NexusState::Closed {
@@ -377,20 +378,23 @@ impl Nexus {
         Ok(self.set_state(NexusState::Closed))
     }
 
-    /// Destroy the nexus.
-    ///
-    /// NOTE: The nexus may still live after returning from this method
-    /// the close method is called from SPDK close callback any time after
-    /// the bdev unregister is called so keep this call at the end of this
-    /// method!
+    /// Destroy the nexus
     pub async fn destroy(&mut self) {
-        let _ = self.unshare().await;
+        // used to synchronize the destroy call
+        extern "C" fn nexus_destroy_cb(arg: *mut c_void, rc: i32) {
+            let s = unsafe { Box::from_raw(arg as *mut Sender<bool>) };
 
+            if rc == 0 {
+                let _ = s.send(true);
+            } else {
+                error!("failed to destroy nexus {}", rc);
+                let _ = s.send(false);
+            }
+        }
+
+        let _ = self.unshare().await;
         assert_eq!(self.share_handle, None);
 
-        // doing this in the context of nexus_close() would be better
-        // however, we cannot change the function in async there, so we
-        // do it here.
         for child in self.children.iter_mut() {
             let _ = child.close();
             info!("Destroying child bdev {}", child.name);
@@ -403,25 +407,23 @@ impl Nexus {
 
         info!("Destroying nexus {}", self.name);
 
+        let (s, r) = oneshot::channel::<bool>();
+
         unsafe {
-            // This will trigger spdk callback to close() which removes
-            // the device from global list of nexus's
-            spdk_bdev_unregister(self.bdev_raw, None, std::ptr::null_mut());
+            // This will trigger a callback to destruct() in the fn_table.
+            spdk_bdev_unregister(
+                self.bdev.inner,
+                Some(nexus_destroy_cb),
+                Box::into_raw(Box::new(s)) as *mut _,
+            );
         }
+
+        let _ = r.await;
     }
 
     /// register the bdev with SPDK and set the callbacks for io channel
     /// creation. Once this function is called, the device is visible and can
     /// be used for IO.
-    ///
-    /// The registering is implemented such that any core can call
-    /// get_io_channel from the function table. The io_channels, are
-    /// constructed on demand and that's basically what this function does.
-    ///
-    /// Each io device is registered using a io_device as a key, and/or name. In
-    /// our case, we dont actually create a channel ourselves, but we reference
-    /// channels of the underlying bdevs.
-
     pub fn register(&mut self) -> Result<(), nexus::Error> {
         if self.state != NexusState::Init {
             error!("{}: Can only call register once", self.name);
