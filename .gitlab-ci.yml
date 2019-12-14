@@ -49,12 +49,14 @@ build-mayastor:
     - nix-shell --run 'cd jsonrpc && cargo test'
     # remove cargo-config to avoid sudo for running the tests (we run as root)
     - nix-shell --run 'cd mayastor && rm .cargo/config && cargo test'
-    # reduce the artifact size
-    - find target/debug -type f ! -executable -exec rm {} +
   artifacts:
     expire_in: 1 day
     paths:
-      - target/debug/
+        - target/debug/mayastor
+        - target/debug/mayastor-agent
+        - target/debug/mayastor-client
+        - target/debug/mctl
+        - target/debug/spdk
 
 # Test mayastor grpc & cli interfaces using JS mocha test framework.
 test-mayastor:
