@@ -18,6 +18,7 @@ mkShell {
 
   buildInputs = [
     figlet
+    fio
     gdb
     gptfdisk
     libiscsi.bin

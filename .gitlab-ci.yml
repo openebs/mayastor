@@ -54,7 +54,11 @@ build-mayastor:
   artifacts:
     expire_in: 1 day
     paths:
-      - target/debug/
+        - target/debug/mayastor
+        - target/debug/mayastor-agent
+        - target/debug/mayastor-client
+        - target/debug/mctl
+        - target/debug/spdk
 
 # Test mayastor grpc & cli interfaces using JS mocha test framework.
 test-mayastor:
