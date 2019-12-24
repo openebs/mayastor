@@ -10,9 +10,11 @@ use mayastor::{
         nexus_bdev::{nexus_create, nexus_lookup},
         nexus_label::{GPTHeader, GptEntry},
     },
-    descriptor::DmaBuf,
-    environment::{args::MayastorCliArgs, env::MayastorEnvironment},
-    mayastor_stop,
+    dma::DmaBuf,
+    environment::{
+        args::MayastorCliArgs,
+        env::{mayastor_env_stop, MayastorEnvironment},
+    },
 };
 
 const HDR_GUID: &str = "322974ae-5711-874b-bfbd-1a74df4dd714";
@@ -60,7 +62,7 @@ async fn start() {
     test_known_label();
     make_nexus().await;
     label_child().await;
-    mayastor_stop(0);
+    mayastor_env_stop(0);
 }
 
 /// Test that we can deserialize a known good gpt label and parse it. After

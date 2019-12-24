@@ -2,12 +2,9 @@ use nix::errno::Errno;
 use serde::{export::Formatter, Serialize};
 use snafu::{ResultExt, Snafu};
 use spdk_sys::{
-    spdk_bdev_close,
-    spdk_bdev_desc,
     spdk_bdev_get_io_channel,
     spdk_bdev_module_claim_bdev,
     spdk_bdev_module_release_bdev,
-    spdk_bdev_open,
     spdk_io_channel,
 };
 use std::fmt::Display;
@@ -20,7 +17,8 @@ use crate::{
         },
         Bdev,
     },
-    descriptor::{Descriptor, DmaBuf, DmaError},
+    descriptor::{DescError, Descriptor},
+    dma::{DmaBuf, DmaError},
     executor::errno_result_from_i32,
     nexus_uri::{bdev_destroy, BdevError},
 };
@@ -37,7 +35,7 @@ pub enum ChildError {
     ))]
     ChildTooSmall { child_size: u64, parent_size: u64 },
     #[snafu(display("Open child"))]
-    OpenChild { source: Errno },
+    OpenChild { source: DescError },
     #[snafu(display("Claim child"))]
     ClaimChild { source: Errno },
     #[snafu(display("Child is read-only"))]
@@ -65,9 +63,9 @@ pub enum ChildError {
 #[derive(Debug, Snafu)]
 pub enum ChildIoError {
     #[snafu(display("Error writing to {}", name))]
-    WriteError { source: DmaError, name: String },
+    WriteError { source: DescError, name: String },
     #[snafu(display("Error reading from {}", name))]
-    ReadError { source: DmaError, name: String },
+    ReadError { source: DescError, name: String },
     #[snafu(display("Invalid descriptor for child bdev {}", name))]
     InvalidDescriptor { name: String },
 }
@@ -111,14 +109,12 @@ pub struct NexusChild {
     /// the bdev wrapped in Bdev
     pub(crate) bdev: Option<Bdev>,
     #[serde(skip_serializing)]
-    /// descriptor obtained after opening a device
-    pub(crate) desc: *mut spdk_bdev_desc,
-    #[serde(skip_serializing)]
     /// channel on which we submit the IO
     pub(crate) ch: *mut spdk_io_channel,
     /// current state of the child
     pub(crate) state: ChildState,
     pub(crate) repairing: bool,
+    /// descriptor obtained after opening a device
     #[serde(skip_serializing)]
     pub(crate) descriptor: Option<Rc<Descriptor>>,
 }
@@ -172,46 +168,30 @@ impl NexusChild {
                 });
             }
 
-            let mut errno = unsafe {
-                spdk_bdev_open(
-                    bdev.inner,
-                    true,
-                    None,
-                    std::ptr::null_mut(),
-                    &mut self.desc,
-                )
+            // used for internal IOs like updating labels
+            let desc = match Descriptor::open(bdev, true) {
+                Ok(desc) => desc,
+                Err(err) => {
+                    self.state = ChildState::Faulted;
+                    return Err(err).context(OpenChild {});
+                }
             };
 
-            if let Err(err) = errno_result_from_i32((), errno) {
-                self.state = ChildState::Faulted;
-                self.desc = std::ptr::null_mut();
-                return Err(err).context(OpenChild {});
-            }
-
-            errno = unsafe {
+            // TODO: This should be a method in bdev module
+            let errno = unsafe {
                 spdk_bdev_module_claim_bdev(
                     bdev.inner,
-                    self.desc,
+                    desc.as_ptr(),
                     &NEXUS_MODULE.module as *const _ as *mut _,
                 )
             };
-
             if let Err(err) = errno_result_from_i32((), errno) {
                 self.state = ChildState::Faulted;
-                unsafe {
-                    spdk_bdev_close(self.desc);
-                }
-                self.desc = std::ptr::null_mut();
                 return Err(err).context(ClaimChild {});
             }
 
+            self.descriptor = Some(Rc::new(desc));
             self.state = ChildState::Open;
-
-            // used for internal IOS like updating labels
-            self.descriptor = Some(Rc::new(Descriptor {
-                desc: self.desc,
-                ch: self.get_io_channel(),
-            }));
 
             debug!("{}: child {} opened successfully", self.parent, self.name);
 
@@ -246,10 +226,15 @@ impl NexusChild {
         self.state
     }
 
-    /// called to get a channel to this child
-    pub(crate) fn get_io_channel(&self) -> *mut spdk_io_channel {
-        assert_ne!(self.state, ChildState::Closed);
-        unsafe { spdk_bdev_get_io_channel(self.desc) }
+    /// Called to get IO channel to this child.
+    /// Returns None of the child has not been opened.
+    pub(crate) fn get_io_channel(&self) -> Option<*mut spdk_io_channel> {
+        match &self.descriptor {
+            Some(desc) => unsafe {
+                Some(spdk_bdev_get_io_channel(desc.as_ptr()))
+            },
+            None => None,
+        }
     }
 
     /// create a new nexus child
@@ -258,7 +243,6 @@ impl NexusChild {
             name,
             bdev,
             parent,
-            desc: std::ptr::null_mut(),
             ch: std::ptr::null_mut(),
             state: ChildState::Init,
             descriptor: None,

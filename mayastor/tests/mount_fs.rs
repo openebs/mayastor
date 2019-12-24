@@ -6,8 +6,10 @@ use mayastor::{
         nexus_bdev::{nexus_create, nexus_lookup},
         nexus_io,
     },
-    environment::{args::MayastorCliArgs, env::MayastorEnvironment},
-    mayastor_stop,
+    environment::{
+        args::MayastorCliArgs,
+        env::{mayastor_env_stop, MayastorEnvironment},
+    },
 };
 
 static DISKNAME1: &str = "/tmp/disk1.img";
@@ -160,5 +162,5 @@ async fn works() {
     mount_unmount().await;
     run_fio_on_nexus().await;
 
-    mayastor_stop(0);
+    mayastor_env_stop(0);
 }

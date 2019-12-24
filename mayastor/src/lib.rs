@@ -10,7 +10,7 @@ extern crate serde;
 extern crate serde_json;
 extern crate snafu;
 extern crate spdk_sys;
-use crate::environment::env::*;
+
 use env_logger::{Builder, Env};
 use log::{logger, Level, Record};
 use spdk_sys::{
@@ -19,6 +19,7 @@ use spdk_sys::{
     spdk_app_opts_init,
     spdk_app_parse_args,
     spdk_app_start,
+    spdk_app_stop,
     spdk_log_get_print_level,
 };
 use std::{
@@ -38,6 +39,7 @@ use std::{
 pub mod aio_dev;
 pub mod bdev;
 pub mod descriptor;
+pub mod dma;
 pub mod environment;
 pub mod event;
 pub mod executor;
@@ -117,9 +119,8 @@ extern "C" fn log_impl(
 /// We might want to suppress certain messages, as some of them are redundant,
 /// in particular, the NOTICE messages as such, they are mapped to debug.
 pub fn mayastor_logger_init(level: &str) {
-    let filter_expr = format!("{}={}", module_path!(), level);
     let mut builder =
-        Builder::from_env(Env::default().default_filter_or(filter_expr));
+        Builder::from_env(Env::default().default_filter_or(level.to_string()));
 
     builder.format(|buf, record| {
         let mut level_style = buf.default_level_style(record.level());
@@ -141,9 +142,10 @@ pub fn mayastor_logger_init(level: &str) {
     builder.init();
 }
 
-// A callback to print help for extra options that we use.
-// TODO: This will be closure provided by app writer when we add
-// support for specifying extra arguments.
+/// A callback to print help for extra options that we use.
+/// Mayastor app does not use it because it has it's own code to initialize
+/// spdk env. This is used only by legacy apps, which don't have any extra
+/// options.
 extern "C" fn usage() {
     // i.e. println!(" -f <path>                 save pid to this file");
 }
@@ -152,9 +154,12 @@ extern "C" fn usage() {
 /// The application code is a closure passed as argument and called
 /// when spdk initialization is done.
 ///
-/// TODO: When needed add possibility to specify additional program
-/// arguments (current workaround is to use env variables).
-#[deprecated]
+/// This function relies on spdk argument parser. Extra parameters can be
+/// passed in environment variables.
+///
+/// NOTE: Should be used only for test and utility programs which don't
+/// require custom argument parser. Otherwise use mayastor environment
+/// module.
 pub fn mayastor_start<T, F>(name: &str, mut args: Vec<T>, start_cb: F) -> i32
 where
     T: Into<Vec<u8>>,
@@ -208,7 +213,7 @@ where
     }
 
     opts.name = CString::new(name).unwrap().into_raw();
-    //opts.shutdown_cb = Some(mayastor_shutdown_cb);
+    opts.shutdown_cb = Some(mayastor_shutdown_cb);
 
     // set the function pointer to use our maya_log function which is statically
     // linked into the sys create
@@ -294,31 +299,19 @@ where
 }
 
 /// Cleanly exit from the program.
-/// NOTE: cannot be called from a future -> double borrow of executor.
+/// NOTE: Use only on programs started by mayastor_start.
 pub fn mayastor_stop(rc: i32) -> i32 {
-    if rc != 0 {
-        warn!("Mayastor stopped non-zero: {}", rc);
-    }
-
-    *GLOBAL_RC.lock().unwrap() = rc;
-
     iscsi_target::fini_iscsi();
     let fut = async move {
         if let Err(msg) = nvmf_target::fini_nvmf().await {
             error!("Failed to finalize nvmf target: {}", msg);
         }
     };
-    executor::stop(
-        fut,
-        Box::new(|| unsafe {
-            spdk_rpc_finish();
-            spdk_subsystem_fini(Some(spdk_reactors_stop), std::ptr::null_mut());
-        }),
-    );
+    executor::stop(fut, Box::new(move || unsafe { spdk_app_stop(rc) }));
     rc
 }
 
 /// A callback called by spdk when it is shutting down.
-unsafe extern "C" fn mayastor_shutdown_cb(arg: *mut c_void) {
-    mayastor_stop(arg as i32);
+unsafe extern "C" fn mayastor_shutdown_cb() {
+    mayastor_stop(0);
 }

@@ -105,7 +105,7 @@ pub fn nexus_uri_parse_vec(
 }
 
 /// Parse the given URI into a ChildBdev
-pub fn nexus_parse_uri(uri: &str) -> Result<BdevType, BdevError> {
+fn nexus_parse_uri(uri: &str) -> Result<BdevType, BdevError> {
     let parsed_uri = Url::parse(uri).context(UriInvalid {
         uri: uri.to_owned(),
     })?;

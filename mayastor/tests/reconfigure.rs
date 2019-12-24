@@ -4,12 +4,15 @@ use std::process::Command;
 
 use mayastor::{
     bdev::{
+        bdev_lookup_by_name,
         nexus::nexus_bdev::{nexus_create, nexus_lookup, NexusState},
         Bdev,
     },
     descriptor::Descriptor,
-    environment::{args::MayastorCliArgs, env::MayastorEnvironment},
-    mayastor_stop,
+    environment::{
+        args::MayastorCliArgs,
+        env::{mayastor_env_stop, MayastorEnvironment},
+    },
 };
 
 static DISKNAME1: &str = "/tmp/disk1.img";
@@ -78,23 +81,28 @@ async fn works() {
     let nexus = nexus_lookup("hello").unwrap();
 
     // open the nexus in read write
-    let nd = Descriptor::open("hello", true).expect("failed open bdev");
+    let nd_bdev = bdev_lookup_by_name("hello").expect("failed to lookup bdev");
+    let nd = Descriptor::open(&nd_bdev, true).expect("failed open bdev");
     assert_eq!(nexus.status(), NexusState::Online);
     // open the children in RO
 
-    let cd1 = Descriptor::open(&child1, false).expect("failed open bdev");
-    let cd2 = Descriptor::open(&child2, false).expect("failed open bdev");
+    let cd1_bdev =
+        bdev_lookup_by_name(BDEVNAME1).expect("failed to lookup bdev");
+    let cd2_bdev =
+        bdev_lookup_by_name(BDEVNAME2).expect("failed to lookup bdev");
+    let cd1 = Descriptor::open(&cd1_bdev, false).expect("failed open bdev");
+    let cd2 = Descriptor::open(&cd2_bdev, false).expect("failed open bdev");
 
     let bdev1 = cd1.get_bdev();
     let bdev2 = cd2.get_bdev();
 
     // write out a region of blocks to ensure a specific data pattern
-    let mut buf = nd.dma_zmalloc(4096).expect("failed to allocate buffer");
+    let mut buf = nd.dma_malloc(4096).expect("failed to allocate buffer");
     buf.fill(0xff);
 
     // allocate buffer for child to read
-    let mut buf1 = cd1.dma_zmalloc(4096).unwrap();
-    let mut buf2 = cd2.dma_zmalloc(4096).unwrap();
+    let mut buf1 = cd1.dma_malloc(4096).unwrap();
+    let mut buf2 = cd2.dma_malloc(4096).unwrap();
 
     // write out 0xff to the nexus, all children should have the same
     for i in 0 .. 10 {
@@ -181,9 +189,9 @@ async fn works() {
             .for_each(drop);
     }
 
-    cd1.close();
-    cd2.close();
-    nd.close();
+    drop(cd1);
+    drop(cd2);
+    drop(nd);
 
-    mayastor_stop(0);
+    mayastor_env_stop(0);
 }

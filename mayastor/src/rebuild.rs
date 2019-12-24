@@ -14,7 +14,8 @@ use crate::{
         nexus_bdev::{nexus_lookup, NexusState},
         nexus_io::Bio,
     },
-    descriptor::{Descriptor, DmaBuf, DmaError},
+    descriptor::Descriptor,
+    dma::{DmaBuf, DmaError},
     event::MayaCtx,
     executor::errno_result_from_i32,
     poller::{register_poller, PollTask},
@@ -331,9 +332,9 @@ impl RebuildTask {
     ) -> Result<RebuildState, Error> {
         let errno = unsafe {
             spdk_bdev_read_blocks(
-                self.source.desc,
-                self.source.ch,
-                self.buf.buf,
+                self.source.as_ptr(),
+                self.source.channel(),
+                *self.buf,
                 self.current_lba,
                 num_blocks as u64,
                 Some(Self::read_complete),
@@ -366,9 +367,9 @@ impl RebuildTask {
         let bio = Bio(io);
         let errno = unsafe {
             spdk_bdev_write_blocks(
-                self.target.desc,
-                self.target.ch,
-                self.buf.buf,
+                self.target.as_ptr(),
+                self.target.channel(),
+                *self.buf,
                 bio.offset(),
                 bio.num_blocks(),
                 Some(Self::write_complete),

@@ -32,7 +32,7 @@
 //!
 //! // only use DMA buffers to issue IO, as its a member of the opened device
 //! // alignment is handled implicitly
-//! let mut buf = bd.dma_zmalloc(4096).unwrap();
+//! let mut buf = bd.dma_malloc(4096).unwrap();
 //!
 //! // fill the buffer with a know value
 //! buf.fill(0xff);
@@ -75,7 +75,7 @@ use crate::{
         },
         Bdev,
     },
-    descriptor::{DmaBuf, DmaError},
+    dma::{DmaBuf, DmaError},
     executor::errno_result_from_i32,
     jsonrpc::{Code, RpcErrorCode},
     nexus_uri::BdevError,

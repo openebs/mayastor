@@ -51,8 +51,6 @@ use crate::{
     executor,
     iscsi_target,
     log_impl,
-    mayastor_shutdown_cb,
-    mayastor_stop,
     nvmf_target,
     pool,
     replica,
@@ -175,16 +173,40 @@ impl Default for MayastorEnvironment {
     }
 }
 
-/// main shutdown routine for mayastor
-pub extern "C" fn mayastor_env_stop(rc: i32) {
-    INIT_THREAD.with(|t| unsafe {
-        use spdk_sys::*;
-        let t = t.get().unwrap();
-        spdk_set_thread(t.0);
+/// The actual routine which does the mayastor shutdown.
+/// Must be called on the same thread which did the init.
+extern "C" fn _mayastor_shutdown_cb(arg: *mut c_void) {
+    let rc = arg as i32;
 
-        spdk_thread_send_msg(
+    if rc != 0 {
+        warn!("Mayastor stopped non-zero: {}", rc);
+    }
+
+    *GLOBAL_RC.lock().unwrap() = rc;
+
+    iscsi_target::fini_iscsi();
+    let fut = async move {
+        if let Err(msg) = nvmf_target::fini_nvmf().await {
+            error!("Failed to finalize nvmf target: {}", msg);
+        }
+    };
+    executor::stop(
+        fut,
+        Box::new(|| unsafe {
+            spdk_rpc_finish();
+            spdk_subsystem_fini(Some(spdk_reactors_stop), std::ptr::null_mut());
+        }),
+    );
+}
+
+/// main shutdown routine for mayastor
+pub fn mayastor_env_stop(rc: i32) {
+    INIT_THREAD.with(|t| unsafe {
+        let t = t.get().unwrap();
+        spdk_sys::spdk_set_thread(t.0);
+        spdk_sys::spdk_thread_send_msg(
             t.0,
-            Some(mayastor_shutdown_cb),
+            Some(_mayastor_shutdown_cb),
             rc as *const c_void as *mut c_void,
         );
     });
@@ -461,7 +483,7 @@ impl MayastorEnvironment {
                     Ok(val) => val,
                     Err(_) => {
                         error!("Invalid IP address: MY_POD_IP={}", val);
-                        mayastor_stop(-1);
+                        mayastor_env_stop(-1);
                         return Err(EnvError::InitLog);
                     }
                 };
@@ -480,7 +502,7 @@ impl MayastorEnvironment {
         executor::spawn(async move {
             if let Err(msg) = nvmf_target::init_nvmf(&address).await {
                 error!("Failed to initialize Mayastor nvmf target: {}", msg);
-                mayastor_stop(-1);
+                mayastor_env_stop(-1);
             }
         });
 

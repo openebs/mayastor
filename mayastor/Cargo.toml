@@ -12,6 +12,10 @@ path = "src/bin/main.rs"
 name = "spdk"
 path = "src/bin/spdk.rs"
 
+[[bin]]
+name = "initiator"
+path = "src/bin/initiator.rs"
+
 [dependencies]
 assert_matches = "1.3.0"
 bincode = "1.2.0"

@@ -92,9 +92,14 @@ impl NexusChannelInner {
             .map(|c| {
                 info!(
                     "{}: Getting new channel for child {} desc {:p}",
-                    c.parent, c.name, c.desc
+                    c.parent,
+                    c.name,
+                    c.descriptor.as_ref().unwrap().as_ptr()
                 );
-                self.ch.push((c.desc, c.get_io_channel()))
+                self.ch.push((
+                    c.descriptor.as_ref().unwrap().as_ptr(),
+                    c.get_io_channel().unwrap(),
+                ))
             })
             .for_each(drop);
 
@@ -126,7 +131,12 @@ impl NexusChannel {
             .children
             .iter_mut()
             .filter(|c| c.state == ChildState::Open)
-            .map(|c| channels.ch.push((c.desc, c.get_io_channel())))
+            .map(|c| {
+                channels.ch.push((
+                    c.descriptor.as_ref().unwrap().as_ptr(),
+                    c.get_io_channel().unwrap(),
+                ))
+            })
             .for_each(drop);
         ch.inner = Box::into_raw(channels);
         0

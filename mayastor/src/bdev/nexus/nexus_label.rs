@@ -72,7 +72,7 @@ use crate::{
         nexus_bdev::Nexus,
         nexus_child::{ChildError, ChildIoError},
     },
-    descriptor::{DmaBuf, DmaError},
+    dma::{DmaBuf, DmaError},
 };
 
 #[derive(Debug, Snafu)]

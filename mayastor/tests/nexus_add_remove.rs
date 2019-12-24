@@ -6,8 +6,10 @@ use mayastor::{
         instances,
         nexus_bdev::{nexus_create, nexus_lookup, Error, NexusState},
     },
-    environment::{args::MayastorCliArgs, env::MayastorEnvironment},
-    mayastor_stop,
+    environment::{
+        args::MayastorCliArgs,
+        env::{mayastor_env_stop, MayastorEnvironment},
+    },
     rebuild::RebuildState,
 };
 
@@ -242,5 +244,5 @@ async fn works() {
     nexus_remove_5().await;
 
     rebuild_should_error().await;
-    mayastor_stop(0);
+    mayastor_env_stop(0);
 }

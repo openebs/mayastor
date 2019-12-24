@@ -1,7 +1,9 @@
 use mayastor::{
     bdev::nexus::nexus_bdev::{nexus_create, nexus_lookup, NexusState},
-    environment::{args::MayastorCliArgs, env::MayastorEnvironment},
-    mayastor_stop,
+    environment::{
+        args::MayastorCliArgs,
+        env::{mayastor_env_stop, MayastorEnvironment},
+    },
     poller::SetTimeout,
 };
 
@@ -52,7 +54,7 @@ async fn works() {
         |nexus: String| {
             let n = nexus_lookup(&nexus).unwrap();
             assert_eq!(n.status(), NexusState::Online);
-            mayastor_stop(0);
+            mayastor_env_stop(0);
         },
         5_000_000,
     );
