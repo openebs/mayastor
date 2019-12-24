@@ -1,6 +1,7 @@
 self: super: {
   libiscsi = super.callPackage ./pkgs/libiscsi {};
   nvme-cli = super.callPackage ./pkgs/nvme-cli {};
+  nvmet-cli = super.callPackage ./pkgs/nvmet-cli {};
   libspdk = super.callPackage ./pkgs/libspdk {};
   mayastor = (super.callPackage ./pkgs/mayastor {}).mayastor;
   mayastorImage = (super.callPackage ./pkgs/mayastor {}).mayastorImage;
