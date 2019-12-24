@@ -53,6 +53,7 @@ impl Mthread {
                 done = true
             }
         }
+        unsafe { spdk_set_thread(std::ptr::null_mut()) };
         self
     }
 }

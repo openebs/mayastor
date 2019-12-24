@@ -15,10 +15,16 @@ use sysfs;
 mayastor::CPS_INIT!();
 
 fn main() -> Result<(), std::io::Error> {
-    // setup our logger first
-    mayastor_logger_init("TRACE");
-
     let args = MayastorCliArgs::from_args();
+
+    // setup our logger first if -L is passed, raise the log level
+    // automatically. trace maps to debug at FFI level. If RUST_LOG is
+    // passed, we will use it regardless.
+    if !args.log_components.is_empty() {
+        mayastor_logger_init("TRACE");
+    } else {
+        mayastor_logger_init("INFO");
+    }
 
     let hugepage_path = Path::new("/sys/kernel/mm/hugepages/hugepages-2048kB");
     let nr_pages: u32 = sysfs::parse_value(&hugepage_path, "nr_hugepages")?;
