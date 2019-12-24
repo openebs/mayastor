@@ -30,6 +30,9 @@ fn parse_mb(src: &str) -> Result<i32, String> {
 )]
 
 pub struct MayastorCliArgs {
+    #[structopt(short = "j")]
+    /// Path to JSON formatted config file
+    pub json: Option<String>,
     #[structopt(short = "c")]
     /// Path to the configuration file if any
     pub config: Option<String>,
@@ -65,6 +68,7 @@ impl Default for MayastorCliArgs {
             no_pci: true,
             log_components: vec![],
             config: None,
+            json: None,
         }
     }
 }

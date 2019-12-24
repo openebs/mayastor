@@ -31,11 +31,7 @@ fn nexus_add_remove() {
 
     let rc = MayastorEnvironment::new(MayastorCliArgs {
         reactor_mask: "0x3".into(),
-        mem_size: 0,
-        rpc_address: "".to_string(),
-        no_pci: true,
-        config: None,
-        log_components: vec!["thread".into()],
+        ..Default::default()
     })
     .start(|| mayastor::executor::spawn(works()))
     .unwrap();
@@ -246,6 +242,5 @@ async fn works() {
     nexus_remove_5().await;
 
     rebuild_should_error().await;
-    //mayastor_env_stop(0);
     mayastor_stop(0);
 }

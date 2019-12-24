@@ -39,6 +39,7 @@ use spdk_sys::{
     spdk_pci_addr,
     spdk_rpc_set_state,
     spdk_thread_create,
+    SPDK_LOG_DEBUG,
     SPDK_LOG_INFO,
     SPDK_RPC_RUNTIME,
 };
@@ -72,6 +73,12 @@ lazy_static! {
 extern "C" {
     pub fn rte_eal_init(argc: i32, argv: *mut *mut libc::c_char) -> i32;
     pub fn rte_log_set_level(_type: i32, level: i32) -> i32;
+    pub fn spdk_app_json_config_load(
+        file: *const c_char,
+        addr: *const c_char,
+        cb: Option<extern "C" fn(i32, *mut c_void)>,
+        args: *mut c_void,
+    );
     pub fn spdk_env_dpdk_post_init(legacy_mem: bool) -> i32;
     pub fn spdk_env_fini();
     pub fn spdk_log_close();
@@ -115,7 +122,7 @@ pub struct MayastorEnvironment {
     env_context: String,
     hugedir: String,
     hugepage_single_segments: bool,
-    json_config_file: String,
+    json_config_file: Option<String>,
     master_core: i32,
     mem_channel: i32,
     mem_size: i32,
@@ -145,7 +152,7 @@ impl Default for MayastorEnvironment {
             env_context: String::new(),
             hugedir: String::new(),
             hugepage_single_segments: false,
-            json_config_file: "".to_string(),
+            json_config_file: None,
             master_core: -1,
             mem_channel: -1,
             mem_size: -1,
@@ -194,11 +201,12 @@ extern "C" fn mayastor_signal_handler(signo: i32) {
 impl MayastorEnvironment {
     pub fn new(args: MayastorCliArgs) -> Self {
         Self {
-            reactor_mask: args.reactor_mask,
-            no_pci: args.no_pci,
             config: args.config,
+            json_config_file: args.json,
             log_component: args.log_components,
             mem_size: args.mem_size,
+            no_pci: args.no_pci,
+            reactor_mask: args.reactor_mask,
             rpc_addr: args.rpc_address,
             ..Default::default()
         }
@@ -418,7 +426,14 @@ impl MayastorEnvironment {
     }
 
     /// initialize the logging subsystem
-    fn init_logger(&self) -> Result<()> {
+    fn init_logger(&mut self) -> Result<()> {
+        // if log flags are specified increase the loglevel and print level.
+        if !self.log_component.is_empty() {
+            warn!("Increasing debug and print level ...");
+            self.debug_level = SPDK_LOG_DEBUG;
+            self.print_level = SPDK_LOG_DEBUG;
+        }
+
         unsafe {
             for flag in &self.log_component {
                 let cflag = CString::new(flag.clone()).unwrap();
@@ -437,7 +452,9 @@ impl MayastorEnvironment {
         Ok(())
     }
 
-    pub fn target_init(&self) -> Result<(), EnvError> {
+    /// We implement our own default target init code here. Note that if there
+    /// is an existing target we will fail the init process.
+    extern "C" fn target_init() -> Result<(), EnvError> {
         let address = match env::var("MY_POD_IP") {
             Ok(val) => {
                 let _ipv4: Ipv4Addr = match val.parse() {
@@ -454,7 +471,7 @@ impl MayastorEnvironment {
         };
 
         if let Err(msg) = iscsi_target::init_iscsi(&address) {
-            error!("Failed to initialize Mayastor iscsi: {}", msg);
+            error!("Failed to initialize Mayastor iSCSI target: {}", msg);
             return Err(EnvError::InitTarget {
                 target: "iscsi".into(),
             });
@@ -470,8 +487,24 @@ impl MayastorEnvironment {
         Ok(())
     }
 
+    extern "C" fn start_rpc(rc: i32, arg: *mut c_void) {
+        if arg.is_null() || rc != 0 {
+            panic!("Failed to initialize subsystems: {}", rc);
+        }
+
+        let rpc = unsafe { CString::from_raw(arg as _) };
+
+        info!("RPC server listening at: {}", rpc.to_str().unwrap());
+        unsafe {
+            spdk_rpc_initialize(arg as *mut i8);
+            spdk_rpc_set_state(SPDK_RPC_RUNTIME);
+        };
+
+        Self::target_init().unwrap();
+    }
+
     /// start mayastor and call f when all is setup.
-    pub fn start<F>(&self, f: F) -> Result<i32>
+    pub fn start<F>(&mut self, f: F) -> Result<i32>
     where
         F: FnOnce(),
     {
@@ -492,24 +525,33 @@ impl MayastorEnvironment {
         self.init_main_thread()?;
 
         // init the subsystems and RPC server, this must be done in context of
-        // the "stackless" threads and before we start the executor
+        // the "stackless" threads.
         INIT_THREAD.with(|t| {
             let mt = t.get().unwrap();
 
             mt.with(|| unsafe {
-                // unfortunately, some globals are set and touched that deal
-                // with, among others iSCSI configuration, so we need to call
-                // this subsystem init function for now with an
-                // empty callback.
+                // all futures will be executed from the management thread
+                // (mm_thread)
+                executor::start();
 
-                extern "C" fn silly(_rc: i32, _arg: *mut c_void) {}
-
-                spdk_subsystem_init(Some(silly), std::ptr::null_mut());
-
-                // start the RCP server
                 let rpc = CString::new(self.rpc_addr.as_str()).unwrap();
-                spdk_rpc_initialize(rpc.as_ptr() as *mut i8);
-                spdk_rpc_set_state(SPDK_RPC_RUNTIME);
+
+                if let Some(ref json) = self.json_config_file {
+                    info!("Loading JSON configuration file");
+
+                    let jsonfile = CString::new(json.as_str()).unwrap();
+                    spdk_app_json_config_load(
+                        jsonfile.as_ptr(),
+                        rpc.as_ptr(),
+                        Some(Self::start_rpc),
+                        rpc.into_raw() as _,
+                    );
+                } else {
+                    spdk_subsystem_init(
+                        Some(Self::start_rpc),
+                        rpc.into_raw() as _,
+                    );
+                }
 
                 if let Some(_key) = env::var_os("DELAY") {
                     warn!("*** Delaying reactor every 1000us ***");
@@ -522,20 +564,16 @@ impl MayastorEnvironment {
             });
         });
 
-        executor::start();
         pool::register_pool_methods();
         replica::register_replica_methods();
 
-        self.target_init()?;
-        // dispatch our callback nothing really gets executed just yet, right
-        // now the cb does not accept a return type.
         f();
 
         unsafe {
             // will block the main thread until we exit
             spdk_reactors_start();
 
-            info!("main unblocked...");
+            info!("Finalizing Mayastor shutdown...");
             spdk_reactors_fini();
             spdk_env_fini();
             spdk_log_close();
