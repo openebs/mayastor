@@ -6,7 +6,7 @@ use std::path::Path;
 use git_version::git_version;
 use mayastor::{
     environment::{args::MayastorCliArgs, env::MayastorEnvironment},
-    mayastor_logger_init,
+    logger,
 };
 
 use structopt::StructOpt;
@@ -21,9 +21,9 @@ fn main() -> Result<(), std::io::Error> {
     // automatically. trace maps to debug at FFI level. If RUST_LOG is
     // passed, we will use it regardless.
     if !args.log_components.is_empty() {
-        mayastor_logger_init("TRACE");
+        logger::init("TRACE");
     } else {
-        mayastor_logger_init("INFO");
+        logger::init("INFO");
     }
 
     let hugepage_path = Path::new("/sys/kernel/mm/hugepages/hugepages-2048kB");

@@ -50,7 +50,7 @@ use crate::{
     event::Mthread,
     executor,
     iscsi_target,
-    log_impl,
+    logger,
     nvmf_target,
     pool,
     replica,
@@ -469,7 +469,7 @@ impl MayastorEnvironment {
             // open our log implementation which is implemented in the wrapper
             spdk_log_open(Some(maya_log));
             // our callback called defined in rust called by our wrapper
-            spdk_sys::logfn = Some(log_impl);
+            spdk_sys::logfn = Some(logger::log_impl);
         }
         Ok(())
     }
