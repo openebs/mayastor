@@ -7,14 +7,13 @@ extern crate log;
 
 use clap::{App, Arg, SubCommand};
 use mayastor::{
+    app,
     bdev::{bdev_lookup_by_name, Bdev},
     descriptor::{DescError, Descriptor},
     dma::{DmaBuf, DmaError},
     executor,
     jsonrpc::print_error_chain,
-    mayastor_logger_init,
-    mayastor_start,
-    mayastor_stop,
+    logger,
     nexus_uri::{bdev_create, BdevError},
 };
 use std::{
@@ -144,7 +143,7 @@ fn main() {
                 .index(1)))
         .get_matches();
 
-    mayastor_logger_init("INFO");
+    logger::init("INFO");
 
     let uri = matches.value_of("URI").unwrap().to_owned();
     let offset: u64 = match matches.value_of("offset") {
@@ -152,7 +151,7 @@ fn main() {
         None => 0,
     };
 
-    let rc = mayastor_start("initiator", ["-s", "128"].to_vec(), move || {
+    let rc = app::start("initiator", ["-s", "128"].to_vec(), move || {
         let fut = async move {
             let res = if let Some(matches) = matches.subcommand_matches("read")
             {
@@ -168,7 +167,7 @@ fn main() {
             } else {
                 0
             };
-            mayastor_stop(rc);
+            app::stop(rc);
         };
         executor::spawn(fut);
     });

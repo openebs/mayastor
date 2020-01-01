@@ -1,5 +1,9 @@
 //! Logger implementation for standard rust log module piping all log messages
 //! to spdk logger. Some code here has been borrowed from stderr rust logger.
+//!
+//! NOTE: It is not used anymore as instead of sending log messages to spdk
+//! we send them from spdk to rust which has greater capabilities (i.e. colored
+//! output).
 
 use log::{Level, LevelFilter, Log, Metadata, Record};
 use std::ffi::CString;

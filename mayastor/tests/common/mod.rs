@@ -1,9 +1,9 @@
-use mayastor::mayastor_logger_init;
+use mayastor::logger;
 use run_script::{self, ScriptOptions};
 use std::{env, io, io::Write, process::Command};
 
 pub fn mayastor_test_init() {
-    mayastor_logger_init("TRACE");
+    logger::init("DEBUG");
     env::set_var("MAYASTOR_LOGLEVEL", "4");
     mayastor::CPS_INIT!();
 }
