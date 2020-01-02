@@ -36,7 +36,6 @@ where
     H: FnOnce(Request) -> Vec<u8> + 'static + Send,
     T: FnOnce(Result<R, Error>) -> () + panic::UnwindSafe,
 {
-
     let sock = format!("{}.{:?}", SOCK_PATH, std::thread::current().id());
     let sock_path = Path::new(&sock);
     // Cleanup should be called at all places where we exit from this function
@@ -121,7 +120,8 @@ async fn normal_request_reply() {
             }
             Err(err) => panic!(format!("{}", err)),
         },
-        ).await;
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -144,7 +144,8 @@ async fn invalid_json() {
             Err(Error::ParseError(_)) => (),
             Err(err) => panic!(format!("Wrong error type: {}", err)),
         },
-    ).await;
+    )
+    .await;
 }
 
 #[test]
@@ -187,7 +188,8 @@ async fn invalid_version() {
             Err(Error::InvalidVersion) => (),
             Err(err) => panic!(format!("Wrong error type: {}", err)),
         },
-    ).await;
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -209,7 +211,8 @@ async fn missing_version() {
             Ok(_) => (),
             Err(err) => panic!(format!("{}", err)),
         },
-    ).await;
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -232,7 +235,8 @@ async fn wrong_reply_id() {
             Err(Error::InvalidReplyId) => (),
             Err(err) => panic!(format!("Wrong error type: {}", err)),
         },
-    ).await;
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -255,7 +259,8 @@ async fn empty_result_unexpected() {
             Err(Error::ParseError(_)) => (),
             Err(err) => panic!(format!("Wrong error type: {}", err)),
         },
-    ).await;
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -277,7 +282,8 @@ async fn empty_result_expected() {
             Ok(_) => (),
             Err(err) => panic!(format!("Unexpected error {}", err)),
         },
-    ).await;
+    )
+    .await;
 }
 
 #[tokio::test]
@@ -310,5 +316,6 @@ async fn rpc_error() {
             }
             Err(err) => panic!(format!("Wrong error type: {}", err)),
         },
-        ).await;
+    )
+    .await;
 }

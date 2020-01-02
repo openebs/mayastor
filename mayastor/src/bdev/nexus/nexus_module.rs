@@ -75,7 +75,7 @@ impl NexusModule {
     }
 
     /// obtain a pointer to the raw bdev module
-    pub fn current() -> Option<Self> {
+    pub fn current() -> Option<*mut spdk_bdev_module> {
         let c_name = std::ffi::CString::new(NEXUS_NAME).unwrap();
         let module =
             unsafe { spdk_sys::spdk_bdev_module_list_find(c_name.as_ptr()) };
@@ -83,7 +83,7 @@ impl NexusModule {
         if module.is_null() {
             None
         } else {
-            Some(NexusModule::from(module))
+            Some(module)
         }
     }
 

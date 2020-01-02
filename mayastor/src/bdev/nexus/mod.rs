@@ -2,9 +2,9 @@
 use crate::bdev::nexus::{
     nexus_bdev::Nexus,
     nexus_fn_table::NexusFnTable,
-    nexus_module::NexusModule,
     nexus_rpc::register_rpc_methods,
 };
+use spdk_sys::spdk_bdev_module;
 
 pub mod nexus_bdev;
 pub mod nexus_bdev_children;
@@ -27,7 +27,7 @@ pub fn register_module() {
 }
 
 /// get a reference to the module
-pub fn module() -> Option<NexusModule> {
+pub fn module() -> Option<*mut spdk_bdev_module> {
     nexus_module::NexusModule::current()
 }
 
