@@ -6,7 +6,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use once_cell::sync::{OnceCell, Lazy};
+use once_cell::sync::{Lazy, OnceCell};
 
 use nix::sys::{
     signal,
@@ -46,27 +46,98 @@ use spdk_sys::{
 };
 
 use crate::{
+    core::event::Mthread,
     delay,
-    environment::args::MayastorCliArgs,
-    event::Mthread,
     executor,
-    iscsi_target,
     logger,
-    nvmf_target,
     pool,
     replica,
+    target,
 };
+use byte_unit::{Byte, ByteUnit};
+use structopt::StructOpt;
+
+fn parse_mb(src: &str) -> Result<i32, String> {
+    // For compatibility, we check to see if there are no alphabetic characters
+    // passed in, if, so we interpret the value to be in MiB which is what the
+    // EAL expects it to be in.
+
+    let has_unit = src.trim_end().chars().any(|c| c.is_alphabetic());
+
+    if let Ok(val) = Byte::from_str(src) {
+        let value;
+        if has_unit {
+            value = val.get_adjusted_unit(ByteUnit::MiB).get_value() as i32
+        } else {
+            value = val.get_bytes() as i32
+        }
+        Ok(value)
+    } else {
+        Err(format!("Invalid argument {}", src))
+    }
+}
+
+#[derive(Debug, StructOpt)]
+#[structopt(
+    name = "Mayastor",
+    about = "Containerized Attached Storage (CAS) for k8s",
+    version = "19.12.1",
+    raw(setting = "structopt::clap::AppSettings::ColoredHelp")
+)]
+
+pub struct MayastorCliArgs {
+    #[structopt(short = "j")]
+    /// Path to JSON formatted config file
+    pub json: Option<String>,
+    #[structopt(short = "c")]
+    /// Path to the configuration file if any
+    pub config: Option<String>,
+    #[structopt(short = "L")]
+    /// Enable logging for sub components
+    pub log_components: Vec<String>,
+    #[structopt(short = "m", default_value = "0x1")]
+    /// The reactor mask to be used for starting up the instance
+    pub reactor_mask: String,
+    #[structopt(
+        short = "s",
+        parse(try_from_str = "parse_mb"),
+        default_value = "0"
+    )]
+    /// The maximum amount of hugepage memory we are allowed to allocate in MiB
+    /// (default: all)
+    pub mem_size: i32,
+    #[structopt(short = "r", default_value = "/var/tmp/mayastor.sock")]
+    /// Path to create the rpc socket
+    pub rpc_address: String,
+    #[structopt(short = "u")]
+    /// Disable the use of PCIe devices
+    pub no_pci: bool,
+}
+
+/// Defaults are redefined here in case of using it during tests
+impl Default for MayastorCliArgs {
+    fn default() -> Self {
+        Self {
+            reactor_mask: "0x1".into(),
+            mem_size: 0,
+            rpc_address: "/var/tmp/mayastor.sock".to_string(),
+            no_pci: true,
+            log_components: vec![],
+            config: None,
+            json: None,
+        }
+    }
+}
 
 static INIT_THREAD: OnceCell<Mthread> = OnceCell::new();
-
-/// global return code for the whole program. We must use ARC here to make proper use of
-/// lazy_static crate. It could have been a static mut all the same.
-pub static GLOBAL_RC: Lazy<Arc<Mutex<i32>>> = Lazy::new(|| Arc::new(Mutex::new(0)));
+/// Global exit code of the program, initially set to -1 to capture double
+/// shutdown during test cases
+pub static GLOBAL_RC: Lazy<Arc<Mutex<i32>>> =
+    Lazy::new(|| Arc::new(Mutex::new(-1)));
 
 /// FFI functions that are needed to initialize the environment
 extern "C" {
     pub fn rte_eal_init(argc: i32, argv: *mut *mut libc::c_char) -> i32;
-    pub fn rte_log_set_level(_type: i32, level: i32) -> i32;
     pub fn spdk_app_json_config_load(
         file: *const c_char,
         addr: *const c_char,
@@ -178,11 +249,19 @@ extern "C" fn _mayastor_shutdown_cb(arg: *mut c_void) {
         warn!("Mayastor stopped non-zero: {}", rc);
     }
 
+    let rc_current = *GLOBAL_RC.lock().unwrap();
+
+    if rc_current != -1 {
+        // to avoid double shutdown when we are running with in the native test
+        // framework
+        std::process::exit(rc_current);
+    }
+
     *GLOBAL_RC.lock().unwrap() = rc;
 
-    iscsi_target::fini_iscsi();
+    target::iscsi::fini();
     let fut = async move {
-        if let Err(msg) = nvmf_target::fini_nvmf().await {
+        if let Err(msg) = target::nvmf::fini().await {
             error!("Failed to finalize nvmf target: {}", msg);
         }
     };
@@ -191,7 +270,9 @@ extern "C" fn _mayastor_shutdown_cb(arg: *mut c_void) {
         fut,
         Box::new(|| unsafe {
             spdk_rpc_finish();
+            debug!("RPC server stopped");
             spdk_subsystem_fini(Some(spdk_reactors_stop), std::ptr::null_mut());
+            debug!("subsystem fini dispatched");
         }),
     );
 }
@@ -356,7 +437,7 @@ impl MayastorEnvironment {
                 CString::new(format!("--file-prefix=mayastor_pid{}", unsafe {
                     libc::getpid()
                 }))
-                    .unwrap(),
+                .unwrap(),
             );
         } else {
             args.push(
@@ -364,13 +445,13 @@ impl MayastorEnvironment {
                     "--file-prefix=mayastor_pid{}",
                     self.shm_id
                 ))
-                    .unwrap(),
+                .unwrap(),
             );
             args.push(CString::new("--proc-type=auto").unwrap());
         }
 
-        // set the log levels of the DPDK libs can be overridden by setting
-        // env_context
+        // set the log levels of the DPDK libs, this can be overridden by
+        // setting env_context
         args.push(CString::new("--log-level=lib.eal:4").unwrap());
         args.push(CString::new("--log-level=lib.cryptodev:0").unwrap());
         args.push(CString::new("--log-level=user1:6").unwrap());
@@ -440,7 +521,9 @@ impl MayastorEnvironment {
             std::process::exit(1)
         }
 
-        INIT_THREAD.set(Mthread::from_null_checked(thread).unwrap()).unwrap();
+        INIT_THREAD
+            .set(Mthread::from_null_checked(thread).unwrap())
+            .unwrap();
 
         Ok(())
     }
@@ -490,7 +573,7 @@ impl MayastorEnvironment {
             Err(_) => "127.0.0.1".to_owned(),
         };
 
-        if let Err(msg) = iscsi_target::init_iscsi(&address) {
+        if let Err(msg) = target::iscsi::init(&address) {
             error!("Failed to initialize Mayastor iSCSI target: {}", msg);
             return Err(EnvError::InitTarget {
                 target: "iscsi".into(),
@@ -498,7 +581,7 @@ impl MayastorEnvironment {
         }
 
         executor::spawn(async move {
-            if let Err(msg) = nvmf_target::init_nvmf(&address).await {
+            if let Err(msg) = target::nvmf::init(&address).await {
                 error!("Failed to initialize Mayastor nvmf target: {}", msg);
                 mayastor_env_stop(-1);
             }
@@ -525,8 +608,8 @@ impl MayastorEnvironment {
 
     /// start mayastor and call f when all is setup.
     pub fn start<F>(&mut self, f: F) -> Result<i32>
-        where
-            F: FnOnce(),
+    where
+        F: FnOnce(),
     {
         self.read_config_file()?;
         self.initialize_eal();
@@ -598,7 +681,6 @@ impl MayastorEnvironment {
         }
 
         // return the global rc value
-
         Ok(*GLOBAL_RC.lock().unwrap())
     }
 }

@@ -65,14 +65,14 @@ use serde::{
     ser::{Serialize, SerializeTuple, Serializer},
 };
 use snafu::{ResultExt, Snafu};
-use uuid::{self, parser};
+use uuid::{self, parser, Uuid};
 
 use crate::{
     bdev::nexus::{
         nexus_bdev::Nexus,
         nexus_child::{ChildError, ChildIoError},
     },
-    dma::{DmaBuf, DmaError},
+    core::{DmaBuf, DmaError},
 };
 
 #[derive(Debug, Snafu)]
@@ -100,7 +100,7 @@ impl Nexus {
         let mut hdr = GPTHeader::new(
             self.bdev.block_len(),
             self.min_num_blocks(),
-            self.bdev.uuid().into(),
+            Uuid::from_bytes(self.bdev.uuid().as_bytes()),
         );
 
         let mut entries = vec![GptEntry::default(); hdr.num_entries as usize];
@@ -558,12 +558,6 @@ impl<'de> Visitor<'de> for GpEntryNameVisitor {
 #[derive(Debug, PartialEq, Default, Clone)]
 pub struct GptName {
     pub name: String,
-}
-
-impl GptName {
-    pub fn as_str(&self) -> &str {
-        &self.name
-    }
 }
 
 /// although we don't use it, we must have a protective MBR to avoid systems

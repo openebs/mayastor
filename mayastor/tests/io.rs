@@ -1,12 +1,7 @@
 use std::process::Command;
 
 use mayastor::{
-    bdev::bdev_lookup_by_name,
-    descriptor::Descriptor,
-    environment::{
-        args::MayastorCliArgs,
-        env::{mayastor_env_stop, MayastorEnvironment},
-    },
+    core::{mayastor_env_stop, Bdev, MayastorCliArgs, MayastorEnvironment},
     nexus_uri::bdev_create,
 };
 
@@ -47,8 +42,12 @@ async fn start() {
 }
 
 async fn write_some() {
-    let bdev = bdev_lookup_by_name(BDEVNAME).expect("failed to lookup bdev");
-    let d = Descriptor::open(&bdev, true).expect("failed open bdev");
+    let bdev = Bdev::lookup_by_name(BDEVNAME).expect("failed to lookup bdev");
+    let d = bdev
+        .open(true)
+        .expect("failed open bdev")
+        .into_handle()
+        .unwrap();
     let mut buf = d.dma_malloc(512).expect("failed to allocate buffer");
     buf.fill(0xff);
 
@@ -59,9 +58,8 @@ async fn write_some() {
 }
 
 async fn read_some() {
-    let bdev = bdev_lookup_by_name(BDEVNAME).expect("failed to lookup bdev");
-    let d = Descriptor::open(&bdev, false);
-    let d = d.unwrap();
+    let bdev = Bdev::lookup_by_name(BDEVNAME).expect("failed to lookup bdev");
+    let d = bdev.open(false).unwrap().into_handle().unwrap();
     let mut buf = d.dma_malloc(1024).expect("failed to allocate buffer");
     let slice = buf.as_mut_slice();
 

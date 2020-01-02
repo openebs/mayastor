@@ -23,20 +23,21 @@ use std::{
     thread,
 };
 
-/// Everything we need to store to thread local storage (kinda global state) to
-/// manage and dispatch tasks to executor.
+/// Everything we need to store to thread local storage (a kind of per thread
+/// global state) to manage and dispatch tasks to executor.
 ///
 /// More on how concurrent access to the context is guaranteed to be safe:
-/// The context is stored in TLS and it is not sent between threads so the
-/// concurrent access is not possible. Still we must prevent situations like:
+/// The context is stored in TLS, and it is not sent between threads, so that
+/// concurrent access is not possible. However, we still must prevent situations
+/// where:
 ///
-/// fn A has mut ref of member 1, it calls fn B which obtains mut ref of
+/// fn A has mut ref of member 1, it calls fn B which obtains a mut ref of
 /// member 1 from TLS. Thus fn A has no way of knowing that the data it has
 /// referenced might have been changed after fn B finished executing. Simply
 /// put: mut-mut, mut-const combinations should be forbidden as always in Rust.
 ///
 /// This can happen easily. If tick() which references executor, executes a
-/// future and the future calls start, stop or spawn function. To prevent
+/// future, and the future calls start, stop or spawn function. To prevent
 /// getting into these unsafe situations, we have following basic rules:
 ///
 ///   1) no restrictions on start() as it is creating the context and
@@ -53,9 +54,9 @@ struct ExecutorCtx {
     spawner: RefCell<LocalSpawner>,
     /// Spdk poller routine - the work horse of futures.
     poller: *mut spdk_poller,
-    /// Shutdown callback. If set, the spdk poller for executor is unregistered
-    /// and the executor destroyed in tick. The shutdown callback is called
-    /// afterwards.
+    /// Shutdown callback. If set, the SPDK poller for the executor is
+    /// unregistered, and the executor is destroyed in tick(). The shutdown
+    /// callback is called afterwards.
     shutdown_cb: Cell<Option<Box<dyn FnOnce()>>>,
 }
 
@@ -64,7 +65,7 @@ thread_local! {
     static EXECUTOR_CTX: RefCell<Option<ExecutorCtx>> = RefCell::new(None);
 }
 
-/// Start future executor and register its poll method with spdk so that the
+/// Start the futures executor and register its poller with SPDK so that the
 /// tasks can make steady progress.
 pub fn start() {
     EXECUTOR_CTX.with(|ctx_cell| {

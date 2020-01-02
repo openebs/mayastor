@@ -1,23 +1,19 @@
+#![allow(dead_code)]
+
+use std::{os::raw::c_void, time::SystemTime};
+
 use futures::channel::oneshot;
 use nix::errno::Errno;
-use snafu::{ResultExt, Snafu};
-use spdk_sys::{
-    spdk_bdev_io,
-    spdk_bdev_read_blocks,
-    spdk_bdev_write_blocks,
-    SPDK_BDEV_LARGE_BUF_MAX_SIZE,
-};
-use std::{convert::TryInto, os::raw::c_void, rc::Rc, time::SystemTime};
+use snafu::Snafu;
+
+use spdk_sys::spdk_bdev_io;
 
 use crate::{
     bdev::nexus::{
         nexus_bdev::{nexus_lookup, NexusState},
         nexus_io::Bio,
     },
-    descriptor::Descriptor,
-    dma::{DmaBuf, DmaError},
-    event::MayaCtx,
-    executor::errno_result_from_i32,
+    core::{event::MayaCtx, Descriptor, DmaBuf, DmaError},
     poller::{register_poller, PollTask},
 };
 
@@ -71,9 +67,9 @@ impl MayaCtx for RebuildTask {
 pub struct RebuildTask {
     pub state: RebuildState,
     /// the source where to copy from
-    pub source: Rc<Descriptor>,
+    pub source: Descriptor,
     /// the target where to copy to
-    pub target: Rc<Descriptor>,
+    pub target: Descriptor,
     /// the last LBA for which an io copy has been submitted
     current_lba: u64,
     /// used to provide progress indication
@@ -101,54 +97,10 @@ pub struct RebuildTask {
 
 impl RebuildTask {
     /// return a new rebuild task
-    pub fn new(
-        source: Rc<Descriptor>,
-        target: Rc<Descriptor>,
-    ) -> Result<Box<Self>, Error> {
+    pub fn new(_source: String, _target: String) -> Result<Box<Self>, Error> {
         // if the target is to small, we bail out. A future extension is to see,
         // if we can grow; the target to match the size of the source.
-
-        if target.get_bdev().num_blocks() < source.get_bdev().num_blocks() {
-            return Err(Error::SourceBigger {
-                src: source.get_bdev().name(),
-                tgt: target.get_bdev().name(),
-            });
-        }
-
-        let num_blocks = target.get_bdev().num_blocks();
-        let block_len = target.get_bdev().block_len();
-        let blocks_per_segment =
-            u64::from(SPDK_BDEV_LARGE_BUF_MAX_SIZE / block_len);
-
-        let num_segments = num_blocks / blocks_per_segment as u64;
-        let remainder = num_blocks % blocks_per_segment;
-
-        let buf = source
-            .dma_malloc(
-                (blocks_per_segment * source.get_bdev().block_len() as u64)
-                    as usize,
-            )
-            .context(BufferAlloc {})?;
-
-        let (s, r) = oneshot::channel::<RebuildState>();
-        let task = Box::new(Self {
-            state: RebuildState::Initialized,
-            blocks_per_segment: blocks_per_segment as u32,
-            buf,
-            current_lba: 0,
-            num_segments,
-            previous_lba: 0,
-            progress: None,
-            partial_segment: remainder.try_into().unwrap(),
-            sender: Some(s),
-            completed: Some(r),
-            source,
-            target,
-            start_time: None,
-            nexus: None,
-        });
-
-        Ok(task)
+        unimplemented!();
     }
 
     pub fn suspend(&mut self) -> Result<RebuildState, Error> {
@@ -328,57 +280,17 @@ impl RebuildTask {
     // updates the internal data structures
     fn source_read_blocks(
         &mut self,
-        num_blocks: u32,
+        _num_blocks: u32,
     ) -> Result<RebuildState, Error> {
-        let errno = unsafe {
-            spdk_bdev_read_blocks(
-                self.source.as_ptr(),
-                self.source.channel(),
-                *self.buf,
-                self.current_lba,
-                num_blocks as u64,
-                Some(Self::read_complete),
-                &*self as *const _ as *mut _,
-            )
-        };
-
-        match errno_result_from_i32((), errno) {
-            Ok(_) => {
-                self.current_lba += num_blocks as u64;
-                self.num_segments -= 1;
-                Ok(self.state)
-            }
-            Err(err) => {
-                // we should be able to retry later for now fail on all errors;
-                // typically, with ENOMEM we should retry
-                // however, we want to delay this so likely use a
-                // (one time) poller?
-                self.state = RebuildState::Failed;
-                Err(err).context(DispatchIo {})
-            }
-        }
+        unimplemented!();
     }
 
     /// wrapper function around write_blocks
     pub(crate) fn target_write_blocks(
         &mut self,
-        io: *mut spdk_bdev_io,
+        _io: *mut spdk_bdev_io,
     ) -> Result<(), Error> {
-        let bio = Bio(io);
-        let errno = unsafe {
-            spdk_bdev_write_blocks(
-                self.target.as_ptr(),
-                self.target.channel(),
-                *self.buf,
-                bio.offset(),
-                bio.num_blocks(),
-                Some(Self::write_complete),
-                &*self as *const _ as *mut _,
-            )
-        };
-
-        // XXX what do we need to set/clear when the write IO fails?
-        errno_result_from_i32((), errno).context(DispatchIo {})
+        unimplemented!();
     }
 
     /// send the callee that we completed successfully

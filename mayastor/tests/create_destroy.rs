@@ -1,11 +1,7 @@
 use mayastor::{
-    bdev::nexus::nexus_bdev::{nexus_create, nexus_lookup},
-    environment::{
-        args::MayastorCliArgs,
-        env::{mayastor_env_stop, MayastorEnvironment},
-    },
+    bdev::{nexus_create, nexus_lookup},
+    core::{mayastor_env_stop, MayastorCliArgs, MayastorEnvironment},
 };
-
 static DISKNAME1: &str = "/tmp/disk1.img";
 static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
 

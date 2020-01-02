@@ -1,8 +1,13 @@
 use crate::{
-    aio_dev,
-    iscsi_dev,
+    bdev::{
+        AioBdev,
+        AioParseError,
+        IscsiBdev,
+        IscsiParseError,
+        NvmfBdev,
+        NvmfParseError,
+    },
     jsonrpc::{Code, RpcErrorCode},
-    nvmf_dev,
 };
 use nix::errno::Errno;
 use snafu::{ResultExt, Snafu};
@@ -12,27 +17,21 @@ use url::{ParseError, Url};
 // parse URI and bdev create/destroy errors common for all types of bdevs
 #[derive(Debug, Snafu)]
 #[snafu(visibility = "pub(crate)")]
-pub enum BdevError {
+pub enum BdevCreateDestroy {
     // URI parse errors
     #[snafu(display("Invalid URI \"{}\"", uri))]
     UriInvalid { source: ParseError, uri: String },
     #[snafu(display("Unsupported URI scheme \"{}\"", scheme))]
     UriSchemeUnsupported { scheme: String },
     #[snafu(display("Failed to parse aio URI \"{}\"", uri))]
-    ParseAioUri {
-        source: aio_dev::ParseError,
-        uri: String,
-    },
+    ParseAioUri { source: AioParseError, uri: String },
     #[snafu(display("Failed to parse iscsi URI \"{}\"", uri))]
     ParseIscsiUri {
-        source: iscsi_dev::ParseError,
+        source: IscsiParseError,
         uri: String,
     },
     #[snafu(display("Failed to parse nvmf URI \"{}\"", uri))]
-    ParseNvmfUri {
-        source: nvmf_dev::ParseError,
-        uri: String,
-    },
+    ParseNvmfUri { source: NvmfParseError, uri: String },
     // bdev create/destroy errors
     #[snafu(display("bdev {} already exists", name))]
     BdevExists { name: String },
@@ -46,31 +45,31 @@ pub enum BdevError {
     DestroyBdev { source: Errno, name: String },
 }
 
-impl RpcErrorCode for BdevError {
+impl RpcErrorCode for BdevCreateDestroy {
     fn rpc_error_code(&self) -> Code {
         match self {
-            BdevError::UriInvalid {
+            BdevCreateDestroy::UriInvalid {
                 ..
             } => Code::InvalidParams,
-            BdevError::UriSchemeUnsupported {
+            BdevCreateDestroy::UriSchemeUnsupported {
                 ..
             } => Code::InvalidParams,
-            BdevError::ParseAioUri {
+            BdevCreateDestroy::ParseAioUri {
                 ..
             } => Code::InvalidParams,
-            BdevError::ParseIscsiUri {
+            BdevCreateDestroy::ParseIscsiUri {
                 ..
             } => Code::InvalidParams,
-            BdevError::ParseNvmfUri {
+            BdevCreateDestroy::ParseNvmfUri {
                 ..
             } => Code::InvalidParams,
-            BdevError::BdevExists {
+            BdevCreateDestroy::BdevExists {
                 ..
             } => Code::AlreadyExists,
-            BdevError::BdevNotFound {
+            BdevCreateDestroy::BdevNotFound {
                 ..
             } => Code::NotFound,
-            BdevError::InvalidParams {
+            BdevCreateDestroy::InvalidParams {
                 ..
             } => Code::InvalidParams,
             _ => Code::InternalError,
@@ -82,11 +81,11 @@ impl RpcErrorCode for BdevError {
 #[derive(Debug)]
 pub enum BdevType {
     /// you should not be using this other then testing
-    Aio(aio_dev::AioBdev),
+    Aio(AioBdev),
     /// backend iSCSI target most stable
-    Iscsi(iscsi_dev::IscsiBdev),
+    Iscsi(IscsiBdev),
     /// backend NVMF target pretty unstable as of Linux 5.2
-    Nvmf(nvmf_dev::NvmfBdev),
+    Nvmf(NvmfBdev),
     /// bdev type is arbitrary bdev found in spdk (used for local replicas)
     Bdev(String),
 }
@@ -95,7 +94,7 @@ pub enum BdevType {
 /// to construct the children from which we create the nexus.
 pub fn nexus_uri_parse_vec(
     uris: &[String],
-) -> Result<Vec<BdevType>, BdevError> {
+) -> Result<Vec<BdevType>, BdevCreateDestroy> {
     let mut results = Vec::new();
     for target in uris {
         results.push(nexus_parse_uri(target)?);
@@ -105,34 +104,30 @@ pub fn nexus_uri_parse_vec(
 }
 
 /// Parse the given URI into a ChildBdev
-fn nexus_parse_uri(uri: &str) -> Result<BdevType, BdevError> {
+fn nexus_parse_uri(uri: &str) -> Result<BdevType, BdevCreateDestroy> {
     let parsed_uri = Url::parse(uri).context(UriInvalid {
         uri: uri.to_owned(),
     })?;
     let bdev_type = match parsed_uri.scheme() {
-        "aio" => BdevType::Aio(
-            aio_dev::AioBdev::try_from(&parsed_uri).context(ParseAioUri {
+        "aio" => BdevType::Aio(AioBdev::try_from(&parsed_uri).context(
+            ParseAioUri {
                 uri,
-            })?,
-        ),
-        "iscsi" => BdevType::Iscsi(
-            iscsi_dev::IscsiBdev::try_from(&parsed_uri).context(
-                ParseIscsiUri {
-                    uri,
-                },
-            )?,
-        ),
-        "nvmf" => {
-            BdevType::Nvmf(nvmf_dev::NvmfBdev::try_from(&parsed_uri).context(
-                ParseNvmfUri {
-                    uri,
-                },
-            )?)
-        }
+            },
+        )?),
+        "iscsi" => BdevType::Iscsi(IscsiBdev::try_from(&parsed_uri).context(
+            ParseIscsiUri {
+                uri,
+            },
+        )?),
+        "nvmf" => BdevType::Nvmf(NvmfBdev::try_from(&parsed_uri).context(
+            ParseNvmfUri {
+                uri,
+            },
+        )?),
         // strip the first slash in uri path
         "bdev" => BdevType::Bdev(parsed_uri.path()[1 ..].to_string()),
         scheme => {
-            return Err(BdevError::UriSchemeUnsupported {
+            return Err(BdevCreateDestroy::UriSchemeUnsupported {
                 scheme: scheme.to_owned(),
             })
         }
@@ -141,18 +136,18 @@ fn nexus_parse_uri(uri: &str) -> Result<BdevType, BdevError> {
 }
 
 /// Parse URI and destroy bdev described in the URI.
-pub async fn bdev_destroy(uri: &str, bdev_name: &str) -> Result<(), BdevError> {
+pub async fn bdev_destroy(uri: &str) -> Result<(), BdevCreateDestroy> {
     match nexus_parse_uri(uri)? {
-        BdevType::Aio(args) => args.destroy(bdev_name).await,
-        BdevType::Iscsi(args) => args.destroy(bdev_name).await,
-        BdevType::Nvmf(args) => args.destroy(bdev_name),
+        BdevType::Aio(args) => args.destroy().await,
+        BdevType::Iscsi(args) => args.destroy().await,
+        BdevType::Nvmf(args) => args.destroy(),
         BdevType::Bdev(_) => Ok(()),
     }
 }
 
 /// Parse URI and create bdev described in the URI.
 /// Return the bdev name (can be different from URI).
-pub async fn bdev_create(uri: &str) -> Result<String, BdevError> {
+pub async fn bdev_create(uri: &str) -> Result<String, BdevCreateDestroy> {
     match nexus_parse_uri(uri)? {
         BdevType::Aio(args) => args.create().await,
         BdevType::Iscsi(args) => args.create().await,

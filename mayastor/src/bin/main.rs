@@ -5,7 +5,7 @@ use std::path::Path;
 
 use git_version::git_version;
 use mayastor::{
-    environment::{args::MayastorCliArgs, env::MayastorEnvironment},
+    core::{MayastorCliArgs, MayastorEnvironment},
     logger,
 };
 

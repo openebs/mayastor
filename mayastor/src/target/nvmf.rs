@@ -5,7 +5,7 @@
 //! target. Each subsystem has one namespace backed by the lvol.
 
 use crate::{
-    bdev::Bdev,
+    core::Bdev,
     executor::{cb_arg, done_errno_cb, errno_result_from_i32, ErrnoResult},
     jsonrpc::{Code, RpcErrorCode},
 };
@@ -642,7 +642,7 @@ impl fmt::Display for Target {
 }
 
 /// Create nvmf target which will be used for exporting the replicas.
-pub async fn init_nvmf(address: &str) -> Result<()> {
+pub async fn init(address: &str) -> Result<()> {
     let mut boxed_tgt = Box::new(Target::create(address, NVMF_PORT)?);
     boxed_tgt.add_tcp_transport().await?;
     boxed_tgt.listen().await?;
@@ -658,7 +658,7 @@ pub async fn init_nvmf(address: &str) -> Result<()> {
 }
 
 /// Destroy nvmf target with all its subsystems.
-pub async fn fini_nvmf() -> Result<()> {
+pub async fn fini() -> Result<()> {
     let tgt = NVMF_TGT.with(move |nvmf_tgt| {
         nvmf_tgt
             .borrow_mut()

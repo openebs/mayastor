@@ -5,19 +5,19 @@ use spdk_sys::{
     spdk_get_thread,
 };
 
-use crate::bdev::{
-    nexus::{
+use crate::{
+    bdev::nexus::{
         nexus_bdev::{Nexus, NexusState},
         nexus_io::NioCtx,
     },
-    Bdev,
+    core::Bdev,
 };
 use once_cell::sync::{Lazy, OnceCell};
 use std::{cell::UnsafeCell, ffi::CString};
 
 const NEXUS_NAME: &str = "NEXUS_CAS_MODULE";
 
-pub(crate) static NEXUS_MODULE: Lazy<NexusModule> = Lazy::new(NexusModule::new);
+pub static NEXUS_MODULE: Lazy<NexusModule> = Lazy::new(NexusModule::new);
 
 #[derive(Default, Debug)]
 pub struct NexusInstances {
@@ -92,16 +92,6 @@ impl NexusModule {
 
         unsafe { &mut *global_instances.inner.get() }
     }
-
-    /// return the name of the module
-    pub fn name(&self) -> String {
-        unsafe {
-            std::ffi::CStr::from_ptr((*self.0).name)
-                .to_str()
-                .unwrap()
-                .to_string()
-        }
-    }
 }
 /// Implements the bdev module call back functions to register the driver to
 /// SPDK
@@ -124,7 +114,7 @@ impl NexusModule {
 
         // dont examine ourselves
 
-        if instances.iter().any(|n| n.name() == name) {
+        if instances.iter().any(|n| n.name == name) {
             unsafe {
                 spdk_bdev_module_examine_done(
                     NEXUS_MODULE.0 as *const _ as *mut _,
@@ -137,7 +127,7 @@ impl NexusModule {
             .iter()
             .filter(|n| n.state == NexusState::Init)
             .any(|bdev| {
-                let n = unsafe { Nexus::from_raw((*bdev.bdev.inner).ctxt) };
+                let n = unsafe { Nexus::from_raw((*bdev.bdev.as_ptr()).ctxt) };
                 if n.examine_child(&name) {
                     let _r = n.open();
                     return true;

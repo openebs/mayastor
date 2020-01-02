@@ -2,14 +2,8 @@ use futures::channel::oneshot;
 use log::*;
 
 use mayastor::{
-    bdev::nexus::{
-        nexus_bdev::{nexus_create, nexus_lookup},
-        nexus_io,
-    },
-    environment::{
-        args::MayastorCliArgs,
-        env::{mayastor_env_stop, MayastorEnvironment},
-    },
+    bdev::{nexus_create, nexus_lookup},
+    core::{mayastor_env_stop, MayastorCliArgs, MayastorEnvironment},
 };
 
 static DISKNAME1: &str = "/tmp/disk1.img";
@@ -59,14 +53,6 @@ async fn mirror_fs_test<'a>(fstype: String) {
     info!("running mirror test: {}", fstype);
     create_nexus().await;
     let nexus = nexus_lookup("nexus").unwrap();
-
-    assert_eq!(true, nexus.io_is_supported(nexus_io::io_type::READ));
-    assert_eq!(true, nexus.io_is_supported(nexus_io::io_type::WRITE));
-    assert_eq!(true, nexus.io_is_supported(nexus_io::io_type::FLUSH));
-    assert_eq!(true, nexus.io_is_supported(nexus_io::io_type::RESET));
-
-    // for aio bdevs this is set to false;
-    assert_eq!(false, nexus.io_is_supported(nexus_io::io_type::UNMAP));
 
     let device = nexus.share(None).await.unwrap();
     let (s, r) = oneshot::channel::<String>();

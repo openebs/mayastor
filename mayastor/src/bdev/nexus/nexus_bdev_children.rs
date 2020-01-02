@@ -23,24 +23,22 @@
 //! channels for all children that are in the open state.
 
 use crate::{
-    bdev::{
-        bdev_lookup_by_name,
-        nexus::{
-            nexus_bdev::{
-                CreateChild,
-                DestroyChild,
-                Error,
-                Nexus,
-                NexusState,
-                OpenChild,
-                ReadLabel,
-            },
-            nexus_channel::DREvent,
-            nexus_child::{ChildState, NexusChild},
-            nexus_label::NexusLabel,
+    bdev::nexus::{
+        nexus_bdev::{
+            CreateChild,
+            DestroyChild,
+            Error,
+            Nexus,
+            NexusState,
+            OpenChild,
+            ReadLabel,
         },
+        nexus_channel::DREvent,
+        nexus_child::{ChildState, NexusChild},
+        nexus_label::NexusLabel,
     },
-    nexus_uri::{bdev_create, bdev_destroy, BdevError},
+    core::Bdev,
+    nexus_uri::{bdev_create, bdev_destroy, BdevCreateDestroy},
 };
 use futures::future::join_all;
 use snafu::ResultExt;
@@ -54,11 +52,11 @@ impl Nexus {
         dev_name
             .iter()
             .map(|c| {
-                debug!("{}: Adding child {}", self.name(), c);
+                debug!("{}: Adding child {}", self.name, c);
                 self.children.push(NexusChild::new(
                     c.clone(),
                     self.name.clone(),
-                    bdev_lookup_by_name(c),
+                    Bdev::lookup_by_name(c),
                 ))
             })
             .for_each(drop);
@@ -66,13 +64,16 @@ impl Nexus {
 
     /// register a single child to nexus, only allowed during the nexus init
     /// phase
-    pub async fn register_child(&mut self, uri: &str) -> Result<(), BdevError> {
+    pub async fn register_child(
+        &mut self,
+        uri: &str,
+    ) -> Result<(), BdevCreateDestroy> {
         assert_eq!(self.state, NexusState::Init);
         let name = bdev_create(&uri).await?;
         self.children.push(NexusChild::new(
             uri.to_string(),
             self.name.clone(),
-            bdev_lookup_by_name(&name),
+            Bdev::lookup_by_name(&name),
         ));
 
         self.child_count += 1;
@@ -92,12 +93,12 @@ impl Nexus {
 
         trace!("adding child {} to nexus {}", name, self.name);
 
-        let child_bdev = match bdev_lookup_by_name(&name) {
+        let child_bdev = match Bdev::lookup_by_name(&name) {
             Some(child) => {
                 if child.block_len() != self.bdev.block_len()
                     || self.min_num_blocks() < child.num_blocks()
                 {
-                    if let Err(err) = bdev_destroy(uri, &name).await {
+                    if let Err(err) = bdev_destroy(uri).await {
                         error!(
                             "Failed to destroy child bdev with wrong geometry: {}",
                             err
@@ -142,7 +143,7 @@ impl Nexus {
                 Ok(self.set_state(NexusState::Degraded))
             }
             Err(e) => {
-                if let Err(err) = bdev_destroy(uri, &name).await {
+                if let Err(err) = bdev_destroy(uri).await {
                     error!(
                         "Failed to destroy child which failed to open: {}",
                         err
@@ -187,7 +188,7 @@ impl Nexus {
         &mut self,
         name: &str,
     ) -> Result<NexusState, Error> {
-        trace!("{}: Offline child request for {}", self.name(), name);
+        trace!("{}: Offline child request for {}", self.name, name);
 
         if let Some(child) = self.children.iter_mut().find(|c| c.name == name) {
             child.close();
@@ -209,7 +210,7 @@ impl Nexus {
         &mut self,
         name: &str,
     ) -> Result<NexusState, Error> {
-        trace!("{} Online child request", self.name());
+        trace!("{} Online child request", self.name);
 
         if let Some(child) = self.children.iter_mut().find(|c| c.name == name) {
             if child.state != ChildState::Closed {
@@ -233,26 +234,6 @@ impl Nexus {
             })
         }
     }
-
-    /// fault a child and reconfigure the IO channels
-    pub async fn fault_child(
-        &mut self,
-        name: &str,
-    ) -> Result<NexusState, Error> {
-        trace!("{}: fault child request", self.name());
-
-        if let Some(child) = self.children.iter_mut().find(|c| c.name == name) {
-            child.state = ChildState::Faulted;
-            self.reconfigure(DREvent::ChildFault).await;
-            Ok(self.set_state(NexusState::Degraded))
-        } else {
-            Err(Error::ChildNotFound {
-                name: self.name.clone(),
-                child: name.to_owned(),
-            })
-        }
-    }
-
     /// destroy all children that are part of this nexus closes any child
     /// that might be open first
     pub(crate) async fn destroy_children(&mut self) {
@@ -268,7 +249,7 @@ impl Nexus {
     pub fn examine_child(&mut self, name: &str) -> bool {
         for mut c in &mut self.children {
             if c.name == name && c.state == ChildState::Init {
-                if let Some(bdev) = bdev_lookup_by_name(name) {
+                if let Some(bdev) = Bdev::lookup_by_name(name) {
                     debug!("{}: Adding child {}", self.name, name);
                     c.bdev = Some(bdev);
                     return true;
@@ -323,11 +304,7 @@ impl Nexus {
                     {
                         let _ = child.close();
                     } else {
-                        error!(
-                            "{}: child {} failed to open",
-                            self.name(),
-                            name
-                        );
+                        error!("{}: child {} failed to open", self.name, name);
                     }
                 })
                 .for_each(drop);
@@ -345,7 +322,7 @@ impl Nexus {
             .map(|s| {
                 if self.bdev.alignment() < *s {
                     unsafe {
-                        (*self.bdev.inner).required_alignment = *s;
+                        (*self.bdev.as_ptr()).required_alignment = *s;
                     }
                 }
             })

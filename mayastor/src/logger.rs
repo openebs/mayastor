@@ -19,7 +19,8 @@ pub extern "C" fn log_impl(
     _n: i32, // the number of bytes written into buf
 ) {
     // remove new line characters from the log messages if any
-    let fmt = unsafe { CStr::from_ptr(buf).to_str().unwrap().trim_end() };
+    let fmt =
+        unsafe { CStr::from_ptr(buf).to_string_lossy().trim_end().to_string() };
     let filename = unsafe { CStr::from_ptr(file).to_str().unwrap() };
 
     if unsafe { spdk_log_get_print_level() } < level {

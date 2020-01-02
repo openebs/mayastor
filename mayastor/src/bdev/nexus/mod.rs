@@ -2,21 +2,20 @@
 use crate::bdev::nexus::{
     nexus_bdev::Nexus,
     nexus_fn_table::NexusFnTable,
-    nexus_module::NexusModule,
     nexus_rpc::register_rpc_methods,
 };
+use spdk_sys::spdk_bdev_module;
 
 pub mod nexus_bdev;
 pub mod nexus_bdev_children;
 mod nexus_channel;
-mod nexus_child;
+pub(crate) mod nexus_child;
 mod nexus_config;
 pub mod nexus_fn_table;
 pub mod nexus_io;
 pub mod nexus_label;
 pub mod nexus_module;
 pub mod nexus_nbd;
-pub mod nexus_rebuild;
 pub mod nexus_rpc;
 pub mod nexus_share;
 
@@ -27,8 +26,12 @@ pub fn register_module() {
 }
 
 /// get a reference to the module
-pub fn module() -> Option<NexusModule> {
-    nexus_module::NexusModule::current()
+pub fn module() -> Option<*mut spdk_bdev_module> {
+    if let Some(m) = nexus_module::NexusModule::current() {
+        Some(m.as_ptr())
+    } else {
+        None
+    }
 }
 
 /// get a static ref to the fn table of the nexus module

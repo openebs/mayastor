@@ -6,16 +6,16 @@ use std::{
 use bincode::serialize_into;
 
 use mayastor::{
-    bdev::nexus::{
-        nexus_bdev::{nexus_create, nexus_lookup},
-        nexus_label::{GPTHeader, GptEntry},
-    },
-    dma::DmaBuf,
-    environment::{
-        args::MayastorCliArgs,
-        env::{mayastor_env_stop, MayastorEnvironment},
+    bdev::{nexus_create, nexus_lookup, GPTHeader, GptEntry},
+    core::{
+        mayastor_env_stop,
+        BdevHandle,
+        DmaBuf,
+        MayastorCliArgs,
+        MayastorEnvironment,
     },
 };
+use std::convert::TryFrom;
 
 const HDR_GUID: &str = "322974ae-5711-874b-bfbd-1a74df4dd714";
 const PART0_GUID: &str = "ea2872a6-02ce-3f4b-82c4-c2147f76e3ff";
@@ -87,8 +87,8 @@ fn test_known_label() {
 
     assert_eq!(partitions[0].ent_guid.to_string(), PART0_GUID);
     assert_eq!(partitions[1].ent_guid.to_string(), PART1_GUID);
-    assert_eq!(partitions[0].ent_name.as_str(), "nexus_meta");
-    assert_eq!(partitions[1].ent_name.as_str(), "zfs_data");
+    assert_eq!(partitions[0].ent_name.name, "nexus_meta");
+    assert_eq!(partitions[1].ent_name.name, "zfs_data");
 
     assert_eq!(hdr.checksum(), CRC32);
 
@@ -97,7 +97,7 @@ fn test_known_label() {
     assert_eq!(array_checksum, hdr.table_crc);
 
     // test if we can serialize the original gpt partitions ourselves and
-    // validate it matches the the well known crc32
+    // validate it matches the well-known crc32
     let mut buf = DmaBuf::new(32 * 512, 9).unwrap();
 
     let mut writer = Cursor::new(buf.as_mut_slice());
@@ -124,15 +124,18 @@ async fn make_nexus() {
 // compare what is written
 async fn label_child() {
     let nexus = nexus_lookup("gpt_nexus").unwrap();
-    let child = nexus.get_child_as_mut_ref(0).unwrap();
+    let child = &mut nexus.children[0];
+    let desc = child.get_descriptor().unwrap();
+    let hdl = BdevHandle::try_from(desc).unwrap();
+
     let mut file = std::fs::File::open("./gpt_test_data.bin").unwrap();
 
-    let mut buffer = child.get_buf(34 * 512).unwrap();
+    let mut buffer = hdl.dma_malloc(34 * 512).unwrap();
     file.read_exact(&mut buffer.as_mut_slice()).unwrap();
     // we also write the mbr here hence the offset is 0
     child.write_at(0, &buffer).await.unwrap();
 
-    let mut read_buffer = child.get_buf(34 * 512).unwrap();
+    let mut read_buffer = hdl.dma_malloc(34 * 512).unwrap();
     child.read_at(0, &mut read_buffer).await.unwrap();
 
     for (i, o) in buffer.as_slice().iter().zip(read_buffer.as_slice().iter()) {

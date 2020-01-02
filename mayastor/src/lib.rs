@@ -9,28 +9,19 @@ extern crate serde_json;
 extern crate snafu;
 extern crate spdk_sys;
 
-pub mod aio_dev;
 pub mod app;
 pub mod bdev;
+pub mod core;
 pub mod delay;
-pub mod descriptor;
-pub mod dma;
-pub mod environment;
-pub mod event;
 pub mod executor;
-pub mod iscsi_dev;
-pub mod iscsi_target;
 pub mod jsonrpc;
 pub mod logger;
 pub mod nexus_uri;
-pub mod nvmf_dev;
-pub mod nvmf_target;
 pub mod poller;
 pub mod pool;
 pub mod rebuild;
 pub mod replica;
-pub mod spdklog;
-
+pub mod target;
 #[macro_export]
 macro_rules! CPS_INIT {
     () => {

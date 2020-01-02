@@ -79,9 +79,8 @@ impl NexusFnTable {
         }
     }
 
-    // Main entry point to submit IO to the underlying children this uses
-    // callbacks rather than futures and closures.
-
+    /// Main entry point to submit IO to the underlying children this uses
+    /// callbacks rather than futures and closures for performance reasons.
     extern "C" fn io_submit(
         channel: *mut spdk_io_channel,
         io: *mut spdk_bdev_io,
@@ -112,7 +111,7 @@ impl NexusFnTable {
                         nio.fail();
                     }
                 }
-                _ => panic!("{} Received unsupported IO!", nexus.name()),
+                _ => panic!("{} Received unsupported IO!", nexus.name),
             };
         } else {
             // something is very wrong ...
@@ -133,7 +132,7 @@ impl NexusFnTable {
         nexus.destruct();
         let instances = instances();
         // removing the nexus from the list should cause a drop
-        instances.retain(|x| x.name() != nexus.name());
+        instances.retain(|x| x.name != nexus.name);
 
         0
     }
