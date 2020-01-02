@@ -3,7 +3,7 @@ use run_script::{self, ScriptOptions};
 use std::{env, io, io::Write, process::Command};
 
 pub fn mayastor_test_init() {
-    logger::init("DEBUG");
+    logger::init("TRACE");
     env::set_var("MAYASTOR_LOGLEVEL", "4");
     mayastor::CPS_INIT!();
 }

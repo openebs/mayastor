@@ -1,15 +1,14 @@
-//! High-level replica json-rpc methods.
+//! The high-level replica json-rpc methods.
 //!
 //! Replica is a logical data volume exported over nvmf (in SPDK terminology
 //! an lvol). Here we define methods for easy management of replicas.
 
 use crate::{
-    bdev::{bdev_first, bdev_lookup_by_name, Bdev},
+    core::Bdev,
     executor::{cb_arg, done_errno_cb, errno_result_from_i32, ErrnoResult},
-    iscsi_target,
     jsonrpc::{jsonrpc_register, Code, RpcErrorCode},
-    nvmf_target,
     pool::Pool,
+    target,
 };
 use futures::{
     channel::oneshot,
@@ -84,13 +83,13 @@ pub enum Error {
     #[snafu(display("Replica has been already shared"))]
     ReplicaShared {},
     #[snafu(display("share nvmf"))]
-    ShareNvmf { source: nvmf_target::Error },
+    ShareNvmf { source: target::nvmf::Error },
     #[snafu(display("share iscsi"))]
-    ShareIscsi { source: iscsi_target::Error },
+    ShareIscsi { source: target::iscsi::Error },
     #[snafu(display("unshare nvmf"))]
-    UnshareNvmf { source: nvmf_target::Error },
+    UnshareNvmf { source: target::nvmf::Error },
     #[snafu(display("unshare iscsi"))]
-    UnshareIscsi { source: iscsi_target::Error },
+    UnshareIscsi { source: target::iscsi::Error },
     #[snafu(display("Invalid share protocol {} in request", protocol))]
     InvalidProtocol { protocol: i32 },
     #[snafu(display("Replica does not exist"))]
@@ -157,9 +156,9 @@ pub enum ShareType {
 /// string.
 fn detect_share(uuid: &str) -> Option<(ShareType, String)> {
     // first try nvmf and then try iscsi
-    match nvmf_target::get_uri(uuid) {
+    match target::nvmf::get_uri(uuid) {
         Some(uri) => Some((ShareType::Nvmf, uri)),
-        None => match iscsi_target::get_uri(uuid) {
+        None => match target::iscsi::get_uri(uuid) {
             Some(uri) => Some((ShareType::Iscsi, uri)),
             None => None,
         },
@@ -226,7 +225,7 @@ impl Replica {
 
     /// Lookup replica by uuid (=name).
     pub fn lookup(uuid: &str) -> Option<Self> {
-        match bdev_lookup_by_name(uuid) {
+        match Bdev::lookup_by_name(uuid) {
             Some(bdev) => {
                 let lvol = unsafe { vbdev_lvol_get_from_bdev(bdev.as_ptr()) };
                 if lvol.is_null() {
@@ -277,14 +276,14 @@ impl Replica {
             return Err(Error::ReplicaShared {});
         }
 
-        let bdev = unsafe { Bdev::from_ptr((*self.lvol_ptr).bdev) };
+        let bdev = unsafe { Bdev::from((*self.lvol_ptr).bdev) };
 
         match kind {
-            ShareType::Nvmf => nvmf_target::share(&uuid, &bdev)
+            ShareType::Nvmf => target::nvmf::share(&uuid, &bdev)
                 .await
                 .context(ShareNvmf {})?,
             ShareType::Iscsi => {
-                iscsi_target::share(&uuid, &bdev).context(ShareIscsi {})?
+                target::iscsi::share(&uuid, &bdev).context(ShareIscsi {})?
             }
         }
         Ok(())
@@ -296,10 +295,10 @@ impl Replica {
         let uuid = self.get_uuid().to_owned();
         if let Some((share_type, _)) = detect_share(&uuid) {
             match share_type {
-                ShareType::Nvmf => {
-                    nvmf_target::unshare(&uuid).await.context(UnshareNvmf {})?
-                }
-                ShareType::Iscsi => iscsi_target::unshare(&uuid)
+                ShareType::Nvmf => target::nvmf::unshare(&uuid)
+                    .await
+                    .context(UnshareNvmf {})?,
+                ShareType::Iscsi => target::iscsi::unshare(&uuid)
                     .await
                     .context(UnshareIscsi {})?,
             }
@@ -394,7 +393,7 @@ impl Iterator for ReplicaIter {
         loop {
             let maybe_bdev = match &mut self.bdev {
                 Some(bdev) => bdev.next(),
-                None => bdev_first(),
+                None => Bdev::bdev_first(),
             };
             let bdev = match maybe_bdev {
                 Some(bdev) => bdev,
@@ -531,7 +530,7 @@ pub fn register_replica_methods() {
                 let pool = r.get_pool_name().to_owned();
                 let bdev: Bdev = unsafe { (*lvol).bdev.into() };
 
-                // cancelation point here
+                // cancellation point here
                 let st = bdev.stats().await;
 
                 match st {
@@ -597,7 +596,7 @@ pub fn register_replica_methods() {
                         uuid: args.uuid.clone(),
                     })?;
                 }
-                // share the replica if it is not shared and we want it to be
+                // share the replica if it is not shared, and we want it to be
                 // shared
                 if replica.get_share_type().is_none() {
                     match want_share {

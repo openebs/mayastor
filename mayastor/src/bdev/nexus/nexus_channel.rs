@@ -1,19 +1,20 @@
 //!
 //! IO is driven by means of so called channels.
-use std::ffi::c_void;
+use std::{convert::TryFrom, ffi::c_void};
 
 use spdk_sys::{
-    spdk_bdev_desc,
     spdk_for_each_channel,
     spdk_for_each_channel_continue,
     spdk_io_channel,
     spdk_io_channel_iter,
     spdk_io_channel_iter_get_channel,
     spdk_io_channel_iter_get_io_device,
-    spdk_put_io_channel,
 };
 
-use crate::bdev::nexus::{nexus_child::ChildState, Nexus};
+use crate::{
+    bdev::nexus::{nexus_child::ChildState, Nexus},
+    core::BdevHandle,
+};
 
 /// io channel, per core
 #[repr(C)]
@@ -22,9 +23,10 @@ pub(crate) struct NexusChannel {
     inner: *mut NexusChannelInner,
 }
 
+#[repr(C)]
 #[derive(Debug)]
 pub(crate) struct NexusChannelInner {
-    pub(crate) ch: Vec<(*mut spdk_bdev_desc, *mut spdk_io_channel)>,
+    pub(crate) ch: Vec<BdevHandle>,
     pub(crate) previous: usize,
     device: *mut c_void,
 }
@@ -52,35 +54,27 @@ impl NexusChannelInner {
     }
 
     /// refreshing our channels simply means that we either have a child going
-    /// online or offline. We dont know which child has gone, or was added so
-    /// we simply put back all the channels, and reopen them bdevs that are in
+    /// online or offline. We don't know which child has gone, or was added, so
+    /// we simply put back all the channels, and reopen the bdevs that are in
     /// the online state.
-    ///
-    /// Every core has its own copy of NexusChannelInner, so we this must be
-    /// executed for each core.
 
     pub(crate) fn refresh(&mut self) {
         let nexus = unsafe { Nexus::from_raw(self.device) };
         info!(
             "{}(tid:{:?}), refreshing IO channels",
-            nexus.name(),
+            nexus.name,
             std::thread::current().name().unwrap()
         );
 
         trace!(
             "{}: Current number of IO channels {}",
-            nexus.name(),
+            nexus.name,
             self.ch.len()
         );
 
-        // put the IO channels back, if a device is removed the resources will
-        // not be reclaimed as long as there is a reference to the the channel
-        self.ch
-            .iter_mut()
-            .map(|c| unsafe { spdk_put_io_channel(c.1) })
-            .for_each(drop);
-
-        // clear the vector of channels and reset other internal values
+        // clear the vector of channels and reset other internal values,
+        // clearing the values will drop any existing handles in the
+        // channel
         self.ch.clear();
         self.previous = 0;
 
@@ -90,24 +84,20 @@ impl NexusChannelInner {
             .iter_mut()
             .filter(|c| c.state == ChildState::Open)
             .map(|c| {
-                info!(
-                    "{}: Getting new channel for child {} desc {:p}",
-                    c.parent,
-                    c.name,
-                    c.descriptor.as_ref().unwrap().as_ptr()
-                );
-                self.ch.push((
-                    c.descriptor.as_ref().unwrap().as_ptr(),
-                    c.get_io_channel().unwrap(),
-                ))
+                self.ch.push(
+                    BdevHandle::try_from(c.get_descriptor().unwrap()).unwrap(),
+                )
             })
             .for_each(drop);
 
         trace!(
-            "{}: New number of IO channels {}",
-            nexus.name(),
-            self.ch.len()
+            "{}: New number of IO channels {} out of {} children",
+            nexus.name,
+            self.ch.len(),
+            nexus.children.len()
         );
+
+        //trace!("{:?}", nexus.children);
     }
 }
 
@@ -132,10 +122,9 @@ impl NexusChannel {
             .iter_mut()
             .filter(|c| c.state == ChildState::Open)
             .map(|c| {
-                channels.ch.push((
-                    c.descriptor.as_ref().unwrap().as_ptr(),
-                    c.get_io_channel().unwrap(),
-                ))
+                channels.ch.push(
+                    BdevHandle::try_from(c.get_descriptor().unwrap()).unwrap(),
+                )
             })
             .for_each(drop);
         ch.inner = Box::into_raw(channels);
@@ -147,11 +136,7 @@ impl NexusChannel {
         let nexus = unsafe { Nexus::from_raw(device) };
         debug!("{} Destroying IO channels", nexus.bdev.name());
         let inner = NexusChannel::from_raw(ctx).inner_mut();
-        inner
-            .ch
-            .iter()
-            .map(|e| unsafe { spdk_put_io_channel(e.1) })
-            .for_each(drop);
+        inner.ch.clear();
     }
 
     /// function called when we receive a Dynamic Reconfigure event (DR)
@@ -170,7 +155,7 @@ impl NexusChannel {
         }
     }
 
-    /// generic callback for signaling that all cores have reconfigured
+    /// a generic callback for signaling that all cores have reconfigured
     pub extern "C" fn reconfigure_completed(
         ch_iter: *mut spdk_io_channel_iter,
         status: i32,
@@ -179,7 +164,7 @@ impl NexusChannel {
             Nexus::from_raw(spdk_io_channel_iter_get_io_device(ch_iter))
         };
 
-        trace!("{}: Reconfigure completed", nexus.name());
+        trace!("{}: Reconfigure completed", nexus.name);
         let sender = nexus.dr_complete_notify.take().unwrap();
         sender.send(status).expect("reconfigure channel gone");
     }
@@ -195,7 +180,8 @@ impl NexusChannel {
         unsafe { spdk_for_each_channel_continue(ch_iter, 0) };
     }
 
-    /// converts a raw pointer to a nexusChannel
+    /// Converts a raw pointer to a nexusChannel. Note that the memory is not
+    /// allocated by us.
     pub(crate) fn from_raw<'a>(n: *mut c_void) -> &'a mut Self {
         unsafe { &mut *(n as *mut NexusChannel) }
     }
@@ -207,7 +193,7 @@ impl NexusChannel {
         NexusChannel::from_raw(Self::io_channel_ctx(channel)).inner_mut()
     }
 
-    /// get the offset to the our channel
+    /// get the offset to our ctx tchannel
     fn io_channel_ctx(ch: *mut spdk_io_channel) -> *mut c_void {
         unsafe {
             use std::mem::size_of;

@@ -38,12 +38,14 @@ impl Mthread {
     ///
     /// With the given thread as context, execute the closure on that thread.
     ///
-    /// Any function can be executed here however,this should typically be used
+    /// Any function can be executed here however, this should typically be used
     /// to execute functions that reference any FFI functions from SPDK.
     ///
     /// # Note
     ///
-    /// Avoid any blocking calls as it will block the reactor.
+    /// Avoid any blocking calls as it will block the reactor, and avoid
+    /// long-running functions in general follow the nodejs event loop
+    /// model, and you should be good.
     pub fn with<F: FnOnce()>(self, f: F) -> Self {
         unsafe { spdk_set_thread(self.0) };
 
@@ -79,15 +81,8 @@ impl Mthread {
 
 /// spawn closure `F` on the reactor running on core `core`. This function must
 /// be called within the context of the reactor. This is verified at runtime, to
-/// accidental mistakes.
-///
-/// Async closures are not supported (yet) as there is only a single executor on
-/// core 0
-pub fn spawn_on_core<T, F>(
-    core: u32,
-    arg: Box<T>,
-    f: F,
-) -> Result<Box<T>, Error>
+/// avoid accidental mistakes. Consumes `arg`
+pub fn spawn_on_core<T, F>(core: u32, arg: T, f: F) -> Result<(), Error>
 where
     T: MayaCtx,
     F: FnOnce(&mut T::Item),
@@ -111,7 +106,7 @@ where
     }
 
     let ptr = Box::into_raw(Box::new(f)) as *mut c_void;
-    let arg_ptr = &*arg as *const _ as *mut c_void;
+    let arg_ptr = Box::into_raw(Box::new(arg)) as *mut c_void;
 
     let event = unsafe {
         spdk_event_allocate(core, Some(unwrap::<F, T>), ptr, arg_ptr)
@@ -121,11 +116,8 @@ where
         panic!("failed to allocate event");
     }
 
-    // if the core != current core, the event will fire immediately even before
-    // we return. If core == current core, then this will return prior to the
-    // event being run.
     unsafe { spdk_event_call(event) };
-    Ok(arg)
+    Ok(())
 }
 
 /// Create a new thread, the core that will execute the thread will be chosen in

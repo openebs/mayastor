@@ -1,17 +1,15 @@
 use crate::{
-    bdev::{
-        bdev_lookup_by_name,
-        nexus::{
-            nexus_bdev::{
-                CreateCryptoBdev,
-                DestroyCryptoBdev,
-                Error,
-                Nexus,
-                ShareNexus,
-            },
-            nexus_nbd::Disk,
+    bdev::nexus::{
+        nexus_bdev::{
+            CreateCryptoBdev,
+            DestroyCryptoBdev,
+            Error,
+            Nexus,
+            ShareNexus,
         },
+        nexus_nbd::Disk,
     },
+    core::Bdev,
     executor::{cb_arg, done_errno_cb, errno_result_from_i32, ErrnoResult},
 };
 use futures::channel::oneshot;
@@ -85,7 +83,7 @@ impl Nexus {
             Some(disk) => {
                 disk.destroy();
                 let bdev_name = self.share_handle.take().unwrap();
-                if let Some(bdev) = bdev_lookup_by_name(&bdev_name) {
+                if let Some(bdev) = Bdev::lookup_by_name(&bdev_name) {
                     // if the share handle is the same as bdev name it
                     // implies there is no top level bdev, and we are done
                     if self.name != bdev.name() {
@@ -93,7 +91,7 @@ impl Nexus {
                         // currently, we only have the crypto vbdev
                         unsafe {
                             spdk_sys::delete_crypto_disk(
-                                bdev.inner,
+                                bdev.as_ptr(),
                                 Some(done_errno_cb),
                                 cb_arg(s),
                             );

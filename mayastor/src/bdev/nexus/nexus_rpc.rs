@@ -37,7 +37,7 @@ fn uuid_to_name(uuid: &str) -> Result<String, Error> {
 fn nexus_lookup(uuid: &str) -> Result<&mut Nexus, Error> {
     let name = uuid_to_name(uuid)?;
 
-    if let Some(nexus) = instances().iter_mut().find(|n| n.name() == name) {
+    if let Some(nexus) = instances().iter_mut().find(|n| n.name == name) {
         Ok(nexus)
     } else {
         Err(Error::NexusNotFound {
@@ -66,7 +66,7 @@ pub(crate) fn register_rpc_methods() {
             nexus_list: instances()
                 .iter()
                 .map(|nexus| RpcNexus {
-                    uuid: name_to_uuid(nexus.name()).to_string(),
+                    uuid: name_to_uuid(&nexus.name).to_string(),
                     size: nexus.size(),
                     state: nexus.state.to_string(),
                     children: nexus

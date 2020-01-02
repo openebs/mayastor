@@ -6,7 +6,7 @@
 //! replica with one lun - LUN0.
 
 use crate::{
-    bdev::Bdev,
+    core::Bdev,
     executor::{cb_arg, done_errno_cb, ErrnoResult},
     jsonrpc::{Code, RpcErrorCode},
 };
@@ -86,7 +86,7 @@ fn target_name(uuid: &str) -> String {
 
 /// Create iscsi portal and initiator group which will be used later when
 /// creating iscsi targets.
-pub fn init_iscsi(address: &str) -> Result<()> {
+pub fn init(address: &str) -> Result<()> {
     let portal_host = CString::new(address.to_owned()).unwrap();
     let portal_port = CString::new(ISCSI_PORT.to_string()).unwrap();
     let initiator_host = CString::new("ANY").unwrap();
@@ -139,7 +139,7 @@ pub fn init_iscsi(address: &str) -> Result<()> {
 }
 
 /// Destroy iscsi default portal and initiator group.
-pub fn fini_iscsi() {
+pub fn fini() {
     unsafe {
         let ig = spdk_iscsi_init_grp_unregister(0);
         if !ig.is_null() {

@@ -1,7 +1,7 @@
 use crate::{
-    bdev::bdev_lookup_by_name,
+    core::Bdev,
     executor::{cb_arg, done_errno_cb, errno_result_from_i32, ErrnoResult},
-    nexus_uri::{self, BdevError},
+    nexus_uri::{self, BdevCreateDestroy},
 };
 use futures::channel::oneshot;
 use snafu::{ResultExt, Snafu};
@@ -10,7 +10,7 @@ use std::{convert::TryFrom, ffi::CString};
 use url::Url;
 
 #[derive(Debug, Snafu)]
-pub enum ParseError {
+pub enum AioParseError {
     #[snafu(display("Missing path to aio device"))]
     PathMissing {},
     #[snafu(display("Block size is not a number"))]
@@ -30,9 +30,9 @@ pub struct AioBdev {
 impl AioBdev {
     /// create an AIO bdev. The reason this is async is to avoid type errors
     /// when creating things concurrently.
-    pub async fn create(self) -> Result<String, BdevError> {
-        if bdev_lookup_by_name(&self.name).is_some() {
-            return Err(BdevError::BdevExists {
+    pub async fn create(self) -> Result<String, BdevCreateDestroy> {
+        if Bdev::lookup_by_name(&self.name).is_some() {
+            return Err(BdevCreateDestroy::BdevExists {
                 name: self.name.clone(),
             });
         }
@@ -56,8 +56,8 @@ impl AioBdev {
     }
 
     /// destroy the given aio bdev
-    pub async fn destroy(self, bdev_name: &str) -> Result<(), BdevError> {
-        if let Some(bdev) = bdev_lookup_by_name(bdev_name) {
+    pub async fn destroy(self) -> Result<(), BdevCreateDestroy> {
+        if let Some(bdev) = Bdev::lookup_by_name(&self.name) {
             let (s, r) = oneshot::channel::<ErrnoResult<()>>();
             unsafe {
                 bdev_aio_delete(bdev.as_ptr(), Some(done_errno_cb), cb_arg(s));
@@ -68,7 +68,7 @@ impl AioBdev {
                 },
             )
         } else {
-            Err(BdevError::BdevNotFound {
+            Err(BdevCreateDestroy::BdevNotFound {
                 name: self.name.clone(),
             })
         }
@@ -77,7 +77,7 @@ impl AioBdev {
 
 /// Converts an aio url to AioArgs
 impl TryFrom<&Url> for AioBdev {
-    type Error = ParseError;
+    type Error = AioParseError;
 
     fn try_from(u: &Url) -> std::result::Result<Self, Self::Error> {
         let mut n = AioBdev::default();
@@ -86,7 +86,7 @@ impl TryFrom<&Url> for AioBdev {
             .path_segments()
             .map(std::iter::Iterator::collect::<Vec<_>>)
         {
-            None => return Err(ParseError::PathMissing {}),
+            None => return Err(AioParseError::PathMissing {}),
             Some(s) => format!("/{}", s.join("/")),
         };
         n.blk_size = 0;

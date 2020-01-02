@@ -1,10 +1,7 @@
-// see https://github.com/rust-lang/rust-clippy/issues/3988
-#![allow(clippy::needless_lifetimes)]
-
 use crate::{
-    bdev::bdev_lookup_by_name,
+    core::Bdev,
     executor::{cb_arg, errno_result_from_i32, ErrnoResult},
-    nexus_uri::{self, BdevError},
+    nexus_uri::{self, BdevCreateDestroy},
 };
 use futures::channel::oneshot;
 use snafu::{ResultExt, Snafu};
@@ -18,7 +15,7 @@ use std::{convert::TryFrom, ffi::CString, os::raw::c_void};
 use url::Url;
 
 #[derive(Debug, Snafu)]
-pub enum ParseError {
+pub enum NvmfParseError {
     #[snafu(display("Missing path component"))]
     PathMissing {},
 }
@@ -48,7 +45,7 @@ pub struct NvmfBdev {
     /// Enable protection information checking of the Logical Block Reference
     /// Tag field
     pub prchk_reftag: bool,
-    /// Enable protection information checking of the Application Tag    field
+    /// Enable protection information checking of the Application Tag field
     pub prchk_guard: bool,
 }
 
@@ -67,12 +64,12 @@ impl NvmfBdev {
     }
 
     /// async function to construct a bdev given a NvmfUri
-    pub async fn create(self) -> Result<String, BdevError> {
+    pub async fn create(self) -> Result<String, BdevCreateDestroy> {
         let mut ctx = NvmeCreateCtx::new(&self);
         let (sender, receiver) = oneshot::channel::<ErrnoResult<()>>();
 
-        if bdev_lookup_by_name(&self.name).is_some() {
-            return Err(BdevError::BdevExists {
+        if Bdev::lookup_by_name(&self.name).is_some() {
+            return Err(BdevCreateDestroy::BdevExists {
                 name: self.name.clone(),
             });
         }
@@ -128,10 +125,13 @@ impl NvmfBdev {
     }
 
     /// destroy nvme bdev
-    pub fn destroy(self, bdev_name: &str) -> Result<(), BdevError> {
-        if bdev_lookup_by_name(bdev_name).is_none() {
-            return Err(BdevError::BdevNotFound {
-                name: bdev_name.to_owned(),
+    pub fn destroy(self) -> Result<(), BdevCreateDestroy> {
+        // the namespace instance is appended to the nvme bdev, we currently
+        // only support one namespace per bdev.
+
+        if Bdev::lookup_by_name(&format!("{}{}", &self.name, "n1")).is_none() {
+            return Err(BdevCreateDestroy::BdevNotFound {
+                name: self.name,
             });
         }
         let cname = CString::new(self.name.clone()).unwrap();
@@ -145,7 +145,7 @@ impl NvmfBdev {
 
 /// converts a nvmf URL to NVMF args
 impl TryFrom<&Url> for NvmfBdev {
-    type Error = ParseError;
+    type Error = NvmfParseError;
 
     fn try_from(u: &Url) -> std::result::Result<Self, Self::Error> {
         let mut n = NvmfBdev::default();
@@ -157,7 +157,7 @@ impl TryFrom<&Url> for NvmfBdev {
             .path_segments()
             .map(std::iter::Iterator::collect::<Vec<_>>)
         {
-            None => return Err(ParseError::PathMissing {}),
+            None => return Err(NvmfParseError::PathMissing {}),
             // TODO validate that the nqn is a valid v4 UUID
             Some(s) => s[0].to_string(),
         };
@@ -190,30 +190,29 @@ impl TryFrom<&Url> for NvmfBdev {
 /// The Maximum number of namespaces that a single bdev will connect to
 pub const MAX_NAMESPACES: usize = 1;
 
-// closures are not allowed to take themselves as arguments so we do not store
-// the closure here
-
-/// This C structure is passed as an argument to the callback of
-/// nvme_create_bdev() function its contents is defined by the C side of things.
-/// In the future we would like to have some methods perhaps around these fields
-/// such you dont have to deal with raw pointers directly or as nvmf tcp becomes
-/// more stable write our own implementation of bdev_create()
+/// This C structure is passed as an argument that internally is passed again,
+/// to a callback. This means, that for now, we accept certain design choices
+/// being made for now. One of which is the fact that creating a NVMe
+/// controller, will result in bdevs showing up. This implies that the URI
+/// refers to the controller rather than the bdev names directly. Thus, we need
+/// to be careful when we try to destroy a NVMe bdev (you can't) you can only
+/// destroy the controller.
 #[repr(C)]
 pub struct NvmeCreateCtx {
-    // the name is used internally to construct bdev names this seems rather
-    // odd as the
-    /// name of the to be created bdev
+    /// name of the NVMe controller we create. For each name space we will get
+    /// a name + n + I where I is an ordinal number starting from 1. We
+    /// allow only for one namespace to be created per controller
+    /// which is defined by [MAX_NAMESPACES]
     pub name: *const libc::c_char,
-    /// array of bdev names per namespace for example, this will create
-    /// my_name{n}{i}
+    /// the array holding names of the created bdevs
     pub names: [*const libc::c_char; MAX_NAMESPACES],
     /// the amount of actual bdevs that are created
     pub count: u32,
-    /// nvme transport id contains the information needed to connect to a
+    /// NVMe transport id contains the information needed to connect to a
     /// remote target
     pub transport_id: spdk_sys::spdk_nvme_transport_id,
-    /// nvme hostid contains the information that describes the client this
-    /// field is optional when not supplied, the nvme stack internally
+    /// The NVMe host id contains the information that describes the client
+    /// this field is optional when not supplied, the NVMe stack internally
     /// creates a random NQNs.
     pub host_id: spdk_sys::spdk_nvme_host_id,
 }
@@ -253,12 +252,12 @@ impl NvmeCreateCtx {
             );
         }
 
-        // we can not test RDMA nor IPv6 at the moment
+        // we cannot test RDMA nor IPv6 at the moment
         transport.trtype = SPDK_NVME_TRANSPORT_TCP;
         transport.adrfam = SPDK_NVMF_ADRFAM_IPV4;
 
         // the following parameters are optional, but we should fill them in to
-        // get a proper topo mapping of the whole thing as soon as we
+        // get a proper topology mapping of the whole thing as soon as we
         // get it to work to begin with.
         if !args.hostsvcid.is_empty() {
             unsafe {

@@ -3,16 +3,8 @@
 use std::process::Command;
 
 use mayastor::{
-    bdev::{
-        bdev_lookup_by_name,
-        nexus::nexus_bdev::{nexus_create, nexus_lookup, NexusState},
-        Bdev,
-    },
-    descriptor::Descriptor,
-    environment::{
-        args::MayastorCliArgs,
-        env::{mayastor_env_stop, MayastorEnvironment},
-    },
+    bdev::{nexus_create, nexus_lookup, NexusState},
+    core::{mayastor_env_stop, Bdev, MayastorCliArgs, MayastorEnvironment},
 };
 
 static DISKNAME1: &str = "/tmp/disk1.img";
@@ -81,17 +73,29 @@ async fn works() {
     let nexus = nexus_lookup("hello").unwrap();
 
     // open the nexus in read write
-    let nd_bdev = bdev_lookup_by_name("hello").expect("failed to lookup bdev");
-    let nd = Descriptor::open(&nd_bdev, true).expect("failed open bdev");
+    let nd_bdev = Bdev::lookup_by_name("hello").expect("failed to lookup bdev");
+    let nd = nd_bdev
+        .open(true)
+        .expect("failed open bdev")
+        .into_handle()
+        .unwrap();
     assert_eq!(nexus.status(), NexusState::Online);
     // open the children in RO
 
     let cd1_bdev =
-        bdev_lookup_by_name(BDEVNAME1).expect("failed to lookup bdev");
+        Bdev::lookup_by_name(BDEVNAME1).expect("failed to lookup bdev");
     let cd2_bdev =
-        bdev_lookup_by_name(BDEVNAME2).expect("failed to lookup bdev");
-    let cd1 = Descriptor::open(&cd1_bdev, false).expect("failed open bdev");
-    let cd2 = Descriptor::open(&cd2_bdev, false).expect("failed open bdev");
+        Bdev::lookup_by_name(BDEVNAME2).expect("failed to lookup bdev");
+    let cd1 = cd1_bdev
+        .open(false)
+        .expect("failed open bdev")
+        .into_handle()
+        .unwrap();
+    let cd2 = cd2_bdev
+        .open(false)
+        .expect("failed open bdev")
+        .into_handle()
+        .unwrap();
 
     let bdev1 = cd1.get_bdev();
     let bdev2 = cd2.get_bdev();

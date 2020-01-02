@@ -1,7 +1,7 @@
 use crate::{
-    bdev::{bdev_lookup_by_name, Bdev},
+    core::Bdev,
     executor::{cb_arg, done_errno_cb, errno_result_from_i32, ErrnoResult},
-    nexus_uri::{self, BdevError},
+    nexus_uri::{self, BdevCreateDestroy},
 };
 use futures::channel::oneshot;
 use snafu::{ResultExt, Snafu};
@@ -10,7 +10,7 @@ use std::{convert::TryFrom, ffi::CString, os::raw::c_void};
 use url::Url;
 
 #[derive(Debug, Snafu)]
-pub enum ParseError {
+pub enum IscsiParseError {
     // no parse errors for iscsi urls - we should have some probably
 }
 
@@ -23,9 +23,9 @@ pub struct IscsiBdev {
 
 impl IscsiBdev {
     /// create an iscsi target
-    pub async fn create(self) -> Result<String, BdevError> {
-        if bdev_lookup_by_name(&self.name).is_some() {
-            return Err(BdevError::BdevExists {
+    pub async fn create(self) -> Result<String, BdevCreateDestroy> {
+        if Bdev::lookup_by_name(&self.name).is_some() {
+            return Err(BdevCreateDestroy::BdevExists {
                 name: self.name.clone(),
             });
         }
@@ -71,11 +71,15 @@ impl IscsiBdev {
     }
 
     // destroy the given bdev
-    pub async fn destroy(self, bdev_name: &str) -> Result<(), BdevError> {
-        if let Some(bdev) = bdev_lookup_by_name(bdev_name) {
+    pub async fn destroy(self) -> Result<(), BdevCreateDestroy> {
+        if let Some(bdev) = Bdev::lookup_by_name(&self.name) {
             let (s, r) = oneshot::channel::<ErrnoResult<()>>();
             unsafe {
-                delete_iscsi_disk(bdev.inner, Some(done_errno_cb), cb_arg(s));
+                delete_iscsi_disk(
+                    bdev.as_ptr(),
+                    Some(done_errno_cb),
+                    cb_arg(s),
+                );
             }
             r.await.expect("Cancellation is not supported").context(
                 nexus_uri::DestroyBdev {
@@ -83,8 +87,8 @@ impl IscsiBdev {
                 },
             )
         } else {
-            Err(BdevError::BdevNotFound {
-                name: bdev_name.to_owned(),
+            Err(BdevCreateDestroy::BdevNotFound {
+                name: self.name,
             })
         }
     }
@@ -93,7 +97,7 @@ impl IscsiBdev {
 /// Converts an iSCSI url to a struct iSCSiArgs. NOTE do to a bug in SPDK
 /// providing a valid target with an invalid iqn, will crash the system.
 impl TryFrom<&Url> for IscsiBdev {
-    type Error = ParseError;
+    type Error = IscsiParseError;
 
     fn try_from(u: &Url) -> Result<Self, Self::Error> {
         let mut n = IscsiBdev::default();

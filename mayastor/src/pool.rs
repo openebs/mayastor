@@ -4,7 +4,7 @@
 //! simple to use json-rpc methods for managing pools.
 
 use crate::{
-    bdev::{bdev_lookup_by_name, Bdev},
+    core::Bdev,
     executor::{cb_arg, done_cb},
     jsonrpc::{jsonrpc_register, Code, JsonRpcError, Result},
     replica::ReplicaIter,
@@ -145,7 +145,7 @@ impl Pool {
 
     /// Create a pool on base bdev
     pub async fn create<'a>(name: &'a str, disk: &'a str) -> Result<Pool> {
-        let base_bdev = match bdev_lookup_by_name(disk) {
+        let base_bdev = match Bdev::lookup_by_name(disk) {
             Some(bdev) => bdev,
             None => {
                 return Err(JsonRpcError::new(
@@ -203,7 +203,7 @@ impl Pool {
 
     /// Import the pool from a disk
     pub async fn import<'a>(name: &'a str, disk: &'a str) -> Result<Pool> {
-        let base_bdev = match bdev_lookup_by_name(disk) {
+        let base_bdev = match Bdev::lookup_by_name(disk) {
             Some(bdev) => bdev,
             None => {
                 return Err(JsonRpcError::new(
@@ -282,7 +282,7 @@ impl Pool {
         }
 
         // we will destroy base bdev now
-        let base_bdev = match bdev_lookup_by_name(&base_bdev_name) {
+        let base_bdev = match Bdev::lookup_by_name(&base_bdev_name) {
             Some(bdev) => bdev,
             None => {
                 // it's not an error if the base bdev disappeared but it is
@@ -395,7 +395,7 @@ pub fn register_pool_methods() {
                 // TODO: We would like to check if the disk is in use, but there
                 // is no easy way how to get this info using available api.
                 let disk = &args.disks[0];
-                if bdev_lookup_by_name(disk).is_some() {
+                if Bdev::lookup_by_name(disk).is_some() {
                     return Err(JsonRpcError::new(
                         Code::InvalidParams,
                         format!("Base bdev {} already exists", disk),

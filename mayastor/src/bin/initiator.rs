@@ -5,17 +5,6 @@ extern crate clap;
 #[macro_use]
 extern crate log;
 
-use clap::{App, Arg, SubCommand};
-use mayastor::{
-    app,
-    bdev::{bdev_lookup_by_name, Bdev},
-    descriptor::{DescError, Descriptor},
-    dma::{DmaBuf, DmaError},
-    executor,
-    jsonrpc::print_error_chain,
-    logger,
-    nexus_uri::{bdev_create, BdevError},
-};
 use std::{
     fmt,
     fs,
@@ -23,7 +12,18 @@ use std::{
     process,
 };
 
-/// The errors from this utility are not supposed to be parseable by machine,
+use clap::{App, Arg, SubCommand};
+
+use mayastor::{
+    app,
+    core::{Bdev, CoreError, DmaError},
+    executor,
+    jsonrpc::print_error_chain,
+    logger,
+    nexus_uri::{bdev_create, BdevCreateDestroy},
+};
+
+/// The errors from this utility are not supposed to be parsable by machine,
 /// so all we need is a string with unfolded error messages from all nested
 /// errors, which will be printed to stderr.
 struct Error {
@@ -34,8 +34,8 @@ impl fmt::Display for Error {
         write!(f, "{}", self.msg)
     }
 }
-impl From<DescError> for Error {
-    fn from(err: DescError) -> Self {
+impl From<CoreError> for Error {
+    fn from(err: CoreError) -> Self {
         Self {
             msg: print_error_chain(&err),
         }
@@ -48,8 +48,8 @@ impl From<DmaError> for Error {
         }
     }
 }
-impl From<BdevError> for Error {
-    fn from(err: BdevError) -> Self {
+impl From<BdevCreateDestroy> for Error {
+    fn from(err: BdevCreateDestroy) -> Self {
         Self {
             msg: print_error_chain(&err),
         }
@@ -70,22 +70,18 @@ mayastor::CPS_INIT!();
 /// Create initiator bdev.
 async fn create_bdev(uri: &str) -> Result<Bdev> {
     let bdev_name = bdev_create(uri).await?;
-    let bdev = bdev_lookup_by_name(&bdev_name)
+    let bdev = Bdev::lookup_by_name(&bdev_name)
         .expect("Failed to lookup the created bdev");
     Ok(bdev)
-}
-
-/// Allocate IO buffer suitable for given bdev with the bdev descriptor.
-fn alloc_buf(bdev: &Bdev, desc: &Descriptor) -> Result<DmaBuf> {
-    let len = bdev.block_len() as usize;
-    desc.dma_malloc(len).map_err(|err| err.into())
 }
 
 /// Read block of data from bdev at given offset to a file.
 async fn read(uri: &str, offset: u64, file: &str) -> Result<()> {
     let bdev = create_bdev(uri).await?;
-    let desc = Descriptor::open(&bdev, false)?;
-    let mut buf = alloc_buf(&bdev, &desc)?;
+    let desc = Bdev::open(&bdev, false).unwrap().into_handle().unwrap();
+    let mut buf = desc
+        .dma_malloc(desc.get_bdev().block_len() as usize)
+        .unwrap();
     let n = desc.read_at(offset, &mut buf).await?;
     fs::write(file, buf.as_slice())?;
     info!("{} bytes read", n);
@@ -96,8 +92,10 @@ async fn read(uri: &str, offset: u64, file: &str) -> Result<()> {
 async fn write(uri: &str, offset: u64, file: &str) -> Result<()> {
     let bdev = create_bdev(uri).await?;
     let bytes = fs::read(file)?;
-    let desc = Descriptor::open(&bdev, true)?;
-    let mut buf = alloc_buf(&bdev, &desc)?;
+    let desc = Bdev::open(&bdev, true).unwrap().into_handle().unwrap();
+    let mut buf = desc
+        .dma_malloc(desc.get_bdev().block_len() as usize)
+        .unwrap();
     let mut n = buf.as_mut_slice().write(&bytes[..]).unwrap();
     if n < buf.len() {
         warn!("Writing a buffer which was not fully initialized from a file");

@@ -3,88 +3,17 @@
 //! the nexus a developer is able to construct a per application volume
 //! optimized for the perceived intent. For example, depending on
 //! application needs synchronous mirroring may be required.
-//!
-//! In order to create a nexus, it requires storage target URI's.
-//!
-//! Creating a 3 way replica nexus example:
-//!
-//! # example
-//! ```ignore
-//! use mayastor::descriptor::{Descriptor, DmaBuf};
-//! use mayastor::bdev::nexus::nexus_bdev::nexus_create;
-//! let children = vec![
-//!        "aio:////disk1.img?blk_size=512".to_string(),
-//!        "iscsi://foobar/iqn.2019-05.io.openebs:disk0".into(),
-//!        "nvmf://fooo/nqn.2019-05.io-openebs:disk0".into(),
-//!    ];
-//!
-//! // create the nexus using the vector of child devices
-//! let nexus = nexus_create(
-//!     "nexus-b6565df-af19-4645-9f98-e6a8b8c13b58",
-//!     4096,
-//!     131_027,
-//!     Some("b6565df-af19-4645-9f98-e6a8b8c13b58"),
-//!     &children,
-//! ).await.unwrap();
-//!
-//! // open a block descriptor
-//! let bd = Descriptor::open(&nexus, true).unwrap();
-//!
-//! // only use DMA buffers to issue IO, as its a member of the opened device
-//! // alignment is handled implicitly
-//! let mut buf = bd.dma_malloc(4096).unwrap();
-//!
-//! // fill the buffer with a know value
-//! buf.fill(0xff);
-//!
-//! // write out the buffer to the nexus, all child devices will receive the
-//! // same IO. Put differently. A single IO becomes three IOs
-//! bd.write_at(0, &mut buf).await.unwrap();
-//!
-//! // fill the buffer with zeroes and read back the data
-//! buf.fill(0x00);
-//! bd.read_at(0, &mut buf).await.unwrap();
-//!
-//! // verify that the buffer is filled with wrote previously
-//! buf.as_slice().into_iter().map(|b| assert_eq!(b, 0xff)).for_each(drop);
-//! ```
-//!
-//! The nexus itself can be exported over the network as well
-//!
-//! # share
-//! ```ignore
-//! // make the nexus available as a block device to the rest of the system
-//! let _device_path = nexus.share().unwrap();
-//! ```
 
 use std::{
     fmt::{Display, Formatter},
     os::raw::c_void,
 };
 
-use crate::{
-    bdev::{
-        nexus::{
-            self,
-            instances,
-            nexus_channel::{DREvent, NexusChannel, NexusChannelInner},
-            nexus_child::{ChildError, ChildState, NexusChild},
-            nexus_io::{io_status, Bio},
-            nexus_label::LabelError,
-            nexus_nbd::{Disk, NbdError},
-        },
-        Bdev,
-    },
-    dma::{DmaBuf, DmaError},
-    executor::errno_result_from_i32,
-    jsonrpc::{Code, RpcErrorCode},
-    nexus_uri::BdevError,
-    rebuild::RebuildTask,
-};
 use futures::channel::oneshot;
 use nix::errno::Errno;
 use serde::Serialize;
 use snafu::{ResultExt, Snafu};
+
 use spdk_sys::{
     spdk_bdev,
     spdk_bdev_desc,
@@ -98,6 +27,24 @@ use spdk_sys::{
     spdk_io_channel,
     spdk_io_device_register,
     spdk_io_device_unregister,
+};
+
+use crate::{
+    bdev::{
+        nexus,
+        nexus::{
+            instances,
+            nexus_channel::{DREvent, NexusChannel, NexusChannelInner},
+            nexus_child::{ChildError, ChildState, NexusChild},
+            nexus_io::{io_status, Bio},
+            nexus_label::LabelError,
+            nexus_nbd::{Disk, NbdError},
+        },
+    },
+    core::{Bdev, DmaBuf, DmaError},
+    executor::errno_result_from_i32,
+    jsonrpc::{Code, RpcErrorCode},
+    nexus_uri::BdevCreateDestroy,
 };
 
 /// Common errors for nexus basic operations and child operations
@@ -134,7 +81,10 @@ pub enum Error {
     #[snafu(display("Failed to register IO device nexus {}", name))]
     RegisterNexus { source: Errno, name: String },
     #[snafu(display("Failed to create child of nexus {}", name))]
-    CreateChild { source: BdevError, name: String },
+    CreateChild {
+        source: BdevCreateDestroy,
+        name: String,
+    },
     #[snafu(display("Deferring open because nexus {} is incomplete", name))]
     NexusIncomplete { name: String },
     #[snafu(display("Children of nexus {} have mixed block sizes", name))]
@@ -161,7 +111,7 @@ pub enum Error {
     DestroyLastChild { child: String, name: String },
     #[snafu(display("Failed to destroy child {} of nexus {}", child, name))]
     DestroyChild {
-        source: BdevError,
+        source: BdevCreateDestroy,
         child: String,
         name: String,
     },
@@ -224,7 +174,7 @@ pub struct Nexus {
     /// number of children part of this nexus
     pub(crate) child_count: u32,
     /// vector of children
-    pub(crate) children: Vec<NexusChild>,
+    pub children: Vec<NexusChild>,
     /// inner bdev
     pub(crate) bdev: Bdev,
     /// raw pointer to bdev (to destruct it later using Box::from_raw())
@@ -240,8 +190,6 @@ pub struct Nexus {
     /// the handle to be used when sharing the nexus, this allows for the bdev
     /// to be shared with vbdevs on top
     pub(crate) share_handle: Option<String>,
-    /// A handle to a rebuild task which may or may not be running
-    pub(crate) rebuild_handle: Option<Box<RebuildTask>>,
 }
 
 unsafe impl core::marker::Sync for Nexus {}
@@ -301,7 +249,7 @@ impl Nexus {
         b.name = c_str!(name);
         b.product_name = c_str!(NEXUS_PRODUCT_ID);
         b.fn_table = nexus::fn_table().unwrap();
-        b.module = nexus::module().unwrap().as_ptr();
+        b.module = nexus::module().unwrap();
         b.blocklen = 0;
         b.blockcnt = 0;
         b.required_alignment = 9;
@@ -318,7 +266,6 @@ impl Nexus {
             nbd_disk: None,
             share_handle: None,
             size,
-            rebuild_handle: None,
         });
 
         n.bdev.set_uuid(match uuid {
@@ -332,17 +279,9 @@ impl Nexus {
 
         // store a reference to the Self in the bdev structure.
         unsafe {
-            (*n.bdev.inner).ctxt = n.as_ref() as *const _ as *mut c_void;
+            (*n.bdev.as_ptr()).ctxt = n.as_ref() as *const _ as *mut c_void;
         }
         n
-    }
-
-    /// get a mutable reference to a child at index
-    pub fn get_child_as_mut_ref(
-        &mut self,
-        index: usize,
-    ) -> Option<&mut NexusChild> {
-        Some(&mut self.children[index])
     }
 
     /// set the state of the nexus
@@ -354,32 +293,6 @@ impl Nexus {
         self.state = state;
         state
     }
-
-    /// return the current state of the nexus
-    pub fn status(&self) -> NexusState {
-        self.state
-    }
-
-    /// online is the state where the Nexus has all children in the healthy
-    /// state and is not rebuilding (for example)
-    pub fn is_online(&self) -> bool {
-        self.is_healthy() && self.state == NexusState::Online
-    }
-
-    /// returns true if all the children are open
-    pub fn is_healthy(&self) -> bool {
-        !self.children.iter().any(|c| c.state != ChildState::Open)
-    }
-
-    /// returns the name of the nexus instance
-    pub fn name(&self) -> &str {
-        &self.name
-    }
-
-    pub fn child_count(&self) -> u32 {
-        self.child_count
-    }
-
     /// returns the size in bytes of the nexus instance
     pub fn size(&self) -> u64 {
         u64::from(self.bdev.block_len()) * self.bdev.num_blocks()
@@ -393,8 +306,7 @@ impl Nexus {
 
         info!(
             "{}: Dynamic reconfiguration event: {:?} started",
-            self.name(),
-            event
+            self.name, event
         );
 
         NexusChannel::reconfigure(self.as_ptr(), &event);
@@ -403,9 +315,7 @@ impl Nexus {
 
         info!(
             "{}: Dynamic reconfiguration event: {:?} completed {}",
-            self.name(),
-            event,
-            result
+            self.name, event, result
         );
     }
 
@@ -535,7 +445,7 @@ impl Nexus {
         unsafe {
             // This will trigger a callback to destruct() in the fn_table.
             spdk_bdev_unregister(
-                self.bdev.inner,
+                self.bdev.as_ptr(),
                 Some(nexus_destroy_cb),
                 Box::into_raw(Box::new(s)) as *mut _,
             );
@@ -547,7 +457,7 @@ impl Nexus {
     /// register the bdev with SPDK and set the callbacks for io channel
     /// creation. Once this function is called, the device is visible and can
     /// be used for IO.
-    pub fn register(&mut self) -> Result<(), Error> {
+    pub(crate) fn register(&mut self) -> Result<(), Error> {
         assert_eq!(self.state, NexusState::Init);
 
         unsafe {
@@ -556,13 +466,13 @@ impl Nexus {
                 Some(NexusChannel::create),
                 Some(NexusChannel::destroy),
                 std::mem::size_of::<NexusChannel>() as u32,
-                (*self.bdev.inner).name,
+                (*self.bdev.as_ptr()).name,
             );
         }
 
         debug!("{}: IO device registered at {:p}", self.name, self.as_ptr());
 
-        let errno = unsafe { spdk_bdev_register(self.bdev.inner) };
+        let errno = unsafe { spdk_bdev_register(self.bdev.as_ptr()) };
 
         match errno_result_from_i32((), errno) {
             Ok(_) => {
@@ -619,9 +529,9 @@ impl Nexus {
                 pio
             );
 
-            pio.io_ctx_as_mut_ref().status = io_status::FAILED;
+            pio.ctx_as_mut_ref().status = io_status::FAILED;
         }
-        pio.asses();
+        pio.assess();
         // always free the child IO
         Bio::io_free(child_io);
     }
@@ -635,16 +545,16 @@ impl Nexus {
         if !success {
             let bio = Bio(io);
             let nexus = bio.nexus_as_ref();
-            warn!("{}: Failed to get io buffer for io {:?}", nexus.name(), bio);
+            warn!("{}: Failed to get io buffer for io {:?}", nexus.name, bio);
         }
 
         let ch = NexusChannel::inner_from_channel(ch);
-        let (desc, ch) = ch.ch[ch.previous];
+        let (desc, ch) = ch.ch[ch.previous].io_tuple();
         let ret = Self::readv_impl(io, desc, ch);
         if ret != 0 {
             let bio = Bio(io);
             let nexus = bio.nexus_as_ref();
-            error!("{}: Failed to submit IO {:?}", nexus.name(), bio);
+            error!("{}: Failed to submit IO {:?}", nexus.name, bio);
         }
     }
 
@@ -658,7 +568,7 @@ impl Nexus {
 
         // we use RR to read from the children also, set that we only need
         // to read from one child before we complete the IO to the callee.
-        io.io_ctx_as_mut_ref().in_flight = 1;
+        io.ctx_as_mut_ref().in_flight = 1;
 
         let child = channels.child_select();
 
@@ -675,14 +585,14 @@ impl Nexus {
             return;
         }
 
-        let (desc, ch) = channels.ch[child];
+        let (desc, ch) = channels.ch[child].io_tuple();
 
         let ret = Self::readv_impl(pio, desc, ch);
 
         if ret != 0 {
             error!(
                 "{}: Failed to submit dispatched IO {:p}",
-                io.nexus_as_ref().name(),
+                io.nexus_as_ref().name,
                 pio
             );
 
@@ -720,14 +630,15 @@ impl Nexus {
     ) {
         let mut io = Bio(pio);
         // in case of writes, we want to write to all underlying children
-        io.io_ctx_as_mut_ref().in_flight = channels.ch.len() as i8;
+        io.ctx_as_mut_ref().in_flight = channels.ch.len() as i8;
         let results = channels
             .ch
             .iter()
             .map(|c| unsafe {
+                let (b, c) = c.io_tuple();
                 spdk_bdev_writev_blocks(
-                    c.0,
-                    c.1,
+                    b,
+                    c,
                     io.iovs(),
                     io.iov_count(),
                     io.offset() + io.nexus_as_ref().data_ent_offset,
@@ -742,7 +653,7 @@ impl Nexus {
         if results.iter().any(|r| *r != 0) {
             error!(
                 "{}: Failed to submit dispatched IO {:?}",
-                io.nexus_as_ref().name(),
+                io.nexus_as_ref().name,
                 pio
             );
         }
@@ -754,14 +665,15 @@ impl Nexus {
         channels: &NexusChannelInner,
     ) {
         let mut io = Bio(pio);
-        io.io_ctx_as_mut_ref().in_flight = channels.ch.len() as i8;
+        io.ctx_as_mut_ref().in_flight = channels.ch.len() as i8;
         let results = channels
             .ch
             .iter()
             .map(|c| unsafe {
+                let (b, c) = c.io_tuple();
                 spdk_bdev_unmap_blocks(
-                    c.0,
-                    c.1,
+                    b,
+                    c,
                     io.offset() + io.nexus_as_ref().data_ent_offset,
                     io.num_blocks(),
                     Some(Self::io_completion),
@@ -773,10 +685,15 @@ impl Nexus {
         if results.iter().any(|r| *r != 0) {
             error!(
                 "{}: Failed to submit dispatched IO {:?}",
-                io.nexus_as_ref().name(),
+                io.nexus_as_ref().name,
                 pio
             );
         }
+    }
+
+    /// returns the current status of the nexus
+    pub fn status(&self) -> NexusState {
+        self.state
     }
 }
 
@@ -817,7 +734,7 @@ pub async fn nexus_create(
 
 /// Lookup a nexus by its name (currently used only by test functions).
 pub fn nexus_lookup(name: &str) -> Option<&mut Nexus> {
-    if let Some(nexus) = instances().iter_mut().find(|n| n.name() == name) {
+    if let Some(nexus) = instances().iter_mut().find(|n| n.name == name) {
         Some(nexus)
     } else {
         None

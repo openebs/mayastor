@@ -1,6 +1,6 @@
-//! The most thin ever rust wrapper around SPDK. This is used for automated
-//! and manual testing if running mayastor with all its whistels and blows
-//! is not possible or desireable and all what is needed is to run SPDK with
+//! The Thinnest ever rust wrapper around SPDK. This is used for automated
+//! and manual testing if running mayastor with all its bells and whistles
+//! is not possible or desirable and all what is needed is to run SPDK with
 //! particular configuration file (i.e. nvmf target for testing).
 
 extern crate libc;
