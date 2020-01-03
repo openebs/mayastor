@@ -61,6 +61,38 @@ function runAsRoot(cmd, args, env, nameInPs) {
   }
 }
 
+// Execute command as root and call callback with (error, stdout) arguments
+// when the command has finished.
+function execAsRoot(cmd, args, done) {
+  let child = runAsRoot(cmd, args);
+  let stderr = '';
+  let stdout = '';
+
+  child.stderr.on('data', data => {
+    stderr += data;
+  });
+  child.stdout.on('data', data => {
+    stdout += data;
+  });
+  child.on('close', (code, signal) => {
+    if (code != 0) {
+      done(
+        new Error(
+          `Command ${cmd} exited with code ${code}. Error output: ${stderr}`
+        )
+      );
+    } else if (signal) {
+      done(
+        new Error(
+          `Command ${cmd} terminated by signal ${signal}. Error output: ${stderr}`
+        )
+      );
+    } else {
+      done(null, stdout);
+    }
+  });
+}
+
 // Periodically ping mayastor until up and running.
 // Ping cb with grpc call is provided by the caller.
 function waitFor(ping, done) {
@@ -398,8 +430,10 @@ module.exports = {
   fixSocketPerms,
   endpoint,
   dumbCommand,
+  execAsRoot,
   runAsRoot,
   ensureNbdWritable,
   restoreNbdPerms,
   getMyIp,
+  getCmdPath,
 };

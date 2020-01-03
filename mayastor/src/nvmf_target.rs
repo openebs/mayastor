@@ -41,6 +41,7 @@ use spdk_sys::{
     spdk_nvmf_tgt_destroy,
     spdk_nvmf_tgt_find_subsystem,
     spdk_nvmf_tgt_listen,
+    spdk_nvmf_tgt_stop_listen,
     spdk_nvmf_transport_create,
     spdk_nvmf_transport_opts,
     spdk_nvmf_transport_opts_init,
@@ -82,6 +83,8 @@ pub enum Error {
     AddTransport { source: Errno },
     #[snafu(display("nvmf target listen failed: {}", source))]
     ListenTarget { source: Errno },
+    #[snafu(display("nvmf target failed to stop listening: {}", source))]
+    StopListenTarget { source: Errno },
     #[snafu(display("Failed to create a poll group"))]
     CreatePollGroup {},
     #[snafu(display("Failed to create nvmf subsystem {}", nqn))]
@@ -577,6 +580,10 @@ impl Target {
         debug!("Destroying nvmf target {}", self);
 
         // stop accepting new connections
+        let rc = unsafe {
+            spdk_nvmf_tgt_stop_listen(self.inner, &mut self.trid as *mut _)
+        };
+        errno_result_from_i32((), rc).context(StopListenTarget {})?;
         if !self.acceptor_poller.is_null() {
             unsafe { spdk_poller_unregister(&mut self.acceptor_poller) };
         }

@@ -151,26 +151,33 @@ fn main() {
         None => 0,
     };
 
-    let rc = app::start("initiator", ["-s", "128"].to_vec(), move || {
-        let fut = async move {
-            let res = if let Some(matches) = matches.subcommand_matches("read")
-            {
-                read(&uri, offset, matches.value_of("FILE").unwrap()).await
-            } else if let Some(matches) = matches.subcommand_matches("write") {
-                write(&uri, offset, matches.value_of("FILE").unwrap()).await
-            } else {
-                connect(&uri).await
+    let rc = app::start(
+        "initiator",
+        ["-s", "128", "-r", "/tmp/initiator.sock"].to_vec(),
+        move || {
+            let fut = async move {
+                let res = if let Some(matches) =
+                    matches.subcommand_matches("read")
+                {
+                    read(&uri, offset, matches.value_of("FILE").unwrap()).await
+                } else if let Some(matches) =
+                    matches.subcommand_matches("write")
+                {
+                    write(&uri, offset, matches.value_of("FILE").unwrap()).await
+                } else {
+                    connect(&uri).await
+                };
+                let rc = if let Err(err) = res {
+                    error!("{}", err);
+                    -1
+                } else {
+                    0
+                };
+                app::stop(rc);
             };
-            let rc = if let Err(err) = res {
-                error!("{}", err);
-                -1
-            } else {
-                0
-            };
-            app::stop(rc);
-        };
-        executor::spawn(fut);
-    });
+            executor::spawn(fut);
+        },
+    );
     info!("{}", rc);
 
     process::exit(rc);

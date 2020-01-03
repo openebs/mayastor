@@ -37,66 +37,20 @@ function createTestDisk(done) {
   exec('truncate -s 100m ' + DISK_FILE, (err, stdout, stderr) => {
     if (err) return done(stderr);
 
-    stderr = '';
-    stdout = '';
-    let child = common.runAsRoot(
+    common.execAsRoot(
       'losetup',
       // Explicitly set blksiz to 512 to be different from the
       // default in mayastor (4096) to test it.
-      ['--show', '-b', '512', '-f', DISK_FILE]
+      ['--show', '-b', '512', '-f', DISK_FILE],
+      (err, stdout) => done(err, stdout ? stdout.trim() : '')
     );
-
-    child.stderr.on('data', data => {
-      stderr += data;
-    });
-    child.stdout.on('data', data => {
-      stdout += data;
-    });
-    child.on('close', (code, signal) => {
-      if (code != 0) {
-        return done(stderr);
-      }
-      let dev = stdout.trim();
-      // Fill the device with garbage so that we can test that volumes are
-      // properly zeroed out when destroyed.
-      //
-      // TODO: Add test case for that. Currently we have iscsi and nvmf
-      // replicas, neither of them are mounted to the system (that brings
-      // other problems with cleaning up kernel state etc). If only there
-      // was a utility allowing us to read bytes from remote target without
-      // mounting the device ...
-      //
-      // NOTE: Due to following but in SPDK
-      // https://github.com/spdk/spdk/issues/944 the devices which don't
-      // support unmap are not cleared. We can have a test case for this
-      // when this is fixed.
-      let child = common.runAsRoot('dd', [
-        'bs=1024',
-        'count=100000',
-        'if=/dev/urandom',
-        'of=' + dev,
-      ]);
-      stderr = '';
-      child.stderr.on('data', data => {
-        stderr += data;
-      });
-      child.on('close', (code, signal) => {
-        if (code != 0) {
-          done(stderr);
-        } else {
-          done(null, dev);
-        }
-      });
-    });
   });
 }
 
-// Destroy the fake disk used for testing
+// Destroy the fake disk used for testing (disregard any error).
 function destroyTestDisk(done) {
   if (implicitDisk != null) {
-    let child = common.runAsRoot('losetup', ['-d', implicitDisk]);
-
-    child.on('close', (code, signal) => {
+    common.execAsRoot('losetup', ['-d', implicitDisk], err => {
       fs.unlink(DISK_FILE, err => done());
     });
   } else {
@@ -268,59 +222,12 @@ describe('replica', function() {
       assert.equal(res.name, POOL);
       // we don't know size of external disks ..
       if (implicitDisk) {
-        // 4MB (one cluster) are eating by super block
+        // 4MB (one cluster) is eaten by super block
         assert.equal(Math.floor(res.capacity / (1024 * 1024)), 96);
       }
       assert.equal(res.used, 0);
       assert.equal(res.state, 'ONLINE');
       assert.deepEqual(res.disks, disks);
-      done();
-    });
-  });
-
-  // For nvmf we can't test anything more than just create and destroy
-  // because nvme initiator is available only in latest linux kernels.
-  it('should create replica exported over nvmf', done => {
-    client.createReplica(
-      {
-        uuid: UUID,
-        pool: POOL,
-        thin: true,
-        share: 'NVMF',
-        size: 8 * (1024 * 1024), // keep this multiple of cluster size (4MB)
-      },
-      (err, res) => {
-        if (err) return done(err);
-        assert.hasAllKeys(res, ['uri']);
-        assert.match(res.uri, NVMF_URI);
-        assert.equal(res.uri.match(NVMF_URI)[1], common.getMyIp());
-        done();
-      }
-    );
-  });
-
-  it('should list nvmf replica', done => {
-    client.listReplicas({}, (err, res) => {
-      if (err) return done(err);
-      res = res.replicas.filter(ent => {
-        return ent.uuid == UUID;
-      });
-      assert.lengthOf(res, 1);
-      res = res[0];
-      assert.equal(res.pool, POOL);
-      assert.equal(res.thin, true);
-      assert.equal(res.size, 8 * 1024 * 1024);
-      assert.equal(res.share, 'NVMF');
-      assert.match(res.uri, NVMF_URI);
-      assert.equal(res.uri.match(NVMF_URI)[1], common.getMyIp());
-      done();
-    });
-  });
-
-  it('should destroy nvmf replica', done => {
-    client.destroyReplica({ uuid: UUID }, (err, res) => {
-      if (err) return done(err);
-      assert.lengthOf(Object.keys(res), 0);
       done();
     });
   });
@@ -612,6 +519,184 @@ describe('replica', function() {
       res = res.pools.filter(ent => ent.name == POOL);
       assert.lengthOf(res, 0);
       done();
+    });
+  });
+
+  describe('nvmf', function() {
+    let uri; // URI of the created nvmf replica
+    let blockFile = '/tmp/test_block'; // file with contents of a data block
+
+    // run unlink as root because the file was created by root
+    function rmBlockFile(done) {
+      common.execAsRoot('rm', ['-f', blockFile], err => {
+        // ignore unlink error
+        done();
+      });
+    }
+
+    before(done => {
+      const buf = Buffer.alloc(4096, 'm');
+
+      async.series(
+        [
+          next => rmBlockFile(next),
+          next => fs.writeFile(blockFile, buf, next),
+          next => client.createPool({ name: POOL, disks: disks }, next),
+        ],
+        done
+      );
+    });
+
+    after(done => {
+      rmBlockFile(() => {
+        client.destroyPool({ name: POOL }, done);
+      });
+    });
+
+    it('should create replica exported over nvmf', done => {
+      client.createReplica(
+        {
+          uuid: UUID,
+          pool: POOL,
+          thin: true,
+          share: 'NVMF',
+          // Keep this multiple of cluster size (4MB).
+          // Fill the entire pool so that we can test data reset
+          // upon replica recreate.
+          size: 96 * (1024 * 1024),
+        },
+        (err, res) => {
+          if (err) return done(err);
+          assert.hasAllKeys(res, ['uri']);
+          assert.match(res.uri, NVMF_URI);
+          assert.equal(res.uri.match(NVMF_URI)[1], common.getMyIp());
+          uri = res.uri;
+          done();
+        }
+      );
+    });
+
+    it('should list nvmf replica', done => {
+      client.listReplicas({}, (err, res) => {
+        if (err) return done(err);
+        res = res.replicas.filter(ent => {
+          return ent.uuid == UUID;
+        });
+        assert.lengthOf(res, 1);
+        res = res[0];
+        assert.equal(res.pool, POOL);
+        assert.equal(res.thin, true);
+        assert.equal(res.size, 96 * 1024 * 1024);
+        assert.equal(res.share, 'NVMF');
+        assert.equal(res.uri, uri);
+        done();
+      });
+    });
+
+    it('should write to nvmf replica', done => {
+      common.execAsRoot(
+        common.getCmdPath('initiator'),
+        ['--offset=4096', uri, 'write', blockFile],
+        done
+      );
+    });
+
+    it('should read from nvmf replica', done => {
+      async.series(
+        [
+          next => {
+            // remove the file we used for writing just to be sure that what we read
+            // really comes from the replica
+            fs.unlink(blockFile, next);
+          },
+          next => {
+            common.execAsRoot(
+              common.getCmdPath('initiator'),
+              ['--offset=4096', uri, 'read', blockFile],
+              next
+            );
+          },
+          next => {
+            fs.readFile(blockFile, (err, data) => {
+              if (err) return done(err);
+              data = data.toString();
+              assert.lengthOf(data, 4096);
+              for (let i = 0; i < data.length; i++) {
+                if (data[i] != 'm') {
+                  next(new Error(`Invalid char '${data[i]}' at offset ${i}`));
+                  return;
+                }
+              }
+              next();
+            });
+          },
+        ],
+        done
+      );
+    });
+
+    it('should destroy nvmf replica', done => {
+      client.destroyReplica({ uuid: UUID }, (err, res) => {
+        if (err) return done(err);
+        assert.lengthOf(Object.keys(res), 0);
+        done();
+      });
+    });
+
+    it('should create the replica again', done => {
+      client.createReplica(
+        {
+          uuid: UUID,
+          pool: POOL,
+          thin: true,
+          share: 'NVMF',
+          size: 8 * (1024 * 1024), // keep this multiple of cluster size (4MB)
+        },
+        (err, res) => {
+          if (err) return done(err);
+          assert.hasAllKeys(res, ['uri']);
+          assert.match(res.uri, NVMF_URI);
+          assert.equal(res.uri.match(NVMF_URI)[1], common.getMyIp());
+          uri = res.uri;
+          done();
+        }
+      );
+    });
+
+    it('the old data should have been reset', done => {
+      async.series(
+        [
+          next => {
+            common.execAsRoot(
+              common.getCmdPath('initiator'),
+              ['--offset=4096', uri, 'read', blockFile],
+              next
+            );
+          },
+          next => {
+            fs.readFile(blockFile, (err, data) => {
+              if (err) return done(err);
+              assert.lengthOf(data, 4096);
+              for (let i = 0; i < data.length; i++) {
+                if (data[i] != 0) {
+                  next(new Error(`Invalid char '${data[i]}' at offset ${i}`));
+                  return;
+                }
+              }
+              next();
+            });
+          },
+        ],
+        done
+      );
+    });
+
+    it('should destroy nvmf replica', done => {
+      client.destroyReplica({ uuid: UUID }, (err, res) => {
+        if (err) return done(err);
+        assert.lengthOf(Object.keys(res), 0);
+        done();
+      });
     });
   });
 

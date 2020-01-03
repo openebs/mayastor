@@ -52,6 +52,7 @@ build-mayastor:
   artifacts:
     expire_in: 1 day
     paths:
+        - target/debug/initiator
         - target/debug/mayastor
         - target/debug/mayastor-agent
         - target/debug/mayastor-client
@@ -73,7 +74,8 @@ test-mayastor:
     - ln -s /host/bin/kmod /usr/local/bin/modprobe
     - modprobe nbd
     - modprobe xfs
-    - echo 512 >/sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
+    # more HPs - we need to run mayastor and initiator at the same time
+    - echo 1024 >/sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
   script:
     - nix-shell -p nodejs-10_x python --run 'cd mayastor-test && npm install --unsafe-perm'
     - nix-shell --run 'cd mayastor-test && ./node_modules/mocha/bin/mocha test_cli.js'

@@ -17,13 +17,13 @@
 with stdenv.lib;
 
 stdenv.mkDerivation rec {
-  version = "19.10.x-mayastor";
+  version = "19.10.1-mayastor";
   name = "libspdk";
   src = fetchFromGitHub {
     owner = "openebs";
     repo = "spdk";
-    rev = "83c1aebfcd6e4c80d3fdc8c2b97520ca4ce8e67e";
-    sha256 = "04r1c6xs18cgigg7w3gndhrji3wgnl9a1g83n6bib65i3cai9vam";
+    rev = "4113fecb70f6fbf027fc5579dbe9c1cab89fc301";
+    sha256 = "18xyc16i0sdfb23pb6whimgwqf3mv2hjhvimn3vz6ajy1l4ak01z";
     fetchSubmodules = true;
   };
 
