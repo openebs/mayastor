@@ -35,7 +35,7 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: status.podIP
-        args: ["--rpc-socket", "/mayastor/spdk.sock"]
+        args: ["-r", "/mayastor/mayastor.sock"]
         securityContext:
           privileged: true
         volumeMounts:
@@ -48,11 +48,11 @@ spec:
         resources:
           limits:
             cpu: "1"
-            memory: "2Gi"
+            memory: "500Mi"
             hugepages-2Mi: "1Gi"
           requests:
             cpu: "1"
-            memory: "2Gi"
+            memory: "500Mi"
             hugepages-2Mi: "1Gi"
       - name: mayastor-grpc
         image: mayadata/mayastor-grpc:latest
@@ -73,7 +73,7 @@ spec:
           value: "1"
         args:
         - "--csi-socket=/csi/csi.sock"
-        - "--mayastor-socket=/mayastor/spdk.sock"
+        - "--mayastor-socket=/mayastor/mayastor.sock"
         - "--node-name=$(MY_NODE_NAME)"
         - "--address=$(MY_POD_IP)"
         - "-v"
@@ -90,10 +90,10 @@ spec:
         resources:
           limits:
             cpu: "100m"
-            memory: "500Mi"
+            memory: "50Mi"
           requests:
             cpu: "100m"
-            memory: "500Mi"
+            memory: "50Mi"
         ports:
         - containerPort: 10124
           protocol: TCP
@@ -116,10 +116,10 @@ spec:
         resources:
           limits:
             cpu: "100m"
-            memory: "500Mi"
+            memory: "50Mi"
           requests:
             cpu: "100m"
-            memory: "500Mi"
+            memory: "50Mi"
       volumes:
       - name: device
         hostPath:
