@@ -45,7 +45,7 @@ use spdk_sys::{
 };
 
 use crate::{
-    developer_delay,
+    delay,
     environment::args::MayastorCliArgs,
     event::Mthread,
     executor,
@@ -190,6 +190,7 @@ extern "C" fn _mayastor_shutdown_cb(arg: *mut c_void) {
             error!("Failed to finalize nvmf target: {}", msg);
         }
     };
+    delay::unregister();
     executor::stop(
         fut,
         Box::new(|| unsafe {
@@ -575,13 +576,8 @@ impl MayastorEnvironment {
                     );
                 }
 
-                if let Some(_key) = env::var_os("DELAY") {
-                    warn!("*** Delaying reactor every 1000us ***");
-                    spdk_sys::spdk_poller_register(
-                        Some(developer_delay),
-                        std::ptr::null_mut(),
-                        1000,
-                    );
+                if let Some(_key) = env::var_os("MAYASTOR_DELAY") {
+                    delay::register();
                 }
             });
         });
@@ -596,6 +592,7 @@ impl MayastorEnvironment {
             spdk_reactors_start();
 
             info!("Finalizing Mayastor shutdown...");
+            delay::unregister();
             spdk_reactors_fini();
             spdk_env_fini();
             spdk_log_close();

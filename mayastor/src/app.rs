@@ -4,7 +4,7 @@
 //! require custom argument parser. Otherwise use mayastor environment
 //! module.
 
-use crate::{developer_delay, executor, logger, pool, replica};
+use crate::{delay, executor, logger, pool, replica};
 use spdk_sys::{
     maya_log,
     spdk_app_opts,
@@ -124,15 +124,8 @@ where
     F: FnOnce(),
 {
     // use in cases when you want to burn less cpu and speed does not matter
-    if let Some(_key) = env::var_os("DELAY") {
-        warn!("*** Delaying reactor every 1000us ***");
-        unsafe {
-            spdk_sys::spdk_poller_register(
-                Some(developer_delay),
-                std::ptr::null_mut(),
-                1000,
-            )
-        };
+    if let Some(_key) = env::var_os("MAYASTOR_DELAY") {
+        delay::register();
     }
     executor::start();
     pool::register_pool_methods();
@@ -149,6 +142,7 @@ where
 /// Cleanly exit from the program.
 /// NOTE: Use only on programs started by mayastor_start.
 pub fn stop(rc: i32) -> i32 {
+    delay::unregister();
     let fut = async {};
     executor::stop(fut, Box::new(move || unsafe { spdk_app_stop(rc) }));
     rc

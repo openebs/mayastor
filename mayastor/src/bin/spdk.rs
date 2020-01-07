@@ -6,6 +6,7 @@
 extern crate libc;
 
 use libc::{c_char, c_int};
+use mayastor::delay;
 use spdk_sys::{
     spdk_app_fini,
     spdk_app_opts,
@@ -20,7 +21,6 @@ use std::{
     io::{Error, ErrorKind},
     iter::Iterator,
     ptr::null_mut,
-    time::Duration,
     vec::Vec,
 };
 
@@ -78,24 +78,13 @@ fn main() -> Result<(), std::io::Error> {
 }
 
 extern "C" fn spdk_shutdown_cb() {
+    delay::unregister();
     unsafe { spdk_app_stop(0) };
-}
-
-extern "C" fn developer_delay(_ctx: *mut c_void) -> i32 {
-    std::thread::sleep(Duration::from_millis(1));
-    0
 }
 
 extern "C" fn app_start_cb(_arg: *mut c_void) {
     // use in cases when you want to burn less cpu and speed does not matter
-    if let Some(_key) = env::var_os("DELAY") {
-        println!("*** Delaying reactor every 1000us ***");
-        unsafe {
-            spdk_sys::spdk_poller_register(
-                Some(developer_delay),
-                std::ptr::null_mut(),
-                1000,
-            )
-        };
+    if let Some(_key) = env::var_os("MAYASTOR_DELAY") {
+        delay::register();
     }
 }

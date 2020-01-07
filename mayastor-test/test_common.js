@@ -170,7 +170,7 @@ function startSpdk(config, args, env) {
     args,
     _.assign(
       {
-        DELAY: '1',
+        MAYASTOR_DELAY: '1',
       },
       env
     ),
@@ -199,7 +199,7 @@ function startMayastor(config, args, env) {
     _.assign(
       {
         MY_POD_IP: getMyIp(),
-        DELAY: '1',
+        MAYASTOR_DELAY: '1',
       },
       env
     ),
