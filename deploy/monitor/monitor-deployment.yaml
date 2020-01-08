@@ -1,0 +1,106 @@
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: influxdb-secrets
+  namespace: mayastor
+type: Opaque
+stringData:
+  INFLUXDB_DB: mayastor
+  INFLUXDB_USER: telegraf
+  INFLUXDB_USER_PASSWORD: telegraf
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: grafana-secrets
+  namespace: mayastor
+type: Opaque
+stringData:
+  GF_SECURITY_ADMIN_USER: admin
+  GF_SECURITY_ADMIN_PASSWORD: admin
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: monitor
+  namespace: mayastor
+  labels:
+    app: monitor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: monitor
+  template:
+    metadata:
+      labels:
+        app: monitor
+    spec:
+      containers:
+      - name: telegraf
+        image: telegraf:latest
+        imagePullPolicy: IfNotPresent
+        volumeMounts:
+        - mountPath: /etc/telegraf/telegraf.conf
+          name: telegraf-config
+          subPath: telegraf.conf
+          readOnly: true
+        envFrom:
+        - secretRef:
+            name: influxdb-secrets
+      - name: influxdb
+        image: influxdb:latest
+        imagePullPolicy: IfNotPresent
+        envFrom:
+        - secretRef:
+            name: influxdb-secrets
+      - name: grafana
+        image: grafana/grafana:latest
+        imagePullPolicy: IfNotPresent
+        envFrom:
+        - secretRef:
+            name: grafana-secrets
+        env:
+        - name: INFLUXDB_HOST
+          value: "127.0.0.1"
+        - name: GF_SERVER_HTTP_PORT
+          value: "3000"
+        ports:
+        - containerPort: 3000
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /etc/grafana/provisioning/datasources/datasources.yaml
+          name: grafana-config
+          readOnly: true
+          subPath: datasources.yaml
+        - mountPath: /etc/grafana/provisioning/dashboards/dashboards.yaml
+          name: grafana-config
+          readOnly: true
+          subPath: dashboards.yaml
+        - mountPath: /var/lib/grafana/dashboards/mayastor-dashboard.json
+          name: grafana-config
+          readOnly: true
+          subPath: mayastor-dashboard.json
+      volumes:
+      - name: grafana-config
+        configMap:
+          name: grafana-config
+      - name: telegraf-config
+        configMap:
+          name: telegraf-config
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: grafana
+  namespace: mayastor
+spec:
+  selector:
+    app: monitor
+  type: NodePort
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 3000
+    nodePort: 30333

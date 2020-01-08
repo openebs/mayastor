@@ -331,7 +331,7 @@ module.exports = function() {
     assert.equal(stats[0].pool, 'pool');
     ['num_read_ops', 'num_write_ops', 'bytes_read', 'bytes_written'].forEach(
       name => {
-        assert.equal(stats[0].stats[name], STAT_DELTA);
+        assert.equal(stats[0][name], STAT_DELTA);
       }
     );
     stats = await volumeOperator.getStats();
@@ -341,7 +341,7 @@ module.exports = function() {
     assert.equal(stats[0].pool, 'pool');
     ['num_read_ops', 'num_write_ops', 'bytes_read', 'bytes_written'].forEach(
       name => {
-        assert.equal(stats[0].stats[name], 2 * STAT_DELTA);
+        assert.equal(stats[0][name], 2 * STAT_DELTA);
       }
     );
   });

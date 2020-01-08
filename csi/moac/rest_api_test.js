@@ -51,10 +51,14 @@ module.exports = function() {
           assert.lengthOf(vols, 1);
           assert.equal(vols[0].uuid, UUID);
           assert.equal(vols[0].pool, 'pool');
-          assert.equal(vols[0].stats.num_read_ops, STAT_COUNTER);
-          assert.equal(vols[0].stats.num_write_ops, STAT_COUNTER);
-          assert.equal(vols[0].stats.bytes_read, STAT_COUNTER);
-          assert.equal(vols[0].stats.bytes_written, STAT_COUNTER);
+          assert.equal(vols[0].node, 'node');
+          assert.equal(typeof vols[0].timestamp, 'string');
+          // time delta between now and then is unlikely to be > 1s
+          assert.isBelow(new Date() - new Date(vols[0].timestamp), 1000);
+          assert.equal(vols[0].num_read_ops, STAT_COUNTER);
+          assert.equal(vols[0].num_write_ops, STAT_COUNTER);
+          assert.equal(vols[0].bytes_read, STAT_COUNTER);
+          assert.equal(vols[0].bytes_written, STAT_COUNTER);
           done();
         });
       })

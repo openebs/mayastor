@@ -381,6 +381,7 @@ class VolumeOperator {
       let client = self._createClient(nodes[i]);
       let nodeName = nodes[i].node;
       let res;
+      let timestamp = new Date().toISOString();
 
       log.debug('Retrieving volume stats from node ' + nodeName);
 
@@ -406,15 +407,16 @@ class VolumeOperator {
           })
           .map(r => {
             return {
+              timestamp,
+              // tags
               uuid: r.uuid,
               node: nodeName,
               pool: r.pool,
-              stats: {
-                num_read_ops: r.stats.numReadOps,
-                num_write_ops: r.stats.numWriteOps,
-                bytes_read: r.stats.bytesRead,
-                bytes_written: r.stats.bytesWritten,
-              },
+              // counters
+              num_read_ops: r.stats.numReadOps,
+              num_write_ops: r.stats.numWriteOps,
+              bytes_read: r.stats.bytesRead,
+              bytes_written: r.stats.bytesWritten,
             };
           })
       );
@@ -707,15 +709,14 @@ class VolumeOperatorMock extends EventEmitter {
     var self = this;
     return this.replicas.map(r => {
       return {
+        timestamp: new Date().toISOString(),
         uuid: r.uuid,
         node: r.node,
         pool: r.pool,
-        stats: {
-          num_read_ops: self.stat,
-          num_write_ops: self.stat,
-          bytes_read: self.stat,
-          bytes_written: self.stat,
-        },
+        num_read_ops: self.stat,
+        num_write_ops: self.stat,
+        bytes_read: self.stat,
+        bytes_written: self.stat,
       };
     });
   }
