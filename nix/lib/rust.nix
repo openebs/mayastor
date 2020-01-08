@@ -11,7 +11,7 @@ let
 in
 rec {
   nightly = overlay.rustChannelOf {
-    date = "2019-11-25";
+    date = "2019-12-19";
     channel = "nightly";
   };
 
