@@ -13,7 +13,8 @@ name = "mayastor-client"
 path = "src/client.rs"
 
 [build-dependencies]
-tonic-build = "0.1.0-alpha.3"
+bytes = "0.4"
+tonic-build = "0.1.0-beta.1"
 prost-build = "0.5.0"
 
 [dependencies]
@@ -23,13 +24,12 @@ bytesize = "1.0.0"
 chrono = "0.4.9"
 clap = "2.32"
 env_logger = "0.7"
-futures-preview = "=0.3.0-alpha.19"
-futures-util-preview = "=0.3.0-alpha.19"
+futures = { version = "0.3.1", default-features = false }
 git-version = "0.3.1"
 
 glob = "*"
-http = "0.1.19"
-http-body = "=0.2.0-alpha.3"
+http = "0.1"
+http-body = "0.2"
 jsonrpc = { path = "../jsonrpc" }
 libc = "0.2"
 log = "0.4"
@@ -43,13 +43,13 @@ rpc = { path = "../rpc" }
 serde = { version = "1.0", features = ["derive"] }
 serde_derive = "1.0.98"
 serde_json = "1.0.36"
-sys-mount = "1.2.0"
+sys-mount = "1.2"
 sysfs = { path = "../sysfs"}
-tokio = "0.2.0-alpha.6"
+tokio = { version = "0.2.8", features = ["full"] }
 run_script = "*"
-tokio-net = "0.2.0-alpha.6"
-tonic = "0.1.0-alpha.3"
-tower = "=0.3.0-alpha.2"
+#tokio-net = "0.2.0"
+tonic = "0.1.0-beta.1"
+tower = "0.3"
 tracing-log = {version = "0.1.1", features = ["env_logger"] }
 [dependencies.blkid]
 branch = "blkid-sys"

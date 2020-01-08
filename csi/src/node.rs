@@ -86,7 +86,7 @@ async fn lookup_nexus(
 
 impl Node {}
 #[tonic::async_trait]
-impl server::Node for Node {
+impl node_server::Node for Node {
     async fn node_get_info(
         &self,
         _request: Request<NodeGetInfoRequest>,

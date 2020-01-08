@@ -19,7 +19,7 @@ pub struct Identity {
 
 impl Identity {}
 #[tonic::async_trait]
-impl server::Identity for Identity {
+impl identity_server::Identity for Identity {
     async fn get_plugin_info(
         &self,
         _request: Request<GetPluginInfoRequest>,
