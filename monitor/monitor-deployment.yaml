@@ -1,0 +1,96 @@
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: monitor
+  namespace: mayastor
+  labels:
+    app: monitor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: monitor
+  template:
+    metadata:
+      labels:
+        app: monitor
+    spec:
+      containers:
+      - name: influxdb
+        image: docker.io/influxdb:1.7
+        imagePullPolicy: IfNotPresent
+        env:
+        - name: INFLUXDB_DATABASE
+          value: mayastor
+        - name: INFLUXDB_USERNAME
+          value: root
+        - name: INFLUXDB_PASSWORD
+          value: root
+        ports:
+        - containerPort: 8086
+          protocol: TCP
+      - name: grafana
+        image: docker.io/grafana/grafana:5.4.3
+        imagePullPolicy: IfNotPresent
+        envFrom:
+        - secretRef:
+            name: grafana-creds
+        env:
+        - name: INFLUXDB_HOST
+          value: "127.0.0.1"
+        - name: GF_SERVER_HTTP_PORT
+          value: "3000"
+        ports:
+        - containerPort: 3000
+          protocol: TCP
+        volumeMounts:
+        - mountPath: /etc/grafana/provisioning/datasources/datasources.yaml
+          name: grafana-config
+          readOnly: true
+          subPath: datasources.yaml
+        - mountPath: /etc/grafana/provisioning/dashboards/dashboards.yaml
+          name: grafana-config
+          readOnly: true
+          subPath: dashboards.yaml
+        - mountPath: /var/lib/grafana/dashboards/mayastor-dashboard.json
+          name: grafana-config
+          readOnly: true
+          subPath: mayastor-dashboard.json
+      - name: monitor
+        image: noe.internal:5000/mayadata/mayastor-monitor:latest
+        imagePullPolicy: Always
+        args:
+          # moac's REST API port
+          - "--port=4000"
+          - "-vv"
+          - "2"
+        env:
+        - name: INFLUXDB_DATABASE
+          value: mayastor
+        - name: INFLUXDB_USERNAME
+          value: root
+        - name: INFLUXDB_PASSWORD
+          value: root
+        ports:
+        - containerPort: 8086
+          protocol: TCP
+      volumes:
+      - configMap:
+          name: grafana-config
+        name: grafana-config
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: grafana
+  namespace: mayastor
+spec:
+  selector:
+    app: monitor
+  type: NodePort
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 3000
+    nodePort: 30333

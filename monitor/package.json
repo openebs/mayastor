@@ -1,0 +1,17 @@
+{
+  "name": "monitor",
+  "version": "0.1.0",
+  "description": "A script to feed perf stats from mayastor to influxDB",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "Jan Kryl <jan.kryl@mayadata.io>",
+  "license": "BSD-3-Clause",
+  "dependencies": {
+    "influxdb-nodejs": "^3.0.0",
+    "request": "^2.88.0",
+    "winston": "^3.2.1",
+    "yargs": "^13.2.2"
+  }
+}
