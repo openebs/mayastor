@@ -16,19 +16,24 @@ extern crate run_script;
 use std::{
     fs,
     io::{ErrorKind, Write},
-    path::Path,
 };
 
 use chrono::Local;
 use clap::{App, Arg};
+use csi::{identity_server::IdentityServer, node_server::NodeServer};
 use env_logger::{Builder, Env};
-use tokio;
-use tonic::transport::Server;
+use futures::stream::TryStreamExt;
+use std::{
+    path::Path,
+    pin::Pin,
+    task::{Context, Poll},
+};
+use tokio::{net::UnixListener, prelude::*};
+use tonic::transport::{server::Connected, Server};
 
-use csi::server::{IdentityServer, NodeServer};
 use git_version::git_version;
 // These libs are needed for gRPC generated code
-use rpc::{self, service::server::MayastorServer};
+use rpc::{self, service::mayastor_server::MayastorServer};
 
 use crate::{
     identity::Identity,
@@ -52,11 +57,50 @@ mod mayastor_svc;
 mod mount;
 mod node;
 
+#[derive(Debug)]
+struct UnixStream(tokio::net::UnixStream);
+
+impl Connected for UnixStream {}
+
+impl AsyncRead for UnixStream {
+    fn poll_read(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &mut [u8],
+    ) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.0).poll_read(cx, buf)
+    }
+}
+
+impl AsyncWrite for UnixStream {
+    fn poll_write(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+        buf: &[u8],
+    ) -> Poll<std::io::Result<usize>> {
+        Pin::new(&mut self.0).poll_write(cx, buf)
+    }
+
+    fn poll_flush(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.0).poll_flush(cx)
+    }
+
+    fn poll_shutdown(
+        mut self: Pin<&mut Self>,
+        cx: &mut Context<'_>,
+    ) -> Poll<std::io::Result<()>> {
+        Pin::new(&mut self.0).poll_shutdown(cx)
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), String> {
-    let matches = App::new("Mayastor grpc server")
+    let matches = App::new("Mayastor agent")
         .version(git_version!())
-        .about("gRPC mayastor server with CSI and egress services")
+        .about("k8s sidecar for Mayastor implementing CSI among others")
         .arg(
             Arg::with_name("address")
                 .short("a")
@@ -173,6 +217,8 @@ async fn main() -> Result<(), String> {
         }
     }
 
+    let mut uds_sock = UnixListener::bind(csi_socket).unwrap();
+
     let uds = Server::builder()
         .add_service(NodeServer::new(Node {
             node_name: node_name.into(),
@@ -184,8 +230,7 @@ async fn main() -> Result<(), String> {
         .add_service(IdentityServer::new(Identity {
             socket: ms_socket.into(),
         }))
-        .serve_uds(csi_socket);
-
+        .serve_with_incoming(uds_sock.incoming().map_ok(UnixStream));
     let _ = futures::future::join(uds, tcp).await;
     Ok(())
 }

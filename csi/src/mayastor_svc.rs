@@ -13,7 +13,7 @@ pub struct MayastorService {
 }
 impl MayastorService {}
 #[tonic::async_trait]
-impl service::server::Mayastor for MayastorService {
+impl service::mayastor_server::Mayastor for MayastorService {
     async fn create_pool(
         &self,
         request: Request<CreatePoolRequest>,
