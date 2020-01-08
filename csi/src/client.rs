@@ -12,7 +12,7 @@ use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 use tokio;
 use tonic::{transport::Channel, Code, Request, Status};
 
-use rpc::service::client::MayastorClient;
+use rpc::service::mayastor_client::MayastorClient;
 
 fn parse_share_protocol(pcol: Option<&str>) -> Result<i32, Status> {
     match pcol {

@@ -103,7 +103,6 @@ pub fn mount_umount(device: &str) -> String {
 
 pub fn mount_and_write_file(device: &str) -> String {
     let mut options = ScriptOptions::new();
-    options.capture_output = true;
     options.exit_on_error = true;
     options.print_commands = false;
 
