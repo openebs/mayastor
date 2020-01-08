@@ -1,6 +1,5 @@
 [patch.crates-io]
 h2 = { git = "https://github.com/gila/h2", branch = "master"}
-tonic = { git = "https://github.com/gila/tonic", branch = "master"}
 
 [workspace]
 members = [
