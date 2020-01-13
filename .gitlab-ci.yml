@@ -5,6 +5,7 @@ stages:
   - build
   - test
   - image
+  - publish
 
 # Check code style and common programming errors in JS and rust
 # source code. Do this in parallel to the build of the product,
@@ -135,3 +136,26 @@ image-mayastor:
     paths:
       - image-mayastor
       - image-mayastor-csi
+
+publish-images:
+  stage: publish
+  image: mayadata/buildah:latest
+  variables:
+    # REGISTRY_USERNAME - secret variable
+    # REGISTRY_PASSWORD - secret variable
+    # REGISTRY_SERVER - secret variable (registry.hub.docker.com)
+  dependencies:
+    - image-mayastor
+    - image-moac
+  script:
+    - podman login --authfile /tmp/auth.json --username "${REGISTRY_USERNAME}" --password "${REGISTRY_PASSWORD}" "${REGISTRY_SERVER}"
+    - skopeo copy --authfile /tmp/auth.json docker-archive:image-mayastor docker://${REGISTRY_SERVER}/mayadata/mayastor:${CI_COMMIT_SHORT_SHA}
+    - skopeo copy --authfile /tmp/auth.json docker-archive:image-mayastor-csi docker://${REGISTRY_SERVER}/mayadata/mayastor-grpc:${CI_COMMIT_SHORT_SHA}
+    - skopeo copy --authfile /tmp/auth.json docker-archive:image-moac docker://${REGISTRY_SERVER}/mayadata/moac:${CI_COMMIT_SHORT_SHA}
+    # tag all images which have been just uploaded as latest
+    - skopeo copy --authfile /tmp/auth.json docker-archive:image-mayastor docker://${REGISTRY_SERVER}/mayadata/mayastor:latest
+    - skopeo copy --authfile /tmp/auth.json docker-archive:image-mayastor-csi docker://${REGISTRY_SERVER}/mayadata/mayastor-grpc:latest
+    - skopeo copy --authfile /tmp/auth.json docker-archive:image-moac docker://${REGISTRY_SERVER}/mayadata/moac:latest
+  when: manual
+  only:
+    - master
