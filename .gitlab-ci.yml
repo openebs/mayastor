@@ -7,6 +7,12 @@ stages:
   - image
   - publish
 
+.only-default: &only-default
+  only:
+    - master
+    - external_pull_requests
+    - web
+
 # Check code style and common programming errors in JS and rust
 # source code. Do this in parallel to the build of the product,
 # because cargo clippy takes time and we don't want to wait for it.
@@ -21,10 +27,14 @@ lint:
     - nix-shell --run 'jshint --config .jshintrc csi/moac/*.js mayastor-test/*.js'
     - nix-shell --run 'cargo fmt --all'
     - nix-shell --run 'cargo clippy --all --all-targets -- -D warnings'
+  only:
+    - external_pull_requests
+    - web
 
 # Build mayastor and grpc gateway (rust source code) and run rust unit tests.
 # Save built binaries for API tests done in the next stage.
 build-mayastor:
+  <<: *only-default
   stage: build
   image: mayadata/ms-buildenv:latest
   cache:
@@ -62,6 +72,7 @@ build-mayastor:
 
 # Test mayastor grpc & cli interfaces using JS mocha test framework.
 test-mayastor:
+  <<: *only-default
   stage: test
   image: mayadata/ms-buildenv:latest
   dependencies:
@@ -90,6 +101,7 @@ test-mayastor:
 # Build moac which comprises installation of npm dependencies and run
 # the tests on it.
 build-moac:
+  <<: *only-default
   stage: build
   image: mayadata/ms-buildenv:latest
   cache:
@@ -102,6 +114,7 @@ build-moac:
 
 # Build moac docker image using the NIX.
 image-moac:
+  <<: *only-default
   stage: image
   image: mayadata/ms-buildenv:latest
   script:
@@ -114,6 +127,7 @@ image-moac:
 
 # Build mayastor docker images using the NIX.
 image-mayastor:
+  <<: *only-default
   stage: image
   image: mayadata/ms-buildenv:latest
   before_script:
