@@ -15,6 +15,8 @@ let
   libspdk = pkgs.libspdk.override { enableDebug = true; };
 in
 mkShell {
+  # fortify does not work with -O0 which is used by spdk when --enable-debug
+  hardeningDisable = [ "fortify" ];
 
   buildInputs = [
     figlet
