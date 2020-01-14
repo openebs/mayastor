@@ -1,37 +1,39 @@
 # GitLab CI/CD
 
-We are currently using GitLab for CI/CD make using of auto scaling through Docker machine. Each
-commit goes through:
+We are currently using GitLab for CI/CD make using of auto scaling through
+Docker machine. The master repository is hosted on
+[github](https://github.com/openebs/MayaStor) and mirrored to
+[gitlab](https://gitlab.com/awesome-mayastor/MayaStor-test) to run the CI/CD
+pipeline there. Each commit goes through:
 
 1. Check style and run lint
-2. Build binaries
-3. Run tests
-    - Run CSI tests
-    - Run private API tests
-    - Run rust tests for IO path
+2. Build debug binaries
+3. Run tests on debug binaries:
+    - Run rust unit tests for IO path and module APIs
+    - Run CSI RPC tests (mocha)
+    - Run mayastor RPC tests (mocha)
+    - Run moac unit tests (mocha)
+4. Build docker images with production binaries using NIX
 
-For the master branch there is optional 4th step:
+For the master branch there is optional last step:
 
-4. Build docker images
+5. Publish docker images to docker hub
 
-Images are built and pushed only if explicitly requested (manual mode).
-The reason why we don't push images for all master commits implicitly is
-that we have three Docker images in the repo and we are not able to tell
-which change applies to which image. Possible solution is to split the repo
-(later when fundamentals don't change as much as they do now).
+Images are pushed only if explicitly requested (manual mode). For a complete
+list of actions see [.gitlab-ci.yml](../.gitlab-ci.yml).
 
 ## Running CI tests locally
 
-The cool thing about GitLab is that you run the tests locally. In order to do so
-follow [this](https://docs.gitlab.com/runner/install/linux-manually.html) link to install
-the runner. Once installed run the CI:
+The cool thing about GitLab is that you run the tests locally. In order to do
+so follow [this](https://docs.gitlab.com/runner/install/linux-manually.html)
+link to install the runner. Once installed run the CI:
 
 ```bash
 gitlab-runner exec docker compile
 ```
 
-Note: that if you are not using debian as your host environment you might end up in with errors
-like:
+Note: that if you are not using debian as your host environment you might end
+up in with errors like:
 
 ```bash
 /code/target/debug/mayastor: error while loading shared libraries: libiscsi.so.8: cannot open shared object file: No such file or directory
@@ -41,9 +43,7 @@ A simple `cargo {clean,build --all}` will fix that.
 
 ## TODO
 
-We would like to perhaps move, or add other CI pipelines:
-
- - Azure?
- - Circle CI
- - Travis
- - Github Actions
+* We would like to add other CI pipelines deploying the images to k8s
+  cluster and doing e2e tests.
+* We would like to check coding style (and perhaps lint) using github
+  actions instead of gitlab pipeline.
