@@ -224,3 +224,9 @@ This has steps have been tested on:
 
  * Replication is not part of the container images, for this you need to [build](/doc/build.md) from source
  * snapshot and clones currently not exposed
+
+### Grafana
+
+If you want to set up monitoring for MayaStor which currently shows just two
+graphs with IOPS and bandwidth for specified replica, then follow the tutorial
+in monitoring [README file](../deploy/monitoring/README.md).
