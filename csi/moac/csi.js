@@ -8,9 +8,9 @@ const fs = require('fs').promises;
 const protoLoader = require('@grpc/proto-loader');
 const grpc = require('grpc-uds');
 const log = require('./logger').Logger('csi');
+const { GrpcError } = require('./grpc_client');
 const {
   PLUGIN_NAME,
-  GrpcError,
   parseMayastorNodeId,
   isPoolAccessible,
 } = require('./common');

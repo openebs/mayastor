@@ -10,7 +10,8 @@ const assert = require('assert');
 const EventEmitter = require('events');
 const grpc = require('grpc-uds');
 const log = require('./logger').Logger('commander');
-const { GrpcError, isPoolAccessible } = require('./common');
+const { isPoolAccessible } = require('./common');
+const { GrpcError } = require('./grpc_client');
 
 // Commander provisions volumes according to user requirements and
 // contributes to recovery from failures.
