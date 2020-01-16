@@ -28,10 +28,10 @@ async function waitUntil(test, timeout, name) {
 // given grpc error code.
 async function shouldFailWith(code, test) {
   try {
-    await test();
+    let res = await test();
   } catch (err) {
     if (err.code != code) {
-      throw err;
+      throw new Error(`Expected error code ${code} but got: ${err}`);
     }
     return;
   }

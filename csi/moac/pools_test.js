@@ -13,6 +13,7 @@ const { WatcherMock } = require('./watcher');
 const { MayastorServer } = require('./mayastor_mock');
 const { NodeOperatorMock } = require('./nodes');
 const poolsModule = require('./pools');
+const { GrpcClient } = require('./grpc_client');
 const PoolOperator = poolsModule.PoolOperator;
 
 const EGRESS_ENDPOINT = '127.0.0.1:12345';
@@ -92,7 +93,8 @@ class FakeApiClient extends EventEmitter {
 async function MockedPoolOperator(objs, nodes) {
   let oper = new PoolOperator();
   oper.nodes = new NodeOperatorMock(nodes);
-  oper.client = new FakeApiClient();
+  oper.grpcClient = new GrpcClient(oper.nodes);
+  oper.k8sClient = new FakeApiClient();
   oper.watcher = new WatcherMock(oper.filterMayastorPool, []);
 
   await oper.start();
@@ -200,7 +202,7 @@ module.exports = function() {
         oper.watcher.newObject(createPoolCR('pool', 'node', ['/dev/sdb']));
 
         // triggered when pool state is updated in k8s api server
-        let { name, stat } = await oper.client.called();
+        let { name, stat } = await oper.k8sClient.called();
         assert.equal(name, 'pool');
         assert.equal(stat.state, 'ONLINE');
         assert.equal(stat.reason, '');
@@ -243,7 +245,7 @@ module.exports = function() {
         );
 
         // triggered when pool state is updated in k8s api server
-        let { name, stat } = await oper.client.called();
+        let { name, stat } = await oper.k8sClient.called();
         assert.equal(name, 'pool');
         assert.equal(stat.state, 'DEGRADED');
         assert.equal(stat.reason, '');
@@ -274,7 +276,7 @@ module.exports = function() {
         oper.watcher.newObject(createPoolCR('pool', 'node', ['/dev/sdb']));
 
         // triggered when pool state is updated in k8s api server
-        let { name, stat } = await oper.client.called();
+        let { name, stat } = await oper.k8sClient.called();
         assert.equal(name, 'pool');
         assert.equal(stat.state, 'PENDING');
         assert.match(
@@ -301,7 +303,7 @@ module.exports = function() {
         oper = await MockedPoolOperator([]);
         oper.watcher.newObject(createPoolCR('pool', 'node', ['/dev/sdb']));
 
-        let { name, stat } = await oper.client.called();
+        let { name, stat } = await oper.k8sClient.called();
         assert.equal(name, 'pool');
         assert.equal(stat.state, 'PENDING');
         // The error msg varies according to nodejs version
@@ -322,12 +324,12 @@ module.exports = function() {
           createPoolCR('pool', 'unknown-node', ['/dev/sdb'])
         );
 
-        let { name, stat } = await oper.client.called();
+        let { name, stat } = await oper.k8sClient.called();
         assert.equal(name, 'pool');
         assert.equal(stat.state, 'PENDING');
         assert.equal(
           stat.reason,
-          'mayastor on node "unknown-node" is not running'
+          'Error: MayaStor on node "unknown-node" is not running'
         );
 
         let plist = oper.get();
@@ -341,7 +343,7 @@ module.exports = function() {
           createPoolCR('pool', 'node', ['sdb'], 'PENDING', 'something')
         );
 
-        let { name, stat } = await oper.client.called();
+        let { name, stat } = await oper.k8sClient.called();
         assert.equal(name, 'pool');
         assert.equal(stat.state, 'PENDING');
         assert.equal(
@@ -457,7 +459,7 @@ module.exports = function() {
         );
 
         try {
-          await oper.client.called();
+          await oper.k8sClient.called();
         } catch (err) {
           let plist = oper.get();
           assert.lengthOf(plist, 1);
@@ -479,7 +481,7 @@ module.exports = function() {
         );
 
         try {
-          await oper.client.called();
+          await oper.k8sClient.called();
         } catch (err) {
           let plist = oper.get();
           assert.lengthOf(plist, 1);
@@ -519,7 +521,7 @@ module.exports = function() {
           });
         });
 
-        let { name, stat } = await oper.client.called();
+        let { name, stat } = await oper.k8sClient.called();
         assert.equal(name, 'pool');
         assert.equal(stat.state, 'ONLINE');
         assert.equal(stat.reason, '');
@@ -566,7 +568,7 @@ module.exports = function() {
 
       oper.nodes.removeNode('node');
 
-      let { name, stat } = await oper.client.called();
+      let { name, stat } = await oper.k8sClient.called();
       assert.equal(name, 'pool');
       assert.equal(stat.state, 'OFFLINE');
       assert.equal(stat.reason, 'mayastor on node "node" is not running');
@@ -585,7 +587,7 @@ module.exports = function() {
       ]);
       oper.nodes.addNode('node', EGRESS_ENDPOINT);
 
-      let { name, stat } = await oper.client.called();
+      let { name, stat } = await oper.k8sClient.called();
       assert.equal(name, 'pool');
       assert.equal(stat.state, 'ONLINE');
       assert.equal(stat.reason, '');
@@ -642,7 +644,7 @@ module.exports = function() {
       ]);
       oper.nodes.addNode('node', EGRESS_ENDPOINT);
 
-      let { name, stat } = await oper.client.called();
+      let { name, stat } = await oper.k8sClient.called();
       assert.equal(name, 'pool');
       assert.equal(stat.state, 'DEGRADED');
       assert.equal(stat.reason, '');
@@ -671,7 +673,8 @@ module.exports = function() {
       poolsModule.checkInterval = 1;
       oper = new PoolOperator();
       oper.nodes = new NodeOperatorMock();
-      oper.client = new FakeApiClient();
+      oper.grpcClient = new GrpcClient(oper.nodes);
+      oper.k8sClient = new FakeApiClient();
       oper.watcher = new WatcherMock(oper.filterMayastorPool, [
         createPoolCR('pool', 'node', ['/dev/sdb']),
         createPoolCR('pool-to-create', 'node', ['/dev/sda']),

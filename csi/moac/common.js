@@ -2,53 +2,10 @@
 
 'use strict';
 
-const protoLoader = require('@grpc/proto-loader');
 const grpc = require('grpc-uds');
+const { GrpcClient, GrpcError, GrpcHandle } = require('./grpc_client');
 
 const PLUGIN_NAME = 'io.openebs.csi-mayastor';
-const PROTO_PATH = __dirname + '/proto/mayastor_service.proto';
-
-// Load mayastor proto file with mayastor service
-const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
-  keepCase: false,
-  longs: Number,
-  enums: String,
-  defaults: true,
-  oneofs: true,
-});
-const mayastor = grpc.loadPackageDefinition(packageDefinition).mayastor_service;
-
-// Grpc error object.
-//
-// List of grpc status codes:
-//   OK: 0,
-//   CANCELLED: 1,
-//   UNKNOWN: 2,
-//   INVALID_ARGUMENT: 3,
-//   DEADLINE_EXCEEDED: 4,
-//   NOT_FOUND: 5,
-//   ALREADY_EXISTS: 6,
-//   PERMISSION_DENIED: 7,
-//   RESOURCE_EXHAUSTED: 8,
-//   FAILED_PRECONDITION: 9,
-//   ABORTED: 10,
-//   OUT_OF_RANGE: 11,
-//   UNIMPLEMENTED: 12,
-//   INTERNAL: 13,
-//   UNAVAILABLE: 14,
-//   DATA_LOSS: 15,
-//   UNAUTHENTICATED: 16
-//
-class GrpcError extends Error {
-  constructor(code, msg) {
-    if (msg === undefined) {
-      msg = code;
-      code = grpc.status.UNKNOWN;
-    }
-    super(msg);
-    this.code = code;
-  }
-}
 
 // Parse mayastor node ID in form "mayastor://node-name/host:port" and
 // return node name and endpoint.
@@ -81,7 +38,5 @@ function isPoolAccessible(pool) {
 module.exports = {
   PLUGIN_NAME,
   isPoolAccessible,
-  mayastor,
-  GrpcError,
   parseMayastorNodeId,
 };

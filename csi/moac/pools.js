@@ -4,11 +4,11 @@ const assert = require('assert');
 const fs = require('fs');
 const EventEmitter = require('events');
 const grpc = require('grpc-uds');
-const grpc_promise = require('grpc-promise');
 const yaml = require('js-yaml');
 const log = require('./logger').Logger('pool-operator');
 const Watcher = require('./watcher').Watcher;
 const { mayastor, isPoolAccessible } = require('./common');
+const { GrpcClient, GrpcError } = require('./grpc_client');
 
 const crdPool = yaml.safeLoad(
   fs.readFileSync(__dirname + '/crds/mayastorpool.yaml', 'utf8')
@@ -34,7 +34,8 @@ var exports = {
 class PoolOperator extends EventEmitter {
   constructor() {
     super();
-    this.client = null; // k8s client
+    this.k8sClient = null; // k8s client
+    this.grpcClient = null; // grpc client
     this.nodes = null; // node operator managing mayastor nodes
     this.pools = {}; // List of mayastor pools indexed by pool name.
     // Reflects the state on the storage nodes - not k8s state.
@@ -50,11 +51,11 @@ class PoolOperator extends EventEmitter {
   // Create pool CRD if it doesn't exist and augment client object so that CRD
   // can be manipulated as any other standard k8s api object.
   // Bind node operator to pool operator through events.
-  async init(client, nodeOperator) {
+  async init(k8sClient, nodeOperator) {
     log.info('Initializing pool operator');
 
     try {
-      await client.apis[
+      await k8sClient.apis[
         'apiextensions.k8s.io'
       ].v1beta1.customresourcedefinitions.post({ body: crdPool });
       log.info('Created CRD ' + crdPool.spec.names.kind);
@@ -62,16 +63,17 @@ class PoolOperator extends EventEmitter {
       // API returns a 409 Conflict if CRD already exists.
       if (err.statusCode !== 409) throw err;
     }
-    client.addCustomResourceDefinition(crdPool);
+    k8sClient.addCustomResourceDefinition(crdPool);
 
-    this.client = client; // k8s client
+    this.k8sClient = k8sClient; // k8s client
     this.nodes = nodeOperator;
+    this.grpcClient = new GrpcClient(nodeOperator);
 
     // Initialize watcher with all callbacks for new/mod/del events
     this.watcher = new Watcher(
       'pool',
-      this.client.apis['openebs.io'].v1alpha1.mayastorpools,
-      this.client.apis['openebs.io'].v1alpha1.watch.mayastorpools,
+      this.k8sClient.apis['openebs.io'].v1alpha1.mayastorpools,
+      this.k8sClient.apis['openebs.io'].v1alpha1.watch.mayastorpools,
       this.filterMayastorPool
     );
   }
@@ -292,7 +294,16 @@ class PoolOperator extends EventEmitter {
           }
           break;
         case 'sync':
-          await this._syncNode(w.object);
+          try {
+            let self = this;
+            // jshint ignore:start
+            await self.grpcClient.with_handle(w.object.node, async handle => {
+              await self._syncNode(handle, w.object);
+            });
+            // jshint ignore:end
+          } catch (err) {
+            log.error(`Failed to sync node "${w.object.node}": ${err}`);
+          }
           break;
         case 'remove':
           await this._removeNode(w.object);
@@ -309,8 +320,9 @@ class PoolOperator extends EventEmitter {
   // Helper function to lookup node, call create pool grpc method, update CR
   // status and update the internal state.
   async _createPool(pool) {
+    var self = this;
     pool.status = {}; // disregard status from k8s - we know better
-    this.pools[pool.name] = pool;
+    self.pools[pool.name] = pool;
 
     // TODO: Support NDM disk IDs
     if (
@@ -320,63 +332,55 @@ class PoolOperator extends EventEmitter {
     ) {
       let msg = 'All disks must be absolute paths beginning with /dev';
       log.error(`Cannot create pool "${pool.name}": ` + msg);
-      await this._updateStatus(pool.name, {
+      await self._updateStatus(pool.name, {
         state: 'PENDING',
         reason: msg,
       });
       return;
     }
-    let client = this._getNodeClient(pool.node);
-
-    if (!client) {
-      // the pool will get created later when the node joins the cluster
-      let msg = `mayastor on node "${pool.node}" is not running`;
-      log.error(`Cannot create pool "${pool.name}": ` + msg);
-      await this._updateStatus(pool.name, {
-        state: 'PENDING',
-        reason: msg,
-      });
-      return;
-    }
-
     try {
-      await this._createPoolWithClient(client, pool);
-    } finally {
-      client.close();
+      await self.grpcClient.with_handle(pool.node, async handle => {
+        await self._createPoolWithClient(handle, pool);
+      });
+    } catch (err) {
+      // the pool will get created later when the node joins the cluster
+      log.error(`Cannot create pool "${pool.name}": ${err}`);
+      await self._updateStatus(pool.name, {
+        state: 'PENDING',
+        reason: err.toString(),
+      });
+      return;
     }
   }
 
   // Helper function to lookup node, call destroy pool grpc method and
   // remove the pool from internal state.
   async _destroyPool(poolName) {
-    var pool = this.pools[poolName];
+    var self = this;
+    var pool = self.pools[poolName];
     if (!pool) {
       return; // nothing to destroy
     }
-    delete this.pools[poolName];
-
-    let client = this._getNodeClient(pool.node);
-    if (!client) {
-      // the pool will be destroyed if the node later joins the cluster
-      let msg = `mayastor on node "${pool.node}" is not running`;
-      log.error(`Cannot destroy pool "${poolName}": ` + msg);
-      return;
-    }
+    delete self.pools[poolName];
 
     try {
-      await this._destroyPoolWithClient(client, poolName, pool.node);
-    } finally {
-      client.close();
+      await self.grpcClient.with_handle(pool.node, async handle => {
+        await self._destroyPoolWithClient(handle, poolName, pool.node);
+      });
+    } catch (err) {
+      // the pool will be destroyed if the node later joins the cluster
+      log.error(`Cannot destroy pool "${poolName}": ${err}`);
+      return;
     }
   }
 
-  // Create a pool if we already have mayastor client handle.
+  // Create a pool if we already have mayastor grpc client handle.
   // This function does not throw and takes care of updating pool status if
   // the create fails.
-  async _createPoolWithClient(client, pool) {
+  async _createPoolWithClient(grpcHandle, pool) {
     log.debug(`Creating pool "${pool.name}" on node "${pool.node}"`);
     try {
-      await client.CreatePool().sendMessage({
+      await grpcHandle.call('createPool', {
         name: pool.name,
         disks: pool.disks,
       });
@@ -398,7 +402,7 @@ class PoolOperator extends EventEmitter {
     var poolStatus;
 
     try {
-      let resp = await client.ListPools().sendMessage({});
+      let resp = await grpcHandle.call('listPools', {});
       poolInfo = resp.pools.filter(p => p.name == pool.name)[0];
     } catch (err) {
       log.error(`Failed to list pools on node "${pool.node}": ${err}`);
@@ -429,13 +433,13 @@ class PoolOperator extends EventEmitter {
     await this._updateStatus(pool.name, poolStatus);
   }
 
-  // Create a pool if we already have mayastor client handle.
+  // Create a pool if we already have mayastor grpc client handle.
   // This function does not throw and takes care of updating pool status if
   // the create fails.
-  async _destroyPoolWithClient(client, poolName, nodeName) {
+  async _destroyPoolWithClient(grpcHandle, poolName, nodeName) {
     log.debug(`Destroying pool "${poolName}" on node "${nodeName}"`);
     try {
-      await client.DestroyPool().sendMessage({ name: poolName });
+      await grpcHandle.call('destroyPool', { name: poolName });
       log.info(`Destroyed pool "${poolName}" on node "${nodeName}"`);
       // event used by the tests
       process.nextTick(this.emit.bind(this), 'destroy', poolName);
@@ -446,26 +450,6 @@ class PoolOperator extends EventEmitter {
         );
       }
     }
-  }
-
-  _createClient(node) {
-    let client = new mayastor.Mayastor(
-      node.endpoint,
-      grpc.credentials.createInsecure()
-    );
-    grpc_promise.promisifyAll(client);
-    return client;
-  }
-
-  // Get grpc mayastor service client for particular storage node.
-  // Return null if there is not a node with such a name.
-  _getNodeClient(nodeName) {
-    let node = this.nodes.get(nodeName);
-
-    if (!node) {
-      return null;
-    }
-    return this._createClient(node);
   }
 
   // Update status of a pool resource (ONLINE, DEGRADED, OFFLINE or PENDING).
@@ -505,7 +489,7 @@ class PoolOperator extends EventEmitter {
     k8sPool.status = stat;
 
     try {
-      await this.client.apis['openebs.io'].v1alpha1
+      await this.k8sClient.apis['openebs.io'].v1alpha1
         .mayastorpools(name)
         .status.put({ body: k8sPool });
     } catch (err) {
@@ -526,9 +510,7 @@ class PoolOperator extends EventEmitter {
   // 1. List storage pools on a the storage node
   // 2. update pool CRs based on the information obtained from the node.
   // 3. Remove storage pools from the node which no longer have associated CR.
-  async _syncNode(ev) {
-    var client = this._createClient(ev);
-
+  async _syncNode(handle, ev) {
     // record the last sync of the node
     this.nodeSyncs[ev.node] = Date.now() / 1000;
 
@@ -537,12 +519,11 @@ class PoolOperator extends EventEmitter {
     // list pools
     var resp;
     try {
-      resp = await client.listPools().sendMessage({});
+      resp = await handle.call('listPools', {});
     } catch (err) {
       log.error(
         `Failed to sync node "${ev.node}": failed to list pools: ${err}`
       );
-      client.close();
 
       // Offline pools which are supposedly on the now unreachable node.
       // The pools might function properly but we cannot tell for sure.
@@ -570,7 +551,7 @@ class PoolOperator extends EventEmitter {
     // fist destroy the pools which should no longer be there
     for (let name in pools) {
       if (!(name in this.pools)) {
-        await this._destroyPoolWithClient(client, name, ev.node);
+        await this._destroyPoolWithClient(handle, name, ev.node);
       }
     }
 
@@ -595,10 +576,9 @@ class PoolOperator extends EventEmitter {
           pool.disks = pools[name].disks;
         }
       } else {
-        await this._createPoolWithClient(client, pool);
+        await this._createPoolWithClient(handle, pool);
       }
     }
-    client.close();
   }
 
   // Update status of all pools on removed node to offline

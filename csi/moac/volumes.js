@@ -7,8 +7,7 @@ const _ = require('lodash');
 const assert = require('assert');
 const EventEmitter = require('events');
 const grpc = require('grpc-uds');
-const grpc_promise = require('grpc-promise');
-const { mayastor, GrpcError } = require('./common');
+const { GrpcClient, GrpcError } = require('./grpc_client');
 const log = require('./logger').Logger('volumes');
 const sleep = require('sleep-promise');
 
@@ -21,32 +20,13 @@ class VolumeOperator {
     // (uuid, node) pair, so each entry is an array instead of an object.
     this.replicas = {};
     this.nodes = nodeOperator;
+    this.client = new GrpcClient(nodeOperator);
     this.addNodeListener = null;
     this.modPoolListener = null;
     // used to serialize syncs not to have more than one in progress
     this.pendingSync = {};
     // timers for sync retries in case of failures
     this.retrySync = {};
-  }
-
-  _createClient(node) {
-    let client = new mayastor.Mayastor(
-      node.endpoint,
-      grpc.credentials.createInsecure()
-    );
-    grpc_promise.promisifyAll(client);
-    return client;
-  }
-
-  // Get grpc mayastor service client for particular storage node.
-  // Return null if there is not a node with such a name.
-  _getNodeClient(nodeName) {
-    let node = this.nodes.get(nodeName);
-
-    if (!node) {
-      return null;
-    }
-    return this._createClient(node);
   }
 
   // Add replica object to the cache. Replica is stored in a list
@@ -125,44 +105,48 @@ class VolumeOperator {
   // it is retried in the future. This requires using 'remove' event from node
   // operator too so that we know when to stop retries for the node.
   async _syncNode(nodeName) {
+    var self = this;
+
     log.debug(`Sync of volumes on node "${nodeName}"`);
-    let client = this._getNodeClient(nodeName);
-    if (!client) {
-      log.error(`Failed to get client for node "${nodeName}"`);
-      return false;
-    }
-    var rlist;
-    var nlist;
+
     try {
-      rlist = await client.listReplicas().sendMessage({});
-      nlist = await client.listNexus().sendMessage({});
+      return await self.client.with_handle(nodeName, async handle => {
+        var rlist;
+        var nlist;
+
+        try {
+          rlist = await handle.call('listReplicas', {});
+          nlist = await handle.call('listNexus', {});
+        } catch (err) {
+          log.error(`Failed to list volumes on node "${nodeName}": ` + err);
+          return false;
+        }
+        for (let i = 0; i < rlist.replicas.length; i++) {
+          let r = rlist.replicas[i];
+          self._addReplica(r.uuid, r.pool, nodeName, r.size, r.share, r.uri);
+        }
+        for (let i = 0; i < nlist.nexusList.length; i++) {
+          let n = nlist.nexusList[i];
+          if (self.nexus[n.name]) {
+            log.debug(`Updating nexus ${n.uuid} in the cache`);
+          } else {
+            log.debug(`Adding nexus ${n.uuid} to the cache`);
+          }
+          self.nexus[n.uuid] = {
+            uuid: n.uuid,
+            state: n.state,
+            children: _.map(n.children, 'uri'),
+            size: n.size,
+            node: nodeName,
+            devicePath: n.devicePath || null,
+          };
+        }
+        return true;
+      });
     } catch (err) {
-      log.error(`Failed to list volumes on node "${nodeName}": ` + err);
+      log.error('Sync of nodes failed: ' + err.toString());
       return false;
-    } finally {
-      client.close();
     }
-    for (let i = 0; i < rlist.replicas.length; i++) {
-      let r = rlist.replicas[i];
-      this._addReplica(r.uuid, r.pool, nodeName, r.size, r.share, r.uri);
-    }
-    for (let i = 0; i < nlist.nexusList.length; i++) {
-      let n = nlist.nexusList[i];
-      if (this.nexus[n.name]) {
-        log.debug(`Updating nexus ${n.uuid} in the cache`);
-      } else {
-        log.debug(`Adding nexus ${n.uuid} to the cache`);
-      }
-      this.nexus[n.uuid] = {
-        uuid: n.uuid,
-        state: n.state,
-        children: _.map(n.children, 'uri'),
-        size: n.size,
-        node: nodeName,
-        devicePath: n.devicePath || null,
-      };
-    }
-    return true;
   }
 
   // This wrapper ensures that there is just one sync for given node running
@@ -202,27 +186,20 @@ class VolumeOperator {
   // Throws grpc error if error.
   async destroyReplica(nodeName, uuid) {
     log.debug(`Destroying replica "${uuid}@${nodeName}" ...`);
-    let client = this._getNodeClient(nodeName);
-    if (!client) {
-      throw new GrpcError(
-        grpc.status.INTERNAL,
-        `Failed to obtain grpc client for node "${nodeName}"`
-      );
-    }
 
-    try {
-      await client.destroyReplica().sendMessage({ uuid: uuid });
-    } catch (err) {
-      if (err.code != grpc.status.NOT_FOUND) {
-        log.error(`Failed to destroy replica "${uuid}@${nodeName}": ` + err);
-        throw new GrpcError(
-          grpc.status.INTERNAL,
-          'Failed to destroy replica: ' + err
-        );
+    await this.client.with_handle(nodeName, async handle => {
+      try {
+        await handle.call('destroyReplica', { uuid: uuid });
+      } catch (err) {
+        if (err.code != grpc.status.NOT_FOUND) {
+          log.error(`Failed to destroy replica "${uuid}@${nodeName}": ` + err);
+          throw new GrpcError(
+            grpc.status.INTERNAL,
+            'Failed to destroy replica: ' + err
+          );
+        }
       }
-    } finally {
-      client.close();
-    }
+    });
 
     // remove it from the cache
     let replicaSet = this.replicas[uuid];
@@ -244,27 +221,19 @@ class VolumeOperator {
   // Throws grpc error if error.
   async destroyNexus(nodeName, uuid) {
     log.debug(`Destroying nexus "${uuid}@${nodeName}" ...`);
-    let client = this._getNodeClient(nodeName);
-    if (!client) {
-      throw new GrpcError(
-        grpc.status.INTERNAL,
-        `Failed to obtain grpc client for node "${nodeName}"`
-      );
-    }
 
-    try {
-      await client.destroyNexus().sendMessage({ uuid });
-    } catch (err) {
-      if (err.code != grpc.status.NOT_FOUND) {
-        log.error(`Failed to destroy nexus "${uuid}@${nodeName}": ` + err);
-        throw new GrpcError(
-          grpc.status.INTERNAL,
-          'Failed to destroy nexus: ' + err
-        );
+    await this.client.with_handle(nodeName, async handle => {
+      try {
+        await handle.call('destroyNexus', { uuid });
+      } catch (err) {
+        if (err.code != grpc.status.NOT_FOUND) {
+          throw new GrpcError(
+            grpc.status.INTERNAL,
+            `Failed to destroy nexus "${uuid}@${nodeName}": ` + err
+          );
+        }
       }
-    } finally {
-      client.close();
-    }
+    });
 
     if (this.nexus[uuid]) {
       // remove it from the cache
@@ -279,29 +248,23 @@ class VolumeOperator {
   // Throws a string (error message) if error.
   async createReplica(nodeName, poolName, uuid, size) {
     log.debug(`Creating replica "${uuid}@${nodeName}" ...`);
-    let client = this._getNodeClient(nodeName);
-    if (!client) {
-      throw `Failed to obtain grpc client for node "${nodeName}"`;
-    }
 
-    var resp;
-    try {
-      resp = await client.createReplica().sendMessage({
-        uuid: uuid,
-        pool: poolName,
-        size: size,
-        thin: false,
-        share: 'NONE',
-      });
-    } catch (err) {
-      log.error(`Failed to create replica "${uuid}@${nodeName}": ` + err);
-      throw new GrpcError(
-        grpc.status.INTERNAL,
-        `Failed to create replica ${uuid} on pool "${poolName}": ` + err
-      );
-    } finally {
-      client.close();
-    }
+    let resp = await this.client.with_handle(nodeName, async handle => {
+      try {
+        return await handle.call('createReplica', {
+          uuid: uuid,
+          pool: poolName,
+          size: size,
+          thin: false,
+          share: 'NONE',
+        });
+      } catch (err) {
+        throw new GrpcError(
+          grpc.status.INTERNAL,
+          `Failed to create replica "${uuid}@${nodeName}": ` + err
+        );
+      }
+    });
 
     // add it to the cache
     this._addReplica(uuid, poolName, nodeName, size, 'NONE', resp.uri);
@@ -312,26 +275,21 @@ class VolumeOperator {
   // Throws a string (error message) if error.
   async createNexus(nodeName, uuid, size, children) {
     log.debug(`Creating nexus "${uuid}@${nodeName}" ...`);
-    let client = this._getNodeClient(nodeName);
-    if (!client) {
-      throw `Failed to obtain grpc client for node "${nodeName}"`;
-    }
 
-    try {
-      await client.createNexus().sendMessage({
-        uuid: uuid,
-        size: size,
-        children: children,
-      });
-    } catch (err) {
-      log.error(`Failed to create nexus "${uuid}@${nodeName}": ` + err);
-      throw new GrpcError(
-        grpc.status.INTERNAL,
-        `Failed to create nexus ${uuid} on node "${nodeName}": ` + err
-      );
-    } finally {
-      client.close();
-    }
+    await this.client.with_handle(nodeName, async handle => {
+      try {
+        await handle.call('createNexus', {
+          uuid: uuid,
+          size: size,
+          children: children,
+        });
+      } catch (err) {
+        throw new GrpcError(
+          grpc.status.INTERNAL,
+          `Failed to create nexus "${uuid}@${nodeName}": ` + err
+        );
+      }
+    });
 
     // add it to the cache
     let nexus = {
@@ -378,23 +336,23 @@ class VolumeOperator {
     var nodes = self.nodes.get();
 
     for (let i in nodes) {
-      let client = self._createClient(nodes[i]);
       let nodeName = nodes[i].node;
-      let res;
       let timestamp = new Date().toISOString();
 
-      log.debug('Retrieving volume stats from node ' + nodeName);
-
-      try {
-        res = await client.statReplicas().sendMessage({});
-      } catch (err) {
-        log.error(`Failed to retrieve stats from node "${nodeName}": ` + err);
-        continue;
-      } finally {
-        client.close();
-      }
-
+      // Lint does not like using for-loop variable in a function defined
+      // in the loop. But we know it's ok in this case.
       // jshint ignore:start
+      let res = await this.client.with_handle(nodeName, async handle => {
+        log.debug('Retrieving volume stats from node ' + nodeName);
+        try {
+          return await handle.call('statReplicas', {});
+        } catch (err) {
+          log.error(`Failed to retrieve stats from node "${nodeName}": ` + err);
+          return null;
+        }
+      });
+      if (!res) continue;
+
       vols = vols.concat(
         res.replicas
           // ignore replicas which we don't know about (yet)
@@ -426,39 +384,28 @@ class VolumeOperator {
     return vols;
   }
 
-  async shareReplica(node, uuid, share) {
+  async shareReplica(nodeName, uuid, share) {
     assert(['NONE', 'ISCSI', 'NVMF'].indexOf(share) >= 0);
-    log.debug(`Setting share protocol for replica "${uuid}@${node}" ...`);
-    let r = (this.replicas[uuid] || []).find(r => r.node == node);
+    log.debug(`Setting share protocol for replica "${uuid}@${nodeName}" ...`);
+    let r = (this.replicas[uuid] || []).find(r => r.node == nodeName);
     if (!r) {
       throw new GrpcError(
         grpc.status.NOT_FOUND,
-        `Replica "${uuid}@${node}" to be shared does not exist`
+        `Replica "${uuid}@${nodeName}" to be shared does not exist`
       );
     }
-    let client = this._getNodeClient(node);
-    if (!client) {
-      throw new GrpcError(
-        grpc.status.INTERNAL,
-        `Failed to obtain grpc client handle for node "${node}"`
-      );
-    }
-    var res;
-    try {
-      res = await client.shareReplica().sendMessage({ uuid, share });
-    } catch (err) {
-      log.error(
-        `Failed to set share pcol for replica "${uuid}@${node}": ` + err
-      );
-      throw new GrpcError(
-        grpc.status.INTERNAL,
-        `Failed to share replica "${uuid}@${node}: ` + err
-      );
-    } finally {
-      client.close();
-    }
+    let res = await this.client.with_handle(nodeName, async handle => {
+      try {
+        return await handle.call('shareReplica', { uuid, share });
+      } catch (err) {
+        throw new GrpcError(
+          grpc.status.INTERNAL,
+          `Failed to set share pcol for replica "${uuid}@${nodeName}": ` + err
+        );
+      }
+    });
     log.info(
-      `Share pcol for replica "${uuid}@${node}" set to ${share} (${res.uri})`
+      `Share pcol for replica "${uuid}@${nodeName}" set to ${share} (${res.uri})`
     );
     r.share = share;
     r.uri = res.uri;
@@ -474,35 +421,21 @@ class VolumeOperator {
         `Nexus "${uuid}" to be published does not exist`
       );
     }
-    let client = this._getNodeClient(nexus.node);
-    if (!client) {
-      throw new GrpcError(
-        grpc.status.INTERNAL,
-        `Failed to obtain grpc client handle for node "${nexus.node}"`
-      );
-    }
-    var res;
-    try {
-      res = await client.publishNexus().sendMessage({ uuid: uuid, key: '' });
-    } catch (err) {
-      log.error(`Failed to publish nexus "${uuid}": ` + err);
-      throw new GrpcError(
-        grpc.status.INTERNAL,
-        `Failed to publish nexus ${uuid}: ` + err
-      );
-    } finally {
-      client.close();
-    }
-    // we got switched off the cpu and the nexus might be gone now
-    nexus = this.nexus[uuid];
-    if (!nexus) {
-      throw new GrpcError(
-        grpc.status.INTERNAL,
-        `Nexus ${uuid} was destroyed before it got shared`
-      );
-    }
+    let nodeName = nexus.node;
+    let res = await this.client.with_handle(nodeName, async handle => {
+      try {
+        return await handle.call('publishNexus', { uuid: uuid, key: '' });
+      } catch (err) {
+        throw new GrpcError(
+          grpc.status.INTERNAL,
+          `Failed to publish nexus ${uuid}@${nodeName}: ` + err
+        );
+      }
+    });
+    // TODO: we got switched off the cpu and the nexus might be gone now.
+    // Make sure that it cannot happen - problem for all methods here.
     nexus.devicePath = res.devicePath;
-    log.info(`Nexus "${uuid}" was published at ${res.devicePath}`);
+    log.info(`Nexus "${uuid}@${nodeName}" was published at ${res.devicePath}`);
     return res.devicePath;
   }
 
@@ -516,28 +449,19 @@ class VolumeOperator {
         `Nexus "${uuid}" to be unpublished does not exist`
       );
     }
-    let client = this._getNodeClient(nexus.node);
-    if (!client) {
-      throw new GrpcError(
-        grpc.status.INTERNAL,
-        `Failed to obtain grpc client handle for node "${nexus.node}"`
-      );
-    }
-    try {
-      await client.unpublishNexus().sendMessage({ uuid });
-    } catch (err) {
-      let msg = `Failed to unpublish nexus "${uuid}": ` + err;
-      log.error(msg);
-      throw new GrpcError(grpc.status.INTERNAL, msg);
-    } finally {
-      client.close();
-    }
-    // we got switched off the cpu and the nexus might be gone now
-    nexus = this.nexus[uuid];
-    if (nexus) {
-      nexus.devicePath = null;
-    }
-    log.info(`Nexus "${uuid}" was unpublished`);
+    let nodeName = nexus.node;
+    await this.client.with_handle(nodeName, async handle => {
+      try {
+        await handle.call('unpublishNexus', { uuid });
+      } catch (err) {
+        throw new GrpcError(
+          grpc.status.INTERNAL,
+          `Failed to unpublish nexus "${uuid}@${nodeName}": ` + err
+        );
+      }
+    });
+    nexus.devicePath = null;
+    log.info(`Nexus "${uuid}@${nodeName}" was unpublished`);
   }
 
   async addChildNexus(uuid, uri) {
@@ -549,22 +473,16 @@ class VolumeOperator {
         `Nexus "${uuid}" does not exist`
       );
     }
-    let client = this._getNodeClient(nexus.node);
-    if (!client) {
-      throw new GrpcError(
-        grpc.status.INTERNAL,
-        `Failed to obtain grpc client handle for node "${nexus.node}"`
-      );
-    }
-    try {
-      await client.addChildNexus().sendMessage({ uuid, uri });
-    } catch (err) {
-      let msg = `Failed to add child "${uri}" to nexus "${uuid}": ` + err;
-      log.error(msg);
-      throw new GrpcError(grpc.status.INTERNAL, msg);
-    } finally {
-      client.close();
-    }
+    await this.client.with_handle(nexus.node, async handle => {
+      try {
+        await handle.call('addChildNexus', { uuid, uri });
+      } catch (err) {
+        throw new GrpcError(
+          grpc.status.INTERNAL,
+          `Failed to add child "${uri}" to nexus "${uuid}": ` + err
+        );
+      }
+    });
     assert(nexus.children.indexOf(uri) == -1);
     nexus.children.push(uri);
   }
@@ -578,22 +496,16 @@ class VolumeOperator {
         `Nexus "${uuid}" does not exist`
       );
     }
-    let client = this._getNodeClient(nexus.node);
-    if (!client) {
-      throw new GrpcError(
-        grpc.status.INTERNAL,
-        `Failed to obtain grpc client handle for node "${nexus.node}"`
-      );
-    }
-    try {
-      await client.removeChildNexus().sendMessage({ uuid, uri });
-    } catch (err) {
-      let msg = `Failed to remove child "${uri}" from nexus "${uuid}": ` + err;
-      log.error(msg);
-      throw new GrpcError(grpc.status.INTERNAL, msg);
-    } finally {
-      client.close();
-    }
+    await this.client.with_handle(nexus.node, async handle => {
+      try {
+        await handle.call('removeChildNexus', { uuid, uri });
+      } catch (err) {
+        throw new GrpcError(
+          grpc.status.INTERNAL,
+          `Failed to remove child "${uri}" from nexus "${uuid}": ` + err
+        );
+      }
+    });
     let idx = nexus.children.indexOf(uri);
     if (idx >= 0) {
       nexus.children.splice(idx, 1);
