@@ -13,13 +13,13 @@ name = "mayastor-client"
 path = "src/client.rs"
 
 [build-dependencies]
-bytes = "0.4"
-tonic-build = "0.1.0-beta.1"
-prost-build = "0.5.0"
+bytes = "0.5"
+tonic-build = "0.1.0"
+prost-build = "0.6.0"
 
 [dependencies]
 async-stream = "0.1.2"
-bytes = "0.4"
+bytes = "0.5"
 bytesize = "1.0.0"
 chrono = "0.4.9"
 clap = "2.32"
@@ -36,9 +36,9 @@ log = "0.4"
 loopdev = "*"
 nix = "*"
 proc-mounts = "0.2"
-prost = "0.5"
-prost-derive = "0.5"
-prost-types = "0.5"
+prost = "0.6"
+prost-derive = "0.6"
+prost-types = "0.6"
 rpc = { path = "../rpc" }
 serde = { version = "1.0", features = ["derive"] }
 serde_derive = "1.0"
@@ -46,7 +46,7 @@ serde_json = "1.0"
 sys-mount = "1.2"
 tokio = { version = "0.2.8", features = ["full"] }
 run_script = "*"
-tonic = "0.1.0-beta.1"
+tonic = "0.1.0"
 tower = "0.3"
 [dependencies.blkid]
 branch = "blkid-sys"
