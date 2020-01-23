@@ -1,11 +1,12 @@
 use std::{
-    cell::Cell,
     env,
     ffi::CString,
     net::Ipv4Addr,
     os::raw::{c_char, c_void},
     sync::{Arc, Mutex},
 };
+
+use once_cell::sync::{OnceCell, Lazy};
 
 use nix::sys::{
     signal,
@@ -56,16 +57,11 @@ use crate::{
     replica,
 };
 
-thread_local! {
-    /// Only accessible from the master core for now
-    static INIT_THREAD: Cell<Option<Mthread>> = Cell::new(None);
-}
+static INIT_THREAD: OnceCell<Mthread> = OnceCell::new();
 
-lazy_static! {
-    /// global return code for the whole program. We must use ARC here to make proper use of
-    /// lazy_static crate. It could have been a static mut all the same.
-    pub static ref GLOBAL_RC: Arc<Mutex<i32>> = Arc::new(Mutex::new(0));
-}
+/// global return code for the whole program. We must use ARC here to make proper use of
+/// lazy_static crate. It could have been a static mut all the same.
+pub static GLOBAL_RC: Lazy<Arc<Mutex<i32>>> = Lazy::new(|| Arc::new(Mutex::new(0)));
 
 /// FFI functions that are needed to initialize the environment
 extern "C" {
@@ -202,15 +198,16 @@ extern "C" fn _mayastor_shutdown_cb(arg: *mut c_void) {
 
 /// main shutdown routine for mayastor
 pub fn mayastor_env_stop(rc: i32) {
-    INIT_THREAD.with(|t| unsafe {
-        let t = t.get().unwrap();
-        spdk_sys::spdk_set_thread(t.0);
-        spdk_sys::spdk_thread_send_msg(
-            t.0,
-            Some(_mayastor_shutdown_cb),
-            rc as *const c_void as *mut c_void,
-        );
-    });
+    if let Some(t) = INIT_THREAD.get() {
+        unsafe {
+            spdk_sys::spdk_set_thread(t.inner_mut());
+            spdk_sys::spdk_thread_send_msg(
+                t.inner(),
+                Some(_mayastor_shutdown_cb),
+                rc as *const c_void as *mut c_void,
+            );
+        }
+    }
 }
 
 /// called on SIGINT and SIGTERM
@@ -359,7 +356,7 @@ impl MayastorEnvironment {
                 CString::new(format!("--file-prefix=mayastor_pid{}", unsafe {
                     libc::getpid()
                 }))
-                .unwrap(),
+                    .unwrap(),
             );
         } else {
             args.push(
@@ -367,7 +364,7 @@ impl MayastorEnvironment {
                     "--file-prefix=mayastor_pid{}",
                     self.shm_id
                 ))
-                .unwrap(),
+                    .unwrap(),
             );
             args.push(CString::new("--proc-type=auto").unwrap());
         }
@@ -443,7 +440,7 @@ impl MayastorEnvironment {
             std::process::exit(1)
         }
 
-        INIT_THREAD.with(|t| t.set(Some(Mthread(thread))));
+        INIT_THREAD.set(Mthread::from_null_checked(thread).unwrap()).unwrap();
 
         Ok(())
     }
@@ -528,8 +525,8 @@ impl MayastorEnvironment {
 
     /// start mayastor and call f when all is setup.
     pub fn start<F>(&mut self, f: F) -> Result<i32>
-    where
-        F: FnOnce(),
+        where
+            F: FnOnce(),
     {
         self.read_config_file()?;
         self.initialize_eal();
@@ -548,10 +545,8 @@ impl MayastorEnvironment {
         self.init_main_thread()?;
 
         // init the subsystems and RPC server, this must be done in context of
-        // the "stackless" threads.
-        INIT_THREAD.with(|t| {
-            let mt = t.get().unwrap();
-
+        // the "stack less" threads.
+        if let Some(mt) = INIT_THREAD.get() {
             mt.with(|| unsafe {
                 // all futures will be executed from the management thread
                 // (mm_thread)
@@ -580,12 +575,16 @@ impl MayastorEnvironment {
                     delay::register();
                 }
             });
-        });
+        }
 
         pool::register_pool_methods();
         replica::register_replica_methods();
 
-        f();
+        if let Some(mt) = INIT_THREAD.get() {
+            mt.with(|| {
+                f();
+            });
+        }
 
         unsafe {
             // will block the main thread until we exit
