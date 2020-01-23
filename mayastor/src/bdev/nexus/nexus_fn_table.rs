@@ -14,17 +14,16 @@ use crate::bdev::nexus::{
     nexus_channel::NexusChannel,
     nexus_io::{io_type, Bio},
 };
+use once_cell::sync::Lazy;
 
-// TODO: put all the statics into a single nexus_module static and add these as
-// inners
-lazy_static! {
-    /// global static fn table shared between all Nexus bdev modules
-    pub(crate) static ref NEXUS_FN_TBL: NexusFnTable = NexusFnTable::new();
-}
+static NEXUS_FN_TBL: Lazy<NexusFnTable> = Lazy::new(NexusFnTable::new);
 
 pub struct NexusFnTable {
     pub(crate) f_tbl: spdk_bdev_fn_table,
 }
+
+unsafe impl Sync for NexusFnTable {}
+unsafe impl Send for NexusFnTable {}
 
 /// The FN table are function pointers called by SPDK when work is send
 /// our way. The functions are static, and shared between all instances.
@@ -56,7 +55,7 @@ impl NexusFnTable {
     ) -> bool {
         let nexus = unsafe { Nexus::from_raw(ctx) };
         match io_type {
-            // we always assume  the device supports read/write commands
+            // we always assume the device supports read/write commands
             io_type::READ | io_type::WRITE => true,
             io_type::FLUSH | io_type::RESET | io_type::UNMAP => {
                 let supported = nexus.io_is_supported(io_type);

@@ -1,7 +1,5 @@
 #[macro_use]
 extern crate ioctl_gen;
-#[macro_use]
-extern crate lazy_static;
 extern crate nix;
 #[macro_use]
 extern crate log;

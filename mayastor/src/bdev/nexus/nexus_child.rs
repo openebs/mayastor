@@ -182,7 +182,7 @@ impl NexusChild {
                 spdk_bdev_module_claim_bdev(
                     bdev.inner,
                     desc.as_ptr(),
-                    &NEXUS_MODULE.module as *const _ as *mut _,
+                    &NEXUS_MODULE.as_ptr() as *const _ as *mut _,
                 )
             };
             if let Err(err) = errno_result_from_i32((), errno) {
