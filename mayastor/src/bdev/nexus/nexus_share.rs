@@ -1,3 +1,10 @@
+use std::ffi::CString;
+
+use futures::channel::oneshot;
+use snafu::ResultExt;
+
+use spdk_sys::create_crypto_disk;
+
 use crate::{
     bdev::nexus::{
         nexus_bdev::{
@@ -10,12 +17,8 @@ use crate::{
         nexus_nbd::Disk,
     },
     core::Bdev,
-    executor::{cb_arg, done_errno_cb, errno_result_from_i32, ErrnoResult},
+    ffihelper::{cb_arg, done_errno_cb, errno_result_from_i32, ErrnoResult},
 };
-use futures::channel::oneshot;
-use snafu::ResultExt;
-use spdk_sys::create_crypto_disk;
-use std::ffi::CString;
 
 /// we are using the multi buffer encryption implementation using CBC as the
 /// algorithm
@@ -43,7 +46,7 @@ impl Nexus {
             let flavour = CString::new(CRYPTO_FLAVOUR).unwrap();
             // name of the crypto device
             let cname = CString::new(name.clone()).unwrap();
-            // the the nexus device itself
+            // the nexus device itself
             let base = CString::new(self.name.clone()).unwrap();
             // the keys to the castle
             let key = CString::new(key).unwrap();
@@ -63,6 +66,7 @@ impl Nexus {
             self.name.clone()
         };
 
+        debug!("creating share handle for {}", name);
         // The share handle is the actual bdev that is shared through the
         // various protocols.
         let disk = Disk::create(&name).await.context(ShareNexus {

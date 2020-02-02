@@ -15,9 +15,14 @@ use std::{
 use clap::{App, Arg, SubCommand};
 
 use mayastor::{
-    app,
-    core::{Bdev, CoreError, DmaError},
-    executor,
+    core::{
+        mayastor_env_stop,
+        Bdev,
+        CoreError,
+        DmaError,
+        MayastorEnvironment,
+        Reactors,
+    },
     jsonrpc::print_error_chain,
     logger,
     nexus_uri::{bdev_create, BdevCreateDestroy},
@@ -149,10 +154,14 @@ fn main() {
         None => 0,
     };
 
-    let rc = app::start(
-        "initiator",
-        ["-s", "128", "-r", "/tmp/initiator.sock"].to_vec(),
-        move || {
+    let mut ms = MayastorEnvironment::default();
+
+    ms.name = "initiator".into();
+    ms.mem_size = 128;
+    ms.rpc_addr = "/tmp/initiator.sock".into();
+
+    let rc = ms
+        .start(move || {
             let fut = async move {
                 let res = if let Some(matches) =
                     matches.subcommand_matches("read")
@@ -171,11 +180,11 @@ fn main() {
                 } else {
                     0
                 };
-                app::stop(rc);
+                mayastor_env_stop(rc)
             };
-            executor::spawn(fut);
-        },
-    );
+            Reactors::current().unwrap().send_future(fut);
+        })
+        .unwrap();
     info!("{}", rc);
 
     process::exit(rc);

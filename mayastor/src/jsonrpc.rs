@@ -3,10 +3,18 @@
 //! of arguments using serde rust library. It makes use of async/await futures
 //! for executing async code in jsonrpc handlers.
 
-use crate::executor;
+use std::{
+    boxed::Box,
+    ffi::{c_void, CStr, CString},
+    fmt,
+    os::raw::c_char,
+    pin::Pin,
+};
+
 use futures::future::Future;
 use nix::errno::Errno;
 use serde::{Deserialize, Serialize};
+
 use spdk_sys::{
     spdk_json_val,
     spdk_json_write_val_raw,
@@ -22,13 +30,6 @@ use spdk_sys::{
     SPDK_JSONRPC_ERROR_PARSE_ERROR,
     SPDK_JSON_VAL_OBJECT_BEGIN,
     SPDK_RPC_RUNTIME,
-};
-use std::{
-    boxed::Box,
-    ffi::{c_void, CStr, CString},
-    fmt,
-    os::raw::c_char,
-    pin::Pin,
 };
 
 /// Possible json-rpc return codes from method handlers
@@ -226,7 +227,7 @@ unsafe extern "C" fn jsonrpc_handler<H, P, R, E>(
                     }
                 }
             };
-            executor::spawn(fut);
+            crate::core::Reactors::current().unwrap().send_future(fut);
         }
         Err(err) => {
             // parameters are not what is expected

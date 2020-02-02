@@ -4,14 +4,19 @@
 //! replica which is to be exported, we create a subsystem in that default
 //! target. Each subsystem has one namespace backed by the lvol.
 
-use crate::{
-    core::Bdev,
-    executor::{cb_arg, done_errno_cb, errno_result_from_i32, ErrnoResult},
-    jsonrpc::{Code, RpcErrorCode},
+use std::{
+    cell::RefCell,
+    ffi::{c_void, CStr, CString},
+    fmt,
+    os::raw::c_int,
+    ptr::{self, copy_nonoverlapping},
 };
+
 use futures::channel::oneshot;
 use nix::errno::Errno;
+use once_cell::sync::Lazy;
 use snafu::{ResultExt, Snafu};
+
 use spdk_sys::{
     spdk_nvme_transport_id,
     spdk_nvmf_poll_group,
@@ -55,12 +60,11 @@ use spdk_sys::{
     SPDK_NVMF_TRADDR_MAX_LEN,
     SPDK_NVMF_TRSVCID_MAX_LEN,
 };
-use std::{
-    cell::RefCell,
-    ffi::{c_void, CStr, CString},
-    fmt,
-    os::raw::c_int,
-    ptr::{self, copy_nonoverlapping},
+
+use crate::{
+    core::Bdev,
+    ffihelper::{cb_arg, done_errno_cb, errno_result_from_i32, ErrnoResult},
+    jsonrpc::{Code, RpcErrorCode},
 };
 
 #[derive(Debug, Snafu)]
@@ -122,6 +126,8 @@ type Result<T, E = Error> = std::result::Result<T, E>;
 /// port 4420, because we don't want to conflict with nexus exported
 /// over nvmf running on the same node.
 const NVMF_PORT: u16 = 8420;
+static TRANSPORT_NAME: Lazy<CString> =
+    Lazy::new(|| CString::new("TCP").unwrap());
 
 thread_local! {
     /// nvmf target provides a scope for creating transports, namespaces etc.
@@ -395,6 +401,11 @@ impl Target {
 
         unsafe {
             copy_nonoverlapping(
+                TRANSPORT_NAME.as_ptr(),
+                &mut trid.trstring[0],
+                trid.trstring.len(),
+            );
+            copy_nonoverlapping(
                 c_addr.as_ptr(),
                 &mut trid.traddr[0],
                 addr.len() + 1,
@@ -422,7 +433,7 @@ impl Target {
     pub async fn add_tcp_transport(&mut self) -> Result<()> {
         let ok = unsafe {
             spdk_nvmf_transport_opts_init(
-                SPDK_NVME_TRANSPORT_TCP,
+                TRANSPORT_NAME.as_ptr(),
                 &mut self.opts,
             )
         };
@@ -431,7 +442,7 @@ impl Target {
         }
 
         let transport = unsafe {
-            spdk_nvmf_transport_create(SPDK_NVME_TRANSPORT_TCP, &mut self.opts)
+            spdk_nvmf_transport_create(TRANSPORT_NAME.as_ptr(), &mut self.opts)
         };
         if transport.is_null() {
             return Err(Error::TcpTransport {});

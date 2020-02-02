@@ -1,6 +1,8 @@
-use serde::export::{fmt::Error, Formatter};
-use spdk_sys::{spdk_io_channel, spdk_put_io_channel};
 use std::fmt::Debug;
+
+use serde::export::{fmt::Error, Formatter};
+
+use spdk_sys::{spdk_io_channel, spdk_put_io_channel};
 
 pub struct IoChannel(*mut spdk_io_channel);
 

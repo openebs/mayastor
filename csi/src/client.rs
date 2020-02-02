@@ -9,7 +9,7 @@ extern crate clap;
 
 use bytesize::ByteSize;
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
-use tokio;
+
 use tonic::{transport::Channel, Code, Request, Status};
 
 use rpc::service::mayastor_client::MayastorClient;

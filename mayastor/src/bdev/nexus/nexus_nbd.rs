@@ -1,17 +1,5 @@
 //! Utility functions and wrappers for working with nbd devices in SPDK.
 
-use crate::executor::{cb_arg, errno_result_from_i32, ErrnoResult};
-use futures::channel::oneshot;
-use futures_timer::Delay;
-use nix::{convert_ioctl_res, errno::Errno, libc};
-use snafu::{ResultExt, Snafu};
-use spdk_sys::{
-    spdk_nbd_disk,
-    spdk_nbd_disk_find_by_nbd_path,
-    spdk_nbd_get_path,
-    spdk_nbd_start,
-    spdk_nbd_stop,
-};
 use std::{
     convert::TryInto,
     ffi::{c_void, CStr, CString},
@@ -20,9 +8,28 @@ use std::{
     io,
     os::unix::io::AsRawFd,
     path::Path,
+    sync::{atomic::AtomicBool, Arc},
+    thread,
     time::Duration,
 };
+
+use futures::channel::oneshot;
+use nix::{convert_ioctl_res, errno::Errno, libc};
+use snafu::{ResultExt, Snafu};
+
+use spdk_sys::{
+    spdk_nbd_disk,
+    spdk_nbd_disk_find_by_nbd_path,
+    spdk_nbd_get_path,
+    spdk_nbd_start,
+    spdk_nbd_stop,
+};
 use sysfs::parse_value;
+
+use crate::{
+    core::Reactors,
+    ffihelper::{cb_arg, errno_result_from_i32, ErrnoResult},
+};
 
 // include/uapi/linux/fs.h
 const IOCTL_BLKGETSIZE: u32 = ior!(0x12, 114, std::mem::size_of::<u64>());
@@ -35,44 +42,60 @@ pub enum NbdError {
     StartNbd { source: Errno, dev: String },
 }
 
-/// Wait until it is possible to read size of nbd device or time out with error.
-/// If we can read the size that means that the device is ready for IO.
-async fn wait_until_ready(path: &str) -> Result<(), ()> {
-    let device_size: u32 = 0;
-    // each iteration sleeps 100ms => total time out is 10s
-    for _i in 1i32 .. 100 {
-        Delay::new(Duration::from_millis(100)).await;
+/// We need to wait for the device to be ready. That is, it takes a certain
+/// amount of time for the device to be fully operational from a kernel
+/// perspective. This is somewhat annoying, but what makes matters worse is that
+/// if we are running the device creation path, on the same core that is
+/// handling the IO, we get into a state where we make no forward progress.
+pub(crate) fn wait_until_ready(path: &str) -> Result<(), ()> {
+    let started = Arc::new(AtomicBool::new(false));
+    use std::sync::atomic::Ordering;
 
-        let f = OpenOptions::new().read(true).open(Path::new(&path));
-        if f.is_err() {
-            trace!("Failed to open nbd device {}, retrying ...", path);
-            continue;
-        }
+    let tpath = String::from(path);
+    let s = started.clone();
 
-        let res = unsafe {
-            convert_ioctl_res!(libc::ioctl(
-                f.unwrap().as_raw_fd(),
-                u64::from(IOCTL_BLKGETSIZE).try_into().unwrap(),
-                &device_size
-            ))
-        };
-        if res.is_err() || device_size == 0 {
-            trace!("Failed ioctl to nbd device {}, retrying ...", path);
-            continue;
+    // start a thread that loops and tries to open us and asks for our size
+    thread::spawn(move || {
+        let size: u64 = 0;
+        for _i in 1i32 .. 100 {
+            std::thread::sleep(Duration::from_secs(5));
+            let f = OpenOptions::new().read(true).open(Path::new(&tpath));
+            if f.is_err() {
+                continue;
+            }
+            let res = unsafe {
+                convert_ioctl_res!(libc::ioctl(
+                    f.unwrap().as_raw_fd(),
+                    u64::from(IOCTL_BLKGETSIZE).try_into().unwrap(),
+                    &size
+                ))
+            };
+
+            if res.is_err() {
+                continue;
+            }
+
+            if size != 0 {
+                s.store(true, Ordering::SeqCst);
+                break;
+            }
         }
-        trace!("Device {} reported {} size", path, device_size);
-        return Ok(());
+    });
+
+    // the above thread is running, make sure we keep polling/turning the
+    // reactor. We keep doing this until the above thread has updated the
+    // atomic. In the future we might be able call yield()
+    while started.load(Ordering::SeqCst) {
+        Reactors::current().unwrap().poll_once();
     }
 
-    // no size reported within given time window
-    Err(())
+    Ok(())
 }
 
 /// Return first unused nbd device in /dev.
 ///
 /// NOTE: We do a couple of syscalls in this function which by normal
-/// circumstances do not block. So it is reasonably safe to call this function
-/// from executor/reactor.
+/// circumstances do not block.
 pub fn find_unused() -> Result<String, NbdError> {
     let nbd_max =
         parse_value(Path::new("/sys/class/modules/nbd/parameters"), "nbds_max")
@@ -162,21 +185,16 @@ impl Disk {
     /// Allocate nbd device for the bdev and start it.
     /// When the function returns the nbd disk is ready for IO.
     pub async fn create(bdev_name: &str) -> Result<Self, NbdError> {
-        // find nbd device which is available
+        // find a NBD device which is available
         let device_path = find_unused()?;
         let nbd_ptr = start(bdev_name, &device_path).await?;
-
-        info!("Started nbd disk {} for {}", device_path, bdev_name);
 
         // we wait for the dev to come up online because
         // otherwise the mount done too early would fail.
         // If it times out, continue anyway and let the mount fail.
-        if wait_until_ready(&device_path).await.is_err() {
-            error!(
-                "Timed out waiting for nbd device {} to come up (10s)",
-                device_path,
-            )
-        }
+        wait_until_ready(&device_path).unwrap();
+        info!("Started nbd disk {} for {}", device_path, bdev_name);
+
         Ok(Self {
             nbd_ptr,
         })
@@ -184,9 +202,7 @@ impl Disk {
 
     /// Stop and release nbd device.
     pub fn destroy(self) {
-        if !self.nbd_ptr.is_null() {
-            unsafe { spdk_nbd_stop(self.nbd_ptr) };
-        }
+        unsafe { spdk_nbd_stop(self.nbd_ptr) };
     }
 
     /// Get nbd device path (/dev/nbd...) for the nbd disk.

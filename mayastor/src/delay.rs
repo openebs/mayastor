@@ -1,5 +1,6 @@
-use spdk_sys::{spdk_poller, spdk_poller_register, spdk_poller_unregister};
 use std::{cell::RefCell, os::raw::c_void, time::Duration};
+
+use spdk_sys::{spdk_poller, spdk_poller_register, spdk_poller_unregister};
 
 thread_local! {
     /// Delay poller pointer for unregistering the poller at the end

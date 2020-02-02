@@ -3,18 +3,15 @@
 //! Replica is a logical data volume exported over nvmf (in SPDK terminology
 //! an lvol). Here we define methods for easy management of replicas.
 
-use crate::{
-    core::Bdev,
-    executor::{cb_arg, done_errno_cb, errno_result_from_i32, ErrnoResult},
-    jsonrpc::{jsonrpc_register, Code, RpcErrorCode},
-    pool::Pool,
-    target,
-};
+use std::ffi::{c_void, CStr, CString};
+
 use futures::{
     channel::oneshot,
     future::{self, FutureExt},
 };
 use nix::errno::Errno;
+use snafu::{ResultExt, Snafu};
+
 use rpc::mayastor::{
     CreateReplicaReply,
     CreateReplicaRequest,
@@ -28,7 +25,6 @@ use rpc::mayastor::{
     StatReplicasReply,
     Stats,
 };
-use snafu::{ResultExt, Snafu};
 use spdk_sys::{
     spdk_lvol,
     vbdev_lvol_create,
@@ -38,7 +34,14 @@ use spdk_sys::{
     LVOL_CLEAR_WITH_WRITE_ZEROES,
     SPDK_BDEV_IO_TYPE_UNMAP,
 };
-use std::ffi::{c_void, CStr, CString};
+
+use crate::{
+    core::Bdev,
+    ffihelper::{cb_arg, done_errno_cb, errno_result_from_i32, ErrnoResult},
+    jsonrpc::{jsonrpc_register, Code, RpcErrorCode},
+    pool::Pool,
+    target,
+};
 
 /// These are high-level context errors one for each rpc method.
 #[derive(Debug, Snafu)]

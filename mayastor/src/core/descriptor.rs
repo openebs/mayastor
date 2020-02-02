@@ -1,3 +1,7 @@
+use std::{convert::TryFrom, fmt::Debug};
+
+use serde::export::{fmt::Error, Formatter};
+
 use spdk_sys::{
     spdk_bdev_close,
     spdk_bdev_desc,
@@ -11,9 +15,6 @@ use crate::{
     bdev::nexus::nexus_module::NEXUS_MODULE,
     core::{channel::IoChannel, Bdev, BdevHandle, CoreError},
 };
-
-use serde::export::{fmt::Error, Formatter};
-use std::{convert::TryFrom, fmt::Debug};
 
 /// NewType around a descriptor, multiple descriptor to the same bdev is
 /// allowed. A bdev can me claimed for exclusive write access. Any existing
@@ -42,7 +43,7 @@ impl Descriptor {
     /// claim the bdev for exclusive access, when the descriptor is in read-only
     /// the descriptor will implicitly be upgraded to read/write.
     ///
-    /// Not claiming a bdev. Preexisting writers will not be downgraded.
+    /// Conversely, Preexisting writers will not be downgraded.
     pub fn claim(&self) -> bool {
         let err = unsafe {
             spdk_bdev_module_claim_bdev(

@@ -1,10 +1,15 @@
-use std::{convert::TryFrom, mem::ManuallyDrop, sync::Arc};
-
-use crate::{
-    core::{Bdev, CoreError, Descriptor, DmaBuf, DmaError, IoChannel},
-    executor::cb_arg,
+use std::{
+    convert::TryFrom,
+    fmt::Debug,
+    mem::ManuallyDrop,
+    os::raw::c_void,
+    sync::Arc,
 };
+
 use futures::channel::oneshot;
+use nix::errno::Errno;
+use serde::export::{fmt::Error, Formatter};
+
 use spdk_sys::{
     spdk_bdev_desc,
     spdk_bdev_free_io,
@@ -13,11 +18,11 @@ use spdk_sys::{
     spdk_bdev_write,
     spdk_io_channel,
 };
-use std::os::raw::c_void;
 
-use nix::errno::Errno;
-use serde::export::{fmt::Error, Formatter};
-use std::fmt::Debug;
+use crate::{
+    core::{Bdev, CoreError, Descriptor, DmaBuf, DmaError, IoChannel},
+    ffihelper::cb_arg,
+};
 
 /// A handle to a bdev, is an interface to submit IO. The ['Descriptor'] may be
 /// shared between cores freely. The ['IoChannel'] however, must be allocated on

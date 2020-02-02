@@ -42,7 +42,7 @@ use crate::{
         },
     },
     core::{Bdev, DmaBuf, DmaError},
-    executor::errno_result_from_i32,
+    ffihelper::errno_result_from_i32,
     jsonrpc::{Code, RpcErrorCode},
     nexus_uri::BdevCreateDestroy,
 };

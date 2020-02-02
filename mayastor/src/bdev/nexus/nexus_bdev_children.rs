@@ -22,6 +22,9 @@
 //! When reconfiguring the nexus, we traverse all our children, create new IO
 //! channels for all children that are in the open state.
 
+use futures::future::join_all;
+use snafu::ResultExt;
+
 use crate::{
     bdev::nexus::{
         nexus_bdev::{
@@ -40,8 +43,6 @@ use crate::{
     core::Bdev,
     nexus_uri::{bdev_create, bdev_destroy, BdevCreateDestroy},
 };
-use futures::future::join_all;
-use snafu::ResultExt;
 
 impl Nexus {
     /// register children with the nexus, only allowed during the nexus init

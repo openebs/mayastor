@@ -6,8 +6,7 @@ use std::{
     sync::{Arc, Mutex},
 };
 
-use once_cell::sync::{Lazy, OnceCell};
-
+use byte_unit::{Byte, ByteUnit};
 use nix::sys::{
     signal,
     signal::{
@@ -18,7 +17,9 @@ use nix::sys::{
         Signal::{SIGINT, SIGTERM},
     },
 };
+use once_cell::sync::Lazy;
 use snafu::{ResultExt, Snafu};
+use structopt::StructOpt;
 
 use spdk_sys::{
     maya_log,
@@ -27,35 +28,26 @@ use spdk_sys::{
     spdk_conf_free,
     spdk_conf_read,
     spdk_conf_set_as_default,
-    spdk_cpuset_alloc,
-    spdk_cpuset_free,
-    spdk_cpuset_set_cpu,
-    spdk_cpuset_zero,
-    spdk_env_get_core_count,
-    spdk_env_get_current_core,
     spdk_log_level,
     spdk_log_open,
     spdk_log_set_level,
     spdk_log_set_print_level,
     spdk_pci_addr,
     spdk_rpc_set_state,
-    spdk_thread_create,
+    spdk_thread_lib_fini,
     SPDK_LOG_DEBUG,
     SPDK_LOG_INFO,
     SPDK_RPC_RUNTIME,
 };
 
 use crate::{
-    core::event::Mthread,
-    delay,
-    executor,
+    core::{
+        reactor::{Reactor, Reactors},
+        Cores,
+    },
     logger,
-    pool,
-    replica,
     target,
 };
-use byte_unit::{Byte, ByteUnit};
-use structopt::StructOpt;
 
 fn parse_mb(src: &str) -> Result<i32, String> {
     // For compatibility, we check to see if there are no alphabetic characters
@@ -84,7 +76,6 @@ fn parse_mb(src: &str) -> Result<i32, String> {
     version = "19.12.1",
     raw(setting = "structopt::clap::AppSettings::ColoredHelp")
 )]
-
 pub struct MayastorCliArgs {
     #[structopt(short = "j")]
     /// Path to JSON formatted config file
@@ -129,12 +120,10 @@ impl Default for MayastorCliArgs {
     }
 }
 
-static INIT_THREAD: OnceCell<Mthread> = OnceCell::new();
 /// Global exit code of the program, initially set to -1 to capture double
 /// shutdown during test cases
 pub static GLOBAL_RC: Lazy<Arc<Mutex<i32>>> =
     Lazy::new(|| Arc::new(Mutex::new(-1)));
-
 /// FFI functions that are needed to initialize the environment
 extern "C" {
     pub fn rte_eal_init(argc: i32, argv: *mut *mut libc::c_char) -> i32;
@@ -144,14 +133,11 @@ extern "C" {
         cb: Option<extern "C" fn(i32, *mut c_void)>,
         args: *mut c_void,
     );
+    pub fn spdk_trace_cleanup();
     pub fn spdk_env_dpdk_post_init(legacy_mem: bool) -> i32;
     pub fn spdk_env_fini();
     pub fn spdk_log_close();
     pub fn spdk_log_set_flag(name: *const c_char, enable: bool) -> i32;
-    pub fn spdk_reactors_fini();
-    pub fn spdk_reactors_init() -> i32;
-    pub fn spdk_reactors_start();
-    pub fn spdk_reactors_stop(ctx: *mut c_void);
     pub fn spdk_rpc_finish();
     pub fn spdk_rpc_initialize(listen: *mut libc::c_char);
     pub fn spdk_subsystem_fini(
@@ -179,9 +165,9 @@ pub enum EnvError {
 type Result<T, E = EnvError> = std::result::Result<T, E>;
 
 /// Mayastor argument
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct MayastorEnvironment {
-    config: Option<String>,
+    pub config: Option<String>,
     delay_subsystem_init: bool,
     enable_coredump: bool,
     env_context: String,
@@ -190,8 +176,8 @@ pub struct MayastorEnvironment {
     json_config_file: Option<String>,
     master_core: i32,
     mem_channel: i32,
-    mem_size: i32,
-    name: String,
+    pub mem_size: i32,
+    pub name: String,
     no_pci: bool,
     num_entries: u64,
     num_pci_addr: usize,
@@ -200,7 +186,7 @@ pub struct MayastorEnvironment {
     print_level: spdk_log_level,
     debug_level: spdk_log_level,
     reactor_mask: String,
-    rpc_addr: String,
+    pub rpc_addr: String,
     shm_id: i32,
     shutdown_cb: spdk_app_shutdown_cb,
     tpoint_group_mask: String,
@@ -223,7 +209,7 @@ impl Default for MayastorEnvironment {
             mem_size: -1,
             name: "mayastor".into(),
             no_pci: false,
-            num_entries: 32 * 1024,
+            num_entries: 0,
             num_pci_addr: 0,
             pci_blacklist: vec![],
             pci_whitelist: vec![],
@@ -234,7 +220,7 @@ impl Default for MayastorEnvironment {
             shm_id: -1,
             shutdown_cb: None,
             tpoint_group_mask: String::new(),
-            unlink_hugepage: false,
+            unlink_hugepage: true,
             log_component: vec![],
         }
     }
@@ -242,7 +228,11 @@ impl Default for MayastorEnvironment {
 
 /// The actual routine which does the mayastor shutdown.
 /// Must be called on the same thread which did the init.
-extern "C" fn _mayastor_shutdown_cb(arg: *mut c_void) {
+async fn _mayastor_shutdown_cb(arg: *mut c_void) {
+    extern "C" fn reactors_stop(_arg: *mut c_void) {
+        Reactors::iter().for_each(|r| r.shutdown());
+    }
+
     let rc = arg as i32;
 
     if rc != 0 {
@@ -260,35 +250,27 @@ extern "C" fn _mayastor_shutdown_cb(arg: *mut c_void) {
     *GLOBAL_RC.lock().unwrap() = rc;
 
     target::iscsi::fini();
-    let fut = async move {
+    let f = async move {
         if let Err(msg) = target::nvmf::fini().await {
             error!("Failed to finalize nvmf target: {}", msg);
         }
     };
-    delay::unregister();
-    executor::stop(
-        fut,
-        Box::new(|| unsafe {
-            spdk_rpc_finish();
-            debug!("RPC server stopped");
-            spdk_subsystem_fini(Some(spdk_reactors_stop), std::ptr::null_mut());
-            debug!("subsystem fini dispatched");
-        }),
-    );
+    f.await;
+    debug!("targets down");
+
+    unsafe {
+        spdk_rpc_finish();
+        spdk_subsystem_fini(Some(reactors_stop), std::ptr::null_mut());
+    }
 }
 
 /// main shutdown routine for mayastor
 pub fn mayastor_env_stop(rc: i32) {
-    if let Some(t) = INIT_THREAD.get() {
-        unsafe {
-            spdk_sys::spdk_set_thread(t.inner_mut());
-            spdk_sys::spdk_thread_send_msg(
-                t.inner(),
-                Some(_mayastor_shutdown_cb),
-                rc as *const c_void as *mut c_void,
-            );
-        }
-    }
+    Reactors::get_by_core(Cores::first())
+        .unwrap()
+        .send_future(async move {
+            _mayastor_shutdown_cb(rc as *const i32 as *mut c_void).await;
+        });
 }
 
 /// called on SIGINT and SIGTERM
@@ -391,13 +373,6 @@ impl MayastorEnvironment {
             );
         }
 
-        if self.master_core > 0 {
-            args.push(
-                CString::new(format!("--master-lcore={}", self.master_core))
-                    .unwrap(),
-            );
-        }
-
         if self.shm_id < 0 {
             args.push(CString::new("--no-shconf").unwrap());
         }
@@ -450,9 +425,13 @@ impl MayastorEnvironment {
             args.push(CString::new("--proc-type=auto").unwrap());
         }
 
+        if self.unlink_hugepage {
+            args.push(CString::new("--huge-unlink".to_string()).unwrap());
+        }
+
         // set the log levels of the DPDK libs, this can be overridden by
         // setting env_context
-        args.push(CString::new("--log-level=lib.eal:4").unwrap());
+        args.push(CString::new("--log-level=lib.eal:6").unwrap());
         args.push(CString::new("--log-level=lib.cryptodev:0").unwrap());
         args.push(CString::new("--log-level=user1:6").unwrap());
         args.push(CString::new("--match-allocations").unwrap());
@@ -483,49 +462,6 @@ impl MayastorEnvironment {
         if unsafe { spdk_env_dpdk_post_init(false) } != 0 {
             panic!("Failed execute post setup");
         }
-    }
-
-    /// Setup a "stackless thread", which will be our management thread. This
-    /// thread is also used to initiate the shutdown.
-    fn init_main_thread(&self) -> Result<()> {
-        let rc = unsafe { spdk_reactors_init() };
-
-        if rc != 0 {
-            error!("Failed to initialize reactors, there is no point to continue, error code: {}", rc);
-            std::process::exit(rc);
-        }
-
-        let cpu_mask = unsafe { spdk_cpuset_alloc() };
-
-        if cpu_mask.is_null() {
-            error!("CPU set allocation failed, aborting startup");
-            std::process::exit(1);
-        }
-
-        unsafe {
-            spdk_cpuset_zero(cpu_mask);
-            spdk_cpuset_set_cpu(cpu_mask, spdk_env_get_current_core(), true);
-            spdk_cpuset_free(cpu_mask);
-        }
-
-        // allocate the mayastor management thread (mm_thread)
-        let thread = {
-            let name = CString::new("mm_thread").unwrap();
-            unsafe { spdk_thread_create(name.as_ptr(), cpu_mask) }
-        };
-
-        if thread.is_null() {
-            error!(
-                "Failed to allocate the management thread, aborting startup"
-            );
-            std::process::exit(1)
-        }
-
-        INIT_THREAD
-            .set(Mthread::from_null_checked(thread).unwrap())
-            .unwrap();
-
-        Ok(())
     }
 
     /// initialize the logging subsystem
@@ -580,12 +516,14 @@ impl MayastorEnvironment {
             });
         }
 
-        executor::spawn(async move {
+        let f = async move {
             if let Err(msg) = target::nvmf::init(&address).await {
                 error!("Failed to initialize Mayastor nvmf target: {}", msg);
                 mayastor_env_stop(-1);
             }
-        });
+        };
+
+        Reactors::current().unwrap().send_future(f);
 
         Ok(())
     }
@@ -606,38 +544,36 @@ impl MayastorEnvironment {
         Self::target_init().unwrap();
     }
 
-    /// start mayastor and call f when all is setup.
-    pub fn start<F>(&mut self, f: F) -> Result<i32>
-    where
-        F: FnOnce(),
-    {
-        self.read_config_file()?;
+    /// initialize the core, call this before all else
+    pub fn init(mut self) -> Self {
+        self.read_config_file().unwrap();
         self.initialize_eal();
-        self.init_logger()?;
+        self.init_logger().unwrap();
 
         if self.enable_coredump {
             //TODO
             warn!("rlimit configuration not implemented");
         }
 
-        info!("Total number of cores available: {}", unsafe {
-            spdk_env_get_core_count()
-        });
+        info!(
+            "Total number of cores available: {}",
+            Cores::count().into_iter().count()
+        );
 
-        self.install_signal_handlers()?;
-        self.init_main_thread()?;
+        self.install_signal_handlers().unwrap();
 
-        // init the subsystems and RPC server, this must be done in context of
-        // the "stack less" threads.
-        if let Some(mt) = INIT_THREAD.get() {
-            mt.with(|| unsafe {
-                // all futures will be executed from the management thread
-                // (mm_thread)
-                executor::start();
+        // allocate a Reactor per core
+        Reactors::init();
+        Cores::count()
+            .into_iter()
+            .for_each(|c| Reactors::launch_remote(c).unwrap());
 
-                let rpc = CString::new(self.rpc_addr.as_str()).unwrap();
+        let rpc = CString::new(self.rpc_addr.as_str()).unwrap();
+        let cfg = self.json_config_file.clone();
 
-                if let Some(ref json) = self.json_config_file {
+        Reactor::block_on(async move {
+            unsafe {
+                if let Some(ref json) = cfg {
                     info!("Loading JSON configuration file");
 
                     let jsonfile = CString::new(json.as_str()).unwrap();
@@ -653,34 +589,37 @@ impl MayastorEnvironment {
                         rpc.into_raw() as _,
                     );
                 }
+            }
+            crate::pool::register_pool_methods();
+            crate::replica::register_replica_methods();
+        });
 
-                if let Some(_key) = env::var_os("MAYASTOR_DELAY") {
-                    delay::register();
-                }
-            });
-        }
+        self
+    }
 
-        pool::register_pool_methods();
-        replica::register_replica_methods();
-
-        if let Some(mt) = INIT_THREAD.get() {
-            mt.with(|| {
-                f();
-            });
-        }
-
+    fn fini() {
         unsafe {
-            // will block the main thread until we exit
-            spdk_reactors_start();
-
-            info!("Finalizing Mayastor shutdown...");
-            delay::unregister();
-            spdk_reactors_fini();
+            spdk_trace_cleanup();
+            spdk_thread_lib_fini();
             spdk_env_fini();
             spdk_log_close();
         }
+    }
 
-        // return the global rc value
+    /// start mayastor and call f when all is setup.
+    pub fn start<F>(self, f: F) -> Result<i32>
+    where
+        F: FnOnce() + 'static,
+    {
+        self.init();
+
+        let master = Reactors::current().unwrap();
+        master.send_future(async { f() });
+        Reactors::launch_master();
+
+        info!("reactors stopped....");
+        Self::fini();
+
         Ok(*GLOBAL_RC.lock().unwrap())
     }
 }

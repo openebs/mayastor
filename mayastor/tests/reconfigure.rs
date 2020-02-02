@@ -4,7 +4,13 @@ use std::process::Command;
 
 use mayastor::{
     bdev::{nexus_create, nexus_lookup, NexusState},
-    core::{mayastor_env_stop, Bdev, MayastorCliArgs, MayastorEnvironment},
+    core::{
+        mayastor_env_stop,
+        Bdev,
+        MayastorCliArgs,
+        MayastorEnvironment,
+        Reactor,
+    },
 };
 
 static DISKNAME1: &str = "/tmp/disk1.img";
@@ -34,7 +40,7 @@ fn reconfigure() {
     assert_eq!(output.status.success(), true);
 
     let rc = MayastorEnvironment::new(MayastorCliArgs::default())
-        .start(|| mayastor::executor::spawn(works()))
+        .start(|| Reactor::block_on(works()).unwrap())
         .unwrap();
 
     assert_eq!(rc, 0);

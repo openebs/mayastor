@@ -9,12 +9,8 @@ use snafu::Snafu;
 use spdk_sys::spdk_bdev_io;
 
 use crate::{
-    bdev::nexus::{
-        nexus_bdev::{nexus_lookup, NexusState},
-        nexus_io::Bio,
-    },
-    core::{event::MayaCtx, Descriptor, DmaBuf, DmaError},
-    poller::{register_poller, PollTask},
+    bdev::nexus::nexus_bdev::{nexus_lookup, NexusState},
+    core::{Descriptor, DmaBuf, DmaError},
 };
 
 #[derive(Debug, Snafu)]
@@ -53,14 +49,6 @@ pub enum RebuildState {
     Suspended,
 }
 
-impl MayaCtx for RebuildTask {
-    type Item = RebuildTask;
-    #[inline]
-    fn into_ctx<'a>(arg: *mut c_void) -> &'a mut Self::Item {
-        unsafe { &mut *(arg as *const _ as *mut RebuildTask) }
-    }
-}
-
 /// struct that holds the state of a copy task. This struct
 /// is used during rebuild.
 #[derive(Debug)]
@@ -78,7 +66,7 @@ pub struct RebuildTask {
     sender: Option<oneshot::Sender<RebuildState>>,
     pub completed: Option<oneshot::Receiver<RebuildState>>,
     /// progress reported to logs
-    progress: Option<PollTask>,
+    progress: Option<u32>,
     /// the number of segments we need to rebuild. The segment is derived from
     /// the max IO size and by the actual block length. The MAX io size is
     /// currently 64K and is not dynamically configurable.
@@ -139,60 +127,20 @@ impl RebuildTask {
 
     /// callback when the read of the rebuild progress has completed
     extern "C" fn read_complete(
-        io: *mut spdk_bdev_io,
-        success: bool,
-        ctx: *mut c_void,
+        _io: *mut spdk_bdev_io,
+        _success: bool,
+        _ctx: *mut c_void,
     ) {
-        let task = RebuildTask::into_ctx(ctx);
-        trace!("rebuild read complete {:?}", Bio(io));
-        if success {
-            let _r = task.target_write_blocks(io);
-        } else {
-            task.shutdown(false);
-        }
-
-        Bio::io_free(io);
+        unimplemented!()
     }
 
     /// callback function when write IO of the rebuild phase has completed
     extern "C" fn write_complete(
-        io: *mut spdk_bdev_io,
-        success: bool,
-        ctx: *mut c_void,
+        _io: *mut spdk_bdev_io,
+        _success: bool,
+        _ctx: *mut c_void,
     ) {
-        let task = RebuildTask::into_ctx(ctx);
-
-        trace!("rebuild write complete {:?}", Bio(io));
-        Bio::io_free(io);
-
-        if !success {
-            error!("rebuilding to target failed");
-            task.shutdown(false);
-            return;
-        }
-
-        if task.state == RebuildState::Suspended {
-            info!("{}: rebuild suspended", task.nexus.as_ref().unwrap());
-            return;
-        }
-
-        match task.next_segment() {
-            Ok(next) => match next {
-                RebuildState::Completed => task.rebuild_completed(),
-                RebuildState::Initialized => {}
-                RebuildState::Running => {}
-                RebuildState::Failed => {}
-                RebuildState::Cancelled => {}
-                RebuildState::Suspended => {
-                    info!("suspended rebuild!");
-                    dbg!(task);
-                }
-            },
-            Err(e) => {
-                dbg!(e);
-                panic!("error during rebuild");
-            } // fallthrough
-        }
+        unimplemented!();
     }
 
     /// function called when the rebuild has completed. We record something in
@@ -302,26 +250,12 @@ impl RebuildTask {
 
     /// progress function that prints to the log; this will be removed in the
     /// future and will be exposed via an API call
-    extern "C" fn progress(ctx: *mut c_void) -> i32 {
-        let mut task = RebuildTask::into_ctx(ctx);
-        info!(
-            "Rebuild {:?} from {} to {} MiBs: {}",
-            task.state,
-            task.source.get_bdev().name(),
-            task.target.get_bdev().name(),
-            (((task.current_lba - task.previous_lba)
-                * task.source.get_bdev().block_len() as u64)
-                >> 20)
-                * 2 // times two here as we to account for the read/write cycle
-        );
-
-        task.previous_lba = task.current_lba;
-        0
+    extern "C" fn progress(_ctx: *mut c_void) -> i32 {
+        unimplemented!()
     }
 
     fn start_progress_poller(&mut self) {
-        self.progress =
-            Some(register_poller(Self::progress, &*self, 1_000_000).unwrap());
+        self.progress = None;
     }
 
     pub fn run(&mut self) {

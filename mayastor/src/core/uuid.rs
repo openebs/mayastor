@@ -1,4 +1,5 @@
 use spdk_sys::spdk_uuid;
+
 pub struct Uuid(pub(crate) *const spdk_uuid);
 
 impl Uuid {
