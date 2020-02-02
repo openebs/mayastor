@@ -1,7 +1,13 @@
 use std::process::Command;
 
 use mayastor::{
-    core::{mayastor_env_stop, Bdev, MayastorCliArgs, MayastorEnvironment},
+    core::{
+        mayastor_env_stop,
+        Bdev,
+        MayastorCliArgs,
+        MayastorEnvironment,
+        Reactor,
+    },
     nexus_uri::bdev_create,
 };
 
@@ -20,7 +26,11 @@ fn io_test() {
     assert_eq!(output.status.success(), true);
 
     let rc = MayastorEnvironment::new(MayastorCliArgs::default())
-        .start(|| mayastor::executor::spawn(start()))
+        .start(|| {
+            Reactor::block_on(async {
+                start().await;
+            });
+        })
         .unwrap();
 
     assert_eq!(rc, 0);

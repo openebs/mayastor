@@ -27,7 +27,7 @@ use spdk_sys::{
 
 use crate::{
     core::{uuid::Uuid, CoreError, Descriptor},
-    executor::cb_arg,
+    ffihelper::cb_arg,
 };
 
 #[derive(Debug)]

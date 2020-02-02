@@ -1,5 +1,12 @@
 use std::ffi::CStr;
 
+pub use aio_dev::{AioBdev, AioParseError};
+pub use iscsi_dev::{IscsiBdev, IscsiParseError};
+pub use nexus::{
+    nexus_bdev::{nexus_create, nexus_lookup, Nexus, NexusState},
+    nexus_label::{GPTHeader, GptEntry},
+};
+pub use nvmf_dev::{NvmeCtlAttachReq, NvmfParseError};
 use spdk_sys::{spdk_conf_section, spdk_conf_section_get_nmval};
 
 /// Allocate C string and return pointer to it.
@@ -14,15 +21,6 @@ mod aio_dev;
 mod iscsi_dev;
 pub(crate) mod nexus;
 mod nvmf_dev;
-
-pub use aio_dev::{AioBdev, AioParseError};
-pub use iscsi_dev::{IscsiBdev, IscsiParseError};
-pub use nexus::{
-    nexus_bdev::{nexus_create, nexus_lookup, Nexus, NexusState},
-    nexus_label::{GPTHeader, GptEntry},
-};
-
-pub use nvmf_dev::{NvmfBdev, NvmfParseError};
 
 unsafe fn parse_config_param<T>(
     sp: *mut spdk_conf_section,

@@ -1,11 +1,6 @@
-use crate::{
-    bdev::nexus::{
-        instances,
-        nexus_bdev::{nexus_create, Error, Nexus},
-    },
-    jsonrpc::jsonrpc_register,
-};
 use futures::{future, FutureExt};
+use uuid::Uuid;
+
 use rpc::mayastor::{
     AddChildNexusRequest,
     Child,
@@ -19,7 +14,14 @@ use rpc::mayastor::{
     RemoveChildNexusRequest,
     UnpublishNexusRequest,
 };
-use uuid::Uuid;
+
+use crate::{
+    bdev::nexus::{
+        instances,
+        nexus_bdev::{nexus_create, Error, Nexus},
+    },
+    jsonrpc::jsonrpc_register,
+};
 
 /// Convert the UUID to a nexus name in the form of "nexus-{uuid}".
 /// Return error if the UUID is not valid.

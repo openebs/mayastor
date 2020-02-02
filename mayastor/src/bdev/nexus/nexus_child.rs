@@ -1,15 +1,16 @@
-use std::fmt::Display;
+use std::{convert::TryFrom, fmt::Display, sync::Arc};
+
+use nix::errno::Errno;
+use serde::{export::Formatter, Serialize};
+use snafu::{ResultExt, Snafu};
+
+use spdk_sys::{spdk_bdev_module_release_bdev, spdk_io_channel};
 
 use crate::{
     bdev::nexus::nexus_label::{GPTHeader, GptEntry, NexusLabel},
     core::{Bdev, BdevHandle, CoreError, Descriptor, DmaBuf, DmaError},
     nexus_uri::{bdev_destroy, BdevCreateDestroy},
 };
-use nix::errno::Errno;
-use serde::{export::Formatter, Serialize};
-use snafu::{ResultExt, Snafu};
-use spdk_sys::{spdk_bdev_module_release_bdev, spdk_io_channel};
-use std::{convert::TryFrom, sync::Arc};
 
 #[derive(Debug, Snafu)]
 pub enum ChildError {

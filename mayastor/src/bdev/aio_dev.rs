@@ -1,13 +1,16 @@
-use crate::{
-    core::Bdev,
-    executor::{cb_arg, done_errno_cb, errno_result_from_i32, ErrnoResult},
-    nexus_uri::{self, BdevCreateDestroy},
-};
+use std::{convert::TryFrom, ffi::CString};
+
 use futures::channel::oneshot;
 use snafu::{ResultExt, Snafu};
-use spdk_sys::{bdev_aio_delete, create_aio_bdev};
-use std::{convert::TryFrom, ffi::CString};
 use url::Url;
+
+use spdk_sys::{bdev_aio_delete, create_aio_bdev};
+
+use crate::{
+    core::Bdev,
+    ffihelper::{cb_arg, done_errno_cb, errno_result_from_i32, ErrnoResult},
+    nexus_uri::{self, BdevCreateDestroy},
+};
 
 #[derive(Debug, Snafu)]
 pub enum AioParseError {

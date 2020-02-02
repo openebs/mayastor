@@ -1,7 +1,51 @@
-use mayastor::logger;
-use run_script::{self, ScriptOptions};
 use std::{env, io, io::Write, process::Command};
 
+use once_cell::sync::OnceCell;
+use run_script::{self, ScriptOptions};
+
+use mayastor::{
+    core::{MayastorEnvironment, Mthread},
+    logger,
+};
+use spdk_sys::spdk_get_thread;
+
+pub static MSTEST: OnceCell<MayastorEnvironment> = OnceCell::new();
+#[macro_export]
+macro_rules! reactor_poll {
+    ($ch:ident, $name:ident) => {
+        loop {
+            mayastor::core::Reactors::current().unwrap().poll_once();
+            if let Ok(r) = $ch.try_recv() {
+                $name = r;
+                break;
+            }
+        }
+
+        mayastor::core::Reactors::current().unwrap().thread_enter();
+    };
+    ($ch:ident) => {
+        loop {
+            mayastor::core::Reactors::current().unwrap().poll_once();
+            if $ch.try_recv().is_ok() {
+                break;
+            }
+        }
+        mayastor::core::Reactors::current().unwrap().thread_enter();
+    };
+}
+#[macro_export]
+macro_rules! test_init {
+    () => {
+        common::MSTEST.get_or_init(|| {
+            common::mayastor_test_init();
+            MayastorEnvironment::new(MayastorCliArgs {
+                reactor_mask: "0x1".to_string(),
+                ..Default::default()
+            })
+            .init()
+        });
+    };
+}
 pub fn mayastor_test_init() {
     logger::init("TRACE");
     env::set_var("MAYASTOR_LOGLEVEL", "4");
@@ -156,7 +200,7 @@ pub fn fio_run_verify(device: &str) -> String {
         &vec![device.into()],
         &run_script::ScriptOptions::new(),
     )
-    .unwrap();
+        .unwrap();
     assert_eq!(exit, 0);
     stdout
 }
@@ -168,4 +212,8 @@ pub fn clean_up_temp() {
         &run_script::ScriptOptions::new(),
     )
     .unwrap();
+}
+
+pub fn thread() -> Option<Mthread> {
+    Mthread::from_null_checked(unsafe { spdk_get_thread() })
 }

@@ -1,3 +1,7 @@
+use std::{cell::UnsafeCell, ffi::CString};
+
+use once_cell::sync::{Lazy, OnceCell};
+
 use spdk_sys::{
     spdk_bdev_module,
     spdk_bdev_module_examine_done,
@@ -12,8 +16,6 @@ use crate::{
     },
     core::Bdev,
 };
-use once_cell::sync::{Lazy, OnceCell};
-use std::{cell::UnsafeCell, ffi::CString};
 
 const NEXUS_NAME: &str = "NEXUS_CAS_MODULE";
 

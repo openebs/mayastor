@@ -1,4 +1,5 @@
 use std::{
+    convert::TryFrom,
     io::{Cursor, Read, Seek, SeekFrom},
     process::Command,
 };
@@ -13,9 +14,9 @@ use mayastor::{
         DmaBuf,
         MayastorCliArgs,
         MayastorEnvironment,
+        Reactor,
     },
 };
-use std::convert::TryFrom;
 
 const HDR_GUID: &str = "322974ae-5711-874b-bfbd-1a74df4dd714";
 const PART0_GUID: &str = "ea2872a6-02ce-3f4b-82c4-c2147f76e3ff";
@@ -46,7 +47,7 @@ fn read_label() {
     assert_eq!(output.status.success(), true);
 
     let rc = MayastorEnvironment::new(MayastorCliArgs::default())
-        .start(|| mayastor::executor::spawn(start()))
+        .start(|| Reactor::block_on(start()).unwrap())
         .unwrap();
     assert_eq!(rc, 0);
 

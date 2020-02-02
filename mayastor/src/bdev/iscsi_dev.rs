@@ -1,13 +1,16 @@
-use crate::{
-    core::Bdev,
-    executor::{cb_arg, done_errno_cb, errno_result_from_i32, ErrnoResult},
-    nexus_uri::{self, BdevCreateDestroy},
-};
+use std::{convert::TryFrom, ffi::CString, os::raw::c_void};
+
 use futures::channel::oneshot;
 use snafu::{ResultExt, Snafu};
-use spdk_sys::{create_iscsi_disk, delete_iscsi_disk, spdk_bdev};
-use std::{convert::TryFrom, ffi::CString, os::raw::c_void};
 use url::Url;
+
+use spdk_sys::{create_iscsi_disk, delete_iscsi_disk, spdk_bdev};
+
+use crate::{
+    core::Bdev,
+    ffihelper::{cb_arg, done_errno_cb, errno_result_from_i32, ErrnoResult},
+    nexus_uri::{self, BdevCreateDestroy},
+};
 
 #[derive(Debug, Snafu)]
 pub enum IscsiParseError {

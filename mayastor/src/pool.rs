@@ -3,16 +3,16 @@
 //! They provide abstraction on top of aio bdev, lvol store, etc and export
 //! simple to use json-rpc methods for managing pools.
 
-use crate::{
-    core::Bdev,
-    executor::{cb_arg, done_cb},
-    jsonrpc::{jsonrpc_register, Code, JsonRpcError, Result},
-    replica::ReplicaIter,
+use std::{
+    ffi::{c_void, CStr, CString},
+    os::raw::c_char,
 };
+
 use futures::{
     channel::oneshot,
     future::{self, FutureExt},
 };
+
 use rpc::jsonrpc as jsondata;
 use spdk_sys::{
     bdev_aio_delete,
@@ -31,9 +31,12 @@ use spdk_sys::{
     vbdev_lvs_examine,
     LVS_CLEAR_WITH_NONE,
 };
-use std::{
-    ffi::{c_void, CStr, CString},
-    os::raw::c_char,
+
+use crate::{
+    core::Bdev,
+    ffihelper::{cb_arg, done_cb},
+    jsonrpc::{jsonrpc_register, Code, JsonRpcError, Result},
+    replica::ReplicaIter,
 };
 
 /// Wrapper for create aio bdev C function

@@ -1,5 +1,7 @@
 use std::ffi::c_void;
 
+use once_cell::sync::Lazy;
+
 use spdk_sys::{
     spdk_bdev_fn_table,
     spdk_bdev_io,
@@ -14,7 +16,6 @@ use crate::bdev::nexus::{
     nexus_channel::NexusChannel,
     nexus_io::{io_type, Bio},
 };
-use once_cell::sync::Lazy;
 
 static NEXUS_FN_TBL: Lazy<NexusFnTable> = Lazy::new(NexusFnTable::new);
 
@@ -90,11 +91,6 @@ impl NexusFnTable {
             let mut ch = NexusChannel::inner_from_channel(channel);
             let nexus = nio.nexus_as_ref();
 
-            if nexus.dr_complete_notify.is_some() {
-                // we are reconfiguring queue the IO
-                trace!("What happens to this IO?");
-            }
-
             match io_type {
                 io_type::READ => {
                     //trace!("{}: Dispatching READ {:p}", nexus.name(), io);
@@ -126,7 +122,7 @@ impl NexusFnTable {
         unsafe { spdk_get_io_channel(ctx) }
     }
 
-    /// called when the nexus instance is unregister
+    /// called when the nexus instance is unregistered
     extern "C" fn destruct(ctx: *mut c_void) -> i32 {
         let nexus = unsafe { Nexus::from_raw(ctx) };
         nexus.destruct();

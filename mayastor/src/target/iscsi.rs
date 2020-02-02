@@ -5,14 +5,17 @@
 //! exporting a replica we use these default groups and create one target per
 //! replica with one lun - LUN0.
 
-use crate::{
-    core::Bdev,
-    executor::{cb_arg, done_errno_cb, ErrnoResult},
-    jsonrpc::{Code, RpcErrorCode},
+use std::{
+    cell::RefCell,
+    ffi::CString,
+    os::raw::{c_char, c_int},
+    ptr,
 };
+
 use futures::channel::oneshot;
 use nix::errno::Errno;
 use snafu::{ResultExt, Snafu};
+
 use spdk_sys::{
     spdk_bdev_get_name,
     spdk_iscsi_find_tgt_node,
@@ -29,11 +32,11 @@ use spdk_sys::{
     spdk_iscsi_shutdown_tgt_node_by_name,
     spdk_iscsi_tgt_node_construct,
 };
-use std::{
-    cell::RefCell,
-    ffi::CString,
-    os::raw::{c_char, c_int},
-    ptr,
+
+use crate::{
+    core::Bdev,
+    ffihelper::{cb_arg, done_errno_cb, ErrnoResult},
+    jsonrpc::{Code, RpcErrorCode},
 };
 
 /// iSCSI target related errors

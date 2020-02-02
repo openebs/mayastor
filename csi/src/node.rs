@@ -3,7 +3,7 @@ use std::{boxed::Box, fs, io::ErrorKind, path::PathBuf, vec::Vec};
 use tonic::{Code, Request, Response, Status};
 
 use glob::glob;
-use jsonrpc;
+
 use rpc::mayastor::{ListNexusReply, Nexus};
 
 use crate::{

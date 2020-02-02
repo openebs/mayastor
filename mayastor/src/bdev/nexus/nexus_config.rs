@@ -1,7 +1,8 @@
+use std::ptr::null_mut;
+
 use spdk_sys::{spdk_conf_find_section, spdk_conf_section_get_nval};
 
 use crate::bdev::{nexus::nexus_instance_new, parse_config_param};
-use std::ptr::null_mut;
 
 pub(crate) fn parse_ini_config_file() -> i32 {
     let section_name = std::ffi::CString::new("Nexus").unwrap();

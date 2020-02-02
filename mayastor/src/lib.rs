@@ -1,23 +1,21 @@
 #[macro_use]
 extern crate ioctl_gen;
-extern crate nix;
 #[macro_use]
 extern crate log;
+extern crate nix;
 #[macro_use]
 extern crate serde;
 extern crate serde_json;
 extern crate snafu;
 extern crate spdk_sys;
 
-pub mod app;
 pub mod bdev;
 pub mod core;
 pub mod delay;
-pub mod executor;
+pub mod ffihelper;
 pub mod jsonrpc;
 pub mod logger;
 pub mod nexus_uri;
-pub mod poller;
 pub mod pool;
 pub mod rebuild;
 pub mod replica;

@@ -103,7 +103,7 @@ function getFsType(mp) {
     .split('\n');
   for (let i = 0; i < lines.length; i++) {
     let cols = lines[i].split(' ');
-    if (mp == cols[2]) {
+    if (mp === cols[2]) {
       return cols[4];
     }
   }
@@ -476,7 +476,7 @@ describe('csi', function() {
       );
     });
 
-    it('should fail to stage a volume with a missing access type', done => {
+    it('should fail to stage a volume with missing access type', done => {
       let args = getDefaultArgs();
       delete args.volume_capability.mount;
       client.nodeStageVolume(
@@ -485,7 +485,7 @@ describe('csi', function() {
       );
     });
 
-    it('should fail to stage a volume with a missing accces mode', done => {
+    it('should fail to stage a volume with missing access mode', done => {
       let args = getDefaultArgs();
       args.volume_capability.access_mode = {};
       client.nodeStageVolume(

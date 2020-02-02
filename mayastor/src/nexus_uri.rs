@@ -1,18 +1,20 @@
+use std::convert::TryFrom;
+
+use nix::errno::Errno;
+use snafu::{ResultExt, Snafu};
+use url::{ParseError, Url};
+
 use crate::{
     bdev::{
         AioBdev,
         AioParseError,
         IscsiBdev,
         IscsiParseError,
-        NvmfBdev,
+        NvmeCtlAttachReq,
         NvmfParseError,
     },
     jsonrpc::{Code, RpcErrorCode},
 };
-use nix::errno::Errno;
-use snafu::{ResultExt, Snafu};
-use std::convert::TryFrom;
-use url::{ParseError, Url};
 
 // parse URI and bdev create/destroy errors common for all types of bdevs
 #[derive(Debug, Snafu)]
@@ -85,7 +87,7 @@ pub enum BdevType {
     /// backend iSCSI target most stable
     Iscsi(IscsiBdev),
     /// backend NVMF target pretty unstable as of Linux 5.2
-    Nvmf(NvmfBdev),
+    Nvmf(NvmeCtlAttachReq),
     /// bdev type is arbitrary bdev found in spdk (used for local replicas)
     Bdev(String),
 }
@@ -119,11 +121,11 @@ fn nexus_parse_uri(uri: &str) -> Result<BdevType, BdevCreateDestroy> {
                 uri,
             },
         )?),
-        "nvmf" => BdevType::Nvmf(NvmfBdev::try_from(&parsed_uri).context(
-            ParseNvmfUri {
+        "nvmf" => BdevType::Nvmf(
+            NvmeCtlAttachReq::try_from(&parsed_uri).context(ParseNvmfUri {
                 uri,
-            },
-        )?),
+            })?,
+        ),
         // strip the first slash in uri path
         "bdev" => BdevType::Bdev(parsed_uri.path()[1 ..].to_string()),
         scheme => {

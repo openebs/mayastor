@@ -1,7 +1,9 @@
+use std::{ffi::CStr, io::Write, os::raw::c_char, path::Path};
+
 use env_logger::{Builder, Env};
 use log::{logger, Level, Record};
+
 use spdk_sys::spdk_log_get_print_level;
-use std::{ffi::CStr, io::Write, os::raw::c_char, path::Path};
 
 /// Log messages originating from SPDK, are processed by this function.
 /// Note that the log levels between spdk and rust do not exactly match.

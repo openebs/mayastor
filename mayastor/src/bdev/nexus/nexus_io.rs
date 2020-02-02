@@ -71,7 +71,7 @@ pub mod io_status {
     //pub const SCSI_ERROR: i32 = -3;
     //pub const NVME_ERROR: i32 = -2;
     pub const FAILED: i32 = -1;
-    pub const PENDING: i32 = 0;
+    //pub const PENDING: i32 = 0;
     pub const SUCCESS: i32 = 1;
 }
 
@@ -116,14 +116,7 @@ impl Bio {
         }
 
         if self.ctx_as_mut_ref().in_flight == 0 {
-            if self.ctx_as_mut_ref().status < io_status::PENDING {
-                trace!("failing parent IO {:p} ({})", self.0, unsafe {
-                    (*self.0).type_
-                });
-                self.fail();
-            } else {
-                self.ok();
-            }
+            self.ok();
         }
     }
 

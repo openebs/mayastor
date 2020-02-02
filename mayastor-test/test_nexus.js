@@ -1,8 +1,8 @@
 // Unit tests for nexus grpc api. Nexus is basically a hub which does IO
 // replication to connected replicas. We test nexus operations with all
 // supported replica types: nvmf, iscsi, bdev and aio. aio is not used in
-// the product but it was part of initial implementation so we keep it in
-// case it would be useful in future.
+// the product but it was part of initial implementation, so we keep it in
+// case it would be useful in the future.
 
 'use strict';
 
@@ -14,7 +14,6 @@ const { exec } = require('child_process');
 const { createClient } = require('grpc-kit');
 const grpc = require('grpc');
 const common = require('./test_common');
-
 // just some UUID used for nexus ID
 const UUID = 'dbe4d7eb-118a-4d15-b789-a18d9af6ff21';
 const UUID2 = 'dbe4d7eb-118a-4d15-b789-a18d9af6ff22';
@@ -127,6 +126,50 @@ describe('nexus', function() {
   var client;
   var nbd_device;
 
+  const unpublish = args => {
+    return new Promise((resolve, reject) => {
+      client.unpublishNexus(args, (err, data) => {
+        if (err) return reject(err);
+        resolve(data);
+      });
+    });
+  };
+
+  const publish = args => {
+    return new Promise((resolve, reject) => {
+      client.publishNexus(args, (err, data) => {
+        if (err) return reject(err);
+        resolve(data);
+      });
+    });
+  };
+
+  const destroyNexus = args => {
+    return new Promise((resolve, reject) => {
+      client.destroyNexus(args, (err, data) => {
+        if (err) return reject(err);
+        resolve(data);
+      });
+    });
+  };
+
+  const createNexus = args => {
+    return new Promise((resolve, reject) => {
+      client.createNexus(args, (err, data) => {
+        if (err) return reject(err);
+        resolve(data);
+      });
+    });
+  };
+
+  let createArgs = {
+    uuid: UUID,
+    size: 131072,
+    children: [
+      `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk2`,
+      `aio:///${aioFile}?blk_size=4096`,
+    ],
+  };
   this.timeout(10000); // for network tests we need long timeouts
 
   before(done => {
@@ -158,7 +201,8 @@ describe('nexus', function() {
             '-s',
             '128',
           ]);
-          common.startMayastor(configNexus, ['-r', common.SOCK, '-s', '386']);
+          common.startMayastor(configNexus, ['-r', common.SOCK, '-s', 386]);
+
           common.startMayastorGrpc();
           common.waitFor(pingDone => {
             // use harmless method to test if the mayastor is up and running
@@ -269,21 +313,6 @@ describe('nexus', function() {
     });
   });
 
-  // It is questionable if this should succeed but it's the way how the things
-  // work currently.
-  it('should succeed creating the same nexus nexus again and with different URIs', done => {
-    let args = {
-      uuid: UUID,
-      size: 131072,
-      children: [
-        `iscsi://${externIp}:3261/iqn.2019-05.io.openebs:disk2`,
-        `iscsi://${externIp}:3261/iqn.2019-05.io.openebs:disk3`,
-      ],
-    };
-
-    client.CreateNexus(args, done);
-  });
-
   it('should fail to create another nexus with in use URIs', done => {
     let args = {
       uuid: UUID2,
@@ -322,11 +351,14 @@ describe('nexus', function() {
     });
   });
 
-  it('should unpublish the nexus device', done => {
-    client.unpublishNexus({ uuid: UUID }, done);
+  it('should un-publish the nexus device', done => {
+    client.unpublishNexus({ uuid: UUID }, (err, res) => {
+      if (err) done(err);
+      done();
+    });
   });
 
-  it('should publish the nexus using nbd and a crypto key', done => {
+  it('should re-publish the nexus using NBD, and a crypto key', done => {
     client.PublishNexus({ uuid: UUID, key: '0123456789123456' }, (err, res) => {
       assert(res.device_path);
       nbd_device = res.device_path;
@@ -334,43 +366,28 @@ describe('nexus', function() {
     });
   });
 
-  it('should write to the nbd device', done => {
-    fs.open(nbd_device, 'w', 666, (err, fd) => {
-      if (err) return done(err);
-      let buffer = Buffer.alloc(512, 'z', 'utf8');
-      fs.write(fd, buffer, 0, 512, (err, nr, buffer) => {
-        if (err) return done(err);
-        assert(nr === 512);
-        assert(buffer[0] === 122);
-        assert(buffer[511] === 122);
-        fs.fsync(fd, err => {
-          if (err) done(err);
-          fs.close(fd, () => {
-            done();
-          });
-        });
-      });
+  it('should be able to write to the NBD device', async () => {
+    const fs = require('fs').promises;
+    let fd = await fs.open(nbd_device, 'w', 666);
+    let buffer = Buffer.alloc(512, 'z', 'utf8');
+    await fd.write(buffer, 0, 512);
+    await fd.sync();
+    await fd.close();
+  });
+
+  it('should be able to read the written data back', async () => {
+    const fs = require('fs').promises;
+    let fd = await fs.open(nbd_device, 'r', 666);
+    let buffer = Buffer.alloc(512, 'a', 'utf8');
+    await fd.read(buffer, 0, 512);
+    await fd.close();
+
+    buffer.forEach(e => {
+      assert(e === 122);
     });
   });
 
-  it('should read the written data back', done => {
-    fs.open(nbd_device, 'r', 666, (err, fd) => {
-      if (err) done(err);
-      let buffer = Buffer.alloc(512, 'a', 'utf8');
-
-      fs.read(fd, buffer, 0, 512, 0, (err, nr, buffer) => {
-        if (err) done(err);
-        buffer.forEach(function(e) {
-          assert(e === 122);
-        });
-        fs.close(fd, () => {
-          done();
-        });
-      });
-    });
-  });
-
-  it('should destroy the nexus without unpublishing it', done => {
+  it('should destroy the nexus without explicitly un-publishing it', done => {
     client.DestroyNexus({ uuid: UUID }, err => {
       if (err) return done(err);
 
@@ -414,4 +431,50 @@ describe('nexus', function() {
       done();
     });
   });
+
+  it('should have zero nexus devices left', done => {
+    client.ListNexus({}, (err, res) => {
+      if (err) return done(err);
+      assert.lengthOf(res.nexus_list, 0);
+      done();
+    });
+  });
+
+  // there is a bug in the NBD driver that will hold one to IO's until the end of times
+  // fix that first and uncomment the test below and increase iterations of the 3 tests above
+
+  // it('should create, publish, un-publish and finally destroy the same nexus', async () => {
+  //   for (let i = 0; i < 10; i++) {
+  //     await createNexus(createArgs);
+  //     await publish({ uuid: UUID });
+  //     await unpublish({ uuid: UUID });
+  //     await destroyNexus({ uuid: UUID });
+  //   }
+  // });
+  //
+  // it('should create, publish, and destroy but without un-publishing the same nexus', async () => {
+  //   for (let i = 0; i < 10; i++) {
+  //     await createNexus(createArgs);
+  //     await publish({ uuid: UUID });
+  //     await destroyNexus({ uuid: UUID });
+  //   }
+  // });
+  //
+  // it('should create and destroy without publish or un-publishing the same nexus', async () => {
+  //   for (let i = 0; i < 10; i++) {
+  //     await createNexus(createArgs);
+  //     await destroyNexus({ uuid: UUID });
+  //   }
+  // });
+
+  // it('should be the case that we do not have any dangling NBD devices left on the system', done => {
+  //   exec('lsblk --json', (err, stdout, stderr) => {
+  //     if (err) return done(err);
+  //     let output = JSON.parse(stdout);
+  //     output.blockdevices.forEach(e => {
+  //       assert(e.name.indexOf('nbd'), -1);
+  //     });
+  //     done();
+  //   });
+  // })
 });

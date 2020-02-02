@@ -5,7 +5,17 @@
 
 extern crate libc;
 
+use std::{
+    env,
+    ffi::{c_void, CString},
+    io::{Error, ErrorKind},
+    iter::Iterator,
+    ptr::null_mut,
+    vec::Vec,
+};
+
 use libc::{c_char, c_int};
+
 use mayastor::delay;
 use spdk_sys::{
     spdk_app_fini,
@@ -14,14 +24,6 @@ use spdk_sys::{
     spdk_app_parse_args,
     spdk_app_start,
     spdk_app_stop,
-};
-use std::{
-    env,
-    ffi::{c_void, CString},
-    io::{Error, ErrorKind},
-    iter::Iterator,
-    ptr::null_mut,
-    vec::Vec,
 };
 
 mayastor::CPS_INIT!();

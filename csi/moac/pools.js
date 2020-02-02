@@ -349,7 +349,6 @@ class PoolOperator extends EventEmitter {
         state: 'PENDING',
         reason: err.toString(),
       });
-      return;
     }
   }
 
@@ -370,7 +369,6 @@ class PoolOperator extends EventEmitter {
     } catch (err) {
       // the pool will be destroyed if the node later joins the cluster
       log.error(`Cannot destroy pool "${poolName}": ${err}`);
-      return;
     }
   }
 
