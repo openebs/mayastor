@@ -12,7 +12,7 @@
     "directory": "csi/moac"
   },
   "scripts": {
-    "test": "node_modules/mocha/bin/mocha test.js",
+    "test": "node_modules/mocha/bin/mocha test/index.js",
     "start": "node index.js",
     "prepare": "./bundle_protos.sh"
   },
@@ -33,6 +33,7 @@
   "devDependencies": {
     "chai": "^4.2.0",
     "mocha": "^6.2.2",
+    "sinon": "^8.1.1",
     "wtfnode": "^0.8.0"
   },
   "files": [

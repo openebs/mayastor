@@ -67,7 +67,7 @@ class Watcher extends EventEmitter {
 
     self.jsonStream.on('data', ev => {
       log.trace(
-        `Event ${ev.type} in ${self.name} watcher: ` + JSON.stringify(ev.object)
+        `Event ${ev.type} in ${self.name} watcher: ${JSON.stringify(ev.object)}`
       );
 
       // if update of the node list is in progress, queue the event for later
@@ -119,7 +119,7 @@ class Watcher extends EventEmitter {
       return self.delayedStart();
     }
 
-    log.trace(`List of watched ${self.name} objects: ` + JSON.stringify(items));
+    log.trace(`List of watched ${self.name} objects: ${JSON.stringify(items)}`);
 
     // filter the obtained objects
     var objects = {};
@@ -271,77 +271,11 @@ class Watcher extends EventEmitter {
         this.emit('del', obj);
       }
     } else if (type === 'ERROR') {
-      log.error(`Error event in ${this.name} watcher: ` + JSON.stringify(ev));
+      log.error(`Error event in ${this.name} watcher: ${JSON.stringify(ev)}`);
     } else {
-      log.error(`Unknown event in ${this.name} watcher: ` + JSON.stringify(ev));
+      log.error(`Unknown event in ${this.name} watcher: ${JSON.stringify(ev)}`);
     }
   }
 }
 
-// Fake watcher which simulates the real one.
-// It can be used instead of real watcher in tests of other classes depending
-// on the watcher.
-class WatcherMock extends EventEmitter {
-  // Construct a watcher with initial set of objects passed in arg.
-  constructor(filterCb, objects) {
-    super();
-    this.filterCb = filterCb;
-    this.objects = {};
-    for (let i = 0; i < objects.length; i++) {
-      this.objects[objects[i].metadata.name] = objects[i];
-    }
-  }
-
-  injectObject(obj) {
-    this.objects[obj.metadata.name] = obj;
-  }
-
-  newObject(obj) {
-    this.objects[obj.metadata.name] = obj;
-    this.emit('new', this.filterCb(obj));
-  }
-
-  delObject(name) {
-    var obj = this.objects[name];
-    assert(obj);
-    delete this.objects[name];
-    this.emit('del', this.filterCb(obj));
-  }
-
-  modObject(obj) {
-    this.objects[obj.metadata.name] = obj;
-    this.emit('mod', this.filterCb(obj));
-  }
-
-  async start() {
-    var self = this;
-    return new Promise((resolve, reject) => {
-      setTimeout(() => {
-        for (let name in self.objects) {
-          // real objects coming from GET method also don't have kind and
-          // apiVersion attrs so strip these props to mimic the real case.
-          delete self.objects[name].kind;
-          delete self.objects[name].apiVersion;
-          self.emit('new', self.filterCb(self.objects[name]));
-        }
-        resolve();
-      }, 0);
-    });
-  }
-
-  async stop() {}
-
-  getRaw(name) {
-    return this.objects[name] || null;
-  }
-
-  list() {
-    var self = this;
-    return Object.values(this.objects).map(ent => self.filterCb(ent));
-  }
-}
-
-module.exports = {
-  Watcher,
-  WatcherMock,
-};
+module.exports = Watcher;
