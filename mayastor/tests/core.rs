@@ -1,8 +1,13 @@
-use once_cell::sync::OnceCell;
-
 use mayastor::{
     bdev::{nexus_create, nexus_lookup},
-    core::{Bdev, BdevHandle, MayastorCliArgs, MayastorEnvironment, Reactor},
+    core::{
+        mayastor_env_stop,
+        Bdev,
+        BdevHandle,
+        MayastorCliArgs,
+        MayastorEnvironment,
+        Reactor,
+    },
     nexus_uri::{bdev_create, bdev_destroy},
 };
 
@@ -13,7 +18,6 @@ static DISKNAME2: &str = "/tmp/disk2.img";
 static BDEVNAME2: &str = "aio:///tmp/disk2.img?blk_size=512";
 
 pub mod common;
-static MS: OnceCell<MayastorEnvironment> = OnceCell::new();
 
 async fn create_nexus() {
     let ch = vec![BDEVNAME1.to_string(), BDEVNAME2.to_string()];
@@ -24,16 +28,7 @@ async fn create_nexus() {
 
 #[test]
 fn core() {
-    MS.get_or_init(|| {
-        common::mayastor_test_init();
-        MayastorEnvironment::new(MayastorCliArgs {
-            log_components: vec!["nvmf".into()],
-            reactor_mask: "0x1".to_string(),
-            ..Default::default()
-        })
-        .init()
-    });
-
+    test_init!();
     common::truncate_file(DISKNAME1, 64 * 1024);
     common::truncate_file(DISKNAME2, 64 * 1024);
 
@@ -58,7 +53,8 @@ async fn works() {
 }
 
 #[test]
-fn core_multi_open() {
+fn core_2() {
+    test_init!();
     Reactor::block_on(async {
         create_nexus().await;
 
@@ -82,7 +78,8 @@ fn core_multi_open() {
 }
 
 #[test]
-fn core_handle_test() {
+fn core_3() {
+    test_init!();
     Reactor::block_on(async {
         bdev_create(BDEVNAME1).await.expect("failed to create bdev");
         let hdl2 = BdevHandle::open(BDEVNAME1, true, true)
@@ -95,5 +92,6 @@ fn core_handle_test() {
         drop(hdl3);
 
         bdev_destroy(BDEVNAME1).await.unwrap();
+        mayastor_env_stop(1);
     });
 }
