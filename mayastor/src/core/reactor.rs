@@ -1,13 +1,7 @@
-//!
-//! The reactor is the main loop that will run on each core that is available to
-//! use given by the the coremask argument.
-//!The reactor is the main loop that runs on each core that is available to use
-//! given by the core mask argument.
-//!
-//! The first thing that needs to happen is to initialize DPDK, this among others
-//! provides us with lockless queues which we use to send messages between the
-//! cores.  Typically these messages contain simple function pointers and
-//! argument pointers.
+//! The first thing that needs to happen is to initialize DPDK, this among
+//! others provides us with lockless queues which we use to send messages
+//! between the cores.  Typically these messages contain simple function
+//! pointers and argument pointers.
 //!
 //! Per core data structure, there are so-called threads. These threads
 //! represent, not to be confused with OS threads are created dynamically
@@ -16,9 +10,9 @@
 //! and allows us to divide work between cores evenly.
 //!
 //! To summarize, a reactor instance to CPU core is a one-to-one relation. A
-//! reactor, in turn, may have one or more thread objects. The thread objects MAY
-//! hold messages for a specific subsystem. During init, per reactor, we create
-//! one thread which is always thread 0.
+//! reactor, in turn, may have one or more thread objects. The thread objects
+//! MAY hold messages for a specific subsystem. During init, per reactor, we
+//! create one thread which is always thread 0.
 //!
 //! During the poll loop, we traverse all threads and poll each queue of that
 //! thread. The functions executed are all executed within the context of that
@@ -30,11 +24,11 @@
 //! The queue of each thread is unique, but the messages in the queue are all
 //! preallocated from a global pool. This prevents allocations at runtime.
 //!
-//! Alongside that, each reactor (currently) has two additional queues. One queue
-//! is for receiving and sending messages between cores. The other queue is used
-//! for holding on to the messages while it is being processed. Once processed
-//! (or completed) it is dropped from the queue. Unlike the native SPDK messages,
-//! these futures -- are allocated before they execute.
+//! Alongside that, each reactor (currently) has two additional queues. One
+//! queue is for receiving and sending messages between cores. The other queue
+//! is used for holding on to the messages while it is being processed. Once
+//! processed (or completed) it is dropped from the queue. Unlike the native
+//! SPDK messages, these futures -- are allocated before they execute.
 //!
 use std::{cell::Cell, os::raw::c_void, pin::Pin, slice::Iter, time::Duration};
 
@@ -54,11 +48,11 @@ use spdk_sys::{
 
 use crate::core::{Cores, Mthread};
 
-pub(crate) const INIT: usize = 1 << 1;
-pub(crate) const RUNNING: usize = 1 << 2;
-pub(crate) const SHUTDOWN: usize = 1 << 3;
-pub(crate) const SUSPEND: usize = 1 << 4;
-pub(crate) const DEVELOPER_DELAY: usize = 1 << 5;
+pub(crate) const INIT: usize = 1;
+pub(crate) const RUNNING: usize = 1 << 1;
+pub(crate) const SHUTDOWN: usize = 1 << 2;
+pub(crate) const SUSPEND: usize = 1 << 3;
+pub(crate) const DEVELOPER_DELAY: usize = 1 << 4;
 
 #[derive(Debug)]
 pub struct Reactors(Vec<Reactor>);
