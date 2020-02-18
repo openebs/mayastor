@@ -170,7 +170,7 @@ describe('nexus', function() {
       `aio:///${aioFile}?blk_size=4096`,
     ],
   };
-  this.timeout(10000); // for network tests we need long timeouts
+  this.timeout(50000); // for network tests we need long timeouts
 
   before(done => {
     client = createGrpcClient('MayaStor');
@@ -440,41 +440,38 @@ describe('nexus', function() {
     });
   });
 
-  // there is a bug in the NBD driver that will hold one to IO's until the end of times
-  // fix that first and uncomment the test below and increase iterations of the 3 tests above
+  it('should create, publish, un-publish and finally destroy the same nexus', async () => {
+    for (let i = 0; i < 10; i++) {
+      await createNexus(createArgs);
+      await publish({ uuid: UUID });
+      await unpublish({ uuid: UUID });
+      await destroyNexus({ uuid: UUID });
+    }
+  });
 
-  // it('should create, publish, un-publish and finally destroy the same nexus', async () => {
-  //   for (let i = 0; i < 10; i++) {
-  //     await createNexus(createArgs);
-  //     await publish({ uuid: UUID });
-  //     await unpublish({ uuid: UUID });
-  //     await destroyNexus({ uuid: UUID });
-  //   }
-  // });
-  //
-  // it('should create, publish, and destroy but without un-publishing the same nexus', async () => {
-  //   for (let i = 0; i < 10; i++) {
-  //     await createNexus(createArgs);
-  //     await publish({ uuid: UUID });
-  //     await destroyNexus({ uuid: UUID });
-  //   }
-  // });
-  //
-  // it('should create and destroy without publish or un-publishing the same nexus', async () => {
-  //   for (let i = 0; i < 10; i++) {
-  //     await createNexus(createArgs);
-  //     await destroyNexus({ uuid: UUID });
-  //   }
-  // });
+  it('should create, publish, and destroy but without un-publishing the same nexus', async () => {
+    for (let i = 0; i < 10; i++) {
+      await createNexus(createArgs);
+      await publish({ uuid: UUID });
+      await destroyNexus({ uuid: UUID });
+    }
+  });
 
-  // it('should be the case that we do not have any dangling NBD devices left on the system', done => {
-  //   exec('lsblk --json', (err, stdout, stderr) => {
-  //     if (err) return done(err);
-  //     let output = JSON.parse(stdout);
-  //     output.blockdevices.forEach(e => {
-  //       assert(e.name.indexOf('nbd'), -1);
-  //     });
-  //     done();
-  //   });
-  // })
+  it('should create and destroy without publish or un-publishing the same nexus', async () => {
+    for (let i = 0; i < 10; i++) {
+      await createNexus(createArgs);
+      await destroyNexus({ uuid: UUID });
+    }
+  });
+
+  it('should be the case that we do not have any dangling NBD devices left on the system', done => {
+    exec('lsblk --json', (err, stdout, stderr) => {
+      if (err) return done(err);
+      let output = JSON.parse(stdout);
+      output.blockdevices.forEach(e => {
+        assert(e.name.indexOf('nbd'), -1);
+      });
+      done();
+    });
+  });
 });

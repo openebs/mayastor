@@ -4,7 +4,6 @@ use mayastor::{
     bdev::{nexus_create, nexus_lookup},
     core::{mayastor_env_stop, MayastorCliArgs, MayastorEnvironment, Reactor},
 };
-use std::time::Duration;
 
 static DISKNAME1: &str = "/tmp/disk1.img";
 static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
@@ -29,7 +28,6 @@ fn mount_fs() {
 
         let s1 = s.clone();
         std::thread::spawn(move || {
-            std::thread::sleep(Duration::from_secs(5));
             common::mkfs(&device, &fstype);
             let md5 = common::mount_and_write_file(&device);
             s1.send(md5).unwrap();
