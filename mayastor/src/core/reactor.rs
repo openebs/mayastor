@@ -260,8 +260,6 @@ impl Reactor {
                     return output;
                 }
                 Poll::Pending => {
-                    // should we allow for any other futures to be spawned here?
-                    reactor.receive_futures();
                     reactor.threads[0].with(|| {
                         reactor.run_futures();
                     });

@@ -1,5 +1,6 @@
 //! Utility functions and wrappers for working with nbd devices in SPDK.
 
+use core::sync::atomic::Ordering::SeqCst;
 use std::{
     convert::TryInto,
     ffi::{c_void, CStr, CString},
@@ -42,6 +43,11 @@ pub enum NbdError {
     StartNbd { source: Errno, dev: String },
 }
 
+extern "C" {
+    //TODO this is defined in nbd_internal.h but is not part of our bindings
+    fn nbd_disconnect(nbd: *mut spdk_nbd_disk);
+}
+
 /// We need to wait for the device to be ready. That is, it takes a certain
 /// amount of time for the device to be fully operational from a kernel
 /// perspective. This is somewhat annoying, but what makes matters worse is that
@@ -49,7 +55,6 @@ pub enum NbdError {
 /// handling the IO, we get into a state where we make no forward progress.
 pub(crate) fn wait_until_ready(path: &str) -> Result<(), ()> {
     let started = Arc::new(AtomicBool::new(false));
-    use std::sync::atomic::Ordering;
 
     let tpath = String::from(path);
     let s = started.clone();
@@ -58,7 +63,7 @@ pub(crate) fn wait_until_ready(path: &str) -> Result<(), ()> {
     thread::spawn(move || {
         let size: u64 = 0;
         for _i in 1i32 .. 100 {
-            std::thread::sleep(Duration::from_secs(5));
+            std::thread::sleep(Duration::from_secs(1));
             let f = OpenOptions::new().read(true).open(Path::new(&tpath));
             if f.is_err() {
                 continue;
@@ -76,7 +81,7 @@ pub(crate) fn wait_until_ready(path: &str) -> Result<(), ()> {
             }
 
             if size != 0 {
-                s.store(true, Ordering::SeqCst);
+                s.store(true, SeqCst);
                 break;
             }
         }
@@ -85,9 +90,11 @@ pub(crate) fn wait_until_ready(path: &str) -> Result<(), ()> {
     // the above thread is running, make sure we keep polling/turning the
     // reactor. We keep doing this until the above thread has updated the
     // atomic. In the future we might be able call yield()
-    while started.load(Ordering::SeqCst) {
+    while !started.load(SeqCst) {
         Reactors::current().unwrap().poll_once();
     }
+
+    Reactors::current().unwrap().thread_enter();
 
     Ok(())
 }
@@ -202,6 +209,21 @@ impl Disk {
 
     /// Stop and release nbd device.
     pub fn destroy(self) {
+        let started = Arc::new(AtomicBool::new(false));
+        let s = started.clone();
+
+        let ptr = self.nbd_ptr as usize;
+
+        thread::spawn(move || {
+            unsafe { nbd_disconnect(ptr as *mut _) };
+            debug!("NBD device disconnected successfully");
+            s.store(true, SeqCst);
+        });
+
+        while !started.load(SeqCst) {
+            Reactors::current().unwrap().poll_once();
+        }
+        Reactors::current().unwrap().thread_enter();
         unsafe { spdk_nbd_stop(self.nbd_ptr) };
     }
 
