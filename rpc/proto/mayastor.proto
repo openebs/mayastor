@@ -171,6 +171,8 @@ message RemoveChildNexusRequest {
 message PublishNexusRequest {
   string uuid = 1; // uuid of the nexus which to create device for
   string key = 2; // encryption key
+  ShareProtocol share = 3;  // protocol used for the front end.
+                            // Use "NONE" for nbd.
 }
 
 message PublishNexusReply {
