@@ -193,6 +193,7 @@ module.exports = function() {
       sinon.assert.calledWith(callStub, 'publishNexus', {
         uuid: UUID,
         key: '',
+        share: 0, // Nbd for now
       });
       expect(nexus.devicePath).to.equal('/dev/nbd0');
       sinon.assert.calledOnce(eventSpy);

@@ -165,7 +165,7 @@ class Volume {
     if (!nexus) {
       // create a new nexus
       let localReplica = Object.values(this.replicas).find(
-        r => r.share == 'NONE'
+        r => r.share == 'REPLICA_NONE'
       );
       if (!localReplica) {
         // should not happen but who knows ..
@@ -367,11 +367,14 @@ class Volume {
       let replica = replicaSet[i];
       let share;
       // make sure that replica which is local to the nexus is accessed locally
-      if (replica.pool.node == localNode && replica.share != 'NONE') {
-        share = 'NONE';
-      } else if (replica.pool.node != localNode && replica.share == 'NONE') {
+      if (replica.pool.node == localNode && replica.share != 'REPLICA_NONE') {
+        share = 'REPLICA_NONE';
+      } else if (
+        replica.pool.node != localNode &&
+        replica.share == 'REPLICA_NONE'
+      ) {
         // make sure that replica which is remote to nexus can be accessed
-        share = 'NVMF';
+        share = 'REPLICA_NVMF';
       }
       if (share) {
         try {

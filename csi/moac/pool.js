@@ -228,7 +228,7 @@ class Pool {
   async createReplica(uuid, size) {
     let pool = this.name;
     const thin = false;
-    const share = 'NONE';
+    const share = 'REPLICA_NONE';
 
     log.debug(`Creating replica "${uuid}" on the pool "${this}" ...`);
 
