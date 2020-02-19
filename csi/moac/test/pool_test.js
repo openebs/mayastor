@@ -277,7 +277,7 @@ module.exports = function() {
           pool: 'pool',
           size: 100,
           thin: false,
-          share: 'NONE',
+          share: 'REPLICA_NONE',
           state: 'ONLINE',
           uri: 'bdev://blabla',
         },
@@ -294,7 +294,7 @@ module.exports = function() {
       pool: 'pool',
       size: 100,
       thin: false,
-      share: 'NONE',
+      share: 'REPLICA_NONE',
     });
     sinon.assert.calledWithMatch(stub.secondCall, 'listReplicas', {});
     expect(pool.replicas).to.have.lengthOf(1);
@@ -313,7 +313,7 @@ module.exports = function() {
           pool: 'pool',
           size: 100,
           thin: false,
-          share: 'NONE',
+          share: 'REPLICA_NONE',
           state: 'ONLINE',
           uri: 'bdev://blabla',
         },
@@ -333,7 +333,7 @@ module.exports = function() {
       pool: 'pool',
       size: 100,
       thin: false,
-      share: 'NONE',
+      share: 'REPLICA_NONE',
     });
   });
 

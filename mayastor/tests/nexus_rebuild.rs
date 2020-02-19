@@ -9,6 +9,8 @@ use mayastor::{
     core::{mayastor_env_stop, MayastorCliArgs, MayastorEnvironment, Reactor},
 };
 
+use rpc::mayastor::ShareProtocolNexus;
+
 static DISKNAME1: &str = "/tmp/disk1.img";
 static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
 
@@ -35,7 +37,10 @@ async fn rebuild_test_start() {
     create_nexus().await;
 
     let nexus = nexus_lookup(NEXUS_NAME).unwrap();
-    let device = nexus.share(None).await.unwrap();
+    let device = nexus
+        .share(ShareProtocolNexus::NexusNbd, None)
+        .await
+        .unwrap();
 
     let nexus_device = device.clone();
     let (s, r) = unbounded::<String>();

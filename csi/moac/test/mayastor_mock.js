@@ -117,9 +117,9 @@ class MayastorServer {
           pool.used += args.size;
         }
         var uri;
-        if (args.share == 'NONE') {
+        if (args.share == 'REPLICA_NONE') {
           uri = 'bdev:///' + args.uuid;
-        } else if (args.share == 'ISCSI') {
+        } else if (args.share == 'REPLICA_ISCSI') {
           uri = 'iscsi://192.168.0.1:3800/' + args.uuid;
         } else {
           uri = 'nvmf://192.168.0.1:4020/' + args.uuid;
@@ -181,11 +181,11 @@ class MayastorServer {
           err.code = grpc.status.NOT_FOUND;
           return cb(err);
         }
-        if (args.share == 'NONE') {
+        if (args.share == 'REPLICA_NONE') {
           r.uri = 'bdev:///' + r.uuid;
-        } else if (args.share == 'ISCSI') {
+        } else if (args.share == 'REPLICA_ISCSI') {
           r.uri = 'iscsi://192.168.0.1:3800/' + r.uuid;
-        } else if (args.share == 'NVMF') {
+        } else if (args.share == 'REPLICA_NVMF') {
           r.uri = 'nvmf://192.168.0.1:4020/' + r.uuid;
         } else {
           assert(false, 'Invalid share protocol');
@@ -235,7 +235,8 @@ class MayastorServer {
       },
       publishNexus: (call, cb) => {
         var args = call.request;
-        assertHasKeys(args, ['uuid', 'key'], ['key']);
+        assertHasKeys(args, ['uuid', 'share', 'key'], ['key']);
+        assert.equal(0, args.share); // Must be value of NEXUS_NBD for now
         var idx = self.nexus.findIndex(n => n.uuid == args.uuid);
         if (idx >= 0) {
           self.nexus[idx].devicePath = '/dev/nbd0';
