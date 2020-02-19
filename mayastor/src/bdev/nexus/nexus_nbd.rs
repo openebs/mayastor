@@ -91,10 +91,10 @@ pub(crate) fn wait_until_ready(path: &str) -> Result<(), ()> {
     // reactor. We keep doing this until the above thread has updated the
     // atomic. In the future we might be able call yield()
     while !started.load(SeqCst) {
-        Reactors::current().unwrap().poll_once();
+        Reactors::current().poll_once();
     }
 
-    Reactors::current().unwrap().thread_enter();
+    Reactors::current().thread_enter();
 
     Ok(())
 }
@@ -221,9 +221,9 @@ impl Disk {
         });
 
         while !started.load(SeqCst) {
-            Reactors::current().unwrap().poll_once();
+            Reactors::current().poll_once();
         }
-        Reactors::current().unwrap().thread_enter();
+        Reactors::current().thread_enter();
         unsafe { spdk_nbd_stop(self.nbd_ptr) };
     }
 

@@ -584,6 +584,7 @@ impl MayastorEnvironment {
         let rpc = CString::new(self.rpc_addr.as_str()).unwrap();
         let cfg = self.json_config_file.clone();
 
+
         Reactor::block_on(async move {
             unsafe {
                 if let Some(ref json) = cfg {
@@ -626,7 +627,7 @@ impl MayastorEnvironment {
     {
         self.init();
 
-        let master = Reactors::current().unwrap();
+        let master = Reactors::current();
         master.send_future(async { f() });
         Reactors::launch_master();
 

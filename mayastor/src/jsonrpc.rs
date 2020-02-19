@@ -227,7 +227,7 @@ unsafe extern "C" fn jsonrpc_handler<H, P, R, E>(
                     }
                 }
             };
-            crate::core::Reactors::current().unwrap().send_future(fut);
+            crate::core::Reactors::current().send_future(fut);
         }
         Err(err) => {
             // parameters are not what is expected
