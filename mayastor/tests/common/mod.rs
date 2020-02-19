@@ -14,23 +14,23 @@ pub static MSTEST: OnceCell<MayastorEnvironment> = OnceCell::new();
 macro_rules! reactor_poll {
     ($ch:ident, $name:ident) => {
         loop {
-            mayastor::core::Reactors::current().unwrap().poll_once();
+            mayastor::core::Reactors::current().poll_once();
             if let Ok(r) = $ch.try_recv() {
                 $name = r;
                 break;
             }
         }
 
-        mayastor::core::Reactors::current().unwrap().thread_enter();
+        mayastor::core::Reactors::current().thread_enter();
     };
     ($ch:ident) => {
         loop {
-            mayastor::core::Reactors::current().unwrap().poll_once();
+            mayastor::core::Reactors::current().poll_once();
             if $ch.try_recv().is_ok() {
                 break;
             }
         }
-        mayastor::core::Reactors::current().unwrap().thread_enter();
+        mayastor::core::Reactors::current().thread_enter();
     };
 }
 #[macro_export]

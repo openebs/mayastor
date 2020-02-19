@@ -29,7 +29,6 @@
 //! is used for holding on to the messages while it is being processed. Once
 //! processed (or completed) it is dropped from the queue. Unlike the native
 //! SPDK messages, these futures -- are allocated before they execute.
-//!
 use std::{cell::Cell, os::raw::c_void, pin::Pin, slice::Iter, time::Duration};
 
 use crossbeam::channel::{unbounded, Receiver, Sender};
@@ -143,8 +142,8 @@ impl Reactors {
     }
 
     /// get a reference to a reactor on the current core
-    pub fn current() -> Option<&'static Reactor> {
-        Self::get_by_core(Cores::current())
+    pub fn current() -> &'static Reactor {
+        Self::get_by_core(Cores::current()).expect("no reactor allocated")
     }
 
     /// returns an iterator over all reactors
@@ -244,7 +243,7 @@ impl Reactor {
         F: Future<Output = R> + 'static,
         R: 'static,
     {
-        let reactor = Reactors::current().unwrap();
+        let reactor = Reactors::current();
         let schedule = |t| QUEUE.with(|(s, _)| s.send(t).unwrap());
         let (task, handle) = async_task::spawn_local(future, schedule, ());
 
