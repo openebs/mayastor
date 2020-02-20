@@ -46,7 +46,25 @@ macro_rules! test_init {
         });
     };
 }
+
 pub fn mayastor_test_init() {
+    fn binary_present(name: &str) -> Result<bool, std::env::VarError> {
+        std::env::var("PATH").and_then(|paths| {
+            Ok(paths
+                .split(':')
+                .map(|p| format!("{}/{}", p, name))
+                .any(|p| std::fs::metadata(&p).is_ok()))
+        })
+    }
+
+    ["dd", "mkfs.xfs", "mkfs.ext4", "cmp", "fsck", "truncate"]
+        .iter()
+        .for_each(|binary| {
+            if binary_present(binary).is_err() {
+                panic!("binary: {} not present in path", binary);
+            }
+        });
+
     logger::init("TRACE");
     env::set_var("MAYASTOR_LOGLEVEL", "4");
     mayastor::CPS_INIT!();
@@ -99,7 +117,7 @@ pub fn mkfs(path: &str, fstype: &str) {
     let output = Command::new(fs)
         .args(&args)
         .output()
-        .expect("mkfs exec truncate");
+        .expect("mkfs exec error");
 
     io::stdout().write_all(&output.stderr).unwrap();
     io::stdout().write_all(&output.stdout).unwrap();
@@ -197,8 +215,8 @@ pub fn fio_run_verify(device: &str) -> String {
         --runtime=5 --bs=4k --verify=crc32 --group_reporting=1 --output-format=terse \
         --verify_fatal=1 --verify_async=2 --filename=$1
     "#,
-        &vec![device.into()],
-        &run_script::ScriptOptions::new(),
+    &vec![device.into()],
+    &run_script::ScriptOptions::new(),
     )
         .unwrap();
     assert_eq!(exit, 0);
