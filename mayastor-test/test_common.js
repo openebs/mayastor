@@ -208,7 +208,7 @@ function startMayastor(config, args, env) {
         fs.unlinkSync(MS_CONFIG_PATH);
       } catch (err) {}
     },
-    'reactor_0'
+    'mayastor'
   );
 }
 
