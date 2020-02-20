@@ -194,7 +194,7 @@ pub fn fio_run_verify(device: &str) -> String {
     let (exit, stdout, _stderr) = run_script::run(
         r#"
         fio --name=randrw --rw=randrw --ioengine=libaio --direct=1 --time_based=1 \
-        --runtime=60 --bs=4k --verify=crc32 --group_reporting=1 --output-format=terse \
+        --runtime=5 --bs=4k --verify=crc32 --group_reporting=1 --output-format=terse \
         --verify_fatal=1 --verify_async=2 --filename=$1
     "#,
         &vec![device.into()],

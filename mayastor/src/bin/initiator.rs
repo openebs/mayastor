@@ -16,12 +16,12 @@ use clap::{App, Arg, SubCommand};
 
 use mayastor::{
     core::{
+        mayastor_env_stop,
         Bdev,
         CoreError,
         DmaError,
-        Reactor,
-        mayastor_env_stop,
         MayastorEnvironment,
+        Reactor,
     },
     jsonrpc::print_error_chain,
     logger,
