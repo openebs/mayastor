@@ -449,6 +449,14 @@ describe('nexus', function() {
     }
   });
 
+  it('should have zero nexus devices left', done => {
+    client.ListNexus({}, (err, res) => {
+      if (err) return done(err);
+      assert.lengthOf(res.nexus_list, 0);
+      done();
+    });
+  });
+
   it('should create, publish, and destroy but without un-publishing the same nexus', async () => {
     for (let i = 0; i < 10; i++) {
       await createNexus(createArgs);
@@ -457,11 +465,27 @@ describe('nexus', function() {
     }
   });
 
+  it('should have zero nexus devices left', done => {
+    client.ListNexus({}, (err, res) => {
+      if (err) return done(err);
+      assert.lengthOf(res.nexus_list, 0);
+      done();
+    });
+  });
+
   it('should create and destroy without publish or un-publishing the same nexus', async () => {
     for (let i = 0; i < 10; i++) {
       await createNexus(createArgs);
       await destroyNexus({ uuid: UUID });
     }
+  });
+
+  it('should have zero nexus devices left', done => {
+    client.ListNexus({}, (err, res) => {
+      if (err) return done(err);
+      assert.lengthOf(res.nexus_list, 0);
+      done();
+    });
   });
 
   it('should be the case that we do not have any dangling NBD devices left on the system', done => {

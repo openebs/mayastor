@@ -23,8 +23,8 @@ use spdk_sys::{
     spdk_nbd_disk_find_by_nbd_path,
     spdk_nbd_get_path,
     spdk_nbd_start,
-    spdk_nbd_stop,
 };
+
 use sysfs::parse_value;
 
 use crate::{
@@ -34,10 +34,10 @@ use crate::{
 
 // include/uapi/linux/fs.h
 const IOCTL_BLKGETSIZE: u32 = ior!(0x12, 114, std::mem::size_of::<u64>());
-
+const SET_TIMEOUT: u32 = io!(0xab, 9);
 #[derive(Debug, Snafu)]
 pub enum NbdError {
-    #[snafu(display("No free NBD devices available (is nbd kmod loaded?)"))]
+    #[snafu(display("No free NBD devices available (is NBD kmod loaded?)"))]
     Unavailable {},
     #[snafu(display("Failed to start NBD on {}", dev))]
     StartNbd { source: Errno, dev: String },
@@ -63,7 +63,7 @@ pub(crate) fn wait_until_ready(path: &str) -> Result<(), ()> {
     thread::spawn(move || {
         let size: u64 = 0;
         for _i in 1i32 .. 100 {
-            std::thread::sleep(Duration::from_secs(1));
+            std::thread::sleep(Duration::from_millis(1));
             let f = OpenOptions::new().read(true).open(Path::new(&tpath));
             if f.is_err() {
                 continue;
@@ -93,8 +93,6 @@ pub(crate) fn wait_until_ready(path: &str) -> Result<(), ()> {
     while !started.load(SeqCst) {
         Reactors::current().poll_once();
     }
-
-    Reactors::current().thread_enter();
 
     Ok(())
 }
@@ -196,6 +194,20 @@ impl Disk {
         let device_path = find_unused()?;
         let nbd_ptr = start(bdev_name, &device_path).await?;
 
+        // this should not be needed but for some unknown reason, we end up with
+        // stale NBD devices. Setting this to non zero, prevents that from
+        // happening (although we dont actually timeout).
+
+        let f = OpenOptions::new().read(true).open(Path::new(&device_path));
+        unsafe {
+            convert_ioctl_res!(libc::ioctl(
+                f.unwrap().as_raw_fd(),
+                SET_TIMEOUT as u64,
+                5,
+            ))
+        }
+        .unwrap();
+
         // we wait for the dev to come up online because
         // otherwise the mount done too early would fail.
         // If it times out, continue anyway and let the mount fail.
@@ -212,8 +224,13 @@ impl Disk {
         let started = Arc::new(AtomicBool::new(false));
         let s = started.clone();
 
-        let ptr = self.nbd_ptr as usize;
+        // this is a hack to wait for any IO in the NBD driver. Typically this
+        // is not they way to do this but, NBD is mostly for testing so
+        // its fine. as we can not make FFI struct send, we copy the
+        // pointe  to usize and pass that to the other threads.
 
+        let ptr = self.nbd_ptr as usize;
+        let name = self.get_path();
         thread::spawn(move || {
             unsafe { nbd_disconnect(ptr as *mut _) };
             debug!("NBD device disconnected successfully");
@@ -223,8 +240,8 @@ impl Disk {
         while !started.load(SeqCst) {
             Reactors::current().poll_once();
         }
-        Reactors::current().thread_enter();
-        unsafe { spdk_nbd_stop(self.nbd_ptr) };
+
+        info!("NBD {} device stopped", name);
     }
 
     /// Get nbd device path (/dev/nbd...) for the nbd disk.
