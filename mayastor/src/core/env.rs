@@ -577,6 +577,10 @@ impl MayastorEnvironment {
 
         // allocate a Reactor per core
         Reactors::init();
+
+        // launch the remote cores if any. note that during init these have to
+        // be running as during setup cross call will take place.
+
         Cores::count()
             .into_iter()
             .for_each(|c| Reactors::launch_remote(c).unwrap());
@@ -584,6 +588,7 @@ impl MayastorEnvironment {
         let rpc = CString::new(self.rpc_addr.as_str()).unwrap();
         let cfg = self.json_config_file.clone();
 
+        // init the subsystems
         Reactor::block_on(async move {
             unsafe {
                 if let Some(ref json) = cfg {
@@ -603,13 +608,16 @@ impl MayastorEnvironment {
                     );
                 }
             }
-            crate::pool::register_pool_methods();
-            crate::replica::register_replica_methods();
         });
+
+        // register our RPC methods
+        crate::pool::register_pool_methods();
+        crate::replica::register_replica_methods();
 
         self
     }
 
+    // finalize our environment
     fn fini() {
         unsafe {
             spdk_trace_cleanup();
@@ -626,7 +634,7 @@ impl MayastorEnvironment {
     {
         self.init();
 
-        let master = Reactors::current().unwrap();
+        let master = Reactors::current();
         master.send_future(async { f() });
         Reactors::launch_master();
 

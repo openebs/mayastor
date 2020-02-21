@@ -49,10 +49,8 @@ impl Mthread {
     pub fn with<F: FnOnce()>(self, f: F) -> Self {
         //assert_eq!(unsafe {spdk_sys::spdk_get_thread()},
         // std::ptr::null_mut());
-        self.enter();
         f();
         self.poll();
-        self.exit();
         self
     }
 

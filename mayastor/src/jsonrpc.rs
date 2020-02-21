@@ -15,6 +15,7 @@ use futures::future::Future;
 use nix::errno::Errno;
 use serde::{Deserialize, Serialize};
 
+use crate::core::{Cores, Reactors};
 use spdk_sys::{
     spdk_json_val,
     spdk_json_write_val_raw,
@@ -227,7 +228,11 @@ unsafe extern "C" fn jsonrpc_handler<H, P, R, E>(
                     }
                 }
             };
-            crate::core::Reactors::current().unwrap().send_future(fut);
+
+            // it is expected rpc runs on the first core
+            let reactor = Reactors::current();
+            assert_eq!(reactor.core(), Cores::first());
+            reactor.send_future(fut);
         }
         Err(err) => {
             // parameters are not what is expected

@@ -5,7 +5,6 @@
   }
 }:
 with pkgs;
-
 let
   rustChannel = import ./nix/lib/rust.nix {
     inherit fetchFromGitHub;

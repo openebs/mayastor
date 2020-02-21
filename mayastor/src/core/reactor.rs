@@ -29,7 +29,7 @@
 //! is used for holding on to the messages while it is being processed. Once
 //! processed (or completed) it is dropped from the queue. Unlike the native
 //! SPDK messages, these futures -- are allocated before they execute.
-//!
+use spdk_sys::spdk_get_thread;
 use std::{cell::Cell, os::raw::c_void, pin::Pin, slice::Iter, time::Duration};
 
 use crossbeam::channel::{unbounded, Receiver, Sender};
@@ -143,8 +143,8 @@ impl Reactors {
     }
 
     /// get a reference to a reactor on the current core
-    pub fn current() -> Option<&'static Reactor> {
-        Self::get_by_core(Cores::current())
+    pub fn current() -> &'static Reactor {
+        Self::get_by_core(Cores::current()).expect("no reactor allocated")
     }
 
     /// returns an iterator over all reactors
@@ -184,6 +184,7 @@ impl Reactor {
     extern "C" fn poll(core: *mut c_void) -> i32 {
         debug!("Start polling of reactor {}", core as u32);
         let reactor = Reactors::get_by_core(core as u32).unwrap();
+        reactor.thread_enter();
         if reactor.flags.get() != INIT {
             warn!("calling poll on a reactor who is not in the INIT state");
         }
@@ -238,21 +239,27 @@ impl Reactor {
     }
 
     /// spawn a future locally on the current core block until the future is
-    /// completed
+    /// completed. The first thread of the current core is implicitly used.
     pub fn block_on<F, R>(future: F) -> Option<R>
     where
         F: Future<Output = R> + 'static,
         R: 'static,
     {
-        let reactor = Reactors::current().unwrap();
+        // get the current reactor and ensure that we are running within the
+        // context of the first thread.
+        let reactor = Reactors::current();
+        reactor.thread_enter();
         let schedule = |t| QUEUE.with(|(s, _)| s.send(t).unwrap());
         let (task, handle) = async_task::spawn_local(future, schedule, ());
 
-        let cx = handle.waker();
-        let cx = &mut Context::from_waker(&cx);
+        let waker = handle.waker();
+        let cx = &mut Context::from_waker(&waker);
 
         pin_utils::pin_mut!(handle);
         task.schedule();
+
+        // here we only poll the first thread, this is fine because the future
+        // is also scheduled within that first threads context.
 
         loop {
             match handle.as_mut().poll(cx) {
@@ -260,9 +267,11 @@ impl Reactor {
                     return output;
                 }
                 Poll::Pending => {
-                    reactor.threads[0].with(|| {
-                        reactor.run_futures();
+                    assert_eq!(reactor.threads[0].0, unsafe {
+                        spdk_get_thread()
                     });
+                    reactor.run_futures();
+                    reactor.threads[0].poll();
                 }
             }
         }
@@ -345,25 +354,26 @@ impl Reactor {
         }
     }
 
-    /// enters the main reactor thread
+    /// Enters the first reactor thread.  By default we are not running within
+    /// the context of any thread. We always need to set a context before we
+    /// can process, or submit any messages
     pub fn thread_enter(&self) {
         self.threads[0].enter();
     }
 
     /// polls the reactor only once for any work regardless of its state. For
-    /// now, the threads are all entered and exited explicitly. This means
-    /// that if you are calling poll_once() manually you need to restore any
-    /// SPDK context if you had one to begin with.
+    /// now, the threads are all entered and exited explicitly.
     pub fn poll_once(&self) {
         self.receive_futures();
-        self.threads[0].with(|| {
-            self.run_futures();
+        self.run_futures();
+
+        // poll any thread for events
+        self.threads.iter().for_each(|t| {
+            t.poll();
         });
 
-        // if there are any other threads poll them now skipping thread 0 as it
-        // has been polled already when we ran the futures for this core
-        self.threads.iter().skip(1).for_each(|t| {
-            t.enter().poll().exit();
-        });
+        // during polling we switch context ensure we leave the poll routine
+        // with setting a context again.
+        self.thread_enter();
     }
 }
