@@ -47,7 +47,7 @@ message ListPoolsReply {
   repeated Pool pools = 1;  // list of the pools
 }
 
-// Protocol for remote storage access which exposes a replica.
+// Protocol for remote storage access which exposes a replica and frontend.
 enum ShareProtocol {
   NONE = 0;   // not exposed
   NVMF = 1;   // NVMe over Fabrics (TCP)
