@@ -52,6 +52,7 @@ enum ShareProtocol {
   NONE = 0;   // not exposed
   NVMF = 1;   // NVMe over Fabrics (TCP)
   ISCSI = 2;  // iSCSI
+  NBD = 3;    // NBD
 }
 
 // Create replica arguments.
@@ -172,7 +173,6 @@ message PublishNexusRequest {
   string uuid = 1; // uuid of the nexus which to create device for
   string key = 2; // encryption key
   ShareProtocol share = 3;  // protocol used for the front end.
-                            // Use "NONE" for nbd.
 }
 
 message PublishNexusReply {
