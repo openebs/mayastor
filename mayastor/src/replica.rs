@@ -468,6 +468,7 @@ pub fn register_replica_methods() {
                         .context(CreateReplica {
                             uuid: args.uuid.clone(),
                         })?,
+                    ShareProtocol::Nbd => (),
                     ShareProtocol::None => (),
                 }
                 Ok(CreateReplicaReply {
@@ -615,6 +616,7 @@ pub fn register_replica_methods() {
                             .context(ShareReplica {
                                 uuid: args.uuid.clone(),
                             })?,
+                        ShareProtocol::Nbd => (),
                         ShareProtocol::None => (),
                     }
                 }

@@ -196,7 +196,11 @@ describe('csi', function() {
               let uuid = BASE_UUID + n;
               common.dumbCommand(
                 'publish_nexus',
-                { uuid: uuid, key: '' },
+                {
+                    uuid: uuid,
+                    key: '',
+                    share: 3,    // NBD
+                },
                 next
               );
             },

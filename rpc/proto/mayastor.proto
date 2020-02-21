@@ -47,11 +47,12 @@ message ListPoolsReply {
   repeated Pool pools = 1;  // list of the pools
 }
 
-// Protocol for remote storage access which exposes a replica.
+// Protocol for remote storage access which exposes a replica and frontend.
 enum ShareProtocol {
   NONE = 0;   // not exposed
   NVMF = 1;   // NVMe over Fabrics (TCP)
   ISCSI = 2;  // iSCSI
+  NBD = 3;    // NBD
 }
 
 // Create replica arguments.
@@ -171,6 +172,7 @@ message RemoveChildNexusRequest {
 message PublishNexusRequest {
   string uuid = 1; // uuid of the nexus which to create device for
   string key = 2; // encryption key
+  ShareProtocol share = 3;  // protocol used for the front end.
 }
 
 message PublishNexusReply {
