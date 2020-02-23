@@ -229,6 +229,7 @@ impl NexusChild {
 
     /// destroy the child bdev
     pub(crate) async fn destroy(&mut self) -> Result<(), BdevCreateDestroy> {
+        trace!("destroying child {:?}", self);
         assert_eq!(self.state, ChildState::Closed);
         if let Some(_bdev) = &self.bdev {
             bdev_destroy(&self.name).await

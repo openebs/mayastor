@@ -4,6 +4,7 @@
 //! optimized for the perceived intent. For example, depending on
 //! application needs synchronous mirroring may be required.
 
+use crate::nexus_uri::bdev_destroy;
 use std::{
     fmt::{Display, Formatter},
     os::raw::c_void,
@@ -13,7 +14,6 @@ use futures::channel::oneshot;
 use nix::errno::Errno;
 use serde::Serialize;
 use snafu::{ResultExt, Snafu};
-
 use spdk_sys::{
     spdk_bdev,
     spdk_bdev_desc,
@@ -28,6 +28,7 @@ use spdk_sys::{
     spdk_io_device_register,
     spdk_io_device_unregister,
 };
+use tonic::{Code as GrpcCode, Status};
 
 use crate::{
     bdev::{
@@ -119,6 +120,8 @@ pub enum Error {
     ChildNotFound { child: String, name: String },
     #[snafu(display("Child {} of nexus {} is not closed", child, name))]
     ChildNotClosed { child: String, name: String },
+    #[snafu(display("Failed to create nexus {}", name))]
+    NexusCreate { name: String },
 }
 
 impl RpcErrorCode for Error {
@@ -162,6 +165,17 @@ impl RpcErrorCode for Error {
     }
 }
 
+impl From<Error> for tonic::Status {
+    fn from(e: Error) -> Self {
+        match e {
+            Error::NexusNotFound {
+                ..
+            } => Status::not_found(e.to_string()),
+            e => Status::new(GrpcCode::Internal, e.to_string()),
+        }
+    }
+}
+
 pub(crate) static NEXUS_PRODUCT_ID: &str = "Nexus CAS Driver v0.0.1";
 
 /// The main nexus structure
@@ -193,6 +207,7 @@ pub struct Nexus {
 }
 
 unsafe impl core::marker::Sync for Nexus {}
+unsafe impl core::marker::Send for Nexus {}
 
 #[derive(Debug, Serialize, Clone, Copy, PartialEq, PartialOrd)]
 pub enum NexusState {
@@ -412,7 +427,7 @@ impl Nexus {
     }
 
     /// Destroy the nexus
-    pub async fn destroy(&mut self) {
+    pub async fn destroy(&mut self) -> Result<(), Error> {
         // used to synchronize the destroy call
         extern "C" fn nexus_destroy_cb(arg: *mut c_void, rc: i32) {
             let s = unsafe { Box::from_raw(arg as *mut oneshot::Sender<bool>) };
@@ -451,7 +466,12 @@ impl Nexus {
             );
         }
 
-        let _ = r.await;
+        if !r.await.unwrap() {
+            // TODO FIXME
+            Err(Error::InvalidKey {})
+        } else {
+            Ok(())
+        }
     }
 
     /// register the bdev with SPDK and set the callbacks for io channel
@@ -727,8 +747,32 @@ pub async fn nexus_create(
         }
     }
 
-    ni.open().await?;
-    nexus_list.push(ni);
+    match ni.open().await {
+        // we still have code that waits for children to come online
+        // this however only works for config files so we need to clean up
+        // if we get the below error
+        Err(Error::NexusIncomplete {
+            ..
+        }) => {
+            info!("deleting nexus due to missing children");
+            for child in children {
+                if let Err(e) = bdev_destroy(child).await {
+                    error!("failed to destroy child during cleanup {}", e);
+                }
+            }
+
+            return Err(Error::NexusCreate {
+                name: String::from(name),
+            });
+        }
+
+        Err(e) => {
+            error!("{:?}", e);
+            return Err(e);
+        }
+
+        Ok(_) => nexus_list.push(ni),
+    }
     Ok(())
 }
 

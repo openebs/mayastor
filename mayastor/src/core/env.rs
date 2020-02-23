@@ -21,6 +21,8 @@ use once_cell::sync::Lazy;
 use snafu::{ResultExt, Snafu};
 use structopt::StructOpt;
 
+use tokio::{runtime::Builder, task};
+
 use spdk_sys::{
     maya_log,
     spdk_app_shutdown_cb,
@@ -46,6 +48,7 @@ use crate::{
         reactor::{Reactor, Reactors},
         Cores,
     },
+    grpc::grpc_server_init,
     logger,
     target,
 };
@@ -634,12 +637,25 @@ impl MayastorEnvironment {
     {
         self.init();
 
-        let master = Reactors::current();
-        master.send_future(async { f() });
-        Reactors::launch_master();
+        let mut rt = Builder::new()
+            .basic_scheduler()
+            .enable_all()
+            .build()
+            .unwrap();
 
-        info!("reactors stopped....");
-        Self::fini();
+        let local = task::LocalSet::new();
+
+        rt.block_on(async {
+            local
+                .run_until(async {
+                    let master = Reactors::current();
+                    master.send_future(async { f() });
+                    let _out = tokio::try_join!(grpc_server_init(), master);
+                    info!("reactors stopped....");
+                    Self::fini();
+                })
+                .await
+        });
 
         Ok(*GLOBAL_RC.lock().unwrap())
     }

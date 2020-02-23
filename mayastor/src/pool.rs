@@ -73,7 +73,7 @@ extern "C" fn pool_done_cb(
 ///
 /// Note about safety: The structure wraps raw C pointers from SPDK.
 /// It is safe to use only in synchronous context. If you keep Pool for
-/// longer than that then something else can run on reactor_0 inbetween
+/// longer than that then something else can run on reactor_0 between
 /// which may destroy the pool and invalidate the pointers!
 pub struct Pool {
     lvs_ptr: *mut spdk_lvol_store,
@@ -355,7 +355,7 @@ impl Iterator for PoolsIter {
     }
 }
 
-fn list_pools() -> Vec<jsondata::Pool> {
+pub(crate) fn list_pools() -> Vec<jsondata::Pool> {
     let mut pools = Vec::new();
 
     for pool in PoolsIter::new() {

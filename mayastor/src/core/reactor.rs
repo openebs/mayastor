@@ -60,6 +60,8 @@ pub struct Reactors(Vec<Reactor>);
 unsafe impl Sync for Reactors {}
 unsafe impl Send for Reactors {}
 
+unsafe impl Sync for Reactor {}
+unsafe impl Send for Reactor {}
 pub static REACTOR_LIST: OnceCell<Reactors> = OnceCell::new();
 #[repr(C, align(64))]
 #[derive(Debug)]
@@ -147,6 +149,10 @@ impl Reactors {
         Self::get_by_core(Cores::current()).expect("no reactor allocated")
     }
 
+    pub fn master() -> &'static Reactor {
+        Self::get_by_core(Cores::first()).expect("no reactor allocated")
+    }
+
     /// returns an iterator over all reactors
     pub fn iter() -> Iter<'static, Reactor> {
         REACTOR_LIST.get().unwrap().into_iter()
@@ -220,7 +226,7 @@ impl Reactor {
     }
 
     /// spawn a future locally on this core
-    fn spawn_local<F, R>(&self, future: F) -> async_task::JoinHandle<R, ()>
+    pub fn spawn_local<F, R>(&self, future: F) -> async_task::JoinHandle<R, ()>
     where
         F: Future<Output = R> + 'static,
         R: 'static,
@@ -354,9 +360,9 @@ impl Reactor {
         }
     }
 
-    /// Enters the first reactor thread.  By default we are not running within
+    /// Enters the first reactor thread.  By default, we are not running within
     /// the context of any thread. We always need to set a context before we
-    /// can process, or submit any messages
+    /// can process, or submit any messages.
     pub fn thread_enter(&self) {
         self.threads[0].enter();
     }
@@ -372,8 +378,41 @@ impl Reactor {
             t.poll();
         });
 
-        // during polling we switch context ensure we leave the poll routine
+        // during polling, we switch context ensure we leave the poll routine
         // with setting a context again.
         self.thread_enter();
+    }
+}
+
+impl Future for &'static Reactor {
+    type Output = Result<(), ()>;
+    fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
+        match self.flags.get() {
+            RUNNING => {
+                self.poll_once();
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
+            SHUTDOWN => {
+                info!("future reactor {} shutdown requested", self.lcore);
+
+                self.threads.iter().for_each(|t| t.destroy());
+                unsafe { spdk_env_thread_wait_all() };
+                Poll::Ready(Err(()))
+            }
+            DEVELOPER_DELAY => {
+                std::thread::sleep(Duration::from_millis(1));
+                self.poll_once();
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
+            INIT => {
+                self.poll_once();
+                self.flags.set(DEVELOPER_DELAY);
+                cx.waker().wake_by_ref();
+                Poll::Pending
+            }
+            _ => panic!(),
+        }
     }
 }

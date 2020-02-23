@@ -106,7 +106,7 @@ pub(crate) fn register_rpc_methods() {
         |args: DestroyNexusRequest| {
             let fut = async move {
                 let nexus = nexus_lookup(&args.uuid)?;
-                nexus.destroy().await;
+                nexus.destroy().await?;
                 Ok(())
             };
             fut.boxed_local()
