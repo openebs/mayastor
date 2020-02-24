@@ -1,8 +1,10 @@
 { binutils
 , callPackage
-, enableDebug ? false
+, cunit
+, enableDebug ? true
 , fetchFromGitHub
 , git
+, lcov
 , libaio
 , libiscsi
 , libuuid
@@ -17,13 +19,13 @@
 with stdenv.lib;
 
 stdenv.mkDerivation rec {
-  version = "20.01-mayastor";
+  version = "20.01.x-mayastor";
   name = "libspdk";
   src = fetchFromGitHub {
     owner = "openebs";
     repo = "spdk";
-    rev = "779b800ad7bf370a0f2ac1d6c30a2b15da04df6b";
-    sha256 = "0774s5fvyds78b3bzp0w9acwci1m2zm9kz8b58ckdmy1ls0xsx43";
+    rev = "79aca9f7ba5e5744c7012218b18d8a5e182702f3";
+    sha256 = "16bpgfdk3ab3vy5m76f2aj5rm4b8rypn1w7699pmm7lsrfb36z69";
     fetchSubmodules = true;
   };
 
@@ -37,10 +39,10 @@ stdenv.mkDerivation rec {
     openssl
     python
     rdma-core
-  ];
+  ] ++ stdenv.lib.optionals enableDebug [cunit lcov];
 
   CONFIGURE_OPTS = ''
-    ${optionalString enableDebug "--enable-debug"}
+    ${enableFeature enableDebug "debug"}
     --without-isal --with-iscsi-initiator --with-rdma
     --with-internal-vhost-lib --disable-tests --with-dpdk-machine=native
     --with-crypto
