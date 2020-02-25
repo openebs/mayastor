@@ -11,4 +11,5 @@ lint:
     - echo 'Hey I am running the lint'
     - env
   only: [tags, branches]
-  except: [/^master/]
+  except:
+    - /^master.*$/
