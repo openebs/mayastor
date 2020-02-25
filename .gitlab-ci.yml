@@ -10,5 +10,5 @@ lint:
   script:
     - echo 'Hey I am running the lint'
   only:
-    - external_pull_requests
-    - branches
+    variables:
+      - $CI_PIPELINE_SOURCE == 'external_pull_request_event'
