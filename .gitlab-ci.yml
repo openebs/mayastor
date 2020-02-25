@@ -11,4 +11,5 @@ lint:
     - echo 'Hey I am running the lint'
     - env
   only:
-    refs: [branches]
+    - external_pull_requests
+    - branches
