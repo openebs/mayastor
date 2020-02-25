@@ -10,5 +10,4 @@ lint:
   script:
     - echo 'Hey I am running the lint'
   only:
-    variables:
-      - $CI_PIPELINE_SOURCE == 'external_pull_request_event'
+    refs: [external_pull_requests]
