@@ -10,4 +10,4 @@ lint:
   script:
     - echo 'Hey I am running the lint'
     - env
-  only: [external_pull_requests, branches]
+  only: [tags, branches]
