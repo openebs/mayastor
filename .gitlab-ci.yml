@@ -12,4 +12,5 @@ lint:
     - env
   only:
     - external_pull_requests
-    - pushes
+    - branches
+    - master
