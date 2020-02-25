@@ -12,4 +12,3 @@ lint:
     - env
   only:
     - branches
-    - master
