@@ -13,4 +13,3 @@ lint:
   only:
     - external_pull_requests
     - branches
-    - master
