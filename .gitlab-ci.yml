@@ -9,5 +9,6 @@ lint:
   image: mayadata/ms-buildenv:latest
   script:
     - echo 'Hey I am running the lint'
+    - env
   only:
-    refs: [external_pull_requests]
+    refs: [external_pull_requests push]
