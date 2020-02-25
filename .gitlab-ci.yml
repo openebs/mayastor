@@ -11,4 +11,3 @@ lint:
     - echo 'Hey I am running the lint'
     - env
   only: ['external_pull_requests', 'branches']
-  except: /^master$/
