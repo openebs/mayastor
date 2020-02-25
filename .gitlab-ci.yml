@@ -10,3 +10,5 @@ lint:
   script:
     - echo 'Hey I am running the lint'
     - env
+  only:
+    refs: [branches]
