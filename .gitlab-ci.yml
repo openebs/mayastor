@@ -11,4 +11,5 @@ lint:
     - echo 'Hey I am running the lint'
     - env
   only:
-    - pushes
+    - branches
+    - master
