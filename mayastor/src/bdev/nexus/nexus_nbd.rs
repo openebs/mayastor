@@ -203,7 +203,7 @@ impl Disk {
             convert_ioctl_res!(libc::ioctl(
                 f.unwrap().as_raw_fd(),
                 SET_TIMEOUT as u64,
-                5,
+                1,
             ))
         }
         .unwrap();
