@@ -5,6 +5,10 @@ use mayastor::{
     core::{mayastor_env_stop, MayastorCliArgs, MayastorEnvironment, Reactor},
 };
 
+use rpc::mayastor::{
+    ShareProtocol,
+};
+
 static DISKNAME1: &str = "/tmp/disk1.img";
 static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
 
@@ -20,7 +24,8 @@ fn mount_fs() {
         create_nexus().await;
         let nexus = nexus_lookup("nexus").unwrap();
 
-        let device = nexus.share(None).await.unwrap();
+        //TODO: repeat this test for NVMF and ISCSI
+        let device = nexus.share(ShareProtocol::Nbd, None).await.unwrap();
         let (s, r) = unbounded();
 
         // create an XFS filesystem on the nexus device, mount it, create a file
@@ -46,8 +51,9 @@ fn mount_fs() {
         let right = nexus_lookup("right").unwrap();
 
         // share both nexuses
-        let left_device = left.share(None).await.unwrap();
-        let right_device = right.share(None).await.unwrap();
+        //TODO: repeat this test for NVMF and ISCSI, and permutations?
+        let left_device = left.share(ShareProtocol::Nbd, None).await.unwrap();
+        let right_device = right.share(ShareProtocol::Nbd, None).await.unwrap();
 
         let s1 = s.clone();
         std::thread::spawn(move || {
@@ -91,7 +97,8 @@ fn mount_fs_1() {
         create_nexus().await;
         let nexus = nexus_lookup("nexus").unwrap();
 
-        let device = nexus.share(None).await.unwrap();
+        //TODO: repeat this test for NVMF and ISCSI
+        let device = nexus.share(ShareProtocol::Nbd, None).await.unwrap();
 
         std::thread::spawn(move || {
             for _i in 0 .. 10 {
@@ -112,7 +119,8 @@ fn mount_fs_2() {
         create_nexus().await;
         let nexus = nexus_lookup("nexus").unwrap();
 
-        let device = nexus.share(None).await.unwrap();
+        //TODO: repeat this test for NVMF and ISCSI
+        let device = nexus.share(ShareProtocol::Nbd, None).await.unwrap();
         let (s, r) = unbounded::<String>();
 
         std::thread::spawn(move || s.send(common::fio_run_verify(&device)));

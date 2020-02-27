@@ -24,9 +24,11 @@ const protoLoader = require('@grpc/proto-loader');
 // possible only with grpc-uds.
 const grpc = require('grpc-uds');
 const common = require('./test_common');
+const mayastorProto = require('./mayastor_proto');
 // Without requiring wtf module the ts hangs at the end. It seems that it is
 // waiting for sudo'd mayastor progress which has already exited!?
 const wtfnode = require('wtfnode');
+const mayastorProtoConstants = mayastorProto.getConstants();
 
 var csiSock = common.CSI_ENDPOINT;
 var endpoint = common.endpoint;
@@ -199,7 +201,8 @@ describe('csi', function() {
                 {
                     uuid: uuid,
                     key: '',
-                    share: 3,    // NBD
+                    // TODO: repeat this test for iSCSI and Nvmf
+                    share: mayastorProtoConstants.ShareProtocol.NBD,
                 },
                 next
               );

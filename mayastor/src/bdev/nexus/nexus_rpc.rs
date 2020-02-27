@@ -13,6 +13,7 @@ use rpc::mayastor::{
     PublishNexusRequest,
     RemoveChildNexusRequest,
     UnpublishNexusRequest,
+    ShareProtocol,
 };
 
 use crate::{
@@ -58,6 +59,18 @@ fn name_to_uuid(name: &str) -> &str {
         &name[6 ..]
     } else {
         name
+    }
+}
+
+/// Convert share protocol value to ShareProtocol for frontend use.
+/// Returns Option<ShareProtocol> or None.
+fn frontend_shareprotocol_from(spv : i32) -> Option<ShareProtocol> {
+    match spv  {
+        0 => None,
+        1 => Some(ShareProtocol::Nvmf),
+        2 => Some(ShareProtocol::Iscsi),
+        3 => Some(ShareProtocol::Nbd),
+        _ => None
     }
 }
 
@@ -130,8 +143,15 @@ pub(crate) fn register_rpc_methods() {
             let key: Option<String> =
                 if args.key == "" { None } else { Some(args.key) };
 
+            let spv = frontend_shareprotocol_from(args.share);
+            if spv.is_none() {
+                return Err(Error::InvalidShareProtocol {sp_value: args.share});
+            }
+
+            let share = spv.unwrap();
+
             let nexus = nexus_lookup(&args.uuid)?;
-            nexus.share(key).await.map(|device_path| PublishNexusReply {
+            nexus.share(share, key).await.map(|device_path| PublishNexusReply {
                 device_path,
             })
         };
