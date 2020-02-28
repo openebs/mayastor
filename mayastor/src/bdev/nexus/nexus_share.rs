@@ -43,12 +43,12 @@ impl Nexus {
         }
 
         assert_eq!(self.share_handle, None);
-        let _ = match share_proto {
+        match share_proto {
             ShareProtocol::Nvmf => (),
             ShareProtocol::Iscsi => (),
             ShareProtocol::Nbd => (),
             _ => return Err(Error::InvalidShareProtocol {sp_value: share_proto as i32}),
-        };
+        }
 
         self.share_protocol = share_proto;
 
@@ -100,6 +100,15 @@ impl Nexus {
     pub async fn unshare(&mut self) -> Result<(), Error> {
         match self.nbd_disk.take() {
             Some(disk) => {
+                let sp = match self.share_protocol {
+                    ShareProtocol::Nbd => Some(ShareProtocol::Nvmf),
+                    ShareProtocol::Iscsi => Some(ShareProtocol::Nvmf),
+                    ShareProtocol::Nvmf => Some(ShareProtocol::Nvmf),
+                    _ => None
+                };
+
+                if sp.is_none() {return Err(Error::NotShared { name: self.name.clone(),});}
+
                 disk.destroy();
                 let bdev_name = self.share_handle.take().unwrap();
                 if let Some(bdev) = Bdev::lookup_by_name(&bdev_name) {
@@ -124,6 +133,7 @@ impl Nexus {
                 } else {
                     warn!("Missing bdev for a shared device");
                 }
+                self.share_protocol = ShareProtocol::None;
                 Ok(())
             }
             None => Err(Error::NotShared {
