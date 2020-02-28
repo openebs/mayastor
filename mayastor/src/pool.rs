@@ -14,6 +14,7 @@ use futures::{
 };
 
 use rpc::jsonrpc as jsondata;
+use snafu::{Snafu};
 use spdk_sys::{
     bdev_aio_delete,
     create_aio_bdev,
@@ -35,22 +36,87 @@ use spdk_sys::{
 use crate::{
     core::Bdev,
     ffihelper::{cb_arg, done_cb},
-    jsonrpc::{jsonrpc_register, Code, JsonRpcError, Result},
+    jsonrpc,
     replica::ReplicaIter,
 };
+use crate::jsonrpc::RpcErrorCode;
+
+/// Errors for pool operations.
+#[derive(Debug, Snafu)]
+#[snafu(visibility = "pub(crate)")]
+pub enum Error {
+    #[snafu(display("AIO bdev {} already exists or parameters are invalid", name))]
+    BadBdev { name: String },
+    #[snafu(display("Base bdev {} does not exist", name))]
+    UnknownBdev { name: String },
+    #[snafu(display("Could not create pool {}", name))]
+    BadCreate { name: String },
+    #[snafu(display("Failed to create the pool {} (errno={})", name, errno))]
+    FailedCreate { name: String, errno: i32 },
+    #[snafu(display("The pool {} disappeared", name))]
+    PoolGone { name: String },
+    #[snafu(display("The device {} hosts another pool", name))]
+    DeviceAlreadyUsed { name: String },
+    #[snafu(display("Failed to import the pool {} (errno={})", name, errno))]
+    FailedImport { name: String, errno: i32 },
+    #[snafu(display("Failed to unshare replica: {}", msg))]
+    FailedUnshareReplica { msg: String },
+    #[snafu(display("Failed to destroy pool {} (errno={})", name, errno))]
+    FailedDestroyPool { name: String, errno: i32 },
+    #[snafu(display("Failed to destroy base bdev {} for the pool {} (errno={})",
+        bdev, name, errno))]
+    FailedDestroyBdev { bdev : String, name: String, errno: i32 },
+}
+
+impl jsonrpc::RpcErrorCode for Error {
+    fn rpc_error_code(&self) -> jsonrpc::Code {
+        match self {
+            Error::BadBdev { .. } => jsonrpc::Code::InvalidParams,
+            Error::UnknownBdev { .. } => jsonrpc::Code::NotFound,
+            Error::BadCreate { .. } => jsonrpc::Code::InvalidParams,
+            Error::FailedCreate { .. } => jsonrpc::Code::InvalidParams,
+            Error::PoolGone { .. } => jsonrpc::Code::InternalError,
+            Error::DeviceAlreadyUsed { .. } => jsonrpc::Code::InvalidParams,
+            Error::FailedImport { .. } => jsonrpc::Code::InternalError,
+            Error::FailedUnshareReplica { .. } => jsonrpc::Code::InternalError,
+            Error::FailedDestroyPool { .. } => jsonrpc::Code::InternalError,
+            Error::FailedDestroyBdev { .. } => jsonrpc::Code::InternalError,
+        }
+    }
+}
+
+impl From<Error> for jsonrpc::JsonRpcError {
+    fn from(e: Error) -> Self {
+        Self { code: e.rpc_error_code(), message: e.to_string() }
+    }
+}
+
+impl From<Error> for tonic::Status {
+    fn from(e: Error) -> Self { match e {
+        Error::BadBdev { .. } => Self::invalid_argument(e.to_string()),
+        Error::UnknownBdev { .. } => Self::not_found(e.to_string()),
+        Error::BadCreate { .. } => Self::invalid_argument(e.to_string()),
+        Error::FailedCreate { .. } => Self::invalid_argument(e.to_string()),
+        Error::PoolGone { .. } => Self::not_found(e.to_string()),
+        Error::DeviceAlreadyUsed { .. } => Self::unavailable(e.to_string()),
+        Error::FailedImport { .. } => Self::internal(e.to_string()),
+        Error::FailedUnshareReplica { .. } => Self::internal(e.to_string()),
+        Error::FailedDestroyPool { .. } => Self::internal(e.to_string()),
+        Error::FailedDestroyBdev { .. } => Self::internal(e.to_string()),
+    }}
+}
+
+type Result<T> = std::result::Result<T, Error>;
 
 /// Wrapper for create aio bdev C function
-fn create_base_bdev(file: &str, block_size: u32) -> Result<()> {
+pub fn create_base_bdev(file: &str, block_size: u32) -> Result<()> {
     debug!("Creating aio bdev {} ...", file);
     let cstr_file = CString::new(file).unwrap();
     let rc = unsafe {
         create_aio_bdev(cstr_file.as_ptr(), cstr_file.as_ptr(), block_size)
     };
     if rc != 0 {
-        Err(JsonRpcError::new(
-            Code::InvalidParams,
-            "AIO bdev already exists or parameters are invalid",
-        ))
+        Err(Error::BadBdev { name: String::from(file) })
     } else {
         info!("aio bdev {} was created", file);
         Ok(())
@@ -151,10 +217,7 @@ impl Pool {
         let base_bdev = match Bdev::lookup_by_name(disk) {
             Some(bdev) => bdev,
             None => {
-                return Err(JsonRpcError::new(
-                    Code::NotFound,
-                    format!("Base bdev {} does not exist", disk),
-                ))
+                return Err(Error::UnknownBdev { name: String::from(disk)})
             }
         };
         let pool_name = CString::new(name).unwrap();
@@ -175,21 +238,15 @@ impl Pool {
         };
         // TODO: free sender
         if rc < 0 {
-            return Err(JsonRpcError::new(
-                Code::InvalidParams,
-                format!("Failed to create the pool {}", name),
-            ));
+            return Err(Error::BadCreate { name: String::from(name) });
         }
 
         let lvs_errno = receiver.await.expect("Cancellation is not supported");
         if lvs_errno != 0 {
-            return Err(JsonRpcError::new(
-                Code::InvalidParams,
-                format!(
-                    "Failed to create the pool {} (errno={})",
-                    name, lvs_errno
-                ),
-            ));
+            return Err(Error::FailedCreate {
+                name: String::from(name),
+                errno: lvs_errno,
+            });
         }
 
         match Pool::lookup(&name) {
@@ -197,10 +254,7 @@ impl Pool {
                 info!("The pool {} has been created", name);
                 Ok(pool)
             }
-            None => Err(JsonRpcError::new(
-                Code::InternalError,
-                format!("The pool {} disappeared", name),
-            )),
+            None => Err(Error::PoolGone { name: String::from(name) }),
         }
     }
 
@@ -209,10 +263,7 @@ impl Pool {
         let base_bdev = match Bdev::lookup_by_name(disk) {
             Some(bdev) => bdev,
             None => {
-                return Err(JsonRpcError::new(
-                    Code::InternalError,
-                    format!("Base bdev {} does not exist", disk),
-                ))
+                return Err(Error::UnknownBdev { name: String::from(disk)})
             }
         };
 
@@ -235,19 +286,10 @@ impl Pool {
                     info!("The pool {} has been imported", name);
                     Ok(pool)
                 }
-                None => Err(JsonRpcError::new(
-                    Code::InvalidParams,
-                    format!("The device {} hosts another pool", disk),
-                )),
+                None => Err(Error::DeviceAlreadyUsed { name: String::from(disk) }),
             }
         } else {
-            Err(JsonRpcError::new(
-                Code::InternalError,
-                format!(
-                    "Failed to import the pool {} (errno={})",
-                    name, lvs_errno
-                ),
-            ))
+            Err(Error::FailedImport { name: String::from(name), errno: lvs_errno })
         }
     }
 
@@ -263,7 +305,7 @@ impl Pool {
             if replica.get_pool_name() == name {
                 // XXX temporary
                 replica.unshare().await.map_err(|err| {
-                    JsonRpcError::new(Code::InternalError, err.to_string())
+                    Error::FailedUnshareReplica { msg: err.to_string() }
                 })?;
             }
         }
@@ -275,13 +317,7 @@ impl Pool {
         }
         let lvs_errno = receiver.await.expect("Cancellation is not supported");
         if lvs_errno != 0 {
-            return Err(JsonRpcError::new(
-                Code::InternalError,
-                format!(
-                    "Failed to destroy pool {} (errno={})",
-                    name, lvs_errno
-                ),
-            ));
+            return Err(Error::FailedDestroyPool { name, errno: lvs_errno });
         }
 
         // we will destroy base bdev now
@@ -303,13 +339,11 @@ impl Pool {
         }
         let bdev_errno = receiver.await.expect("Cancellation is not supported");
         if bdev_errno != 0 {
-            Err(JsonRpcError::new(
-                Code::InternalError,
-                format!(
-                    "Failed to destroy base bdev {} for the pool {} (errno={})",
-                    base_bdev_name, name, bdev_errno
-                ),
-            ))
+            Err(Error::FailedDestroyBdev {
+                bdev: base_bdev_name,
+                name,
+                errno: bdev_errno
+            })
         } else {
             info!(
                 "The pool {} and base bdev {} have been destroyed",
@@ -376,21 +410,21 @@ pub fn register_pool_methods() {
     // Joining create and import together is questionable and we might split
     // the two operations in future. However not until cache config file
     // feature is implemented and requirements become clear.
-    jsonrpc_register(
+    jsonrpc::jsonrpc_register(
         "create_or_import_pool",
         |args: jsondata::CreateOrImportPoolArgs| {
             let fut = async move {
                 // TODO: support RAID-0 devices
                 if args.disks.len() != 1 {
-                    return Err(JsonRpcError::new(
-                        Code::InvalidParams,
+                    return Err(jsonrpc::JsonRpcError::new(
+                        jsonrpc::Code::InvalidParams,
                         "Invalid number of disks specified",
                     ));
                 }
 
                 if Pool::lookup(&args.name).is_some() {
-                    return Err(JsonRpcError::new(
-                        Code::AlreadyExists,
+                    return Err(jsonrpc::JsonRpcError::new(
+                        jsonrpc::Code::AlreadyExists,
                         format!("The pool {} already exists", args.name),
                     ));
                 }
@@ -399,8 +433,8 @@ pub fn register_pool_methods() {
                 // is no easy way how to get this info using available api.
                 let disk = &args.disks[0];
                 if Bdev::lookup_by_name(disk).is_some() {
-                    return Err(JsonRpcError::new(
-                        Code::InvalidParams,
+                    return Err(jsonrpc::JsonRpcError::new(
+                        jsonrpc::Code::InvalidParams,
                         format!("Base bdev {} already exists", disk),
                     ));
                 }
@@ -414,39 +448,36 @@ pub fn register_pool_methods() {
                 if block_size == 0 {
                     block_size = 4096;
                 }
-                if let Err(err) = create_base_bdev(disk, block_size) {
-                    return Err(err);
-                };
+                create_base_bdev(disk, block_size)?;
 
                 if Pool::import(&args.name, disk).await.is_ok() {
                     return Ok(());
                 }
-                match Pool::create(&args.name, disk).await {
-                    Ok(_) => Ok(()),
-                    Err(err) => Err(err),
-                }
+                Pool::create(&args.name, disk).await?;
+                Ok(())
             };
             fut.boxed_local()
         },
     );
 
-    jsonrpc_register("destroy_pool", |args: jsondata::DestroyPoolArgs| {
+    jsonrpc::jsonrpc_register("destroy_pool", |args: jsondata::DestroyPoolArgs| {
         let fut = async move {
             let pool = match Pool::lookup(&args.name) {
                 Some(p) => p,
                 None => {
-                    return Err(JsonRpcError::new(
-                        Code::NotFound,
+                    return Err(jsonrpc::JsonRpcError::new(
+                        jsonrpc::Code::NotFound,
                         format!("The pool {} does not exist", args.name),
                     ));
                 }
             };
-            pool.destroy().await
+            pool.destroy().await?;
+            Ok(())
         };
         fut.boxed_local()
     });
 
-    jsonrpc_register::<(), _, _, JsonRpcError>("list_pools", |_| {
+    jsonrpc::jsonrpc_register::<(), _, _, jsonrpc::JsonRpcError>("list_pools", |_| {
         future::ok(list_pools()).boxed_local()
     });
 }

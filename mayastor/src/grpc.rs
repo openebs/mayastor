@@ -1,4 +1,4 @@
-use tonic::{transport::Server, Request, Response, Status};
+use tonic::{transport::Server, Request, Response, Status, Code};
 
 use rpc::{
     mayastor::*,
@@ -10,7 +10,8 @@ use crate::{
         nexus::{instances, nexus_bdev, nexus_bdev::Nexus},
         nexus_create,
     },
-    core::{Cores, Reactors},
+    core::{Cores, Reactors, Bdev},
+    pool::{self, Pool},
 };
 
 #[derive(Debug)]
@@ -18,11 +19,11 @@ struct UnixStream(tokio::net::UnixStream);
 
 fn nexus_lookup(
     uuid: &str,
-) -> Result<&mut Nexus, crate::bdev::nexus::nexus_bdev::Error> {
+) -> Result<&mut Nexus, nexus_bdev::Error> {
     if let Some(nexus) = instances().iter_mut().find(|n| &n.name == uuid) {
         Ok(nexus)
     } else {
-        Err(crate::bdev::nexus::nexus_bdev::Error::NexusNotFound {
+        Err(nexus_bdev::Error::NexusNotFound {
             name: uuid.to_owned(),
         })
     }
@@ -34,16 +35,76 @@ pub struct MayastorGrpc {}
 impl Mayastor for MayastorGrpc {
     async fn create_pool(
         &self,
-        _request: Request<CreatePoolRequest>,
+        request: Request<CreatePoolRequest>,
     ) -> Result<Response<Null>, Status> {
-        todo!()
+        let msg = request.into_inner();
+        let hdl = Reactors::current().spawn_local(async move {
+            // TODO: support RAID-0 devices
+            if msg.disks.len() != 1 {
+                return Err(Status::new(
+                    Code::InvalidArgument,
+                    "Invalid number of disks specified",
+                ));
+            }
+
+            if Pool::lookup(&msg.name).is_some() {
+                return Err(Status::new(
+                    Code::AlreadyExists,
+                    format!("The pool {} already exists", msg.name),
+                ));
+            }
+
+            // TODO: We would like to check if the disk is in use, but there
+            // is no easy way how to get this info using available api.
+            let disk = &msg.disks[0];
+            if Bdev::lookup_by_name(disk).is_some() {
+                return Err(Status::new(
+                    Code::InvalidArgument,
+                    format!("Base bdev {} already exists", disk),
+                ));
+            }
+            // The block size may be missing or explicitly set to zero. In
+            // both cases we want to provide our own default value instead
+            // of SPDK's default which is 512.
+            //
+            // NOTE: Keep this in sync with nexus block size which is
+            // hardcoded to 4096.
+            let mut block_size = msg.block_size;
+            if block_size == 0 {
+                block_size = 4096;
+            }
+            pool::create_base_bdev(disk, block_size)?;
+
+            if ! Pool::import(&msg.name, disk).await.is_ok() {
+                Pool::create(&msg.name, disk).await?;
+            }
+
+            Ok(())
+        });
+        hdl.await.unwrap()?;
+        Ok(Response::new(Null {}))
     }
 
     async fn destroy_pool(
         &self,
-        _request: Request<DestroyPoolRequest>,
+        request: Request<DestroyPoolRequest>,
     ) -> Result<Response<Null>, Status> {
-        todo!()
+        let msg = request.into_inner();
+        let hdl = Reactors::current().spawn_local(async move {
+            let pool = match Pool::lookup(&msg.name) {
+                Some(p) => p,
+                None => {
+                    return Err(Status::new(
+                        Code::NotFound,
+                        format!("The pool {} does not exist", msg.name),
+                    ));
+                }
+            };
+            pool.destroy().await?;
+            Ok(())
+        });
+        hdl.await.unwrap()?;
+        Ok(Response::new(Null {}))
     }
 
     async fn list_pools(
@@ -52,7 +113,7 @@ impl Mayastor for MayastorGrpc {
     ) -> Result<Response<ListPoolsReply>, Status> {
         assert_eq!(Cores::current(), Cores::first());
 
-        let pools = crate::pool::list_pools();
+        let pools = pool::list_pools();
 
         dbg!(pools);
 
