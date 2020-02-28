@@ -50,6 +50,8 @@ impl Nexus {
             _ => return Err(Error::InvalidShareProtocol {sp_value: share_proto as i32}),
         };
 
+        self.share_protocol = share_proto;
+
         // TODO for now we discard and ignore share_proto
 
         let name = if let Some(key) = key {
