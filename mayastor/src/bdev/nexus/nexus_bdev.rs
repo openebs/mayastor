@@ -47,6 +47,10 @@ use crate::{
     nexus_uri::BdevCreateDestroy,
 };
 
+use rpc::mayastor::{
+    ShareProtocol,
+};
+
 /// Common errors for nexus basic operations and child operations
 /// which are part of nexus object.
 #[derive(Debug, Snafu)]
@@ -195,6 +199,8 @@ pub struct Nexus {
     /// the handle to be used when sharing the nexus, this allows for the bdev
     /// to be shared with vbdevs on top
     pub(crate) share_handle: Option<String>,
+    /// frontend share protocol used when the nexus is published
+    pub share_protocol: ShareProtocol,
 }
 
 unsafe impl core::marker::Sync for Nexus {}
@@ -271,6 +277,7 @@ impl Nexus {
             nbd_disk: None,
             share_handle: None,
             size,
+            share_protocol: ShareProtocol::None,
         });
 
         n.bdev.set_uuid(match uuid {
