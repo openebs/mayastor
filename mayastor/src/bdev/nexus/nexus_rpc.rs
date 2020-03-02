@@ -62,17 +62,6 @@ fn name_to_uuid(name: &str) -> &str {
     }
 }
 
-/// Convert share protocol value to ShareProtocol for frontend use.
-/// Returns Option<ShareProtocol> or None.
-fn frontend_shareprotocol_from(spv : i32) -> Option<ShareProtocol> {
-    match spv  {
-        0 => None,
-        1 => Some(ShareProtocol::Nvmf),
-        2 => Some(ShareProtocol::Iscsi),
-        3 => Some(ShareProtocol::Nbd),
-        _ => None
-    }
-}
 
 pub(crate) fn register_rpc_methods() {
     // JSON rpc method to list the nexus and their states
@@ -143,15 +132,13 @@ pub(crate) fn register_rpc_methods() {
             let key: Option<String> =
                 if args.key == "" { None } else { Some(args.key) };
 
-            let spv = frontend_shareprotocol_from(args.share);
-            if spv.is_none() {
-                return Err(Error::InvalidShareProtocol {sp_value: args.share});
+            let share_proto = ShareProtocol::from_i32(args.share);
+            if share_proto.is_none() {
+                return Err(Error::InvalidShareProtocol {sp_value: args.share as i32});
             }
 
-            let share = spv.unwrap();
-
             let nexus = nexus_lookup(&args.uuid)?;
-            nexus.share(share, key).await.map(|device_path| PublishNexusReply {
+            nexus.share(share_proto.unwrap(), key).await.map(|device_path| PublishNexusReply {
                 device_path,
             })
         };

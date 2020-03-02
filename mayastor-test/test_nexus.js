@@ -345,6 +345,32 @@ describe('nexus', function() {
     });
   });
 
+  it('should fail to publish with ShareProtocol None', done => {
+      let args = {
+          uuid: UUID,
+          share: mayastorProtoConstants.ShareProtocol.None
+      };
+
+      client.PublishNexus(args, (err, data) => {
+          if (!err) return done(new Error('Expected error'));
+          assert.equal(err.code, grpc.status.INVALID_ARGUMENT);
+          done();
+      });
+  });
+
+  it('should fail to publish with invalid ShareProtocol value of 100', done => {
+      let args = {
+          uuid: UUID,
+          share: 100,
+      };
+
+      client.PublishNexus(args, (err, data) => {
+          if (!err) return done(new Error('Expected error'));
+          assert.equal(err.code, grpc.status.INVALID_ARGUMENT);
+          done();
+      });
+  });
+
   it('should publish the nexus using nbd', done => {
     // TODO: repeat this test for iSCSI and Nvmf
     client.PublishNexus({ uuid: UUID, share: mayastorProtoConstants.ShareProtocol.NBD }, (err, res) => {
