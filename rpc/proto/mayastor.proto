@@ -191,3 +191,19 @@ message ChildNexusRequest {
   string uri =2;
   ChildAction action = 3;
 }
+
+message RebuildStateRequest {
+  string uuid = 1;  // uuid of the nexus
+}
+
+message RebuildStateReply {
+  string state = 1; // current rebuild state (i.e. ready/running/completed etc.)
+}
+
+message RebuildProgressRequest {
+  string uuid = 1;  // uuid of the nexus
+}
+
+message RebuildProgressReply {
+  string progress = 1;  // progress percentage
+}
