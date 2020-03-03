@@ -29,6 +29,8 @@ use spdk_sys::{
     spdk_io_device_unregister,
 };
 
+use rpc::mayastor::{RebuildProgressReply, RebuildStateReply};
+
 use crate::{
     bdev::{
         nexus,
@@ -694,6 +696,22 @@ impl Nexus {
     /// returns the current status of the nexus
     pub fn status(&self) -> NexusState {
         self.state
+    }
+
+    pub async fn get_rebuild_state(&self) -> Result<RebuildStateReply, Error> {
+        // TODO: add real implementation
+        Ok(RebuildStateReply {
+            state: "Not implemented".to_string(),
+        })
+    }
+
+    pub async fn get_rebuild_progress(
+        &self,
+    ) -> Result<RebuildProgressReply, Error> {
+        // TODO: add real implementation
+        Ok(RebuildProgressReply {
+            progress: "Not implemented".to_string(),
+        })
     }
 }
 
