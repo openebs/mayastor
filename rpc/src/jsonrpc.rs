@@ -1,3 +1,4 @@
+use crate::mayastor::ShareProtocol;
 /// create or import a pool specified by name
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct CreateOrImportPoolArgs {
@@ -29,4 +30,18 @@ pub struct Pool {
     pub capacity: u64,
     /// the used capacity in bytes
     pub used: u64,
+}
+use std::str::FromStr;
+impl FromStr for ShareProtocol {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<ShareProtocol, ()> {
+        match s.to_lowercase().trim() {
+            "none" => Ok(ShareProtocol::None),
+            "nvmf" => Ok(ShareProtocol::Nvmf),
+            "iscsi" => Ok(ShareProtocol::Iscsi),
+            "nbd" => Ok(ShareProtocol::Nbd),
+            _ => Err(()),
+        }
+    }
 }
