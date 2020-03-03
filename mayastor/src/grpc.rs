@@ -11,6 +11,7 @@ use crate::{
         nexus_create,
     },
     core::{Cores, Reactors, Bdev},
+    replica,
     pool::{self, Pool},
 };
 
@@ -19,7 +20,7 @@ struct UnixStream(tokio::net::UnixStream);
 
 fn nexus_lookup(
     uuid: &str,
-) -> Result<&mut Nexus, nexus_bdev::Error> {
+) -> std::result::Result<&mut Nexus, nexus_bdev::Error> {
     if let Some(nexus) = instances().iter_mut().find(|n| &n.name == uuid) {
         Ok(nexus)
     } else {
@@ -31,12 +32,14 @@ fn nexus_lookup(
 
 pub struct MayastorGrpc {}
 
+type Result<T> = std::result::Result<T, Status>;
+
 #[tonic::async_trait]
 impl Mayastor for MayastorGrpc {
     async fn create_pool(
         &self,
         request: Request<CreatePoolRequest>,
-    ) -> Result<Response<Null>, Status> {
+    ) -> Result<Response<Null>> {
         let msg = request.into_inner();
         let hdl = Reactors::current().spawn_local(async move {
             // TODO: support RAID-0 devices
@@ -75,7 +78,7 @@ impl Mayastor for MayastorGrpc {
             }
             pool::create_base_bdev(disk, block_size)?;
 
-            if ! Pool::import(&msg.name, disk).await.is_ok() {
+            if !Pool::import(&msg.name, disk).await.is_ok() {
                 Pool::create(&msg.name, disk).await?;
             }
 
@@ -88,7 +91,7 @@ impl Mayastor for MayastorGrpc {
     async fn destroy_pool(
         &self,
         request: Request<DestroyPoolRequest>,
-    ) -> Result<Response<Null>, Status> {
+    ) -> Result<Response<Null>> {
         let msg = request.into_inner();
         let hdl = Reactors::current().spawn_local(async move {
             let pool = match Pool::lookup(&msg.name) {
@@ -110,7 +113,7 @@ impl Mayastor for MayastorGrpc {
     async fn list_pools(
         &self,
         _request: Request<Null>,
-    ) -> Result<Response<ListPoolsReply>, Status> {
+    ) -> Result<Response<ListPoolsReply>> {
         assert_eq!(Cores::current(), Cores::first());
 
         let pools = pool::list_pools();
@@ -124,42 +127,54 @@ impl Mayastor for MayastorGrpc {
 
     async fn create_replica(
         &self,
-        _request: Request<CreateReplicaRequest>,
-    ) -> Result<Response<CreateReplicaReply>, Status> {
-        todo!()
+        request: Request<CreateReplicaRequest>,
+    ) -> Result<Response<CreateReplicaReply>> {
+        let msg = request.into_inner();
+        let hdl = Reactors::current().spawn_local(replica::create_replica(msg));
+        Ok(Response::new(hdl.await.unwrap()?))
     }
+
     async fn destroy_replica(
         &self,
-        _request: Request<DestroyReplicaRequest>,
-    ) -> Result<Response<Null>, Status> {
-        todo!()
+        request: Request<DestroyReplicaRequest>,
+    ) -> Result<Response<Null>> {
+        let msg = request.into_inner();
+        let hdl = Reactors::current().spawn_local(replica::destroy_replica(msg));
+        hdl.await.unwrap()?;
+        Ok(Response::new(Null {}))
     }
 
     async fn list_replicas(
         &self,
         _request: Request<Null>,
-    ) -> Result<Response<ListReplicasReply>, Status> {
-        todo!()
+    ) -> Result<Response<ListReplicasReply>> {
+        let hdl = Reactors::current().spawn_local(replica::list_replicas());
+        Ok(Response::new(hdl.await.unwrap()?))
     }
 
     async fn stat_replicas(
         &self,
         _request: Request<Null>,
-    ) -> Result<Response<StatReplicasReply>, Status> {
-        todo!()
+    ) -> Result<Response<StatReplicasReply>> {
+        let hdl = Reactors::current().spawn_local(replica::stat_replicas());
+        Ok(Response::new(hdl.await.unwrap()?))
     }
 
     async fn share_replica(
         &self,
-        _request: Request<ShareReplicaRequest>,
-    ) -> Result<Response<ShareReplicaReply>, Status> {
-        todo!()
+        request: Request<ShareReplicaRequest>,
+    ) -> Result<Response<ShareReplicaReply>> {
+        let msg = request.into_inner();
+        let hdl = Reactors::current().spawn_local(async move {
+            Result::<ShareReplicaReply>::Ok(replica::share_replica(msg).await?)
+        });
+        Ok(Response::new(hdl.await.unwrap()?))
     }
 
     async fn create_nexus(
         &self,
         request: Request<CreateNexusRequest>,
-    ) -> Result<Response<Null>, Status> {
+    ) -> Result<Response<Null>> {
         let msg = request.into_inner();
 
         let hdl = Reactors::current().spawn_local(async move {
@@ -176,7 +191,7 @@ impl Mayastor for MayastorGrpc {
     async fn destroy_nexus(
         &self,
         request: Request<DestroyNexusRequest>,
-    ) -> Result<Response<Null>, Status> {
+    ) -> Result<Response<Null>> {
         let msg = request.into_inner();
 
         let hdl = Reactors::current().spawn_local(async move {
@@ -192,7 +207,7 @@ impl Mayastor for MayastorGrpc {
     async fn list_nexus(
         &self,
         _request: Request<Null>,
-    ) -> Result<Response<ListNexusReply>, Status> {
+    ) -> Result<Response<ListNexusReply>> {
         let list = instances()
             .iter()
             .map(|n| rpc::mayastor::Nexus {
@@ -218,21 +233,21 @@ impl Mayastor for MayastorGrpc {
     async fn add_child_nexus(
         &self,
         _request: Request<AddChildNexusRequest>,
-    ) -> Result<Response<Null>, Status> {
+    ) -> Result<Response<Null>> {
         todo!()
     }
 
     async fn remove_child_nexus(
         &self,
         _request: Request<RemoveChildNexusRequest>,
-    ) -> Result<Response<Null>, Status> {
+    ) -> Result<Response<Null>> {
         todo!()
     }
 
     async fn publish_nexus(
         &self,
         request: Request<PublishNexusRequest>,
-    ) -> Result<Response<PublishNexusReply>, Status> {
+    ) -> Result<Response<PublishNexusReply>> {
         let msg = request.into_inner();
 
         if msg.key != "" && msg.key.len() != 16 {
@@ -260,7 +275,7 @@ impl Mayastor for MayastorGrpc {
     async fn unpublish_nexus(
         &self,
         request: Request<UnpublishNexusRequest>,
-    ) -> Result<Response<Null>, Status> {
+    ) -> Result<Response<Null>> {
         let msg = request.into_inner();
 
         let hdl = Reactors::current().spawn_local(async move {
@@ -275,12 +290,12 @@ impl Mayastor for MayastorGrpc {
     async fn child_operation(
         &self,
         _request: Request<ChildNexusRequest>,
-    ) -> Result<Response<Null>, Status> {
+    ) -> Result<Response<Null>> {
         todo!()
     }
 }
 
-pub async fn grpc_server_init() -> Result<(), ()> {
+pub async fn grpc_server_init() -> std::result::Result<(), ()> {
     let saddr = "192.168.1.4:1234".to_string().parse().unwrap();
     let svc = Server::builder()
         .add_service(MayastorServer::new(MayastorGrpc {}))
