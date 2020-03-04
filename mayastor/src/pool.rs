@@ -45,10 +45,18 @@ use crate::jsonrpc::RpcErrorCode;
 #[derive(Debug, Snafu)]
 #[snafu(visibility = "pub(crate)")]
 pub enum Error {
+    #[snafu(display("Invalid number of disks specified: should be 1, got {}", num))]
+    BadNumDisks { num: usize },
     #[snafu(display("AIO bdev {} already exists or parameters are invalid", name))]
     BadBdev { name: String },
+    #[snafu(display("Base bdev {} already exists", name))]
+    AlreadyBdev { name: String },
     #[snafu(display("Base bdev {} does not exist", name))]
     UnknownBdev { name: String },
+    #[snafu(display("The pool {} already exists", name))]
+    AlreadyExists { name: String },
+    #[snafu(display("The pool {} does not exist", name))]
+    UnknownPool { name: String },
     #[snafu(display("Could not create pool {}", name))]
     BadCreate { name: String },
     #[snafu(display("Failed to create the pool {} (errno={})", name, errno))]
@@ -71,8 +79,12 @@ pub enum Error {
 impl jsonrpc::RpcErrorCode for Error {
     fn rpc_error_code(&self) -> jsonrpc::Code {
         match self {
+            Error::BadNumDisks { .. } => jsonrpc::Code::InvalidParams,
             Error::BadBdev { .. } => jsonrpc::Code::InvalidParams,
+            Error::AlreadyBdev { .. } => jsonrpc::Code::InvalidParams,
             Error::UnknownBdev { .. } => jsonrpc::Code::NotFound,
+            Error::AlreadyExists { .. } => jsonrpc::Code::AlreadyExists,
+            Error::UnknownPool { .. } => jsonrpc::Code::NotFound,
             Error::BadCreate { .. } => jsonrpc::Code::InvalidParams,
             Error::FailedCreate { .. } => jsonrpc::Code::InvalidParams,
             Error::PoolGone { .. } => jsonrpc::Code::InternalError,
@@ -93,8 +105,12 @@ impl From<Error> for jsonrpc::JsonRpcError {
 
 impl From<Error> for tonic::Status {
     fn from(e: Error) -> Self { match e {
+        Error::BadNumDisks { .. } => Self::invalid_argument(e.to_string()),
         Error::BadBdev { .. } => Self::invalid_argument(e.to_string()),
+        Error::AlreadyBdev { .. } => Self::invalid_argument(e.to_string()),
         Error::UnknownBdev { .. } => Self::not_found(e.to_string()),
+        Error::AlreadyExists { .. } => Self::already_exists(e.to_string()),
+        Error::UnknownPool { .. } => Self::not_found(e.to_string()),
         Error::BadCreate { .. } => Self::invalid_argument(e.to_string()),
         Error::FailedCreate { .. } => Self::invalid_argument(e.to_string()),
         Error::PoolGone { .. } => Self::not_found(e.to_string()),
@@ -389,6 +405,54 @@ impl Iterator for PoolsIter {
     }
 }
 
+pub async fn create_pool(args: rpc::mayastor::CreatePoolRequest)
+    -> Result<()> {
+    // TODO: support RAID-0 devices
+    if args.disks.len() != 1 {
+        return Err(Error::BadNumDisks {num: args.disks.len()});
+    }
+
+    if Pool::lookup(&args.name).is_some() {
+        return Err(Error::AlreadyExists {name: args.name});
+    }
+
+    // TODO: We would like to check if the disk is in use, but there
+    // is no easy way how to get this info using available api.
+    let disk = &args.disks[0];
+    if Bdev::lookup_by_name(disk).is_some() {
+        return Err(Error::AlreadyBdev {name: disk.clone()});
+    }
+    // The block size may be missing or explicitly set to zero. In
+    // both cases we want to provide our own default value instead
+    // of SPDK's default which is 512.
+    //
+    // NOTE: Keep this in sync with nexus block size which is
+    // hardcoded to 4096.
+    let mut block_size = args.block_size; //.unwrap_or(0);
+    if block_size == 0 {
+        block_size = 4096;
+    }
+    create_base_bdev(disk, block_size)?;
+
+    if Pool::import(&args.name, disk).await.is_ok() {
+        return Ok(());
+    }
+    Pool::create(&args.name, disk).await?;
+    Ok(())
+}
+
+pub async fn destroy_pool(args: rpc::mayastor::DestroyPoolRequest)
+    -> Result<()> {
+    let pool = match Pool::lookup(&args.name) {
+        Some(p) => p,
+        None => {
+            return Err(Error::UnknownPool {name: args.name});
+        }
+    };
+    pool.destroy().await?;
+    Ok(())
+}
+
 pub(crate) fn list_pools() -> Vec<jsondata::Pool> {
     let mut pools = Vec::new();
 
@@ -412,72 +476,15 @@ pub fn register_pool_methods() {
     // feature is implemented and requirements become clear.
     jsonrpc::jsonrpc_register(
         "create_or_import_pool",
-        |args: jsondata::CreateOrImportPoolArgs| {
-            let fut = async move {
-                // TODO: support RAID-0 devices
-                if args.disks.len() != 1 {
-                    return Err(jsonrpc::JsonRpcError::new(
-                        jsonrpc::Code::InvalidParams,
-                        "Invalid number of disks specified",
-                    ));
-                }
-
-                if Pool::lookup(&args.name).is_some() {
-                    return Err(jsonrpc::JsonRpcError::new(
-                        jsonrpc::Code::AlreadyExists,
-                        format!("The pool {} already exists", args.name),
-                    ));
-                }
-
-                // TODO: We would like to check if the disk is in use, but there
-                // is no easy way how to get this info using available api.
-                let disk = &args.disks[0];
-                if Bdev::lookup_by_name(disk).is_some() {
-                    return Err(jsonrpc::JsonRpcError::new(
-                        jsonrpc::Code::InvalidParams,
-                        format!("Base bdev {} already exists", disk),
-                    ));
-                }
-                // The block size may be missing or explicitly set to zero. In
-                // both cases we want to provide our own default value instead
-                // of SPDK's default which is 512.
-                //
-                // NOTE: Keep this in sync with nexus block size which is
-                // hardcoded to 4096.
-                let mut block_size = args.block_size.unwrap_or(0);
-                if block_size == 0 {
-                    block_size = 4096;
-                }
-                create_base_bdev(disk, block_size)?;
-
-                if Pool::import(&args.name, disk).await.is_ok() {
-                    return Ok(());
-                }
-                Pool::create(&args.name, disk).await?;
-                Ok(())
-            };
-            fut.boxed_local()
+        |args: rpc::mayastor::CreatePoolRequest| {
+            create_pool(args).boxed_local()
         },
     );
 
-    jsonrpc::jsonrpc_register("destroy_pool", |args: jsondata::DestroyPoolArgs| {
-        let fut = async move {
-            let pool = match Pool::lookup(&args.name) {
-                Some(p) => p,
-                None => {
-                    return Err(jsonrpc::JsonRpcError::new(
-                        jsonrpc::Code::NotFound,
-                        format!("The pool {} does not exist", args.name),
-                    ));
-                }
-            };
-            pool.destroy().await?;
-            Ok(())
-        };
-        fut.boxed_local()
-    });
+    jsonrpc::jsonrpc_register(
+        "destroy_pool",
+      |args: rpc::mayastor::DestroyPoolRequest| { destroy_pool(args).boxed_local() });
 
-    jsonrpc::jsonrpc_register::<(), _, _, jsonrpc::JsonRpcError>("list_pools", |_| {
-        future::ok(list_pools()).boxed_local()
-    });
+    jsonrpc::jsonrpc_register::<(), _, _, jsonrpc::JsonRpcError>(
+        "list_pools", |_| { future::ok(list_pools()).boxed_local() });
 }

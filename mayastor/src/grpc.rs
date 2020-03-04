@@ -1,4 +1,4 @@
-use tonic::{transport::Server, Request, Response, Status, Code};
+use tonic::{transport::Server, Request, Response, Status};
 
 use rpc::{
     mayastor::*,
@@ -10,9 +10,9 @@ use crate::{
         nexus::{instances, nexus_bdev, nexus_bdev::Nexus},
         nexus_create,
     },
-    core::{Cores, Reactors, Bdev},
+    core::{Cores, Reactors},
     replica,
-    pool::{self, Pool},
+    pool,
 };
 
 #[derive(Debug)]
@@ -41,49 +41,7 @@ impl Mayastor for MayastorGrpc {
         request: Request<CreatePoolRequest>,
     ) -> Result<Response<Null>> {
         let msg = request.into_inner();
-        let hdl = Reactors::current().spawn_local(async move {
-            // TODO: support RAID-0 devices
-            if msg.disks.len() != 1 {
-                return Err(Status::new(
-                    Code::InvalidArgument,
-                    "Invalid number of disks specified",
-                ));
-            }
-
-            if Pool::lookup(&msg.name).is_some() {
-                return Err(Status::new(
-                    Code::AlreadyExists,
-                    format!("The pool {} already exists", msg.name),
-                ));
-            }
-
-            // TODO: We would like to check if the disk is in use, but there
-            // is no easy way how to get this info using available api.
-            let disk = &msg.disks[0];
-            if Bdev::lookup_by_name(disk).is_some() {
-                return Err(Status::new(
-                    Code::InvalidArgument,
-                    format!("Base bdev {} already exists", disk),
-                ));
-            }
-            // The block size may be missing or explicitly set to zero. In
-            // both cases we want to provide our own default value instead
-            // of SPDK's default which is 512.
-            //
-            // NOTE: Keep this in sync with nexus block size which is
-            // hardcoded to 4096.
-            let mut block_size = msg.block_size;
-            if block_size == 0 {
-                block_size = 4096;
-            }
-            pool::create_base_bdev(disk, block_size)?;
-
-            if !Pool::import(&msg.name, disk).await.is_ok() {
-                Pool::create(&msg.name, disk).await?;
-            }
-
-            Ok(())
-        });
+        let hdl = Reactors::current().spawn_local(pool::create_pool(msg));
         hdl.await.unwrap()?;
         Ok(Response::new(Null {}))
     }
@@ -93,19 +51,7 @@ impl Mayastor for MayastorGrpc {
         request: Request<DestroyPoolRequest>,
     ) -> Result<Response<Null>> {
         let msg = request.into_inner();
-        let hdl = Reactors::current().spawn_local(async move {
-            let pool = match Pool::lookup(&msg.name) {
-                Some(p) => p,
-                None => {
-                    return Err(Status::new(
-                        Code::NotFound,
-                        format!("The pool {} does not exist", msg.name),
-                    ));
-                }
-            };
-            pool.destroy().await?;
-            Ok(())
-        });
+        let hdl = Reactors::current().spawn_local(pool::destroy_pool(msg));
         hdl.await.unwrap()?;
         Ok(Response::new(Null {}))
     }
@@ -148,8 +94,7 @@ impl Mayastor for MayastorGrpc {
         &self,
         _request: Request<Null>,
     ) -> Result<Response<ListReplicasReply>> {
-        let hdl = Reactors::current().spawn_local(replica::list_replicas());
-        Ok(Response::new(hdl.await.unwrap()?))
+        Ok(Response::new(replica::list_replicas()))
     }
 
     async fn stat_replicas(
@@ -232,16 +177,34 @@ impl Mayastor for MayastorGrpc {
     }
     async fn add_child_nexus(
         &self,
-        _request: Request<AddChildNexusRequest>,
+        request: Request<AddChildNexusRequest>,
     ) -> Result<Response<Null>> {
-        todo!()
+        let msg = request.into_inner();
+
+        let hdl = Reactors::current().spawn_local(async move {
+            let nexus = nexus_lookup(&msg.uuid)?;
+            nexus.add_child(&msg.uri).await.map(|_| ())
+        });
+
+        hdl.await.unwrap()?;
+
+        Ok(Response::new(Null {}))
     }
 
     async fn remove_child_nexus(
         &self,
-        _request: Request<RemoveChildNexusRequest>,
+        request: Request<RemoveChildNexusRequest>,
     ) -> Result<Response<Null>> {
-        todo!()
+        let msg = request.into_inner();
+
+        let hdl = Reactors::current().spawn_local(async move {
+            let nexus = nexus_lookup(&msg.uuid)?;
+            nexus.remove_child(&msg.uri).await
+        });
+
+        hdl.await.unwrap()?;
+
+        Ok(Response::new(Null {}))
     }
 
     async fn publish_nexus(
