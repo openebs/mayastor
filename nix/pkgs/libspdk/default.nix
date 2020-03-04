@@ -7,6 +7,7 @@
 , lcov
 , libaio
 , libiscsi
+, liburing
 , libuuid
 , nasm
 , numactl
@@ -34,6 +35,7 @@ stdenv.mkDerivation rec {
     libaio
     libiscsi.dev
     libuuid
+    liburing
     nasm
     numactl
     openssl
@@ -46,6 +48,7 @@ stdenv.mkDerivation rec {
     --without-isal --with-iscsi-initiator --with-rdma
     --with-internal-vhost-lib --disable-tests --with-dpdk-machine=native
     --with-crypto
+    --with-uring
   '';
 
   enableParallelBuilding = true;
@@ -76,7 +79,7 @@ stdenv.mkDerivation rec {
     find . -type f -name 'librte_vhost.a' -delete
 
     $CC -shared -o libspdk_fat.so \
-    -lc -lrdmacm -laio -libverbs -liscsi -lnuma -ldl -lrt -luuid -lpthread -lcrypto \
+    -lc -lrdmacm -laio -libverbs -liscsi -lnuma -ldl -lrt -luuid -lpthread -lcrypto -luring \
     -Wl,--whole-archive \
     $(find build/lib -type f -name 'libspdk_*.a*' -o -name 'librte_*.a*') \
     $(find dpdk/build/lib -type f -name 'librte_*.a*') \
