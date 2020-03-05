@@ -7,6 +7,7 @@ pub use nexus::{
     nexus_label::{GPTHeader, GptEntry},
 };
 pub use nvmf_dev::{NvmeCtlAttachReq, NvmfParseError};
+pub use uring_dev::{UringBdev, UringParseError};
 use spdk_sys::{spdk_conf_section, spdk_conf_section_get_nmval};
 
 /// Allocate C string and return pointer to it.
@@ -21,6 +22,7 @@ mod aio_dev;
 mod iscsi_dev;
 pub(crate) mod nexus;
 mod nvmf_dev;
+mod uring_dev;
 
 unsafe fn parse_config_param<T>(
     sp: *mut spdk_conf_section,

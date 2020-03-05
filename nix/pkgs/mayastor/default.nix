@@ -5,6 +5,7 @@
 , libaio
 , libiscsi
 , libspdk
+, liburing
 , llvmPackages
 , numactl
 , openssl
@@ -51,6 +52,7 @@ rec {
       libaio
       libiscsi.lib
       libspdk
+      liburing
       llvmPackages.libclang
       numactl
       openssl
