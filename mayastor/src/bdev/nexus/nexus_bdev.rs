@@ -200,7 +200,7 @@ pub struct Nexus {
     /// to be shared with vbdevs on top
     pub(crate) share_handle: Option<String>,
     /// frontend share protocol used when the nexus is published
-    pub share_protocol: ShareProtocol,
+    pub share_protocol: Option<ShareProtocol>,
 }
 
 unsafe impl core::marker::Sync for Nexus {}
@@ -277,7 +277,7 @@ impl Nexus {
             nbd_disk: None,
             share_handle: None,
             size,
-            share_protocol: ShareProtocol::None,
+            share_protocol: None,
         });
 
         n.bdev.set_uuid(match uuid {

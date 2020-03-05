@@ -16,11 +16,10 @@ use rpc::service::mayastor_client::MayastorClient;
 
 fn parse_share_protocol(pcol: Option<&str>) -> Result<i32, Status> {
     match pcol {
-        None => Ok(rpc::mayastor::ShareProtocol::None as i32),
+        Some("nbd") => Ok(rpc::mayastor::ShareProtocol::Nbd as i32),
         Some("nvmf") => Ok(rpc::mayastor::ShareProtocol::Nvmf as i32),
         Some("iscsi") => Ok(rpc::mayastor::ShareProtocol::Iscsi as i32),
-        Some("none") => Ok(rpc::mayastor::ShareProtocol::None as i32),
-        Some(_) => Err(Status::new(
+        Some(_) | None => Err(Status::new(
             Code::Internal,
             "Invalid value of share protocol".to_owned(),
         )),
@@ -220,9 +219,6 @@ async fn list_replicas(
                 r.uuid,
                 r.thin,
                 match rpc::mayastor::ShareProtocol::from_i32(r.share) {
-                    Some(rpc::mayastor::ShareProtocol::None) => {
-                        "none"
-                    }
                     Some(rpc::mayastor::ShareProtocol::Nvmf) => {
                         "nvmf"
                     }

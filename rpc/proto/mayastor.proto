@@ -49,10 +49,9 @@ message ListPoolsReply {
 
 // Protocol for remote storage access which exposes a replica and frontend.
 enum ShareProtocol {
-  NONE = 0;   // not exposed
+  NBD = 0;    // NBD, not exposed
   NVMF = 1;   // NVMe over Fabrics (TCP)
   ISCSI = 2;  // iSCSI
-  NBD = 3;    // NBD
 }
 
 // Create replica arguments.

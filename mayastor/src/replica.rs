@@ -445,6 +445,7 @@ pub fn register_replica_methods() {
                         uuid: args.uuid.clone(),
                     })?,
                 };
+
                 // Should we ignore EEXIST error?
                 let replica = Replica::create(
                     &args.uuid, &args.pool, args.size, args.thin,
@@ -469,7 +470,6 @@ pub fn register_replica_methods() {
                             uuid: args.uuid.clone(),
                         })?,
                     ShareProtocol::Nbd => (),
-                    ShareProtocol::None => (),
                 }
                 Ok(CreateReplicaReply {
                     uri: replica.get_share_uri(),
@@ -513,7 +513,7 @@ pub fn register_replica_methods() {
                             ShareType::Iscsi => ShareProtocol::Iscsi as i32,
                             ShareType::Nvmf => ShareProtocol::Nvmf as i32,
                         },
-                        None => ShareProtocol::None as i32,
+                        None => ShareProtocol::Nbd as i32,
                     },
                     uri: r.get_share_uri(),
                 })
@@ -617,7 +617,6 @@ pub fn register_replica_methods() {
                                 uuid: args.uuid.clone(),
                             })?,
                         ShareProtocol::Nbd => (),
-                        ShareProtocol::None => (),
                     }
                 }
                 Ok(ShareReplicaReply {

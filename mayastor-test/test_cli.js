@@ -348,7 +348,7 @@ describe('cli', function() {
         assert.equal(repls[0].name, UUID1);
         assert.equal(repls[0].pool, POOL);
         assert.equal(repls[0].thin, 'true');
-        assert.equal(repls[0].share, 'none');
+        assert.equal(repls[0].share, 'nbd');
         assert.equal(repls[0].size, '9.8'); // 10000MiB -> 9.8 GiB
         assert.equal(repls[0].size_unit, 'GiB');
         assert.match(repls[0].uri, /^bdev:\/\/\/\d+/);
@@ -478,6 +478,7 @@ describe('cli', function() {
             pool: POOL,
             size: { low: 1000 * (1024 * 1024), high: 0, unsigned: true },
             thin: true,
+            share: 1,
           },
           error: {
             code: 6, // ALREADY_EXISTS
@@ -565,7 +566,7 @@ describe('cli', function() {
 
     it('should not create a replica if it already exists', function(done) {
       const cmd = util.format(
-        '%s replica create %s %s --size=1000 --thin',
+        '%s replica create %s %s --size=1000 --thin --protocol=nvmf',
         EGRESS_CMD,
         POOL,
         UUID

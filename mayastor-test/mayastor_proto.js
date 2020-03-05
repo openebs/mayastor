@@ -26,10 +26,9 @@ function getConstants() {
 // ans create the map from that. This will do for now.
   return {
       ShareProtocol: {
-          NONE: pkgDef.mayastor.ShareProtocol.type.value.find(ent => ent.name == 'NONE').number,
+          NBD: pkgDef.mayastor.ShareProtocol.type.value.find(ent => ent.name == 'NBD').number,
           NVMF: pkgDef.mayastor.ShareProtocol.type.value.find(ent => ent.name == 'NVMF').number,
           ISCSI: pkgDef.mayastor.ShareProtocol.type.value.find(ent => ent.name == 'ISCSI').number,
-          NBD: pkgDef.mayastor.ShareProtocol.type.value.find(ent => ent.name == 'NBD').number,
       },
   };
 }

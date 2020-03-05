@@ -28,15 +28,6 @@ use rpc::mayastor::{
 /// algorithm
 const CRYPTO_FLAVOUR: &str = "crypto_aesni_mb";
 
-fn validate_frontend_protocol(share_protocol : ShareProtocol) -> Result<ShareProtocol, Error>  {
-    match share_protocol {
-        ShareProtocol::Nvmf => Ok(ShareProtocol::Nvmf),
-        ShareProtocol::Iscsi => Ok(ShareProtocol::Iscsi),
-        ShareProtocol::Nbd => Ok(ShareProtocol::Nbd),
-        _ => Err(Error::InvalidShareProtocol {sp_value: share_protocol as i32}),
-    }
-}
-
 impl Nexus {
     /// Publish the nexus to system using nbd device and return the path to
     /// nbd device.
@@ -52,9 +43,8 @@ impl Nexus {
         }
 
         assert_eq!(self.share_handle, None);
-        validate_frontend_protocol(share_proto)?;
 
-        self.share_protocol = share_proto;
+        self.share_protocol = Some(share_proto);
 
         // TODO for now we discard and ignore share_proto
 
@@ -104,7 +94,7 @@ impl Nexus {
     pub async fn unshare(&mut self) -> Result<(), Error> {
         match self.nbd_disk.take() {
             Some(disk) => {
-                if validate_frontend_protocol(self.share_protocol).is_err() {
+                if self.share_protocol.is_none() {
                     return Err(Error::NotShared { name: self.name.clone(),});
                 }
 
@@ -132,7 +122,7 @@ impl Nexus {
                 } else {
                     warn!("Missing bdev for a shared device");
                 }
-                self.share_protocol = ShareProtocol::None;
+                self.share_protocol = None;
                 Ok(())
             }
             None => Err(Error::NotShared {

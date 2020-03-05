@@ -291,7 +291,7 @@ describe('replica', function() {
         uuid: UUID,
         pool: POOL,
         thin: true,
-        share: 'NONE',
+        share: 'NBD',
         size: 8 * (1024 * 1024), // keep this multiple of cluster size (4MB)
       },
       (err, res) => {
@@ -309,7 +309,7 @@ describe('replica', function() {
         uuid: UUID,
         pool: POOL,
         thin: true,
-        share: 'NONE',
+        share: 'NBD',
         size: 8 * (1024 * 1024), // keep this multiple of cluster size (4MB)
       },
       (err, res) => {
@@ -330,7 +330,7 @@ describe('replica', function() {
       assert.equal(res.pool, POOL);
       assert.equal(res.thin, true);
       assert.equal(res.size, 8 * 1024 * 1024);
-      assert.equal(res.share, 'NONE');
+      assert.equal(res.share, 'NBD');
       assert.match(res.uri, /^bdev:\/\/\//);
       done();
     });
@@ -406,7 +406,7 @@ describe('replica', function() {
     client.shareReplica(
       {
         uuid: UUID,
-        share: 'NONE',
+        share: 'NBD',
       },
       (err, res) => {
         if (err) return done(err);
@@ -419,7 +419,7 @@ describe('replica', function() {
           });
           assert.lengthOf(res, 1);
           res = res[0];
-          assert.equal(res.share, 'NONE');
+          assert.equal(res.share, 'NBD');
           assert.match(res.uri, /^bdev:\/\/\//);
           done();
         });
@@ -483,7 +483,7 @@ describe('replica', function() {
             uuid: BASE_UUID + n,
             pool: POOL,
             thin: true,
-            share: 'NONE',
+            share: 'NBD',
             size: 8 * (1024 * 1024), // keep this multiple of cluster size (4MB)
           },
           next
