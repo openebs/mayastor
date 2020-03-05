@@ -12,6 +12,8 @@ use crate::{
         IscsiParseError,
         NvmeCtlAttachReq,
         NvmfParseError,
+        UringBdev,
+        UringParseError,
     },
     jsonrpc::{Code, RpcErrorCode},
 };
@@ -34,6 +36,8 @@ pub enum BdevCreateDestroy {
     },
     #[snafu(display("Failed to parse nvmf URI \"{}\"", uri))]
     ParseNvmfUri { source: NvmfParseError, uri: String },
+    #[snafu(display("Failed to parse uring URI \"{}\"", uri))]
+    ParseUringUri { source: UringParseError, uri: String },
     // bdev create/destroy errors
     #[snafu(display("bdev {} already exists", name))]
     BdevExists { name: String },
@@ -65,6 +69,9 @@ impl RpcErrorCode for BdevCreateDestroy {
             BdevCreateDestroy::ParseNvmfUri {
                 ..
             } => Code::InvalidParams,
+            BdevCreateDestroy::ParseUringUri {
+                ..
+            } => Code::InvalidParams,
             BdevCreateDestroy::BdevExists {
                 ..
             } => Code::AlreadyExists,
@@ -82,12 +89,14 @@ impl RpcErrorCode for BdevCreateDestroy {
 /// enum type of URL to args we currently support
 #[derive(Debug)]
 pub enum BdevType {
-    /// you should not be using this other then testing
+    /// you should not be using this other than for testing
     Aio(AioBdev),
     /// backend iSCSI target most stable
     Iscsi(IscsiBdev),
     /// backend NVMF target pretty unstable as of Linux 5.2
     Nvmf(NvmeCtlAttachReq),
+    /// also for testing, requires Linux 5.1
+    Uring(UringBdev),
     /// bdev type is arbitrary bdev found in spdk (used for local replicas)
     Bdev(String),
 }
@@ -126,6 +135,11 @@ fn nexus_parse_uri(uri: &str) -> Result<BdevType, BdevCreateDestroy> {
                 uri,
             })?,
         ),
+        "uring" => BdevType::Uring(UringBdev::try_from(&parsed_uri).context(
+            ParseUringUri {
+                uri,
+            },
+        )?),
         // strip the first slash in uri path
         "bdev" => BdevType::Bdev(parsed_uri.path()[1 ..].to_string()),
         scheme => {
@@ -143,6 +157,7 @@ pub async fn bdev_destroy(uri: &str) -> Result<(), BdevCreateDestroy> {
         BdevType::Aio(args) => args.destroy().await,
         BdevType::Iscsi(args) => args.destroy().await,
         BdevType::Nvmf(args) => args.destroy(),
+        BdevType::Uring(args) => args.destroy().await,
         BdevType::Bdev(_) => Ok(()),
     }
 }
@@ -154,6 +169,7 @@ pub async fn bdev_create(uri: &str) -> Result<String, BdevCreateDestroy> {
         BdevType::Aio(args) => args.create().await,
         BdevType::Iscsi(args) => args.create().await,
         BdevType::Nvmf(args) => args.create().await,
+        BdevType::Uring(args) => args.create().await,
         BdevType::Bdev(name) => Ok(name),
     }
 }
