@@ -1,5 +1,6 @@
 self: super: {
   libiscsi = super.callPackage ./pkgs/libiscsi {};
+  liburing = super.callPackage ./pkgs/liburing {};
   nvme-cli = super.callPackage ./pkgs/nvme-cli {};
   nvmet-cli = super.callPackage ./pkgs/nvmet-cli {};
   libspdk = super.callPackage ./pkgs/libspdk {};
