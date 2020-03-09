@@ -50,3 +50,26 @@ jobs:
     - name: End
       run: |
         docker kill "nix"
+        
+  pretty:
+    runs-on: ubuntu-latest
+
+    steps:
+    # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+    - uses: actions/checkout@v2
+
+    - name: Nix Setup
+      run: |
+        # Fetch spdk-sys
+        git submodule update --init
+        
+        # Launch the nix container as a daemon
+        docker run -d --name "nix" --rm -v $PWD:/MayaStor teamrebuild/ci:latest tail -f /dev/null
+    - name: Pretty
+      run: |
+        docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'prettier --version'"
+        # TODO: enable this once the code is pretty
+        # docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'prettier --config .prettierrc --check csi/moac/*.js mayastor-test/*.js'"
+        docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'jshint --config .jshintrc csi/moac/*.js mayastor-test/*.js'"
+        docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'cargo fmt --all'"
+        docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'cargo clippy --all --all-targets -- -D warnings'"

@@ -25,12 +25,12 @@ impl Nexus {
 
         self.set_state(NexusState::Remuling);
 
-        let good_child = match self.children.iter().find(|c| c.repairing == false) {
+        let good_child = match self.children.iter().find(|c| !c.repairing) {
             Some(good_child) => good_child,
             None => return self.set_state(state),
         };
 
-        let bad_child = match self.children.iter().find(|c| c.repairing == true) {
+        let bad_child = match self.children.iter().find(|c| c.repairing) {
             Some(bad_child) => bad_child,
             None => return self.set_state(state),
         };
@@ -59,11 +59,11 @@ impl Nexus {
         for blk in 0..block_count {
 
             let addr: u64 = (blk+self.data_ent_offset)*(block_size as u64);
-            if let Err(_) = good_child.read_at(addr, &mut buf).await {
+            if good_child.read_at(addr, &mut buf).await.is_err() {
                 return self.set_state(state)
             }
 
-            if let Err(_) = bad_child.write_at(addr, &buf).await {
+            if bad_child.write_at(addr, &buf).await.is_err() {
                 return self.set_state(state)
             }
         }
