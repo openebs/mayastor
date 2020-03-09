@@ -10,7 +10,7 @@ on:
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
-  build:
+  tester:
     # The type of runner that the job will run on
     runs-on: ubuntu-latest
 
@@ -51,7 +51,7 @@ jobs:
       run: |
         docker kill "nix"
         
-  pretty:
+  linter:
     runs-on: ubuntu-latest
 
     steps:
@@ -68,8 +68,7 @@ jobs:
     - name: Pretty
       run: |
         docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'prettier --version'"
-        # TODO: enable this once the code is pretty
-        # docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'prettier --config .prettierrc --check csi/moac/*.js mayastor-test/*.js'"
+        docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'prettier --config .prettierrc --check csi/moac/*.js mayastor-test/*.js'"
         docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'jshint --config .jshintrc csi/moac/*.js mayastor-test/*.js'"
         docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'cargo fmt --all'"
         docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'cargo clippy --all --all-targets -- -D warnings'"
