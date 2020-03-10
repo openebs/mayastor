@@ -5,7 +5,7 @@ metadata:
 spec:
   group: openebs.io
   version: v1alpha1
-  scope: Cluster
+  scope: Namespaced
   names:
     kind: MayastorPool
     listKind: MayastorPoolList
@@ -25,12 +25,12 @@ spec:
     type: date
     JSONPath: .metadata.creationTimestamp
   subresources:
-    # TODO: How to define status properties?
-    #status:
-    #  description: Pool status one of pending (default), online, offline.
+    # TODO: How to define scheme for status properties?
+    #state:
+    #  description: Pool state, one of pending (default), online, offline.
     #  type: string
     #reason:
-    #  description: Reason for the pool status value if applicable.
+    #  description: Reason for the pool state value if applicable.
     #  type: string
     #capacity:
     #  description: Capacity of the pool in bytes.
@@ -41,9 +41,11 @@ spec:
     status: {}
   validation:
     openAPIV3Schema:
+      type: object
       properties:
         spec:
           description: Specification of the mayastor pool.
+          type: object
           required:
           - node
           - disks

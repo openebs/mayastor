@@ -1,0 +1,76 @@
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  name: mayastorvolumes.openebs.io
+spec:
+  group: openebs.io
+  version: v1alpha1
+  scope: Namespaced
+  names:
+    kind: MayastorVolume
+    listKind: MayastorVolumeList
+    plural: mayastorvolumes
+    singular: mayastorvolume
+    shortNames: ["msv"]
+  additionalPrinterColumns:
+  - name: Node
+    type: string
+    description: Node where the volume is located
+    JSONPath: .spec.node
+  - name: State
+    type: string
+    description: State of the storage pool
+    JSONPath: .status.state
+  - name: Age
+    type: date
+    JSONPath: .metadata.creationTimestamp
+  subresources:
+    # TODO: How to define scheme for status properties?
+    #state:
+    #  description: Overall state of the volume (TODO: values)
+    #  type: string
+    #node:
+    #  description: Name of the k8s node with the nexus.
+    #  type: string
+    #replicas:
+    #  description: List of replicas
+    #  type: array
+    #  items:
+    #    type: object
+    #    properties:
+    #      node:
+    #        description: Name of the k8s node with the replica.
+    #        type: string
+    #      uri:
+    #        description: URI of the replica used by the nexus.
+    #        type: string
+    #      state:
+    #        description: State of the replica (TODO: values)
+    #        type: string
+    status: {}
+  validation:
+    openAPIV3Schema:
+      type: object
+      properties:
+        spec:
+          description: Specification of the mayastor volume.
+          type: object
+          required:
+          - replicaCount
+          - preferredNodes
+          - requiredNodes
+          properties:
+            replicaCount:
+              description: The number of replicas used for the volume.
+              type: integer
+              minimum: 1
+            preferredNodes:
+              description: A list of preferred cluster nodes for the volume.
+              type: array
+              items:
+                type: string
+            requiredNodes:
+              description: Only cluster nodes from this list should be used for the volume.
+              type: array
+              items:
+                type: string

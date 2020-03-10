@@ -1,10 +1,13 @@
 { binutils
 , callPackage
-, enableDebug ? false
+, cunit
+, enableDebug ? true
 , fetchFromGitHub
 , git
+, lcov
 , libaio
 , libiscsi
+, liburing
 , libuuid
 , nasm
 , numactl
@@ -17,13 +20,13 @@
 with stdenv.lib;
 
 stdenv.mkDerivation rec {
-  version = "20.01-mayastor";
+  version = "20.01.x-mayastor";
   name = "libspdk";
   src = fetchFromGitHub {
     owner = "openebs";
     repo = "spdk";
-    rev = "779b800ad7bf370a0f2ac1d6c30a2b15da04df6b";
-    sha256 = "0774s5fvyds78b3bzp0w9acwci1m2zm9kz8b58ckdmy1ls0xsx43";
+    rev = "79aca9f7ba5e5744c7012218b18d8a5e182702f3";
+    sha256 = "16bpgfdk3ab3vy5m76f2aj5rm4b8rypn1w7699pmm7lsrfb36z69";
     fetchSubmodules = true;
   };
 
@@ -32,18 +35,20 @@ stdenv.mkDerivation rec {
     libaio
     libiscsi.dev
     libuuid
+    liburing
     nasm
     numactl
     openssl
     python
     rdma-core
-  ];
+  ] ++ stdenv.lib.optionals enableDebug [cunit lcov];
 
   CONFIGURE_OPTS = ''
-    ${optionalString enableDebug "--enable-debug"}
+    ${enableFeature enableDebug "debug"}
     --without-isal --with-iscsi-initiator --with-rdma
     --with-internal-vhost-lib --disable-tests --with-dpdk-machine=native
     --with-crypto
+    --with-uring
   '';
 
   enableParallelBuilding = true;
@@ -74,7 +79,7 @@ stdenv.mkDerivation rec {
     find . -type f -name 'librte_vhost.a' -delete
 
     $CC -shared -o libspdk_fat.so \
-    -lc -lrdmacm -laio -libverbs -liscsi -lnuma -ldl -lrt -luuid -lpthread -lcrypto \
+    -lc -lrdmacm -laio -libverbs -liscsi -lnuma -ldl -lrt -luuid -lpthread -lcrypto -luring \
     -Wl,--whole-archive \
     $(find build/lib -type f -name 'libspdk_*.a*' -o -name 'librte_*.a*') \
     $(find dpdk/build/lib -type f -name 'librte_*.a*') \
