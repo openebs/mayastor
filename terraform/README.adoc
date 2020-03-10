@@ -1,0 +1,114 @@
+:source-highlighter: highlightjs
+:toc:
+
+== Quick start
+
+. Ensure you have libvirtd running and configured properly
+. Edit `variables.tf` in particular make sure you the public key is correct
+. run `terraform init`
+. run `terraform plan`
+. run `terraform apply`
+
+NOTE: currently the private_key file is also used and is read from the `ssh_user`
+home dir.
+
+== Problem statement
+
+When we want to deploy our "k8s storage" system we want to create and destroy
+k8s clusters very quickly and without any pain regardless of where you deploy it.
+
+So this means we want to deploy it:
+
+1. locally (KVM)
+2. AWS
+3. GCE
+4. Whatever
+
+We however, do not "just" want to deploy k8s, but also we want to be able to
+interact with the hosts itself. For example; verify that we indeed have a new
+nvmf target what have you.
+
+So we need a from of infra management but also - configuration management. These
+scripts are intended to do just that.
+
+== Terraform
+
+Terraform is used to construct the actually cluster and install kubernetes. By default
+only the libvirtd provider is available. However, the code has been structured
+such that we can change the provider module in `main.tf` with any other provider
+and get the same k8s cluster. We can for example add `mod/vbox` which will then
+deploy 3 virtual vbox nodes. The k8s deployment code is decoupled from the actual
+vms. The VMs are assumed to be *Ubuntu* based and makes use of *cloud-init*
+
+After the deployment of the VMs the `k8s` module runs. This module will invoke
+using the output from the previous provider, provisioners to install k8s on the
+master node. 
+
+
+=== Setting up libvirt on Nixos
+
+In order to to use the the libvirt provider you must enable libvirtd
+
+[source,bash]
+----
+boot.extraModprobeConfig = "options kvm_intel nested=1"; // <1>
+virtualisation.libvirtd.enable = true;
+
+users.users.gila = {
+    isNormalUser = true;
+    extraGroups = [ "wheel" "libvirtd" "vboxusers" ]; // <2>
+};
+----
+<1> depends on CPU vendor (intel vs amd)
+<2> make sure you pick the right user name
+
+
+== Main configuration file
+
+The main configuration file is `variables.tf` where all fields **must** be set.
+The `image_path` variable assumes a pre-downloaded image but you can also set it
+to fetch from http. For example:
+
+[source,bash]
+----
+cd /path/to/my/images
+wget https://cloud-images.ubuntu.com/xenial/current/xenial-server-cloudimg-amd64-disk1.img
+----
+
+then change the image path variable to `/path/to/my/images` 
+
+== k8s configuration
+
+K8s is configured by creating a `YAML` file that uses the same variables
+as defined in `variables.tf` but also, it fetches output variables from Terraform.
+
+
+== Terrible
+
+If you want to go terraform can provide you with a basic ansible inventory
+file (hence terrible). This file is printed to the console after `terraform apply` but can also
+be obtained by: 
+[source, bash]
+----
+➜  terraform git:(terraform) ✗ terraform output kluster
+[ks-master]
+ksnode-1 ansible_host=192.168.122.24
+
+[ks-nodes]
+
+ksnode-2 ansible_host=192.168.122.9
+ksnode-3 ansible_host=192.168.122.40
+ssh_user: gila
+----
+
+This nice thing about ansible is that it does not require any SW to be installed
+on the targets.
+
+
+
+[TODO]
+- [ ] auto install mayastor
+- [ ] make the ssh key handeling read all from file or all from vars (right now it does a bit of both)
+- [ ] configure kubectl properly using local-exec provider
+
+
