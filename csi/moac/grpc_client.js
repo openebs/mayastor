@@ -55,86 +55,42 @@ class GrpcError extends Error {
 // Implementation of gRPC client encapsulating common code for calling a grpc
 // method on a storage node (the node running mayastor).
 class GrpcClient {
-  constructor(nodeOperator) {
-    this.nodes = nodeOperator;
-  }
-
   // Create promise-friendly grpc client handle.
-  _createClient(endpoint) {
-    let client = new mayastor.Mayastor(
+  //
+  // @param {string} endpoint   Host and port that mayastor server listens on.
+  constructor(endpoint) {
+    let handle = new mayastor.Mayastor(
       endpoint,
       grpc.credentials.createInsecure()
     );
-    grpc_promise.promisifyAll(client);
-    return client;
-  }
-
-  // Get grpc mayastor service client for particular storage node.
-  // Return null if there is not a node with such a name.
-  _getNodeClient(nodeName) {
-    let node = this.nodes.get(nodeName);
-
-    if (!node) {
-      return null;
-    }
-    return this._createClient(node.endpoint);
-  }
-
-  // Create grpc client handle suitable for calling grpc methods and pass it to
-  // the callback function. Release the client handle when the callback is over.
-  // The release of handle is exactly the reason why we need to use callback
-  // style method. Unfortunately there are no destructors in JS.
-  //
-  // Throws internal grpc error if the client handle cannot be created (i.e.
-  // because the node does not exist).
-  //
-  // @param nodeName   Name of the node to call gRPC method on.
-  // @param callback   Callback called with the client handle argument. It
-  //                   should be either sync or async fn returning a promise.
-  // @returns  It returns whatever value is returned by the callback supplied by the user.
-  //
-  async with_handle(nodeName, callback) {
-    let client = this._getNodeClient(nodeName);
-    if (!client) {
-      throw new GrpcError(
-        grpc.status.INTERNAL,
-        `MayaStor on node "${nodeName}" is not running`
-      );
-    }
-    try {
-      return await callback(new GrpcHandle(client));
-    } finally {
-      client.close();
-    }
-  }
-}
-
-// Thin wrapper around grpc client handle providing more user friendly api for
-// calling remote methods and capable of producing trace log messages with
-// details about the call.
-class GrpcHandle {
-  constructor(client) {
-    this.client = client;
+    grpc_promise.promisifyAll(handle);
+    this.handle = handle;
   }
 
   // Call a grpc method with arguments.
   //
-  // @param method   Name of the grpc method.
-  // @param args     Arguments of the grpc method.
-  // @returns        Return value of the grpc method.
+  // @param {string} method   Name of the grpc method.
+  // @param {object} args     Arguments of the grpc method.
+  // @returns {*} Return value of the grpc method.
   async call(method, args) {
     log.trace(
-      `Calling grpc method ${method} with arguments: ` + JSON.stringify(args)
+      `Calling grpc method ${method} with arguments: ${JSON.stringify(args)}`
     );
-    let ret = await this.client[method]().sendMessage(args);
-    log.trace(`Grpc method ${method} returned: ` + JSON.stringify(ret));
+    let ret = await this.handle[method]().sendMessage(args);
+    log.trace(`Grpc method ${method} returned: ${JSON.stringify(ret)}`);
     return ret;
+  }
+
+  // Close the grpc handle. The client should not be used after that.
+  close() {
+    this.handle.close();
   }
 }
 
 module.exports = {
-  GrpcError,
-  GrpcHandle,
   GrpcClient,
+  // for easy access to grpc codes
+  GrpcCode: grpc.status,
+  GrpcError,
   mayastor,
 };

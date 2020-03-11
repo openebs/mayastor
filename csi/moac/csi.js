@@ -1,5 +1,5 @@
 // Implementation of K8S CSI controller interface which is mostly
-// about volume creation and destruction.
+// about volume creation and destruction and few other methods.
 
 'use strict';
 
@@ -34,7 +34,9 @@ const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
 const csi = grpc.loadPackageDefinition(packageDefinition).csi.v1;
 
 // Check that the list of volume capabilities does not contain unsupported
-// capability.
+// capability. Throws grpc error if a capability is not supported.
+//
+// @param {string[]} caps    Volume capabilities as described in CSI spec.
 function checkCapabilities(caps) {
   if (!caps) {
     throw new GrpcError(
@@ -56,15 +58,16 @@ function checkCapabilities(caps) {
 }
 
 // Create k8s volume object as returned by CSI list volumes method.
-// Input is nexus object returned by volume operator.
-function createK8sVolumeObject(nexus) {
-  if (!nexus) return nexus;
+//
+// @param   {object} volume   Volume object.
+// @returns {object} K8s CSI volume object.
+function createK8sVolumeObject(volume) {
   return {
-    volumeId: nexus.uuid,
-    capacityBytes: nexus.size,
+    volumeId: volume.uuid,
+    capacityBytes: volume.getSize(),
     accessibleTopology: [
       {
-        segments: { 'kubernetes.io/hostname': nexus.node },
+        segments: { 'kubernetes.io/hostname': volume.getNodeName() },
       },
     ],
   };
@@ -73,17 +76,18 @@ function createK8sVolumeObject(nexus) {
 // CSI Controller implementation.
 //
 // It implements Identity and Controller grpc services from csi proto file.
-// It relies on pool operator, when serving incoming CSI requests, which holds
-// the information about available storage pools.
+// It relies on volume manager, when serving incoming CSI requests, that holds
+// information about volumes and provides methods to manipulate them.
 class CsiServer {
   // Creates new csi server
+  //
+  // @param {string} sockPath   Unix domain socket for csi server to listen on.
   constructor(sockPath) {
     assert.equal(typeof sockPath, 'string');
     this.server = new grpc.Server();
     this.ready = false;
-    this.pools = null;
+    this.registry = null;
     this.volumes = null;
-    this.commander = null;
     this.sockPath = sockPath;
     this.nextListContextId = 1;
     this.listContexts = {};
@@ -112,7 +116,7 @@ class CsiServer {
     ];
     methodNames.forEach(name => {
       controllerMethods[name] = function checkReady(args, cb) {
-        log.trace('CSI ' + name + ' request: ' + JSON.stringify(args));
+        log.trace(`CSI ${name} request: ${JSON.stringify(args)}`);
 
         if (!self.ready) {
           return cb(
@@ -124,9 +128,15 @@ class CsiServer {
         }
         return self[name](args, (err, resp) => {
           if (err) {
-            log.error('CSI ' + name + ' failed: ' + err);
+            if (!(err instanceof GrpcError)) {
+              err = new GrpcError(
+                grpc.status.UNKNOWN,
+                `Unexpected error in ${name} method: ` + err.stack
+              );
+            }
+            log.error(`CSI ${name} failed: ${err}`);
           } else {
-            log.trace('CSI ' + name + ' response: ' + JSON.stringify(resp));
+            log.trace(`CSI ${name} response: ${JSON.stringify(resp)}`);
           }
           cb(err, resp);
         });
@@ -170,6 +180,7 @@ class CsiServer {
     this.server.start();
   }
 
+  // Stop the grpc server.
   async stop() {
     var self = this;
     return new Promise((resolve, reject) => {
@@ -178,13 +189,15 @@ class CsiServer {
     });
   }
 
-  // Switch csi server to ready state (returned by identity.probe method).
-  // This will enable serving controller grpc service requests.
-  makeReady(poolOperator, volumeOperator, commander) {
+  // Switch csi server to ready state (returned by identity.probe() method).
+  // This will enable serving grpc controller service requests.
+  //
+  // @param {object} registry Object holding node, replica, pool and nexus objects.
+  // @param {object} volumes  Volume manager.
+  makeReady(registry, volumes) {
     this.ready = true;
-    this.pools = poolOperator;
-    this.volumes = volumeOperator;
-    this.commander = commander;
+    this.registry = registry;
+    this.volumes = volumes;
   }
 
   // Stop serving controller requests, but the identity service still works.
@@ -329,38 +342,28 @@ class CsiServer {
     }
 
     // create the volume
-    var nexus;
+    var volume;
     try {
-      nexus = await this.commander.ensureVolume(uuid, {
-        requiredBytes: args.capacityRange.requiredBytes,
-        limitBytes: args.capacityRange.limitBytes,
-        mustNodes,
-        shouldNodes,
+      volume = await this.volumes.createVolume(
+        uuid,
         count,
-      });
+        shouldNodes,
+        mustNodes,
+        args.capacityRange.requiredBytes,
+        args.capacityRange.limitBytes
+      );
     } catch (err) {
-      if (err instanceof GrpcError) {
-        cb(err);
-      } else {
-        cb(
-          new GrpcError(
-            grpc.status.UNKNOWN,
-            `Unexpected error when creating volume "${args.name}": ` +
-              err.toString()
-          )
-        );
-      }
-      return;
+      return cb(err);
     }
 
     cb(null, {
       volume: {
-        capacityBytes: nexus.size,
+        capacityBytes: volume.getSize(),
         volumeId: uuid,
         // enfore local access to the volume
         accessibleTopology: [
           {
-            segments: { 'kubernetes.io/hostname': nexus.node },
+            segments: { 'kubernetes.io/hostname': volume.getNodeName() },
           },
         ],
       },
@@ -372,34 +375,13 @@ class CsiServer {
 
     log.debug(`Request to destroy volume "${args.volumeId}"`);
 
-    let nexus = this.volumes.getNexus(args.volumeId);
-    let replicaSet = this.volumes.getReplicaSet(args.volumeId);
-
-    // try to destroy as much as we can - don't stop at the first error
-    let errors = [];
-    if (nexus) {
-      try {
-        await this.volumes.destroyNexus(nexus.node, args.volumeId);
-      } catch (err) {
-        errors.push(err);
-      }
+    try {
+      await this.volumes.destroyVolume(args.volumeId);
+    } catch (err) {
+      return cb(err);
     }
-    for (let i = 0; i < replicaSet.length; i++) {
-      let r = replicaSet[i];
-      try {
-        await this.volumes.destroyReplica(r.node, r.uuid);
-      } catch (err) {
-        errors.push(err);
-      }
-    }
-    if (errors.length > 0) {
-      let msg = `Failed to delete volume "${args.volumeId}": `;
-      msg += errors.join('. ');
-      cb(new GrpcError(grpc.status.INTERNAL, msg));
-    } else {
-      log.info(`Volume "${args.volumeId}" destroyed`);
-      cb();
-    }
+    log.info(`Volume "${args.volumeId}" destroyed`);
+    cb();
   }
 
   async listVolumes(call, cb) {
@@ -421,7 +403,7 @@ class CsiServer {
       log.debug('Request to list volumes');
       ctx = {
         volumes: this.volumes
-          .getNexus()
+          .get()
           .map(createK8sVolumeObject)
           .map(v => {
             return { volume: v };
@@ -455,8 +437,8 @@ class CsiServer {
       `Request to publish volume "${args.volumeId}" on "${args.nodeId}"`
     );
 
-    let nexus = this.volumes.getNexus(args.volumeId);
-    if (!nexus) {
+    let volume = this.volumes.get(args.volumeId);
+    if (!volume) {
       return cb(
         new GrpcError(
           grpc.status.NOT_FOUND,
@@ -464,18 +446,19 @@ class CsiServer {
         )
       );
     }
-    var nodeId;
+    let nodeId;
     try {
       nodeId = parseMayastorNodeId(args.nodeId);
     } catch (err) {
       return cb(err);
     }
-    if (nodeId.node != nexus.node) {
+    let nodeName = volume.getNodeName();
+    if (nodeId.node != nodeName) {
       return cb(
         new GrpcError(
           grpc.status.INVALID_ARGUMENT,
           `Cannot publish the volume "${args.volumeId}" on a different ` +
-            `node "${nodeId.node}" than it was created "${nexus.node}"`
+            `node "${nodeId.node}" than it was created "${nodeName}"`
         )
       );
     }
@@ -499,7 +482,7 @@ class CsiServer {
     }
 
     try {
-      await this.volumes.publishNexus(nexus.uuid);
+      await volume.publish();
     } catch (err) {
       if (err.code === grpc.status.ALREADY_EXISTS) {
         log.debug(`Volume "${args.volumeId}" already published on this node`);
@@ -519,8 +502,8 @@ class CsiServer {
 
     log.debug(`Request to unpublish volume "${args.volumeId}"`);
 
-    let nexus = this.volumes.getNexus(args.volumeId);
-    if (!nexus) {
+    let volume = this.volumes.get(args.volumeId);
+    if (!volume) {
       return cb(
         new GrpcError(
           grpc.status.NOT_FOUND,
@@ -534,16 +517,17 @@ class CsiServer {
     } catch (err) {
       return cb(err);
     }
-    if (nodeId.node != nexus.node) {
+    let nodeName = volume.getNodeName();
+    if (nodeId.node != nodeName) {
       // we unpublish the volume anyway but at least we log a message
       log.warn(
         `Request to unpublish volume "${args.volumeId}" from a node ` +
-          `"${nodeId.node}" when it was published on the node "${nexus.node}"`
+          `"${nodeId.node}" while it was published on the node "${nodeName}"`
       );
     }
 
     try {
-      await this.volumes.unpublishNexus(nexus.uuid);
+      await volume.unpublish();
     } catch (err) {
       return cb(err);
     }
@@ -556,7 +540,7 @@ class CsiServer {
 
     log.debug(`Request to validate volume capabilities for "${args.volumeId}"`);
 
-    if (!this.volumes.getNexus(args.volumeId)) {
+    if (!this.volumes.get(args.volumeId)) {
       return cb(
         new GrpcError(
           grpc.status.NOT_FOUND,
@@ -579,11 +563,11 @@ class CsiServer {
   // We understand just one topology segment type and that is hostname.
   // So if it is specified we return capacity of storage pools on the node
   // or capacity of all pools in the cluster.
-  // The value we return is actual (not cached).
   //
   // XXX Is the caller interested in total capacity (sum of all pools) or
   // a capacity usable by a single volume?
   async getCapacity(call, cb) {
+    var nodeName;
     var args = call.request;
 
     if (args.volumeCapabilities) {
@@ -596,40 +580,20 @@ class CsiServer {
     if (args.accessibleTopology) {
       for (let key in args.accessibleTopology.segments) {
         if (key == 'kubernetes.io/hostname') {
-          let nodeName = args.accessibleTopology.segments[key];
-          let capacity = 0;
-          await this.pools.syncNode(nodeName);
-          // jshint ignore:start
-          capacity = this.pools
-            .get()
-            .filter(p => p.node == nodeName)
-            .reduce((acc, p) => {
-              return isPoolAccessible(p) ? acc + (p.capacity - p.used) : 0;
-            }, 0);
-          // jshint ignore:end
-          log.debug(`Get capacity of node "${nodeName}": ${capacity} bytes`);
-          return cb(null, { availableCapacity: capacity });
+          nodeName = args.accessibleTopology.segments[key];
+          break;
         }
       }
     }
 
-    // refresh pool info from all nodes
-    await this.pools.syncNode();
-    let capacity = this.pools
-      .get()
-      .filter(p => isPoolAccessible(p))
-      .reduce((acc, p) => {
-        return acc + (p.capacity - p.used);
-      }, 0);
-
-    log.debug(`Get total capacity: ${capacity} bytes`);
+    let capacity = this.registry.getCapacity(nodeName);
+    log.debug(`Get total capacity of node "${nodeName}": ${capacity} bytes`);
     cb(null, { availableCapacity: capacity });
   }
 }
 
 module.exports = {
   CsiServer,
-  // the rest is exported for tests
+  // this is exported for the tests
   csi,
-  GrpcError,
 };

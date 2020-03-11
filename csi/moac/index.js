@@ -1,18 +1,18 @@
 #!/usr/bin/env node
 
-// Main file of our control plane for mayastor
+// Main file of our control plane for mayastor.
+// It binds all components together to create a meaningful whole.
 
 'use strict';
 
-const config = require('kubernetes-client').config;
-const Client = require('kubernetes-client').Client;
+const { config, Client } = require('kubernetes-client');
 const yargs = require('yargs');
 const logger = require('./logger');
-const { NodeOperator } = require('./nodes');
-const { PoolOperator } = require('./pools');
-const { VolumeOperator } = require('./volumes');
-const { Commander } = require('./commander');
-const { ApiServer } = require('./rest_api');
+const Registry = require('./registry');
+const NodeOperator = require('./node_operator');
+const PoolOperator = require('./pool_operator');
+const Volumes = require('./volumes');
+const ApiServer = require('./rest_api');
 const CsiServer = require('./csi').CsiServer;
 
 const log = new logger.Logger();
@@ -33,29 +33,11 @@ function readK8sConfig(kubeconfig) {
   }
 }
 
-// Just print the list of nodes until we find better way how to use this
-// information.
-function printStatus(nodeOper, poolOper, volumeOper) {
-  let nodes = nodeOper.get().map(n => n.node);
-  log.info('List of storage nodes: ' + nodes.join(', '));
-
-  let pools = poolOper.get().map(p => p.name + '@' + p.node);
-  log.info('List of storage pools: ' + pools.join(', '));
-
-  let repls = volumeOper
-    .getReplicaSet()
-    .map(r => r.pool + '/' + r.uuid + '@' + r.node);
-  log.info('List of replicas: ' + repls.join(', '));
-
-  let nexus = volumeOper.getNexus().map(n => n.uuid + '@' + n.node);
-  log.info("List of nexus's: " + nexus.join(', '));
-}
-
 async function main() {
-  var volumeOper;
+  var registry;
+  var volumes;
   var poolOper;
   var nodeOper;
-  var commander;
   var csiServer;
   var apiServer;
 
@@ -78,6 +60,13 @@ async function main() {
         default: 3000,
         number: true,
       },
+      s: {
+        alias: 'skip-k8s',
+        describe:
+          'Skip k8s client and k8s operators initialization (only for debug purpose)',
+        default: false,
+        boolean: true,
+      },
       v: {
         alias: 'verbose',
         describe: 'Print debug log messages',
@@ -98,17 +87,18 @@ async function main() {
       logger.setLevel('silly');
       break;
   }
-  let k8sConfig = readK8sConfig(opts.kubeconfig);
 
   // We must install signal handlers before grpc lib does it.
   async function cleanUp() {
-    csiServer.undoReady();
-    if (apiServer) await apiServer.stop();
+    if (csiServer) csiServer.undoReady();
+    if (apiServer) apiServer.stop();
+    if (volumes) volumes.stop();
+    if (!opts.s) {
+      if (poolOper) await poolOper.stop();
+      if (nodeOper) await nodeOper.stop();
+    }
+    if (registry) registry.close();
     if (csiServer) await csiServer.stop();
-    if (commander) await commander.stop();
-    if (volumeOper) await volumeOper.stop();
-    if (poolOper) await poolOper.stop();
-    if (nodeOper) await nodeOper.stop();
     process.exit(0);
   }
   process.on('SIGTERM', async () => {
@@ -124,32 +114,33 @@ async function main() {
   // serve csi.identity() calls while getting ready.
   csiServer = new CsiServer(opts.csiAddress);
   await csiServer.start();
+  registry = new Registry();
 
-  // Create k8s client and load openAPI spec from k8s api server
-  let client = new Client({ config: k8sConfig });
-  log.debug('Loading openAPI spec from the server');
-  await client.loadSpec();
+  if (!opts.s) {
+    // Create k8s client and load openAPI spec from k8s api server
+    let k8sConfig = readK8sConfig(opts.kubeconfig);
+    let client = new Client({ config: k8sConfig });
+    log.debug('Loading openAPI spec from the server');
+    await client.loadSpec();
 
-  nodeOper = new NodeOperator();
-  await nodeOper.init(client);
+    // Start k8s operators
+    nodeOper = new NodeOperator();
+    await nodeOper.init(client, registry);
+    await nodeOper.start();
 
-  poolOper = new PoolOperator();
-  await poolOper.init(client, nodeOper);
+    poolOper = new PoolOperator();
+    await poolOper.init(client, registry);
+    await poolOper.start();
+  }
 
-  volumeOper = new VolumeOperator(nodeOper);
-  commander = new Commander(poolOper, volumeOper);
-  apiServer = new ApiServer(volumeOper);
+  volumes = new Volumes(registry);
+  volumes.start();
 
-  await nodeOper.start();
+  apiServer = new ApiServer(registry);
   await apiServer.start(opts.port);
-  await poolOper.start();
-  await volumeOper.start();
-  await commander.start(60);
 
-  csiServer.makeReady(poolOper, volumeOper, commander);
-
-  // print node, pool & volume list when we start
-  printStatus(nodeOper, poolOper, volumeOper);
+  csiServer.makeReady(registry, volumes);
+  log.info('MOAC is up and ready 🚀');
 }
 
 main();

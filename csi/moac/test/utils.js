@@ -26,9 +26,13 @@ async function waitUntil(test, timeout, name) {
 
 // Check that the test callback which should return a future fails with
 // given grpc error code.
+//
+// TODO: Combination of external function that is awaited here and wrapped
+// inside try-catch, results in freaky behaviour sometimes like printing
+// error to output.
 async function shouldFailWith(code, test) {
   try {
-    let res = await test();
+    await test();
   } catch (err) {
     if (err.code != code) {
       throw new Error(`Expected error code ${code} but got: ${err}`);

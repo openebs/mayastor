@@ -2,10 +2,10 @@
 //
 // We fake the k8s api watch and collection endpoints so that the tests are
 // runable without k8s environment and let us test corner cases which would
-// normally be impossible.
+// normally be impossible to test.
 
-const assert = require('chai').assert;
-const Watcher = require('./watcher').Watcher;
+const expect = require('chai').expect;
+const Watcher = require('../watcher');
 const Readable = require('stream').Readable;
 
 // Create fake k8s object. Example of true k8s object follows:
@@ -45,7 +45,7 @@ function createObject(name, generation, val) {
   };
 }
 
-// Simple filter which produces objects {name, val} from the objects
+// Simple filter that produces objects {name, val} from the objects
 // created by the createObject() above and only objects with val > 100
 // pass through the filter.
 function objectFilter(k8sObject) {
@@ -62,8 +62,8 @@ function objectFilter(k8sObject) {
   }
 }
 
-// Mock for GET k8s API request returning a collection of k8s objects which
-// were previously stored to the mock using add() method.
+// A stub for GET k8s API request returning a collection of k8s objects which
+// were previously set by add() method.
 class GetMock {
   constructor(delay) {
     this.delay = delay;
@@ -95,7 +95,7 @@ class GetMock {
   }
 }
 
-// Mock representing k8s watch stream.
+// A mock representing k8s watch stream.
 // You can feed arbitrary strings to it and it will pass them to a consumer.
 // Example of k8s watch stream event follows:
 //
@@ -107,7 +107,7 @@ class GetMock {
 //}
 //
 // NOTE: The event objects must be each on its own line. That's how k8s does
-// it and event parser otherwise breaks!
+// it. Event parser breaks otherwise!
 class StreamMock extends Readable {
   constructor() {
     super({ autoDestroy: true });
@@ -147,7 +147,7 @@ class StreamMock extends Readable {
   }
 }
 
-// This is for test cases where we need to test watch stream disconnection.
+// This is for test cases where we need to test disconnected watch stream.
 // In that case, the watcher will create a new instance of watch stream
 // (by calling getStream) and we need to keep track of latest created stream
 // in order to be able to feed data to it etc.
@@ -198,20 +198,20 @@ module.exports = function() {
     it('should init cache only with objects which pass through the filter', async () => {
       await watcher.start();
 
-      assert.lengthOf(modList, 0);
-      assert.lengthOf(delList, 0);
-      assert.lengthOf(newList, 1);
-      assert.equal(newList[0].name, 'valid-object');
-      assert.equal(newList[0].val, 123);
+      expect(modList).to.have.lengthOf(0);
+      expect(delList).to.have.lengthOf(0);
+      expect(newList).to.have.lengthOf(1);
+      expect(newList[0].name).to.equal('valid-object');
+      expect(newList[0].val).to.equal(123);
 
       let lst = watcher.list();
-      assert.lengthOf(lst, 1);
-      assert.hasAllKeys(lst[0], ['name', 'val']);
-      assert.equal(lst[0].name, 'valid-object');
-      assert.equal(lst[0].val, 123);
+      expect(lst).to.have.lengthOf(1);
+      expect(lst[0]).to.have.all.keys('name', 'val');
+      expect(lst[0].name).to.equal('valid-object');
+      expect(lst[0].val).to.equal(123);
 
       let rawObj = watcher.getRaw('valid-object');
-      assert.deepEqual(rawObj, createObject('valid-object', 1, 123));
+      expect(rawObj).to.deep.equal(createObject('valid-object', 1, 123));
     });
 
     it('should add object to the cache only if it passes through the filter', done => {
@@ -221,11 +221,11 @@ module.exports = function() {
       streamMock.feed('ADDED', createObject('evented-object', 1, 155));
 
       function check() {
-        assert.lengthOf(modList, 0);
-        assert.lengthOf(delList, 0);
-        assert.lengthOf(newList, 2);
-        assert.equal(newList[1].name, 'evented-object');
-        assert.equal(newList[1].val, 155);
+        expect(modList).to.have.lengthOf(0);
+        expect(delList).to.have.lengthOf(0);
+        expect(newList).to.have.lengthOf(2);
+        expect(newList[1].name).to.equal('evented-object');
+        expect(newList[1].val).to.equal(155);
         done();
       }
 
@@ -252,15 +252,15 @@ module.exports = function() {
       );
 
       function check() {
-        assert.lengthOf(delList, 0);
-        assert.lengthOf(modList, 2);
-        assert.equal(modList[0].name, 'evented-object');
-        assert.equal(modList[0].val, 156);
-        assert.equal(modList[1].name, 'evented-object');
-        assert.equal(modList[1].val, 157);
-        assert.lengthOf(newList, 3);
-        assert.equal(newList[2].name, 'new-object');
-        assert.equal(newList[2].val, 160);
+        expect(delList).to.have.lengthOf(0);
+        expect(modList).to.have.lengthOf(2);
+        expect(modList[0].name).to.equal('evented-object');
+        expect(modList[0].val).to.equal(156);
+        expect(modList[1].name).to.equal('evented-object');
+        expect(modList[1].val).to.equal(157);
+        expect(newList).to.have.lengthOf(3);
+        expect(newList[2].name).to.equal('new-object');
+        expect(newList[2].val).to.equal(160);
         done();
       }
 
@@ -276,11 +276,11 @@ module.exports = function() {
       streamMock.feed('DELETED', createObject('evented-object', 2, 156));
 
       function check() {
-        assert.lengthOf(newList, 3);
-        assert.lengthOf(modList, 2);
-        assert.lengthOf(delList, 1);
-        assert.equal(delList[0].name, 'evented-object');
-        assert.equal(delList[0].val, 156);
+        expect(newList).to.have.lengthOf(3);
+        expect(modList).to.have.lengthOf(2);
+        expect(delList).to.have.lengthOf(1);
+        expect(delList[0].name).to.equal('evented-object');
+        expect(delList[0].val).to.equal(156);
         done();
       }
 
@@ -318,8 +318,8 @@ module.exports = function() {
 
     await watcher.start();
 
-    assert.equal(newCount, 1);
-    assert.equal(modCount, 1);
+    expect(newCount).to.equal(1);
+    expect(modCount).to.equal(1);
 
     watcher.stop();
     streamMock.end();
@@ -342,9 +342,9 @@ module.exports = function() {
     watcher.on('del', obj => delObjs.push(obj));
 
     watcher.start().then(() => {
-      assert.lengthOf(newObjs, 3);
-      assert.lengthOf(modObjs, 0);
-      assert.lengthOf(delObjs, 0);
+      expect(newObjs).to.have.lengthOf(3);
+      expect(modObjs).to.have.lengthOf(0);
+      expect(delObjs).to.have.lengthOf(0);
 
       streamMockTracker
         .latest()
@@ -357,13 +357,13 @@ module.exports = function() {
       streamMockTracker.latest().end();
 
       watcher.once('sync', () => {
-        assert.lengthOf(newObjs, 4);
-        assert.lengthOf(modObjs, 2);
-        assert.lengthOf(delObjs, 1);
-        assert.equal(newObjs[3].name, 'object-to-be-created');
-        assert.equal(modObjs[0].name, 'object-to-be-retained');
-        assert.equal(modObjs[1].name, 'object-to-be-modified');
-        assert.equal(delObjs[0].name, 'object-to-be-deleted');
+        expect(newObjs).to.have.lengthOf(4);
+        expect(modObjs).to.have.lengthOf(2);
+        expect(delObjs).to.have.lengthOf(1);
+        expect(newObjs[3].name).to.equal('object-to-be-created');
+        expect(modObjs[0].name).to.equal('object-to-be-retained');
+        expect(modObjs[1].name).to.equal('object-to-be-modified');
+        expect(delObjs[0].name).to.equal('object-to-be-deleted');
 
         watcher.stop();
         streamMockTracker.latest().end();
@@ -405,8 +405,8 @@ module.exports = function() {
     var diff = (Date.now() - start) / 1000;
 
     // three retries will accumulate 7 seconds (1, 2 and 4s)
-    assert.isAtLeast(diff, 6);
-    assert.isAtMost(diff, 8);
+    expect(diff).to.be.at.least(6);
+    expect(diff).to.be.at.most(8);
     watcher.stop();
     brokenStreamMock.latest().end();
   }).timeout(10000);
@@ -455,8 +455,8 @@ module.exports = function() {
     var diff = (Date.now() - start) / 1000;
 
     // three retries will accumulate 7 seconds (1, 2 and 4s)
-    assert.isAtLeast(diff, 6);
-    assert.isAtMost(diff, 8);
+    expect(diff).to.be.at.least(6);
+    expect(diff).to.be.at.most(8);
     watcher.stop();
     streamMockTracker.latest().end();
   }).timeout(10000);
@@ -473,8 +473,8 @@ module.exports = function() {
     getMock.add(createObject('object', 1, 155));
 
     watcher.start().then(() => {
-      assert.equal(newCount, 1);
-      assert.equal(modCount, 0);
+      expect(newCount).to.equal(1);
+      expect(modCount).to.equal(0);
 
       // Following line should be ignored
       streamMockTracker
@@ -487,8 +487,8 @@ module.exports = function() {
       watcher.once('sync', () => {
         watcher.stop();
         streamMockTracker.latest().end();
-        assert.equal(newCount, 1);
-        assert.equal(modCount, 1);
+        expect(newCount).to.equal(1);
+        expect(modCount).to.equal(1);
         done();
       });
       streamMockTracker.latest().end();

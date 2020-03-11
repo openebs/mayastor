@@ -85,7 +85,7 @@ function createGrpcClient(service) {
 describe('replica', function() {
   var client;
 
-  this.timeout(10000); // for network tests we need long timeouts
+  this.timeout(50000); // for network tests we need long timeouts
 
   // Destroy test pool if it exists (ignore errors as the test pool may not
   // exist).

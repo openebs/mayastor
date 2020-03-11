@@ -30,13 +30,7 @@ function parseMayastorNodeId(nodeId) {
   };
 }
 
-// Return true if the storage pool is accessible via gRPC
-function isPoolAccessible(pool) {
-  return pool.state == 'ONLINE' || pool.state == 'DEGRADED';
-}
-
 module.exports = {
   PLUGIN_NAME,
-  isPoolAccessible,
   parseMayastorNodeId,
 };

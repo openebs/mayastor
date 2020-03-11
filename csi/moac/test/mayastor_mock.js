@@ -1,3 +1,4 @@
+const _ = require('lodash');
 const assert = require('chai').assert;
 const path = require('path');
 const protoLoader = require('@grpc/proto-loader');
@@ -42,7 +43,7 @@ function assertHasKeys(obj, keys, empty) {
 class MayastorServer {
   constructor(endpoint, pools, replicas, nexus) {
     var packageDefinition = protoLoader.loadSync(
-      path.join(__dirname, 'proto', 'mayastor_service.proto'),
+      path.join(__dirname, '..', 'proto', 'mayastor_service.proto'),
       {
         keepCase: false,
         longs: Number,
@@ -55,9 +56,9 @@ class MayastorServer {
     var mayastor = protoDescriptor.mayastor_service;
     var srv = new grpc.Server();
 
-    this.pools = pools || [];
-    this.replicas = replicas || [];
-    this.nexus = nexus || [];
+    this.pools = _.cloneDeep(pools || []);
+    this.replicas = _.cloneDeep(replicas || []);
+    this.nexus = _.cloneDeep(nexus || []);
     this.statCounter = 0;
 
     var self = this;
