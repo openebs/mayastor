@@ -172,6 +172,7 @@ type Result<T, E = EnvError> = std::result::Result<T, E>;
 #[derive(Debug, Clone)]
 pub struct MayastorEnvironment {
     pub config: Option<String>,
+    pub enable_grpc: bool,
     delay_subsystem_init: bool,
     enable_coredump: bool,
     env_context: String,
@@ -202,6 +203,7 @@ impl Default for MayastorEnvironment {
     fn default() -> Self {
         Self {
             config: None,
+            enable_grpc: false,
             delay_subsystem_init: false,
             enable_coredump: true,
             env_context: String::new(),
@@ -635,6 +637,7 @@ impl MayastorEnvironment {
     where
         F: FnOnce() + 'static,
     {
+        let grpc = self.enable_grpc;
         self.init();
 
         let mut rt = Builder::new()
@@ -644,13 +647,16 @@ impl MayastorEnvironment {
             .unwrap();
 
         let local = task::LocalSet::new();
-
         rt.block_on(async {
             local
                 .run_until(async {
                     let master = Reactors::current();
                     master.send_future(async { f() });
-                    let _out = tokio::try_join!(grpc_server_init(), master);
+                    if grpc {
+                        let _out = tokio::try_join!(grpc_server_init(), master);
+                    } else {
+                        let _out = master.await;
+                    };
                     info!("reactors stopped....");
                     Self::fini();
                 })
