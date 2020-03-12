@@ -322,6 +322,10 @@ impl Nexus {
             .iter()
             .map(|s| {
                 if self.bdev.alignment() < *s {
+                    trace!(
+                        "{}: child has alignment {}, updating required_alignment from {}",
+                        self.name, *s, self.bdev.alignment()
+                    );
                     unsafe {
                         (*self.bdev.as_ptr()).required_alignment = *s;
                     }
