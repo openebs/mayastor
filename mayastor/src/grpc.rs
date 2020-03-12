@@ -252,9 +252,28 @@ impl Mayastor for MayastorGrpc {
 
     async fn child_operation(
         &self,
-        _request: Request<ChildNexusRequest>,
+        request: Request<ChildNexusRequest>,
     ) -> Result<Response<Null>> {
-        todo!()
+        let msg = request.into_inner();
+
+        let onl = match msg.action {
+            1 => Ok(true),
+            0 => Ok(false),
+            _ => Err(Status::invalid_argument("Bad child operation"))
+        }?;
+
+        let hdl = Reactors::current().spawn_local(async move {
+            let nexus = nexus_lookup(&msg.uuid)?;
+            if onl {
+                nexus.online_child(&msg.uri).await
+            } else {
+                nexus.offline_child(&msg.uri).await
+            }
+        });
+
+        hdl.await.unwrap()?;
+
+        Ok(Response::new(Null {}))
     }
 }
 
