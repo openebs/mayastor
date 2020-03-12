@@ -17,6 +17,7 @@ const eventStream = require('./event_stream_test.js');
 const poolOperator = require('./pool_operator_test.js');
 const volumeObject = require('./volume_test.js');
 const volumesTest = require('./volumes_test.js');
+const volumeOperator = require('./volume_operator_test.js');
 const restApi = require('./rest_api_test.js');
 const csiTest = require('./csi_test.js');
 
@@ -36,6 +37,7 @@ describe('moac', function() {
   describe('pool operator', poolOperator);
   describe('volume object', volumeObject);
   describe('volumes', volumesTest);
+  describe('volume operator', volumeOperator);
   describe('REST API', restApi);
   describe('CSI controller', csiTest);
 

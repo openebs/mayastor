@@ -20,7 +20,8 @@ const crdPool = yaml.safeLoad(
 // Pool operator tries to bring the real state of storage pools on mayastor
 // nodes in sync with mayastorpool custom resources in k8s.
 class PoolOperator {
-  constructor() {
+  constructor(namespace) {
+    this.namespace = namespace;
     this.k8sClient = null; // k8s client
     this.registry = null; // registry containing info about mayastor nodes
     this.eventStream = null; // A stream of node and pool events.
@@ -54,8 +55,12 @@ class PoolOperator {
     this.registry = registry;
     this.watcher = new Watcher(
       'pool',
-      this.k8sClient.apis['openebs.io'].v1alpha1.mayastorpools,
-      this.k8sClient.apis['openebs.io'].v1alpha1.watch.mayastorpools,
+      this.k8sClient.apis['openebs.io'].v1alpha1.namespaces(
+        this.namespace
+      ).mayastorpools,
+      this.k8sClient.apis['openebs.io'].v1alpha1.watch.namespaces(
+        this.namespace
+      ).mayastorpools,
       this._filterMayastorPool
     );
   }
@@ -95,7 +100,7 @@ class PoolOperator {
     self.watcher.list().forEach(r => (self.resource[r.name] = r));
 
     // this will start async processing of node and pool events
-    self.eventStream = new EventStream(self.registry);
+    self.eventStream = new EventStream({ registry: self.registry });
     self.eventStream.on('data', async ev => {
       if (ev.kind == 'pool') {
         await self.workq.push(ev, self._onPoolEvent.bind(self));
@@ -360,6 +365,7 @@ class PoolOperator {
 
     try {
       await this.k8sClient.apis['openebs.io'].v1alpha1
+        .namespaces(this.namespace)
         .mayastorpools(name)
         .status.put({ body: k8sPool });
     } catch (err) {

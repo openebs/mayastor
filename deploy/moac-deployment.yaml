@@ -26,6 +26,14 @@ rules:
 - apiGroups: ["openebs.io"]
   resources: ["mayastorpools/status"]
   verbs: ["update"]
+  # must read/write mayastor volume resources
+- apiGroups: ["openebs.io"]
+  resources: ["mayastorvolumes"]
+  verbs: ["get", "list", "watch", "update", "create", "delete"]
+  # must update mayastor volumes status
+- apiGroups: ["openebs.io"]
+  resources: ["mayastorvolumes/status"]
+  verbs: ["update"]
 
   # external provisioner & attacher
 - apiGroups: [""]
@@ -122,11 +130,16 @@ spec:
           imagePullPolicy: Always
           args:
             - "--csi-address=$(CSI_ENDPOINT)"
+            - "--namespace=$(MY_POD_NAMESPACE)"
             - "--port=4000"
             - "-v"
           env:
             - name: CSI_ENDPOINT
               value: /var/lib/csi/sockets/pluginproxy/csi.sock
+            - name: MY_POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
           volumeMounts:
             - name: socket-dir
               mountPath: /var/lib/csi/sockets/pluginproxy/

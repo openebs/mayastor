@@ -8,20 +8,12 @@ const sinon = require('sinon');
 const Pool = require('../pool');
 const Replica = require('../replica');
 const Nexus = require('../nexus');
+const Registry = require('../registry');
+const Volume = require('../volume');
+const Volumes = require('../volumes');
 const EventStream = require('../event_stream');
 
 module.exports = function() {
-  var getNodeStub;
-
-  class FakeRegistry extends EventEmitter {
-    constructor(nodes) {
-      super();
-      this.nodes = [];
-      getNodeStub = sinon.stub(this, 'getNode');
-    }
-    getNode(node) {}
-  }
-
   // Easy generator of a test node with fake pools, replicas and nexus
   // omitting all properties that are not necessary for the event stream.
   class FakeNode {
@@ -37,8 +29,11 @@ module.exports = function() {
     }
   }
 
-  it('should get events from a node stream', done => {
-    let registry = new FakeRegistry();
+  it('should read events from registry and volumes stream', done => {
+    let registry = new Registry();
+    let volumes = new Volumes(registry);
+    let getNodeStub = sinon.stub(registry, 'getNode');
+    let getVolumeStub = sinon.stub(volumes, 'get');
     // The initial state of the nodes. "new" event should be written to the
     // stream for all these objects and one "sync" event for each node meaning
     // that the reader has caught up with the initial state.
@@ -68,12 +63,22 @@ module.exports = function() {
         []
       ),
     ]);
+    getVolumeStub.returns([
+      new Volume('volume1', registry, {}),
+      new Volume('volume2', registry, {}),
+    ]);
 
     // set low high water mark to test buffered reads
-    let stream = new EventStream(registry, {
-      highWaterMark: 3,
-      lowWaterMark: 1,
-    });
+    let stream = new EventStream(
+      {
+        registry,
+        volumes,
+      },
+      {
+        highWaterMark: 3,
+        lowWaterMark: 1,
+      }
+    );
     let events = [];
 
     stream.on('data', ev => {
@@ -129,6 +134,19 @@ module.exports = function() {
           object: { uuid: 'nexus3' },
         });
 
+        volumes.emit('volume', {
+          eventType: 'new',
+          object: { uuid: 'volume3' },
+        });
+        volumes.emit('volume', {
+          eventType: 'mod',
+          object: { uuid: 'volume4' },
+        });
+        volumes.emit('volume', {
+          eventType: 'del',
+          object: { uuid: 'volume5' },
+        });
+
         registry.emit('unknown', {
           eventType: 'new',
           object: { name: 'something' },
@@ -146,7 +164,8 @@ module.exports = function() {
       let i = 0;
       // A note about ordering of events that are part of the initial state:
       // First go pools. Each pool is followed by its replicas. Nexus go last.
-      expect(events).to.have.lengthOf.at.least(23);
+      // Then follow volume "new" events.
+      expect(events).to.have.lengthOf.at.least(28);
       expect(events[i].kind).to.equal('pool');
       expect(events[i].eventType).to.equal('new');
       expect(events[i++].object.name).to.equal('pool1');
@@ -186,6 +205,12 @@ module.exports = function() {
       expect(events[i].kind).to.equal('node');
       expect(events[i].eventType).to.equal('sync');
       expect(events[i++].object.name).to.equal('node2');
+      expect(events[i].kind).to.equal('volume');
+      expect(events[i].eventType).to.equal('new');
+      expect(events[i++].object.uuid).to.equal('volume1');
+      expect(events[i].kind).to.equal('volume');
+      expect(events[i].eventType).to.equal('new');
+      expect(events[i++].object.uuid).to.equal('volume2');
       // these events happened after the stream was created
       expect(events[i].kind).to.equal('pool');
       expect(events[i].eventType).to.equal('new');
@@ -217,6 +242,15 @@ module.exports = function() {
       expect(events[i].kind).to.equal('nexus');
       expect(events[i].eventType).to.equal('del');
       expect(events[i++].object.uuid).to.equal('nexus3');
+      expect(events[i].kind).to.equal('volume');
+      expect(events[i].eventType).to.equal('new');
+      expect(events[i++].object.uuid).to.equal('volume3');
+      expect(events[i].kind).to.equal('volume');
+      expect(events[i].eventType).to.equal('mod');
+      expect(events[i++].object.uuid).to.equal('volume4');
+      expect(events[i].kind).to.equal('volume');
+      expect(events[i].eventType).to.equal('del');
+      expect(events[i++].object.uuid).to.equal('volume5');
       expect(events).to.have.lengthOf(i);
       done();
     });
