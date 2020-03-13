@@ -34,15 +34,22 @@ pub struct MayastorGrpc {}
 
 type Result<T> = std::result::Result<T, Status>;
 
+macro_rules! locally {
+    ($body:expr) => {
+        {
+            let hdl = Reactors::current().spawn_local($body);
+            hdl.await.unwrap()?
+        }
+    };
+}
+
 #[tonic::async_trait]
 impl Mayastor for MayastorGrpc {
     async fn create_pool(
         &self,
         request: Request<CreatePoolRequest>,
     ) -> Result<Response<Null>> {
-        let msg = request.into_inner();
-        let hdl = Reactors::current().spawn_local(pool::create_pool(msg));
-        hdl.await.unwrap()?;
+        locally! { pool::create_pool(request.into_inner()) };
         Ok(Response::new(Null {}))
     }
 
@@ -50,9 +57,7 @@ impl Mayastor for MayastorGrpc {
         &self,
         request: Request<DestroyPoolRequest>,
     ) -> Result<Response<Null>> {
-        let msg = request.into_inner();
-        let hdl = Reactors::current().spawn_local(pool::destroy_pool(msg));
-        hdl.await.unwrap()?;
+        locally! { pool::destroy_pool(request.into_inner()) };
         Ok(Response::new(Null {}))
     }
 
@@ -84,18 +89,14 @@ impl Mayastor for MayastorGrpc {
         &self,
         request: Request<CreateReplicaRequest>,
     ) -> Result<Response<CreateReplicaReply>> {
-        let msg = request.into_inner();
-        let hdl = Reactors::current().spawn_local(replica::create_replica(msg));
-        Ok(Response::new(hdl.await.unwrap()?))
+        Ok(Response::new(locally! { replica::create_replica(request.into_inner()) }))
     }
 
     async fn destroy_replica(
         &self,
         request: Request<DestroyReplicaRequest>,
     ) -> Result<Response<Null>> {
-        let msg = request.into_inner();
-        let hdl = Reactors::current().spawn_local(replica::destroy_replica(msg));
-        hdl.await.unwrap()?;
+        locally! { replica::destroy_replica(request.into_inner()) };
         Ok(Response::new(Null {}))
     }
 
@@ -110,19 +111,14 @@ impl Mayastor for MayastorGrpc {
         &self,
         _request: Request<Null>,
     ) -> Result<Response<StatReplicasReply>> {
-        let hdl = Reactors::current().spawn_local(replica::stat_replicas());
-        Ok(Response::new(hdl.await.unwrap()?))
+        Ok(Response::new(locally! { replica::stat_replicas() }))
     }
 
     async fn share_replica(
         &self,
         request: Request<ShareReplicaRequest>,
     ) -> Result<Response<ShareReplicaReply>> {
-        let msg = request.into_inner();
-        let hdl = Reactors::current().spawn_local(async move {
-            Result::<ShareReplicaReply>::Ok(replica::share_replica(msg).await?)
-        });
-        Ok(Response::new(hdl.await.unwrap()?))
+        Ok(Response::new(locally! { replica::share_replica(request.into_inner()) }))
     }
 
     async fn create_nexus(
@@ -130,14 +126,9 @@ impl Mayastor for MayastorGrpc {
         request: Request<CreateNexusRequest>,
     ) -> Result<Response<Null>> {
         let msg = request.into_inner();
-
-        let hdl = Reactors::current().spawn_local(async move {
-            nexus_create(&msg.uuid, msg.size, Some(&msg.uuid), &msg.children)
-                .await
-        });
-
-        // a handle returns an Option<Result<T,E>> so unwrap by default
-        hdl.await.unwrap()?;
+        locally! { async move {
+                nexus_create(&msg.uuid, msg.size, Some(&msg.uuid), &msg.children).await
+        }};
 
         Ok(Response::new(Null {}))
     }
@@ -146,15 +137,7 @@ impl Mayastor for MayastorGrpc {
         &self,
         request: Request<DestroyNexusRequest>,
     ) -> Result<Response<Null>> {
-        let msg = request.into_inner();
-
-        let hdl = Reactors::current().spawn_local(async move {
-            let nexus = nexus_lookup(&msg.uuid)?;
-            nexus.destroy().await
-        });
-
-        hdl.await.unwrap()?;
-
+        locally! { async move { nexus_lookup(&request.into_inner().uuid)?.destroy().await }};
         Ok(Response::new(Null {}))
     }
 
@@ -189,13 +172,9 @@ impl Mayastor for MayastorGrpc {
         request: Request<AddChildNexusRequest>,
     ) -> Result<Response<Null>> {
         let msg = request.into_inner();
-
-        let hdl = Reactors::current().spawn_local(async move {
-            let nexus = nexus_lookup(&msg.uuid)?;
-            nexus.add_child(&msg.uri).await.map(|_| ())
-        });
-
-        hdl.await.unwrap()?;
+        locally! { async move {
+            nexus_lookup(&msg.uuid)?.add_child(&msg.uri).await.map(|_| ())
+        }};
 
         Ok(Response::new(Null {}))
     }
@@ -205,13 +184,9 @@ impl Mayastor for MayastorGrpc {
         request: Request<RemoveChildNexusRequest>,
     ) -> Result<Response<Null>> {
         let msg = request.into_inner();
-
-        let hdl = Reactors::current().spawn_local(async move {
-            let nexus = nexus_lookup(&msg.uuid)?;
-            nexus.remove_child(&msg.uri).await
-        });
-
-        hdl.await.unwrap()?;
+        locally! { async move {
+            nexus_lookup(&msg.uuid)?.remove_child(&msg.uri).await
+        }};
 
         Ok(Response::new(Null {}))
     }
@@ -232,14 +207,9 @@ impl Mayastor for MayastorGrpc {
             Some(msg.key.clone())
         };
 
-        let hdl = Reactors::current().spawn_local(async move {
-            let nexus = nexus_lookup(&msg.uuid)?;
-            nexus.share(key).await.map(|device_path| PublishNexusReply {
-                device_path,
-            })
-        });
-
-        let reply = hdl.await.unwrap()?;
+        let reply = locally! { async move {
+            nexus_lookup(&msg.uuid)?.share(key).await.map(|device_path| PublishNexusReply { device_path })
+        }};
 
         Ok(Response::new(reply))
     }
@@ -248,14 +218,10 @@ impl Mayastor for MayastorGrpc {
         &self,
         request: Request<UnpublishNexusRequest>,
     ) -> Result<Response<Null>> {
-        let msg = request.into_inner();
+        locally! { async move {
+            nexus_lookup(&request.into_inner().uuid)?.unshare().await
+        }};
 
-        let hdl = Reactors::current().spawn_local(async move {
-            let nexus = nexus_lookup(&msg.uuid)?;
-            nexus.unshare().await
-        });
-
-        hdl.await.unwrap()?;
         Ok(Response::new(Null {}))
     }
 
@@ -271,16 +237,14 @@ impl Mayastor for MayastorGrpc {
             _ => Err(Status::invalid_argument("Bad child operation"))
         }?;
 
-        let hdl = Reactors::current().spawn_local(async move {
+        locally! { async move {
             let nexus = nexus_lookup(&msg.uuid)?;
             if onl {
                 nexus.online_child(&msg.uri).await
             } else {
                 nexus.offline_child(&msg.uri).await
             }
-        });
-
-        hdl.await.unwrap()?;
+        }};
 
         Ok(Response::new(Null {}))
     }
