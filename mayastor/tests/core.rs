@@ -10,6 +10,12 @@ use mayastor::{
     },
     nexus_uri::{bdev_create, bdev_destroy},
 };
+use std::{
+    fs::OpenOptions,
+    io::ErrorKind,
+    os::unix::fs::OpenOptionsExt,
+    sync::Once,
+};
 
 static DISKNAME1: &str = "/tmp/disk1.img";
 static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
@@ -17,10 +23,61 @@ static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
 static DISKNAME2: &str = "/tmp/disk2.img";
 static BDEVNAME2: &str = "aio:///tmp/disk2.img?blk_size=512";
 
+static DISKNAME3: &str = "/tmp/disk3.img";
+static BDEVNAME3: &str = "uring:///tmp/disk3.img?blk_size=512";
+
+static mut DO_URING: bool = false;
+static INIT: Once = Once::new();
+
 pub mod common;
 
+fn fs_supports_direct_io() -> bool {
+    // SPDK uring bdev uses IORING_SETUP_IOPOLL which requires O_DIRECT
+    // which works on at least XFS filesystems
+    match OpenOptions::new()
+        .read(true)
+        .write(true)
+        .custom_flags(libc::O_DIRECT)
+        .open(DISKNAME3) {
+        Ok(_f) => true,
+        Err(e) => {
+            assert_eq!(e.kind(), ErrorKind::InvalidInput);
+            println!("Skipping uring bdev, open: {:?}", e);
+            false
+        }
+    }
+}
+
+fn kernel_supports_io_uring() -> bool {
+    // Match SPDK_URING_QUEUE_DEPTH
+    let queue_depth = 512;
+    match io_uring::IoUring::new(queue_depth) {
+        Ok(_ring) => true,
+        Err(e) => {
+            assert_eq!(e.kind(), ErrorKind::Other);
+            assert_eq!(e.raw_os_error().unwrap(), libc::ENOSYS);
+            println!("Skipping uring bdev, IoUring::new: {:?}", e);
+            false
+        }
+    }
+}
+
+fn do_uring() -> bool {
+    unsafe {
+        INIT.call_once(|| {
+            DO_URING = fs_supports_direct_io() && kernel_supports_io_uring();
+        });
+        DO_URING
+    }
+}
+
+
 async fn create_nexus() {
-    let ch = vec![BDEVNAME1.to_string(), BDEVNAME2.to_string()];
+    let ch = if do_uring() {
+        vec![BDEVNAME1.to_string(), BDEVNAME2.to_string(), BDEVNAME3.to_string()]
+    } else {
+        vec![BDEVNAME1.to_string(), BDEVNAME2.to_string()]
+    };
     nexus_create("core_nexus", 64 * 1024 * 1024, None, &ch)
         .await
         .unwrap();
@@ -31,6 +88,7 @@ fn core() {
     test_init!();
     common::truncate_file(DISKNAME1, 64 * 1024);
     common::truncate_file(DISKNAME2, 64 * 1024);
+    common::truncate_file(DISKNAME3, 64 * 1024);
 
     Reactor::block_on(async {
         works().await;
