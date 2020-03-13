@@ -62,13 +62,22 @@ impl Mayastor for MayastorGrpc {
     ) -> Result<Response<ListPoolsReply>> {
         assert_eq!(Cores::current(), Cores::first());
 
-        let pools = pool::list_pools();
+        let pools = pool::list_pools().iter().map(|pool| {
+            Pool {
+                name: pool.name.clone(),
+                disks: pool.disks.clone(),
+                state: match pool.state.as_str() {
+                    "online" => PoolState::Online,
+                    _ => PoolState::Degraded,
+                } as i32,
+                capacity: pool.capacity,
+                used: pool.used,
+            }
+        }).collect();
 
-        dbg!(pools);
+        dbg!(&pools);
 
-        Ok(Response::new(ListPoolsReply {
-            pools: Vec::new(),
-        }))
+        Ok(Response::new(ListPoolsReply { pools }))
     }
 
     async fn create_replica(
