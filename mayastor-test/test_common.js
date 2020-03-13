@@ -19,7 +19,8 @@ const GRPC_PORT = 10777;
 const CSI_ENDPOINT = '/tmp/mayastor_csi_test.sock';
 const CSI_ID = 'test-node-id';
 
-var endpoint = '127.0.0.1:' + GRPC_PORT;
+var test_port = process.env.TEST_PORT || GRPC_PORT;
+var endpoint = '127.0.0.1:' + test_port;
 // started processes indexed by the program name
 var procs = {};
 
