@@ -872,6 +872,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "io-uring"
+version = "0.3.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3822a27c48994cea60ca6b7aa808c9b7c1e930787383b5ebe8292e10314608d0"
+dependencies = [
+ "bitflags",
+ "libc",
+]
+
+[[package]]
 name = "ioctl-gen"
 version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -988,6 +998,7 @@ dependencies = [
  "futures",
  "futures-timer",
  "git-version",
+ "io-uring",
  "ioctl-gen",
  "libc",
  "log",
