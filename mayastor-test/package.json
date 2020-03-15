@@ -3,11 +3,11 @@
   "version": "0.1.0",
   "description": "\"Tests for the mayastor\"",
   "dependencies": {
-    "@grpc/proto-loader": "^0.4.0",
-    "async": "^2.6.3",
+    "@grpc/proto-loader": "^0.5.3",
+    "async": "^3.2.0",
     "chai": "^4.2.0",
-    "find-process": "^1.4.2",
-    "grpc": "^1.24.1",
+    "find-process": "^1.4.3",
+    "grpc": "^1.24.2",
     "grpc-kit": "^0.2.0",
     "grpc-mock": "^0.7.0",
     "grpc-uds": "^0.1.4",
@@ -15,11 +15,11 @@
     "lodash": "^4.17.15",
     "pidof": "^1.0.2",
     "read": "^1.0.7",
-    "systeminformation": "^4.14.17"
+    "systeminformation": "^4.23.1"
   },
   "devDependencies": {
-    "mocha": "^5.2.0",
-    "wtfnode": "^0.8.0"
+    "mocha": "^7.1.1",
+    "wtfnode": "^0.8.1"
   },
   "author": "Jan Kryl <jan.kryl@mayadata.io>",
   "license": "BSD-2-Clause"

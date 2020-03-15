@@ -93,9 +93,11 @@ moac package need to be updated as well:
 
 1. Update npm dependencies:
    ```bash
-   rm -rf node_modules
    npm update
    ```
+   NOTE: If you want to update all packages to the very latest major versions
+   that may include breaking changes to APIs, then install `npm-check-updates`
+   npm package and run `npm-check-updates -u` before the step above.
 
 2. If not already installed, install a node2nix tool which automates nix package
    creation for npm packages. On NixOS that can be done by following command:
@@ -105,6 +107,7 @@ moac package need to be updated as well:
 
 3. Generate nix package build files:
    ```bash
+   rm -rf node_modules
    node2nix -l package-lock.json --nodejs-10 -c node-composition.nix
    ```
 

@@ -5,7 +5,8 @@
 
 'use strict';
 
-const { config, Client } = require('kubernetes-client');
+const { Client, KubeConfig } = require('kubernetes-client');
+const Request = require('kubernetes-client/backends/request');
 const yargs = require('yargs');
 const logger = require('./logger');
 const Registry = require('./registry');
@@ -18,15 +19,21 @@ const CsiServer = require('./csi').CsiServer;
 const log = new logger.Logger();
 
 // Read k8s client configuration, in order to be able to connect to k8s api
-// server, either from a file or from environment.
-function readK8sConfig(kubeconfig) {
+// server, either from a file or from environment and return k8s client
+// object.
+//
+// @param   {string} [kubefile]    Kube config file.
+// @returns {object}  k8s client object.
+function createK8sClient(kubefile) {
+  var backend;
   try {
-    if (kubeconfig != null) {
-      log.info('Reading k8s configuration from file ' + kubeconfig);
-      return config.fromKubeconfig(kubeconfig);
-    } else {
-      return config.getInCluster();
+    if (kubefile != null) {
+      log.info('Reading k8s configuration from file ' + kubefile);
+      let kubeconfig = new KubeConfig();
+      kubeconfig.loadFromFile(kubefile);
+      backend = new Request({ kubeconfig });
     }
+    return new Client({ backend });
   } catch (e) {
     log.error('Cannot get k8s client configuration: ' + e);
     process.exit(1);
@@ -118,8 +125,7 @@ async function main() {
 
   if (!opts.s) {
     // Create k8s client and load openAPI spec from k8s api server
-    let k8sConfig = readK8sConfig(opts.kubeconfig);
-    let client = new Client({ config: k8sConfig });
+    let client = createK8sClient(opts.kubeconfig);
     log.debug('Loading openAPI spec from the server');
     await client.loadSpec();
 

@@ -100,8 +100,8 @@ function waitFor(ping, done) {
   let iters = 0;
 
   async.whilst(
-    () => {
-      return iters < 10;
+    cb => {
+      cb(null, iters < 10);
     },
     next => {
       iters++;

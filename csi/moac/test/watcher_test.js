@@ -96,7 +96,7 @@ class GetMock {
 }
 
 // A mock representing k8s watch stream.
-// You can feed arbitrary strings to it and it will pass them to a consumer.
+// You can feed arbitrary objects to it and it will pass them to a consumer.
 // Example of k8s watch stream event follows:
 //
 // {
@@ -105,51 +105,51 @@ class GetMock {
 //     ... (object as shown in GetMock example above)
 //  }
 //}
-//
-// NOTE: The event objects must be each on its own line. That's how k8s does
-// it. Event parser breaks otherwise!
 class StreamMock extends Readable {
   constructor() {
-    super({ autoDestroy: true });
+    super({ autoDestroy: true, objectMode: true });
     this.feeds = [];
     this.wantMore = false;
   }
 
   _read(size) {
     while (true) {
-      let chunk = this.feeds.shift();
-      if (chunk === undefined) {
+      let obj = this.feeds.shift();
+      if (obj === undefined) {
         this.wantMore = true;
         break;
       }
-      this.push(chunk);
+      this.push(obj);
     }
   }
 
-  feedRaw(str) {
-    this.feeds.push(str);
+  feed(type, object) {
+    this.feeds.push({
+      type,
+      object,
+    });
     if (this.wantMore) {
       this.wantMore = false;
       this._read();
     }
   }
 
-  feed(type, object) {
-    this.feedRaw(JSON.stringify({ type, object }) + '\n');
-  }
-
   end() {
-    this.feedRaw(null);
+    this.feeds.push(null);
+    if (this.wantMore) {
+      this.wantMore = false;
+      this._read();
+    }
   }
 
-  getStream() {
+  getObjectStream() {
     return this;
   }
 }
 
 // This is for test cases where we need to test disconnected watch stream.
 // In that case, the watcher will create a new instance of watch stream
-// (by calling getStream) and we need to keep track of latest created stream
+// (by calling getObjectStream) and we need to keep track of latest created stream
 // in order to be able to feed data to it etc.
 class StreamMockTracker {
   constructor() {
@@ -157,7 +157,7 @@ class StreamMockTracker {
   }
 
   // create a new stream (mimics nodejs k8s client api)
-  getStream() {
+  getObjectStream() {
     let s = new StreamMock();
     this.current = s;
     return s;
@@ -380,7 +380,7 @@ module.exports = function() {
       }
 
       // We will fail (end) the stream 3x and 4th attempt will succeed
-      getStream() {
+      getObjectStream() {
         let s = new StreamMock();
         this.current = s;
         if (this.iter < 3) {
@@ -460,38 +460,4 @@ module.exports = function() {
     watcher.stop();
     streamMockTracker.latest().end();
   }).timeout(10000);
-
-  it('should not crash upon invalid json in the stream', done => {
-    var getMock = new GetMock();
-    var streamMockTracker = new StreamMockTracker();
-    var watcher = new Watcher('test', getMock, streamMockTracker, objectFilter);
-    var newCount = 0;
-    var modCount = 0;
-
-    watcher.on('new', () => newCount++);
-    watcher.on('mod', () => modCount++);
-    getMock.add(createObject('object', 1, 155));
-
-    watcher.start().then(() => {
-      expect(newCount).to.equal(1);
-      expect(modCount).to.equal(0);
-
-      // Following line should be ignored
-      streamMockTracker
-        .latest()
-        .feedRaw('{"type": "ADD", "object":{"non-sense\n');
-      streamMockTracker
-        .latest()
-        .feed('MODIFIED', createObject('object', 2, 156));
-
-      watcher.once('sync', () => {
-        watcher.stop();
-        streamMockTracker.latest().end();
-        expect(newCount).to.equal(1);
-        expect(modCount).to.equal(1);
-        done();
-      });
-      streamMockTracker.latest().end();
-    });
-  });
 };
