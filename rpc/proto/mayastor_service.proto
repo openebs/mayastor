@@ -47,6 +47,7 @@ service Mayastor {
 	rpc ChildOperation(mayastor.ChildNexusRequest) returns (mayastor.Null) {}
 
 	// Rebuild operations
+	rpc StartRebuild (mayastor.StartRebuildRequest) returns (mayastor.Null) {}
 	rpc GetRebuildState (mayastor.RebuildStateRequest) returns (mayastor.RebuildStateReply) {}
 	rpc GetRebuildProgress (mayastor.RebuildProgressRequest) returns (mayastor.RebuildProgressReply) {}
 }

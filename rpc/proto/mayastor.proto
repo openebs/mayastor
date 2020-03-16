@@ -200,6 +200,11 @@ message RebuildStateReply {
   string state = 1; // current rebuild state (i.e. ready/running/completed etc.)
 }
 
+message StartRebuildRequest {
+  string uuid = 1;  // uuid of the nexus
+  string uri = 2;   // uri of the child to be rebuilt
+}
+
 message RebuildProgressRequest {
   string uuid = 1;  // uuid of the nexus
 }

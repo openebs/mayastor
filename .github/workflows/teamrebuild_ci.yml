@@ -65,10 +65,23 @@ jobs:
         
         # Launch the nix container as a daemon
         docker run -d --name "nix" --rm -v $PWD:/MayaStor teamrebuild/ci:latest tail -f /dev/null
+
     - name: Pretty
       run: |
         docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'prettier --version'"
         docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'prettier --config .prettierrc --check csi/moac/*.js mayastor-test/*.js'"
+
+    - name: JS
+      run: |
         docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'jshint --config .jshintrc csi/moac/*.js mayastor-test/*.js'"
-        docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'cargo fmt --all'"
+
+    - name: Cargo fmt
+      run: |
+        docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'cargo fmt --version'"
+        echo 'set -e; for d in */Cargo.toml; do dir=`dirname "$d"`; if [ ! -f "$dir"/.git ]; then echo "cargo fmt -p "$dir" -- --check"; cargo fmt -p "$dir" -- --check; fi; done' > fmt.sh
+        docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'sh fmt.sh'"
+
+    - name: Cargo Clippy
+      run: |
+        docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'cargo clippy --version'"
         docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'cargo clippy --all --all-targets -- -D warnings'"

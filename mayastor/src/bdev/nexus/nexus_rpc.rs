@@ -14,6 +14,7 @@ use rpc::mayastor::{
     RebuildProgressRequest,
     RebuildStateRequest,
     RemoveChildNexusRequest,
+    StartRebuildRequest,
     UnpublishNexusRequest,
 };
 
@@ -176,6 +177,14 @@ pub(crate) fn register_rpc_methods() {
         let fut = async move {
             let nexus = nexus_lookup(&args.uuid)?;
             nexus.remove_child(&args.uri).await
+        };
+        fut.boxed_local()
+    });
+
+    jsonrpc_register("start_rebuild", |args: StartRebuildRequest| {
+        let fut = async move {
+            let nexus = nexus_lookup(&args.uuid)?;
+            nexus.start_rebuild(&args.uri).await
         };
         fut.boxed_local()
     });
