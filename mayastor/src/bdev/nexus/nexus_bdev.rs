@@ -47,6 +47,7 @@ use crate::{
     ffihelper::errno_result_from_i32,
     jsonrpc::{Code, RpcErrorCode},
     nexus_uri::BdevCreateDestroy,
+    rebuild::{RebuildError, RebuildTask},
 };
 
 /// Common errors for nexus basic operations and child operations
@@ -121,6 +122,29 @@ pub enum Error {
     ChildNotFound { child: String, name: String },
     #[snafu(display("Child {} of nexus {} is not closed", child, name))]
     ChildNotClosed { child: String, name: String },
+    #[snafu(display("Open Child of nexus {} not found", name))]
+    OpenChildNotFound { name: String },
+    #[snafu(display(
+        "Failed to start rebuilding child {} of nexus {}",
+        child,
+        name
+    ))]
+    StartRebuild {
+        source: RebuildError,
+        child: String,
+        name: String,
+    },
+    #[snafu(display(
+        "Failed to complete rebuild of child {} of nexus {}, reason: {}",
+        child,
+        name,
+        reason,
+    ))]
+    CompleteRebuild {
+        child: String,
+        name: String,
+        reason: String,
+    },
 }
 
 impl RpcErrorCode for Error {
@@ -192,6 +216,8 @@ pub struct Nexus {
     /// the handle to be used when sharing the nexus, this allows for the bdev
     /// to be shared with vbdevs on top
     pub(crate) share_handle: Option<String>,
+    /// vector of rebuild tasks
+    pub rebuilds: Vec<RebuildTask>,
 }
 
 unsafe impl core::marker::Sync for Nexus {}
@@ -268,6 +294,7 @@ impl Nexus {
             nbd_disk: None,
             share_handle: None,
             size,
+            rebuilds: Vec::new(),
         });
 
         n.bdev.set_uuid(match uuid {

@@ -334,6 +334,17 @@ impl service::mayastor_server::Mayastor for MayastorService {
         Ok(Response::new(Null {}))
     }
 
+    async fn start_rebuild(
+        &self,
+        request: Request<StartRebuildRequest>,
+    ) -> Result<Response<Null>, Status> {
+        let msg = request.into_inner();
+        trace!("{:?}", msg);
+        jsonrpc::call::<_, ()>(&self.socket, "start_rebuild", Some(msg))
+            .await?;
+        Ok(Response::new(Null {}))
+    }
+
     async fn get_rebuild_state(
         &self,
         request: Request<RebuildStateRequest>,

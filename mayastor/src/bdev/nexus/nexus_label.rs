@@ -155,7 +155,7 @@ impl Nexus {
         let size = self.bdev.num_blocks() * self.bdev.block_len() as u64;
         pmbr.entries[0].attributes = 0x00;
         //
-        pmbr.entries[0].chs_start = [0x00, 0x2, 0x00];
+        pmbr.entries[0].chs_start = [0x00, 0x02, 0x00];
         pmbr.entries[0].chs_last = [0xff, 0xff, 0xff];
 
         // this indicated that we are "protective MBR", saying we use all

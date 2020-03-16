@@ -74,6 +74,7 @@ fn mount_fs() {
 
     test_init!();
 
+    common::delete_file(&[DISKNAME1.into(), DISKNAME2.into()]);
     common::truncate_file(DISKNAME1, 64 * 1024);
     common::truncate_file(DISKNAME2, 64 * 1024);
 
