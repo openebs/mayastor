@@ -62,7 +62,7 @@ async fn rebuild_test_start() {
     // crude wait for the rebuild
     let (s, r) = unbounded::<String>();
     std::thread::spawn(move || {
-        s.send(delay(std::time::Duration::from_millis(500)))
+        s.send(delay(std::time::Duration::from_secs(1)))
     });
     reactor_poll!(r);
 
