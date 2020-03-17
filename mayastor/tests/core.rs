@@ -11,8 +11,8 @@ use mayastor::{
     nexus_uri::{bdev_create, bdev_destroy},
 };
 use std::{
-    fs::OpenOptions,
-    io::ErrorKind,
+    fs::{File, OpenOptions},
+    io::{BufRead, BufReader, ErrorKind},
     os::unix::fs::OpenOptionsExt,
     sync::Once,
 };
@@ -48,6 +48,58 @@ fn fs_supports_direct_io() -> bool {
     }
 }
 
+fn get_mount_filesystem() -> Option<String> {
+    let mut path = std::path::Path::new(DISKNAME3);
+    loop {
+        let f = match File::open("/etc/mtab") {
+            Ok(f) => f,
+            Err(e) => {
+                eprintln!("open: {}", e);
+                return None;
+            }
+        };
+        let reader = BufReader::new(f);
+
+        let d = path.to_str().unwrap();
+        for line in reader.lines() {
+            let l = match line {
+                Ok(l) => l,
+                Err(e) => {
+                    eprintln!("line: {}", e);
+                    return None;
+                }
+            };
+            let parts: Vec<&str> = l.split_whitespace().collect();
+            if !parts.is_empty() && parts[1] == d {
+                return Some(parts[2].to_string());
+            }
+        }
+
+        path = match path.parent() {
+            None => return None,
+            Some(p) => p
+        }
+    };
+}
+
+fn fs_type_supported() -> bool {
+    match get_mount_filesystem() {
+        None => {
+            println!("Skipping uring bdev, unknown fs");
+            false
+        }
+        Some(d) => {
+            match d.as_str() {
+                "xfs" => true,
+                _ => {
+                    println!("Skipping uring bdev, fs: {}", d);
+                    false
+                }
+            }
+        }
+    }
+}
+
 fn kernel_supports_io_uring() -> bool {
     // Match SPDK_URING_QUEUE_DEPTH
     let queue_depth = 512;
@@ -65,7 +117,8 @@ fn kernel_supports_io_uring() -> bool {
 fn do_uring() -> bool {
     unsafe {
         INIT.call_once(|| {
-            DO_URING = fs_supports_direct_io() && kernel_supports_io_uring();
+            DO_URING = fs_supports_direct_io() && fs_type_supported()
+                        && kernel_supports_io_uring();
         });
         DO_URING
     }
