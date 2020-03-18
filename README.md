@@ -40,38 +40,36 @@ Table of contents:
 
 ## Overview
 
-At a high-level, MayaStor consists out of two major components.
+At a high-level, MayaStor consists of two major components.
 
 ### **Control plane:**
 
  * A single instance K8s controller which implements the [CSI](https://github.com/container-storage-interface/spec/blob/master/spec.md)
- controller spec but also private interfaces that otherwise, would be implemented by your storage system which we
- call Mother Of All Containers native storage or *MAOC*  for short which runs as deployment.
+ controller spec but also private interfaces that otherwise would be implemented by your storage system.  This is called Mother Of All Containers native storage or *MAOC*  for short; it runs as a k8s deployment.
 
  * A _per_ node instance *mayastor-agent* which handles the per node CSI related aspects as well as private a set of private API's.
 
 ### **Data plane:**
 
-* For each node, you wish to use for storage or storage services will have to run a MayaStor daemon set. MayaStor itself,
-has yet again, three major components, the Nexus, a local storage component and the mayastor-agent.
+* Each node you wish to use for storage or storage services will have to run a MayaStor daemon set. MayaStor itself has three major components: the Nexus, a local storage component, and the mayastor-agent.
 
 ## Nexus
 
 <p align="justify">
-The Nexus is responsible for attaching to your storage resources and make it available to the host that is
-selected to run your k8s workload. We call these from the Nexus its point of view children.
+The Nexus is responsible for attaching to your storage resources and making it available to the host that is
+selected to run your k8s workload. We call these from the Nexus' point of view its "children".
 
-The goal we envision the Nexus to provide here is, as it sits between the storage systems and PVCs, is loose coupling.
+The goal we envision the Nexus to provide here, as it sits between the storage systems and PVCs, is loose coupling.
 
-A practical example: Once you are up and running with persistent workloads in a containers, you need to move your data because
-the storage system that stores your PVC goes EOL, you now can control how this impacts your team without getting amid storage
-migration projects, which are always painful and complicated. In reality, the individual storage volumes per team/app are
-relatively small, but today, its not possible for individual teams to handle their own storage needs. The nexus provides the
+A practical example: Once you are up and running with persistent workloads in a container, you need to move your data because
+the storage system that stores your PVC goes EOL.  You now can control how this impacts your team without getting into storage
+migration projects, which are always painful and complicated.  In reality, the individual storage volumes per team/app are
+relatively small, but today it is not possible for individual teams to handle their own storage needs. The Nexus provides the
 abstraction over the resources such that the developer teams stay in control.
 
-The reason we think this can work is because applications have changed, they way they are built allows us to rethink
+The reason we think this can work is because applications have changed, and the way they are built allows us to rethink
 they way we do things. Moreover, due to hardware [changes](https://searchstorage.techtarget.com/tip/NVMe-performance-challenges-expose-the-CPU-chokepoint)
-we even get forced to think about it.
+we in fact are forced to think about it.
 
 Based on storage URIs the Nexus knows how to connect to the resources and will make these resources available as
 a single device to a protocol standard protocol. These storage URIs are generated automatically by MOAC and it keeps
@@ -125,11 +123,11 @@ We think this can help a lot of database projects as well, where they typically 
 and they want the most simple (but fast) storage device. For a more elaborate example see some of the tests in mayastor/tests.
 
 To communicate with the children, the Nexus uses industry standard protocols. Currently, the Nexus has support for
-direct access to local storage and remote storage using NVMF or iSCSI. The other advantage is that if where to remove
-the Nexus out of the data path, you can still access your data like if Mayastor was never there.
+direct access to local storage and remote storage using NVMF or iSCSI. The other advantage is that if you were to remove
+the Nexus out of the data path, you would still ba able to access your data as if Mayastor was not there.
 
-The Nexus itself does not store any data and in it's most simplistic form the Nexus is a proxy towards real storage
-devices where the transport may vary. It can, however, as mentioned, "transform" the data which makes it possible to
+The Nexus itself does not store any data and in its most simplistic form the Nexus is a proxy towards real storage
+devices where the transport may vary. It can however, as mentioned, "transform" the data, which makes it possible to
 store copies of your data within different cloud systems. One of the other ideas we have is to write block device on top
 of a S3 bucket such that you can create PVCs from [Minio](https://min.io/), AWS or any other compatible S3 bucket. This
 simplifies the replication model for the Nexus itself somewhat but creates a bit more on the buffering side of things.
@@ -141,15 +139,15 @@ What model fits best for you? You get to decide!
 ## Local storage
 
 <p align="justify">
-If you do not have a storage system, and just have local storage, i.e device attached to your system that
-shows up as block devices, we can consume these devices and make a "storage system" out of these local devices such that
+If you do not have a storage system, and just have local storage, i.e block devices attached to your system, we can
+consume these and make a "storage system" out of these local devices such that
 you can leverage features like snapshots, clones, thin provisioning, and the likes. Our K8s tutorial does that under
-the watter today. Currently, we are working on exporting your local storage implicitly when needed, such that you can
-share storage between nodes. This means that your application when re-scheduled, can still connect to your local storage
+the water today. Currently, we are working on exporting your local storage implicitly when needed, such that you can
+share storage between nodes. This means that your application, when re-scheduled, can still connect to your local storage
 except for the fact that it is not local anymore.
 
-Similarly, if you do not want to use anything else then local storage, you can still use Mayastor to provide you with
-additional functionality that otherwise would require you setup, kernel specific features like LVM for example.
+Similarly, if you do not want to use anything other than local storage, you can still use Mayastor to provide you with
+additional functionality that otherwise would require you setup kernel specific features like LVM for example.
 <br>
 </p>
 
@@ -157,8 +155,8 @@ additional functionality that otherwise would require you setup, kernel specific
 
 <p align="justify">
 Our current main focus of development is on NVMe and vhost-user. Vhost-user allows developers to expose virtio devices
-that are implemented as a user space process that the hyper-visor can use to submit IO too. This means that our Nexus can be exposed as a
-vhost-user device such that a micro-vm (who typically does not have a feature rich kernel with drivers) can submit IO
+implemented as a user space process that the hyper-visor can use to submit IO to. This means that our Nexus can be exposed as a
+vhost-user device such that a micro-vm (which typically does not have a feature rich kernel with drivers) can submit IO
 to the Nexus.
 
 In turn, the Nexus can then use nvmf to replicate (if needed) the data to multiple devices and or nodes. Our

@@ -10,9 +10,9 @@ This section shows a couple of examples of what you already can do with MayaStor
 
 ## mctl
 
-`mctl` is a small too to interact with MayaStor and for now, mostly the Nexus. It currently does not
-interact with the local provisioner but you *can* use local storage with it already. As of writing we only
-have added support for sharing the Nexus over NBD as its the easiest to use.
+`mctl` is a small tool to interact with MayaStor and for now, mostly the Nexus. It currently does not
+interact with the local provisioner but you *can* use local storage with it already. As of this writing we have only
+added support for sharing the Nexus over NBD as it is the easiest to use.
 
 ```bash
 mctl --help
@@ -37,14 +37,14 @@ OPTIONS:
 
 
 SUBCOMMANDS:
-    create     Create a nexus using the given uri's
-    destroy    destroy a nexus and its children (does not delete the data)
+    create     Create a Nexus using the given uri's
+    destroy    destroy a Nexus and its children (does not delete the data)
     help       Prints this message or the help of the given subcommand(s)
-    list       List the nexus instances on the system
-    offline    Offline a child bdev from the nexus
-    online     Online a child from the nexus
-    share      share the nexus
-    unshare    unshare the nexus
+    list       List the Nexus instances on the system
+    offline    Offline a child bdev from the Nexus
+    online     Online a child from the Nexus
+    share      share the Nexus
+    unshare    unshare the Nexus
 ```
 
 ## local
@@ -84,16 +84,16 @@ Now that was easy! Let us inspect 'nexus0':
 ```
 
 Now this is not all that exciting, but as we you can see in [pool.rs](../mayastor/src/pool.rs) we can
-actually thin provision volumes out of the disks, you can also have a look into our test case that demonstrates
+actually thin provision volumes out of the disks.  You can also have a look into our test case that demonstrates
 that [here](../mayastor-test/test_cli.js). We can also add files to the mix and the Nexus would be
-fine writing to it as it where a local disk.
+fine writing to it as it were a local disk.
 
 ```bash
 mctl create `uuidgen -r ` --children aio:///1GB.img?blk_size=512 aio:///dev/sdb -b 512 -s 500MiB
 "nexus0"
 ```
 
-Notice how added a query parameter as files do not have block sizes.
+Notice the added query parameter, required as files do not have block sizes.
 
 ```bash
 {
@@ -118,8 +118,8 @@ Notice how added a query parameter as files do not have block sizes.
 }
 ```
 
-As a foundation for rebuilding, we needed to add support for adding and removing devices you can try this out
-yourself by running fio on top of the NBD device, it wont rebuild or anything just yet, but IO will flow:
+As a foundation for rebuilding, we needed to add support for adding and removing devices.  You can try this out
+yourself by running fio on top of the NBD device; it won't rebuild or anything just yet, but IO will flow:
 
 ```bash
 mctl offline $UUID  aio:///dev/sdb
@@ -259,7 +259,7 @@ Run status group 0 (all jobs):
 
 We are maxing out at roughly 90MB, as this a 1 GbE network that is to be expected.
 
-Now, let's disconnect it and create a nexus that that consumes one of the NVMe targets and rerun the test:
+Now, let's disconnect it and create a Nexus that that consumes one of the NVMe targets and rerun the test:
 
 ```bash
     nvme disconnect -d {/dev/nvme1,/dev/nvme2}
@@ -294,8 +294,8 @@ mctl list
 }
 ```
 
-We can share the Nexus to this local machine rather simply and we will use the NBD protocol
-this is something you typically would not do but it we in the near future, can exchange NBD for virtio, iSCSI
+We can share the Nexus to this local machine rather simply and we will use the NBD protocol.
+This is something you typically would not do but it we in the near future, can exchange NBD for virtio, iSCSI
 and NVMF
 
 
@@ -357,8 +357,8 @@ Disk stats (read/write):
 ```
 
 Note, the performance has dropped to 64MB, however we are **writing the data twice!** Let's see if we can prove that is
-the case. We will create a filesystem on top of the block device and write some data to it. We will then decouple the
-the nexus from the the block device and verify the data is indeed written to both block devices.
+the case. We will create a filesystem on top of the block device and write some data to it. We will then decouple
+the Nexus from the the block device and verify the data is indeed written to both block devices.
 
 ```bash
 sudo mkfs.ext4 /dev/nbd0
@@ -386,7 +386,7 @@ mctl unshare /dev/nbd0
 "nexus0"
 ```
 
-We will attach the devices directly to the host without the nexus in between. We expect to see that both block devices
+We will attach the devices directly to the host without the Nexus in between. We expect to see that both block devices
 will have the same  data on its filesystem, and have the same content including a matching md5.
 
 ```bash

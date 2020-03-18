@@ -118,7 +118,7 @@ function createGrpcClient(service) {
         oneofs: true,
       },
     },
-    common.endpoint
+    common.mayastor_endpoint
   );
 }
 

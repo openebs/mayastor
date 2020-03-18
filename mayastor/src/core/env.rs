@@ -78,9 +78,15 @@ fn parse_mb(src: &str) -> Result<i32, String> {
     name = "Mayastor",
     about = "Containerized Attached Storage (CAS) for k8s",
     version = "19.12.1",
-    raw(setting = "structopt::clap::AppSettings::ColoredHelp")
+    setting(structopt::clap::AppSettings::ColoredHelp)
 )]
 pub struct MayastorCliArgs {
+    #[structopt(short = "a", default_value = "127.0.0.1")]
+    /// IP address for gRPC
+    pub addr: String,
+    #[structopt(short = "p", default_value = "10125")]
+    /// Port for gRPC
+    pub port: String,
     #[structopt(short = "j")]
     /// Path to JSON formatted config file
     pub json: Option<String>,
@@ -95,7 +101,7 @@ pub struct MayastorCliArgs {
     pub reactor_mask: String,
     #[structopt(
         short = "s",
-        parse(try_from_str = "parse_mb"),
+        parse(try_from_str = parse_mb),
         default_value = "0"
     )]
     /// The maximum amount of hugepage memory we are allowed to allocate in MiB
@@ -113,6 +119,8 @@ pub struct MayastorCliArgs {
 impl Default for MayastorCliArgs {
     fn default() -> Self {
         Self {
+            addr: "127.0.0.1".into(),
+            port: "10125".into(),
             reactor_mask: "0x1".into(),
             mem_size: 0,
             rpc_address: "/var/tmp/mayastor.sock".to_string(),
@@ -173,6 +181,8 @@ type Result<T, E = EnvError> = std::result::Result<T, E>;
 pub struct MayastorEnvironment {
     pub config: Option<String>,
     pub enable_grpc: bool,
+    grpc_addr : String,
+    grpc_port : String,
     delay_subsystem_init: bool,
     enable_coredump: bool,
     env_context: String,
@@ -204,6 +214,8 @@ impl Default for MayastorEnvironment {
         Self {
             config: None,
             enable_grpc: false,
+            grpc_addr: "None".into(),
+            grpc_port: "None".into(),
             delay_subsystem_init: false,
             enable_coredump: true,
             env_context: String::new(),
@@ -301,7 +313,10 @@ extern "C" fn mayastor_signal_handler(signo: i32) {
 
 impl MayastorEnvironment {
     pub fn new(args: MayastorCliArgs) -> Self {
+        info!("Coucou '{}:{}'", args.addr, args.port);
         Self {
+            grpc_addr: args.addr,
+            grpc_port: args.port,
             config: args.config,
             json_config_file: args.json,
             log_component: args.log_components,
@@ -547,7 +562,7 @@ impl MayastorEnvironment {
     }
 
     extern "C" fn start_rpc(rc: i32, arg: *mut c_void) {
-        if arg.is_null() || rc != 0 {
+        if arg.is_null() || rc != 0  {
             panic!("Failed to initialize subsystems: {}", rc);
         }
 
@@ -638,6 +653,9 @@ impl MayastorEnvironment {
         F: FnOnce() + 'static,
     {
         let grpc = self.enable_grpc;
+
+        let grpc_addr = self.grpc_addr.clone();
+        let grpc_port = self.grpc_port.clone();
         self.init();
 
         let mut rt = Builder::new()
@@ -653,7 +671,7 @@ impl MayastorEnvironment {
                     let master = Reactors::current();
                     master.send_future(async { f() });
                     if grpc {
-                        let _out = tokio::try_join!(grpc_server_init(), master);
+                        let _out = tokio::try_join!(grpc_server_init(&grpc_addr, &grpc_port), master);
                     } else {
                         let _out = master.await;
                     };

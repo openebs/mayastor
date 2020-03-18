@@ -102,7 +102,7 @@ describe('replica', function() {
     // mayastor and grpc server
     if (!endpoint) {
       remote = false;
-      endpoint = common.endpoint;
+      endpoint = common.mayastor_endpoint;
       common.startMayastor();
       common.startMayastorGrpc();
     } else {
