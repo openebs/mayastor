@@ -36,7 +36,7 @@ rec {
 
   mayastor = rustPlatform.buildRustPackage rec {
     name = "mayastor";
-    cargoSha256 = "04pmnhrzg54g6az4hzjr6nlk7vhbsfg0nzk68g2cnd476pjd021l";
+    cargoSha256 = "1qxzbgdb3r6frw2x1v8s24ali75lxv1swq9243cxwdnvbbydqlxw";
     version = "unstable";
     src = ../../../.;
 
