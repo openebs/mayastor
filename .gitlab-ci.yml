@@ -25,7 +25,9 @@ lint:
     - nix-shell --run 'prettier --version'
     - nix-shell --run 'prettier --config .prettierrc --check csi/moac/*.js mayastor-test/*.js'
     - nix-shell --run 'jshint --config .jshintrc csi/moac/*.js mayastor-test/*.js'
-    - nix-shell --run 'cargo fmt --all'
+    # We don't want to perform this check for the submodules as it should be done in their respective repos
+    - echo 'set -e; for d in */Cargo.toml; do dir=`dirname "$d"`; if [ ! -f "$dir"/.git ]; then echo "cargo fmt -p "$dir" -- --check"; cargo fmt -p "$dir" -- --check; fi; done' > fmt.sh
+    - nix-shell --run 'sh fmt.sh'
     - nix-shell --run 'cargo clippy --all --all-targets -- -D warnings'
   only:
     - external_pull_requests
