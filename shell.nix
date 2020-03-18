@@ -39,6 +39,7 @@ mkShell {
   PROTOC_INCLUDE = mayastor.PROTOC_INCLUDE;
 
   shellHook = ''
+    pre-commit install
     figlet ${channel}
   '';
 }

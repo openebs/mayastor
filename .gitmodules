@@ -1,4 +1,0 @@
-[submodule "spdk-sys"]
-	path = spdk-sys
-	url = https://github.com/openebs/spdk-sys.git
-	branch = 19.07.x-mayastor
