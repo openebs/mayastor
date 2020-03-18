@@ -37,7 +37,10 @@ pub enum BdevCreateDestroy {
     #[snafu(display("Failed to parse nvmf URI \"{}\"", uri))]
     ParseNvmfUri { source: NvmfParseError, uri: String },
     #[snafu(display("Failed to parse uring URI \"{}\"", uri))]
-    ParseUringUri { source: UringParseError, uri: String },
+    ParseUringUri {
+        source: UringParseError,
+        uri: String,
+    },
     // bdev create/destroy errors
     #[snafu(display("bdev {} already exists", name))]
     BdevExists { name: String },

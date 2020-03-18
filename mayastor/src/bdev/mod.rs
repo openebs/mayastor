@@ -7,8 +7,8 @@ pub use nexus::{
     nexus_label::{GPTHeader, GptEntry},
 };
 pub use nvmf_dev::{NvmeCtlAttachReq, NvmfParseError};
-pub use uring_dev::{UringBdev, UringParseError};
 use spdk_sys::{spdk_conf_section, spdk_conf_section_get_nmval};
+pub use uring_dev::{UringBdev, UringParseError};
 
 /// Allocate C string and return pointer to it.
 /// NOTE: you must explicitly free it, otherwise the memory is leaked!
