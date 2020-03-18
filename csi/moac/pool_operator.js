@@ -98,34 +98,33 @@ class PoolOperator {
     self.eventStream = new EventStream(self.registry);
     self.eventStream.on('data', async ev => {
       if (ev.kind == 'pool') {
-        await self._onPoolEvent(ev.eventType, ev.object);
+        await self.workq.push(ev, self._onPoolEvent.bind(self));
       } else if (ev.kind == 'node' && ev.eventType == 'sync') {
-        await self._onNodeSyncEvent(ev.object.name);
+        await self.workq.push(ev.object.name, self._onNodeSyncEvent.bind(self));
       }
     });
   }
 
   // Handler for new/mod/del pool events
   //
-  // @param {string} eventType  Either new, mod or del.
-  // @param {object} pool       Pool object that the event relates to.
+  // @param {object} ev       Pool event as received from event stream.
   //
-  async _onPoolEvent(eventType, pool) {
-    let name = pool.name;
+  async _onPoolEvent(ev) {
+    let name = ev.object.name;
     let resource = this.resource[name];
 
-    log.debug(`Received "${eventType}" event for pool "${name}"`);
+    log.debug(`Received "${ev.eventType}" event for pool "${name}"`);
 
-    if (eventType == 'new') {
+    if (ev.eventType == 'new') {
       if (!resource) {
         log.warn(`Unknown pool "${name}" will be destroyed`);
         await this._destroyPool(name);
       } else {
-        await this._updateResource(pool);
+        await this._updateResource(ev.object);
       }
-    } else if (eventType == 'mod') {
-      await this._updateResource(pool);
-    } else if (eventType == 'del' && resource) {
+    } else if (ev.eventType == 'mod') {
+      await this._updateResource(ev.object);
+    } else if (ev.eventType == 'del' && resource) {
       log.warn(`Recreating destroyed pool "${name}"`);
       await this._createPool(resource);
     }
@@ -214,19 +213,25 @@ class PoolOperator {
       await this._updateResourceProps(name, 'PENDING', msg);
       return;
     }
+    if (!node.isSynced()) {
+      log.debug(
+        `The pool "${name}" will be synced when the node "${nodeName}" is synced`
+      );
+      return;
+    }
 
     // We will update the pool status once the pool is created, but
     // that can take a time, so set reasonable default now.
     await this._updateResourceProps(name, 'PENDING', 'Creating the pool');
 
     try {
+      // pool resource props will be updated when "new" pool event is emitted
       pool = await node.createPool(name, resource.disks);
     } catch (err) {
       log.error(`Failed to create pool "${name}": ${err}`);
       await this._updateResourceProps(name, 'PENDING', err.toString());
       return;
     }
-    await this._updateResource(pool);
   }
 
   // Remove the pool from internal state and if it exists destroy it.
