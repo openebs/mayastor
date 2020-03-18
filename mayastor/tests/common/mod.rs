@@ -235,3 +235,60 @@ pub fn clean_up_temp() {
 pub fn thread() -> Option<Mthread> {
     Mthread::from_null_checked(unsafe { spdk_get_thread() })
 }
+
+pub fn dd_urandom_blkdev(device: &str) -> String {
+    let (exit, stdout, _stderr) = run_script::run(
+        r#"
+        dd if=/dev/urandom of=$1 conv=fsync,nocreat,notrunc iflag=count_bytes count=`blockdev --getsize64 $1`
+    "#,
+    &vec![device.into()],
+    &run_script::ScriptOptions::new(),
+    )
+    .unwrap();
+    assert_eq!(exit, 0);
+    stdout
+}
+
+pub fn compare_nexus_device(
+    nexus_device: &str,
+    device: &str,
+    expected_pass: bool,
+) -> String {
+    let (exit, stdout, _stderr) = run_script::run(
+        r#"
+        cmp -n `blockdev --getsize64 $1` $1 $2 0 5M
+        test $? -eq $3
+    "#,
+        &vec![
+            nexus_device.into(),
+            device.into(),
+            (!expected_pass as i32).to_string(),
+        ],
+        &run_script::ScriptOptions::new(),
+    )
+    .unwrap();
+    assert_eq!(exit, 0);
+    stdout
+}
+
+pub fn compare_devices(
+    first_device: &str,
+    second_device: &str,
+    expected_pass: bool,
+) -> String {
+    let (exit, stdout, stderr) = run_script::run(
+        r#"
+        cmp -b $1 $2 5M 5M
+        test $? -eq $3
+    "#,
+        &vec![
+            first_device.into(),
+            second_device.into(),
+            (!expected_pass as i32).to_string(),
+        ],
+        &run_script::ScriptOptions::new(),
+    )
+    .unwrap();
+    assert_eq!(exit, 0, "stdout: {}\nstderr: {}", stdout, stderr);
+    stdout
+}
