@@ -24,6 +24,7 @@
 
 use futures::future::join_all;
 use snafu::ResultExt;
+use crossbeam::channel::Receiver;
 
 use crate::{
     bdev::nexus::{
@@ -168,10 +169,21 @@ impl Nexus {
         }
     }
 
-    pub async fn start_rebuild(
+    pub async fn start_rebuild_rpc(
         &mut self,
         destination: &str,
     ) -> Result<(), Error> {
+        if let Err(e) = self.start_rebuild(destination).await {
+            Err(e)
+        } else {
+            Ok(())
+        }
+    }
+
+    pub async fn start_rebuild(
+        &mut self,
+        destination: &str,
+    ) -> Result<Receiver<RebuildState>, Error> {
         trace!("{}: start rebuild request for {}", self.name, destination);
 
         let source = match self
@@ -217,8 +229,7 @@ impl Nexus {
                 .find(|t| t.destination == destination)
             {
                 Some(task) => {
-                    task.start();
-                    Ok(())
+                    Ok(task.start())
                 }
                 None => Err(Error::CompleteRebuild {
                     child: destination.to_string(),
