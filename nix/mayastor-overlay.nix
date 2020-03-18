@@ -12,6 +12,8 @@ self: super: {
     ];
 
   });
+
+  terraform-provider-lxd = super.callPackage ./pkgs/terraform-provider-lxd {};
   libiscsi = super.callPackage ./pkgs/libiscsi {};
   liburing = super.callPackage ./pkgs/liburing {};
   nvme-cli = super.callPackage ./pkgs/nvme-cli {};
