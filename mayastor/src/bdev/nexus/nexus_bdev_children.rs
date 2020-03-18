@@ -22,9 +22,9 @@
 //! When reconfiguring the nexus, we traverse all our children, create new IO
 //! channels for all children that are in the open state.
 
+use crossbeam::channel::Receiver;
 use futures::future::join_all;
 use snafu::ResultExt;
-use crossbeam::channel::Receiver;
 
 use crate::{
     bdev::nexus::{
@@ -228,9 +228,7 @@ impl Nexus {
                 .iter_mut()
                 .find(|t| t.destination == destination)
             {
-                Some(task) => {
-                    Ok(task.start())
-                }
+                Some(task) => Ok(task.start()),
                 None => Err(Error::CompleteRebuild {
                     child: destination.to_string(),
                     name: self.name.clone(),

@@ -1,6 +1,6 @@
-use crossbeam::channel::{unbounded, select, after};
-use std::time::Duration;
+use crossbeam::channel::{after, select, unbounded};
 use log::info;
+use std::time::Duration;
 
 pub mod common;
 
@@ -39,7 +39,9 @@ async fn rebuild_test_start() {
 
     let nexus_device = device.clone();
     let (s, r) = unbounded::<String>();
-    std::thread::spawn(move || s.send(common::dd_urandom_blkdev(&nexus_device)));
+    std::thread::spawn(move || {
+        s.send(common::dd_urandom_blkdev(&nexus_device))
+    });
     reactor_poll!(r);
 
     let nexus_device = device.clone();
@@ -52,7 +54,11 @@ async fn rebuild_test_start() {
     let nexus_device = device.clone();
     let (s, r) = unbounded::<String>();
     std::thread::spawn(move || {
-        s.send(common::compare_nexus_device(&nexus_device, DISKNAME2, false))
+        s.send(common::compare_nexus_device(
+            &nexus_device,
+            DISKNAME2,
+            false,
+        ))
     });
     reactor_poll!(r);
 
@@ -65,7 +71,7 @@ async fn rebuild_test_start() {
     std::thread::spawn(move || {
         select! {
             recv(rebuild_complete) -> state => info!("rebuild of child {} finished with state {:?}", BDEVNAME2, state),
-            recv(after(Duration::from_secs(2))) -> _ => assert!(false, "timed out waiting for the rebuild to complete"),
+            recv(after(Duration::from_secs(2))) -> _ => panic!("timed out waiting for the rebuild to complete"),
         }
         s.send(())
     });

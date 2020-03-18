@@ -2,8 +2,8 @@ use crate::{
     bdev::nexus::nexus_bdev::nexus_lookup,
     core::{Bdev, BdevHandle, CoreError, DmaBuf, DmaError, Reactors},
 };
+use crossbeam::channel::{unbounded, Receiver, Sender};
 use snafu::{ResultExt, Snafu};
-use crossbeam::channel::{unbounded, Sender, Receiver};
 
 #[derive(Debug, Snafu)]
 #[snafu(visibility = "pub(crate)")]
