@@ -11,7 +11,10 @@ EOF
 sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu xenial stable"
 
 sudo apt-get update
-sudo apt-get install -y kubelet kubeadm kubectl docker-ce containerd.io docker-ce-cli
+sudo apt-get install -y -o Options::=--force-confdef \
+  -o Dpkg::Options::=--force-confnew kubelet kubeadm kubectl docker-ce \
+  containerd.io docker-ce-cli
+
 sudo apt-mark hold kubelet kubeadm kubectl
 
 sudo tee /etc/docker/daemon.json >/dev/null <<EOF

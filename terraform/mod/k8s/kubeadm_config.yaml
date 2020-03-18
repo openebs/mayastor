@@ -20,9 +20,10 @@ apiServer:
 clusterName: gilanetes
 kind: ClusterConfiguration
 networking:
-  serviceSubnet: "10.96.0.0/12"
+  #serviceSubnet: "10.96.0.0/12"
   podSubnet: ${pod_cidr}
 ---
 apiVersion: kubelet.config.k8s.io/v1beta1
 kind: KubeletConfiguration
 cgroupDriver: "systemd"
+failSwapOn: false
