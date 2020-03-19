@@ -67,7 +67,11 @@ impl UringBdev {
         if let Some(bdev) = Bdev::lookup_by_name(&self.name) {
             let (s, r) = oneshot::channel::<ErrnoResult<()>>();
             unsafe {
-                delete_uring_bdev(bdev.as_ptr(), Some(done_errno_cb), cb_arg(s));
+                delete_uring_bdev(
+                    bdev.as_ptr(),
+                    Some(done_errno_cb),
+                    cb_arg(s),
+                );
             }
             r.await.expect("Cancellation is not supported").context(
                 nexus_uri::DestroyBdev {
