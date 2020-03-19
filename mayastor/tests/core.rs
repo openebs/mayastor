@@ -38,7 +38,8 @@ fn fs_supports_direct_io() -> bool {
         .read(true)
         .write(true)
         .custom_flags(libc::O_DIRECT)
-        .open(DISKNAME3) {
+        .open(DISKNAME3)
+    {
         Ok(_f) => true,
         Err(e) => {
             assert_eq!(e.kind(), ErrorKind::InvalidInput);
@@ -77,9 +78,9 @@ fn get_mount_filesystem() -> Option<String> {
 
         path = match path.parent() {
             None => return None,
-            Some(p) => p
+            Some(p) => p,
         }
-    };
+    }
 }
 
 fn fs_type_supported() -> bool {
@@ -88,15 +89,13 @@ fn fs_type_supported() -> bool {
             println!("Skipping uring bdev, unknown fs");
             false
         }
-        Some(d) => {
-            match d.as_str() {
-                "xfs" => true,
-                _ => {
-                    println!("Skipping uring bdev, fs: {}", d);
-                    false
-                }
+        Some(d) => match d.as_str() {
+            "xfs" => true,
+            _ => {
+                println!("Skipping uring bdev, fs: {}", d);
+                false
             }
-        }
+        },
     }
 }
 
@@ -117,17 +116,21 @@ fn kernel_supports_io_uring() -> bool {
 fn do_uring() -> bool {
     unsafe {
         INIT.call_once(|| {
-            DO_URING = fs_supports_direct_io() && fs_type_supported()
-                        && kernel_supports_io_uring();
+            DO_URING = fs_supports_direct_io()
+                && fs_type_supported()
+                && kernel_supports_io_uring();
         });
         DO_URING
     }
 }
 
-
 async fn create_nexus() {
     let ch = if do_uring() {
-        vec![BDEVNAME1.to_string(), BDEVNAME2.to_string(), BDEVNAME3.to_string()]
+        vec![
+            BDEVNAME1.to_string(),
+            BDEVNAME2.to_string(),
+            BDEVNAME3.to_string(),
+        ]
     } else {
         vec![BDEVNAME1.to_string(), BDEVNAME2.to_string()]
     };
