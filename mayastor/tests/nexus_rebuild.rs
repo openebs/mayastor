@@ -1,4 +1,7 @@
-use crossbeam::channel::unbounded;
+use crossbeam::channel::{after, select, unbounded};
+use log::info;
+use std::time::Duration;
+
 pub mod common;
 
 use mayastor::{
@@ -36,48 +39,51 @@ async fn rebuild_test_start() {
 
     let nexus_device = device.clone();
     let (s, r) = unbounded::<String>();
-    std::thread::spawn(move || s.send(dd_urandom(&nexus_device)));
-    reactor_poll!(r);
-
-    let nexus_device = device.clone();
-    let (s, r) = unbounded::<String>();
     std::thread::spawn(move || {
-        s.send(compare_nexus_device(&nexus_device, DISKNAME1, true))
+        s.send(common::dd_urandom_blkdev(&nexus_device))
     });
     reactor_poll!(r);
 
     let nexus_device = device.clone();
     let (s, r) = unbounded::<String>();
     std::thread::spawn(move || {
-        s.send(compare_nexus_device(&nexus_device, DISKNAME2, false))
+        s.send(common::compare_nexus_device(&nexus_device, DISKNAME1, true))
+    });
+    reactor_poll!(r);
+
+    let nexus_device = device.clone();
+    let (s, r) = unbounded::<String>();
+    std::thread::spawn(move || {
+        s.send(common::compare_nexus_device(
+            &nexus_device,
+            DISKNAME2,
+            false,
+        ))
     });
     reactor_poll!(r);
 
     // add the second child
     nexus.add_child(BDEVNAME2).await.unwrap();
 
-    // kick's off the rebuild (NOWAIT)
-    nexus.start_rebuild(BDEVNAME2).await.unwrap();
-
-    // crude wait for the rebuild
-    let (s, r) = unbounded::<String>();
+    // kick's off the rebuild (NOWAIT) so we have to wait on a channel
+    let rebuild_complete = nexus.start_rebuild(BDEVNAME2).await.unwrap();
+    let (s, r) = unbounded::<()>();
     std::thread::spawn(move || {
-        s.send(delay(std::time::Duration::from_millis(500)))
+        select! {
+            recv(rebuild_complete) -> state => info!("rebuild of child {} finished with state {:?}", BDEVNAME2, state),
+            recv(after(Duration::from_secs(2))) -> _ => panic!("timed out waiting for the rebuild to complete"),
+        }
+        s.send(())
     });
     reactor_poll!(r);
 
     let (s, r) = unbounded::<String>();
     std::thread::spawn(move || {
-        s.send(compare_devices(DISKNAME1, DISKNAME2, true))
+        s.send(common::compare_devices(DISKNAME1, DISKNAME2, true))
     });
     reactor_poll!(r);
 
     mayastor_env_stop(0);
-}
-
-fn delay(dur: std::time::Duration) -> String {
-    std::thread::sleep(dur);
-    "done".to_string()
 }
 
 async fn create_nexus() {
@@ -85,60 +91,4 @@ async fn create_nexus() {
     nexus_create(NEXUS_NAME, NEXUS_SIZE, None, &ch)
         .await
         .unwrap();
-}
-
-pub fn dd_urandom(device: &str) -> String {
-    let (_, stdout, _stderr) = run_script::run(
-        r#"
-        dd if=/dev/urandom of=$1 conv=fsync,nocreat,notrunc iflag=count_bytes count=`blockdev --getsize64 $1`
-    "#,
-    &vec![device.into()],
-    &run_script::ScriptOptions::new(),
-    )
-    .unwrap();
-    stdout
-}
-
-pub fn compare_nexus_device(
-    nexus_device: &str,
-    device: &str,
-    expected_pass: bool,
-) -> String {
-    let (exit, stdout, _stderr) = run_script::run(
-        r#"
-        cmp -n `blockdev --getsize64 $1` $1 $2 0 5M
-        test $? -eq $3
-    "#,
-        &vec![
-            nexus_device.into(),
-            device.into(),
-            (!expected_pass as i32).to_string(),
-        ],
-        &run_script::ScriptOptions::new(),
-    )
-    .unwrap();
-    assert_eq!(exit, 0);
-    stdout
-}
-
-pub fn compare_devices(
-    first_device: &str,
-    second_device: &str,
-    expected_pass: bool,
-) -> String {
-    let (exit, stdout, stderr) = run_script::run(
-        r#"
-        cmp -b $1 $2 5M 5M
-        test $? -eq $3
-    "#,
-        &vec![
-            first_device.into(),
-            second_device.into(),
-            (!expected_pass as i32).to_string(),
-        ],
-        &run_script::ScriptOptions::new(),
-    )
-    .unwrap();
-    assert_eq!(exit, 0, "stdout: {}\nstderr: {}", stdout, stderr);
-    stdout
 }

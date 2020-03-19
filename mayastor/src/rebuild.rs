@@ -2,6 +2,7 @@ use crate::{
     bdev::nexus::nexus_bdev::nexus_lookup,
     core::{Bdev, BdevHandle, CoreError, DmaBuf, DmaError, Reactors},
 };
+use crossbeam::channel::{unbounded, Receiver, Sender};
 use snafu::{ResultExt, Snafu};
 
 #[derive(Debug, Snafu)]
@@ -17,7 +18,7 @@ pub enum RebuildError {
     IoError { source: CoreError, bdev: String },
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum RebuildState {
     Pending,
     Running,
@@ -38,7 +39,8 @@ pub struct RebuildTask {
     current: u64,
     segment_size_blks: u64,
     copy_buffer: DmaBuf,
-    complete: fn(String, String) -> (),
+    complete_fn: fn(String, String) -> (),
+    pub complete_chan: (Sender<RebuildState>, Receiver<RebuildState>),
     pub state: RebuildState,
 }
 
@@ -46,7 +48,7 @@ pub struct RebuildStats {}
 
 pub trait RebuildActions {
     fn stats(&self) -> Option<RebuildStats>;
-    fn start(&mut self);
+    fn start(&mut self) -> Receiver<RebuildState>;
     fn stop(&mut self);
     fn pause(&mut self);
     fn resume(&mut self);
@@ -59,7 +61,7 @@ impl RebuildTask {
         destination: String,
         start: u64,
         end: u64,
-        complete: fn(String, String) -> (),
+        complete_fn: fn(String, String) -> (),
     ) -> Result<RebuildTask, RebuildError> {
         let source_hdl =
             BdevHandle::open(&source, false, false).context(NoBdevHandle {
@@ -98,7 +100,8 @@ impl RebuildTask {
             block_size,
             segment_size_blks,
             copy_buffer,
-            complete,
+            complete_fn,
+            complete_chan: unbounded::<RebuildState>(),
             state: RebuildState::Pending,
         })
     }
@@ -160,8 +163,10 @@ impl RebuildTask {
 
     fn send_complete(&self) {
         self.stats();
-        let complete = self.complete;
-        complete(self.nexus_name.clone(), self.destination.clone());
+        (self.complete_fn)(self.nexus_name.clone(), self.destination.clone());
+        if let Err(e) = self.complete_chan.0.send(self.state) {
+            error!("Rebuild Task {} of nexus {} failed to send complete via the unbound channel with err {}", self.destination, self.nexus_name, e);
+        }
     }
 
     fn validate(source: &Bdev, destination: &Bdev) -> bool {
@@ -184,9 +189,11 @@ impl RebuildActions for RebuildTask {
     // todo: ideally we'd want the nexus out of here but sadly rust does not yet
     // support async trait's
     // the course of action might just be not using traits
-    fn start(&mut self) {
+    fn start(&mut self) -> Receiver<RebuildState> {
         let nexus = self.nexus_name.clone();
         let destination = self.destination.clone();
+        let complete_receiver = self.complete_chan.clone().1;
+
         Reactors::current().send_future(async move {
             let nexus = match nexus_lookup(&nexus) {
                 Some(nexus) => nexus,
@@ -211,6 +218,7 @@ impl RebuildActions for RebuildTask {
 
             task.run().await;
         });
+        complete_receiver
     }
     fn stop(&mut self) {
         todo!("stop the rebuild task");

@@ -117,6 +117,7 @@ describe('csi', function() {
   // to depend on correct function of mayastor iface in order to test CSI.
   before(done => {
     let identityClient = createCsiClient('Identity');
+    let i = 0;
 
     common.startMayastor(CONFIG);
     common.startMayastorGrpc();

@@ -22,6 +22,7 @@
 //! When reconfiguring the nexus, we traverse all our children, create new IO
 //! channels for all children that are in the open state.
 
+use crossbeam::channel::Receiver;
 use futures::future::join_all;
 use snafu::ResultExt;
 
@@ -168,10 +169,21 @@ impl Nexus {
         }
     }
 
-    pub async fn start_rebuild(
+    pub async fn start_rebuild_rpc(
         &mut self,
         destination: &str,
     ) -> Result<(), Error> {
+        if let Err(e) = self.start_rebuild(destination).await {
+            Err(e)
+        } else {
+            Ok(())
+        }
+    }
+
+    pub async fn start_rebuild(
+        &mut self,
+        destination: &str,
+    ) -> Result<Receiver<RebuildState>, Error> {
         trace!("{}: start rebuild request for {}", self.name, destination);
 
         let source = match self
@@ -216,10 +228,7 @@ impl Nexus {
                 .iter_mut()
                 .find(|t| t.destination == destination)
             {
-                Some(task) => {
-                    task.start();
-                    Ok(())
-                }
+                Some(task) => Ok(task.start()),
                 None => Err(Error::CompleteRebuild {
                     child: destination.to_string(),
                     name: self.name.clone(),
@@ -464,6 +473,10 @@ impl Nexus {
             .iter()
             .map(|s| {
                 if self.bdev.alignment() < *s {
+                    trace!(
+                        "{}: child has alignment {}, updating required_alignment from {}",
+                        self.name, *s, self.bdev.alignment()
+                    );
                     unsafe {
                         (*self.bdev.as_ptr()).required_alignment = *s;
                     }
