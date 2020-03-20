@@ -248,6 +248,27 @@ impl Mayastor for MayastorGrpc {
 
         Ok(Response::new(Null {}))
     }
+
+    async fn start_rebuild(
+		&self,
+		_request: Request<StartRebuildRequest>,
+	) -> Result<Response<Null>> {
+		todo!()
+	}
+
+	async fn get_rebuild_state(
+		&self,
+		_request: Request<RebuildStateRequest>,
+	) -> Result<Response<RebuildStateReply>> {
+		todo!()
+	}
+
+    async fn get_rebuild_progress(
+		&self,
+		_request: Request<RebuildProgressRequest>,
+	) -> Result<Response<RebuildProgressReply>> {
+		todo!()
+	}
 }
 
 pub async fn grpc_server_init(addr: &str, port: &str)

@@ -1,0 +1,22 @@
+#cloud-config
+system_info:
+  default_user:
+    name: ${ssh_user}
+    sudo: ALL=(ALL) NOPASSWD:ALL
+users:
+  - name: ${ssh_user}
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    groups: users, wheel
+    ssh_authorized_keys:
+      - ${ssh_key}
+ssh_pwauth: True
+chpasswd:
+  list: |
+    root:mayastor
+  expire: False
+growpart:
+  mode: auto
+  devices: ["/"]
+  ignore_growroot_disabled: false
+hostname: ${hostname}

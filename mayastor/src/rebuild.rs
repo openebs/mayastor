@@ -1,284 +1,232 @@
-#![allow(dead_code)]
-
-use std::{os::raw::c_void, time::SystemTime};
-
-use futures::channel::oneshot;
-use nix::errno::Errno;
-use snafu::Snafu;
-
-use spdk_sys::spdk_bdev_io;
-
 use crate::{
-    bdev::nexus::nexus_bdev::{nexus_lookup, NexusState},
-    core::{Descriptor, DmaBuf, DmaError},
+    bdev::nexus::nexus_bdev::nexus_lookup,
+    core::{Bdev, BdevHandle, CoreError, DmaBuf, DmaError, Reactors},
 };
+use crossbeam::channel::{unbounded, Receiver, Sender};
+use snafu::{ResultExt, Snafu};
 
 #[derive(Debug, Snafu)]
-pub enum Error {
-    #[snafu(display(
-        "Rebuild source {} is larger than the target {}",
-        src,
-        tgt
-    ))]
-    SourceBigger { src: String, tgt: String },
-    #[snafu(display("Cannot suspend an already completed rebuild task"))]
-    SuspendCompleted {},
-    #[snafu(display(
-        "Cannot resume a rebuild task which has not been suspended"
-    ))]
-    ResumeNotSuspended {},
-    #[snafu(display("Failed to dispatch rebuild IO"))]
-    DispatchIo { source: Errno },
-    #[snafu(display("Failed to allocate buffer for rebuild IO"))]
-    BufferAlloc { source: DmaError },
+#[snafu(visibility = "pub(crate)")]
+pub enum RebuildError {
+    #[snafu(display("Failed to allocate buffer for the rebuild copy"))]
+    NoCopyBuffer { source: DmaError },
+    #[snafu(display("Failed to validate rebuild task creation parameters"))]
+    InvalidParameters {},
+    #[snafu(display("Failed to get a handle for bdev {}", bdev))]
+    NoBdevHandle { source: CoreError, bdev: String },
+    #[snafu(display("IO failed for bdev {}", bdev))]
+    IoError { source: CoreError, bdev: String },
 }
 
-#[derive(Debug, Copy, Clone, PartialOrd, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum RebuildState {
-    /// Initialized properly, but not running
-    Initialized,
-    /// Running
+    Pending,
     Running,
-    /// Completed
-    Completed,
-    /// the rebuild task has failed
     Failed,
-    /// a request has been made to cancel the task
-    Cancelled,
-    /// Suspended
-    Suspended,
+    Completed,
 }
 
-/// struct that holds the state of a copy task. This struct
-/// is used during rebuild.
 #[derive(Debug)]
 pub struct RebuildTask {
+    nexus_name: String,
+    source: String,
+    source_hdl: BdevHandle,
+    pub destination: String,
+    destination_hdl: BdevHandle,
+    block_size: u64,
+    start: u64,
+    end: u64,
+    current: u64,
+    segment_size_blks: u64,
+    copy_buffer: DmaBuf,
+    complete_fn: fn(String, String) -> (),
+    pub complete_chan: (Sender<RebuildState>, Receiver<RebuildState>),
     pub state: RebuildState,
-    /// the source where to copy from
-    pub source: Descriptor,
-    /// the target where to copy to
-    pub target: Descriptor,
-    /// the last LBA for which an io copy has been submitted
-    current_lba: u64,
-    /// used to provide progress indication
-    previous_lba: u64,
-    /// used to signal completion to the callee
-    sender: Option<oneshot::Sender<RebuildState>>,
-    pub completed: Option<oneshot::Receiver<RebuildState>>,
-    /// progress reported to logs
-    progress: Option<u32>,
-    /// the number of segments we need to rebuild. The segment is derived from
-    /// the max IO size and by the actual block length. The MAX io size is
-    /// currently 64K and is not dynamically configurable.
-    num_segments: u64,
-    /// the last partial segment
-    partial_segment: u32,
-    /// DMA buffer during rebuild
-    buf: DmaBuf,
-    /// How many blocks per segments we have
-    blocks_per_segment: u32,
-    /// start time of the rebuild task
-    pub start_time: Option<SystemTime>,
-    /// the name of the nexus we refer are rebuilding
-    pub(crate) nexus: Option<String>,
+}
+
+pub struct RebuildStats {}
+
+pub trait RebuildActions {
+    fn stats(&self) -> Option<RebuildStats>;
+    fn start(&mut self) -> Receiver<RebuildState>;
+    fn stop(&mut self);
+    fn pause(&mut self);
+    fn resume(&mut self);
 }
 
 impl RebuildTask {
-    /// return a new rebuild task
-    pub fn new(_source: String, _target: String) -> Result<Box<Self>, Error> {
-        // if the target is to small, we bail out. A future extension is to see,
-        // if we can grow; the target to match the size of the source.
-        unimplemented!();
-    }
+    pub fn new(
+        nexus_name: String,
+        source: String,
+        destination: String,
+        start: u64,
+        end: u64,
+        complete_fn: fn(String, String) -> (),
+    ) -> Result<RebuildTask, RebuildError> {
+        let source_hdl =
+            BdevHandle::open(&source, false, false).context(NoBdevHandle {
+                bdev: &source,
+            })?;
+        let destination_hdl = BdevHandle::open(&destination, true, false)
+            .context(NoBdevHandle {
+                bdev: &destination,
+            })?;
 
-    pub fn suspend(&mut self) -> Result<RebuildState, Error> {
-        info!(
-            "{}: suspending rebuild task",
-            self.nexus.as_ref().unwrap_or(&String::from("unknown"))
-        );
-
-        if self.state == RebuildState::Completed {
-            Err(Error::SuspendCompleted {})
-        } else {
-            self.state = RebuildState::Suspended;
-            Ok(self.state)
-        }
-    }
-
-    pub fn resume(&mut self) -> Result<RebuildState, Error> {
-        info!(
-            "{}: resuming rebuild task",
-            self.nexus.as_ref().unwrap_or(&String::from("unknown"))
-        );
-
-        if self.state == RebuildState::Suspended {
-            self.state = RebuildState::Running;
-            self.next_segment()
-        } else {
-            Err(Error::ResumeNotSuspended {})
-        }
-    }
-
-    pub async fn completed(
-        &mut self,
-    ) -> Result<RebuildState, oneshot::Canceled> {
-        self.completed.as_mut().unwrap().await
-    }
-
-    /// callback when the read of the rebuild progress has completed
-    extern "C" fn read_complete(
-        _io: *mut spdk_bdev_io,
-        _success: bool,
-        _ctx: *mut c_void,
-    ) {
-        unimplemented!()
-    }
-
-    /// callback function when write IO of the rebuild phase has completed
-    extern "C" fn write_complete(
-        _io: *mut spdk_bdev_io,
-        _success: bool,
-        _ctx: *mut c_void,
-    ) {
-        unimplemented!();
-    }
-
-    /// function called when the rebuild has completed. We record something in
-    /// the logs that provides some information about the time in seconds
-    /// and average throughput mbs.
-    fn rebuild_completed(&mut self) {
-        let elapsed = self.start_time.unwrap().elapsed().unwrap();
-        let mb = (self.source.get_bdev().block_len() as u64
-            * self.source.get_bdev().num_blocks())
-            >> 20;
-
-        let mbs = if 0 < elapsed.as_secs() {
-            mb / elapsed.as_secs()
-        } else {
-            mb
+        if !RebuildTask::validate(
+            &source_hdl.get_bdev(),
+            &destination_hdl.get_bdev(),
+        ) {
+            return Err(RebuildError::InvalidParameters {});
         };
+
+        let segment_size = 10 * 1024;
+        // validation passed, block size is the same for both
+        let block_size = destination_hdl.get_bdev().block_len() as u64;
+        let segment_size_blks = (segment_size / block_size) as u64;
+
+        let copy_buffer = source_hdl
+            .dma_malloc((segment_size_blks * block_size) as usize)
+            .context(NoCopyBuffer {})?;
+
+        Ok(RebuildTask {
+            nexus_name,
+            source,
+            source_hdl,
+            destination,
+            destination_hdl,
+            start,
+            end,
+            current: start,
+            block_size,
+            segment_size_blks,
+            copy_buffer,
+            complete_fn,
+            complete_chan: unbounded::<RebuildState>(),
+            state: RebuildState::Pending,
+        })
+    }
+
+    /// rebuild a non-healthy child from a healthy child from start to end
+    async fn run(&mut self) {
+        self.state = RebuildState::Running;
+        self.current = self.start;
+        self.stats();
+
+        while self.current < self.end {
+            if let Err(e) = self.copy_one().await {
+                error!("Failed to copy segment {}", e);
+                self.state = RebuildState::Failed;
+                self.send_complete();
+            }
+            // TODO: check if the task received a "pause/stop" request, eg child
+            // is being removed
+        }
+
+        self.state = RebuildState::Completed;
+        self.send_complete();
+    }
+
+    /// copy one segment worth of data from source into destination
+    async fn copy_one(&mut self) -> Result<(), RebuildError> {
+        // Adjust size of the last segment
+        if (self.current + self.segment_size_blks) >= self.start + self.end {
+            self.segment_size_blks = self.end - self.current;
+
+            self.copy_buffer = self
+                .source_hdl
+                .dma_malloc((self.segment_size_blks * self.block_size) as usize)
+                .context(NoCopyBuffer {})?;
+
+            info!(
+                "Adjusting segment size to {}. offset: {}, start: {}, end: {}",
+                self.segment_size_blks, self.current, self.start, self.end
+            );
+        }
+
+        self.source_hdl
+            .read_at(self.current * self.block_size, &mut self.copy_buffer)
+            .await
+            .context(IoError {
+                bdev: &self.source,
+            })?;
+
+        self.destination_hdl
+            .write_at(self.current * self.block_size, &self.copy_buffer)
+            .await
+            .context(IoError {
+                bdev: &self.destination,
+            })?;
+
+        self.current += self.segment_size_blks;
+        Ok(())
+    }
+
+    fn send_complete(&self) {
+        self.stats();
+        (self.complete_fn)(self.nexus_name.clone(), self.destination.clone());
+        if let Err(e) = self.complete_chan.0.send(self.state) {
+            error!("Rebuild Task {} of nexus {} failed to send complete via the unbound channel with err {}", self.destination, self.nexus_name, e);
+        }
+    }
+
+    fn validate(source: &Bdev, destination: &Bdev) -> bool {
+        !(source.size_in_bytes() != destination.size_in_bytes()
+            || source.block_len() != destination.block_len())
+    }
+}
+
+impl RebuildActions for RebuildTask {
+    fn stats(&self) -> Option<RebuildStats> {
         info!(
-            "Rebuild completed after {:.} seconds total of {} ({}MBs) from {} to {}",
-            elapsed.as_secs(),
-            mb,
-            mbs,
-            self.source.get_bdev().name(),
-            self.target.get_bdev().name());
+            "State: {:?}, Src: {}, Dst: {}, start: {}, end: {}, current: {}, block: {}",
+            self.state, self.source, self.destination,
+            self.start, self.end, self.current, self.block_size
+        );
 
-        self.shutdown(true)
+        None
     }
 
-    /// function used shutdown the rebuild task whenever it is successful or
-    /// not.
-    pub fn shutdown(&mut self, success: bool) {
-        if success {
-            self.state = RebuildState::Completed;
-        } else {
-            self.state = RebuildState::Failed;
-        }
+    // todo: ideally we'd want the nexus out of here but sadly rust does not yet
+    // support async trait's
+    // the course of action might just be not using traits
+    fn start(&mut self) -> Receiver<RebuildState> {
+        let nexus = self.nexus_name.clone();
+        let destination = self.destination.clone();
+        let complete_receiver = self.complete_chan.clone().1;
 
-        let _ = self.progress.take();
-        self.send_completion(self.state);
+        Reactors::current().send_future(async move {
+            let nexus = match nexus_lookup(&nexus) {
+                Some(nexus) => nexus,
+                None => {
+                    return error!("Failed to find the nexus {}", nexus);
+                }
+            };
+
+            let task = match nexus
+                .rebuilds
+                .iter_mut()
+                .find(|t| t.destination == destination)
+            {
+                Some(task) => task,
+                None => {
+                    return error!(
+                        "Failed to find the rebuild task {} for nexus {}",
+                        destination, nexus.name
+                    );
+                }
+            };
+
+            task.run().await;
+        });
+        complete_receiver
     }
-
-    /// determine the next segment for which we will issue a rebuild
-    #[inline]
-    fn num_blocks(&mut self) -> u32 {
-        if self.num_segments > 0 {
-            self.blocks_per_segment
-        } else {
-            self.num_segments += 1;
-            self.partial_segment
-        }
+    fn stop(&mut self) {
+        todo!("stop the rebuild task");
     }
-
-    pub fn current(&self) -> u64 {
-        self.current_lba
+    fn pause(&mut self) {
+        todo!("pause the rebuild task");
     }
-
-    /// Copy blocks from source to target with increments of segment size.
-    /// When the task has been completed, this function returns
-    /// Ok(true). When a new IO has been successfully dispatched in returns
-    /// Ok(false)
-    ///
-    /// When memory allocation fails, it shall return an error no attempts will
-    /// be made to restart a build automatically, ideally we want this to be
-    /// done from the control plane and not internally, but we will implement
-    /// some form of implicit retries.
-    fn next_segment(&mut self) -> Result<RebuildState, Error> {
-        let num_blocks = self.num_blocks();
-
-        // if we are a multiple of the max segment size this will be 0 and thus
-        // we have completed the job
-        if num_blocks == 0 {
-            self.shutdown(true);
-            return Ok(RebuildState::Completed);
-        }
-
-        if self.current_lba < self.source.get_bdev().num_blocks() {
-            self.source_read_blocks(num_blocks)
-        } else {
-            assert_eq!(self.current_lba, self.source.get_bdev().num_blocks());
-            trace!("Rebuild task completed! \\o/");
-            Ok(RebuildState::Completed)
-        }
-    }
-
-    // wrapper around read_blocks that handles error processing implicitly and
-    // updates the internal data structures
-    fn source_read_blocks(
-        &mut self,
-        _num_blocks: u32,
-    ) -> Result<RebuildState, Error> {
-        unimplemented!();
-    }
-
-    /// wrapper function around write_blocks
-    pub(crate) fn target_write_blocks(
-        &mut self,
-        _io: *mut spdk_bdev_io,
-    ) -> Result<(), Error> {
-        unimplemented!();
-    }
-
-    /// send the callee that we completed successfully
-    fn send_completion(&mut self, state: RebuildState) {
-        if let Some(sender) = self.sender.take() {
-            let _ = sender.send(state);
-        }
-    }
-
-    /// progress function that prints to the log; this will be removed in the
-    /// future and will be exposed via an API call
-    extern "C" fn progress(_ctx: *mut c_void) -> i32 {
-        unimplemented!()
-    }
-
-    fn start_progress_poller(&mut self) {
-        self.progress = None;
-    }
-
-    pub fn run(&mut self) {
-        self.start_time = Some(std::time::SystemTime::now());
-
-        if let Some(name) = self.nexus.as_ref() {
-            if let Some(nexus) = nexus_lookup(name) {
-                nexus.set_state(NexusState::Remuling);
-            } else {
-                error!("nexus {} gone, aborting rebuild", name);
-                self.send_completion(RebuildState::Cancelled);
-            }
-        }
-
-        match self.next_segment() {
-            Err(next) => {
-                error!("{:?}", next);
-                self.shutdown(false);
-            }
-            Ok(..) => {
-                self.state = RebuildState::Running;
-                self.start_progress_poller();
-            }
-        }
+    fn resume(&mut self) {
+        todo!("resume the rebuild task");
     }
 }

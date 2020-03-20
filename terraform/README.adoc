@@ -1,0 +1,150 @@
+:source-highlighter: highlightjs
+:toc:
+
+== Quick start
+
+. Ensure you have libvirtd or lxd running and configured **correctly**
+. Edit `variables.tf` in particular make sure you the public key is correct
+. Edit `main.tf` and comment out either the LXD section or the libvirtd section
+. run `terraform init`
+. run `terraform plan`
+. run `terraform apply`
+
+NOTE: currently the private_key file is also used and is read from the
+`ssh_user` home dir.
+
+== Problem statement
+
+When we want to deploy our "k8s storage" system, we want to create and destroy
+k8s clusters very quickly and without any pain regardless of where you deploy
+it.
+
+So this means we want to deploy it:
+
+1. locally (KVM)
+2. locally (LXD)
+2. AWS
+3. GCE
+4. Whatever
+
+We, however, do not "just" want to deploy k8s, but also we want to be able to
+interact with the hosts itself. For example; verify that we indeed have a new
+nvmf target what have you.
+
+So we need a form of infra management but also - configuration management.
+These scripts are intended to do just that.
+
+== Terraform
+
+Terraform is used to construct the actual cluster and install Kubernetes. By
+default only the libvirtd and lxd providers are available.
+
+However, the code has been structured such that we can change the provider
+module in `main.tf` with any other provider and get the same k8s cluster.
+
+We can, for example, add `mod/vbox` which will then deploy 3 virtual vbox nodes.
+The k8s deployment code is decoupled from the actual VMS. The VMs are assumed to
+be *Ubuntu* based and makes use of *cloud-init*
+
+After the deployment of the VMs, the `k8s` module runs. This module will invoke
+using the output from the previous provider, provisioners to install k8s on the
+master node.
+
+
+=== Setting up libvirt on Nixos
+
+To use the libvirt provider, you must enable libvirtd
+
+[source,bash]
+----
+boot.extraModprobeConfig = "options kvm_intel nested=1"; // <1>
+virtualisation.libvirtd.enable = true;
+
+users.users.gila = {
+    isNormalUser = true;
+    extraGroups = [ "wheel" "libvirtd" "vboxusers" ]; // <2>
+};
+----
+<1> depends on CPU vendor (intel vs amd)
+<2> make sure you pick the right user name
+
+=== Setting up LXD on Nixos
+
+Using LXD is faster and requires fewer resources. Also, you can do many things
+with lxd that you typically can't do quickly or easily with VMs.
+
+The following kernel modules must be loaded:
+```
+ip_tables
+ip6_tables
+nf_nat
+overlay
+netlink_diag
+br_netfilter
+```
+
+As of writing, lxd is broken by default.  Yesterday, March 17th, a new release
+was made by Ubuntu. This update has not been added to nixpkgs yet. In the
+meantime, you can add this to your configuration.
+
+[source,bash]
+----
+ virtualisation.lxd = {
+    enable = true;
+    zfsSupport = false;
+  };
+
+ users.users.gila = {
+    isNormalUser = true;
+    extraGroups = [ "wheel" ... "lxd" "lxc" ];
+  };
+
+nixpkgs.config.packageOverrides = super: let self = super.pkgs; in {
+    lxc = super.lxc.overrideAttrs (oldAttrs: rec {
+      patches = oldAttrs.patches ++ [
+        (self.fetchpatch {
+          url = "https://github.com/lxc/lxc/commit/b31d62b847a3ee013613795094cce4acc12345ef.patch";
+          sha256 = "1jpskr58ih56dakp3hg2yhxgvmn5qidi1vzxw0nak9afbx1yy9d4";
+        })
+      ];
+    });
+  };
+----
+
+After that run `lxd init` and configure it to best suit your needs.
+
+WARNING: do not use btrfs or ZFS as a storage pool.
+
+Now comes a somewhat tricky part. We need to install the terraform lxd provider,
+but it does not exist in nixpkgs. I'll create a PR to NixOS shortly.
+
+The way the terraform plugin works is not -- default. All plugins are evaluated
+in the terraform-providers expression, which reads other files from disks. So a
+simple override -- as far as I know,  won't work in this case more so, because
+the expression removes attributes and whatnot.
+
+As such a workaround is to install the plugin via nix-env and then run:
+
+```
+export NIX_TERRAFORM_PLUGIN_DIR=/home/gila/.nix-profile/bin
+```
+
+Once the containers are running getting the config is easy:
+
+```
+lxc exec ksnode-1 -- cat /etc/kubernetes/admin.conf > ~/.kube/config
+```
+
+And you are all set to deploy mayastor.
+
+== Main configuration file
+
+The main configuration file is `variables.tf` where all fields **must** be set.
+The `image_path` variable assumes a pre-downloaded image, but you can also set
+it to fetch from HTTP. For example:
+
+[source,bash]
+----
+cd /path/to/my/images
+wget https://cloud-images.ubuntu.com/xenial/current/xenial-server-cloudimg-amd64-disk1.img
+----

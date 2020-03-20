@@ -1,0 +1,29 @@
+apiVersion: kubeadm.k8s.io/v1beta2
+bootstrapTokens:
+  - groups:
+      - system:bootstrappers:kubeadm:default-node-token
+    token: ${token}
+    ttl: 24h0m0s
+    usages:
+      - signing
+      - authentication
+kind: InitConfiguration
+localAPIEndpoint:
+  advertiseAddress: ${master_ip}
+  bindPort: 6443
+---
+apiVersion: kubeadm.k8s.io/v1beta2
+apiServer:
+  timeoutForControlPlane: 4m0s
+  certSANs:
+    - ${cert_sans}
+clusterName: gilanetes
+kind: ClusterConfiguration
+networking:
+  #serviceSubnet: "10.96.0.0/12"
+  podSubnet: ${pod_cidr}
+---
+apiVersion: kubelet.config.k8s.io/v1beta1
+kind: KubeletConfiguration
+cgroupDriver: "systemd"
+failSwapOn: false

@@ -313,7 +313,6 @@ extern "C" fn mayastor_signal_handler(signo: i32) {
 
 impl MayastorEnvironment {
     pub fn new(args: MayastorCliArgs) -> Self {
-        info!("Coucou '{}:{}'", args.addr, args.port);
         Self {
             grpc_addr: args.addr,
             grpc_port: args.port,

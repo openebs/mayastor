@@ -5,6 +5,7 @@
 , libaio
 , libiscsi
 , libspdk
+, liburing
 , llvmPackages
 , numactl
 , openssl
@@ -35,7 +36,7 @@ rec {
 
   mayastor = rustPlatform.buildRustPackage rec {
     name = "mayastor";
-    cargoSha256 = "06wwywn4fpvaaivrmbzc70b87x1vbv692xz1yn64wvpwlngh0dvx";
+    cargoSha256 = "1qxzbgdb3r6frw2x1v8s24ali75lxv1swq9243cxwdnvbbydqlxw";
     version = "unstable";
     src = ../../../.;
 
@@ -51,6 +52,7 @@ rec {
       libaio
       libiscsi.lib
       libspdk
+      liburing
       llvmPackages.libclang
       numactl
       openssl

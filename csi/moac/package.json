@@ -18,23 +18,23 @@
   },
   "license": "ISC",
   "dependencies": {
-    "@grpc/proto-loader": "^0.4.0",
+    "@grpc/proto-loader": "^0.5.3",
     "express": "^4.17.1",
     "grpc-promise": "^1.4.0",
     "grpc-uds": "^0.1.4",
     "js-yaml": "^3.13.1",
     "json-stream": "^1.0.0",
-    "kubernetes-client": "^6.12.1",
+    "kubernetes-client": "^8.3.6",
     "lodash": "^4.17.15",
     "sleep-promise": "^8.0.1",
     "winston": "^3.2.1",
-    "yargs": "^13.3.0"
+    "yargs": "^15.3.1"
   },
   "devDependencies": {
     "chai": "^4.2.0",
-    "mocha": "^6.2.2",
-    "sinon": "^8.1.1",
-    "wtfnode": "^0.8.0"
+    "mocha": "^7.1.1",
+    "sinon": "^9.0.1",
+    "wtfnode": "^0.8.1"
   },
   "files": [
     "*.js",
