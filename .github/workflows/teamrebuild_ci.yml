@@ -23,7 +23,9 @@ jobs:
       run: |
         # Load required kernel modules
         sudo modprobe nbd; sudo modprobe nvme; sudo modprobe nvmet; sudo modprobe xfs
-        # Allocate 1024 2KiB hugepages
+        lsb_release -a
+        cat /proc/version
+        # Allocate 1024 2MiB hugepages
         echo 1024 | sudo tee /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages 1>/dev/null
         
     - name: Env Setup
@@ -43,9 +45,29 @@ jobs:
       run: |
         docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'cargo build --all'"
         
-    - name: Test
+    - name: Cargo Test Jsonrpc
       run: |
-        docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run './test.sh'"
+        docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'pushd jsonrpc && cargo test && popd'"
+
+    - name: Cargo Test Mayastor
+      run: |
+        docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'pushd mayastor && RUST_BACKTRACE=full cargo test -- --test-threads=1 && popd'"
+
+    - name: Js test_cli
+      run: |
+        docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'pushd mayastor-test && npm install && ./node_modules/mocha/bin/mocha test_cli.js && popd'"
+
+    - name: Js test_replica
+      run: |
+        docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'pushd mayastor-test && ./node_modules/mocha/bin/mocha test_replica.js && popd'"
+
+    - name: Js test_csi
+      run: |
+        docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'pushd mayastor-test && ./node_modules/mocha/bin/mocha test_csi.js && popd'"
+
+    - name: Js test_nexus
+      run: |
+        docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'pushd mayastor-test && ./node_modules/mocha/bin/mocha test_nexus.js && popd'"
         
     - name: End
       run: |
@@ -85,3 +107,4 @@ jobs:
       run: |
         docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'cargo clippy --version'"
         docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'cargo clippy --all --all-targets -- -D warnings'"
+
