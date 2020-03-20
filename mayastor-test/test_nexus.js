@@ -126,15 +126,29 @@ function createGrpcClient(service) {
 }
 
 var doUring = (function () {
+  var executed = false;
   var supportsUring = false;
-  const { exec } = require('child_process');
-  exec('/usr/bin/false', (error) => {
-    if (error) {
-      return;
+  return function () {
+    if (!executed) {
+      executed = true;
+      const { exec } = require('child_process');
+      const URING_SUPPORT_CMD = path.join(
+        __dirname,
+        '..',
+        'target',
+        'debug',
+        'uring-support'
+      );
+      const CMD = URING_SUPPORT_CMD + ' ' + uringFile;
+      exec(CMD, (error) => {
+        if (error) {
+          return;
+        }
+        supportsUring = true;
+      });
     }
-    supportsUring = true;
-  });
-  return function () { return supportsUring; }
+    return supportsUring;
+  }
 })();
 
 describe('nexus', function() {
@@ -185,8 +199,6 @@ describe('nexus', function() {
       `aio:///${aioFile}?blk_size=4096`,
     ],
   };
-  if (doUring())
-    createArgs.children.push(`uring:///${uringFile}?blk_size=4096`);
   this.timeout(50000); // for network tests we need long timeouts
 
   before(done => {
@@ -205,16 +217,15 @@ describe('nexus', function() {
           fs.truncate(aioFile, diskSize, next);
         },
         next => {
-          if (doUring())
-            fs.writeFile(uringFile, '', next);
-          else
-            next();
+          fs.writeFile(uringFile, '', next);
+        },
+        next => {
+          fs.truncate(uringFile, diskSize, next);
         },
         next => {
           if (doUring())
-            fs.truncate(uringFile, diskSize, next);
-          else
-            next();
+            createArgs.children.push(`uring:///${uringFile}?blk_size=4096`);
+          next();
         },
         next => {
           // Start two spdk instances. The first one will hold the remote
