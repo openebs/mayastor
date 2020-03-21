@@ -125,10 +125,10 @@ function createGrpcClient(service) {
   );
 }
 
-var doUring = (function () {
+var doUring = (function() {
   var executed = false;
   var supportsUring = false;
-  return function () {
+  return function() {
     if (!executed) {
       executed = true;
       const { exec } = require('child_process');
@@ -140,7 +140,7 @@ var doUring = (function () {
         'uring-support'
       );
       const CMD = URING_SUPPORT_CMD + ' ' + uringFile;
-      exec(CMD, (error) => {
+      exec(CMD, error => {
         if (error) {
           return;
         }
@@ -148,7 +148,7 @@ var doUring = (function () {
       });
     }
     return supportsUring;
-  }
+  };
 })();
 
 describe('nexus', function() {
@@ -263,10 +263,8 @@ describe('nexus', function() {
           fs.unlink(aioFile, err => next());
         },
         next => {
-          if (doUring())
-            fs.unlink(uringFile, err => next());
-          else
-            next();
+          if (doUring()) fs.unlink(uringFile, err => next());
+          else next();
         },
       ],
       err => {
@@ -289,8 +287,7 @@ describe('nexus', function() {
         `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk2`,
       ],
     };
-    if (doUring())
-      args.children.push(`uring:///${uringFile}?blk_size=4096`);
+    if (doUring()) args.children.push(`uring:///${uringFile}?blk_size=4096`);
 
     client.CreateNexus(args, done);
   });
@@ -321,7 +318,10 @@ describe('nexus', function() {
       );
       assert.equal(nexus.children[3].state, 'open');
       if (doUring()) {
-        assert.equal(nexus.children[4].uri, `uring:///${uringFile}?blk_size=4096`);
+        assert.equal(
+          nexus.children[4].uri,
+          `uring:///${uringFile}?blk_size=4096`
+        );
         assert.equal(nexus.children[4].state, 'open');
       }
       done();
