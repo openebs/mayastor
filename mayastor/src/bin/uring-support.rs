@@ -1,6 +1,6 @@
 extern crate clap;
 
-use clap::{Arg, App};
+use clap::{App, Arg};
 use mayastor::bdev::uring_util;
 
 fn main() {
@@ -8,10 +8,12 @@ fn main() {
         .version("0.1.0")
         .author("Jonathan Teh <jonathan.teh@mayadata.io>")
         .about("Determines io_uring support")
-        .arg(Arg::with_name("uring-path")
-                 .required(true)
-                 .help("Path to file")
-                 .index(1))
+        .arg(
+            Arg::with_name("uring-path")
+                .required(true)
+                .help("Path to file")
+                .index(1),
+        )
         .get_matches();
 
     let path = matches.value_of("uring-path").unwrap();

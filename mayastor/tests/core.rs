@@ -10,9 +10,7 @@ use mayastor::{
     },
     nexus_uri::{bdev_create, bdev_destroy},
 };
-use std::{
-    sync::Once,
-};
+use std::sync::Once;
 
 static DISKNAME1: &str = "/tmp/disk1.img";
 static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
