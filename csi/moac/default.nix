@@ -5,16 +5,11 @@
 # It is used to bundle rpc proto files from mayastor repo to moac nix package.
 # And to build docker image.
 
-{ pkgs ? import <nixpkgs> {
-    inherit system;
-  }
+{ pkgs ? import <nixpkgs> { inherit system; }
 , system ? builtins.currentSystem
 }:
-
 let
-  result = import ./node-composition.nix {
-    inherit pkgs system;
-  };
+  result = import ./node-composition.nix { inherit pkgs system; };
 in
 result // rec {
   package = result.package.override {
@@ -25,6 +20,9 @@ result // rec {
     # arguments. node2path runs it with a number of args so we must run
     # in manually in postInstall hook :-/
     postInstall = "npm run prepare";
+    # add nodejs and busybox to this variable to set it later to ammend the
+    # path variable. This makes it easer to exec into the container
+    env = pkgs.stdenv.lib.makeBinPath [ pkgs.busybox pkgs.nodejs-10_x ];
   };
   # The current way of creating a docker image has a number of issues.
   # 1) The image size is almost 1G because it includes gcc, python and other
@@ -47,8 +45,8 @@ result // rec {
     contents = [ pkgs.busybox package ];
     config = {
       Entrypoint = [ "${package.out}/bin/moac" ];
-      ExposedPorts = { "3000/tcp" = {}; };
-      Env = [ "PATH=${package.out}/bin:$PATH" ];
+      ExposedPorts = { "3000/tcp" = { }; };
+      Env = [ "PATH=${package.env}:${package.out}/bin" ];
       WorkDir = "${package.out}";
     };
   };
