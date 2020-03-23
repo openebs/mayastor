@@ -5,8 +5,10 @@ use std::{
 };
 
 pub fn fs_supports_direct_io(path: &str) -> bool {
-    // SPDK uring bdev uses IORING_SETUP_IOPOLL which requires O_DIRECT
-    // which works on at least XFS filesystems
+    // SPDK uring bdev uses IORING_SETUP_IOPOLL which is usable only on a file
+    // descriptor opened with O_DIRECT. The file system or block device must
+    // also support polling.
+    // This works on at least XFS filesystems
     match OpenOptions::new()
         .read(true)
         .write(true)
