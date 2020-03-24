@@ -20,6 +20,7 @@ steps:
 
 - script: |
       . ~/.nix-profile/etc/profile.d/nix.sh
-      nix-shell --run 'cd mayastor && sudo -E cargo test -- --test-threads=1'
+      export CARGO=`which cargo`
+      nix-shell --run 'cd mayastor && sudo -E $CARGO test -- --test-threads=1'
   displayName: 'Run cargo tests'
 
