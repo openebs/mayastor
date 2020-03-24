@@ -1,8 +1,3 @@
-# Starter pipeline
-# Start with a minimal pipeline that you can customize to build and deploy your code.
-# Add steps that build, run tests, deploy, and more:
-# https://aka.ms/yaml
-
 trigger:
 - master
 
@@ -10,10 +5,21 @@ pool:
   vmImage: 'ubuntu-latest'
 
 steps:
-- script: echo Hello, world!
-  displayName: 'Run a one-line script'
-
 - script: |
-    echo Add other tasks to build, test, and deploy your project.
-    echo See https://aka.ms/yaml
-  displayName: 'Run a multi-line script'
+    modprobe nbd
+    modprobe xfs
+    echo 1024 > /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
+    displayName: 'configure kernel settings'
+  
+steps:
+- script: |
+    bash <(curl https://nixos.org/nix/install)
+    source ~/.nix-profile/etc/profile.d/nix.sh
+    nix-channel --add https://nixos.org/channels/nixos-20.03 nixpkgs
+    nix-channel --update
+    displayName: 'Setup Nix'
+
+steps:
+- script: nix-shell --run 'cd mayastor && cargo test -- --test-threads=1'
+  displayName: 'Run cargo tests'
+
