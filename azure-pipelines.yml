@@ -3,9 +3,10 @@ trigger:
 
 pool:
   vmImage: 'ubuntu-latest'
-  container: 
-    image: mayadata/ms-buildenv:latest
-    options: --privileged -v /dev:/dev -v /bin:/host/bin
+
+container: 
+  image: mayadata/ms-buildenv:latest
+  options: --privileged -v /dev:/dev -v /bin:/host/bin
     
 steps:
 - script: |
