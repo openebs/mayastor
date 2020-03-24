@@ -1,0 +1,15 @@
+[package]
+name = "nvme"
+version = "0.1.0"
+authors = ["Jeffry Molanus <jeffry.molanus@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+failure = "0.1.5"
+glob = "*"
+derive_builder = "0.7.1"
+nix = "0.13.0"
+ioctl-gen = "0.1.1"
+libc = "0.2.51"
+enum-primitive-derive = "^0.1"
+num-traits = "^0.1"

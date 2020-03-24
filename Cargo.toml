@@ -7,6 +7,7 @@ members = [
   "csi",
   "jsonrpc",
   "mayastor",
+  "nvme-library",
   "rpc",
   "sysfs",
 ]
