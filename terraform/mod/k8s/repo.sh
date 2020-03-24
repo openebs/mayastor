@@ -25,6 +25,8 @@ sudo tee /etc/docker/daemon.json >/dev/null <<EOF
     "max-size": "100m"
   },
   "storage-driver": "overlay2"
+  # if you wish to use a private docker repo uncomment this the line below
+  # "insecure-registries" : ["192.168.1.4:5000"]
 }
 EOF
 

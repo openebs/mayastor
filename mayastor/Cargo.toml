@@ -16,6 +16,10 @@ path = "src/bin/spdk.rs"
 name = "initiator"
 path = "src/bin/initiator.rs"
 
+[[bin]]
+name = "uring-support"
+path = "src/bin/uring-support.rs"
+
 [dev-dependencies]
 assert_matches = "1.2"
 run_script = "*"

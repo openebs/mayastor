@@ -137,6 +137,47 @@ lxc exec ksnode-1 -- cat /etc/kubernetes/admin.conf > ~/.kube/config
 
 And you are all set to deploy mayastor.
 
+=== Private docker repo
+
+If you want to use a private docker repo you should edit the docker daemon
+config file to suite your needs.
+
+An example configuration could be something like the following:
+
+[source,bash]
+----
+
+cd /path/to/store
+mkdir data
+
+cat << EOF > docker-compose.yml
+version: '3'
+
+services:
+  registry:
+    image: registry:2
+    ports:
+    - "5000:5000"
+    environment:
+      REGISTRY_STORAGE_FILESYSTEM_ROOTDIRECTORY: /data
+    volumes:
+      - ./data:/data
+EOF
+
+docker-compose up
+----
+
+Subsequently, you can push mayastor images there
+
+[source,bash]
+----
+nix-build '<nixpkgs>' -A node-moacImage
+docker load <result
+docker tag mayadata/moac localhost:5000/moac:latest
+docker push localhost:5000/moac:latest
+----
+
+
 == Main configuration file
 
 The main configuration file is `variables.tf` where all fields **must** be set.
