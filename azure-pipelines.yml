@@ -18,6 +18,7 @@ steps:
 
 - script: |
       . ~/.nix-profile/etc/profile.d/nix.sh
+      export CARGO=`which cargo`      
       nix-shell --run '$CARGO build --all'
   displayName: 'Build all'
 
