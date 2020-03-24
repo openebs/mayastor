@@ -6,9 +6,9 @@ pool:
 
 steps:
 - script: |
-    modprobe nbd
-    modprobe xfs
-    echo 1024 > /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
+    sudo modprobe nbd
+    sudo modprobe xfs
+    echo 1024 | sudo tee /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
     displayName: 'configure kernel settings'
   
 - script: |
