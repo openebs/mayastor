@@ -23,6 +23,7 @@ mod iscsi_dev;
 pub(crate) mod nexus;
 mod nvmf_dev;
 mod uring_dev;
+pub mod uring_util;
 
 unsafe fn parse_config_param<T>(
     sp: *mut spdk_conf_section,
