@@ -14,8 +14,6 @@ steps:
 - script: |
     bash <(curl https://nixos.org/nix/install)
     source ~/.nix-profile/etc/profile.d/nix.sh
-    nix-channel --add https://nixos.org/channels/nixos-20.03 nixpkgs
-    nix-channel --update
   displayName: 'Setup Nix'
 
 - script: |
