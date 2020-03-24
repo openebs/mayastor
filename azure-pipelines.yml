@@ -18,6 +18,8 @@ steps:
     nix-channel --update
   displayName: 'Setup Nix'
 
-- script: nix-shell --run 'cd mayastor && cargo test -- --test-threads=1'
+- script: |
+      . ~/.nix-profile/etc/profile.d/nix.sh
+      nix-shell --run 'cd mayastor && cargo test -- --test-threads=1'
   displayName: 'Run cargo tests'
 
