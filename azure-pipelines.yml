@@ -3,22 +3,22 @@ trigger:
 
 pool:
   vmImage: 'ubuntu-latest'
-
+  container: 
+    image: mayadata/ms-buildenv:latest
+    options: --privileged -v /dev:/dev -v /bin:/host/bin
+    
 steps:
 - script: |
+    ln -s /host/bin/kmod /usr/local/bin/modprobe
     sudo modprobe nbd
     sudo modprobe xfs
     echo 1024 | sudo tee /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
   displayName: 'configure kernel settings'
   
 - script: |
-    bash <(curl https://nixos.org/nix/install)
-    source ~/.nix-profile/etc/profile.d/nix.sh
-  displayName: 'Setup Nix'
+    nix-shell --run 'cargo build --all-targets'
+  displayName: 'Build all targets'
 
 - script: |
-      . ~/.nix-profile/etc/profile.d/nix.sh
-      export CARGO=`which cargo`      
-      nix-shell --run '$CARGO build --all'
-      nix-shell --run 'cd mayastor; sudo -E $CARGO test -- --test-threads=1'
-  displayName: 'Build all'
+    nix-shell --run 'cargo build --all-targets'
+  displayName: 'Build all targets'
