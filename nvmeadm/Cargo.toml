@@ -1,0 +1,15 @@
+[package]
+name = "nvmeadm"
+version = "0.1.0"
+authors = ["Jeffry Molanus <jeffry.molanus@gmail.com>"]
+edition = "2018"
+
+[dependencies]
+failure = "0.1"
+glob = "*"
+derive_builder = "0.7"
+nix = "0.14"
+ioctl-gen = "0.1"
+libc = "0.2"
+enum-primitive-derive = "^0.1"
+num-traits = "^0.1"
