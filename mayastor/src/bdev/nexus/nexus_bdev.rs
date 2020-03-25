@@ -153,39 +153,17 @@ pub enum Error {
 impl RpcErrorCode for Error {
     fn rpc_error_code(&self) -> Code {
         match self {
-            Error::NexusNotFound {
-                ..
-            } => Code::NotFound,
-            Error::InvalidUuid {
-                ..
-            } => Code::InvalidParams,
-            Error::InvalidKey {
-                ..
-            } => Code::InvalidParams,
-            Error::AlreadyShared {
-                ..
-            } => Code::InvalidParams,
-            Error::NotShared {
-                ..
-            } => Code::InvalidParams,
-            Error::CreateChild {
-                ..
-            } => Code::InvalidParams,
-            Error::MixedBlockSizes {
-                ..
-            } => Code::InvalidParams,
-            Error::ChildGeometry {
-                ..
-            } => Code::InvalidParams,
-            Error::OpenChild {
-                ..
-            } => Code::InvalidParams,
-            Error::DestroyLastChild {
-                ..
-            } => Code::InvalidParams,
-            Error::ChildNotFound {
-                ..
-            } => Code::NotFound,
+            Error::NexusNotFound    { .. } => Code::NotFound,
+            Error::InvalidUuid      { .. } => Code::InvalidParams,
+            Error::InvalidKey       { .. } => Code::InvalidParams,
+            Error::AlreadyShared    { .. } => Code::InvalidParams,
+            Error::NotShared        { .. } => Code::InvalidParams,
+            Error::CreateChild      { .. } => Code::InvalidParams,
+            Error::MixedBlockSizes  { .. } => Code::InvalidParams,
+            Error::ChildGeometry    { .. } => Code::InvalidParams,
+            Error::OpenChild        { .. } => Code::InvalidParams,
+            Error::DestroyLastChild { .. } => Code::InvalidParams,
+            Error::ChildNotFound    { .. } => Code::NotFound,
             _ => Code::InternalError,
         }
     }
@@ -194,9 +172,17 @@ impl RpcErrorCode for Error {
 impl From<Error> for tonic::Status {
     fn from(e: Error) -> Self {
         match e {
-            Error::NexusNotFound {
-                ..
-            } => Status::not_found(e.to_string()),
+            Error::NexusNotFound    { .. } => Status::not_found(e.to_string()),
+            Error::InvalidUuid      { .. } => Status::invalid_argument(e.to_string()),
+            Error::InvalidKey       { .. } => Status::invalid_argument(e.to_string()),
+            Error::AlreadyShared    { .. } => Status::invalid_argument(e.to_string()),
+            Error::NotShared        { .. } => Status::invalid_argument(e.to_string()),
+            Error::CreateChild      { .. } => Status::invalid_argument(e.to_string()),
+            Error::MixedBlockSizes  { .. } => Status::invalid_argument(e.to_string()),
+            Error::ChildGeometry    { .. } => Status::invalid_argument(e.to_string()),
+            Error::OpenChild        { .. } => Status::invalid_argument(e.to_string()),
+            Error::DestroyLastChild { .. } => Status::invalid_argument(e.to_string()),
+            Error::ChildNotFound    { .. } => Status::not_found(e.to_string()),
             e => Status::new(GrpcCode::Internal, e.to_string()),
         }
     }

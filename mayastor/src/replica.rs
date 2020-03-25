@@ -155,10 +155,10 @@ impl From<Error> for tonic::Status {
         Error::CreateLvol { .. } => Self::invalid_argument(e.to_string()),
         Error::DestroyLvol { .. } => Self::internal(e.to_string()),
         Error::ReplicaShared { .. } => Self::internal(e.to_string()),
-        Error::ShareNvmf { source:_ } => Self::internal(e.to_string()),//source.into(),
-        Error::ShareIscsi { source:_ } => Self::internal(e.to_string()),//source.into(),
-        Error::UnshareNvmf { source:_ } => Self::internal(e.to_string()),//source.into(),
-        Error::UnshareIscsi { source:_ } => Self::internal(e.to_string()),//source.into(),
+        Error::ShareNvmf { source:_ } => Self::internal(e.to_string()),
+        Error::ShareIscsi { source:_ } => Self::internal(e.to_string()),
+        Error::UnshareNvmf { source:_ } => Self::internal(e.to_string()),
+        Error::UnshareIscsi { source:_ } => Self::internal(e.to_string()),
         Error::InvalidProtocol { .. } => Self::invalid_argument(e.to_string()),
         Error::ReplicaNotFound { .. } => Self::not_found(e.to_string()),
     }}
@@ -457,7 +457,7 @@ impl Iterator for ReplicaIter {
     }
 }
 
-pub async fn create_replica(args : CreateReplicaRequest)
+pub(crate) async fn create_replica(args : CreateReplicaRequest)
     -> Result<CreateReplicaReply, RpcError> {
     let want_share = match ShareProtocol::from_i32(args.share) {
         Some(val) => val,
@@ -497,7 +497,7 @@ pub async fn create_replica(args : CreateReplicaRequest)
     })
 }
 
-pub async fn destroy_replica(args : DestroyReplicaRequest)
+pub(crate) async fn destroy_replica(args : DestroyReplicaRequest)
                             -> Result<(), RpcError> {
     match Replica::lookup(&args.uuid) {
         Some(replica) => {
@@ -513,7 +513,7 @@ pub async fn destroy_replica(args : DestroyReplicaRequest)
     }
 }
 
-pub fn list_replicas() -> ListReplicasReply {
+pub(crate) fn list_replicas() -> ListReplicasReply {
     ListReplicasReply {
         replicas: ReplicaIter::new()
             .map(|r| ReplicaJson {
@@ -534,7 +534,7 @@ pub fn list_replicas() -> ListReplicasReply {
     }
 }
 
-pub async fn stat_replicas() -> Result<StatReplicasReply, RpcError> {
+pub(crate) async fn stat_replicas() -> Result<StatReplicasReply, RpcError> {
     let mut stats = Vec::new();
 
     // XXX is it safe to hold bdev pointer in iterator across context
@@ -575,7 +575,7 @@ pub async fn stat_replicas() -> Result<StatReplicasReply, RpcError> {
     })
 }
 
-pub async fn share_replica(args: ShareReplicaRequest)
+pub(crate) async fn share_replica(args: ShareReplicaRequest)
     -> Result<ShareReplicaReply, RpcError> {
     let want_share = match ShareProtocol::from_i32(args.share) {
         Some(val) => val,

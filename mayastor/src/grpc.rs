@@ -251,23 +251,36 @@ impl Mayastor for MayastorGrpc {
 
     async fn start_rebuild(
 		&self,
-		_request: Request<StartRebuildRequest>,
+		request: Request<StartRebuildRequest>,
 	) -> Result<Response<Null>> {
-		todo!()
+        let msg = request.into_inner();
+        locally! { async move {
+            nexus_lookup(&msg.uuid)?.start_rebuild_rpc(&msg.uri).await
+        }};
+
+        Ok(Response::new(Null {}))
 	}
 
 	async fn get_rebuild_state(
 		&self,
-		_request: Request<RebuildStateRequest>,
+		request: Request<RebuildStateRequest>,
 	) -> Result<Response<RebuildStateReply>> {
-		todo!()
+        let msg = request.into_inner();
+
+        Ok(Response::new(locally! { async move {
+            nexus_lookup(&msg.uuid)?.get_rebuild_state().await
+        }}))
 	}
 
     async fn get_rebuild_progress(
 		&self,
-		_request: Request<RebuildProgressRequest>,
+		request: Request<RebuildProgressRequest>,
 	) -> Result<Response<RebuildProgressReply>> {
-		todo!()
+        let msg = request.into_inner();
+
+        Ok(Response::new(locally! { async move {
+            nexus_lookup(&msg.uuid)?.get_rebuild_progress().await
+        }}))
 	}
 }
 
@@ -281,6 +294,9 @@ pub async fn grpc_server_init(addr: &str, port: &str)
 
     match svc.await {
         Ok(_) => Ok(()),
-        Err(_) => Err(()),
+        Err(e) => {
+			error!("gRPC server failed with error: {}", e);
+			Err(())
+		}
     }
 }

@@ -81,7 +81,7 @@ fn parse_mb(src: &str) -> Result<i32, String> {
     setting(structopt::clap::AppSettings::ColoredHelp)
 )]
 pub struct MayastorCliArgs {
-    #[structopt(short = "a", default_value = "127.0.0.1")]
+    #[structopt(short = "a", default_value = "127.0.0.1", env = "MY_POD_IP")]
     /// IP address for gRPC
     pub addr: String,
     #[structopt(short = "p", default_value = "10125")]
@@ -119,8 +119,8 @@ pub struct MayastorCliArgs {
 impl Default for MayastorCliArgs {
     fn default() -> Self {
         Self {
-            addr: "127.0.0.1".into(),
-            port: "10125".into(),
+            addr: "None".into(),
+            port: "None".into(),
             reactor_mask: "0x1".into(),
             mem_size: 0,
             rpc_address: "/var/tmp/mayastor.sock".to_string(),
@@ -526,20 +526,11 @@ impl MayastorEnvironment {
     /// We implement our own default target init code here. Note that if there
     /// is an existing target we will fail the init process.
     extern "C" fn target_init() -> Result<(), EnvError> {
-        let address = match env::var("MY_POD_IP") {
-            Ok(val) => {
-                let _ipv4: Ipv4Addr = match val.parse() {
-                    Ok(val) => val,
-                    Err(_) => {
-                        error!("Invalid IP address: MY_POD_IP={}", val);
-                        mayastor_env_stop(-1);
-                        return Err(EnvError::InitLog);
-                    }
-                };
-                val
-            }
-            Err(_) => "127.0.0.1".to_owned(),
-        };
+        let address = MayastorEnvironment::get_pod_ip().map_err(|e|{
+            error!("Invalid IP address: MY_POD_IP={}", e);
+            mayastor_env_stop(-1);
+            EnvError::InitLog
+        })?;
 
         if let Err(msg) = target::iscsi::init(&address) {
             error!("Failed to initialize Mayastor iSCSI target: {}", msg);
@@ -558,6 +549,13 @@ impl MayastorEnvironment {
         Reactor::block_on(f);
 
         Ok(())
+    }
+
+    fn get_pod_ip() -> Result<String, String> {
+        match env::var("MY_POD_IP") {
+            Ok(val) => if val.parse::<Ipv4Addr>().is_ok() { Ok(val) } else { Err(val) }
+            Err(_) => Ok("127.0.0.1".to_owned()),
+        }
     }
 
     extern "C" fn start_rpc(rc: i32, arg: *mut c_void) {

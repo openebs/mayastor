@@ -88,7 +88,9 @@ async fn create_nexus(
     mut client: MayaClient,
     matches: &ArgMatches<'_>,
 ) -> Result<(), Status> {
-    let size = parse_size(matches.value_of("size").unwrap()).unwrap();
+    let size = parse_size(matches.value_of("size").unwrap()).map_err(|s| {
+		Status::invalid_argument(format!("Bad size '{}'", s))
+	})?;
 
     let request = CreateNexusRequest {
         uuid: matches.value_of("uuid").unwrap().to_string(),

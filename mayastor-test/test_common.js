@@ -21,7 +21,7 @@ const CSI_ID = 'test-node-id';
 
 var endpoint = '127.0.0.1:' + GRPC_PORT;
 var test_port = process.env.TEST_PORT || GRPC_PORT;
-var mayastor_endpoint = '127.0.0.1:' + test_port;
+var mayastor_endpoint = process.env.MY_POD_IP + ':' + test_port;
 // started processes indexed by the program name
 var procs = {};
 

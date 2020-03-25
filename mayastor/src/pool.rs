@@ -405,7 +405,7 @@ impl Iterator for PoolsIter {
     }
 }
 
-pub async fn create_pool(args: rpc::mayastor::CreatePoolRequest)
+pub(crate) async fn create_pool(args: rpc::mayastor::CreatePoolRequest)
     -> Result<()> {
     // TODO: support RAID-0 devices
     if args.disks.len() != 1 {
@@ -441,7 +441,7 @@ pub async fn create_pool(args: rpc::mayastor::CreatePoolRequest)
     Ok(())
 }
 
-pub async fn destroy_pool(args: rpc::mayastor::DestroyPoolRequest)
+pub(crate) async fn destroy_pool(args: rpc::mayastor::DestroyPoolRequest)
     -> Result<()> {
     let pool = match Pool::lookup(&args.name) {
         Some(p) => p,
