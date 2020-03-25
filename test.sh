@@ -8,3 +8,4 @@ pushd mayastor-test && npm install && ./node_modules/mocha/bin/mocha test_cli.js
 pushd mayastor-test && ./node_modules/mocha/bin/mocha test_replica.js && popd
 pushd mayastor-test && ./node_modules/mocha/bin/mocha test_csi.js && popd
 pushd mayastor-test && ./node_modules/mocha/bin/mocha test_nexus.js && popd
+pushd mayastor-test && ./node_modules/mocha/bin/mocha test_rebuild.js && popd

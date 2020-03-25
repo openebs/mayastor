@@ -146,6 +146,7 @@ message Nexus {
   // Path to device file for the volume (missing if not published).
   // Missing property and empty string are treated the same.
   string device_path = 5;
+  uint64 rebuilds = 6;         // total number of rebuild tasks
 }
 
 message ListNexusReply {
@@ -194,6 +195,7 @@ message ChildNexusRequest {
 
 message RebuildStateRequest {
   string uuid = 1;  // uuid of the nexus
+  string uri = 2;   // uri of the child to be rebuilt
 }
 
 message RebuildStateReply {
@@ -201,6 +203,11 @@ message RebuildStateReply {
 }
 
 message StartRebuildRequest {
+  string uuid = 1;  // uuid of the nexus
+  string uri = 2;   // uri of the child to be rebuilt
+}
+
+message StopRebuildRequest {
   string uuid = 1;  // uuid of the nexus
   string uri = 2;   // uri of the child to be rebuilt
 }
