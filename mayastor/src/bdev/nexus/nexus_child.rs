@@ -7,7 +7,7 @@ use snafu::{ResultExt, Snafu};
 use spdk_sys::{spdk_bdev_module_release_bdev, spdk_io_channel};
 
 use crate::{
-    bdev::nexus::nexus_label::{GPTHeader, GptEntry, NexusLabel},
+    bdev::nexus::nexus_label::{Pmbr, GPTHeader, GptEntry, NexusLabel, LabelData},
     core::{Bdev, BdevHandle, CoreError, Descriptor, DmaBuf, DmaError},
     nexus_uri::{bdev_destroy, BdevCreateDestroy},
 };
@@ -34,7 +34,7 @@ pub enum ChildError {
     LabelAlloc { source: DmaError },
     #[snafu(display("Failed to read label from child"))]
     LabelRead { source: ChildIoError },
-    #[snafu(display("Primary and backup labels are invalid"))]
+    #[snafu(display("Label is invalid"))]
     LabelInvalid {},
     #[snafu(display("Failed to allocate buffer for partition table"))]
     PartitionTableAlloc { source: DmaError },
@@ -238,93 +238,131 @@ impl NexusChild {
         }
     }
 
-    /// returns if a child can be written too
+    /// returns if a child can be written to
     pub fn can_rw(&self) -> bool {
         self.state == ChildState::Open || self.state == ChildState::Faulted
     }
 
+    /// read and validate this child's label
     pub async fn probe_label(&mut self) -> Result<NexusLabel, ChildError> {
         if !self.can_rw() {
-            info!(
-                "{}: Trying to read from closed child: {}",
-                self.parent, self.name
-            );
+            info!("{}: Trying to read from closed child: {}", self.parent, self.name);
             return Err(ChildError::ChildReadOnly {});
         }
 
-        let bdev = self.bdev.as_ref();
-        let desc = self.bdev_handle.as_ref();
-
-        if bdev.is_none() || desc.is_none() {
-            return Err(ChildError::ChildInvalid {});
-        }
-
-        let bdev = bdev.unwrap();
-        let desc = desc.unwrap();
-
-        let block_size = bdev.block_len();
-
-        let primary = u64::from(block_size);
-        let secondary = bdev.num_blocks() - 1;
-
-        let mut buf = desc
-            .dma_malloc(block_size as usize)
-            .context(LabelAlloc {})?;
-
-        self.read_at(primary, &mut buf)
-            .await
-            .context(LabelRead {})?;
-
-        let mut label = GPTHeader::from_slice(buf.as_slice());
-        if label.is_err() {
-            warn!(
-                "{}: {}: The primary label is invalid!",
-                self.parent, self.name
-            );
-            self.read_at(secondary, &mut buf)
-                .await
-                .context(LabelRead {})?;
-            label = GPTHeader::from_slice(buf.as_slice());
-        }
-
-        let label = match label {
-            Ok(label) => label,
-            Err(_) => return Err(ChildError::LabelInvalid {}),
+        let bdev = match self.bdev.as_ref() {
+            Some(dev) => dev,
+            None => {
+                return Err(ChildError::ChildInvalid {});
+            }
         };
 
+        let desc = match self.bdev_handle.as_ref() {
+            Some(handle) => handle,
+            None => {
+                return Err(ChildError::ChildInvalid {});
+            }
+        };
+
+        let block_size = bdev.block_len();
+        let mut buf = desc.dma_malloc(block_size as usize).context(LabelAlloc {})?;
+
+        self.read_at(0, &mut buf).await.context(LabelRead {})?;
+        let mbr = match Pmbr::from_slice(&buf.as_slice()[440..512]) {
+            Ok(record) => record,
+            Err(_) => {
+                warn!("{}: {}: The protective MBR is invalid!", self.parent, self.name);
+                return Err(ChildError::LabelInvalid {});
+            }
+        };
+
+        self.read_at(u64::from(block_size), &mut buf).await.context(LabelRead {})?;
+        let primary = match GPTHeader::from_slice(buf.as_slice()) {
+            Ok(header) => header,
+            Err(_) => {
+                warn!("{}: {}: The primary GPT header is invalid!", self.parent, self.name);
+                return Err(ChildError::LabelInvalid {});
+            }
+        };
+
+        if mbr.entries[0].num_sectors != 0xffffffff && mbr.entries[0].num_sectors as u64 != primary.lba_alt {
+            warn!("{}: {}: The protective MBR disk size does not match the GPT disk size!", self.parent, self.name);
+            return Err(ChildError::LabelInvalid {});
+        }
+
+        self.read_at((u64::from(bdev.num_blocks()) - 1) * u64::from(block_size), &mut buf).await.context(LabelRead {})?;
+        let secondary = match GPTHeader::from_slice(buf.as_slice()) {
+            Ok(header) => header,
+            Err(_) => {
+                warn!("{}: {}: The secondary GPT header is invalid!", self.parent, self.name);
+                return Err(ChildError::LabelInvalid {});
+            }
+        };
+
+        if primary.guid != secondary.guid {
+            warn!("{}: {}: The primary and secondary GPT headers are inconsistent: GUIDs differ!", self.parent, self.name);
+            return Err(ChildError::LabelInvalid {});
+        }
+
+        if primary.lba_start != secondary.lba_start || primary.lba_end != secondary.lba_end {
+            warn!("{}: {}: The primary and secondary GPT headers are inconsistent: disk sizes differ!", self.parent, self.name);
+            return Err(ChildError::LabelInvalid {});
+        }
+
+        if primary.table_crc != secondary.table_crc {
+            warn!("{}: {}: The primary and secondary GPT headers are inconsistent: stored partition table checksums differ!", self.parent, self.name);
+            return Err(ChildError::LabelInvalid {});
+        }
+
         // determine number of blocks we need to read from the partition table
-        let num_blocks =
-            ((label.entry_size * label.num_entries) / block_size) + 1;
+        let num_blocks = ((primary.entry_size * primary.num_entries) / block_size) + 1;
+        let mut buf = desc.dma_malloc((num_blocks * block_size) as usize).context(PartitionTableAlloc {})?;
+        self.read_at(primary.lba_table * u64::from(block_size), &mut buf).await.context(PartitionTableRead {})?;
+        let mut partitions = match GptEntry::from_slice(&buf.as_slice(), primary.num_entries) {
+            Ok(table) => table,
+            Err(_) => {
+                warn!("{}: {}: The partition table is invalid!", self.parent, self.name);
+                return Err(ChildError::InvalidPartitionTable {});
+            }
+        };
 
-        let mut buf = desc
-            .dma_malloc((num_blocks * block_size) as usize)
-            .context(PartitionTableAlloc {})?;
-
-        self.read_at(label.lba_table * u64::from(block_size), &mut buf)
-            .await
-            .context(PartitionTableRead {})?;
-
-        let mut partitions =
-            match GptEntry::from_slice(&buf.as_slice(), label.num_entries) {
-                Ok(parts) => parts,
-                Err(_) => return Err(ChildError::InvalidPartitionTable {}),
-            };
-
-        if GptEntry::checksum(&partitions) != label.table_crc {
+        if GptEntry::checksum(&partitions) != primary.table_crc {
+            warn!("{}: {}: The calculated and stored partition table checksums differ!", self.parent, self.name);
             return Err(ChildError::PartitionTableChecksum {});
         }
 
         // some tools write 128 partition entries, even though only two are
         // created, in any case we are only ever interested in the first two
         // partitions, so we drain the others.
-        let parts = partitions.drain(.. 2).collect::<Vec<_>>();
+        let parts = partitions.drain(..2).collect::<Vec<_>>();
 
-        let nl = NexusLabel {
-            primary: label,
+        Ok(NexusLabel {
+            mbr: mbr,
+            primary: primary,
             partitions: parts,
-        };
+            secondary: secondary,
+        })
+    }
 
-        Ok(nl)
+    /// write a label to this child
+    pub async fn write_label(&mut self, label: &NexusLabel, data: &LabelData, block_size: u64) -> Result<(), ChildIoError> {
+
+        // Protective MBR
+        self.write_at(0 as u64, &data.mbr).await?;
+
+        // Primary GPT header
+        self.write_at(block_size * label.primary.lba_self, &data.primary).await?;
+
+        // Primary partition table
+        self.write_at(block_size * label.primary.lba_table, &data.table).await?;
+
+        // Secondary partition table
+        self.write_at(block_size * label.secondary.lba_table, &data.table).await?;
+
+        // Secondary GPT header
+        self.write_at(block_size * label.secondary.lba_self, &data.secondary).await?;
+
+        Ok(())
     }
 
     /// write the contents of the buffer to this child
