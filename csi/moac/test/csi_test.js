@@ -214,6 +214,31 @@ module.exports = function() {
         }
       });
 
+      it('should create a volume and return parameters in volume context', async () => {
+        createVolumeStub.resolves(returnedVolume);
+        var parameters = { protocol: 'nbd', repl: 3, blah: 'again' };
+        let result = await client.createVolume().sendMessage({
+          name: 'pvc-' + UUID,
+          capacityRange: {
+            requiredBytes: 10,
+            limitBytes: 20,
+          },
+          volumeCapabilities: [
+            {
+              accessMode: { mode: 'SINGLE_NODE_WRITER' },
+              block: {},
+            },
+          ],
+          parameters: parameters,
+        });
+        // volume context is a of type map<string><string>
+        var expected = {};
+        for (const key in parameters) {
+          expected[key] = parameters[key].toString();
+        }
+        sinon.assert.match(result.volume.volumeContext, expected);
+      });
+
       it('should fail if topology requirement other than hostname', async () => {
         createVolumeStub.resolves(returnedVolume);
         await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
@@ -233,6 +258,7 @@ module.exports = function() {
               requisite: [{ segments: { rack: 'some-rack-info' } }],
               preferred: [],
             },
+            parameters: { protocol: 'nbd' },
           })
         );
       });
@@ -253,6 +279,7 @@ module.exports = function() {
                 block: {},
               },
             ],
+            parameters: { protocol: 'nbd' },
           })
         );
       });
@@ -272,6 +299,7 @@ module.exports = function() {
                 block: {},
               },
             ],
+            parameters: { protocol: 'nbd' },
           })
         );
       });
@@ -293,6 +321,7 @@ module.exports = function() {
                 filesystem: {},
               },
             ],
+            parameters: { protocol: 'nbd' },
           })
         );
       });
@@ -312,6 +341,7 @@ module.exports = function() {
                 filesystem: {},
               },
             ],
+            parameters: { protocol: 'nbd' },
           })
         );
       });
@@ -333,6 +363,7 @@ module.exports = function() {
           accessibilityRequirements: {
             requisite: [{ segments: { 'kubernetes.io/hostname': 'node' } }],
           },
+          parameters: { protocol: 'nbd' },
         });
         sinon.assert.calledWith(createVolumeStub, UUID, {
           replicaCount: 1,
@@ -368,6 +399,7 @@ module.exports = function() {
               },
             ],
           },
+          parameters: { protocol: 'nbd' },
         });
         sinon.assert.calledWith(createVolumeStub, UUID, {
           replicaCount: 1,
@@ -392,7 +424,7 @@ module.exports = function() {
               block: {},
             },
           ],
-          parameters: { repl: '3' },
+          parameters: { repl: '3', protocol: 'nexus_nbd' },
         });
         sinon.assert.calledWith(createVolumeStub, UUID, {
           replicaCount: 3,
@@ -418,7 +450,7 @@ module.exports = function() {
                 block: {},
               },
             ],
-            parameters: { repl: 'bla2' },
+            parameters: { repl: 'bla2', protocol: 'nexus_nbd' },
           })
         );
       });
@@ -575,11 +607,13 @@ module.exports = function() {
               mount_flags: 'ro',
             },
           },
+          volumeContext: { protocol: 'nbd' },
         });
 
         sinon.assert.calledOnce(getVolumesStub);
         sinon.assert.calledWith(getVolumesStub, UUID);
         sinon.assert.calledOnce(publishStub);
+        sinon.assert.calledWith(publishStub, 'nbd');
       });
 
       it('should not publish volume if it does not exist', async () => {
@@ -597,6 +631,7 @@ module.exports = function() {
                 mount_flags: 'ro',
               },
             },
+            volumeContext: { protocol: 'nbd' },
           })
         );
         sinon.assert.calledOnce(getVolumesStub);
@@ -623,6 +658,7 @@ module.exports = function() {
                 mount_flags: 'ro',
               },
             },
+            volumeContext: { protocol: 'nbd' },
           })
         );
         sinon.assert.calledOnce(getVolumesStub);
@@ -650,6 +686,7 @@ module.exports = function() {
                 mount_flags: 'ro',
               },
             },
+            volumeContext: { protocol: 'nbd' },
           })
         );
       });
@@ -674,6 +711,7 @@ module.exports = function() {
                 mount_flags: 'ro',
               },
             },
+            volumeContext: { protocol: 'nbd' },
           })
         );
       });
@@ -698,6 +736,7 @@ module.exports = function() {
                 mount_flags: 'ro',
               },
             },
+            volumeContext: { protocol: 'nbd' },
           })
         );
       });

@@ -184,10 +184,61 @@ module.exports = function() {
       callStub.reset();
     });
 
-    it('should publish the nexus', async () => {
+    it('should not publish the nexus with whatever protocol', async () => {
+      callStub.resolves({ devicePath: '/dev/whatever0' });
+      callStub.rejects(
+        new GrpcError(GrpcCode.INVALID_ARGUMENT, 'Test failure')
+      );
+
+      await shouldFailWith(GrpcCode.INVALID_ARGUMENT, async () => {
+        await nexus.publish('whatever');
+      });
+
+      sinon.assert.notCalled(callStub);
+    });
+
+    it('should publish the nexus with iscsi protocol', async () => {
+      callStub.resolves({ devicePath: '/dev/iscsi' });
+
+      await nexus.publish('iscsi');
+
+      sinon.assert.calledOnce(callStub);
+      sinon.assert.calledWith(callStub, 'publishNexus', {
+        uuid: UUID,
+        key: '',
+        share: 2,
+      });
+      expect(nexus.devicePath).to.equal('/dev/iscsi');
+      sinon.assert.calledOnce(eventSpy);
+      sinon.assert.calledWith(eventSpy, 'nexus', {
+        eventType: 'mod',
+        object: nexus,
+      });
+    });
+
+    it('should publish the nexus with nvmf protocol', async () => {
+      callStub.resolves({ devicePath: '/dev/nvme0' });
+
+      await nexus.publish('nvmf');
+
+      sinon.assert.calledOnce(callStub);
+      sinon.assert.calledWith(callStub, 'publishNexus', {
+        uuid: UUID,
+        key: '',
+        share: 1,
+      });
+      expect(nexus.devicePath).to.equal('/dev/nvme0');
+      sinon.assert.calledOnce(eventSpy);
+      sinon.assert.calledWith(eventSpy, 'nexus', {
+        eventType: 'mod',
+        object: nexus,
+      });
+    });
+
+    it('should publish the nexus with nbd protocol', async () => {
       callStub.resolves({ devicePath: '/dev/nbd0' });
 
-      await nexus.publish();
+      await nexus.publish('nbd');
 
       sinon.assert.calledOnce(callStub);
       sinon.assert.calledWith(callStub, 'publishNexus', {

@@ -634,7 +634,7 @@ module.exports = function() {
       it('should publish the volume', async () => {
         stub1.onCall(0).resolves({ devicePath: '/dev/nbd0' });
 
-        await volume.publish();
+        await volume.publish('nbd');
 
         sinon.assert.calledOnce(stub1);
         sinon.assert.calledWithMatch(stub1, 'publishNexus', {
