@@ -334,7 +334,13 @@ module.exports = function() {
             requisite: [{ segments: { 'kubernetes.io/hostname': 'node' } }],
           },
         });
-        sinon.assert.calledWith(createVolumeStub, UUID, 1, [], ['node'], 50, 0);
+        sinon.assert.calledWith(createVolumeStub, UUID, {
+          replicaCount: 1,
+          preferredNodes: [],
+          requiredNodes: ['node'],
+          requiredBytes: 50,
+          limitBytes: 0,
+        });
       });
 
       it('should create volume on preferred node', async () => {
@@ -363,15 +369,13 @@ module.exports = function() {
             ],
           },
         });
-        sinon.assert.calledWith(
-          createVolumeStub,
-          UUID,
-          1,
-          ['node'],
-          [],
-          50,
-          50
-        );
+        sinon.assert.calledWith(createVolumeStub, UUID, {
+          replicaCount: 1,
+          preferredNodes: ['node'],
+          requiredNodes: [],
+          requiredBytes: 50,
+          limitBytes: 50,
+        });
       });
 
       it('should create volume with specified number of replicas', async () => {
@@ -390,7 +394,13 @@ module.exports = function() {
           ],
           parameters: { repl: '3' },
         });
-        sinon.assert.calledWith(createVolumeStub, UUID, 3, [], [], 50, 70);
+        sinon.assert.calledWith(createVolumeStub, UUID, {
+          replicaCount: 3,
+          preferredNodes: [],
+          requiredNodes: [],
+          requiredBytes: 50,
+          limitBytes: 70,
+        });
       });
 
       it('should fail if number of replicas is not a number', async () => {

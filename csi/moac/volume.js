@@ -17,23 +17,23 @@ class Volume {
   //
   // @params {string}   uuid                 ID of the volume.
   // @params {object}   registry             Registry object.
-  // @params {object}   [opts]               Volume parameters.
-  // @params {number}   opts.replicaCount    Number of desired replicas.
-  // @params {string[]} opts.preferredNodes  Nodes to prefer for scheduling replicas.
-  // @params {string[]} opts.requiredNodes   Replicas must be on these nodes.
-  // @params {number}   opts.requiredBytes   The volume must have at least this size.
-  // @params {number}   opts.limitBytes      The volume should not be bigger than this.
+  // @params {object}   spec                 Volume parameters.
+  // @params {number}   spec.replicaCount    Number of desired replicas.
+  // @params {string[]} spec.preferredNodes  Nodes to prefer for scheduling replicas.
+  // @params {string[]} spec.requiredNodes   Replicas must be on these nodes.
+  // @params {number}   spec.requiredBytes   The volume must have at least this size.
+  // @params {number}   spec.limitBytes      The volume should not be bigger than this.
   //
-  constructor(uuid, registry, opts) {
-    assert(opts);
+  constructor(uuid, registry, spec) {
+    assert(spec);
     // specification of the volume
     this.uuid = uuid;
     this.registry = registry;
-    this.replicaCount = opts.replicaCount || 1;
-    this.preferredNodes = _.clone(opts.preferredNodes || []).sort();
-    this.requiredNodes = _.clone(opts.requiredNodes || []).sort();
-    this.requiredBytes = opts.requiredBytes;
-    this.limitBytes = opts.limitBytes;
+    this.replicaCount = spec.replicaCount || 1;
+    this.preferredNodes = _.clone(spec.preferredNodes || []).sort();
+    this.requiredNodes = _.clone(spec.requiredNodes || []).sort();
+    this.requiredBytes = spec.requiredBytes;
+    this.limitBytes = spec.limitBytes;
     this.size = 0;
     // state variables of the volume
     this.nexus = null;
@@ -56,31 +56,6 @@ class Volume {
   // (currently that is where the nexus is).
   getNodeName() {
     return this.nexus ? this.nexus.node.name : '';
-  }
-
-  // Nodes that are preferred when scheduling new replicas.
-  // Affects only replicas and nexus scheduled in future (not existing ones).
-  //
-  // @param {string[]} nodeNames   Names of nodes preferred for scheduling.
-  //
-  preferNodes(nodeNames) {
-    this.preferredNodes = _.clone(nodeNames).sort();
-  }
-
-  // Scale replicas up or down.
-  //
-  // @param {number} count   Desired replica redundancy.
-  //
-  scale(count) {
-    throw 'Missing implementation';
-  }
-
-  // Move the nexus and its replicas to a set of nodes.
-  //
-  // @param {string[]} nodeNames  Names of nodes where replicas and nexus *must* be scheduled on.
-  //
-  move(nodeNames) {
-    throw 'Missing implementation';
   }
 
   // Publish the volume. That means make it accessible through a block device.
@@ -165,7 +140,7 @@ class Volume {
     if (!nexus) {
       // create a new nexus
       let localReplica = Object.values(this.replicas).find(
-        r => r.share == 'NONE'
+        r => r.share == 'REPLICA_NONE'
       );
       if (!localReplica) {
         // should not happen but who knows ..
@@ -346,6 +321,8 @@ class Volume {
   // @returns {object[]} Replicas that should be used for nexus sorted by preference.
   //
   async _ensureReplicaShareProtocols() {
+    // If nexus does not exist it will be created on the same node as the most
+    // preferred replica.
     let replicaSet = this._prioritizeReplicas();
     if (replicaSet.length == 0) {
       throw new GrpcError(
@@ -353,25 +330,20 @@ class Volume {
         `There are no replicas for volume "${this}"`
       );
     }
-    // If nexus does not exist it will be created on the same node as the most
-    // preferred replica.
-    if (this.nexus) {
-      let idx = replicaSet.findIndex(r => r.pool.node == this.nexus.node);
-      // push the local node to the front of the list
-      replicaSet.unshift(replicaSet.splice(idx, 1)[0]);
-    }
     replicaSet.splice(this.replicaCount);
-    let localNode = replicaSet[0].pool.node;
+
+    let nexusNode = this.nexus ? this.nexus.node : replicaSet[0].pool.node;
 
     for (let i = 0; i < replicaSet.length; i++) {
       let replica = replicaSet[i];
       let share;
+      let local = replica.pool.node == nexusNode;
       // make sure that replica which is local to the nexus is accessed locally
-      if (replica.pool.node == localNode && replica.share != 'NONE') {
-        share = 'NONE';
-      } else if (replica.pool.node != localNode && replica.share == 'NONE') {
+      if (local && replica.share != 'REPLICA_NONE') {
+        share = 'REPLICA_NONE';
+      } else if (!local && replica.share == 'REPLICA_NONE') {
         // make sure that replica which is remote to nexus can be accessed
-        share = 'NVMF';
+        share = 'REPLICA_NVMF';
       }
       if (share) {
         try {
@@ -393,50 +365,50 @@ class Volume {
   // Throw exception if size of volume is changed in an incompatible way
   // (unsupported).
   //
-  // @params {object}   opts                 Volume parameters.
-  // @params {number}   opts.replicaCount    Number of desired replicas.
-  // @params {string[]} opts.preferredNodes  Nodes to prefer for scheduling replicas.
-  // @params {string[]} opts.requiredNodes   Replicas must be on these nodes.
-  // @params {number}   opts.requiredBytes   The volume must have at least this size.
-  // @params {number}   opts.limitBytes      The volume should not be bigger than this.
+  // @params {object}   spec                 Volume parameters.
+  // @params {number}   spec.replicaCount    Number of desired replicas.
+  // @params {string[]} spec.preferredNodes  Nodes to prefer for scheduling replicas.
+  // @params {string[]} spec.requiredNodes   Replicas must be on these nodes.
+  // @params {number}   spec.requiredBytes   The volume must have at least this size.
+  // @params {number}   spec.limitBytes      The volume should not be bigger than this.
   // @returns {boolean} True if the volume spec has changed, false otherwise.
   //
-  merge(opts) {
+  update(spec) {
     var changed = false;
 
-    if (this.size < opts.requiredBytes) {
+    if (this.size < spec.requiredBytes) {
       throw new GrpcError(
         GrpcCode.INVALID_ARGUMENT,
         `Extending the volume "${this}" is not supported`
       );
     }
-    if (opts.limitBytes && this.size > opts.limitBytes) {
+    if (spec.limitBytes && this.size > spec.limitBytes) {
       throw new GrpcError(
         GrpcCode.INVALID_ARGUMENT,
         `Shrinking the volume "${this}" is not supported`
       );
     }
 
-    if (this.replicaCount != opts.replicaCount) {
-      this.replicaCount = opts.replicaCount;
+    if (this.replicaCount != spec.replicaCount) {
+      this.replicaCount = spec.replicaCount;
       changed = true;
     }
-    let preferredNodes = _.clone(opts.preferredNodes || []).sort();
+    let preferredNodes = _.clone(spec.preferredNodes || []).sort();
     if (!_.isEqual(this.preferredNodes, preferredNodes)) {
       this.preferredNodes = preferredNodes;
       changed = true;
     }
-    let requiredNodes = _.clone(opts.requiredNodes || []).sort();
+    let requiredNodes = _.clone(spec.requiredNodes || []).sort();
     if (!_.isEqual(this.requiredNodes, requiredNodes)) {
       this.requiredNodes = requiredNodes;
       changed = true;
     }
-    if (this.requiredBytes != opts.requiredBytes) {
-      this.requiredBytes = opts.requiredBytes;
+    if (this.requiredBytes != spec.requiredBytes) {
+      this.requiredBytes = spec.requiredBytes;
       changed = true;
     }
-    if (this.limitBytes != opts.limitBytes) {
-      this.limitBytes = opts.limitBytes;
+    if (this.limitBytes != spec.limitBytes) {
+      this.limitBytes = spec.limitBytes;
       changed = true;
     }
     return changed;
@@ -457,6 +429,7 @@ class Volume {
     } else {
       // TODO: scale down if n > replica count
       // TODO: update the nexus if necessary
+      log.debug(`Replica "${replica}" attached to the volume`);
       this.replicas[nodeName] = replica;
     }
   }
@@ -483,6 +456,7 @@ class Volume {
     } else {
       // TODO: check replica count
       // TODO: update the nexus if necessary
+      log.debug(`Replica "${replica}" detached from the volume`);
       assert(this.replicas[nodeName] == replica);
       delete this.replicas[nodeName];
     }
@@ -498,6 +472,7 @@ class Volume {
       // TODO: check replica count
       // TODO: update the nexus if necessary
       // TODO: figure out the exact relation between nexus and vol state
+      log.debug(`Nexus "${nexus}" attached to the volume`);
       this.nexus = nexus;
       this.state = nexus.state;
       this.reason = '';
@@ -523,6 +498,7 @@ class Volume {
     if (!this.nexus) {
       log.warn(`Deleted nexus "${nexus}" does not belong to the volume`);
     } else {
+      log.debug(`Nexus "${nexus}" detached from the volume`);
       assert(this.nexus == nexus);
       this.nexus = null;
       this.state = 'PENDING';

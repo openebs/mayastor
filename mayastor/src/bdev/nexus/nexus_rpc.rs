@@ -14,6 +14,7 @@ use rpc::mayastor::{
     RebuildProgressRequest,
     RebuildStateRequest,
     RemoveChildNexusRequest,
+    ShareProtocolNexus,
     StartRebuildRequest,
     StopRebuildRequest,
     UnpublishNexusRequest,
@@ -135,9 +136,21 @@ pub(crate) fn register_rpc_methods() {
             let key: Option<String> =
                 if args.key == "" { None } else { Some(args.key) };
 
+            let share_protocol = match ShareProtocolNexus::from_i32(args.share)
+            {
+                Some(protocol) => protocol,
+                None => {
+                    return Err(Error::InvalidShareProtocol {
+                        sp_value: args.share as i32,
+                    })
+                }
+            };
+
             let nexus = nexus_lookup(&args.uuid)?;
-            nexus.share(key).await.map(|device_path| PublishNexusReply {
-                device_path,
+            nexus.share(share_protocol, key).await.map(|device_path| {
+                PublishNexusReply {
+                    device_path,
+                }
             })
         };
         fut.boxed_local()

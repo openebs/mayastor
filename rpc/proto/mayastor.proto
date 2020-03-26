@@ -48,10 +48,19 @@ message ListPoolsReply {
 }
 
 // Protocol for remote storage access which exposes a replica.
-enum ShareProtocol {
-  NONE = 0;   // not exposed
-  NVMF = 1;   // NVMe over Fabrics (TCP)
-  ISCSI = 2;  // iSCSI
+enum ShareProtocolReplica {
+  REPLICA_NONE = 0;   // not exposed
+  REPLICA_NVMF = 1;   // NVMe over Fabrics (TCP)
+  REPLICA_ISCSI = 2;  // iSCSI
+}
+
+// Note that enum values use C++ scoping rules, meaning that enum values are siblings of their type,
+// not children of it.
+// So cannot use NBD, NVMF, and ISCSI as symbols for ShareProtocolNexus
+enum ShareProtocolNexus {
+  NEXUS_NBD = 0;    // local
+  NEXUS_NVMF = 1;   // NVMe over Fabrics (TCP)
+  NEXUS_ISCSI = 2;  // iSCSI
 }
 
 // Create replica arguments.
@@ -60,7 +69,7 @@ message CreateReplicaRequest {
   string pool = 2;  // name of the pool
   uint64 size = 3;  // size of the replica in bytes
   bool thin = 4;    // thin provisioning
-  ShareProtocol share = 5;  // protocol to expose the replica over
+  ShareProtocolReplica share = 5;  // protocol to expose the replica over
 }
 
 // Create replica response.
@@ -79,7 +88,7 @@ message Replica {
   string pool = 2;  // name of the pool
   bool thin = 3;    // thin provisioning
   uint64 size = 4;  // size of the replica in bytes
-  ShareProtocol share = 5;  // protocol used for exposing the replica
+  ShareProtocolReplica share = 5;  // protocol used for exposing the replica
   string uri = 6;   // uri usable by nexus to access it
 }
 
@@ -113,7 +122,7 @@ message StatReplicasReply {
 // Share replica request.
 message ShareReplicaRequest {
   string uuid = 1;  // uuid of the replica
-  ShareProtocol share = 2;  // protocol used for exposing the replica
+  ShareProtocolReplica share = 2;  // protocol used for exposing the replica
                             // Use "NONE" to disable remote access.
 }
 
@@ -172,6 +181,7 @@ message RemoveChildNexusRequest {
 message PublishNexusRequest {
   string uuid = 1; // uuid of the nexus which to create device for
   string key = 2; // encryption key
+  ShareProtocolNexus share = 3;  // protocol used for the front end.
 }
 
 message PublishNexusReply {

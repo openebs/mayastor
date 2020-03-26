@@ -136,6 +136,7 @@ class Nexus {
       res = await this.node.call('publishNexus', {
         uuid: this.uuid,
         key: '',
+        share: 0, // hard-coded to use Nbd for now.
       });
     } catch (err) {
       throw new GrpcError(

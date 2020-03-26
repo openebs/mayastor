@@ -5,6 +5,7 @@
 //! application needs synchronous mirroring may be required.
 
 use std::{
+    fmt,
     fmt::{Display, Formatter},
     os::raw::c_void,
 };
@@ -39,8 +40,9 @@ use crate::{
             nexus_channel::{DREvent, NexusChannel, NexusChannelInner},
             nexus_child::{ChildError, ChildState, NexusChild},
             nexus_io::{io_status, Bio},
+            nexus_iscsi::{NexusIscsiError, NexusIscsiTarget},
             nexus_label::LabelError,
-            nexus_nbd::{Disk, NbdError},
+            nexus_nbd::{NbdDisk, NbdError},
         },
     },
     core::{Bdev, DmaBuf, DmaError},
@@ -65,12 +67,20 @@ pub enum Error {
     CreateCryptoBdev { source: Errno, name: String },
     #[snafu(display("Failed to destroy crypto bdev for nexus {}", name))]
     DestroyCryptoBdev { source: Errno, name: String },
-    #[snafu(display("The nexus {} has been already shared", name))]
+    #[snafu(display(
+        "The nexus {} has been already shared with a different protocol",
+        name
+    ))]
     AlreadyShared { name: String },
     #[snafu(display("The nexus {} has not been shared", name))]
     NotShared { name: String },
-    #[snafu(display("Failed to share nexus {}", name))]
-    ShareNexus { source: NbdError, name: String },
+    #[snafu(display("Failed to share nexus over NBD {}", name))]
+    ShareNbdNexus { source: NbdError, name: String },
+    #[snafu(display("Failed to share iscsi nexus {}", name))]
+    ShareIscsiNexus {
+        source: NexusIscsiError,
+        name: String,
+    },
     #[snafu(display("Failed to allocate label of nexus {}", name))]
     AllocLabel { source: DmaError, name: String },
     #[snafu(display("Failed to write label of nexus {}", name))]
@@ -151,6 +161,8 @@ pub enum Error {
         name,
     ))]
     RebuildTaskNotFound { child: String, name: String },
+    #[snafu(display("Invalid ShareProtocol value {}", sp_value))]
+    InvalidShareProtocol { sp_value: i32 },
 }
 
 impl RpcErrorCode for Error {
@@ -189,12 +201,29 @@ impl RpcErrorCode for Error {
             Error::ChildNotFound {
                 ..
             } => Code::NotFound,
+            Error::InvalidShareProtocol {
+                ..
+            } => Code::InvalidParams,
             _ => Code::InternalError,
         }
     }
 }
 
 pub(crate) static NEXUS_PRODUCT_ID: &str = "Nexus CAS Driver v0.0.1";
+
+pub enum NexusTarget {
+    NbdDisk(NbdDisk),
+    NexusIscsiTarget(NexusIscsiTarget),
+}
+
+impl fmt::Debug for NexusTarget {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            NexusTarget::NbdDisk(disk) => fmt::Debug::fmt(&disk, f),
+            NexusTarget::NexusIscsiTarget(tgt) => fmt::Debug::fmt(&tgt, f),
+        }
+    }
+}
 
 /// The main nexus structure
 #[derive(Debug)]
@@ -217,13 +246,13 @@ pub struct Nexus {
     pub dr_complete_notify: Option<oneshot::Sender<i32>>,
     /// the offset in num blocks where the data partition starts
     pub data_ent_offset: u64,
-    /// nbd device which the nexus is exposed through
-    pub(crate) nbd_disk: Option<Disk>,
     /// the handle to be used when sharing the nexus, this allows for the bdev
     /// to be shared with vbdevs on top
     pub(crate) share_handle: Option<String>,
     /// vector of rebuild tasks
     pub rebuilds: Vec<RebuildTask>,
+    /// enum containing the protocol-specific target used to publish the nexus
+    pub nexus_target: Option<NexusTarget>,
 }
 
 unsafe impl core::marker::Sync for Nexus {}
@@ -297,10 +326,10 @@ impl Nexus {
             bdev_raw: Box::into_raw(b),
             dr_complete_notify: None,
             data_ent_offset: 0,
-            nbd_disk: None,
             share_handle: None,
             size,
             rebuilds: Vec::new(),
+            nexus_target: None,
         });
 
         n.bdev.set_uuid(match uuid {
