@@ -188,7 +188,7 @@ module.exports = function() {
             name: 'pool',
             node: node,
             disks: ['/dev/sdb'],
-            state: 'DEGRADED',
+            state: 'POOL_DEGRADED',
             capacity: 100,
             used: 10,
           })
@@ -216,7 +216,7 @@ module.exports = function() {
               resourceVersion: '627981',
             },
             status: {
-              state: 'PENDING',
+              state: 'pending',
               reason: 'Creating the pool',
             },
           },
@@ -232,7 +232,7 @@ module.exports = function() {
             name: 'pool',
             node: node,
             disks: ['/dev/sdb'],
-            state: 'DEGRADED',
+            state: 'POOL_DEGRADED',
             capacity: 100,
             used: 10,
           })
@@ -255,7 +255,7 @@ module.exports = function() {
         let pool = new Pool({
           name: 'pool',
           disks: ['/dev/sdb'],
-          state: 'DEGRADED',
+          state: 'POOL_DEGRADED',
           capacity: 100,
           used: 10,
         });
@@ -281,7 +281,7 @@ module.exports = function() {
         sinon.assert.calledWithMatch(putStub, {
           body: {
             status: {
-              state: 'DEGRADED',
+              state: 'degraded',
               reason: '',
               capacity: 100,
               used: 10,
@@ -296,8 +296,7 @@ module.exports = function() {
         let pool = new Pool({
           name: 'pool',
           disks: ['/dev/sdb'],
-          state: 'ONLINE',
-          reason: '',
+          state: 'POOL_ONLINE',
           capacity: 100,
           used: 10,
         });
@@ -326,7 +325,7 @@ module.exports = function() {
         sinon.assert.calledWithMatch(putStub, {
           body: {
             status: {
-              state: 'ONLINE',
+              state: 'online',
               reason: '',
             },
           },
@@ -356,7 +355,7 @@ module.exports = function() {
         sinon.assert.calledWithMatch(putStub.firstCall, {
           body: {
             status: {
-              state: 'PENDING',
+              state: 'pending',
               reason: 'Creating the pool',
             },
           },
@@ -364,7 +363,7 @@ module.exports = function() {
         sinon.assert.calledWithMatch(putStub.secondCall, {
           body: {
             status: {
-              state: 'PENDING',
+              state: 'pending',
               reason: 'Error: create failed',
             },
           },
@@ -395,7 +394,7 @@ module.exports = function() {
         sinon.assert.calledWithMatch(putStub.firstCall, {
           body: {
             status: {
-              state: 'PENDING',
+              state: 'pending',
               reason: 'Creating the pool',
             },
           },
@@ -403,7 +402,7 @@ module.exports = function() {
         sinon.assert.calledWithMatch(putStub.secondCall, {
           body: {
             status: {
-              state: 'PENDING',
+              state: 'pending',
               reason: 'Error: create failed',
             },
           },
@@ -428,7 +427,7 @@ module.exports = function() {
         sinon.assert.calledWithMatch(putStub, {
           body: {
             status: {
-              state: 'PENDING',
+              state: 'pending',
               reason: 'mayastor does not run on node "node"',
             },
           },
@@ -443,7 +442,7 @@ module.exports = function() {
             name: 'pool',
             node: node,
             disks: ['/dev/../sdb'],
-            state: 'ONLINE',
+            state: 'POOL_ONLINE',
             capacity: 100,
             used: 4,
           })
@@ -463,7 +462,7 @@ module.exports = function() {
         sinon.assert.calledWithMatch(putStub, {
           body: {
             status: {
-              state: 'PENDING',
+              state: 'pending',
               reason: 'Disk must be absolute path beginning with /dev',
             },
           },
@@ -477,7 +476,7 @@ module.exports = function() {
         let pool = new Pool({
           name: 'pool',
           disks: ['/dev/sdb'],
-          state: 'DEGRADED',
+          state: 'POOL_DEGRADED',
           capacity: 100,
           used: 10,
         });
@@ -490,7 +489,7 @@ module.exports = function() {
               'pool',
               'node',
               ['/dev/sdb'],
-              'DEGRADED',
+              'degraded',
               '',
               100,
               10
@@ -513,7 +512,7 @@ module.exports = function() {
         let pool = new Pool({
           name: 'pool',
           disks: ['/dev/sdb'],
-          state: 'DEGRADED',
+          state: 'POOL_DEGRADED',
           capacity: 100,
           used: 10,
         });
@@ -536,7 +535,7 @@ module.exports = function() {
         let pool = new Pool({
           name: 'pool',
           disks: ['/dev/sdb'],
-          state: 'DEGRADED',
+          state: 'POOL_DEGRADED',
           capacity: 100,
           used: 10,
         });
@@ -545,7 +544,7 @@ module.exports = function() {
         let node1 = new Node('node1', {}, []);
         let node2 = new Node('node2', {}, [pool]);
         oper = await MockedPoolOperator(
-          [createPoolResource('pool', 'node1', ['/dev/sdb'], 'ONLINE', '')],
+          [createPoolResource('pool', 'node1', ['/dev/sdb'], 'online', '')],
           [node1, node2]
         );
         // trigger "del" event
@@ -562,7 +561,7 @@ module.exports = function() {
         let pool = new Pool({
           name: 'pool',
           disks: ['/dev/sdb'],
-          state: 'DEGRADED',
+          state: 'POOL_DEGRADED',
           capacity: 100,
           used: 10,
           destroy: async function() {},
@@ -593,7 +592,7 @@ module.exports = function() {
         let pool = new Pool({
           name: 'pool',
           disks: ['/dev/sdb', '/dev/sdc'],
-          state: 'DEGRADED',
+          state: 'POOL_DEGRADED',
           capacity: 100,
           used: 10,
         });
@@ -631,7 +630,7 @@ module.exports = function() {
         let pool = new Pool({
           name: 'pool',
           disks: ['/dev/sdb'],
-          state: 'DEGRADED',
+          state: 'POOL_DEGRADED',
           capacity: 100,
           used: 10,
         });
@@ -660,7 +659,7 @@ module.exports = function() {
         let pool = new Pool({
           name: 'pool',
           disks: ['/dev/sdb'],
-          state: 'DEGRADED',
+          state: 'POOL_DEGRADED',
           capacity: 100,
           used: 10,
         });
@@ -707,7 +706,7 @@ module.exports = function() {
           name: 'pool',
           node: node,
           disks: ['/dev/sdb'],
-          state: 'ONLINE',
+          state: 'POOL_ONLINE',
           capacity: 100,
           used: 4,
         })
@@ -723,7 +722,7 @@ module.exports = function() {
       sinon.assert.calledWithMatch(putStub, {
         body: {
           status: {
-            state: 'PENDING',
+            state: 'pending',
             reason: 'Creating the pool',
           },
         },
@@ -736,8 +735,7 @@ module.exports = function() {
       let pool = new Pool({
         name: 'pool',
         disks: ['/dev/sdb'],
-        state: 'ONLINE',
-        reason: '',
+        state: 'POOL_ONLINE',
         capacity: 100,
         used: 4,
       });
@@ -750,7 +748,7 @@ module.exports = function() {
             'pool',
             'node',
             ['/dev/sdb'],
-            'ONLINE',
+            'online',
             '',
             100,
             4
@@ -768,7 +766,7 @@ module.exports = function() {
       let pool = new Pool({
         name: 'pool',
         disks: ['/dev/sdb'],
-        state: 'ONLINE',
+        state: 'POOL_ONLINE',
         capacity: 100,
         used: 4,
       });
@@ -784,7 +782,7 @@ module.exports = function() {
             'pool',
             'node1',
             ['/dev/sdb'],
-            'ONLINE',
+            'online',
             '',
             100,
             4
@@ -803,7 +801,7 @@ module.exports = function() {
       let pool = new Pool({
         name: 'pool',
         disks: ['/dev/sdb'],
-        state: 'ONLINE',
+        state: 'POOL_ONLINE',
         capacity: 100,
         used: 4,
         destroy: async function() {},
@@ -819,10 +817,11 @@ module.exports = function() {
     });
 
     it('should update resource properties upon pool mod event', async () => {
+      const offlineReason = 'mayastor does not run on the node "node"';
       let pool = new Pool({
         name: 'pool',
         disks: ['/dev/sdb'],
-        state: 'ONLINE',
+        state: 'POOL_ONLINE',
         capacity: 100,
         used: 4,
       });
@@ -833,7 +832,7 @@ module.exports = function() {
             'pool',
             'node',
             ['/dev/sdb'],
-            'ONLINE',
+            'online',
             '',
             100,
             4
@@ -842,8 +841,7 @@ module.exports = function() {
         [node]
       );
 
-      pool.state = 'OFFLINE';
-      pool.reason = 'Node is down';
+      pool.state = 'POOL_OFFLINE';
       // simulate pool mod event
       oper.registry.emit('pool', {
         eventType: 'mod',
@@ -859,13 +857,13 @@ module.exports = function() {
       sinon.assert.calledWithMatch(putStub, {
         body: {
           status: {
-            state: 'OFFLINE',
-            reason: 'Node is down',
+            state: 'offline',
+            reason: offlineReason,
           },
         },
       });
-      expect(oper.watcher.objects.pool.status.state).to.equal('OFFLINE');
-      expect(oper.watcher.objects.pool.status.reason).to.equal('Node is down');
+      expect(oper.watcher.objects.pool.status.state).to.equal('offline');
+      expect(oper.watcher.objects.pool.status.reason).to.equal(offlineReason);
     });
 
     it('should ignore pool mod event if pool resource does not exist', async () => {
@@ -877,8 +875,7 @@ module.exports = function() {
         object: new Pool({
           name: 'pool',
           disks: ['/dev/sdb'],
-          state: 'OFFLINE',
-          reason: 'Node is down',
+          state: 'POOL_OFFLINE',
           capacity: 100,
           used: 4,
         }),
@@ -898,7 +895,7 @@ module.exports = function() {
       let pool = new Pool({
         name: 'pool',
         disks: ['/dev/sdb'],
-        state: 'ONLINE',
+        state: 'POOL_ONLINE',
         capacity: 100,
         used: 4,
       });
@@ -911,7 +908,7 @@ module.exports = function() {
             'pool',
             'node',
             ['/dev/sdb'],
-            'ONLINE',
+            'online',
             '',
             100,
             4
@@ -938,7 +935,7 @@ module.exports = function() {
       sinon.assert.calledWithMatch(putStub, {
         body: {
           status: {
-            state: 'PENDING',
+            state: 'pending',
             reason: 'Creating the pool',
           },
         },
@@ -956,7 +953,7 @@ module.exports = function() {
         object: new Pool({
           name: 'pool',
           disks: ['/dev/sdb'],
-          state: 'ONLINE',
+          state: 'POOL_ONLINE',
           capacity: 100,
           used: 4,
         }),

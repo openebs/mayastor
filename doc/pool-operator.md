@@ -19,11 +19,11 @@ MayastorPool custom resource is structured as follows:
   * disks: Disk names (absolute paths to device files in /dev) which comprise the storage pool.
 * status:
   * state: State of the pool can be one of:
-    * PENDING: Pool has not been created yet - either due to an error or because the k8s node does not have mayastor enabled.
-    * ONLINE: Pool has been created and is healthy & usable.
-    * DEGRADED: Pool has been created and is usable but has some issue.
-    * FAULTED: Pool has unrecoverable error and is not usable.
-    * OFFLINE: Pool was created but currently it is not available because mayastor does not run on the k8s node.
+    * pending: Pool has not been created yet - either due to an error or because the k8s node does not have mayastor enabled.
+    * online: Pool has been created and is healthy & usable.
+    * degraded: Pool has been created and is usable but has some issue.
+    * faulted: Pool has unrecoverable error and is not usable.
+    * offline: Pool was created but currently it is not available because mayastor does not run on the k8s node.
   * reason: If applicable it provides additional information explaining the state.
 
 MayastorPool CR entries are shared between storage admin and pool operator

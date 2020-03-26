@@ -23,9 +23,9 @@ message CreatePoolRequest {
 
 // State of the storage pool (terminology comes from ZFS).
 enum PoolState {
-  ONLINE = 0;   // the pool is in normal working order
-  DEGRADED = 1; // the pool has experienced a failure but can still function
-  FAULTY = 2;   // the pool is completely inaccessible
+  POOL_ONLINE = 0;   // the pool is in normal working order
+  POOL_DEGRADED = 1; // the pool has experienced a failure but can still function
+  POOL_FAULTED = 2;  // the pool is completely inaccessible
 }
 
 // Storage pool properties

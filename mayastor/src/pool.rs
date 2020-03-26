@@ -362,7 +362,7 @@ fn list_pools() -> Vec<jsondata::Pool> {
         pools.push(jsondata::Pool {
             name: pool.get_name().to_owned(),
             disks: vec![pool.get_base_bdev().name()],
-            // TODO: figure out how to detect state of pool
+            // TODO: figure out how to detect state of a pool in spdk
             state: "online".to_owned(),
             capacity: pool.get_capacity(),
             used: pool.get_capacity() - pool.get_free(),

@@ -204,9 +204,9 @@ class Registry extends EventEmitter {
       }
 
       // Rule #2: Avoid degraded pools whenever possible
-      if (a.state == 'ONLINE' && b.state != 'ONLINE') {
+      if (a.state == 'POOL_ONLINE' && b.state != 'POOL_ONLINE') {
         return -1;
-      } else if (a.state != 'ONLINE' && b.state == 'ONLINE') {
+      } else if (a.state != 'POOL_ONLINE' && b.state == 'POOL_ONLINE') {
         return 1;
       }
 

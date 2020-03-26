@@ -110,9 +110,9 @@ async fn list_pools(
                 "{: <20} {: <8} {: >12} {: >12}  ",
                 p.name,
                 match rpc::mayastor::PoolState::from_i32(p.state).unwrap() {
-                    rpc::mayastor::PoolState::Online => "online",
-                    rpc::mayastor::PoolState::Degraded => "degraded",
-                    rpc::mayastor::PoolState::Faulty => "faulty",
+                    rpc::mayastor::PoolState::PoolOnline => "online",
+                    rpc::mayastor::PoolState::PoolDegraded => "degraded",
+                    rpc::mayastor::PoolState::PoolFaulted => "faulted",
                 },
                 ByteSize::b(p.capacity).to_string_as(true),
                 ByteSize::b(p.used).to_string_as(true),

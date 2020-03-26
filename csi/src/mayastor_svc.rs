@@ -101,10 +101,10 @@ impl service::mayastor_server::Mayastor for MayastorService {
                     capacity: p.capacity,
                     used: p.used,
                     state: match p.state.as_str() {
-                        "online" => PoolState::Online,
-                        "degraded" => PoolState::Degraded,
-                        "faulty" => PoolState::Faulty,
-                        _ => PoolState::Faulty,
+                        "online" => PoolState::PoolOnline,
+                        "degraded" => PoolState::PoolDegraded,
+                        "faulty" => PoolState::PoolFaulted,
+                        _ => PoolState::PoolFaulted,
                     } as i32,
                 })
                 .collect(),

@@ -207,7 +207,7 @@ class PoolOperator {
     ) {
       let msg = 'Disk must be absolute path beginning with /dev';
       log.error(`Cannot create pool "${name}": ${msg}`);
-      await this._updateResourceProps(name, 'PENDING', msg);
+      await this._updateResourceProps(name, 'pending', msg);
       return;
     }
 
@@ -215,7 +215,7 @@ class PoolOperator {
     if (!node) {
       let msg = `mayastor does not run on node "${nodeName}"`;
       log.error(`Cannot create pool "${name}": ${msg}`);
-      await this._updateResourceProps(name, 'PENDING', msg);
+      await this._updateResourceProps(name, 'pending', msg);
       return;
     }
     if (!node.isSynced()) {
@@ -227,14 +227,14 @@ class PoolOperator {
 
     // We will update the pool status once the pool is created, but
     // that can take a time, so set reasonable default now.
-    await this._updateResourceProps(name, 'PENDING', 'Creating the pool');
+    await this._updateResourceProps(name, 'pending', 'Creating the pool');
 
     try {
       // pool resource props will be updated when "new" pool event is emitted
       pool = await node.createPool(name, resource.disks);
     } catch (err) {
       log.error(`Failed to create pool "${name}": ${err}`);
-      await this._updateResourceProps(name, 'PENDING', err.toString());
+      await this._updateResourceProps(name, 'pending', err.toString());
       return;
     }
   }
@@ -303,11 +303,16 @@ class PoolOperator {
       log.warn(`State of unknown pool "${name}" has changed`);
       return;
     }
+    var state = pool.state.replace(/^POOL_/, '').toLowerCase();
+    var reason = '';
+    if (state == 'offline') {
+      reason = `mayastor does not run on the node "${pool.node}"`;
+    }
 
     await this._updateResourceProps(
       name,
-      pool.state,
-      pool.reason,
+      state,
+      reason,
       pool.capacity,
       pool.used
     );
