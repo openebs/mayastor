@@ -8,17 +8,31 @@ const grpc_promise = require('grpc-promise');
 const protoLoader = require('@grpc/proto-loader');
 const log = require('./logger').Logger('grpc');
 
-const PROTO_PATH = __dirname + '/proto/mayastor_service.proto';
+const MAYASTOR_SVC_PROTO_PATH = __dirname + '/proto/mayastor_service.proto';
+const MAYASTOR_PROTO_PATH = __dirname + '/proto/mayastor_service.proto';
 
-// Load mayastor proto file with mayastor service
-const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
+// Load mayastor service proto file with mayastor service
+const packageDefinitionSvc = protoLoader.loadSync(MAYASTOR_SVC_PROTO_PATH, {
   keepCase: false,
   longs: Number,
   enums: String,
   defaults: true,
   oneofs: true,
 });
-const mayastor = grpc.loadPackageDefinition(packageDefinition).mayastor_service;
+const mayastorSvc = grpc.loadPackageDefinition(packageDefinitionSvc)
+  .mayastor_service;
+
+// Load mayastor proto file with mayastor
+const packageDefinition = protoLoader.loadSync(MAYASTOR_PROTO_PATH, {
+  // this is to load google/descriptor.proto
+  includeDirs: ['./node_modules/protobufjs'],
+  keepCase: true,
+  longs: Number,
+  enums: String,
+  defaults: true,
+  oneofs: true,
+});
+const mayastor = grpc.loadPackageDefinition(packageDefinition).mayastor;
 
 // Grpc error object.
 //
@@ -59,7 +73,7 @@ class GrpcClient {
   //
   // @param {string} endpoint   Host and port that mayastor server listens on.
   constructor(endpoint) {
-    let handle = new mayastor.Mayastor(
+    let handle = new mayastorSvc.Mayastor(
       endpoint,
       grpc.credentials.createInsecure()
     );
@@ -92,5 +106,6 @@ module.exports = {
   // for easy access to grpc codes
   GrpcCode: grpc.status,
   GrpcError,
+  mayastorSvc,
   mayastor,
 };

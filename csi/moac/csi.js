@@ -365,6 +365,12 @@ class CsiServer {
             segments: { 'kubernetes.io/hostname': volume.getNodeName() },
           },
         ],
+        // parameters defined in the storage class are only presented
+        // to the CSI driver createVolume method.
+        // Propagate them to other CSI driver methods involved in
+        // standing up a volume, using the volume context.
+        // Deep copy.
+        volumeContext: JSON.parse(JSON.stringify(args.parameters)),
       },
     });
   }
@@ -481,7 +487,7 @@ class CsiServer {
     }
 
     try {
-      await volume.publish();
+      await volume.publish(args.volumeContext.protocol);
     } catch (err) {
       if (err.code === grpc.status.ALREADY_EXISTS) {
         log.debug(`Volume "${args.volumeId}" already published on this node`);
@@ -492,7 +498,9 @@ class CsiServer {
       return;
     }
 
-    log.info(`Published volume "${args.volumeId}"`);
+    log.info(
+      `Published volume "${args.volumeId}, share proctocol: "${args.volumeContext.protocol}"`
+    );
     cb(null, {});
   }
 

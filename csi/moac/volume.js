@@ -59,9 +59,10 @@ class Volume {
   }
 
   // Publish the volume. That means make it accessible through a block device.
-  async publish() {
+  // @params {string}   protocol      The nexus share protocol.
+  async publish(protocol) {
     if (this.nexus) {
-      await this.nexus.publish();
+      await this.nexus.publish(protocol);
     } else {
       throw new GrpcError(
         GrpcCode.INTERNAL,

@@ -65,7 +65,7 @@ module.exports = function() {
     volume.newNexus(nexus);
 
     stub.resolves({ devicePath: '/dev/nbd0' });
-    await volume.publish();
+    await volume.publish('nbd');
     expect(nexus.devicePath).to.equal('/dev/nbd0');
 
     stub.resolves({});
