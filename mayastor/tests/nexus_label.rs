@@ -9,12 +9,8 @@ use bincode::serialize_into;
 use mayastor::{
     bdev::{nexus_create, nexus_lookup, GPTHeader, GptEntry},
     core::{
-        mayastor_env_stop,
-        BdevHandle,
-        DmaBuf,
-        MayastorCliArgs,
-        MayastorEnvironment,
-        Reactor,
+        mayastor_env_stop, BdevHandle, DmaBuf, MayastorCliArgs,
+        MayastorEnvironment, Reactor,
     },
 };
 
@@ -102,7 +98,7 @@ fn test_known_label() {
     let mut buf = DmaBuf::new(32 * 512, 9).unwrap();
 
     let mut writer = Cursor::new(buf.as_mut_slice());
-    for i in 0 .. hdr.num_entries {
+    for i in 0..hdr.num_entries {
         serialize_into(&mut writer, &partitions[i as usize]).unwrap();
     }
 

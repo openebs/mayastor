@@ -63,10 +63,7 @@ impl DmaBuf {
         if buf.is_null() {
             Err(DmaError::Alloc {})
         } else {
-            Ok(DmaBuf {
-                buf,
-                length: size,
-            })
+            Ok(DmaBuf { buf, length: size })
         }
     }
 

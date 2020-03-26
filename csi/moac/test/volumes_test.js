@@ -102,7 +102,7 @@ module.exports = function() {
               pool: 'pool1',
               size: 90,
               thin: false,
-              share: 'NONE',
+              share: 'REPLICA_NONE',
               state: 'ONLINE',
               uri: 'bdev:///' + UUID,
             },
@@ -133,7 +133,7 @@ module.exports = function() {
           pool: 'pool1',
           size: 90,
           thin: false,
-          share: 'NONE',
+          share: 'REPLICA_NONE',
         });
       });
 
@@ -151,7 +151,7 @@ module.exports = function() {
               pool: 'pool1',
               size: 50,
               thin: false,
-              share: 'NONE',
+              share: 'REPLICA_NONE',
               state: 'ONLINE',
               uri: 'bdev:///' + UUID,
             },
@@ -182,7 +182,7 @@ module.exports = function() {
           pool: 'pool1',
           size: 50,
           thin: false,
-          share: 'NONE',
+          share: 'REPLICA_NONE',
         });
       });
 
@@ -228,7 +228,7 @@ module.exports = function() {
               pool: 'pool1',
               size: 96,
               thin: false,
-              share: 'NONE',
+              share: 'REPLICA_NONE',
               state: 'ONLINE',
               uri: 'bdev:///' + UUID,
             },
@@ -268,7 +268,7 @@ module.exports = function() {
               pool: 'pool2',
               size: 96,
               thin: false,
-              share: 'NONE',
+              share: 'REPLICA_NONE',
               state: 'ONLINE',
               uri: 'bdev:///' + UUID,
             },
@@ -285,7 +285,7 @@ module.exports = function() {
               pool: 'pool3',
               size: 96,
               thin: false,
-              share: 'NONE',
+              share: 'REPLICA_NONE',
               state: 'ONLINE',
               uri: 'bdev:///' + UUID,
             },
@@ -302,7 +302,7 @@ module.exports = function() {
           pool: 'pool1',
           size: 96,
           thin: false,
-          share: 'NONE',
+          share: 'REPLICA_NONE',
         });
         sinon.assert.calledWithMatch(stub1.secondCall, 'listReplicas', {});
         sinon.assert.calledWithMatch(stub1.thirdCall, 'createNexus', {
@@ -318,12 +318,12 @@ module.exports = function() {
           pool: 'pool2',
           size: 96,
           thin: false,
-          share: 'NONE',
+          share: 'REPLICA_NONE',
         });
         sinon.assert.calledWithMatch(stub2.secondCall, 'listReplicas', {});
         sinon.assert.calledWithMatch(stub2.thirdCall, 'shareReplica', {
           uuid: UUID,
-          share: 'NVMF',
+          share: 'REPLICA_NVMF',
         });
 
         expect(stub3.callCount).to.equal(3);
@@ -332,12 +332,12 @@ module.exports = function() {
           pool: 'pool3',
           size: 96,
           thin: false,
-          share: 'NONE',
+          share: 'REPLICA_NONE',
         });
         sinon.assert.calledWithMatch(stub3.secondCall, 'listReplicas', {});
         sinon.assert.calledWithMatch(stub3.thirdCall, 'shareReplica', {
           uuid: UUID,
-          share: 'NVMF',
+          share: 'REPLICA_NVMF',
         });
 
         expect(volumes.get(UUID)).to.equal(volume);
@@ -392,7 +392,7 @@ module.exports = function() {
               pool: 'pool3',
               size: 96,
               thin: false,
-              share: 'NONE',
+              share: 'REPLICA_NONE',
               state: 'ONLINE',
               uri: 'bdev:///' + UUID,
             },
@@ -417,12 +417,12 @@ module.exports = function() {
           pool: 'pool3',
           size: 96,
           thin: false,
-          share: 'NONE',
+          share: 'REPLICA_NONE',
         });
         sinon.assert.calledWithMatch(stub3.secondCall, 'listReplicas', {});
         sinon.assert.calledWithMatch(stub3.thirdCall, 'shareReplica', {
           uuid: UUID,
-          share: 'NVMF',
+          share: 'REPLICA_NVMF',
         });
       });
 
@@ -430,9 +430,9 @@ module.exports = function() {
         // We switch one of the remote replicas to local and vice versa
         let local = node1.pools[0].replicas[0];
         let remote = node2.pools[0].replicas[0];
-        local.share = 'NVMF';
+        local.share = 'REPLICA_NVMF';
         local.uri = 'nvmf://remote-replica';
-        remote.share = 'NONE';
+        remote.share = 'REPLICA_NONE';
         remote.uri = 'bdev:///' + UUID;
 
         stub1.onCall(0).resolves({ uri: 'bdev:///' + UUID });
@@ -445,12 +445,12 @@ module.exports = function() {
         expect(stub1.callCount).to.equal(1);
         sinon.assert.calledWithMatch(stub1.firstCall, 'shareReplica', {
           uuid: UUID,
-          share: 'NONE',
+          share: 'REPLICA_NONE',
         });
         expect(stub2.callCount).to.equal(1);
         sinon.assert.calledWithMatch(stub2.firstCall, 'shareReplica', {
           uuid: UUID,
-          share: 'NVMF',
+          share: 'REPLICA_NVMF',
         });
       });
 

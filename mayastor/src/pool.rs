@@ -14,40 +14,37 @@ use futures::{
 };
 
 use rpc::jsonrpc as jsondata;
-use snafu::{Snafu};
+use snafu::Snafu;
 use spdk_sys::{
-    bdev_aio_delete,
-    create_aio_bdev,
-    lvol_store_bdev,
-    spdk_bs_free_cluster_count,
-    spdk_bs_get_cluster_size,
-    spdk_bs_total_data_cluster_count,
-    spdk_lvol_store,
-    vbdev_get_lvol_store_by_name,
-    vbdev_get_lvs_bdev_by_lvs,
-    vbdev_lvol_store_first,
-    vbdev_lvol_store_next,
-    vbdev_lvs_create,
-    vbdev_lvs_destruct,
-    vbdev_lvs_examine,
-    LVS_CLEAR_WITH_NONE,
+    bdev_aio_delete, create_aio_bdev, lvol_store_bdev,
+    spdk_bs_free_cluster_count, spdk_bs_get_cluster_size,
+    spdk_bs_total_data_cluster_count, spdk_lvol_store,
+    vbdev_get_lvol_store_by_name, vbdev_get_lvs_bdev_by_lvs,
+    vbdev_lvol_store_first, vbdev_lvol_store_next, vbdev_lvs_create,
+    vbdev_lvs_destruct, vbdev_lvs_examine, LVS_CLEAR_WITH_NONE,
 };
 
+use crate::jsonrpc::RpcErrorCode;
 use crate::{
     core::Bdev,
     ffihelper::{cb_arg, done_cb},
     jsonrpc,
     replica::ReplicaIter,
 };
-use crate::jsonrpc::RpcErrorCode;
 
 /// Errors for pool operations.
 #[derive(Debug, Snafu)]
 #[snafu(visibility = "pub(crate)")]
 pub enum Error {
-    #[snafu(display("Invalid number of disks specified: should be 1, got {}", num))]
+    #[snafu(display(
+        "Invalid number of disks specified: should be 1, got {}",
+        num
+    ))]
     BadNumDisks { num: usize },
-    #[snafu(display("AIO bdev {} already exists or parameters are invalid", name))]
+    #[snafu(display(
+        "AIO bdev {} already exists or parameters are invalid",
+        name
+    ))]
     BadBdev { name: String },
     #[snafu(display("Base bdev {} already exists", name))]
     AlreadyBdev { name: String },
@@ -71,9 +68,17 @@ pub enum Error {
     FailedUnshareReplica { msg: String },
     #[snafu(display("Failed to destroy pool {} (errno={})", name, errno))]
     FailedDestroyPool { name: String, errno: i32 },
-    #[snafu(display("Failed to destroy base bdev {} for the pool {} (errno={})",
-        bdev, name, errno))]
-    FailedDestroyBdev { bdev : String, name: String, errno: i32 },
+    #[snafu(display(
+        "Failed to destroy base bdev {} for the pool {} (errno={})",
+        bdev,
+        name,
+        errno
+    ))]
+    FailedDestroyBdev {
+        bdev: String,
+        name: String,
+        errno: i32,
+    },
 }
 
 impl jsonrpc::RpcErrorCode for Error {
@@ -99,27 +104,32 @@ impl jsonrpc::RpcErrorCode for Error {
 
 impl From<Error> for jsonrpc::JsonRpcError {
     fn from(e: Error) -> Self {
-        Self { code: e.rpc_error_code(), message: e.to_string() }
+        Self {
+            code: e.rpc_error_code(),
+            message: e.to_string(),
+        }
     }
 }
 
 impl From<Error> for tonic::Status {
-    fn from(e: Error) -> Self { match e {
-        Error::BadNumDisks { .. } => Self::invalid_argument(e.to_string()),
-        Error::BadBdev { .. } => Self::invalid_argument(e.to_string()),
-        Error::AlreadyBdev { .. } => Self::invalid_argument(e.to_string()),
-        Error::UnknownBdev { .. } => Self::not_found(e.to_string()),
-        Error::AlreadyExists { .. } => Self::already_exists(e.to_string()),
-        Error::UnknownPool { .. } => Self::not_found(e.to_string()),
-        Error::BadCreate { .. } => Self::invalid_argument(e.to_string()),
-        Error::FailedCreate { .. } => Self::invalid_argument(e.to_string()),
-        Error::PoolGone { .. } => Self::not_found(e.to_string()),
-        Error::DeviceAlreadyUsed { .. } => Self::unavailable(e.to_string()),
-        Error::FailedImport { .. } => Self::internal(e.to_string()),
-        Error::FailedUnshareReplica { .. } => Self::internal(e.to_string()),
-        Error::FailedDestroyPool { .. } => Self::internal(e.to_string()),
-        Error::FailedDestroyBdev { .. } => Self::internal(e.to_string()),
-    }}
+    fn from(e: Error) -> Self {
+        match e {
+            Error::BadNumDisks { .. } => Self::invalid_argument(e.to_string()),
+            Error::BadBdev { .. } => Self::invalid_argument(e.to_string()),
+            Error::AlreadyBdev { .. } => Self::invalid_argument(e.to_string()),
+            Error::UnknownBdev { .. } => Self::not_found(e.to_string()),
+            Error::AlreadyExists { .. } => Self::already_exists(e.to_string()),
+            Error::UnknownPool { .. } => Self::not_found(e.to_string()),
+            Error::BadCreate { .. } => Self::invalid_argument(e.to_string()),
+            Error::FailedCreate { .. } => Self::invalid_argument(e.to_string()),
+            Error::PoolGone { .. } => Self::not_found(e.to_string()),
+            Error::DeviceAlreadyUsed { .. } => Self::unavailable(e.to_string()),
+            Error::FailedImport { .. } => Self::internal(e.to_string()),
+            Error::FailedUnshareReplica { .. } => Self::internal(e.to_string()),
+            Error::FailedDestroyPool { .. } => Self::internal(e.to_string()),
+            Error::FailedDestroyBdev { .. } => Self::internal(e.to_string()),
+        }
+    }
 }
 
 type Result<T> = std::result::Result<T, Error>;
@@ -132,7 +142,9 @@ pub fn create_base_bdev(file: &str, block_size: u32) -> Result<()> {
         create_aio_bdev(cstr_file.as_ptr(), cstr_file.as_ptr(), block_size)
     };
     if rc != 0 {
-        Err(Error::BadBdev { name: String::from(file) })
+        Err(Error::BadBdev {
+            name: String::from(file),
+        })
     } else {
         info!("aio bdev {} was created", file);
         Ok(())
@@ -233,7 +245,9 @@ impl Pool {
         let base_bdev = match Bdev::lookup_by_name(disk) {
             Some(bdev) => bdev,
             None => {
-                return Err(Error::UnknownBdev { name: String::from(disk)})
+                return Err(Error::UnknownBdev {
+                    name: String::from(disk),
+                })
             }
         };
         let pool_name = CString::new(name).unwrap();
@@ -254,7 +268,9 @@ impl Pool {
         };
         // TODO: free sender
         if rc < 0 {
-            return Err(Error::BadCreate { name: String::from(name) });
+            return Err(Error::BadCreate {
+                name: String::from(name),
+            });
         }
 
         let lvs_errno = receiver.await.expect("Cancellation is not supported");
@@ -270,7 +286,9 @@ impl Pool {
                 info!("The pool {} has been created", name);
                 Ok(pool)
             }
-            None => Err(Error::PoolGone { name: String::from(name) }),
+            None => Err(Error::PoolGone {
+                name: String::from(name),
+            }),
         }
     }
 
@@ -279,7 +297,9 @@ impl Pool {
         let base_bdev = match Bdev::lookup_by_name(disk) {
             Some(bdev) => bdev,
             None => {
-                return Err(Error::UnknownBdev { name: String::from(disk)})
+                return Err(Error::UnknownBdev {
+                    name: String::from(disk),
+                })
             }
         };
 
@@ -302,10 +322,15 @@ impl Pool {
                     info!("The pool {} has been imported", name);
                     Ok(pool)
                 }
-                None => Err(Error::DeviceAlreadyUsed { name: String::from(disk) }),
+                None => Err(Error::DeviceAlreadyUsed {
+                    name: String::from(disk),
+                }),
             }
         } else {
-            Err(Error::FailedImport { name: String::from(name), errno: lvs_errno })
+            Err(Error::FailedImport {
+                name: String::from(name),
+                errno: lvs_errno,
+            })
         }
     }
 
@@ -321,7 +346,9 @@ impl Pool {
             if replica.get_pool_name() == name {
                 // XXX temporary
                 replica.unshare().await.map_err(|err| {
-                    Error::FailedUnshareReplica { msg: err.to_string() }
+                    Error::FailedUnshareReplica {
+                        msg: err.to_string(),
+                    }
                 })?;
             }
         }
@@ -333,7 +360,10 @@ impl Pool {
         }
         let lvs_errno = receiver.await.expect("Cancellation is not supported");
         if lvs_errno != 0 {
-            return Err(Error::FailedDestroyPool { name, errno: lvs_errno });
+            return Err(Error::FailedDestroyPool {
+                name,
+                errno: lvs_errno,
+            });
         }
 
         // we will destroy base bdev now
@@ -358,7 +388,7 @@ impl Pool {
             Err(Error::FailedDestroyBdev {
                 bdev: base_bdev_name,
                 name,
-                errno: bdev_errno
+                errno: bdev_errno,
             })
         } else {
             info!(
@@ -378,9 +408,7 @@ pub struct PoolsIter {
 
 impl PoolsIter {
     pub fn new() -> Self {
-        Self {
-            lvs_bdev_ptr: None,
-        }
+        Self { lvs_bdev_ptr: None }
     }
 }
 
@@ -405,22 +433,25 @@ impl Iterator for PoolsIter {
     }
 }
 
-pub(crate) async fn create_pool(args: rpc::mayastor::CreatePoolRequest)
-    -> Result<()> {
+pub(crate) async fn create_pool(
+    args: rpc::mayastor::CreatePoolRequest,
+) -> Result<()> {
     // TODO: support RAID-0 devices
     if args.disks.len() != 1 {
-        return Err(Error::BadNumDisks {num: args.disks.len()});
+        return Err(Error::BadNumDisks {
+            num: args.disks.len(),
+        });
     }
 
     if Pool::lookup(&args.name).is_some() {
-        return Err(Error::AlreadyExists {name: args.name});
+        return Err(Error::AlreadyExists { name: args.name });
     }
 
     // TODO: We would like to check if the disk is in use, but there
     // is no easy way how to get this info using available api.
     let disk = &args.disks[0];
     if Bdev::lookup_by_name(disk).is_some() {
-        return Err(Error::AlreadyBdev {name: disk.clone()});
+        return Err(Error::AlreadyBdev { name: disk.clone() });
     }
     // The block size may be missing or explicitly set to zero. In
     // both cases we want to provide our own default value instead
@@ -441,12 +472,13 @@ pub(crate) async fn create_pool(args: rpc::mayastor::CreatePoolRequest)
     Ok(())
 }
 
-pub(crate) async fn destroy_pool(args: rpc::mayastor::DestroyPoolRequest)
-    -> Result<()> {
+pub(crate) async fn destroy_pool(
+    args: rpc::mayastor::DestroyPoolRequest,
+) -> Result<()> {
     let pool = match Pool::lookup(&args.name) {
         Some(p) => p,
         None => {
-            return Err(Error::UnknownPool {name: args.name});
+            return Err(Error::UnknownPool { name: args.name });
         }
     };
     pool.destroy().await?;
@@ -483,8 +515,13 @@ pub fn register_pool_methods() {
 
     jsonrpc::jsonrpc_register(
         "destroy_pool",
-      |args: rpc::mayastor::DestroyPoolRequest| { destroy_pool(args).boxed_local() });
+        |args: rpc::mayastor::DestroyPoolRequest| {
+            destroy_pool(args).boxed_local()
+        },
+    );
 
     jsonrpc::jsonrpc_register::<(), _, _, jsonrpc::JsonRpcError>(
-        "list_pools", |_| { future::ok(list_pools()).boxed_local() });
+        "list_pools",
+        |_| future::ok(list_pools()).boxed_local(),
+    );
 }

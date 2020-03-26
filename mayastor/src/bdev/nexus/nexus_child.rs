@@ -318,7 +318,7 @@ impl NexusChild {
         // some tools write 128 partition entries, even though only two are
         // created, in any case we are only ever interested in the first two
         // partitions, so we drain the others.
-        let parts = partitions.drain(.. 2).collect::<Vec<_>>();
+        let parts = partitions.drain(..2).collect::<Vec<_>>();
 
         let nl = NexusLabel {
             primary: label,

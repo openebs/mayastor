@@ -11,8 +11,7 @@ use crate::{
         nexus_create,
     },
     core::{Cores, Reactors},
-    replica,
-    pool,
+    pool, replica,
 };
 
 #[derive(Debug)]
@@ -21,7 +20,7 @@ struct UnixStream(tokio::net::UnixStream);
 fn nexus_lookup(
     uuid: &str,
 ) -> std::result::Result<&mut Nexus, nexus_bdev::Error> {
-    if let Some(nexus) = instances().iter_mut().find(|n| &n.name == uuid) {
+    if let Some(nexus) = instances().iter_mut().find(|n| n.name == uuid) {
         Ok(nexus)
     } else {
         Err(nexus_bdev::Error::NexusNotFound {
@@ -35,12 +34,10 @@ pub struct MayastorGrpc {}
 type Result<T> = std::result::Result<T, Status>;
 
 macro_rules! locally {
-    ($body:expr) => {
-        {
-            let hdl = Reactors::current().spawn_local($body);
-            hdl.await.unwrap()?
-        }
-    };
+    ($body:expr) => {{
+        let hdl = Reactors::current().spawn_local($body);
+        hdl.await.unwrap()?
+    }};
 }
 
 #[tonic::async_trait]
@@ -67,8 +64,9 @@ impl Mayastor for MayastorGrpc {
     ) -> Result<Response<ListPoolsReply>> {
         assert_eq!(Cores::current(), Cores::first());
 
-        let pools = pool::list_pools().iter().map(|pool| {
-            Pool {
+        let pools = pool::list_pools()
+            .iter()
+            .map(|pool| Pool {
                 name: pool.name.clone(),
                 disks: pool.disks.clone(),
                 state: match pool.state.as_str() {
@@ -77,8 +75,8 @@ impl Mayastor for MayastorGrpc {
                 } as i32,
                 capacity: pool.capacity,
                 used: pool.used,
-            }
-        }).collect();
+            })
+            .collect();
 
         dbg!(&pools);
 
@@ -89,7 +87,9 @@ impl Mayastor for MayastorGrpc {
         &self,
         request: Request<CreateReplicaRequest>,
     ) -> Result<Response<CreateReplicaReply>> {
-        Ok(Response::new(locally! { replica::create_replica(request.into_inner()) }))
+        Ok(Response::new(
+            locally! { replica::create_replica(request.into_inner()) },
+        ))
     }
 
     async fn destroy_replica(
@@ -118,7 +118,9 @@ impl Mayastor for MayastorGrpc {
         &self,
         request: Request<ShareReplicaRequest>,
     ) -> Result<Response<ShareReplicaReply>> {
-        Ok(Response::new(locally! { replica::share_replica(request.into_inner()) }))
+        Ok(Response::new(
+            locally! { replica::share_replica(request.into_inner()) },
+        ))
     }
 
     async fn create_nexus(
@@ -163,9 +165,7 @@ impl Mayastor for MayastorGrpc {
             })
             .collect::<Vec<_>>();
 
-        Ok(Response::new(ListNexusReply {
-            nexus_list: list,
-        }))
+        Ok(Response::new(ListNexusReply { nexus_list: list }))
     }
     async fn add_child_nexus(
         &self,
@@ -207,8 +207,18 @@ impl Mayastor for MayastorGrpc {
             Some(msg.key.clone())
         };
 
+        let share_protocol = match ShareProtocolNexus::from_i32(msg.share) {
+            Some(protocol) => protocol,
+            None => {
+                return Err(nexus_bdev::Error::InvalidShareProtocol {
+                    sp_value: msg.share as i32,
+                }
+                .into())
+            }
+        };
+
         let reply = locally! { async move {
-            nexus_lookup(&msg.uuid)?.share(key).await.map(|device_path| PublishNexusReply { device_path })
+            nexus_lookup(&msg.uuid)?.share(share_protocol, key).await.map(|device_path| PublishNexusReply { device_path })
         }};
 
         Ok(Response::new(reply))
@@ -234,7 +244,7 @@ impl Mayastor for MayastorGrpc {
         let onl = match msg.action {
             1 => Ok(true),
             0 => Ok(false),
-            _ => Err(Status::invalid_argument("Bad child operation"))
+            _ => Err(Status::invalid_argument("Bad child operation")),
         }?;
 
         locally! { async move {
@@ -250,42 +260,44 @@ impl Mayastor for MayastorGrpc {
     }
 
     async fn start_rebuild(
-		&self,
-		request: Request<StartRebuildRequest>,
-	) -> Result<Response<Null>> {
+        &self,
+        request: Request<StartRebuildRequest>,
+    ) -> Result<Response<Null>> {
         let msg = request.into_inner();
         locally! { async move {
             nexus_lookup(&msg.uuid)?.start_rebuild_rpc(&msg.uri).await
         }};
 
         Ok(Response::new(Null {}))
-	}
+    }
 
-	async fn get_rebuild_state(
-		&self,
-		request: Request<RebuildStateRequest>,
-	) -> Result<Response<RebuildStateReply>> {
+    async fn get_rebuild_state(
+        &self,
+        request: Request<RebuildStateRequest>,
+    ) -> Result<Response<RebuildStateReply>> {
         let msg = request.into_inner();
 
         Ok(Response::new(locally! { async move {
             nexus_lookup(&msg.uuid)?.get_rebuild_state().await
         }}))
-	}
+    }
 
     async fn get_rebuild_progress(
-		&self,
-		request: Request<RebuildProgressRequest>,
-	) -> Result<Response<RebuildProgressReply>> {
+        &self,
+        request: Request<RebuildProgressRequest>,
+    ) -> Result<Response<RebuildProgressReply>> {
         let msg = request.into_inner();
 
         Ok(Response::new(locally! { async move {
             nexus_lookup(&msg.uuid)?.get_rebuild_progress().await
         }}))
-	}
+    }
 }
 
-pub async fn grpc_server_init(addr: &str, port: &str)
-        -> std::result::Result<(), ()> {
+pub async fn grpc_server_init(
+    addr: &str,
+    port: &str,
+) -> std::result::Result<(), ()> {
     info!("gRPC server configured at address '{}:{}'", addr, port);
     let saddr = format!("{}:{}", addr, port).parse().unwrap();
     let svc = Server::builder()
@@ -295,8 +307,8 @@ pub async fn grpc_server_init(addr: &str, port: &str)
     match svc.await {
         Ok(_) => Ok(()),
         Err(e) => {
-			error!("gRPC server failed with error: {}", e);
-			Err(())
-		}
+            error!("gRPC server failed with error: {}", e);
+            Err(())
+        }
     }
 }

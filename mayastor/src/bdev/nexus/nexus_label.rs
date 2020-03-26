@@ -419,7 +419,7 @@ impl GptEntry {
         let mut reader = Cursor::new(slice);
         let mut part_vec = Vec::new();
         // TODO 128 should be passed in as a argument
-        for _ in 0 .. parts {
+        for _ in 0..parts {
             part_vec.push(
                 deserialize_from(&mut reader).context(DeserializeError {})?,
             );
@@ -468,7 +468,7 @@ impl Display for NexusLabel {
         writeln!(f, "\tHeader crc32 {}", self.primary.self_checksum)?;
         writeln!(f, "\tPartition table crc32 {}", self.primary.table_crc)?;
 
-        for i in 0 .. self.partitions.len() {
+        for i in 0..self.partitions.len() {
             writeln!(f, "\tPartition number {}", i)?;
             writeln!(f, "\tGUID: {}", self.partitions[i].ent_guid.to_string())?;
             writeln!(

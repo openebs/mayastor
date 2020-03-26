@@ -10,10 +10,7 @@ use byte_unit::{Byte, ByteUnit};
 use nix::sys::{
     signal,
     signal::{
-        pthread_sigmask,
-        SigHandler,
-        SigSet,
-        SigmaskHow,
+        pthread_sigmask, SigHandler, SigSet, SigmaskHow,
         Signal::{SIGINT, SIGTERM},
     },
 };
@@ -24,21 +21,10 @@ use structopt::StructOpt;
 use tokio::{runtime::Builder, task};
 
 use spdk_sys::{
-    maya_log,
-    spdk_app_shutdown_cb,
-    spdk_conf_allocate,
-    spdk_conf_free,
-    spdk_conf_read,
-    spdk_conf_set_as_default,
-    spdk_log_level,
-    spdk_log_open,
-    spdk_log_set_level,
-    spdk_log_set_print_level,
-    spdk_pci_addr,
-    spdk_rpc_set_state,
-    spdk_thread_lib_fini,
-    SPDK_LOG_DEBUG,
-    SPDK_LOG_INFO,
+    maya_log, spdk_app_shutdown_cb, spdk_conf_allocate, spdk_conf_free,
+    spdk_conf_read, spdk_conf_set_as_default, spdk_log_level, spdk_log_open,
+    spdk_log_set_level, spdk_log_set_print_level, spdk_pci_addr,
+    spdk_rpc_set_state, spdk_thread_lib_fini, SPDK_LOG_DEBUG, SPDK_LOG_INFO,
     SPDK_RPC_RUNTIME,
 };
 
@@ -49,8 +35,7 @@ use crate::{
         Cores,
     },
     grpc::grpc_server_init,
-    logger,
-    target,
+    logger, target,
 };
 
 fn parse_mb(src: &str) -> Result<i32, String> {
@@ -181,8 +166,8 @@ type Result<T, E = EnvError> = std::result::Result<T, E>;
 pub struct MayastorEnvironment {
     pub config: Option<String>,
     pub enable_grpc: bool,
-    grpc_addr : String,
-    grpc_port : String,
+    grpc_addr: String,
+    grpc_port: String,
     delay_subsystem_init: bool,
     enable_coredump: bool,
     env_context: String,
@@ -526,7 +511,7 @@ impl MayastorEnvironment {
     /// We implement our own default target init code here. Note that if there
     /// is an existing target we will fail the init process.
     extern "C" fn target_init() -> Result<(), EnvError> {
-        let address = MayastorEnvironment::get_pod_ip().map_err(|e|{
+        let address = MayastorEnvironment::get_pod_ip().map_err(|e| {
             error!("Invalid IP address: MY_POD_IP={}", e);
             mayastor_env_stop(-1);
             EnvError::InitLog
@@ -553,13 +538,19 @@ impl MayastorEnvironment {
 
     fn get_pod_ip() -> Result<String, String> {
         match env::var("MY_POD_IP") {
-            Ok(val) => if val.parse::<Ipv4Addr>().is_ok() { Ok(val) } else { Err(val) }
+            Ok(val) => {
+                if val.parse::<Ipv4Addr>().is_ok() {
+                    Ok(val)
+                } else {
+                    Err(val)
+                }
+            }
             Err(_) => Ok("127.0.0.1".to_owned()),
         }
     }
 
     extern "C" fn start_rpc(rc: i32, arg: *mut c_void) {
-        if arg.is_null() || rc != 0  {
+        if arg.is_null() || rc != 0 {
             panic!("Failed to initialize subsystems: {}", rc);
         }
 
@@ -668,7 +659,10 @@ impl MayastorEnvironment {
                     let master = Reactors::current();
                     master.send_future(async { f() });
                     if grpc {
-                        let _out = tokio::try_join!(grpc_server_init(&grpc_addr, &grpc_port), master);
+                        let _out = tokio::try_join!(
+                            grpc_server_init(&grpc_addr, &grpc_port),
+                            master
+                        );
                     } else {
                         let _out = master.await;
                     };

@@ -11,10 +11,7 @@ use byte_unit::Byte;
 use bytesize::ByteSize;
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 use rpc::mayastor::{
-    CreateNexusRequest,
-    DestroyNexusRequest,
-    Null,
-    PublishNexusRequest,
+    CreateNexusRequest, DestroyNexusRequest, Null, PublishNexusRequest,
 };
 use tonic::{transport::Channel, Code, Request, Status};
 
@@ -32,10 +29,16 @@ pub(crate) fn parse_size(src: &str) -> Result<u64, String> {
 }
 fn parse_share_protocol(pcol: Option<&str>) -> Result<i32, Status> {
     match pcol {
-        None => Ok(rpc::mayastor::ShareProtocol::None as i32),
-        Some("nvmf") => Ok(rpc::mayastor::ShareProtocol::Nvmf as i32),
-        Some("iscsi") => Ok(rpc::mayastor::ShareProtocol::Iscsi as i32),
-        Some("none") => Ok(rpc::mayastor::ShareProtocol::None as i32),
+        None => Ok(rpc::mayastor::ShareProtocolReplica::ReplicaNone as i32),
+        Some("nvmf") => {
+            Ok(rpc::mayastor::ShareProtocolReplica::ReplicaNvmf as i32)
+        }
+        Some("iscsi") => {
+            Ok(rpc::mayastor::ShareProtocolReplica::ReplicaIscsi as i32)
+        }
+        Some("none") => {
+            Ok(rpc::mayastor::ShareProtocolReplica::ReplicaNone as i32)
+        }
         Some(_) => Err(Status::new(
             Code::Internal,
             "Invalid value of share protocol".to_owned(),
@@ -50,6 +53,7 @@ async fn publish_nexus(
     let request = PublishNexusRequest {
         uuid: matches.value_of("uuid").unwrap().to_string(),
         key: matches.value_of("key").unwrap_or("").to_string(),
+        share: parse_share_protocol(matches.value_of("PROTOCOL"))?,
     };
 
     let path = client.publish_nexus(request).await?;
@@ -88,9 +92,8 @@ async fn create_nexus(
     mut client: MayaClient,
     matches: &ArgMatches<'_>,
 ) -> Result<(), Status> {
-    let size = parse_size(matches.value_of("size").unwrap()).map_err(|s| {
-		Status::invalid_argument(format!("Bad size '{}'", s))
-	})?;
+    let size = parse_size(matches.value_of("size").unwrap())
+        .map_err(|s| Status::invalid_argument(format!("Bad size '{}'", s)))?;
 
     let request = CreateNexusRequest {
         uuid: matches.value_of("uuid").unwrap().to_string(),
@@ -147,9 +150,7 @@ async fn destroy_pool(
     }
 
     client
-        .destroy_pool(Request::new(rpc::mayastor::DestroyPoolRequest {
-            name,
-        }))
+        .destroy_pool(Request::new(rpc::mayastor::DestroyPoolRequest { name }))
         .await?;
 
     Ok(())
@@ -299,14 +300,14 @@ async fn list_replicas(
                 r.pool,
                 r.uuid,
                 r.thin,
-                match rpc::mayastor::ShareProtocol::from_i32(r.share) {
-                    Some(rpc::mayastor::ShareProtocol::None) => {
+                match rpc::mayastor::ShareProtocolReplica::from_i32(r.share) {
+                    Some(rpc::mayastor::ShareProtocolReplica::ReplicaNone) => {
                         "none"
                     }
-                    Some(rpc::mayastor::ShareProtocol::Nvmf) => {
+                    Some(rpc::mayastor::ShareProtocolReplica::ReplicaNvmf) => {
                         "nvmf"
                     }
-                    Some(rpc::mayastor::ShareProtocol::Iscsi) => {
+                    Some(rpc::mayastor::ShareProtocolReplica::ReplicaIscsi) => {
                         "iscsi"
                     }
                     None => "unknown",
@@ -489,6 +490,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 .required(false)
                                 .index(2),
                         )
+                        .arg(
+                            Arg::with_name("PROTOCOL")
+                                .help("Replica uuid")
+                                .help("Name of a protocol (nvmf, iscsi) used for publishing the nexus")
+                                .required(true)
+                                .index(3),
+                        ),
                 )
         )
         .subcommand(

@@ -90,9 +90,7 @@ impl IscsiBdev {
                 },
             )
         } else {
-            Err(BdevCreateDestroy::BdevNotFound {
-                name: self.name,
-            })
+            Err(BdevCreateDestroy::BdevNotFound { name: self.name })
         }
     }
 }

@@ -238,7 +238,7 @@ describe('replica', function() {
         uuid: UUID,
         pool: POOL,
         thin: true,
-        share: 'ISCSI',
+        share: 'REPLICA_ISCSI',
         size: 8 * (1024 * 1024), // keep this multiple of cluster size (4MB)
       },
       (err, res) => {
@@ -262,7 +262,7 @@ describe('replica', function() {
       assert.equal(res.pool, POOL);
       assert.equal(res.thin, true);
       assert.equal(res.size, 8 * 1024 * 1024);
-      assert.equal(res.share, 'ISCSI');
+      assert.equal(res.share, 'REPLICA_ISCSI');
       assert.match(res.uri, ISCSI_URI);
       assert.equal(res.uri.match(ISCSI_URI)[1], common.getMyIp());
 
@@ -330,7 +330,7 @@ describe('replica', function() {
       assert.equal(res.pool, POOL);
       assert.equal(res.thin, true);
       assert.equal(res.size, 8 * 1024 * 1024);
-      assert.equal(res.share, 'NONE');
+      assert.equal(res.share, 'REPLICA_NONE');
       assert.match(res.uri, /^bdev:\/\/\//);
       done();
     });
@@ -340,7 +340,7 @@ describe('replica', function() {
     client.shareReplica(
       {
         uuid: UUID,
-        share: 'NVMF',
+        share: 'REPLICA_NVMF',
       },
       (err, res) => {
         if (err) return done(err);
@@ -354,7 +354,7 @@ describe('replica', function() {
           });
           assert.lengthOf(res, 1);
           res = res[0];
-          assert.equal(res.share, 'NVMF');
+          assert.equal(res.share, 'REPLICA_NVMF');
           assert.match(res.uri, NVMF_URI);
           done();
         });
@@ -366,7 +366,7 @@ describe('replica', function() {
     client.shareReplica(
       {
         uuid: UUID,
-        share: 'NVMF',
+        share: 'REPLICA_NVMF',
       },
       (err, res) => {
         if (err) return done(err);
@@ -380,7 +380,7 @@ describe('replica', function() {
     client.shareReplica(
       {
         uuid: UUID,
-        share: 'ISCSI',
+        share: 'REPLICA_ISCSI',
       },
       (err, res) => {
         if (err) return done(err);
@@ -394,7 +394,7 @@ describe('replica', function() {
           });
           assert.lengthOf(res, 1);
           res = res[0];
-          assert.equal(res.share, 'ISCSI');
+          assert.equal(res.share, 'REPLICA_ISCSI');
           assert.match(res.uri, ISCSI_URI);
           done();
         });
@@ -419,7 +419,7 @@ describe('replica', function() {
           });
           assert.lengthOf(res, 1);
           res = res[0];
-          assert.equal(res.share, 'NONE');
+          assert.equal(res.share, 'REPLICA_NONE');
           assert.match(res.uri, /^bdev:\/\/\//);
           done();
         });
@@ -559,7 +559,7 @@ describe('replica', function() {
           uuid: UUID,
           pool: POOL,
           thin: true,
-          share: 'NVMF',
+          share: 'REPLICA_NVMF',
           // Keep this multiple of cluster size (4MB).
           // Fill the entire pool so that we can test data reset
           // upon replica recreate.
@@ -587,7 +587,7 @@ describe('replica', function() {
         assert.equal(res.pool, POOL);
         assert.equal(res.thin, true);
         assert.equal(res.size, 96 * 1024 * 1024);
-        assert.equal(res.share, 'NVMF');
+        assert.equal(res.share, 'REPLICA_NVMF');
         assert.equal(res.uri, uri);
         done();
       });
@@ -649,7 +649,7 @@ describe('replica', function() {
           uuid: UUID,
           pool: POOL,
           thin: true,
-          share: 'NVMF',
+          share: 'REPLICA_NVMF',
           size: 8 * (1024 * 1024), // keep this multiple of cluster size (4MB)
         },
         (err, res) => {

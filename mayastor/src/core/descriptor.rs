@@ -3,11 +3,8 @@ use std::{convert::TryFrom, fmt::Debug};
 use serde::export::{fmt::Error, Formatter};
 
 use spdk_sys::{
-    spdk_bdev_close,
-    spdk_bdev_desc,
-    spdk_bdev_desc_get_bdev,
-    spdk_bdev_get_io_channel,
-    spdk_bdev_module_claim_bdev,
+    spdk_bdev_close, spdk_bdev_desc, spdk_bdev_desc_get_bdev,
+    spdk_bdev_get_io_channel, spdk_bdev_module_claim_bdev,
     spdk_bdev_module_release_bdev,
 };
 

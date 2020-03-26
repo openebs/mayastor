@@ -6,14 +6,8 @@ use url::{ParseError, Url};
 
 use crate::{
     bdev::{
-        AioBdev,
-        AioParseError,
-        IscsiBdev,
-        IscsiParseError,
-        NvmeCtlAttachReq,
-        NvmfParseError,
-        UringBdev,
-        UringParseError,
+        AioBdev, AioParseError, IscsiBdev, IscsiParseError, NvmeCtlAttachReq,
+        NvmfParseError, UringBdev, UringParseError,
     },
     jsonrpc::{Code, RpcErrorCode},
 };
@@ -57,33 +51,17 @@ pub enum BdevCreateDestroy {
 impl RpcErrorCode for BdevCreateDestroy {
     fn rpc_error_code(&self) -> Code {
         match self {
-            BdevCreateDestroy::UriInvalid {
-                ..
-            } => Code::InvalidParams,
-            BdevCreateDestroy::UriSchemeUnsupported {
-                ..
-            } => Code::InvalidParams,
-            BdevCreateDestroy::ParseAioUri {
-                ..
-            } => Code::InvalidParams,
-            BdevCreateDestroy::ParseIscsiUri {
-                ..
-            } => Code::InvalidParams,
-            BdevCreateDestroy::ParseNvmfUri {
-                ..
-            } => Code::InvalidParams,
-            BdevCreateDestroy::ParseUringUri {
-                ..
-            } => Code::InvalidParams,
-            BdevCreateDestroy::BdevExists {
-                ..
-            } => Code::AlreadyExists,
-            BdevCreateDestroy::BdevNotFound {
-                ..
-            } => Code::NotFound,
-            BdevCreateDestroy::InvalidParams {
-                ..
-            } => Code::InvalidParams,
+            BdevCreateDestroy::UriInvalid { .. } => Code::InvalidParams,
+            BdevCreateDestroy::UriSchemeUnsupported { .. } => {
+                Code::InvalidParams
+            }
+            BdevCreateDestroy::ParseAioUri { .. } => Code::InvalidParams,
+            BdevCreateDestroy::ParseIscsiUri { .. } => Code::InvalidParams,
+            BdevCreateDestroy::ParseNvmfUri { .. } => Code::InvalidParams,
+            BdevCreateDestroy::ParseUringUri { .. } => Code::InvalidParams,
+            BdevCreateDestroy::BdevExists { .. } => Code::AlreadyExists,
+            BdevCreateDestroy::BdevNotFound { .. } => Code::NotFound,
+            BdevCreateDestroy::InvalidParams { .. } => Code::InvalidParams,
             _ => Code::InternalError,
         }
     }
@@ -123,28 +101,21 @@ fn nexus_parse_uri(uri: &str) -> Result<BdevType, BdevCreateDestroy> {
         uri: uri.to_owned(),
     })?;
     let bdev_type = match parsed_uri.scheme() {
-        "aio" => BdevType::Aio(AioBdev::try_from(&parsed_uri).context(
-            ParseAioUri {
-                uri,
-            },
-        )?),
-        "iscsi" => BdevType::Iscsi(IscsiBdev::try_from(&parsed_uri).context(
-            ParseIscsiUri {
-                uri,
-            },
-        )?),
-        "nvmf" => BdevType::Nvmf(
-            NvmeCtlAttachReq::try_from(&parsed_uri).context(ParseNvmfUri {
-                uri,
-            })?,
+        "aio" => BdevType::Aio(
+            AioBdev::try_from(&parsed_uri).context(ParseAioUri { uri })?,
         ),
-        "uring" => BdevType::Uring(UringBdev::try_from(&parsed_uri).context(
-            ParseUringUri {
-                uri,
-            },
-        )?),
+        "iscsi" => BdevType::Iscsi(
+            IscsiBdev::try_from(&parsed_uri).context(ParseIscsiUri { uri })?,
+        ),
+        "nvmf" => BdevType::Nvmf(
+            NvmeCtlAttachReq::try_from(&parsed_uri)
+                .context(ParseNvmfUri { uri })?,
+        ),
+        "uring" => BdevType::Uring(
+            UringBdev::try_from(&parsed_uri).context(ParseUringUri { uri })?,
+        ),
         // strip the first slash in uri path
-        "bdev" => BdevType::Bdev(parsed_uri.path()[1 ..].to_string()),
+        "bdev" => BdevType::Bdev(parsed_uri.path()[1..].to_string()),
         scheme => {
             return Err(BdevCreateDestroy::UriSchemeUnsupported {
                 scheme: scheme.to_owned(),

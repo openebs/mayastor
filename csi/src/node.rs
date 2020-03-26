@@ -127,9 +127,7 @@ impl node_server::Node for Node {
                 .into_iter()
                 .map(|c| NodeServiceCapability {
                     r#type: Some(node_service_capability::Type::Rpc(
-                        node_service_capability::Rpc {
-                            r#type: c as i32,
-                        },
+                        node_service_capability::Rpc { r#type: c as i32 },
                     )),
                 })
                 .collect(),

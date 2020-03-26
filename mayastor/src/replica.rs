@@ -13,25 +13,14 @@ use nix::errno::Errno;
 use snafu::{ResultExt, Snafu};
 
 use rpc::mayastor::{
-    CreateReplicaReply,
-    CreateReplicaRequest,
-    DestroyReplicaRequest,
-    ListReplicasReply,
-    Replica as ReplicaJson,
-    ReplicaStats,
-    ShareProtocol,
-    ShareReplicaReply,
-    ShareReplicaRequest,
-    StatReplicasReply,
-    Stats,
+    CreateReplicaReply, CreateReplicaRequest, DestroyReplicaRequest,
+    ListReplicasReply, Replica as ReplicaJson, ReplicaStats,
+    ShareProtocolReplica, ShareReplicaReply, ShareReplicaRequest,
+    StatReplicasReply, Stats,
 };
 use spdk_sys::{
-    spdk_lvol,
-    vbdev_lvol_create,
-    vbdev_lvol_destroy,
-    vbdev_lvol_get_from_bdev,
-    LVOL_CLEAR_WITH_UNMAP,
-    LVOL_CLEAR_WITH_WRITE_ZEROES,
+    spdk_lvol, vbdev_lvol_create, vbdev_lvol_destroy, vbdev_lvol_get_from_bdev,
+    LVOL_CLEAR_WITH_UNMAP, LVOL_CLEAR_WITH_WRITE_ZEROES,
     SPDK_BDEV_IO_TYPE_UNMAP,
 };
 
@@ -57,15 +46,9 @@ pub enum RpcError {
 impl RpcErrorCode for RpcError {
     fn rpc_error_code(&self) -> Code {
         match self {
-            RpcError::CreateReplica {
-                source, ..
-            } => source.rpc_error_code(),
-            RpcError::DestroyReplica {
-                source, ..
-            } => source.rpc_error_code(),
-            RpcError::ShareReplica {
-                source, ..
-            } => source.rpc_error_code(),
+            RpcError::CreateReplica { source, .. } => source.rpc_error_code(),
+            RpcError::DestroyReplica { source, .. } => source.rpc_error_code(),
+            RpcError::ShareReplica { source, .. } => source.rpc_error_code(),
         }
     }
 }
@@ -112,56 +95,42 @@ pub enum Error {
 impl RpcErrorCode for Error {
     fn rpc_error_code(&self) -> Code {
         match self {
-            Error::PoolNotFound {
-                ..
-            } => Code::NotFound,
-            Error::ReplicaNotFound {
-                ..
-            } => Code::NotFound,
-            Error::ReplicaExists {
-                ..
-            } => Code::AlreadyExists,
-            Error::InvalidParams {
-                ..
-            } => Code::InvalidParams,
-            Error::CreateLvol {
-                ..
-            } => Code::InvalidParams,
-            Error::InvalidProtocol {
-                ..
-            } => Code::InvalidParams,
-            Error::ShareNvmf {
-                source, ..
-            } => source.rpc_error_code(),
-            Error::ShareIscsi {
-                source, ..
-            } => source.rpc_error_code(),
-            Error::UnshareNvmf {
-                source, ..
-            } => source.rpc_error_code(),
-            Error::UnshareIscsi {
-                source, ..
-            } => source.rpc_error_code(),
+            Error::PoolNotFound { .. } => Code::NotFound,
+            Error::ReplicaNotFound { .. } => Code::NotFound,
+            Error::ReplicaExists { .. } => Code::AlreadyExists,
+            Error::InvalidParams { .. } => Code::InvalidParams,
+            Error::CreateLvol { .. } => Code::InvalidParams,
+            Error::InvalidProtocol { .. } => Code::InvalidParams,
+            Error::ShareNvmf { source, .. } => source.rpc_error_code(),
+            Error::ShareIscsi { source, .. } => source.rpc_error_code(),
+            Error::UnshareNvmf { source, .. } => source.rpc_error_code(),
+            Error::UnshareIscsi { source, .. } => source.rpc_error_code(),
             _ => Code::InternalError,
         }
     }
 }
 
 impl From<Error> for tonic::Status {
-    fn from(e: Error) -> Self { match e {
-        Error::PoolNotFound { .. } => Self::not_found(e.to_string()),
-        Error::ReplicaExists { .. } => Self::already_exists(e.to_string()),
-        Error::InvalidParams { .. } => Self::invalid_argument(e.to_string()),
-        Error::CreateLvol { .. } => Self::invalid_argument(e.to_string()),
-        Error::DestroyLvol { .. } => Self::internal(e.to_string()),
-        Error::ReplicaShared { .. } => Self::internal(e.to_string()),
-        Error::ShareNvmf { source:_ } => Self::internal(e.to_string()),
-        Error::ShareIscsi { source:_ } => Self::internal(e.to_string()),
-        Error::UnshareNvmf { source:_ } => Self::internal(e.to_string()),
-        Error::UnshareIscsi { source:_ } => Self::internal(e.to_string()),
-        Error::InvalidProtocol { .. } => Self::invalid_argument(e.to_string()),
-        Error::ReplicaNotFound { .. } => Self::not_found(e.to_string()),
-    }}
+    fn from(e: Error) -> Self {
+        match e {
+            Error::PoolNotFound { .. } => Self::not_found(e.to_string()),
+            Error::ReplicaExists { .. } => Self::already_exists(e.to_string()),
+            Error::InvalidParams { .. } => {
+                Self::invalid_argument(e.to_string())
+            }
+            Error::CreateLvol { .. } => Self::invalid_argument(e.to_string()),
+            Error::DestroyLvol { .. } => Self::internal(e.to_string()),
+            Error::ReplicaShared { .. } => Self::internal(e.to_string()),
+            Error::ShareNvmf { .. } => Self::internal(e.to_string()),
+            Error::ShareIscsi { .. } => Self::internal(e.to_string()),
+            Error::UnshareNvmf { .. } => Self::internal(e.to_string()),
+            Error::UnshareIscsi { .. } => Self::internal(e.to_string()),
+            Error::InvalidProtocol { .. } => {
+                Self::invalid_argument(e.to_string())
+            }
+            Error::ReplicaNotFound { .. } => Self::not_found(e.to_string()),
+        }
+    }
 }
 
 type Result<T, E = Error> = std::result::Result<T, E>;
@@ -188,7 +157,7 @@ fn detect_share(uuid: &str) -> Option<(ShareType, String)> {
     // first try nvmf and then try iscsi
     match target::nvmf::get_uri(uuid) {
         Some(uri) => Some((ShareType::Nvmf, uri)),
-        None => match target::iscsi::get_uri(uuid) {
+        None => match target::iscsi::get_uri(target::Side::Replica, uuid) {
             Some(uri) => Some((ShareType::Iscsi, uri)),
             None => None,
         },
@@ -248,9 +217,7 @@ impl Replica {
             .context(CreateLvol {})?;
 
         info!("Created replica {} on pool {}", uuid, pool.get_name());
-        Ok(Self {
-            lvol_ptr,
-        })
+        Ok(Self { lvol_ptr })
     }
 
     /// Lookup replica by uuid (=name).
@@ -261,9 +228,7 @@ impl Replica {
                 if lvol.is_null() {
                     None
                 } else {
-                    Some(Self {
-                        lvol_ptr: lvol,
-                    })
+                    Some(Self { lvol_ptr: lvol })
                 }
             }
             None => None,
@@ -313,7 +278,8 @@ impl Replica {
                 .await
                 .context(ShareNvmf {})?,
             ShareType::Iscsi => {
-                target::iscsi::share(&uuid, &bdev).context(ShareIscsi {})?
+                target::iscsi::share(&uuid, &bdev, target::Side::Replica)
+                    .context(ShareIscsi {})?
             }
         }
         Ok(())
@@ -410,9 +376,7 @@ pub struct ReplicaIter {
 
 impl ReplicaIter {
     pub fn new() -> ReplicaIter {
-        ReplicaIter {
-            bdev: None,
-        }
+        ReplicaIter { bdev: None }
     }
 }
 
@@ -440,9 +404,7 @@ impl Iterator for ReplicaIter {
                     let parts: Vec<&str> = alias.split('/').collect();
 
                     if parts.len() == 2 && bdev.name() == parts[1] {
-                        let replica = Replica {
-                            lvol_ptr: lvol,
-                        };
+                        let replica = Replica { lvol_ptr: lvol };
 
                         if replica.get_pool_name() == parts[0] {
                             // we found a replica
@@ -457,59 +419,56 @@ impl Iterator for ReplicaIter {
     }
 }
 
-pub(crate) async fn create_replica(args : CreateReplicaRequest)
-    -> Result<CreateReplicaReply, RpcError> {
-    let want_share = match ShareProtocol::from_i32(args.share) {
+pub(crate) async fn create_replica(
+    args: CreateReplicaRequest,
+) -> Result<CreateReplicaReply, RpcError> {
+    let want_share = match ShareProtocolReplica::from_i32(args.share) {
         Some(val) => val,
         None => Err(Error::InvalidProtocol {
             protocol: args.share,
-        }).context(CreateReplica {
+        })
+        .context(CreateReplica {
             uuid: args.uuid.clone(),
         })?,
     };
     // Should we ignore EEXIST error?
-    let replica = Replica::create(
-        &args.uuid, &args.pool, args.size, args.thin,
-    )
-    .await
-    .context(CreateReplica {
-        uuid: args.uuid.clone(),
-    })?;
+    let replica = Replica::create(&args.uuid, &args.pool, args.size, args.thin)
+        .await
+        .context(CreateReplica {
+            uuid: args.uuid.clone(),
+        })?;
 
     // TODO: destroy replica if the share operation fails
     match want_share {
-        ShareProtocol::Nvmf => replica
+        ShareProtocolReplica::ReplicaNvmf => replica
             .share(ShareType::Nvmf)
             .await
             .context(CreateReplica {
                 uuid: args.uuid.clone(),
             })?,
-        ShareProtocol::Iscsi => replica
+        ShareProtocolReplica::ReplicaIscsi => replica
             .share(ShareType::Iscsi)
             .await
             .context(CreateReplica {
                 uuid: args.uuid.clone(),
             })?,
-        ShareProtocol::None => (),
+        ShareProtocolReplica::ReplicaNone => (),
     }
     Ok(CreateReplicaReply {
         uri: replica.get_share_uri(),
     })
 }
 
-pub(crate) async fn destroy_replica(args : DestroyReplicaRequest)
-                            -> Result<(), RpcError> {
+pub(crate) async fn destroy_replica(
+    args: DestroyReplicaRequest,
+) -> Result<(), RpcError> {
     match Replica::lookup(&args.uuid) {
-        Some(replica) => {
-            replica.destroy().await.context(DestroyReplica {
-                uuid: args.uuid,
-            })
-        }
-        None => {
-            Err(Error::ReplicaNotFound {}).context(DestroyReplica {
-                uuid: args.uuid,
-            })
-        }
+        Some(replica) => replica
+            .destroy()
+            .await
+            .context(DestroyReplica { uuid: args.uuid }),
+        None => Err(Error::ReplicaNotFound {})
+            .context(DestroyReplica { uuid: args.uuid }),
     }
 }
 
@@ -523,10 +482,14 @@ pub(crate) fn list_replicas() -> ListReplicasReply {
                 thin: r.is_thin(),
                 share: match r.get_share_type() {
                     Some(share_type) => match share_type {
-                        ShareType::Iscsi => ShareProtocol::Iscsi as i32,
-                        ShareType::Nvmf => ShareProtocol::Nvmf as i32,
+                        ShareType::Iscsi => {
+                            ShareProtocolReplica::ReplicaIscsi as i32
+                        }
+                        ShareType::Nvmf => {
+                            ShareProtocolReplica::ReplicaNvmf as i32
+                        }
                     },
-                    None => ShareProtocol::None as i32,
+                    None => ShareProtocolReplica::ReplicaNone as i32,
                 },
                 uri: r.get_share_uri(),
             })
@@ -570,35 +533,34 @@ pub(crate) async fn stat_replicas() -> Result<StatReplicasReply, RpcError> {
             }
         }
     }
-    Ok(StatReplicasReply {
-        replicas: stats,
-    })
+    Ok(StatReplicasReply { replicas: stats })
 }
 
-pub(crate) async fn share_replica(args: ShareReplicaRequest)
-    -> Result<ShareReplicaReply, RpcError> {
-    let want_share = match ShareProtocol::from_i32(args.share) {
+pub(crate) async fn share_replica(
+    args: ShareReplicaRequest,
+) -> Result<ShareReplicaReply, RpcError> {
+    let want_share = match ShareProtocolReplica::from_i32(args.share) {
         Some(val) => val,
         None => Err(Error::InvalidProtocol {
             protocol: args.share,
         })
-            .context(ShareReplica {
-                uuid: args.uuid.clone(),
-            })?,
+        .context(ShareReplica {
+            uuid: args.uuid.clone(),
+        })?,
     };
     let replica = match Replica::lookup(&args.uuid) {
         Some(replica) => replica,
-        None => Err(Error::ReplicaNotFound {}).context(
-            ShareReplica {
-                uuid: args.uuid.clone(),
-            },
-        )?,
+        None => Err(Error::ReplicaNotFound {}).context(ShareReplica {
+            uuid: args.uuid.clone(),
+        })?,
     };
     // first unshare the replica if there is a protocol change
     let unshare = match replica.get_share_type() {
         Some(share_type) => match share_type {
-            ShareType::Iscsi => want_share != ShareProtocol::Iscsi,
-            ShareType::Nvmf => want_share != ShareProtocol::Nvmf,
+            ShareType::Iscsi => {
+                want_share != ShareProtocolReplica::ReplicaIscsi
+            }
+            ShareType::Nvmf => want_share != ShareProtocolReplica::ReplicaNvmf,
         },
         None => false,
     };
@@ -611,19 +573,18 @@ pub(crate) async fn share_replica(args: ShareReplicaRequest)
     // shared
     if replica.get_share_type().is_none() {
         match want_share {
-            ShareProtocol::Iscsi => replica
+            ShareProtocolReplica::ReplicaIscsi => replica
                 .share(ShareType::Iscsi)
                 .await
                 .context(ShareReplica {
                     uuid: args.uuid.clone(),
                 })?,
-            ShareProtocol::Nvmf => replica
-                .share(ShareType::Nvmf)
-                .await
-                .context(ShareReplica {
+            ShareProtocolReplica::ReplicaNvmf => {
+                replica.share(ShareType::Nvmf).await.context(ShareReplica {
                     uuid: args.uuid.clone(),
-                })?,
-            ShareProtocol::None => (),
+                })?
+            }
+            ShareProtocolReplica::ReplicaNone => (),
         }
     }
     Ok(ShareReplicaReply {
@@ -635,16 +596,12 @@ pub(crate) async fn share_replica(args: ShareReplicaRequest)
 pub fn register_replica_methods() {
     jsonrpc_register::<_, _, _, RpcError>(
         "create_replica",
-        |args: CreateReplicaRequest| {
-            create_replica(args).boxed_local()
-        },
+        |args: CreateReplicaRequest| create_replica(args).boxed_local(),
     );
 
     jsonrpc_register::<_, _, _, RpcError>(
         "destroy_replica",
-        |args: DestroyReplicaRequest| {
-            destroy_replica(args).boxed_local()
-        },
+        |args: DestroyReplicaRequest| destroy_replica(args).boxed_local(),
     );
 
     jsonrpc_register::<(), _, _, RpcError>("list_replicas", |_| {
@@ -658,9 +615,7 @@ pub fn register_replica_methods() {
     jsonrpc_register::<_, _, _, RpcError>(
         "share_replica",
         |args: ShareReplicaRequest| {
-            async move {
-                share_replica(args).await
-            }.boxed_local()
+            async move { share_replica(args).await }.boxed_local()
         },
     );
 }

@@ -82,7 +82,9 @@ class Replica {
   async setShare(share) {
     var res;
 
-    assert(['NONE', 'ISCSI', 'NVMF'].indexOf(share) >= 0);
+    assert(
+      ['REPLICA_NONE', 'REPLICA_ISCSI', 'REPLICA_NVMF'].indexOf(share) >= 0
+    );
     log.debug(`Setting share protocol for replica "${this}" ...`);
 
     try {

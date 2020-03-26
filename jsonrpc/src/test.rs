@@ -307,10 +307,7 @@ async fn rpc_error() {
         },
         |res: Result<(), Error>| match res {
             Ok(_) => panic!("Expected error and got ok"),
-            Err(Error::RpcError {
-                code,
-                msg,
-            }) => {
+            Err(Error::RpcError { code, msg }) => {
                 assert_eq!(code, RpcCode::NotFound);
                 assert_eq!(&msg, "Not found");
             }

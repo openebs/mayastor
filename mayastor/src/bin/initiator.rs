@@ -6,8 +6,7 @@ extern crate clap;
 extern crate log;
 
 use std::{
-    fmt,
-    fs,
+    fmt, fs,
     io::{self, Write},
     process,
 };
@@ -16,11 +15,7 @@ use clap::{App, Arg, SubCommand};
 
 use mayastor::{
     core::{
-        mayastor_env_stop,
-        Bdev,
-        CoreError,
-        DmaError,
-        MayastorEnvironment,
+        mayastor_env_stop, Bdev, CoreError, DmaError, MayastorEnvironment,
         Reactor,
     },
     jsonrpc::print_error_chain,

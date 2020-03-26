@@ -41,8 +41,7 @@ use log::info;
 use once_cell::sync::OnceCell;
 
 use spdk_sys::{
-    spdk_env_thread_launch_pinned,
-    spdk_env_thread_wait_all,
+    spdk_env_thread_launch_pinned, spdk_env_thread_wait_all,
     spdk_thread_lib_init,
 };
 

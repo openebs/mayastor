@@ -49,11 +49,8 @@ impl AioBdev {
         let name = self.name.clone();
 
         async {
-            errno_result_from_i32(name.clone(), errno).context(
-                nexus_uri::InvalidParams {
-                    name,
-                },
-            )
+            errno_result_from_i32(name.clone(), errno)
+                .context(nexus_uri::InvalidParams { name })
         }
         .await
     }

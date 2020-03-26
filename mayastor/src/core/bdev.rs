@@ -8,21 +8,11 @@ use futures::channel::oneshot;
 use nix::errno::Errno;
 
 use spdk_sys::{
-    spdk_bdev,
-    spdk_bdev_first,
-    spdk_bdev_get_aliases,
-    spdk_bdev_get_block_size,
-    spdk_bdev_get_by_name,
-    spdk_bdev_get_device_stat,
-    spdk_bdev_get_name,
-    spdk_bdev_get_num_blocks,
-    spdk_bdev_get_product_name,
-    spdk_bdev_get_uuid,
-    spdk_bdev_io_stat,
-    spdk_bdev_io_type_supported,
-    spdk_bdev_next,
-    spdk_bdev_open,
-    spdk_uuid_generate,
+    spdk_bdev, spdk_bdev_first, spdk_bdev_get_aliases,
+    spdk_bdev_get_block_size, spdk_bdev_get_by_name, spdk_bdev_get_device_stat,
+    spdk_bdev_get_name, spdk_bdev_get_num_blocks, spdk_bdev_get_product_name,
+    spdk_bdev_get_uuid, spdk_bdev_io_stat, spdk_bdev_io_type_supported,
+    spdk_bdev_next, spdk_bdev_open, spdk_uuid_generate,
 };
 
 use crate::{

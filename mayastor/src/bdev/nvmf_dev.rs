@@ -5,12 +5,8 @@ use snafu::{ResultExt, Snafu};
 use url::Url;
 
 use spdk_sys::{
-    spdk_bdev_nvme_create,
-    spdk_bdev_nvme_delete,
-    spdk_nvme_host_id,
-    spdk_nvme_transport_id,
-    SPDK_NVME_TRANSPORT_TCP,
-    SPDK_NVMF_ADRFAM_IPV4,
+    spdk_bdev_nvme_create, spdk_bdev_nvme_delete, spdk_nvme_host_id,
+    spdk_nvme_transport_id, SPDK_NVME_TRANSPORT_TCP, SPDK_NVMF_ADRFAM_IPV4,
 };
 
 use crate::{
@@ -158,9 +154,7 @@ impl NvmeCtlAttachReq {
         receiver
             .await
             .expect("Cancellation is not supported")
-            .context(nexus_uri::CreateBdev {
-                name: ctx.req.name,
-            })?;
+            .context(nexus_uri::CreateBdev { name: ctx.req.name })?;
 
         Ok(unsafe {
             std::ffi::CStr::from_ptr(ctx.names[0])
@@ -176,16 +170,13 @@ impl NvmeCtlAttachReq {
         // only support one namespace per bdev.
 
         if Bdev::lookup_by_name(&format!("{}{}", &self.name, "n1")).is_none() {
-            return Err(BdevCreateDestroy::BdevNotFound {
-                name: self.name,
-            });
+            return Err(BdevCreateDestroy::BdevNotFound { name: self.name });
         }
         let cname = CString::new(self.name.clone()).unwrap();
         let errno = unsafe { spdk_bdev_nvme_delete(cname.as_ptr()) };
 
-        errno_result_from_i32((), errno).context(nexus_uri::DestroyBdev {
-            name: self.name,
-        })
+        errno_result_from_i32((), errno)
+            .context(nexus_uri::DestroyBdev { name: self.name })
     }
 }
 

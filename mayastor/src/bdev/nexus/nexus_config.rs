@@ -55,7 +55,7 @@ pub(crate) fn parse_ini_config_file() -> i32 {
             }
         };
         let mut child_bdevs = Vec::new();
-        for i in 3 .. {
+        for i in 3.. {
             unsafe {
                 match parse_config_param::<String>(sp, "Dev", devnum, i) {
                     Ok(val) => child_bdevs.push(val),

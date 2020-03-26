@@ -3,8 +3,7 @@
 use spdk_sys::spdk_bdev_module;
 
 use crate::bdev::nexus::{
-    nexus_bdev::Nexus,
-    nexus_fn_table::NexusFnTable,
+    nexus_bdev::Nexus, nexus_fn_table::NexusFnTable,
     nexus_rpc::register_rpc_methods,
 };
 
@@ -15,6 +14,7 @@ pub(crate) mod nexus_child;
 mod nexus_config;
 pub mod nexus_fn_table;
 pub mod nexus_io;
+pub mod nexus_iscsi;
 pub mod nexus_label;
 pub mod nexus_module;
 pub mod nexus_nbd;

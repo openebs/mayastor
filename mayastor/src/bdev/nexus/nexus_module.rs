@@ -3,9 +3,7 @@ use std::{cell::UnsafeCell, ffi::CString};
 use once_cell::sync::{Lazy, OnceCell};
 
 use spdk_sys::{
-    spdk_bdev_module,
-    spdk_bdev_module_examine_done,
-    spdk_bdev_module_list_add,
+    spdk_bdev_module, spdk_bdev_module_examine_done, spdk_bdev_module_list_add,
     spdk_get_thread,
 };
 

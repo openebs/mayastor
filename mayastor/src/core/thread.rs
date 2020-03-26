@@ -3,12 +3,8 @@ use std::ffi::CString;
 use snafu::Snafu;
 
 use spdk_sys::{
-    spdk_set_thread,
-    spdk_thread,
-    spdk_thread_create,
-    spdk_thread_destroy,
-    spdk_thread_exit,
-    spdk_thread_poll,
+    spdk_set_thread, spdk_thread, spdk_thread_create, spdk_thread_destroy,
+    spdk_thread_exit, spdk_thread_poll,
 };
 
 #[derive(Debug, Snafu)]

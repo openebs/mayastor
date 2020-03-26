@@ -6,6 +6,7 @@
 
 use crate::nexus_uri::bdev_destroy;
 use std::{
+    fmt,
     fmt::{Display, Formatter},
     os::raw::c_void,
 };
@@ -15,18 +16,10 @@ use nix::errno::Errno;
 use serde::Serialize;
 use snafu::{ResultExt, Snafu};
 use spdk_sys::{
-    spdk_bdev,
-    spdk_bdev_desc,
-    spdk_bdev_io,
-    spdk_bdev_io_get_buf,
-    spdk_bdev_readv_blocks,
-    spdk_bdev_register,
-    spdk_bdev_unmap_blocks,
-    spdk_bdev_unregister,
-    spdk_bdev_writev_blocks,
-    spdk_io_channel,
-    spdk_io_device_register,
-    spdk_io_device_unregister,
+    spdk_bdev, spdk_bdev_desc, spdk_bdev_io, spdk_bdev_io_get_buf,
+    spdk_bdev_readv_blocks, spdk_bdev_register, spdk_bdev_unmap_blocks,
+    spdk_bdev_unregister, spdk_bdev_writev_blocks, spdk_io_channel,
+    spdk_io_device_register, spdk_io_device_unregister,
 };
 use tonic::{Code as GrpcCode, Status};
 
@@ -40,8 +33,9 @@ use crate::{
             nexus_channel::{DREvent, NexusChannel, NexusChannelInner},
             nexus_child::{ChildError, ChildState, NexusChild},
             nexus_io::{io_status, Bio},
+            nexus_iscsi::{NexusIscsiError, NexusIscsiTarget},
             nexus_label::LabelError,
-            nexus_nbd::{Disk, NbdError},
+            nexus_nbd::{NbdDisk, NbdError},
         },
     },
     core::{Bdev, DmaBuf, DmaError},
@@ -66,12 +60,20 @@ pub enum Error {
     CreateCryptoBdev { source: Errno, name: String },
     #[snafu(display("Failed to destroy crypto bdev for nexus {}", name))]
     DestroyCryptoBdev { source: Errno, name: String },
-    #[snafu(display("The nexus {} has been already shared", name))]
+    #[snafu(display(
+        "The nexus {} has been already shared with a different protocol",
+        name
+    ))]
     AlreadyShared { name: String },
     #[snafu(display("The nexus {} has not been shared", name))]
     NotShared { name: String },
-    #[snafu(display("Failed to share nexus {}", name))]
-    ShareNexus { source: NbdError, name: String },
+    #[snafu(display("Failed to share nexus over NBD {}", name))]
+    ShareNbdNexus { source: NbdError, name: String },
+    #[snafu(display("Failed to share iscsi nexus {}", name))]
+    ShareIscsiNexus {
+        source: NexusIscsiError,
+        name: String,
+    },
     #[snafu(display("Failed to allocate label of nexus {}", name))]
     AllocLabel { source: DmaError, name: String },
     #[snafu(display("Failed to write label of nexus {}", name))]
@@ -148,22 +150,25 @@ pub enum Error {
         name: String,
         reason: String,
     },
+    #[snafu(display("Invalid ShareProtocol value {}", sp_value))]
+    InvalidShareProtocol { sp_value: i32 },
 }
 
 impl RpcErrorCode for Error {
     fn rpc_error_code(&self) -> Code {
         match self {
-            Error::NexusNotFound    { .. } => Code::NotFound,
-            Error::InvalidUuid      { .. } => Code::InvalidParams,
-            Error::InvalidKey       { .. } => Code::InvalidParams,
-            Error::AlreadyShared    { .. } => Code::InvalidParams,
-            Error::NotShared        { .. } => Code::InvalidParams,
-            Error::CreateChild      { .. } => Code::InvalidParams,
-            Error::MixedBlockSizes  { .. } => Code::InvalidParams,
-            Error::ChildGeometry    { .. } => Code::InvalidParams,
-            Error::OpenChild        { .. } => Code::InvalidParams,
+            Error::NexusNotFound { .. } => Code::NotFound,
+            Error::InvalidUuid { .. } => Code::InvalidParams,
+            Error::InvalidKey { .. } => Code::InvalidParams,
+            Error::AlreadyShared { .. } => Code::InvalidParams,
+            Error::NotShared { .. } => Code::InvalidParams,
+            Error::CreateChild { .. } => Code::InvalidParams,
+            Error::MixedBlockSizes { .. } => Code::InvalidParams,
+            Error::ChildGeometry { .. } => Code::InvalidParams,
+            Error::OpenChild { .. } => Code::InvalidParams,
             Error::DestroyLastChild { .. } => Code::InvalidParams,
-            Error::ChildNotFound    { .. } => Code::NotFound,
+            Error::ChildNotFound { .. } => Code::NotFound,
+            Error::InvalidShareProtocol { .. } => Code::InvalidParams,
             _ => Code::InternalError,
         }
     }
@@ -172,23 +177,49 @@ impl RpcErrorCode for Error {
 impl From<Error> for tonic::Status {
     fn from(e: Error) -> Self {
         match e {
-            Error::NexusNotFound    { .. } => Status::not_found(e.to_string()),
-            Error::InvalidUuid      { .. } => Status::invalid_argument(e.to_string()),
-            Error::InvalidKey       { .. } => Status::invalid_argument(e.to_string()),
-            Error::AlreadyShared    { .. } => Status::invalid_argument(e.to_string()),
-            Error::NotShared        { .. } => Status::invalid_argument(e.to_string()),
-            Error::CreateChild      { .. } => Status::invalid_argument(e.to_string()),
-            Error::MixedBlockSizes  { .. } => Status::invalid_argument(e.to_string()),
-            Error::ChildGeometry    { .. } => Status::invalid_argument(e.to_string()),
-            Error::OpenChild        { .. } => Status::invalid_argument(e.to_string()),
-            Error::DestroyLastChild { .. } => Status::invalid_argument(e.to_string()),
-            Error::ChildNotFound    { .. } => Status::not_found(e.to_string()),
+            Error::NexusNotFound { .. } => Status::not_found(e.to_string()),
+            Error::InvalidUuid { .. } => {
+                Status::invalid_argument(e.to_string())
+            }
+            Error::InvalidKey { .. } => Status::invalid_argument(e.to_string()),
+            Error::AlreadyShared { .. } => {
+                Status::invalid_argument(e.to_string())
+            }
+            Error::NotShared { .. } => Status::invalid_argument(e.to_string()),
+            Error::CreateChild { .. } => {
+                Status::invalid_argument(e.to_string())
+            }
+            Error::MixedBlockSizes { .. } => {
+                Status::invalid_argument(e.to_string())
+            }
+            Error::ChildGeometry { .. } => {
+                Status::invalid_argument(e.to_string())
+            }
+            Error::OpenChild { .. } => Status::invalid_argument(e.to_string()),
+            Error::DestroyLastChild { .. } => {
+                Status::invalid_argument(e.to_string())
+            }
+            Error::ChildNotFound { .. } => Status::not_found(e.to_string()),
             e => Status::new(GrpcCode::Internal, e.to_string()),
         }
     }
 }
 
 pub(crate) static NEXUS_PRODUCT_ID: &str = "Nexus CAS Driver v0.0.1";
+
+pub enum NexusTarget {
+    NbdDisk(NbdDisk),
+    NexusIscsiTarget(NexusIscsiTarget),
+}
+
+impl fmt::Debug for NexusTarget {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        match self {
+            NexusTarget::NbdDisk(disk) => fmt::Debug::fmt(&disk, f),
+            NexusTarget::NexusIscsiTarget(tgt) => fmt::Debug::fmt(&tgt, f),
+        }
+    }
+}
 
 /// The main nexus structure
 #[derive(Debug)]
@@ -211,13 +242,13 @@ pub struct Nexus {
     pub dr_complete_notify: Option<oneshot::Sender<i32>>,
     /// the offset in num blocks where the data partition starts
     pub data_ent_offset: u64,
-    /// nbd device which the nexus is exposed through
-    pub(crate) nbd_disk: Option<Disk>,
     /// the handle to be used when sharing the nexus, this allows for the bdev
     /// to be shared with vbdevs on top
     pub(crate) share_handle: Option<String>,
     /// vector of rebuild tasks
     pub rebuilds: Vec<RebuildTask>,
+    /// enum containing the protocol-specific target used to publish the nexus
+    pub nexus_target: Option<NexusTarget>,
 }
 
 unsafe impl core::marker::Sync for Nexus {}
@@ -292,10 +323,10 @@ impl Nexus {
             bdev_raw: Box::into_raw(b),
             dr_complete_notify: None,
             data_ent_offset: 0,
-            nbd_disk: None,
             share_handle: None,
             size,
             rebuilds: Vec::new(),
+            nexus_target: None,
         });
 
         n.bdev.set_uuid(match uuid {
@@ -782,9 +813,7 @@ pub async fn nexus_create(
         // we still have code that waits for children to come online
         // this however only works for config files so we need to clean up
         // if we get the below error
-        Err(Error::NexusIncomplete {
-            ..
-        }) => {
+        Err(Error::NexusIncomplete { .. }) => {
             info!("deleting nexus due to missing children");
             for child in children {
                 if let Err(e) = bdev_destroy(child).await {

@@ -1,9 +1,5 @@
 use std::{
-    convert::TryFrom,
-    fmt::Debug,
-    mem::ManuallyDrop,
-    os::raw::c_void,
-    sync::Arc,
+    convert::TryFrom, fmt::Debug, mem::ManuallyDrop, os::raw::c_void, sync::Arc,
 };
 
 use futures::channel::oneshot;
@@ -11,12 +7,8 @@ use nix::errno::Errno;
 use serde::export::{fmt::Error, Formatter};
 
 use spdk_sys::{
-    spdk_bdev_desc,
-    spdk_bdev_free_io,
-    spdk_bdev_io,
-    spdk_bdev_read,
-    spdk_bdev_write,
-    spdk_io_channel,
+    spdk_bdev_desc, spdk_bdev_free_io, spdk_bdev_io, spdk_bdev_read,
+    spdk_bdev_write, spdk_io_channel,
 };
 
 use crate::{
@@ -42,16 +34,12 @@ impl BdevHandle {
     ) -> Result<BdevHandle, CoreError> {
         if let Ok(desc) = Bdev::open_by_name(name, read_write) {
             if claim && !desc.claim() {
-                return Err(CoreError::BdevNotFound {
-                    name: name.into(),
-                });
+                return Err(CoreError::BdevNotFound { name: name.into() });
             }
             return BdevHandle::try_from(Arc::new(desc));
         }
 
-        Err(CoreError::BdevNotFound {
-            name: name.into(),
-        })
+        Err(CoreError::BdevNotFound { name: name.into() })
     }
 
     /// close the BdevHandle causing

@@ -36,10 +36,8 @@ use git_version::git_version;
 use rpc::{self, service::mayastor_server::MayastorServer};
 
 use crate::{
-    identity::Identity,
-    mayastor_svc::MayastorService,
-    mount::probe_filesystems,
-    node::Node,
+    identity::Identity, mayastor_svc::MayastorService,
+    mount::probe_filesystems, node::Node,
 };
 
 #[allow(dead_code)]

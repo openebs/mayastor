@@ -1,9 +1,6 @@
 use spdk_sys::{
-    spdk_env_get_core_count,
-    spdk_env_get_current_core,
-    spdk_env_get_first_core,
-    spdk_env_get_last_core,
-    spdk_env_get_next_core,
+    spdk_env_get_core_count, spdk_env_get_current_core,
+    spdk_env_get_first_core, spdk_env_get_last_core, spdk_env_get_next_core,
 };
 
 #[derive(Debug)]

@@ -3,11 +3,8 @@
 use std::{convert::TryFrom, ffi::c_void};
 
 use spdk_sys::{
-    spdk_for_each_channel,
-    spdk_for_each_channel_continue,
-    spdk_io_channel,
-    spdk_io_channel_iter,
-    spdk_io_channel_iter_get_channel,
+    spdk_for_each_channel, spdk_for_each_channel_continue, spdk_io_channel,
+    spdk_io_channel_iter, spdk_io_channel_iter_get_channel,
     spdk_io_channel_iter_get_io_device,
 };
 
