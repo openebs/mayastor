@@ -15,7 +15,7 @@ module.exports = function() {
   let props = {
     name: 'pool',
     disks: ['/dev/sda'],
-    state: 'ONLINE',
+    state: 'POOL_ONLINE',
     capacity: 100,
     used: 4,
   };
@@ -32,7 +32,7 @@ module.exports = function() {
     });
 
     it('state', () => {
-      newProps.state = 'DEGRADED';
+      newProps.state = 'POOL_DEGRADED';
       pool.merge(newProps, []);
 
       // First call is new-pool event upon registering the pool
@@ -41,7 +41,7 @@ module.exports = function() {
         eventType: 'mod',
         object: pool,
       });
-      expect(pool.state).to.equal('DEGRADED');
+      expect(pool.state).to.equal('POOL_DEGRADED');
     });
 
     it('capacity', () => {
@@ -239,8 +239,7 @@ module.exports = function() {
 
     pool.offline();
 
-    expect(pool.state).to.equal('OFFLINE');
-    expect(pool.reason).to.equal('mayastor does not run on the node "node"');
+    expect(pool.state).to.equal('POOL_OFFLINE');
     expect(replica.state).to.equal('OFFLINE');
 
     // first two events are for the new pool and new replica
@@ -253,17 +252,6 @@ module.exports = function() {
       eventType: 'mod',
       object: pool,
     });
-  });
-
-  it('should update state of the pool', () => {
-    let node = new Node('node');
-    let pool = new Pool(props);
-    node._registerPool(pool);
-
-    pool.setState('PENDING', 'reason');
-
-    expect(pool.state).to.equal('PENDING');
-    expect(pool.reason).to.equal('reason');
   });
 
   it('should create replica on the pool', async () => {
@@ -355,19 +343,19 @@ module.exports = function() {
 
   it('should correctly indicate if pool is accessible or not', () => {
     let poolProps = _.clone(props);
-    poolProps.state = 'ONLINE';
+    poolProps.state = 'POOL_ONLINE';
     let pool = new Pool(poolProps);
     // jshint ignore:start
     expect(pool.isAccessible()).to.be.true;
     // jshint ignore:end
 
-    poolProps.state = 'PENDING';
+    poolProps.state = 'POOL_FAULTED';
     pool = new Pool(poolProps);
     // jshint ignore:start
     expect(pool.isAccessible()).to.be.false;
     // jshint ignore:end
 
-    poolProps.state = 'DEGRADED';
+    poolProps.state = 'POOL_DEGRADED';
     pool = new Pool(poolProps);
     // jshint ignore:start
     expect(pool.isAccessible()).to.be.true;

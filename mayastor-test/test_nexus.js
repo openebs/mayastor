@@ -15,7 +15,7 @@ const { exec } = require('child_process');
 const { createClient } = require('grpc-kit');
 const grpc = require('grpc');
 const common = require('./test_common');
-const mayastorProto = require('./mayastor_proto');
+const enums = require('./grpc_enums');
 // just some UUID used for nexus ID
 const UUID = 'dbe4d7eb-118a-4d15-b789-a18d9af6ff21';
 const UUID2 = 'dbe4d7eb-118a-4d15-b789-a18d9af6ff22';
@@ -28,7 +28,6 @@ const uringFile = '/tmp/uring-backend';
 const diskSize = 64 * 1024 * 1024;
 // external IP address detected by common lib
 const externIp = common.getMyIp();
-const mayastorProtoConstants = mayastorProto.getConstants();
 
 // Instead of using mayastor grpc methods to create replicas we use a config
 // file to create them. Advantage is that we don't depend on bugs in replica
@@ -405,7 +404,7 @@ describe('nexus', function() {
     client.PublishNexus(
       {
         uuid: UUID,
-        share: mayastorProtoConstants.ShareProtocolNexus.NEXUS_NBD,
+        share: enums.NEXUS_NBD,
       },
       (err, res) => {
         assert(res.device_path);
@@ -426,7 +425,7 @@ describe('nexus', function() {
     client.PublishNexus(
       {
         uuid: UUID,
-        share: mayastorProtoConstants.ShareProtocolNexus.NEXUS_NBD,
+        share: enums.NEXUS_NBD,
         key: '0123456789123456',
       },
       (err, res) => {
@@ -469,7 +468,7 @@ describe('nexus', function() {
     client.PublishNexus(
       {
         uuid: UUID,
-        share: mayastorProtoConstants.ShareProtocolNexus.NEXUS_ISCSI,
+        share: enums.NEXUS_ISCSI,
       },
       (err, res) => {
         assert(res.device_path);
@@ -489,7 +488,7 @@ describe('nexus', function() {
     client.PublishNexus(
       {
         uuid: UUID,
-        share: mayastorProtoConstants.ShareProtocolNexus.NEXUS_ISCSI,
+        share: enums.NEXUS_ISCSI,
       },
       (err, res) => {
         assert(res.device_path);
@@ -502,7 +501,7 @@ describe('nexus', function() {
     client.PublishNexus(
       {
         uuid: UUID,
-        share: mayastorProtoConstants.ShareProtocolNexus.NEXUS_NBD,
+        share: enums.NEXUS_NBD,
       },
       (err, res) => {
         if (!err) return done(new Error('Expected error'));
@@ -516,7 +515,7 @@ describe('nexus', function() {
     client.PublishNexus(
       {
         uuid: UUID,
-        share: mayastorProtoConstants.ShareProtocolNexus.NEXUS_ISCSI,
+        share: enums.NEXUS_ISCSI,
       },
       (err, res) => {
         if (err) done(err);
@@ -544,7 +543,7 @@ describe('nexus', function() {
     client.PublishNexus(
       {
         uuid: UUID,
-        share: mayastorProtoConstants.ShareProtocolNexus.NEXUS_ISCSI,
+        share: enums.NEXUS_ISCSI,
         key: '0123456789123456',
       },
       (err, res) => {
@@ -625,7 +624,7 @@ describe('nexus', function() {
       await createNexus(createArgs);
       await publish({
         uuid: UUID,
-        share: mayastorProtoConstants.ShareProtocolNexus.NEXUS_NBD,
+        share: enums.NEXUS_NBD,
       });
       await unpublish({ uuid: UUID });
       await destroyNexus({ uuid: UUID });
@@ -637,7 +636,7 @@ describe('nexus', function() {
       await createNexus(createArgs);
       await publish({
         uuid: UUID,
-        share: mayastorProtoConstants.ShareProtocolNexus.NEXUS_ISCSI,
+        share: enums.NEXUS_ISCSI,
       });
       await unpublish({ uuid: UUID });
       await destroyNexus({ uuid: UUID });
@@ -657,7 +656,7 @@ describe('nexus', function() {
       await createNexus(createArgs);
       await publish({
         uuid: UUID,
-        share: mayastorProtoConstants.ShareProtocolNexus.NEXUS_NBD,
+        share: enums.NEXUS_NBD,
       });
       await destroyNexus({ uuid: UUID });
     }
@@ -668,7 +667,7 @@ describe('nexus', function() {
       await createNexus(createArgs);
       await publish({
         uuid: UUID,
-        share: mayastorProtoConstants.ShareProtocolNexus.NEXUS_ISCSI,
+        share: enums.NEXUS_ISCSI,
       });
       await destroyNexus({ uuid: UUID });
     }

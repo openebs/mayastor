@@ -99,7 +99,7 @@ This has steps have been tested on:
       disks: ["/dev/vdb"]
     EOF
     ```
-    Check that the pool has been created (Note that the `State` *must be* `ONLINE`):
+    Check that the pool has been created (Note that the `State` *must be* `online`):
     ```bash
     kubectl describe msp pool
     ```

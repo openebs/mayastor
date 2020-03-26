@@ -41,21 +41,21 @@ module.exports = function() {
         disks: [],
         capacity: 100,
         used: 0,
-        state: 'ONLINE',
+        state: 'POOL_ONLINE',
       });
       let pool2 = new Pool({
         name: 'pool2',
         disks: [],
         capacity: 100,
         used: 4,
-        state: 'ONLINE',
+        state: 'POOL_ONLINE',
       });
       let pool3 = new Pool({
         name: 'pool3',
         disks: [],
         capacity: 100,
         used: 4,
-        state: 'DEGRADED',
+        state: 'POOL_DEGRADED',
       });
       // we don't want connect and disconnect to do anything
       sinon.spy(node1, 'connect');

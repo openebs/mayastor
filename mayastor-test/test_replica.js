@@ -226,7 +226,7 @@ describe('replica', function() {
         assert.equal(Math.floor(res.capacity / (1024 * 1024)), 96);
       }
       assert.equal(res.used, 0);
-      assert.equal(res.state, 'ONLINE');
+      assert.equal(res.state, 'POOL_ONLINE');
       assert.deepEqual(res.disks, disks);
       done();
     });

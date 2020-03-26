@@ -9,6 +9,7 @@ const Nexus = require('../nexus');
 const Pool = require('../pool');
 const Replica = require('../replica');
 const { MayastorServer } = require('./mayastor_mock');
+const enums = require('./grpc_enums');
 
 const UUID = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cbb';
 const EGRESS_ENDPOINT = '127.0.0.1:12345';
@@ -20,7 +21,7 @@ module.exports = function() {
     {
       name: 'pool',
       disks: ['/dev/sdb', '/dev/sdc'],
-      state: 0,
+      state: enums.POOL_ONLINE,
       capacity: 100,
       used: 14,
     },
@@ -122,7 +123,7 @@ module.exports = function() {
           expect(poolObjects[0].disks).to.have.lengthOf(2);
           expect(poolObjects[0].disks[0]).to.equal('/dev/sdb');
           expect(poolObjects[0].disks[1]).to.equal('/dev/sdc');
-          expect(poolObjects[0].state).to.equal('ONLINE');
+          expect(poolObjects[0].state).to.equal('POOL_ONLINE');
           expect(poolObjects[0].capacity).to.equal(100);
           expect(poolObjects[0].used).to.equal(14);
 
@@ -253,12 +254,12 @@ module.exports = function() {
         node.once('pool', ev => {
           expect(ev.eventType).to.equal('mod');
           expect(ev.object).to.be.an.instanceof(Pool);
-          expect(ev.object.state).to.equal('DEGRADED');
+          expect(ev.object.state).to.equal('POOL_DEGRADED');
           done();
         });
         // modify pool property
         let newPools = _.cloneDeep(pools);
-        newPools[0].state = 1;
+        newPools[0].state = enums.POOL_DEGRADED;
         srv.pools = newPools;
       });
 
@@ -307,7 +308,7 @@ module.exports = function() {
         srv.pools.push({
           name: 'new-pool',
           disks: ['/dev/sda'],
-          state: 0,
+          state: enums.POOL_ONLINE,
           capacity: 100,
           used: 14,
         });
@@ -410,7 +411,7 @@ module.exports = function() {
         node.once('pool', ev => {
           expect(ev.eventType).to.equal('mod');
           expect(ev.object.name).to.equal('pool');
-          expect(ev.object.state).to.equal('OFFLINE');
+          expect(ev.object.state).to.equal('POOL_OFFLINE');
           offline();
         });
         node.once('replica', ev => {
@@ -459,7 +460,7 @@ module.exports = function() {
         node.once('pool', ev => {
           expect(ev.eventType).to.equal('mod');
           expect(ev.object.name).to.equal('pool');
-          expect(ev.object.state).to.equal('OFFLINE');
+          expect(ev.object.state).to.equal('POOL_OFFLINE');
           // jshint ignore:start
           expect(node.isSynced()).to.be.false;
           // jshint ignore:end
@@ -497,7 +498,7 @@ module.exports = function() {
         node.once('pool', ev => {
           expect(ev.eventType).to.equal('mod');
           expect(ev.object.name).to.equal('pool');
-          expect(ev.object.state).to.equal('OFFLINE');
+          expect(ev.object.state).to.equal('POOL_OFFLINE');
           // jshint ignore:start
           expect(node.isSynced()).to.be.false;
           // jshint ignore:end
@@ -623,14 +624,14 @@ module.exports = function() {
         {
           name: 'pool1',
           disks: ['/dev/sdb', '/dev/sdc'],
-          state: 0,
+          state: enums.POOL_ONLINE,
           capacity: 100,
           used: 14,
         },
         {
           name: 'pool2',
           disks: ['/dev/sda'],
-          state: 0,
+          state: enums.POOL_ONLINE,
           capacity: 100,
           used: 14,
         },

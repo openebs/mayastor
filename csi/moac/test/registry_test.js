@@ -155,7 +155,7 @@ module.exports = function() {
     let pool1 = new Pool({
       name: 'pool1',
       disks: [],
-      state: 'ONLINE',
+      state: 'POOL_ONLINE',
       capacity: 100,
       used: 10,
     });
@@ -163,7 +163,7 @@ module.exports = function() {
     let pool2a = new Pool({
       name: 'pool2a',
       disks: [],
-      state: 'DEGRADED',
+      state: 'POOL_DEGRADED',
       capacity: 100,
       used: 25,
     });
@@ -171,7 +171,7 @@ module.exports = function() {
     let pool2b = new Pool({
       name: 'pool2b',
       disks: [],
-      state: 'FAULTY',
+      state: 'POOL_FAULTED',
       capacity: 100,
       used: 55,
     });
@@ -179,7 +179,7 @@ module.exports = function() {
     let pool2c = new Pool({
       name: 'pool2c',
       disks: [],
-      state: 'OFFLINE',
+      state: 'POOL_OFFLINE',
       capacity: 100,
       used: 99,
     });
@@ -207,21 +207,21 @@ module.exports = function() {
       let pool1 = new Pool({
         name: 'pool1',
         disks: [],
-        state: 'DEGRADED',
+        state: 'POOL_DEGRADED',
         capacity: 100,
         used: 10,
       });
       let pool2 = new Pool({
         name: 'pool2',
         disks: [],
-        state: 'ONLINE',
+        state: 'POOL_ONLINE',
         capacity: 100,
         used: 25,
       });
       let pool3 = new Pool({
         name: 'pool3',
         disks: [],
-        state: 'OFFLINE',
+        state: 'POOL_OFFLINE',
         capacity: 100,
         used: 0,
       });
@@ -236,10 +236,10 @@ module.exports = function() {
       let pools = registry.choosePools(75, [], []);
       expect(pools).to.have.lengthOf(2);
       expect(pools[0].name).to.equal('pool2');
-      expect(pools[0].state).to.equal('ONLINE');
+      expect(pools[0].state).to.equal('POOL_ONLINE');
       expect(pools[1].name).to.equal('pool1');
-      pool1.state = 'ONLINE';
-      pool2.state = 'DEGRADED';
+      pool1.state = 'POOL_ONLINE';
+      pool2.state = 'POOL_DEGRADED';
       pools = registry.choosePools(75, [], []);
       expect(pools).to.have.lengthOf(2);
       expect(pools[0].name).to.equal('pool1');
@@ -253,7 +253,7 @@ module.exports = function() {
       let pool1 = new Pool({
         name: 'pool1',
         disks: [],
-        state: 'ONLINE',
+        state: 'POOL_ONLINE',
         capacity: 100,
         used: 10,
       });
@@ -264,7 +264,7 @@ module.exports = function() {
       let pool2 = new Pool({
         name: 'pool2',
         disks: [],
-        state: 'ONLINE',
+        state: 'POOL_ONLINE',
         capacity: 100,
         used: 25,
       });
@@ -291,14 +291,14 @@ module.exports = function() {
       let pool1 = new Pool({
         name: 'pool1',
         disks: [],
-        state: 'DEGRADED',
+        state: 'POOL_DEGRADED',
         capacity: 100,
         used: 10,
       });
       let pool2 = new Pool({
         name: 'pool2',
         disks: [],
-        state: 'DEGRADED',
+        state: 'POOL_DEGRADED',
         capacity: 100,
         used: 20,
       });
@@ -324,7 +324,7 @@ module.exports = function() {
       let pool1 = new Pool({
         name: 'pool1',
         disks: [],
-        state: 'FAULTY',
+        state: 'POOL_FAULTED',
         capacity: 100,
         used: 10,
       });
@@ -332,7 +332,7 @@ module.exports = function() {
       let pool2 = new Pool({
         name: 'pool2',
         disks: [],
-        state: 'ONLINE',
+        state: 'POOL_ONLINE',
         capacity: 100,
         used: 26,
       });
@@ -340,7 +340,7 @@ module.exports = function() {
       let pool3 = new Pool({
         name: 'pool3',
         disks: [],
-        state: 'ONLINE',
+        state: 'POOL_ONLINE',
         capacity: 100,
         used: 10,
       });
@@ -360,14 +360,14 @@ module.exports = function() {
       let pool1 = new Pool({
         name: 'pool1',
         disks: [],
-        state: 'ONLINE',
+        state: 'POOL_ONLINE',
         capacity: 100,
         used: 11,
       });
       let pool2 = new Pool({
         name: 'pool2',
         disks: [],
-        state: 'ONLINE',
+        state: 'POOL_ONLINE',
         capacity: 100,
         used: 10,
       });
@@ -384,14 +384,14 @@ module.exports = function() {
       let pool1 = new Pool({
         name: 'pool1',
         disks: [],
-        state: 'ONLINE',
+        state: 'POOL_ONLINE',
         capacity: 100,
         used: 0,
       });
       let pool2 = new Pool({
         name: 'pool2',
         disks: [],
-        state: 'DEGRADED',
+        state: 'POOL_DEGRADED',
         capacity: 100,
         used: 25,
       });
@@ -411,14 +411,14 @@ module.exports = function() {
       let pool1 = new Pool({
         name: 'pool1',
         disks: [],
-        state: 'ONLINE',
+        state: 'POOL_ONLINE',
         capacity: 100,
         used: 0,
       });
       let pool2 = new Pool({
         name: 'pool2',
         disks: [],
-        state: 'DEGRADED',
+        state: 'POOL_DEGRADED',
         capacity: 100,
         used: 25,
       });

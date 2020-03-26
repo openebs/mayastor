@@ -22,7 +22,6 @@ class Pool {
     this.name = props.name;
     this.disks = props.disks.sort();
     this.state = props.state;
-    this.reason = '';
     this.capacity = props.capacity;
     this.used = props.used;
     this.replicas = [];
@@ -183,41 +182,17 @@ class Pool {
   offline() {
     log.warn(`Pool "${this}" got offline`);
     this.replicas.forEach(r => r.offline());
-    this.state = 'OFFLINE';
-    this.reason = `mayastor does not run on the node "${this.node.name}"`;
+    // artificial state that does not appear in grpc protocol
+    this.state = 'POOL_OFFLINE';
     this.node.emit('pool', {
       eventType: 'mod',
       object: this,
     });
   }
 
-  // Update "state" and "reason" of the pool. The reason is used to further
-  // explain a cause of the state. It is the only information that should
-  // ever be set from the pool operator. The rest of information is either
-  // set during pool creation and is immutable or obtained from storage node
-  // through gRPC.
-  //
-  // @param {string} state   New state of the pool.
-  // @param {string} reason  Reason for the new state.
-  //
-  setState(state, reason) {
-    assert(['ONLINE', 'DEGRADED', 'PENDING', 'OFFLINE'].indexOf(state) >= 0);
-
-    if (this.state != state) {
-      let reasonSuffix = '';
-      if (reason) {
-        reasonSuffix = ': ' + reason;
-      }
-      log.info(`Pool "${this}" got ${state}` + reasonSuffix);
-    }
-
-    this.state = state;
-    this.reason = reason || '';
-  }
-
   // Return true if pool exists and is accessible, otherwise false.
   isAccessible() {
-    return this.state == 'ONLINE' || this.state == 'DEGRADED';
+    return this.state == 'POOL_ONLINE' || this.state == 'POOL_DEGRADED';
   }
 
   // Create replica in this storage pool.

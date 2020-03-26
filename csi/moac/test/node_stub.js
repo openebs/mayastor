@@ -33,6 +33,10 @@ class Node extends EventEmitter {
     });
   }
 
+  toString() {
+    return this.name;
+  }
+
   connect(endpoint) {
     this.endpoint = endpoint;
   }

@@ -24,7 +24,7 @@ const protoLoader = require('@grpc/proto-loader');
 // possible only with grpc-uds.
 const grpc = require('grpc-uds');
 const common = require('./test_common');
-const mayastorProto = require('./mayastor_proto');
+const enums = require('./grpc_enums');
 // Without requiring wtf module the ts hangs at the end. It seems that it is
 // waiting for sudo'd mayastor progress which has already exited!?
 const wtfnode = require('wtfnode');
@@ -201,8 +201,7 @@ describe('csi', function() {
                 {
                   uuid: uuid,
                   key: '',
-                  share: mayastorProto.getConstants().ShareProtocolNexus
-                    .NEXUS_NBD,
+                  share: enums.NEXUS_NBD,
                 },
                 next
               );
