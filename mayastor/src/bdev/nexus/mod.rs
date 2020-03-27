@@ -15,6 +15,7 @@ pub(crate) mod nexus_child;
 mod nexus_config;
 pub mod nexus_fn_table;
 pub mod nexus_io;
+pub mod nexus_iscsi;
 pub mod nexus_label;
 pub mod nexus_module;
 pub mod nexus_nbd;

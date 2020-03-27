@@ -235,7 +235,6 @@ class Node extends EventEmitter {
         nexus.merge(props);
       } else {
         // it is a new nexus
-        // XXX lookup the replicas now?
         self._registerNexus(new Nexus(props, []));
       }
     });

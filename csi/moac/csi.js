@@ -344,14 +344,13 @@ class CsiServer {
     // create the volume
     var volume;
     try {
-      volume = await this.volumes.createVolume(
-        uuid,
-        count,
-        shouldNodes,
-        mustNodes,
-        args.capacityRange.requiredBytes,
-        args.capacityRange.limitBytes
-      );
+      volume = await this.volumes.createVolume(uuid, {
+        replicaCount: count,
+        preferredNodes: shouldNodes,
+        requiredNodes: mustNodes,
+        requiredBytes: args.capacityRange.requiredBytes,
+        limitBytes: args.capacityRange.limitBytes,
+      });
     } catch (err) {
       return cb(err);
     }

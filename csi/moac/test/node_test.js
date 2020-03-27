@@ -31,7 +31,7 @@ module.exports = function() {
       pool: 'pool',
       size: 10,
       thin: false,
-      share: 'NONE',
+      share: 'REPLICA_NONE',
       uri: 'bdev:///' + UUID,
     },
   ];
@@ -39,6 +39,7 @@ module.exports = function() {
     {
       uuid: UUID,
       size: 10,
+      share: 0, // value of NEXUS_NBD for now.
       state: 'ONLINE',
       children: [
         {
@@ -129,7 +130,7 @@ module.exports = function() {
           expect(replicaObjects[0].uuid).to.equal(UUID);
           expect(replicaObjects[0].pool.name).to.equal('pool');
           expect(replicaObjects[0].size).to.equal(10);
-          expect(replicaObjects[0].share).to.equal('NONE');
+          expect(replicaObjects[0].share).to.equal('REPLICA_NONE');
           expect(replicaObjects[0].uri).to.equal('bdev:///' + UUID);
 
           expect(nexusObjects).to.have.lengthOf(1);
@@ -185,13 +186,13 @@ module.exports = function() {
         node.once('replica', ev => {
           expect(ev.eventType).to.equal('mod');
           expect(ev.object).to.be.an.instanceof(Replica);
-          expect(ev.object.share).to.equal('NVMF');
+          expect(ev.object.share).to.equal('REPLICA_NVMF');
           expect(ev.object.uri).to.equal('nvmf://blabla');
           done();
         });
         // modify replica property
         let newReplicas = _.cloneDeep(replicas);
-        newReplicas[0].share = 'NVMF';
+        newReplicas[0].share = 'REPLICA_NVMF';
         newReplicas[0].uri = 'nvmf://blabla';
         srv.replicas = newReplicas;
       });
@@ -221,7 +222,7 @@ module.exports = function() {
           pool: 'pool',
           size: 20,
           thin: false,
-          share: 'NONE',
+          share: 'REPLICA_NONE',
           uri: 'bdev:///' + newUuid,
         });
       });
@@ -243,7 +244,7 @@ module.exports = function() {
           pool: 'unknown-pool',
           size: 20,
           thin: false,
-          share: 'NONE',
+          share: 'REPLICA_NONE',
           uri: 'bdev:///' + newUuid,
         });
       });
@@ -315,7 +316,7 @@ module.exports = function() {
           pool: 'new-pool',
           size: 10,
           thin: false,
-          share: 'NONE',
+          share: 'REPLICA_NONE',
           uri: 'bdev:///' + newUuid,
         });
       });
@@ -640,7 +641,7 @@ module.exports = function() {
           pool: 'pool1',
           size: 10,
           thin: false,
-          share: 'NONE',
+          share: 'REPLICA_NONE',
           uri: 'bdev:///' + UUID,
         },
         {
@@ -648,7 +649,7 @@ module.exports = function() {
           pool: 'pool1',
           size: 10,
           thin: false,
-          share: 'NONE',
+          share: 'REPLICA_NONE',
           uri: 'bdev:///' + UUID,
         },
         {
@@ -656,7 +657,7 @@ module.exports = function() {
           pool: 'pool2',
           size: 10,
           thin: false,
-          share: 'NONE',
+          share: 'REPLICA_NONE',
           uri: 'bdev:///' + UUID,
         },
         // this replica does not belong to any pool so should be ignored
@@ -665,7 +666,7 @@ module.exports = function() {
           pool: 'unknown-pool',
           size: 10,
           thin: false,
-          share: 'NONE',
+          share: 'REPLICA_NONE',
           uri: 'bdev:///' + UUID,
         },
       ];

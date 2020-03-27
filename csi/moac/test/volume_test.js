@@ -50,7 +50,8 @@ module.exports = function() {
     let registry = new Registry();
     let volume = new Volume(UUID, registry, defaultOpts);
     expect(volume.preferredNodes).to.have.lengthOf(0);
-    volume.preferNodes(['node1', 'node2']);
+    let updated = volume.update({ preferredNodes: ['node1', 'node2'] });
+    expect(updated).to.equal(true);
     expect(volume.preferredNodes).to.have.lengthOf(2);
   });
 

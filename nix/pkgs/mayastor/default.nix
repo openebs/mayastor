@@ -21,7 +21,6 @@
 , writeScriptBin
 , pkgs ? import <nixpkgs>
 }:
-
 let
   channel = import ../../lib/rust.nix {
     inherit fetchFromGitHub;
@@ -36,7 +35,7 @@ rec {
 
   mayastor = rustPlatform.buildRustPackage rec {
     name = "mayastor";
-    cargoSha256 = "1qxzbgdb3r6frw2x1v8s24ali75lxv1swq9243cxwdnvbbydqlxw";
+    cargoSha256 = "1x1czw1di0m1n1pzqkwmdwyyshn6nbp6sfiy5qzqv7rs23kb75y7";
     version = "unstable";
     src = ../../../.;
 
@@ -67,6 +66,7 @@ rec {
     meta = { platforms = stdenv.lib.platforms.linux; };
   };
 
+  env = pkgs.stdenv.lib.makeBinPath [ pkgs.busybox pkgs.utillinux ];
   # mkfs.* and mount commands need to be in the PATH for mayastor-agent to work.
   # For NIX these run-time dependencies are hidden so it ignores them.
   # The solution is to create shell script wrapper setting the PATH and calling
@@ -82,6 +82,7 @@ rec {
     created = "now";
     contents = [ pkgs.busybox mayastor ];
     config = {
+      Env = [ "PATH=${env}" ];
       Entrypoint = [ "/bin/mayastor" ];
     };
   };
@@ -93,7 +94,8 @@ rec {
     contents = [ pkgs.busybox mayastorAgent ];
     config = {
       Entrypoint = [ "/bin/mayastor-agent" ];
-      ExposedPorts = { "10124/tcp" = {}; };
+      ExposedPorts = { "10124/tcp" = { }; };
+      Env = [ "PATH=${env}" ];
     };
   };
 }

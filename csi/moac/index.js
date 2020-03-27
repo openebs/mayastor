@@ -13,6 +13,7 @@ const Registry = require('./registry');
 const NodeOperator = require('./node_operator');
 const PoolOperator = require('./pool_operator');
 const Volumes = require('./volumes');
+const VolumeOperator = require('./volume_operator');
 const ApiServer = require('./rest_api');
 const CsiServer = require('./csi').CsiServer;
 
@@ -41,9 +42,11 @@ function createK8sClient(kubefile) {
 }
 
 async function main() {
+  var client;
   var registry;
   var volumes;
   var poolOper;
+  var volumeOper;
   var nodeOper;
   var csiServer;
   var apiServer;
@@ -59,6 +62,12 @@ async function main() {
       k: {
         alias: 'kubeconfig',
         describe: 'Path to kubeconfig file',
+        string: true,
+      },
+      n: {
+        alias: 'namespace',
+        describe: 'Namespace of mayastor custom resources',
+        default: 'default',
         string: true,
       },
       p: {
@@ -99,6 +108,9 @@ async function main() {
   async function cleanUp() {
     if (csiServer) csiServer.undoReady();
     if (apiServer) apiServer.stop();
+    if (!opts.s) {
+      if (volumeOper) await volumeOper.stop();
+    }
     if (volumes) volumes.stop();
     if (!opts.s) {
       if (poolOper) await poolOper.stop();
@@ -125,7 +137,7 @@ async function main() {
 
   if (!opts.s) {
     // Create k8s client and load openAPI spec from k8s api server
-    let client = createK8sClient(opts.kubeconfig);
+    client = createK8sClient(opts.kubeconfig);
     log.debug('Loading openAPI spec from the server');
     await client.loadSpec();
 
@@ -134,7 +146,7 @@ async function main() {
     await nodeOper.init(client, registry);
     await nodeOper.start();
 
-    poolOper = new PoolOperator();
+    poolOper = new PoolOperator(opts.namespace);
     await poolOper.init(client, registry);
     await poolOper.start();
   }
@@ -142,11 +154,17 @@ async function main() {
   volumes = new Volumes(registry);
   volumes.start();
 
+  if (!opts.s) {
+    volumeOper = new VolumeOperator(opts.namespace);
+    await volumeOper.init(client, volumes);
+    await volumeOper.start();
+  }
+
   apiServer = new ApiServer(registry);
   await apiServer.start(opts.port);
 
   csiServer.makeReady(registry, volumes);
-  log.info('MOAC is up and ready 🚀');
+  log.info('MOAC is up and ready to 🚀');
 }
 
 main();

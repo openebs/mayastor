@@ -16,10 +16,16 @@ use rpc::service::mayastor_client::MayastorClient;
 
 fn parse_share_protocol(pcol: Option<&str>) -> Result<i32, Status> {
     match pcol {
-        None => Ok(rpc::mayastor::ShareProtocol::None as i32),
-        Some("nvmf") => Ok(rpc::mayastor::ShareProtocol::Nvmf as i32),
-        Some("iscsi") => Ok(rpc::mayastor::ShareProtocol::Iscsi as i32),
-        Some("none") => Ok(rpc::mayastor::ShareProtocol::None as i32),
+        None => Ok(rpc::mayastor::ShareProtocolReplica::ReplicaNone as i32),
+        Some("nvmf") => {
+            Ok(rpc::mayastor::ShareProtocolReplica::ReplicaNvmf as i32)
+        }
+        Some("iscsi") => {
+            Ok(rpc::mayastor::ShareProtocolReplica::ReplicaIscsi as i32)
+        }
+        Some("none") => {
+            Ok(rpc::mayastor::ShareProtocolReplica::ReplicaNone as i32)
+        }
         Some(_) => Err(Status::new(
             Code::Internal,
             "Invalid value of share protocol".to_owned(),
@@ -219,14 +225,14 @@ async fn list_replicas(
                 r.pool,
                 r.uuid,
                 r.thin,
-                match rpc::mayastor::ShareProtocol::from_i32(r.share) {
-                    Some(rpc::mayastor::ShareProtocol::None) => {
+                match rpc::mayastor::ShareProtocolReplica::from_i32(r.share) {
+                    Some(rpc::mayastor::ShareProtocolReplica::ReplicaNone) => {
                         "none"
                     }
-                    Some(rpc::mayastor::ShareProtocol::Nvmf) => {
+                    Some(rpc::mayastor::ShareProtocolReplica::ReplicaNvmf) => {
                         "nvmf"
                     }
-                    Some(rpc::mayastor::ShareProtocol::Iscsi) => {
+                    Some(rpc::mayastor::ShareProtocolReplica::ReplicaIscsi) => {
                         "iscsi"
                     }
                     None => "unknown",

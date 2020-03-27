@@ -182,11 +182,11 @@ pub async fn start(
 }
 
 /// NBD disk representation.
-pub struct Disk {
+pub struct NbdDisk {
     nbd_ptr: *mut spdk_nbd_disk,
 }
 
-impl Disk {
+impl NbdDisk {
     /// Allocate nbd device for the bdev and start it.
     /// When the function returns the nbd disk is ready for IO.
     pub async fn create(bdev_name: &str) -> Result<Self, NbdError> {
@@ -255,13 +255,13 @@ impl Disk {
     }
 }
 
-impl fmt::Debug for Disk {
+impl fmt::Debug for NbdDisk {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}@{:?}", self.get_path(), self.nbd_ptr)
     }
 }
 
-impl fmt::Display for Disk {
+impl fmt::Display for NbdDisk {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.get_path())
     }

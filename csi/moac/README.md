@@ -1,25 +1,36 @@
-# Moac
+# MOAC
 
-Moac is a proof of concept of control plane for mayastor. It is written
-in nodejs and makes use of kubernetes-client library to interact with
-k8s api server. In a nutshell it is responsible for following things:
+MOAC is a control plane of MayaStor. It is written in NodeJS and makes use of
+kubernetes-client library to interact with K8s API server. In a nutshell it has
+following responsibilities:
 
-- _node operator_: Keeping track of nodes with running mayastor instances
-- [storage pool operator](/doc/pool-operator.md): Creating/deleting storage pools on mayastor nodes as requested by admin by means of custom resource records
-- _CSI controller_: Provisioning of volumes on mayastor nodes.
+* _node operator_: keeps track of nodes with running MayaStor instances.
+* [pool operator](/doc/pool-operator.md): creates/updates/deletes storage pools on storage nodes as requested by admin by means of msp custom resources.
+* [volume operator](/doc/volume-operator.md): informs user about existing volumes on storage nodes by means of msv custom resources and allows simple modifications to them.
+* _CSI controller_: provisions volumes on storage nodes based on requests from k8s through CSI interface.
 
 ## Requirements
 
-- required k8s version is 1.14
-- nodejs v10 (see below)
-- npm dependencies (`npm install`)
+- required K8s version is 1.14 or newer
+- NodeJS v10
+- Nix when building a docker image
 
 ## Build it
 
+### Nix(OS)
+
+Enter a nix shell with NodeJS and python packages and install the dependencies:
+
+```bash
+nix-shell -p nodejs-10_x python
+npm install
+```
+
 ### Ubuntu
 
-Nodejs v10 is not available in default package repository on ubuntu.
-New package source has to be added and nodejs package installed from there:
+NodeJS v10 may not be available in default package repository on Ubuntu
+depending on Ubuntu release. If that's the case, new package source has to be
+added for NodeJS:
 
 ```bash
 curl -sL https://deb.nodesource.com/setup_10.x -o nodesource_setup.sh
@@ -34,32 +45,31 @@ dependencies of moac:
 npm install
 ```
 
-### NixOS
-
-```bash
-nix-shell -p nodejs-10_x python
-npm install
-```
-
 ## Run it
 
 ### Inside k8s cluster
 
-It is the most straightforward way to run moac, however the least convenient
-for debugging issues. Use [k8s yaml file](/deploy/moac-deployment.yaml) for
-deploying moac in k8s cluster as you would any other application.
+It is the most straightforward way to run moac. However also the least
+convenient for debugging issues. Use
+[k8s yaml file](/deploy/moac-deployment.yaml) for deploying MOAC to K8s cluster
+in usual way. This assumes that you are either fine with using the official
+docker image of MOAC or that you run your own private registry and you modified
+the deployment yaml file to use the private image instead.
 
 ### Outside k8s cluster
 
-When developing or fixing bugs in moac it is necessary to execute it along
-with k8s cluster but outside of k8s cluster. We assume following environment:
+When developing or fixing bugs in MOAC it is handy to execute it with a K8s
+cluster directly from source (without building and deploying the docker image).
+That speeds up the development cycle at the cost of not being able to exhibit
+all code paths (i.e. CSI related code paths). We assume following environment:
 
-- configured k8s cluster accessible from dev box (with kubeconfig file)
-- mayastor daemonset properly deployed in k8s cluster
+- configured k8s cluster accessible from dev box (using kubeconfig file)
+- mayastor daemonset properly deployed in k8s cluster (optional but useful)
 
-Kubeconfig file solves the access of moac to k8s api server. However moac
-needs to access mayastor grpc server exposed by mayastor. For that we edit
-mayastor daemonset yaml file and change args of mayastor-client from:
+Kubeconfig file enables MOAC to access K8s API server. However if MOAC
+needs to access MayaStor gRPC server running in the cluster, which would be
+otherwise unreachable for externally running apps, then we need to edit
+MayaStor daemonset yaml file and change args of mayastor-grpc container from:
 
 ```
          - "--address=$(MY_POD_IP)"
@@ -71,36 +81,52 @@ to
          - "--address=127.0.0.1"
 ```
 
-This will cause moac to connect to loopback interface instead of mayastor's
-pod IP. Now we just need to redirect traffic comming to localhost port 10124
-to mayastor pod inside the cluster. Run following command on your dev box:
+This will cause MOAC to connect to loopback interface instead of MayaStor's
+pod IP. Now we need to redirect network traffic coming to localhost port 10124
+to MayaStor pod inside the cluster. Run following command on your dev box:
 
 ```bash
 kubectl port-forward pods/<mayastor-pod-name> 10124:10124
 ```
 
 Obviously this workaround can be used only with a single mayastor instance.
-To start moac type:
+To start MOAC type:
 
 ```bash
-./index.js --kubeconfig
+./index.js --namespace=ns-used-to-deploy-mayastor
 ```
+
+### Without k8s cluster
+
+You can run MOAC without any K8s cluster with all components that are K8s
+specific disabled:
+
+```bash
+./index.js --skip-k8s
+```
+
+That is not terribly useful besides testing the basic start sequence in MOAC.
+It might be useful for debugging when we replace k8s components by drop-in
+replacement modules in future.
 
 ## Updating the dependencies
 
-Updating npm dependencies is not enough. Generated nix files for building the
-moac package need to be updated as well:
+Updating npm dependencies in `package-lock.json` is not enough. In order to
+update dependencies in built docker images as well, the nix files need to be
+updated too;
 
 1. Update npm dependencies:
    ```bash
    npm update
    ```
    NOTE: If you want to update all packages to the very latest major versions
-   that may include breaking changes to APIs, then install `npm-check-updates`
-   npm package and run `npm-check-updates -u` before the step above.
+   that will likely include breaking API changes, then install
+   `npm-check-updates` npm package and run `npm-check-updates -u` before the
+   first step.
 
-2. If not already installed, install a node2nix tool which automates nix package
-   creation for npm packages. On NixOS that can be done by following command:
+2. If not already installed, install a `node2nix` tool which automates nix
+   package creation for npm packages. On NixOS that can be done by following
+   command:
    ```bash
    nix-env -f '<nixpkgs>' -iA nodePackages.node2nix
    ```
@@ -111,25 +137,25 @@ moac package need to be updated as well:
    node2nix -l package-lock.json --nodejs-10 -c node-composition.nix
    ```
 
-## Building Nix Package
+## Building a Nix Package
 
-All nix files generated by the node2nix tool are committed to the repo so if
+All Nix files generated by the `node2nix` tool are part of the repository so if
 you just want to build the package without changing or updating dependencies
 it is rather simple:
 
-1. Build the Nix moac package:
+1. Build the Nix MOAC package:
    ```bash
    nix-build default.nix -A package
    ```
 
-2. Run moac from the package:
+2. Run MOAC from the package:
    ```bash
    ./result/...
    ```
 
 ## Building a Docker image
 
-You can build a docker image from the nix package by running:
+In MOAC's directory run:
 
 ```bash
 nix-build default.nix -A buildImage
@@ -143,6 +169,46 @@ docker load -i /nix/store/hash-docker-image-moac.tar.gz
 docker run --rm -it image-hash /bin/bash
 ```
 
+## Architecture
+
+Unfortunately ASCII art is not good with colours. Left side of the picture
+is reserved for k8s cluster components. Up and right are MOAC components.
+Lines denote relations between all components.
+
+```text
+ +------------+         +-----------+   +---------+
+ | K8S CSI    +--------->   CSI     +--->         |
+ +------------+         | controller|   |         |  +--------+
+                        +-----------+   | volumes +--+ volume |
+ +------------+         +-----------+   |         |  +--------+
+ |            |         |   volume  +--->         |
+ |            +--------->  operator |   +---+-----+  +--------+
+ |    K8S     |         +-----------+       |        |  REST  |
+ | api-server |         +-----------+   +---+-----+--+  API   |
+ |            +--------->   pool    |   |         |  +--------+
+ |            |         |  operator +---+         |
+ |            |         +-----------+   |registry |  +------+   +-------+
+ |            |         +-----------+   |         +--+      +---+ nexus |
+ |            +--------->   node    +---+         |  | node |   +-------+
+ |            |         |  operator |   |         |  |      |   +------+
+ +-----+------+         +-----------+   +---------+  +--+---+---+ pool |
+       |                                                |       +---+--+
+       |                                                |           |
+       |                                                |       +---+-----+
+       |     Storage Node                               |       | replica |
++------+-----+----------------------+                   |       +---------+
+|            |                      |                   |
+|  kubelet   |                      |                   |
+|            |                      |                   |
++------+-----+                      |                   |
+|      |           +--------------- |    mayastor gRPC  |
+|      |  CSI Node |  mayastor    <---------------------+
+|      +---------->+              | |
+|                  +--------------+ |
++-----------------------------------+
+
+```
+
 ## Troubleshooting
 
 Running moac with trace log level enabled (`-vv`) prints all details about
@@ -150,4 +216,5 @@ incoming/outgoing CSI messages, watcher events, etc.
 
 ## History
 
-The name moac is acronym from "Mother of All CASes".
+The acronym MOAC comes from "Mother Of All Cases" (CAS means Container Attached
+Storage).
