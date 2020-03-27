@@ -1,7 +1,7 @@
 //! High-level storage pool json-rpc methods.
 //!
-//! They provide abstraction on top of aio bdev, lvol store, etc and export
-//! simple to use json-rpc methods for managing pools.
+//! They provide abstraction on top of aio and uring bdev, lvol store, etc
+//! and export simple-to-use json-rpc methods for managing pools.
 
 use std::{
     ffi::{c_void, CStr, CString},
@@ -13,11 +13,13 @@ use futures::{
     future::{self, FutureExt},
 };
 
-use rpc::jsonrpc as jsondata;
+use rpc::{jsonrpc as jsondata, mayastor::PoolIoIf};
 use snafu::Snafu;
 use spdk_sys::{
     bdev_aio_delete,
     create_aio_bdev,
+    create_uring_bdev,
+    delete_uring_bdev,
     lvol_store_bdev,
     spdk_bs_free_cluster_count,
     spdk_bs_get_cluster_size,
@@ -34,6 +36,7 @@ use spdk_sys::{
 };
 
 use crate::{
+    bdev::uring_util,
     core::Bdev,
     ffihelper::{cb_arg, done_cb},
     jsonrpc,
@@ -51,10 +54,15 @@ pub enum Error {
     ))]
     BadNumDisks { num: usize },
     #[snafu(display(
-        "AIO bdev {} already exists or parameters are invalid",
+        "{} bdev {} already exists or parameters are invalid",
+        bdev_if,
         name
     ))]
-    BadBdev { name: String },
+    BadBdev { bdev_if: String, name: String },
+    #[snafu(display("Uring not supported by kernel"))]
+    UringUnsupported,
+    #[snafu(display("Invalid I/O interface: {}", io_if))]
+    InvalidIoInterface { io_if: i32 },
     #[snafu(display("Base bdev {} already exists", name))]
     AlreadyBdev { name: String },
     #[snafu(display("Base bdev {} does not exist", name))]
@@ -97,6 +105,12 @@ impl jsonrpc::RpcErrorCode for Error {
                 ..
             } => jsonrpc::Code::InvalidParams,
             Error::BadBdev {
+                ..
+            } => jsonrpc::Code::InvalidParams,
+            Error::UringUnsupported {
+                ..
+            } => jsonrpc::Code::InvalidParams,
+            Error::InvalidIoInterface {
                 ..
             } => jsonrpc::Code::InvalidParams,
             Error::AlreadyBdev {
@@ -157,6 +171,12 @@ impl From<Error> for tonic::Status {
             Error::BadBdev {
                 ..
             } => Self::invalid_argument(e.to_string()),
+            Error::UringUnsupported {
+                ..
+            } => Self::invalid_argument(e.to_string()),
+            Error::InvalidIoInterface {
+                ..
+            } => Self::invalid_argument(e.to_string()),
             Error::AlreadyBdev {
                 ..
             } => Self::invalid_argument(e.to_string()),
@@ -199,19 +219,51 @@ impl From<Error> for tonic::Status {
 
 type Result<T> = std::result::Result<T, Error>;
 
-/// Wrapper for create aio bdev C function
-pub fn create_base_bdev(file: &str, block_size: u32) -> Result<()> {
-    debug!("Creating aio bdev {} ...", file);
+/// Wrapper for create aio or uring bdev C function
+pub fn create_base_bdev(
+    file: &str,
+    block_size: u32,
+    io_if: PoolIoIf,
+) -> Result<()> {
+    let (mut do_uring, must_uring) = match io_if {
+        PoolIoIf::PoolIoAuto => (true, false),
+        PoolIoIf::PoolIoAio => (false, false),
+        PoolIoIf::PoolIoUring => (true, true),
+    };
+    if do_uring && !uring_util::kernel_support() {
+        if must_uring {
+            return Err(Error::UringUnsupported);
+        } else {
+            warn!("Uring not supported by kernel, falling back to aio for bdev {}", file);
+            do_uring = false;
+        }
+    }
+    let bdev_type = if !do_uring {
+        ("aio", "AIO")
+    } else {
+        ("uring", "Uring")
+    };
+    debug!("Creating {} bdev {} ...", bdev_type.0, file);
     let cstr_file = CString::new(file).unwrap();
-    let rc = unsafe {
-        create_aio_bdev(cstr_file.as_ptr(), cstr_file.as_ptr(), block_size)
+    let rc = if !do_uring {
+        unsafe {
+            create_aio_bdev(cstr_file.as_ptr(), cstr_file.as_ptr(), block_size)
+        }
+    } else if unsafe {
+        create_uring_bdev(cstr_file.as_ptr(), cstr_file.as_ptr(), block_size)
+            .is_null()
+    } {
+        -1
+    } else {
+        0
     };
     if rc != 0 {
         Err(Error::BadBdev {
+            bdev_if: bdev_type.1.to_string(),
             name: String::from(file),
         })
     } else {
-        info!("aio bdev {} was created", file);
+        info!("{} bdev {} was created", bdev_type.0, file);
         Ok(())
     }
 }
@@ -228,11 +280,11 @@ extern "C" fn pool_done_cb(
 }
 
 /// Structure representing a pool which comprises lvol store and
-/// underlaying bdev.
+/// underlying bdev.
 ///
 /// Note about safety: The structure wraps raw C pointers from SPDK.
 /// It is safe to use only in synchronous context. If you keep Pool for
-/// longer than that then something else can run on reactor_0 between
+/// longer than that then something else can run on reactor_0 in between,
 /// which may destroy the pool and invalidate the pointers!
 pub struct Pool {
     lvs_ptr: *mut spdk_lvol_store,
@@ -266,7 +318,7 @@ impl Pool {
         })
     }
 
-    /// Get base bdev for the pool (in our case AIO bdev).
+    /// Get name of the pool.
     pub fn get_name(&self) -> &str {
         unsafe {
             let lvs = &*self.lvs_ptr;
@@ -274,7 +326,7 @@ impl Pool {
         }
     }
 
-    /// Get base bdev for the pool (in our case AIO bdev).
+    /// Get base bdev for the pool (in our case AIO or uring bdev).
     pub fn get_base_bdev(&self) -> Bdev {
         let base_bdev_ptr = unsafe { (*self.lvs_bdev_ptr).bdev };
         base_bdev_ptr.into()
@@ -448,7 +500,20 @@ impl Pool {
         unsafe {
             bdev_aio_delete(base_bdev.as_ptr(), Some(done_cb), cb_arg(sender));
         }
-        let bdev_errno = receiver.await.expect("Cancellation is not supported");
+        let mut bdev_errno =
+            receiver.await.expect("Cancellation is not supported");
+        if bdev_errno != 0 {
+            // Try again as uring bdev
+            let (sender, receiver) = oneshot::channel::<i32>();
+            unsafe {
+                delete_uring_bdev(
+                    base_bdev.as_ptr(),
+                    Some(done_cb),
+                    cb_arg(sender),
+                );
+            }
+            bdev_errno = receiver.await.expect("Cancellation is not supported");
+        }
         if bdev_errno != 0 {
             Err(Error::FailedDestroyBdev {
                 bdev: base_bdev_name,
@@ -534,7 +599,15 @@ pub(crate) async fn create_pool(
     if block_size == 0 {
         block_size = 4096;
     }
-    create_base_bdev(disk, block_size)?;
+    let io_if = match PoolIoIf::from_i32(args.io_if) {
+        Some(val) => val,
+        None => {
+            return Err(Error::InvalidIoInterface {
+                io_if: args.io_if,
+            });
+        }
+    };
+    create_base_bdev(disk, block_size, io_if)?;
 
     if Pool::import(&args.name, disk).await.is_ok() {
         return Ok(());

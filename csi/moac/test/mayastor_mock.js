@@ -67,7 +67,11 @@ class MayastorServer {
       // capacity to 100 and used to 4.
       createPool: (call, cb) => {
         let args = call.request;
-        assertHasKeys(args, ['name', 'disks', 'blockSize'], ['blockSize']);
+        assertHasKeys(
+          args,
+          ['name', 'disks', 'blockSize', 'ioIf'],
+          ['blockSize', 'ioIf']
+        );
         if (self.pools.find((p) => p.name == args.name)) {
           let err = new Error('already exists');
           err.code = grpc.status.ALREADY_EXISTS;

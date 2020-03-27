@@ -7,6 +7,7 @@ use structopt::StructOpt;
 
 use git_version::git_version;
 use mayastor::{
+    bdev::uring_util,
     core::{MayastorCliArgs, MayastorEnvironment},
     logger,
 };
@@ -35,8 +36,13 @@ fn main() -> Result<(), std::io::Error> {
 
     let free_pages: u32 = sysfs::parse_value(&hugepage_path, "free_hugepages")?;
     let nr_pages: u32 = sysfs::parse_value(&hugepage_path, "nr_hugepages")?;
+    let uring_supported = uring_util::kernel_support();
 
     info!("Starting Mayastor version {}", git_version!());
+    info!(
+        "kernel io_uring support: {}",
+        if uring_supported { "yes" } else { "no" }
+    );
     info!("free_pages: {} nr_pages: {}", free_pages, nr_pages);
     let env = MayastorEnvironment::new(args);
     env.start(|| {

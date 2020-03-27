@@ -14,6 +14,7 @@ const { exec } = require('child_process');
 const { createClient } = require('grpc-kit');
 const grpc = require('grpc');
 const common = require('./test_common');
+const enums = require('./grpc_enums');
 
 const POOL = 'tpool';
 const DISK_FILE = '/tmp/mayastor_test_disk';
@@ -196,12 +197,16 @@ describe('replica', function () {
     );
   });
 
-  it('should create a pool', (done) => {
-    client.createPool({ name: POOL, disks: disks }, (err, res) => {
-      if (err) return done(err);
-      assert.lengthOf(Object.keys(res), 0);
-      done();
-    });
+  it('should create a pool with aio bdevs', (done) => {
+    // explicitly specify aio as that always works
+    client.createPool(
+      { name: POOL, disks: disks, io_if: enums.POOL_IO_AIO },
+      (err, res) => {
+        if (err) return done(err);
+        assert.lengthOf(Object.keys(res), 0);
+        done();
+      }
+    );
   });
 
   it('should return error from create when the pool exists', (done) => {

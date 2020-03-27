@@ -7,6 +7,8 @@ pub struct CreateOrImportPoolArgs {
     pub disks: Vec<String>,
     /// the block_size of the underlying block devices
     pub block_size: Option<u32>,
+    /// the I/O interface for the underlying block devices
+    pub io_if: Option<i32>,
 }
 
 /// destroy the pool by name
