@@ -1,4 +1,4 @@
-use std::ffi::c_void;
+use std::ffi::{c_void, CString};
 
 use once_cell::sync::Lazy;
 
@@ -8,6 +8,10 @@ use spdk_sys::{
     spdk_bdev_io_type,
     spdk_get_io_channel,
     spdk_io_channel,
+    spdk_json_write_array_end,
+    spdk_json_write_ctx,
+    spdk_json_write_named_array_begin,
+    spdk_json_write_val_raw,
 };
 
 use crate::bdev::nexus::{
@@ -36,6 +40,7 @@ impl NexusFnTable {
         f_tbl.submit_request = Some(Self::io_submit);
         f_tbl.get_io_channel = Some(Self::io_channel);
         f_tbl.destruct = Some(Self::destruct);
+        f_tbl.dump_info_json = Some(Self::dump_info_json);
 
         NexusFnTable {
             f_tbl,
@@ -130,6 +135,34 @@ impl NexusFnTable {
         // removing the nexus from the list should cause a drop
         instances.retain(|x| x.name != nexus.name);
 
+        0
+    }
+
+    extern "C" fn dump_info_json(
+        ctx: *mut c_void,
+        w: *mut spdk_json_write_ctx,
+    ) -> i32 {
+        let nexus = unsafe { Nexus::from_raw(ctx) };
+        unsafe {
+            spdk_json_write_named_array_begin(
+                w,
+                "children\0".as_ptr() as *mut i8,
+            );
+        };
+
+        let data =
+            CString::new(serde_json::to_string(&nexus.children).unwrap())
+                .unwrap();
+
+        unsafe {
+            spdk_json_write_val_raw(
+                w,
+                data.as_ptr() as *const _,
+                data.as_bytes().len(),
+            );
+
+            spdk_json_write_array_end(w);
+        }
         0
     }
 }
