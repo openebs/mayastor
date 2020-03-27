@@ -21,10 +21,12 @@ use spdk_sys::{
     spdk_iscsi_find_tgt_node,
     spdk_iscsi_init_grp_create_from_initiator_list,
     spdk_iscsi_init_grp_destroy,
+    spdk_iscsi_init_grp_find_by_tag,
     spdk_iscsi_init_grp_unregister,
     spdk_iscsi_portal_create,
     spdk_iscsi_portal_grp_add_portal,
     spdk_iscsi_portal_grp_create,
+    spdk_iscsi_portal_grp_find_by_tag,
     spdk_iscsi_portal_grp_open,
     spdk_iscsi_portal_grp_register,
     spdk_iscsi_portal_grp_release,
@@ -225,7 +227,26 @@ pub async fn unshare(bdev_name: &str) -> Result<()> {
     Ok(())
 }
 
+fn initiator_group_exists(tag: i32) -> bool {
+    if unsafe { spdk_iscsi_init_grp_find_by_tag(tag).is_null() } {
+        return false;
+    }
+
+    debug!("initiator group {} already exists", tag);
+    true
+}
+
 fn create_initiator_group(ig_idx: c_int) -> Result<()> {
+    if initiator_group_exists(ig_idx) {
+        // when we are here we know the IG does not exists however,
+        // we do not know for sure if the masks as the same.
+        // as the config files are either provided by the control
+        // plane or during sets, we assume a difference if any, is
+        // intended and we do not verify this.
+
+        return Ok(());
+    }
+
     let initiator_host = CString::new("ANY").unwrap();
     let initiator_netmask = CString::new("ANY").unwrap();
 
@@ -254,11 +275,25 @@ fn destroy_initiator_group(ig_idx: c_int) {
     }
 }
 
+/// determine if a portal group exists by trying to find it by its tag
+fn portal_exists(tag: i32) -> bool {
+    if unsafe { spdk_iscsi_portal_grp_find_by_tag(tag).is_null() } {
+        return false;
+    }
+
+    debug!("portal group {} already exists", tag);
+    true
+}
+
 fn create_portal_group(
     address: &str,
     port_no: u16,
     pg_no: c_int,
 ) -> Result<()> {
+    if portal_exists(pg_no) {
+        return Ok(());
+    }
+
     let portal_port = CString::new(port_no.to_string()).unwrap();
     let portal_host = CString::new(address.to_owned()).unwrap();
     let pg = unsafe { spdk_iscsi_portal_grp_create(pg_no) };
