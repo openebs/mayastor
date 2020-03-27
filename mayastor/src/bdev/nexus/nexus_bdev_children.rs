@@ -24,6 +24,7 @@
 
 use crossbeam::channel::Receiver;
 use futures::future::join_all;
+use rpc::mayastor::RebuildStateReply;
 use snafu::ResultExt;
 
 use crate::{
@@ -234,6 +235,46 @@ impl Nexus {
                 child: destination.to_owned(),
             })
         }
+    }
+
+    /// Return rebuild task associated with the destination.
+    /// Return error if no rebuild task associated with destination.
+    fn get_rebuild_task(
+        &mut self,
+        destination: &str,
+    ) -> Result<&mut RebuildTask, Error> {
+        match self
+            .rebuilds
+            .iter_mut()
+            .find(|t| t.destination == destination)
+        {
+            Some(rt) => Ok(rt),
+            None => Err(Error::RebuildTaskNotFound {
+                child: destination.to_string(),
+                name: self.name.clone(),
+            }),
+        }
+    }
+
+    /// Stop a rebuild task
+    pub async fn stop_rebuild(
+        &mut self,
+        destination: &str,
+    ) -> Result<(), Error> {
+        let rt = self.get_rebuild_task(destination)?;
+        rt.stop();
+        Ok(())
+    }
+
+    /// Return the state of a rebuild task
+    pub async fn get_rebuild_state(
+        &mut self,
+        destination: &str,
+    ) -> Result<RebuildStateReply, Error> {
+        let rt = self.get_rebuild_task(destination)?;
+        Ok(RebuildStateReply {
+            state: rt.state.to_string(),
+        })
     }
 
     /// On rebuild task completion it updates the child state and removes the

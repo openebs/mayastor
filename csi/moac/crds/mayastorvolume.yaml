@@ -16,7 +16,13 @@ spec:
   - name: Node
     type: string
     description: Node where the volume is located
-    JSONPath: .spec.node
+    JSONPath: .status.node
+  - name: Size
+    type: integer
+    format: int64
+    minimum: 0
+    description: Size of the volume
+    JSONPath: .status.size
   - name: State
     type: string
     description: State of the storage pool
@@ -25,40 +31,27 @@ spec:
     type: date
     JSONPath: .metadata.creationTimestamp
   subresources:
-    # TODO: How to define scheme for status properties?
-    #state:
-    #  description: Overall state of the volume (TODO: values)
-    #  type: string
-    #node:
-    #  description: Name of the k8s node with the nexus.
-    #  type: string
-    #replicas:
-    #  description: List of replicas
-    #  type: array
-    #  items:
-    #    type: object
-    #    properties:
-    #      node:
-    #        description: Name of the k8s node with the replica.
-    #        type: string
-    #      uri:
-    #        description: URI of the replica used by the nexus.
-    #        type: string
-    #      state:
-    #        description: State of the replica (TODO: values)
-    #        type: string
+    # The status part is updated by the controller and spec part by the user
+    # usually. Well, not in this case. The mayastor's control plane updates both
+    # parts and user is allowed to update some of the properties in the spec
+    # too. The status part is read-only for the user as it is usually done.
     status: {}
   validation:
     openAPIV3Schema:
       type: object
       properties:
+        apiVersion:
+          type: string
+        kind:
+          type: string
+        metadata:
+          type: object
         spec:
           description: Specification of the mayastor volume.
           type: object
           required:
           - replicaCount
-          - preferredNodes
-          - requiredNodes
+          - requiredBytes
           properties:
             replicaCount:
               description: The number of replicas used for the volume.
@@ -74,3 +67,43 @@ spec:
               type: array
               items:
                 type: string
+            requiredBytes:
+              description: The minimum size of the volume.
+              type: integer
+              minimum: 1
+            limitBytes:
+              description: The maximum size of the volume (if zero then same as the requiredBytes).
+              type: integer
+              minimum: 0
+        status:
+          description: Properties related to current state of the volume.
+          type: object
+          properties:
+            size:
+              description: The size of the volume if it has been created
+              type: integer
+              format: int64
+            state:
+              description: Overall state of the volume.
+              type: string
+            node:
+              description: Name of the k8s node with the nexus.
+              type: string
+            replicas:
+              description: List of replicas
+              type: array
+              items:
+                type: object
+                properties:
+                  node:
+                    description: Name of the k8s node with the replica.
+                    type: string
+                  pool:
+                    description: Name of the pool that replica was created on.
+                    type: string
+                  uri:
+                    description: URI of the replica used by the nexus.
+                    type: string
+                  state:
+                    description: State of the replica.
+                    type: string

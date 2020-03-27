@@ -25,24 +25,17 @@ spec:
     type: date
     JSONPath: .metadata.creationTimestamp
   subresources:
-    # TODO: How to define scheme for status properties?
-    #state:
-    #  description: Pool state, one of pending (default), online, offline.
-    #  type: string
-    #reason:
-    #  description: Reason for the pool state value if applicable.
-    #  type: string
-    #capacity:
-    #  description: Capacity of the pool in bytes.
-    #  type: integer
-    #used:
-    #  description: How many bytes are used in the pool.
-    #  type: integer
     status: {}
   validation:
     openAPIV3Schema:
       type: object
       properties:
+        apiVersion:
+          type: string
+        kind:
+          type: string
+        metadata:
+          type: object
         spec:
           description: Specification of the mayastor pool.
           type: object
@@ -58,3 +51,23 @@ spec:
               type: array
               items:
                 type: string
+        status:
+          description: Status part updated by the pool controller.
+          type: object
+          properties:
+            state:
+              description: Pool state.
+              type: string
+            reason:
+              description: Reason for the pool state value if applicable.
+              type: string
+            capacity:
+              description: Capacity of the pool in bytes.
+              type: integer
+              format: int64
+              minimum: 0
+            used:
+              description: How many bytes are used in the pool.
+              type: integer
+              format: int64
+              minimum: 0

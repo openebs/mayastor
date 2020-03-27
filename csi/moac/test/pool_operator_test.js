@@ -19,16 +19,16 @@
 'use strict';
 
 const expect = require('chai').expect;
-const EventEmitter = require('events');
 const sinon = require('sinon');
 const sleep = require('sleep-promise');
 const Registry = require('../registry');
-const EventStream = require('../event_stream');
 const { GrpcError, GrpcCode } = require('../grpc_client');
 const PoolOperator = require('../pool_operator');
 const Pool = require('../pool');
 const Watcher = require('./watcher_stub');
 const Node = require('./node_stub');
+
+const NAMESPACE = 'mayastor';
 
 module.exports = function() {
   var msStub, putStub;
@@ -50,8 +50,9 @@ module.exports = function() {
         creationTimestamp: '2019-02-15T18:23:53Z',
         generation: 1,
         name: name,
+        namespace: NAMESPACE,
         resourceVersion: '627981',
-        selfLink: '/apis/openebs.io/v1alpha1/mayastorpools/pool-name',
+        selfLink: `/apis/openebs.io/v1alpha1/namespaces/${NAMESPACE}/mayastorpools/${name}`,
         uid: 'd99f06a9-314e-11e9-b086-589cfc0d76a7',
       },
       spec: {
@@ -75,16 +76,19 @@ module.exports = function() {
   // endpoint to update the status of resource. Fake watcher that is used
   // in the tests does not use this client stub.
   function createK8sClient(watcher) {
+    let mayastorpools = { mayastorpools: function(name) {} };
+    let namespaces = function(ns) {
+      expect(ns).to.equal(NAMESPACE);
+      return mayastorpools;
+    };
     let client = {
       apis: {
         'openebs.io': {
-          v1alpha1: {
-            mayastorpools: function(name) {},
-          },
+          v1alpha1: { namespaces },
         },
       },
     };
-    msStub = sinon.stub(client.apis['openebs.io'].v1alpha1, 'mayastorpools');
+    msStub = sinon.stub(mayastorpools, 'mayastorpools');
     let msObject = {
       status: {
         // the tricky thing here is that we have to update watcher's cache
@@ -107,7 +111,7 @@ module.exports = function() {
   // Create a pool operator object suitable for testing - with fake watcher
   // and fake k8s api client.
   async function MockedPoolOperator(k8sObjects, nodes) {
-    let oper = new PoolOperator();
+    let oper = new PoolOperator(NAMESPACE);
     let registry = new Registry();
     registry.Node = Node;
     nodes = nodes || [];

@@ -15,7 +15,9 @@
     "lodash": "^4.17.15",
     "pidof": "^1.0.2",
     "read": "^1.0.7",
-    "systeminformation": "^4.23.1"
+    "systeminformation": "^4.23.1",
+    "sleep-promise": "^8.0.1",
+    "grpc-promise": "^1.4.0"
   },
   "devDependencies": {
     "mocha": "^7.1.1",

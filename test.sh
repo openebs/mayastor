@@ -10,3 +10,4 @@ cargo build --all
 ( cd mayastor-test && ./node_modules/mocha/bin/mocha test_csi.js )
 ( cd mayastor-test && ./node_modules/mocha/bin/mocha test_nexus.js )
 ( cd mayastor-test && TEST_PORT=10125 ./node_modules/mocha/bin/mocha test_nexus.js )
+( cd mayastor-test && ./node_modules/mocha/bin/mocha test_rebuild.js )

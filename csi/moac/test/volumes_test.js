@@ -26,6 +26,7 @@ module.exports = function() {
     var node1, node2, node3;
     var stub1, stub2, stub3;
     var volume;
+    var volEvents;
 
     // create test environment
     function createTestEnv() {
@@ -70,6 +71,11 @@ module.exports = function() {
       node1._registerPool(pool1);
       node2._registerPool(pool2);
       node3._registerPool(pool3);
+
+      volEvents = [];
+      volumes.on('volume', ev => {
+        volEvents.push(ev);
+      });
     }
 
     // Each test creates a volume so the setup needs to run for each case.
@@ -84,8 +90,22 @@ module.exports = function() {
         volumes.start();
         await shouldFailWith(GrpcCode.RESOURCE_EXHAUSTED, () =>
           // node2 and node3 are too small
-          volumes.createVolume(UUID, 3, [], ['node2', 'node3'], 100, 110)
+          volumes.createVolume(UUID, {
+            replicaCount: 3,
+            preferredNodes: [],
+            requiredNodes: ['node2', 'node3'],
+            requiredBytes: 100,
+            limitBytes: 110,
+          })
         );
+        expect(volEvents).to.have.lengthOf(2);
+        expect(volEvents[0].eventType).to.equal('new');
+        expect(volEvents[0].object.uuid).to.equal(UUID);
+        expect(volEvents[0].object.state).to.equal('PENDING');
+        expect(volEvents[1].eventType).to.equal('del');
+        expect(volEvents[1].object.state).to.equal('PENDING');
+        // 1 new + 1 del
+        expect(volEvents).to.have.lengthOf(2);
       });
 
       it('should set size to required minimum if limit is not set', async () => {
@@ -126,7 +146,13 @@ module.exports = function() {
         });
 
         volumes.start();
-        volume = await volumes.createVolume(UUID, 1, [], [], 90, 0);
+        volume = await volumes.createVolume(UUID, {
+          replicaCount: 1,
+          preferredNodes: [],
+          requiredNodes: [],
+          requiredBytes: 90,
+          limitBytes: 0,
+        });
         expect(volume.size).to.equal(90);
         sinon.assert.calledWithMatch(stub1.firstCall, 'createReplica', {
           uuid: UUID,
@@ -135,6 +161,8 @@ module.exports = function() {
           thin: false,
           share: 'REPLICA_NONE',
         });
+        // 1 new + 2 mods
+        expect(volEvents).to.have.lengthOf(3);
       });
 
       it('should limit the size of created volume', async () => {
@@ -175,7 +203,13 @@ module.exports = function() {
         });
 
         volumes.start();
-        volume = await volumes.createVolume(UUID, 1, [], [], 10, 50);
+        volume = await volumes.createVolume(UUID, {
+          replicaCount: 1,
+          preferredNodes: [],
+          requiredNodes: [],
+          requiredBytes: 10,
+          limitBytes: 50,
+        });
         expect(volume.size).to.equal(50);
         sinon.assert.calledWithMatch(stub1.firstCall, 'createReplica', {
           uuid: UUID,
@@ -184,6 +218,8 @@ module.exports = function() {
           thin: false,
           share: 'REPLICA_NONE',
         });
+        // 1 new + 2 mods
+        expect(volEvents).to.have.lengthOf(3);
       });
 
       it('should fail if the size is zero', async () => {
@@ -193,9 +229,66 @@ module.exports = function() {
 
         volumes.start();
         await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
-          volumes.createVolume(UUID, 1, [], [], 0, 0)
+          volumes.createVolume(UUID, {
+            replicaCount: 1,
+            preferredNodes: [],
+            requiredNodes: [],
+            requiredBytes: 0,
+            limitBytes: 0,
+          })
         );
         sinon.assert.notCalled(stub1);
+        sinon.assert.notCalled(stub2);
+        sinon.assert.notCalled(stub3);
+        expect(volEvents).to.have.lengthOf(0);
+      });
+
+      it('should create the volume and include pre-existing nexus and replica', async () => {
+        stub1 = sinon.stub(node1, 'call');
+        stub2 = sinon.stub(node2, 'call');
+        stub3 = sinon.stub(node3, 'call');
+        let replica = new Replica({
+          uuid: UUID,
+          size: 10,
+          share: 'REPLICA_NONE',
+          uri: 'bdev:///' + UUID,
+          state: 'ONLINE',
+        });
+        replica.pool = { node: node1 };
+        let getReplicaSetStub = sinon.stub(registry, 'getReplicaSet');
+        getReplicaSetStub.returns([replica]);
+        let nexus = new Nexus({
+          uuid: UUID,
+          size: 10,
+          devicePath: '/dev/nbd0',
+          state: 'ONLINE',
+          children: [
+            {
+              uri: 'bdev:///' + UUID,
+              state: 'ONLINE',
+            },
+          ],
+        });
+        nexus.node = node1;
+        let getNexusStub = sinon.stub(registry, 'getNexus');
+        getNexusStub.returns(nexus);
+
+        volumes.start();
+        volume = await volumes.createVolume(UUID, {
+          replicaCount: 1,
+          preferredNodes: [],
+          requiredNodes: [],
+          requiredBytes: 10,
+          limitBytes: 50,
+        });
+        sinon.assert.notCalled(stub1);
+        sinon.assert.notCalled(stub2);
+        sinon.assert.notCalled(stub3);
+        expect(Object.keys(volume.replicas)).to.have.lengthOf(1);
+        expect(Object.values(volume.replicas)[0]).to.equal(replica);
+        expect(volume.nexus).to.equal(nexus);
+        expect(volEvents).to.have.lengthOf(1);
+        expect(volEvents[0].eventType).to.equal('new');
       });
     });
 
@@ -207,6 +300,7 @@ module.exports = function() {
         stub1.resetHistory();
         stub2.resetHistory();
         stub3.resetHistory();
+        volEvents = [];
       });
 
       after(() => {
@@ -294,7 +388,13 @@ module.exports = function() {
         stub3.onCall(2).resolves({ uri: 'nvmf://replica3' });
 
         volumes.start();
-        volume = await volumes.createVolume(UUID, 3, [], [], 90, 110);
+        volume = await volumes.createVolume(UUID, {
+          replicaCount: 3,
+          preferredNodes: [],
+          requiredNodes: [],
+          requiredBytes: 90,
+          limitBytes: 110,
+        });
 
         expect(stub1.callCount).to.equal(4);
         sinon.assert.calledWithMatch(stub1.firstCall, 'createReplica', {
@@ -355,6 +455,9 @@ module.exports = function() {
         expect(volume.replicas.node3.uuid).to.equal(UUID);
         expect(volume.state).to.equal('ONLINE');
         expect(volume.reason).to.equal('');
+
+        // 1 new + 6 mods (3 new replicas, 2 set share, 1 new nexus)
+        expect(volEvents).to.have.lengthOf(7);
       });
 
       it('should remove superfluous replica', async () => {
@@ -379,6 +482,8 @@ module.exports = function() {
         sinon.assert.calledWithMatch(stub3.firstCall, 'destroyReplica', {
           uuid: UUID,
         });
+        // one for replica remove and one for nexus update
+        expect(volEvents).to.have.lengthOf(2);
       });
 
       it('should add missing replica', async () => {
@@ -424,6 +529,8 @@ module.exports = function() {
           uuid: UUID,
           share: 'REPLICA_NVMF',
         });
+        // new replica, set share and update nexus
+        expect(volEvents).to.have.lengthOf(3);
       });
 
       it('should set share protocols of replicas to accomodate nexus', async () => {
@@ -452,6 +559,7 @@ module.exports = function() {
           uuid: UUID,
           share: 'REPLICA_NVMF',
         });
+        expect(volEvents).to.have.lengthOf(2);
       });
 
       it('should create missing nexus', async () => {
@@ -496,17 +604,30 @@ module.exports = function() {
           children: ['bdev:///' + UUID, 'nvmf://replica2', 'nvmf://replica3'],
         });
         sinon.assert.calledWithMatch(stub1.secondCall, 'listNexus', {});
+        expect(volEvents).to.have.lengthOf(1);
       });
 
       it('should fail to shrink the volume', async () => {
         await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
-          volumes.createVolume(UUID, 3, [], [], 90, 95)
+          volumes.createVolume(UUID, {
+            replicaCount: 3,
+            preferredNodes: [],
+            requiredNodes: [],
+            requiredBytes: 90,
+            limitBytes: 95,
+          })
         );
       });
 
       it('should fail to extend the volume', async () => {
         await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
-          volumes.createVolume(UUID, 3, [], [], 97, 110)
+          volumes.createVolume(UUID, {
+            replicaCount: 3,
+            preferredNodes: [],
+            requiredNodes: [],
+            requiredBytes: 97,
+            limitBytes: 110,
+          })
         );
       });
 
@@ -521,6 +642,7 @@ module.exports = function() {
           key: '',
         });
         expect(volume.nexus.devicePath).to.equal('/dev/nbd0');
+        expect(volEvents).to.have.lengthOf(1);
       });
 
       it('should unpublish the volume', async () => {
@@ -533,6 +655,39 @@ module.exports = function() {
         // jshint ignore:start
         expect(volume.nexus.devicePath).to.be.empty;
         // jshint ignore:end
+        expect(volEvents).to.have.lengthOf(1);
+      });
+
+      it('should update the volume spec', async () => {
+        let volume = await volumes.createVolume(UUID, {
+          replicaCount: 1,
+          preferredNodes: ['node3'],
+          requiredNodes: ['node2'],
+          requiredBytes: 10,
+          limitBytes: 200,
+        });
+
+        expect(volume.replicaCount).to.equal(1);
+        expect(volume.preferredNodes[0]).to.equal('node3');
+        expect(volume.requiredNodes[0]).to.equal('node2');
+        expect(volume.requiredBytes).to.equal(10);
+        expect(volume.limitBytes).to.equal(200);
+        expect(volume.size).to.equal(96);
+        expect(Object.keys(volume.replicas)).to.have.lengthOf(1);
+        expect(Object.keys(volume.replicas)[0]).to.equal('node2');
+        // 2 removed replicas, 2 nexus updates and final 1 mod volume
+        expect(volEvents).to.have.lengthOf(5);
+      });
+
+      it('should not do anything if updating the volume with the same parameters', async () => {
+        await volumes.createVolume(UUID, {
+          replicaCount: 1,
+          preferredNodes: ['node3'],
+          requiredNodes: ['node2'],
+          requiredBytes: 10,
+          limitBytes: 200,
+        });
+        expect(volEvents).to.have.lengthOf(0);
       });
 
       it('should destroy the volume', async () => {
@@ -542,23 +697,21 @@ module.exports = function() {
 
         await volumes.destroyVolume(UUID);
 
-        sinon.assert.calledTwice(stub1);
+        sinon.assert.calledOnce(stub1);
         sinon.assert.calledWithMatch(stub1.firstCall, 'destroyNexus', {
-          uuid: UUID,
-        });
-        sinon.assert.calledWithMatch(stub1.secondCall, 'destroyReplica', {
           uuid: UUID,
         });
         sinon.assert.calledOnce(stub2);
         sinon.assert.calledWithMatch(stub2, 'destroyReplica', { uuid: UUID });
-        sinon.assert.calledOnce(stub3);
-        sinon.assert.calledWithMatch(stub3, 'destroyReplica', { uuid: UUID });
+        sinon.assert.notCalled(stub3);
 
         // jshint ignore:start
         expect(volumes.get(UUID)).is.null;
         expect(volume.nexus).is.null;
         // jshint ignore:end
         expect(Object.keys(volume.replicas)).to.have.length(0);
+        // 1 replica, 1 nexus and 1 del volume event
+        expect(volEvents).to.have.lengthOf(3);
       });
 
       it('should not fail if destroying a volume that does not exist', async () => {
@@ -574,6 +727,7 @@ module.exports = function() {
         sinon.assert.notCalled(stub1);
         sinon.assert.notCalled(stub2);
         sinon.assert.notCalled(stub3);
+        expect(volEvents).to.have.lengthOf(0);
       });
     });
   });

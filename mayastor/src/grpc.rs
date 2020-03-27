@@ -162,6 +162,7 @@ impl Mayastor for MayastorGrpc {
                         state: c.state.to_string(),
                     })
                     .collect::<Vec<_>>(),
+                rebuilds: n.rebuilds.len() as u64,
             })
             .collect::<Vec<_>>();
 
@@ -271,6 +272,18 @@ impl Mayastor for MayastorGrpc {
         Ok(Response::new(Null {}))
     }
 
+    async fn stop_rebuild(
+        &self,
+        request: Request<StopRebuildRequest>,
+    ) -> Result<Response<Null>> {
+        let msg = request.into_inner();
+        locally! { async move {
+            nexus_lookup(&msg.uuid)?.stop_rebuild(&msg.uri).await
+        }};
+
+        Ok(Response::new(Null {}))
+    }
+
     async fn get_rebuild_state(
         &self,
         request: Request<RebuildStateRequest>,
@@ -278,7 +291,7 @@ impl Mayastor for MayastorGrpc {
         let msg = request.into_inner();
 
         Ok(Response::new(locally! { async move {
-            nexus_lookup(&msg.uuid)?.get_rebuild_state().await
+            nexus_lookup(&msg.uuid)?.get_rebuild_state(&msg.uri).await
         }}))
     }
 
