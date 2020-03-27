@@ -20,7 +20,7 @@ fn main() {
 
     let supported = uring_util::fs_supports_direct_io(path)
         && uring_util::fs_type_supported(path)
-        && uring_util::kernel_supports_io_uring();
+        && uring_util::kernel_support();
 
     if supported {
         std::process::exit(0);

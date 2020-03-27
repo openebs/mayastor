@@ -74,15 +74,13 @@ pub fn fs_type_supported(path: &str) -> bool {
     }
 }
 
-pub fn kernel_supports_io_uring() -> bool {
+pub fn kernel_support() -> bool {
     // Match SPDK_URING_QUEUE_DEPTH
     let queue_depth = 512;
     match io_uring::IoUring::new(queue_depth) {
         Ok(_ring) => true,
         Err(e) => {
-            assert_eq!(e.kind(), ErrorKind::Other);
-            assert_eq!(e.raw_os_error().unwrap(), libc::ENOSYS);
-            println!("Skipping uring bdev, IoUring::new: {:?}", e);
+            debug!("IoUring::new: {}", e);
             false
         }
     }

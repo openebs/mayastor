@@ -26,10 +26,11 @@ impl service::mayastor_server::Mayastor for MayastorService {
         }
 
         debug!(
-            "Creating pool {} on {} with block size {}...",
+            "Creating pool {} on {} with block size {}, io_if {}...",
             msg.name,
             msg.disks.join(" "),
             msg.block_size,
+            msg.io_if,
         );
 
         // make a copy of vars used in the closures below
@@ -39,6 +40,7 @@ impl service::mayastor_server::Mayastor for MayastorService {
             name: msg.name,
             disks: msg.disks,
             block_size: Some(msg.block_size),
+            io_if: Some(msg.io_if),
         });
 
         jsonrpc::call::<_, ()>(&self.socket, "create_or_import_pool", args)

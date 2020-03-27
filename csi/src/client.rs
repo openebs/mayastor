@@ -45,6 +45,17 @@ async fn create_pool(
         .map(|dev| dev.to_owned())
         .collect();
     let block_size = value_t!(matches.value_of("block-size"), u32).unwrap_or(0);
+    let io_if = match matches.value_of("io-if") {
+        None | Some("auto") => rpc::mayastor::PoolIoIf::PoolIoAuto as i32,
+        Some("aio") => rpc::mayastor::PoolIoIf::PoolIoAio as i32,
+        Some("uring") => rpc::mayastor::PoolIoIf::PoolIoUring as i32,
+        Some(_) => {
+            return Err(Status::new(
+                Code::Internal,
+                "Invalid value of I/O interface".to_owned(),
+            ));
+        }
+    };
 
     if verbose {
         println!("Creating the pool {}", name);
@@ -55,6 +66,7 @@ async fn create_pool(
             name,
             disks,
             block_size,
+            io_if,
         }))
         .await?;
 
@@ -333,6 +345,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 .value_name("NUMBER")
                                 .help("block size of the underlying devices")
                                 .takes_value(true),
+                        )
+                        .arg(
+                            Arg::with_name("io-if")
+                                .short("i")
+                                .long("io-if")
+                                .help("I/O interface for the underlying devices")
                         )
                         .arg(
                             Arg::with_name("POOL")
