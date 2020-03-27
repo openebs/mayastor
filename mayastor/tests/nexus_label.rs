@@ -22,7 +22,7 @@ const HDR_GUID: &str = "322974ae-5711-874b-bfbd-1a74df4dd714";
 const PART0_GUID: &str = "ea2872a6-02ce-3f4b-82c4-c2147f76e3ff";
 const PART1_GUID: &str = "a0ff1b47-2890-eb4c-a837-01df152f9442";
 
-const CRC32: u32 = 3_031_999_803;
+const CRC32: u32 = 0x9029_d72c;
 static DISKNAME1: &str = "/tmp/disk1.img";
 static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
 
