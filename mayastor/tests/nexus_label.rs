@@ -141,14 +141,18 @@ async fn label_child() {
         assert_eq!(i, o)
     }
 
-    let mut file = std::fs::File::open("./gpt_secondary_test_data.bin").unwrap();
+    let mut file =
+        std::fs::File::open("./gpt_secondary_test_data.bin").unwrap();
     let mut buffer = hdl.dma_malloc(33 * 512).unwrap();
     file.read_exact(&mut buffer.as_mut_slice()).unwrap();
     // write out the secondary GPT partition table + GPT header
     child.write_at(2097119 * 512, &buffer).await.unwrap();
 
     let mut read_buffer = hdl.dma_malloc(33 * 512).unwrap();
-    child.read_at(2097119 * 512, &mut read_buffer).await.unwrap();
+    child
+        .read_at(2097119 * 512, &mut read_buffer)
+        .await
+        .unwrap();
     for (i, o) in buffer.as_slice().iter().zip(read_buffer.as_slice().iter()) {
         assert_eq!(i, o)
     }
