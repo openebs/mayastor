@@ -122,7 +122,7 @@ impl Nexus {
 
         // the partition must accurately reflect the disk size where possible.
         // if the size (in blocks) is too large to fit into 32 bits,
-        // we set the size to 0xffffffff
+        // we set the size to 0xffff_ffff
 
         pmbr.entries[0].lba_start = 1; // "partition" starts immediately after the MBR
         pmbr.entries[0].num_sectors = if num_blocks > u32::max_value().into() {
