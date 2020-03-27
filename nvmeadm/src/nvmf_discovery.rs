@@ -423,6 +423,5 @@ pub fn disconnect(nqn: &str) -> Result<u32, Error> {
             Ok(e)
         })
         .collect();
-
     Ok(disconnected_devices)
 }
