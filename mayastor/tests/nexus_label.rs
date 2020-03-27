@@ -70,7 +70,7 @@ async fn start() {
 /// parsing it, serialize it again, and assert the values.
 
 fn test_known_label() {
-    let mut file = std::fs::File::open("./gpt_test_data.bin").unwrap();
+    let mut file = std::fs::File::open("./gpt_primary_test_data.bin").unwrap();
 
     file.seek(SeekFrom::Start(512)).unwrap();
     let mut hdr_buf: [u8; 512] = [0; 512];
@@ -129,16 +129,26 @@ async fn label_child() {
     let desc = child.get_descriptor().unwrap();
     let hdl = BdevHandle::try_from(desc).unwrap();
 
-    let mut file = std::fs::File::open("./gpt_test_data.bin").unwrap();
-
+    let mut file = std::fs::File::open("./gpt_primary_test_data.bin").unwrap();
     let mut buffer = hdl.dma_malloc(34 * 512).unwrap();
     file.read_exact(&mut buffer.as_mut_slice()).unwrap();
-    // we also write the mbr here hence the offset is 0
+    // write out the MBR + primary GPT header + GPT partition table
     child.write_at(0, &buffer).await.unwrap();
 
     let mut read_buffer = hdl.dma_malloc(34 * 512).unwrap();
     child.read_at(0, &mut read_buffer).await.unwrap();
+    for (i, o) in buffer.as_slice().iter().zip(read_buffer.as_slice().iter()) {
+        assert_eq!(i, o)
+    }
 
+    let mut file = std::fs::File::open("./gpt_secondary_test_data.bin").unwrap();
+    let mut buffer = hdl.dma_malloc(33 * 512).unwrap();
+    file.read_exact(&mut buffer.as_mut_slice()).unwrap();
+    // write out the secondary GPT partition table + GPT header
+    child.write_at(2097119 * 512, &buffer).await.unwrap();
+
+    let mut read_buffer = hdl.dma_malloc(33 * 512).unwrap();
+    child.read_at(2097119 * 512, &mut read_buffer).await.unwrap();
     for (i, o) in buffer.as_slice().iter().zip(read_buffer.as_slice().iter()) {
         assert_eq!(i, o)
     }
