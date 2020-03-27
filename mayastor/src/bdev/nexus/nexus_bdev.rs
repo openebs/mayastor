@@ -30,7 +30,7 @@ use spdk_sys::{
     spdk_io_device_unregister,
 };
 
-use rpc::mayastor::{RebuildProgressReply, RebuildStateReply};
+use rpc::mayastor::RebuildProgressReply;
 
 use crate::{
     bdev::{
@@ -155,6 +155,12 @@ pub enum Error {
         name: String,
         reason: String,
     },
+    #[snafu(display(
+        "Rebuild task not found for child {} of nexus {}",
+        child,
+        name,
+    ))]
+    RebuildTaskNotFound { child: String, name: String },
     #[snafu(display("Invalid ShareProtocol value {}", sp_value))]
     InvalidShareProtocol { sp_value: i32 },
 }
@@ -752,13 +758,6 @@ impl Nexus {
     /// returns the current status of the nexus
     pub fn status(&self) -> NexusState {
         self.state
-    }
-
-    pub async fn get_rebuild_state(&self) -> Result<RebuildStateReply, Error> {
-        // TODO: add real implementation
-        Ok(RebuildStateReply {
-            state: "Not implemented".to_string(),
-        })
     }
 
     pub async fn get_rebuild_progress(

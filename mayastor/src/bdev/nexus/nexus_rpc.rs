@@ -16,6 +16,7 @@ use rpc::mayastor::{
     RemoveChildNexusRequest,
     ShareProtocolNexus,
     StartRebuildRequest,
+    StopRebuildRequest,
     UnpublishNexusRequest,
 };
 
@@ -84,6 +85,7 @@ pub(crate) fn register_rpc_methods() {
                         })
                         .collect::<Vec<_>>(),
                     device_path: nexus.get_share_path().unwrap_or_default(),
+                    rebuilds: nexus.rebuilds.len() as u64,
                 })
                 .collect::<Vec<_>>(),
         })
@@ -202,10 +204,18 @@ pub(crate) fn register_rpc_methods() {
         fut.boxed_local()
     });
 
+    jsonrpc_register("stop_rebuild", |args: StopRebuildRequest| {
+        let fut = async move {
+            let nexus = nexus_lookup(&args.uuid)?;
+            nexus.stop_rebuild(&args.uri).await
+        };
+        fut.boxed_local()
+    });
+
     jsonrpc_register("get_rebuild_state", |args: RebuildStateRequest| {
         let fut = async move {
             let nexus = nexus_lookup(&args.uuid)?;
-            nexus.get_rebuild_state().await
+            nexus.get_rebuild_state(&args.uri).await
         };
         fut.boxed_local()
     });
