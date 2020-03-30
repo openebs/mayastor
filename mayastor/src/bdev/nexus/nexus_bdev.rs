@@ -792,7 +792,7 @@ pub async fn nexus_create(
     let mut ni = Nexus::new(name, size, uuid, None);
 
     for child in children {
-        if let Err(err) = ni.register_child(child).await {
+        if let Err(err) = ni.create_and_register(child).await {
             ni.destroy_children().await;
             return Err(err).context(CreateChild {
                 name: ni.name.clone(),

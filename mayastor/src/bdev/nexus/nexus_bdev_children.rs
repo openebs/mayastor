@@ -68,9 +68,9 @@ impl Nexus {
             .for_each(drop);
     }
 
-    /// register a single child to nexus, only allowed during the nexus init
-    /// phase
-    pub async fn register_child(
+    /// Create and register a single child to nexus, only allowed during the
+    /// nexus init phase
+    pub async fn create_and_register(
         &mut self,
         uri: &str,
     ) -> Result<(), BdevCreateDestroy> {
@@ -440,16 +440,16 @@ impl Nexus {
     /// Add a child to the configuration when an example callback is run.
     /// The nexus is not opened implicitly, call .open() for this manually.
     pub fn examine_child(&mut self, name: &str) -> bool {
-        for mut c in &mut self.children {
-            if c.name == name && c.state == ChildState::Init {
+        self.children
+            .iter_mut()
+            .filter(|c| c.state == ChildState::Init && c.name == name)
+            .any(|c| {
                 if let Some(bdev) = Bdev::lookup_by_name(name) {
-                    debug!("{}: Adding child {}", self.name, name);
                     c.bdev = Some(bdev);
                     return true;
                 }
-            }
-        }
-        false
+                false
+            })
     }
 
     /// try to open all the child devices
