@@ -13,6 +13,8 @@ pub(crate) fn parse_ini_config_file() -> i32 {
         return 0;
     }
 
+    info!("Parsing nexus config sections");
+
     let mut devnum = 0;
     loop {
         let dev = unsafe {

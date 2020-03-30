@@ -1,7 +1,6 @@
 use std::ffi::{c_void, CString};
 
 use once_cell::sync::Lazy;
-
 use spdk_sys::{
     spdk_bdev_fn_table,
     spdk_bdev_io,
@@ -41,7 +40,6 @@ impl NexusFnTable {
         f_tbl.get_io_channel = Some(Self::io_channel);
         f_tbl.destruct = Some(Self::destruct);
         f_tbl.dump_info_json = Some(Self::dump_info_json);
-
         NexusFnTable {
             f_tbl,
         }
@@ -138,6 +136,8 @@ impl NexusFnTable {
         0
     }
 
+    /// device specific information which is returned
+    /// by the get_bdevs RPC call.
     extern "C" fn dump_info_json(
         ctx: *mut c_void,
         w: *mut spdk_json_write_ctx,

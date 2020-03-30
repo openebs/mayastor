@@ -1,0 +1,57 @@
+=== Example configuration
+
+For easy testing, its sometimes a lot simpler to spin up some docker containers
+or LXD instances. To configure the instances, a configuration file can be used
+instead of calling the RPC/gRPC server. Altough it amounts to the same thing it
+can get a bit tedious depending on the task at hand.
+
+As an example, consider the case where I want to create a 2-way mirrored, the
+instances could be configured using the following config file:
+
+[source,bash]
+----
+[Malloc]
+  NumberOfLuns 2
+  LunSizeInMB  64
+  BlockSize    4096
+
+[iSCSI]
+  NodeBase "iqn.2019-05.io.openebs"
+[PortalGroup1]
+  Portal GR1 0.0.0.0:3261
+
+[InitiatorGroup1]
+  InitiatorName Any
+  Netmask Any
+
+[TargetNode0]
+  TargetName disk0
+  TargetAlias "Data Disk0"
+  Mapping PortalGroup1 InitiatorGroup1
+  AuthMethod None
+  LUN0 Malloc0
+  QueueDepth 128
+
+[TargetNode1]
+  TargetName disk1
+  TargetAlias "Data Disk1"
+  Mapping PortalGroup1 InitiatorGroup1
+  LUN0 Malloc1
+  QueueDepth 128
+----
+
+Depending on your network configuration (and container systemd used) you end up
+with 2 containers that serve you two iSCSI LU's that are 64MB in size each.
+
+Instead of using RPC calls, we can use the following configuration file for
+auto creating the nexus.
+
+[source,bash]
+----
+[Nexus]
+  Dev e5dc0d39-ffa2-4917-b404-e3a0ed8c2409 512 64 iscsi0 iscsi1
+
+[iSCSI_Initiator]
+  URL iscsi://IP-CONTAINER-ONE:3261/iqn.2019-05.io.openebs:disk0/0 iscsi0
+  URL iscsi://IP_CONTAINER-TWO:3261/iqn.2019-05.io.openebs:disk0/0 iscsi1
+----

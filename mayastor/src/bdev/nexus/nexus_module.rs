@@ -1,20 +1,23 @@
 use std::{cell::UnsafeCell, ffi::CString};
 
 use once_cell::sync::{Lazy, OnceCell};
-
+use serde_json::json;
 use spdk_sys::{
     spdk_bdev_module,
     spdk_bdev_module_examine_done,
     spdk_bdev_module_list_add,
     spdk_get_thread,
+    spdk_json_write_ctx,
+    spdk_json_write_val_raw,
 };
 
+use super::instances;
 use crate::{
     bdev::nexus::{
         nexus_bdev::{Nexus, NexusState},
         nexus_io::NioCtx,
     },
-    core::Bdev,
+    core::{Bdev, Reactor},
 };
 
 const NEXUS_NAME: &str = "NEXUS_CAS_MODULE";
@@ -55,6 +58,7 @@ impl NexusModule {
         module.get_ctx_size = Some(Self::nexus_ctx_size);
         module.examine_config = Some(Self::examine);
         module.examine_disk = None;
+        module.config_json = Some(Self::config_json);
         NexusModule(Box::into_raw(module))
     }
 
@@ -110,28 +114,30 @@ impl NexusModule {
         Self::get_instances().clear();
     }
 
+    /// called for each bdev that gets added to the system
     extern "C" fn examine(new_device: *mut spdk_sys::spdk_bdev) {
         let name = Bdev::from(new_device).name();
         let instances = Self::get_instances();
 
-        // dont examine ourselves
-
-        if instances.iter().any(|n| n.name == name) {
-            unsafe {
-                spdk_bdev_module_examine_done(
-                    NEXUS_MODULE.0 as *const _ as *mut _,
-                )
-            }
-            return;
-        }
-
         instances
-            .iter()
-            .filter(|n| n.state == NexusState::Init)
-            .any(|bdev| {
-                let n = unsafe { Nexus::from_raw((*bdev.bdev.as_ptr()).ctxt) };
-                if n.examine_child(&name) {
-                    let _r = n.open();
+            .iter_mut()
+            .filter(|nexus| nexus.state == NexusState::Init)
+            .any(|nexus| {
+                if nexus.examine_child(&name) {
+                    info!(
+                        "child {} for nexus {} came online",
+                        name, nexus.name
+                    );
+                    // we use block on here as it makes any log message
+                    // show in within proper order. We can also dispatch
+                    // a future and have it executed at the next poll, but
+                    // this is more inline with what the other modules are
+                    // doing as well.
+                    Reactor::block_on(async move {
+                        if nexus.open().await.is_err() {
+                            debug!("nexus {} still not completed", nexus.name);
+                        }
+                    });
                     return true;
                 }
                 false
@@ -144,6 +150,41 @@ impl NexusModule {
 
     extern "C" fn nexus_ctx_size() -> i32 {
         std::mem::size_of::<NioCtx>() as i32
+    }
+
+    /// creates a JSON object that can be applied to mayastor that
+    /// will construct the nexus object and its children. Note that
+    /// the nexus implicitly tries to create the children as such
+    /// you should not have any iSCSI create related calls that
+    /// construct children in the config file.
+    extern "C" fn config_json(w: *mut spdk_json_write_ctx) -> i32 {
+        instances().iter().for_each(|nexus| {
+            let uris = nexus
+                .children
+                .iter()
+                .map(|c| c.name.clone())
+                .collect::<Vec<String>>();
+
+            let json = json!({
+                "method": "create_nexus",
+                "params": {
+                    "uuid" : nexus.name.as_str()[6 ..],
+                    "children" : uris,
+                    "size": nexus.size,
+                },
+            });
+
+            let data =
+                CString::new(serde_json::to_string(&json).unwrap()).unwrap();
+            unsafe {
+                spdk_json_write_val_raw(
+                    w,
+                    data.as_ptr() as *const _,
+                    data.as_bytes().len(),
+                );
+            }
+        });
+        0
     }
 }
 
