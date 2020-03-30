@@ -52,7 +52,7 @@ use crate::{
     ffihelper::errno_result_from_i32,
     jsonrpc::{Code, RpcErrorCode},
     nexus_uri::BdevCreateDestroy,
-    rebuild::{RebuildError, RebuildTask},
+    rebuild::RebuildError,
 };
 
 /// Common errors for nexus basic operations and child operations
@@ -135,8 +135,8 @@ pub enum Error {
     ChildNotFound { child: String, name: String },
     #[snafu(display("Child {} of nexus {} is not closed", child, name))]
     ChildNotClosed { child: String, name: String },
-    #[snafu(display("Open Child of nexus {} not found", name))]
-    OpenChildNotFound { name: String },
+    #[snafu(display("Suitable rebuild source for nexus {} not found", name))]
+    NoRebuildSource { name: String },
     #[snafu(display(
         "Failed to start rebuilding child {} of nexus {}",
         child,
@@ -148,22 +148,21 @@ pub enum Error {
         name: String,
     },
     #[snafu(display(
-        "Failed to complete rebuild of child {} of nexus {}, reason: {}",
-        child,
-        name,
-        reason,
-    ))]
-    CompleteRebuild {
-        child: String,
-        name: String,
-        reason: String,
-    },
-    #[snafu(display(
         "Rebuild task not found for child {} of nexus {}",
         child,
         name,
     ))]
     RebuildTaskNotFound { child: String, name: String },
+    #[snafu(display(
+        "Failed to remove rebuild task {} of nexus {}",
+        child,
+        name,
+    ))]
+    RemoveRebuildTask {
+        source: RebuildError,
+        child: String,
+        name: String,
+    },
     #[snafu(display("Invalid ShareProtocol value {}", sp_value))]
     InvalidShareProtocol { sp_value: i32 },
     #[snafu(display("Failed to create nexus {}", name))]
@@ -297,8 +296,6 @@ pub struct Nexus {
     /// the handle to be used when sharing the nexus, this allows for the bdev
     /// to be shared with vbdevs on top
     pub(crate) share_handle: Option<String>,
-    /// vector of rebuild tasks
-    pub rebuilds: Vec<RebuildTask>,
     /// enum containing the protocol-specific target used to publish the nexus
     pub nexus_target: Option<NexusTarget>,
 }
@@ -377,7 +374,6 @@ impl Nexus {
             data_ent_offset: 0,
             share_handle: None,
             size,
-            rebuilds: Vec::new(),
             nexus_target: None,
         });
 
