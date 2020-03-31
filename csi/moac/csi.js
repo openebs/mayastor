@@ -114,7 +114,7 @@ class CsiServer {
       'getCapacity',
       'controllerGetCapabilities',
     ];
-    methodNames.forEach(name => {
+    methodNames.forEach((name) => {
       controllerMethods[name] = function checkReady(args, cb) {
         log.trace(`CSI ${name} request: ${JSON.stringify(args)}`);
 
@@ -149,7 +149,7 @@ class CsiServer {
       'listSnapshots',
       'controllerExpandVolume',
     ];
-    methodNames.forEach(name => {
+    methodNames.forEach((name) => {
       controllerMethods[name] = function notImplemented(_, cb) {
         let msg = `CSI method ${name} not implemented`;
         log.error(msg);
@@ -225,7 +225,7 @@ class CsiServer {
     var caps = ['CONTROLLER_SERVICE', 'VOLUME_ACCESSIBILITY_CONSTRAINTS'];
     log.debug('getPluginCapabilities request: ' + caps.join(', '));
     cb(null, {
-      capabilities: caps.map(c => {
+      capabilities: caps.map((c) => {
         return { service: { type: c } };
       }),
     });
@@ -249,7 +249,7 @@ class CsiServer {
     ];
     log.debug('get capabilities request: ' + caps.join(', '));
     cb(null, {
-      capabilities: caps.map(c => {
+      capabilities: caps.map((c) => {
         return { rpc: { type: c } };
       }),
     });
@@ -410,7 +410,7 @@ class CsiServer {
         volumes: this.volumes
           .get()
           .map(createK8sVolumeObject)
-          .map(v => {
+          .map((v) => {
             return { volume: v };
           }),
       };
@@ -485,6 +485,11 @@ class CsiServer {
     } catch (err) {
       return cb(err);
     }
+    if (!args.volumeContext || !args.volumeContext.protocol) {
+      return cb(
+        new GrpcError(grpc.status.INVALID_ARGUMENT, 'missing protocol')
+      );
+    }
 
     try {
       await volume.publish(args.volumeContext.protocol);
@@ -556,7 +561,7 @@ class CsiServer {
       );
     }
     let caps = args.volumeCapabilities.filter(
-      cap => cap.accessMode.mode == 'SINGLE_NODE_WRITER'
+      (cap) => cap.accessMode.mode == 'SINGLE_NODE_WRITER'
     );
     let resp = {};
     if (caps.length > 0) {
