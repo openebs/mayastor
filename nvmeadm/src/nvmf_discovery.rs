@@ -7,7 +7,7 @@ use std::{convert::TryInto, fmt};
 
 use nix::libc::ioctl as nix_ioctl;
 
-use std::fs;
+use crate::nvmf_subsystem::{NvmeSubsystems, Subsystem};
 
 /// when connecting to a NVMF target, we MAY send a NQN that we want to be
 /// referred as.
@@ -412,24 +412,17 @@ impl DiscoveryLogEntry {
 ///  let num_disconnects = nvmeadm::nvmf_discovery::disconnect(nqn);
 ///  ```
 
-// For each directory in /sys/class/nvme:
-//   read the directory's subsysnqn file
-//   if the text in that file exactly matches the supplied nqn then
-//     write "1" to the directory's delete_controller file
 pub fn disconnect(nqn: &str) -> Result<u32, Error> {
     let mut disconnected_devices: u32 = 0;
-    for dir_entry in fs::read_dir("/sys/class/nvme")? {
-        let base_path = &dir_entry.unwrap().path();
-        let nqn_path = &base_path.join("subsysnqn");
-        let mut contents = fs::read_to_string(&nqn_path).unwrap();
-        if contents.ends_with('\n') {
-            contents.pop();
-        }
-        if contents == nqn {
-            let del_path = &base_path.join("delete_controller");
-            fs::write(&del_path, "1")?;
+    let _subsys: Result<Vec<Subsystem>, Error> = NvmeSubsystems::new()?
+        .filter_map(Result::ok)
+        .filter(|e| e.nqn == nqn)
+        .map(|e| {
             disconnected_devices += 1;
-        }
-    }
+            e.disconnect()?;
+            Ok(e)
+        })
+        .collect();
+
     Ok(disconnected_devices)
 }
