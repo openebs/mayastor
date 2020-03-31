@@ -13,7 +13,7 @@ const { GrpcCode, GrpcError } = require('../grpc_client');
 
 const UUID = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cbb';
 
-module.exports = function() {
+module.exports = function () {
   var props = {
     uuid: UUID,
     size: 100,
@@ -31,15 +31,15 @@ module.exports = function() {
     ],
   };
 
-  it('should bind the nexus to node and then unbind it', done => {
+  it('should bind the nexus to node and then unbind it', (done) => {
     let node = new Node('node');
     let nexus = new Nexus(props);
-    node.once('nexus', ev => {
+    node.once('nexus', (ev) => {
       expect(ev.eventType).to.equal('new');
       expect(ev.object).to.equal(nexus);
       expect(nexus.node).to.equal(node);
 
-      node.once('nexus', ev => {
+      node.once('nexus', (ev) => {
         expect(ev.eventType).to.equal('del');
         expect(ev.object).to.equal(nexus);
         setTimeout(() => {
@@ -59,7 +59,7 @@ module.exports = function() {
     let nexus = new Nexus(props);
     node._registerNexus(nexus);
 
-    node.once('nexus', ev => {
+    node.once('nexus', (ev) => {
       expect(ev.eventType).to.equal('mod');
       expect(ev.object).to.equal(nexus);
       expect(nexus.state).to.equal('OFFLINE');
@@ -167,10 +167,10 @@ module.exports = function() {
     var node, nexus, eventSpy, callStub;
 
     // Create a sample nexus bound to a node
-    beforeEach(done => {
+    beforeEach((done) => {
       node = new Node('node');
       nexus = new Nexus(props);
-      node.once('nexus', ev => {
+      node.once('nexus', (ev) => {
         expect(ev.eventType).to.equal('new');
         eventSpy = sinon.spy(node, 'emit');
         callStub = sinon.stub(node, 'call');
@@ -186,11 +186,9 @@ module.exports = function() {
 
     it('should not publish the nexus with whatever protocol', async () => {
       callStub.resolves({ devicePath: '/dev/whatever0' });
-      callStub.rejects(
-        new GrpcError(GrpcCode.INVALID_ARGUMENT, 'Test failure')
-      );
+      callStub.rejects(new GrpcError(GrpcCode.NOT_FOUND, 'Test failure'));
 
-      await shouldFailWith(GrpcCode.INVALID_ARGUMENT, async () => {
+      await shouldFailWith(GrpcCode.NOT_FOUND, async () => {
         await nexus.publish('whatever');
       });
 

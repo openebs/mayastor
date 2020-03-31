@@ -133,12 +133,12 @@ class Nexus {
 
     let nexus_protocol = 'NEXUS_'.concat(protocol.toUpperCase());
     var share = mayastor.ShareProtocolNexus.type.value.find(
-      ent => ent.name == nexus_protocol
+      (ent) => ent.name == nexus_protocol
     );
     if (!share) {
       throw new GrpcError(
-        GrpcCode.INVALID_ARGUMENT,
-        `Invalid protocol "${protocol}" for Nexus ${this}`
+        GrpcCode.NOT_FOUND,
+        `Cannot find protocol "${protocol}" for Nexus ${this}`
       );
     }
     log.info(
@@ -185,7 +185,7 @@ class Nexus {
   //
   async addReplica(replica) {
     let uri = replica.uri;
-    if (this.children.find(ch => ch.uri == uri)) {
+    if (this.children.find((ch) => ch.uri == uri)) {
       return;
     }
     log.debug(`Adding uri "${uri}" to nexus "${this}" ...`);
@@ -215,7 +215,7 @@ class Nexus {
   //
   async removeReplica(replica) {
     let uri = replica.uri;
-    if (!this.children.find(ch => ch.uri == uri)) {
+    if (!this.children.find((ch) => ch.uri == uri)) {
       return;
     }
 
@@ -233,7 +233,7 @@ class Nexus {
       );
     }
     // get index again in case the list changed in the meantime
-    let idx = this.children.findIndex(ch => ch.uri == uri);
+    let idx = this.children.findIndex((ch) => ch.uri == uri);
     if (idx >= 0) {
       this.children.splice(idx, 1);
     }
