@@ -412,16 +412,14 @@ impl DiscoveryLogEntry {
 ///  let num_disconnects = nvmeadm::nvmf_discovery::disconnect(nqn);
 ///  ```
 
-pub fn disconnect(nqn: &str) -> Result<u32, Error> {
-    let mut disconnected_devices: u32 = 0;
-    let _subsys: Result<Vec<Subsystem>, Error> = NvmeSubsystems::new()?
+pub fn disconnect(nqn: &str) -> Result<usize, Error> {
+    let subsys: Result<Vec<Subsystem>, Error> = NvmeSubsystems::new()?
         .filter_map(Result::ok)
         .filter(|e| e.nqn == nqn)
         .map(|e| {
-            disconnected_devices += 1;
             e.disconnect()?;
             Ok(e)
         })
         .collect();
-    Ok(disconnected_devices)
+    Ok(subsys.unwrap().len())
 }
