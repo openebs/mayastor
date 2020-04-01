@@ -261,153 +261,224 @@ impl NexusChild {
         }
 
         let bdev = match self.bdev.as_ref() {
-            Some(dev) => dev,
+            Some(bdev) => bdev,
             None => {
                 return Err(ChildError::ChildInvalid {});
             }
         };
 
         let desc = match self.bdev_handle.as_ref() {
-            Some(handle) => handle,
+            Some(desc) => desc,
             None => {
                 return Err(ChildError::ChildInvalid {});
             }
         };
 
         let block_size = bdev.block_len();
+
+        //
+        // Protective MBR
         let mut buf = desc
             .dma_malloc(block_size as usize)
             .context(LabelAlloc {})?;
+        let mbr = self.read_mbr(&mut buf).await?;
 
-        self.read_at(0, &mut buf).await.context(LabelRead {})?;
-        let mbr = match Pmbr::from_slice(&buf.as_slice()[440 .. 512]) {
-            Ok(record) => record,
-            Err(_) => {
-                warn!(
-                    "{}: {}: The protective MBR is invalid!",
-                    self.parent, self.name
-                );
-                return Err(ChildError::LabelInvalid {});
-            }
-        };
+        let mut header: Vec<GPTHeader> = Vec::with_capacity(2);
+        let active: GPTHeader;
 
-        self.read_at(u64::from(block_size), &mut buf)
-            .await
-            .context(LabelRead {})?;
-        let primary = match GPTHeader::from_slice(buf.as_slice()) {
-            Ok(header) => header,
-            Err(_) => {
-                warn!(
-                    "{}: {}: The primary GPT header is invalid!",
-                    self.parent, self.name
-                );
-                return Err(ChildError::LabelInvalid {});
+        //
+        // GPT header(s)
+        match self.read_header(u64::from(block_size), &mut buf).await {
+            Ok(primary) => {
+                active = primary;
+                header.push(primary);
+                match self
+                    .read_header(
+                        (bdev.num_blocks() - 1) * u64::from(block_size),
+                        &mut buf,
+                    )
+                    .await
+                {
+                    Ok(secondary) => {
+                        header.push(secondary);
+                        self.check_consistency(&primary, &secondary)?;
+                    }
+                    Err(_) => {
+                        // The secondary GPT header is invalid.
+                        // Issue a warning but otherwise carry on.
+                        warn!(
+                            "{}: {}: The secondary GPT header is invalid!",
+                            self.parent, self.name
+                        );
+                        // Recreate secondary from primary.
+                        header.push(primary.to_backup());
+                    }
+                }
             }
-        };
+            Err(_) => {
+                // The primary GPT header is invalid.
+                // Try the secondary and see if we are able to proceed.
+                match self
+                    .read_header(
+                        (bdev.num_blocks() - 1) * u64::from(block_size),
+                        &mut buf,
+                    )
+                    .await
+                {
+                    Ok(secondary) => {
+                        warn!("{}: {}: The primary GPT header is invalid - using secondary!", self.parent, self.name);
+                        active = secondary;
+                        // Recreate primary from secondary.
+                        header.push(secondary.to_primary());
+                        header.push(secondary);
+                    }
+                    Err(_) => {
+                        warn!("{}: {}: The primary and secondary GPT headers are both invalid!", self.parent, self.name);
+                        return Err(ChildError::LabelInvalid {});
+                    }
+                }
+            }
+        }
 
         if mbr.entries[0].num_sectors != 0xffff_ffff
-            && mbr.entries[0].num_sectors as u64 != primary.lba_alt
+            && mbr.entries[0].num_sectors as u64 != header[0].lba_alt
         {
             warn!("{}: {}: The protective MBR disk size does not match the GPT disk size!", self.parent, self.name);
             return Err(ChildError::LabelInvalid {});
         }
 
-        self.read_at((bdev.num_blocks() - 1) * u64::from(block_size), &mut buf)
-            .await
-            .context(LabelRead {})?;
-        let secondary = match GPTHeader::from_slice(buf.as_slice()) {
-            Ok(header) => header,
+        //
+        // Partition table
+        let mut buf = desc
+            .dma_malloc(NexusChild::get_size(
+                active.entry_size * active.num_entries,
+                block_size,
+            ) as usize)
+            .context(PartitionTableAlloc {})?;
+        let mut partitions = self
+            .read_partitions(u64::from(block_size), &mut buf, &active)
+            .await?;
+
+        // Some tools always write 128 partition entries, even though most
+        // are not used. In any case we are only ever interested
+        // in the first two partitions, so we drain the others.
+        let entries = partitions.drain(.. 2).collect::<Vec<GptEntry>>();
+
+        if GptEntry::checksum(&entries) != header[0].table_crc {
+            warn!("{}: {}: The calculated and stored partition table checksums differ!", self.parent, self.name);
+            return Err(ChildError::PartitionTableChecksum {});
+        }
+
+        header[0].checksum();
+        header[1].checksum();
+
+        Ok(NexusLabel {
+            mbr,
+            primary: header[0],
+            partitions: entries,
+            secondary: header[1],
+        })
+    }
+
+    fn get_size(size: u32, block_size: u32) -> u32 {
+        match size % block_size {
+            0 => size,
+            n => size + block_size - n,
+        }
+    }
+
+    async fn read_mbr(&self, buf: &mut DmaBuf) -> Result<Pmbr, ChildError> {
+        self.read_at(0, buf).await.context(LabelRead {})?;
+        match Pmbr::from_slice(&buf.as_slice()[440 .. 512]) {
+            Ok(mbr) => Ok(mbr),
             Err(_) => {
                 warn!(
-                    "{}: {}: The secondary GPT header is invalid!",
+                    "{}: {}: The protective MBR is invalid!",
                     self.parent, self.name
                 );
-                return Err(ChildError::LabelInvalid {});
+                Err(ChildError::LabelInvalid {})
             }
-        };
+        }
+    }
 
+    async fn read_header(
+        &self,
+        offset: u64,
+        buf: &mut DmaBuf,
+    ) -> Result<GPTHeader, ChildError> {
+        self.read_at(offset, buf).await.context(LabelRead {})?;
+        match GPTHeader::from_slice(buf.as_slice()) {
+            Ok(header) => Ok(header),
+            Err(_) => Err(ChildError::LabelInvalid {}),
+        }
+    }
+
+    async fn read_partitions(
+        &self,
+        block_size: u64,
+        buf: &mut DmaBuf,
+        header: &GPTHeader,
+    ) -> Result<Vec<GptEntry>, ChildError> {
+        self.read_at(header.lba_table * block_size, buf)
+            .await
+            .context(PartitionTableRead {})?;
+        match GptEntry::from_slice(&buf.as_slice(), header.num_entries) {
+            Ok(partitions) => {
+                if GptEntry::checksum(&partitions) != header.table_crc {
+                    warn!("{}: {}: The calculated and stored partition table checksums differ!", self.parent, self.name);
+                    return Err(ChildError::PartitionTableChecksum {});
+                }
+                Ok(partitions)
+            }
+            Err(_) => {
+                warn!(
+                    "{}: {}: The partition table is invalid!",
+                    self.parent, self.name
+                );
+                Err(ChildError::InvalidPartitionTable {})
+            }
+        }
+    }
+
+    fn check_consistency(
+        &self,
+        primary: &GPTHeader,
+        secondary: &GPTHeader,
+    ) -> Result<(), ChildError> {
         if primary.guid != secondary.guid {
             warn!("{}: {}: The primary and secondary GPT headers are inconsistent: GUIDs differ!", self.parent, self.name);
             return Err(ChildError::LabelInvalid {});
         }
-
         if primary.lba_start != secondary.lba_start
             || primary.lba_end != secondary.lba_end
         {
             warn!("{}: {}: The primary and secondary GPT headers are inconsistent: disk sizes differ!", self.parent, self.name);
             return Err(ChildError::LabelInvalid {});
         }
-
         if primary.table_crc != secondary.table_crc {
             warn!("{}: {}: The primary and secondary GPT headers are inconsistent: stored partition table checksums differ!", self.parent, self.name);
-            return Err(ChildError::LabelInvalid {});
+            return Err(ChildError::InvalidPartitionTable {});
         }
-
-        // determine number of blocks we need to read from the partition table
-        let num_blocks =
-            ((primary.entry_size * primary.num_entries) / block_size) + 1;
-        let mut buf = desc
-            .dma_malloc((num_blocks * block_size) as usize)
-            .context(PartitionTableAlloc {})?;
-        self.read_at(primary.lba_table * u64::from(block_size), &mut buf)
-            .await
-            .context(PartitionTableRead {})?;
-        let mut partitions =
-            match GptEntry::from_slice(&buf.as_slice(), primary.num_entries) {
-                Ok(table) => table,
-                Err(_) => {
-                    warn!(
-                        "{}: {}: The partition table is invalid!",
-                        self.parent, self.name
-                    );
-                    return Err(ChildError::InvalidPartitionTable {});
-                }
-            };
-
-        if GptEntry::checksum(&partitions) != primary.table_crc {
-            warn!("{}: {}: The calculated and stored partition table checksums differ!", self.parent, self.name);
-            return Err(ChildError::PartitionTableChecksum {});
-        }
-
-        // some tools write 128 partition entries, even though only two are
-        // created, in any case we are only ever interested in the first two
-        // partitions, so we drain the others.
-        let parts = partitions.drain(.. 2).collect::<Vec<_>>();
-
-        Ok(NexusLabel {
-            mbr,
-            primary,
-            partitions: parts,
-            secondary,
-        })
+        Ok(())
     }
 
-    /// write a label to this child
-    pub async fn write_label(
-        &mut self,
-        label: &NexusLabel,
-        data: &LabelData,
-        block_size: u64,
+    /// write both (primary and secondary) labels to this child
+    pub async fn write_labels(
+        &self,
+        primary: &LabelData,
+        secondary: &LabelData,
     ) -> Result<(), ChildIoError> {
-        // Protective MBR
-        self.write_at(0 as u64, &data.mbr).await?;
+        self.write_at(primary.offset, &primary.buf).await?;
+        self.write_at(secondary.offset, &secondary.buf).await?;
+        Ok(())
+    }
 
-        // Primary GPT header
-        self.write_at(block_size * label.primary.lba_self, &data.primary)
-            .await?;
-
-        // Primary partition table
-        self.write_at(block_size * label.primary.lba_table, &data.table)
-            .await?;
-
-        // Secondary partition table
-        self.write_at(block_size * label.secondary.lba_table, &data.table)
-            .await?;
-
-        // Secondary GPT header
-        self.write_at(block_size * label.secondary.lba_self, &data.secondary)
-            .await?;
-
+    /// write a single (primary or secondary) label to this child
+    pub async fn write_label(
+        &self,
+        label: &LabelData,
+    ) -> Result<(), ChildIoError> {
+        self.write_at(label.offset, &label.buf).await?;
         Ok(())
     }
 
@@ -417,14 +488,15 @@ impl NexusChild {
         offset: u64,
         buf: &DmaBuf,
     ) -> Result<usize, ChildIoError> {
-        if let Some(desc) = self.bdev_handle.as_ref() {
-            Ok(desc.write_at(offset, buf).await.context(WriteError {
+        match self.bdev_handle.as_ref() {
+            Some(desc) => {
+                Ok(desc.write_at(offset, buf).await.context(WriteError {
+                    name: self.name.clone(),
+                })?)
+            }
+            None => Err(ChildIoError::InvalidDescriptor {
                 name: self.name.clone(),
-            })?)
-        } else {
-            Err(ChildIoError::InvalidDescriptor {
-                name: self.name.clone(),
-            })
+            }),
         }
     }
 
@@ -434,14 +506,15 @@ impl NexusChild {
         offset: u64,
         buf: &mut DmaBuf,
     ) -> Result<usize, ChildIoError> {
-        if let Some(desc) = self.bdev_handle.as_ref() {
-            Ok(desc.read_at(offset, buf).await.context(ReadError {
+        match self.bdev_handle.as_ref() {
+            Some(desc) => {
+                Ok(desc.read_at(offset, buf).await.context(ReadError {
+                    name: self.name.clone(),
+                })?)
+            }
+            None => Err(ChildIoError::InvalidDescriptor {
                 name: self.name.clone(),
-            })?)
-        } else {
-            Err(ChildIoError::InvalidDescriptor {
-                name: self.name.clone(),
-            })
+            }),
         }
     }
 }

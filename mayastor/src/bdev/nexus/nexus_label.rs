@@ -98,10 +98,8 @@ pub enum LabelError {
 }
 
 pub struct LabelData {
-    pub mbr: DmaBuf,
-    pub primary: DmaBuf,
-    pub table: DmaBuf,
-    pub secondary: DmaBuf,
+    pub offset: u64,
+    pub buf: DmaBuf,
 }
 
 impl Nexus {
@@ -177,7 +175,10 @@ impl Nexus {
 
         //
         // Secondary GPT header
-        let backup = header.to_backup();
+        let mut backup = header.to_backup();
+
+        header.checksum();
+        backup.checksum();
 
         NexusLabel {
             mbr: pmbr,
@@ -187,51 +188,83 @@ impl Nexus {
         }
     }
 
-    pub async fn write_labels(
-        &mut self,
+    fn get_primary_data(
+        &self,
         label: &mut NexusLabel,
-    ) -> Result<(), LabelError> {
-        let block_size: u32 = self.bdev.block_len();
-
-        let mut data = LabelData {
-            mbr: DmaBuf::new(block_size as usize, self.bdev.alignment())
-                .context(WriteLabelAlloc {})?,
-            primary: DmaBuf::new(block_size as usize, self.bdev.alignment())
-                .context(WriteLabelAlloc {})?,
-            table: DmaBuf::new((1 << 14) as usize, self.bdev.alignment())
-                .context(WriteLabelAlloc {})?,
-            secondary: DmaBuf::new(block_size as usize, self.bdev.alignment())
-                .context(WriteLabelAlloc {})?,
-        };
-
-        let mut writer: Cursor<&mut [u8]>;
+    ) -> Result<LabelData, LabelError> {
+        let block_size = self.bdev.block_len() as u64;
+        let mut buf = DmaBuf::new(
+            (GPTHeader::PARTITION_TABLE_SIZE + 2 * block_size) as usize,
+            self.bdev.alignment(),
+        )
+        .context(WriteLabelAlloc {})?;
+        let mut writer = Cursor::new(buf.as_mut_slice());
 
         // Protective MBR
-        writer = Cursor::new(data.mbr.as_mut_slice());
         writer.seek(SeekFrom::Start(440)).unwrap();
         serialize_into(&mut writer, &label.mbr).context(SerializeError {})?;
 
         // Primary GPT header
-        label.primary.checksum();
-        writer = Cursor::new(data.primary.as_mut_slice());
+        writer
+            .seek(SeekFrom::Start(label.primary.lba_self * block_size))
+            .unwrap();
         serialize_into(&mut writer, &label.primary)
             .context(SerializeError {})?;
 
-        // Partition table
-        writer = Cursor::new(data.table.as_mut_slice());
+        // Primary partition table
+        writer
+            .seek(SeekFrom::Start(label.primary.lba_table * block_size))
+            .unwrap();
+        for entry in &label.partitions {
+            serialize_into(&mut writer, &entry).context(SerializeError {})?;
+        }
+
+        Ok(LabelData {
+            offset: 0,
+            buf,
+        })
+    }
+
+    fn get_secondary_data(
+        &self,
+        label: &mut NexusLabel,
+    ) -> Result<LabelData, LabelError> {
+        let block_size = self.bdev.block_len() as u64;
+        let mut buf = DmaBuf::new(
+            (GPTHeader::PARTITION_TABLE_SIZE + block_size) as usize,
+            self.bdev.alignment(),
+        )
+        .context(WriteLabelAlloc {})?;
+        let mut writer = Cursor::new(buf.as_mut_slice());
+
+        // Secondary partition table
         for entry in &label.partitions {
             serialize_into(&mut writer, &entry).context(SerializeError {})?;
         }
 
         // Secondary GPT header
-        label.secondary.checksum();
-        writer = Cursor::new(data.secondary.as_mut_slice());
+        writer
+            .seek(SeekFrom::Start(GPTHeader::PARTITION_TABLE_SIZE))
+            .unwrap();
         serialize_into(&mut writer, &label.secondary)
             .context(SerializeError {})?;
 
+        Ok(LabelData {
+            offset: label.secondary.lba_table * block_size,
+            buf,
+        })
+    }
+
+    pub async fn write_labels(
+        &mut self,
+        label: &mut NexusLabel,
+    ) -> Result<(), LabelError> {
+        let primary = self.get_primary_data(label)?;
+        let secondary = self.get_secondary_data(label)?;
+
         for child in &mut self.children {
             child
-                .write_label(&label, &data, block_size as u64)
+                .write_labels(&primary, &secondary)
                 .await
                 .context(WriteError {})?;
             child.probe_label().await.context(ProbeError {})?;
@@ -327,6 +360,8 @@ pub struct GPTHeader {
 }
 
 impl GPTHeader {
+    pub const PARTITION_TABLE_SIZE: u64 = 128 * 128;
+
     /// converts a slice into a gpt header and verifies the validity of the data
     pub fn from_slice(slice: &[u8]) -> Result<GPTHeader, LabelError> {
         let mut reader = Cursor::new(slice);
@@ -373,7 +408,9 @@ impl GPTHeader {
             lba_self: 1,
             lba_alt: num_blocks - 1,
             lba_start: u64::from((1 << 20) / blk_size),
-            lba_end: ((num_blocks - 1) - u64::from((1 << 14) / blk_size)) - 1,
+            lba_end: (num_blocks - 1)
+                - (GPTHeader::PARTITION_TABLE_SIZE / u64::from(blk_size))
+                - 1,
             guid: GptGuid {
                 time_low: fields.0,
                 time_mid: fields.1,
@@ -393,6 +430,14 @@ impl GPTHeader {
         secondary.lba_alt = self.lba_self;
         secondary.lba_table = self.lba_end + 1;
         secondary
+    }
+
+    pub fn to_primary(&self) -> Self {
+        let mut primary = *self;
+        primary.lba_self = self.lba_alt;
+        primary.lba_alt = self.lba_self;
+        primary.lba_table = self.lba_alt + 1;
+        primary
     }
 }
 
