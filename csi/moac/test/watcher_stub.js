@@ -68,7 +68,7 @@ class Watcher extends EventEmitter {
 
   list() {
     var self = this;
-    return Object.values(this.objects).map(ent => self.filterCb(ent));
+    return Object.values(this.objects).map((ent) => self.filterCb(ent));
   }
 }
 

@@ -11,7 +11,7 @@ const Nexus = require('../nexus');
 const Node = require('../node');
 const NodeStub = require('./node_stub');
 
-module.exports = function() {
+module.exports = function () {
   it('should add a node to the registry and look up the node', () => {
     let registry = new Registry();
     registry.Node = NodeStub;
@@ -24,14 +24,14 @@ module.exports = function() {
 
     // ensure the events from the node are relayed by the registry
     var events = ['node', 'pool', 'replica', 'nexus'];
-    events.forEach(ev => {
+    events.forEach((ev) => {
       registry.once(ev, () => {
-        let idx = events.findIndex(ent => ent == ev);
+        let idx = events.findIndex((ent) => ent == ev);
         expect(idx).to.not.equal(-1);
         events.splice(idx, 1);
       });
     });
-    _.clone(events).forEach(ev => node.emit(ev, {}));
+    _.clone(events).forEach((ev) => node.emit(ev, {}));
     // jshint ignore:start
     expect(events).to.be.empty;
     // jshint ignore:end
@@ -55,12 +55,12 @@ module.exports = function() {
 
     // ensure the events from the node are not relayed
     var events = ['node', 'pool', 'replica', 'nexus'];
-    events.forEach(ev => {
+    events.forEach((ev) => {
       registry.on(ev, () => {
         throw new Error('Received event after the node was removed');
       });
     });
-    events.forEach(ev => node.emit(ev, {}));
+    events.forEach((ev) => node.emit(ev, {}));
   });
 
   it('should get a list of pools from registry', () => {
@@ -201,7 +201,7 @@ module.exports = function() {
     expect(cap).to.equal(75);
   });
 
-  describe('pool selection', function() {
+  describe('pool selection', function () {
     it('should prefer ONLINE pool', () => {
       // has more free space but is degraded
       let pool1 = new Pool({

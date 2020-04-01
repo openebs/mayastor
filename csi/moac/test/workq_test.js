@@ -29,7 +29,7 @@ class Task {
   }
 }
 
-module.exports = function() {
+module.exports = function () {
   var clock;
 
   beforeEach(() => {
@@ -42,18 +42,18 @@ module.exports = function() {
 
   it('should execute a task that is a closure', async () => {
     let wq = new Workq();
-    let result = await wq.push(100, async arg => {
+    let result = await wq.push(100, async (arg) => {
       expect(arg).to.equal(100);
       return arg;
     });
     expect(result).to.equal(100);
   });
 
-  it('should execute a task that is a bound method', done => {
+  it('should execute a task that is a bound method', (done) => {
     let task = new Task(0);
     let wq = new Workq();
 
-    wq.push(100, task.doIt.bind(task)).then(result => {
+    wq.push(100, task.doIt.bind(task)).then((result) => {
       expect(result.id).to.equal(0);
       expect(result.arg).to.equal(100);
       done();
@@ -61,23 +61,23 @@ module.exports = function() {
     clock.tick(1);
   });
 
-  it('should propagate an exception from sync context', done => {
+  it('should propagate an exception from sync context', (done) => {
     let task = new Task(0);
     let wq = new Workq();
 
     wq.push('throw here', task.doIt.bind(task))
-      .then(res => done(new Error('it should have thrown the exception')))
-      .catch(err => done());
+      .then((res) => done(new Error('it should have thrown the exception')))
+      .catch((err) => done());
     clock.tick(1);
   });
 
-  it('should propagate an exception from async context', done => {
+  it('should propagate an exception from async context', (done) => {
     let task = new Task(0);
     let wq = new Workq();
 
     wq.push('throw there', task.doIt.bind(task))
-      .then(res => done(new Error('it should have thrown the exception')))
-      .catch(err => done());
+      .then((res) => done(new Error('it should have thrown the exception')))
+      .catch((err) => done());
     clock.tick(1);
   });
 
@@ -119,7 +119,7 @@ module.exports = function() {
     expect(res1.timestamp).to.be.below(res2.timestamp);
   });
 
-  it('should continue with the next task even if previous one failed', done => {
+  it('should continue with the next task even if previous one failed', (done) => {
     let task1 = new Task(1);
     let task2 = new Task(2);
     let task3 = new Task(3);
@@ -133,18 +133,18 @@ module.exports = function() {
     let promise3 = wq.push(100, task3.doIt.bind(task3));
 
     promise1
-      .then(res => done(new Error('it should have thrown the exception')))
-      .catch(e => {
+      .then((res) => done(new Error('it should have thrown the exception')))
+      .catch((e) => {
         promise2
-          .then(res => done(new Error('it should have thrown the exception')))
-          .catch(e => {
+          .then((res) => done(new Error('it should have thrown the exception')))
+          .catch((e) => {
             promise3
-              .then(res => {
+              .then((res) => {
                 expect(res.id).to.equal(3);
                 expect(res.arg).to.equal(100);
                 done();
               })
-              .catch(e => done(e));
+              .catch((e) => done(e));
           });
       });
   });

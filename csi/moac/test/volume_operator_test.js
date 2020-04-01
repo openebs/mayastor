@@ -34,7 +34,7 @@ function defaultMeta(uuid) {
   };
 }
 
-module.exports = function() {
+module.exports = function () {
   var msStub, putStub, putStatusStub, deleteStub, postStub;
   var defaultSpec = {
     replicaCount: 1,
@@ -76,8 +76,8 @@ module.exports = function() {
   // endpoint to update the status of resource. Fake watcher that is used
   // in the tests does not use this client stub.
   function createK8sClient(watcher) {
-    let mayastorvolumes = { mayastorvolumes: function(name) {} };
-    let namespaces = function(ns) {
+    let mayastorvolumes = { mayastorvolumes: function (name) {} };
+    let namespaces = function (ns) {
       expect(ns).to.equal(NAMESPACE);
       return mayastorvolumes;
     };
@@ -90,7 +90,7 @@ module.exports = function() {
     };
 
     msStub = sinon.stub(mayastorvolumes, 'mayastorvolumes');
-    msStub.post = async function(payload) {
+    msStub.post = async function (payload) {
       watcher.objects[payload.body.metadata.name] = payload.body;
       // simulate the asynchronicity of the put
       await sleep(1);
@@ -102,12 +102,12 @@ module.exports = function() {
       // the tricky thing here is that we have to update watcher's cache
       // if we use this fake k8s client to change the object in order to
       // mimic real behaviour.
-      put: async function(payload) {
+      put: async function (payload) {
         watcher.objects[payload.body.metadata.name].spec = payload.body.spec;
       },
-      delete: async function() {},
+      delete: async function () {},
       status: {
-        put: async function(payload) {
+        put: async function (payload) {
           watcher.objects[payload.body.metadata.name].status =
             payload.body.status;
         },

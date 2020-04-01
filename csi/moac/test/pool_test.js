@@ -11,7 +11,7 @@ const Replica = require('../replica');
 const { shouldFailWith } = require('./utils');
 const { GrpcCode, GrpcError } = require('../grpc_client');
 
-module.exports = function() {
+module.exports = function () {
   let props = {
     name: 'pool',
     disks: ['/dev/sda'],
@@ -150,15 +150,15 @@ module.exports = function() {
     expect(pool.toString()).to.equal('pool@nowhere');
   });
 
-  it('should bind the pool to node and then unbind it', done => {
+  it('should bind the pool to node and then unbind it', (done) => {
     let node = new Node('node');
     let pool = new Pool(props);
-    node.once('pool', ev => {
+    node.once('pool', (ev) => {
       expect(ev.eventType).to.equal('new');
       expect(ev.object).to.equal(pool);
       expect(pool.node).to.equal(node);
 
-      node.once('pool', ev => {
+      node.once('pool', (ev) => {
         expect(ev.eventType).to.equal('del');
         expect(ev.object).to.equal(pool);
         setTimeout(() => {

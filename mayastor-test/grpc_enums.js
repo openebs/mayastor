@@ -18,9 +18,9 @@ const defs = Object.values(
   ).mayastor
 );
 
-defs.forEach(ent => {
+defs.forEach((ent) => {
   if (ent.format.indexOf('EnumDescriptorProto') >= 0) {
-    ent.type.value.forEach(variant => {
+    ent.type.value.forEach((variant) => {
       constants[variant.name] = variant.number;
     });
   }

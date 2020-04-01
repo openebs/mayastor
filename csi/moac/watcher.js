@@ -61,7 +61,7 @@ class Watcher extends EventEmitter {
     self.getInProg = true;
     // start the stream of events before GET query so that we don't miss any
     // event while performing the GET.
-    self.objectStream.on('data', ev => {
+    self.objectStream.on('data', (ev) => {
       log.trace(
         `Event ${ev.type} in ${self.name} watcher: ${JSON.stringify(ev.object)}`
       );
@@ -76,7 +76,7 @@ class Watcher extends EventEmitter {
       self._processEvent(ev);
     });
 
-    self.objectStream.on('error', err => {
+    self.objectStream.on('error', (err) => {
       log.error(`stream error in ${self.name} watcher: ${err}`);
     });
 
@@ -204,7 +204,7 @@ class Watcher extends EventEmitter {
 
   // Return the collection of objects
   list() {
-    return Object.values(this.objects).map(ent => this.filterCb(ent));
+    return Object.values(this.objects).map((ent) => this.filterCb(ent));
   }
 
   delayedStart() {
