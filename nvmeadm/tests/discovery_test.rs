@@ -1,4 +1,4 @@
-use nvmeadm::nvmf_discovery::DiscoveryBuilder;
+use nvmeadm::nvmf_discovery::{disconnect, DiscoveryBuilder};
 
 #[test]
 fn disovery_test() {
@@ -11,4 +11,9 @@ fn disovery_test() {
 
     // only root can discover
     let _ = explorer.discover();
+}
+
+#[test]
+fn disconnect_test() {
+    let _ = disconnect("mynqn");
 }
