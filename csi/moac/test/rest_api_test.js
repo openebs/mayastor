@@ -17,7 +17,7 @@ const UUID1 = '02de3df9-ce18-4164-89e1-b1cbf7a88e51';
 const UUID2 = '02de3df9-ce18-4164-89e1-b1cbf7a88e52';
 const UUID3 = '02de3df9-ce18-4164-89e1-b1cbf7a88e53';
 
-module.exports = function() {
+module.exports = function () {
   var apiServer;
   var call1, call2, call3, call4;
 
@@ -88,14 +88,14 @@ module.exports = function() {
     apiServer.stop();
   });
 
-  it('should get volume stats', done => {
+  it('should get volume stats', (done) => {
     // TODO: Use user-friendly "request" lib when we have more tests
     http
-      .get('http://127.0.0.1:' + PORT + '/stats', resp => {
+      .get('http://127.0.0.1:' + PORT + '/stats', (resp) => {
         expect(resp.statusCode).to.equal(200);
 
         let data = '';
-        resp.on('data', chunk => {
+        resp.on('data', (chunk) => {
           data += chunk;
         });
         resp.on('end', () => {

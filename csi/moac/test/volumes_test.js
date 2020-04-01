@@ -20,7 +20,7 @@ const { shouldFailWith } = require('./utils');
 
 const UUID = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cbb';
 
-module.exports = function() {
+module.exports = function () {
   describe('ensure', () => {
     var registry, volumes;
     var node1, node2, node3;
@@ -73,13 +73,13 @@ module.exports = function() {
       node3._registerPool(pool3);
 
       volEvents = [];
-      volumes.on('volume', ev => {
+      volumes.on('volume', (ev) => {
         volEvents.push(ev);
       });
     }
 
     // Each test creates a volume so the setup needs to run for each case.
-    describe('create volume', function() {
+    describe('create volume', function () {
       beforeEach(createTestEnv);
 
       afterEach(() => {
@@ -293,7 +293,7 @@ module.exports = function() {
     });
 
     // Volume is created once in the first test and then all tests use it
-    describe('misc', function() {
+    describe('misc', function () {
       before(createTestEnv);
 
       afterEach(() => {

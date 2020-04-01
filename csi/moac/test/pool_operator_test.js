@@ -30,7 +30,7 @@ const Node = require('./node_stub');
 
 const NAMESPACE = 'mayastor';
 
-module.exports = function() {
+module.exports = function () {
   var msStub, putStub;
 
   // Create k8s pool resource object
@@ -76,8 +76,8 @@ module.exports = function() {
   // endpoint to update the status of resource. Fake watcher that is used
   // in the tests does not use this client stub.
   function createK8sClient(watcher) {
-    let mayastorpools = { mayastorpools: function(name) {} };
-    let namespaces = function(ns) {
+    let mayastorpools = { mayastorpools: function (name) {} };
+    let namespaces = function (ns) {
       expect(ns).to.equal(NAMESPACE);
       return mayastorpools;
     };
@@ -94,7 +94,7 @@ module.exports = function() {
         // the tricky thing here is that we have to update watcher's cache
         // if we use this fake k8s client to change the object in order to
         // mimic real behaviour.
-        put: async function(payload) {
+        put: async function (payload) {
           watcher.objects[payload.body.metadata.name].status =
             payload.body.status;
           // simulate the asynchronicity of the put
@@ -115,7 +115,7 @@ module.exports = function() {
     let registry = new Registry();
     registry.Node = Node;
     nodes = nodes || [];
-    nodes.forEach(n => (registry.nodes[n.name] = n));
+    nodes.forEach((n) => (registry.nodes[n.name] = n));
     oper.registry = registry;
     oper.watcher = new Watcher(oper._filterMayastorPool, k8sObjects);
     oper.k8sClient = createK8sClient(oper.watcher);
@@ -564,7 +564,7 @@ module.exports = function() {
           state: 'POOL_DEGRADED',
           capacity: 100,
           used: 10,
-          destroy: async function() {},
+          destroy: async function () {},
         });
         let destroyStub = sinon.stub(pool, 'destroy');
         destroyStub.rejects(new GrpcError(GrpcCode.INTERNAL, 'destroy failed'));
@@ -804,7 +804,7 @@ module.exports = function() {
         state: 'POOL_ONLINE',
         capacity: 100,
         used: 4,
-        destroy: async function() {},
+        destroy: async function () {},
       });
       let destroyStub = sinon.stub(pool, 'destroy');
       destroyStub.resolves();

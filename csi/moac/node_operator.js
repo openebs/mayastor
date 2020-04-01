@@ -99,7 +99,7 @@ class NodeOperator extends EventEmitter {
         endpoint: null,
       };
     }
-    const driver = drivers.find(drv => drv.name === PLUGIN_NAME);
+    const driver = drivers.find((drv) => drv.name === PLUGIN_NAME);
     if (!driver) {
       // not our CSI driver
       return {
@@ -141,7 +141,7 @@ class NodeOperator extends EventEmitter {
     watcher.on('mod', this._nodeEventCallback.bind(this));
     // del is triggered when the whole CSINode record is deleted
     var self = this;
-    watcher.on('del', ev => {
+    watcher.on('del', (ev) => {
       delete ev.id;
       delete ev.endpoint;
       self._nodeEventCallback(ev);

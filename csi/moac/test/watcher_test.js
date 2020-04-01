@@ -169,7 +169,7 @@ class StreamMockTracker {
   }
 }
 
-module.exports = function() {
+module.exports = function () {
   // Basic watcher operations grouped in describe to avoid repeating watcher
   // initialization & tear down for each test case.
   describe('watch events', () => {
@@ -182,9 +182,9 @@ module.exports = function() {
 
     before(() => {
       watcher = new Watcher('test', getMock, streamMock, objectFilter);
-      watcher.on('new', obj => newList.push(obj));
-      watcher.on('mod', obj => modList.push(obj));
-      watcher.on('del', obj => delList.push(obj));
+      watcher.on('new', (obj) => newList.push(obj));
+      watcher.on('mod', (obj) => modList.push(obj));
+      watcher.on('del', (obj) => delList.push(obj));
 
       getMock.add(createObject('valid-object', 1, 123));
       getMock.add(createObject('invalid-object', 1, 99));
@@ -214,7 +214,7 @@ module.exports = function() {
       expect(rawObj).to.deep.equal(createObject('valid-object', 1, 123));
     });
 
-    it('should add object to the cache only if it passes through the filter', done => {
+    it('should add object to the cache only if it passes through the filter', (done) => {
       // invalid object should not be added
       streamMock.feed('ADDED', createObject('add-invalid-object', 1, 90));
       // valid object should be added
@@ -238,7 +238,7 @@ module.exports = function() {
       }
     });
 
-    it('should modify object in the cache if it passes through the filter', done => {
+    it('should modify object in the cache if it passes through the filter', (done) => {
       // new object should be added and new event emitted (not the mod event)
       streamMock.feed('MODIFIED', createObject('new-object', 1, 160));
       // object with old generation number should be ignored
@@ -271,7 +271,7 @@ module.exports = function() {
       }
     });
 
-    it('should remove object from the cache if it exists', done => {
+    it('should remove object from the cache if it exists', (done) => {
       streamMock.feed('DELETED', createObject('unknown-object', 1, 160));
       streamMock.feed('DELETED', createObject('evented-object', 2, 156));
 
@@ -325,7 +325,7 @@ module.exports = function() {
     streamMock.end();
   });
 
-  it('should merge old and new objects upon resync', done => {
+  it('should merge old and new objects upon resync', (done) => {
     var getMock = new GetMock();
     var streamMockTracker = new StreamMockTracker();
     var watcher = new Watcher('test', getMock, streamMockTracker, objectFilter);
@@ -337,9 +337,9 @@ module.exports = function() {
     getMock.add(createObject('object-to-be-modified', 1, 155));
     getMock.add(createObject('object-to-be-deleted', 1, 155));
 
-    watcher.on('new', obj => newObjs.push(obj));
-    watcher.on('mod', obj => modObjs.push(obj));
-    watcher.on('del', obj => delObjs.push(obj));
+    watcher.on('new', (obj) => newObjs.push(obj));
+    watcher.on('mod', (obj) => modObjs.push(obj));
+    watcher.on('del', (obj) => delObjs.push(obj));
 
     watcher.start().then(() => {
       expect(newObjs).to.have.lengthOf(3);

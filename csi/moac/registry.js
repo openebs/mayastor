@@ -33,7 +33,7 @@ class Registry extends EventEmitter {
   // Disconnect all nodes.
   close() {
     let self = this;
-    Object.keys(this.nodes).forEach(name => {
+    Object.keys(this.nodes).forEach((name) => {
       self.removeNode(name);
     });
   }
@@ -65,8 +65,8 @@ class Registry extends EventEmitter {
     );
 
     var self = this;
-    eventObjects.forEach(objType => {
-      node.on(objType, ev => self.emit(objType, ev));
+    eventObjects.forEach((objType) => {
+      node.on(objType, (ev) => self.emit(objType, ev));
     });
   }
 
@@ -81,7 +81,7 @@ class Registry extends EventEmitter {
 
     log.info(`mayastor on node "${name}" left`);
 
-    eventObjects.forEach(objType => {
+    eventObjects.forEach((objType) => {
       node.removeAllListeners(objType);
     });
   }
@@ -110,7 +110,7 @@ class Registry extends EventEmitter {
       []
     );
     if (name) {
-      return pools.find(p => p.name === name) || null;
+      return pools.find((p) => p.name === name) || null;
     } else {
       return pools;
     }
@@ -127,7 +127,7 @@ class Registry extends EventEmitter {
       []
     );
     if (uuid) {
-      return nexus.find(n => n.uuid === uuid) || null;
+      return nexus.find((n) => n.uuid === uuid) || null;
     } else {
       return nexus;
     }
@@ -144,7 +144,7 @@ class Registry extends EventEmitter {
       []
     );
     if (uuid) {
-      return replicas.filter(r => r.uuid === uuid);
+      return replicas.filter((r) => r.uuid === uuid);
     } else {
       return replicas;
     }
@@ -161,12 +161,12 @@ class Registry extends EventEmitter {
     let pools;
 
     if (nodeName) {
-      pools = this.getPool().filter(p => p.node.name == nodeName);
+      pools = this.getPool().filter((p) => p.node.name == nodeName);
     } else {
       pools = this.getPool();
     }
     return pools
-      .filter(p => p.isAccessible())
+      .filter((p) => p.isAccessible())
       .reduce((acc, p) => acc + (p.capacity - p.used), 0);
   }
 
@@ -179,7 +179,7 @@ class Registry extends EventEmitter {
   //  3) the least busy pools first
   //
   choosePools(requiredBytes, mustNodes, shouldNodes) {
-    let pools = this.getPool().filter(p => {
+    let pools = this.getPool().filter((p) => {
       return (
         p.isAccessible() &&
         p.capacity - p.used >= requiredBytes &&
@@ -225,7 +225,7 @@ class Registry extends EventEmitter {
 
     // only one pool from each node
     let nodes = [];
-    pools = pools.filter(p => {
+    pools = pools.filter((p) => {
       if (nodes.indexOf(p.node) < 0) {
         nodes.push(p.node);
         return true;

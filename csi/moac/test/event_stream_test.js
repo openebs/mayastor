@@ -13,23 +13,25 @@ const Volume = require('../volume');
 const Volumes = require('../volumes');
 const EventStream = require('../event_stream');
 
-module.exports = function() {
+module.exports = function () {
   // Easy generator of a test node with fake pools, replicas and nexus
   // omitting all properties that are not necessary for the event stream.
   class FakeNode {
     constructor(name, pools, nexus) {
       this.name = name;
-      this.pools = pools.map(obj => {
+      this.pools = pools.map((obj) => {
         let p = new Pool({ name: obj.name, disks: ['/dev/sda'] });
         p.node = new EventEmitter();
-        obj.replicas.forEach(uuid => p.registerReplica(new Replica({ uuid })));
+        obj.replicas.forEach((uuid) =>
+          p.registerReplica(new Replica({ uuid }))
+        );
         return p;
       });
-      this.nexus = nexus.map(uuid => new Nexus({ uuid, children: [] }));
+      this.nexus = nexus.map((uuid) => new Nexus({ uuid, children: [] }));
     }
   }
 
-  it('should read events from registry and volumes stream', done => {
+  it('should read events from registry and volumes stream', (done) => {
     let registry = new Registry();
     let volumes = new Volumes(registry);
     let getNodeStub = sinon.stub(registry, 'getNode');
@@ -81,7 +83,7 @@ module.exports = function() {
     );
     let events = [];
 
-    stream.on('data', ev => {
+    stream.on('data', (ev) => {
       events.push(ev);
     });
 

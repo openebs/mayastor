@@ -22,12 +22,12 @@ class Node extends EventEmitter {
     var self = this;
     pools = pools || [];
     nexus = nexus || [];
-    self.pools = pools.map(p => {
+    self.pools = pools.map((p) => {
       p.node = self;
       return p;
     });
     self.replicas = [];
-    self.nexus = nexus.map(n => {
+    self.nexus = nexus.map((n) => {
       n.node = self;
       return n;
     });

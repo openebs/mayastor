@@ -13,7 +13,7 @@ const { GrpcCode, GrpcError } = require('../grpc_client');
 
 const UUID = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cbb';
 
-module.exports = function() {
+module.exports = function () {
   var poolProps = {
     name: 'pool',
     disks: ['/dev/sda'],
@@ -103,18 +103,18 @@ module.exports = function() {
     });
   });
 
-  it('should bind the replica to pool and then unbind it', done => {
+  it('should bind the replica to pool and then unbind it', (done) => {
     let node = new Node('node');
     let pool = new Pool(poolProps);
     node._registerPool(pool);
     let replica = new Replica(props);
 
-    node.once('replica', ev => {
+    node.once('replica', (ev) => {
       expect(ev.eventType).to.equal('new');
       expect(ev.object).to.equal(replica);
       expect(replica.pool).to.equal(pool);
 
-      node.once('replica', ev => {
+      node.once('replica', (ev) => {
         expect(ev.eventType).to.equal('del');
         expect(ev.object).to.equal(replica);
         setTimeout(() => {
@@ -129,14 +129,14 @@ module.exports = function() {
     replica.bind(pool);
   });
 
-  it('should offline the replica', done => {
+  it('should offline the replica', (done) => {
     let node = new Node('node');
     let pool = new Pool(poolProps);
     node._registerPool(pool);
     let replica = new Replica(props);
     pool.registerReplica(replica);
 
-    node.once('replica', ev => {
+    node.once('replica', (ev) => {
       expect(ev.eventType).to.equal('mod');
       expect(ev.object).to.equal(replica);
       expect(replica.state).to.equal('OFFLINE');
@@ -181,7 +181,7 @@ module.exports = function() {
     expect(replica.share).to.equal('REPLICA_NONE');
   });
 
-  it('should destroy the replica', done => {
+  it('should destroy the replica', (done) => {
     let node = new Node('node');
     let stub = sinon.stub(node, 'call');
     stub.resolves({});
@@ -190,7 +190,7 @@ module.exports = function() {
     let replica = new Replica(props);
     pool.registerReplica(replica);
 
-    node.once('replica', ev => {
+    node.once('replica', (ev) => {
       expect(ev.eventType).to.equal('del');
       expect(ev.object).to.equal(replica);
       sinon.assert.calledOnce(stub);
@@ -236,7 +236,7 @@ module.exports = function() {
     expect(pool.replicas).to.have.lengthOf(1);
   });
 
-  it('should ignore NOT_FOUND error when destroying the replica', done => {
+  it('should ignore NOT_FOUND error when destroying the replica', (done) => {
     let node = new Node('node');
     let stub = sinon.stub(node, 'call');
     stub.rejects(new GrpcError(GrpcCode.NOT_FOUND, 'not found test failure'));
@@ -245,7 +245,7 @@ module.exports = function() {
     let replica = new Replica(props);
     pool.registerReplica(replica);
 
-    node.once('replica', ev => {
+    node.once('replica', (ev) => {
       expect(ev.eventType).to.equal('del');
       expect(ev.object).to.equal(replica);
       sinon.assert.calledOnce(stub);

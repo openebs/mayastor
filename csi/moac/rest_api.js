@@ -21,8 +21,8 @@ class ApiServer {
     this.app = express();
     this.app.get('/stats', (req, res) => {
       self.getStats().then(
-        stats => res.json(stats),
-        err => res.status(500).send(err.toString())
+        (stats) => res.json(stats),
+        (err) => res.status(500).send(err.toString())
       );
     });
   }
@@ -63,7 +63,7 @@ class ApiServer {
       }
 
       vols = vols.concat(
-        replicaStats.map(r => {
+        replicaStats.map((r) => {
           return {
             timestamp,
             // tags

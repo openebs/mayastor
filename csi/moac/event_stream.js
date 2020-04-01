@@ -85,14 +85,14 @@ class EventStream extends Readable {
     // they appear as new.
     var self = this;
     if (self.registry) {
-      self.registry.getNode().forEach(node => {
-        node.pools.forEach(obj => {
+      self.registry.getNode().forEach((node) => {
+        node.pools.forEach((obj) => {
           self.events.push({
             kind: 'pool',
             eventType: 'new',
             object: obj,
           });
-          obj.replicas.forEach(obj => {
+          obj.replicas.forEach((obj) => {
             self.events.push({
               kind: 'replica',
               eventType: 'new',
@@ -100,7 +100,7 @@ class EventStream extends Readable {
             });
           });
         });
-        node.nexus.forEach(obj => {
+        node.nexus.forEach((obj) => {
           self.events.push({
             kind: 'nexus',
             eventType: 'new',
@@ -117,7 +117,7 @@ class EventStream extends Readable {
       });
     }
     if (self.volumes) {
-      self.volumes.get().forEach(volume => {
+      self.volumes.get().forEach((volume) => {
         self.events.push({
           kind: 'volume',
           eventType: 'new',

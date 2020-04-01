@@ -24,10 +24,10 @@ const monthShortNames = [
 // Oct 10 19:49:29.027
 function toLocalTime(isoTs) {
   var dt = new Date(Date.parse(isoTs));
-  var pad = function(num) {
+  var pad = function (num) {
     return (num < 10 ? '0' : '') + num;
   };
-  var pad2 = function(num) {
+  var pad2 = function (num) {
     if (num < 10) {
       return '00' + num;
     } else if (num < 100) {
@@ -94,8 +94,8 @@ function Logger(component) {
 }
 
 var levels = ['debug', 'info', 'warn', 'error'];
-levels.forEach(lvl => {
-  Logger.prototype[lvl] = function(msg) {
+levels.forEach((lvl) => {
+  Logger.prototype[lvl] = function (msg) {
     logger[lvl].call(logger, {
       label: this.component,
       message: msg,
@@ -103,7 +103,7 @@ levels.forEach(lvl => {
   };
 });
 // rename trace to silly
-Logger.prototype.trace = function(msg) {
+Logger.prototype.trace = function (msg) {
   logger.silly.call(logger, {
     component: this.component,
     message: msg,

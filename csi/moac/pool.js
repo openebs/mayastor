@@ -81,8 +81,8 @@ class Pool {
   _mergeReplicas(replicas) {
     var self = this;
     // detect modified and new replicas
-    replicas.forEach(props => {
-      let replica = self.replicas.find(r => r.uuid == props.uuid);
+    replicas.forEach((props) => {
+      let replica = self.replicas.find((r) => r.uuid == props.uuid);
       if (replica) {
         // the replica already exists - update it
         replica.merge(props);
@@ -93,9 +93,9 @@ class Pool {
     });
     // remove replicas that no longer exist
     let removedReplicas = self.replicas.filter(
-      r => !replicas.find(ent => ent.uuid == r.uuid)
+      (r) => !replicas.find((ent) => ent.uuid == r.uuid)
     );
-    removedReplicas.forEach(r => r.unbind());
+    removedReplicas.forEach((r) => r.unbind());
   }
 
   // Add new replica to a list of replicas for this pool and emit new event
@@ -104,7 +104,7 @@ class Pool {
   // @param {object} replica      New replica object.
   //
   registerReplica(replica) {
-    assert(!this.replicas.find(r => r.uuid == replica.uuid));
+    assert(!this.replicas.find((r) => r.uuid == replica.uuid));
     this.replicas.push(replica);
     replica.bind(this);
   }
@@ -142,7 +142,7 @@ class Pool {
   // Unbind the previously bound pool from the node.
   unbind() {
     log.info(`Removing pool "${this}" from a list`);
-    this.replicas.forEach(r => r.unbind());
+    this.replicas.forEach((r) => r.unbind());
     this.node.unregisterPool(this);
 
     this.node.emit('pool', {
@@ -181,7 +181,7 @@ class Pool {
   // the pool becomes inaccessible.
   offline() {
     log.warn(`Pool "${this}" got offline`);
-    this.replicas.forEach(r => r.offline());
+    this.replicas.forEach((r) => r.offline());
     // artificial state that does not appear in grpc protocol
     this.state = 'POOL_OFFLINE';
     this.node.emit('pool', {
@@ -228,7 +228,7 @@ class Pool {
         `Failed to list new replica "${uuid}" on pool "${this}": ${err}`
       );
     }
-    var replicaInfo = resp.replicas.filter(r => r.uuid == uuid)[0];
+    var replicaInfo = resp.replicas.filter((r) => r.uuid == uuid)[0];
     if (!replicaInfo) {
       throw new GrpcError(
         GrpcCode.INTERNAL,
