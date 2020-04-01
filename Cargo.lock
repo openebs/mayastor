@@ -1107,6 +1107,7 @@ dependencies = [
  "spdk-sys",
  "structopt",
  "sysfs",
+ "tonic",
  "url",
  "uuid",
 ]
