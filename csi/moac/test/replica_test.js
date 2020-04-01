@@ -17,7 +17,7 @@ module.exports = function () {
   var poolProps = {
     name: 'pool',
     disks: ['/dev/sda'],
-    state: 'ONLINE',
+    state: 'POOL_ONLINE',
     capacity: 100,
     used: 4
   };
@@ -26,8 +26,7 @@ module.exports = function () {
     pool: 'pool',
     size: 100,
     share: 'REPLICA_NONE',
-    uri: 'bdev:///' + UUID,
-    state: 'ONLINE'
+    uri: 'bdev:///' + UUID
   };
 
   describe('mod event', () => {
@@ -88,19 +87,6 @@ module.exports = function () {
       expect(replica.share).to.equal('REPLICA_NVMF');
       expect(replica.uri).to.equal('nvmf://blabla');
     });
-
-    it('should emit event upon change of state property', () => {
-      newProps.state = 'DEGRADED';
-      replica.merge(newProps);
-
-      // First two events are new pool and new replica events
-      sinon.assert.calledThrice(eventSpy);
-      sinon.assert.calledWith(eventSpy.lastCall, 'replica', {
-        eventType: 'mod',
-        object: replica
-      });
-      expect(replica.state).to.equal('DEGRADED');
-    });
   });
 
   it('should bind the replica to pool and then unbind it', (done) => {
@@ -139,7 +125,9 @@ module.exports = function () {
     node.once('replica', (ev) => {
       expect(ev.eventType).to.equal('mod');
       expect(ev.object).to.equal(replica);
-      expect(replica.state).to.equal('OFFLINE');
+      // jshint ignore:start
+      expect(replica.isOffline()).to.be.true;
+      // jshint ignore:end
       done();
     });
     replica.offline();

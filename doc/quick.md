@@ -101,7 +101,7 @@ This has steps have been tested on:
     ```
     Check that the pool has been created (Note that the `State` *must be* `online`):
     ```bash
-    kubectl describe msp pool
+    kubectl -n mayastor describe msp pool
     ```
     ```
     Name:         pool
@@ -172,7 +172,31 @@ This has steps have been tested on:
     pvc-21d56e09-5b78-11e9-905a-589cfc0d76a7   1Gi        RWO            Delete           Bound    default/ms-volume-claim   mayastor                27s
     ```
 
-8.  Deploy a pod with fio tool which will be using the PV:
+8.  Check that the volume resource has been created and its internal status:
+    ```bash
+    kubectl -n mayastor get msv 21d56e09-5b78-11e9-905a-589cfc0d76a7
+    ```
+    ```
+    Name:         21d56e09-5b78-11e9-905a-589cfc0d76a7
+    Namespace:    mayastor
+    Spec:
+      Limit Bytes:  0
+      Preferred Nodes:
+      Replica Count:   2
+      Required Bytes:  1073741824
+      Required Nodes:
+    Status:
+      Node:    node1
+      Reason:
+      Replicas:
+        Node:  node1
+        Pool:  pool
+        Uri:   bdev:///21d56e09-5b78-11e9-905a-589cfc0d76a7
+      Size:    1073741824
+      State:   online
+    ```
+
+9.  Deploy a pod with fio tool which will be using the PVC:
     ```bash
     cat <<EOF | kubectl create -f -
     kind: Pod
@@ -200,7 +224,7 @@ This has steps have been tested on:
     kubectl get pod
     ```
 
-9.  Run fio on the volume for 30s:
+10. Run fio on the volume for 30s:
     ```bash
     kubectl exec -it fio -- fio --name=benchtest --size=800m --filename=/volume/test --direct=1 --rw=randrw --ioengine=libaio --bs=4k --iodepth=16 --numjobs=1 --time_based --runtime=60
     ```

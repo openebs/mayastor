@@ -1,6 +1,8 @@
 // Unit tests for the volume object
 //
-// Volume ensure tests are in volumes_test.js.
+// The tests for more complex volume methods are in volumes_test.js mainly
+// because volumes.js takes care of routing registry events to the volume
+// and it makes sense to test this together.
 
 'use strict';
 
@@ -67,50 +69,18 @@ module.exports = function () {
     stub.resolves({ devicePath: '/dev/nbd0' });
     await volume.publish('nbd');
     expect(nexus.devicePath).to.equal('/dev/nbd0');
+    sinon.assert.calledOnce(stub);
+    sinon.assert.calledWithMatch(stub, 'publishNexus', {
+      uuid: UUID,
+      key: '',
+    });
 
     stub.resolves({});
     await volume.unpublish();
     expect(nexus.devicePath).to.equal('');
-  });
-
-  it('should destroy a volume with 3 replicas', async () => {
-    const registry = new Registry();
-    const volume = new Volume(UUID, registry, defaultOpts);
-    const node1 = new Node('node1');
-    const node2 = new Node('node2');
-    const node3 = new Node('node3');
-    const pool1 = new Pool({ name: 'pool1', disks: [] });
-    const pool2 = new Pool({ name: 'pool2', disks: [] });
-    const pool3 = new Pool({ name: 'pool3', disks: [] });
-    const nexus = new Nexus({ uuid: UUID });
-    const replica1 = new Replica({ uuid: UUID });
-    const replica2 = new Replica({ uuid: UUID });
-    const replica3 = new Replica({ uuid: UUID });
-    const stub1 = sinon.stub(node1, 'call');
-    const stub2 = sinon.stub(node2, 'call');
-    const stub3 = sinon.stub(node3, 'call');
-    stub1.resolves({});
-    stub2.resolves({});
-    stub3.resolves({});
-    node1._registerNexus(nexus);
-    node1._registerPool(pool1);
-    node2._registerPool(pool2);
-    node3._registerPool(pool3);
-    pool1.registerReplica(replica1);
-    pool2.registerReplica(replica2);
-    pool3.registerReplica(replica3);
-
-    volume.newNexus(nexus);
-    volume.newReplica(replica1);
-    volume.newReplica(replica2);
-    volume.newReplica(replica3);
-
-    await volume.destroy();
-
-    sinon.assert.calledTwice(stub1);
-    sinon.assert.calledWith(stub1.firstCall, 'destroyNexus', { uuid: UUID });
-    sinon.assert.calledWith(stub1.secondCall, 'destroyReplica', { uuid: UUID });
-    sinon.assert.calledOnce(stub2);
-    sinon.assert.calledOnce(stub3);
+    sinon.assert.calledTwice(stub);
+    sinon.assert.calledWithMatch(stub.secondCall, 'unpublishNexus', {
+      uuid: UUID
+    });
   });
 };

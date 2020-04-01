@@ -72,6 +72,8 @@ async fn list_nexus(
     let list = client.list_nexus(request).await?;
 
     list.into_inner().nexus_list.into_iter().for_each(|n| {
+        // TODO: debug output is not user-friendly. Look at list_pools on
+        // how it should be done.
         println!("{:?}", n);
     });
 
@@ -202,6 +204,7 @@ async fn list_pools(
                 "{: <20} {: <8} {: >12} {: >12}  ",
                 p.name,
                 match rpc::mayastor::PoolState::from_i32(p.state).unwrap() {
+                    rpc::mayastor::PoolState::PoolUnknown => "unknown",
                     rpc::mayastor::PoolState::PoolOnline => "online",
                     rpc::mayastor::PoolState::PoolDegraded => "degraded",
                     rpc::mayastor::PoolState::PoolFaulted => "faulted",

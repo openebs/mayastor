@@ -11,25 +11,25 @@ spec:
     listKind: MayastorVolumeList
     plural: mayastorvolumes
     singular: mayastorvolume
-    shortNames: ["msv"]
+    shortNames: ['msv']
   additionalPrinterColumns:
-  - name: Node
-    type: string
-    description: Node where the volume is located
-    JSONPath: .status.node
-  - name: Size
-    type: integer
-    format: int64
-    minimum: 0
-    description: Size of the volume
-    JSONPath: .status.size
-  - name: State
-    type: string
-    description: State of the storage pool
-    JSONPath: .status.state
-  - name: Age
-    type: date
-    JSONPath: .metadata.creationTimestamp
+    - name: Node
+      type: string
+      description: Node where the volume is located
+      JSONPath: .status.node
+    - name: Size
+      type: integer
+      format: int64
+      minimum: 0
+      description: Size of the volume
+      JSONPath: .status.size
+    - name: State
+      type: string
+      description: State of the storage pool
+      JSONPath: .status.state
+    - name: Age
+      type: date
+      JSONPath: .metadata.creationTimestamp
   subresources:
     # The status part is updated by the controller and spec part by the user
     # usually. Well, not in this case. The mayastor's control plane updates both
@@ -50,8 +50,8 @@ spec:
           description: Specification of the mayastor volume.
           type: object
           required:
-          - replicaCount
-          - requiredBytes
+            - replicaCount
+            - requiredBytes
           properties:
             replicaCount:
               description: The number of replicas used for the volume.
@@ -86,9 +86,35 @@ spec:
             state:
               description: Overall state of the volume.
               type: string
+            reason:
+              description: Further explanation of the state if applicable.
+              type: string
             node:
               description: Name of the k8s node with the nexus.
               type: string
+            nexus:
+              description: Frontend of the volume.
+              type: object
+              properties:
+                devicePath:
+                  description: Block device under which the volume is accessible.
+                  type: string
+                state:
+                  description: State of the nexus.
+                  type: string
+                children:
+                  description: Child devices of the nexus (replicas).
+                  type: array
+                  items:
+                    description: child device of the nexus (replica).
+                    type: object
+                    properties:
+                      uri:
+                        description: URI used by nexus to access the child.
+                        type: string
+                      state:
+                        description: State of the child as seen by the nexus.
+                        type: string
             replicas:
               description: List of replicas
               type: array
@@ -104,6 +130,6 @@ spec:
                   uri:
                     description: URI of the replica used by the nexus.
                     type: string
-                  state:
-                    description: State of the replica.
-                    type: string
+                  offline:
+                    description: Is replica reachable by control plane.
+                    type: boolean

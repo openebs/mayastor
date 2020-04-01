@@ -4,10 +4,10 @@ MOAC is a control plane of MayaStor. It is written in NodeJS and makes use of
 kubernetes-client library to interact with K8s API server. In a nutshell it has
 following responsibilities:
 
-* _node operator_: keeps track of nodes with running MayaStor instances.
-* [pool operator](/doc/pool-operator.md): creates/updates/deletes storage pools on storage nodes as requested by admin by means of msp custom resources.
-* [volume operator](/doc/volume-operator.md): informs user about existing volumes on storage nodes by means of msv custom resources and allows simple modifications to them.
-* _CSI controller_: provisions volumes on storage nodes based on requests from k8s through CSI interface.
+- _node operator_: keeps track of nodes with running MayaStor instances.
+- [pool operator](/doc/pool-operator.md): creates/updates/deletes storage pools on storage nodes as requested by admin by means of msp custom resources.
+- [volume operator](/doc/volume-operator.md): informs user about existing volumes on storage nodes by means of msv custom resources and allows simple modifications to them.
+- _CSI controller_: provisions volumes on storage nodes based on requests from k8s through CSI interface.
 
 ## Requirements
 
@@ -116,9 +116,11 @@ update dependencies in built docker images as well, the nix files need to be
 updated too;
 
 1. Update npm dependencies:
+
    ```bash
    npm update
    ```
+
    NOTE: If you want to update all packages to the very latest major versions
    that will likely include breaking API changes, then install
    `npm-check-updates` npm package and run `npm-check-updates -u` before the
@@ -127,6 +129,7 @@ updated too;
 2. If not already installed, install a `node2nix` tool which automates nix
    package creation for npm packages. On NixOS that can be done by following
    command:
+
    ```bash
    nix-env -f '<nixpkgs>' -iA nodePackages.node2nix
    ```
@@ -144,6 +147,7 @@ you just want to build the package without changing or updating dependencies
 it is rather simple:
 
 1. Build the Nix MOAC package:
+
    ```bash
    nix-build default.nix -A package
    ```
@@ -162,12 +166,15 @@ nix-build default.nix -A buildImage
 ```
 
 At the end of the build is printed path to docker image tar archive. Import
-it to a docker (don't use *import* command) and run bash to poke around:
+it to a docker (don't use _import_ command) and run bash to poke around:
 
 ```bash
 docker load -i /nix/store/hash-docker-image-moac.tar.gz
 docker run --rm -it image-hash /bin/bash
 ```
+
+TODO: The resulting image is insanely big because the nix includes false
+dependencies that are needed only at build time (npm and such).
 
 ## Architecture
 
@@ -207,6 +214,67 @@ Lines denote relations between all components.
 |                  +--------------+ |
 +-----------------------------------+
 
+```
+
+## Volume states
+
+Volume life cycle can be described by a finite state automaton (FSA). It is
+crucial for understanding what and when can happen with the volume. Imperfect
+approximation of FSA diagram for the volume follows:
+
+```text
+              new volume
+                 +
+                 |
+            +----v-----+
+            |          |
+            | pending  <--+ nexus deleted
+            |          |
+            +----+-----+
+                 |
+nexus modified+--| new nexus
+replica events   |                        +----------+
+                 v                yes     |          |
+             nexus offline? +-------------> offline  |
+                 +                        |          |
+                 |                        +----------+
+                 | no
+                 |                        +----------+
+                 v                    no  |          |
+             any replica online?  +-------> faulted  |
+                 +                        |          |
+                 |                        +----------+
+                 | yes
+                 |
+                 v
+             insufficient # of online  yes
+             and rebuild replicas?    +--->create a new
+                 +                         replica (async)
+                 |                               +
+                 |                               |
+                 | no                            |
+                 |                          +----v-----+
+                 v                     yes  |          |
+             any replica in rebuild? +------> degraded |
+                 +                          |          |
+                 |                          +----------+
+                 | no
+                 |
+                 v
+            +----+------+
+            |           |
+            | healthy   |
+            |           |
+            +----+------+
+                 |
+                 v                yes
+             any replica faulty? +--> remove it
+                 +
+                 | no
+                 v
+             more online replicas yes
+             than needed?        +---> remove the least
+                                       preferred replica
 ```
 
 ## Troubleshooting

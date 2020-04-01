@@ -38,8 +38,8 @@ class Volume {
     // state variables of the volume
     this.nexus = null;
     this.replicas = {}; // replicas indexed by node name
-    this.state = 'PENDING';
-    this.reason = 'The volume is being created';
+    this.state = 'pending';
+    this.runFsa = 0; // number of requests to run FSA
   }
 
   // Stringify volume
@@ -96,14 +96,230 @@ class Volume {
     await Promise.all(promises);
   }
 
-  // Ensure that configuration of a volume is as it should be. Create whatever
-  // component is missing and try to fix all discrepancies between desired
-  // state and reality.
+  // Trigger the run of FSA. It will either run immediately or if it is already
+  // running, it will start again when the current run finishes.
   //
-  // TODO: there is much to improve in this func but we focus just on simple use
-  // cases as of now.
-  async ensure () {
-    log.debug(`Ensuring state of volume "${this}"`);
+  // Why critical section on fsa? Certain operations done by fsa are async. If
+  // we allow another process to enter fsa before the async operation is done
+  // and the state of volume updated we risk that the second process repeats
+  // exactly the same action (because from its point of view it hasn't been
+  // done yet).
+  fsa () {
+    if (this.runFsa++ == 0) {
+      this._fsa().finally(() => {
+        let runAgain = this.runFsa > 1;
+        this.runFsa = 0;
+        if (runAgain) this.fsa();
+      });
+    }
+  }
+
+  // Implementation of finite state automaton (FSA) that moves the volume
+  // through states: pending, degraded, faulted, healthy - trying to preserve
+  // data on volume "no matter what".
+  async _fsa () {
+    if (!this.nexus) {
+      // nexus does not exist yet - nothing to do
+      assert.equal(this.state, 'pending');
+      return;
+    }
+    log.debug(`Volume "${this}" enters FSA in ${this.state} state`);
+
+    if (this.nexus.state == 'NEXUS_OFFLINE') {
+      // if nexus is not accessible then the information about children is stale
+      // and we cannot make any reasonable decisions, so bail out.
+      this._setState('offline');
+      return;
+    }
+
+    // check that replicas are shared as they should be
+    for (let nodeName in this.replicas) {
+      let replica = this.replicas[nodeName];
+      if (!replica.isOffline()) {
+        let share;
+        let local = replica.pool.node == this.nexus.node;
+        // make sure that replica that is local to the nexus is accessed locally
+        if (local && replica.share != 'REPLICA_NONE') {
+          share = 'REPLICA_NONE';
+        } else if (!local && replica.share == 'REPLICA_NONE') {
+          // make sure that replica that is remote to nexus can be accessed
+          share = 'REPLICA_NVMF';
+        }
+        if (share) {
+          try {
+            await replica.setShare(share);
+            // fsa will get called again because the replica was modified
+            return;
+          } catch (err) {
+            throw new GrpcError(
+              GrpcCode.INTERNAL,
+              `Failed to set share pcol to ${share} for replica "${replica}": ${err}`
+            );
+          }
+        }
+      }
+    }
+    // pair nexus children with replica objects to get the full picture
+    var self = this;
+    let children = this.nexus.children.map((ch) => {
+      return {
+        uri: ch.uri,
+        state: ch.state,
+        replica: Object.values(self.replicas).find((r) => r.uri == ch.uri),
+      };
+    });
+    // add newly found replicas to the nexus (one by one)
+    let newReplica = Object.values(this.replicas).filter(
+      (r) => !r.isOffline() && !children.find((ch) => ch.replica == r)
+    )[0];
+    if (newReplica) {
+      try {
+        await this.nexus.addReplica(newReplica);
+      } catch (err) {
+        log.error(err.toString());
+      }
+      return;
+    }
+
+    // If there is not a single replica that is online then there is no hope
+    // that we could rebuild anything.
+    var onlineCount = children.filter((ch) => ch.state == 'CHILD_ONLINE')
+      .length;
+    if (onlineCount == 0) {
+      this._setState('faulted');
+      return;
+    }
+
+    // If we don't have sufficient number of sound replicas (sound means online
+    // or under rebuild) then add a new one.
+    var soundCount = children.filter((ch) => {
+      return ['CHILD_ONLINE', 'CHILD_DEGRADED'].indexOf(ch.state) >= 0;
+    }).length;
+    if (this.replicaCount > soundCount) {
+      this._setState('degraded');
+      // add new replica
+      try {
+        await this._createReplicas(this.replicaCount - soundCount);
+      } catch (err) {
+        log.error(err.toString());
+      }
+      // The replicas will be added to nexus when the fsa is run next time
+      // which happens immediately after we exit.
+      return;
+    }
+
+    // The condition for later actions is that volume must not be rebuilt.
+    // So check that and return if that's the case.
+    var rebuildCount = children.filter((ch) => ch.state == 'CHILD_DEGRADED')
+      .length;
+    if (rebuildCount > 0) {
+      this._setState('degraded');
+      return;
+    }
+
+    assert(onlineCount >= this.replicaCount);
+    this._setState('healthy');
+
+    // If we have more online replicas then we need to, then remove one.
+    // Child that is broken and without a replica is a good fit for removal.
+    let rmChild = children.find(
+      (ch) => !ch.replica && ch.state == 'CHILD_FAULTED'
+    );
+    if (!rmChild) {
+      rmChild = children.find((ch) => ch.state == 'CHILD_FAULTED');
+      // If all replicas are online, then continue searching for a candidate
+      // only if there are more online replicas than it needs to be.
+      if (!rmChild && onlineCount > this.replicaCount) {
+        // A child that is unknown to us (without replica object)
+        rmChild = children.find((ch) => !ch.replica);
+        if (!rmChild) {
+          // The replica with the lowest score must go away
+          let rmReplica = this._prioritizeReplicas(
+            children.map((ch) => ch.replica)
+          ).pop();
+          if (rmReplica) {
+            rmChild = children.find((ch) => ch.replica == rmReplica);
+          }
+        }
+      }
+    }
+    if (rmChild) {
+      try {
+        await this.nexus.removeReplica(rmChild.uri);
+      } catch (err) {
+        log.error(err.toString());
+        return;
+      }
+      if (rmChild.replica) {
+        try {
+          await rmChild.replica.destroy();
+        } catch (err) {
+          log.error(err.toString());
+        }
+      }
+      return;
+    }
+
+    // If a replica should run on a different node then move it
+    var moveChild = children.find((ch) => {
+      if (
+        ch.replica &&
+        ch.state == 'CHILD_ONLINE' &&
+        self.requiredNodes.length > 0 &&
+        self.requiredNodes.indexOf(ch.replica.pool.node.name) < 0
+      ) {
+        if (self.requiredNodes.indexOf(ch.replica.pool.node.name) < 0) {
+          return true;
+        }
+      }
+      return false;
+    });
+    if (moveChild) {
+      // We add a new replica and the old one will be removed when both are
+      // online since there will be more of them than needed. We do one by one
+      // not to trigger too many changes.
+      try {
+        await this._createReplicas(1);
+      } catch (err) {
+        log.error(err.toString());
+      }
+      return;
+    }
+  }
+
+  // Change the volume state to given state. If the state is not the same as
+  // previous one, we should emit a volume mod event.
+  //
+  // TODO: we should emit but we don't because currently we don't have reference
+  // to the volumes object. Instead we rely that every state transition is
+  // triggered by another event (i.e. new replica) so the volume operator will
+  // be notified about the change anyway. It would be nice to fix this when we
+  // replace our ad-hoc message bus by something better what allows us to store
+  // the reference to message channel in every volume.
+  //
+  // @param {string} newState   New state to set on volume.
+  _setState(newState) {
+    if (this.state != newState) {
+      if (newState == 'healthy') {
+        log.info(`Volume "${this}" is ${newState}`);
+      } else {
+        log.warn(`Volume "${this}" is ${newState}`);
+      }
+      this.state = newState;
+    }
+  }
+
+  // Create the volume in accordance with requirements specified during the
+  // object creation. Create whatever component is missing (note that we
+  // might not be creating it from the scratch).
+  //
+  // NOTE: Until we create a nexus at the end, the volume is not acted upon by FSA.
+  // When "new nexus" event comes in, that moves it from pending state and kicks
+  // off FSA. Exactly what we want, because the async events produced by this
+  // function do not interfere with execution of the "create".
+  async create () {
+    log.debug(`Creating the volume "${this}"`);
+    assert(!this.nexus);
 
     // Ensure there is sufficient number of replicas for the volume.
     // TODO: take replica state into account
@@ -116,92 +332,50 @@ class Volume {
     // Ensure replicas can be accessed from nexus. Set share protocols.
     const replicaSet = await this._ensureReplicaShareProtocols();
 
-    // Update child devs of existing nexus or create a new one if it is missing
-    await this._ensureNexus(replicaSet);
-
-    // Now when nexus has been updated we can remove excessive replicas
-    // (those which are not recorded in the nexus)
-    const childrenUris = this.nexus.children.map((ch) => ch.uri);
-    const promises = Object.values(this.replicas)
-      .filter((r) => childrenUris.indexOf(r.uri) < 0)
-      .map((r) => r.destroy());
-    try {
-      await Promise.all(promises);
-    } catch (err) {
-      // we don't treat the error as fatal
-      log.error(`Failed to destroy redundant replicas of volume "${this}"`);
+    // If the nexus poped up while we were creating replicas pick it up now.
+    // Though it's an unsual situation so we log a warning if it happens.
+    let nexus = this.registry.getNexus(this.uuid);
+    if (nexus) {
+      log.warn(
+        `The nexus "${nexus}" appeared while creating replicas - using it`
+      );
+      this.newNexus(nexus);
+      return;
     }
+    if (!this.size) {
+      // the size will be the smallest replica
+      this.size = Object.values(this.replicas)
+        .map((r) => r.size)
+        .reduce((acc, cur) => (cur < acc ? cur : acc), Number.MAX_SAFE_INTEGER);
+    }
+    // create a new nexus with children (replicas) created in previous steps
+    this.nexus = await this._createNexus(replicaSet);
+    log.info(`Volume "${this}" with size ${this.size} was created`);
   }
 
   // Update child devices of existing nexus or create a new nexus if it does not
   // exist.
   //
   // @param {object[]} replicas   Replicas that should be used for child bdevs of nexus.
+  // @returns {object} Created nexus object.
   //
-  async _ensureNexus (replicas) {
-    const nexus = this.nexus;
-    if (!nexus) {
-      // create a new nexus
-      const localReplica = Object.values(this.replicas).find(
-        (r) => r.share === 'REPLICA_NONE'
+  async _createNexus (replicas) {
+    // create a new nexus
+    let localReplica = Object.values(this.replicas).find(
+      (r) => r.share == 'REPLICA_NONE'
+    );
+    if (!localReplica) {
+      // should not happen but who knows ..
+      throw new GrpcError(
+        GrpcCode.INTERNAL,
+        'Cannot create nexus if none of the replicas is local'
       );
-      if (!localReplica) {
-        // should not happen but who knows ..
-        throw new GrpcError(
-          GrpcCode.INTERNAL,
-          'Cannot create nexus if none of the replicas is local'
-        );
-      }
-      this.nexus = await localReplica.pool.node.createNexus(
-        this.uuid,
-        this.size,
-        Object.values(replicas)
-      );
-      log.info(`Volume "${this}" with size ${this.size} was created`);
-    } else {
-      // TODO: Switching order might be more safe (remove and add uri)
-      const oldUris = nexus.children.map((ch) => ch.uri).sort();
-      const newUris = _.map(replicas, 'uri').sort();
-      // remove children which should not be in the nexus
-      for (let i = 0; i < oldUris.length; i++) {
-        const uri = oldUris[i];
-        const idx = newUris.indexOf(uri);
-        if (idx < 0) {
-          // jshint ignore:start
-          const replica = Object.values(this.replicas).find((r) => r.uri === uri);
-          if (replica) {
-            try {
-              await nexus.removeReplica(replica);
-            } catch (err) {
-              // non-fatal failure
-              log.warn(
-                `Failed to remove child "${uri}" of nexus "${nexus}": ${err}`
-              );
-            }
-          }
-          // jshint ignore:end
-        } else {
-          newUris.splice(idx, 1);
-        }
-      }
-      // add children which are not there yet
-      for (let i = 0; i < newUris.length; i++) {
-        const uri = newUris[i];
-        // jshint ignore:start
-        const replica = Object.values(this.replicas).find((r) => r.uri === uri);
-        if (replica) {
-          try {
-            await nexus.addReplica(replica);
-          } catch (err) {
-            throw new GrpcError(
-              GrpcCode.INTERNAL,
-              `Failed to add child "${uri}" to nexus "${nexus}": ${err}`
-            );
-          }
-        }
-        // jshint ignore:end
-      }
     }
+    return await localReplica.pool.node.createNexus(
+      this.uuid,
+      this.size,
+      Object.values(replicas)
+    );
   }
 
   // Adjust replica count for the volume to required count.
@@ -230,9 +404,9 @@ class Volume {
       );
     }
 
-    // Calculate the size of the volume if not given precisely. The size
-    // of the smallest pool is the safe choice though a bit too
-    // conservative (TODO).
+    // Calculate the size of the volume if not given precisely.
+    //
+    // TODO: Size of the smallest pool is a safe choice though too conservative.
     if (!this.size) {
       this.size = Math.min(
         pools.reduce(
@@ -273,9 +447,9 @@ class Volume {
   //
   // @returns {object[]}  List of replicas sorted by preference (the most first).
   //
-  _prioritizeReplicas () {
-    const self = this;
-    return Object.values(self.replicas).sort(
+  _prioritizeReplicas (replicas) {
+    let self = this;
+    return Object.values(replicas).sort(
       (a, b) => self._scoreReplica(b) - self._scoreReplica(a)
     );
   }
@@ -297,7 +471,7 @@ class Volume {
       score += 10;
     }
     // criteria #2: replica should be online
-    if (replica.state === 'ONLINE') {
+    if (!replica.isOffline()) {
       score += 5;
     }
     // criteria #2: would be nice to run on preferred node
@@ -326,7 +500,7 @@ class Volume {
   async _ensureReplicaShareProtocols () {
     // If nexus does not exist it will be created on the same node as the most
     // preferred replica.
-    const replicaSet = this._prioritizeReplicas();
+    const replicaSet = this._prioritizeReplicas(Object.values(this.replicas));
     if (replicaSet.length === 0) {
       throw new GrpcError(
         GrpcCode.INTERNAL,
@@ -357,7 +531,6 @@ class Volume {
             `Failed to set share pcol to ${share} for replica "${replica}": ${err}`
           );
         }
-        log.info(`Share protocol for replica "${replica}" set to ${share}`);
       }
     }
     return replicaSet;
@@ -422,6 +595,8 @@ class Volume {
   //
 
   // Add new replica to the volume.
+  //
+  // @param {object} replica   New replica object.
   newReplica (replica) {
     assert(replica.uuid === this.uuid);
     const nodeName = replica.pool.node.name;
@@ -430,82 +605,87 @@ class Volume {
         `Trying to add the same replica "${replica}" to the volume twice`
       );
     } else {
-      // TODO: scale down if n > replica count
-      // TODO: update the nexus if necessary
       log.debug(`Replica "${replica}" attached to the volume`);
       this.replicas[nodeName] = replica;
+      this.fsa();
     }
   }
 
   // Modify replica in the volume.
+  //
+  // @param {object} replica   Modified replica object.
   modReplica (replica) {
-    assert(replica.uuid === this.uuid);
+    assert.strictEqual(replica.uuid, this.uuid);
     const nodeName = replica.pool.node.name;
     if (!this.replicas[nodeName]) {
       log.warn(`Modified replica "${replica}" does not belong to the volume`);
     } else {
-      // TODO: check replica count in regard to a state which might have changed
-      // TODO: update the nexus if necessary
       assert(this.replicas[nodeName] === replica);
+      // the share protocol or uri could have changed
+      this.fsa();
     }
   }
 
   // Delete replica in the volume.
+  //
+  // @param {object} replica   Deleted replica object.
   delReplica (replica) {
-    assert(replica.uuid === this.uuid);
+    assert.strictEqual(replica.uuid, this.uuid);
     const nodeName = replica.pool.node.name;
     if (!this.replicas[nodeName]) {
       log.warn(`Deleted replica "${replica}" does not belong to the volume`);
     } else {
-      // TODO: check replica count
-      // TODO: update the nexus if necessary
       log.debug(`Replica "${replica}" detached from the volume`);
       assert(this.replicas[nodeName] === replica);
       delete this.replicas[nodeName];
+      this.fsa();
     }
   }
 
   // Assign nexus to the volume.
+  //
+  // @param {object} nexus   New nexus object.
   newNexus (nexus) {
-    assert(nexus.uuid === this.uuid);
+    assert.strictEqual(nexus.uuid, this.uuid);
     if (this.nexus) {
       log.warn(`Trying to add nexus "${nexus}" to the volume twice`);
     } else {
-      // TODO: check consistency of replicas
-      // TODO: check replica count
-      // TODO: update the nexus if necessary
-      // TODO: figure out the exact relation between nexus and vol state
       log.debug(`Nexus "${nexus}" attached to the volume`);
+      assert.equal(this.state, 'pending');
       this.nexus = nexus;
-      this.state = nexus.state;
-      this.reason = '';
+      if (!this.size) this.size = nexus.size;
+      this.fsa();
     }
   }
 
-  // Modify nexus in the volume.
+  // Nexus has been modified.
+  //
+  // @param {object} nexus   Modified nexus object.
   modNexus (nexus) {
-    assert(nexus.uuid === this.uuid);
+    assert.strictEqual(nexus.uuid, this.uuid);
+    assert.equal(nexus.uuid, this.uuid);
     if (!this.nexus) {
       log.warn(`Modified nexus "${nexus}" does not belong to the volume`);
     } else {
-      // TODO: check children and their state and scale up/down as appropriate
-      assert(this.nexus === nexus);
-      this.state = nexus.state;
-      this.reason = '';
+      assert.strictEqual(this.nexus, nexus);
+      this.fsa();
     }
   }
 
   // Delete nexus in the volume.
+  //
+  // @param {object} nexus   Deleted nexus object.
   delNexus (nexus) {
-    assert(nexus.uuid === this.uuid);
+    assert.strictEqual(nexus.uuid, this.uuid);
     if (!this.nexus) {
       log.warn(`Deleted nexus "${nexus}" does not belong to the volume`);
     } else {
       log.debug(`Nexus "${nexus}" detached from the volume`);
-      assert(this.nexus === nexus);
+      assert.strictEqual(this.nexus, nexus);
       this.nexus = null;
-      this.state = 'PENDING';
-      this.reason = 'The volume is missing nexus';
+      // this brings up back to a starting state. No FSA transitions are
+      // possible after this point unless we receive new nexus event again.
+      this._setState('pending');
     }
   }
 }

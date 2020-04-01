@@ -314,28 +314,28 @@ describe('nexus', function () {
       const expectedChildren = 4 + doUring();
 
       assert.equal(nexus.uuid, UUID);
-      assert.equal(nexus.state, 'online');
+      assert.equal(nexus.state, 'NEXUS_ONLINE');
       assert.lengthOf(nexus.children, expectedChildren);
       assert.equal(nexus.children[0].uri, 'bdev:///Malloc0');
-      assert.equal(nexus.children[0].state, 'open');
+      assert.equal(nexus.children[0].state, 'CHILD_ONLINE');
       assert.equal(nexus.children[1].uri, `aio:///${aioFile}?blk_size=4096`);
-      assert.equal(nexus.children[1].state, 'open');
+      assert.equal(nexus.children[1].state, 'CHILD_ONLINE');
       assert.equal(
         nexus.children[2].uri,
         `iscsi://${externIp}:3261/iqn.2019-05.io.openebs:disk1`
       );
-      assert.equal(nexus.children[2].state, 'open');
+      assert.equal(nexus.children[2].state, 'CHILD_ONLINE');
       assert.equal(
         nexus.children[3].uri,
         'nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk2'
       );
-      assert.equal(nexus.children[3].state, 'open');
+      assert.equal(nexus.children[3].state, 'CHILD_ONLINE');
       if (doUring()) {
         assert.equal(
           nexus.children[4].uri,
           `uring:///${uringFile}?blk_size=4096`
         );
-        assert.equal(nexus.children[4].state, 'open');
+        assert.equal(nexus.children[4].state, 'CHILD_ONLINE');
       }
       done();
     });

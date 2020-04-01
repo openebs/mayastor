@@ -147,6 +147,9 @@ class VolumeOperator {
           else return 0;
         })
       };
+      if (st.nexus) {
+        props.status.nexus = st.nexus;
+      }
     }
 
     return props;
@@ -227,20 +230,33 @@ class VolumeOperator {
   // @returns {object} Status properties.
   //
   _volumeToStatus (volume) {
-    return {
+    let st = {
       size: volume.getSize(),
       state: volume.state,
-      reason: volume.reason,
+      reason: '',
       node: volume.getNodeName(),
       replicas: Object.values(volume.replicas).map((r) => {
         return {
           node: r.pool.node.name,
           pool: r.pool.name,
           uri: r.uri,
-          state: r.state
+          offline: r.isOffline()
         };
       })
     };
+    if (volume.nexus) {
+      st.nexus = {
+        devicePath: volume.nexus.devicePath || '',
+        state: volume.nexus.state,
+        children: volume.nexus.children.map((ch) => {
+          return {
+            uri: ch.uri,
+            state: ch.state,
+          };
+        }),
+      };
+    }
+    return st;
   }
 
   // Create k8s CRD object.
@@ -388,7 +404,7 @@ class VolumeOperator {
         `Failed to create volume "${uuid}" based on new resource: ${err}`
       );
       await this._updateStatus(uuid, {
-        state: 'PENDING',
+        state: 'pending',
         reason: err.toString()
       });
     }
@@ -413,7 +429,7 @@ class VolumeOperator {
         log.debug(
           `Updating volume "${uuid}" in response to "mod" resource event`
         );
-        await volume.ensure();
+        volume.fsa();
       }
     } catch (err) {
       log.error(`Failed to update volume "${uuid}" based on resource: ${err}`);

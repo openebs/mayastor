@@ -41,11 +41,11 @@ module.exports = function () {
       uuid: UUID,
       size: 10,
       share: 0, // value of NEXUS_NBD for now.
-      state: 'ONLINE',
+      state: 'NEXUS_ONLINE',
       children: [
         {
           uri: 'bdev:///' + UUID,
-          state: 'ONLINE'
+          state: 'CHILD_ONLINE'
         }
       ]
     }
@@ -137,10 +137,10 @@ module.exports = function () {
           expect(nexusObjects).to.have.lengthOf(1);
           expect(nexusObjects[0].uuid).to.equal(UUID);
           expect(nexusObjects[0].size).to.equal(10);
-          expect(nexusObjects[0].state).to.equal('ONLINE');
+          expect(nexusObjects[0].state).to.equal('NEXUS_ONLINE');
           expect(nexusObjects[0].children).to.have.lengthOf(1);
           expect(nexusObjects[0].children[0].uri).to.equal('bdev:///' + UUID);
-          expect(nexusObjects[0].children[0].state).to.equal('ONLINE');
+          expect(nexusObjects[0].children[0].state).to.equal('CHILD_ONLINE');
 
           done();
         }, syncInterval * 3);
@@ -335,11 +335,11 @@ module.exports = function () {
         newNexus[0].children = [
           {
             uri: 'bdev:///' + UUID,
-            state: 'ONLINE'
+            state: 'CHILD_ONLINE'
           },
           {
             uri: 'nvmf:///something',
-            state: 'ONLINE'
+            state: 'CHILD_ONLINE'
           }
         ];
         srv.nexus = newNexus;
@@ -368,7 +368,7 @@ module.exports = function () {
         srv.nexus.push({
           uuid: newUuid,
           size: 10,
-          state: 'ONLINE',
+          state: 'NEXUS_ONLINE',
           children: []
         });
       });
@@ -417,13 +417,13 @@ module.exports = function () {
         node.once('replica', (ev) => {
           expect(ev.eventType).to.equal('mod');
           expect(ev.object.uuid).to.equal(UUID);
-          expect(ev.object.state).to.equal('OFFLINE');
+          expect(ev.object.isOffline()).to.be.true;
           offline();
         });
         node.once('nexus', (ev) => {
           expect(ev.eventType).to.equal('mod');
           expect(ev.object.uuid).to.equal(UUID);
-          expect(ev.object.state).to.equal('OFFLINE');
+          expect(ev.object.state).to.equal('NEXUS_OFFLINE');
           offline();
         });
 
@@ -599,7 +599,7 @@ module.exports = function () {
         expect(ev.object.size).to.equal(100);
         expect(ev.object.children).to.have.lengthOf(1);
         expect(ev.object.children[0].uri).to.match(/^bdev:\/\/\//);
-        expect(ev.object.children[0].state).to.equal('online');
+        expect(ev.object.children[0].state).to.equal('CHILD_ONLINE');
         expect(node.nexus).to.have.lengthOf(1);
         emitted = true;
       });

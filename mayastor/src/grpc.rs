@@ -10,7 +10,13 @@ use crate::{
         nexus::{
             instances,
             nexus_bdev,
-            nexus_bdev::{name_to_uuid, uuid_to_name, Nexus},
+            nexus_bdev::{
+                name_to_uuid,
+                uuid_to_name,
+                Nexus,
+                NexusState as NexusStateInternal,
+            },
+            nexus_child::ChildState as ChildStateInternal,
         },
         nexus_create,
     },
@@ -80,7 +86,7 @@ impl Mayastor for MayastorGrpc {
                 disks: pool.disks.clone(),
                 state: match pool.state.as_str() {
                     "online" => PoolState::PoolOnline,
-                    _ => PoolState::PoolDegraded,
+                    _ => PoolState::PoolFaulted,
                 } as i32,
                 capacity: pool.capacity,
                 used: pool.used,
@@ -165,14 +171,38 @@ impl Mayastor for MayastorGrpc {
             .map(|n| rpc::mayastor::Nexus {
                 uuid: name_to_uuid(&n.name).to_string(),
                 size: n.size,
-                state: n.state.to_string(),
+                state: match n.state {
+                    NexusStateInternal::Online => NexusState::NexusOnline,
+                    NexusStateInternal::Faulted => NexusState::NexusFaulted,
+                    NexusStateInternal::Degraded => NexusState::NexusDegraded,
+                    NexusStateInternal::Remuling => NexusState::NexusDegraded,
+                    NexusStateInternal::Init => NexusState::NexusDegraded,
+                    NexusStateInternal::Closed => NexusState::NexusDegraded,
+                } as i32,
                 device_path: n.get_share_path().unwrap_or_default(),
                 children: n
                     .children
                     .iter()
                     .map(|c| Child {
                         uri: c.name.clone(),
-                        state: c.state.to_string(),
+                        state: match c.state {
+                            ChildStateInternal::Init => {
+                                ChildState::ChildDegraded
+                            }
+                            ChildStateInternal::ConfigInvalid => {
+                                ChildState::ChildFaulted
+                            }
+                            ChildStateInternal::Open => ChildState::ChildOnline,
+                            // Treating closed as rebuild is the most safe as we
+                            // don't want moac to do
+                            // anything if a child is being closed.
+                            ChildStateInternal::Closed => {
+                                ChildState::ChildDegraded
+                            }
+                            ChildStateInternal::Faulted => {
+                                ChildState::ChildFaulted
+                            }
+                        } as i32,
                     })
                     .collect::<Vec<_>>(),
                 rebuilds: n.rebuilds.len() as u64,
@@ -183,6 +213,7 @@ impl Mayastor for MayastorGrpc {
             nexus_list: list,
         }))
     }
+
     async fn add_child_nexus(
         &self,
         request: Request<AddChildNexusRequest>,

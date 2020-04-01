@@ -8,7 +8,6 @@
 // server to fake the server and responses.
 
 const assert = require('chai').assert;
-const async = require('async');
 const exec = require('child_process').exec;
 const path = require('path');
 const util = require('util');
@@ -82,14 +81,14 @@ describe('cli', function () {
               {
                 name: POOL + '1',
                 disks: [DISK + '1'],
-                state: 0,
+                state: 1,
                 capacity: 100 * (1024 * 1024),
                 used: 50 * (1024 * 1024)
               },
               {
                 name: POOL + '2',
                 disks: [DISK + '2a', DISK + '2b'],
-                state: 1,
+                state: 2,
                 capacity: 1000 * (1024 * 1024),
                 used: 99 * (1024 * 1024)
               }
@@ -228,7 +227,7 @@ describe('cli', function () {
           const parts = line
             .trim()
             .split(' ')
-            .filter((s) => s.length != 0);
+            .filter((s) => s.length !== 0);
 
           if (parts.length <= 1) {
             return;
@@ -326,7 +325,7 @@ describe('cli', function () {
           const parts = line
             .trim()
             .split(' ')
-            .filter((s) => s.length != 0);
+            .filter((s) => s.length !== 0);
 
           if (parts.length <= 1) {
             return;
@@ -388,7 +387,7 @@ describe('cli', function () {
           const parts = line
             .trim()
             .split(' ')
-            .filter((s) => s.length != 0);
+            .filter((s) => s.length !== 0);
 
           if (parts.length <= 1) {
             return;

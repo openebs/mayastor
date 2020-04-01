@@ -32,7 +32,7 @@ class Nexus {
     this.devicePath = props.devicePath;
     this.state = props.state;
     // children of the nexus (replica URIs and their state)
-    this.children = [].concat(props.children).sort(compareChildren);
+    this.children = [].concat(props.children || []).sort(compareChildren);
   }
 
   // Stringify the nexus
@@ -89,7 +89,7 @@ class Nexus {
   //
   bind (node) {
     this.node = node;
-    log.info(`Adding nexus "${this}" to a list`);
+    log.debug(`Adding "${this.uuid}" to the nexus list of node "${node}"`);
     this.node.emit('nexus', {
       eventType: 'new',
       object: this
@@ -98,7 +98,7 @@ class Nexus {
 
   // Unbind the previously bound nexus from the node.
   unbind () {
-    log.info(`Removing nexus "${this}" from a list`);
+    log.debug(`Removing "${this}" from the nexus list`);
     this.node.unregisterNexus(this);
     this.node.emit('nexus', {
       eventType: 'del',
@@ -112,8 +112,8 @@ class Nexus {
   // the pool becomes inaccessible.
   offline () {
     log.warn(`Nexus "${this}" got offline`);
-    this.state = 'OFFLINE';
-    this.reason = `mayastor does not run on the node "${this.node.name}"`;
+    this.state = 'NEXUS_OFFLINE';
+    this.reason = `mayastor does not run on the node "${this.node}"`;
     this._emitMod();
   }
 
@@ -199,20 +199,22 @@ class Nexus {
         `Failed to add uri "${uri}" to nexus "${this}": ${err}`
       );
     }
+    // We assume that child needs to be rebuilt when added, hence the state
+    // is implicitly set to degraded.
     this.children.push({
       uri: uri,
-      state: '' // will be filled later during a sync
+      state: 'CHILD_DEGRADED'
     });
     this.children.sort(compareChildren);
+    log.info(`Replica uri "${uri}" added to the nexus "${this}"`);
     this._emitMod();
   }
 
   // Remove replica from nexus.
   //
-  // @param {object} replica   Replica object to remove from the nexus.
+  // @param {string} uri   URI of the replica to be removed from the nexus.
   //
-  async removeReplica (replica) {
-    const uri = replica.uri;
+  async removeReplica (uri) {
     if (!this.children.find((ch) => ch.uri === uri)) {
       return;
     }
@@ -235,6 +237,7 @@ class Nexus {
     if (idx >= 0) {
       this.children.splice(idx, 1);
     }
+    log.info(`Replica uri "${uri}" removed from the nexus "${this}"`);
     this._emitMod();
   }
 

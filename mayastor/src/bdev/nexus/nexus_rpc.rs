@@ -4,10 +4,12 @@ use rpc::mayastor::{
     AddChildNexusRequest,
     Child,
     ChildNexusRequest,
+    ChildState as RpcChildState,
     CreateNexusRequest,
     DestroyNexusRequest,
     ListNexusReply,
     Nexus as RpcNexus,
+    NexusState as RpcNexusState,
     PublishNexusReply,
     PublishNexusRequest,
     RebuildProgressRequest,
@@ -22,7 +24,15 @@ use rpc::mayastor::{
 use crate::{
     bdev::nexus::{
         instances,
-        nexus_bdev::{name_to_uuid, nexus_create, uuid_to_name, Error, Nexus},
+        nexus_bdev::{
+            name_to_uuid,
+            nexus_create,
+            uuid_to_name,
+            Error,
+            Nexus,
+            NexusState,
+        },
+        nexus_child::ChildState,
     },
     jsonrpc::jsonrpc_register,
 };
@@ -50,13 +60,34 @@ pub(crate) fn register_rpc_methods() {
                 .map(|nexus| RpcNexus {
                     uuid: name_to_uuid(&nexus.name).to_string(),
                     size: nexus.size(),
-                    state: nexus.state.to_string(),
+                    state: match nexus.state {
+                        NexusState::Online => RpcNexusState::NexusOnline,
+                        NexusState::Faulted => RpcNexusState::NexusFaulted,
+                        NexusState::Degraded => RpcNexusState::NexusDegraded,
+                        NexusState::Remuling => RpcNexusState::NexusDegraded,
+                        NexusState::Init => RpcNexusState::NexusDegraded,
+                        NexusState::Closed => RpcNexusState::NexusDegraded,
+                    } as i32,
                     children: nexus
                         .children
                         .iter()
                         .map(|child| Child {
                             uri: child.name.clone(),
-                            state: child.state.to_string(),
+                            state: match child.state {
+                                ChildState::Init => {
+                                    RpcChildState::ChildDegraded
+                                }
+                                ChildState::ConfigInvalid => {
+                                    RpcChildState::ChildFaulted
+                                }
+                                ChildState::Open => RpcChildState::ChildOnline,
+                                ChildState::Closed => {
+                                    RpcChildState::ChildDegraded
+                                }
+                                ChildState::Faulted => {
+                                    RpcChildState::ChildFaulted
+                                }
+                            } as i32,
                         })
                         .collect::<Vec<_>>(),
                     device_path: nexus.get_share_path().unwrap_or_default(),

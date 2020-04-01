@@ -3,6 +3,7 @@ const assert = require('chai').assert;
 const path = require('path');
 const protoLoader = require('@grpc/proto-loader');
 const grpc = require('grpc-uds');
+const enums = require('./grpc_enums');
 
 // each stat is incremented by this each time when stat method is called
 const STAT_DELTA = 1000;
@@ -63,7 +64,7 @@ class MayastorServer {
 
     var self = this;
     srv.addService(mayastor.Mayastor.service, {
-      // When a pool is created we implicitly set state to ONLINE,
+      // When a pool is created we implicitly set state to POOL_ONLINE,
       // capacity to 100 and used to 4.
       createPool: (call, cb) => {
         const args = call.request;
@@ -82,7 +83,7 @@ class MayastorServer {
             disks: args.disks.map((d) => {
               return 'aio://' + d;
             }),
-            state: 0,
+            state: enums.POOL_ONLINE,
             capacity: 100,
             used: 4
           });
@@ -212,11 +213,11 @@ class MayastorServer {
         self.nexus.push({
           uuid: args.uuid,
           size: args.size,
-          state: 'online',
+          state: enums.NEXUS_ONLINE,
           children: args.children.map((r) => {
             return {
               uri: r,
-              state: 'online'
+              state: enums.CHILD_ONLINE
             };
           })
           // device_path omitted
@@ -280,7 +281,7 @@ class MayastorServer {
         if (!n.children.find((ch) => ch.uri === args.uri)) {
           n.children.push({
             uri: args.uri,
-            state: 'online'
+            state: enums.CHILD_DEGRADED
           });
         }
         cb();

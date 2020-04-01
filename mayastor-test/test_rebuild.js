@@ -233,15 +233,15 @@ describe('rebuild tests', function () {
     });
 
     it('check nexus state', async () => {
-      await checkState(ObjectType.NEXUS, 'degraded');
+      await checkState(ObjectType.NEXUS, 'NEXUS_DEGRADED');
     });
 
     it('check source state', async () => {
-      await checkState(ObjectType.SOURCE_CHILD, 'open');
+      await checkState(ObjectType.SOURCE_CHILD, 'CHILD_ONLINE');
     });
 
     it('check destination state', async () => {
-      await checkState(ObjectType.DESTINATION_CHILD, 'faulted');
+      await checkState(ObjectType.DESTINATION_CHILD, 'CHILD_FAULTED');
     });
   });
 
@@ -259,15 +259,15 @@ describe('rebuild tests', function () {
     });
 
     it('check nexus state', async () => {
-      await checkState(ObjectType.NEXUS, 'degraded');
+      await checkState(ObjectType.NEXUS, 'NEXUS_DEGRADED');
     });
 
     it('check source state', async () => {
-      await checkState(ObjectType.SOURCE_CHILD, 'open');
+      await checkState(ObjectType.SOURCE_CHILD, 'CHILD_ONLINE');
     });
 
     it('check destination state', async () => {
-      await checkState(ObjectType.DESTINATION_CHILD, 'faulted');
+      await checkState(ObjectType.DESTINATION_CHILD, 'CHILD_FAULTED');
     });
 
     it('get rebuild state', async (done) => {

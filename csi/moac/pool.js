@@ -140,7 +140,7 @@ class Pool {
   bind (node) {
     assert(!this.node);
     this.node = node;
-    log.info(`Adding pool "${this}" to a list`);
+    log.debug(`Adding pool "${this.name}" to the list of pools on "${node}"`);
     this.node.emit('pool', {
       eventType: 'new',
       object: this
@@ -149,7 +149,7 @@ class Pool {
 
   // Unbind the previously bound pool from the node.
   unbind () {
-    log.info(`Removing pool "${this}" from a list`);
+    log.debug(`Removing pool "${this}" from the list of pools`);
     this.replicas.forEach((r) => r.unbind());
     this.node.unregisterPool(this);
 

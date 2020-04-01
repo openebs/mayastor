@@ -17,7 +17,7 @@ class Replica {
     this.size = props.size;
     this.share = props.share;
     this.uri = props.uri;
-    this.state = props.state;
+    this.isDown = false;
   }
 
   // Stringify replica.
@@ -32,7 +32,6 @@ class Replica {
   // @param {number}   props.size     Capacity of the replica in bytes.
   // @param {string}   props.share    Share protocol of replica.
   // @param {string}   props.uri      URI to be used by nexus to access it.
-  // @param {string}   props.state    State of the replica.
   //
   merge (props) {
     let changed = false;
@@ -49,8 +48,8 @@ class Replica {
       this.uri = props.uri;
       changed = true;
     }
-    if (this.state != props.state) {
-      this.state = props.state;
+    if (this.isDown) {
+      this.isDown = false;
       changed = true;
     }
     if (changed) {
@@ -61,16 +60,21 @@ class Replica {
     }
   }
 
-  // Set state of the pool to offline and the same for all replicas on the pool.
+  // Set state of the replica to offline.
   // This is typically called when mayastor stops running on the node and
-  // the pool becomes inaccessible.
+  // the replicas become inaccessible.
   offline () {
     log.warn(`Replica "${this}" got offline`);
-    this.state = 'OFFLINE';
+    this.isDown = true;
     this.pool.node.emit('replica', {
       eventType: 'mod',
       object: this
     });
+  }
+
+  // Return true if replica is offline otherwise false.
+  isOffline() {
+    return this.isDown;
   }
 
   // Export replica over given storage protocol for IO (NONE, ISCSI or NVMF).
@@ -135,7 +139,9 @@ class Replica {
   bind (pool) {
     assert(!this.pool);
     this.pool = pool;
-    log.info(`Adding replica "${this}" to a list`);
+    log.debug(
+      `Adding "${this.uuid}" to the list of replicas for the pool "${pool}"`
+    );
     this.pool.node.emit('replica', {
       eventType: 'new',
       object: this
@@ -144,7 +150,7 @@ class Replica {
 
   // Remove the replica reference from pool
   unbind () {
-    log.info(`Removing replica "${this}" from a list`);
+    log.debug(`Removing replica "${this}" from the list of replicas`);
     this.pool.unregisterReplica(this);
     this.pool.node.emit('replica', {
       eventType: 'del',

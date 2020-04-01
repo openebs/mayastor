@@ -96,10 +96,7 @@ describe('replica', function () {
     if (client == null) {
       return done();
     }
-    client.destroyPool({ name: POOL }, (err) => {
-      if (err) console.log('Destroy pool failed:', err);
-      done();
-    });
+    client.destroyPool({ name: POOL }, () => done());
   }
 
   // start mayastor if needed

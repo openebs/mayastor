@@ -22,39 +22,43 @@ class Volumes extends EventEmitter {
     var self = this;
     this.events = new EventStream({ registry: this.registry });
     this.events.on('data', async function (ev) {
-      if (ev.kind != 'replica' && ev.kind != 'nexus') {
-        // not interesed in node and pool events
-        return;
-      }
-      const uuid = ev.object.uuid;
-      const volume = self.volumes[uuid];
-      if (!volume) {
-        // Ignore events for volumes that do not exist. Those might be events
-        // related to a volume that is being destroyed.
-        log.debug(`${ev.eventType} event for unknown volume "${uuid}"`);
-        return;
-      }
-      if (ev.kind == 'replica') {
-        if (ev.eventType == 'new') {
-          volume.newReplica(ev.object);
-        } else if (ev.eventType == 'mod') {
-          volume.modReplica(ev.object);
-        } else if (ev.eventType == 'del') {
-          volume.delReplica(ev.object);
+      if (ev.kind == 'pool' && ev.eventType == 'new') {
+        // New pool was added and perhaps we have volumes waiting to schedule
+        // their replicas on it.
+        Object.values(self.volumes)
+          .filter((v) => v.state == 'degraded')
+          .forEach((v) => v.fsa());
+      } else if (ev.kind == 'replica' || ev.kind == 'nexus') {
+        const uuid = ev.object.uuid;
+        const volume = self.volumes[uuid];
+        if (!volume) {
+          // Ignore events for volumes that do not exist. Those might be events
+          // related to a volume that is being destroyed.
+          log.debug(`${ev.eventType} event for unknown volume "${uuid}"`);
+          return;
         }
-      } else if (ev.kind == 'nexus') {
-        if (ev.eventType == 'new') {
-          volume.newNexus(ev.object);
-        } else if (ev.eventType == 'mod') {
-          volume.modNexus(ev.object);
-        } else if (ev.eventType == 'del') {
-          volume.delNexus(ev.object);
+        if (ev.kind == 'replica') {
+          if (ev.eventType == 'new') {
+            volume.newReplica(ev.object);
+          } else if (ev.eventType == 'mod') {
+            volume.modReplica(ev.object);
+          } else if (ev.eventType == 'del') {
+            volume.delReplica(ev.object);
+          }
+        } else if (ev.kind == 'nexus') {
+          if (ev.eventType == 'new') {
+            volume.newNexus(ev.object);
+          } else if (ev.eventType == 'mod') {
+            volume.modNexus(ev.object);
+          } else if (ev.eventType == 'del') {
+            volume.delNexus(ev.object);
+          }
         }
+        self.emit('volume', {
+          eventType: 'mod',
+          object: volume
+        });
       }
-      self.emit('volume', {
-        eventType: 'mod',
-        object: volume
-      });
     });
   }
 
@@ -88,9 +92,7 @@ class Volumes extends EventEmitter {
   // @params  {number}   spec.limitBytes      The volume should not be bigger than this.
   // @returns {object}   New volume object.
   //
-  async createVolume (uuid, spec) {
-    let created = false;
-
+  async createVolume(uuid, spec) {
     if (!spec.requiredBytes || spec.requiredBytes < 0) {
       throw new GrpcError(
         GrpcCode.INVALID_ARGUMENT,
@@ -99,18 +101,15 @@ class Volumes extends EventEmitter {
     }
     let volume = this.volumes[uuid];
     if (volume) {
-      if (!volume.update(spec)) {
-        // exactly the same volume exists - no work
-        return volume;
-      } else {
-        // TODO: What to do if size changes and is incompatible?
+      if (volume.update(spec)) {
+        // TODO: What to do if the size changes and is incompatible?
         this.emit('volume', {
           eventType: 'mod',
           object: volume
         });
+        volume.fsa();
       }
     } else {
-      created = true;
       volume = new Volume(uuid, this.registry, spec);
       // The volume starts to exist before it is created because we must receive
       // events for it and we want to show to user that it is being created.
@@ -125,20 +124,20 @@ class Volumes extends EventEmitter {
       const nexus = this.registry.getNexus(uuid);
       if (nexus) {
         volume.newNexus(nexus);
+        return volume;
       }
-    }
-    try {
-      await volume.ensure();
-    } catch (err) {
-      // undo the PENDING state
-      if (created) {
+
+      try {
+        await volume.create();
+      } catch (err) {
+        // undo the pending state
         delete this.volumes[uuid];
         this.emit('volume', {
           eventType: 'del',
           object: volume
         });
+        throw err;
       }
-      throw err;
     }
     return volume;
   }

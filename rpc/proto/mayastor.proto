@@ -31,9 +31,10 @@ message CreatePoolRequest {
 
 // State of the storage pool (terminology comes from ZFS).
 enum PoolState {
-  POOL_ONLINE = 0;   // the pool is in normal working order
-  POOL_DEGRADED = 1; // the pool has experienced a failure but can still function
-  POOL_FAULTED = 2;  // the pool is completely inaccessible
+  POOL_UNKNOWN = 0;
+  POOL_ONLINE = 1;   // the pool is in normal working order
+  POOL_DEGRADED = 2; // the pool has experienced a failure but can still function
+  POOL_FAULTED = 3;  // the pool is completely inaccessible
 }
 
 // Storage pool properties
@@ -148,17 +149,33 @@ message CreateNexusRequest {
   repeated string children = 3; // uris to the targets we connect to
 }
 
+// State of the nexus child.
+enum ChildState {
+  CHILD_UNKNOWN = 0;
+  CHILD_ONLINE = 1;   // healthy and contains the latest bits
+  CHILD_DEGRADED = 2; // rebuild is in progress (or other recoverable error)
+  CHILD_FAULTED = 3;  // unrecoverable error (control plane must act)
+}
+
 // represents a child device part of a nexus
 message Child {
   string uri = 1;   // uri of the child device
-  string state = 2; // TODO: enum
+  ChildState state = 2; // state of the child
+}
+
+// State of the nexus (terminology inspired by ZFS).
+enum NexusState {
+  NEXUS_UNKNOWN = 0;
+  NEXUS_ONLINE = 1;    // healthy and working
+  NEXUS_DEGRADED = 2;  // not healthy but is able to serve IO (i.e. rebuild is in progress)
+  NEXUS_FAULTED = 3;   // broken and unable to serve IO
 }
 
 // represents a nexus device
 message Nexus {
   string uuid = 1;             // name of the nexus
   uint64 size = 2;             // size of the volume in bytes
-  string state = 3;            // current state of the nexus (TODO: enum)
+  NexusState state = 3;        // current state of the nexus
   repeated Child children = 4; // array of children
   // Path to device file for the volume (missing if not published).
   // Missing property and empty string are treated the same.

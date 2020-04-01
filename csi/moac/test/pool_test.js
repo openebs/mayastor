@@ -240,7 +240,9 @@ module.exports = function () {
     pool.offline();
 
     expect(pool.state).to.equal('POOL_OFFLINE');
-    expect(replica.state).to.equal('OFFLINE');
+    // jshint ignore:start
+    expect(replica.isOffline()).to.be.true;
+    // jshint ignore:end
 
     // first two events are for the new pool and new replica
     expect(eventSpy.callCount).to.equal(4);
@@ -266,7 +268,6 @@ module.exports = function () {
           size: 100,
           thin: false,
           share: 'REPLICA_NONE',
-          state: 'ONLINE',
           uri: 'bdev://blabla'
         }
       ]
@@ -287,7 +288,6 @@ module.exports = function () {
     sinon.assert.calledWithMatch(stub.secondCall, 'listReplicas', {});
     expect(pool.replicas).to.have.lengthOf(1);
     expect(repl.uuid).to.equal('uuid');
-    expect(repl.state).to.equal('ONLINE');
   });
 
   it('should throw internal error if createReplica grpc fails', async () => {
@@ -302,7 +302,6 @@ module.exports = function () {
           size: 100,
           thin: false,
           share: 'REPLICA_NONE',
-          state: 'ONLINE',
           uri: 'bdev://blabla'
         }
       ]

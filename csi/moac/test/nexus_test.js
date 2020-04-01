@@ -18,15 +18,15 @@ module.exports = function () {
     uuid: UUID,
     size: 100,
     devicePath: '',
-    state: 'ONLINE',
+    state: 'NEXUS_ONLINE',
     children: [
       {
         uri: 'nvmf://' + UUID,
-        state: 'ONLINE'
+        state: 'CHILD_ONLINE'
       },
       {
         uri: 'bdev:///' + UUID,
-        state: 'ONLINE'
+        state: 'CHILD_ONLINE'
       }
     ]
   };
@@ -62,7 +62,7 @@ module.exports = function () {
     node.once('nexus', (ev) => {
       expect(ev.eventType).to.equal('mod');
       expect(ev.object).to.equal(nexus);
-      expect(nexus.state).to.equal('OFFLINE');
+      expect(nexus.state).to.equal('NEXUS_OFFLINE');
     });
     nexus.offline();
   });
@@ -109,7 +109,7 @@ module.exports = function () {
     });
 
     it('should emit event upon change of state property', () => {
-      newProps.state = 'DEGRADED';
+      newProps.state = 'NEXUS_DEGRADED';
       nexus.merge(newProps);
 
       // First event is new nexus event
@@ -118,14 +118,14 @@ module.exports = function () {
         eventType: 'mod',
         object: nexus
       });
-      expect(nexus.state).to.equal('DEGRADED');
+      expect(nexus.state).to.equal('NEXUS_DEGRADED');
     });
 
     it('should emit event upon change of children property', () => {
       newProps.children = [
         {
           uri: 'bdev:///' + UUID,
-          state: 'ONLINE'
+          state: 'CHILD_ONLINE'
         }
       ];
       nexus.merge(newProps);
@@ -137,19 +137,19 @@ module.exports = function () {
         object: nexus
       });
       expect(nexus.children).to.have.lengthOf(1);
-      expect(nexus.children[0].uri).to.equal('bdev:///' + UUID);
-      expect(nexus.children[0].state).to.equal('ONLINE');
+      expect(nexus.children[0].uri).to.equal(`bdev:///${UUID}`);
+      expect(nexus.children[0].state).to.equal('CHILD_ONLINE');
     });
 
     it('should not emit event when children are the same', () => {
       newProps.children = [
         {
           uri: 'bdev:///' + UUID,
-          state: 'ONLINE'
+          state: 'CHILD_ONLINE'
         },
         {
           uri: 'nvmf://' + UUID,
-          state: 'ONLINE'
+          state: 'CHILD_ONLINE'
         }
       ];
       nexus.merge(newProps);
@@ -322,7 +322,7 @@ module.exports = function () {
       });
       callStub.resolves({});
 
-      await nexus.removeReplica(replica);
+      await nexus.removeReplica(replica.uri);
 
       sinon.assert.calledOnce(callStub);
       sinon.assert.calledWith(callStub, 'removeChildNexus', {
@@ -346,7 +346,7 @@ module.exports = function () {
       callStub.rejects(new GrpcError(GrpcCode.INTERNAL, 'Test failure'));
 
       await shouldFailWith(GrpcCode.INTERNAL, async () => {
-        await nexus.removeReplica(replica);
+        await nexus.removeReplica(replica.uri);
       });
 
       sinon.assert.calledOnce(callStub);

@@ -46,12 +46,23 @@ module.exports = function () {
   var defaultStatus = {
     size: 110,
     node: 'node2',
-    state: 'ONLINE',
+    state: 'healthy',
+    nexus: {
+      devicePath: '/dev/nbd0',
+      state: 'NEXUS_ONLINE',
+      children: [
+        {
+          uri: 'bdev:///' + UUID,
+          state: 'CHILD_ONLINE',
+        },
+      ],
+    },
     replicas: [
       {
         uri: 'bdev:///' + UUID,
         node: 'node2',
-        state: 'ONLINE'
+        pool: 'pool',
+        offline: false
       }
     ]
   };
@@ -149,12 +160,23 @@ module.exports = function () {
         {
           size: 110,
           node: 'node2',
-          state: 'ONLINE',
+          state: 'healthy',
+          nexus: {
+            devicePath: '/dev/nbd0',
+            state: 'NEXUS_ONLINE',
+            children: [
+              {
+                uri: 'bdev:///' + UUID,
+                state: 'CHILD_ONLINE',
+              },
+            ],
+          },
           replicas: [
             {
               uri: 'bdev:///' + UUID,
               node: 'node2',
-              state: 'ONLINE'
+              pool: 'pool',
+              offline: false
             }
           ]
         }
@@ -172,11 +194,52 @@ module.exports = function () {
       expect(res.spec.limitBytes).to.equal(120);
       expect(res.status.size).to.equal(110);
       expect(res.status.node).to.equal('node2');
-      expect(res.status.state).to.equal('ONLINE');
+      expect(res.status.state).to.equal('healthy');
+      expect(res.status.nexus.devicePath).to.equal('/dev/nbd0');
+      expect(res.status.nexus.state).to.equal('NEXUS_ONLINE');
+      expect(res.status.nexus.children).to.have.length(1);
+      expect(res.status.nexus.children[0].uri).to.equal('bdev:///' + UUID);
+      expect(res.status.nexus.children[0].state).to.equal('CHILD_ONLINE');
       expect(res.status.replicas).to.have.lengthOf(1);
       expect(res.status.replicas[0].uri).to.equal('bdev:///' + UUID);
       expect(res.status.replicas[0].node).to.equal('node2');
-      expect(res.status.replicas[0].state).to.equal('ONLINE');
+      expect(res.status.replicas[0].pool).to.equal('pool');
+      expect(res.status.replicas[0].offline).to.equal(false);
+    });
+
+    it('valid mayastor volume with status without nexus should pass the filter', () => {
+      let obj = createVolumeResource(
+        UUID,
+        {
+          replicaCount: 3,
+          preferredNodes: ['node1', 'node2'],
+          requiredNodes: ['node2'],
+          requiredBytes: 100,
+          limitBytes: 120,
+        },
+        {
+          size: 110,
+          node: 'node2',
+          state: 'healthy',
+          replicas: [],
+        }
+      );
+
+      let res = VolumeOperator.prototype._filterMayastorVolume(obj);
+      expect(res.metadata.name).to.equal(UUID);
+      expect(res.spec.replicaCount).to.equal(3);
+      expect(res.spec.preferredNodes).to.have.lengthOf(2);
+      expect(res.spec.preferredNodes[0]).to.equal('node1');
+      expect(res.spec.preferredNodes[1]).to.equal('node2');
+      expect(res.spec.requiredNodes).to.have.lengthOf(1);
+      expect(res.spec.requiredNodes[0]).to.equal('node2');
+      expect(res.spec.requiredBytes).to.equal(100);
+      expect(res.spec.limitBytes).to.equal(120);
+      expect(res.status.size).to.equal(110);
+      expect(res.status.node).to.equal('node2');
+      expect(res.status.state).to.equal('healthy');
+      expect(res.status.nexus).is.undefined;
+      expect(res.status.replicas).to.have.lengthOf(0);
     });
 
     it('valid mayastor volume without status should pass the filter', () => {
@@ -320,7 +383,7 @@ module.exports = function () {
         body: {
           metadata: defaultMeta(UUID),
           status: {
-            state: 'PENDING',
+            state: 'pending',
             reason: 'Error: create failed'
           }
         }
@@ -364,8 +427,8 @@ module.exports = function () {
       const volumes = new Volumes(registry);
       const volume = new Volume(UUID, registry, defaultSpec);
       volume.size = 110;
-      const ensureStub = sinon.stub(volume, 'ensure');
-      ensureStub.resolves();
+      const fsaStub = sinon.stub(volume, 'fsa');
+      fsaStub.returns();
       sinon
         .stub(volumes, 'get')
         .withArgs(UUID)
@@ -391,7 +454,7 @@ module.exports = function () {
       // trigger "mod" event
       oper.watcher.modObject(newObj);
 
-      sinon.assert.calledOnce(ensureStub);
+      sinon.assert.calledOnce(fsaStub);
       expect(volume.replicaCount).to.equal(3);
       expect(volume.preferredNodes).to.have.lengthOf(1);
       expect(volume.requiredNodes).to.have.lengthOf(0);
@@ -404,8 +467,8 @@ module.exports = function () {
       const volumes = new Volumes(registry);
       const volume = new Volume(UUID, registry, defaultSpec);
       volume.size = 110;
-      const ensureStub = sinon.stub(volume, 'ensure');
-      ensureStub.resolves();
+      const fsaStub = sinon.stub(volume, 'fsa');
+      fsaStub.resolves();
       sinon
         .stub(volumes, 'get')
         .withArgs(UUID)
@@ -431,47 +494,8 @@ module.exports = function () {
       // trigger "mod" event
       oper.watcher.modObject(newObj);
 
-      sinon.assert.notCalled(ensureStub);
+      sinon.assert.notCalled(fsaStub);
       expect(volume.replicaCount).to.equal(1);
-      expect(volume.requiredBytes).to.equal(100);
-      expect(volume.limitBytes).to.equal(120);
-    });
-
-    it('should not crash if ensure volume fails upon "mod" event', async () => {
-      const registry = new Registry();
-      const volumes = new Volumes(registry);
-      const volume = new Volume(UUID, registry, defaultSpec);
-      volume.size = 110;
-      const ensureStub = sinon.stub(volume, 'ensure');
-      ensureStub.rejects(new GrpcError(GrpcCode.INTERNAL, 'ensure failed'));
-      sinon
-        .stub(volumes, 'get')
-        .withArgs(UUID)
-        .returns(volume)
-        .withArgs()
-        .returns([]);
-      const oldObj = createVolumeResource(UUID, defaultSpec, defaultStatus);
-      // new changed specification of the object
-      const newObj = createVolumeResource(
-        UUID,
-        {
-          replicaCount: 3,
-          preferredNodes: ['node1'],
-          requiredNodes: [],
-          requiredBytes: 100,
-          limitBytes: 120
-        },
-        defaultStatus
-      );
-
-      oper = await mockedVolumeOperator([], volumes);
-      oper.watcher.injectObject(oldObj);
-      // trigger "mod" event
-      oper.watcher.modObject(newObj);
-
-      // ensure failed nevertheless the params should have been updated
-      sinon.assert.calledOnce(ensureStub);
-      expect(volume.replicaCount).to.equal(3);
       expect(volume.requiredBytes).to.equal(100);
       expect(volume.limitBytes).to.equal(120);
     });
@@ -481,8 +505,8 @@ module.exports = function () {
       const volumes = new Volumes(registry);
       const volume = new Volume(UUID, registry, defaultSpec);
       volume.size = 110;
-      const ensureStub = sinon.stub(volume, 'ensure');
-      ensureStub.rejects(new GrpcError(GrpcCode.INTERNAL, 'ensure failed'));
+      const fsaStub = sinon.stub(volume, 'fsa');
+      fsaStub.returns();
       sinon
         .stub(volumes, 'get')
         .withArgs(UUID)
@@ -497,9 +521,7 @@ module.exports = function () {
       oper.watcher.injectObject(oldObj);
       // trigger "mod" event
       oper.watcher.modObject(newObj);
-
-      // ensure failed nevertheless the params should have been updated
-      sinon.assert.notCalled(ensureStub);
+      sinon.assert.notCalled(fsaStub);
     });
   });
 
@@ -542,10 +564,10 @@ module.exports = function () {
         body: {
           status: {
             node: '',
-            reason: 'The volume is being created',
+            reason: '',
             replicas: [],
             size: 0,
-            state: 'PENDING'
+            state: 'pending'
           }
         }
       });
@@ -611,8 +633,8 @@ module.exports = function () {
       const obj = createVolumeResource(UUID, defaultSpec, {
         size: 0,
         node: '',
-        state: 'PENDING',
-        reason: 'The volume is being created',
+        state: 'pending',
+        reason: '',
         replicas: []
       });
       oper.watcher.injectObject(obj);

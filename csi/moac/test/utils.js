@@ -4,8 +4,16 @@
 
 const sleep = require('sleep-promise');
 
-async function waitUntil (test, timeout, name) {
+// Wait until the test function yields true, calling it in exponential
+// backoff intervals.
+async function waitUntil (test, timeout, reason) {
   let delay = 1;
+  if (typeof timeout == 'string') {
+    reason = timeout;
+    timeout = undefined;
+  }
+  timeout = timeout || 1024;
+  reason = reason || 'something';
 
   while (true) {
     const done = await test();
@@ -13,7 +21,7 @@ async function waitUntil (test, timeout, name) {
       return;
     }
     if (timeout <= 0) {
-      throw new Error('Timed out waiting for ' + name);
+      throw new Error(`Timed out waiting for ${reason}`);
     }
     await sleep(delay);
     timeout -= delay;
