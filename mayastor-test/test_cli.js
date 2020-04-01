@@ -53,8 +53,10 @@ function runMockServer(rules) {
   mayastorMockServer.listen('127.0.0.1:' + EGRESS_PORT);
 }
 
-describe('cli', function() {
-  describe('success', function() {
+describe('cli', function () {
+  this.slow(1000);
+
+  describe('success', function () {
     before(() => {
       process.env.RUST_BACKTRACE = '1';
       runMockServer([
@@ -195,7 +197,7 @@ describe('cli', function() {
       }
     });
 
-    it('should create a pool', function(done) {
+    it('should create a pool', function (done) {
       const cmd = util.format(
         '%s pool create -b 512 %s %s',
         EGRESS_CMD,
@@ -213,7 +215,7 @@ describe('cli', function() {
       });
     });
 
-    it('should list pools', function(done) {
+    it('should list pools', function (done) {
       const cmd = util.format('%s -q pool list', EGRESS_CMD);
 
       exec(cmd, (err, stdout, stderr) => {
@@ -224,11 +226,11 @@ describe('cli', function() {
         }
         assert.isEmpty(stderr);
 
-        stdout.split('\n').forEach(line => {
+        stdout.split('\n').forEach((line) => {
           let parts = line
             .trim()
             .split(' ')
-            .filter(s => s.length != 0);
+            .filter((s) => s.length != 0);
 
           if (parts.length <= 1) {
             return;
@@ -267,7 +269,7 @@ describe('cli', function() {
       });
     });
 
-    it('should destroy a pool', function(done) {
+    it('should destroy a pool', function (done) {
       const cmd = util.format('%s pool destroy %s', EGRESS_CMD, POOL);
 
       exec(cmd, (err, stdout, stderr) => {
@@ -280,7 +282,7 @@ describe('cli', function() {
       });
     });
 
-    it('should create a replica', function(done) {
+    it('should create a replica', function (done) {
       const cmd = util.format(
         '%s replica create %s %s --size=1000 --thin --protocol=nvmf',
         EGRESS_CMD,
@@ -298,7 +300,7 @@ describe('cli', function() {
       });
     });
 
-    it('should share the replica', function(done) {
+    it('should share the replica', function (done) {
       const cmd = util.format('%s replica share %s iscsi', EGRESS_CMD, UUID);
 
       exec(cmd, (err, stdout, stderr) => {
@@ -311,7 +313,7 @@ describe('cli', function() {
       });
     });
 
-    it('should list replicas', function(done) {
+    it('should list replicas', function (done) {
       const cmd = util.format('%s -q replica list', EGRESS_CMD);
 
       exec(cmd, (err, stdout, stderr) => {
@@ -322,11 +324,11 @@ describe('cli', function() {
         }
         assert.isEmpty(stderr);
 
-        stdout.split('\n').forEach(line => {
+        stdout.split('\n').forEach((line) => {
           let parts = line
             .trim()
             .split(' ')
-            .filter(s => s.length != 0);
+            .filter((s) => s.length != 0);
 
           if (parts.length <= 1) {
             return;
@@ -373,7 +375,7 @@ describe('cli', function() {
       });
     });
 
-    it('should stat replicas', function(done) {
+    it('should stat replicas', function (done) {
       const cmd = util.format('%s -q replica stats', EGRESS_CMD);
 
       exec(cmd, (err, stdout, stderr) => {
@@ -384,11 +386,11 @@ describe('cli', function() {
         }
         assert.isEmpty(stderr);
 
-        stdout.split('\n').forEach(line => {
+        stdout.split('\n').forEach((line) => {
           let parts = line
             .trim()
             .split(' ')
-            .filter(s => s.length != 0);
+            .filter((s) => s.length != 0);
 
           if (parts.length <= 1) {
             return;
@@ -424,7 +426,7 @@ describe('cli', function() {
       });
     });
 
-    it('should destroy a replica', function(done) {
+    it('should destroy a replica', function (done) {
       const cmd = util.format('%s replica destroy %s', EGRESS_CMD, UUID);
 
       exec(cmd, (err, stdout, stderr) => {
@@ -439,7 +441,7 @@ describe('cli', function() {
   });
 
   // these cases test typical failures which might happen
-  describe('failures', function() {
+  describe('failures', function () {
     before(() => {
       runMockServer([
         {
@@ -530,7 +532,7 @@ describe('cli', function() {
       }
     });
 
-    it('should not create a pool if it already exists', function(done) {
+    it('should not create a pool if it already exists', function (done) {
       const cmd = util.format('%s pool create %s %s', EGRESS_CMD, POOL, DISK);
 
       exec(cmd, (err, stdout, stderr) => {
@@ -541,7 +543,7 @@ describe('cli', function() {
       });
     });
 
-    it('should not list the pools in case of internal error', function(done) {
+    it('should not list the pools in case of internal error', function (done) {
       const cmd = util.format('%s -q pool list', EGRESS_CMD);
 
       exec(cmd, (err, stdout, stderr) => {
@@ -552,7 +554,7 @@ describe('cli', function() {
       });
     });
 
-    it('should not destroy a pool if it does not exist', function(done) {
+    it('should not destroy a pool if it does not exist', function (done) {
       const cmd = util.format('%s pool destroy %s', EGRESS_CMD, POOL);
 
       exec(cmd, (err, stdout, stderr) => {
@@ -563,7 +565,7 @@ describe('cli', function() {
       });
     });
 
-    it('should not create a replica if it already exists', function(done) {
+    it('should not create a replica if it already exists', function (done) {
       const cmd = util.format(
         '%s replica create %s %s --size=1000 --thin',
         EGRESS_CMD,
@@ -579,7 +581,7 @@ describe('cli', function() {
       });
     });
 
-    it('should not share the replica if it does not exist', function(done) {
+    it('should not share the replica if it does not exist', function (done) {
       const cmd = util.format('%s replica share %s nvmf', EGRESS_CMD, UUID);
 
       exec(cmd, (err, stdout, stderr) => {
@@ -590,7 +592,7 @@ describe('cli', function() {
       });
     });
 
-    it('should not list replicas in case of internal error', function(done) {
+    it('should not list replicas in case of internal error', function (done) {
       const cmd = util.format('%s -q replica list', EGRESS_CMD);
 
       exec(cmd, (err, stdout, stderr) => {
@@ -601,7 +603,7 @@ describe('cli', function() {
       });
     });
 
-    it('should not stat replicas in case of internal error', function(done) {
+    it('should not stat replicas in case of internal error', function (done) {
       const cmd = util.format('%s -q replica stats', EGRESS_CMD);
 
       exec(cmd, (err, stdout, stderr) => {
@@ -612,7 +614,7 @@ describe('cli', function() {
       });
     });
 
-    it('should not destroy a replica if it does not exist', function(done) {
+    it('should not destroy a replica if it does not exist', function (done) {
       const cmd = util.format('%s replica destroy %s', EGRESS_CMD, UUID);
 
       exec(cmd, (err, stdout, stderr) => {

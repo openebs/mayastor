@@ -50,8 +50,8 @@ function createTestDisk(done) {
 // Destroy the fake disk used for testing (disregard any error).
 function destroyTestDisk(done) {
   if (implicitDisk != null) {
-    common.execAsRoot('losetup', ['-d', implicitDisk], err => {
-      fs.unlink(DISK_FILE, err => done());
+    common.execAsRoot('losetup', ['-d', implicitDisk], (err) => {
+      fs.unlink(DISK_FILE, (err) => done());
     });
   } else {
     done();
@@ -82,10 +82,11 @@ function createGrpcClient(service) {
   );
 }
 
-describe('replica', function() {
+describe('replica', function () {
   var client;
 
-  this.timeout(10000); // for network tests we need long timeouts
+  this.timeout(60000); // for network tests we need long timeouts
+  this.slow(1000);
 
   // Destroy test pool if it exists (ignore errors as the test pool may not
   // exist).
@@ -93,7 +94,7 @@ describe('replica', function() {
     if (client == null) {
       return done();
     }
-    client.destroyPool({ name: POOL }, err => done());
+    client.destroyPool({ name: POOL }, (err) => done());
   }
 
   // start mayastor if needed
@@ -113,7 +114,7 @@ describe('replica', function() {
   // stop mayastor server if it was started by us
   after(common.stopAll);
 
-  before(done => {
+  before((done) => {
     client = createGrpcClient('MayaStor');
     if (!client) {
       return done(new Error('Failed to initialize grpc client'));
@@ -121,7 +122,7 @@ describe('replica', function() {
 
     async.series(
       [
-        next => {
+        (next) => {
           if (!disks) {
             createTestDisk((err, newDisk) => {
               if (err) return next(err);
@@ -134,12 +135,12 @@ describe('replica', function() {
             disks = disks
               .trim()
               .split(' ')
-              .filter(e => !!e);
+              .filter((e) => !!e);
             next();
           }
         },
-        next => {
-          common.waitFor(pingDone => {
+        (next) => {
+          common.waitFor((pingDone) => {
             // use harmless method to test if the mayastor is up and running
             client.listPools({}, pingDone);
           }, next);
@@ -151,11 +152,11 @@ describe('replica', function() {
     );
   });
 
-  after(done => {
+  after((done) => {
     async.series(
       [
         ensureNoTestPool,
-        next => {
+        (next) => {
           if (!implicitDisk) {
             next();
           } else {
@@ -164,7 +165,7 @@ describe('replica', function() {
         },
         common.restoreNbdPerms,
       ],
-      err => {
+      (err) => {
         if (client != null) {
           client.close();
         }
@@ -173,7 +174,7 @@ describe('replica', function() {
     );
   });
 
-  it('should not support multiple disks for a pool', done => {
+  it('should not support multiple disks for a pool', (done) => {
     client.createPool(
       {
         name: POOL,
@@ -186,7 +187,7 @@ describe('replica', function() {
     );
   });
 
-  it('should not create a pool with invalid block size', done => {
+  it('should not create a pool with invalid block size', (done) => {
     client.createPool(
       { name: POOL, disks: disks, block_size: 1238513 },
       (err, res) => {
@@ -196,7 +197,7 @@ describe('replica', function() {
     );
   });
 
-  it('should create a pool', done => {
+  it('should create a pool', (done) => {
     client.createPool({ name: POOL, disks: disks }, (err, res) => {
       if (err) return done(err);
       assert.lengthOf(Object.keys(res), 0);
@@ -204,18 +205,18 @@ describe('replica', function() {
     });
   });
 
-  it('should return error from create when the pool exists', done => {
+  it('should return error from create when the pool exists', (done) => {
     client.createPool({ name: POOL, disks: disks }, (err, res) => {
       assert.equal(err.code, grpc.status.ALREADY_EXISTS);
       done();
     });
   });
 
-  it('should list the pool', done => {
+  it('should list the pool', (done) => {
     client.listPools({}, (err, res) => {
       if (err) return done(err);
 
-      res = res.pools.filter(ent => ent.name == POOL);
+      res = res.pools.filter((ent) => ent.name == POOL);
       assert.lengthOf(res, 1);
       res = res[0];
 
@@ -232,7 +233,7 @@ describe('replica', function() {
     });
   });
 
-  it('should create replica exported over iscsi', done => {
+  it('should create replica exported over iscsi', (done) => {
     client.createReplica(
       {
         uuid: UUID,
@@ -251,10 +252,10 @@ describe('replica', function() {
     );
   });
 
-  it('should list iscsi replica and do io', done => {
+  it('should list iscsi replica and do io', (done) => {
     client.listReplicas({}, (err, res) => {
       if (err) return done(err);
-      res = res.replicas.filter(ent => {
+      res = res.replicas.filter((ent) => {
         return ent.uuid == UUID;
       });
       assert.lengthOf(res, 1);
@@ -277,7 +278,7 @@ describe('replica', function() {
     });
   });
 
-  it('should destroy iscsi replica', done => {
+  it('should destroy iscsi replica', (done) => {
     client.destroyReplica({ uuid: UUID }, (err, res) => {
       if (err) return done(err);
       assert.lengthOf(Object.keys(res), 0);
@@ -285,7 +286,7 @@ describe('replica', function() {
     });
   });
 
-  it('should create unexported replica', done => {
+  it('should create unexported replica', (done) => {
     client.createReplica(
       {
         uuid: UUID,
@@ -303,7 +304,7 @@ describe('replica', function() {
     );
   });
 
-  it('should fail if creating replica which already exists', done => {
+  it('should fail if creating replica which already exists', (done) => {
     client.createReplica(
       {
         uuid: UUID,
@@ -319,10 +320,10 @@ describe('replica', function() {
     );
   });
 
-  it('should list the replica', done => {
+  it('should list the replica', (done) => {
     client.listReplicas({}, (err, res) => {
       if (err) return done(err);
-      res = res.replicas.filter(ent => {
+      res = res.replicas.filter((ent) => {
         return ent.uuid == UUID;
       });
       assert.lengthOf(res, 1);
@@ -336,7 +337,7 @@ describe('replica', function() {
     });
   });
 
-  it('should share the unexported replica', done => {
+  it('should share the unexported replica', (done) => {
     client.shareReplica(
       {
         uuid: UUID,
@@ -349,7 +350,7 @@ describe('replica', function() {
 
         client.listReplicas({}, (err, res) => {
           if (err) return done(err);
-          res = res.replicas.filter(ent => {
+          res = res.replicas.filter((ent) => {
             return ent.uuid == UUID;
           });
           assert.lengthOf(res, 1);
@@ -362,7 +363,7 @@ describe('replica', function() {
     );
   });
 
-  it('should not fail if shared again using the same protocol', done => {
+  it('should not fail if shared again using the same protocol', (done) => {
     client.shareReplica(
       {
         uuid: UUID,
@@ -376,7 +377,7 @@ describe('replica', function() {
     );
   });
 
-  it('should share the replica under a different protocol', done => {
+  it('should share the replica under a different protocol', (done) => {
     client.shareReplica(
       {
         uuid: UUID,
@@ -389,7 +390,7 @@ describe('replica', function() {
 
         client.listReplicas({}, (err, res) => {
           if (err) return done(err);
-          res = res.replicas.filter(ent => {
+          res = res.replicas.filter((ent) => {
             return ent.uuid == UUID;
           });
           assert.lengthOf(res, 1);
@@ -402,7 +403,7 @@ describe('replica', function() {
     );
   });
 
-  it('should unshare the replica', done => {
+  it('should unshare the replica', (done) => {
     client.shareReplica(
       {
         uuid: UUID,
@@ -414,7 +415,7 @@ describe('replica', function() {
 
         client.listReplicas({}, (err, res) => {
           if (err) return done(err);
-          res = res.replicas.filter(ent => {
+          res = res.replicas.filter((ent) => {
             return ent.uuid == UUID;
           });
           assert.lengthOf(res, 1);
@@ -427,11 +428,11 @@ describe('replica', function() {
     );
   });
 
-  it('should get stats for the replica', done => {
+  it('should get stats for the replica', (done) => {
     client.statReplicas({}, (err, res) => {
       if (err) return done(err);
 
-      res = res.replicas.filter(ent => {
+      res = res.replicas.filter((ent) => {
         return ent.uuid == UUID;
       });
       assert.lengthOf(res, 1);
@@ -446,7 +447,7 @@ describe('replica', function() {
     });
   });
 
-  it('should return NotFound for a non existing replica', done => {
+  it('should return NotFound for a non existing replica', (done) => {
     let unknownUuid = 'c35fa4dd-d527-4b7b-9cf0-436b8bb0ba77';
     client.destroyReplica({ uuid: unknownUuid }, (err, res) => {
       assert.equal(err.code, grpc.status.NOT_FOUND);
@@ -454,7 +455,7 @@ describe('replica', function() {
     });
   });
 
-  it('should destroy the replica', done => {
+  it('should destroy the replica', (done) => {
     client.destroyReplica({ uuid: UUID }, (err, res) => {
       if (err) return done(err);
       assert.lengthOf(Object.keys(res), 0);
@@ -462,11 +463,11 @@ describe('replica', function() {
     });
   });
 
-  it('should not list the replica', done => {
+  it('should not list the replica', (done) => {
     client.listReplicas({}, (err, res) => {
       if (err) return done(err);
 
-      res = res.replicas.filter(ent => {
+      res = res.replicas.filter((ent) => {
         return ent.uuid == UUID;
       });
       assert.lengthOf(res, 0);
@@ -474,10 +475,10 @@ describe('replica', function() {
     });
   });
 
-  it('should create 5 replicas', done => {
+  it('should create 5 replicas', (done) => {
     async.times(
       5,
-      function(n, next) {
+      function (n, next) {
         client.createReplica(
           {
             uuid: BASE_UUID + n,
@@ -493,7 +494,7 @@ describe('replica', function() {
     );
   });
 
-  it('should destroy the pool', done => {
+  it('should destroy the pool', (done) => {
     client.destroyPool({ name: POOL }, (err, res) => {
       if (err) return done(err);
       assert.lengthOf(Object.keys(res), 0);
@@ -501,7 +502,7 @@ describe('replica', function() {
     });
   });
 
-  it('should not destroy a pool which does not exist', done => {
+  it('should not destroy a pool which does not exist', (done) => {
     client.destroyPool({ name: POOL }, (err, res) => {
       if (err) {
         assert.equal(err.code, grpc.status.NOT_FOUND);
@@ -512,48 +513,48 @@ describe('replica', function() {
     });
   });
 
-  it('should not list the pool', done => {
+  it('should not list the pool', (done) => {
     client.listPools({}, (err, res) => {
       if (err) return done(err);
 
-      res = res.pools.filter(ent => ent.name == POOL);
+      res = res.pools.filter((ent) => ent.name == POOL);
       assert.lengthOf(res, 0);
       done();
     });
   });
 
-  describe('nvmf', function() {
+  describe('nvmf', function () {
     let uri; // URI of the created nvmf replica
     let blockFile = '/tmp/test_block'; // file with contents of a data block
 
     // run unlink as root because the file was created by root
     function rmBlockFile(done) {
-      common.execAsRoot('rm', ['-f', blockFile], err => {
+      common.execAsRoot('rm', ['-f', blockFile], (err) => {
         // ignore unlink error
         done();
       });
     }
 
-    before(done => {
+    before((done) => {
       const buf = Buffer.alloc(4096, 'm');
 
       async.series(
         [
-          next => rmBlockFile(next),
-          next => fs.writeFile(blockFile, buf, next),
-          next => client.createPool({ name: POOL, disks: disks }, next),
+          (next) => rmBlockFile(next),
+          (next) => fs.writeFile(blockFile, buf, next),
+          (next) => client.createPool({ name: POOL, disks: disks }, next),
         ],
         done
       );
     });
 
-    after(done => {
+    after((done) => {
       rmBlockFile(() => {
         client.destroyPool({ name: POOL }, done);
       });
     });
 
-    it('should create replica exported over nvmf', done => {
+    it('should create replica exported over nvmf', (done) => {
       client.createReplica(
         {
           uuid: UUID,
@@ -576,10 +577,10 @@ describe('replica', function() {
       );
     });
 
-    it('should list nvmf replica', done => {
+    it('should list nvmf replica', (done) => {
       client.listReplicas({}, (err, res) => {
         if (err) return done(err);
-        res = res.replicas.filter(ent => {
+        res = res.replicas.filter((ent) => {
           return ent.uuid == UUID;
         });
         assert.lengthOf(res, 1);
@@ -593,7 +594,7 @@ describe('replica', function() {
       });
     });
 
-    it('should write to nvmf replica', done => {
+    it('should write to nvmf replica', (done) => {
       common.execAsRoot(
         common.getCmdPath('initiator'),
         ['--offset=4096', uri, 'write', blockFile],
@@ -601,22 +602,22 @@ describe('replica', function() {
       );
     });
 
-    it('should read from nvmf replica', done => {
+    it('should read from nvmf replica', (done) => {
       async.series(
         [
-          next => {
+          (next) => {
             // remove the file we used for writing just to be sure that what we read
             // really comes from the replica
             fs.unlink(blockFile, next);
           },
-          next => {
+          (next) => {
             common.execAsRoot(
               common.getCmdPath('initiator'),
               ['--offset=4096', uri, 'read', blockFile],
               next
             );
           },
-          next => {
+          (next) => {
             fs.readFile(blockFile, (err, data) => {
               if (err) return done(err);
               data = data.toString();
@@ -635,7 +636,7 @@ describe('replica', function() {
       );
     });
 
-    it('should destroy nvmf replica', done => {
+    it('should destroy nvmf replica', (done) => {
       client.destroyReplica({ uuid: UUID }, (err, res) => {
         if (err) return done(err);
         assert.lengthOf(Object.keys(res), 0);
@@ -643,7 +644,7 @@ describe('replica', function() {
       });
     });
 
-    it('should create the replica again', done => {
+    it('should create the replica again', (done) => {
       client.createReplica(
         {
           uuid: UUID,
@@ -663,17 +664,17 @@ describe('replica', function() {
       );
     });
 
-    it('the old data should have been reset', done => {
+    it('the old data should have been reset', (done) => {
       async.series(
         [
-          next => {
+          (next) => {
             common.execAsRoot(
               common.getCmdPath('initiator'),
               ['--offset=4096', uri, 'read', blockFile],
               next
             );
           },
-          next => {
+          (next) => {
             fs.readFile(blockFile, (err, data) => {
               if (err) return done(err);
               assert.lengthOf(data, 4096);
@@ -691,7 +692,7 @@ describe('replica', function() {
       );
     });
 
-    it('should destroy nvmf replica', done => {
+    it('should destroy nvmf replica', (done) => {
       client.destroyReplica({ uuid: UUID }, (err, res) => {
         if (err) return done(err);
         assert.lengthOf(Object.keys(res), 0);
@@ -700,7 +701,7 @@ describe('replica', function() {
     });
   });
 
-  describe('import', function() {
+  describe('import', function () {
     before(() => {
       // For testing import we need to restart mayastor which is possible only
       // if testing local instance of mayastor.
@@ -709,23 +710,23 @@ describe('replica', function() {
       }
     });
 
-    it('should create the pool first time', done => {
+    it('should create the pool first time', (done) => {
       client.createPool({ name: POOL, disks: disks }, done);
     });
 
-    it('should not list the created pool after restart', done => {
+    it('should not list the created pool after restart', (done) => {
       async.series(
         [
           // restart mayastor
-          next => {
-            common.restartMayastor(pingDone => {
+          (next) => {
+            common.restartMayastor((pingDone) => {
               // use harmless method to test if the mayastor is up and running
               client.listPools({}, pingDone);
             }, next);
           },
-          next =>
+          (next) =>
             client.listPools({}, (err, res) => {
-              res = res.pools.filter(ent => ent.name == POOL);
+              res = res.pools.filter((ent) => ent.name == POOL);
               if (res.length > 0) {
                 next(new Error("Found pool which hasn't been imported yet"));
               } else {
@@ -737,15 +738,15 @@ describe('replica', function() {
       );
     });
 
-    it('should import the pool', done => {
+    it('should import the pool', (done) => {
       async.series(
         [
           // import the pool created by previous mayastor instance
-          next => client.createPool({ name: POOL, disks: disks }, next),
-          next =>
+          (next) => client.createPool({ name: POOL, disks: disks }, next),
+          (next) =>
             client.listPools({}, (err, res) => {
               if (err) return next(err);
-              res = res.pools.filter(ent => ent.name == POOL);
+              res = res.pools.filter((ent) => ent.name == POOL);
               assert.lengthOf(res, 1);
               next();
             }),
@@ -754,7 +755,7 @@ describe('replica', function() {
       );
     });
 
-    it('should not import a pool which does not exist on device', done => {
+    it('should not import a pool which does not exist on device', (done) => {
       client.createPool({ name: 'non-existing', disks: disks }, (err, res) => {
         if (!err) {
           done(
