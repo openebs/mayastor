@@ -53,8 +53,8 @@ class Workq {
 
     task
       .func(task.arg)
-      .then(res => task.resolveCb(res))
-      .catch(err => task.rejectCb(err))
+      .then((res) => task.resolveCb(res))
+      .catch((err) => task.rejectCb(err))
       .finally(() => self._nextTask());
   }
 }

@@ -88,7 +88,7 @@ class Volume {
     if (this.nexus) {
       await this.nexus.destroy();
     }
-    let promises = Object.values(this.replicas).map(replica =>
+    let promises = Object.values(this.replicas).map((replica) =>
       replica.destroy()
     );
     await Promise.all(promises);
@@ -119,10 +119,10 @@ class Volume {
 
     // Now when nexus has been updated we can remove excessive replicas
     // (those which are not recorded in the nexus)
-    let childrenUris = this.nexus.children.map(ch => ch.uri);
+    let childrenUris = this.nexus.children.map((ch) => ch.uri);
     let promises = Object.values(this.replicas)
-      .filter(r => childrenUris.indexOf(r.uri) < 0)
-      .map(r => r.destroy());
+      .filter((r) => childrenUris.indexOf(r.uri) < 0)
+      .map((r) => r.destroy());
     try {
       await Promise.all(promises);
     } catch (err) {
@@ -141,7 +141,7 @@ class Volume {
     if (!nexus) {
       // create a new nexus
       let localReplica = Object.values(this.replicas).find(
-        r => r.share == 'REPLICA_NONE'
+        (r) => r.share == 'REPLICA_NONE'
       );
       if (!localReplica) {
         // should not happen but who knows ..
@@ -158,7 +158,7 @@ class Volume {
       log.info(`Volume "${this}" with size ${this.size} was created`);
     } else {
       // TODO: Switching order might be more safe (remove and add uri)
-      let oldUris = nexus.children.map(ch => ch.uri).sort();
+      let oldUris = nexus.children.map((ch) => ch.uri).sort();
       let newUris = _.map(replicas, 'uri').sort();
       // remove children which should not be in the nexus
       for (let i = 0; i < oldUris.length; i++) {
@@ -166,7 +166,7 @@ class Volume {
         let idx = newUris.indexOf(uri);
         if (idx < 0) {
           // jshint ignore:start
-          let replica = Object.values(this.replicas).find(r => r.uri == uri);
+          let replica = Object.values(this.replicas).find((r) => r.uri == uri);
           if (replica) {
             try {
               await nexus.removeReplica(replica);
@@ -186,7 +186,7 @@ class Volume {
       for (let i = 0; i < newUris.length; i++) {
         let uri = newUris[i];
         // jshint ignore:start
-        let replica = Object.values(this.replicas).find(r => r.uri == uri);
+        let replica = Object.values(this.replicas).find((r) => r.uri == uri);
         if (replica) {
           try {
             await nexus.addReplica(replica);
@@ -216,7 +216,7 @@ class Volume {
     );
     // remove pools that are already used by existing replicas
     let usedNodes = Object.keys(this.replicas);
-    pools = pools.filter(p => usedNodes.indexOf(p.node.name) < 0);
+    pools = pools.filter((p) => usedNodes.indexOf(p.node.name) < 0);
     if (pools.length < count) {
       log.error(
         `No suitable pool(s) for volume "${this}" with capacity ` +

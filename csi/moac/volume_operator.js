@@ -168,7 +168,7 @@ class VolumeOperator {
 
     // This will start async processing of volume events.
     self.eventStream = new EventStream({ volumes: self.volumes });
-    self.eventStream.on('data', async ev => {
+    self.eventStream.on('data', async (ev) => {
       // the only kind of event that comes from the volumes source
       assert(ev.kind == 'volume');
       let uuid = ev.object.uuid;
@@ -232,7 +232,7 @@ class VolumeOperator {
       state: volume.state,
       reason: volume.reason,
       node: volume.getNodeName(),
-      replicas: Object.values(volume.replicas).map(r => {
+      replicas: Object.values(volume.replicas).map((r) => {
         return {
           node: r.pool.node.name,
           pool: r.pool.name,
@@ -357,13 +357,13 @@ class VolumeOperator {
   //
   _bindWatcher(watcher) {
     var self = this;
-    watcher.on('new', obj => {
+    watcher.on('new', (obj) => {
       self.workq.push(obj, self._createVolume.bind(self));
     });
-    watcher.on('mod', obj => {
+    watcher.on('mod', (obj) => {
       self.workq.push(obj, self._modifyVolume.bind(self));
     });
-    watcher.on('del', obj => {
+    watcher.on('del', (obj) => {
       self.workq.push(obj.metadata.name, self._destroyVolume.bind(self));
     });
   }

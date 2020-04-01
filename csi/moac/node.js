@@ -91,8 +91,8 @@ class Node extends EventEmitter {
   // The node is considered broken, emit offline events on all objects
   // that are present on the node.
   _offline() {
-    this.pools.forEach(pool => pool.offline());
-    this.nexus.forEach(nexus => nexus.offline());
+    this.pools.forEach((pool) => pool.offline());
+    this.nexus.forEach((nexus) => nexus.offline());
   }
 
   // Call grpc method on storage node. The calls are serialized in order
@@ -196,9 +196,9 @@ class Node extends EventEmitter {
   _mergePoolsAndReplicas(pools, replicas) {
     var self = this;
     // detect modified and new pools
-    pools.forEach(props => {
-      let poolReplicas = replicas.filter(r => r.pool == props.name);
-      let pool = self.pools.find(p => p.name == props.name);
+    pools.forEach((props) => {
+      let poolReplicas = replicas.filter((r) => r.pool == props.name);
+      let pool = self.pools.find((p) => p.name == props.name);
       if (pool) {
         // the pool already exists - update it
         pool.merge(props, poolReplicas);
@@ -209,8 +209,8 @@ class Node extends EventEmitter {
     });
     // remove pools that no longer exist
     self.pools
-      .filter(p => !pools.find(ent => ent.name == p.name))
-      .forEach(p => p.unbind());
+      .filter((p) => !pools.find((ent) => ent.name == p.name))
+      .forEach((p) => p.unbind());
   }
 
   // Compare list of existing nexus with nexus properties obtained from
@@ -228,8 +228,8 @@ class Node extends EventEmitter {
   _mergeNexus(nexusList) {
     var self = this;
     // detect modified and new pools
-    nexusList.forEach(props => {
-      let nexus = self.nexus.find(n => n.uuid == props.uuid);
+    nexusList.forEach((props) => {
+      let nexus = self.nexus.find((n) => n.uuid == props.uuid);
       if (nexus) {
         // the nexus already exists - update it
         nexus.merge(props);
@@ -240,9 +240,9 @@ class Node extends EventEmitter {
     });
     // remove nexus that no longer exist
     let removedNexus = self.nexus.filter(
-      n => !nexusList.find(ent => ent.uuid == n.uuid)
+      (n) => !nexusList.find((ent) => ent.uuid == n.uuid)
     );
-    removedNexus.forEach(n => n.destroy());
+    removedNexus.forEach((n) => n.destroy());
   }
 
   // Push the new pool to a list of pools of this node.
@@ -251,11 +251,11 @@ class Node extends EventEmitter {
   // @param {object[]} [replicas]  New replicas on the pool.
   //
   _registerPool(pool, replicas) {
-    assert(!this.pools.find(p => p.name == pool.name));
+    assert(!this.pools.find((p) => p.name == pool.name));
     this.pools.push(pool);
     pool.bind(this);
     replicas = replicas || [];
-    replicas.forEach(r => pool.registerReplica(new Replica(r)));
+    replicas.forEach((r) => pool.registerReplica(new Replica(r)));
   }
 
   // Remove the pool from list of pools of this node.
@@ -278,7 +278,7 @@ class Node extends EventEmitter {
   // @param {object} nexus      New nexus object.
   //
   _registerNexus(nexus) {
-    assert(!this.nexus.find(p => p.uuid == nexus.uuid));
+    assert(!this.nexus.find((p) => p.uuid == nexus.uuid));
     this.nexus.push(nexus);
     nexus.bind(this);
   }
@@ -344,7 +344,7 @@ class Node extends EventEmitter {
         `Failed to list new pool "${name}": ${err}`
       );
     }
-    var poolInfo = resp.pools.filter(p => p.name == name)[0];
+    var poolInfo = resp.pools.filter((p) => p.name == name)[0];
     if (!poolInfo) {
       throw new GrpcError(GrpcCode.INTERNAL, `New pool "${name}" not found`);
     }
@@ -362,7 +362,7 @@ class Node extends EventEmitter {
   // @param {object[]} replicas  Replica objects comprising the nexus.
   // @returns {object} New nexus object.
   async createNexus(uuid, size, replicas) {
-    let children = replicas.map(r => r.uri);
+    let children = replicas.map((r) => r.uri);
     log.debug(`Creating nexus "${uuid}@${this.name}"`);
 
     try {
@@ -386,7 +386,7 @@ class Node extends EventEmitter {
         `Failed to list new nexus "${uuid}": ${err}`
       );
     }
-    var nexusInfo = resp.nexusList.filter(n => n.uuid == uuid)[0];
+    var nexusInfo = resp.nexusList.filter((n) => n.uuid == uuid)[0];
     if (!nexusInfo) {
       throw new GrpcError(GrpcCode.INTERNAL, `New nexus "${uuid}" not found`);
     }

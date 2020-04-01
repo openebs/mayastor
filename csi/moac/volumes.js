@@ -21,7 +21,7 @@ class Volumes extends EventEmitter {
   start() {
     var self = this;
     this.events = new EventStream({ registry: this.registry });
-    this.events.on('data', async function(ev) {
+    this.events.on('data', async function (ev) {
       if (ev.kind != 'replica' && ev.kind != 'nexus') {
         // not interesed in node and pool events
         return;
@@ -121,7 +121,7 @@ class Volumes extends EventEmitter {
       });
       // check for components that already exist and assign them to the volume
       var self = this;
-      this.registry.getReplicaSet(uuid).forEach(r => volume.newReplica(r));
+      this.registry.getReplicaSet(uuid).forEach((r) => volume.newReplica(r));
       let nexus = this.registry.getNexus(uuid);
       if (nexus) {
         volume.newNexus(nexus);

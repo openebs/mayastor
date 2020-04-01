@@ -130,7 +130,7 @@ function createGrpcClient() {
   return client;
 }
 
-describe('rebuild tests', function() {
+describe('rebuild tests', function () {
   var client;
 
   var ObjectType = {
@@ -177,12 +177,12 @@ describe('rebuild tests', function() {
       .then(() => {
         done();
       })
-      .catch(err => {
+      .catch((err) => {
         return done(err);
       });
   }
 
-  before(done => {
+  before((done) => {
     client = createGrpcClient();
     if (!client) {
       return done(new Error('Failed to initialize grpc client'));
@@ -191,26 +191,26 @@ describe('rebuild tests', function() {
     async.series(
       [
         common.ensureNbdWritable,
-        next => {
+        (next) => {
           fs.writeFile(child1, '', next);
         },
-        next => {
+        (next) => {
           fs.truncate(child1, diskSize, next);
         },
-        next => {
+        (next) => {
           fs.writeFile(child2, '', next);
         },
-        next => {
+        (next) => {
           fs.truncate(child2, diskSize, next);
         },
-        next => {
+        (next) => {
           common.startMayastor(configNexus, ['-r', common.SOCK, '-s', 386]);
           common.startMayastorGrpc();
-          common.waitFor(pingDone => {
+          common.waitFor((pingDone) => {
             pingMayastor(pingDone);
           }, next);
         },
-        next => {
+        (next) => {
           client
             .createNexus()
             .sendMessage(nexusArgs)
@@ -224,31 +224,31 @@ describe('rebuild tests', function() {
     );
   });
 
-  after(done => {
+  after((done) => {
     async.series(
       [
         common.stopAll,
         common.restoreNbdPerms,
-        next => {
-          fs.unlink(child1, err => next());
+        (next) => {
+          fs.unlink(child1, (err) => next());
         },
-        next => {
-          fs.unlink(child2, err => next());
+        (next) => {
+          fs.unlink(child2, (err) => next());
         },
-        next => {
+        (next) => {
           client
             .destroyNexus()
             .sendMessage({ uuid: UUID })
             .then(() => {
               next();
             })
-            .catch(err => {
+            .catch((err) => {
               done();
             })
             .catch(done);
         },
       ],
-      err => {
+      (err) => {
         if (client != null) {
           client.close();
         }
@@ -257,7 +257,7 @@ describe('rebuild tests', function() {
     );
   });
 
-  describe('running rebuild', function() {
+  describe('running rebuild', function () {
     beforeEach(async () => {
       await client.addChildNexus().sendMessage(rebuildArgs);
       await client.startRebuild().sendMessage(rebuildArgs);
@@ -289,7 +289,7 @@ describe('rebuild tests', function() {
     });
   });
 
-  describe('stopping rebuild', function() {
+  describe('stopping rebuild', function () {
     beforeEach(async () => {
       await client.addChildNexus().sendMessage(rebuildArgs);
       await client.startRebuild().sendMessage(rebuildArgs);
@@ -314,7 +314,7 @@ describe('rebuild tests', function() {
       await checkState(ObjectType.DESTINATION_CHILD, 'faulted');
     });
 
-    it('check rebuild state', async done => {
+    it('check rebuild state', async (done) => {
       // Expect to fail to get rebuild state because
       // after stopping there is no rebuild task
       client
@@ -323,7 +323,7 @@ describe('rebuild tests', function() {
         .then(() => {
           done(new Error('Expected to fail to get rebuild state.'));
         })
-        .catch(err => {
+        .catch((err) => {
           assert.isDefined(err);
         })
         .catch(done);
@@ -335,7 +335,7 @@ describe('rebuild tests', function() {
     });
   });
 
-  describe('pausing rebuild', function() {
+  describe('pausing rebuild', function () {
     beforeEach(async () => {
       await client.addChildNexus().sendMessage(rebuildArgs);
       await client.startRebuild().sendMessage(rebuildArgs);
@@ -370,7 +370,7 @@ describe('rebuild tests', function() {
     });
   });
 
-  describe('resuming rebuild', function() {
+  describe('resuming rebuild', function () {
     beforeEach(async () => {
       await client.addChildNexus().sendMessage(rebuildArgs);
       await client.startRebuild().sendMessage(rebuildArgs);
