@@ -7,6 +7,8 @@ use std::{convert::TryInto, fmt};
 
 use nix::libc::ioctl as nix_ioctl;
 
+use crate::nvmf_subsystem::{NvmeSubsystems, Subsystem};
+
 /// when connecting to a NVMF target, we MAY send a NQN that we want to be
 /// referred as.
 const MACHINE_UUID_PATH: &str = "/sys/class/dmi/id/product_uuid";
@@ -402,4 +404,22 @@ impl DiscoveryLogEntry {
 
         Ok(connect_args)
     }
+}
+/// This method disconnects a specific NVMf device, identified by its nqn.
+///
+///  # Example
+///  ```rust
+///  let num_disconnects = nvmeadm::nvmf_discovery::disconnect(nqn);
+///  ```
+
+pub fn disconnect(nqn: &str) -> Result<usize, Error> {
+    let subsys: Result<Vec<Subsystem>, Error> = NvmeSubsystems::new()?
+        .filter_map(Result::ok)
+        .filter(|e| e.nqn == nqn)
+        .map(|e| {
+            e.disconnect()?;
+            Ok(e)
+        })
+        .collect();
+    Ok(subsys.unwrap().len())
 }
