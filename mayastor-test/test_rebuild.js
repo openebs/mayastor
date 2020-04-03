@@ -166,6 +166,11 @@ describe('rebuild tests', function() {
     assert.equal(nexus.rebuilds, expected);
   }
 
+  async function checkRebuildState(expected) {
+    let res = await client.getRebuildState().sendMessage(rebuildArgs);
+    assert.equal(res.state, expected);
+  }
+
   function pingMayastor(done) {
     // use harmless method to test if the mayastor is up and running
     client
@@ -276,6 +281,14 @@ describe('rebuild tests', function() {
     it('check destination state', async () => {
       await checkState(ObjectType.DESTINATION_CHILD, 'faulted');
     });
+
+    it('check rebuild state', async () => {
+      await checkRebuildState('running');
+    });
+
+    it('check number of rebuilds', async () => {
+      await checkNumRebuilds('1');
+    });
   });
 
   describe('stopping rebuild', function() {
@@ -303,7 +316,7 @@ describe('rebuild tests', function() {
       await checkState(ObjectType.DESTINATION_CHILD, 'faulted');
     });
 
-    it('get rebuild state', async (done) => {
+    it('check rebuild state', async (done) => {
       // Expect to fail to get rebuild state because
       // after stopping there is no rebuild task
       client
@@ -319,8 +332,79 @@ describe('rebuild tests', function() {
       done();
     });
 
-    it('get number of rebuilds', async () => {
+    it('check number of rebuilds', async () => {
       await checkNumRebuilds('0');
+    });
+  });
+
+  describe('pausing rebuild', function () {
+    beforeEach(async () => {
+      await client.addChildNexus().sendMessage(rebuildArgs);
+      await client.startRebuild().sendMessage(rebuildArgs);
+      await client.pauseRebuild().sendMessage(rebuildArgs);
+    });
+
+    afterEach(async () => {
+      await client.stopRebuild().sendMessage(rebuildArgs);
+      // TODO: Check for rebuild stop rather than sleeping
+      await sleep(1000); // Give time for the rebuild to stop
+      await client.removeChildNexus().sendMessage(rebuildArgs);
+    });
+
+    it('check nexus state', async () => {
+      await checkState(ObjectType.NEXUS, 'degraded');
+    });
+
+    it('check source state', async () => {
+      await checkState(ObjectType.SOURCE_CHILD, 'open');
+    });
+
+    it('check destination state', async () => {
+      await checkState(ObjectType.DESTINATION_CHILD, 'faulted');
+    });
+
+    it('check rebuild state', async () => {
+      await checkRebuildState('paused');
+    });
+
+    it('check number of rebuilds', async () => {
+      await checkNumRebuilds('1');
+    });
+  });
+
+  describe('resuming rebuild', function () {
+    beforeEach(async () => {
+      await client.addChildNexus().sendMessage(rebuildArgs);
+      await client.startRebuild().sendMessage(rebuildArgs);
+      await client.pauseRebuild().sendMessage(rebuildArgs);
+      await client.resumeRebuild().sendMessage(rebuildArgs);
+    });
+
+    afterEach(async () => {
+      await client.stopRebuild().sendMessage(rebuildArgs);
+      // TODO: Check for rebuild stop rather than sleeping
+      await sleep(1000); // Give time for the rebuild to stop
+      await client.removeChildNexus().sendMessage(rebuildArgs);
+    });
+
+    it('check nexus state', async () => {
+      await checkState(ObjectType.NEXUS, 'degraded');
+    });
+
+    it('check source state', async () => {
+      await checkState(ObjectType.SOURCE_CHILD, 'open');
+    });
+
+    it('check destination state', async () => {
+      await checkState(ObjectType.DESTINATION_CHILD, 'faulted');
+    });
+
+    it('check rebuild state', async () => {
+      await checkRebuildState('running');
+    });
+
+    it('check number of rebuilds', async () => {
+      await checkNumRebuilds('1');
     });
   });
 });
