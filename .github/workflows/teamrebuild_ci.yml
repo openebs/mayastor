@@ -4,9 +4,9 @@ name: CI
 # events but only for the master branch
 on:
   push:
-    branches: [ master ]
+    branches: [master]
   pull_request:
-    branches: [ master ]
+    branches: [master]
 
 # A workflow run is made up of one or more jobs that can run sequentially or in parallel
 jobs:
@@ -16,90 +16,89 @@ jobs:
 
     # Steps represent a sequence of tasks that will be executed as part of the job
     steps:
-    # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-    - uses: actions/checkout@v2
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v2
 
-    - name: Kernel Setup
-      run: |
-        # Load required kernel modules
-        sudo modprobe nbd; sudo modprobe nvme; sudo modprobe nvmet; sudo modprobe xfs
-        lsb_release -a
-        cat /proc/version
-        # Allocate 1024 2MiB hugepages
-        echo 1024 | sudo tee /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages 1>/dev/null
+      - name: Kernel Setup
+        run: |
+          # Load required kernel modules
+          sudo modprobe nbd; sudo modprobe nvme; sudo modprobe nvmet; sudo modprobe xfs
+          lsb_release -a
+          cat /proc/version
+          # Allocate 1024 2MiB hugepages
+          echo 1024 | sudo tee /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages 1>/dev/null
 
-    - name: Env Setup
-      run: |
-        # We'll be running as root within docker so we don't need sudo
-        sed -i 's/^runner/#runner/1' ./mayastor/.cargo/config
+      - name: Env Setup
+        run: |
+          # We'll be running as root within docker so we don't need sudo
+          sed -i 's/^runner/#runner/1' ./mayastor/.cargo/config
 
-        # Launch the nix container as a daemon
-        docker run -d --name "nix" --privileged --rm -v /dev:/dev:rw -v /dev/shm:/dev/shm:rw -v /dev/hugepages:/dev/hugepages:rw --network host -v $PWD:/MayaStor teamrebuild/ci:latest tail -f /dev/null
+          # Launch the nix container as a daemon
+          docker run -d --name "nix" --privileged --rm -v /dev:/dev:rw -v /dev/shm:/dev/shm:rw -v /dev/hugepages:/dev/hugepages:rw --network host -v $PWD:/MayaStor teamrebuild/ci:latest tail -f /dev/null
 
-        # Setup cached cargo and node modules
-        docker exec "nix" /bin/sh -c "mv /usr/src/app/mayastor-test/node_modules/ /MayaStor/mayastor-test; mkdir /MayaStor/.cargo 2>/dev/null || true; cat config >> /MayaStor/.cargo/config; cat config >> /MayaStor/mayastor/.cargo/config"
+          # Setup cached cargo and node modules
+          docker exec "nix" /bin/sh -c "mv /usr/src/app/mayastor-test/node_modules/ /MayaStor/mayastor-test; mkdir /MayaStor/.cargo 2>/dev/null || true; cat config >> /MayaStor/.cargo/config; cat config >> /MayaStor/mayastor/.cargo/config"
 
-    - name: Build
-      run: |
-        docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'cargo build --all'"
+      - name: Build
+        run: |
+          docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'cargo build --all'"
 
-    - name: Cargo Test Jsonrpc
-      run: |
-        docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'pushd jsonrpc && cargo test && popd'"
+      - name: Cargo Test Jsonrpc
+        run: |
+          docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'pushd jsonrpc && cargo test && popd'"
 
-    - name: Cargo Test Mayastor
-      run: |
-        docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'pushd mayastor && RUST_BACKTRACE=full cargo test -- --test-threads=1 && popd'"
+      - name: Cargo Test Mayastor
+        run: |
+          docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'pushd mayastor && RUST_BACKTRACE=full cargo test -- --test-threads=1 && popd'"
 
-    - name: Js test_cli
-      run: |
-        docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'pushd mayastor-test && npm install && ./node_modules/mocha/bin/mocha test_cli.js && popd'"
+      - name: Js test_cli
+        run: |
+          docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'pushd mayastor-test && npm install && ./node_modules/mocha/bin/mocha test_cli.js && popd'"
 
-    - name: Js test_replica
-      run: |
-        docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'pushd mayastor-test && ./node_modules/mocha/bin/mocha test_replica.js && popd'"
+      - name: Js test_replica
+        run: |
+          docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'pushd mayastor-test && ./node_modules/mocha/bin/mocha test_replica.js && popd'"
 
-    - name: Js test_csi
-      run: |
-        docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'pushd mayastor-test && ./node_modules/mocha/bin/mocha test_csi.js && popd'"
+      - name: Js test_csi
+        run: |
+          docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'pushd mayastor-test && ./node_modules/mocha/bin/mocha test_csi.js && popd'"
 
-    - name: Js test_nexus
-      run: |
-        docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'pushd mayastor-test && ./node_modules/mocha/bin/mocha test_nexus.js && popd'"
+      - name: Js test_nexus
+        run: |
+          docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'pushd mayastor-test && ./node_modules/mocha/bin/mocha test_nexus.js && popd'"
 
-    - name: End
-      run: |
-        docker kill "nix"
+      - name: End
+        run: |
+          docker kill "nix"
 
   linter:
     runs-on: ubuntu-latest
 
     steps:
-    # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
-    - uses: actions/checkout@v2
+      # Checks-out your repository under $GITHUB_WORKSPACE, so your job can access it
+      - uses: actions/checkout@v2
 
-    - name: Nix Setup
-      run: |
-        # Launch the nix container as a daemon
-        docker run -d --name "nix" --rm -v $PWD:/MayaStor teamrebuild/ci:latest tail -f /dev/null
+      - name: Nix Setup
+        run: |
+          # Launch the nix container as a daemon
+          docker run -d --name "nix" --rm -v $PWD:/MayaStor teamrebuild/ci:latest tail -f /dev/null
 
-    - name: Pretty
-      run: |
-        docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'prettier --version'"
-        docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'prettier --config .prettierrc --check csi/moac/*.js mayastor-test/*.js'"
+      - name: Pretty
+        run: |
+          docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'prettier --version'"
+          docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'prettier --config .prettierrc --check csi/moac/*.js mayastor-test/*.js'"
 
-    - name: JS
-      run: |
-        docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'jshint --config .jshintrc csi/moac/*.js mayastor-test/*.js'"
+      - name: JS
+        run: |
+          docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'jshint --config .jshintrc csi/moac/*.js mayastor-test/*.js'"
 
-    - name: Cargo fmt
-      run: |
-        docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'cargo fmt --version'"
-        echo 'set -e; for d in */Cargo.toml; do dir=`dirname "$d"`; if [ ! -f "$dir"/.git ]; then echo "cargo fmt -p "$dir" -- --check"; cargo fmt -p "$dir" -- --check; fi; done' > fmt.sh
-        docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'sh fmt.sh'"
+      - name: Cargo fmt
+        run: |
+          docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'cargo fmt --version'"
+          echo 'set -e; for d in */Cargo.toml; do dir=`dirname "$d"`; if [ ! -f "$dir"/.git ]; then echo "cargo fmt -p "$dir" -- --check"; cargo fmt -p "$dir" -- --check; fi; done' > fmt.sh
+          docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'sh fmt.sh'"
 
-    - name: Cargo Clippy
-      run: |
-        docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'cargo clippy --version'"
-        docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'cargo clippy --all --all-targets -- -D warnings'"
-
+      - name: Cargo Clippy
+        run: |
+          docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'cargo clippy --version'"
+          docker exec "nix" /bin/sh -c "cd /MayaStor; nix-shell --run 'cargo clippy --all --all-targets -- -D warnings'"

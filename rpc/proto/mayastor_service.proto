@@ -49,6 +49,8 @@ service Mayastor {
 	// Rebuild operations
 	rpc StartRebuild (mayastor.StartRebuildRequest) returns (mayastor.Null) {}
 	rpc StopRebuild (mayastor.StopRebuildRequest) returns (mayastor.Null) {}
+	rpc PauseRebuild (mayastor.PauseRebuildRequest) returns (mayastor.Null) {}
+	rpc ResumeRebuild (mayastor.ResumeRebuildRequest) returns (mayastor.Null) {}
 	rpc GetRebuildState (mayastor.RebuildStateRequest) returns (mayastor.RebuildStateReply) {}
 	rpc GetRebuildProgress (mayastor.RebuildProgressRequest) returns (mayastor.RebuildProgressReply) {}
 }
