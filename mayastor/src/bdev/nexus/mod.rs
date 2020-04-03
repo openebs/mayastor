@@ -10,6 +10,7 @@ use crate::bdev::nexus::{
 
 pub mod nexus_bdev;
 pub mod nexus_bdev_children;
+pub mod nexus_bdev_rebuild;
 mod nexus_channel;
 pub(crate) mod nexus_child;
 pub(crate) mod nexus_child_error_store;

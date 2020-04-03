@@ -37,7 +37,7 @@ use crate::{
         nexus_child::ChildState,
     },
     jsonrpc::jsonrpc_register,
-    rebuild::RebuildTask,
+    rebuild::RebuildJob,
 };
 
 /// Lookup a nexus by its uuid. Return error if uuid is invalid or nexus
@@ -94,7 +94,7 @@ pub(crate) fn register_rpc_methods() {
                         })
                         .collect::<Vec<_>>(),
                     device_path: nexus.get_share_path().unwrap_or_default(),
-                    rebuilds: RebuildTask::count() as u64,
+                    rebuilds: RebuildJob::count() as u64,
                 })
                 .collect::<Vec<_>>(),
         })
