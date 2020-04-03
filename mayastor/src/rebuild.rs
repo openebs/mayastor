@@ -6,7 +6,7 @@ use spdk_sys::spdk_get_thread;
 use std::{cell::UnsafeCell, collections::HashMap, fmt};
 
 pub struct RebuildInstances {
-    inner: UnsafeCell<HashMap<String, RebuildTask>>,
+    inner: UnsafeCell<HashMap<String, RebuildJob>>,
 }
 
 unsafe impl Sync for RebuildInstances {}
@@ -17,18 +17,18 @@ unsafe impl Send for RebuildInstances {}
 pub enum RebuildError {
     #[snafu(display("Failed to allocate buffer for the rebuild copy"))]
     NoCopyBuffer { source: DmaError },
-    #[snafu(display("Failed to validate rebuild task creation parameters"))]
+    #[snafu(display("Failed to validate rebuild job creation parameters"))]
     InvalidParameters {},
     #[snafu(display("Failed to get a handle for bdev {}", bdev))]
     NoBdevHandle { source: CoreError, bdev: String },
     #[snafu(display("IO failed for bdev {}", bdev))]
     IoError { source: CoreError, bdev: String },
-    #[snafu(display("Failed to find rebuild task {}", task))]
-    TaskNotFound { task: String },
-    #[snafu(display("Task {} already exists", task))]
-    TaskAlreadyExists { task: String },
-    #[snafu(display("Missing rebuild destination {}", task))]
-    MissingDestination { task: String },
+    #[snafu(display("Failed to find rebuild job {}", job))]
+    JobNotFound { job: String },
+    #[snafu(display("Job {} already exists", job))]
+    JobAlreadyExists { job: String },
+    #[snafu(display("Missing rebuild destination {}", job))]
+    MissingDestination { job: String },
     #[snafu(display(
         "{} operation failed because current rebuild state is {}.",
         operation,
@@ -61,7 +61,7 @@ impl fmt::Display for RebuildState {
 }
 
 #[derive(Debug)]
-pub struct RebuildTask {
+pub struct RebuildJob {
     pub nexus: String,
     source: String,
     source_hdl: BdevHandle,
@@ -88,8 +88,8 @@ pub trait RebuildOperations {
     fn resume(&mut self) -> Result<(), RebuildError>;
 }
 
-impl RebuildTask {
-    /// Returns a newly created RebuildTask which is already stored in the
+impl RebuildJob {
+    /// Returns a newly created RebuildJob which is already stored in the
     /// rebuild list
     pub fn create<'a>(
         nexus: &str,
@@ -105,39 +105,39 @@ impl RebuildTask {
         Ok(Self::lookup(destination)?)
     }
 
-    /// Lookup a rebuild task by its destination uri and return it
+    /// Lookup a rebuild job by its destination uri and return it
     pub fn lookup(name: &str) -> Result<&mut Self, RebuildError> {
-        if let Some(task) = Self::get_instances().get_mut(name) {
-            Ok(task)
+        if let Some(job) = Self::get_instances().get_mut(name) {
+            Ok(job)
         } else {
-            Err(RebuildError::TaskNotFound {
-                task: name.to_owned(),
+            Err(RebuildError::JobNotFound {
+                job: name.to_owned(),
             })
         }
     }
 
-    /// Lookup a rebuild task by its destination uri then remove and return it
+    /// Lookup a rebuild job by its destination uri then remove and return it
     pub fn remove(name: &str) -> Result<Self, RebuildError> {
         match Self::get_instances().remove(name) {
-            Some(task) => Ok(task),
-            None => Err(RebuildError::TaskNotFound {
-                task: name.to_owned(),
+            Some(job) => Ok(job),
+            None => Err(RebuildError::JobNotFound {
+                job: name.to_owned(),
             }),
         }
     }
 
-    /// Number of rebuild task instances
+    /// Number of rebuild job instances
     pub fn count() -> usize {
         Self::get_instances().len()
     }
 
-    /// Stores a rebuild task in the rebuild task list
+    /// Stores a rebuild job in the rebuild job list
     fn store(self: Self) -> Result<(), RebuildError> {
         let rebuild_list = Self::get_instances();
 
         if rebuild_list.contains_key(&self.destination) {
-            Err(RebuildError::TaskAlreadyExists {
-                task: self.destination,
+            Err(RebuildError::JobAlreadyExists {
+                job: self.destination,
             })
         } else {
             let _ = rebuild_list.insert(self.destination.clone(), self);
@@ -145,7 +145,7 @@ impl RebuildTask {
         }
     }
 
-    /// Returns a new rebuild task based on the parameters
+    /// Returns a new rebuild job based on the parameters
     fn new(
         nexus: &str,
         source: &str,
@@ -261,14 +261,14 @@ impl RebuildTask {
         Ok(())
     }
 
-    /// Calls the task's registered complete fn callback and complete sender
+    /// Calls the job's registered complete fn callback and complete sender
     /// channel
     fn send_complete(&mut self) {
         self.stats();
         // should this return a status before we complete the sender channel?
         (self.complete_fn)(self.nexus.clone(), self.destination.clone());
         if let Err(e) = self.complete_chan.0.send(self.state) {
-            error!("Rebuild Task {} of nexus {} failed to send complete via the unbound channel with err {}", self.destination, self.nexus, e);
+            error!("Rebuild Job {} of nexus {} failed to send complete via the unbound channel with err {}", self.destination, self.nexus, e);
         }
     }
 
@@ -280,16 +280,16 @@ impl RebuildTask {
     }
 
     /// Changing the state should be performed on the same
-    /// reactor as the rebuild task
+    /// reactor as the rebuild job
     fn change_state(&mut self, new_state: RebuildState) {
         info!(
-            "Rebuild task {}: changing state from {:?} to {:?}",
+            "Rebuild job {}: changing state from {:?} to {:?}",
             self.destination, self.state, new_state
         );
         self.state = new_state;
     }
 
-    /// Get the rebuild task instances container, we ensure that this can only
+    /// Get the rebuild job instances container, we ensure that this can only
     /// ever be called on a properly allocated thread
     fn get_instances() -> &'static mut HashMap<String, Self> {
         let thread = unsafe { spdk_get_thread() };
@@ -308,7 +308,7 @@ impl RebuildTask {
     }
 }
 
-impl RebuildOperations for RebuildTask {
+impl RebuildOperations for RebuildJob {
     fn stats(&self) -> Option<RebuildStats> {
         info!(
             "State: {:?}, Src: {}, Dst: {}, start: {}, end: {}, current: {}, block: {}",
@@ -327,17 +327,17 @@ impl RebuildOperations for RebuildTask {
         let complete_receiver = self.complete_chan.clone().1;
 
         Reactors::current().send_future(async move {
-            let task = match RebuildTask::lookup(&destination) {
-                Ok(task) => task,
+            let job = match RebuildJob::lookup(&destination) {
+                Ok(job) => job,
                 Err(_) => {
                     return error!(
-                        "Failed to find the rebuild task {}",
+                        "Failed to find the rebuild job {}",
                         destination
                     );
                 }
             };
 
-            task.run().await;
+            job.run().await;
         });
         complete_receiver
     }
@@ -372,7 +372,7 @@ impl RebuildOperations for RebuildTask {
     fn resume(&mut self) -> Result<(), RebuildError> {
         match self.state {
             RebuildState::Paused => {
-                // Kick off the rebuild task again.
+                // Kick off the rebuild job again.
                 // The rebuild state doesn't need to be changed because
                 // this is done by the run function
                 self.start();

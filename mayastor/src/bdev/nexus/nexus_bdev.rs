@@ -148,21 +148,21 @@ pub enum Error {
         name: String,
     },
     #[snafu(display(
-        "Rebuild task not found for child {} of nexus {}",
+        "Rebuild job not found for child {} of nexus {}",
         child,
         name,
     ))]
-    RebuildTaskNotFound {
+    RebuildJobNotFound {
         source: RebuildError,
         child: String,
         name: String,
     },
     #[snafu(display(
-        "Failed to remove rebuild task {} of nexus {}",
+        "Failed to remove rebuild job {} of nexus {}",
         child,
         name,
     ))]
-    RemoveRebuildTask {
+    RemoveRebuildJob {
         source: RebuildError,
         child: String,
         name: String,
