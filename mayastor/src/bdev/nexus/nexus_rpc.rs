@@ -10,11 +10,13 @@ use rpc::mayastor::{
     ListNexusReply,
     Nexus as RpcNexus,
     NexusState as RpcNexusState,
+    PauseRebuildRequest,
     PublishNexusReply,
     PublishNexusRequest,
     RebuildProgressRequest,
     RebuildStateRequest,
     RemoveChildNexusRequest,
+    ResumeRebuildRequest,
     ShareProtocolNexus,
     StartRebuildRequest,
     StopRebuildRequest,
@@ -215,6 +217,22 @@ pub(crate) fn register_rpc_methods() {
         let fut = async move {
             let nexus = nexus_lookup(&args.uuid)?;
             nexus.stop_rebuild(&args.uri).await
+        };
+        fut.boxed_local()
+    });
+
+    jsonrpc_register("pause_rebuild", |args: PauseRebuildRequest| {
+        let fut = async move {
+            let nexus = nexus_lookup(&args.uuid)?;
+            nexus.pause_rebuild(&args.uri).await
+        };
+        fut.boxed_local()
+    });
+
+    jsonrpc_register("resume_rebuild", |args: ResumeRebuildRequest| {
+        let fut = async move {
+            let nexus = nexus_lookup(&args.uuid)?;
+            nexus.resume_rebuild(&args.uri).await
         };
         fut.boxed_local()
     });
