@@ -247,6 +247,16 @@ message StopRebuildRequest {
   string uri = 2;   // uri of the destination child
 }
 
+message PauseRebuildRequest {
+  string uuid = 1;  // uuid of the nexus
+  string uri = 2;   // uri of the destination child
+}
+
+message ResumeRebuildRequest {
+  string uuid = 1;  // uuid of the nexus
+  string uri = 2;   // uri of the destination child
+}
+
 message RebuildProgressRequest {
   string uuid = 1;  // uuid of the nexus
 }

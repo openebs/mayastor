@@ -434,6 +434,30 @@ impl Mayastor for MayastorGrpc {
         Ok(Response::new(Null {}))
     }
 
+    async fn pause_rebuild(
+        &self,
+        request: Request<PauseRebuildRequest>,
+    ) -> Result<Response<Null>> {
+        let msg = request.into_inner();
+        locally! { async move {
+          nexus_lookup(&msg.uuid)?.pause_rebuild(&msg.uri).await
+        }};
+
+        Ok(Response::new(Null {}))
+    }
+
+    async fn resume_rebuild(
+        &self,
+        request: Request<ResumeRebuildRequest>,
+    ) -> Result<Response<Null>> {
+        let msg = request.into_inner();
+        locally! { async move {
+          nexus_lookup(&msg.uuid)?.resume_rebuild(&msg.uri).await
+        }};
+
+        Ok(Response::new(Null {}))
+    }
+
     async fn get_rebuild_state(
         &self,
         request: Request<RebuildStateRequest>,
