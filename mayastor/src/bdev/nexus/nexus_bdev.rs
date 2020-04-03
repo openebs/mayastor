@@ -152,7 +152,11 @@ pub enum Error {
         child,
         name,
     ))]
-    RebuildTaskNotFound { child: String, name: String },
+    RebuildTaskNotFound {
+        source: RebuildError,
+        child: String,
+        name: String,
+    },
     #[snafu(display(
         "Failed to remove rebuild task {} of nexus {}",
         child,
@@ -163,6 +167,8 @@ pub enum Error {
         child: String,
         name: String,
     },
+    #[snafu(display(""))]
+    RebuildOperationError { source: RebuildError },
     #[snafu(display("Invalid ShareProtocol value {}", sp_value))]
     InvalidShareProtocol { sp_value: i32 },
     #[snafu(display("Failed to create nexus {}", name))]
