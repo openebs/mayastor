@@ -309,8 +309,8 @@ impl service::mayastor_server::Mayastor for MayastorService {
     ) -> Result<Response<Null>, Status> {
         let msg = request.into_inner();
         trace!("{:?}", msg);
-        jsonrpc::call::<_, ()>(&self.socket, "offline_child", Some(msg))
-            .await?;
+        let method = get_child_method_string(msg.action)?;
+        jsonrpc::call::<_, ()>(&self.socket, &method, Some(msg)).await?;
         Ok(Response::new(Null {}))
     }
 
@@ -407,5 +407,16 @@ impl service::mayastor_server::Mayastor for MayastorService {
         )
         .await?;
         Ok(Response::new(r))
+    }
+}
+
+fn get_child_method_string(action: i32) -> Result<String, Status> {
+    match action {
+        0 => Ok("offline_child".to_string()),
+        1 => Ok("online_child".to_string()),
+        _ => {
+            let msg = action.to_string() + " is an invalid operation.";
+            Err(Status::invalid_argument(msg))
+        }
     }
 }
