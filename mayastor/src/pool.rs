@@ -86,13 +86,15 @@ pub enum Error {
     #[snafu(display("Failed to destroy pool {} (errno={})", name, errno))]
     FailedDestroyPool { name: String, errno: i32 },
     #[snafu(display(
-        "Failed to destroy base bdev {} for the pool {} (errno={})",
+        "Failed to destroy base bdev {} type {} for the pool {} (errno={})",
         bdev,
+        bdev_type,
         name,
         errno
     ))]
     FailedDestroyBdev {
         bdev: String,
+        bdev_type: String,
         name: String,
         errno: i32,
     },
@@ -496,15 +498,19 @@ impl Pool {
                 return Ok(());
             }
         };
+        let base_bdev_type = self.get_base_bdev().driver();
+        debug!("Destroying bdev type {}", base_bdev_type);
+
         let (sender, receiver) = oneshot::channel::<i32>();
-        unsafe {
-            bdev_aio_delete(base_bdev.as_ptr(), Some(done_cb), cb_arg(sender));
-        }
-        let mut bdev_errno =
-            receiver.await.expect("Cancellation is not supported");
-        if bdev_errno != 0 {
-            // Try again as uring bdev
-            let (sender, receiver) = oneshot::channel::<i32>();
+        if base_bdev_type == "aio" {
+            unsafe {
+                bdev_aio_delete(
+                    base_bdev.as_ptr(),
+                    Some(done_cb),
+                    cb_arg(sender),
+                );
+            }
+        } else {
             unsafe {
                 delete_uring_bdev(
                     base_bdev.as_ptr(),
@@ -512,18 +518,19 @@ impl Pool {
                     cb_arg(sender),
                 );
             }
-            bdev_errno = receiver.await.expect("Cancellation is not supported");
         }
+        let bdev_errno = receiver.await.expect("Cancellation is not supported");
         if bdev_errno != 0 {
             Err(Error::FailedDestroyBdev {
                 bdev: base_bdev_name,
+                bdev_type: base_bdev_type,
                 name,
                 errno: bdev_errno,
             })
         } else {
             info!(
-                "The pool {} and base bdev {} have been destroyed",
-                name, base_bdev_name
+                "The pool {} and base bdev {} type {} have been destroyed",
+                name, base_bdev_name, base_bdev_type
             );
             Ok(())
         }
