@@ -40,12 +40,11 @@ stdenv.mkDerivation rec {
     numactl
     openssl
     python
-    rdma-core
-  ] ++ stdenv.lib.optionals enableDebug [cunit lcov];
+  ] ++ stdenv.lib.optionals enableDebug [ cunit lcov ];
 
   CONFIGURE_OPTS = ''
     ${enableFeature enableDebug "debug"}
-    --without-isal --with-iscsi-initiator --with-rdma
+    --without-isal --with-iscsi-initiator
     --with-internal-vhost-lib --disable-tests --with-dpdk-machine=native
     --with-crypto
     --with-uring
@@ -79,7 +78,7 @@ stdenv.mkDerivation rec {
     find . -type f -name 'librte_vhost.a' -delete
 
     $CC -shared -o libspdk_fat.so \
-    -lc -lrdmacm -laio -libverbs -liscsi -lnuma -ldl -lrt -luuid -lpthread -lcrypto -luring \
+    -lc -laio -liscsi -lnuma -ldl -lrt -luuid -lpthread -lcrypto -luring \
     -Wl,--whole-archive \
     $(find build/lib -type f -name 'libspdk_*.a*' -o -name 'librte_*.a*') \
     $(find dpdk/build/lib -type f -name 'librte_*.a*') \
