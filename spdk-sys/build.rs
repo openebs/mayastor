@@ -27,12 +27,7 @@ impl ParseCallbacks for MacroCallback {
 }
 
 fn build_wrapper() {
-    cc::Build::new()
-        .file("logwrapper.c")
-        .flag("-Ispdk/include")
-        .flag("-Ispdk/lib")
-        .flag("-Ispdk/module")
-        .compile("logwrapper");
+    cc::Build::new().file("logwrapper.c").compile("logwrapper");
 }
 
 fn main() {
@@ -50,11 +45,6 @@ fn main() {
     let macros = Arc::new(RwLock::new(HashSet::new()));
     let bindings = bindgen::Builder::default()
         .header("wrapper.h")
-        // If we did not use private interfaces those would not be needed.
-        // All needed headers should be in /usr/local/include.
-        .clang_arg("-Ispdk/include")
-        .clang_arg("-Ispdk/lib")
-        .clang_arg("-Ispdk/module")
         .rustfmt_bindings(true)
         .whitelist_function("^spdk.*")
         .whitelist_function("*.aio.*")
@@ -83,12 +73,10 @@ fn main() {
         .write_to_file(out_path.join("libspdk.rs"))
         .expect("Couldn't write bindings!");
 
-    println!("cargo:rustc-link-lib=spdk_fat");
+    println!("cargo:rustc-link-lib=spdk");
     println!("cargo:rustc-link-lib=aio");
     println!("cargo:rustc-link-lib=iscsi");
-    println!("cargo:rustc-link-lib=numa");
     println!("cargo:rustc-link-lib=dl");
-    println!("cargo:rustc-link-lib=rt");
     println!("cargo:rustc-link-lib=uuid");
     println!("cargo:rustc-link-lib=crypto");
     println!("cargo:rustc-link-lib=uring");
