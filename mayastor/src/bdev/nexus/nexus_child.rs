@@ -359,18 +359,13 @@ impl NexusChild {
             .read_partitions(u64::from(block_size), &mut buf, &active)
             .await?;
 
+        header[0].checksum();
+        header[1].checksum();
+
         // Some tools always write 128 partition entries, even though most
         // are not used. In any case we are only ever interested
         // in the first two partitions, so we drain the others.
         let entries = partitions.drain(.. 2).collect::<Vec<GptEntry>>();
-
-        if GptEntry::checksum(&entries) != header[0].table_crc {
-            warn!("{}: {}: The calculated and stored partition table checksums differ!", self.parent, self.name);
-            return Err(ChildError::PartitionTableChecksum {});
-        }
-
-        header[0].checksum();
-        header[1].checksum();
 
         Ok(NexusLabel {
             mbr,
