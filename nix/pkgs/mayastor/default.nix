@@ -33,7 +33,7 @@ rec {
 
   mayastor = rustPlatform.buildRustPackage rec {
     name = "mayastor";
-    cargoSha256 = "16ik2b72d6r5n9pnsfdw2qihn9si0nkp1h8vznkgzcbqdg97ahqw";
+    cargoSha256 = "1q7gnq4zxw0jj6za7f9a25z0mwghfpixqs1dsx0i87bxja2vvmb0";
     version = "unstable";
     src = ../../../.;
 
@@ -42,6 +42,7 @@ rec {
     # these are required for building the proto files that tonic can't find otherwise.
     PROTOC = "${pkgs.protobuf}/bin/protoc";
     PROTOC_INCLUDE = "${pkgs.protobuf}/include";
+    C_INCLUDE_PATH = "${libspdk}/include/spdk";
 
     buildInputs = [
       clang

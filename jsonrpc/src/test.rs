@@ -104,7 +104,7 @@ async fn normal_request_reply() {
                 id: req.id,
                 jsonrpc: Some("2.0".to_owned()),
                 result: Some(json!({
-                    "msg": params.msg.clone(),
+                    "msg": params.msg,
                     "code": -params.code,
                     "flag": !params.flag,
                 })),
