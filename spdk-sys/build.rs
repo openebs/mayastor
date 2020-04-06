@@ -84,8 +84,6 @@ fn main() {
         .expect("Couldn't write bindings!");
 
     println!("cargo:rustc-link-lib=spdk_fat");
-    println!("cargo:rustc-link-lib=ibverbs");
-    println!("cargo:rustc-link-lib=rdmacm");
     println!("cargo:rustc-link-lib=aio");
     println!("cargo:rustc-link-lib=iscsi");
     println!("cargo:rustc-link-lib=numa");

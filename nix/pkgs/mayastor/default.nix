@@ -57,7 +57,6 @@ rec {
       openssl
       pkg-config
       protobuf
-      rdma-core
       utillinux
       xfsprogs
     ];
