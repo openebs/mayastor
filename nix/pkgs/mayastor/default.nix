@@ -1,5 +1,3 @@
-# As soon as async becomes stable; we dont need to import the mozilla overlay
-# anymore. This will greatly simplify the expression.
 { stdenv
 , e2fsprogs
 , libaio
@@ -59,6 +57,7 @@ rec {
       protobuf
       utillinux
       xfsprogs
+      utillinux.dev
     ];
 
     doCheck = false;
