@@ -1,45 +1,44 @@
-{ channel ? "nightly"
-, pkgs ? import <nixpkgs> {
-    # import the mayastor-overlay
-    overlays = [ (import ./nix/mayastor-overlay.nix) ];
-  }
-}:
-with pkgs;
+{ channel ? "nightly" }:
 let
-  rustChannel = import ./nix/lib/rust.nix {
-    inherit fetchFromGitHub;
-    inherit pkgs;
+  nixpkgs = (import ./nix/lib/nixPackages.nix) { };
+  pkgs = import nixpkgs {
+    config = { overlays = [ (import ./nix/mayastor-overlay.nix) ]; };
   };
-
-  libspdk = pkgs.libspdk.override { enableDebug = true; };
 in
-mkShell {
-  # fortify does not work with -O0 which is used by spdk when --enable-debug
-  hardeningDisable = [ "fortify" ];
+  with pkgs;
+  let
+    rustChannel = import ./nix/lib/rust.nix {
+      inherit fetchFromGitHub;
+      inherit pkgs;
+    };
 
-  buildInputs = [
-    figlet
-    fio
-    gdb
-    gptfdisk
-    libiscsi.bin
-    libspdk
-    nodePackages.jshint
-    nodePackages.prettier
-    nodejs-10_x
-    nvme-cli
-    pre-commit
-    python3
-    rustChannel.${channel}.rust
-    xfsprogs
-  ] ++ mayastor.buildInputs;
+    libspdk = pkgs.libspdk.override { enableDebug = true; };
+  in
+  mkShell {
+    # fortify does not work with -O0 which is used by spdk when --enable-debug
+    hardeningDisable = [ "fortify" ];
 
-  LIBCLANG_PATH = mayastor.LIBCLANG_PATH;
-  PROTOC = mayastor.PROTOC;
-  PROTOC_INCLUDE = mayastor.PROTOC_INCLUDE;
+    buildInputs = [
+      figlet
+      fio
+      gdb
+      gptfdisk
+      libiscsi.bin
+      jshint
+      nodePackages.prettier
+      nodejs
+      nvme-cli
+      pre-commit
+      python3
+      rustChannel.${channel}.rust
+    ] ++ mayastor.buildInputs;
 
-  shellHook = ''
-    pre-commit install
-    figlet ${channel}
-  '';
-}
+    LIBCLANG_PATH = mayastor.LIBCLANG_PATH;
+    PROTOC = mayastor.PROTOC;
+    PROTOC_INCLUDE = mayastor.PROTOC_INCLUDE;
+
+    shellHook = ''
+      pre-commit install
+      figlet ${channel}
+    '';
+  }
