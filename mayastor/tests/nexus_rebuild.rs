@@ -23,8 +23,8 @@ static NEXUS_SIZE: u64 = 10 * 1024 * 1024; // 10MiB
 #[test]
 fn rebuild_test() {
     common::delete_file(&[DISKNAME1.into(), DISKNAME2.into()]);
-    common::truncate_file(DISKNAME1, NEXUS_SIZE / 1024);
-    common::truncate_file(DISKNAME2, NEXUS_SIZE / 1024);
+    common::truncate_file_bytes(DISKNAME1, NEXUS_SIZE);
+    common::truncate_file_bytes(DISKNAME2, NEXUS_SIZE);
 
     test_init!();
 
