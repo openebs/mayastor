@@ -697,7 +697,7 @@ describe('nexus', function () {
   });
 
   it('should be the case that we do not have any dangling NBD devices left on the system', (done) => {
-    exec('sleep 1; lsblk --json', (err, stdout, stderr) => {
+    exec('sleep 3; lsblk --json', (err, stdout, stderr) => {
       if (err) return done(err);
       let output = JSON.parse(stdout);
       output.blockdevices.forEach((e) => {
