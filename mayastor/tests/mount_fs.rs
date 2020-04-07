@@ -42,7 +42,7 @@ fn mount_fs() {
         reactor_poll!(r);
         // destroy the share and the nexus
         nexus.unshare().await.unwrap();
-        nexus.destroy().await;
+        nexus.destroy().await.unwrap();
 
         // create a split nexus, i.e two nexus devices which each one leg of the
         // mirror
@@ -70,7 +70,7 @@ fn mount_fs() {
         reactor_poll!(r, md5_left);
 
         left.unshare().await.unwrap();
-        left.destroy().await;
+        left.destroy().await.unwrap();
 
         let s1 = s.clone();
         // read the md5 of the right side of the mirror
@@ -81,7 +81,7 @@ fn mount_fs() {
         let md5_right;
         reactor_poll!(r, md5_right);
         right.unshare().await.unwrap();
-        right.destroy().await;
+        right.destroy().await.unwrap();
         assert_eq!(md5_left, md5_right);
     }
 
@@ -119,7 +119,7 @@ fn mount_fs_1() {
         });
 
         reactor_poll!(r);
-        nexus.destroy().await;
+        nexus.destroy().await.unwrap();
     });
 }
 
@@ -139,7 +139,7 @@ fn mount_fs_2() {
 
         std::thread::spawn(move || s.send(common::fio_run_verify(&device)));
         reactor_poll!(r);
-        nexus.destroy().await;
+        nexus.destroy().await.unwrap();
     });
 
     mayastor_env_stop(0);

@@ -76,7 +76,7 @@ async fn works() {
     drop(desc);
 
     let n = nexus_lookup("core_nexus").expect("nexus not found");
-    n.destroy().await;
+    n.destroy().await.unwrap();
 }
 
 #[test]
@@ -100,7 +100,7 @@ fn core_2() {
         // we must drop the descriptors before we destroy the nexus
         drop(dbg!(d1));
         drop(dbg!(d2));
-        n.destroy().await;
+        n.destroy().await.unwrap();
     });
 }
 
