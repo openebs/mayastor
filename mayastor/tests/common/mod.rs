@@ -118,6 +118,15 @@ pub fn truncate_file(path: &str, size: u64) {
     assert_eq!(output.status.success(), true);
 }
 
+pub fn truncate_file_bytes(path: &str, size: u64) {
+    let output = Command::new("truncate")
+        .args(&["-s", &format!("{}", size), path])
+        .output()
+        .expect("failed exec truncate");
+
+    assert_eq!(output.status.success(), true);
+}
+
 pub fn fscheck(device: &str) {
     let output = Command::new("fsck")
         .args(&[device, "-n"])
