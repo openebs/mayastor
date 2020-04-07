@@ -5,6 +5,8 @@ use snafu::{ResultExt, Snafu};
 use spdk_sys::spdk_get_thread;
 use std::{cell::UnsafeCell, collections::HashMap, fmt};
 
+use futures::{channel::mpsc, StreamExt};
+
 pub struct RebuildInstances {
     inner: UnsafeCell<HashMap<String, RebuildJob>>,
 }
@@ -60,7 +62,24 @@ impl fmt::Display for RebuildState {
     }
 }
 
-#[derive(Debug)]
+struct TaskResult {
+    blk: u64,
+    id: u64,
+    error: Option<RebuildError>,
+}
+
+const SEGMENT_TASKS: u64 = 4;
+const SEGMENT_SIZE: u64 = 10 * 1024; // 10KiB
+
+struct RebuildTasks {
+    buffers: Vec<DmaBuf>,
+    senders: Vec<mpsc::Sender<TaskResult>>,
+
+    channel: (mpsc::Sender<TaskResult>, mpsc::Receiver<TaskResult>),
+    active: u64,
+    total: u64,
+}
+
 pub struct RebuildJob {
     pub nexus: String,
     source: String,
@@ -70,9 +89,9 @@ pub struct RebuildJob {
     block_size: u64,
     start: u64,
     end: u64,
-    current: u64,
+    next: u64,
     segment_size_blks: u64,
-    copy_buffer: DmaBuf,
+    tasks: RebuildTasks,
     complete_fn: fn(String, String) -> (),
     pub complete_chan: (Sender<RebuildState>, Receiver<RebuildState>),
     pub state: RebuildState,
@@ -168,14 +187,27 @@ impl RebuildJob {
             return Err(RebuildError::InvalidParameters {});
         };
 
-        let segment_size = 10 * 1024;
         // validation passed, block size is the same for both
         let block_size = destination_hdl.get_bdev().block_len() as u64;
-        let segment_size_blks = (segment_size / block_size) as u64;
+        let segment_size_blks = (SEGMENT_SIZE / block_size) as u64;
 
-        let copy_buffer = source_hdl
-            .dma_malloc((segment_size_blks * block_size) as usize)
-            .context(NoCopyBuffer {})?;
+        let mut tasks = RebuildTasks {
+            buffers: Vec::new(),
+            senders: Vec::new(),
+            // only sending one message per channel at a time so we don't need
+            // the extra buffer
+            channel: mpsc::channel(0),
+            active: 0,
+            total: SEGMENT_TASKS,
+        };
+
+        for _ in 0 .. tasks.total {
+            let copy_buffer = source_hdl
+                .dma_malloc((segment_size_blks * block_size) as usize)
+                .context(NoCopyBuffer {})?;
+            tasks.buffers.push(copy_buffer);
+            tasks.senders.push(tasks.channel.0.clone());
+        }
 
         let (source, destination, nexus) = (
             source.to_string(),
@@ -191,80 +223,117 @@ impl RebuildJob {
             destination_hdl,
             start,
             end,
-            current: start,
+            next: start,
             block_size,
             segment_size_blks,
-            copy_buffer,
+            tasks,
             complete_fn,
             complete_chan: unbounded::<RebuildState>(),
             state: RebuildState::Pending,
         })
     }
 
-    /// Rebuilds a non-healthy child from a healthy child from start to end
+    // Runs the management async task that kicks off N rebuild copy tasks and
+    // awaits each completion. When any task completes it kicks off another
+    // until the bdev is fully rebuilt
     async fn run(&mut self) {
         self.change_state(RebuildState::Running);
-        self.current = self.start;
+        self.next = self.start;
         self.stats();
 
-        while self.current < self.end {
-            if let Err(e) = self.copy_one().await {
-                error!("Failed to copy segment {}", e);
-                self.change_state(RebuildState::Failed);
-                self.send_complete();
-                return;
-            }
+        self.start_all_tasks();
+        while self.tasks.active > 0 {
+            match self.await_one_task().await {
+                Some(r) => match r.error {
+                    None => {
+                        if self.state == RebuildState::Stopped
+                            || self.state == RebuildState::Paused
+                        {
+                            // await all active tasks as we might still have
+                            // ongoing IO do we need
+                            // a timeout?
+                            self.await_all_tasks().await;
+                            break;
+                        }
 
-            if self.state == RebuildState::Stopped
-                || self.state == RebuildState::Paused
-            {
-                return self.send_complete();
+                        self.start_task_by_id(r.id);
+                    }
+                    Some(e) => {
+                        error!("Failed to rebuild segment id {} block {} with error: {}", r.id, r.blk, e);
+                        self.change_state(RebuildState::Failed);
+                        self.await_all_tasks().await;
+                        break;
+                    }
+                },
+                None => {
+                    // all senders have disconnected, out of place termination?
+                    self.change_state(RebuildState::Failed);
+
+                    if self.tasks.active != 0 {
+                        error!(
+                            "Completing rebuild with potentially {} active tasks",
+                            self.tasks.active
+                        );
+                    }
+                    break;
+                }
             }
         }
 
-        self.change_state(RebuildState::Completed);
-        self.send_complete();
+        self.complete();
     }
 
     /// Copies one segment worth of data from source into destination
-    async fn copy_one(&mut self) -> Result<(), RebuildError> {
-        // Adjust size of the last segment
-        if (self.current + self.segment_size_blks) >= self.start + self.end {
-            self.segment_size_blks = self.end - self.current;
+    async fn copy_one(
+        &mut self,
+        id: u64,
+        blk: u64,
+    ) -> Result<(), RebuildError> {
+        let mut copy_buffer: DmaBuf;
 
-            self.copy_buffer = self
+        let mut copy_buffer = if (blk + self.segment_size_blks) > self.end {
+            let segment_size_blks = self.end - blk;
+
+            trace!(
+                    "Adjusting last segment size from {} to {}. offset: {}, start: {}, end: {}",
+                    self.segment_size_blks, segment_size_blks, blk, self.start, self.end,
+                );
+
+            copy_buffer = self
                 .source_hdl
-                .dma_malloc((self.segment_size_blks * self.block_size) as usize)
+                .dma_malloc((segment_size_blks * self.block_size) as usize)
                 .context(NoCopyBuffer {})?;
 
-            info!(
-                "Adjusting segment size to {}. offset: {}, start: {}, end: {}",
-                self.segment_size_blks, self.current, self.start, self.end
-            );
-        }
+            &mut copy_buffer
+        } else {
+            &mut self.tasks.buffers[id as usize]
+        };
 
         self.source_hdl
-            .read_at(self.current * self.block_size, &mut self.copy_buffer)
+            .read_at(blk * self.block_size, &mut copy_buffer)
             .await
             .context(IoError {
                 bdev: &self.source,
             })?;
 
         self.destination_hdl
-            .write_at(self.current * self.block_size, &self.copy_buffer)
+            .write_at(blk * self.block_size, &copy_buffer)
             .await
             .context(IoError {
                 bdev: &self.destination,
             })?;
 
-        self.current += self.segment_size_blks;
         Ok(())
+    }
+
+    fn complete(&mut self) {
+        self.stats();
+        self.send_complete();
     }
 
     /// Calls the job's registered complete fn callback and complete sender
     /// channel
     fn send_complete(&mut self) {
-        self.stats();
         // should this return a status before we complete the sender channel?
         (self.complete_fn)(self.nexus.clone(), self.destination.clone());
         if let Err(e) = self.complete_chan.0.send(self.state) {
@@ -311,17 +380,14 @@ impl RebuildJob {
 impl RebuildOperations for RebuildJob {
     fn stats(&self) -> Option<RebuildStats> {
         info!(
-            "State: {:?}, Src: {}, Dst: {}, start: {}, end: {}, current: {}, block: {}",
+            "State: {:?}, Src: {}, Dst: {}, start: {}, end: {}, next: {}, block: {}",
             self.state, self.source, self.destination,
-            self.start, self.end, self.current, self.block_size
+            self.start, self.end, self.next, self.block_size
         );
 
         None
     }
 
-    // todo: ideally we'd want the nexus out of here but sadly rust does not yet
-    // support async trait's
-    // the course of action might just be not using traits
     fn start(&mut self) -> Receiver<RebuildState> {
         let destination = self.destination.clone();
         let complete_receiver = self.complete_chan.clone().1;
@@ -382,6 +448,82 @@ impl RebuildOperations for RebuildJob {
                 operation: "Resume".to_string(),
                 state: self.state.to_string(),
             }),
+        }
+    }
+}
+
+impl RebuildJob {
+    fn start_all_tasks(&mut self) {
+        assert_eq!(self.tasks.active, 0, "{} active tasks", self.tasks.active);
+
+        for n in 0 .. self.tasks.total {
+            self.next = match self.send_segment_task(n) {
+                Some(next) => {
+                    self.tasks.active += 1;
+                    next
+                }
+                None => break, /* we've already got enough tasks to rebuild
+                                * the bdev */
+            };
+        }
+    }
+
+    fn start_task_by_id(&mut self, id: u64) {
+        match self.send_segment_task(id) {
+            Some(next) => {
+                self.tasks.active += 1;
+                self.next = next;
+            }
+            None => {
+                if self.tasks.active == 0 {
+                    self.state = RebuildState::Completed;
+                }
+            }
+        };
+    }
+
+    async fn await_one_task(&mut self) -> Option<TaskResult> {
+        self.tasks.channel.1.next().await.map(|f| {
+            self.tasks.active -= 1;
+            f
+        })
+    }
+
+    async fn await_all_tasks(&mut self) {
+        while self.await_one_task().await.is_some() {
+            self.tasks.active -= 1;
+            if self.tasks.active == 0 {
+                break;
+            }
+        }
+    }
+
+    /// Sends one segment worth of data in a reactor future and notifies the
+    /// management channel. Returns the next segment offset to rebuild, if any
+    fn send_segment_task(&self, id: u64) -> Option<u64> {
+        if self.next >= self.end {
+            None
+        } else {
+            let blk = self.next;
+            let next =
+                std::cmp::min(self.next + self.segment_size_blks, self.end);
+            let name = self.destination.clone();
+
+            Reactors::current().send_future(async move {
+                let job = Self::lookup(&name).unwrap();
+
+                let r = TaskResult {
+                    blk,
+                    id,
+                    error: job.copy_one(id, blk).await.err(),
+                };
+
+                if let Err(e) = job.tasks.senders[id as usize].start_send(r) {
+                    error!("Failed to notify job of segment id: {} blk: {} completion, err: {}", id, blk, e);
+                }
+            });
+
+            Some(next)
         }
     }
 }
