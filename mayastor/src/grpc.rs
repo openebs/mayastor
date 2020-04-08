@@ -12,8 +12,8 @@ use crate::{
     },
     core::{Cores, Reactors},
     pool,
+    rebuild::RebuildJob,
     replica,
-    rebuild::RebuildJob
 };
 
 #[derive(Debug)]
