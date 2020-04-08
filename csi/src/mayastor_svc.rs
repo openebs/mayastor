@@ -414,9 +414,9 @@ fn get_child_method_string(action: i32) -> Result<String, Status> {
     match action {
         0 => Ok("offline_child".to_string()),
         1 => Ok("online_child".to_string()),
-        _ => {
-            let msg = action.to_string() + " is an invalid operation.";
-            Err(Status::invalid_argument(msg))
-        }
+        _ => Err(Status::invalid_argument(format!(
+            "{} is an invalid operation",
+            action
+        ))),
     }
 }
