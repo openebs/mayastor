@@ -74,6 +74,18 @@ const rebuildArgs = {
   uri: `aio:///${child2}?blk_size=4096`
 };
 
+const childOnlineArgs = {
+  uuid: UUID,
+  uri: `aio:///${child2}?blk_size=4096`,
+  action: 1
+};
+
+const childOfflineArgs = {
+  uuid: UUID,
+  uri: `aio:///${child2}?blk_size=4096`,
+  action: 0
+};
+
 function createGrpcClient () {
   const PROTO_PATH = path.join(__dirname, '/../rpc/proto/mayastor_service.proto');
 
@@ -133,12 +145,12 @@ describe('rebuild tests', function () {
     assert.equal(nexus.rebuilds, expected);
   }
 
-  async function checkRebuildState(expected) {
+  async function checkRebuildState (expected) {
     const res = await client.getRebuildState().sendMessage(rebuildArgs);
     assert.equal(res.state, expected);
   }
 
-  function pingMayastor(done) {
+  function pingMayastor (done) {
     // use harmless method to test if the mayastor is up and running
     client
       .listPools()
@@ -372,6 +384,67 @@ describe('rebuild tests', function () {
 
     it('check number of rebuilds', async () => {
       await checkNumRebuilds('1');
+    });
+  });
+
+  describe('set child online', function () {
+    beforeEach(async () => {
+      await client.addChildNexus().sendMessage(rebuildArgs);
+      await client.childOperation().sendMessage(childOfflineArgs);
+      await client.childOperation().sendMessage(childOnlineArgs);
+    });
+
+    afterEach(async () => {
+      await client.stopRebuild().sendMessage(rebuildArgs);
+      await client.removeChildNexus().sendMessage(rebuildArgs);
+    });
+
+    it('check nexus state', async () => {
+      await checkState(ObjectType.NEXUS, 'degraded');
+    });
+
+    it('check source state', async () => {
+      await checkState(ObjectType.SOURCE_CHILD, 'open');
+    });
+
+    it('check destination state', async () => {
+      await checkState(ObjectType.DESTINATION_CHILD, 'faulted');
+    });
+
+    it('check rebuild state', async () => {
+      await checkRebuildState('running');
+    });
+
+    it('check number of rebuilds', async () => {
+      await checkNumRebuilds('1');
+    });
+  });
+
+  describe('set child offline', function () {
+    beforeEach(async () => {
+      await client.addChildNexus().sendMessage(rebuildArgs);
+      await client.startRebuild().sendMessage(rebuildArgs);
+      await client.childOperation().sendMessage(childOfflineArgs);
+    });
+
+    afterEach(async () => {
+      await client.removeChildNexus().sendMessage(rebuildArgs);
+    });
+
+    it('check nexus state', async () => {
+      await checkState(ObjectType.NEXUS, 'degraded');
+    });
+
+    it('check source state', async () => {
+      await checkState(ObjectType.SOURCE_CHILD, 'open');
+    });
+
+    it('check destination state', async () => {
+      await checkState(ObjectType.DESTINATION_CHILD, 'closed');
+    });
+
+    it('check number of rebuilds', async () => {
+      await checkNumRebuilds('0');
     });
   });
 });

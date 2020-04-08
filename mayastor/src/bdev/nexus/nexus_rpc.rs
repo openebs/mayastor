@@ -173,21 +173,29 @@ pub(crate) fn register_rpc_methods() {
         fut.boxed_local()
     });
 
-    jsonrpc_register("offline_child", |args: ChildNexusRequest| {
-        let fut = async move {
-            let nexus = nexus_lookup(&args.uuid)?;
-            nexus.offline_child(&args.uri).await
-        };
-        fut.boxed_local()
-    });
+    jsonrpc_register::<rpc::mayastor::ChildNexusRequest, _, _, Error>(
+        "offline_child",
+        |args: ChildNexusRequest| {
+            let fut = async move {
+                let nexus = nexus_lookup(&args.uuid)?;
+                nexus.offline_child(&args.uri).await?;
+                Ok(())
+            };
+            fut.boxed_local()
+        },
+    );
 
-    jsonrpc_register("online_child", |args: ChildNexusRequest| {
-        let fut = async move {
-            let nexus = nexus_lookup(&args.uuid)?;
-            nexus.online_child(&args.uri).await
-        };
-        fut.boxed_local()
-    });
+    jsonrpc_register::<rpc::mayastor::ChildNexusRequest, _, _, Error>(
+        "online_child",
+        |args: ChildNexusRequest| {
+            let fut = async move {
+                let nexus = nexus_lookup(&args.uuid)?;
+                nexus.online_child(&args.uri).await?;
+                Ok(())
+            };
+            fut.boxed_local()
+        },
+    );
 
     jsonrpc_register("add_child_nexus", |args: AddChildNexusRequest| {
         let fut = async move {
