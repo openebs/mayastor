@@ -1,13 +1,14 @@
 name: "CI-basic"
 on:
-  pull_request:
   push:
     branches:
-      - master
+      - staging
+      - trying
 env:
   GITHUB_PACKAGE_REGISTRY_TOKEN: ${{ secrets.GH_PACKAGES }}
 jobs:
   Build:
+    name: Build
     runs-on: ubuntu-latest
     container: docker://mayadata/ms-buildenv:nix
     steps:
@@ -17,6 +18,7 @@ jobs:
           toolchain: nightly
       - run: cargo build --all
   Clippy:
+    name: Clippy
     runs-on: ubuntu-latest
     container: docker://mayadata/ms-buildenv:nix
     steps:

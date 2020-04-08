@@ -1,0 +1,18 @@
+name: "CI-basic"
+on:
+  pull_request:
+jobs:
+  Clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    container: docker://mayadata/ms-buildenv:nix
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: nightly
+          components: clippy
+      - uses: actions-rs/clippy-check@v1.0.5
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+          args: --all --all-targets -- -D warnings
