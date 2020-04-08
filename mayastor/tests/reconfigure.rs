@@ -172,6 +172,11 @@ async fn works() {
     nexus.online_child(&child2).await.unwrap();
     assert_eq!(nexus.status(), NexusState::Degraded);
 
+    common::wait_for_rebuild(
+        child2.to_string(),
+        std::time::Duration::from_secs(20),
+    );
+
     buf.fill(0xAA);
     // write 0xAA to the nexus
     for i in 0 .. 10 {
