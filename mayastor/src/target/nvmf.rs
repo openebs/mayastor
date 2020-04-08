@@ -30,21 +30,17 @@ use spdk_sys::{
     spdk_nvmf_subsystem_add_ns,
     spdk_nvmf_subsystem_create,
     spdk_nvmf_subsystem_destroy,
-    spdk_nvmf_subsystem_get_first,
-    spdk_nvmf_subsystem_get_next,
     spdk_nvmf_subsystem_get_nqn,
     spdk_nvmf_subsystem_set_allow_any_host,
     spdk_nvmf_subsystem_set_mn,
     spdk_nvmf_subsystem_set_sn,
     spdk_nvmf_subsystem_start,
     spdk_nvmf_subsystem_stop,
-    spdk_nvmf_target_opts,
     spdk_nvmf_tgt,
     spdk_nvmf_tgt_accept,
     spdk_nvmf_tgt_add_transport,
-    spdk_nvmf_tgt_create,
-    spdk_nvmf_tgt_destroy,
     spdk_nvmf_tgt_find_subsystem,
+    spdk_nvmf_tgt_get_transport,
     spdk_nvmf_tgt_listen,
     spdk_nvmf_tgt_stop_listen,
     spdk_nvmf_transport_create,
@@ -53,7 +49,6 @@ use spdk_sys::{
     spdk_poller,
     spdk_poller_register,
     spdk_poller_unregister,
-    NVMF_TGT_NAME_MAX_LENGTH,
     SPDK_NVME_TRANSPORT_TCP,
     SPDK_NVMF_ADRFAM_IPV4,
     SPDK_NVMF_SUBTYPE_NVME,
@@ -61,6 +56,11 @@ use spdk_sys::{
     SPDK_NVMF_TRSVCID_MAX_LEN,
 };
 
+extern "C" {
+    /// SPDK always creates a default SPDK target we will use
+    /// that target for our replica's and nexus devices
+    static g_spdk_nvmf_tgt: *const spdk_sys::spdk_nvmf_tgt;
+}
 use crate::{
     core::Bdev,
     ffihelper::{cb_arg, done_errno_cb, errno_result_from_i32, ErrnoResult},
@@ -81,9 +81,9 @@ pub enum Error {
     TargetAddress { addr: String },
     #[snafu(display("Failed to init opts for nvmf tcp transport"))]
     InitOpts {},
-    #[snafu(display("Failed to create nvmf tcp transport"))]
+    #[snafu(display("Failed to create nvmf TCP transport"))]
     TcpTransport {},
-    #[snafu(display("Failed to add nvmf tcp transport: {}", source))]
+    #[snafu(display("Failed to add nvmf TCP transport: {}", source))]
     AddTransport { source: Errno },
     #[snafu(display("nvmf target listen failed: {}", source))]
     ListenTarget { source: Errno },
@@ -297,65 +297,6 @@ impl fmt::Display for Subsystem {
     }
 }
 
-/// Iterator over nvmf subsystems of a nvmf target
-struct SubsystemIter {
-    ss_ptr: *mut spdk_nvmf_subsystem,
-}
-
-impl SubsystemIter {
-    fn new(tgt_ptr: *mut spdk_nvmf_tgt) -> Self {
-        Self {
-            ss_ptr: unsafe { spdk_nvmf_subsystem_get_first(tgt_ptr) },
-        }
-    }
-}
-
-impl Iterator for SubsystemIter {
-    type Item = Subsystem;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        let ss_ptr = self.ss_ptr;
-        if ss_ptr.is_null() {
-            return None;
-        }
-        unsafe {
-            self.ss_ptr = spdk_nvmf_subsystem_get_next(ss_ptr);
-            Some(Subsystem::from_ptr(ss_ptr))
-        }
-    }
-}
-
-/// Some options can be passed into each target that gets created.
-///
-/// Currently the options are limited to the name of the target to be created
-/// and the max number of subsystems this target supports. We set this number
-/// equal to the number of pods that can get scheduled on a node which is, by
-/// default 110.
-pub(crate) struct TargetOpts {
-    inner: spdk_nvmf_target_opts,
-}
-
-impl TargetOpts {
-    fn new(name: &str, max_subsystems: u32) -> Self {
-        let mut opts = spdk_nvmf_target_opts::default();
-        let cstr = CString::new(name).unwrap();
-        unsafe {
-            std::ptr::copy_nonoverlapping(
-                cstr.as_ptr() as *const _ as *mut libc::c_void,
-                &mut opts.name[0] as *const _ as *mut libc::c_void,
-                NVMF_TGT_NAME_MAX_LENGTH as usize,
-            );
-        }
-
-        // same as max pods by default
-        opts.max_subsystems = max_subsystems;
-
-        Self {
-            inner: opts,
-        }
-    }
-}
-
 /// Wrapper around spdk nvmf target providing rust friendly api.
 /// nvmf target binds listen addresses and nvmf subsystems with namespaces
 /// together.
@@ -374,18 +315,11 @@ pub(crate) struct Target {
 }
 
 impl Target {
-    /// Create preconfigured nvmf target with tcp transport and default options.
+    ///
+    /// Create preconfigured nvmf target with a TCP transport and default
+    /// options. If a transport is already created, we will use that
+    /// instead.
     pub fn create(addr: &str, port: u16) -> Result<Self> {
-        let mut tgt_opts = TargetOpts::new("MayaStor", 110);
-
-        let inner = unsafe { spdk_nvmf_tgt_create(&mut tgt_opts.inner) };
-        if inner.is_null() {
-            return Err(Error::CreateTarget {
-                addr: addr.to_owned(),
-                port,
-            });
-        }
-
         let mut trid: spdk_nvme_transport_id = Default::default();
         trid.trtype = SPDK_NVME_TRANSPORT_TCP;
         trid.adrfam = SPDK_NVMF_ADRFAM_IPV4;
@@ -419,7 +353,7 @@ impl Target {
         info!("Created nvmf target at {}:{}", addr, port);
 
         Ok(Self {
-            inner,
+            inner: unsafe { g_spdk_nvmf_tgt as *mut _ },
             address: addr.to_owned(),
             trid,
             opts: spdk_nvmf_transport_opts::default(),
@@ -431,6 +365,15 @@ impl Target {
 
     /// Add tcp transport to nvmf target
     pub async fn add_tcp_transport(&mut self) -> Result<()> {
+        if !unsafe {
+            spdk_nvmf_tgt_get_transport(self.inner, TRANSPORT_NAME.as_ptr())
+        }
+        .is_null()
+        {
+            // transport already created
+            return Ok(());
+        }
+
         let ok = unsafe {
             spdk_nvmf_transport_opts_init(
                 TRANSPORT_NAME.as_ptr(),
@@ -444,6 +387,7 @@ impl Target {
         let transport = unsafe {
             spdk_nvmf_transport_create(TRANSPORT_NAME.as_ptr(), &mut self.opts)
         };
+
         if transport.is_null() {
             return Err(Error::TcpTransport {});
         }
@@ -573,27 +517,18 @@ impl Target {
         }
     }
 
-    /// Callback for async destroy operation.
-    extern "C" fn destroy_cb(sender_ptr: *mut c_void, errno: i32) {
-        let sender = unsafe {
-            Box::from_raw(sender_ptr as *mut oneshot::Sender<ErrnoResult<()>>)
-        };
-        sender
-            .send(errno_result_from_i32((), errno))
-            .expect("Receiver is gone");
-    }
-
     /// Stop nvmf target's subsystems and destroy it.
     ///
     /// NOTE: we cannot do this in drop because target destroy is asynchronous
     /// operation.
-    pub async fn destroy(mut self) -> Result<()> {
-        debug!("Destroying nvmf target {}", self);
+    pub async fn stop(mut self) -> Result<()> {
+        debug!("stopping nvmf listener {}", self);
 
         // stop accepting new connections
         let rc = unsafe {
             spdk_nvmf_tgt_stop_listen(self.inner, &mut self.trid as *mut _)
         };
+
         errno_result_from_i32((), rc).context(StopListenTarget {})?;
         if !self.acceptor_poller.is_null() {
             unsafe { spdk_poller_unregister(&mut self.acceptor_poller) };
@@ -604,28 +539,7 @@ impl Target {
             unsafe { spdk_nvmf_poll_group_destroy(self.pg) };
         }
 
-        // first we need to inactivate all subsystems of the target
-        for mut subsystem in SubsystemIter::new(self.inner) {
-            subsystem.stop().await?;
-        }
-
-        let (sender, receiver) = oneshot::channel::<ErrnoResult<()>>();
-        unsafe {
-            spdk_nvmf_tgt_destroy(
-                self.inner,
-                Some(Self::destroy_cb),
-                cb_arg(sender),
-            );
-        }
-
-        receiver
-            .await
-            .expect("Cancellation is not supported")
-            .context(DestroyTarget {
-                endpoint: self.endpoint(),
-            })?;
-
-        info!("nvmf target was destroyed");
+        debug!("nvmf listener stopped");
         Ok(())
     }
 
@@ -676,7 +590,7 @@ pub async fn fini() -> Result<()> {
             .take()
             .expect("Called nvmf fini without init")
     });
-    tgt.destroy().await
+    tgt.stop().await
 }
 
 /// Export given bdev over nvmf target.
