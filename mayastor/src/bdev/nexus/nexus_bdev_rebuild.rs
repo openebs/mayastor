@@ -76,8 +76,12 @@ impl Nexus {
 
     /// Stop a rebuild job in the background
     pub async fn stop_rebuild(&mut self, name: &str) -> Result<(), Error> {
-        let rt = self.get_rebuild_job(name)?;
-        rt.stop().context(RebuildOperationError {})
+        match self.get_rebuild_job(name) {
+            Ok(rt) => rt.stop().context(RebuildOperationError {}),
+            // If a rebuild task is not found return ok
+            // as we were just going to remove it anyway.
+            Err(_) => Ok(()),
+        }
     }
 
     /// Pause a rebuild job in the background

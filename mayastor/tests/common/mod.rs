@@ -1,4 +1,6 @@
-use std::{env, io, io::Write, process::Command};
+use crossbeam::channel::{after, select, unbounded};
+use log::info;
+use std::{env, io, io::Write, process::Command, time::Duration};
 
 use once_cell::sync::OnceCell;
 use run_script::{self, ScriptOptions};
@@ -6,9 +8,9 @@ use run_script::{self, ScriptOptions};
 use mayastor::{
     core::{MayastorEnvironment, Mthread},
     logger,
+    rebuild::RebuildJob,
 };
 use spdk_sys::spdk_get_thread;
-use std::time::Duration;
 use url::{ParseError, Url};
 
 pub mod ms_exec;
@@ -335,16 +337,16 @@ pub fn device_path_from_uri(device_uri: String) -> String {
     String::from(url.path())
 }
 
-pub fn get_device_size(nexus_device: &str) -> u64 {
-    let output = Command::new("blockdev")
-        .args(&["--getsize64", nexus_device])
-        .output()
-        .expect("failed to get block device size");
-
-    assert_eq!(output.status.success(), true);
-    String::from_utf8(output.stdout)
-        .unwrap()
-        .trim_end()
-        .parse::<u64>()
-        .unwrap()
+pub fn wait_for_rebuild(name: String, timeout: Duration) {
+    let (s, r) = unbounded::<()>();
+    let job = RebuildJob::lookup(&name).unwrap();
+    let ch = job.complete_chan.1.clone();
+    std::thread::spawn(move || {
+        select! {
+            recv(ch) -> state => info!("rebuild of child {} finished with state {:?}", name, state),
+            recv(after(timeout)) -> _ => panic!("timed out waiting for the rebuild to complete"),
+        }
+        s.send(())
+    });
+    reactor_poll!(r);
 }
