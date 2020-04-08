@@ -1,4 +1,6 @@
-use std::{env, io, io::Write, process::Command};
+use crossbeam::channel::{after, select, unbounded};
+use log::info;
+use std::{env, io, io::Write, process::Command, time::Duration};
 
 use once_cell::sync::OnceCell;
 use run_script::{self, ScriptOptions};
@@ -6,9 +8,9 @@ use run_script::{self, ScriptOptions};
 use mayastor::{
     core::{MayastorEnvironment, Mthread},
     logger,
+    rebuild::RebuildJob,
 };
 use spdk_sys::spdk_get_thread;
-use std::time::Duration;
 
 pub mod ms_exec;
 /// call F cnt times, and sleep for a duration between each invocation
@@ -323,4 +325,18 @@ pub fn compare_devices(
     .unwrap();
     assert_eq!(exit, 0, "stdout: {}\nstderr: {}", stdout, stderr);
     stdout
+}
+
+pub fn wait_for_rebuild(name: String, timeout: Duration) {
+    let (s, r) = unbounded::<()>();
+    let job = RebuildJob::lookup(&name).unwrap();
+    let ch = job.complete_chan.1.clone();
+    std::thread::spawn(move || {
+        select! {
+            recv(ch) -> state => info!("rebuild of child {} finished with state {:?}", name, state),
+            recv(after(timeout)) -> _ => panic!("timed out waiting for the rebuild to complete"),
+        }
+        s.send(())
+    });
+    reactor_poll!(r);
 }
