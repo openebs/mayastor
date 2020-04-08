@@ -2,7 +2,8 @@
 let
   nixpkgs = (import ./nix/lib/nixPackages.nix) { };
   pkgs = import nixpkgs {
-    config = { overlays = [ (import ./nix/mayastor-overlay.nix) ]; };
+    config = { };
+    overlays = [ (import ./nix/mayastor-overlay.nix) ];
   };
 in
   with pkgs;
@@ -30,7 +31,7 @@ in
       nvme-cli
       pre-commit
       python3
-      #      rustChannel.${channel}.rust
+      rustChannel.${channel}.rust
     ] ++ mayastor.buildInputs;
 
     LIBCLANG_PATH = mayastor.LIBCLANG_PATH;
