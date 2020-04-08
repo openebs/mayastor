@@ -1,14 +1,13 @@
-# MayaStor
-
+# MayaStor ![CI-basic](https://github.com/openebs/Mayastor/workflows/CI-basic/badge.svg)
+[![built with nix](https://builtwithnix.org/badge.svg)](https://builtwithnix.org)
+![CI-basic](https://github.com/openebs/Mayastor/workflows/CI-basic/badge.svg)
 [![Slack](https://img.shields.io/badge/JOIN-SLACK-blue)]( https://openebs-community.slack.com)
-[![Build Status](https://travis-ci.org/openebs/MayaStor.svg?branch=master)](https://travis-ci.org/openebs/MayaStor)
-[![pipeline status](https://gitlab.com/mayastor/MayaStor/badges/master/pipeline.svg)](https://gitlab.com/mayastor/MayaStor/commits/master)
 [![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fopenebs%2FMayaStor.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2Fopenebs%2FMayaStor?ref=badge_shield)
 
 <img width="300" align="right" alt="OpenEBS Logo" src="https://raw.githubusercontent.com/cncf/artwork/master/projects/openebs/stacked/color/openebs-stacked-color.png" xmlns="http://www.w3.org/1999/html">
 
 <p align="justify">
-<strong>MayaStor</strong> is a cloud-native declarative data plane written in <strong>RUST.</strong>
+<strong>MayaStor</strong> is a cloud-native declarative data plane written in <strong>Rust.</strong>
 Our goal is to abstract storage resources and their differences through the data plane such that users only need to
 supply the <strong>what</strong> and do not have to worry about the <strong>how</strong> so that individual teams stay in control.
 
