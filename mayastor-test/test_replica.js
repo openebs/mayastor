@@ -60,6 +60,7 @@ function destroyTestDisk(done) {
 }
 
 function createGrpcClient(service) {
+  console.log("Starting client at ", endpoint);
   return createClient(
     {
       protoPath: path.join(
@@ -86,7 +87,8 @@ function createGrpcClient(service) {
 describe('replica', function() {
   var client;
 
-  this.timeout(10000); // for network tests we need long timeouts
+  this.timeout(60000); // for network tests we need long timeouts
+  this.slow(1000);
 
   // Destroy test pool if it exists (ignore errors as the test pool may not
   // exist).
@@ -103,7 +105,7 @@ describe('replica', function() {
     // mayastor and grpc server
     if (!endpoint) {
       remote = false;
-      endpoint = common.endpoint;
+      endpoint = common.grpc_endpoint;
       common.startMayastor();
       common.startMayastorGrpc();
     } else {

@@ -123,7 +123,7 @@ function createGrpcClient() {
     .mayastor_service;
 
   let client = new mayastor.Mayastor(
-    common.endpoint,
+    common.grpc_endpoint,
     grpc.credentials.createInsecure()
   );
   grpc_promise.promisifyAll(client);
@@ -140,6 +140,8 @@ describe('rebuild tests', function() {
     SOURCE_CHILD: 1,
     DESTINATION_CHILD: 2,
   };
+
+  this.timeout(60000); // for network tests we need long timeouts
 
   async function checkState(childType, expectedState) {
     let res = await client.listNexus().sendMessage(rebuildArgs);

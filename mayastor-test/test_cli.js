@@ -54,7 +54,9 @@ function runMockServer(rules) {
 }
 
 describe('cli', function() {
-  describe('success', function() {
+  this.slow(300);
+
+  describe('success', function () {
     before(() => {
       process.env.RUST_BACKTRACE = '1';
       runMockServer([
