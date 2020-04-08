@@ -1,6 +1,4 @@
-use crossbeam::channel::{after, select, unbounded};
-use log::info;
-use std::time::Duration;
+use crossbeam::channel::unbounded;
 
 pub mod common;
 
@@ -73,16 +71,11 @@ async fn rebuild_test_start() {
     nexus.add_child(BDEVNAME2).await.unwrap();
 
     // kick's off the rebuild (NOWAIT) so we have to wait on a channel
-    let rebuild_complete = nexus.start_rebuild(BDEVNAME2).await.unwrap();
-    let (s, r) = unbounded::<()>();
-    std::thread::spawn(move || {
-        select! {
-            recv(rebuild_complete) -> state => info!("rebuild of child {} finished with state {:?}", BDEVNAME2, state),
-            recv(after(Duration::from_secs(10))) -> _ => panic!("timed out waiting for the rebuild to complete"),
-        }
-        s.send(())
-    });
-    reactor_poll!(r);
+    nexus.start_rebuild(BDEVNAME2).await.unwrap();
+    common::wait_for_rebuild(
+        BDEVNAME2.to_string(),
+        std::time::Duration::from_secs(10),
+    );
 
     let (s, r) = unbounded::<String>();
     std::thread::spawn(move || {
