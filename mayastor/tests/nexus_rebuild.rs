@@ -76,7 +76,7 @@ async fn rebuild_test_start() {
     std::thread::spawn(move || {
         select! {
             recv(rebuild_complete) -> state => info!("rebuild of child {} finished with state {:?}", BDEVNAME2, state),
-            recv(after(Duration::from_secs(5))) -> _ => panic!("timed out waiting for the rebuild to complete"),
+            recv(after(Duration::from_secs(10))) -> _ => panic!("timed out waiting for the rebuild to complete"),
         }
         s.send(())
     });

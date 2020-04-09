@@ -168,7 +168,8 @@ impl NexusModule {
             let json = json!({
                 "method": "create_nexus",
                 "params": {
-                    "uuid" : nexus.name.as_str()[6 ..],
+                    "name" : nexus.name,
+                    "uuid" : nexus.bdev.uuid_as_string(),
                     "children" : uris,
                     "size": nexus.size,
                 },

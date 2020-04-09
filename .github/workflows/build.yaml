@@ -8,6 +8,7 @@ jobs:
   Build:
     name: Build and run tests
     runs-on: self-hosted
+    timeout-minutes: 20
     container:
       image: docker.io/mayadata/ms-buildenv:nix
       options: --privileged -v /dev:/dev -v /bin:/host/bin -v /lib/modules:/lib/modules

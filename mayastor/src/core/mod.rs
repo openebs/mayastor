@@ -4,7 +4,7 @@ pub use ::uuid::Uuid;
 use nix::errno::Errno;
 use snafu::Snafu;
 
-pub use bdev::Bdev;
+pub use bdev::{Bdev, BdevIter};
 pub use channel::IoChannel;
 pub use cpu_cores::{Core, Cores};
 pub use descriptor::Descriptor;

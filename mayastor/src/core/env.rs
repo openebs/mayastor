@@ -20,7 +20,6 @@ use nix::sys::{
 use once_cell::sync::Lazy;
 use snafu::{ResultExt, Snafu};
 use structopt::StructOpt;
-
 use tokio::{runtime::Builder, task};
 
 use spdk_sys::{
@@ -50,6 +49,7 @@ use crate::{
     },
     grpc::grpc_server_init,
     logger,
+    subsys::Config,
     target,
 };
 
@@ -87,9 +87,6 @@ pub struct MayastorCliArgs {
     #[structopt(short = "p", default_value = "10125")]
     /// Port for gRPC
     pub port: String,
-    #[structopt(short = "j")]
-    /// Path to JSON formatted config file
-    pub json: Option<String>,
     #[structopt(short = "c")]
     /// Path to the configuration file if any
     pub config: Option<String>,
@@ -99,20 +96,26 @@ pub struct MayastorCliArgs {
     #[structopt(short = "m", default_value = "0x1")]
     /// The reactor mask to be used for starting up the instance
     pub reactor_mask: String,
-    #[structopt(
-        short = "s",
-        parse(try_from_str = parse_mb),
-        default_value = "0"
-    )]
     /// The maximum amount of hugepage memory we are allowed to allocate in MiB
     /// (default: all)
+    #[structopt(
+    short = "s",
+    parse(try_from_str = parse_mb),
+    default_value = "0"
+    )]
     pub mem_size: i32,
-    #[structopt(short = "r", default_value = "/var/tmp/mayastor.sock")]
-    /// Path to create the rpc socket
-    pub rpc_address: String,
     #[structopt(short = "u")]
     /// Disable the use of PCIe devices
     pub no_pci: bool,
+    #[structopt(short = "r", default_value = "/var/tmp/mayastor.sock")]
+    /// Path to create the rpc socket
+    pub rpc_address: String,
+    #[structopt(short = "y")]
+    /// path to mayastor config file
+    pub mayastor_config: Option<String>,
+    #[structopt(long = "huge-dir")]
+    /// path to hugedir
+    pub hugedir: Option<String>,
 }
 
 /// Defaults are redefined here in case of using it during tests
@@ -127,7 +130,8 @@ impl Default for MayastorCliArgs {
             no_pci: true,
             log_components: vec![],
             config: None,
-            json: None,
+            mayastor_config: None,
+            hugedir: None,
         }
     }
 }
@@ -136,15 +140,10 @@ impl Default for MayastorCliArgs {
 /// shutdown during test cases
 pub static GLOBAL_RC: Lazy<Arc<Mutex<i32>>> =
     Lazy::new(|| Arc::new(Mutex::new(-1)));
+
 /// FFI functions that are needed to initialize the environment
 extern "C" {
     pub fn rte_eal_init(argc: i32, argv: *mut *mut libc::c_char) -> i32;
-    pub fn spdk_app_json_config_load(
-        file: *const c_char,
-        addr: *const c_char,
-        cb: Option<extern "C" fn(i32, *mut c_void)>,
-        args: *mut c_void,
-    );
     pub fn spdk_trace_cleanup();
     pub fn spdk_env_dpdk_post_init(legacy_mem: bool) -> i32;
     pub fn spdk_env_fini();
@@ -183,10 +182,11 @@ pub struct MayastorEnvironment {
     pub enable_grpc: bool,
     grpc_addr: Option<String>,
     grpc_port: Option<String>,
+    mayastor_config: Option<String>,
     delay_subsystem_init: bool,
     enable_coredump: bool,
     env_context: String,
-    hugedir: String,
+    hugedir: Option<String>,
     hugepage_single_segments: bool,
     json_config_file: Option<String>,
     master_core: i32,
@@ -216,10 +216,11 @@ impl Default for MayastorEnvironment {
             enable_grpc: false,
             grpc_addr: None,
             grpc_port: None,
+            mayastor_config: None,
             delay_subsystem_init: false,
             enable_coredump: true,
             env_context: String::new(),
-            hugedir: String::new(),
+            hugedir: None,
             hugepage_single_segments: false,
             json_config_file: None,
             master_core: -1,
@@ -247,6 +248,7 @@ impl Default for MayastorEnvironment {
 /// The actual routine which does the mayastor shutdown.
 /// Must be called on the same thread which did the init.
 async fn do_shutdown(arg: *mut c_void) {
+    // callback for when the subsystems have shutdown
     extern "C" fn reactors_stop(_arg: *mut c_void) {
         Reactors::iter().for_each(|r| r.shutdown());
     }
@@ -267,14 +269,21 @@ async fn do_shutdown(arg: *mut c_void) {
 
     *GLOBAL_RC.lock().unwrap() = rc;
 
-    target::iscsi::fini();
-    let f = async move {
-        if let Err(msg) = target::nvmf::fini().await {
-            error!("Failed to finalize nvmf target: {}", msg);
-        }
+    let cfg = Config::by_ref();
+    if cfg.nexus_opts.iscsi_enable {
+        target::iscsi::fini();
+        debug!("iSCSI target down");
     };
-    f.await;
-    debug!("targets down");
+
+    if cfg.nexus_opts.nvmf_enable {
+        let f = async move {
+            if let Err(msg) = target::nvmf::fini().await {
+                error!("Failed to finalize nvmf target: {}", msg);
+            }
+            debug!("nvmf target down");
+        };
+        f.await;
+    }
 
     unsafe {
         spdk_rpc_finish();
@@ -317,12 +326,13 @@ impl MayastorEnvironment {
             grpc_addr: Some(args.addr),
             grpc_port: Some(args.port),
             config: args.config,
-            json_config_file: args.json,
+            mayastor_config: args.mayastor_config,
             log_component: args.log_components,
             mem_size: args.mem_size,
             no_pci: args.no_pci,
             reactor_mask: args.reactor_mask,
             rpc_addr: args.rpc_address,
+            hugedir: args.hugedir,
             ..Default::default()
         }
     }
@@ -428,9 +438,13 @@ impl MayastorEnvironment {
             args.push(CString::new("--single-file-segments").unwrap());
         }
 
-        if !self.hugedir.is_empty() {
+        if self.hugedir.is_some() {
             args.push(
-                CString::new(format!("--huge-dir={}", self.hugedir)).unwrap(),
+                CString::new(format!(
+                    "--huge-dir={}",
+                    &self.hugedir.as_ref().unwrap().clone()
+                ))
+                .unwrap(),
             )
         }
 
@@ -532,21 +546,30 @@ impl MayastorEnvironment {
             EnvError::InitLog
         })?;
 
-        if let Err(msg) = target::iscsi::init(&address) {
-            error!("Failed to initialize Mayastor iSCSI target: {}", msg);
-            return Err(EnvError::InitTarget {
-                target: "iscsi".into(),
-            });
+        let cfg = Config::by_ref();
+
+        if cfg.nexus_opts.iscsi_enable {
+            if let Err(msg) = target::iscsi::init(&address) {
+                error!("Failed to initialize Mayastor iSCSI target: {}", msg);
+                return Err(EnvError::InitTarget {
+                    target: "iscsi".into(),
+                });
+            }
         }
 
-        let f = async move {
-            if let Err(msg) = target::nvmf::init(&address).await {
-                error!("Failed to initialize Mayastor nvmf target: {}", msg);
-                mayastor_env_stop(-1);
-            }
-        };
+        if cfg.nexus_opts.nvmf_enable {
+            let f = async move {
+                if let Err(msg) = target::nvmf::init(&address).await {
+                    error!(
+                        "Failed to initialize Mayastor nvmf target: {}",
+                        msg
+                    );
+                    mayastor_env_stop(-1);
+                }
+            };
 
-        Reactor::block_on(f);
+            Reactor::block_on(f);
+        }
 
         Ok(())
     }
@@ -580,12 +603,37 @@ impl MayastorEnvironment {
         Self::target_init().unwrap();
     }
 
+    fn load_yaml_config(&self) {
+        // load the config and apply it before any subsystems have started.
+        // there is currently no run time check that enforces this.
+        let cfg = if let Some(yaml) = &self.mayastor_config {
+            info!("loading YAML config file {}", yaml);
+            Config::get_or_init(|| {
+                if let Ok(cfg) = Config::read(yaml) {
+                    cfg
+                } else {
+                    // if the configuration is invalid exit early
+                    std::process::exit(-1);
+                }
+            })
+        } else {
+            Config::get_or_init(Config::default)
+        };
+        cfg.apply();
+    }
     /// initialize the core, call this before all else
     pub fn init(mut self) -> Self {
+        self.load_yaml_config();
+        // load the .ini format file, still here to allow CI passing. There is
+        // no real harm of loading this ini file as long as there are no
+        // conflicting bdev definitions
         self.read_config_file().unwrap();
-        self.initialize_eal();
-        self.init_logger().unwrap();
 
+        // bootstrap DPDK and its magic
+        self.initialize_eal();
+
+        // setup the logger as soon as possible
+        self.init_logger().unwrap();
         if self.enable_coredump {
             //TODO
             warn!("rlimit configuration not implemented");
@@ -596,6 +644,7 @@ impl MayastorEnvironment {
             Cores::count().into_iter().count()
         );
 
+        // setup our signal handlers
         self.install_signal_handlers().unwrap();
 
         // allocate a Reactor per core
@@ -609,33 +658,20 @@ impl MayastorEnvironment {
             .for_each(|c| Reactors::launch_remote(c).unwrap());
 
         let rpc = CString::new(self.rpc_addr.as_str()).unwrap();
-        let cfg = self.json_config_file.clone();
-
-        // init the subsystems
-        Reactor::block_on(async move {
-            unsafe {
-                if let Some(ref json) = cfg {
-                    info!("Loading JSON configuration file");
-
-                    let jsonfile = CString::new(json.as_str()).unwrap();
-                    spdk_app_json_config_load(
-                        jsonfile.as_ptr(),
-                        rpc.as_ptr(),
-                        Some(Self::start_rpc),
-                        rpc.into_raw() as _,
-                    );
-                } else {
-                    spdk_subsystem_init(
-                        Some(Self::start_rpc),
-                        rpc.into_raw() as _,
-                    );
-                }
-            }
-        });
 
         // register our RPC methods
         crate::pool::register_pool_methods();
         crate::replica::register_replica_methods();
+
+        // init the subsystems
+        Reactor::block_on(async {
+            unsafe {
+                spdk_subsystem_init(Some(Self::start_rpc), rpc.into_raw() as _);
+            }
+        });
+
+        // load any bdevs that need to be created
+        Config::by_ref().import_bdevs();
 
         self
     }

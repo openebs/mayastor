@@ -79,8 +79,6 @@ impl Mayastor for MayastorGrpc {
             })
             .collect();
 
-        dbg!(&pools);
-
         Ok(Response::new(ListPoolsReply {
             pools,
         }))
