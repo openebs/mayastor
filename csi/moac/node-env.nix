@@ -1,12 +1,11 @@
 # This file originates from node2nix
 
 { stdenv, nodejs, python2, utillinux, libtool, runCommand, writeTextFile }:
-
 let
   python = if nodejs ? python then nodejs.python else python2;
 
   # Create a tar wrapper that filters all the 'Ignoring unknown extended header keyword' noise
-  tarWrapper = runCommand "tarWrapper" {} ''
+  tarWrapper = runCommand "tarWrapper" { } ''
     mkdir -p $out/bin
 
     cat > $out/bin/tar <<EOF
@@ -21,27 +20,28 @@ let
   buildNodeSourceDist =
     { name, version, src, ... }:
 
-      stdenv.mkDerivation {
-        name = "node-tarball-${name}-${version}";
-        inherit src;
-        buildInputs = [ nodejs ];
-        buildPhase = ''
-          export HOME=$TMPDIR
-          tgzFile=$(npm pack | tail -n 1) # Hooks to the pack command will add output (https://docs.npmjs.com/misc/scripts)
-        '';
-        installPhase = ''
-          mkdir -p $out/tarballs
-          mv $tgzFile $out/tarballs
-          mkdir -p $out/nix-support
-          echo "file source-dist $out/tarballs/$tgzFile" >> $out/nix-support/hydra-build-products
-        '';
-      };
+    stdenv.mkDerivation {
+      name = "node-tarball-${name}-${version}";
+      inherit src;
+      buildInputs = [ nodejs ];
+      buildPhase = ''
+        export HOME=$TMPDIR
+        tgzFile=$(npm pack | tail -n 1) # Hooks to the pack command will add output (https://docs.npmjs.com/misc/scripts)
+      '';
+      installPhase = ''
+        mkdir -p $out/tarballs
+        mv $tgzFile $out/tarballs
+        mkdir -p $out/nix-support
+        echo "file source-dist $out/tarballs/$tgzFile" >> $out/nix-support/hydra-build-products
+      '';
+    };
 
   includeDependencies = { dependencies }:
-    stdenv.lib.optionalString (dependencies != [])
+    stdenv.lib.optionalString (dependencies != [ ])
       (
-        stdenv.lib.concatMapStrings (
-          dependency:
+        stdenv.lib.concatMapStrings
+          (
+            dependency:
             ''
               # Bundle the dependencies of the package
               mkdir -p node_modules
@@ -55,11 +55,11 @@ let
 
               cd ..
             ''
-        ) dependencies
+          ) dependencies
       );
 
   # Recursively composes the dependencies of a package
-  composePackage = { name, packageName, src, dependencies ? [], ... }@args:
+  composePackage = { name, packageName, src, dependencies ? [ ], ... }@args:
     ''
       DIR=$(pwd)
       cd $TMPDIR
@@ -164,22 +164,22 @@ let
       ''
         node ${pinpointDependenciesFromPackageJSON} ${if production then "production" else "development"}
 
-        ${stdenv.lib.optionalString (dependencies != [])
-        ''
-          if [ -d node_modules ]
-          then
-              cd node_modules
-              ${stdenv.lib.concatMapStrings (dependency: pinpointDependenciesOfPackage dependency) dependencies}
-              cd ..
-          fi
-        ''}
+        ${stdenv.lib.optionalString (dependencies != [ ])
+          ''
+            if [ -d node_modules ]
+            then
+                cd node_modules
+                ${stdenv.lib.concatMapStrings (dependency: pinpointDependenciesOfPackage dependency) dependencies}
+                cd ..
+            fi
+          ''}
       '';
 
   # Recursively traverses all dependencies of a package and pinpoints all
   # dependencies in the package.json file to the versions that are actually
   # being used.
 
-  pinpointDependenciesOfPackage = { packageName, dependencies ? [], production ? true, ... }@args:
+  pinpointDependenciesOfPackage = { packageName, dependencies ? [ ], production ? true, ... }@args:
     ''
       if [ -d "${packageName}" ]
       then
@@ -192,7 +192,7 @@ let
 
   # Extract the Node.js source code which is used to compile packages with
   # native bindings
-  nodeSources = runCommand "node-sources" {} ''
+  nodeSources = runCommand "node-sources" { } ''
     tar --no-same-owner --no-same-permissions -xf ${nodejs.src}
     mv node-* $out
   '';
@@ -316,8 +316,8 @@ let
     { name
     , packageName
     , version
-    , dependencies ? []
-    , buildInputs ? []
+    , dependencies ? [ ]
+    , buildInputs ? [ ]
     , production ? true
     , npmFlags ? ""
     , dontNpmInstall ? false
@@ -328,12 +328,12 @@ let
     , buildPhase ? "true"
     , ...
     }@args:
-
-      let
-        forceOfflineFlag = if bypassCache then "--offline" else "--registry http://www.example.com";
-        extraArgs = removeAttrs args [ "name" "dependencies" "buildInputs" "dontStrip" "dontNpmInstall" "preRebuild" "unpackPhase" "buildPhase" ];
-      in
-        stdenv.mkDerivation (
+    let
+      forceOfflineFlag = if bypassCache then "--offline" else "--registry http://www.example.com";
+      extraArgs = removeAttrs args [ "name" "dependencies" "buildInputs" "dontStrip" "dontNpmInstall" "preRebuild" "unpackPhase" "buildPhase" ];
+    in
+      stdenv.mkDerivation
+        (
           {
             name = "node-${name}-${version}";
             buildInputs = [ tarWrapper python nodejs ]
@@ -422,7 +422,8 @@ let
               # Run post install hook, if provided
               runHook postInstall
             '';
-          } // extraArgs
+          }
+          // extraArgs
         );
 
   # Builds a development shell
@@ -431,8 +432,8 @@ let
     , packageName
     , version
     , src
-    , dependencies ? []
-    , buildInputs ? []
+    , dependencies ? [ ]
+    , buildInputs ? [ ]
     , production ? true
     , npmFlags ? ""
     , dontNpmInstall ? false
@@ -442,13 +443,13 @@ let
     , buildPhase ? "true"
     , ...
     }@args:
+    let
+      forceOfflineFlag = if bypassCache then "--offline" else "--registry http://www.example.com";
 
-      let
-        forceOfflineFlag = if bypassCache then "--offline" else "--registry http://www.example.com";
+      extraArgs = removeAttrs args [ "name" "dependencies" "buildInputs" ];
 
-        extraArgs = removeAttrs args [ "name" "dependencies" "buildInputs" ];
-
-        nodeDependencies = stdenv.mkDerivation (
+      nodeDependencies = stdenv.mkDerivation
+        (
           {
             name = "node-dependencies-${name}-${version}";
 
@@ -520,29 +521,30 @@ let
               mv ${packageName} lib
               ln -s $out/lib/node_modules/.bin $out/bin
             '';
-          } // extraArgs
+          }
+          // extraArgs
         );
-      in
-        stdenv.mkDerivation {
-          name = "node-shell-${name}-${version}";
+    in
+      stdenv.mkDerivation {
+        name = "node-shell-${name}-${version}";
 
-          buildInputs = [ python nodejs ] ++ stdenv.lib.optional (stdenv.isLinux) utillinux ++ buildInputs;
-          buildCommand = ''
-            mkdir -p $out/bin
-            cat > $out/bin/shell <<EOF
-            #! ${stdenv.shell} -e
-            $shellHook
-            exec ${stdenv.shell}
-            EOF
-            chmod +x $out/bin/shell
-          '';
+        buildInputs = [ python nodejs ] ++ stdenv.lib.optional (stdenv.isLinux) utillinux ++ buildInputs;
+        buildCommand = ''
+          mkdir -p $out/bin
+          cat > $out/bin/shell <<EOF
+          #! ${stdenv.shell} -e
+          $shellHook
+          exec ${stdenv.shell}
+          EOF
+          chmod +x $out/bin/shell
+        '';
 
-          # Provide the dependencies in a development shell through the NODE_PATH environment variable
-          inherit nodeDependencies;
-          shellHook = stdenv.lib.optionalString (dependencies != []) ''
-            export NODE_PATH=$nodeDependencies/lib/node_modules
-          '';
-        };
+        # Provide the dependencies in a development shell through the NODE_PATH environment variable
+        inherit nodeDependencies;
+        shellHook = stdenv.lib.optionalString (dependencies != [ ]) ''
+          export NODE_PATH=$nodeDependencies/lib/node_modules
+        '';
+      };
 in
 {
   buildNodeSourceDist = stdenv.lib.makeOverridable buildNodeSourceDist;
