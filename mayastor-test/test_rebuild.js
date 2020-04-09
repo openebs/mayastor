@@ -133,6 +133,8 @@ function createGrpcClient() {
 describe('rebuild tests', function () {
   var client;
 
+  this.timeout(10000); // for network tests we need long timeouts
+
   var ObjectType = {
     NEXUS: 0,
     SOURCE_CHILD: 1,

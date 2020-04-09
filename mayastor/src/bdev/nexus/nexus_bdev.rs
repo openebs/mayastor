@@ -4,6 +4,7 @@
 //! optimized for the perceived intent. For example, depending on
 //! application needs synchronous mirroring may be required.
 
+use crate::nexus_uri::bdev_destroy;
 use std::{
     fmt,
     fmt::{Display, Formatter},
@@ -14,7 +15,6 @@ use futures::channel::oneshot;
 use nix::errno::Errno;
 use serde::Serialize;
 use snafu::{ResultExt, Snafu};
-
 use spdk_sys::{
     spdk_bdev,
     spdk_bdev_desc,
@@ -29,6 +29,7 @@ use spdk_sys::{
     spdk_io_device_register,
     spdk_io_device_unregister,
 };
+use tonic::{Code as GrpcCode, Status};
 
 use rpc::mayastor::RebuildProgressReply;
 
@@ -163,6 +164,10 @@ pub enum Error {
     RebuildTaskNotFound { child: String, name: String },
     #[snafu(display("Invalid ShareProtocol value {}", sp_value))]
     InvalidShareProtocol { sp_value: i32 },
+    #[snafu(display("Failed to create nexus {}", name))]
+    NexusCreate { name: String },
+    #[snafu(display("Failed to destroy nexus {}", name))]
+    NexusDestroy { name: String },
 }
 
 impl RpcErrorCode for Error {
@@ -205,6 +210,47 @@ impl RpcErrorCode for Error {
                 ..
             } => Code::InvalidParams,
             _ => Code::InternalError,
+        }
+    }
+}
+
+impl From<Error> for tonic::Status {
+    fn from(e: Error) -> Self {
+        match e {
+            Error::NexusNotFound {
+                ..
+            } => Status::not_found(e.to_string()),
+            Error::InvalidUuid {
+                ..
+            } => Status::invalid_argument(e.to_string()),
+            Error::InvalidKey {
+                ..
+            } => Status::invalid_argument(e.to_string()),
+            Error::AlreadyShared {
+                ..
+            } => Status::invalid_argument(e.to_string()),
+            Error::NotShared {
+                ..
+            } => Status::invalid_argument(e.to_string()),
+            Error::CreateChild {
+                ..
+            } => Status::invalid_argument(e.to_string()),
+            Error::MixedBlockSizes {
+                ..
+            } => Status::invalid_argument(e.to_string()),
+            Error::ChildGeometry {
+                ..
+            } => Status::invalid_argument(e.to_string()),
+            Error::OpenChild {
+                ..
+            } => Status::invalid_argument(e.to_string()),
+            Error::DestroyLastChild {
+                ..
+            } => Status::invalid_argument(e.to_string()),
+            Error::ChildNotFound {
+                ..
+            } => Status::not_found(e.to_string()),
+            e => Status::new(GrpcCode::Internal, e.to_string()),
         }
     }
 }
@@ -256,6 +302,7 @@ pub struct Nexus {
 }
 
 unsafe impl core::marker::Sync for Nexus {}
+unsafe impl core::marker::Send for Nexus {}
 
 #[derive(Debug, Serialize, Clone, Copy, PartialEq, PartialOrd)]
 pub enum NexusState {
@@ -476,7 +523,7 @@ impl Nexus {
     }
 
     /// Destroy the nexus
-    pub async fn destroy(&mut self) {
+    pub async fn destroy(&mut self) -> Result<(), Error> {
         // used to synchronize the destroy call
         extern "C" fn nexus_destroy_cb(arg: *mut c_void, rc: i32) {
             let s = unsafe { Box::from_raw(arg as *mut oneshot::Sender<bool>) };
@@ -515,7 +562,13 @@ impl Nexus {
             );
         }
 
-        let _ = r.await;
+        if r.await.unwrap() {
+            Ok(())
+        } else {
+            Err(Error::NexusDestroy {
+                name: self.name.clone(),
+            })
+        }
     }
 
     /// register the bdev with SPDK and set the callbacks for io channel
@@ -800,8 +853,32 @@ pub async fn nexus_create(
         }
     }
 
-    ni.open().await?;
-    nexus_list.push(ni);
+    match ni.open().await {
+        // we still have code that waits for children to come online
+        // this however only works for config files so we need to clean up
+        // if we get the below error
+        Err(Error::NexusIncomplete {
+            ..
+        }) => {
+            info!("deleting nexus due to missing children");
+            for child in children {
+                if let Err(e) = bdev_destroy(child).await {
+                    error!("failed to destroy child during cleanup {}", e);
+                }
+            }
+
+            return Err(Error::NexusCreate {
+                name: String::from(name),
+            });
+        }
+
+        Err(e) => {
+            error!("{:?}", e);
+            return Err(e);
+        }
+
+        Ok(_) => nexus_list.push(ni),
+    }
     Ok(())
 }
 
