@@ -6,7 +6,6 @@
 , system ? builtins.currentSystem
 , nodejs ? pkgs."nodejs-10_x"
 }:
-
 let
   nodeEnv = import ./node-env.nix {
     inherit (pkgs) stdenv python2 utillinux runCommand writeTextFile;

@@ -148,10 +148,10 @@ mayastor-agent exited with code=null and signal=SIGTERM:
 [2020-02-25T18:24:43Z INFO  mayastor_agent] Removed stale CSI socket /tmp/mayastor_csi_test.sock
 [2020-02-25T18:24:43Z WARN  mayastor_agent::mount] Filesystem xfs will not be available: Failed to mkfs xfs fs: mkfs.xfs: /tmp/fs.img appears to contain an existing filesystem (ext4).
     mkfs.xfs: Use the -f option to force overwrite.
-    
+
 [2020-02-25T18:24:43Z WARN  mayastor_agent::mount] Filesystem ext4 will not be available: Failed to mkfs ext4 fs: mke2fs 1.45.4 (23-Sep-2019)
     /tmp/fs.img is mounted; will not make a filesystem here!
-    
+
 [2020-02-25T18:24:43Z ERROR mayastor_agent::mount] Failed to cleanup default mount options files: rmdir: failed to remove '/tmp/fs_default': Device or resource busy
 ```
 

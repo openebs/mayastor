@@ -1,4 +1,5 @@
-{ stdenv, fetchgit
+{ stdenv
+, fetchgit
 , fetchpatch
 }:
 
@@ -7,8 +8,8 @@ stdenv.mkDerivation rec {
   version = "0.5";
 
   src = fetchgit {
-    url    = "http://git.kernel.dk/${pname}";
-    rev    = "3be13f40c02f245ac03a8b3500736e657f04920a";
+    url = "http://git.kernel.dk/${pname}";
+    rev = "3be13f40c02f245ac03a8b3500736e657f04920a";
     sha256 = "09q33iw0y5xb2237k0px5s54kbk0ch20nr4j2c050nzss3fmsg2f";
   };
 
@@ -36,9 +37,9 @@ stdenv.mkDerivation rec {
 
   meta = with stdenv.lib; {
     description = "Userspace library for the Linux io_uring API";
-    homepage    = https://git.kernel.dk/cgit/liburing/;
-    license     = licenses.lgpl21;
-    platforms   = platforms.linux;
+    homepage = https://git.kernel.dk/cgit/liburing/;
+    license = licenses.lgpl21;
+    platforms = platforms.linux;
     maintainers = with maintainers; [ thoughtpolice ];
   };
 }
