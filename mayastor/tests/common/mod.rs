@@ -8,6 +8,7 @@ use mayastor::{
     logger,
 };
 use spdk_sys::spdk_get_thread;
+pub mod ms_exec;
 
 pub static MSTEST: OnceCell<MayastorEnvironment> = OnceCell::new();
 #[macro_export]

@@ -660,8 +660,8 @@ pub(crate) fn list_pools() -> Vec<jsondata::Pool> {
 
 /// Register storage pool json-rpc methods.
 pub fn register_pool_methods() {
-    // Joining create and import together is questionable and we might split
-    // the two operations in future. However not until cache config file
+    // Joining create and import together is questionable, and we might split
+    // the two operations in the future. However, not until cache config file
     // feature is implemented and requirements become clear.
     jsonrpc::jsonrpc_register(
         "create_or_import_pool",

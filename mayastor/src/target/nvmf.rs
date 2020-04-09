@@ -65,6 +65,7 @@ use crate::{
     core::Bdev,
     ffihelper::{cb_arg, done_errno_cb, errno_result_from_i32, ErrnoResult},
     jsonrpc::{Code, RpcErrorCode},
+    subsys::Config,
 };
 
 #[derive(Debug, Snafu)]
@@ -376,7 +377,12 @@ pub(crate) struct Target {
 impl Target {
     /// Create preconfigured nvmf target with tcp transport and default options.
     pub fn create(addr: &str, port: u16) -> Result<Self> {
-        let mut tgt_opts = TargetOpts::new("MayaStor", 110);
+        let cfg = Config::by_ref();
+
+        let mut tgt_opts = TargetOpts::new(
+            &cfg.nvmf_tcp_tgt_conf.name,
+            cfg.nvmf_tcp_tgt_conf.max_namespaces,
+        );
 
         let inner = unsafe { spdk_nvmf_tgt_create(&mut tgt_opts.inner) };
         if inner.is_null() {
@@ -394,6 +400,7 @@ impl Target {
                 addr: addr.to_owned(),
             });
         }
+
         let c_addr = CString::new(addr).unwrap();
         let port = format!("{}", port);
         assert!(port.len() < SPDK_NVMF_TRSVCID_MAX_LEN as usize);
@@ -422,7 +429,7 @@ impl Target {
             inner,
             address: addr.to_owned(),
             trid,
-            opts: spdk_nvmf_transport_opts::default(),
+            opts: cfg.nvmf_tcp_tgt_conf.opts.into(),
             acceptor_poll_rate: 1000, // 1ms
             acceptor_poller: ptr::null_mut(),
             pg: ptr::null_mut(),
@@ -654,7 +661,8 @@ impl fmt::Display for Target {
 
 /// Create nvmf target which will be used for exporting the replicas.
 pub async fn init(address: &str) -> Result<()> {
-    let mut boxed_tgt = Box::new(Target::create(address, NVMF_PORT)?);
+    let nvmf_port = Config::by_ref().nexus_opts.replica_port;
+    let mut boxed_tgt = Box::new(Target::create(address, nvmf_port)?);
     boxed_tgt.add_tcp_transport().await?;
     boxed_tgt.listen().await?;
     boxed_tgt.accept()?;
