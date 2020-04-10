@@ -54,6 +54,9 @@ in
         "spdk-sys"
         "sysfs"
         "nvmeadm"
+        # We need to copy git as we use git_version!() in rust, we can also
+        # use use nix to pass the hash if we want to by we should, mosty
+        # likely, go with a proper release version.
         ".git"
       ];
 
@@ -82,21 +85,13 @@ in
       ];
 
       buildType = "debug";
+      verifyCargoDeps = false;
 
       doCheck = false;
       meta = { platforms = stdenv.lib.platforms.linux; };
     };
 
-    env = pkgs.stdenv.lib.makeBinPath [ pkgs.busybox pkgs.utillinux ];
-    # mkfs.* and mount commands need to be in the PATH for mayastor-agent to work.
-    # For NIX these run-time dependencies are hidden so it ignores them.
-    # The solution is to create shell script wrapper setting the PATH and calling
-    # mayastor-agent, which makes it apparent for the NIX.
-
-    mayastorAgent = writeScriptBin "mayastor-agent" ''
-      #!${pkgs.stdenv.shell}
-      PATH=${pkgs.e2fsprogs}/bin:${pkgs.utillinux}/bin:${pkgs.xfsprogs}/bin:$PATH ${mayastor}/bin/mayastor-agent "$@"
-    '';
+    env = pkgs.stdenv.lib.makeBinPath [ pkgs.busybox pkgs.utillinux pkgs.xfsprogs pkgs.e2fsprogs ];
 
     mayastorImage = pkgs.dockerTools.buildLayeredImage {
       name = "mayadata/mayastor";
@@ -113,7 +108,7 @@ in
       name = "mayadata/mayastor-grpc";
       tag = "latest";
       created = "now";
-      contents = [ pkgs.busybox mayastorAgent ];
+      contents = [ pkgs.busybox mayastor ];
       config = {
         Entrypoint = [ "/bin/mayastor-agent" ];
         ExposedPorts = { "10124/tcp" = { }; };
