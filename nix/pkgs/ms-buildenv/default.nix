@@ -120,7 +120,7 @@ let
   image = dockerTools.buildImage {
     name = "mayadata/ms-buildenv";
     tag = "nix";
-
+    created = "now";
     extraCommands = ''
       # create the Nix DB
       export NIX_REMOTE=local?root=$PWD
@@ -138,9 +138,8 @@ let
       # this is not strictly necessary though as the PATH will resolve it anyway
 
       mkdir -p bin usr/bin
-      ln -s /nix/var/nix/profiles/default/bin/sh bin/sh
-      ln -s /nix/var/nix/profiles/default/bin/env usr/bin/env
-      ln -s /nix/var/nix/profiles/default/bin/bash bin/bash
+      ln -s /nix/var/nix/profiles/default/bin/ usr/bin
+      ln -s /nix/var/nix/profiles/default/bin/ bin
 
       # setup shadow, bashrc
       # instead of cat EOF magic, simply copy over some files to /etc
