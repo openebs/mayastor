@@ -4,8 +4,6 @@ on:
     branches:
       - staging
       - trying
-env:
-  GITHUB_PACKAGE_REGISTRY_TOKEN: ${{ secrets.GH_PACKAGES }}
 jobs:
   Build:
     name: Build
@@ -23,9 +21,7 @@ jobs:
       - run: /bin/modprobe xfs
       - run: echo 1024 | tee /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
       - run: rm mayastor/.cargo/config
-        # csi and cli crates are exec-ed within the tests
-      - run: cargo build -p csi
-      - run: cargo build -p cli
+      - run: cargo build --all
       - run: pushd jsonrpc && cargo test && popd
       - run: pushd mayastor && cargo test -- --test-threads=1 && popd
       - run: pushd mayastor-test && npm install && ./node_modules/mocha/bin/mocha test_cli.js && popd
@@ -37,9 +33,9 @@ jobs:
     name: Build
     runs-on: ubuntu-latest
     steps:
-      - uses: cachix/install-nix-action@v7
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
+      - uses: cachix/install-nix-action@v7
         with:
           toolchain: stable
       - run: nix-build -A mayastorImage -o /tmp/mayastorImage
