@@ -1,4 +1,3 @@
-#
 # When we use contents []; what in effect will happen is that during the
 # generation of the layers, /bin /include and /lib gets"flattend" into a
 # single directory. (lack of a better term sorry). What this means is that
@@ -27,16 +26,21 @@
 , binutils
 , cacert
 , coreutils
+, diffutils
+, e2fsprogs
 , findutils
+, fio
 , git
 , gnugrep
 , gnused
+, gnumake
 , closureInfo
 , rustup
 , numactl
 , dockerTools
 , liburing
 , openssl
+, python
 , rdma-core
 , utillinux
 , libspdk
@@ -52,17 +56,18 @@
 , nix
 , procps
 , stdenv
+, xfsprogs
 , xz
 , glibc
 }:
 let
   #
-  # priorities determine what gets linked in if, two or more packages have
+  # priorities determine what gets linked in. If, two or more packages have
   # the same binaries. Remember, a profile is symling A/bin and B/bin into a
   # profile. If both A and B have /bin/foo -- we have a collision.
   #
 
-  bintools = binutils-unwrapped.overrideAttrs (o: rec { meta.priority = 9; });
+  bintools = binutils.overrideAttrs (o: rec { meta.priority = 9; });
   libclang =
     llvmPackages.libclang.overrideAttrs (o: rec { meta.priority = 4; });
 
@@ -89,11 +94,15 @@ let
 
   # things we need for rust
   rust = [ rustup libclang protobuf ];
-  node = [ nodejs ];
+  # this we need for node
+  node = [ nodejs python gnumake ];
 
   # generate a user profile for the image
   profile = mkContainerEnv {
     derivations = [
+      fio
+      diffutils
+      e2fsprogs
       libaio
       libiscsi.lib
       libspdk
@@ -103,6 +112,7 @@ let
       rdma-core
       utillinux
       utillinux.dev
+      xfsprogs
     ] ++ core ++ rust ++ node;
   };
 
@@ -154,6 +164,7 @@ let
       Env = [
         # set some environment variables so that cargo can find them
         "PROTOC_INCLUDE=${protobuf}/include"
+        "PROTOC=${protobuf}/bin/protoc"
         "LIBCLANG_PATH=${llvmPackages.libclang}/lib"
         "LOCAL_ACRHIVE=${glibc}/lib/locale/locale-archive"
 
