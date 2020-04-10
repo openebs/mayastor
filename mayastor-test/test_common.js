@@ -48,7 +48,7 @@ function runAsRoot(cmd, args, env, nameInPs) {
   if (process.geteuid() === 0) {
     return spawn(cmd, args || [], {
       env,
-      shell: true,
+      shell: '/bin/bash',
     });
   } else {
     return sudo(
@@ -68,10 +68,10 @@ function execAsRoot(cmd, args, done) {
   let stderr = '';
   let stdout = '';
 
-  child.stderr.on('data', (data) => {
+  child.stderr.on('data', data => {
     stderr += data;
   });
-  child.stdout.on('data', (data) => {
+  child.stdout.on('data', data => {
     stdout += data;
   });
   child.on('close', (code, signal) => {
@@ -100,12 +100,12 @@ function waitFor(ping, done) {
   let iters = 0;
 
   async.whilst(
-    (cb) => {
+    cb => {
       cb(null, iters < 10);
     },
-    (next) => {
+    next => {
       iters++;
-      ping((err) => {
+      ping(err => {
         if (err) {
           last_error = err;
           setTimeout(next, 1000);
@@ -127,7 +127,7 @@ function getMyIp() {
   let externIp = _.map(
     _.flatten(Object.values(os.networkInterfaces())),
     'address'
-  ).find((addr) => addr.indexOf(':') < 0 && !addr.match(/^127\./));
+  ).find(addr => addr.indexOf(':') < 0 && !addr.match(/^127\./));
   assert(externIp, 'Cannot determine external IP address of the system');
   return externIp;
 }
@@ -138,10 +138,10 @@ function startProcess(command, args, env, closeCb, psName) {
   let proc = runAsRoot(getCmdPath(command), args, env, psName);
   proc.output = [];
 
-  proc.stdout.on('data', (data) => {
+  proc.stdout.on('data', data => {
     proc.output.push(data);
   });
-  proc.stderr.on('data', (data) => {
+  proc.stderr.on('data', data => {
     proc.output.push(data);
   });
   proc.once('close', (code, signal) => {
@@ -230,19 +230,19 @@ function startMayastorGrpc() {
 }
 
 function killSudoedProcess(name, pid, done) {
-  find('name', name).then((res) => {
+  find('name', name).then(res => {
     var whichPid;
     if (process.geteuid() === 0) {
       whichPid = 'pid';
     } else {
       whichPid = 'ppid';
     }
-    res = res.filter((ent) => ent[whichPid] == pid);
+    res = res.filter(ent => ent[whichPid] == pid);
     if (res.length == 0) {
       return done();
     }
     let child = runAsRoot('kill', ['-s', 'SIGTERM', res[0].pid.toString()]);
-    child.stderr.on('data', (data) => {
+    child.stderr.on('data', data => {
       console.log('kill', name, 'error:', data.toString());
     });
     child.once('close', () => {
@@ -262,7 +262,7 @@ function stopAll(done) {
     (name, cb) => {
       let proc = procs[name];
       console.log(`Stopping ${name} with pid ${proc.pid} ...`);
-      killSudoedProcess(name, proc.pid, (err) => {
+      killSudoedProcess(name, proc.pid, err => {
         if (err) return cb(null, err);
         // let other close event handlers on the process run
         setTimeout(cb, 0);
@@ -272,7 +272,7 @@ function stopAll(done) {
       assert(!err);
       procs = {};
       // return the first found error
-      done(errors.find((e) => !!e));
+      done(errors.find(e => !!e));
     }
   );
 }
@@ -287,8 +287,8 @@ function restartMayastor(ping, done) {
 
   async.series(
     [
-      (next) => {
-        killSudoedProcess('mayastor', proc.pid, (err) => {
+      next => {
+        killSudoedProcess('mayastor', proc.pid, err => {
           if (err) return next(err);
           if (procs.mayastor) {
             procs.mayastor.once('close', next);
@@ -297,11 +297,11 @@ function restartMayastor(ping, done) {
           }
         });
       },
-      (next) => {
+      next => {
         // let other close event handlers on the process run
         setTimeout(next, 0);
       },
-      (next) => {
+      next => {
         startMayastor();
         waitFor(ping, next);
       },
@@ -320,8 +320,8 @@ function restartMayastorGrpc(ping, done) {
 
   async.series(
     [
-      (next) => {
-        killSudoedProcess('mayastor-agent', proc.pid, (err) => {
+      next => {
+        killSudoedProcess('mayastor-agent', proc.pid, err => {
           if (err) return next(err);
           if (procs['mayastor-agent']) {
             procs['mayastor-agent'].once('close', next);
@@ -330,11 +330,11 @@ function restartMayastorGrpc(ping, done) {
           }
         });
       },
-      (next) => {
+      next => {
         // let other close event handlers on the process run
         setTimeout(next, 0);
       },
-      (next) => {
+      next => {
         startMayastorGrpc();
         waitFor(ping, next);
       },
@@ -369,7 +369,7 @@ function dumbCommand(method, args, done) {
 function ensureNbdWritable(done) {
   if (process.geteuid() != 0) {
     let child = runAsRoot('sh', ['-c', 'chmod o+rw /dev/nbd*']);
-    child.stderr.on('data', (data) => {
+    child.stderr.on('data', data => {
       console.log(data.toString());
     });
     child.on('close', (code, signal) => {
@@ -388,10 +388,10 @@ function ensureNbdWritable(done) {
 // the socket to everyone.
 function fixSocketPerms(done) {
   let child = runAsRoot('chmod', ['a+rw', CSI_ENDPOINT]);
-  child.stderr.on('data', (data) => {
+  child.stderr.on('data', data => {
     //console.log('chmod', 'error:', data.toString());
   });
-  child.on('close', (code) => {
+  child.on('close', code => {
     if (code != 0) {
       done('Failed to chmod the socket' + code);
     } else {
