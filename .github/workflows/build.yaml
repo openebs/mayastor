@@ -1,4 +1,4 @@
-name: "Build"
+name: "Bors"
 on:
   push:
     branches:
@@ -7,20 +7,11 @@ on:
 env:
   GITHUB_PACKAGE_REGISTRY_TOKEN: ${{ secrets.GH_PACKAGES }}
 jobs:
-  Build:
-    name: Build
-    runs-on: ubuntu-latest
-    container: docker://mayadata/ms-buildenv:nix
-    steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: nightly
-      - run: cargo build --all
   Clippy:
     name: Clippy
     runs-on: ubuntu-latest
-    container: docker://mayadata/ms-buildenv:nix
+    container:
+      image: docker.io/mayadata/ms-buildenv:nix
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
@@ -31,12 +22,34 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           args: --all --all-targets -- -D warnings
-  nix-build:
+  Build:
+    name: Build
     runs-on: ubuntu-latest
+    container:
+      image: docker.io/mayadata/ms-buildenv:nix
+      options: --privileged -v /dev:/dev -v /bin:/host/bin -v /lib/modules:/lib/modules
     steps:
       - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - run: ln -s /host/bin/kmod /bin/modprobe
+      - run: /bin/modprobe nbd
+      - run: /bin/modprobe xfs
+      - run: echo 1024 | tee /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
+      - run: rm mayastor/.cargo/config
+      - run: ./test.sh
+  Image:
+    name: Build
+    runs-on: ubuntu-latest
+    steps:
       - uses: cachix/install-nix-action@v7
-      - run: nix-build -A mayastorImage
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
+      - run: nix-build -A mayastorImage -o /tmp/mayastorImage
+      - run: nix-build -A node-moacImage -o /tmp/node-moacImage
   ms-build:
     runs-on: ubuntu-latest
     steps:
