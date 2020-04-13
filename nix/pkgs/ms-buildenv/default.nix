@@ -25,40 +25,41 @@
 { bashInteractive
 , binutils
 , cacert
+, closureInfo
 , coreutils
 , diffutils
+, dockerTools
 , e2fsprogs
 , findutils
 , fio
 , git
+, glibc
 , gnugrep
-, gnused
 , gnumake
-, closureInfo
-, rustup
-, numactl
-, dockerTools
+, gnused
+, gzip
+, jshint
+, less
+, libaio
+, libiscsi
+, libspdk
 , liburing
+, llvmPackages
+, mkContainerEnv
+, nix
+, nodePackages
+, nodejs
+, numactl
 , openssl
+, procps
+, protobuf
 , python
 , rdma-core
-, utillinux
-, libspdk
-, libiscsi
-, mkContainerEnv
-, libaio
-, binutils-unwrapped
-, nodejs
-, protobuf
-, llvmPackages
-, gzip
-, less
-, nix
-, procps
+, rustup
 , stdenv
+, utillinux
 , xfsprogs
 , xz
-, glibc
 }:
 let
   #
@@ -95,14 +96,14 @@ let
   # things we need for rust
   rust = [ rustup libclang protobuf ];
   # this we need for node
-  node = [ nodejs python gnumake ];
+  node = [ nodejs python gnumake nodePackages.prettier jshint ];
 
   # generate a user profile for the image
   profile = mkContainerEnv {
     derivations = [
-      fio
       diffutils
       e2fsprogs
+      fio
       libaio
       libiscsi.lib
       libspdk
@@ -144,6 +145,9 @@ let
       # setup shadow, bashrc
       # instead of cat EOF magic, simply copy over some files to /etc
       cp -r ${./root/etc} etc
+      # allow ubuntu ELF binaries to run
+      mkdir -p lib64
+      ln -s ${stdenv.glibc}/lib64/ld-linux-x86-64.so.2 lib64/ld-linux-x86-64.so.2
 
       chmod +w etc etc/group etc/passwd etc/shadow
       # make sure /tmp exists which is used by cargo
