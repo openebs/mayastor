@@ -31,7 +31,7 @@ in
       nvme-cli
       pre-commit
       python3
-      rustChannel.${channel}.rust
+      #    rustChannel.${channel}.rust
     ] ++ mayastor.buildInputs;
 
     LIBCLANG_PATH = mayastor.LIBCLANG_PATH;
