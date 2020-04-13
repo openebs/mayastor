@@ -6,7 +6,7 @@ on:
       - trying
 jobs:
   Build:
-    name: Build
+    name: Build and run tests
     runs-on: ubuntu-latest
     container:
       image: docker.io/mayadata/ms-buildenv:nix
@@ -31,12 +31,17 @@ jobs:
       - run: pushd mayastor-test && ./node_modules/mocha/bin/mocha test_nexus.js && popd
       - run: pushd mayastor-test && ./node_modules/mocha/bin/mocha test_rebuild.js && popd
   Image:
-    name: Build
+    # dont image if the build fails
+    needs: Build
+    name: Build dockrr images
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
       - uses: cachix/install-nix-action@v7
-      - uses: actions-rs/toolchain@v1
+      - uses: cachix/cachix-action@v5
+        with:
+          name: mayastor
+      - uses: actions-rs/toolchain@v2
         with:
           toolchain: stable
       - run: nix-build -A mayastorImage -o /tmp/mayastorImage
@@ -46,4 +51,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: cachix/install-nix-action@v7
+      - uses: cachix/cachix-action@v5
+        with:
+          name: mayastor
       - run: nix-build -A ms-buildenv

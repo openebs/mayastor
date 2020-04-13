@@ -122,6 +122,8 @@ stdenv.mkDerivation rec {
     echo $(find $out -type f -name '*.a*' -delete)
     find . -executable -type f -name 'bdevperf' -exec install -D "{}" $out/bin \;
   '';
+
   separateDebugInfo = !enableDebug;
+  dontStrip = true;
 
 }
