@@ -33,7 +33,7 @@ jobs:
   Image:
     # dont image if the build fails
     needs: Build
-    name: Build dockrr images
+    name: Build docker images
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
@@ -41,6 +41,7 @@ jobs:
       - uses: cachix/cachix-action@v5
         with:
           name: mayastor
+          skipNixBuild: true
       - uses: actions-rs/toolchain@v2
         with:
           toolchain: stable
@@ -54,4 +55,4 @@ jobs:
       - uses: cachix/cachix-action@v5
         with:
           name: mayastor
-      - run: nix-build -A ms-buildenv
+          atttributes: ms-buildenv
