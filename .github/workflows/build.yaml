@@ -4,6 +4,7 @@ on:
     branches:
       - staging
       - trying
+      - ci-*
 jobs:
   Build:
     name: Build and run tests
@@ -36,15 +37,15 @@ jobs:
     name: Build docker images
     runs-on: ubuntu-latest
     steps:
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
       - uses: actions/checkout@v2
       - uses: cachix/install-nix-action@v7
       - uses: cachix/cachix-action@v5
         with:
           name: mayastor
           skipNixBuild: true
-      - uses: actions-rs/toolchain@v2
-        with:
-          toolchain: stable
       - run: nix-build -A mayastorImage -o /tmp/mayastorImage
       - run: nix-build -A node-moacImage -o /tmp/node-moacImage
   ms-build:
@@ -55,4 +56,4 @@ jobs:
       - uses: cachix/cachix-action@v5
         with:
           name: mayastor
-          atttributes: ms-buildenv
+          attributes: ms-buildenv
