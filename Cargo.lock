@@ -815,7 +815,7 @@ checksum = "9b919933a397b79c37e33b77bb2aa3dc8eb6e165ad809e58ff75bc7db2e34574"
 [[package]]
 name = "h2"
 version = "0.2.4"
-source = "git+https://github.com/gila/h2?branch=v0.2.4#ac9f2af4349c7006a84a11f969eb51111d1383a5"
+source = "git+https://github.com/gila/h2?branch=v0.2.4#c4e044bcd9307560522b1193de37ecdf7d92d283"
 dependencies = [
  "bytes 0.5.4",
  "fnv",

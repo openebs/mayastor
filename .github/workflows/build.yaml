@@ -4,13 +4,14 @@ on:
     branches:
       - staging
       - trying
+      - ci-*
 jobs:
   Build:
     name: Build and run tests
     runs-on: ubuntu-latest
     container:
       image: docker.io/mayadata/ms-buildenv:nix
-      options: --privileged -v /dev:/dev -v /bin:/host/bin -v /lib/modules:/lib/modules
+      options: --privileged -v /dev:/dev -v /bin:/host/bin -v /lib/modules:/lib/modules --cpus 2
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
@@ -33,17 +34,18 @@ jobs:
   Image:
     # dont image if the build fails
     needs: Build
-    name: Build dockrr images
+    name: Build docker images
     runs-on: ubuntu-latest
     steps:
+      - uses: actions-rs/toolchain@v1
+        with:
+          toolchain: stable
       - uses: actions/checkout@v2
       - uses: cachix/install-nix-action@v7
       - uses: cachix/cachix-action@v5
         with:
           name: mayastor
-      - uses: actions-rs/toolchain@v2
-        with:
-          toolchain: stable
+          skipNixBuild: true
       - run: nix-build -A mayastorImage -o /tmp/mayastorImage
       - run: nix-build -A node-moacImage -o /tmp/node-moacImage
   ms-build:
@@ -54,4 +56,4 @@ jobs:
       - uses: cachix/cachix-action@v5
         with:
           name: mayastor
-      - run: nix-build -A ms-buildenv
+          attributes: ms-buildenv
