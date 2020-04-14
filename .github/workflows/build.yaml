@@ -4,6 +4,7 @@ on:
     branches:
       - staging
       - trying
+      - ci-*
 jobs:
   Build:
     name: Build and run tests
