@@ -138,11 +138,11 @@ pub enum Error {
     #[snafu(display("Suitable rebuild source for nexus {} not found", name))]
     NoRebuildSource { name: String },
     #[snafu(display(
-        "Failed to start rebuilding child {} of nexus {}",
+        "Failed to create rebuild job for child {} of nexus {}",
         child,
         name
     ))]
-    StartRebuild {
+    CreateRebuildError {
         source: RebuildError,
         child: String,
         name: String,
@@ -500,6 +500,10 @@ impl Nexus {
 
         let _ = self.unshare().await;
         assert_eq!(self.share_handle, None);
+
+        for child in self.children.iter() {
+            self.stop_rebuild(&child.name).await.ok();
+        }
 
         for child in self.children.iter_mut() {
             let _ = child.close();

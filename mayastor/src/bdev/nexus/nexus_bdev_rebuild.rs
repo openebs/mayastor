@@ -6,13 +6,13 @@ use crate::{
     bdev::nexus::{
         nexus_bdev::{
             nexus_lookup,
+            CreateRebuildError,
             Error,
             Nexus,
             NexusState,
             RebuildJobNotFound,
             RebuildOperationError,
             RemoveRebuildJob,
-            StartRebuild,
         },
         nexus_channel::DREvent,
         nexus_child::ChildState,
@@ -47,7 +47,8 @@ impl Nexus {
         let dst_child = match self.children.iter_mut().find(|c| c.name == name)
         {
             Some(c) => Ok(c),
-            None => Err(Error::NoRebuildSource {
+            None => Err(Error::ChildNotFound {
+                child: name.to_owned(),
                 name: self.name.clone(),
             }),
         }?;
@@ -64,7 +65,7 @@ impl Nexus {
                 });
             },
         )
-        .context(StartRebuild {
+        .context(CreateRebuildError {
             child: name.to_string(),
             name: self.name.clone(),
         })?;
@@ -75,7 +76,7 @@ impl Nexus {
     }
 
     /// Stop a rebuild job in the background
-    pub async fn stop_rebuild(&mut self, name: &str) -> Result<(), Error> {
+    pub async fn stop_rebuild(&self, name: &str) -> Result<(), Error> {
         match self.get_rebuild_job(name) {
             Ok(rt) => rt.stop().context(RebuildOperationError {}),
             // If a rebuild task is not found return ok
@@ -107,10 +108,48 @@ impl Nexus {
         })
     }
 
-    /// Return rebuild job associated with the child name.
+    /// Cancels all rebuilds jobs associated with the child
+    /// If any job is found with the child as a destination then the job is
+    /// stopped. If any job is found with the child as a source then
+    /// the job is replaced with a new one with another healthy child
+    /// as src, if found
+    /// todo: how to proceed if not healthy child is found?
+    pub async fn cancel_child_rebuild_jobs(&mut self, name: &str) {
+        let mut src_jobs = self.get_rebuild_job_src(name);
+
+        // Issues a stop to all jobs with the child as a source
+        src_jobs
+            .iter_mut()
+            .for_each(|j| j.stop().unwrap_or_else(|_| {}));
+
+        // todo: before we can start a new rebuild we need to wait
+        // for the previous rebuild to complete - cas-194
+        for job in src_jobs {
+            if let Err(e) = self.start_rebuild(&job.destination).await {
+                error!("Failed to recreate rebuild: {}", e);
+            }
+        }
+
+        // stops the only possible job with the child as a destination
+        self.stop_rebuild(name).await.ok();
+    }
+
+    /// Return rebuild job associated with the src child name.
+    /// Return error if no rebuild job associated with it.
+    fn get_rebuild_job_src<'a>(
+        &mut self,
+        name: &'a str,
+    ) -> Vec<&'a mut RebuildJob> {
+        let jobs = RebuildJob::lookup_src(&name);
+
+        jobs.iter().for_each(|job| assert!(job.nexus == self.name));
+        jobs
+    }
+
+    /// Return rebuild job associated with the dest child name.
     /// Return error if no rebuild job associated with it.
     fn get_rebuild_job<'a>(
-        &mut self,
+        &self,
         name: &'a str,
     ) -> Result<&'a mut RebuildJob, Error> {
         let job = RebuildJob::lookup(&name).context(RebuildJobNotFound {

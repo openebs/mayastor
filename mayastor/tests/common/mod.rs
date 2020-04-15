@@ -329,7 +329,11 @@ pub fn compare_devices(
 
 pub fn wait_for_rebuild(name: String, timeout: Duration) {
     let (s, r) = unbounded::<()>();
-    let job = RebuildJob::lookup(&name).unwrap();
+    let job = match RebuildJob::lookup(&name) {
+        Ok(job) => job,
+        Err(_) => return,
+    };
+
     let ch = job.complete_chan.1.clone();
     std::thread::spawn(move || {
         select! {

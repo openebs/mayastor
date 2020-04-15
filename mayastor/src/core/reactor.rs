@@ -276,6 +276,7 @@ impl Reactor {
                     assert_eq!(reactor.threads[0].0, unsafe {
                         spdk_get_thread()
                     });
+                    reactor.receive_futures();
                     reactor.run_futures();
                     reactor.threads[0].poll();
                 }
