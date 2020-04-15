@@ -82,7 +82,7 @@ struct RebuildTasks {
 
 pub struct RebuildJob {
     pub nexus: String,
-    source: String,
+    pub source: String,
     source_hdl: BdevHandle,
     pub destination: String,
     destination_hdl: BdevHandle,
@@ -133,6 +133,18 @@ impl RebuildJob {
                 job: name.to_owned(),
             })
         }
+    }
+
+    /// Lookup all rebuilds jobs with name as its source
+    pub fn lookup_src(name: &str) -> Vec<&mut Self> {
+        let mut jobs = Vec::new();
+
+        Self::get_instances()
+            .iter_mut()
+            .filter(|j| j.1.source == name)
+            .for_each(|j| jobs.push(j.1));
+
+        jobs
     }
 
     /// Lookup a rebuild job by its destination uri then remove and return it
@@ -392,29 +404,32 @@ impl RebuildOperations for RebuildJob {
         let destination = self.destination.clone();
         let complete_receiver = self.complete_chan.clone().1;
 
-        Reactors::current().send_future(async move {
+        Reactors::get_by_core(0).unwrap().send_future(async move {
             let job = match RebuildJob::lookup(&destination) {
                 Ok(job) => job,
                 Err(_) => {
                     return error!(
-                        "Failed to find the rebuild job {}",
+                        "Failed to find and start the rebuild job {}",
                         destination
                     );
                 }
             };
 
-            job.run().await;
+            // todo: WA until cas-194 is addressed...
+            if job.state == RebuildState::Pending {
+                job.run().await;
+            }
         });
         complete_receiver
     }
 
     fn stop(&mut self) -> Result<(), RebuildError> {
         match self.state {
-            RebuildState::Paused => {
+            RebuildState::Pending | RebuildState::Paused => {
                 self.change_state(RebuildState::Stopped);
                 // The rebuild is paused so call complete here
                 // because the run function is inactive
-                self.send_complete();
+                self.complete();
             }
             _ => self.change_state(RebuildState::Stopped),
         }
@@ -424,7 +439,7 @@ impl RebuildOperations for RebuildJob {
 
     fn pause(&mut self) -> Result<(), RebuildError> {
         match self.state {
-            RebuildState::Running => {
+            RebuildState::Running | RebuildState::Pending => {
                 self.change_state(RebuildState::Paused);
                 Ok(())
             }
@@ -438,9 +453,8 @@ impl RebuildOperations for RebuildJob {
     fn resume(&mut self) -> Result<(), RebuildError> {
         match self.state {
             RebuildState::Paused => {
-                // Kick off the rebuild job again.
-                // The rebuild state doesn't need to be changed because
-                // this is done by the run function
+                // Kick off the rebuild job again
+                self.change_state(RebuildState::Pending);
                 self.start();
                 Ok(())
             }
@@ -491,7 +505,6 @@ impl RebuildJob {
 
     async fn await_all_tasks(&mut self) {
         while self.await_one_task().await.is_some() {
-            self.tasks.active -= 1;
             if self.tasks.active == 0 {
                 break;
             }
