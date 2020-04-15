@@ -303,19 +303,23 @@ impl NexusChild {
                         header.push(secondary);
                         self.check_consistency(&primary, &secondary)?;
                     }
-                    Err(_) => {
+                    Err(error) => {
                         // The secondary GPT header is invalid.
                         // Issue a warning but otherwise carry on.
                         warn!(
-                            "{}: {}: The secondary GPT header is invalid!",
-                            self.parent, self.name
+                            "{}: {}: The secondary GPT header is invalid: {}",
+                            self.parent, self.name, error
                         );
                         // Recreate secondary from primary.
                         header.push(primary.to_backup());
                     }
                 }
             }
-            Err(_) => {
+            Err(error) => {
+                warn!(
+                    "{}: {}: The primary GPT header is invalid: {}",
+                    self.parent, self.name, error
+                );
                 // The primary GPT header is invalid.
                 // Try the secondary and see if we are able to proceed.
                 match self
@@ -326,14 +330,18 @@ impl NexusChild {
                     .await
                 {
                     Ok(secondary) => {
-                        warn!("{}: {}: The primary GPT header is invalid - using secondary!", self.parent, self.name);
+                        warn!("{}: {}: Recreating primary GPT header from secondary!", self.parent, self.name);
                         active = secondary;
                         // Recreate primary from secondary.
                         header.push(secondary.to_primary());
                         header.push(secondary);
                     }
-                    Err(_) => {
-                        warn!("{}: {}: The primary and secondary GPT headers are both invalid!", self.parent, self.name);
+                    Err(error) => {
+                        warn!(
+                            "{}: {}: The secondary GPT header is invalid: {}",
+                            self.parent, self.name, error
+                        );
+                        warn!("{}: {}: Both primary and secondary GPT headers are invalid!", self.parent, self.name);
                         return Err(ChildError::LabelInvalid {});
                     }
                 }
@@ -386,10 +394,10 @@ impl NexusChild {
         self.read_at(0, buf).await.context(LabelRead {})?;
         match Pmbr::from_slice(&buf.as_slice()[440 .. 512]) {
             Ok(mbr) => Ok(mbr),
-            Err(_) => {
+            Err(error) => {
                 warn!(
-                    "{}: {}: The protective MBR is invalid!",
-                    self.parent, self.name
+                    "{}: {}: The protective MBR is invalid: {}",
+                    self.parent, self.name, error
                 );
                 Err(ChildError::LabelInvalid {})
             }
@@ -425,10 +433,10 @@ impl NexusChild {
                 }
                 Ok(partitions)
             }
-            Err(_) => {
+            Err(error) => {
                 warn!(
-                    "{}: {}: The partition table is invalid!",
-                    self.parent, self.name
+                    "{}: {}: The partition table is invalid: {}",
+                    self.parent, self.name, error
                 );
                 Err(ChildError::InvalidPartitionTable {})
             }
