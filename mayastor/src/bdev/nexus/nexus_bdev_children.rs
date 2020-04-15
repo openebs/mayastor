@@ -175,6 +175,8 @@ impl Nexus {
             });
         }
 
+        self.cancel_child_rebuild_jobs(uri).await;
+
         let idx = match self.children.iter().position(|c| c.name == uri) {
             None => return Ok(()),
             Some(val) => val,
@@ -185,6 +187,7 @@ impl Nexus {
 
         let mut child = self.children.remove(idx);
         self.child_count -= 1;
+        self.reconfigure(DREvent::ChildRemove).await;
         child.destroy().await.context(DestroyChild {
             name: self.name.clone(),
             child: uri,

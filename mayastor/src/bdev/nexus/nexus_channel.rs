@@ -40,6 +40,8 @@ pub enum DREvent {
     ChildOnline,
     /// mark the child as faulted
     ChildFault,
+    /// Child remove reconfiguration event
+    ChildRemove,
 }
 
 impl NexusChannelInner {
@@ -144,6 +146,7 @@ impl NexusChannel {
         match event {
             DREvent::ChildOffline
             | DREvent::ChildOnline
+            | DREvent::ChildRemove
             | DREvent::ChildFault => unsafe {
                 spdk_for_each_channel(
                     device,
