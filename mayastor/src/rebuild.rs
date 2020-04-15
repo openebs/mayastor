@@ -1,3 +1,5 @@
+#![warn(missing_docs)]
+
 use crate::core::{Bdev, BdevHandle, CoreError, DmaBuf, DmaError, Reactors};
 use crossbeam::channel::{unbounded, Receiver, Sender};
 use once_cell::sync::OnceCell;
@@ -7,6 +9,7 @@ use std::{cell::UnsafeCell, collections::HashMap, fmt};
 
 use futures::{channel::mpsc, StreamExt};
 
+/// Global list of rebuild jobs using a static OnceCell
 pub struct RebuildInstances {
     inner: UnsafeCell<HashMap<String, RebuildJob>>,
 }
@@ -16,6 +19,9 @@ unsafe impl Send for RebuildInstances {}
 
 #[derive(Debug, Snafu)]
 #[snafu(visibility = "pub(crate)")]
+#[allow(missing_docs)]
+/// Various rebuild errors when interacting with a rebuild job or
+/// encountered during a rebuild copy
 pub enum RebuildError {
     #[snafu(display("Failed to allocate buffer for the rebuild copy"))]
     NoCopyBuffer { source: DmaError },
@@ -40,12 +46,21 @@ pub enum RebuildError {
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
+/// allowed states for a rebuild job
 pub enum RebuildState {
+    /// Pending when the job is newly created
     Pending,
+    /// Running when the job is rebuilding
     Running,
+    /// Stopped when the job is halted as requested through stop
+    /// and pending its removal
     Stopped,
+    /// Paused when the job is paused as requested through pause
     Paused,
+    /// Failed when an IO (R/W) operation was failed
+    /// there are no retries as it currently stands
     Failed,
+    /// Completed when the rebuild was sucessfully completed
     Completed,
 }
 
@@ -62,15 +77,27 @@ impl fmt::Display for RebuildState {
     }
 }
 
+/// Result returned by each segment task worker
+/// used to communicate with the management task indicating that the
+/// segment task worker is ready to copy another segment
 struct TaskResult {
+    /// block that was being rebuilt
     blk: u64,
+    /// id of the task
     id: u64,
+    /// encountered error, if any
     error: Option<RebuildError>,
 }
 
+/// Number of concurrent copy tasks per rebuild job
 const SEGMENT_TASKS: u64 = 4;
+/// Size of each segment used by the copy task
 const SEGMENT_SIZE: u64 = 10 * 1024; // 10KiB
 
+/// Each rebuild task needs a unique buffer to read/write from source to target
+/// a mpsc channel is used to communicate with the management task and each
+/// task used a clone of the sender allowing the management to poll a single
+/// receiver
 struct RebuildTasks {
     buffers: Vec<DmaBuf>,
     senders: Vec<mpsc::Sender<TaskResult>>,
@@ -80,10 +107,15 @@ struct RebuildTasks {
     total: u64,
 }
 
+/// A rebuild job is responsible for managing a rebuild (copy) which reads
+/// from source_hdl and writes into destination_hdl from specified start to end
 pub struct RebuildJob {
+    /// name of the nexus associated with the rebuild job
     pub nexus: String,
+    /// source URI of the healthy child to rebuild from
     pub source: String,
     source_hdl: BdevHandle,
+    /// target URI of the out of sync child in need of a rebuild
     pub destination: String,
     destination_hdl: BdevHandle,
     block_size: u64,
@@ -93,23 +125,36 @@ pub struct RebuildJob {
     segment_size_blks: u64,
     tasks: RebuildTasks,
     complete_fn: fn(String, String) -> (),
+    /// channel used to signal rebuild completion
     pub complete_chan: (Sender<RebuildState>, Receiver<RebuildState>),
+    /// current state of the rebuild job
     pub state: RebuildState,
 }
 
+/// Place holder for rebuild statistics
 pub struct RebuildStats {}
 
+/// Public facing operations on a Rebuild Job
 pub trait RebuildOperations {
+    /// Collects statistics from the job
     fn stats(&self) -> Option<RebuildStats>;
+    /// Schedules the job to start in a future and returns a complete channel
+    /// which can be waited on
     fn start(&mut self) -> Receiver<RebuildState>;
+    /// Stops the job which then triggers the completion hooks
     fn stop(&mut self) -> Result<(), RebuildError>;
+    /// pauses the job which can then be later resumed
     fn pause(&mut self) -> Result<(), RebuildError>;
+    /// Resumes a previously paused job
+    /// this could be used to mitigate excess load on the source bdev, eg
+    /// too much contention with frontend IO
     fn resume(&mut self) -> Result<(), RebuildError>;
 }
 
 impl RebuildJob {
-    /// Returns a newly created RebuildJob which is already stored in the
-    /// rebuild list
+    /// Creates a new RebuildJob which rebuilds from source URI to target URI
+    /// from start to end; complete_fn callback is called when the rebuild
+    /// completes with the nexus and destinarion URI as arguments
     pub fn create<'a>(
         nexus: &str,
         source: &str,
@@ -427,7 +472,7 @@ impl RebuildOperations for RebuildJob {
         match self.state {
             RebuildState::Pending | RebuildState::Paused => {
                 self.change_state(RebuildState::Stopped);
-                // The rebuild is paused so call complete here
+                // The rebuild is paused or pending so call complete here
                 // because the run function is inactive
                 self.complete();
             }
