@@ -353,7 +353,11 @@ pub fn get_device_size(nexus_device: &str) -> u64 {
 
 pub fn wait_for_rebuild(name: String, timeout: Duration) {
     let (s, r) = unbounded::<()>();
-    let job = RebuildJob::lookup(&name).unwrap();
+    let job = match RebuildJob::lookup(&name) {
+        Ok(job) => job,
+        Err(_) => return,
+    };
+
     let ch = job.complete_chan.1.clone();
     std::thread::spawn(move || {
         select! {

@@ -3,36 +3,100 @@ use crossbeam::channel::unbounded;
 pub mod common;
 
 use mayastor::{
-    bdev::{nexus_create, nexus_lookup},
-    core::{mayastor_env_stop, MayastorCliArgs, MayastorEnvironment, Reactor},
+    bdev::nexus_lookup,
+    core::{MayastorCliArgs, MayastorEnvironment, Reactor},
 };
 
 use rpc::mayastor::ShareProtocolNexus;
 
-static DISKNAME1: &str = "/tmp/disk1.img";
-static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
+const NEXUS_NAME: &str = "rebuild_test_nexus";
+const NEXUS_SIZE: u64 = 10 * 1024 * 1024; // 10MiB
+const MAX_CHILDREN: u64 = 16;
 
-static DISKNAME2: &str = "/tmp/disk2.img";
-static BDEVNAME2: &str = "aio:///tmp/disk2.img?blk_size=512";
+fn test_ini() {
+    test_init!();
+    for i in 0 .. MAX_CHILDREN {
+        common::delete_file(&[get_disk(i)]);
+        common::truncate_file_bytes(&get_disk(i), NEXUS_SIZE);
+    }
+}
+fn test_fini() {
+    //mayastor_env_stop(0);
+    for i in 0 .. MAX_CHILDREN {
+        common::delete_file(&[get_disk(i)]);
+    }
+}
 
-static NEXUS_NAME: &str = "rebuild_test";
-static NEXUS_SIZE: u64 = 10 * 1024 * 1024; // 10MiB
+fn get_disk(number: u64) -> String {
+    format!("/tmp/disk{}.img", number)
+}
+fn get_dev(number: u64) -> String {
+    format!("aio://{}?blk_size=512", get_disk(number))
+}
 
 #[test]
 fn rebuild_test() {
-    common::delete_file(&[DISKNAME1.into(), DISKNAME2.into()]);
-    common::truncate_file_bytes(DISKNAME1, NEXUS_SIZE);
-    common::truncate_file_bytes(DISKNAME2, NEXUS_SIZE);
+    test_ini();
 
-    test_init!();
+    Reactor::block_on(async {
+        nexus_create(1).await;
+        nexus_add_child(1, true).await;
+    });
 
-    Reactor::block_on(rebuild_test_start());
-
-    common::delete_file(&[DISKNAME1.into(), DISKNAME2.into()]);
+    test_fini();
 }
 
-async fn rebuild_test_start() {
-    create_nexus().await;
+#[test]
+fn rebuild_dst_removal() {
+    test_ini();
+
+    Reactor::block_on(async move {
+        let new_child = 2;
+        nexus_create(new_child).await;
+        nexus_add_child(new_child, false).await;
+
+        let nexus = nexus_lookup(NEXUS_NAME).unwrap();
+        nexus.pause_rebuild(&get_dev(new_child)).await.unwrap();
+        nexus.remove_child(&get_dev(new_child)).await.unwrap();
+
+        nexus.destroy().await.unwrap();
+    });
+
+    test_fini();
+}
+
+#[test]
+fn rebuild_src_removal() {
+    test_ini();
+
+    Reactor::block_on(async move {
+        let new_child = 2;
+        assert!(new_child > 1);
+        nexus_create(new_child).await;
+        nexus_add_child(new_child, false).await;
+
+        let nexus = nexus_lookup(NEXUS_NAME).unwrap();
+        nexus.pause_rebuild(&get_dev(new_child)).await.unwrap();
+        nexus.remove_child(&get_dev(0)).await.unwrap();
+
+        // todo: test if child was rebuilt sucessfully
+        //nexus_test_child(new_child).await;
+
+        nexus.destroy().await.unwrap();
+    });
+
+    test_fini();
+}
+
+async fn nexus_create(children: u64) {
+    let mut ch = Vec::new();
+    for i in 0 .. children {
+        ch.push(get_dev(i));
+    }
+
+    mayastor::bdev::nexus_create(NEXUS_NAME, NEXUS_SIZE, None, &ch)
+        .await
+        .unwrap();
 
     let nexus = nexus_lookup(NEXUS_NAME).unwrap();
     let device = common::device_path_from_uri(
@@ -49,46 +113,39 @@ async fn rebuild_test_start() {
     });
     reactor_poll!(r);
 
-    let nexus_device = device.clone();
     let (s, r) = unbounded::<String>();
     std::thread::spawn(move || {
-        s.send(common::compare_nexus_device(&nexus_device, DISKNAME1, true))
+        s.send(common::compare_nexus_device(&device, &get_disk(0), true))
     });
     reactor_poll!(r);
+}
 
-    let nexus_device = device.clone();
+async fn nexus_add_child(new_child: u64, wait: bool) {
+    let nexus = nexus_lookup(NEXUS_NAME).unwrap();
+
+    nexus.add_child(&get_dev(new_child)).await.unwrap();
+    nexus.start_rebuild(&get_dev(new_child)).await.unwrap();
+
+    if wait {
+        common::wait_for_rebuild(
+            get_dev(new_child),
+            std::time::Duration::from_secs(10),
+        );
+
+        nexus_test_child(new_child).await;
+    }
+}
+
+async fn nexus_test_child(child: u64) {
+    common::wait_for_rebuild(get_dev(child), std::time::Duration::from_secs(5));
+
     let (s, r) = unbounded::<String>();
     std::thread::spawn(move || {
-        s.send(common::compare_nexus_device(
-            &nexus_device,
-            DISKNAME2,
-            false,
+        s.send(common::compare_devices(
+            &get_disk(0),
+            &get_disk(child),
+            true,
         ))
     });
     reactor_poll!(r);
-
-    // add the second child
-    nexus.add_child(BDEVNAME2).await.unwrap();
-
-    // kick's off the rebuild (NOWAIT) so we have to wait on a channel
-    nexus.start_rebuild(BDEVNAME2).await.unwrap();
-    common::wait_for_rebuild(
-        BDEVNAME2.to_string(),
-        std::time::Duration::from_secs(10),
-    );
-
-    let (s, r) = unbounded::<String>();
-    std::thread::spawn(move || {
-        s.send(common::compare_devices(DISKNAME1, DISKNAME2, true))
-    });
-    reactor_poll!(r);
-
-    mayastor_env_stop(0);
-}
-
-async fn create_nexus() {
-    let ch = vec![BDEVNAME1.to_string()];
-    nexus_create(NEXUS_NAME, NEXUS_SIZE, None, &ch)
-        .await
-        .unwrap();
 }
