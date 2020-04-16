@@ -33,7 +33,7 @@ function sudo(command, options, nameInPs) {
     if (pid || child.exitCode !== null) {
       child.emit('started');
     } else {
-      setTimeout(function () {
+      setTimeout(function() {
         pidof(nameInPs, waitForStartup);
       }, 100);
     }
@@ -43,9 +43,12 @@ function sudo(command, options, nameInPs) {
   pidof(nameInPs, waitForStartup);
 
   // FIXME: Remove this handler when the child has successfully started
-  child.stderr.on('data', function (data) {
-    var lines = data.toString().trim().split('\n');
-    lines.forEach(function (line) {
+  child.stderr.on('data', function(data) {
+    var lines = data
+      .toString()
+      .trim()
+      .split('\n');
+    lines.forEach(function(line) {
       if (line === prompt) {
         if (++prompts > 1) {
           // The previous entry must have been incorrect, since sudo asks again.
@@ -60,7 +63,7 @@ function sudo(command, options, nameInPs) {
               prompt: options.prompt || 'sudo requires your password: ',
               silent: true,
             },
-            function (error, answer) {
+            function(error, answer) {
               child.stdin.write(answer + '\n');
               if (options.cachePassword) {
                 cachedPassword = answer;

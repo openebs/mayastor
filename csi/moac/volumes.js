@@ -21,7 +21,7 @@ class Volumes extends EventEmitter {
   start() {
     var self = this;
     this.events = new EventStream({ registry: this.registry });
-    this.events.on('data', async function (ev) {
+    this.events.on('data', async function(ev) {
       if (ev.kind != 'replica' && ev.kind != 'nexus') {
         // not interesed in node and pool events
         return;

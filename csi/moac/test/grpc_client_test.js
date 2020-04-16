@@ -10,7 +10,7 @@ const { shouldFailWith } = require('./utils');
 
 const EGRESS_ENDPOINT = '127.0.0.1:12345';
 
-module.exports = function () {
+module.exports = function() {
   var srv;
   var client;
 

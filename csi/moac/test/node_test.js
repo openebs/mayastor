@@ -14,7 +14,7 @@ const enums = require('./grpc_enums');
 const UUID = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cbb';
 const EGRESS_ENDPOINT = '127.0.0.1:12345';
 
-module.exports = function () {
+module.exports = function() {
   var srv;
   var node;
   var pools = [
@@ -56,7 +56,7 @@ module.exports = function () {
     expect(node.toString()).to.equal('node-name');
   });
 
-  describe('node events', function () {
+  describe('node events', function() {
     this.timeout(500);
 
     // start a fake mayastor server
@@ -524,7 +524,7 @@ module.exports = function () {
     });
   });
 
-  describe('object create', function () {
+  describe('object create', function() {
     var replica;
     var pool;
     var nexus;
@@ -612,7 +612,7 @@ module.exports = function () {
     });
   });
 
-  describe('object list', function () {
+  describe('object list', function() {
     const UUID1 = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cb1';
     const UUID2 = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cb2';
     const UUID3 = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cb3';

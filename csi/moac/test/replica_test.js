@@ -13,7 +13,7 @@ const { GrpcCode, GrpcError } = require('../grpc_client');
 
 const UUID = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cbb';
 
-module.exports = function () {
+module.exports = function() {
   var poolProps = {
     name: 'pool',
     disks: ['/dev/sda'],

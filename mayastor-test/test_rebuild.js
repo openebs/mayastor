@@ -130,7 +130,7 @@ function createGrpcClient() {
   return client;
 }
 
-describe('rebuild tests', function () {
+describe('rebuild tests', function() {
   var client;
 
   this.timeout(10000); // for network tests we need long timeouts
@@ -254,7 +254,7 @@ describe('rebuild tests', function () {
     );
   });
 
-  describe('running rebuild', function () {
+  describe('running rebuild', function() {
     beforeEach(async () => {
       await client.addChildNexus().sendMessage(rebuildArgs);
       await client.startRebuild().sendMessage(rebuildArgs);
@@ -278,7 +278,7 @@ describe('rebuild tests', function () {
     });
   });
 
-  describe('stopping rebuild', function () {
+  describe('stopping rebuild', function() {
     beforeEach(async () => {
       await client.addChildNexus().sendMessage(rebuildArgs);
       await client.startRebuild().sendMessage(rebuildArgs);

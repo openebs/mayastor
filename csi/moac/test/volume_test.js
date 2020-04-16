@@ -23,7 +23,7 @@ const defaultOpts = {
   limitBytes: 100,
 };
 
-module.exports = function () {
+module.exports = function() {
   it('should stringify volume name', () => {
     let registry = new Registry();
     let volume = new Volume(UUID, registry, defaultOpts);

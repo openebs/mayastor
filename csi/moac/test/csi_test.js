@@ -25,7 +25,7 @@ function getCsiClient(svc) {
   return client;
 }
 
-module.exports = function () {
+module.exports = function() {
   it('should start even if there is stale socket file', async () => {
     await fs.writeFile(SOCKPATH, 'blabla');
     var server = new CsiServer(SOCKPATH);
@@ -42,7 +42,7 @@ module.exports = function () {
     throw new Error('Server did not clean up the socket file');
   });
 
-  describe('identity', function () {
+  describe('identity', function() {
     var server;
     var client;
 
@@ -94,7 +94,7 @@ module.exports = function () {
     });
   });
 
-  describe('controller', function () {
+  describe('controller', function() {
     var client;
     var registry, volumes;
     var getCapacityStub, createVolumeStub, getVolumesStub, destroyVolumeStub;
@@ -124,7 +124,7 @@ module.exports = function () {
       }
     });
 
-    describe('generic', function () {
+    describe('generic', function() {
       var server;
 
       afterEach(async () => {
@@ -191,7 +191,7 @@ module.exports = function () {
       });
     });
 
-    describe('CreateVolume', function () {
+    describe('CreateVolume', function() {
       var server;
       // place-holder for return value from createVolume when we don't care
       // about the data (i.e. when testing error cases).
@@ -456,7 +456,7 @@ module.exports = function () {
       });
     });
 
-    describe('DeleteVolume', function () {
+    describe('DeleteVolume', function() {
       var server;
 
       beforeEach(async () => {
@@ -492,7 +492,7 @@ module.exports = function () {
       });
     });
 
-    describe('ListVolumes', function () {
+    describe('ListVolumes', function() {
       var server;
       // uuid except the last two digits
       var uuidBase = '4334cc8a-2fed-45ed-866f-3716639db5';
@@ -570,7 +570,7 @@ module.exports = function () {
       });
     });
 
-    describe('ControllerPublishVolume', function () {
+    describe('ControllerPublishVolume', function() {
       var server;
 
       before(async () => {
@@ -766,7 +766,7 @@ module.exports = function () {
       });
     });
 
-    describe('ControllerUnpublishVolume', function () {
+    describe('ControllerUnpublishVolume', function() {
       var server;
 
       before(async () => {
@@ -848,7 +848,7 @@ module.exports = function () {
       });
     });
 
-    describe('ValidateVolumeCapabilities', function () {
+    describe('ValidateVolumeCapabilities', function() {
       var server;
 
       before(async () => {
@@ -929,7 +929,7 @@ module.exports = function () {
       });
     });
 
-    describe('GetCapacity', function () {
+    describe('GetCapacity', function() {
       var server;
 
       before(async () => {

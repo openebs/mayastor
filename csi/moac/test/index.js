@@ -23,7 +23,7 @@ const csiTest = require('./csi_test.js');
 
 logger.setLevel('debug');
 
-describe('moac', function () {
+describe('moac', function() {
   describe('workq', workqTest);
   describe('grpc client', grpcTest);
   describe('watcher', watcherTest);
