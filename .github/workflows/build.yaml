@@ -1,10 +1,6 @@
-name: "Bors"
+name: "Testing"
 on:
-  push:
-    branches:
-      - staging
-      - trying
-      - ci-*
+  pull_request:
 jobs:
   Build:
     name: Build and run tests

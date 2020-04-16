@@ -1,9 +1,0 @@
-# must pass before push to master
-status = ["Build"]
-# must pass before staging
-pr_status = ["Clippy", "Prettier"]
-# dont want merge commits do we?
-use_squash_merge = true
-required_approvals = 2
-# add issue key behind this and it wont show in the commit
-cut_body_after = "!!!"
