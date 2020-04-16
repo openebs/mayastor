@@ -18,11 +18,12 @@ pub mod jsonrpc;
 pub mod logger;
 pub mod nexus_uri;
 pub mod pool;
-/// Rebuild module
-pub mod rebuild;
-pub mod replica;
+pub mod replicas;
 pub mod subsys;
 pub mod target;
+
+pub use replicas::{rebuild, replica};
+
 #[macro_export]
 macro_rules! CPS_INIT {
     () => {
