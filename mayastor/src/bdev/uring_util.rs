@@ -1,7 +1,8 @@
 use std::{
+    fs,
     fs::{File, OpenOptions},
     io::{BufRead, BufReader, ErrorKind},
-    os::unix::fs::OpenOptionsExt,
+    os::unix::fs::{FileTypeExt, OpenOptionsExt},
 };
 
 pub fn fs_supports_direct_io(path: &str) -> bool {
@@ -59,6 +60,16 @@ fn get_mount_filesystem(path: &str) -> Option<String> {
 }
 
 pub fn fs_type_supported(path: &str) -> bool {
+    let metadata = match fs::metadata(path) {
+        Ok(m) => m,
+        Err(e) => {
+            eprintln!("metadata: {}", e);
+            return false;
+        }
+    };
+    if metadata.file_type().is_block_device() {
+        return true;
+    }
     match get_mount_filesystem(path) {
         None => {
             println!("Skipping uring bdev, unknown fs");
