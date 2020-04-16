@@ -83,7 +83,7 @@ function createGrpcClient(service) {
   );
 }
 
-describe('replica', function () {
+describe('replica', function() {
   var client;
 
   this.timeout(10000); // for network tests we need long timeouts
@@ -482,7 +482,7 @@ describe('replica', function () {
   it('should create 5 replicas', (done) => {
     async.times(
       5,
-      function (n, next) {
+      function(n, next) {
         client.createReplica(
           {
             uuid: BASE_UUID + n,
@@ -527,7 +527,7 @@ describe('replica', function () {
     });
   });
 
-  describe('nvmf', function () {
+  describe('nvmf', function() {
     let uri; // URI of the created nvmf replica
     let blockFile = '/tmp/test_block'; // file with contents of a data block
 
@@ -705,7 +705,7 @@ describe('replica', function () {
     });
   });
 
-  describe('import', function () {
+  describe('import', function() {
     before(() => {
       // For testing import we need to restart mayastor which is possible only
       // if testing local instance of mayastor.

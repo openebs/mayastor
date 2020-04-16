@@ -29,7 +29,7 @@ class Task {
   }
 }
 
-module.exports = function () {
+module.exports = function() {
   var clock;
 
   beforeEach(() => {

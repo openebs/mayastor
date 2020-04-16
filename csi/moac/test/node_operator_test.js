@@ -15,7 +15,7 @@ const sinon = require('sinon');
 const NodeOperator = require('../node_operator');
 const Watcher = require('./watcher_stub');
 
-module.exports = function () {
+module.exports = function() {
   var filterFunc = NodeOperator.prototype.filterMayastorNode;
 
   describe('node filtering', () => {
@@ -197,9 +197,9 @@ module.exports = function () {
     // and customizable return value from getNode method.
     function createFakeRegistry(getNodeReturn) {
       let registry = {
-        addNode: function () {},
-        removeNode: function () {},
-        getNode: function () {},
+        addNode: function() {},
+        removeNode: function() {},
+        getNode: function() {},
       };
       addNodeSpy = sinon.spy(registry, 'addNode');
       removeNodeSpy = sinon.spy(registry, 'removeNode');
@@ -280,7 +280,7 @@ module.exports = function () {
       let node = {
         name: 'node-name',
         endpoint: '127.0.0.1:123',
-        connect: function () {},
+        connect: function() {},
       };
       let connectSpy = sinon.spy(node, 'connect');
       let registry = createFakeRegistry(node);

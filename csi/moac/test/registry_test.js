@@ -11,7 +11,7 @@ const Nexus = require('../nexus');
 const Node = require('../node');
 const NodeStub = require('./node_stub');
 
-module.exports = function () {
+module.exports = function() {
   it('should add a node to the registry and look up the node', () => {
     let registry = new Registry();
     registry.Node = NodeStub;
@@ -201,7 +201,7 @@ module.exports = function () {
     expect(cap).to.equal(75);
   });
 
-  describe('pool selection', function () {
+  describe('pool selection', function() {
     it('should prefer ONLINE pool', () => {
       // has more free space but is degraded
       let pool1 = new Pool({

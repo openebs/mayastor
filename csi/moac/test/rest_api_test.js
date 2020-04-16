@@ -17,7 +17,7 @@ const UUID1 = '02de3df9-ce18-4164-89e1-b1cbf7a88e51';
 const UUID2 = '02de3df9-ce18-4164-89e1-b1cbf7a88e52';
 const UUID3 = '02de3df9-ce18-4164-89e1-b1cbf7a88e53';
 
-module.exports = function () {
+module.exports = function() {
   var apiServer;
   var call1, call2, call3, call4;
 

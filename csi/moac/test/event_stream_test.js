@@ -13,7 +13,7 @@ const Volume = require('../volume');
 const Volumes = require('../volumes');
 const EventStream = require('../event_stream');
 
-module.exports = function () {
+module.exports = function() {
   // Easy generator of a test node with fake pools, replicas and nexus
   // omitting all properties that are not necessary for the event stream.
   class FakeNode {

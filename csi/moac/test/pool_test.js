@@ -11,7 +11,7 @@ const Replica = require('../replica');
 const { shouldFailWith } = require('./utils');
 const { GrpcCode, GrpcError } = require('../grpc_client');
 
-module.exports = function () {
+module.exports = function() {
   let props = {
     name: 'pool',
     disks: ['/dev/sda'],

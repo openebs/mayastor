@@ -126,10 +126,10 @@ function createGrpcClient(service) {
   );
 }
 
-var doUring = (function () {
+var doUring = (function() {
   var executed = false;
   var supportsUring = false;
-  return function () {
+  return function() {
     if (!executed) {
       executed = true;
       const { exec } = require('child_process');
@@ -152,7 +152,7 @@ var doUring = (function () {
   };
 })();
 
-describe('nexus', function () {
+describe('nexus', function() {
   var client;
   var nbd_device;
   var iscsi_uri;

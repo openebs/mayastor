@@ -169,7 +169,7 @@ class StreamMockTracker {
   }
 }
 
-module.exports = function () {
+module.exports = function() {
   // Basic watcher operations grouped in describe to avoid repeating watcher
   // initialization & tear down for each test case.
   describe('watch events', () => {

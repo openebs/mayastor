@@ -86,7 +86,7 @@ function createPublishDir(mountTarget) {
 
 // Returns a callback which verifies that method ended with given grpc error.
 function shouldFailWith(code, done) {
-  return function (err, res) {
+  return function(err, res) {
     if (err) {
       assert.equal(err.code, code);
       done();
@@ -98,7 +98,10 @@ function shouldFailWith(code, done) {
 
 // Get filesystem type for given mount point.
 function getFsType(mp) {
-  let lines = execSync('mount').toString().trim().split('\n');
+  let lines = execSync('mount')
+    .toString()
+    .trim()
+    .split('\n');
   for (let i = 0; i < lines.length; i++) {
     let cols = lines[i].split(' ');
     if (mp === cols[2]) {
@@ -107,7 +110,7 @@ function getFsType(mp) {
   }
 }
 
-describe('csi', function () {
+describe('csi', function() {
   this.timeout(10000); // for network tests we need long timeouts
 
   // Start mayastor and create the lvol configuration needed for testing.
@@ -153,7 +156,7 @@ describe('csi', function () {
         (next) => {
           async.times(
             5,
-            function (n, next) {
+            function(n, next) {
               let uuid = BASE_UUID + n;
               common.dumbCommand(
                 'create_replica',
@@ -173,7 +176,7 @@ describe('csi', function () {
         (next) => {
           async.times(
             5,
-            function (n, next) {
+            function(n, next) {
               let uuid = BASE_UUID + n;
               common.dumbCommand(
                 'create_nexus',
@@ -191,7 +194,7 @@ describe('csi', function () {
         (next) => {
           async.times(
             5,
-            function (n, next) {
+            function(n, next) {
               let uuid = BASE_UUID + n;
               common.dumbCommand(
                 'publish_nexus',
@@ -221,11 +224,11 @@ describe('csi', function () {
         (next) => {
           async.times(
             5,
-            function (n, next) {
+            function(n, next) {
               let uuid = BASE_UUID + n;
               common.dumbCommand('unpublish_nexus', { uuid: uuid }, next);
             },
-            function (err, res) {
+            function(err, res) {
               next();
             }
           );
@@ -238,7 +241,7 @@ describe('csi', function () {
     );
   });
 
-  describe('general', function () {
+  describe('general', function() {
     it('should start even if there is a stale csi socket file', (done) => {
       var client = createCsiClient('Identity');
 
@@ -263,7 +266,7 @@ describe('csi', function () {
     });
   });
 
-  describe('identity', function () {
+  describe('identity', function() {
     var client;
 
     before(() => {
@@ -312,7 +315,7 @@ describe('csi', function () {
     });
   });
 
-  describe('node', function () {
+  describe('node', function() {
     var client;
 
     before(() => {
@@ -354,7 +357,7 @@ describe('csi', function () {
     });
   });
 
-  describe('stage and unstage xfs volume', function () {
+  describe('stage and unstage xfs volume', function() {
     var client;
     var mountTarget = '/tmp/target0';
 
@@ -521,7 +524,7 @@ describe('csi', function () {
     });
   });
 
-  describe('stage and unstage ext4 volume', function () {
+  describe('stage and unstage ext4 volume', function() {
     var client;
     var mountTarget = '/tmp/target1';
 
@@ -584,7 +587,7 @@ describe('csi', function () {
     });
   });
 
-  describe('stage misc', function () {
+  describe('stage misc', function() {
     var client;
     var mountTarget = '/tmp/target2';
 
@@ -625,7 +628,7 @@ describe('csi', function () {
 
   // The combinations of ro/rw and access mode flags are quite confusing.
   // See the source code for more info on how this should work.
-  describe('publish and unpublish', function () {
+  describe('publish and unpublish', function() {
     var client;
 
     before(() => {
@@ -638,7 +641,7 @@ describe('csi', function () {
       }
     });
 
-    describe('MULTI_NODE_READER_ONLY staged volume', function () {
+    describe('MULTI_NODE_READER_ONLY staged volume', function() {
       var mountTarget = '/tmp/target3';
       var bindTarget1 = '/tmp/bind1';
       var bindTarget2 = '/tmp/bind2';
@@ -815,7 +818,7 @@ describe('csi', function () {
       });
     });
 
-    describe('MULTI_NODE_SINGLE_WRITER staged volume', function () {
+    describe('MULTI_NODE_SINGLE_WRITER staged volume', function() {
       var mountTarget = '/tmp/target4';
       var bindTarget1 = '/tmp/bind1';
       var bindTarget2 = '/tmp/bind2';
