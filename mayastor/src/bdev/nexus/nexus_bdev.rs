@@ -459,10 +459,10 @@ impl Nexus {
                 "{}: Child label(s) mismatch or absent, applying new label(s)",
                 self.name
             );
-            let mut label = self.generate_label();
+            let label = self.generate_label();
             self.data_ent_offset = label.offset();
             self.bdev.set_block_count(label.get_block_count());
-            self.write_labels(&mut label).await.context(WriteLabel {
+            self.write_all_labels(&label).await.context(WriteLabel {
                 name: self.name.clone(),
             })?;
             info!("{}: label:\n{}", self.name, label);

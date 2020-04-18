@@ -60,6 +60,7 @@ use std::{
 
 use bincode::{deserialize_from, serialize, serialize_into, Error};
 use crc::{crc32, Hasher32};
+use futures::future::join_all;
 use serde::{
     de::{Deserialize, Deserializer, SeqAccess, Unexpected, Visitor},
     ser::{Serialize, SerializeTuple, Serializer},
@@ -68,38 +69,47 @@ use snafu::{ResultExt, Snafu};
 use uuid::{self, parser, Uuid};
 
 use crate::{
-    bdev::nexus::{
-        nexus_bdev::Nexus,
-        nexus_child::{ChildError, ChildIoError},
-    },
+    bdev::nexus::{nexus_bdev::Nexus, nexus_child::ChildIoError},
     core::{DmaBuf, DmaError},
 };
 
 #[derive(Debug, Snafu)]
 pub enum LabelError {
-    #[snafu(display("Failed to allocate protective MBR"))]
+    #[snafu(display("Failed to allocate label"))]
     WriteLabelAlloc { source: DmaError },
     #[snafu(display("Label serialization error"))]
     SerializeError { source: Error },
     #[snafu(display("Label deserialization error"))]
     DeserializeError { source: Error },
-    #[snafu(display("Write label error"))]
+    #[snafu(display("Label write error"))]
     WriteError { source: ChildIoError },
     #[snafu(display("Label probe error"))]
-    ProbeError { source: ChildError },
-    #[snafu(display("GPT header size is invalid"))]
-    HeaderSize {},
-    #[snafu(display("GPT header signature is invalid"))]
-    GptSignature {},
+    ProbeError {},
     #[snafu(display("MBR signature is invalid"))]
     MbrSignature {},
+    #[snafu(display("GPT header signature is invalid"))]
+    GptSignature {},
+    #[snafu(display("GPT header size is invalid"))]
+    GptHeaderSize {},
     #[snafu(display("GPT label checksum mismatch"))]
-    CrcMismatch {},
+    GptChecksum {},
+    #[snafu(display("GPT partition table checksum mismatch"))]
+    PartitionTableChecksum {},
+    #[snafu(display("Disk GUIDs differ"))]
+    CompareDiskGUID {},
+    #[snafu(display("Disk sizes differ"))]
+    CompareDiskSize {},
+    #[snafu(display("GPT stored partition table checksums differ"))]
+    ComparePartitionTableChecksum {},
+    #[snafu(display("Alternate GPT locations are incorrect"))]
+    BackupLocation {},
+    #[snafu(display("GPT partition table location is incorrect"))]
+    PartitionTableLocation {},
 }
 
-pub struct LabelData {
-    pub offset: u64,
-    pub buf: DmaBuf,
+struct LabelData {
+    offset: u64,
+    buf: DmaBuf,
 }
 
 impl Nexus {
@@ -172,13 +182,11 @@ impl Nexus {
         };
 
         header.table_crc = GptEntry::checksum(&entries);
+        header.checksum();
 
         //
         // Secondary GPT header
-        let mut backup = header.to_backup();
-
-        header.checksum();
-        backup.checksum();
+        let backup = header.to_backup();
 
         NexusLabel {
             mbr: pmbr,
@@ -190,7 +198,7 @@ impl Nexus {
 
     fn get_primary_data(
         &self,
-        label: &mut NexusLabel,
+        label: &NexusLabel,
     ) -> Result<LabelData, LabelError> {
         let block_size = self.bdev.block_len() as u64;
         let mut buf = DmaBuf::new(
@@ -227,7 +235,7 @@ impl Nexus {
 
     fn get_secondary_data(
         &self,
-        label: &mut NexusLabel,
+        label: &NexusLabel,
     ) -> Result<LabelData, LabelError> {
         let block_size = self.bdev.block_len() as u64;
         let mut buf = DmaBuf::new(
@@ -255,19 +263,37 @@ impl Nexus {
         })
     }
 
-    pub async fn write_labels(
-        &mut self,
-        label: &mut NexusLabel,
+    pub async fn write_all_labels(
+        &self,
+        label: &NexusLabel,
     ) -> Result<(), LabelError> {
         let primary = self.get_primary_data(label)?;
         let secondary = self.get_secondary_data(label)?;
 
-        for child in &mut self.children {
-            child
-                .write_labels(&primary, &secondary)
-                .await
-                .context(WriteError {})?;
-            child.probe_label().await.context(ProbeError {})?;
+        let mut futures = Vec::new();
+
+        for child in &self.children {
+            futures.push(child.write_at(primary.offset, &primary.buf));
+            futures.push(child.write_at(secondary.offset, &secondary.buf));
+        }
+
+        for result in join_all(futures).await {
+            if let Err(error) = result {
+                // return the first error
+                return Err(error).context(WriteError {});
+            }
+        }
+
+        // check if we can read the labels
+        for child in &self.children {
+            if let Err(error) = child.probe_label().await {
+                warn!(
+                    "{}: {}: Error validating newly written disk label: {}",
+                    child.parent, child.name, error
+                );
+                return Err(LabelError::ProbeError {});
+            }
+            info!("{}: {}: Disk label written", child.parent, child.name);
         }
 
         Ok(())
@@ -369,7 +395,7 @@ impl GPTHeader {
             deserialize_from(&mut reader).context(DeserializeError {})?;
 
         if gpt.header_size != 92 {
-            return Err(LabelError::HeaderSize {});
+            return Err(LabelError::GptHeaderSize {});
         }
 
         if gpt.signature != [0x45, 0x46, 0x49, 0x20, 0x50, 0x41, 0x52, 0x54]
@@ -383,8 +409,7 @@ impl GPTHeader {
         gpt.self_checksum = crc32::checksum_ieee(&serialize(&gpt).unwrap());
 
         if gpt.self_checksum != crc {
-            warn!("GPT header checksum mismatch");
-            return Err(LabelError::CrcMismatch {});
+            return Err(LabelError::GptChecksum {});
         }
 
         Ok(gpt)
@@ -429,6 +454,7 @@ impl GPTHeader {
         secondary.lba_self = self.lba_alt;
         secondary.lba_alt = self.lba_self;
         secondary.lba_table = self.lba_end + 1;
+        secondary.checksum();
         secondary
     }
 
@@ -437,6 +463,7 @@ impl GPTHeader {
         primary.lba_self = self.lba_alt;
         primary.lba_alt = self.lba_self;
         primary.lba_table = self.lba_alt + 1;
+        primary.checksum();
         primary
     }
 }
@@ -694,5 +721,83 @@ impl Default for Pmbr {
             entries: [MbrEntry::default(); 4],
             signature: [0x55, 0xAA],
         }
+    }
+}
+
+impl NexusLabel {
+    /// construct a Pmbr from raw data
+    pub fn read_mbr(buf: &DmaBuf) -> Result<Pmbr, LabelError> {
+        Pmbr::from_slice(&buf.as_slice()[440 .. 512])
+    }
+
+    /// construct a GPTHeader from raw data
+    fn read_header(buf: &DmaBuf) -> Result<GPTHeader, LabelError> {
+        GPTHeader::from_slice(buf.as_slice())
+    }
+
+    /// construct and validate primary GPTHeader
+    pub fn read_primary_header(buf: &DmaBuf) -> Result<GPTHeader, LabelError> {
+        let primary = NexusLabel::read_header(buf)?;
+        if primary.lba_table != primary.lba_self + 1 {
+            return Err(LabelError::PartitionTableLocation {});
+        }
+        Ok(primary)
+    }
+
+    /// construct and validate secondary GPTHeader
+    pub fn read_secondary_header(
+        buf: &DmaBuf,
+    ) -> Result<GPTHeader, LabelError> {
+        let secondary = NexusLabel::read_header(buf)?;
+        if secondary.lba_table != secondary.lba_end + 1 {
+            return Err(LabelError::PartitionTableLocation {});
+        }
+        Ok(secondary)
+    }
+
+    /// calculate size aligned to specified block_size
+    pub fn get_aligned_size(size: u32, block_size: u32) -> u32 {
+        match size % block_size {
+            0 => size,
+            n => size + block_size - n,
+        }
+    }
+
+    /// construct partition table from raw data
+    pub fn read_partitions(
+        buf: &DmaBuf,
+        header: &GPTHeader,
+    ) -> Result<Vec<GptEntry>, LabelError> {
+        let partitions =
+            GptEntry::from_slice(buf.as_slice(), header.num_entries)?;
+        if GptEntry::checksum(&partitions) != header.table_crc {
+            return Err(LabelError::PartitionTableChecksum {});
+        }
+        Ok(partitions)
+    }
+
+    /// check that primary and secondary GPTHeaders
+    /// are consistent with each other
+    pub fn check_consistency(
+        primary: &GPTHeader,
+        secondary: &GPTHeader,
+    ) -> Result<(), LabelError> {
+        if primary.guid != secondary.guid {
+            return Err(LabelError::CompareDiskGUID {});
+        }
+        if primary.lba_start != secondary.lba_start
+            || primary.lba_end != secondary.lba_end
+        {
+            return Err(LabelError::CompareDiskSize {});
+        }
+        if primary.lba_alt != secondary.lba_self
+            || secondary.lba_alt != primary.lba_self
+        {
+            return Err(LabelError::BackupLocation {});
+        }
+        if primary.table_crc != secondary.table_crc {
+            return Err(LabelError::ComparePartitionTableChecksum {});
+        }
+        Ok(())
     }
 }
