@@ -672,12 +672,12 @@ pub struct GptName {
 #[derive(Copy, Clone, Debug, Deserialize, PartialEq, Serialize)]
 pub struct Pmbr {
     /// signature to uniquely ID the disk we do not use this
-    pub disk_signature: u32,
-    pub reserved: u16,
+    disk_signature: u32,
+    reserved: u16,
     /// number of partition entries
     pub entries: [MbrEntry; 4],
     /// must be set to [0x55, 0xAA]
-    pub signature: [u8; 2],
+    signature: [u8; 2],
 }
 
 /// the MBR partition entry
@@ -685,15 +685,15 @@ pub struct Pmbr {
 pub struct MbrEntry {
     /// attributes of this MBR partition we set these all to zero, which
     /// includes the boot flag.
-    pub attributes: u8,
+    attributes: u8,
     /// start in CHS format
-    pub chs_start: [u8; 3],
+    chs_start: [u8; 3],
     /// type of partition, in our case always 0xEE
-    pub ent_type: u8,
+    ent_type: u8,
     /// end of the partition
-    pub chs_last: [u8; 3],
+    chs_last: [u8; 3],
     /// lba start
-    pub lba_start: u32,
+    lba_start: u32,
     /// last sector of this partition
     pub num_sectors: u32,
 }
