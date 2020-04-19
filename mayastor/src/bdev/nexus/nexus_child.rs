@@ -7,7 +7,14 @@ use snafu::{ResultExt, Snafu};
 use spdk_sys::{spdk_bdev_module_release_bdev, spdk_io_channel};
 
 use crate::{
-    bdev::nexus::nexus_label::{GPTHeader, GptEntry, LabelError, NexusLabel},
+    bdev::nexus::nexus_label::{
+        GPTHeader,
+        GptEntry,
+        LabelError,
+        NexusChildLabel,
+        NexusLabel,
+        NexusLabelStatus,
+    },
     core::{Bdev, BdevHandle, CoreError, Descriptor, DmaBuf, DmaError},
     nexus_uri::{bdev_destroy, BdevCreateDestroy},
 };
@@ -283,6 +290,7 @@ impl NexusChild {
         self.read_at(0, &mut buf).await.context(MbrRead {})?;
         let mbr = NexusLabel::read_mbr(&buf).context(MbrInvalid {})?;
 
+        let status: NexusLabelStatus;
         let primary: GPTHeader;
         let secondary: GPTHeader;
         let active: &GPTHeader;
@@ -309,11 +317,13 @@ impl NexusChild {
                             Ok(()) => {
                                 // All good.
                                 secondary = header;
+                                status = NexusLabelStatus::Both;
                             }
                             Err(error) => {
                                 warn!("{}: {}: The primary and secondary GPT headers are inconsistent: {}", self.parent, self.name, error);
                                 warn!("{}: {}: Recreating secondary GPT header from primary!", self.parent, self.name);
                                 secondary = primary.to_backup();
+                                status = NexusLabelStatus::Primary;
                             }
                         }
                     }
@@ -324,6 +334,7 @@ impl NexusChild {
                         );
                         warn!("{}: {}: Recreating secondary GPT header from primary!", self.parent, self.name);
                         secondary = primary.to_backup();
+                        status = NexusLabelStatus::Primary;
                     }
                 }
             }
@@ -341,6 +352,7 @@ impl NexusChild {
                         active = &secondary;
                         warn!("{}: {}: Recreating primary GPT header from secondary!", self.parent, self.name);
                         primary = secondary.to_primary();
+                        status = NexusLabelStatus::Secondary;
                     }
                     Err(error) => {
                         warn!(
@@ -383,11 +395,31 @@ impl NexusChild {
         let entries = partitions.drain(.. 2).collect::<Vec<GptEntry>>();
 
         Ok(NexusLabel {
+            status,
             mbr,
             primary,
             partitions: entries,
             secondary,
         })
+    }
+
+    /// return this child and its label
+    pub async fn get_label(&self) -> NexusChildLabel<'_> {
+        let label = match self.probe_label().await {
+            Ok(label) => Some(label),
+            Err(error) => {
+                warn!(
+                    "{}: {}: Error probing label: {}",
+                    self.parent, self.name, error
+                );
+                None
+            }
+        };
+
+        NexusChildLabel {
+            child: self,
+            label,
+        }
     }
 
     /// write the contents of the buffer to this child
