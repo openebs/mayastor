@@ -7,7 +7,7 @@ use snafu::{ResultExt, Snafu};
 use spdk_sys::{spdk_bdev_module_release_bdev, spdk_io_channel};
 
 use crate::{
-    bdev::nexus::nexus_label::{GPTHeader, GptEntry, NexusLabel},
+    bdev::nexus::nexus_label::{GPTHeader, GptEntry, LabelError, NexusLabel},
     core::{Bdev, BdevHandle, CoreError, Descriptor, DmaBuf, DmaError},
     nexus_uri::{bdev_destroy, BdevCreateDestroy},
 };
@@ -30,24 +30,29 @@ pub enum ChildError {
     ChildReadOnly {},
     #[snafu(display("Invalid state of child"))]
     ChildInvalid {},
-    #[snafu(display("Failed to allocate buffer for label"))]
-    LabelAlloc { source: DmaError },
-    #[snafu(display("Failed to read label from child"))]
-    LabelRead { source: ChildIoError },
-    #[snafu(display("Primary and backup labels are invalid"))]
-    LabelInvalid {},
-    #[snafu(display("Failed to allocate buffer for partition table"))]
-    PartitionTableAlloc { source: DmaError },
-    #[snafu(display("Failed to read partition table from child"))]
-    PartitionTableRead { source: ChildIoError },
-    #[snafu(display("Invalid partition table"))]
-    InvalidPartitionTable {},
-    #[snafu(display("Invalid partition table checksum"))]
-    PartitionTableChecksum {},
     #[snafu(display("Opening child bdev without bdev pointer"))]
     OpenWithoutBdev {},
     #[snafu(display("Failed to create a BdevHandle for child"))]
     HandleCreate { source: CoreError },
+
+    #[snafu(display("Failed to read MBR from child"))]
+    MbrRead { source: ChildIoError },
+    #[snafu(display("MBR is invalid"))]
+    MbrInvalid { source: LabelError },
+
+    #[snafu(display("Failed to allocate buffer for label"))]
+    LabelAlloc { source: DmaError },
+    #[snafu(display("Failed to read label from child"))]
+    LabelRead { source: ChildIoError },
+    #[snafu(display("Label is invalid"))]
+    LabelInvalid {},
+
+    #[snafu(display("Failed to allocate buffer for partition table"))]
+    PartitionTableAlloc { source: DmaError },
+    #[snafu(display("Failed to read partition table from child"))]
+    PartitionTableRead { source: ChildIoError },
+    #[snafu(display("Partition table is invalid"))]
+    PartitionTableInvalid { source: LabelError },
 }
 
 #[derive(Debug, Snafu)]
@@ -239,12 +244,13 @@ impl NexusChild {
         }
     }
 
-    /// returns if a child can be written too
+    /// returns if a child can be written to
     pub fn can_rw(&self) -> bool {
         self.state == ChildState::Open || self.state == ChildState::Faulted
     }
 
-    pub async fn probe_label(&mut self) -> Result<NexusLabel, ChildError> {
+    /// read and validate this child's label
+    pub async fn probe_label(&self) -> Result<NexusLabel, ChildError> {
         if !self.can_rw() {
             info!(
                 "{}: Trying to read from closed child: {}",
@@ -253,79 +259,135 @@ impl NexusChild {
             return Err(ChildError::ChildReadOnly {});
         }
 
-        let bdev = self.bdev.as_ref();
-        let desc = self.bdev_handle.as_ref();
+        let bdev = match self.bdev.as_ref() {
+            Some(bdev) => bdev,
+            None => {
+                return Err(ChildError::ChildInvalid {});
+            }
+        };
 
-        if bdev.is_none() || desc.is_none() {
-            return Err(ChildError::ChildInvalid {});
-        }
-
-        let bdev = bdev.unwrap();
-        let desc = desc.unwrap();
+        let desc = match self.bdev_handle.as_ref() {
+            Some(desc) => desc,
+            None => {
+                return Err(ChildError::ChildInvalid {});
+            }
+        };
 
         let block_size = bdev.block_len();
 
-        let primary = u64::from(block_size);
-        let secondary = bdev.num_blocks() - 1;
-
+        //
+        // Protective MBR
         let mut buf = desc
             .dma_malloc(block_size as usize)
             .context(LabelAlloc {})?;
+        self.read_at(0, &mut buf).await.context(MbrRead {})?;
+        let mbr = NexusLabel::read_mbr(&buf).context(MbrInvalid {})?;
 
-        self.read_at(primary, &mut buf)
+        let primary: GPTHeader;
+        let secondary: GPTHeader;
+        let active: &GPTHeader;
+
+        //
+        // GPT header(s)
+
+        // Get primary.
+        self.read_at(u64::from(block_size), &mut buf)
             .await
             .context(LabelRead {})?;
-
-        let mut label = GPTHeader::from_slice(buf.as_slice());
-        if label.is_err() {
-            warn!(
-                "{}: {}: The primary label is invalid!",
-                self.parent, self.name
-            );
-            self.read_at(secondary, &mut buf)
-                .await
-                .context(LabelRead {})?;
-            label = GPTHeader::from_slice(buf.as_slice());
+        match NexusLabel::read_primary_header(&buf) {
+            Ok(header) => {
+                primary = header;
+                active = &primary;
+                // Get secondary.
+                let offset = (bdev.num_blocks() - 1) * u64::from(block_size);
+                self.read_at(offset, &mut buf).await.context(LabelRead {})?;
+                match NexusLabel::read_secondary_header(&buf) {
+                    Ok(header) => {
+                        // Both primary and secondary GPT headers are valid.
+                        // Check if they are consistent with each other.
+                        match NexusLabel::check_consistency(&primary, &header) {
+                            Ok(()) => {
+                                // All good.
+                                secondary = header;
+                            }
+                            Err(error) => {
+                                warn!("{}: {}: The primary and secondary GPT headers are inconsistent: {}", self.parent, self.name, error);
+                                warn!("{}: {}: Recreating secondary GPT header from primary!", self.parent, self.name);
+                                secondary = primary.to_backup();
+                            }
+                        }
+                    }
+                    Err(error) => {
+                        warn!(
+                            "{}: {}: The secondary GPT header is invalid: {}",
+                            self.parent, self.name, error
+                        );
+                        warn!("{}: {}: Recreating secondary GPT header from primary!", self.parent, self.name);
+                        secondary = primary.to_backup();
+                    }
+                }
+            }
+            Err(error) => {
+                warn!(
+                    "{}: {}: The primary GPT header is invalid: {}",
+                    self.parent, self.name, error
+                );
+                // Get secondary and see if we are able to proceed.
+                let offset = (bdev.num_blocks() - 1) * u64::from(block_size);
+                self.read_at(offset, &mut buf).await.context(LabelRead {})?;
+                match NexusLabel::read_secondary_header(&buf) {
+                    Ok(header) => {
+                        secondary = header;
+                        active = &secondary;
+                        warn!("{}: {}: Recreating primary GPT header from secondary!", self.parent, self.name);
+                        primary = secondary.to_primary();
+                    }
+                    Err(error) => {
+                        warn!(
+                            "{}: {}: The secondary GPT header is invalid: {}",
+                            self.parent, self.name, error
+                        );
+                        warn!("{}: {}: Both primary and secondary GPT headers are invalid!", self.parent, self.name);
+                        return Err(ChildError::LabelInvalid {});
+                    }
+                }
+            }
         }
 
-        let label = match label {
-            Ok(label) => label,
-            Err(_) => return Err(ChildError::LabelInvalid {}),
-        };
+        if mbr.entries[0].num_sectors != 0xffff_ffff
+            && mbr.entries[0].num_sectors as u64 != primary.lba_alt
+        {
+            warn!("{}: {}: The protective MBR disk size does not match the GPT disk size!", self.parent, self.name);
+            return Err(ChildError::LabelInvalid {});
+        }
 
-        // determine number of blocks we need to read from the partition table
-        let num_blocks =
-            ((label.entry_size * label.num_entries) / block_size) + 1;
-
+        //
+        // Partition table
+        let size = NexusLabel::get_aligned_size(
+            active.entry_size * active.num_entries,
+            block_size,
+        );
         let mut buf = desc
-            .dma_malloc((num_blocks * block_size) as usize)
+            .dma_malloc(size as usize)
             .context(PartitionTableAlloc {})?;
-
-        self.read_at(label.lba_table * u64::from(block_size), &mut buf)
+        let offset = active.lba_table * u64::from(block_size);
+        self.read_at(offset, &mut buf)
             .await
             .context(PartitionTableRead {})?;
+        let mut partitions = NexusLabel::read_partitions(&buf, active)
+            .context(PartitionTableInvalid {})?;
 
-        let mut partitions =
-            match GptEntry::from_slice(&buf.as_slice(), label.num_entries) {
-                Ok(parts) => parts,
-                Err(_) => return Err(ChildError::InvalidPartitionTable {}),
-            };
+        // Some tools always write 128 partition entries, even though most
+        // are not used. In any case we are only ever interested
+        // in the first two partitions, so we drain the others.
+        let entries = partitions.drain(.. 2).collect::<Vec<GptEntry>>();
 
-        if GptEntry::checksum(&partitions) != label.table_crc {
-            return Err(ChildError::PartitionTableChecksum {});
-        }
-
-        // some tools write 128 partition entries, even though only two are
-        // created, in any case we are only ever interested in the first two
-        // partitions, so we drain the others.
-        let parts = partitions.drain(.. 2).collect::<Vec<_>>();
-
-        let nl = NexusLabel {
-            primary: label,
-            partitions: parts,
-        };
-
-        Ok(nl)
+        Ok(NexusLabel {
+            mbr,
+            primary,
+            partitions: entries,
+            secondary,
+        })
     }
 
     /// write the contents of the buffer to this child
@@ -334,14 +396,15 @@ impl NexusChild {
         offset: u64,
         buf: &DmaBuf,
     ) -> Result<usize, ChildIoError> {
-        if let Some(desc) = self.bdev_handle.as_ref() {
-            Ok(desc.write_at(offset, buf).await.context(WriteError {
+        match self.bdev_handle.as_ref() {
+            Some(desc) => {
+                Ok(desc.write_at(offset, buf).await.context(WriteError {
+                    name: self.name.clone(),
+                })?)
+            }
+            None => Err(ChildIoError::InvalidDescriptor {
                 name: self.name.clone(),
-            })?)
-        } else {
-            Err(ChildIoError::InvalidDescriptor {
-                name: self.name.clone(),
-            })
+            }),
         }
     }
 
@@ -351,14 +414,15 @@ impl NexusChild {
         offset: u64,
         buf: &mut DmaBuf,
     ) -> Result<usize, ChildIoError> {
-        if let Some(desc) = self.bdev_handle.as_ref() {
-            Ok(desc.read_at(offset, buf).await.context(ReadError {
+        match self.bdev_handle.as_ref() {
+            Some(desc) => {
+                Ok(desc.read_at(offset, buf).await.context(ReadError {
+                    name: self.name.clone(),
+                })?)
+            }
+            None => Err(ChildIoError::InvalidDescriptor {
                 name: self.name.clone(),
-            })?)
-        } else {
-            Err(ChildIoError::InvalidDescriptor {
-                name: self.name.clone(),
-            })
+            }),
         }
     }
 }
