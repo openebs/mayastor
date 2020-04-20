@@ -7,7 +7,7 @@ jobs:
     runs-on: self-hosted
     container:
       image: docker.io/mayadata/ms-buildenv:nix
-      options: --privileged -v /dev:/dev -v /bin:/host/bin -v /lib/modules:/lib/modules --cpus 2
+      options: --privileged -v /dev:/dev -v /bin:/host/bin -v /lib/modules:/lib/modules
     steps:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
