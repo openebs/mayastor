@@ -4,7 +4,7 @@ on:
 jobs:
   Build:
     name: Build and run tests
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     container:
       image: docker.io/mayadata/ms-buildenv:nix
       options: --privileged -v /dev:/dev -v /bin:/host/bin -v /lib/modules:/lib/modules --cpus 2
