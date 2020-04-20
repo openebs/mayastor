@@ -24,5 +24,10 @@
     "wtfnode": "^0.8.1"
   },
   "author": "Jan Kryl <jan.kryl@mayadata.io>",
-  "license": "BSD-2-Clause"
+  "license": "BSD-2-Clause",
+  "semistandard": {
+    "env": [
+      "mocha"
+    ]
+  }
 }
