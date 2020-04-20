@@ -22,7 +22,7 @@ const HDR_GUID: &str = "322974ae-5711-874b-bfbd-1a74df4dd714";
 const PART0_GUID: &str = "ea2872a6-02ce-3f4b-82c4-c2147f76e3ff";
 const PART1_GUID: &str = "a0ff1b47-2890-eb4c-a837-01df152f9442";
 
-const CRC32: u32 = 3_031_999_803;
+const CRC32: u32 = 0x9029_d72c;
 static DISKNAME1: &str = "/tmp/disk1.img";
 static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
 
@@ -70,7 +70,7 @@ async fn start() {
 /// parsing it, serialize it again, and assert the values.
 
 fn test_known_label() {
-    let mut file = std::fs::File::open("./gpt_test_data.bin").unwrap();
+    let mut file = std::fs::File::open("./gpt_primary_test_data.bin").unwrap();
 
     file.seek(SeekFrom::Start(512)).unwrap();
     let mut hdr_buf: [u8; 512] = [0; 512];
@@ -129,16 +129,30 @@ async fn label_child() {
     let desc = child.get_descriptor().unwrap();
     let hdl = BdevHandle::try_from(desc).unwrap();
 
-    let mut file = std::fs::File::open("./gpt_test_data.bin").unwrap();
-
+    let mut file = std::fs::File::open("./gpt_primary_test_data.bin").unwrap();
     let mut buffer = hdl.dma_malloc(34 * 512).unwrap();
     file.read_exact(&mut buffer.as_mut_slice()).unwrap();
-    // we also write the mbr here hence the offset is 0
+    // write out the MBR + primary GPT header + GPT partition table
     child.write_at(0, &buffer).await.unwrap();
 
     let mut read_buffer = hdl.dma_malloc(34 * 512).unwrap();
     child.read_at(0, &mut read_buffer).await.unwrap();
+    for (i, o) in buffer.as_slice().iter().zip(read_buffer.as_slice().iter()) {
+        assert_eq!(i, o)
+    }
 
+    let mut file =
+        std::fs::File::open("./gpt_secondary_test_data.bin").unwrap();
+    let mut buffer = hdl.dma_malloc(33 * 512).unwrap();
+    file.read_exact(&mut buffer.as_mut_slice()).unwrap();
+    // write out the secondary GPT partition table + GPT header
+    child.write_at(131_039 * 512, &buffer).await.unwrap();
+
+    let mut read_buffer = hdl.dma_malloc(33 * 512).unwrap();
+    child
+        .read_at(131_039 * 512, &mut read_buffer)
+        .await
+        .unwrap();
     for (i, o) in buffer.as_slice().iter().zip(read_buffer.as_slice().iter()) {
         assert_eq!(i, o)
     }
