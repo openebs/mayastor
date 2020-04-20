@@ -157,7 +157,7 @@ fn main() {
     let mut ms = MayastorEnvironment::default();
 
     ms.name = "initiator".into();
-    ms.mem_size = 128;
+    ms.mem_size = 256;
     ms.rpc_addr = "/tmp/initiator.sock".into();
 
     let rc = ms
