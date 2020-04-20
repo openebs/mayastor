@@ -409,7 +409,7 @@ impl DiscoveryLogEntry {
 ///
 ///  # Example
 ///  ```rust
-///  let num_disconnects = nvmeadm::nvmf_discovery::disconnect(nqn);
+///  let num_disconnects = nvmeadm::nvmf_discovery::disconnect("mynqn");
 ///  ```
 
 pub fn disconnect(nqn: &str) -> Result<usize, Error> {

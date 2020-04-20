@@ -644,7 +644,11 @@ pub(crate) fn list_pools() -> Vec<jsondata::Pool> {
     for pool in PoolsIter::new() {
         pools.push(jsondata::Pool {
             name: pool.get_name().to_owned(),
-            disks: vec![pool.get_base_bdev().name()],
+            disks: vec![
+                pool.get_base_bdev().driver()
+                    + "://"
+                    + &pool.get_base_bdev().name(),
+            ],
             // TODO: figure out how to detect state of pool
             state: "online".to_owned(),
             capacity: pool.get_capacity(),
