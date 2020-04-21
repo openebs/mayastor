@@ -69,7 +69,10 @@ use snafu::{ResultExt, Snafu};
 use uuid::{self, parser, Uuid};
 
 use crate::{
-    bdev::nexus::{nexus_bdev::Nexus, nexus_child::ChildIoError},
+    bdev::nexus::{
+        nexus_bdev::Nexus,
+        nexus_child::{ChildIoError, NexusChild},
+    },
     core::{DmaBuf, DmaError},
 };
 
@@ -189,6 +192,7 @@ impl Nexus {
         let backup = header.to_backup();
 
         NexusLabel {
+            status: NexusLabelStatus::Neither,
             mbr: pmbr,
             primary: header,
             partitions: entries,
@@ -261,6 +265,69 @@ impl Nexus {
             offset: label.secondary.lba_table * block_size,
             buf,
         })
+    }
+
+    pub async fn write_labels(
+        &self,
+        target: &NexusLabel,
+        list: &[NexusChildLabel<'_>],
+    ) -> Result<(), LabelError> {
+        let primary = self.get_primary_data(target)?;
+        let secondary = self.get_secondary_data(target)?;
+
+        let mut futures = Vec::new();
+
+        for label in list {
+            match label.get_label_status() {
+                NexusLabelStatus::Both => {
+                    // Nothing to do as both labels are already valid.
+                }
+                NexusLabelStatus::Primary => {
+                    // Only write out secondary as primary is already valid.
+                    futures.push(
+                        label.child.write_at(secondary.offset, &secondary.buf),
+                    );
+                }
+                NexusLabelStatus::Secondary => {
+                    // Only write out primary as secondary is already valid.
+                    futures.push(
+                        label.child.write_at(primary.offset, &primary.buf),
+                    );
+                }
+                NexusLabelStatus::Neither => {
+                    futures.push(
+                        label.child.write_at(primary.offset, &primary.buf),
+                    );
+                    futures.push(
+                        label.child.write_at(secondary.offset, &secondary.buf),
+                    );
+                }
+            }
+        }
+
+        for result in join_all(futures).await {
+            if let Err(error) = result {
+                // return the first error
+                return Err(error).context(WriteError {});
+            }
+        }
+
+        // check if we can read the labels
+        for label in list {
+            if let Err(error) = label.child.probe_label().await {
+                warn!(
+                    "{}: {}: Error validating newly written disk label: {}",
+                    label.child.parent, label.child.name, error
+                );
+                return Err(LabelError::ProbeError {});
+            }
+            info!(
+                "{}: {}: Disk label written",
+                label.child.parent, label.child.name
+            );
+        }
+
+        Ok(())
     }
 
     pub async fn write_all_labels(
@@ -511,6 +578,14 @@ impl GptEntry {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq, Serialize)]
+pub enum NexusLabelStatus {
+    Both,      // Both primary and secondary labels are valid
+    Primary,   // Only primary label is valid
+    Secondary, // Only secondary label is valid
+    Neither,   // Neither primary or secondary labels are valid
+}
+
 #[derive(Debug, PartialEq, Serialize, Clone)]
 /// The nexus label is standard GPT label (such that you can use it without us
 /// in the data path) The only thing that is really specific to us is the
@@ -518,6 +593,8 @@ impl GptEntry {
 /// that partition is ours. In the data we will have more magic markers to
 /// confirm the assumption but this is step one.
 pub struct NexusLabel {
+    /// The status of the Nexus labels
+    pub status: NexusLabelStatus,
     /// The protective MBR
     pub mbr: Pmbr,
     /// The main GPT header
@@ -799,5 +876,63 @@ impl NexusLabel {
             return Err(LabelError::ComparePartitionTableChecksum {});
         }
         Ok(())
+    }
+}
+
+pub struct NexusChildLabel<'a> {
+    pub child: &'a NexusChild,
+    pub label: Option<NexusLabel>,
+}
+
+impl NexusChildLabel<'_> {
+    /// Return the current status of this NexusChildLabel.
+    pub fn get_label_status(&self) -> NexusLabelStatus {
+        match &self.label {
+            Some(label) => label.status,
+            None => NexusLabelStatus::Neither,
+        }
+    }
+
+    /// Search for the first "valid" NexusLabel.
+    /// Prefer a target label where the primary and secondary GPT headers
+    /// are both valid (on disk), but a target with at least one valid
+    /// GPT header (on disk) is considered acceptable.
+    pub fn find_target_label(
+        list: &[NexusChildLabel<'_>],
+    ) -> Option<NexusLabel> {
+        for status in &[
+            NexusLabelStatus::Both,
+            NexusLabelStatus::Primary,
+            NexusLabelStatus::Secondary,
+        ] {
+            for label in list {
+                if let Some(target) = &label.label {
+                    if target.status == *status {
+                        return Some(target.clone());
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// Compare all (existing) labels in list against the target NexusLabel.
+    /// Return true (only) if all are identical.
+    pub fn compare_labels(
+        target: &NexusLabel,
+        list: &[NexusChildLabel<'_>],
+    ) -> bool {
+        for label in list {
+            if let Some(entry) = &label.label {
+                if entry.mbr != target.mbr
+                    || entry.primary != target.primary
+                    || entry.secondary != target.secondary
+                    || entry.partitions != target.partitions
+                {
+                    return false;
+                }
+            }
+        }
+        true
     }
 }

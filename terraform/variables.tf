@@ -7,6 +7,7 @@ variable "image_path" {
 variable "ssh_key" {
   type        = string
   description = "SSH pub key to use"
+  default     = "<contents of ~/.ssh/id_rsa.pub>"
 }
 
 # this variable is used in two different ways. One is to create the user

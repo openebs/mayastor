@@ -4,7 +4,7 @@
 == Quick start
 
 . Ensure you have libvirtd or lxd running and configured **correctly**
-. Edit `variables.tf` in particular make sure you the public key is correct
+. Edit `variables.tf` in particular make sure the public key is correct
 . Edit `main.tf` and comment out either the LXD section or the libvirtd section
 . run `terraform init`
 . run `terraform plan`
@@ -23,13 +23,13 @@ So this means we want to deploy it:
 
 1. locally (KVM)
 2. locally (LXD)
-2. AWS
-3. GCE
-4. Whatever
+3. AWS
+4. GCE
+5. Whatever
 
-We, however, do not "just" want to deploy k8s, but also we want to be able to
-interact with the hosts itself. For example; verify that we indeed have a new
-nvmf target what have you.
+We, however, do not "just" want to deploy k8s, but also want to be able to
+interact with the hosts themsleves. For example; verify that we indeed have a
+new nvmf target or what have you.
 
 So we need a form of infra management but also - configuration management.
 These scripts are intended to do just that.
@@ -40,10 +40,10 @@ Terraform is used to construct the actual cluster and install Kubernetes. By
 default only the libvirtd and lxd providers are available.
 
 However, the code has been structured such that we can change the provider
-module in `main.tf` with any other provider and get the same k8s cluster.
+module in `main.tf` to any other provider and get the same k8s cluster.
 
 We can, for example, add `mod/vbox` which will then deploy 3 virtual vbox nodes.
-The k8s deployment code is decoupled from the actual VMS. The VMs are assumed to
+The k8s deployment code is decoupled from the actual VMs. The VMs are assumed to
 be *Ubuntu* based and makes use of *cloud-init*
 
 After the deployment of the VMs, the `k8s` module runs. This module will invoke
@@ -118,6 +118,11 @@ WARNING: do not use btrfs or ZFS as a storage pool.
 Now comes a somewhat tricky part. We need to install the terraform lxd provider,
 but it does not exist in nixpkgs. I'll create a PR to NixOS shortly.
 
+On other distributions, manually install the lxd provider from
+https://github.com/sl1pm4t/terraform-provider-lxd by downloading a release,
+extracting it to ~/.terraform.d/plugins then renaming the binary, dropping
+the version.
+
 The way the terraform plugin works is not -- default. All plugins are evaluated
 in the terraform-providers expression, which reads other files from disks. So a
 simple override -- as far as I know,  won't work in this case more so, because
@@ -140,7 +145,7 @@ And you are all set to deploy mayastor.
 === Private docker repo
 
 If you want to use a private docker repo you should edit the docker daemon
-config file to suite your needs.
+config file to suit your needs.
 
 An example configuration could be something like the following:
 

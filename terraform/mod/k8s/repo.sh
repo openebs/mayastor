@@ -8,7 +8,7 @@ cat <<EOF | sudo tee /etc/apt/sources.list.d/kubernetes.list
 deb https://apt.kubernetes.io/ kubernetes-xenial main
 EOF
 
-sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu xenial stable"
+sudo add-apt-repository "deb [arch=amd64] https://download.docker.com/linux/ubuntu $(lsb_release -cs) stable"
 
 sudo apt-get update
 sudo apt-get install -y -o Options::=--force-confdef \
@@ -16,6 +16,10 @@ sudo apt-get install -y -o Options::=--force-confdef \
   containerd.io docker-ce-cli
 
 sudo apt-mark hold kubelet kubeadm kubectl
+
+# if you wish to use a private docker repo uncomment this the line below
+# and add it to daemon.json
+# "insecure-registries" : ["192.168.1.4:5000"]
 
 sudo tee /etc/docker/daemon.json >/dev/null <<EOF
 {
@@ -25,8 +29,6 @@ sudo tee /etc/docker/daemon.json >/dev/null <<EOF
     "max-size": "100m"
   },
   "storage-driver": "overlay2"
-  # if you wish to use a private docker repo uncomment this the line below
-  # "insecure-registries" : ["192.168.1.4:5000"]
 }
 EOF
 
