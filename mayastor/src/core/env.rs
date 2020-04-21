@@ -21,6 +21,8 @@ use once_cell::sync::Lazy;
 use snafu::{ResultExt, Snafu};
 use structopt::StructOpt;
 
+use tokio::{runtime::Builder, task};
+
 use spdk_sys::{
     maya_log,
     spdk_app_shutdown_cb,
@@ -46,6 +48,7 @@ use crate::{
         reactor::{Reactor, Reactors},
         Cores,
     },
+    grpc::grpc_server_init,
     logger,
     target,
 };
@@ -75,9 +78,15 @@ fn parse_mb(src: &str) -> Result<i32, String> {
     name = "Mayastor",
     about = "Containerized Attached Storage (CAS) for k8s",
     version = "19.12.1",
-    raw(setting = "structopt::clap::AppSettings::ColoredHelp")
+    setting(structopt::clap::AppSettings::ColoredHelp)
 )]
 pub struct MayastorCliArgs {
+    #[structopt(short = "a", default_value = "127.0.0.1", env = "MY_POD_IP")]
+    /// IP address for gRPC
+    pub addr: String,
+    #[structopt(short = "p", default_value = "10125")]
+    /// Port for gRPC
+    pub port: String,
     #[structopt(short = "j")]
     /// Path to JSON formatted config file
     pub json: Option<String>,
@@ -92,7 +101,7 @@ pub struct MayastorCliArgs {
     pub reactor_mask: String,
     #[structopt(
         short = "s",
-        parse(try_from_str = "parse_mb"),
+        parse(try_from_str = parse_mb),
         default_value = "0"
     )]
     /// The maximum amount of hugepage memory we are allowed to allocate in MiB
@@ -110,6 +119,8 @@ pub struct MayastorCliArgs {
 impl Default for MayastorCliArgs {
     fn default() -> Self {
         Self {
+            addr: "None".into(),
+            port: "None".into(),
             reactor_mask: "0x1".into(),
             mem_size: 0,
             rpc_address: "/var/tmp/mayastor.sock".to_string(),
@@ -169,6 +180,9 @@ type Result<T, E = EnvError> = std::result::Result<T, E>;
 #[derive(Debug, Clone)]
 pub struct MayastorEnvironment {
     pub config: Option<String>,
+    pub enable_grpc: bool,
+    grpc_addr: Option<String>,
+    grpc_port: Option<String>,
     delay_subsystem_init: bool,
     enable_coredump: bool,
     env_context: String,
@@ -199,6 +213,9 @@ impl Default for MayastorEnvironment {
     fn default() -> Self {
         Self {
             config: None,
+            enable_grpc: false,
+            grpc_addr: None,
+            grpc_port: None,
             delay_subsystem_init: false,
             enable_coredump: true,
             env_context: String::new(),
@@ -297,6 +314,8 @@ extern "C" fn mayastor_signal_handler(signo: i32) {
 impl MayastorEnvironment {
     pub fn new(args: MayastorCliArgs) -> Self {
         Self {
+            grpc_addr: Some(args.addr),
+            grpc_port: Some(args.port),
             config: args.config,
             json_config_file: args.json,
             log_component: args.log_components,
@@ -507,20 +526,11 @@ impl MayastorEnvironment {
     /// We implement our own default target init code here. Note that if there
     /// is an existing target we will fail the init process.
     extern "C" fn target_init() -> Result<(), EnvError> {
-        let address = match env::var("MY_POD_IP") {
-            Ok(val) => {
-                let _ipv4: Ipv4Addr = match val.parse() {
-                    Ok(val) => val,
-                    Err(_) => {
-                        error!("Invalid IP address: MY_POD_IP={}", val);
-                        mayastor_env_stop(-1);
-                        return Err(EnvError::InitLog);
-                    }
-                };
-                val
-            }
-            Err(_) => "127.0.0.1".to_owned(),
-        };
+        let address = MayastorEnvironment::get_pod_ip().map_err(|e| {
+            error!("Invalid IP address: MY_POD_IP={}", e);
+            mayastor_env_stop(-1);
+            EnvError::InitLog
+        })?;
 
         if let Err(msg) = target::iscsi::init(&address) {
             error!("Failed to initialize Mayastor iSCSI target: {}", msg);
@@ -539,6 +549,19 @@ impl MayastorEnvironment {
         Reactor::block_on(f);
 
         Ok(())
+    }
+
+    fn get_pod_ip() -> Result<String, String> {
+        match env::var("MY_POD_IP") {
+            Ok(val) => {
+                if val.parse::<Ipv4Addr>().is_ok() {
+                    Ok(val)
+                } else {
+                    Err(val)
+                }
+            }
+            Err(_) => Ok("127.0.0.1".to_owned()),
+        }
     }
 
     extern "C" fn start_rpc(rc: i32, arg: *mut c_void) {
@@ -632,14 +655,40 @@ impl MayastorEnvironment {
     where
         F: FnOnce() + 'static,
     {
+        let grpc = self.enable_grpc;
+
+        let grpc_addr = self.grpc_addr.clone();
+        let grpc_port = self.grpc_port.clone();
         self.init();
 
-        let master = Reactors::current();
-        master.send_future(async { f() });
-        Reactors::launch_master();
+        let mut rt = Builder::new()
+            .basic_scheduler()
+            .enable_all()
+            .build()
+            .unwrap();
 
-        info!("reactors stopped....");
-        Self::fini();
+        let local = task::LocalSet::new();
+        rt.block_on(async {
+            local
+                .run_until(async {
+                    let master = Reactors::current();
+                    master.send_future(async { f() });
+                    if grpc {
+                        let _out = tokio::try_join!(
+                            grpc_server_init(
+                                &grpc_addr.as_ref().unwrap(),
+                                &grpc_port.as_ref().unwrap()
+                            ),
+                            master
+                        );
+                    } else {
+                        let _out = master.await;
+                    };
+                    info!("reactors stopped....");
+                    Self::fini();
+                })
+                .await
+        });
 
         Ok(*GLOBAL_RC.lock().unwrap())
     }

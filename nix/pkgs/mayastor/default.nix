@@ -41,7 +41,7 @@ in
 
     mayastor = rustPlatform.buildRustPackage rec {
       name = "mayastor";
-      cargoSha256 = "08ck1g1d075k90g3jf3a0m71qhlkjbc7mbla537i0j7whwfnffck";
+      cargoSha256 = "0ddciwcfmh96kn2cljci5s3zm2qfx878h9hm01wq75yqpivfabgr";
       version = "unstable";
       src = whitelistSource ../../../. [
         "Cargo.lock"

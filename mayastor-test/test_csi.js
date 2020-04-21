@@ -30,7 +30,7 @@ const enums = require('./grpc_enums');
 const wtfnode = require('wtfnode');
 
 var csiSock = common.CSI_ENDPOINT;
-var endpoint = common.endpoint;
+var endpoint = common.grpc_endpoint;
 
 // One big malloc bdev which we put lvol store on.
 const CONFIG = `
@@ -66,6 +66,7 @@ function createCsiClient(service) {
     )
   );
   const proto = pkgDef.csi.v1;
+  console.log('Creating client for ', csiSock);
   return new proto[service](csiSock, grpc.credentials.createInsecure());
 }
 

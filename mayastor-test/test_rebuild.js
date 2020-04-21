@@ -123,7 +123,7 @@ function createGrpcClient() {
     .mayastor_service;
 
   let client = new mayastor.Mayastor(
-    common.endpoint,
+    common.grpc_endpoint,
     grpc.credentials.createInsecure()
   );
   grpc_promise.promisifyAll(client);
