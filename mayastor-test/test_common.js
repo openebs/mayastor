@@ -18,8 +18,12 @@ const SPDK_CONFIG_PATH = '/tmp/spdk_test.cfg';
 const GRPC_PORT = 10777;
 const CSI_ENDPOINT = '/tmp/mayastor_csi_test.sock';
 const CSI_ID = 'test-node-id';
+const LOCALHOST = '127.0.0.1';
 
-var endpoint = '127.0.0.1:' + GRPC_PORT;
+var endpoint = LOCALHOST + ':' + GRPC_PORT;
+var test_port = process.env.TEST_PORT || GRPC_PORT;
+var my_ip = getMyIp() || LOCALHOST;
+var grpc_endpoint = my_ip + ':' + test_port;
 // started processes indexed by the program name
 var procs = {};
 
@@ -219,7 +223,7 @@ function startMayastorGrpc() {
     '-n',
     'test-node-id',
     '-a',
-    '127.0.0.1',
+    getMyIp(),
     '-p',
     GRPC_PORT.toString(),
     '-c',
@@ -428,7 +432,7 @@ module.exports = {
   restartMayastor,
   restartMayastorGrpc,
   fixSocketPerms,
-  endpoint,
+  grpc_endpoint,
   dumbCommand,
   execAsRoot,
   runAsRoot,

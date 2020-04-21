@@ -20,14 +20,17 @@ jobs:
       - run: echo 1024 | tee /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
       - run: rm mayastor/.cargo/config
       - run: cargo build --all
-      - run: pushd jsonrpc && cargo test && popd
-      - run: pushd mayastor && cargo test -- --test-threads=1 && popd
-      - run: pushd mayastor-test && npm install && ./node_modules/mocha/bin/mocha test_cli.js && popd
-      - run: pushd mayastor-test && ./node_modules/mocha/bin/mocha test_replica.js && popd
-      - run: pushd mayastor-test && ./node_modules/mocha/bin/mocha test_csi.js && popd
-      - run: pushd mayastor-test && ./node_modules/mocha/bin/mocha test_nexus.js && popd
-      - run: pushd mayastor-test && ./node_modules/mocha/bin/mocha test_rebuild.js && popd
-      - run: pushd nvmeadm && cargo test && popd
+      - run: ( cd jsonrpc && cargo test )
+      - run: ( cd mayastor && cargo test -- --test-threads=1 )
+      - run: ( cd mayastor-test && npm install && ./node_modules/mocha/bin/mocha test_cli.js )
+      - run: ( cd mayastor-test && ./node_modules/mocha/bin/mocha test_replica.js )
+      - run: ( cd mayastor-test && TEST_PORT=10125 ./node_modules/mocha/bin/mocha test_replica.js )
+      - run: ( cd mayastor-test && ./node_modules/mocha/bin/mocha test_csi.js )
+      - run: ( cd mayastor-test && ./node_modules/mocha/bin/mocha test_nexus.js )
+      - run: ( cd mayastor-test && TEST_PORT=10125 ./node_modules/mocha/bin/mocha test_nexus.js )
+      - run: ( cd mayastor-test && ./node_modules/mocha/bin/mocha test_rebuild.js )
+      - run: ( cd mayastor-test && TEST_PORT=10125 ./node_modules/mocha/bin/mocha test_rebuild.js )
+      - run: ( cd nvmeadm && cargo test )
   Image:
     # dont image if the build fails
     needs: Build

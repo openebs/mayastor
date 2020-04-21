@@ -60,6 +60,7 @@ function destroyTestDisk(diskFile, loopDev, done) {
 }
 
 function createGrpcClient(service) {
+  console.log('Starting client at ', endpoint);
   return createClient(
     {
       protoPath: path.join(
@@ -103,7 +104,7 @@ describe('replica', function() {
     // mayastor and grpc server
     if (!endpoint) {
       remote = false;
-      endpoint = common.endpoint;
+      endpoint = common.grpc_endpoint;
       common.startMayastor();
       common.startMayastorGrpc();
     } else {
