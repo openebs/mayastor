@@ -15,12 +15,12 @@ const sinon = require('sinon');
 const NodeOperator = require('../node_operator');
 const Watcher = require('./watcher_stub');
 
-module.exports = function() {
+module.exports = function () {
   var filterFunc = NodeOperator.prototype.filterMayastorNode;
 
   describe('node filtering', () => {
     it('valid mayastor node should pass the filter', () => {
-      let res = filterFunc({
+      const res = filterFunc({
         apiVersion: 'storage.k8s.io/v1beta1',
         kind: 'CSINode',
         metadata: {
@@ -34,24 +34,24 @@ module.exports = function() {
               apiVersion: 'v1',
               kind: 'Node',
               name: 'node-name',
-              uid: 'c696b8e5-fd8c-11e8-a41c-589cfc0d76a7',
-            },
-          ],
+              uid: 'c696b8e5-fd8c-11e8-a41c-589cfc0d76a7'
+            }
+          ]
         },
         spec: {
           drivers: [
             {
               name: 'csi-hostpath',
               nodeID: 'mynodeid',
-              topologyKeys: [],
+              topologyKeys: []
             },
             {
               name: 'io.openebs.csi-mayastor',
               nodeID: 'mayastor://node-name/127.0.0.1:123',
-              topologyKeys: [],
-            },
-          ],
-        },
+              topologyKeys: []
+            }
+          ]
+        }
       });
       expect(res).to.have.all.keys('name', 'id', 'endpoint');
       expect(res.name).to.equal('node-name');
@@ -60,7 +60,7 @@ module.exports = function() {
     });
 
     it('node without mayastor csi driver should not pass the filter', () => {
-      let res = filterFunc({
+      const res = filterFunc({
         apiVersion: 'csi.storage.k8s.io/v1beta1',
         kind: 'CSINode',
         metadata: {
@@ -71,22 +71,22 @@ module.exports = function() {
               apiVersion: 'v1',
               kind: 'Node',
               name: 'node-name',
-              uid: 'c696b8e5-fd8c-11e8-a41c-589cfc0d76a7',
-            },
+              uid: 'c696b8e5-fd8c-11e8-a41c-589cfc0d76a7'
+            }
           ],
           resourceVersion: '627981',
           selfLink: '/apis/csi.storage.k8s.io/v1beta1/csinodes/node-name',
-          uid: 'd99f06a9-314e-11e9-b086-589cfc0d76a7',
+          uid: 'd99f06a9-314e-11e9-b086-589cfc0d76a7'
         },
         spec: {
           drivers: [
             {
               name: 'csi-hostpath',
               nodeID: 'mynodeid',
-              topologyKeys: [],
-            },
-          ],
-        },
+              topologyKeys: []
+            }
+          ]
+        }
       });
       // jshint ignore:start
       expect(res.id).to.be.null;
@@ -94,7 +94,7 @@ module.exports = function() {
     });
 
     it('node without csi drivers section should not pass the filter', () => {
-      let res = filterFunc({
+      const res = filterFunc({
         apiVersion: 'csi.storage.k8s.io/v1beta1',
         kind: 'CSINode',
         metadata: {
@@ -105,16 +105,16 @@ module.exports = function() {
               apiVersion: 'v1',
               kind: 'Node',
               name: 'node-name',
-              uid: 'c696b8e5-fd8c-11e8-a41c-589cfc0d76a7',
-            },
+              uid: 'c696b8e5-fd8c-11e8-a41c-589cfc0d76a7'
+            }
           ],
           resourceVersion: '627981',
           selfLink: '/apis/csi.storage.k8s.io/v1beta1/csinodes/node-name',
-          uid: 'd99f06a9-314e-11e9-b086-589cfc0d76a7',
+          uid: 'd99f06a9-314e-11e9-b086-589cfc0d76a7'
         },
         spec: {
-          drivers: null,
-        },
+          drivers: null
+        }
       });
       // jshint ignore:start
       expect(res.id).to.be.null;
@@ -122,7 +122,7 @@ module.exports = function() {
     });
 
     it('mayastor node with unknown ID scheme should not pass the filter', () => {
-      let res = filterFunc({
+      const res = filterFunc({
         apiVersion: 'csi.storage.k8s.io/v1beta1',
         kind: 'CSINode',
         metadata: {
@@ -133,22 +133,22 @@ module.exports = function() {
               apiVersion: 'v1',
               kind: 'Node',
               name: 'node-name',
-              uid: 'c696b8e5-fd8c-11e8-a41c-589cfc0d76a7',
-            },
+              uid: 'c696b8e5-fd8c-11e8-a41c-589cfc0d76a7'
+            }
           ],
           resourceVersion: '627981',
           selfLink: '/apis/csi.storage.k8s.io/v1beta1/csinodes/node-name',
-          uid: 'd99f06a9-314e-11e9-b086-589cfc0d76a7',
+          uid: 'd99f06a9-314e-11e9-b086-589cfc0d76a7'
         },
         spec: {
           drivers: [
             {
               name: 'io.openebs.csi-mayastor',
               nodeID: 'mayastorv2://node-name/127.0.0.1:123',
-              topologyKeys: [],
-            },
-          ],
-        },
+              topologyKeys: []
+            }
+          ]
+        }
       });
       // jshint ignore:start
       expect(res).to.be.null;
@@ -156,7 +156,7 @@ module.exports = function() {
     });
 
     it('mayastor node with inconsistent ID should not pass the filter', () => {
-      let res = filterFunc({
+      const res = filterFunc({
         apiVersion: 'csi.storage.k8s.io/v1beta1',
         kind: 'CSINode',
         metadata: {
@@ -167,22 +167,22 @@ module.exports = function() {
               apiVersion: 'v1',
               kind: 'Node',
               name: 'node-name',
-              uid: 'c696b8e5-fd8c-11e8-a41c-589cfc0d76a7',
-            },
+              uid: 'c696b8e5-fd8c-11e8-a41c-589cfc0d76a7'
+            }
           ],
           resourceVersion: '627981',
           selfLink: '/apis/csi.storage.k8s.io/v1beta1/csinodes/node-name',
-          uid: 'd99f06a9-314e-11e9-b086-589cfc0d76a7',
+          uid: 'd99f06a9-314e-11e9-b086-589cfc0d76a7'
         },
         spec: {
           drivers: [
             {
               name: 'io.openebs.csi-mayastor',
               nodeID: 'mayastor://other-name/127.0.0.1:123',
-              topologyKeys: [],
-            },
-          ],
-        },
+              topologyKeys: []
+            }
+          ]
+        }
       });
       // jshint ignore:start
       expect(res).to.be.null;
@@ -195,11 +195,11 @@ module.exports = function() {
 
     // Create fake registry tracing calls to addNode and removeNode methods
     // and customizable return value from getNode method.
-    function createFakeRegistry(getNodeReturn) {
-      let registry = {
-        addNode: function() {},
-        removeNode: function() {},
-        getNode: function() {},
+    function createFakeRegistry (getNodeReturn) {
+      const registry = {
+        addNode: function () {},
+        removeNode: function () {},
+        getNode: function () {}
       };
       addNodeSpy = sinon.spy(registry, 'addNode');
       removeNodeSpy = sinon.spy(registry, 'removeNode');
@@ -210,8 +210,8 @@ module.exports = function() {
 
     // Create csi node object with mayastor plugin in drivers.
     // If endpoint is null, then the drivers array is left empty.
-    function csiNodeObject(name, endpoint) {
-      let node = {
+    function csiNodeObject (name, endpoint) {
+      const node = {
         apiVersion: 'storage.k8s.io/v1beta1',
         kind: 'CSINode',
         metadata: {
@@ -225,27 +225,27 @@ module.exports = function() {
               apiVersion: 'v1',
               kind: 'Node',
               name: name,
-              uid: 'c696b8e5-fd8c-11e8-a41c-589cfc0d76a7',
-            },
-          ],
+              uid: 'c696b8e5-fd8c-11e8-a41c-589cfc0d76a7'
+            }
+          ]
         },
         spec: {
-          drivers: [],
-        },
+          drivers: []
+        }
       };
       if (endpoint) {
         node.spec.drivers.push({
           name: 'io.openebs.csi-mayastor',
           nodeID: 'mayastor://' + name + '/' + endpoint,
-          topologyKeys: [],
+          topologyKeys: []
         });
       }
       return node;
     }
 
     // Create a node operator object bound to the fake watcher
-    function NodeOperatorWithFakeWatcher(watcher, registry) {
-      let oper = new NodeOperator();
+    function NodeOperatorWithFakeWatcher (watcher, registry) {
+      const oper = new NodeOperator();
       oper._bindWatcher(watcher);
       oper.watcher = watcher;
       oper.registry = registry;
@@ -253,9 +253,9 @@ module.exports = function() {
     }
 
     it('should add new node to registry upon new event', () => {
-      let registry = createFakeRegistry(null);
-      let watcher = new Watcher(filterFunc, []);
-      let oper = new NodeOperatorWithFakeWatcher(watcher, registry);
+      const registry = createFakeRegistry(null);
+      const watcher = new Watcher(filterFunc, []);
+      const oper = new NodeOperatorWithFakeWatcher(watcher, registry);
 
       watcher.newObject(csiNodeObject('node-name', '127.0.0.1:123'));
 
@@ -265,9 +265,9 @@ module.exports = function() {
     });
 
     it('should add unknown node to registry upon mod event', () => {
-      let registry = createFakeRegistry(null);
-      let watcher = new Watcher(filterFunc, []);
-      let oper = new NodeOperatorWithFakeWatcher(watcher, registry);
+      const registry = createFakeRegistry(null);
+      const watcher = new Watcher(filterFunc, []);
+      const oper = new NodeOperatorWithFakeWatcher(watcher, registry);
 
       watcher.modObject(csiNodeObject('node-name', '127.0.0.1:123'));
 
@@ -277,17 +277,17 @@ module.exports = function() {
     });
 
     it('should reconnect node upon mod event', () => {
-      let node = {
+      const node = {
         name: 'node-name',
         endpoint: '127.0.0.1:123',
-        connect: function() {},
+        connect: function () {}
       };
-      let connectSpy = sinon.spy(node, 'connect');
-      let registry = createFakeRegistry(node);
-      let watcher = new Watcher(filterFunc, [
-        csiNodeObject('node-name', '127.0.0.1:123'),
+      const connectSpy = sinon.spy(node, 'connect');
+      const registry = createFakeRegistry(node);
+      const watcher = new Watcher(filterFunc, [
+        csiNodeObject('node-name', '127.0.0.1:123')
       ]);
-      let oper = new NodeOperatorWithFakeWatcher(watcher, registry);
+      const oper = new NodeOperatorWithFakeWatcher(watcher, registry);
 
       watcher.modObject(csiNodeObject('node-name', '127.0.0.1:124'));
 
@@ -298,15 +298,15 @@ module.exports = function() {
     });
 
     it('should remove node from registry upon mod event without mayastor entry', () => {
-      let node = {
+      const node = {
         name: 'node-name',
-        endpoint: '127.0.0.1:123',
+        endpoint: '127.0.0.1:123'
       };
-      let registry = createFakeRegistry(node);
-      let watcher = new Watcher(filterFunc, [
-        csiNodeObject('node-name', '127.0.0.1:123'),
+      const registry = createFakeRegistry(node);
+      const watcher = new Watcher(filterFunc, [
+        csiNodeObject('node-name', '127.0.0.1:123')
       ]);
-      let oper = new NodeOperatorWithFakeWatcher(watcher, registry);
+      const oper = new NodeOperatorWithFakeWatcher(watcher, registry);
 
       watcher.modObject(csiNodeObject('node-name', null));
 
@@ -316,15 +316,15 @@ module.exports = function() {
     });
 
     it('should remove node from registry upon del event', () => {
-      let node = {
+      const node = {
         name: 'node-name',
-        endpoint: '127.0.0.1:123',
+        endpoint: '127.0.0.1:123'
       };
-      let registry = createFakeRegistry(node);
-      let watcher = new Watcher(filterFunc, [
-        csiNodeObject('node-name', '127.0.0.1:123'),
+      const registry = createFakeRegistry(node);
+      const watcher = new Watcher(filterFunc, [
+        csiNodeObject('node-name', '127.0.0.1:123')
       ]);
-      let oper = new NodeOperatorWithFakeWatcher(watcher, registry);
+      const oper = new NodeOperatorWithFakeWatcher(watcher, registry);
 
       watcher.delObject('node-name');
 
@@ -334,11 +334,11 @@ module.exports = function() {
     });
 
     it('should ignore del event if node does not exist', () => {
-      let registry = createFakeRegistry(null);
-      let watcher = new Watcher(filterFunc, [
-        csiNodeObject('node-name', '127.0.0.1:123'),
+      const registry = createFakeRegistry(null);
+      const watcher = new Watcher(filterFunc, [
+        csiNodeObject('node-name', '127.0.0.1:123')
       ]);
-      let oper = new NodeOperatorWithFakeWatcher(watcher, registry);
+      const oper = new NodeOperatorWithFakeWatcher(watcher, registry);
 
       watcher.delObject('node-name');
 

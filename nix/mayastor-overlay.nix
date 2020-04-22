@@ -13,8 +13,5 @@ self: super: {
   mkContainerEnv = super.callPackage ./lib/mkContainerEnv.nix { };
   node-moac = (import ./../csi/moac { pkgs = super; }).package;
   node-moacImage = (import ./../csi/moac { pkgs = super; }).buildImage;
-
-  # the upstream package in nix adds phantomjs we really dont want that
-  # as that pulls in QTWeb, and as a consequence, X libraries
-  jshint = super.nodePackages.jshint.override (o: rec { buildInputs = [ ]; });
+  nodePackages = (import ./pkgs/nodePackages { pkgs = super; });
 }

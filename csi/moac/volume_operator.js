@@ -56,7 +56,7 @@ const uuidRegexp = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[089ab][0-9a-f]{3}
 
 // Volume operator managing volume k8s custom resources.
 class VolumeOperator {
-  constructor(namespace) {
+  constructor (namespace) {
     this.namespace = namespace;
     this.k8sClient = null; // k8s client
     this.volumes = null; // Volume manager
@@ -74,7 +74,7 @@ class VolumeOperator {
   // @param {object} k8sClient   Client for k8s api server.
   // @param {object} volumes     Volume manager.
   //
-  async init(k8sClient, volumes) {
+  async init (k8sClient, volumes) {
     log.info('Initializing volume operator');
 
     try {
@@ -109,7 +109,7 @@ class VolumeOperator {
   // @param   {object} msv   MayaStor volume custom resource.
   // @returns {object} Properties defining a volume.
   //
-  _filterMayastorVolume(msv) {
+  _filterMayastorVolume (msv) {
     // We should probably validate the whole record using json scheme or
     // something like that, but for now do just the basic check.
     if (!msv.metadata.name.match(uuidRegexp)) {
@@ -122,7 +122,7 @@ class VolumeOperator {
       log.warn('Ignoring mayastor volume resource without requiredBytes');
       return null;
     }
-    let props = {
+    const props = {
       // spec part
       metadata: { name: msv.metadata.name },
       spec: {
@@ -130,11 +130,11 @@ class VolumeOperator {
         preferredNodes: [].concat(msv.spec.preferredNodes || []).sort(),
         requiredNodes: [].concat(msv.spec.requiredNodes || []).sort(),
         requiredBytes: msv.spec.requiredBytes,
-        limitBytes: msv.spec.limitBytes || 0,
-      },
+        limitBytes: msv.spec.limitBytes || 0
+      }
     };
     // volatile part
-    let st = msv.status;
+    const st = msv.status;
     if (st) {
       props.status = {
         size: st.size,
@@ -145,7 +145,7 @@ class VolumeOperator {
           if (a.uri < b.uri) return -1;
           else if (a.uri > b.uri) return 1;
           else return 0;
-        }),
+        })
       };
     }
 
@@ -159,7 +159,7 @@ class VolumeOperator {
   // Therefore it's important not to call this function before volume
   // manager and registry have been started up.
   //
-  async start() {
+  async start () {
     var self = this;
 
     // install event handlers to follow changes to resources.
@@ -171,13 +171,13 @@ class VolumeOperator {
     self.eventStream.on('data', async (ev) => {
       // the only kind of event that comes from the volumes source
       assert(ev.kind == 'volume');
-      let uuid = ev.object.uuid;
+      const uuid = ev.object.uuid;
 
       if (ev.eventType == 'new' || ev.eventType == 'mod') {
-        let uuid = ev.object.uuid;
-        let k8sVolume = self.watcher.getRaw(uuid);
-        let spec = self._volumeToSpec(ev.object);
-        let status = self._volumeToStatus(ev.object);
+        const uuid = ev.object.uuid;
+        const k8sVolume = self.watcher.getRaw(uuid);
+        const spec = self._volumeToSpec(ev.object);
+        const status = self._volumeToStatus(ev.object);
 
         if (k8sVolume) {
           try {
@@ -211,13 +211,13 @@ class VolumeOperator {
   // @param   {object} volume   Volume object.
   // @returns {object} Spec properties.
   //
-  _volumeToSpec(volume) {
+  _volumeToSpec (volume) {
     return {
       replicaCount: volume.replicaCount,
       preferredNodes: _.clone(volume.preferredNodes),
       requiredNodes: _.clone(volume.requiredNodes),
       requiredBytes: volume.requiredBytes,
-      limitBytes: volume.limitBytes,
+      limitBytes: volume.limitBytes
     };
   }
 
@@ -226,7 +226,7 @@ class VolumeOperator {
   // @param   {object} volume   Volume object.
   // @returns {object} Status properties.
   //
-  _volumeToStatus(volume) {
+  _volumeToStatus (volume) {
     return {
       size: volume.getSize(),
       state: volume.state,
@@ -237,9 +237,9 @@ class VolumeOperator {
           node: r.pool.node.name,
           pool: r.pool.name,
           uri: r.uri,
-          state: r.state,
+          state: r.state
         };
-      }),
+      })
     };
   }
 
@@ -248,7 +248,7 @@ class VolumeOperator {
   // @param {string} uuid       ID of the updated volume.
   // @param {object} spec       New volume spec.
   //
-  async _createResource(uuid, spec) {
+  async _createResource (uuid, spec) {
     log.info(`Creating volume resource "${uuid}"`);
     await this.k8sClient.apis['openebs.io'].v1alpha1
       .namespaces(this.namespace)
@@ -258,10 +258,10 @@ class VolumeOperator {
           kind: 'MayastorVolume',
           metadata: {
             name: uuid,
-            namespace: this.namespace,
+            namespace: this.namespace
           },
-          spec,
-        },
+          spec
+        }
       });
   }
 
@@ -271,7 +271,7 @@ class VolumeOperator {
   // @param {object} k8sVolume  Existing k8s resource object.
   // @param {object} spec       New volume spec.
   //
-  async _updateResource(uuid, k8sVolume, spec) {
+  async _updateResource (uuid, k8sVolume, spec) {
     // Update object only if it has really changed
     if (!_.isEqual(k8sVolume.spec, spec)) {
       log.info(`Updating spec of volume resource "${uuid}"`);
@@ -283,8 +283,8 @@ class VolumeOperator {
             apiVersion: 'openebs.io/v1alpha1',
             kind: 'MayastorVolume',
             metadata: k8sVolume.metadata,
-            spec: _.assign(k8sVolume.spec, spec),
-          },
+            spec: _.assign(k8sVolume.spec, spec)
+          }
         });
     }
   }
@@ -297,7 +297,7 @@ class VolumeOperator {
   // @param {string} uuid    UUID of the resource.
   // @param {object} status  Status properties.
   //
-  async _updateStatus(uuid, status) {
+  async _updateStatus (uuid, status) {
     var k8sVolume = this.watcher.getRaw(uuid);
     if (!k8sVolume) {
       log.warn(
@@ -328,7 +328,7 @@ class VolumeOperator {
   //
   // @param {string} uuid   UUID of the volume resource to delete.
   //
-  async _deleteResource(uuid) {
+  async _deleteResource (uuid) {
     var k8sVolume = this.watcher.getRaw(uuid);
     if (k8sVolume) {
       log.info(`Deleting volume resource "${uuid}"`);
@@ -344,7 +344,7 @@ class VolumeOperator {
   }
 
   // Stop listening for watcher and node events and reset the cache
-  async stop() {
+  async stop () {
     this.watcher.removeAllListeners();
     await this.watcher.stop();
     this.eventStream.destroy();
@@ -355,7 +355,7 @@ class VolumeOperator {
   //
   // @param {object} watcher   k8s volume resource watcher.
   //
-  _bindWatcher(watcher) {
+  _bindWatcher (watcher) {
     var self = this;
     watcher.on('new', (obj) => {
       self.workq.push(obj, self._createVolume.bind(self));
@@ -372,9 +372,9 @@ class VolumeOperator {
   //
   // @param {object}   resource    Volume resource properties.
   //
-  async _createVolume(resource) {
-    let uuid = resource.metadata.name;
-    let createdIdx = this.createdBySelf.indexOf(uuid);
+  async _createVolume (resource) {
+    const uuid = resource.metadata.name;
+    const createdIdx = this.createdBySelf.indexOf(uuid);
     if (createdIdx >= 0) {
       // don't react to self
       this.createdBySelf.splice(createdIdx, 1);
@@ -389,7 +389,7 @@ class VolumeOperator {
       );
       await this._updateStatus(uuid, {
         state: 'PENDING',
-        reason: err.toString(),
+        reason: err.toString()
       });
     }
   }
@@ -398,9 +398,9 @@ class VolumeOperator {
   //
   // @param {object}   resource    Volume resource properties.
   //
-  async _modifyVolume(resource) {
-    let uuid = resource.metadata.name;
-    let volume = this.volumes.get(uuid);
+  async _modifyVolume (resource) {
+    const uuid = resource.metadata.name;
+    const volume = this.volumes.get(uuid);
 
     if (!volume) {
       log.warn(
@@ -424,7 +424,7 @@ class VolumeOperator {
   //
   // @param {string} uuid   ID of the volume to destroy.
   //
-  async _destroyVolume(uuid) {
+  async _destroyVolume (uuid) {
     log.debug(
       `Destroying volume "${uuid}" in response to "del" resource event`
     );

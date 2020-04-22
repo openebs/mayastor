@@ -25,9 +25,8 @@ in
       gdb
       gptfdisk
       libiscsi.bin
-      jshint
-      nodePackages.prettier
       nodejs
+      nodePackages.semistandard
       nvme-cli
       pre-commit
       python3

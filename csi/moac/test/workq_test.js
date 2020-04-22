@@ -8,12 +8,12 @@ const sleep = require('sleep-promise');
 const Workq = require('../workq');
 
 class Task {
-  constructor(id, delay) {
+  constructor (id, delay) {
     this.id = id;
     this.delay = delay || 1;
   }
 
-  async doIt(arg) {
+  async doIt (arg) {
     if (arg == 'throw here') {
       throw new Error('Testing exception in sync context');
     }
@@ -24,12 +24,12 @@ class Task {
     return {
       id: this.id,
       arg: arg,
-      timestamp: Date.now(),
+      timestamp: Date.now()
     };
   }
 }
 
-module.exports = function() {
+module.exports = function () {
   var clock;
 
   beforeEach(() => {
@@ -41,8 +41,8 @@ module.exports = function() {
   });
 
   it('should execute a task that is a closure', async () => {
-    let wq = new Workq();
-    let result = await wq.push(100, async (arg) => {
+    const wq = new Workq();
+    const result = await wq.push(100, async (arg) => {
       expect(arg).to.equal(100);
       return arg;
     });
@@ -50,8 +50,8 @@ module.exports = function() {
   });
 
   it('should execute a task that is a bound method', (done) => {
-    let task = new Task(0);
-    let wq = new Workq();
+    const task = new Task(0);
+    const wq = new Workq();
 
     wq.push(100, task.doIt.bind(task)).then((result) => {
       expect(result.id).to.equal(0);
@@ -62,8 +62,8 @@ module.exports = function() {
   });
 
   it('should propagate an exception from sync context', (done) => {
-    let task = new Task(0);
-    let wq = new Workq();
+    const task = new Task(0);
+    const wq = new Workq();
 
     wq.push('throw here', task.doIt.bind(task))
       .then((res) => done(new Error('it should have thrown the exception')))
@@ -72,8 +72,8 @@ module.exports = function() {
   });
 
   it('should propagate an exception from async context', (done) => {
-    let task = new Task(0);
-    let wq = new Workq();
+    const task = new Task(0);
+    const wq = new Workq();
 
     wq.push('throw there', task.doIt.bind(task))
       .then((res) => done(new Error('it should have thrown the exception')))
@@ -82,14 +82,14 @@ module.exports = function() {
   });
 
   it('should finish tasks in the same order they were pushed', async () => {
-    let task1 = new Task(1, 10);
-    let task2 = new Task(2, 10);
-    let task3 = new Task(3, 10);
-    let wq = new Workq();
+    const task1 = new Task(1, 10);
+    const task2 = new Task(2, 10);
+    const task3 = new Task(3, 10);
+    const wq = new Workq();
 
-    let promise1 = wq.push(100, task1.doIt.bind(task1));
-    let promise2 = wq.push(100, task2.doIt.bind(task2));
-    let promise3 = wq.push(100, task3.doIt.bind(task3));
+    const promise1 = wq.push(100, task1.doIt.bind(task1));
+    const promise2 = wq.push(100, task2.doIt.bind(task2));
+    const promise3 = wq.push(100, task3.doIt.bind(task3));
 
     clock.tick(10);
     let res = await promise1;
@@ -103,34 +103,34 @@ module.exports = function() {
   });
 
   it('should put a new task on hold if a previous task is in progress', async () => {
-    let task1 = new Task(1, 100);
-    let task2 = new Task(2);
-    let wq = new Workq();
+    const task1 = new Task(1, 100);
+    const task2 = new Task(2);
+    const wq = new Workq();
 
-    let promise1 = wq.push(100, task1.doIt.bind(task1));
+    const promise1 = wq.push(100, task1.doIt.bind(task1));
     clock.tick(50);
-    let promise2 = wq.push(100, task2.doIt.bind(task2));
+    const promise2 = wq.push(100, task2.doIt.bind(task2));
     clock.tick(50);
-    let res1 = await promise1;
+    const res1 = await promise1;
     expect(res1.id).to.equal(1);
     clock.tick(50);
-    let res2 = await promise2;
+    const res2 = await promise2;
     expect(res2.id).to.equal(2);
     expect(res1.timestamp).to.be.below(res2.timestamp);
   });
 
   it('should continue with the next task even if previous one failed', (done) => {
-    let task1 = new Task(1);
-    let task2 = new Task(2);
-    let task3 = new Task(3);
-    let wq = new Workq();
-    let wasException = false;
+    const task1 = new Task(1);
+    const task2 = new Task(2);
+    const task3 = new Task(3);
+    const wq = new Workq();
+    const wasException = false;
 
     clock.restore();
 
-    let promise1 = wq.push('throw here', task1.doIt.bind(task1));
-    let promise2 = wq.push('throw there', task2.doIt.bind(task2));
-    let promise3 = wq.push(100, task3.doIt.bind(task3));
+    const promise1 = wq.push('throw here', task1.doIt.bind(task1));
+    const promise2 = wq.push('throw there', task2.doIt.bind(task2));
+    const promise3 = wq.push(100, task3.doIt.bind(task3));
 
     promise1
       .then((res) => done(new Error('it should have thrown the exception')))

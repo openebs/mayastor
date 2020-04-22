@@ -20,47 +20,47 @@ const defaultOpts = {
   preferredNodes: [],
   requiredNodes: [],
   requiredBytes: 100,
-  limitBytes: 100,
+  limitBytes: 100
 };
 
-module.exports = function() {
+module.exports = function () {
   it('should stringify volume name', () => {
-    let registry = new Registry();
-    let volume = new Volume(UUID, registry, defaultOpts);
+    const registry = new Registry();
+    const volume = new Volume(UUID, registry, defaultOpts);
     expect(volume.toString()).to.equal(UUID);
   });
 
   it('should get name of the node where the volume is accessible from', () => {
-    let registry = new Registry();
-    let volume = new Volume(UUID, registry, defaultOpts);
-    let node = new Node('node');
-    let nexus = new Nexus({ uuid: UUID });
+    const registry = new Registry();
+    const volume = new Volume(UUID, registry, defaultOpts);
+    const node = new Node('node');
+    const nexus = new Nexus({ uuid: UUID });
     nexus.bind(node);
     volume.newNexus(nexus);
     expect(volume.getNodeName()).to.equal('node');
   });
 
   it('should get zero size of a volume that has not been created yet', () => {
-    let registry = new Registry();
-    let volume = new Volume(UUID, registry, defaultOpts);
+    const registry = new Registry();
+    const volume = new Volume(UUID, registry, defaultOpts);
     expect(volume.getSize()).to.equal(0);
   });
 
   it('should set the preferred nodes for the volume', () => {
-    let registry = new Registry();
-    let volume = new Volume(UUID, registry, defaultOpts);
+    const registry = new Registry();
+    const volume = new Volume(UUID, registry, defaultOpts);
     expect(volume.preferredNodes).to.have.lengthOf(0);
-    let updated = volume.update({ preferredNodes: ['node1', 'node2'] });
+    const updated = volume.update({ preferredNodes: ['node1', 'node2'] });
     expect(updated).to.equal(true);
     expect(volume.preferredNodes).to.have.lengthOf(2);
   });
 
   it('should publish and unpublish the volume', async () => {
-    let registry = new Registry();
-    let volume = new Volume(UUID, registry, defaultOpts);
-    let node = new Node('node');
-    let nexus = new Nexus({ uuid: UUID });
-    let stub = sinon.stub(node, 'call');
+    const registry = new Registry();
+    const volume = new Volume(UUID, registry, defaultOpts);
+    const node = new Node('node');
+    const nexus = new Nexus({ uuid: UUID });
+    const stub = sinon.stub(node, 'call');
     nexus.bind(node);
     volume.newNexus(nexus);
 
@@ -74,21 +74,21 @@ module.exports = function() {
   });
 
   it('should destroy a volume with 3 replicas', async () => {
-    let registry = new Registry();
-    let volume = new Volume(UUID, registry, defaultOpts);
-    let node1 = new Node('node1');
-    let node2 = new Node('node2');
-    let node3 = new Node('node3');
-    let pool1 = new Pool({ name: 'pool1', disks: [] });
-    let pool2 = new Pool({ name: 'pool2', disks: [] });
-    let pool3 = new Pool({ name: 'pool3', disks: [] });
-    let nexus = new Nexus({ uuid: UUID });
-    let replica1 = new Replica({ uuid: UUID });
-    let replica2 = new Replica({ uuid: UUID });
-    let replica3 = new Replica({ uuid: UUID });
-    let stub1 = sinon.stub(node1, 'call');
-    let stub2 = sinon.stub(node2, 'call');
-    let stub3 = sinon.stub(node3, 'call');
+    const registry = new Registry();
+    const volume = new Volume(UUID, registry, defaultOpts);
+    const node1 = new Node('node1');
+    const node2 = new Node('node2');
+    const node3 = new Node('node3');
+    const pool1 = new Pool({ name: 'pool1', disks: [] });
+    const pool2 = new Pool({ name: 'pool2', disks: [] });
+    const pool3 = new Pool({ name: 'pool3', disks: [] });
+    const nexus = new Nexus({ uuid: UUID });
+    const replica1 = new Replica({ uuid: UUID });
+    const replica2 = new Replica({ uuid: UUID });
+    const replica3 = new Replica({ uuid: UUID });
+    const stub1 = sinon.stub(node1, 'call');
+    const stub2 = sinon.stub(node2, 'call');
+    const stub3 = sinon.stub(node3, 'call');
     stub1.resolves({});
     stub2.resolves({});
     stub3.resolves({});

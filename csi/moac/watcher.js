@@ -28,7 +28,7 @@ class Watcher extends EventEmitter {
   //             stream of watch events
   //   filterCb: converts k8s object to representation understood by the
   //             operator. Or returns null if object should be ignored.
-  constructor(name, getEp, streamEp, filterCb) {
+  constructor (name, getEp, streamEp, filterCb) {
     super();
     this.name = name;
     this.getEp = getEp;
@@ -47,7 +47,7 @@ class Watcher extends EventEmitter {
   }
 
   // Start asynchronously the watcher
-  async start() {
+  async start () {
     var self = this;
     self.objectStream = await self.streamEp.getObjectStream();
 
@@ -97,7 +97,7 @@ class Watcher extends EventEmitter {
 
     var items;
     try {
-      let res = await self.getEp.get();
+      const res = await self.getEp.get();
       items = res.body.items;
     } catch (err) {
       log.error(
@@ -120,42 +120,42 @@ class Watcher extends EventEmitter {
     // filter the obtained objects
     var objects = {};
     for (let i = 0; i < items.length; i++) {
-      let obj = this.filterCb(items[i]);
+      const obj = this.filterCb(items[i]);
       if (obj != null) {
         objects[items[i].metadata.name] = {
           object: obj,
-          k8sObject: items[i],
+          k8sObject: items[i]
         };
       }
     }
 
-    let origObjects = self.objects;
+    const origObjects = self.objects;
     self.objects = {};
 
     if (origObjects == null) {
       // the first time all objects appear to be new
-      for (let name in objects) {
+      for (const name in objects) {
         self.objects[name] = objects[name].k8sObject;
         self.emit('new', objects[name].object);
       }
     } else {
       // Merge old node list with the new node list
       // First delete objects which no longer exist
-      for (let name in origObjects) {
+      for (const name in origObjects) {
         if (!(name in objects)) {
           self.emit('del', self.filterCb(origObjects[name]));
         }
       }
       // Second detect new objects and modified objects
-      for (let name in objects) {
-        let k8sObj = objects[name].k8sObject;
-        let obj = objects[name].object;
-        let origObj = origObjects[name];
+      for (const name in objects) {
+        const k8sObj = objects[name].k8sObject;
+        const obj = objects[name].object;
+        const origObj = origObjects[name];
 
         self.objects[name] = k8sObj;
 
         if (origObj) {
-          let generation = k8sObj.metadata.generation;
+          const generation = k8sObj.metadata.generation;
           // Some objects don't have generation #
           if (!generation || generation > origObj.metadata.generation) {
             self.emit('mod', obj);
@@ -188,12 +188,12 @@ class Watcher extends EventEmitter {
   // Stop does not mean stopping watcher immediately, but rather not restarting
   // it again when watcher connection is closed.
   // TODO:  find out how to reset the watcher connection
-  async stop() {
+  async stop () {
     this.noRestart = true;
   }
 
   // Return k8s object(s) from the cache or null if it does not exist.
-  getRaw(name) {
+  getRaw (name) {
     var obj = this.objects[name];
     if (!obj) {
       return null;
@@ -203,11 +203,11 @@ class Watcher extends EventEmitter {
   }
 
   // Return the collection of objects
-  list() {
+  list () {
     return Object.values(this.objects).map((ent) => this.filterCb(ent));
   }
 
-  delayedStart() {
+  delayedStart () {
     var self = this;
 
     if (self.startResolve) {
@@ -220,7 +220,7 @@ class Watcher extends EventEmitter {
   }
 
   // Restart the watching process after a timeout
-  scheduleRestart() {
+  scheduleRestart () {
     // We cannot restart while either watcher connection or GET query is still
     // in progress. We will get called again when either of them terminates.
     // TODO: How to terminate the watcher connection?
@@ -233,17 +233,17 @@ class Watcher extends EventEmitter {
   }
 
   // Invoked when there is a watch event (a resource has changed).
-  _processEvent(ev) {
+  _processEvent (ev) {
     const k8sObj = ev.object;
     const name = k8sObj.metadata.name;
     const generation = k8sObj.metadata.generation;
     const type = ev.type;
 
-    let obj = this.filterCb(k8sObj);
+    const obj = this.filterCb(k8sObj);
     if (obj == null) {
       return; // not interested in this object
     }
-    let oldObj = this.objects[name];
+    const oldObj = this.objects[name];
 
     if (type === 'ADDED' || type === 'MODIFIED') {
       this.objects[name] = k8sObj;

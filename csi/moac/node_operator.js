@@ -14,7 +14,7 @@ const { PLUGIN_NAME, parseMayastorNodeId } = require('./common');
 class NodeOperator extends EventEmitter {
   // init() is decoupled from constructor because tests do their own
   // initialization of the object.
-  constructor() {
+  constructor () {
     super();
     this.watcher = null; // k8s resource watcher for CSI nodes resource
     this.registry = null;
@@ -25,12 +25,12 @@ class NodeOperator extends EventEmitter {
   // @param {object} k8sClient   k8s client for connecting to k8s api server.
   // @param {object} registry    Registry object.
   //
-  init(k8sClient, registry) {
+  init (k8sClient, registry) {
     assert(registry);
 
     log.info('Initializing node operator');
 
-    let watcher = new Watcher(
+    const watcher = new Watcher(
       'node',
       k8sClient.apis['storage.k8s.io'].v1beta1.csinodes,
       k8sClient.apis['storage.k8s.io'].v1beta1.watch.csinodes,
@@ -88,7 +88,7 @@ class NodeOperator extends EventEmitter {
   // @param   {object} csiNode   CSINode object as received from k8s api server.
   // @returns {object} Mayastor storage node information.
   //
-  filterMayastorNode(csiNode) {
+  filterMayastorNode (csiNode) {
     // find mayastor driver if there is any
     const drivers = csiNode.spec.drivers;
     if (!drivers) {
@@ -96,7 +96,7 @@ class NodeOperator extends EventEmitter {
       return {
         name: csiNode.metadata.name,
         id: null,
-        endpoint: null,
+        endpoint: null
       };
     }
     const driver = drivers.find((drv) => drv.name === PLUGIN_NAME);
@@ -105,7 +105,7 @@ class NodeOperator extends EventEmitter {
       return {
         name: csiNode.metadata.name,
         id: null,
-        endpoint: null,
+        endpoint: null
       };
     }
 
@@ -126,7 +126,7 @@ class NodeOperator extends EventEmitter {
     return {
       name: nodeId.node,
       id: driver.nodeID,
-      endpoint: nodeId.endpoint,
+      endpoint: nodeId.endpoint
     };
   }
 
@@ -136,7 +136,7 @@ class NodeOperator extends EventEmitter {
   // multiple CSI plugins, so new and mod handlers must be prepared to
   // handle cases when the mayastor plugin is actually removed instead of
   // being added or modified.
-  _bindWatcher(watcher) {
+  _bindWatcher (watcher) {
     watcher.on('new', this._nodeEventCallback.bind(this));
     watcher.on('mod', this._nodeEventCallback.bind(this));
     // del is triggered when the whole CSINode record is deleted
@@ -151,9 +151,9 @@ class NodeOperator extends EventEmitter {
   // Called when there is an event (new/mod/del) on CSINode resource.
   //
   // @param {object} newProps   New CSINode properties.
-  _nodeEventCallback(newProps) {
-    let name = newProps.name;
-    let curObj = this.registry.getNode(name);
+  _nodeEventCallback (newProps) {
+    const name = newProps.name;
+    const curObj = this.registry.getNode(name);
 
     if (curObj) {
       if (newProps.id) {
@@ -175,13 +175,13 @@ class NodeOperator extends EventEmitter {
 
   // Get list of CSINode resources and start the watcher. It emits
   // ready event when the initialization is done.
-  async start() {
+  async start () {
     await this.watcher.start();
     this.emit('ready');
   }
 
   // Stop the watcher.
-  async stop() {
+  async stop () {
     this.watcher.removeAllListeners();
     await this.watcher.stop();
   }

@@ -44,7 +44,8 @@ fn main() -> Result<(), std::io::Error> {
         if uring_supported { "yes" } else { "no" }
     );
     info!("free_pages: {} nr_pages: {}", free_pages, nr_pages);
-    let env = MayastorEnvironment::new(args);
+    let mut env = MayastorEnvironment::new(args);
+    env.enable_grpc = true;
     env.start(|| {
         info!("Mayastor started {} ({})...", '\u{1F680}', git_version!());
     })

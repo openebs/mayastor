@@ -12,7 +12,7 @@ const defs = Object.values(
       path.join(__dirname, '..', 'proto', 'mayastor.proto'),
       {
         // this is to load google/descriptor.proto
-        includeDirs: ['./node_modules/protobufjs'],
+        includeDirs: ['./node_modules/protobufjs']
       }
     )
   ).mayastor

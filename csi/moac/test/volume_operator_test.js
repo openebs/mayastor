@@ -22,7 +22,7 @@ const Watcher = require('./watcher_stub');
 const UUID = 'd01b8bfb-0116-47b0-a03a-447fcbdc0e99';
 const NAMESPACE = 'mayastor';
 
-function defaultMeta(uuid) {
+function defaultMeta (uuid) {
   return {
     creationTimestamp: '2019-02-15T18:23:53Z',
     generation: 1,
@@ -30,18 +30,18 @@ function defaultMeta(uuid) {
     namespace: NAMESPACE,
     resourceVersion: '627981',
     selfLink: `/apis/openebs.io/v1alpha1/namespaces/${NAMESPACE}/mayastorvolumes/${uuid}`,
-    uid: 'd99f06a9-314e-11e9-b086-589cfc0d76a7',
+    uid: 'd99f06a9-314e-11e9-b086-589cfc0d76a7'
   };
 }
 
-module.exports = function() {
+module.exports = function () {
   var msStub, putStub, putStatusStub, deleteStub, postStub;
   var defaultSpec = {
     replicaCount: 1,
     preferredNodes: ['node1', 'node2'],
     requiredNodes: ['node2'],
     requiredBytes: 100,
-    limitBytes: 120,
+    limitBytes: 120
   };
   var defaultStatus = {
     size: 110,
@@ -51,18 +51,18 @@ module.exports = function() {
       {
         uri: 'bdev:///' + UUID,
         node: 'node2',
-        state: 'ONLINE',
-      },
-    ],
+        state: 'ONLINE'
+      }
+    ]
   };
 
   // Create k8s volume resource object
-  function createVolumeResource(uuid, spec, status) {
-    let obj = {
+  function createVolumeResource (uuid, spec, status) {
+    const obj = {
       apiVersion: 'openebs.io/v1alpha1',
       kind: 'MayastorVolume',
       metadata: defaultMeta(uuid),
-      spec: spec,
+      spec: spec
     };
     if (status) {
       obj.status = status;
@@ -75,22 +75,22 @@ module.exports = function() {
   // Note that this stub serves only for PUT method on mayastor resource
   // endpoint to update the status of resource. Fake watcher that is used
   // in the tests does not use this client stub.
-  function createK8sClient(watcher) {
-    let mayastorvolumes = { mayastorvolumes: function(name) {} };
-    let namespaces = function(ns) {
+  function createK8sClient (watcher) {
+    const mayastorvolumes = { mayastorvolumes: function (name) {} };
+    const namespaces = function (ns) {
       expect(ns).to.equal(NAMESPACE);
       return mayastorvolumes;
     };
-    let client = {
+    const client = {
       apis: {
         'openebs.io': {
-          v1alpha1: { namespaces },
-        },
-      },
+          v1alpha1: { namespaces }
+        }
+      }
     };
 
     msStub = sinon.stub(mayastorvolumes, 'mayastorvolumes');
-    msStub.post = async function(payload) {
+    msStub.post = async function (payload) {
       watcher.objects[payload.body.metadata.name] = payload.body;
       // simulate the asynchronicity of the put
       await sleep(1);
@@ -98,20 +98,20 @@ module.exports = function() {
     postStub = sinon.stub(msStub, 'post');
     postStub.callThrough();
 
-    let msObject = {
+    const msObject = {
       // the tricky thing here is that we have to update watcher's cache
       // if we use this fake k8s client to change the object in order to
       // mimic real behaviour.
-      put: async function(payload) {
+      put: async function (payload) {
         watcher.objects[payload.body.metadata.name].spec = payload.body.spec;
       },
-      delete: async function() {},
+      delete: async function () {},
       status: {
-        put: async function(payload) {
+        put: async function (payload) {
           watcher.objects[payload.body.metadata.name].status =
             payload.body.status;
-        },
-      },
+        }
+      }
     };
     putStub = sinon.stub(msObject, 'put');
     putStub.callThrough();
@@ -125,8 +125,8 @@ module.exports = function() {
 
   // Create a pool operator object suitable for testing - with fake watcher
   // and fake k8s api client.
-  async function mockedVolumeOperator(k8sObjects, volumes) {
-    let oper = new VolumeOperator(NAMESPACE);
+  async function mockedVolumeOperator (k8sObjects, volumes) {
+    const oper = new VolumeOperator(NAMESPACE);
     oper.volumes = volumes;
     oper.watcher = new Watcher(oper._filterMayastorVolume, k8sObjects);
     oper.k8sClient = createK8sClient(oper.watcher);
@@ -137,14 +137,14 @@ module.exports = function() {
 
   describe('resource filter', () => {
     it('valid mayastor volume with status should pass the filter', () => {
-      let obj = createVolumeResource(
+      const obj = createVolumeResource(
         UUID,
         {
           replicaCount: 3,
           preferredNodes: ['node1', 'node2'],
           requiredNodes: ['node2'],
           requiredBytes: 100,
-          limitBytes: 120,
+          limitBytes: 120
         },
         {
           size: 110,
@@ -154,13 +154,13 @@ module.exports = function() {
             {
               uri: 'bdev:///' + UUID,
               node: 'node2',
-              state: 'ONLINE',
-            },
-          ],
+              state: 'ONLINE'
+            }
+          ]
         }
       );
 
-      let res = VolumeOperator.prototype._filterMayastorVolume(obj);
+      const res = VolumeOperator.prototype._filterMayastorVolume(obj);
       expect(res.metadata.name).to.equal(UUID);
       expect(res.spec.replicaCount).to.equal(3);
       expect(res.spec.preferredNodes).to.have.lengthOf(2);
@@ -180,14 +180,14 @@ module.exports = function() {
     });
 
     it('valid mayastor volume without status should pass the filter', () => {
-      let obj = createVolumeResource(UUID, {
+      const obj = createVolumeResource(UUID, {
         replicaCount: 3,
         preferredNodes: ['node1', 'node2'],
         requiredNodes: ['node2'],
         requiredBytes: 100,
-        limitBytes: 120,
+        limitBytes: 120
       });
-      let res = VolumeOperator.prototype._filterMayastorVolume(obj);
+      const res = VolumeOperator.prototype._filterMayastorVolume(obj);
       expect(res.metadata.name).to.equal(UUID);
       expect(res.spec.replicaCount).to.equal(3);
       // jshint ignore:start
@@ -196,10 +196,10 @@ module.exports = function() {
     });
 
     it('mayastor volume without optional parameters should pass the filter', () => {
-      let obj = createVolumeResource(UUID, {
-        requiredBytes: 100,
+      const obj = createVolumeResource(UUID, {
+        requiredBytes: 100
       });
-      let res = VolumeOperator.prototype._filterMayastorVolume(obj);
+      const res = VolumeOperator.prototype._filterMayastorVolume(obj);
       expect(res.metadata.name).to.equal(UUID);
       expect(res.spec.replicaCount).to.equal(1);
       expect(res.spec.preferredNodes).to.have.lengthOf(0);
@@ -212,27 +212,27 @@ module.exports = function() {
     });
 
     it('mayastor volume without requiredSize should be ignored', () => {
-      let obj = createVolumeResource(UUID, {
+      const obj = createVolumeResource(UUID, {
         replicaCount: 3,
         preferredNodes: ['node1', 'node2'],
         requiredNodes: ['node2'],
-        limitBytes: 120,
+        limitBytes: 120
       });
-      let res = VolumeOperator.prototype._filterMayastorVolume(obj);
+      const res = VolumeOperator.prototype._filterMayastorVolume(obj);
       // jshint ignore:start
       expect(res).to.be.null;
       // jshint ignore:end
     });
 
     it('mayastor volume with invalid UUID should be ignored', () => {
-      let obj = createVolumeResource('blabla', {
+      const obj = createVolumeResource('blabla', {
         replicaCount: 3,
         preferredNodes: ['node1', 'node2'],
         requiredNodes: ['node2'],
         requiredBytes: 100,
-        limitBytes: 120,
+        limitBytes: 120
       });
-      let res = VolumeOperator.prototype._filterMayastorVolume(obj);
+      const res = VolumeOperator.prototype._filterMayastorVolume(obj);
       // jshint ignore:start
       expect(res).to.be.null;
       // jshint ignore:end
@@ -250,9 +250,9 @@ module.exports = function() {
     });
 
     it('should call create volume for existing resources when starting the operator', async () => {
-      let registry = new Registry();
-      let volumes = new Volumes(registry);
-      let createVolumeStub = sinon.stub(volumes, 'createVolume');
+      const registry = new Registry();
+      const volumes = new Volumes(registry);
+      const createVolumeStub = sinon.stub(volumes, 'createVolume');
       // return value is not used so just return something
       createVolumeStub.resolves({ uuid: UUID });
 
@@ -265,9 +265,9 @@ module.exports = function() {
     });
 
     it('should create volume upon "new" event', async () => {
-      let registry = new Registry();
-      let volumes = new Volumes(registry);
-      let createVolumeStub = sinon.stub(volumes, 'createVolume');
+      const registry = new Registry();
+      const volumes = new Volumes(registry);
+      const createVolumeStub = sinon.stub(volumes, 'createVolume');
       createVolumeStub.resolves({ uuid: UUID });
 
       oper = await mockedVolumeOperator([], volumes);
@@ -278,19 +278,19 @@ module.exports = function() {
     });
 
     it('should not try to create volume upon "new" event if the resource was self-created', async () => {
-      let registry = new Registry();
-      let volumes = new Volumes(registry);
+      const registry = new Registry();
+      const volumes = new Volumes(registry);
       sinon.stub(volumes, 'get').returns([]);
-      let createVolumeStub = sinon.stub(volumes, 'createVolume');
+      const createVolumeStub = sinon.stub(volumes, 'createVolume');
       createVolumeStub.resolves({ uuid: UUID });
 
       oper = await mockedVolumeOperator([], volumes);
       // Pretend the volume creation through i.e. CSI.
       await sleep(10);
-      let volume = new Volume(UUID, registry, defaultSpec);
+      const volume = new Volume(UUID, registry, defaultSpec);
       volumes.emit('volume', {
         eventType: 'new',
-        object: volume,
+        object: volume
       });
       await sleep(10);
       // now trigger "new" watcher event (natural consequence of the above)
@@ -299,9 +299,9 @@ module.exports = function() {
     });
 
     it('should set reason in resource if volume creation fails upon "new" event', async () => {
-      let registry = new Registry();
-      let volumes = new Volumes(registry);
-      let createVolumeStub = sinon.stub(volumes, 'createVolume');
+      const registry = new Registry();
+      const volumes = new Volumes(registry);
+      const createVolumeStub = sinon.stub(volumes, 'createVolume');
       createVolumeStub.rejects(
         new GrpcError(GrpcCode.INTERNAL, 'create failed')
       );
@@ -321,18 +321,18 @@ module.exports = function() {
           metadata: defaultMeta(UUID),
           status: {
             state: 'PENDING',
-            reason: 'Error: create failed',
-          },
-        },
+            reason: 'Error: create failed'
+          }
+        }
       });
     });
 
     it('should destroy the volume upon "del" event', async () => {
-      let registry = new Registry();
-      let volumes = new Volumes(registry);
-      let destroyVolumeStub = sinon.stub(volumes, 'destroyVolume');
+      const registry = new Registry();
+      const volumes = new Volumes(registry);
+      const destroyVolumeStub = sinon.stub(volumes, 'destroyVolume');
       destroyVolumeStub.resolves();
-      let obj = createVolumeResource(UUID, defaultSpec, defaultStatus);
+      const obj = createVolumeResource(UUID, defaultSpec, defaultStatus);
 
       oper = await mockedVolumeOperator([], volumes);
       oper.watcher.injectObject(obj);
@@ -343,13 +343,13 @@ module.exports = function() {
     });
 
     it('should handle gracefully if destroy of a volume fails upon "del" event', async () => {
-      let registry = new Registry();
-      let volumes = new Volumes(registry);
-      let destroyVolumeStub = sinon.stub(volumes, 'destroyVolume');
+      const registry = new Registry();
+      const volumes = new Volumes(registry);
+      const destroyVolumeStub = sinon.stub(volumes, 'destroyVolume');
       destroyVolumeStub.rejects(
         new GrpcError(GrpcCode.INTERNAL, 'destroy failed')
       );
-      let obj = createVolumeResource(UUID, defaultSpec, defaultStatus);
+      const obj = createVolumeResource(UUID, defaultSpec, defaultStatus);
 
       oper = await mockedVolumeOperator([], volumes);
       oper.watcher.injectObject(obj);
@@ -360,11 +360,11 @@ module.exports = function() {
     });
 
     it('should modify the volume upon "mod" event', async () => {
-      let registry = new Registry();
-      let volumes = new Volumes(registry);
-      let volume = new Volume(UUID, registry, defaultSpec);
+      const registry = new Registry();
+      const volumes = new Volumes(registry);
+      const volume = new Volume(UUID, registry, defaultSpec);
       volume.size = 110;
-      let ensureStub = sinon.stub(volume, 'ensure');
+      const ensureStub = sinon.stub(volume, 'ensure');
       ensureStub.resolves();
       sinon
         .stub(volumes, 'get')
@@ -372,16 +372,16 @@ module.exports = function() {
         .returns(volume)
         .withArgs()
         .returns([]);
-      let oldObj = createVolumeResource(UUID, defaultSpec, defaultStatus);
+      const oldObj = createVolumeResource(UUID, defaultSpec, defaultStatus);
       // new changed specification of the object
-      let newObj = createVolumeResource(
+      const newObj = createVolumeResource(
         UUID,
         {
           replicaCount: 3,
           preferredNodes: ['node1'],
           requiredNodes: [],
           requiredBytes: 90,
-          limitBytes: 130,
+          limitBytes: 130
         },
         defaultStatus
       );
@@ -400,11 +400,11 @@ module.exports = function() {
     });
 
     it('should not crash if update volume fails upon "mod" event', async () => {
-      let registry = new Registry();
-      let volumes = new Volumes(registry);
-      let volume = new Volume(UUID, registry, defaultSpec);
+      const registry = new Registry();
+      const volumes = new Volumes(registry);
+      const volume = new Volume(UUID, registry, defaultSpec);
       volume.size = 110;
-      let ensureStub = sinon.stub(volume, 'ensure');
+      const ensureStub = sinon.stub(volume, 'ensure');
       ensureStub.resolves();
       sinon
         .stub(volumes, 'get')
@@ -412,16 +412,16 @@ module.exports = function() {
         .returns(volume)
         .withArgs()
         .returns([]);
-      let oldObj = createVolumeResource(UUID, defaultSpec, defaultStatus);
+      const oldObj = createVolumeResource(UUID, defaultSpec, defaultStatus);
       // new changed specification of the object
-      let newObj = createVolumeResource(
+      const newObj = createVolumeResource(
         UUID,
         {
           replicaCount: 3,
           preferredNodes: ['node1'],
           requiredNodes: [],
           requiredBytes: 111,
-          limitBytes: 130,
+          limitBytes: 130
         },
         defaultStatus
       );
@@ -438,11 +438,11 @@ module.exports = function() {
     });
 
     it('should not crash if ensure volume fails upon "mod" event', async () => {
-      let registry = new Registry();
-      let volumes = new Volumes(registry);
-      let volume = new Volume(UUID, registry, defaultSpec);
+      const registry = new Registry();
+      const volumes = new Volumes(registry);
+      const volume = new Volume(UUID, registry, defaultSpec);
       volume.size = 110;
-      let ensureStub = sinon.stub(volume, 'ensure');
+      const ensureStub = sinon.stub(volume, 'ensure');
       ensureStub.rejects(new GrpcError(GrpcCode.INTERNAL, 'ensure failed'));
       sinon
         .stub(volumes, 'get')
@@ -450,16 +450,16 @@ module.exports = function() {
         .returns(volume)
         .withArgs()
         .returns([]);
-      let oldObj = createVolumeResource(UUID, defaultSpec, defaultStatus);
+      const oldObj = createVolumeResource(UUID, defaultSpec, defaultStatus);
       // new changed specification of the object
-      let newObj = createVolumeResource(
+      const newObj = createVolumeResource(
         UUID,
         {
           replicaCount: 3,
           preferredNodes: ['node1'],
           requiredNodes: [],
           requiredBytes: 100,
-          limitBytes: 120,
+          limitBytes: 120
         },
         defaultStatus
       );
@@ -477,11 +477,11 @@ module.exports = function() {
     });
 
     it('should not do anything if volume params stay the same upon "mod" event', async () => {
-      let registry = new Registry();
-      let volumes = new Volumes(registry);
-      let volume = new Volume(UUID, registry, defaultSpec);
+      const registry = new Registry();
+      const volumes = new Volumes(registry);
+      const volume = new Volume(UUID, registry, defaultSpec);
       volume.size = 110;
-      let ensureStub = sinon.stub(volume, 'ensure');
+      const ensureStub = sinon.stub(volume, 'ensure');
       ensureStub.rejects(new GrpcError(GrpcCode.INTERNAL, 'ensure failed'));
       sinon
         .stub(volumes, 'get')
@@ -489,9 +489,9 @@ module.exports = function() {
         .returns(volume)
         .withArgs()
         .returns([]);
-      let oldObj = createVolumeResource(UUID, defaultSpec, defaultStatus);
+      const oldObj = createVolumeResource(UUID, defaultSpec, defaultStatus);
       // new specification of the object that is the same
-      let newObj = createVolumeResource(UUID, defaultSpec, defaultStatus);
+      const newObj = createVolumeResource(UUID, defaultSpec, defaultStatus);
 
       oper = await mockedVolumeOperator([], volumes);
       oper.watcher.injectObject(oldObj);
@@ -514,9 +514,9 @@ module.exports = function() {
     });
 
     it('should create a resource upon "new" volume event', async () => {
-      let registry = new Registry();
-      let volume = new Volume(UUID, registry, defaultSpec);
-      let volumes = new Volumes(registry);
+      const registry = new Registry();
+      const volume = new Volume(UUID, registry, defaultSpec);
+      const volumes = new Volumes(registry);
       sinon
         .stub(volumes, 'get')
         .withArgs(UUID)
@@ -532,10 +532,10 @@ module.exports = function() {
         body: {
           metadata: {
             name: UUID,
-            namespace: NAMESPACE,
+            namespace: NAMESPACE
           },
-          spec: defaultSpec,
-        },
+          spec: defaultSpec
+        }
       });
       sinon.assert.calledOnce(putStatusStub);
       sinon.assert.calledWithMatch(putStatusStub, {
@@ -545,16 +545,16 @@ module.exports = function() {
             reason: 'The volume is being created',
             replicas: [],
             size: 0,
-            state: 'PENDING',
-          },
-        },
+            state: 'PENDING'
+          }
+        }
       });
     });
 
     it('should not crash if POST fails upon "new" volume event', async () => {
-      let registry = new Registry();
-      let volumes = new Volumes(registry);
-      let volume = new Volume(UUID, registry, defaultSpec);
+      const registry = new Registry();
+      const volumes = new Volumes(registry);
+      const volume = new Volume(UUID, registry, defaultSpec);
       sinon.stub(volumes, 'get').returns([]);
 
       oper = await mockedVolumeOperator([], volumes);
@@ -563,7 +563,7 @@ module.exports = function() {
       await sleep(10);
       volumes.emit('volume', {
         eventType: 'new',
-        object: volume,
+        object: volume
       });
       await sleep(10);
       sinon.assert.calledOnce(postStub);
@@ -571,11 +571,11 @@ module.exports = function() {
     });
 
     it('should update the resource upon "new" volume event if it exists', async () => {
-      let registry = new Registry();
-      let volumes = new Volumes(registry);
-      let newSpec = _.cloneDeep(defaultSpec);
+      const registry = new Registry();
+      const volumes = new Volumes(registry);
+      const newSpec = _.cloneDeep(defaultSpec);
       newSpec.replicaCount += 1;
-      let volume = new Volume(UUID, registry, newSpec);
+      const volume = new Volume(UUID, registry, newSpec);
       sinon
         .stub(volumes, 'get')
         .withArgs(UUID)
@@ -584,22 +584,22 @@ module.exports = function() {
         .returns([volume]);
 
       oper = await mockedVolumeOperator([], volumes);
-      let obj = createVolumeResource(UUID, defaultSpec);
+      const obj = createVolumeResource(UUID, defaultSpec);
       oper.watcher.injectObject(obj);
 
       await sleep(10);
       sinon.assert.notCalled(postStub);
       sinon.assert.calledOnce(putStub);
       sinon.assert.calledWithMatch(putStub, {
-        body: { spec: newSpec },
+        body: { spec: newSpec }
       });
       sinon.assert.calledOnce(putStatusStub);
     });
 
     it('should not update the resource upon "new" volume event if it is the same', async () => {
-      let registry = new Registry();
-      let volumes = new Volumes(registry);
-      let volume = new Volume(UUID, registry, defaultSpec);
+      const registry = new Registry();
+      const volumes = new Volumes(registry);
+      const volume = new Volume(UUID, registry, defaultSpec);
       sinon
         .stub(volumes, 'get')
         .withArgs(UUID)
@@ -608,12 +608,12 @@ module.exports = function() {
         .returns([volume]);
 
       oper = await mockedVolumeOperator([], volumes);
-      let obj = createVolumeResource(UUID, defaultSpec, {
+      const obj = createVolumeResource(UUID, defaultSpec, {
         size: 0,
         node: '',
         state: 'PENDING',
         reason: 'The volume is being created',
-        replicas: [],
+        replicas: []
       });
       oper.watcher.injectObject(obj);
 
@@ -624,9 +624,9 @@ module.exports = function() {
     });
 
     it('should update the resource upon "mod" volume event', async () => {
-      let obj = createVolumeResource(UUID, defaultSpec);
-      let registry = new Registry();
-      let volumes = new Volumes(registry);
+      const obj = createVolumeResource(UUID, defaultSpec);
+      const registry = new Registry();
+      const volumes = new Volumes(registry);
       sinon.stub(volumes, 'get').returns([]);
 
       oper = await mockedVolumeOperator([], volumes);
@@ -634,17 +634,17 @@ module.exports = function() {
       // we have to sleep to give event stream chance to register its handlers
       await sleep(10);
 
-      let newSpec = {
+      const newSpec = {
         replicaCount: 3,
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 90,
-        limitBytes: 130,
+        limitBytes: 130
       };
-      let volume = new Volume(UUID, registry, newSpec);
+      const volume = new Volume(UUID, registry, newSpec);
       volumes.emit('volume', {
         eventType: 'mod',
-        object: volume,
+        object: volume
       });
 
       await sleep(10);
@@ -652,16 +652,16 @@ module.exports = function() {
       sinon.assert.calledWithMatch(putStub, {
         body: {
           metadata: defaultMeta(UUID),
-          spec: newSpec,
-        },
+          spec: newSpec
+        }
       });
       sinon.assert.calledOnce(putStatusStub);
     });
 
     it('should update just the status if spec has not changed upon "mod" volume event', async () => {
-      let obj = createVolumeResource(UUID, defaultSpec);
-      let registry = new Registry();
-      let volumes = new Volumes(registry);
+      const obj = createVolumeResource(UUID, defaultSpec);
+      const registry = new Registry();
+      const volumes = new Volumes(registry);
       sinon.stub(volumes, 'get').returns([]);
 
       oper = await mockedVolumeOperator([], volumes);
@@ -669,10 +669,10 @@ module.exports = function() {
       // we have to sleep to give event stream chance to register its handlers
       await sleep(10);
 
-      let volume = new Volume(UUID, registry, defaultSpec);
+      const volume = new Volume(UUID, registry, defaultSpec);
       volumes.emit('volume', {
         eventType: 'mod',
-        object: volume,
+        object: volume
       });
 
       await sleep(10);
@@ -681,9 +681,9 @@ module.exports = function() {
     });
 
     it('should not crash if PUT fails upon "mod" volume event', async () => {
-      let obj = createVolumeResource(UUID, defaultSpec);
-      let registry = new Registry();
-      let volumes = new Volumes(registry);
+      const obj = createVolumeResource(UUID, defaultSpec);
+      const registry = new Registry();
+      const volumes = new Volumes(registry);
       sinon.stub(volumes, 'get').returns([]);
 
       oper = await mockedVolumeOperator([], volumes);
@@ -692,17 +692,17 @@ module.exports = function() {
       // we have to sleep to give event stream chance to register its handlers
       await sleep(10);
 
-      let newSpec = {
+      const newSpec = {
         replicaCount: 3,
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 90,
-        limitBytes: 130,
+        limitBytes: 130
       };
-      let volume = new Volume(UUID, registry, newSpec);
+      const volume = new Volume(UUID, registry, newSpec);
       volumes.emit('volume', {
         eventType: 'mod',
-        object: volume,
+        object: volume
       });
 
       await sleep(10);
@@ -711,26 +711,26 @@ module.exports = function() {
     });
 
     it('should not crash if the resource does not exist upon "mod" volume event', async () => {
-      let obj = createVolumeResource(UUID, defaultSpec);
-      let registry = new Registry();
-      let volumes = new Volumes(registry);
+      const obj = createVolumeResource(UUID, defaultSpec);
+      const registry = new Registry();
+      const volumes = new Volumes(registry);
       sinon.stub(volumes, 'get').returns([]);
 
       oper = await mockedVolumeOperator([], volumes);
       // we have to sleep to give event stream chance to register its handlers
       await sleep(10);
 
-      let newSpec = {
+      const newSpec = {
         replicaCount: 3,
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 90,
-        limitBytes: 130,
+        limitBytes: 130
       };
-      let volume = new Volume(UUID, registry, newSpec);
+      const volume = new Volume(UUID, registry, newSpec);
       volumes.emit('volume', {
         eventType: 'mod',
-        object: volume,
+        object: volume
       });
 
       await sleep(10);
@@ -740,9 +740,9 @@ module.exports = function() {
     });
 
     it('should delete the resource upon "del" volume event', async () => {
-      let obj = createVolumeResource(UUID, defaultSpec);
-      let registry = new Registry();
-      let volumes = new Volumes(registry);
+      const obj = createVolumeResource(UUID, defaultSpec);
+      const registry = new Registry();
+      const volumes = new Volumes(registry);
       sinon.stub(volumes, 'get').returns([]);
 
       oper = await mockedVolumeOperator([], volumes);
@@ -750,10 +750,10 @@ module.exports = function() {
       // we have to sleep to give event stream chance to register its handlers
       await sleep(10);
 
-      let volume = new Volume(UUID, registry, defaultSpec);
+      const volume = new Volume(UUID, registry, defaultSpec);
       volumes.emit('volume', {
         eventType: 'del',
-        object: volume,
+        object: volume
       });
 
       await sleep(10);
@@ -761,9 +761,9 @@ module.exports = function() {
     });
 
     it('should not crash if DELETE fails upon "del" volume event', async () => {
-      let obj = createVolumeResource(UUID, defaultSpec);
-      let registry = new Registry();
-      let volumes = new Volumes(registry);
+      const obj = createVolumeResource(UUID, defaultSpec);
+      const registry = new Registry();
+      const volumes = new Volumes(registry);
       sinon.stub(volumes, 'get').returns([]);
 
       oper = await mockedVolumeOperator([], volumes);
@@ -772,10 +772,10 @@ module.exports = function() {
       await sleep(10);
 
       deleteStub.rejects(new Error('delete failed'));
-      let volume = new Volume(UUID, registry, defaultSpec);
+      const volume = new Volume(UUID, registry, defaultSpec);
       volumes.emit('volume', {
         eventType: 'del',
-        object: volume,
+        object: volume
       });
 
       await sleep(10);
@@ -783,19 +783,19 @@ module.exports = function() {
     });
 
     it('should not crash if the resource does not exist upon "del" volume event', async () => {
-      let obj = createVolumeResource(UUID, defaultSpec);
-      let registry = new Registry();
-      let volumes = new Volumes(registry);
+      const obj = createVolumeResource(UUID, defaultSpec);
+      const registry = new Registry();
+      const volumes = new Volumes(registry);
       sinon.stub(volumes, 'get').returns([]);
 
       oper = await mockedVolumeOperator([], volumes);
       // we have to sleep to give event stream chance to register its handlers
       await sleep(10);
 
-      let volume = new Volume(UUID, registry, defaultSpec);
+      const volume = new Volume(UUID, registry, defaultSpec);
       volumes.emit('volume', {
         eventType: 'del',
-        object: volume,
+        object: volume
       });
 
       await sleep(10);

@@ -13,6 +13,7 @@ pub mod bdev;
 pub mod core;
 pub mod delay;
 pub mod ffihelper;
+pub mod grpc;
 pub mod jsonrpc;
 pub mod logger;
 pub mod nexus_uri;

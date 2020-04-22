@@ -318,7 +318,7 @@ dependencies = [
  "rpc",
  "serde",
  "serde_json",
- "structopt",
+ "structopt 0.2.18",
  "tokio",
 ]
 
@@ -422,6 +422,7 @@ name = "csi"
 version = "0.1.0"
 dependencies = [
  "blkid",
+ "byte-unit",
  "bytes 0.5.4",
  "bytesize",
  "chrono",
@@ -1099,15 +1100,20 @@ dependencies = [
  "nix 0.16.1",
  "once_cell",
  "pin-utils",
+ "prost",
+ "prost-derive",
+ "prost-types",
  "rpc",
  "run_script",
  "serde",
  "serde_json",
  "snafu",
  "spdk-sys",
- "structopt",
+ "structopt 0.3.13",
  "sysfs",
+ "tokio",
  "tonic",
+ "tower",
  "url",
  "uuid",
 ]
@@ -1913,7 +1919,18 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "16c2cdbf9cc375f15d1b4141bc48aeef444806655cd0e904207edc8d68d86ed7"
 dependencies = [
  "clap",
- "structopt-derive",
+ "structopt-derive 0.2.18",
+]
+
+[[package]]
+name = "structopt"
+version = "0.3.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff6da2e8d107dfd7b74df5ef4d205c6aebee0706c647f6bc6a2d5789905c00fb"
+dependencies = [
+ "clap",
+ "lazy_static",
+ "structopt-derive 0.4.6",
 ]
 
 [[package]]
@@ -1926,6 +1943,19 @@ dependencies = [
  "proc-macro2 0.4.30",
  "quote 0.6.13",
  "syn 0.15.44",
+]
+
+[[package]]
+name = "structopt-derive"
+version = "0.4.6"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a489c87c08fbaf12e386665109dd13470dcc9c4583ea3e10dd2b4523e5ebd9ac"
+dependencies = [
+ "heck",
+ "proc-macro-error",
+ "proc-macro2 1.0.10",
+ "quote 1.0.3",
+ "syn 1.0.17",
 ]
 
 [[package]]

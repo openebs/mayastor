@@ -25,12 +25,12 @@ const log = new logger.Logger();
 //
 // @param   {string} [kubefile]    Kube config file.
 // @returns {object}  k8s client object.
-function createK8sClient(kubefile) {
+function createK8sClient (kubefile) {
   var backend;
   try {
     if (kubefile != null) {
       log.info('Reading k8s configuration from file ' + kubefile);
-      let kubeconfig = new KubeConfig();
+      const kubeconfig = new KubeConfig();
       kubeconfig.loadFromFile(kubefile);
       backend = new Request({ kubeconfig });
     }
@@ -41,7 +41,7 @@ function createK8sClient(kubefile) {
   }
 }
 
-async function main() {
+async function main () {
   var client;
   var registry;
   var volumes;
@@ -51,43 +51,43 @@ async function main() {
   var csiServer;
   var apiServer;
 
-  let opts = yargs
+  const opts = yargs
     .options({
       a: {
         alias: 'csi-address',
         describe: 'Socket path where to listen for incoming CSI requests',
         default: '/var/tmp/csi.sock',
-        string: true,
+        string: true
       },
       k: {
         alias: 'kubeconfig',
         describe: 'Path to kubeconfig file',
-        string: true,
+        string: true
       },
       n: {
         alias: 'namespace',
         describe: 'Namespace of mayastor custom resources',
         default: 'default',
-        string: true,
+        string: true
       },
       p: {
         alias: 'port',
         describe: 'Port the REST API server should listen on',
         default: 3000,
-        number: true,
+        number: true
       },
       s: {
         alias: 'skip-k8s',
         describe:
           'Skip k8s client and k8s operators initialization (only for debug purpose)',
         default: false,
-        boolean: true,
+        boolean: true
       },
       v: {
         alias: 'verbose',
         describe: 'Print debug log messages',
-        count: true,
-      },
+        count: true
+      }
     })
     .help('help')
     .strict().argv;
@@ -105,7 +105,7 @@ async function main() {
   }
 
   // We must install signal handlers before grpc lib does it.
-  async function cleanUp() {
+  async function cleanUp () {
     if (csiServer) csiServer.undoReady();
     if (apiServer) apiServer.stop();
     if (!opts.s) {
