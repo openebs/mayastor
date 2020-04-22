@@ -1,0 +1,4 @@
+# we need elevated privileges to run nvmeadm related tests.
+# cargo will ask you nicely to type your password
+[target.x86_64-unknown-linux-gnu]
+runner = 'sudo -E'
