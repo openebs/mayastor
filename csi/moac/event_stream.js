@@ -40,7 +40,7 @@ class EventStream extends Readable {
   // @param {object} source.volumes   Volume manager.
   // @param {object} [opts]           nodejs stream options.
   //
-  constructor(source, opts) {
+  constructor (source, opts) {
     assert(source);
     super(_.assign({ objectMode: true }, opts || {}));
     this.events = [];
@@ -59,25 +59,25 @@ class EventStream extends Readable {
       node: this._onEvent.bind(this, 'node'),
       nexus: this._onEvent.bind(this, 'nexus'),
       pool: this._onEvent.bind(this, 'pool'),
-      replica: this._onEvent.bind(this, 'replica'),
+      replica: this._onEvent.bind(this, 'replica')
     };
     this.volumesEventListeners = {
-      volume: this._onEvent.bind(this, 'volume'),
+      volume: this._onEvent.bind(this, 'volume')
     };
   }
 
   // Start listeners and emit events about existing objects.
-  _start() {
+  _start () {
     assert(!this.waiting);
     assert(this.events.length == 0);
     this.started = true;
     if (this.registry) {
-      for (let kind in this.registryEventListeners) {
+      for (const kind in this.registryEventListeners) {
         this.registry.on(kind, this.registryEventListeners[kind]);
       }
     }
     if (this.volumes) {
-      for (let kind in this.volumesEventListeners) {
+      for (const kind in this.volumesEventListeners) {
         this.volumes.on(kind, this.volumesEventListeners[kind]);
       }
     }
@@ -90,13 +90,13 @@ class EventStream extends Readable {
           self.events.push({
             kind: 'pool',
             eventType: 'new',
-            object: obj,
+            object: obj
           });
           obj.replicas.forEach((obj) => {
             self.events.push({
               kind: 'replica',
               eventType: 'new',
-              object: obj,
+              object: obj
             });
           });
         });
@@ -104,7 +104,7 @@ class EventStream extends Readable {
           self.events.push({
             kind: 'nexus',
             eventType: 'new',
-            object: obj,
+            object: obj
           });
         });
         // generate artificial 'sync' event for the node so that the reader knows
@@ -112,7 +112,7 @@ class EventStream extends Readable {
         self.events.push({
           kind: 'node',
           eventType: 'sync',
-          object: node,
+          object: node
         });
       });
     }
@@ -121,7 +121,7 @@ class EventStream extends Readable {
         self.events.push({
           kind: 'volume',
           eventType: 'new',
-          object: volume,
+          object: volume
         });
       });
     }
@@ -131,11 +131,11 @@ class EventStream extends Readable {
     }
   }
 
-  _onEvent(kind, ev) {
+  _onEvent (kind, ev) {
     this.events.push({
       kind: kind,
       eventType: ev.eventType,
-      object: ev.object,
+      object: ev.object
     });
     if (this.waiting) {
       this.waiting = false;
@@ -143,13 +143,13 @@ class EventStream extends Readable {
     }
   }
 
-  _read(size) {
+  _read (size) {
     if (!this.started) {
       this._start();
     }
     let cont = true;
     while (cont) {
-      let ev = this.events.shift();
+      const ev = this.events.shift();
       if (ev) {
         cont = this.push(ev);
       } else {
@@ -162,15 +162,15 @@ class EventStream extends Readable {
     }
   }
 
-  _destroy(err, cb) {
+  _destroy (err, cb) {
     if (this.started) {
       if (this.registry) {
-        for (let kind in this.registryEventListeners) {
+        for (const kind in this.registryEventListeners) {
           this.registry.removeListener(kind, this.registryEventListeners[kind]);
         }
       }
       if (this.volumes) {
-        for (let kind in this.volumesEventListeners) {
+        for (const kind in this.volumesEventListeners) {
           this.volumes.removeListener(kind, this.volumesEventListeners[kind]);
         }
       }

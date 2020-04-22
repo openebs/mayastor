@@ -24,7 +24,7 @@ class Volume {
   // @params {number}   spec.requiredBytes   The volume must have at least this size.
   // @params {number}   spec.limitBytes      The volume should not be bigger than this.
   //
-  constructor(uuid, registry, spec) {
+  constructor (uuid, registry, spec) {
     assert(spec);
     // specification of the volume
     this.uuid = uuid;
@@ -43,24 +43,24 @@ class Volume {
   }
 
   // Stringify volume
-  toString() {
+  toString () {
     return this.uuid;
   }
 
   // Get the size of the volume.
-  getSize() {
+  getSize () {
     return this.size;
   }
 
   // Get the node which the volume is accessible from
   // (currently that is where the nexus is).
-  getNodeName() {
+  getNodeName () {
     return this.nexus ? this.nexus.node.name : '';
   }
 
   // Publish the volume. That means make it accessible through a block device.
   // @params {string}   protocol      The nexus share protocol.
-  async publish(protocol) {
+  async publish (protocol) {
     if (this.nexus) {
       await this.nexus.publish(protocol);
     } else {
@@ -72,7 +72,7 @@ class Volume {
   }
 
   // Undo publish operation on the volume.
-  async unpublish() {
+  async unpublish () {
     if (this.nexus) {
       await this.nexus.unpublish();
     } else {
@@ -84,11 +84,11 @@ class Volume {
   }
 
   // Delete nexus and destroy all replicas of the volume.
-  async destroy() {
+  async destroy () {
     if (this.nexus) {
       await this.nexus.destroy();
     }
-    let promises = Object.values(this.replicas).map((replica) =>
+    const promises = Object.values(this.replicas).map((replica) =>
       replica.destroy()
     );
     await Promise.all(promises);
@@ -100,27 +100,27 @@ class Volume {
   //
   // TODO: there is much to improve in this func but we focus just on simple use
   // cases as of now.
-  async ensure() {
+  async ensure () {
     log.debug(`Ensuring state of volume "${this}"`);
 
     // Ensure there is sufficient number of replicas for the volume.
     // TODO: take replica state into account
-    let newReplicaCount = this.replicaCount - Object.keys(this.replicas).length;
+    const newReplicaCount = this.replicaCount - Object.keys(this.replicas).length;
     if (newReplicaCount > 0) {
       // create more replicas if higher replication factor is desired
       await this._createReplicas(newReplicaCount);
     }
 
     // Ensure replicas can be accessed from nexus. Set share protocols.
-    let replicaSet = await this._ensureReplicaShareProtocols();
+    const replicaSet = await this._ensureReplicaShareProtocols();
 
     // Update child devs of existing nexus or create a new one if it is missing
     await this._ensureNexus(replicaSet);
 
     // Now when nexus has been updated we can remove excessive replicas
     // (those which are not recorded in the nexus)
-    let childrenUris = this.nexus.children.map((ch) => ch.uri);
-    let promises = Object.values(this.replicas)
+    const childrenUris = this.nexus.children.map((ch) => ch.uri);
+    const promises = Object.values(this.replicas)
       .filter((r) => childrenUris.indexOf(r.uri) < 0)
       .map((r) => r.destroy());
     try {
@@ -136,11 +136,11 @@ class Volume {
   //
   // @param {object[]} replicas   Replicas that should be used for child bdevs of nexus.
   //
-  async _ensureNexus(replicas) {
-    let nexus = this.nexus;
+  async _ensureNexus (replicas) {
+    const nexus = this.nexus;
     if (!nexus) {
       // create a new nexus
-      let localReplica = Object.values(this.replicas).find(
+      const localReplica = Object.values(this.replicas).find(
         (r) => r.share == 'REPLICA_NONE'
       );
       if (!localReplica) {
@@ -158,15 +158,15 @@ class Volume {
       log.info(`Volume "${this}" with size ${this.size} was created`);
     } else {
       // TODO: Switching order might be more safe (remove and add uri)
-      let oldUris = nexus.children.map((ch) => ch.uri).sort();
-      let newUris = _.map(replicas, 'uri').sort();
+      const oldUris = nexus.children.map((ch) => ch.uri).sort();
+      const newUris = _.map(replicas, 'uri').sort();
       // remove children which should not be in the nexus
       for (let i = 0; i < oldUris.length; i++) {
-        let uri = oldUris[i];
-        let idx = newUris.indexOf(uri);
+        const uri = oldUris[i];
+        const idx = newUris.indexOf(uri);
         if (idx < 0) {
           // jshint ignore:start
-          let replica = Object.values(this.replicas).find((r) => r.uri == uri);
+          const replica = Object.values(this.replicas).find((r) => r.uri == uri);
           if (replica) {
             try {
               await nexus.removeReplica(replica);
@@ -184,9 +184,9 @@ class Volume {
       }
       // add children which are not there yet
       for (let i = 0; i < newUris.length; i++) {
-        let uri = newUris[i];
+        const uri = newUris[i];
         // jshint ignore:start
-        let replica = Object.values(this.replicas).find((r) => r.uri == uri);
+        const replica = Object.values(this.replicas).find((r) => r.uri == uri);
         if (replica) {
           try {
             await nexus.addReplica(replica);
@@ -208,14 +208,14 @@ class Volume {
   //
   // @param {number} newCount   Number of new replicas to create.
   //
-  async _createReplicas(count) {
+  async _createReplicas (count) {
     let pools = this.registry.choosePools(
       this.requiredBytes,
       this.requiredNodes,
       this.preferredNodes
     );
     // remove pools that are already used by existing replicas
-    let usedNodes = Object.keys(this.replicas);
+    const usedNodes = Object.keys(this.replicas);
     pools = pools.filter((p) => usedNodes.indexOf(p.node.name) < 0);
     if (pools.length < count) {
       log.error(
@@ -243,10 +243,10 @@ class Volume {
 
     // We record all failures as we try to create the replica on available
     // pools to return them to the user at the end if we ultimately fail.
-    let errors = [];
+    const errors = [];
     // try one pool after another until success
     for (let i = 0; i < pools.length && count > 0; i++) {
-      let pool = pools[i];
+      const pool = pools[i];
 
       try {
         // this will add the replica to the cache if successful
@@ -271,8 +271,8 @@ class Volume {
   //
   // @returns {object[]}  List of replicas sorted by preference (the most first).
   //
-  _prioritizeReplicas() {
-    let self = this;
+  _prioritizeReplicas () {
+    const self = this;
     return Object.values(self.replicas).sort(
       (a, b) => self._scoreReplica(b) - self._scoreReplica(a)
     );
@@ -283,9 +283,9 @@ class Volume {
   // @param   {object} replica  Replica object.
   // @returns {number} Score from 0 to 18.
   //
-  _scoreReplica(replica) {
+  _scoreReplica (replica) {
     let score = 0;
-    let node = replica.pool.node;
+    const node = replica.pool.node;
 
     // criteria #1: must be on the required nodes if set
     if (
@@ -321,10 +321,10 @@ class Volume {
   //
   // @returns {object[]} Replicas that should be used for nexus sorted by preference.
   //
-  async _ensureReplicaShareProtocols() {
+  async _ensureReplicaShareProtocols () {
     // If nexus does not exist it will be created on the same node as the most
     // preferred replica.
-    let replicaSet = this._prioritizeReplicas();
+    const replicaSet = this._prioritizeReplicas();
     if (replicaSet.length == 0) {
       throw new GrpcError(
         GrpcCode.INTERNAL,
@@ -333,12 +333,12 @@ class Volume {
     }
     replicaSet.splice(this.replicaCount);
 
-    let nexusNode = this.nexus ? this.nexus.node : replicaSet[0].pool.node;
+    const nexusNode = this.nexus ? this.nexus.node : replicaSet[0].pool.node;
 
     for (let i = 0; i < replicaSet.length; i++) {
-      let replica = replicaSet[i];
+      const replica = replicaSet[i];
       let share;
-      let local = replica.pool.node == nexusNode;
+      const local = replica.pool.node == nexusNode;
       // make sure that replica which is local to the nexus is accessed locally
       if (local && replica.share != 'REPLICA_NONE') {
         share = 'REPLICA_NONE';
@@ -374,7 +374,7 @@ class Volume {
   // @params {number}   spec.limitBytes      The volume should not be bigger than this.
   // @returns {boolean} True if the volume spec has changed, false otherwise.
   //
-  update(spec) {
+  update (spec) {
     var changed = false;
 
     if (this.size < spec.requiredBytes) {
@@ -394,12 +394,12 @@ class Volume {
       this.replicaCount = spec.replicaCount;
       changed = true;
     }
-    let preferredNodes = _.clone(spec.preferredNodes || []).sort();
+    const preferredNodes = _.clone(spec.preferredNodes || []).sort();
     if (!_.isEqual(this.preferredNodes, preferredNodes)) {
       this.preferredNodes = preferredNodes;
       changed = true;
     }
-    let requiredNodes = _.clone(spec.requiredNodes || []).sort();
+    const requiredNodes = _.clone(spec.requiredNodes || []).sort();
     if (!_.isEqual(this.requiredNodes, requiredNodes)) {
       this.requiredNodes = requiredNodes;
       changed = true;
@@ -420,9 +420,9 @@ class Volume {
   //
 
   // Add new replica to the volume.
-  newReplica(replica) {
+  newReplica (replica) {
     assert(replica.uuid == this.uuid);
-    let nodeName = replica.pool.node.name;
+    const nodeName = replica.pool.node.name;
     if (this.replicas[nodeName]) {
       log.warn(
         `Trying to add the same replica "${replica}" to the volume twice`
@@ -436,9 +436,9 @@ class Volume {
   }
 
   // Modify replica in the volume.
-  modReplica(replica) {
+  modReplica (replica) {
     assert(replica.uuid == this.uuid);
-    let nodeName = replica.pool.node.name;
+    const nodeName = replica.pool.node.name;
     if (!this.replicas[nodeName]) {
       log.warn(`Modified replica "${replica}" does not belong to the volume`);
     } else {
@@ -449,9 +449,9 @@ class Volume {
   }
 
   // Delete replica in the volume.
-  delReplica(replica) {
+  delReplica (replica) {
     assert(replica.uuid == this.uuid);
-    let nodeName = replica.pool.node.name;
+    const nodeName = replica.pool.node.name;
     if (!this.replicas[nodeName]) {
       log.warn(`Deleted replica "${replica}" does not belong to the volume`);
     } else {
@@ -464,7 +464,7 @@ class Volume {
   }
 
   // Assign nexus to the volume.
-  newNexus(nexus) {
+  newNexus (nexus) {
     assert(nexus.uuid == this.uuid);
     if (this.nexus) {
       log.warn(`Trying to add nexus "${nexus}" to the volume twice`);
@@ -481,7 +481,7 @@ class Volume {
   }
 
   // Modify nexus in the volume.
-  modNexus(nexus) {
+  modNexus (nexus) {
     assert(nexus.uuid == this.uuid);
     if (!this.nexus) {
       log.warn(`Modified nexus "${nexus}" does not belong to the volume`);
@@ -494,7 +494,7 @@ class Volume {
   }
 
   // Delete nexus in the volume.
-  delNexus(nexus) {
+  delNexus (nexus) {
     assert(nexus.uuid == this.uuid);
     if (!this.nexus) {
       log.warn(`Deleted nexus "${nexus}" does not belong to the volume`);

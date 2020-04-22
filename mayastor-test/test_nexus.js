@@ -102,7 +102,7 @@ const configNvmfTarget = `
   MaxConnectionsPerSession 1
 `;
 
-function createGrpcClient(service) {
+function createGrpcClient (service) {
   return createClient(
     {
       protoPath: path.join(
@@ -119,17 +119,17 @@ function createGrpcClient(service) {
         longs: String,
         enums: String,
         defaults: true,
-        oneofs: true,
-      },
+        oneofs: true
+      }
     },
     common.grpc_endpoint
   );
 }
 
-var doUring = (function() {
+var doUring = (function () {
   var executed = false;
   var supportsUring = false;
-  return function() {
+  return function () {
     if (!executed) {
       executed = true;
       const { exec } = require('child_process');
@@ -152,7 +152,7 @@ var doUring = (function() {
   };
 })();
 
-describe('nexus', function() {
+describe('nexus', function () {
   var client;
   var nbd_device;
   var iscsi_uri;
@@ -193,13 +193,13 @@ describe('nexus', function() {
     });
   };
 
-  let createArgs = {
+  const createArgs = {
     uuid: UUID,
     size: 131072,
     children: [
-      `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk2`,
-      `aio:///${aioFile}?blk_size=4096`,
-    ],
+      'nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk2',
+      `aio:///${aioFile}?blk_size=4096`
+    ]
   };
   this.timeout(50000); // for network tests we need long timeouts
 
@@ -225,8 +225,7 @@ describe('nexus', function() {
           fs.truncate(uringFile, diskSize, next);
         },
         (next) => {
-          if (doUring())
-            createArgs.children.push(`uring:///${uringFile}?blk_size=4096`);
+          if (doUring()) { createArgs.children.push(`uring:///${uringFile}?blk_size=4096`); }
           next();
         },
         (next) => {
@@ -241,7 +240,7 @@ describe('nexus', function() {
             '-r',
             '/tmp/target.sock',
             '-s',
-            '128',
+            '128'
           ]);
           common.startMayastor(configNexus, ['-r', common.SOCK, '-s', 386]);
 
@@ -250,7 +249,7 @@ describe('nexus', function() {
             // use harmless method to test if the mayastor is up and running
             client.listPools({}, pingDone);
           }, next);
-        },
+        }
       ],
       done
     );
@@ -267,7 +266,7 @@ describe('nexus', function() {
         (next) => {
           if (doUring()) fs.unlink(uringFile, (err) => next());
           else next();
-        },
+        }
       ],
       (err) => {
         if (client != null) {
@@ -279,15 +278,15 @@ describe('nexus', function() {
   });
 
   it('should create a nexus using all types of replicas', (done) => {
-    let args = {
+    const args = {
       uuid: UUID,
       size: diskSize,
       children: [
         'bdev:///Malloc0',
         `aio:///${aioFile}?blk_size=4096`,
         `iscsi://${externIp}:3261/iqn.2019-05.io.openebs:disk1`,
-        `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk2`,
-      ],
+        'nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk2'
+      ]
     };
     if (doUring()) args.children.push(`uring:///${uringFile}?blk_size=4096`);
 
@@ -299,7 +298,7 @@ describe('nexus', function() {
       if (err) return done(err);
       assert.lengthOf(res.nexus_list, 1);
 
-      let nexus = res.nexus_list[0];
+      const nexus = res.nexus_list[0];
       const expectedChildren = 4 + doUring();
 
       assert.equal(nexus.uuid, UUID);
@@ -316,7 +315,7 @@ describe('nexus', function() {
       assert.equal(nexus.children[2].state, 'open');
       assert.equal(
         nexus.children[3].uri,
-        `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk2`
+        'nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk2'
       );
       assert.equal(nexus.children[3].state, 'open');
       if (doUring()) {
@@ -331,9 +330,9 @@ describe('nexus', function() {
   });
 
   it('should be able to remove one of its children', (done) => {
-    let args = {
+    const args = {
       uuid: UUID,
-      uri: `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk2`,
+      uri: 'nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk2'
     };
 
     client.RemoveChildNexus(args, (err) => {
@@ -341,7 +340,7 @@ describe('nexus', function() {
 
       client.ListNexus({}, (err, res) => {
         if (err) return done(err);
-        let nexus = res.nexus_list[0];
+        const nexus = res.nexus_list[0];
         const expectedChildren = 3 + doUring();
         assert.lengthOf(nexus.children, expectedChildren);
         assert(!nexus.children.find((ch) => ch.uri.match(/^nvmf:/)));
@@ -351,9 +350,9 @@ describe('nexus', function() {
   });
 
   it('should be able to add the child back', (done) => {
-    let args = {
+    const args = {
       uuid: UUID,
-      uri: `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk2`,
+      uri: 'nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk2'
     };
 
     client.AddChildNexus(args, (err) => {
@@ -361,7 +360,7 @@ describe('nexus', function() {
 
       client.ListNexus({}, (err, res) => {
         if (err) return done(err);
-        let nexus = res.nexus_list[0];
+        const nexus = res.nexus_list[0];
         const expectedChildren = 4 + doUring();
         assert.lengthOf(nexus.children, expectedChildren);
         assert(nexus.children.find((ch) => ch.uri.match(/^nvmf:/)));
@@ -371,10 +370,10 @@ describe('nexus', function() {
   });
 
   it('should fail to create another nexus with in use URIs', (done) => {
-    let args = {
+    const args = {
       uuid: UUID2,
       size: 131072,
-      children: [`iscsi://${externIp}:3261/iqn.2019-05.io.openebs:disk1`],
+      children: [`iscsi://${externIp}:3261/iqn.2019-05.io.openebs:disk1`]
     };
 
     client.CreateNexus(args, (err, res) => {
@@ -385,13 +384,13 @@ describe('nexus', function() {
   });
 
   it('should fail creating a nexus with non existing URIs', (done) => {
-    let args = {
+    const args = {
       uuid: UUID2,
       size: 131072,
       children: [
         `iscsi://${externIp}:3261/iqn.2019-05.io.spdk:disk2`,
-        `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk3`,
-      ],
+        'nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk3'
+      ]
     };
 
     client.CreateNexus(args, (err, res) => {
@@ -404,7 +403,7 @@ describe('nexus', function() {
     client.PublishNexus(
       {
         uuid: UUID,
-        share: enums.NEXUS_NBD,
+        share: enums.NEXUS_NBD
       },
       (err, res) => {
         assert(res.device_path);
@@ -426,7 +425,7 @@ describe('nexus', function() {
       {
         uuid: UUID,
         share: enums.NEXUS_NBD,
-        key: '0123456789123456',
+        key: '0123456789123456'
       },
       (err, res) => {
         assert(res.device_path);
@@ -438,8 +437,8 @@ describe('nexus', function() {
 
   it('should be able to write to the NBD device', async () => {
     const fs = require('fs').promises;
-    let fd = await fs.open(nbd_device, 'w', 666);
-    let buffer = Buffer.alloc(512, 'z', 'utf8');
+    const fd = await fs.open(nbd_device, 'w', 666);
+    const buffer = Buffer.alloc(512, 'z', 'utf8');
     await fd.write(buffer, 0, 512);
     await fd.sync();
     await fd.close();
@@ -447,8 +446,8 @@ describe('nexus', function() {
 
   it('should be able to read the written data back', async () => {
     const fs = require('fs').promises;
-    let fd = await fs.open(nbd_device, 'r', 666);
-    let buffer = Buffer.alloc(512, 'a', 'utf8');
+    const fd = await fs.open(nbd_device, 'r', 666);
+    const buffer = Buffer.alloc(512, 'a', 'utf8');
     await fd.read(buffer, 0, 512);
     await fd.close();
 
@@ -468,7 +467,7 @@ describe('nexus', function() {
     client.PublishNexus(
       {
         uuid: UUID,
-        share: enums.NEXUS_ISCSI,
+        share: enums.NEXUS_ISCSI
       },
       (err, res) => {
         assert(res.device_path);
@@ -488,7 +487,7 @@ describe('nexus', function() {
     client.PublishNexus(
       {
         uuid: UUID,
-        share: enums.NEXUS_ISCSI,
+        share: enums.NEXUS_ISCSI
       },
       (err, res) => {
         assert(res.device_path);
@@ -501,7 +500,7 @@ describe('nexus', function() {
     client.PublishNexus(
       {
         uuid: UUID,
-        share: enums.NEXUS_NBD,
+        share: enums.NEXUS_NBD
       },
       (err, res) => {
         if (!err) return done(new Error('Expected error'));
@@ -515,7 +514,7 @@ describe('nexus', function() {
     client.PublishNexus(
       {
         uuid: UUID,
-        share: enums.NEXUS_ISCSI,
+        share: enums.NEXUS_ISCSI
       },
       (err, res) => {
         if (err) done(err);
@@ -544,7 +543,7 @@ describe('nexus', function() {
       {
         uuid: UUID,
         share: enums.NEXUS_ISCSI,
-        key: '0123456789123456',
+        key: '0123456789123456'
       },
       (err, res) => {
         assert(res.device_path);
@@ -555,7 +554,7 @@ describe('nexus', function() {
   });
 
   it('should send io to the iscsi nexus device', (done) => {
-    let uri = iscsi_uri + '/0';
+    const uri = iscsi_uri + '/0';
     // runs the perf test for 1 second
     exec('iscsi-perf -t 1 ' + uri, (err, stdout, stderr) => {
       if (err) {
@@ -579,13 +578,13 @@ describe('nexus', function() {
   });
 
   it('should fail to create a nexus with mixed block sizes', (done) => {
-    let args = {
+    const args = {
       uuid: UUID,
       size: 131072,
       children: [
         `iscsi://${externIp}:3261/iqn.2019-05.io.openebs:disk1`,
-        `aio:///${aioFile}?blk_size=512`,
-      ],
+        `aio:///${aioFile}?blk_size=512`
+      ]
     };
     client.CreateNexus(args, (err, data) => {
       if (!err) return done(new Error('Expected error'));
@@ -595,13 +594,13 @@ describe('nexus', function() {
   });
 
   it('should fail to create a nexus with size larger than any of its replicas', (done) => {
-    let args = {
+    const args = {
       uuid: UUID,
       size: 2 * diskSize,
       children: [
         `iscsi://${externIp}:3261/iqn.2019-05.io.openebs:disk1`,
-        `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk2`,
-      ],
+        'nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk2'
+      ]
     };
 
     client.CreateNexus(args, (err, data) => {
@@ -624,7 +623,7 @@ describe('nexus', function() {
       await createNexus(createArgs);
       await publish({
         uuid: UUID,
-        share: enums.NEXUS_NBD,
+        share: enums.NEXUS_NBD
       });
       await unpublish({ uuid: UUID });
       await destroyNexus({ uuid: UUID });
@@ -636,7 +635,7 @@ describe('nexus', function() {
       await createNexus(createArgs);
       await publish({
         uuid: UUID,
-        share: enums.NEXUS_ISCSI,
+        share: enums.NEXUS_ISCSI
       });
       await unpublish({ uuid: UUID });
       await destroyNexus({ uuid: UUID });
@@ -656,7 +655,7 @@ describe('nexus', function() {
       await createNexus(createArgs);
       await publish({
         uuid: UUID,
-        share: enums.NEXUS_NBD,
+        share: enums.NEXUS_NBD
       });
       await destroyNexus({ uuid: UUID });
     }
@@ -667,7 +666,7 @@ describe('nexus', function() {
       await createNexus(createArgs);
       await publish({
         uuid: UUID,
-        share: enums.NEXUS_ISCSI,
+        share: enums.NEXUS_ISCSI
       });
       await destroyNexus({ uuid: UUID });
     }
@@ -699,7 +698,7 @@ describe('nexus', function() {
   it('should be the case that we do not have any dangling NBD devices left on the system', (done) => {
     exec('sleep 3; lsblk --json', (err, stdout, stderr) => {
       if (err) return done(err);
-      let output = JSON.parse(stdout);
+      const output = JSON.parse(stdout);
       output.blockdevices.forEach((e) => {
         assert(e.name.indexOf('nbd') === -1, `NBD Device found:\n${stdout}`);
       });

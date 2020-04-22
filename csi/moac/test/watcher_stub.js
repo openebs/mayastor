@@ -9,7 +9,7 @@ const EventEmitter = require('events');
 // on the watcher.
 class Watcher extends EventEmitter {
   // Construct a watcher with initial set of objects passed in arg.
-  constructor(filterCb, objects) {
+  constructor (filterCb, objects) {
     super();
     this.filterCb = filterCb;
     this.objects = {};
@@ -18,32 +18,32 @@ class Watcher extends EventEmitter {
     }
   }
 
-  injectObject(obj) {
+  injectObject (obj) {
     this.objects[obj.metadata.name] = obj;
   }
 
-  newObject(obj) {
+  newObject (obj) {
     this.objects[obj.metadata.name] = obj;
     this.emit('new', this.filterCb(obj));
   }
 
-  delObject(name) {
+  delObject (name) {
     var obj = this.objects[name];
     assert(obj);
     delete this.objects[name];
     this.emit('del', this.filterCb(obj));
   }
 
-  modObject(obj) {
+  modObject (obj) {
     this.objects[obj.metadata.name] = obj;
     this.emit('mod', this.filterCb(obj));
   }
 
-  async start() {
+  async start () {
     var self = this;
     return new Promise((resolve, reject) => {
       setTimeout(() => {
-        for (let name in self.objects) {
+        for (const name in self.objects) {
           // real objects coming from GET method also don't have kind and
           // apiVersion attrs so strip these props to mimic the real case.
           delete self.objects[name].kind;
@@ -55,10 +55,10 @@ class Watcher extends EventEmitter {
     });
   }
 
-  async stop() {}
+  async stop () {}
 
-  getRaw(name) {
-    let obj = this.objects[name];
+  getRaw (name) {
+    const obj = this.objects[name];
     if (!obj) {
       return null;
     } else {
@@ -66,7 +66,7 @@ class Watcher extends EventEmitter {
     }
   }
 
-  list() {
+  list () {
     var self = this;
     return Object.values(this.objects).map((ent) => self.filterCb(ent));
   }

@@ -28,7 +28,7 @@ var grpc_endpoint = my_ip + ':' + test_port;
 var procs = {};
 
 // Construct path to a rust binary in target/debug/... dir.
-function getCmdPath(name) {
+function getCmdPath (name) {
   return path.join(__dirname, '..', 'target', 'debug', name);
 }
 
@@ -39,26 +39,26 @@ function getCmdPath(name) {
 // TODO: Beware that glob expansion of file names works differently
 // between the two cases. When using just spawn() file names are not
 // expanded.
-function runAsRoot(cmd, args, env, nameInPs) {
+function runAsRoot (cmd, args, env, nameInPs) {
   env = env || {};
   env = _.assignIn(
     {},
     process.env,
     {
-      RUST_BACKTRACE: 1,
+      RUST_BACKTRACE: 1
     },
     env
   );
   if (process.geteuid() === 0) {
     return spawn(cmd, args || [], {
       env,
-      shell: '/bin/bash',
+      shell: '/bin/bash'
     });
   } else {
     return sudo(
       [cmd].concat(args || []),
       {
-        spawnOptions: { env },
+        spawnOptions: { env }
       },
       nameInPs
     );
@@ -67,8 +67,8 @@ function runAsRoot(cmd, args, env, nameInPs) {
 
 // Execute command as root and call callback with (error, stdout) arguments
 // when the command has finished.
-function execAsRoot(cmd, args, done) {
-  let child = runAsRoot(cmd, args);
+function execAsRoot (cmd, args, done) {
+  const child = runAsRoot(cmd, args);
   let stderr = '';
   let stdout = '';
 
@@ -99,7 +99,7 @@ function execAsRoot(cmd, args, done) {
 
 // Periodically ping mayastor until up and running.
 // Ping cb with grpc call is provided by the caller.
-function waitFor(ping, done) {
+function waitFor (ping, done) {
   let last_error;
   let iters = 0;
 
@@ -127,8 +127,8 @@ function waitFor(ping, done) {
 }
 
 // Find the first usable external IPv4 address on the system
-function getMyIp() {
-  let externIp = _.map(
+function getMyIp () {
+  const externIp = _.map(
     _.flatten(Object.values(os.networkInterfaces())),
     'address'
   ).find((addr) => addr.indexOf(':') < 0 && !addr.match(/^127\./));
@@ -137,9 +137,9 @@ function getMyIp() {
 }
 
 // Common code for starting mayastor, mayastor-grpc and spdk processes.
-function startProcess(command, args, env, closeCb, psName) {
+function startProcess (command, args, env, closeCb, psName) {
   assert(!procs[command]);
-  let proc = runAsRoot(getCmdPath(command), args, env, psName);
+  const proc = runAsRoot(getCmdPath(command), args, env, psName);
   proc.output = [];
 
   proc.stdout.on('data', (data) => {
@@ -160,7 +160,7 @@ function startProcess(command, args, env, closeCb, psName) {
 }
 
 // Start spdk process and return immediately.
-function startSpdk(config, args, env) {
+function startSpdk (config, args, env) {
   args = args || ['-r', SOCK];
   env = env || {};
 
@@ -174,7 +174,7 @@ function startSpdk(config, args, env) {
     args,
     _.assign(
       {
-        MAYASTOR_DELAY: '1',
+        MAYASTOR_DELAY: '1'
       },
       env
     ),
@@ -188,7 +188,7 @@ function startSpdk(config, args, env) {
 }
 
 // Start mayastor process and return immediately.
-function startMayastor(config, args, env) {
+function startMayastor (config, args, env) {
   args = args || ['-r', SOCK];
   env = env || {};
 
@@ -203,7 +203,7 @@ function startMayastor(config, args, env) {
     _.assign(
       {
         MY_POD_IP: getMyIp(),
-        MAYASTOR_DELAY: '1',
+        MAYASTOR_DELAY: '1'
       },
       env
     ),
@@ -217,7 +217,7 @@ function startMayastor(config, args, env) {
 }
 
 // Start mayastor-agent processes and return immediately.
-function startMayastorGrpc() {
+function startMayastorGrpc () {
   startProcess('mayastor-agent', [
     '-v',
     '-n',
@@ -229,11 +229,11 @@ function startMayastorGrpc() {
     '-c',
     CSI_ENDPOINT,
     '-s',
-    SOCK,
+    SOCK
   ]);
 }
 
-function killSudoedProcess(name, pid, done) {
+function killSudoedProcess (name, pid, done) {
   find('name', name).then((res) => {
     var whichPid;
     if (process.geteuid() === 0) {
@@ -245,7 +245,7 @@ function killSudoedProcess(name, pid, done) {
     if (res.length == 0) {
       return done();
     }
-    let child = runAsRoot('kill', ['-s', 'SIGTERM', res[0].pid.toString()]);
+    const child = runAsRoot('kill', ['-s', 'SIGTERM', res[0].pid.toString()]);
     child.stderr.on('data', (data) => {
       console.log('kill', name, 'error:', data.toString());
     });
@@ -256,7 +256,7 @@ function killSudoedProcess(name, pid, done) {
 }
 
 // Kill all previously started processes.
-function stopAll(done) {
+function stopAll (done) {
   // Unfortunately the order in which the procs are stopped matters (hence the
   // sort()). In nexus tests if spdk proc with connected nvmf target is stopped
   // before nvmf initiator in mayastor, it exits with segfault. That's also the
@@ -264,7 +264,7 @@ function stopAll(done) {
   async.mapSeries(
     Object.keys(procs).sort(),
     (name, cb) => {
-      let proc = procs[name];
+      const proc = procs[name];
       console.log(`Stopping ${name} with pid ${proc.pid} ...`);
       killSudoedProcess(name, proc.pid, (err) => {
         if (err) return cb(null, err);
@@ -285,8 +285,8 @@ function stopAll(done) {
 //
 // TODO: We don't restart the mayastor with the same parameters as we
 // don't remember params which were used for starting it.
-function restartMayastor(ping, done) {
-  let proc = procs.mayastor;
+function restartMayastor (ping, done) {
+  const proc = procs.mayastor;
   assert(proc);
 
   async.series(
@@ -308,7 +308,7 @@ function restartMayastor(ping, done) {
       (next) => {
         startMayastor();
         waitFor(ping, next);
-      },
+      }
     ],
     done
   );
@@ -318,8 +318,8 @@ function restartMayastor(ping, done) {
 //
 // TODO: We don't restart the process with the same parameters as we
 // don't remember params which were used for starting it.
-function restartMayastorGrpc(ping, done) {
-  let proc = procs['mayastor-agent'];
+function restartMayastorGrpc (ping, done) {
+  const proc = procs['mayastor-agent'];
   assert(proc);
 
   async.series(
@@ -341,14 +341,14 @@ function restartMayastorGrpc(ping, done) {
       (next) => {
         startMayastorGrpc();
         waitFor(ping, next);
-      },
+      }
     ],
     done
   );
 }
 
 // Execute rpc method using dumb jsonrpc client
-function dumbCommand(method, args, done) {
+function dumbCommand (method, args, done) {
   exec(
     '../target/debug/mctl -s ' +
       SOCK +
@@ -370,9 +370,9 @@ function dumbCommand(method, args, done) {
 
 // Ensure that /dev/nbd* devices are writable by the current process.
 // If running as root this is a noop.
-function ensureNbdWritable(done) {
+function ensureNbdWritable (done) {
   if (process.geteuid() != 0) {
-    let child = runAsRoot('sh', ['-c', 'chmod o+rw /dev/nbd*']);
+    const child = runAsRoot('sh', ['-c', 'chmod o+rw /dev/nbd*']);
     child.stderr.on('data', (data) => {
       console.log(data.toString());
     });
@@ -390,10 +390,10 @@ function ensureNbdWritable(done) {
 
 // Unix domain socket client does not run with root privs (in general) so open
 // the socket to everyone.
-function fixSocketPerms(done) {
-  let child = runAsRoot('chmod', ['a+rw', CSI_ENDPOINT]);
+function fixSocketPerms (done) {
+  const child = runAsRoot('chmod', ['a+rw', CSI_ENDPOINT]);
   child.stderr.on('data', (data) => {
-    //console.log('chmod', 'error:', data.toString());
+    // console.log('chmod', 'error:', data.toString());
   });
   child.on('close', (code) => {
     if (code != 0) {
@@ -405,9 +405,9 @@ function fixSocketPerms(done) {
 }
 
 // Undo change to perms of nbd devices done in ensureNbdWritable().
-function restoreNbdPerms(done) {
+function restoreNbdPerms (done) {
   if (process.geteuid() != 0) {
-    let child = runAsRoot('sh', ['-c', 'chmod o-rw /dev/nbd*']);
+    const child = runAsRoot('sh', ['-c', 'chmod o-rw /dev/nbd*']);
     child.on('close', (code, signal) => {
       if (code != 0) {
         done(new Error('Failed to chmod nbd devs'));
@@ -439,5 +439,5 @@ module.exports = {
   ensureNbdWritable,
   restoreNbdPerms,
   getMyIp,
-  getCmdPath,
+  getCmdPath
 };

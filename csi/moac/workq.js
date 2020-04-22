@@ -8,7 +8,7 @@ const assert = require('assert');
 // wants to be sure that at any given time only one task is being processed
 // not to interfere with the other tasks.
 class Workq {
-  constructor() {
+  constructor () {
     this.queue = [];
     this.inprog = false;
   }
@@ -22,7 +22,7 @@ class Workq {
   // @param {function} func  Async function returning a promise.
   // @returns {*} A promise fulfilled when the task is done.
   //              The value of the promise is the value returned by the func.
-  async push(arg, func) {
+  async push (arg, func) {
     assert(typeof func, 'function');
 
     var resolveCb;
@@ -42,7 +42,7 @@ class Workq {
   }
 
   // Pick and dispatch next task from the queue.
-  _nextTask() {
+  _nextTask () {
     var self = this;
 
     var task = this.queue.shift();

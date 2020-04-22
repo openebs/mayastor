@@ -9,8 +9,8 @@ const PLUGIN_NAME = 'io.openebs.csi-mayastor';
 
 // Parse mayastor node ID in form "mayastor://node-name/host:port" and
 // return node name and endpoint.
-function parseMayastorNodeId(nodeId) {
-  let parts = nodeId.split('/');
+function parseMayastorNodeId (nodeId) {
+  const parts = nodeId.split('/');
 
   if (
     parts.length != 4 ||
@@ -26,11 +26,11 @@ function parseMayastorNodeId(nodeId) {
   }
   return {
     node: parts[2],
-    endpoint: parts[3],
+    endpoint: parts[3]
   };
 }
 
 module.exports = {
   PLUGIN_NAME,
-  parseMayastorNodeId,
+  parseMayastorNodeId
 };

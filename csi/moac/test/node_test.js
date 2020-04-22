@@ -14,7 +14,7 @@ const enums = require('./grpc_enums');
 const UUID = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cbb';
 const EGRESS_ENDPOINT = '127.0.0.1:12345';
 
-module.exports = function() {
+module.exports = function () {
   var srv;
   var node;
   var pools = [
@@ -23,8 +23,8 @@ module.exports = function() {
       disks: ['/dev/sdb', '/dev/sdc'],
       state: enums.POOL_ONLINE,
       capacity: 100,
-      used: 14,
-    },
+      used: 14
+    }
   ];
   var replicas = [
     {
@@ -33,8 +33,8 @@ module.exports = function() {
       size: 10,
       thin: false,
       share: 'REPLICA_NONE',
-      uri: 'bdev:///' + UUID,
-    },
+      uri: 'bdev:///' + UUID
+    }
   ];
   var nexus = [
     {
@@ -45,18 +45,18 @@ module.exports = function() {
       children: [
         {
           uri: 'bdev:///' + UUID,
-          state: 'ONLINE',
-        },
-      ],
-    },
+          state: 'ONLINE'
+        }
+      ]
+    }
   ];
 
   it('should stringify a node object', () => {
-    let node = new Node('node-name');
+    const node = new Node('node-name');
     expect(node.toString()).to.equal('node-name');
   });
 
-  describe('node events', function() {
+  describe('node events', function () {
     this.timeout(500);
 
     // start a fake mayastor server
@@ -81,16 +81,16 @@ module.exports = function() {
 
       it('should sync the state with storage node and emit event', (done) => {
         // the first sync takes sometimes >20ms so don't set the interval too low
-        let syncInterval = 100;
+        const syncInterval = 100;
         let syncCount = 0;
-        let poolObjects = [];
-        let replicaObjects = [];
-        let nexusObjects = [];
+        const poolObjects = [];
+        const replicaObjects = [];
+        const nexusObjects = [];
 
         node = new Node('node', {
           syncPeriod: syncInterval,
           syncRetry: syncInterval,
-          syncBadLimit: 0,
+          syncBadLimit: 0
         });
 
         node.on('pool', (ev) => {
@@ -148,7 +148,7 @@ module.exports = function() {
     });
 
     describe('new/mod/del events', () => {
-      let syncInterval = 10;
+      const syncInterval = 10;
 
       before(() => {
         // we make a deep copy of srv objects because the tests modify them
@@ -162,7 +162,7 @@ module.exports = function() {
         node = new Node('node', {
           syncPeriod: syncInterval,
           syncRetry: syncInterval,
-          syncBadLimit: 0,
+          syncBadLimit: 0
         });
 
         node.once('node', (ev) => {
@@ -192,7 +192,7 @@ module.exports = function() {
           done();
         });
         // modify replica property
-        let newReplicas = _.cloneDeep(replicas);
+        const newReplicas = _.cloneDeep(replicas);
         newReplicas[0].share = 'REPLICA_NVMF';
         newReplicas[0].uri = 'nvmf://blabla';
         srv.replicas = newReplicas;
@@ -210,7 +210,7 @@ module.exports = function() {
       });
 
       it('should emit event when a replica is created', (done) => {
-        let newUuid = 'f04015e1-3689-4e34-9bed-e2dbba1e4a27';
+        const newUuid = 'f04015e1-3689-4e34-9bed-e2dbba1e4a27';
         node.once('replica', (ev) => {
           expect(ev.eventType).to.equal('new');
           expect(ev.object).to.be.an.instanceof(Replica);
@@ -224,12 +224,12 @@ module.exports = function() {
           size: 20,
           thin: false,
           share: 'REPLICA_NONE',
-          uri: 'bdev:///' + newUuid,
+          uri: 'bdev:///' + newUuid
         });
       });
 
       it('should not emit event when a replica that does not belong to any pool is created', (done) => {
-        let newUuid = 'f04015e1-3689-4e34-9bed-e2dbba1e4a28';
+        const newUuid = 'f04015e1-3689-4e34-9bed-e2dbba1e4a28';
         let emitted = false;
 
         node.once('replica', (ev) => {
@@ -246,7 +246,7 @@ module.exports = function() {
           size: 20,
           thin: false,
           share: 'REPLICA_NONE',
-          uri: 'bdev:///' + newUuid,
+          uri: 'bdev:///' + newUuid
         });
       });
 
@@ -258,7 +258,7 @@ module.exports = function() {
           done();
         });
         // modify pool property
-        let newPools = _.cloneDeep(pools);
+        const newPools = _.cloneDeep(pools);
         newPools[0].state = enums.POOL_DEGRADED;
         srv.pools = newPools;
       });
@@ -286,7 +286,7 @@ module.exports = function() {
       });
 
       it('should emit event when a pool with replica is created', (done) => {
-        let newUuid = 'f04015e1-3689-4e34-9bed-e2dbba1e4a29';
+        const newUuid = 'f04015e1-3689-4e34-9bed-e2dbba1e4a29';
         var poolAdded = false;
 
         node.once('pool', (ev) => {
@@ -310,7 +310,7 @@ module.exports = function() {
           disks: ['/dev/sda'],
           state: enums.POOL_ONLINE,
           capacity: 100,
-          used: 14,
+          used: 14
         });
         srv.replicas.push({
           uuid: newUuid,
@@ -318,7 +318,7 @@ module.exports = function() {
           size: 10,
           thin: false,
           share: 'REPLICA_NONE',
-          uri: 'bdev:///' + newUuid,
+          uri: 'bdev:///' + newUuid
         });
       });
 
@@ -331,16 +331,16 @@ module.exports = function() {
           done();
         });
         // modify nexus property
-        let newNexus = _.cloneDeep(nexus);
+        const newNexus = _.cloneDeep(nexus);
         newNexus[0].children = [
           {
             uri: 'bdev:///' + UUID,
-            state: 'ONLINE',
+            state: 'ONLINE'
           },
           {
             uri: 'nvmf:///something',
-            state: 'ONLINE',
-          },
+            state: 'ONLINE'
+          }
         ];
         srv.nexus = newNexus;
       });
@@ -357,7 +357,7 @@ module.exports = function() {
       });
 
       it('should emit event when a nexus is created', (done) => {
-        let newUuid = 'f04015e1-3689-4e34-9bed-e2dbba1e4a27';
+        const newUuid = 'f04015e1-3689-4e34-9bed-e2dbba1e4a27';
         node.once('nexus', (ev) => {
           expect(ev.eventType).to.equal('new');
           expect(ev.object).to.be.an.instanceof(Nexus);
@@ -369,7 +369,7 @@ module.exports = function() {
           uuid: newUuid,
           size: 10,
           state: 'ONLINE',
-          children: [],
+          children: []
         });
       });
     });
@@ -392,19 +392,19 @@ module.exports = function() {
     });
 
     it('should emit event for all objects when the node goes out of sync', (done) => {
-      let syncInterval = 100;
+      const syncInterval = 100;
       let offlineCount = 0;
 
       node = new Node('node', {
         syncPeriod: syncInterval,
         syncRetry: syncInterval,
-        syncBadLimit: 0,
+        syncBadLimit: 0
       });
 
       node.once('node', (ev) => {
         expect(ev.eventType).to.equal('sync');
         expect(ev.object).to.equal(node);
-        let firstSync = Date.now();
+        const firstSync = Date.now();
         srv.stop();
         srv = null;
 
@@ -427,7 +427,7 @@ module.exports = function() {
           offline();
         });
 
-        function offline() {
+        function offline () {
           if (++offlineCount == 3) {
             // jshint ignore:start
             expect(node.isSynced()).to.be.false;
@@ -441,19 +441,19 @@ module.exports = function() {
     });
 
     it('should tollerate n sync failures when configured so', (done) => {
-      let syncPeriod = 200;
-      let syncRetry = 40;
+      const syncPeriod = 200;
+      const syncRetry = 40;
 
       node = new Node('node', {
         syncPeriod: syncPeriod,
         syncRetry: syncRetry,
-        syncBadLimit: 2,
+        syncBadLimit: 2
       });
 
       node.once('node', (ev) => {
         expect(ev.eventType).to.equal('sync');
         expect(ev.object).to.equal(node);
-        let firstSync = Date.now();
+        const firstSync = Date.now();
         srv.stop();
         srv = null;
 
@@ -477,12 +477,12 @@ module.exports = function() {
     });
 
     it('should emit event when the node is synced after being disconnected', (done) => {
-      let syncPeriod = 20;
+      const syncPeriod = 20;
 
       node = new Node('node', {
         syncPeriod: syncPeriod,
         syncRetry: syncPeriod,
-        syncBadLimit: 0,
+        syncBadLimit: 0
       });
 
       node.once('node', (ev) => {
@@ -524,7 +524,7 @@ module.exports = function() {
     });
   });
 
-  describe('object create', function() {
+  describe('object create', function () {
     var replica;
     var pool;
     var nexus;
@@ -612,7 +612,7 @@ module.exports = function() {
     });
   });
 
-  describe('object list', function() {
+  describe('object list', function () {
     const UUID1 = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cb1';
     const UUID2 = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cb2';
     const UUID3 = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cb3';
@@ -626,15 +626,15 @@ module.exports = function() {
           disks: ['/dev/sdb', '/dev/sdc'],
           state: enums.POOL_ONLINE,
           capacity: 100,
-          used: 14,
+          used: 14
         },
         {
           name: 'pool2',
           disks: ['/dev/sda'],
           state: enums.POOL_ONLINE,
           capacity: 100,
-          used: 14,
-        },
+          used: 14
+        }
       ];
       var replicas = [
         {
@@ -643,7 +643,7 @@ module.exports = function() {
           size: 10,
           thin: false,
           share: 'REPLICA_NONE',
-          uri: 'bdev:///' + UUID,
+          uri: 'bdev:///' + UUID
         },
         {
           uuid: UUID2,
@@ -651,7 +651,7 @@ module.exports = function() {
           size: 10,
           thin: false,
           share: 'REPLICA_NONE',
-          uri: 'bdev:///' + UUID,
+          uri: 'bdev:///' + UUID
         },
         {
           uuid: UUID3,
@@ -659,7 +659,7 @@ module.exports = function() {
           size: 10,
           thin: false,
           share: 'REPLICA_NONE',
-          uri: 'bdev:///' + UUID,
+          uri: 'bdev:///' + UUID
         },
         // this replica does not belong to any pool so should be ignored
         {
@@ -668,8 +668,8 @@ module.exports = function() {
           size: 10,
           thin: false,
           share: 'REPLICA_NONE',
-          uri: 'bdev:///' + UUID,
-        },
+          uri: 'bdev:///' + UUID
+        }
       ];
       srv = new MayastorServer(EGRESS_ENDPOINT, pools, replicas, []).start();
 
@@ -693,7 +693,7 @@ module.exports = function() {
     });
 
     it('should get a list of replicas on the node', () => {
-      let replicas = node.getReplicas();
+      const replicas = node.getReplicas();
       expect(replicas).to.have.lengthOf(3);
       expect(replicas[0].uuid).to.equal(UUID1);
       expect(replicas[1].uuid).to.equal(UUID2);

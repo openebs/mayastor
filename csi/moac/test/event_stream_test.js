@@ -13,14 +13,14 @@ const Volume = require('../volume');
 const Volumes = require('../volumes');
 const EventStream = require('../event_stream');
 
-module.exports = function() {
+module.exports = function () {
   // Easy generator of a test node with fake pools, replicas and nexus
   // omitting all properties that are not necessary for the event stream.
   class FakeNode {
-    constructor(name, pools, nexus) {
+    constructor (name, pools, nexus) {
       this.name = name;
       this.pools = pools.map((obj) => {
-        let p = new Pool({ name: obj.name, disks: ['/dev/sda'] });
+        const p = new Pool({ name: obj.name, disks: ['/dev/sda'] });
         p.node = new EventEmitter();
         obj.replicas.forEach((uuid) =>
           p.registerReplica(new Replica({ uuid }))
@@ -32,10 +32,10 @@ module.exports = function() {
   }
 
   it('should read events from registry and volumes stream', (done) => {
-    let registry = new Registry();
-    let volumes = new Volumes(registry);
-    let getNodeStub = sinon.stub(registry, 'getNode');
-    let getVolumeStub = sinon.stub(volumes, 'get');
+    const registry = new Registry();
+    const volumes = new Volumes(registry);
+    const getNodeStub = sinon.stub(registry, 'getNode');
+    const getVolumeStub = sinon.stub(volumes, 'get');
     // The initial state of the nodes. "new" event should be written to the
     // stream for all these objects and one "sync" event for each node meaning
     // that the reader has caught up with the initial state.
@@ -45,12 +45,12 @@ module.exports = function() {
         [
           {
             name: 'pool1',
-            replicas: ['uuid1', 'uuid2'],
+            replicas: ['uuid1', 'uuid2']
           },
           {
             name: 'pool2',
-            replicas: ['uuid3'],
-          },
+            replicas: ['uuid3']
+          }
         ],
         ['nexus1', 'nexus2']
       ),
@@ -59,29 +59,29 @@ module.exports = function() {
         [
           {
             name: 'pool3',
-            replicas: ['uuid4', 'uuid5', 'uuid6'],
-          },
+            replicas: ['uuid4', 'uuid5', 'uuid6']
+          }
         ],
         []
-      ),
+      )
     ]);
     getVolumeStub.returns([
       new Volume('volume1', registry, {}),
-      new Volume('volume2', registry, {}),
+      new Volume('volume2', registry, {})
     ]);
 
     // set low high water mark to test buffered reads
-    let stream = new EventStream(
+    const stream = new EventStream(
       {
         registry,
-        volumes,
+        volumes
       },
       {
         highWaterMark: 3,
-        lowWaterMark: 1,
+        lowWaterMark: 1
       }
     );
-    let events = [];
+    const events = [];
 
     stream.on('data', (ev) => {
       events.push(ev);
@@ -90,15 +90,15 @@ module.exports = function() {
     setTimeout(() => {
       registry.emit('pool', {
         eventType: 'new',
-        object: { name: 'pool4' },
+        object: { name: 'pool4' }
       });
       registry.emit('pool', {
         eventType: 'mod',
-        object: { name: 'pool3' },
+        object: { name: 'pool3' }
       });
       registry.emit('pool', {
         eventType: 'del',
-        object: { name: 'pool4' },
+        object: { name: 'pool4' }
       });
 
       setTimeout(() => {
@@ -107,51 +107,51 @@ module.exports = function() {
 
         registry.emit('node', {
           eventType: 'sync',
-          object: { name: 'node3' },
+          object: { name: 'node3' }
         });
 
         registry.emit('replica', {
           eventType: 'new',
-          object: { uuid: 'replica1' },
+          object: { uuid: 'replica1' }
         });
         registry.emit('replica', {
           eventType: 'mod',
-          object: { uuid: 'replica2' },
+          object: { uuid: 'replica2' }
         });
         registry.emit('replica', {
           eventType: 'del',
-          object: { uuid: 'replica3' },
+          object: { uuid: 'replica3' }
         });
 
         registry.emit('nexus', {
           eventType: 'new',
-          object: { uuid: 'nexus1' },
+          object: { uuid: 'nexus1' }
         });
         registry.emit('nexus', {
           eventType: 'mod',
-          object: { uuid: 'nexus2' },
+          object: { uuid: 'nexus2' }
         });
         registry.emit('nexus', {
           eventType: 'del',
-          object: { uuid: 'nexus3' },
+          object: { uuid: 'nexus3' }
         });
 
         volumes.emit('volume', {
           eventType: 'new',
-          object: { uuid: 'volume3' },
+          object: { uuid: 'volume3' }
         });
         volumes.emit('volume', {
           eventType: 'mod',
-          object: { uuid: 'volume4' },
+          object: { uuid: 'volume4' }
         });
         volumes.emit('volume', {
           eventType: 'del',
-          object: { uuid: 'volume5' },
+          object: { uuid: 'volume5' }
         });
 
         registry.emit('unknown', {
           eventType: 'new',
-          object: { name: 'something' },
+          object: { name: 'something' }
         });
 
         stream.resume();

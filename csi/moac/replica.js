@@ -11,7 +11,7 @@ class Replica {
   // Create replica object.
   //
   // @param {object} props  Replica properties obtained from storage node.
-  constructor(props) {
+  constructor (props) {
     this.pool = null; // set by pool object during registration
     this.uuid = props.uuid;
     this.size = props.size;
@@ -21,7 +21,7 @@ class Replica {
   }
 
   // Stringify replica.
-  toString() {
+  toString () {
     return this.uuid + '@' + (this.pool ? this.pool.name : 'nowhere');
   }
 
@@ -34,7 +34,7 @@ class Replica {
   // @param {string}   props.uri      URI to be used by nexus to access it.
   // @param {string}   props.state    State of the replica.
   //
-  merge(props) {
+  merge (props) {
     let changed = false;
 
     if (this.size != props.size) {
@@ -56,7 +56,7 @@ class Replica {
     if (changed) {
       this.pool.node.emit('replica', {
         eventType: 'mod',
-        object: this,
+        object: this
       });
     }
   }
@@ -64,12 +64,12 @@ class Replica {
   // Set state of the pool to offline and the same for all replicas on the pool.
   // This is typically called when mayastor stops running on the node and
   // the pool becomes inaccessible.
-  offline() {
+  offline () {
     log.warn(`Replica "${this}" got offline`);
     this.state = 'OFFLINE';
     this.pool.node.emit('replica', {
       eventType: 'mod',
-      object: this,
+      object: this
     });
   }
 
@@ -79,7 +79,7 @@ class Replica {
   // @param   {string} share    Name of the share protocol or "NONE" to unshare it.
   // @returns {string} URI used to reach replica from nexus.
   //
-  async setShare(share) {
+  async setShare (share) {
     var res;
 
     assert(
@@ -90,7 +90,7 @@ class Replica {
     try {
       res = await this.pool.node.call('shareReplica', {
         uuid: this.uuid,
-        share,
+        share
       });
     } catch (err) {
       throw new GrpcError(
@@ -103,7 +103,7 @@ class Replica {
     this.uri = res.uri;
     this.pool.node.emit('replica', {
       eventType: 'mod',
-      object: this,
+      object: this
     });
     return res.uri;
   }
@@ -111,7 +111,7 @@ class Replica {
   // Destroy replica on storage node.
   //
   // This must be called after the replica is removed from nexus.
-  async destroy() {
+  async destroy () {
     log.debug(`Destroying replica "${this}" ...`);
 
     try {
@@ -132,23 +132,23 @@ class Replica {
   //
   // @param {object} pool   Pool object to associate the replica with.
   //
-  bind(pool) {
+  bind (pool) {
     assert(!this.pool);
     this.pool = pool;
     log.info(`Adding replica "${this}" to a list`);
     this.pool.node.emit('replica', {
       eventType: 'new',
-      object: this,
+      object: this
     });
   }
 
   // Remove the replica reference from pool
-  unbind() {
+  unbind () {
     log.info(`Removing replica "${this}" from a list`);
     this.pool.unregisterReplica(this);
     this.pool.node.emit('replica', {
       eventType: 'del',
-      object: this,
+      object: this
     });
     this.pool = null;
   }

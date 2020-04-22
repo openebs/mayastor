@@ -15,7 +15,7 @@ const express = require('express');
 const log = require('./logger').Logger('api');
 
 class ApiServer {
-  constructor(registry) {
+  constructor (registry) {
     var self = this;
     this.registry = registry;
     this.app = express();
@@ -27,7 +27,7 @@ class ApiServer {
     });
   }
 
-  async start(port) {
+  async start (port) {
     return new Promise((resolve, reject) => {
       this.server = this.app.listen(port, () => {
         log.info('API server listening on port ' + port);
@@ -36,20 +36,20 @@ class ApiServer {
     });
   }
 
-  stop() {
+  stop () {
     if (this.server) this.server.close();
   }
 
   // TODO: should return stats for nexus rather than for replica
-  async getStats() {
+  async getStats () {
     var self = this;
     var vols = [];
     var nodes = self.registry.getNode();
 
     // TODO: stats can be retrieved in parallel
     for (let i = 0; i < nodes.length; i++) {
-      let node = nodes[i];
-      let timestamp = new Date().toISOString();
+      const node = nodes[i];
+      const timestamp = new Date().toISOString();
 
       // Lint does not like using for-loop variable in a function defined
       // in the loop. But we know it's ok in this case.
@@ -74,7 +74,7 @@ class ApiServer {
             num_read_ops: r.stats.numReadOps,
             num_write_ops: r.stats.numWriteOps,
             bytes_read: r.stats.bytesRead,
-            bytes_written: r.stats.bytesWritten,
+            bytes_written: r.stats.bytesWritten
           };
         })
       );
