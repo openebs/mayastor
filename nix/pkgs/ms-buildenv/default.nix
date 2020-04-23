@@ -56,6 +56,7 @@
 , python
 , rdma-core
 , rustup
+, sudo
 , stdenv
 , utillinux
 , xfsprogs
@@ -67,11 +68,9 @@ let
   # the same binaries. Remember, a profile is symling A/bin and B/bin into a
   # profile. If both A and B have /bin/foo -- we have a collision.
   #
-
   bintools = binutils.overrideAttrs (o: rec { meta.priority = 9; });
   libclang =
     llvmPackages.libclang.overrideAttrs (o: rec { meta.priority = 4; });
-
   libc = glibc.overrideAttrs (o: rec { meta.priority = 4; });
   # useful things to be included within the container
   core = [
@@ -91,6 +90,7 @@ let
     procps
     stdenv.cc
     stdenv.cc.cc.lib
+    sudo
     xz
   ];
 
@@ -117,7 +117,6 @@ let
       xfsprogs
     ] ++ core ++ rust ++ node;
   };
-
   image = dockerTools.buildImage {
     name = "mayadata/ms-buildenv";
     tag = "nix";
