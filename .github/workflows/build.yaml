@@ -20,7 +20,7 @@ jobs:
       - run: ln -s /host/bin/kmod /bin/modprobe
       - run: /bin/modprobe nbd
       - run: /bin/modprobe xfs
-      - run: echo 1024 | tee /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
+      - run: echo 4096 | tee /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
       - run: rm mayastor/.cargo/config
       - run: cargo build --all
       - run: ( cd jsonrpc && cargo test )
