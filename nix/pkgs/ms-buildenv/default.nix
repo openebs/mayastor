@@ -37,8 +37,8 @@
 , gnugrep
 , gnumake
 , gnused
+, gnutar
 , gzip
-, jshint
 , less
 , libaio
 , libiscsi
@@ -83,6 +83,7 @@ let
     git
     gnugrep
     gnused
+    gnutar
     gzip
     less
     libc
@@ -96,7 +97,7 @@ let
   # things we need for rust
   rust = [ rustup libclang protobuf ];
   # this we need for node
-  node = [ nodejs python gnumake nodePackages.prettier jshint ];
+  node = [ nodejs python gnumake nodePackages.semistandard ];
 
   # generate a user profile for the image
   profile = mkContainerEnv {
@@ -136,10 +137,9 @@ let
 
       # minimal "convenience" things as its common to use /bin/bash in containers
       # this is not strictly necessary though as the PATH will resolve it anyway
-
-      mkdir -p bin usr/bin
-      ln -s /nix/var/nix/profiles/default/bin/ usr/bin
       ln -s /nix/var/nix/profiles/default/bin/ bin
+      mkdir -p usr
+      ln -s /nix/var/nix/profiles/default/bin/ usr/bin
 
       # setup shadow, bashrc
       # instead of cat EOF magic, simply copy over some files to /etc
@@ -190,6 +190,10 @@ let
         "SSL_CERT_FILE=/nix/var/nix/profiles/default/etc/ssl/certs/ca-bundle.crt"
         "GIT_SSL_CAINFO=/nix/var/nix/profiles/default/etc/ssl/certs/ca-bundle.crt"
         "RUST_BACKTRACE=1"
+
+        # convenience for vscode standardjs plugin so that it can find globally
+        # installed npm modules (semistandard)
+        "NODE_PATH=/nix/var/nix/profiles/default/lib/node_modules"
       ];
     };
   };

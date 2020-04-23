@@ -11,23 +11,23 @@ const log = require('./logger').Logger('volumes');
 
 // Volume manager that emit events for new/modified/deleted volumes.
 class Volumes extends EventEmitter {
-  constructor(registry) {
+  constructor (registry) {
     super();
     this.registry = registry;
     this.events = null; // stream of events from registry
     this.volumes = {}; // volumes indexed by uuid
   }
 
-  start() {
+  start () {
     var self = this;
     this.events = new EventStream({ registry: this.registry });
-    this.events.on('data', async function(ev) {
+    this.events.on('data', async function (ev) {
       if (ev.kind != 'replica' && ev.kind != 'nexus') {
         // not interesed in node and pool events
         return;
       }
-      let uuid = ev.object.uuid;
-      let volume = self.volumes[uuid];
+      const uuid = ev.object.uuid;
+      const volume = self.volumes[uuid];
       if (!volume) {
         // Ignore events for volumes that do not exist. Those might be events
         // related to a volume that is being destroyed.
@@ -53,12 +53,12 @@ class Volumes extends EventEmitter {
       }
       self.emit('volume', {
         eventType: 'mod',
-        object: volume,
+        object: volume
       });
     });
   }
 
-  stop() {
+  stop () {
     this.events.destroy();
     this.events.removeAllListeners();
     this.events = null;
@@ -70,7 +70,7 @@ class Volumes extends EventEmitter {
   // @param   {string}          uuid   ID of the volume.
   // @returns {object|object[]} Matching volume (or null if not found) or all volumes.
   //
-  get(uuid) {
+  get (uuid) {
     if (uuid) return this.volumes[uuid] || null;
     else return Object.values(this.volumes);
   }
@@ -88,7 +88,7 @@ class Volumes extends EventEmitter {
   // @params  {number}   spec.limitBytes      The volume should not be bigger than this.
   // @returns {object}   New volume object.
   //
-  async createVolume(uuid, spec) {
+  async createVolume (uuid, spec) {
     let created = false;
 
     if (!spec.requiredBytes || spec.requiredBytes < 0) {
@@ -106,7 +106,7 @@ class Volumes extends EventEmitter {
         // TODO: What to do if size changes and is incompatible?
         this.emit('volume', {
           eventType: 'mod',
-          object: volume,
+          object: volume
         });
       }
     } else {
@@ -117,12 +117,12 @@ class Volumes extends EventEmitter {
       this.volumes[uuid] = volume;
       this.emit('volume', {
         eventType: 'new',
-        object: volume,
+        object: volume
       });
       // check for components that already exist and assign them to the volume
       var self = this;
       this.registry.getReplicaSet(uuid).forEach((r) => volume.newReplica(r));
-      let nexus = this.registry.getNexus(uuid);
+      const nexus = this.registry.getNexus(uuid);
       if (nexus) {
         volume.newNexus(nexus);
       }
@@ -135,7 +135,7 @@ class Volumes extends EventEmitter {
         delete this.volumes[uuid];
         this.emit('volume', {
           eventType: 'del',
-          object: volume,
+          object: volume
         });
       }
       throw err;
@@ -150,15 +150,15 @@ class Volumes extends EventEmitter {
   //
   // @param   {string}   uuid            ID of the volume.
   //
-  async destroyVolume(uuid) {
-    let volume = this.volumes[uuid];
+  async destroyVolume (uuid) {
+    const volume = this.volumes[uuid];
     if (!volume) return;
 
     await volume.destroy();
     delete this.volumes[uuid];
     this.emit('volume', {
       eventType: 'del',
-      object: volume,
+      object: volume
     });
   }
 }

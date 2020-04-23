@@ -20,7 +20,7 @@ const { shouldFailWith } = require('./utils');
 
 const UUID = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cbb';
 
-module.exports = function() {
+module.exports = function () {
   describe('ensure', () => {
     var registry, volumes;
     var node1, node2, node3;
@@ -29,33 +29,33 @@ module.exports = function() {
     var volEvents;
 
     // create test environment
-    function createTestEnv() {
+    function createTestEnv () {
       registry = new Registry();
       volumes = new Volumes(registry);
       node1 = new Node('node1');
       node2 = new Node('node2');
       node3 = new Node('node3');
       // pools sorted from the most to the least preferred
-      let pool1 = new Pool({
+      const pool1 = new Pool({
         name: 'pool1',
         disks: [],
         capacity: 100,
         used: 0,
-        state: 'POOL_ONLINE',
+        state: 'POOL_ONLINE'
       });
-      let pool2 = new Pool({
+      const pool2 = new Pool({
         name: 'pool2',
         disks: [],
         capacity: 100,
         used: 4,
-        state: 'POOL_ONLINE',
+        state: 'POOL_ONLINE'
       });
-      let pool3 = new Pool({
+      const pool3 = new Pool({
         name: 'pool3',
         disks: [],
         capacity: 100,
         used: 4,
-        state: 'POOL_DEGRADED',
+        state: 'POOL_DEGRADED'
       });
       // we don't want connect and disconnect to do anything
       sinon.spy(node1, 'connect');
@@ -79,7 +79,7 @@ module.exports = function() {
     }
 
     // Each test creates a volume so the setup needs to run for each case.
-    describe('create volume', function() {
+    describe('create volume', function () {
       beforeEach(createTestEnv);
 
       afterEach(() => {
@@ -95,7 +95,7 @@ module.exports = function() {
             preferredNodes: [],
             requiredNodes: ['node2', 'node3'],
             requiredBytes: 100,
-            limitBytes: 110,
+            limitBytes: 110
           })
         );
         expect(volEvents).to.have.lengthOf(2);
@@ -124,9 +124,9 @@ module.exports = function() {
               thin: false,
               share: 'REPLICA_NONE',
               state: 'ONLINE',
-              uri: 'bdev:///' + UUID,
-            },
-          ],
+              uri: 'bdev:///' + UUID
+            }
+          ]
         });
         stub1.onCall(2).resolves({});
         stub1.onCall(3).resolves({
@@ -138,11 +138,11 @@ module.exports = function() {
               children: [
                 {
                   uri: 'bdev:///' + UUID,
-                  state: 'ONLINE',
-                },
-              ],
-            },
-          ],
+                  state: 'ONLINE'
+                }
+              ]
+            }
+          ]
         });
 
         volumes.start();
@@ -151,7 +151,7 @@ module.exports = function() {
           preferredNodes: [],
           requiredNodes: [],
           requiredBytes: 90,
-          limitBytes: 0,
+          limitBytes: 0
         });
         expect(volume.size).to.equal(90);
         sinon.assert.calledWithMatch(stub1.firstCall, 'createReplica', {
@@ -159,7 +159,7 @@ module.exports = function() {
           pool: 'pool1',
           size: 90,
           thin: false,
-          share: 'REPLICA_NONE',
+          share: 'REPLICA_NONE'
         });
         // 1 new + 2 mods
         expect(volEvents).to.have.lengthOf(3);
@@ -181,9 +181,9 @@ module.exports = function() {
               thin: false,
               share: 'REPLICA_NONE',
               state: 'ONLINE',
-              uri: 'bdev:///' + UUID,
-            },
-          ],
+              uri: 'bdev:///' + UUID
+            }
+          ]
         });
         stub1.onCall(2).resolves({});
         stub1.onCall(3).resolves({
@@ -195,11 +195,11 @@ module.exports = function() {
               children: [
                 {
                   uri: 'bdev:///' + UUID,
-                  state: 'ONLINE',
-                },
-              ],
-            },
-          ],
+                  state: 'ONLINE'
+                }
+              ]
+            }
+          ]
         });
 
         volumes.start();
@@ -208,7 +208,7 @@ module.exports = function() {
           preferredNodes: [],
           requiredNodes: [],
           requiredBytes: 10,
-          limitBytes: 50,
+          limitBytes: 50
         });
         expect(volume.size).to.equal(50);
         sinon.assert.calledWithMatch(stub1.firstCall, 'createReplica', {
@@ -216,7 +216,7 @@ module.exports = function() {
           pool: 'pool1',
           size: 50,
           thin: false,
-          share: 'REPLICA_NONE',
+          share: 'REPLICA_NONE'
         });
         // 1 new + 2 mods
         expect(volEvents).to.have.lengthOf(3);
@@ -234,7 +234,7 @@ module.exports = function() {
             preferredNodes: [],
             requiredNodes: [],
             requiredBytes: 0,
-            limitBytes: 0,
+            limitBytes: 0
           })
         );
         sinon.assert.notCalled(stub1);
@@ -247,17 +247,17 @@ module.exports = function() {
         stub1 = sinon.stub(node1, 'call');
         stub2 = sinon.stub(node2, 'call');
         stub3 = sinon.stub(node3, 'call');
-        let replica = new Replica({
+        const replica = new Replica({
           uuid: UUID,
           size: 10,
           share: 'REPLICA_NONE',
           uri: 'bdev:///' + UUID,
-          state: 'ONLINE',
+          state: 'ONLINE'
         });
         replica.pool = { node: node1 };
-        let getReplicaSetStub = sinon.stub(registry, 'getReplicaSet');
+        const getReplicaSetStub = sinon.stub(registry, 'getReplicaSet');
         getReplicaSetStub.returns([replica]);
-        let nexus = new Nexus({
+        const nexus = new Nexus({
           uuid: UUID,
           size: 10,
           devicePath: '/dev/nbd0',
@@ -265,12 +265,12 @@ module.exports = function() {
           children: [
             {
               uri: 'bdev:///' + UUID,
-              state: 'ONLINE',
-            },
-          ],
+              state: 'ONLINE'
+            }
+          ]
         });
         nexus.node = node1;
-        let getNexusStub = sinon.stub(registry, 'getNexus');
+        const getNexusStub = sinon.stub(registry, 'getNexus');
         getNexusStub.returns(nexus);
 
         volumes.start();
@@ -279,7 +279,7 @@ module.exports = function() {
           preferredNodes: [],
           requiredNodes: [],
           requiredBytes: 10,
-          limitBytes: 50,
+          limitBytes: 50
         });
         sinon.assert.notCalled(stub1);
         sinon.assert.notCalled(stub2);
@@ -293,7 +293,7 @@ module.exports = function() {
     });
 
     // Volume is created once in the first test and then all tests use it
-    describe('misc', function() {
+    describe('misc', function () {
       before(createTestEnv);
 
       afterEach(() => {
@@ -324,9 +324,9 @@ module.exports = function() {
               thin: false,
               share: 'REPLICA_NONE',
               state: 'ONLINE',
-              uri: 'bdev:///' + UUID,
-            },
-          ],
+              uri: 'bdev:///' + UUID
+            }
+          ]
         });
         stub1.onCall(2).resolves({});
         stub1.onCall(3).resolves({
@@ -338,19 +338,19 @@ module.exports = function() {
               children: [
                 {
                   uri: 'bdev:///' + UUID,
-                  state: 'ONLINE',
+                  state: 'ONLINE'
                 },
                 {
                   uri: 'nvmf://replica2',
-                  state: 'ONLINE',
+                  state: 'ONLINE'
                 },
                 {
                   uri: 'nvmf://replica3',
-                  state: 'ONLINE',
-                },
-              ],
-            },
-          ],
+                  state: 'ONLINE'
+                }
+              ]
+            }
+          ]
         });
 
         // on node 2 is created replica and it is shared
@@ -364,9 +364,9 @@ module.exports = function() {
               thin: false,
               share: 'REPLICA_NONE',
               state: 'ONLINE',
-              uri: 'bdev:///' + UUID,
-            },
-          ],
+              uri: 'bdev:///' + UUID
+            }
+          ]
         });
         stub2.onCall(2).resolves({ uri: 'nvmf://replica2' });
 
@@ -381,9 +381,9 @@ module.exports = function() {
               thin: false,
               share: 'REPLICA_NONE',
               state: 'ONLINE',
-              uri: 'bdev:///' + UUID,
-            },
-          ],
+              uri: 'bdev:///' + UUID
+            }
+          ]
         });
         stub3.onCall(2).resolves({ uri: 'nvmf://replica3' });
 
@@ -393,7 +393,7 @@ module.exports = function() {
           preferredNodes: [],
           requiredNodes: [],
           requiredBytes: 90,
-          limitBytes: 110,
+          limitBytes: 110
         });
 
         expect(stub1.callCount).to.equal(4);
@@ -402,13 +402,13 @@ module.exports = function() {
           pool: 'pool1',
           size: 96,
           thin: false,
-          share: 'REPLICA_NONE',
+          share: 'REPLICA_NONE'
         });
         sinon.assert.calledWithMatch(stub1.secondCall, 'listReplicas', {});
         sinon.assert.calledWithMatch(stub1.thirdCall, 'createNexus', {
           uuid: UUID,
           size: 96,
-          children: ['bdev:///' + UUID, 'nvmf://replica2', 'nvmf://replica3'],
+          children: ['bdev:///' + UUID, 'nvmf://replica2', 'nvmf://replica3']
         });
         sinon.assert.calledWithMatch(stub1.lastCall, 'listNexus', {});
 
@@ -418,12 +418,12 @@ module.exports = function() {
           pool: 'pool2',
           size: 96,
           thin: false,
-          share: 'REPLICA_NONE',
+          share: 'REPLICA_NONE'
         });
         sinon.assert.calledWithMatch(stub2.secondCall, 'listReplicas', {});
         sinon.assert.calledWithMatch(stub2.thirdCall, 'shareReplica', {
           uuid: UUID,
-          share: 'REPLICA_NVMF',
+          share: 'REPLICA_NVMF'
         });
 
         expect(stub3.callCount).to.equal(3);
@@ -432,12 +432,12 @@ module.exports = function() {
           pool: 'pool3',
           size: 96,
           thin: false,
-          share: 'REPLICA_NONE',
+          share: 'REPLICA_NONE'
         });
         sinon.assert.calledWithMatch(stub3.secondCall, 'listReplicas', {});
         sinon.assert.calledWithMatch(stub3.thirdCall, 'shareReplica', {
           uuid: UUID,
-          share: 'REPLICA_NVMF',
+          share: 'REPLICA_NVMF'
         });
 
         expect(volumes.get(UUID)).to.equal(volume);
@@ -465,7 +465,7 @@ module.exports = function() {
         stub2.onCall(0).resolves({});
         stub3.onCall(0).resolves({});
 
-        let count = --volume.replicaCount;
+        const count = --volume.replicaCount;
         expect(Object.keys(volume.replicas)).to.have.lengthOf(count + 1);
         await volume.ensure();
         expect(Object.keys(volume.replicas)).to.have.lengthOf(count);
@@ -475,12 +475,12 @@ module.exports = function() {
         expect(stub1.callCount).to.equal(1);
         sinon.assert.calledWithMatch(stub1.firstCall, 'removeChildNexus', {
           uuid: UUID,
-          uri: 'nvmf://replica3',
+          uri: 'nvmf://replica3'
         });
         expect(stub2.callCount).to.equal(0);
         expect(stub3.callCount).to.equal(1);
         sinon.assert.calledWithMatch(stub3.firstCall, 'destroyReplica', {
-          uuid: UUID,
+          uuid: UUID
         });
         // one for replica remove and one for nexus update
         expect(volEvents).to.have.lengthOf(2);
@@ -499,13 +499,13 @@ module.exports = function() {
               thin: false,
               share: 'REPLICA_NONE',
               state: 'ONLINE',
-              uri: 'bdev:///' + UUID,
-            },
-          ],
+              uri: 'bdev:///' + UUID
+            }
+          ]
         });
         stub3.onCall(2).resolves({ uri: 'nvmf://replica3' });
 
-        let count = ++volume.replicaCount;
+        const count = ++volume.replicaCount;
         expect(Object.keys(volume.replicas)).to.have.lengthOf(count - 1);
         await volume.ensure();
         expect(Object.keys(volume.replicas)).to.have.lengthOf(count);
@@ -513,7 +513,7 @@ module.exports = function() {
         expect(stub1.callCount).to.equal(1);
         sinon.assert.calledWithMatch(stub1.firstCall, 'addChildNexus', {
           uuid: UUID,
-          uri: 'nvmf://replica3',
+          uri: 'nvmf://replica3'
         });
         expect(stub2.callCount).to.equal(0);
         expect(stub3.callCount).to.equal(3);
@@ -522,12 +522,12 @@ module.exports = function() {
           pool: 'pool3',
           size: 96,
           thin: false,
-          share: 'REPLICA_NONE',
+          share: 'REPLICA_NONE'
         });
         sinon.assert.calledWithMatch(stub3.secondCall, 'listReplicas', {});
         sinon.assert.calledWithMatch(stub3.thirdCall, 'shareReplica', {
           uuid: UUID,
-          share: 'REPLICA_NVMF',
+          share: 'REPLICA_NVMF'
         });
         // new replica, set share and update nexus
         expect(volEvents).to.have.lengthOf(3);
@@ -535,8 +535,8 @@ module.exports = function() {
 
       it('should set share protocols of replicas to accomodate nexus', async () => {
         // We switch one of the remote replicas to local and vice versa
-        let local = node1.pools[0].replicas[0];
-        let remote = node2.pools[0].replicas[0];
+        const local = node1.pools[0].replicas[0];
+        const remote = node2.pools[0].replicas[0];
         local.share = 'REPLICA_NVMF';
         local.uri = 'nvmf://remote-replica';
         remote.share = 'REPLICA_NONE';
@@ -552,12 +552,12 @@ module.exports = function() {
         expect(stub1.callCount).to.equal(1);
         sinon.assert.calledWithMatch(stub1.firstCall, 'shareReplica', {
           uuid: UUID,
-          share: 'REPLICA_NONE',
+          share: 'REPLICA_NONE'
         });
         expect(stub2.callCount).to.equal(1);
         sinon.assert.calledWithMatch(stub2.firstCall, 'shareReplica', {
           uuid: UUID,
-          share: 'REPLICA_NVMF',
+          share: 'REPLICA_NVMF'
         });
         expect(volEvents).to.have.lengthOf(2);
       });
@@ -578,19 +578,19 @@ module.exports = function() {
               children: [
                 {
                   uri: 'bdev:///' + UUID,
-                  state: 'ONLINE',
+                  state: 'ONLINE'
                 },
                 {
                   uri: 'nvmf://replica2',
-                  state: 'ONLINE',
+                  state: 'ONLINE'
                 },
                 {
                   uri: 'nvmf://replica3',
-                  state: 'ONLINE',
-                },
-              ],
-            },
-          ],
+                  state: 'ONLINE'
+                }
+              ]
+            }
+          ]
         });
 
         await volume.ensure();
@@ -601,7 +601,7 @@ module.exports = function() {
         sinon.assert.calledWithMatch(stub1.firstCall, 'createNexus', {
           uuid: UUID,
           size: 96,
-          children: ['bdev:///' + UUID, 'nvmf://replica2', 'nvmf://replica3'],
+          children: ['bdev:///' + UUID, 'nvmf://replica2', 'nvmf://replica3']
         });
         sinon.assert.calledWithMatch(stub1.secondCall, 'listNexus', {});
         expect(volEvents).to.have.lengthOf(1);
@@ -614,7 +614,7 @@ module.exports = function() {
             preferredNodes: [],
             requiredNodes: [],
             requiredBytes: 90,
-            limitBytes: 95,
+            limitBytes: 95
           })
         );
       });
@@ -626,7 +626,7 @@ module.exports = function() {
             preferredNodes: [],
             requiredNodes: [],
             requiredBytes: 97,
-            limitBytes: 110,
+            limitBytes: 110
           })
         );
       });
@@ -639,7 +639,7 @@ module.exports = function() {
         sinon.assert.calledOnce(stub1);
         sinon.assert.calledWithMatch(stub1, 'publishNexus', {
           uuid: UUID,
-          key: '',
+          key: ''
         });
         expect(volume.nexus.devicePath).to.equal('/dev/nbd0');
         expect(volEvents).to.have.lengthOf(1);
@@ -659,12 +659,12 @@ module.exports = function() {
       });
 
       it('should update the volume spec', async () => {
-        let volume = await volumes.createVolume(UUID, {
+        const volume = await volumes.createVolume(UUID, {
           replicaCount: 1,
           preferredNodes: ['node3'],
           requiredNodes: ['node2'],
           requiredBytes: 10,
-          limitBytes: 200,
+          limitBytes: 200
         });
 
         expect(volume.replicaCount).to.equal(1);
@@ -685,7 +685,7 @@ module.exports = function() {
           preferredNodes: ['node3'],
           requiredNodes: ['node2'],
           requiredBytes: 10,
-          limitBytes: 200,
+          limitBytes: 200
         });
         expect(volEvents).to.have.lengthOf(0);
       });
@@ -699,7 +699,7 @@ module.exports = function() {
 
         sinon.assert.calledOnce(stub1);
         sinon.assert.calledWithMatch(stub1.firstCall, 'destroyNexus', {
-          uuid: UUID,
+          uuid: UUID
         });
         sinon.assert.calledOnce(stub2);
         sinon.assert.calledWithMatch(stub2, 'destroyReplica', { uuid: UUID });

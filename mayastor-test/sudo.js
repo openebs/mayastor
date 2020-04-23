@@ -11,7 +11,7 @@ const sudoBin = inpathSync('sudo', process.env.PATH.split(':'));
 var cachedPassword;
 var lastAnswer;
 
-function sudo(command, options, nameInPs) {
+function sudo (command, options, nameInPs) {
   var prompt = '#node-sudo-passwd#';
   var prompts = 0;
   nameInPs = nameInPs || path.basename(command[0]);
@@ -25,7 +25,7 @@ function sudo(command, options, nameInPs) {
   var child = spawn(sudoBin, args, spawnOptions);
 
   // Wait for the sudo:d binary to start up
-  function waitForStartup(err, pid) {
+  function waitForStartup (err, pid) {
     if (err) {
       throw new Error("Couldn't start " + nameInPs);
     }
@@ -33,7 +33,7 @@ function sudo(command, options, nameInPs) {
     if (pid || child.exitCode !== null) {
       child.emit('started');
     } else {
-      setTimeout(function() {
+      setTimeout(function () {
         pidof(nameInPs, waitForStartup);
       }, 100);
     }
@@ -43,12 +43,12 @@ function sudo(command, options, nameInPs) {
   pidof(nameInPs, waitForStartup);
 
   // FIXME: Remove this handler when the child has successfully started
-  child.stderr.on('data', function(data) {
+  child.stderr.on('data', function (data) {
     var lines = data
       .toString()
       .trim()
       .split('\n');
-    lines.forEach(function(line) {
+    lines.forEach(function (line) {
       if (line === prompt) {
         if (++prompts > 1) {
           // The previous entry must have been incorrect, since sudo asks again.
@@ -61,9 +61,9 @@ function sudo(command, options, nameInPs) {
           read(
             {
               prompt: options.prompt || 'sudo requires your password: ',
-              silent: true,
+              silent: true
             },
-            function(error, answer) {
+            function (error, answer) {
               child.stdin.write(answer + '\n');
               if (options.cachePassword) {
                 cachedPassword = answer;

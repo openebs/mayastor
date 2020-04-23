@@ -17,21 +17,21 @@ const UUID1 = '02de3df9-ce18-4164-89e1-b1cbf7a88e51';
 const UUID2 = '02de3df9-ce18-4164-89e1-b1cbf7a88e52';
 const UUID3 = '02de3df9-ce18-4164-89e1-b1cbf7a88e53';
 
-module.exports = function() {
+module.exports = function () {
   var apiServer;
   var call1, call2, call3, call4;
 
   before(() => {
-    let node1 = new Node('node1');
-    let node2 = new Node('node2');
-    let node3 = new Node('node3');
-    let node4 = new Node('node4');
-    let registry = new Registry();
+    const node1 = new Node('node1');
+    const node2 = new Node('node2');
+    const node3 = new Node('node3');
+    const node4 = new Node('node4');
+    const registry = new Registry();
     registry.nodes = {
       node1,
       node2,
       node3,
-      node4,
+      node4
     };
     call1 = sinon.stub(node1, 'call');
     call2 = sinon.stub(node2, 'call');
@@ -46,8 +46,8 @@ module.exports = function() {
             numReadOps: STAT_COUNTER,
             numWriteOps: STAT_COUNTER,
             bytesRead: STAT_COUNTER,
-            bytesWritten: STAT_COUNTER,
-          },
+            bytesWritten: STAT_COUNTER
+          }
         },
         {
           uuid: UUID2,
@@ -56,10 +56,10 @@ module.exports = function() {
             numReadOps: STAT_COUNTER,
             numWriteOps: STAT_COUNTER,
             bytesRead: STAT_COUNTER,
-            bytesWritten: STAT_COUNTER,
-          },
-        },
-      ],
+            bytesWritten: STAT_COUNTER
+          }
+        }
+      ]
     });
     call2.rejects(new GrpcError(GrpcCode.INTERNAL, 'test failure'));
     call3.resolves({
@@ -71,13 +71,13 @@ module.exports = function() {
             numReadOps: STAT_COUNTER,
             numWriteOps: STAT_COUNTER,
             bytesRead: STAT_COUNTER,
-            bytesWritten: STAT_COUNTER,
-          },
-        },
-      ],
+            bytesWritten: STAT_COUNTER
+          }
+        }
+      ]
     });
     call4.resolves({
-      replicas: [],
+      replicas: []
     });
 
     apiServer = new ApiServer(registry);
@@ -99,7 +99,7 @@ module.exports = function() {
           data += chunk;
         });
         resp.on('end', () => {
-          let vols = JSON.parse(data);
+          const vols = JSON.parse(data);
           sinon.assert.calledOnce(call1);
           sinon.assert.calledWith(call1, 'statReplicas', {});
           sinon.assert.calledOnce(call2);

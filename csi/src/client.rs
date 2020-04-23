@@ -7,13 +7,29 @@
 #[macro_use]
 extern crate clap;
 
+use byte_unit::Byte;
 use bytesize::ByteSize;
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
-
+use rpc::mayastor::{
+    CreateNexusRequest,
+    DestroyNexusRequest,
+    Null,
+    PublishNexusRequest,
+};
 use tonic::{transport::Channel, Code, Request, Status};
 
 use rpc::service::mayastor_client::MayastorClient;
 
+type MayaClient = MayastorClient<Channel>;
+
+/// parses a human string into bytes accounts for MiB and MB
+pub(crate) fn parse_size(src: &str) -> Result<u64, String> {
+    if let Ok(val) = Byte::from_str(src) {
+        Ok(val.get_bytes() as u64)
+    } else {
+        Err(src.to_string())
+    }
+}
 fn parse_share_protocol(pcol: Option<&str>) -> Result<i32, Status> {
     match pcol {
         None => Ok(rpc::mayastor::ShareProtocolReplica::ReplicaNone as i32),
@@ -31,6 +47,70 @@ fn parse_share_protocol(pcol: Option<&str>) -> Result<i32, Status> {
             "Invalid value of share protocol".to_owned(),
         )),
     }
+}
+
+async fn publish_nexus(
+    mut client: MayaClient,
+    matches: &ArgMatches<'_>,
+) -> Result<(), Status> {
+    let request = PublishNexusRequest {
+        uuid: matches.value_of("uuid").unwrap().to_string(),
+        key: matches.value_of("key").unwrap_or("").to_string(),
+        share: parse_share_protocol(matches.value_of("PROTOCOL"))?,
+    };
+
+    let path = client.publish_nexus(request).await?;
+    println!("nexus published at {:?}", path);
+    Ok(())
+}
+async fn list_nexus(
+    mut client: MayaClient,
+    _matches: &ArgMatches<'_>,
+) -> Result<(), Status> {
+    let request = Null {};
+
+    let list = client.list_nexus(request).await?;
+
+    list.into_inner().nexus_list.into_iter().for_each(|n| {
+        println!("{:?}", n);
+    });
+
+    Ok(())
+}
+
+async fn destroy_nexus(
+    mut client: MayaClient,
+    matches: &ArgMatches<'_>,
+) -> Result<(), Status> {
+    let request = DestroyNexusRequest {
+        uuid: matches.value_of("uuid").unwrap().to_string(),
+    };
+
+    client.destroy_nexus(request).await?;
+
+    Ok(())
+}
+
+async fn create_nexus(
+    mut client: MayaClient,
+    matches: &ArgMatches<'_>,
+) -> Result<(), Status> {
+    let size = parse_size(matches.value_of("size").unwrap())
+        .map_err(|s| Status::invalid_argument(format!("Bad size '{}'", s)))?;
+
+    let request = CreateNexusRequest {
+        uuid: matches.value_of("uuid").unwrap().to_string(),
+        size,
+        children: matches
+            .value_of("children")
+            .unwrap()
+            .split_whitespace()
+            .map(|c| c.to_string())
+            .collect::<Vec<String>>(),
+    };
+
+    client.create_nexus(request).await?;
+    Ok(())
 }
 
 async fn create_pool(
@@ -379,6 +459,63 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .subcommand(SubCommand::with_name("list").about("List storage pools")),
         )
         .subcommand(
+            SubCommand::with_name("nexus")
+                .about("nexus management")
+                .subcommand(
+                    SubCommand::with_name("create")
+                        .about("create a new nexus device")
+                        .arg(
+                            Arg::with_name("uuid")
+                                .help("uuid for the nexus")
+                                .required(true)
+                                .index(1),
+                        )
+                        .arg(
+                            Arg::with_name("size")
+                                .help("size in mb")
+                                .required(true)
+                                .index(2),
+                        )
+                        .arg(
+                            Arg::with_name("children")
+                                .help("list of children to add")
+                                .required(true)
+                                .multiple(true)
+                                .index(3)
+                        )
+                    )
+                .subcommand(
+                        SubCommand::with_name("destroy")
+                            .about("destroy the nexus with given name")
+                            .arg(
+                                Arg::with_name("uuid")
+                                    .help("uuid for the nexus")
+                                    .required(true)
+                                    .index(1),
+                            )
+                        )
+                .subcommand(
+                        SubCommand::with_name("list")
+                            .about("list all nexus devices")
+                        )
+                .subcommand(
+                    SubCommand::with_name("publish")
+                        .about("publish the nexus")
+                        .arg(
+                            Arg::with_name("uuid")
+                                .help("uuid for the nexus")
+                                .required(true)
+                                .index(1),
+                        )
+                        .arg(
+                            Arg::with_name("key")
+                                .help("crypto key to use")
+                                .required(false)
+                                .index(2),
+                        )
+                )
+        )
+        .subcommand(
             SubCommand::with_name("replica")
                 .about("Replica management")
                 .subcommand(
@@ -473,6 +610,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ("destroy", Some(m)) => destroy_pool(client, &m, quiet).await?,
             _ => {}
         },
+
+        ("nexus", Some(m)) => match m.subcommand() {
+            ("create", Some(m)) => create_nexus(client, &m).await?,
+            ("destroy", Some(m)) => destroy_nexus(client, &m).await?,
+            ("list", Some(m)) => list_nexus(client, &m).await?,
+            ("publish", Some(m)) => publish_nexus(client, &m).await?,
+            _ => {}
+        },
+
         ("replica", Some(m)) => match m.subcommand() {
             ("create", Some(matches)) => {
                 create_replica(client, matches, verbose).await?
@@ -494,6 +640,5 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         _ => {}
     };
-
     Ok(())
 }

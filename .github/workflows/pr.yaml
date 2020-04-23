@@ -17,13 +17,12 @@ jobs:
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           args: --all --all-targets -- -D warnings
-  Prettier:
-    name: Prettier
+  Semistandard:
+    name: SemiStandard
     runs-on: ubuntu-latest
     container:
       image: docker.io/mayadata/ms-buildenv:nix
     steps:
       - uses: actions/checkout@master
-   #   - run: prettier --config .prettierrc --check csi/moac/*.js
-   #   - run: prettier --config .prettierrc --check mayastor-test/*.js
-      - run: jshint --config .jshintrc csi/moac/*.js mayastor-test/*.js
+      - run: git diff-tree --no-commit-id --name-only -r ${{ github.sha }} | grep '\.js$' || true | xargs -r semistandard --env node --env mocha
+        shell: bash

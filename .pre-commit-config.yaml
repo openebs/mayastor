@@ -23,17 +23,10 @@ repos:
         pass_filenames: false
         types: [file, rust]
         language: system
-    -   id: js-style
-        name: JS style
-        description: Run prettier on files included in the commit. prettier npm module should be installed before-hand.
-        entry: prettier --config=.prettierrc --check
-        pass_filenames: true
-        types: [file, javascript]
-        language: system
     -   id: js-lint
         name: JS lint
-        description: Run jshint on files included in the commit. jshint npm module should be installed before-hand.
-        entry: jshint --config=.jshintrc
+        description: Run semistandard on files included in the commit. semistandard npm module should be installed before-hand.
+        entry: semistandard --env mocha --env node --fix
         pass_filenames: true
         types: [file, javascript]
         language: system

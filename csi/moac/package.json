@@ -40,5 +40,15 @@
     "*.js",
     "crds/*.yaml",
     "bundle_protos.sh"
-  ]
+  ],
+  "semistandard": {
+    "env": [
+      "mocha"
+    ]
+  },
+  "standard": {
+    "env": [
+      "mocha"
+    ]
+  }
 }

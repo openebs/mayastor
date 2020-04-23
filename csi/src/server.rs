@@ -197,6 +197,7 @@ async fn main() -> Result<(), String> {
     builder.init();
 
     let saddr = format!("{}:{}", addr, port).parse().unwrap();
+    info!("Agent starting service on {}", saddr);
 
     let tcp = Server::builder()
         .add_service(MayastorServer::new(MayastorService {
@@ -218,6 +219,7 @@ async fn main() -> Result<(), String> {
     }
 
     let mut uds_sock = UnixListener::bind(csi_socket).unwrap();
+    info!("Agent bound to CSI at {}", csi_socket);
 
     let uds = Server::builder()
         .add_service(NodeServer::new(Node {

@@ -11,13 +11,13 @@ const Replica = require('../replica');
 const { shouldFailWith } = require('./utils');
 const { GrpcCode, GrpcError } = require('../grpc_client');
 
-module.exports = function() {
-  let props = {
+module.exports = function () {
+  const props = {
     name: 'pool',
     disks: ['/dev/sda'],
     state: 'POOL_ONLINE',
     capacity: 100,
-    used: 4,
+    used: 4
   };
 
   describe('should emit event upon change of volatile property', () => {
@@ -39,7 +39,7 @@ module.exports = function() {
       sinon.assert.calledTwice(eventSpy);
       sinon.assert.calledWith(eventSpy.lastCall, 'pool', {
         eventType: 'mod',
-        object: pool,
+        object: pool
       });
       expect(pool.state).to.equal('POOL_DEGRADED');
     });
@@ -51,7 +51,7 @@ module.exports = function() {
       sinon.assert.calledTwice(eventSpy);
       sinon.assert.calledWith(eventSpy.lastCall, 'pool', {
         eventType: 'mod',
-        object: pool,
+        object: pool
       });
       expect(pool.capacity).to.equal(101);
     });
@@ -63,20 +63,20 @@ module.exports = function() {
       sinon.assert.calledTwice(eventSpy);
       sinon.assert.calledWith(eventSpy.lastCall, 'pool', {
         eventType: 'mod',
-        object: pool,
+        object: pool
       });
       expect(pool.used).to.equal(99);
     });
   });
 
   it('should not emit event upon change of non-volatile property', () => {
-    let node = new Node('node');
-    let eventSpy = sinon.spy(node, 'emit');
-    let pool = new Pool(props);
+    const node = new Node('node');
+    const eventSpy = sinon.spy(node, 'emit');
+    const pool = new Pool(props);
     node._registerPool(pool);
-    let newProps = _.clone(props);
+    const newProps = _.clone(props);
     newProps.disks = ['/dev/sdb'];
-    let node2 = new Node('node2');
+    const node2 = new Node('node2');
 
     pool.merge(newProps, []);
 
@@ -86,11 +86,11 @@ module.exports = function() {
   });
 
   it('should not emit event if nothing changed', () => {
-    let node = new Node('node');
-    let spy = sinon.spy(node, 'emit');
-    let pool = new Pool(props);
+    const node = new Node('node');
+    const spy = sinon.spy(node, 'emit');
+    const pool = new Pool(props);
     node._registerPool(pool);
-    let newProps = _.clone(props);
+    const newProps = _.clone(props);
 
     pool.merge(newProps, []);
 
@@ -100,11 +100,11 @@ module.exports = function() {
   });
 
   it('should properly merge replicas from the pool', () => {
-    let node = new Node('node');
-    let spy = sinon.spy(node, 'emit');
-    let pool = new Pool(props);
-    let modReplica = new Replica({ uuid: 'to-modify' });
-    let delReplica = new Replica({ uuid: 'to-delete' });
+    const node = new Node('node');
+    const spy = sinon.spy(node, 'emit');
+    const pool = new Pool(props);
+    const modReplica = new Replica({ uuid: 'to-modify' });
+    const delReplica = new Replica({ uuid: 'to-delete' });
     node._registerPool(pool);
     pool.registerReplica(modReplica);
     pool.registerReplica(delReplica);
@@ -117,42 +117,42 @@ module.exports = function() {
     sinon.assert.calledWithMatch(spy.getCall(0), 'pool', { eventType: 'new' });
     sinon.assert.calledWith(spy.getCall(1), 'replica', {
       eventType: 'new',
-      object: modReplica,
+      object: modReplica
     });
     sinon.assert.calledWith(spy.getCall(2), 'replica', {
       eventType: 'new',
-      object: delReplica,
+      object: delReplica
     });
     // now come the events we want to test
     sinon.assert.calledWithMatch(spy.getCall(3), 'replica', {
       eventType: 'new',
-      object: { uuid: 'to-create' },
+      object: { uuid: 'to-create' }
     });
     sinon.assert.calledWith(spy.getCall(4), 'replica', {
       eventType: 'mod',
-      object: modReplica,
+      object: modReplica
     });
     sinon.assert.calledWith(spy.getCall(5), 'replica', {
       eventType: 'del',
-      object: delReplica,
+      object: delReplica
     });
   });
 
   it('should print the pool name with a node name', () => {
-    let node = new Node('node');
-    let pool = new Pool(props);
+    const node = new Node('node');
+    const pool = new Pool(props);
     node._registerPool(pool);
     expect(pool.toString()).to.equal('pool@node');
   });
 
   it('should print the pool name without node name if not bound', () => {
-    let pool = new Pool(props);
+    const pool = new Pool(props);
     expect(pool.toString()).to.equal('pool@nowhere');
   });
 
   it('should bind the pool to node and then unbind it', (done) => {
-    let node = new Node('node');
-    let pool = new Pool(props);
+    const node = new Node('node');
+    const pool = new Pool(props);
     node.once('pool', (ev) => {
       expect(ev.eventType).to.equal('new');
       expect(ev.object).to.equal(pool);
@@ -174,9 +174,9 @@ module.exports = function() {
   });
 
   it('should unregister replica from the pool', () => {
-    let node = new Node('node');
-    let pool = new Pool(props);
-    let replica = new Replica({ uuid: 'uuid' });
+    const node = new Node('node');
+    const pool = new Pool(props);
+    const replica = new Replica({ uuid: 'uuid' });
     node._registerPool(pool);
     pool.registerReplica(replica);
     expect(pool.replicas).to.have.lengthOf(1);
@@ -185,13 +185,13 @@ module.exports = function() {
   });
 
   it('should destroy the pool with replica', async () => {
-    let node = new Node('node');
-    let eventSpy = sinon.spy(node, 'emit');
-    let stub = sinon.stub(node, 'call');
+    const node = new Node('node');
+    const eventSpy = sinon.spy(node, 'emit');
+    const stub = sinon.stub(node, 'call');
     stub.resolves({});
-    let pool = new Pool(props);
+    const pool = new Pool(props);
     node._registerPool(pool);
-    let replica = new Replica({ uuid: 'uuid' });
+    const replica = new Replica({ uuid: 'uuid' });
     pool.registerReplica(replica);
 
     await pool.destroy();
@@ -205,19 +205,19 @@ module.exports = function() {
     expect(eventSpy.callCount).to.equal(4);
     sinon.assert.calledWith(eventSpy.getCall(2), 'replica', {
       eventType: 'del',
-      object: replica,
+      object: replica
     });
     sinon.assert.calledWith(eventSpy.getCall(3), 'pool', {
       eventType: 'del',
-      object: pool,
+      object: pool
     });
   });
 
   it('should ignore NOT_FOUND error when destroying the pool', async () => {
-    let node = new Node('node');
-    let stub = sinon.stub(node, 'call');
+    const node = new Node('node');
+    const stub = sinon.stub(node, 'call');
     stub.rejects({ code: 5 });
-    let pool = new Pool(props);
+    const pool = new Pool(props);
     node._registerPool(pool);
 
     await pool.destroy();
@@ -230,11 +230,11 @@ module.exports = function() {
   });
 
   it('should offline the pool with replica', () => {
-    let node = new Node('node');
-    let eventSpy = sinon.spy(node, 'emit');
-    let pool = new Pool(props);
+    const node = new Node('node');
+    const eventSpy = sinon.spy(node, 'emit');
+    const pool = new Pool(props);
     node._registerPool(pool);
-    let replica = new Replica({ uuid: 'uuid' });
+    const replica = new Replica({ uuid: 'uuid' });
     pool.registerReplica(replica);
 
     pool.offline();
@@ -246,17 +246,17 @@ module.exports = function() {
     expect(eventSpy.callCount).to.equal(4);
     sinon.assert.calledWith(eventSpy.getCall(2), 'replica', {
       eventType: 'mod',
-      object: replica,
+      object: replica
     });
     sinon.assert.calledWith(eventSpy.getCall(3), 'pool', {
       eventType: 'mod',
-      object: pool,
+      object: pool
     });
   });
 
   it('should create replica on the pool', async () => {
-    let node = new Node('node');
-    let stub = sinon.stub(node, 'call');
+    const node = new Node('node');
+    const stub = sinon.stub(node, 'call');
     stub.onCall(0).resolves({});
     stub.onCall(1).resolves({
       replicas: [
@@ -267,14 +267,14 @@ module.exports = function() {
           thin: false,
           share: 'REPLICA_NONE',
           state: 'ONLINE',
-          uri: 'bdev://blabla',
-        },
-      ],
+          uri: 'bdev://blabla'
+        }
+      ]
     });
-    let pool = new Pool(props);
+    const pool = new Pool(props);
     node._registerPool(pool);
 
-    let repl = await pool.createReplica('uuid', 100);
+    const repl = await pool.createReplica('uuid', 100);
 
     sinon.assert.calledTwice(stub);
     sinon.assert.calledWithMatch(stub.firstCall, 'createReplica', {
@@ -282,7 +282,7 @@ module.exports = function() {
       pool: 'pool',
       size: 100,
       thin: false,
-      share: 'REPLICA_NONE',
+      share: 'REPLICA_NONE'
     });
     sinon.assert.calledWithMatch(stub.secondCall, 'listReplicas', {});
     expect(pool.replicas).to.have.lengthOf(1);
@@ -291,8 +291,8 @@ module.exports = function() {
   });
 
   it('should throw internal error if createReplica grpc fails', async () => {
-    let node = new Node('node');
-    let stub = sinon.stub(node, 'call');
+    const node = new Node('node');
+    const stub = sinon.stub(node, 'call');
     stub.onCall(0).rejects(new GrpcError(GrpcCode.INTERNAL, 'Test failure'));
     stub.onCall(1).resolves({
       replicas: [
@@ -303,11 +303,11 @@ module.exports = function() {
           thin: false,
           share: 'REPLICA_NONE',
           state: 'ONLINE',
-          uri: 'bdev://blabla',
-        },
-      ],
+          uri: 'bdev://blabla'
+        }
+      ]
     });
-    let pool = new Pool(props);
+    const pool = new Pool(props);
     node._registerPool(pool);
 
     await shouldFailWith(GrpcCode.INTERNAL, async () => {
@@ -321,16 +321,16 @@ module.exports = function() {
       pool: 'pool',
       size: 100,
       thin: false,
-      share: 'REPLICA_NONE',
+      share: 'REPLICA_NONE'
     });
   });
 
   it('should throw internal error if listReplicas grpc fails', async () => {
-    let node = new Node('node');
-    let stub = sinon.stub(node, 'call');
+    const node = new Node('node');
+    const stub = sinon.stub(node, 'call');
     stub.onCall(0).resolves({});
     stub.onCall(1).rejects(new Error('list call failed'));
-    let pool = new Pool(props);
+    const pool = new Pool(props);
     node._registerPool(pool);
 
     await shouldFailWith(GrpcCode.INTERNAL, async () => {
@@ -342,7 +342,7 @@ module.exports = function() {
   });
 
   it('should correctly indicate if pool is accessible or not', () => {
-    let poolProps = _.clone(props);
+    const poolProps = _.clone(props);
     poolProps.state = 'POOL_ONLINE';
     let pool = new Pool(poolProps);
     // jshint ignore:start
@@ -363,7 +363,7 @@ module.exports = function() {
   });
 
   it('should return free space in the pool', () => {
-    let pool = new Pool(props);
+    const pool = new Pool(props);
     expect(pool.freeBytes()).to.equal(96);
   });
 };

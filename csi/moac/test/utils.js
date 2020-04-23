@@ -4,11 +4,11 @@
 
 const sleep = require('sleep-promise');
 
-async function waitUntil(test, timeout, name) {
+async function waitUntil (test, timeout, name) {
   let delay = 1;
 
   while (true) {
-    let done = await test();
+    const done = await test();
     if (done) {
       return;
     }
@@ -30,7 +30,7 @@ async function waitUntil(test, timeout, name) {
 // TODO: Combination of external function that is awaited here and wrapped
 // inside try-catch, results in freaky behaviour sometimes like printing
 // error to output.
-async function shouldFailWith(code, test) {
+async function shouldFailWith (code, test) {
   try {
     await test();
   } catch (err) {
@@ -44,5 +44,5 @@ async function shouldFailWith(code, test) {
 
 module.exports = {
   shouldFailWith,
-  waitUntil,
+  waitUntil
 };
