@@ -15,8 +15,12 @@ jobs:
       - uses: actions/checkout@v2
       - uses: actions-rs/toolchain@v1
         with:
-          # this does not pin the compiler version
           toolchain: stable
+      - uses: cachix/install-nix-action@v7
+      - uses: cachix/cachix-action@v5
+        with:
+          name: mayastor
+          skipNixBuild: true
       - run: ln -s /host/bin/kmod /bin/modprobe
       - run: /bin/modprobe nbd
       - run: /bin/modprobe xfs
@@ -37,29 +41,7 @@ jobs:
       - run: ( cd mayastor-test && TEST_PORT=10125 ./node_modules/mocha/bin/mocha test_nexus.js )
       - run: ( cd mayastor-test && ./node_modules/mocha/bin/mocha test_rebuild.js )
       - run: ( cd mayastor-test && TEST_PORT=10125 ./node_modules/mocha/bin/mocha test_rebuild.js )
-  Image:
-    # dont image if the build fails
-    needs: Build
-    name: Build docker images
-    runs-on: self-hosted
-    steps:
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-      - uses: actions/checkout@v2
-      - uses: cachix/install-nix-action@v7
-      - uses: cachix/cachix-action@v5
-        with:
-          name: mayastor
-          skipNixBuild: true
+      
+      # construct images
       - run: nix-build -A mayastorImage -o /tmp/mayastorImage
       - run: nix-build -A mayastorCSIImage -o /tmp/mayastorCSIImage
-  ms-build:
-    runs-on: self-hosted
-    steps:
-      - uses: actions/checkout@v2
-      - uses: cachix/install-nix-action@v7
-      - uses: cachix/cachix-action@v5
-        with:
-          name: mayastor
-          attributes: ms-buildenv
