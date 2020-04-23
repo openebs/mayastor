@@ -16,7 +16,6 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
-      - uses: cachix/install-nix-action@v7
       - uses: cachix/cachix-action@v5
         with:
           name: mayastor
