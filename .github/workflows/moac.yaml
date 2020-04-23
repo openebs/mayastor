@@ -1,0 +1,30 @@
+name: "moac"
+on:
+  pull_request:
+    paths:
+      - 'csi/moac/**'
+      - 'rpc/proto/**'
+jobs:
+  Build:
+    name: Build and run moac tests
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/mayadata/ms-buildenv:nix
+    steps:
+      - uses: actions/checkout@v2
+      # npm prepare is normally done by npm install but not if run as a root
+      - run: cd csi/moac && npm install && npm run-script prepare
+      - run: cd csi/moac && npm test
+  Image:
+    # dont image if the build fails
+    needs: Build
+    name: Build docker image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: cachix/install-nix-action@v7
+      - uses: cachix/cachix-action@v5
+        with:
+          name: mayastor
+          skipNixBuild: true
+      - run: nix-build -A node-moacImage -o /tmp/node-moacImage
