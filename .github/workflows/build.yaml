@@ -16,10 +16,6 @@ jobs:
       - uses: actions-rs/toolchain@v1
         with:
           toolchain: stable
-      - uses: cachix/cachix-action@v5
-        with:
-          name: mayastor
-          skipNixBuild: true
       - run: ln -s /host/bin/kmod /bin/modprobe
       - run: /bin/modprobe nbd
       - run: /bin/modprobe xfs
