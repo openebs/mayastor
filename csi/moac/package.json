@@ -23,7 +23,6 @@
     "grpc-promise": "^1.4.0",
     "grpc-uds": "^0.1.4",
     "js-yaml": "^3.13.1",
-    "json-stream": "^1.0.0",
     "kubernetes-client": "^8.3.6",
     "lodash": "^4.17.15",
     "sleep-promise": "^8.0.1",
@@ -32,6 +31,7 @@
   },
   "devDependencies": {
     "chai": "^4.2.0",
+    "dirty-chai": "^2.0.1",
     "mocha": "^7.1.1",
     "sinon": "^9.0.1",
     "wtfnode": "^0.8.1"
@@ -42,11 +42,6 @@
     "bundle_protos.sh"
   ],
   "semistandard": {
-    "env": [
-      "mocha"
-    ]
-  },
-  "standard": {
     "env": [
       "mocha"
     ]

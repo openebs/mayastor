@@ -229,7 +229,7 @@ class MayastorServer {
         assertHasKeys(args, ['uuid']);
         var idx = self.nexus.findIndex((n) => n.uuid === args.uuid);
         if (idx >= 0) {
-          // const n = self.nexus.splice(idx, 1)[0];
+          self.nexus.splice(idx, 1);
           cb(null, {});
         } else {
           const err = new Error('not found');

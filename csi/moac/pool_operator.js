@@ -4,7 +4,7 @@
 'use strict';
 
 const _ = require('lodash');
-const assert = require('assert');
+const path = require('path');
 const fs = require('fs');
 const yaml = require('js-yaml');
 const log = require('./logger').Logger('pool-operator');
@@ -14,7 +14,7 @@ const Workq = require('./workq');
 
 // Load custom resource definition
 const crdPool = yaml.safeLoad(
-  fs.readFileSync(__dirname + '/crds/mayastorpool.yaml', 'utf8')
+  fs.readFileSync(path.join(__dirname, '/crds/mayastorpool.yaml'), 'utf8')
 );
 
 // Pool operator tries to bring the real state of storage pools on mayastor
@@ -102,9 +102,9 @@ class PoolOperator {
     // this will start async processing of node and pool events
     self.eventStream = new EventStream({ registry: self.registry });
     self.eventStream.on('data', async (ev) => {
-      if (ev.kind == 'pool') {
+      if (ev.kind === 'pool') {
         await self.workq.push(ev, self._onPoolEvent.bind(self));
-      } else if (ev.kind == 'node' && ev.eventType == 'sync') {
+      } else if (ev.kind === 'node' && ev.eventType === 'sync') {
         await self.workq.push(ev.object.name, self._onNodeSyncEvent.bind(self));
       }
     });
@@ -120,16 +120,16 @@ class PoolOperator {
 
     log.debug(`Received "${ev.eventType}" event for pool "${name}"`);
 
-    if (ev.eventType == 'new') {
+    if (ev.eventType === 'new') {
       if (!resource) {
         log.warn(`Unknown pool "${name}" will be destroyed`);
         await this._destroyPool(name);
       } else {
         await this._updateResource(ev.object);
       }
-    } else if (ev.eventType == 'mod') {
+    } else if (ev.eventType === 'mod') {
       await this._updateResource(ev.object);
-    } else if (ev.eventType == 'del' && resource) {
+    } else if (ev.eventType === 'del' && resource) {
       log.warn(`Recreating destroyed pool "${name}"`);
       await this._createPool(resource);
     }
@@ -146,7 +146,7 @@ class PoolOperator {
     log.debug(`Syncing pool records for node "${nodeName}"`);
 
     const resources = Object.values(this.resource).filter(
-      (ent) => ent.node == nodeName
+      (ent) => ent.node === nodeName
     );
     for (let i = 0; i < resources.length; i++) {
       await this._createPool(resources[i]);
@@ -202,7 +202,7 @@ class PoolOperator {
 
     if (
       !resource.disks.every(
-        (ent) => ent.startsWith('/dev/') && ent.indexOf('..') == -1
+        (ent) => ent.startsWith('/dev/') && ent.indexOf('..') === -1
       )
     ) {
       const msg = 'Disk must be absolute path beginning with /dev';
@@ -279,7 +279,7 @@ class PoolOperator {
     }
     // Changing node implies destroying the pool on the old node and recreating
     // it on the new node that is destructive action -> unsupported.
-    if (curProps.node != newProps.node) {
+    if (curProps.node !== newProps.node) {
       log.error(`Moving pool "${name}" between nodes is not supported`);
       curProps.node = newProps.node;
     }
@@ -304,7 +304,7 @@ class PoolOperator {
     }
     var state = pool.state.replace(/^POOL_/, '').toLowerCase();
     var reason = '';
-    if (state == 'offline') {
+    if (state === 'offline') {
       reason = `mayastor does not run on the node "${pool.node}"`;
     }
 
@@ -348,10 +348,10 @@ class PoolOperator {
     const status = k8sPool.status || {};
     // avoid the update if the object has not changed
     if (
-      state == status.state &&
-      reason == status.reason &&
-      capacity == status.capacity &&
-      used == status.used
+      state === status.state &&
+      reason === status.reason &&
+      capacity === status.capacity &&
+      used === status.used
     ) {
       return;
     }

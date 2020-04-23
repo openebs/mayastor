@@ -10,9 +10,7 @@ const expect = require('chai').expect;
 const sinon = require('sinon');
 const Nexus = require('../nexus');
 const Node = require('../node');
-const Pool = require('../pool');
 const Registry = require('../registry');
-const Replica = require('../replica');
 const Volume = require('../volume');
 
 const UUID = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cbb';
@@ -72,7 +70,7 @@ module.exports = function () {
     sinon.assert.calledOnce(stub);
     sinon.assert.calledWithMatch(stub, 'publishNexus', {
       uuid: UUID,
-      key: '',
+      key: ''
     });
 
     stub.resolves({});

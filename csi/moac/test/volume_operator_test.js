@@ -53,9 +53,9 @@ module.exports = function () {
       children: [
         {
           uri: 'bdev:///' + UUID,
-          state: 'CHILD_ONLINE',
-        },
-      ],
+          state: 'CHILD_ONLINE'
+        }
+      ]
     },
     replicas: [
       {
@@ -167,9 +167,9 @@ module.exports = function () {
             children: [
               {
                 uri: 'bdev:///' + UUID,
-                state: 'CHILD_ONLINE',
-              },
-            ],
+                state: 'CHILD_ONLINE'
+              }
+            ]
           },
           replicas: [
             {
@@ -208,24 +208,24 @@ module.exports = function () {
     });
 
     it('valid mayastor volume with status without nexus should pass the filter', () => {
-      let obj = createVolumeResource(
+      const obj = createVolumeResource(
         UUID,
         {
           replicaCount: 3,
           preferredNodes: ['node1', 'node2'],
           requiredNodes: ['node2'],
           requiredBytes: 100,
-          limitBytes: 120,
+          limitBytes: 120
         },
         {
           size: 110,
           node: 'node2',
           state: 'healthy',
-          replicas: [],
+          replicas: []
         }
       );
 
-      let res = VolumeOperator.prototype._filterMayastorVolume(obj);
+      const res = VolumeOperator.prototype._filterMayastorVolume(obj);
       expect(res.metadata.name).to.equal(UUID);
       expect(res.spec.replicaCount).to.equal(3);
       expect(res.spec.preferredNodes).to.have.lengthOf(2);
@@ -238,7 +238,7 @@ module.exports = function () {
       expect(res.status.size).to.equal(110);
       expect(res.status.node).to.equal('node2');
       expect(res.status.state).to.equal('healthy');
-      expect(res.status.nexus).is.undefined;
+      expect(res.status.nexus).is.undefined();
       expect(res.status.replicas).to.have.lengthOf(0);
     });
 
@@ -253,9 +253,7 @@ module.exports = function () {
       const res = VolumeOperator.prototype._filterMayastorVolume(obj);
       expect(res.metadata.name).to.equal(UUID);
       expect(res.spec.replicaCount).to.equal(3);
-      // jshint ignore:start
-      expect(res.status).to.be.undefined;
-      // jshint ignore:end
+      expect(res.status).to.be.undefined();
     });
 
     it('mayastor volume without optional parameters should pass the filter', () => {
@@ -269,9 +267,7 @@ module.exports = function () {
       expect(res.spec.requiredNodes).to.have.lengthOf(0);
       expect(res.spec.requiredBytes).to.equal(100);
       expect(res.spec.limitBytes).to.equal(0);
-      // jshint ignore:start
-      expect(res.status).to.be.undefined;
-      // jshint ignore:end
+      expect(res.status).to.be.undefined();
     });
 
     it('mayastor volume without requiredSize should be ignored', () => {
@@ -282,9 +278,7 @@ module.exports = function () {
         limitBytes: 120
       });
       const res = VolumeOperator.prototype._filterMayastorVolume(obj);
-      // jshint ignore:start
-      expect(res).to.be.null;
-      // jshint ignore:end
+      expect(res).to.be.null();
     });
 
     it('mayastor volume with invalid UUID should be ignored', () => {
@@ -296,9 +290,7 @@ module.exports = function () {
         limitBytes: 120
       });
       const res = VolumeOperator.prototype._filterMayastorVolume(obj);
-      // jshint ignore:start
-      expect(res).to.be.null;
-      // jshint ignore:end
+      expect(res).to.be.null();
     });
   });
 
@@ -733,7 +725,6 @@ module.exports = function () {
     });
 
     it('should not crash if the resource does not exist upon "mod" volume event', async () => {
-      const obj = createVolumeResource(UUID, defaultSpec);
       const registry = new Registry();
       const volumes = new Volumes(registry);
       sinon.stub(volumes, 'get').returns([]);
@@ -805,7 +796,6 @@ module.exports = function () {
     });
 
     it('should not crash if the resource does not exist upon "del" volume event', async () => {
-      const obj = createVolumeResource(UUID, defaultSpec);
       const registry = new Registry();
       const volumes = new Volumes(registry);
       sinon.stub(volumes, 'get').returns([]);

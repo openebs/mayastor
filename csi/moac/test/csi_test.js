@@ -5,7 +5,7 @@
 const expect = require('chai').expect;
 const fs = require('fs').promises;
 const grpc = require('grpc-uds');
-const grpc_promise = require('grpc-promise');
+const grpcPromise = require('grpc-promise');
 const sinon = require('sinon');
 const { CsiServer, csi } = require('../csi');
 const { GrpcError, GrpcCode } = require('../grpc_client');
@@ -21,7 +21,7 @@ const UUID = 'd01b8bfb-0116-47b0-a03a-447fcbdc0e99';
 // Return gRPC CSI client for given csi service
 function getCsiClient (svc) {
   const client = new csi[svc](SOCKPATH, grpc.credentials.createInsecure());
-  grpc_promise.promisifyAll(client);
+  grpcPromise.promisifyAll(client);
   return client;
 }
 
@@ -34,7 +34,7 @@ module.exports = function () {
     try {
       await fs.stat(SOCKPATH);
     } catch (err) {
-      if (err.code == 'ENOENT') {
+      if (err.code === 'ENOENT') {
         return;
       }
       throw err;
@@ -523,9 +523,7 @@ module.exports = function () {
 
       it('should list all volumes', async () => {
         const resp = await client.listVolumes().sendMessage({});
-        // jshint ignore:start
-        expect(resp.nextToken).to.be.empty;
-        // jshint ignore:end
+        expect(resp.nextToken).to.be.empty();
         const vols = resp.entries.map((ent) => ent.volume);
         expect(vols).to.have.lengthOf(100);
         for (let i = 0; i < 10; i++) {
@@ -906,14 +904,11 @@ module.exports = function () {
             };
           })
         });
-        // jshint ignore:start
-        expect(resp.confirmed).to.be.null;
-        // jshint ignore:end
+        expect(resp.confirmed).to.be.null();
         expect(resp.message).to.match(/SINGLE_NODE_WRITER/);
       });
 
       it('should return error if volume does not exist', async () => {
-        var volume = new Volume(UUID, registry, {});
         getVolumesStub.returns(null);
         await shouldFailWith(GrpcCode.NOT_FOUND, () =>
           client.validateVolumeCapabilities().sendMessage({

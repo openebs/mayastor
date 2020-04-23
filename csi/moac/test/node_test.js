@@ -113,9 +113,7 @@ module.exports = function () {
         node.connect(EGRESS_ENDPOINT);
 
         setTimeout(() => {
-          // jshint ignore:start
-          expect(node.isSynced()).to.be.true;
-          // jshint ignore:end
+          expect(node.isSynced()).to.be.true();
           expect(syncCount).to.equal(1);
 
           expect(poolObjects).to.have.lengthOf(1);
@@ -276,9 +274,7 @@ module.exports = function () {
           expect(ev.eventType).to.equal('del');
           expect(ev.object).to.be.an.instanceof(Pool);
           expect(ev.object.name).to.equal('pool');
-          // jshint ignore:start
-          expect(replicaRemoved).to.be.true;
-          // jshint ignore:end
+          expect(replicaRemoved).to.be.true();
           done();
         });
         // empty the pool list
@@ -299,9 +295,7 @@ module.exports = function () {
           expect(ev.eventType).to.equal('new');
           expect(ev.object).to.be.an.instanceof(Replica);
           expect(ev.object.uuid).to.equal(newUuid);
-          // jshint ignore:start
-          expect(poolAdded).to.be.true;
-          // jshint ignore:end
+          expect(poolAdded).to.be.true();
           done();
         });
         // add a new pool with a replica
@@ -417,7 +411,7 @@ module.exports = function () {
         node.once('replica', (ev) => {
           expect(ev.eventType).to.equal('mod');
           expect(ev.object.uuid).to.equal(UUID);
-          expect(ev.object.isOffline()).to.be.true;
+          expect(ev.object.isOffline()).to.be.true();
           offline();
         });
         node.once('nexus', (ev) => {
@@ -428,10 +422,8 @@ module.exports = function () {
         });
 
         function offline () {
-          if (++offlineCount == 3) {
-            // jshint ignore:start
-            expect(node.isSynced()).to.be.false;
-            // jshint ignore:end
+          if (++offlineCount === 3) {
+            expect(node.isSynced()).to.be.false();
             expect(Date.now() - firstSync).to.be.below(syncInterval * 1.5);
             done();
           }
@@ -461,9 +453,7 @@ module.exports = function () {
           expect(ev.eventType).to.equal('mod');
           expect(ev.object.name).to.equal('pool');
           expect(ev.object.state).to.equal('POOL_OFFLINE');
-          // jshint ignore:start
-          expect(node.isSynced()).to.be.false;
-          // jshint ignore:end
+          expect(node.isSynced()).to.be.false();
           expect(Date.now() - firstSync).to.be.above(
             syncPeriod + syncRetry * 2
           );
@@ -488,9 +478,7 @@ module.exports = function () {
       node.once('node', (ev) => {
         expect(ev.eventType).to.equal('sync');
         expect(ev.object).to.equal(node);
-        // jshint ignore:start
-        expect(node.isSynced()).to.be.true;
-        // jshint ignore:end
+        expect(node.isSynced()).to.be.true();
 
         srv.stop();
         srv = null;
@@ -499,9 +487,7 @@ module.exports = function () {
           expect(ev.eventType).to.equal('mod');
           expect(ev.object.name).to.equal('pool');
           expect(ev.object.state).to.equal('POOL_OFFLINE');
-          // jshint ignore:start
-          expect(node.isSynced()).to.be.false;
-          // jshint ignore:end
+          expect(node.isSynced()).to.be.false();
 
           srv = new MayastorServer(
             EGRESS_ENDPOINT,
@@ -513,9 +499,7 @@ module.exports = function () {
           node.once('node', (ev) => {
             expect(ev.eventType).to.equal('sync');
             expect(ev.object).to.equal(node);
-            // jshint ignore:start
-            expect(node.isSynced()).to.be.true;
-            // jshint ignore:end
+            expect(node.isSynced()).to.be.true();
             done();
           });
         });
@@ -568,9 +552,7 @@ module.exports = function () {
 
       pool = await node.createPool('pool', ['/dev/sda']);
       expect(pool).to.be.an.instanceof(Pool);
-      // jshint ignore:start
-      expect(emitted).to.be.true;
-      // jshint ignore:end
+      expect(emitted).to.be.true();
     });
 
     it('should create a replica on the pool', async () => {
@@ -585,9 +567,7 @@ module.exports = function () {
       });
       replica = await pool.createReplica(UUID, 100);
       expect(replica).to.be.an.instanceof(Replica);
-      // jshint ignore:start
-      expect(emitted).to.be.true;
-      // jshint ignore:end
+      expect(emitted).to.be.true();
     });
 
     it('should create a nexus on the node', async () => {
@@ -606,9 +586,7 @@ module.exports = function () {
 
       nexus = await node.createNexus(UUID, 100, [replica]);
       expect(nexus).to.be.an.instanceof(Nexus);
-      // jshint ignore:start
-      expect(emitted).to.be.true;
-      // jshint ignore:end
+      expect(emitted).to.be.true();
     });
   });
 

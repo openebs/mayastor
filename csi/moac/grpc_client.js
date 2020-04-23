@@ -2,14 +2,14 @@
 
 'use strict';
 
-const assert = require('assert');
+const path = require('path');
 const grpc = require('grpc-uds');
-const grpc_promise = require('grpc-promise');
+const grpcPromise = require('grpc-promise');
 const protoLoader = require('@grpc/proto-loader');
 const log = require('./logger').Logger('grpc');
 
-const MAYASTOR_SVC_PROTO_PATH = __dirname + '/proto/mayastor_service.proto';
-const MAYASTOR_PROTO_PATH = __dirname + '/proto/mayastor_service.proto';
+const MAYASTOR_SVC_PROTO_PATH = path.join(__dirname, '/proto/mayastor_service.proto');
+const MAYASTOR_PROTO_PATH = path.join(__dirname, '/proto/mayastor_service.proto');
 
 // Load mayastor service proto file with mayastor service
 const packageDefinitionSvc = protoLoader.loadSync(MAYASTOR_SVC_PROTO_PATH, {
@@ -77,7 +77,7 @@ class GrpcClient {
       endpoint,
       grpc.credentials.createInsecure()
     );
-    grpc_promise.promisifyAll(handle);
+    grpcPromise.promisifyAll(handle);
     this.handle = handle;
   }
 

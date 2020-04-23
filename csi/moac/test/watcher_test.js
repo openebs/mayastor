@@ -49,7 +49,7 @@ function createObject (name, generation, val) {
 // created by the createObject() above and only objects with val > 100
 // pass through the filter.
 function objectFilter (k8sObject) {
-  if (k8sObject.kind != 'mykind') {
+  if (k8sObject.kind !== 'mykind') {
     return null;
   }
   if (k8sObject.spec.val > 100) {
@@ -423,10 +423,10 @@ module.exports = function () {
         return new Promise((resolve, reject) => {
           setTimeout(() => {
             if (self.iter++ < 3) {
-              reject({
-                statusCode: 404,
-                body: {}
-              });
+              const err = new Error('Not found');
+              err.statusCode = 404;
+              err.body = {};
+              reject(err);
               // TODO: defect in current implementation of watcher is that
               // it waits for end of watch connection even when GET fails
               self.stream.latest().end();

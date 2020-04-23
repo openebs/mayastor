@@ -23,7 +23,7 @@ class Workq {
   // @returns {*} A promise fulfilled when the task is done.
   //              The value of the promise is the value returned by the func.
   async push (arg, func) {
-    assert(typeof func, 'function');
+    assert.strictEqual(typeof func, 'function');
 
     var resolveCb;
     var rejectCb;

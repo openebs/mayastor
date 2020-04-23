@@ -14,11 +14,11 @@ class Task {
   }
 
   async doIt (arg) {
-    if (arg == 'throw here') {
+    if (arg === 'throw here') {
       throw new Error('Testing exception in sync context');
     }
     await sleep(this.delay);
-    if (arg == 'throw there') {
+    if (arg === 'throw there') {
       throw new Error('Testing exception in async context');
     }
     return {
@@ -67,7 +67,7 @@ module.exports = function () {
 
     wq.push('throw here', task.doIt.bind(task))
       .then((res) => done(new Error('it should have thrown the exception')))
-      .catch((err) => done());
+      .catch(() => done());
     clock.tick(1);
   });
 
@@ -77,7 +77,7 @@ module.exports = function () {
 
     wq.push('throw there', task.doIt.bind(task))
       .then((res) => done(new Error('it should have thrown the exception')))
-      .catch((err) => done());
+      .catch(() => done());
     clock.tick(1);
   });
 
@@ -124,7 +124,6 @@ module.exports = function () {
     const task2 = new Task(2);
     const task3 = new Task(3);
     const wq = new Workq();
-    const wasException = false;
 
     clock.restore();
 

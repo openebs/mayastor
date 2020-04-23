@@ -7,7 +7,6 @@ const http = require('http');
 const sinon = require('sinon');
 const Registry = require('../registry');
 const Node = require('../node');
-const registry = require('../registry');
 const { GrpcError, GrpcCode } = require('../grpc_client');
 const ApiServer = require('../rest_api');
 

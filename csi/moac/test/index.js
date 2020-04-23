@@ -2,6 +2,8 @@
 
 const path = require('path');
 const { spawn } = require('child_process');
+const chai = require('chai');
+const dirtyChai = require('dirty-chai');
 
 const logger = require('../logger');
 const workqTest = require('./workq_test.js');
@@ -22,6 +24,9 @@ const restApi = require('./rest_api_test.js');
 const csiTest = require('./csi_test.js');
 
 logger.setLevel('debug');
+
+// Function form for terminating assertion properties to make JS linter happy
+chai.use(dirtyChai);
 
 describe('moac', function () {
   describe('workq', workqTest);
@@ -55,10 +60,10 @@ describe('moac', function () {
       stderr += data.toString();
     });
     child.on('close', (code) => {
-      if (code == 0) {
+      if (code === 0) {
         done();
       } else {
-        done(new Error());
+        done(new Error(stderr));
       }
     });
   });

@@ -40,6 +40,7 @@
 'use strict';
 
 const _ = require('lodash');
+const path = require('path');
 const assert = require('assert');
 const fs = require('fs');
 const yaml = require('js-yaml');
@@ -49,7 +50,7 @@ const Watcher = require('./watcher');
 const Workq = require('./workq');
 
 const crdVolume = yaml.safeLoad(
-  fs.readFileSync(__dirname + '/crds/mayastorvolume.yaml', 'utf8')
+  fs.readFileSync(path.join(__dirname, '/crds/mayastorvolume.yaml'), 'utf8')
 );
 // lower-case letters uuid pattern
 const uuidRegexp = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[089ab][0-9a-f]{3}-[0-9a-f]{12}$/;
@@ -173,10 +174,10 @@ class VolumeOperator {
     self.eventStream = new EventStream({ volumes: self.volumes });
     self.eventStream.on('data', async (ev) => {
       // the only kind of event that comes from the volumes source
-      assert(ev.kind == 'volume');
+      assert(ev.kind === 'volume');
       const uuid = ev.object.uuid;
 
-      if (ev.eventType == 'new' || ev.eventType == 'mod') {
+      if (ev.eventType === 'new' || ev.eventType === 'mod') {
         const uuid = ev.object.uuid;
         const k8sVolume = self.watcher.getRaw(uuid);
         const spec = self._volumeToSpec(ev.object);
@@ -189,7 +190,7 @@ class VolumeOperator {
             log.error(`Failed to update volume resource "${uuid}": ${err}`);
             return;
           }
-        } else if (ev.eventType == 'new' && !k8sVolume) {
+        } else if (ev.eventType === 'new' && !k8sVolume) {
           try {
             await self._createResource(uuid, spec);
           } catch (err) {
@@ -201,7 +202,7 @@ class VolumeOperator {
           self.createdBySelf.push(uuid);
         }
         await this._updateStatus(uuid, status);
-      } else if (ev.eventType == 'del') {
+      } else if (ev.eventType === 'del') {
         await self._deleteResource(uuid);
       } else {
         assert(false);
@@ -230,7 +231,7 @@ class VolumeOperator {
   // @returns {object} Status properties.
   //
   _volumeToStatus (volume) {
-    let st = {
+    const st = {
       size: volume.getSize(),
       state: volume.state,
       reason: '',
@@ -251,9 +252,9 @@ class VolumeOperator {
         children: volume.nexus.children.map((ch) => {
           return {
             uri: ch.uri,
-            state: ch.state,
+            state: ch.state
           };
-        }),
+        })
       };
     }
     return st;

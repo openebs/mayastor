@@ -2,7 +2,6 @@
 
 const _ = require('lodash');
 const expect = require('chai').expect;
-const EventEmitter = require('events');
 const sinon = require('sinon');
 const Registry = require('../registry');
 const Replica = require('../replica');
@@ -26,15 +25,13 @@ module.exports = function () {
     var events = ['node', 'pool', 'replica', 'nexus'];
     events.forEach((ev) => {
       registry.once(ev, () => {
-        const idx = events.findIndex((ent) => ent == ev);
+        const idx = events.findIndex((ent) => ent === ev);
         expect(idx).to.not.equal(-1);
         events.splice(idx, 1);
       });
     });
     _.clone(events).forEach((ev) => node.emit(ev, {}));
-    // jshint ignore:start
-    expect(events).to.be.empty;
-    // jshint ignore:end
+    expect(events).to.be.empty();
   });
 
   it('should get a list of nodes from registry', () => {

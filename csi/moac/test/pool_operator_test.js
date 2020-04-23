@@ -151,9 +151,7 @@ module.exports = function () {
       expect(JSON.stringify(res.disks)).to.equal(
         JSON.stringify(['/dev/sdb', '/dev/sdc'])
       );
-      // jshint ignore:start
-      expect(res.state).to.be.undefined;
-      // jshint ignore:end
+      expect(res.state).to.be.undefined();
     });
 
     it('valid mayastor pool without status should pass the filter', () => {
@@ -162,14 +160,11 @@ module.exports = function () {
       expect(res).to.have.all.keys('name', 'node', 'disks');
       expect(res.name).to.equal('pool');
       expect(res.node).to.equal('node');
-      // jshint ignore:start
-      expect(res.state).to.be.undefined;
-      // jshint ignore:end
+      expect(res.state).to.be.undefined();
     });
   });
 
   describe('watcher events', () => {
-    var destroyStub;
     var oper; // pool operator
 
     afterEach(async () => {
@@ -886,9 +881,7 @@ module.exports = function () {
 
       sinon.assert.notCalled(msStub);
       sinon.assert.notCalled(putStub);
-      // jshint ignore:start
-      expect(oper.resource.pool).to.be.undefined;
-      // jshint ignore:end
+      expect(oper.resource.pool).to.be.undefined();
     });
 
     it('should create pool upon pool del event if pool resource exist', async () => {

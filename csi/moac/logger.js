@@ -96,7 +96,7 @@ function Logger (component) {
 var levels = ['debug', 'info', 'warn', 'error'];
 levels.forEach((lvl) => {
   Logger.prototype[lvl] = function (msg) {
-    logger[lvl].call(logger, {
+    logger[lvl].call(this.logger, {
       label: this.component,
       message: msg
     });
@@ -104,7 +104,7 @@ levels.forEach((lvl) => {
 });
 // rename trace to silly
 Logger.prototype.trace = function (msg) {
-  logger.silly.call(logger, {
+  logger.silly.call(this.logger, {
     component: this.component,
     message: msg
   });

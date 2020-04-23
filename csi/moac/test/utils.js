@@ -8,7 +8,7 @@ const sleep = require('sleep-promise');
 // backoff intervals.
 async function waitUntil (test, timeout, reason) {
   let delay = 1;
-  if (typeof timeout == 'string') {
+  if (typeof timeout === 'string') {
     reason = timeout;
     timeout = undefined;
   }
@@ -42,7 +42,7 @@ async function shouldFailWith (code, test) {
   try {
     await test();
   } catch (err) {
-    if (err.code != code) {
+    if (err.code !== code) {
       throw new Error(`Expected error code ${code} but got: ${err}`);
     }
     return;

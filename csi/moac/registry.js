@@ -157,11 +157,10 @@ class Registry extends EventEmitter {
   // @returns {number} Total capacity in bytes.
   //
   getCapacity (nodeName) {
-    const capacity = 0;
     let pools;
 
     if (nodeName) {
-      pools = this.getPool().filter((p) => p.node.name == nodeName);
+      pools = this.getPool().filter((p) => p.node.name === nodeName);
     } else {
       pools = this.getPool();
     }
@@ -183,7 +182,7 @@ class Registry extends EventEmitter {
       return (
         p.isAccessible() &&
         p.capacity - p.used >= requiredBytes &&
-        (mustNodes.length == 0 || mustNodes.indexOf(p.node.name) >= 0)
+        (mustNodes.length === 0 || mustNodes.indexOf(p.node.name) >= 0)
       );
     });
 
@@ -204,9 +203,9 @@ class Registry extends EventEmitter {
       }
 
       // Rule #2: Avoid degraded pools whenever possible
-      if (a.state == 'POOL_ONLINE' && b.state != 'POOL_ONLINE') {
+      if (a.state === 'POOL_ONLINE' && b.state !== 'POOL_ONLINE') {
         return -1;
-      } else if (a.state != 'POOL_ONLINE' && b.state == 'POOL_ONLINE') {
+      } else if (a.state !== 'POOL_ONLINE' && b.state === 'POOL_ONLINE') {
         return 1;
       }
 

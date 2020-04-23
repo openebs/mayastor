@@ -2,7 +2,6 @@
 
 const assert = require('assert');
 const EventEmitter = require('events');
-const JSONStream = require('json-stream');
 const log = require('./logger').Logger('watcher');
 
 // in case of permanent k8s api server failure we retry with max interval

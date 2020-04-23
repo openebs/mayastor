@@ -3,7 +3,7 @@
 'use strict';
 
 const grpc = require('grpc-uds');
-const { GrpcClient, GrpcError, GrpcHandle } = require('./grpc_client');
+const { GrpcError } = require('./grpc_client');
 
 const PLUGIN_NAME = 'io.openebs.csi-mayastor';
 
@@ -13,7 +13,7 @@ function parseMayastorNodeId (nodeId) {
   const parts = nodeId.split('/');
 
   if (
-    parts.length != 4 ||
+    parts.length !== 4 ||
     parts[0] !== 'mayastor:' ||
     parts[1] !== '' ||
     !parts[2] ||

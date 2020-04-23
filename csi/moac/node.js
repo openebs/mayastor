@@ -58,7 +58,7 @@ class Node extends EventEmitter {
   // Create grpc connection to the mayastor server
   connect (endpoint) {
     if (this.client) {
-      if (this.endpoint == endpoint) {
+      if (this.endpoint === endpoint) {
         // nothing changed
         return;
       } else {
@@ -103,7 +103,7 @@ class Node extends EventEmitter {
   // @returns {object} A promise that evals to return value of gRPC method.
   //
   async call (method, args) {
-    return await this.workq.push({ method, args }, this._call.bind(this));
+    return this.workq.push({ method, args }, this._call.bind(this));
   }
 
   async _call (ctx) {
@@ -113,7 +113,7 @@ class Node extends EventEmitter {
         `Broken connection to mayastor on node "${this.name}"`
       );
     }
-    return await this.client.call(ctx.method, ctx.args);
+    return this.client.call(ctx.method, ctx.args);
   }
 
   // Sync triggered by the timer. It ensures that the sync does run in
@@ -132,7 +132,7 @@ class Node extends EventEmitter {
         throw err;
       }
       nextSync = this.syncRetry;
-      if (this.syncFailed++ == this.syncBadLimit) {
+      if (this.syncFailed++ === this.syncBadLimit) {
         log.error(`The node "${this.name}" is out of sync: ${err}`);
         this._offline();
       } else if (this.syncFailed <= this.syncBadLimit) {
@@ -197,8 +197,8 @@ class Node extends EventEmitter {
     var self = this;
     // detect modified and new pools
     pools.forEach((props) => {
-      const poolReplicas = replicas.filter((r) => r.pool == props.name);
-      const pool = self.pools.find((p) => p.name == props.name);
+      const poolReplicas = replicas.filter((r) => r.pool === props.name);
+      const pool = self.pools.find((p) => p.name === props.name);
       if (pool) {
         // the pool already exists - update it
         pool.merge(props, poolReplicas);
@@ -209,7 +209,7 @@ class Node extends EventEmitter {
     });
     // remove pools that no longer exist
     self.pools
-      .filter((p) => !pools.find((ent) => ent.name == p.name))
+      .filter((p) => !pools.find((ent) => ent.name === p.name))
       .forEach((p) => p.unbind());
   }
 
@@ -229,7 +229,7 @@ class Node extends EventEmitter {
     var self = this;
     // detect modified and new pools
     nexusList.forEach((props) => {
-      const nexus = self.nexus.find((n) => n.uuid == props.uuid);
+      const nexus = self.nexus.find((n) => n.uuid === props.uuid);
       if (nexus) {
         // the nexus already exists - update it
         nexus.merge(props);
@@ -240,7 +240,7 @@ class Node extends EventEmitter {
     });
     // remove nexus that no longer exist
     const removedNexus = self.nexus.filter(
-      (n) => !nexusList.find((ent) => ent.uuid == n.uuid)
+      (n) => !nexusList.find((ent) => ent.uuid === n.uuid)
     );
     removedNexus.forEach((n) => n.destroy());
   }
@@ -251,7 +251,7 @@ class Node extends EventEmitter {
   // @param {object[]} [replicas]  New replicas on the pool.
   //
   _registerPool (pool, replicas) {
-    assert(!this.pools.find((p) => p.name == pool.name));
+    assert(!this.pools.find((p) => p.name === pool.name));
     this.pools.push(pool);
     pool.bind(this);
     replicas = replicas || [];
@@ -278,7 +278,7 @@ class Node extends EventEmitter {
   // @param {object} nexus      New nexus object.
   //
   _registerNexus (nexus) {
-    assert(!this.nexus.find((p) => p.uuid == nexus.uuid));
+    assert(!this.nexus.find((p) => p.uuid === nexus.uuid));
     this.nexus.push(nexus);
     nexus.bind(this);
   }
@@ -328,7 +328,7 @@ class Node extends EventEmitter {
       log.info(`Created pool "${name}@${this.name}"`);
     } catch (err) {
       // TODO: Make rpc idempotent
-      if (err.code != GrpcCode.ALREADY_EXISTS) {
+      if (err.code !== GrpcCode.ALREADY_EXISTS) {
         throw err;
       }
     }
@@ -344,7 +344,7 @@ class Node extends EventEmitter {
         `Failed to list new pool "${name}": ${err}`
       );
     }
-    var poolInfo = resp.pools.filter((p) => p.name == name)[0];
+    var poolInfo = resp.pools.filter((p) => p.name === name)[0];
     if (!poolInfo) {
       throw new GrpcError(GrpcCode.INTERNAL, `New pool "${name}" not found`);
     }
@@ -370,7 +370,7 @@ class Node extends EventEmitter {
       log.info(`Created nexus "${uuid}@${this.name}"`);
     } catch (err) {
       // TODO: Make rpc idempotent
-      if (err.code != GrpcCode.ALREADY_EXISTS) {
+      if (err.code !== GrpcCode.ALREADY_EXISTS) {
         throw err;
       }
     }
@@ -386,13 +386,13 @@ class Node extends EventEmitter {
         `Failed to list new nexus "${uuid}": ${err}`
       );
     }
-    var nexusInfo = resp.nexusList.filter((n) => n.uuid == uuid)[0];
+    var nexusInfo = resp.nexusList.filter((n) => n.uuid === uuid)[0];
     if (!nexusInfo) {
       throw new GrpcError(GrpcCode.INTERNAL, `New nexus "${uuid}" not found`);
     }
     nexusInfo.children.sort((a, b) => (a.uri > b.uri ? 1 : -1));
 
-    const newNexus = new Nexus(nexusInfo, replicas);
+    const newNexus = new Nexus(nexusInfo);
     this._registerNexus(newNexus);
     return newNexus;
   }

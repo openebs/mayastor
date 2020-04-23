@@ -76,7 +76,6 @@ module.exports = function () {
     node._registerPool(pool);
     const newProps = _.clone(props);
     newProps.disks = ['/dev/sdb'];
-    const node2 = new Node('node2');
 
     pool.merge(newProps, []);
 
@@ -162,9 +161,7 @@ module.exports = function () {
         expect(ev.eventType).to.equal('del');
         expect(ev.object).to.equal(pool);
         setTimeout(() => {
-          // jshint ignore:start
-          expect(pool.node).to.be.null;
-          // jshint ignore:end
+          expect(pool.node).to.be.null();
           done();
         }, 0);
       });
@@ -198,9 +195,7 @@ module.exports = function () {
 
     sinon.assert.calledOnce(stub);
     sinon.assert.calledWithMatch(stub, 'destroyPool', { name: 'pool' });
-    // jshint ignore:start
-    expect(node.pools).to.be.empty;
-    // jshint ignore:end
+    expect(node.pools).to.be.empty();
     // first two events are for the new pool and new replica
     expect(eventSpy.callCount).to.equal(4);
     sinon.assert.calledWith(eventSpy.getCall(2), 'replica', {
@@ -224,9 +219,7 @@ module.exports = function () {
 
     sinon.assert.calledOnce(stub);
     sinon.assert.calledWithMatch(stub, 'destroyPool', { name: 'pool' });
-    // jshint ignore:start
-    expect(node.pools).to.be.empty;
-    // jshint ignore:end
+    expect(node.pools).to.be.empty();
   });
 
   it('should offline the pool with replica', () => {
@@ -240,9 +233,7 @@ module.exports = function () {
     pool.offline();
 
     expect(pool.state).to.equal('POOL_OFFLINE');
-    // jshint ignore:start
-    expect(replica.isOffline()).to.be.true;
-    // jshint ignore:end
+    expect(replica.isOffline()).to.be.true();
 
     // first two events are for the new pool and new replica
     expect(eventSpy.callCount).to.equal(4);
@@ -344,21 +335,15 @@ module.exports = function () {
     const poolProps = _.clone(props);
     poolProps.state = 'POOL_ONLINE';
     let pool = new Pool(poolProps);
-    // jshint ignore:start
-    expect(pool.isAccessible()).to.be.true;
-    // jshint ignore:end
+    expect(pool.isAccessible()).to.be.true();
 
     poolProps.state = 'POOL_FAULTED';
     pool = new Pool(poolProps);
-    // jshint ignore:start
-    expect(pool.isAccessible()).to.be.false;
-    // jshint ignore:end
+    expect(pool.isAccessible()).to.be.false();
 
     poolProps.state = 'POOL_DEGRADED';
     pool = new Pool(poolProps);
-    // jshint ignore:start
-    expect(pool.isAccessible()).to.be.true;
-    // jshint ignore:end
+    expect(pool.isAccessible()).to.be.true();
   });
 
   it('should return free space in the pool', () => {

@@ -69,7 +69,7 @@ class EventStream extends Readable {
   // Start listeners and emit events about existing objects.
   _start () {
     assert(!this.waiting);
-    assert(this.events.length == 0);
+    assert(this.events.length === 0);
     this.started = true;
     if (this.registry) {
       for (const kind in this.registryEventListeners) {

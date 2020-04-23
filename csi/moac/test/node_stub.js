@@ -5,7 +5,6 @@
 
 'use strict';
 
-const assert = require('assert');
 const EventEmitter = require('events');
 
 // It can be used instead of real node object in tests of components that

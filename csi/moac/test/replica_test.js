@@ -104,9 +104,7 @@ module.exports = function () {
         expect(ev.eventType).to.equal('del');
         expect(ev.object).to.equal(replica);
         setTimeout(() => {
-          // jshint ignore:start
-          expect(replica.pool).to.be.null;
-          // jshint ignore:end
+          expect(replica.pool).to.be.null();
           done();
         }, 0);
       });
@@ -125,9 +123,7 @@ module.exports = function () {
     node.once('replica', (ev) => {
       expect(ev.eventType).to.equal('mod');
       expect(ev.object).to.equal(replica);
-      // jshint ignore:start
-      expect(replica.isOffline()).to.be.true;
-      // jshint ignore:end
+      expect(replica.isOffline()).to.be.true();
       done();
     });
     replica.offline();
@@ -184,9 +180,7 @@ module.exports = function () {
       sinon.assert.calledOnce(stub);
       sinon.assert.calledWith(stub, 'destroyReplica', { uuid: UUID });
       setTimeout(() => {
-        // jshint ignore:start
-        expect(replica.pool).to.be.null;
-        // jshint ignore:end
+        expect(replica.pool).to.be.null();
         expect(pool.replicas).to.have.lengthOf(0);
         done();
       }, 0);
@@ -239,9 +233,7 @@ module.exports = function () {
       sinon.assert.calledOnce(stub);
       sinon.assert.calledWith(stub, 'destroyReplica', { uuid: UUID });
       setTimeout(() => {
-        // jshint ignore:start
-        expect(replica.pool).to.be.null;
-        // jshint ignore:end
+        expect(replica.pool).to.be.null();
         expect(pool.replicas).to.have.lengthOf(0);
         done();
       }, 0);

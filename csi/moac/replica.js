@@ -2,7 +2,6 @@
 
 'use strict';
 
-const _ = require('lodash');
 const assert = require('assert');
 const { GrpcCode, GrpcError } = require('./grpc_client');
 const log = require('./logger').Logger('replica');
@@ -36,15 +35,15 @@ class Replica {
   merge (props) {
     let changed = false;
 
-    if (this.size != props.size) {
+    if (this.size !== props.size) {
       this.size = props.size;
       changed = true;
     }
-    if (this.share != props.share) {
+    if (this.share !== props.share) {
       this.share = props.share;
       changed = true;
     }
-    if (this.uri != props.uri) {
+    if (this.uri !== props.uri) {
       this.uri = props.uri;
       changed = true;
     }
@@ -73,7 +72,7 @@ class Replica {
   }
 
   // Return true if replica is offline otherwise false.
-  isOffline() {
+  isOffline () {
     return this.isDown;
   }
 
@@ -123,7 +122,7 @@ class Replica {
       log.info(`Destroyed replica "${this}"`);
     } catch (err) {
       // TODO: make destroyReplica idempotent
-      if (err.code != GrpcCode.NOT_FOUND) {
+      if (err.code !== GrpcCode.NOT_FOUND) {
         throw err;
       }
       log.warn(`Destroyed replica "${this}" does not exist`);

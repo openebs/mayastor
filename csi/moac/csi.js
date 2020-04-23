@@ -5,6 +5,7 @@
 
 const assert = require('assert');
 const fs = require('fs').promises;
+const path = require('path');
 const protoLoader = require('@grpc/proto-loader');
 const grpc = require('grpc-uds');
 const log = require('./logger').Logger('csi');
@@ -14,7 +15,6 @@ const {
   parseMayastorNodeId
 } = require('./common');
 
-const path = require('path');
 const PROTO_PATH = path.join(__dirname, '/proto/csi.proto');
 // TODO: can we generate version with commit SHA dynamically?
 const VERSION = '0.1';

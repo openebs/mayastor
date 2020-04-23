@@ -10,8 +10,8 @@
 // fake CSINode objects we mimic the real behaviour.
 
 const expect = require('chai').expect;
-const EventEmitter = require('events');
 const sinon = require('sinon');
+const Node = require('../node');
 const NodeOperator = require('../node_operator');
 const Watcher = require('./watcher_stub');
 
@@ -88,9 +88,7 @@ module.exports = function () {
           ]
         }
       });
-      // jshint ignore:start
-      expect(res.id).to.be.null;
-      // jshint ignore:end
+      expect(res.id).to.be.null();
     });
 
     it('node without csi drivers section should not pass the filter', () => {
@@ -116,9 +114,7 @@ module.exports = function () {
           drivers: null
         }
       });
-      // jshint ignore:start
-      expect(res.id).to.be.null;
-      // jshint ignore:end
+      expect(res.id).to.be.null();
     });
 
     it('mayastor node with unknown ID scheme should not pass the filter', () => {
@@ -150,9 +146,7 @@ module.exports = function () {
           ]
         }
       });
-      // jshint ignore:start
-      expect(res).to.be.null;
-      // jshint ignore:end
+      expect(res).to.be.null();
     });
 
     it('mayastor node with inconsistent ID should not pass the filter', () => {
@@ -184,13 +178,12 @@ module.exports = function () {
           ]
         }
       });
-      // jshint ignore:start
-      expect(res).to.be.null;
-      // jshint ignore:end
+      expect(res).to.be.null();
     });
   });
 
   describe('adding, removing and modifying nodes', () => {
+    var nodeOperator;
     var addNodeSpy, removeNodeSpy, getNodeStub;
 
     // Create fake registry tracing calls to addNode and removeNode methods
@@ -244,18 +237,23 @@ module.exports = function () {
     }
 
     // Create a node operator object bound to the fake watcher
-    function NodeOperatorWithFakeWatcher (watcher, registry) {
+    async function NodeOperatorWithFakeWatcher (watcher, registry) {
       const oper = new NodeOperator();
       oper._bindWatcher(watcher);
       oper.watcher = watcher;
       oper.registry = registry;
+      await oper.start();
       return oper;
     }
 
-    it('should add new node to registry upon new event', () => {
+    afterEach(async () => {
+      await nodeOperator.stop();
+    });
+
+    it('should add new node to registry upon new event', async () => {
       const registry = createFakeRegistry(null);
       const watcher = new Watcher(filterFunc, []);
-      const oper = new NodeOperatorWithFakeWatcher(watcher, registry);
+      nodeOperator = await NodeOperatorWithFakeWatcher(watcher, registry);
 
       watcher.newObject(csiNodeObject('node-name', '127.0.0.1:123'));
 
@@ -264,10 +262,10 @@ module.exports = function () {
       sinon.assert.calledWith(addNodeSpy, 'node-name', '127.0.0.1:123');
     });
 
-    it('should add unknown node to registry upon mod event', () => {
+    it('should add unknown node to registry upon mod event', async () => {
       const registry = createFakeRegistry(null);
       const watcher = new Watcher(filterFunc, []);
-      const oper = new NodeOperatorWithFakeWatcher(watcher, registry);
+      nodeOperator = await NodeOperatorWithFakeWatcher(watcher, registry);
 
       watcher.modObject(csiNodeObject('node-name', '127.0.0.1:123'));
 
@@ -276,73 +274,70 @@ module.exports = function () {
       sinon.assert.calledWith(addNodeSpy, 'node-name', '127.0.0.1:123');
     });
 
-    it('should reconnect node upon mod event', () => {
-      const node = {
-        name: 'node-name',
-        endpoint: '127.0.0.1:123',
-        connect: function () {}
-      };
-      const connectSpy = sinon.spy(node, 'connect');
+    it('should reconnect node upon mod event', async () => {
+      const node = new Node('node-name');
+      node.endpoint = '127.0.0.1:123';
+      const connectStub = sinon.stub(node, 'connect');
       const registry = createFakeRegistry(node);
       const watcher = new Watcher(filterFunc, [
         csiNodeObject('node-name', '127.0.0.1:123')
       ]);
-      const oper = new NodeOperatorWithFakeWatcher(watcher, registry);
+      nodeOperator = await NodeOperatorWithFakeWatcher(watcher, registry);
 
       watcher.modObject(csiNodeObject('node-name', '127.0.0.1:124'));
 
       sinon.assert.notCalled(removeNodeSpy);
       sinon.assert.notCalled(addNodeSpy);
-      sinon.assert.calledOnce(connectSpy);
-      sinon.assert.calledWith(connectSpy, '127.0.0.1:124');
+      sinon.assert.calledTwice(connectStub);
+      sinon.assert.calledWith(connectStub.firstCall, '127.0.0.1:123');
+      sinon.assert.calledWith(connectStub.secondCall, '127.0.0.1:124');
     });
 
-    it('should remove node from registry upon mod event without mayastor entry', () => {
-      const node = {
-        name: 'node-name',
-        endpoint: '127.0.0.1:123'
-      };
+    it('should remove node from registry upon mod event without mayastor entry', async () => {
+      const node = new Node('node-name');
+      node.endpoint = '127.0.0.1:123';
+      const connectStub = sinon.stub(node, 'connect');
       const registry = createFakeRegistry(node);
       const watcher = new Watcher(filterFunc, [
         csiNodeObject('node-name', '127.0.0.1:123')
       ]);
-      const oper = new NodeOperatorWithFakeWatcher(watcher, registry);
+      nodeOperator = await NodeOperatorWithFakeWatcher(watcher, registry);
 
       watcher.modObject(csiNodeObject('node-name', null));
 
       sinon.assert.notCalled(addNodeSpy);
+      sinon.assert.calledOnce(connectStub);
       sinon.assert.calledOnce(removeNodeSpy);
       sinon.assert.calledWith(removeNodeSpy, 'node-name');
     });
 
-    it('should remove node from registry upon del event', () => {
-      const node = {
-        name: 'node-name',
-        endpoint: '127.0.0.1:123'
-      };
+    it('should remove node from registry upon del event', async () => {
+      const node = new Node('node-name');
+      node.endpoint = '127.0.0.1:123';
+      const connectStub = sinon.stub(node, 'connect');
       const registry = createFakeRegistry(node);
       const watcher = new Watcher(filterFunc, [
         csiNodeObject('node-name', '127.0.0.1:123')
       ]);
-      const oper = new NodeOperatorWithFakeWatcher(watcher, registry);
+      nodeOperator = await NodeOperatorWithFakeWatcher(watcher, registry);
 
       watcher.delObject('node-name');
 
       sinon.assert.notCalled(addNodeSpy);
+      sinon.assert.calledOnce(connectStub);
       sinon.assert.calledOnce(removeNodeSpy);
       sinon.assert.calledWith(removeNodeSpy, 'node-name');
     });
 
-    it('should ignore del event if node does not exist', () => {
+    it('should ignore del event if node does not exist', async () => {
       const registry = createFakeRegistry(null);
       const watcher = new Watcher(filterFunc, [
         csiNodeObject('node-name', '127.0.0.1:123')
       ]);
-      const oper = new NodeOperatorWithFakeWatcher(watcher, registry);
-
+      nodeOperator = await NodeOperatorWithFakeWatcher(watcher, registry);
       watcher.delObject('node-name');
 
-      sinon.assert.notCalled(addNodeSpy);
+      sinon.assert.calledOnce(addNodeSpy);
       sinon.assert.notCalled(removeNodeSpy);
     });
   });

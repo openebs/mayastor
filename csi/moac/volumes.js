@@ -2,7 +2,6 @@
 
 'use strict';
 
-const assert = require('assert');
 const EventEmitter = require('events');
 const EventStream = require('./event_stream');
 const Volume = require('./volume');
@@ -22,13 +21,13 @@ class Volumes extends EventEmitter {
     var self = this;
     this.events = new EventStream({ registry: this.registry });
     this.events.on('data', async function (ev) {
-      if (ev.kind == 'pool' && ev.eventType == 'new') {
+      if (ev.kind === 'pool' && ev.eventType === 'new') {
         // New pool was added and perhaps we have volumes waiting to schedule
         // their replicas on it.
         Object.values(self.volumes)
-          .filter((v) => v.state == 'degraded')
+          .filter((v) => v.state === 'degraded')
           .forEach((v) => v.fsa());
-      } else if (ev.kind == 'replica' || ev.kind == 'nexus') {
+      } else if (ev.kind === 'replica' || ev.kind === 'nexus') {
         const uuid = ev.object.uuid;
         const volume = self.volumes[uuid];
         if (!volume) {
@@ -37,20 +36,20 @@ class Volumes extends EventEmitter {
           log.debug(`${ev.eventType} event for unknown volume "${uuid}"`);
           return;
         }
-        if (ev.kind == 'replica') {
-          if (ev.eventType == 'new') {
+        if (ev.kind === 'replica') {
+          if (ev.eventType === 'new') {
             volume.newReplica(ev.object);
-          } else if (ev.eventType == 'mod') {
+          } else if (ev.eventType === 'mod') {
             volume.modReplica(ev.object);
-          } else if (ev.eventType == 'del') {
+          } else if (ev.eventType === 'del') {
             volume.delReplica(ev.object);
           }
-        } else if (ev.kind == 'nexus') {
-          if (ev.eventType == 'new') {
+        } else if (ev.kind === 'nexus') {
+          if (ev.eventType === 'new') {
             volume.newNexus(ev.object);
-          } else if (ev.eventType == 'mod') {
+          } else if (ev.eventType === 'mod') {
             volume.modNexus(ev.object);
-          } else if (ev.eventType == 'del') {
+          } else if (ev.eventType === 'del') {
             volume.delNexus(ev.object);
           }
         }
@@ -92,7 +91,7 @@ class Volumes extends EventEmitter {
   // @params  {number}   spec.limitBytes      The volume should not be bigger than this.
   // @returns {object}   New volume object.
   //
-  async createVolume(uuid, spec) {
+  async createVolume (uuid, spec) {
     if (!spec.requiredBytes || spec.requiredBytes < 0) {
       throw new GrpcError(
         GrpcCode.INVALID_ARGUMENT,
@@ -119,7 +118,6 @@ class Volumes extends EventEmitter {
         object: volume
       });
       // check for components that already exist and assign them to the volume
-      var self = this;
       this.registry.getReplicaSet(uuid).forEach((r) => volume.newReplica(r));
       const nexus = this.registry.getNexus(uuid);
       if (nexus) {
