@@ -1,81 +1,23 @@
 #![warn(missing_docs)]
 
-use crate::core::{Bdev, BdevHandle, CoreError, DmaBuf, DmaError, Reactors};
-use crossbeam::channel::{unbounded, Receiver, Sender};
+use crate::core::{Bdev, BdevHandle, DmaBuf, Reactors};
+use crossbeam::channel::{unbounded, Receiver};
 use once_cell::sync::OnceCell;
-use snafu::{ResultExt, Snafu};
+use snafu::ResultExt;
 use spdk_sys::spdk_get_thread;
-use std::{cell::UnsafeCell, collections::HashMap, fmt};
+use std::{cell::UnsafeCell, collections::HashMap};
 
 use futures::{channel::mpsc, StreamExt};
 
+use super::rebuild_api::*;
+
 /// Global list of rebuild jobs using a static OnceCell
-pub struct RebuildInstances {
+pub(super) struct RebuildInstances {
     inner: UnsafeCell<HashMap<String, RebuildJob>>,
 }
 
 unsafe impl Sync for RebuildInstances {}
 unsafe impl Send for RebuildInstances {}
-
-#[derive(Debug, Snafu)]
-#[snafu(visibility = "pub(crate)")]
-#[allow(missing_docs)]
-/// Various rebuild errors when interacting with a rebuild job or
-/// encountered during a rebuild copy
-pub enum RebuildError {
-    #[snafu(display("Failed to allocate buffer for the rebuild copy"))]
-    NoCopyBuffer { source: DmaError },
-    #[snafu(display("Failed to validate rebuild job creation parameters"))]
-    InvalidParameters {},
-    #[snafu(display("Failed to get a handle for bdev {}", bdev))]
-    NoBdevHandle { source: CoreError, bdev: String },
-    #[snafu(display("IO failed for bdev {}", bdev))]
-    IoError { source: CoreError, bdev: String },
-    #[snafu(display("Failed to find rebuild job {}", job))]
-    JobNotFound { job: String },
-    #[snafu(display("Job {} already exists", job))]
-    JobAlreadyExists { job: String },
-    #[snafu(display("Missing rebuild destination {}", job))]
-    MissingDestination { job: String },
-    #[snafu(display(
-        "{} operation failed because current rebuild state is {}.",
-        operation,
-        state,
-    ))]
-    OpError { operation: String, state: String },
-}
-
-#[derive(Debug, PartialEq, Copy, Clone)]
-/// allowed states for a rebuild job
-pub enum RebuildState {
-    /// Pending when the job is newly created
-    Pending,
-    /// Running when the job is rebuilding
-    Running,
-    /// Stopped when the job is halted as requested through stop
-    /// and pending its removal
-    Stopped,
-    /// Paused when the job is paused as requested through pause
-    Paused,
-    /// Failed when an IO (R/W) operation was failed
-    /// there are no retries as it currently stands
-    Failed,
-    /// Completed when the rebuild was sucessfully completed
-    Completed,
-}
-
-impl fmt::Display for RebuildState {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        match *self {
-            RebuildState::Pending => write!(f, "pending"),
-            RebuildState::Running => write!(f, "running"),
-            RebuildState::Stopped => write!(f, "stopped"),
-            RebuildState::Paused => write!(f, "paused"),
-            RebuildState::Failed => write!(f, "failed"),
-            RebuildState::Completed => write!(f, "completed"),
-        }
-    }
-}
 
 /// Result returned by each segment task worker
 /// used to communicate with the management task indicating that the
@@ -98,7 +40,7 @@ const SEGMENT_SIZE: u64 = 10 * 1024; // 10KiB
 /// a mpsc channel is used to communicate with the management task and each
 /// task used a clone of the sender allowing the management to poll a single
 /// receiver
-struct RebuildTasks {
+pub(super) struct RebuildTasks {
     buffers: Vec<DmaBuf>,
     senders: Vec<mpsc::Sender<TaskResult>>,
 
@@ -107,108 +49,9 @@ struct RebuildTasks {
     total: u64,
 }
 
-/// A rebuild job is responsible for managing a rebuild (copy) which reads
-/// from source_hdl and writes into destination_hdl from specified start to end
-pub struct RebuildJob {
-    /// name of the nexus associated with the rebuild job
-    pub nexus: String,
-    /// source URI of the healthy child to rebuild from
-    pub source: String,
-    source_hdl: BdevHandle,
-    /// target URI of the out of sync child in need of a rebuild
-    pub destination: String,
-    destination_hdl: BdevHandle,
-    block_size: u64,
-    start: u64,
-    end: u64,
-    next: u64,
-    segment_size_blks: u64,
-    tasks: RebuildTasks,
-    complete_fn: fn(String, String) -> (),
-    /// channel used to signal rebuild completion
-    pub complete_chan: (Sender<RebuildState>, Receiver<RebuildState>),
-    /// current state of the rebuild job
-    pub state: RebuildState,
-}
-
-/// Place holder for rebuild statistics
-pub struct RebuildStats {}
-
-/// Public facing operations on a Rebuild Job
-pub trait RebuildOperations {
-    /// Collects statistics from the job
-    fn stats(&self) -> Option<RebuildStats>;
-    /// Schedules the job to start in a future and returns a complete channel
-    /// which can be waited on
-    fn start(&mut self) -> Receiver<RebuildState>;
-    /// Stops the job which then triggers the completion hooks
-    fn stop(&mut self) -> Result<(), RebuildError>;
-    /// pauses the job which can then be later resumed
-    fn pause(&mut self) -> Result<(), RebuildError>;
-    /// Resumes a previously paused job
-    /// this could be used to mitigate excess load on the source bdev, eg
-    /// too much contention with frontend IO
-    fn resume(&mut self) -> Result<(), RebuildError>;
-}
-
 impl RebuildJob {
-    /// Creates a new RebuildJob which rebuilds from source URI to target URI
-    /// from start to end; complete_fn callback is called when the rebuild
-    /// completes with the nexus and destinarion URI as arguments
-    pub fn create<'a>(
-        nexus: &str,
-        source: &str,
-        destination: &'a str,
-        start: u64,
-        end: u64,
-        complete_fn: fn(String, String) -> (),
-    ) -> Result<&'a mut Self, RebuildError> {
-        Self::new(nexus, source, destination, start, end, complete_fn)?
-            .store()?;
-
-        Ok(Self::lookup(destination)?)
-    }
-
-    /// Lookup a rebuild job by its destination uri and return it
-    pub fn lookup(name: &str) -> Result<&mut Self, RebuildError> {
-        if let Some(job) = Self::get_instances().get_mut(name) {
-            Ok(job)
-        } else {
-            Err(RebuildError::JobNotFound {
-                job: name.to_owned(),
-            })
-        }
-    }
-
-    /// Lookup all rebuilds jobs with name as its source
-    pub fn lookup_src(name: &str) -> Vec<&mut Self> {
-        let mut jobs = Vec::new();
-
-        Self::get_instances()
-            .iter_mut()
-            .filter(|j| j.1.source == name)
-            .for_each(|j| jobs.push(j.1));
-
-        jobs
-    }
-
-    /// Lookup a rebuild job by its destination uri then remove and return it
-    pub fn remove(name: &str) -> Result<Self, RebuildError> {
-        match Self::get_instances().remove(name) {
-            Some(job) => Ok(job),
-            None => Err(RebuildError::JobNotFound {
-                job: name.to_owned(),
-            }),
-        }
-    }
-
-    /// Number of rebuild job instances
-    pub fn count() -> usize {
-        Self::get_instances().len()
-    }
-
     /// Stores a rebuild job in the rebuild job list
-    fn store(self: Self) -> Result<(), RebuildError> {
+    pub(super) fn store(self: Self) -> Result<(), RebuildError> {
         let rebuild_list = Self::get_instances();
 
         if rebuild_list.contains_key(&self.destination) {
@@ -222,7 +65,7 @@ impl RebuildJob {
     }
 
     /// Returns a new rebuild job based on the parameters
-    fn new(
+    pub(super) fn new(
         nexus: &str,
         source: &str,
         destination: &str,
@@ -293,7 +136,7 @@ impl RebuildJob {
     // Runs the management async task that kicks off N rebuild copy tasks and
     // awaits each completion. When any task completes it kicks off another
     // until the bdev is fully rebuilt
-    async fn run(&mut self) {
+    pub(super) async fn run(&mut self) {
         self.change_state(RebuildState::Running);
         self.next = self.start;
         self.stats();
@@ -417,7 +260,7 @@ impl RebuildJob {
 
     /// Get the rebuild job instances container, we ensure that this can only
     /// ever be called on a properly allocated thread
-    fn get_instances() -> &'static mut HashMap<String, Self> {
+    pub(super) fn get_instances() -> &'static mut HashMap<String, Self> {
         let thread = unsafe { spdk_get_thread() };
         if thread.is_null() {
             panic!("not called from SPDK thread")
