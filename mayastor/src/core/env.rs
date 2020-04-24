@@ -116,6 +116,9 @@ pub struct MayastorCliArgs {
     #[structopt(long = "huge-dir")]
     /// path to hugedir
     pub hugedir: Option<String>,
+    #[structopt(long = "env-context")]
+    /// pass additional arguments to the EAL environment
+    pub env_context: Option<String>,
 }
 
 /// Defaults are redefined here in case of using it during tests
@@ -123,6 +126,7 @@ impl Default for MayastorCliArgs {
     fn default() -> Self {
         Self {
             addr: "None".into(),
+            env_context: None,
             port: "None".into(),
             reactor_mask: "0x1".into(),
             mem_size: 0,
@@ -185,7 +189,7 @@ pub struct MayastorEnvironment {
     mayastor_config: Option<String>,
     delay_subsystem_init: bool,
     enable_coredump: bool,
-    env_context: String,
+    env_context: Option<String>,
     hugedir: Option<String>,
     hugepage_single_segments: bool,
     json_config_file: Option<String>,
@@ -219,7 +223,7 @@ impl Default for MayastorEnvironment {
             mayastor_config: None,
             delay_subsystem_init: false,
             enable_coredump: true,
-            env_context: String::new(),
+            env_context: None,
             hugedir: None,
             hugepage_single_segments: false,
             json_config_file: None,
@@ -333,6 +337,7 @@ impl MayastorEnvironment {
             reactor_mask: args.reactor_mask,
             rpc_addr: args.rpc_address,
             hugedir: args.hugedir,
+            env_context: args.env_context,
             ..Default::default()
         }
     }
@@ -484,8 +489,15 @@ impl MayastorEnvironment {
 
         // any additional parameters we want to pass down to the eal. These
         // arguments are not checked or validated.
-        if !self.env_context.is_empty() {
-            args.push(CString::new(self.env_context.clone()).unwrap());
+        if self.env_context.is_some() {
+            args.extend(
+                self.env_context
+                    .as_ref()
+                    .unwrap()
+                    .split_ascii_whitespace()
+                    .map(|s| CString::new(s.to_string()).unwrap())
+                    .collect::<Vec<_>>(),
+            );
         }
 
         let mut cargs = args

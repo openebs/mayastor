@@ -67,6 +67,10 @@ pub enum CoreError {
         offset: u64,
         len: usize,
     },
+    #[snafu(display("Failed to dispatch reset",))]
+    ResetDispatch {
+        source: Errno,
+    },
     #[snafu(display("Write failed at offset {} length {}", offset, len))]
     WriteFailed {
         offset: u64,
@@ -77,4 +81,6 @@ pub enum CoreError {
         offset: u64,
         len: usize,
     },
+    #[snafu(display("Reset failed"))]
+    ResetFailed {},
 }

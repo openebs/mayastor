@@ -698,7 +698,7 @@ impl Nexus {
         }
     }
 
-    /// reset underlying children.
+    /// send reset IO to the underlying children.
     pub(crate) fn reset(
         &self,
         pio: *mut spdk_bdev_io,
@@ -712,6 +712,7 @@ impl Nexus {
             .iter()
             .map(|c| unsafe {
                 let (bdev, chan) = c.io_tuple();
+                trace!("Dispatched RESET");
                 spdk_bdev_reset(
                     bdev,
                     chan,
