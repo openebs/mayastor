@@ -241,7 +241,7 @@ impl Nexus {
                 })?;
                 child.state = ChildState::Faulted;
                 let nexus_state = self.set_state(NexusState::Degraded);
-                self.start_rebuild(name).await?;
+                self.start_rebuild_rpc(name).await?;
                 Ok(nexus_state)
             }
         } else {
