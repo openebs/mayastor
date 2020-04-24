@@ -59,12 +59,9 @@ jobs:
       - run: ( cd mayastor-test && npm install)
       - run: ( cd mayastor-test && ./node_modules/mocha/bin/mocha test_cli.js )
       - run: ( cd mayastor-test && ./node_modules/mocha/bin/mocha test_replica.js )
-      - run: ( cd mayastor-test && TEST_PORT=10125 ./node_modules/mocha/bin/mocha test_replica.js )
       - run: ( cd mayastor-test && ./node_modules/mocha/bin/mocha test_csi.js )
       - run: ( cd mayastor-test && ./node_modules/mocha/bin/mocha test_nexus.js )
-      - run: ( cd mayastor-test && TEST_PORT=10125 ./node_modules/mocha/bin/mocha test_nexus.js )
       - run: ( cd mayastor-test && ./node_modules/mocha/bin/mocha test_rebuild.js )
-      - run: ( cd mayastor-test && TEST_PORT=10125 ./node_modules/mocha/bin/mocha test_rebuild.js )
   Image:
     # dont image if the build fails
     needs: Test

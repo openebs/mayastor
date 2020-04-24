@@ -26,7 +26,7 @@ const common = require('./test_common');
 const enums = require('./grpc_enums');
 
 var csiSock = common.CSI_ENDPOINT;
-var endpoint = common.grpc_endpoint;
+var endpoint = common.grpcEndpoint;
 
 // One big malloc bdev which we put lvol store on.
 const CONFIG = `
@@ -242,7 +242,7 @@ describe('csi', function () {
               const uuid = BASE_UUID + n;
               common.dumbCommand('unpublish_nexus', { uuid: uuid }, next);
             },
-            function (err, res) {
+            function (err, res) { // eslint-disable-line handle-callback-err
               console.log('Error:', err);
               next();
             }

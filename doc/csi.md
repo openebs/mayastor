@@ -1,8 +1,8 @@
 # CSI in Mayastor
 
-CSI is a storage provider gRPC interface independent on storage vendor and
-cloud environment. Reader should be familiar with CSI spec before reading this
-document. Following picture highlights relations between k8s and mayastor
+CSI is a storage provider gRPC interface independent of storage vendor and
+cloud environment. The reader should be familiar with CSI spec before reading this
+document. The following picture highlights relations between k8s and mayastor
 components:
 
 ![CSI architecture](img/csi-arch.jpg)

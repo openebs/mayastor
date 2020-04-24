@@ -538,7 +538,7 @@ impl Target {
             )
         };
         info!(
-            "nvmf target accepting new connections on {} and is ready to role..{}",
+            "nvmf target accepting new connections on {} and is ready to roll..{}",
             self,'\u{1F483}'
         );
         Ok(())

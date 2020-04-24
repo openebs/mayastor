@@ -111,34 +111,13 @@ pub fn mount_opts_compare(m1: &[String], m2: &[String], ro: bool) -> bool {
 }
 
 // Return supported filesystems and their default mount options.
-pub fn probe_filesystems() -> Result<Vec<Fs>, String> {
+pub fn probe_filesystems() -> Vec<Fs> {
     let mut filesystems = Vec::new();
     // the first filesystem is the default one
     let supported_fs = ["xfs", "ext4"];
-    // im using run_script as its a very nice macro to not "exec" something
-    // rather it actually builds a proper script.
-    let mut options = ScriptOptions::new();
-    options.exit_on_error = true;
-
-    // truncate in busybox does not support units, so be express the size in
-    // bytes
-    let (code, _stdout, stderr) = run_script!(
-        r#"
-        truncate -s 67108864 /tmp/fs.img
-        mkdir -p /tmp/fs_default
-        "#,
-        &options
-    )
-    .unwrap();
-    if code != 0 {
-        return Err(format!(
-            "Failed to set up default mount options files: {}",
-            stderr
-        ));
-    }
 
     for fsname in supported_fs.iter() {
-        match probe_defaults(fsname) {
+        match probe_filesystem(fsname) {
             Ok(opts) => filesystems.push(Fs {
                 name: (*fsname).to_string(),
                 defaults: opts,
@@ -149,20 +128,73 @@ pub fn probe_filesystems() -> Result<Vec<Fs>, String> {
         }
     }
 
-    // stdout of clean up script is always empty
+    filesystems
+}
+
+fn probe_filesystem(fsname: &str) -> Result<Vec<String>, String> {
+    let mi = MountInfo {
+        source: format!("/tmp/fs-{}.img", fsname),
+        dest: format!("/tmp/fs_default_{}", fsname),
+        opts: Vec::new(),
+    };
+    prepare_mount(&mi)?;
+
+    let opts = probe_defaults(fsname, &mi)?;
+    cleanup_mount(&mi).unwrap_or_else(|e| {
+        warn!("{}", e);
+    });
+    Ok(opts)
+}
+
+fn prepare_mount(mi: &MountInfo) -> Result<(), String> {
+    // im using run_script as its a very nice macro to not "exec" something
+    // rather it actually builds a proper script.
+    let mut options = ScriptOptions::new();
+    options.exit_on_error = true;
+
+    // truncate in busybox does not support units, so we express the size in
+    // bytes
     let (code, _stdout, stderr) = run_script!(
         r#"
-        rmdir /tmp/fs_default
-        rm -f /tmp/fs.img
+        truncate -s 67108864 $1
+        mkdir -p $2
         "#,
+        vec!(mi.source.clone(), mi.dest.clone()),
         &options
     )
     .unwrap();
-    if code != 0 {
-        error!("Failed to cleanup default mount options files: {}", stderr);
-    }
 
-    Ok(filesystems)
+    if code == 0 {
+        return Ok(());
+    }
+    Err(format!(
+        "Failed to set up default mount options files: {}",
+        stderr
+    ))
+}
+
+fn cleanup_mount(mi: &MountInfo) -> Result<(), String> {
+    let mut options = ScriptOptions::new();
+    options.exit_on_error = true;
+
+    // stdout of clean up script is always empty
+    let (code, _stdout, stderr) = run_script!(
+        r#"
+        rmdir $2
+        rm -f $1
+        "#,
+        &vec!(mi.source.clone(), mi.dest.clone()),
+        &options
+    )
+    .unwrap();
+
+    if code == 0 {
+        return Ok(());
+    }
+    Err(format!(
+        "Failed to cleanup default mount options files: {}",
+        stderr
+    ))
 }
 
 // After some research, it turns out that default mount options
@@ -174,9 +206,9 @@ pub fn probe_filesystems() -> Result<Vec<Fs>, String> {
 // I have found no way to determine these options by digging through
 // sysfs so here is a hack. I feel bad about this. I hate to do this
 // but I've given up. Linux won, there you have it.
-fn probe_defaults(fsname: &str) -> Result<Vec<String>, String> {
+fn probe_defaults(fsname: &str, mi: &MountInfo) -> Result<Vec<String>, String> {
     let output = Command::new(format!("mkfs.{}", fsname))
-        .arg("/tmp/fs.img")
+        .arg(&mi.source)
         .output()
         .expect("Failed to execute mkfs command");
     if !output.status.success() {
@@ -193,8 +225,8 @@ fn probe_defaults(fsname: &str) -> Result<Vec<String>, String> {
     );
 
     let output = Command::new("mount")
-        .arg("/tmp/fs.img")
-        .arg("/tmp/fs_default")
+        .arg(&mi.source)
+        .arg(&mi.dest)
         .output()
         .expect("Failed to execute mount command");
     if !output.status.success() {
@@ -205,13 +237,11 @@ fn probe_defaults(fsname: &str) -> Result<Vec<String>, String> {
         ));
     }
 
-    let mut options = match_mount(None, Some("/tmp/fs_default"), true)
-        .unwrap()
-        .opts;
+    let mut options = match_mount(None, Some(&mi.dest), true).unwrap().opts;
 
     let output = Command::new("umount")
         .arg("-vf")
-        .arg("/tmp/fs_default")
+        .arg(&mi.dest)
         .output()
         .expect("Failed to execute umount command");
 

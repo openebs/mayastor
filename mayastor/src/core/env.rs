@@ -84,7 +84,7 @@ pub struct MayastorCliArgs {
     #[structopt(short = "a", default_value = "127.0.0.1", env = "MY_POD_IP")]
     /// IP address for gRPC
     pub addr: String,
-    #[structopt(short = "p", default_value = "10125")]
+    #[structopt(short = "p", default_value = "10124")]
     /// Port for gRPC
     pub port: String,
     #[structopt(short = "c")]

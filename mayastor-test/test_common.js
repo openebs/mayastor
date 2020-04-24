@@ -15,15 +15,14 @@ const sudo = require('./sudo');
 const SOCK = '/tmp/mayastor_test.sock';
 const MS_CONFIG_PATH = '/tmp/mayastor_test.cfg';
 const SPDK_CONFIG_PATH = '/tmp/spdk_test.cfg';
-const GRPC_PORT = 10777;
+const GRPC_PORT = 10124;
 const CSI_ENDPOINT = '/tmp/mayastor_csi_test.sock';
 const CSI_ID = 'test-node-id';
 const LOCALHOST = '127.0.0.1';
 
-var endpoint = LOCALHOST + ':' + GRPC_PORT;
-var test_port = process.env.TEST_PORT || GRPC_PORT;
-var my_ip = getMyIp() || LOCALHOST;
-var grpc_endpoint = my_ip + ':' + test_port;
+var testPort = process.env.TEST_PORT || GRPC_PORT;
+var myIp = getMyIp() || LOCALHOST;
+var grpcEndpoint = myIp + ':' + testPort;
 // started processes indexed by the program name
 var procs = {};
 
@@ -79,7 +78,7 @@ function execAsRoot (cmd, args, done) {
     stdout += data;
   });
   child.on('close', (code, signal) => {
-    if (code != 0) {
+    if (code !== 0) {
       done(
         new Error(
           `Command ${cmd} exited with code ${code}. Error output: ${stderr}`
@@ -100,7 +99,7 @@ function execAsRoot (cmd, args, done) {
 // Periodically ping mayastor until up and running.
 // Ping cb with grpc call is provided by the caller.
 function waitFor (ping, done) {
-  let last_error;
+  let lastError;
   let iters = 0;
 
   async.whilst(
@@ -111,17 +110,17 @@ function waitFor (ping, done) {
       iters++;
       ping((err) => {
         if (err) {
-          last_error = err;
+          lastError = err;
           setTimeout(next, 1000);
         } else {
-          last_error = undefined;
+          lastError = undefined;
           iters = 10;
           next();
         }
       });
     },
     () => {
-      done(last_error);
+      done(lastError);
     }
   );
 }
@@ -241,8 +240,8 @@ function killSudoedProcess (name, pid, done) {
     } else {
       whichPid = 'ppid';
     }
-    res = res.filter((ent) => ent[whichPid] == pid);
-    if (res.length == 0) {
+    res = res.filter((ent) => ent[whichPid] === pid);
+    if (res.length === 0) {
       return done();
     }
     const child = runAsRoot('kill', ['-s', 'SIGTERM', res[0].pid.toString()]);
@@ -371,13 +370,13 @@ function dumbCommand (method, args, done) {
 // Ensure that /dev/nbd* devices are writable by the current process.
 // If running as root this is a noop.
 function ensureNbdWritable (done) {
-  if (process.geteuid() != 0) {
+  if (process.geteuid() !== 0) {
     const child = runAsRoot('sh', ['-c', 'chmod o+rw /dev/nbd*']);
     child.stderr.on('data', (data) => {
       console.log(data.toString());
     });
     child.on('close', (code, signal) => {
-      if (code != 0) {
+      if (code !== 0) {
         done(new Error('Failed to chmod nbd devs'));
       } else {
         done();
@@ -396,7 +395,7 @@ function fixSocketPerms (done) {
     // console.log('chmod', 'error:', data.toString());
   });
   child.on('close', (code) => {
-    if (code != 0) {
+    if (code !== 0) {
       done('Failed to chmod the socket' + code);
     } else {
       done();
@@ -406,10 +405,10 @@ function fixSocketPerms (done) {
 
 // Undo change to perms of nbd devices done in ensureNbdWritable().
 function restoreNbdPerms (done) {
-  if (process.geteuid() != 0) {
+  if (process.geteuid() !== 0) {
     const child = runAsRoot('sh', ['-c', 'chmod o-rw /dev/nbd*']);
     child.on('close', (code, signal) => {
-      if (code != 0) {
+      if (code !== 0) {
         done(new Error('Failed to chmod nbd devs'));
       } else {
         done();
@@ -432,7 +431,7 @@ module.exports = {
   restartMayastor,
   restartMayastorGrpc,
   fixSocketPerms,
-  grpc_endpoint,
+  grpcEndpoint,
   dumbCommand,
   execAsRoot,
   runAsRoot,
