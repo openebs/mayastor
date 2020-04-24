@@ -2,6 +2,7 @@
 
 use crate::core::{BdevHandle, CoreError, DmaError};
 use crossbeam::channel::{Receiver, Sender};
+use futures::channel::oneshot;
 use snafu::Snafu;
 use std::fmt;
 
@@ -33,13 +34,15 @@ pub enum RebuildError {
         state,
     ))]
     OpError { operation: String, state: String },
+    #[snafu(display("Existing pending state {}", state,))]
+    StatePending { state: String },
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
 /// allowed states for a rebuild job
 pub enum RebuildState {
-    /// Pending when the job is newly created
-    Pending,
+    /// Init when the job is newly created
+    Init,
     /// Running when the job is rebuilding
     Running,
     /// Stopped when the job is halted as requested through stop
@@ -50,14 +53,14 @@ pub enum RebuildState {
     /// Failed when an IO (R/W) operation was failed
     /// there are no retries as it currently stands
     Failed,
-    /// Completed when the rebuild was sucessfully completed
+    /// Completed when the rebuild was successfully completed
     Completed,
 }
 
 impl fmt::Display for RebuildState {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         match *self {
-            RebuildState::Pending => write!(f, "pending"),
+            RebuildState::Init => write!(f, "init"),
             RebuildState::Running => write!(f, "running"),
             RebuildState::Stopped => write!(f, "stopped"),
             RebuildState::Paused => write!(f, "paused"),
@@ -84,23 +87,27 @@ pub struct RebuildJob {
     pub(super) next: u64,
     pub(super) segment_size_blks: u64,
     pub(super) tasks: RebuildTasks,
-    pub(super) complete_fn: fn(String, String) -> (),
-    /// channel used to signal rebuild completion
-    pub complete_chan: (Sender<RebuildState>, Receiver<RebuildState>),
+    pub(super) notify_fn: fn(String, String) -> (),
+    /// channel used to signal rebuild update
+    pub notify_chan: (Sender<RebuildState>, Receiver<RebuildState>),
     /// current state of the rebuild job
-    pub state: RebuildState,
+    pub(super) states: RebuildStates,
+    /// channel list which allows the await of the rebuild
+    pub(super) complete_chan: Vec<oneshot::Sender<RebuildState>>,
 }
 
 /// Place holder for rebuild statistics
 pub struct RebuildStats {}
 
 /// Public facing operations on a Rebuild Job
-pub trait RebuildOperations {
+pub trait ClientOperations {
     /// Collects statistics from the job
     fn stats(&self) -> Option<RebuildStats>;
     /// Schedules the job to start in a future and returns a complete channel
     /// which can be waited on
-    fn start(&mut self) -> Receiver<RebuildState>;
+    fn start(
+        &mut self,
+    ) -> Result<oneshot::Receiver<RebuildState>, RebuildError>;
     /// Stops the job which then triggers the completion hooks
     fn stop(&mut self) -> Result<(), RebuildError>;
     /// pauses the job which can then be later resumed
@@ -109,21 +116,25 @@ pub trait RebuildOperations {
     /// this could be used to mitigate excess load on the source bdev, eg
     /// too much contention with frontend IO
     fn resume(&mut self) -> Result<(), RebuildError>;
+
+    /// Forcefully terminates the job, overriding any pending client operation
+    /// returns an async channel which can be used to await for termination
+    fn terminate(&mut self) -> oneshot::Receiver<RebuildState>;
 }
 
 impl RebuildJob {
     /// Creates a new RebuildJob which rebuilds from source URI to target URI
-    /// from start to end; complete_fn callback is called when the rebuild
-    /// completes with the nexus and destinarion URI as arguments
+    /// from start to end; notify_fn callback is called when the rebuild
+    /// state is updated - with the nexus and destination URI as arguments
     pub fn create<'a>(
         nexus: &str,
         source: &str,
         destination: &'a str,
         start: u64,
         end: u64,
-        complete_fn: fn(String, String) -> (),
+        notify_fn: fn(String, String) -> (),
     ) -> Result<&'a mut Self, RebuildError> {
-        Self::new(nexus, source, destination, start, end, complete_fn)?
+        Self::new(nexus, source, destination, start, end, notify_fn)?
             .store()?;
 
         Ok(Self::lookup(destination)?)
@@ -165,5 +176,26 @@ impl RebuildJob {
     /// Number of rebuild job instances
     pub fn count() -> usize {
         Self::get_instances().len()
+    }
+
+    /// State of the rebuild job
+    pub fn state(&self) -> RebuildState {
+        self.states.current
+    }
+
+    /// ClientOperations trait
+    /// todo: nexus should use this for all interaction with the job
+    pub fn as_client(&mut self) -> &mut impl ClientOperations {
+        self
+    }
+}
+
+impl RebuildState {
+    /// Final update for a rebuild job
+    pub fn done(self) -> bool {
+        match self {
+            Self::Stopped | Self::Failed | Self::Completed => true,
+            _ => false,
+        }
     }
 }

@@ -8,7 +8,7 @@ use run_script::{self, ScriptOptions};
 use mayastor::{
     core::{MayastorEnvironment, Mthread},
     logger,
-    rebuild::RebuildJob,
+    rebuild::{RebuildJob, RebuildState},
 };
 use spdk_sys::spdk_get_thread;
 use url::{ParseError, Url};
@@ -55,6 +55,12 @@ macro_rules! reactor_poll {
             if $ch.try_recv().is_ok() {
                 break;
             }
+        }
+        mayastor::core::Reactors::current().thread_enter();
+    };
+    ($n:expr) => {
+        for _ in 0 .. $n {
+            mayastor::core::Reactors::current().poll_once();
         }
         mayastor::core::Reactors::current().thread_enter();
     };
@@ -337,19 +343,28 @@ pub fn device_path_from_uri(device_uri: String) -> String {
     String::from(url.path())
 }
 
-pub fn wait_for_rebuild(name: String, timeout: Duration) {
+/// Waits for the rebuild to reach `state`, up to `timeout`
+pub fn wait_for_rebuild(name: String, state: RebuildState, timeout: Duration) {
     let (s, r) = unbounded::<()>();
     let job = match RebuildJob::lookup(&name) {
         Ok(job) => job,
         Err(_) => return,
     };
 
-    let ch = job.complete_chan.1.clone();
+    let ch = job.notify_chan.1.clone();
     std::thread::spawn(move || {
-        select! {
-            recv(ch) -> state => info!("rebuild of child {} finished with state {:?}", name, state),
-            recv(after(timeout)) -> _ => panic!("timed out waiting for the rebuild to complete"),
-        }
+        let now = std::time::Instant::now();
+        while {
+            let current_state = select! {
+                recv(ch) -> state => {
+                    info!("rebuild of child {} signalled with state {:?}", name, state);
+                    state.unwrap()
+                },
+                recv(after(timeout - now.elapsed())) -> _ => panic!("timed out waiting for the rebuild to complete after {:?}", timeout),
+            };
+
+            current_state != state
+        } {}
         s.send(())
     });
     reactor_poll!(r);
