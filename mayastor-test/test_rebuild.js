@@ -276,7 +276,7 @@ describe('rebuild tests', function () {
       await client.startRebuild().sendMessage(rebuildArgs);
       await client.stopRebuild().sendMessage(rebuildArgs);
       // TODO: Check for rebuild stop rather than sleeping
-      await sleep(1000); // Give time for the rebuild to stop
+      await sleep(250); // Give time for the rebuild to stop
     });
 
     afterEach(async () => {
@@ -326,7 +326,7 @@ describe('rebuild tests', function () {
     afterEach(async () => {
       await client.stopRebuild().sendMessage(rebuildArgs);
       // TODO: Check for rebuild stop rather than sleeping
-      await sleep(1000); // Give time for the rebuild to stop
+      await sleep(250); // Give time for the rebuild to stop
       await client.removeChildNexus().sendMessage(rebuildArgs);
     });
 
@@ -362,7 +362,7 @@ describe('rebuild tests', function () {
     afterEach(async () => {
       await client.stopRebuild().sendMessage(rebuildArgs);
       // TODO: Check for rebuild stop rather than sleeping
-      await sleep(1000); // Give time for the rebuild to stop
+      await sleep(250); // Give time for the rebuild to stop
       await client.removeChildNexus().sendMessage(rebuildArgs);
     });
 
