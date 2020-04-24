@@ -103,6 +103,10 @@ impl NexusFnTable {
                     //trace!("{}: Dispatching WRITE {:p}", nexus.name(), io);
                     nexus.writev(io, &ch)
                 }
+                io_type::RESET => {
+                    trace!("{}: Dispatching RESET {:p}", nexus.bdev.name(), io);
+                    nexus.reset(io, &ch)
+                }
                 io_type::UNMAP => {
                     if nexus.io_is_supported(io_type) {
                         nexus.unmap(io, &ch)
@@ -110,7 +114,10 @@ impl NexusFnTable {
                         nio.fail();
                     }
                 }
-                _ => panic!("{} Received unsupported IO!", nexus.name),
+                _ => panic!(
+                    "{} Received unsupported IO! type {}",
+                    nexus.name, io_type
+                ),
             };
         } else {
             // something is very wrong ...
