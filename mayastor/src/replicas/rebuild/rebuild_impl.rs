@@ -1,13 +1,16 @@
 #![warn(missing_docs)]
 
 use crate::core::{Bdev, BdevHandle, DmaBuf, Reactors};
-use crossbeam::channel::{unbounded, Receiver};
+use crossbeam::channel::unbounded;
 use once_cell::sync::OnceCell;
 use snafu::ResultExt;
 use spdk_sys::spdk_get_thread;
 use std::{cell::UnsafeCell, collections::HashMap};
 
-use futures::{channel::mpsc, StreamExt};
+use futures::{
+    channel::{mpsc, oneshot},
+    StreamExt,
+};
 
 use super::rebuild_api::*;
 
@@ -71,7 +74,7 @@ impl RebuildJob {
         destination: &str,
         start: u64,
         end: u64,
-        complete_fn: fn(String, String) -> (),
+        notify_fn: fn(String, String) -> (),
     ) -> Result<Self, RebuildError> {
         let source_hdl =
             BdevHandle::open(source, false, false).context(NoBdevHandle {
@@ -127,60 +130,50 @@ impl RebuildJob {
             block_size,
             segment_size_blks,
             tasks,
-            complete_fn,
-            complete_chan: unbounded::<RebuildState>(),
-            state: RebuildState::Pending,
+            notify_fn,
+            notify_chan: unbounded::<RebuildState>(),
+            states: Default::default(),
+            complete_chan: Vec::new(),
         })
     }
 
     // Runs the management async task that kicks off N rebuild copy tasks and
     // awaits each completion. When any task completes it kicks off another
     // until the bdev is fully rebuilt
-    pub(super) async fn run(&mut self) {
-        self.change_state(RebuildState::Running);
-        self.next = self.start;
-        self.stats();
-
+    async fn run(&mut self) {
         self.start_all_tasks();
         while self.tasks.active > 0 {
             match self.await_one_task().await {
                 Some(r) => match r.error {
                     None => {
-                        if self.state == RebuildState::Stopped
-                            || self.state == RebuildState::Paused
-                        {
-                            // await all active tasks as we might still have
-                            // ongoing IO do we need
-                            // a timeout?
-                            self.await_all_tasks().await;
-                            break;
+                        match self.states.pending {
+                            None | Some(RebuildState::Running) => {
+                                self.start_task_by_id(r.id);
+                            }
+                            _ => {
+                                // await all active tasks as we might still have
+                                // ongoing IO. do we need a timeout?
+                                self.await_all_tasks().await;
+                                break;
+                            }
                         }
-
-                        self.start_task_by_id(r.id);
                     }
                     Some(e) => {
                         error!("Failed to rebuild segment id {} block {} with error: {}", r.id, r.blk, e);
-                        self.change_state(RebuildState::Failed);
+                        self.fail();
                         self.await_all_tasks().await;
                         break;
                     }
                 },
                 None => {
                     // all senders have disconnected, out of place termination?
-                    self.change_state(RebuildState::Failed);
-
-                    if self.tasks.active != 0 {
-                        error!(
-                            "Completing rebuild with potentially {} active tasks",
-                            self.tasks.active
-                        );
-                    }
+                    error!("Out of place termination with potentially {} active tasks", self.tasks.active);
+                    let _ = self.terminate();
                     break;
                 }
             }
         }
-
-        self.complete();
+        self.reconcile();
     }
 
     /// Copies one segment worth of data from source into destination
@@ -226,17 +219,16 @@ impl RebuildJob {
         Ok(())
     }
 
-    fn complete(&mut self) {
+    fn notify(&mut self) {
         self.stats();
-        self.send_complete();
+        self.send_notify();
     }
 
-    /// Calls the job's registered complete fn callback and complete sender
-    /// channel
-    fn send_complete(&mut self) {
-        // should this return a status before we complete the sender channel?
-        (self.complete_fn)(self.nexus.clone(), self.destination.clone());
-        if let Err(e) = self.complete_chan.0.send(self.state) {
+    /// Calls the job's registered notify fn callback and notify sender channel
+    fn send_notify(&mut self) {
+        // should this return a status before we notify the sender channel?
+        (self.notify_fn)(self.nexus.clone(), self.destination.clone());
+        if let Err(e) = self.notify_chan.0.send(self.state()) {
             error!("Rebuild Job {} of nexus {} failed to send complete via the unbound channel with err {}", self.destination, self.nexus, e);
         }
     }
@@ -248,14 +240,51 @@ impl RebuildJob {
             || source.block_len() != destination.block_len())
     }
 
-    /// Changing the state should be performed on the same
-    /// reactor as the rebuild job
-    fn change_state(&mut self, new_state: RebuildState) {
-        info!(
-            "Rebuild job {}: changing state from {:?} to {:?}",
-            self.destination, self.state, new_state
-        );
-        self.state = new_state;
+    /// reconcile the pending state to the current and clear the pending
+    fn reconcile(&mut self) {
+        let old = self.state();
+        let new = self.states.reconcile();
+
+        if old != new {
+            info!(
+                "Rebuild job {}: changing state from {:?} to {:?}",
+                self.destination, old, new
+            );
+            self.notify();
+        }
+    }
+
+    /// reconciles to state if it's the same as the pending value
+    fn reconcile_to_state(&mut self, state: RebuildState) -> bool {
+        if self.states.pending_equals(state) {
+            self.reconcile();
+            true
+        } else {
+            false
+        }
+    }
+    fn schedule(&self) {
+        match self.state() {
+            RebuildState::Paused | RebuildState::Init => {
+                let destination = self.destination.clone();
+                Reactors::master().send_future(async move {
+                    let job = match RebuildJob::lookup(&destination) {
+                        Ok(job) => job,
+                        Err(_) => {
+                            return error!(
+                                "Failed to find and start the rebuild job {}",
+                                destination
+                            );
+                        }
+                    };
+
+                    if job.reconcile_to_state(RebuildState::Running) {
+                        job.run().await;
+                    }
+                });
+            }
+            _ => {}
+        }
     }
 
     /// Get the rebuild job instances container, we ensure that this can only
@@ -277,80 +306,88 @@ impl RebuildJob {
     }
 }
 
-impl RebuildOperations for RebuildJob {
+#[derive(Debug)]
+/// Operations used to control the state of the job
+enum RebuildOperation {
+    /// Client Operations
+    ///
+    /// Starts the job for the first time
+    Start,
+    /// Stops the job (eg, child being removed)
+    Stop,
+    /// Pauses the job
+    Pause,
+    /// Resumes the previously paused job
+    Resume,
+    /// Internal Operations
+    ///
+    /// an IO error has occurred
+    Fail,
+    /// rebuild completed successfully
+    Complete,
+}
+
+impl std::fmt::Display for RebuildOperation {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl ClientOperations for RebuildJob {
     fn stats(&self) -> Option<RebuildStats> {
         info!(
-            "State: {:?}, Src: {}, Dst: {}, start: {}, end: {}, next: {}, block: {}",
-            self.state, self.source, self.destination,
+            "State: {:#}, Src: {}, Dst: {}, start: {}, end: {}, next: {}, block: {}",
+            self.state(), self.source, self.destination,
             self.start, self.end, self.next, self.block_size
         );
 
         None
     }
 
-    fn start(&mut self) -> Receiver<RebuildState> {
-        let destination = self.destination.clone();
-        let complete_receiver = self.complete_chan.clone().1;
-
-        Reactors::get_by_core(0).unwrap().send_future(async move {
-            let job = match RebuildJob::lookup(&destination) {
-                Ok(job) => job,
-                Err(_) => {
-                    return error!(
-                        "Failed to find and start the rebuild job {}",
-                        destination
-                    );
-                }
-            };
-
-            // todo: WA until cas-194 is addressed...
-            if job.state == RebuildState::Pending {
-                job.run().await;
-            }
-        });
-        complete_receiver
+    fn start(
+        &mut self,
+    ) -> Result<oneshot::Receiver<RebuildState>, RebuildError> {
+        self.exec_client_op(RebuildOperation::Start)?;
+        let end_channel = oneshot::channel();
+        self.complete_chan.push(end_channel.0);
+        Ok(end_channel.1)
     }
 
     fn stop(&mut self) -> Result<(), RebuildError> {
-        match self.state {
-            RebuildState::Pending | RebuildState::Paused => {
-                self.change_state(RebuildState::Stopped);
-                // The rebuild is paused or pending so call complete here
-                // because the run function is inactive
-                self.complete();
-            }
-            _ => self.change_state(RebuildState::Stopped),
-        }
-
-        Ok(())
+        self.exec_client_op(RebuildOperation::Stop)
     }
 
     fn pause(&mut self) -> Result<(), RebuildError> {
-        match self.state {
-            RebuildState::Running | RebuildState::Pending => {
-                self.change_state(RebuildState::Paused);
-                Ok(())
-            }
-            _ => Err(RebuildError::OpError {
-                operation: "Pause".to_string(),
-                state: self.state.to_string(),
-            }),
-        }
+        self.exec_client_op(RebuildOperation::Pause)
     }
 
     fn resume(&mut self) -> Result<(), RebuildError> {
-        match self.state {
-            RebuildState::Paused => {
-                // Kick off the rebuild job again
-                self.change_state(RebuildState::Pending);
-                self.start();
-                Ok(())
-            }
-            _ => Err(RebuildError::OpError {
-                operation: "Resume".to_string(),
-                state: self.state.to_string(),
-            }),
-        }
+        self.exec_client_op(RebuildOperation::Resume)
+    }
+
+    fn terminate(&mut self) -> oneshot::Receiver<RebuildState> {
+        self.exec_internal_op(RebuildOperation::Stop).ok();
+        let end_channel = oneshot::channel();
+        self.complete_chan.push(end_channel.0);
+        end_channel.1
+    }
+}
+
+/// Internal facing operations on a Rebuild Job
+trait InternalOperations {
+    /// Fails the job, overriding any pending client operation
+    fn fail(&mut self);
+    /// Completes the job, overriding any pending operation
+    fn complete(&mut self);
+}
+
+impl InternalOperations for RebuildJob {
+    fn fail(&mut self) {
+        self.exec_internal_op(RebuildOperation::Fail).ok();
+    }
+
+    fn complete(&mut self) {
+        self.exec_internal_op(RebuildOperation::Complete).ok();
     }
 }
 
@@ -378,7 +415,7 @@ impl RebuildJob {
             }
             None => {
                 if self.tasks.active == 0 {
-                    self.state = RebuildState::Completed;
+                    self.complete();
                 }
             }
         };
@@ -425,6 +462,177 @@ impl RebuildJob {
             });
 
             Some(next)
+        }
+    }
+}
+
+#[derive(Debug, Default)]
+pub(super) struct RebuildStates {
+    /// Current state of the rebuild job
+    pub current: RebuildState,
+
+    /// Pending state for the rebuild job
+    pending: Option<RebuildState>,
+}
+
+impl std::fmt::Display for RebuildStates {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{:?}", self)
+    }
+}
+
+impl Default for RebuildState {
+    fn default() -> Self {
+        RebuildState::Init
+    }
+}
+
+impl RebuildStates {
+    /// Set's the next pending state
+    /// if one is already set then override only if flag is set
+    pub(self) fn set_pending(
+        &mut self,
+        state: RebuildState,
+        override_pending: bool,
+    ) -> Result<(), RebuildError> {
+        match self.pending {
+            Some(pending) if !override_pending => {
+                Err(RebuildError::StatePending {
+                    state: pending.to_string(),
+                })
+            }
+            _ => {
+                if self.current != state {
+                    self.pending = Some(state);
+                } else {
+                    self.pending = None;
+                }
+                Ok(())
+            }
+        }
+    }
+
+    /// a change to `state` is pending
+    fn pending_equals(&self, state: RebuildState) -> bool {
+        self.pending == Some(state)
+    }
+
+    /// reconcile the pending state into the current state
+    fn reconcile(&mut self) -> RebuildState {
+        if let Some(pending) = self.pending {
+            self.current = pending;
+            self.pending = None;
+        }
+
+        self.current
+    }
+}
+
+impl RebuildJob {
+    /// Client operations are now allowed to skip over previous operations
+    fn exec_client_op(
+        &mut self,
+        op: RebuildOperation,
+    ) -> Result<(), RebuildError> {
+        self.exec_op(op, false)
+    }
+    fn exec_internal_op(
+        &mut self,
+        op: RebuildOperation,
+    ) -> Result<(), RebuildError> {
+        self.exec_op(op, true)
+    }
+
+    /// Single state machine where all operations are handled
+    fn exec_op(
+        &mut self,
+        op: RebuildOperation,
+        override_pending: bool,
+    ) -> Result<(), RebuildError> {
+        type S = RebuildState;
+        let e = RebuildError::OpError {
+            operation: op.to_string(),
+            state: self.states.to_string(),
+        };
+
+        trace!(
+            "Executing operation {} with override {}",
+            op,
+            override_pending
+        );
+
+        match op {
+            RebuildOperation::Start => {
+                match self.state() {
+                    // start only allowed when... starting
+                    S::Stopped | S::Paused | S::Failed | S::Completed => Err(e),
+                    // for idempotence sake
+                    S::Running => Ok(()),
+                    S::Init => {
+                        self.states.set_pending(S::Running, false)?;
+                        self.schedule();
+                        Ok(())
+                    }
+                }
+            }
+            RebuildOperation::Stop => {
+                match self.state() {
+                    // We're already stopping anyway, so all is well
+                    S::Failed | S::Completed => Err(e),
+                    // for idempotence sake
+                    S::Stopped => Ok(()),
+                    S::Running => {
+                        self.states
+                            .set_pending(S::Stopped, override_pending)?;
+                        Ok(())
+                    }
+                    S::Init | S::Paused => {
+                        self.states
+                            .set_pending(S::Stopped, override_pending)?;
+
+                        // The rebuild is not running so we need to reconcile
+                        self.reconcile();
+                        Ok(())
+                    }
+                }
+            }
+            RebuildOperation::Pause => match self.state() {
+                S::Stopped | S::Failed | S::Completed => Err(e),
+                // for idempotence sake
+                S::Paused => Ok(()),
+                S::Init | S::Running => {
+                    self.states.set_pending(S::Paused, false)?;
+                    Ok(())
+                }
+            },
+            RebuildOperation::Resume => match self.state() {
+                S::Init | S::Stopped | S::Failed | S::Completed => Err(e),
+                // for idempotence sake
+                S::Running => Ok(()),
+                S::Paused => {
+                    self.states.set_pending(S::Running, false)?;
+                    self.schedule();
+                    Ok(())
+                }
+            },
+            RebuildOperation::Fail => match self.state() {
+                S::Init | S::Stopped | S::Paused | S::Completed => Err(e),
+                // for idempotence sake
+                S::Failed => Ok(()),
+                S::Running => {
+                    self.states.set_pending(S::Failed, override_pending)?;
+                    Ok(())
+                }
+            },
+            RebuildOperation::Complete => match self.state() {
+                S::Init | S::Paused | S::Stopped | S::Failed | S::Completed => {
+                    Err(e)
+                }
+                S::Running => {
+                    self.states.set_pending(S::Completed, override_pending)?;
+                    Ok(())
+                }
+            },
         }
     }
 }

@@ -5,6 +5,7 @@ pub mod common;
 use mayastor::{
     bdev::nexus_lookup,
     core::{MayastorCliArgs, MayastorEnvironment, Reactor},
+    replicas::rebuild::RebuildState,
 };
 
 use rpc::mayastor::ShareProtocolNexus;
@@ -79,8 +80,9 @@ fn rebuild_src_removal() {
         nexus.pause_rebuild(&get_dev(new_child)).await.unwrap();
         nexus.remove_child(&get_dev(0)).await.unwrap();
 
-        // todo: test if child was rebuilt sucessfully
-        //nexus_test_child(new_child).await;
+        // tests if new_child which had it's original rebuild src removed
+        // ended up being rebuilt successfully
+        nexus_test_child(new_child).await;
 
         nexus.destroy().await.unwrap();
     });
@@ -124,20 +126,28 @@ async fn nexus_add_child(new_child: u64, wait: bool) {
     let nexus = nexus_lookup(NEXUS_NAME).unwrap();
 
     nexus.add_child(&get_dev(new_child)).await.unwrap();
-    nexus.start_rebuild(&get_dev(new_child)).await.unwrap();
+    let _ = nexus.start_rebuild(&get_dev(new_child)).await.unwrap();
 
     if wait {
         common::wait_for_rebuild(
             get_dev(new_child),
+            RebuildState::Completed,
             std::time::Duration::from_secs(10),
         );
 
         nexus_test_child(new_child).await;
+    } else {
+        // allows for the rebuild to start running (future run by the reactor)
+        reactor_poll!(2);
     }
 }
 
 async fn nexus_test_child(child: u64) {
-    common::wait_for_rebuild(get_dev(child), std::time::Duration::from_secs(5));
+    common::wait_for_rebuild(
+        get_dev(child),
+        RebuildState::Completed,
+        std::time::Duration::from_secs(10),
+    );
 
     let (s, r) = unbounded::<String>();
     std::thread::spawn(move || {

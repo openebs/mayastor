@@ -11,6 +11,7 @@ use mayastor::{
         MayastorEnvironment,
         Reactor,
     },
+    replicas::rebuild::RebuildState,
 };
 
 static DISKNAME1: &str = "/tmp/disk1.img";
@@ -174,6 +175,7 @@ async fn works() {
 
     common::wait_for_rebuild(
         child2.to_string(),
+        RebuildState::Completed,
         std::time::Duration::from_secs(20),
     );
 
