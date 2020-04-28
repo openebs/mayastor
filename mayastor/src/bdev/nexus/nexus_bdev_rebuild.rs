@@ -1,5 +1,5 @@
 use futures::channel::oneshot::Receiver;
-use rpc::mayastor::RebuildStateReply;
+use rpc::mayastor::{RebuildProgressReply, RebuildStateReply};
 use snafu::ResultExt;
 
 use crate::{
@@ -37,17 +37,25 @@ impl Nexus {
     ) -> Result<Receiver<RebuildState>, Error> {
         trace!("{}: start rebuild request for {}", self.name, name);
 
-        let src_child_name =
-            match self.children.iter().find(|c| c.state == ChildState::Open) {
-                Some(child) => Ok(child.name.clone()),
-                None => Err(Error::NoRebuildSource {
-                    name: self.name.clone(),
-                }),
-            }?;
+        let src_child_name = match self
+            .children
+            .iter()
+            .find(|c| c.state == ChildState::Open && c.name != name)
+        {
+            Some(child) => Ok(child.name.clone()),
+            None => Err(Error::NoRebuildSource {
+                name: self.name.clone(),
+            }),
+        }?;
 
         let dst_child = match self.children.iter_mut().find(|c| c.name == name)
         {
-            Some(c) => Ok(c),
+            Some(c) if c.state == ChildState::Faulted => Ok(c),
+            Some(_) => Err(Error::ChildNotFaulted {
+                child: name.to_owned(),
+                name: self.name.clone(),
+                state: self.state.to_string(),
+            }),
             None => Err(Error::ChildNotFound {
                 child: name.to_owned(),
                 name: self.name.clone(),
@@ -71,13 +79,28 @@ impl Nexus {
             name: self.name.clone(),
         })?;
 
-        dst_child.repairing = true;
-
         job.as_client().start().context(CreateRebuildError {
             child: name.to_owned(),
             name: self.name.clone(),
         })
     }
+
+    /// Returns a `child` as an rpc Child type
+    // pub fn to_rpc_child(&self, child: &NexusChild) -> Child {
+    //     let rj = self.get_rebuild_job(&child.name);
+
+    //     Child {
+    //         uri: child.name.clone(),
+    //         state: child.state.to_public(rj.is_ok()),
+    //         rebuild_progress: {
+    //             if let Ok(rj) = rj {
+    //                 rj.stats().progress
+    //             } else {
+    //                 Default::default()
+    //             }
+    //         },
+    //     }
+    // }
 
     /// Terminates a rebuild in the background
     /// used for shutdown operations and
@@ -121,6 +144,18 @@ impl Nexus {
         let rj = self.get_rebuild_job(name)?;
         Ok(RebuildStateReply {
             state: rj.state().to_string(),
+        })
+    }
+
+    /// Returns the rebuild progress of child target `name`
+    pub fn get_rebuild_progress(
+        &self,
+        name: &str,
+    ) -> Result<RebuildProgressReply, Error> {
+        let rj = self.get_rebuild_job(name)?;
+
+        Ok(RebuildProgressReply {
+            progress: rj.as_client().stats().progress,
         })
     }
 
@@ -191,8 +226,6 @@ impl Nexus {
         job: &RebuildJob,
     ) -> Result<(), Error> {
         let recovered_child = self.get_child_by_name(&job.destination)?;
-
-        recovered_child.repairing = false;
 
         if job.state() == RebuildState::Completed {
             recovered_child.state = ChildState::Open;

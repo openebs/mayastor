@@ -75,6 +75,35 @@ impl ToString for ChildState {
     }
 }
 
+/// Because the child states are kept separately from the rebuild states,
+/// when a rebuild is ongoing there are two states
+/// associated with the destination child:
+///     Rebuilding - from the rebuild job
+///     Faulted - from the child state
+/// The control plane doesn't require fine grained state information
+/// The required states are:
+///     Online
+///     Faulted
+///     Rebuilding
+/// so here we inject a "rebuilding" state into the ChildState
+// impl ChildState {
+//     /// Converts an internal mayastor child state into a simplified public state
+//     /// visible outside of mayastor
+//     pub(crate) fn to_public(self, rebuilding: bool) -> String {
+//         match self {
+//             ChildState::Init => "rebuilding",
+//             ChildState::ConfigInvalid => "faulted",
+//             ChildState::Open | ChildState::Faulted if rebuilding => {
+//                 "rebuilding"
+//             }
+//             ChildState::Open => "online",
+//             ChildState::Faulted => "faulted",
+//             ChildState::Closed => "faulted",
+//         }
+//         .to_string()
+//     }
+// }
+
 #[derive(Debug, Serialize)]
 pub struct NexusChild {
     /// name of the parent this child belongs too
@@ -92,7 +121,6 @@ pub struct NexusChild {
     pub(crate) desc: Option<Arc<Descriptor>>,
     /// current state of the child
     pub(crate) state: ChildState,
-    pub(crate) repairing: bool,
     /// descriptor obtained after opening a device
     #[serde(skip_serializing)]
     pub(crate) bdev_handle: Option<BdevHandle>,
@@ -219,7 +247,6 @@ impl NexusChild {
             ch: std::ptr::null_mut(),
             state: ChildState::Init,
             bdev_handle: None,
-            repairing: false,
             err_store: None,
         }
     }

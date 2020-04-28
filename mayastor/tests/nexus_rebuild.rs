@@ -42,6 +42,62 @@ fn rebuild_test() {
     Reactor::block_on(async {
         nexus_create(1).await;
         nexus_add_child(1, true).await;
+        nexus_lookup(NEXUS_NAME).unwrap().destroy().await.unwrap();
+    });
+
+    test_fini();
+}
+
+#[test]
+fn rebuild_progress() {
+    test_ini();
+
+    async fn test_progress(polls: u64, progress: u64) -> u64 {
+        let nexus = nexus_lookup(NEXUS_NAME).unwrap();
+        nexus.resume_rebuild(&get_dev(1)).await.unwrap();
+        // { polls } to poll with an expr rather than an ident
+        reactor_poll!({ polls });
+        nexus.pause_rebuild(&get_dev(1)).await.unwrap();
+        let p = nexus.get_rebuild_progress(&get_dev(1)).unwrap();
+        assert!(p.progress > progress);
+        p.progress
+    };
+
+    Reactor::block_on(async {
+        nexus_create(1).await;
+        nexus_add_child(1, false).await;
+        // naive check to see if progress is being made
+        let mut progress = 0;
+        for _ in 0 .. 10 {
+            progress = test_progress(50, progress).await;
+        }
+        nexus_lookup(NEXUS_NAME).unwrap().destroy().await.unwrap();
+    });
+
+    test_fini();
+}
+
+#[test]
+fn rebuild_child_faulted() {
+    test_ini();
+
+    Reactor::block_on(async move {
+        nexus_create(2).await;
+
+        let nexus = nexus_lookup(NEXUS_NAME).unwrap();
+        nexus
+            .start_rebuild(&get_dev(1))
+            .await
+            .expect_err("Rebuild only faulted children!");
+
+        nexus.remove_child(&get_dev(1)).await.unwrap();
+        assert_eq!(nexus.children.len(), 1);
+        nexus
+            .start_rebuild(&get_dev(0))
+            .await
+            .expect_err("Cannot rebuild from the same child");
+
+        nexus.destroy().await.unwrap();
     });
 
     test_fini();
