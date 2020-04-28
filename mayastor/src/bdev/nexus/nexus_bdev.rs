@@ -31,8 +31,6 @@ use spdk_sys::{
 };
 use tonic::{Code as GrpcCode, Status};
 
-use rpc::mayastor::RebuildProgressReply;
-
 use crate::{
     bdev::{
         nexus,
@@ -173,6 +171,17 @@ pub enum Error {
     NexusCreate { name: String },
     #[snafu(display("Failed to destroy nexus {}", name))]
     NexusDestroy { name: String },
+    #[snafu(display(
+        "Child {} of nexus {} is not faulted but {}",
+        child,
+        name,
+        state
+    ))]
+    ChildNotFaulted {
+        child: String,
+        name: String,
+        state: String,
+    },
 }
 
 impl RpcErrorCode for Error {
@@ -319,9 +328,6 @@ pub enum NexusState {
     Faulted,
     /// Degraded, one or more child is missing but IO can still flow
     Degraded,
-    /// mule is moving blocks from A to B which is typical for an animal like
-    /// this
-    Remuling,
 }
 
 impl ToString for NexusState {
@@ -332,7 +338,6 @@ impl ToString for NexusState {
             NexusState::Faulted => "faulted",
             NexusState::Degraded => "degraded",
             NexusState::Closed => "closed",
-            NexusState::Remuling => "remuling",
         }
         .parse()
         .unwrap()
@@ -775,15 +780,6 @@ impl Nexus {
     /// returns the current status of the nexus
     pub fn status(&self) -> NexusState {
         self.state
-    }
-
-    pub async fn get_rebuild_progress(
-        &self,
-    ) -> Result<RebuildProgressReply, Error> {
-        // TODO: add real implementation
-        Ok(RebuildProgressReply {
-            progress: "Not implemented".to_string(),
-        })
     }
 }
 
