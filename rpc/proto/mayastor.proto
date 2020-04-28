@@ -152,6 +152,7 @@ message CreateNexusRequest {
 message Child {
   string uri = 1;   // uri of the child device
   string state = 2; // TODO: enum
+  uint64 rebuild_progress = 3;
 }
 
 // represents a nexus device
@@ -242,8 +243,9 @@ message ResumeRebuildRequest {
 
 message RebuildProgressRequest {
   string uuid = 1;  // uuid of the nexus
+  string uri = 2;   // uri of the destination child
 }
 
 message RebuildProgressReply {
-  string progress = 1;  // progress percentage
+  uint64 progress = 1;  // progress percentage
 }

@@ -171,10 +171,7 @@ impl Mayastor for MayastorGrpc {
                 children: n
                     .children
                     .iter()
-                    .map(|c| Child {
-                        uri: c.name.clone(),
-                        state: c.state.to_string(),
-                    })
+                    .map(|child| n.to_rpc_child(child))
                     .collect::<Vec<_>>(),
                 rebuilds: RebuildJob::count() as u64,
             })
@@ -342,7 +339,7 @@ impl Mayastor for MayastorGrpc {
         let msg = request.into_inner();
 
         Ok(Response::new(locally! { async move {
-            nexus_lookup(&msg.uuid)?.get_rebuild_progress().await
+            nexus_lookup(&msg.uuid)?.get_rebuild_progress(&msg.uri)
         }}))
     }
 }

@@ -2,7 +2,6 @@ use futures::{future, FutureExt};
 
 use rpc::mayastor::{
     AddChildNexusRequest,
-    Child,
     ChildNexusRequest,
     CreateNexusRequest,
     DestroyNexusRequest,
@@ -57,10 +56,7 @@ pub(crate) fn register_rpc_methods() {
                     children: nexus
                         .children
                         .iter()
-                        .map(|child| Child {
-                            uri: child.name.clone(),
-                            state: child.state.to_string(),
-                        })
+                        .map(|child| nexus.to_rpc_child(child))
                         .collect::<Vec<_>>(),
                     device_path: nexus.get_share_path().unwrap_or_default(),
                     rebuilds: RebuildJob::count() as u64,
@@ -225,7 +221,7 @@ pub(crate) fn register_rpc_methods() {
     jsonrpc_register("get_rebuild_progress", |args: RebuildProgressRequest| {
         let fut = async move {
             let nexus = nexus_lookup(&args.uuid)?;
-            nexus.get_rebuild_progress().await
+            nexus.get_rebuild_progress(&args.uri)
         };
         fut.boxed_local()
     });
