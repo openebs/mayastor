@@ -50,6 +50,8 @@ pub(super) struct RebuildTasks {
     channel: (mpsc::Sender<TaskResult>, mpsc::Receiver<TaskResult>),
     active: u64,
     total: u64,
+
+    segments_done: u64,
 }
 
 impl RebuildJob {
@@ -102,6 +104,7 @@ impl RebuildJob {
             channel: mpsc::channel(0),
             active: 0,
             total: SEGMENT_TASKS,
+            segments_done: 0,
         };
 
         for _ in 0 .. tasks.total {
@@ -334,14 +337,39 @@ impl std::fmt::Display for RebuildOperation {
 }
 
 impl ClientOperations for RebuildJob {
-    fn stats(&self) -> Option<RebuildStats> {
-        info!(
-            "State: {:#}, Src: {}, Dst: {}, start: {}, end: {}, next: {}, block: {}",
-            self.state(), self.source, self.destination,
-            self.start, self.end, self.next, self.block_size
+    fn stats(&self) -> RebuildStats {
+        let blocks_total = self.end - self.start;
+
+        // segment size may not be aligned to the total size
+        let blocks_recovered = std::cmp::min(
+            self.tasks.segments_done * self.segment_size_blks,
+            blocks_total,
         );
 
-        None
+        let progress = (blocks_recovered * 100) / blocks_total;
+
+        info!(
+            "State: {}, Src: {}, Dst: {}, start: {}, end: {}, next: {}, \
+             block_size: {}, segment_sz: {}, recovered_blks: {}, progress: {}%",
+            self.state(),
+            self.source,
+            self.destination,
+            self.start,
+            self.end,
+            self.next,
+            self.block_size,
+            self.segment_size_blks,
+            blocks_recovered,
+            progress,
+        );
+
+        RebuildStats {
+            blocks_total,
+            blocks_recovered,
+            progress,
+            segment_size_blks: self.segment_size_blks,
+            block_size: self.block_size,
+        }
     }
 
     fn start(
@@ -424,6 +452,9 @@ impl RebuildJob {
     async fn await_one_task(&mut self) -> Option<TaskResult> {
         self.tasks.channel.1.next().await.map(|f| {
             self.tasks.active -= 1;
+            if f.error.is_none() {
+                self.tasks.segments_done += 1;
+            }
             f
         })
     }

@@ -161,6 +161,7 @@ enum ChildState {
 message Child {
   string uri = 1;   // uri of the child device
   ChildState state = 2; // state of the child
+  uint64 rebuild_progress = 3;
 }
 
 // State of the nexus (terminology inspired by ZFS).
@@ -259,8 +260,9 @@ message ResumeRebuildRequest {
 
 message RebuildProgressRequest {
   string uuid = 1;  // uuid of the nexus
+  string uri = 2;   // uri of the destination child
 }
 
 message RebuildProgressReply {
-  string progress = 1;  // progress percentage
+  uint64 progress = 1;  // progress percentage
 }

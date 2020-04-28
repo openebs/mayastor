@@ -335,11 +335,11 @@ describe('rebuild tests', function () {
     });
 
     it('check source state', async () => {
-      await checkState(ObjectType.SOURCE_CHILD, 'open');
+      await checkState(ObjectType.SOURCE_CHILD, 'online');
     });
 
     it('check destination state', async () => {
-      await checkState(ObjectType.DESTINATION_CHILD, 'faulted');
+      await checkState(ObjectType.DESTINATION_CHILD, 'rebuilding');
     });
 
     it('check rebuild state', async () => {
@@ -371,11 +371,11 @@ describe('rebuild tests', function () {
     });
 
     it('check source state', async () => {
-      await checkState(ObjectType.SOURCE_CHILD, 'open');
+      await checkState(ObjectType.SOURCE_CHILD, 'online');
     });
 
     it('check destination state', async () => {
-      await checkState(ObjectType.DESTINATION_CHILD, 'faulted');
+      await checkState(ObjectType.DESTINATION_CHILD, 'rebuilding');
     });
 
     it('check rebuild state', async () => {
@@ -404,11 +404,11 @@ describe('rebuild tests', function () {
     });
 
     it('check source state', async () => {
-      await checkState(ObjectType.SOURCE_CHILD, 'open');
+      await checkState(ObjectType.SOURCE_CHILD, 'online');
     });
 
     it('check destination state', async () => {
-      await checkState(ObjectType.DESTINATION_CHILD, 'faulted');
+      await checkState(ObjectType.DESTINATION_CHILD, 'rebuilding');
     });
 
     it('check rebuild state', async () => {
@@ -436,11 +436,11 @@ describe('rebuild tests', function () {
     });
 
     it('check source state', async () => {
-      await checkState(ObjectType.SOURCE_CHILD, 'open');
+      await checkState(ObjectType.SOURCE_CHILD, 'online');
     });
 
     it('check destination state', async () => {
-      await checkState(ObjectType.DESTINATION_CHILD, 'closed');
+      await checkState(ObjectType.DESTINATION_CHILD, 'faulted');
     });
 
     it('check number of rebuilds', async () => {

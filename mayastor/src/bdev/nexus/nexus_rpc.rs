@@ -67,7 +67,6 @@ pub(crate) fn register_rpc_methods() {
                         NexusState::Online => RpcNexusState::NexusOnline,
                         NexusState::Faulted => RpcNexusState::NexusFaulted,
                         NexusState::Degraded => RpcNexusState::NexusDegraded,
-                        NexusState::Remuling => RpcNexusState::NexusDegraded,
                         NexusState::Init => RpcNexusState::NexusDegraded,
                         NexusState::Closed => RpcNexusState::NexusDegraded,
                     } as i32,
@@ -91,6 +90,7 @@ pub(crate) fn register_rpc_methods() {
                                     RpcChildState::ChildFaulted
                                 }
                             } as i32,
+                            rebuild_progress: 0,
                         })
                         .collect::<Vec<_>>(),
                     device_path: nexus.get_share_path().unwrap_or_default(),
@@ -256,7 +256,7 @@ pub(crate) fn register_rpc_methods() {
     jsonrpc_register("get_rebuild_progress", |args: RebuildProgressRequest| {
         let fut = async move {
             let nexus = nexus_lookup(&args.uuid)?;
-            nexus.get_rebuild_progress().await
+            nexus.get_rebuild_progress(&args.uri)
         };
         fut.boxed_local()
     });

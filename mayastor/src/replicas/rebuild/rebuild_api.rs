@@ -96,13 +96,24 @@ pub struct RebuildJob {
     pub(super) complete_chan: Vec<oneshot::Sender<RebuildState>>,
 }
 
-/// Place holder for rebuild statistics
-pub struct RebuildStats {}
+/// rebuild statistics
+pub struct RebuildStats {
+    /// total number of blocks to recover
+    pub blocks_total: u64,
+    /// number of blocks recovered
+    pub blocks_recovered: u64,
+    /// rebuild progress in % (0-100)
+    pub progress: u64,
+    /// granularity of each recovery copy in blocks
+    pub segment_size_blks: u64,
+    /// size in bytes of each block
+    pub block_size: u64,
+}
 
 /// Public facing operations on a Rebuild Job
 pub trait ClientOperations {
     /// Collects statistics from the job
-    fn stats(&self) -> Option<RebuildStats>;
+    fn stats(&self) -> RebuildStats;
     /// Schedules the job to start in a future and returns a complete channel
     /// which can be waited on
     fn start(
