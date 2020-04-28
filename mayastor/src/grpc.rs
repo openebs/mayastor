@@ -256,9 +256,6 @@ impl Mayastor for MayastorGrpc {
                         NexusStateInternal::Degraded => {
                             NexusState::NexusDegraded
                         }
-                        NexusStateInternal::Remuling => {
-                            NexusState::NexusDegraded
-                        }
                         NexusStateInternal::Init => NexusState::NexusDegraded,
                         NexusStateInternal::Closed => NexusState::NexusDegraded,
                     } as i32,
@@ -289,6 +286,7 @@ impl Mayastor for MayastorGrpc {
                                     ChildState::ChildFaulted
                                 }
                             } as i32,
+                            rebuild_progress: 0,
                         })
                         .collect::<Vec<_>>(),
                     rebuilds: RebuildJob::count() as u64,
@@ -476,7 +474,7 @@ impl Mayastor for MayastorGrpc {
         let args = request.into_inner();
         trace!("{:?}", args);
         Ok(Response::new(locally! { async move {
-            nexus_lookup(&args.uuid)?.get_rebuild_progress().await
+            nexus_lookup(&args.uuid)?.get_rebuild_progress(&args.uri)
         }}))
     }
 }
