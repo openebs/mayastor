@@ -38,7 +38,7 @@ resource "lxd_container" "c8s" {
 
   config = {
     "boot.autostart"       = true
-    "raw.lxc"              = "lxc.mount.auto = proc:rw cgroup:rw sys:rw\nlxc.mount.entry = /lib/modules lib/modules none bind,ro 0 0\nlxc.mount.entry = /boot boot none bind.ro 0 0\nlxc.apparmor.profile = unconfined\nlxc.cgroup.devices.allow = a\nlxc.cap.drop="
+    "raw.lxc"              = "lxc.mount.auto = proc:rw cgroup:rw sys:rw\nlxc.apparmor.profile = unconfined\nlxc.cgroup.devices.allow = a\nlxc.cap.drop="
     "linux.kernel_modules" = "ip_tables,ip6_tables,nf_nat,overlay,netlink_diag,br_netfilter"
     "security.nesting"     = true
     "security.privileged"  = true

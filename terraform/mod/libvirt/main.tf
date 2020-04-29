@@ -15,6 +15,9 @@ variable "ssh_user" {
 variable "ssh_key" {
 }
 
+variable "private_key_path" {
+}
+
 variable "disk_size" {
 }
 
@@ -115,7 +118,7 @@ resource "libvirt_domain" "ubuntu-domain" {
       type        = "ssh"
       user        = var.ssh_user
       host        = self.network_interface.0.addresses.0
-      private_key = file(format("/home/%s/.ssh/id_rsa", var.ssh_user))
+      private_key = file(var.private_key_path)
     }
   }
 }

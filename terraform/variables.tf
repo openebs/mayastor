@@ -1,23 +1,25 @@
-variable "image_path" {
+variable "private_key_path" {
   type        = string
-  description = "Where the images will be stored"
-  default     = "/code/ubuntu-pool"
+  description = "SSH private key path"
+  #default     = "/home/user/.ssh/id_rsa"
 }
 
 variable "ssh_key" {
   type        = string
   description = "SSH pub key to use"
-  default     = "<contents of ~/.ssh/id_rsa.pub>"
+  #default     = "ssh-rsa ..."
 }
-
-# this variable is used in two different ways. One is to create the user
-# but we also use the ~/$user/.ssh path to grab the private_key to connect
-# to the VMs.
 
 variable "ssh_user" {
   type        = string
   description = "The user that should be created and who has sudo power"
-  default     = "gila"
+  #default     = "user"
+}
+
+variable "image_path" {
+  type        = string
+  description = "Where the images will be stored"
+  default     = "/images"
 }
 
 variable "disk_size" {
@@ -34,5 +36,5 @@ variable "hostname_formatter" {
 variable "num_nodes" {
   type        = number
   default     = 3
-  description = "The number of nodes to create"
+  description = "The number of nodes to create (should be > 1)"
 }

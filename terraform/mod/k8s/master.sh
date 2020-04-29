@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 sudo kubeadm init --config /tmp/kubeadm_config.yaml \
-  --ignore-preflight-errors=Swap,NumCPU
+  --ignore-preflight-errors=Swap,NumCPU,SystemVerification
 
 [ -d "$HOME"/.kube ] || mkdir -p "$HOME"/.kube
 ln -s /etc/kubernetes/admin.conf "$HOME"/.kube/config

@@ -1,6 +1,7 @@
 variable "k8s_cluster_token" {
   default = "abcdef.1234567890abcdef"
 }
+
 variable "overlay_cidr" {
   default = "10.244.0.0/16"
 }
@@ -13,9 +14,10 @@ variable "ssh_user" {
 
 }
 
-variable "ssh_key" {
+variable "private_key_path" {
 
 }
+
 variable "node_list" {
 
 }
@@ -26,8 +28,7 @@ resource "null_resource" "k8s" {
   connection {
     host        = element(var.node_list, count.index)
     user        = var.ssh_user
-    private_key = file(format("/home/%s/.ssh/id_rsa", var.ssh_user))
-
+    private_key = file(var.private_key_path)
   }
 
   provisioner "file" {
