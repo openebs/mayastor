@@ -11,7 +11,6 @@ jobs:
   Build:
     name: Build and run cargo tests
     runs-on: self-hosted
-    run: run: sudo apt-get install open-iscsi
     timeout-minutes: 20
     container:
       image: docker.io/mayadata/ms-buildenv:nix
