@@ -21,6 +21,7 @@ jobs:
         with:
           # this does not pin the compiler version
           toolchain: stable
+      - run: apt install open-iscsi
       - run: ln -s /host/bin/kmod /bin/modprobe
       - run: /bin/modprobe nbd
       - run: /bin/modprobe xfs
