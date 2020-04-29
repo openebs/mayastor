@@ -4,7 +4,6 @@
 , libiscsi
 , libspdk
 , liburing
-, libnl
 , llvmPackages
 , numactl
 , openssl
@@ -42,7 +41,7 @@ in
 
     mayastor = rustPlatform.buildRustPackage rec {
       name = "mayastor";
-      cargoSha256 = "18niq6qnag5jnj4rqs243lr7sw6ik2kf38i1by14mjbvzilv966i";
+      cargoSha256 = "0ihyh071xmbpvh5qgsxj8wffnf4rzm7wqrhclhwjkz28rfz9z51z";
       version = "unstable";
       src = whitelistSource ../../../. [
         "Cargo.lock"

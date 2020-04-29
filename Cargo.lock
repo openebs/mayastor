@@ -455,6 +455,7 @@ dependencies = [
  "tonic",
  "tonic-build",
  "tower",
+ "which 3.1.1",
 ]
 
 [[package]]
@@ -2579,6 +2580,7 @@ version = "3.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d011071ae14a2f6671d0b74080ae0cd8ebf3a6f8c9589a2cd45f23126fe29724"
 dependencies = [
+ "failure",
  "libc",
 ]
 

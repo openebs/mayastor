@@ -28,6 +28,11 @@ lazy_static! {
             debug!("using {}", env::var("ISCSIADM").unwrap());
             env::var("ISCSIADM").unwrap()
     };
+
+    static ref ISCSIADM_EXISTS: bool = match which::which(ISCSIADM.as_str()) {
+        Ok(_) => true,
+        _ => false,
+    };
 }
 
 pub fn wait_for_path_to_exist(devpath: &str, max_retries: i32) -> bool {
@@ -310,6 +315,10 @@ pub fn iscsi_detach_disk(device_path: &str) -> Result<(), String> {
 
 pub fn iscsi_find(uuid: &str) -> Result<String, String> {
     trace!("unstage: iscsi_find for {}", uuid);
+    if !(*ISCSIADM_EXISTS) {
+        debug!("Cannot find executable {}", ISCSIADM.as_str());
+        return Err(format!("Cannot find {}", ISCSIADM.as_str()));
+    }
     let output = Command::new(ISCSIADM.as_str())
         .arg("-m")
         .arg("node")
