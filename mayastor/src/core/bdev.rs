@@ -286,13 +286,24 @@ impl Bdev {
     }
 }
 
+pub struct BdevIter(*mut spdk_bdev);
+
+impl IntoIterator for Bdev {
+    type Item = Bdev;
+    type IntoIter = BdevIter;
+    fn into_iter(self) -> Self::IntoIter {
+        BdevIter(unsafe { spdk_bdev_first() })
+    }
+}
+
 /// iterator over the bdevs in the global bdev list
-impl Iterator for Bdev {
+impl Iterator for BdevIter {
     type Item = Bdev;
     fn next(&mut self) -> Option<Bdev> {
-        let bdev = unsafe { spdk_bdev_next(self.as_ptr()) };
-        if !bdev.is_null() {
-            Some(Bdev::from(bdev))
+        if !self.0.is_null() {
+            let current = self.0;
+            self.0 = unsafe { spdk_bdev_next(current) };
+            Some(Bdev::from(current))
         } else {
             None
         }
@@ -307,7 +318,7 @@ impl From<*mut spdk_bdev> for Bdev {
 
 impl Debug for Bdev {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
-        writeln!(
+        write!(
             f,
             "name: {}, driver: {}, product: {}, num_blocks: {}, block_len: {}",
             self.name(),

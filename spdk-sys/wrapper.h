@@ -75,6 +75,7 @@
 #include <spdk/vhost.h>
 #include <spdk/vmd.h>
 #include <spdk_internal/lvolstore.h>
+#include <spdk_internal/event.h>
 
 typedef void maya_logger(int level, const char *file, const int line,
     const char *func, const char *buf, const int len);

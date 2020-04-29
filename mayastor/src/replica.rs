@@ -449,15 +449,26 @@ impl ReplicaIter {
     }
 }
 
+// XXX: shut this not simply be a bdev iterator with .filter()?
+
 impl Iterator for ReplicaIter {
     type Item = Replica;
 
     fn next(&mut self) -> Option<Self::Item> {
         loop {
             let maybe_bdev = match &mut self.bdev {
-                Some(bdev) => bdev.next(),
+                Some(bdev) => {
+                    let ptr =
+                        unsafe { spdk_sys::spdk_bdev_next(bdev.as_ptr()) };
+                    if !ptr.is_null() {
+                        Some(Bdev::from(ptr))
+                    } else {
+                        None
+                    }
+                }
                 None => Bdev::bdev_first(),
             };
+
             let bdev = match maybe_bdev {
                 Some(bdev) => bdev,
                 None => return None,
