@@ -4,12 +4,21 @@ use tonic::{Code, Request, Response, Status};
 
 use glob::glob;
 
-use rpc::mayastor::{ListNexusReply, Nexus};
+use rpc::mayastor::{ListNexusReply, Nexus, ShareProtocolNexus};
 
 use crate::{
     csi::{volume_capability::access_mode::Mode, *},
     format::probed_format,
     mount::{match_mount, mount_fs, mount_opts_compare, unmount_fs, Fs},
+};
+use git_version::git_version;
+
+mod iscsiutil;
+use iscsiutil::{
+    iscsi_attach_disk,
+    iscsi_detach_disk,
+    iscsi_find,
+    RE_NEXUS_ISCSI_URI,
 };
 
 #[derive(Clone, Debug)]
@@ -84,6 +93,31 @@ async fn lookup_nexus(
     Ok(None)
 }
 
+// parse the URI to work out whether the URI matches that expected for nbd,
+// iscsi or nvmf.
+// As a side effect this also checks that the URI components match,
+// the required format.
+fn nexus_share_type_from_uri(uri: &str) -> Option<ShareProtocolNexus> {
+    lazy_static! {
+        static ref RE_NBD: regex::Regex = regex::Regex::new(
+            r"(?x)
+            (?P<nbd>/dev/nbd\d+)
+        ",
+        )
+        .unwrap();
+    }
+
+    let caps_iscsi_uri = RE_NEXUS_ISCSI_URI.captures(uri);
+    let caps_nbd = RE_NBD.captures(uri);
+    match caps_iscsi_uri {
+        Some(_) => Some(ShareProtocolNexus::NexusIscsi),
+        _ => match caps_nbd {
+            Some(_) => Some(ShareProtocolNexus::NexusNbd),
+            _ => None,
+        },
+    }
+}
+
 impl Node {}
 #[tonic::async_trait]
 impl node_server::Node for Node {
@@ -99,8 +133,10 @@ impl node_server::Node for Node {
             glob("/dev/nbd*").expect("Invalid glob pattern").count() as i64;
 
         debug!(
-            "NodeGetInfo request: ID={}, max volumes={}",
-            node_id, max_volumes_per_node
+            "NodeGetInfo request: version={}, ID={}, max volumes={}",
+            git_version!(),
+            node_id,
+            max_volumes_per_node,
         );
 
         Ok(Response::new(NodeGetInfoResponse {
@@ -159,7 +195,7 @@ impl node_server::Node for Node {
     ) -> Result<Response<NodePublishVolumeResponse>, Status> {
         let msg = request.into_inner();
 
-        trace!("{:?}", msg);
+        trace!("node_publish_volume {:?}", msg);
 
         let staging_path = &msg.staging_target_path;
         let target_path = &msg.target_path;
@@ -295,7 +331,7 @@ impl node_server::Node for Node {
     ) -> Result<Response<NodeUnpublishVolumeResponse>, Status> {
         let msg = request.into_inner();
 
-        trace!("{:?}", msg);
+        trace!("node_unpublish_volume {:?}", msg);
 
         let target_path = &msg.target_path;
         let volume_id = &msg.volume_id;
@@ -327,7 +363,7 @@ impl node_server::Node for Node {
         request: Request<NodeGetVolumeStatsRequest>,
     ) -> Result<Response<NodeGetVolumeStatsResponse>, Status> {
         let msg = request.into_inner();
-        trace!("{:?}", msg);
+        trace!("node_get_volume_stats {:?}", msg);
         let volume_id = msg.volume_id;
 
         let nexus = lookup_nexus(&self.socket, &volume_id).await?.unwrap();
@@ -360,8 +396,9 @@ impl node_server::Node for Node {
         let msg = request.into_inner();
         let volume_id = &msg.volume_id;
         let staging_path = &msg.staging_target_path;
+        let publish_context = &msg.publish_context;
 
-        trace!("{:?}", msg);
+        trace!("node_stage_volume {:?}", msg);
 
         if staging_path == "" || volume_id == "" {
             return Err(Status::new(
@@ -431,28 +468,84 @@ impl node_server::Node for Node {
             }
         }
 
-        let nexus = match lookup_nexus(&self.socket, &volume_id).await? {
-            Some(nexus) => nexus,
-            None => {
+        let uri = match publish_context.get("uri") {
+            Some(pc_uri) => pc_uri,
+            _ => {
                 return Err(Status::new(
-                    Code::NotFound,
-                    format!("Volume {} not found", volume_id),
+                    Code::Internal,
+                    "Unable to access uri from context",
                 ))
             }
         };
 
-        if &nexus.device_path == "" {
-            return Err(Status::new(
-                Code::InvalidArgument,
-                format!("The volume {} has not been published", volume_id,),
-            ));
-        }
+        debug!("URI is {}", uri);
+
+        let device_path = match nexus_share_type_from_uri(uri) {
+            Some(ShareProtocolNexus::NexusIscsi) => {
+                match iscsi_attach_disk(uri) {
+                    Ok(devpath) => devpath,
+                    Err(e) => {
+                        return Err(Status::new(
+                            Code::Internal,
+                            format!("{:?}", e),
+                        ))
+                    }
+                }
+                // nexus may reside on another node,
+                // no method exist as yet to retrieve
+                // nexus details
+            }
+            Some(ShareProtocolNexus::NexusNvmf) => {
+                return Err(Status::new(
+                    Code::Internal,
+                    format!("Support absent {}", uri),
+                ))
+            }
+            Some(ShareProtocolNexus::NexusNbd) => {
+                let nexus = match lookup_nexus(&self.socket, &volume_id).await?
+                {
+                    Some(nexus) => nexus,
+                    None => {
+                        return Err(Status::new(
+                            Code::NotFound,
+                            format!("Volume {} not found", volume_id),
+                        ))
+                    }
+                };
+                if &nexus.device_path == "" {
+                    return Err(Status::new(
+                        Code::InvalidArgument,
+                        format!(
+                            "The volume {} has not been published",
+                            volume_id,
+                        ),
+                    ));
+                }
+                if &nexus.device_path != uri {
+                    return Err(Status::new(
+                        Code::AlreadyExists,
+                        format!(
+                            "The volume {} has been published using another uri",
+                            volume_id,
+                        ),
+                    ));
+                }
+                String::from(uri)
+            }
+            _ => {
+                return Err(Status::new(
+                    Code::Internal,
+                    format!("Unsupported {}", uri),
+                ))
+            }
+        };
+
+        debug!("device_path is {}", device_path);
 
         if let Some(mount) =
-            match_mount(Some(&nexus.device_path), Some(&staging_path), false)
+            match_mount(Some(&device_path), Some(&staging_path), false)
         {
-            if mount.source == nexus.device_path && &mount.dest == staging_path
-            {
+            if mount.source == device_path && &mount.dest == staging_path {
                 // the device is already mounted we should
                 // return OK
                 return Ok(Response::new(NodeStageVolumeResponse {}));
@@ -465,14 +558,12 @@ impl node_server::Node for Node {
             }
         }
 
-        if let Err(e) =
-            probed_format(&nexus.device_path, &filesystem.name).await
-        {
+        if let Err(e) = probed_format(&device_path, &filesystem.name).await {
             return Err(Status::new(Code::Internal, e));
         }
 
         match mount_fs(
-            &nexus.device_path,
+            &device_path,
             &staging_path,
             false,
             &filesystem.name,
@@ -492,23 +583,34 @@ impl node_server::Node for Node {
         let stage_path = msg.staging_target_path;
 
         debug!("Unstaging volume {} at {}", volume_id, stage_path);
-
-        let nexus = match lookup_nexus(&self.socket, &volume_id).await? {
-            Some(nexus) => nexus,
-            None => {
-                return Err(Status::new(
-                    Code::NotFound,
-                    format!("Volume {} not found", volume_id),
-                ))
+        let (device_path, share_type) = match iscsi_find(volume_id.as_str()) {
+            Ok(devpath) => {
+                debug!("unstage: is iSCSI device path is {}", devpath);
+                (devpath, ShareProtocolNexus::NexusIscsi)
+            }
+            // Must be nbd
+            _ => {
+                let nexus = match lookup_nexus(&self.socket, &volume_id).await?
+                {
+                    Some(nexus) => nexus,
+                    None => {
+                        return Err(Status::new(
+                            Code::NotFound,
+                            format!("Volume {} not found", volume_id),
+                        ))
+                    }
+                };
+                trace!("unstage: nbd, device path is {}", nexus.device_path);
+                (nexus.device_path, ShareProtocolNexus::NexusIscsi)
             }
         };
 
-        if nexus.device_path != "" {
+        debug!("unstage: device_path {}", device_path);
+        if device_path != "" {
             if let Some(mount) =
-                match_mount(Some(&nexus.device_path), Some(&stage_path), true)
+                match_mount(Some(&device_path), Some(&stage_path), true)
             {
-                if mount.source == nexus.device_path && stage_path == mount.dest
-                {
+                if mount.source == device_path && stage_path == mount.dest {
                     // we have an exact match -> unmount
                     if let Err(reason) = unmount_fs(&stage_path, false) {
                         return Err(Status::new(Code::Internal, reason));
@@ -516,6 +618,17 @@ impl node_server::Node for Node {
                 }
             }
         }
+
+        match share_type {
+            ShareProtocolNexus::NexusIscsi => {
+                debug!("unstage: iscsi detach {}", device_path);
+                // if iscsi detach fails then what can we do?
+                let _ = iscsi_detach_disk(device_path.as_str());
+            }
+            ShareProtocolNexus::NexusNvmf => {}
+            ShareProtocolNexus::NexusNbd => {}
+        }
+
         // if already unstaged or staging does not match target path -
         // must reply OK
         Ok(Response::new(NodeUnstageVolumeResponse {}))

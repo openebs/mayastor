@@ -52,7 +52,11 @@ function createTestDisk (diskFile, done) {
 function destroyTestDisk (diskFile, loopDev, done) {
   if (loopDev != null) {
     common.execAsRoot('losetup', ['-d', loopDev], (err) => {
-      fs.unlink(diskFile, (err) => done());
+      if (err) console.log('losetup failed:', loopDev, err);
+      fs.unlink(diskFile, (err) => {
+        if (err) console.log('losetup unlink failed:', loopDev, err);
+        done();
+      });
     });
   } else {
     done();
@@ -95,7 +99,10 @@ describe('replica', function () {
     if (client == null) {
       return done();
     }
-    client.destroyPool({ name: POOL }, (err) => done());
+    client.destroyPool({ name: POOL }, (err) => {
+      if (err) console.log('Destroy pool failed:', err);
+      done();
+    });
   }
 
   // start mayastor if needed
@@ -221,7 +228,7 @@ describe('replica', function () {
     client.listPools({}, (err, res) => {
       if (err) return done(err);
 
-      res = res.pools.filter((ent) => ent.name == POOL);
+      res = res.pools.filter((ent) => ent.name === POOL);
       assert.lengthOf(res, 1);
       res = res[0];
 
@@ -264,7 +271,7 @@ describe('replica', function () {
     client.listReplicas({}, (err, res) => {
       if (err) return done(err);
       res = res.replicas.filter((ent) => {
-        return ent.uuid == UUID;
+        return ent.uuid === UUID;
       });
       assert.lengthOf(res, 1);
       res = res[0];
@@ -276,7 +283,7 @@ describe('replica', function () {
       assert.equal(res.uri.match(ISCSI_URI)[1], common.getMyIp());
 
       // runs the perf test for 1 second
-      exec('iscsi-perf -t 1 ' + res.uri + '/0', (error, stdout, stderr) => {
+      exec('iscsi-perf -t 1 ' + res.uri, (error, stdout, stderr) => {
         if (error) {
           done(stderr);
         } else {
@@ -332,7 +339,7 @@ describe('replica', function () {
     client.listReplicas({}, (err, res) => {
       if (err) return done(err);
       res = res.replicas.filter((ent) => {
-        return ent.uuid == UUID;
+        return ent.uuid === UUID;
       });
       assert.lengthOf(res, 1);
       res = res[0];
@@ -359,7 +366,7 @@ describe('replica', function () {
         client.listReplicas({}, (err, res) => {
           if (err) return done(err);
           res = res.replicas.filter((ent) => {
-            return ent.uuid == UUID;
+            return ent.uuid === UUID;
           });
           assert.lengthOf(res, 1);
           res = res[0];
@@ -399,7 +406,7 @@ describe('replica', function () {
         client.listReplicas({}, (err, res) => {
           if (err) return done(err);
           res = res.replicas.filter((ent) => {
-            return ent.uuid == UUID;
+            return ent.uuid === UUID;
           });
           assert.lengthOf(res, 1);
           res = res[0];
@@ -424,7 +431,7 @@ describe('replica', function () {
         client.listReplicas({}, (err, res) => {
           if (err) return done(err);
           res = res.replicas.filter((ent) => {
-            return ent.uuid == UUID;
+            return ent.uuid === UUID;
           });
           assert.lengthOf(res, 1);
           res = res[0];
@@ -441,7 +448,7 @@ describe('replica', function () {
       if (err) return done(err);
 
       res = res.replicas.filter((ent) => {
-        return ent.uuid == UUID;
+        return ent.uuid === UUID;
       });
       assert.lengthOf(res, 1);
       res = res[0];
@@ -476,7 +483,7 @@ describe('replica', function () {
       if (err) return done(err);
 
       res = res.replicas.filter((ent) => {
-        return ent.uuid == UUID;
+        return ent.uuid === UUID;
       });
       assert.lengthOf(res, 0);
       done();
@@ -525,7 +532,7 @@ describe('replica', function () {
     client.listPools({}, (err, res) => {
       if (err) return done(err);
 
-      res = res.pools.filter((ent) => ent.name == POOL);
+      res = res.pools.filter((ent) => ent.name === POOL);
       assert.lengthOf(res, 0);
       done();
     });
@@ -565,7 +572,7 @@ describe('replica', function () {
       client.listPools({}, (err, res) => {
         if (err) return done(err);
 
-        res = res.pools.filter((ent) => ent.name == POOL);
+        res = res.pools.filter((ent) => ent.name === POOL);
         assert.lengthOf(res, 1);
         res = res[0];
 
@@ -597,13 +604,14 @@ describe('replica', function () {
     // run unlink as root because the file was created by root
     function rmBlockFile (done) {
       common.execAsRoot('rm', ['-f', blockFile], (err) => {
+        if (err) console.log('Remove file failed', blockFile, err);
         // ignore unlink error
         done();
       });
     }
 
     before((done) => {
-      const buf = Buffer.alloc(4096, 'm');
+      const buf = Buffer.alloc(512, 'm');
 
       async.series(
         [
@@ -648,7 +656,7 @@ describe('replica', function () {
       client.listReplicas({}, (err, res) => {
         if (err) return done(err);
         res = res.replicas.filter((ent) => {
-          return ent.uuid == UUID;
+          return ent.uuid === UUID;
         });
         assert.lengthOf(res, 1);
         res = res[0];
@@ -688,9 +696,9 @@ describe('replica', function () {
             fs.readFile(blockFile, (err, data) => {
               if (err) return done(err);
               data = data.toString();
-              assert.lengthOf(data, 4096);
+              assert.lengthOf(data, 512);
               for (let i = 0; i < data.length; i++) {
-                if (data[i] != 'm') {
+                if (data[i] !== 'm') {
                   next(new Error(`Invalid char '${data[i]}' at offset ${i}`));
                   return;
                 }
@@ -744,9 +752,9 @@ describe('replica', function () {
           (next) => {
             fs.readFile(blockFile, (err, data) => {
               if (err) return done(err);
-              assert.lengthOf(data, 4096);
+              assert.lengthOf(data, 512);
               for (let i = 0; i < data.length; i++) {
-                if (data[i] != 0) {
+                if (data[i] !== 0) {
                   next(new Error(`Invalid char '${data[i]}' at offset ${i}`));
                   return;
                 }
@@ -793,7 +801,8 @@ describe('replica', function () {
           },
           (next) =>
             client.listPools({}, (err, res) => {
-              res = res.pools.filter((ent) => ent.name == POOL);
+              if (err) console.log('error listing pools:', err);
+              res = res.pools.filter((ent) => ent.name === POOL);
               if (res.length > 0) {
                 next(new Error("Found pool which hasn't been imported yet"));
               } else {
@@ -813,7 +822,7 @@ describe('replica', function () {
           (next) =>
             client.listPools({}, (err, res) => {
               if (err) return next(err);
-              res = res.pools.filter((ent) => ent.name == POOL);
+              res = res.pools.filter((ent) => ent.name === POOL);
               assert.lengthOf(res, 1);
               next();
             })

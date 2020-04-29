@@ -48,6 +48,9 @@ tokio = { version = "0.2", features = ["full"] }
 run_script = "*"
 tonic = "0.1"
 tower = "0.3"
+regex = "1.3.6"
+lazy_static = "1.4.0"
+
 [dependencies.blkid]
 branch = "blkid-sys"
 git = "https://github.com/openebs/blkid"

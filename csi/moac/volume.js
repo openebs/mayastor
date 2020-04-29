@@ -62,7 +62,8 @@ class Volume {
   // @params {string}   protocol      The nexus share protocol.
   async publish (protocol) {
     if (this.nexus) {
-      await this.nexus.publish(protocol);
+      const uri = await this.nexus.publish(protocol);
+      return uri;
     } else {
       throw new GrpcError(
         GrpcCode.INTERNAL,
@@ -141,7 +142,7 @@ class Volume {
     if (!nexus) {
       // create a new nexus
       const localReplica = Object.values(this.replicas).find(
-        (r) => r.share == 'REPLICA_NONE'
+        (r) => r.share === 'REPLICA_NONE'
       );
       if (!localReplica) {
         // should not happen but who knows ..
@@ -166,7 +167,7 @@ class Volume {
         const idx = newUris.indexOf(uri);
         if (idx < 0) {
           // jshint ignore:start
-          const replica = Object.values(this.replicas).find((r) => r.uri == uri);
+          const replica = Object.values(this.replicas).find((r) => r.uri === uri);
           if (replica) {
             try {
               await nexus.removeReplica(replica);
@@ -186,7 +187,7 @@ class Volume {
       for (let i = 0; i < newUris.length; i++) {
         const uri = newUris[i];
         // jshint ignore:start
-        const replica = Object.values(this.replicas).find((r) => r.uri == uri);
+        const replica = Object.values(this.replicas).find((r) => r.uri === uri);
         if (replica) {
           try {
             await nexus.addReplica(replica);
@@ -295,7 +296,7 @@ class Volume {
       score += 10;
     }
     // criteria #2: replica should be online
-    if (replica.state == 'ONLINE') {
+    if (replica.state === 'ONLINE') {
       score += 5;
     }
     // criteria #2: would be nice to run on preferred node
@@ -306,7 +307,7 @@ class Volume {
       score += 2;
     }
     // criteria #3: local IO from nexus is certainly an advantage
-    if (this.nexus && node == this.nexus.node) {
+    if (this.nexus && node === this.nexus.node) {
       score += 1;
     }
 
@@ -325,7 +326,7 @@ class Volume {
     // If nexus does not exist it will be created on the same node as the most
     // preferred replica.
     const replicaSet = this._prioritizeReplicas();
-    if (replicaSet.length == 0) {
+    if (replicaSet.length === 0) {
       throw new GrpcError(
         GrpcCode.INTERNAL,
         `There are no replicas for volume "${this}"`
@@ -338,11 +339,11 @@ class Volume {
     for (let i = 0; i < replicaSet.length; i++) {
       const replica = replicaSet[i];
       let share;
-      const local = replica.pool.node == nexusNode;
+      const local = replica.pool.node === nexusNode;
       // make sure that replica which is local to the nexus is accessed locally
-      if (local && replica.share != 'REPLICA_NONE') {
+      if (local && replica.share !== 'REPLICA_NONE') {
         share = 'REPLICA_NONE';
-      } else if (!local && replica.share == 'REPLICA_NONE') {
+      } else if (!local && replica.share === 'REPLICA_NONE') {
         // make sure that replica which is remote to nexus can be accessed
         share = 'REPLICA_NVMF';
       }
@@ -390,7 +391,7 @@ class Volume {
       );
     }
 
-    if (this.replicaCount != spec.replicaCount) {
+    if (this.replicaCount !== spec.replicaCount) {
       this.replicaCount = spec.replicaCount;
       changed = true;
     }
@@ -404,11 +405,11 @@ class Volume {
       this.requiredNodes = requiredNodes;
       changed = true;
     }
-    if (this.requiredBytes != spec.requiredBytes) {
+    if (this.requiredBytes !== spec.requiredBytes) {
       this.requiredBytes = spec.requiredBytes;
       changed = true;
     }
-    if (this.limitBytes != spec.limitBytes) {
+    if (this.limitBytes !== spec.limitBytes) {
       this.limitBytes = spec.limitBytes;
       changed = true;
     }
@@ -421,7 +422,7 @@ class Volume {
 
   // Add new replica to the volume.
   newReplica (replica) {
-    assert(replica.uuid == this.uuid);
+    assert(replica.uuid === this.uuid);
     const nodeName = replica.pool.node.name;
     if (this.replicas[nodeName]) {
       log.warn(
@@ -437,20 +438,20 @@ class Volume {
 
   // Modify replica in the volume.
   modReplica (replica) {
-    assert(replica.uuid == this.uuid);
+    assert(replica.uuid === this.uuid);
     const nodeName = replica.pool.node.name;
     if (!this.replicas[nodeName]) {
       log.warn(`Modified replica "${replica}" does not belong to the volume`);
     } else {
       // TODO: check replica count in regard to a state which might have changed
       // TODO: update the nexus if necessary
-      assert(this.replicas[nodeName] == replica);
+      assert(this.replicas[nodeName] === replica);
     }
   }
 
   // Delete replica in the volume.
   delReplica (replica) {
-    assert(replica.uuid == this.uuid);
+    assert(replica.uuid === this.uuid);
     const nodeName = replica.pool.node.name;
     if (!this.replicas[nodeName]) {
       log.warn(`Deleted replica "${replica}" does not belong to the volume`);
@@ -458,14 +459,14 @@ class Volume {
       // TODO: check replica count
       // TODO: update the nexus if necessary
       log.debug(`Replica "${replica}" detached from the volume`);
-      assert(this.replicas[nodeName] == replica);
+      assert(this.replicas[nodeName] === replica);
       delete this.replicas[nodeName];
     }
   }
 
   // Assign nexus to the volume.
   newNexus (nexus) {
-    assert(nexus.uuid == this.uuid);
+    assert(nexus.uuid === this.uuid);
     if (this.nexus) {
       log.warn(`Trying to add nexus "${nexus}" to the volume twice`);
     } else {
@@ -482,12 +483,12 @@ class Volume {
 
   // Modify nexus in the volume.
   modNexus (nexus) {
-    assert(nexus.uuid == this.uuid);
+    assert(nexus.uuid === this.uuid);
     if (!this.nexus) {
       log.warn(`Modified nexus "${nexus}" does not belong to the volume`);
     } else {
       // TODO: check children and their state and scale up/down as appropriate
-      assert(this.nexus == nexus);
+      assert(this.nexus === nexus);
       this.state = nexus.state;
       this.reason = '';
     }
@@ -495,12 +496,12 @@ class Volume {
 
   // Delete nexus in the volume.
   delNexus (nexus) {
-    assert(nexus.uuid == this.uuid);
+    assert(nexus.uuid === this.uuid);
     if (!this.nexus) {
       log.warn(`Deleted nexus "${nexus}" does not belong to the volume`);
     } else {
       log.debug(`Nexus "${nexus}" detached from the volume`);
-      assert(this.nexus == nexus);
+      assert(this.nexus === nexus);
       this.nexus = null;
       this.state = 'PENDING';
       this.reason = 'The volume is missing nexus';

@@ -7,6 +7,8 @@
 //! mayastor. We aim for 1:1 mapping between the two RPCs.
 
 #[macro_use]
+extern crate lazy_static;
+#[macro_use]
 extern crate clap;
 #[macro_use]
 extern crate log;

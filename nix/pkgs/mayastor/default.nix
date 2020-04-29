@@ -4,6 +4,7 @@
 , libiscsi
 , libspdk
 , liburing
+, libnl
 , llvmPackages
 , numactl
 , openssl
@@ -42,7 +43,6 @@ with pkgs; rec {
   mayastor = rustPlatform.buildRustPackage rec {
     name = "mayastor";
     cargoSha256 = "0pb5j8wg741zhlv25ccbxyad8n4y87q1b36hq7817l41xjpsh2rh";
-
     version = "unstable";
     src = whitelistSource ../../../. [
       "Cargo.lock"
@@ -94,6 +94,11 @@ with pkgs; rec {
 
   env = pkgs.stdenv.lib.makeBinPath [ pkgs.busybox pkgs.utillinux pkgs.xfsprogs pkgs.e2fsprogs ];
 
+  mayastorIscsiadm = writeScriptBin "mayastor-iscsiadm" ''
+    #!${pkgs.stdenv.shell}
+    chroot /host /usr/bin/env -i PATH="/sbin:/bin:/usr/bin" iscsiadm "$@"
+  '';
+
   mayastorImage = pkgs.dockerTools.buildLayeredImage {
     name = "mayadata/mayastor";
     tag = "latest";
@@ -109,7 +114,7 @@ with pkgs; rec {
     name = "mayadata/mayastor-grpc";
     tag = "latest";
     created = "now";
-    contents = [ pkgs.busybox mayastor ];
+    contents = [ pkgs.busybox mayastor mayastorIscsiadm];
     config = {
       Entrypoint = [ "/bin/mayastor-agent" ];
       ExposedPorts = { "10124/tcp" = { }; };

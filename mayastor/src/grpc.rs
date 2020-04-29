@@ -164,6 +164,7 @@ impl Mayastor for MayastorGrpc {
                     })
                     .collect::<Vec<_>>(),
                 rebuilds: n.rebuilds.len() as u64,
+                target: n.get_target(),
             })
             .collect::<Vec<_>>();
 

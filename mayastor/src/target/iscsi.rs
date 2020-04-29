@@ -77,6 +77,7 @@ const ISCSI_PORTAL_GROUP_NEXUS: c_int = 0;
 const ISCSI_PORTAL_GROUP_REPLICA: c_int = 2;
 
 const ISCSI_INITIATOR_GROUP: c_int = 0; //only 1 for now
+const LUN: c_int = 0; //only 1 for now
 
 thread_local! {
     /// iscsi global state.
@@ -144,7 +145,7 @@ fn share_as_iscsi_target(
     let iqn = target_name(bdev_name);
     let c_iqn = CString::new(iqn.clone()).unwrap();
 
-    let mut lun_id: c_int = 0;
+    let mut lun_id: c_int = LUN;
     let idx = ISCSI_IDX.with(move |iscsi_idx| {
         let idx = *iscsi_idx.borrow();
         *iscsi_idx.borrow_mut() = idx + 1;
@@ -355,6 +356,6 @@ pub fn create_uri(side: Side, iqn: &str) -> String {
     ADDRESS.with(move |a| {
         let a_borrow = a.borrow();
         let address = a_borrow.as_ref().unwrap();
-        format!("iscsi://{}:{}/{}", address, port, iqn)
+        format!("iscsi://{}:{}/{}/{}", address, port, iqn, LUN)
     })
 }
