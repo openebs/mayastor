@@ -2,8 +2,7 @@ pub mod common;
 
 use common::ms_exec::run_test;
 use mayastor::{subsys, subsys::Config};
-use serde_json::Value;
-use std::{fs::metadata, sync::Mutex};
+use std::{fs::metadata, sync::Mutex, time::Duration};
 
 #[test]
 // Test we can start without any mayastor specific configuration.
@@ -11,7 +10,9 @@ fn yaml_default() {
     let args = vec!["-s".into(), "128".into()];
     run_test(Box::from(args), |ms| {
         // knock, anyone there?
-        let out = ms.rpc_call("rpc_get_methods", serde_json::json!(null));
+        let out = ms
+            .rpc_call("rpc_get_methods", serde_json::json!(null))
+            .unwrap();
         assert_ne!(out.as_array().unwrap().len(), 0);
     });
 }
@@ -32,8 +33,9 @@ fn yaml_not_exist() {
     common::delete_file(&["/tmp/test.yaml".into()]);
 
     run_test(Box::from(args), |ms| {
-        let out =
-            ms.rpc_call("mayastor_config_export", serde_json::json!(null));
+        let out = ms
+            .rpc_call("mayastor_config_export", serde_json::json!(null))
+            .unwrap();
         assert_eq!(out, serde_json::Value::Null);
         assert_eq!(metadata("/tmp/test.yaml").unwrap().is_file(), true);
     });
@@ -72,10 +74,12 @@ fn yaml_load_from_existing() {
     run_test(Box::from(args), |ms| {
         // get the config we just loaded and validate it's the bdev is in that
         // config
-        let out = ms.rpc_call(
-            "framework_get_config",
-            serde_json::json!({"name": "mayastor"}),
-        );
+        let out = ms
+            .rpc_call(
+                "framework_get_config",
+                serde_json::json!({"name": "mayastor"}),
+            )
+            .unwrap();
 
         let base_bdevs = out
             .as_object()
@@ -99,7 +103,7 @@ fn yaml_load_from_existing() {
         let bdev = ms.rpc_call(
             "bdev_get_bdevs",
             serde_json::json!({"name": "aio:///tmp/disk1.img?blk_size=512"}),
-        );
+        ).unwrap();
 
         assert_ne!(bdev.as_array().unwrap().len(), 0);
     });
@@ -145,19 +149,14 @@ fn yaml_pool_tests() {
     ];
 
     run_test(Box::from(args.clone()), |ms| {
-        let mut pools = Value::Null;
-        // array of objects
-
-        for _ in 0 .. 10 {
-            let p = ms.rpc_call("list_pools", serde_json::json!(null));
-            if p.as_array().unwrap().is_empty() {
-                // no pools yet
-                std::thread::sleep(std::time::Duration::from_millis(500));
+        let pools = common::retry(10, Duration::from_millis(500), || {
+            let p = ms.rpc_call("list_pools", serde_json::json!(null)).unwrap();
+            if p.is_array() {
+                Ok(p)
             } else {
-                pools = p;
-                break;
+                Err(())
             }
-        }
+        });
 
         assert_eq!(
             pools.as_array().unwrap()[0]
@@ -170,8 +169,9 @@ fn yaml_pool_tests() {
 
         // Ok we got our pool, lets try to grab the UUID.  We don't have that
         // property in our code so use the builtin ones to extract it.
-        let lvols =
-            ms.rpc_call("bdev_lvol_get_lvstores", serde_json::json!(null));
+        let lvols = ms
+            .rpc_call("bdev_lvol_get_lvstores", serde_json::json!(null))
+            .unwrap();
 
         let lvol_uuid = lvols.as_array().unwrap()[0]
             .as_object()
@@ -186,8 +186,9 @@ fn yaml_pool_tests() {
         // properly
         common::delete_file(&["/tmp/pool.yaml".into()]);
 
-        let out =
-            ms.rpc_call("mayastor_config_export", serde_json::json!(null));
+        let out = ms
+            .rpc_call("mayastor_config_export", serde_json::json!(null))
+            .unwrap();
         assert_eq!(out, serde_json::Value::Null);
         assert_eq!(metadata("/tmp/pool.yaml").unwrap().is_file(), true);
     });
@@ -205,8 +206,16 @@ fn yaml_pool_tests() {
     // explicitly, matching UUIDs confirm that the pool has not been
     // recreated.
     run_test(Box::from(args), |ms| {
-        let lvols =
-            ms.rpc_call("bdev_lvol_get_lvstores", serde_json::json!(null));
+        let lvols = common::retry(10, Duration::from_millis(500), || {
+            let vols = ms
+                .rpc_call("bdev_lvol_get_lvstores", serde_json::json!(null))
+                .unwrap();
+            if vols.as_array().unwrap().is_empty() {
+                Err(())
+            } else {
+                Ok(vols)
+            }
+        });
 
         // compare the UUID we stored from the first step, with the current
         assert_eq!(
@@ -219,6 +228,7 @@ fn yaml_pool_tests() {
                 .to_string()
         );
     });
+
     // delete the pool
     common::delete_file(&["/tmp/disk1.img".into()]);
 }
@@ -259,10 +269,15 @@ fn yaml_multi_maya() {
     ];
 
     run_test(Box::from(first_args), |ms1| {
-        let out = ms1.rpc_call("rpc_get_methods", serde_json::json!(null));
+        let out = ms1
+            .rpc_call("rpc_get_methods", serde_json::json!(null))
+            .unwrap();
         assert_ne!(out.as_array().unwrap().len(), 0);
+
         run_test(Box::from(second_args), |ms2| {
-            let out = ms2.rpc_call("rpc_get_methods", serde_json::json!(null));
+            let out = ms2
+                .rpc_call("rpc_get_methods", serde_json::json!(null))
+                .unwrap();
             assert_ne!(out.as_array().unwrap().len(), 0);
         });
     });
