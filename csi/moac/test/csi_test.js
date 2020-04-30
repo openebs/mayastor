@@ -589,12 +589,12 @@ module.exports = function () {
       it('should publish volume', async () => {
         const volume = new Volume(UUID, registry, {});
         const publishStub = sinon.stub(volume, 'publish');
-        publishStub.resolves();
+        publishStub.resolves('/dev/nbd0');
         const getNodeNameStub = sinon.stub(volume, 'getNodeName');
         getNodeNameStub.returns('node');
         getVolumesStub.returns(volume);
 
-        await client.controllerPublishVolume().sendMessage({
+        const reply = await client.controllerPublishVolume().sendMessage({
           volumeId: UUID,
           nodeId: 'mayastor://node/10.244.2.15:10124',
           readonly: false,
@@ -607,7 +607,7 @@ module.exports = function () {
           },
           volumeContext: { protocol: 'nbd' }
         });
-
+        expect(reply.publishContext.uri).to.equal('/dev/nbd0');
         sinon.assert.calledOnce(getVolumesStub);
         sinon.assert.calledWith(getVolumesStub, UUID);
         sinon.assert.calledOnce(publishStub);
