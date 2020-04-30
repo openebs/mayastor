@@ -491,18 +491,16 @@ class CsiServer {
       );
     }
 
-    const publishCtx = {};
+    const publishContext = {};
     try {
-      publishCtx.uri = await volume.publish(args.volumeContext.protocol);
+      publishContext.uri = await volume.publish(args.volumeContext.protocol);
       log.debug(
-        `"${args.volumeId}" published, got uri ${publishCtx.uri} `
+        `"${args.volumeId}" published, got uri ${publishContext.uri} `
       );
     } catch (err) {
       if (err.code === grpc.status.ALREADY_EXISTS) {
         log.debug(`Volume "${args.volumeId}" already published on this node`);
-        cb(null, {
-          publishContext: JSON.parse(JSON.stringify(publishCtx))
-        });
+        cb(null, { publishContext });
       } else {
         cb(err);
       }
@@ -510,11 +508,9 @@ class CsiServer {
     }
 
     log.info(
-      `Published volume "${args.volumeId}, share proctocol: "${args.volumeContext.protocol}"`
+      `Published volume "${args.volumeId}, share protocol: "${args.volumeContext.protocol}"`
     );
-    cb(null, {
-      publishContext: JSON.parse(JSON.stringify(publishCtx))
-    });
+    cb(null, { publishContext });
   }
 
   async controllerUnpublishVolume (call, cb) {
