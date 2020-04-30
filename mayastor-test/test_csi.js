@@ -203,8 +203,10 @@ describe('csi', function () {
             next
           );
         },
+        // use timesSeries because we want the device paths
+        // to match the predefined PUBLISH_CONTEXT? values.
         (next) => {
-          async.times(
+          async.timesSeries(
             5,
             function (n, next) {
               const uuid = BASE_UUID + n;

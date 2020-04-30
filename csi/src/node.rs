@@ -491,9 +491,9 @@ impl node_server::Node for Node {
                         ))
                     }
                 }
-                // nexus may reside on another node,
-                // no method exist as yet to retrieve
-                // nexus details
+                // The nexus may reside on another node,
+                // currently there is no way to retrieve the nexus details
+                // from a remote node.
             }
             Some(ShareProtocolNexus::NexusNvmf) => {
                 return Err(Status::new(
@@ -525,8 +525,10 @@ impl node_server::Node for Node {
                     return Err(Status::new(
                         Code::AlreadyExists,
                         format!(
-                            "The volume {} has been published using another uri",
+                            "URI mismatch for volume {}, publish_context:{} != device:{}",
                             volume_id,
+                            uri,
+                            &nexus.device_path
                         ),
                     ));
                 }
