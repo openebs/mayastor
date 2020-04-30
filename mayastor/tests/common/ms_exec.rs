@@ -151,7 +151,7 @@ impl MayastorProcess {
         &self,
         method: &str,
         arg: serde_json::Value,
-    ) -> serde_json::Value {
+    ) -> Result<serde_json::Value, ()> {
         let mctl = get_path("mctl");
 
         let output = Command::new(mctl)
@@ -168,7 +168,7 @@ impl MayastorProcess {
         }
 
         let output_string = String::from_utf8_lossy(&output.stdout);
-        serde_json::from_str(&output_string).unwrap()
+        Ok(serde_json::from_str(&output_string).unwrap())
     }
 
     /// terminate the mayastor process and wait for it to die

@@ -8,7 +8,29 @@ use mayastor::{
     logger,
 };
 use spdk_sys::spdk_get_thread;
+use std::time::Duration;
+
 pub mod ms_exec;
+/// call F cnt times, and sleep for a duration between each invocation
+pub fn retry<F, T, E>(mut cnt: u32, timeout: Duration, mut f: F) -> T
+where
+    F: FnMut() -> Result<T, E>,
+    E: std::fmt::Debug,
+{
+    loop {
+        cnt -= 1;
+        if let Ok(result) = f() {
+            return result;
+        }
+
+        if cnt == 0 {
+            break;
+        }
+        std::thread::sleep(timeout);
+    }
+
+    panic!("failed operation with retries");
+}
 
 pub static MSTEST: OnceCell<MayastorEnvironment> = OnceCell::new();
 #[macro_export]
