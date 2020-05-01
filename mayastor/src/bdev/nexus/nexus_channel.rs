@@ -12,7 +12,7 @@ use spdk_sys::{
 };
 
 use crate::{
-    bdev::nexus::{nexus_child::ChildState, Nexus},
+    bdev::nexus::{nexus_child::ChildStatus, Nexus},
     core::BdevHandle,
 };
 
@@ -84,7 +84,7 @@ impl NexusChannelInner {
         nexus
             .children
             .iter_mut()
-            .filter(|c| c.state == ChildState::Open)
+            .filter(|c| c.status() == ChildStatus::Online)
             .map(|c| {
                 self.ch.push(
                     BdevHandle::try_from(c.get_descriptor().unwrap()).unwrap(),
@@ -122,7 +122,7 @@ impl NexusChannel {
         nexus
             .children
             .iter_mut()
-            .filter(|c| c.state == ChildState::Open)
+            .filter(|c| c.status() == ChildStatus::Online)
             .map(|c| {
                 channels.ch.push(
                     BdevHandle::try_from(c.get_descriptor().unwrap()).unwrap(),
