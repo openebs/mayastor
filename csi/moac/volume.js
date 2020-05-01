@@ -60,6 +60,7 @@ class Volume {
 
   // Publish the volume. That means make it accessible through a block device.
   // @params {string}   protocol      The nexus share protocol.
+  // @return {string}   uri           The URI to access the nexus.
   async publish (protocol) {
     if (this.nexus) {
       const uri = await this.nexus.publish(protocol);

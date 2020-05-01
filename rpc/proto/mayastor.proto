@@ -164,10 +164,6 @@ message Nexus {
   // Missing property and empty string are treated the same.
   string device_path = 5;
   uint64 rebuilds = 6;         // total number of rebuild tasks
-  oneof target {
-    string  nbd = 7;
-    string  iscsi = 8;
-  }
 }
 
 message ListNexusReply {

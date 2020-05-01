@@ -14,12 +14,7 @@ use crate::{
 use git_version::git_version;
 
 mod iscsiutil;
-use iscsiutil::{
-    iscsi_attach_disk,
-    iscsi_detach_disk,
-    iscsi_find,
-    RE_NEXUS_ISCSI_URI,
-};
+use iscsiutil::{iscsi_attach_disk, iscsi_detach_disk, iscsi_find};
 
 #[derive(Clone, Debug)]
 pub struct Node {
@@ -91,31 +86,6 @@ async fn lookup_nexus(
     }
 
     Ok(None)
-}
-
-// parse the URI to work out whether the URI matches that expected for nbd,
-// iscsi or nvmf.
-// As a side effect this also checks that the URI components match,
-// the required format.
-fn nexus_share_type_from_uri(uri: &str) -> Option<ShareProtocolNexus> {
-    lazy_static! {
-        static ref RE_NBD: regex::Regex = regex::Regex::new(
-            r"(?x)
-            (?P<nbd>/dev/nbd\d+)
-        ",
-        )
-        .unwrap();
-    }
-
-    let caps_iscsi_uri = RE_NEXUS_ISCSI_URI.captures(uri);
-    let caps_nbd = RE_NBD.captures(uri);
-    match caps_iscsi_uri {
-        Some(_) => Some(ShareProtocolNexus::NexusIscsi),
-        _ => match caps_nbd {
-            Some(_) => Some(ShareProtocolNexus::NexusNbd),
-            _ => None,
-        },
-    }
 }
 
 impl Node {}
@@ -473,71 +443,73 @@ impl node_server::Node for Node {
             _ => {
                 return Err(Status::new(
                     Code::Internal,
-                    "Unable to access uri from context",
+                    "Missing URI attribute in volume publish context",
                 ))
             }
         };
 
         debug!("URI is {}", uri);
 
-        let device_path = match nexus_share_type_from_uri(uri) {
-            Some(ShareProtocolNexus::NexusIscsi) => {
-                match iscsi_attach_disk(uri) {
-                    Ok(devpath) => devpath,
-                    Err(e) => {
-                        return Err(Status::new(
-                            Code::Internal,
-                            format!("{:?}", e),
-                        ))
+        let device_path = match url::Url::parse(uri) {
+            Ok(url) => match url.scheme() {
+                "iscsi" => {
+                    match iscsi_attach_disk(uri) {
+                        Ok(devpath) => devpath,
+                        Err(e) => return Err(Status::new(Code::Internal, e)),
                     }
+                    // The nexus may reside on another node,
+                    // currently there is no way to retrieve the nexus details
+                    // from a remote node.
                 }
-                // The nexus may reside on another node,
-                // currently there is no way to retrieve the nexus details
-                // from a remote node.
-            }
-            Some(ShareProtocolNexus::NexusNvmf) => {
-                return Err(Status::new(
-                    Code::Internal,
-                    format!("Support absent {}", uri),
-                ))
-            }
-            Some(ShareProtocolNexus::NexusNbd) => {
-                let nexus = match lookup_nexus(&self.socket, &volume_id).await?
-                {
-                    Some(nexus) => nexus,
-                    None => {
+                "nvmf" => {
+                    return Err(Status::new(
+                        Code::Internal,
+                        format!("Support absent {}", uri),
+                    ))
+                }
+                "file" => {
+                    if let Some(nexus) =
+                        lookup_nexus(&self.socket, &volume_id).await?
+                    {
+                        if &nexus.device_path == "" {
+                            return Err(Status::new(
+                                Code::InvalidArgument,
+                                format!(
+                                    "The volume {} has not been published",
+                                    volume_id,
+                                ),
+                            ));
+                        }
+                        if &nexus.device_path != uri {
+                            return Err(Status::new(
+                                    Code::AlreadyExists,
+                                    format!(
+                                        "URI mismatch for volume {}, publish_context:{} != device:{}",
+                                        volume_id,
+                                        uri,
+                                        &nexus.device_path
+                                        ),
+                                    ));
+                        }
+                        String::from(url.path())
+                    } else {
                         return Err(Status::new(
                             Code::NotFound,
                             format!("Volume {} not found", volume_id),
-                        ))
+                        ));
                     }
-                };
-                if &nexus.device_path == "" {
+                }
+                _ => {
                     return Err(Status::new(
                         Code::InvalidArgument,
-                        format!(
-                            "The volume {} has not been published",
-                            volume_id,
-                        ),
-                    ));
+                        format!("Unsupported {}", uri),
+                    ))
                 }
-                if &nexus.device_path != uri {
-                    return Err(Status::new(
-                        Code::AlreadyExists,
-                        format!(
-                            "URI mismatch for volume {}, publish_context:{} != device:{}",
-                            volume_id,
-                            uri,
-                            &nexus.device_path
-                        ),
-                    ));
-                }
-                String::from(uri)
-            }
-            _ => {
+            },
+            Err(e) => {
                 return Err(Status::new(
-                    Code::Internal,
-                    format!("Unsupported {}", uri),
+                    Code::InvalidArgument,
+                    format!("Invalid uri {}", e),
                 ))
             }
         };
@@ -586,24 +558,35 @@ impl node_server::Node for Node {
 
         debug!("Unstaging volume {} at {}", volume_id, stage_path);
         let (device_path, share_type) = match iscsi_find(volume_id.as_str()) {
-            Ok(devpath) => {
+            Some(devpath) => {
                 debug!("unstage: is iSCSI device path is {}", devpath);
                 (devpath, ShareProtocolNexus::NexusIscsi)
             }
             // Must be nbd
             _ => {
-                let nexus = match lookup_nexus(&self.socket, &volume_id).await?
+                if let Some(nexus) =
+                    lookup_nexus(&self.socket, &volume_id).await?
                 {
-                    Some(nexus) => nexus,
-                    None => {
+                    trace!(
+                        "unstage: nbd, device path is {}",
+                        nexus.device_path
+                    );
+
+                    if let Ok(url) = url::Url::parse(nexus.device_path.as_str())
+                    {
+                        (url.path().to_string(), ShareProtocolNexus::NexusIscsi)
+                    } else {
                         return Err(Status::new(
-                            Code::NotFound,
-                            format!("Volume {} not found", volume_id),
-                        ))
+                            Code::Internal,
+                            format!("Unexpected {}", nexus.device_path),
+                        ));
                     }
-                };
-                trace!("unstage: nbd, device path is {}", nexus.device_path);
-                (nexus.device_path, ShareProtocolNexus::NexusIscsi)
+                } else {
+                    return Err(Status::new(
+                        Code::NotFound,
+                        format!("Volume {} not found", volume_id),
+                    ));
+                }
             }
         };
 

@@ -266,7 +266,7 @@ describe('nexus', function () {
         common.restoreNbdPerms,
         (next) => {
           fs.unlink(aioFile, (err) => {
-            if (err) console.log('unlink failed:', uringFile, err);
+            if (err) console.log('unlink failed:', aioFile, err);
             next();
           });
         },
@@ -417,10 +417,13 @@ describe('nexus', function () {
         share: enums.NEXUS_NBD
       },
       (err, res) => {
-        if (err) console.log('PublishNexus failed:', err);
-        assert(res.device_path);
-        nbdDevice = res.device_path;
-        done();
+        if (err) {
+          done(err);
+        } else {
+          assert(res.device_path);
+          nbdDevice = res.device_path;
+          done();
+        }
       }
     );
   });
@@ -440,10 +443,13 @@ describe('nexus', function () {
         key: '0123456789123456'
       },
       (err, res) => {
-        if (err) console.log('PublishNexus failed:', err);
-        assert(res.device_path);
-        nbdDevice = res.device_path;
-        done();
+        if (err) {
+          done(err);
+        } else {
+          assert(res.device_path);
+          nbdDevice = res.device_path;
+          done();
+        }
       }
     );
   });
@@ -483,9 +489,12 @@ describe('nexus', function () {
         share: enums.NEXUS_ISCSI
       },
       (err, res) => {
-        if (err) console.log('PublishNexus failed:', err);
-        assert(res.device_path);
-        done();
+        if (err) {
+          done(err);
+        } else {
+          assert(res.device_path);
+          done();
+        }
       }
     );
   });
@@ -504,9 +513,12 @@ describe('nexus', function () {
         share: enums.NEXUS_ISCSI
       },
       (err, res) => {
-        if (err) console.log('PublishNexus failed:', err);
-        assert(res.device_path);
-        done();
+        if (err) {
+          done(err);
+        } else {
+          assert(res.device_path);
+          done();
+        }
       }
     );
   });
@@ -561,10 +573,13 @@ describe('nexus', function () {
         key: '0123456789123456'
       },
       (err, res) => {
-        if (err) console.log('PublishNexus failed:', err);
-        assert(res.device_path);
-        iscsiUri = res.device_path;
-        done();
+        if (err) {
+          done(err);
+        } else {
+          assert(res.device_path);
+          iscsiUri = res.device_path;
+          done();
+        }
       }
     );
   });

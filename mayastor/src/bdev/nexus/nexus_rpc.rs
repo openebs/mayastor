@@ -86,7 +86,6 @@ pub(crate) fn register_rpc_methods() {
                         .collect::<Vec<_>>(),
                     device_path: nexus.get_share_path().unwrap_or_default(),
                     rebuilds: nexus.rebuilds.len() as u64,
-                    target: nexus.get_target(),
                 })
                 .collect::<Vec<_>>(),
         })

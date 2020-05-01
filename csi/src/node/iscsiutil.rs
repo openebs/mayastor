@@ -1,20 +1,6 @@
 use std::{env, path::Path, process::Command, thread, time};
 
 lazy_static! {
-    // Regex to parse the nexus URI, thish matches and returns the
-    // required components of the expected nexus URI.
-    // In particular using a regex allows us to
-    //  * extract the uuid of the nexus share easily
-    //  * enforce that the URI is an exact natch if required
-    pub static ref RE_NEXUS_ISCSI_URI: regex::Regex = regex::Regex::new(
-        r"(?x)(?P<scheme>\w+)://
-            (?P<ip>\d+.\d+.\d+.\d+):
-            (?P<port>\d+)/
-            (?P<iqn>.*?nexus)-
-            (?P<uuid>.*)/(?P<lun>\d+)
-        ",
-    )
-    .unwrap();
 
     // The iscsiadm executable invoked is dependent on the environment.
     // For the container we set it using and environment variable,
@@ -313,11 +299,10 @@ pub fn iscsi_detach_disk(device_path: &str) -> Result<(), String> {
     }
 }
 
-pub fn iscsi_find(uuid: &str) -> Result<String, String> {
-    trace!("unstage: iscsi_find for {}", uuid);
+pub fn iscsi_find(uuid: &str) -> Option<String> {
     if !(*ISCSIADM_EXISTS) {
-        debug!("Cannot find executable {}", ISCSIADM.as_str());
-        return Err(format!("Cannot find {}", ISCSIADM.as_str()));
+        trace!("Cannot find {}", ISCSIADM.as_str());
+        return None;
     }
     let output = Command::new(ISCSIADM.as_str())
         .arg("-m")
@@ -325,13 +310,13 @@ pub fn iscsi_find(uuid: &str) -> Result<String, String> {
         .output()
         .expect("Failed iscsiadm");
     if !output.status.success() {
-        return Err(format!(
+        trace!(
             "iscsiadm failed: {}",
             String::from_utf8(output.stderr).unwrap()
-        ));
+        );
+        return None;
     }
     let op = String::from_utf8(output.stdout).unwrap();
-    trace!("unstage: iscsi_find op {}", op);
 
     lazy_static! {
         static ref RE_TARGET: regex::Regex = regex::Regex::new(
@@ -344,7 +329,7 @@ pub fn iscsi_find(uuid: &str) -> Result<String, String> {
     for cap in RE_TARGET.captures_iter(op.as_str()) {
         trace!("unstage: searching for {} got {}", uuid, &cap["uuid"]);
         if uuid == &cap["uuid"] {
-            return Ok(format!(
+            return Some(format!(
                 "/dev/disk/by-path/ip-{}:{}-iscsi-{}-{}-lun-{}",
                 &cap["ip"],
                 &cap["port"],
@@ -354,5 +339,5 @@ pub fn iscsi_find(uuid: &str) -> Result<String, String> {
             ));
         }
     }
-    Err("Not found".to_string())
+    None
 }

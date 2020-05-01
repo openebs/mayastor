@@ -77,6 +77,7 @@ const ISCSI_PORTAL_GROUP_NEXUS: c_int = 0;
 const ISCSI_PORTAL_GROUP_REPLICA: c_int = 2;
 
 const ISCSI_INITIATOR_GROUP: c_int = 0; //only 1 for now
+/// Only one LUN is presented, and this is the LUN value.
 const LUN: c_int = 0; //only 1 for now
 
 thread_local! {

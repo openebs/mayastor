@@ -181,24 +181,11 @@ impl Nexus {
     /// shared as nbd.
     pub fn get_share_path(&self) -> Option<String> {
         match self.nexus_target {
-            Some(NexusTarget::NbdDisk(ref disk)) => Some(disk.get_path()),
+            Some(NexusTarget::NbdDisk(ref disk)) => {
+                Some(format!("file://{}", disk.get_path()))
+            }
             Some(NexusTarget::NexusIscsiTarget(ref iscsi_target)) => {
                 Some(iscsi_target.as_uri())
-            }
-            _ => None,
-        }
-    }
-
-    /// Return target  /dev/... under which the nexus is shared or None if not
-    /// nbd: path /dev/...
-    /// iscsi: uri
-    pub fn get_target(&self) -> Option<rpc::mayastor::nexus::Target> {
-        match self.nexus_target {
-            Some(NexusTarget::NbdDisk(ref disk)) => {
-                Some(rpc::mayastor::nexus::Target::Nbd(disk.get_path()))
-            }
-            Some(NexusTarget::NexusIscsiTarget(ref iscsi_target)) => {
-                Some(rpc::mayastor::nexus::Target::Iscsi(iscsi_target.as_uri()))
             }
             _ => None,
         }

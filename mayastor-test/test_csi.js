@@ -40,23 +40,23 @@ const BASE_UUID = '11111111-0000-0000-0000-00000000000';
 // used UUID aliases
 const UUID1 = BASE_UUID + '0';
 const PUBLISH_CONTEXT1 = {
-  uri: '/dev/nbd' + '0'
+  uri: 'file:///dev/nbd' + '0'
 };
 const UUID2 = BASE_UUID + '1';
 const PUBLISH_CONTEXT2 = {
-  uri: '/dev/nbd' + '1'
+  uri: 'file:///dev/nbd' + '1'
 };
 const UUID3 = BASE_UUID + '2';
 const PUBLISH_CONTEXT3 = {
-  uri: '/dev/nbd' + '2'
+  uri: 'file:///dev/nbd' + '2'
 };
 const UUID4 = BASE_UUID + '3';
 const PUBLISH_CONTEXT4 = {
-  uri: '/dev/nbd' + '3'
+  uri: 'file:///dev/nbd' + '3'
 };
 const UUID5 = BASE_UUID + '4';
 const PUBLISH_CONTEXT5 = {
-  uri: '/dev/nbd' + '4'
+  uri: 'file:///dev/nbd' + '4'
 };
 
 // UUID not used by any volume
