@@ -9,13 +9,12 @@ use crate::{
             CreateRebuildError,
             Error,
             Nexus,
-            NexusState,
             RebuildJobNotFound,
             RebuildOperationError,
             RemoveRebuildJob,
         },
         nexus_channel::DREvent,
-        nexus_child::ChildState,
+        nexus_child::{ChildState, ChildStatus},
     },
     core::Reactors,
     rebuild::{ClientOperations, RebuildJob, RebuildState},
@@ -50,11 +49,11 @@ impl Nexus {
 
         let dst_child = match self.children.iter_mut().find(|c| c.name == name)
         {
-            Some(c) if c.state == ChildState::Faulted => Ok(c),
-            Some(_) => Err(Error::ChildNotFaulted {
+            Some(c) if c.status() == ChildStatus::Degraded => Ok(c),
+            Some(c) => Err(Error::ChildNotDegraded {
                 child: name.to_owned(),
                 name: self.name.clone(),
-                state: self.state.to_string(),
+                state: c.status().to_string(),
             }),
             None => Err(Error::ChildNotFound {
                 child: name.to_owned(),
@@ -84,23 +83,6 @@ impl Nexus {
             name: self.name.clone(),
         })
     }
-
-    /// Returns a `child` as an rpc Child type
-    // pub fn to_rpc_child(&self, child: &NexusChild) -> Child {
-    //     let rj = self.get_rebuild_job(&child.name);
-
-    //     Child {
-    //         uri: child.name.clone(),
-    //         state: child.state.to_public(rj.is_ok()),
-    //         rebuild_progress: {
-    //             if let Ok(rj) = rj {
-    //                 rj.stats().progress
-    //             } else {
-    //                 Default::default()
-    //             }
-    //         },
-    //     }
-    // }
 
     /// Terminates a rebuild in the background
     /// used for shutdown operations and
@@ -228,14 +210,12 @@ impl Nexus {
         let recovered_child = self.get_child_by_name(&job.destination)?;
 
         if job.state() == RebuildState::Completed {
-            recovered_child.state = ChildState::Open;
-
-            // Actually we'd have to check if all other children are healthy
-            // and if not maybe we can start the other rebuild's?
-            self.set_state(NexusState::Online);
+            recovered_child.out_of_sync(false);
 
             // child can now be part of the IO path
-            self.reconfigure(DREvent::ChildOnline).await;
+            if recovered_child.status() == ChildStatus::Online {
+                self.reconfigure(DREvent::ChildOnline).await;
+            }
         } else {
             error!(
                 "Rebuild job for child {} of nexus {} failed with state {:?}",

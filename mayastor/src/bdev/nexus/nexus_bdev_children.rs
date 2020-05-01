@@ -33,6 +33,7 @@ use crate::{
             Error,
             Nexus,
             NexusState,
+            NexusStatus,
             OpenChild,
         },
         nexus_channel::DREvent,
@@ -91,7 +92,7 @@ impl Nexus {
     ///
     /// The child may require a rebuild first, so the nexus will
     /// transition to degraded mode when the addition has been successful.
-    pub async fn add_child(&mut self, uri: &str) -> Result<NexusState, Error> {
+    pub async fn add_child(&mut self, uri: &str) -> Result<NexusStatus, Error> {
         let name = bdev_create(&uri).await.context(CreateChild {
             name: self.name.clone(),
         })?;
@@ -139,20 +140,19 @@ impl Nexus {
                 // completed the device can transition to online
                 info!("{}: child opened successfully {}", self.name, name);
 
-                // mark faulted so that it can never take part in the IO path of
-                // the nexus until brought online.
-                child.state = ChildState::Faulted;
+                // it can never take part in the IO path
+                // of the nexus until it's rebuilt from a healthy child.
+                child.out_of_sync(true);
 
                 self.children.push(child);
                 self.child_count += 1;
-                self.set_state(NexusState::Degraded);
 
                 if let Err(e) = self.sync_labels().await {
                     error!("Failed to sync labels {:?}", e);
                     // todo: how to signal this?
                 }
 
-                Ok(self.state)
+                Ok(self.status())
             }
             Err(e) => {
                 if let Err(err) = bdev_destroy(uri).await {
@@ -202,11 +202,11 @@ impl Nexus {
     pub async fn offline_child(
         &mut self,
         name: &str,
-    ) -> Result<NexusState, Error> {
+    ) -> Result<NexusStatus, Error> {
         trace!("{}: Offline child request for {}", self.name, name);
 
         if let Some(child) = self.children.iter_mut().find(|c| c.name == name) {
-            child.close();
+            child.offline();
         } else {
             return Err(Error::ChildNotFound {
                 name: self.name.clone(),
@@ -216,7 +216,7 @@ impl Nexus {
 
         self.stop_rebuild(name).await?;
         self.reconfigure(DREvent::ChildOffline).await;
-        Ok(self.set_state(NexusState::Degraded))
+        Ok(self.status())
     }
 
     /// online a child and reconfigure the IO channels. The child is already
@@ -225,25 +225,17 @@ impl Nexus {
     pub async fn online_child(
         &mut self,
         name: &str,
-    ) -> Result<NexusState, Error> {
+    ) -> Result<NexusStatus, Error> {
         trace!("{} Online child request", self.name);
 
         if let Some(child) = self.children.iter_mut().find(|c| c.name == name) {
-            if child.state != ChildState::Closed {
-                Err(Error::ChildNotClosed {
-                    name: self.name.clone(),
-                    child: name.to_owned(),
-                })
-            } else {
-                child.open(self.size).context(OpenChild {
-                    child: name.to_owned(),
-                    name: self.name.clone(),
-                })?;
-                child.state = ChildState::Faulted;
-                let nexus_state = self.set_state(NexusState::Degraded);
-                self.start_rebuild_rpc(name).await?;
-                Ok(nexus_state)
-            }
+            child.online(self.size).context(OpenChild {
+                child: name.to_owned(),
+                name: self.name.clone(),
+            })?;
+            child.out_of_sync(true);
+            self.start_rebuild_rpc(name).await?;
+            Ok(self.status())
         } else {
             Err(Error::ChildNotFound {
                 name: self.name.clone(),
