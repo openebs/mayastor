@@ -3,7 +3,7 @@ use std::ffi::CStr;
 pub use aio_dev::{AioBdev, AioParseError};
 pub use iscsi_dev::{IscsiBdev, IscsiParseError};
 pub use nexus::{
-    nexus_bdev::{nexus_create, nexus_lookup, Nexus, NexusState},
+    nexus_bdev::{nexus_create, nexus_lookup, Nexus, NexusStatus},
     nexus_label::{GPTHeader, GptEntry},
 };
 pub use nvmf_dev::{NvmeCtlAttachReq, NvmfParseError};

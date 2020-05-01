@@ -39,7 +39,7 @@ use crate::{
         nexus::{
             instances,
             nexus_channel::{DREvent, NexusChannel, NexusChannelInner},
-            nexus_child::{ChildError, ChildState, NexusChild},
+            nexus_child::{ChildError, ChildState, ChildStatus, NexusChild},
             nexus_io::{io_status, Bio},
             nexus_iscsi::{NexusIscsiError, NexusIscsiTarget},
             nexus_label::LabelError,
@@ -131,8 +131,6 @@ pub enum Error {
     },
     #[snafu(display("Child {} of nexus {} not found", child, name))]
     ChildNotFound { child: String, name: String },
-    #[snafu(display("Child {} of nexus {} is not closed", child, name))]
-    ChildNotClosed { child: String, name: String },
     #[snafu(display("Suitable rebuild source for nexus {} not found", name))]
     NoRebuildSource { name: String },
     #[snafu(display(
@@ -174,12 +172,12 @@ pub enum Error {
     #[snafu(display("Failed to destroy nexus {}", name))]
     NexusDestroy { name: String },
     #[snafu(display(
-        "Child {} of nexus {} is not faulted but {}",
+        "Child {} of nexus {} is not degraded but {}",
         child,
         name,
         state
     ))]
-    ChildNotFaulted {
+    ChildNotDegraded {
         child: String,
         name: String,
         state: String,
@@ -303,7 +301,7 @@ pub struct Nexus {
     /// raw pointer to bdev (to destruct it later using Box::from_raw())
     bdev_raw: *mut spdk_bdev,
     /// represents the current state of the Nexus
-    pub(crate) state: NexusState,
+    pub(super) state: NexusState,
     /// Dynamic Reconfigure event
     pub dr_complete_notify: Option<oneshot::Sender<i32>>,
     /// the offset in num blocks where the data partition starts
@@ -319,27 +317,43 @@ unsafe impl core::marker::Sync for Nexus {}
 unsafe impl core::marker::Send for Nexus {}
 
 #[derive(Debug, Serialize, Clone, Copy, PartialEq, PartialOrd)]
+pub enum NexusStatus {
+    /// The nexus cannot perform any IO operation
+    Faulted,
+    /// Degraded, one or more child is missing but IO can still flow
+    Degraded,
+    /// Online
+    Online,
+}
+
+#[derive(Debug, Serialize, Clone, Copy, PartialEq, PartialOrd)]
 pub enum NexusState {
     /// nexus created but no children attached
     Init,
     /// closed
     Closed,
-    /// Online
-    Online,
-    /// The nexus cannot perform any IO operation
-    Faulted,
-    /// Degraded, one or more child is missing but IO can still flow
-    Degraded,
+    /// open
+    Open,
 }
 
 impl ToString for NexusState {
     fn to_string(&self) -> String {
         match *self {
             NexusState::Init => "init",
-            NexusState::Online => "online",
-            NexusState::Faulted => "faulted",
-            NexusState::Degraded => "degraded",
             NexusState::Closed => "closed",
+            NexusState::Open => "open",
+        }
+        .parse()
+        .unwrap()
+    }
+}
+
+impl ToString for NexusStatus {
+    fn to_string(&self) -> String {
+        match *self {
+            NexusStatus::Degraded => "degraded",
+            NexusStatus::Online => "online",
+            NexusStatus::Faulted => "faulted",
         }
         .parse()
         .unwrap()
@@ -474,8 +488,7 @@ impl Nexus {
         self.children
             .iter_mut()
             .map(|c| {
-                if c.state == ChildState::Open || c.state == ChildState::Faulted
-                {
+                if c.state == ChildState::Open {
                     c.close();
                 }
             })
@@ -564,7 +577,7 @@ impl Nexus {
 
         match errno_result_from_i32((), errno) {
             Ok(_) => {
-                self.set_state(NexusState::Online);
+                self.set_state(NexusState::Open);
                 Ok(())
             }
             Err(err) => {
@@ -572,7 +585,7 @@ impl Nexus {
                     spdk_io_device_unregister(self.as_ptr(), None);
                 }
                 self.children.iter_mut().map(|c| c.close()).for_each(drop);
-                self.set_state(NexusState::Faulted);
+                self.set_state(NexusState::Closed);
                 Err(err).context(RegisterNexus {
                     name: self.name.clone(),
                 })
@@ -813,9 +826,41 @@ impl Nexus {
         }
     }
 
-    /// returns the current status of the nexus
-    pub fn status(&self) -> NexusState {
-        self.state
+    /// Status of the nexus
+    /// Online
+    /// All children must also be online
+    ///
+    /// Degraded
+    /// At least one child must be online
+    ///
+    /// Faulted
+    /// No child is online so the nexus is faulted
+    /// This may be made more configurable in the future
+    pub fn status(&self) -> NexusStatus {
+        match self.state {
+            NexusState::Init => NexusStatus::Degraded,
+            NexusState::Closed => NexusStatus::Faulted,
+            NexusState::Open => {
+                if self
+                    .children
+                    .iter()
+                    // All children are online, so the Nexus is also online
+                    .all(|c| c.status() == ChildStatus::Online)
+                {
+                    NexusStatus::Online
+                } else if self
+                    .children
+                    .iter()
+                    // at least one child online, so the Nexus is also online
+                    .any(|c| c.status() == ChildStatus::Online)
+                {
+                    NexusStatus::Degraded
+                } else {
+                    // nexus has no children or at least no child is online
+                    NexusStatus::Faulted
+                }
+            }
+        }
     }
 }
 

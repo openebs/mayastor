@@ -258,7 +258,7 @@ describe('rebuild tests', function () {
     });
 
     it('check destination state', async () => {
-      await checkState(ObjectType.DESTINATION_CHILD, 'rebuilding');
+      await checkState(ObjectType.DESTINATION_CHILD, 'degraded');
     });
 
     it('check rebuild state', async () => {
@@ -292,7 +292,7 @@ describe('rebuild tests', function () {
     });
 
     it('check destination state', async () => {
-      await checkState(ObjectType.DESTINATION_CHILD, 'faulted');
+      await checkState(ObjectType.DESTINATION_CHILD, 'degraded');
     });
 
     it('check rebuild state', async (done) => {
@@ -339,7 +339,7 @@ describe('rebuild tests', function () {
     });
 
     it('check destination state', async () => {
-      await checkState(ObjectType.DESTINATION_CHILD, 'rebuilding');
+      await checkState(ObjectType.DESTINATION_CHILD, 'degraded');
     });
 
     it('check rebuild state', async () => {
@@ -375,7 +375,7 @@ describe('rebuild tests', function () {
     });
 
     it('check destination state', async () => {
-      await checkState(ObjectType.DESTINATION_CHILD, 'rebuilding');
+      await checkState(ObjectType.DESTINATION_CHILD, 'degraded');
     });
 
     it('check rebuild state', async () => {
@@ -408,7 +408,7 @@ describe('rebuild tests', function () {
     });
 
     it('check destination state', async () => {
-      await checkState(ObjectType.DESTINATION_CHILD, 'rebuilding');
+      await checkState(ObjectType.DESTINATION_CHILD, 'degraded');
     });
 
     it('check rebuild state', async () => {
@@ -440,7 +440,7 @@ describe('rebuild tests', function () {
     });
 
     it('check destination state', async () => {
-      await checkState(ObjectType.DESTINATION_CHILD, 'faulted');
+      await checkState(ObjectType.DESTINATION_CHILD, 'degraded');
     });
 
     it('check number of rebuilds', async () => {

@@ -152,7 +152,7 @@ message CreateNexusRequest {
 message Child {
   string uri = 1;   // uri of the child device
   string state = 2; // TODO: enum
-  uint64 rebuild_progress = 3;
+  int64 rebuild_progress = 3;
 }
 
 // represents a nexus device

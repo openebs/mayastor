@@ -5,12 +5,15 @@ use rpc::{
     service::mayastor_server::{Mayastor, MayastorServer},
 };
 
+use std::convert::From;
+
 use crate::{
     bdev::{
         nexus::{
             instances,
             nexus_bdev,
             nexus_bdev::{name_to_uuid, uuid_to_name, Nexus},
+            nexus_child::NexusChild,
         },
         nexus_create,
     },
@@ -48,6 +51,16 @@ macro_rules! locally {
         let hdl = Reactors::current().spawn_local($body);
         hdl.await.unwrap()?
     }};
+}
+
+impl From<&NexusChild> for Child {
+    fn from(child: &NexusChild) -> Self {
+        Child {
+            uri: child.name.clone(),
+            state: child.status().to_string(),
+            rebuild_progress: child.get_rebuild_progress(),
+        }
+    }
 }
 
 #[tonic::async_trait]
@@ -166,12 +179,12 @@ impl Mayastor for MayastorGrpc {
             .map(|n| rpc::mayastor::Nexus {
                 uuid: name_to_uuid(&n.name).to_string(),
                 size: n.size,
-                state: n.state.to_string(),
+                state: n.status().to_string(),
                 device_path: n.get_share_path().unwrap_or_default(),
                 children: n
                     .children
                     .iter()
-                    .map(|child| n.to_rpc_child(child))
+                    .map(Child::from)
                     .collect::<Vec<_>>(),
                 rebuilds: RebuildJob::count() as u64,
             })
