@@ -212,6 +212,23 @@ describe('nexus', function () {
     async.series(
       [
         common.ensureNbdWritable,
+        // start this as early as possible to avoid mayastor getting connection refused.
+        (next) => {
+          // Start two spdk instances. The first one will hold the remote
+          // nvmf target and the second one everything including nexus.
+          // We must do this because if nvme initiator and target are in
+          // the same instance, the SPDK will hang.
+          //
+          // In order not to exceed available memory in hugepages when running
+          // two instances we use the -s option to limit allocated mem.
+          common.startSpdk(configNvmfTarget, [
+            '-r',
+            '/tmp/target.sock',
+            '-s',
+            '128'
+          ]);
+          next();
+        },
         (next) => {
           fs.writeFile(aioFile, '', next);
         },
@@ -229,19 +246,6 @@ describe('nexus', function () {
           next();
         },
         (next) => {
-          // Start two spdk instances. The first one will hold the remote
-          // nvmf target and the second one everything including nexus.
-          // We must do this because if nvme initiator and target are in
-          // the same instance, the SPDK will hang.
-          //
-          // In order not to exceed available memory in hugepages when running
-          // two instances we use the -s option to limit allocated mem.
-          common.startSpdk(configNvmfTarget, [
-            '-r',
-            '/tmp/target.sock',
-            '-s',
-            '128'
-          ]);
           common.startMayastor(configNexus, ['-r', common.SOCK, '-s', 386]);
 
           common.startMayastorGrpc();
