@@ -15,6 +15,7 @@ use spdk_sys::{
     spdk_bdev_free_io,
     spdk_bdev_io,
     spdk_bdev_read,
+    spdk_bdev_reset,
     spdk_bdev_write,
     spdk_io_channel,
 };
@@ -165,6 +166,35 @@ impl BdevHandle {
             Err(CoreError::ReadFailed {
                 offset,
                 len: buffer.len(),
+            })
+        }
+    }
+
+    pub async fn reset(&self) -> Result<usize, CoreError> {
+        let (s, r) = oneshot::channel::<bool>();
+        let errno = unsafe {
+            spdk_bdev_reset(
+                self.desc.as_ptr(),
+                self.channel.as_ptr(),
+                Some(Self::io_completion_cb),
+                cb_arg(s),
+            )
+        };
+
+        if errno != 0 {
+            return Err(CoreError::ReadDispatch {
+                source: Errno::from_i32(errno),
+                len: 0,
+                offset: 0,
+            });
+        }
+
+        if r.await.expect("Failed awaiting read IO") {
+            Ok(0)
+        } else {
+            Err(CoreError::ReadFailed {
+                offset: 0,
+                len: 0,
             })
         }
     }
