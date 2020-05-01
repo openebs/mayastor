@@ -3,6 +3,7 @@ use uuid::Uuid;
 
 use rpc::mayastor::{
     AddChildNexusRequest,
+    Child,
     ChildNexusRequest,
     CreateNexusRequest,
     DestroyNexusRequest,
@@ -77,11 +78,11 @@ pub(crate) fn register_rpc_methods() {
                 .map(|nexus| RpcNexus {
                     uuid: name_to_uuid(&nexus.name).to_string(),
                     size: nexus.size(),
-                    state: nexus.state.to_string(),
+                    state: nexus.status().to_string(),
                     children: nexus
                         .children
                         .iter()
-                        .map(|child| nexus.to_rpc_child(child))
+                        .map(Child::from)
                         .collect::<Vec<_>>(),
                     device_path: nexus.get_share_path().unwrap_or_default(),
                     rebuilds: RebuildJob::count() as u64,

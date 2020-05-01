@@ -88,7 +88,7 @@ fn rebuild_child_faulted() {
         nexus
             .start_rebuild(&get_dev(1))
             .await
-            .expect_err("Rebuild only faulted children!");
+            .expect_err("Rebuild only degraded children!");
 
         nexus.remove_child(&get_dev(1)).await.unwrap();
         assert_eq!(nexus.children.len(), 1);
