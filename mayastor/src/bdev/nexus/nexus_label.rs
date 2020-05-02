@@ -205,8 +205,12 @@ impl Nexus {
         label: &NexusLabel,
     ) -> Result<LabelData, LabelError> {
         let block_size = self.bdev.block_len() as u64;
+        let blocks = Unsigned::get_aligned_blocks(
+            GPTHeader::PARTITION_TABLE_SIZE as u64,
+            block_size,
+        );
         let mut buf = DmaBuf::new(
-            (GPTHeader::PARTITION_TABLE_SIZE + 2 * block_size) as usize,
+            ((blocks + 2) * block_size) as usize,
             self.bdev.alignment(),
         )
         .context(WriteLabelAlloc {})?;
@@ -242,8 +246,12 @@ impl Nexus {
         label: &NexusLabel,
     ) -> Result<LabelData, LabelError> {
         let block_size = self.bdev.block_len() as u64;
+        let blocks = Unsigned::get_aligned_blocks(
+            GPTHeader::PARTITION_TABLE_SIZE as u64,
+            block_size,
+        );
         let mut buf = DmaBuf::new(
-            (GPTHeader::PARTITION_TABLE_SIZE + block_size) as usize,
+            ((blocks + 1) * block_size) as usize,
             self.bdev.alignment(),
         )
         .context(WriteLabelAlloc {})?;
@@ -832,14 +840,6 @@ impl NexusLabel {
         Ok(secondary)
     }
 
-    /// calculate size aligned to specified block_size
-    pub fn get_aligned_size(size: u32, block_size: u32) -> u32 {
-        match size % block_size {
-            0 => size,
-            n => size + block_size - n,
-        }
-    }
-
     /// construct partition table from raw data
     pub fn read_partitions(
         buf: &DmaBuf,
@@ -934,5 +934,29 @@ impl NexusChildLabel<'_> {
             }
         }
         true
+    }
+}
+
+pub trait Unsigned {
+    fn get_aligned_blocks(size: Self, block_size: Self) -> Self;
+}
+
+impl Unsigned for u32 {
+    fn get_aligned_blocks(size: u32, block_size: u32) -> u32 {
+        let blocks = size / block_size;
+        match size % block_size {
+            0 => blocks,
+            _ => blocks + 1,
+        }
+    }
+}
+
+impl Unsigned for u64 {
+    fn get_aligned_blocks(size: u64, block_size: u64) -> u64 {
+        let blocks = size / block_size;
+        match size % block_size {
+            0 => blocks,
+            _ => blocks + 1,
+        }
     }
 }

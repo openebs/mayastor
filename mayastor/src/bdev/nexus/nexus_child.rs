@@ -7,13 +7,18 @@ use snafu::{ResultExt, Snafu};
 use spdk_sys::{spdk_bdev_module_release_bdev, spdk_io_channel};
 
 use crate::{
-    bdev::nexus::nexus_label::{
-        GPTHeader,
-        GptEntry,
-        LabelError,
-        NexusChildLabel,
-        NexusLabel,
-        NexusLabelStatus,
+    bdev::nexus::{
+        nexus_label::{
+            GPTHeader,
+            GptEntry,
+            LabelError,
+            NexusChildLabel,
+            NexusLabel,
+            NexusLabelStatus,
+            Unsigned,
+        },
+        nexus_metadata::{MetaDataError, MetaDataHeader, NexusMetaData},
+        nexus_state::NexusConfig,
     },
     core::{Bdev, BdevHandle, CoreError, Descriptor, DmaBuf, DmaError},
     nexus_uri::{bdev_destroy, BdevCreateDestroy},
@@ -33,8 +38,8 @@ pub enum ChildError {
     OpenChild { source: CoreError },
     #[snafu(display("Claim child"))]
     ClaimChild { source: Errno },
-    #[snafu(display("Child is read-only"))]
-    ChildReadOnly {},
+    #[snafu(display("Child is closed"))]
+    ChildClosed {},
     #[snafu(display("Invalid state of child"))]
     ChildInvalid {},
     #[snafu(display("Opening child bdev without bdev pointer"))]
@@ -60,6 +65,27 @@ pub enum ChildError {
     PartitionTableRead { source: ChildIoError },
     #[snafu(display("Partition table is invalid"))]
     PartitionTableInvalid { source: LabelError },
+
+    #[snafu(display("Failed to allocate buffer for metadata"))]
+    MetaDataHeaderAlloc { source: DmaError },
+    #[snafu(display("Failed to read metadata from child"))]
+    MetaDataHeaderRead { source: ChildIoError },
+    #[snafu(display("Metadata is invalid"))]
+    MetaDataHeaderInvalid { source: MetaDataError },
+
+    #[snafu(display("Failed to allocate buffer for metadata"))]
+    MetaDataIndexAlloc { source: DmaError },
+    #[snafu(display("Failed to read metadata from child"))]
+    MetaDataIndexRead { source: ChildIoError },
+    #[snafu(display("Metadata is invalid"))]
+    MetaDataIndexInvalid { source: MetaDataError },
+
+    #[snafu(display("Failed to allocate buffer for metadata"))]
+    MetaDataObjectAlloc { source: DmaError },
+    #[snafu(display("Failed to read metadata from child"))]
+    MetaDataObjectRead { source: ChildIoError },
+    #[snafu(display("Metadata is invalid"))]
+    MetaDataObjectInvalid { source: MetaDataError },
 }
 
 #[derive(Debug, Snafu)]
@@ -256,31 +282,25 @@ impl NexusChild {
         self.state == ChildState::Open || self.state == ChildState::Faulted
     }
 
-    /// read and validate this child's label
-    pub async fn probe_label(&self) -> Result<NexusLabel, ChildError> {
+    pub fn get_dev(&self) -> Result<(&Bdev, &BdevHandle), ChildError> {
         if !self.can_rw() {
-            info!(
-                "{}: Trying to read from closed child: {}",
-                self.parent, self.name
-            );
-            return Err(ChildError::ChildReadOnly {});
+            info!("{}: Closed child: {}", self.parent, self.name);
+            return Err(ChildError::ChildClosed {});
         }
 
-        let bdev = match self.bdev.as_ref() {
-            Some(bdev) => bdev,
-            None => {
-                return Err(ChildError::ChildInvalid {});
+        if let Some(bdev) = &self.bdev {
+            if let Some(desc) = &self.bdev_handle {
+                return Ok((bdev, desc));
             }
-        };
+        }
 
-        let desc = match self.bdev_handle.as_ref() {
-            Some(desc) => desc,
-            None => {
-                return Err(ChildError::ChildInvalid {});
-            }
-        };
+        Err(ChildError::ChildInvalid {})
+    }
 
-        let block_size = bdev.block_len();
+    /// read and validate this child's label
+    pub async fn probe_label(&self) -> Result<NexusLabel, ChildError> {
+        let (bdev, desc) = self.get_dev()?;
+        let block_size = bdev.block_len() as u64;
 
         //
         // Protective MBR
@@ -299,7 +319,7 @@ impl NexusChild {
         // GPT header(s)
 
         // Get primary.
-        self.read_at(u64::from(block_size), &mut buf)
+        self.read_at(block_size, &mut buf)
             .await
             .context(LabelRead {})?;
         match NexusLabel::read_primary_header(&buf) {
@@ -307,7 +327,7 @@ impl NexusChild {
                 primary = header;
                 active = &primary;
                 // Get secondary.
-                let offset = (bdev.num_blocks() - 1) * u64::from(block_size);
+                let offset = (bdev.num_blocks() - 1) * block_size;
                 self.read_at(offset, &mut buf).await.context(LabelRead {})?;
                 match NexusLabel::read_secondary_header(&buf) {
                     Ok(header) => {
@@ -344,7 +364,7 @@ impl NexusChild {
                     self.parent, self.name, error
                 );
                 // Get secondary and see if we are able to proceed.
-                let offset = (bdev.num_blocks() - 1) * u64::from(block_size);
+                let offset = (bdev.num_blocks() - 1) * block_size;
                 self.read_at(offset, &mut buf).await.context(LabelRead {})?;
                 match NexusLabel::read_secondary_header(&buf) {
                     Ok(header) => {
@@ -375,14 +395,14 @@ impl NexusChild {
 
         //
         // Partition table
-        let size = NexusLabel::get_aligned_size(
-            active.entry_size * active.num_entries,
+        let blocks = Unsigned::get_aligned_blocks(
+            (active.entry_size * active.num_entries) as u64,
             block_size,
         );
         let mut buf = desc
-            .dma_malloc(size as usize)
+            .dma_malloc((blocks * block_size) as usize)
             .context(PartitionTableAlloc {})?;
-        let offset = active.lba_table * u64::from(block_size);
+        let offset = active.lba_table * block_size;
         self.read_at(offset, &mut buf)
             .await
             .context(PartitionTableRead {})?;
@@ -401,6 +421,115 @@ impl NexusChild {
             partitions: entries,
             secondary,
         })
+    }
+
+    pub async fn probe_index(
+        &self,
+        partition_lba: u64,
+    ) -> Result<NexusMetaData, ChildError> {
+        let (bdev, desc) = self.get_dev()?;
+        let block_size = bdev.block_len() as u64;
+
+        //
+        // Header
+        let blocks = Unsigned::get_aligned_blocks(
+            MetaDataHeader::METADATA_HEADER_SIZE as u64,
+            block_size,
+        );
+        let mut buf = desc
+            .dma_malloc((blocks * block_size) as usize)
+            .context(MetaDataHeaderAlloc {})?;
+        self.read_at((partition_lba + 1) * block_size, &mut buf)
+            .await
+            .context(MetaDataHeaderRead {})?;
+        let header = NexusMetaData::read_header(&buf)
+            .context(MetaDataHeaderInvalid {})?;
+
+        //
+        // Index
+        let index = if header.used_entries > 0 {
+            let blocks = Unsigned::get_aligned_blocks(
+                (header.used_entries * header.entry_size) as u64,
+                block_size,
+            );
+            let mut buf = desc
+                .dma_malloc((blocks * block_size) as usize)
+                .context(MetaDataIndexAlloc {})?;
+            self.read_at(
+                (header.self_lba + header.index_start) * block_size,
+                &mut buf,
+            )
+            .await
+            .context(MetaDataIndexRead {})?;
+            NexusMetaData::read_index(&buf, &header)
+                .context(MetaDataIndexInvalid {})?
+        } else {
+            NexusMetaData::empty_index(&header)
+                .context(MetaDataIndexInvalid {})?
+        };
+
+        Ok(NexusMetaData {
+            header,
+            index,
+        })
+    }
+
+    pub async fn probe_config_object(
+        &self,
+        metadata: &NexusMetaData,
+        n: u32,
+    ) -> Result<NexusConfig, ChildError> {
+        if n >= metadata.header.used_entries {
+            return Err(ChildError::LabelInvalid {});
+        }
+
+        let entry = &metadata.index[n as usize];
+
+        let (bdev, desc) = self.get_dev()?;
+        let block_size = bdev.block_len() as u64;
+
+        let blocks = entry.data_end - entry.data_start + 1;
+        let mut buf = desc
+            .dma_malloc((blocks * block_size) as usize)
+            .context(MetaDataObjectAlloc {})?;
+        self.read_at(
+            (metadata.header.self_lba + entry.data_start) * block_size,
+            &mut buf,
+        )
+        .await
+        .context(MetaDataObjectRead {})?;
+
+        Ok(NexusMetaData::read_config_object(&buf, entry)
+            .context(MetaDataObjectInvalid {})?)
+    }
+
+    pub async fn probe_all_config_objects(
+        &self,
+        metadata: &NexusMetaData,
+    ) -> Result<Vec<NexusConfig>, ChildError> {
+        let (bdev, desc) = self.get_dev()?;
+        let block_size = bdev.block_len() as u64;
+
+        let mut list: Vec<NexusConfig> = Vec::new();
+
+        for entry in &metadata.index {
+            let blocks = entry.data_end - entry.data_start + 1;
+            let mut buf = desc
+                .dma_malloc((blocks * block_size) as usize)
+                .context(MetaDataObjectAlloc {})?;
+            self.read_at(
+                (metadata.header.self_lba + entry.data_start) * block_size,
+                &mut buf,
+            )
+            .await
+            .context(MetaDataObjectRead {})?;
+            list.push(
+                NexusMetaData::read_config_object(&buf, &entry)
+                    .context(MetaDataObjectInvalid {})?,
+            );
+        }
+
+        Ok(list)
     }
 
     /// return this child and its label
