@@ -607,8 +607,9 @@ impl node_server::Node for Node {
         match share_type {
             ShareProtocolNexus::NexusIscsi => {
                 debug!("unstage: iscsi detach {}", device_path);
-                // if iscsi detach fails then what can we do?
-                let _ = iscsi_detach_disk(device_path.as_str());
+                if let Err(reason) = iscsi_detach_disk(device_path.as_str()) {
+                    return Err(Status::new(Code::Internal, reason));
+                }
             }
             ShareProtocolNexus::NexusNvmf => {}
             ShareProtocolNexus::NexusNbd => {}

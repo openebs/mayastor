@@ -15,10 +15,6 @@ lazy_static! {
             env::var("ISCSIADM").unwrap()
     };
 
-    static ref ISCSIADM_EXISTS: bool = match which::which(ISCSIADM.as_str()) {
-        Ok(_) => true,
-        _ => false,
-    };
 }
 
 pub fn wait_for_path_to_exist(devpath: &str, max_retries: i32) -> bool {
@@ -245,7 +241,7 @@ pub fn iscsi_detach_disk(device_path: &str) -> Result<(), String> {
 }
 
 pub fn iscsi_find(uuid: &str) -> Option<String> {
-    if !(*ISCSIADM_EXISTS) {
+    if which::which(ISCSIADM.as_str()).is_err() {
         trace!("Cannot find {}", ISCSIADM.as_str());
         return None;
     }
@@ -254,7 +250,7 @@ pub fn iscsi_find(uuid: &str) -> Option<String> {
         .output()
         .expect("Failed iscsiadm");
     if !output.status.success() {
-        trace!(
+        debug!(
             "iscsiadm failed: {}",
             String::from_utf8(output.stderr).unwrap()
         );
