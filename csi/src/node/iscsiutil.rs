@@ -50,15 +50,10 @@ fn attach_disk(
     // Rescan sessions to discover newly mapped LUNs
     // Do not specify the interface when rescanning
     // to avoid establishing additional sessions to the same target.
-    trace!("iscsiadm -m node -p {}:{} -T {} -R", ip_addr, port, iqn);
+    let args_rescan = ["-m", "node", "-p", &tp, "-T", &iqn, "-R"];
+    trace!("iscsiadm {:?}", args_rescan);
     let _ = Command::new(ISCSIADM.as_str())
-        .arg("-m")
-        .arg("node")
-        .arg("-p")
-        .arg(&tp)
-        .arg("-T")
-        .arg(&iqn)
-        .arg("-R")
+        .args(&args_rescan)
         .output()
         .expect("Failed iscsiadm rescan");
 
@@ -69,110 +64,79 @@ fn attach_disk(
         return Ok(device_path);
     }
 
-    trace!(
-        "iscsiadm -m discoverydb -t sendtargets -p {}:{} -I default -o new",
-        ip_addr,
-        port
-    );
+    let args_discoverydb_new = [
+        "-m",
+        "discoverydb",
+        "-t",
+        "sendtargets",
+        "-p",
+        "{}:{}",
+        "-I",
+        "default",
+        "-o",
+        "new",
+    ];
+    trace!("iscsiadm {:?}", &args_discoverydb_new);
     let output = Command::new(ISCSIADM.as_str())
-        .arg("-m")
-        .arg("discoverydb")
-        .arg("-t")
-        .arg("sendtargets")
-        .arg("-p")
-        .arg(&tp)
-        .arg("-I")
-        .arg("default")
-        .arg("-o")
-        .arg("new")
+        .args(&args_discoverydb_new)
         .output()
         .expect("Failed iscsiadm discovery");
     if !output.status.success() {
-        return Err(format!(
-            "iscsi: failed to update discoverydb to portal {}, Error: {}",
-            &tp,
-            String::from_utf8(output.stderr).unwrap()
-        ));
+        return Err(String::from_utf8(output.stderr).unwrap());
     }
 
-    trace!(
-        "iscsiadm -m discoverydb -t sendtargets -p {}:{} -I default --discover",
-        ip_addr,
-        port
-    );
+    let args_discover = [
+        "-m",
+        "discoverydb",
+        "-t",
+        "sendtargets",
+        "-p",
+        &tp,
+        "-I",
+        "default",
+        "--discover",
+    ];
+    trace!("iscsiadm {:?}", args_discover);
     // build discoverydb and discover iscsi target
     let output = Command::new(ISCSIADM.as_str())
-        .arg("-m")
-        .arg("discoverydb")
-        .arg("-t")
-        .arg("sendtargets")
-        .arg("-p")
-        .arg(&tp)
-        .arg("-I")
-        .arg("default")
-        .arg("--discover")
+        .args(&args_discover)
         .output()
         .expect("Failed iscsiadm discovery");
     if !output.status.success() {
-        // delete discoverydb record
-        let _ = Command::new(ISCSIADM.as_str())
-            .arg("-m")
-            .arg("discoverydb")
-            .arg("-t")
-            .arg("sendtargets")
-            .arg("-p")
-            .arg(&tp)
-            .arg("-I")
-            .arg("default")
-            .arg("-o")
-            .arg("delete")
-            .output()
-            .expect("Failed iscsiadm discovery");
-        return Err(format!(
-            "iscsi: failed to sendtargets to portal {}, Error: {}",
+        let args_discover_del = [
+            "-m",
+            "discoverydb",
+            "-t",
+            "sendtargets",
+            "-p",
             &tp,
-            String::from_utf8(output.stderr).unwrap()
-        ));
+            "-I",
+            "default",
+            "-o",
+            "delete",
+        ];
+        // delete discoverydb record
+        Command::new(ISCSIADM.as_str()).args(&args_discover_del);
+        return Err(String::from_utf8(output.stderr).unwrap());
     }
 
-    trace!(
-        "iscsiadm -m node -p {}:{} -T {} -I default --login",
-        ip_addr,
-        port,
-        iqn
-    );
+    let args_login = [
+        "-m", "node", "-p", &tp, "-T", &iqn, "-I", "default", "--login",
+    ];
+    trace!("iscsiadm {:?}", args_login);
     // login to iscsi target
     let output = Command::new(ISCSIADM.as_str())
-        .arg("-m")
-        .arg("node")
-        .arg("-p")
-        .arg(&tp)
-        .arg("-T")
-        .arg(&iqn)
-        .arg("-I")
-        .arg("default")
-        .arg("--login")
+        .args(&args_login)
         .output()
         .expect("Failed iscsiadm login");
     if !output.status.success() {
+        let args_login_del = [
+            "-m", "node", "-p", &tp, "-T", &iqn, "-I", "default", "-o",
+            "delete",
+        ];
         // delete the node record from the database.
-        let _ = Command::new(ISCSIADM.as_str())
-            .arg("-m")
-            .arg("node")
-            .arg("-p")
-            .arg(&tp)
-            .arg("-T")
-            .arg(&iqn)
-            .arg("-I")
-            .arg("default")
-            .arg("-o")
-            .arg("delete")
-            .output()
-            .expect("Failed iscsiadm login");
-        return Err(format!(
-            "iscsi: failed to attach disk: Error: {}",
-            String::from_utf8(output.stderr).unwrap()
-        ));
+        Command::new(ISCSIADM.as_str()).args(&args_login_del);
+        return Err(String::from_utf8(output.stderr).unwrap());
     }
 
     if wait_for_path_to_exist(device_path.as_str(), 10) {
@@ -215,62 +179,43 @@ pub fn detach_disk(ip_addr: &str, port: &str, iqn: &str) -> Result<(), String> {
     */
     let tp = format!("{}:{}", ip_addr, port);
 
-    trace!("iscsiadm -m node -T {} -p {}:{} -u", iqn, ip_addr, port);
+    let args_logout = ["-m", "node", "-T", &iqn, "-p", &tp, "-u"];
+    trace!("iscsiadm {:?}", args_logout);
     let output = Command::new(ISCSIADM.as_str())
-        .arg("-m")
-        .arg("node")
-        .arg("-T")
-        .arg(&iqn)
-        .arg("-p")
-        .arg(&tp)
-        .arg("-u")
+        .args(&args_logout)
         .output()
         .expect("Failed iscsiadm logout");
     if !output.status.success() {
-        return Err(format!(
-            "iscsiadm failed: {}",
-            String::from_utf8(output.stderr).unwrap()
-        ));
+        return Err(String::from_utf8(output.stderr).unwrap());
     }
 
-    trace!("iscsiadm -m node -o delete -T {}", iqn);
+    let args_delete = ["-m", "node", "-o", "delete", "-T", &iqn];
+    trace!("iscsiadm {:?}", args_delete);
     let output = Command::new(ISCSIADM.as_str())
-        .arg("-m")
-        .arg("node")
-        .arg("-o")
-        .arg("delete")
-        .arg("-T")
-        .arg(iqn)
+        .args(&args_delete)
         .output()
         .expect("Failed iscsiadm login");
     if !output.status.success() {
-        return Err(format!(
-            "iscsiadm failed: {}",
-            String::from_utf8(output.stderr).unwrap()
-        ));
+        return Err(String::from_utf8(output.stderr).unwrap());
     }
 
-    trace!(
-        "iscsiadm -m discoverydb -t sendtargets -p {}:{} -o delete",
-        ip_addr,
-        port
-    );
+    let args_discoverydb_del = [
+        "-m",
+        "discoverydb",
+        "-t",
+        "sendtargets",
+        "-p",
+        &tp,
+        "-o",
+        "delete",
+    ];
+    trace!("iscsiadm {:?}", args_discoverydb_del);
     let output = Command::new(ISCSIADM.as_str())
-        .arg("-m")
-        .arg("discoverydb")
-        .arg("-t")
-        .arg("sendtargets")
-        .arg("-p")
-        .arg(tp)
-        .arg("-o")
-        .arg("delete")
+        .args(&args_discoverydb_del)
         .output()
         .expect("Failed iscsiadm login");
     if !output.status.success() {
-        return Err(format!(
-            "iscsiadm failed: {}",
-            String::from_utf8(output.stderr).unwrap()
-        ));
+        return Err(String::from_utf8(output.stderr).unwrap());
     }
     Ok(())
 }
@@ -305,8 +250,7 @@ pub fn iscsi_find(uuid: &str) -> Option<String> {
         return None;
     }
     let output = Command::new(ISCSIADM.as_str())
-        .arg("-m")
-        .arg("node")
+        .args(&["-m", "node"])
         .output()
         .expect("Failed iscsiadm");
     if !output.status.success() {
