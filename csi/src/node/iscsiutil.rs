@@ -41,13 +41,14 @@ fn attach_disk(
     let tp = format!("{}:{}", ip_addr, port);
     let device_path =
         format!("/dev/disk/by-path/ip-{}-iscsi-{}-lun-{}", tp, iqn, lun);
+    let iscsiadm = ISCSIADM.as_str();
 
     // Rescan sessions to discover newly mapped LUNs
     // Do not specify the interface when rescanning
     // to avoid establishing additional sessions to the same target.
     let args_rescan = ["-m", "node", "-p", &tp, "-T", &iqn, "-R"];
     trace!("iscsiadm {:?}", args_rescan);
-    let _ = Command::new(ISCSIADM.as_str())
+    let _ = Command::new(&iscsiadm)
         .args(&args_rescan)
         .output()
         .expect("Failed iscsiadm rescan");
@@ -72,7 +73,7 @@ fn attach_disk(
         "new",
     ];
     trace!("iscsiadm {:?}", &args_discoverydb_new);
-    let output = Command::new(ISCSIADM.as_str())
+    let output = Command::new(&iscsiadm)
         .args(&args_discoverydb_new)
         .output()
         .expect("Failed iscsiadm discovery");
@@ -93,7 +94,7 @@ fn attach_disk(
     ];
     trace!("iscsiadm {:?}", args_discover);
     // build discoverydb and discover iscsi target
-    let output = Command::new(ISCSIADM.as_str())
+    let output = Command::new(&iscsiadm)
         .args(&args_discover)
         .output()
         .expect("Failed iscsiadm discovery");
@@ -111,7 +112,7 @@ fn attach_disk(
             "delete",
         ];
         // delete discoverydb record
-        Command::new(ISCSIADM.as_str()).args(&args_discover_del);
+        Command::new(&iscsiadm).args(&args_discover_del);
         return Err(String::from_utf8(output.stderr).unwrap());
     }
 
@@ -120,7 +121,7 @@ fn attach_disk(
     ];
     trace!("iscsiadm {:?}", args_login);
     // login to iscsi target
-    let output = Command::new(ISCSIADM.as_str())
+    let output = Command::new(&iscsiadm)
         .args(&args_login)
         .output()
         .expect("Failed iscsiadm login");
@@ -130,7 +131,7 @@ fn attach_disk(
             "delete",
         ];
         // delete the node record from the database.
-        Command::new(ISCSIADM.as_str()).args(&args_login_del);
+        Command::new(&iscsiadm).args(&args_login_del);
         return Err(String::from_utf8(output.stderr).unwrap());
     }
 
@@ -163,11 +164,12 @@ pub fn iscsi_attach_disk(iscsi_uri: &str) -> Result<String, String> {
 }
 
 pub fn detach_disk(ip_addr: &str, port: &str, iqn: &str) -> Result<(), String> {
+    let iscsiadm = ISCSIADM.as_str();
     let tp = format!("{}:{}", ip_addr, port);
 
     let args_logout = ["-m", "node", "-T", &iqn, "-p", &tp, "-u"];
     trace!("iscsiadm {:?}", args_logout);
-    let output = Command::new(ISCSIADM.as_str())
+    let output = Command::new(&iscsiadm)
         .args(&args_logout)
         .output()
         .expect("Failed iscsiadm logout");
@@ -177,7 +179,7 @@ pub fn detach_disk(ip_addr: &str, port: &str, iqn: &str) -> Result<(), String> {
 
     let args_delete = ["-m", "node", "-o", "delete", "-T", &iqn];
     trace!("iscsiadm {:?}", args_delete);
-    let output = Command::new(ISCSIADM.as_str())
+    let output = Command::new(&iscsiadm)
         .args(&args_delete)
         .output()
         .expect("Failed iscsiadm login");
@@ -196,7 +198,7 @@ pub fn detach_disk(ip_addr: &str, port: &str, iqn: &str) -> Result<(), String> {
         "delete",
     ];
     trace!("iscsiadm {:?}", args_discoverydb_del);
-    let output = Command::new(ISCSIADM.as_str())
+    let output = Command::new(&iscsiadm)
         .args(&args_discoverydb_del)
         .output()
         .expect("Failed iscsiadm login");
@@ -231,11 +233,13 @@ pub fn iscsi_detach_disk(device_path: &str) -> Result<(), String> {
 }
 
 pub fn iscsi_find(uuid: &str) -> Option<String> {
-    if which::which(ISCSIADM.as_str()).is_err() {
-        trace!("Cannot find {}", ISCSIADM.as_str());
+    let iscsiadm = ISCSIADM.as_str();
+
+    if which::which(&iscsiadm).is_err() {
+        trace!("Cannot find {}", &iscsiadm);
         return None;
     }
-    let output = Command::new(ISCSIADM.as_str())
+    let output = Command::new(&iscsiadm)
         .args(&["-m", "node"])
         .output()
         .expect("Failed iscsiadm");
