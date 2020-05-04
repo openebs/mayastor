@@ -59,6 +59,8 @@ fn nexus_reset_mirror() {
         "/tmp/child1.yaml".to_string(),
         "-p".into(),
         "10126".into(),
+        "--env-context=--log-level=lib.eal:debug --log-level=lib.cryptodev:debug"
+            .into(),
     ];
 
     let _ms1 = MayastorProcess::new(Box::from(args)).unwrap();
@@ -70,6 +72,8 @@ fn nexus_reset_mirror() {
         "/tmp/child2.yaml".to_string(),
         "-p".into(),
         "10127".into(),
+        "--env-context=--log-level=lib.eal:8 --log-level=lib.cryptodev:8"
+            .into(),
     ];
 
     let _ms2 = MayastorProcess::new(Box::from(args)).unwrap();

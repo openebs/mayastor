@@ -30,7 +30,7 @@ jobs:
       - run: rm nvmeadm/.cargo/config
       - run: cargo build --all
       - run: ( cd jsonrpc && cargo test )
-      - run: ( cd mayastor && cargo test -- --test-threads=1 )
+      - run: ( cd mayastor && cargo test -- --test-threads=1 --nocapture)
       - run: mkdir ./target/debug/github-artifacts/
       - run: ( cd ./target/debug/ && cp mayastor mayastor-client mayastor-agent spdk initiator mctl github-artifacts/ )
       - run: ( cd nvmeadm && cargo test )
