@@ -8,4 +8,4 @@ done
 
 sudo kubeadm join --token=${token} ${master_ip}:6443 \
   --discovery-token-unsafe-skip-ca-verification \
-  --ignore-preflight-errors=Swap
+  --ignore-preflight-errors=Swap,SystemVerification
