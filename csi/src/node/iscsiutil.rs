@@ -34,7 +34,7 @@ pub fn wait_for_path_to_exist(devpath: &str, max_retries: i32) -> bool {
 
 fn attach_disk(
     ip_addr: &str,
-    port: &str,
+    port: u16,
     iqn: &str,
     lun: &str,
 ) -> Result<String, String> {
@@ -146,25 +146,20 @@ fn attach_disk(
 pub fn iscsi_attach_disk(iscsi_uri: &str) -> Result<String, String> {
     trace!("iscsi_attach_disk {}", iscsi_uri);
 
-    static RE_ISCSI_URI: Lazy<regex::Regex> = Lazy::new(|| {
-        regex::Regex::new(
-            r"(?x)
-            iscsi://(?P<ip>\d+.\d+.\d+.\d+):(?P<port>\d+)/(?P<iqn>.*)/(?P<lun>\d+)
-            ",
-        )
-        .unwrap()
-    });
-
-    let caps = RE_ISCSI_URI.captures(iscsi_uri);
-    match caps {
-        Some(details) => attach_disk(
-            &details["ip"],
-            &details["port"],
-            &details["iqn"],
-            &details["lun"],
-        ),
-        None => Err(format!("Invalid iscsi URI {}", iscsi_uri)),
+    if let Ok(url) = url::Url::parse(iscsi_uri) {
+        if url.scheme() == "iscsi" {
+            let tokens =
+                url.path_segments().map(|c| c.collect::<Vec<_>>()).unwrap();
+            return attach_disk(
+                url.host_str().unwrap(),
+                url.port().unwrap(),
+                tokens[0],
+                tokens[1],
+            );
+        }
     }
+
+    Err(format!("Invalid iscsi URI {}", iscsi_uri))
 }
 
 pub fn detach_disk(ip_addr: &str, port: &str, iqn: &str) -> Result<(), String> {
