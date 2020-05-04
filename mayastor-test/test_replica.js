@@ -51,10 +51,8 @@ function createTestDisk (diskFile, done) {
 // Destroy the fake disk used for testing (disregard any error).
 function destroyTestDisk (diskFile, loopDev, done) {
   if (loopDev != null) {
-    common.execAsRoot('losetup', ['-d', loopDev], (err) => {
-      if (err) console.log('losetup failed:', loopDev, err);
-      fs.unlink(diskFile, (err) => {
-        if (err) console.log('losetup unlink failed:', loopDev, err);
+    common.execAsRoot('losetup', ['-d', loopDev], () => {
+      fs.unlink(diskFile, () => {
         done();
       });
     });
