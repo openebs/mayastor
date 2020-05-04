@@ -604,15 +604,12 @@ impl node_server::Node for Node {
             }
         }
 
-        match share_type {
-            ShareProtocolNexus::NexusIscsi => {
-                debug!("unstage: iscsi detach {}", device_path);
-                if let Err(reason) = iscsi_detach_disk(device_path.as_str()) {
-                    return Err(Status::new(Code::Internal, reason));
-                }
+        // Clean up after successful unmount, if required.
+        if let ShareProtocolNexus::NexusIscsi = share_type {
+            debug!("unstage: iscsi detach {}", device_path);
+            if let Err(reason) = iscsi_detach_disk(device_path.as_str()) {
+                return Err(Status::new(Code::Internal, reason));
             }
-            ShareProtocolNexus::NexusNvmf => {}
-            ShareProtocolNexus::NexusNbd => {}
         }
 
         // if already unstaged or staging does not match target path -
