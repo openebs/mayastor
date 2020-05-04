@@ -574,7 +574,7 @@ impl node_server::Node for Node {
 
                     if let Ok(url) = url::Url::parse(nexus.device_path.as_str())
                     {
-                        (url.path().to_string(), ShareProtocolNexus::NexusIscsi)
+                        (url.path().to_string(), ShareProtocolNexus::NexusNbd)
                     } else {
                         return Err(Status::new(
                             Code::Internal,
@@ -590,7 +590,7 @@ impl node_server::Node for Node {
             }
         };
 
-        debug!("unstage: device_path {}", device_path);
+        debug!("unstage: device_path {} {:?}", device_path, share_type);
         if device_path != "" {
             if let Some(mount) =
                 match_mount(Some(&device_path), Some(&stage_path), true)

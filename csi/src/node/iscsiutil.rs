@@ -1,21 +1,20 @@
+use once_cell::sync::Lazy;
 use std::{env, path::Path, process::Command, thread, time};
 
-lazy_static! {
-
-    // The iscsiadm executable invoked is dependent on the environment.
-    // For the container we set it using and environment variable,
-    // typically this is the "/bin/mayastor-iscsiadm" script,
-    // created by the mayastor image build scripts.
-    // For development hosts just setting it to iscsiadm works.
-    static ref ISCSIADM: String = if env::var("ISCSIADM").is_err() {
-            debug!("defaulting to using iscsiadm");
-            "iscsiadm".to_string()
-        } else {
-            debug!("using {}", env::var("ISCSIADM").unwrap());
-            env::var("ISCSIADM").unwrap()
-    };
-
-}
+// The iscsiadm executable invoked is dependent on the environment.
+// For the container we set it using and environment variable,
+// typically this is the "/bin/mayastor-iscsiadm" script,
+// created by the mayastor image build scripts.
+// For development hosts just setting it to iscsiadm works.
+static ISCSIADM: Lazy<String> = Lazy::new(|| {
+    if env::var("ISCSIADM").is_err() {
+        debug!("defaulting to using iscsiadm");
+        "iscsiadm".to_string()
+    } else {
+        debug!("using {}", env::var("ISCSIADM").unwrap());
+        env::var("ISCSIADM").unwrap()
+    }
+});
 
 pub fn wait_for_path_to_exist(devpath: &str, max_retries: i32) -> bool {
     let second = time::Duration::from_millis(1000);
@@ -146,14 +145,15 @@ fn attach_disk(
 
 pub fn iscsi_attach_disk(iscsi_uri: &str) -> Result<String, String> {
     trace!("iscsi_attach_disk {}", iscsi_uri);
-    lazy_static! {
-        static ref RE_ISCSI_URI: regex::Regex = regex::Regex::new(
+
+    static RE_ISCSI_URI: Lazy<regex::Regex> = Lazy::new(|| {
+        regex::Regex::new(
             r"(?x)
             iscsi://(?P<ip>\d+.\d+.\d+.\d+):(?P<port>\d+)/(?P<iqn>.*)/(?P<lun>\d+)
             ",
         )
-        .unwrap();
-    }
+        .unwrap()
+    });
 
     let caps = RE_ISCSI_URI.captures(iscsi_uri);
     match caps {
@@ -168,11 +168,6 @@ pub fn iscsi_attach_disk(iscsi_uri: &str) -> Result<String, String> {
 }
 
 pub fn detach_disk(ip_addr: &str, port: &str, iqn: &str) -> Result<(), String> {
-    /*
-        let ip_addr = &details["ip"];
-        let port = &details["port"];
-        let iqn = &details["iqn"];
-    */
     let tp = format!("{}:{}", ip_addr, port);
 
     let args_logout = ["-m", "node", "-T", &iqn, "-p", &tp, "-u"];
@@ -218,14 +213,14 @@ pub fn detach_disk(ip_addr: &str, port: &str, iqn: &str) -> Result<(), String> {
 
 pub fn iscsi_detach_disk(device_path: &str) -> Result<(), String> {
     trace!("iscsi_detach_disk {}", device_path);
-    lazy_static! {
-        static ref RE_DEVICE_PATH: regex::Regex = regex::Regex::new(
+    static RE_DEVICE_PATH: Lazy<regex::Regex> = Lazy::new(|| {
+        regex::Regex::new(
             r"(?x)
             ip-(?P<ip>\d+.\d+.\d+.\d+):(?P<port>\d+)-iscsi-(?P<iqn>.*)-lun-(?P<lun>\d+)
             ",
         )
-        .unwrap();
-    }
+        .unwrap()
+    });
 
     let caps = RE_DEVICE_PATH.captures(device_path);
     match caps {
@@ -258,14 +253,15 @@ pub fn iscsi_find(uuid: &str) -> Option<String> {
     }
     let op = String::from_utf8(output.stdout).unwrap();
 
-    lazy_static! {
-        static ref RE_TARGET: regex::Regex = regex::Regex::new(
+    static RE_TARGET: Lazy<regex::Regex> = Lazy::new(|| {
+        regex::Regex::new(
             r"(?x)
-        (?P<ip>\d+.\d+.\d+.\d+):(?P<port>\d+),(?P<lun>\d+)\s+(?P<iqn>.*:\w+)-(?P<uuid>.*)
-        ",
+            (?P<ip>\d+.\d+.\d+.\d+):(?P<port>\d+),(?P<lun>\d+)\s+(?P<iqn>.*:\w+)-(?P<uuid>.*)
+            ",
         )
-        .unwrap();
-    }
+        .unwrap()
+    });
+
     for cap in RE_TARGET.captures_iter(op.as_str()) {
         trace!("unstage: searching for {} got {}", uuid, &cap["uuid"]);
         if uuid == &cap["uuid"] {
