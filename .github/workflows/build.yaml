@@ -34,7 +34,7 @@ jobs:
       - run: mkdir ./target/debug/github-artifacts/
       - run: ( cd ./target/debug/ && cp mayastor mayastor-client mayastor-agent spdk initiator mctl github-artifacts/ )
       - run: ( cd nvmeadm && cargo test )
-      - uses: actions/upload-artifact@v2-preview
+      - uses: actions/upload-artifact@v2
         with:
           name: mayastor
           path: ./target/debug/github-artifacts
@@ -47,7 +47,7 @@ jobs:
       options: --privileged -v /dev:/dev -v /bin:/host/bin -v /lib/modules:/lib/modules --cpus 2
     steps:
       - uses: actions/checkout@v2
-      - uses: actions/download-artifact@v2-preview
+      - uses: actions/download-artifact@v2
         with:
           name: mayastor
           path: ./target/debug
