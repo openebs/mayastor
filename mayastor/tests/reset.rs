@@ -59,7 +59,7 @@ fn nexus_reset_mirror() {
         "/tmp/child1.yaml".to_string(),
         "-p".into(),
         "10126".into(),
-        "--env-context=--log-level=lib.eal:debug --log-level=lib.cryptodev:debug"
+        "--env-context=--log-level=lib.eal:debug --log-level=lib.cryptodev:debug --log-level=lib.mempool:debug"
             .into(),
     ];
 
@@ -72,7 +72,7 @@ fn nexus_reset_mirror() {
         "/tmp/child2.yaml".to_string(),
         "-p".into(),
         "10127".into(),
-        "--env-context=--log-level=lib.eal:8 --log-level=lib.cryptodev:8"
+        "--env-context=--log-level=lib.eal:8 --log-level=lib.cryptodev:8 --log-level=lib.mempool:8"
             .into(),
     ];
 
