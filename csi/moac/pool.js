@@ -8,6 +8,14 @@ const { GrpcCode, GrpcError } = require('./grpc_client');
 const log = require('./logger').Logger('pool');
 const Replica = require('./replica');
 
+const URI_REGEX = /^([a-z][a-z0-9+.-]+):\/\/(.+)$/g;
+
+// Utility function to strip URI prefix from a string.
+function _stripUri (str) {
+  const match = URI_REGEX.exec(str);
+  return match ? match[2] : str;
+}
+
 class Pool {
   // Build pool object from JSON object received from mayastor storage node.
   //
@@ -20,7 +28,7 @@ class Pool {
   constructor (props) {
     this.node = null; // set by registerPool method on node
     this.name = props.name;
-    this.disks = props.disks.sort();
+    this.disks = props.disks.map(_stripUri).sort();
     this.state = props.state;
     this.capacity = props.capacity;
     this.used = props.used;
@@ -47,20 +55,20 @@ class Pool {
     // record the change to the object but refrain from propagating the
     // information further as it is not clear what the higher level code
     // should do in such case or how to recover.
-    if (!_.isEqual(this.disks, props.disks.sort())) {
+    if (!_.isEqual(this.disks, props.disks.map(_stripUri).sort())) {
       log.warn(
-        `Unexpected disk change of the pool "${this}" from ${this.disks} to ${props.disks}`
+        `Unexpected disk change of the pool "${this}" from ${this.disks} to ${props.disks.map(_stripUri)}`
       );
     }
-    if (this.state != props.state) {
+    if (this.state !== props.state) {
       this.state = props.state;
       changed = true;
     }
-    if (this.capacity != props.capacity) {
+    if (this.capacity !== props.capacity) {
       this.capacity = props.capacity;
       changed = true;
     }
-    if (this.used != props.used) {
+    if (this.used !== props.used) {
       this.used = props.used;
       changed = true;
     }
@@ -82,7 +90,7 @@ class Pool {
     var self = this;
     // detect modified and new replicas
     replicas.forEach((props) => {
-      const replica = self.replicas.find((r) => r.uuid == props.uuid);
+      const replica = self.replicas.find((r) => r.uuid === props.uuid);
       if (replica) {
         // the replica already exists - update it
         replica.merge(props);
@@ -93,7 +101,7 @@ class Pool {
     });
     // remove replicas that no longer exist
     const removedReplicas = self.replicas.filter(
-      (r) => !replicas.find((ent) => ent.uuid == r.uuid)
+      (r) => !replicas.find((ent) => ent.uuid === r.uuid)
     );
     removedReplicas.forEach((r) => r.unbind());
   }
@@ -104,7 +112,7 @@ class Pool {
   // @param {object} replica      New replica object.
   //
   registerReplica (replica) {
-    assert(!this.replicas.find((r) => r.uuid == replica.uuid));
+    assert(!this.replicas.find((r) => r.uuid === replica.uuid));
     this.replicas.push(replica);
     replica.bind(this);
   }
@@ -168,7 +176,7 @@ class Pool {
       log.info(`Destroyed pool "${this}"`);
     } catch (err) {
       // TODO: make destroyPool idempotent
-      if (err.code != GrpcCode.NOT_FOUND) {
+      if (err.code !== GrpcCode.NOT_FOUND) {
         throw err;
       }
       log.warn(`Removed pool "${this}" does not exist`);
@@ -192,7 +200,7 @@ class Pool {
 
   // Return true if pool exists and is accessible, otherwise false.
   isAccessible () {
-    return this.state == 'POOL_ONLINE' || this.state == 'POOL_DEGRADED';
+    return this.state === 'POOL_ONLINE' || this.state === 'POOL_DEGRADED';
   }
 
   // Create replica in this storage pool.
@@ -212,7 +220,7 @@ class Pool {
       log.info(`Created replica "${uuid}" on the pool "${this}"`);
     } catch (err) {
       // TODO: Make rpc idempotent
-      if (err.code != GrpcCode.ALREADY_EXISTS) {
+      if (err.code !== GrpcCode.ALREADY_EXISTS) {
         throw err;
       }
     }
@@ -228,7 +236,7 @@ class Pool {
         `Failed to list new replica "${uuid}" on pool "${this}": ${err}`
       );
     }
-    var replicaInfo = resp.replicas.filter((r) => r.uuid == uuid)[0];
+    var replicaInfo = resp.replicas.filter((r) => r.uuid === uuid)[0];
     if (!replicaInfo) {
       throw new GrpcError(
         GrpcCode.INTERNAL,
