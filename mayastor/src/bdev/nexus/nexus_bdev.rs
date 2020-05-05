@@ -22,6 +22,7 @@ use spdk_sys::{
     spdk_bdev_io_get_buf,
     spdk_bdev_readv_blocks,
     spdk_bdev_register,
+    spdk_bdev_reset,
     spdk_bdev_unmap_blocks,
     spdk_bdev_unregister,
     spdk_bdev_writev_blocks,
@@ -694,6 +695,39 @@ impl Nexus {
                 Some(Self::io_completion),
                 pio as *mut _,
             )
+        }
+    }
+
+    /// reset underlying children.
+    pub(crate) fn reset(
+        &self,
+        pio: *mut spdk_bdev_io,
+        channels: &NexusChannelInner,
+    ) {
+        let mut io = Bio(pio);
+        // in case of resets, we want to reset all underlying children
+        io.ctx_as_mut_ref().in_flight = channels.ch.len() as i8;
+        let results = channels
+            .ch
+            .iter()
+            .map(|c| unsafe {
+                let (bdev, chan) = c.io_tuple();
+                spdk_bdev_reset(
+                    bdev,
+                    chan,
+                    Some(Self::io_completion),
+                    pio as *mut _,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        // if any of the children failed to dispatch
+        if results.iter().any(|r| *r != 0) {
+            error!(
+                "{}: Failed to submit dispatched IO {:?}",
+                io.nexus_as_ref().name,
+                pio
+            );
         }
     }
 

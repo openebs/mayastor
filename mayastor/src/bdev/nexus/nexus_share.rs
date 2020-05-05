@@ -181,7 +181,12 @@ impl Nexus {
     /// shared as nbd.
     pub fn get_share_path(&self) -> Option<String> {
         match self.nexus_target {
-            Some(NexusTarget::NbdDisk(ref disk)) => Some(disk.get_path()),
+            Some(NexusTarget::NbdDisk(ref disk)) => {
+                Some(format!("file://{}", disk.get_path()))
+            }
+            Some(NexusTarget::NexusIscsiTarget(ref iscsi_target)) => {
+                Some(iscsi_target.as_uri())
+            }
             _ => None,
         }
     }

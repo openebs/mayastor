@@ -19,6 +19,7 @@ spec:
       labels:
         app: mayastor
     spec:
+      hostNetwork: true
       nodeSelector:
         openebs.io/engine: mayastor
         kubernetes.io/arch: amd64
@@ -71,6 +72,8 @@ spec:
               fieldPath: status.podIP
         - name: RUST_BACKTRACE
           value: "1"
+        - name: ISCSIADM
+          value: "/bin/mayastor-iscsiadm"
         args:
         - "--csi-socket=/csi/csi.sock"
         - "--mayastor-socket=/mayastor/mayastor.sock"
@@ -80,6 +83,8 @@ spec:
         volumeMounts:
         - name: device
           mountPath: /dev
+        - name: host-root
+          mountPath: /host
         - name: mayastor-dir
           mountPath: /mayastor
         - name: plugin-dir
@@ -124,6 +129,10 @@ spec:
       - name: device
         hostPath:
           path: /dev
+          type: Directory
+      - name: host-root
+        hostPath:
+          path: /
           type: Directory
       - name: dshm
         emptyDir:
