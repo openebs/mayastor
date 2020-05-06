@@ -5,6 +5,12 @@ pub use iscsi_dev::{IscsiBdev, IscsiParseError};
 pub use nexus::{
     nexus_bdev::{nexus_create, nexus_lookup, Nexus, NexusState},
     nexus_label::{GPTHeader, GptEntry},
+    nexus_state::{
+        NexusConfig,
+        NexusConfigVersion1,
+        NexusConfigVersion2,
+        NexusConfigVersion3,
+    },
 };
 pub use nvmf_dev::{NvmeCtlAttachReq, NvmfParseError};
 use spdk_sys::{spdk_conf_section, spdk_conf_section_get_nmval};

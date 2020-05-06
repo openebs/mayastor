@@ -23,6 +23,7 @@ pub mod nexus_nbd;
 pub mod nexus_rpc;
 pub mod nexus_share;
 pub mod nexus_state;
+
 /// public function which simply calls register module
 pub fn register_module() {
     register_rpc_methods();
