@@ -114,7 +114,10 @@ impl NexusFnTable {
                         nio.fail();
                     }
                 }
-                _ => panic!("{} Received unsupported IO!", nexus.name),
+                _ => panic!(
+                    "{} Received unsupported IO! type {}",
+                    nexus.name, io_type
+                ),
             };
         } else {
             // something is very wrong ...
