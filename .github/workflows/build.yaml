@@ -25,7 +25,7 @@ jobs:
       - run: /bin/modprobe nbd
       - run: /bin/modprobe xfs
       - run: /bin/modprobe nvme_tcp
-      - run: echo 2048 | tee /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
+      - run: echo 8192 | tee /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
       - run: rm mayastor/.cargo/config
       - run: rm nvmeadm/.cargo/config
       - run: cargo build --all
