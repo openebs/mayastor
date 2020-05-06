@@ -17,7 +17,6 @@ const assert = require('chai').assert;
 const async = require('async');
 const fs = require('fs');
 const path = require('path');
-const util = require('util');
 const { execSync } = require('child_process');
 const protoLoader = require('@grpc/proto-loader');
 // we can't use grpc-kit because we need to connect to UDS and that's currently
@@ -25,9 +24,6 @@ const protoLoader = require('@grpc/proto-loader');
 const grpc = require('grpc-uds');
 const common = require('./test_common');
 const enums = require('./grpc_enums');
-// Without requiring wtf module the ts hangs at the end. It seems that it is
-// waiting for sudo'd mayastor progress which has already exited!?
-const wtfnode = require('wtfnode');
 
 var csiSock = common.CSI_ENDPOINT;
 var endpoint = common.grpc_endpoint;
@@ -40,13 +36,29 @@ LunSizeInMB  150
 BlockSize    4096
 `;
 // uuid without the last digit
-const BASE_UUID = '13dd12ee-7455-44d3-b295-afbbe32ec2e';
+const BASE_UUID = '11111111-0000-0000-0000-00000000000';
 // used UUID aliases
 const UUID1 = BASE_UUID + '0';
+const PUBLISH_CONTEXT1 = {
+  uri: 'file:///dev/nbd' + '0'
+};
 const UUID2 = BASE_UUID + '1';
+const PUBLISH_CONTEXT2 = {
+  uri: 'file:///dev/nbd' + '1'
+};
 const UUID3 = BASE_UUID + '2';
+const PUBLISH_CONTEXT3 = {
+  uri: 'file:///dev/nbd' + '2'
+};
 const UUID4 = BASE_UUID + '3';
+const PUBLISH_CONTEXT4 = {
+  uri: 'file:///dev/nbd' + '3'
+};
 const UUID5 = BASE_UUID + '4';
+const PUBLISH_CONTEXT5 = {
+  uri: 'file:///dev/nbd' + '4'
+};
+
 // UUID not used by any volume
 const UNKNOWN_UUID = BASE_UUID + '9';
 
@@ -119,7 +131,6 @@ describe('csi', function () {
   // to depend on correct function of mayastor iface in order to test CSI.
   before((done) => {
     const identityClient = createCsiClient('Identity');
-    const i = 0;
 
     common.startMayastor(CONFIG);
     common.startMayastorGrpc();
@@ -192,8 +203,10 @@ describe('csi', function () {
             next
           );
         },
+        // use timesSeries because we want the device paths
+        // to match the predefined PUBLISH_CONTEXT? values.
         (next) => {
-          async.times(
+          async.timesSeries(
             5,
             function (n, next) {
               const uuid = BASE_UUID + n;
@@ -230,6 +243,7 @@ describe('csi', function () {
               common.dumbCommand('unpublish_nexus', { uuid: uuid }, next);
             },
             function (err, res) {
+              console.log('Error:', err);
               next();
             }
           );
@@ -366,7 +380,7 @@ describe('csi', function () {
     function getDefaultArgs () {
       return {
         volume_id: UUID1,
-        publish_context: {},
+        publish_context: PUBLISH_CONTEXT1,
         staging_target_path: mountTarget,
         volume_capability: {
           access_mode: {
@@ -397,7 +411,7 @@ describe('csi', function () {
       cleanPublishDir(mountTarget, done);
     });
 
-    it('should be able to stage volume', (done) => {
+    it('should be able to stage volume (1)', (done) => {
       client.nodeStageVolume(getDefaultArgs(), (err) => {
         if (err) return done(err);
         assert.equal(getFsType(mountTarget), 'xfs');
@@ -439,6 +453,7 @@ describe('csi', function () {
     it('staging a volume with the same staging path but with a different bdev should fail', (done) => {
       const args = getDefaultArgs();
       args.volume_id = UUID2;
+      args.publish_context = PUBLISH_CONTEXT2;
 
       client.nodeStageVolume(
         args,
@@ -529,9 +544,6 @@ describe('csi', function () {
     var client;
     var mountTarget = '/tmp/target1';
 
-    // get default args for stage op with xfs fs
-    function getDefaultArgs () {}
-
     before((done) => {
       client = createCsiClient('Node');
       cleanPublishDir(mountTarget, () => {
@@ -547,11 +559,11 @@ describe('csi', function () {
       cleanPublishDir(mountTarget, done);
     });
 
-    it('should be able to stage volume', (done) => {
+    it('should be able to stage volume (2)', (done) => {
       client.nodeStageVolume(
         {
           volume_id: UUID2,
-          publish_context: {},
+          publish_context: PUBLISH_CONTEXT2,
           staging_target_path: mountTarget,
           volume_capability: {
             access_mode: {
@@ -610,6 +622,7 @@ describe('csi', function () {
     it('should fail to stage unsupported fs', (done) => {
       const args = {
         volume_id: UUID3,
+        publish_context: PUBLISH_CONTEXT3,
         staging_target_path: mountTarget,
         volume_capability: {
           access_mode: {
@@ -650,7 +663,7 @@ describe('csi', function () {
       before((done) => {
         const stageArgs = {
           volume_id: UUID4,
-          publish_context: {},
+          publish_context: PUBLISH_CONTEXT4,
           staging_target_path: mountTarget,
           volume_capability: {
             access_mode: {
@@ -700,6 +713,7 @@ describe('csi', function () {
       it('should publish a volume in ro mode and test it is idempotent op', (done) => {
         const args = {
           volume_id: UUID4,
+          publish_context: PUBLISH_CONTEXT4,
           staging_target_path: mountTarget,
           target_path: bindTarget1,
           volume_capability: {
@@ -724,6 +738,7 @@ describe('csi', function () {
       it('should fail when re-publishing with a different staging path', (done) => {
         const args = {
           volume_id: UUID4,
+          publish_context: PUBLISH_CONTEXT4,
           staging_target_path: '/invalid_staging_path',
           target_path: bindTarget1,
           volume_capability: {
@@ -745,6 +760,7 @@ describe('csi', function () {
       it('should fail with a missing target path', (done) => {
         const args = {
           volume_id: UUID4,
+          publish_context: PUBLISH_CONTEXT4,
           staging_target_path: mountTarget,
           volume_capability: {
             access_mode: {
@@ -765,6 +781,7 @@ describe('csi', function () {
       it('should fail to publish the volume as rw', (done) => {
         const args = {
           volume_id: UUID4,
+          publish_context: PUBLISH_CONTEXT4,
           staging_target_path: mountTarget,
           target_path: bindTarget2,
           volume_capability: {
@@ -827,7 +844,7 @@ describe('csi', function () {
       before((done) => {
         const stageArgs = {
           volume_id: UUID5,
-          publish_context: {},
+          publish_context: PUBLISH_CONTEXT5,
           staging_target_path: mountTarget,
           volume_capability: {
             access_mode: {
@@ -876,6 +893,7 @@ describe('csi', function () {
       it('should publish ro volume', (done) => {
         const args = {
           volume_id: UUID5,
+          publish_context: PUBLISH_CONTEXT5,
           staging_target_path: mountTarget,
           target_path: bindTarget1,
           readonly: true,
@@ -901,6 +919,7 @@ describe('csi', function () {
       it('should publish rw volume', (done) => {
         const args = {
           volume_id: UUID5,
+          publish_context: PUBLISH_CONTEXT5,
           staging_target_path: mountTarget,
           target_path: bindTarget2,
           volume_capability: {

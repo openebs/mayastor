@@ -52,15 +52,15 @@ class Nexus {
   merge (props) {
     let changed = false;
 
-    if (this.size != props.size) {
+    if (this.size !== props.size) {
       this.size = props.size;
       changed = true;
     }
-    if (this.devicePath != props.devicePath) {
+    if (this.devicePath !== props.devicePath) {
       this.devicePath = props.devicePath;
       changed = true;
     }
-    if (this.state != props.state) {
+    if (this.state !== props.state) {
       this.state = props.state;
       changed = true;
     }
@@ -131,9 +131,9 @@ class Nexus {
       );
     }
 
-    const nexus_protocol = 'NEXUS_'.concat(protocol.toUpperCase());
+    const nexusProtocol = 'NEXUS_'.concat(protocol.toUpperCase());
     var share = mayastor.ShareProtocolNexus.type.value.find(
-      (ent) => ent.name == nexus_protocol
+      (ent) => ent.name === nexusProtocol
     );
     if (!share) {
       throw new GrpcError(
@@ -141,9 +141,7 @@ class Nexus {
         `Cannot find protocol "${protocol}" for Nexus ${this}`
       );
     }
-    log.info(
-      `Publishing nexus "${this}" with protocol=${protocol}  share=${share}...`
-    );
+    log.info(`Publishing nexus "${this}" with protocol=${protocol} ...`);
     try {
       res = await this.node.call('publishNexus', {
         uuid: this.uuid,
@@ -185,7 +183,7 @@ class Nexus {
   //
   async addReplica (replica) {
     const uri = replica.uri;
-    if (this.children.find((ch) => ch.uri == uri)) {
+    if (this.children.find((ch) => ch.uri === uri)) {
       return;
     }
     log.debug(`Adding uri "${uri}" to nexus "${this}" ...`);
@@ -215,7 +213,7 @@ class Nexus {
   //
   async removeReplica (replica) {
     const uri = replica.uri;
-    if (!this.children.find((ch) => ch.uri == uri)) {
+    if (!this.children.find((ch) => ch.uri === uri)) {
       return;
     }
 
@@ -233,7 +231,7 @@ class Nexus {
       );
     }
     // get index again in case the list changed in the meantime
-    const idx = this.children.findIndex((ch) => ch.uri == uri);
+    const idx = this.children.findIndex((ch) => ch.uri === uri);
     if (idx >= 0) {
       this.children.splice(idx, 1);
     }
@@ -249,7 +247,7 @@ class Nexus {
       log.info(`Destroyed nexus "${this}"`);
     } catch (err) {
       // TODO: make destroyNexus idempotent
-      if (err.code != GrpcCode.NOT_FOUND) {
+      if (err.code !== GrpcCode.NOT_FOUND) {
         throw err;
       }
       log.warn(`Destroyed nexus "${this}" does not exist`);

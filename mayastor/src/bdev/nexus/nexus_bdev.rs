@@ -698,7 +698,7 @@ impl Nexus {
         }
     }
 
-    /// send reset IO to the underlying children.
+    /// reset underlying children.
     pub(crate) fn reset(
         &self,
         pio: *mut spdk_bdev_io,

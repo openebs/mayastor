@@ -11,11 +11,11 @@ const log = require('./logger').Logger('csi');
 const { GrpcError } = require('./grpc_client');
 const {
   PLUGIN_NAME,
-  parseMayastorNodeId,
-  isPoolAccessible
+  parseMayastorNodeId
 } = require('./common');
 
-const PROTO_PATH = __dirname + '/proto/csi.proto';
+const path = require('path');
+const PROTO_PATH = path.join(__dirname, '/proto/csi.proto');
 // TODO: can we generate version with commit SHA dynamically?
 const VERSION = '0.1';
 const PVC_RE = /pvc-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/;
@@ -29,7 +29,7 @@ const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
   oneofs: true,
   // this is to load google/descriptor.proto, otherwise you would see error:
   // unresolvable extensions: 'extend google.protobuf.FieldOptions' in .csi.v1
-  includeDirs: [__dirname + '/node_modules/protobufjs']
+  includeDirs: [path.join(__dirname, '/node_modules/protobufjs')]
 });
 const csi = grpc.loadPackageDefinition(packageDefinition).csi.v1;
 
@@ -48,7 +48,7 @@ function checkCapabilities (caps) {
     const cap = caps[i];
 
     // TODO: Check that FS type is supported and mount options?
-    if (cap.accessMode.mode != 'SINGLE_NODE_WRITER') {
+    if (cap.accessMode.mode !== 'SINGLE_NODE_WRITER') {
       throw new GrpcError(
         grpc.status.INVALID_ARGUMENT,
         `Access mode ${cap.accessMode.mode} not supported`
@@ -83,7 +83,7 @@ class CsiServer {
   //
   // @param {string} sockPath   Unix domain socket for csi server to listen on.
   constructor (sockPath) {
-    assert.equal(typeof sockPath, 'string');
+    assert.strictEqual(typeof sockPath, 'string');
     this.server = new grpc.Server();
     this.ready = false;
     this.registry = null;
@@ -302,7 +302,7 @@ class CsiServer {
         for (const key in reqs.segments) {
           // We are not able to evaluate any other topology requirements than
           // the hostname req. Reject all others.
-          if (key != 'kubernetes.io/hostname') {
+          if (key !== 'kubernetes.io/hostname') {
             return cb(
               new GrpcError(
                 grpc.status.INVALID_ARGUMENT,
@@ -322,7 +322,7 @@ class CsiServer {
         const reqs = args.accessibilityRequirements.preferred[i];
         for (const key in reqs.segments) {
           // ignore others than hostname (it's only preferred)
-          if (key == 'kubernetes.io/hostname') {
+          if (key === 'kubernetes.io/hostname') {
             shouldNodes.push(reqs.segments[key]);
           }
         }
@@ -458,7 +458,7 @@ class CsiServer {
       return cb(err);
     }
     const nodeName = volume.getNodeName();
-    if (nodeId.node != nodeName) {
+    if (nodeId.node !== nodeName) {
       return cb(
         new GrpcError(
           grpc.status.INVALID_ARGUMENT,
@@ -491,12 +491,18 @@ class CsiServer {
       );
     }
 
+    const publishCtx = {};
     try {
-      await volume.publish(args.volumeContext.protocol);
+      publishCtx.uri = await volume.publish(args.volumeContext.protocol);
+      log.debug(
+        `"${args.volumeId}" published, got uri ${publishCtx.uri} `
+      );
     } catch (err) {
       if (err.code === grpc.status.ALREADY_EXISTS) {
         log.debug(`Volume "${args.volumeId}" already published on this node`);
-        cb(null, {});
+        cb(null, {
+          publishContext: JSON.parse(JSON.stringify(publishCtx))
+        });
       } else {
         cb(err);
       }
@@ -506,7 +512,9 @@ class CsiServer {
     log.info(
       `Published volume "${args.volumeId}, share proctocol: "${args.volumeContext.protocol}"`
     );
-    cb(null, {});
+    cb(null, {
+      publishContext: JSON.parse(JSON.stringify(publishCtx))
+    });
   }
 
   async controllerUnpublishVolume (call, cb) {
@@ -530,7 +538,7 @@ class CsiServer {
       return cb(err);
     }
     const nodeName = volume.getNodeName();
-    if (nodeId.node != nodeName) {
+    if (nodeId.node !== nodeName) {
       // we unpublish the volume anyway but at least we log a message
       log.warn(
         `Request to unpublish volume "${args.volumeId}" from a node ` +
@@ -561,7 +569,7 @@ class CsiServer {
       );
     }
     const caps = args.volumeCapabilities.filter(
-      (cap) => cap.accessMode.mode == 'SINGLE_NODE_WRITER'
+      (cap) => cap.accessMode.mode === 'SINGLE_NODE_WRITER'
     );
     const resp = {};
     if (caps.length > 0) {
@@ -591,7 +599,7 @@ class CsiServer {
     }
     if (args.accessibleTopology) {
       for (const key in args.accessibleTopology.segments) {
-        if (key == 'kubernetes.io/hostname') {
+        if (key === 'kubernetes.io/hostname') {
           nodeName = args.accessibleTopology.segments[key];
           break;
         }
