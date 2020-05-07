@@ -16,6 +16,7 @@ const { createClient } = require('grpc-kit');
 const grpc = require('grpc');
 const common = require('./test_common');
 const enums = require('./grpc_enums');
+const url = require('url');
 // just some UUID used for nexus ID
 const UUID = 'dbe4d7eb-118a-4d15-b789-a18d9af6ff21';
 const UUID2 = 'dbe4d7eb-118a-4d15-b789-a18d9af6ff22';
@@ -154,7 +155,7 @@ var doUring = (function () {
 
 describe('nexus', function () {
   var client;
-  var nbdDevice;
+  var nbdDeviceUri;
   var iscsiUri;
 
   const unpublish = (args) => {
@@ -421,7 +422,7 @@ describe('nexus', function () {
           done(err);
         } else {
           assert(res.device_path);
-          nbdDevice = res.device_path;
+          nbdDeviceUri = res.device_path;
           done();
         }
       }
@@ -447,7 +448,7 @@ describe('nexus', function () {
           done(err);
         } else {
           assert(res.device_path);
-          nbdDevice = res.device_path;
+          nbdDeviceUri = res.device_path;
           done();
         }
       }
@@ -456,7 +457,8 @@ describe('nexus', function () {
 
   it('should be able to write to the NBD device', async () => {
     const fs = require('fs').promises;
-    const fd = await fs.open(nbdDevice, 'w', 666);
+    const deviceURL = new url.URL(nbdDeviceUri);
+    const fd = await fs.open(deviceURL.pathname, 'w', 666);
     const buffer = Buffer.alloc(512, 'z', 'utf8');
     await fd.write(buffer, 0, 512);
     await fd.sync();
@@ -465,7 +467,8 @@ describe('nexus', function () {
 
   it('should be able to read the written data back', async () => {
     const fs = require('fs').promises;
-    const fd = await fs.open(nbdDevice, 'r', 666);
+    const deviceURL = new url.URL(nbdDeviceUri);
+    const fd = await fs.open(deviceURL.pathname, 'r', 666);
     const buffer = Buffer.alloc(512, 'a', 'utf8');
     await fd.read(buffer, 0, 512);
     await fd.close();

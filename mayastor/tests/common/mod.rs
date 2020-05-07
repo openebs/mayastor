@@ -9,6 +9,7 @@ use mayastor::{
 };
 use spdk_sys::spdk_get_thread;
 use std::time::Duration;
+use url::{ParseError, Url};
 
 pub mod ms_exec;
 /// call F cnt times, and sleep for a duration between each invocation
@@ -314,4 +315,13 @@ pub fn compare_devices(
     .unwrap();
     assert_eq!(exit, 0, "stdout: {}\nstderr: {}", stdout, stderr);
     stdout
+}
+
+pub fn device_path_from_uri(device_uri: String) -> String {
+    assert_ne!(
+        Url::parse(device_uri.as_str()),
+        Err(ParseError::RelativeUrlWithoutBase)
+    );
+    let url = Url::parse(device_uri.as_str()).unwrap();
+    String::from(url.path())
 }

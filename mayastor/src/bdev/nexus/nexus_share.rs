@@ -49,7 +49,7 @@ impl Nexus {
                     });
                 } else {
                     warn!("{} is already shared", self.name);
-                    return Ok(nbd_disk.get_path());
+                    return Ok(nbd_disk.as_uri());
                 }
             }
             Some(NexusTarget::NexusIscsiTarget(ref iscsi_target)) => {
@@ -106,7 +106,7 @@ impl Nexus {
                     NbdDisk::create(&name).await.context(ShareNbdNexus {
                         name: self.name.clone(),
                     })?;
-                let device_path = nbd_disk.get_path();
+                let device_path = nbd_disk.as_uri();
                 self.nexus_target = Some(NexusTarget::NbdDisk(nbd_disk));
                 device_path
             }
@@ -181,9 +181,7 @@ impl Nexus {
     /// shared as nbd.
     pub fn get_share_path(&self) -> Option<String> {
         match self.nexus_target {
-            Some(NexusTarget::NbdDisk(ref disk)) => {
-                Some(format!("file://{}", disk.get_path()))
-            }
+            Some(NexusTarget::NbdDisk(ref disk)) => Some(disk.as_uri()),
             Some(NexusTarget::NexusIscsiTarget(ref iscsi_target)) => {
                 Some(iscsi_target.as_uri())
             }
