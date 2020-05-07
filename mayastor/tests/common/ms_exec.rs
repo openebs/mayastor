@@ -172,14 +172,19 @@ impl MayastorProcess {
     }
 
     /// terminate the mayastor process and wait for it to die
-    pub fn sig_term(&self) {
+    pub fn sig_term(&mut self) {
+        if self.child == 0 {
+            return;
+        }
+        let child = self.child;
+        self.child = 0;
         Command::new("kill")
-            .args(&["-s", "SIGTERM", &format!("{}", self.child)])
+            .args(&["-s", "SIGTERM", &format!("{}", child)])
             .spawn()
             .unwrap();
 
         // blocks until PID is gone, signals are racy by themselves however
-        waitpid(Pid::from_raw(self.child as i32), None).unwrap();
+        waitpid(Pid::from_raw(child as i32), None).unwrap();
     }
 }
 
