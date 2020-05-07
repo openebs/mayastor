@@ -105,6 +105,7 @@ in
       contents = [ pkgs.busybox mayastor ];
       config = {
         Env = [ "PATH=${env}" ];
+        ExposedPorts = { "10124/tcp" = { }; };
         Entrypoint = [ "/bin/mayastor" ];
       };
     };
@@ -116,7 +117,6 @@ in
       contents = [ pkgs.busybox mayastor mayastorIscsiadm ];
       config = {
         Entrypoint = [ "/bin/mayastor-agent" ];
-        ExposedPorts = { "10124/tcp" = { }; };
         Env = [ "PATH=${env}" ];
       };
     };

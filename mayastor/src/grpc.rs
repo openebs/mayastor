@@ -7,7 +7,11 @@ use rpc::{
 
 use crate::{
     bdev::{
-        nexus::{instances, nexus_bdev, nexus_bdev::Nexus},
+        nexus::{
+            instances,
+            nexus_bdev,
+            nexus_bdev::{name_to_uuid, uuid_to_name, Nexus},
+        },
         nexus_create,
     },
     core::{Cores, Reactors},
@@ -18,10 +22,14 @@ use crate::{
 #[derive(Debug)]
 struct UnixStream(tokio::net::UnixStream);
 
+/// Lookup a nexus by its uuid. Return error if uuid is invalid or nexus
+/// not found.
 fn nexus_lookup(
     uuid: &str,
 ) -> std::result::Result<&mut Nexus, nexus_bdev::Error> {
-    if let Some(nexus) = instances().iter_mut().find(|n| n.name == uuid) {
+    let name = uuid_to_name(uuid)?;
+
+    if let Some(nexus) = instances().iter_mut().find(|n| n.name == name) {
         Ok(nexus)
     } else {
         Err(nexus_bdev::Error::NexusNotFound {
@@ -130,7 +138,11 @@ impl Mayastor for MayastorGrpc {
     ) -> Result<Response<Null>> {
         let msg = request.into_inner();
         locally! { async move {
-                nexus_create(&msg.uuid, msg.size, Some(&msg.uuid), &msg.children).await
+                let name = match uuid_to_name(&msg.uuid) {
+                    Ok(name) => name,
+                    Err(err) => return Err(err),
+                };
+                nexus_create(&name, msg.size, Some(&msg.uuid), &msg.children).await
         }};
 
         Ok(Response::new(Null {}))
@@ -151,7 +163,7 @@ impl Mayastor for MayastorGrpc {
         let list = instances()
             .iter()
             .map(|n| rpc::mayastor::Nexus {
-                uuid: n.name.clone(),
+                uuid: name_to_uuid(&n.name).to_string(),
                 size: n.size,
                 state: n.state.to_string(),
                 device_path: n.get_share_path().unwrap_or_default(),

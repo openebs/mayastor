@@ -2,7 +2,6 @@
 
 'use strict';
 
-const { createClient } = require('grpc-kit');
 const async = require('async');
 const fs = require('fs');
 const common = require('./test_common');
@@ -10,7 +9,7 @@ const path = require('path');
 const assert = require('chai').assert;
 const sleep = require('sleep-promise');
 const grpc = require('grpc-uds');
-const grpc_promise = require('grpc-promise');
+const grpcPromise = require('grpc-promise');
 const protoLoader = require('@grpc/proto-loader');
 
 // backend file for aio bdev
@@ -64,38 +63,6 @@ const configNexus = `
   QueueDepth 1
 `;
 
-// The config just for nvmf target which cannot run in the same process as
-// the nvmf initiator (SPDK limitation).
-const configNvmfTarget = `
-[Malloc]
-  NumberOfLuns 1
-  LunSizeInMB  64
-  BlockSize    4096
-
-[Nvmf]
-  AcceptorPollRate 10000
-  ConnectionScheduler RoundRobin
-
-[Transport]
-  Type TCP
-  # reduce memory requirements
-  NumSharedBuffers 32
-
-[Subsystem1]
-  NQN nqn.2019-05.io.openebs:disk2
-  Listen TCP 127.0.0.1:8420
-  AllowAnyHost Yes
-  SN MAYASTOR0000000001
-  MN NEXUSController1
-  MaxNamespaces 1
-  Namespace Malloc0 1
-
-# although not used we still have to reduce mem requirements for iSCSI
-[iSCSI]
-  MaxSessions 1
-  MaxConnectionsPerSession 1
-`;
-
 const nexusArgs = {
   uuid: UUID,
   size: 131072,
@@ -108,7 +75,7 @@ const rebuildArgs = {
 };
 
 function createGrpcClient () {
-  const PROTO_PATH = __dirname + '/../rpc/proto/mayastor_service.proto';
+  const PROTO_PATH = path.join(__dirname, '/../rpc/proto/mayastor_service.proto');
 
   // Load mayastor proto file with mayastor service
   const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
@@ -123,10 +90,10 @@ function createGrpcClient () {
     .mayastor_service;
 
   const client = new mayastor.Mayastor(
-    common.grpc_endpoint,
+    common.grpcEndpoint,
     grpc.credentials.createInsecure()
   );
-  grpc_promise.promisifyAll(client);
+  grpcPromise.promisifyAll(client);
   return client;
 }
 
@@ -148,11 +115,11 @@ describe('rebuild tests', function () {
     const nexus = res.nexusList[0];
     assert.equal(nexus.uuid, UUID);
 
-    if (childType == ObjectType.NEXUS) {
+    if (childType === ObjectType.NEXUS) {
       assert.equal(nexus.state, expectedState);
-    } else if (childType == ObjectType.SOURCE_CHILD) {
+    } else if (childType === ObjectType.SOURCE_CHILD) {
       assert.equal(nexus.children[0].state, expectedState);
-    } else if (childType == ObjectType.DESTINATION_CHILD) {
+    } else if (childType === ObjectType.DESTINATION_CHILD) {
       assert.equal(nexus.children[1].state, expectedState);
     }
   }
@@ -227,10 +194,10 @@ describe('rebuild tests', function () {
         common.stopAll,
         common.restoreNbdPerms,
         (next) => {
-          fs.unlink(child1, (err) => next());
+          fs.unlink(child1, (err) => next()); // eslint-disable-line handle-callback-err
         },
         (next) => {
-          fs.unlink(child2, (err) => next());
+          fs.unlink(child2, (err) => next()); // eslint-disable-line handle-callback-err
         },
         (next) => {
           client
@@ -239,7 +206,7 @@ describe('rebuild tests', function () {
             .then(() => {
               next();
             })
-            .catch((err) => {
+            .catch((err) => { // eslint-disable-line handle-callback-err
               done();
             })
             .catch(done);

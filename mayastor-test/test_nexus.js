@@ -122,7 +122,7 @@ function createGrpcClient (service) {
         oneofs: true
       }
     },
-    common.grpc_endpoint
+    common.grpcEndpoint
   );
 }
 

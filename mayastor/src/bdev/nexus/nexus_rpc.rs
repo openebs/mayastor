@@ -1,5 +1,4 @@
 use futures::{future, FutureExt};
-use uuid::Uuid;
 
 use rpc::mayastor::{
     AddChildNexusRequest,
@@ -23,21 +22,10 @@ use rpc::mayastor::{
 use crate::{
     bdev::nexus::{
         instances,
-        nexus_bdev::{nexus_create, Error, Nexus},
+        nexus_bdev::{name_to_uuid, nexus_create, uuid_to_name, Error, Nexus},
     },
     jsonrpc::jsonrpc_register,
 };
-
-/// Convert the UUID to a nexus name in the form of "nexus-{uuid}".
-/// Return error if the UUID is not valid.
-fn uuid_to_name(uuid: &str) -> Result<String, Error> {
-    match Uuid::parse_str(uuid) {
-        Ok(uuid) => Ok(format!("nexus-{}", uuid.to_hyphenated().to_string())),
-        Err(_) => Err(Error::InvalidUuid {
-            uuid: uuid.to_owned(),
-        }),
-    }
-}
 
 /// Lookup a nexus by its uuid. Return error if uuid is invalid or nexus
 /// not found.
@@ -50,19 +38,6 @@ fn nexus_lookup(uuid: &str) -> Result<&mut Nexus, Error> {
         Err(Error::NexusNotFound {
             name: uuid.to_owned(),
         })
-    }
-}
-
-/// Convert nexus name to uuid.
-///
-/// This function never fails which means that if there is a nexus with
-/// unconventional name that likely means it was not created using nexus
-/// jsonrpc api, we return the whole name without modifications as it is.
-fn name_to_uuid(name: &str) -> &str {
-    if name.starts_with("nexus-") {
-        &name[6 ..]
-    } else {
-        name
     }
 }
 
