@@ -106,7 +106,7 @@ impl Bio {
         unsafe { spdk_bdev_io_complete(self.0, io_status::FAILED) };
     }
 
-    /// asses the IO if we need to mark it failed or ok.
+    /// assess the IO if we need to mark it failed or ok.
     #[inline]
     pub(crate) fn assess(&mut self) {
         self.ctx_as_mut_ref().in_flight -= 1;
@@ -116,7 +116,11 @@ impl Bio {
         }
 
         if self.ctx_as_mut_ref().in_flight == 0 {
-            self.ok();
+            if self.ctx_as_mut_ref().status == io_status::FAILED {
+                self.fail();
+            } else {
+                self.ok();
+            }
         }
     }
 

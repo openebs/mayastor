@@ -74,13 +74,13 @@ async fn read_some() {
     let slice = buf.as_mut_slice();
 
     assert_eq!(slice[0], 0);
-    slice[513] = 0xff;
-    assert_eq!(slice[513], 0xff);
+    slice[512] = 0xff;
+    assert_eq!(slice[512], 0xff);
 
     d.read_at(0, &mut buf).await.unwrap();
 
     let slice = buf.as_slice();
 
     assert_eq!(slice[0], 0xff);
-    assert_eq!(slice[513], 0);
+    assert_eq!(slice[512], 0);
 }
