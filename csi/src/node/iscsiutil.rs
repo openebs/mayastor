@@ -66,7 +66,7 @@ fn attach_disk(
         "-t",
         "sendtargets",
         "-p",
-        "{}:{}",
+        &tp,
         "-I",
         "default",
         "-o",
@@ -187,24 +187,6 @@ pub fn detach_disk(ip_addr: &str, port: &str, iqn: &str) -> Result<(), String> {
         return Err(String::from_utf8(output.stderr).unwrap());
     }
 
-    let args_discoverydb_del = [
-        "-m",
-        "discoverydb",
-        "-t",
-        "sendtargets",
-        "-p",
-        &tp,
-        "-o",
-        "delete",
-    ];
-    trace!("iscsiadm {:?}", args_discoverydb_del);
-    let output = Command::new(&iscsiadm)
-        .args(&args_discoverydb_del)
-        .output()
-        .expect("Failed iscsiadm login");
-    if !output.status.success() {
-        return Err(String::from_utf8(output.stderr).unwrap());
-    }
     Ok(())
 }
 

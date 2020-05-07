@@ -253,6 +253,11 @@ impl NbdDisk {
                 .to_string()
         }
     }
+
+    /// Get nbd device path uri (file:///dev/nbd...) for the nbd disk.
+    pub fn as_uri(&self) -> String {
+        format!("file://{}", self.get_path())
+    }
 }
 
 impl fmt::Debug for NbdDisk {

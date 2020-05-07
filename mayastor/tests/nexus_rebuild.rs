@@ -37,10 +37,12 @@ async fn rebuild_test_start() {
     create_nexus().await;
 
     let nexus = nexus_lookup(NEXUS_NAME).unwrap();
-    let device = nexus
-        .share(ShareProtocolNexus::NexusNbd, None)
-        .await
-        .unwrap();
+    let device = common::device_path_from_uri(
+        nexus
+            .share(ShareProtocolNexus::NexusNbd, None)
+            .await
+            .unwrap(),
+    );
 
     let nexus_device = device.clone();
     let (s, r) = unbounded::<String>();

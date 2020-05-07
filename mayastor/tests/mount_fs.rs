@@ -23,12 +23,14 @@ fn mount_fs() {
         let nexus = nexus_lookup("nexus").unwrap();
 
         //TODO: repeat this test for NVMF and ISCSI
-        let device = nexus
-            .share(ShareProtocolNexus::NexusNbd, None)
-            .await
-            .unwrap();
-        let (s, r) = unbounded();
+        let device = common::device_path_from_uri(
+            nexus
+                .share(ShareProtocolNexus::NexusNbd, None)
+                .await
+                .unwrap(),
+        );
 
+        let (s, r) = unbounded();
         // create an XFS filesystem on the nexus device, mount it, create a file
         // and return the md5 of that file
 
@@ -53,14 +55,18 @@ fn mount_fs() {
 
         // share both nexuses
         //TODO: repeat this test for NVMF and ISCSI, and permutations?
-        let left_device = left
-            .share(ShareProtocolNexus::NexusNbd, None)
-            .await
-            .unwrap();
-        let right_device = right
-            .share(ShareProtocolNexus::NexusNbd, None)
-            .await
-            .unwrap();
+        let left_device = common::device_path_from_uri(
+            left.share(ShareProtocolNexus::NexusNbd, None)
+                .await
+                .unwrap(),
+        );
+
+        let right_device = common::device_path_from_uri(
+            right
+                .share(ShareProtocolNexus::NexusNbd, None)
+                .await
+                .unwrap(),
+        );
 
         let s1 = s.clone();
         std::thread::spawn(move || {
@@ -106,10 +112,12 @@ fn mount_fs_1() {
         let nexus = nexus_lookup("nexus").unwrap();
 
         //TODO: repeat this test for NVMF and ISCSI
-        let device = nexus
-            .share(ShareProtocolNexus::NexusNbd, None)
-            .await
-            .unwrap();
+        let device = common::device_path_from_uri(
+            nexus
+                .share(ShareProtocolNexus::NexusNbd, None)
+                .await
+                .unwrap(),
+        );
 
         std::thread::spawn(move || {
             for _i in 0 .. 10 {
@@ -131,10 +139,12 @@ fn mount_fs_2() {
         let nexus = nexus_lookup("nexus").unwrap();
 
         //TODO: repeat this test for NVMF and ISCSI
-        let device = nexus
-            .share(ShareProtocolNexus::NexusNbd, None)
-            .await
-            .unwrap();
+        let device = common::device_path_from_uri(
+            nexus
+                .share(ShareProtocolNexus::NexusNbd, None)
+                .await
+                .unwrap(),
+        );
         let (s, r) = unbounded::<String>();
 
         std::thread::spawn(move || s.send(common::fio_run_verify(&device)));
