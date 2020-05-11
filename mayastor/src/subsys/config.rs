@@ -16,6 +16,7 @@ use crate::{
     pool::{create_pool, PoolsIter},
     subsys::opts::{
         BdevOpts,
+        ErrStoreOpts,
         IscsiTgtOpts,
         NexusOpts,
         NvmeBdevOpts,
@@ -47,6 +48,8 @@ pub struct Config {
     pub bdev_opts: BdevOpts,
     /// nexus specific options
     pub nexus_opts: NexusOpts,
+    /// error store opts
+    pub err_store_opts: ErrStoreOpts,
     ///
     /// The next options are intended for usage during testing
     ///
@@ -123,6 +126,7 @@ impl Config {
             nexus_bdevs: None,
             pools: None,
             implicit_share_base: true,
+            err_store_opts: self.err_store_opts.get(),
         };
 
         // collect nexus bdevs and insert them into the config

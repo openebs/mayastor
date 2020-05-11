@@ -456,3 +456,27 @@ impl GetOpts for IscsiTgtOpts {
         true
     }
 }
+
+#[serde(default, deny_unknown_fields)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ErrStoreOpts {
+    /// ring buffer size
+    pub err_store_size: usize,
+    /// NexusErrStore enabled
+    pub enable_err_store: bool,
+}
+
+impl Default for ErrStoreOpts {
+    fn default() -> Self {
+        Self {
+            err_store_size: 256,
+            enable_err_store: true,
+        }
+    }
+}
+
+impl GetOpts for ErrStoreOpts {
+    fn get(&self) -> Self {
+        self.clone()
+    }
+}
