@@ -18,6 +18,8 @@ use spdk_sys::{
     spdk_nvmf_transport_opts,
 };
 
+use crate::bdev::ActionType;
+
 pub trait GetOpts {
     fn get(&self) -> Self;
     fn set(&self) -> bool {
@@ -482,15 +484,28 @@ impl GetOpts for IscsiTgtOpts {
 pub struct ErrStoreOpts {
     /// ring buffer size
     pub err_store_size: usize,
+
     /// NexusErrStore enabled
     pub enable_err_store: bool,
+
+    /// whether to fault the child due to the total number of failed IOs
+    pub action: ActionType,
+
+    /// the maximum number of errors in total
+    pub max_errors: u32,
+
+    /// errors older than this are ignored
+    pub retention_ns: u64,
 }
 
 impl Default for ErrStoreOpts {
     fn default() -> Self {
         Self {
             err_store_size: 256,
-            enable_err_store: true,
+            enable_err_store: false,
+            action: ActionType::Ignore,
+            max_errors: 5,
+            retention_ns: 10_000_000_000,
         }
     }
 }

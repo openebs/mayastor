@@ -154,6 +154,12 @@ pub enum Error {
         name
     ))]
     DestroyLastChild { child: String, name: String },
+    #[snafu(display(
+        "Cannot remove the last child {} of nexus {} from the IO path",
+        child,
+        name
+    ))]
+    RemoveLastChild { child: String, name: String },
     #[snafu(display("Failed to destroy child {} of nexus {}", child, name))]
     DestroyChild {
         source: NexusBdevError,
