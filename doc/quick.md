@@ -14,8 +14,9 @@ This has steps have been tested on:
 
  * Only works on Intel Core i7 processor architecture (march=corei7) and higher
  * MayaStor Daemonset (MDS) requires privileged mode
- * MDS requires 2MB hugepages
+ * MDS requires 2MB huge pages
  * For testing, MDS requires the Network Block Device driver (NBD) and the XFS filesystem kernel module
+ * For use with iSCSI see [Prerequisites (iSCSI client)](https://docs.openebs.io/docs/next/prerequisites.html)
 
 ## Quickstart
 
@@ -129,15 +130,35 @@ This has steps have been tested on:
     ```
 
 6.  Create a Storage Class using MayaStor CSI plugin for volume provisioning:
+
+    The underlying MayaStor volume can made available using NBD or iSCSI, so there are 2 possible definitions for storage classes
+  * NBD
     ```bash
     cat <<EOF | kubectl create -f -
     kind: StorageClass
     apiVersion: storage.k8s.io/v1
     metadata:
       name: mayastor
+    parameters:
+      repl: '1'
+      protocol: 'nbd'
     provisioner: io.openebs.csi-mayastor
     EOF
     ```
+  * iSCSI
+    ```bash
+    cat <<EOF | kubectl create -f -
+    kind: StorageClass
+    apiVersion: storage.k8s.io/v1
+    metadata:
+      name: mayastor-iscsi
+    parameters:
+      repl: '1'
+      protocol: 'iscsi'
+    provisioner: io.openebs.csi-mayastor
+    EOF
+    ```
+
 
 7.  Create a Persistent Volume Claim (PVC):
     ```bash
@@ -155,6 +176,8 @@ This has steps have been tested on:
       storageClassName: mayastor
     EOF
     ```
+    Note: change value of `storageClassName` if required, for example: `      storageClassName: mayastor-iscsi`
+
     Verify that the PVC and Persistent Volume (PV) for the PVC have been
     created:
     ```bash
@@ -214,7 +237,7 @@ This has steps have been tested on:
 
 * Missing finalizers
 
-    Finalizers have not been implemented yet, therefor, it is important to follow
+    Finalizers have not been implemented yet, therefore, it is important to follow
     the proper order of tear down:
 
      - delete the pods using a mayastor PVC
