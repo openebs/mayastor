@@ -8,7 +8,7 @@ on:
     branches:
       - master
 jobs:
-  Build:
+  Build_and_run_cargo:
     name: Build and run cargo tests
     runs-on: self-hosted
     timeout-minutes: 20
@@ -38,8 +38,18 @@ jobs:
         with:
           name: mayastor
           path: ./target/debug/github-artifacts
-  Test:
-    needs: Build
+  Build_and_test_moac:
+    name: Build and run moac tests
+    runs-on: ubuntu-latest
+    container:
+      image: docker.io/mayadata/ms-buildenv:nix
+    steps:
+      - uses: actions/checkout@v2
+      # npm prepare is normally done by npm install but not if run as a root
+      - run: cd csi/moac && npm install && npm run-script prepare
+      - run: cd csi/moac && npm test
+  Test_mayastor_with_mocha:
+    needs: Build_and_run_cargo
     name: Run mocha tests
     runs-on: ubuntu-latest
     container:
@@ -62,20 +72,3 @@ jobs:
       - run: ( cd mayastor-test && ./node_modules/mocha/bin/mocha test_csi.js )
       - run: ( cd mayastor-test && ./node_modules/mocha/bin/mocha test_nexus.js )
       - run: ( cd mayastor-test && ./node_modules/mocha/bin/mocha test_rebuild.js )
-  Image:
-    # dont image if the build fails
-    needs: Test
-    name: Build docker images
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-      - uses: actions/checkout@v2
-      - uses: cachix/install-nix-action@v7
-      - uses: cachix/cachix-action@v5
-        with:
-          name: mayastor
-          skipNixBuild: true
-      - run: nix-build -A mayastorImage -o /tmp/mayastorImage
-      - run: nix-build -A mayastorCSIImage -o /tmp/mayastorCSIImage
