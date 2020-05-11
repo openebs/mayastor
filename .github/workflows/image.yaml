@@ -1,5 +1,8 @@
 name: "Image"
 on:
+  pull_request:
+    paths-ignore:
+      - 'doc/**'
   push:
     branches:
       - master
@@ -19,6 +22,7 @@ jobs:
         with:
           name: mayastor-moac-image
           path: /tmp/node-moacImage
+        if: ${{ github.event_name != 'pull_request' }}
   CSI:
     name: Build CSI image
     runs-on: ubuntu-latest
@@ -37,6 +41,7 @@ jobs:
         with:
           name: mayastor-csi-image
           path: /tmp/mayastorCSIImage
+        if: ${{ github.event_name != 'pull_request' }}
   Mayastor:
     name: Build Mayastor image
     runs-on: ubuntu-latest
@@ -55,3 +60,4 @@ jobs:
         with:
           name: mayastor-image
           path: /tmp/mayastorImage
+        if: ${{ github.event_name != 'pull_request' }}

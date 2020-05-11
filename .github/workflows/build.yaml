@@ -2,7 +2,6 @@ name: "Mayastor tests"
 on:
   pull_request:
     paths-ignore:
-      - 'csi/moac/**'
       - 'doc/**'
   push:
     branches:
