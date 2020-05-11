@@ -7,8 +7,10 @@ use snafu::{ResultExt, Snafu};
 use spdk_sys::{spdk_bdev_module_release_bdev, spdk_io_channel};
 
 use crate::{
+    bdev::NexusErrStore,
     core::{Bdev, BdevHandle, CoreError, Descriptor, DmaBuf},
     nexus_uri::{bdev_destroy, BdevCreateDestroy},
+    subsys::Config,
 };
 
 #[derive(Debug, Snafu)]
@@ -94,6 +96,9 @@ pub struct NexusChild {
     /// descriptor obtained after opening a device
     #[serde(skip_serializing)]
     pub(crate) bdev_handle: Option<BdevHandle>,
+    /// record of most-recent IO errors
+    #[serde(skip_serializing)]
+    pub(crate) err_store: Option<NexusErrStore>,
 }
 
 impl Display for NexusChild {
@@ -157,6 +162,12 @@ impl NexusChild {
             BdevHandle::try_from(self.desc.as_ref().unwrap().clone()).unwrap(),
         );
 
+        let cfg = Config::by_ref();
+        if cfg.err_store_opts.enable_err_store {
+            self.err_store =
+                Some(NexusErrStore::new(cfg.err_store_opts.err_store_size));
+        };
+
         self.state = ChildState::Open;
 
         debug!("{}: child {} opened successfully", self.parent, self.name);
@@ -209,6 +220,7 @@ impl NexusChild {
             state: ChildState::Init,
             bdev_handle: None,
             repairing: false,
+            err_store: None,
         }
     }
 
