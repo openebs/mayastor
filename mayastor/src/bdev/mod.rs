@@ -4,6 +4,7 @@ pub use aio_dev::{AioBdev, AioParseError};
 pub use iscsi_dev::{IscsiBdev, IscsiParseError};
 pub use nexus::{
     nexus_bdev::{nexus_create, nexus_lookup, Nexus, NexusState},
+    nexus_child_error_store::NexusErrStore,
     nexus_label::{GPTHeader, GptEntry},
     nexus_metadata_content::{
         NexusConfig,
@@ -12,6 +13,7 @@ pub use nexus::{
         NexusConfigVersion3,
     },
 };
+
 pub use nvmf_dev::{NvmeCtlAttachReq, NvmfParseError};
 use spdk_sys::{spdk_conf_section, spdk_conf_section_get_nmval};
 pub use uring_dev::{UringBdev, UringParseError};

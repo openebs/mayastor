@@ -65,7 +65,7 @@ async fn read_write_metadata() {
             .map(String::from)
             .collect(),
         revision: 38,
-        checksum: 0x3c2d38ab,
+        checksum: 0x3c2d_38ab,
         data: String::from("Hello from v1"),
     }));
 
@@ -76,7 +76,7 @@ async fn read_write_metadata() {
             .map(String::from)
             .collect(),
         revision: 40,
-        checksum: 0x3c2e40ab,
+        checksum: 0x3c2e_40ab,
         data: String::from("Hello from v2"),
         count: 100,
     }));
@@ -84,7 +84,7 @@ async fn read_write_metadata() {
     data.push(NexusConfig::Version3(NexusConfigVersion3 {
         name: "Hello".to_string(),
         revision: 42,
-        checksum: 0x3c2f42ab,
+        checksum: 0x3c2f_42ab,
         data: String::from("Hello from v3")
             .split_whitespace()
             .map(String::from)

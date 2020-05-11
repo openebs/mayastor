@@ -5,10 +5,14 @@
 //! application needs synchronous mirroring may be required.
 
 use crate::nexus_uri::bdev_destroy;
+
+use crate::subsys::Config;
+
 use std::{
     fmt,
     fmt::{Display, Formatter},
     os::raw::c_void,
+    time::SystemTime,
 };
 
 use futures::channel::oneshot;
@@ -20,6 +24,7 @@ use spdk_sys::{
     spdk_bdev_desc,
     spdk_bdev_io,
     spdk_bdev_io_get_buf,
+    spdk_bdev_io_type,
     spdk_bdev_readv_blocks,
     spdk_bdev_register,
     spdk_bdev_reset,
@@ -114,6 +119,8 @@ pub enum Error {
     #[snafu(display("Child {} of nexus {} cannot be found", child, name))]
     ChildMissing { child: String, name: String },
     #[snafu(display("Failed to open child {} of nexus {}", child, name))]
+    ChildMissingErrStore { child: String, name: String },
+    #[snafu(display("Child {} of nexus {} has no error store", child, name))]
     OpenChild {
         source: ChildError,
         child: String,
@@ -538,6 +545,80 @@ impl Nexus {
         }
     }
 
+    fn nanosecond_timestamp(&self) -> u64 {
+        let timestamp_now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .unwrap();
+        timestamp_now.as_secs() * 1_000_000_000
+            + timestamp_now.subsec_nanos() as u64
+    }
+
+    pub fn error_record_add(
+        &mut self,
+        bdev: *const spdk_bdev,
+        io_op_type: spdk_bdev_io_type,
+        io_offset: u64,
+        io_num_blocks: u64,
+        io_error_type: i32,
+    ) {
+        let cfg = Config::by_ref();
+        if cfg.err_store_opts.enable_err_store {
+            let timestamp_nano = self.nanosecond_timestamp();
+
+            for child in self.children.iter_mut() {
+                if child.bdev.as_ref().unwrap().as_ptr() as *const _ == bdev {
+                    if child.err_store.is_some() {
+                        child.err_store.as_mut().unwrap().add_record(
+                            io_op_type,
+                            io_error_type,
+                            io_offset,
+                            io_num_blocks,
+                            timestamp_nano,
+                        );
+                    } else {
+                        error!(
+                            "Failed to record error - child has no error store",
+                        );
+                    }
+                    return;
+                }
+            }
+            error!("Failed to record error - could not identify child",);
+        }
+    }
+
+    pub fn error_record_query(
+        &self,
+        name: &str,
+        io_op_flags: u32,
+        io_error_flags: u32,
+        age_nano: u64,
+    ) -> Result<Option<u32>, Error> {
+        let cfg = Config::by_ref();
+        if cfg.err_store_opts.enable_err_store {
+            let target_timestamp_nano = self.nanosecond_timestamp() - age_nano;
+
+            if let Some(child) = self.children.iter().find(|c| c.name == name) {
+                if child.err_store.as_ref().is_some() {
+                    return Ok(Some(child.err_store.as_ref().unwrap().query(
+                        io_op_flags,
+                        io_error_flags,
+                        target_timestamp_nano,
+                    )));
+                }
+                return Err(Error::ChildMissingErrStore {
+                    child: name.to_string(),
+                    name: self.name.clone(),
+                });
+            }
+            return Err(Error::ChildMissing {
+                child: name.to_string(),
+                name: self.name.clone(),
+            });
+        }
+        Ok(None)
+    }
+
     /// register the bdev with SPDK and set the callbacks for io channel
     /// creation. Once this function is called, the device is visible and can
     /// be used for IO.
@@ -615,7 +696,7 @@ impl Nexus {
 
             pio.ctx_as_mut_ref().status = io_status::FAILED;
         }
-        pio.assess();
+        pio.assess(child_io, success);
         // always free the child IO
         Bio::io_free(child_io);
     }
