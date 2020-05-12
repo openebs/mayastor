@@ -78,7 +78,7 @@ stdenv.mkDerivation rec {
 
   '';
 
-  NIX_CFLAGS_COMPILE = "-mno-movbe -mno-lzcnt -mno-bmi -mno-bmi2 -march=corei7";
+  NIX_CFLAGS_COMPILE = "-mno-movbe -mno-lzcnt -mno-bmi -mno-bmi2 -march=nehalem";
   hardeningDisable = [ "all" ];
 
   postBuild = ''
