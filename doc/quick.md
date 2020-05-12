@@ -1,14 +1,8 @@
 # Quickstart
 
-This has steps have been tested on:
+These steps have been tested on:
 
 * kubeadm (vanilla k8s cluster),
-* Google Kubernetes Engine (GKE) cluster using Ubuntu image
-* Rancher
-* RKE + Fedora CoreOS
-    * You will need to add following directory mapping to `services_kubelet->extra_binds` in your `cluster.yml`:
-     `/opt/rke/var/lib/kubelet/plugins:/var/lib/kubelet/plugins`. Otherwise the CSI socket paths won't match and the CSI
-     driver registration process will fail.
 
 ### Requirements
 
@@ -271,6 +265,12 @@ This has steps have been tested on:
 
  * Replication is not part of the container images, for this you need to [build](/doc/build.md) from source
  * snapshot and clones currently not exposed
+
+### Tips
+* To deploy on RKE + Fedora CoreOS
+    * You will need to add following directory mapping to `services_kubelet->extra_binds` in your `cluster.yml`:
+     `/opt/rke/var/lib/kubelet/plugins:/var/lib/kubelet/plugins`. Otherwise the CSI socket paths won't match and the CSI
+     driver registration process will fail.
 
 ### Grafana
 
