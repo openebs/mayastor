@@ -408,7 +408,12 @@ impl Future for &'static Reactor {
             }
             INIT => {
                 self.poll_once();
-                self.flags.set(DEVELOPER_DELAY);
+
+                if cfg!(debug_assertions) {
+                    self.developer_delayed();
+                } else {
+                    self.running();
+                }
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }
