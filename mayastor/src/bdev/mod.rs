@@ -5,7 +5,7 @@ pub use iscsi_dev::{IscsiBdev, IscsiParseError};
 pub use nexus::{
     nexus_bdev::{nexus_create, nexus_lookup, Nexus, NexusState},
     nexus_label::{GPTHeader, GptEntry},
-    nexus_state::{
+    nexus_metadata_content::{
         NexusConfig,
         NexusConfigVersion1,
         NexusConfigVersion2,

@@ -1,10 +1,15 @@
+//! Definitions of objects that may be stored on the "MayaMeta" partition.
+//! Note that the definitions provided here are purely for demonstration
+//! (and testing) purposes at present.
+//! The intent is that these structures will define precisely what
+//! content is to be stored on the "MayaMeta" partition.
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 #[derive(Debug, Deserialize, PartialEq, Default, Serialize, Clone)]
 pub struct NexusConfigVersion1 {
     pub name: String,
-    pub labels: Vec<String>,
+    pub tags: Vec<String>,
     pub revision: u32,
     pub checksum: u32,
     pub data: String,
@@ -13,9 +18,10 @@ pub struct NexusConfigVersion1 {
 #[derive(Debug, Deserialize, PartialEq, Default, Serialize, Clone)]
 pub struct NexusConfigVersion2 {
     pub name: String,
-    pub labels: Vec<String>,
+    pub tags: Vec<String>,
     pub revision: u32,
     pub checksum: u32,
+    pub data: String,
     pub count: u16,
 }
 

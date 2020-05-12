@@ -60,7 +60,7 @@ async fn read_write_metadata() {
 
     data.push(NexusConfig::Version1(NexusConfigVersion1 {
         name: "Hello".to_string(),
-        labels: String::from("How now brown cow")
+        tags: String::from("How now brown cow")
             .split_whitespace()
             .map(String::from)
             .collect(),
@@ -71,12 +71,13 @@ async fn read_write_metadata() {
 
     data.push(NexusConfig::Version2(NexusConfigVersion2 {
         name: "Hello".to_string(),
-        labels: String::from("How now brown cow")
+        tags: String::from("How now brown cow")
             .split_whitespace()
             .map(String::from)
             .collect(),
         revision: 40,
         checksum: 0x3c2e40ab,
+        data: String::from("Hello from v2"),
         count: 100,
     }));
 

@@ -1,3 +1,33 @@
+//! Support for manipulating nexus "metadata".
+//! Simple API for adding and retreiving data from the "MayaMeta" partition.
+//! The raw disk partition is accessed directly - there is no filesystem
+//! present.
+//!
+//! The data layout is as follows:
+//!  - The first block of the partition is not used.
+//!  - The second block contains a MetaDataHeader (currently 72 bytes) while the
+//!    remainder of the block is padded with zeros.
+//!  - The "index" starts at the third block and contains a fixed number of
+//!    MetaDataIndexEntry entries, each of which contains the address of an
+//!    object that has been written to the partition.
+//!  - The first usable "data" block is the first block following the index
+//!    (whose size is aligned to the blocksize of the disk).
+//!
+//! ## Example
+//! Sample code to create a new index and add a config object:
+//!
+//!    let config: NexusConfig = NexusConfig::Version1(NexusConfigVersion1 {
+//!       ...
+//!    });
+//!    let now = SystemTime::now();
+//!    let child = &mut nexus.children[0];
+//!    let mut metadata = child.create_metadata().await?;
+//!    child.append_config_object(&mut metadata, &config, &now).await?;
+//!
+//! Sample code to retrieve the latest config object from an existing index:
+//!
+//!    let metadata = child.get_metadata().await?;
+//!    let config = child.get_latest_config_object(&metadata).await?;
 use std::{
     io::{Cursor, Seek, SeekFrom},
     str::FromStr,
@@ -17,17 +47,42 @@ use snafu::{ResultExt, Snafu};
 
 use crate::{
     bdev::nexus::{
+        nexus_bdev::Nexus,
         nexus_child::{ChildError, ChildIoError, NexusChild},
-        nexus_label::{GptEntry, GptGuid, Unsigned},
-        nexus_state::NexusConfig,
+        nexus_label::{Aligned, GptEntry, GptGuid, LabelError},
+        nexus_metadata_content::NexusConfig,
     },
     core::{DmaBuf, DmaError},
 };
 
 #[derive(Debug, Snafu)]
 pub enum MetaDataError {
-    #[snafu(display("Incorrect MetaData header size"))]
-    HeaderSize {},
+    #[snafu(display("{}", source))]
+    NexusChildError { source: ChildError },
+    #[snafu(display("Error probing disk label: {}", source))]
+    ProbeLabelError { source: LabelError },
+    #[snafu(display("Error reading {}: {}", name, source))]
+    ReadError { name: String, source: ChildIoError },
+    #[snafu(display("Error writing {}: {}", name, source))]
+    WriteError { name: String, source: ChildIoError },
+    #[snafu(display(
+        "Failed to allocate buffer for reading {}: {}",
+        name,
+        source
+    ))]
+    ReadAlloc { name: String, source: DmaError },
+    #[snafu(display(
+        "Failed to allocate buffer for writing {}: {}",
+        name,
+        source
+    ))]
+    WriteAlloc { name: String, source: DmaError },
+    #[snafu(display("Serialization error: {}", source))]
+    SerializeError { source: Error },
+    #[snafu(display("Deserialization error: {}", source))]
+    DeserializeError { source: Error },
+    #[snafu(display("Incorrect MetaData header size: {}", size))]
+    HeaderSize { size: u32 },
     #[snafu(display("Incorrect MetaData header signature"))]
     HeaderSignature {},
     #[snafu(display("Incorrect MetaData header checksum"))]
@@ -36,43 +91,22 @@ pub enum MetaDataError {
     IndexChecksum {},
     #[snafu(display("Incorrect MetaData configuration object checksum"))]
     ObjectChecksum {},
-
-    #[snafu(display("MetaData serialization error"))]
-    SerializeError { source: Error },
-    #[snafu(display("MetaData deserialization error"))]
-    DeserializeError { source: Error },
-
-    #[snafu(display("Failed to allocate index: {}", source))]
-    IndexAlloc { source: DmaError },
-    #[snafu(display("Failed to write index: {}", source))]
-    IndexWrite { source: ChildIoError },
-
     #[snafu(display("MetaData index is inconsistent"))]
     IndexInconsistent {},
+    #[snafu(display("MetaData index ({}) out of range ({})", selected, used))]
+    IndexOutOfRange { selected: u32, used: u32 },
     #[snafu(display(
-        "Number of objects {} exceeds index size {}",
-        count,
+        "Number of objects ({}) exceeds index size ({})",
+        used,
         size
     ))]
-    IndexSizeExceeded { count: u32, size: u32 },
+    IndexSizeExceeded { used: u32, size: u32 },
     #[snafu(display("Not enough space left on MetaData partition"))]
     PartitionSizeExceeded {},
-
-    #[snafu(display("Failed to allocate configuration object: {}", source))]
-    ObjectAlloc { source: DmaError },
-    #[snafu(display("Failed to read configuration object: {}", source))]
-    ObjectRead { source: ChildIoError },
-    #[snafu(display("Failed to write configuration object: {}", source))]
-    ObjectWrite { source: ChildIoError },
-
     #[snafu(display("MetaData partition is missing or invalid"))]
     MissingPartition {},
-
     #[snafu(display("Error calculating timestamp: {}", source))]
     TimeStampError { source: SystemTimeError },
-
-    #[snafu(display("{}", error))]
-    NexusChildError { error: String },
 }
 
 #[derive(Debug, Deserialize, PartialEq, Default, Serialize, Copy, Clone)]
@@ -105,16 +139,19 @@ pub struct MetaDataHeader {
 
 impl MetaDataHeader {
     pub const METADATA_HEADER_SIZE: u32 = 72;
-    pub const MAX_INDEX_ENTRIES: u32 = 28;
-    pub const INDEX_ENTRY_SIZE: u32 = 36;
+    pub const MAX_INDEX_ENTRIES: u32 = 32;
+    pub const INDEX_ENTRY_SIZE: u32 = 44;
 
+    /// Convert a slice into a MetaDataHeader and validate
     pub fn from_slice(slice: &[u8]) -> Result<MetaDataHeader, MetaDataError> {
         let mut header: MetaDataHeader =
             deserialize_from(&mut Cursor::new(slice))
                 .context(DeserializeError {})?;
 
         if header.header_size != MetaDataHeader::METADATA_HEADER_SIZE {
-            return Err(MetaDataError::HeaderSize {});
+            return Err(MetaDataError::HeaderSize {
+                size: header.header_size,
+            });
         }
 
         if header.signature != [0x4d, 0x61, 0x79, 0x61, 0x44, 0x61, 0x74, 0x61]
@@ -131,20 +168,23 @@ impl MetaDataHeader {
         Ok(header)
     }
 
+    /// Checksum the header with the checksum field itself set to 0
     pub fn checksum(&mut self) -> u32 {
         self.self_checksum = 0;
         self.self_checksum = crc32::checksum_ieee(&serialize(self).unwrap());
         self.self_checksum
     }
 
+    /// Generate a new MetaDataHeader based on the partition information and the
+    /// underlying block_size
     pub fn new(block_size: u32, partition: &GptEntry) -> MetaDataHeader {
-        let index_start = Unsigned::get_aligned_blocks(
+        let index_start = Aligned::get_blocks(
             MetaDataHeader::METADATA_HEADER_SIZE,
             block_size,
         );
 
         let data_start = index_start
-            + Unsigned::get_aligned_blocks(
+            + Aligned::get_blocks(
                 MetaDataHeader::MAX_INDEX_ENTRIES
                     * MetaDataHeader::INDEX_ENTRY_SIZE,
                 block_size,
@@ -170,15 +210,22 @@ impl MetaDataHeader {
 
 #[derive(Debug, Deserialize, PartialEq, Default, Serialize, Clone)]
 pub struct MetaDataIndexEntry {
+    /// Current object revision
     pub revision: u64,
-    pub timestamp: u64,
+    /// When this entry was created (number of microseconds since UNIX_EPOCH)
+    pub timestamp: u128,
+    /// CRC-32 checksum of all the blocks comprising the stored object
     pub data_checksum: u32,
+    /// Location of first data block (relative to self_lba in the
+    /// MetaDataHeader)
     pub data_start: u64,
+    /// Location of last data block (relative to self_lba in the
+    /// MetaDataHeader)
     pub data_end: u64,
 }
 
 impl MetaDataIndexEntry {
-    ///
+    /// Convert a slice into an index array
     pub fn from_slice(
         slice: &[u8],
         used_entries: u32,
@@ -193,7 +240,7 @@ impl MetaDataIndexEntry {
         Ok(index)
     }
 
-    ///
+    /// Calculate checksum of an index array
     pub fn checksum(index: &[MetaDataIndexEntry]) -> u32 {
         let mut digest = crc32::Digest::new(crc32::IEEE);
         for entry in index {
@@ -211,12 +258,12 @@ pub struct NexusMetaData {
 
 impl NexusMetaData {
     /// Construct a MetaDataHeader from raw data
-    pub fn read_header(buf: &DmaBuf) -> Result<MetaDataHeader, MetaDataError> {
+    fn read_header(buf: &DmaBuf) -> Result<MetaDataHeader, MetaDataError> {
         MetaDataHeader::from_slice(buf.as_slice())
     }
 
-    /// Construct index from raw data
-    pub fn read_index(
+    /// Construct index array from raw data
+    fn read_index(
         buf: &DmaBuf,
         header: &MetaDataHeader,
     ) -> Result<Vec<MetaDataIndexEntry>, MetaDataError> {
@@ -231,8 +278,11 @@ impl NexusMetaData {
         Ok(index)
     }
 
-    /// Construct and validate an empty index
-    pub fn empty_index(
+    /// Create an "empty" index array.
+    // This is called when the header indicates that there are no entries in
+    // the index, in which case there is nothing further to be read from disk.
+    // However we still want to ensure that the checksum is valid in this case.
+    fn empty_index(
         header: &MetaDataHeader,
     ) -> Result<Vec<MetaDataIndexEntry>, MetaDataError> {
         if header.index_checksum != 0 {
@@ -242,7 +292,7 @@ impl NexusMetaData {
     }
 
     /// Construct a (config) object from raw data
-    pub fn read_config_object(
+    fn read_config_object(
         buf: &DmaBuf,
         entry: &MetaDataIndexEntry,
     ) -> Result<NexusConfig, MetaDataError> {
@@ -256,22 +306,149 @@ impl NexusMetaData {
 }
 
 impl NexusChild {
+    /// Read the Metadata header + index from disk
+    async fn probe_index(
+        &self,
+        partition_lba: u64,
+    ) -> Result<NexusMetaData, MetaDataError> {
+        let (bdev, desc) = self.get_dev().context(NexusChildError {})?;
+        let block_size = bdev.block_len() as u64;
+
+        //
+        // Header
+        let blocks = Aligned::get_blocks(
+            MetaDataHeader::METADATA_HEADER_SIZE as u64,
+            block_size,
+        );
+        let mut buf = desc.dma_malloc((blocks * block_size) as usize).context(
+            ReadAlloc {
+                name: String::from("header"),
+            },
+        )?;
+        self.read_at((partition_lba + 1) * block_size, &mut buf)
+            .await
+            .context(ReadError {
+                name: String::from("header"),
+            })?;
+        let header = NexusMetaData::read_header(&buf)?;
+
+        //
+        // Index
+        let index = if header.used_entries > 0 {
+            let blocks = Aligned::get_blocks(
+                (header.used_entries * header.entry_size) as u64,
+                block_size,
+            );
+            let mut buf = desc
+                .dma_malloc((blocks * block_size) as usize)
+                .context(ReadAlloc {
+                    name: String::from("index"),
+                })?;
+            self.read_at(
+                (header.self_lba + header.index_start) * block_size,
+                &mut buf,
+            )
+            .await
+            .context(ReadError {
+                name: String::from("index"),
+            })?;
+            NexusMetaData::read_index(&buf, &header)?
+        } else {
+            NexusMetaData::empty_index(&header)?
+        };
+
+        Ok(NexusMetaData {
+            header,
+            index,
+        })
+    }
+
+    /// Read the selected config object from disk.
+    async fn probe_config_object(
+        &self,
+        metadata: &NexusMetaData,
+        selected: u32,
+    ) -> Result<NexusConfig, MetaDataError> {
+        if selected >= metadata.header.used_entries {
+            return Err(MetaDataError::IndexOutOfRange {
+                selected,
+                used: metadata.header.used_entries,
+            });
+        }
+
+        let entry = &metadata.index[selected as usize];
+
+        let (bdev, desc) = self.get_dev().context(NexusChildError {})?;
+        let block_size = bdev.block_len() as u64;
+
+        let blocks = entry.data_end - entry.data_start + 1;
+        let mut buf = desc.dma_malloc((blocks * block_size) as usize).context(
+            ReadAlloc {
+                name: String::from("object"),
+            },
+        )?;
+        self.read_at(
+            (metadata.header.self_lba + entry.data_start) * block_size,
+            &mut buf,
+        )
+        .await
+        .context(ReadError {
+            name: String::from("object"),
+        })?;
+
+        Ok(NexusMetaData::read_config_object(&buf, entry)?)
+    }
+
+    /// Read all config objects currently present on disk.
+    pub async fn probe_all_config_objects(
+        &self,
+        metadata: &NexusMetaData,
+    ) -> Result<Vec<NexusConfig>, MetaDataError> {
+        let (bdev, desc) = self.get_dev().context(NexusChildError {})?;
+        let block_size = bdev.block_len() as u64;
+
+        let mut list: Vec<NexusConfig> = Vec::new();
+
+        for entry in &metadata.index {
+            let blocks = entry.data_end - entry.data_start + 1;
+            let mut buf = desc
+                .dma_malloc((blocks * block_size) as usize)
+                .context(ReadAlloc {
+                    name: String::from("object"),
+                })?;
+            self.read_at(
+                (metadata.header.self_lba + entry.data_start) * block_size,
+                &mut buf,
+            )
+            .await
+            .context(ReadError {
+                name: String::from("object"),
+            })?;
+            list.push(NexusMetaData::read_config_object(&buf, &entry)?);
+        }
+
+        Ok(list)
+    }
+
+    /// Write the Metadata header + index to disk
     async fn write_index(
         &self,
         metadata: &NexusMetaData,
     ) -> Result<(), MetaDataError> {
-        let (bdev, _desc) = self.get_dev()?;
+        let (bdev, _desc) = self.get_dev().context(NexusChildError {})?;
         let block_size = bdev.block_len() as u64;
 
         let blocks = metadata.header.index_start
-            + Unsigned::get_aligned_blocks(
+            + Aligned::get_blocks(
                 (metadata.header.max_entries * metadata.header.entry_size)
                     as u64,
                 block_size,
             );
         let mut buf =
             DmaBuf::new((blocks * block_size) as usize, bdev.alignment())
-                .context(IndexAlloc {})?;
+                .context(WriteAlloc {
+                    name: String::from("index"),
+                })?;
         let mut writer = Cursor::new(buf.as_mut_slice());
 
         // Header
@@ -288,11 +465,16 @@ impl NexusChild {
 
         self.write_at(metadata.header.self_lba * block_size, &buf)
             .await
-            .context(IndexWrite {})?;
+            .context(WriteError {
+                name: String::from("index"),
+            })?;
 
         Ok(())
     }
 
+    /// Write a config object to disk.
+    /// Also add a corresponding entry to the index and update the header.
+    /// Will fail if there is insufficent space remaining on the disk.
     pub async fn write_config_object(
         &self,
         metadata: &mut NexusMetaData,
@@ -301,18 +483,18 @@ impl NexusChild {
     ) -> Result<(), MetaDataError> {
         if metadata.header.used_entries >= metadata.header.max_entries {
             return Err(MetaDataError::IndexSizeExceeded {
-                count: metadata.header.used_entries + 1,
+                used: metadata.header.used_entries + 1,
                 size: metadata.header.max_entries,
             });
         }
 
-        let (bdev, _desc) = self.get_dev()?;
+        let (bdev, _desc) = self.get_dev().context(NexusChildError {})?;
         let block_size = bdev.block_len() as u64;
 
         let timestamp = now
             .duration_since(UNIX_EPOCH)
             .context(TimeStampError {})?
-            .as_secs();
+            .as_micros();
 
         let start: u64;
 
@@ -325,7 +507,7 @@ impl NexusChild {
             start = metadata.header.data_start;
         }
 
-        let blocks = Unsigned::get_aligned_blocks(
+        let blocks = Aligned::get_blocks(
             serialized_size(config).context(SerializeError {})?,
             block_size,
         );
@@ -337,7 +519,9 @@ impl NexusChild {
 
         let mut buf =
             DmaBuf::new((blocks * block_size) as usize, bdev.alignment())
-                .context(ObjectAlloc {})?;
+                .context(WriteAlloc {
+                    name: String::from("object"),
+                })?;
         let mut writer = Cursor::new(buf.as_mut_slice());
 
         serialize_into(&mut writer, config).context(SerializeError {})?;
@@ -345,7 +529,9 @@ impl NexusChild {
 
         self.write_at((metadata.header.self_lba + start) * block_size, &buf)
             .await
-            .context(ObjectWrite {})?;
+            .context(WriteError {
+                name: String::from("object"),
+            })?;
 
         metadata.header.generation += 1;
         metadata.header.used_entries += 1;
@@ -361,6 +547,9 @@ impl NexusChild {
         Ok(())
     }
 
+    /// Write an array of config object to disk.
+    /// Also generate a suitable index.
+    /// Will fail if there is insufficent space on the disk.
     pub async fn write_all_config_objects(
         &self,
         header: &MetaDataHeader,
@@ -370,26 +559,26 @@ impl NexusChild {
     ) -> Result<Vec<MetaDataIndexEntry>, MetaDataError> {
         if list.len() > header.max_entries as usize {
             return Err(MetaDataError::IndexSizeExceeded {
-                count: list.len() as u32,
+                used: list.len() as u32,
                 size: header.max_entries,
             });
         }
 
         let mut index: Vec<MetaDataIndexEntry> = Vec::new();
 
-        let (bdev, _desc) = self.get_dev()?;
+        let (bdev, _desc) = self.get_dev().context(NexusChildError {})?;
         let block_size = bdev.block_len() as u64;
 
         let timestamp = now
             .duration_since(UNIX_EPOCH)
             .context(TimeStampError {})?
-            .as_secs();
+            .as_micros();
 
         let mut start = header.data_start;
         let mut revision = generation;
 
         for config in list {
-            let blocks = Unsigned::get_aligned_blocks(
+            let blocks = Aligned::get_blocks(
                 serialized_size(config).context(SerializeError {})?,
                 block_size,
             );
@@ -401,7 +590,9 @@ impl NexusChild {
 
             let mut buf =
                 DmaBuf::new((blocks * block_size) as usize, bdev.alignment())
-                    .context(ObjectAlloc {})?;
+                    .context(WriteAlloc {
+                    name: String::from("object"),
+                })?;
             let mut writer = Cursor::new(buf.as_mut_slice());
 
             serialize_into(&mut writer, config).context(SerializeError {})?;
@@ -409,7 +600,9 @@ impl NexusChild {
 
             self.write_at((header.self_lba + start) * block_size, &buf)
                 .await
-                .context(ObjectWrite {})?;
+                .context(WriteError {
+                    name: String::from("object"),
+                })?;
 
             revision += 1;
 
@@ -427,8 +620,8 @@ impl NexusChild {
         Ok(index)
     }
 
-    // Determines if the data defined by the index is currently fragmented.
-    // Returns an error if the index is inconsistent.
+    /// Determines if the data defined by the index is currently fragmented.
+    /// Returns an error if the index is inconsistent.
     fn fragmented(
         mut start: u64,
         index: &[MetaDataIndexEntry],
@@ -445,12 +638,12 @@ impl NexusChild {
         Ok(false)
     }
 
-    // Defragment the data defined by the index, and update the index in situ.
+    /// Defragment the data defined by the index, and update the index in situ.
     async fn compact(
         &mut self,
         metadata: &mut NexusMetaData,
     ) -> Result<(), MetaDataError> {
-        let (bdev, _desc) = self.get_dev()?;
+        let (bdev, _desc) = self.get_dev().context(NexusChildError {})?;
         let block_size = bdev.block_len() as u64;
         let alignment = bdev.alignment();
 
@@ -464,16 +657,22 @@ impl NexusChild {
                     ((blocks + 1) * block_size) as usize,
                     alignment,
                 )
-                .context(ObjectAlloc {})?;
+                .context(ReadAlloc {
+                    name: String::from("object"),
+                })?;
                 self.read_at(
                     (self_lba + entry.data_start) * block_size,
                     &mut buf,
                 )
                 .await
-                .context(ObjectRead {})?;
+                .context(ReadError {
+                    name: String::from("object"),
+                })?;
                 self.write_at((self_lba + start) * block_size, &buf)
                     .await
-                    .context(ObjectWrite {})?;
+                    .context(WriteError {
+                        name: String::from("object"),
+                    })?;
                 entry.data_start = start;
                 entry.data_end = start + blocks;
             }
@@ -483,7 +682,7 @@ impl NexusChild {
         Ok(())
     }
 
-    // Update checksums and write out MetaData header + index to disk.
+    /// Update checksums and write out MetaData header + index to disk.
     pub async fn sync_metadata(
         &mut self,
         metadata: &mut NexusMetaData,
@@ -494,16 +693,21 @@ impl NexusChild {
         self.write_index(&metadata).await
     }
 
-    // Create a new header + index on "MetaData" partition.
+    /// Create a new header + index on "MetaData" partition.
     pub async fn create_metadata(
         &mut self,
     ) -> Result<NexusMetaData, MetaDataError> {
-        let (bdev, _desc) = self.get_dev()?;
+        let (bdev, _desc) = self.get_dev().context(NexusChildError {})?;
 
-        if let Some(partition) = self.probe_label().await?.partitions.get(0) {
+        if let Some(partition) = self
+            .probe_label()
+            .await
+            .context(ProbeLabelError {})?
+            .partitions
+            .get(0)
+        {
             if partition.ent_type
-                == GptGuid::from_str("27663382-e5e6-11e9-81b4-ca5ca5ca5ca5")
-                    .unwrap()
+                == GptGuid::from_str(Nexus::METADATA_PARTITION_TYPE_ID).unwrap()
                 && partition.ent_name.name == "MayaMeta"
             {
                 let mut metadata = NexusMetaData {
@@ -518,12 +722,17 @@ impl NexusChild {
         Err(MetaDataError::MissingPartition {})
     }
 
-    // Retrieve header + index from "MetaData" partition.
+    /// Retrieve header + index from "MetaData" partition.
     pub async fn get_metadata(&self) -> Result<NexusMetaData, MetaDataError> {
-        if let Some(partition) = self.probe_label().await?.partitions.get(0) {
+        if let Some(partition) = self
+            .probe_label()
+            .await
+            .context(ProbeLabelError {})?
+            .partitions
+            .get(0)
+        {
             if partition.ent_type
-                == GptGuid::from_str("27663382-e5e6-11e9-81b4-ca5ca5ca5ca5")
-                    .unwrap()
+                == GptGuid::from_str(Nexus::METADATA_PARTITION_TYPE_ID).unwrap()
                 && partition.ent_name.name == "MayaMeta"
             {
                 return Ok(self.probe_index(partition.ent_start).await?);
@@ -533,49 +742,60 @@ impl NexusChild {
         Err(MetaDataError::MissingPartition {})
     }
 
-    // Retrieve specified config object from "MetaData" partition.
+    /// Retrieve selected config object from "MetaData" partition.
+    /// The "selected" parameter identifies the appropriate entry in the index
+    /// array.
     pub async fn get_config_object(
         &self,
         metadata: &NexusMetaData,
-        n: u32,
+        selected: u32,
     ) -> Result<Option<NexusConfig>, MetaDataError> {
-        if n < metadata.header.used_entries {
-            return Ok(Some(self.probe_config_object(metadata, n).await?));
+        if selected < metadata.header.used_entries {
+            return Ok(Some(
+                self.probe_config_object(metadata, selected).await?,
+            ));
         }
         Ok(None)
     }
 
-    // Retrieve latest config object from "MetaData" partition.
+    /// Retrieve latest config object from "MetaData" partition.
     pub async fn get_latest_config_object(
         &self,
         metadata: &NexusMetaData,
     ) -> Result<Option<NexusConfig>, MetaDataError> {
         if metadata.header.used_entries > 0 {
-            let n = metadata.header.used_entries - 1;
-            return Ok(Some(self.probe_config_object(metadata, n).await?));
+            return Ok(Some(
+                self.probe_config_object(
+                    metadata,
+                    metadata.header.used_entries - 1,
+                )
+                .await?,
+            ));
         }
         Ok(None)
     }
 
-    // Remove specified config object from "MetaData" partition.
+    /// Remove selected config object from "MetaData" partition.
+    /// The "selected" parameter identifies the appropriate entry in the index
+    /// array.
     pub async fn delete_config_object(
         &mut self,
         metadata: &mut NexusMetaData,
-        n: u32,
+        selected: u32,
     ) -> Result<(), MetaDataError> {
         if metadata.index.len() != metadata.header.used_entries as usize {
             return Err(MetaDataError::IndexInconsistent {});
         }
 
-        if n < metadata.header.used_entries {
-            metadata.index.remove(n as usize);
+        if selected < metadata.header.used_entries {
+            metadata.index.remove(selected as usize);
             metadata.header.used_entries -= 1;
-            return self.sync_metadata(metadata).await;
         }
-        Ok(())
+
+        self.sync_metadata(metadata).await
     }
 
-    // Append a new config object to "MetaData" partition.
+    /// Append a new config object to "MetaData" partition.
     pub async fn append_config_object(
         &mut self,
         metadata: &mut NexusMetaData,
@@ -599,22 +819,10 @@ impl NexusChild {
 }
 
 impl NexusConfig {
+    /// Convert a slice into a NexusConfig object
     pub fn from_slice(buf: &[u8]) -> Result<NexusConfig, Error> {
         let mut reader = Cursor::new(buf);
         let config: NexusConfig = deserialize_from(&mut reader)?;
         Ok(config)
-    }
-}
-
-// ChildError already has a variant with a MetaDataError source.
-// Attempting to add a variant to MetaDataError with a ChildError source
-// creates a circular definition, resulting in the compiler error:
-//   "cycle detected when processing ChildError"
-// This is resolved by providing an explicit conversion.
-impl std::convert::From<ChildError> for MetaDataError {
-    fn from(error: ChildError) -> MetaDataError {
-        MetaDataError::NexusChildError {
-            error: format!("{}", error),
-        }
     }
 }
