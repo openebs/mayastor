@@ -891,7 +891,8 @@ pub async fn nexus_create(
         }
 
         Err(e) => {
-            error!("{:?}", e);
+            // XXX If we destroy the children here, we panic:
+            //   ni.destroy_children().await;
             return Err(e);
         }
 
