@@ -21,6 +21,9 @@ variable "private_key_path" {
 variable "disk_size" {
 }
 
+variable "qcow2_image" {
+}
+
 provider "libvirt" {
   uri = "qemu:///system"
 }
@@ -36,7 +39,7 @@ resource "libvirt_pool" "ubuntu-pool" {
 resource "libvirt_volume" "ubuntu-qcow2" {
   name   = "ubuntu-base"
   pool   = libvirt_pool.ubuntu-pool.name
-  source = "/code/ubuntu-18.04-server-cloudimg-amd64.img"
+  source = var.qcow2_image
   format = "qcow2"
 }
 
@@ -84,6 +87,10 @@ resource "libvirt_domain" "ubuntu-domain" {
 
   cloudinit = libvirt_cloudinit_disk.commoninit[count.index].id
 
+  cpu = {
+    mode = "host-passthrough"
+  }
+
   disk {
     volume_id = libvirt_volume.ubuntu-qcow2-resized[count.index].id
     scsi      = "true"
@@ -126,14 +133,12 @@ resource "libvirt_domain" "ubuntu-domain" {
 # generate the inventory template for ansible
 output "ks-cluster-nodes" {
   value = <<EOT
-[ks-master]
-${libvirt_domain.ubuntu-domain.0.name} ansible_host=${libvirt_domain.ubuntu-domain.0.network_interface.0.addresses.0}
+[master]
+${libvirt_domain.ubuntu-domain.0.name} ansible_host=${libvirt_domain.ubuntu-domain.0.network_interface.0.addresses.0} ansible_user=${var.ssh_user} ansible_ssh_private_key_file=${var.private_key_path} ansible_ssh_common_args='-o StrictHostKeyChecking=no'
 
-[ks-nodes]
-%{for ip in libvirt_domain.ubuntu-domain.*~}
-%{if ip.name != "${format(var.hostname_formatter, 1)}"}${ip.name} ansible_host=${ip.network_interface.0.addresses.0}%{endif}
+[nodes]%{for ip in libvirt_domain.ubuntu-domain.*~}
+%{if ip.name != "${format(var.hostname_formatter, 1)}"}${ip.name} ansible_host=${ip.network_interface.0.addresses.0} ansible_user=${var.ssh_user} ansible_ssh_private_key_file=${var.private_key_path} ansible_ssh_common_args='-o StrictHostKeyChecking=no'%{endif}
 %{endfor~}
-ssh_user: ${var.ssh_user}
 EOT
 }
 
