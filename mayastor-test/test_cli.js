@@ -196,7 +196,7 @@ describe('cli', function () {
 
     it('should create a pool', function (done) {
       const cmd = util.format(
-        '%s pool create -b 512 %s %s',
+        '%s -q pool create -b 512 %s %s',
         EGRESS_CMD,
         POOL,
         DISK
@@ -213,7 +213,7 @@ describe('cli', function () {
     });
 
     it('should list pools', function (done) {
-      const cmd = util.format('%s -q pool list', EGRESS_CMD);
+      const cmd = util.format('%s -ui -q pool list', EGRESS_CMD);
 
       exec(cmd, (err, stdout, stderr) => {
         const pools = [];
@@ -248,17 +248,17 @@ describe('cli', function () {
 
         assert.equal(pools[0].name, POOL + '1');
         assert.equal(pools[0].state, 'online');
-        assert.equal(pools[0].capacity, '100.0');
+        assert.equal(pools[0].capacity, '100.00');
         assert.equal(pools[0].capacity_unit, 'MiB');
-        assert.equal(pools[0].used, '50.0');
+        assert.equal(pools[0].used, '50.00');
         assert.equal(pools[0].used_unit, 'MiB');
         assert.deepEqual(pools[0].disks, [DISK + '1']);
 
         assert.equal(pools[1].name, POOL + '2');
         assert.equal(pools[1].state, 'degraded');
-        assert.equal(pools[1].capacity, '1.0');
-        assert.equal(pools[1].capacity_unit, 'GiB');
-        assert.equal(pools[1].used, '99.0');
+        assert.equal(pools[1].capacity, '1000.00');
+        assert.equal(pools[1].capacity_unit, 'MiB');
+        assert.equal(pools[1].used, '99.00');
         assert.equal(pools[1].used_unit, 'MiB');
         assert.deepEqual(pools[1].disks, [DISK + '2a', DISK + '2b']);
 
@@ -267,7 +267,7 @@ describe('cli', function () {
     });
 
     it('should destroy a pool', function (done) {
-      const cmd = util.format('%s pool destroy %s', EGRESS_CMD, POOL);
+      const cmd = util.format('%s -q pool destroy %s', EGRESS_CMD, POOL);
 
       exec(cmd, (err, stdout, stderr) => {
         if (err) {
@@ -281,7 +281,7 @@ describe('cli', function () {
 
     it('should create a replica', function (done) {
       const cmd = util.format(
-        '%s replica create %s %s --size=1000 --thin --protocol=nvmf',
+        '%s replica create %s %s --size=1000Mib --thin --protocol=nvmf',
         EGRESS_CMD,
         POOL,
         UUID
@@ -292,7 +292,7 @@ describe('cli', function () {
           return done(err);
         }
         assert.isEmpty(stderr);
-        assert.match(stdout, /^nvmf:\/\//);
+        assert.match(stdout, /nvmf:\/\//);
         done();
       });
     });
@@ -305,13 +305,13 @@ describe('cli', function () {
           return done(err);
         }
         assert.isEmpty(stderr);
-        assert.match(stdout, /^iscsi:\/\//);
+        assert.match(stdout, /iscsi:\/\//);
         done();
       });
     });
 
     it('should list replicas', function (done) {
-      const cmd = util.format('%s -q replica list', EGRESS_CMD);
+      const cmd = util.format('%s -ui -q replica list', EGRESS_CMD);
 
       exec(cmd, (err, stdout, stderr) => {
         const repls = [];
@@ -348,7 +348,7 @@ describe('cli', function () {
         assert.equal(repls[0].pool, POOL);
         assert.equal(repls[0].thin, 'true');
         assert.equal(repls[0].share, 'none');
-        assert.equal(repls[0].size, '9.8'); // 10000MiB -> 9.8 GiB
+        assert.equal(repls[0].size, '9.77'); // 10000MiB -> 9.77 GiB
         assert.equal(repls[0].size_unit, 'GiB');
         assert.match(repls[0].uri, /^bdev:\/\/\/\d+/);
 
@@ -356,7 +356,7 @@ describe('cli', function () {
         assert.equal(repls[1].pool, POOL);
         assert.equal(repls[1].thin, 'false');
         assert.equal(repls[1].share, 'nvmf');
-        assert.equal(repls[1].size, '10.0');
+        assert.equal(repls[1].size, '10.00');
         assert.equal(repls[1].size_unit, 'MiB');
         assert.match(repls[1].uri, /^nvmf:\/\/\d+/);
 
@@ -364,7 +364,7 @@ describe('cli', function () {
         assert.equal(repls[2].pool, POOL);
         assert.equal(repls[2].thin, 'false');
         assert.equal(repls[2].share, 'iscsi');
-        assert.equal(repls[2].size, '10.0');
+        assert.equal(repls[2].size, '10.00');
         assert.equal(repls[2].size_unit, 'MiB');
         assert.match(repls[2].uri, /^iscsi:\/\/\d+/);
 
@@ -564,7 +564,7 @@ describe('cli', function () {
 
     it('should not create a replica if it already exists', function (done) {
       const cmd = util.format(
-        '%s replica create %s %s --size=1000 --thin',
+        '%s replica create %s %s --size=1000Mib --thin',
         EGRESS_CMD,
         POOL,
         UUID
