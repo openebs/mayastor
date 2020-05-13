@@ -2,7 +2,6 @@ name: "Mayastor tests"
 on:
   pull_request:
     paths-ignore:
-      - 'doc/**'
   push:
     branches:
       - master
