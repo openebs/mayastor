@@ -13,7 +13,7 @@ These steps have been tested on:
 * Mayastor DaemonSet (MDS) requires:
   * Privileged mode
   * 2MB hugepages
-  * For testing, the Network Block Device (NBD) and XFS kernel modules
+  * For testing, the Network Block Device (NBD), XFS and NVME_TCP kernel modules
 * For use with iSCSI see [Prerequisites (iSCSI client)](https://docs.openebs.io/docs/next/prerequisites.html)
 
 ## Deployment
