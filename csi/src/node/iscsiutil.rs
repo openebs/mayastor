@@ -157,6 +157,9 @@ fn attach_disk(
     Ok(iscsi_realpath(device_path))
 }
 
+/// Attaches a nexus iscsi target matching the uri specfied.
+/// Returns path to the device on which the nexus iscsi target
+/// has been mounted succesfully or error
 pub fn iscsi_attach_disk(iscsi_uri: &str) -> Result<String, String> {
     trace!("iscsi_attach_disk {}", iscsi_uri);
 
@@ -176,7 +179,7 @@ pub fn iscsi_attach_disk(iscsi_uri: &str) -> Result<String, String> {
     Err(format!("Invalid iscsi URI {}", iscsi_uri))
 }
 
-pub fn detach_disk(ip_addr: &str, port: &str, iqn: &str) -> Result<(), String> {
+fn detach_disk(ip_addr: &str, port: &str, iqn: &str) -> Result<(), String> {
     let iscsiadm = ISCSIADM.as_str();
     let tp = format!("{}:{}", ip_addr, port);
 
@@ -203,9 +206,12 @@ pub fn detach_disk(ip_addr: &str, port: &str, iqn: &str) -> Result<(), String> {
     Ok(())
 }
 
+/// Detaches nexus iscsi target matching the volume id if has
+/// been mounted.
+/// Returns error is the nexus iscsi target was not mounted.
 pub fn iscsi_detach_disk(uuid: &str) -> Result<(), String> {
     trace!("iscsi_detach_disk {}", uuid);
-    let device_path = match iscsi_find_(uuid) {
+    let device_path = match get_iscsi_device_path(uuid) {
         Some(devpath) => devpath,
         _ => return Err("Unknown iscsi device".to_string()),
     };
@@ -232,7 +238,7 @@ pub fn iscsi_detach_disk(uuid: &str) -> Result<(), String> {
     }
 }
 
-pub fn iscsi_find_(uuid: &str) -> Option<String> {
+fn get_iscsi_device_path(uuid: &str) -> Option<String> {
     let iscsiadm = ISCSIADM.as_str();
 
     if which::which(&iscsiadm).is_err() {
@@ -277,8 +283,10 @@ pub fn iscsi_find_(uuid: &str) -> Option<String> {
     None
 }
 
+/// Search for and return path to the device on which a nexus iscsi
+/// target matching the volume id has been mounted or None.
 pub fn iscsi_find(uuid: &str) -> Option<String> {
-    if let Some(path) = iscsi_find_(uuid) {
+    if let Some(path) = get_iscsi_device_path(uuid) {
         return Some(iscsi_realpath(path));
     }
     None
