@@ -27,7 +27,7 @@ suitable for a dev box:
   boot.loader.grub.enable = true;
   boot.loader.grub.version = 2;
   boot.loader.grub.device = "/dev/sda"; # or whatever is appropriate
-  boot.kernelModules = ["nbd" "xfs"];
+  boot.kernelModules = ["nbd" "xfs" "nvme_tcp"];
   boot.kernelParams = ["hugepages=512" "hugepagesz=2MB"];
   services.openssh.enable = true;
   virtualisation.docker.enable = true;
@@ -123,10 +123,10 @@ Feel free to change the [DockerFile](../Dockerfile) to your convenience.
 ## Running tests within the container
 
 If you wish to run some of our higher-level test cases (like for example CSI), you need to make sure you have the
-proper kernel modules loaded (nbd and xfs) as well as allocate at least some 2MB hugepages.
+proper kernel modules loaded (nbd, xfs and nvme_tcp) as well as allocate at least some 2MB hugepages.
 
 ```bash
-modprobe {nbd,xfs}
+modprobe {nbd,xfs,nvme_tcp}
 echo 512 | sudo tee  /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
 ```
 
