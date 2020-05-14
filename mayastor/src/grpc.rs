@@ -200,7 +200,7 @@ impl Mayastor for MayastorGrpc {
     ) -> Result<Response<Null>> {
         let msg = request.into_inner();
         locally! { async move {
-            nexus_lookup(&msg.uuid)?.add_child(&msg.uri).await.map(|_| ())
+            nexus_lookup(&msg.uuid)?.add_child(&msg.uri, msg.rebuild).await.map(|_| ())
         }};
 
         Ok(Response::new(Null {}))
@@ -292,7 +292,7 @@ impl Mayastor for MayastorGrpc {
     ) -> Result<Response<Null>> {
         let msg = request.into_inner();
         locally! { async move {
-            nexus_lookup(&msg.uuid)?.start_rebuild_rpc(&msg.uri).await
+            nexus_lookup(&msg.uuid)?.start_rebuild(&msg.uri).map(|_|{})
         }};
 
         Ok(Response::new(Null {}))

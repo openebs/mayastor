@@ -43,9 +43,7 @@ module.exports = function () {
         expect(ev.eventType).to.equal('del');
         expect(ev.object).to.equal(nexus);
         setTimeout(() => {
-          // jshint ignore:start
-          expect(nexus.node).to.be.null;
-          // jshint ignore:end
+          expect(nexus.node).to.equal(null);
           done();
         }, 0);
       });
@@ -279,7 +277,8 @@ module.exports = function () {
       sinon.assert.calledOnce(callStub);
       sinon.assert.calledWith(callStub, 'addChildNexus', {
         uuid: UUID,
-        uri: 'iscsi://' + UUID
+        uri: 'iscsi://' + UUID,
+        rebuild: true
       });
       expect(nexus.children).to.have.lengthOf(3);
       // should be sorted according to uri
@@ -307,7 +306,8 @@ module.exports = function () {
       sinon.assert.calledOnce(callStub);
       sinon.assert.calledWith(callStub, 'addChildNexus', {
         uuid: UUID,
-        uri: 'iscsi://' + UUID
+        uri: 'iscsi://' + UUID,
+        rebuild: true
       });
       expect(nexus.children).to.have.lengthOf(2);
       expect(nexus.children[0].uri).to.equal('bdev:///' + UUID);
@@ -372,9 +372,7 @@ module.exports = function () {
       });
       sinon.assert.calledOnce(callStub);
       sinon.assert.calledWith(callStub, 'destroyNexus', { uuid: UUID });
-      // jshint ignore:start
-      expect(nexus.node).to.be.null;
-      // jshint ignore:end
+      expect(nexus.node).to.equal(null);
       expect(node.nexus).to.have.lengthOf(0);
     });
 
@@ -404,9 +402,7 @@ module.exports = function () {
       });
       sinon.assert.calledOnce(callStub);
       sinon.assert.calledWith(callStub, 'destroyNexus', { uuid: UUID });
-      // jshint ignore:start
-      expect(nexus.node).to.be.null;
-      // jshint ignore:end
+      expect(nexus.node).to.equal(null);
       expect(node.nexus).to.have.lengthOf(0);
     });
   });

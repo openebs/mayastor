@@ -13,7 +13,6 @@ const Node = require('../node');
 const Pool = require('../pool');
 const Registry = require('../registry');
 const Replica = require('../replica');
-const Volume = require('../volume');
 const Volumes = require('../volumes');
 const { GrpcCode } = require('../grpc_client');
 const { shouldFailWith } = require('./utils');
@@ -513,7 +512,8 @@ module.exports = function () {
         expect(stub1.callCount).to.equal(1);
         sinon.assert.calledWithMatch(stub1.firstCall, 'addChildNexus', {
           uuid: UUID,
-          uri: 'nvmf://replica3'
+          uri: 'nvmf://replica3',
+          rebuild: true
         });
         expect(stub2.callCount).to.equal(0);
         expect(stub3.callCount).to.equal(3);
@@ -652,9 +652,7 @@ module.exports = function () {
 
         sinon.assert.calledOnce(stub1);
         sinon.assert.calledWithMatch(stub1, 'unpublishNexus', { uuid: UUID });
-        // jshint ignore:start
-        expect(volume.nexus.devicePath).to.be.empty;
-        // jshint ignore:end
+        expect(volume.nexus.devicePath).to.have.lengthOf(0);
         expect(volEvents).to.have.lengthOf(1);
       });
 
@@ -705,10 +703,8 @@ module.exports = function () {
         sinon.assert.calledWithMatch(stub2, 'destroyReplica', { uuid: UUID });
         sinon.assert.notCalled(stub3);
 
-        // jshint ignore:start
-        expect(volumes.get(UUID)).is.null;
-        expect(volume.nexus).is.null;
-        // jshint ignore:end
+        expect(volumes.get(UUID)).to.equal(null);
+        expect(volume.nexus).to.equal(null);
         expect(Object.keys(volume.replicas)).to.have.length(0);
         // 1 replica, 1 nexus and 1 del volume event
         expect(volEvents).to.have.lengthOf(3);
@@ -718,9 +714,7 @@ module.exports = function () {
         stub1.onCall(0).resolves({});
         stub2.onCall(0).resolves({});
         stub3.onCall(0).resolves({});
-        // jshint ignore:start
-        expect(volumes.get(UUID)).is.null;
-        // jshint ignore:end
+        expect(volumes.get(UUID)).to.equal(null);
 
         await volumes.destroyVolume(UUID);
 
