@@ -90,7 +90,7 @@ The YAML files named below are to be found in the `deploy` folder of the Mayasto
     kubectl create -f namespace.yaml
     ```
 
-5.  Deploy the MayaStor and CSI components
+5.  Deploy the Mayastor and CSI components
     ```bash
     kubectl create -f moac-deployment.yaml
     kubectl create -f mayastor-daemonset.yaml
@@ -160,9 +160,9 @@ The YAML files named below are to be found in the `deploy` folder of the Mayasto
 
 #### Testing the Deployment
 
-9.  Create Storage Classes which use the MayaStor CSI plugin as their basis for volume provisioning:
+9.  Create Storage Classes which use the Mayastor CSI plugin as their basis for volume provisioning:
 
-    Currently MayaStor-provisioned Persistent Volumes can made available over NBD or iSCSI, so there are 2 possible definitions for storage classes
+    Currently Mayastor-provisioned Persistent Volumes can made available over NBD or iSCSI, so there are 2 possible definitions for storage classes
   * NBD
     ```bash
     cat <<EOF | kubectl create -f -
@@ -286,7 +286,7 @@ The YAML files named below are to be found in the `deploy` folder of the Mayasto
 
 ### Known issues and limitations
 
-* The MayaStor service suddenly restarts when mounting a PVC, with exit code `132`
+* The Mayastor service suddenly restarts when mounting a PVC, with exit code `132`
 
     This is due to a SIGILL, which means the container has not been compiled properly from our CI system for your CPU
     architecture. As a result we ask the CPU something that it does not know how to do.
