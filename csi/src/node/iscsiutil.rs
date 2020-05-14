@@ -16,7 +16,7 @@ static ISCSIADM: Lazy<String> = Lazy::new(|| {
     }
 });
 
-pub fn wait_for_path_to_exist(devpath: &str, max_retries: i32) -> bool {
+fn wait_for_path_to_exist(devpath: &str, max_retries: i32) -> bool {
     let second = time::Duration::from_millis(1000);
     let device_path = Path::new(devpath);
     let mut retries: i32 = 0;
@@ -30,6 +30,19 @@ pub fn wait_for_path_to_exist(devpath: &str, max_retries: i32) -> bool {
         now.elapsed()
     );
     device_path.exists()
+}
+
+fn realpath(path: String) -> String {
+    match std::fs::read_link(path.as_str()) {
+        Ok(linkpath) => {
+            // For iscsi the root path is /dev/disk/by-path
+            let mut devpath = std::path::PathBuf::from("/dev/disk/by-path");
+            devpath.push(linkpath);
+            let absdevpath = std::fs::canonicalize(devpath).unwrap();
+            absdevpath.into_os_string().into_string().unwrap()
+        }
+        _ => path,
+    }
 }
 
 fn attach_disk(
@@ -57,7 +70,7 @@ fn attach_disk(
     // method has succeeded.
     if wait_for_path_to_exist(device_path.as_str(), 1) {
         trace!("path already exists!");
-        return Ok(device_path);
+        return Ok(realpath(device_path));
     }
 
     let args_discoverydb_new = [
@@ -141,7 +154,7 @@ fn attach_disk(
         trace!("{} path does not exist after 10s!", device_path);
         return Err("Could not attach disk: Timeout after 10s".to_string());
     }
-    Ok(device_path)
+    Ok(realpath(device_path))
 }
 
 pub fn iscsi_attach_disk(iscsi_uri: &str) -> Result<String, String> {
@@ -190,8 +203,13 @@ pub fn detach_disk(ip_addr: &str, port: &str, iqn: &str) -> Result<(), String> {
     Ok(())
 }
 
-pub fn iscsi_detach_disk(device_path: &str) -> Result<(), String> {
-    trace!("iscsi_detach_disk {}", device_path);
+pub fn iscsi_detach_disk(uuid: &str) -> Result<(), String> {
+    trace!("iscsi_detach_disk {}", uuid);
+    let device_path = match iscsi_find_(uuid) {
+        Some(devpath) => devpath,
+        _ => return Err("Unknown iscsi device".to_string()),
+    };
+
     static RE_DEVICE_PATH: Lazy<regex::Regex> = Lazy::new(|| {
         regex::Regex::new(
             r"(?x)
@@ -201,7 +219,7 @@ pub fn iscsi_detach_disk(device_path: &str) -> Result<(), String> {
         .unwrap()
     });
 
-    let caps = RE_DEVICE_PATH.captures(device_path);
+    let caps = RE_DEVICE_PATH.captures(device_path.as_str());
     match caps {
         Some(details) => {
             trace!("{:?}", details);
@@ -214,7 +232,7 @@ pub fn iscsi_detach_disk(device_path: &str) -> Result<(), String> {
     }
 }
 
-pub fn iscsi_find(uuid: &str) -> Option<String> {
+pub fn iscsi_find_(uuid: &str) -> Option<String> {
     let iscsiadm = ISCSIADM.as_str();
 
     if which::which(&iscsiadm).is_err() {
@@ -255,6 +273,13 @@ pub fn iscsi_find(uuid: &str) -> Option<String> {
                 &cap["lun"],
             ));
         }
+    }
+    None
+}
+
+pub fn iscsi_find(uuid: &str) -> Option<String> {
+    if let Some(path) = iscsi_find_(uuid) {
+        return Some(realpath(path));
     }
     None
 }
