@@ -402,7 +402,8 @@ module.exports = function () {
       sinon.assert.calledWithMatch(stub1.secondCall, 'listReplicas', {});
       sinon.assert.calledWithMatch(stub1.thirdCall, 'addChildNexus', {
         uuid: 'ba5e39e9-0c0e-4973-8a3a-0dccada09cbb',
-        uri: 'bdev:///ba5e39e9-0c0e-4973-8a3a-0dccada09cbb'
+        uri: 'bdev:///ba5e39e9-0c0e-4973-8a3a-0dccada09cbb',
+        rebuild: true
       });
       expect(Object.keys(volume.replicas)).to.have.lengthOf(1);
       expect(volume.nexus).to.equal(nexus);

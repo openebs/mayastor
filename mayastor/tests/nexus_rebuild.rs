@@ -49,6 +49,32 @@ fn rebuild_test() {
 }
 
 #[test]
+// test the rebuild flag of the add_child operation
+fn rebuild_test_add() {
+    test_ini();
+
+    Reactor::block_on(async {
+        nexus_create(1).await;
+        let nexus = nexus_lookup(NEXUS_NAME).unwrap();
+
+        nexus.add_child(&get_dev(1), true).await.unwrap();
+        nexus
+            .start_rebuild(&get_dev(1))
+            .expect_err("rebuild expected to be present");
+        nexus_test_child(1).await;
+
+        nexus.add_child(&get_dev(2), false).await.unwrap();
+        let _ = nexus
+            .start_rebuild(&get_dev(2))
+            .expect("rebuild not expected to be present");
+
+        nexus_lookup(NEXUS_NAME).unwrap().destroy().await.unwrap();
+    });
+
+    test_fini();
+}
+
+#[test]
 fn rebuild_progress() {
     test_ini();
 
@@ -87,14 +113,12 @@ fn rebuild_child_faulted() {
         let nexus = nexus_lookup(NEXUS_NAME).unwrap();
         nexus
             .start_rebuild(&get_dev(1))
-            .await
             .expect_err("Rebuild only degraded children!");
 
         nexus.remove_child(&get_dev(1)).await.unwrap();
         assert_eq!(nexus.children.len(), 1);
         nexus
             .start_rebuild(&get_dev(0))
-            .await
             .expect_err("Cannot rebuild from the same child");
 
         nexus.destroy().await.unwrap();
@@ -181,8 +205,7 @@ async fn nexus_create(children: u64) {
 async fn nexus_add_child(new_child: u64, wait: bool) {
     let nexus = nexus_lookup(NEXUS_NAME).unwrap();
 
-    nexus.add_child(&get_dev(new_child)).await.unwrap();
-    let _ = nexus.start_rebuild(&get_dev(new_child)).await.unwrap();
+    nexus.add_child(&get_dev(new_child), true).await.unwrap();
 
     if wait {
         common::wait_for_rebuild(

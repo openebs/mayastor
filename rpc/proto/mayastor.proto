@@ -195,6 +195,7 @@ message DestroyNexusRequest   {
 message AddChildNexusRequest {
   string uuid = 1;    // uuid of the nexus
   string uri = 2;     // URI of the child device to be added
+  bool rebuild = 3;   // auto start rebuilding
 }
 
 message RemoveChildNexusRequest {
