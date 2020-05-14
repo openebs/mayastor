@@ -1,23 +1,22 @@
 # Quickstart
 
-This has steps have been tested on:
+These steps have been tested on:
 
-* kubeadm (vanilla k8s cluster),
-* Google Kubernetes Engine (GKE) cluster using Ubuntu image
-* Rancher
-* RKE + Fedora CoreOS
-    * You will need to add following directory mapping to `services_kubelet->extra_binds` in your `cluster.yml`:
-     `/opt/rke/var/lib/kubelet/plugins:/var/lib/kubelet/plugins`. Otherwise the CSI socket paths won't match and the CSI
-     driver registration process will fail.
+* kubeadm (vanilla Kubernetes 1.14, or newer, cluster)
 
-### Requirements
+## Requirements
 
- * Only works on Intel Core i7 processor architecture (march=corei7) and higher
- * MayaStor Daemonset (MDS) requires privileged mode
- * MDS requires 2MB hugepages
- * For testing, MDS requires the Network Block Device driver (NBD) and the XFS filesystem kernel module
+* 2 x86-64 CPU cores with SSE4.2 instruction support:
+  * Intel Nehalem processor (march=nehalem) and newer
+  * AMD Bulldozer processor and newer
+* 4GB memory
+* Mayastor DaemonSet (MDS) requires:
+  * Privileged mode
+  * 2MB hugepages
+  * For testing, the Network Block Device (NBD) and XFS kernel modules
+* For use with iSCSI see [Prerequisites (iSCSI client)](https://docs.openebs.io/docs/next/prerequisites.html)
 
-## Quickstart
+## Deployment
 
 1.  Create namespace holding MayaStor resources:
     ```bash
@@ -40,7 +39,7 @@ This has steps have been tested on:
     ```
 
 3.  Prepare the storage nodes which you would like to use for volume
-    provisioning. Each storage node needs at least 512MB of mem in hugepages:
+    provisioning. Each storage node needs at least 512 2MB hugepages:
     ```bash
     echo 512 > /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
     ```
@@ -51,10 +50,10 @@ This has steps have been tested on:
     ```
 
     After adding the hugepages you *must* restart the kubelet. You can verify that
-    hugepages haven been created using:
+    hugepages have been created using:
 
     ```
-    cat /proc/meminfo | grep HugePages
+    grep HugePages /proc/meminfo
     AnonHugePages:         0 kB
     ShmemHugePages:        0 kB
     HugePages_Total:    1024
@@ -70,7 +69,7 @@ This has steps have been tested on:
     modprobe {nbd,xfs}
      ```
     And, if you want, make this change persistent across reboots by adding lines with
-    `NBD` and `xfs` to `/etc/modules-load.d/modules.conf`.
+    `nbd` and `xfs` to `/etc/modules-load.d/modules.conf`.
 
 4.  Label the storage nodes (here we use node "node1"):
     ```bash
@@ -99,7 +98,7 @@ This has steps have been tested on:
       disks: ["/dev/vdb"]
     EOF
     ```
-    Check that the pool has been created (Note that the `State` *must be* `online`):
+    Check that the pool has been created (note that the `State` *must be* `online`):
     ```bash
     kubectl -n mayastor describe msp pool
     ```
@@ -129,15 +128,35 @@ This has steps have been tested on:
     ```
 
 6.  Create a Storage Class using MayaStor CSI plugin for volume provisioning:
+
+    The underlying MayaStor volume can made available using NBD or iSCSI, so there are 2 possible definitions for storage classes
+  * NBD
     ```bash
     cat <<EOF | kubectl create -f -
     kind: StorageClass
     apiVersion: storage.k8s.io/v1
     metadata:
       name: mayastor
+    parameters:
+      repl: '1'
+      protocol: 'nbd'
     provisioner: io.openebs.csi-mayastor
     EOF
     ```
+  * iSCSI
+    ```bash
+    cat <<EOF | kubectl create -f -
+    kind: StorageClass
+    apiVersion: storage.k8s.io/v1
+    metadata:
+      name: mayastor-iscsi
+    parameters:
+      repl: '1'
+      protocol: 'iscsi'
+    provisioner: io.openebs.csi-mayastor
+    EOF
+    ```
+
 
 7.  Create a Persistent Volume Claim (PVC):
     ```bash
@@ -155,6 +174,8 @@ This has steps have been tested on:
       storageClassName: mayastor
     EOF
     ```
+    Note: change value of `storageClassName` if required, for example: `      storageClassName: mayastor-iscsi`
+
     Verify that the PVC and Persistent Volume (PV) for the PVC have been
     created:
     ```bash
@@ -229,7 +250,7 @@ This has steps have been tested on:
     kubectl exec -it fio -- fio --name=benchtest --size=800m --filename=/volume/test --direct=1 --rw=randrw --ioengine=libaio --bs=4k --iodepth=16 --numjobs=1 --time_based --runtime=60
     ```
 
-### Know issues and limitations
+## Known issues and limitations
 
 * The MayaStor service suddenly restarts when mounting a PVC, with exit code `132`
 
@@ -238,19 +259,26 @@ This has steps have been tested on:
 
 * Missing finalizers
 
-    Finalizers have not been implemented yet, therefor, it is important to follow
-    the proper order of tear down:
+    Finalizers have not been implemented yet. Therefore it is important to follow
+    the proper teardown order:
 
      - delete the pods using a mayastor PVC
      - delete the PVC
      - delete the MSP
      - delete the DaemonSet
 
- * Replication is not part of the container images, for this you need to [build](/doc/build.md) from source
- * snapshot and clones currently not exposed
+* Replication is not part of the container images, for this you need to [build](/doc/build.md) from source
+* Snapshots and clones currently not exposed
 
-### Grafana
+## Tips
 
-If you want to set up monitoring for MayaStor which currently shows just two
+* To deploy on RKE + Fedora CoreOS
+  * You will need to add following directory mapping to `services_kubelet->extra_binds` in your `cluster.yml`:
+     `/opt/rke/var/lib/kubelet/plugins:/var/lib/kubelet/plugins`. Otherwise the CSI socket paths won't match and the CSI
+     driver registration process will fail.
+
+## Monitoring with Grafana
+
+If you want to set up monitoring for Mayastor, which currently shows just two
 graphs with IOPS and bandwidth for specified replica, then follow the tutorial
-in monitoring [README file](../deploy/monitoring/README.md).
+in the monitoring [README file](../deploy/monitor/README.md).
