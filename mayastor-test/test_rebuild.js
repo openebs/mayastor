@@ -74,6 +74,12 @@ const rebuildArgs = {
   uri: `aio:///${child2}?blk_size=4096`
 };
 
+const addChildArgs = {
+  uuid: UUID,
+  uri: `aio:///${child2}?blk_size=4096`,
+  rebuild: false
+};
+
 const childOnlineArgs = {
   uuid: UUID,
   uri: `aio:///${child2}?blk_size=4096`,
@@ -121,7 +127,7 @@ describe('rebuild tests', function () {
   };
 
   async function checkState (childType, expectedState) {
-    const res = await client.listNexus().sendMessage(rebuildArgs);
+    const res = await client.listNexus().sendMessage();
     assert.lengthOf(res.nexusList, 1);
 
     const nexus = res.nexusList[0];
@@ -137,7 +143,7 @@ describe('rebuild tests', function () {
   }
 
   async function checkNumRebuilds (expected) {
-    const res = await client.listNexus().sendMessage(rebuildArgs);
+    const res = await client.listNexus().sendMessage();
     assert.lengthOf(res.nexusList, 1);
 
     const nexus = res.nexusList[0];
@@ -240,7 +246,7 @@ describe('rebuild tests', function () {
 
   describe('running rebuild', function () {
     beforeEach(async () => {
-      await client.addChildNexus().sendMessage(rebuildArgs);
+      await client.addChildNexus().sendMessage(addChildArgs);
       await client.startRebuild().sendMessage(rebuildArgs);
     });
 
@@ -272,7 +278,7 @@ describe('rebuild tests', function () {
 
   describe('stopping rebuild', function () {
     beforeEach(async () => {
-      await client.addChildNexus().sendMessage(rebuildArgs);
+      await client.addChildNexus().sendMessage(addChildArgs);
       await client.startRebuild().sendMessage(rebuildArgs);
       await client.stopRebuild().sendMessage(rebuildArgs);
       // TODO: Check for rebuild stop rather than sleeping
@@ -318,7 +324,7 @@ describe('rebuild tests', function () {
 
   describe('pausing rebuild', function () {
     beforeEach(async () => {
-      await client.addChildNexus().sendMessage(rebuildArgs);
+      await client.addChildNexus().sendMessage(addChildArgs);
       await client.startRebuild().sendMessage(rebuildArgs);
       await client.pauseRebuild().sendMessage(rebuildArgs);
     });
@@ -353,7 +359,7 @@ describe('rebuild tests', function () {
 
   describe('resuming rebuild', function () {
     beforeEach(async () => {
-      await client.addChildNexus().sendMessage(rebuildArgs);
+      await client.addChildNexus().sendMessage(addChildArgs);
       await client.startRebuild().sendMessage(rebuildArgs);
       await client.pauseRebuild().sendMessage(rebuildArgs);
       await client.resumeRebuild().sendMessage(rebuildArgs);
@@ -389,7 +395,7 @@ describe('rebuild tests', function () {
 
   describe('set child online', function () {
     beforeEach(async () => {
-      await client.addChildNexus().sendMessage(rebuildArgs);
+      await client.addChildNexus().sendMessage(addChildArgs);
       await client.childOperation().sendMessage(childOfflineArgs);
       await client.childOperation().sendMessage(childOnlineArgs);
     });
@@ -422,7 +428,7 @@ describe('rebuild tests', function () {
 
   describe('set child offline', function () {
     beforeEach(async () => {
-      await client.addChildNexus().sendMessage(rebuildArgs);
+      await client.addChildNexus().sendMessage(addChildArgs);
       await client.startRebuild().sendMessage(rebuildArgs);
       await client.childOperation().sendMessage(childOfflineArgs);
     });

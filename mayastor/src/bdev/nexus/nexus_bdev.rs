@@ -163,8 +163,16 @@ pub enum Error {
         child: String,
         name: String,
     },
-    #[snafu(display(""))]
-    RebuildOperationError { source: RebuildError },
+    #[snafu(display(
+        "Failed to execute rebuild operation on job {} of nexus {}",
+        job,
+        name,
+    ))]
+    RebuildOperationError {
+        job: String,
+        name: String,
+        source: RebuildError,
+    },
     #[snafu(display("Invalid ShareProtocol value {}", sp_value))]
     InvalidShareProtocol { sp_value: i32 },
     #[snafu(display("Failed to create nexus {}", name))]

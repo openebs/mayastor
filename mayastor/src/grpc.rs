@@ -300,7 +300,7 @@ impl Mayastor for MayastorGrpc {
         let uuid = args.uuid.clone();
         debug!("Adding child {} to nexus {} ...", args.uri, uuid);
         locally! { async move {
-            nexus_lookup(&args.uuid)?.add_child(&args.uri).await.map(|_| ())
+            nexus_lookup(&args.uuid)?.add_child(&args.uri, args.rebuild).await.map(|_| ())
         }};
         info!("Added child to nexus {}", uuid);
         Ok(Response::new(Null {}))
@@ -407,7 +407,7 @@ impl Mayastor for MayastorGrpc {
         let args = request.into_inner();
         trace!("{:?}", args);
         locally! { async move {
-            nexus_lookup(&args.uuid)?.start_rebuild_rpc(&args.uri).await
+            nexus_lookup(&args.uuid)?.start_rebuild(&args.uri).map(|_|{})
         }};
 
         Ok(Response::new(Null {}))
