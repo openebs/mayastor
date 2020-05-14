@@ -72,7 +72,7 @@ impl Nexus {
         })?;
 
         job.as_client().start().context(RebuildOperationError {
-            child: name.to_owned(),
+            job: name.to_owned(),
             name: self.name.clone(),
         })
     }
@@ -93,7 +93,7 @@ impl Nexus {
     pub async fn stop_rebuild(&self, name: &str) -> Result<(), Error> {
         match self.get_rebuild_job(name) {
             Ok(rj) => rj.as_client().stop().context(RebuildOperationError {
-                child: name.to_owned(),
+                job: name.to_owned(),
                 name: self.name.clone(),
             }),
             // If a rebuild task is not found return ok
@@ -106,7 +106,7 @@ impl Nexus {
     pub async fn pause_rebuild(&mut self, name: &str) -> Result<(), Error> {
         let rj = self.get_rebuild_job(name)?.as_client();
         rj.pause().context(RebuildOperationError {
-            child: name.to_owned(),
+            job: name.to_owned(),
             name: self.name.clone(),
         })
     }
@@ -115,7 +115,7 @@ impl Nexus {
     pub async fn resume_rebuild(&mut self, name: &str) -> Result<(), Error> {
         let rj = self.get_rebuild_job(name)?.as_client();
         rj.resume().context(RebuildOperationError {
-            child: name.to_owned(),
+            job: name.to_owned(),
             name: self.name.clone(),
         })
     }

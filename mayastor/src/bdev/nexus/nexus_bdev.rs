@@ -165,11 +165,11 @@ pub enum Error {
     },
     #[snafu(display(
         "Failed to execute rebuild operation on job {} of nexus {}",
-        child,
+        job,
         name,
     ))]
     RebuildOperationError {
-        child: String,
+        job: String,
         name: String,
         source: RebuildError,
     },
