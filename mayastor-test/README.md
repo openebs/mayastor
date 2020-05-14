@@ -3,7 +3,7 @@
 To get started running these tests, first setup your environment the same as you would to build Mayastor:
 
 ```sh
-modprobe {nbd,xfs}
+modprobe {nbd,xfs,nvme_tcp}
 echo 4096 | sudo tee /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
 cd MayaStor
 nix-shell
