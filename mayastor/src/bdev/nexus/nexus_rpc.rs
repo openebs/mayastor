@@ -167,7 +167,7 @@ pub(crate) fn register_rpc_methods() {
     jsonrpc_register("add_child_nexus", |args: AddChildNexusRequest| {
         let fut = async move {
             let nexus = nexus_lookup(&args.uuid)?;
-            nexus.add_child(&args.uri).await.map(|_| ())
+            nexus.add_child(&args.uri, args.rebuild).await.map(|_| ())
         };
         fut.boxed_local()
     });
@@ -183,7 +183,7 @@ pub(crate) fn register_rpc_methods() {
     jsonrpc_register("start_rebuild", |args: StartRebuildRequest| {
         let fut = async move {
             let nexus = nexus_lookup(&args.uuid)?;
-            nexus.start_rebuild_rpc(&args.uri).await
+            nexus.start_rebuild(&args.uri).map(|_| {})
         };
         fut.boxed_local()
     });

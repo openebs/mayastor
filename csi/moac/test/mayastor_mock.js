@@ -271,7 +271,7 @@ class MayastorServer {
       },
       addChildNexus: (call, cb) => {
         var args = call.request;
-        assertHasKeys(args, ['uuid', 'uri']);
+        assertHasKeys(args, ['uuid', 'uri', 'rebuild']);
         var n = self.nexus.find((n) => n.uuid === args.uuid);
         if (!n) {
           const err = new Error('not found');

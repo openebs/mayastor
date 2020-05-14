@@ -21,16 +21,9 @@ use crate::{
 };
 
 impl Nexus {
-    /// Starts a rebuild job in the background
-    pub async fn start_rebuild_rpc(&mut self, name: &str) -> Result<(), Error> {
-        // we don't need the rust channel on rpc
-        let _ = self.start_rebuild(name).await?;
-        Ok(())
-    }
-
     /// Starts a rebuild job and returns a receiver channel
     /// which can be used to await the rebuild completion
-    pub async fn start_rebuild(
+    pub fn start_rebuild(
         &mut self,
         name: &str,
     ) -> Result<Receiver<RebuildState>, Error> {
@@ -78,8 +71,8 @@ impl Nexus {
             name: self.name.clone(),
         })?;
 
-        job.as_client().start().context(CreateRebuildError {
-            child: name.to_owned(),
+        job.as_client().start().context(RebuildOperationError {
+            job: name.to_owned(),
             name: self.name.clone(),
         })
     }
@@ -99,7 +92,10 @@ impl Nexus {
     /// Stop a rebuild job in the background
     pub async fn stop_rebuild(&self, name: &str) -> Result<(), Error> {
         match self.get_rebuild_job(name) {
-            Ok(rj) => rj.as_client().stop().context(RebuildOperationError {}),
+            Ok(rj) => rj.as_client().stop().context(RebuildOperationError {
+                job: name.to_owned(),
+                name: self.name.clone(),
+            }),
             // If a rebuild task is not found return ok
             // as we were just going to remove it anyway.
             Err(_) => Ok(()),
@@ -109,13 +105,19 @@ impl Nexus {
     /// Pause a rebuild job in the background
     pub async fn pause_rebuild(&mut self, name: &str) -> Result<(), Error> {
         let rj = self.get_rebuild_job(name)?.as_client();
-        rj.pause().context(RebuildOperationError {})
+        rj.pause().context(RebuildOperationError {
+            job: name.to_owned(),
+            name: self.name.clone(),
+        })
     }
 
     /// Resume a rebuild job in the background
     pub async fn resume_rebuild(&mut self, name: &str) -> Result<(), Error> {
         let rj = self.get_rebuild_job(name)?.as_client();
-        rj.resume().context(RebuildOperationError {})
+        rj.resume().context(RebuildOperationError {
+            job: name.to_owned(),
+            name: self.name.clone(),
+        })
     }
 
     /// Return the state of a rebuild job
@@ -146,7 +148,7 @@ impl Nexus {
     /// stopped. If any job is found with the child as a source then
     /// the job is replaced with a new one with another healthy child
     /// as src, if found
-    /// todo: how to proceed if not healthy child is found?
+    /// todo: how to proceed if no healthy child is found?
     pub async fn cancel_child_rebuild_jobs(&mut self, name: &str) {
         let mut src_jobs = self.get_rebuild_job_src(name);
 
@@ -165,7 +167,7 @@ impl Nexus {
                 error!("Error {} when waiting for the job to terminate", e);
             }
 
-            if let Err(e) = self.start_rebuild(&job.0).await {
+            if let Err(e) = self.start_rebuild(&job.0) {
                 error!("Failed to recreate rebuild: {}", e);
             }
         }
