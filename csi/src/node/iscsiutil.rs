@@ -32,7 +32,7 @@ fn wait_for_path_to_exist(devpath: &str, max_retries: i32) -> bool {
     device_path.exists()
 }
 
-fn realpath(path: String) -> String {
+fn iscsi_realpath(path: String) -> String {
     match std::fs::read_link(path.as_str()) {
         Ok(linkpath) => {
             // For iscsi the root path is /dev/disk/by-path
@@ -70,7 +70,7 @@ fn attach_disk(
     // method has succeeded.
     if wait_for_path_to_exist(device_path.as_str(), 1) {
         trace!("path already exists!");
-        return Ok(realpath(device_path));
+        return Ok(iscsi_realpath(device_path));
     }
 
     let args_discoverydb_new = [
@@ -154,7 +154,7 @@ fn attach_disk(
         trace!("{} path does not exist after 10s!", device_path);
         return Err("Could not attach disk: Timeout after 10s".to_string());
     }
-    Ok(realpath(device_path))
+    Ok(iscsi_realpath(device_path))
 }
 
 pub fn iscsi_attach_disk(iscsi_uri: &str) -> Result<String, String> {
@@ -279,7 +279,7 @@ pub fn iscsi_find_(uuid: &str) -> Option<String> {
 
 pub fn iscsi_find(uuid: &str) -> Option<String> {
     if let Some(path) = iscsi_find_(uuid) {
-        return Some(realpath(path));
+        return Some(iscsi_realpath(path));
     }
     None
 }
