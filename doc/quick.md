@@ -1,10 +1,20 @@
 # Quickstart
 
-These steps have been tested on:
+This quickstart guide has been tested against the following platforms and configurations:
 
-* kubeadm (vanilla Kubernetes 1.14, or newer, cluster)
+- kubeadm (vanilla k8s cluster)
+    - k8s version 1.14 or newer
+- Microsoft Azure Kubernetes Service (AKS)
+    - k8s version 1.16.7
+    - Ubuntu 16.04.6 LTS (GNU/Linux 4.15.0-1077-azure x86_64)
+    - Not tested with scale-sets
 
-## Requirements
+    > AKS is not currently recommended for use with Mayastor in production owing to the need, at this time, to make configuration changes to worker nodes which are not readily compatible with upgrades or autoscaling behavior
+
+
+### Requirements
+
+#### General
 
 * 2 x86-64 CPU cores with SSE4.2 instruction support:
   * Intel Nehalem processor (march=nehalem) and newer
@@ -12,48 +22,27 @@ These steps have been tested on:
 * 4GB memory
 * Mayastor DaemonSet (MDS) requires:
   * Privileged mode
-  * 2MB hugepages
-  * For testing, the Network Block Device (NBD), XFS and NVME_TCP kernel modules
-* For use with iSCSI see [Prerequisites (iSCSI client)](https://docs.openebs.io/docs/next/prerequisites.html)
+  * 2MB hugepages support
+* Where using iSCSI see [Prerequisites (iSCSI client)](https://docs.openebs.io/docs/next/prerequisites.html)
 
-## Deployment
+ #### On Microsoft AKS
+* It is not necessary to implement the iSCSI prerequisites guide as directed above, since the worker node images provided by Microsoft are already suitably configured as provisioned
+* Worker nodes which are to be designated Mayastor "Storage Nodes" may benefit from being scaled to greater than 2 vCPUs.  The Mayastor pod which runs on each such node requires exclusive use of *at least* 1 vCPU.  Therefore these nodes should be scaled to provide sufficient remaining CPU resource for other workloads which may be required to be scheduled on them
 
-1.  Create namespace holding MayaStor resources:
-    ```bash
-    cd deploy
-    kubectl create -f namespace.yaml
-    ```
+### Quickstart
 
-2.  Deploy MayaStor and the CSI components
-    ```bash
-    kubectl create -f moac-deployment.yaml
-    kubectl create -f mayastor-daemonset.yaml
-    ```
-    Check that MOAC is running:
-    ```bash
-    kubectl -n mayastor get pod
-    ```
-    ```
-    NAME                   READY   STATUS    RESTARTS   AGE
-    moac-5f7cb764d-sshvz   3/3     Running   0          34s
-    ```
+#### Prepare "Storage Nodes"
 
-3.  Prepare the storage nodes which you would like to use for volume
-    provisioning. Each storage node needs at least 512 2MB hugepages:
-    ```bash
-    echo 512 > /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
-    ```
-    If you want, you can make this change persistent across reboots by adding following line
-    to `/etc/sysctl.conf`:
-    ```
-    vm.nr_hugepages = 512
-    ```
+Within the context of the Mayastor project, a "Storage Node" is a Kubernetes worker node which is capable of hosting a Storage Pool.  By extension, a Storage Node runs an instance of Mayastor as a pod and uses a 'physical' block storage device on that node to contribute Mayastor-managed storage capacity to Persistent Volumes provisioned on the parent cluster.
 
-    After adding the hugepages you *must* restart the kubelet. You can verify that
-    hugepages have been created using:
+A worker node which will not host/contribute storage capacity to Mayastor does not need to be a Storage Node (although Storage Node 'group' membership can be expanded at any time).  Such a worker node can still mount Mayastor Persistent Volumes for containers scheduled on it - it does not need to be a Storage Node to be able to support this basic cluster functionalty.
 
+1. 2MB Huge Pages must be supported and enabled on a storage node.  A minimum number of 512 such pages must be available on each node.
+
+    Verify huge page availability using:
     ```
     grep HugePages /proc/meminfo
+
     AnonHugePages:         0 kB
     ShmemHugePages:        0 kB
     HugePages_Total:    1024
@@ -62,49 +51,91 @@ These steps have been tested on:
     HugePages_Surp:        0
 
     ```
+    
+    If fewer than 512 pages are available, the page count should be configured as necessary, accounting for any other co-resident workloads which may require them. e.g.
 
-    Load the NBD and XFS kernel modules which are needed for publishing
-    volumes resp. mounting filesystems.
+    ```bash
+    echo 512 | sudo tee /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
     ```
-    modprobe {nbd,xfs}
-     ```
-    And, if you want, make this change persistent across reboots by adding lines with
-    `nbd` and `xfs` to `/etc/modules-load.d/modules.conf`.
 
-4.  Label the storage nodes (here we use node "node1"):
+    This change can be made persistent across reboots by adding the required value to `/etc/sysctl.conf`, thus:
+    ```
+    vm.nr_hugepages = 512
+    ```
+
+    > If you modify the huge page configuration of a node, you *must* restart the kubelet or reboot the node
+    
+
+2.  Load the Network Block Device (NBD) kernel module.  This is necessary *only* if it is intended to use nbd transport for volume provisioning.
+
+    ```
+    modprobe {nbd}
+     ```
+    To make this change persistent across reboots add the line
+    `nbd` to `/etc/modules-load.d/modules.conf`
+
+
+3.  Label the storage nodes (here we demonstrate labeling of the node named "node1") :
     ```bash
     kubectl label node node1 openebs.io/engine=mayastor
     ```
-    Check that MayaStor has been started on the storage node:
+
+#### Deploy Mayastor on the Cluster
+
+The YAML files named below are to be found in the `deploy` folder of the Mayastor repository
+
+4.  Create the Mayastor namespace:
+    ```bash
+    kubectl create -f namespace.yaml
+    ```
+
+5.  Deploy the Mayastor and CSI components
+    ```bash
+    kubectl create -f moac-deployment.yaml
+    kubectl create -f mayastor-daemonset.yaml
+    ```
+    
+6.  Confirm that the MOAC pod is running:
     ```bash
     kubectl -n mayastor get pod
     ```
     ```
     NAME                   READY   STATUS    RESTARTS   AGE
-    mayastor-gldv8         3/3     Running   0          81s
-    moac-5f7cb764d-sshvz   3/3     Running   0          6h46m
+    moac-5f7cb764d-sshvz   3/3     Running   0          34s
     ```
 
-5.  Create a storage pool for volume provisioning (replace `disks` and `node`
-    values as appropriate):
+7. Confirm that the Mayastor daemonset is fully deployed:
+    ```bash
+    kubectl -n mayastor get daemonset
+    ```
+    ```
+    NAME       DESIRED   CURRENT   READY   UP-TO-DATE   AVAILABLE
+    mayastor   3         3         3       3            3
+    ```
+    (in the above example, the point to note is that the READY and AVAILABLE counts equal the DESIRED count)
+
+8.  Create a Storage Pool(s) for volume provisioning.  Each Storage Node typically hosts a Storage Pool, although a single pool is satisfactory for testing purposes.  (In the following example, replace `disk` and `node` with the appropriate values for your own configuration):
     ```bash
     cat <<EOF | kubectl create -f -
     apiVersion: "openebs.io/v1alpha1"
     kind: MayastorPool
     metadata:
-      name: pool
+      name: pool-on-node-1
+      namespace: mayastor
     spec:
-      node: node1
-      disks: ["/dev/vdb"]
+      node: workernode1
+      disk: ["/dev/vdb"]
     EOF
     ```
-    Check that the pool has been created (note that the `State` *must be* `online`):
+    > Note: Currently, the membership of Mayastor Storage Pools is restricted to a single disk device
+
+    Verify that the Storage Pool(s) has/have been created (note that the value of `State` *must be* `online`):
     ```bash
-    kubectl -n mayastor describe msp pool
+    kubectl -n mayastor describe msp pool-on-node-1
     ```
     ```
-    Name:         pool
-    Namespace:
+    Name:         pool-on-node-1
+    Namespace:    mayastor
     Labels:       <none>
     Annotations:  <none>
     API Version:  openebs.io/v1alpha1
@@ -113,12 +144,12 @@ These steps have been tested on:
       Creation Timestamp:  2019-04-09T21:41:47Z
       Generation:          1
       Resource Version:    1281064
-      Self Link:           /apis/openebs.io/v1alpha1/mayastorpools/pool
+      Self Link:           /apis/openebs.io/v1alpha1/mayastorpools/pool-on-node-1
       UID:                 46aa02bf-5b10-11e9-9825-589cfc0d76a7
     Spec:
       Disks:
         /dev/vdb
-      Node:  node1
+      Node:  workernode1
     Status:
       Capacity:  10724835328
       Reason:
@@ -127,22 +158,12 @@ These steps have been tested on:
     Events:      <none>
     ```
 
-6.  Create a Storage Class using MayaStor CSI plugin for volume provisioning:
+#### Testing the Deployment
 
-    The underlying MayaStor volume can made available using NBD or iSCSI, so there are 2 possible definitions for storage classes
-  * NBD
-    ```bash
-    cat <<EOF | kubectl create -f -
-    kind: StorageClass
-    apiVersion: storage.k8s.io/v1
-    metadata:
-      name: mayastor
-    parameters:
-      repl: '1'
-      protocol: 'nbd'
-    provisioner: io.openebs.csi-mayastor
-    EOF
-    ```
+9.  Create Storage Classes which use the Mayastor CSI plugin as their basis for volume provisioning:
+
+    Currently Mayastor-provisioned Persistent Volumes can made available over iSCSI or NBD, where iSCSI is strongly encouraged as it gives significantly better performance
+    
   * iSCSI
     ```bash
     cat <<EOF | kubectl create -f -
@@ -156,9 +177,22 @@ These steps have been tested on:
     provisioner: io.openebs.csi-mayastor
     EOF
     ```
+  * NBD (if required)
+    ```bash
+    cat <<EOF | kubectl create -f -
+    kind: StorageClass
+    apiVersion: storage.k8s.io/v1
+    metadata:
+      name: mayastor-nbd
+    parameters:
+      repl: '1'
+      protocol: 'nbd'
+    provisioner: io.openebs.csi-mayastor
+    EOF
+    ```
 
 
-7.  Create a Persistent Volume Claim (PVC):
+10. Creating a Persistent Volume Claim (PVC):
     ```bash
     cat <<EOF | kubectl create -f -
     apiVersion: v1
@@ -171,10 +205,11 @@ These steps have been tested on:
       resources:
         requests:
           storage: 1Gi
-      storageClassName: mayastor
+      storageClassName: mayastor-iscsi
     EOF
     ```
-    Note: change value of `storageClassName` if required, for example: `      storageClassName: mayastor-iscsi`
+
+    Note: Change the value of `storageClassName` as appropriate to use the transport required (nbd, or iSCSI).
 
     Verify that the PVC and Persistent Volume (PV) for the PVC have been
     created:
@@ -193,7 +228,7 @@ These steps have been tested on:
     pvc-21d56e09-5b78-11e9-905a-589cfc0d76a7   1Gi        RWO            Delete           Bound    default/ms-volume-claim   mayastor                27s
     ```
 
-8.  Check that the volume resource has been created and its internal status:
+11. Check that the volume resource has been created and its internal status is `online`:
     ```bash
     kubectl -n mayastor get msv 21d56e09-5b78-11e9-905a-589cfc0d76a7
     ```
@@ -217,7 +252,7 @@ These steps have been tested on:
       State:   online
     ```
 
-9.  Deploy a pod with fio tool which will be using the PVC:
+12. Deploy a pod which will mount the volume and which contains the fio test tool:
     ```bash
     cat <<EOF | kubectl create -f -
     kind: Pod
@@ -245,40 +280,39 @@ These steps have been tested on:
     kubectl get pod
     ```
 
-10. Run fio on the volume for 30s:
+13. Run fio on the volume for 60s and verify that io is handled as expected and without errors:
     ```bash
     kubectl exec -it fio -- fio --name=benchtest --size=800m --filename=/volume/test --direct=1 --rw=randrw --ioengine=libaio --bs=4k --iodepth=16 --numjobs=1 --time_based --runtime=60
     ```
 
-## Known issues and limitations
+### Known issues and limitations
 
-* The MayaStor service suddenly restarts when mounting a PVC, with exit code `132`
+* The Mayastor service suddenly restarts when mounting a PVC, with exit code `132`
 
     This is due to a SIGILL, which means the container has not been compiled properly from our CI system for your CPU
     architecture. As a result we ask the CPU something that it does not know how to do.
 
 * Missing finalizers
 
-    Finalizers have not been implemented yet. Therefore it is important to follow
-    the proper teardown order:
+    Finalizers have not been implemented yet, therefore it is important to follow
+    the proper tear down order:
 
      - delete the pods using a mayastor PVC
      - delete the PVC
      - delete the MSP
      - delete the DaemonSet
 
-* Replication is not part of the container images, for this you need to [build](/doc/build.md) from source
-* Snapshots and clones currently not exposed
+ * Replication functionalty is not part of the container images, for this you need to [build](/doc/build.md) from source
+ * Snapshot and clones currently not exposed
 
-## Tips
-
+### Tips
 * To deploy on RKE + Fedora CoreOS
-  * You will need to add following directory mapping to `services_kubelet->extra_binds` in your `cluster.yml`:
+    * You will need to add following directory mapping to `services_kubelet->extra_binds` in your `cluster.yml`:
      `/opt/rke/var/lib/kubelet/plugins:/var/lib/kubelet/plugins`. Otherwise the CSI socket paths won't match and the CSI
      driver registration process will fail.
 
-## Monitoring with Grafana
+### Monitoring with Grafana
 
-If you want to set up monitoring for Mayastor, which currently shows just two
+If you want to set up monitoring for Mayastor which currently shows just two
 graphs with IOPS and bandwidth for specified replica, then follow the tutorial
 in the monitoring [README file](../deploy/monitor/README.md).
