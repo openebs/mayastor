@@ -10,6 +10,7 @@ use mayastor::{
     },
     nexus_uri::{bdev_create, bdev_destroy},
 };
+use rpc::mayastor::ShareProtocolNexus;
 use std::sync::Once;
 
 static DISKNAME1: &str = "/tmp/disk1.img";
@@ -119,6 +120,129 @@ fn core_3() {
         drop(hdl3);
 
         bdev_destroy(BDEVNAME1).await.unwrap();
-        mayastor_env_stop(1);
     });
+}
+
+#[test]
+// Test nexus with different combinations of sizes for src and dst children
+fn core_4() {
+    test_init!();
+
+    common::delete_file(&[DISKNAME1.to_string()]);
+    common::delete_file(&[DISKNAME2.to_string()]);
+
+    let nexus_size: u64 = 10 * 1024 * 1024; // 10MiB
+    let nexus_name: &str = "nexus_sizes";
+
+    // nexus size is always NEXUS_SIZE
+    // (size of child1, create success, size of child2, add child2 success)
+    let test_cases = vec![
+        (nexus_size, true, nexus_size * 2, true),
+        (nexus_size, true, nexus_size / 2, false),
+        (nexus_size * 2, true, nexus_size, false),
+        (nexus_size * 2, true, nexus_size * 2, true),
+        (nexus_size / 2, false, nexus_size / 2, false),
+    ];
+
+    for (test_case_index, test_case) in test_cases.iter().enumerate() {
+        common::truncate_file(DISKNAME1, test_case.0 / 1024);
+        common::truncate_file(DISKNAME2, test_case.2 / 1024);
+
+        let nexus_ok = test_case.1;
+        let child_ok = test_case.3;
+
+        Reactor::block_on(async move {
+            let create = nexus_create(
+                nexus_name,
+                nexus_size,
+                None,
+                &[BDEVNAME1.to_string()],
+            )
+            .await;
+            if nexus_ok {
+                create.unwrap_or_else(|_| {
+                    panic!(
+                        "Case {} - Nexus should have have been created",
+                        test_case_index
+                    )
+                });
+                let nexus = nexus_lookup(nexus_name).unwrap();
+
+                if child_ok {
+                    nexus.add_child(&BDEVNAME2).await.unwrap_or_else(|_| {
+                        panic!(
+                            "Case {} - Child should have been added",
+                            test_case_index
+                        )
+                    });
+                } else {
+                    nexus.add_child(&BDEVNAME2).await.expect_err(&format!(
+                        "Case {} - Child should have been added",
+                        test_case_index
+                    ));
+                }
+
+                nexus.destroy().await.unwrap();
+            } else {
+                create.expect_err(&format!(
+                    "Case {} - Nexus should not have been created",
+                    test_case_index
+                ));
+            }
+        });
+
+        common::delete_file(&[DISKNAME1.to_string()]);
+        common::delete_file(&[DISKNAME2.to_string()]);
+    }
+}
+
+#[test]
+// Test nexus bdev size when created with children of the same size and larger
+fn core_5() {
+    test_init!();
+
+    common::delete_file(&[DISKNAME1.to_string()]);
+    let nexus_size: u64 = 100 * 1024 * 1024; // 100MiB
+    let nexus_name: &str = "nexus_size";
+
+    let test_cases =
+        vec![(nexus_size, nexus_size * 2), (nexus_size, nexus_size)];
+
+    for test_case in test_cases.iter() {
+        let nexus_size = test_case.0;
+        let child_size = test_case.1;
+
+        common::truncate_file(DISKNAME1, child_size / 1024);
+
+        Reactor::block_on(async move {
+            nexus_create(
+                nexus_name,
+                nexus_size,
+                None,
+                &[BDEVNAME1.to_string()],
+            )
+            .await
+            .unwrap();
+            let nexus = nexus_lookup(nexus_name).unwrap();
+            let device = common::device_path_from_uri(
+                nexus
+                    .share(ShareProtocolNexus::NexusNbd, None)
+                    .await
+                    .unwrap(),
+            );
+
+            let size = common::get_device_size(&device);
+            // size of the shared device:
+            // if the child is sufficiently large it should match the requested
+            // nexus_size or a little less (smallest child size
+            // minus partition metadata)
+            assert!(size <= nexus_size);
+
+            nexus.destroy().await.unwrap();
+        });
+
+        common::delete_file(&[DISKNAME1.to_string()]);
+    }
+
+    mayastor_env_stop(1);
 }

@@ -449,7 +449,12 @@ impl Nexus {
         // Now register the bdev but update its size first
         // to ensure we adhere to the partitions.
         self.data_ent_offset = label.offset();
-        self.bdev.set_block_count(label.get_block_count());
+        let size_blocks = self.size / self.bdev.block_len() as u64;
+        // label might be smaller than the nexus size due to the partitioning
+        self.bdev.set_block_count(std::cmp::min(
+            size_blocks,
+            label.get_block_count(),
+        ));
 
         Ok(())
     }
