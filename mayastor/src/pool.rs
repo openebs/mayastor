@@ -498,7 +498,7 @@ impl Pool {
                 return Ok(());
             }
         };
-        let base_bdev_type = self.get_base_bdev().driver();
+        let base_bdev_type = base_bdev.driver();
         debug!("Destroying bdev type {}", base_bdev_type);
 
         let (sender, receiver) = oneshot::channel::<i32>();
