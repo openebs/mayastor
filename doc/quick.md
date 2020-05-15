@@ -302,7 +302,6 @@ The YAML files named below are to be found in the `deploy` folder of the Mayasto
      - delete the MSP
      - delete the DaemonSet
 
- * Replication functionalty is not part of the container images, for this you need to [build](/doc/build.md) from source
  * Snapshot and clones currently not exposed
 
 ### Tips
