@@ -308,7 +308,7 @@ impl Reactor {
 
     /// set the reactor to sleep each iteration
     pub fn developer_delayed(&self) {
-        debug!("core {} set to developer delayed poll mode", self.lcore);
+        info!("core {} set to developer delayed poll mode", self.lcore);
         self.set_state(DEVELOPER_DELAY)
     }
 
@@ -335,6 +335,9 @@ impl Reactor {
                 SUSPEND => {
                     std::thread::sleep(Duration::from_millis(100));
                 }
+                // running is the default mode for all cores. All cores, except
+                // the master core spin within this specific
+                // loop
                 RUNNING => {
                     self.poll_once();
                 }
@@ -363,12 +366,14 @@ impl Reactor {
     /// Enters the first reactor thread.  By default, we are not running within
     /// the context of any thread. We always need to set a context before we
     /// can process, or submit any messages.
+    #[inline]
     pub fn thread_enter(&self) {
         self.threads[0].enter();
     }
 
     /// polls the reactor only once for any work regardless of its state. For
     /// now, the threads are all entered and exited explicitly.
+    #[inline]
     pub fn poll_once(&self) {
         self.receive_futures();
         self.run_futures();
@@ -384,6 +389,13 @@ impl Reactor {
     }
 }
 
+/// This implements the poll() method of the for the reactor future. Only the
+/// master core is polled by the Future abstraction. There are two reasons for
+/// this
+///
+///  1. The master core is the management core, it is the only core that handles
+/// gRPC calls  2. The master core handles the setup and tear down of the slave
+/// cores
 impl Future for &'static Reactor {
     type Output = Result<(), ()>;
     fn poll(self: Pin<&mut Self>, cx: &mut Context) -> Poll<Self::Output> {
@@ -408,7 +420,11 @@ impl Future for &'static Reactor {
             }
             INIT => {
                 self.poll_once();
-                self.flags.set(DEVELOPER_DELAY);
+                if cfg!(debug_assertions) {
+                    self.developer_delayed();
+                } else {
+                    self.running();
+                }
                 cx.waker().wake_by_ref();
                 Poll::Pending
             }
