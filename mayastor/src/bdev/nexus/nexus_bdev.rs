@@ -450,9 +450,11 @@ impl Nexus {
         // to ensure we adhere to the partitions.
         self.data_ent_offset = label.offset();
         let size_blocks = self.size / self.bdev.block_len() as u64;
-        // label might be smaller than the nexus size due to the partitioning
+
         self.bdev.set_block_count(std::cmp::min(
+            // nexus is allowed to be smaller than the children
             size_blocks,
+            // label might be smaller than expected due to the on disk metadata
             label.get_block_count(),
         ));
 

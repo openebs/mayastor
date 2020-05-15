@@ -124,7 +124,7 @@ fn core_3() {
 }
 
 #[test]
-// Test nexus with different combinations of sizes for src and dst children
+// Test nexus with children with different sizes
 fn core_4() {
     test_init!();
 

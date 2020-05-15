@@ -430,7 +430,7 @@ describe('csi', function () {
           assert.lengthOf(res.usage, 1);
           assert.equal(res.usage[0].unit, 'BYTES');
           // 25MB size of the bdev - something for the metadata
-          assert.equal(res.usage[0].total, 24092672);
+          assert.equal(res.usage[0].total, 24096768);
           // TODO: These are not available yet:
           // assert.equal(res.usage[0].available, 1);
           // assert.equal(res.usage[0].used, 0);
