@@ -7,7 +7,7 @@ This quickstart guide has been tested against the following platforms and config
 - Microsoft Azure Kubernetes Service (AKS)
     - k8s version 1.16.7
     - Ubuntu 16.04.6 LTS (GNU/Linux 4.15.0-1077-azure x86_64)
-    - not tested with scale-sets
+    - Not tested with scale-sets
 
     > AKS is not currently recommended for use with Mayastor in production owing to the need, at this time, to make configuration changes to worker nodes which are not readily compatible with upgrades or autoscaling behavior
 
@@ -23,7 +23,6 @@ This quickstart guide has been tested against the following platforms and config
 * Mayastor DaemonSet (MDS) requires:
   * Privileged mode
   * 2MB hugepages support
-  * For testing, the Network Block Device (NBD)and XFS kernel modules
 * Where using iSCSI see [Prerequisites (iSCSI client)](https://docs.openebs.io/docs/next/prerequisites.html)
 
  #### On Microsoft AKS
@@ -67,13 +66,13 @@ A worker node which will not host/contribute storage capacity to Mayastor does n
     > If you modify the huge page configuration of a node, you *must* restart the kubelet or reboot the node
     
 
-2.  Load the NBD and XFS kernel modules (if not already loaded).
+2.  Load the Network Block Device (NBD) kernel module.  This is necessary *only* if it is intended to use nbd transport for volume provisioning.
 
     ```
-    modprobe {nbd,xfs}
+    modprobe {nbd}
      ```
-    To make this change persistent across reboots add the values
-    `nbd` and `xfs` to `/etc/modules-load.d/modules.conf`, as separate lines
+    To make this change persistent across reboots add the line
+    `nbd` to `/etc/modules-load.d/modules.conf`
 
 
 3.  Label the storage nodes (here we demonstrate labeling of the node named "node1") :
@@ -95,6 +94,7 @@ The YAML files named below are to be found in the `deploy` folder of the Mayasto
     kubectl create -f moac-deployment.yaml
     kubectl create -f mayastor-daemonset.yaml
     ```
+    
 6.  Confirm that the MOAC pod is running:
     ```bash
     kubectl -n mayastor get pod
@@ -162,20 +162,8 @@ The YAML files named below are to be found in the `deploy` folder of the Mayasto
 
 9.  Create Storage Classes which use the Mayastor CSI plugin as their basis for volume provisioning:
 
-    Currently Mayastor-provisioned Persistent Volumes can made available over NBD or iSCSI, so there are 2 possible definitions for storage classes
-  * NBD
-    ```bash
-    cat <<EOF | kubectl create -f -
-    kind: StorageClass
-    apiVersion: storage.k8s.io/v1
-    metadata:
-      name: mayastor-nbd
-    parameters:
-      repl: '1'
-      protocol: 'nbd'
-    provisioner: io.openebs.csi-mayastor
-    EOF
-    ```
+    Currently Mayastor-provisioned Persistent Volumes can made available over iSCSI or NBD, where iSCSI is strongly encouraged as it gives significantly better performance
+    
   * iSCSI
     ```bash
     cat <<EOF | kubectl create -f -
@@ -186,6 +174,19 @@ The YAML files named below are to be found in the `deploy` folder of the Mayasto
     parameters:
       repl: '1'
       protocol: 'iscsi'
+    provisioner: io.openebs.csi-mayastor
+    EOF
+    ```
+  * NBD (if required)
+    ```bash
+    cat <<EOF | kubectl create -f -
+    kind: StorageClass
+    apiVersion: storage.k8s.io/v1
+    metadata:
+      name: mayastor-nbd
+    parameters:
+      repl: '1'
+      protocol: 'nbd'
     provisioner: io.openebs.csi-mayastor
     EOF
     ```
