@@ -25,6 +25,10 @@ This quickstart guide has been tested against the following platforms and config
   * 2MB hugepages support
 * Where using iSCSI see [Prerequisites (iSCSI client)](https://docs.openebs.io/docs/next/prerequisites.html)
 
+*NOTE*
+
+A current limtation of mayastor is that the workload (i.e FIO) and the mayastor instance that is serving the PVC run on the same node. This means that you currently need atleast 3 (v)CPUs.
+
  #### On Microsoft AKS
 * It is not necessary to implement the iSCSI prerequisites guide as directed above, since the worker node images provided by Microsoft are already suitably configured as provisioned
 * Worker nodes which are to be designated Mayastor "Storage Nodes" may benefit from being scaled to greater than 2 vCPUs.  The Mayastor pod which runs on each such node requires exclusive use of *at least* 1 vCPU.  Therefore these nodes should be scaled to provide sufficient remaining CPU resource for other workloads which may be required to be scheduled on them
