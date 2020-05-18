@@ -108,8 +108,15 @@ pub enum LabelError {
     MbrSignature {},
     #[snafu(display("Incorrect GPT header signature"))]
     GptSignature {},
-    #[snafu(display("Incorrect GPT header size: {}", size))]
-    GptHeaderSize { size: u32 },
+    #[snafu(display(
+        "Incorrect GPT header size: actual={} expected={}",
+        actual_size,
+        expected_size
+    ))]
+    GptHeaderSize {
+        actual_size: u32,
+        expected_size: u32,
+    },
     #[snafu(display("Incorrect GPT header checksum"))]
     GptChecksum {},
     #[snafu(display("Incorrect GPT partition table checksum"))]
@@ -497,7 +504,8 @@ impl GPTHeader {
 
         if gpt.header_size != 92 {
             return Err(LabelError::GptHeaderSize {
-                size: 92,
+                actual_size: gpt.header_size,
+                expected_size: 92,
             });
         }
 

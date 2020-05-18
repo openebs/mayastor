@@ -229,6 +229,8 @@ impl NexusChild {
         self.state == ChildState::Open || self.state == ChildState::Faulted
     }
 
+    /// return references to child's bdev and descriptor
+    /// both must be present - otherwise it is considered an error
     pub fn get_dev(&self) -> Result<(&Bdev, &BdevHandle), ChildError> {
         if !self.can_rw() {
             info!("{}: Closed child: {}", self.parent, self.name);

@@ -1,5 +1,5 @@
 //! Support for manipulating nexus "metadata".
-//! Simple API for adding and retreiving data from the "MayaMeta" partition.
+//! Simple API for adding and retrieving data from the "MayaMeta" partition.
 //! The raw disk partition is accessed directly - there is no filesystem
 //! present.
 //!
@@ -81,8 +81,15 @@ pub enum MetaDataError {
     SerializeError { source: Error },
     #[snafu(display("Deserialization error: {}", source))]
     DeserializeError { source: Error },
-    #[snafu(display("Incorrect MetaData header size: {}", size))]
-    HeaderSize { size: u32 },
+    #[snafu(display(
+        "Incorrect MetaData header size: actual={} expected={}",
+        actual_size,
+        expected_size
+    ))]
+    HeaderSize {
+        actual_size: u32,
+        expected_size: u32,
+    },
     #[snafu(display("Incorrect MetaData header signature"))]
     HeaderSignature {},
     #[snafu(display("Incorrect MetaData header checksum"))]
@@ -150,7 +157,8 @@ impl MetaDataHeader {
 
         if header.header_size != MetaDataHeader::METADATA_HEADER_SIZE {
             return Err(MetaDataError::HeaderSize {
-                size: header.header_size,
+                actual_size: header.header_size,
+                expected_size: MetaDataHeader::METADATA_HEADER_SIZE,
             });
         }
 
