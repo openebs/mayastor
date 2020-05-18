@@ -659,7 +659,7 @@ impl NexusLabel {
 
     /// returns the number of total blocks in this segment
     pub(crate) fn get_block_count(&self) -> u64 {
-        self.partitions[1].ent_end - self.partitions[1].ent_start
+        self.partitions[1].ent_end - self.partitions[1].ent_start + 1
     }
 }
 

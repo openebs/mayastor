@@ -38,3 +38,9 @@ variable "num_nodes" {
   default     = 3
   description = "The number of nodes to create (should be > 1)"
 }
+
+variable "qcow2_image" {
+  type        = string
+  description = "Ubuntu image for VMs - only needed for libvirt provider"
+  default     = "/bionic-server-cloudimg-amd64.img"
+}
