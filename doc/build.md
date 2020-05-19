@@ -65,7 +65,7 @@ Binaries will be installed in `$(CURDIR)/target/release` after running the build
 ## Build inside docker
 
 This is most close to the environment used for building and testing of
-MayaStor in our gitlab CI/CD pipeline. But could be used for other purposes
+MayaStor in our github CI/CD pipeline. But could be used for other purposes
 as well. The following command starts a container with build environment
 for MayaStor. The sources are mounted from the host at /code/MayaStor.
 That is optional. You can clone the sources from github instead.
