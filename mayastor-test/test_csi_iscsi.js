@@ -14,5 +14,8 @@
 'use strict';
 
 const csiCommon = require('./test_csi_common');
+const enums = require('./grpc_enums');
 
-csiCommon.csiGenericTest();
+csiCommon.csiProtocolTest('iSCSI', enums.NEXUS_ISCSI, 120000, {
+  uri: 'iscsi://192.168.0.197:3260/iqn.2019-05.io.openebs:nexus-11111111-0000-0000-0000-000000000009/0'
+});

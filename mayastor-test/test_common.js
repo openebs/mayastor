@@ -358,11 +358,7 @@ function dumbCommand (method, args, done) {
       JSON.stringify(args) +
       "'",
     (err, stdout, stderr) => {
-      if (err) {
-        done(new Error(stderr));
-      } else {
-        done();
-      }
+      done(err, stdout);
     }
   );
 }

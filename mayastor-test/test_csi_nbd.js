@@ -14,5 +14,6 @@
 'use strict';
 
 const csiCommon = require('./test_csi_common');
+const enums = require('./grpc_enums');
 
-csiCommon.csiGenericTest();
+csiCommon.csiProtocolTest('NBD', enums.NEXUS_NBD, 10000, { uri: 'file:///dev/nbd' + '9' });

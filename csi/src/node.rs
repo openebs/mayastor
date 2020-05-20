@@ -455,7 +455,7 @@ impl node_server::Node for Node {
                 "iscsi" => {
                     match iscsi_attach_disk(uri) {
                         Ok(devpath) => devpath,
-                        Err(e) => return Err(Status::new(Code::Internal, e)),
+                        Err(e) => return Err(Status::new(Code::NotFound, e)),
                     }
                     // The nexus may reside on another node,
                     // currently there is no way to retrieve the nexus details
@@ -514,7 +514,7 @@ impl node_server::Node for Node {
             }
         };
 
-        debug!("device_path is {}", device_path);
+        debug!("device_path is {} for uri {}", device_path, uri);
 
         if let Some(mount) =
             match_mount(Some(&device_path), Some(&staging_path), false)
