@@ -84,8 +84,13 @@ fn rebuild_progress() {
         // { polls } to poll with an expr rather than an ident
         reactor_poll!({ polls });
         nexus.pause_rebuild(&get_dev(1)).await.unwrap();
+        common::wait_for_rebuild(
+            get_dev(1),
+            RebuildState::Paused,
+            std::time::Duration::from_millis(100),
+        );
         let p = nexus.get_rebuild_progress(&get_dev(1)).unwrap();
-        assert!(p.progress > progress);
+        assert!(p.progress >= progress);
         p.progress
     };
 

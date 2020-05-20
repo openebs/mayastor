@@ -7,7 +7,7 @@ use snafu::Snafu;
 pub use bdev::{Bdev, BdevIter};
 pub use channel::IoChannel;
 pub use cpu_cores::{Core, Cores};
-pub use descriptor::Descriptor;
+pub use descriptor::{Descriptor, RangeContext};
 pub use dma::{DmaBuf, DmaError};
 pub use env::{mayastor_env_stop, MayastorCliArgs, MayastorEnvironment};
 pub use handle::BdevHandle;

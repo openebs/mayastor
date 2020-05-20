@@ -1,6 +1,6 @@
 #![warn(missing_docs)]
 
-use crate::core::{Bdev, BdevHandle, DmaBuf, Reactors};
+use crate::core::{Bdev, BdevHandle, DmaBuf, RangeContext, Reactors};
 use crossbeam::channel::unbounded;
 use once_cell::sync::OnceCell;
 use snafu::ResultExt;
@@ -13,6 +13,7 @@ use futures::{
 };
 
 use super::rebuild_api::*;
+use std::sync::Arc;
 
 /// Global list of rebuild jobs using a static OnceCell
 pub(super) struct RebuildInstances {
@@ -121,8 +122,15 @@ impl RebuildJob {
             nexus.to_string(),
         );
 
+        let nexus_descriptor =
+            Bdev::open_by_name(&nexus, true).context(BdevNotFound {
+                bdev: nexus.to_string(),
+            })?;
+
         Ok(Self {
             nexus,
+            nexus_channel: Arc::new(nexus_descriptor.get_channel().unwrap()),
+            nexus_descriptor,
             source,
             source_hdl,
             destination,
@@ -205,6 +213,17 @@ impl RebuildJob {
             &mut self.tasks.buffers[id as usize]
         };
 
+        let len = copy_buffer.len() as u64 / self.block_size;
+        let mut ctx = RangeContext::new(blk, len, self.nexus_channel.clone());
+
+        self.nexus_descriptor
+            .lock_lba_range(&mut ctx)
+            .await
+            .context(RangeLockError {
+                blk,
+                len,
+            })?;
+
         self.source_hdl
             .read_at(blk * self.block_size, &mut copy_buffer)
             .await
@@ -217,6 +236,14 @@ impl RebuildJob {
             .await
             .context(IoError {
                 bdev: &self.destination,
+            })?;
+
+        self.nexus_descriptor
+            .unlock_lba_range(&mut ctx)
+            .await
+            .context(RangeUnLockError {
+                blk,
+                len,
             })?;
 
         Ok(())
