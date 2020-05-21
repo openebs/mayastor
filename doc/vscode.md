@@ -6,7 +6,7 @@ of mayastor repo. As a starting point you can use:
 
 ```json
 {
-    "image": "mayadata/ms-buildenv:nix",
+    "image": "mayadata/ms-buildenv:latest",
     "workspaceMount": "source=${localWorkspaceFolder},target=/workspace,type=bind,consistency=delegated",
     "workspaceFolder": "/workspace",
     "mounts": [
@@ -18,7 +18,7 @@ of mayastor repo. As a starting point you can use:
 }
 ```
 
-That tells vscode that it should start a `mayadata/ms-buildenv:nix` container
+That tells vscode that it should start a `mayadata/ms-buildenv:latest` container
 and run the vscode server inside of it. The directory with the sources will
 be mounted at /workspace from the host.
 

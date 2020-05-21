@@ -47,6 +47,7 @@
 , libudev
 , llvmPackages
 , mkContainerEnv
+, nats-server
 , nix
 , nodePackages
 , nodejs
@@ -113,6 +114,7 @@ let
       liburing
       pkgconfig
       libudev.dev
+      nats-server
       numactl
       openssl
       rdma-core

@@ -16,6 +16,7 @@ const Volumes = require('./volumes');
 const VolumeOperator = require('./volume_operator');
 const ApiServer = require('./rest_api');
 const CsiServer = require('./csi').CsiServer;
+const { MessageBus } = require('./nats');
 
 const log = new logger.Logger();
 
@@ -50,6 +51,7 @@ async function main () {
   var nodeOper;
   var csiServer;
   var apiServer;
+  var messageBus;
 
   const opts = yargs
     .options({
@@ -68,6 +70,12 @@ async function main () {
         alias: 'namespace',
         describe: 'Namespace of mayastor custom resources',
         default: 'default',
+        string: true
+      },
+      m: {
+        alias: 'message-bus',
+        describe: 'NATS server endpoint in host[:port] form',
+        default: '127.0.0.1:4222',
         string: true
       },
       p: {
@@ -116,6 +124,7 @@ async function main () {
       if (poolOper) await poolOper.stop();
       if (nodeOper) await nodeOper.stop();
     }
+    if (messageBus) messageBus.stop();
     if (registry) registry.close();
     if (csiServer) await csiServer.stop();
     process.exit(0);
@@ -134,6 +143,10 @@ async function main () {
   csiServer = new CsiServer(opts.csiAddress);
   await csiServer.start();
   registry = new Registry();
+
+  // Listen to register and deregister messages from mayastor nodes
+  messageBus = new MessageBus(registry);
+  messageBus.start(opts.m);
 
   if (!opts.s) {
     // Create k8s client and load openAPI spec from k8s api server

@@ -7,13 +7,12 @@ const Registry = require('../registry');
 const Replica = require('../replica');
 const Pool = require('../pool');
 const Nexus = require('../nexus');
-const Node = require('../node');
-const NodeStub = require('./node_stub');
+const Node = require('./node_stub');
 
 module.exports = function () {
   it('should add a node to the registry and look up the node', () => {
     const registry = new Registry();
-    registry.Node = NodeStub;
+    registry.Node = Node;
 
     registry.addNode('node', '127.0.0.1:123');
 
@@ -34,6 +33,32 @@ module.exports = function () {
     expect(events).to.be.empty();
   });
 
+  it('should not do anything if the same node already exists in the registry', () => {
+    const registry = new Registry();
+    registry.Node = Node;
+    const node = new Node('node');
+    node.connect('127.0.0.1:123');
+    const connectStub = sinon.stub(node, 'connect');
+    registry.nodes.node = node;
+
+    registry.addNode('node', '127.0.0.1:123');
+    sinon.assert.calledOnce(connectStub);
+    sinon.assert.calledWith(connectStub, '127.0.0.1:123');
+  });
+
+  it('should reconnect node if it exists but grpc endpoint has changed', () => {
+    const registry = new Registry();
+    registry.Node = Node;
+    const node = new Node('node');
+    node.connect('127.0.0.1:123');
+    const connectStub = sinon.stub(node, 'connect');
+    registry.nodes.node = node;
+
+    registry.addNode('node', '127.0.0.1:124');
+    sinon.assert.calledOnce(connectStub);
+    sinon.assert.calledWith(connectStub, '127.0.0.1:124');
+  });
+
   it('should get a list of nodes from registry', () => {
     const registry = new Registry();
     registry.nodes.node1 = new Node('node1');
@@ -45,7 +70,7 @@ module.exports = function () {
 
   it('should remove a node from the registry', () => {
     const registry = new Registry();
-    const node = new NodeStub('node');
+    const node = new Node('node');
     registry.nodes.node = node;
     registry.removeNode('node');
     expect(registry.nodes).to.not.have.keys('node');
@@ -60,12 +85,17 @@ module.exports = function () {
     events.forEach((ev) => node.emit(ev, {}));
   });
 
+  it('should not do anything if removed node does not exist', () => {
+    const registry = new Registry();
+    registry.removeNode('node');
+  });
+
   it('should get a list of pools from registry', () => {
     const registry = new Registry();
-    const node1 = new NodeStub('node1', {}, [
+    const node1 = new Node('node1', {}, [
       new Pool({ name: 'pool1', disks: [] })
     ]);
-    const node2 = new NodeStub('node2', {}, [
+    const node2 = new Node('node2', {}, [
       new Pool({ name: 'pool2a', disks: [] }),
       new Pool({ name: 'pool2b', disks: [] })
     ]);
@@ -85,8 +115,8 @@ module.exports = function () {
     const UUID2 = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cb2';
     const UUID3 = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cb3';
     const registry = new Registry();
-    const node1 = new NodeStub('node1', {}, [], [new Nexus({ uuid: UUID1 })]);
-    const node2 = new NodeStub(
+    const node1 = new Node('node1', {}, [], [new Nexus({ uuid: UUID1 })]);
+    const node2 = new Node(
       'node2',
       {},
       [],
@@ -222,9 +252,9 @@ module.exports = function () {
         capacity: 100,
         used: 0
       });
-      const node1 = new NodeStub('node1', {}, [pool1]);
-      const node2 = new NodeStub('node2', {}, [pool2]);
-      const node3 = new NodeStub('node3', {}, [pool3]);
+      const node1 = new Node('node1', {}, [pool1]);
+      const node2 = new Node('node2', {}, [pool2]);
+      const node3 = new Node('node3', {}, [pool3]);
       const registry = new Registry();
       registry.nodes.node1 = node1;
       registry.nodes.node2 = node2;
@@ -266,8 +296,8 @@ module.exports = function () {
         used: 25
       });
       pool2.replicas = [new Replica({ uuid: UUID1 })];
-      const node1 = new NodeStub('node1', {}, [pool1]);
-      const node2 = new NodeStub('node2', {}, [pool2]);
+      const node1 = new Node('node1', {}, [pool1]);
+      const node2 = new Node('node2', {}, [pool2]);
       const registry = new Registry();
       registry.nodes.node1 = node1;
       registry.nodes.node2 = node2;
@@ -299,8 +329,8 @@ module.exports = function () {
         capacity: 100,
         used: 20
       });
-      const node1 = new NodeStub('node1', {}, [pool1]);
-      const node2 = new NodeStub('node2', {}, [pool2]);
+      const node1 = new Node('node1', {}, [pool1]);
+      const node2 = new Node('node2', {}, [pool2]);
       const registry = new Registry();
       registry.nodes.node1 = node1;
       registry.nodes.node2 = node2;
@@ -341,9 +371,9 @@ module.exports = function () {
         capacity: 100,
         used: 10
       });
-      const node1 = new NodeStub('node1', {}, [pool1]);
-      const node2 = new NodeStub('node2', {}, [pool2]);
-      const node3 = new NodeStub('node3', {}, [pool3]);
+      const node1 = new Node('node1', {}, [pool1]);
+      const node2 = new Node('node2', {}, [pool2]);
+      const node3 = new Node('node3', {}, [pool3]);
       const registry = new Registry();
       registry.nodes.node1 = node1;
       registry.nodes.node2 = node2;
@@ -368,7 +398,7 @@ module.exports = function () {
         capacity: 100,
         used: 10
       });
-      const node1 = new NodeStub('node1', {}, [pool1, pool2]);
+      const node1 = new Node('node1', {}, [pool1, pool2]);
       const registry = new Registry();
       registry.nodes.node1 = node1;
 
@@ -392,8 +422,8 @@ module.exports = function () {
         capacity: 100,
         used: 25
       });
-      const node1 = new NodeStub('node1', {}, [pool1]);
-      const node2 = new NodeStub('node2', {}, [pool2]);
+      const node1 = new Node('node1', {}, [pool1]);
+      const node2 = new Node('node2', {}, [pool2]);
       const registry = new Registry();
       registry.nodes.node1 = node1;
       registry.nodes.node2 = node2;
@@ -419,8 +449,8 @@ module.exports = function () {
         capacity: 100,
         used: 25
       });
-      const node1 = new NodeStub('node1', {}, [pool1]);
-      const node2 = new NodeStub('node2', {}, [pool2]);
+      const node1 = new Node('node1', {}, [pool1]);
+      const node2 = new Node('node2', {}, [pool2]);
       const registry = new Registry();
       registry.nodes.node1 = node1;
       registry.nodes.node2 = node2;

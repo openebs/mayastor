@@ -24,6 +24,7 @@ mkShell {
     gdb
     gptfdisk
     libiscsi.bin
+    nats-server
     nodejs
     nodePackages.semistandard
     nvme-cli
