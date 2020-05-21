@@ -44,6 +44,7 @@
 , libiscsi
 , libspdk
 , liburing
+, libudev
 , llvmPackages
 , mkContainerEnv
 , nix
@@ -51,6 +52,7 @@
 , nodejs
 , numactl
 , openssl
+, pkgconfig
 , procps
 , protobuf
 , python
@@ -109,6 +111,8 @@ let
       libiscsi.lib
       libspdk
       liburing
+      pkgconfig
+      libudev.dev
       numactl
       openssl
       rdma-core
@@ -169,6 +173,7 @@ let
         "PROTOC=${protobuf}/bin/protoc"
         "LIBCLANG_PATH=${llvmPackages.libclang}/lib"
         "LOCAL_ACRHIVE=${glibc}/lib/locale/locale-archive"
+        "PKG_CONFIG_PATH=/nix/var/nix/profiles/default/lib/pkgconfig"
 
         # C_INCLUDE_PATH is searched by compilers next to any includes it gets
         # passed during invocation
