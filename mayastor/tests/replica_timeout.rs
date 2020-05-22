@@ -1,10 +1,11 @@
 pub mod common;
 use common::ms_exec::MayastorProcess;
 use mayastor::{
-    bdev::nexus_create,
+    bdev::{nexus_create, nexus_lookup},
     core::{
         mayastor_env_stop,
         BdevHandle,
+        CoreError,
         MayastorCliArgs,
         MayastorEnvironment,
         Reactor,
@@ -27,7 +28,7 @@ static UUID1: &str = "00000000-76b6-4fcf-864d-1027d4038756";
 static CFGNAME2: &str = "/tmp/child2.yaml";
 static UUID2: &str = "11111111-76b6-4fcf-864d-1027d4038756";
 
-static NXNAME: &str = "replica_term_test";
+static NXNAME: &str = "replica_timeout_test";
 
 fn generate_config() {
     let uri1 = BDEVNAME1.into();
@@ -69,6 +70,42 @@ fn start_mayastor(cfg: &str, port: u16) -> MayastorProcess {
 }
 
 #[test]
+fn replica_stop_cont() {
+    generate_config();
+
+    common::truncate_file(DISKNAME1, DISKSIZE_KB);
+
+    let mut ms = start_mayastor(CFGNAME1, 10126);
+
+    test_init!();
+
+    Reactor::block_on(async {
+        create_nexus(true).await;
+        write_some().await;
+        read_some().await.unwrap();
+        ms.sig_stop();
+        let handle = thread::spawn(move || {
+            // Sufficiently long to cause a controller reset
+            // see NvmeBdevOpts::Defaults::timeout_us
+            thread::sleep(time::Duration::from_secs(3));
+            ms.sig_cont();
+            ms
+        });
+        read_some()
+            .await
+            .expect_err("should fail read after controller reset");
+        ms = handle.join().unwrap();
+        read_some()
+            .await
+            .expect("should read again after Nexus child continued");
+        nexus_lookup(NXNAME).unwrap().destroy().await.unwrap();
+        assert!(nexus_lookup(NXNAME).is_none());
+    });
+
+    common::delete_file(&[DISKNAME1.to_string()]);
+}
+
+#[test]
 fn replica_term() {
     generate_config();
 
@@ -77,25 +114,33 @@ fn replica_term() {
 
     let mut ms1 = start_mayastor(CFGNAME1, 10126);
     let mut ms2 = start_mayastor(CFGNAME2, 10127);
+    // Allow Mayastor processes to start listening on NVMf port
+    thread::sleep(time::Duration::from_millis(250));
 
     test_init!();
 
     Reactor::block_on(async {
         create_nexus(false).await;
         write_some().await;
-        read_some(true).await;
+        read_some().await.unwrap();
     });
     ms1.sig_term();
     thread::sleep(time::Duration::from_secs(1));
     Reactor::block_on(async {
-        read_some(true).await;
+        read_some()
+            .await
+            .expect("should read with 1 Nexus child terminated");
     });
     ms2.sig_term();
     thread::sleep(time::Duration::from_secs(1));
     Reactor::block_on(async {
-        read_some(false).await;
+        read_some()
+            .await
+            .expect_err("should fail read with 2 Nexus children terminated");
     });
     mayastor_env_stop(0);
+
+    common::delete_file(&[DISKNAME1.to_string(), DISKNAME2.to_string()]);
 }
 
 async fn create_nexus(single: bool) {
@@ -126,7 +171,7 @@ async fn write_some() {
     bdev.write_at(0, &buf).await.unwrap();
 }
 
-async fn read_some(ok: bool) {
+async fn read_some() -> Result<(), CoreError> {
     let bdev = BdevHandle::open(NXNAME, true, false).unwrap();
     let mut buf = bdev.dma_malloc(1024).expect("failed to allocate buffer");
     let slice = buf.as_mut_slice();
@@ -135,16 +180,8 @@ async fn read_some(ok: bool) {
     slice[512] = 0xff;
     assert_eq!(slice[512], 0xff);
 
-    match bdev.read_at(0, &mut buf).await {
-        Ok(s) => {
-            assert_eq!(ok, true);
-            assert_eq!(s, 1024);
-        }
-        Err(_e) => {
-            assert_eq!(ok, false);
-            return;
-        }
-    };
+    let len = bdev.read_at(0, &mut buf).await?;
+    assert_eq!(len, 1024);
 
     let slice = buf.as_slice();
 
@@ -152,4 +189,5 @@ async fn read_some(ok: bool) {
         assert_eq!(it, 0xff);
     }
     assert_eq!(slice[512], 0);
+    Ok(())
 }
