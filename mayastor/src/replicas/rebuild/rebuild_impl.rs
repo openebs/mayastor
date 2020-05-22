@@ -17,7 +17,7 @@ use super::rebuild_api::*;
 
 /// Global list of rebuild jobs using a static OnceCell
 pub(super) struct RebuildInstances {
-    inner: UnsafeCell<HashMap<String, RebuildJob>>,
+    inner: UnsafeCell<HashMap<String, Box<RebuildJob>>>,
 }
 
 unsafe impl Sync for RebuildInstances {}
@@ -26,6 +26,7 @@ unsafe impl Send for RebuildInstances {}
 /// Result returned by each segment task worker
 /// used to communicate with the management task indicating that the
 /// segment task worker is ready to copy another segment
+#[derive(Debug)]
 struct TaskResult {
     /// block that was being rebuilt
     blk: u64,
@@ -38,12 +39,13 @@ struct TaskResult {
 /// Number of concurrent copy tasks per rebuild job
 const SEGMENT_TASKS: u64 = 4;
 /// Size of each segment used by the copy task
-const SEGMENT_SIZE: u64 = 10 * 1024; // 10KiB
+pub const SEGMENT_SIZE: u64 = 10 * 1024; // 10KiB
 
 /// Each rebuild task needs a unique buffer to read/write from source to target
 /// a mpsc channel is used to communicate with the management task and each
 /// task used a clone of the sender allowing the management to poll a single
 /// receiver
+#[derive(Debug)]
 pub(super) struct RebuildTasks {
     buffers: Vec<DmaBuf>,
     senders: Vec<mpsc::Sender<TaskResult>>,
@@ -53,6 +55,22 @@ pub(super) struct RebuildTasks {
     total: u64,
 
     segments_done: u64,
+}
+
+/// Checks whether a range is contained within another range
+pub trait Within<T> {
+    /// True if `self` is contained within `right`, otherwise false
+    fn within(&self, right: std::ops::Range<T>) -> bool;
+}
+
+impl Within<u64> for std::ops::Range<u64> {
+    fn within(&self, right: std::ops::Range<u64>) -> bool {
+        // also make sure ranges don't overflow
+        self.start < self.end
+            && right.start < right.end
+            && self.start >= right.start
+            && self.end <= right.end
+    }
 }
 
 impl RebuildJob {
@@ -65,7 +83,8 @@ impl RebuildJob {
                 job: self.destination,
             })
         } else {
-            let _ = rebuild_list.insert(self.destination.clone(), self);
+            let _ =
+                rebuild_list.insert(self.destination.clone(), Box::new(self));
             Ok(())
         }
     }
@@ -75,8 +94,7 @@ impl RebuildJob {
         nexus: &str,
         source: &str,
         destination: &str,
-        start: u64,
-        end: u64,
+        range: std::ops::Range<u64>,
         notify_fn: fn(String, String) -> (),
     ) -> Result<Self, RebuildError> {
         let source_hdl =
@@ -88,8 +106,11 @@ impl RebuildJob {
                 bdev: destination,
             })?;
 
-        if !Self::validate(&source_hdl.get_bdev(), &destination_hdl.get_bdev())
-        {
+        if !Self::validate(
+            &source_hdl.get_bdev(),
+            &destination_hdl.get_bdev(),
+            &range,
+        ) {
             return Err(RebuildError::InvalidParameters {});
         };
 
@@ -134,9 +155,8 @@ impl RebuildJob {
             source_hdl,
             destination,
             destination_hdl,
-            start,
-            end,
-            next: start,
+            next: range.start,
+            range,
             block_size,
             segment_size_blks,
             tasks,
@@ -189,8 +209,8 @@ impl RebuildJob {
     /// Return the size of the segment to be copied.
     fn get_segment_size_blks(&self, blk: u64) -> u64 {
         // Adjust the segments size for the last segment
-        if (blk + self.segment_size_blks) > self.end {
-            return self.end - blk;
+        if (blk + self.segment_size_blks) > self.range.end {
+            return self.range.end - blk;
         }
         self.segment_size_blks
     }
@@ -218,7 +238,7 @@ impl RebuildJob {
         // nexus has a data partition only. Because we are locking the range on
         // the nexus, we need to calculate the offset from the start of the data
         // partition.
-        let mut ctx = RangeContext::new(blk - self.start, len);
+        let mut ctx = RangeContext::new(blk - self.range.start, len);
         let ch = self
             .nexus_descriptor
             .get_channel()
@@ -264,12 +284,12 @@ impl RebuildJob {
         {
             &mut self.tasks.buffers[id as usize]
         } else {
-            let segment_size_blks = self.end - blk;
+            let segment_size_blks = self.range.end - blk;
 
             trace!(
-                "Adjusting last segment size from {} to {}. offset: {}, start: {}, end: {}",
-                self.segment_size_blks, segment_size_blks, blk, self.start, self.end,
-            );
+                    "Adjusting last segment size from {} to {}. offset: {}, range: {:?}",
+                    self.segment_size_blks, segment_size_blks, blk, self.range,
+                );
 
             copy_buffer = self
                 .source_hdl
@@ -312,9 +332,16 @@ impl RebuildJob {
 
     /// Check if the source and destination block devices are compatible for
     /// rebuild
-    fn validate(source: &Bdev, destination: &Bdev) -> bool {
-        !(source.size_in_bytes() != destination.size_in_bytes()
-            || source.block_len() != destination.block_len())
+    fn validate(
+        source: &Bdev,
+        destination: &Bdev,
+        range: &std::ops::Range<u64>,
+    ) -> bool {
+        // todo: make sure we don't overwrite the labels
+        let data_partition_start = 0;
+        range.within(data_partition_start .. source.num_blocks())
+            && range.within(data_partition_start .. destination.num_blocks())
+            && source.block_len() == destination.block_len()
     }
 
     /// reconcile the pending state to the current and clear the pending
@@ -366,7 +393,7 @@ impl RebuildJob {
 
     /// Get the rebuild job instances container, we ensure that this can only
     /// ever be called on a properly allocated thread
-    pub(super) fn get_instances() -> &'static mut HashMap<String, Self> {
+    pub(super) fn get_instances() -> &'static mut HashMap<String, Box<Self>> {
         let thread = unsafe { spdk_get_thread() };
         if thread.is_null() {
             panic!("not called from SPDK thread")
@@ -412,7 +439,7 @@ impl std::fmt::Display for RebuildOperation {
 
 impl ClientOperations for RebuildJob {
     fn stats(&self) -> RebuildStats {
-        let blocks_total = self.end - self.start;
+        let blocks_total = self.range.end - self.range.start;
 
         // segment size may not be aligned to the total size
         let blocks_recovered = std::cmp::min(
@@ -423,13 +450,12 @@ impl ClientOperations for RebuildJob {
         let progress = (blocks_recovered * 100) / blocks_total;
 
         info!(
-            "State: {}, Src: {}, Dst: {}, start: {}, end: {}, next: {}, \
+            "State: {}, Src: {}, Dst: {}, range: {:?}, next: {}, \
              block_size: {}, segment_sz: {}, recovered_blks: {}, progress: {}%",
             self.state(),
             self.source,
             self.destination,
-            self.start,
-            self.end,
+            self.range,
             self.next,
             self.block_size,
             self.segment_size_blks,
@@ -544,12 +570,14 @@ impl RebuildJob {
     /// Sends one segment worth of data in a reactor future and notifies the
     /// management channel. Returns the next segment offset to rebuild, if any
     fn send_segment_task(&self, id: u64) -> Option<u64> {
-        if self.next >= self.end {
+        if self.next >= self.range.end {
             None
         } else {
             let blk = self.next;
-            let next =
-                std::cmp::min(self.next + self.segment_size_blks, self.end);
+            let next = std::cmp::min(
+                self.next + self.segment_size_blks,
+                self.range.end,
+            );
             let name = self.destination.clone();
 
             Reactors::current().send_future(async move {

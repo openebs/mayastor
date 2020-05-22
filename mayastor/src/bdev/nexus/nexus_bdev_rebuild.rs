@@ -58,8 +58,10 @@ impl Nexus {
             &self.name,
             &src_child_name,
             &dst_child.name,
-            self.data_ent_offset,
-            self.bdev.num_blocks() + self.data_ent_offset,
+            std::ops::Range::<u64> {
+                start: self.data_ent_offset,
+                end: self.bdev.num_blocks() + self.data_ent_offset,
+            },
             |nexus, job| {
                 Reactors::current().send_future(async move {
                     Nexus::notify_rebuild(nexus, job).await;
