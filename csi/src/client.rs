@@ -9,6 +9,7 @@ extern crate clap;
 
 use byte_unit::Byte;
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
+use std::cmp::max;
 use tonic::{transport::Channel, Code, Status};
 
 use ::rpc::{mayastor as rpc, service::mayastor_client::MayastorClient};
@@ -46,6 +47,24 @@ fn pool_state_to_str(idx: i32) -> &'static str {
     }
 }
 
+fn nexus_state_to_str(idx: i32) -> &'static str {
+    match rpc::NexusState::from_i32(idx).unwrap() {
+        rpc::NexusState::NexusUnknown => "unknown",
+        rpc::NexusState::NexusOnline => "online",
+        rpc::NexusState::NexusDegraded => "degraded",
+        rpc::NexusState::NexusFaulted => "faulted",
+    }
+}
+
+fn child_state_to_str(idx: i32) -> &'static str {
+    match rpc::ChildState::from_i32(idx).unwrap() {
+        rpc::ChildState::ChildUnknown => "unknown",
+        rpc::ChildState::ChildOnline => "online",
+        rpc::ChildState::ChildDegraded => "degraded",
+        rpc::ChildState::ChildFaulted => "faulted",
+    }
+}
+
 pub(crate) fn parse_size(src: &str) -> Result<Byte, String> {
     Byte::from_str(src).map_err(|_| src.to_string())
 }
@@ -62,11 +81,13 @@ impl Context {
             println!("{}", s)
         }
     }
+
     fn v2(&self, s: &str) {
         if self.verbosity > 1 {
             println!("{}", s)
         }
     }
+
     fn units(&self, n: Byte) -> String {
         match self.units {
             'i' => n.get_appropriate_unit(true).to_string(),
@@ -74,11 +95,60 @@ impl Context {
             _ => n.get_bytes().to_string(),
         }
     }
+
+    fn print_list(&self, headers: Vec<&str>, mut data: Vec<Vec<String>>) {
+        assert_ne!(data.len(), 0);
+        let ncols = data.first().unwrap().len();
+        assert_eq!(headers.len(), ncols);
+
+        let columns = if self.verbosity > 0 {
+            data.insert(
+                0,
+                headers
+                    .iter()
+                    .map(|h| {
+                        (if h.starts_with('>') { &h[1 ..] } else { h })
+                            .to_string()
+                    })
+                    .collect(),
+            );
+
+            data.iter().fold(
+                headers
+                    .iter()
+                    .map(|h| (h.starts_with('>'), 0usize))
+                    .collect(),
+                |thus_far: Vec<(bool, usize)>, elem| {
+                    thus_far
+                        .iter()
+                        .zip(elem)
+                        .map(|((a, l), s)| (*a, max(*l, s.len())))
+                        .collect()
+                },
+            )
+        } else {
+            vec![(false, 0usize); ncols]
+        };
+
+        for row in data {
+            let vals = row.iter().enumerate().map(|(idx, s)| {
+                if columns[idx].0 {
+                    format!("{:>1$}", s, columns[idx].1)
+                } else {
+                    format!("{:<1$}", s, columns[idx].1)
+                }
+            });
+
+            println!("{}", vals.collect::<Vec<String>>().join(" "));
+        }
+    }
 }
 
-//
-// POOL
-//
+/*
+ *
+ * POOL
+ *
+ */
 
 async fn pool_create(
     mut ctx: Context,
@@ -137,39 +207,39 @@ async fn pool_list(
     ctx.v2("Requesting a list of pools");
 
     let reply = ctx.client.list_pools(rpc::Null {}).await?;
-    let pools = &reply.get_ref().pools;
+    let pools: &Vec<rpc::Pool> = &reply.get_ref().pools;
     if pools.is_empty() {
         ctx.v1("No pools found");
         return Ok(());
     }
 
-    ctx.v1(&format!(
-        "{: <20} {: <8} {: >12} {: >12}   DISKS",
-        "NAME", "STATE", "CAPACITY", "USED"
-    ));
+    ctx.v2("Found following pools:");
 
-    for p in pools {
-        let cap = Byte::from_bytes(p.capacity.into());
-        let used = Byte::from_bytes(p.used.into());
-        let state = pool_state_to_str(p.state);
-        print!(
-            "{: <20} {: <8} {: >12} {: >12}  ",
-            p.name,
-            state,
-            ctx.units(cap),
-            ctx.units(used)
-        );
-        for disk in &p.disks {
-            print!(" {}", disk);
-        }
-        println!();
-    }
+    let table = pools
+        .iter()
+        .map(|p| {
+            let cap = Byte::from_bytes(p.capacity.into());
+            let used = Byte::from_bytes(p.used.into());
+            let state = pool_state_to_str(p.state);
+            vec![
+                p.name.clone(),
+                state.to_string(),
+                ctx.units(cap),
+                ctx.units(used),
+                p.disks.join(" "),
+            ]
+        })
+        .collect();
+    ctx.print_list(vec!["NAME", "STATE", ">CAPACITY", ">USED", "DISKS"], table);
+
     Ok(())
 }
 
-//
-// NEXUS
-//
+/*
+ *
+ * NEXUS
+ *
+ */
 
 async fn nexus_create(
     mut ctx: Context,
@@ -221,14 +291,81 @@ async fn nexus_destroy(
 
 async fn nexus_list(
     mut ctx: Context,
-    _matches: &ArgMatches<'_>,
+    matches: &ArgMatches<'_>,
 ) -> Result<(), Status> {
-    let list = ctx.client.list_nexus(rpc::Null {}).await?;
+    let resp = ctx.client.list_nexus(rpc::Null {}).await?;
+    let nexus = &resp.get_ref().nexus_list;
+    if nexus.is_empty() {
+        ctx.v1("No nexus found");
+        return Ok(());
+    }
 
     ctx.v2("Found following nexus:");
-    list.into_inner().nexus_list.into_iter().for_each(|n| {
-        println!("{:?}", n);
-    });
+    let show_child = matches.is_present("children");
+
+    let table = nexus
+        .iter()
+        .map(|n| {
+            let size = ctx.units(Byte::from_bytes(n.size.into()));
+            let state = nexus_state_to_str(n.state);
+            let mut row = vec![
+                n.uuid.clone(),
+                n.device_path.clone(),
+                size,
+                state.to_string(),
+                n.rebuilds.to_string(),
+            ];
+            if show_child {
+                row.push(
+                    n.children
+                        .iter()
+                        .map(|c| c.uri.clone())
+                        .collect::<Vec<String>>()
+                        .join(","),
+                )
+            }
+            row
+        })
+        .collect();
+    let mut hdr = vec!["NAME", "PATH", ">SIZE", "STATE", ">REBUILDS"];
+    if show_child {
+        hdr.push("CHILDREN");
+    }
+    ctx.print_list(hdr, table);
+
+    Ok(())
+}
+
+async fn nexus_children(
+    mut ctx: Context,
+    matches: &ArgMatches<'_>,
+) -> Result<(), Status> {
+    let uuid = matches.value_of("uuid").unwrap().to_string();
+
+    let resp = ctx.client.list_nexus(rpc::Null {}).await?;
+    let nexus = resp
+        .get_ref()
+        .nexus_list
+        .iter()
+        .find(|n| n.uuid == uuid)
+        .ok_or_else(|| {
+            Status::new(
+                Code::InvalidArgument,
+                "Specified nexus not found".to_owned(),
+            )
+        })?;
+
+    ctx.v2(&format!("Children of nexus {}:", uuid));
+
+    let table = nexus
+        .children
+        .iter()
+        .map(|c| {
+            let state = child_state_to_str(c.state);
+            vec![c.uri.clone(), state.to_string()]
+        })
+        .collect();
+    ctx.print_list(vec!["NAME", "STATE"], table);
     Ok(())
 }
 
@@ -251,7 +388,7 @@ async fn nexus_publish(
     };
 
     ctx.v2(&format!("Publishing nexus {} over {:?}", uuid, prot));
-    let path = ctx
+    let resp = ctx
         .client
         .publish_nexus(rpc::PublishNexusRequest {
             uuid,
@@ -259,7 +396,10 @@ async fn nexus_publish(
             share: prot.into(),
         })
         .await?;
-    ctx.v1(&format!("Nexus published at {:?}", path));
+    ctx.v1(&format!(
+        "Nexus published at {}",
+        resp.get_ref().device_path
+    ));
     Ok(())
 }
 
@@ -311,13 +451,15 @@ async fn nexus_remove(
             uri: uri.clone(),
         })
         .await?;
-    ctx.v2(&format!("Removed {} from children of {}", uri, uuid));
+    ctx.v1(&format!("Removed {} from children of {}", uri, uuid));
     Ok(())
 }
 
-//
-// REPLICA
-//
+/*
+ *
+ * REPLICA
+ *
+ */
 
 async fn replica_create(
     mut ctx: Context,
@@ -358,6 +500,44 @@ async fn replica_destroy(
     Ok(())
 }
 
+async fn replica_list(
+    mut ctx: Context,
+    _matches: &ArgMatches<'_>,
+) -> Result<(), Status> {
+    ctx.v2("Requesting a list of replicas");
+
+    let resp = ctx.client.list_replicas(rpc::Null {}).await?;
+    let replicas = &resp.get_ref().replicas;
+    if replicas.is_empty() {
+        ctx.v1("No replicas found");
+        return Ok(());
+    }
+
+    ctx.v2("Found following replicas:");
+
+    let table = replicas
+        .iter()
+        .map(|r| {
+            let proto = replica_protocol_to_str(r.share);
+            let size = ctx.units(Byte::from_bytes(r.size.into()));
+            vec![
+                r.pool.clone(),
+                r.uuid.clone(),
+                r.thin.to_string(),
+                proto.to_string(),
+                size,
+                r.uri.clone(),
+            ]
+        })
+        .collect();
+    ctx.print_list(
+        vec!["POOL", "NAME", ">THIN", ">SHARE", ">SIZE", "URI"],
+        table,
+    );
+
+    Ok(())
+}
+
 async fn replica_share(
     mut ctx: Context,
     matches: &ArgMatches<'_>,
@@ -375,35 +555,6 @@ async fn replica_share(
         })
         .await?;
     ctx.v1(&format!("Shared {}", resp.get_ref().uri));
-    Ok(())
-}
-
-async fn replica_list(
-    mut ctx: Context,
-    _matches: &ArgMatches<'_>,
-) -> Result<(), Status> {
-    ctx.v2("Requesting a list of replicas");
-
-    let resp = ctx.client.list_replicas(rpc::Null {}).await?;
-    let replicas = &resp.get_ref().replicas;
-    if replicas.is_empty() {
-        ctx.v1("No replicas have been created");
-        return Ok(());
-    }
-
-    ctx.v1(&format!(
-        "{: <15} {: <36} {: <8} {: <8} {: <10} URI",
-        "POOL", "NAME", "THIN", "SHARE", "SIZE"
-    ));
-
-    for r in replicas {
-        let proto = replica_protocol_to_str(r.share);
-        let size = ctx.units(Byte::from_bytes(r.size.into()));
-        println!(
-            "{: <15} {: <36} {: <8} {: <8} {: <10} {}",
-            r.pool, r.uuid, r.thin, proto, size, r.uri
-        );
-    }
     Ok(())
 }
 
@@ -440,6 +591,12 @@ async fn replica_stat(
     }
     Ok(())
 }
+
+/*
+ *
+ * MAIN
+ *
+ */
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -520,13 +677,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .index(1)
                     .help("uuid for the nexus"),
             );
-        let publish = SubCommand::with_name("publish").about("publish the nexus")
+        let publish = SubCommand::with_name("publish")
+            .about("publish the nexus")
             .arg(Arg::with_name("protocol").short("p").long("protocol").value_name("PROTOCOL")
                 .help("Name of a protocol (nvmf, iscsi) used for publishing the nexus remotely"))
             .arg(Arg::with_name("uuid").required(true).index(1)
                 .help("uuid for the nexus"))
             .arg(Arg::with_name("key").required(false).index(2)
                 .help("crypto key to use"));
+        let unpublish = SubCommand::with_name("unpublish")
+            .about("unpublish the nexus")
+            .arg(
+                Arg::with_name("uuid")
+                    .required(true)
+                    .index(1)
+                    .help("uuid for the nexus"),
+            );
         let add = SubCommand::with_name("add")
             .about("add a child")
             .arg(
@@ -555,6 +721,24 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .index(2)
                     .help("uri of child to remove"),
             );
+        let list = SubCommand::with_name("list")
+            .about("list all nexus devices")
+            .arg(
+                Arg::with_name("children")
+                    .short("c")
+                    .long("show-children")
+                    .required(false)
+                    .takes_value(false),
+            );
+        let children = SubCommand::with_name("children")
+            .about("list nexus children")
+            .arg(
+                Arg::with_name("uuid")
+                    .required(true)
+                    .index(1)
+                    .help("uuid of nexus"),
+            );
+
         SubCommand::with_name("nexus")
             .about("nexus management")
             .subcommand(create)
@@ -562,12 +746,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             .subcommand(publish)
             .subcommand(add)
             .subcommand(remove)
-            .subcommand(
-                SubCommand::with_name("list").about("list all nexus devices"),
-            )
-            .subcommand(
-                SubCommand::with_name("unpublish").about("unpublish a nexus"),
-            )
+            .subcommand(unpublish)
+            .subcommand(list)
+            .subcommand(children)
     };
 
     let replica_subcommand = {
@@ -662,8 +843,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match matches.subcommand() {
         ("pool", Some(m)) => match m.subcommand() {
             ("create", Some(m)) => pool_create(ctx, &m).await?,
-            ("list", Some(m)) => pool_list(ctx, &m).await?,
             ("destroy", Some(m)) => pool_destroy(ctx, &m).await?,
+            ("list", Some(m)) => pool_list(ctx, &m).await?,
             _ => {}
         },
 
@@ -671,6 +852,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             ("create", Some(m)) => nexus_create(ctx, &m).await?,
             ("destroy", Some(m)) => nexus_destroy(ctx, &m).await?,
             ("list", Some(m)) => nexus_list(ctx, &m).await?,
+            ("children", Some(m)) => nexus_children(ctx, &m).await?,
             ("publish", Some(m)) => nexus_publish(ctx, &m).await?,
             ("unpublish", Some(m)) => nexus_unpublish(ctx, &m).await?,
             ("add", Some(m)) => nexus_add(ctx, &m).await?,
@@ -681,8 +863,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         ("replica", Some(m)) => match m.subcommand() {
             ("create", Some(m)) => replica_create(ctx, &m).await?,
             ("destroy", Some(m)) => replica_destroy(ctx, &m).await?,
-            ("share", Some(m)) => replica_share(ctx, &m).await?,
             ("list", Some(m)) => replica_list(ctx, &m).await?,
+            ("share", Some(m)) => replica_share(ctx, &m).await?,
             ("stats", Some(m)) => replica_stat(ctx, &m).await?,
             _ => {}
         },

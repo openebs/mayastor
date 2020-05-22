@@ -96,6 +96,80 @@ describe('cli', function () {
           }
         },
         {
+          method: 'CreateNexus',
+          input: {
+            uuid: UUID,
+            size: { low: 10 * (1024 * 1024), high: 0, unsigned: true },
+            children: ['aaa']
+          },
+          output: {}
+        },
+        {
+          method: 'PublishNexus',
+          input: {
+            uuid: UUID,
+            key: 'CRYPTO'
+          },
+          output: {
+            devicePath: '/dev/blah'
+          }
+        },
+        {
+          method: 'UnpublishNexus',
+          input: {
+            uuid: UUID
+          },
+          output: {}
+        },
+        {
+          method: 'AddChildNexus',
+          input: {
+            uuid: UUID,
+            uri: 'child_a'
+          },
+          output: {}
+        },
+        {
+          method: 'RemoveChildNexus',
+          input: {
+            uuid: UUID,
+            uri: 'child_a'
+          },
+          output: {}
+        },
+        {
+          method: 'ListNexus',
+          input: {},
+          output: {
+            nexusList: [
+              {
+                uuid: UUID1,
+                size: 100 * (1024 * 1024),
+                state: 1,
+                children: [{ uri: 'child1', state: 0 }, { uri: 'child2', state: 3 }],
+                devicePath: '/dev/blah',
+                rebuilds: 123
+              },
+              {
+                uuid: UUID2,
+                size: 10 * (1024 * 1024),
+                state: 2,
+                children: [],
+                devicePath: '/dev/blah2',
+                rebuilds: 1
+              }
+            ]
+          }
+        },
+        {
+          method: 'DestroyNexus',
+          input: {
+            uuid: UUID
+          },
+          output: {
+          }
+        },
+        {
           method: 'CreateReplica',
           input: {
             uuid: UUID,
@@ -194,9 +268,13 @@ describe('cli', function () {
       }
     });
 
+    //
+    // POOLS
+    //
+
     it('should create a pool', function (done) {
       const cmd = util.format(
-        '%s -q pool create -b 512 %s %s',
+        '%s pool create -b 512 %s %s',
         EGRESS_CMD,
         POOL,
         DISK
@@ -207,7 +285,7 @@ describe('cli', function () {
           return done(err);
         }
         assert.isEmpty(stderr);
-        assert.isEmpty(stdout);
+        assert.match(stdout, /Created pool tpool/);
         done();
       });
     });
@@ -267,17 +345,179 @@ describe('cli', function () {
     });
 
     it('should destroy a pool', function (done) {
-      const cmd = util.format('%s -q pool destroy %s', EGRESS_CMD, POOL);
+      const cmd = util.format('%s pool destroy %s', EGRESS_CMD, POOL);
 
       exec(cmd, (err, stdout, stderr) => {
         if (err) {
           return done(err);
         }
         assert.isEmpty(stderr);
-        assert.isEmpty(stdout);
+        assert.match(stdout, /Destroyed pool tpool/);
         done();
       });
     });
+
+    //
+    // NEXUS
+    //
+
+    it('should create a nexus', function (done) {
+      const cmd = util.format(
+        '%s nexus create %s 10MiB aaa',
+        EGRESS_CMD,
+        UUID
+      );
+
+      exec(cmd, (err, stdout, stderr) => {
+        if (err) {
+          return done(err);
+        }
+        assert.isEmpty(stderr);
+        assert.match(stdout, /Nexus 753b391c-9b04-4ce3-9c74-9d949152e547 created/);
+        done();
+      });
+    });
+
+    it('should publish a nexus', function (done) {
+      const cmd = util.format('%s nexus publish %s CRYPTO', EGRESS_CMD, UUID);
+
+      exec(cmd, (err, stdout, stderr) => {
+        if (err) {
+          return done(err);
+        }
+        assert.isEmpty(stderr);
+        assert.match(stdout, /Nexus published at \/dev\/blah/);
+        done();
+      });
+    });
+
+    it('should unpublish a nexus', function (done) {
+      const cmd = util.format(
+        '%s nexus unpublish %s',
+        EGRESS_CMD,
+        UUID
+      );
+
+      exec(cmd, (err, stdout, stderr) => {
+        if (err) {
+          return done(err);
+        }
+        assert.isEmpty(stderr);
+        assert.match(stdout, /unpublished/);
+        done();
+      });
+    });
+
+    it('should add a child to nexus', function (done) {
+      const cmd = util.format('%s nexus add %s child_a', EGRESS_CMD, UUID);
+
+      exec(cmd, (err, stdout, stderr) => {
+        if (err) {
+          return done(err);
+        }
+        assert.isEmpty(stderr);
+        assert.match(stdout, /Added child_a to children of 753b391c-9b04-4ce3-9c74-9d949152e547/);
+        done();
+      });
+    });
+
+    it('should remove a child from nexus', function (done) {
+      const cmd = util.format('%s nexus remove %s child_a', EGRESS_CMD, UUID);
+
+      exec(cmd, (err, stdout, stderr) => {
+        if (err) {
+          return done(err);
+        }
+        assert.isEmpty(stderr);
+        assert.match(stdout, /Removed child_a from children of 753b391c-9b04-4ce3-9c74-9d949152e547/);
+        done();
+      });
+    });
+
+    it('should list nexus', function (done) {
+      const cmd = util.format('%s -q nexus list -c', EGRESS_CMD);
+
+      exec(cmd, (err, stdout, stderr) => {
+        const nexus = [];
+        if (err) { return done(err); }
+        assert.isEmpty(stderr);
+
+        stdout.split('\n').forEach((line) => {
+          const parts = line.trim().split(' ').filter((s) => s.length !== 0);
+          if (parts.length <= 1) { return; }
+          nexus.push({
+            name: parts[0],
+            path: parts[1],
+            size: parts[2],
+            state: parts[3],
+            rebuilds: parts[4],
+            children: parts[5]
+          });
+        });
+
+        assert.lengthOf(nexus, 2);
+
+        assert.equal(nexus[0].name, UUID1);
+        assert.equal(nexus[0].path, '/dev/blah');
+        assert.equal(nexus[0].size, '104857600');
+        assert.equal(nexus[0].state, 'online');
+        assert.equal(nexus[0].rebuilds, '123');
+        assert.equal(nexus[0].children, 'child1,child2');
+
+        assert.equal(nexus[1].name, UUID2);
+        assert.equal(nexus[1].path, '/dev/blah2');
+        assert.equal(nexus[1].size, '10485760');
+        assert.equal(nexus[1].state, 'degraded');
+        assert.equal(nexus[1].rebuilds, '1');
+
+        done();
+      });
+    });
+
+    it('should list nexus children', function (done) {
+      const cmd = util.format('%s -q nexus children %s', EGRESS_CMD, UUID1);
+
+      exec(cmd, (err, stdout, stderr) => {
+        const child = [];
+        if (err) { return done(err); }
+        assert.isEmpty(stderr);
+
+        stdout.split('\n').forEach((line) => {
+          const parts = line.trim().split(' ').filter((s) => s.length !== 0);
+          if (parts.length <= 1) { return; }
+          child.push({
+            name: parts[0],
+            state: parts[1]
+          });
+        });
+
+        assert.lengthOf(child, 2);
+
+        assert.equal(child[0].name, 'child1');
+        assert.equal(child[0].state, 'unknown');
+        assert.equal(child[1].name, 'child2');
+        assert.equal(child[1].state, 'faulted');
+
+        done();
+      });
+    });
+
+    it('should destroy a nexus', function (done) {
+      const cmd = util.format('%s nexus destroy %s', EGRESS_CMD, UUID);
+
+      exec(cmd, (err, stdout, stderr) => {
+        if (err) {
+          return done(err);
+        }
+        assert.isEmpty(stderr);
+        assert.match(stdout, /destroyed/);
+        done();
+      });
+    });
+
+    //
+    // REPLICAS
+    //
 
     it('should create a replica', function (done) {
       const cmd = util.format(
@@ -292,7 +532,7 @@ describe('cli', function () {
           return done(err);
         }
         assert.isEmpty(stderr);
-        assert.match(stdout, /nvmf:\/\//);
+        assert.match(stdout, /nvmf:\/\/./);
         done();
       });
     });
@@ -305,7 +545,7 @@ describe('cli', function () {
           return done(err);
         }
         assert.isEmpty(stderr);
-        assert.match(stdout, /iscsi:\/\//);
+        assert.match(stdout, /iscsi:\/\/./);
         done();
       });
     });
