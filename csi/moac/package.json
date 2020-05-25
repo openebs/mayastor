@@ -4,7 +4,8 @@
   "description": "Mayastor's control plane",
   "main": "index.js",
   "bin": {
-    "moac": "./index.js"
+    "moac": "./index.js",
+    "mbus": "./mbus.js"
   },
   "repository": {
     "type": "git",
