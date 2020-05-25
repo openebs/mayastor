@@ -91,16 +91,18 @@ The YAML files named below are to be found in the `deploy` folder of the Mayasto
 
 5.  Deploy the Mayastor and CSI components
     ```bash
+    kubectl create -f nats-deployment.yaml
     kubectl create -f moac-deployment.yaml
     kubectl create -f mayastor-daemonset.yaml
     ```
     
-6.  Confirm that the MOAC pod is running:
+6.  Confirm that the MOAC and NATS pods are running:
     ```bash
     kubectl -n mayastor get pod
     ```
     ```
     NAME                   READY   STATUS    RESTARTS   AGE
+    nats-5fc4d79d66-lvdcg  1/1     Running   0          31s
     moac-5f7cb764d-sshvz   3/3     Running   0          34s
     ```
 
