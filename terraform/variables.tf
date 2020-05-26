@@ -25,7 +25,7 @@ variable "image_path" {
 variable "disk_size" {
   type        = number
   description = "The size of the root disk in bytes"
-  default     = 5361393664
+  default     = 6442450944
 }
 
 variable "hostname_formatter" {
