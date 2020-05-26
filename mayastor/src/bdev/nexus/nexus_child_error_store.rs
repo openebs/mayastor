@@ -4,13 +4,13 @@ use std::fmt::{Debug, Display};
 use crate::bdev::nexus::nexus_io::{io_status, io_type};
 use serde::export::{fmt::Error, Formatter};
 
-#[derive(Default)]
+#[derive(Default, Copy, Clone)]
 pub struct NexusChildErrorRecord {
-    timestamp_nano: u64,
-    io_op_flag: u32,
+    io_op: spdk_bdev_io_type,
+    io_error: i32,
     io_offset: u64,
     io_num_blocks: u64,
-    io_error_flag: u32,
+    timestamp_nano: u64,
 }
 
 pub struct NexusErrStore {
@@ -41,11 +41,12 @@ impl NexusErrStore {
         let mut es = NexusErrStore {
             no_of_records: 0,
             next_record_index: 0,
-
             records: Vec::with_capacity(max_records),
         };
+
+        let er: NexusChildErrorRecord = Default::default();
+
         for _ in 0 .. max_records {
-            let er: NexusChildErrorRecord = Default::default();
             es.records.push(er);
         }
         es
@@ -53,26 +54,14 @@ impl NexusErrStore {
 
     pub fn add_record(
         &mut self,
-        io_op_type: spdk_bdev_io_type,
-        io_error_type: i32,
+        io_op: spdk_bdev_io_type,
+        io_error: i32,
         io_offset: u64,
         io_num_blocks: u64,
         timestamp_nano: u64,
     ) -> &mut Self {
-        self.records[self.next_record_index].io_op_flag = match io_op_type {
-            io_type::READ => NexusErrStore::READ_FLAG,
-            io_type::WRITE => NexusErrStore::WRITE_FLAG,
-            io_type::UNMAP => NexusErrStore::UNMAP_FLAG,
-            io_type::FLUSH => NexusErrStore::FLUSH_FLAG,
-            io_type::RESET => NexusErrStore::RESET_FLAG,
-            _ => 0,
-        };
-        self.records[self.next_record_index].io_error_flag = match io_error_type
-        {
-            io_status::FAILED => NexusErrStore::IO_FAILED_FLAG,
-            _ => 0,
-        };
-
+        self.records[self.next_record_index].io_op = io_op;
+        self.records[self.next_record_index].io_error = io_error;
         self.records[self.next_record_index].io_offset = io_offset;
         self.records[self.next_record_index].io_num_blocks = io_num_blocks;
         self.records[self.next_record_index].timestamp_nano = timestamp_nano;
@@ -103,15 +92,37 @@ impl NexusErrStore {
             if self.records[idx].timestamp_nano < target_timestamp_nano {
                 break;
             }
+            let found_op = match self.records[idx].io_op {
+                io_type::READ => (io_op_flags & NexusErrStore::READ_FLAG) != 0,
+                io_type::WRITE => {
+                    (io_op_flags & NexusErrStore::WRITE_FLAG) != 0
+                }
+                io_type::UNMAP => {
+                    (io_op_flags & NexusErrStore::UNMAP_FLAG) != 0
+                }
+                io_type::FLUSH => {
+                    (io_op_flags & NexusErrStore::FLUSH_FLAG) != 0
+                }
+                io_type::RESET => {
+                    (io_op_flags & NexusErrStore::RESET_FLAG) != 0
+                }
+                _ => false,
+            };
 
-            if (self.records[idx].io_op_flag & io_op_flags != 0)
-                && (self.records[idx].io_error_flag & io_error_flags != 0)
-            {
+            let found_err = match self.records[idx].io_error {
+                io_status::FAILED => {
+                    (io_error_flags & NexusErrStore::IO_FAILED_FLAG) != 0
+                }
+                _ => false,
+            };
+
+            if found_op && found_err {
                 error_count += 1;
             }
         }
         error_count
     }
+
     fn error_fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
         let mut idx = self.next_record_index;
         write!(f, "\nErrors ({}):", self.no_of_records)
@@ -124,13 +135,13 @@ impl NexusErrStore {
             }
             write!(
                 f,
-                "\n    {}: timestamp:{} op:{} offset:{} blocks{}: error:{}",
+                "\n    {}: timestamp:{} op:{} error:{} offset:{} blocks:{}",
                 n,
                 self.records[idx].timestamp_nano,
-                self.records[idx].io_op_flag,
+                self.records[idx].io_op,
+                self.records[idx].io_error,
                 self.records[idx].io_offset,
                 self.records[idx].io_num_blocks,
-                self.records[idx].io_error_flag
             )
             .expect("invalid format");
         }

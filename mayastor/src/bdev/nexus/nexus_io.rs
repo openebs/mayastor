@@ -128,9 +128,9 @@ impl Bio {
                 self.nexus_as_mut_ref().error_record_add(
                     (*child_io).bdev,
                     io_type,
+                    io_status::FAILED,
                     io_offset,
                     io_num_blocks,
-                    io_status::FAILED,
                 );
             }
         }

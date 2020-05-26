@@ -557,9 +557,9 @@ impl Nexus {
         &mut self,
         bdev: *const spdk_bdev,
         io_op_type: spdk_bdev_io_type,
+        io_error_type: i32,
         io_offset: u64,
         io_num_blocks: u64,
-        io_error_type: i32,
     ) {
         let cfg = Config::by_ref();
         if cfg.err_store_opts.enable_err_store {
