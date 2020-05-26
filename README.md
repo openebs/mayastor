@@ -1,4 +1,4 @@
-# MayaStor ![CI-basic](https://github.com/openebs/Mayastor/workflows/CI-basic/badge.svg)
+# MayaStor ![CI-basic](https://github.com/openebs/Mayastor/workflows/CI-basic/badge.svg) [![Releases](https://img.shields.io/github/release/openebs/Mayastor/all.svg?style=flat-square)](https://github.com/openebs/Mayastor/releases)
 [![built with nix](https://builtwithnix.org/badge.svg)](https://builtwithnix.org)
 ![CI-basic](https://github.com/openebs/Mayastor/workflows/CI-basic/badge.svg)
 [![Slack](https://img.shields.io/badge/JOIN-SLACK-blue)]( https://openebs-community.slack.com)
