@@ -12,7 +12,7 @@ use std::{
     fmt,
     fmt::{Display, Formatter},
     os::raw::c_void,
-    time::SystemTime,
+    time::{Duration, Instant},
 };
 
 use futures::channel::oneshot;
@@ -545,14 +545,6 @@ impl Nexus {
         }
     }
 
-    fn nanosecond_timestamp(&self) -> u64 {
-        let timestamp_now = SystemTime::now()
-            .duration_since(SystemTime::UNIX_EPOCH)
-            .unwrap();
-        timestamp_now.as_secs() * 1_000_000_000
-            + timestamp_now.subsec_nanos() as u64
-    }
-
     pub fn error_record_add(
         &mut self,
         bdev: *const spdk_bdev,
@@ -561,10 +553,9 @@ impl Nexus {
         io_offset: u64,
         io_num_blocks: u64,
     ) {
+        let now = Instant::now();
         let cfg = Config::by_ref();
         if cfg.err_store_opts.enable_err_store {
-            let timestamp_nano = self.nanosecond_timestamp();
-
             for child in self.children.iter_mut() {
                 if child.bdev.as_ref().unwrap().as_ptr() as *const _ == bdev {
                     if child.err_store.is_some() {
@@ -573,7 +564,7 @@ impl Nexus {
                             io_error_type,
                             io_offset,
                             io_num_blocks,
-                            timestamp_nano,
+                            now,
                         );
                     } else {
                         error!(
@@ -594,16 +585,17 @@ impl Nexus {
         io_error_flags: u32,
         age_nano: u64,
     ) -> Result<Option<u32>, Error> {
+        let earliest_time = Instant::now()
+            .checked_sub(Duration::from_nanos(age_nano))
+            .unwrap();
         let cfg = Config::by_ref();
         if cfg.err_store_opts.enable_err_store {
-            let target_timestamp_nano = self.nanosecond_timestamp() - age_nano;
-
             if let Some(child) = self.children.iter().find(|c| c.name == name) {
                 if child.err_store.as_ref().is_some() {
                     return Ok(Some(child.err_store.as_ref().unwrap().query(
                         io_op_flags,
                         io_error_flags,
-                        target_timestamp_nano,
+                        earliest_time,
                     )));
                 }
                 return Err(Error::ChildMissingErrStore {

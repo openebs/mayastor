@@ -1,16 +1,31 @@
 use spdk_sys::spdk_bdev_io_type;
-use std::fmt::{Debug, Display};
+use std::{
+    fmt::{Debug, Display},
+    time::Instant,
+};
 
 use crate::bdev::nexus::nexus_io::{io_status, io_type};
 use serde::export::{fmt::Error, Formatter};
 
-#[derive(Default, Copy, Clone)]
+#[derive(Copy, Clone)]
 pub struct NexusChildErrorRecord {
     io_op: spdk_bdev_io_type,
     io_error: i32,
     io_offset: u64,
     io_num_blocks: u64,
-    timestamp_nano: u64,
+    timestamp: Instant,
+}
+
+impl Default for NexusChildErrorRecord {
+    fn default() -> Self {
+        Self {
+            io_op: 0,
+            io_error: 0,
+            io_offset: 0,
+            io_num_blocks: 0,
+            timestamp: Instant::now(),
+        }
+    }
 }
 
 pub struct NexusErrStore {
@@ -58,27 +73,30 @@ impl NexusErrStore {
         io_error: i32,
         io_offset: u64,
         io_num_blocks: u64,
-        timestamp_nano: u64,
-    ) -> &mut Self {
-        self.records[self.next_record_index].io_op = io_op;
-        self.records[self.next_record_index].io_error = io_error;
-        self.records[self.next_record_index].io_offset = io_offset;
-        self.records[self.next_record_index].io_num_blocks = io_num_blocks;
-        self.records[self.next_record_index].timestamp_nano = timestamp_nano;
+        timestamp: Instant,
+    ) {
+        let new_record = NexusChildErrorRecord {
+            io_op,
+            io_error,
+            io_offset,
+            io_num_blocks,
+            timestamp,
+        };
+
+        self.records[self.next_record_index] = new_record;
 
         if self.no_of_records < self.records.len() {
             self.no_of_records += 1;
         };
         self.next_record_index =
             (self.next_record_index + 1) % self.records.len();
-        self
     }
 
     pub fn query(
         &self,
         io_op_flags: u32,
         io_error_flags: u32,
-        target_timestamp_nano: u64,
+        target_timestamp: Instant,
     ) -> u32 {
         let mut idx = self.next_record_index;
         let mut error_count: u32 = 0;
@@ -89,8 +107,12 @@ impl NexusErrStore {
             } else {
                 idx = self.records.len() - 1;
             }
-            if self.records[idx].timestamp_nano < target_timestamp_nano {
-                break;
+            if self.records[idx]
+                .timestamp
+                .checked_duration_since(target_timestamp)
+                .is_none()
+            {
+                break; // reached a record older than the wanted timespan
             }
             let found_op = match self.records[idx].io_op {
                 io_type::READ => (io_op_flags & NexusErrStore::READ_FLAG) != 0,
@@ -135,9 +157,9 @@ impl NexusErrStore {
             }
             write!(
                 f,
-                "\n    {}: timestamp:{} op:{} error:{} offset:{} blocks:{}",
+                "\n    {}: timestamp:{:?} op:{} error:{} offset:{} blocks:{}",
                 n,
-                self.records[idx].timestamp_nano,
+                self.records[idx].timestamp,
                 self.records[idx].io_op,
                 self.records[idx].io_error,
                 self.records[idx].io_offset,

@@ -36,7 +36,7 @@ static BDEV_EE_ERROR_DEVICE: &str = "bdev:///EE_error_device";
 const VBDEV_IO_FAILURE: u32 = 1;
 
 #[test]
-fn error_test() {
+fn nexus_error_count_test() {
     common::truncate_file(DISKNAME1, 64 * 1024);
     common::truncate_file(DISKNAME2, 64 * 1024);
 
