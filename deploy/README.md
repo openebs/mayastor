@@ -116,6 +116,16 @@ The YAML files named below are to be found in the `deploy` folder of the Mayasto
     ```
     (in the above example, the point to note is that the READY and AVAILABLE counts equal the DESIRED count)
 
+    ```bash
+    kubectl -n mayastor get msn
+    ```
+    ```
+    NAME       STATE     AGE
+    node-1     online    112s
+    node-2     online    112s
+    node-3     online    112s
+    ```
+
 8.  Create a Storage Pool(s) for volume provisioning.  Each Storage Node typically hosts a Storage Pool, although a single pool is satisfactory for testing purposes.  (In the following example, replace `disk` and `node` with the appropriate values for your own configuration):
     ```bash
     cat <<EOF | kubectl create -f -

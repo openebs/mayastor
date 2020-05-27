@@ -167,7 +167,10 @@ module.exports = function () {
       // A note about ordering of events that are part of the initial state:
       // First go pools. Each pool is followed by its replicas. Nexus go last.
       // Then follow volume "new" events.
-      expect(events).to.have.lengthOf.at.least(28);
+      expect(events).to.have.lengthOf.at.least(30);
+      expect(events[i].kind).to.equal('node');
+      expect(events[i].eventType).to.equal('new');
+      expect(events[i++].object.name).to.equal('node1');
       expect(events[i].kind).to.equal('pool');
       expect(events[i].eventType).to.equal('new');
       expect(events[i++].object.name).to.equal('pool1');
@@ -192,6 +195,9 @@ module.exports = function () {
       expect(events[i].kind).to.equal('node');
       expect(events[i].eventType).to.equal('sync');
       expect(events[i++].object.name).to.equal('node1');
+      expect(events[i].kind).to.equal('node');
+      expect(events[i].eventType).to.equal('new');
+      expect(events[i++].object.name).to.equal('node2');
       expect(events[i].kind).to.equal('pool');
       expect(events[i].eventType).to.equal('new');
       expect(events[i++].object.name).to.equal('pool3');

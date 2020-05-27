@@ -74,7 +74,10 @@ module.exports = function () {
 
   after(() => {
     eventBus.stop();
-    nc.close();
+    if (nc) {
+      nc.close();
+      nc = null;
+    }
     stopNats();
   });
 

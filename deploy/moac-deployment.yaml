@@ -18,6 +18,14 @@ rules:
 - apiGroups: ["storage.k8s.io"]
   resources: ["csinodes"]
   verbs: ["get", "list", "watch"]
+  # must read/write mayastor node resources
+- apiGroups: ["openebs.io"]
+  resources: ["mayastornodes"]
+  verbs: ["get", "list", "watch", "update", "create", "delete"]
+  # must update mayastor node status
+- apiGroups: ["openebs.io"]
+  resources: ["mayastornodes/status"]
+  verbs: ["update"]
   # must read mayastor pools info
 - apiGroups: ["openebs.io"]
   resources: ["mayastorpools"]

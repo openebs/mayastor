@@ -178,7 +178,6 @@ class VolumeOperator {
       const uuid = ev.object.uuid;
 
       if (ev.eventType === 'new' || ev.eventType === 'mod') {
-        const uuid = ev.object.uuid;
         const k8sVolume = self.watcher.getRaw(uuid);
         const spec = self._volumeToSpec(ev.object);
         const status = self._volumeToStatus(ev.object);
@@ -262,7 +261,7 @@ class VolumeOperator {
 
   // Create k8s CRD object.
   //
-  // @param {string} uuid       ID of the updated volume.
+  // @param {string} uuid       ID of the created volume.
   // @param {object} spec       New volume spec.
   //
   async _createResource (uuid, spec) {

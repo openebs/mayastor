@@ -11,6 +11,7 @@ const yargs = require('yargs');
 const logger = require('./logger');
 const Registry = require('./registry');
 const NodeOperator = require('./node_operator');
+const CsiNodeOperator = require('./csi_node_operator');
 const PoolOperator = require('./pool_operator');
 const Volumes = require('./volumes');
 const VolumeOperator = require('./volume_operator');
@@ -48,6 +49,7 @@ async function main () {
   var volumes;
   var poolOper;
   var volumeOper;
+  var csiNodeOper;
   var nodeOper;
   var csiServer;
   var apiServer;
@@ -122,6 +124,7 @@ async function main () {
     if (volumes) volumes.stop();
     if (!opts.s) {
       if (poolOper) await poolOper.stop();
+      if (csiNodeOper) await csiNodeOper.stop();
       if (nodeOper) await nodeOper.stop();
     }
     if (messageBus) messageBus.stop();
@@ -155,7 +158,11 @@ async function main () {
     await client.loadSpec();
 
     // Start k8s operators
-    nodeOper = new NodeOperator();
+    csiNodeOper = new CsiNodeOperator();
+    await csiNodeOper.init(client, registry);
+    await csiNodeOper.start();
+
+    nodeOper = new NodeOperator(opts.namespace);
     await nodeOper.init(client, registry);
     await nodeOper.start();
 
