@@ -1,13 +1,12 @@
 #![warn(missing_docs)]
 
-use crate::core::{BdevHandle, CoreError, Descriptor, DmaError, IoChannel};
+use crate::core::{BdevHandle, CoreError, Descriptor, DmaError};
 use crossbeam::channel::{Receiver, Sender};
 use futures::channel::oneshot;
 use snafu::Snafu;
 use std::fmt;
 
 use super::rebuild_impl::*;
-use std::sync::Arc;
 
 #[derive(Debug, Snafu)]
 #[snafu(visibility = "pub(crate)")]
@@ -100,8 +99,6 @@ impl fmt::Display for RebuildState {
 pub struct RebuildJob {
     /// name of the nexus associated with the rebuild job
     pub nexus: String,
-    /// I/O channel to the nexus
-    pub(super) nexus_channel: Arc<IoChannel>,
     /// descriptor for the nexus
     pub(super) nexus_descriptor: Descriptor,
     /// source URI of the healthy child to rebuild from

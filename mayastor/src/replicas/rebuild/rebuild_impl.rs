@@ -1,6 +1,7 @@
 #![warn(missing_docs)]
 
 use crate::core::{Bdev, BdevHandle, DmaBuf, RangeContext, Reactors};
+
 use crossbeam::channel::unbounded;
 use once_cell::sync::OnceCell;
 use snafu::ResultExt;
@@ -13,7 +14,6 @@ use futures::{
 };
 
 use super::rebuild_api::*;
-use std::sync::Arc;
 
 /// Global list of rebuild jobs using a static OnceCell
 pub(super) struct RebuildInstances {
@@ -129,7 +129,6 @@ impl RebuildJob {
 
         Ok(Self {
             nexus,
-            nexus_channel: Arc::new(nexus_descriptor.get_channel().unwrap()),
             nexus_descriptor,
             source,
             source_hdl,
@@ -187,35 +186,39 @@ impl RebuildJob {
         self.reconcile();
     }
 
-    /// Copies one segment worth of data from source into destination
-    async fn copy_one(
+    /// Return the size of the segment to be copied.
+    fn get_segment_size_blks(&self, blk: u64) -> u64 {
+        // Adjust the segments size for the last segment
+        if (blk + self.segment_size_blks) > self.end {
+            return self.end - blk;
+        }
+        self.segment_size_blks
+    }
+
+    /// Copies one segment worth of data from source into destination. During
+    /// this time the LBA range being copied is locked so that there cannot be
+    /// front end I/O to the same LBA range.
+    ///
+    /// # Safety
+    ///
+    /// The lock and unlock functions internally reference the RangeContext as a
+    /// raw pointer, so rust cannot correctly manage its lifetime. The
+    /// RangeContext MUST NOT be dropped until after the lock and unlock have
+    /// completed.
+    ///
+    /// The use of RangeContext here is safe because it is stored on the stack
+    /// for the duration of the calls to lock and unlock.
+    async fn locked_copy_one(
         &mut self,
         id: u64,
         blk: u64,
     ) -> Result<(), RebuildError> {
-        let mut copy_buffer: DmaBuf;
+        let len = self.get_segment_size_blks(blk);
+        let mut ctx = RangeContext::new(blk, len, &self.nexus_descriptor);
 
-        let mut copy_buffer = if (blk + self.segment_size_blks) > self.end {
-            let segment_size_blks = self.end - blk;
-
-            trace!(
-                    "Adjusting last segment size from {} to {}. offset: {}, start: {}, end: {}",
-                    self.segment_size_blks, segment_size_blks, blk, self.start, self.end,
-                );
-
-            copy_buffer = self
-                .source_hdl
-                .dma_malloc((segment_size_blks * self.block_size) as usize)
-                .context(NoCopyBuffer {})?;
-
-            &mut copy_buffer
-        } else {
-            &mut self.tasks.buffers[id as usize]
-        };
-
-        let len = copy_buffer.len() as u64 / self.block_size;
-        let mut ctx = RangeContext::new(blk, len, self.nexus_channel.clone());
-
+        // Wait for LBA range to be locked.
+        // This prevents other I/Os being issued to this LBA range whilst it is
+        // being rebuilt.
         self.nexus_descriptor
             .lock_lba_range(&mut ctx)
             .await
@@ -224,26 +227,62 @@ impl RebuildJob {
                 len,
             })?;
 
-        self.source_hdl
-            .read_at(blk * self.block_size, &mut copy_buffer)
-            .await
-            .context(IoError {
-                bdev: &self.source,
-            })?;
+        // Perform the copy
+        let result = self.copy_one(id, blk).await;
 
-        self.destination_hdl
-            .write_at(blk * self.block_size, &copy_buffer)
-            .await
-            .context(IoError {
-                bdev: &self.destination,
-            })?;
-
+        // Wait for the LBA range to be unlocked.
+        // This allows others I/Os to be issued to this LBA range once again.
         self.nexus_descriptor
             .unlock_lba_range(&mut ctx)
             .await
             .context(RangeUnLockError {
                 blk,
                 len,
+            })?;
+
+        result
+    }
+
+    /// Copies one segment worth of data from source into destination.
+    async fn copy_one(
+        &mut self,
+        id: u64,
+        blk: u64,
+    ) -> Result<(), RebuildError> {
+        let mut copy_buffer: DmaBuf;
+
+        let copy_buffer = if self.get_segment_size_blks(blk)
+            == self.segment_size_blks
+        {
+            &mut self.tasks.buffers[id as usize]
+        } else {
+            let segment_size_blks = self.end - blk;
+
+            trace!(
+                "Adjusting last segment size from {} to {}. offset: {}, start: {}, end: {}",
+                self.segment_size_blks, segment_size_blks, blk, self.start, self.end,
+            );
+
+            copy_buffer = self
+                .source_hdl
+                .dma_malloc((segment_size_blks * self.block_size) as usize)
+                .context(NoCopyBuffer {})?;
+
+            &mut copy_buffer
+        };
+
+        self.source_hdl
+            .read_at(blk * self.block_size, copy_buffer)
+            .await
+            .context(IoError {
+                bdev: &self.source,
+            })?;
+
+        self.destination_hdl
+            .write_at(blk * self.block_size, copy_buffer)
+            .await
+            .context(IoError {
+                bdev: &self.destination,
             })?;
 
         Ok(())
@@ -511,7 +550,7 @@ impl RebuildJob {
                 let r = TaskResult {
                     blk,
                     id,
-                    error: job.copy_one(id, blk).await.err(),
+                    error: job.locked_copy_one(id, blk).await.err(),
                 };
 
                 if let Err(e) = job.tasks.senders[id as usize].start_send(r) {

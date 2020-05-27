@@ -66,11 +66,7 @@ async fn create_nexus() {
 
 fn get_shareable_ctx(offset: u64, len: u64) -> Arc<Mutex<RangeContext>> {
     let nexus = Bdev::open_by_name(NEXUS_NAME, true).unwrap();
-    Arc::new(Mutex::new(RangeContext::new(
-        offset,
-        len,
-        Arc::new(nexus.get_channel().unwrap()),
-    )))
+    Arc::new(Mutex::new(RangeContext::new(offset, len, &nexus)))
 }
 
 async fn lock_range(ctx: &mut RangeContext) {
@@ -89,8 +85,7 @@ fn lock_unlock() {
     test_ini();
     Reactor::block_on(async {
         let mut nexus = Bdev::open_by_name(NEXUS_NAME, true).unwrap();
-        let mut ctx =
-            RangeContext::new(1, 5, Arc::new(nexus.get_channel().unwrap()));
+        let mut ctx = RangeContext::new(1, 5, &nexus);
         let _ = nexus.lock_lba_range(&mut ctx).await;
         let _ = nexus.unlock_lba_range(&mut ctx).await;
     });
@@ -103,10 +98,8 @@ fn lock_unlock_different_context() {
     test_ini();
     Reactor::block_on(async {
         let mut nexus = Bdev::open_by_name(NEXUS_NAME, true).unwrap();
-        let mut ctx =
-            RangeContext::new(1, 5, Arc::new(nexus.get_channel().unwrap()));
-        let mut ctx1 =
-            RangeContext::new(1, 5, Arc::new(nexus.get_channel().unwrap()));
+        let mut ctx = RangeContext::new(1, 5, &nexus);
+        let mut ctx1 = RangeContext::new(1, 5, &nexus);
         let _ = nexus.lock_lba_range(&mut ctx).await;
         if nexus.unlock_lba_range(&mut ctx1).await.is_ok() {
             panic!("Shouldn't be able to unlock with a different context");

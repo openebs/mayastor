@@ -5,7 +5,6 @@ use serde::export::{fmt::Error, Formatter};
 use spdk_sys::{
     bdev_lock_lba_range,
     bdev_unlock_lba_range,
-    lock_range_cb,
     spdk_bdev_close,
     spdk_bdev_desc,
     spdk_bdev_desc_get_bdev,
@@ -18,8 +17,8 @@ use crate::{
     bdev::nexus::nexus_module::NEXUS_MODULE,
     core::{channel::IoChannel, Bdev, BdevHandle, CoreError},
 };
-use futures::{channel::mpsc, StreamExt};
-use std::sync::Arc;
+use futures::channel::oneshot;
+use std::os::raw::c_void;
 
 /// NewType around a descriptor, multiple descriptor to the same bdev is
 /// allowed. A bdev can me claimed for exclusive write access. Any existing
@@ -100,23 +99,32 @@ impl Descriptor {
         &mut self,
         ctx: &mut RangeContext,
     ) -> Result<(), std::io::Error> {
+        let (s, r) = oneshot::channel::<i32>();
+        ctx.sender = Box::into_raw(Box::new(s));
+
         unsafe {
             let rc = bdev_lock_lba_range(
                 self.as_ptr(),
-                ctx.io_channel.as_ptr(),
+                ctx.io_channel
+                    .as_ref()
+                    .expect("No I/O channel found for lock LBA range")
+                    .as_ptr(),
                 ctx.offset,
                 ctx.len,
-                ctx.cb_fn,
-                ctx.sender as *mut _,
+                Some(spdk_range_cb),
+                ctx as *const _ as *mut c_void,
             );
             if rc != 0 {
                 return Err(std::io::Error::from_raw_os_error(rc));
             }
         }
-        let rc = ctx.receiver.next().await.unwrap();
+
+        // Wait for the lock to complete
+        let rc = r.await.unwrap();
         if rc != 0 {
             return Err(std::io::Error::from_raw_os_error(rc));
         }
+
         Ok(())
     }
 
@@ -126,23 +134,32 @@ impl Descriptor {
         &mut self,
         ctx: &mut RangeContext,
     ) -> Result<(), std::io::Error> {
+        let (s, r) = oneshot::channel::<i32>();
+        ctx.sender = Box::into_raw(Box::new(s));
+
         unsafe {
             let rc = bdev_unlock_lba_range(
                 self.as_ptr(),
-                ctx.io_channel.as_ptr(),
+                ctx.io_channel
+                    .as_ref()
+                    .expect("No I/O channel found for unlock LBA range")
+                    .as_ptr(),
                 ctx.offset,
                 ctx.len,
-                ctx.cb_fn,
-                ctx.sender as *mut _,
+                Some(spdk_range_cb),
+                ctx as *const _ as *mut c_void,
             );
             if rc != 0 {
                 return Err(std::io::Error::from_raw_os_error(rc));
             }
         }
-        let rc = ctx.receiver.next().await.unwrap();
+
+        // Wait for the unlock to complete
+        let rc = r.await.unwrap();
         if rc != 0 {
             return Err(std::io::Error::from_raw_os_error(rc));
         }
+
         Ok(())
     }
 }
@@ -172,8 +189,11 @@ extern "C" fn spdk_range_cb(
     status: ::std::os::raw::c_int,
 ) {
     unsafe {
-        let s = ctx as *mut mpsc::Sender<i32>;
-        if let Err(e) = (*s).start_send(status) {
+        let ctx = ctx as *mut RangeContext;
+        let s = Box::from_raw((*ctx).sender as *mut oneshot::Sender<i32>);
+
+        // Send a notification that the operation has completed
+        if let Err(e) = s.send(status) {
             panic!("Failed to send SPDK completion with error {}.", e);
         }
     }
@@ -184,23 +204,18 @@ extern "C" fn spdk_range_cb(
 pub struct RangeContext {
     pub offset: u64,
     pub len: u64,
-    io_channel: Arc<IoChannel>,
-    cb_fn: lock_range_cb,
-    sender: *mut mpsc::Sender<i32>,
-    receiver: mpsc::Receiver<i32>,
+    io_channel: Option<IoChannel>,
+    sender: *mut oneshot::Sender<i32>,
 }
 
 impl RangeContext {
     /// Create a new RangeContext
-    pub fn new(offset: u64, len: u64, io_ch: Arc<IoChannel>) -> RangeContext {
-        let (s, r) = mpsc::channel::<i32>(0);
+    pub fn new(offset: u64, len: u64, d: &Descriptor) -> RangeContext {
         RangeContext {
             offset,
             len,
-            io_channel: io_ch,
-            cb_fn: Some(spdk_range_cb),
-            sender: Box::into_raw(Box::new(s)),
-            receiver: r,
+            io_channel: d.get_channel(),
+            sender: std::ptr::null_mut(),
         }
     }
 }
