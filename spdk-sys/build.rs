@@ -53,6 +53,7 @@ fn main() {
         .whitelist_function("*.lvs.*")
         .whitelist_function("*.lvol.*")
         .whitelist_function("*.uring.*")
+        .whitelist_function("*.lock_lba_range")
         .blacklist_type("^longfunc")
         .whitelist_var("^NVMF.*")
         .whitelist_var("^SPDK.*")

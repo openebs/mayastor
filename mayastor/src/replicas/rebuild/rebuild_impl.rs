@@ -1,6 +1,7 @@
 #![warn(missing_docs)]
 
-use crate::core::{Bdev, BdevHandle, DmaBuf, Reactors};
+use crate::core::{Bdev, BdevHandle, DmaBuf, RangeContext, Reactors};
+
 use crossbeam::channel::unbounded;
 use once_cell::sync::OnceCell;
 use snafu::ResultExt;
@@ -121,8 +122,14 @@ impl RebuildJob {
             nexus.to_string(),
         );
 
+        let nexus_descriptor =
+            Bdev::open_by_name(&nexus, true).context(BdevNotFound {
+                bdev: nexus.to_string(),
+            })?;
+
         Ok(Self {
             nexus,
+            nexus_descriptor,
             source,
             source_hdl,
             destination,
@@ -179,7 +186,64 @@ impl RebuildJob {
         self.reconcile();
     }
 
-    /// Copies one segment worth of data from source into destination
+    /// Return the size of the segment to be copied.
+    fn get_segment_size_blks(&self, blk: u64) -> u64 {
+        // Adjust the segments size for the last segment
+        if (blk + self.segment_size_blks) > self.end {
+            return self.end - blk;
+        }
+        self.segment_size_blks
+    }
+
+    /// Copies one segment worth of data from source into destination. During
+    /// this time the LBA range being copied is locked so that there cannot be
+    /// front end I/O to the same LBA range.
+    ///
+    /// # Safety
+    ///
+    /// The lock and unlock functions internally reference the RangeContext as a
+    /// raw pointer, so rust cannot correctly manage its lifetime. The
+    /// RangeContext MUST NOT be dropped until after the lock and unlock have
+    /// completed.
+    ///
+    /// The use of RangeContext here is safe because it is stored on the stack
+    /// for the duration of the calls to lock and unlock.
+    async fn locked_copy_one(
+        &mut self,
+        id: u64,
+        blk: u64,
+    ) -> Result<(), RebuildError> {
+        let len = self.get_segment_size_blks(blk);
+        let mut ctx = RangeContext::new(blk, len, &self.nexus_descriptor);
+
+        // Wait for LBA range to be locked.
+        // This prevents other I/Os being issued to this LBA range whilst it is
+        // being rebuilt.
+        self.nexus_descriptor
+            .lock_lba_range(&mut ctx)
+            .await
+            .context(RangeLockError {
+                blk,
+                len,
+            })?;
+
+        // Perform the copy
+        let result = self.copy_one(id, blk).await;
+
+        // Wait for the LBA range to be unlocked.
+        // This allows others I/Os to be issued to this LBA range once again.
+        self.nexus_descriptor
+            .unlock_lba_range(&mut ctx)
+            .await
+            .context(RangeUnLockError {
+                blk,
+                len,
+            })?;
+
+        result
+    }
+
+    /// Copies one segment worth of data from source into destination.
     async fn copy_one(
         &mut self,
         id: u64,
@@ -187,13 +251,17 @@ impl RebuildJob {
     ) -> Result<(), RebuildError> {
         let mut copy_buffer: DmaBuf;
 
-        let mut copy_buffer = if (blk + self.segment_size_blks) > self.end {
+        let copy_buffer = if self.get_segment_size_blks(blk)
+            == self.segment_size_blks
+        {
+            &mut self.tasks.buffers[id as usize]
+        } else {
             let segment_size_blks = self.end - blk;
 
             trace!(
-                    "Adjusting last segment size from {} to {}. offset: {}, start: {}, end: {}",
-                    self.segment_size_blks, segment_size_blks, blk, self.start, self.end,
-                );
+                "Adjusting last segment size from {} to {}. offset: {}, start: {}, end: {}",
+                self.segment_size_blks, segment_size_blks, blk, self.start, self.end,
+            );
 
             copy_buffer = self
                 .source_hdl
@@ -201,19 +269,17 @@ impl RebuildJob {
                 .context(NoCopyBuffer {})?;
 
             &mut copy_buffer
-        } else {
-            &mut self.tasks.buffers[id as usize]
         };
 
         self.source_hdl
-            .read_at(blk * self.block_size, &mut copy_buffer)
+            .read_at(blk * self.block_size, copy_buffer)
             .await
             .context(IoError {
                 bdev: &self.source,
             })?;
 
         self.destination_hdl
-            .write_at(blk * self.block_size, &copy_buffer)
+            .write_at(blk * self.block_size, copy_buffer)
             .await
             .context(IoError {
                 bdev: &self.destination,
@@ -484,7 +550,7 @@ impl RebuildJob {
                 let r = TaskResult {
                     blk,
                     id,
-                    error: job.copy_one(id, blk).await.err(),
+                    error: job.locked_copy_one(id, blk).await.err(),
                 };
 
                 if let Err(e) = job.tasks.senders[id as usize].start_send(r) {

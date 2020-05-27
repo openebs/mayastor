@@ -85,7 +85,7 @@ fn rebuild_progress() {
         reactor_poll!({ polls });
         nexus.pause_rebuild(&get_dev(1)).await.unwrap();
         let p = nexus.get_rebuild_progress(&get_dev(1)).unwrap();
-        assert!(p.progress > progress);
+        assert!(p.progress >= progress);
         p.progress
     };
 
