@@ -48,10 +48,20 @@ class Registry extends EventEmitter {
     var node = this.nodes[name];
     if (node) {
       // if grpc endpoint has not changed, then this will not do anything
-      node.connect(endpoint);
+      if (node.endpoint !== endpoint) {
+        node.connect(endpoint);
+        this.emit('node', {
+          eventType: 'mod',
+          object: node
+        });
+      }
     } else {
       node = new this.Node(name);
       node.connect(endpoint);
+      this.emit('node', {
+        eventType: 'new',
+        object: node
+      });
       this._registerNode(node);
     }
   }
@@ -87,6 +97,10 @@ class Registry extends EventEmitter {
     node.disconnect();
 
     log.info(`mayastor on node "${name}" left`);
+    this.emit('node', {
+      eventType: 'del',
+      object: node
+    });
 
     eventObjects.forEach((objType) => {
       node.removeAllListeners(objType);

@@ -13,8 +13,15 @@ module.exports = function () {
   it('should add a node to the registry and look up the node', () => {
     const registry = new Registry();
     registry.Node = Node;
+    var nodeEvent;
 
+    registry.once('node', (ev) => {
+      nodeEvent = ev;
+    });
     registry.addNode('node', '127.0.0.1:123');
+    expect(nodeEvent.eventType).to.equal('new');
+    expect(nodeEvent.object.name).to.equal('node');
+    expect(nodeEvent.object.endpoint).to.equal('127.0.0.1:123');
 
     const node = registry.getNode('node');
     expect(node.name).to.equal('node');
@@ -41,9 +48,14 @@ module.exports = function () {
     const connectStub = sinon.stub(node, 'connect');
     registry.nodes.node = node;
 
+    var nodeEvent;
+    registry.once('node', (ev) => {
+      nodeEvent = ev;
+    });
+
     registry.addNode('node', '127.0.0.1:123');
-    sinon.assert.calledOnce(connectStub);
-    sinon.assert.calledWith(connectStub, '127.0.0.1:123');
+    sinon.assert.notCalled(connectStub);
+    expect(nodeEvent).to.be.undefined();
   });
 
   it('should reconnect node if it exists but grpc endpoint has changed', () => {
@@ -54,9 +66,16 @@ module.exports = function () {
     const connectStub = sinon.stub(node, 'connect');
     registry.nodes.node = node;
 
+    var nodeEvent;
+    registry.once('node', (ev) => {
+      nodeEvent = ev;
+    });
+
     registry.addNode('node', '127.0.0.1:124');
     sinon.assert.calledOnce(connectStub);
     sinon.assert.calledWith(connectStub, '127.0.0.1:124');
+    expect(nodeEvent.eventType).to.equal('mod');
+    expect(nodeEvent.object.name).to.equal('node');
   });
 
   it('should get a list of nodes from registry', () => {
@@ -72,8 +91,14 @@ module.exports = function () {
     const registry = new Registry();
     const node = new Node('node');
     registry.nodes.node = node;
+    var nodeEvent;
+    registry.once('node', (ev) => {
+      nodeEvent = ev;
+    });
     registry.removeNode('node');
     expect(registry.nodes).to.not.have.keys('node');
+    expect(nodeEvent.eventType).to.equal('del');
+    expect(nodeEvent.object.name).to.equal('node');
 
     // ensure the events from the node are not relayed
     var events = ['node', 'pool', 'replica', 'nexus'];
@@ -87,7 +112,12 @@ module.exports = function () {
 
   it('should not do anything if removed node does not exist', () => {
     const registry = new Registry();
+    var nodeEvent;
+    registry.once('node', (ev) => {
+      nodeEvent = ev;
+    });
     registry.removeNode('node');
+    expect(nodeEvent).to.be.undefined();
   });
 
   it('should get a list of pools from registry', () => {

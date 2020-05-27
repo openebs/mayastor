@@ -1,189 +1,256 @@
-// Node operator is responsible for keeping track of mayastor storage nodes
-// present in the cluster.
+// Node operator is responsible for managing mayastor node custom resources
+// that represent nodes in the cluster that run mayastor (storage nodes).
+//
+// Roles:
+// * The operator creates/modifies/deletes the resources to keep them up to date.
+// * A user can delete a stale resource (can happen that moac doesn't know)
 
 'use strict';
 
 const assert = require('assert');
-const EventEmitter = require('events');
+const fs = require('fs');
+const path = require('path');
+const yaml = require('js-yaml');
+const EventStream = require('./event_stream');
 const log = require('./logger').Logger('node-operator');
 const Watcher = require('./watcher');
-const { PLUGIN_NAME, parseMayastorNodeId } = require('./common');
+
+const crdNode = yaml.safeLoad(
+  fs.readFileSync(path.join(__dirname, '/crds/mayastornode.yaml'), 'utf8')
+);
 
 // Node operator watches k8s CSINode resources and based on that detects
 // running mayastor instances in the cluster.
-class NodeOperator extends EventEmitter {
+class NodeOperator {
   // init() is decoupled from constructor because tests do their own
   // initialization of the object.
-  constructor () {
-    super();
+  //
+  // @param {string} namespace   Namespace the operator should operate on.
+  constructor (namespace) {
+    this.k8sClient = null; // k8s client for sending requests to api srv
     this.watcher = null; // k8s resource watcher for CSI nodes resource
     this.registry = null;
+    this.namespace = namespace;
   }
 
-  // Initialize k8s watcher (but do not start it yet) and enable watcher events.
+  // Create node CRD if it doesn't exist and augment client object so that CRD
+  // can be manipulated as any other standard k8s api object.
   //
-  // @param {object} k8sClient   k8s client for connecting to k8s api server.
-  // @param {object} registry    Registry object.
+  // @param {object} k8sClient   Client for k8s api server.
+  // @param {object} registry    Registry with node objects.
   //
-  init (k8sClient, registry) {
+  async init (k8sClient, registry) {
+    log.info('Initializing node operator');
     assert(registry);
 
-    log.info('Initializing node operator');
+    try {
+      await k8sClient.apis[
+        'apiextensions.k8s.io'
+      ].v1beta1.customresourcedefinitions.post({ body: crdNode });
+      log.info('Created CRD ' + crdNode.spec.names.kind);
+    } catch (err) {
+      // API returns a 409 Conflict if CRD already exists.
+      if (err.statusCode !== 409) throw err;
+    }
+    k8sClient.addCustomResourceDefinition(crdNode);
 
-    const watcher = new Watcher(
-      'node',
-      k8sClient.apis['storage.k8s.io'].v1beta1.csinodes,
-      k8sClient.apis['storage.k8s.io'].v1beta1.watch.csinodes,
-      this.filterMayastorNode
-    );
-
-    this._bindWatcher(watcher);
-    this.watcher = watcher;
+    this.k8sClient = k8sClient;
     this.registry = registry;
+
+    // Initialize watcher with all callbacks for new/mod/del events
+    this.watcher = new Watcher(
+      'node',
+      this.k8sClient.apis['openebs.io'].v1alpha1.namespaces(
+        this.namespace
+      ).mayastornodes,
+      this.k8sClient.apis['openebs.io'].v1alpha1.watch.namespaces(
+        this.namespace
+      ).mayastornodes,
+      this._filterMayastorNode
+    );
   }
 
-  // Process CSINode entry and return mayastor node info.
+  // Normalize k8s mayastor node resource.
   //
-  // If mayastor does not run on the node (there can be other CSI plugins),
-  // then return null.
+  // @param   {object} msn   MayaStor node custom resource.
+  // @returns {object} Properties defining the node.
   //
-  // csi node info example:
-  // ```
-  // "kind": "CSINodeList",
-  // "apiVersion": "storage.k8s.io/v1beta1",
-  // "metadata": {
-  //   "selfLink": "/apis/storage.k8s.io/v1beta1/csinodes",
-  //   "resourceVersion": "1368155"
-  // },
-  // "items": [
-  //   {
-  //     "metadata": {
-  //       "name": "node1",
-  //       "selfLink": "/apis/storage.k8s.io/v1beta1/csinodes/node1",
-  //       "uid": "cb8c76d2-5bba-11e9-8f3c-589cfc0d76a7",
-  //       "resourceVersion": "1352402",
-  //       "creationTimestamp": "2019-04-10T18:02:24Z",
-  //       "ownerReferences": [
-  //         {
-  //           "apiVersion": "v1",
-  //           "kind": "Node",
-  //           "name": "node1",
-  //           "uid": "e6e982a1-5b8b-11e9-8f3c-589cfc0d76a7"
-  //         }
-  //       ]
-  //     },
-  //     "spec": {
-  //       "drivers": [
-  //         {
-  //           "name": "io.openebs.csi-mayastor",
-  //           "nodeID": "mayastor://node1/10.244.2.6:10124",
-  //           "topologyKeys": null
-  //         }
-  //       ]
-  //     }
-  //   }
-  // ]
-  // ```
-  //
-  // @param   {object} csiNode   CSINode object as received from k8s api server.
-  // @returns {object} Mayastor storage node information.
-  //
-  filterMayastorNode (csiNode) {
-    // find mayastor driver if there is any
-    const drivers = csiNode.spec.drivers;
-    if (!drivers) {
-      // it can happen if there is not any CSI driver on the node (k8s quirk)
-      return {
-        name: csiNode.metadata.name,
-        id: null,
-        endpoint: null
-      };
-    }
-    const driver = drivers.find((drv) => drv.name === PLUGIN_NAME);
-    if (!driver) {
-      // not our CSI driver
-      return {
-        name: csiNode.metadata.name,
-        id: null,
-        endpoint: null
-      };
-    }
-
-    // Ignore mayastors with IDs that we don't understand (likely newer
-    // versions which are not backward compatible)
-    var nodeId;
-    try {
-      nodeId = parseMayastorNodeId(driver.nodeID);
-    } catch (err) {
-      log.error(err.toString());
+  _filterMayastorNode (msn) {
+    if (!msn.spec.grpcEndpoint) {
+      log.warn('Ignoring mayastor node resource without grpc endpoint');
       return null;
     }
-    if (nodeId.node !== csiNode.metadata.name) {
-      log.error('Inconsistent mayastor node ID: ' + driver.nodeID);
-      return null;
-    }
-
     return {
-      name: nodeId.node,
-      id: driver.nodeID,
-      endpoint: nodeId.endpoint
+      metadata: { name: msn.metadata.name },
+      spec: {
+        grpcEndpoint: msn.spec.grpcEndpoint
+      },
+      status: msn.status || 'unknown'
     };
   }
 
-  // Bind the watcher to node operator's callbacks for new/mod/del events.
+  // Bind watcher's new/del events to node operator's callbacks.
   //
-  // Beware! Events correspond to CSINode object which may contain
-  // multiple CSI plugins, so new and mod handlers must be prepared to
-  // handle cases when the mayastor plugin is actually removed instead of
-  // being added or modified.
+  // Not interested in mod events as the operator is the only who should
+  // be doing modifications to these objects.
+  //
+  // @param {object} watcher   k8s node resource watcher.
+  //
   _bindWatcher (watcher) {
-    watcher.on('new', this._nodeEventCallback.bind(this));
-    watcher.on('mod', this._nodeEventCallback.bind(this));
-    // del is triggered when the whole CSINode record is deleted
     var self = this;
-    watcher.on('del', (ev) => {
-      delete ev.id;
-      delete ev.endpoint;
-      self._nodeEventCallback(ev);
+    watcher.on('new', (obj) => {
+      self.registry.addNode(obj.metadata.name, obj.spec.grpcEndpoint);
+    });
+    watcher.on('del', (obj) => {
+      self.registry.removeNode(obj.metadata.name);
     });
   }
 
-  // Called when there is an event (new/mod/del) on CSINode resource.
-  //
-  // @param {object} newProps   New CSINode properties.
-  _nodeEventCallback (newProps) {
-    const name = newProps.name;
-    const curObj = this.registry.getNode(name);
+  // Start node operator's watcher loop.
+  async start () {
+    var self = this;
 
-    if (curObj) {
-      if (newProps.id) {
-        // The endpoint might have changed.
-        // i.e. if pod is restarted and IP changes
-        curObj.connect(newProps.endpoint);
+    // install event handlers to follow changes to resources.
+    self._bindWatcher(self.watcher);
+    await self.watcher.start();
+
+    // This will start async processing of node events.
+    self.eventStream = new EventStream({ registry: self.registry });
+    self.eventStream.on('data', async (ev) => {
+      if (ev.kind !== 'node') return;
+
+      if (ev.eventType === 'new' || ev.eventType === 'mod') {
+        const name = ev.object.name;
+        const endpoint = ev.object.endpoint;
+        const k8sNode = self.watcher.getRaw(name);
+
+        if (k8sNode) {
+          // Update object only if it has really changed
+          if (k8sNode.spec.grpcEndpoint !== endpoint) {
+            try {
+              await self._updateResource(name, k8sNode, endpoint);
+            } catch (err) {
+              log.error(`Failed to update node resource "${name}": ${err}`);
+              return;
+            }
+          }
+        } else if (ev.eventType === 'new' && !k8sNode) {
+          try {
+            await self._createResource(name, endpoint);
+          } catch (err) {
+            log.error(`Failed to create node resource "${name}": ${err}`);
+            return;
+          }
+        }
+        await this._updateStatus(name, ev.object.isSynced() ? 'online' : 'offline');
+      } else if (ev.eventType === 'del') {
+        await self._deleteResource(ev.object.name);
       } else {
-        this.registry.removeNode(name);
+        assert.strictEqual(ev.eventType, 'sync');
       }
-    } else {
-      if (newProps.id) {
-        this.registry.addNode(name, newProps.endpoint);
-      } else {
-        // record which we did not know about was removed - ignore
-        log.warn(`Unknown mayastor node "${name}" removed`);
+    });
+  }
+
+  // Create k8s CRD object.
+  //
+  // @param {string} name          Node of the created node.
+  // @param {string} grpcEndpoint  Endpoint property of the object.
+  //
+  async _createResource (name, grpcEndpoint) {
+    log.info(`Creating node resource "${name}"`);
+    await this.k8sClient.apis['openebs.io'].v1alpha1
+      .namespaces(this.namespace)
+      .mayastornodes.post({
+        body: {
+          apiVersion: 'openebs.io/v1alpha1',
+          kind: 'MayastorNode',
+          metadata: {
+            name,
+            namespace: this.namespace
+          },
+          spec: { grpcEndpoint }
+        }
+      });
+  }
+
+  // Update properties of k8s CRD object or create it if it does not exist.
+  //
+  // @param {string} name          Name of the updated node.
+  // @param {object} k8sNode       Existing k8s resource object.
+  // @param {string} grpcEndpoint  Endpoint property of the object.
+  //
+  async _updateResource (name, k8sNode, grpcEndpoint) {
+    log.info(`Updating spec of node resource "${name}"`);
+    await this.k8sClient.apis['openebs.io'].v1alpha1
+      .namespaces(this.namespace)
+      .mayastornodes(name)
+      .put({
+        body: {
+          apiVersion: 'openebs.io/v1alpha1',
+          kind: 'MayastorNode',
+          metadata: k8sNode.metadata,
+          spec: { grpcEndpoint }
+        }
+      });
+  }
+
+  // Update state of the resource.
+  //
+  // NOTE: This method does not throw if the operation fails as there is nothing
+  // we can do if it fails. Though we log an error message in such a case.
+  //
+  // @param {string} name    UUID of the resource.
+  // @param {string} status  State of the node.
+  //
+  async _updateStatus (name, status) {
+    var k8sNode = this.watcher.getRaw(name);
+    if (!k8sNode) {
+      log.warn(
+        `Wanted to update state of node resource "${name}" that disappeared`
+      );
+      return;
+    }
+    if (k8sNode.status === status) {
+      // avoid unnecessary status updates
+      return;
+    }
+    log.debug(`Updating status of node resource "${name}"`);
+    k8sNode.status = status;
+    try {
+      await this.k8sClient.apis['openebs.io'].v1alpha1
+        .namespaces(this.namespace)
+        .mayastornodes(name)
+        .status.put({ body: k8sNode });
+    } catch (err) {
+      log.error(`Failed to update status of node resource "${name}": ${err}`);
+    }
+  }
+
+  // Delete node resource with specified name.
+  //
+  // @param {string} name   Name of the node resource to delete.
+  //
+  async _deleteResource (name) {
+    var k8sNode = this.watcher.getRaw(name);
+    if (k8sNode) {
+      log.info(`Deleting node resource "${name}"`);
+      try {
+        await this.k8sClient.apis['openebs.io'].v1alpha1
+          .namespaces(this.namespace)
+          .mayastornodes(name)
+          .delete();
+      } catch (err) {
+        log.error(`Failed to delete node resource "${name}": ${err}`);
       }
     }
   }
 
-  // Get list of CSINode resources and start the watcher. It emits
-  // ready event when the initialization is done.
-  async start () {
-    await this.watcher.start();
-    this.emit('ready');
-  }
-
-  // Stop the watcher.
+  // Stop listening for watcher and node events and reset the cache
   async stop () {
     this.watcher.removeAllListeners();
     await this.watcher.stop();
+    this.eventStream.destroy();
+    this.eventStream = null;
   }
 }
 
