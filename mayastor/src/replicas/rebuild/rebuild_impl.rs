@@ -214,13 +214,17 @@ impl RebuildJob {
         blk: u64,
     ) -> Result<(), RebuildError> {
         let len = self.get_segment_size_blks(blk);
-        let mut ctx = RangeContext::new(blk, len, &self.nexus_descriptor);
+        let mut ctx = RangeContext::new(blk, len);
+        let ch = self
+            .nexus_descriptor
+            .get_channel()
+            .expect("Failed to get nexus channel");
 
         // Wait for LBA range to be locked.
         // This prevents other I/Os being issued to this LBA range whilst it is
         // being rebuilt.
         self.nexus_descriptor
-            .lock_lba_range(&mut ctx)
+            .lock_lba_range(&mut ctx, &ch)
             .await
             .context(RangeLockError {
                 blk,
@@ -233,7 +237,7 @@ impl RebuildJob {
         // Wait for the LBA range to be unlocked.
         // This allows others I/Os to be issued to this LBA range once again.
         self.nexus_descriptor
-            .unlock_lba_range(&mut ctx)
+            .unlock_lba_range(&mut ctx, &ch)
             .await
             .context(RangeUnLockError {
                 blk,

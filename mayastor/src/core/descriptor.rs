@@ -98,6 +98,7 @@ impl Descriptor {
     pub async fn lock_lba_range(
         &mut self,
         ctx: &mut RangeContext,
+        ch: &IoChannel,
     ) -> Result<(), std::io::Error> {
         let (s, r) = oneshot::channel::<i32>();
         ctx.sender = Box::into_raw(Box::new(s));
@@ -105,10 +106,7 @@ impl Descriptor {
         unsafe {
             let rc = bdev_lock_lba_range(
                 self.as_ptr(),
-                ctx.io_channel
-                    .as_ref()
-                    .expect("No I/O channel found for lock LBA range")
-                    .as_ptr(),
+                ch.as_ptr(),
                 ctx.offset,
                 ctx.len,
                 Some(spdk_range_cb),
@@ -133,6 +131,7 @@ impl Descriptor {
     pub async fn unlock_lba_range(
         &mut self,
         ctx: &mut RangeContext,
+        ch: &IoChannel,
     ) -> Result<(), std::io::Error> {
         let (s, r) = oneshot::channel::<i32>();
         ctx.sender = Box::into_raw(Box::new(s));
@@ -140,10 +139,7 @@ impl Descriptor {
         unsafe {
             let rc = bdev_unlock_lba_range(
                 self.as_ptr(),
-                ctx.io_channel
-                    .as_ref()
-                    .expect("No I/O channel found for unlock LBA range")
-                    .as_ptr(),
+                ch.as_ptr(),
                 ctx.offset,
                 ctx.len,
                 Some(spdk_range_cb),
@@ -204,17 +200,15 @@ extern "C" fn spdk_range_cb(
 pub struct RangeContext {
     pub offset: u64,
     pub len: u64,
-    io_channel: Option<IoChannel>,
     sender: *mut oneshot::Sender<i32>,
 }
 
 impl RangeContext {
     /// Create a new RangeContext
-    pub fn new(offset: u64, len: u64, d: &Descriptor) -> RangeContext {
+    pub fn new(offset: u64, len: u64) -> RangeContext {
         RangeContext {
             offset,
             len,
-            io_channel: d.get_channel(),
             sender: std::ptr::null_mut(),
         }
     }

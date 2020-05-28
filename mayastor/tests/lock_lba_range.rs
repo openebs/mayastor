@@ -9,6 +9,7 @@ use mayastor::{
     core::{
         Bdev,
         DmaBuf,
+        IoChannel,
         MayastorCliArgs,
         MayastorEnvironment,
         RangeContext,
@@ -65,18 +66,22 @@ async fn create_nexus() {
 }
 
 fn get_shareable_ctx(offset: u64, len: u64) -> Arc<Mutex<RangeContext>> {
+    Arc::new(Mutex::new(RangeContext::new(offset, len)))
+}
+
+fn get_shareable_nexus_channel() -> Arc<Mutex<IoChannel>> {
     let nexus = Bdev::open_by_name(NEXUS_NAME, true).unwrap();
-    Arc::new(Mutex::new(RangeContext::new(offset, len, &nexus)))
+    Arc::new(Mutex::new(nexus.get_channel().unwrap()))
 }
 
-async fn lock_range(ctx: &mut RangeContext) {
+async fn lock_range(ctx: &mut RangeContext, ch: &IoChannel) {
     let mut nexus = Bdev::open_by_name(NEXUS_NAME, true).unwrap();
-    let _ = nexus.lock_lba_range(ctx).await;
+    let _ = nexus.lock_lba_range(ctx, ch).await;
 }
 
-async fn unlock_range(ctx: &mut RangeContext) {
+async fn unlock_range(ctx: &mut RangeContext, ch: &IoChannel) {
     let mut nexus = Bdev::open_by_name(NEXUS_NAME, true).unwrap();
-    let _ = nexus.unlock_lba_range(ctx).await;
+    let _ = nexus.unlock_lba_range(ctx, ch).await;
 }
 
 #[test]
@@ -85,9 +90,10 @@ fn lock_unlock() {
     test_ini();
     Reactor::block_on(async {
         let mut nexus = Bdev::open_by_name(NEXUS_NAME, true).unwrap();
-        let mut ctx = RangeContext::new(1, 5, &nexus);
-        let _ = nexus.lock_lba_range(&mut ctx).await;
-        let _ = nexus.unlock_lba_range(&mut ctx).await;
+        let mut ctx = RangeContext::new(1, 5);
+        let ch = nexus.get_channel().unwrap();
+        let _ = nexus.lock_lba_range(&mut ctx, &ch).await;
+        let _ = nexus.unlock_lba_range(&mut ctx, &ch).await;
     });
     test_fini();
 }
@@ -98,10 +104,14 @@ fn lock_unlock_different_context() {
     test_ini();
     Reactor::block_on(async {
         let mut nexus = Bdev::open_by_name(NEXUS_NAME, true).unwrap();
-        let mut ctx = RangeContext::new(1, 5, &nexus);
-        let mut ctx1 = RangeContext::new(1, 5, &nexus);
-        let _ = nexus.lock_lba_range(&mut ctx).await;
-        if nexus.unlock_lba_range(&mut ctx1).await.is_ok() {
+
+        let mut ctx = RangeContext::new(1, 5);
+        let ch = nexus.get_channel().unwrap();
+        let _ = nexus.lock_lba_range(&mut ctx, &ch).await;
+
+        let mut ctx1 = RangeContext::new(1, 5);
+        let ch1 = nexus.get_channel().unwrap();
+        if nexus.unlock_lba_range(&mut ctx1, &ch1).await.is_ok() {
             panic!("Shouldn't be able to unlock with a different context");
         }
     });
@@ -120,8 +130,14 @@ fn multiple_locks() {
         let (s, r) = unbounded::<()>();
         let ctx = get_shareable_ctx(1, 10);
         let ctx_clone = Arc::clone(&ctx);
+        let ch = get_shareable_nexus_channel();
+        let ch_clone = Arc::clone(&ch);
         reactor.send_future(async move {
-            lock_range(&mut ctx_clone.lock().unwrap()).await;
+            lock_range(
+                &mut ctx_clone.lock().unwrap(),
+                &ch_clone.lock().unwrap(),
+            )
+            .await;
             let _ = s.send(());
         });
         reactor_poll!(r);
@@ -130,8 +146,14 @@ fn multiple_locks() {
         let (lock_sender, lock_receiver) = unbounded::<()>();
         let ctx1 = get_shareable_ctx(1, 5);
         let ctx1_clone = Arc::clone(&ctx1);
+        let ch1 = get_shareable_nexus_channel();
+        let ch_clone1 = Arc::clone(&ch1);
         reactor.send_future(async move {
-            lock_range(&mut ctx1_clone.lock().unwrap()).await;
+            lock_range(
+                &mut ctx1_clone.lock().unwrap(),
+                &ch_clone1.lock().unwrap(),
+            )
+            .await;
             trace!("Second lock succeeded");
             let _ = lock_sender.send(());
         });
@@ -143,8 +165,13 @@ fn multiple_locks() {
         // First unlock
         let (s, r) = unbounded::<()>();
         let ctx_clone = Arc::clone(&ctx);
+        let ch_clone = Arc::clone(&ch);
         reactor.send_future(async move {
-            unlock_range(&mut ctx_clone.lock().unwrap()).await;
+            unlock_range(
+                &mut ctx_clone.lock().unwrap(),
+                &ch_clone.lock().unwrap(),
+            )
+            .await;
             trace!("Unlock first lock");
             let _ = s.send(());
         });
@@ -156,8 +183,13 @@ fn multiple_locks() {
         // Second unlock
         let (s, r) = unbounded::<()>();
         let ctx1_clone = Arc::clone(&ctx1);
+        let ch_clone1 = Arc::clone(&ch1);
         reactor.send_future(async move {
-            unlock_range(&mut ctx1_clone.lock().unwrap()).await;
+            unlock_range(
+                &mut ctx1_clone.lock().unwrap(),
+                &ch_clone1.lock().unwrap(),
+            )
+            .await;
             trace!("Unlock second lock");
             let _ = s.send(());
         });
@@ -179,8 +211,15 @@ fn lock_then_fe_io() {
         let (s, r) = unbounded::<()>();
         let ctx = get_shareable_ctx(1, 10);
         let ctx_clone = Arc::clone(&ctx);
+        let ch = get_shareable_nexus_channel();
+        let ch_clone = Arc::clone(&ch);
+
         reactor.send_future(async move {
-            lock_range(&mut ctx_clone.lock().unwrap()).await;
+            lock_range(
+                &mut ctx_clone.lock().unwrap(),
+                &ch_clone.lock().unwrap(),
+            )
+            .await;
             trace!("Lock succeeded");
             let _ = s.send(());
         });
@@ -211,8 +250,13 @@ fn lock_then_fe_io() {
         // Unlock
         let (s, r) = unbounded::<()>();
         let ctx_clone = Arc::clone(&ctx);
+        let ch_clone = Arc::clone(&ch);
         reactor.send_future(async move {
-            unlock_range(&mut ctx_clone.lock().unwrap()).await;
+            unlock_range(
+                &mut ctx_clone.lock().unwrap(),
+                &ch_clone.lock().unwrap(),
+            )
+            .await;
             trace!("Release lock");
             let _ = s.send(());
         });
