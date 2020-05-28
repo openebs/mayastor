@@ -104,7 +104,7 @@ spec:
           protocol: TCP
           name: mayastor
       - name: csi-driver-registrar
-        image: quay.io/k8scsi/csi-node-driver-registrar:v1.1.0
+        image: quay.io/k8scsi/csi-node-driver-registrar:v1.3.0
         args:
         - "--csi-address=/csi/csi.sock"
         - "--kubelet-registration-path=/var/lib/kubelet/plugins/mayastor.openebs.io/csi.sock"
