@@ -390,7 +390,6 @@ class Node extends EventEmitter {
     if (!nexusInfo) {
       throw new GrpcError(GrpcCode.INTERNAL, `New nexus "${uuid}" not found`);
     }
-    nexusInfo.children.sort((a, b) => (a.uri > b.uri ? 1 : -1));
 
     const newNexus = new Nexus(nexusInfo);
     this._registerNexus(newNexus);

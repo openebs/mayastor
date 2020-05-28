@@ -94,10 +94,12 @@ module.exports = function () {
     clock.tick(10);
     let res = await promise1;
     expect(res.id).to.equal(1);
-    clock.tick(10);
+    // we must restore the clock here because the next item in workq hasn't been
+    // dispatched yet so moving the clock head now would not help. It wasn't the
+    // case with nodejs v10 when try-catch-finally was done differently.
+    clock.restore();
     res = await promise2;
     expect(res.id).to.equal(2);
-    clock.tick(10);
     res = await promise3;
     expect(res.id).to.equal(3);
   });
@@ -113,7 +115,7 @@ module.exports = function () {
     clock.tick(50);
     const res1 = await promise1;
     expect(res1.id).to.equal(1);
-    clock.tick(50);
+    clock.restore();
     const res2 = await promise2;
     expect(res2.id).to.equal(2);
     expect(res1.timestamp).to.be.below(res2.timestamp);

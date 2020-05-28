@@ -12,7 +12,7 @@ following responsibilities:
 ## Requirements
 
 - required K8s version is 1.14 or newer
-- NodeJS v10
+- NodeJS v12
 - Nix when building a docker image
 
 ## Build it
@@ -22,18 +22,18 @@ following responsibilities:
 Enter a nix shell with NodeJS and python packages and install the dependencies:
 
 ```bash
-nix-shell -p nodejs-10_x python
+nix-shell -p nodejs-12_x python
 npm install
 ```
 
 ### Ubuntu
 
-NodeJS v10 may not be available in default package repository on Ubuntu
+NodeJS v12 may not be available in default package repository on Ubuntu
 depending on Ubuntu release. If that's the case, new package source has to be
 added for NodeJS:
 
 ```bash
-curl -sL https://deb.nodesource.com/setup_10.x -o nodesource_setup.sh
+curl -sL https://deb.nodesource.com/setup_12.x -o nodesource_setup.sh
 sudo bash nodesource_setup.sh
 sudo apt install nodejs
 ```
@@ -137,7 +137,7 @@ updated too;
 3. Generate nix package build files:
    ```bash
    rm -rf node_modules
-   node2nix -l package-lock.json --nodejs-10 -c node-composition.nix
+   node2nix -l package-lock.json --nodejs-12 -c node-composition.nix
    ```
 
 ## Building a Nix Package

@@ -50,7 +50,7 @@
 , nats-server
 , nix
 , nodePackages
-, nodejs
+, nodejs-12_x
 , numactl
 , openssl
 , pkgconfig
@@ -100,7 +100,7 @@ let
   # things we need for rust
   rust = [ rustup libclang protobuf ];
   # this we need for node
-  node = [ nodejs python gnumake nodePackages.semistandard ];
+  node = [ nodejs-12_x python gnumake nodePackages.semistandard ];
 
   # generate a user profile for the image
   profile = mkContainerEnv {
