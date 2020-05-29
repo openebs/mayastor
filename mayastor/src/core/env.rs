@@ -50,7 +50,7 @@ use crate::{
     grpc::grpc_server_init,
     logger,
     subsys::Config,
-    target,
+    target::{iscsi, nvmf},
 };
 
 fn parse_mb(src: &str) -> Result<i32, String> {
@@ -275,13 +275,13 @@ async fn do_shutdown(arg: *mut c_void) {
 
     let cfg = Config::by_ref();
     if cfg.nexus_opts.iscsi_enable {
-        target::iscsi::fini();
+        iscsi::fini();
         debug!("iSCSI target down");
     };
 
     if cfg.nexus_opts.nvmf_enable {
         let f = async move {
-            if let Err(msg) = target::nvmf::fini().await {
+            if let Err(msg) = nvmf::fini().await {
                 error!("Failed to finalize nvmf target: {}", msg);
             }
             debug!("nvmf target down");
@@ -561,7 +561,7 @@ impl MayastorEnvironment {
         let cfg = Config::by_ref();
 
         if cfg.nexus_opts.iscsi_enable {
-            if let Err(msg) = target::iscsi::init(&address) {
+            if let Err(msg) = iscsi::init(&address) {
                 error!("Failed to initialize Mayastor iSCSI target: {}", msg);
                 return Err(EnvError::InitTarget {
                     target: "iscsi".into(),
@@ -571,7 +571,7 @@ impl MayastorEnvironment {
 
         if cfg.nexus_opts.nvmf_enable {
             let f = async move {
-                if let Err(msg) = target::nvmf::init(&address).await {
+                if let Err(msg) = nvmf::init(&address).await {
                     error!(
                         "Failed to initialize Mayastor nvmf target: {}",
                         msg

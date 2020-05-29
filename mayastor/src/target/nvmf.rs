@@ -123,10 +123,11 @@ impl RpcErrorCode for Error {
 
 type Result<T, E = Error> = std::result::Result<T, E>;
 
-/// nvmf port used for replicas. It is different from standard nvmf
-/// port 4420, because we don't want to conflict with nexus exported
+/// Default nvmf port used for replicas. It is different from standard
+/// nvmf port 4420, because we don't want to conflict with nexus exported
 /// over nvmf running on the same node.
-const NVMF_PORT: u16 = 8420;
+pub const NVMF_PORT_REPLICA: u16 = 8420;
+pub const NVMF_PORT_NEXUS: u16 = 4421;
 static TRANSPORT_NAME: Lazy<CString> =
     Lazy::new(|| CString::new("TCP").unwrap());
 
@@ -363,8 +364,6 @@ impl TargetOpts {
 pub(crate) struct Target {
     /// Pointer to SPDK implementation of nvmf target
     inner: *mut spdk_nvmf_tgt,
-    /// Address where the target listens for incoming connections
-    address: String,
     /// Endpoint where this nvmf target listens for incoming connections.
     trid: spdk_nvme_transport_id,
     opts: spdk_nvmf_transport_opts,
@@ -427,7 +426,6 @@ impl Target {
 
         Ok(Self {
             inner,
-            address: addr.to_owned(),
             trid,
             opts: cfg.nvmf_tcp_tgt_conf.opts.into(),
             acceptor_poll_rate: 1000, // 1ms
@@ -636,11 +634,6 @@ impl Target {
         Ok(())
     }
 
-    /// Return IP address where the target listens
-    pub fn get_address(&self) -> &str {
-        &self.address
-    }
-
     /// Return address:port of the target
     pub fn endpoint(&self) -> String {
         unsafe {
@@ -661,8 +654,8 @@ impl fmt::Display for Target {
 
 /// Create nvmf target which will be used for exporting the replicas.
 pub async fn init(address: &str) -> Result<()> {
-    let nvmf_port = Config::by_ref().nexus_opts.replica_port;
-    let mut boxed_tgt = Box::new(Target::create(address, nvmf_port)?);
+    let replica_port = Config::by_ref().nexus_opts.nvmf_replica_port;
+    let mut boxed_tgt = Box::new(Target::create(address, replica_port)?);
     boxed_tgt.add_tcp_transport().await?;
     boxed_tgt.listen().await?;
     boxed_tgt.accept()?;
@@ -722,12 +715,9 @@ pub fn get_uri(uuid: &str) -> Option<String> {
         let mut maybe_tgt = maybe_tgt.borrow_mut();
         let tgt = maybe_tgt.as_mut().unwrap();
         match tgt.lookup_subsystem(uuid) {
-            Some(mut ss) => Some(format!(
-                "nvmf://{}:{}/{}",
-                tgt.get_address(),
-                NVMF_PORT,
-                ss.get_nqn()
-            )),
+            Some(mut ss) => {
+                Some(format!("nvmf://{}/{}", tgt.endpoint(), ss.get_nqn()))
+            }
             None => None,
         }
     })

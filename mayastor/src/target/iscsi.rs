@@ -39,6 +39,7 @@ use crate::{
     core::Bdev,
     ffihelper::{cb_arg, done_errno_cb, ErrnoResult},
     jsonrpc::{Code, RpcErrorCode},
+    subsys::Config,
     target::Side,
 };
 
@@ -69,9 +70,9 @@ impl RpcErrorCode for Error {
 
 type Result<T, E = Error> = std::result::Result<T, E>;
 
-/// iscsi target port number
-const ISCSI_PORT_NEXUS: u16 = 3260;
-const ISCSI_PORT_REPLICA: u16 = 3262;
+/// Default iSCSI target port numbers
+pub const ISCSI_PORT_NEXUS: u16 = 3260;
+pub const ISCSI_PORT_REPLICA: u16 = 3262;
 
 const ISCSI_PORTAL_GROUP_NEXUS: c_int = 0;
 const ISCSI_PORTAL_GROUP_REPLICA: c_int = 2;
@@ -79,6 +80,16 @@ const ISCSI_PORTAL_GROUP_REPLICA: c_int = 2;
 const ISCSI_INITIATOR_GROUP: c_int = 0; //only 1 for now
 /// Only one LUN is presented, and this is the LUN value.
 const LUN: c_int = 0; //only 1 for now
+
+/// Parameters used for creating iSCSI nexus and replica target portals
+struct TargetPortalData {
+    /// IP address
+    address: String,
+    /// port for nexus portal
+    nexus_port: u16,
+    /// port for replica portal
+    replica_port: u16,
+}
 
 thread_local! {
     /// iscsi global state.
@@ -89,8 +100,8 @@ thread_local! {
     ///
     /// A counter used for assigning idx to newly created iscsi targets.
     static ISCSI_IDX: RefCell<i32> = RefCell::new(0);
-    /// IP address of iscsi portal used for all created iscsi targets.
-    static ADDRESS: RefCell<Option<String>> = RefCell::new(None);
+    /// IP address and ports for iSCSI nexus and replica target portals
+    static TARGET_PORTAL_DATA: RefCell<Option<TargetPortalData>> = RefCell::new(None);
 }
 
 /// Generate iqn based on provided bdev_name
@@ -101,25 +112,31 @@ pub fn target_name(bdev_name: &str) -> String {
 /// Create iscsi portal and initiator group which will be used later when
 /// creating iscsi targets.
 pub fn init(address: &str) -> Result<()> {
-    create_portal_group(
-        address,
-        ISCSI_PORT_REPLICA,
-        ISCSI_PORTAL_GROUP_REPLICA,
-    )?;
+    let config = Config::by_ref();
+    let nexus_port = config.nexus_opts.iscsi_nexus_port;
+    let replica_port = config.nexus_opts.iscsi_replica_port;
+
+    create_portal_group(address, replica_port, ISCSI_PORTAL_GROUP_REPLICA)?;
 
     if let Err(e) =
-        create_portal_group(address, ISCSI_PORT_NEXUS, ISCSI_PORTAL_GROUP_NEXUS)
+        create_portal_group(address, nexus_port, ISCSI_PORTAL_GROUP_NEXUS)
     {
         destroy_portal_group(ISCSI_PORTAL_GROUP_REPLICA);
         return Err(e);
     }
+
     if let Err(e) = create_initiator_group(ISCSI_INITIATOR_GROUP) {
         destroy_portal_group(ISCSI_PORTAL_GROUP_REPLICA);
         destroy_portal_group(ISCSI_PORTAL_GROUP_NEXUS);
         return Err(e);
     }
-    ADDRESS.with(move |addr| {
-        *addr.borrow_mut() = Some(address.to_owned());
+
+    TARGET_PORTAL_DATA.with(move |data| {
+        *data.borrow_mut() = Some(TargetPortalData {
+            address: address.to_owned(),
+            nexus_port,
+            replica_port,
+        });
     });
     debug!("Created default iscsi initiator group and portal groups for address {}", address);
 
@@ -350,13 +367,13 @@ pub fn get_uri(side: Side, bdev_name: &str) -> Option<String> {
 }
 
 pub fn create_uri(side: Side, iqn: &str) -> String {
-    let port = match side {
-        Side::Nexus => ISCSI_PORT_NEXUS,
-        Side::Replica => ISCSI_PORT_REPLICA,
-    };
-    ADDRESS.with(move |a| {
-        let a_borrow = a.borrow();
-        let address = a_borrow.as_ref().unwrap();
-        format!("iscsi://{}:{}/{}/{}", address, port, iqn, LUN)
+    TARGET_PORTAL_DATA.with(move |data| {
+        let borrowed = data.borrow();
+        let data = borrowed.as_ref().unwrap();
+        let port = match side {
+            Side::Nexus => data.nexus_port,
+            Side::Replica => data.replica_port,
+        };
+        format!("iscsi://{}:{}/{}/{}", data.address, port, iqn, LUN)
     })
 }
