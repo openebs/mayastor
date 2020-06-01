@@ -55,7 +55,7 @@ pub struct NvmeCtlAttachReq {
 impl NvmeCtlAttachReq {
     unsafe extern "C" fn nvme_done(
         ctx: *mut c_void,
-        _bdev_count: usize,
+        _bdev_count: u64,
         rc: i32,
     ) {
         let sender =

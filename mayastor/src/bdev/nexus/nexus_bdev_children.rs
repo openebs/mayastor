@@ -585,7 +585,9 @@ impl Nexus {
                 // it means that the PVC has been recreated.
                 // We should consider also updating the labels in such a case.
 
-                info!("{}: existing label:\n{}", self.name, target);
+                info!("{}: existing label: {}", self.name, target.primary.guid);
+                trace!("{}: existing label:\n {}", self.name, target);
+
                 return Ok(target);
             }
 

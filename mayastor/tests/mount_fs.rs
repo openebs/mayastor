@@ -54,7 +54,7 @@ fn mount_fs() {
         let right = nexus_lookup("right").unwrap();
 
         // share both nexuses
-        //TODO: repeat this test for NVMF and ISCSI, and permutations?
+        // TODO: repeat this test for NVMF and ISCSI, and permutations?
         let left_device = common::device_path_from_uri(
             left.share(ShareProtocolNexus::NexusNbd, None)
                 .await

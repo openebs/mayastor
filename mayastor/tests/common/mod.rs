@@ -4,7 +4,7 @@ use once_cell::sync::OnceCell;
 use run_script::{self, ScriptOptions};
 
 use mayastor::{
-    core::{MayastorEnvironment, Mthread},
+    core::{MayastorEnvironment, Sthread},
     logger,
 };
 use spdk_sys::spdk_get_thread;
@@ -89,7 +89,7 @@ pub fn mayastor_test_init() {
             }
         });
 
-    logger::init("TRACE");
+    logger::init("DEBUG");
     env::set_var("MAYASTOR_LOGLEVEL", "4");
     mayastor::CPS_INIT!();
 }
@@ -256,8 +256,8 @@ pub fn clean_up_temp() {
     .unwrap();
 }
 
-pub fn thread() -> Option<Mthread> {
-    Mthread::from_null_checked(unsafe { spdk_get_thread() })
+pub fn thread() -> Option<Sthread> {
+    Sthread::from_null_checked(unsafe { spdk_get_thread() })
 }
 
 pub fn dd_urandom_blkdev(device: &str) -> String {

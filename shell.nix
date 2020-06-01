@@ -1,29 +1,21 @@
-{ channel ? "nightly"
-, nospdk ? false
-}:
+{ nospdk ? false }:
 let
   nixpkgs = (import ./nix/lib/nixPackages.nix) { };
   pkgs = import nixpkgs {
     config = { };
     overlays = [ (import ./nix/mayastor-overlay.nix) ];
   };
-in
-with pkgs;
+in with pkgs;
 let
-  rustChannel = import ./nix/lib/rust.nix {
-    inherit fetchFromGitHub;
-    inherit pkgs;
-  };
   libspdk = pkgs.libspdk.override { enableDebug = true; };
-  moth = "You have an environment with no SPDK avaiable, you should provide it!";
-in
-mkShell {
+  moth =
+    "You have requested environment without SPDK, you should provide it!";
+in mkShell {
+
   # fortify does not work with -O0 which is used by spdk when --enable-debug
   hardeningDisable = [ "fortify" ];
-
   buildInputs = [
     cowsay
-    figlet
     fio
     gdb
     gptfdisk
@@ -34,9 +26,15 @@ mkShell {
     nvme-cli
     pre-commit
     python3
-    #    rustChannel.${channel}.rust
   ] ++ pkgs.lib.optionals (!nospdk) mayastor.buildInputs
-  ++ pkgs.lib.optionals (nospdk) libspdk.buildInputs;
+    ++ pkgs.lib.optionals (nospdk) [
+      clang
+      cunit
+      libudev.dev
+      libunwind
+      llvmPackages.libclang
+      pkg-config
+    ] ++ libspdk.buildInputs;
 
   LIBCLANG_PATH = mayastor.LIBCLANG_PATH;
   PROTOC = mayastor.PROTOC;
@@ -45,7 +43,8 @@ mkShell {
   shellHook = ''
     ${pkgs.lib.optionalString (nospdk) "cowsay ${moth}"}
     ${pkgs.lib.optionalString (nospdk) "export CFLAGS=-msse4"}
+    ${pkgs.lib.optionalString (nospdk)
+    ''export RUSTFLAGS="-C link-args=-Wl,-rpath,$(pwd)/spdk-sys/spdk"''}
     pre-commit install
-    figlet ${channel}
   '';
 }

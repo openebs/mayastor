@@ -46,6 +46,7 @@ fn generate_config() {
 }
 
 #[test]
+#[ignore]
 fn nexus_reset_mirror() {
     generate_config();
 

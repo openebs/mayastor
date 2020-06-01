@@ -13,13 +13,13 @@ pub trait GetOpts {
 }
 
 use spdk_sys::{
+    iscsi_opts_copy,
     spdk_bdev_nvme_get_opts,
     spdk_bdev_nvme_opts,
     spdk_bdev_nvme_set_opts,
     spdk_bdev_opts,
     spdk_bdev_set_opts,
     spdk_iscsi_opts,
-    spdk_iscsi_opts_copy,
     spdk_nvmf_target_opts,
     spdk_nvmf_transport_opts,
 };
@@ -461,7 +461,7 @@ impl GetOpts for IscsiTgtOpts {
             // defined global. Later one, when iscsi initializes those options
             // are verified and then -- copied to g_spdk_iscsi. Once they
             // are copied g_spdk_iscsi_opts is freed.
-            g_spdk_iscsi_opts = spdk_iscsi_opts_copy(&mut self.into());
+            g_spdk_iscsi_opts = iscsi_opts_copy(&mut self.into());
 
             if g_spdk_iscsi_opts.is_null() {
                 panic!("iSCSI_init failed");

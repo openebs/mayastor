@@ -12,11 +12,11 @@ use std::{
     ptr::{self, copy_nonoverlapping},
 };
 
+use crate::core::Reactor;
 use futures::channel::oneshot;
 use nix::errno::Errno;
 use once_cell::sync::Lazy;
 use snafu::{ResultExt, Snafu};
-
 use spdk_sys::{
     spdk_nvme_transport_id,
     spdk_nvmf_poll_group,
@@ -168,13 +168,21 @@ impl Subsystem {
             });
         }
         spdk_nvmf_subsystem_set_allow_any_host(inner, true);
+        // TODO: callback async
 
-        // make it listen on target's trid
-        if spdk_nvmf_subsystem_add_listener(inner, trid) != 0 {
-            return Err(Error::ListenSubsystem {
-                nqn,
-            });
-        }
+        let fut = async move {
+            let (s, r) = oneshot::channel::<ErrnoResult<()>>();
+            spdk_nvmf_subsystem_add_listener(
+                inner,
+                trid,
+                Some(done_errno_cb),
+                cb_arg(s),
+            );
+
+            assert_eq!(r.await.is_ok(), true);
+        };
+
+        Reactor::block_on(fut);
 
         Ok(Self {
             inner,
@@ -324,7 +332,7 @@ impl Iterator for SubsystemIter {
 
 /// Some options can be passed into each target that gets created.
 ///
-/// Currently the options are limited to the name of the target to be created
+/// Currently, the options are limited to the name of the target to be created
 /// and the max number of subsystems this target supports. We set this number
 /// equal to the number of pods that can get scheduled on a node which is, by
 /// default 110.
@@ -466,20 +474,16 @@ impl Target {
     }
 
     /// Listen for incoming connections
-    pub async fn listen(&mut self) -> Result<()> {
-        let (sender, receiver) = oneshot::channel::<ErrnoResult<()>>();
-        unsafe {
-            spdk_nvmf_tgt_listen(
-                self.inner,
-                &mut self.trid as *mut _,
-                Some(done_errno_cb),
-                cb_arg(sender),
-            );
+    pub fn listen(&mut self) -> Result<()> {
+        let rc = unsafe {
+            spdk_nvmf_tgt_listen(self.inner, &mut self.trid as *mut _)
+        };
+
+        if rc != 0 {
+            return Err(Error::ListenTarget {
+                source: Errno::from_i32(rc),
+            });
         }
-        receiver
-            .await
-            .expect("Cancellation is not supported")
-            .context(ListenTarget {})?;
         debug!("nvmf target listening on {}", self);
         Ok(())
     }
@@ -573,16 +577,6 @@ impl Target {
         }
     }
 
-    /// Callback for async destroy operation.
-    extern "C" fn destroy_cb(sender_ptr: *mut c_void, errno: i32) {
-        let sender = unsafe {
-            Box::from_raw(sender_ptr as *mut oneshot::Sender<ErrnoResult<()>>)
-        };
-        sender
-            .send(errno_result_from_i32((), errno))
-            .expect("Receiver is gone");
-    }
-
     /// Stop nvmf target's subsystems and destroy it.
     ///
     /// NOTE: we cannot do this in drop because target destroy is asynchronous
@@ -599,10 +593,21 @@ impl Target {
             unsafe { spdk_poller_unregister(&mut self.acceptor_poller) };
         }
 
-        // stop io processing
-        if !self.pg.is_null() {
-            unsafe { spdk_nvmf_poll_group_destroy(self.pg) };
-        }
+        //TODO: make async
+        let pg_copy = self.pg;
+        let fut = async move {
+            let (s, r) = oneshot::channel::<ErrnoResult<()>>();
+            unsafe {
+                spdk_nvmf_poll_group_destroy(
+                    pg_copy,
+                    Some(done_errno_cb),
+                    cb_arg(s),
+                )
+            };
+            assert_eq!(r.await.is_ok(), true);
+        };
+
+        Reactor::block_on(fut);
 
         // first we need to inactivate all subsystems of the target
         for mut subsystem in SubsystemIter::new(self.inner) {
@@ -613,7 +618,7 @@ impl Target {
         unsafe {
             spdk_nvmf_tgt_destroy(
                 self.inner,
-                Some(Self::destroy_cb),
+                Some(done_errno_cb),
                 cb_arg(sender),
             );
         }
@@ -652,9 +657,10 @@ pub async fn init(address: &str) -> Result<()> {
     let replica_port = Config::by_ref().nexus_opts.nvmf_replica_port;
     let mut boxed_tgt = Box::new(Target::create(address, replica_port)?);
     boxed_tgt.add_tcp_transport().await?;
-    boxed_tgt.listen().await?;
+    boxed_tgt
+        .listen()
+        .unwrap_or_else(|_| panic!("failed to listen on {}", nvmf_port));
     boxed_tgt.accept()?;
-
     NVMF_TGT.with(move |nvmf_tgt| {
         if nvmf_tgt.borrow().is_some() {
             panic!("Double initialization of nvmf");

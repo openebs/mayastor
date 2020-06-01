@@ -1,10 +1,10 @@
 repos:
 -   repo: https://github.com/nix-community/nixpkgs-fmt
-    rev: master
+    rev: v0.9.0
     hooks:
     -   id: nixpkgs-fmt
 -   repo: https://github.com/pre-commit/pre-commit-hooks
-    rev: v2.3.0
+    rev: v3.1.0
     hooks:
     -   id: trailing-whitespace
 -   repo: local

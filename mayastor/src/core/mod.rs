@@ -12,7 +12,7 @@ pub use dma::{DmaBuf, DmaError};
 pub use env::{mayastor_env_stop, MayastorCliArgs, MayastorEnvironment};
 pub use handle::BdevHandle;
 pub use reactor::{Reactor, Reactors, REACTOR_LIST};
-pub use thread::Mthread;
+pub use thread::Sthread;
 
 mod bdev;
 mod channel;

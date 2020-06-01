@@ -72,42 +72,60 @@ fn start_mayastor(cfg: &str, port: u16) -> MayastorProcess {
 }
 
 #[test]
+#[ignore]
+/// create one replicas and put a nexus on top. When doing IO, the child is
+/// stopped. The IO should resume after a while
 fn replica_stop_cont() {
     generate_config();
 
     common::truncate_file(DISKNAME1, DISKSIZE_KB);
 
     let mut ms = start_mayastor(CFGNAME1, 10126);
+    ms.wait_port_ready(10126).unwrap();
 
     test_init!();
 
     Reactor::block_on(async {
+        // create the nexus and do a read/write
         create_nexus(true).await;
         write_some().await;
         read_some().await.unwrap();
+
+        // stop the child
         ms.sig_stop();
+
+        // spawn a thread that will resume IO
         let handle = thread::spawn(move || {
             // Sufficiently long to cause a controller reset
             // see NvmeBdevOpts::Defaults::timeout_us
+            unsafe {
+                spdk_sys::spdk_unaffinitize_thread();
+            }
             thread::sleep(time::Duration::from_secs(3));
             ms.sig_cont();
             ms
         });
+
         read_some()
             .await
             .expect_err("should fail read after controller reset");
-        ms = handle.join().unwrap();
+
+        let ms = handle.join().unwrap();
         read_some()
             .await
             .expect("should read again after Nexus child continued");
+
         nexus_lookup(NXNAME).unwrap().destroy().await.unwrap();
         assert!(nexus_lookup(NXNAME).is_none());
+
+        drop(ms);
     });
 
     common::delete_file(&[DISKNAME1.to_string()]);
 }
 
 #[test]
+#[ignore]
 fn replica_term() {
     generate_config();
 
@@ -116,8 +134,8 @@ fn replica_term() {
 
     let mut ms1 = start_mayastor(CFGNAME1, 10126);
     let mut ms2 = start_mayastor(CFGNAME2, 10127);
-    // Allow Mayastor processes to start listening on NVMf port
-    thread::sleep(time::Duration::from_millis(250));
+    ms1.wait_port_ready(10126).unwrap();
+    ms2.wait_port_ready(10127).unwrap();
 
     test_init!();
 
@@ -126,13 +144,16 @@ fn replica_term() {
         write_some().await;
         read_some().await.unwrap();
     });
+
     ms1.sig_term();
+
     thread::sleep(time::Duration::from_secs(1));
     Reactor::block_on(async {
         read_some()
             .await
             .expect("should read with 1 Nexus child terminated");
     });
+
     ms2.sig_term();
     thread::sleep(time::Duration::from_secs(1));
     Reactor::block_on(async {

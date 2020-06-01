@@ -74,15 +74,24 @@ async fn rebuild_test_start() {
 
     // kick's off the rebuild (NOWAIT) so we have to wait on a channel
     let rebuild_complete = nexus.start_rebuild(BDEVNAME2).await.unwrap();
-    let (s, r) = unbounded::<()>();
+    let (s, r) = unbounded::<bool>();
     std::thread::spawn(move || {
         select! {
             recv(rebuild_complete) -> state => info!("rebuild of child {} finished with state {:?}", BDEVNAME2, state),
-            recv(after(Duration::from_secs(10))) -> _ => panic!("timed out waiting for the rebuild to complete"),
+            recv(after(Duration::from_secs(15))) -> _ => {
+                s.send(false).unwrap();
+            }
         }
-        s.send(())
+        s.send(true).unwrap();
     });
-    reactor_poll!(r);
+
+    let mut success: bool = false;
+    reactor_poll!(r, success);
+
+    if !success {
+        mayastor_env_stop(0);
+        panic!("rebuild failed!");
+    }
 
     let (s, r) = unbounded::<String>();
     std::thread::spawn(move || {

@@ -119,7 +119,7 @@ impl Discovery {
     /// [struct.DiscoveryLogEntry]. Through the pages we can connect to the
     /// targets.
     ///
-    /// The pages are iteratable so you can filter exactly what you are looing
+    /// The pages are iterable, so you can filter exactly what you are looking
     /// for
     pub fn discover(&mut self) -> Result<&Vec<DiscoveryLogEntry>, Error> {
         self.arg_string = format!(

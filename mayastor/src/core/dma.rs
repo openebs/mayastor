@@ -54,7 +54,7 @@ impl DmaBuf {
         let buf;
         unsafe {
             buf = spdk_dma_zmalloc(
-                size,
+                size as u64,
                 1 << alignment as usize,
                 std::ptr::null_mut(),
             )

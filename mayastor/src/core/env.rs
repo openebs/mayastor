@@ -674,7 +674,7 @@ impl MayastorEnvironment {
         // register our RPC methods
         crate::pool::register_pool_methods();
         crate::replica::register_replica_methods();
-
+        Reactors::master().poll_once();
         // init the subsystems
         Reactor::block_on(async {
             unsafe {
@@ -722,7 +722,7 @@ impl MayastorEnvironment {
                     let master = Reactors::current();
                     master.send_future(async { f() });
                     if grpc {
-                        let _out = tokio::try_join!(
+                        let _ = tokio::try_join!(
                             grpc_server_init(
                                 &grpc_addr.as_ref().unwrap(),
                                 &grpc_port.as_ref().unwrap()
@@ -730,7 +730,7 @@ impl MayastorEnvironment {
                             master
                         );
                     } else {
-                        let _out = master.await;
+                        let _ = master.await;
                     };
                     info!("reactors stopped....");
                     Self::fini();

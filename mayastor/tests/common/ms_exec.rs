@@ -2,6 +2,7 @@ use std::{
     fs,
     io,
     io::Write,
+    net::{SocketAddr, TcpStream},
     panic,
     process::{Command, Stdio},
     thread,
@@ -9,7 +10,10 @@ use std::{
 };
 
 use nix::{
-    sys::wait::{waitpid, WaitPidFlag},
+    sys::{
+        signal::{kill, Signal},
+        wait::{waitpid, WaitPidFlag},
+    },
     unistd::{gettid, Pid},
 };
 
@@ -171,37 +175,58 @@ impl MayastorProcess {
         Ok(serde_json::from_str(&output_string).unwrap())
     }
 
-    fn sig_x(&mut self, sig_str: &str, options: Option<WaitPidFlag>) {
+    /// wait for a port to become ready -- IOW we can connect to it
+    pub fn wait_port_ready(&self, port: u32) -> Result<(), String> {
+        let socket_addr: SocketAddr = format!("127.0.0.1:{}", port)
+            .parse()
+            .expect("Badly formed address");
+
+        for _ in 1 .. 20 {
+            if TcpStream::connect_timeout(
+                &socket_addr,
+                Duration::from_millis(100),
+            )
+            .is_ok()
+            {
+                return Ok(());
+            }
+
+            thread::sleep(Duration::from_millis(100));
+        }
+
+        Err(format!("spdk listening port ({}) not found", port))
+    }
+
+    /// send a signal to the child process. When we send a sigterm, we reset the
+    /// child PID to 0 to avoid double kills
+    fn sig_x(&mut self, sig: Signal, opts: Option<WaitPidFlag>) {
         if self.child == 0 {
             return;
         }
-        let child = self.child;
-        if sig_str == "TERM" {
+
+        let pid = Pid::from_raw(self.child as i32);
+
+        if sig == Signal::SIGTERM {
             self.child = 0;
         }
-        Command::new("kill")
-            .args(&["-s", sig_str, &format!("{}", child)])
-            .spawn()
-            .unwrap();
 
-        // blocks until child changes state, signals are racy by themselves
-        // however
-        waitpid(Pid::from_raw(child as i32), options).unwrap();
+        kill(pid, sig).unwrap();
+        waitpid(pid, opts).unwrap();
     }
 
     /// terminate the mayastor process and wait for it to die
     pub fn sig_term(&mut self) {
-        self.sig_x("TERM", None);
+        self.sig_x(Signal::SIGTERM, None);
     }
 
     /// stop the mayastor process and wait for it to stop
     pub fn sig_stop(&mut self) {
-        self.sig_x("STOP", Some(WaitPidFlag::WUNTRACED));
+        self.sig_x(Signal::SIGSTOP, Some(WaitPidFlag::WUNTRACED));
     }
 
     /// continue the mayastor process and wait for it to continue
     pub fn sig_cont(&mut self) {
-        self.sig_x("CONT", Some(WaitPidFlag::WCONTINUED));
+        self.sig_x(Signal::SIGCONT, Some(WaitPidFlag::WCONTINUED));
     }
 }
 
