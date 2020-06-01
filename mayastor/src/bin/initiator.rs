@@ -26,6 +26,7 @@ use mayastor::{
     jsonrpc::print_error_chain,
     logger,
     nexus_uri::{bdev_create, BdevCreateDestroy},
+    subsys::Config,
 };
 
 /// The errors from this utility are not supposed to be parsable by machine,
@@ -159,6 +160,14 @@ fn main() {
     ms.name = "initiator".into();
     ms.mem_size = 256;
     ms.rpc_addr = "/tmp/initiator.sock".into();
+
+    // This tool is just a client, so don't start iSCSI or NVMEoF services.
+    Config::get_or_init(|| {
+        let mut cfg = Config::default();
+        cfg.nexus_opts.iscsi_enable = false;
+        cfg.nexus_opts.nvmf_enable = false;
+        cfg
+    });
 
     let rc = ms
         .start(move || {
