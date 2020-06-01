@@ -22,6 +22,7 @@ pub mod nexus_metadata;
 pub mod nexus_metadata_content;
 pub mod nexus_module;
 pub mod nexus_nbd;
+pub mod nexus_nvmf;
 pub mod nexus_rpc;
 pub mod nexus_share;
 
