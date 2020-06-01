@@ -434,7 +434,10 @@ impl Nexus {
     /// destroy all children that are part of this nexus closes any child
     /// that might be open first
     pub(crate) async fn destroy_children(&mut self) {
-        let futures = self.children.iter_mut().map(|c| c.destroy());
+        let futures = self.children.iter_mut().map(|c| {
+            c.close();
+            c.destroy()
+        });
         let results = join_all(futures).await;
         if results.iter().any(|c| c.is_err()) {
             error!("{}: Failed to destroy child", self.name);
