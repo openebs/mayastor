@@ -1,5 +1,7 @@
 use std::{convert::TryFrom, fmt::Debug};
+use std::os::raw::c_void;
 
+use futures::channel::oneshot;
 use serde::export::{fmt::Error, Formatter};
 
 use spdk_sys::{
@@ -15,10 +17,8 @@ use spdk_sys::{
 
 use crate::{
     bdev::nexus::nexus_module::NEXUS_MODULE,
-    core::{channel::IoChannel, Bdev, BdevHandle, CoreError},
+    core::{Bdev, BdevHandle, channel::IoChannel, CoreError},
 };
-use futures::channel::oneshot;
-use std::os::raw::c_void;
 
 /// NewType around a descriptor, multiple descriptor to the same bdev is
 /// allowed. A bdev can me claimed for exclusive write access. Any existing

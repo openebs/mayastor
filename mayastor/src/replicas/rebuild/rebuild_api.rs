@@ -1,13 +1,15 @@
 #![warn(missing_docs)]
 
-use crate::core::{BdevHandle, CoreError, Descriptor, DmaError};
+use std::fmt;
+
 use crossbeam::channel::{Receiver, Sender};
 use futures::channel::oneshot;
 use snafu::Snafu;
-use std::fmt;
+
+use crate::{bdev::VerboseError, nexus_uri::BdevCreateDestroy};
+use crate::core::{BdevHandle, CoreError, Descriptor, DmaError};
 
 use super::rebuild_impl::*;
-use crate::{bdev::VerboseError, nexus_uri::BdevCreateDestroy};
 
 #[derive(Debug, Snafu, Clone)]
 #[snafu(visibility = "pub(crate)")]

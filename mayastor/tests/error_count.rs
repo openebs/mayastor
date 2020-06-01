@@ -1,9 +1,9 @@
 extern crate log;
 
+use std::time::Duration;
+
 use crossbeam::channel::unbounded;
 
-use std::time::Duration;
-pub mod common;
 pub use common::error_bdev::{
     create_error_bdev,
     inject_error,
@@ -18,9 +18,13 @@ use mayastor::{
         Bdev,
         MayastorCliArgs,
         MayastorEnvironment,
+        Mthread,
         Reactor,
+        Reactors,
     },
 };
+
+pub mod common;
 
 static ERROR_COUNT_TEST_NEXUS: &str = "error_count_test_nexus";
 
@@ -45,29 +49,27 @@ fn nexus_error_count_test() {
         create_nexus().await;
         err_write_nexus(true).await;
         err_read_nexus_both(true).await;
+
+        nexus_err_query_and_test(
+            BDEV_EE_ERROR_DEVICE,
+            NexusErrStore::READ_FLAG,
+            0,
+            Some(1_000_000_000),
+        );
+
+        nexus_err_query_and_test(
+            BDEV_EE_ERROR_DEVICE,
+            NexusErrStore::WRITE_FLAG,
+            0,
+            Some(1_000_000_000),
+        );
+        nexus_err_query_and_test(
+            BDEVNAME1,
+            NexusErrStore::READ_FLAG | NexusErrStore::WRITE_FLAG,
+            0,
+            Some(1_000_000_000),
+        );
     });
-
-    reactor_run_millis(1); // give time for any errors to be added to the error store
-
-    nexus_err_query_and_test(
-        BDEV_EE_ERROR_DEVICE,
-        NexusErrStore::READ_FLAG,
-        0,
-        Some(1_000_000_000),
-    );
-
-    nexus_err_query_and_test(
-        BDEV_EE_ERROR_DEVICE,
-        NexusErrStore::WRITE_FLAG,
-        0,
-        Some(1_000_000_000),
-    );
-    nexus_err_query_and_test(
-        BDEVNAME1,
-        NexusErrStore::READ_FLAG | NexusErrStore::WRITE_FLAG,
-        0,
-        Some(1_000_000_000),
-    );
 
     Reactor::block_on(async {
         inject_error(
@@ -78,29 +80,27 @@ fn nexus_error_count_test() {
         );
         err_write_nexus(false).await;
         err_read_nexus_both(true).await;
+
+        nexus_err_query_and_test(
+            BDEV_EE_ERROR_DEVICE,
+            NexusErrStore::READ_FLAG,
+            0,
+            Some(1_000_000_000),
+        );
+
+        nexus_err_query_and_test(
+            BDEV_EE_ERROR_DEVICE,
+            NexusErrStore::WRITE_FLAG,
+            1,
+            Some(1_000_000_000),
+        );
+        nexus_err_query_and_test(
+            BDEVNAME1,
+            NexusErrStore::READ_FLAG | NexusErrStore::WRITE_FLAG,
+            0,
+            Some(1_000_000_000),
+        );
     });
-
-    reactor_run_millis(1); // give time for any errors to be added to the error store
-
-    nexus_err_query_and_test(
-        BDEV_EE_ERROR_DEVICE,
-        NexusErrStore::READ_FLAG,
-        0,
-        Some(1_000_000_000),
-    );
-
-    nexus_err_query_and_test(
-        BDEV_EE_ERROR_DEVICE,
-        NexusErrStore::WRITE_FLAG,
-        1,
-        Some(1_000_000_000),
-    );
-    nexus_err_query_and_test(
-        BDEVNAME1,
-        NexusErrStore::READ_FLAG | NexusErrStore::WRITE_FLAG,
-        0,
-        Some(1_000_000_000),
-    );
 
     Reactor::block_on(async {
         inject_error(
@@ -111,29 +111,27 @@ fn nexus_error_count_test() {
         );
         err_read_nexus_both(false).await;
         err_write_nexus(true).await;
+
+        nexus_err_query_and_test(
+            BDEV_EE_ERROR_DEVICE,
+            NexusErrStore::READ_FLAG,
+            1,
+            Some(1_000_000_000),
+        );
+
+        nexus_err_query_and_test(
+            BDEV_EE_ERROR_DEVICE,
+            NexusErrStore::WRITE_FLAG,
+            1,
+            Some(1_000_000_000),
+        );
+        nexus_err_query_and_test(
+            BDEVNAME1,
+            NexusErrStore::READ_FLAG | NexusErrStore::WRITE_FLAG,
+            0,
+            Some(1_000_000_000),
+        );
     });
-
-    reactor_run_millis(1); // give time for any errors to be added to the error store
-
-    nexus_err_query_and_test(
-        BDEV_EE_ERROR_DEVICE,
-        NexusErrStore::READ_FLAG,
-        1,
-        Some(1_000_000_000),
-    );
-
-    nexus_err_query_and_test(
-        BDEV_EE_ERROR_DEVICE,
-        NexusErrStore::WRITE_FLAG,
-        1,
-        Some(1_000_000_000),
-    );
-    nexus_err_query_and_test(
-        BDEVNAME1,
-        NexusErrStore::READ_FLAG | NexusErrStore::WRITE_FLAG,
-        0,
-        Some(1_000_000_000),
-    );
 
     // overflow the error store with errored reads and writes, assumes default
     // buffer size of 256 records
@@ -156,43 +154,42 @@ fn nexus_error_count_test() {
         for _ in 0 .. 100 {
             err_write_nexus(false).await;
         }
+
+        Reactors::master().poll_times(5);
+        nexus_err_query_and_test(
+            BDEV_EE_ERROR_DEVICE,
+            NexusErrStore::READ_FLAG,
+            156,
+            Some(1_000_000_000),
+        );
+        nexus_err_query_and_test(
+            BDEV_EE_ERROR_DEVICE,
+            NexusErrStore::WRITE_FLAG,
+            100,
+            Some(1_000_000_000),
+        );
+
+        nexus_err_query_and_test(
+            BDEV_EE_ERROR_DEVICE,
+            NexusErrStore::WRITE_FLAG,
+            0,
+            Some(0), // too recent, so nothing there
+        );
+
+        nexus_err_query_and_test(
+            BDEV_EE_ERROR_DEVICE,
+            NexusErrStore::WRITE_FLAG,
+            100,
+            Some(1_000_000_000_000_000_000), // underflow, so assumes any age
+        );
+
+        nexus_err_query_and_test(
+            BDEV_EE_ERROR_DEVICE,
+            NexusErrStore::WRITE_FLAG,
+            100,
+            None, // no time specified
+        );
     });
-
-    reactor_run_millis(1); // give time for any errors to be added to the error store
-
-    nexus_err_query_and_test(
-        BDEV_EE_ERROR_DEVICE,
-        NexusErrStore::READ_FLAG,
-        156,
-        Some(1_000_000_000),
-    );
-    nexus_err_query_and_test(
-        BDEV_EE_ERROR_DEVICE,
-        NexusErrStore::WRITE_FLAG,
-        100,
-        Some(1_000_000_000),
-    );
-
-    nexus_err_query_and_test(
-        BDEV_EE_ERROR_DEVICE,
-        NexusErrStore::WRITE_FLAG,
-        0,
-        Some(0), // too recent, so nothing there
-    );
-
-    nexus_err_query_and_test(
-        BDEV_EE_ERROR_DEVICE,
-        NexusErrStore::WRITE_FLAG,
-        100,
-        Some(1_000_000_000_000_000_000), // underflow, so assumes any age
-    );
-
-    nexus_err_query_and_test(
-        BDEV_EE_ERROR_DEVICE,
-        NexusErrStore::WRITE_FLAG,
-        100,
-        None, // no time specified
-    );
 
     mayastor_env_stop(0);
 }
@@ -268,11 +265,12 @@ async fn err_read_nexus() -> bool {
     d.read_at(0, &mut buf).await.is_ok()
 }
 
-fn reactor_run_millis(milliseconds: u64) {
-    let (s, r) = unbounded::<()>();
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(milliseconds));
-        s.send(())
-    });
-    reactor_poll!(r);
-}
+// fn reactor_run_millis(milliseconds: u64) {
+//     let (s, r) = unbounded::<()>();
+//     std::thread::spawn(move || {
+//         Mthread::unaffinitize();
+//         std::thread::sleep(Duration::from_millis(milliseconds));
+//         s.send(())
+//     });
+//     reactor_poll!(r);
+// }

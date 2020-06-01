@@ -7,6 +7,7 @@ use std::{
 };
 
 use byte_unit::{Byte, ByteUnit};
+use futures::channel::oneshot;
 use nix::sys::{
     signal,
     signal::{
@@ -43,8 +44,8 @@ use spdk_sys::{
 
 use crate::{
     core::{
-        reactor,
-        reactor::{Reactor, Reactors},
+        reactor::{Reactor, ReactorState, Reactors},
+        thread::INIT_THREAD,
         Cores,
     },
     grpc::grpc_server_init,
@@ -252,9 +253,13 @@ impl Default for MayastorEnvironment {
 /// The actual routine which does the mayastor shutdown.
 /// Must be called on the same thread which did the init.
 async fn do_shutdown(arg: *mut c_void) {
+    // we must enter the init thread explicitly here as this, typically, gets
+    // called by the signal handler
+    INIT_THREAD.get().unwrap().enter();
     // callback for when the subsystems have shutdown
-    extern "C" fn reactors_stop(_arg: *mut c_void) {
+    extern "C" fn reactors_stop(arg: *mut c_void) {
         Reactors::iter().for_each(|r| r.shutdown());
+        *GLOBAL_RC.lock().unwrap() = arg as i32;
     }
 
     let rc = arg as i32;
@@ -263,16 +268,6 @@ async fn do_shutdown(arg: *mut c_void) {
         warn!("Mayastor stopped non-zero: {}", rc);
     }
 
-    let rc_current = *GLOBAL_RC.lock().unwrap();
-
-    if rc_current != -1 {
-        // to avoid double shutdown when we are running with in the native test
-        // framework
-        std::process::exit(rc_current);
-    }
-
-    *GLOBAL_RC.lock().unwrap() = rc;
-
     let cfg = Config::by_ref();
     if cfg.nexus_opts.iscsi_enable {
         iscsi::fini();
@@ -280,32 +275,29 @@ async fn do_shutdown(arg: *mut c_void) {
     };
 
     if cfg.nexus_opts.nvmf_enable {
-        let f = async move {
-            if let Err(msg) = nvmf::fini().await {
-                error!("Failed to finalize nvmf target: {}", msg);
-            }
-            debug!("nvmf target down");
-        };
-        f.await;
+        if let Err(msg) = nvmf::fini().await {
+            error!("Failed to finalize nvmf target: {}", msg);
+        }
+        debug!("nvmf target down");
     }
 
     unsafe {
         spdk_rpc_finish();
-        spdk_subsystem_fini(Some(reactors_stop), std::ptr::null_mut());
+        spdk_subsystem_fini(Some(reactors_stop), arg);
     }
 }
 
 /// main shutdown routine for mayastor
 pub fn mayastor_env_stop(rc: i32) {
-    let r = Reactors::get_by_core(Cores::first()).unwrap();
+    let r = Reactors::master();
 
-    match r.get_sate() {
-        reactor::INIT => {
+    match r.get_state() {
+        ReactorState::Init => {
             Reactor::block_on(async move {
                 do_shutdown(rc as *const i32 as *mut c_void).await;
             });
         }
-        reactor::RUNNING | reactor::DEVELOPER_DELAY => {
+        ReactorState::Running | ReactorState::Delayed => {
             r.send_future(async move {
                 do_shutdown(rc as *const i32 as *mut c_void).await;
             });
@@ -324,6 +316,12 @@ extern "C" fn mayastor_signal_handler(signo: i32) {
     mayastor_env_stop(signo);
 }
 
+#[derive(Debug)]
+struct SubsystemCtx {
+    rpc: CString,
+    sender: futures::channel::oneshot::Sender<bool>,
+}
+
 impl MayastorEnvironment {
     pub fn new(args: MayastorCliArgs) -> Self {
         Self {
@@ -331,7 +329,7 @@ impl MayastorEnvironment {
             grpc_port: Some(args.port),
             config: args.config,
             mayastor_config: args.mayastor_config,
-            log_component: args.log_components,
+            log_component: vec![],
             mem_size: args.mem_size,
             no_pci: args.no_pci,
             reactor_mask: args.reactor_mask,
@@ -370,7 +368,6 @@ impl MayastorEnvironment {
     /// read the config file we use this mostly for testing
     fn read_config_file(&self) -> Result<()> {
         if self.config.is_none() {
-            trace!("no configuration file specified");
             return Ok(());
         }
 
@@ -533,7 +530,7 @@ impl MayastorEnvironment {
 
         unsafe {
             for flag in &self.log_component {
-                let cflag = CString::new(flag.clone()).unwrap();
+                let cflag = CString::new(flag.as_str()).unwrap();
                 if spdk_log_set_flag(cflag.as_ptr(), true) != 0 {
                     return Err(EnvError::InitLog);
                 }
@@ -576,11 +573,12 @@ impl MayastorEnvironment {
                         "Failed to initialize Mayastor nvmf target: {}",
                         msg
                     );
+                    // because of the -1 we exit immediately
                     mayastor_env_stop(-1);
                 }
             };
 
-            Reactor::block_on(f);
+            Reactors::master().send_future(f);
         }
 
         Ok(())
@@ -600,19 +598,21 @@ impl MayastorEnvironment {
     }
 
     extern "C" fn start_rpc(rc: i32, arg: *mut c_void) {
-        if arg.is_null() || rc != 0 {
-            panic!("Failed to initialize subsystems: {}", rc);
+        let ctx = unsafe { Box::from_raw(arg as *mut SubsystemCtx) };
+
+        if rc != 0 {
+            ctx.sender.send(false).unwrap();
+        } else {
+            info!("RPC server listening at: {}", ctx.rpc.to_str().unwrap());
+            unsafe {
+                spdk_rpc_initialize(ctx.rpc.as_ptr() as *mut i8);
+                spdk_rpc_set_state(SPDK_RPC_RUNTIME);
+            };
+
+            Self::target_init().unwrap();
+
+            ctx.sender.send(true).unwrap();
         }
-
-        let rpc = unsafe { CString::from_raw(arg as _) };
-
-        info!("RPC server listening at: {}", rpc.to_str().unwrap());
-        unsafe {
-            spdk_rpc_initialize(arg as *mut i8);
-            spdk_rpc_set_state(SPDK_RPC_RUNTIME);
-        };
-
-        Self::target_init().unwrap();
     }
 
     fn load_yaml_config(&self) {
@@ -635,6 +635,9 @@ impl MayastorEnvironment {
     }
     /// initialize the core, call this before all else
     pub fn init(mut self) -> Self {
+        // setup the logger as soon as possible
+        self.init_logger().unwrap();
+
         self.load_yaml_config();
         // load the .ini format file, still here to allow CI passing. There is
         // no real harm of loading this ini file as long as there are no
@@ -644,8 +647,6 @@ impl MayastorEnvironment {
         // bootstrap DPDK and its magic
         self.initialize_eal();
 
-        // setup the logger as soon as possible
-        self.init_logger().unwrap();
         if self.enable_coredump {
             //TODO
             warn!("rlimit configuration not implemented");
@@ -669,17 +670,26 @@ impl MayastorEnvironment {
             .into_iter()
             .for_each(|c| Reactors::launch_remote(c).unwrap());
 
-        let rpc = CString::new(self.rpc_addr.as_str()).unwrap();
-
         // register our RPC methods
         crate::pool::register_pool_methods();
         crate::replica::register_replica_methods();
 
-        // init the subsystems
+        let rpc = CString::new(self.rpc_addr.as_str()).unwrap();
+
         Reactor::block_on(async {
+            let (sender, receiver) = oneshot::channel::<bool>();
+
             unsafe {
-                spdk_subsystem_init(Some(Self::start_rpc), rpc.into_raw() as _);
+                spdk_subsystem_init(
+                    Some(Self::start_rpc),
+                    Box::into_raw(Box::new(SubsystemCtx {
+                        rpc,
+                        sender,
+                    })) as *mut _,
+                );
             }
+
+            assert_eq!(receiver.await.unwrap(), true);
         });
 
         // load any bdevs that need to be created
@@ -689,7 +699,7 @@ impl MayastorEnvironment {
     }
 
     // finalize our environment
-    fn fini() {
+    pub fn fini() {
         unsafe {
             spdk_trace_cleanup();
             spdk_thread_lib_fini();
@@ -715,6 +725,8 @@ impl MayastorEnvironment {
             .build()
             .unwrap();
 
+        // the ourselves within the context of the init thread
+        INIT_THREAD.get().unwrap().enter();
         let local = task::LocalSet::new();
         rt.block_on(async {
             local
@@ -722,7 +734,7 @@ impl MayastorEnvironment {
                     let master = Reactors::current();
                     master.send_future(async { f() });
                     if grpc {
-                        let _out = tokio::try_join!(
+                        let _ = tokio::try_join!(
                             grpc_server_init(
                                 &grpc_addr.as_ref().unwrap(),
                                 &grpc_port.as_ref().unwrap()
@@ -730,7 +742,7 @@ impl MayastorEnvironment {
                             master
                         );
                     } else {
-                        let _out = master.await;
+                        let _ = master.await;
                     };
                     info!("reactors stopped....");
                     Self::fini();

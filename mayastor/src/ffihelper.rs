@@ -1,6 +1,7 @@
+use std::os::raw::c_void;
+
 use futures::channel::oneshot;
 use nix::errno::Errno;
-use std::os::raw::c_void;
 
 /// Result having Errno error.
 pub type ErrnoResult<T, E = Errno> = Result<T, E>;

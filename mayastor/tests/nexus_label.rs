@@ -7,11 +7,11 @@ use std::{
 use bincode::serialize_into;
 
 use mayastor::{
-    bdev::{nexus_create, nexus_lookup, GPTHeader, GptEntry},
+    bdev::{GptEntry, GPTHeader, nexus_create, nexus_lookup},
     core::{
-        mayastor_env_stop,
         BdevHandle,
         DmaBuf,
+        mayastor_env_stop,
         MayastorCliArgs,
         MayastorEnvironment,
         Reactor,

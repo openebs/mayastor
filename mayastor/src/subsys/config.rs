@@ -7,8 +7,12 @@
 //! in the default when missing, which are defined within the individual
 //! options.
 use std::{fs, fs::File};
+use std::{fmt::Display, io::Write, path::Path};
 
-use super::opts::GetOpts;
+use byte_unit::Byte;
+use once_cell::sync::OnceCell;
+use serde::{Deserialize, Serialize};
+
 use crate::{
     bdev::{nexus::instances, nexus_create},
     core::{Bdev, Cores, Reactor},
@@ -24,10 +28,8 @@ use crate::{
     },
     target,
 };
-use byte_unit::Byte;
-use once_cell::sync::OnceCell;
-use serde::{Deserialize, Serialize};
-use std::{fmt::Display, io::Write, path::Path};
+
+use super::opts::GetOpts;
 
 pub static CONFIG: OnceCell<Config> = OnceCell::new();
 

@@ -36,10 +36,10 @@ use std::{
 
 use bincode::{
     deserialize_from,
+    Error,
     serialize,
     serialize_into,
     serialized_size,
-    Error,
 };
 use crc::{crc32, Hasher32};
 use serde::{Deserialize, Serialize};

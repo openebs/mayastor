@@ -21,7 +21,7 @@ fn main() -> Result<(), std::io::Error> {
     if !args.log_components.is_empty() {
         logger::init("TRACE");
     } else {
-        logger::init("INFO");
+        logger::init("DEBUG");
     }
 
     let hugepage_path = Path::new("/sys/kernel/mm/hugepages/hugepages-2048kB");

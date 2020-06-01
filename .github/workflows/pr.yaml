@@ -6,14 +6,14 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     container:
-      image: docker.io/mayadata/ms-buildenv:latest
+      image: docker.io/mayadata/ms-buildenv:gila
     steps:
       - uses: actions/checkout@master
       - uses: actions-rs/toolchain@master
         with:
           toolchain: nightly
           components: clippy
-      - uses: actions-rs/clippy-check@v1.0.5
+      - uses: actions-rs/clippy-check@master
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           args: --all --all-targets -- -D warnings
@@ -21,7 +21,7 @@ jobs:
     name: SemiStandard
     runs-on: ubuntu-latest
     container:
-      image: docker.io/mayadata/ms-buildenv:latest
+      image: docker.io/mayadata/ms-buildenv:gila
     steps:
       - uses: actions/checkout@master
       - run: git ls-files | grep '\.js$' | xargs -r ./scripts/js-check.sh

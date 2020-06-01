@@ -9,23 +9,16 @@ use std::{
     fmt,
     fs,
     io::{self, Write},
-    process,
 };
 
 use clap::{App, Arg, SubCommand};
 
 use mayastor::{
-    core::{
-        mayastor_env_stop,
-        Bdev,
-        CoreError,
-        DmaError,
-        MayastorEnvironment,
-        Reactor,
-    },
+    core::{Bdev, CoreError, DmaError, MayastorEnvironment, Reactor},
     jsonrpc::print_error_chain,
     logger,
     nexus_uri::{bdev_create, BdevCreateDestroy},
+    subsys,
     subsys::Config,
 };
 
@@ -147,7 +140,7 @@ fn main() {
                 .index(1)))
         .get_matches();
 
-    logger::init("INFO");
+    logger::init("TRACE");
 
     let uri = matches.value_of("URI").unwrap().to_owned();
     let offset: u64 = match matches.value_of("offset") {
@@ -158,8 +151,15 @@ fn main() {
     let mut ms = MayastorEnvironment::default();
 
     ms.name = "initiator".into();
-    ms.mem_size = 256;
     ms.rpc_addr = "/tmp/initiator.sock".into();
+    let _cfg = Config::get_or_init(|| Config {
+        nexus_opts: subsys::NexusOpts {
+            nvmf_enable: false,
+            iscsi_enable: false,
+            ..Default::default()
+        },
+        ..Default::default()
+    });
 
     // This tool is just a client, so don't start iSCSI or NVMEoF services.
     Config::get_or_init(|| {
@@ -169,32 +169,33 @@ fn main() {
         cfg
     });
 
-    let rc = ms
-        .start(move || {
-            let fut = async move {
-                let res = if let Some(matches) =
-                    matches.subcommand_matches("read")
-                {
-                    read(&uri, offset, matches.value_of("FILE").unwrap()).await
-                } else if let Some(matches) =
-                    matches.subcommand_matches("write")
-                {
-                    write(&uri, offset, matches.value_of("FILE").unwrap()).await
-                } else {
-                    connect(&uri).await
-                };
-                let rc = if let Err(err) = res {
-                    error!("{}", err);
-                    -1
-                } else {
-                    0
-                };
-                mayastor_env_stop(rc)
-            };
-            Reactor::block_on(fut);
-        })
-        .unwrap();
-    info!("{}", rc);
+    // the following race condition lurks here, passing a closure to .start()
+    // with block_on that also calls shutdown leads to the race where the
+    // reactor is not running but shutdown is called where after the futures
+    // gets polled. There are various ways to mitigate this but the easiest
+    // is simply not do it now.
 
-    process::exit(rc);
+    ms.init();
+
+    let fut = async move {
+        let res = if let Some(matches) = matches.subcommand_matches("read") {
+            read(&uri, offset, matches.value_of("FILE").unwrap()).await
+        } else if let Some(matches) = matches.subcommand_matches("write") {
+            write(&uri, offset, matches.value_of("FILE").unwrap()).await
+        } else {
+            connect(&uri).await
+        };
+        if let Err(err) = res {
+            error!("{}", err);
+            -1
+        } else {
+            0
+        }
+    };
+
+    Reactor::block_on(async move {
+        let rc = fut.await;
+        info!("{}", rc);
+        std::process::exit(rc);
+    });
 }

@@ -1,6 +1,7 @@
 use std::ffi::{c_void, CString};
 
 use once_cell::sync::Lazy;
+
 use spdk_sys::{
     spdk_bdev_fn_table,
     spdk_bdev_io,
@@ -17,7 +18,7 @@ use crate::bdev::nexus::{
     instances,
     nexus_bdev::Nexus,
     nexus_channel::NexusChannel,
-    nexus_io::{io_type, Bio},
+    nexus_io::{Bio, io_type},
 };
 
 static NEXUS_FN_TBL: Lazy<NexusFnTable> = Lazy::new(NexusFnTable::new);
@@ -165,7 +166,7 @@ impl NexusFnTable {
             spdk_json_write_val_raw(
                 w,
                 data.as_ptr() as *const _,
-                data.as_bytes().len(),
+                data.as_bytes().len() as u64,
             );
 
             spdk_json_write_array_end(w);

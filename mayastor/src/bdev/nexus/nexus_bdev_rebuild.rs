@@ -1,15 +1,16 @@
 use futures::channel::oneshot::Receiver;
-use rpc::mayastor::{RebuildProgressReply, RebuildStateReply};
 use snafu::ResultExt;
+
+use rpc::mayastor::{RebuildProgressReply, RebuildStateReply};
 
 use crate::{
     bdev::{
         nexus::{
             nexus_bdev::{
-                nexus_lookup,
                 CreateRebuildError,
                 Error,
                 Nexus,
+                nexus_lookup,
                 RebuildJobNotFound,
                 RebuildOperationError,
                 RemoveRebuildJob,

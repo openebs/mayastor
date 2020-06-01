@@ -7,7 +7,6 @@ use std::{
     net::{SocketAddr, TcpStream},
     path::Path,
     process::Command,
-    thread,
     time::Duration,
 };
 
@@ -73,16 +72,17 @@ fn wait_for_spdk_ready(listening_port: u32) -> Result<(), String> {
     let socket_addr: SocketAddr = dest.parse().expect("Badly formed address");
 
     let mut bound = false;
-    for _index in 1 .. 20 {
+    for _ in 1 .. 20 {
         let result = TcpStream::connect_timeout(
             &socket_addr,
-            Duration::from_millis(100),
+            Duration::from_millis(1000),
         );
         bound = result.is_ok();
         if bound {
             break;
         }
-        thread::sleep(Duration::from_millis(101));
+
+        std::thread::sleep(Duration::from_secs(1));
     }
 
     if bound {
@@ -106,6 +106,8 @@ impl NvmfTarget {
         let spdk_proc = Command::new("../target/debug/spdk")
             .arg("-c")
             .arg(CONFIG_FILE)
+            .arg("-L")
+            .arg("nvmf")
             .spawn()
             .expect("Failed to start spdk!");
 

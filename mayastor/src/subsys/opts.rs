@@ -2,8 +2,21 @@
 //! types. Naturally this is a good reason, but it means we have to copy things
 //! around. If the structures change, we will know about it because we use the
 //! from trait, and we are not allowed to skip or use different types.
-use serde::{Deserialize, Serialize};
 use std::ptr::copy_nonoverlapping;
+
+use serde::{Deserialize, Serialize};
+
+use spdk_sys::{
+    iscsi_opts_copy,
+    spdk_bdev_nvme_get_opts,
+    spdk_bdev_nvme_opts,
+    spdk_bdev_nvme_set_opts,
+    spdk_bdev_opts,
+    spdk_bdev_set_opts,
+    spdk_iscsi_opts,
+    spdk_nvmf_target_opts,
+    spdk_nvmf_transport_opts,
+};
 
 pub trait GetOpts {
     fn get(&self) -> Self;
@@ -11,18 +24,6 @@ pub trait GetOpts {
         true
     }
 }
-
-use spdk_sys::{
-    spdk_bdev_nvme_get_opts,
-    spdk_bdev_nvme_opts,
-    spdk_bdev_nvme_set_opts,
-    spdk_bdev_opts,
-    spdk_bdev_set_opts,
-    spdk_iscsi_opts,
-    spdk_iscsi_opts_copy,
-    spdk_nvmf_target_opts,
-    spdk_nvmf_transport_opts,
-};
 
 #[serde(default, deny_unknown_fields)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -403,7 +404,7 @@ impl Default for IscsiTgtOpts {
             max_sessions: 128,
             max_connections_per_session: 2,
             max_connections: 1024,
-            max_queue_depth: 64,
+            max_queue_depth: 128,
             default_time2wait: 2,
             default_time2retain: 20,
             first_burst_length: 8192,
@@ -464,7 +465,7 @@ impl GetOpts for IscsiTgtOpts {
             // defined global. Later one, when iscsi initializes those options
             // are verified and then -- copied to g_spdk_iscsi. Once they
             // are copied g_spdk_iscsi_opts is freed.
-            g_spdk_iscsi_opts = spdk_iscsi_opts_copy(&mut self.into());
+            g_spdk_iscsi_opts = iscsi_opts_copy(&mut self.into());
 
             if g_spdk_iscsi_opts.is_null() {
                 panic!("iSCSI_init failed");

@@ -160,7 +160,7 @@ function startProcess (command, args, env, closeCb, psName) {
 
 // Start spdk process and return immediately.
 function startSpdk (config, args, env) {
-  args = args || ['-r', SOCK];
+  args = args || ['-r', SOCK, '-m', "0x2"];
   env = env || {};
 
   if (config) {

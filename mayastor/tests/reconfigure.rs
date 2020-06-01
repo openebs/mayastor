@@ -5,8 +5,8 @@ use std::process::Command;
 use mayastor::{
     bdev::{nexus_create, nexus_lookup, NexusStatus},
     core::{
-        mayastor_env_stop,
         Bdev,
+        mayastor_env_stop,
         MayastorCliArgs,
         MayastorEnvironment,
         Reactor,

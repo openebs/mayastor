@@ -437,7 +437,9 @@ impl Nexus {
                 // it means that the PVC has been recreated.
                 // We should consider also updating the labels in such a case.
 
-                info!("{}: existing label:\n{}", self.name, target);
+                info!("{}: existing label: {}", self.name, target.primary.guid);
+                trace!("{}: existing label:\n {}", self.name, target);
+
                 return Ok(target);
             }
 
@@ -454,7 +456,8 @@ impl Nexus {
         // ... and write it out to ALL children.
         self.write_all_labels(&label).await?;
 
-        info!("{}: new label:\n{}", self.name, label);
+        info!("{}: new label: {}", self.name, label.primary.guid);
+        trace!("{}: new label:\n{}", self.name, label);
         Ok(label)
     }
 

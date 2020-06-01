@@ -1,17 +1,18 @@
+use std::sync::Mutex;
+
 use crossbeam::channel::unbounded;
+use once_cell::sync::Lazy;
 
-pub mod common;
-
+use common::error_bdev;
 use mayastor::{
-    bdev::{nexus_lookup, ChildStatus, VerboseError},
+    bdev::{ChildStatus, nexus_lookup, VerboseError},
     core::{MayastorCliArgs, MayastorEnvironment, Reactor},
     replicas::rebuild::{RebuildJob, RebuildState, SEGMENT_SIZE},
 };
-
-use common::error_bdev;
-use once_cell::sync::Lazy;
+use mayastor::core::Mthread;
 use rpc::mayastor::ShareProtocolNexus;
-use std::sync::Mutex;
+
+pub mod common;
 
 // each test `should` use a different nexus name to prevent clashing with
 // one another. This allows the failed tests to `panic gracefully` improving
@@ -221,6 +222,7 @@ fn rebuild_src_removal() {
 }
 
 #[test]
+#[ignore]
 fn rebuild_with_load() {
     test_ini("rebuild_with_load");
 
@@ -232,10 +234,12 @@ fn rebuild_with_load() {
 
         let (s, r1) = unbounded::<i32>();
         std::thread::spawn(move || {
+            Mthread::unaffinitize();
             s.send(common::fio_verify_size(&nexus_device, NEXUS_SIZE * 2))
         });
         let (s, r2) = unbounded::<()>();
         std::thread::spawn(move || {
+            Mthread::unaffinitize();
             std::thread::sleep(std::time::Duration::from_millis(1500));
             s.send(())
         });
@@ -547,6 +551,7 @@ fn rebuild_operations() {
 }
 
 #[test]
+#[ignore]
 // rebuilds N children at the same time
 // creates the nexus with 1 healthy and then adds N children which
 // have to be rebuilt - this means we have N active rebuilds jobs

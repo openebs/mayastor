@@ -1,18 +1,18 @@
-use tonic::{transport::Server, Request, Response, Status};
+use std::convert::From;
+
+use tonic::{Request, Response, Status, transport::Server};
 
 use rpc::{
     mayastor::*,
     service::mayastor_server::{Mayastor, MayastorServer},
 };
 
-use std::convert::From;
-
 use crate::{
     bdev::{
         nexus::{
             instances,
             nexus_bdev,
-            nexus_bdev::{name_to_uuid, uuid_to_name, Nexus, NexusStatus},
+            nexus_bdev::{name_to_uuid, Nexus, NexusStatus, uuid_to_name},
             nexus_child::{ChildStatus, NexusChild},
         },
         nexus_create,

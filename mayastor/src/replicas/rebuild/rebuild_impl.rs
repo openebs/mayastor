@@ -1,20 +1,21 @@
 #![warn(missing_docs)]
 
-use crate::core::{Bdev, BdevHandle, DmaBuf, RangeContext, Reactors};
-
-use crossbeam::channel::unbounded;
-use once_cell::sync::OnceCell;
-use snafu::ResultExt;
-use spdk_sys::spdk_get_thread;
 use std::{cell::UnsafeCell, collections::HashMap};
 
+use crossbeam::channel::unbounded;
 use futures::{
     channel::{mpsc, oneshot},
     StreamExt,
 };
+use once_cell::sync::OnceCell;
+use snafu::ResultExt;
+
+use spdk_sys::spdk_get_thread;
+
+use crate::{bdev::VerboseError, nexus_uri::bdev_get_name};
+use crate::core::{Bdev, BdevHandle, DmaBuf, RangeContext, Reactors};
 
 use super::rebuild_api::*;
-use crate::{bdev::VerboseError, nexus_uri::bdev_get_name};
 
 /// Global list of rebuild jobs using a static OnceCell
 pub(super) struct RebuildInstances {

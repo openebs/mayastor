@@ -1,8 +1,9 @@
-pub mod common;
+use std::{fs::metadata, sync::Mutex, time::Duration};
 
 use common::ms_exec::run_test;
 use mayastor::{subsys, subsys::Config};
-use std::{fs::metadata, sync::Mutex, time::Duration};
+
+pub mod common;
 
 #[test]
 // Test we can start without any mayastor specific configuration.

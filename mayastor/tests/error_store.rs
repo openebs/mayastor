@@ -1,7 +1,8 @@
-pub mod common;
+use std::time::{Duration, Instant};
 
 use mayastor::bdev::NexusErrStore;
-use std::time::{Duration, Instant};
+
+pub mod common;
 
 const ALL_FLAGS: u32 = 0xffff_ffff;
 

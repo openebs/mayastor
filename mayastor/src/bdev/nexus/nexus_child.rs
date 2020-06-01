@@ -332,7 +332,6 @@ impl NexusChild {
     /// close the bdev -- we have no means of determining if this succeeds
     pub(crate) fn close(&mut self) -> ChildState {
         trace!("{}: Closing child {}", self.parent, self.name);
-
         if let Some(bdev) = self.bdev.as_ref() {
             unsafe {
                 if !(*bdev.as_ptr()).internal.claim_module.is_null() {

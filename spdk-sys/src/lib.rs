@@ -1,11 +1,15 @@
+//
+// the improper_ctypes is needed as because
+// spdk_nvme_ctrlr_data is 128 bit
 #![allow(
+    clippy::all,
+    elided_lifetimes_in_paths,
+    improper_ctypes,
+    non_camel_case_types,
     non_snake_case,
     non_upper_case_globals,
-    non_camel_case_types,
-    unused,
-    elided_lifetimes_in_paths,
-    clippy::all,
-    unknown_lints
+    unknown_lints,
+    unused
 )]
 
 use std::os::raw::c_char;

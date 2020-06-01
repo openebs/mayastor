@@ -2,6 +2,10 @@
 //! This subsystem should be used to add any specific mayastor functionality.
 //!
 //! TODO: add config sync
+use futures::FutureExt;
+
+pub use config::{BaseBdev, Config, NexusBdev, Pool};
+pub use opts::NexusOpts;
 use spdk_sys::{
     spdk_add_subsystem,
     spdk_json_write_ctx,
@@ -11,11 +15,8 @@ use spdk_sys::{
     spdk_subsystem_init_next,
 };
 
-use crate::jsonrpc::jsonrpc_register;
-pub use config::{BaseBdev, Config, NexusBdev, Pool};
-use futures::FutureExt;
-
 use crate::bdev::nexus::nexus_bdev::Error;
+use crate::jsonrpc::jsonrpc_register;
 
 mod config;
 mod opts;
@@ -70,7 +71,7 @@ impl MayastorSubsystem {
             spdk_json_write_val_raw(
                 w,
                 data.as_ptr() as *const _,
-                data.as_bytes().len(),
+                data.as_bytes().len() as u64,
             );
         }
     }

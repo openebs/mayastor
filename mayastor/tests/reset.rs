@@ -1,4 +1,3 @@
-pub mod common;
 use common::ms_exec::MayastorProcess;
 use mayastor::{
     bdev::nexus_create,
@@ -12,6 +11,8 @@ use mayastor::{
     subsys,
     subsys::Config,
 };
+
+pub mod common;
 
 static DISKNAME1: &str = "/tmp/disk1.img";
 static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
@@ -46,6 +47,7 @@ fn generate_config() {
 }
 
 #[test]
+#[ignore]
 fn nexus_reset_mirror() {
     generate_config();
 

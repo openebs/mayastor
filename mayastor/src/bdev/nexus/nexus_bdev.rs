@@ -4,8 +4,6 @@
 //! optimized for the perceived intent. For example, depending on
 //! application needs synchronous mirroring may be required.
 
-use crate::nexus_uri::bdev_destroy;
-
 use std::{
     fmt,
     fmt::{Display, Formatter},
@@ -16,6 +14,9 @@ use futures::channel::oneshot;
 use nix::errno::Errno;
 use serde::Serialize;
 use snafu::{ResultExt, Snafu};
+use tonic::{Code as GrpcCode, Status};
+use uuid::Uuid;
+
 use spdk_sys::{
     spdk_bdev,
     spdk_bdev_desc,
@@ -31,8 +32,6 @@ use spdk_sys::{
     spdk_io_device_register,
     spdk_io_device_unregister,
 };
-use tonic::{Code as GrpcCode, Status};
-use uuid::Uuid;
 
 use crate::{
     bdev::{
@@ -41,7 +40,7 @@ use crate::{
             instances,
             nexus_channel::{DREvent, NexusChannel, NexusChannelInner},
             nexus_child::{ChildError, ChildState, ChildStatus, NexusChild},
-            nexus_io::{io_status, Bio},
+            nexus_io::{Bio, io_status},
             nexus_iscsi::{NexusIscsiError, NexusIscsiTarget},
             nexus_label::LabelError,
             nexus_nbd::{NbdDisk, NbdError},
@@ -54,6 +53,7 @@ use crate::{
     nexus_uri::BdevCreateDestroy,
     rebuild::RebuildError,
 };
+use crate::nexus_uri::bdev_destroy;
 
 /// Obtain the full error chain
 pub trait VerboseError {
