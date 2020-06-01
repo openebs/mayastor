@@ -12,6 +12,7 @@ use mayastor::{
 };
 use rpc::mayastor::ShareProtocolNexus;
 use std::sync::Once;
+use uuid::Uuid;
 
 static DISKNAME1: &str = "/tmp/disk1.img";
 static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
@@ -243,6 +244,24 @@ fn core_5() {
 
         common::delete_file(&[DISKNAME1.to_string()]);
     }
+}
+
+#[test]
+// Test nexus with inaccessible bdev for 2nd child
+fn core_6() {
+    test_init!();
+    common::truncate_file(DISKNAME1, 64 * 1024);
+
+    let file_uuid = Uuid::new_v4();
+    let ch = vec![
+        BDEVNAME1.to_string(),
+        "aio:///tmp/disk2".to_string() + &file_uuid.to_simple().to_string(),
+    ];
+    Reactor::block_on(async move {
+        nexus_create("nexus_child_2_missing", 64 * 1024 * 1024, None, &ch)
+            .await
+            .expect_err("Nexus should not be created");
+    });
 
     mayastor_env_stop(1);
 }
