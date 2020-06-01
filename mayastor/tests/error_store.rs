@@ -60,6 +60,9 @@ fn nexus_child_error_store_test() {
     errors = do_query(&es, ALL_FLAGS, ALL_FLAGS, start_inst, 15);
     assert_eq!(errors, 0);
 
+    errors = es.query(ALL_FLAGS, ALL_FLAGS, None); // no time specified
+    assert_eq!(errors, 15);
+
     /////////////////////// filter by op ////////////////////////
 
     errors = do_query(&es, NexusErrStore::READ_FLAG, ALL_FLAGS, start_inst, 10);
@@ -126,5 +129,9 @@ fn do_query(
     start_inst: Instant,
     when: u64,
 ) -> u32 {
-    es.query(op_flags, err_flags, start_inst + Duration::from_nanos(when))
+    es.query(
+        op_flags,
+        err_flags,
+        Some(start_inst + Duration::from_nanos(when)),
+    )
 }

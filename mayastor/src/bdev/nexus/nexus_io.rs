@@ -125,7 +125,7 @@ impl Bio {
             let io_num_blocks = self.num_blocks();
 
             unsafe {
-                self.nexus_as_mut_ref().error_record_add(
+                self.nexus_as_ref().error_record_add(
                     (*child_io).bdev,
                     io_type,
                     io_status::FAILED,
@@ -146,12 +146,6 @@ impl Bio {
 
     /// obtain the Nexus struct embedded within the bdev
     pub(crate) fn nexus_as_ref(&self) -> &Nexus {
-        let b = self.bdev_as_ref();
-        assert_eq!(b.product_name(), NEXUS_PRODUCT_ID);
-        unsafe { Nexus::from_raw((*b.as_ptr()).ctxt) }
-    }
-
-    pub(crate) fn nexus_as_mut_ref(&mut self) -> &mut Nexus {
         let b = self.bdev_as_ref();
         assert_eq!(b.product_name(), NEXUS_PRODUCT_ID);
         unsafe { Nexus::from_raw((*b.as_ptr()).ctxt) }

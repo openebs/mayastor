@@ -37,7 +37,7 @@ impl Default for NexusChildErrorRecord {
             io_error: 0,
             io_offset: 0,
             io_num_blocks: 0,
-            timestamp: Instant::now(), // for want of another suitable default
+            timestamp: Instant::now(), // for lack of another suitable default
         }
     }
 }
@@ -49,11 +49,11 @@ pub struct NexusErrStore {
 }
 
 impl NexusErrStore {
-    pub const READ_FLAG: u32 = 1;
-    pub const WRITE_FLAG: u32 = 2;
-    pub const UNMAP_FLAG: u32 = 4;
-    pub const FLUSH_FLAG: u32 = 8;
-    pub const RESET_FLAG: u32 = 16;
+    pub const READ_FLAG: u32 = 1 << (io_type::READ - 1);
+    pub const WRITE_FLAG: u32 = 1 << (io_type::WRITE - 1);
+    pub const UNMAP_FLAG: u32 = 1 << (io_type::UNMAP - 1);
+    pub const FLUSH_FLAG: u32 = 1 << (io_type::FLUSH - 1);
+    pub const RESET_FLAG: u32 = 1 << (io_type::RESET - 1);
 
     pub const IO_FAILED_FLAG: u32 = 1;
 
@@ -103,6 +103,7 @@ impl NexusErrStore {
             self.no_of_records += 1;
         };
         self.next_record_index =
+             // consider using a mask if we restrict the size to a power-of-2
             (self.next_record_index + 1) % self.records.len();
         // debug!("added record - buffer is {}", &self);
     }
@@ -111,7 +112,7 @@ impl NexusErrStore {
         &self,
         io_op_flags: u32,
         io_error_flags: u32,
-        target_timestamp: Instant,
+        target_timestamp: Option<Instant>,
     ) -> u32 {
         let mut idx = self.next_record_index;
         let mut error_count: u32 = 0;
@@ -122,10 +123,11 @@ impl NexusErrStore {
             } else {
                 idx = self.records.len() - 1;
             }
-            if self.records[idx]
-                .timestamp
-                .checked_duration_since(target_timestamp)
-                .is_none()
+            if target_timestamp.is_some()
+                && self.records[idx]
+                    .timestamp
+                    .checked_duration_since(target_timestamp.unwrap())
+                    .is_none()
             {
                 break; // reached a record older than the wanted timespan
             }
@@ -267,11 +269,13 @@ impl Nexus {
         child_name: &str,
         io_op_flags: u32,
         io_error_flags: u32,
-        age_nano: u64,
+        age_nano: Option<u64>, // None for any age
     ) -> Result<Option<u32>, nexus_bdev::Error> {
-        let earliest_time = Instant::now()
-            .checked_sub(Duration::from_nanos(age_nano))
-            .unwrap();
+        let earliest_time = match age_nano {
+            // can also be None if earlier than the node has been up
+            Some(a) => Instant::now().checked_sub(Duration::from_nanos(a)),
+            None => None,
+        };
         let cfg = Config::by_ref();
         if cfg.err_store_opts.enable_err_store {
             if let Some(child) =
