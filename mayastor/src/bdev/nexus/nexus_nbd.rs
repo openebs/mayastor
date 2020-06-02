@@ -2,7 +2,6 @@
 
 use core::sync::atomic::Ordering::SeqCst;
 use std::{
-    convert::TryInto,
     ffi::{c_void, CStr, CString},
     fmt,
     fs::OpenOptions,
@@ -71,7 +70,7 @@ pub(crate) fn wait_until_ready(path: &str) -> Result<(), ()> {
             let res = unsafe {
                 convert_ioctl_res!(libc::ioctl(
                     f.unwrap().as_raw_fd(),
-                    u64::from(IOCTL_BLKGETSIZE).try_into().unwrap(),
+                    u64::from(IOCTL_BLKGETSIZE),
                     &size
                 ))
             };

@@ -1,3 +1,5 @@
+#![allow(unused_assignments)]
+
 pub mod common;
 use common::ms_exec::MayastorProcess;
 use mayastor::{
