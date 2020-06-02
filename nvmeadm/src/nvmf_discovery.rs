@@ -13,7 +13,7 @@ use crate::nvmf_subsystem::{NvmeSubsystems, Subsystem};
 /// referred as.
 const MACHINE_UUID_PATH: &str = "/sys/class/dmi/id/product_uuid";
 
-use crate::{NvmeError, NVME_ADMIN_CMD_IOCLT, NVME_FABRICS_PATH};
+use crate::{NvmeError, NVME_ADMIN_CMD_IOCTL, NVME_FABRICS_PATH};
 use failure::Error;
 use std::{
     fs::OpenOptions,
@@ -171,7 +171,7 @@ impl Discovery {
         let _ret = unsafe {
             convert_ioctl_res!(nix_ioctl(
                 f.as_raw_fd(),
-                u64::from(NVME_ADMIN_CMD_IOCLT),
+                u64::from(NVME_ADMIN_CMD_IOCTL),
                 &cmd
             ))?
         };
@@ -217,7 +217,7 @@ impl Discovery {
         let _ret = unsafe {
             convert_ioctl_res!(nix_ioctl(
                 f.as_raw_fd(),
-                u64::from(NVME_ADMIN_CMD_IOCLT),
+                u64::from(NVME_ADMIN_CMD_IOCTL),
                 &cmd
             ))?
         };
