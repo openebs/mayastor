@@ -27,7 +27,7 @@ Some targeted use cases are:
 
 Table of contents:
 ==================
-- [Quickly deploy it on K8s and get started](/doc/quick.md)
+- [Quickly deploy it on K8s and get started](/deploy/README.md)
     - [Deploying on microk8s](/doc/microk8s.md)
 - [High-level overview](#overview)
     - [The Nexus CAS module](#Nexus)
