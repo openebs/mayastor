@@ -58,7 +58,6 @@ jobs:
           path: ./target/debug
       - run: ( sudo modprobe nbd )
       - run: ( sudo modprobe xfs )
-      - run: ( lsmod | grep -e xfs -e nbd )
       - run: ( echo 2048 | sudo tee /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages )
       - run: ( cat /proc/meminfo | grep Huge )
       - run: ( /usr/bin/docker create --name mochaTest --workdir /__w/Mayastor/Mayastor --network host --privileged -v /dev:/dev -v /:/host  --cpus 2 -v "/var/run/docker.sock":"/var/run/docker.sock" -v "/home/runner/work":"/__w" --entrypoint "tail" docker.io/mayadata/ms-buildenv:latest "-f" "/dev/null" )
@@ -66,8 +65,6 @@ jobs:
       - run: ( /usr/bin/docker exec mochaTest /bin/sh -c 'printf "#!/usr/bin/env bash\nchroot /host /usr/bin/env -i PATH=\"/sbin:/bin:/usr/bin\" iscsiadm \"\$@\"\n" > /bin/mayastor-iscsiadm && chmod +x /bin/mayastor-iscsiadm' )
       - run: ( /usr/bin/docker exec mochaTest /bin/sh -c "cd target/debug/ && chmod a+x mayastor mayastor-client mayastor-agent spdk initiator mctl" )
       - run: ( /usr/bin/docker exec mochaTest /bin/sh -c "cd mayastor-test && npm install" )
-      - run: ( /usr/bin/docker exec mochaTest /bin/sh -c "cd mayastor-test && ./node_modules/mocha/bin/mocha test_csi_nbd.js" )
-      - run: ( /usr/bin/docker exec mochaTest /bin/sh -c "cd mayastor-test && ./node_modules/mocha/bin/mocha test_csi_iscsi.js" )
       - run: ( /usr/bin/docker exec mochaTest /bin/sh -c "cd mayastor-test && ./node_modules/mocha/bin/mocha test_csi.js" )
       - run: ( /usr/bin/docker exec mochaTest /bin/sh -c "cd mayastor-test && ./node_modules/mocha/bin/mocha test_cli.js" )
       - run: ( /usr/bin/docker exec mochaTest /bin/sh -c "cd mayastor-test && ./node_modules/mocha/bin/mocha test_replica.js" )

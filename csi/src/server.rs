@@ -10,8 +10,6 @@
 extern crate clap;
 #[macro_use]
 extern crate log;
-#[macro_use]
-extern crate run_script;
 
 use std::{
     fs,
