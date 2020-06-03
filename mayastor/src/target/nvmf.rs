@@ -123,11 +123,6 @@ impl RpcErrorCode for Error {
 
 type Result<T, E = Error> = std::result::Result<T, E>;
 
-/// Default nvmf port used for replicas. It is different from standard
-/// nvmf port 4420, because we don't want to conflict with nexus exported
-/// over nvmf running on the same node.
-pub const NVMF_PORT_REPLICA: u16 = 8420;
-pub const NVMF_PORT_NEXUS: u16 = 4421;
 static TRANSPORT_NAME: Lazy<CString> =
     Lazy::new(|| CString::new("TCP").unwrap());
 

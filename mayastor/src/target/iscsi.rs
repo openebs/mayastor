@@ -70,10 +70,7 @@ impl RpcErrorCode for Error {
 
 type Result<T, E = Error> = std::result::Result<T, E>;
 
-/// Default iSCSI target port numbers
-pub const ISCSI_PORT_NEXUS: u16 = 3260;
-pub const ISCSI_PORT_REPLICA: u16 = 3262;
-
+/// Portal Group Tags
 const ISCSI_PORTAL_GROUP_NEXUS: c_int = 0;
 const ISCSI_PORTAL_GROUP_REPLICA: c_int = 2;
 

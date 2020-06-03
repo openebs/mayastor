@@ -24,8 +24,6 @@ use spdk_sys::{
     spdk_nvmf_transport_opts,
 };
 
-use crate::target::{iscsi, nvmf};
-
 #[serde(default, deny_unknown_fields)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NexusOpts {
@@ -44,15 +42,25 @@ pub struct NexusOpts {
     pub iscsi_replica_port: u16,
 }
 
+/// Default nvmf port used for replicas.
+/// It's different from the standard nvmf port 4420 because we don't want
+/// to conflict with nexus exported over nvmf running on the same node.
+const NVMF_PORT_REPLICA: u16 = 8420;
+const NVMF_PORT_NEXUS: u16 = 4421;
+
+/// Default iSCSI target (portal) port numbers
+const ISCSI_PORT_NEXUS: u16 = 3260;
+const ISCSI_PORT_REPLICA: u16 = 3262;
+
 impl Default for NexusOpts {
     fn default() -> Self {
         Self {
             nvmf_enable: true,
-            nvmf_nexus_port: nvmf::NVMF_PORT_NEXUS,
-            nvmf_replica_port: nvmf::NVMF_PORT_REPLICA,
+            nvmf_nexus_port: NVMF_PORT_NEXUS,
+            nvmf_replica_port: NVMF_PORT_REPLICA,
             iscsi_enable: true,
-            iscsi_nexus_port: iscsi::ISCSI_PORT_NEXUS,
-            iscsi_replica_port: iscsi::ISCSI_PORT_REPLICA,
+            iscsi_nexus_port: ISCSI_PORT_NEXUS,
+            iscsi_replica_port: ISCSI_PORT_REPLICA,
         }
     }
 }
