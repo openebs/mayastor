@@ -477,21 +477,24 @@ fn rebuild_operations() {
 }
 
 #[test]
-fn rebuild_concurrently() {
-    test_ini("rebuild_concurrently");
+// rebuilds N children at the same time
+// creates the nexus with 1 healthy and then adds N children which
+// have to be rebuilt - this means we have N active rebuilds jobs
+fn rebuild_multiple() {
+    test_ini("rebuild_multiple");
 
-    let concurrent_rebuilds = 4;
+    let active_rebuilds = 4;
     Reactor::block_on(async move {
         nexus_create(1).await;
         let nexus = nexus_lookup(nexus_name()).unwrap();
 
-        for child in 1 ..= concurrent_rebuilds {
+        for child in 1 ..= active_rebuilds {
             nexus_add_child(child, false).await;
         }
 
-        assert_eq!(RebuildJob::count(), concurrent_rebuilds as usize);
+        assert_eq!(RebuildJob::count(), active_rebuilds as usize);
 
-        for child in 1 ..= concurrent_rebuilds {
+        for child in 1 ..= active_rebuilds {
             common::wait_for_rebuild(
                 get_dev(child),
                 RebuildState::Completed,
@@ -501,11 +504,14 @@ fn rebuild_concurrently() {
             nexus.remove_child(&get_dev(child)).await.unwrap();
         }
 
-        for child in 1 ..= concurrent_rebuilds {
+        // make sure we can recreate the jobs again (as they
+        // will have the same URI)
+
+        for child in 1 ..= active_rebuilds {
             nexus_add_child(child, false).await;
         }
 
-        for child in 1 ..= concurrent_rebuilds {
+        for child in 1 ..= active_rebuilds {
             common::wait_for_rebuild(
                 get_dev(child),
                 RebuildState::Running,
