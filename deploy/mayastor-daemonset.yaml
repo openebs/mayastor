@@ -72,8 +72,6 @@ spec:
               fieldPath: status.podIP
         - name: RUST_BACKTRACE
           value: "1"
-        - name: ISCSIADM
-          value: "/bin/mayastor-iscsiadm"
         args:
         - "--csi-socket=/csi/csi.sock"
         - "--mayastor-socket=/mayastor/mayastor.sock"

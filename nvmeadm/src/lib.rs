@@ -45,7 +45,7 @@ pub mod nvmf_subsystem;
 /// the device entry in /dev for issuing ioctls to the kernels nvme driver
 const NVME_FABRICS_PATH: &str = "/dev/nvme-fabrics";
 /// ioctl for passing any NVMe command to the kernel
-const NVME_ADMIN_CMD_IOCLT: u32 =
+const NVME_ADMIN_CMD_IOCTL: u32 =
     iowr!(b'N', 0x41, std::mem::size_of::<NvmeAdminCmd>());
 
 #[derive(Debug, Fail)]
