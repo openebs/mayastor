@@ -10,13 +10,6 @@ pub struct MountInfo {
     pub opts: Vec<String>,
 }
 
-// Filesystem type info and default mount options
-#[derive(Clone, Debug)]
-pub struct Fs {
-    pub name: String,
-    pub defaults: Vec<String>,
-}
-
 // Return mountinfo matching source or destination or source and destination
 // depending on 'and' flag.
 pub fn match_mount(
@@ -108,19 +101,9 @@ pub fn mount_opts_compare(m1: &[String], m2: &[String], ro: bool) -> bool {
 }
 
 // Return supported filesystems and their default mount options.
-pub fn probe_filesystems() -> Vec<Fs> {
-    let mut filesystems = Vec::new();
+pub fn probe_filesystems() -> Vec<String> {
     // the first filesystem is the default one
-
-    filesystems.push(Fs {
-        name: "xfs".to_string(),
-        defaults: vec![],
-    });
-
-    filesystems.push(Fs {
-        name: "ext4".to_string(),
-        defaults: vec![],
-    });
+    let filesystems = vec!["xfs".to_string(), "ext4".to_string()];
 
     filesystems
 }
