@@ -14,7 +14,6 @@ pub struct MountInfo {
 #[derive(Clone, Debug)]
 pub struct Fs {
     pub name: String,
-    pub defaults: Vec<String>,
 }
 
 // Return mountinfo matching source or destination or source and destination
@@ -114,12 +113,10 @@ pub fn probe_filesystems() -> Vec<Fs> {
 
     filesystems.push(Fs {
         name: "xfs".to_string(),
-        defaults: vec![],
     });
 
     filesystems.push(Fs {
         name: "ext4".to_string(),
-        defaults: vec![],
     });
 
     filesystems

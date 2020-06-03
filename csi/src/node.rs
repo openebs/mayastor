@@ -238,8 +238,6 @@ impl node_server::Node for Node {
             mnt_flags.push("rw".into());
         }
 
-        mnt_flags.extend(filesystem.defaults.clone());
-
         if let Some(mount) =
             match_mount(Some(staging_path), Some(target_path), true)
         {
