@@ -9,7 +9,6 @@ var pidof = require('pidof');
 const sudoBin = inpathSync('sudo', process.env.PATH.split(':'));
 
 var cachedPassword;
-var lastAnswer;
 
 function sudo (command, options, nameInPs) {
   var prompt = '#node-sudo-passwd#';
@@ -64,6 +63,7 @@ function sudo (command, options, nameInPs) {
               silent: true
             },
             function (error, answer) {
+              if (error) throw new Error('Failed to get password');
               child.stdin.write(answer + '\n');
               if (options.cachePassword) {
                 cachedPassword = answer;
