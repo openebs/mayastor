@@ -23,10 +23,10 @@ repos:
         pass_filenames: false
         types: [file, rust]
         language: system
-    -   id: js-lint
-        name: JS lint
-        description: Run semistandard on files included in the commit. semistandard npm module should be installed before-hand.
-        entry: semistandard --env mocha --env node --verbose --fix
+    -   id: js-check
+        name: JS style and lint
+        description: Run semistandard on files included in the commit.
+        entry: ./scripts/js-check.sh
         pass_filenames: true
         types: [file, javascript]
         language: system
