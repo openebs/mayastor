@@ -1,17 +1,25 @@
 // Replica object implementation.
 
-'use strict';
-
 const assert = require('assert');
 const { GrpcCode, GrpcError } = require('./grpc_client');
 const log = require('./logger').Logger('replica');
 
-class Replica {
+import { Pool } from './pool';
+
+export class Replica {
+  pool?: Pool;
+  uuid: string;
+  size: number;
+  // TODO: define an enum
+  share: string;
+  uri: string;
+  isDown: boolean;
+
   // Create replica object.
   //
   // @param {object} props  Replica properties obtained from storage node.
-  constructor (props) {
-    this.pool = null; // set by pool object during registration
+  constructor(props: any) {
+    this.pool = undefined; // set by pool object during registration
     this.uuid = props.uuid;
     this.size = props.size;
     this.share = props.share;
@@ -20,7 +28,7 @@ class Replica {
   }
 
   // Stringify replica.
-  toString () {
+  toString() {
     return this.uuid + '@' + (this.pool ? this.pool.name : 'nowhere');
   }
 
@@ -32,7 +40,10 @@ class Replica {
   // @param {string}   props.share    Share protocol of replica.
   // @param {string}   props.uri      URI to be used by nexus to access it.
   //
-  merge (props) {
+  merge(props: any) {
+    if (!this.pool) {
+      throw new Error('Cannot merge replica that has not been bound');
+    }
     let changed = false;
 
     if (this.size !== props.size) {
@@ -62,7 +73,10 @@ class Replica {
   // Set state of the replica to offline.
   // This is typically called when mayastor stops running on the node and
   // the replicas become inaccessible.
-  offline () {
+  offline() {
+    if (!this.pool) {
+      throw new Error('Cannot offline a replica that has not been bound');
+    }
     log.warn(`Replica "${this}" got offline`);
     this.isDown = true;
     this.pool.node.emit('replica', {
@@ -72,7 +86,7 @@ class Replica {
   }
 
   // Return true if replica is offline otherwise false.
-  isOffline () {
+  isOffline() {
     return this.isDown;
   }
 
@@ -82,12 +96,15 @@ class Replica {
   // @param   {string} share    Name of the share protocol or "NONE" to unshare it.
   // @returns {string} URI used to reach replica from nexus.
   //
-  async setShare (share) {
+  async setShare(share: string) {
     var res;
 
     assert(
       ['REPLICA_NONE', 'REPLICA_ISCSI', 'REPLICA_NVMF'].indexOf(share) >= 0
     );
+    if (!this.pool) {
+      throw new Error('Cannot offline a replica that has not been bound');
+    }
     log.debug(`Setting share protocol for replica "${this}" ...`);
 
     try {
@@ -114,8 +131,11 @@ class Replica {
   // Destroy replica on storage node.
   //
   // This must be called after the replica is removed from nexus.
-  async destroy () {
+  async destroy() {
     log.debug(`Destroying replica "${this}" ...`);
+    if (!this.pool) {
+      throw new Error('Cannot offline a replica that has not been bound');
+    }
 
     try {
       await this.pool.node.call('destroyReplica', { uuid: this.uuid });
@@ -131,11 +151,11 @@ class Replica {
     this.unbind();
   }
 
-  // Associate replica with given pool.
+  // Associate replica with a pool.
   //
   // @param {object} pool   Pool object to associate the replica with.
   //
-  bind (pool) {
+  bind(pool: Pool) {
     assert(!this.pool);
     this.pool = pool;
     log.debug(
@@ -148,15 +168,14 @@ class Replica {
   }
 
   // Remove the replica reference from pool
-  unbind () {
+  unbind() {
+    if (!this.pool) return;
     log.debug(`Removing replica "${this}" from the list of replicas`);
     this.pool.unregisterReplica(this);
     this.pool.node.emit('replica', {
       eventType: 'del',
       object: this
     });
-    this.pool = null;
+    this.pool = undefined;
   }
 }
-
-module.exports = Replica;

@@ -43,11 +43,10 @@ used to configure the plugin:
     "standard.usePackageJson": true,
     "standard.autoFixOnSave": true,
     "standard.semistandard": true,
-    "standard.options": {
-        "env": [
-            "mocha"
-        ]
-    }
+    "standard.workingDirectories": [
+        "csi/moac",
+        "mayastor-test"
+    ]
 }
 ```
 
