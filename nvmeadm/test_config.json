@@ -42,7 +42,7 @@
         {
           "params": {
             "block_size": 4096,
-            "num_blocks": 16384.0,
+            "num_blocks": 163840,
             "name": "Malloc0"
           },
           "method": "bdev_malloc_create"

@@ -86,10 +86,6 @@ stdenv.mkDerivation rec {
     find . -type f -name 'libspdk_ut_mock.a' -delete
     find . -type f -name 'librte_vhost.a' -delete
 
-    # delete things we for sure do not want link
-    find . -type f -name 'libspdk_event_nvmf.a' -delete
-    find . -type f -name 'libspdk_event_iscsi.a' -delete
-
     $CC -shared -o libspdk.so \
     -lc  -laio -liscsi -lnuma -ldl -lrt -luuid -lpthread -lcrypto -luring \
     -Wl,--whole-archive \

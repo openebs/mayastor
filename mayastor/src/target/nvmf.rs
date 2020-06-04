@@ -659,7 +659,7 @@ pub async fn init(address: &str) -> Result<()> {
     boxed_tgt.add_tcp_transport().await?;
     boxed_tgt
         .listen()
-        .unwrap_or_else(|_| panic!("failed to listen on {}", nvmf_port));
+        .unwrap_or_else(|_| panic!("failed to listen on {}", replica_port));
     boxed_tgt.accept()?;
     NVMF_TGT.with(move |nvmf_tgt| {
         if nvmf_tgt.borrow().is_some() {

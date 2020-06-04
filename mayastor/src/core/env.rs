@@ -52,6 +52,7 @@ use crate::{
     subsys::Config,
     target::{iscsi, nvmf},
 };
+use futures::channel::oneshot;
 
 fn parse_mb(src: &str) -> Result<i32, String> {
     // For compatibility, we check to see if there are no alphabetic characters
@@ -324,6 +325,12 @@ extern "C" fn mayastor_signal_handler(signo: i32) {
     mayastor_env_stop(signo);
 }
 
+#[derive(Debug)]
+struct SubsystemCtx {
+    rpc: CString,
+    sender: futures::channel::oneshot::Sender<bool>,
+}
+
 impl MayastorEnvironment {
     pub fn new(args: MayastorCliArgs) -> Self {
         Self {
@@ -370,7 +377,6 @@ impl MayastorEnvironment {
     /// read the config file we use this mostly for testing
     fn read_config_file(&self) -> Result<()> {
         if self.config.is_none() {
-            trace!("no configuration file specified");
             return Ok(());
         }
 
@@ -599,20 +605,47 @@ impl MayastorEnvironment {
         }
     }
 
+    // /// start the subsystem modules. On completion the rpc server will be
+    // /// started. Note that during the startup, a different json rpc server
+    // /// is started in order to allow json parsing
+    // fn start_subsystems(&'static self) {
+    //     let rpc = CString::new(self.rpc_addr.as_str()).unwrap();
+    //
+    //     Reactor::block_on(async {
+    //         let (sender, receiver) = oneshot::channel::<bool>();
+    //
+    //         unsafe {
+    //             spdk_subsystem_init(
+    //                 Some(Self::start_rpc),
+    //                 Box::into_raw(Box::new(SubsystemCtx {
+    //                     rpc,
+    //                     sender,
+    //                 })) as *mut _,
+    //             );
+    //         }
+    //
+    //         assert_eq!(receiver.await.unwrap(), true);
+    //     });
+    // }
+    //
+    /// callback issued by start_subsystem
     extern "C" fn start_rpc(rc: i32, arg: *mut c_void) {
-        if arg.is_null() || rc != 0 {
-            panic!("Failed to initialize subsystems: {}", rc);
+        let ctx = unsafe { Box::from_raw(arg as *mut SubsystemCtx) };
+        dbg!(&ctx);
+
+        if rc != 0 {
+            ctx.sender.send(false).unwrap();
+        } else {
+            info!("RPC server listening at: {}", ctx.rpc.to_str().unwrap());
+            unsafe {
+                spdk_rpc_initialize(ctx.rpc.as_ptr() as *mut i8);
+                spdk_rpc_set_state(SPDK_RPC_RUNTIME);
+            };
+
+            Self::target_init().unwrap();
+
+            ctx.sender.send(true).unwrap();
         }
-
-        let rpc = unsafe { CString::from_raw(arg as _) };
-
-        info!("RPC server listening at: {}", rpc.to_str().unwrap());
-        unsafe {
-            spdk_rpc_initialize(arg as *mut i8);
-            spdk_rpc_set_state(SPDK_RPC_RUNTIME);
-        };
-
-        Self::target_init().unwrap();
     }
 
     fn load_yaml_config(&self) {
@@ -635,6 +668,9 @@ impl MayastorEnvironment {
     }
     /// initialize the core, call this before all else
     pub fn init(mut self) -> Self {
+        // setup the logger as soon as possible
+        self.init_logger().unwrap();
+
         self.load_yaml_config();
         // load the .ini format file, still here to allow CI passing. There is
         // no real harm of loading this ini file as long as there are no
@@ -644,8 +680,6 @@ impl MayastorEnvironment {
         // bootstrap DPDK and its magic
         self.initialize_eal();
 
-        // setup the logger as soon as possible
-        self.init_logger().unwrap();
         if self.enable_coredump {
             //TODO
             warn!("rlimit configuration not implemented");
@@ -669,17 +703,27 @@ impl MayastorEnvironment {
             .into_iter()
             .for_each(|c| Reactors::launch_remote(c).unwrap());
 
-        let rpc = CString::new(self.rpc_addr.as_str()).unwrap();
-
         // register our RPC methods
         crate::pool::register_pool_methods();
         crate::replica::register_replica_methods();
-        Reactors::master().poll_once();
-        // init the subsystems
+        Reactors::master().poll_times(5);
+
+        let rpc = CString::new(self.rpc_addr.as_str()).unwrap();
+
         Reactor::block_on(async {
+            let (sender, receiver) = oneshot::channel::<bool>();
+
             unsafe {
-                spdk_subsystem_init(Some(Self::start_rpc), rpc.into_raw() as _);
+                spdk_subsystem_init(
+                    Some(Self::start_rpc),
+                    Box::into_raw(Box::new(SubsystemCtx {
+                        rpc,
+                        sender,
+                    })) as *mut _,
+                );
             }
+
+            assert_eq!(receiver.await.unwrap(), true);
         });
 
         // load any bdevs that need to be created

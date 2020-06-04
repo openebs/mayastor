@@ -219,6 +219,11 @@ impl Reactor {
             rx,
         };
 
+        // create a new main thread on which we run management tasks. As we are
+        // in the process of boot strapping the reactor is not active
+        // and thus we are not executing yet within a context of a valid
+        // thread. Therefor we dispatch a future which will get executed
+        // once we start polling.
         reactor.send_future(async {
             // allocate the main thread
             if Sthread::new(format!("core_{}", Reactors::current().lcore))
@@ -291,6 +296,13 @@ impl Reactor {
         handle
     }
 
+    /// returns a reference to the vector of threads within this reactor
+    ///
+    /// # Safety
+    ///
+    /// The reactors are valid for the duration of the lifetime of the program.
+    /// Access to the vector is bound to the core it lives on, and the threads
+    /// can only be mutated through the scheduling functions.
     fn get_threads(&self) -> &'static Vec<Sthread> {
         unsafe { Reactors::current().threads.get().as_ref().unwrap() }
     }
@@ -329,7 +341,11 @@ impl Reactor {
                         assert_eq!(threads[0].0, unsafe { spdk_get_thread() })
                     }
                     reactor.run_futures();
-                    threads[0].poll();
+                    // we need to poll all threads now as during startup, the
+                    // targets create their own threads.
+                    threads.iter().for_each(|t| {
+                        t.poll();
+                    });
                 }
             }
         }
@@ -435,7 +451,22 @@ impl Reactor {
 
         // during polling, we switch context ensure we leave the poll routine
         // with setting a context again.
-        self.thread_enter();
+        //  self.thread_enter();
+    }
+
+    pub fn poll_times(&self, times: u32) {
+        for _ in 0 .. times {
+            self.receive_futures();
+            self.run_futures();
+            // poll any thread for events
+            self.get_threads().iter().for_each(|t| {
+                t.poll();
+            });
+        }
+
+        // during polling, we switch context ensure we leave the poll routine
+        // with setting a context again.
+        // self.thread_enter();
     }
 }
 

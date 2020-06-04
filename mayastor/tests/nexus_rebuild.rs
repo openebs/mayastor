@@ -9,6 +9,7 @@ use mayastor::{
     core::{mayastor_env_stop, MayastorCliArgs, MayastorEnvironment, Reactor},
 };
 
+use mayastor::core::Reactors;
 use rpc::mayastor::ShareProtocolNexus;
 
 static DISKNAME1: &str = "/tmp/disk1.img";
@@ -85,12 +86,15 @@ async fn rebuild_test_start() {
         s.send(true).unwrap();
     });
 
-    let mut success: bool = false;
-    reactor_poll!(r, success);
-
-    if !success {
-        mayastor_env_stop(0);
-        panic!("rebuild failed!");
+    loop {
+        if let Ok(result) = r.try_recv() {
+            if !result {
+                mayastor_env_stop(0);
+                panic!("rebuild failed!");
+            }
+            break;
+        }
+        Reactors::master().poll_once();
     }
 
     let (s, r) = unbounded::<String>();

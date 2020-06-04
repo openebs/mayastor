@@ -604,7 +604,8 @@ impl Nexus {
         // ... and write it out to ALL children.
         self.write_all_labels(&label).await?;
 
-        info!("{}: new label:\n{}", self.name, label);
+        info!("{}: new label: {}", self.name, label.primary.guid);
+        trace!("{}: new label:\n{}", self.name, label);
         Ok(label)
     }
 

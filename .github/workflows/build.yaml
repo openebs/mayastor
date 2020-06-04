@@ -26,6 +26,7 @@ jobs:
       - run: echo 8192 | tee /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
       - run: rm mayastor/.cargo/config
       - run: rm nvmeadm/.cargo/config
+      - run: export RUST_BACKTRACE=1
       - run: cargo build --all
       - run: ( cd jsonrpc && cargo test )
       - run: ( cd mayastor && cargo test -- --test-threads=1 )
