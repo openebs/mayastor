@@ -6,8 +6,8 @@ const _ = require('lodash');
 const expect = require('chai').expect;
 const sinon = require('sinon');
 const Node = require('../node');
-const Pool = require('../pool');
-const Replica = require('../replica');
+const { Pool } = require('../pool');
+const { Replica } = require('../replica');
 const { shouldFailWith } = require('./utils');
 const { GrpcCode, GrpcError } = require('../grpc_client');
 
@@ -104,7 +104,7 @@ module.exports = function () {
         expect(ev.eventType).to.equal('del');
         expect(ev.object).to.equal(replica);
         setTimeout(() => {
-          expect(replica.pool).to.be.null();
+          expect(replica.pool).to.be.undefined();
           done();
         }, 0);
       });
@@ -180,7 +180,7 @@ module.exports = function () {
       sinon.assert.calledOnce(stub);
       sinon.assert.calledWith(stub, 'destroyReplica', { uuid: UUID });
       setTimeout(() => {
-        expect(replica.pool).to.be.null();
+        expect(replica.pool).to.be.undefined();
         expect(pool.replicas).to.have.lengthOf(0);
         done();
       }, 0);
@@ -233,7 +233,7 @@ module.exports = function () {
       sinon.assert.calledOnce(stub);
       sinon.assert.calledWith(stub, 'destroyReplica', { uuid: UUID });
       setTimeout(() => {
-        expect(replica.pool).to.be.null();
+        expect(replica.pool).to.be.undefined();
         expect(pool.replicas).to.have.lengthOf(0);
         done();
       }, 0);

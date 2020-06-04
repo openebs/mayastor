@@ -5,8 +5,8 @@
 const expect = require('chai').expect;
 const EventEmitter = require('events');
 const sinon = require('sinon');
-const Pool = require('../pool');
-const Replica = require('../replica');
+const { Pool } = require('../pool');
+const { Replica } = require('../replica');
 const Nexus = require('../nexus');
 const Registry = require('../registry');
 const Volume = require('../volume');

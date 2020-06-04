@@ -6,8 +6,8 @@ const _ = require('lodash');
 const expect = require('chai').expect;
 const sinon = require('sinon');
 const Node = require('../node');
-const Pool = require('../pool');
-const Replica = require('../replica');
+const { Pool } = require('../pool');
+const { Replica } = require('../replica');
 const { shouldFailWith } = require('./utils');
 const { GrpcCode, GrpcError } = require('../grpc_client');
 
