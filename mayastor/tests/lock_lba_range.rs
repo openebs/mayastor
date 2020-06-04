@@ -17,11 +17,49 @@ use mayastor::{
         Reactors,
     },
 };
-use std::sync::{Arc, Mutex};
+use std::{
+    cell::{Ref, RefCell, RefMut},
+    ops::{Deref, DerefMut},
+    rc::Rc,
+};
 
 const NEXUS_NAME: &str = "lba_range_nexus";
 const NEXUS_SIZE: u64 = 10 * 1024 * 1024;
 const NUM_NEXUS_CHILDREN: u64 = 2;
+
+/// Data structure that can be shared between futures.
+///
+/// The individual fields are wrapped in a Rc and RefCell such that they can be
+/// shared between futures.
+///
+/// (Note: Wrapping the entire structure in a Rc and RefCell does not allow the
+/// individual fields to be shared).
+#[derive(Clone)]
+struct ShareableContext {
+    ctx: Rc<RefCell<RangeContext>>,
+    ch: Rc<RefCell<IoChannel>>,
+}
+
+impl ShareableContext {
+    /// Create a new Shareable Context
+    pub fn new(offset: u64, len: u64) -> ShareableContext {
+        let nexus = Bdev::open_by_name(NEXUS_NAME, true).unwrap();
+        Self {
+            ctx: Rc::new(RefCell::new(RangeContext::new(offset, len))),
+            ch: Rc::new(RefCell::new(nexus.get_channel().unwrap())),
+        }
+    }
+
+    /// Mutably borrow the RangeContext
+    pub fn borrow_mut_ctx(&self) -> RefMut<RangeContext> {
+        self.ctx.borrow_mut()
+    }
+
+    /// Immutably borrow the IoChannel
+    pub fn borrow_ch(&self) -> Ref<IoChannel> {
+        self.ch.borrow()
+    }
+}
 
 fn test_ini() {
     test_init!();
@@ -65,23 +103,20 @@ async fn create_nexus() {
         .unwrap();
 }
 
-fn get_shareable_ctx(offset: u64, len: u64) -> Arc<Mutex<RangeContext>> {
-    Arc::new(Mutex::new(RangeContext::new(offset, len)))
-}
-
-fn get_shareable_nexus_channel() -> Arc<Mutex<IoChannel>> {
+async fn lock_range(
+    ctx: &mut RangeContext,
+    ch: &IoChannel,
+) -> Result<(), std::io::Error> {
     let nexus = Bdev::open_by_name(NEXUS_NAME, true).unwrap();
-    Arc::new(Mutex::new(nexus.get_channel().unwrap()))
+    nexus.lock_lba_range(ctx, ch).await
 }
 
-async fn lock_range(ctx: &mut RangeContext, ch: &IoChannel) {
-    let mut nexus = Bdev::open_by_name(NEXUS_NAME, true).unwrap();
-    let _ = nexus.lock_lba_range(ctx, ch).await;
-}
-
-async fn unlock_range(ctx: &mut RangeContext, ch: &IoChannel) {
-    let mut nexus = Bdev::open_by_name(NEXUS_NAME, true).unwrap();
-    let _ = nexus.unlock_lba_range(ctx, ch).await;
+async fn unlock_range(
+    ctx: &mut RangeContext,
+    ch: &IoChannel,
+) -> Result<(), std::io::Error> {
+    let nexus = Bdev::open_by_name(NEXUS_NAME, true).unwrap();
+    nexus.unlock_lba_range(ctx, ch).await
 }
 
 #[test]
@@ -89,11 +124,17 @@ async fn unlock_range(ctx: &mut RangeContext, ch: &IoChannel) {
 fn lock_unlock() {
     test_ini();
     Reactor::block_on(async {
-        let mut nexus = Bdev::open_by_name(NEXUS_NAME, true).unwrap();
+        let nexus = Bdev::open_by_name(NEXUS_NAME, true).unwrap();
         let mut ctx = RangeContext::new(1, 5);
         let ch = nexus.get_channel().unwrap();
-        let _ = nexus.lock_lba_range(&mut ctx, &ch).await;
-        let _ = nexus.unlock_lba_range(&mut ctx, &ch).await;
+        nexus
+            .lock_lba_range(&mut ctx, &ch)
+            .await
+            .expect("Failed to acquire lock");
+        nexus
+            .unlock_lba_range(&mut ctx, &ch)
+            .await
+            .expect("Failed to release lock");
     });
     test_fini();
 }
@@ -103,17 +144,21 @@ fn lock_unlock() {
 fn lock_unlock_different_context() {
     test_ini();
     Reactor::block_on(async {
-        let mut nexus = Bdev::open_by_name(NEXUS_NAME, true).unwrap();
+        let nexus = Bdev::open_by_name(NEXUS_NAME, true).unwrap();
 
         let mut ctx = RangeContext::new(1, 5);
         let ch = nexus.get_channel().unwrap();
-        let _ = nexus.lock_lba_range(&mut ctx, &ch).await;
+        nexus
+            .lock_lba_range(&mut ctx, &ch)
+            .await
+            .expect("Failed to acquire lock");
 
         let mut ctx1 = RangeContext::new(1, 5);
         let ch1 = nexus.get_channel().unwrap();
-        if nexus.unlock_lba_range(&mut ctx1, &ch1).await.is_ok() {
-            panic!("Shouldn't be able to unlock with a different context");
-        }
+        nexus
+            .unlock_lba_range(&mut ctx1, &ch1)
+            .await
+            .expect_err("Shouldn't be able to unlock with a different context");
     });
     test_fini();
 }
@@ -123,78 +168,71 @@ fn lock_unlock_different_context() {
 // The second lock should only succeeded after the first lock is released.
 fn multiple_locks() {
     test_ini();
-    {
-        let reactor = Reactors::current();
 
-        // First lock
-        let (s, r) = unbounded::<()>();
-        let ctx = get_shareable_ctx(1, 10);
-        let ctx_clone = Arc::clone(&ctx);
-        let ch = get_shareable_nexus_channel();
-        let ch_clone = Arc::clone(&ch);
-        reactor.send_future(async move {
-            lock_range(
-                &mut ctx_clone.lock().unwrap(),
-                &ch_clone.lock().unwrap(),
-            )
-            .await;
-            let _ = s.send(());
-        });
-        reactor_poll!(r);
+    let reactor = Reactors::current();
 
-        // Second lock
-        let (lock_sender, lock_receiver) = unbounded::<()>();
-        let ctx1 = get_shareable_ctx(1, 5);
-        let ctx1_clone = Arc::clone(&ctx1);
-        let ch1 = get_shareable_nexus_channel();
-        let ch_clone1 = Arc::clone(&ch1);
-        reactor.send_future(async move {
-            lock_range(
-                &mut ctx1_clone.lock().unwrap(),
-                &ch_clone1.lock().unwrap(),
-            )
-            .await;
-            trace!("Second lock succeeded");
-            let _ = lock_sender.send(());
-        });
-        reactor_poll!(100);
+    // First Lock
+    let (s, r) = unbounded::<()>();
+    let ctx1 = ShareableContext::new(1, 10);
+    let ctx_clone1 = ctx1.clone();
+    reactor.send_future(async move {
+        lock_range(
+            ctx_clone1.borrow_mut_ctx().deref_mut(),
+            ctx_clone1.borrow_ch().deref(),
+        )
+        .await
+        .unwrap();
+        s.send(()).unwrap();
+    });
+    reactor_poll!(r);
 
-        // First lock is held, second lock shouldn't succeed
-        assert!(lock_receiver.try_recv().is_err());
+    // Second Lock
+    let (lock_sender, lock_receiver) = unbounded::<()>();
+    let ctx2 = ShareableContext::new(1, 5);
+    let ctx_clone2 = ctx2.clone();
+    reactor.send_future(async move {
+        lock_range(
+            ctx_clone2.borrow_mut_ctx().deref_mut(),
+            ctx_clone2.borrow_ch().deref(),
+        )
+        .await
+        .unwrap();
+        lock_sender.send(()).unwrap();
+    });
+    reactor_poll!(100);
 
-        // First unlock
-        let (s, r) = unbounded::<()>();
-        let ctx_clone = Arc::clone(&ctx);
-        let ch_clone = Arc::clone(&ch);
-        reactor.send_future(async move {
-            unlock_range(
-                &mut ctx_clone.lock().unwrap(),
-                &ch_clone.lock().unwrap(),
-            )
-            .await;
-            trace!("Unlock first lock");
-            let _ = s.send(());
-        });
-        reactor_poll!(r);
+    // First lock is held, second lock shouldn't succeed
+    assert!(lock_receiver.try_recv().is_err());
 
-        // First lock released, second lock should succeed
-        assert!(lock_receiver.try_recv().is_ok());
+    // First unlock
+    let (s, r) = unbounded::<()>();
+    reactor.send_future(async move {
+        unlock_range(
+            ctx1.borrow_mut_ctx().deref_mut(),
+            ctx1.borrow_ch().deref(),
+        )
+        .await
+        .unwrap();
+        s.send(()).unwrap();
+    });
+    reactor_poll!(r);
 
-        // Second unlock
-        let (s, r) = unbounded::<()>();
-        let ctx1_clone = Arc::clone(&ctx1);
-        let ch_clone1 = Arc::clone(&ch1);
-        reactor.send_future(async move {
-            unlock_range(
-                &mut ctx1_clone.lock().unwrap(),
-                &ch_clone1.lock().unwrap(),
-            )
-            .await;
-            trace!("Unlock second lock");
-            let _ = s.send(());
-        });
-        reactor_poll!(r);
-    }
+    // First lock released, second lock should succeed
+    assert!(lock_receiver.try_recv().is_ok());
+
+    // Second unlock
+    let (s, r) = unbounded::<()>();
+    reactor.send_future(async move {
+        unlock_range(
+            ctx2.borrow_mut_ctx().deref_mut(),
+            ctx2.borrow_ch().deref(),
+        )
+        .await
+        .unwrap();
+        s.send(()).unwrap();
+    });
+    reactor_poll!(r);
+
     test_fini();
 }
 
@@ -204,66 +242,58 @@ fn multiple_locks() {
 // TODO: Add additional test for issuing front-end I/O then taking a lock
 fn lock_then_fe_io() {
     test_ini();
-    {
-        let reactor = Reactors::current();
 
-        // Lock range
-        let (s, r) = unbounded::<()>();
-        let ctx = get_shareable_ctx(1, 10);
-        let ctx_clone = Arc::clone(&ctx);
-        let ch = get_shareable_nexus_channel();
-        let ch_clone = Arc::clone(&ch);
+    let reactor = Reactors::current();
 
-        reactor.send_future(async move {
-            lock_range(
-                &mut ctx_clone.lock().unwrap(),
-                &ch_clone.lock().unwrap(),
-            )
-            .await;
-            trace!("Lock succeeded");
-            let _ = s.send(());
-        });
-        reactor_poll!(r);
+    // Lock range
+    let (s, r) = unbounded::<()>();
+    let ctx = ShareableContext::new(1, 10);
+    let ctx_clone = ctx.clone();
+    reactor.send_future(async move {
+        lock_range(
+            ctx_clone.borrow_mut_ctx().deref_mut(),
+            ctx_clone.borrow_ch().deref(),
+        )
+        .await
+        .unwrap();
+        s.send(()).unwrap();
+    });
+    reactor_poll!(r);
 
-        // Issue front-end I/O
-        let (io_sender, io_receiver) = unbounded::<()>();
-        reactor.send_future(async move {
-            let nexus_desc = Bdev::open_by_name(&NEXUS_NAME, true).unwrap();
-            let h = nexus_desc.into_handle().unwrap();
+    // Issue front-end I/O
+    let (io_sender, io_receiver) = unbounded::<()>();
+    reactor.send_future(async move {
+        let nexus_desc = Bdev::open_by_name(&NEXUS_NAME, true).unwrap();
+        let h = nexus_desc.into_handle().unwrap();
 
-            let blk = 2;
-            let blk_size = 512;
-            let buf = DmaBuf::new(blk * blk_size, 9).unwrap();
+        let blk = 2;
+        let blk_size = 512;
+        let buf = DmaBuf::new(blk * blk_size, 9).unwrap();
 
-            match h.write_at((blk * blk_size) as u64, &buf).await {
-                Ok(_) => trace!("Successfully wrote to nexus"),
-                Err(e) => trace!("Failed to write to nexus: {}", e),
-            }
+        match h.write_at((blk * blk_size) as u64, &buf).await {
+            Ok(_) => trace!("Successfully wrote to nexus"),
+            Err(e) => trace!("Failed to write to nexus: {}", e),
+        }
 
-            let _ = io_sender.send(());
-        });
-        reactor_poll!(1000);
+        io_sender.send(()).unwrap();
+    });
+    reactor_poll!(1000);
 
-        // Lock is held, I/O should not succeed
-        assert!(io_receiver.try_recv().is_err());
+    // Lock is held, I/O should not succeed
+    assert!(io_receiver.try_recv().is_err());
 
-        // Unlock
-        let (s, r) = unbounded::<()>();
-        let ctx_clone = Arc::clone(&ctx);
-        let ch_clone = Arc::clone(&ch);
-        reactor.send_future(async move {
-            unlock_range(
-                &mut ctx_clone.lock().unwrap(),
-                &ch_clone.lock().unwrap(),
-            )
-            .await;
-            trace!("Release lock");
-            let _ = s.send(());
-        });
-        reactor_poll!(r);
+    // Unlock
+    let (s, r) = unbounded::<()>();
+    reactor.send_future(async move {
+        unlock_range(ctx.borrow_mut_ctx().deref_mut(), ctx.borrow_ch().deref())
+            .await
+            .unwrap();
+        s.send(()).unwrap();
+    });
+    reactor_poll!(r);
 
-        // Lock released, I/O should succeed
-        assert!(io_receiver.try_recv().is_ok());
-    }
+    // Lock released, I/O should succeed
+    assert!(io_receiver.try_recv().is_ok());
+
     test_fini();
 }

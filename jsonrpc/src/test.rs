@@ -34,7 +34,7 @@ where
     A: serde::ser::Serialize + Send,
     R: 'static + serde::de::DeserializeOwned + panic::UnwindSafe + Send,
     H: FnOnce(Request) -> Vec<u8> + 'static + Send,
-    T: FnOnce(Result<R, Error>) -> () + panic::UnwindSafe,
+    T: FnOnce(Result<R, Error>) + panic::UnwindSafe,
 {
     let sock = format!("{}.{:?}", SOCK_PATH, std::thread::current().id());
     let sock_path = Path::new(&sock);

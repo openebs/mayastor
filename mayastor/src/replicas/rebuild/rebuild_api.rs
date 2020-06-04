@@ -161,8 +161,9 @@ pub trait ClientOperations {
 
 impl RebuildJob {
     /// Creates a new RebuildJob which rebuilds from source URI to target URI
-    /// from start to end; notify_fn callback is called when the rebuild
-    /// state is updated - with the nexus and destination URI as arguments
+    /// from start to end (of the data partition); notify_fn callback is called
+    /// when the rebuild state is updated - with the nexus and destination
+    /// URI as arguments
     pub fn create<'a>(
         nexus: &str,
         source: &str,

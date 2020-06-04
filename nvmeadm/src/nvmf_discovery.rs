@@ -3,7 +3,7 @@ use crate::nvme_page::{
     NvmfDiscRspPageEntry,
     NvmfDiscRspPageHdr,
 };
-use std::{convert::TryInto, fmt};
+use std::fmt;
 
 use nix::libc::ioctl as nix_ioctl;
 
@@ -171,7 +171,7 @@ impl Discovery {
         let _ret = unsafe {
             convert_ioctl_res!(nix_ioctl(
                 f.as_raw_fd(),
-                u64::from(NVME_ADMIN_CMD_IOCLT).try_into().unwrap(),
+                u64::from(NVME_ADMIN_CMD_IOCLT),
                 &cmd
             ))?
         };
@@ -217,7 +217,7 @@ impl Discovery {
         let _ret = unsafe {
             convert_ioctl_res!(nix_ioctl(
                 f.as_raw_fd(),
-                u64::from(NVME_ADMIN_CMD_IOCLT).try_into().unwrap(),
+                u64::from(NVME_ADMIN_CMD_IOCLT),
                 &cmd
             ))?
         };

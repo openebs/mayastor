@@ -81,11 +81,11 @@ macro_rules! test_init {
 
 pub fn mayastor_test_init() {
     fn binary_present(name: &str) -> Result<bool, std::env::VarError> {
-        std::env::var("PATH").and_then(|paths| {
-            Ok(paths
+        std::env::var("PATH").map(|paths| {
+            paths
                 .split(':')
                 .map(|p| format!("{}/{}", p, name))
-                .any(|p| std::fs::metadata(&p).is_ok()))
+                .any(|p| std::fs::metadata(&p).is_ok())
         })
     }
 

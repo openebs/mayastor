@@ -96,7 +96,7 @@ impl Descriptor {
     /// Gain exclusive access over a block range.
     /// The same context must be used when calling unlock.
     pub async fn lock_lba_range(
-        &mut self,
+        &self,
         ctx: &mut RangeContext,
         ch: &IoChannel,
     ) -> Result<(), std::io::Error> {
@@ -129,7 +129,7 @@ impl Descriptor {
     /// Release exclusive access over a block range.
     /// The context must match the one used by the call to lock.
     pub async fn unlock_lba_range(
-        &mut self,
+        &self,
         ctx: &mut RangeContext,
         ch: &IoChannel,
     ) -> Result<(), std::io::Error> {

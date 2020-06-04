@@ -214,7 +214,11 @@ impl RebuildJob {
         blk: u64,
     ) -> Result<(), RebuildError> {
         let len = self.get_segment_size_blks(blk);
-        let mut ctx = RangeContext::new(blk, len);
+        // The nexus children have metadata and data partitions, whereas the
+        // nexus has a data partition only. Because we are locking the range on
+        // the nexus, we need to calculate the offset from the start of the data
+        // partition.
+        let mut ctx = RangeContext::new(blk - self.start, len);
         let ch = self
             .nexus_descriptor
             .get_channel()
