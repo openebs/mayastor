@@ -50,11 +50,11 @@ fn generate_config() {
     config.base_bdevs = Some(vec![child1_bdev]);
     config.implicit_share_base = true;
     config.nexus_opts.iscsi_enable = false;
-    config.nexus_opts.replica_port = 8430;
+    config.nexus_opts.nvmf_replica_port = 8430;
     config.write(CFGNAME1).unwrap();
 
     config.base_bdevs = Some(vec![child2_bdev]);
-    config.nexus_opts.replica_port = 8431;
+    config.nexus_opts.nvmf_replica_port = 8431;
     config.write(CFGNAME2).unwrap();
 }
 

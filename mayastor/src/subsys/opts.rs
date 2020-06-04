@@ -27,25 +27,40 @@ use spdk_sys::{
 #[serde(default, deny_unknown_fields)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct NexusOpts {
-    /// always nvmf
-    pub replica_port: u16,
+    /// enable nvmf target
+    pub nvmf_enable: bool,
     /// nvmf port over which we export
     pub nvmf_nexus_port: u16,
-    /// enable nvmf target
-    /// NOTE: we do not differentiate between the replica and nexus nvmf target
-    /// yet
-    pub nvmf_enable: bool,
+    /// NOTE: we do not (yet) differentiate between
+    /// the nexus and replica nvmf target
+    pub nvmf_replica_port: u16,
     /// enable iSCSI support
     pub iscsi_enable: bool,
+    /// Port for nexus target portal
+    pub iscsi_nexus_port: u16,
+    /// Port for replica target portal
+    pub iscsi_replica_port: u16,
 }
+
+/// Default nvmf port used for replicas.
+/// It's different from the standard nvmf port 4420 because we don't want
+/// to conflict with nexus exported over nvmf running on the same node.
+const NVMF_PORT_REPLICA: u16 = 8420;
+const NVMF_PORT_NEXUS: u16 = 4421;
+
+/// Default iSCSI target (portal) port numbers
+const ISCSI_PORT_NEXUS: u16 = 3260;
+const ISCSI_PORT_REPLICA: u16 = 3262;
 
 impl Default for NexusOpts {
     fn default() -> Self {
         Self {
-            replica_port: 8420,
-            nvmf_nexus_port: 4421,
             nvmf_enable: true,
+            nvmf_nexus_port: NVMF_PORT_NEXUS,
+            nvmf_replica_port: NVMF_PORT_REPLICA,
             iscsi_enable: true,
+            iscsi_nexus_port: ISCSI_PORT_NEXUS,
+            iscsi_replica_port: ISCSI_PORT_REPLICA,
         }
     }
 }
