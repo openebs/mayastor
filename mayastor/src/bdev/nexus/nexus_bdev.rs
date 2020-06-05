@@ -5,6 +5,7 @@
 //! application needs synchronous mirroring may be required.
 
 use crate::nexus_uri::bdev_destroy;
+
 use std::{
     fmt,
     fmt::{Display, Formatter},
@@ -113,6 +114,8 @@ pub enum Error {
     ChildGeometry { child: String, name: String },
     #[snafu(display("Child {} of nexus {} cannot be found", child, name))]
     ChildMissing { child: String, name: String },
+    #[snafu(display("Child {} of nexus {} has no error store", child, name))]
+    ChildMissingErrStore { child: String, name: String },
     #[snafu(display("Failed to open child {} of nexus {}", child, name))]
     OpenChild {
         source: ChildError,
@@ -615,7 +618,7 @@ impl Nexus {
 
             pio.ctx_as_mut_ref().status = io_status::FAILED;
         }
-        pio.assess();
+        pio.assess(child_io, success);
         // always free the child IO
         Bio::io_free(child_io);
     }
