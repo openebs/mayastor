@@ -48,13 +48,13 @@ variable "qcow2_image" {
 variable "overlay_cidr" {
   type        = string
   description = "CIDR, classless inter-domain routing"
-  #default     = "192.168.122.0/16"
+  default     = "10.244.0.0/16"
 }
 
 variable "nr_hugepages" {
   type        = string
   description = "Number of Huge pages"
-  default     = "1024"
+  default     = "512"
 }
 
 variable "modprobe_nvme" {

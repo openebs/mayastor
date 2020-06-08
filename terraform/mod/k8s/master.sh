@@ -4,7 +4,7 @@ sudo kubeadm init --config /tmp/kubeadm_config.yaml \
   --ignore-preflight-errors=Swap,NumCPU,SystemVerification
 
 [ -d "$HOME"/.kube ] || mkdir -p "$HOME"/.kube
-sudo cp -i /etc/kubernetes/admin.conf $HOME/.kube/config
+sudo cp /etc/kubernetes/admin.conf $HOME/.kube/config
 sudo chown $(id -u):$(id -g) $HOME/.kube/config
 
 while ! nc -z localhost 6443; do
