@@ -29,6 +29,8 @@ use spdk_sys::{
 pub struct NexusOpts {
     /// enable nvmf target
     pub nvmf_enable: bool,
+    /// enable the nvmf discovery subsystem
+    pub nvmf_discovery_enable: bool,
     /// nvmf port over which we export
     pub nvmf_nexus_port: u16,
     /// NOTE: we do not (yet) differentiate between
@@ -56,6 +58,7 @@ impl Default for NexusOpts {
     fn default() -> Self {
         Self {
             nvmf_enable: true,
+            nvmf_discovery_enable: true,
             nvmf_nexus_port: NVMF_PORT_NEXUS,
             nvmf_replica_port: NVMF_PORT_REPLICA,
             iscsi_enable: true,

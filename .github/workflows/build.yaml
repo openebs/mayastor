@@ -58,6 +58,7 @@ jobs:
           path: ./target/debug
       - run: ( sudo modprobe nbd )
       - run: ( sudo modprobe xfs )
+      - run: ( sudo modprobe nvme_tcp )
       # In line below change 2048 to 8192 if running on self-hosted instead of ubuntu-latest.
       - run: ( echo 2048 | sudo tee /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages )
       - run: ( /usr/bin/docker create --name mochaTest --workdir /__w/Mayastor/Mayastor --network host --privileged -v /dev:/dev -v /:/host  --cpus 2 -v "/var/run/docker.sock":"/var/run/docker.sock" -v "/home/runner/work":"/__w" --entrypoint "tail" docker.io/mayadata/ms-buildenv:latest "-f" "/dev/null" )
