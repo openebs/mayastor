@@ -61,7 +61,9 @@ master node.
 === Setting up libvirt
 
 . Follow OS-specific steps to install libvirt
-. Download ubuntu image in qcow2 format: `wget https://cloud-images.ubuntu.com/bionic/current/bionic-server-cloudimg-amd64.img`
+. Download one of the following ubuntu images in qcow2 format:
+.. `wget https://cloud-images.ubuntu.com/releases/bionic/release/ubuntu-18.04-server-cloudimg-amd64.img`
+.. `wget https://cloud-images.ubuntu.com/releases/focal/release/ubuntu-20.04-server-cloudimg-amd64.img`
 . Set `qcow2_image` TF variable to a location of the downloaded image
 
 TF commands don't need to be run with sudo, though internally TF uses

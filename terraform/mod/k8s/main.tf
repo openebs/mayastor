@@ -3,7 +3,7 @@ variable "k8s_cluster_token" {
 }
 
 variable "overlay_cidr" {
-  default = "10.244.0.0/16"
+
 }
 
 variable "num_nodes" {
@@ -21,6 +21,15 @@ variable "private_key_path" {
 variable "node_list" {
 
 }
+
+variable "nr_hugepages" {
+
+}
+
+variable "modprobe_nvme" {
+
+}
+
 
 resource "null_resource" "k8s" {
   count = var.num_nodes
@@ -73,5 +82,7 @@ data "template_file" "node" {
   vars = {
     master_ip = element(var.node_list, 0)
     token     = var.k8s_cluster_token
+    nr_hugepages = var.nr_hugepages
+    modprobe_nvme = var.modprobe_nvme
   }
 }

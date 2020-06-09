@@ -42,5 +42,25 @@ variable "num_nodes" {
 variable "qcow2_image" {
   type        = string
   description = "Ubuntu image for VMs - only needed for libvirt provider"
-  default     = "/bionic-server-cloudimg-amd64.img"
+  default     = "/ubuntu-18.04-server-cloudimg-amd64.img"
 }
+
+variable "overlay_cidr" {
+  type        = string
+  description = "CIDR, classless inter-domain routing"
+  default     = "10.244.0.0/16"
+}
+
+variable "nr_hugepages" {
+  type        = string
+  description = "Number of Huge pages"
+  default     = "512"
+}
+
+variable "modprobe_nvme" {
+  type        = string
+  description = "modprobe nvme tcp selector for node.sh"
+  #default     = "ubuntu-20.04-server-cloudimg-amd64.img"
+  default     = "none"
+}
+

@@ -26,6 +26,9 @@ module "k8s" {
   private_key_path = var.private_key_path
   #node_list = module.lxd.node_list
   node_list = module.libvirt.node_list
+  overlay_cidr = var.overlay_cidr
+  nr_hugepages = var.nr_hugepages
+  modprobe_nvme = var.modprobe_nvme
 }
 
 output "kluster" {
