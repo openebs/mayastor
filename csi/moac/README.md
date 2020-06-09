@@ -134,10 +134,58 @@ updated too;
    nix-env -f '<nixpkgs>' -iA nodePackages.node2nix
    ```
 
-3. Generate nix package build files:
+3. Generate nix package build files. The flag `development` is needed for
+   typescript to get included in the package, because it is in `devDependencies`
+   (common case in JS world). The flag does not influence how things are built
+   (debug info, code optimisations, etc.).
    ```bash
    rm -rf node_modules
-   node2nix -l package-lock.json --nodejs-12 -c node-composition.nix
+   node2nix -l package-lock.json --development --nodejs-12 -c node-composition.nix
+   ```
+
+4. Patch generated nix files by following patch in order to reduce the size
+   of the package. This is a temporary workaround for
+   https://github.com/svanderburg/node2nix/issues/187.
+   ```diff
+   diff --git a/csi/moac/node-composition.nix b/csi/moac/node-composition.nix
+   index ac8de82..6441534 100644
+   --- a/csi/moac/node-composition.nix
+   +++ b/csi/moac/node-composition.nix
+   @@ -2,11 +2,12 @@
+
+    {pkgs ? import <nixpkgs> {
+        inherit system;
+   -  }, system ? builtins.currentSystem, nodejs ? pkgs."nodejs-12_x"}:
+   +  }, system ? builtins.currentSystem, nodejs-slim ? pkgs.nodejs-slim-12_x, nodejs ? pkgs."nodejs-12_x"}:
+    let
+      nodeEnv = import ./node-env.nix {
+        inherit (pkgs) stdenv python2 utillinux runCommand writeTextFile;
+        inherit nodejs;
+   +    inherit nodejs-slim;
+        libtool = if pkgs.stdenv.isDarwin then pkgs.darwin.cctools else null;
+      };
+    in
+   diff --git a/csi/moac/node-env.nix b/csi/moac/node-env.nix
+   index e1abf53..4d35a5e 100644
+   --- a/csi/moac/node-env.nix
+   +++ b/csi/moac/node-env.nix
+   @@ -1,6 +1,6 @@
+    # This file originates from node2nix
+
+   -{stdenv, nodejs, python2, utillinux, libtool, runCommand, writeTextFile}:
+   +{stdenv, nodejs-slim, nodejs, python2, utillinux, libtool, runCommand, writeTextFile}:
+
+    let
+      python = if nodejs ? python then nodejs.python else python2;
+   @@ -395,7 +395,7 @@ let
+        in
+        stdenv.mkDerivation ({
+          name = "node_${name}-${version}";
+   -      buildInputs = [ tarWrapper python nodejs ]
+   +      buildInputs = [ tarWrapper python nodejs-slim nodejs ]
+            ++ stdenv.lib.optional (stdenv.isLinux) utillinux
+            ++ stdenv.lib.optional (stdenv.isDarwin) libtool
+            ++ buildInputs;
    ```
 
 ## Building a Nix Package
@@ -299,3 +347,23 @@ incoming/outgoing CSI messages, watcher events, etc.
 
 The acronym MOAC comes from "Mother Of All Cases" (CAS means Container Attached
 Storage).
+
+## VSCode
+
+VSCode is a perfect choice for developing JS/TS projects. Remote docker plugin
+can be used to setup a dev environment for moac in a moment. Example of
+`.devcontainer.json` file:
+
+```json
+{
+    "image": "node:12",
+    "workspaceMount": "source=/path/to/repo/on/the/host/Mayastor,target=/workspace,type=bind,consistency=cached",
+    "workspaceFolder": "/workspace",
+    "extensions": [
+        "chenxsan.vscode-standardjs"
+    ]
+}
+```
+
+Note that this env is suitable for writing the code and running the tests but
+for building nix docker image you need nix package manager to be installed.
