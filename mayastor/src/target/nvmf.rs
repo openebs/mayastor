@@ -57,6 +57,8 @@ use spdk_sys::{
     SPDK_NVME_TRANSPORT_TCP,
     SPDK_NVMF_ADRFAM_IPV4,
     SPDK_NVMF_SUBTYPE_NVME,
+    SPDK_NVMF_SUBTYPE_DISCOVERY,
+    SPDK_NVMF_DISCOVERY_NQN,
     SPDK_NVMF_TRADDR_MAX_LEN,
     SPDK_NVMF_TRSVCID_MAX_LEN,
 };
@@ -268,7 +270,7 @@ impl Subsystem {
         }
     }
 
-    /// Add nvme subsystem to the target and return it.
+    /// Destroy this subsystem.
     pub fn destroy(self) {
         unsafe { spdk_nvmf_subsystem_destroy(self.inner) };
     }
@@ -557,6 +559,27 @@ impl Target {
         unsafe { Subsystem::create(ss, &mut self.trid as *mut _, nqn) }
     }
 
+    /// Add nvme discovery subsystem to the target and return it.
+    pub fn create_discovery_subsystem(&mut self) -> Result<Subsystem> {
+        let c_nqn = unsafe { CStr::from_ptr(SPDK_NVMF_DISCOVERY_NQN.as_ptr() as *const i8) };
+        let nqn = String::from(c_nqn.to_str().unwrap());
+
+        let ss = unsafe {
+            spdk_nvmf_subsystem_create(
+                self.inner,
+                c_nqn.as_ptr(),
+                SPDK_NVMF_SUBTYPE_DISCOVERY,
+                0, // number of namespaces
+            )
+        };
+        if ss.is_null() {
+            return Err(Error::CreateSubsystem {
+                nqn,
+            });
+        }
+        unsafe { Subsystem::create(ss, &mut self.trid as *mut _, nqn) }
+    }
+
     /// Lookup subsystem by NQN in given nvmf target.
     pub fn lookup_subsystem(&mut self, id: &str) -> Option<Subsystem> {
         let nqn = gen_nqn(id);
@@ -649,11 +672,16 @@ impl fmt::Display for Target {
 
 /// Create nvmf target which will be used for exporting the replicas.
 pub async fn init(address: &str) -> Result<()> {
-    let replica_port = Config::by_ref().nexus_opts.nvmf_replica_port;
+    let config = Config::by_ref();
+    let replica_port = config.nexus_opts.nvmf_replica_port;
     let mut boxed_tgt = Box::new(Target::create(address, replica_port)?);
     boxed_tgt.add_tcp_transport().await?;
     boxed_tgt.listen().await?;
     boxed_tgt.accept()?;
+
+    if config.nexus_opts.nvmf_discovery_enable {
+        boxed_tgt.create_discovery_subsystem()?.start().await?;
+    }
 
     NVMF_TGT.with(move |nvmf_tgt| {
         if nvmf_tgt.borrow().is_some() {
