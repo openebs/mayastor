@@ -54,7 +54,7 @@ fn rebuild_test_basic() {
     test_ini("rebuild_test_basic");
 
     Reactor::block_on(async {
-        nexus_create(1).await;
+        nexus_create(NEXUS_SIZE, 1, false).await;
         nexus_add_child(1, true).await;
         nexus_lookup(nexus_name()).unwrap().destroy().await.unwrap();
     });
@@ -68,18 +68,20 @@ fn rebuild_test_add() {
     test_ini("rebuild_test_add");
 
     Reactor::block_on(async {
-        nexus_create(1).await;
+        nexus_create(NEXUS_SIZE, 1, true).await;
         let nexus = nexus_lookup(nexus_name()).unwrap();
 
         nexus.add_child(&get_dev(1), true).await.unwrap();
         nexus
             .start_rebuild(&get_dev(1))
+            .await
             .expect_err("rebuild expected to be present");
         nexus_test_child(1).await;
 
         nexus.add_child(&get_dev(2), false).await.unwrap();
         let _ = nexus
             .start_rebuild(&get_dev(2))
+            .await
             .expect("rebuild not expected to be present");
 
         nexus_lookup(nexus_name()).unwrap().destroy().await.unwrap();
@@ -110,7 +112,7 @@ fn rebuild_progress() {
     };
 
     Reactor::block_on(async {
-        nexus_create(1).await;
+        nexus_create(NEXUS_SIZE, 1, false).await;
         nexus_add_child(1, false).await;
         // naive check to see if progress is being made
         let mut progress = 0;
@@ -128,17 +130,19 @@ fn rebuild_child_faulted() {
     test_ini("rebuild_child_faulted");
 
     Reactor::block_on(async move {
-        nexus_create(2).await;
+        nexus_create(NEXUS_SIZE, 2, false).await;
 
         let nexus = nexus_lookup(nexus_name()).unwrap();
         nexus
             .start_rebuild(&get_dev(1))
+            .await
             .expect_err("Rebuild only degraded children!");
 
         nexus.remove_child(&get_dev(1)).await.unwrap();
         assert_eq!(nexus.children.len(), 1);
         nexus
             .start_rebuild(&get_dev(0))
+            .await
             .expect_err("Cannot rebuild from the same child");
 
         nexus.destroy().await.unwrap();
@@ -153,7 +157,7 @@ fn rebuild_dst_removal() {
 
     Reactor::block_on(async move {
         let new_child = 2;
-        nexus_create(new_child).await;
+        nexus_create(NEXUS_SIZE, new_child, false).await;
         nexus_add_child(new_child, false).await;
 
         let nexus = nexus_lookup(nexus_name()).unwrap();
@@ -173,7 +177,7 @@ fn rebuild_src_removal() {
     Reactor::block_on(async move {
         let new_child = 2;
         assert!(new_child > 1);
-        nexus_create(new_child).await;
+        nexus_create(NEXUS_SIZE, new_child, true).await;
         nexus_add_child(new_child, false).await;
 
         let nexus = nexus_lookup(nexus_name()).unwrap();
@@ -190,10 +194,39 @@ fn rebuild_src_removal() {
     test_fini();
 }
 
-async fn nexus_create(children: u64) {
-    nexus_create_with_size(NEXUS_SIZE, children).await
+#[test]
+fn rebuild_with_load() {
+    test_ini("rebuild_with_load");
+
+    Reactor::block_on(async {
+        nexus_create(NEXUS_SIZE, 1, false).await;
+        let nexus = nexus_lookup(nexus_name()).unwrap();
+        let nexus_device =
+            common::device_path_from_uri(nexus.get_share_path().unwrap());
+
+        let (s, r1) = unbounded::<String>();
+        std::thread::spawn(move || {
+            s.send(common::fio_verify_size(&nexus_device, NEXUS_SIZE * 2))
+        });
+        let (s, r2) = unbounded::<()>();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(1500));
+            s.send(())
+        });
+        // warm up fio with a single child first
+        reactor_poll!(r2);
+        nexus_add_child(1, false).await;
+        reactor_poll!(r1);
+
+        nexus_test_child(1).await;
+
+        nexus.destroy().await.unwrap();
+    });
+
+    test_fini();
 }
-async fn nexus_create_with_size(size: u64, children: u64) {
+
+async fn nexus_create(size: u64, children: u64, fill_random: bool) {
     let mut ch = Vec::new();
     for i in 0 .. children {
         ch.push(get_dev(i));
@@ -210,22 +243,22 @@ async fn nexus_create_with_size(size: u64, children: u64) {
             .await
             .unwrap(),
     );
-
-    // wait for the device to be ready
     reactor_poll!(100);
 
-    let nexus_device = device.clone();
-    let (s, r) = unbounded::<String>();
-    std::thread::spawn(move || {
-        s.send(common::dd_urandom_blkdev(&nexus_device))
-    });
-    reactor_poll!(r);
+    if fill_random {
+        let nexus_device = device.clone();
+        let (s, r) = unbounded::<String>();
+        std::thread::spawn(move || {
+            s.send(common::dd_urandom_blkdev(&nexus_device))
+        });
+        reactor_poll!(r);
 
-    let (s, r) = unbounded::<String>();
-    std::thread::spawn(move || {
-        s.send(common::compare_nexus_device(&device, &get_disk(0), true))
-    });
-    reactor_poll!(r);
+        let (s, r) = unbounded::<String>();
+        std::thread::spawn(move || {
+            s.send(common::compare_nexus_device(&device, &get_disk(0), true))
+        });
+        reactor_poll!(r);
+    }
 }
 
 async fn nexus_add_child(new_child: u64, wait: bool) {
@@ -308,11 +341,11 @@ fn rebuild_sizes() {
         Reactor::block_on(async move {
             // add an extra child so that the minimum size is set to
             // match the nexus size
-            nexus_create_with_size(nexus_size, 2).await;
+            nexus_create(nexus_size, 2, false).await;
             let nexus = nexus_lookup(nexus_name()).unwrap();
             nexus.add_child(&get_dev(2), false).await.unwrap();
             // within start_rebuild the size should be validated
-            let _ = nexus.start_rebuild(&get_dev(2)).unwrap_or_else(|e| {
+            let _ = nexus.start_rebuild(&get_dev(2)).await.unwrap_or_else(|e| {
                 log::error!( "Case {} - Child should have started to rebuild but got error:\n {:}",
                     test_case_index, e.verbose());
                 panic!(
@@ -321,7 +354,12 @@ fn rebuild_sizes() {
                 )
             });
             // sanity check that the rebuild does succeed
-            nexus_test_child(2).await;
+            common::wait_for_rebuild(
+                get_dev(2),
+                RebuildState::Completed,
+                std::time::Duration::from_secs(20),
+            )
+            .unwrap();
 
             nexus.destroy().await.unwrap();
         });
@@ -347,7 +385,7 @@ fn rebuild_segment_sizes() {
     for test_case in test_cases.iter() {
         let nexus_size = *test_case;
         Reactor::block_on(async move {
-            nexus_create_with_size(nexus_size, 1).await;
+            nexus_create(nexus_size, 1, false).await;
             nexus_add_child(1, true).await;
             nexus_lookup(nexus_name()).unwrap().destroy().await.unwrap();
         });
@@ -362,7 +400,7 @@ fn rebuild_lookup() {
 
     Reactor::block_on(async move {
         let children = 6;
-        nexus_create(children).await;
+        nexus_create(NEXUS_SIZE, children, false).await;
         let nexus = nexus_lookup(nexus_name()).unwrap();
         nexus.add_child(&get_dev(children), false).await.unwrap();
 
@@ -381,7 +419,7 @@ fn rebuild_lookup() {
                 .any(|_| panic!("Should not have found any jobs!"));
         }
 
-        let _ = nexus.start_rebuild(&get_dev(children)).unwrap();
+        let _ = nexus.start_rebuild(&get_dev(children)).await.unwrap();
         for child in 0 .. children - 1 {
             RebuildJob::lookup(&get_dev(child))
                 .expect_err("rebuild job not created yet");
@@ -420,7 +458,7 @@ fn rebuild_lookup() {
             .add_child(&get_dev(children + 1), false)
             .await
             .unwrap();
-        let _ = nexus.start_rebuild(&get_dev(children + 1)).unwrap();
+        let _ = nexus.start_rebuild(&get_dev(children + 1)).await.unwrap();
         assert_eq!(RebuildJob::lookup_src(&src).len(), 2);
 
         nexus.remove_child(&get_dev(children)).await.unwrap();
@@ -438,7 +476,7 @@ fn rebuild_operations() {
     test_ini("rebuild_operations");
 
     Reactor::block_on(async {
-        nexus_create(1).await;
+        nexus_create(NEXUS_SIZE, 1, false).await;
         let nexus = nexus_lookup(nexus_name()).unwrap();
 
         nexus
@@ -457,9 +495,11 @@ fn rebuild_operations() {
         reactor_poll!(10);
         // already pausing so no problem
         nexus.pause_rebuild(&get_dev(1)).await.unwrap();
+        reactor_poll!(10);
 
         let _ = nexus
             .start_rebuild(&get_dev(1))
+            .await
             .expect_err("a rebuild already exists");
 
         nexus.stop_rebuild(&get_dev(1)).await.unwrap();
@@ -488,7 +528,7 @@ fn rebuild_multiple() {
 
     let active_rebuilds = 4;
     Reactor::block_on(async move {
-        nexus_create(1).await;
+        nexus_create(NEXUS_SIZE, 1, false).await;
         let nexus = nexus_lookup(nexus_name()).unwrap();
 
         for child in 1 ..= active_rebuilds {
@@ -501,7 +541,7 @@ fn rebuild_multiple() {
             common::wait_for_rebuild(
                 get_dev(child),
                 RebuildState::Completed,
-                std::time::Duration::from_secs(10),
+                std::time::Duration::from_secs(20),
             )
             .unwrap();
             nexus.remove_child(&get_dev(child)).await.unwrap();

@@ -104,7 +104,7 @@ impl Nexus {
         let status = self.add_child_only(uri).await?;
 
         if rebuild {
-            if let Err(e) = self.start_rebuild(&uri) {
+            if let Err(e) = self.start_rebuild(&uri).await {
                 // todo: CAS-253 retry starting the rebuild again when ready
                 error!("Child added but rebuild failed to start: {}", e);
             }
@@ -229,6 +229,8 @@ impl Nexus {
     ) -> Result<NexusStatus, Error> {
         trace!("{}: Offline child request for {}", self.name, name);
 
+        self.cancel_child_rebuild_jobs(name).await;
+
         if let Some(child) = self.children.iter_mut().find(|c| c.name == name) {
             child.offline();
         } else {
@@ -238,8 +240,8 @@ impl Nexus {
             });
         }
 
-        self.stop_rebuild(name).await?;
         self.reconfigure(DREvent::ChildOffline).await;
+
         Ok(self.status())
     }
 
@@ -258,7 +260,7 @@ impl Nexus {
                 name: self.name.clone(),
             })?;
             child.out_of_sync(true);
-            self.start_rebuild(name).map(|_| {})?;
+            self.start_rebuild(name).await.map(|_| {})?;
             Ok(self.status())
         } else {
             Err(Error::ChildNotFound {

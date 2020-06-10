@@ -56,7 +56,7 @@ pub enum ChildIoError {
 pub(crate) enum ChildStatus {
     /// available for RW
     Online,
-    /// temporarily unavailable for RW, out of sync with nexus (needs rebuild)
+    /// temporarily unavailable for R, out of sync with nexus (needs rebuild)
     Degraded,
     /// permanently unavailable for RW
     Faulted,
@@ -300,6 +300,16 @@ impl NexusChild {
                     ChildStatus::Online
                 }
             }
+        }
+    }
+
+    pub(crate) fn rebuilding(&self) -> bool {
+        match RebuildJob::lookup(&self.name) {
+            Ok(_) => {
+                self.state == ChildState::Open
+                    && self.status_reasons.out_of_sync
+            }
+            Err(_) => false,
         }
     }
 

@@ -427,7 +427,7 @@ async fn nexus_add(
     let uri = matches.value_of("uri").unwrap().to_string();
     let rebuild = matches
         .value_of("rebuild")
-        .unwrap()
+        .unwrap_or("true")
         .parse::<bool>()
         .unwrap_or(true);
 

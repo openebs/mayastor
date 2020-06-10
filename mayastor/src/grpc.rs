@@ -407,7 +407,7 @@ impl Mayastor for MayastorGrpc {
         let args = request.into_inner();
         trace!("{:?}", args);
         locally! { async move {
-            nexus_lookup(&args.uuid)?.start_rebuild(&args.uri).map(|_|{})
+            nexus_lookup(&args.uuid)?.start_rebuild(&args.uri).await.map(|_|{})
         }};
 
         Ok(Response::new(Null {}))
