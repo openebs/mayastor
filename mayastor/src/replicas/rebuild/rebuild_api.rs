@@ -1,6 +1,6 @@
 #![warn(missing_docs)]
 
-use crate::core::{BdevHandle, CoreError, DmaError};
+use crate::core::{BdevHandle, CoreError, Descriptor, DmaError};
 use crossbeam::channel::{Receiver, Sender};
 use futures::channel::oneshot;
 use snafu::Snafu;
@@ -20,6 +20,8 @@ pub enum RebuildError {
     InvalidParameters {},
     #[snafu(display("Failed to get a handle for bdev {}", bdev))]
     NoBdevHandle { source: CoreError, bdev: String },
+    #[snafu(display("Bdev {} not found", bdev))]
+    BdevNotFound { source: CoreError, bdev: String },
     #[snafu(display("IO failed for bdev {}", bdev))]
     IoError { source: CoreError, bdev: String },
     #[snafu(display("Failed to find rebuild job {}", job))]
@@ -36,6 +38,28 @@ pub enum RebuildError {
     OpError { operation: String, state: String },
     #[snafu(display("Existing pending state {}", state,))]
     StatePending { state: String },
+    #[snafu(display(
+        "Failed to lock LBA range for blk {}, len {}, with error: {}",
+        blk,
+        len,
+        source,
+    ))]
+    RangeLockError {
+        blk: u64,
+        len: u64,
+        source: std::io::Error,
+    },
+    #[snafu(display(
+        "Failed to unlock LBA range for blk {}, len {}, with error: {}",
+        blk,
+        len,
+        source,
+    ))]
+    RangeUnLockError {
+        blk: u64,
+        len: u64,
+        source: std::io::Error,
+    },
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
@@ -75,6 +99,8 @@ impl fmt::Display for RebuildState {
 pub struct RebuildJob {
     /// name of the nexus associated with the rebuild job
     pub nexus: String,
+    /// descriptor for the nexus
+    pub(super) nexus_descriptor: Descriptor,
     /// source URI of the healthy child to rebuild from
     pub(super) source: String,
     pub(super) source_hdl: BdevHandle,
@@ -135,8 +161,9 @@ pub trait ClientOperations {
 
 impl RebuildJob {
     /// Creates a new RebuildJob which rebuilds from source URI to target URI
-    /// from start to end; notify_fn callback is called when the rebuild
-    /// state is updated - with the nexus and destination URI as arguments
+    /// from start to end (of the data partition); notify_fn callback is called
+    /// when the rebuild state is updated - with the nexus and destination
+    /// URI as arguments
     pub fn create<'a>(
         nexus: &str,
         source: &str,

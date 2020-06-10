@@ -259,9 +259,9 @@ impl NexusChild {
         if !self.status_reasons.offline {
             return Err(ChildError::ChildNotOffline {});
         }
-        self.open(parent_size).and_then(|s| {
+        self.open(parent_size).map(|s| {
             self.status_reasons.offline(false);
-            Ok(s)
+            s
         })
     }
 
