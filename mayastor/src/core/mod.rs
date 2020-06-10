@@ -25,7 +25,7 @@ mod reactor;
 mod thread;
 mod uuid;
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, Snafu, Clone)]
 #[snafu(visibility = "pub")]
 pub enum CoreError {
     #[snafu(display("bdev {} not found", name))]

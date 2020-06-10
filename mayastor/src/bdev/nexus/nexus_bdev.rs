@@ -60,13 +60,15 @@ pub trait VerboseError {
     fn verbose(&self) -> String;
 }
 
-impl VerboseError for Error {
+impl<T> VerboseError for T
+where
+    T: std::error::Error,
+{
     /// loops through the error chain and formats into a single string
     /// containing all the lower level errors
     fn verbose(&self) -> String {
-        let err = self as &dyn std::error::Error;
-        let mut msg = format!("{}", err);
-        let mut opt_source = err.source();
+        let mut msg = format!("{}", self);
+        let mut opt_source = self.source();
         while let Some(source) = opt_source {
             msg = format!("{}: {}", msg, source);
             opt_source = source.source();

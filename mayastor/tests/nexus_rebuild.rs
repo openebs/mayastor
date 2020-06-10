@@ -3,11 +3,12 @@ use crossbeam::channel::unbounded;
 pub mod common;
 
 use mayastor::{
-    bdev::{nexus_lookup, VerboseError},
+    bdev::{nexus_lookup, ChildStatus, VerboseError},
     core::{MayastorCliArgs, MayastorEnvironment, Reactor},
     replicas::rebuild::{RebuildJob, RebuildState, SEGMENT_SIZE},
 };
 
+use common::error_bdev;
 use once_cell::sync::Lazy;
 use rpc::mayastor::ShareProtocolNexus;
 use std::sync::Mutex;
@@ -28,6 +29,7 @@ const MAX_CHILDREN: u64 = 16;
 
 fn test_ini(name: &'static str) {
     *NEXUS_NAME.lock().unwrap() = name;
+    get_err_bdev().clear();
 
     test_init!();
     for i in 0 .. MAX_CHILDREN {
@@ -42,11 +44,35 @@ fn test_fini() {
     }
 }
 
+fn get_err_bdev() -> &'static mut Vec<u64> {
+    unsafe {
+        static mut ERROR_DEVICE_INDEXES: Vec<u64> = Vec::<u64>::new();
+        &mut ERROR_DEVICE_INDEXES
+    }
+}
+fn get_err_dev(index: u64) -> String {
+    format!("EE_error_device{}", index)
+}
+fn set_err_dev(index: u64) {
+    if !get_err_bdev().contains(&index) {
+        let backing = get_disk(index);
+        get_err_bdev().push(index);
+        error_bdev::create_error_bdev(&get_disk(index), &backing);
+    }
+}
 fn get_disk(number: u64) -> String {
-    format!("/tmp/disk{}.img", number)
+    if get_err_bdev().contains(&number) {
+        format!("error_device{}", number)
+    } else {
+        format!("/tmp/disk{}.img", number)
+    }
 }
 fn get_dev(number: u64) -> String {
-    format!("aio://{}-{}?blk_size=512", nexus_name(), get_disk(number))
+    if get_err_bdev().contains(&number) {
+        format!("bdev:///EE_error_device{}", number)
+    } else {
+        format!("aio://{}-{}?blk_size=512", nexus_name(), get_disk(number))
+    }
 }
 
 #[test]
@@ -184,7 +210,7 @@ fn rebuild_src_removal() {
         nexus.pause_rebuild(&get_dev(new_child)).await.unwrap();
         nexus.remove_child(&get_dev(0)).await.unwrap();
 
-        // tests if new_child which had it's original rebuild src removed
+        // tests if new_child which had its original rebuild src removed
         // ended up being rebuilt successfully
         nexus_test_child(new_child).await;
 
@@ -204,7 +230,7 @@ fn rebuild_with_load() {
         let nexus_device =
             common::device_path_from_uri(nexus.get_share_path().unwrap());
 
-        let (s, r1) = unbounded::<String>();
+        let (s, r1) = unbounded::<i32>();
         std::thread::spawn(move || {
             s.send(common::fio_verify_size(&nexus_device, NEXUS_SIZE * 2))
         });
@@ -216,7 +242,9 @@ fn rebuild_with_load() {
         // warm up fio with a single child first
         reactor_poll!(r2);
         nexus_add_child(1, false).await;
-        reactor_poll!(r1);
+        let fio_result: i32;
+        reactor_poll!(r1, fio_result);
+        assert_eq!(fio_result, 0, "Failed to run fio_verify_size");
 
         nexus_test_child(1).await;
 
@@ -247,11 +275,13 @@ async fn nexus_create(size: u64, children: u64, fill_random: bool) {
 
     if fill_random {
         let nexus_device = device.clone();
-        let (s, r) = unbounded::<String>();
+        let (s, r) = unbounded::<i32>();
         std::thread::spawn(move || {
             s.send(common::dd_urandom_blkdev(&nexus_device))
         });
-        reactor_poll!(r);
+        let dd_result: i32;
+        reactor_poll!(r, dd_result);
+        assert_eq!(dd_result, 0, "Failed to fill nexus with random data");
 
         let (s, r) = unbounded::<String>();
         std::thread::spawn(move || {
@@ -565,6 +595,74 @@ fn rebuild_multiple() {
         }
 
         nexus.destroy().await.unwrap();
+    });
+
+    test_fini();
+}
+
+#[test]
+fn rebuild_fault_src() {
+    test_ini("rebuild_fault_src");
+    set_err_dev(0);
+
+    Reactor::block_on(async {
+        nexus_create(NEXUS_SIZE, 1, false).await;
+
+        let nexus = nexus_lookup(nexus_name()).unwrap();
+        nexus.add_child(&get_dev(1), true).await.unwrap();
+
+        error_bdev::inject_error(
+            &get_err_dev(0),
+            error_bdev::SPDK_BDEV_IO_TYPE_READ,
+            error_bdev::VBDEV_IO_FAILURE,
+            88,
+        );
+
+        common::wait_for_rebuild(
+            get_dev(1),
+            RebuildState::Failed,
+            std::time::Duration::from_secs(20),
+        )
+        .unwrap();
+        // allow the nexus futures to run
+        reactor_poll!(10);
+        assert_eq!(nexus.children[1].status(), ChildStatus::Faulted);
+
+        nexus_lookup(nexus_name()).unwrap().destroy().await.unwrap();
+    });
+
+    test_fini();
+}
+
+#[test]
+fn rebuild_fault_dst() {
+    test_ini("rebuild_fault_dst");
+    set_err_dev(1);
+
+    Reactor::block_on(async {
+        nexus_create(NEXUS_SIZE, 1, false).await;
+
+        let nexus = nexus_lookup(nexus_name()).unwrap();
+        nexus.add_child(&get_dev(1), true).await.unwrap();
+
+        error_bdev::inject_error(
+            &get_err_dev(1),
+            error_bdev::SPDK_BDEV_IO_TYPE_WRITE,
+            error_bdev::VBDEV_IO_FAILURE,
+            88,
+        );
+
+        common::wait_for_rebuild(
+            get_dev(1),
+            RebuildState::Failed,
+            std::time::Duration::from_secs(20),
+        )
+        .unwrap();
+        // allow the nexus futures to run
+        reactor_poll!(10);
+        assert_eq!(nexus.children[1].status(), ChildStatus::Faulted);
+
+        nexus_lookup(nexus_name()).unwrap().destroy().await.unwrap();
     });
 
     test_fini();

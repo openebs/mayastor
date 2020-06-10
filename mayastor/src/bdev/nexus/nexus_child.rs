@@ -53,7 +53,7 @@ pub enum ChildIoError {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq)]
-pub(crate) enum ChildStatus {
+pub enum ChildStatus {
     /// available for RW
     Online,
     /// temporarily unavailable for R, out of sync with nexus (needs rebuild)
@@ -77,7 +77,7 @@ struct StatusReasons {
 }
 
 impl StatusReasons {
-    #[allow(dead_code)]
+    /// a fault occurred, it is not recoverable
     fn fatal_error(&mut self) {
         self.fatal_error = true;
     }
@@ -240,6 +240,11 @@ impl NexusChild {
         Ok(self.name.clone())
     }
 
+    /// Fault the child following an unrecoverable error
+    pub(crate) fn fault(&mut self) {
+        self.close();
+        self.status_reasons.fatal_error();
+    }
     /// Set the child as out of sync with the nexus
     /// It requires a full rebuild before it can service IO
     /// and remains degraded until such time
@@ -280,7 +285,7 @@ impl NexusChild {
     /// Degraded if offline
     /// otherwise Faulted as it cannot ever service IO
     /// todo: better cater for the online/offline "states"
-    pub(crate) fn status(&self) -> ChildStatus {
+    pub fn status(&self) -> ChildStatus {
         match self.state {
             ChildState::Init => ChildStatus::Degraded,
             ChildState::ConfigInvalid => ChildStatus::Faulted,
