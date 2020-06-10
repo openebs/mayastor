@@ -96,20 +96,20 @@ impl fmt::Display for RebuildState {
 
 /// A rebuild job is responsible for managing a rebuild (copy) which reads
 /// from source_hdl and writes into destination_hdl from specified start to end
+#[derive(Debug)]
 pub struct RebuildJob {
     /// name of the nexus associated with the rebuild job
     pub nexus: String,
     /// descriptor for the nexus
     pub(super) nexus_descriptor: Descriptor,
     /// source URI of the healthy child to rebuild from
-    pub(super) source: String,
+    pub source: String,
     pub(super) source_hdl: BdevHandle,
     /// target URI of the out of sync child in need of a rebuild
     pub destination: String,
     pub(super) destination_hdl: BdevHandle,
     pub(super) block_size: u64,
-    pub(super) start: u64,
-    pub(super) end: u64,
+    pub(super) range: std::ops::Range<u64>,
     pub(super) next: u64,
     pub(super) segment_size_blks: u64,
     pub(super) tasks: RebuildTasks,
@@ -168,12 +168,10 @@ impl RebuildJob {
         nexus: &str,
         source: &str,
         destination: &'a str,
-        start: u64,
-        end: u64,
+        range: std::ops::Range<u64>,
         notify_fn: fn(String, String) -> (),
     ) -> Result<&'a mut Self, RebuildError> {
-        Self::new(nexus, source, destination, start, end, notify_fn)?
-            .store()?;
+        Self::new(nexus, source, destination, range, notify_fn)?.store()?;
 
         Ok(Self::lookup(destination)?)
     }
@@ -191,20 +189,17 @@ impl RebuildJob {
 
     /// Lookup all rebuilds jobs with name as its source
     pub fn lookup_src(name: &str) -> Vec<&mut Self> {
-        let mut jobs = Vec::new();
-
         Self::get_instances()
             .iter_mut()
             .filter(|j| j.1.source == name)
-            .for_each(|j| jobs.push(j.1));
-
-        jobs
+            .map(|j| j.1.as_mut())
+            .collect::<Vec<_>>()
     }
 
     /// Lookup a rebuild job by its destination uri then remove and return it
     pub fn remove(name: &str) -> Result<Self, RebuildError> {
         match Self::get_instances().remove(name) {
-            Some(job) => Ok(job),
+            Some(job) => Ok(*job),
             None => Err(RebuildError::JobNotFound {
                 job: name.to_owned(),
             }),

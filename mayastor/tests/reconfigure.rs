@@ -177,7 +177,8 @@ async fn works() {
         child2.to_string(),
         RebuildState::Completed,
         std::time::Duration::from_secs(20),
-    );
+    )
+    .unwrap();
 
     assert_eq!(nexus.status(), NexusStatus::Online);
 

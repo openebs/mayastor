@@ -53,6 +53,26 @@ use crate::{
     rebuild::RebuildError,
 };
 
+/// Obtain the full error chain
+pub trait VerboseError {
+    fn verbose(&self) -> String;
+}
+
+impl VerboseError for Error {
+    /// loops through the error chain and formats into a single string
+    /// containing all the lower level errors
+    fn verbose(&self) -> String {
+        let err = self as &dyn std::error::Error;
+        let mut msg = format!("{}", err);
+        let mut opt_source = err.source();
+        while let Some(source) = opt_source {
+            msg = format!("{}: {}", msg, source);
+            opt_source = source.source();
+        }
+        msg
+    }
+}
+
 /// Common errors for nexus basic operations and child operations
 /// which are part of nexus object.
 #[derive(Debug, Snafu)]
@@ -136,7 +156,7 @@ pub enum Error {
     #[snafu(display(
         "Failed to create rebuild job for child {} of nexus {}",
         child,
-        name
+        name,
     ))]
     CreateRebuildError {
         source: RebuildError,
