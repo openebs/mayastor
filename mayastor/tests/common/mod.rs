@@ -277,7 +277,7 @@ pub fn thread() -> Option<Mthread> {
 }
 
 pub fn dd_urandom_blkdev(device: &str) -> String {
-    let (exit, stdout, _stderr) = run_script::run(
+    let (exit, stdout, stderr) = run_script::run(
         r#"
         dd if=/dev/urandom of=$1 conv=fsync,nocreat,notrunc iflag=count_bytes count=`blockdev --getsize64 $1`
     "#,
@@ -285,7 +285,7 @@ pub fn dd_urandom_blkdev(device: &str) -> String {
     &run_script::ScriptOptions::new(),
     )
     .unwrap();
-    assert_eq!(exit, 0);
+    assert_eq!(exit, 0, "stdout: {}\nstderr: {}", stdout, stderr);
     stdout
 }
 

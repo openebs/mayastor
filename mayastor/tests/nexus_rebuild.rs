@@ -211,6 +211,9 @@ async fn nexus_create_with_size(size: u64, children: u64) {
             .unwrap(),
     );
 
+    // wait for the device to be ready
+    reactor_poll!(100);
+
     let nexus_device = device.clone();
     let (s, r) = unbounded::<String>();
     std::thread::spawn(move || {
