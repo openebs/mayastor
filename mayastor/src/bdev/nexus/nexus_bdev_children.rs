@@ -133,6 +133,7 @@ impl Nexus {
                             err
                         );
                     }
+
                     return Err(Error::ChildGeometry {
                         child: name,
                         name: self.name.clone(),
@@ -243,7 +244,7 @@ impl Nexus {
     }
 
     /// online a child and reconfigure the IO channels. The child is already
-    /// registered, but simpy not opened. This can be required in case where
+    /// registered, but simply not opened. This can be required in case where
     /// a child is misbehaving.
     pub async fn online_child(
         &mut self,

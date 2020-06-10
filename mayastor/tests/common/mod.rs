@@ -1,5 +1,4 @@
 use crossbeam::channel::{after, select, unbounded};
-use log::info;
 use std::{env, io, io::Write, process::Command, time::Duration};
 
 use once_cell::sync::OnceCell;
@@ -278,7 +277,7 @@ pub fn thread() -> Option<Mthread> {
 }
 
 pub fn dd_urandom_blkdev(device: &str) -> String {
-    let (exit, stdout, _stderr) = run_script::run(
+    let (exit, stdout, stderr) = run_script::run(
         r#"
         dd if=/dev/urandom of=$1 conv=fsync,nocreat,notrunc iflag=count_bytes count=`blockdev --getsize64 $1`
     "#,
@@ -286,7 +285,7 @@ pub fn dd_urandom_blkdev(device: &str) -> String {
     &run_script::ScriptOptions::new(),
     )
     .unwrap();
-    assert_eq!(exit, 0);
+    assert_eq!(exit, 0, "stdout: {}\nstderr: {}", stdout, stderr);
     stdout
 }
 
@@ -315,16 +314,18 @@ pub fn compare_nexus_device(
 pub fn compare_devices(
     first_device: &str,
     second_device: &str,
+    size: u64,
     expected_pass: bool,
 ) -> String {
     let (exit, stdout, stderr) = run_script::run(
         r#"
-        cmp -b $1 $2 5M 5M
-        test $? -eq $3
+        cmp -b $1 $2 5M 5M -n $3
+        test $? -eq $4
     "#,
         &vec![
             first_device.into(),
             second_device.into(),
+            size.to_string(),
             (!expected_pass as i32).to_string(),
         ],
         &run_script::ScriptOptions::new(),
@@ -358,28 +359,42 @@ pub fn get_device_size(nexus_device: &str) -> u64 {
 }
 
 /// Waits for the rebuild to reach `state`, up to `timeout`
-pub fn wait_for_rebuild(name: String, state: RebuildState, timeout: Duration) {
+pub fn wait_for_rebuild(
+    name: String,
+    state: RebuildState,
+    timeout: Duration,
+) -> Result<(), ()> {
     let (s, r) = unbounded::<()>();
     let job = match RebuildJob::lookup(&name) {
         Ok(job) => job,
-        Err(_) => return,
+        Err(_) => return Ok(()),
     };
 
+    let mut curr_state = job.state();
     let ch = job.notify_chan.1.clone();
-    std::thread::spawn(move || {
+    let t = std::thread::spawn(move || {
         let now = std::time::Instant::now();
-        while {
-            let current_state = select! {
+        let mut error = Ok(());
+        while curr_state != state && error.is_ok() {
+            select! {
                 recv(ch) -> state => {
-                    info!("rebuild of child {} signalled with state {:?}", name, state);
-                    state.unwrap()
+                    log::trace!("rebuild of child {} signalled with state {:?}", name, state);
+                    curr_state = state.unwrap_or_else(|e| {
+                        log::error!("failed to wait for the rebuild with error: {}", e);
+                        error = Err(());
+                        curr_state
+                    })
                 },
-                recv(after(timeout - now.elapsed())) -> _ => panic!("timed out waiting for the rebuild to complete after {:?}", timeout),
-            };
+                recv(after(timeout - now.elapsed())) -> _ => {
+                    log::error!("timed out waiting for the rebuild after {:?}", timeout);
+                    error = Err(())
+                }
+            }
+        }
 
-            current_state != state
-        } {}
-        s.send(())
+        s.send(()).ok();
+        error
     });
     reactor_poll!(r);
+    t.join().unwrap()
 }
