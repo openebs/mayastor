@@ -3,6 +3,8 @@ use std::{convert::TryFrom, fmt::Debug};
 use serde::export::{fmt::Error, Formatter};
 
 use spdk_sys::{
+    bdev_lock_lba_range,
+    bdev_unlock_lba_range,
     spdk_bdev_close,
     spdk_bdev_desc,
     spdk_bdev_desc_get_bdev,
@@ -15,6 +17,8 @@ use crate::{
     bdev::nexus::nexus_module::NEXUS_MODULE,
     core::{channel::IoChannel, Bdev, BdevHandle, CoreError},
 };
+use futures::channel::oneshot;
+use std::os::raw::c_void;
 
 /// NewType around a descriptor, multiple descriptor to the same bdev is
 /// allowed. A bdev can me claimed for exclusive write access. Any existing
@@ -88,6 +92,72 @@ impl Descriptor {
     pub fn into_handle(self) -> Result<BdevHandle, CoreError> {
         BdevHandle::try_from(self)
     }
+
+    /// Gain exclusive access over a block range.
+    /// The same context must be used when calling unlock.
+    pub async fn lock_lba_range(
+        &self,
+        ctx: &mut RangeContext,
+        ch: &IoChannel,
+    ) -> Result<(), std::io::Error> {
+        let (s, r) = oneshot::channel::<i32>();
+        ctx.sender = Box::into_raw(Box::new(s));
+
+        unsafe {
+            let rc = bdev_lock_lba_range(
+                self.as_ptr(),
+                ch.as_ptr(),
+                ctx.offset,
+                ctx.len,
+                Some(spdk_range_cb),
+                ctx as *const _ as *mut c_void,
+            );
+            if rc != 0 {
+                return Err(std::io::Error::from_raw_os_error(rc));
+            }
+        }
+
+        // Wait for the lock to complete
+        let rc = r.await.unwrap();
+        if rc != 0 {
+            return Err(std::io::Error::from_raw_os_error(rc));
+        }
+
+        Ok(())
+    }
+
+    /// Release exclusive access over a block range.
+    /// The context must match the one used by the call to lock.
+    pub async fn unlock_lba_range(
+        &self,
+        ctx: &mut RangeContext,
+        ch: &IoChannel,
+    ) -> Result<(), std::io::Error> {
+        let (s, r) = oneshot::channel::<i32>();
+        ctx.sender = Box::into_raw(Box::new(s));
+
+        unsafe {
+            let rc = bdev_unlock_lba_range(
+                self.as_ptr(),
+                ch.as_ptr(),
+                ctx.offset,
+                ctx.len,
+                Some(spdk_range_cb),
+                ctx as *const _ as *mut c_void,
+            );
+            if rc != 0 {
+                return Err(std::io::Error::from_raw_os_error(rc));
+            }
+        }
+
+        // Wait for the unlock to complete
+        let rc = r.await.unwrap();
+        if rc != 0 {
+            return Err(std::io::Error::from_raw_os_error(rc));
+        }
+
+        Ok(())
+    }
 }
 
 impl Drop for Descriptor {
@@ -107,5 +177,39 @@ impl Debug for Descriptor {
             self.as_ptr(),
             self.get_bdev().name()
         )
+    }
+}
+
+extern "C" fn spdk_range_cb(
+    ctx: *mut ::std::os::raw::c_void,
+    status: ::std::os::raw::c_int,
+) {
+    unsafe {
+        let ctx = ctx as *mut RangeContext;
+        let s = Box::from_raw((*ctx).sender as *mut oneshot::Sender<i32>);
+
+        // Send a notification that the operation has completed
+        if let Err(e) = s.send(status) {
+            panic!("Failed to send SPDK completion with error {}.", e);
+        }
+    }
+}
+
+/// Store the context for calls to lock_lba_range and unlock_lba_range.
+/// Corresponding lock/unlock calls require the same context to be used.
+pub struct RangeContext {
+    pub offset: u64,
+    pub len: u64,
+    sender: *mut oneshot::Sender<i32>,
+}
+
+impl RangeContext {
+    /// Create a new RangeContext
+    pub fn new(offset: u64, len: u64) -> RangeContext {
+        RangeContext {
+            offset,
+            len,
+            sender: std::ptr::null_mut(),
+        }
     }
 }
