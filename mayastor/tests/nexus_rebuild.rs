@@ -74,12 +74,14 @@ fn rebuild_test_add() {
         nexus.add_child(&get_dev(1), true).await.unwrap();
         nexus
             .start_rebuild(&get_dev(1))
+            .await
             .expect_err("rebuild expected to be present");
         nexus_test_child(1).await;
 
         nexus.add_child(&get_dev(2), false).await.unwrap();
         let _ = nexus
             .start_rebuild(&get_dev(2))
+            .await
             .expect("rebuild not expected to be present");
 
         nexus_lookup(nexus_name()).unwrap().destroy().await.unwrap();
@@ -133,12 +135,14 @@ fn rebuild_child_faulted() {
         let nexus = nexus_lookup(nexus_name()).unwrap();
         nexus
             .start_rebuild(&get_dev(1))
+            .await
             .expect_err("Rebuild only degraded children!");
 
         nexus.remove_child(&get_dev(1)).await.unwrap();
         assert_eq!(nexus.children.len(), 1);
         nexus
             .start_rebuild(&get_dev(0))
+            .await
             .expect_err("Cannot rebuild from the same child");
 
         nexus.destroy().await.unwrap();
@@ -183,6 +187,38 @@ fn rebuild_src_removal() {
         // tests if new_child which had it's original rebuild src removed
         // ended up being rebuilt successfully
         nexus_test_child(new_child).await;
+
+        nexus.destroy().await.unwrap();
+    });
+
+    test_fini();
+}
+
+#[test]
+fn rebuild_with_load() {
+    test_ini("rebuild_with_load");
+
+    Reactor::block_on(async {
+        nexus_create(1).await;
+        let nexus = nexus_lookup(nexus_name()).unwrap();
+        let nexus_device =
+            common::device_path_from_uri(nexus.get_share_path().unwrap());
+
+        let (s, r1) = unbounded::<String>();
+        std::thread::spawn(move || {
+            s.send(common::fio_verify_size(&nexus_device, NEXUS_SIZE * 2))
+        });
+        let (s, r2) = unbounded::<()>();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(1500));
+            s.send(())
+        });
+        // warm up fio with a single child first
+        reactor_poll!(r2);
+        nexus_add_child(1, false).await;
+        reactor_poll!(r1);
+
+        nexus_test_child(1).await;
 
         nexus.destroy().await.unwrap();
     });
@@ -312,7 +348,7 @@ fn rebuild_sizes() {
             let nexus = nexus_lookup(nexus_name()).unwrap();
             nexus.add_child(&get_dev(2), false).await.unwrap();
             // within start_rebuild the size should be validated
-            let _ = nexus.start_rebuild(&get_dev(2)).unwrap_or_else(|e| {
+            let _ = nexus.start_rebuild(&get_dev(2)).await.unwrap_or_else(|e| {
                 log::error!( "Case {} - Child should have started to rebuild but got error:\n {:}",
                     test_case_index, e.verbose());
                 panic!(
@@ -381,7 +417,7 @@ fn rebuild_lookup() {
                 .any(|_| panic!("Should not have found any jobs!"));
         }
 
-        let _ = nexus.start_rebuild(&get_dev(children)).unwrap();
+        let _ = nexus.start_rebuild(&get_dev(children)).await.unwrap();
         for child in 0 .. children - 1 {
             RebuildJob::lookup(&get_dev(child))
                 .expect_err("rebuild job not created yet");
@@ -420,7 +456,7 @@ fn rebuild_lookup() {
             .add_child(&get_dev(children + 1), false)
             .await
             .unwrap();
-        let _ = nexus.start_rebuild(&get_dev(children + 1)).unwrap();
+        let _ = nexus.start_rebuild(&get_dev(children + 1)).await.unwrap();
         assert_eq!(RebuildJob::lookup_src(&src).len(), 2);
 
         nexus.remove_child(&get_dev(children)).await.unwrap();
@@ -460,6 +496,7 @@ fn rebuild_operations() {
 
         let _ = nexus
             .start_rebuild(&get_dev(1))
+            .await
             .expect_err("a rebuild already exists");
 
         nexus.stop_rebuild(&get_dev(1)).await.unwrap();

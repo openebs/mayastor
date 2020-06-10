@@ -56,9 +56,15 @@ impl Mthread {
 
     pub fn poll(self) -> Self {
         let mut done = false;
+        let mut count = 0;
         while !done {
+            count += 1;
             let rc = unsafe { spdk_thread_poll(self.0, 0, 0) };
-            if rc < 1 {
+            // if an spdk poll is kept busy by the frontend IO then the reactor
+            // futures will not get a chance to run slowing down RPC and rebuild
+            // so, temporarily add a break clause when "sufficient" work has
+            // been done
+            if rc < 1 || count > 100 {
                 done = true
             }
         }

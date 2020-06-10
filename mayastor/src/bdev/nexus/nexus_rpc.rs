@@ -183,7 +183,7 @@ pub(crate) fn register_rpc_methods() {
     jsonrpc_register("start_rebuild", |args: StartRebuildRequest| {
         let fut = async move {
             let nexus = nexus_lookup(&args.uuid)?;
-            nexus.start_rebuild(&args.uri).map(|_| {})
+            nexus.start_rebuild(&args.uri).await.map(|_| {})
         };
         fut.boxed_local()
     });

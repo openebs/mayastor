@@ -23,7 +23,7 @@ use crate::{
 impl Nexus {
     /// Starts a rebuild job and returns a receiver channel
     /// which can be used to await the rebuild completion
-    pub fn start_rebuild(
+    pub async fn start_rebuild(
         &mut self,
         name: &str,
     ) -> Result<Receiver<RebuildState>, Error> {
@@ -40,24 +40,26 @@ impl Nexus {
             }),
         }?;
 
-        let dst_child = match self.children.iter_mut().find(|c| c.name == name)
-        {
-            Some(c) if c.status() == ChildStatus::Degraded => Ok(c),
-            Some(c) => Err(Error::ChildNotDegraded {
-                child: name.to_owned(),
-                name: self.name.clone(),
-                state: c.status().to_string(),
-            }),
-            None => Err(Error::ChildNotFound {
-                child: name.to_owned(),
-                name: self.name.clone(),
-            }),
-        }?;
+        let dst_child_name =
+            match self.children.iter_mut().find(|c| c.name == name) {
+                Some(c) if c.status() == ChildStatus::Degraded => {
+                    Ok(c.name.clone())
+                }
+                Some(c) => Err(Error::ChildNotDegraded {
+                    child: name.to_owned(),
+                    name: self.name.clone(),
+                    state: c.status().to_string(),
+                }),
+                None => Err(Error::ChildNotFound {
+                    child: name.to_owned(),
+                    name: self.name.clone(),
+                }),
+            }?;
 
         let job = RebuildJob::create(
             &self.name,
             &src_child_name,
-            &dst_child.name,
+            &dst_child_name,
             std::ops::Range::<u64> {
                 start: self.data_ent_offset,
                 end: self.bdev.num_blocks() + self.data_ent_offset,
@@ -72,6 +74,16 @@ impl Nexus {
             child: name.to_owned(),
             name: self.name.clone(),
         })?;
+
+        // We're now rebuilding the `dst_child` which means it HAS to become an
+        // active participant in the frontend nexus bdev for Writes.
+        // This is because the rebuild job copies from src to target child
+        // sequentially, from start to the end.
+        // This means any Write frontend IO to a range which has already been
+        // rebuilt would then need to be rebuild again.
+        // Ensuring that the dst child receives all frontend Write IO keeps all
+        // rebuilt ranges in sync with the other children.
+        self.reconfigure(DREvent::ChildRebuild).await;
 
         job.as_client().start().context(RebuildOperationError {
             job: name.to_owned(),
@@ -169,7 +181,7 @@ impl Nexus {
                 error!("Error {} when waiting for the job to terminate", e);
             }
 
-            if let Err(e) = self.start_rebuild(&job.0) {
+            if let Err(e) = self.start_rebuild(&job.0).await {
                 error!("Failed to recreate rebuild: {}", e);
             }
         }
@@ -215,11 +227,12 @@ impl Nexus {
 
         if job.state() == RebuildState::Completed {
             recovered_child.out_of_sync(false);
+            info!(
+                "Child {} has been rebuilt successfully",
+                recovered_child.name
+            );
 
-            // child can now be part of the IO path
-            if recovered_child.status() == ChildStatus::Online {
-                self.reconfigure(DREvent::ChildOnline).await;
-            }
+            assert_eq!(recovered_child.status(), ChildStatus::Online);
         } else {
             error!(
                 "Rebuild job for child {} of nexus {} failed with state {:?}",
@@ -229,6 +242,7 @@ impl Nexus {
             );
         }
 
+        self.reconfigure(DREvent::ChildRebuild).await;
         Ok(())
     }
 
@@ -243,12 +257,15 @@ impl Nexus {
             return Ok(());
         }
 
-        let job = RebuildJob::remove(&job).context(RemoveRebuildJob {
-            child: job.clone(),
-            name: self.name.clone(),
-        })?;
+        let complete_err = self.on_rebuild_complete_job(&j).await;
+        let remove_err = RebuildJob::remove(&job)
+            .context(RemoveRebuildJob {
+                child: job,
+                name: self.name.clone(),
+            })
+            .map(|_| ());
 
-        self.on_rebuild_complete_job(&job).await
+        complete_err.and(remove_err)
     }
 
     /// Rebuild updated callback when a rebuild job state updates

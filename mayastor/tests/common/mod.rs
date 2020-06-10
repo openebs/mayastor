@@ -8,6 +8,7 @@ use mayastor::{
     core::{MayastorEnvironment, Mthread},
     logger,
     rebuild::{RebuildJob, RebuildState},
+    replicas::rebuild::ClientOperations,
 };
 use spdk_sys::spdk_get_thread;
 use url::{ParseError, Url};
@@ -288,6 +289,18 @@ pub fn dd_urandom_blkdev(device: &str) -> String {
     assert_eq!(exit, 0, "stdout: {}\nstderr: {}", stdout, stderr);
     stdout
 }
+pub fn dd_urandom_file_size(device: &str, size: u64) -> String {
+    let (exit, stdout, _stderr) = run_script::run(
+        r#"
+        dd if=/dev/urandom of=$1 conv=fsync,nocreat,notrunc iflag=count_bytes count=$2
+    "#,
+        &vec![device.into(), size.to_string()],
+        &run_script::ScriptOptions::new(),
+    )
+        .unwrap();
+    assert_eq!(exit, 0);
+    stdout
+}
 
 pub fn compare_nexus_device(
     nexus_device: &str,
@@ -369,6 +382,7 @@ pub fn wait_for_rebuild(
         Ok(job) => job,
         Err(_) => return Ok(()),
     };
+    job.as_client().stats();
 
     let mut curr_state = job.state();
     let ch = job.notify_chan.1.clone();
@@ -397,4 +411,24 @@ pub fn wait_for_rebuild(
     });
     reactor_poll!(r);
     t.join().unwrap()
+}
+
+pub fn fio_verify_size(device: &str, size: u64) -> String {
+    let (exit, stdout, stderr) = run_script::run(
+        r#"
+        fio --thread=1 --numjobs=1 --iodepth=16 --bs=512 \
+        --direct=1 --ioengine=libaio --rw=randwrite --verify=crc32 \
+        --verify_fatal=1 --name=write_verify --filename=$1 --size=$2
+
+        fio --thread=1 --numjobs=1 --iodepth=16 --bs=512 \
+        --direct=1 --ioengine=libaio --verify=crc32 --verify_only \
+        --verify_fatal=1 --name=verify --filename=$1
+    "#,
+        &vec![device.into(), size.to_string()],
+        &run_script::ScriptOptions::new(),
+    )
+    .unwrap();
+    assert_eq!(exit, 0, "stdout: {}\nstderr: {}", stdout, stderr);
+    log::info!("stdout: {}\nstderr: {}", stdout, stderr);
+    stdout
 }
