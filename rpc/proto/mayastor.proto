@@ -24,7 +24,7 @@ enum PoolIoIf {
 // Currently we support only concatenation of disks (RAID-0).
 message CreatePoolRequest {
   string name = 1;           // name of the pool
-  repeated string disks = 2; // absolute disk device paths to be claimed by the pool
+  repeated string disks = 2; // disk device paths or URIs to be claimed by the pool
   uint32 block_size = 3; // when using files, we need to specify the block_size
   PoolIoIf io_if = 4;        // I/O interface
 }
