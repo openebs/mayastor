@@ -14,7 +14,7 @@ const { GrpcCode, GrpcError } = require('../grpc_client');
 module.exports = function () {
   const props = {
     name: 'pool',
-    disks: ['/dev/sda'],
+    disks: ['io_uring:///dev/sda'],
     state: 'POOL_ONLINE',
     capacity: 100,
     used: 4
@@ -67,21 +67,30 @@ module.exports = function () {
       });
       expect(pool.used).to.equal(99);
     });
-  });
 
-  it('should not emit event upon change of non-volatile property', () => {
-    const node = new Node('node');
-    const eventSpy = sinon.spy(node, 'emit');
-    const pool = new Pool(props);
-    node._registerPool(pool);
-    const newProps = _.clone(props);
-    newProps.disks = ['/dev/sdb'];
+    it('disk protocol', () => {
+      newProps.disks = ['aio:///dev/sda'];
+      pool.merge(newProps, []);
 
-    pool.merge(newProps, []);
+      sinon.assert.calledTwice(eventSpy);
+      sinon.assert.calledWith(eventSpy.lastCall, 'pool', {
+        eventType: 'mod',
+        object: pool
+      });
+      expect(pool.disks[0]).to.equal('aio:///dev/sda');
+    });
 
-    // Create pool event is expected, but no other.
-    sinon.assert.calledOnce(eventSpy);
-    sinon.assert.calledWithMatch(eventSpy, 'pool', { eventType: 'new' });
+    it('disk device', () => {
+      newProps.disks = ['aio:///dev/sdb'];
+      pool.merge(newProps, []);
+
+      sinon.assert.calledTwice(eventSpy);
+      sinon.assert.calledWith(eventSpy.lastCall, 'pool', {
+        eventType: 'mod',
+        object: pool
+      });
+      expect(pool.disks[0]).to.equal('aio:///dev/sdb');
+    });
   });
 
   it('should not emit event if nothing changed', () => {

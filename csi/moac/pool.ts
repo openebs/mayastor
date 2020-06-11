@@ -7,9 +7,12 @@ const log = require('./logger').Logger('pool');
 
 import { Replica } from './replica';
 
-const URI_REGEX = /^([a-z][a-z0-9+.-]+):\/\/(.+)$/g;
+const URI_REGEX = /^([^:]+):\/\/(.+)$/;
 
 // Utility function to strip URI prefix from a string.
+//
+// Normally we should not be stripping URIs but because mayastor gRPC does
+// not support URIs when creating a pool yet, we have to.
 function _stripUri(str: string) {
   const match = URI_REGEX.exec(str);
   return match ? match[2] : str;
@@ -36,7 +39,7 @@ export class Pool {
   constructor(props: any) {
     this.node = null; // set by registerPool method on node
     this.name = props.name;
-    this.disks = props.disks.map(_stripUri).sort();
+    this.disks = props.disks.sort();
     this.state = props.state;
     this.capacity = props.capacity;
     this.used = props.used;
@@ -59,14 +62,20 @@ export class Pool {
   merge(props: any, replicas: any[]) {
     let changed = false;
 
-    // The first case should not normally happen. We log a warning,
-    // record the change to the object but refrain from propagating the
-    // information further as it is not clear what the higher level code
-    // should do in such case or how to recover.
-    if (!_.isEqual(this.disks, props.disks.map(_stripUri).sort())) {
-      log.warn(
-        `Unexpected disk change of the pool "${this}" from ${this.disks} to ${props.disks.map(_stripUri)}`
-      );
+    // If access protocol to the disk has changed, it is ok and allowed.
+    // Though if device has changed then it is at least unusual and we log
+    // a warning message.
+    props.disks.sort();
+    if (!_.isEqual(this.disks, props.disks)) {
+      let oldDisks = this.disks.map(_stripUri).sort();
+      let newDisks = props.disks.map(_stripUri).sort();
+      if (!_.isEqual(oldDisks, newDisks)) {
+        log.warn(
+          `Unexpected disk change in the pool "${this}" from ${oldDisks} to ${newDisks}`
+        );
+      }
+      this.disks = props.disks;
+      changed = true;
     }
     if (this.state !== props.state) {
       this.state = props.state;

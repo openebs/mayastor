@@ -352,7 +352,6 @@ class Node extends EventEmitter {
     if (!poolInfo) {
       throw new GrpcError(GrpcCode.INTERNAL, `New pool "${name}" not found`);
     }
-    poolInfo.disks.sort();
 
     const newPool = new Pool(poolInfo);
     this._registerPool(newPool);
