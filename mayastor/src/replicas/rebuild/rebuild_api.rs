@@ -7,8 +7,9 @@ use snafu::Snafu;
 use std::fmt;
 
 use super::rebuild_impl::*;
+use crate::{bdev::VerboseError, nexus_uri::BdevCreateDestroy};
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, Snafu, Clone)]
 #[snafu(visibility = "pub(crate)")]
 #[allow(missing_docs)]
 /// Various rebuild errors when interacting with a rebuild job or
@@ -24,6 +25,10 @@ pub enum RebuildError {
     BdevNotFound { source: CoreError, bdev: String },
     #[snafu(display("IO failed for bdev {}", bdev))]
     IoError { source: CoreError, bdev: String },
+    #[snafu(display("Read IO failed for bdev {}", bdev))]
+    ReadIoError { source: CoreError, bdev: String },
+    #[snafu(display("Write IO failed for bdev {}", bdev))]
+    WriteIoError { source: CoreError, bdev: String },
     #[snafu(display("Failed to find rebuild job {}", job))]
     JobNotFound { job: String },
     #[snafu(display("Job {} already exists", job))]
@@ -47,7 +52,7 @@ pub enum RebuildError {
     RangeLockError {
         blk: u64,
         len: u64,
-        source: std::io::Error,
+        source: nix::errno::Errno,
     },
     #[snafu(display(
         "Failed to unlock LBA range for blk {}, len {}, with error: {}",
@@ -58,7 +63,12 @@ pub enum RebuildError {
     RangeUnLockError {
         blk: u64,
         len: u64,
-        source: std::io::Error,
+        source: nix::errno::Errno,
+    },
+    #[snafu(display("Failed to get bdev name from URI {}", uri))]
+    BdevInvalidURI {
+        source: BdevCreateDestroy,
+        uri: String,
     },
 }
 
@@ -112,7 +122,7 @@ pub struct RebuildJob {
     pub(super) range: std::ops::Range<u64>,
     pub(super) next: u64,
     pub(super) segment_size_blks: u64,
-    pub(super) tasks: RebuildTasks,
+    pub(super) task_pool: RebuildTasks,
     pub(super) notify_fn: fn(String, String) -> (),
     /// channel used to signal rebuild update
     pub notify_chan: (Sender<RebuildState>, Receiver<RebuildState>),
@@ -120,6 +130,8 @@ pub struct RebuildJob {
     pub(super) states: RebuildStates,
     /// channel list which allows the await of the rebuild
     pub(super) complete_chan: Vec<oneshot::Sender<RebuildState>>,
+    /// rebuild copy error, if any
+    pub error: Option<RebuildError>,
 }
 
 /// rebuild statistics
@@ -214,6 +226,14 @@ impl RebuildJob {
     /// State of the rebuild job
     pub fn state(&self) -> RebuildState {
         self.states.current
+    }
+
+    /// Error description
+    pub fn error_desc(&self) -> String {
+        match self.error.as_ref() {
+            Some(e) => e.verbose(),
+            _ => "".to_string(),
+        }
     }
 
     /// ClientOperations trait

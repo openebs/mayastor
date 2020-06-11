@@ -2,8 +2,15 @@ extern crate log;
 
 use crossbeam::channel::unbounded;
 
-use std::{ffi::CString, time::Duration};
+use std::time::Duration;
 pub mod common;
+pub use common::error_bdev::{
+    create_error_bdev,
+    inject_error,
+    SPDK_BDEV_IO_TYPE_READ,
+    SPDK_BDEV_IO_TYPE_WRITE,
+    VBDEV_IO_FAILURE,
+};
 use mayastor::{
     bdev::{nexus_create, nexus_lookup, NexusErrStore},
     core::{
@@ -13,14 +20,6 @@ use mayastor::{
         MayastorEnvironment,
         Reactor,
     },
-};
-
-use spdk_sys::{
-    create_aio_bdev,
-    spdk_vbdev_error_create,
-    spdk_vbdev_error_inject_error,
-    SPDK_BDEV_IO_TYPE_READ,
-    SPDK_BDEV_IO_TYPE_WRITE,
 };
 
 static ERROR_COUNT_TEST_NEXUS: &str = "error_count_test_nexus";
@@ -34,9 +33,6 @@ static ERROR_DEVICE: &str = "error_device";
 static EE_ERROR_DEVICE: &str = "EE_error_device"; // The prefix is added by the vbdev_error module
 static BDEV_EE_ERROR_DEVICE: &str = "bdev:///EE_error_device";
 
-// constant used by the vbdev_error module but not exported
-const VBDEV_IO_FAILURE: u32 = 1;
-
 #[test]
 fn nexus_error_count_test() {
     common::truncate_file(DISKNAME1, 64 * 1024);
@@ -45,7 +41,7 @@ fn nexus_error_count_test() {
     test_init!();
 
     Reactor::block_on(async {
-        create_error_bdev().await;
+        create_error_bdev(ERROR_DEVICE, DISKNAME2);
         create_nexus().await;
         err_write_nexus(true).await;
         err_read_nexus_both(true).await;
@@ -74,7 +70,12 @@ fn nexus_error_count_test() {
     );
 
     Reactor::block_on(async {
-        inject_error(SPDK_BDEV_IO_TYPE_WRITE, VBDEV_IO_FAILURE, 1).await;
+        inject_error(
+            EE_ERROR_DEVICE,
+            SPDK_BDEV_IO_TYPE_WRITE,
+            VBDEV_IO_FAILURE,
+            1,
+        );
         err_write_nexus(false).await;
         err_read_nexus_both(true).await;
     });
@@ -102,7 +103,12 @@ fn nexus_error_count_test() {
     );
 
     Reactor::block_on(async {
-        inject_error(SPDK_BDEV_IO_TYPE_READ, VBDEV_IO_FAILURE, 1).await;
+        inject_error(
+            EE_ERROR_DEVICE,
+            SPDK_BDEV_IO_TYPE_READ,
+            VBDEV_IO_FAILURE,
+            1,
+        );
         err_read_nexus_both(false).await;
         err_write_nexus(true).await;
     });
@@ -132,8 +138,18 @@ fn nexus_error_count_test() {
     // overflow the error store with errored reads and writes, assumes default
     // buffer size of 256 records
     Reactor::block_on(async {
-        inject_error(SPDK_BDEV_IO_TYPE_READ, VBDEV_IO_FAILURE, 257).await;
-        inject_error(SPDK_BDEV_IO_TYPE_WRITE, VBDEV_IO_FAILURE, 100).await;
+        inject_error(
+            EE_ERROR_DEVICE,
+            SPDK_BDEV_IO_TYPE_READ,
+            VBDEV_IO_FAILURE,
+            257,
+        );
+        inject_error(
+            EE_ERROR_DEVICE,
+            SPDK_BDEV_IO_TYPE_WRITE,
+            VBDEV_IO_FAILURE,
+            100,
+        );
         for _ in 0 .. 257 {
             err_read_nexus_both(false).await;
         }
@@ -179,37 +195,6 @@ fn nexus_error_count_test() {
     );
 
     mayastor_env_stop(0);
-}
-
-async fn inject_error(op: u32, mode: u32, count: u32) {
-    let retval: i32;
-    let err_bdev_name_str =
-        CString::new(EE_ERROR_DEVICE).expect("Failed to create name string");
-    let raw = err_bdev_name_str.into_raw();
-
-    unsafe {
-        retval = spdk_vbdev_error_inject_error(raw, op, mode, count);
-    }
-    assert_eq!(retval, 0);
-}
-
-async fn create_error_bdev() {
-    let mut retval: i32;
-    let cname = CString::new(ERROR_DEVICE).unwrap();
-    let filename = CString::new(DISKNAME2).unwrap();
-
-    unsafe {
-        // this allows us to create a bdev without its name being a uri
-        retval = create_aio_bdev(cname.as_ptr(), filename.as_ptr(), 512)
-    };
-    assert_eq!(retval, 0);
-
-    let err_bdev_name_str = CString::new(ERROR_DEVICE.to_string())
-        .expect("Failed to create name string");
-    unsafe {
-        retval = spdk_vbdev_error_create(err_bdev_name_str.as_ptr()); // create the error bdev around it
-    }
-    assert_eq!(retval, 0);
 }
 
 async fn create_nexus() {

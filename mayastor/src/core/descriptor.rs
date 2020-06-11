@@ -99,7 +99,7 @@ impl Descriptor {
         &self,
         ctx: &mut RangeContext,
         ch: &IoChannel,
-    ) -> Result<(), std::io::Error> {
+    ) -> Result<(), nix::errno::Errno> {
         let (s, r) = oneshot::channel::<i32>();
         ctx.sender = Box::into_raw(Box::new(s));
 
@@ -113,14 +113,14 @@ impl Descriptor {
                 ctx as *const _ as *mut c_void,
             );
             if rc != 0 {
-                return Err(std::io::Error::from_raw_os_error(rc));
+                return Err(nix::errno::from_i32(rc));
             }
         }
 
         // Wait for the lock to complete
         let rc = r.await.unwrap();
         if rc != 0 {
-            return Err(std::io::Error::from_raw_os_error(rc));
+            return Err(nix::errno::from_i32(rc));
         }
 
         Ok(())
@@ -132,7 +132,7 @@ impl Descriptor {
         &self,
         ctx: &mut RangeContext,
         ch: &IoChannel,
-    ) -> Result<(), std::io::Error> {
+    ) -> Result<(), nix::errno::Errno> {
         let (s, r) = oneshot::channel::<i32>();
         ctx.sender = Box::into_raw(Box::new(s));
 
@@ -146,14 +146,14 @@ impl Descriptor {
                 ctx as *const _ as *mut c_void,
             );
             if rc != 0 {
-                return Err(std::io::Error::from_raw_os_error(rc));
+                return Err(nix::errno::from_i32(rc));
             }
         }
 
         // Wait for the unlock to complete
         let rc = r.await.unwrap();
         if rc != 0 {
-            return Err(std::io::Error::from_raw_os_error(rc));
+            return Err(nix::errno::from_i32(rc));
         }
 
         Ok(())

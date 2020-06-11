@@ -12,7 +12,7 @@ use crate::{
     nexus_uri::{self, BdevCreateDestroy},
 };
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, Snafu, Clone)]
 pub enum IscsiParseError {
     // no parse errors for iscsi urls - we should have some probably
 }

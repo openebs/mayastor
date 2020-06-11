@@ -106,7 +106,7 @@ async fn create_nexus() {
 async fn lock_range(
     ctx: &mut RangeContext,
     ch: &IoChannel,
-) -> Result<(), std::io::Error> {
+) -> Result<(), nix::errno::Errno> {
     let nexus = Bdev::open_by_name(NEXUS_NAME, true).unwrap();
     nexus.lock_lba_range(ctx, ch).await
 }
@@ -114,7 +114,7 @@ async fn lock_range(
 async fn unlock_range(
     ctx: &mut RangeContext,
     ch: &IoChannel,
-) -> Result<(), std::io::Error> {
+) -> Result<(), nix::errno::Errno> {
     let nexus = Bdev::open_by_name(NEXUS_NAME, true).unwrap();
     nexus.unlock_lba_range(ctx, ch).await
 }

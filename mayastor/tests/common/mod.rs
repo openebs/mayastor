@@ -13,6 +13,7 @@ use mayastor::{
 use spdk_sys::spdk_get_thread;
 use url::{ParseError, Url};
 
+pub mod error_bdev;
 pub mod ms_exec;
 /// call F cnt times, and sleep for a duration between each invocation
 pub fn retry<F, T, E>(mut cnt: u32, timeout: Duration, mut f: F) -> T
@@ -277,7 +278,7 @@ pub fn thread() -> Option<Mthread> {
     Mthread::from_null_checked(unsafe { spdk_get_thread() })
 }
 
-pub fn dd_urandom_blkdev(device: &str) -> String {
+pub fn dd_urandom_blkdev(device: &str) -> i32 {
     let (exit, stdout, stderr) = run_script::run(
         r#"
         dd if=/dev/urandom of=$1 conv=fsync,nocreat,notrunc iflag=count_bytes count=`blockdev --getsize64 $1`
@@ -287,8 +288,7 @@ pub fn dd_urandom_blkdev(device: &str) -> String {
     )
     .unwrap();
     log::trace!("dd_urandom_blkdev:\nstdout: {}\nstderr: {}", stdout, stderr);
-    assert_eq!(exit, 0);
-    stdout
+    exit
 }
 pub fn dd_urandom_file_size(device: &str, size: u64) -> String {
     let (exit, stdout, _stderr) = run_script::run(
@@ -418,7 +418,7 @@ pub fn wait_for_rebuild(
     t.join().unwrap()
 }
 
-pub fn fio_verify_size(device: &str, size: u64) -> String {
+pub fn fio_verify_size(device: &str, size: u64) -> i32 {
     let (exit, stdout, stderr) = run_script::run(
         r#"
         fio --thread=1 --numjobs=1 --iodepth=16 --bs=512 \
@@ -433,7 +433,6 @@ pub fn fio_verify_size(device: &str, size: u64) -> String {
         &run_script::ScriptOptions::new(),
     )
     .unwrap();
-    assert_eq!(exit, 0, "stdout: {}\nstderr: {}", stdout, stderr);
     log::info!("stdout: {}\nstderr: {}", stdout, stderr);
-    stdout
+    exit
 }

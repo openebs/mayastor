@@ -18,6 +18,7 @@ use crate::{
     },
     core::Reactors,
     rebuild::{ClientOperations, RebuildJob, RebuildState},
+    replicas::rebuild::RebuildError,
 };
 
 impl Nexus {
@@ -223,23 +224,50 @@ impl Nexus {
         &mut self,
         job: &RebuildJob,
     ) -> Result<(), Error> {
-        let recovered_child = self.get_child_by_name(&job.destination)?;
+        let recovering_child = self.get_child_by_name(&job.destination)?;
 
-        if job.state() == RebuildState::Completed {
-            recovered_child.out_of_sync(false);
-            info!(
-                "Child {} has been rebuilt successfully",
-                recovered_child.name
-            );
+        match job.state() {
+            RebuildState::Completed => {
+                recovering_child.out_of_sync(false);
+                info!(
+                    "Child {} has been rebuilt successfully",
+                    recovering_child.name
+                );
 
-            assert_eq!(recovered_child.status(), ChildStatus::Online);
-        } else {
-            error!(
-                "Rebuild job for child {} of nexus {} failed with state {:?}",
-                &job.destination,
-                &self.name,
-                job.state()
-            );
+                assert_eq!(recovering_child.status(), ChildStatus::Online);
+            }
+            RebuildState::Stopped => {
+                info!(
+                    "Rebuild job for child {} of nexus {} stopped",
+                    &job.destination, &self.name,
+                );
+            }
+            RebuildState::Failed => {
+                // rebuild has failed so we need to set the child as faulted
+                // allowing the control plane to replace it with another
+                if let Some(RebuildError::ReadIoError {
+                    ..
+                }) = job.error
+                {
+                    // todo: retry rebuild using another child as source?
+                }
+                recovering_child.fault();
+                error!(
+                    "Rebuild job for child {} of nexus {} failed, error: {}",
+                    &job.destination,
+                    &self.name,
+                    job.error_desc(),
+                );
+            }
+            _ => {
+                recovering_child.fault();
+                error!(
+                    "Rebuild job for child {} of nexus {} failed with state {:?}",
+                    &job.destination,
+                    &self.name,
+                    job.state(),
+                );
+            }
         }
 
         self.reconfigure(DREvent::ChildRebuild).await;

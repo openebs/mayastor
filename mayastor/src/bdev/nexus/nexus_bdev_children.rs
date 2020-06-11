@@ -27,24 +27,27 @@ use futures::future::join_all;
 use snafu::ResultExt;
 
 use crate::{
-    bdev::nexus::{
-        nexus_bdev::{
-            CreateChild,
-            DestroyChild,
-            Error,
-            Nexus,
-            NexusState,
-            NexusStatus,
-            OpenChild,
+    bdev::{
+        nexus::{
+            nexus_bdev::{
+                CreateChild,
+                DestroyChild,
+                Error,
+                Nexus,
+                NexusState,
+                NexusStatus,
+                OpenChild,
+            },
+            nexus_channel::DREvent,
+            nexus_child::{ChildState, NexusChild},
+            nexus_label::{
+                LabelError,
+                NexusChildLabel,
+                NexusLabel,
+                NexusLabelStatus,
+            },
         },
-        nexus_channel::DREvent,
-        nexus_child::{ChildState, NexusChild},
-        nexus_label::{
-            LabelError,
-            NexusChildLabel,
-            NexusLabel,
-            NexusLabelStatus,
-        },
+        VerboseError,
     },
     core::Bdev,
     nexus_uri::{bdev_create, bdev_destroy, BdevCreateDestroy},
@@ -106,7 +109,10 @@ impl Nexus {
         if rebuild {
             if let Err(e) = self.start_rebuild(&uri).await {
                 // todo: CAS-253 retry starting the rebuild again when ready
-                error!("Child added but rebuild failed to start: {}", e);
+                error!(
+                    "Child added but rebuild failed to start: {}",
+                    e.verbose()
+                );
             }
         }
         Ok(status)
