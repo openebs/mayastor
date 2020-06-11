@@ -119,8 +119,8 @@ module.exports = function () {
           expect(poolObjects).to.have.lengthOf(1);
           expect(poolObjects[0].name).to.equal('pool');
           expect(poolObjects[0].disks).to.have.lengthOf(2);
-          expect(poolObjects[0].disks[0]).to.equal('/dev/sdb');
-          expect(poolObjects[0].disks[1]).to.equal('/dev/sdc');
+          expect(poolObjects[0].disks[0]).to.equal('aio:///dev/sdb');
+          expect(poolObjects[0].disks[1]).to.equal('aio:///dev/sdc');
           expect(poolObjects[0].state).to.equal('POOL_ONLINE');
           expect(poolObjects[0].capacity).to.equal(100);
           expect(poolObjects[0].used).to.equal(14);
@@ -545,7 +545,7 @@ module.exports = function () {
         expect(ev.eventType).to.equal('new');
         expect(ev.object.name).to.equal('pool');
         expect(ev.object.disks).to.have.lengthOf(1);
-        expect(ev.object.disks[0]).to.equal('/dev/sda');
+        expect(ev.object.disks[0]).to.equal('aio:///dev/sda');
         expect(node.pools).to.have.lengthOf(1);
         emitted = true;
       });

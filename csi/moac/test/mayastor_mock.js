@@ -80,9 +80,7 @@ class MayastorServer {
         } else {
           self.pools.push({
             name: args.name,
-            disks: args.disks.map((d) => {
-              return 'aio://' + d;
-            }),
+            disks: args.disks,
             state: enums.POOL_ONLINE,
             capacity: 100,
             used: 4
@@ -103,8 +101,14 @@ class MayastorServer {
           cb(err);
         }
       },
-      listPools: (_, cb) => {
-        cb(null, { pools: self.pools });
+      listPools: (_unused, cb) => {
+        cb(null, {
+          pools: self.pools.map(p => {
+            p = _.cloneDeep(p);
+            p.disks = p.disks.map((d) => `aio://${d}`);
+            return p;
+          })
+        });
       },
       createReplica: (call, cb) => {
         const args = call.request;
@@ -159,10 +163,10 @@ class MayastorServer {
           cb(err);
         }
       },
-      listReplicas: (_, cb) => {
+      listReplicas: (_unused, cb) => {
         cb(null, { replicas: self.replicas });
       },
-      statReplicas: (_, cb) => {
+      statReplicas: (_unused, cb) => {
         self.statCounter += STAT_DELTA;
         cb(null, {
           replicas: self.replicas.map((r) => {
@@ -237,7 +241,7 @@ class MayastorServer {
           cb(err);
         }
       },
-      listNexus: (_, cb) => {
+      listNexus: (_unused, cb) => {
         cb(null, { nexusList: self.nexus });
       },
       publishNexus: (call, cb) => {
@@ -299,7 +303,7 @@ class MayastorServer {
         cb();
       },
       // dummy impl to silence the warning about unimplemented method
-      childOperation: (_, cb) => {
+      childOperation: (_unused, cb) => {
         cb();
       }
     });
