@@ -170,7 +170,7 @@ fn core_4() {
                 let nexus = nexus_lookup(nexus_name).unwrap();
 
                 if child_ok {
-                    nexus.add_child(&BDEVNAME2, false).await.unwrap_or_else(
+                    nexus.add_child(&BDEVNAME2, true).await.unwrap_or_else(
                         |_| {
                             panic!(
                                 "Case {} - Child should have been added",
@@ -179,7 +179,7 @@ fn core_4() {
                         },
                     );
                 } else {
-                    nexus.add_child(&BDEVNAME2, false).await.expect_err(
+                    nexus.add_child(&BDEVNAME2, true).await.expect_err(
                         &format!(
                             "Case {} - Child should have been added",
                             test_case_index

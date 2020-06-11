@@ -6,7 +6,7 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     container:
-      image: docker.io/teamrebuild/ms-buildenv:spdk-changes
+      image: docker.io/mayadata/ms-buildenv:latest
     steps:
       - uses: actions/checkout@master
       - uses: actions-rs/toolchain@master
@@ -21,7 +21,7 @@ jobs:
     name: SemiStandard
     runs-on: ubuntu-latest
     container:
-      image: docker.io/teamrebuild/ms-buildenv:spdk-changes
+      image: docker.io/mayadata/ms-buildenv:latest
     steps:
       - uses: actions/checkout@master
       - run: git ls-files | grep '\.js$' | xargs -r semistandard --env node --env mocha

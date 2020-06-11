@@ -283,7 +283,7 @@ impl Mayastor for MayastorGrpc {
                         .iter()
                         .map(Child::from)
                         .collect::<Vec<_>>(),
-                    rebuilds: RebuildJob::count() as u64,
+                    rebuilds: RebuildJob::count() as u32,
                 })
                 .collect::<Vec<_>>(),
         };
@@ -300,7 +300,7 @@ impl Mayastor for MayastorGrpc {
         let uuid = args.uuid.clone();
         debug!("Adding child {} to nexus {} ...", args.uri, uuid);
         locally! { async move {
-            nexus_lookup(&args.uuid)?.add_child(&args.uri, args.rebuild).await.map(|_| ())
+            nexus_lookup(&args.uuid)?.add_child(&args.uri, args.norebuild).await.map(|_| ())
         }};
         info!("Added child to nexus {}", uuid);
         Ok(Response::new(Null {}))

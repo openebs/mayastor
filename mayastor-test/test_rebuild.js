@@ -77,7 +77,7 @@ const rebuildArgs = {
 const addChildArgs = {
   uuid: UUID,
   uri: `aio:///${child2}?blk_size=4096`,
-  rebuild: false
+  norebuild: true
 };
 
 const childOnlineArgs = {

@@ -479,7 +479,7 @@ describe('nexus', function () {
     const args = {
       uuid: UUID,
       uri: 'nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk2',
-      rebuild: true
+      norebuild: false
     };
 
     client.AddChildNexus(args, (err) => {

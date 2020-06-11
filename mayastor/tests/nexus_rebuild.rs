@@ -97,14 +97,14 @@ fn rebuild_test_add() {
         nexus_create(NEXUS_SIZE, 1, true).await;
         let nexus = nexus_lookup(nexus_name()).unwrap();
 
-        nexus.add_child(&get_dev(1), true).await.unwrap();
+        nexus.add_child(&get_dev(1), false).await.unwrap();
         nexus
             .start_rebuild(&get_dev(1))
             .await
             .expect_err("rebuild expected to be present");
         nexus_test_child(1).await;
 
-        nexus.add_child(&get_dev(2), false).await.unwrap();
+        nexus.add_child(&get_dev(2), true).await.unwrap();
         let _ = nexus
             .start_rebuild(&get_dev(2))
             .await
@@ -120,7 +120,7 @@ fn rebuild_test_add() {
 fn rebuild_progress() {
     test_ini("rebuild_progress");
 
-    async fn test_progress(polls: u64, progress: u64) -> u64 {
+    async fn test_progress(polls: u64, progress: u32) -> u32 {
         let nexus = nexus_lookup(nexus_name()).unwrap();
         nexus.resume_rebuild(&get_dev(1)).await.unwrap();
         // { polls } to poll with an expr rather than an ident
@@ -294,7 +294,7 @@ async fn nexus_create(size: u64, children: u64, fill_random: bool) {
 async fn nexus_add_child(new_child: u64, wait: bool) {
     let nexus = nexus_lookup(nexus_name()).unwrap();
 
-    nexus.add_child(&get_dev(new_child), true).await.unwrap();
+    nexus.add_child(&get_dev(new_child), false).await.unwrap();
 
     if wait {
         common::wait_for_rebuild(
@@ -373,7 +373,7 @@ fn rebuild_sizes() {
             // match the nexus size
             nexus_create(nexus_size, 2, false).await;
             let nexus = nexus_lookup(nexus_name()).unwrap();
-            nexus.add_child(&get_dev(2), false).await.unwrap();
+            nexus.add_child(&get_dev(2), true).await.unwrap();
             // within start_rebuild the size should be validated
             let _ = nexus.start_rebuild(&get_dev(2)).await.unwrap_or_else(|e| {
                 log::error!( "Case {} - Child should have started to rebuild but got error:\n {:}",
@@ -432,7 +432,7 @@ fn rebuild_lookup() {
         let children = 6;
         nexus_create(NEXUS_SIZE, children, false).await;
         let nexus = nexus_lookup(nexus_name()).unwrap();
-        nexus.add_child(&get_dev(children), false).await.unwrap();
+        nexus.add_child(&get_dev(children), true).await.unwrap();
 
         for child in 0 .. children {
             RebuildJob::lookup(&get_dev(child)).expect_err("Should not exist");
@@ -484,10 +484,7 @@ fn rebuild_lookup() {
                 .count(),
             1
         );
-        nexus
-            .add_child(&get_dev(children + 1), false)
-            .await
-            .unwrap();
+        nexus.add_child(&get_dev(children + 1), true).await.unwrap();
         let _ = nexus.start_rebuild(&get_dev(children + 1)).await.unwrap();
         assert_eq!(RebuildJob::lookup_src(&src).len(), 2);
 
@@ -609,7 +606,7 @@ fn rebuild_fault_src() {
         nexus_create(NEXUS_SIZE, 1, false).await;
 
         let nexus = nexus_lookup(nexus_name()).unwrap();
-        nexus.add_child(&get_dev(1), true).await.unwrap();
+        nexus.add_child(&get_dev(1), false).await.unwrap();
 
         error_bdev::inject_error(
             &get_err_dev(0),
@@ -643,7 +640,7 @@ fn rebuild_fault_dst() {
         nexus_create(NEXUS_SIZE, 1, false).await;
 
         let nexus = nexus_lookup(nexus_name()).unwrap();
-        nexus.add_child(&get_dev(1), true).await.unwrap();
+        nexus.add_child(&get_dev(1), false).await.unwrap();
 
         error_bdev::inject_error(
             &get_err_dev(1),

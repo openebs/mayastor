@@ -190,7 +190,7 @@ class Nexus {
       await this.node.call('addChildNexus', {
         uuid: this.uuid,
         uri: uri,
-        rebuild: true
+        norebuild: false
       });
     } catch (err) {
       throw new GrpcError(

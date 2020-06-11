@@ -125,8 +125,7 @@ describe('cli', function () {
           method: 'AddChildNexus',
           input: {
             uuid: UUID,
-            uri: 'child_a',
-            rebuild: true
+            uri: 'child_a'
           },
           output: {}
         },

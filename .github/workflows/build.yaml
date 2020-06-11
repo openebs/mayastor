@@ -5,14 +5,13 @@ on:
   push:
     branches:
       - develop
-      - feature/rebuild
 jobs:
   Build_and_run_cargo:
     name: Build and run cargo tests
     runs-on: self-hosted
     timeout-minutes: 20
     container:
-      image: docker.io/teamrebuild/ms-buildenv:spdk-changes
+      image: docker.io/mayadata/ms-buildenv:latest
       options: --privileged -v /dev:/dev -v /bin:/host/bin -v /lib/modules:/lib/modules
     steps:
       - uses: actions/checkout@v2
@@ -41,7 +40,7 @@ jobs:
     name: Build and run moac tests
     runs-on: ubuntu-latest
     container:
-      image: docker.io/teamrebuild/ms-buildenv:spdk-changes
+      image: docker.io/mayadata/ms-buildenv:latest
     steps:
       - uses: actions/checkout@v2
       # npm prepare is normally done by npm install but not if run as a root
@@ -61,7 +60,7 @@ jobs:
       - run: ( sudo modprobe xfs )
       # In line below change 2048 to 8192 if running on self-hosted instead of ubuntu-latest.
       - run: ( echo 2048 | sudo tee /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages )
-      - run: ( /usr/bin/docker create --name mochaTest --workdir /__w/Mayastor/Mayastor --network host --privileged -v /dev:/dev -v /:/host  --cpus 2 -v "/var/run/docker.sock":"/var/run/docker.sock" -v "/home/runner/work":"/__w" --entrypoint "tail" docker.io/teamrebuild/ms-buildenv:spdk-changes "-f" "/dev/null" )
+      - run: ( /usr/bin/docker create --name mochaTest --workdir /__w/Mayastor/Mayastor --network host --privileged -v /dev:/dev -v /:/host  --cpus 2 -v "/var/run/docker.sock":"/var/run/docker.sock" -v "/home/runner/work":"/__w" --entrypoint "tail" docker.io/mayadata/ms-buildenv:latest "-f" "/dev/null" )
       - run: ( /usr/bin/docker start mochaTest )
       - run: ( /usr/bin/docker exec mochaTest /bin/sh -c 'printf "#!/usr/bin/env bash\nchroot /host /usr/bin/env -i PATH=\"/sbin:/bin:/usr/bin\" iscsiadm \"\$@\"\n" > /bin/mayastor-iscsiadm && chmod +x /bin/mayastor-iscsiadm' )
       - run: ( /usr/bin/docker exec mochaTest /bin/sh -c "cd target/debug/ && chmod a+x mayastor mayastor-client mayastor-agent spdk initiator mctl" )

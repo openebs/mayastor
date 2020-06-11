@@ -278,7 +278,7 @@ module.exports = function () {
       sinon.assert.calledWith(callStub, 'addChildNexus', {
         uuid: UUID,
         uri: 'iscsi://' + UUID,
-        rebuild: true
+        norebuild: false
       });
       expect(nexus.children).to.have.lengthOf(3);
       // should be sorted according to uri
@@ -307,7 +307,7 @@ module.exports = function () {
       sinon.assert.calledWith(callStub, 'addChildNexus', {
         uuid: UUID,
         uri: 'iscsi://' + UUID,
-        rebuild: true
+        norebuild: false
       });
       expect(nexus.children).to.have.lengthOf(2);
       expect(nexus.children[0].uri).to.equal('bdev:///' + UUID);

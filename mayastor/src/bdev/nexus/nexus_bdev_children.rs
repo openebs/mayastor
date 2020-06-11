@@ -102,11 +102,11 @@ impl Nexus {
     pub async fn add_child(
         &mut self,
         uri: &str,
-        rebuild: bool,
+        norebuild: bool,
     ) -> Result<NexusStatus, Error> {
         let status = self.add_child_only(uri).await?;
 
-        if rebuild {
+        if !norebuild {
             if let Err(e) = self.start_rebuild(&uri).await {
                 // todo: CAS-253 retry starting the rebuild again when ready
                 error!(

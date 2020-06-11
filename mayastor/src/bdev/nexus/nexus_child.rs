@@ -445,9 +445,9 @@ impl NexusChild {
     }
 
     /// Return the rebuild progress on this child, if rebuilding
-    pub fn get_rebuild_progress(&self) -> i64 {
+    pub fn get_rebuild_progress(&self) -> i32 {
         self.get_rebuild_job()
-            .map(|j| j.stats().progress as i64)
+            .map(|j| j.stats().progress as i32)
             .unwrap_or_else(|| -1)
     }
 }

@@ -61,7 +61,7 @@ pub(crate) fn register_rpc_methods() {
                         .map(Child::from)
                         .collect::<Vec<_>>(),
                     device_path: nexus.get_share_path().unwrap_or_default(),
-                    rebuilds: RebuildJob::count() as u64,
+                    rebuilds: RebuildJob::count() as u32,
                 })
                 .collect::<Vec<_>>(),
         })
@@ -167,7 +167,7 @@ pub(crate) fn register_rpc_methods() {
     jsonrpc_register("add_child_nexus", |args: AddChildNexusRequest| {
         let fut = async move {
             let nexus = nexus_lookup(&args.uuid)?;
-            nexus.add_child(&args.uri, args.rebuild).await.map(|_| ())
+            nexus.add_child(&args.uri, args.norebuild).await.map(|_| ())
         };
         fut.boxed_local()
     });

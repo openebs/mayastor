@@ -3,18 +3,21 @@ use rpc::mayastor::{RebuildProgressReply, RebuildStateReply};
 use snafu::ResultExt;
 
 use crate::{
-    bdev::nexus::{
-        nexus_bdev::{
-            nexus_lookup,
-            CreateRebuildError,
-            Error,
-            Nexus,
-            RebuildJobNotFound,
-            RebuildOperationError,
-            RemoveRebuildJob,
+    bdev::{
+        nexus::{
+            nexus_bdev::{
+                nexus_lookup,
+                CreateRebuildError,
+                Error,
+                Nexus,
+                RebuildJobNotFound,
+                RebuildOperationError,
+                RemoveRebuildJob,
+            },
+            nexus_channel::DREvent,
+            nexus_child::{ChildState, ChildStatus},
         },
-        nexus_channel::DREvent,
-        nexus_child::{ChildState, ChildStatus},
+        VerboseError,
     },
     core::Reactors,
     rebuild::{ClientOperations, RebuildJob, RebuildState},
@@ -154,7 +157,7 @@ impl Nexus {
         let rj = self.get_rebuild_job(name)?;
 
         Ok(RebuildProgressReply {
-            progress: rj.as_client().stats().progress,
+            progress: rj.as_client().stats().progress as u32,
         })
     }
 
@@ -183,7 +186,7 @@ impl Nexus {
             }
 
             if let Err(e) = self.start_rebuild(&job.0).await {
-                error!("Failed to recreate rebuild: {}", e);
+                error!("Failed to recreate rebuild: {}", e.verbose());
             }
         }
 
@@ -302,7 +305,10 @@ impl Nexus {
 
         if let Some(nexus) = nexus_lookup(&nexus) {
             if let Err(e) = nexus.on_rebuild_update(job).await {
-                error!("Failed to complete the rebuild with error {}", e);
+                error!(
+                    "Failed to complete the rebuild with error {}",
+                    e.verbose()
+                );
             }
         } else {
             error!("Failed to find nexus {} for rebuild job {}", nexus, job);
