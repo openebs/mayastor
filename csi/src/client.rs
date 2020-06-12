@@ -425,12 +425,18 @@ async fn nexus_add(
 ) -> Result<(), Status> {
     let uuid = matches.value_of("uuid").unwrap().to_string();
     let uri = matches.value_of("uri").unwrap().to_string();
+    let norebuild = matches
+        .value_of("norebuild")
+        .unwrap_or("false")
+        .parse::<bool>()
+        .unwrap_or(false);
 
     ctx.v2(&format!("Adding {} to children of {}", uri, uuid));
     ctx.client
         .add_child_nexus(rpc::AddChildNexusRequest {
             uuid: uuid.clone(),
             uri: uri.clone(),
+            norebuild,
         })
         .await?;
     ctx.v1(&format!("Added {} to children of {}", uri, uuid));

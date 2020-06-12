@@ -12,7 +12,7 @@ use spdk_sys::{
 };
 
 use crate::{
-    bdev::nexus::{nexus_child::ChildState, Nexus},
+    bdev::{nexus::nexus_child::ChildStatus, Nexus},
     core::BdevHandle,
 };
 
@@ -27,6 +27,7 @@ pub(crate) struct NexusChannel {
 #[derive(Debug)]
 pub(crate) struct NexusChannelInner {
     pub(crate) ch: Vec<BdevHandle>,
+    pub(crate) write_only: usize,
     pub(crate) previous: usize,
     device: *mut c_void,
 }
@@ -40,12 +41,16 @@ pub enum DREvent {
     ChildOnline,
     /// mark the child as faulted
     ChildFault,
+    /// Child remove reconfiguration event
+    ChildRemove,
+    /// Child rebuild event
+    ChildRebuild,
 }
 
 impl NexusChannelInner {
     /// very simplistic routine to rotate between children for read operations
     pub(crate) fn child_select(&mut self) -> usize {
-        if self.previous != self.ch.len() - 1 {
+        if self.previous != self.ch.len() - self.write_only - 1 {
             self.previous += 1;
         } else {
             self.previous = 0;
@@ -69,7 +74,7 @@ impl NexusChannelInner {
         trace!(
             "{}: Current number of IO channels {}",
             nexus.name,
-            self.ch.len()
+            self.ch.len(),
         );
 
         // clear the vector of channels and reset other internal values,
@@ -77,18 +82,34 @@ impl NexusChannelInner {
         // channel
         self.ch.clear();
         self.previous = 0;
+        self.write_only = 0;
 
         // iterate to over all our children which are in the open state
         nexus
             .children
             .iter_mut()
-            .filter(|c| c.state == ChildState::Open)
+            .filter(|c| c.status() == ChildStatus::Online)
             .map(|c| {
                 self.ch.push(
                     BdevHandle::try_from(c.get_descriptor().unwrap()).unwrap(),
                 )
             })
             .for_each(drop);
+
+        if !self.ch.is_empty() {
+            nexus
+                .children
+                .iter_mut()
+                .filter(|c| c.rebuilding())
+                .map(|c| {
+                    self.write_only += 1;
+                    self.ch.push(
+                        BdevHandle::try_from(c.get_descriptor().unwrap())
+                            .unwrap(),
+                    )
+                })
+                .for_each(drop);
+        }
 
         trace!(
             "{}: New number of IO channels {} out of {} children",
@@ -114,13 +135,14 @@ impl NexusChannel {
         let mut channels = Box::new(NexusChannelInner {
             ch: Vec::new(),
             previous: 0,
+            write_only: 0,
             device,
         });
 
         nexus
             .children
             .iter_mut()
-            .filter(|c| c.state == ChildState::Open)
+            .filter(|c| c.status() == ChildStatus::Online)
             .map(|c| {
                 channels.ch.push(
                     BdevHandle::try_from(c.get_descriptor().unwrap()).unwrap(),
@@ -144,7 +166,9 @@ impl NexusChannel {
         match event {
             DREvent::ChildOffline
             | DREvent::ChildOnline
-            | DREvent::ChildFault => unsafe {
+            | DREvent::ChildRemove
+            | DREvent::ChildFault
+            | DREvent::ChildRebuild => unsafe {
                 spdk_for_each_channel(
                     device,
                     Some(NexusChannel::refresh_io_channels),

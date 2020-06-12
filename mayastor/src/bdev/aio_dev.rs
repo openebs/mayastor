@@ -12,7 +12,7 @@ use crate::{
     nexus_uri::{self, BdevCreateDestroy},
 };
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, Snafu, Clone)]
 pub enum AioParseError {
     #[snafu(display("Missing path to aio device"))]
     PathMissing {},

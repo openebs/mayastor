@@ -40,7 +40,9 @@ impl IoChannel {
 
 impl Drop for IoChannel {
     fn drop(&mut self) {
-        trace!("[D] {:?}", self);
+        // temporarily comment out the trace message as it floods the test logs
+        // (1 per rebuild IO)
+        // trace!("[D] {:?}", self);
         unsafe { spdk_put_io_channel(self.0) }
     }
 }

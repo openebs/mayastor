@@ -1,4 +1,5 @@
-use std::{env, io, io::Write, process::Command};
+use crossbeam::channel::{after, select, unbounded};
+use std::{env, io, io::Write, process::Command, time::Duration};
 
 use once_cell::sync::OnceCell;
 use run_script::{self, ScriptOptions};
@@ -6,11 +7,13 @@ use run_script::{self, ScriptOptions};
 use mayastor::{
     core::{MayastorEnvironment, Mthread},
     logger,
+    rebuild::{RebuildJob, RebuildState},
+    replicas::rebuild::ClientOperations,
 };
 use spdk_sys::spdk_get_thread;
-use std::time::Duration;
 use url::{ParseError, Url};
 
+pub mod error_bdev;
 pub mod ms_exec;
 /// call F cnt times, and sleep for a duration between each invocation
 pub fn retry<F, T, E>(mut cnt: u32, timeout: Duration, mut f: F) -> T
@@ -53,6 +56,12 @@ macro_rules! reactor_poll {
             if $ch.try_recv().is_ok() {
                 break;
             }
+        }
+        mayastor::core::Reactors::current().thread_enter();
+    };
+    ($n:expr) => {
+        for _ in 0 .. $n {
+            mayastor::core::Reactors::current().poll_once();
         }
         mayastor::core::Reactors::current().thread_enter();
     };
@@ -112,6 +121,15 @@ pub fn dd_random_file(path: &str, bs: u32, size: u64) {
 pub fn truncate_file(path: &str, size: u64) {
     let output = Command::new("truncate")
         .args(&["-s", &format!("{}m", size / 1024), path])
+        .output()
+        .expect("failed exec truncate");
+
+    assert_eq!(output.status.success(), true);
+}
+
+pub fn truncate_file_bytes(path: &str, size: u64) {
+    let output = Command::new("truncate")
+        .args(&["-s", &format!("{}", size), path])
         .output()
         .expect("failed exec truncate");
 
@@ -260,8 +278,8 @@ pub fn thread() -> Option<Mthread> {
     Mthread::from_null_checked(unsafe { spdk_get_thread() })
 }
 
-pub fn dd_urandom_blkdev(device: &str) -> String {
-    let (exit, stdout, _stderr) = run_script::run(
+pub fn dd_urandom_blkdev(device: &str) -> i32 {
+    let (exit, stdout, stderr) = run_script::run(
         r#"
         dd if=/dev/urandom of=$1 conv=fsync,nocreat,notrunc iflag=count_bytes count=`blockdev --getsize64 $1`
     "#,
@@ -269,6 +287,18 @@ pub fn dd_urandom_blkdev(device: &str) -> String {
     &run_script::ScriptOptions::new(),
     )
     .unwrap();
+    log::trace!("dd_urandom_blkdev:\nstdout: {}\nstderr: {}", stdout, stderr);
+    exit
+}
+pub fn dd_urandom_file_size(device: &str, size: u64) -> String {
+    let (exit, stdout, _stderr) = run_script::run(
+        r#"
+        dd if=/dev/urandom of=$1 conv=fsync,nocreat,notrunc iflag=count_bytes count=$2
+    "#,
+        &vec![device.into(), size.to_string()],
+        &run_script::ScriptOptions::new(),
+    )
+        .unwrap();
     assert_eq!(exit, 0);
     stdout
 }
@@ -298,16 +328,18 @@ pub fn compare_nexus_device(
 pub fn compare_devices(
     first_device: &str,
     second_device: &str,
+    size: u64,
     expected_pass: bool,
 ) -> String {
     let (exit, stdout, stderr) = run_script::run(
         r#"
-        cmp -b $1 $2 5M 5M
-        test $? -eq $3
+        cmp -b $1 $2 5M 5M -n $3
+        test $? -eq $4
     "#,
         &vec![
             first_device.into(),
             second_device.into(),
+            size.to_string(),
             (!expected_pass as i32).to_string(),
         ],
         &run_script::ScriptOptions::new(),
@@ -338,4 +370,69 @@ pub fn get_device_size(nexus_device: &str) -> u64 {
         .trim_end()
         .parse::<u64>()
         .unwrap()
+}
+
+/// Waits for the rebuild to reach `state`, up to `timeout`
+pub fn wait_for_rebuild(
+    name: String,
+    state: RebuildState,
+    timeout: Duration,
+) -> Result<(), ()> {
+    let (s, r) = unbounded::<()>();
+    let job = match RebuildJob::lookup(&name) {
+        Ok(job) => job,
+        Err(_) => return Ok(()),
+    };
+    job.as_client().stats();
+
+    let mut curr_state = job.state();
+    let ch = job.notify_chan.1.clone();
+    let cname = name.clone();
+    let t = std::thread::spawn(move || {
+        let now = std::time::Instant::now();
+        let mut error = Ok(());
+        while curr_state != state && error.is_ok() {
+            select! {
+                recv(ch) -> state => {
+                    log::trace!("rebuild of child {} signalled with state {:?}", cname, state);
+                    curr_state = state.unwrap_or_else(|e| {
+                        log::error!("failed to wait for the rebuild with error: {}", e);
+                        error = Err(());
+                        curr_state
+                    })
+                },
+                recv(after(timeout - now.elapsed())) -> _ => {
+                    log::error!("timed out waiting for the rebuild after {:?}", timeout);
+                    error = Err(())
+                }
+            }
+        }
+
+        s.send(()).ok();
+        error
+    });
+    reactor_poll!(r);
+    if let Ok(job) = RebuildJob::lookup(&name) {
+        job.as_client().stats();
+    }
+    t.join().unwrap()
+}
+
+pub fn fio_verify_size(device: &str, size: u64) -> i32 {
+    let (exit, stdout, stderr) = run_script::run(
+        r#"
+        fio --thread=1 --numjobs=1 --iodepth=16 --bs=512 \
+        --direct=1 --ioengine=libaio --rw=randwrite --verify=crc32 \
+        --verify_fatal=1 --name=write_verify --filename=$1 --size=$2
+
+        fio --thread=1 --numjobs=1 --iodepth=16 --bs=512 \
+        --direct=1 --ioengine=libaio --verify=crc32 --verify_only \
+        --verify_fatal=1 --name=verify --filename=$1
+    "#,
+        &vec![device.into(), size.to_string()],
+        &run_script::ScriptOptions::new(),
+    )
+    .unwrap();
+    log::info!("stdout: {}\nstderr: {}", stdout, stderr);
+    exit
 }

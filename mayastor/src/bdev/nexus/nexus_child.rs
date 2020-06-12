@@ -10,13 +10,18 @@ use crate::{
     bdev::NexusErrStore,
     core::{Bdev, BdevHandle, CoreError, Descriptor, DmaBuf},
     nexus_uri::{bdev_destroy, BdevCreateDestroy},
+    rebuild::{ClientOperations, RebuildJob},
     subsys::Config,
 };
 
 #[derive(Debug, Snafu)]
 pub enum ChildError {
+    #[snafu(display("Child is not offline"))]
+    ChildNotOffline {},
     #[snafu(display("Child is not closed"))]
     ChildNotClosed {},
+    #[snafu(display("Child is faulted, it cannot be reopened"))]
+    ChildFaulted {},
     #[snafu(display(
         "Child is smaller than parent {} vs {}",
         child_size,
@@ -48,6 +53,47 @@ pub enum ChildIoError {
 }
 
 #[derive(Debug, Clone, Copy, Serialize, PartialEq)]
+pub enum ChildStatus {
+    /// available for RW
+    Online,
+    /// temporarily unavailable for R, out of sync with nexus (needs rebuild)
+    Degraded,
+    /// permanently unavailable for RW
+    Faulted,
+}
+
+#[derive(Debug, Serialize, Default)]
+struct StatusReasons {
+    /// Degraded
+    ///
+    /// out of sync - needs to be rebuilt
+    out_of_sync: bool,
+    /// temporarily closed
+    offline: bool,
+
+    /// Faulted
+    /// fatal error, cannot be recovered
+    fatal_error: bool,
+}
+
+impl StatusReasons {
+    /// a fault occurred, it is not recoverable
+    fn fatal_error(&mut self) {
+        self.fatal_error = true;
+    }
+
+    /// set offline
+    fn offline(&mut self, offline: bool) {
+        self.offline = offline;
+    }
+
+    /// out of sync with nexus, needs a rebuild
+    fn out_of_sync(&mut self, out_of_sync: bool) {
+        self.out_of_sync = out_of_sync;
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, PartialEq)]
 pub(crate) enum ChildState {
     /// child has not been opened, but we are in the process of opening it
     Init,
@@ -55,10 +101,8 @@ pub(crate) enum ChildState {
     ConfigInvalid,
     /// the child is open for RW
     Open,
-    /// The child has been closed by its parent
+    /// unusable by the nexus for RW
     Closed,
-    /// a non-fatal have occurred on this child
-    Faulted,
 }
 
 impl ToString for ChildState {
@@ -67,8 +111,19 @@ impl ToString for ChildState {
             ChildState::Init => "init",
             ChildState::ConfigInvalid => "configInvalid",
             ChildState::Open => "open",
-            ChildState::Faulted => "faulted",
             ChildState::Closed => "closed",
+        }
+        .parse()
+        .unwrap()
+    }
+}
+
+impl ToString for ChildStatus {
+    fn to_string(&self) -> String {
+        match *self {
+            ChildStatus::Degraded => "degraded",
+            ChildStatus::Faulted => "faulted",
+            ChildStatus::Online => "online",
         }
         .parse()
         .unwrap()
@@ -92,7 +147,7 @@ pub struct NexusChild {
     pub(crate) desc: Option<Arc<Descriptor>>,
     /// current state of the child
     pub(crate) state: ChildState,
-    pub(crate) repairing: bool,
+    status_reasons: StatusReasons,
     /// descriptor obtained after opening a device
     #[serde(skip_serializing)]
     pub(crate) bdev_handle: Option<BdevHandle>,
@@ -107,14 +162,21 @@ impl Display for NexusChild {
             let bdev = self.bdev.as_ref().unwrap();
             writeln!(
                 f,
-                "{}: {:?}, blk_cnt: {}, blk_size: {}",
+                "{}: {:?}/{:?}, blk_cnt: {}, blk_size: {}",
                 self.name,
                 self.state,
+                self.status(),
                 bdev.num_blocks(),
                 bdev.block_len(),
             )
         } else {
-            writeln!(f, "{}: state {:?}", self.name, self.state)
+            writeln!(
+                f,
+                "{}: state {:?}/{:?}",
+                self.name,
+                self.state,
+                self.status()
+            )
         }
     }
 }
@@ -131,6 +193,9 @@ impl NexusChild {
     ) -> Result<String, ChildError> {
         trace!("{}: Opening child device {}", self.parent, self.name);
 
+        if self.status() == ChildStatus::Faulted {
+            return Err(ChildError::ChildFaulted {});
+        }
         if self.state != ChildState::Closed && self.state != ChildState::Init {
             return Err(ChildError::ChildNotClosed {});
         }
@@ -173,6 +238,84 @@ impl NexusChild {
         debug!("{}: child {} opened successfully", self.parent, self.name);
 
         Ok(self.name.clone())
+    }
+
+    /// Fault the child following an unrecoverable error
+    pub(crate) fn fault(&mut self) {
+        self.close();
+        self.status_reasons.fatal_error();
+    }
+    /// Set the child as out of sync with the nexus
+    /// It requires a full rebuild before it can service IO
+    /// and remains degraded until such time
+    pub(crate) fn out_of_sync(&mut self, out_of_sync: bool) {
+        self.status_reasons.out_of_sync(out_of_sync);
+    }
+    /// Set the child as temporarily offline
+    pub(crate) fn offline(&mut self) {
+        self.close();
+        self.status_reasons.offline(true);
+    }
+    /// Online a previously offlined child
+    pub(crate) fn online(
+        &mut self,
+        parent_size: u64,
+    ) -> Result<String, ChildError> {
+        if !self.status_reasons.offline {
+            return Err(ChildError::ChildNotOffline {});
+        }
+        self.open(parent_size).map(|s| {
+            self.status_reasons.offline(false);
+            s
+        })
+    }
+
+    /// Status of the child
+    /// Init
+    /// Degraded as it cannot service IO, temporarily
+    ///
+    /// ConfigInvalid
+    /// Faulted as it cannot ever service IO
+    ///
+    /// Open
+    /// Degraded if temporarily out of sync
+    /// Online otherwise
+    ///
+    /// Closed
+    /// Degraded if offline
+    /// otherwise Faulted as it cannot ever service IO
+    /// todo: better cater for the online/offline "states"
+    pub fn status(&self) -> ChildStatus {
+        match self.state {
+            ChildState::Init => ChildStatus::Degraded,
+            ChildState::ConfigInvalid => ChildStatus::Faulted,
+            ChildState::Closed => {
+                if self.status_reasons.offline {
+                    ChildStatus::Degraded
+                } else {
+                    ChildStatus::Faulted
+                }
+            }
+            ChildState::Open => {
+                if self.status_reasons.out_of_sync {
+                    ChildStatus::Degraded
+                } else if self.status_reasons.fatal_error {
+                    ChildStatus::Faulted
+                } else {
+                    ChildStatus::Online
+                }
+            }
+        }
+    }
+
+    pub(crate) fn rebuilding(&self) -> bool {
+        match RebuildJob::lookup(&self.name) {
+            Ok(_) => {
+                self.state == ChildState::Open
+                    && self.status_reasons.out_of_sync
+            }
+            Err(_) => false,
+        }
     }
 
     /// return a descriptor to this child
@@ -218,8 +361,8 @@ impl NexusChild {
             desc: None,
             ch: std::ptr::null_mut(),
             state: ChildState::Init,
+            status_reasons: Default::default(),
             bdev_handle: None,
-            repairing: false,
             err_store: None,
         }
     }
@@ -238,7 +381,7 @@ impl NexusChild {
 
     /// returns if a child can be written to
     pub fn can_rw(&self) -> bool {
-        self.state == ChildState::Open || self.state == ChildState::Faulted
+        self.state == ChildState::Open && self.status() != ChildStatus::Faulted
     }
 
     /// return references to child's bdev and descriptor
@@ -292,5 +435,19 @@ impl NexusChild {
                 name: self.name.clone(),
             }),
         }
+    }
+
+    /// Return the rebuild job which is rebuilding this child, if rebuilding
+    fn get_rebuild_job(&self) -> Option<&mut RebuildJob> {
+        let job = RebuildJob::lookup(&self.name).ok()?;
+        assert_eq!(job.nexus, self.parent);
+        Some(job)
+    }
+
+    /// Return the rebuild progress on this child, if rebuilding
+    pub fn get_rebuild_progress(&self) -> i32 {
+        self.get_rebuild_job()
+            .map(|j| j.stats().progress as i32)
+            .unwrap_or_else(|| -1)
     }
 }
