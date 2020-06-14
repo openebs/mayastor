@@ -11,7 +11,6 @@ use crate::{
     format::probed_format,
     mount::{match_mount, mount_fs, mount_opts_compare, unmount_fs},
 };
-use git_version::git_version;
 
 mod iscsiutil;
 use iscsiutil::{iscsi_attach_disk, iscsi_detach_disk, iscsi_find};
@@ -103,10 +102,8 @@ impl node_server::Node for Node {
             glob("/dev/nbd*").expect("Invalid glob pattern").count() as i64;
 
         debug!(
-            "NodeGetInfo request: version={}, ID={}, max volumes={}",
-            git_version!(),
-            node_id,
-            max_volumes_per_node,
+            "NodeGetInfo request: ID={}, max volumes={}",
+            node_id, max_volumes_per_node,
         );
 
         Ok(Response::new(NodeGetInfoResponse {

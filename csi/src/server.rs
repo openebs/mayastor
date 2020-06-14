@@ -29,8 +29,6 @@ use std::{
 use tokio::{net::UnixListener, prelude::*};
 use tonic::transport::{server::Connected, Server};
 
-use git_version::git_version;
-
 use crate::{identity::Identity, mount::probe_filesystems, node::Node};
 
 #[allow(dead_code)]
@@ -89,7 +87,6 @@ impl AsyncWrite for UnixStream {
 #[tokio::main]
 async fn main() -> Result<(), String> {
     let matches = App::new("Mayastor agent")
-        .version(git_version!())
         .about("k8s sidecar for Mayastor implementing CSI among others")
         .arg(
             Arg::with_name("address")

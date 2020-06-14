@@ -5,12 +5,12 @@
 
 stdenv.mkDerivation rec {
   pname = "liburing";
-  version = "0.5";
+  version = "0.6";
 
   src = fetchgit {
     url = "http://git.kernel.dk/${pname}";
-    rev = "3be13f40c02f245ac03a8b3500736e657f04920a";
-    sha256 = "09q33iw0y5xb2237k0px5s54kbk0ch20nr4j2c050nzss3fmsg2f";
+    rev = "f0c5c54945ae92a00cdbb43bdf3abaeab6bd3a23";
+    sha256 = "06lrqx0ch8yszy6ck5y0kj8wn7i1bnjlrdgxbmr3g32ymic1hyln";
   };
 
   separateDebugInfo = true;
@@ -25,14 +25,6 @@ stdenv.mkDerivation rec {
       --libdir=$lib/lib \
       --libdevdir=$lib/lib \
       --mandir=$man/share/man \
-  '';
-
-  # Copy the examples into $out.
-  postInstall = ''
-    mkdir -p $out/bin
-    cp ./examples/io_uring-cp examples/io_uring-test $out/bin
-    cp ./examples/link-cp $out/bin/io_uring-link-cp
-    cp ./examples/ucontext-cp $out/bin/io_uring-ucontext-cp
   '';
 
   meta = with stdenv.lib; {
