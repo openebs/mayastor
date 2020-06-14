@@ -1,7 +1,7 @@
 { binutils
 , callPackage
 , cunit
-, enableDebug ? true
+, enableDebug ? false
 , fetchFromGitHub
 , git
 , lcov
@@ -47,19 +47,19 @@ stdenv.mkDerivation rec {
   #${enableFeature enableDebug "unit-tests"}
 
   configureFlags = [
-    "${enableFeature enableDebug "debug"}"
     "${enableFeature enableDebug "tests"}"
+    "--target-arch=nehalem"
     "--without-isal"
     "--with-iscsi-initiator"
     "--with-internal-vhost-lib"
     "--with-crypto"
     "--with-uring"
-  ];
+  ] ++ stdenv.lib.optionals (enableDebug) [ "--enable-debug" ];
+
 
   enableParallelBuilding = true;
 
   preConfigure = ''
-    patchShebangs ./.
     substituteInPlace dpdk/config/defconfig_x86_64-native-linux-gcc --replace native default
     # A workaround for https://bugs.dpdk.org/show_bug.cgi?id=356
     substituteInPlace dpdk/lib/Makefile --replace 'DEPDIRS-librte_vhost :=' 'DEPDIRS-librte_vhost := librte_hash'
@@ -78,7 +78,13 @@ stdenv.mkDerivation rec {
 
   '';
 
-  NIX_CFLAGS_COMPILE = "-mno-movbe -mno-lzcnt -mno-bmi -mno-bmi2 -march=nehalem";
+  configurePhase = ''
+    patchShebangs ./.
+    ./configure $configureFlags
+  '';
+
+  # experiment if still need this..
+  # NIX_CFLAGS_COMPILE = "-mno-movbe -mno-lzcnt -mno-bmi -mno-bmi2 -march=nehalem";
   hardeningDisable = [ "all" ];
 
   postBuild = ''
@@ -95,7 +101,9 @@ stdenv.mkDerivation rec {
 
   '';
 
-  postInstall = ''
+  installPhase = ''
+    mkdir -p $out/lib
+    mkdir $out/bin
 
     pushd include
     find . -type f -name "*.h" -exec install -D "{}" $out/include/spdk/{} \;

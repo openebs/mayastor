@@ -3,15 +3,14 @@ let
   mozilla = fetchFromGitHub {
     owner = "mozilla";
     repo = "nixpkgs-mozilla";
-    rev = "ac8e9d7bbda8fb5e45cae20c5b7e44c52da3ac0c";
-    sha256 = "1irlkqc0jdkxdfznq7r52ycnf0kcvvrz416qc7346xhmilrx2gy6";
+    rev = "e912ed483e980dfb4666ae0ed17845c4220e5e7c";
+    sha256 = "08fvzb8w80bkkabc1iyhzd15f4sm7ra10jn32kfch5klgl0gj3j3";
   };
 
   overlay = import (builtins.toPath "${mozilla}/package-set.nix") { inherit pkgs; };
 in
 rec {
   nightly = overlay.rustChannelOf {
-    date = "2019-12-19";
     channel = "nightly";
   };
 
