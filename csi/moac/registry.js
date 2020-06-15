@@ -39,14 +39,31 @@ class Registry extends EventEmitter {
   }
 
   // Add mayastor node to the list of nodes and subscribe to events
-  // emitted by the node to relay them further.
+  // emitted by the node to relay them further. It can be called also for
+  // existing nodes to update their grpc endpoint.
   //
   // @param {string} name      Name of the node.
   // @param {string} endpoint  Endpoint for gRPC communication.
   addNode (name, endpoint) {
-    var node = new this.Node(name);
-    node.connect(endpoint);
-    this._registerNode(node);
+    var node = this.nodes[name];
+    if (node) {
+      // if grpc endpoint has not changed, then this will not do anything
+      if (node.endpoint !== endpoint) {
+        node.connect(endpoint);
+        this.emit('node', {
+          eventType: 'mod',
+          object: node
+        });
+      }
+    } else {
+      node = new this.Node(name);
+      node.connect(endpoint);
+      this.emit('node', {
+        eventType: 'new',
+        object: node
+      });
+      this._registerNode(node);
+    }
   }
 
   // Register node object in registry and listen to events on it.
@@ -75,11 +92,15 @@ class Registry extends EventEmitter {
   // @param {string} name   Name of the node to remove.
   removeNode (name) {
     const node = this.nodes[name];
+    if (!node) return;
     delete this.nodes[name];
-    assert(node);
     node.disconnect();
 
     log.info(`mayastor on node "${name}" left`);
+    this.emit('node', {
+      eventType: 'del',
+      object: node
+    });
 
     eventObjects.forEach((objType) => {
       node.removeAllListeners(objType);

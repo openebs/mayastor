@@ -91,6 +91,10 @@ class Node extends EventEmitter {
   // The node is considered broken, emit offline events on all objects
   // that are present on the node.
   _offline () {
+    this.emit('node', {
+      eventType: 'mod',
+      object: this
+    });
     this.pools.forEach((pool) => pool.offline());
     this.nexus.forEach((nexus) => nexus.offline());
   }
@@ -180,7 +184,7 @@ class Node extends EventEmitter {
     if (this.syncFailed > 0) {
       this.syncFailed = 0;
       this.emit('node', {
-        eventType: 'sync',
+        eventType: 'mod',
         object: this
       });
     }
@@ -390,7 +394,6 @@ class Node extends EventEmitter {
     if (!nexusInfo) {
       throw new GrpcError(GrpcCode.INTERNAL, `New nexus "${uuid}" not found`);
     }
-    nexusInfo.children.sort((a, b) => (a.uri > b.uri ? 1 : -1));
 
     const newNexus = new Nexus(nexusInfo);
     this._registerNexus(newNexus);

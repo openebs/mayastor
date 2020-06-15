@@ -12,7 +12,7 @@ use snafu::Snafu;
 
 use spdk_sys::{spdk_dma_free, spdk_dma_zmalloc};
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, Snafu, Clone)]
 pub enum DmaError {
     #[snafu(display("Failed to allocate DMA buffer"))]
     Alloc {},

@@ -9,7 +9,7 @@ use std::{
 };
 
 use nix::{
-    sys::wait::waitpid,
+    sys::wait::{waitpid, WaitPidFlag},
     unistd::{gettid, Pid},
 };
 
@@ -171,15 +171,37 @@ impl MayastorProcess {
         Ok(serde_json::from_str(&output_string).unwrap())
     }
 
-    /// terminate the mayastor process and wait for it to die
-    pub fn sig_term(&self) {
+    fn sig_x(&mut self, sig_str: &str, options: Option<WaitPidFlag>) {
+        if self.child == 0 {
+            return;
+        }
+        let child = self.child;
+        if sig_str == "TERM" {
+            self.child = 0;
+        }
         Command::new("kill")
-            .args(&["-s", "SIGTERM", &format!("{}", self.child)])
+            .args(&["-s", sig_str, &format!("{}", child)])
             .spawn()
             .unwrap();
 
-        // blocks until PID is gone, signals are racy by themselves however
-        waitpid(Pid::from_raw(self.child as i32), None).unwrap();
+        // blocks until child changes state, signals are racy by themselves
+        // however
+        waitpid(Pid::from_raw(child as i32), options).unwrap();
+    }
+
+    /// terminate the mayastor process and wait for it to die
+    pub fn sig_term(&mut self) {
+        self.sig_x("TERM", None);
+    }
+
+    /// stop the mayastor process and wait for it to stop
+    pub fn sig_stop(&mut self) {
+        self.sig_x("STOP", Some(WaitPidFlag::WUNTRACED));
+    }
+
+    /// continue the mayastor process and wait for it to continue
+    pub fn sig_cont(&mut self) {
+        self.sig_x("CONT", Some(WaitPidFlag::WCONTINUED));
     }
 }
 

@@ -361,7 +361,7 @@ function dumbCommand (method, args, done) {
       if (err) {
         done(new Error(stderr));
       } else {
-        done();
+        done(err, stdout);
       }
     }
   );

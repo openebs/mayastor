@@ -10,9 +10,7 @@ const log = require('./logger').Logger('nexus');
 function compareChildren (a, b) {
   assert(a.uri);
   assert(b.uri);
-  if (a.uri > b.uri) return 1;
-  if (b.uri < a.uri) return -1;
-  return 0;
+  return a.uri.localeCompare(b.uri);
 }
 
 class Nexus {
@@ -191,7 +189,8 @@ class Nexus {
     try {
       await this.node.call('addChildNexus', {
         uuid: this.uuid,
-        uri: uri
+        uri: uri,
+        norebuild: false
       });
     } catch (err) {
       throw new GrpcError(

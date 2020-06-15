@@ -5,6 +5,7 @@
 //! application needs synchronous mirroring may be required.
 
 use crate::nexus_uri::bdev_destroy;
+
 use std::{
     fmt,
     fmt::{Display, Formatter},
@@ -33,27 +34,48 @@ use spdk_sys::{
 use tonic::{Code as GrpcCode, Status};
 use uuid::Uuid;
 
-use rpc::mayastor::RebuildProgressReply;
-
 use crate::{
     bdev::{
         nexus,
         nexus::{
             instances,
             nexus_channel::{DREvent, NexusChannel, NexusChannelInner},
-            nexus_child::{ChildError, ChildState, NexusChild},
+            nexus_child::{ChildError, ChildState, ChildStatus, NexusChild},
             nexus_io::{io_status, Bio},
             nexus_iscsi::{NexusIscsiError, NexusIscsiTarget},
             nexus_label::LabelError,
             nexus_nbd::{NbdDisk, NbdError},
+            nexus_nvmf::{NexusNvmfError, NexusNvmfTarget},
         },
     },
     core::{Bdev, DmaError},
     ffihelper::errno_result_from_i32,
     jsonrpc::{Code, RpcErrorCode},
     nexus_uri::BdevCreateDestroy,
-    rebuild::{RebuildError, RebuildTask},
+    rebuild::RebuildError,
 };
+
+/// Obtain the full error chain
+pub trait VerboseError {
+    fn verbose(&self) -> String;
+}
+
+impl<T> VerboseError for T
+where
+    T: std::error::Error,
+{
+    /// loops through the error chain and formats into a single string
+    /// containing all the lower level errors
+    fn verbose(&self) -> String {
+        let mut msg = format!("{}", self);
+        let mut opt_source = self.source();
+        while let Some(source) = opt_source {
+            msg = format!("{}: {}", msg, source);
+            opt_source = source.source();
+        }
+        msg
+    }
+}
 
 /// Common errors for nexus basic operations and child operations
 /// which are part of nexus object.
@@ -82,6 +104,11 @@ pub enum Error {
     #[snafu(display("Failed to share iscsi nexus {}", name))]
     ShareIscsiNexus {
         source: NexusIscsiError,
+        name: String,
+    },
+    #[snafu(display("Failed to share nvmf nexus {}", name))]
+    ShareNvmfNexus {
+        source: NexusNvmfError,
         name: String,
     },
     #[snafu(display("Failed to allocate label of nexus {}", name))]
@@ -113,6 +140,8 @@ pub enum Error {
     ChildGeometry { child: String, name: String },
     #[snafu(display("Child {} of nexus {} cannot be found", child, name))]
     ChildMissing { child: String, name: String },
+    #[snafu(display("Child {} of nexus {} has no error store", child, name))]
+    ChildMissingErrStore { child: String, name: String },
     #[snafu(display("Failed to open child {} of nexus {}", child, name))]
     OpenChild {
         source: ChildError,
@@ -133,43 +162,65 @@ pub enum Error {
     },
     #[snafu(display("Child {} of nexus {} not found", child, name))]
     ChildNotFound { child: String, name: String },
-    #[snafu(display("Child {} of nexus {} is not closed", child, name))]
-    ChildNotClosed { child: String, name: String },
-    #[snafu(display("Open Child of nexus {} not found", name))]
-    OpenChildNotFound { name: String },
+    #[snafu(display("Suitable rebuild source for nexus {} not found", name))]
+    NoRebuildSource { name: String },
     #[snafu(display(
-        "Failed to start rebuilding child {} of nexus {}",
+        "Failed to create rebuild job for child {} of nexus {}",
         child,
-        name
+        name,
     ))]
-    StartRebuild {
+    CreateRebuildError {
         source: RebuildError,
         child: String,
         name: String,
     },
     #[snafu(display(
-        "Failed to complete rebuild of child {} of nexus {}, reason: {}",
+        "Rebuild job not found for child {} of nexus {}",
         child,
         name,
-        reason,
     ))]
-    CompleteRebuild {
+    RebuildJobNotFound {
+        source: RebuildError,
         child: String,
         name: String,
-        reason: String,
     },
     #[snafu(display(
-        "Rebuild task not found for child {} of nexus {}",
+        "Failed to remove rebuild job {} of nexus {}",
         child,
         name,
     ))]
-    RebuildTaskNotFound { child: String, name: String },
+    RemoveRebuildJob {
+        source: RebuildError,
+        child: String,
+        name: String,
+    },
+    #[snafu(display(
+        "Failed to execute rebuild operation on job {} of nexus {}",
+        job,
+        name,
+    ))]
+    RebuildOperationError {
+        job: String,
+        name: String,
+        source: RebuildError,
+    },
     #[snafu(display("Invalid ShareProtocol value {}", sp_value))]
     InvalidShareProtocol { sp_value: i32 },
     #[snafu(display("Failed to create nexus {}", name))]
     NexusCreate { name: String },
     #[snafu(display("Failed to destroy nexus {}", name))]
     NexusDestroy { name: String },
+    #[snafu(display(
+        "Child {} of nexus {} is not degraded but {}",
+        child,
+        name,
+        state
+    ))]
+    ChildNotDegraded {
+        child: String,
+        name: String,
+        state: String,
+    },
 }
 
 impl RpcErrorCode for Error {
@@ -262,6 +313,7 @@ pub(crate) static NEXUS_PRODUCT_ID: &str = "Nexus CAS Driver v0.0.1";
 pub enum NexusTarget {
     NbdDisk(NbdDisk),
     NexusIscsiTarget(NexusIscsiTarget),
+    NexusNvmfTarget(NexusNvmfTarget),
 }
 
 impl fmt::Debug for NexusTarget {
@@ -269,6 +321,7 @@ impl fmt::Debug for NexusTarget {
         match self {
             NexusTarget::NbdDisk(disk) => fmt::Debug::fmt(&disk, f),
             NexusTarget::NexusIscsiTarget(tgt) => fmt::Debug::fmt(&tgt, f),
+            NexusTarget::NexusNvmfTarget(tgt) => fmt::Debug::fmt(&tgt, f),
         }
     }
 }
@@ -289,7 +342,7 @@ pub struct Nexus {
     /// raw pointer to bdev (to destruct it later using Box::from_raw())
     bdev_raw: *mut spdk_bdev,
     /// represents the current state of the Nexus
-    pub(crate) state: NexusState,
+    pub(super) state: NexusState,
     /// Dynamic Reconfigure event
     pub dr_complete_notify: Option<oneshot::Sender<i32>>,
     /// the offset in num blocks where the data partition starts
@@ -297,8 +350,6 @@ pub struct Nexus {
     /// the handle to be used when sharing the nexus, this allows for the bdev
     /// to be shared with vbdevs on top
     pub(crate) share_handle: Option<String>,
-    /// vector of rebuild tasks
-    pub rebuilds: Vec<RebuildTask>,
     /// enum containing the protocol-specific target used to publish the nexus
     pub nexus_target: Option<NexusTarget>,
 }
@@ -307,31 +358,43 @@ unsafe impl core::marker::Sync for Nexus {}
 unsafe impl core::marker::Send for Nexus {}
 
 #[derive(Debug, Serialize, Clone, Copy, PartialEq, PartialOrd)]
+pub enum NexusStatus {
+    /// The nexus cannot perform any IO operation
+    Faulted,
+    /// Degraded, one or more child is missing but IO can still flow
+    Degraded,
+    /// Online
+    Online,
+}
+
+#[derive(Debug, Serialize, Clone, Copy, PartialEq, PartialOrd)]
 pub enum NexusState {
     /// nexus created but no children attached
     Init,
     /// closed
     Closed,
-    /// Online
-    Online,
-    /// The nexus cannot perform any IO operation
-    Faulted,
-    /// Degraded, one or more child is missing but IO can still flow
-    Degraded,
-    /// mule is moving blocks from A to B which is typical for an animal like
-    /// this
-    Remuling,
+    /// open
+    Open,
 }
 
 impl ToString for NexusState {
     fn to_string(&self) -> String {
         match *self {
             NexusState::Init => "init",
-            NexusState::Online => "online",
-            NexusState::Faulted => "faulted",
-            NexusState::Degraded => "degraded",
             NexusState::Closed => "closed",
-            NexusState::Remuling => "remuling",
+            NexusState::Open => "open",
+        }
+        .parse()
+        .unwrap()
+    }
+}
+
+impl ToString for NexusStatus {
+    fn to_string(&self) -> String {
+        match *self {
+            NexusStatus::Degraded => "degraded",
+            NexusStatus::Online => "online",
+            NexusStatus::Faulted => "faulted",
         }
         .parse()
         .unwrap()
@@ -377,7 +440,6 @@ impl Nexus {
             data_ent_offset: 0,
             share_handle: None,
             size,
-            rebuilds: Vec::new(),
             nexus_target: None,
         });
 
@@ -449,7 +511,14 @@ impl Nexus {
         // Now register the bdev but update its size first
         // to ensure we adhere to the partitions.
         self.data_ent_offset = label.offset();
-        self.bdev.set_block_count(label.get_block_count());
+        let size_blocks = self.size / self.bdev.block_len() as u64;
+
+        self.bdev.set_block_count(std::cmp::min(
+            // nexus is allowed to be smaller than the children
+            size_blocks,
+            // label might be smaller than expected due to the on disk metadata
+            label.get_block_count(),
+        ));
 
         Ok(())
     }
@@ -467,8 +536,7 @@ impl Nexus {
         self.children
             .iter_mut()
             .map(|c| {
-                if c.state == ChildState::Open || c.state == ChildState::Faulted
-                {
+                if c.state == ChildState::Open {
                     c.close();
                 }
             })
@@ -498,6 +566,10 @@ impl Nexus {
 
         let _ = self.unshare().await;
         assert_eq!(self.share_handle, None);
+
+        for child in self.children.iter() {
+            self.stop_rebuild(&child.name).await.ok();
+        }
 
         for child in self.children.iter_mut() {
             let _ = child.close();
@@ -553,7 +625,7 @@ impl Nexus {
 
         match errno_result_from_i32((), errno) {
             Ok(_) => {
-                self.set_state(NexusState::Online);
+                self.set_state(NexusState::Open);
                 Ok(())
             }
             Err(err) => {
@@ -561,7 +633,7 @@ impl Nexus {
                     spdk_io_device_unregister(self.as_ptr(), None);
                 }
                 self.children.iter_mut().map(|c| c.close()).for_each(drop);
-                self.set_state(NexusState::Faulted);
+                self.set_state(NexusState::Closed);
                 Err(err).context(RegisterNexus {
                     name: self.name.clone(),
                 })
@@ -608,7 +680,7 @@ impl Nexus {
 
             pio.ctx_as_mut_ref().status = io_status::FAILED;
         }
-        pio.assess();
+        pio.assess(child_io, success);
         // always free the child IO
         Bio::io_free(child_io);
     }
@@ -802,18 +874,41 @@ impl Nexus {
         }
     }
 
-    /// returns the current status of the nexus
-    pub fn status(&self) -> NexusState {
-        self.state
-    }
-
-    pub async fn get_rebuild_progress(
-        &self,
-    ) -> Result<RebuildProgressReply, Error> {
-        // TODO: add real implementation
-        Ok(RebuildProgressReply {
-            progress: "Not implemented".to_string(),
-        })
+    /// Status of the nexus
+    /// Online
+    /// All children must also be online
+    ///
+    /// Degraded
+    /// At least one child must be online
+    ///
+    /// Faulted
+    /// No child is online so the nexus is faulted
+    /// This may be made more configurable in the future
+    pub fn status(&self) -> NexusStatus {
+        match self.state {
+            NexusState::Init => NexusStatus::Degraded,
+            NexusState::Closed => NexusStatus::Faulted,
+            NexusState::Open => {
+                if self
+                    .children
+                    .iter()
+                    // All children are online, so the Nexus is also online
+                    .all(|c| c.status() == ChildStatus::Online)
+                {
+                    NexusStatus::Online
+                } else if self
+                    .children
+                    .iter()
+                    // at least one child online, so the Nexus is also online
+                    .any(|c| c.status() == ChildStatus::Online)
+                {
+                    NexusStatus::Degraded
+                } else {
+                    // nexus has no children or at least no child is online
+                    NexusStatus::Faulted
+                }
+            }
+        }
     }
 }
 

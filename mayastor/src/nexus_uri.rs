@@ -19,7 +19,7 @@ use crate::{
 };
 
 // parse URI and bdev create/destroy errors common for all types of bdevs
-#[derive(Debug, Snafu)]
+#[derive(Debug, Snafu, Clone)]
 #[snafu(visibility = "pub(crate)")]
 pub enum BdevCreateDestroy {
     // URI parse errors
@@ -175,4 +175,18 @@ pub async fn bdev_create(uri: &str) -> Result<String, BdevCreateDestroy> {
         BdevType::Uring(args) => args.create().await,
         BdevType::Bdev(name) => Ok(name),
     }
+}
+
+pub fn bdev_get_name(uri: &str) -> Result<String, BdevCreateDestroy> {
+    Ok(match nexus_parse_uri(uri)? {
+        BdevType::Aio(args) => args.name,
+        BdevType::Iscsi(args) => args.name,
+        BdevType::Nvmf(args) => {
+            // the namespace instance is appended to the nvme bdev, we currently
+            // only support one namespace per bdev.
+            format!("{}{}", args.name, "n1")
+        }
+        BdevType::Uring(args) => args.name,
+        BdevType::Bdev(name) => name,
+    })
 }

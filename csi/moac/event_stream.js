@@ -86,6 +86,11 @@ class EventStream extends Readable {
     var self = this;
     if (self.registry) {
       self.registry.getNode().forEach((node) => {
+        self.events.push({
+          kind: 'node',
+          eventType: 'new',
+          object: node
+        });
         node.pools.forEach((obj) => {
           self.events.push({
             kind: 'pool',

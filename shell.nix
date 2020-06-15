@@ -24,7 +24,8 @@ mkShell {
     gdb
     gptfdisk
     libiscsi.bin
-    nodejs
+    nats-server
+    nodejs-12_x
     nodePackages.semistandard
     nvme-cli
     pre-commit

@@ -19,7 +19,7 @@ use crate::{
     nexus_uri::{self, BdevCreateDestroy},
 };
 
-#[derive(Debug, Snafu)]
+#[derive(Debug, Snafu, Clone)]
 pub enum NvmfParseError {
     #[snafu(display("Missing path component"))]
     PathMissing {},

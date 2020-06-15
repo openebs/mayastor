@@ -5,7 +5,7 @@ on:
       - 'doc/**'
   push:
     branches:
-      - master
+      - develop
 jobs:
   MOAC:
     name: Build MOAC image

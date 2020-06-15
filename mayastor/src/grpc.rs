@@ -5,23 +5,21 @@ use rpc::{
     service::mayastor_server::{Mayastor, MayastorServer},
 };
 
+use std::convert::From;
+
 use crate::{
     bdev::{
         nexus::{
             instances,
             nexus_bdev,
-            nexus_bdev::{
-                name_to_uuid,
-                uuid_to_name,
-                Nexus,
-                NexusState as NexusStateInternal,
-            },
-            nexus_child::ChildState as ChildStateInternal,
+            nexus_bdev::{name_to_uuid, uuid_to_name, Nexus, NexusStatus},
+            nexus_child::{ChildStatus, NexusChild},
         },
         nexus_create,
     },
     core::{Cores, Reactors},
     pool,
+    rebuild::RebuildJob,
     replica,
 };
 
@@ -75,6 +73,35 @@ macro_rules! locally {
             }
         }
     }};
+}
+
+impl From<ChildStatus> for ChildState {
+    fn from(child: ChildStatus) -> Self {
+        match child {
+            ChildStatus::Faulted => ChildState::ChildFaulted,
+            ChildStatus::Degraded => ChildState::ChildDegraded,
+            ChildStatus::Online => ChildState::ChildOnline,
+        }
+    }
+}
+impl From<NexusStatus> for NexusState {
+    fn from(nexus: NexusStatus) -> Self {
+        match nexus {
+            NexusStatus::Faulted => NexusState::NexusFaulted,
+            NexusStatus::Degraded => NexusState::NexusDegraded,
+            NexusStatus::Online => NexusState::NexusOnline,
+        }
+    }
+}
+
+impl From<&NexusChild> for Child {
+    fn from(child: &NexusChild) -> Self {
+        Child {
+            uri: child.name.clone(),
+            state: ChildState::from(child.status()) as i32,
+            rebuild_progress: child.get_rebuild_progress(),
+        }
+    }
 }
 
 #[tonic::async_trait]
@@ -249,48 +276,14 @@ impl Mayastor for MayastorGrpc {
                 .map(|n| rpc::mayastor::Nexus {
                     uuid: name_to_uuid(&n.name).to_string(),
                     size: n.size,
-                    state: match n.state {
-                        NexusStateInternal::Online => NexusState::NexusOnline,
-                        NexusStateInternal::Faulted => NexusState::NexusFaulted,
-                        NexusStateInternal::Degraded => {
-                            NexusState::NexusDegraded
-                        }
-                        NexusStateInternal::Remuling => {
-                            NexusState::NexusDegraded
-                        }
-                        NexusStateInternal::Init => NexusState::NexusDegraded,
-                        NexusStateInternal::Closed => NexusState::NexusDegraded,
-                    } as i32,
+                    state: NexusState::from(n.status()) as i32,
                     device_path: n.get_share_path().unwrap_or_default(),
                     children: n
                         .children
                         .iter()
-                        .map(|c| Child {
-                            uri: c.name.clone(),
-                            state: match c.state {
-                                ChildStateInternal::Init => {
-                                    ChildState::ChildDegraded
-                                }
-                                ChildStateInternal::ConfigInvalid => {
-                                    ChildState::ChildFaulted
-                                }
-                                ChildStateInternal::Open => {
-                                    ChildState::ChildOnline
-                                }
-                                // Treating closed as rebuild is the most safe
-                                // as we don't
-                                // want moac to do anything if a child is being
-                                // closed.
-                                ChildStateInternal::Closed => {
-                                    ChildState::ChildDegraded
-                                }
-                                ChildStateInternal::Faulted => {
-                                    ChildState::ChildFaulted
-                                }
-                            } as i32,
-                        })
+                        .map(Child::from)
                         .collect::<Vec<_>>(),
-                    rebuilds: n.rebuilds.len() as u64,
+                    rebuilds: RebuildJob::count() as u32,
                 })
                 .collect::<Vec<_>>(),
         };
@@ -307,7 +300,7 @@ impl Mayastor for MayastorGrpc {
         let uuid = args.uuid.clone();
         debug!("Adding child {} to nexus {} ...", args.uri, uuid);
         locally! { async move {
-            nexus_lookup(&args.uuid)?.add_child(&args.uri).await.map(|_| ())
+            nexus_lookup(&args.uuid)?.add_child(&args.uri, args.norebuild).await.map(|_| ())
         }};
         info!("Added child to nexus {}", uuid);
         Ok(Response::new(Null {}))
@@ -414,7 +407,7 @@ impl Mayastor for MayastorGrpc {
         let args = request.into_inner();
         trace!("{:?}", args);
         locally! { async move {
-            nexus_lookup(&args.uuid)?.start_rebuild_rpc(&args.uri).await
+            nexus_lookup(&args.uuid)?.start_rebuild(&args.uri).await.map(|_|{})
         }};
 
         Ok(Response::new(Null {}))
@@ -428,6 +421,30 @@ impl Mayastor for MayastorGrpc {
         trace!("{:?}", args);
         locally! { async move {
           nexus_lookup(&args.uuid)?.stop_rebuild(&args.uri).await
+        }};
+
+        Ok(Response::new(Null {}))
+    }
+
+    async fn pause_rebuild(
+        &self,
+        request: Request<PauseRebuildRequest>,
+    ) -> Result<Response<Null>> {
+        let msg = request.into_inner();
+        locally! { async move {
+          nexus_lookup(&msg.uuid)?.pause_rebuild(&msg.uri).await
+        }};
+
+        Ok(Response::new(Null {}))
+    }
+
+    async fn resume_rebuild(
+        &self,
+        request: Request<ResumeRebuildRequest>,
+    ) -> Result<Response<Null>> {
+        let msg = request.into_inner();
+        locally! { async move {
+          nexus_lookup(&msg.uuid)?.resume_rebuild(&msg.uri).await
         }};
 
         Ok(Response::new(Null {}))
@@ -451,7 +468,7 @@ impl Mayastor for MayastorGrpc {
         let args = request.into_inner();
         trace!("{:?}", args);
         Ok(Response::new(locally! { async move {
-            nexus_lookup(&args.uuid)?.get_rebuild_progress().await
+            nexus_lookup(&args.uuid)?.get_rebuild_progress(&args.uri)
         }}))
     }
 }

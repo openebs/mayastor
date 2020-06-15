@@ -1,23 +1,27 @@
 { stdenv
+, busybox
+, clang
+, dockerTools
 , e2fsprogs
+, fetchFromGitHub
+, lib
 , libaio
 , libiscsi
 , libspdk
+, libudev
 , liburing
 , llvmPackages
+, makeRustPlatform
 , numactl
 , openssl
+, pkgs
 , pkg-config
 , protobuf
 , rdma-core
-, clang
+, release ? true
 , utillinux
-, xfsprogs
-, makeRustPlatform
-, fetchFromGitHub
-, dockerTools
 , writeScriptBin
-, pkgs ? import <nixpkgs>
+, xfsprogs
 }:
 let
   channel = import ../../lib/rust.nix {
@@ -29,95 +33,101 @@ let
     cargo = channel.stable.cargo;
   };
 in
-  with pkgs; rec {
+rec {
 
-    whitelistSource = src: allowedPrefixes:
-      builtins.filterSource
-        (path: type:
-          pkgs.lib.any
-            (allowedPrefix:
-              pkgs.lib.hasPrefix (toString (src + "/${allowedPrefix}")) path)
-            allowedPrefixes) src;
+  whitelistSource = src: allowedPrefixes:
+    builtins.filterSource
+      (path: type:
+        lib.any
+          (allowedPrefix:
+            lib.hasPrefix (toString (src + "/${allowedPrefix}")) path)
+          allowedPrefixes)
+      src;
 
-    mayastor = rustPlatform.buildRustPackage rec {
-      name = "mayastor";
-      cargoSha256 = "0pb5j8wg741zhlv25ccbxyad8n4y87q1b36hq7817l41xjpsh2rh";
-      version = "unstable";
-      src = whitelistSource ../../../. [
-        "Cargo.lock"
-        "Cargo.toml"
-        "csi"
-        "cli"
-        "jsonrpc"
-        "mayastor"
-        "rpc"
-        "spdk-sys"
-        "sysfs"
-        "nvmeadm"
-        # We need to copy git as we use git_version!() in rust, we can also
-        # use use nix to pass the hash if we want to by we should, mosty
-        # likely, go with a proper release version.
-        ".git"
-      ];
+  release-src = fetchFromGitHub {
+    owner = "openebs";
+    repo = "mayastor";
+    rev = "1e5dca302cff3e66220c3cf892a08c89733d535e";
+    sha256 = "0w7apa3rnjbkz2ma1nca42w729zj33k2xvfy34c84x6q0f4s9zjz";
+  };
 
-      LIBCLANG_PATH = "${pkgs.llvmPackages.libclang}/lib";
+  mayastor = rustPlatform.buildRustPackage rec {
+    name = "mayastor";
+    cargoSha256 = "12h4qy4afl82pwswmvv1jpixvw5b5g6s95x32fnsvbbyhzykiarn";
+    version = "0.1.1";
+    src = if release then release-src else whitelistSource ../../../. [
+      "Cargo.lock"
+      "Cargo.toml"
+      "cli"
+      "csi"
+      "devinfo"
+      "jsonrpc"
+      "mayastor"
+      "nvmeadm"
+      "rpc"
+      "spdk-sys"
+      "sysfs"
+    ];
 
-      # these are required for building the proto files that tonic can't find otherwise.
-      PROTOC = "${pkgs.protobuf}/bin/protoc";
-      PROTOC_INCLUDE = "${pkgs.protobuf}/include";
-      C_INCLUDE_PATH = "${libspdk}/include/spdk";
+    LIBCLANG_PATH = "${llvmPackages.libclang}/lib";
 
-      buildInputs = [
-        clang
-        e2fsprogs
-        libaio
-        libiscsi.lib
-        libspdk
-        liburing
-        llvmPackages.libclang
-        numactl
-        openssl
-        pkg-config
-        protobuf
-        utillinux
-        xfsprogs
-        utillinux.dev
-      ];
+    # these are required for building the proto files that tonic can't find otherwise.
+    PROTOC = "${protobuf}/bin/protoc";
+    PROTOC_INCLUDE = "${protobuf}/include";
+    C_INCLUDE_PATH = "${libspdk}/include/spdk";
 
-      buildType = "debug";
-      verifyCargoDeps = false;
+    buildInputs = [
+      clang
+      e2fsprogs
+      libaio
+      libiscsi.lib
+      libspdk
+      liburing
+      libudev.dev
+      llvmPackages.libclang
+      numactl
+      openssl
+      pkg-config
+      protobuf
+      utillinux
+      xfsprogs
+      utillinux.dev
+    ];
 
-      doCheck = false;
-      meta = { platforms = stdenv.lib.platforms.linux; };
+    buildType = if release then "release" else "debug";
+    verifyCargoDeps = false;
+
+    doCheck = false;
+    meta = { platforms = stdenv.lib.platforms.linux; };
+  };
+
+  env = stdenv.lib.makeBinPath [ busybox utillinux xfsprogs e2fsprogs ];
+
+  mayastorIscsiadm = writeScriptBin "mayastor-iscsiadm" ''
+    #!${stdenv.shell}
+    chroot /host /usr/bin/env -i PATH="/sbin:/bin:/usr/bin" iscsiadm "$@"
+  '';
+
+  mayastorImage = dockerTools.buildLayeredImage {
+    name = "mayadata/mayastor";
+    tag = release-src.rev;
+    created = "now";
+    contents = [ busybox mayastor ];
+    config = {
+      Env = [ "PATH=${env}" ];
+      ExposedPorts = { "10124/tcp" = { }; };
+      Entrypoint = [ "/bin/mayastor" ];
     };
+  };
 
-    env = pkgs.stdenv.lib.makeBinPath [ pkgs.busybox pkgs.utillinux pkgs.xfsprogs pkgs.e2fsprogs ];
-
-    mayastorIscsiadm = writeScriptBin "mayastor-iscsiadm" ''
-      #!${pkgs.stdenv.shell}
-      chroot /host /usr/bin/env -i PATH="/sbin:/bin:/usr/bin" iscsiadm "$@"
-    '';
-
-    mayastorImage = pkgs.dockerTools.buildLayeredImage {
-      name = "mayadata/mayastor";
-      tag = "latest";
-      created = "now";
-      contents = [ pkgs.busybox mayastor ];
-      config = {
-        Env = [ "PATH=${env}" ];
-        ExposedPorts = { "10124/tcp" = { }; };
-        Entrypoint = [ "/bin/mayastor" ];
-      };
+  mayastorCSIImage = dockerTools.buildLayeredImage {
+    name = "mayadata/mayastor-grpc";
+    tag = release-src.rev;
+    created = "now";
+    contents = [ busybox mayastor mayastorIscsiadm ];
+    config = {
+      Entrypoint = [ "/bin/mayastor-agent" ];
+      Env = [ "PATH=${env}" ];
     };
-
-    mayastorCSIImage = pkgs.dockerTools.buildLayeredImage {
-      name = "mayadata/mayastor-grpc";
-      tag = "latest";
-      created = "now";
-      contents = [ pkgs.busybox mayastor mayastorIscsiadm ];
-      config = {
-        Entrypoint = [ "/bin/mayastor-agent" ];
-        Env = [ "PATH=${env}" ];
-      };
-    };
-  }
+  };
+}

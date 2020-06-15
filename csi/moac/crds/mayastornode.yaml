@@ -1,0 +1,47 @@
+apiVersion: apiextensions.k8s.io/v1beta1
+kind: CustomResourceDefinition
+metadata:
+  name: mayastornodes.openebs.io
+spec:
+  group: openebs.io
+  version: v1alpha1
+  scope: Namespaced
+  names:
+    kind: MayastorNode
+    listKind: MayastorNodeList
+    plural: mayastornodes
+    singular: mayastornode
+    shortNames: ['msn']
+  additionalPrinterColumns:
+    - name: State
+      type: string
+      description: State of the storage pool
+      JSONPath: .status
+    - name: Age
+      type: date
+      JSONPath: .metadata.creationTimestamp
+  subresources:
+    # Both status and spec parts are updated by the controller.
+    status: {}
+  validation:
+    openAPIV3Schema:
+      type: object
+      properties:
+        apiVersion:
+          type: string
+        kind:
+          type: string
+        metadata:
+          type: object
+        spec:
+          description: Specification of the mayastor node.
+          type: object
+          required:
+            - grpcEndpoint
+          properties:
+            grpcEndpoint:
+              description: Address of gRPC server that mayastor listens on
+              type: string
+        status:
+          description: State of the node as seen by the control plane
+          type: string

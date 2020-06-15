@@ -29,7 +29,7 @@ spec:
       # the same.
       containers:
       - name: mayastor
-        image: mayadata/mayastor:latest
+        image: mayadata/mayastor:v0.2.0
         imagePullPolicy: Always
         env:
         - name: MY_POD_IP
@@ -56,7 +56,7 @@ spec:
             memory: "500Mi"
             hugepages-2Mi: "1Gi"
       - name: mayastor-grpc
-        image: mayadata/mayastor-grpc:latest
+        image: mayadata/mayastor-grpc:v0.2.0
         imagePullPolicy: Always
         # we need privileged because we mount filesystems and use mknod
         securityContext:
@@ -72,8 +72,6 @@ spec:
               fieldPath: status.podIP
         - name: RUST_BACKTRACE
           value: "1"
-        - name: ISCSIADM
-          value: "/bin/mayastor-iscsiadm"
         args:
         - "--csi-socket=/csi/csi.sock"
         - "--mayastor-socket=/mayastor/mayastor.sock"
@@ -104,7 +102,7 @@ spec:
           protocol: TCP
           name: mayastor
       - name: csi-driver-registrar
-        image: quay.io/k8scsi/csi-node-driver-registrar:v1.1.0
+        image: quay.io/k8scsi/csi-node-driver-registrar:v1.3.0
         args:
         - "--csi-address=/csi/csi.sock"
         - "--kubelet-registration-path=/var/lib/kubelet/plugins/mayastor.openebs.io/csi.sock"

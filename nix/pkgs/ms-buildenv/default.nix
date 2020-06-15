@@ -44,13 +44,16 @@
 , libiscsi
 , libspdk
 , liburing
+, libudev
 , llvmPackages
 , mkContainerEnv
+, nats-server
 , nix
 , nodePackages
-, nodejs
+, nodejs-12_x
 , numactl
 , openssl
+, pkgconfig
 , procps
 , protobuf
 , python
@@ -97,7 +100,7 @@ let
   # things we need for rust
   rust = [ rustup libclang protobuf ];
   # this we need for node
-  node = [ nodejs python gnumake nodePackages.semistandard ];
+  node = [ nodejs-12_x python gnumake nodePackages.semistandard ];
 
   # generate a user profile for the image
   profile = mkContainerEnv {
@@ -109,6 +112,9 @@ let
       libiscsi.lib
       libspdk
       liburing
+      pkgconfig
+      libudev.dev
+      nats-server
       numactl
       openssl
       rdma-core
@@ -169,6 +175,7 @@ let
         "PROTOC=${protobuf}/bin/protoc"
         "LIBCLANG_PATH=${llvmPackages.libclang}/lib"
         "LOCAL_ACRHIVE=${glibc}/lib/locale/locale-archive"
+        "PKG_CONFIG_PATH=/nix/var/nix/profiles/default/lib/pkgconfig"
 
         # C_INCLUDE_PATH is searched by compilers next to any includes it gets
         # passed during invocation

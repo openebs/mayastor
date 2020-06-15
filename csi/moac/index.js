@@ -11,11 +11,13 @@ const yargs = require('yargs');
 const logger = require('./logger');
 const Registry = require('./registry');
 const NodeOperator = require('./node_operator');
+const CsiNodeOperator = require('./csi_node_operator');
 const PoolOperator = require('./pool_operator');
 const Volumes = require('./volumes');
 const VolumeOperator = require('./volume_operator');
 const ApiServer = require('./rest_api');
 const CsiServer = require('./csi').CsiServer;
+const { MessageBus } = require('./nats');
 
 const log = new logger.Logger();
 
@@ -47,9 +49,11 @@ async function main () {
   var volumes;
   var poolOper;
   var volumeOper;
+  var csiNodeOper;
   var nodeOper;
   var csiServer;
   var apiServer;
+  var messageBus;
 
   const opts = yargs
     .options({
@@ -68,6 +72,12 @@ async function main () {
         alias: 'namespace',
         describe: 'Namespace of mayastor custom resources',
         default: 'default',
+        string: true
+      },
+      m: {
+        alias: 'message-bus',
+        describe: 'NATS server endpoint in host[:port] form',
+        default: '127.0.0.1:4222',
         string: true
       },
       p: {
@@ -114,8 +124,10 @@ async function main () {
     if (volumes) volumes.stop();
     if (!opts.s) {
       if (poolOper) await poolOper.stop();
+      if (csiNodeOper) await csiNodeOper.stop();
       if (nodeOper) await nodeOper.stop();
     }
+    if (messageBus) messageBus.stop();
     if (registry) registry.close();
     if (csiServer) await csiServer.stop();
     process.exit(0);
@@ -135,6 +147,10 @@ async function main () {
   await csiServer.start();
   registry = new Registry();
 
+  // Listen to register and deregister messages from mayastor nodes
+  messageBus = new MessageBus(registry);
+  messageBus.start(opts.m);
+
   if (!opts.s) {
     // Create k8s client and load openAPI spec from k8s api server
     client = createK8sClient(opts.kubeconfig);
@@ -142,7 +158,11 @@ async function main () {
     await client.loadSpec();
 
     // Start k8s operators
-    nodeOper = new NodeOperator();
+    csiNodeOper = new CsiNodeOperator();
+    await csiNodeOper.init(client, registry);
+    await csiNodeOper.start();
+
+    nodeOper = new NodeOperator(opts.namespace);
     await nodeOper.init(client, registry);
     await nodeOper.start();
 

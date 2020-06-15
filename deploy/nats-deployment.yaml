@@ -1,0 +1,37 @@
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: nats
+  namespace: mayastor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nats
+  template:
+    metadata:
+      labels:
+        app: nats
+    spec:
+      containers:
+        - name: nats
+          image: nats:2.1-alpine3.11
+          imagePullPolicy: "IfNotPresent"
+          ports:
+            - containerPort: 4222
+              protocol: TCP
+              name: "nats"
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: nats
+  namespace: mayastor
+spec:
+  selector:
+    app: nats
+  ports:
+  - protocol: TCP
+    port: 4222
+    targetPort: 4222

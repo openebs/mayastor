@@ -3,7 +3,7 @@
 use std::process::Command;
 
 use mayastor::{
-    bdev::{nexus_create, nexus_lookup, NexusState},
+    bdev::{nexus_create, nexus_lookup, NexusStatus},
     core::{
         mayastor_env_stop,
         Bdev,
@@ -11,6 +11,7 @@ use mayastor::{
         MayastorEnvironment,
         Reactor,
     },
+    replicas::rebuild::RebuildState,
 };
 
 static DISKNAME1: &str = "/tmp/disk1.img";
@@ -85,7 +86,7 @@ async fn works() {
         .expect("failed open bdev")
         .into_handle()
         .unwrap();
-    assert_eq!(nexus.status(), NexusState::Online);
+    assert_eq!(nexus.status(), NexusStatus::Online);
     // open the children in RO
 
     let cd1_bdev =
@@ -139,7 +140,7 @@ async fn works() {
 
     // turn one child offline
     nexus.offline_child(&child2).await.unwrap();
-    assert_eq!(nexus.status(), NexusState::Degraded);
+    assert_eq!(nexus.status(), NexusStatus::Degraded);
 
     // write 0xF0 to the nexus
     for i in 0 .. 10 {
@@ -170,7 +171,16 @@ async fn works() {
 
     // bring back the offlined child
     nexus.online_child(&child2).await.unwrap();
-    assert_eq!(nexus.status(), NexusState::Degraded);
+    assert_eq!(nexus.status(), NexusStatus::Degraded);
+
+    common::wait_for_rebuild(
+        child2.to_string(),
+        RebuildState::Completed,
+        std::time::Duration::from_secs(20),
+    )
+    .unwrap();
+
+    assert_eq!(nexus.status(), NexusStatus::Online);
 
     buf.fill(0xAA);
     // write 0xAA to the nexus

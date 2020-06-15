@@ -4,13 +4,6 @@ This quickstart guide has been tested against the following platforms and config
 
 - kubeadm (vanilla k8s cluster)
     - k8s version 1.14 or newer
-- Microsoft Azure Kubernetes Service (AKS)
-    - k8s version 1.16.7
-    - Ubuntu 16.04.6 LTS (GNU/Linux 4.15.0-1077-azure x86_64)
-    - Not tested with scale-sets
-
-    > AKS is not currently recommended for use with Mayastor in production owing to the need, at this time, to make configuration changes to worker nodes which are not readily compatible with upgrades or autoscaling behavior
-
 
 ### Requirements
 
@@ -91,16 +84,18 @@ The YAML files named below are to be found in the `deploy` folder of the Mayasto
 
 5.  Deploy the Mayastor and CSI components
     ```bash
+    kubectl create -f nats-deployment.yaml
     kubectl create -f moac-deployment.yaml
     kubectl create -f mayastor-daemonset.yaml
     ```
     
-6.  Confirm that the MOAC pod is running:
+6.  Confirm that the MOAC and NATS pods are running:
     ```bash
     kubectl -n mayastor get pod
     ```
     ```
     NAME                   READY   STATUS    RESTARTS   AGE
+    nats-5fc4d79d66-lvdcg  1/1     Running   0          31s
     moac-5f7cb764d-sshvz   3/3     Running   0          34s
     ```
 
@@ -113,6 +108,16 @@ The YAML files named below are to be found in the `deploy` folder of the Mayasto
     mayastor   3         3         3       3            3
     ```
     (in the above example, the point to note is that the READY and AVAILABLE counts equal the DESIRED count)
+
+    ```bash
+    kubectl -n mayastor get msn
+    ```
+    ```
+    NAME       STATE     AGE
+    node-1     online    112s
+    node-2     online    112s
+    node-3     online    112s
+    ```
 
 8.  Create a Storage Pool(s) for volume provisioning.  Each Storage Node typically hosts a Storage Pool, although a single pool is satisfactory for testing purposes.  (In the following example, replace `disk` and `node` with the appropriate values for your own configuration):
     ```bash
@@ -302,7 +307,6 @@ The YAML files named below are to be found in the `deploy` folder of the Mayasto
      - delete the MSP
      - delete the DaemonSet
 
- * Replication functionalty is not part of the container images, for this you need to [build](/doc/build.md) from source
  * Snapshot and clones currently not exposed
 
 ### Tips

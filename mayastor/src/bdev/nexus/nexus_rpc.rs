@@ -4,17 +4,17 @@ use rpc::mayastor::{
     AddChildNexusRequest,
     Child,
     ChildNexusRequest,
-    ChildState as RpcChildState,
     CreateNexusRequest,
     DestroyNexusRequest,
     ListNexusReply,
     Nexus as RpcNexus,
-    NexusState as RpcNexusState,
+    PauseRebuildRequest,
     PublishNexusReply,
     PublishNexusRequest,
     RebuildProgressRequest,
     RebuildStateRequest,
     RemoveChildNexusRequest,
+    ResumeRebuildRequest,
     ShareProtocolNexus,
     StartRebuildRequest,
     StopRebuildRequest,
@@ -24,17 +24,10 @@ use rpc::mayastor::{
 use crate::{
     bdev::nexus::{
         instances,
-        nexus_bdev::{
-            name_to_uuid,
-            nexus_create,
-            uuid_to_name,
-            Error,
-            Nexus,
-            NexusState,
-        },
-        nexus_child::ChildState,
+        nexus_bdev::{name_to_uuid, nexus_create, uuid_to_name, Error, Nexus},
     },
     jsonrpc::jsonrpc_register,
+    rebuild::RebuildJob,
 };
 
 /// Lookup a nexus by its uuid. Return error if uuid is invalid or nexus
@@ -60,38 +53,15 @@ pub(crate) fn register_rpc_methods() {
                 .map(|nexus| RpcNexus {
                     uuid: name_to_uuid(&nexus.name).to_string(),
                     size: nexus.size(),
-                    state: match nexus.state {
-                        NexusState::Online => RpcNexusState::NexusOnline,
-                        NexusState::Faulted => RpcNexusState::NexusFaulted,
-                        NexusState::Degraded => RpcNexusState::NexusDegraded,
-                        NexusState::Remuling => RpcNexusState::NexusDegraded,
-                        NexusState::Init => RpcNexusState::NexusDegraded,
-                        NexusState::Closed => RpcNexusState::NexusDegraded,
-                    } as i32,
+                    state: rpc::mayastor::NexusState::from(nexus.status())
+                        as i32,
                     children: nexus
                         .children
                         .iter()
-                        .map(|child| Child {
-                            uri: child.name.clone(),
-                            state: match child.state {
-                                ChildState::Init => {
-                                    RpcChildState::ChildDegraded
-                                }
-                                ChildState::ConfigInvalid => {
-                                    RpcChildState::ChildFaulted
-                                }
-                                ChildState::Open => RpcChildState::ChildOnline,
-                                ChildState::Closed => {
-                                    RpcChildState::ChildDegraded
-                                }
-                                ChildState::Faulted => {
-                                    RpcChildState::ChildFaulted
-                                }
-                            } as i32,
-                        })
+                        .map(Child::from)
                         .collect::<Vec<_>>(),
                     device_path: nexus.get_share_path().unwrap_or_default(),
-                    rebuilds: nexus.rebuilds.len() as u64,
+                    rebuilds: RebuildJob::count() as u32,
                 })
                 .collect::<Vec<_>>(),
         })
@@ -170,26 +140,34 @@ pub(crate) fn register_rpc_methods() {
         fut.boxed_local()
     });
 
-    jsonrpc_register("offline_child", |args: ChildNexusRequest| {
-        let fut = async move {
-            let nexus = nexus_lookup(&args.uuid)?;
-            nexus.offline_child(&args.uri).await
-        };
-        fut.boxed_local()
-    });
+    jsonrpc_register::<rpc::mayastor::ChildNexusRequest, _, _, Error>(
+        "offline_child",
+        |args: ChildNexusRequest| {
+            let fut = async move {
+                let nexus = nexus_lookup(&args.uuid)?;
+                nexus.offline_child(&args.uri).await?;
+                Ok(())
+            };
+            fut.boxed_local()
+        },
+    );
 
-    jsonrpc_register("online_child", |args: ChildNexusRequest| {
-        let fut = async move {
-            let nexus = nexus_lookup(&args.uuid)?;
-            nexus.online_child(&args.uri).await
-        };
-        fut.boxed_local()
-    });
+    jsonrpc_register::<rpc::mayastor::ChildNexusRequest, _, _, Error>(
+        "online_child",
+        |args: ChildNexusRequest| {
+            let fut = async move {
+                let nexus = nexus_lookup(&args.uuid)?;
+                nexus.online_child(&args.uri).await?;
+                Ok(())
+            };
+            fut.boxed_local()
+        },
+    );
 
     jsonrpc_register("add_child_nexus", |args: AddChildNexusRequest| {
         let fut = async move {
             let nexus = nexus_lookup(&args.uuid)?;
-            nexus.add_child(&args.uri).await.map(|_| ())
+            nexus.add_child(&args.uri, args.norebuild).await.map(|_| ())
         };
         fut.boxed_local()
     });
@@ -205,7 +183,7 @@ pub(crate) fn register_rpc_methods() {
     jsonrpc_register("start_rebuild", |args: StartRebuildRequest| {
         let fut = async move {
             let nexus = nexus_lookup(&args.uuid)?;
-            nexus.start_rebuild_rpc(&args.uri).await
+            nexus.start_rebuild(&args.uri).await.map(|_| {})
         };
         fut.boxed_local()
     });
@@ -214,6 +192,22 @@ pub(crate) fn register_rpc_methods() {
         let fut = async move {
             let nexus = nexus_lookup(&args.uuid)?;
             nexus.stop_rebuild(&args.uri).await
+        };
+        fut.boxed_local()
+    });
+
+    jsonrpc_register("pause_rebuild", |args: PauseRebuildRequest| {
+        let fut = async move {
+            let nexus = nexus_lookup(&args.uuid)?;
+            nexus.pause_rebuild(&args.uri).await
+        };
+        fut.boxed_local()
+    });
+
+    jsonrpc_register("resume_rebuild", |args: ResumeRebuildRequest| {
+        let fut = async move {
+            let nexus = nexus_lookup(&args.uuid)?;
+            nexus.resume_rebuild(&args.uri).await
         };
         fut.boxed_local()
     });
@@ -229,7 +223,7 @@ pub(crate) fn register_rpc_methods() {
     jsonrpc_register("get_rebuild_progress", |args: RebuildProgressRequest| {
         let fut = async move {
             let nexus = nexus_lookup(&args.uuid)?;
-            nexus.get_rebuild_progress().await
+            nexus.get_rebuild_progress(&args.uri)
         };
         fut.boxed_local()
     });

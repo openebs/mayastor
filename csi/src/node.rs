@@ -9,9 +9,8 @@ use rpc::mayastor::{ListNexusReply, Nexus, ShareProtocolNexus};
 use crate::{
     csi::{volume_capability::access_mode::Mode, *},
     format::probed_format,
-    mount::{match_mount, mount_fs, mount_opts_compare, unmount_fs, Fs},
+    mount::{match_mount, mount_fs, mount_opts_compare, unmount_fs},
 };
-use git_version::git_version;
 
 mod iscsiutil;
 use iscsiutil::{iscsi_attach_disk, iscsi_detach_disk, iscsi_find};
@@ -22,7 +21,7 @@ pub struct Node {
     pub socket: String,
     pub addr: String,
     pub port: u16,
-    pub filesystems: Vec<Fs>,
+    pub filesystems: Vec<String>,
 }
 
 // Determine if given access mode in conjunction with ro mount flag makes
@@ -103,10 +102,8 @@ impl node_server::Node for Node {
             glob("/dev/nbd*").expect("Invalid glob pattern").count() as i64;
 
         debug!(
-            "NodeGetInfo request: version={}, ID={}, max volumes={}",
-            git_version!(),
-            node_id,
-            max_volumes_per_node,
+            "NodeGetInfo request: ID={}, max volumes={}",
+            node_id, max_volumes_per_node,
         );
 
         Ok(Response::new(NodeGetInfoResponse {
@@ -220,7 +217,7 @@ impl node_server::Node for Node {
         let filesystem = if mnt.fs_type.is_empty() {
             &self.filesystems[0]
         } else {
-            match self.filesystems.iter().find(|ent| ent.name == mnt.fs_type) {
+            match self.filesystems.iter().find(|ent| **ent == mnt.fs_type) {
                 Some(fs) => fs,
                 None => {
                     return Err(Status::new(
@@ -237,8 +234,6 @@ impl node_server::Node for Node {
         } else {
             mnt_flags.push("rw".into());
         }
-
-        mnt_flags.extend(filesystem.defaults.clone());
 
         if let Some(mount) =
             match_mount(Some(staging_path), Some(target_path), true)
@@ -270,13 +265,9 @@ impl node_server::Node for Node {
                 ),
             ));
         }
-        if let Err(err) = mount_fs(
-            &staging_path,
-            &target_path,
-            true,
-            &filesystem.name,
-            &mnt_flags,
-        ) {
+        if let Err(err) =
+            mount_fs(&staging_path, &target_path, true, &filesystem, &mnt_flags)
+        {
             Err(Status::new(
                 Code::Internal,
                 format!("Failed to publish volume {}: {}", volume_id, err),
@@ -413,7 +404,7 @@ impl node_server::Node for Node {
         let filesystem = if mnt.fs_type.is_empty() {
             self.filesystems[0].clone()
         } else {
-            match self.filesystems.iter().find(|ent| ent.name == mnt.fs_type) {
+            match self.filesystems.iter().find(|ent| **ent == mnt.fs_type) {
                 Some(fs) => fs.clone(),
                 None => {
                     return Err(Status::new(
@@ -455,7 +446,7 @@ impl node_server::Node for Node {
                 "iscsi" => {
                     match iscsi_attach_disk(uri) {
                         Ok(devpath) => devpath,
-                        Err(e) => return Err(Status::new(Code::Internal, e)),
+                        Err(e) => return Err(Status::new(Code::NotFound, e)),
                     }
                     // The nexus may reside on another node,
                     // currently there is no way to retrieve the nexus details
@@ -514,7 +505,7 @@ impl node_server::Node for Node {
             }
         };
 
-        debug!("device_path is {}", device_path);
+        debug!("device_path is {} for uri {}", device_path, uri);
 
         if let Some(mount) =
             match_mount(Some(&device_path), Some(&staging_path), false)
@@ -532,7 +523,7 @@ impl node_server::Node for Node {
             }
         }
 
-        if let Err(e) = probed_format(&device_path, &filesystem.name).await {
+        if let Err(e) = probed_format(&device_path, &filesystem).await {
             return Err(Status::new(Code::Internal, e));
         }
 
@@ -540,7 +531,7 @@ impl node_server::Node for Node {
             &device_path,
             &staging_path,
             false,
-            &filesystem.name,
+            &filesystem,
             &mnt.mount_flags,
         ) {
             Err(r) => Err(Status::new(Code::Internal, r)),

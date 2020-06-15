@@ -15,9 +15,11 @@ use crate::{
             NexusTarget,
             ShareIscsiNexus,
             ShareNbdNexus,
+            ShareNvmfNexus,
         },
         nexus_iscsi::NexusIscsiTarget,
         nexus_nbd::NbdDisk,
+        nexus_nvmf::NexusNvmfTarget,
     },
     core::Bdev,
     ffihelper::{cb_arg, done_errno_cb, errno_result_from_i32, ErrnoResult},
@@ -60,6 +62,16 @@ impl Nexus {
                 } else {
                     warn!("{} is already shared", self.name);
                     return Ok(iscsi_target.as_uri());
+                }
+            }
+            Some(NexusTarget::NexusNvmfTarget(ref nvmf_target)) => {
+                if share_protocol != ShareProtocolNexus::NexusNvmf {
+                    return Err(Error::AlreadyShared {
+                        name: self.name.clone(),
+                    });
+                } else {
+                    warn!("{} is already shared", self.name);
+                    return Ok(nvmf_target.as_uri());
                 }
             }
             None => (),
@@ -124,9 +136,15 @@ impl Nexus {
                 uri
             }
             ShareProtocolNexus::NexusNvmf => {
-                return Err(Error::InvalidShareProtocol {
-                    sp_value: share_protocol as i32,
-                })
+                let nvmf_target = NexusNvmfTarget::create(&name)
+                    .await
+                    .context(ShareNvmfNexus {
+                        name: self.name.clone(),
+                    })?;
+                let uri = nvmf_target.as_uri();
+                self.nexus_target =
+                    Some(NexusTarget::NexusNvmfTarget(nvmf_target));
+                uri
             }
         };
         self.share_handle = Some(name);
@@ -144,6 +162,9 @@ impl Nexus {
             }
             Some(NexusTarget::NexusIscsiTarget(iscsi_target)) => {
                 iscsi_target.destroy().await;
+            }
+            Some(NexusTarget::NexusNvmfTarget(nvmf_target)) => {
+                nvmf_target.destroy().await;
             }
             None => {
                 warn!("{} was not shared", self.name);

@@ -82,7 +82,7 @@ module.exports = function () {
       it('should sync the state with storage node and emit event', (done) => {
         // the first sync takes sometimes >20ms so don't set the interval too low
         const syncInterval = 100;
-        let syncCount = 0;
+        const nodeEvents = [];
         const poolObjects = [];
         const replicaObjects = [];
         const nexusObjects = [];
@@ -106,15 +106,15 @@ module.exports = function () {
           nexusObjects.push(ev.object);
         });
         node.on('node', (ev) => {
-          expect(ev.eventType).to.equal('sync');
-          expect(ev.object).to.equal(node);
-          syncCount++;
+          nodeEvents.push(ev);
         });
         node.connect(EGRESS_ENDPOINT);
 
         setTimeout(() => {
           expect(node.isSynced()).to.be.true();
-          expect(syncCount).to.equal(1);
+          expect(nodeEvents).to.have.lengthOf(1);
+          expect(nodeEvents[0].eventType).to.equal('mod');
+          expect(nodeEvents[0].object).to.equal(node);
 
           expect(poolObjects).to.have.lengthOf(1);
           expect(poolObjects[0].name).to.equal('pool');
@@ -164,7 +164,7 @@ module.exports = function () {
         });
 
         node.once('node', (ev) => {
-          expect(ev.eventType).to.equal('sync');
+          expect(ev.eventType).to.equal('mod');
           done();
         });
         node.connect(EGRESS_ENDPOINT);
@@ -396,7 +396,7 @@ module.exports = function () {
       });
 
       node.once('node', (ev) => {
-        expect(ev.eventType).to.equal('sync');
+        expect(ev.eventType).to.equal('mod');
         expect(ev.object).to.equal(node);
         const firstSync = Date.now();
         srv.stop();
@@ -443,7 +443,7 @@ module.exports = function () {
       });
 
       node.once('node', (ev) => {
-        expect(ev.eventType).to.equal('sync');
+        expect(ev.eventType).to.equal('mod');
         expect(ev.object).to.equal(node);
         const firstSync = Date.now();
         srv.stop();
@@ -476,7 +476,7 @@ module.exports = function () {
       });
 
       node.once('node', (ev) => {
-        expect(ev.eventType).to.equal('sync');
+        expect(ev.eventType).to.equal('mod');
         expect(ev.object).to.equal(node);
         expect(node.isSynced()).to.be.true();
 
@@ -497,7 +497,7 @@ module.exports = function () {
           ).start();
 
           node.once('node', (ev) => {
-            expect(ev.eventType).to.equal('sync');
+            expect(ev.eventType).to.equal('mod');
             expect(ev.object).to.equal(node);
             expect(node.isSynced()).to.be.true();
             done();
@@ -522,7 +522,7 @@ module.exports = function () {
       // wait for the initial sync
       node = new Node('node');
       node.once('node', (ev) => {
-        expect(ev.eventType).to.equal('sync');
+        expect(ev.eventType).to.equal('mod');
         done();
       });
       node.connect(EGRESS_ENDPOINT);
@@ -654,7 +654,7 @@ module.exports = function () {
       // wait for the initial sync
       node = new Node('node');
       node.once('node', (ev) => {
-        expect(ev.eventType).to.equal('sync');
+        expect(ev.eventType).to.equal('mod');
         done();
       });
       node.connect(EGRESS_ENDPOINT);

@@ -25,7 +25,7 @@ variable "image_path" {
 variable "disk_size" {
   type        = number
   description = "The size of the root disk in bytes"
-  default     = 5361393664
+  default     = 6442450944
 }
 
 variable "hostname_formatter" {
@@ -38,3 +38,29 @@ variable "num_nodes" {
   default     = 3
   description = "The number of nodes to create (should be > 1)"
 }
+
+variable "qcow2_image" {
+  type        = string
+  description = "Ubuntu image for VMs - only needed for libvirt provider"
+  default     = "/ubuntu-18.04-server-cloudimg-amd64.img"
+}
+
+variable "overlay_cidr" {
+  type        = string
+  description = "CIDR, classless inter-domain routing"
+  default     = "10.244.0.0/16"
+}
+
+variable "nr_hugepages" {
+  type        = string
+  description = "Number of Huge pages"
+  default     = "512"
+}
+
+variable "modprobe_nvme" {
+  type        = string
+  description = "modprobe nvme tcp selector for node.sh"
+  #default     = "ubuntu-20.04-server-cloudimg-amd64.img"
+  default     = "none"
+}
+

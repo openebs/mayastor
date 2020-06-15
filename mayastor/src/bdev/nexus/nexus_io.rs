@@ -65,7 +65,7 @@ pub mod io_type {
     //    pub const IO_NUM_TYPES: u32 = 14;
 }
 
-/// the status of an IO
+/// the status of an IO - note: values copied from spdk bdev_module.h
 pub mod io_status {
     //pub const NOMEM: i32 = -4;
     //pub const SCSI_ERROR: i32 = -3;
@@ -106,17 +106,41 @@ impl Bio {
         unsafe { spdk_bdev_io_complete(self.0, io_status::FAILED) };
     }
 
-    /// asses the IO if we need to mark it failed or ok.
+    /// assess the IO if we need to mark it failed or ok.
     #[inline]
-    pub(crate) fn assess(&mut self) {
+    pub(crate) fn assess(
+        &mut self,
+        child_io: *const spdk_bdev_io,
+        success: bool,
+    ) {
         self.ctx_as_mut_ref().in_flight -= 1;
 
         if cfg!(debug_assertions) {
             assert_ne!(self.ctx_as_mut_ref().in_flight, -1);
         }
 
+        if !success && !child_io.is_null() {
+            let io_type = Bio::io_type(self.0).unwrap();
+            let io_offset = self.offset();
+            let io_num_blocks = self.num_blocks();
+
+            unsafe {
+                self.nexus_as_ref().error_record_add(
+                    (*child_io).bdev,
+                    io_type,
+                    io_status::FAILED,
+                    io_offset,
+                    io_num_blocks,
+                );
+            }
+        }
+
         if self.ctx_as_mut_ref().in_flight == 0 {
-            self.ok();
+            if self.ctx_as_mut_ref().status == io_status::FAILED {
+                self.fail();
+            } else {
+                self.ok();
+            }
         }
     }
 
