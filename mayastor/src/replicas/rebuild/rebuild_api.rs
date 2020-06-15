@@ -6,8 +6,11 @@ use crossbeam::channel::{Receiver, Sender};
 use futures::channel::oneshot;
 use snafu::Snafu;
 
-use crate::{bdev::VerboseError, nexus_uri::BdevCreateDestroy};
-use crate::core::{BdevHandle, CoreError, Descriptor, DmaError};
+use crate::{
+    bdev::VerboseError,
+    core::{BdevHandle, CoreError, Descriptor, DmaError},
+    nexus_uri::BdevCreateDestroy,
+};
 
 use super::rebuild_impl::*;
 

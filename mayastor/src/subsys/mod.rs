@@ -5,24 +5,31 @@
 use futures::FutureExt;
 
 pub use config::{BaseBdev, Config, NexusBdev, Pool};
+pub use nvmf::{NvmfSubsystem, Target as NvmfTarget};
 pub use opts::NexusOpts;
 use spdk_sys::{
     spdk_add_subsystem,
+    spdk_add_subsystem_depend,
     spdk_json_write_ctx,
     spdk_json_write_val_raw,
     spdk_subsystem,
+    spdk_subsystem_depend,
     spdk_subsystem_fini_next,
     spdk_subsystem_init_next,
 };
 
-use crate::bdev::nexus::nexus_bdev::Error;
-use crate::jsonrpc::jsonrpc_register;
+use crate::{
+    bdev::nexus::nexus_bdev::Error,
+    jsonrpc::jsonrpc_register,
+    subsys::nvmf::Nvmf,
+};
 
 mod config;
+mod nvmf;
 mod opts;
 
 static MAYASTOR_SUBSYS: &str = "mayastor";
-pub struct MayastorSubsystem(*mut spdk_subsystem);
+pub struct MayastorSubsystem(pub *mut spdk_subsystem);
 
 impl Default for MayastorSubsystem {
     fn default() -> Self {
@@ -90,4 +97,11 @@ impl MayastorSubsystem {
 
 pub(crate) fn register_subsystem() {
     unsafe { spdk_add_subsystem(MayastorSubsystem::new().0) }
+    unsafe {
+        let mut depend = Box::new(spdk_subsystem_depend::default());
+        depend.name = b"mayastor_nvmf_tgt\0" as *const u8 as *mut _;
+        depend.depends_on = b"bdev\0" as *const u8 as *mut _;
+        spdk_add_subsystem(Nvmf::new().0);
+        spdk_add_subsystem_depend(Box::into_raw(depend));
+    }
 }

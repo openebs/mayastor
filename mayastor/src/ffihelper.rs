@@ -1,7 +1,52 @@
-use std::os::raw::c_void;
+use std::{
+    ffi::{CStr, CString},
+    os::raw::{c_char, c_void},
+};
 
 use futures::channel::oneshot;
 use nix::errno::Errno;
+
+pub(crate) trait AsStr {
+    fn as_str(&self) -> &str;
+}
+
+impl AsStr for *const c_char {
+    fn as_str(&self) -> &str {
+        unsafe {
+            CStr::from_ptr(*self).to_str().unwrap_or_else(|_| {
+                warn!("invalid UTF8 data");
+                Default::default()
+            })
+        }
+    }
+}
+
+impl AsStr for [c_char] {
+    fn as_str(&self) -> &str {
+        unsafe {
+            CStr::from_ptr(self.as_ptr()).to_str().unwrap_or_else(|_| {
+                warn!("invalid UTF8 data");
+                Default::default()
+            })
+        }
+    }
+}
+
+pub(crate) trait IntoCString {
+    fn into_cstring(self) -> CString;
+}
+
+impl IntoCString for String {
+    fn into_cstring(self) -> CString {
+        CString::new(self).unwrap()
+    }
+}
+
+impl IntoCString for &str {
+    fn into_cstring(self) -> CString {
+        CString::new(self).unwrap()
+    }
+}
 
 /// Result having Errno error.
 pub type ErrnoResult<T, E = Errno> = Result<T, E>;

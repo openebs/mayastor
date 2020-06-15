@@ -6,7 +6,7 @@ use snafu::Snafu;
 
 use crate::{
     core::Bdev,
-    target,
+    subsys::NvmfSubsystem,
     target::nvmf::{share, unshare},
 };
 
@@ -49,7 +49,6 @@ impl NexusNvmfTarget {
             }),
         }
     }
-
     pub async fn destroy(self) {
         info!("Destroying nvmf nexus target");
         match unshare(&self.uuid).await {
@@ -61,7 +60,12 @@ impl NexusNvmfTarget {
     }
 
     pub fn as_uri(&self) -> String {
-        target::nvmf::get_uri(&self.uuid).unwrap()
+        NvmfSubsystem::nqn_lookup(&self.uuid)
+            .unwrap()
+            .uri_endpoints()
+            .unwrap()
+            .pop()
+            .unwrap()
     }
 }
 

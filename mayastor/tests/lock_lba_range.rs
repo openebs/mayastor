@@ -84,7 +84,6 @@ fn test_fini() {
         let nexus = nexus_lookup(NEXUS_NAME).unwrap();
         nexus.destroy().await.unwrap();
     });
-
 }
 
 fn get_disk(number: u64) -> String {

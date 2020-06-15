@@ -77,7 +77,7 @@ impl GetOpts for NexusOpts {
 
 #[serde(default, deny_unknown_fields)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct NvmfTcpTgtConfig {
+pub struct NvmfTgtConfig {
     /// name of the target to be created
     pub name: String,
     /// the max number of namespaces this target should allow for
@@ -86,8 +86,8 @@ pub struct NvmfTcpTgtConfig {
     pub opts: TcpTransportOpts,
 }
 
-impl From<NvmfTcpTgtConfig> for spdk_nvmf_target_opts {
-    fn from(o: NvmfTcpTgtConfig) -> Self {
+impl From<NvmfTgtConfig> for Box<spdk_nvmf_target_opts> {
+    fn from(o: NvmfTgtConfig) -> Self {
         let mut out = Self::default();
         unsafe {
             copy_nonoverlapping(
@@ -101,7 +101,7 @@ impl From<NvmfTcpTgtConfig> for spdk_nvmf_target_opts {
     }
 }
 
-impl Default for NvmfTcpTgtConfig {
+impl Default for NvmfTgtConfig {
     fn default() -> Self {
         Self {
             name: "mayastor_target".to_string(),
@@ -111,7 +111,7 @@ impl Default for NvmfTcpTgtConfig {
     }
 }
 
-impl GetOpts for NvmfTcpTgtConfig {
+impl GetOpts for NvmfTgtConfig {
     fn get(&self) -> Self {
         self.clone()
     }
@@ -159,7 +159,7 @@ impl Default for TcpTransportOpts {
             ch2_success: true,
             max_qpairs_per_ctrl: 128,
             num_shared_buf: 511,
-            buf_cache_size: 32,
+            buf_cache_size: 64,
             dif_insert_or_strip: false,
             max_aq_depth: 128,
             max_srq_depth: 0, // RDMA
@@ -250,7 +250,7 @@ impl Default for NvmeBdevOpts {
             low_priority_weight: 0,
             medium_priority_weight: 0,
             high_priority_weight: 0,
-            nvme_adminq_poll_period_us: 1_000_000,
+            nvme_adminq_poll_period_us: 100_000,
             nvme_ioq_poll_period_us: 0,
             io_queue_requests: 0,
             delay_cmd_submit: true,

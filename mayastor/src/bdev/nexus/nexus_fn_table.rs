@@ -18,7 +18,7 @@ use crate::bdev::nexus::{
     instances,
     nexus_bdev::Nexus,
     nexus_channel::NexusChannel,
-    nexus_io::{Bio, io_type},
+    nexus_io::{io_type, Bio},
 };
 
 static NEXUS_FN_TBL: Lazy<NexusFnTable> = Lazy::new(NexusFnTable::new);

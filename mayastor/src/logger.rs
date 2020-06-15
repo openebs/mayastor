@@ -1,7 +1,7 @@
 use std::{ffi::CStr, io::Write, os::raw::c_char, path::Path};
 
 use env_logger::{Builder, Env};
-use log::{Level, logger, Record};
+use log::{logger, Level, Record};
 
 use spdk_sys::spdk_log_get_print_level;
 

@@ -24,7 +24,7 @@ use rpc::mayastor::{
 use crate::{
     bdev::nexus::{
         instances,
-        nexus_bdev::{Error, name_to_uuid, Nexus, nexus_create, uuid_to_name},
+        nexus_bdev::{name_to_uuid, nexus_create, uuid_to_name, Error, Nexus},
     },
     jsonrpc::jsonrpc_register,
     rebuild::RebuildJob,

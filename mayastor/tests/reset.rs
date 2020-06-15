@@ -39,10 +39,12 @@ fn generate_config() {
     config.implicit_share_base = true;
     config.nexus_opts.iscsi_enable = false;
     config.nexus_opts.nvmf_replica_port = 8430;
+    config.nexus_opts.nvmf_replica_port = 8440;
     config.write("/tmp/child1.yaml").unwrap();
 
     config.base_bdevs = Some(vec![child2_bdev]);
     config.nexus_opts.nvmf_replica_port = 8431;
+    config.nexus_opts.nvmf_replica_port = 8441;
     config.write("/tmp/child2.yaml").unwrap();
 }
 

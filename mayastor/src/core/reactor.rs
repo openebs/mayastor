@@ -51,7 +51,6 @@ use futures::{
 use log::info;
 use once_cell::sync::OnceCell;
 use serde::export::Formatter;
-
 use spdk_sys::{
     spdk_cpuset_get_cpu,
     spdk_env_thread_launch_pinned,
@@ -60,8 +59,9 @@ use spdk_sys::{
     spdk_thread_get_cpumask,
     spdk_thread_lib_init_ext,
 };
+use tracing::instrument;
 
-use crate::core::{thread::INIT_THREAD, Cores, Mthread};
+use crate::core::{Cores, Mthread};
 
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum ReactorState {
@@ -93,7 +93,6 @@ unsafe impl Sync for Reactor {}
 unsafe impl Send for Reactor {}
 pub static REACTOR_LIST: OnceCell<Reactors> = OnceCell::new();
 
-#[repr(C, align(64))]
 #[derive(Debug)]
 pub struct Reactor {
     /// vector of threads allocated by the various subsystems
@@ -142,12 +141,9 @@ impl Reactors {
 
         // construct one main init thread, this thread is used to bootstrap
         // and should be used to teardown as well.
-
-        INIT_THREAD.get_or_init(|| {
-            let init =
-                Mthread::new("INIT_THREAD".into(), Cores::first()).unwrap();
-            init
-        });
+        if let Some(t) = Mthread::new("init_thread".into(), Cores::first()) {
+            info!("Init thread ID {}", t.id());
+        }
     }
 
     /// advertise what scheduling options we support
@@ -169,37 +165,31 @@ impl Reactors {
         }
     }
 
-    fn with_reactor_locked<F>(f: F)
-    where
-        F: FnOnce(),
-    {
-        f()
-    }
-
     /// schedule a thread in here, we should make smart choices based
     /// on load etc, right now we schedule to the current core.
     fn schedule(thread: *mut spdk_sys::spdk_thread) -> i32 {
         let mask = unsafe { spdk_thread_get_cpumask(thread) };
-        Self::with_reactor_locked(|| {
-            if !Reactors::iter().any(|r| {
-                if unsafe { spdk_cpuset_get_cpu(mask, r.lcore) } {
-                    let mt = Mthread(thread);
-                    info!(
-                        "scheduled {} {:p} on core:{}",
-                        mt.name(),
-                        thread,
-                        r.lcore
-                    );
-                    r.incomming.push(Mthread(thread));
-                    return true;
-                }
-                false
-            }) {
-                error!("failed to find core for thread {:p}!", thread);
+        let scheduled = Reactors::iter().any(|r| {
+            if unsafe { spdk_cpuset_get_cpu(mask, r.lcore) } {
+                let mt = Mthread(thread);
+                info!(
+                    "scheduled {} {:p} on core:{}",
+                    mt.name(),
+                    thread,
+                    r.lcore
+                );
+                r.incomming.push(Mthread(thread));
+                return true;
             }
+            false
         });
 
-        0
+        if !scheduled {
+            error!("failed to find core for thread {:p}!", thread);
+            1
+        } else {
+            0
+        }
     }
     /// launch the poll loop on the master core, this is implemented somewhat
     /// different from the remote cores.
@@ -274,16 +264,14 @@ impl Reactor {
         let (sx, rx) =
             unbounded::<Pin<Box<dyn Future<Output = ()> + 'static>>>();
 
-        let reactor = Self {
+        Self {
             threads: RefCell::new(VecDeque::new()),
             incomming: crossbeam::queue::SegQueue::new(),
             lcore: core,
             flags: AtomicCell::new(ReactorState::Init),
             sx,
             rx,
-        };
-
-        reactor
+        }
     }
 
     /// this function gets called by DPDK
@@ -308,7 +296,7 @@ impl Reactor {
     fn run_futures(&self) {
         QUEUE.with(|(_, r)| {
             r.try_iter().for_each(|f| {
-                let _ = f.run();
+                f.run();
             })
         });
     }
@@ -355,7 +343,7 @@ impl Reactor {
         R: 'static,
     {
         let _thread = Mthread::current();
-        INIT_THREAD.get().unwrap().enter();
+        Mthread::get_init().enter();
         let schedule = |t| QUEUE.with(|(s, _)| s.send(t).unwrap());
         let (task, handle) = async_task::spawn_local(future, schedule, ());
 
@@ -369,7 +357,7 @@ impl Reactor {
         loop {
             match handle.as_mut().poll(cx) {
                 Poll::Ready(output) => {
-                    INIT_THREAD.get().unwrap().exit();
+                    Mthread::get_init().exit();
                     _thread.map(|t| {
                         debug!(
                             "restoring thread from {:?} to {:?}",
@@ -382,9 +370,6 @@ impl Reactor {
                 }
                 Poll::Pending => {
                     reactor.poll_once();
-                    if cfg!(debug_assertions) {
-                        std::thread::sleep(Duration::from_millis(1));
-                    }
                 }
             };
 
@@ -424,6 +409,7 @@ impl Reactor {
     }
 
     /// initiate shutdown of the reactor and stop polling
+    #[instrument]
     pub fn shutdown(&self) {
         info!("shutdown requested for core {}", self.lcore);
         self.set_state(ReactorState::Shutdown);
@@ -515,7 +501,6 @@ impl Future for &'static Reactor {
                 Poll::Ready(Err(()))
             }
             ReactorState::Delayed => {
-                std::thread::sleep(Duration::from_millis(1));
                 self.poll_once();
                 cx.waker().wake_by_ref();
                 Poll::Pending

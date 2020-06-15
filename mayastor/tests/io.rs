@@ -2,8 +2,8 @@ use std::process::Command;
 
 use mayastor::{
     core::{
-        Bdev,
         mayastor_env_stop,
+        Bdev,
         MayastorCliArgs,
         MayastorEnvironment,
         Reactor,

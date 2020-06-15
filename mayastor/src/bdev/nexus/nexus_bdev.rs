@@ -14,9 +14,6 @@ use futures::channel::oneshot;
 use nix::errno::Errno;
 use serde::Serialize;
 use snafu::{ResultExt, Snafu};
-use tonic::{Code as GrpcCode, Status};
-use uuid::Uuid;
-
 use spdk_sys::{
     spdk_bdev,
     spdk_bdev_desc,
@@ -32,6 +29,8 @@ use spdk_sys::{
     spdk_io_device_register,
     spdk_io_device_unregister,
 };
+use tonic::{Code as GrpcCode, Status};
+use uuid::Uuid;
 
 use crate::{
     bdev::{
@@ -40,7 +39,7 @@ use crate::{
             instances,
             nexus_channel::{DREvent, NexusChannel, NexusChannelInner},
             nexus_child::{ChildError, ChildState, ChildStatus, NexusChild},
-            nexus_io::{Bio, io_status},
+            nexus_io::{io_status, Bio},
             nexus_iscsi::{NexusIscsiError, NexusIscsiTarget},
             nexus_label::LabelError,
             nexus_nbd::{NbdDisk, NbdError},
@@ -50,10 +49,9 @@ use crate::{
     core::{Bdev, DmaError},
     ffihelper::errno_result_from_i32,
     jsonrpc::{Code, RpcErrorCode},
-    nexus_uri::BdevCreateDestroy,
+    nexus_uri::{bdev_destroy, BdevCreateDestroy},
     rebuild::RebuildError,
 };
-use crate::nexus_uri::bdev_destroy;
 
 /// Obtain the full error chain
 pub trait VerboseError {
@@ -941,12 +939,14 @@ pub fn name_to_uuid(name: &str) -> &str {
 /// bring the nexus online, there still might be a configuration mismatch that
 /// would prevent the nexus to come online. We can only determine this
 /// (currently) when online, so we check the errors twice for now.
+#[tracing::instrument(level = "debug")]
 pub async fn nexus_create(
     name: &str,
     size: u64,
     uuid: Option<&str>,
     children: &[String],
 ) -> Result<(), Error> {
+    // global variable defined in the nexus module
     // global variable defined in the nexus module
     let nexus_list = instances();
     if nexus_list.iter().any(|n| n.name == name) {

@@ -532,64 +532,64 @@ describe('replica', function () {
     });
   });
 
-  describe('uring', function () {
-    before(function (done) {
-      // Skip uring bdev if kernel lacks support
-      const URING_SUPPORT_CMD = path.join(
-        __dirname,
-        '..',
-        'target',
-        'debug',
-        'uring-support'
-      );
-      var self = this;
-      exec(URING_SUPPORT_CMD, (error) => {
-        if (error) {
-          self.skip();
-        }
-        done();
-      });
-    });
-
-    it('should create a pool with uring io_if', (done) => {
-      client.createPool(
-        { name: POOL, disks: disks, io_if: enums.POOL_IO_URING },
-        (err, res) => {
-          if (err) return done(err);
-          assert.lengthOf(Object.keys(res), 0);
-          done();
-        }
-      );
-    });
-
-    it('should list the pool', (done) => {
-      client.listPools({}, (err, res) => {
-        if (err) return done(err);
-
-        res = res.pools.filter((ent) => ent.name === POOL);
-        assert.lengthOf(res, 1);
-        res = res[0];
-
-        assert.equal(res.name, POOL);
-        assert.equal(Math.floor(res.capacity / (1024 * 1024)), 96);
-        assert.equal(res.used, 0);
-        assert.equal(res.state, 'POOL_ONLINE');
-        assert.equal(res.disks.length, disks.length);
-        for (let i = 0; i < res.disks.length; ++i) {
-          assert.equal(res.disks[i], 'uring://' + disks[i]);
-        }
-        done();
-      });
-    });
-
-    it('should destroy the pool', (done) => {
-      client.destroyPool({ name: POOL }, (err, res) => {
-        if (err) return done(err);
-        assert.lengthOf(Object.keys(res), 0);
-        done();
-      });
-    });
-  });
+  // describe('uring', function () {
+  //   before(function (done) {
+  //     // Skip uring bdev if kernel lacks support
+  //     const URING_SUPPORT_CMD = path.join(
+  //       __dirname,
+  //       '..',
+  //       'target',
+  //       'debug',
+  //       'uring-support'
+  //     );
+  //     var self = this;
+  //     exec(URING_SUPPORT_CMD, (error) => {
+  //       if (error) {
+  //         self.skip();
+  //       }
+  //       done();
+  //     });
+  //   });
+  //
+  //   it('should create a pool with uring io_if', (done) => {
+  //     client.createPool(
+  //       { name: POOL, disks: disks, io_if: enums.POOL_IO_URING },
+  //       (err, res) => {
+  //         if (err) return done(err);
+  //         assert.lengthOf(Object.keys(res), 0);
+  //         done();
+  //       }
+  //     );
+  //   });
+  //
+  //   it('should list the pool', (done) => {
+  //     client.listPools({}, (err, res) => {
+  //       if (err) return done(err);
+  //
+  //       res = res.pools.filter((ent) => ent.name === POOL);
+  //       assert.lengthOf(res, 1);
+  //       res = res[0];
+  //
+  //       assert.equal(res.name, POOL);
+  //       assert.equal(Math.floor(res.capacity / (1024 * 1024)), 96);
+  //       assert.equal(res.used, 0);
+  //       assert.equal(res.state, 'POOL_ONLINE');
+  //       assert.equal(res.disks.length, disks.length);
+  //       for (let i = 0; i < res.disks.length; ++i) {
+  //         assert.equal(res.disks[i], 'uring://' + disks[i]);
+  //       }
+  //       done();
+  //     });
+  //   });
+  //
+  //   it('should destroy the pool', (done) => {
+  //     client.destroyPool({ name: POOL }, (err, res) => {
+  //       if (err) return done(err);
+  //       assert.lengthOf(Object.keys(res), 0);
+  //       done();
+  //     });
+  //   });
+  // });
 
   describe('nvmf', function () {
     let uri; // URI of the created nvmf replica

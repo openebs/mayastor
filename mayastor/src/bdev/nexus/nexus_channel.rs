@@ -89,12 +89,11 @@ impl NexusChannelInner {
             .children
             .iter_mut()
             .filter(|c| c.status() == ChildStatus::Online)
-            .map(|c| {
+            .for_each(|c| {
                 self.ch.push(
                     BdevHandle::try_from(c.get_descriptor().unwrap()).unwrap(),
                 )
-            })
-            .for_each(drop);
+            });
 
         if !self.ch.is_empty() {
             nexus

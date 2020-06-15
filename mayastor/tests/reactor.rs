@@ -2,8 +2,8 @@ use mayastor::core::{
     mayastor_env_stop,
     MayastorCliArgs,
     MayastorEnvironment,
-    Reactors,
     ReactorState,
+    Reactors,
 };
 
 pub mod common;

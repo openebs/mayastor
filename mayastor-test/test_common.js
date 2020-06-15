@@ -142,9 +142,11 @@ function startProcess (command, args, env, closeCb, psName) {
   proc.output = [];
 
   proc.stdout.on('data', (data) => {
+    // console.log(command + ":" + data.toString());
     proc.output.push(data);
   });
   proc.stderr.on('data', (data) => {
+    // console.log(command + ":" + data.toString());
     proc.output.push(data);
   });
   proc.once('close', (code, signal) => {
@@ -160,7 +162,7 @@ function startProcess (command, args, env, closeCb, psName) {
 
 // Start spdk process and return immediately.
 function startSpdk (config, args, env) {
-  args = args || ['-r', SOCK, '-m', "0x2"];
+  args = args || ['-r', SOCK, '-m', '0x2'];
   env = env || {};
 
   if (config) {

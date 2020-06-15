@@ -138,6 +138,7 @@ fn yaml_pool_tests() {
 
     cfg.source = Some("/tmp/pool.yaml".into());
     cfg.pools = Some(vec![pool]);
+    cfg.nexus_opts.nvmf_enable = false;
 
     cfg.write("/tmp/pool.yaml").unwrap();
 

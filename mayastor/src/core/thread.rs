@@ -1,6 +1,5 @@
-use std::ffi::CString;
+use std::ffi::{c_void, CString};
 
-use once_cell::sync::OnceCell;
 use snafu::Snafu;
 
 use spdk_sys::{
@@ -10,12 +9,14 @@ use spdk_sys::{
     spdk_thread_create,
     spdk_thread_destroy,
     spdk_thread_exit,
+    spdk_thread_get_by_id,
     spdk_thread_is_exited,
     spdk_thread_poll,
+    spdk_thread_send_msg,
     spdk_unaffinitize_thread,
 };
 
-use crate::core::cpu_cores::CpuMask;
+use crate::core::{cpu_cores::CpuMask, Cores};
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -23,7 +24,6 @@ pub enum Error {
     InvalidThread {},
 }
 
-#[repr(C)]
 #[derive(Debug, Clone, Copy)]
 /// struct that wraps an SPDK thread. The name thread is chosen poorly and
 /// should not be confused with an actual thread. Consider it more to be
@@ -31,12 +31,12 @@ pub enum Error {
 /// the submitted work to completion.
 pub struct Mthread(pub(crate) *mut spdk_thread);
 
-unsafe impl Send for Mthread {}
-unsafe impl Sync for Mthread {}
-
-pub static INIT_THREAD: OnceCell<Mthread> = OnceCell::new();
-
 impl Mthread {
+    pub fn get_init() -> Mthread {
+        assert_eq!(Cores::current(), Cores::first());
+        Mthread::from_null_checked(unsafe { spdk_thread_get_by_id(1) }).unwrap()
+    }
+
     ///
     /// With the given thread as context, execute the closure on that thread.
     ///
@@ -52,6 +52,10 @@ impl Mthread {
         };
         Self::from_null_checked(t)
     }
+
+    pub fn id(&self) -> u64 {
+        unsafe { (*self.0).id }
+    }
     ///
     /// # Note
     ///
@@ -59,9 +63,12 @@ impl Mthread {
     /// long-running functions in general follow the nodejs event loop
     /// model, and you should be good.
     pub fn with<F: FnOnce()>(self, f: F) -> Self {
+        let _th = Self::current();
         self.enter();
         f();
-        self.exit();
+        if let Some(t) = _th {
+            t.enter();
+        }
         self
     }
 
@@ -130,6 +137,16 @@ impl Mthread {
         } else {
             Some(Mthread(t))
         }
+    }
+
+    #[allow(clippy::not_unsafe_ptr_arg_deref)]
+    pub fn send_msg(
+        &self,
+        f: extern "C" fn(ctx: *mut c_void),
+        arg: *mut c_void,
+    ) {
+        let rc = unsafe { spdk_thread_send_msg(self.0, Some(f), arg) };
+        assert_eq!(rc, 0);
     }
 
     pub fn unaffinitize() {

@@ -12,8 +12,11 @@ use snafu::ResultExt;
 
 use spdk_sys::spdk_get_thread;
 
-use crate::{bdev::VerboseError, nexus_uri::bdev_get_name};
-use crate::core::{Bdev, BdevHandle, DmaBuf, RangeContext, Reactors};
+use crate::{
+    bdev::VerboseError,
+    core::{Bdev, BdevHandle, DmaBuf, RangeContext, Reactors},
+    nexus_uri::bdev_get_name,
+};
 
 use super::rebuild_api::*;
 

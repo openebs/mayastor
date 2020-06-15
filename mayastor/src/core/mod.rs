@@ -17,7 +17,7 @@ pub use env::{
 };
 pub use handle::BdevHandle;
 pub use reactor::{Reactor, ReactorState, Reactors, REACTOR_LIST};
-pub use thread::{Mthread, INIT_THREAD};
+pub use thread::Mthread;
 
 mod bdev;
 mod channel;

@@ -25,7 +25,6 @@ use crate::{
     core::Bdev,
     ffihelper::{cb_arg, done_errno_cb, errno_result_from_i32, ErrnoResult},
 };
-
 /// we are using the multi buffer encryption implementation using CBC as the
 /// algorithm
 const CRYPTO_FLAVOUR: &str = "crypto_aesni_mb";

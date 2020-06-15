@@ -8,7 +8,6 @@ let
 in
 with pkgs;
 let
-  libspdk = pkgs.libspdk.override { enableDebug = true; };
   moth = "You have requested environment without SPDK, you should provide it!";
 in
 mkShell {

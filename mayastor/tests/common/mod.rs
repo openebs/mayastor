@@ -74,7 +74,7 @@ macro_rules! test_init {
             })
             .init()
         });
-        mayastor::core::INIT_THREAD.get().unwrap().enter();
+        mayastor::core::Mthread::get_init().enter();
     };
 }
 

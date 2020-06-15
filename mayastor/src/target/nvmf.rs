@@ -1,11 +1,12 @@
+#![allow(dead_code)]
 //! Methods for creating nvmf targets
 //!
 //! We create a default nvmf target when mayastor starts up. Then for each
 //! replica which is to be exported, we create a subsystem in that default
 //! target. Each subsystem has one namespace backed by the lvol.
-
 use std::{
     cell::RefCell,
+    convert::TryFrom,
     ffi::{c_void, CStr, CString},
     fmt,
     os::raw::c_int,
@@ -18,10 +19,7 @@ use once_cell::sync::Lazy;
 use snafu::{ResultExt, Snafu};
 
 use spdk_sys::{
-    NVMF_TGT_NAME_MAX_LENGTH,
     spdk_nvme_transport_id,
-    SPDK_NVME_TRANSPORT_TCP,
-    SPDK_NVMF_ADRFAM_IPV4,
     spdk_nvmf_poll_group,
     spdk_nvmf_poll_group_add,
     spdk_nvmf_poll_group_create,
@@ -41,7 +39,6 @@ use spdk_sys::{
     spdk_nvmf_subsystem_set_sn,
     spdk_nvmf_subsystem_start,
     spdk_nvmf_subsystem_stop,
-    SPDK_NVMF_SUBTYPE_NVME,
     spdk_nvmf_target_opts,
     spdk_nvmf_tgt,
     spdk_nvmf_tgt_accept,
@@ -51,31 +48,28 @@ use spdk_sys::{
     spdk_nvmf_tgt_find_subsystem,
     spdk_nvmf_tgt_listen,
     spdk_nvmf_tgt_stop_listen,
-    SPDK_NVMF_TRADDR_MAX_LEN,
     spdk_nvmf_transport_create,
     spdk_nvmf_transport_opts,
     spdk_nvmf_transport_opts_init,
-    SPDK_NVMF_TRSVCID_MAX_LEN,
     spdk_poller,
     spdk_poller_register,
     spdk_poller_unregister,
     NVMF_TGT_NAME_MAX_LENGTH,
     SPDK_NVME_TRANSPORT_TCP,
     SPDK_NVMF_ADRFAM_IPV4,
-    SPDK_NVMF_SUBTYPE_NVME,
-    SPDK_NVMF_SUBTYPE_DISCOVERY,
     SPDK_NVMF_DISCOVERY_NQN,
+    SPDK_NVMF_SUBTYPE_DISCOVERY,
+    SPDK_NVMF_SUBTYPE_NVME,
     SPDK_NVMF_TRADDR_MAX_LEN,
     SPDK_NVMF_TRSVCID_MAX_LEN,
 };
 
 use crate::{
-    core::{Bdev, thread::INIT_THREAD},
+    core::{Bdev, Reactors},
     ffihelper::{cb_arg, done_errno_cb, errno_result_from_i32, ErrnoResult},
     jsonrpc::{Code, RpcErrorCode},
-    subsys::Config,
+    subsys::{Config, NvmfSubsystem},
 };
-use crate::core::Reactor;
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -191,7 +185,7 @@ impl Subsystem {
             assert_eq!(r.await.is_ok(), true);
         };
 
-        Reactor::block_on(fut);
+        Reactors::current().send_future(fut);
 
         Ok(Self {
             inner,
@@ -572,7 +566,9 @@ impl Target {
 
     /// Add nvme discovery subsystem to the target and return it.
     pub fn create_discovery_subsystem(&mut self) -> Result<Subsystem> {
-        let c_nqn = unsafe { CStr::from_ptr(SPDK_NVMF_DISCOVERY_NQN.as_ptr() as *const i8) };
+        let c_nqn = unsafe {
+            CStr::from_ptr(SPDK_NVMF_DISCOVERY_NQN.as_ptr() as *const i8)
+        };
         let nqn = String::from(c_nqn.to_str().unwrap());
 
         let ss = unsafe {
@@ -684,27 +680,19 @@ impl fmt::Display for Target {
 
 /// Create nvmf target which will be used for exporting the replicas.
 pub async fn init(address: &str) -> Result<()> {
-<<<<<<< HEAD
     let config = Config::by_ref();
-    let replica_port = config.nexus_opts.nvmf_replica_port;
-=======
-    INIT_THREAD.get().unwrap().enter();
     let replica_port = Config::by_ref().nexus_opts.nvmf_replica_port;
->>>>>>> 06e66ae... CAS-255: update SPDK to 20.x
     let mut boxed_tgt = Box::new(Target::create(address, replica_port)?);
     boxed_tgt.add_tcp_transport().await?;
     boxed_tgt
         .listen()
         .unwrap_or_else(|_| panic!("failed to listen on {}", replica_port));
     boxed_tgt.accept()?;
-<<<<<<< HEAD
 
     if config.nexus_opts.nvmf_discovery_enable {
         boxed_tgt.create_discovery_subsystem()?.start().await?;
     }
 
-=======
->>>>>>> 06e66ae... CAS-255: update SPDK to 20.x
     NVMF_TGT.with(move |nvmf_tgt| {
         if nvmf_tgt.borrow().is_some() {
             panic!("Double initialization of nvmf");
@@ -727,43 +715,28 @@ pub async fn fini() -> Result<()> {
 
 /// Export given bdev over nvmf target.
 pub async fn share(uuid: &str, bdev: &Bdev) -> Result<()> {
-    let mut ss = NVMF_TGT.with(move |maybe_tgt| {
-        let mut maybe_tgt = maybe_tgt.borrow_mut();
-        let tgt = maybe_tgt.as_mut().unwrap();
-        tgt.create_subsystem(uuid)
-    })?;
-    ss.add_namespace(bdev)?;
-    ss.start().await
+    if let Some(ss) = NvmfSubsystem::nqn_lookup(uuid) {
+        assert_eq!(bdev.name(), ss.bdev().name());
+        return Ok(());
+    };
+    let ss = NvmfSubsystem::try_from(bdev).unwrap();
+    ss.start().await.unwrap();
+    Ok(())
 }
 
 /// Un-export given bdev from nvmf target.
 /// Unsharing replica which is not shared is not an error.
 pub async fn unshare(uuid: &str) -> Result<()> {
-    let res = NVMF_TGT.with(move |maybe_tgt| {
-        let mut maybe_tgt = maybe_tgt.borrow_mut();
-        let tgt = maybe_tgt.as_mut().unwrap();
-        tgt.lookup_subsystem(uuid)
-    });
-
-    match res {
-        None => debug!("nvmf subsystem {} was not shared", uuid),
-        Some(mut ss) => {
-            ss.stop().await?;
-            ss.destroy();
-        }
-    }
+    let n = NvmfSubsystem::nqn_lookup(uuid).unwrap();
+    n.stop().await.unwrap();
+    n.destroy();
     Ok(())
 }
 
 pub fn get_uri(uuid: &str) -> Option<String> {
-    NVMF_TGT.with(move |maybe_tgt| {
-        let mut maybe_tgt = maybe_tgt.borrow_mut();
-        let tgt = maybe_tgt.as_mut().unwrap();
-        match tgt.lookup_subsystem(uuid) {
-            Some(mut ss) => {
-                Some(format!("nvmf://{}/{}", tgt.endpoint(), ss.get_nqn()))
-            }
-            None => None,
-        }
-    })
+    if let Some(ss) = NvmfSubsystem::nqn_lookup(uuid) {
+        ss.uri_endpoints().unwrap().pop()
+    } else {
+        None
+    }
 }

@@ -92,7 +92,7 @@ const configNvmfTarget = `
 [Transport]
   Type TCP
   # reduce memory requirements
-  NumSharedBuffers 32
+  NumSharedBuffers 64
 
 [Subsystem1]
   NQN nqn.2019-05.io.openebs:disk2
@@ -241,28 +241,29 @@ function controlPlaneTest (thisProtocol) {
 }
 
 var doUring = (function () {
-  var executed = false;
-  var supportsUring = false;
+  // var executed = false;
+  // var supportsUring = false;
   return function () {
-    if (!executed) {
-      executed = true;
-      const { exec } = require('child_process');
-      const URING_SUPPORT_CMD = path.join(
-        __dirname,
-        '..',
-        'target',
-        'debug',
-        'uring-support'
-      );
-      const CMD = URING_SUPPORT_CMD + ' ' + uringFile;
-      exec(CMD, (error) => {
-        if (error) {
-          return;
-        }
-        supportsUring = true;
-      });
-    }
-    return supportsUring;
+    return false;
+  //   if (!executed) {
+  //     executed = true;
+  //     const { exec } = require('child_process');
+  //     const URING_SUPPORT_CMD = path.join(
+  //       __dirname,
+  //       '..',
+  //       'target',
+  //       'debug',
+  //       'uring-support'
+  //     );
+  //     const CMD = URING_SUPPORT_CMD + ' ' + uringFile;
+  //     exec(CMD, (error) => {
+  //       if (error) {
+  //         return;
+  //       }
+  //       supportsUring = true;
+  //     });
+  //   }
+  //   return supportsUring;
   };
 })();
 

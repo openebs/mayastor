@@ -5,11 +5,10 @@ use once_cell::sync::Lazy;
 
 use common::error_bdev;
 use mayastor::{
-    bdev::{ChildStatus, nexus_lookup, VerboseError},
-    core::{MayastorCliArgs, MayastorEnvironment, Reactor},
+    bdev::{nexus_lookup, ChildStatus, VerboseError},
+    core::{MayastorCliArgs, MayastorEnvironment, Mthread, Reactor},
     replicas::rebuild::{RebuildJob, RebuildState, SEGMENT_SIZE},
 };
-use mayastor::core::Mthread;
 use rpc::mayastor::ShareProtocolNexus;
 
 pub mod common;
@@ -222,7 +221,6 @@ fn rebuild_src_removal() {
 }
 
 #[test]
-#[ignore]
 fn rebuild_with_load() {
     test_ini("rebuild_with_load");
 

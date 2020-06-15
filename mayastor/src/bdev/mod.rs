@@ -4,15 +4,15 @@ pub use aio_dev::{AioBdev, AioParseError};
 pub use iscsi_dev::{IscsiBdev, IscsiParseError};
 pub use nexus::{
     nexus_bdev::{
-        Nexus,
         nexus_create,
         nexus_lookup,
+        Nexus,
         NexusStatus,
         VerboseError,
     },
     nexus_child::ChildStatus,
     nexus_child_error_store::NexusErrStore,
-    nexus_label::{GptEntry, GPTHeader},
+    nexus_label::{GPTHeader, GptEntry},
     nexus_metadata_content::{
         NexusConfig,
         NexusConfigVersion1,

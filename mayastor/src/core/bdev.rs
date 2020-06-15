@@ -1,6 +1,6 @@
 use std::{
     ffi::CStr,
-    fmt::{Debug, Formatter},
+    fmt::{Debug, Display, Formatter},
     os::raw::c_void,
 };
 
@@ -26,8 +26,8 @@ use spdk_sys::{
 };
 
 use crate::{
-    core::{CoreError, Descriptor, uuid::Uuid},
-    ffihelper::cb_arg,
+    core::{uuid::Uuid, CoreError, Descriptor},
+    ffihelper::{cb_arg, AsStr},
 };
 
 #[derive(Debug)]
@@ -44,6 +44,7 @@ pub struct Stat {
 /// It is not possible to remove a bdev through a core other than the management
 /// core. This means that the structure is always valid for the lifetime of the
 /// scope.
+#[derive(Clone)]
 pub struct Bdev(*mut spdk_bdev);
 
 impl Bdev {
@@ -91,6 +92,15 @@ impl Bdev {
 
     pub fn is_claimed(&self) -> bool {
         unsafe { !(*self.0).internal.claim_module.is_null() }
+    }
+
+    pub fn claimed_by(&self) -> Option<String> {
+        let ptr = unsafe { (*self.0).internal.claim_module };
+        if ptr.is_null() {
+            None
+        } else {
+            Some(unsafe { (*ptr).name.as_str() }.to_string())
+        }
     }
 
     /// lookup a bdev by its name
@@ -313,6 +323,12 @@ impl Iterator for BdevIter {
 impl From<*mut spdk_bdev> for Bdev {
     fn from(b: *mut spdk_bdev) -> Self {
         Self(b)
+    }
+}
+
+impl Display for Bdev {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "name: {}, driver: {}", self.name(), self.driver(),)
     }
 }
 

@@ -7,15 +7,18 @@
 pushd spdk || { echo "Can not find spdk directory"; exit; }
 
 [ ! -d dpdk/.git ] || { echo "Submodules not checked out?"; exit; }
+
+
 ./configure --enable-debug \
+	--target-arch=nehalem \
+	--disable-tests \
+	--disable-unit-tests \
 	--without-isal \
 	--with-iscsi-initiator \
-	--with-internal-vhost-lib \
 	--with-crypto \
-	--enable-log-bt \
-	--with-uring
+	--with-internal-vhost-lib
 
-make -j $(nproc)
+bear make -j $(nproc)
 
 # delete things we for sure do not want link
 find . -type f -name 'libspdk_ut_mock.a' -delete
@@ -25,7 +28,7 @@ find . -type f -name 'librte_vhost.a' -delete
 # we do our own config file parsing, and we setup our own targets.
 
 $CC -shared -o libspdk.so \
-	-lc  -laio -liscsi -lnuma -ldl -lrt -luuid -lpthread -lcrypto -luring \
+	-lc  -laio -liscsi -lnuma -ldl -lrt -luuid -lpthread -lcrypto \
 	-Wl,--whole-archive \
 	$(find build/lib -type f -name 'libspdk_*.a*' -o -name 'librte_*.a*') \
 	$(find dpdk/build/lib -type f -name 'librte_*.a*') \

@@ -3,26 +3,18 @@ use std::{
     ffi::CString,
     net::Ipv4Addr,
     os::raw::{c_char, c_void},
-    sync::{Arc, Mutex},
+    sync::{
+        atomic::{AtomicBool, Ordering::SeqCst},
+        Arc,
+        Mutex,
+    },
+    time::Duration,
 };
 
 use byte_unit::{Byte, ByteUnit};
 use futures::channel::oneshot;
-use nix::sys::{
-    signal,
-    signal::{
-        pthread_sigmask,
-        SigHandler,
-        SigSet,
-        SigmaskHow,
-        Signal::{SIGINT, SIGTERM},
-    },
-};
 use once_cell::sync::Lazy;
-use snafu::{ResultExt, Snafu};
-use structopt::StructOpt;
-use tokio::{runtime::Builder, task};
-
+use snafu::Snafu;
 use spdk_sys::{
     maya_log,
     spdk_app_shutdown_cb,
@@ -37,21 +29,25 @@ use spdk_sys::{
     spdk_pci_addr,
     spdk_rpc_set_state,
     spdk_thread_lib_fini,
+    spdk_thread_send_critical_msg,
     SPDK_LOG_DEBUG,
     SPDK_LOG_INFO,
     SPDK_RPC_RUNTIME,
 };
+use structopt::StructOpt;
+use tokio::{runtime::Builder, task};
+use tracing::instrument;
 
 use crate::{
     core::{
         reactor::{Reactor, ReactorState, Reactors},
-        thread::INIT_THREAD,
         Cores,
+        Mthread,
     },
     grpc::grpc_server_init,
     logger,
     subsys::Config,
-    target::{iscsi, nvmf},
+    target::iscsi,
 };
 
 fn parse_mb(src: &str) -> Result<i32, String> {
@@ -145,6 +141,9 @@ impl Default for MayastorCliArgs {
 /// shutdown during test cases
 pub static GLOBAL_RC: Lazy<Arc<Mutex<i32>>> =
     Lazy::new(|| Arc::new(Mutex::new(-1)));
+
+pub static SIG_RECIEVED: Lazy<AtomicBool> =
+    Lazy::new(|| AtomicBool::new(false));
 
 /// FFI functions that are needed to initialize the environment
 extern "C" {
@@ -252,10 +251,10 @@ impl Default for MayastorEnvironment {
 
 /// The actual routine which does the mayastor shutdown.
 /// Must be called on the same thread which did the init.
+#[instrument]
 async fn do_shutdown(arg: *mut c_void) {
     // we must enter the init thread explicitly here as this, typically, gets
     // called by the signal handler
-    INIT_THREAD.get().unwrap().enter();
     // callback for when the subsystems have shutdown
     extern "C" fn reactors_stop(arg: *mut c_void) {
         Reactors::iter().for_each(|r| r.shutdown());
@@ -274,13 +273,6 @@ async fn do_shutdown(arg: *mut c_void) {
         debug!("iSCSI target down");
     };
 
-    if cfg.nexus_opts.nvmf_enable {
-        if let Err(msg) = nvmf::fini().await {
-            error!("Failed to finalize nvmf target: {}", msg);
-        }
-        debug!("nvmf target down");
-    }
-
     unsafe {
         spdk_rpc_finish();
         spdk_subsystem_fini(Some(reactors_stop), arg);
@@ -292,12 +284,7 @@ pub fn mayastor_env_stop(rc: i32) {
     let r = Reactors::master();
 
     match r.get_state() {
-        ReactorState::Init => {
-            Reactor::block_on(async move {
-                do_shutdown(rc as *const i32 as *mut c_void).await;
-            });
-        }
-        ReactorState::Running | ReactorState::Delayed => {
+        ReactorState::Running | ReactorState::Delayed | ReactorState::Init => {
             r.send_future(async move {
                 do_shutdown(rc as *const i32 as *mut c_void).await;
             });
@@ -308,12 +295,25 @@ pub fn mayastor_env_stop(rc: i32) {
     }
 }
 
+#[inline(always)]
+unsafe extern "C" fn signal_trampoline(_: *mut c_void) {
+    mayastor_env_stop(0);
+}
+
 /// called on SIGINT and SIGTERM
 extern "C" fn mayastor_signal_handler(signo: i32) {
+    if SIG_RECIEVED.load(SeqCst) {
+        return;
+    }
+
     warn!("Received SIGNO: {}", signo);
-    // we don't differentiate between signal numbers for now, all signals will
-    // cause a shutdown
-    mayastor_env_stop(signo);
+    SIG_RECIEVED.store(true, SeqCst);
+    unsafe {
+        spdk_thread_send_critical_msg(
+            Mthread::get_init().0,
+            Some(signal_trampoline),
+        );
+    };
 }
 
 #[derive(Debug)]
@@ -329,7 +329,7 @@ impl MayastorEnvironment {
             grpc_port: Some(args.port),
             config: args.config,
             mayastor_config: args.mayastor_config,
-            log_component: vec![],
+            log_component: args.log_components,
             mem_size: args.mem_size,
             no_pci: args.no_pci,
             reactor_mask: args.reactor_mask,
@@ -342,25 +342,19 @@ impl MayastorEnvironment {
 
     /// configure signal handling
     fn install_signal_handlers(&self) -> Result<()> {
-        // first set that we ignore SIGPIPE
-        let _ = unsafe { signal::signal(signal::SIGPIPE, SigHandler::SigIgn) }
-            .context(SetSigHdl)?;
-
-        // setup that we want mayastor_signal_handler to be invoked on SIGINT
-        // and SIGTERM
-        let handler = SigHandler::Handler(mayastor_signal_handler);
+        unsafe {
+            signal_hook::register(signal_hook::SIGTERM, || {
+                mayastor_signal_handler(1)
+            })
+        }
+        .unwrap();
 
         unsafe {
-            signal::signal(SIGINT, handler).context(SetSigHdl)?;
-            signal::signal(SIGTERM, handler).context(SetSigHdl)?;
+            signal_hook::register(signal_hook::SIGINT, || {
+                mayastor_signal_handler(1)
+            })
         }
-
-        let mut mask = SigSet::empty();
-        mask.add(SIGINT);
-        mask.add(SIGTERM);
-
-        pthread_sigmask(SigmaskHow::SIG_UNBLOCK, Some(&mask), None)
-            .context(SetSigHdl)?;
+        .unwrap();
 
         Ok(())
     }
@@ -480,7 +474,7 @@ impl MayastorEnvironment {
         // set the log levels of the DPDK libs, this can be overridden by
         // setting env_context
         args.push(CString::new("--log-level=lib.eal:6").unwrap());
-        args.push(CString::new("--log-level=lib.cryptodev:0").unwrap());
+        args.push(CString::new("--log-level=lib.cryptodev:5").unwrap());
         args.push(CString::new("--log-level=user1:6").unwrap());
         args.push(CString::new("--match-allocations").unwrap());
 
@@ -503,7 +497,7 @@ impl MayastorEnvironment {
             .collect::<Vec<*const i8>>();
 
         cargs.push(std::ptr::null());
-        info!("EAL arguments {:?}", args);
+        debug!("EAL arguments {:?}", args);
 
         if unsafe {
             rte_eal_init(
@@ -566,25 +560,10 @@ impl MayastorEnvironment {
             }
         }
 
-        if cfg.nexus_opts.nvmf_enable {
-            let f = async move {
-                if let Err(msg) = nvmf::init(&address).await {
-                    error!(
-                        "Failed to initialize Mayastor nvmf target: {}",
-                        msg
-                    );
-                    // because of the -1 we exit immediately
-                    mayastor_env_stop(-1);
-                }
-            };
-
-            Reactors::master().send_future(f);
-        }
-
         Ok(())
     }
 
-    fn get_pod_ip() -> Result<String, String> {
+    pub(crate) fn get_pod_ip() -> Result<String, String> {
         match env::var("MY_POD_IP") {
             Ok(val) => {
                 if val.parse::<Ipv4Addr>().is_ok() {
@@ -676,6 +655,15 @@ impl MayastorEnvironment {
 
         let rpc = CString::new(self.rpc_addr.as_str()).unwrap();
 
+        while Reactors::iter().any(|r| {
+            r.get_state() == ReactorState::Init && r.core() != Cores::current()
+        }) {
+            std::thread::sleep(Duration::from_millis(1));
+        }
+
+        info!("All cores locked and loaded!");
+        Mthread::get_init().enter();
+
         Reactor::block_on(async {
             let (sender, receiver) = oneshot::channel::<bool>();
 
@@ -699,7 +687,7 @@ impl MayastorEnvironment {
     }
 
     // finalize our environment
-    pub fn fini() {
+    fn fini() {
         unsafe {
             spdk_trace_cleanup();
             spdk_thread_lib_fini();
@@ -726,7 +714,6 @@ impl MayastorEnvironment {
             .unwrap();
 
         // the ourselves within the context of the init thread
-        INIT_THREAD.get().unwrap().enter();
         let local = task::LocalSet::new();
         rt.block_on(async {
             local

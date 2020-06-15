@@ -7,10 +7,10 @@ use crate::{
     bdev::{
         nexus::{
             nexus_bdev::{
+                nexus_lookup,
                 CreateRebuildError,
                 Error,
                 Nexus,
-                nexus_lookup,
                 RebuildJobNotFound,
                 RebuildOperationError,
                 RemoveRebuildJob,

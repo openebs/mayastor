@@ -102,6 +102,8 @@ let
   # this we need for node
   node = [ nodejs-12_x python gnumake ];
 
+  debugspdk = libspdk.override { enableDebug = true; };
+
   # generate a user profile for the image
   profile = mkContainerEnv {
     derivations = [
@@ -110,7 +112,7 @@ let
       fio
       libaio
       libiscsi.lib
-      libspdk
+      debugspdk
       liburing
       pkgconfig
       libudev.dev

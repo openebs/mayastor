@@ -8,7 +8,7 @@ use std::{
     io,
     os::unix::io::AsRawFd,
     path::Path,
-    sync::{Arc, atomic::AtomicBool},
+    sync::{atomic::AtomicBool, Arc},
     thread,
     time::Duration,
 };

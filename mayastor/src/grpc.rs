@@ -1,6 +1,7 @@
 use std::convert::From;
 
-use tonic::{Request, Response, Status, transport::Server};
+use tonic::{transport::Server, Request, Response, Status};
+use tracing::instrument;
 
 use rpc::{
     mayastor::*,
@@ -12,7 +13,7 @@ use crate::{
         nexus::{
             instances,
             nexus_bdev,
-            nexus_bdev::{name_to_uuid, Nexus, NexusStatus, uuid_to_name},
+            nexus_bdev::{name_to_uuid, uuid_to_name, Nexus, NexusStatus},
             nexus_child::{ChildStatus, NexusChild},
         },
         nexus_create,
@@ -42,6 +43,7 @@ fn nexus_lookup(
     }
 }
 
+#[derive(Debug)]
 pub struct MayastorGrpc {}
 
 type Result<T> = std::result::Result<T, Status>;
@@ -184,7 +186,7 @@ impl Mayastor for MayastorGrpc {
         info!("Created replica {} ...", uuid);
         Ok(Response::new(reply))
     }
-
+    #[instrument]
     async fn destroy_replica(
         &self,
         request: Request<DestroyReplicaRequest>,
@@ -321,6 +323,7 @@ impl Mayastor for MayastorGrpc {
         Ok(Response::new(Null {}))
     }
 
+    #[instrument]
     async fn publish_nexus(
         &self,
         request: Request<PublishNexusRequest>,

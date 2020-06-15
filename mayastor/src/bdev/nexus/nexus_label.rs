@@ -58,12 +58,12 @@ use std::{
     str::FromStr,
 };
 
-use bincode::{deserialize_from, Error, serialize, serialize_into};
+use bincode::{deserialize_from, serialize, serialize_into, Error};
 use crc::{crc32, Hasher32};
 use futures::future::join_all;
 use serde::{
     de::{Deserialize, Deserializer, SeqAccess, Unexpected, Visitor},
-    ser::{Serialize, Serializer, SerializeTuple},
+    ser::{Serialize, SerializeTuple, Serializer},
 };
 use snafu::{ResultExt, Snafu};
 use uuid::{self, parser, Uuid};
