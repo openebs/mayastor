@@ -4,13 +4,6 @@ This quickstart guide has been tested against the following platforms and config
 
 - kubeadm (vanilla k8s cluster)
     - k8s version 1.14 or newer
-- Microsoft Azure Kubernetes Service (AKS)
-    - k8s version 1.16.7
-    - Ubuntu 16.04.6 LTS (GNU/Linux 4.15.0-1077-azure x86_64)
-    - Not tested with scale-sets
-
-    > AKS is not currently recommended for use with Mayastor in production owing to the need, at this time, to make configuration changes to worker nodes which are not readily compatible with upgrades or autoscaling behavior
-
 
 ### Requirements
 
