@@ -113,6 +113,14 @@ impl Nexus {
                     "Child added but rebuild failed to start: {}",
                     e.verbose()
                 );
+                match self.get_child_by_name(uri) {
+                    Ok(child) => child.fault(),
+                    Err(e) => error!(
+                        "Failed to find newly added child {}, error: {}",
+                        uri,
+                        e.verbose()
+                    ),
+                };
             }
         }
         Ok(status)
