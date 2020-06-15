@@ -47,8 +47,8 @@ rec {
   release-src = fetchFromGitHub {
     owner = "openebs";
     repo = "mayastor";
-    rev = "0165058897ae3d8cdd3bcd3c56ef55eb3b1eb13f";
-    sha256 = "09sgj7rbaqalf4ywnjaw6cimpn6p4ibzlbyjdsx5sjf1rlb5jv9a";
+    rev = "1e5dca302cff3e66220c3cf892a08c89733d535e";
+    sha256 = "0w7apa3rnjbkz2ma1nca42w729zj33k2xvfy34c84x6q0f4s9zjz";
   };
 
   mayastor = rustPlatform.buildRustPackage rec {
