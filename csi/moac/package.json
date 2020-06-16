@@ -15,6 +15,7 @@
   "scripts": {
     "prepare": "./bundle_protos.sh",
     "clean": "rm -f replica.js pool.js",
+    "purge": "rm -rf node_modules proto replica.js pool.js",
     "compile": "tsc --pretty",
     "start": "./index.js",
     "test": "mocha test/index.js",
