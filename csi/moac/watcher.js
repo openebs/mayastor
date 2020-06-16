@@ -254,8 +254,10 @@ class Watcher extends EventEmitter {
         // we assume that if generation # remained the same => no change
         // TODO: add 64-bit integer overflow protection
         this.emit('mod', obj);
+      } else if (oldObj.metadata.generation === generation) {
+        log.trace(`Status of ${this.name} object changed`);
       } else {
-        log.debug(`Ignoring stale ${this.name} object event`);
+        log.warn(`Ignoring stale ${this.name} object event`);
       }
 
       // TODO: subtle race condition when delete event is related to object which
