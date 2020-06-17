@@ -58,14 +58,12 @@ fn generate_config() {
     config.write(CFGNAME2).unwrap();
 }
 
-fn start_mayastor(cfg: &str, port: u16) -> MayastorProcess {
+fn start_mayastor(cfg: &str) -> MayastorProcess {
     let args = vec![
         "-s".to_string(),
         "128".to_string(),
         "-y".to_string(),
         cfg.to_string(),
-        "-p".into(),
-        port.to_string(),
     ];
 
     MayastorProcess::new(Box::from(args)).unwrap()
@@ -77,7 +75,7 @@ fn replica_stop_cont() {
 
     common::truncate_file(DISKNAME1, DISKSIZE_KB);
 
-    let mut ms = start_mayastor(CFGNAME1, 10126);
+    let mut ms = start_mayastor(CFGNAME1);
 
     test_init!();
 
@@ -114,8 +112,8 @@ fn replica_term() {
     common::truncate_file(DISKNAME1, DISKSIZE_KB);
     common::truncate_file(DISKNAME2, DISKSIZE_KB);
 
-    let mut ms1 = start_mayastor(CFGNAME1, 10126);
-    let mut ms2 = start_mayastor(CFGNAME2, 10127);
+    let mut ms1 = start_mayastor(CFGNAME1);
+    let mut ms2 = start_mayastor(CFGNAME2);
     // Allow Mayastor processes to start listening on NVMf port
     thread::sleep(time::Duration::from_millis(250));
 

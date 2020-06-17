@@ -20,6 +20,8 @@ spec:
         app: mayastor
     spec:
       hostNetwork: true
+      # To resolve services from mayastor namespace
+      dnsPolicy: ClusterFirstWithHostNet
       nodeSelector:
         openebs.io/engine: mayastor
         kubernetes.io/arch: amd64
@@ -32,11 +34,19 @@ spec:
         image: mayadata/mayastor:v0.2.0
         imagePullPolicy: Always
         env:
+        - name: MY_NODE_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
         - name: MY_POD_IP
           valueFrom:
             fieldRef:
               fieldPath: status.podIP
-        args: ["-r", "/mayastor/mayastor.sock"]
+        args:
+        - "-r/mayastor/mayastor.sock"
+        - "-N$(MY_NODE_NAME)"
+        - "-g$(MY_POD_IP)"
+        - "-nnats"
         securityContext:
           privileged: true
         volumeMounts:

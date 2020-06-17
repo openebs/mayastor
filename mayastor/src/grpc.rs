@@ -473,15 +473,11 @@ impl Mayastor for MayastorGrpc {
     }
 }
 
-pub async fn grpc_server_init(
-    addr: &str,
-    port: &str,
-) -> std::result::Result<(), ()> {
-    info!("gRPC server configured at address '{}:{}'", addr, port);
-    let saddr = format!("{}:{}", addr, port).parse().unwrap();
+pub async fn grpc_server_run(endpoint: &str) -> std::result::Result<(), ()> {
+    info!("gRPC server configured at address {}", endpoint);
     let svc = Server::builder()
         .add_service(MayastorServer::new(MayastorGrpc {}))
-        .serve(saddr);
+        .serve(endpoint.parse().unwrap());
 
     match svc.await {
         Ok(_) => Ok(()),

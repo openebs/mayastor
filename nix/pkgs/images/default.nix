@@ -61,14 +61,13 @@ rec {
     tag = "adhoc";
     created = "now";
     contents = [ busybox mayastor-adhoc ];
-    extraCommands = ''
-      mkdir -p var/tmp
-    '';
     config = {
       Env = [ "PATH=${env}" ];
       ExposedPorts = { "10124/tcp" = { }; };
       Entrypoint = [ "/bin/mayastor" ];
     };
+    # This directory is for mayastor jsonrpc socket file
+    extraCommands = "mkdir -p var/tmp";
   };
 
   mayastor-image-release = dockerTools.buildImage {
@@ -81,6 +80,8 @@ rec {
       ExposedPorts = { "10124/tcp" = { }; };
       Entrypoint = [ "/bin/mayastor" ];
     };
+    # This directory is for mayastor jsonrpc socket file
+    extraCommands = "mkdir -p var/tmp";
   };
 
   mayastorIscsiadm = writeScriptBin "mayastor-iscsiadm" ''
@@ -114,6 +115,8 @@ rec {
       ExposedPorts = { "10124/tcp" = { }; };
       Entrypoint = [ "/bin/mayastor" ];
     };
+    # This directory is for mayastor jsonrpc socket file
+    extraCommands = "mkdir -p var/tmp";
   };
 
   mayastor-csi-develop = dockerTools.buildImage {

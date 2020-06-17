@@ -188,7 +188,7 @@ function startSpdk (config, args, env) {
 
 // Start mayastor process and return immediately.
 function startMayastor (config, args, env) {
-  args = args || ['-r', SOCK];
+  args = args || ['-r', SOCK, '-g', grpcEndpoint];
   env = env || {};
 
   if (config) {

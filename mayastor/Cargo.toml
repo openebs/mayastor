@@ -53,6 +53,7 @@ spdk-sys = { path = "../spdk-sys" }
 structopt = "0.3.11"
 sysfs = { path = "../sysfs"}
 tokio = { version = "0.2", features = ["full"]}
+tokio-nats = "0.1.0"
 url = "2.1"
 uuid = { version = "0.7", features = ["v4"] }
 
