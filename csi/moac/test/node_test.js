@@ -5,7 +5,7 @@
 const _ = require('lodash');
 const expect = require('chai').expect;
 const Node = require('../node');
-const Nexus = require('../nexus');
+const { Nexus } = require('../nexus');
 const { Pool } = require('../pool');
 const { Replica } = require('../replica');
 const { MayastorServer } = require('./mayastor_mock');

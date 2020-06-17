@@ -1,19 +1,26 @@
 // Nexus object implementation.
 
-'use strict';
-
 const _ = require('lodash');
 const assert = require('assert');
 const { GrpcCode, GrpcError, mayastor } = require('./grpc_client');
 const log = require('./logger').Logger('nexus');
 
-function compareChildren (a, b) {
+import { Replica } from './replica';
+
+function compareChildren(a: any, b: any) {
   assert(a.uri);
   assert(b.uri);
   return a.uri.localeCompare(b.uri);
 }
 
-class Nexus {
+export class Nexus {
+  node?: any;
+  uuid: string;
+  size: number;
+  devicePath: string;
+  state: string;
+  children: any[];
+
   // Construct new nexus object.
   //
   // @param {object}   props    Nexus properties as obtained from the storage node.
@@ -23,7 +30,7 @@ class Nexus {
   // @param {string}   props.state      State of the nexus.
   // @param {object[]} props.children   Replicas comprising the nexus (uri and state).
   //
-  constructor (props) {
+  constructor(props: any) {
     this.node = null; // set by registerNexus method on node
     this.uuid = props.uuid;
     this.size = props.size;
@@ -34,7 +41,7 @@ class Nexus {
   }
 
   // Stringify the nexus
-  toString () {
+  toString() {
     return this.uuid + '@' + (this.node ? this.node.name : 'nowhere');
   }
 
@@ -47,7 +54,7 @@ class Nexus {
   // @param {string}   props.state      State of the nexus.
   // @param {object[]} props.children   Replicas comprising the nexus (uri and state).
   //
-  merge (props) {
+  merge(props: any) {
     let changed = false;
 
     if (this.size !== props.size) {
@@ -74,7 +81,7 @@ class Nexus {
 
   // When anything in nexus changes, this can be called to emit mod event
   // (a shortcut for frequently used code).
-  _emitMod () {
+  _emitMod() {
     this.node.emit('nexus', {
       eventType: 'mod',
       object: this
@@ -85,7 +92,7 @@ class Nexus {
   //
   // @param {object} node   Node to bind the nexus to.
   //
-  bind (node) {
+  bind(node: any) {
     this.node = node;
     log.debug(`Adding "${this.uuid}" to the nexus list of node "${node}"`);
     this.node.emit('nexus', {
@@ -95,7 +102,7 @@ class Nexus {
   }
 
   // Unbind the previously bound nexus from the node.
-  unbind () {
+  unbind() {
     log.debug(`Removing "${this}" from the nexus list`);
     this.node.unregisterNexus(this);
     this.node.emit('nexus', {
@@ -108,10 +115,9 @@ class Nexus {
   // Set state of the nexus to offline.
   // This is typically called when mayastor stops running on the node and
   // the pool becomes inaccessible.
-  offline () {
+  offline() {
     log.warn(`Nexus "${this}" got offline`);
     this.state = 'NEXUS_OFFLINE';
-    this.reason = `mayastor does not run on the node "${this.node}"`;
     this._emitMod();
   }
 
@@ -119,7 +125,7 @@ class Nexus {
   // @params {string}   protocol      The nexus share protocol.
   // @returns {string} The device path of nexus block device.
   //
-  async publish (protocol) {
+  async publish(protocol: string) {
     var res;
 
     if (this.devicePath) {
@@ -131,7 +137,7 @@ class Nexus {
 
     const nexusProtocol = 'NEXUS_'.concat(protocol.toUpperCase());
     var share = mayastor.ShareProtocolNexus.type.value.find(
-      (ent) => ent.name === nexusProtocol
+      (ent: any) => ent.name === nexusProtocol
     );
     if (!share) {
       throw new GrpcError(
@@ -159,7 +165,7 @@ class Nexus {
   }
 
   // Unpublish nexus.
-  async unpublish () {
+  async unpublish() {
     log.debug(`Unpublishing nexus "${this}" ...`);
 
     try {
@@ -179,7 +185,7 @@ class Nexus {
   //
   // @param {object} replica   Replica object to add to the nexus.
   //
-  async addReplica (replica) {
+  async addReplica(replica: Replica) {
     const uri = replica.uri;
     if (this.children.find((ch) => ch.uri === uri)) {
       return;
@@ -213,7 +219,7 @@ class Nexus {
   //
   // @param {string} uri   URI of the replica to be removed from the nexus.
   //
-  async removeReplica (uri) {
+  async removeReplica(uri: string) {
     if (!this.children.find((ch) => ch.uri === uri)) {
       return;
     }
@@ -241,7 +247,7 @@ class Nexus {
   }
 
   // Destroy nexus on storage node.
-  async destroy () {
+  async destroy() {
     log.debug(`Destroying nexus "${this}" ...`);
 
     try {
@@ -258,5 +264,3 @@ class Nexus {
     this.unbind();
   }
 }
-
-module.exports = Nexus;
