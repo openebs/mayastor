@@ -9,13 +9,17 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/openebs/MayaStor.git",
+    "url": "https://github.com/openebs/Mayastor.git",
     "directory": "csi/moac"
   },
   "scripts": {
-    "test": "node_modules/mocha/bin/mocha test/index.js",
-    "start": "node index.js",
-    "prepare": "./bundle_protos.sh"
+    "prepare": "./bundle_protos.sh",
+    "clean": "rm -f replica.js pool.js",
+    "compile": "tsc --pretty",
+    "start": "./index.js",
+    "test": "mocha test/index.js",
+    "check": "semistandard --verbose",
+    "fix": "semistandard --fix"
   },
   "license": "ISC",
   "dependencies": {
@@ -35,7 +39,9 @@
     "chai": "^4.2.0",
     "dirty-chai": "^2.0.1",
     "mocha": "^7.1.1",
+    "semistandard": "^14.2.0",
     "sinon": "^9.0.1",
+    "typescript": "^3.9.3",
     "wtfnode": "^0.8.1"
   },
   "files": [
@@ -45,7 +51,8 @@
   ],
   "semistandard": {
     "env": [
-      "mocha"
+      "mocha",
+      "node"
     ]
   }
 }

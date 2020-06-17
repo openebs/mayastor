@@ -1,8 +1,8 @@
 # MOAC
 
-MOAC is a control plane of MayaStor. It is written in NodeJS and makes use of
-kubernetes-client library to interact with K8s API server. In a nutshell it has
-following responsibilities:
+MOAC is a control plane of MayaStor. It is a NodeJS application written in
+javascript/typescript and makes use of kubernetes-client library to interact
+with K8s API server. In a nutshell it has following responsibilities:
 
 - _node operator_: keeps track of nodes with running MayaStor instances.
 - [pool operator](/doc/pool-operator.md): creates/updates/deletes storage pools on storage nodes as requested by admin by means of msp custom resources.
@@ -12,21 +12,18 @@ following responsibilities:
 ## Requirements
 
 - required K8s version is 1.14 or newer
-- NodeJS v12
+- NodeJS v12 (instructions below)
 - Nix when building a docker image
 
-## Build it
+### NodeJS on Nix(OS)
 
-### Nix(OS)
-
-Enter a nix shell with NodeJS and python packages and install the dependencies:
+Enter a nix shell with NodeJS and python packages:
 
 ```bash
 nix-shell -p nodejs-12_x python
-npm install
 ```
 
-### Ubuntu
+### NodeJS on Ubuntu
 
 NodeJS v12 may not be available in default package repository on Ubuntu
 depending on Ubuntu release. If that's the case, new package source has to be
@@ -38,11 +35,14 @@ sudo bash nodesource_setup.sh
 sudo apt install nodejs
 ```
 
-Following command needs to be run just once to download and install npm
-dependencies of moac:
+## Build it
+
+Following command downloads and installs npm dependencies of moac and compiles
+ts files using typescript compiler:
 
 ```bash
 npm install
+npm run compile
 ```
 
 ## Run it
@@ -108,6 +108,14 @@ specific disabled:
 That is not terribly useful besides testing the basic start sequence in MOAC.
 It might be useful for debugging when we replace k8s components by drop-in
 replacement modules in future.
+
+## Contributing
+
+1. Check your code style: `npm run check`
+2. Fix style errors that can be fixed: `npm run fix`
+3. Check that TS files compile: `npm run compile`
+4. All unit tests must pass: `npm run test`
+5. Clean generated JS files (optional): `npm run clean`
 
 ## Updating the dependencies
 

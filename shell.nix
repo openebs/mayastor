@@ -26,7 +26,6 @@ mkShell {
     libiscsi.bin
     nats-server
     nodejs-12_x
-    nodePackages.semistandard
     nvme-cli
     pre-commit
     python3

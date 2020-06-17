@@ -20,6 +20,7 @@ result // rec {
     # arguments. node2path runs it with a number of args so we must run
     # in manually in postInstall hook :-/
     postInstall = ''
+      npm run compile
       npm run prepare
       # Remove makefiles, object files, etc. of bindings that would otherwise
       # reference npm, node sources and other packages not needed at runtime

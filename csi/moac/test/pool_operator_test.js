@@ -24,7 +24,7 @@ const sleep = require('sleep-promise');
 const Registry = require('../registry');
 const { GrpcError, GrpcCode } = require('../grpc_client');
 const PoolOperator = require('../pool_operator');
-const Pool = require('../pool');
+const { Pool } = require('../pool');
 const Watcher = require('./watcher_stub');
 const Node = require('./node_stub');
 

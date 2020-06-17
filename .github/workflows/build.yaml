@@ -44,7 +44,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       # npm prepare is normally done by npm install but not if run as a root
-      - run: cd csi/moac && npm install && npm run-script prepare
+      - run: cd csi/moac && npm install && npm run prepare && npm run compile
       - run: cd csi/moac && npm test
   Test_mayastor_with_mocha:
     needs: Build_and_run_cargo
