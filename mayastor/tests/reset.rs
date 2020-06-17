@@ -57,8 +57,6 @@ fn nexus_reset_mirror() {
         "128".to_string(),
         "-y".to_string(),
         "/tmp/child1.yaml".to_string(),
-        "-p".into(),
-        "10126".into(),
     ];
 
     let _ms1 = MayastorProcess::new(Box::from(args)).unwrap();
@@ -68,8 +66,6 @@ fn nexus_reset_mirror() {
         "128".to_string(),
         "-y".to_string(),
         "/tmp/child2.yaml".to_string(),
-        "-p".into(),
-        "10127".into(),
     ];
 
     let _ms2 = MayastorProcess::new(Box::from(args)).unwrap();

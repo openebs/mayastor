@@ -257,8 +257,6 @@ fn yaml_multi_maya() {
         "128".into(),
         "-y".into(),
         "/tmp/first.yaml".into(),
-        "-p".into(),
-        "10126".into(),
     ];
 
     let second_args = vec![
