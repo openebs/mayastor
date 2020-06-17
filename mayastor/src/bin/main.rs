@@ -3,14 +3,12 @@ extern crate log;
 
 use std::path::Path;
 
-use structopt::StructOpt;
-
-use git_version::git_version;
 use mayastor::{
     bdev::uring_util,
     core::{MayastorCliArgs, MayastorEnvironment},
     logger,
 };
+use structopt::StructOpt;
 
 mayastor::CPS_INIT!();
 
@@ -38,7 +36,7 @@ fn main() -> Result<(), std::io::Error> {
     let nr_pages: u32 = sysfs::parse_value(&hugepage_path, "nr_hugepages")?;
     let uring_supported = uring_util::kernel_support();
 
-    info!("Starting Mayastor version {}", git_version!());
+    info!("Starting Mayastor ..");
     info!(
         "kernel io_uring support: {}",
         if uring_supported { "yes" } else { "no" }
@@ -47,7 +45,7 @@ fn main() -> Result<(), std::io::Error> {
     let mut env = MayastorEnvironment::new(args);
     env.enable_grpc = true;
     env.start(|| {
-        info!("Mayastor started {} ({})...", '\u{1F680}', git_version!());
+        info!("Mayastor started {} ...", '\u{1F680}');
     })
     .unwrap();
     Ok(())
