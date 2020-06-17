@@ -8,7 +8,7 @@
 
 const expect = require('chai').expect;
 const sinon = require('sinon');
-const Nexus = require('../nexus');
+const { Nexus } = require('../nexus');
 const Node = require('../node');
 const { Pool } = require('../pool');
 const Registry = require('../registry');

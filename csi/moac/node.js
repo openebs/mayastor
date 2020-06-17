@@ -7,7 +7,7 @@
 const assert = require('assert');
 const EventEmitter = require('events');
 const Workq = require('./workq');
-const Nexus = require('./nexus');
+const { Nexus } = require('./nexus');
 const { Pool } = require('./pool');
 const { Replica } = require('./replica');
 const log = require('./logger').Logger('node');
