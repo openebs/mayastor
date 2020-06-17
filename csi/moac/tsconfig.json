@@ -62,6 +62,7 @@
   },
   "files": [
     "replica.ts",
-    "pool.ts"
+    "pool.ts",
+    "nexus.ts"
   ]
 }

@@ -7,7 +7,7 @@ const expect = require('chai').expect;
 const sinon = require('sinon');
 const Node = require('../node');
 const { Replica } = require('../replica');
-const Nexus = require('../nexus');
+const { Nexus } = require('../nexus');
 const { shouldFailWith } = require('./utils');
 const { GrpcCode, GrpcError } = require('../grpc_client');
 

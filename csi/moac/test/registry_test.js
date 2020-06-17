@@ -6,7 +6,7 @@ const sinon = require('sinon');
 const Registry = require('../registry');
 const { Replica } = require('../replica');
 const { Pool } = require('../pool');
-const Nexus = require('../nexus');
+const { Nexus } = require('../nexus');
 const Node = require('./node_stub');
 
 module.exports = function () {
