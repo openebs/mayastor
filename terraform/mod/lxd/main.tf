@@ -39,7 +39,7 @@ resource "lxd_container" "c8s" {
   config = {
     "boot.autostart"       = true
     "raw.lxc"              = "lxc.mount.auto = proc:rw cgroup:rw sys:rw\nlxc.apparmor.profile = unconfined\nlxc.cgroup.devices.allow = a\nlxc.cap.drop="
-    "linux.kernel_modules" = "ip_tables,ip6_tables,nf_nat,overlay,netlink_diag,br_netfilter"
+    "linux.kernel_modules" = "ip_tables,ip6_tables,nf_nat,overlay,netlink_diag,br_netfilter,nbd"
     "security.nesting"     = true
     "security.privileged"  = true
     "user.user-data"       = data.template_file.user_data[count.index].rendered
@@ -57,4 +57,18 @@ resource "lxd_container" "c8s" {
 
 output "node_list" {
   value = lxd_container.c8s.*.ip_address
+}
+
+variable "image_path" {
+}
+variable "hostname_formatter" {
+}
+variable "private_key_path" {
+}
+variable "disk_size" {
+}
+variable "qcow2_image" {
+}
+output "ks-cluster-nodes" {
+    value = ""
 }
