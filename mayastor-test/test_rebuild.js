@@ -191,7 +191,7 @@ describe('rebuild tests', function () {
           fs.truncate(child2, diskSize, next);
         },
         (next) => {
-          common.startMayastor(configNexus, ['-r', common.SOCK, '-s', 386]);
+          common.startMayastor(configNexus, ['-r', common.SOCK, '-g', common.grpcEndpoint, '-s', 386]);
           common.startMayastorGrpc();
           common.waitFor((pingDone) => {
             pingMayastor(pingDone);

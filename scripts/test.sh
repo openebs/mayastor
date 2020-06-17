@@ -8,4 +8,5 @@ cargo build --all
 ( cd mayastor-test && ./node_modules/mocha/bin/mocha test_replica.js )
 ( cd mayastor-test && ./node_modules/mocha/bin/mocha test_nexus.js )
 ( cd mayastor-test && ./node_modules/mocha/bin/mocha test_rebuild.js )
+( cd mayastor-test && ./node_modules/mocha/bin/mocha test_nats.js )
 ( cd nvmeadm && cargo test )
