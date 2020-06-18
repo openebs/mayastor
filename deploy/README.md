@@ -44,7 +44,7 @@ A worker node which will not host/contribute storage capacity to Mayastor does n
     HugePages_Surp:        0
 
     ```
-    
+
     If fewer than 512 pages are available, the page count should be configured as necessary, accounting for any other co-resident workloads which may require them. e.g.
 
     ```bash
@@ -57,7 +57,7 @@ A worker node which will not host/contribute storage capacity to Mayastor does n
     ```
 
     > If you modify the huge page configuration of a node, you *must* restart the kubelet or reboot the node
-    
+
 
 2.  Load the Network Block Device (NBD) kernel module.  This is necessary *only* if it is intended to use nbd transport for volume provisioning.
 
@@ -85,10 +85,11 @@ The YAML files named below are to be found in the `deploy` folder of the Mayasto
 5.  Deploy the Mayastor and CSI components
     ```bash
     kubectl create -f nats-deployment.yaml
+    kubectl create -f mayastorpoolcrd.yaml
     kubectl create -f moac-deployment.yaml
     kubectl create -f mayastor-daemonset.yaml
     ```
-    
+
 6.  Confirm that the MOAC and NATS pods are running:
     ```bash
     kubectl -n mayastor get pod
@@ -168,7 +169,7 @@ The YAML files named below are to be found in the `deploy` folder of the Mayasto
 9.  Create Storage Classes which use the Mayastor CSI plugin as their basis for volume provisioning:
 
     Currently Mayastor-provisioned Persistent Volumes can made available over iSCSI or NBD, where iSCSI is strongly encouraged as it gives significantly better performance
-    
+
   * iSCSI
     ```bash
     cat <<EOF | kubectl create -f -
