@@ -37,7 +37,7 @@ use spdk_sys::{
 };
 
 use crate::{
-    bdev::uring_util,
+    bdev::util::uring,
     core::Bdev,
     ffihelper::{cb_arg, done_cb},
     jsonrpc,
@@ -233,7 +233,7 @@ pub fn create_base_bdev(
         PoolIoIf::PoolIoAio => (false, false),
         PoolIoIf::PoolIoUring => (true, true),
     };
-    if do_uring && !uring_util::kernel_support() {
+    if do_uring && !uring::kernel_support() {
         if must_uring {
             return Err(Error::UringUnsupported);
         } else {

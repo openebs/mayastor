@@ -9,7 +9,7 @@ use spdk_sys::{spdk_bdev_module_release_bdev, spdk_io_channel};
 use crate::{
     bdev::NexusErrStore,
     core::{Bdev, BdevHandle, CoreError, Descriptor, DmaBuf},
-    nexus_uri::{bdev_destroy, BdevCreateDestroy},
+    nexus_uri::{bdev_destroy, NexusBdevError},
     rebuild::{ClientOperations, RebuildJob},
     subsys::Config,
 };
@@ -368,7 +368,7 @@ impl NexusChild {
     }
 
     /// destroy the child bdev
-    pub(crate) async fn destroy(&mut self) -> Result<(), BdevCreateDestroy> {
+    pub(crate) async fn destroy(&mut self) -> Result<(), NexusBdevError> {
         trace!("destroying child {:?}", self);
         assert_eq!(self.state, ChildState::Closed);
         if let Some(_bdev) = &self.bdev {

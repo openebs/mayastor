@@ -7,7 +7,7 @@ use snafu::Snafu;
 use std::fmt;
 
 use super::rebuild_impl::*;
-use crate::{bdev::VerboseError, nexus_uri::BdevCreateDestroy};
+use crate::{bdev::VerboseError, nexus_uri::NexusBdevError};
 
 #[derive(Debug, Snafu, Clone)]
 #[snafu(visibility = "pub(crate)")]
@@ -66,10 +66,7 @@ pub enum RebuildError {
         source: nix::errno::Errno,
     },
     #[snafu(display("Failed to get bdev name from URI {}", uri))]
-    BdevInvalidURI {
-        source: BdevCreateDestroy,
-        uri: String,
-    },
+    BdevInvalidURI { source: NexusBdevError, uri: String },
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]

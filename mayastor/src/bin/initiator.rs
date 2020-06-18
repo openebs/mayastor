@@ -25,7 +25,7 @@ use mayastor::{
     },
     jsonrpc::print_error_chain,
     logger,
-    nexus_uri::{bdev_create, BdevCreateDestroy},
+    nexus_uri::{bdev_create, NexusBdevError},
     subsys::Config,
 };
 
@@ -54,8 +54,8 @@ impl From<DmaError> for Error {
         }
     }
 }
-impl From<BdevCreateDestroy> for Error {
-    fn from(err: BdevCreateDestroy) -> Self {
+impl From<NexusBdevError> for Error {
+    fn from(err: NexusBdevError) -> Self {
         Self {
             msg: print_error_chain(&err),
         }
