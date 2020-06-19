@@ -12,7 +12,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v2
-      - uses: cachix/install-nix-action@v7
+      - uses: cachix/install-nix-action@v10
       - uses: cachix/cachix-action@v5
         with:
           name: mayastor
@@ -31,7 +31,7 @@ jobs:
         with:
           toolchain: stable
       - uses: actions/checkout@v2
-      - uses: cachix/install-nix-action@v7
+      - uses: cachix/install-nix-action@v10
       - uses: cachix/cachix-action@v5
         with:
           name: mayastor
@@ -50,7 +50,7 @@ jobs:
         with:
           toolchain: stable
       - uses: actions/checkout@v2
-      - uses: cachix/install-nix-action@v7
+      - uses: cachix/install-nix-action@v10
       - uses: cachix/cachix-action@v5
         with:
           name: mayastor
