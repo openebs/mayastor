@@ -17,4 +17,8 @@ rec {
   stable = overlay.rustChannelOf {
     channel = "stable";
   };
+
+  pinned = overlay.rustChannelOf {
+    channel = "1.44.0";
+  };
 }
