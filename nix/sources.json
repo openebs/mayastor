@@ -23,6 +23,19 @@
         "url": "https://github.com/axboe/liburing/archive/f0c5c54945ae92a00cdbb43bdf3abaeab6bd3a23.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
+    "mayastor": {
+        "branch": "v0.2.0",
+        "cargosha256": "1234",
+        "description": "A cloud native declarative data plane in containers for containers",
+        "homepage": null,
+        "owner": "openebs",
+        "repo": "mayastor",
+        "rev": "4c1d742273ab48a7f93cd08284b031c0694c9557",
+        "sha256": "1x4f4s4xgxlpb8rrw1k00iww2cy03ijbrilp58lkrblvxgrz73vv",
+        "type": "tarball",
+        "url": "https://github.com/openebs/mayastor/archive/4c1d742273ab48a7f93cd08284b031c0694c9557.tar.gz",
+        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
+    },
     "niv": {
         "branch": "master",
         "description": "Easy dependency management for Nix projects",
@@ -45,6 +58,18 @@
         "sha256": "14gx5fsqibdn2cxp7gymfrz2vcnwiwwjnxqlnysczz8dqihnrpa7",
         "type": "tarball",
         "url": "https://github.com/NixOS/nixpkgs-channels/archive/22a81aa5fc15b2d41b12f7160a71cd4a9f3c3fa1.tar.gz",
+        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
+    },
+    "nixpkgs-mozilla": {
+        "branch": "master",
+        "description": "mozilla related nixpkgs (extends nixos/nixpkgs repo)",
+        "homepage": null,
+        "owner": "mozilla",
+        "repo": "nixpkgs-mozilla",
+        "rev": "e912ed483e980dfb4666ae0ed17845c4220e5e7c",
+        "sha256": "08fvzb8w80bkkabc1iyhzd15f4sm7ra10jn32kfch5klgl0gj3j3",
+        "type": "tarball",
+        "url": "https://github.com/mozilla/nixpkgs-mozilla/archive/e912ed483e980dfb4666ae0ed17845c4220e5e7c.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     }
 }
