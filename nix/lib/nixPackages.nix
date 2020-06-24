@@ -1,7 +1,7 @@
 {}:
 let
-  rev = "db31e48c5c8d99dcaf4e5883a96181f6ac4ad6f6";
-  sha256 = "1j5j7vbnq2i5zyl8498xrf490jca488iw6hylna3lfwji6rlcaqr";
+  rev = "d8d19f249793966d1cce391d54203cc717764e63";
+  sha256 = "0nb8d8bb4a7slml74i2c4aagcn0nz9pv447a7zxq2vp304r32qzj";
 
 in
 builtins.fetchTarball {
