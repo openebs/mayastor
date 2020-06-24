@@ -1,4 +1,4 @@
-#include "wrapper.h"
+#include "logwrapper.h"
 
 void
 maya_log(int level, const char *file, const int line, const char *func,
