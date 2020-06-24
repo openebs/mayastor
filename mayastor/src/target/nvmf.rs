@@ -56,9 +56,9 @@ use spdk_sys::{
     NVMF_TGT_NAME_MAX_LENGTH,
     SPDK_NVME_TRANSPORT_TCP,
     SPDK_NVMF_ADRFAM_IPV4,
-    SPDK_NVMF_SUBTYPE_NVME,
-    SPDK_NVMF_SUBTYPE_DISCOVERY,
     SPDK_NVMF_DISCOVERY_NQN,
+    SPDK_NVMF_SUBTYPE_DISCOVERY,
+    SPDK_NVMF_SUBTYPE_NVME,
     SPDK_NVMF_TRADDR_MAX_LEN,
     SPDK_NVMF_TRSVCID_MAX_LEN,
 };
@@ -561,7 +561,9 @@ impl Target {
 
     /// Add nvme discovery subsystem to the target and return it.
     pub fn create_discovery_subsystem(&mut self) -> Result<Subsystem> {
-        let c_nqn = unsafe { CStr::from_ptr(SPDK_NVMF_DISCOVERY_NQN.as_ptr() as *const i8) };
+        let c_nqn = unsafe {
+            CStr::from_ptr(SPDK_NVMF_DISCOVERY_NQN.as_ptr() as *const i8)
+        };
         let nqn = String::from(c_nqn.to_str().unwrap());
 
         let ss = unsafe {

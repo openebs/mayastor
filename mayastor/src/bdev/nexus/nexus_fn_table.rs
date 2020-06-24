@@ -107,6 +107,10 @@ impl NexusFnTable {
                     trace!("{}: Dispatching RESET {:p}", nexus.bdev.name(), io);
                     nexus.reset(io, &ch)
                 }
+                io_type::FLUSH => {
+                    trace!("{}: Dispatching FLUSH {:p}", nexus.bdev.name(), io);
+                    nexus.flush(io, &ch)
+                }
                 io_type::UNMAP => {
                     if nexus.io_is_supported(io_type) {
                         nexus.unmap(io, &ch)
