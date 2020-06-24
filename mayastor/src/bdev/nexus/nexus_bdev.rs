@@ -819,10 +819,10 @@ impl Nexus {
             .ch
             .iter()
             .map(|c| unsafe {
-                let (b, c) = c.io_tuple();
+                let (bdev, chan) = c.io_tuple();
                 spdk_bdev_writev_blocks(
-                    b,
-                    c,
+                    bdev,
+                    chan,
                     io.iovs(),
                     io.iov_count(),
                     io.offset() + io.nexus_as_ref().data_ent_offset,
@@ -854,10 +854,10 @@ impl Nexus {
             .ch
             .iter()
             .map(|c| unsafe {
-                let (b, c) = c.io_tuple();
+                let (bdev, chan) = c.io_tuple();
                 spdk_bdev_unmap_blocks(
-                    b,
-                    c,
+                    bdev,
+                    chan,
                     io.offset() + io.nexus_as_ref().data_ent_offset,
                     io.num_blocks(),
                     Some(Self::io_completion),
@@ -886,10 +886,10 @@ impl Nexus {
             .ch
             .iter()
             .map(|c| unsafe {
-                let (b, c) = c.io_tuple();
+                let (bdev, chan) = c.io_tuple();
                 spdk_bdev_flush_blocks(
-                    b,
-                    c,
+                    bdev,
+                    chan,
                     io.offset() + io.nexus_as_ref().data_ent_offset,
                     io.num_blocks(),
                     Some(Self::io_completion),
