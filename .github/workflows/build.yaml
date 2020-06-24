@@ -15,7 +15,7 @@ jobs:
       options: --privileged -v /dev:/dev -v /bin:/host/bin -v /lib/modules:/lib/modules
     steps:
       - uses: actions/checkout@v2
-      - run: rustup default stable
+      - run: /nix/var/nix/profiles/default/bin/rustup default stable
       - run: ln -s /host/bin/kmod /bin/modprobe
       - run: /bin/modprobe nbd
       - run: /bin/modprobe xfs
