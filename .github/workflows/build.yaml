@@ -15,10 +15,7 @@ jobs:
       options: --privileged -v /dev:/dev -v /bin:/host/bin -v /lib/modules:/lib/modules
     steps:
       - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          # this does not pin the compiler version
-          toolchain: stable
+      - run: rustup default stable
       - run: ln -s /host/bin/kmod /bin/modprobe
       - run: /bin/modprobe nbd
       - run: /bin/modprobe xfs

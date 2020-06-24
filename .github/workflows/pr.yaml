@@ -9,10 +9,7 @@ jobs:
       image: docker.io/mayadata/ms-buildenv:gila
     steps:
       - uses: actions/checkout@master
-      - uses: actions-rs/toolchain@master
-        with:
-          toolchain: nightly
-          components: clippy
+      - run: rustup default nightly
       - uses: actions-rs/clippy-check@master
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
