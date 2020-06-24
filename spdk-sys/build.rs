@@ -27,7 +27,10 @@ impl ParseCallbacks for MacroCallback {
 }
 
 fn build_wrapper() {
-    cc::Build::new().file("logwrapper.c").compile("logwrapper");
+    cc::Build::new()
+        .include("spdk/include")
+        .file("logwrapper.c")
+        .compile("logwrapper");
 }
 
 fn main() {
@@ -44,8 +47,15 @@ fn main() {
 
     let macros = Arc::new(RwLock::new(HashSet::new()));
     let bindings = bindgen::Builder::default()
+        .clang_args(&[
+            "-Ispdk/module",
+            "-Ispdk/lib",
+            "-Ispdk/include",
+            "-Ispdk/include/spdk_internal",
+        ])
         .header("wrapper.h")
         .rustfmt_bindings(true)
+        .whitelist_function("struct spdk_iscsi_opts")
         .whitelist_function("^spdk.*")
         .whitelist_function("*.aio.*")
         .whitelist_function("*.iscsi.*")
@@ -53,12 +63,15 @@ fn main() {
         .whitelist_function("*.lvs.*")
         .whitelist_function("*.lvol.*")
         .whitelist_function("*.uring.*")
+        .whitelist_function("^iscsi.*")
         .whitelist_function("*.lock_lba_range")
         .blacklist_type("^longfunc")
         .whitelist_var("^NVMF.*")
         .whitelist_var("^SPDK.*")
         .whitelist_var("^spdk.*")
         .trust_clang_mangling(false)
+        .opaque_type("^spdk_nvme_sgl_descriptor")
+        .opaque_type("^spdk_nvme_ctrlr_data")
         .layout_tests(false)
         .derive_default(true)
         .derive_debug(true)
@@ -74,13 +87,14 @@ fn main() {
         .write_to_file(out_path.join("libspdk.rs"))
         .expect("Couldn't write bindings!");
 
+    let manifest_dir = std::env::var("CARGO_MANIFEST_DIR").unwrap();
+    println!("cargo:rustc-link-search={}/spdk", manifest_dir);
     println!("cargo:rustc-link-lib=spdk");
     println!("cargo:rustc-link-lib=aio");
     println!("cargo:rustc-link-lib=iscsi");
     println!("cargo:rustc-link-lib=dl");
     println!("cargo:rustc-link-lib=uuid");
     println!("cargo:rustc-link-lib=crypto");
-    println!("cargo:rustc-link-lib=uring");
 
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=wrapper.h");

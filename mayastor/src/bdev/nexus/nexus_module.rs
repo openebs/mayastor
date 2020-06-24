@@ -181,7 +181,7 @@ impl NexusModule {
                 spdk_json_write_val_raw(
                     w,
                     data.as_ptr() as *const _,
-                    data.as_bytes().len(),
+                    data.as_bytes().len() as u64,
                 );
             }
         });
