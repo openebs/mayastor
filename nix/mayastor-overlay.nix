@@ -1,9 +1,7 @@
 self: super: {
 
-  terraform-provider-lxd = super.callPackage ./pkgs/terraform-provider-lxd { };
   libiscsi = super.callPackage ./pkgs/libiscsi { };
   liburing = super.callPackage ./pkgs/liburing { };
-  nvme-cli = super.callPackage ./pkgs/nvme-cli { };
   nvmet-cli = super.callPackage ./pkgs/nvmet-cli { };
   libspdk = super.callPackage ./pkgs/libspdk { };
   mayastor = (super.callPackage ./pkgs/mayastor { release = true; }).mayastor;
