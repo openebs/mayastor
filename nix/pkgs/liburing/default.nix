@@ -1,17 +1,14 @@
 { stdenv
 , fetchgit
 , fetchpatch
+, lib
+, sources
 }:
 
 stdenv.mkDerivation rec {
   pname = "liburing";
-  version = "0.6";
-
-  src = fetchgit {
-    url = "http://git.kernel.dk/${pname}";
-    rev = "f0c5c54945ae92a00cdbb43bdf3abaeab6bd3a23";
-    sha256 = "06lrqx0ch8yszy6ck5y0kj8wn7i1bnjlrdgxbmr3g32ymic1hyln";
-  };
+  version = lib.removePrefix "liburing-" sources.liburing.branch;
+  src = sources.liburing;
 
   separateDebugInfo = true;
   enableParallelBuilding = true;
