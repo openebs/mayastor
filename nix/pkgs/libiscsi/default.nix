@@ -1,14 +1,10 @@
-{ stdenv, fetchgit, autoreconfHook }:
+{ stdenv, fetchgit, autoreconfHook, sources }:
 
 stdenv.mkDerivation rec {
-  version = "1.19.0";
+  version = sources.libiscsi.branch;
   name = "libiscsi-${version}";
 
-  src = fetchgit {
-    url = "https://github.com/sahlberg/libiscsi.git";
-    rev = "eea5d3ba8e8fca98cde4b16b77f23a4fd683f3ba";
-    sha256 = "0ajrkkg5awmi8m4b3mha7h07ylg18k252qprvk1sgq0qbyd66zy7";
-  };
+  src = sources.libiscsi;
 
   outputs = [ "out" "bin" "lib" "dev" ];
   nativeBuildInputs = [ autoreconfHook ];
