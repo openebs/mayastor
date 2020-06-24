@@ -1,17 +1,14 @@
-{ channel ? "nightly" }:
 let
-  nixpkgs = (import ./nix/lib/nixPackages.nix) { };
-  pkgs = import nixpkgs {
-    config = { };
-    overlays = [ (import ./nix/mayastor-overlay.nix) ];
+  sources = import ./nix/sources.nix;
+  pkgs = import sources.nixpkgs {
+    overlays = [
+      (_: _: { inherit sources; })
+      (import ./nix/mayastor-overlay.nix)
+    ];
   };
 in
 with pkgs;
 let
-  rustChannel = import ./nix/lib/rust.nix {
-    inherit fetchFromGitHub;
-    inherit pkgs;
-  };
   libspdk = pkgs.libspdk.override { enableDebug = true; };
 in
 mkShell {
@@ -29,7 +26,6 @@ mkShell {
     nvme-cli
     pre-commit
     python3
-    rustChannel.${channel}.rust
   ] ++ mayastor.buildInputs;
 
   LIBCLANG_PATH = mayastor.LIBCLANG_PATH;
@@ -48,6 +44,5 @@ mkShell {
 
   shellHook = ''
     pre-commit install
-    figlet ${channel}
   '';
 }
