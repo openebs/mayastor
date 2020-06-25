@@ -68,6 +68,11 @@ class GetMock {
   constructor (delay) {
     this.delay = delay;
     this.objects = {};
+    this.statusCode = 200;
+  }
+
+  setStatusCode (code) {
+    this.statusCode = code;
   }
 
   add (obj) {
@@ -80,6 +85,25 @@ class GetMock {
 
   reset () {
     this.objects = {};
+  }
+
+  template () {
+    var gMock = this;
+    function template (name) {
+      return { get: async function () { return gMock.getForce(name); } };
+    }
+    template.get = function () { return gMock.get(); };
+    return template;
+  }
+
+  async getForce (name) {
+    if (this.objects[name]) {
+      return { statusCode: this.statusCode, body: this.objects[name] };
+    }
+    throw Object.assign(
+      new Error(`"${name}" not found`),
+      { code: 404 }
+    );
   }
 
   get () {
@@ -181,7 +205,7 @@ module.exports = function () {
     var delList = [];
 
     before(() => {
-      watcher = new Watcher('test', getMock, streamMock, objectFilter);
+      watcher = new Watcher('test', getMock.template(), streamMock, objectFilter);
       watcher.on('new', (obj) => newList.push(obj));
       watcher.on('mod', (obj) => modList.push(obj));
       watcher.on('del', (obj) => delList.push(obj));
@@ -297,6 +321,44 @@ module.exports = function () {
 
     it('should not crash upon unknown watch event', () => {
       streamMock.feed('UNKNOWN', createObject('some-object', 1, 160));
+    });
+
+    it('should bypass the watcher when using getRawBypass', async () => {
+      await watcher.start();
+
+      getMock.add(createObject('new-object', 1, 123));
+
+      var obj = watcher.getRaw('new-object');
+      expect(obj).is.null();
+
+      obj = await watcher.getRawBypass('new-object');
+      expect(obj).is.not.null();
+
+      // getRawBypass also adds the newly retrieved object to the watcher cache so we should now see it
+      obj = watcher.getRaw('new-object');
+      expect(obj).is.not.null();
+    });
+
+    it('should fail gracefully when using getRawBypass', async () => {
+      await watcher.start();
+
+      var obj = await watcher.getRawBypass('new-object-2');
+      expect(obj).is.null();
+
+      getMock.add(createObject('new-object-2', 1, 123));
+
+      getMock.setStatusCode(408);
+
+      obj = await watcher.getRawBypass('new-object-2');
+      expect(obj).is.null();
+
+      obj = watcher.getRaw('new-object-2');
+      expect(obj).is.null();
+
+      getMock.setStatusCode(200);
+
+      obj = await watcher.getRawBypass('new-object-2');
+      expect(obj).is.not.null();
     });
   });
 

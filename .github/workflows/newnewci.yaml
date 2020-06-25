@@ -23,5 +23,5 @@ jobs:
       - run: echo 8192 | tee /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
       - run: rm mayastor/.cargo/config
       - run: rm nvmeadm/.cargo/config
-      #- run: nix-env -f shell.nix -i -A 'buildInputs'
+      - run: nix-shell --run "echo "Pulling in the environment..."
       - run: nix-shell --run "./scripts/test.sh"

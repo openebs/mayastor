@@ -18,8 +18,10 @@ mkShell {
   # fortify does not work with -O0 which is used by spdk when --enable-debug
   hardeningDisable = [ "fortify" ];
   buildInputs = [
+    channel.stable.rust
     clang
     cowsay
+    e2fsprogs
     fio
     gdb
     gptfdisk
@@ -36,7 +38,7 @@ mkShell {
     pre-commit
     python3
     utillinux
-    channel.stable.rust
+    xfsprogs
   ] ++ pkgs.lib.optionals (nospdk) libspdk.buildInputs
   ++ pkgs.lib.optional (!nospdk) libspdk;
   LIBCLANG_PATH = mayastor.LIBCLANG_PATH;
