@@ -11,6 +11,7 @@ in
 with pkgs;
 let
   moth = "You have requested environment without SPDK, you should provide it!";
+  channel = import ./nix/lib/rust.nix { inherit sources; };
 in
 mkShell {
 
@@ -27,7 +28,7 @@ mkShell {
     libiscsi.bin
     libudev
     llvmPackages.libclang
-    nats-server
+    #    nats-server
     nodejs-12_x
     nvme-cli
     openssl
@@ -35,6 +36,7 @@ mkShell {
     pre-commit
     python3
     utillinux
+    channel.stable.rust
   ] ++ pkgs.lib.optionals (nospdk) libspdk.buildInputs
   ++ pkgs.lib.optional (!nospdk) libspdk;
   LIBCLANG_PATH = mayastor.LIBCLANG_PATH;

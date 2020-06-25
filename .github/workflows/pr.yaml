@@ -9,10 +9,6 @@ jobs:
       - uses: actions/checkout@master
       - uses: cachix/install-nix-action@v10
       - run: nix-env -f shell.nix -i -A 'buildInputs'
-      - uses: actions-rs/toolchain@master
-        with:
-          toolchain: nightly
-          components: clippy
       - uses: actions-rs/clippy-check@v1.0.5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
