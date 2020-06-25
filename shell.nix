@@ -41,7 +41,7 @@ mkShell {
   PROTOC = mayastor.PROTOC;
   PROTOC_INCLUDE = mayastor.PROTOC_INCLUDE;
 
-  C_INCLUDE_PATH = if nospdk then "" else "${libspdk}/include/spdk";
+  SPDK_PATH = if nospdk then null else "${libspdk}";
   shellHook = ''
     ${pkgs.lib.optionalString (nospdk) "cowsay ${moth}"}
     ${pkgs.lib.optionalString (nospdk) "export CFLAGS=-msse4"}
