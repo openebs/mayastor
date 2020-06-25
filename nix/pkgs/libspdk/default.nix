@@ -53,7 +53,6 @@ stdenv.mkDerivation rec {
     "--with-iscsi-initiator"
     "--with-internal-vhost-lib"
     "--with-crypto"
-    "--with-uring"
   ] ++ stdenv.lib.optionals (enableDebug) [ "--enable-debug" ];
 
 
@@ -63,19 +62,6 @@ stdenv.mkDerivation rec {
     substituteInPlace dpdk/config/defconfig_x86_64-native-linux-gcc --replace native default
     # A workaround for https://bugs.dpdk.org/show_bug.cgi?id=356
     substituteInPlace dpdk/lib/Makefile --replace 'DEPDIRS-librte_vhost :=' 'DEPDIRS-librte_vhost := librte_hash'
-
-    # we make use of private header files to generate bindings. To ensure we can find
-    # the proper header files we place the header files one level deeper.
-    #
-    # Normal: /include/spdk/bdev.h
-    # Patched: /include/spdk/spdk/bdev.h
-    #
-    # In this example bdev.h is public.
-    # The private header files are stored within /include/spdk.
-    # Such that header files that include "spdk/bdev.h" remain working.
-    #
-    substituteInPlace mk/spdk.common.mk --replace 'includedir?=$(CONFIG_PREFIX)/include' 'includedir?=$(CONFIG_PREFIX)/include/spdk'
-
   '';
 
   configurePhase = ''
@@ -83,8 +69,6 @@ stdenv.mkDerivation rec {
     ./configure $configureFlags
   '';
 
-  # experiment if still need this..
-  # NIX_CFLAGS_COMPILE = "-mno-movbe -mno-lzcnt -mno-bmi -mno-bmi2 -march=nehalem";
   hardeningDisable = [ "all" ];
 
   postBuild = ''
@@ -92,7 +76,7 @@ stdenv.mkDerivation rec {
     find . -type f -name 'librte_vhost.a' -delete
 
     $CC -shared -o libspdk.so \
-    -lc  -laio -liscsi -lnuma -ldl -lrt -luuid -lpthread -lcrypto -luring \
+    -lc  -laio -liscsi -lnuma -ldl -lrt -luuid -lpthread -lcrypto \
     -Wl,--whole-archive \
     $(find build/lib -type f -name 'libspdk_*.a*' -o -name 'librte_*.a*') \
     $(find dpdk/build/lib -type f -name 'librte_*.a*') \
@@ -106,16 +90,16 @@ stdenv.mkDerivation rec {
     mkdir $out/bin
 
     pushd include
-    find . -type f -name "*.h" -exec install -D "{}" $out/include/spdk/{} \;
+    find . -type f -name "*.h" -exec install -D "{}" $out/include/{} \;
     popd
 
     pushd lib
-    find . -type f -name "*.h" -exec install -D "{}" $out/include/spdk/{} \;
+    find . -type f -name "*.h" -exec install -D "{}" $out/include/spdk/lib/{} \;
     popd
 
     # copy private headers from bdev modules needed for creating of bdevs
     pushd module
-    find . -type f -name "*.h" -exec install -D "{}" $out/include/spdk/{} \;
+    find . -type f -name "*.h" -exec install -D "{}" $out/include/spdk/module/{} \;
     popd
 
     # copy over the library
