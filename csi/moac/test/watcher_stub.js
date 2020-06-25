@@ -57,6 +57,10 @@ class Watcher extends EventEmitter {
 
   async stop () {}
 
+  async getRawBypass (name) {
+    return this.getRaw(name);
+  }
+
   getRaw (name) {
     const obj = this.objects[name];
     if (!obj) {
