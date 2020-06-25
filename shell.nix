@@ -17,24 +17,25 @@ mkShell {
   # fortify does not work with -O0 which is used by spdk when --enable-debug
   hardeningDisable = [ "fortify" ];
   buildInputs = [
+    clang
     cowsay
     fio
     gdb
     gptfdisk
+    libaio
+    libiscsi
     libiscsi.bin
+    libspdk
+    libudev
+    llvmPackages.libclang
     nats-server
     nodejs-12_x
     nvme-cli
+    openssl
+    pkg-config
     pre-commit
     python3
-  ] ++ pkgs.lib.optionals (!nospdk) mayastor.buildInputs
-  ++ pkgs.lib.optionals (nospdk) [
-    clang
-    cunit
-    libudev.dev
-    libunwind
-    llvmPackages.libclang
-    pkg-config
+    utillinux
   ] ++ pkgs.lib.optionals (nospdk) libspdk.buildInputs;
   LIBCLANG_PATH = mayastor.LIBCLANG_PATH;
   PROTOC = mayastor.PROTOC;

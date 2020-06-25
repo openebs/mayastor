@@ -1,10 +1,6 @@
 { stdenv
-, busybox
 , clang
 , dockerTools
-, e2fsprogs
-, fetchFromGitHub
-, lib
 , libaio
 , libiscsi
 , libspdk
@@ -14,14 +10,11 @@
 , makeRustPlatform
 , numactl
 , openssl
-, pkgs
 , pkg-config
 , protobuf
-, rdma-core
-, utillinux
-, writeScriptBin
-, xfsprogs
+, release ? true
 , sources
+, utillinux
 }:
 let
   channel = import ../../lib/rust.nix { inherit sources; };
@@ -38,7 +31,6 @@ rustPlatform.buildRustPackage rec {
 
   LIBCLANG_PATH = "${llvmPackages.libclang}/lib";
 
-  # these are required for building the proto files that tonic can't find otherwise.
   PROTOC = "${protobuf}/bin/protoc";
   PROTOC_INCLUDE = "${protobuf}/include";
   C_INCLUDE_PATH = "${libspdk}/include/spdk";
@@ -62,7 +54,7 @@ rustPlatform.buildRustPackage rec {
     utillinux
   ];
 
-  buildType = "release";
+  buildType = if release then "release" else "debug";
   verifyCargoDeps = false;
 
   doCheck = false;
