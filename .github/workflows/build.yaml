@@ -10,25 +10,24 @@ jobs:
     name: Build and run cargo tests
     runs-on: self-hosted
     timeout-minutes: 20
-    container:
-      image: docker.io/mayadata/ms-buildenv:latest
-      options: --privileged -v /dev:/dev -v /bin:/host/bin -v /lib/modules:/lib/modules
     steps:
       - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
+      - uses: cachix/install-nix-action@v10
+      - uses: cachix/cachix-action@v5
         with:
-          # this does not pin the compiler version
-          toolchain: stable
+          name: mayastor
+          skipNixBuild: true
       - run: ln -s /host/bin/kmod /bin/modprobe
       - run: /bin/modprobe nbd
       - run: /bin/modprobe xfs
       - run: /bin/modprobe nvme_tcp
       - run: echo 8192 | tee /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
-      - run: rm mayastor/.cargo/config
-      - run: rm nvmeadm/.cargo/config
-      - run: cargo build --all
-      - run: ( cd jsonrpc && cargo test )
-      - run: ( cd mayastor && cargo test -- --test-threads=1 )
+      - run: rm mayastor/.cargo/config # Needed?
+      - run: rm nvmeadm/.cargo/config # Needed?
+      - run: nix-shell --run "cargo build --all
+      - run: nix-shell --run "cd jsonrpc && cargo test"
+      - run: nix-shell --run "cd mayastor && cargo test -- --test-threads=1"
+      # Output built artifacts
       - run: mkdir ./target/debug/github-artifacts/
       - run: ( cd ./target/debug/ && cp mayastor mayastor-client mayastor-agent spdk initiator mctl github-artifacts/ )
       - run: ( cd nvmeadm && cargo test )

@@ -5,18 +5,15 @@ jobs:
   Clippy:
     name: Clippy
     runs-on: ubuntu-latest
-    container:
-      image: docker.io/mayadata/ms-buildenv:latest
     steps:
       - uses: actions/checkout@master
-      - uses: actions-rs/toolchain@master
+      - uses: cachix/install-nix-action@v10
+      - uses: cachix/cachix-action@v5
         with:
-          toolchain: nightly
-          components: clippy
-      - uses: actions-rs/clippy-check@v1.0.5
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          args: --all --all-targets -- -D warnings
+          name: mayastor
+          skipNixBuild: true
+      - run: nix-shell --run "cargo clippy --all --all-targets -- -D warnings"
+        shell: bash
   Semistandard:
     name: SemiStandard
     runs-on: ubuntu-latest
