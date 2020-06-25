@@ -14,6 +14,7 @@ const yaml = require('js-yaml');
 const EventStream = require('./event_stream');
 const log = require('./logger').Logger('node-operator');
 const Watcher = require('./watcher');
+const Workq = require('./workq');
 
 const crdNode = yaml.safeLoad(
   fs.readFileSync(path.join(__dirname, '/crds/mayastornode.yaml'), 'utf8')
@@ -31,6 +32,7 @@ class NodeOperator {
     this.watcher = null; // k8s resource watcher for CSI nodes resource
     this.registry = null;
     this.namespace = namespace;
+    this.workq = new Workq(); // for serializing node operations
   }
 
   // Create node CRD if it doesn't exist and augment client object so that CRD
@@ -119,36 +121,42 @@ class NodeOperator {
     self.eventStream.on('data', async (ev) => {
       if (ev.kind !== 'node') return;
 
-      if (ev.eventType === 'new' || ev.eventType === 'mod') {
-        const name = ev.object.name;
-        const endpoint = ev.object.endpoint;
-        const k8sNode = self.watcher.getRaw(name);
+      await self.workq.push(ev, self._onNodeEvent.bind(self));
+    });
+  }
 
-        if (k8sNode) {
-          // Update object only if it has really changed
-          if (k8sNode.spec.grpcEndpoint !== endpoint) {
-            try {
-              await self._updateResource(name, k8sNode, endpoint);
-            } catch (err) {
-              log.error(`Failed to update node resource "${name}": ${err}`);
-              return;
-            }
-          }
-        } else if (ev.eventType === 'new' && !k8sNode) {
+  async _onNodeEvent (ev) {
+    var self = this;
+    const name = ev.object.name;
+    if (ev.eventType === 'new' || ev.eventType === 'mod') {
+      const endpoint = ev.object.endpoint;
+      const k8sNode = await self.watcher.getRawBypass(name);
+
+      if (k8sNode) {
+        // Update object only if it has really changed
+        if (k8sNode.spec.grpcEndpoint !== endpoint) {
           try {
-            await self._createResource(name, endpoint);
+            await self._updateResource(name, k8sNode, endpoint);
           } catch (err) {
-            log.error(`Failed to create node resource "${name}": ${err}`);
+            log.error(`Failed to update node resource "${name}": ${err}`);
             return;
           }
         }
-        await this._updateStatus(name, ev.object.isSynced() ? 'online' : 'offline');
-      } else if (ev.eventType === 'del') {
-        await self._deleteResource(ev.object.name);
-      } else {
-        assert.strictEqual(ev.eventType, 'sync');
+      } else if (ev.eventType === 'new') {
+        try {
+          await self._createResource(name, endpoint);
+        } catch (err) {
+          log.error(`Failed to create node resource "${name}": ${err}`);
+          return;
+        }
       }
-    });
+
+      await this._updateStatus(name, ev.object.isSynced() ? 'online' : 'offline');
+    } else if (ev.eventType === 'del') {
+      await self._deleteResource(ev.object.name);
+    } else {
+      assert.strictEqual(ev.eventType, 'sync');
+    }
   }
 
   // Create k8s CRD object.
@@ -203,7 +211,7 @@ class NodeOperator {
   // @param {string} status  State of the node.
   //
   async _updateStatus (name, status) {
-    var k8sNode = this.watcher.getRaw(name);
+    var k8sNode = await this.watcher.getRawBypass(name);
     if (!k8sNode) {
       log.warn(
         `Wanted to update state of node resource "${name}" that disappeared`
@@ -231,7 +239,7 @@ class NodeOperator {
   // @param {string} name   Name of the node resource to delete.
   //
   async _deleteResource (name) {
-    var k8sNode = this.watcher.getRaw(name);
+    var k8sNode = await this.watcher.getRawBypass(name);
     if (k8sNode) {
       log.info(`Deleting node resource "${name}"`);
       try {
