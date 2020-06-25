@@ -43,19 +43,26 @@ fn main() {
     let out_dir = env::var("OUT_DIR").unwrap();
     let out_path = PathBuf::from(&out_dir);
 
+    let mut clang_args = Vec::new();
+
+    if let Ok(spdk_path) = env::var("SPDK_PATH") {
+        clang_args.push(format!("-I{}/include/spdk/lib", spdk_path));
+        clang_args.push(format!("-I{}/include/spdk/module", spdk_path));
+        clang_args.push(format!("-I{}/include/spdk_internal", spdk_path));
+    } else {
+        clang_args.push("-Ispdk/module".into());
+        clang_args.push("-Ispdk/lib".into());
+        clang_args.push("-Ispdk/include".into());
+        clang_args.push("-Ispdk/include/spdk_internal".into());
+    }
+
     build_wrapper();
 
     let macros = Arc::new(RwLock::new(HashSet::new()));
     let bindings = bindgen::Builder::default()
-        .clang_args(&[
-            "-Ispdk/module",
-            "-Ispdk/lib",
-            "-Ispdk/include",
-            "-Ispdk/include/spdk_internal",
-        ])
+        .clang_args(clang_args)
         .header("wrapper.h")
         .rustfmt_bindings(true)
-        .whitelist_function("struct spdk_iscsi_opts")
         .whitelist_function("^spdk.*")
         .whitelist_function("*.aio.*")
         .whitelist_function("*.iscsi.*")
@@ -75,6 +82,8 @@ fn main() {
         .layout_tests(false)
         .derive_default(true)
         .derive_debug(true)
+        .derive_copy(true)
+        .clang_arg("-march=nehalem")
         .prepend_enum_name(false)
         .generate_inline_functions(true)
         .parse_callbacks(Box::new(MacroCallback {

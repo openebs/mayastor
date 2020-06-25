@@ -5,10 +5,10 @@ jobs:
   Clippy:
     name: Clippy
     runs-on: ubuntu-latest
-    container:
-      image: docker.io/mayadata/ms-buildenv:latest
     steps:
       - uses: actions/checkout@master
+      - uses: cachix/install-nix-action@v10
+      - run: nix-env -f shell.nix -i -A 'buildInputs'
       - uses: actions-rs/toolchain@master
         with:
           toolchain: nightly-2020-06-21
