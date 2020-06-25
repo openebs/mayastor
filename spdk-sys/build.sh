@@ -9,10 +9,10 @@ pushd spdk || { echo "Can not find spdk directory"; exit; }
 [ ! -d dpdk/.git ] || { echo "Submodules not checked out?"; exit; }
 
 
+#	--disable-unit-tests \
 ./configure --enable-debug \
 	--target-arch=nehalem \
 	--disable-tests \
-	--disable-unit-tests \
 	--without-isal \
 	--with-iscsi-initiator \
 	--with-crypto \

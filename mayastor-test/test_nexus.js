@@ -259,7 +259,7 @@ var doUring = (function () {
         if (error) {
           return;
         }
-        supportsUring = true;
+        supportsUring = false;
       });
     }
     return supportsUring;

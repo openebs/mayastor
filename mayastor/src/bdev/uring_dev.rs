@@ -4,7 +4,10 @@ use futures::channel::oneshot;
 use snafu::{ResultExt, Snafu};
 use url::Url;
 
-use spdk_sys::{create_uring_bdev, delete_uring_bdev};
+use spdk_sys::{
+    bdev_aio_delete as delete_uring_bdev,
+    create_aio_bdev as create_uring_bdev,
+};
 
 use crate::{
     core::Bdev,
@@ -36,7 +39,7 @@ impl UringBdev {
     pub async fn create(self) -> Result<String, BdevCreateDestroy> {
         if Bdev::lookup_by_name(&self.name).is_some() {
             return Err(BdevCreateDestroy::BdevExists {
-                name: self.name.clone(),
+                name: self.name,
             });
         }
 
@@ -46,20 +49,17 @@ impl UringBdev {
         let spdk_bdev_ptr = unsafe {
             create_uring_bdev(cname.as_ptr(), filename.as_ptr(), self.blk_size)
         };
-        let name = self.name.clone();
 
-        async {
-            if !spdk_bdev_ptr.is_null() {
-                Ok(name)
-            } else {
-                errno_result_from_i32(name.clone(), -1).context(
-                    nexus_uri::InvalidParams {
-                        name,
-                    },
-                )
-            }
+        let name = self.name;
+        if spdk_bdev_ptr == 0 {
+            Ok(name)
+        } else {
+            errno_result_from_i32(name.clone(), -1).context(
+                nexus_uri::InvalidParams {
+                    name,
+                },
+            )
         }
-        .await
     }
 
     /// destroy the given uring bdev

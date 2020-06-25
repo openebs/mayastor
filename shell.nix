@@ -28,7 +28,6 @@ mkShell {
     libaio
     libiscsi
     libiscsi.bin
-    libspdk
     libudev
     llvmPackages.libclang
     nodejs-12_x
@@ -38,7 +37,8 @@ mkShell {
     pre-commit
     python3
     utillinux
-  ] ++ pkgs.lib.optionals (nospdk) libspdk.buildInputs;
+  ] ++ pkgs.lib.optionals (nospdk) libspdk.buildInputs
+  ++ pkgs.lib.optional (!nospdk) libspdk;
   LIBCLANG_PATH = mayastor.LIBCLANG_PATH;
   PROTOC = mayastor.PROTOC;
   PROTOC_INCLUDE = mayastor.PROTOC_INCLUDE;
