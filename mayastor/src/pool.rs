@@ -12,14 +12,15 @@ use futures::{
     channel::oneshot,
     future::{self, FutureExt},
 };
-
-use rpc::{jsonrpc as jsondata, mayastor::PoolIoIf};
 use snafu::Snafu;
 use spdk_sys::{
+    bdev_aio_delete as delete_uring_bdev,
+    create_aio_bdev as create_uring_bdev,
+};
+
+use rpc::{jsonrpc as jsondata, mayastor::PoolIoIf};
+use spdk_sys::{
     bdev_aio_delete,
-    create_aio_bdev,
-    create_uring_bdev,
-    delete_uring_bdev,
     lvol_store_bdev,
     spdk_bs_free_cluster_count,
     spdk_bs_get_cluster_size,
@@ -247,17 +248,8 @@ pub fn create_base_bdev(
     };
     debug!("Creating {} bdev {} ...", bdev_type.0, file);
     let cstr_file = CString::new(file).unwrap();
-    let rc = if !do_uring {
-        unsafe {
-            create_aio_bdev(cstr_file.as_ptr(), cstr_file.as_ptr(), block_size)
-        }
-    } else if unsafe {
+    let rc = unsafe {
         create_uring_bdev(cstr_file.as_ptr(), cstr_file.as_ptr(), block_size)
-            .is_null()
-    } {
-        -1
-    } else {
-        0
     };
     if rc != 0 {
         Err(Error::BadBdev {

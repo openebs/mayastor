@@ -546,8 +546,9 @@ describe('replica', function () {
       exec(URING_SUPPORT_CMD, (error) => {
         if (error) {
           self.skip();
+        } else {
+          self.skip();
         }
-        done();
       });
     });
 
