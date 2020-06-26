@@ -18,6 +18,10 @@
 }:
 with stdenv.lib;
 stdenv.mkDerivation rec {
+
+  name = "libspdk";
+  version = "20.01";
+
   src = fetchFromGitHub {
     owner = "openebs";
     repo = "spdk";
@@ -25,8 +29,6 @@ stdenv.mkDerivation rec {
     sha256 = "0bg6yhpgis9w3qqdd3lyg1hwmh0bhblwh0557s5s3a62l30jkkjn";
     fetchSubmodules = true;
   };
-
-  name = "libspdk";
 
   buildInputs = [
     binutils
