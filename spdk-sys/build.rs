@@ -103,6 +103,7 @@ fn main() {
     println!("cargo:rustc-link-lib=iscsi");
     println!("cargo:rustc-link-lib=dl");
     println!("cargo:rustc-link-lib=uuid");
+    println!("cargo:rustc-link-lib=numa");
     println!("cargo:rustc-link-lib=crypto");
 
     println!("cargo:rerun-if-changed=build.rs");
