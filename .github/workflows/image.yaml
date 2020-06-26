@@ -23,25 +23,6 @@ jobs:
           name: mayastor-moac-image
           path: /tmp/node-moacImage
         if: ${{ github.event_name != 'pull_request' }}
-  CSI:
-    name: Build CSI image
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions-rs/toolchain@v1
-        with:
-          toolchain: stable
-      - uses: actions/checkout@v2
-      - uses: cachix/install-nix-action@v10
-      - uses: cachix/cachix-action@v5
-        with:
-          name: mayastor
-          skipNixBuild: true
-      - run: nix-build -A mayastorCSIImage -o /tmp/mayastorCSIImage
-      - uses: actions/upload-artifact@v2
-        with:
-          name: mayastor-csi-image
-          path: /tmp/mayastorCSIImage
-        if: ${{ github.event_name != 'pull_request' }}
   Mayastor:
     name: Build Mayastor image
     runs-on: ubuntu-latest
@@ -55,9 +36,4 @@ jobs:
         with:
           name: mayastor
           skipNixBuild: true
-      - run: nix-build -A mayastorImage -o /tmp/mayastorImage
-      - uses: actions/upload-artifact@v2
-        with:
-          name: mayastor-image
-          path: /tmp/mayastorImage
-        if: ${{ github.event_name != 'pull_request' }}
+      - run: nix-build -A images.mayastor-develop -o /tmp/mayastorImage

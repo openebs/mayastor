@@ -19,7 +19,7 @@
 with stdenv.lib;
 stdenv.mkDerivation rec {
 
-  name = "libspdk";
+  pname = "libspdk";
   version = "20.01";
 
   src = fetchFromGitHub {
