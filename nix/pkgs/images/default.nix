@@ -20,7 +20,8 @@ rec {
 
   env = stdenv.lib.makeBinPath [ busybox xfsprogs e2fsprogs ];
 
-  mayastor-dev = stdenv.mkDerivation {
+  # image that does not do a build
+  mayastor-adhoc = stdenv.mkDerivation {
     name = "mayastor-dev";
     version = "1.0";
     src = [
@@ -59,7 +60,7 @@ rec {
     name = "mayadata/mayastor";
     tag = "adhoc";
     created = "now";
-    contents = [ busybox mayastor-dev ];
+    contents = [ busybox mayastor-adhoc ];
     extraCommands = ''
       mkdir -p var/tmp
     '';
@@ -70,7 +71,7 @@ rec {
     };
   };
 
-  mayastor-image = dockerTools.buildImage {
+  mayastor-image-release = dockerTools.buildImage {
     name = "mayadata/mayastor";
     tag = sources.mayastor.branch;
     created = "now";
@@ -87,7 +88,7 @@ rec {
     chroot /host /usr/bin/env -i PATH="/sbin:/bin:/usr/bin" iscsiadm "$@"
   '';
 
-  csi = dockerTools.buildLayeredImage {
+  csi-release = dockerTools.buildLayeredImage {
     name = "mayadata/mayastor-grpc";
     tag = sources.mayastor.branch;
     created = "now";
@@ -97,4 +98,34 @@ rec {
       Env = [ "PATH=${env}" ];
     };
   };
+
+
+  # images during CI
+
+  mayastor-develop = mayastor.override { release = false; };
+
+  mayastor-image-develop = dockerTools.buildImage {
+    name = "mayadata/mayastor";
+    tag = "develop";
+    created = "now";
+    contents = [ busybox mayastor-develop ];
+    config = {
+      Env = [ "PATH=${env}" ];
+      ExposedPorts = { "10124/tcp" = { }; };
+      Entrypoint = [ "/bin/mayastor" ];
+    };
+  };
+
+  mayastor-csi-develop = dockerTools.buildImage {
+    name = "mayadata/mayastor-grpc";
+    tag = "develop";
+    created = "now";
+    contents = [ busybox mayastor-develop ];
+    config = {
+      Env = [ "PATH=${env}" ];
+      ExposedPorts = { "10124/tcp" = { }; };
+      Entrypoint = [ "/bin/mayastor-agent" ];
+    };
+  };
+
 }
