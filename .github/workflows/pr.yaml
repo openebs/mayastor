@@ -8,15 +8,7 @@ jobs:
     steps:
       - uses: actions/checkout@master
       - uses: cachix/install-nix-action@v10
-      - run: nix-env -f shell.nix -i -A 'buildInputs'
-      - uses: actions-rs/toolchain@master
-        with:
-          toolchain: nightly-2020-06-21
-          components: clippy
-      - uses: actions-rs/clippy-check@v1.0.5
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          args: --all --all-targets -- -D warnings
+      - run: nix-shell --run "pre-commit run --from-ref HEAD~1 --to-ref HEAD"
   Semistandard:
     name: SemiStandard
     runs-on: ubuntu-latest
