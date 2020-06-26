@@ -1,5 +1,6 @@
 name: "nix-build with cachix"
 on:
+  push:
   pull_request:
     paths:
       - '**.nix'
@@ -14,13 +15,3 @@ jobs:
         name: mayastor
         signingKey: '${{ secrets.CACHIX_SIGNING_KEY }}'
         attributes: libspdk
-  ms-build:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v2
-      - uses: cachix/install-nix-action@v10
-      - uses: cachix/cachix-action@v5
-        with:
-          name: mayastor
-          attributes: ms-buildenv
-

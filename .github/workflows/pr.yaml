@@ -1,22 +1,17 @@
 name: "Lint and style Checks"
 on:
   pull_request:
+  push:
 jobs:
   Clippy:
     name: Clippy
     runs-on: ubuntu-latest
+    container:
+      image: docker.io/mayadata/ms-buildenv:gila
     steps:
       - uses: actions/checkout@master
-      - uses: cachix/install-nix-action@v10
-      - run: nix-env -f shell.nix -i -A 'buildInputs'
-      - uses: actions-rs/toolchain@master
-        with:
-          toolchain: nightly-2020-06-21
-          components: clippy
-      - uses: actions-rs/clippy-check@v1.0.5
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          args: --all --all-targets -- -D warnings
+      - run: nix-shell --run "cargo fmt --all -- --check"
+      - run: nix-shell --run "cargo clippy --all-targets -- -D warnings"
   Semistandard:
     name: SemiStandard
     runs-on: ubuntu-latest

@@ -281,7 +281,7 @@ pub fn thread() -> Option<Mthread> {
 pub fn dd_urandom_blkdev(device: &str) -> i32 {
     let (exit, stdout, stderr) = run_script::run(
         r#"
-        dd if=/dev/urandom of=$1 conv=fsync,nocreat,notrunc iflag=count_bytes count=`blockdev --getsize64 $1`
+        dd if=/dev/urandom of=$1 conv=fsync,notrunc iflag=count_bytes count=`blockdev --getsize64 $1`
     "#,
     &vec![device.into()],
     &run_script::ScriptOptions::new(),
