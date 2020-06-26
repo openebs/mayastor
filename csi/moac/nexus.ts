@@ -204,11 +204,11 @@ export class Nexus {
         `Failed to add uri "${uri}" to nexus "${this}": ${err}`
       );
     }
-    // We assume that child needs to be rebuilt when added, hence the state
-    // is implicitly set to degraded.
+    // The child will need to be rebuilt when added, but until we get
+    // confirmation back from the nexus, set it as pending
     this.children.push({
       uri: uri,
-      state: 'CHILD_DEGRADED'
+      state: 'CHILD_PENDING'
     });
     this.children.sort(compareChildren);
     log.info(`Replica uri "${uri}" added to the nexus "${this}"`);
