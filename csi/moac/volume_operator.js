@@ -175,38 +175,44 @@ class VolumeOperator {
     self.eventStream.on('data', async (ev) => {
       // the only kind of event that comes from the volumes source
       assert(ev.kind === 'volume');
-      const uuid = ev.object.uuid;
 
-      if (ev.eventType === 'new' || ev.eventType === 'mod') {
-        const k8sVolume = self.watcher.getRaw(uuid);
-        const spec = self._volumeToSpec(ev.object);
-        const status = self._volumeToStatus(ev.object);
-
-        if (k8sVolume) {
-          try {
-            await self._updateResource(uuid, k8sVolume, spec);
-          } catch (err) {
-            log.error(`Failed to update volume resource "${uuid}": ${err}`);
-            return;
-          }
-        } else if (ev.eventType === 'new' && !k8sVolume) {
-          try {
-            await self._createResource(uuid, spec);
-          } catch (err) {
-            log.error(`Failed to create volume resource "${uuid}": ${err}`);
-            return;
-          }
-          // Note down that the volume existed so we don't try to create it
-          // again when handling watcher new event.
-          self.createdBySelf.push(uuid);
-        }
-        await this._updateStatus(uuid, status);
-      } else if (ev.eventType === 'del') {
-        await self._deleteResource(uuid);
-      } else {
-        assert(false);
-      }
+      self.workq.push(ev, self._onVolumeEvent.bind(self));
     });
+  }
+
+  async _onVolumeEvent (ev) {
+    var self = this;
+    const uuid = ev.object.uuid;
+
+    if (ev.eventType === 'new' || ev.eventType === 'mod') {
+      const k8sVolume = await self.watcher.getRawBypass(uuid);
+      const spec = self._volumeToSpec(ev.object);
+      const status = self._volumeToStatus(ev.object);
+
+      if (k8sVolume) {
+        try {
+          await self._updateResource(uuid, k8sVolume, spec);
+        } catch (err) {
+          log.error(`Failed to update volume resource "${uuid}": ${err}`);
+          return;
+        }
+      } else if (ev.eventType === 'new') {
+        try {
+          await self._createResource(uuid, spec);
+        } catch (err) {
+          log.error(`Failed to create volume resource "${uuid}": ${err}`);
+          return;
+        }
+        // Note down that the volume existed so we don't try to create it
+        // again when handling watcher new event.
+        self.createdBySelf.push(uuid);
+      }
+      await this._updateStatus(uuid, status);
+    } else if (ev.eventType === 'del') {
+      await self._deleteResource(uuid);
+    } else {
+      assert(false);
+    }
   }
 
   // Transform volume to spec properties used in k8s volume resource.
@@ -314,7 +320,7 @@ class VolumeOperator {
   // @param {object} status  Status properties.
   //
   async _updateStatus (uuid, status) {
-    var k8sVolume = this.watcher.getRaw(uuid);
+    var k8sVolume = await this.watcher.getRawBypass(uuid);
     if (!k8sVolume) {
       log.warn(
         `Wanted to update state of volume resource "${uuid}" that disappeared`
@@ -345,7 +351,7 @@ class VolumeOperator {
   // @param {string} uuid   UUID of the volume resource to delete.
   //
   async _deleteResource (uuid) {
-    var k8sVolume = this.watcher.getRaw(uuid);
+    var k8sVolume = await this.watcher.getRawBypass(uuid);
     if (k8sVolume) {
       log.info(`Deleting volume resource "${uuid}"`);
       try {

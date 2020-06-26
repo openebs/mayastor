@@ -789,7 +789,7 @@ module.exports = function () {
       expect(volume.state).to.equal('degraded');
 
       const newChild = volume.nexus.children.find(
-        (ch) => ch.state === 'CHILD_DEGRADED'
+        (ch) => ch.state === 'CHILD_PENDING'
       );
       expect(newChild.uri).to.equal('nvmf://replica3');
       newChild.state = 'CHILD_ONLINE';

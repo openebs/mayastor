@@ -191,9 +191,9 @@ class Volume {
     }
 
     // If we don't have sufficient number of sound replicas (sound means online
-    // or under rebuild) then add a new one.
+    // , under rebuild or pending) then add a new one.
     var soundCount = children.filter((ch) => {
-      return ['CHILD_ONLINE', 'CHILD_DEGRADED'].indexOf(ch.state) >= 0;
+      return ['CHILD_ONLINE', 'CHILD_DEGRADED', 'CHILD_PENDING'].indexOf(ch.state) >= 0;
     }).length;
     if (this.replicaCount > soundCount) {
       this._setState('degraded');
@@ -208,10 +208,11 @@ class Volume {
       return;
     }
 
-    // The condition for later actions is that volume must not be rebuilt.
-    // So check that and return if that's the case.
-    var rebuildCount = children.filter((ch) => ch.state === 'CHILD_DEGRADED')
-      .length;
+    // The condition for later actions is that volume must not be rebuilding or
+    // waiting for a child add. So check that and return if that's the case.
+    var rebuildCount = children.filter((ch) => {
+      return ['CHILD_DEGRADED', 'CHILD_PENDING'].indexOf(ch.state) >= 0;
+    }).length;
     if (rebuildCount > 0) {
       this._setState('degraded');
       return;
