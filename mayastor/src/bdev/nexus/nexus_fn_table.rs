@@ -96,16 +96,23 @@ impl NexusFnTable {
 
             match io_type {
                 io_type::READ => {
-                    //trace!("{}: Dispatching READ {:p}", nexus.name(), io);
+                    //trace!("{}: Dispatching READ {:p}", nexus.bdev.name(),
+                    // io);
                     nexus.readv(io, &mut ch)
                 }
                 io_type::WRITE => {
-                    //trace!("{}: Dispatching WRITE {:p}", nexus.name(), io);
+                    //trace!("{}: Dispatching WRITE {:p}", nexus.bdev.name(),
+                    // io);
                     nexus.writev(io, &ch)
                 }
                 io_type::RESET => {
                     trace!("{}: Dispatching RESET {:p}", nexus.bdev.name(), io);
                     nexus.reset(io, &ch)
+                }
+                io_type::FLUSH => {
+                    //trace!("{}: Dispatching FLUSH {:p}", nexus.bdev.name(),
+                    // io);
+                    nexus.flush(io, &ch)
                 }
                 io_type::UNMAP => {
                     if nexus.io_is_supported(io_type) {
