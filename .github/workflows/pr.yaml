@@ -7,7 +7,7 @@ jobs:
     name: Clippy
     runs-on: ubuntu-latest
     container:
-      image: docker.io/mayadata/ms-buildenv:gila
+      image: docker.io/mayadata/ms-buildenv:latest
     steps:
       - uses: actions/checkout@master
       - run: nix-shell --run "cargo fmt --all -- --check"
