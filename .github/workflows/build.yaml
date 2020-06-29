@@ -11,7 +11,7 @@ jobs:
     runs-on: self-hosted
     timeout-minutes: 30
     container:
-      image: docker.io/mayadata/ms-buildenv:gila
+      image: docker.io/mayadata/ms-buildenv:latest
       options: --privileged -v /dev:/dev -v /:/host -v /lib/modules:/lib/modules
     steps:
       - uses: actions/checkout@v2
