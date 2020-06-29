@@ -13,7 +13,6 @@ const nodeObject = require('./node_test.js');
 const poolObject = require('./pool_test.js');
 const replicaObject = require('./replica_test.js');
 const nexusObject = require('./nexus_test.js');
-const csiNodeOperator = require('./csi_node_operator_test.js');
 const nodeOperator = require('./node_operator_test.js');
 const natsTest = require('./nats_test.js');
 const registryTest = require('./registry_test.js');
@@ -39,7 +38,6 @@ describe('moac', function () {
   describe('replica object', replicaObject);
   describe('nats message bus', natsTest);
   describe('nexus object', nexusObject);
-  describe('csi node operator', csiNodeOperator);
   describe('node operator', nodeOperator);
   describe('registry', registryTest);
   describe('event stream', eventStream);
