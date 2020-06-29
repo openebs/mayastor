@@ -26,7 +26,6 @@ const common = require('./test_common');
 const enums = require('./grpc_enums');
 
 var csiSock = common.CSI_ENDPOINT;
-var endpoint = common.grpcEndpoint;
 
 // One big malloc bdev which we put lvol store on.
 const CONFIG = `
@@ -44,9 +43,6 @@ const UUID3 = BASE_UUID + '2';
 const UUID4 = BASE_UUID + '3';
 const UUID5 = BASE_UUID + '4';
 
-// UUID not used by any volume
-const UNKNOWN_UUID = BASE_UUID + '9';
-
 function createCsiClient (service) {
   const pkgDef = grpc.loadPackageDefinition(
     protoLoader.loadSync(
@@ -63,7 +59,6 @@ function createCsiClient (service) {
     )
   );
   const proto = pkgDef.csi.v1;
-  console.log('Creating client for ', csiSock);
   return new proto[service](csiSock, grpc.credentials.createInsecure());
 }
 
@@ -115,31 +110,21 @@ describe('csi', function () {
   // NOTE: Don't use mayastor in setup - we test CSI interface and we don't want
   // to depend on correct function of mayastor iface in order to test CSI.
   before((done) => {
-    const identityClient = createCsiClient('Identity');
-
     common.startMayastor(CONFIG);
-    common.startMayastorGrpc();
+    common.startMayastorCsi();
 
     async.series(
       [
         (next) => {
           common.waitFor((pingDone) => {
-          // fix the perms now - we can't do that before because it takes
-          // time to csi-agent to create it ..
+            // fix the perms now - we can't do that before because it takes
+            // time to csi-agent to create it ..
             common.fixSocketPerms((err) => {
               if (err) {
                 return pingDone(err);
               }
               // use harmless method to test if the mayastor is up and running
-              identityClient.probe({}, (err, res) => {
-                if (err) {
-                  pingDone(err);
-                } else if (!res.ready.value) {
-                  pingDone(new Error('not ready'));
-                } else {
-                  pingDone(undefined);
-                }
-              });
+              common.dumbCommand('get_bdevs', {}, pingDone);
             });
           }, next);
         },
@@ -188,8 +173,7 @@ describe('csi', function () {
             next
           );
         }
-      ]);
-    done();
+      ], done);
   });
 
   // stop mayastor server if it was started by us
@@ -214,7 +198,7 @@ describe('csi', function () {
       async.series(
         [
           (next) => {
-            common.restartMayastorGrpc((pingDone) => {
+            common.restartMayastorCsi((pingDone) => {
             // fix the perms now - we can't do that before because it takes
             // time to csi-agent to create it ..
               common.fixSocketPerms((err) => {
@@ -259,7 +243,7 @@ describe('csi', function () {
         // If you need to change values of any properties here,
         // you must change the moac's csi server code as well!
         assert.equal(res.name, 'io.openebs.csi-mayastor');
-        assert.equal(res.vendor_version, '0.1');
+        assert.equal(res.vendor_version, '0.2');
         assert.lengthOf(Object.keys(res.manifest), 0);
         done();
       });
@@ -299,7 +283,7 @@ describe('csi', function () {
         if (err) return done(err);
         assert.equal(
           res.node_id,
-          'mayastor://' + common.CSI_ID + '/' + endpoint
+          'mayastor://' + common.CSI_ID
         );
 
         assert.isAbove(
@@ -314,10 +298,9 @@ describe('csi', function () {
     it('get capabilities', (done) => {
       client.nodeGetCapabilities({}, (err, res) => {
         if (err) return done(err);
-        assert.lengthOf(res.capabilities, 2);
+        assert.lengthOf(res.capabilities, 1);
         assert.equal(res.capabilities[0].type, 'rpc');
-        assert.equal(res.capabilities[0].rpc.type, 'GET_VOLUME_STATS');
-        assert.equal(res.capabilities[1].rpc.type, 'STAGE_UNSTAGE_VOLUME');
+        assert.equal(res.capabilities[0].rpc.type, 'STAGE_UNSTAGE_VOLUME');
         done();
       });
     });
@@ -364,7 +347,6 @@ function csiProtocolTest (protoname, shareType, timeoutMillis, unknownPublishCon
         ],
         function (err, stdouts) {
           if (err) {
-            //            identityClient.close();
             done(err);
           } else {
             // Ugh {
@@ -401,8 +383,7 @@ function csiProtocolTest (protoname, shareType, timeoutMillis, unknownPublishCon
                 const uuid = BASE_UUID + n;
                 common.dumbCommand('unpublish_nexus', { uuid: uuid }, next);
               },
-              function (err, res) { // eslint-disable-line handle-callback-err
-                console.log('Error:', err);
+              function () {
                 next();
               }
             );
@@ -465,30 +446,12 @@ function csiProtocolTest (protoname, shareType, timeoutMillis, unknownPublishCon
             volume_id: UUID1,
             volume_path: mountTarget
           },
-          (err, res) => {
-            if (err) return done(err);
-            assert.lengthOf(res.usage, 1);
-            assert.equal(res.usage[0].unit, 'BYTES');
-            // 25MB size of the bdev - something for the metadata
-            assert.equal(res.usage[0].total, 24096768);
-            // TODO: These are not available yet:
-            // assert.equal(res.usage[0].available, 1);
-            // assert.equal(res.usage[0].used, 0);
-            done();
-          }
+          shouldFailWith(grpc.status.UNIMPLEMENTED, done)
         );
       });
 
       it('staging the same volume again should return ok (idempotent)', (done) => {
         client.nodeStageVolume(getDefaultArgs(), done);
-      });
-
-      it('staging a volume with a non existing bdev should fail with NotFound Error', (done) => {
-        const args = getDefaultArgs();
-        args.volume_id = UNKNOWN_UUID;
-        args.publish_context = unknownPublishContext;
-
-        client.nodeStageVolume(args, shouldFailWith(grpc.status.NOT_FOUND, done));
       });
 
       it('staging a volume with the same staging path but with a different bdev should fail', (done) => {
@@ -508,16 +471,6 @@ function csiProtocolTest (protoname, shareType, timeoutMillis, unknownPublishCon
         client.nodeStageVolume(
           args,
           shouldFailWith(grpc.status.ALREADY_EXISTS, done)
-        );
-      });
-
-      it('should not unstage a volume with an unknown volumeid and return NOTFOUND error', (done) => {
-        client.nodeUnstageVolume(
-          {
-            volume_id: 'illegal',
-            staging_target_path: mountTarget
-          },
-          shouldFailWith(grpc.status.NOT_FOUND, done)
         );
       });
 

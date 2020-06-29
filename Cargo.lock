@@ -406,10 +406,9 @@ dependencies = [
 
 [[package]]
 name = "csi"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "blkid",
- "byte-unit",
  "bytes 0.5.5",
  "bytesize",
  "chrono",
@@ -422,11 +421,9 @@ dependencies = [
  "http 0.1.21",
  "http-body 0.2.0",
  "itertools 0.9.0",
- "jsonrpc",
  "libc",
  "log",
  "loopdev",
- "nix 0.17.0",
  "nvmeadm",
  "once_cell",
  "proc-mounts",
@@ -435,11 +432,7 @@ dependencies = [
  "prost-derive",
  "prost-types",
  "regex",
- "rpc",
  "run_script",
- "serde",
- "serde_derive",
- "serde_json",
  "sys-mount",
  "tokio",
  "tonic",
@@ -1370,19 +1363,6 @@ name = "nix"
 version = "0.16.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd0eaf8df8bab402257e0a5c17a254e4cc1f72a93588a1ddfb5d356c801aa7cb"
-dependencies = [
- "bitflags",
- "cc",
- "cfg-if",
- "libc",
- "void",
-]
-
-[[package]]
-name = "nix"
-version = "0.17.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "50e4785f2c3b7589a0d0c1dd60285e1188adac4006e8abd6dd578e1567027363"
 dependencies = [
  "bitflags",
  "cc",

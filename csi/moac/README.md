@@ -58,56 +58,12 @@ the deployment yaml file to use the private image instead.
 
 ### Outside k8s cluster
 
-When developing or fixing bugs in MOAC it is handy to execute it with a K8s
-cluster directly from source (without building and deploying the docker image).
-That speeds up the development cycle at the cost of not being able to exhibit
-all code paths (i.e. CSI related code paths). We assume following environment:
-
-- configured k8s cluster accessible from dev box (using kubeconfig file)
-- mayastor daemonset properly deployed in k8s cluster (optional but useful)
-
-Kubeconfig file enables MOAC to access K8s API server. However if MOAC
-needs to access MayaStor gRPC server running in the cluster, which would be
-otherwise unreachable for externally running apps, then we need to edit
-MayaStor daemonset yaml file and change args of mayastor-grpc container from:
-
-```
-         - "--address=$(MY_POD_IP)"
-```
-
-to
-
-```
-         - "--address=127.0.0.1"
-```
-
-This will cause MOAC to connect to loopback interface instead of MayaStor's
-pod IP. Now we need to redirect network traffic coming to localhost port 10124
-to MayaStor pod inside the cluster. Run following command on your dev box:
-
-```bash
-kubectl port-forward pods/<mayastor-pod-name> 10124:10124
-```
-
-Obviously this workaround can be used only with a single mayastor instance.
-To start MOAC type:
-
-```bash
-./index.js --namespace=ns-used-to-deploy-mayastor
-```
-
-### Without k8s cluster
-
 You can run MOAC without any K8s cluster with all components that are K8s
 specific disabled:
 
 ```bash
 ./index.js --skip-k8s
 ```
-
-That is not terribly useful besides testing the basic start sequence in MOAC.
-It might be useful for debugging when we replace k8s components by drop-in
-replacement modules in future.
 
 ## Contributing
 

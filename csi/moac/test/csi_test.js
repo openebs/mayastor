@@ -596,7 +596,7 @@ module.exports = function () {
 
         const reply = await client.controllerPublishVolume().sendMessage({
           volumeId: UUID,
-          nodeId: 'mayastor://node/10.244.2.15:10124',
+          nodeId: 'mayastor://node',
           readonly: false,
           volumeCapability: {
             accessMode: { mode: 'SINGLE_NODE_WRITER' },
@@ -620,7 +620,7 @@ module.exports = function () {
         await shouldFailWith(GrpcCode.NOT_FOUND, () =>
           client.controllerPublishVolume().sendMessage({
             volumeId: UUID,
-            nodeId: 'mayastor://node/10.244.2.15:10124',
+            nodeId: 'mayastor://node',
             readonly: false,
             volumeCapability: {
               accessMode: { mode: 'SINGLE_NODE_WRITER' },
@@ -647,7 +647,7 @@ module.exports = function () {
         await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
           client.controllerPublishVolume().sendMessage({
             volumeId: UUID,
-            nodeId: 'mayastor://node/10.244.2.15:10124',
+            nodeId: 'mayastor://node',
             readonly: false,
             volumeCapability: {
               accessMode: { mode: 'SINGLE_NODE_WRITER' },
@@ -675,7 +675,7 @@ module.exports = function () {
         await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
           client.controllerPublishVolume().sendMessage({
             volumeId: UUID,
-            nodeId: 'mayastor://node/10.244.2.15:10124',
+            nodeId: 'mayastor://node',
             readonly: true,
             volumeCapability: {
               accessMode: { mode: 'SINGLE_NODE_WRITER' },
@@ -700,7 +700,7 @@ module.exports = function () {
         await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
           client.controllerPublishVolume().sendMessage({
             volumeId: UUID,
-            nodeId: 'mayastor://node/10.244.2.15:10124',
+            nodeId: 'mayastor://node',
             readonly: false,
             volumeCapability: {
               accessMode: { mode: 'SINGLE_NODE_READER_ONLY' },
@@ -750,7 +750,7 @@ module.exports = function () {
         await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
           client.controllerPublishVolume().sendMessage({
             volumeId: UUID,
-            nodeId: 'mayastor://node/10.244.2.15:10124',
+            nodeId: 'mayastor://node',
             readonly: false,
             volumeCapability: {
               accessMode: { mode: 'SINGLE_NODE_WRITER' },
@@ -787,7 +787,7 @@ module.exports = function () {
 
         const error = await client.controllerUnpublishVolume().sendMessage({
           volumeId: UUID,
-          nodeId: 'mayastor2://node/10.244.2.15:10124'
+          nodeId: 'mayastor://node'
         });
 
         expect(error).is.empty();
@@ -819,7 +819,7 @@ module.exports = function () {
 
         await client.controllerUnpublishVolume().sendMessage({
           volumeId: UUID,
-          nodeId: 'mayastor://node/10.244.2.15:10124'
+          nodeId: 'mayastor://node'
         });
 
         sinon.assert.calledOnce(getVolumesStub);
@@ -837,7 +837,7 @@ module.exports = function () {
 
         await client.controllerUnpublishVolume().sendMessage({
           volumeId: UUID,
-          nodeId: 'mayastor://another-node/10.244.2.15:10124'
+          nodeId: 'mayastor://another-node'
         });
 
         sinon.assert.calledOnce(getVolumesStub);

@@ -26,7 +26,7 @@ rec {
     version = "1.0";
     src = [
       ../../../target/debug/mayastor
-      ../../../target/debug/mayastor-agent
+      ../../../target/debug/mayastor-csi
       ../../../target/debug/mayastor-client
       ../../../target/debug/mctl
     ];
@@ -90,12 +90,12 @@ rec {
   '';
 
   csi-release = dockerTools.buildLayeredImage {
-    name = "mayadata/mayastor-grpc";
+    name = "mayadata/mayastor-csi";
     tag = sources.mayastor.branch;
     created = "now";
     contents = [ busybox mayastor mayastorIscsiadm ];
     config = {
-      Entrypoint = [ "/bin/mayastor-agent" ];
+      Entrypoint = [ "/bin/mayastor-csi" ];
       Env = [ "PATH=${env}" ];
     };
   };
@@ -120,14 +120,14 @@ rec {
   };
 
   mayastor-csi-develop = dockerTools.buildImage {
-    name = "mayadata/mayastor-grpc";
+    name = "mayadata/mayastor-csi";
     tag = "develop";
     created = "now";
     contents = [ busybox mayastor-develop mayastorIscsiadm ];
     config = {
       Env = [ "PATH=${env}" ];
       ExposedPorts = { "10124/tcp" = { }; };
-      Entrypoint = [ "/bin/mayastor-agent" ];
+      Entrypoint = [ "/bin/mayastor-csi" ];
     };
   };
 

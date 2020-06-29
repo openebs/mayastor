@@ -1,12 +1,8 @@
-//! gRPC mayastor proxy implementation
+//! Mayastor CSI plugin.
 //!
-//! It is a kind of proxy. Input request is gRPC, which is translated to
-//! JSON-RPC understood by mayastor (SPDK). The return value goes through the
-//! same transformation in opposite direction. The only exception is mounting
-//! of volumes, which is actually done here in the proxy rather than in
-//! mayastor. We aim for 1:1 mapping between the two RPCs.
+//! Implementation of gRPC methods from the CSI spec. This includes mounting
+//! of mayastor volumes using iscsi/nvmf protocols on the node.
 
-#[macro_use]
 extern crate clap;
 #[macro_use]
 extern crate log;
@@ -106,33 +102,8 @@ impl AsyncWrite for UnixStream {
 
 #[tokio::main]
 async fn main() -> Result<(), String> {
-    let matches = App::new("Mayastor agent")
+    let matches = App::new("Mayastor CSI plugin")
         .about("k8s sidecar for Mayastor implementing CSI among others")
-        .arg(
-            Arg::with_name("address")
-                .short("a")
-                .long("address")
-                .value_name("IP")
-                .help("IP address of the k8s pod where this app is running")
-                .required(true)
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("port")
-                .short("p")
-                .long("port")
-                .value_name("NUMBER")
-                .help("Port number to listen on for egress svc (default 10124)")
-                .takes_value(true),
-        )
-        .arg(
-            Arg::with_name("mayastor-socket")
-                .short("s")
-                .long("mayastor-socket")
-                .value_name("PATH")
-                .help("Socket path to mayastor backend (default /var/tmp/mayastor.sock)")
-                .takes_value(true),
-        )
         .arg(
             Arg::with_name("csi-socket")
                 .short("c")
@@ -164,11 +135,6 @@ async fn main() -> Result<(), String> {
         .get_matches();
 
     let node_name = matches.value_of("node-name").unwrap();
-    let port = value_t!(matches.value_of("port"), u16).unwrap_or(10124);
-    let addr = matches.value_of("address").unwrap();
-    let ms_socket = matches
-        .value_of("mayastor-socket")
-        .unwrap_or("/var/tmp/mayastor.sock");
     let csi_socket = matches
         .value_of("csi-socket")
         .unwrap_or("/var/tmp/csi.sock");
@@ -217,19 +183,14 @@ async fn main() -> Result<(), String> {
     }
 
     let mut uds_sock = UnixListener::bind(csi_socket).unwrap();
-    info!("Agent bound to CSI at {}", csi_socket);
+    info!("CSI plugin bound to {}", csi_socket);
 
     let uds = Server::builder()
         .add_service(NodeServer::new(Node {
             node_name: node_name.into(),
-            addr: addr.to_string(),
-            port,
-            socket: ms_socket.into(),
             filesystems: probe_filesystems(),
         }))
-        .add_service(IdentityServer::new(Identity {
-            socket: ms_socket.into(),
-        }))
+        .add_service(IdentityServer::new(Identity {}))
         .serve_with_incoming(uds_sock.incoming().map_ok(UnixStream));
     let _ = uds.await;
     Ok(())

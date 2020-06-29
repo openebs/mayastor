@@ -20,6 +20,10 @@ path = "src/bin/initiator.rs"
 name = "uring-support"
 path = "src/bin/uring-support.rs"
 
+[[bin]]
+name = "mayastor-client"
+path = "src/client.rs"
+
 [dev-dependencies]
 assert_matches = "1.2"
 run_script = "*"
