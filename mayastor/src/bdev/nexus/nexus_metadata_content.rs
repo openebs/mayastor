@@ -3,8 +3,9 @@
 //! (and testing) purposes at present.
 //! The intent is that these structures will define precisely what
 //! content is to be stored on the "MayaMeta" partition.
-use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Deserialize, PartialEq, Default, Serialize, Clone)]
 pub struct NexusConfigVersion1 {

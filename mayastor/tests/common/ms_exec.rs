@@ -13,6 +13,8 @@ use nix::{
     unistd::{gettid, Pid},
 };
 
+use mayastor::core::Mthread;
+
 // there is a CARGO_EXEC_$BIN variable in recent Rust which does
 // not seem to work yet with our compiler version
 fn get_path(bin: &str) -> String {
@@ -67,6 +69,7 @@ impl MayastorProcess {
 
         let (tx, rx) = std::sync::mpsc::channel::<MayastorProcess>();
         thread::spawn(move || {
+            Mthread::unaffinitize();
             if let Err(e) = fs::create_dir(hugetlbfs_path()) {
                 panic!("failed to create hugetlbfs mount path {}", e);
             }

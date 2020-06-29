@@ -9,6 +9,8 @@ extern crate serde_json;
 extern crate snafu;
 extern crate spdk_sys;
 
+pub use replicas::{rebuild, replica};
+
 pub mod bdev;
 pub mod core;
 pub mod delay;
@@ -22,8 +24,6 @@ pub mod pool;
 pub mod replicas;
 pub mod subsys;
 pub mod target;
-
-pub use replicas::{rebuild, replica};
 
 #[macro_export]
 macro_rules! CPS_INIT {

@@ -1,11 +1,12 @@
+#![allow(dead_code)]
 //! Methods for creating nvmf targets
 //!
 //! We create a default nvmf target when mayastor starts up. Then for each
 //! replica which is to be exported, we create a subsystem in that default
 //! target. Each subsystem has one namespace backed by the lvol.
-
 use std::{
     cell::RefCell,
+    convert::TryFrom,
     ffi::{c_void, CStr, CString},
     fmt,
     os::raw::c_int,
@@ -64,10 +65,10 @@ use spdk_sys::{
 };
 
 use crate::{
-    core::Bdev,
+    core::{Bdev, Reactors},
     ffihelper::{cb_arg, done_errno_cb, errno_result_from_i32, ErrnoResult},
     jsonrpc::{Code, RpcErrorCode},
-    subsys::Config,
+    subsys::{Config, NvmfSubsystem},
 };
 
 #[derive(Debug, Snafu)]
@@ -170,13 +171,21 @@ impl Subsystem {
             });
         }
         spdk_nvmf_subsystem_set_allow_any_host(inner, true);
+        // TODO: callback async
 
-        // make it listen on target's trid
-        if spdk_nvmf_subsystem_add_listener(inner, trid) != 0 {
-            return Err(Error::ListenSubsystem {
-                nqn,
-            });
-        }
+        let fut = async move {
+            let (s, r) = oneshot::channel::<ErrnoResult<()>>();
+            spdk_nvmf_subsystem_add_listener(
+                inner,
+                trid,
+                Some(done_errno_cb),
+                cb_arg(s),
+            );
+
+            assert_eq!(r.await.is_ok(), true);
+        };
+
+        Reactors::current().send_future(fut);
 
         Ok(Self {
             inner,
@@ -326,7 +335,7 @@ impl Iterator for SubsystemIter {
 
 /// Some options can be passed into each target that gets created.
 ///
-/// Currently the options are limited to the name of the target to be created
+/// Currently, the options are limited to the name of the target to be created
 /// and the max number of subsystems this target supports. We set this number
 /// equal to the number of pods that can get scheduled on a node which is, by
 /// default 110.
@@ -373,7 +382,7 @@ pub(crate) struct Target {
 impl Target {
     /// Create preconfigured nvmf target with tcp transport and default options.
     pub fn create(addr: &str, port: u16) -> Result<Self> {
-        let cfg = Config::by_ref();
+        let cfg = Config::get();
 
         let mut tgt_opts = TargetOpts::new(
             &cfg.nvmf_tcp_tgt_conf.name,
@@ -468,20 +477,16 @@ impl Target {
     }
 
     /// Listen for incoming connections
-    pub async fn listen(&mut self) -> Result<()> {
-        let (sender, receiver) = oneshot::channel::<ErrnoResult<()>>();
-        unsafe {
-            spdk_nvmf_tgt_listen(
-                self.inner,
-                &mut self.trid as *mut _,
-                Some(done_errno_cb),
-                cb_arg(sender),
-            );
+    pub fn listen(&mut self) -> Result<()> {
+        let rc = unsafe {
+            spdk_nvmf_tgt_listen(self.inner, &mut self.trid as *mut _)
+        };
+
+        if rc != 0 {
+            return Err(Error::ListenTarget {
+                source: Errno::from_i32(rc),
+            });
         }
-        receiver
-            .await
-            .expect("Cancellation is not supported")
-            .context(ListenTarget {})?;
         debug!("nvmf target listening on {}", self);
         Ok(())
     }
@@ -598,16 +603,6 @@ impl Target {
         }
     }
 
-    /// Callback for async destroy operation.
-    extern "C" fn destroy_cb(sender_ptr: *mut c_void, errno: i32) {
-        let sender = unsafe {
-            Box::from_raw(sender_ptr as *mut oneshot::Sender<ErrnoResult<()>>)
-        };
-        sender
-            .send(errno_result_from_i32((), errno))
-            .expect("Receiver is gone");
-    }
-
     /// Stop nvmf target's subsystems and destroy it.
     ///
     /// NOTE: we cannot do this in drop because target destroy is asynchronous
@@ -624,10 +619,21 @@ impl Target {
             unsafe { spdk_poller_unregister(&mut self.acceptor_poller) };
         }
 
-        // stop io processing
-        if !self.pg.is_null() {
-            unsafe { spdk_nvmf_poll_group_destroy(self.pg) };
-        }
+        //TODO: make async
+        let pg_copy = self.pg;
+        let fut = async move {
+            let (s, r) = oneshot::channel::<ErrnoResult<()>>();
+            unsafe {
+                spdk_nvmf_poll_group_destroy(
+                    pg_copy,
+                    Some(done_errno_cb),
+                    cb_arg(s),
+                )
+            };
+            assert_eq!(r.await.is_ok(), true);
+        };
+
+        fut.await;
 
         // first we need to inactivate all subsystems of the target
         for mut subsystem in SubsystemIter::new(self.inner) {
@@ -638,7 +644,7 @@ impl Target {
         unsafe {
             spdk_nvmf_tgt_destroy(
                 self.inner,
-                Some(Self::destroy_cb),
+                Some(done_errno_cb),
                 cb_arg(sender),
             );
         }
@@ -674,11 +680,13 @@ impl fmt::Display for Target {
 
 /// Create nvmf target which will be used for exporting the replicas.
 pub async fn init(address: &str) -> Result<()> {
-    let config = Config::by_ref();
-    let replica_port = config.nexus_opts.nvmf_replica_port;
+    let config = Config::get();
+    let replica_port = Config::get().nexus_opts.nvmf_replica_port;
     let mut boxed_tgt = Box::new(Target::create(address, replica_port)?);
     boxed_tgt.add_tcp_transport().await?;
-    boxed_tgt.listen().await?;
+    boxed_tgt
+        .listen()
+        .unwrap_or_else(|_| panic!("failed to listen on {}", replica_port));
     boxed_tgt.accept()?;
 
     if config.nexus_opts.nvmf_discovery_enable {
@@ -707,43 +715,31 @@ pub async fn fini() -> Result<()> {
 
 /// Export given bdev over nvmf target.
 pub async fn share(uuid: &str, bdev: &Bdev) -> Result<()> {
-    let mut ss = NVMF_TGT.with(move |maybe_tgt| {
-        let mut maybe_tgt = maybe_tgt.borrow_mut();
-        let tgt = maybe_tgt.as_mut().unwrap();
-        tgt.create_subsystem(uuid)
-    })?;
-    ss.add_namespace(bdev)?;
-    ss.start().await
+    if let Some(ss) = NvmfSubsystem::nqn_lookup(uuid) {
+        assert_eq!(bdev.name(), ss.bdev().unwrap().name());
+        return Ok(());
+    };
+    let ss = NvmfSubsystem::try_from(bdev).unwrap();
+    ss.start().await.unwrap();
+    Ok(())
 }
 
 /// Un-export given bdev from nvmf target.
 /// Unsharing replica which is not shared is not an error.
 pub async fn unshare(uuid: &str) -> Result<()> {
-    let res = NVMF_TGT.with(move |maybe_tgt| {
-        let mut maybe_tgt = maybe_tgt.borrow_mut();
-        let tgt = maybe_tgt.as_mut().unwrap();
-        tgt.lookup_subsystem(uuid)
-    });
-
-    match res {
-        None => debug!("nvmf subsystem {} was not shared", uuid),
-        Some(mut ss) => {
-            ss.stop().await?;
-            ss.destroy();
-        }
+    if let Some(ss) = NvmfSubsystem::nqn_lookup(uuid) {
+        ss.stop().await.unwrap();
+        ss.destroy();
     }
     Ok(())
 }
 
 pub fn get_uri(uuid: &str) -> Option<String> {
-    NVMF_TGT.with(move |maybe_tgt| {
-        let mut maybe_tgt = maybe_tgt.borrow_mut();
-        let tgt = maybe_tgt.as_mut().unwrap();
-        match tgt.lookup_subsystem(uuid) {
-            Some(mut ss) => {
-                Some(format!("nvmf://{}/{}", tgt.endpoint(), ss.get_nqn()))
-            }
-            None => None,
-        }
-    })
+    if let Some(ss) = NvmfSubsystem::nqn_lookup(uuid) {
+        // for now we only pop the first but we can share a bdev
+        // over multiple nqn's
+        ss.uri_endpoints().unwrap().pop()
+    } else {
+        None
+    }
 }

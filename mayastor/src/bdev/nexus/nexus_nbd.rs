@@ -23,7 +23,6 @@ use spdk_sys::{
     spdk_nbd_get_path,
     spdk_nbd_start,
 };
-
 use sysfs::parse_value;
 
 use crate::{
@@ -226,7 +225,7 @@ impl NbdDisk {
         // this is a hack to wait for any IO in the NBD driver. Typically this
         // is not they way to do this but, NBD is mostly for testing so
         // its fine. as we can not make FFI struct send, we copy the
-        // pointe  to usize and pass that to the other threads.
+        // pointer to usize and pass that to the other threads.
 
         let ptr = self.nbd_ptr as usize;
         let name = self.get_path();
