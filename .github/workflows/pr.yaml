@@ -1,7 +1,6 @@
 name: "Lint and style Checks"
 on:
   pull_request:
-  push:
 jobs:
   Clippy:
     name: Clippy
@@ -16,8 +15,7 @@ jobs:
     name: SemiStandard
     runs-on: ubuntu-latest
     container:
-      image: docker.io/mayadata/ms-buildenv:latest
+      image: docker.io/node/node:12
     steps:
       - uses: actions/checkout@master
-      - run: git ls-files | grep '\.js$' | xargs -r ./scripts/js-check.sh
-        shell: bash
+      - run: ./scripts/js-check.sh
