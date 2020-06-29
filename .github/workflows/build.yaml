@@ -31,8 +31,8 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       # npm prepare is normally done by npm install but not if run as a root
-      - run: cd csi/moac && npm install && npm run prepare && npm run compile
-      - run: cd csi/moac && npm test
+      - run: nix-shell --run "cd csi/moac && npm install && npm run prepare && npm run compile"
+      - run: nix-shell --run "cd csi/moac && npm test"
   Test_mayastor_with_mocha:
     name: Run mocha tests
     runs-on: ubuntu-latest
