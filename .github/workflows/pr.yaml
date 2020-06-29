@@ -15,7 +15,7 @@ jobs:
     name: SemiStandard
     runs-on: ubuntu-latest
     container:
-      image: docker.io/node/node:12
+      image: docker.io/node:12
     steps:
       - uses: actions/checkout@master
       - run: ./scripts/js-check.sh
