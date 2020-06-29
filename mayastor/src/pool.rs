@@ -13,14 +13,12 @@ use futures::{
     future::{self, FutureExt},
 };
 use snafu::Snafu;
-use spdk_sys::{
-    bdev_aio_delete as delete_uring_bdev,
-    create_aio_bdev as create_uring_bdev,
-};
 
 use rpc::{jsonrpc as jsondata, mayastor::PoolIoIf};
 use spdk_sys::{
+    bdev_aio_delete as delete_uring_bdev,
     bdev_aio_delete,
+    create_aio_bdev as create_uring_bdev,
     lvol_store_bdev,
     spdk_bs_free_cluster_count,
     spdk_bs_get_cluster_size,

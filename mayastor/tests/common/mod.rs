@@ -1,8 +1,9 @@
-use crossbeam::channel::{after, select, unbounded};
 use std::{env, io, io::Write, process::Command, time::Duration};
 
+use crossbeam::channel::{after, select, unbounded};
 use once_cell::sync::OnceCell;
 use run_script::{self, ScriptOptions};
+use url::{ParseError, Url};
 
 use mayastor::{
     core::{MayastorEnvironment, Mthread},
@@ -11,7 +12,6 @@ use mayastor::{
     replicas::rebuild::ClientOperations,
 };
 use spdk_sys::spdk_get_thread;
-use url::{ParseError, Url};
 
 pub mod error_bdev;
 pub mod ms_exec;
@@ -47,8 +47,6 @@ macro_rules! reactor_poll {
                 break;
             }
         }
-
-        mayastor::core::Reactors::current().thread_enter();
     };
     ($ch:ident) => {
         loop {
@@ -57,13 +55,12 @@ macro_rules! reactor_poll {
                 break;
             }
         }
-        mayastor::core::Reactors::current().thread_enter();
     };
     ($n:expr) => {
         for _ in 0 .. $n {
             mayastor::core::Reactors::current().poll_once();
         }
-        mayastor::core::Reactors::current().thread_enter();
+        mayastor::core::Reactors::current();
     };
 }
 #[macro_export]
@@ -77,6 +74,7 @@ macro_rules! test_init {
             })
             .init()
         });
+        mayastor::core::Mthread::get_init().enter();
     };
 }
 
@@ -98,7 +96,7 @@ pub fn mayastor_test_init() {
             }
         });
 
-    logger::init("TRACE");
+    logger::init("DEBUG");
     env::set_var("MAYASTOR_LOGLEVEL", "4");
     mayastor::CPS_INIT!();
 }
@@ -281,7 +279,7 @@ pub fn thread() -> Option<Mthread> {
 pub fn dd_urandom_blkdev(device: &str) -> i32 {
     let (exit, stdout, stderr) = run_script::run(
         r#"
-        dd if=/dev/urandom of=$1 conv=fsync,notrunc iflag=count_bytes count=`blockdev --getsize64 $1`
+        dd if=/dev/urandom of=$1 conv=fsync,nocreat,notrunc iflag=count_bytes count=`blockdev --getsize64 $1`
     "#,
     &vec![device.into()],
     &run_script::ScriptOptions::new(),

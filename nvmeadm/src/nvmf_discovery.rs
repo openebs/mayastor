@@ -32,7 +32,7 @@ static HOST_ID: once_cell::sync::Lazy<String> =
             let mut content = String::new();
             if fd.read_to_string(&mut content).is_ok() {
                 content = content.trim().to_string();
-                if content.len() != 0 {
+                if !content.is_empty() {
                     host_id = content;
                 }
             }

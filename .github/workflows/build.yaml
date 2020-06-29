@@ -21,6 +21,7 @@ jobs:
       - run: echo 8192 | tee /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
       - run: rm mayastor/.cargo/config
       - run: rm nvmeadm/.cargo/config
+      - run: rm -rf /tmp/*.yaml
       - run: nix-shell --run "echo 'Pulling in the environment...'"
       - run: nix-shell --run "./scripts/cargo-test.sh"
   Build_and_test_moac:

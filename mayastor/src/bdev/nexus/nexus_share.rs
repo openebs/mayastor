@@ -3,6 +3,7 @@ use std::ffi::CString;
 use futures::channel::oneshot;
 use snafu::ResultExt;
 
+use rpc::mayastor::ShareProtocolNexus;
 use spdk_sys::create_crypto_disk;
 
 use crate::{
@@ -24,8 +25,6 @@ use crate::{
     core::Bdev,
     ffihelper::{cb_arg, done_errno_cb, errno_result_from_i32, ErrnoResult},
 };
-
-use rpc::mayastor::ShareProtocolNexus;
 
 /// we are using the multi buffer encryption implementation using CBC as the
 /// algorithm
@@ -91,12 +90,16 @@ impl Nexus {
             // the keys to the castle
             let key = CString::new(key).unwrap();
 
+            let cipher = CString::new("AES_CBC").unwrap();
+
             let errno = unsafe {
                 create_crypto_disk(
                     base.as_ptr(),
                     cname.as_ptr(),
                     flavour.as_ptr(),
                     key.as_ptr(),
+                    cipher.as_ptr(),
+                    std::ptr::null_mut(),
                 )
             };
             errno_result_from_i32(name, errno).context(CreateCryptoBdev {

@@ -1,9 +1,14 @@
 #[macro_use]
 extern crate log;
 
-pub mod common;
+use std::{
+    cell::{Ref, RefCell, RefMut},
+    ops::{Deref, DerefMut},
+    rc::Rc,
+};
 
 use crossbeam::channel::unbounded;
+
 use mayastor::{
     bdev::{nexus_create, nexus_lookup},
     core::{
@@ -17,11 +22,8 @@ use mayastor::{
         Reactors,
     },
 };
-use std::{
-    cell::{Ref, RefCell, RefMut},
-    ops::{Deref, DerefMut},
-    rc::Rc,
-};
+
+pub mod common;
 
 const NEXUS_NAME: &str = "lba_range_nexus";
 const NEXUS_SIZE: u64 = 10 * 1024 * 1024;
@@ -164,6 +166,7 @@ fn lock_unlock_different_context() {
 }
 
 #[test]
+#[ignore]
 // Test taking out multiple locks on an overlapping block range.
 // The second lock should only succeeded after the first lock is released.
 fn multiple_locks() {

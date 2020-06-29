@@ -1,6 +1,7 @@
 use std::ffi::{c_void, CString};
 
 use once_cell::sync::Lazy;
+
 use spdk_sys::{
     spdk_bdev_fn_table,
     spdk_bdev_io,
@@ -96,23 +97,16 @@ impl NexusFnTable {
 
             match io_type {
                 io_type::READ => {
-                    //trace!("{}: Dispatching READ {:p}", nexus.bdev.name(),
-                    // io);
+                    //trace!("{}: Dispatching READ {:p}", nexus.name(), io);
                     nexus.readv(io, &mut ch)
                 }
                 io_type::WRITE => {
-                    //trace!("{}: Dispatching WRITE {:p}", nexus.bdev.name(),
-                    // io);
+                    //trace!("{}: Dispatching WRITE {:p}", nexus.name(), io);
                     nexus.writev(io, &ch)
                 }
                 io_type::RESET => {
                     trace!("{}: Dispatching RESET {:p}", nexus.bdev.name(), io);
                     nexus.reset(io, &ch)
-                }
-                io_type::FLUSH => {
-                    //trace!("{}: Dispatching FLUSH {:p}", nexus.bdev.name(),
-                    // io);
-                    nexus.flush(io, &ch)
                 }
                 io_type::UNMAP => {
                     if nexus.io_is_supported(io_type) {
@@ -121,6 +115,8 @@ impl NexusFnTable {
                         nio.fail();
                     }
                 }
+                io_type::FLUSH => nexus.flush(io, &ch),
+
                 _ => panic!(
                     "{} Received unsupported IO! type {}",
                     nexus.name, io_type

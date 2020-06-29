@@ -89,12 +89,11 @@ impl NexusChannelInner {
             .children
             .iter_mut()
             .filter(|c| c.status() == ChildStatus::Online)
-            .map(|c| {
+            .for_each(|c| {
                 self.ch.push(
                     BdevHandle::try_from(c.get_descriptor().unwrap()).unwrap(),
                 )
-            })
-            .for_each(drop);
+            });
 
         if !self.ch.is_empty() {
             nexus
@@ -217,7 +216,7 @@ impl NexusChannel {
         NexusChannel::from_raw(Self::io_channel_ctx(channel)).inner_mut()
     }
 
-    /// get the offset to our ctx tchannel
+    /// get the offset to our ctx from the channel
     fn io_channel_ctx(ch: *mut spdk_io_channel) -> *mut c_void {
         unsafe {
             use std::mem::size_of;

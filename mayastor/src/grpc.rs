@@ -1,11 +1,11 @@
+use std::convert::From;
+
 use tonic::{transport::Server, Request, Response, Status};
 
 use rpc::{
     mayastor::*,
     service::mayastor_server::{Mayastor, MayastorServer},
 };
-
-use std::convert::From;
 
 use crate::{
     bdev::{
@@ -42,6 +42,7 @@ fn nexus_lookup(
     }
 }
 
+#[derive(Debug)]
 pub struct MayastorGrpc {}
 
 type Result<T> = std::result::Result<T, Status>;
@@ -184,7 +185,6 @@ impl Mayastor for MayastorGrpc {
         info!("Created replica {} ...", uuid);
         Ok(Response::new(reply))
     }
-
     async fn destroy_replica(
         &self,
         request: Request<DestroyReplicaRequest>,

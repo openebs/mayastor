@@ -9,7 +9,6 @@ use std::{
     fmt,
     fs,
     io::{self, Write},
-    process,
 };
 
 use clap::{App, Arg, SubCommand};
@@ -26,8 +25,16 @@ use mayastor::{
     jsonrpc::print_error_chain,
     logger,
     nexus_uri::{bdev_create, NexusBdevError},
+    subsys,
     subsys::Config,
 };
+
+unsafe extern "C" fn run_static_initializers() {
+    spdk_sys::spdk_add_subsystem(subsys::MayastorSubsystem::new().0)
+}
+
+#[used]
+static INIT_ARRAY: [unsafe extern "C" fn(); 1] = [run_static_initializers];
 
 /// The errors from this utility are not supposed to be parsable by machine,
 /// so all we need is a string with unfolded error messages from all nested
@@ -70,8 +77,6 @@ impl From<io::Error> for Error {
 }
 
 type Result<T, E = Error> = std::result::Result<T, E>;
-
-mayastor::CPS_INIT!();
 
 /// Create initiator bdev.
 async fn create_bdev(uri: &str) -> Result<Bdev> {
@@ -158,9 +163,7 @@ fn main() {
     let mut ms = MayastorEnvironment::default();
 
     ms.name = "initiator".into();
-    ms.mem_size = 256;
     ms.rpc_addr = "/tmp/initiator.sock".into();
-
     // This tool is just a client, so don't start iSCSI or NVMEoF services.
     Config::get_or_init(|| {
         let mut cfg = Config::default();
@@ -168,33 +171,31 @@ fn main() {
         cfg.nexus_opts.nvmf_enable = false;
         cfg
     });
-
-    let rc = ms
-        .start(move || {
-            let fut = async move {
-                let res = if let Some(matches) =
-                    matches.subcommand_matches("read")
-                {
-                    read(&uri, offset, matches.value_of("FILE").unwrap()).await
-                } else if let Some(matches) =
-                    matches.subcommand_matches("write")
-                {
-                    write(&uri, offset, matches.value_of("FILE").unwrap()).await
-                } else {
-                    connect(&uri).await
-                };
-                let rc = if let Err(err) = res {
-                    error!("{}", err);
-                    -1
-                } else {
-                    0
-                };
-                mayastor_env_stop(rc)
+    ms.start(move || {
+        let fut = async move {
+            let res = if let Some(matches) = matches.subcommand_matches("read")
+            {
+                read(&uri, offset, matches.value_of("FILE").unwrap()).await
+            } else if let Some(matches) = matches.subcommand_matches("write") {
+                write(&uri, offset, matches.value_of("FILE").unwrap()).await
+            } else {
+                connect(&uri).await
             };
-            Reactor::block_on(fut);
-        })
-        .unwrap();
-    info!("{}", rc);
+            if let Err(err) = res {
+                error!("{}", err);
+                -1
+            } else {
+                0
+            }
+        };
 
-    process::exit(rc);
+        Reactor::block_on(async move {
+            let rc = fut.await;
+            info!("{}", rc);
+            std::process::exit(rc);
+        });
+
+        mayastor_env_stop(0)
+    })
+    .unwrap();
 }

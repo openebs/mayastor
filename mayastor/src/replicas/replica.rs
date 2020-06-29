@@ -40,6 +40,7 @@ use crate::{
     ffihelper::{cb_arg, done_errno_cb, errno_result_from_i32, ErrnoResult},
     jsonrpc::{jsonrpc_register, Code, RpcErrorCode},
     pool::Pool,
+    subsys::NvmfSubsystem,
     target,
 };
 
@@ -218,6 +219,11 @@ pub enum ShareType {
 /// string.
 fn detect_share(uuid: &str) -> Option<(ShareType, String)> {
     // first try nvmf and then try iscsi
+    if let Some(s) = NvmfSubsystem::nqn_lookup(uuid) {
+        let mut ep = s.uri_endpoints().unwrap();
+        return Some((ShareType::Nvmf, ep.pop().unwrap()));
+    }
+
     match target::nvmf::get_uri(uuid) {
         Some(uri) => Some((ShareType::Nvmf, uri)),
         None => match target::iscsi::get_uri(target::Side::Replica, uuid) {

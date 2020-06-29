@@ -1,6 +1,7 @@
 use futures::channel::oneshot::Receiver;
-use rpc::mayastor::{RebuildProgressReply, RebuildStateReply};
 use snafu::ResultExt;
+
+use rpc::mayastor::{RebuildProgressReply, RebuildStateReply};
 
 use crate::{
     bdev::{

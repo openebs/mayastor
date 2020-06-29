@@ -6,28 +6,31 @@
 //! spell out the YAML spec for a given sub component. Serde will fill
 //! in the default when missing, which are defined within the individual
 //! options.
-use std::{fs, fs::File};
+use std::{fmt::Display, fs, fs::File, io::Write, path::Path};
 
-use super::opts::GetOpts;
+use byte_unit::Byte;
+use once_cell::sync::OnceCell;
+use serde::{Deserialize, Serialize};
+
 use crate::{
     bdev::{nexus::instances, nexus_create},
     core::{Bdev, Cores, Reactor},
     nexus_uri::bdev_create,
     pool::{create_pool, PoolsIter},
-    subsys::opts::{
-        BdevOpts,
-        ErrStoreOpts,
-        IscsiTgtOpts,
-        NexusOpts,
-        NvmeBdevOpts,
-        NvmfTcpTgtConfig,
+    subsys::{
+        opts::{
+            BdevOpts,
+            ErrStoreOpts,
+            IscsiTgtOpts,
+            NexusOpts,
+            NvmeBdevOpts,
+            NvmfTgtConfig,
+        },
+        NvmfSubsystem,
     },
-    target,
 };
-use byte_unit::Byte;
-use once_cell::sync::OnceCell;
-use serde::{Deserialize, Serialize};
-use std::{fmt::Display, io::Write, path::Path};
+
+use super::opts::GetOpts;
 
 pub static CONFIG: OnceCell<Config> = OnceCell::new();
 
@@ -39,7 +42,7 @@ pub struct Config {
     pub source: Option<String>,
     /// these options are not set/copied but are applied
     /// on target creation.
-    pub nvmf_tcp_tgt_conf: NvmfTcpTgtConfig,
+    pub nvmf_tcp_tgt_conf: NvmfTgtConfig,
     /// generic iSCSI options
     pub iscsi_tgt_conf: IscsiTgtOpts,
     /// options specific to NVMe bdev types
@@ -74,7 +77,7 @@ impl Config {
     }
 
     /// mostly similar as above, but we do not need to pass a closure
-    pub fn by_ref() -> &'static Self {
+    pub fn get() -> &'static Self {
         CONFIG.get().unwrap()
     }
 
@@ -108,9 +111,9 @@ impl Config {
         Ok(config)
     }
 
-    /// collect the current configuration into a new Config object that can
+    /// collect current configuration snapshot into a new Config object that can
     /// be exported to a file (YAML or JSON)
-    pub fn get_current(&self) -> Result<Self, ()> {
+    pub fn refresh(&self) -> Result<Self, ()> {
         // the config is immutable, so we construct a new one which is mutable
         // such that we can scribble in the current bdevs. The config
         // gets loaded with the current settings, as we know that these
@@ -268,10 +271,13 @@ impl Config {
                     continue;
                 }
 
-                // share the bdev over nvmf
-                if target::nvmf::share(&uuid, &my_bdev).await.is_err() {
-                    failures += 1;
-                    warn!("failed to share {} over nvmf", my_bdev.name());
+                if let Ok(ss) = NvmfSubsystem::new_with_uuid(&uuid, &my_bdev) {
+                    ss.start()
+                        .await
+                        .map_err(|_| {
+                            warn!("failed to share {}", my_bdev);
+                        })
+                        .unwrap();
                 }
             }
         }

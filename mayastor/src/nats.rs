@@ -4,10 +4,6 @@
 //! That's the reason for global sender protected by the mutex, that normally
 //! would not be needed and currently is used only to terminate the message bus.
 
-use futures::{channel::mpsc, select, FutureExt, StreamExt};
-use once_cell::sync::Lazy;
-use serde::{Deserialize, Serialize};
-use snafu::{ResultExt, Snafu};
 use std::{
     env,
     io::Error as IoError,
@@ -16,6 +12,11 @@ use std::{
     sync::Mutex,
     time::Duration,
 };
+
+use futures::{channel::mpsc, select, FutureExt, StreamExt};
+use once_cell::sync::Lazy;
+use serde::{Deserialize, Serialize};
+use snafu::{ResultExt, Snafu};
 use tokio::{net::lookup_host, time::delay_for};
 use tokio_nats::{
     connect,

@@ -1,4 +1,3 @@
-pub mod common;
 use common::ms_exec::MayastorProcess;
 use mayastor::{
     bdev::nexus_create,
@@ -12,6 +11,8 @@ use mayastor::{
     subsys,
     subsys::Config,
 };
+
+pub mod common;
 
 static DISKNAME1: &str = "/tmp/disk1.img";
 static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
@@ -38,10 +39,12 @@ fn generate_config() {
     config.implicit_share_base = true;
     config.nexus_opts.iscsi_enable = false;
     config.nexus_opts.nvmf_replica_port = 8430;
+    config.nexus_opts.nvmf_nexus_port = 8440;
     config.write("/tmp/child1.yaml").unwrap();
 
     config.base_bdevs = Some(vec![child2_bdev]);
     config.nexus_opts.nvmf_replica_port = 8431;
+    config.nexus_opts.nvmf_nexus_port = 8441;
     config.write("/tmp/child2.yaml").unwrap();
 }
 

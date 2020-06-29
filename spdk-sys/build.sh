@@ -9,14 +9,14 @@ pushd spdk || { echo "Can not find spdk directory"; exit; }
 [ ! -d dpdk/.git ] || { echo "Submodules not checked out?"; exit; }
 
 
-#	--disable-unit-tests \
 ./configure --enable-debug \
 	--target-arch=nehalem \
 	--disable-tests \
 	--without-isal \
 	--with-iscsi-initiator \
 	--with-crypto \
-	--with-internal-vhost-lib
+	--with-internal-vhost-lib \
+	--disable-unit-tests
 
 make -j $(nproc)
 

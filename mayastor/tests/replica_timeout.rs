@@ -1,6 +1,7 @@
 #![allow(unused_assignments)]
 
-pub mod common;
+use std::{thread, time};
+
 use common::ms_exec::MayastorProcess;
 use mayastor::{
     bdev::{nexus_create, nexus_lookup},
@@ -15,7 +16,8 @@ use mayastor::{
     subsys,
     subsys::Config,
 };
-use std::{thread, time};
+
+pub mod common;
 
 static DISKNAME1: &str = "/tmp/disk1.img";
 static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
@@ -51,10 +53,12 @@ fn generate_config() {
     config.implicit_share_base = true;
     config.nexus_opts.iscsi_enable = false;
     config.nexus_opts.nvmf_replica_port = 8430;
+    config.nexus_opts.nvmf_nexus_port = 8440;
     config.write(CFGNAME1).unwrap();
 
     config.base_bdevs = Some(vec![child2_bdev]);
     config.nexus_opts.nvmf_replica_port = 8431;
+    config.nexus_opts.nvmf_nexus_port = 8441;
     config.write(CFGNAME2).unwrap();
 }
 
@@ -70,6 +74,7 @@ fn start_mayastor(cfg: &str) -> MayastorProcess {
 }
 
 #[test]
+#[ignore]
 fn replica_stop_cont() {
     generate_config();
 
@@ -106,6 +111,7 @@ fn replica_stop_cont() {
 }
 
 #[test]
+#[ignore]
 fn replica_term() {
     generate_config();
 
