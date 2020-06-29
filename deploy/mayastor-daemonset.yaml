@@ -43,7 +43,6 @@ spec:
             fieldRef:
               fieldPath: status.podIP
         args:
-        - "-r/mayastor/mayastor.sock"
         - "-N$(MY_NODE_NAME)"
         - "-g$(MY_POD_IP)"
         - "-nnats"
@@ -65,8 +64,8 @@ spec:
             cpu: "1"
             memory: "500Mi"
             hugepages-2Mi: "1Gi"
-      - name: mayastor-grpc
-        image: mayadata/mayastor-grpc:v0.2.0
+      - name: mayastor-csi
+        image: mayadata/mayastor-csi:v0.2.0
         imagePullPolicy: Always
         # we need privileged because we mount filesystems and use mknod
         securityContext:
@@ -76,17 +75,11 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: spec.nodeName
-        - name: MY_POD_IP
-          valueFrom:
-            fieldRef:
-              fieldPath: status.podIP
         - name: RUST_BACKTRACE
           value: "1"
         args:
         - "--csi-socket=/csi/csi.sock"
-        - "--mayastor-socket=/mayastor/mayastor.sock"
         - "--node-name=$(MY_NODE_NAME)"
-        - "--address=$(MY_POD_IP)"
         - "-v"
         volumeMounts:
         - name: device

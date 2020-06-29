@@ -135,7 +135,7 @@ function getMyIp () {
   return externIp;
 }
 
-// Common code for starting mayastor, mayastor-grpc and spdk processes.
+// Common code for starting mayastor, mayastor-csi and spdk processes.
 function startProcess (command, args, env, closeCb, psName) {
   assert(!procs[command]);
   const proc = runAsRoot(getCmdPath(command), args, env, psName);
@@ -215,20 +215,14 @@ function startMayastor (config, args, env) {
   );
 }
 
-// Start mayastor-agent processes and return immediately.
-function startMayastorGrpc () {
-  startProcess('mayastor-agent', [
+// Start mayastor-csi process and return immediately.
+function startMayastorCsi () {
+  startProcess('mayastor-csi', [
     '-v',
     '-n',
     'test-node-id',
-    '-a',
-    getMyIp(),
-    '-p',
-    GRPC_PORT.toString(),
     '-c',
-    CSI_ENDPOINT,
-    '-s',
-    SOCK
+    CSI_ENDPOINT
   ]);
 }
 
@@ -313,21 +307,21 @@ function restartMayastor (ping, done) {
   );
 }
 
-// Restart mayastor-agent process.
+// Restart mayastor-csi process.
 //
 // TODO: We don't restart the process with the same parameters as we
 // don't remember params which were used for starting it.
-function restartMayastorGrpc (ping, done) {
-  const proc = procs['mayastor-agent'];
+function restartMayastorCsi (ping, done) {
+  const proc = procs['mayastor-csi'];
   assert(proc);
 
   async.series(
     [
       (next) => {
-        killSudoedProcess('mayastor-agent', proc.pid, (err) => {
+        killSudoedProcess('mayastor-csi', proc.pid, (err) => {
           if (err) return next(err);
-          if (procs['mayastor-agent']) {
-            procs['mayastor-agent'].once('close', next);
+          if (procs['mayastor-csi']) {
+            procs['mayastor-csi'].once('close', next);
           } else {
             next();
           }
@@ -338,7 +332,7 @@ function restartMayastorGrpc (ping, done) {
         setTimeout(next, 0);
       },
       (next) => {
-        startMayastorGrpc();
+        startMayastorCsi();
         waitFor(ping, next);
       }
     ],
@@ -425,11 +419,11 @@ module.exports = {
   SOCK,
   startSpdk,
   startMayastor,
-  startMayastorGrpc,
+  startMayastorCsi,
   stopAll,
   waitFor,
   restartMayastor,
-  restartMayastorGrpc,
+  restartMayastorCsi,
   fixSocketPerms,
   grpcEndpoint,
   dumbCommand,

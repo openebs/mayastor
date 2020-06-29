@@ -10,11 +10,8 @@ const protoLoader = require('@grpc/proto-loader');
 const grpc = require('grpc-uds');
 const log = require('./logger').Logger('csi');
 const { GrpcError } = require('./grpc_client');
-const {
-  PLUGIN_NAME,
-  parseMayastorNodeId
-} = require('./common');
 
+const PLUGIN_NAME = 'io.openebs.csi-mayastor';
 const PROTO_PATH = path.join(__dirname, '/proto/csi.proto');
 // TODO: can we generate version with commit SHA dynamically?
 const VERSION = '0.1';
@@ -32,6 +29,24 @@ const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
   includeDirs: [path.join(__dirname, '/node_modules/protobufjs')]
 });
 const csi = grpc.loadPackageDefinition(packageDefinition).csi.v1;
+
+// Parse mayastor node ID (i.e. mayastor://node-name) and return the node name.
+function parseMayastorNodeId (nodeId) {
+  const parts = nodeId.split('/');
+
+  if (
+    parts.length !== 3 ||
+    parts[0] !== 'mayastor:' ||
+    parts[1] !== '' ||
+    !parts[2]
+  ) {
+    throw new GrpcError(
+      grpc.status.INVALID_ARGUMENT,
+      'Invalid mayastor node ID: ' + nodeId
+    );
+  }
+  return parts[2];
+}
 
 // Check that the list of volume capabilities does not contain unsupported
 // capability. Throws grpc error if a capability is not supported.
@@ -458,12 +473,12 @@ class CsiServer {
       return cb(err);
     }
     const nodeName = volume.getNodeName();
-    if (nodeId.node !== nodeName) {
+    if (nodeId !== nodeName) {
       return cb(
         new GrpcError(
           grpc.status.INVALID_ARGUMENT,
           `Cannot publish the volume "${args.volumeId}" on a different ` +
-            `node "${nodeId.node}" than it was created "${nodeName}"`
+            `node "${nodeId}" than it was created "${nodeName}"`
         )
       );
     }
@@ -532,11 +547,11 @@ class CsiServer {
       return cb(err);
     }
     const nodeName = volume.getNodeName();
-    if (nodeId.node !== nodeName) {
+    if (nodeId !== nodeName) {
       // we unpublish the volume anyway but at least we log a message
       log.warn(
         `Request to unpublish volume "${args.volumeId}" from a node ` +
-          `"${nodeId.node}" while it was published on the node "${nodeName}"`
+          `"${nodeId}" while it was published on the node "${nodeName}"`
       );
     }
 

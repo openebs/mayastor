@@ -1,21 +1,15 @@
 //! Implementation of gRPC methods from CSI Identity gRPC service.
 
-use std::{boxed::Box, collections::HashMap};
-
-use tonic::{Code, Request, Response, Status};
-
-use jsonrpc::{self};
-
 use super::csi::*;
+use std::{boxed::Box, collections::HashMap};
+use tonic::{Request, Response, Status};
 
 const PLUGIN_NAME: &str = "io.openebs.csi-mayastor";
 // TODO: can we generate version with commit SHA dynamically?
-const PLUGIN_VERSION: &str = "0.1";
+const PLUGIN_VERSION: &str = "0.2";
 
 #[derive(Clone, Debug)]
-pub struct Identity {
-    pub socket: String,
-}
+pub struct Identity {}
 
 impl Identity {}
 #[tonic::async_trait]
@@ -61,19 +55,9 @@ impl identity_server::Identity for Identity {
         &self,
         _request: Request<ProbeRequest>,
     ) -> Result<Response<ProbeResponse>, Status> {
-        let f = jsonrpc::call::<(), bool>(
-            &self.socket,
-            "wait_subsystem_init",
-            None,
-        )
-        .await;
-
-        if let Ok(f) = f {
-            Ok(Response::new(ProbeResponse {
-                ready: Some(f),
-            }))
-        } else {
-            Err(Status::new(Code::Unavailable, "MayaStor is is not running"))
-        }
+        // CSI plugin is independent of mayastor so it's always ready
+        Ok(Response::new(ProbeResponse {
+            ready: Some(true),
+        }))
     }
 }

@@ -358,7 +358,6 @@ describe('nexus', function () {
         (next) => {
           common.startMayastor(configNexus, ['-r', common.SOCK, '-g', common.grpcEndpoint, '-s', 386]);
 
-          common.startMayastorGrpc();
           common.waitFor((pingDone) => {
             // use harmless method to test if the mayastor is up and running
             client.listPools({}, pingDone);

@@ -46,11 +46,11 @@ At a high-level, MayaStor consists of two major components.
  * A single instance K8s controller which implements the [CSI](https://github.com/container-storage-interface/spec/blob/master/spec.md)
  controller spec but also private interfaces that otherwise would be implemented by your storage system.  This is called Mother Of All Containers native storage or *MAOC*  for short; it runs as a k8s deployment.
 
- * A _per_ node instance *mayastor-agent* which handles the per node CSI related aspects as well as private a set of private API's.
+ * A _per_ node instance *mayastor-csi* plugin which implements the identity and node grpc services from CSI protocol.
 
 ### **Data plane:**
 
-* Each node you wish to use for storage or storage services will have to run a MayaStor daemon set. MayaStor itself has three major components: the Nexus, a local storage component, and the mayastor-agent.
+* Each node you wish to use for storage or storage services will have to run a MayaStor daemon set. MayaStor itself has three major components: the Nexus, a local storage component, and the mayastor-csi plugin.
 
 ## Nexus
 
@@ -163,6 +163,41 @@ vhost-user code can be seen in the link section (still in C).
 
 <br>
 </p>
+
+## Client
+
+<p align="justify">
+Although that a client for gRPC server is not required for the product,
+it is important for testing and troubleshooting. The client
+allows you to manage storage pools and replicas and just use `--help`
+option if not sure how to use it. CSI services are not covered by the client.
+
+<p align="justify">
+In following example of a client session is assumed that mayastor has been
+started and is running:
+
+```
+$ dd if=/dev/zero of=/tmp/disk bs=1024 count=102400
+102400+0 records in
+102400+0 records out
+104857600 bytes (105 MB, 100 MiB) copied, 0.235195 s, 446 MB/s
+$ sudo losetup /dev/loop8 /tmp/disk
+$ mayastor-client pool create tpool /dev/loop8
+$ mayastor-client pool list
+NAME                 STATE        CAPACITY         USED   DISKS
+tpool                0            96.0 MiB          0 B   tpool
+$ mayastor-client replica create tpool replica1 --size=10
+$ mayastor-client replica create tpool replica2 --size=1000 --thin
+$ mayastor-client replica list
+POOL                 NAME                 THIN           SIZE
+tpool                replica1             false       10.0 MiB
+tpool                replica2             true         1.0 GiB
+$ mayastor-client replica destroy tpool replica1
+$ mayastor-client replica destroy tpool replica2
+$ mayastor-client replica list
+No replicas have been created
+$ mayastor-client pool destroy tpool
+```
 
 ## Links
 

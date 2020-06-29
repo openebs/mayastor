@@ -107,7 +107,6 @@ describe('replica', function () {
       remote = false;
       endpoint = common.grpcEndpoint;
       common.startMayastor();
-      common.startMayastorGrpc();
     } else {
       remote = true;
     }

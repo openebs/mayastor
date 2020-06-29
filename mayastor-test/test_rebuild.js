@@ -192,7 +192,6 @@ describe('rebuild tests', function () {
         },
         (next) => {
           common.startMayastor(configNexus, ['-r', common.SOCK, '-g', common.grpcEndpoint, '-s', 386]);
-          common.startMayastorGrpc();
           common.waitFor((pingDone) => {
             pingMayastor(pingDone);
           }, next);
