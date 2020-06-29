@@ -10,9 +10,10 @@
 , liburing
 , libuuid
 , nasm
+, ncurses
 , numactl
 , openssl
-, python
+, python3
 , rdma-core
 , stdenv
 }:
@@ -20,13 +21,13 @@ with stdenv.lib;
 stdenv.mkDerivation rec {
 
   pname = "libspdk";
-  version = "20.01";
+  version = "20.04.01";
 
   src = fetchFromGitHub {
     owner = "openebs";
     repo = "spdk";
-    rev = "4ed81c743368967a705e4c41d3333578bf2fb86c";
-    sha256 = "0bg6yhpgis9w3qqdd3lyg1hwmh0bhblwh0557s5s3a62l30jkkjn";
+    rev = "0a5ce3b04eeb74f690fa7f6ae3a8ecffdb59afbf";
+    sha256 = "0jahbg44jcq07nkkcs0pyaf846pjai421014ki1dca5rlvjp1rrz";
     fetchSubmodules = true;
   };
 
@@ -34,12 +35,13 @@ stdenv.mkDerivation rec {
     binutils
     libaio
     libiscsi.dev
-    libuuid
     liburing
+    libuuid
     nasm
+    ncurses
     numactl
     openssl
-    python
+    python3
   ] ++ stdenv.lib.optionals enableDebug [ cunit lcov ];
 
   # add this once we merged this new option from upstream. The tests are going
@@ -50,6 +52,7 @@ stdenv.mkDerivation rec {
 
   configureFlags = [
     "${enableFeature enableDebug "tests"}"
+    "${enableFeature enableDebug "unit-tests"}"
     "--target-arch=nehalem"
     "--without-isal"
     "--with-iscsi-initiator"
@@ -62,8 +65,6 @@ stdenv.mkDerivation rec {
 
   preConfigure = ''
     substituteInPlace dpdk/config/defconfig_x86_64-native-linux-gcc --replace native default
-    # A workaround for https://bugs.dpdk.org/show_bug.cgi?id=356
-    substituteInPlace dpdk/lib/Makefile --replace 'DEPDIRS-librte_vhost :=' 'DEPDIRS-librte_vhost := librte_hash'
   '';
 
   configurePhase = ''

@@ -15,7 +15,6 @@ use futures::future::Future;
 use nix::errno::Errno;
 use serde::{Deserialize, Serialize};
 
-use crate::core::{Cores, Reactors};
 use spdk_sys::{
     spdk_json_val,
     spdk_json_write_val_raw,
@@ -32,6 +31,8 @@ use spdk_sys::{
     SPDK_JSON_VAL_OBJECT_BEGIN,
     SPDK_RPC_RUNTIME,
 };
+
+use crate::core::Reactors;
 
 /// Possible json-rpc return codes from method handlers
 #[derive(Debug, Clone, Copy)]
@@ -155,9 +156,9 @@ fn extract_json_object(
     Err("JSON parameters object not properly terminated".to_owned())
 }
 
-/// Generic handler called by spdk for handling incoming jsonrpc call. The task
-/// of this handler is to parse input parameters, invoke user-supplied handler,
-/// and encode output parameters.
+/// A generic handler called by spdk for handling incoming jsonrpc call. The
+/// task of this handler is to parse input parameters, invoke user-supplied
+/// handler, and encode output parameters.
 unsafe extern "C" fn jsonrpc_handler<H, P, R, E>(
     request: *mut spdk_jsonrpc_request,
     params: *const spdk_json_val,
@@ -230,9 +231,7 @@ unsafe extern "C" fn jsonrpc_handler<H, P, R, E>(
             };
 
             // it is expected rpc runs on the first core
-            let reactor = Reactors::current();
-            assert_eq!(reactor.core(), Cores::first());
-            reactor.send_future(fut);
+            Reactors::master().send_future(fut);
         }
         Err(err) => {
             // parameters are not what is expected

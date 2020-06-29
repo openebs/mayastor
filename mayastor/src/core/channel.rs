@@ -36,6 +36,14 @@ impl IoChannel {
             .unwrap()
         }
     }
+
+    fn thread_name(&self) -> &str {
+        unsafe {
+            std::ffi::CStr::from_ptr(&(*(*self.0).thread).name[0])
+                .to_str()
+                .unwrap()
+        }
+    }
 }
 
 impl Drop for IoChannel {
@@ -49,6 +57,12 @@ impl Drop for IoChannel {
 
 impl Debug for IoChannel {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
-        write!(f, "io channel {:p} to bdev {}", self.0, self.name())
+        write!(
+            f,
+            "io channel {:p} on thread {} to bdev {}",
+            self.0,
+            self.thread_name(),
+            self.name()
+        )
     }
 }

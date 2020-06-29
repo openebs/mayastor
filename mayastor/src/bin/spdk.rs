@@ -26,8 +26,6 @@ use spdk_sys::{
     spdk_app_stop,
 };
 
-mayastor::CPS_INIT!();
-
 fn main() -> Result<(), std::io::Error> {
     let args = env::args()
         .map(|arg| CString::new(arg).unwrap())

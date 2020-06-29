@@ -1,4 +1,7 @@
 use spdk_sys::{
+    spdk_cpuset,
+    spdk_cpuset_set_cpu,
+    spdk_cpuset_zero,
     spdk_env_get_core_count,
     spdk_env_get_current_core,
     spdk_env_get_first_core,
@@ -77,5 +80,24 @@ impl Iterator for CoreInterator {
         } else {
             Some(self.current)
         }
+    }
+}
+
+pub struct CpuMask(spdk_cpuset);
+
+impl CpuMask {
+    pub fn new() -> Self {
+        let mut mask = spdk_cpuset::default();
+        unsafe { spdk_cpuset_zero(&mut mask) }
+        Self(mask)
+    }
+
+    pub fn set_cpu(&mut self, cpu: u32, state: bool) {
+        unsafe {
+            spdk_cpuset_set_cpu(&mut self.0, cpu, state);
+        }
+    }
+    pub fn as_ptr(&self) -> *mut spdk_cpuset {
+        &self.0 as *const _ as *mut spdk_cpuset
     }
 }

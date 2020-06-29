@@ -92,7 +92,7 @@ const configNvmfTarget = `
 [Transport]
   Type TCP
   # reduce memory requirements
-  NumSharedBuffers 32
+  NumSharedBuffers 64
 
 [Subsystem1]
   NQN nqn.2019-05.io.openebs:disk2

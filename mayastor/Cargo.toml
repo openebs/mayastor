@@ -25,11 +25,11 @@ assert_matches = "1.2"
 run_script = "*"
 
 [dependencies]
-async-task = "1.3.1"
+async-task = "3.0"
 async-trait = "0.1.36"
 bincode = "1.2"
-bytes = "0.4.12"
 byte-unit = "3.0.1"
+bytes = "0.4.12"
 clap = "2.33.0"
 crc = "1.8.1"
 crossbeam = "0.7.3"
@@ -38,17 +38,19 @@ env_logger = "0.7"
 futures = "0.3"
 futures-timer = "2.0"
 git-version = "0.3"
-ioctl-gen = "0.1.1"
 io-uring = "0.3.4"
+ioctl-gen = "0.1.1"
 libc = "0.2"
 log = "0.4"
 nix = "0.16"
 once_cell = "1.3.1"
-pin-utils = "0.1.0-alpha.4"
+pin-utils = "0.1"
+rand = "0.7.3"
 rpc = { path = "../rpc"}
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 serde_yaml = "0.8"
+signal-hook = "0.1"
 snafu = "0.6"
 spdk-sys = { path = "../spdk-sys" }
 structopt = "0.3.11"
@@ -57,7 +59,8 @@ tokio = { version = "0.2", features = ["full"]}
 tokio-nats = "0.1.0"
 url = "2.1"
 uuid = { version = "0.7", features = ["v4"] }
-
+tracing = "0.1"
+tracing-futures = "0.2.4"
 # grpc related
 
 prost = "0.6"

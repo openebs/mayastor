@@ -1,9 +1,9 @@
 extern crate log;
 
+use std::time::Duration;
+
 use crossbeam::channel::unbounded;
 
-use std::time::Duration;
-pub mod common;
 pub use common::error_bdev::{
     create_error_bdev,
     inject_error,
@@ -21,6 +21,8 @@ use mayastor::{
         Reactor,
     },
 };
+
+pub mod common;
 
 static ERROR_COUNT_TEST_NEXUS: &str = "error_count_test_nexus";
 

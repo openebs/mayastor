@@ -1,6 +1,7 @@
 //! Simple utility functions to help with parsing URIs.
 
 use std::{collections::HashMap, str::ParseBoolError};
+
 use url::Url;
 
 pub(crate) fn segments(url: &Url) -> Vec<&str> {

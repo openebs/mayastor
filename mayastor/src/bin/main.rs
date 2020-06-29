@@ -3,12 +3,13 @@ extern crate log;
 
 use std::path::Path;
 
+use structopt::StructOpt;
+
 use mayastor::{
     bdev::util::uring,
     core::{MayastorCliArgs, MayastorEnvironment},
     logger,
 };
-use structopt::StructOpt;
 
 mayastor::CPS_INIT!();
 
@@ -18,6 +19,7 @@ fn main() -> Result<(), std::io::Error> {
     // setup our logger first if -L is passed, raise the log level
     // automatically. trace maps to debug at FFI level. If RUST_LOG is
     // passed, we will use it regardless.
+
     if !args.log_components.is_empty() {
         logger::init("TRACE");
     } else {

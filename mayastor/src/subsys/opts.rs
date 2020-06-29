@@ -2,8 +2,21 @@
 //! types. Naturally this is a good reason, but it means we have to copy things
 //! around. If the structures change, we will know about it because we use the
 //! from trait, and we are not allowed to skip or use different types.
-use serde::{Deserialize, Serialize};
 use std::ptr::copy_nonoverlapping;
+
+use serde::{Deserialize, Serialize};
+
+use spdk_sys::{
+    iscsi_opts_copy,
+    spdk_bdev_nvme_get_opts,
+    spdk_bdev_nvme_opts,
+    spdk_bdev_nvme_set_opts,
+    spdk_bdev_opts,
+    spdk_bdev_set_opts,
+    spdk_iscsi_opts,
+    spdk_nvmf_target_opts,
+    spdk_nvmf_transport_opts,
+};
 
 pub trait GetOpts {
     fn get(&self) -> Self;
@@ -11,18 +24,6 @@ pub trait GetOpts {
         true
     }
 }
-
-use spdk_sys::{
-    spdk_bdev_nvme_get_opts,
-    spdk_bdev_nvme_opts,
-    spdk_bdev_nvme_set_opts,
-    spdk_bdev_opts,
-    spdk_bdev_set_opts,
-    spdk_iscsi_opts,
-    spdk_iscsi_opts_copy,
-    spdk_nvmf_target_opts,
-    spdk_nvmf_transport_opts,
-};
 
 #[serde(default, deny_unknown_fields)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -76,7 +77,7 @@ impl GetOpts for NexusOpts {
 
 #[serde(default, deny_unknown_fields)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct NvmfTcpTgtConfig {
+pub struct NvmfTgtConfig {
     /// name of the target to be created
     pub name: String,
     /// the max number of namespaces this target should allow for
@@ -85,8 +86,8 @@ pub struct NvmfTcpTgtConfig {
     pub opts: TcpTransportOpts,
 }
 
-impl From<NvmfTcpTgtConfig> for spdk_nvmf_target_opts {
-    fn from(o: NvmfTcpTgtConfig) -> Self {
+impl From<NvmfTgtConfig> for Box<spdk_nvmf_target_opts> {
+    fn from(o: NvmfTgtConfig) -> Self {
         let mut out = Self::default();
         unsafe {
             copy_nonoverlapping(
@@ -100,7 +101,7 @@ impl From<NvmfTcpTgtConfig> for spdk_nvmf_target_opts {
     }
 }
 
-impl Default for NvmfTcpTgtConfig {
+impl Default for NvmfTgtConfig {
     fn default() -> Self {
         Self {
             name: "mayastor_target".to_string(),
@@ -110,7 +111,7 @@ impl Default for NvmfTcpTgtConfig {
     }
 }
 
-impl GetOpts for NvmfTcpTgtConfig {
+impl GetOpts for NvmfTgtConfig {
     fn get(&self) -> Self {
         self.clone()
     }
@@ -158,7 +159,7 @@ impl Default for TcpTransportOpts {
             ch2_success: true,
             max_qpairs_per_ctrl: 128,
             num_shared_buf: 511,
-            buf_cache_size: 32,
+            buf_cache_size: 64,
             dif_insert_or_strip: false,
             max_aq_depth: 128,
             max_srq_depth: 0, // RDMA
@@ -249,7 +250,7 @@ impl Default for NvmeBdevOpts {
             low_priority_weight: 0,
             medium_priority_weight: 0,
             high_priority_weight: 0,
-            nvme_adminq_poll_period_us: 1_000_000,
+            nvme_adminq_poll_period_us: 100_000,
             nvme_ioq_poll_period_us: 0,
             io_queue_requests: 0,
             delay_cmd_submit: true,
@@ -403,7 +404,7 @@ impl Default for IscsiTgtOpts {
             max_sessions: 128,
             max_connections_per_session: 2,
             max_connections: 1024,
-            max_queue_depth: 64,
+            max_queue_depth: 128,
             default_time2wait: 2,
             default_time2retain: 20,
             first_burst_length: 8192,
@@ -464,7 +465,7 @@ impl GetOpts for IscsiTgtOpts {
             // defined global. Later one, when iscsi initializes those options
             // are verified and then -- copied to g_spdk_iscsi. Once they
             // are copied g_spdk_iscsi_opts is freed.
-            g_spdk_iscsi_opts = spdk_iscsi_opts_copy(&mut self.into());
+            g_spdk_iscsi_opts = iscsi_opts_copy(&mut self.into());
 
             if g_spdk_iscsi_opts.is_null() {
                 panic!("iSCSI_init failed");

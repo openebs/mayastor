@@ -1,8 +1,9 @@
-pub mod common;
+use std::{fs::metadata, sync::Mutex, time::Duration};
 
 use common::ms_exec::run_test;
 use mayastor::{subsys, subsys::Config};
-use std::{fs::metadata, sync::Mutex, time::Duration};
+
+pub mod common;
 
 #[test]
 // Test we can start without any mayastor specific configuration.
@@ -137,6 +138,7 @@ fn yaml_pool_tests() {
 
     cfg.source = Some("/tmp/pool.yaml".into());
     cfg.pools = Some(vec![pool]);
+    cfg.nexus_opts.nvmf_enable = false;
 
     cfg.write("/tmp/pool.yaml").unwrap();
 

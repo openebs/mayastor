@@ -9,9 +9,14 @@ pub use channel::IoChannel;
 pub use cpu_cores::{Core, Cores};
 pub use descriptor::{Descriptor, RangeContext};
 pub use dma::{DmaBuf, DmaError};
-pub use env::{mayastor_env_stop, MayastorCliArgs, MayastorEnvironment};
+pub use env::{
+    mayastor_env_stop,
+    MayastorCliArgs,
+    MayastorEnvironment,
+    GLOBAL_RC,
+};
 pub use handle::BdevHandle;
-pub use reactor::{Reactor, Reactors, REACTOR_LIST};
+pub use reactor::{Reactor, ReactorState, Reactors, REACTOR_LIST};
 pub use thread::Mthread;
 
 mod bdev;
@@ -22,7 +27,7 @@ mod dma;
 mod env;
 mod handle;
 mod reactor;
-mod thread;
+pub(crate) mod thread;
 mod uuid;
 
 #[derive(Debug, Snafu, Clone)]

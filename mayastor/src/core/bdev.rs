@@ -1,6 +1,6 @@
 use std::{
     ffi::CStr,
-    fmt::{Debug, Formatter},
+    fmt::{Debug, Display, Formatter},
     os::raw::c_void,
 };
 
@@ -27,7 +27,7 @@ use spdk_sys::{
 
 use crate::{
     core::{uuid::Uuid, CoreError, Descriptor},
-    ffihelper::cb_arg,
+    ffihelper::{cb_arg, AsStr},
 };
 
 #[derive(Debug)]
@@ -91,6 +91,15 @@ impl Bdev {
 
     pub fn is_claimed(&self) -> bool {
         unsafe { !(*self.0).internal.claim_module.is_null() }
+    }
+
+    pub fn claimed_by(&self) -> Option<String> {
+        let ptr = unsafe { (*self.0).internal.claim_module };
+        if ptr.is_null() {
+            None
+        } else {
+            Some(unsafe { (*ptr).name.as_str() }.to_string())
+        }
     }
 
     /// construct bdev from raw pointer
@@ -312,6 +321,12 @@ unsafe impl Send for Bdev {}
 impl From<*mut spdk_bdev> for Bdev {
     fn from(b: *mut spdk_bdev) -> Self {
         Self(b)
+    }
+}
+
+impl Display for Bdev {
+    fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
+        write!(f, "name: {}, driver: {}", self.name(), self.driver(),)
     }
 }
 

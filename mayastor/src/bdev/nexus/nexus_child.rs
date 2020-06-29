@@ -227,7 +227,7 @@ impl NexusChild {
             BdevHandle::try_from(self.desc.as_ref().unwrap().clone()).unwrap(),
         );
 
-        let cfg = Config::by_ref();
+        let cfg = Config::get();
         if cfg.err_store_opts.enable_err_store {
             self.err_store =
                 Some(NexusErrStore::new(cfg.err_store_opts.err_store_size));
@@ -332,7 +332,6 @@ impl NexusChild {
     /// close the bdev -- we have no means of determining if this succeeds
     pub(crate) fn close(&mut self) -> ChildState {
         trace!("{}: Closing child {}", self.parent, self.name);
-
         if let Some(bdev) = self.bdev.as_ref() {
             unsafe {
                 if !(*bdev.as_ptr()).internal.claim_module.is_null() {

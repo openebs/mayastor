@@ -3,7 +3,6 @@ use spdk_sys::{
     spdk_vbdev_error_create,
     spdk_vbdev_error_inject_error,
 };
-
 pub use spdk_sys::{SPDK_BDEV_IO_TYPE_READ, SPDK_BDEV_IO_TYPE_WRITE};
 
 // constant used by the vbdev_error module but not exported

@@ -1,25 +1,25 @@
-use spdk_sys::{spdk_bdev, spdk_bdev_io_type};
 use std::{
     fmt::{Debug, Display},
     time::{Duration, Instant},
 };
 
-use crate::subsys::Config;
-
-use crate::bdev::nexus::nexus_io::{io_status, io_type};
-
-use crate::core::{Cores, Reactors};
-
-use crate::bdev::nexus::{
-    nexus_bdev,
-    nexus_bdev::{
-        nexus_lookup,
-        Error::{ChildMissing, ChildMissingErrStore},
-        Nexus,
-    },
-};
-
 use serde::export::{fmt::Error, Formatter};
+
+use spdk_sys::{spdk_bdev, spdk_bdev_io_type};
+
+use crate::{
+    bdev::nexus::{
+        nexus_bdev,
+        nexus_bdev::{
+            nexus_lookup,
+            Error::{ChildMissing, ChildMissingErrStore},
+            Nexus,
+        },
+        nexus_io::{io_status, io_type},
+    },
+    core::{Cores, Reactors},
+    subsys::Config,
+};
 
 #[derive(Copy, Clone)]
 pub struct NexusChildErrorRecord {
@@ -210,7 +210,7 @@ impl Nexus {
         io_num_blocks: u64,
     ) {
         let now = Instant::now();
-        let cfg = Config::by_ref();
+        let cfg = Config::get();
         if cfg.err_store_opts.enable_err_store {
             let nexus_name = self.name.clone();
             // dispatch message to management core to do this
@@ -276,7 +276,7 @@ impl Nexus {
             Some(a) => Instant::now().checked_sub(Duration::from_nanos(a)),
             None => None,
         };
-        let cfg = Config::by_ref();
+        let cfg = Config::get();
         if cfg.err_store_opts.enable_err_store {
             if let Some(child) =
                 self.children.iter().find(|c| c.name == child_name)
