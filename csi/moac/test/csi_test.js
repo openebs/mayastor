@@ -782,15 +782,15 @@ module.exports = function () {
         getVolumesStub.reset();
       });
 
-      it('should not unpublish volume if it does not exist', async () => {
+      it('should not return an error on unpublish volume if it does not exist', async () => {
         getVolumesStub.returns(null);
 
-        await shouldFailWith(GrpcCode.NOT_FOUND, () =>
-          client.controllerUnpublishVolume().sendMessage({
-            volumeId: UUID,
-            nodeId: 'mayastor://node/10.244.2.15:10124'
-          })
-        );
+        const error = await client.controllerUnpublishVolume().sendMessage({
+          volumeId: UUID,
+          nodeId: 'mayastor2://node/10.244.2.15:10124'
+        });
+
+        expect(error).is.empty();
       });
 
       it('should not unpublish volume on pool with invalid ID', async () => {
