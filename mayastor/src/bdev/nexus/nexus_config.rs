@@ -1,8 +1,40 @@
-use std::ptr::null_mut;
+use std::{ffi::CStr, ptr::null_mut, str::FromStr};
 
-use spdk_sys::{spdk_conf_find_section, spdk_conf_section_get_nval};
+use spdk_sys::{
+    spdk_conf_find_section,
+    spdk_conf_section,
+    spdk_conf_section_get_nmval,
+    spdk_conf_section_get_nval,
+};
 
-use crate::bdev::{nexus::nexus_instance_new, parse_config_param};
+use crate::bdev::nexus::nexus_instance_new;
+
+unsafe fn parse_config_param<T: FromStr>(
+    sp: *mut spdk_conf_section,
+    dev_name: &str,
+    dev_num: i32,
+    position: i32,
+) -> Result<T, String> {
+    let dev_name_c = std::ffi::CString::new(dev_name).unwrap();
+    let val =
+        spdk_conf_section_get_nmval(sp, dev_name_c.as_ptr(), dev_num, position);
+    if val.is_null() {
+        return Err(format!(
+            "Config value for {}{} at position {} not found",
+            dev_name, dev_num, position
+        ));
+    }
+    CStr::from_ptr(val)
+        .to_str()
+        .unwrap()
+        .parse::<T>()
+        .map_err(|_error| {
+            format!(
+                "Invalid config value for {}{} at position {}",
+                dev_name, dev_num, position
+            )
+        })
+}
 
 pub(crate) fn parse_ini_config_file() -> i32 {
     let section_name = std::ffi::CString::new("Nexus").unwrap();

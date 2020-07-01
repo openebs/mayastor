@@ -52,7 +52,7 @@ use crate::{
     core::{Bdev, DmaError},
     ffihelper::errno_result_from_i32,
     jsonrpc::{Code, RpcErrorCode},
-    nexus_uri::BdevCreateDestroy,
+    nexus_uri::NexusBdevError,
     rebuild::RebuildError,
 };
 
@@ -126,7 +126,7 @@ pub enum Error {
     RegisterNexus { source: Errno, name: String },
     #[snafu(display("Failed to create child of nexus {}", name))]
     CreateChild {
-        source: BdevCreateDestroy,
+        source: NexusBdevError,
         name: String,
     },
     #[snafu(display("Deferring open because nexus {} is incomplete", name))]
@@ -157,7 +157,7 @@ pub enum Error {
     DestroyLastChild { child: String, name: String },
     #[snafu(display("Failed to destroy child {} of nexus {}", child, name))]
     DestroyChild {
-        source: BdevCreateDestroy,
+        source: NexusBdevError,
         child: String,
         name: String,
     },

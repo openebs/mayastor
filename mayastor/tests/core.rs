@@ -1,5 +1,5 @@
 use mayastor::{
-    bdev::{nexus_create, nexus_lookup, uring_util},
+    bdev::{nexus_create, nexus_lookup, util::uring},
     core::{
         mayastor_env_stop,
         Bdev,
@@ -31,9 +31,9 @@ pub mod common;
 fn do_uring() -> bool {
     unsafe {
         INIT.call_once(|| {
-            DO_URING = uring_util::fs_supports_direct_io(DISKNAME3)
-                && uring_util::fs_type_supported(DISKNAME3)
-                && uring_util::kernel_support();
+            DO_URING = uring::fs_supports_direct_io(DISKNAME3)
+                && uring::fs_type_supported(DISKNAME3)
+                && uring::kernel_support();
         });
         DO_URING
     }

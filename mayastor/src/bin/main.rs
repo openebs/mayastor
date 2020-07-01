@@ -4,7 +4,7 @@ extern crate log;
 use std::path::Path;
 
 use mayastor::{
-    bdev::uring_util,
+    bdev::util::uring,
     core::{MayastorCliArgs, MayastorEnvironment},
     logger,
 };
@@ -34,7 +34,7 @@ fn main() -> Result<(), std::io::Error> {
 
     let free_pages: u32 = sysfs::parse_value(&hugepage_path, "free_hugepages")?;
     let nr_pages: u32 = sysfs::parse_value(&hugepage_path, "nr_hugepages")?;
-    let uring_supported = uring_util::kernel_support();
+    let uring_supported = uring::kernel_support();
 
     info!("Starting Mayastor ..");
     info!(

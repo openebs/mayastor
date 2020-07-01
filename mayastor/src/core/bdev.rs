@@ -93,16 +93,19 @@ impl Bdev {
         unsafe { !(*self.0).internal.claim_module.is_null() }
     }
 
-    /// lookup a bdev by its name
-    pub fn lookup_by_name(name: &str) -> Option<Bdev> {
-        let name = std::ffi::CString::new(name).unwrap();
-
-        let bdev = unsafe { spdk_bdev_get_by_name(name.as_ptr()) };
+    /// construct bdev from raw pointer
+    pub fn from_ptr(bdev: *mut spdk_bdev) -> Option<Bdev> {
         if bdev.is_null() {
             None
         } else {
             Some(Bdev(bdev))
         }
+    }
+
+    /// lookup a bdev by its name
+    pub fn lookup_by_name(name: &str) -> Option<Bdev> {
+        let name = std::ffi::CString::new(name).unwrap();
+        Bdev::from_ptr(unsafe { spdk_bdev_get_by_name(name.as_ptr()) })
     }
     /// returns the block_size of the underlying device
     pub fn block_len(&self) -> u32 {
@@ -140,32 +143,26 @@ impl Bdev {
 
     /// returns the configured product name
     pub fn product_name(&self) -> String {
-        unsafe {
-            CStr::from_ptr(spdk_bdev_get_product_name(self.0))
-                .to_str()
-                .unwrap()
-                .to_string()
-        }
+        unsafe { CStr::from_ptr(spdk_bdev_get_product_name(self.0)) }
+            .to_str()
+            .unwrap()
+            .to_string()
     }
 
     /// returns the name of driver module for the given bdev
     pub fn driver(&self) -> String {
-        unsafe {
-            CStr::from_ptr((*(*self.0).module).name)
-                .to_str()
-                .unwrap()
-                .to_string()
-        }
+        unsafe { CStr::from_ptr((*(*self.0).module).name) }
+            .to_str()
+            .unwrap()
+            .to_string()
     }
 
     /// returns the bdev name
     pub fn name(&self) -> String {
-        unsafe {
-            CStr::from_ptr(spdk_bdev_get_name(self.0))
-                .to_str()
-                .unwrap()
-                .to_string()
-        }
+        unsafe { CStr::from_ptr(spdk_bdev_get_name(self.0)) }
+            .to_str()
+            .unwrap()
+            .to_string()
     }
 
     /// the UUID that is set for this bdev, all bdevs should have a UUID set
@@ -210,7 +207,7 @@ impl Bdev {
         unsafe { spdk_bdev_io_type_supported(self.0, io_type) }
     }
 
-    /// returns the bdev als a ptr
+    /// returns the bdev as a ptr
     pub fn as_ptr(&self) -> *mut spdk_bdev {
         self.0
     }
@@ -309,6 +306,8 @@ impl Iterator for BdevIter {
         }
     }
 }
+
+unsafe impl Send for Bdev {}
 
 impl From<*mut spdk_bdev> for Bdev {
     fn from(b: *mut spdk_bdev) -> Self {

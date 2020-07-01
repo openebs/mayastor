@@ -26,6 +26,7 @@ run_script = "*"
 
 [dependencies]
 async-task = "1.3.1"
+async-trait = "0.1.36"
 bincode = "1.2"
 bytes = "0.4.12"
 byte-unit = "3.0.1"
