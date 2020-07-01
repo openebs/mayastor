@@ -424,11 +424,13 @@ dependencies = [
  "glob",
  "http 0.1.21",
  "http-body 0.2.0",
+ "itertools 0.9.0",
  "jsonrpc",
  "libc",
  "log",
  "loopdev",
  "nix 0.17.0",
+ "nvmeadm",
  "once_cell",
  "proc-mounts",
  "prost",
@@ -446,6 +448,7 @@ dependencies = [
  "tonic",
  "tonic-build",
  "tower",
+ "udev",
  "url",
  "which",
 ]
@@ -1066,6 +1069,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "itertools"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "284f18f85651fe11e8a991b2adb42cb078325c996ed026d994719efcfca1d54b"
+dependencies = [
+ "either",
+]
+
+[[package]]
 name = "itoa"
 version = "0.4.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1430,6 +1442,7 @@ dependencies = [
 name = "nvmeadm"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "derive_builder 0.7.2",
  "enum-primitive-derive",
  "failure",
@@ -1438,6 +1451,8 @@ dependencies = [
  "libc",
  "nix 0.14.1",
  "num-traits 0.1.43",
+ "once_cell",
+ "uuid",
 ]
 
 [[package]]
@@ -1642,7 +1657,7 @@ checksum = "02b10678c913ecbd69350e8535c3aef91a8676c0773fc1d7b95cdd196d7f2f26"
 dependencies = [
  "bytes 0.5.5",
  "heck",
- "itertools",
+ "itertools 0.8.2",
  "log",
  "multimap",
  "petgraph",
@@ -1659,7 +1674,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "537aa19b95acde10a12fec4301466386f757403de4cd4e5b4fa78fb5ecb18f72"
 dependencies = [
  "anyhow",
- "itertools",
+ "itertools 0.8.2",
  "proc-macro2 1.0.18",
  "quote 1.0.7",
  "syn 1.0.33",

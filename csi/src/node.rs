@@ -14,6 +14,8 @@ use crate::{
 
 mod iscsiutil;
 use iscsiutil::{iscsi_attach_disk, iscsi_detach_disk, iscsi_find};
+mod nvmfutil;
+use nvmfutil::{nvmf_attach_disk, nvmf_detach_disk, nvmf_find};
 
 #[derive(Clone, Debug)]
 pub struct Node {
@@ -452,12 +454,10 @@ impl node_server::Node for Node {
                     // currently there is no way to retrieve the nexus details
                     // from a remote node.
                 }
-                "nvmf" => {
-                    return Err(Status::new(
-                        Code::Internal,
-                        format!("Support absent {}", uri),
-                    ))
-                }
+                "nvmf" => match nvmf_attach_disk(uri) {
+                    Ok(devpath) => devpath,
+                    Err(e) => return Err(Status::new(Code::NotFound, e)),
+                },
                 "file" => {
                     if let Some(nexus) =
                         lookup_nexus(&self.socket, &volume_id).await?
@@ -553,32 +553,42 @@ impl node_server::Node for Node {
                 debug!("unstage: is iSCSI device path is {}", devpath);
                 (devpath, ShareProtocolNexus::NexusIscsi)
             }
-            // Must be nbd
-            _ => {
-                if let Some(nexus) =
-                    lookup_nexus(&self.socket, &volume_id).await?
-                {
-                    trace!(
-                        "unstage: nbd, device path is {}",
-                        nexus.device_path
-                    );
-
-                    if let Ok(url) = url::Url::parse(nexus.device_path.as_str())
+            _ => match nvmf_find(volume_id.as_str()) {
+                Some(devpath) => {
+                    debug!("unstage: is NVMF device path is {}", devpath);
+                    (devpath, ShareProtocolNexus::NexusNvmf)
+                }
+                // Must be nbd
+                _ => {
+                    if let Some(nexus) =
+                        lookup_nexus(&self.socket, &volume_id).await?
                     {
-                        (url.path().to_string(), ShareProtocolNexus::NexusNbd)
+                        trace!(
+                            "unstage: nbd, device path is {}",
+                            nexus.device_path
+                        );
+
+                        if let Ok(url) =
+                            url::Url::parse(nexus.device_path.as_str())
+                        {
+                            (
+                                url.path().to_string(),
+                                ShareProtocolNexus::NexusNbd,
+                            )
+                        } else {
+                            return Err(Status::new(
+                                Code::Internal,
+                                format!("Unexpected {}", nexus.device_path),
+                            ));
+                        }
                     } else {
                         return Err(Status::new(
-                            Code::Internal,
-                            format!("Unexpected {}", nexus.device_path),
+                            Code::NotFound,
+                            format!("Volume {} not found", volume_id),
                         ));
                     }
-                } else {
-                    return Err(Status::new(
-                        Code::NotFound,
-                        format!("Volume {} not found", volume_id),
-                    ));
                 }
-            }
+            },
         };
 
         debug!("unstage: device_path {} {:?}", device_path, share_type);
@@ -596,11 +606,20 @@ impl node_server::Node for Node {
         }
 
         // Clean up after successful unmount, if required.
-        if let ShareProtocolNexus::NexusIscsi = share_type {
-            debug!("unstage: iscsi detach {}", device_path);
-            if let Err(reason) = iscsi_detach_disk(volume_id.as_str()) {
-                return Err(Status::new(Code::Internal, reason));
+        match share_type {
+            ShareProtocolNexus::NexusIscsi => {
+                debug!("unstage: iscsi detach {}", device_path);
+                if let Err(reason) = iscsi_detach_disk(volume_id.as_str()) {
+                    return Err(Status::new(Code::Internal, reason));
+                }
             }
+            ShareProtocolNexus::NexusNvmf => {
+                debug!("unstage: nvmf detach {}", device_path);
+                if let Err(reason) = nvmf_detach_disk(volume_id.as_str()) {
+                    return Err(Status::new(Code::Internal, reason));
+                }
+            }
+            ShareProtocolNexus::NexusNbd => {}
         }
 
         // if already unstaged or staging does not match target path -

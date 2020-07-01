@@ -91,6 +91,10 @@ spec:
         volumeMounts:
         - name: device
           mountPath: /dev
+        - name: sys
+          mountPath: /sys
+        - name: run-udev
+          mountPath: /run/udev
         - name: host-root
           mountPath: /host
         - name: mayastor-dir
@@ -137,6 +141,14 @@ spec:
       - name: device
         hostPath:
           path: /dev
+          type: Directory
+      - name: sys
+        hostPath:
+          path: /sys
+          type: Directory
+      - name: run-udev
+        hostPath:
+          path: /run/udev
           type: Directory
       - name: host-root
         hostPath:
