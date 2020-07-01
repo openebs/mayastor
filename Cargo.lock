@@ -1189,6 +1189,7 @@ version = "0.1.0"
 dependencies = [
  "assert_matches",
  "async-task",
+ "async-trait",
  "bincode",
  "byte-unit",
  "bytes 0.4.12",
