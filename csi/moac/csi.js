@@ -520,12 +520,10 @@ class CsiServer {
 
     const volume = this.volumes.get(args.volumeId);
     if (!volume) {
-      return cb(
-        new GrpcError(
-          grpc.status.NOT_FOUND,
-          `Volume "${args.volumeId}" does not exist`
-        )
+      log.warn(
+        `Request to unpublish volume "${args.volumeId}" which does not exist`
       );
+      return cb(null, {});
     }
     var nodeId;
     try {
