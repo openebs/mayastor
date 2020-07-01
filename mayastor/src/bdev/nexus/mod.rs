@@ -8,6 +8,14 @@ use crate::bdev::nexus::{
     nexus_rpc::register_rpc_methods,
 };
 
+/// Allocate C string and return pointer to it.
+/// NOTE: The resulting string must be freed explicitly after use!
+macro_rules! c_str {
+    ($lit:expr) => {
+        std::ffi::CString::new($lit).unwrap().into_raw();
+    };
+}
+
 pub mod nexus_bdev;
 pub mod nexus_bdev_children;
 pub mod nexus_bdev_rebuild;

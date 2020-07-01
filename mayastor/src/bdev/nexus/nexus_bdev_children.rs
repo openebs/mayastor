@@ -50,7 +50,7 @@ use crate::{
         VerboseError,
     },
     core::Bdev,
-    nexus_uri::{bdev_create, bdev_destroy, BdevCreateDestroy},
+    nexus_uri::{bdev_create, bdev_destroy, NexusBdevError},
 };
 
 impl Nexus {
@@ -77,7 +77,7 @@ impl Nexus {
     pub async fn create_and_register(
         &mut self,
         uri: &str,
-    ) -> Result<(), BdevCreateDestroy> {
+    ) -> Result<(), NexusBdevError> {
         assert_eq!(self.state, NexusState::Init);
         let name = bdev_create(&uri).await?;
         self.children.push(NexusChild::new(
