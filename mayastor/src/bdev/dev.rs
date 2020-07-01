@@ -17,7 +17,7 @@
 //! Creating a bdev for any supported device type is now as simple as:
 //! ```ignore
 //!     let uri = "aio:///tmp/disk1.img?blk_size=512";
-//!     StorageUri::parse(&uri)?.create().await?;
+//!     bdev::Uri::parse(&uri)?.create().await?;
 //! ```
 
 use std::convert::TryFrom;
