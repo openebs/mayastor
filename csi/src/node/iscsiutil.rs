@@ -232,7 +232,7 @@ fn get_iscsi_device_path(uuid: &str) -> Option<String> {
     });
 
     for cap in RE_TARGET.captures_iter(op.as_str()) {
-        trace!("unstage: searching for {} got {}", uuid, &cap["uuid"]);
+        trace!("iscsiutil: searching for {} got {}", uuid, &cap["uuid"]);
         if uuid == &cap["uuid"] {
             return Some(format!(
                 "/dev/disk/by-path/ip-{}:{}-iscsi-{}-{}-lun-{}",
