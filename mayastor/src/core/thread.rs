@@ -112,7 +112,7 @@ impl Mthread {
             // set that we *want* to exit, but we have not exited yet
             spdk_thread_exit(self.0);
 
-            // now wait until the thread is actually excited the internal
+            // now wait until the thread is actually exited the internal
             // state is updated by spdk_thread_poll()
             while !spdk_thread_is_exited(self.0) {
                 spdk_thread_poll(self.0, 0, 0);
