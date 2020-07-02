@@ -25,6 +25,21 @@ use std::{
 use num_traits::FromPrimitive;
 use std::{net::IpAddr, os::unix::io::AsRawFd};
 
+static HOST_ID: once_cell::sync::Lazy<String> =
+    once_cell::sync::Lazy::new(|| {
+        let mut host_id = uuid::Uuid::new_v4().to_string();
+        if let Ok(mut fd) = std::fs::File::open(MACHINE_UUID_PATH) {
+            let mut content = String::new();
+            if fd.read_to_string(&mut content).is_ok() {
+                content = content.trim().to_string();
+                if content.len() != 0 {
+                    host_id = content;
+                }
+            }
+        }
+        host_id
+    });
+
 /// The TrType struct for all known transports types note: we are missing loop
 #[derive(Debug, Primitive)]
 #[allow(non_camel_case_types)]
@@ -319,7 +334,7 @@ impl Discovery {
     /// or 4421.
     ///
     /// When we are already connected to the same host we will get back
-    /// connection in progress. These errors are propagated back to use as
+    /// connection in progress. These errors are propagated back to us as
     /// we use the ? marker
     ///
     ///  # Example
@@ -372,31 +387,16 @@ impl DiscoveryBuilder {
 }
 
 impl DiscoveryLogEntry {
-    fn read_file(&self, file_path: &str) -> Result<String, Error> {
-        let mut fd = std::fs::File::open(file_path)?;
-        let mut content = String::new();
-        fd.read_to_string(&mut content)?;
-        Ok(content.trim().to_string())
-    }
-
-    fn get_host_id(&self) -> Result<String, Error> {
-        let id = self.read_file(MACHINE_UUID_PATH)?;
-        Ok(id)
-    }
-
-    //TODO: we need to pass in the HOSTNAME suggestion is to use env::
-
-    fn my_nqn_name(&self) -> Result<String, Error> {
-        let hostid = self.get_host_id()?;
-        Ok(format!("nqn.2019-05.io.openebs.mayastor:{}", hostid))
-    }
-
     pub fn build_connect_args(&mut self) -> Result<String, Error> {
         let mut connect_args = String::new();
+        let host_id = HOST_ID.as_str();
 
         connect_args.push_str(&format!("nqn={},", self.subnqn));
-        connect_args.push_str(&format!("hostnqn={},", self.my_nqn_name()?));
-        connect_args.push_str(&format!("hostid={},", self.get_host_id()?));
+        connect_args.push_str(&format!(
+            "hostnqn={},",
+            format!("nqn.2019-05.io.openebs.mayastor:{}", host_id)
+        ));
+        connect_args.push_str(&format!("hostid={},", host_id));
 
         connect_args.push_str(&format!("transport={},", self.tr_type));
         connect_args.push_str(&format!("traddr={},", self.traddr));
@@ -405,6 +405,46 @@ impl DiscoveryLogEntry {
         Ok(connect_args)
     }
 }
+
+///
+/// This method connects to a specific NVMf device available over tcp,
+/// identified by its ip address, port and nqn.
+///
+/// When we are already connected to the same host we will get back
+/// connection in progress. These errors are propagated back to us as
+/// we use the ? marker
+///
+///  # Example
+///  ```rust
+///  use nvmeadm::nvmf_discovery::connect;
+///
+///  let result = connect("192.168.122.99", 8420, "mynqn");
+/// ```
+///
+
+pub fn connect(ip_addr: &str, port: u32, nqn: &str) -> Result<String, Error> {
+    let mut connect_args = String::new();
+    let host_id = HOST_ID.as_str();
+
+    connect_args.push_str(&format!("nqn={},", nqn));
+    connect_args.push_str(&format!(
+        "hostnqn={},",
+        format!("nqn.2019-05.io.openebs.mayastor:{}", host_id)
+    ));
+    connect_args.push_str(&format!("hostid={},", host_id));
+
+    connect_args.push_str(&format!("transport={},", "tcp"));
+    connect_args.push_str(&format!("traddr={},", ip_addr));
+    connect_args.push_str(&format!("trsvcid={}", port));
+    let p = Path::new(NVME_FABRICS_PATH);
+
+    let mut file = OpenOptions::new().write(true).read(true).open(&p)?;
+    file.write_all(connect_args.as_bytes())?;
+    let mut buf = String::new();
+    file.read_to_string(&mut buf)?;
+    Ok(buf)
+}
+
 /// This method disconnects a specific NVMf device, identified by its nqn.
 ///
 ///  # Example

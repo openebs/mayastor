@@ -123,7 +123,7 @@ rec {
     name = "mayadata/mayastor-grpc";
     tag = "develop";
     created = "now";
-    contents = [ busybox mayastor-develop ];
+    contents = [ busybox mayastor-develop mayastorIscsiadm ];
     config = {
       Env = [ "PATH=${env}" ];
       ExposedPorts = { "10124/tcp" = { }; };
