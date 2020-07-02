@@ -334,7 +334,7 @@ impl Discovery {
     /// or 4421.
     ///
     /// When we are already connected to the same host we will get back
-    /// connection in progress. These errors are propagated back to use as
+    /// connection in progress. These errors are propagated back to us as
     /// we use the ? marker
     ///
     ///  # Example
@@ -411,7 +411,7 @@ impl DiscoveryLogEntry {
 /// identified by its ip address, port and nqn.
 ///
 /// When we are already connected to the same host we will get back
-/// connection in progress. These errors are propagated back to use as
+/// connection in progress. These errors are propagated back to us as
 /// we use the ? marker
 ///
 ///  # Example

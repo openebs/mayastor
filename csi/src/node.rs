@@ -550,12 +550,12 @@ impl node_server::Node for Node {
         debug!("Unstaging volume {} at {}", volume_id, stage_path);
         let (device_path, share_type) = match iscsi_find(volume_id.as_str()) {
             Some(devpath) => {
-                debug!("unstage: is iSCSI device path is {}", devpath);
+                debug!("unstage: iSCSI device path is {}", devpath);
                 (devpath, ShareProtocolNexus::NexusIscsi)
             }
             _ => match nvmf_find(volume_id.as_str()) {
                 Some(devpath) => {
-                    debug!("unstage: is NVMF device path is {}", devpath);
+                    debug!("unstage: NVMF device path is {}", devpath);
                     (devpath, ShareProtocolNexus::NexusNvmf)
                 }
                 // Must be nbd

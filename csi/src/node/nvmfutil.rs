@@ -8,7 +8,6 @@ fn find_nvmf_device_by_uuid(str_uuid: &str) -> Result<String, String> {
     trace!("find_nvmf_device_by_uuid uuid={}", str_uuid);
     let mut enumerator = Enumerator::new().unwrap();
     enumerator.match_subsystem("block").unwrap();
-    //    enumerator.match_property("DEVTYPE", "disk").unwrap();
     enumerator
         .match_property("ID_MODEL", "MayaStor NVMF controller")
         .unwrap();
@@ -59,7 +58,7 @@ fn uuid_from_str(s: &str) -> String {
 }
 
 fn wait_for_path_to_exist(uuid: String, max_retries: i32) -> Option<String> {
-    let second = time::Duration::from_millis(1000);
+    let second = time::Duration::from_secs(1);
     let mut retries: i32 = 0;
     let now = time::Instant::now();
     while retries < max_retries {
