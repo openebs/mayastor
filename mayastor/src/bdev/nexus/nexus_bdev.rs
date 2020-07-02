@@ -981,7 +981,6 @@ pub async fn nexus_create(
     children: &[String],
 ) -> Result<(), Error> {
     // global variable defined in the nexus module
-    // global variable defined in the nexus module
     let nexus_list = instances();
     if nexus_list.iter().any(|n| n.name == name) {
         // instead of error we return Ok without making sure that also the
