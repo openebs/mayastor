@@ -323,10 +323,13 @@ describe('csi', function () {
     });
   });
 
+  csiProtocolTest('NBD', enums.NEXUS_NBD, 10000, { uri: 'file:///dev/nbd' + '9' });
   csiProtocolTest('iSCSI', enums.NEXUS_ISCSI, 120000, {
     uri: 'iscsi://192.168.0.197:3260/iqn.2019-05.io.openebs:nexus-11111111-0000-0000-0000-000000000009/0'
   });
-  csiProtocolTest('NBD', enums.NEXUS_NBD, 10000, { uri: 'file:///dev/nbd' + '9' });
+  csiProtocolTest('NVMF', enums.NEXUS_NVMF, 120000, {
+    uri: 'nvmf://192.168.0.197:8420/nqn.2019-05.io.openebs:nexus-11111111-0000-0000-0000-000000000009'
+  });
 });
 
 function csiProtocolTest (protoname, shareType, timeoutMillis, unknownPublishContext) {
