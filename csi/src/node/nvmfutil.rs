@@ -140,8 +140,7 @@ pub fn nvmf_attach_disk(nvmf_uri: &str) -> Result<String, String> {
 
     if let Ok(url) = url::Url::parse(nvmf_uri) {
         if url.scheme() == "nvmf" {
-            let tokens =
-                url.path_segments().map(|c| c.collect::<Vec<_>>()).unwrap();
+            let tokens: Vec<&str> = url.path_segments().unwrap().collect();
             return nvmeadm_attach_disk(
                 url.host_str().unwrap(),
                 u32::from(url.port().unwrap()),
@@ -154,7 +153,7 @@ pub fn nvmf_attach_disk(nvmf_uri: &str) -> Result<String, String> {
     Err(format!("Invalid nvmf URI {}", nvmf_uri))
 }
 
-/// Search for and return path to the device on which a nexus iscsi
+/// Search for and return path to the device on which a nexus nvmf
 /// target matching the volume id has been mounted or None.
 pub fn nvmf_find(uuid: &str) -> Option<String> {
     trace!("nvmf_find {}", uuid);
