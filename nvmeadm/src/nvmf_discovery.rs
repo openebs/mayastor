@@ -418,7 +418,7 @@ impl DiscoveryLogEntry {
 ///  ```rust
 ///  use nvmeadm::nvmf_discovery::connect;
 ///
-///  let result = discovered_targets.connect("192.168.122.99", 8420, "mynqn");
+///  let result = connect("192.168.122.99", 8420, "mynqn");
 /// ```
 ///
 
