@@ -323,16 +323,12 @@ describe('csi', function () {
     });
   });
 
-  csiProtocolTest('NBD', enums.NEXUS_NBD, 10000, { uri: 'file:///dev/nbd' + '9' });
-  csiProtocolTest('iSCSI', enums.NEXUS_ISCSI, 120000, {
-    uri: 'iscsi://192.168.0.197:3260/iqn.2019-05.io.openebs:nexus-11111111-0000-0000-0000-000000000009/0'
-  });
-  csiProtocolTest('NVMF', enums.NEXUS_NVMF, 120000, {
-    uri: 'nvmf://192.168.0.197:8420/nqn.2019-05.io.openebs:nexus-11111111-0000-0000-0000-000000000009'
-  });
+  csiProtocolTest('NBD', enums.NEXUS_NBD, 10000);
+  csiProtocolTest('iSCSI', enums.NEXUS_ISCSI, 120000);
+  csiProtocolTest('NVMF', enums.NEXUS_NVMF, 120000);
 });
 
-function csiProtocolTest (protoname, shareType, timeoutMillis, unknownPublishContext) {
+function csiProtocolTest (protoname, shareType, timeoutMillis) {
   describe(protoname, function () {
     this.timeout(timeoutMillis); // for network tests we need long timeouts
     const publishedUris = new Map();
@@ -384,6 +380,18 @@ function csiProtocolTest (protoname, shareType, timeoutMillis, unknownPublishCon
               // on the uuid of the volume.
               publishedUris.set(uuid, { uri: tmp.device_path });
             }
+            // Generate unknown uuid entry from the first device
+            // entry so that the unknown entry only differs in
+            // the last character of the uuid.
+            const tmp = JSON.parse(devicePaths[0]).device_path;
+            var ix = 0;
+            if (tmp.startsWith('file') || tmp.startsWith('nvmf')) {
+              ix = tmp.length - 1;
+            } else {
+              ix = tmp.length - 3;
+            }
+            // replace the last uuid character with 9
+            publishedUris.set(UNKNOWN_UUID, { uri: tmp.substring(0, ix) + '9' + tmp.substring(ix + 1) });
             done();
           }
         }
@@ -486,7 +494,7 @@ function csiProtocolTest (protoname, shareType, timeoutMillis, unknownPublishCon
       it('staging a volume with a non existing bdev should fail with NotFound Error', (done) => {
         const args = getDefaultArgs();
         args.volume_id = UNKNOWN_UUID;
-        args.publish_context = unknownPublishContext;
+        args.publish_context = publishedUris.get(UNKNOWN_UUID);
 
         client.nodeStageVolume(args, shouldFailWith(grpc.status.NOT_FOUND, done));
       });
