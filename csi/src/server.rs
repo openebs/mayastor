@@ -45,6 +45,26 @@ mod identity;
 mod mount;
 mod node;
 
+#[macro_use]
+extern crate failure;
+#[derive(Debug, Fail)]
+pub enum CSIError {
+    #[fail(display = "IO error: {}", error)]
+    Iscsiadm { error: String },
+    #[fail(display = "Cannot find {}", execname)]
+    ExecutableNotFound { execname: String },
+    #[fail(display = "Could not attach disk after {} milliseconds", value)]
+    AttachTimeout { value: i32 },
+    #[fail(display = "Invalid URI {}", uristr)]
+    InvalidURI { uristr: String },
+    #[fail(display = "Invalid device path {}", devpath)]
+    InvalidDevicePath { devpath: String },
+    #[fail(display = "Not found {}", value)]
+    NotFound { value: String },
+    #[fail(display = "{}", error)]
+    Nvmf { error: String },
+}
+
 #[derive(Debug)]
 struct UnixStream(tokio::net::UnixStream);
 

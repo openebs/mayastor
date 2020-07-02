@@ -448,7 +448,12 @@ impl node_server::Node for Node {
                 "iscsi" => {
                     match iscsi_attach_disk(uri) {
                         Ok(devpath) => devpath,
-                        Err(e) => return Err(Status::new(Code::NotFound, e)),
+                        Err(e) => {
+                            return Err(Status::new(
+                                Code::NotFound,
+                                format!("{}", e),
+                            ))
+                        }
                     }
                     // The nexus may reside on another node,
                     // currently there is no way to retrieve the nexus details
@@ -456,7 +461,12 @@ impl node_server::Node for Node {
                 }
                 "nvmf" => match nvmf_attach_disk(uri) {
                     Ok(devpath) => devpath,
-                    Err(e) => return Err(Status::new(Code::NotFound, e)),
+                    Err(e) => {
+                        return Err(Status::new(
+                            Code::NotFound,
+                            format!("{}", e),
+                        ))
+                    }
                 },
                 "file" => {
                     if let Some(nexus) =
@@ -610,13 +620,19 @@ impl node_server::Node for Node {
             ShareProtocolNexus::NexusIscsi => {
                 debug!("unstage: iscsi detach {}", device_path);
                 if let Err(reason) = iscsi_detach_disk(volume_id.as_str()) {
-                    return Err(Status::new(Code::Internal, reason));
+                    return Err(Status::new(
+                        Code::Internal,
+                        format!("{}", reason),
+                    ));
                 }
             }
             ShareProtocolNexus::NexusNvmf => {
                 debug!("unstage: nvmf detach {}", device_path);
                 if let Err(reason) = nvmf_detach_disk(volume_id.as_str()) {
-                    return Err(Status::new(Code::Internal, reason));
+                    return Err(Status::new(
+                        Code::Internal,
+                        format!("{}", reason),
+                    ));
                 }
             }
             ShareProtocolNexus::NexusNbd => {}
