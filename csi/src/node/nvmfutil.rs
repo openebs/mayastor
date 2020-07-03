@@ -1,6 +1,9 @@
 use std::{io, thread, time};
 use udev::Enumerator;
 
+use crate::CSIError;
+use failure::Error;
+
 fn find_nvmf_device_by_uuid(str_uuid: &str) -> Result<String, String> {
     let prop = "ID_WWN";
     let value = format!("uuid.{}", str_uuid);
@@ -84,7 +87,7 @@ fn nvmeadm_attach_disk(
     port: u32,
     nqn: &str,
     uri: &str,
-) -> Result<String, String> {
+) -> Result<String, Error> {
     trace!(
         "nvmeadm_attach_disk ip_addr={} port={} nqn={}",
         ip_addr,
@@ -105,7 +108,9 @@ fn nvmeadm_attach_disk(
         }
         if !in_progress {
             debug!("nvmeadm connect failed error {} {:?}", uri, e);
-            return Err(format!("{}", e));
+            return Err(Error::from(CSIError::Nvmf {
+                error: format!("Connect failed :{}", e),
+            }));
         }
     }
 
@@ -113,12 +118,14 @@ fn nvmeadm_attach_disk(
         Some(path) => Ok(path),
         _ => {
             debug!("nvmeadm nvmf device path not found.");
-            Err("No path for nvme device".to_string())
+            Err(Error::from(CSIError::NotFound {
+                value: "nvmf device path not found".to_string(),
+            }))
         }
     }
 }
 
-pub fn nvmeadm_detach_disk(nqn: &str) -> Result<(), String> {
+pub fn nvmeadm_detach_disk(nqn: &str) -> Result<(), Error> {
     match nvmeadm::nvmf_discovery::disconnect(&nqn) {
         Ok(_) => {
             trace!("nvmf disconnected {}", nqn);
@@ -126,12 +133,14 @@ pub fn nvmeadm_detach_disk(nqn: &str) -> Result<(), String> {
         }
         Err(e) => {
             debug!("nvmf disconnect {} FAILED.", nqn);
-            Err(format!("{}", e))
+            Err(Error::from(CSIError::Nvmf {
+                error: format!("{}", e),
+            }))
         }
     }
 }
 
-pub fn nvmf_attach_disk(nvmf_uri: &str) -> Result<String, String> {
+pub fn nvmf_attach_disk(nvmf_uri: &str) -> Result<String, Error> {
     trace!("nvmf_attach_disk {}", nvmf_uri);
 
     if let Some(path) = wait_for_path_to_exist(uuid_from_str(nvmf_uri), 1) {
@@ -150,7 +159,9 @@ pub fn nvmf_attach_disk(nvmf_uri: &str) -> Result<String, String> {
         }
     }
 
-    Err(format!("Invalid nvmf URI {}", nvmf_uri))
+    Err(Error::from(CSIError::InvalidURI {
+        uristr: nvmf_uri.to_string(),
+    }))
 }
 
 /// Search for and return path to the device on which a nexus nvmf
@@ -169,7 +180,7 @@ pub fn nvmf_find(uuid: &str) -> Option<String> {
     }
 }
 
-pub fn nvmf_detach_disk(uuid: &str) -> Result<(), String> {
+pub fn nvmf_detach_disk(uuid: &str) -> Result<(), Error> {
     // Ugh! hardcoded nqn, bad, bad, bad
     let nqn = format!("nqn.2019-05.io.openebs:{}", uuid);
     trace!("nvmf_detach_disk for {} nqn is {}", uuid, nqn);

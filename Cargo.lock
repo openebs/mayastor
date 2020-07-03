@@ -419,6 +419,7 @@ dependencies = [
  "chrono",
  "clap",
  "env_logger",
+ "failure",
  "futures",
  "git-version",
  "glob",

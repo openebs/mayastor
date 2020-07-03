@@ -4,10 +4,6 @@ version = "0.1.0"
 authors = ["Jeffry Molanus <jeffry.molanus@gmail.com>"]
 edition = "2018"
 
-[[bin]]
-name = "nvmeadm"
-path = "src/nvmeadm.rs"
-
 [dependencies]
 clap = "2.33.0"
 derive_builder = "0.7"
