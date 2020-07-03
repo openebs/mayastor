@@ -477,7 +477,7 @@ impl Nexus {
     /// reconfigure the child event handler
     pub(crate) async fn reconfigure(&mut self, event: DREvent) {
         let (s, r) = oneshot::channel::<i32>();
-        assert!(self.dr_complete_notify.is_none());
+        //assert!(self.dr_complete_notify.is_none());
         self.dr_complete_notify = Some(s);
 
         info!(
@@ -487,10 +487,10 @@ impl Nexus {
 
         NexusChannel::reconfigure(self.as_ptr(), &event);
 
-        let result = r.await.expect("Reconfigure notify failure");
+        let result = r.await;
 
         info!(
-            "{}: Dynamic reconfiguration event: {:?} completed {}",
+            "{}: Dynamic reconfiguration event: {:?} completed {:?}",
             self.name, event, result
         );
     }
