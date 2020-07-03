@@ -49,7 +49,7 @@ mod node;
 extern crate failure;
 #[derive(Debug, Fail)]
 pub enum CSIError {
-    #[fail(display = "IO error: {}", error)]
+    #[fail(display = "iscsiadm error: {}", error)]
     Iscsiadm { error: String },
     #[fail(display = "Cannot find {}", execname)]
     ExecutableNotFound { execname: String },

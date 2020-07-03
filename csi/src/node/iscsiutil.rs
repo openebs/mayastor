@@ -5,7 +5,7 @@ use crate::CSIError;
 use failure::Error;
 
 // The iscsiadm executable invoked is dependent on the environment.
-// For the container we set it using and environment variable,
+// For the container we set it using an environment variable,
 // typically this is the "/bin/mayastor-iscsiadm" script,
 // created by the mayastor image build scripts.
 // For development && test environments setting it to iscsiadm works
