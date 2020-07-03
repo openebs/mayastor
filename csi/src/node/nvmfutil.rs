@@ -141,10 +141,7 @@ pub fn nvmeadm_detach_disk(nqn: &str) -> Result<(), Error> {
                 Ok(())
             }
             _ => {
-                debug!(
-                    "Warning: nvmf disconnect {} disconnected {} devices.",
-                    nqn, n
-                );
+                warn!("nvmf disconnect {} disconnected {} devices.", nqn, n);
                 Ok(())
             }
         },
