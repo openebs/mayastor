@@ -28,6 +28,7 @@ use spdk_sys::{
     spdk_bdev_reset,
     spdk_bdev_unmap_blocks,
     spdk_bdev_unregister,
+    spdk_bdev_write_zeroes_blocks,
     spdk_bdev_writev_blocks,
     spdk_io_channel,
     spdk_io_device_register,
@@ -887,6 +888,38 @@ impl Nexus {
             .map(|c| unsafe {
                 let (b, c) = c.io_tuple();
                 spdk_bdev_flush_blocks(
+                    b,
+                    c,
+                    io.offset() + io.nexus_as_ref().data_ent_offset,
+                    io.num_blocks(),
+                    Some(Self::io_completion),
+                    pio as *mut _,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        if results.iter().any(|r| *r != 0) {
+            error!(
+                "{}: Failed to submit dispatched IO {:?}",
+                io.nexus_as_ref().name,
+                pio
+            );
+        }
+    }
+
+    pub(crate) fn write_zeroes(
+        &self,
+        pio: *mut spdk_bdev_io,
+        channels: &NexusChannelInner,
+    ) {
+        let mut io = Bio(pio);
+        io.ctx_as_mut_ref().in_flight = channels.ch.len() as i8;
+        let results = channels
+            .ch
+            .iter()
+            .map(|c| unsafe {
+                let (b, c) = c.io_tuple();
+                spdk_bdev_write_zeroes_blocks(
                     b,
                     c,
                     io.offset() + io.nexus_as_ref().data_ent_offset,
