@@ -12,7 +12,7 @@ fn find_nvmf_device_by_uuid(str_uuid: &str) -> Result<String, String> {
     let mut enumerator = Enumerator::new().unwrap();
     enumerator.match_subsystem("block").unwrap();
     enumerator
-        .match_property("ID_MODEL", "MayaStor NVMF controller")
+        .match_property("ID_MODEL", "Mayastor NVMe controller")
         .unwrap();
     for dev in enumerator.scan_devices().unwrap() {
         if let Some(udev_value) = dev.property_value(prop) {
