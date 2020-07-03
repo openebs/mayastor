@@ -102,7 +102,7 @@ fn nvmeadm_attach_disk(
             if let Some(errcode) = ioerr.raw_os_error() {
                 if errcode == 114 {
                     in_progress = true;
-                    debug!("nvmeadm operation already in progress for {}", uri);
+                    debug!("nvmeadm connect already in progress for {}", uri);
                 }
             }
         }
@@ -112,6 +112,8 @@ fn nvmeadm_attach_disk(
                 error: format!("Connect failed :{}", e),
             }));
         }
+    } else {
+        trace!("nvmeadm connected {}", nqn);
     }
 
     match wait_for_path_to_exist(uuid_from_str(uri), 10) {
@@ -127,10 +129,25 @@ fn nvmeadm_attach_disk(
 
 pub fn nvmeadm_detach_disk(nqn: &str) -> Result<(), Error> {
     match nvmeadm::nvmf_discovery::disconnect(&nqn) {
-        Ok(_) => {
-            trace!("nvmf disconnected {}", nqn);
-            Ok(())
-        }
+        Ok(n) => match n {
+            0 => {
+                debug!("nvmf disconnect {} FAILED, no device found.", nqn);
+                Err(Error::from(CSIError::NotFound {
+                    value: format!("nvmf device not found for {}", nqn),
+                }))
+            }
+            1 => {
+                trace!("nvmf disconnected {}", nqn);
+                Ok(())
+            }
+            _ => {
+                debug!(
+                    "Warning: nvmf disconnect {} disconnected {} devices.",
+                    nqn, n
+                );
+                Ok(())
+            }
+        },
         Err(e) => {
             debug!("nvmf disconnect {} FAILED.", nqn);
             Err(Error::from(CSIError::Nvmf {
@@ -182,7 +199,7 @@ pub fn nvmf_find(uuid: &str) -> Option<String> {
 
 pub fn nvmf_detach_disk(uuid: &str) -> Result<(), Error> {
     // Ugh! hardcoded nqn, bad, bad, bad
-    let nqn = format!("nqn.2019-05.io.openebs:{}", uuid);
+    let nqn = format!("nqn.2019-05.io.openebs:nexus-{}", uuid);
     trace!("nvmf_detach_disk for {} nqn is {}", uuid, nqn);
     nvmeadm_detach_disk(&nqn)
 }
