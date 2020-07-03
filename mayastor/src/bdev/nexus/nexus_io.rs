@@ -57,7 +57,7 @@ pub mod io_type {
     //    pub const NVME_ADMIN: u32 = 6;
     //    pub const NVME_IO: u32 = 7;
     //    pub const NVME_IO_MD: u32 = 8;
-    //    pub const WRITE_ZEROES: u32 = 9;
+    pub const WRITE_ZEROES: u32 = 9;
     //    pub const ZCOPY: u32 = 10;
     //    pub const GET_ZONE_INFO: u32 = 11;
     //    pub const ZONE_MANAGMENT: u32 = 12;

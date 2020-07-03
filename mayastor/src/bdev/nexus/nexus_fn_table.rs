@@ -62,7 +62,10 @@ impl NexusFnTable {
         match io_type {
             // we always assume the device supports read/write commands
             io_type::READ | io_type::WRITE => true,
-            io_type::FLUSH | io_type::RESET | io_type::UNMAP => {
+            io_type::FLUSH
+            | io_type::RESET
+            | io_type::UNMAP
+            | io_type::WRITE_ZEROES => {
                 let supported = nexus.io_is_supported(io_type);
                 if !supported {
                     trace!(
@@ -75,7 +78,7 @@ impl NexusFnTable {
             }
             _ => {
                 trace!(
-                    "IO type {} not supported for {}",
+                    "un matched IO type {} not supported for {}",
                     io_type,
                     nexus.bdev.name()
                 );
@@ -116,6 +119,7 @@ impl NexusFnTable {
                     }
                 }
                 io_type::FLUSH => nexus.flush(io, &ch),
+                io_type::WRITE_ZEROES => nexus.write_zeroes(io, &ch),
 
                 _ => panic!(
                     "{} Received unsupported IO! type {}",
