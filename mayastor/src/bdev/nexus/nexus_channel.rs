@@ -188,8 +188,11 @@ impl NexusChannel {
         };
 
         trace!("{}: Reconfigure completed", nexus.name);
-        let sender = nexus.dr_complete_notify.take().unwrap();
-        sender.send(status).expect("reconfigure channel gone");
+        if let Some(sender) = nexus.dr_complete_notify.take() {
+            sender.send(status).expect("reconfigure channel gone");
+        } else {
+            error!("DR error");
+        }
     }
 
     /// Refresh the IO channels of the underlying children. Typically, this is
