@@ -1,8 +1,11 @@
 use once_cell::sync::Lazy;
 use std::{env, path::Path, process::Command, thread, time};
 
+use crate::CSIError;
+use failure::Error;
+
 // The iscsiadm executable invoked is dependent on the environment.
-// For the container we set it using and environment variable,
+// For the container we set it using an environment variable,
 // typically this is the "/bin/mayastor-iscsiadm" script,
 // created by the mayastor image build scripts.
 // For development && test environments setting it to iscsiadm works
@@ -18,11 +21,23 @@ static ISCSIADM: Lazy<String> = Lazy::new(|| {
     } else if which::which(mayastor_iscsiadm).is_ok() {
         debug!("Using {} for iscsiadm", mayastor_iscsiadm);
         mayastor_iscsiadm.to_string()
-    } else {
+    } else if which::which("iscsiadm").is_ok() {
         debug!("Using iscsiadm in PATH");
         "iscsiadm".to_string()
+    } else {
+        debug!("No isciadm found");
+        "".to_string()
     }
 });
+
+fn get_iscsiadm() -> Result<&'static str, Error> {
+    match ISCSIADM.len() {
+        0 => Err(Error::from(CSIError::ExecutableNotFound {
+            execname: "iscsiadm".to_string(),
+        })),
+        _ => Ok(ISCSIADM.as_str()),
+    }
+}
 
 fn wait_for_path_to_exist(devpath: &str, max_retries: i32) -> bool {
     let second = time::Duration::from_millis(1000);
@@ -58,11 +73,12 @@ fn attach_disk(
     port: u16,
     iqn: &str,
     lun: &str,
-) -> Result<String, String> {
+) -> Result<String, Error> {
     let tp = format!("{}:{}", ip_addr, port);
     let device_path =
         format!("/dev/disk/by-path/ip-{}-iscsi-{}-lun-{}", tp, iqn, lun);
-    let iscsiadm = ISCSIADM.as_str();
+    let iscsiadm = get_iscsiadm()?;
+
     let target = format!("{},{} {}", tp, lun, iqn);
 
     // If the device path exists then a previous invocation of this
@@ -80,7 +96,9 @@ fn attach_disk(
         .output()
         .expect("Failed iscsiadm discovery");
     if !output.status.success() {
-        return Err(String::from_utf8(output.stderr).unwrap());
+        return Err(Error::from(CSIError::Iscsiadm {
+            error: String::from_utf8(output.stderr).unwrap(),
+        }));
     }
 
     // Check that the output from the iscsiadm discover command lists
@@ -90,7 +108,9 @@ fn attach_disk(
     let haystack: Vec<&str> = op.split('\n').collect();
     if !haystack.iter().any(|&s| s == target.as_str()) {
         trace!("After discovery no record for {}", target);
-        return Err(format!("No record for {}", target));
+        return Err(Error::from(CSIError::Iscsiadm {
+            error: format!("No record for {}", target),
+        }));
     }
 
     let args_login = [
@@ -109,14 +129,18 @@ fn attach_disk(
         ];
         // delete the node record from the database.
         Command::new(&iscsiadm).args(&args_login_del);
-        return Err(String::from_utf8(output.stderr).unwrap());
+        return Err(Error::from(CSIError::Iscsiadm {
+            error: String::from_utf8(output.stderr).unwrap(),
+        }));
     }
 
     if wait_for_path_to_exist(device_path.as_str(), 10) {
         trace!("{} path exists!", device_path)
     } else {
         trace!("{} path does not exist after 10s!", device_path);
-        return Err("Could not attach disk: Timeout after 10s".to_string());
+        return Err(Error::from(CSIError::AttachTimeout {
+            value: 1000,
+        }));
     }
     Ok(iscsi_realpath(device_path))
 }
@@ -124,7 +148,7 @@ fn attach_disk(
 /// Attaches a nexus iscsi target matching the uri specfied.
 /// Returns path to the device on which the nexus iscsi target
 /// has been mounted succesfully or error
-pub fn iscsi_attach_disk(iscsi_uri: &str) -> Result<String, String> {
+pub fn iscsi_attach_disk(iscsi_uri: &str) -> Result<String, Error> {
     trace!("iscsi_attach_disk {}", iscsi_uri);
 
     if let Ok(url) = url::Url::parse(iscsi_uri) {
@@ -140,11 +164,14 @@ pub fn iscsi_attach_disk(iscsi_uri: &str) -> Result<String, String> {
         }
     }
 
-    Err(format!("Invalid iscsi URI {}", iscsi_uri))
+    Err(Error::from(CSIError::InvalidURI {
+        uristr: iscsi_uri.to_string(),
+    }))
 }
 
-fn detach_disk(ip_addr: &str, port: &str, iqn: &str) -> Result<(), String> {
-    let iscsiadm = ISCSIADM.as_str();
+fn detach_disk(ip_addr: &str, port: &str, iqn: &str) -> Result<(), Error> {
+    let iscsiadm = get_iscsiadm()?;
+
     let tp = format!("{}:{}", ip_addr, port);
 
     let args_logout = ["-m", "node", "-T", &iqn, "-p", &tp, "-u"];
@@ -154,7 +181,9 @@ fn detach_disk(ip_addr: &str, port: &str, iqn: &str) -> Result<(), String> {
         .output()
         .expect("Failed iscsiadm logout");
     if !output.status.success() {
-        return Err(String::from_utf8(output.stderr).unwrap());
+        return Err(Error::from(CSIError::Iscsiadm {
+            error: String::from_utf8(output.stderr).unwrap(),
+        }));
     }
 
     let args_delete = ["-m", "node", "-o", "delete", "-T", &iqn];
@@ -164,7 +193,9 @@ fn detach_disk(ip_addr: &str, port: &str, iqn: &str) -> Result<(), String> {
         .output()
         .expect("Failed iscsiadm login");
     if !output.status.success() {
-        return Err(String::from_utf8(output.stderr).unwrap());
+        return Err(Error::from(CSIError::Iscsiadm {
+            error: String::from_utf8(output.stderr).unwrap(),
+        }));
     }
 
     Ok(())
@@ -173,12 +204,9 @@ fn detach_disk(ip_addr: &str, port: &str, iqn: &str) -> Result<(), String> {
 /// Detaches nexus iscsi target matching the volume id if has
 /// been mounted.
 /// Returns error is the nexus iscsi target was not mounted.
-pub fn iscsi_detach_disk(uuid: &str) -> Result<(), String> {
+pub fn iscsi_detach_disk(uuid: &str) -> Result<(), Error> {
     trace!("iscsi_detach_disk {}", uuid);
-    let device_path = match get_iscsi_device_path(uuid) {
-        Some(devpath) => devpath,
-        _ => return Err("Unknown iscsi device".to_string()),
-    };
+    let device_path = get_iscsi_device_path(uuid)?;
 
     static RE_DEVICE_PATH: Lazy<regex::Regex> = Lazy::new(|| {
         regex::Regex::new(
@@ -195,30 +223,23 @@ pub fn iscsi_detach_disk(uuid: &str) -> Result<(), String> {
             trace!("{:?}", details);
             detach_disk(&details["ip"], &details["port"], &details["iqn"])
         }
-        None => {
-            trace!("Doh!");
-            Err(format!("Invalid device path: {}", device_path))
-        }
+        None => Err(Error::from(CSIError::InvalidDevicePath {
+            devpath: device_path.to_string(),
+        })),
     }
 }
 
-fn get_iscsi_device_path(uuid: &str) -> Option<String> {
-    let iscsiadm = ISCSIADM.as_str();
+fn get_iscsi_device_path(uuid: &str) -> Result<String, Error> {
+    let iscsiadm = get_iscsiadm()?;
 
-    if which::which(&iscsiadm).is_err() {
-        trace!("Cannot find {}", &iscsiadm);
-        return None;
-    }
     let output = Command::new(&iscsiadm)
         .args(&["-m", "node"])
         .output()
         .expect("Failed iscsiadm");
     if !output.status.success() {
-        debug!(
-            "iscsiadm failed: {}",
-            String::from_utf8(output.stderr).unwrap()
-        );
-        return None;
+        return Err(Error::from(CSIError::Iscsiadm {
+            error: String::from_utf8(output.stderr).unwrap(),
+        }));
     }
     let op = String::from_utf8(output.stdout).unwrap();
 
@@ -234,7 +255,7 @@ fn get_iscsi_device_path(uuid: &str) -> Option<String> {
     for cap in RE_TARGET.captures_iter(op.as_str()) {
         trace!("iscsiutil: searching for {} got {}", uuid, &cap["uuid"]);
         if uuid == &cap["uuid"] {
-            return Some(format!(
+            return Ok(format!(
                 "/dev/disk/by-path/ip-{}:{}-iscsi-{}-{}-lun-{}",
                 &cap["ip"],
                 &cap["port"],
@@ -244,13 +265,15 @@ fn get_iscsi_device_path(uuid: &str) -> Option<String> {
             ));
         }
     }
-    None
+    Err(Error::from(CSIError::NotFound {
+        value: format!("iscsi device for {}", uuid),
+    }))
 }
 
 /// Search for and return path to the device on which a nexus iscsi
 /// target matching the volume id has been mounted or None.
 pub fn iscsi_find(uuid: &str) -> Option<String> {
-    if let Some(path) = get_iscsi_device_path(uuid) {
+    if let Ok(path) = get_iscsi_device_path(uuid) {
         if wait_for_path_to_exist(path.as_str(), 0) {
             return Some(iscsi_realpath(path));
         }
