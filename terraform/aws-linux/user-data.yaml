@@ -1,0 +1,15 @@
+#cloud-config
+users:
+  - default
+  - name: ${ssh_user}
+    sudo: ALL=(ALL) NOPASSWD:ALL
+    shell: /bin/bash
+    groups: users, wheel
+    plain_text_passwd: mayastor
+    lock_passwd: false
+    ssh_authorized_keys:
+      - ${ssh_key}
+ssh_pwauth: True
+chpasswd:
+  list: |
+    ec2-user:mayastor
