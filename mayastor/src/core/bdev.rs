@@ -330,7 +330,7 @@ impl From<*mut spdk_bdev> for Bdev {
         if let Some(b) = NonNull::new(b) {
             Bdev(b)
         } else {
-            panic!("nullptr deference");
+            panic!("nullptr dereferenced while accessing a bdev");
         }
     }
 }
