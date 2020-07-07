@@ -9,7 +9,7 @@ spec:
        claimName: ms-volume-claim
   containers:
     - name: fio
-      image: dmonakhov/alpine-fio
+      image: nixery.dev/shell/fio
       args:
         - sleep
         - "1000000"
