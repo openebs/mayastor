@@ -118,7 +118,7 @@ impl GetName for Nvmf {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl CreateDestroy for Nvmf {
     type Error = NexusBdevError;
 

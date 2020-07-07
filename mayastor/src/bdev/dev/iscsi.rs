@@ -80,7 +80,7 @@ impl GetName for Iscsi {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl CreateDestroy for Iscsi {
     type Error = NexusBdevError;
 
@@ -98,11 +98,13 @@ impl CreateDestroy for Iscsi {
             errno: c_int,
         ) {
             let sender = unsafe {
-                Box::from_raw(arg as *mut oneshot::Sender<ErrnoResult<Bdev>>)
+                Box::from_raw(
+                    arg as *mut oneshot::Sender<ErrnoResult<*mut spdk_bdev>>,
+                )
             };
 
             sender
-                .send(errno_result_from_i32(bdev.into(), errno))
+                .send(errno_result_from_i32(bdev, errno))
                 .expect("done callback receiver side disappeared");
         }
 
