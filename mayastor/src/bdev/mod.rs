@@ -23,7 +23,7 @@ pub trait BdevCreateDestroy: CreateDestroy + GetName {}
 
 impl<T: CreateDestroy + GetName> BdevCreateDestroy for T {}
 
-#[async_trait]
+#[async_trait(?Send)]
 /// Main trait that must be implemented for every supported device type.
 /// Note also that the required methods are declared as async.
 pub trait CreateDestroy {

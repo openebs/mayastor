@@ -66,7 +66,7 @@ impl GetName for Uring {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl CreateDestroy for Uring {
     type Error = NexusBdevError;
 
