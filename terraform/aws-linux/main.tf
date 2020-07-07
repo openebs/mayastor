@@ -25,6 +25,8 @@ variable "disk_size" {
 }
 
 # I'd recommond to copy this locally and change the path
+# see https://cdn.amazonlinux.com/os-images/2.0.20200602.0/kvm for the lastest
+# images
 variable image_source {
   default = "https://cdn.amazonlinux.com/os-images/2.0.20200602.0/kvm/amzn2-kvm-2.0.20200602.0-x86_64.xfs.gpt.qcow2"
 }
@@ -40,7 +42,6 @@ resource "libvirt_pool" "aws-pool" {
   path = "/images"
 }
 
-# wget https://cdn.amazonlinux.com/os-images/2.0.20200602.0/kvm/amzn2-kvm-2.0.20200602.0-x86_64.xfs.gpt.qcow2
 
 # our base image from aws, that includes by default cloud-init
 resource "libvirt_volume" "aws-qcow2" {
