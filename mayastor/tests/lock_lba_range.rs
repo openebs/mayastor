@@ -166,7 +166,6 @@ fn lock_unlock_different_context() {
 }
 
 #[test]
-#[ignore]
 // Test taking out multiple locks on an overlapping block range.
 // The second lock should only succeeded after the first lock is released.
 fn multiple_locks() {
@@ -220,7 +219,10 @@ fn multiple_locks() {
     });
     reactor_poll!(r);
 
-    // First lock released, second lock should succeed
+    // Poll reactor to allow the second lock to be obtained
+    reactor_poll!(100);
+
+    // First lock released, second lock should succeed.
     assert!(lock_receiver.try_recv().is_ok());
 
     // Second unlock
