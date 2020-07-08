@@ -45,7 +45,7 @@ impl GetName for Loopback {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl CreateDestroy for Loopback {
     type Error = NexusBdevError;
 

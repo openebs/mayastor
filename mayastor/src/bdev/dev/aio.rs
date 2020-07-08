@@ -66,7 +66,7 @@ impl GetName for Aio {
     }
 }
 
-#[async_trait]
+#[async_trait(?Send)]
 impl CreateDestroy for Aio {
     type Error = NexusBdevError;
 
