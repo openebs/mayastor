@@ -95,6 +95,7 @@ class Registry extends EventEmitter {
     if (!node) return;
     delete this.nodes[name];
     node.disconnect();
+    node.unbind();
 
     log.info(`mayastor on node "${name}" left`);
     this.emit('node', {
