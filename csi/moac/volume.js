@@ -228,12 +228,12 @@ class Volume {
     );
     if (!rmChild) {
       rmChild = children.find((ch) => ch.state === 'CHILD_FAULTED');
-      // If all replicas are online, then continue searching for a candidate
-      // only if there are more online replicas than it needs to be.
-      if (!rmChild && onlineCount > this.replicaCount) {
+      if (!rmChild) {
         // A child that is unknown to us (without replica object)
         rmChild = children.find((ch) => !ch.replica);
-        if (!rmChild) {
+        // If all replicas are online, then continue searching for a candidate
+        // only if there are more online replicas than it needs to be.
+        if (!rmChild && onlineCount > this.replicaCount) {
           // The replica with the lowest score must go away
           const rmReplica = this._prioritizeReplicas(
             children.map((ch) => ch.replica)
