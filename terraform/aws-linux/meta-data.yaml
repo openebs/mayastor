@@ -1,0 +1,5 @@
+instance-id: id-0
+local-hostname: amz-linux
+network-interfaces: |
+  auto eth0
+  iface eth0 inet dhcp

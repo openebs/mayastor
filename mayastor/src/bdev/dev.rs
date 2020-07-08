@@ -33,6 +33,7 @@ use crate::{
 mod aio;
 mod iscsi;
 mod loopback;
+mod malloc;
 mod nvmf;
 mod uring;
 
@@ -50,6 +51,7 @@ impl Uri {
         match url.scheme() {
             // really should not be used other than for testing
             "aio" => Ok(Box::new(aio::Aio::try_from(&url)?)),
+            "malloc" => Ok(Box::new(malloc::Malloc::try_from(&url)?)),
 
             // retain this for the time being for backwards compatibility
             "bdev" => Ok(Box::new(loopback::Loopback::try_from(&url)?)),

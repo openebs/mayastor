@@ -88,6 +88,12 @@ class Node extends EventEmitter {
     this._offline();
   }
 
+  unbind () {
+    // todo: on user explicit removal should we destroy the pools as well?
+    this.pools.forEach((pool) => pool.unbind());
+    this.nexus.forEach((nexus) => nexus.unbind());
+  }
+
   // The node is considered broken, emit offline events on all objects
   // that are present on the node.
   _offline () {
