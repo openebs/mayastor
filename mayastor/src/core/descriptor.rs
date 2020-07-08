@@ -20,7 +20,7 @@ use crate::{
 };
 
 /// NewType around a descriptor, multiple descriptor to the same bdev is
-/// allowed. A bdev can me claimed for exclusive write access. Any existing
+/// allowed. A bdev can be claimed for exclusive write access. Any existing
 /// descriptors that are open before the bdev has been claimed will remain as
 /// is. Typically, the target, exporting the bdev will claim the device. In the
 /// case of the nexus, we do not claim the children for exclusive access to
