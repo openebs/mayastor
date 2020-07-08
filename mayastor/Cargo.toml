@@ -22,7 +22,7 @@ path = "src/bin/uring-support.rs"
 
 [[bin]]
 name = "mayastor-client"
-path = "src/client.rs"
+path = "src/bin/cli/cli.rs"
 
 [dev-dependencies]
 assert_matches = "1.2"
