@@ -1,10 +1,11 @@
-use crate::MayaClient;
+use crate::{BdevClient, MayaClient};
 use byte_unit::Byte;
 use clap::ArgMatches;
 use std::cmp::max;
 
 pub struct Context {
     pub(crate) client: MayaClient,
+    pub(crate) bdev: BdevClient,
     verbosity: u64,
     units: char,
 }
@@ -30,9 +31,10 @@ impl Context {
             println!("Connecting to {}", uri);
         }
 
-        let client = MayaClient::connect(uri).await.unwrap();
+        let client = MayaClient::connect(uri.clone()).await.unwrap();
         Context {
             client,
+            bdev: BdevClient::connect(uri).await.unwrap(),
             verbosity,
             units,
         }

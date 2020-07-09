@@ -78,4 +78,6 @@ fn nvmf_target() {
             mayastor_env_stop(0);
         })
         .unwrap();
+
+    common::delete_file(&[DISKNAME1.into()]);
 }

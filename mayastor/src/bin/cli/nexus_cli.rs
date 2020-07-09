@@ -6,7 +6,7 @@ use tonic::{Code, Status};
 
 pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
     let create = SubCommand::with_name("create")
-        .about("create a new nexus device")
+        .about("Create a new nexus device")
         .arg(
             Arg::with_name("uuid")
                 .required(true)
@@ -109,7 +109,7 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
             AppSettings::ColoredHelp,
             AppSettings::ColorAlways,
         ])
-        .about("nexus management")
+        .about("Nexus device management")
         .subcommand(create)
         .subcommand(destroy)
         .subcommand(publish)
