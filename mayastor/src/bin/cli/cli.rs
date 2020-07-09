@@ -20,8 +20,8 @@ pub(crate) fn parse_size(src: &str) -> Result<Byte, String> {
     Byte::from_str(src).map_err(|_| src.to_string())
 }
 
-#[tokio::main(max_threads = 1)]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
+#[tokio::main(max_threads = 2)]
+async fn main() -> Result<(), Status> {
     env_logger::init();
 
     let matches = App::new("Mayastor gRPC client")
