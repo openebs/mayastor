@@ -50,7 +50,7 @@ pub enum CSIError {
     #[fail(display = "Cannot find {}", execname)]
     ExecutableNotFound { execname: String },
     #[fail(display = "Could not attach disk after {} milliseconds", value)]
-    AttachTimeout { value: i32 },
+    AttachTimeout { value: u64 },
     #[fail(display = "Invalid URI {}", uristr)]
     InvalidURI { uristr: String },
     #[fail(display = "Invalid device path {}", devpath)]
