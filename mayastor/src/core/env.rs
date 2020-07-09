@@ -753,7 +753,9 @@ impl MayastorEnvironment {
                         Pin<Box<dyn future::Future<Output = FutureResult>>>,
                     > = Vec::new();
                     if let Some(grpc_ep) = grpc_endpoint.as_ref() {
-                        futures.push(Box::pin(grpc::grpc_server_run(grpc_ep)));
+                        futures.push(Box::pin(grpc::MayastorGrpcServer::run(
+                            grpc_ep,
+                        )));
                         if let Some(nats_ep) = nats_endpoint.as_ref() {
                             futures.push(Box::pin(nats::message_bus_run(
                                 nats_ep, &node_name, grpc_ep,
