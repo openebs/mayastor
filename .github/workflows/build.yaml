@@ -21,9 +21,9 @@ jobs:
       - run: echo 8192 | tee /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
       - run: rm mayastor/.cargo/config
       - run: rm nvmeadm/.cargo/config
-      - run: rm -rf /tmp/*.yaml
-      - run: nix-shell --run "echo 'Pulling in the environment...'"
-      - run: nix-shell --run "./scripts/cargo-test.sh"
+      #- run: nix-shell --run "echo 'Pulling in the environment...'"
+      #- run: nix-shell --run "./scripts/cargo-test.sh"
+      #- run: nix-build nix/tests/basic-mayastor.nix
   Build_and_test_moac:
     name: Build and run moac tests
     runs-on: ubuntu-latest
@@ -32,8 +32,8 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       # npm prepare is normally done by npm install but not if run as a root
-      - run: nix-shell --run "cd csi/moac && npm install && npm run prepare && npm run compile"
-      - run: nix-shell --run "cd csi/moac && npm test"
+      #- run: nix-shell --run "cd csi/moac && npm install && npm run prepare && npm run compile"
+      #- run: nix-shell --run "cd csi/moac && npm test"
   Test_mayastor_with_mocha:
     name: Run mocha tests
     runs-on: ubuntu-latest
@@ -45,4 +45,4 @@ jobs:
       - run: sudo modprobe xfs
       - run: sudo modprobe nvme_tcp
       - run: ( echo 2048 | sudo tee /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages )
-      - run: nix-shell --run "./scripts/node-test.sh"
+      #- run: nix-shell --run "./scripts/node-test.sh"

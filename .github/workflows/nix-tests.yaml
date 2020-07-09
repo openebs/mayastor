@@ -1,0 +1,20 @@
+name: "Nix E2E tests"
+on:
+  pull_request:
+    paths-ignore:
+  push:
+    branches:
+      - develop
+jobs:
+  main:
+    name: Run Nix Tests
+    runs-on: self-hosted
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v2
+        with:
+          path: repo-under-test
+      - run: modprobe kvm_intel nested=1 # Could do this once persistently on the runner.
+      - run: nix-build $GITHUB_WORKSPACE/repo-under-test/nix/tests/basic-mayastor.nix
+        env:
+          NIX_PATH: /home/gila/.nix-defexpr/channels
