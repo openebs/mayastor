@@ -1,11 +1,9 @@
 use std::convert::From;
 
-use tonic::{transport::Server, Request, Response, Status};
+use tonic::{Request, Response, Status};
+use tracing::instrument;
 
-use rpc::{
-    mayastor::*,
-    service::mayastor_server::{Mayastor, MayastorServer},
-};
+use rpc::{mayastor::*, service::mayastor_server::Mayastor};
 
 use crate::{
     bdev::{
@@ -17,7 +15,8 @@ use crate::{
         },
         nexus_create,
     },
-    core::{Cores, Reactors},
+    core::Cores,
+    grpc::GrpcResult,
     pool,
     rebuild::RebuildJob,
     replica,
@@ -40,40 +39,6 @@ fn nexus_lookup(
             name: uuid.to_owned(),
         })
     }
-}
-
-#[derive(Debug)]
-pub struct MayastorGrpc {}
-
-type Result<T> = std::result::Result<T, Status>;
-
-fn print_error_chain(err: &dyn std::error::Error) -> String {
-    let mut msg = format!("{}", err);
-    let mut opt_source = err.source();
-    while let Some(source) = opt_source {
-        msg = format!("{}: {}", msg, source);
-        opt_source = source.source();
-    }
-    msg
-}
-
-/// Macro locally is used to spawn a future on the same thread that executes
-/// the macro. That is needed to guarantee that the execution context does
-/// not leave the mgmt core (core0) that is a basic assumption in spdk. Also
-/// the input/output parameters don't have to be Send and Sync in that case,
-/// which simplifies the code. The value of the macro is Ok() variant of the
-/// expression in the macro. Err() variant returns from the function.
-macro_rules! locally {
-    ($body:expr) => {{
-        let hdl = Reactors::current().spawn_local($body);
-        match hdl.await.unwrap() {
-            Ok(res) => res,
-            Err(err) => {
-                error!("{}", print_error_chain(&err));
-                return Err(err.into());
-            }
-        }
-    }};
 }
 
 impl From<ChildStatus> for ChildState {
@@ -105,12 +70,16 @@ impl From<&NexusChild> for Child {
     }
 }
 
+#[derive(Debug)]
+pub struct MayastorSvc {}
+
 #[tonic::async_trait]
-impl Mayastor for MayastorGrpc {
+impl Mayastor for MayastorSvc {
+    #[instrument(level = "debug", err)]
     async fn create_pool(
         &self,
         request: Request<CreatePoolRequest>,
-    ) -> Result<Response<Null>> {
+    ) -> GrpcResult<Null> {
         let args = request.into_inner();
         trace!("{:?}", args);
         let name = args.name.clone();
@@ -132,10 +101,11 @@ impl Mayastor for MayastorGrpc {
         Ok(Response::new(Null {}))
     }
 
+    #[instrument(level = "debug", err)]
     async fn destroy_pool(
         &self,
         request: Request<DestroyPoolRequest>,
-    ) -> Result<Response<Null>> {
+    ) -> GrpcResult<Null> {
         let args = request.into_inner();
         trace!("{:?}", args);
         let name = args.name.clone();
@@ -145,10 +115,11 @@ impl Mayastor for MayastorGrpc {
         Ok(Response::new(Null {}))
     }
 
+    #[instrument(level = "debug", err)]
     async fn list_pools(
         &self,
         request: Request<Null>,
-    ) -> Result<Response<ListPoolsReply>> {
+    ) -> GrpcResult<ListPoolsReply> {
         let args = request.into_inner();
         trace!("{:?}", args);
         assert_eq!(Cores::current(), Cores::first());
@@ -173,10 +144,11 @@ impl Mayastor for MayastorGrpc {
         Ok(Response::new(reply))
     }
 
+    #[instrument(level = "debug", err)]
     async fn create_replica(
         &self,
         request: Request<CreateReplicaRequest>,
-    ) -> Result<Response<CreateReplicaReply>> {
+    ) -> GrpcResult<CreateReplicaReply> {
         let args = request.into_inner();
         trace!("{:?}", args);
         let uuid = args.uuid.clone();
@@ -185,10 +157,12 @@ impl Mayastor for MayastorGrpc {
         info!("Created replica {} ...", uuid);
         Ok(Response::new(reply))
     }
+
+    #[instrument(level = "debug", err)]
     async fn destroy_replica(
         &self,
         request: Request<DestroyReplicaRequest>,
-    ) -> Result<Response<Null>> {
+    ) -> GrpcResult<Null> {
         let args = request.into_inner();
         trace!("{:?}", args);
         let uuid = args.uuid.clone();
@@ -198,10 +172,11 @@ impl Mayastor for MayastorGrpc {
         Ok(Response::new(Null {}))
     }
 
+    #[instrument(level = "debug", err)]
     async fn list_replicas(
         &self,
         request: Request<Null>,
-    ) -> Result<Response<ListReplicasReply>> {
+    ) -> GrpcResult<ListReplicasReply> {
         let args = request.into_inner();
         trace!("{:?}", args);
         assert_eq!(Cores::current(), Cores::first());
@@ -210,10 +185,11 @@ impl Mayastor for MayastorGrpc {
         Ok(Response::new(reply))
     }
 
+    #[instrument(level = "debug", err)]
     async fn stat_replicas(
         &self,
         request: Request<Null>,
-    ) -> Result<Response<StatReplicasReply>> {
+    ) -> GrpcResult<StatReplicasReply> {
         let args = request.into_inner();
         trace!("{:?}", args);
         let reply = locally! { replica::stat_replicas() };
@@ -221,10 +197,11 @@ impl Mayastor for MayastorGrpc {
         Ok(Response::new(reply))
     }
 
+    #[instrument(level = "debug", err)]
     async fn share_replica(
         &self,
         request: Request<ShareReplicaRequest>,
-    ) -> Result<Response<ShareReplicaReply>> {
+    ) -> GrpcResult<ShareReplicaReply> {
         let args = request.into_inner();
         trace!("{:?}", args);
         let uuid = args.uuid.clone();
@@ -235,10 +212,11 @@ impl Mayastor for MayastorGrpc {
         Ok(Response::new(reply))
     }
 
+    #[instrument(level = "debug", err)]
     async fn create_nexus(
         &self,
         request: Request<CreateNexusRequest>,
-    ) -> Result<Response<Null>> {
+    ) -> GrpcResult<Null> {
         let args = request.into_inner();
         trace!("{:?}", args);
         let uuid = args.uuid.clone();
@@ -251,10 +229,11 @@ impl Mayastor for MayastorGrpc {
         Ok(Response::new(Null {}))
     }
 
+    #[instrument(level = "debug", err)]
     async fn destroy_nexus(
         &self,
         request: Request<DestroyNexusRequest>,
-    ) -> Result<Response<Null>> {
+    ) -> GrpcResult<Null> {
         let args = request.into_inner();
         trace!("{:?}", args);
         let uuid = args.uuid.clone();
@@ -264,10 +243,11 @@ impl Mayastor for MayastorGrpc {
         Ok(Response::new(Null {}))
     }
 
+    #[instrument(level = "debug", err)]
     async fn list_nexus(
         &self,
         request: Request<Null>,
-    ) -> Result<Response<ListNexusReply>> {
+    ) -> GrpcResult<ListNexusReply> {
         let args = request.into_inner();
         trace!("{:?}", args);
         let reply = ListNexusReply {
@@ -291,10 +271,11 @@ impl Mayastor for MayastorGrpc {
         Ok(Response::new(reply))
     }
 
+    #[instrument(level = "debug", err)]
     async fn add_child_nexus(
         &self,
         request: Request<AddChildNexusRequest>,
-    ) -> Result<Response<Null>> {
+    ) -> GrpcResult<Null> {
         let args = request.into_inner();
         trace!("{:?}", args);
         let uuid = args.uuid.clone();
@@ -306,10 +287,11 @@ impl Mayastor for MayastorGrpc {
         Ok(Response::new(Null {}))
     }
 
+    #[instrument(level = "debug", err)]
     async fn remove_child_nexus(
         &self,
         request: Request<RemoveChildNexusRequest>,
-    ) -> Result<Response<Null>> {
+    ) -> GrpcResult<Null> {
         let args = request.into_inner();
         trace!("{:?}", args);
         let uuid = args.uuid.clone();
@@ -321,10 +303,11 @@ impl Mayastor for MayastorGrpc {
         Ok(Response::new(Null {}))
     }
 
+    #[instrument(level = "debug", err)]
     async fn publish_nexus(
         &self,
         request: Request<PublishNexusRequest>,
-    ) -> Result<Response<PublishNexusReply>> {
+    ) -> GrpcResult<PublishNexusReply> {
         let args = request.into_inner();
         trace!("{:?}", args);
         let uuid = args.uuid.clone();
@@ -360,10 +343,11 @@ impl Mayastor for MayastorGrpc {
         }))
     }
 
+    #[instrument(level = "debug", err)]
     async fn unpublish_nexus(
         &self,
         request: Request<UnpublishNexusRequest>,
-    ) -> Result<Response<Null>> {
+    ) -> GrpcResult<Null> {
         let args = request.into_inner();
         trace!("{:?}", args);
         let uuid = args.uuid.clone();
@@ -375,10 +359,11 @@ impl Mayastor for MayastorGrpc {
         Ok(Response::new(Null {}))
     }
 
+    #[instrument(level = "debug", err)]
     async fn child_operation(
         &self,
         request: Request<ChildNexusRequest>,
-    ) -> Result<Response<Null>> {
+    ) -> GrpcResult<Null> {
         let args = request.into_inner();
         trace!("{:?}", args);
 
@@ -400,10 +385,11 @@ impl Mayastor for MayastorGrpc {
         Ok(Response::new(Null {}))
     }
 
+    #[instrument(level = "debug", err)]
     async fn start_rebuild(
         &self,
         request: Request<StartRebuildRequest>,
-    ) -> Result<Response<Null>> {
+    ) -> GrpcResult<Null> {
         let args = request.into_inner();
         trace!("{:?}", args);
         locally! { async move {
@@ -413,10 +399,11 @@ impl Mayastor for MayastorGrpc {
         Ok(Response::new(Null {}))
     }
 
+    #[instrument(level = "debug", err)]
     async fn stop_rebuild(
         &self,
         request: Request<StopRebuildRequest>,
-    ) -> Result<Response<Null>> {
+    ) -> GrpcResult<Null> {
         let args = request.into_inner();
         trace!("{:?}", args);
         locally! { async move {
@@ -426,10 +413,11 @@ impl Mayastor for MayastorGrpc {
         Ok(Response::new(Null {}))
     }
 
+    #[instrument(level = "debug", err)]
     async fn pause_rebuild(
         &self,
         request: Request<PauseRebuildRequest>,
-    ) -> Result<Response<Null>> {
+    ) -> GrpcResult<Null> {
         let msg = request.into_inner();
         locally! { async move {
           nexus_lookup(&msg.uuid)?.pause_rebuild(&msg.uri).await
@@ -438,10 +426,11 @@ impl Mayastor for MayastorGrpc {
         Ok(Response::new(Null {}))
     }
 
+    #[instrument(level = "debug", err)]
     async fn resume_rebuild(
         &self,
         request: Request<ResumeRebuildRequest>,
-    ) -> Result<Response<Null>> {
+    ) -> GrpcResult<Null> {
         let msg = request.into_inner();
         locally! { async move {
           nexus_lookup(&msg.uuid)?.resume_rebuild(&msg.uri).await
@@ -450,10 +439,11 @@ impl Mayastor for MayastorGrpc {
         Ok(Response::new(Null {}))
     }
 
+    #[instrument(level = "debug", err)]
     async fn get_rebuild_state(
         &self,
         request: Request<RebuildStateRequest>,
-    ) -> Result<Response<RebuildStateReply>> {
+    ) -> GrpcResult<RebuildStateReply> {
         let args = request.into_inner();
         trace!("{:?}", args);
         Ok(Response::new(locally! { async move {
@@ -461,29 +451,15 @@ impl Mayastor for MayastorGrpc {
         }}))
     }
 
+    #[instrument(level = "debug", err)]
     async fn get_rebuild_progress(
         &self,
         request: Request<RebuildProgressRequest>,
-    ) -> Result<Response<RebuildProgressReply>> {
+    ) -> GrpcResult<RebuildProgressReply> {
         let args = request.into_inner();
         trace!("{:?}", args);
         Ok(Response::new(locally! { async move {
             nexus_lookup(&args.uuid)?.get_rebuild_progress(&args.uri)
         }}))
-    }
-}
-
-pub async fn grpc_server_run(endpoint: &str) -> std::result::Result<(), ()> {
-    info!("gRPC server configured at address {}", endpoint);
-    let svc = Server::builder()
-        .add_service(MayastorServer::new(MayastorGrpc {}))
-        .serve(endpoint.parse().unwrap());
-
-    match svc.await {
-        Ok(_) => Ok(()),
-        Err(e) => {
-            error!("gRPC server failed with error: {}", e);
-            Err(())
-        }
     }
 }
