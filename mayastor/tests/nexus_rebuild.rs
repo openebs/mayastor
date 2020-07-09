@@ -549,7 +549,6 @@ fn rebuild_operations() {
 }
 
 #[test]
-#[ignore]
 // rebuilds N children at the same time
 // creates the nexus with 1 healthy and then adds N children which
 // have to be rebuilt - this means we have N active rebuilds jobs
