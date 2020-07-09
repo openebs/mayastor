@@ -33,6 +33,9 @@ use spdk_sys::{
     iscsi_shutdown_tgt_node_by_name,
     iscsi_tgt_node_construct,
     spdk_bdev_get_name,
+    spdk_bdev_module,
+    spdk_bdev_module_claim_bdev,
+    spdk_bdev_module_release_bdev,
 };
 
 use crate::{
@@ -42,6 +45,7 @@ use crate::{
     subsys::Config,
     target::Side,
 };
+use once_cell::sync::Lazy;
 
 /// iSCSI target related errors
 #[derive(Debug, Snafu)]
@@ -105,6 +109,26 @@ thread_local! {
 pub fn target_name(bdev_name: &str) -> String {
     format!("iqn.2019-05.io.openebs:{}", bdev_name)
 }
+
+//
+// Internally the NVMe target will set a claim using a "fake"
+// module. We emulate this behaviour to know if the bdev is
+// is shared or not
+
+struct IscsiModule(spdk_bdev_module);
+impl IscsiModule {
+    pub fn as_mut_ptr(&self) -> *mut spdk_bdev_module {
+        &self.0 as *const _ as *mut _
+    }
+}
+unsafe impl Send for IscsiModule {}
+unsafe impl Sync for IscsiModule {}
+static ISCSI_BDEV_MOD: Lazy<IscsiModule> = Lazy::new(|| {
+    IscsiModule(spdk_bdev_module {
+        name: b"iSCSI Target\0" as *const u8 as *mut _,
+        ..Default::default()
+    })
+});
 
 /// Create iscsi portal and initiator group which will be used later when
 /// creating iscsi targets.
@@ -195,6 +219,13 @@ fn share_as_iscsi_target(
         error!("Failed to create iscsi target {}", iqn);
         Err(Error::CreateTarget {})
     } else {
+        let _ = unsafe {
+            spdk_bdev_module_claim_bdev(
+                bdev.as_ptr(),
+                std::ptr::null_mut(),
+                ISCSI_BDEV_MOD.as_mut_ptr(),
+            )
+        };
         Ok(iqn)
     }
 }
@@ -226,8 +257,6 @@ pub async fn unshare(bdev_name: &str) -> Result<()> {
     let iqn = target_name(bdev_name);
     let c_iqn = CString::new(iqn.clone()).unwrap();
 
-    info!("Destroying iscsi target {}", iqn);
-
     unsafe {
         iscsi_shutdown_tgt_node_by_name(
             c_iqn.as_ptr(),
@@ -239,6 +268,11 @@ pub async fn unshare(bdev_name: &str) -> Result<()> {
         .await
         .expect("Cancellation is not supported")
         .context(DestroyTarget {})?;
+    let bdev = Bdev::lookup_by_name(bdev_name)
+        .expect("unshared a non-existing bdev?!");
+    unsafe {
+        spdk_bdev_module_release_bdev(bdev.as_ptr());
+    };
     info!("Destroyed iscsi target {}", bdev_name);
     Ok(())
 }
