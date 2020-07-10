@@ -39,13 +39,16 @@ fn get_iscsiadm() -> Result<&'static str, Error> {
     }
 }
 
-fn wait_for_path_to_exist(devpath: &str, max_retries: i32) -> bool {
-    let second = time::Duration::from_millis(1000);
+fn wait_for_path_to_exist(
+    devpath: &str,
+    timeout: time::Duration,
+    max_retries: u32,
+) -> bool {
     let device_path = Path::new(devpath);
-    let mut retries: i32 = 0;
+    let mut retries: u32 = 0;
     let now = time::Instant::now();
     while !device_path.exists() && retries < max_retries {
-        thread::sleep(second);
+        thread::sleep(timeout);
         retries += 1;
     }
     trace!(
@@ -79,67 +82,97 @@ fn attach_disk(
         format!("/dev/disk/by-path/ip-{}-iscsi-{}-lun-{}", tp, iqn, lun);
     let iscsiadm = get_iscsiadm()?;
 
-    let target = format!("{},{} {}", tp, lun, iqn);
+    static RE_SESSION: Lazy<regex::Regex> = Lazy::new(|| {
+        regex::Regex::new(
+            r"\s*(?P<tp>\d+.\d+.\d+.\d+:\d+),0\s*(?P<iqn>iqn.2019-05.io.openebs:nexus-.*)\s"
+    )
+    .unwrap()
+    });
 
-    // If the device path exists then a previous invocation of this
-    // method has succeeded.
-    if wait_for_path_to_exist(device_path.as_str(), 1) {
-        trace!("path already exists!");
-        return Ok(iscsi_realpath(device_path));
-    }
-
-    let args_discovery =
-        ["-m", "discovery", "-t", "st", "-p", &tp, "-I", "default"];
-    trace!("iscsiadm {:?}", &args_discovery);
+    let args_sessions = ["-m", "session"];
     let output = Command::new(&iscsiadm)
-        .args(&args_discovery)
+        .args(&args_sessions)
         .output()
-        .expect("Failed iscsiadm discovery");
-    if !output.status.success() {
-        return Err(Error::from(CSIError::Iscsiadm {
-            error: String::from_utf8(output.stderr).unwrap(),
-        }));
+        .expect("Failed iscsiadm session");
+
+    let mut have_session = false;
+    if output.status.success() {
+        let op = String::from_utf8(output.stdout).unwrap();
+        let haystack: Vec<&str> = op.split('\n').collect();
+        for session in haystack {
+            if let Some(details) = RE_SESSION.captures(session) {
+                if tp == &details["tp"] && iqn == &details["iqn"] {
+                    debug!("Found session for {} {}", tp, iqn);
+                    have_session = true;
+                }
+            }
+        }
     }
 
-    // Check that the output from the iscsiadm discover command lists
-    // the iscsi target we need to login.
-    // If not fail.
-    let op = String::from_utf8(output.stdout).unwrap();
-    let haystack: Vec<&str> = op.split('\n').collect();
-    if !haystack.iter().any(|&s| s == target.as_str()) {
-        trace!("After discovery no record for {}", target);
-        return Err(Error::from(CSIError::Iscsiadm {
-            error: format!("No record for {}", target),
-        }));
-    }
+    // Do not attempt to create a session if one exists.
+    if !have_session {
+        let target = format!("{},{} {}", tp, lun, iqn);
 
-    let args_login = [
-        "-m", "node", "-p", &tp, "-T", &iqn, "-I", "default", "--login",
-    ];
-    trace!("iscsiadm {:?}", args_login);
-    // login to iscsi target
-    let output = Command::new(&iscsiadm)
-        .args(&args_login)
-        .output()
-        .expect("Failed iscsiadm login");
-    if !output.status.success() {
-        let args_login_del = [
-            "-m", "node", "-p", &tp, "-T", &iqn, "-I", "default", "-o",
-            "delete",
+        let args_discovery =
+            ["-m", "discovery", "-t", "st", "-p", &tp, "-I", "default"];
+        trace!("iscsiadm {:?}", &args_discovery);
+        let output = Command::new(&iscsiadm)
+            .args(&args_discovery)
+            .output()
+            .expect("Failed iscsiadm discovery");
+        if !output.status.success() {
+            return Err(Error::from(CSIError::Iscsiadm {
+                error: String::from_utf8(output.stderr).unwrap(),
+            }));
+        }
+
+        // Check that the output from the iscsiadm discover command lists
+        // the iscsi target we need to login.
+        // If not fail.
+        let op = String::from_utf8(output.stdout).unwrap();
+        let haystack: Vec<&str> = op.split('\n').collect();
+        if !haystack.iter().any(|&s| s == target.as_str()) {
+            trace!("After discovery no record for {}", target);
+            return Err(Error::from(CSIError::Iscsiadm {
+                error: format!("No record for {}", target),
+            }));
+        }
+
+        let args_login = [
+            "-m", "node", "-p", &tp, "-T", &iqn, "-I", "default", "--login",
         ];
-        // delete the node record from the database.
-        Command::new(&iscsiadm).args(&args_login_del);
-        return Err(Error::from(CSIError::Iscsiadm {
-            error: String::from_utf8(output.stderr).unwrap(),
-        }));
+        trace!("iscsiadm {:?}", args_login);
+        // login to iscsi target
+        let output = Command::new(&iscsiadm)
+            .args(&args_login)
+            .output()
+            .expect("Failed iscsiadm login");
+        if !output.status.success() {
+            let args_login_del = [
+                "-m", "node", "-p", &tp, "-T", &iqn, "-I", "default", "-o",
+                "delete",
+            ];
+            // delete the node record from the database.
+            Command::new(&iscsiadm).args(&args_login_del);
+            return Err(Error::from(CSIError::Iscsiadm {
+                error: String::from_utf8(output.stderr).unwrap(),
+            }));
+        }
     }
 
-    if wait_for_path_to_exist(device_path.as_str(), 10) {
+    // 10 retries at 100ms intervals = 1000ms = 1 second.
+    let timeout = time::Duration::from_millis(100);
+    const RETRIES: u32 = 10;
+    if wait_for_path_to_exist(device_path.as_str(), timeout, RETRIES) {
         trace!("{} path exists!", device_path)
     } else {
-        trace!("{} path does not exist after 10s!", device_path);
+        trace!(
+            "{} path does not exist after {:?}!",
+            device_path,
+            timeout * RETRIES
+        );
         return Err(Error::from(CSIError::AttachTimeout {
-            value: 1000,
+            value: (timeout * RETRIES),
         }));
     }
     Ok(iscsi_realpath(device_path))
@@ -274,7 +307,7 @@ fn get_iscsi_device_path(uuid: &str) -> Result<String, Error> {
 /// target matching the volume id has been mounted or None.
 pub fn iscsi_find(uuid: &str) -> Option<String> {
     if let Ok(path) = get_iscsi_device_path(uuid) {
-        if wait_for_path_to_exist(path.as_str(), 0) {
+        if Path::new(path.as_str()).exists() {
             return Some(iscsi_realpath(path));
         }
     }
