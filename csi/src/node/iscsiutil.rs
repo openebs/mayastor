@@ -41,16 +41,14 @@ fn get_iscsiadm() -> Result<&'static str, Error> {
 
 fn wait_for_path_to_exist(
     devpath: &str,
-    sleepmillis: u64,
-    millis: u64,
+    timeout: time::Duration,
+    max_retries: u32,
 ) -> bool {
-    let millisecond = time::Duration::from_millis(sleepmillis);
-    let max_retries = (millis + sleepmillis - 1) / sleepmillis;
     let device_path = Path::new(devpath);
-    let mut retries: u64 = 0;
+    let mut retries: u32 = 0;
     let now = time::Instant::now();
     while !device_path.exists() && retries < max_retries {
-        thread::sleep(millisecond);
+        thread::sleep(timeout);
         retries += 1;
     }
     trace!(
@@ -162,17 +160,19 @@ fn attach_disk(
         }
     }
 
-    let millis: u64 = 1000;
-    if wait_for_path_to_exist(device_path.as_str(), 10, millis) {
+    // 10 retries at 100ms intervals = 1000ms = 1 second.
+    let timeout = time::Duration::from_millis(100);
+    const RETRIES: u32 = 10;
+    if wait_for_path_to_exist(device_path.as_str(), timeout, RETRIES) {
         trace!("{} path exists!", device_path)
     } else {
         trace!(
-            "{} path does not exist after {} milliseconds!",
+            "{} path does not exist after {:?}!",
             device_path,
-            millis
+            timeout * RETRIES
         );
         return Err(Error::from(CSIError::AttachTimeout {
-            value: millis,
+            value: (timeout * RETRIES),
         }));
     }
     Ok(iscsi_realpath(device_path))

@@ -49,8 +49,8 @@ pub enum CSIError {
     Iscsiadm { error: String },
     #[fail(display = "Cannot find {}", execname)]
     ExecutableNotFound { execname: String },
-    #[fail(display = "Could not attach disk after {} milliseconds", value)]
-    AttachTimeout { value: u64 },
+    #[fail(display = "Could not attach disk after {:?}", value)]
+    AttachTimeout { value: std::time::Duration },
     #[fail(display = "Invalid URI {}", uristr)]
     InvalidURI { uristr: String },
     #[fail(display = "Invalid device path {}", devpath)]
