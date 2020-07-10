@@ -1,0 +1,17 @@
+---
+source: ~
+nexus_opts:
+  nvmf_enable: true
+  nvmf_discovery_enable: true
+  nvmf_nexus_port: 8420
+  nvmf_replica_port: 8430
+  iscsi_enable: false
+err_store_opts:
+  err_store_size: 256
+  enable_err_store: true
+base_bdevs:
+  - uri: "aio:///dev/vdb"
+    uuid: 00000000-76b6-4fcf-864d-1027d4038756
+nexus_bdevs: ~
+pools: ~
+implicit_share_base: true
