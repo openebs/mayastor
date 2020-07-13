@@ -180,6 +180,12 @@ class Node extends EventEmitter {
     });
     replicas = reply.replicas;
 
+    // Move the the node to online state before we attempt to merge objects
+    // because they might need to invoke rpc methods on the node.
+    var wasOffline = this.syncFailed > 0;
+    if (wasOffline) {
+      this.syncFailed = 0;
+    }
     // merge pools and replicas
     this._mergePoolsAndReplicas(pools, replicas);
     // merge nexus
@@ -187,8 +193,7 @@ class Node extends EventEmitter {
 
     log.debug(`The node "${this.name}" was successfully synced`);
 
-    if (this.syncFailed > 0) {
-      this.syncFailed = 0;
+    if (wasOffline) {
       this.emit('node', {
         eventType: 'mod',
         object: this
