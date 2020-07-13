@@ -86,6 +86,7 @@ The YAML files named below are to be found in the `deploy` folder of the Mayasto
     ```bash
     kubectl create -f nats-deployment.yaml
     kubectl create -f mayastorpoolcrd.yaml
+    kubectl create -f moac-rbac.yaml
     kubectl create -f moac-deployment.yaml
     kubectl create -f mayastor-daemonset.yaml
     ```
