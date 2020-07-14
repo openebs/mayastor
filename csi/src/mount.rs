@@ -1,180 +1,269 @@
-//! Utility functions for working with mountpoints
+//! Utility functions for mounting and unmounting filesystems.
+
+use std::{collections::HashSet, io::Error};
 
 use proc_mounts::MountIter;
 use sys_mount::{unmount, FilesystemType, Mount, MountFlags, UnmountFlags};
 
+// Simple trait for checking if the readonly (ro) option
+// is present in a "list" of options, while allowing for
+// flexibility as to the type of "list".
+pub(super) trait ReadOnly {
+    fn readonly(&self) -> bool;
+}
+
+impl ReadOnly for Vec<String> {
+    fn readonly(&self) -> bool {
+        self.iter().any(|entry| entry == "ro")
+    }
+}
+
+impl ReadOnly for &str {
+    fn readonly(&self) -> bool {
+        self.split(',').any(|entry| entry == "ro")
+    }
+}
+
 // Information about a mounted filesystem.
+#[derive(Debug)]
 pub struct MountInfo {
     pub source: String,
     pub dest: String,
-    pub opts: Vec<String>,
+    pub fstype: String,
+    pub options: Vec<String>,
 }
 
-// Return mountinfo matching source or destination or source and destination
-// depending on 'and' flag.
-pub fn match_mount(
+impl From<proc_mounts::MountInfo> for MountInfo {
+    fn from(mount: proc_mounts::MountInfo) -> MountInfo {
+        MountInfo {
+            source: mount.source.to_string_lossy().to_string(),
+            dest: mount.dest.to_string_lossy().to_string(),
+            fstype: mount.fstype,
+            options: mount.options,
+        }
+    }
+}
+
+/// Return mountinfo matching source and/or destination.
+pub fn find_mount(
     source: Option<&str>,
-    destination: Option<&str>,
-    and: bool,
+    target: Option<&str>,
 ) -> Option<MountInfo> {
-    for mount in MountIter::new().unwrap() {
-        if let Ok(mount) = mount {
-            let source_match = if let Some(src) = source {
-                if mount.source.to_string_lossy() == src {
-                    Some(true)
-                } else {
-                    Some(false)
-                }
-            } else {
-                None
-            };
-            let dest_match = if let Some(dst) = destination {
-                if mount.dest.to_string_lossy() == dst {
-                    Some(true)
-                } else {
-                    Some(false)
-                }
-            } else {
-                None
-            };
+    let mut found: Option<proc_mounts::MountInfo> = None;
 
-            let found = if and {
-                match source_match {
-                    Some(true) => match dest_match {
-                        Some(true) => true,
-                        Some(false) => false,
-                        None => true,
-                    },
-                    Some(false) => false,
-                    None => match dest_match {
-                        Some(true) => true,
-                        Some(false) => false,
-                        None => true,
-                    },
+    for entry in MountIter::new().unwrap() {
+        if let Ok(mount) = entry {
+            if let Some(value) = source {
+                if mount.source.to_string_lossy() == value {
+                    if let Some(value) = target {
+                        if mount.dest.to_string_lossy() == value {
+                            found = Some(mount);
+                        }
+                        continue;
+                    }
+                    found = Some(mount);
                 }
-            } else {
-                match source_match {
-                    Some(true) => true,
-                    Some(false) => match dest_match {
-                        Some(true) => true,
-                        Some(false) => false,
-                        None => false,
-                    },
-                    None => match dest_match {
-                        Some(true) => true,
-                        Some(false) => false,
-                        None => false,
-                    },
+                continue;
+            }
+            if let Some(value) = target {
+                if mount.dest.to_string_lossy() == value {
+                    found = Some(mount);
                 }
-            };
-
-            if found {
-                trace!("Matched mount: {:?}", mount);
-                return Some(MountInfo {
-                    source: mount.source.to_string_lossy().to_string(),
-                    dest: mount.dest.to_string_lossy().to_string(),
-                    opts: mount.options,
-                });
             }
         }
     }
-    None
+
+    found.map(MountInfo::from)
 }
 
-// XXX we rely that ordering of options between the two mounts is the same
-// which is a bit fragile.
-pub fn mount_opts_compare(m1: &[String], m2: &[String], ro: bool) -> bool {
-    if m1.len() != m2.len() {
-        return false;
-    }
-
-    for i in 0 .. m1.len() {
-        if m2[i] == "rw" && ro {
-            debug!("we are mounted as RW but request is RO that is OK");
+/// Check if options in "first" are also present in "second",
+/// but exclude values "ro" and "rw" from the comparison.
+pub(super) fn subset(first: &[String], second: &[String]) -> bool {
+    let set: HashSet<&String> = second.iter().collect();
+    for entry in first {
+        if entry == "ro" {
             continue;
         }
-        if m1[i] != m2[i] {
+        if entry == "rw" {
+            continue;
+        }
+        if set.get(entry).is_none() {
             return false;
         }
     }
     true
 }
 
-// Return supported filesystems and their default mount options.
+/// Return supported filesystems.
 pub fn probe_filesystems() -> Vec<String> {
-    // the first filesystem is the default one
-    let filesystems = vec!["xfs".to_string(), "ext4".to_string()];
-
-    filesystems
+    vec![String::from("xfs"), String::from("ext4")]
 }
 
-/// Mount filesystem
-pub fn mount_fs(
-    from: &str,
-    to: &str,
-    bind_mount: bool,
-    fstype: &str,
-    mnt_opts: &[String],
-) -> Result<(), String> {
-    debug!("Mounting {} ...", from);
+// Utility function to transform a vector of options
+// to the format required by sys_mount::Mount::new()
+fn parse(options: &[String]) -> (bool, String) {
+    let mut list: Vec<&str> = Vec::new();
+    let mut readonly: bool = false;
 
-    let mut flags = MountFlags::empty();
-    if bind_mount {
-        flags.insert(MountFlags::BIND);
-    }
-
-    // convert ro mount option to mount flag
-    let mut opts = Vec::new();
-    for opt in mnt_opts {
-        if opt == "ro" {
-            flags.insert(MountFlags::RDONLY);
-        } else {
-            opts.push(opt.to_owned())
+    for entry in options {
+        if entry == "ro" {
+            readonly = true;
+            continue;
         }
-    }
-    let opts = opts.join(",");
 
-    let res = Mount::new(
-        from,
-        to,
+        if entry == "rw" {
+            continue;
+        }
+
+        list.push(entry);
+    }
+
+    (readonly, list.join(","))
+}
+
+// Utility function to wrap a string in an Option.
+// Note that, in particular, the empty string is mapped to None.
+fn option(value: &str) -> Option<&str> {
+    if value.is_empty() {
+        None
+    } else {
+        Some(value)
+    }
+}
+
+// Utility function used for displaying a list of options.
+fn show(options: &[String]) -> String {
+    let list: Vec<String> = options
+        .iter()
+        .cloned()
+        .filter(|value| value != "rw")
+        .collect();
+
+    if list.is_empty() {
+        return String::from("none");
+    }
+
+    list.join(",")
+}
+
+/// Mount a device to a directory (mountpoint)
+pub fn filesystem_mount(
+    device: &str,
+    target: &str,
+    fstype: &str,
+    options: &[String],
+) -> Result<Mount, Error> {
+    let mut flags = MountFlags::empty();
+
+    let (readonly, value) = parse(options);
+
+    if readonly {
+        flags.insert(MountFlags::RDONLY);
+    }
+
+    let mount = Mount::new(
+        device,
+        target,
         FilesystemType::Manual(fstype),
         flags,
-        Some(&opts),
+        option(&value),
+    )?;
+
+    debug!(
+        "Filesystem ({}) on device {} mounted onto target {} (options: {})",
+        fstype,
+        device,
+        target,
+        show(options)
     );
 
-    match res {
-        Ok(_) => {
-            info!(
-                "Mounted {} fs on {} with opts \"{}\" to {}",
-                fstype, from, opts, to,
-            );
-            Ok(())
-        }
-        Err(err) => Err(format!(
-            "Failed to mount {} fs on {} with opts \"{}\" to {}: {}",
-            fstype, from, opts, to, err,
-        )),
-    }
+    Ok(mount)
 }
 
-/// Unmount a filesystem. We use different unmount flags for bind and non-bind
-/// mounts (corresponds to stage and publish type of mounts).
-pub fn unmount_fs(from: &str, bound: bool) -> Result<(), String> {
+/// Unmount a device from a directory (mountpoint)
+/// Should not be used for removing bind mounts.
+pub fn filesystem_unmount(target: &str) -> Result<(), Error> {
     let mut flags = UnmountFlags::empty();
 
-    if bound {
-        flags.insert(UnmountFlags::FORCE);
-    } else {
-        flags.insert(UnmountFlags::DETACH);
+    flags.insert(UnmountFlags::DETACH);
+
+    unmount(target, flags)?;
+
+    debug!("Target {} unmounted", target);
+
+    Ok(())
+}
+
+/// Bind mount a source path to a target path.
+/// Supports both directories and files.
+pub fn bind_mount(
+    source: &str,
+    target: &str,
+    file: bool,
+) -> Result<Mount, Error> {
+    let mut flags = MountFlags::empty();
+
+    flags.insert(MountFlags::BIND);
+
+    if file {
+        flags.insert(MountFlags::RDONLY);
     }
 
-    debug!("Unmounting {} (flags={:?}) ...", from, flags);
+    let mount = Mount::new(
+        source,
+        target,
+        FilesystemType::Manual("none"),
+        flags,
+        None,
+    )?;
 
-    match unmount(&from, flags) {
-        Ok(_) => {
-            info!("Filesystem at {} has been unmounted", from);
-            Ok(())
-        }
-        Err(err) => Err(format!("Failed to unmount fs at {}: {}", from, err)),
+    debug!("Source {} bind mounted onto target {}", source, target);
+
+    Ok(mount)
+}
+
+/// Bind remount a path to modify mount options.
+/// Assumes that target has already been bind mounted.
+pub fn bind_remount(target: &str, options: &[String]) -> Result<Mount, Error> {
+    let mut flags = MountFlags::empty();
+
+    let (readonly, value) = parse(options);
+
+    flags.insert(MountFlags::BIND);
+
+    if readonly {
+        flags.insert(MountFlags::RDONLY);
     }
+
+    flags.insert(MountFlags::REMOUNT);
+
+    let mount = Mount::new(
+        "none",
+        target,
+        FilesystemType::Manual("none"),
+        flags,
+        option(&value),
+    )?;
+
+    debug!(
+        "Target {} bind remounted (options: {})",
+        target,
+        show(options)
+    );
+
+    Ok(mount)
+}
+
+/// Unmounts a path that has previously been bind mounted.
+/// Should not be used for unmounting devices.
+pub fn bind_unmount(target: &str) -> Result<(), Error> {
+    let mut flags = UnmountFlags::empty();
+
+    flags.insert(UnmountFlags::FORCE);
+
+    unmount(target, flags)?;
+
+    debug!("Target {} bind unmounted", target);
+
+    Ok(())
 }
