@@ -41,7 +41,6 @@ use spdk_sys::{
 use crate::{
     core::Bdev,
     ffihelper::{cb_arg, done_errno_cb, ErrnoResult},
-    jsonrpc::{Code, RpcErrorCode},
     subsys::Config,
     target::Side,
 };
@@ -64,12 +63,6 @@ pub enum Error {
     CreateTarget {},
     #[snafu(display("Failed to destroy iscsi target"))]
     DestroyTarget { source: Errno },
-}
-
-impl RpcErrorCode for Error {
-    fn rpc_error_code(&self) -> Code {
-        Code::InternalError
-    }
 }
 
 type Result<T, E = Error> = std::result::Result<T, E>;

@@ -11,7 +11,6 @@ const async = require('async');
 const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
-const { createClient } = require('grpc-kit');
 const grpc = require('grpc');
 const common = require('./test_common');
 const enums = require('./grpc_enums');
@@ -61,30 +60,6 @@ function destroyTestDisk (diskFile, loopDev, done) {
   }
 }
 
-function createGrpcClient (service) {
-  return createClient(
-    {
-      protoPath: path.join(
-        __dirname,
-        '..',
-        'rpc',
-        'proto',
-        'mayastor_service.proto'
-      ),
-      packageName: 'mayastor_service',
-      serviceName: 'Mayastor',
-      options: {
-        keepCase: true,
-        longs: String,
-        enums: String,
-        defaults: true,
-        oneofs: true
-      }
-    },
-    endpoint
-  );
-}
-
 describe('replica', function () {
   var client;
 
@@ -116,7 +91,7 @@ describe('replica', function () {
   after(common.stopAll);
 
   before((done) => {
-    client = createGrpcClient('MayaStor');
+    client = common.createGrpcClient();
     if (!client) {
       return done(new Error('Failed to initialize grpc client'));
     }

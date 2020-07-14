@@ -9,8 +9,6 @@ extern crate serde_json;
 extern crate snafu;
 extern crate spdk_sys;
 
-pub use replicas::{rebuild, replica};
-
 pub mod bdev;
 pub mod core;
 pub mod delay;
@@ -21,7 +19,8 @@ pub mod logger;
 pub mod nats;
 pub mod nexus_uri;
 pub mod pool;
-pub mod replicas;
+pub mod rebuild;
+pub mod replica;
 pub mod subsys;
 pub mod target;
 

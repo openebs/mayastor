@@ -60,7 +60,7 @@ cargo build --all
 ```
 
 Binaries will be installed in `$(CURDIR)/target/release` after running the build you can use
-`$(CURDIR)/target/release/mctl` to create a Nexus.
+`$(CURDIR)/target/release/mayastor-client` to create a Nexus.
 
 ## Build inside docker
 

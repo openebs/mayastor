@@ -151,38 +151,19 @@ fn yaml_pool_tests() {
     ];
 
     run_test(Box::from(args.clone()), |ms| {
-        let pools = common::retry(10, Duration::from_millis(500), || {
-            let p = ms.rpc_call("list_pools", serde_json::json!(null)).unwrap();
-            if p.is_array() {
-                Ok(p)
+        let lvs_list = common::retry(10, Duration::from_millis(500), || {
+            let lvs_list = ms
+                .rpc_call("bdev_lvol_get_lvstores", serde_json::json!(null))
+                .unwrap();
+            if lvs_list.is_array() {
+                Ok(lvs_list)
             } else {
                 Err(())
             }
         });
-
-        assert_eq!(
-            pools.as_array().unwrap()[0]
-                .as_object()
-                .unwrap()
-                .get("name")
-                .unwrap(),
-            "tpool"
-        );
-
-        // Ok we got our pool, lets try to grab the UUID.  We don't have that
-        // property in our code so use the builtin ones to extract it.
-        let lvols = ms
-            .rpc_call("bdev_lvol_get_lvstores", serde_json::json!(null))
-            .unwrap();
-
-        let lvol_uuid = lvols.as_array().unwrap()[0]
-            .as_object()
-            .unwrap()
-            .get("uuid")
-            .unwrap()
-            .to_string();
-
-        *uuid.lock().unwrap() = lvol_uuid;
+        let lvs = lvs_list.as_array().unwrap()[0].as_object().unwrap();
+        assert_eq!(lvs.get("name").unwrap(), "tpool");
+        *uuid.lock().unwrap() = lvs.get("uuid").unwrap().to_string();
 
         // delete our config file to validate that pool export logic works
         // properly

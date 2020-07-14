@@ -7,7 +7,7 @@ use common::error_bdev;
 use mayastor::{
     bdev::{nexus_lookup, ChildStatus, VerboseError},
     core::{MayastorCliArgs, MayastorEnvironment, Mthread, Reactor},
-    replicas::rebuild::{RebuildJob, RebuildState, SEGMENT_SIZE},
+    rebuild::{RebuildJob, RebuildState, SEGMENT_SIZE},
 };
 use rpc::mayastor::ShareProtocolNexus;
 

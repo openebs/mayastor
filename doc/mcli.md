@@ -1,5 +1,9 @@
 # Overview
 
+!!! The doc is *stale* !!!
+
+TODO: Either rewrite all examples using mayastor-client tool or remove the doc.
+
 This section shows a couple of examples of what you already can do with MayaStor today:
 
  - [mctl (MayaStor sea-thee-el)](#mctl)

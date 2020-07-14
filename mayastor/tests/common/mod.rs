@@ -8,8 +8,7 @@ use url::{ParseError, Url};
 use mayastor::{
     core::{MayastorEnvironment, Mthread},
     logger,
-    rebuild::{RebuildJob, RebuildState},
-    replicas::rebuild::ClientOperations,
+    rebuild::{ClientOperations, RebuildJob, RebuildState},
 };
 use spdk_sys::spdk_get_thread;
 

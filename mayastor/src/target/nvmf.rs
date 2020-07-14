@@ -67,7 +67,6 @@ use spdk_sys::{
 use crate::{
     core::{Bdev, Reactors},
     ffihelper::{cb_arg, done_errno_cb, errno_result_from_i32, ErrnoResult},
-    jsonrpc::{Code, RpcErrorCode},
     subsys::{Config, NvmfSubsystem},
 };
 
@@ -111,17 +110,6 @@ pub enum Error {
     ListenSubsystem { nqn: String },
     #[snafu(display("Failed to add namespace to nvmf subsystem {}", nqn))]
     AddNamespace { nqn: String },
-}
-
-impl RpcErrorCode for Error {
-    fn rpc_error_code(&self) -> Code {
-        match self {
-            Error::TargetAddress {
-                ..
-            } => Code::InvalidParams,
-            _ => Code::InternalError,
-        }
-    }
 }
 
 type Result<T, E = Error> = std::result::Result<T, E>;

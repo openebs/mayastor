@@ -113,6 +113,8 @@ describe('csi', function () {
     common.startMayastor(CONFIG);
     common.startMayastorCsi();
 
+    var client = common.createGrpcClient();
+
     async.series(
       [
         (next) => {
@@ -124,12 +126,12 @@ describe('csi', function () {
                 return pingDone(err);
               }
               // use harmless method to test if the mayastor is up and running
-              common.dumbCommand('get_bdevs', {}, pingDone);
+              common.jsonrpcCommand('get_bdevs', {}, pingDone);
             });
           }, next);
         },
         (next) => {
-          common.dumbCommand(
+          common.jsonrpcCommand(
             'construct_lvol_store',
             { bdev_name: 'Malloc0', lvs_name: 'tpool' },
             next
@@ -140,8 +142,7 @@ describe('csi', function () {
             5,
             function (n, next) {
               const uuid = BASE_UUID + n;
-              common.dumbCommand(
-                'create_replica',
+              client.createReplica(
                 {
                   uuid: uuid,
                   pool: 'tpool',
@@ -160,8 +161,7 @@ describe('csi', function () {
             5,
             function (n, next) {
               const uuid = BASE_UUID + n;
-              common.dumbCommand(
-                'create_nexus',
+              client.createNexus(
                 {
                   uuid: uuid,
                   size: 25 * 1024 * 1024,
@@ -173,7 +173,10 @@ describe('csi', function () {
             next
           );
         }
-      ], done);
+      ], (err) => {
+        client.close();
+        done(err);
+      });
   });
 
   // stop mayastor server if it was started by us
@@ -307,6 +310,7 @@ describe('csi', function () {
   });
 
   csiProtocolTest('NBD', enums.NEXUS_NBD, 10000);
+  // TODO: find out why it takes 2 minutes to execute the tests
   csiProtocolTest('iSCSI', enums.NEXUS_ISCSI, 120000);
   csiProtocolTest('NVMF', enums.NEXUS_NVMF, 120000);
 });
@@ -314,78 +318,55 @@ describe('csi', function () {
 function csiProtocolTest (protoname, shareType, timeoutMillis) {
   describe(protoname, function () {
     this.timeout(timeoutMillis); // for network tests we need long timeouts
-    const publishedUris = new Map();
+    const publishedUris = {};
 
     // Start mayastor and create the lvol configuration needed for testing.
     // NOTE: Don't use mayastor in setup - we test CSI interface and we don't want
     // to depend on correct function of mayastor iface in order to test CSI.
     before((done) => {
-      async.series(
-        [
-          (next) => {
-            async.times(
-              5,
-              function (n, next) {
-                const uuid = BASE_UUID + n;
-                common.dumbCommand(
-                  'publish_nexus',
-                  {
-                    uuid: uuid,
-                    key: '',
-                    share: shareType
-                  },
-                  next
-                );
-              },
-              next
-            );
-          }
-        ],
-        function (err, stdouts) {
+      var client = common.createGrpcClient();
+      async.times(
+        5,
+        (n, next) => {
+          const uuid = BASE_UUID + n;
+          client.publishNexus(
+            {
+              uuid: uuid,
+              key: '',
+              share: shareType
+            },
+            next
+          );
+        },
+        (err, results) => {
+          client.close();
           if (err) {
-            done(err);
-          } else {
-            // Ugh {
-            // We do not care about the output of all the
-            // commands except publish_nexus.
-            // common.dumbCommand does not return stdout,
-            // common.mCtl (bad name) does.
-            // The last sequence we did, was publish the nexuses
-            // so the collection of interest is the last
-            // collection in the collection of collections.
-            // } Ugh
-            const devicePaths = stdouts[stdouts.length - 1];
-            for (var n in devicePaths) {
-              const tmp = JSON.parse(devicePaths[n]);
-              const uuid = BASE_UUID + n;
-              // stash the published URIs in a map indexed
-              // on the uuid of the volume.
-              publishedUris.set(uuid, { uri: tmp.device_path });
-            }
-            done();
+            return done(err);
           }
+          for (var n in results) {
+            const uuid = BASE_UUID + n;
+            // stash the published URIs in a map indexed
+            // on the uuid of the volume.
+            publishedUris[uuid] = { uri: results[n].device_path };
+          }
+          done();
         }
       );
     });
 
     // stop mayastor server if it was started by us
     after((done) => {
-      async.series(
-        [
-          (next) => {
-            async.times(
-              5,
-              function (n, next) {
-                const uuid = BASE_UUID + n;
-                common.dumbCommand('unpublish_nexus', { uuid: uuid }, next);
-              },
-              function () {
-                next();
-              }
-            );
-          }
-        ],
-        done
+      var client = common.createGrpcClient();
+      async.times(
+        5,
+        function (n, next) {
+          const uuid = BASE_UUID + n;
+          client.unpublishNexus({ uuid: uuid }, next);
+        },
+        function () {
+          client.close();
+          done();
+        }
       );
     });
 
@@ -397,7 +378,7 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
       function getDefaultArgs () {
         return {
           volume_id: UUID1,
-          publish_context: publishedUris.get(UUID1),
+          publish_context: publishedUris[UUID1],
           staging_target_path: mountTarget,
           volume_capability: {
             access_mode: {
@@ -453,7 +434,7 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
       it('staging a volume with the same staging path but with a different bdev should fail', (done) => {
         const args = getDefaultArgs();
         args.volume_id = UUID2;
-        args.publish_context = publishedUris.get(UUID2);
+        args.publish_context = publishedUris[UUID2];
 
         client.nodeStageVolume(
           args,
@@ -553,7 +534,7 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
         client.nodeStageVolume(
           {
             volume_id: UUID2,
-            publish_context: publishedUris.get(UUID2),
+            publish_context: publishedUris[UUID2],
             staging_target_path: mountTarget,
             volume_capability: {
               access_mode: {
@@ -612,7 +593,7 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
       it('should fail to stage unsupported fs', (done) => {
         const args = {
           volume_id: UUID3,
-          publish_context: publishedUris.get(UUID3),
+          publish_context: publishedUris[UUID3],
           staging_target_path: mountTarget,
           volume_capability: {
             access_mode: {
@@ -653,7 +634,7 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
         before((done) => {
           const stageArgs = {
             volume_id: UUID4,
-            publish_context: publishedUris.get(UUID4),
+            publish_context: publishedUris[UUID4],
             staging_target_path: mountTarget,
             volume_capability: {
               access_mode: {
@@ -703,7 +684,7 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
         it('should publish a volume in ro mode and test it is idempotent op', (done) => {
           const args = {
             volume_id: UUID4,
-            publish_context: publishedUris.get(UUID4),
+            publish_context: publishedUris[UUID4],
             staging_target_path: mountTarget,
             target_path: bindTarget1,
             volume_capability: {
@@ -728,7 +709,7 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
         it('should fail when re-publishing with a different staging path', (done) => {
           const args = {
             volume_id: UUID4,
-            publish_context: publishedUris.get(UUID4),
+            publish_context: publishedUris[UUID4],
             staging_target_path: '/invalid_staging_path',
             target_path: bindTarget1,
             volume_capability: {
@@ -750,7 +731,7 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
         it('should fail with a missing target path', (done) => {
           const args = {
             volume_id: UUID4,
-            publish_context: publishedUris.get(UUID4),
+            publish_context: publishedUris[UUID4],
             staging_target_path: mountTarget,
             volume_capability: {
               access_mode: {
@@ -771,7 +752,7 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
         it('should fail to publish the volume as rw', (done) => {
           const args = {
             volume_id: UUID4,
-            publish_context: publishedUris.get(UUID4),
+            publish_context: publishedUris[UUID4],
             staging_target_path: mountTarget,
             target_path: bindTarget2,
             volume_capability: {
@@ -834,7 +815,7 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
         before((done) => {
           const stageArgs = {
             volume_id: UUID5,
-            publish_context: publishedUris.get(UUID5),
+            publish_context: publishedUris[UUID5],
             staging_target_path: mountTarget,
             volume_capability: {
               access_mode: {
@@ -883,7 +864,7 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
         it('should publish ro volume', (done) => {
           const args = {
             volume_id: UUID5,
-            publish_context: publishedUris.get(UUID5),
+            publish_context: publishedUris[UUID5],
             staging_target_path: mountTarget,
             target_path: bindTarget1,
             readonly: true,
@@ -909,7 +890,7 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
         it('should publish rw volume', (done) => {
           const args = {
             volume_id: UUID5,
-            publish_context: publishedUris.get(UUID5),
+            publish_context: publishedUris[UUID5],
             staging_target_path: mountTarget,
             target_path: bindTarget2,
             volume_capability: {

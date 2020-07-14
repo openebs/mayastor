@@ -5,10 +5,7 @@ use nix::errno::Errno;
 use snafu::Snafu;
 use url::ParseError;
 
-use crate::{
-    bdev::Uri,
-    jsonrpc::{Code, RpcErrorCode},
-};
+use crate::bdev::Uri;
 
 // parse URI and bdev create/destroy errors common for all types of bdevs
 #[derive(Debug, Snafu, Clone)]
@@ -55,38 +52,6 @@ pub enum NexusBdevError {
     DestroyBdev { source: Errno, name: String },
     #[snafu(display("Command canceled for bdev {}", name))]
     CancelBdev { source: Canceled, name: String },
-}
-
-impl RpcErrorCode for NexusBdevError {
-    fn rpc_error_code(&self) -> Code {
-        match self {
-            NexusBdevError::UrlParseError {
-                ..
-            } => Code::InvalidParams,
-            NexusBdevError::UriSchemeUnsupported {
-                ..
-            } => Code::InvalidParams,
-            NexusBdevError::UriInvalid {
-                ..
-            } => Code::InvalidParams,
-            NexusBdevError::BoolParamParseError {
-                ..
-            } => Code::InvalidParams,
-            NexusBdevError::IntParamParseError {
-                ..
-            } => Code::InvalidParams,
-            NexusBdevError::BdevExists {
-                ..
-            } => Code::AlreadyExists,
-            NexusBdevError::BdevNotFound {
-                ..
-            } => Code::NotFound,
-            NexusBdevError::InvalidParams {
-                ..
-            } => Code::InvalidParams,
-            _ => Code::InternalError,
-        }
-    }
 }
 
 /// Parse URI and create bdev described in the URI.

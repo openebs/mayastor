@@ -28,7 +28,7 @@ rec {
       ../../../target/debug/mayastor
       ../../../target/debug/mayastor-csi
       ../../../target/debug/mayastor-client
-      ../../../target/debug/mctl
+      ../../../target/debug/jsonrpc
     ];
 
     buildInputs = [

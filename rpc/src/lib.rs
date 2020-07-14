@@ -2,10 +2,9 @@ extern crate bytes;
 extern crate prost;
 extern crate prost_derive;
 extern crate serde;
-extern crate tonic;
-#[macro_use]
 extern crate serde_derive;
 extern crate serde_json;
+extern crate tonic;
 #[allow(dead_code)]
 #[allow(clippy::type_complexity)]
 #[allow(clippy::unit_arg)]
@@ -21,5 +20,3 @@ pub mod mayastor {
 pub mod service {
     include!(concat!(env!("OUT_DIR"), "/mayastor_service.rs"));
 }
-
-pub mod jsonrpc;

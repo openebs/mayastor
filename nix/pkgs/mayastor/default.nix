@@ -35,7 +35,7 @@ let
 in
 rustPlatform.buildRustPackage rec {
   name = "mayastor";
-  cargoSha256 = "0bp3sy13c0d1g9ddqik2qijz8wb6v88nswhh1vy9pp2d9mqx2mkw";
+  cargoSha256 = "1ibpvh0kn1hkriv54l8zgk2p80kqjad64ck9b4kpy3f5scdy28nl";
 
   #cargoSha256 = "0000000000000000000000000000000000000000000000000000";
   version = sources.mayastor.branch;

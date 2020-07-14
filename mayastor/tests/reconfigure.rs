@@ -11,7 +11,7 @@ use mayastor::{
         MayastorEnvironment,
         Reactor,
     },
-    replicas::rebuild::RebuildState,
+    rebuild::RebuildState,
 };
 
 static DISKNAME1: &str = "/tmp/disk1.img";

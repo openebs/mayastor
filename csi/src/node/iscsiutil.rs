@@ -101,7 +101,7 @@ fn attach_disk(
         let haystack: Vec<&str> = op.split('\n').collect();
         for session in haystack {
             if let Some(details) = RE_SESSION.captures(session) {
-                if tp == &details["tp"] && iqn == &details["iqn"] {
+                if tp == details["tp"] && iqn == &details["iqn"] {
                     debug!("Found session for {} {}", tp, iqn);
                     have_session = true;
                 }

@@ -10,6 +10,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { exec, spawn } = require('child_process');
+const { createClient } = require('grpc-kit');
 const sudo = require('./sudo');
 
 const SOCK = '/tmp/mayastor_test.sock';
@@ -340,10 +341,11 @@ function restartMayastorCsi (ping, done) {
   );
 }
 
-// Execute rpc method using dumb jsonrpc client
-function dumbCommand (method, args, done) {
+// Execute rpc method using jsonrpc client
+function jsonrpcCommand (method, args, done) {
   exec(
-    '../target/debug/mctl -s ' +
+    getCmdPath('jsonrpc') +
+      ' -s ' +
       SOCK +
       ' raw' +
       ' ' +
@@ -359,6 +361,49 @@ function dumbCommand (method, args, done) {
       }
     }
   );
+}
+
+// Create mayastor grpc client. Must be closed by the user when not used anymore.
+function createGrpcClient () {
+  var client = createClient(
+    {
+      protoPath: path.join(
+        __dirname,
+        '..',
+        'rpc',
+        'proto',
+        'mayastor_service.proto'
+      ),
+      packageName: 'mayastor_service',
+      serviceName: 'Mayastor',
+      options: {
+        keepCase: true,
+        longs: String,
+        enums: String,
+        defaults: true,
+        oneofs: true
+      }
+    },
+    grpcEndpoint
+  );
+  if (!client) {
+    throw new Error('Failed to initialize grpc client');
+  }
+  return client;
+}
+
+// Create mayastor grpc client, call a method and return the result of it.
+function callGrpcMethod (method, args, done) {
+  var client;
+  try {
+    client = createGrpcClient();
+  } catch (err) {
+    return done(err);
+  }
+  client[method](args, (err, res) => {
+    client.close();
+    done(err, res);
+  });
 }
 
 // Ensure that /dev/nbd* devices are writable by the current process.
@@ -426,11 +471,13 @@ module.exports = {
   restartMayastorCsi,
   fixSocketPerms,
   grpcEndpoint,
-  dumbCommand,
+  jsonrpcCommand,
   execAsRoot,
   runAsRoot,
   ensureNbdWritable,
   restoreNbdPerms,
   getMyIp,
-  getCmdPath
+  getCmdPath,
+  createGrpcClient,
+  callGrpcMethod
 };
