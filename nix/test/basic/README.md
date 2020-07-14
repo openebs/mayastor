@@ -19,10 +19,6 @@ TODO:
 [ ] A test where we set up and deploy, k8s first, and then install mayastor would be very nice but for sure should be done last.
 
 
-
-Note, this will only work after a "cargo build --all" as it uses the
-mayastor-adhoc package, which simply copies whats in target/debug.
-
 # Run the test
 
 In order to run the test:
