@@ -12,7 +12,7 @@ const { MayastorServer } = require('./mayastor_mock');
 const enums = require('./grpc_enums');
 
 const UUID = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cbb';
-const EGRESS_ENDPOINT = '127.0.0.1:12345';
+const MS_ENDPOINT = '127.0.0.1:12345';
 
 module.exports = function () {
   var srv;
@@ -61,7 +61,7 @@ module.exports = function () {
 
     // start a fake mayastor server
     before(() => {
-      srv = new MayastorServer(EGRESS_ENDPOINT, pools, replicas, nexus).start();
+      srv = new MayastorServer(MS_ENDPOINT, pools, replicas, nexus).start();
     });
 
     after(() => {
@@ -108,7 +108,7 @@ module.exports = function () {
         node.on('node', (ev) => {
           nodeEvents.push(ev);
         });
-        node.connect(EGRESS_ENDPOINT);
+        node.connect(MS_ENDPOINT);
 
         setTimeout(() => {
           expect(node.isSynced()).to.be.true();
@@ -167,7 +167,7 @@ module.exports = function () {
           expect(ev.eventType).to.equal('mod');
           done();
         });
-        node.connect(EGRESS_ENDPOINT);
+        node.connect(MS_ENDPOINT);
       });
 
       afterEach(() => {
@@ -372,7 +372,7 @@ module.exports = function () {
   describe('sync failures', () => {
     // start a fake mayastor server
     beforeEach(() => {
-      srv = new MayastorServer(EGRESS_ENDPOINT, pools, replicas, nexus).start();
+      srv = new MayastorServer(MS_ENDPOINT, pools, replicas, nexus).start();
     });
 
     afterEach(() => {
@@ -429,7 +429,7 @@ module.exports = function () {
           }
         }
       });
-      node.connect(EGRESS_ENDPOINT);
+      node.connect(MS_ENDPOINT);
     });
 
     it('should tollerate n sync failures when configured so', (done) => {
@@ -463,7 +463,7 @@ module.exports = function () {
           done();
         });
       });
-      node.connect(EGRESS_ENDPOINT);
+      node.connect(MS_ENDPOINT);
     });
 
     it('should emit event when the node is synced after being disconnected', (done) => {
@@ -490,13 +490,21 @@ module.exports = function () {
           expect(node.isSynced()).to.be.false();
 
           srv = new MayastorServer(
-            EGRESS_ENDPOINT,
+            MS_ENDPOINT,
             pools,
             replicas,
             nexus
           ).start();
 
+          // pool/replica/nexus event should be emitted before node event and
+          // node should be online when emitting those events.
+          var poolEvent;
+          node.once('pool', (ev) => {
+            expect(node.isSynced()).to.be.true();
+            poolEvent = ev;
+          });
           node.once('node', (ev) => {
+            expect(poolEvent).not.to.be.undefined();
             expect(ev.eventType).to.equal('mod');
             expect(ev.object).to.equal(node);
             expect(node.isSynced()).to.be.true();
@@ -504,7 +512,7 @@ module.exports = function () {
           });
         });
       });
-      node.connect(EGRESS_ENDPOINT);
+      node.connect(MS_ENDPOINT);
     });
   });
 
@@ -517,7 +525,7 @@ module.exports = function () {
 
     // start a fake mayastor server
     before((done) => {
-      srv = new MayastorServer(EGRESS_ENDPOINT, [], [], []).start();
+      srv = new MayastorServer(MS_ENDPOINT, [], [], []).start();
 
       // wait for the initial sync
       node = new Node('node');
@@ -525,7 +533,7 @@ module.exports = function () {
         expect(ev.eventType).to.equal('mod');
         done();
       });
-      node.connect(EGRESS_ENDPOINT);
+      node.connect(MS_ENDPOINT);
     });
 
     after(() => {
@@ -649,7 +657,7 @@ module.exports = function () {
           uri: 'bdev:///' + UUID
         }
       ];
-      srv = new MayastorServer(EGRESS_ENDPOINT, pools, replicas, []).start();
+      srv = new MayastorServer(MS_ENDPOINT, pools, replicas, []).start();
 
       // wait for the initial sync
       node = new Node('node');
@@ -657,7 +665,7 @@ module.exports = function () {
         expect(ev.eventType).to.equal('mod');
         done();
       });
-      node.connect(EGRESS_ENDPOINT);
+      node.connect(MS_ENDPOINT);
     });
 
     after(() => {
