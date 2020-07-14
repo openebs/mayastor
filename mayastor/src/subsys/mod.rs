@@ -7,6 +7,7 @@ use futures::FutureExt;
 pub use config::{BaseBdev, Config, NexusBdev, Pool};
 pub use nvmf::{NvmfSubsystem, SubType, Target as NvmfTarget};
 pub use opts::NexusOpts;
+use snafu::Snafu;
 use spdk_sys::{
     spdk_add_subsystem,
     spdk_add_subsystem_depend,
@@ -19,8 +20,7 @@ use spdk_sys::{
 };
 
 use crate::{
-    bdev::nexus::nexus_bdev::Error,
-    jsonrpc::jsonrpc_register,
+    jsonrpc::{jsonrpc_register, Code, RpcErrorCode},
     subsys::nvmf::Nvmf,
 };
 
@@ -29,6 +29,19 @@ mod nvmf;
 mod opts;
 
 static MAYASTOR_SUBSYS: &str = "mayastor";
+
+/// Empty error struct as currently there are no errors to return from jsonrpc
+/// methods here, but we still need it for defining jsonrpc method properly.
+/// If we have any error to return in the future, then we define it here.
+#[derive(Debug, Snafu)]
+enum Error {}
+
+impl RpcErrorCode for Error {
+    fn rpc_error_code(&self) -> Code {
+        Code::InternalError
+    }
+}
+
 pub struct MayastorSubsystem(pub *mut spdk_subsystem);
 
 impl Default for MayastorSubsystem {

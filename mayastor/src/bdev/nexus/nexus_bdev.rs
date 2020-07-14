@@ -14,7 +14,7 @@ use futures::channel::oneshot;
 use nix::errno::Errno;
 use serde::Serialize;
 use snafu::{ResultExt, Snafu};
-use tonic::{Code as GrpcCode, Status};
+use tonic::{Code, Status};
 use uuid::Uuid;
 
 use spdk_sys::{
@@ -51,7 +51,6 @@ use crate::{
     },
     core::{Bdev, DmaError},
     ffihelper::errno_result_from_i32,
-    jsonrpc::{Code, RpcErrorCode},
     nexus_uri::{bdev_destroy, NexusBdevError},
     rebuild::RebuildError,
 };
@@ -224,50 +223,6 @@ pub enum Error {
     },
 }
 
-impl RpcErrorCode for Error {
-    fn rpc_error_code(&self) -> Code {
-        match self {
-            Error::NexusNotFound {
-                ..
-            } => Code::NotFound,
-            Error::InvalidUuid {
-                ..
-            } => Code::InvalidParams,
-            Error::InvalidKey {
-                ..
-            } => Code::InvalidParams,
-            Error::AlreadyShared {
-                ..
-            } => Code::InvalidParams,
-            Error::NotShared {
-                ..
-            } => Code::InvalidParams,
-            Error::CreateChild {
-                ..
-            } => Code::InvalidParams,
-            Error::MixedBlockSizes {
-                ..
-            } => Code::InvalidParams,
-            Error::ChildGeometry {
-                ..
-            } => Code::InvalidParams,
-            Error::OpenChild {
-                ..
-            } => Code::InvalidParams,
-            Error::DestroyLastChild {
-                ..
-            } => Code::InvalidParams,
-            Error::ChildNotFound {
-                ..
-            } => Code::NotFound,
-            Error::InvalidShareProtocol {
-                ..
-            } => Code::InvalidParams,
-            _ => Code::InternalError,
-        }
-    }
-}
-
 impl From<Error> for tonic::Status {
     fn from(e: Error) -> Self {
         match e {
@@ -304,7 +259,7 @@ impl From<Error> for tonic::Status {
             Error::ChildNotFound {
                 ..
             } => Status::not_found(e.to_string()),
-            e => Status::new(GrpcCode::Internal, e.to_string()),
+            e => Status::new(Code::Internal, e.to_string()),
         }
     }
 }
@@ -992,7 +947,7 @@ pub fn uuid_to_name(uuid: &str) -> Result<String, Error> {
 ///
 /// This function never fails which means that if there is a nexus with
 /// unconventional name that likely means it was not created using nexus
-/// jsonrpc api, we return the whole name without modifications as it is.
+/// rpc api, we return the whole name without modifications as it is.
 pub fn name_to_uuid(name: &str) -> &str {
     if name.starts_with("nexus-") {
         &name[6 ..]

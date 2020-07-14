@@ -123,21 +123,24 @@ impl Mayastor for MayastorSvc {
         let args = request.into_inner();
         trace!("{:?}", args);
         assert_eq!(Cores::current(), Cores::first());
+        let mut pools = Vec::new();
 
+        for pool in pool::PoolsIter::new() {
+            pools.push(Pool {
+                name: pool.get_name().to_owned(),
+                disks: vec![
+                    pool.get_base_bdev().driver()
+                        + "://"
+                        + &pool.get_base_bdev().name(),
+                ],
+                // TODO: figure out how to detect state of pool
+                state: PoolState::PoolOnline as i32,
+                capacity: pool.get_capacity(),
+                used: pool.get_capacity() - pool.get_free(),
+            });
+        }
         let reply = ListPoolsReply {
-            pools: pool::list_pools()
-                .iter()
-                .map(|pool| Pool {
-                    name: pool.name.clone(),
-                    disks: pool.disks.clone(),
-                    state: match pool.state.as_str() {
-                        "online" => PoolState::PoolOnline,
-                        _ => PoolState::PoolFaulted,
-                    } as i32,
-                    capacity: pool.capacity,
-                    used: pool.used,
-                })
-                .collect(),
+            pools,
         };
 
         trace!("{:?}", reply);

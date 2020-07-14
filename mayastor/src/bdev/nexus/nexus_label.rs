@@ -14,7 +14,7 @@
 //!
 //! ```bash
 //! $ rm /code/disk1.img; truncate -s 1GiB /code/disk1.img
-//! $ mctl create gpt  -r  aio:////code/disk1.img?blk_size=512 -s 1GiB -b
+//! $ mayastor-client nexus create $UUID 1GiB aio:////code/disk1.img?blk_size=512
 //! $ sgdisk -p /code/disk1.img
 //! Disk /code//disk1.img: 2097152 sectors, 1024.0 MiB
 //! Sector size (logical): 512 bytes
@@ -34,7 +34,7 @@
 //! when shared by the nexus:
 //!
 //! ```bash
-//! $ mctl share gpt
+//! $ mayastor-client nexus share $UUID
 //! "/dev/nbd0"
 //!
 //! TODO: also note how it complains about a MBR

@@ -2,11 +2,7 @@
 
 use spdk_sys::spdk_bdev_module;
 
-use crate::bdev::nexus::{
-    nexus_bdev::Nexus,
-    nexus_fn_table::NexusFnTable,
-    nexus_rpc::register_rpc_methods,
-};
+use crate::bdev::nexus::{nexus_bdev::Nexus, nexus_fn_table::NexusFnTable};
 
 /// Allocate C string and return pointer to it.
 /// NOTE: The resulting string must be freed explicitly after use!
@@ -32,12 +28,10 @@ pub mod nexus_metadata_content;
 pub mod nexus_module;
 pub mod nexus_nbd;
 pub mod nexus_nvmf;
-pub mod nexus_rpc;
 pub mod nexus_share;
 
 /// public function which simply calls register module
 pub fn register_module() {
-    register_rpc_methods();
     nexus_module::register_module()
 }
 

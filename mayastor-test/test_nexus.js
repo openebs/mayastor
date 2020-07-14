@@ -12,7 +12,6 @@ const async = require('async');
 const fs = require('fs');
 const path = require('path');
 const { exec } = require('child_process');
-const { createClient } = require('grpc-kit');
 const grpc = require('grpc');
 const common = require('./test_common');
 const enums = require('./grpc_enums');
@@ -108,30 +107,6 @@ const configNvmfTarget = `
   MaxSessions 1
   MaxConnectionsPerSession 1
 `;
-
-function createGrpcClient (service) {
-  return createClient(
-    {
-      protoPath: path.join(
-        __dirname,
-        '..',
-        'rpc',
-        'proto',
-        'mayastor_service.proto'
-      ),
-      packageName: 'mayastor_service',
-      serviceName: 'Mayastor',
-      options: {
-        keepCase: true,
-        longs: String,
-        enums: String,
-        defaults: true,
-        oneofs: true
-      }
-    },
-    common.grpcEndpoint
-  );
-}
 
 var client;
 
@@ -314,7 +289,7 @@ describe('nexus', function () {
   this.timeout(50000); // for network tests we need long timeouts
 
   before((done) => {
-    client = createGrpcClient('MayaStor');
+    client = common.createGrpcClient();
     if (!client) {
       return done(new Error('Failed to initialize grpc client'));
     }

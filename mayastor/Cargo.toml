@@ -3,6 +3,7 @@ authors = ["Jeffry Molanus <jeffry.molanus@gmail.com>"]
 edition = "2018"
 name = "mayastor"
 version = "0.1.0"
+
 [[bin]]
 name = "mayastor"
 path = "src/bin/main.rs"
@@ -23,6 +24,10 @@ path = "src/bin/uring-support.rs"
 name = "mayastor-client"
 path = "src/bin/cli/cli.rs"
 
+[[bin]]
+name = "jsonrpc"
+path = "src/bin/jsonrpc.rs"
+
 [dependencies]
 async-task = "3.0"
 async-trait = "0.1.36"
@@ -40,6 +45,7 @@ futures-timer = "2.0"
 git-version = "0.3"
 io-uring = "0.3.4"
 ioctl-gen = "0.1.1"
+jsonrpc = { path = "../jsonrpc"}
 libc = "0.2"
 log = "0.4"
 nix = "0.16"

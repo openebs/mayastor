@@ -304,20 +304,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "cli"
-version = "0.1.0"
-dependencies = [
- "byte-unit",
- "clap",
- "jsonrpc",
- "rpc",
- "serde",
- "serde_json",
- "structopt 0.2.18",
- "tokio",
-]
-
-[[package]]
 name = "cloudabi"
 version = "0.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1228,6 +1214,7 @@ dependencies = [
  "git-version",
  "io-uring",
  "ioctl-gen",
+ "jsonrpc",
  "libc",
  "log",
  "nix 0.16.1",
@@ -1245,7 +1232,7 @@ dependencies = [
  "signal-hook",
  "snafu",
  "spdk-sys",
- "structopt 0.3.15",
+ "structopt",
  "sysfs",
  "tokio",
  "tokio-nats",
@@ -2157,35 +2144,13 @@ checksum = "6446ced80d6c486436db5c078dde11a9f73d42b57fb273121e160b84f63d894c"
 
 [[package]]
 name = "structopt"
-version = "0.2.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "16c2cdbf9cc375f15d1b4141bc48aeef444806655cd0e904207edc8d68d86ed7"
-dependencies = [
- "clap",
- "structopt-derive 0.2.18",
-]
-
-[[package]]
-name = "structopt"
 version = "0.3.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "de2f5e239ee807089b62adce73e48c625e0ed80df02c7ab3f068f5db5281065c"
 dependencies = [
  "clap",
  "lazy_static",
- "structopt-derive 0.4.8",
-]
-
-[[package]]
-name = "structopt-derive"
-version = "0.2.18"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "53010261a84b37689f9ed7d395165029f9cc7abb9f56bbfe86bee2597ed25107"
-dependencies = [
- "heck",
- "proc-macro2 0.4.30",
- "quote 0.6.13",
- "syn 0.15.44",
+ "structopt-derive",
 ]
 
 [[package]]

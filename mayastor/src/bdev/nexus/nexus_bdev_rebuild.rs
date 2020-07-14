@@ -21,8 +21,7 @@ use crate::{
         VerboseError,
     },
     core::Reactors,
-    rebuild::{ClientOperations, RebuildJob, RebuildState},
-    replicas::rebuild::RebuildError,
+    rebuild::{ClientOperations, RebuildError, RebuildJob, RebuildState},
 };
 
 impl Nexus {

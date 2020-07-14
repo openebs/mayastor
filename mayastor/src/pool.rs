@@ -1,4 +1,4 @@
-//! High-level storage pool json-rpc methods.
+//! High-level storage pool object methods.
 //!
 //! They provide abstraction on top of aio and uring bdev, lvol store, etc
 //! and export simple-to-use json-rpc methods for managing pools.
@@ -8,13 +8,10 @@ use std::{
     os::raw::c_char,
 };
 
-use futures::{
-    channel::oneshot,
-    future::{self, FutureExt},
-};
+use futures::channel::oneshot;
 use snafu::Snafu;
 
-use rpc::{jsonrpc as jsondata, mayastor::PoolIoIf};
+use rpc::mayastor::PoolIoIf;
 use spdk_sys::{
     bdev_aio_delete as delete_uring_bdev,
     bdev_aio_delete,
@@ -38,8 +35,6 @@ use crate::{
     bdev::util::uring,
     core::Bdev,
     ffihelper::{cb_arg, done_cb},
-    jsonrpc,
-    jsonrpc::RpcErrorCode,
     replica::ReplicaIter,
 };
 
@@ -97,70 +92,6 @@ pub enum Error {
         name: String,
         errno: i32,
     },
-}
-
-impl jsonrpc::RpcErrorCode for Error {
-    fn rpc_error_code(&self) -> jsonrpc::Code {
-        match self {
-            Error::BadNumDisks {
-                ..
-            } => jsonrpc::Code::InvalidParams,
-            Error::BadBdev {
-                ..
-            } => jsonrpc::Code::InvalidParams,
-            Error::UringUnsupported {
-                ..
-            } => jsonrpc::Code::InvalidParams,
-            Error::InvalidIoInterface {
-                ..
-            } => jsonrpc::Code::InvalidParams,
-            Error::AlreadyBdev {
-                ..
-            } => jsonrpc::Code::InvalidParams,
-            Error::UnknownBdev {
-                ..
-            } => jsonrpc::Code::NotFound,
-            Error::AlreadyExists {
-                ..
-            } => jsonrpc::Code::AlreadyExists,
-            Error::UnknownPool {
-                ..
-            } => jsonrpc::Code::NotFound,
-            Error::BadCreate {
-                ..
-            } => jsonrpc::Code::InvalidParams,
-            Error::FailedCreate {
-                ..
-            } => jsonrpc::Code::InvalidParams,
-            Error::PoolGone {
-                ..
-            } => jsonrpc::Code::InternalError,
-            Error::DeviceAlreadyUsed {
-                ..
-            } => jsonrpc::Code::InvalidParams,
-            Error::FailedImport {
-                ..
-            } => jsonrpc::Code::InternalError,
-            Error::FailedUnshareReplica {
-                ..
-            } => jsonrpc::Code::InternalError,
-            Error::FailedDestroyPool {
-                ..
-            } => jsonrpc::Code::InternalError,
-            Error::FailedDestroyBdev {
-                ..
-            } => jsonrpc::Code::InternalError,
-        }
-    }
-}
-
-impl From<Error> for jsonrpc::JsonRpcError {
-    fn from(e: Error) -> Self {
-        Self {
-            code: e.rpc_error_code(),
-            message: e.to_string(),
-        }
-    }
 }
 
 impl From<Error> for tonic::Status {
@@ -627,49 +558,4 @@ pub(crate) async fn destroy_pool(
     };
     pool.destroy().await?;
     Ok(())
-}
-
-pub(crate) fn list_pools() -> Vec<jsondata::Pool> {
-    let mut pools = Vec::new();
-
-    for pool in PoolsIter::new() {
-        pools.push(jsondata::Pool {
-            name: pool.get_name().to_owned(),
-            disks: vec![
-                pool.get_base_bdev().driver()
-                    + "://"
-                    + &pool.get_base_bdev().name(),
-            ],
-            // TODO: figure out how to detect state of pool
-            state: "online".to_owned(),
-            capacity: pool.get_capacity(),
-            used: pool.get_capacity() - pool.get_free(),
-        });
-    }
-    pools
-}
-
-/// Register storage pool json-rpc methods.
-pub fn register_pool_methods() {
-    // Joining create and import together is questionable, and we might split
-    // the two operations in the future. However, not until cache config file
-    // feature is implemented and requirements become clear.
-    jsonrpc::jsonrpc_register(
-        "create_or_import_pool",
-        |args: rpc::mayastor::CreatePoolRequest| {
-            create_pool(args).boxed_local()
-        },
-    );
-
-    jsonrpc::jsonrpc_register(
-        "destroy_pool",
-        |args: rpc::mayastor::DestroyPoolRequest| {
-            destroy_pool(args).boxed_local()
-        },
-    );
-
-    jsonrpc::jsonrpc_register::<(), _, _, jsonrpc::JsonRpcError>(
-        "list_pools",
-        |_| future::ok(list_pools()).boxed_local(),
-    );
 }

@@ -149,19 +149,19 @@ impl MayastorProcess {
         true
     }
 
-    /// call json-rpc method using mctl
+    /// call json-rpc method using the binary
     pub fn rpc_call(
         &self,
         method: &str,
         arg: serde_json::Value,
     ) -> Result<serde_json::Value, ()> {
-        let mctl = get_path("mctl");
+        let jsonrpc = get_path("jsonrpc");
 
-        let output = Command::new(mctl)
+        let output = Command::new(jsonrpc)
             .args(&["-s", &self.rpc_path, "raw", method])
             .arg(serde_json::to_string(&arg).unwrap())
             .output()
-            .expect("could not exec mctl");
+            .expect("could not exec jsonrpc");
 
         if !output.status.success() {
             panic!(

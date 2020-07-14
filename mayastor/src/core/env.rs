@@ -48,8 +48,6 @@ use crate::{
     grpc,
     logger,
     nats,
-    pool,
-    replica,
     subsys::Config,
     target::iscsi,
 };
@@ -672,10 +670,6 @@ impl MayastorEnvironment {
         Cores::count()
             .into_iter()
             .for_each(|c| Reactors::launch_remote(c).unwrap());
-
-        // register our RPC methods
-        pool::register_pool_methods();
-        replica::register_replica_methods();
 
         let rpc = CString::new(self.rpc_addr.as_str()).unwrap();
 
