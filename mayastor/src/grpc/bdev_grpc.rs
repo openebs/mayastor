@@ -4,9 +4,13 @@ use crate::{
     nexus_uri::{bdev_create, NexusBdevError},
 };
 
-use rpc::{
-    mayastor::Null,
-    service::{bdev_rpc_server::BdevRpc, BdevUri, Bdevs, CreateReply},
+use rpc::mayastor::{
+    bdev_rpc_server::BdevRpc,
+    Bdev as RpcBdev,
+    BdevUri,
+    Bdevs,
+    CreateReply,
+    Null,
 };
 use tonic::{Request, Response, Status};
 use tracing::instrument;
@@ -27,7 +31,7 @@ impl From<NexusBdevError> for tonic::Status {
         }
     }
 }
-impl From<Bdev> for rpc::service::Bdev {
+impl From<Bdev> for RpcBdev {
     fn from(b: Bdev) -> Self {
         Self {
             name: b.name(),
@@ -47,7 +51,7 @@ pub struct BdevSvc {}
 impl BdevRpc for BdevSvc {
     #[instrument(level = "debug", err)]
     async fn list(&self, _request: Request<Null>) -> GrpcResult<Bdevs> {
-        let mut list: Vec<rpc::service::Bdev> = Vec::new();
+        let mut list: Vec<RpcBdev> = Vec::new();
         if let Some(bdev) = Bdev::bdev_first() {
             bdev.into_iter().for_each(|bdev| list.push(bdev.into()))
         }

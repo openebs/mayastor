@@ -42,9 +42,9 @@ function runMockServer (rules) {
       '..',
       'rpc',
       'proto',
-      'mayastor_service.proto'
+      'mayastor.proto'
     ),
-    packageName: 'mayastor_service',
+    packageName: 'mayastor',
     serviceName: 'Mayastor',
     rules: rules
   });

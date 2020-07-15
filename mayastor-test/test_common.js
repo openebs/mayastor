@@ -372,9 +372,9 @@ function createGrpcClient () {
         '..',
         'rpc',
         'proto',
-        'mayastor_service.proto'
+        'mayastor.proto'
       ),
-      packageName: 'mayastor_service',
+      packageName: 'mayastor',
       serviceName: 'Mayastor',
       options: {
         keepCase: true,
