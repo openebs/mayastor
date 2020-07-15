@@ -44,7 +44,7 @@ function assertHasKeys (obj, keys, empty) {
 class MayastorServer {
   constructor (endpoint, pools, replicas, nexus) {
     var packageDefinition = protoLoader.loadSync(
-      path.join(__dirname, '..', 'proto', 'mayastor_service.proto'),
+      path.join(__dirname, '..', 'proto', 'mayastor.proto'),
       {
         keepCase: false,
         longs: Number,
@@ -53,8 +53,7 @@ class MayastorServer {
         oneofs: true
       }
     );
-    var protoDescriptor = grpc.loadPackageDefinition(packageDefinition);
-    var mayastor = protoDescriptor.mayastor_service;
+    var mayastor = grpc.loadPackageDefinition(packageDefinition).mayastor;
     var srv = new grpc.Server();
 
     this.pools = _.cloneDeep(pools || []);

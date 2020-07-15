@@ -3,7 +3,7 @@ use std::convert::From;
 use tonic::{Request, Response, Status};
 use tracing::instrument;
 
-use rpc::{mayastor::*, service::mayastor_server::Mayastor};
+use rpc::mayastor::*;
 
 use crate::{
     bdev::{
@@ -74,7 +74,7 @@ impl From<&NexusChild> for Child {
 pub struct MayastorSvc {}
 
 #[tonic::async_trait]
-impl Mayastor for MayastorSvc {
+impl mayastor_server::Mayastor for MayastorSvc {
     #[instrument(level = "debug", err)]
     async fn create_pool(
         &self,

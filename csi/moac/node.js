@@ -164,6 +164,7 @@ class Node extends EventEmitter {
 
     log.debug(`Syncing the node "${this.name}"`);
 
+    // TODO: Harden checking of outputs of the methods below
     reply = await this._call({
       method: 'listNexus',
       args: {}

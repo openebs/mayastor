@@ -1,7 +1,7 @@
 use tonic::transport::Server;
 
 use crate::grpc::{bdev_grpc::BdevSvc, mayastor_grpc::MayastorSvc};
-use rpc::service::{
+use rpc::mayastor::{
     bdev_rpc_server::BdevRpcServer,
     mayastor_server::MayastorServer as MayastorRpcServer,
 };

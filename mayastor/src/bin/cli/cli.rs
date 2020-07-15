@@ -5,7 +5,7 @@ use byte_unit::Byte;
 use clap::{App, AppSettings, Arg};
 use tonic::{transport::Channel, Status};
 
-use ::rpc::service::{
+use ::rpc::mayastor::{
     bdev_rpc_client::BdevRpcClient,
     mayastor_client::MayastorClient,
 };

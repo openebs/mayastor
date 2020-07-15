@@ -19,7 +19,7 @@ const defs = Object.values(
 );
 
 defs.forEach((ent) => {
-  if (ent.format.indexOf('EnumDescriptorProto') >= 0) {
+  if (ent.format && ent.format.indexOf('EnumDescriptorProto') >= 0) {
     ent.type.value.forEach((variant) => {
       constants[variant.name] = variant.number;
     });
