@@ -202,6 +202,8 @@ module.exports = function () {
         requiredBytes: 10,
         limitBytes: 20
       });
+      sinon.stub(returnedVolume, 'getSize').returns(20);
+      sinon.stub(returnedVolume, 'getNodeName').returns('some-node');
 
       beforeEach(async () => {
         server = await mockedServer();
@@ -216,7 +218,7 @@ module.exports = function () {
 
       it('should create a volume and return parameters in volume context', async () => {
         createVolumeStub.resolves(returnedVolume);
-        var parameters = { protocol: 'nbd', repl: 3, blah: 'again' };
+        var parameters = { protocol: 'iscsi', repl: 3, blah: 'again' };
         const result = await client.createVolume().sendMessage({
           name: 'pvc-' + UUID,
           capacityRange: {
@@ -236,7 +238,35 @@ module.exports = function () {
         for (const key in parameters) {
           expected[key] = parameters[key].toString();
         }
-        sinon.assert.match(result.volume.volumeContext, expected);
+        expect(result.volume.volumeId).to.equal(UUID);
+        expect(result.volume.capacityBytes).to.equal(20);
+        expect(result.volume.volumeContext).to.eql(expected);
+        expect(result.volume.accessibleTopology).to.have.lengthOf(0);
+      });
+
+      it('should create a volume that can be accessed only locally', async () => {
+        createVolumeStub.resolves(returnedVolume);
+        var parameters = { protocol: 'nbd', repl: 3, blah: 'again' };
+        const result = await client.createVolume().sendMessage({
+          name: 'pvc-' + UUID,
+          capacityRange: {
+            requiredBytes: 10,
+            limitBytes: 20
+          },
+          volumeCapabilities: [
+            {
+              accessMode: { mode: 'SINGLE_NODE_WRITER' },
+              block: {}
+            }
+          ],
+          parameters: parameters
+        });
+        expect(result.volume.accessibleTopology).to.have.lengthOf(1);
+        expect(result.volume.accessibleTopology[0]).to.eql({
+          segments: {
+            'kubernetes.io/hostname': 'some-node'
+          }
+        });
       });
 
       it('should fail if topology requirement other than hostname', async () => {
@@ -589,14 +619,14 @@ module.exports = function () {
       it('should publish volume', async () => {
         const volume = new Volume(UUID, registry, {});
         const publishStub = sinon.stub(volume, 'publish');
-        publishStub.resolves('/dev/nbd0');
+        publishStub.resolves('/dev/sdb');
         const getNodeNameStub = sinon.stub(volume, 'getNodeName');
         getNodeNameStub.returns('node');
         getVolumesStub.returns(volume);
 
         const reply = await client.controllerPublishVolume().sendMessage({
           volumeId: UUID,
-          nodeId: 'mayastor://node',
+          nodeId: 'mayastor://node2',
           readonly: false,
           volumeCapability: {
             accessMode: { mode: 'SINGLE_NODE_WRITER' },
@@ -605,13 +635,13 @@ module.exports = function () {
               mount_flags: 'ro'
             }
           },
-          volumeContext: { protocol: 'nbd' }
+          volumeContext: { protocol: 'iscsi' }
         });
-        expect(reply.publishContext.uri).to.equal('/dev/nbd0');
+        expect(reply.publishContext.uri).to.equal('/dev/sdb');
         sinon.assert.calledOnce(getVolumesStub);
         sinon.assert.calledWith(getVolumesStub, UUID);
         sinon.assert.calledOnce(publishStub);
-        sinon.assert.calledWith(publishStub, 'nbd');
+        sinon.assert.calledWith(publishStub, 'iscsi');
       });
 
       it('should not publish volume if it does not exist', async () => {
@@ -636,7 +666,7 @@ module.exports = function () {
         sinon.assert.calledWith(getVolumesStub, UUID);
       });
 
-      it('should not publish volume on a different node', async () => {
+      it('should not publish volume over nbd on a different node', async () => {
         const volume = new Volume(UUID, registry, {});
         const publishStub = sinon.stub(volume, 'publish');
         publishStub.resolves();
