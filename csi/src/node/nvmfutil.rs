@@ -64,9 +64,9 @@ fn wait_for_path_to_exist(
     timeout: time::Duration,
     max_retries: u32,
 ) -> Option<String> {
-    let mut retries: u32 = 0;
+    let mut iteration: u32 = 0;
     let now = time::Instant::now();
-    while retries < max_retries {
+    loop {
         if let Ok(path) = find_nvmf_device_by_uuid(&uuid) {
             trace!(
                 "wait_for_path_to_exist {} {} success for elapsed time is {:?}",
@@ -76,8 +76,11 @@ fn wait_for_path_to_exist(
             );
             return Some(path);
         }
+        if iteration >= max_retries {
+            break;
+        }
         thread::sleep(timeout);
-        retries += 1;
+        iteration += 1;
     }
     debug!("wait_for_path_to_exist timed out after {:?}", now.elapsed());
     None
