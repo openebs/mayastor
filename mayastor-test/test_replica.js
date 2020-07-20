@@ -800,6 +800,86 @@ describe('replica', function () {
       );
     });
 
+    it('should create the replica again', (done) => {
+      client.createReplica(
+        {
+          uuid: UUID,
+          pool: POOL,
+          thin: true,
+          share: 'REPLICA_NVMF',
+          size: 8 * (1024 * 1024) // keep this multiple of cluster size (4MB)
+        },
+        (err, res) => {
+          if (err) return done(err);
+          assert.hasAllKeys(res, ['uri']);
+          assert.match(res.uri, NVMF_URI);
+          assert.equal(res.uri.match(NVMF_URI)[1], common.getMyIp());
+          done();
+        }
+      );
+    });
+
+    it('should not list the created pool after restart', (done) => {
+      async.series(
+        [
+          // restart mayastor
+          (next) => {
+            common.restartMayastor((pingDone) => {
+              // use harmless method to test if the mayastor is up and running
+              client.listPools({}, pingDone);
+            }, next);
+          },
+          (next) =>
+            client.listPools({}, (err, res) => {
+              if (err) console.log('error listing pools:', err);
+              res = res.pools.filter((ent) => ent.name === POOL);
+              if (res.length > 0) {
+                next(new Error("Found pool which hasn't been imported yet"));
+              } else {
+                next();
+              }
+            })
+        ],
+        done
+      );
+    });
+
+    it('should import the existing pool and the existing replica', (done) => {
+      async.series(
+        [
+          // import the pool created by previous mayastor instance
+          (next) => client.createPool({ name: POOL, disks: disks }, next),
+          // should list the existing pool
+          (next) =>
+            client.listPools({}, (err, res) => {
+              if (err) return next(err);
+              res = res.pools.filter((ent) => ent.name === POOL);
+              assert.lengthOf(res, 1);
+              next();
+            }),
+          // should list the existing replica
+          (next) => {
+            client.listReplicas({}, (err, res) => {
+              if (err) return done(err);
+              res = res.replicas.filter((ent) => {
+                return ent.uuid === UUID;
+              });
+              assert.lengthOf(res, 1);
+              res = res[0];
+              assert.equal(res.pool, POOL);
+              assert.equal(res.size, 8 * 1024 * 1024);
+              // todo: thin_provision should not change
+              assert.equal(res.thin, false);
+              // todo: config file should reexport replicas
+              assert.equal(res.share, 'REPLICA_NONE');
+              next();
+            });
+          }
+        ],
+        done
+      );
+    });
+
     it('should not import a pool which does not exist on device', (done) => {
       client.createPool({ name: 'non-existing', disks: disks }, (err, res) => {
         if (!err) {
