@@ -1,8 +1,7 @@
+use crate::CSIError;
+use nix::errno::Errno;
 use std::{io, thread, time};
 use udev::Enumerator;
-
-use crate::CSIError;
-use failure::Error;
 
 fn find_nvmf_device_by_uuid(str_uuid: &str) -> Result<String, String> {
     let prop = "ID_WWN";
@@ -60,13 +59,14 @@ fn uuid_from_str(s: &str) -> String {
     // } hack
 }
 
-fn wait_for_path_to_exist(uuid: String, max_retries: i32) -> Option<String> {
-    let second = time::Duration::from_secs(1);
-    let mut retries: i32 = 0;
+fn wait_for_path_to_exist(
+    uuid: String,
+    timeout: time::Duration,
+    max_retries: u32,
+) -> Option<String> {
+    let mut iteration: u32 = 0;
     let now = time::Instant::now();
-    while retries < max_retries {
-        thread::sleep(second);
-
+    loop {
         if let Ok(path) = find_nvmf_device_by_uuid(&uuid) {
             trace!(
                 "wait_for_path_to_exist {} {} success for elapsed time is {:?}",
@@ -76,7 +76,11 @@ fn wait_for_path_to_exist(uuid: String, max_retries: i32) -> Option<String> {
             );
             return Some(path);
         }
-        retries += 1;
+        if iteration >= max_retries {
+            break;
+        }
+        thread::sleep(timeout);
+        iteration += 1;
     }
     debug!("wait_for_path_to_exist timed out after {:?}", now.elapsed());
     None
@@ -87,7 +91,7 @@ fn nvmeadm_attach_disk(
     port: u32,
     nqn: &str,
     uri: &str,
-) -> Result<String, Error> {
+) -> Result<String, CSIError> {
     trace!(
         "nvmeadm_attach_disk ip_addr={} port={} nqn={}",
         ip_addr,
@@ -96,45 +100,56 @@ fn nvmeadm_attach_disk(
     );
 
     let result = nvmeadm::nvmf_discovery::connect(ip_addr, port, nqn);
-    if let Err(e) = result {
-        let mut in_progress = false;
-        if let Some(ioerr) = e.downcast_ref::<io::Error>() {
-            if let Some(errcode) = ioerr.raw_os_error() {
-                if errcode == 114 {
-                    in_progress = true;
-                    debug!("nvmeadm connect already in progress for {}", uri);
+    let connected = match &result {
+        Ok(_) => {
+            trace!("nvmeadm connected {}", nqn);
+            true
+        }
+        Err(e) => match e.downcast_ref::<io::Error>() {
+            None => false,
+            Some(ioerr) => {
+                let errcode = ioerr.raw_os_error().unwrap_or(0);
+                if Errno::from_i32(errcode) == Errno::EALREADY {
+                    trace!("nvmeadm connection in progress {}", nqn);
+                    true
+                } else {
+                    false
                 }
             }
-        }
-        if !in_progress {
-            debug!("nvmeadm connect failed error {} {:?}", uri, e);
-            return Err(Error::from(CSIError::Nvmf {
-                error: format!("Connect failed :{}", e),
-            }));
-        }
-    } else {
-        trace!("nvmeadm connected {}", nqn);
+        },
+    };
+
+    if !connected {
+        debug!("nvmeadm connect failed error {} {:?}", uri, result);
+        return Err(CSIError::Nvmf {
+            error: format!("Connect failed :{}", result.unwrap()),
+        });
     }
 
-    match wait_for_path_to_exist(uuid_from_str(uri), 10) {
+    trace!("nvmeadm connected {}", nqn);
+
+    // 10 retries at 100ms intervals = 1000ms = 1 second.
+    let timeout = time::Duration::from_millis(100);
+    const RETRIES: u32 = 10;
+    match wait_for_path_to_exist(uuid_from_str(uri), timeout, RETRIES) {
         Some(path) => Ok(path),
         _ => {
             debug!("nvmeadm nvmf device path not found.");
-            Err(Error::from(CSIError::NotFound {
+            Err(CSIError::NotFound {
                 value: "nvmf device path not found".to_string(),
-            }))
+            })
         }
     }
 }
 
-pub fn nvmeadm_detach_disk(nqn: &str) -> Result<(), Error> {
+pub fn nvmeadm_detach_disk(nqn: &str) -> Result<(), CSIError> {
     match nvmeadm::nvmf_discovery::disconnect(&nqn) {
         Ok(n) => match n {
             0 => {
                 debug!("nvmf disconnect {} FAILED, no device found.", nqn);
-                Err(Error::from(CSIError::NotFound {
+                Err(CSIError::NotFound {
                     value: format!("nvmf device not found for {}", nqn),
-                }))
+                })
             }
             1 => {
                 trace!("nvmf disconnected {}", nqn);
@@ -147,17 +162,17 @@ pub fn nvmeadm_detach_disk(nqn: &str) -> Result<(), Error> {
         },
         Err(e) => {
             debug!("nvmf disconnect {} FAILED.", nqn);
-            Err(Error::from(CSIError::Nvmf {
+            Err(CSIError::Nvmf {
                 error: format!("{}", e),
-            }))
+            })
         }
     }
 }
 
-pub fn nvmf_attach_disk(nvmf_uri: &str) -> Result<String, Error> {
+pub fn nvmf_attach_disk(nvmf_uri: &str) -> Result<String, CSIError> {
     trace!("nvmf_attach_disk {}", nvmf_uri);
 
-    if let Some(path) = wait_for_path_to_exist(uuid_from_str(nvmf_uri), 1) {
+    if let Some(path) = nvmf_find(&uuid_from_str(nvmf_uri)) {
         return Ok(path);
     }
 
@@ -173,9 +188,9 @@ pub fn nvmf_attach_disk(nvmf_uri: &str) -> Result<String, Error> {
         }
     }
 
-    Err(Error::from(CSIError::InvalidURI {
+    Err(CSIError::InvalidURI {
         uristr: nvmf_uri.to_string(),
-    }))
+    })
 }
 
 /// Search for and return path to the device on which a nexus nvmf
@@ -188,13 +203,13 @@ pub fn nvmf_find(uuid: &str) -> Option<String> {
             Some(path)
         }
         _ => {
-            debug!("nvmf_find for {} FAILED", uuid);
+            trace!("nvmf_find for {} FAILED", uuid);
             None
         }
     }
 }
 
-pub fn nvmf_detach_disk(uuid: &str) -> Result<(), Error> {
+pub fn nvmf_detach_disk(uuid: &str) -> Result<(), CSIError> {
     // Ugh! hardcoded nqn, bad, bad, bad
     let nqn = format!("nqn.2019-05.io.openebs:nexus-{}", uuid);
     trace!("nvmf_detach_disk for {} nqn is {}", uuid, nqn);
