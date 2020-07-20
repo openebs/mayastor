@@ -1,54 +1,72 @@
 # Overview
 
-!!! The doc is *stale* !!!
-
-TODO: Either rewrite all examples using mayastor-client tool or remove the doc.
-
 This section shows a couple of examples of what you already can do with MayaStor today:
 
- - [mctl (MayaStor sea-thee-el)](#mctl)
+ - [mayastor-client](#mayastor-client)
 
  - [Local storage](#local)
 
  - [Use case: Mirroring over NVMF](#NVMF)
 
-## mctl
+## mayastor-client
 
-`mctl` is a small tool to interact with MayaStor and for now, mostly the Nexus. It currently does not
-interact with the local provisioner but you *can* use local storage with it already. As of this writing we have only
-added support for sharing the Nexus over NBD as it is the easiest to use.
+`mayastor-client` is a small tool to interact with MayaStor and its Nexuses, pools and replicas. It currently does not
+interact with the local provisioner but you *can* use local storage with it already. As of this writing we have
+added support for sharing the Nexus over NBD, iSCSI and NVMf.
 
 ```bash
-mctl --help
-nctl 0.1.0
-Jan Kryl <jan.kryl@mayadata.io>, Jeffry Molanus <jeffry.molanus@mayadata.io>
-Nexus CLI management utility
+> mayastor-client --help
+Mayastor CLI 0.1
+CLI utility for Mayastor
 
 USAGE:
-    mctl [OPTIONS] <SUBCOMMAND>
+    mayastor-client [FLAGS] [OPTIONS] <SUBCOMMAND>
 
 FLAGS:
-    -h, --help
-            Prints help information
-
-    -V, --version
-            Prints version information
-
+    -h, --help       Prints help information
+    -q, --quiet      Do not print any output except for list records
+    -V, --version    Prints version information
+    -v, --verbose    Verbose output
 
 OPTIONS:
-    -s <socket>
-             [default: /var/tmp/mayastor.sock]
+    -a, --address <HOST>    IP address of mayastor instance [default: 127.0.0.1]
+    -p, --port <NUMBER>     Port number of mayastor server [default: 10124]
+    -u, --units <BASE>
+            Output with large units: i for kiB, etc. or d for kB, etc.
 
 
 SUBCOMMANDS:
-    create     Create a Nexus using the given uri's
-    destroy    destroy a Nexus and its children (does not delete the data)
+    bdev       Block device management
     help       Prints this message or the help of the given subcommand(s)
-    list       List the Nexus instances on the system
-    offline    Offline a child bdev from the Nexus
-    online     Online a child from the Nexus
-    share      share the Nexus
-    unshare    unshare the Nexus
+    nexus      Nexus device management
+    pool       Storage pool management
+    replica    Replica management
+```
+
+To get more information specific to a subcommand, just execute the subcomand without any additional parameters,
+or by using the `-h` flag, for example:
+```bash
+> mayastor-client nexus -h
+mayastor-client-nexus
+Nexus device management
+
+USAGE:
+    mayastor-client nexus <SUBCOMMAND>
+
+FLAGS:
+    -h, --help       Prints help information
+    -V, --version    Prints version information
+
+SUBCOMMANDS:
+    add          add a child
+    children     list nexus children
+    create       Create a new nexus device
+    destroy      destroy the nexus with given name
+    help         Prints this message or the help of the given subcommand(s)
+    list         list all nexus devices
+    publish      publish the nexus
+    remove       remove a child
+    unpublish    unpublish the nexus
 ```
 
 ## local
@@ -58,33 +76,21 @@ it is configured on. This makes certain things more simple, but at the same time
 of freedom as well. With Mayastor, we attempt to solve this transparently and determine based on declarative
 intent what is best to do. Let us start with an example.
 
-Let's assume we have a local disk `/dev/sdb` and we want to make use of it. By making use of the `mctl` we can specify
-a URI to the resource and we can start using it:
+Let's assume we have a local disk `/dev/sdb` and we want to make use of it. By making use of the `mayastor-client` we can specify
+a URI to the resource and we can start using it.
 
 ```bash
-mctl create --children aio:///dev/sdb -b 512 -s 1GiB `uuidgen -r`
-null
+> mayastor-client nexus create `uuidgen -r` 1GiB aio:///dev/sdb
+Nexus 4db90841-5ee8-4b7d-a4e9-13be1043bcb3 created
 ```
+Tip: To find out what the arguments are, simply append the `-h` flag to any command.
 
-Now that was easy! Let us inspect 'nexus0':
+Now that was easy! Let us inspect the nexus:
 
 ```bash
-{
-  "nexus_list": [
-    {
-      "children": [
-        {
-          "name": "aio:///dev/sdb",
-          "state": "open"
-        }
-      ],
-      "device_path": "/dev/nbd0",
-      "size": 1068474368,
-      "state": "online",
-      "uuid": "6830e80b-9f14-4200-aa64-9939c29c2c10"
-    }
-  ]
-}
+> mayastor-client nexus list -c
+NAME                                 PATH     SIZE STATE  REBUILDS CHILDREN
+4db90841-5ee8-4b7d-a4e9-13be1043bcb3      15728640 online        0 aio:///dev/sdb
 ```
 
 Now this is not all that exciting, but as we you can see in [pool.rs](../mayastor/src/pool.rs) we can
@@ -93,61 +99,69 @@ that [here](../mayastor-test/test_cli.js). We can also add files to the mix and 
 fine writing to it as it were a local disk.
 
 ```bash
-mctl create `uuidgen -r ` --children aio:///1GB.img?blk_size=512 aio:///dev/sdb -b 512 -s 500MiB
-"nexus0"
+> fallocate -l 2GiB /data/file.img
+> mayastor-client nexus create `uuidgen -r` 1GiB 'aio:///data/file.img?blk_size=512 aio:///dev/sdb'
+Nexus d0c47a07-d104-48e6-8f36-bfdb47e8e766 created
 ```
 
-Notice the added query parameter, required as files do not have block sizes.
+Notice the added query parameter `blk_size`, required as files do not have block sizes.
 
 ```bash
-{
-  "nexus_list": [
-    {
-      "children": [
-        {
-          "name": "aio:///1GB.img?blk_size=512",
-          "state": "open"
-        },
-        {
-          "name": "aio:///dev/sdb",
-          "state": "open"
-        }
-      ],
-      "device_path": "/dev/nbd0",
-      "size": 1068474368,
-      "state": "online",
-      "uuid": "6830e80b-9f14-4200-aa64-9939c29c2c10"
-    }
-  ]
-}
+> mayastor-client nexus list -c
+NAME                                 PATH     SIZE STATE  REBUILDS CHILDREN
+d0c47a07-d104-48e6-8f36-bfdb47e8e766      15728640 online        0 aio:///data/file.img?blk_size=512,aio:///dev/sdb
 ```
 
 As a foundation for rebuilding, we needed to add support for adding and removing devices.  You can try this out
-yourself by running fio on top of the NBD device; it won't rebuild or anything just yet, but IO will flow:
+yourself by running fio on top of the NBD device.
 
 ```bash
-mctl offline $UUID  aio:///dev/sdb
-"nexus0"
+> mayastor-client nexus remove d0c47a07-d104-48e6-8f36-bfdb47e8e766 'aio:///data/file.img?blk_size=512'
+Removed aio:///data/file.img?blk_size=512 from children of d0c47a07-d104-48e6-8f36-bfdb47e8e766
 ```
 
 In the logs of mayastor you will see something like:
 
 ```bash
-nexus_bdev.rs: 273:: *DEBUG*: nexus0: Offline child request for aio:///dev/sdb
-nexus_child.rs: 161:: *DEBUG*: nexus0: Closing child aio:///dev/sdb
-nexus_bdev.rs: 316:: *NOTICE*: nexus0: Dynamic reconfiguration event: ChildOffline started
-nexus_channel.rs:  60:: *NOTICE*: nexus0(tid:"main"), refreshing IO channels
-nexus_channel.rs:  66:: *DEBUG*: nexus0: Current number of IO channels 2
-nexus_channel.rs:  89:: *NOTICE*: nexus0: Getting new channel for child aio:///1GB.img?blk_size=512 desc 0x55767f84e070
-nexus_channel.rs:  97:: *DEBUG*: nexus0: New number of IO channels 1
-nexus_channel.rs: 166:: *DEBUG*: nexus0: Reconfigure completed
-nexus_bdev.rs: 326:: *NOTICE*: nexus0: Dynamic reconfiguration event: ChildOffline completed 0
-nexus_bdev.rs: 208:: *INFO*: nexus0 Transitioned state from Online to Degraded
+[2020-07-20T15:24:48.202874271Z DEBUG mayastor_grpc.rs:293] remove_child_nexus; self=MayastorSvc request=Request { metadata: MetadataMap { headers: {"te": "trailers", "content-type": "application/grpc"} }, message: RemoveChildNexusRequest { uuid: "d0c47a07-d104-48e6-8f36-bfdb47e8e766", uri: "aio:///data/file.img?blk_size=512" }, extensions: Extensions }
+[2020-07-20T15:24:48.202934811Z DEBUG mayastor_grpc.rs:301] Removing child aio:///data/file.img?blk_size=512 from nexus d0c47a07-d104-48e6-8f36-bfdb47e8e766 ...
+[2020-07-20T15:24:48.204115021Z INFO nexus_bdev.rs:438] nexus-d0c47a07-d104-48e6-8f36-bfdb47e8e766: Dynamic reconfiguration event: ChildRemove started
+[2020-07-20T15:24:48.205461951Z INFO nexus_bdev.rs:447] nexus-d0c47a07-d104-48e6-8f36-bfdb47e8e766: Dynamic reconfiguration event: ChildRemove completed Ok(0)
+[2020-07-20T15:24:48.206991361Z INFO mayastor_grpc.rs:305] Removed child from nexus d0c47a07-d104-48e6-8f36-bfdb47e8e766
+```
+
+Now we can add the device again:
+
+```bash
+> mayastor-client nexus add d0c47a07-d104-48e6-8f36-bfdb47e8e766 'aio:///data/file.img?blk_size=512'
+Added aio:///data/file.img?blk_size=512 to children of d0c47a07-d104-48e6-8f36-bfdb47e8e766
+```
+
+Both the nexus and the newly added children are now degraded. The child is degraded because it needs to be rebuilt
+and the nexus is degraded because at least one of its children is degraded: (todo: add rebuild documentation)
+
+```bash
+> mayastor-client nexus children d0c47a07-d104-48e6-8f36-bfdb47e8e766
+NAME                               STATE
+aio:///dev/sdb                     online
+aio:///data/file.img?blk_size=512  degraded
+
+> mayastor-client nexus list -c
+NAME                                 PATH       SIZE STATE    REBUILDS CHILDREN
+d0c47a07-d104-48e6-8f36-bfdb47e8e766      1073741824 degraded        1 aio:///dev/sdb,aio:///data/file.img?blk_size=512
+```
+
+After some time, the rebuild should complete and you should see something similar to this in the logs:
+```bash
+[2020-07-20T15:30:06.855088153Z INFO rebuild_impl.rs:381] Rebuild job aio:///data/file.img?blk_size=512: changing state from Running to Completed
+[2020-07-20T15:30:06.855117683Z INFO rebuild_impl.rs:480] State: completed, Src: aio:///dev/sdb, Dst: aio:///data/file.img?blk_size=512, range: 10240..204767, next: 204767, block_size: 512, segment_sz: 20, recovered_blks: 194527, progress: 100%
+[2020-07-20T15:30:06.856241973Z INFO nexus_bdev_rebuild.rs:304] nexus nexus-d0c47a07-d104-48e6-8f36-bfdb47e8e766 received notify_rebuild from job aio:///data/file.img?blk_size=512
+[2020-07-20T15:30:06.856265613Z INFO nexus_bdev_rebuild.rs:235] Child aio:///data/file.img?blk_size=512 has been rebuilt successfully
 ```
 
 ## NVMF
 
-Within this example we will show you how, currently the Nexus works by using the CLI tool `mctl`.
+Within this example we will show you how, currently the Nexus works by using the CLI tool `mayastor-client`.
 
 We have setup an NVMF target over TCP on a local 1 GbE network, nothing to fancy as the purpose is to illustrate
 the working of the Nexus.
@@ -267,35 +281,16 @@ Now, let's disconnect it and create a Nexus that that consumes one of the NVMe t
 
 ```bash
     nvme disconnect -d {/dev/nvme1,/dev/nvme2}
-    mctl create -r nvmf://192.168.1.2/nqn.2019-05.io.openebs:cnode2 \
-        nvmf://192.168.1.2/nqn.2019-05.io.openebs:cnode1 -b 512 -s 64MiB `uuidgen -r`
-
+    mayastor-client nexus create `uuidgen -r` 64MiB 'nvmf://192.168.1.2/nqn.2019-05.io.openebs:cnode2
+        nvmf://192.168.1.2/nqn.2019-05.io.openebs:cnode1'
 ```
 
-Ok we now have created a nexus0 that consists out of 2 replica's:
+Ok we now have created a nexus that consists out of 2 replica's:
 
 ```bash
-mctl list
-{
-  "nexus_list": [
-    {
-      "children": [
-        {
-          "name": "nvmf://192.168.1.2/nqn.2019-05.io.openebs:cnode2n2",
-          "state": "open"
-        },
-        {
-          "name": "nvmf://192.168.1.2/nqn.2019-05.io.openebs:cnode1n1",
-          "state": "open"
-        }
-      ],
-      "device_path": "/dev/nbd0",
-      "size": 1068474368,
-      "state": "online",
-      "uuid": "6830e80b-9f14-4200-aa64-9939c29c2c10"
-    }
-  ]
-}
+> mayastor-client nexus list -c
+NAME                                 PATH       SIZE STATE  REBUILDS CHILDREN
+787f82e7-e7d8-4ae1-8a25-5d48ead4f4cd        67108864 online        0 nvmf://192.168.1.2/nqn.2019-05.io.openebs:cnode2n2,nvmf://192.168.1.2/nqn.2019-05.io.openebs:cnode1n1
 ```
 
 We can share the Nexus to this local machine rather simply and we will use the NBD protocol.
@@ -304,8 +299,8 @@ and NVMF
 
 
 ```bash
-mctl share nexus0
-"/dev/nbd0"
+> mayastor-client nexus publish 787f82e7-e7d8-4ae1-8a25-5d48ead4f4cd
+Nexus published at file:///dev/nbd0
 ```
 
 And the results:
@@ -386,8 +381,8 @@ hello nexus
 md5sum /mnt/nexus
 37e970093ada39803b8e7b3b08f2371c  /mnt/nexus
 umount /mnt/nexus
-mctl unshare /dev/nbd0
-"nexus0"
+mayastor-client nexus unpublish 787f82e7-e7d8-4ae1-8a25-5d48ead4f4cd
+Nexus 787f82e7-e7d8-4ae1-8a25-5d48ead4f4cd unpublished
 ```
 
 We will attach the devices directly to the host without the Nexus in between. We expect to see that both block devices

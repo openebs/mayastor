@@ -2,7 +2,7 @@ name: "Image"
 on:
   pull_request:
     paths-ignore:
-      - 'doc/**'
+      #- 'doc/**'
   push:
     branches:
       - develop
