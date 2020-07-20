@@ -41,23 +41,24 @@ mod identity;
 mod mount;
 mod node;
 
-#[macro_use]
-extern crate failure;
-#[derive(Debug, Fail)]
+use snafu::Snafu;
+
+#[derive(Debug, Snafu)]
+#[snafu(visibility = "pub(crate)")]
 pub enum CSIError {
-    #[fail(display = "iscsiadm error: {}", error)]
+    #[snafu(display("iscsiadm error: {}", error))]
     Iscsiadm { error: String },
-    #[fail(display = "Cannot find {}", execname)]
+    #[snafu(display("Cannot find {}", execname))]
     ExecutableNotFound { execname: String },
-    #[fail(display = "Could not attach disk after {:?}", value)]
+    #[snafu(display("Could not attach disk after {:?}", value))]
     AttachTimeout { value: std::time::Duration },
-    #[fail(display = "Invalid URI {}", uristr)]
+    #[snafu(display("Invalid URI {}", uristr))]
     InvalidURI { uristr: String },
-    #[fail(display = "Invalid device path {}", devpath)]
+    #[snafu(display("Invalid device path {}", devpath))]
     InvalidDevicePath { devpath: String },
-    #[fail(display = "Not found {}", value)]
+    #[snafu(display("Not found {}", value))]
     NotFound { value: String },
-    #[fail(display = "{}", error)]
+    #[snafu(display("{}", error))]
     Nvmf { error: String },
 }
 
