@@ -1,16 +1,19 @@
 use std::{collections::HashMap, convert::TryFrom};
 
 use async_trait::async_trait;
+use snafu::ResultExt;
 use url::Url;
 
 use crate::{
     bdev::{util::uri, CreateDestroy, GetName},
-    nexus_uri::NexusBdevError,
+    core::Bdev,
+    nexus_uri::{self, NexusBdevError},
 };
 
 #[derive(Debug)]
 pub(super) struct Loopback {
     name: String,
+    uuid: Option<uuid::Uuid>,
 }
 
 impl TryFrom<&Url> for Loopback {
@@ -26,8 +29,14 @@ impl TryFrom<&Url> for Loopback {
             });
         }
 
-        let parameters: HashMap<String, String> =
+        let mut parameters: HashMap<String, String> =
             url.query_pairs().into_owned().collect();
+
+        let uuid = uri::uuid(parameters.remove("uuid")).context(
+            nexus_uri::UuidParamParseError {
+                uri: url.to_string(),
+            },
+        )?;
 
         if let Some(keys) = uri::keys(parameters) {
             warn!("ignored parameters: {}", keys);
@@ -35,6 +44,7 @@ impl TryFrom<&Url> for Loopback {
 
         Ok(Loopback {
             name: segments.join("/"),
+            uuid,
         })
     }
 }
@@ -50,6 +60,10 @@ impl CreateDestroy for Loopback {
     type Error = NexusBdevError;
 
     async fn create(&self) -> Result<String, Self::Error> {
+        self.uuid.map(|u| {
+            Bdev::lookup_by_name(&self.name)
+                .map(|mut b| b.set_uuid(Some(u.to_string())))
+        });
         Ok(self.get_name())
     }
 

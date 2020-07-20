@@ -13,7 +13,7 @@ use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 
 use crate::{
-    bdev::{nexus::instances, nexus_create},
+    bdev::{nexus::instances, nexus_create, VerboseError},
     core::{Bdev, Cores, Reactor},
     nexus_uri::bdev_create,
     pool::{create_pool, PoolsIter},
@@ -216,16 +216,19 @@ impl Config {
                 info!("creating nexus {}", nexus.name);
                 match Byte::from_str(&nexus.size) {
                     Ok(val) => {
-                        if nexus_create(
+                        if let Err(e) = nexus_create(
                             &nexus.name,
                             val.get_bytes() as u64,
                             Some(&nexus.uuid),
                             &nexus.children,
                         )
                         .await
-                        .is_err()
                         {
-                            error!("Failed to create nexus {}", nexus.name);
+                            error!(
+                                "Failed to create nexus {}, error={}",
+                                nexus.name,
+                                e.verbose()
+                            );
                             failures += 1;
                         }
                     }
