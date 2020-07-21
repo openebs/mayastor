@@ -45,8 +45,8 @@ describe('moac', function () {
   describe('volume object', volumeObject);
   describe('volumes', volumesTest);
   describe('volume operator', volumeOperator);
-  describe('REST API', restApi);
-  describe('CSI controller', csiTest);
+  describe('rest api', restApi);
+  describe('csi', csiTest);
 
   // Start moac without k8s and NATS server just to test basic errors
   it('start moac process', function (done) {

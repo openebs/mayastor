@@ -294,7 +294,7 @@ class CsiServer {
       return cb(
         new GrpcError(
           grpc.status.INVALID_ARGUMENT,
-          'Expected the volume name in pvc-{uuid} format: ' + args.name
+          `Expected the volume name in pvc-{uuid} format: ${args.name}`
         )
       );
     }
@@ -304,6 +304,15 @@ class CsiServer {
     } catch (err) {
       return cb(err);
     }
+
+    // Storage protocol for accessing nexus is a required parameter
+    const protocol = args.parameters && args.parameters.protocol;
+    if (!protocol) {
+      return cb(
+        new GrpcError(grpc.status.INVALID_ARGUMENT, 'missing storage protocol')
+      );
+    }
+
     const mustNodes = [];
     const shouldNodes = [];
 
@@ -370,22 +379,23 @@ class CsiServer {
       return cb(err);
     }
 
+    // Enforce local access to the volume for NBD protocol
+    const accessibleTopology = [];
+    if (protocol.toLowerCase() === 'nbd') {
+      accessibleTopology.push({
+        segments: { 'kubernetes.io/hostname': volume.getNodeName() }
+      });
+    }
     cb(null, {
       volume: {
         capacityBytes: volume.getSize(),
         volumeId: uuid,
-        // enfore local access to the volume
-        accessibleTopology: [
-          {
-            segments: { 'kubernetes.io/hostname': volume.getNodeName() }
-          }
-        ],
+        accessibleTopology,
         // parameters defined in the storage class are only presented
         // to the CSI driver createVolume method.
         // Propagate them to other CSI driver methods involved in
         // standing up a volume, using the volume context.
-        // Deep copy.
-        volumeContext: JSON.parse(JSON.stringify(args.parameters))
+        volumeContext: args.parameters
       }
     });
   }
@@ -472,15 +482,25 @@ class CsiServer {
     } catch (err) {
       return cb(err);
     }
-    const nodeName = volume.getNodeName();
-    if (nodeId !== nodeName) {
+    // Storage protocol for accessing nexus is a required parameter
+    const protocol = args.volumeContext && args.volumeContext.protocol;
+    if (!protocol) {
       return cb(
-        new GrpcError(
-          grpc.status.INVALID_ARGUMENT,
-          `Cannot publish the volume "${args.volumeId}" on a different ` +
-            `node "${nodeId}" than it was created "${nodeName}"`
-        )
+        new GrpcError(grpc.status.INVALID_ARGUMENT, 'missing storage protocol')
       );
+    }
+    if (protocol.toLowerCase() === 'nbd') {
+      const nodeName = volume.getNodeName();
+      if (nodeId !== nodeName) {
+        return cb(
+          new GrpcError(
+            grpc.status.INVALID_ARGUMENT,
+            `Cannot publish the volume "${args.volumeId}" on a different ` +
+              `node "${nodeId}" than it was created "${nodeName}" when using ` +
+              `local access protocol ${protocol}`
+          )
+        );
+      }
     }
     if (args.readonly) {
       return cb(
@@ -500,15 +520,10 @@ class CsiServer {
     } catch (err) {
       return cb(err);
     }
-    if (!args.volumeContext || !args.volumeContext.protocol) {
-      return cb(
-        new GrpcError(grpc.status.INVALID_ARGUMENT, 'missing protocol')
-      );
-    }
 
     const publishContext = {};
     try {
-      publishContext.uri = await volume.publish(args.volumeContext.protocol);
+      publishContext.uri = await volume.publish(protocol);
       log.debug(
         `"${args.volumeId}" published, got uri ${publishContext.uri} `
       );
@@ -522,9 +537,7 @@ class CsiServer {
       return;
     }
 
-    log.info(
-      `Published volume "${args.volumeId}, share protocol: "${args.volumeContext.protocol}"`
-    );
+    log.info(`Published volume "${args.volumeId}" over ${protocol}`);
     cb(null, { publishContext });
   }
 
@@ -540,21 +553,11 @@ class CsiServer {
       );
       return cb(null, {});
     }
-    var nodeId;
     try {
-      nodeId = parseMayastorNodeId(args.nodeId);
+      parseMayastorNodeId(args.nodeId);
     } catch (err) {
       return cb(err);
     }
-    const nodeName = volume.getNodeName();
-    if (nodeId !== nodeName) {
-      // we unpublish the volume anyway but at least we log a message
-      log.warn(
-        `Request to unpublish volume "${args.volumeId}" from a node ` +
-          `"${nodeId}" while it was published on the node "${nodeName}"`
-      );
-    }
-
     try {
       await volume.unpublish();
     } catch (err) {
