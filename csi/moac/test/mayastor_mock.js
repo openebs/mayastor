@@ -77,14 +77,17 @@ class MayastorServer {
           err.code = grpc.status.ALREADY_EXISTS;
           cb(err);
         } else {
-          self.pools.push({
+          const pool = {
             name: args.name,
             disks: args.disks,
             state: enums.POOL_ONLINE,
             capacity: 100,
             used: 4
-          });
-          cb(null, {});
+          };
+          self.pools.push(pool);
+          const ret = _.cloneDeep(pool);
+          ret.disks = ret.disks.map((d) => `aio://${d}`);
+          cb(null, ret);
         }
       },
       destroyPool: (call, cb) => {
@@ -135,15 +138,16 @@ class MayastorServer {
           uri = 'nvmf://192.168.0.1:4020/' + args.uuid;
         }
 
-        self.replicas.push({
+        const r = {
           uuid: args.uuid,
           pool: args.pool,
           size: args.size,
           thin: args.thin,
           share: args.share,
           uri
-        });
-        cb(null, { uri });
+        };
+        self.replicas.push(r);
+        cb(null, r);
       },
       destroyReplica: (call, cb) => {
         var args = call.request;
@@ -213,19 +217,21 @@ class MayastorServer {
           err.code = grpc.status.ALREADY_EXISTS;
           return cb(err);
         }
-        self.nexus.push({
+        const nexus = {
           uuid: args.uuid,
           size: args.size,
           state: enums.NEXUS_ONLINE,
           children: args.children.map((r) => {
             return {
               uri: r,
-              state: enums.CHILD_ONLINE
+              state: enums.CHILD_ONLINE,
+              rebuildProgress: 0
             };
           })
           // device_path omitted
-        });
-        cb(null, {});
+        };
+        self.nexus.push(nexus);
+        cb(null, nexus);
       },
       destroyNexus: (call, cb) => {
         var args = call.request;
@@ -287,7 +293,11 @@ class MayastorServer {
             state: enums.CHILD_DEGRADED
           });
         }
-        cb();
+        cb(null, {
+          uri: args.uri,
+          state: enums.CHILD_DEGRADED,
+          rebuildProgress: 0
+        });
       },
       removeChildNexus: (call, cb) => {
         var args = call.request;

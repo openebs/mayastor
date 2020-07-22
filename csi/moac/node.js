@@ -339,30 +339,15 @@ class Node extends EventEmitter {
   async createPool (name, disks) {
     log.debug(`Creating pool "${name}@${this.name}" ...`);
 
+    var poolInfo;
     try {
-      await this.call('createPool', { name, disks });
+      poolInfo = await this.call('createPool', { name, disks });
       log.info(`Created pool "${name}@${this.name}"`);
     } catch (err) {
       // TODO: Make rpc idempotent
       if (err.code !== GrpcCode.ALREADY_EXISTS) {
         throw err;
       }
-    }
-
-    // it's not done yet, we have to get properties of the pool to
-    // obtain its state, capacity, etc.
-    var resp;
-    try {
-      resp = await this.call('listPools', {});
-    } catch (err) {
-      throw new GrpcError(
-        GrpcCode.INTERNAL,
-        `Failed to list new pool "${name}": ${err}`
-      );
-    }
-    var poolInfo = resp.pools.filter((p) => p.name === name)[0];
-    if (!poolInfo) {
-      throw new GrpcError(GrpcCode.INTERNAL, `New pool "${name}" not found`);
     }
 
     const newPool = new Pool(poolInfo);
@@ -380,30 +365,15 @@ class Node extends EventEmitter {
     const children = replicas.map((r) => r.uri);
     log.debug(`Creating nexus "${uuid}@${this.name}"`);
 
+    var nexusInfo;
     try {
-      await this.call('createNexus', { uuid, size, children });
+      nexusInfo = await this.call('createNexus', { uuid, size, children });
       log.info(`Created nexus "${uuid}@${this.name}"`);
     } catch (err) {
       // TODO: Make rpc idempotent
       if (err.code !== GrpcCode.ALREADY_EXISTS) {
         throw err;
       }
-    }
-
-    // it's not done yet, we have to get properties of the nexus to
-    // obtain its state and perhaps other volatile properties.
-    var resp;
-    try {
-      resp = await this.call('listNexus', {});
-    } catch (err) {
-      throw new GrpcError(
-        GrpcCode.INTERNAL,
-        `Failed to list new nexus "${uuid}": ${err}`
-      );
-    }
-    var nexusInfo = resp.nexusList.filter((n) => n.uuid === uuid)[0];
-    if (!nexusInfo) {
-      throw new GrpcError(GrpcCode.INTERNAL, `New nexus "${uuid}" not found`);
     }
 
     const newNexus = new Nexus(nexusInfo);

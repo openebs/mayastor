@@ -259,33 +259,27 @@ module.exports = function () {
   it('should create replica on the pool', async () => {
     const node = new Node('node');
     const stub = sinon.stub(node, 'call');
-    stub.onCall(0).resolves({});
-    stub.onCall(1).resolves({
-      replicas: [
-        {
-          uuid: 'uuid',
-          pool: 'pool',
-          size: 100,
-          thin: false,
-          share: 'REPLICA_NONE',
-          uri: 'bdev://blabla'
-        }
-      ]
+    stub.resolves({
+      uuid: 'uuid',
+      pool: 'pool',
+      size: 100,
+      thin: false,
+      share: 'REPLICA_NONE',
+      uri: 'bdev://blabla'
     });
     const pool = new Pool(props);
     node._registerPool(pool);
 
     const repl = await pool.createReplica('uuid', 100);
 
-    sinon.assert.calledTwice(stub);
-    sinon.assert.calledWithMatch(stub.firstCall, 'createReplica', {
+    sinon.assert.calledOnce(stub);
+    sinon.assert.calledWithMatch(stub, 'createReplica', {
       uuid: 'uuid',
       pool: 'pool',
       size: 100,
       thin: false,
       share: 'REPLICA_NONE'
     });
-    sinon.assert.calledWithMatch(stub.secondCall, 'listReplicas', {});
     expect(pool.replicas).to.have.lengthOf(1);
     expect(repl.uuid).to.equal('uuid');
   });
@@ -293,19 +287,7 @@ module.exports = function () {
   it('should throw internal error if createReplica grpc fails', async () => {
     const node = new Node('node');
     const stub = sinon.stub(node, 'call');
-    stub.onCall(0).rejects(new GrpcError(GrpcCode.INTERNAL, 'Test failure'));
-    stub.onCall(1).resolves({
-      replicas: [
-        {
-          uuid: 'uuid',
-          pool: 'pool',
-          size: 100,
-          thin: false,
-          share: 'REPLICA_NONE',
-          uri: 'bdev://blabla'
-        }
-      ]
-    });
+    stub.rejects(new GrpcError(GrpcCode.INTERNAL, 'Test failure'));
     const pool = new Pool(props);
     node._registerPool(pool);
 
@@ -322,22 +304,6 @@ module.exports = function () {
       thin: false,
       share: 'REPLICA_NONE'
     });
-  });
-
-  it('should throw internal error if listReplicas grpc fails', async () => {
-    const node = new Node('node');
-    const stub = sinon.stub(node, 'call');
-    stub.onCall(0).resolves({});
-    stub.onCall(1).rejects(new Error('list call failed'));
-    const pool = new Pool(props);
-    node._registerPool(pool);
-
-    await shouldFailWith(GrpcCode.INTERNAL, async () => {
-      await pool.createReplica('uuid', 100);
-    });
-
-    expect(pool.replicas).to.have.lengthOf(0);
-    sinon.assert.calledTwice(stub);
   });
 
   it('should correctly indicate if pool is accessible or not', () => {

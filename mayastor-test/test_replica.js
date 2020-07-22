@@ -156,7 +156,7 @@ describe('replica', function () {
         name: POOL,
         disks: ['/dev/somethingA', '/dev/somethingB']
       },
-      (err, res) => {
+      (err) => {
         assert.equal(err.code, grpc.status.INVALID_ARGUMENT);
         done();
       }
@@ -166,7 +166,7 @@ describe('replica', function () {
   it('should not create a pool with invalid block size', (done) => {
     client.createPool(
       { name: POOL, disks: disks, block_size: 1238513 },
-      (err, res) => {
+      (err) => {
         assert.equal(err.code, grpc.status.INVALID_ARGUMENT);
         done();
       }
@@ -179,14 +179,25 @@ describe('replica', function () {
       { name: POOL, disks: disks, io_if: enums.POOL_IO_AIO },
       (err, res) => {
         if (err) return done(err);
-        assert.lengthOf(Object.keys(res), 0);
+        assert.equal(res.name, POOL);
+        // we don't know size of external disks ..
+        if (implicitDisk) {
+          // 4MB (one cluster) is eaten by super block
+          assert.equal(Math.floor(res.capacity / (1024 * 1024)), 96);
+        }
+        assert.equal(res.used, 0);
+        assert.equal(res.state, 'POOL_ONLINE');
+        assert.equal(res.disks.length, disks.length);
+        for (let i = 0; i < res.disks.length; ++i) {
+          assert.equal(res.disks[i], 'aio://' + disks[i]);
+        }
         done();
       }
     );
   });
 
   it('should return error from create when the pool exists', (done) => {
-    client.createPool({ name: POOL, disks: disks }, (err, res) => {
+    client.createPool({ name: POOL, disks: disks }, (err) => {
       assert.equal(err.code, grpc.status.ALREADY_EXISTS);
       done();
     });
@@ -227,7 +238,10 @@ describe('replica', function () {
       },
       (err, res) => {
         if (err) return done(err);
-        assert.hasAllKeys(res, ['uri']);
+        assert.equal(res.pool, POOL);
+        assert.equal(res.thin, true);
+        assert.equal(res.size, 8 * 1024 * 1024);
+        assert.equal(res.share, 'REPLICA_ISCSI');
         assert.match(res.uri, ISCSI_URI);
         assert.equal(res.uri.match(ISCSI_URI)[1], common.getMyIp());
         done();
@@ -269,7 +283,7 @@ describe('replica', function () {
     });
   });
 
-  it('should create unexported replica', (done) => {
+  it('should create un-exported replica', (done) => {
     client.createReplica(
       {
         uuid: UUID,
@@ -280,14 +294,13 @@ describe('replica', function () {
       },
       (err, res) => {
         if (err) return done(err);
-        assert.hasAllKeys(res, ['uri']);
         assert.match(res.uri, /^bdev:\/\/\//);
         done();
       }
     );
   });
 
-  it('should fail if creating replica which already exists', (done) => {
+  it('should fail if creating replica that already exists', (done) => {
     client.createReplica(
       {
         uuid: UUID,
@@ -296,7 +309,7 @@ describe('replica', function () {
         share: 'NONE',
         size: 8 * (1024 * 1024) // keep this multiple of cluster size (4MB)
       },
-      (err, res) => {
+      (err) => {
         assert.equal(err.code, grpc.status.ALREADY_EXISTS);
         done();
       }
@@ -531,7 +544,18 @@ describe('replica', function () {
         { name: POOL, disks: disks, io_if: enums.POOL_IO_URING },
         (err, res) => {
           if (err) return done(err);
-          assert.lengthOf(Object.keys(res), 0);
+          assert.equal(res.name, POOL);
+          // we don't know size of external disks ..
+          if (implicitDisk) {
+            // 4MB (one cluster) is eaten by super block
+            assert.equal(Math.floor(res.capacity / (1024 * 1024)), 96);
+          }
+          assert.equal(res.used, 0);
+          assert.equal(res.state, 'POOL_ONLINE');
+          assert.equal(res.disks.length, disks.length);
+          for (let i = 0; i < res.disks.length; ++i) {
+            assert.equal(res.disks[i], 'uring://' + disks[i]);
+          }
           done();
         }
       );
@@ -612,7 +636,10 @@ describe('replica', function () {
         },
         (err, res) => {
           if (err) return done(err);
-          assert.hasAllKeys(res, ['uri']);
+          assert.equal(res.pool, POOL);
+          assert.equal(res.thin, true);
+          assert.equal(res.size, 96 * 1024 * 1024);
+          assert.equal(res.share, 'REPLICA_NVMF');
           assert.match(res.uri, NVMF_URI);
           assert.equal(res.uri.match(NVMF_URI)[1], common.getMyIp());
           uri = res.uri;
@@ -699,7 +726,6 @@ describe('replica', function () {
         },
         (err, res) => {
           if (err) return done(err);
-          assert.hasAllKeys(res, ['uri']);
           assert.match(res.uri, NVMF_URI);
           assert.equal(res.uri.match(NVMF_URI)[1], common.getMyIp());
           uri = res.uri;
@@ -811,7 +837,6 @@ describe('replica', function () {
         },
         (err, res) => {
           if (err) return done(err);
-          assert.hasAllKeys(res, ['uri']);
           assert.match(res.uri, NVMF_URI);
           assert.equal(res.uri.match(NVMF_URI)[1], common.getMyIp());
           done();
@@ -881,7 +906,7 @@ describe('replica', function () {
     });
 
     it('should not import a pool which does not exist on device', (done) => {
-      client.createPool({ name: 'non-existing', disks: disks }, (err, res) => {
+      client.createPool({ name: 'non-existing', disks: disks }, (err) => {
         if (!err) {
           done(
             new Error('Expected error when importing a pool with wrong name')

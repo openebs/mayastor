@@ -64,7 +64,13 @@ describe('cli', function () {
             disks: [DISK],
             blockSize: 512
           },
-          output: {}
+          output: {
+            name: POOL,
+            disks: [DISK],
+            state: 1,
+            capacity: 100 * (1024 * 1024),
+            used: 50 * (1024 * 1024)
+          }
         },
         {
           method: 'DestroyPool',
@@ -102,7 +108,13 @@ describe('cli', function () {
             size: { low: 10 * (1024 * 1024), high: 0, unsigned: true },
             children: ['aaa']
           },
-          output: {}
+          output: {
+            uuid: UUID,
+            size: { low: 10 * (1024 * 1024), high: 0, unsigned: true },
+            state: 1,
+            children: [{ uri: 'aaa', state: 0 }],
+            rebuilds: 0
+          }
         },
         {
           method: 'PublishNexus',
@@ -127,7 +139,10 @@ describe('cli', function () {
             uuid: UUID,
             uri: 'child_a'
           },
-          output: {}
+          output: {
+            uri: 'child_a',
+            state: 1
+          }
         },
         {
           method: 'RemoveChildNexus',
@@ -179,6 +194,11 @@ describe('cli', function () {
             share: 1
           },
           output: {
+            uuid: UUID,
+            pool: POOL,
+            size: { low: 1000 * (1024 * 1024), high: 0, unsigned: true },
+            thin: true,
+            share: 1,
             uri: 'nvmf://192.168.0.1:4444/' + UUID
           }
         },

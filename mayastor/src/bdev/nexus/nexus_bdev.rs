@@ -15,7 +15,6 @@ use nix::errno::Errno;
 use serde::Serialize;
 use snafu::{ResultExt, Snafu};
 use tonic::{Code, Status};
-use uuid::Uuid;
 
 use spdk_sys::{
     spdk_bdev,
@@ -935,30 +934,6 @@ impl Nexus {
                 }
             }
         }
-    }
-}
-
-/// Convert the UUID to a nexus name in the form of "nexus-{uuid}".
-/// Return error if the UUID is not valid.
-pub fn uuid_to_name(uuid: &str) -> Result<String, Error> {
-    match Uuid::parse_str(uuid) {
-        Ok(uuid) => Ok(format!("nexus-{}", uuid.to_hyphenated().to_string())),
-        Err(_) => Err(Error::InvalidUuid {
-            uuid: uuid.to_owned(),
-        }),
-    }
-}
-
-/// Convert nexus name to uuid.
-///
-/// This function never fails which means that if there is a nexus with
-/// unconventional name that likely means it was not created using nexus
-/// rpc api, we return the whole name without modifications as it is.
-pub fn name_to_uuid(name: &str) -> &str {
-    if name.starts_with("nexus-") {
-        &name[6 ..]
-    } else {
-        name
     }
 }
 

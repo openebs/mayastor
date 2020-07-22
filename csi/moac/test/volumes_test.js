@@ -112,11 +112,13 @@ module.exports = function () {
       children: [
         {
           uri: `bdev:///${UUID}`,
-          state: 'CHILD_ONLINE'
+          state: 'CHILD_ONLINE',
+          rebuildProgress: 0
         },
         {
           uri: `nvmf://remote/${UUID}`,
-          state: 'CHILD_ONLINE'
+          state: 'CHILD_ONLINE',
+          rebuildProgress: 0
         }
       ]
     });
@@ -169,32 +171,23 @@ module.exports = function () {
 
     it('should set the size of the volume to required minimum if limit is not set', async () => {
       // on node 1 is created replica and nexus
-      stub1.onCall(0).resolves({});
-      stub1.onCall(1).resolves({
-        replicas: [
-          {
-            uuid: UUID,
-            pool: 'pool1',
-            size: 90,
-            thin: false,
-            share: 'REPLICA_NONE',
-            uri: 'bdev:///' + UUID
-          }
-        ]
+      stub1.onCall(0).resolves({
+        uuid: UUID,
+        pool: 'pool1',
+        size: 90,
+        thin: false,
+        share: 'REPLICA_NONE',
+        uri: 'bdev:///' + UUID
       });
-      stub1.onCall(2).resolves({});
-      stub1.onCall(3).resolves({
-        nexusList: [
+      stub1.onCall(1).resolves({
+        uuid: UUID,
+        size: 90,
+        state: 'NEXUS_ONLINE',
+        children: [
           {
-            uuid: UUID,
-            size: 90,
-            state: 'NEXUS_ONLINE',
-            children: [
-              {
-                uri: 'bdev:///' + UUID,
-                state: 'CHILD_ONLINE'
-              }
-            ]
+            uri: 'bdev:///' + UUID,
+            state: 'CHILD_ONLINE',
+            rebuildProgress: 0
           }
         ]
       });
@@ -222,32 +215,23 @@ module.exports = function () {
 
     it('should limit the size of created volume', async () => {
       // on node 1 is created replica and nexus
-      stub1.onCall(0).resolves({});
-      stub1.onCall(1).resolves({
-        replicas: [
-          {
-            uuid: UUID,
-            pool: 'pool1',
-            size: 50,
-            thin: false,
-            share: 'REPLICA_NONE',
-            uri: 'bdev:///' + UUID
-          }
-        ]
+      stub1.onCall(0).resolves({
+        uuid: UUID,
+        pool: 'pool1',
+        size: 50,
+        thin: false,
+        share: 'REPLICA_NONE',
+        uri: 'bdev:///' + UUID
       });
-      stub1.onCall(2).resolves({});
-      stub1.onCall(3).resolves({
-        nexusList: [
+      stub1.onCall(1).resolves({
+        uuid: UUID,
+        size: 50,
+        state: 'NEXUS_ONLINE',
+        children: [
           {
-            uuid: UUID,
-            size: 50,
-            state: 'NEXUS_ONLINE',
-            children: [
-              {
-                uri: 'bdev:///' + UUID,
-                state: 'CHILD_ONLINE'
-              }
-            ]
+            uri: 'bdev:///' + UUID,
+            state: 'CHILD_ONLINE',
+            rebuildProgress: 0
           }
         ]
       });
@@ -291,19 +275,15 @@ module.exports = function () {
     });
 
     it('should create the volume and include pre-existing replicas', async () => {
-      stub1.onCall(0).resolves({});
-      stub1.onCall(1).resolves({
-        nexusList: [
+      stub1.onCall(0).resolves({
+        uuid: UUID,
+        size: 10,
+        state: 'NEXUS_ONLINE',
+        children: [
           {
-            uuid: UUID,
-            size: 10,
-            state: 'NEXUS_ONLINE',
-            children: [
-              {
-                uri: `bdev:///${UUID}`,
-                state: 'CHILD_FAULTED'
-              }
-            ]
+            uri: `bdev:///${UUID}`,
+            state: 'CHILD_FAULTED',
+            rebuildProgress: 0
           }
         ]
       });
@@ -328,13 +308,12 @@ module.exports = function () {
       await waitUntil(() => !!volume.nexus, 'nexus');
       sinon.assert.notCalled(stub2);
       sinon.assert.notCalled(stub3);
-      sinon.assert.calledTwice(stub1);
+      sinon.assert.calledOnce(stub1);
       sinon.assert.calledWithMatch(stub1.firstCall, 'createNexus', {
         uuid: UUID,
         size: 10,
         children: [`bdev:///${UUID}`]
       });
-      sinon.assert.calledWithMatch(stub1.secondCall, 'listNexus', {});
       expect(Object.keys(volume.replicas)).to.have.lengthOf(1);
       expect(Object.values(volume.replicas)[0]).to.equal(replica);
       expect(volume.state).to.equal('faulted');
@@ -345,20 +324,19 @@ module.exports = function () {
 
     it('should create the volume object and include pre-existing nexus', async () => {
       // on node 1 is created replica and nexus
-      stub1.onCall(0).resolves({});
-      stub1.onCall(1).resolves({
-        replicas: [
-          {
-            uuid: UUID,
-            pool: 'pool1',
-            size: 10,
-            thin: false,
-            share: 'REPLICA_NONE',
-            uri: `bdev:///${UUID}`
-          }
-        ]
+      stub1.onCall(0).resolves({
+        uuid: UUID,
+        pool: 'pool1',
+        size: 10,
+        thin: false,
+        share: 'REPLICA_NONE',
+        uri: `bdev:///${UUID}`
       });
-      stub1.onCall(2).resolves({});
+      stub1.onCall(1).resolves({
+        uri: `bdev:///${UUID}`,
+        state: 'CHILD_DEGRADED',
+        rebuildProgress: 10
+      });
       const nexus = new Nexus({
         uuid: UUID,
         size: 10,
@@ -367,7 +345,8 @@ module.exports = function () {
         children: [
           {
             uri: `nvmf:///blabla/${UUID}`,
-            state: 'CHILD_ONLINE'
+            state: 'CHILD_ONLINE',
+            rebuildProgress: 0
           }
         ]
       });
@@ -385,13 +364,13 @@ module.exports = function () {
       });
       await waitUntil(
         () =>
-          Object.keys(volume.replicas).length === 1 &&
+          Object.keys(nexus.children).length === 2 &&
           volume.state === 'degraded',
         'replica and degraded volume'
       );
       sinon.assert.notCalled(stub2);
       sinon.assert.notCalled(stub3);
-      sinon.assert.calledThrice(stub1);
+      sinon.assert.calledTwice(stub1);
       sinon.assert.calledWithMatch(stub1.firstCall, 'createReplica', {
         uuid: UUID,
         size: 10,
@@ -399,10 +378,9 @@ module.exports = function () {
         thin: false,
         share: 'REPLICA_NONE'
       });
-      sinon.assert.calledWithMatch(stub1.secondCall, 'listReplicas', {});
-      sinon.assert.calledWithMatch(stub1.thirdCall, 'addChildNexus', {
-        uuid: 'ba5e39e9-0c0e-4973-8a3a-0dccada09cbb',
-        uri: 'bdev:///ba5e39e9-0c0e-4973-8a3a-0dccada09cbb',
+      sinon.assert.calledWithMatch(stub1.secondCall, 'addChildNexus', {
+        uuid: UUID,
+        uri: `bdev:///${UUID}`,
         norebuild: false
       });
       expect(Object.keys(volume.replicas)).to.have.lengthOf(1);
@@ -427,7 +405,8 @@ module.exports = function () {
         children: [
           {
             uri: `bdev:///${UUID}`,
-            state: 'CHILD_ONLINE'
+            state: 'CHILD_ONLINE',
+            rebuildProgress: 0
           }
         ]
       });
@@ -534,24 +513,23 @@ module.exports = function () {
 
     it('should scale up if a child is faulted', async () => {
       // on node 3 is created the new replica
-      stub3.onCall(0).resolves({});
-      stub3.onCall(1).resolves({
-        replicas: [
-          {
-            uuid: UUID,
-            pool: 'pool3',
-            size: 95,
-            thin: false,
-            share: 'REPLICA_NONE',
-            uri: 'bdev:///' + UUID
-          }
-        ]
+      stub3.onCall(0).resolves({
+        uuid: UUID,
+        pool: 'pool3',
+        size: 95,
+        thin: false,
+        share: 'REPLICA_NONE',
+        uri: 'bdev:///' + UUID
       });
-      stub3.onCall(2).resolves({ uri: 'nvmf://replica3' });
+      stub3.onCall(1).resolves({ uri: 'nvmf://replica3' });
       // the faulted replica should be eventually removed
       stub2.onCall(0).resolves({});
       // nexus should be updated twice (add and remove a replica)
-      stub1.onCall(0).resolves({});
+      stub1.onCall(0).resolves({
+        uri: 'nvmf://replica3',
+        state: 'CHILD_DEGRADED',
+        rebuildProgress: 10
+      });
       stub1.onCall(1).resolves({});
 
       nexus.children[1].state = 'CHILD_FAULTED';
@@ -587,22 +565,21 @@ module.exports = function () {
 
     it('should scale up if replicaCount is increased', async () => {
       // on node 3 is created the new replica
-      stub3.onCall(0).resolves({});
-      stub3.onCall(1).resolves({
-        replicas: [
-          {
-            uuid: UUID,
-            pool: 'pool3',
-            size: 95,
-            thin: false,
-            share: 'REPLICA_NONE',
-            uri: 'bdev:///' + UUID
-          }
-        ]
+      stub3.onCall(0).resolves({
+        uuid: UUID,
+        pool: 'pool3',
+        size: 95,
+        thin: false,
+        share: 'REPLICA_NONE',
+        uri: 'bdev:///' + UUID
       });
-      stub3.onCall(2).resolves({ uri: 'nvmf://replica3' });
+      stub3.onCall(1).resolves({ uri: 'nvmf://replica3' });
       // nexus should be updated to add the new child
-      stub1.onCall(0).resolves({});
+      stub1.onCall(0).resolves({
+        uri: 'nvmf://replica3',
+        state: 'CHILD_DEGRADED',
+        rebuildProgress: 10
+      });
 
       // update the spec
       volumes.createVolume(UUID, {
@@ -624,21 +601,20 @@ module.exports = function () {
 
     it('should not scale up if the replica is there but just being rebuilt', async () => {
       // this would have been normally done but should not be the case now
-      stub3.onCall(0).resolves({});
-      stub3.onCall(1).resolves({
-        replicas: [
-          {
-            uuid: UUID,
-            pool: 'pool3',
-            size: 95,
-            thin: false,
-            share: 'REPLICA_NONE',
-            uri: 'bdev:///' + UUID
-          }
-        ]
+      stub3.onCall(0).resolves({
+        uuid: UUID,
+        pool: 'pool3',
+        size: 95,
+        thin: false,
+        share: 'REPLICA_NONE',
+        uri: 'bdev:///' + UUID
       });
-      stub3.onCall(2).resolves({ uri: 'nvmf://replica3' });
-      stub1.onCall(0).resolves({});
+      stub3.onCall(1).resolves({ uri: 'nvmf://replica3' });
+      stub1.onCall(0).resolves({
+        uri: 'nvmf://replica3',
+        state: 'CHILD_DEGRADED',
+        rebuildProgress: 10
+      });
 
       nexus.children[0].state = 'CHILD_DEGRADED';
       registry.emit('nexus', {
@@ -664,21 +640,20 @@ module.exports = function () {
 
     it('should not scale up if replica is offline but the child is online', async () => {
       // this would have been normally done but should not be the case now
-      stub3.onCall(0).resolves({});
-      stub3.onCall(1).resolves({
-        replicas: [
-          {
-            uuid: UUID,
-            pool: 'pool3',
-            size: 95,
-            thin: false,
-            share: 'REPLICA_NONE',
-            uri: 'bdev:///' + UUID
-          }
-        ]
+      stub3.onCall(0).resolves({
+        uuid: UUID,
+        pool: 'pool3',
+        size: 95,
+        thin: false,
+        share: 'REPLICA_NONE',
+        uri: 'bdev:///' + UUID
       });
-      stub3.onCall(2).resolves({ uri: 'nvmf://replica3' });
-      stub1.onCall(0).resolves({});
+      stub3.onCall(1).resolves({ uri: 'nvmf://replica3' });
+      stub1.onCall(0).resolves({
+        uri: 'nvmf://replica3',
+        state: 'CHILD_DEGRADED',
+        rebuildProgress: 10
+      });
 
       replica1.offline();
 
@@ -758,22 +733,21 @@ module.exports = function () {
 
     it('should scale up and then scale down when a volume is moved', async () => {
       // on node 3 is created the new replica
-      stub3.onCall(0).resolves({});
-      stub3.onCall(1).resolves({
-        replicas: [
-          {
-            uuid: UUID,
-            pool: 'pool3',
-            size: 95,
-            thin: false,
-            share: 'REPLICA_NONE',
-            uri: 'bdev:///' + UUID
-          }
-        ]
+      stub3.onCall(0).resolves({
+        uuid: UUID,
+        pool: 'pool3',
+        size: 95,
+        thin: false,
+        share: 'REPLICA_NONE',
+        uri: 'bdev:///' + UUID
       });
-      stub3.onCall(2).resolves({ uri: 'nvmf://replica3' });
+      stub3.onCall(1).resolves({ uri: 'nvmf://replica3' });
       // nexus should be updated to add the new child
-      stub1.onCall(0).resolves({});
+      stub1.onCall(0).resolves({
+        uri: 'nvmf://replica3',
+        state: 'CHILD_DEGRADED',
+        rebuildProgress: 10
+      });
 
       // update the spec: node2 remains but the first replica should move
       // from node1 to node3
@@ -789,7 +763,7 @@ module.exports = function () {
       expect(volume.state).to.equal('degraded');
 
       const newChild = volume.nexus.children.find(
-        (ch) => ch.state === 'CHILD_PENDING'
+        (ch) => ch.state === 'CHILD_DEGRADED'
       );
       expect(newChild.uri).to.equal('nvmf://replica3');
       newChild.state = 'CHILD_ONLINE';
@@ -806,22 +780,21 @@ module.exports = function () {
     it('should scale up if a new pool is created', async () => {
       // on node 3 we destroy (and create) the pool and create the new replica
       stub3.onCall(0).resolves({});
-      stub3.onCall(1).resolves({});
-      stub3.onCall(2).resolves({
-        replicas: [
-          {
-            uuid: UUID,
-            pool: 'pool3',
-            size: 95,
-            thin: false,
-            share: 'REPLICA_NONE',
-            uri: 'bdev:///' + UUID
-          }
-        ]
+      stub3.onCall(1).resolves({
+        uuid: UUID,
+        pool: 'pool3',
+        size: 95,
+        thin: false,
+        share: 'REPLICA_NONE',
+        uri: 'bdev:///' + UUID
       });
-      stub3.onCall(3).resolves({ uri: 'nvmf://replica3' });
+      stub3.onCall(2).resolves({ uri: 'nvmf://replica3' });
       // nexus should be updated to add the new child
-      stub1.onCall(0).resolves({});
+      stub1.onCall(0).resolves({
+        uri: 'nvmf://replica3',
+        state: 'CHILD_DEGRADED',
+        rebuildProgress: 10
+      });
 
       // delete the third pool to pretend we ran out of pools
       await pool3.destroy();
@@ -934,75 +907,58 @@ module.exports = function () {
     // this creates a volume used in subsequent cases
     it('should create a new volume', async () => {
       // on node 1 is created replica and nexus
-      stub1.onCall(0).resolves({});
-      stub1.onCall(1).resolves({
-        replicas: [
-          {
-            uuid: UUID,
-            pool: 'pool1',
-            size: 96,
-            thin: false,
-            share: 'REPLICA_NONE',
-            uri: 'bdev:///' + UUID
-          }
-        ]
+      stub1.onCall(0).resolves({
+        uuid: UUID,
+        pool: 'pool1',
+        size: 96,
+        thin: false,
+        share: 'REPLICA_NONE',
+        uri: 'bdev:///' + UUID
       });
-      stub1.onCall(2).resolves({});
-      stub1.onCall(3).resolves({
-        nexusList: [
+      stub1.onCall(1).resolves({
+        uuid: UUID,
+        size: 96,
+        state: 'NEXUS_ONLINE',
+        children: [
           {
-            uuid: UUID,
-            size: 96,
-            state: 'NEXUS_ONLINE',
-            children: [
-              {
-                uri: 'bdev:///' + UUID,
-                state: 'CHILD_ONLINE'
-              },
-              {
-                uri: 'nvmf://replica2',
-                state: 'CHILD_ONLINE'
-              },
-              {
-                uri: 'nvmf://replica3',
-                state: 'CHILD_ONLINE'
-              }
-            ]
+            uri: 'bdev:///' + UUID,
+            state: 'CHILD_ONLINE',
+            rebuildProgress: 0
+          },
+          {
+            uri: 'nvmf://replica2',
+            state: 'CHILD_ONLINE',
+            rebuildProgress: 0
+          },
+          {
+            uri: 'nvmf://replica3',
+            state: 'CHILD_ONLINE',
+            rebuildProgress: 0
           }
         ]
       });
 
       // on node 2 is created replica and it is shared
-      stub2.onCall(0).resolves({});
-      stub2.onCall(1).resolves({
-        replicas: [
-          {
-            uuid: UUID,
-            pool: 'pool2',
-            size: 96,
-            thin: false,
-            share: 'REPLICA_NONE',
-            uri: 'bdev:///' + UUID
-          }
-        ]
+      stub2.onCall(0).resolves({
+        uuid: UUID,
+        pool: 'pool2',
+        size: 96,
+        thin: false,
+        share: 'REPLICA_NONE',
+        uri: 'bdev:///' + UUID
       });
-      stub2.onCall(2).resolves({ uri: 'nvmf://replica2' });
+      stub2.onCall(1).resolves({ uri: 'nvmf://replica2' });
 
       // on node 3 is created replica and it is shared
-      stub3.onCall(0).resolves({});
-      stub3.onCall(1).resolves({
-        replicas: [
-          {
-            uuid: UUID,
-            pool: 'pool3',
-            size: 96,
-            thin: false,
-            share: 'REPLICA_NONE',
-            uri: 'bdev:///' + UUID
-          }
-        ]
+      stub3.onCall(0).resolves({
+        uuid: UUID,
+        pool: 'pool3',
+        size: 96,
+        thin: false,
+        share: 'REPLICA_NONE',
+        uri: 'bdev:///' + UUID
       });
-      stub3.onCall(2).resolves({ uri: 'nvmf://replica3' });
+      stub3.onCall(1).resolves({ uri: 'nvmf://replica3' });
 
       volumes.start();
       volume = await volumes.createVolume(UUID, {
@@ -1013,7 +969,7 @@ module.exports = function () {
         limitBytes: 110
       });
 
-      expect(stub1.callCount).to.equal(4);
+      sinon.assert.calledTwice(stub1);
       sinon.assert.calledWithMatch(stub1.firstCall, 'createReplica', {
         uuid: UUID,
         pool: 'pool1',
@@ -1021,15 +977,13 @@ module.exports = function () {
         thin: false,
         share: 'REPLICA_NONE'
       });
-      sinon.assert.calledWithMatch(stub1.secondCall, 'listReplicas', {});
-      sinon.assert.calledWithMatch(stub1.thirdCall, 'createNexus', {
+      sinon.assert.calledWithMatch(stub1.secondCall, 'createNexus', {
         uuid: UUID,
         size: 96,
         children: ['bdev:///' + UUID, 'nvmf://replica2', 'nvmf://replica3']
       });
-      sinon.assert.calledWithMatch(stub1.lastCall, 'listNexus', {});
 
-      expect(stub2.callCount).to.equal(3);
+      sinon.assert.calledTwice(stub2);
       sinon.assert.calledWithMatch(stub2.firstCall, 'createReplica', {
         uuid: UUID,
         pool: 'pool2',
@@ -1037,13 +991,12 @@ module.exports = function () {
         thin: false,
         share: 'REPLICA_NONE'
       });
-      sinon.assert.calledWithMatch(stub2.secondCall, 'listReplicas', {});
-      sinon.assert.calledWithMatch(stub2.thirdCall, 'shareReplica', {
+      sinon.assert.calledWithMatch(stub2.secondCall, 'shareReplica', {
         uuid: UUID,
         share: 'REPLICA_NVMF'
       });
 
-      expect(stub3.callCount).to.equal(3);
+      sinon.assert.calledTwice(stub3);
       sinon.assert.calledWithMatch(stub3.firstCall, 'createReplica', {
         uuid: UUID,
         pool: 'pool3',
@@ -1051,8 +1004,7 @@ module.exports = function () {
         thin: false,
         share: 'REPLICA_NONE'
       });
-      sinon.assert.calledWithMatch(stub3.secondCall, 'listReplicas', {});
-      sinon.assert.calledWithMatch(stub3.thirdCall, 'shareReplica', {
+      sinon.assert.calledWithMatch(stub3.secondCall, 'shareReplica', {
         uuid: UUID,
         share: 'REPLICA_NVMF'
       });

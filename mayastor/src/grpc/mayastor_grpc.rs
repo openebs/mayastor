@@ -1,4 +1,4 @@
-use std::convert::From;
+//! Mayastor grpc methods implementation.
 
 use tonic::{Request, Response, Status};
 use tracing::instrument;
@@ -7,68 +7,20 @@ use rpc::mayastor::*;
 
 use crate::{
     bdev::{
-        nexus::{
-            instances,
-            nexus_bdev,
-            nexus_bdev::{name_to_uuid, uuid_to_name, Nexus, NexusStatus},
-            nexus_child::{ChildStatus, NexusChild},
-        },
+        nexus::{instances, nexus_bdev},
         nexus_create,
     },
     core::Cores,
-    grpc::GrpcResult,
+    grpc::{
+        nexus_grpc::{nexus_add_child, nexus_lookup, uuid_to_name},
+        GrpcResult,
+    },
     pool,
-    rebuild::RebuildJob,
     replica,
 };
 
 #[derive(Debug)]
 struct UnixStream(tokio::net::UnixStream);
-
-/// Lookup a nexus by its uuid prepending "nexus-" prefix. Return error if
-/// uuid is invalid or nexus not found.
-fn nexus_lookup(
-    uuid: &str,
-) -> std::result::Result<&mut Nexus, nexus_bdev::Error> {
-    let name = uuid_to_name(uuid)?;
-
-    if let Some(nexus) = instances().iter_mut().find(|n| n.name == name) {
-        Ok(nexus)
-    } else {
-        Err(nexus_bdev::Error::NexusNotFound {
-            name: uuid.to_owned(),
-        })
-    }
-}
-
-impl From<ChildStatus> for ChildState {
-    fn from(child: ChildStatus) -> Self {
-        match child {
-            ChildStatus::Faulted => ChildState::ChildFaulted,
-            ChildStatus::Degraded => ChildState::ChildDegraded,
-            ChildStatus::Online => ChildState::ChildOnline,
-        }
-    }
-}
-impl From<NexusStatus> for NexusState {
-    fn from(nexus: NexusStatus) -> Self {
-        match nexus {
-            NexusStatus::Faulted => NexusState::NexusFaulted,
-            NexusStatus::Degraded => NexusState::NexusDegraded,
-            NexusStatus::Online => NexusState::NexusOnline,
-        }
-    }
-}
-
-impl From<&NexusChild> for Child {
-    fn from(child: &NexusChild) -> Self {
-        Child {
-            uri: child.name.clone(),
-            state: ChildState::from(child.status()) as i32,
-            rebuild_progress: child.get_rebuild_progress(),
-        }
-    }
-}
 
 #[derive(Debug)]
 pub struct MayastorSvc {}
@@ -79,7 +31,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
     async fn create_pool(
         &self,
         request: Request<CreatePoolRequest>,
-    ) -> GrpcResult<Null> {
+    ) -> GrpcResult<Pool> {
         let args = request.into_inner();
         trace!("{:?}", args);
         let name = args.name.clone();
@@ -95,10 +47,10 @@ impl mayastor_server::Mayastor for MayastorSvc {
             args.io_if,
         );
 
-        locally! { pool::create_pool(args) };
+        let pool = locally! { pool::create_pool(args) };
 
         info!("Created or imported pool {}", name);
-        Ok(Response::new(Null {}))
+        Ok(Response::new(pool))
     }
 
     #[instrument(level = "debug", err)]
@@ -123,24 +75,8 @@ impl mayastor_server::Mayastor for MayastorSvc {
         let args = request.into_inner();
         trace!("{:?}", args);
         assert_eq!(Cores::current(), Cores::first());
-        let mut pools = Vec::new();
-
-        for pool in pool::PoolsIter::new() {
-            pools.push(Pool {
-                name: pool.get_name().to_owned(),
-                disks: vec![
-                    pool.get_base_bdev().driver()
-                        + "://"
-                        + &pool.get_base_bdev().name(),
-                ],
-                // TODO: figure out how to detect state of pool
-                state: PoolState::PoolOnline as i32,
-                capacity: pool.get_capacity(),
-                used: pool.get_capacity() - pool.get_free(),
-            });
-        }
         let reply = ListPoolsReply {
-            pools,
+            pools: pool::PoolsIter::new().map(|p| p.into()).collect::<Vec<_>>(),
         };
 
         trace!("{:?}", reply);
@@ -151,14 +87,14 @@ impl mayastor_server::Mayastor for MayastorSvc {
     async fn create_replica(
         &self,
         request: Request<CreateReplicaRequest>,
-    ) -> GrpcResult<CreateReplicaReply> {
+    ) -> GrpcResult<Replica> {
         let args = request.into_inner();
         trace!("{:?}", args);
         let uuid = args.uuid.clone();
         debug!("Creating replica {} on {} ...", uuid, args.pool);
-        let reply = locally! { replica::create_replica(args) };
+        let replica = locally! { replica::create_replica(args) };
         info!("Created replica {} ...", uuid);
-        Ok(Response::new(reply))
+        Ok(Response::new(replica))
     }
 
     #[instrument(level = "debug", err)]
@@ -219,7 +155,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
     async fn create_nexus(
         &self,
         request: Request<CreateNexusRequest>,
-    ) -> GrpcResult<Null> {
+    ) -> GrpcResult<Nexus> {
         let args = request.into_inner();
         trace!("{:?}", args);
         let uuid = args.uuid.clone();
@@ -228,8 +164,9 @@ impl mayastor_server::Mayastor for MayastorSvc {
         locally! { async move {
             nexus_create(&name, args.size, Some(&args.uuid), &args.children).await
         }};
+        let nexus = nexus_lookup(&uuid)?;
         info!("Created nexus {}", uuid);
-        Ok(Response::new(Null {}))
+        Ok(Response::new(nexus.to_grpc()))
     }
 
     #[instrument(level = "debug", err)]
@@ -256,18 +193,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
         let reply = ListNexusReply {
             nexus_list: instances()
                 .iter()
-                .map(|n| rpc::mayastor::Nexus {
-                    uuid: name_to_uuid(&n.name).to_string(),
-                    size: n.size,
-                    state: NexusState::from(n.status()) as i32,
-                    device_path: n.get_share_path().unwrap_or_default(),
-                    children: n
-                        .children
-                        .iter()
-                        .map(Child::from)
-                        .collect::<Vec<_>>(),
-                    rebuilds: RebuildJob::count() as u32,
-                })
+                .map(|n| n.to_grpc())
                 .collect::<Vec<_>>(),
         };
         trace!("{:?}", reply);
@@ -278,16 +204,16 @@ impl mayastor_server::Mayastor for MayastorSvc {
     async fn add_child_nexus(
         &self,
         request: Request<AddChildNexusRequest>,
-    ) -> GrpcResult<Null> {
+    ) -> GrpcResult<Child> {
         let args = request.into_inner();
         trace!("{:?}", args);
         let uuid = args.uuid.clone();
         debug!("Adding child {} to nexus {} ...", args.uri, uuid);
-        locally! { async move {
-            nexus_lookup(&args.uuid)?.add_child(&args.uri, args.norebuild).await.map(|_| ())
+        let child = locally! { async move {
+            nexus_add_child(args).await
         }};
         info!("Added child to nexus {}", uuid);
-        Ok(Response::new(Null {}))
+        Ok(Response::new(child))
     }
 
     #[instrument(level = "debug", err)]

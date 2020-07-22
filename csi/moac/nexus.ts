@@ -192,8 +192,10 @@ export class Nexus {
     }
     log.debug(`Adding uri "${uri}" to nexus "${this}" ...`);
 
+    var childInfo;
     try {
-      await this.node.call('addChildNexus', {
+      // TODO: validate the output
+      childInfo = await this.node.call('addChildNexus', {
         uuid: this.uuid,
         uri: uri,
         norebuild: false
@@ -206,10 +208,7 @@ export class Nexus {
     }
     // The child will need to be rebuilt when added, but until we get
     // confirmation back from the nexus, set it as pending
-    this.children.push({
-      uri: uri,
-      state: 'CHILD_PENDING'
-    });
+    this.children.push(childInfo);
     this.children.sort(compareChildren);
     log.info(`Replica uri "${uri}" added to the nexus "${this}"`);
     this._emitMod();

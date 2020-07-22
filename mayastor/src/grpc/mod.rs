@@ -30,6 +30,7 @@ macro_rules! locally {
 
 mod bdev_grpc;
 mod mayastor_grpc;
+mod nexus_grpc;
 mod server;
 
 pub use server::MayastorGrpcServer;

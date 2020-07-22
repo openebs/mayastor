@@ -266,11 +266,16 @@ module.exports = function () {
     });
 
     it('should add replica to nexus', async () => {
+      const uri = 'iscsi://' + UUID;
       const replica = new Replica({
         uuid: UUID,
-        uri: 'iscsi://' + UUID
+        uri
       });
-      callStub.resolves({});
+      callStub.resolves({
+        uri,
+        state: 'CHILD_DEGRADED',
+        rebuildProgress: 0
+      });
 
       await nexus.addReplica(replica);
 
