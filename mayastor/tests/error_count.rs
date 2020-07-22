@@ -12,7 +12,7 @@ pub use common::error_bdev::{
     VBDEV_IO_FAILURE,
 };
 use mayastor::{
-    bdev::{nexus_create, nexus_lookup, NexusErrStore},
+    bdev::{nexus_create, nexus_lookup, NexusErrStore, QueryType},
     core::{
         mayastor_env_stop,
         Bdev,
@@ -20,6 +20,7 @@ use mayastor::{
         MayastorEnvironment,
         Reactor,
     },
+    subsys::Config,
 };
 
 pub mod common;
@@ -35,12 +36,18 @@ static ERROR_DEVICE: &str = "error_device";
 static EE_ERROR_DEVICE: &str = "EE_error_device"; // The prefix is added by the vbdev_error module
 static BDEV_EE_ERROR_DEVICE: &str = "bdev:///EE_error_device";
 
+static YAML_CONFIG_FILE: &str = "/tmp/error_count_test_nexus.yaml";
+
 #[test]
 fn nexus_error_count_test() {
     common::truncate_file(DISKNAME1, 64 * 1024);
     common::truncate_file(DISKNAME2, 64 * 1024);
 
-    test_init!();
+    let mut config = Config::default();
+    config.err_store_opts.enable_err_store = true;
+    config.err_store_opts.err_store_size = 256;
+    config.write(YAML_CONFIG_FILE).unwrap();
+    test_init!(YAML_CONFIG_FILE);
 
     Reactor::block_on(async {
         create_error_bdev(ERROR_DEVICE, DISKNAME2);
@@ -160,19 +167,19 @@ fn nexus_error_count_test() {
         }
     });
 
-    reactor_run_millis(1); // give time for any errors to be added to the error store
+    reactor_run_millis(10); // give time for any errors to be added to the error store
 
     nexus_err_query_and_test(
         BDEV_EE_ERROR_DEVICE,
         NexusErrStore::READ_FLAG,
         156,
-        Some(1_000_000_000),
+        Some(10_000_000_000),
     );
     nexus_err_query_and_test(
         BDEV_EE_ERROR_DEVICE,
         NexusErrStore::WRITE_FLAG,
         100,
-        Some(1_000_000_000),
+        Some(10_000_000_000),
     );
 
     nexus_err_query_and_test(
@@ -197,6 +204,10 @@ fn nexus_error_count_test() {
     );
 
     mayastor_env_stop(0);
+
+    common::delete_file(&[DISKNAME1.to_string()]);
+    common::delete_file(&[DISKNAME2.to_string()]);
+    common::delete_file(&[YAML_CONFIG_FILE.to_string()]);
 }
 
 async fn create_nexus() {
@@ -220,6 +231,7 @@ fn nexus_err_query_and_test(
             io_type_flags,
             NexusErrStore::IO_FAILED_FLAG,
             age_nano,
+            QueryType::Total,
         )
         .expect("failed to query child");
     assert!(count.is_some()); // true if the error_store is enabled
