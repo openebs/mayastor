@@ -1,8 +1,6 @@
-use std::time::{Duration, Instant};
-
-use mayastor::bdev::NexusErrStore;
-
 pub mod common;
+use mayastor::bdev::{NexusErrStore, QueryType};
+use std::time::{Duration, Instant};
 
 const ALL_FLAGS: u32 = 0xffff_ffff;
 
@@ -61,11 +59,10 @@ fn nexus_child_error_store_test() {
     errors = do_query(&es, ALL_FLAGS, ALL_FLAGS, start_inst, 15);
     assert_eq!(errors, 0);
 
-    errors = es.query(ALL_FLAGS, ALL_FLAGS, None); // no time specified
+    errors = es.query(ALL_FLAGS, ALL_FLAGS, None, QueryType::Total); // no time specified
     assert_eq!(errors, 15);
 
     /////////////////////// filter by op ////////////////////////
-
     errors = do_query(&es, NexusErrStore::READ_FLAG, ALL_FLAGS, start_inst, 10);
     assert_eq!(errors, 1);
 
@@ -134,5 +131,6 @@ fn do_query(
         op_flags,
         err_flags,
         Some(start_inst + Duration::from_nanos(when)),
+        QueryType::Total,
     )
 }

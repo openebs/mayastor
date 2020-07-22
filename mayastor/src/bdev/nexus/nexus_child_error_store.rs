@@ -15,6 +15,7 @@ use crate::{
             Error::{ChildMissing, ChildMissingErrStore},
             Nexus,
         },
+        nexus_child::{ChildState, NexusChild},
         nexus_io::{io_status, io_type},
     },
     core::{Cores, Reactors},
@@ -46,6 +47,20 @@ pub struct NexusErrStore {
     no_of_records: usize,
     next_record_index: usize,
     records: Vec<NexusChildErrorRecord>,
+}
+
+// this controls what kind of search to perform in the error store
+pub enum QueryType {
+    Total, /* determine the total number of errors stored
+            * other types, e.g. MostAttempts may be added in future
+            * revisions */
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ActionType {
+    Ignore,
+    Fault,
 }
 
 impl NexusErrStore {
@@ -105,17 +120,49 @@ impl NexusErrStore {
         self.next_record_index =
              // consider using a mask if we restrict the size to a power-of-2
             (self.next_record_index + 1) % self.records.len();
-        // debug!("added record - buffer is {}", &self);
     }
 
-    pub fn query(
+    #[inline]
+    fn has_error(
+        record: &NexusChildErrorRecord,
+        io_op_flags: u32,
+        io_error_flags: u32,
+        target_timestamp: Option<Instant>,
+    ) -> bool {
+        match record.io_op {
+            io_type::READ if (io_op_flags & NexusErrStore::READ_FLAG) != 0 => {}
+            io_type::WRITE
+                if (io_op_flags & NexusErrStore::WRITE_FLAG) != 0 => {}
+            io_type::UNMAP
+                if (io_op_flags & NexusErrStore::UNMAP_FLAG) != 0 => {}
+            io_type::FLUSH
+                if (io_op_flags & NexusErrStore::FLUSH_FLAG) != 0 => {}
+            io_type::RESET
+                if (io_op_flags & NexusErrStore::RESET_FLAG) != 0 => {}
+            _ => return false,
+        };
+
+        match record.io_error {
+            io_status::FAILED
+                if (io_error_flags & NexusErrStore::IO_FAILED_FLAG) != 0 => {}
+            _ => return false,
+        };
+
+        match target_timestamp {
+            Some(ts) => record.timestamp.checked_duration_since(ts).is_some(),
+            None => true,
+        }
+    }
+
+    #[inline]
+    fn count_errors(
         &self,
         io_op_flags: u32,
         io_error_flags: u32,
         target_timestamp: Option<Instant>,
     ) -> u32 {
         let mut idx = self.next_record_index;
-        let mut error_count: u32 = 0;
+        let mut err_count: u32 = 0;
 
         for _ in 0 .. self.no_of_records {
             if idx > 0 {
@@ -123,43 +170,31 @@ impl NexusErrStore {
             } else {
                 idx = self.records.len() - 1;
             }
-            if target_timestamp.is_some()
-                && self.records[idx]
-                    .timestamp
-                    .checked_duration_since(target_timestamp.unwrap())
-                    .is_none()
-            {
-                break; // reached a record older than the wanted timespan
-            }
-            let found_op = match self.records[idx].io_op {
-                io_type::READ => (io_op_flags & NexusErrStore::READ_FLAG) != 0,
-                io_type::WRITE => {
-                    (io_op_flags & NexusErrStore::WRITE_FLAG) != 0
-                }
-                io_type::UNMAP => {
-                    (io_op_flags & NexusErrStore::UNMAP_FLAG) != 0
-                }
-                io_type::FLUSH => {
-                    (io_op_flags & NexusErrStore::FLUSH_FLAG) != 0
-                }
-                io_type::RESET => {
-                    (io_op_flags & NexusErrStore::RESET_FLAG) != 0
-                }
-                _ => false,
-            };
-
-            let found_err = match self.records[idx].io_error {
-                io_status::FAILED => {
-                    (io_error_flags & NexusErrStore::IO_FAILED_FLAG) != 0
-                }
-                _ => false,
-            };
-
-            if found_op && found_err {
-                error_count += 1;
+            if Self::has_error(
+                &self.records[idx],
+                io_op_flags,
+                io_error_flags,
+                target_timestamp,
+            ) {
+                err_count += 1;
             }
         }
-        error_count
+        err_count
+    }
+
+    #[inline]
+    pub fn query(
+        &self,
+        io_op_flags: u32,
+        io_error_flags: u32,
+        target_timestamp: Option<Instant>,
+        query_type: QueryType,
+    ) -> u32 {
+        match query_type {
+            QueryType::Total => {
+                self.count_errors(io_op_flags, io_error_flags, target_timestamp)
+            }
+        }
     }
 
     fn error_fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
@@ -224,12 +259,13 @@ impl Nexus {
                     io_offset,
                     io_num_blocks,
                     now,
-                );
+                )
+                .await;
             });
         }
     }
 
-    fn future_error_record_add(
+    async fn future_error_record_add(
         name: String,
         bdev: *const spdk_bdev,
         io_op_type: spdk_bdev_io_type,
@@ -241,23 +277,51 @@ impl Nexus {
         let nexus = match nexus_lookup(&name) {
             Some(nexus) => nexus,
             None => {
-                error!("Failed to find the nexus {}", name);
+                error!("Failed to find the nexus >{}<", name);
                 return;
             }
         };
+        trace!("Adding error record {} bdev {:?}", io_op_type, bdev);
         for child in nexus.children.iter_mut() {
             if child.bdev.as_ref().unwrap().as_ptr() as *const _ == bdev {
-                if child.err_store.is_some() {
-                    child.err_store.as_mut().unwrap().add_record(
-                        io_op_type,
-                        io_error_type,
-                        io_offset,
-                        io_num_blocks,
-                        now,
-                    );
-                } else {
-                    error!("Failed to record error - child has no error store");
+                if child.state == ChildState::Open {
+                    if child.err_store.is_some() {
+                        child.err_store.as_mut().unwrap().add_record(
+                            io_op_type,
+                            io_error_type,
+                            io_offset,
+                            io_num_blocks,
+                            now,
+                        );
+                        let cfg = Config::get();
+                        if cfg.err_store_opts.action == ActionType::Fault
+                            && !Self::assess_child(
+                                &child,
+                                cfg.err_store_opts.max_errors,
+                                cfg.err_store_opts.retention_ns,
+                                QueryType::Total,
+                            )
+                        {
+                            let child_name = child.name.clone();
+                            info!("Faulting child {}", child_name);
+                            if nexus.fault_child(&child_name).await.is_err() {
+                                error!(
+                                    "Failed to fault the child {}",
+                                    child_name,
+                                );
+                            }
+                        }
+                    } else {
+                        let child_name = child.name.clone();
+                        error!(
+                            "Failed to record error - no error store in child {}",
+                            child_name,
+                        );
+                    }
+                    return;
                 }
+                let child_name = child.name.clone();
+                trace!("Ignoring error response sent to non-open child {}, state {:?}", child_name, child.state);
                 return;
             }
         }
@@ -270,6 +334,7 @@ impl Nexus {
         io_op_flags: u32,
         io_error_flags: u32,
         age_nano: Option<u64>, // None for any age
+        query_type: QueryType,
     ) -> Result<Option<u32>, nexus_bdev::Error> {
         let earliest_time = match age_nano {
             // can also be None if earlier than the node has been up
@@ -286,6 +351,7 @@ impl Nexus {
                         io_op_flags,
                         io_error_flags,
                         earliest_time,
+                        query_type,
                     )))
                 } else {
                     Err(ChildMissingErrStore {
@@ -302,5 +368,26 @@ impl Nexus {
         } else {
             Ok(None)
         }
+    }
+
+    // Returns false if the child is deemed faulted. This is determined by
+    // by the number, type and time stamp of the errors stored in the error
+    // store, filtered by the passed-in flags and compared against a
+    // configurable limit.
+    fn assess_child(
+        child: &NexusChild,
+        max_errors: u32,
+        retention_ns: u64,
+        query_type: QueryType,
+    ) -> bool {
+        let earliest_time =
+            Instant::now().checked_sub(Duration::from_nanos(retention_ns));
+        let res = child.err_store.as_ref().unwrap().query(
+            NexusErrStore::READ_FLAG | NexusErrStore::WRITE_FLAG,
+            NexusErrStore::IO_FAILED_FLAG,
+            earliest_time, // can be None
+            query_type,
+        );
+        res <= max_errors
     }
 }

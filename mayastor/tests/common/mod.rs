@@ -75,6 +75,17 @@ macro_rules! test_init {
         });
         mayastor::core::Mthread::get_init().enter();
     };
+    ($yaml_config:expr) => {
+        common::MSTEST.get_or_init(|| {
+            common::mayastor_test_init();
+            MayastorEnvironment::new(MayastorCliArgs {
+                reactor_mask: "0x1".to_string(),
+                mayastor_config: Some($yaml_config.to_string()),
+                ..Default::default()
+            })
+            .init()
+        });
+    };
 }
 
 pub fn mayastor_test_init() {
