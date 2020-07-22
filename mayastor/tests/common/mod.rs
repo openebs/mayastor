@@ -259,7 +259,7 @@ pub fn mount_and_get_md5(device: &str) -> String {
 }
 
 pub fn fio_run_verify(device: &str) -> String {
-    let (exit, stdout, _stderr) = run_script::run(
+    let (exit, stdout, stderr) = run_script::run(
         r#"
         fio --name=randrw --rw=randrw --ioengine=libaio --direct=1 --time_based=1 \
         --runtime=5 --bs=4k --verify=crc32 --group_reporting=1 --output-format=terse \
@@ -269,7 +269,7 @@ pub fn fio_run_verify(device: &str) -> String {
     &run_script::ScriptOptions::new(),
     )
         .unwrap();
-    assert_eq!(exit, 0);
+    assert_eq!(exit, 0, "fio failed: {}", stderr);
     stdout
 }
 

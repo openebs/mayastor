@@ -112,7 +112,7 @@ var client;
 
 function controlPlaneTest (thisProtocol) {
   it('should publish the nexus', (done) => {
-    client.PublishNexus(
+    client.publishNexus(
       {
         uuid: UUID,
         share: thisProtocol
@@ -133,7 +133,7 @@ function controlPlaneTest (thisProtocol) {
   });
 
   it('should re-publish the nexus', (done) => {
-    client.PublishNexus(
+    client.publishNexus(
       {
         uuid: UUID,
         share: thisProtocol
@@ -148,7 +148,7 @@ function controlPlaneTest (thisProtocol) {
 
   it('should fail another publish request using a different protocol', (done) => {
     const differentProtocol = (thisProtocol === enums.NEXUS_NBD ? enums.NEXUS_ISCSI : enums.NEXUS_NBD);
-    client.PublishNexus(
+    client.publishNexus(
       {
         uuid: UUID,
         share: differentProtocol
@@ -162,7 +162,7 @@ function controlPlaneTest (thisProtocol) {
   });
 
   it('should succeed another publish request using the existing protocol', (done) => {
-    client.PublishNexus(
+    client.publishNexus(
       {
         uuid: UUID,
         share: thisProtocol
@@ -190,7 +190,7 @@ function controlPlaneTest (thisProtocol) {
   });
 
   it('should re-publish the nexus using a crypto-key', (done) => {
-    client.PublishNexus(
+    client.publishNexus(
       {
         uuid: UUID,
         share: thisProtocol,
@@ -242,6 +242,7 @@ var doUring = (function () {
 })();
 
 describe('nexus', function () {
+  // TODO: use promisifyAll from grpc-promise to avoid these definitions
   const unpublish = (args) => {
     return new Promise((resolve, reject) => {
       client.unpublishNexus(args, (err, data) => {
@@ -385,11 +386,44 @@ describe('nexus', function () {
     if (doIscsiReplica) args.children.push(`iscsi://iscsi://${externIp}:${iscsiReplicaPort}/iqn.2019-05.io.openebs:disk1`);
     if (doUring()) args.children.push(`uring://${uringFile}?blk_size=4096`);
 
-    client.CreateNexus(args, done);
+    client.createNexus(args, (err, nexus) => {
+      if (err) return done(err);
+      const expectedChildren = 3 + doIscsiReplica + doUring();
+      assert.equal(nexus.uuid, UUID);
+      assert.equal(nexus.state, 'NEXUS_ONLINE');
+      assert.lengthOf(nexus.children, expectedChildren);
+      assert.equal(nexus.children[0].uri, 'bdev:///Malloc0');
+      assert.equal(nexus.children[0].state, 'CHILD_ONLINE');
+      assert.equal(nexus.children[1].uri, `aio://${aioFile}?blk_size=4096`);
+      assert.equal(nexus.children[1].state, 'CHILD_ONLINE');
+
+      assert.equal(
+        nexus.children[2].uri,
+        'nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk2'
+      );
+      assert.equal(nexus.children[2].state, 'CHILD_ONLINE');
+      if (doIscsiReplica) {
+        assert.equal(
+          nexus.children[3].uri,
+          `iscsi://${externIp}:${iscsiReplicaPort}/iqn.2019-05.io.openebs:disk1`
+        );
+        assert.equal(nexus.children[2].state, 'CHILD_ONLINE');
+      }
+
+      if (doUring()) {
+        const uringIndex = 3 + doIscsiReplica;
+        assert.equal(
+          nexus.children[uringIndex].uri,
+          `uring://${uringFile}?blk_size=4096`
+        );
+        assert.equal(nexus.children[uringIndex].state, 'CHILD_ONLINE');
+      }
+      done();
+    });
   });
 
   it('should list the created nexus', (done) => {
-    client.ListNexus({}, (err, res) => {
+    client.listNexus({}, (err, res) => {
       if (err) return done(err);
       assert.lengthOf(res.nexus_list, 1);
 
@@ -435,10 +469,10 @@ describe('nexus', function () {
       uri: 'nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk2'
     };
 
-    client.RemoveChildNexus(args, (err) => {
+    client.removeChildNexus(args, (err) => {
       if (err) return done(err);
 
-      client.ListNexus({}, (err, res) => {
+      client.listNexus({}, (err, res) => {
         if (err) return done(err);
         const nexus = res.nexus_list[0];
         const expectedChildren = 2 + doIscsiReplica + doUring();
@@ -450,16 +484,19 @@ describe('nexus', function () {
   });
 
   it('should be able to add the child back', (done) => {
+    const uri = 'nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk2';
     const args = {
       uuid: UUID,
-      uri: 'nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk2',
+      uri: uri,
       norebuild: false
     };
 
-    client.AddChildNexus(args, (err) => {
+    client.addChildNexus(args, (err, res) => {
       if (err) return done(err);
+      assert.equal(res.uri, uri);
+      assert.equal(res.state, 'CHILD_DEGRADED');
 
-      client.ListNexus({}, (err, res) => {
+      client.listNexus({}, (err, res) => {
         if (err) return done(err);
         const nexus = res.nexus_list[0];
         const expectedChildren = 3 + doIscsiReplica + doUring();
@@ -477,7 +514,7 @@ describe('nexus', function () {
       children: ['nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk2']
     };
 
-    client.CreateNexus(args, (err, res) => {
+    client.createNexus(args, (err) => {
       if (!err) return done(new Error('Expected error'));
       assert.equal(err.code, grpc.status.INVALID_ARGUMENT);
       done();
@@ -494,7 +531,7 @@ describe('nexus', function () {
       ]
     };
 
-    client.CreateNexus(args, (err, res) => {
+    client.createNexus(args, (err) => {
       assert.equal(err.code, grpc.status.INVALID_ARGUMENT);
       done();
     });
@@ -508,7 +545,7 @@ describe('nexus', function () {
     var nbdDeviceUri;
 
     it('should publish the nexus', (done) => {
-      client.PublishNexus(
+      client.publishNexus(
         {
           uuid: UUID,
           share: enums.NEXUS_NBD
@@ -561,7 +598,7 @@ describe('nexus', function () {
     var uri;
 
     it('should publish the nexus', (done) => {
-      client.PublishNexus(
+      client.publishNexus(
         {
           uuid: UUID,
           share: enums.NEXUS_ISCSI
@@ -622,7 +659,7 @@ describe('nexus', function () {
 
     var uri;
     it('should publish the nexus', (done) => {
-      client.PublishNexus(
+      client.publishNexus(
         {
           uuid: UUID,
           share: enums.NEXUS_NVMF
@@ -666,10 +703,10 @@ describe('nexus', function () {
 
   describe('destructive', function () {
     it('should destroy the nexus without explicitly un-publishing it', (done) => {
-      client.DestroyNexus({ uuid: UUID }, (err) => {
+      client.destroyNexus({ uuid: UUID }, (err) => {
         if (err) return done(err);
 
-        client.ListNexus({}, (err, res) => {
+        client.listNexus({}, (err, res) => {
           if (err) return done(err);
           assert.lengthOf(res.nexus_list, 0);
           done();
@@ -686,8 +723,7 @@ describe('nexus', function () {
         `aio://${aioFile}?blk_size=512`
         ]
       };
-
-      client.CreateNexus(args, (err, data) => {
+      client.createNexus(args, (err) => {
         if (!err) return done(new Error('Expected error'));
         assert.equal(err.code, grpc.status.INVALID_ARGUMENT);
         done();
@@ -704,7 +740,7 @@ describe('nexus', function () {
         ]
       };
 
-      client.CreateNexus(args, (err, data) => {
+      client.createNexus(args, (err) => {
         if (!err) return done(new Error('Expected error'));
         // todo: fixme
         // in this case we hit a Error::NexusCreate which atm is converted
@@ -715,7 +751,7 @@ describe('nexus', function () {
     });
 
     it('should have zero nexus devices left', (done) => {
-      client.ListNexus({}, (err, res) => {
+      client.listNexus({}, (err, res) => {
         if (err) return done(err);
         assert.lengthOf(res.nexus_list, 0);
         done();
@@ -747,7 +783,7 @@ describe('nexus', function () {
     });
 
     it('should have zero nexus devices left', (done) => {
-      client.ListNexus({}, (err, res) => {
+      client.listNexus({}, (err, res) => {
         if (err) return done(err);
         assert.lengthOf(res.nexus_list, 0);
         done();
@@ -777,7 +813,7 @@ describe('nexus', function () {
     });
 
     it('should have zero nexus devices left', (done) => {
-      client.ListNexus({}, (err, res) => {
+      client.listNexus({}, (err, res) => {
         if (err) return done(err);
         assert.lengthOf(res.nexus_list, 0);
         done();
@@ -792,7 +828,7 @@ describe('nexus', function () {
     });
 
     it('should have zero nexus devices left', (done) => {
-      client.ListNexus({}, (err, res) => {
+      client.listNexus({}, (err, res) => {
         if (err) return done(err);
         assert.lengthOf(res.nexus_list, 0);
         done();

@@ -7,7 +7,7 @@ use std::ffi::{c_void, CStr, CString};
 
 use futures::channel::oneshot;
 use nix::errno::Errno;
-use rpc::mayastor as grpc;
+use rpc::mayastor as rpc;
 use snafu::{ResultExt, Snafu};
 
 use spdk_sys::{
@@ -437,10 +437,29 @@ impl Iterator for ReplicaIter {
     }
 }
 
+impl From<Replica> for rpc::Replica {
+    fn from(r: Replica) -> Self {
+        rpc::Replica {
+            uuid: r.get_uuid().to_owned(),
+            pool: r.get_pool_name().to_owned(),
+            size: r.get_size(),
+            thin: r.is_thin(),
+            share: match r.get_share_type() {
+                Some(share_type) => match share_type {
+                    ShareType::Iscsi => rpc::ShareProtocolReplica::ReplicaIscsi,
+                    ShareType::Nvmf => rpc::ShareProtocolReplica::ReplicaNvmf,
+                },
+                None => rpc::ShareProtocolReplica::ReplicaNone,
+            } as i32,
+            uri: r.get_share_uri(),
+        }
+    }
+}
+
 pub(crate) async fn create_replica(
-    args: grpc::CreateReplicaRequest,
-) -> Result<grpc::CreateReplicaReply, RpcError> {
-    let want_share = match grpc::ShareProtocolReplica::from_i32(args.share) {
+    args: rpc::CreateReplicaRequest,
+) -> Result<rpc::Replica, RpcError> {
+    let want_share = match rpc::ShareProtocolReplica::from_i32(args.share) {
         Some(val) => val,
         None => Err(Error::InvalidProtocol {
             protocol: args.share,
@@ -458,27 +477,25 @@ pub(crate) async fn create_replica(
 
     // TODO: destroy replica if the share operation fails
     match want_share {
-        grpc::ShareProtocolReplica::ReplicaNvmf => replica
+        rpc::ShareProtocolReplica::ReplicaNvmf => replica
             .share(ShareType::Nvmf)
             .await
             .context(CreateReplica {
                 uuid: args.uuid.clone(),
             })?,
-        grpc::ShareProtocolReplica::ReplicaIscsi => replica
+        rpc::ShareProtocolReplica::ReplicaIscsi => replica
             .share(ShareType::Iscsi)
             .await
             .context(CreateReplica {
                 uuid: args.uuid.clone(),
             })?,
-        grpc::ShareProtocolReplica::ReplicaNone => (),
+        rpc::ShareProtocolReplica::ReplicaNone => (),
     }
-    Ok(grpc::CreateReplicaReply {
-        uri: replica.get_share_uri(),
-    })
+    Ok(replica.into())
 }
 
 pub(crate) async fn destroy_replica(
-    args: grpc::DestroyReplicaRequest,
+    args: rpc::DestroyReplicaRequest,
 ) -> Result<(), RpcError> {
     match Replica::lookup(&args.uuid) {
         Some(replica) => replica.destroy().await.context(DestroyReplica {
@@ -490,32 +507,15 @@ pub(crate) async fn destroy_replica(
     }
 }
 
-pub(crate) fn list_replicas() -> grpc::ListReplicasReply {
-    grpc::ListReplicasReply {
+pub(crate) fn list_replicas() -> rpc::ListReplicasReply {
+    rpc::ListReplicasReply {
         replicas: ReplicaIter::new()
-            .map(|r| grpc::Replica {
-                uuid: r.get_uuid().to_owned(),
-                pool: r.get_pool_name().to_owned(),
-                size: r.get_size(),
-                thin: r.is_thin(),
-                share: match r.get_share_type() {
-                    Some(share_type) => match share_type {
-                        ShareType::Iscsi => {
-                            grpc::ShareProtocolReplica::ReplicaIscsi
-                        }
-                        ShareType::Nvmf => {
-                            grpc::ShareProtocolReplica::ReplicaNvmf
-                        }
-                    },
-                    None => grpc::ShareProtocolReplica::ReplicaNone,
-                } as i32,
-                uri: r.get_share_uri(),
-            })
-            .collect::<Vec<grpc::Replica>>(),
+            .map(|r| r.into())
+            .collect::<Vec<rpc::Replica>>(),
     }
 }
 
-pub(crate) async fn stat_replicas() -> Result<grpc::StatReplicasReply, RpcError>
+pub(crate) async fn stat_replicas() -> Result<rpc::StatReplicasReply, RpcError>
 {
     let mut stats = Vec::new();
 
@@ -532,10 +532,10 @@ pub(crate) async fn stat_replicas() -> Result<grpc::StatReplicasReply, RpcError>
 
         match st {
             Ok(st) => {
-                stats.push(grpc::ReplicaStats {
+                stats.push(rpc::ReplicaStats {
                     uuid,
                     pool,
-                    stats: Some(grpc::Stats {
+                    stats: Some(rpc::Stats {
                         num_read_ops: st.num_read_ops,
                         num_write_ops: st.num_write_ops,
                         bytes_read: st.bytes_read,
@@ -552,15 +552,15 @@ pub(crate) async fn stat_replicas() -> Result<grpc::StatReplicasReply, RpcError>
             }
         }
     }
-    Ok(grpc::StatReplicasReply {
+    Ok(rpc::StatReplicasReply {
         replicas: stats,
     })
 }
 
 pub(crate) async fn share_replica(
-    args: grpc::ShareReplicaRequest,
-) -> Result<grpc::ShareReplicaReply, RpcError> {
-    let want_share = match grpc::ShareProtocolReplica::from_i32(args.share) {
+    args: rpc::ShareReplicaRequest,
+) -> Result<rpc::ShareReplicaReply, RpcError> {
+    let want_share = match rpc::ShareProtocolReplica::from_i32(args.share) {
         Some(val) => val,
         None => Err(Error::InvalidProtocol {
             protocol: args.share,
@@ -579,10 +579,10 @@ pub(crate) async fn share_replica(
     let unshare = match replica.get_share_type() {
         Some(share_type) => match share_type {
             ShareType::Iscsi => {
-                want_share != grpc::ShareProtocolReplica::ReplicaIscsi
+                want_share != rpc::ShareProtocolReplica::ReplicaIscsi
             }
             ShareType::Nvmf => {
-                want_share != grpc::ShareProtocolReplica::ReplicaNvmf
+                want_share != rpc::ShareProtocolReplica::ReplicaNvmf
             }
         },
         None => false,
@@ -596,21 +596,21 @@ pub(crate) async fn share_replica(
     // shared
     if replica.get_share_type().is_none() {
         match want_share {
-            grpc::ShareProtocolReplica::ReplicaIscsi => replica
+            rpc::ShareProtocolReplica::ReplicaIscsi => replica
                 .share(ShareType::Iscsi)
                 .await
                 .context(ShareReplica {
                     uuid: args.uuid.clone(),
                 })?,
-            grpc::ShareProtocolReplica::ReplicaNvmf => {
+            rpc::ShareProtocolReplica::ReplicaNvmf => {
                 replica.share(ShareType::Nvmf).await.context(ShareReplica {
                     uuid: args.uuid.clone(),
                 })?
             }
-            grpc::ShareProtocolReplica::ReplicaNone => (),
+            rpc::ShareProtocolReplica::ReplicaNone => (),
         }
     }
-    Ok(grpc::ShareReplicaReply {
+    Ok(rpc::ShareReplicaReply {
         uri: replica.get_share_uri(),
     })
 }

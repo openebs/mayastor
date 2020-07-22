@@ -19,7 +19,7 @@ service Mayastor {
 	// Storage pool is made up of block devices disks and provides a storage
 	// space for thin provisioning of replicas.
 
-	rpc CreatePool (CreatePoolRequest) returns (Null) {}
+	rpc CreatePool (CreatePoolRequest) returns (Pool) {}
 	rpc DestroyPool (DestroyPoolRequest) returns (Null) {}
 	rpc ListPools (Null) returns (ListPoolsReply) {}
 
@@ -27,7 +27,7 @@ service Mayastor {
 	//
 	// Replica allocates space from storage pool.
 
-	rpc CreateReplica (CreateReplicaRequest) returns (CreateReplicaReply) {}
+	rpc CreateReplica (CreateReplicaRequest) returns (Replica) {}
 	rpc DestroyReplica (DestroyReplicaRequest) returns (Null) {}
 	rpc ListReplicas (Null) returns (ListReplicasReply) {}
 	rpc StatReplicas (Null) returns (StatReplicasReply) {}
@@ -38,10 +38,10 @@ service Mayastor {
 	// Nexus is a logical frontend representing a data volume taking care of
 	// replication and rebuild in the background.
 
-	rpc CreateNexus (CreateNexusRequest) returns (Null){}
+	rpc CreateNexus (CreateNexusRequest) returns (Nexus) {}
 	rpc DestroyNexus (DestroyNexusRequest) returns (Null) {}
 	rpc ListNexus (Null) returns (ListNexusReply) {}
-	rpc AddChildNexus (AddChildNexusRequest) returns (Null) {}
+	rpc AddChildNexus (AddChildNexusRequest) returns (Child) {}
 	rpc RemoveChildNexus (RemoveChildNexusRequest) returns (Null) {}
 
 	// This method is called by control plane to construct a block device
@@ -130,11 +130,6 @@ message CreateReplicaRequest {
   uint64 size = 3;  // size of the replica in bytes
   bool thin = 4;    // thin provisioning
   ShareProtocolReplica share = 5;  // protocol to expose the replica over
-}
-
-// Create replica response.
-message CreateReplicaReply {
-  string uri = 1;   // uri under which the replica is accessible by nexus
 }
 
 // Destroy replica arguments.

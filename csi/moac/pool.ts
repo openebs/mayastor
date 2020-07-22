@@ -232,8 +232,9 @@ export class Pool {
 
     log.debug(`Creating replica "${uuid}" on the pool "${this}" ...`);
 
+    var replicaInfo;
     try {
-      await this.node.call('createReplica', { uuid, pool, size, thin, share });
+      replicaInfo = await this.node.call('createReplica', { uuid, pool, size, thin, share });
       log.info(`Created replica "${uuid}" on the pool "${this}"`);
     } catch (err) {
       // TODO: Make rpc idempotent
@@ -242,24 +243,6 @@ export class Pool {
       }
     }
 
-    // it's not done yet, we have to get properties of the replica to
-    // obtain its state, used bytes, etc.
-    var resp;
-    try {
-      resp = await this.node.call('listReplicas', {});
-    } catch (err) {
-      throw new GrpcError(
-        GrpcCode.INTERNAL,
-        `Failed to list new replica "${uuid}" on pool "${this}": ${err}`
-      );
-    }
-    var replicaInfo = resp.replicas.filter((r: any) => r.uuid === uuid)[0];
-    if (!replicaInfo) {
-      throw new GrpcError(
-        GrpcCode.INTERNAL,
-        `New replica "${uuid}" on pool "${this}" not found`
-      );
-    }
     const newReplica = new Replica(replicaInfo);
     this.registerReplica(newReplica);
     return newReplica;

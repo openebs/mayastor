@@ -11,7 +11,7 @@ use std::{
 use futures::channel::oneshot;
 use snafu::Snafu;
 
-use rpc::mayastor::PoolIoIf;
+use rpc::mayastor as rpc;
 use spdk_sys::{
     bdev_aio_delete as delete_uring_bdev,
     bdev_aio_delete,
@@ -155,12 +155,12 @@ type Result<T> = std::result::Result<T, Error>;
 pub fn create_base_bdev(
     file: &str,
     block_size: u32,
-    io_if: PoolIoIf,
+    io_if: rpc::PoolIoIf,
 ) -> Result<()> {
     let (mut do_uring, must_uring) = match io_if {
-        PoolIoIf::PoolIoAuto => (true, false),
-        PoolIoIf::PoolIoAio => (false, false),
-        PoolIoIf::PoolIoUring => (true, true),
+        rpc::PoolIoIf::PoolIoAuto => (true, false),
+        rpc::PoolIoIf::PoolIoAio => (false, false),
+        rpc::PoolIoIf::PoolIoUring => (true, true),
     };
     if do_uring && !uring::kernel_support() {
         if must_uring {
@@ -493,9 +493,26 @@ impl Iterator for PoolsIter {
     }
 }
 
+impl From<Pool> for rpc::Pool {
+    fn from(pool: Pool) -> Self {
+        rpc::Pool {
+            name: pool.get_name().to_owned(),
+            disks: vec![
+                pool.get_base_bdev().driver()
+                    + "://"
+                    + &pool.get_base_bdev().name(),
+            ],
+            // TODO: figure out how to detect state of pool
+            state: rpc::PoolState::PoolOnline as i32,
+            capacity: pool.get_capacity(),
+            used: pool.get_capacity() - pool.get_free(),
+        }
+    }
+}
+
 pub(crate) async fn create_pool(
-    args: rpc::mayastor::CreatePoolRequest,
-) -> Result<()> {
+    args: rpc::CreatePoolRequest,
+) -> Result<rpc::Pool> {
     // TODO: support RAID-0 devices
     if args.disks.len() != 1 {
         return Err(Error::BadNumDisks {
@@ -528,7 +545,7 @@ pub(crate) async fn create_pool(
     if block_size == 0 {
         block_size = 512;
     }
-    let io_if = match PoolIoIf::from_i32(args.io_if) {
+    let io_if = match rpc::PoolIoIf::from_i32(args.io_if) {
         Some(val) => val,
         None => {
             return Err(Error::InvalidIoInterface {
@@ -538,16 +555,14 @@ pub(crate) async fn create_pool(
     };
     create_base_bdev(disk, block_size, io_if)?;
 
-    if Pool::import(&args.name, disk).await.is_ok() {
-        return Ok(());
-    }
-    Pool::create(&args.name, disk).await?;
-    Ok(())
+    if let Ok(pool) = Pool::import(&args.name, disk).await {
+        return Ok(pool.into());
+    };
+    let pool = Pool::create(&args.name, disk).await?;
+    Ok(pool.into())
 }
 
-pub(crate) async fn destroy_pool(
-    args: rpc::mayastor::DestroyPoolRequest,
-) -> Result<()> {
+pub(crate) async fn destroy_pool(args: rpc::DestroyPoolRequest) -> Result<()> {
     let pool = match Pool::lookup(&args.name) {
         Some(p) => p,
         None => {
