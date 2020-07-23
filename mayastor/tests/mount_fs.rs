@@ -2,7 +2,13 @@ use crossbeam::channel::unbounded;
 
 use mayastor::{
     bdev::{nexus_create, nexus_lookup},
-    core::{mayastor_env_stop, MayastorCliArgs, MayastorEnvironment, Reactor},
+    core::{
+        mayastor_env_stop,
+        MayastorCliArgs,
+        MayastorEnvironment,
+        Mthread,
+        Reactor,
+    },
 };
 use rpc::mayastor::ShareProtocolNexus;
 
@@ -30,12 +36,30 @@ fn mount_fs() {
         );
 
         let (s, r) = unbounded();
-        // create an XFS filesystem on the nexus device, mount it, create a file
-        // and return the md5 of that file
+        // create an XFS filesystem on the nexus device
+        let s1 = s.clone();
+        let mkfs_dev = device.clone();
+        std::thread::spawn(move || {
+            Mthread::unaffinitize();
+            if !common::mkfs(&mkfs_dev, &fstype) {
+                s1.send(format!(
+                    "Failed to format {} with {}",
+                    mkfs_dev, fstype
+                ))
+                .unwrap();
+            } else {
+                s1.send("".to_string()).unwrap();
+            }
+        });
 
+        let result;
+        reactor_poll!(r, result);
+        assert_eq!(result, "",);
+
+        //mount the device, create a file and return the md5 of that file
         let s1 = s.clone();
         std::thread::spawn(move || {
-            common::mkfs(&device, &fstype);
+            Mthread::unaffinitize();
             let md5 = common::mount_and_write_file(&device);
             s1.send(md5).unwrap();
         });
@@ -69,6 +93,7 @@ fn mount_fs() {
 
         let s1 = s.clone();
         std::thread::spawn(move || {
+            Mthread::unaffinitize();
             s1.send(common::mount_and_get_md5(&left_device))
         });
         let md5_left: String;
@@ -80,6 +105,7 @@ fn mount_fs() {
         let s1 = s.clone();
         // read the md5 of the right side of the mirror
         std::thread::spawn(move || {
+            Mthread::unaffinitize();
             s1.send(common::mount_and_get_md5(&right_device))
         });
 
@@ -119,6 +145,7 @@ fn mount_fs_1() {
         );
 
         std::thread::spawn(move || {
+            Mthread::unaffinitize();
             for _i in 0 .. 10 {
                 common::mount_umount(&device);
             }
@@ -146,7 +173,10 @@ fn mount_fs_2() {
         );
         let (s, r) = unbounded::<String>();
 
-        std::thread::spawn(move || s.send(common::fio_run_verify(&device)));
+        std::thread::spawn(move || {
+            Mthread::unaffinitize();
+            s.send(common::fio_run_verify(&device))
+        });
         reactor_poll!(r);
         nexus.destroy().await.unwrap();
     });
