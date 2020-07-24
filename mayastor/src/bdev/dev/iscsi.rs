@@ -27,6 +27,7 @@ pub(super) struct Iscsi {
     name: String,
     iqn: String,
     url: String,
+    uuid: Option<uuid::Uuid>,
 }
 
 /// Convert a URI to an Iscsi "object"
@@ -52,15 +53,21 @@ impl TryFrom<&Url> for Iscsi {
             });
         }
 
-        if segments.len() > 1 {
+        if segments.len() > 2 {
             return Err(NexusBdevError::UriInvalid {
                 uri: url.to_string(),
                 message: String::from("too many path segments"),
             });
         }
 
-        let parameters: HashMap<String, String> =
+        let mut parameters: HashMap<String, String> =
             url.query_pairs().into_owned().collect();
+
+        let uuid = uri::uuid(parameters.remove("uuid")).context(
+            nexus_uri::UuidParamParseError {
+                uri: url.to_string(),
+            },
+        )?;
 
         if let Some(keys) = uri::keys(parameters) {
             warn!("ignored parameters: {}", keys);
@@ -69,7 +76,12 @@ impl TryFrom<&Url> for Iscsi {
         Ok(Iscsi {
             name: url.to_string(),
             iqn: format!("{}:{}", ISCSI_IQN_PREFIX, Uuid::new_v4()),
-            url: format!("{}/0", url.to_string()),
+            url: if segments.len() == 2 {
+                url[.. url::Position::AfterPath].to_string()
+            } else {
+                format!("{}/0", &url[.. url::Position::AfterPath])
+            },
+            uuid,
         })
     }
 }
@@ -128,7 +140,7 @@ impl CreateDestroy for Iscsi {
             name: self.get_name(),
         })?;
 
-        let bdev = receiver
+        let mut bdev = receiver
             .await
             .context(nexus_uri::CancelBdev {
                 name: self.get_name(),
@@ -136,6 +148,10 @@ impl CreateDestroy for Iscsi {
             .context(nexus_uri::CreateBdev {
                 name: self.get_name(),
             })?;
+
+        if let Some(u) = self.uuid {
+            bdev.set_uuid(Some(u.to_string()))
+        }
 
         Ok(bdev.name())
     }
