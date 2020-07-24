@@ -1,10 +1,10 @@
 name: "Nix Workflow Tests"
 on:
-  pull_request:
-    paths-ignore:
-  push:
-    branches:
-      - develop
+  #pull_request:
+  #  paths-ignore:
+  #push:
+  #  branches:
+  #    - develop
 jobs:
   main:
     name: Run Nix Tests
