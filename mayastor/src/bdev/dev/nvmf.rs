@@ -40,6 +40,8 @@ pub(super) struct Nvmf {
     subnqn: String,
     /// Enable protection information checking (reftag, guard)
     prchk_flags: u32,
+    /// uuid of the spdk bdev
+    uuid: Option<uuid::Uuid>,
 }
 
 /// Convert a URI to an Nvmf "object"
@@ -96,6 +98,12 @@ impl TryFrom<&Url> for Nvmf {
             }
         }
 
+        let uuid = uri::uuid(parameters.remove("uuid")).context(
+            nexus_uri::UuidParamParseError {
+                uri: url.to_string(),
+            },
+        )?;
+
         if let Some(keys) = uri::keys(parameters) {
             warn!("ignored parameters: {}", keys);
         }
@@ -106,6 +114,7 @@ impl TryFrom<&Url> for Nvmf {
             port: url.port().unwrap_or(DEFAULT_NVMF_PORT),
             subnqn: segments[0].to_string(),
             prchk_flags,
+            uuid,
         })
     }
 }
@@ -175,6 +184,14 @@ impl CreateDestroy for Nvmf {
             .context(nexus_uri::CreateBdev {
                 name: self.name.clone(),
             })?;
+
+        Bdev::lookup_by_name(&self.get_name()).map(|b| {
+            self.uuid.map(|u| {
+                if b.uuid_as_string() != u.to_hyphenated().to_string() {
+                    error!("Connected to device {} but expect to connect to {} instead", b.uuid_as_string(), u.to_hyphenated().to_string());
+                }
+            })
+        });
 
         Ok(unsafe { CStr::from_ptr(context.names[0]) }
             .to_str()

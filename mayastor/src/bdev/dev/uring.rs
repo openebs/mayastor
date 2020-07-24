@@ -19,6 +19,7 @@ pub(super) struct Uring {
     name: String,
     file: String,
     blk_size: u32,
+    uuid: Option<uuid::Uuid>,
 }
 
 /// Convert a URI to an Uring "object"
@@ -48,6 +49,12 @@ impl TryFrom<&Url> for Uring {
             None => 512,
         };
 
+        let uuid = uri::uuid(parameters.remove("uuid")).context(
+            nexus_uri::UuidParamParseError {
+                uri: url.to_string(),
+            },
+        )?;
+
         if let Some(keys) = uri::keys(parameters) {
             warn!("ignored parameters: {}", keys);
         }
@@ -56,6 +63,7 @@ impl TryFrom<&Url> for Uring {
             name: url.to_string(),
             file: format!("/{}", segments.join("/")),
             blk_size,
+            uuid,
         })
     }
 }
@@ -84,7 +92,12 @@ impl CreateDestroy for Uring {
         let name = Bdev::from_ptr(unsafe {
             create_uring_bdev(cname.as_ptr(), filename.as_ptr(), self.blk_size)
         })
-        .map(|bdev| bdev.name());
+        .map(|mut bdev| {
+            if let Some(u) = self.uuid {
+                bdev.set_uuid(Some(u.to_string()))
+            }
+            bdev.name()
+        });
 
         async {
             name.ok_or_else(|| NexusBdevError::BdevNotFound {

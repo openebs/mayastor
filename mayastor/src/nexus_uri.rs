@@ -39,6 +39,14 @@ pub enum NexusBdevError {
         uri: String,
         parameter: String,
     },
+    #[snafu(display(
+        "Invalid URI \"{}\": could not parse uuid parameter value",
+        uri,
+    ))]
+    UuidParamParseError {
+        source: uuid::parser::ParseError,
+        uri: String,
+    },
     // Bdev create/destroy errors
     #[snafu(display("bdev {} already exists", name))]
     BdevExists { name: String },

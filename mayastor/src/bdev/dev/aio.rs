@@ -19,6 +19,7 @@ pub(super) struct Aio {
     name: String,
     file: String,
     blk_size: u32,
+    uuid: Option<uuid::Uuid>,
 }
 
 /// Convert a URI to an Aio "object"
@@ -48,6 +49,12 @@ impl TryFrom<&Url> for Aio {
             None => 512,
         };
 
+        let uuid = uri::uuid(parameters.remove("uuid")).context(
+            nexus_uri::UuidParamParseError {
+                uri: url.to_string(),
+            },
+        )?;
+
         if let Some(keys) = uri::keys(parameters) {
             warn!("ignored parameters: {}", keys);
         }
@@ -56,6 +63,7 @@ impl TryFrom<&Url> for Aio {
             name: url.to_string(),
             file: format!("/{}", segments.join("/")),
             blk_size,
+            uuid,
         })
     }
 }
@@ -86,11 +94,17 @@ impl CreateDestroy for Aio {
         };
 
         async {
-            errno_result_from_i32(self.get_name(), errno).context(
-                nexus_uri::InvalidParams {
+            errno_result_from_i32(self.get_name(), errno)
+                .context(nexus_uri::InvalidParams {
                     name: self.get_name(),
-                },
-            )
+                })
+                .map(|name| {
+                    self.uuid.map(|u| {
+                        Bdev::lookup_by_name(&name)
+                            .map(|mut b| b.set_uuid(Some(u.to_string())))
+                    });
+                    name
+                })
         }
         .await
     }

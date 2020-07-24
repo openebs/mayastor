@@ -11,8 +11,8 @@
 //!  - Arranging for the try_from() method to be called by the parse() function
 //!    below for a URI with the appropriate scheme.
 //!
-//! See mod.rs for the approriate trait definition(s), and refer
-//! to the files in the dev directoy for sample implementations.
+//! See mod.rs for the appropriate trait definition(s), and refer
+//! to the files in the dev directory for sample implementations.
 //!
 //! Creating a bdev for any supported device type is now as simple as:
 //! ```ignore

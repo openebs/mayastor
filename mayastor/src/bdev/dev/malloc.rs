@@ -22,6 +22,8 @@ pub struct Malloc {
     num_blocks: u64,
     /// the size of a single block if no blk_size is given we default to 512
     blk_size: u32,
+    /// uuid of the spdk bdev
+    uuid: Option<uuid::Uuid>,
 }
 use crate::{
     bdev::{CreateDestroy, GetName},
@@ -93,6 +95,12 @@ impl TryFrom<&Url> for Malloc {
             });
         }
 
+        let uuid = uri::uuid(parameters.remove("uuid")).context(
+            nexus_uri::UuidParamParseError {
+                uri: uri.to_string(),
+            },
+        )?;
+
         Ok(Self {
             name: uri.path()[1 ..].into(),
             num_blocks: if num_blocks != 0 {
@@ -101,6 +109,7 @@ impl TryFrom<&Url> for Malloc {
                 (size << 20) / blk_size
             } as u64,
             blk_size,
+            uuid,
         })
     }
 }
@@ -140,6 +149,10 @@ impl CreateDestroy for Malloc {
                 name: self.name.clone(),
             })
         } else {
+            self.uuid.map(|u| {
+                Bdev::lookup_by_name(&self.name)
+                    .map(|mut b| b.set_uuid(Some(u.to_string())))
+            });
             Ok(self.name.clone())
         }
     }
