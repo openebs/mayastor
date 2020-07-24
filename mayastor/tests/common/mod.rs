@@ -155,7 +155,7 @@ pub fn fscheck(device: &str) {
     assert_eq!(output.status.success(), true);
 }
 
-pub fn mkfs(path: &str, fstype: &str) {
+pub fn mkfs(path: &str, fstype: &str) -> bool {
     let (fs, args) = match fstype {
         "xfs" => ("mkfs.xfs", ["-f", path]),
         "ext4" => ("mkfs.ext4", ["-F", path]),
@@ -171,7 +171,7 @@ pub fn mkfs(path: &str, fstype: &str) {
 
     io::stdout().write_all(&output.stderr).unwrap();
     io::stdout().write_all(&output.stdout).unwrap();
-    assert_eq!(output.status.success(), true);
+    output.status.success()
 }
 
 pub fn delete_file(disks: &[String]) {
