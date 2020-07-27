@@ -89,7 +89,7 @@ impl std::cmp::PartialEq<url::Url> for Bdev {
             Ok(device) if device.get_name() == self.name() => {
                 self.driver()
                     == match uri.scheme() {
-                        "nvmf" => "nvme",
+                        "nvmf" | "pcie" => "nvme",
                         scheme => scheme,
                     }
             }
