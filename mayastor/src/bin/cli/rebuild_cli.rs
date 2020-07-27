@@ -23,6 +23,7 @@ pub async fn handler(
     }
 }
 
+// TODO: Make subcommands use the name of the child rather than the uri
 pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
     let start = SubCommand::with_name("start")
         .about("starts a rebuild")

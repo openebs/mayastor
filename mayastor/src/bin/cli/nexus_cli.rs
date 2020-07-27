@@ -72,7 +72,7 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("norebuild")
                 .default_value("false")
                 .index(3)
-                .help("determines if a rebuild job runs automatically"),
+                .help("specify if a rebuild job runs automatically"),
         );
 
     let remove = SubCommand::with_name("remove")
