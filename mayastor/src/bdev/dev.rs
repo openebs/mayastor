@@ -34,6 +34,7 @@ mod aio;
 mod iscsi;
 mod loopback;
 mod malloc;
+mod nvme;
 mod nvmf;
 mod uring;
 
@@ -64,6 +65,7 @@ impl Uri {
 
             // backend NVMF target - fairly unstable (as of Linux 5.2)
             "nvmf" => Ok(Box::new(nvmf::Nvmf::try_from(&url)?)),
+            "pcie" => Ok(Box::new(nvme::NVMe::try_from(&url)?)),
 
             // also for testing - requires Linux 5.1 or higher
             // "uring" => Ok(Box::new(uring::Uring::try_from(&url)?)),

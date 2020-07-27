@@ -10,10 +10,10 @@ use crate::{
         {self},
     },
 };
+use async_trait::async_trait;
 use std::{collections::HashMap, convert::TryFrom};
 use url::Url;
-
-use async_trait::async_trait;
+use uuid::Uuid;
 #[derive(Debug)]
 pub struct Malloc {
     /// the name of the bdev we created, this is equal to the URI path minus
@@ -113,7 +113,7 @@ impl TryFrom<&Url> for Malloc {
                 (size << 20) / blk_size
             } as u64,
             blk_size,
-            uuid,
+            uuid: uuid.or_else(|| Some(Uuid::new_v4())),
         })
     }
 }
