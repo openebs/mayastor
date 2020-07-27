@@ -170,7 +170,7 @@ impl RebuildJob {
         );
 
         let nexus_descriptor =
-            Bdev::open_by_name(&nexus, true).context(BdevNotFound {
+            Bdev::open_by_name(&nexus, false).context(BdevNotFound {
                 bdev: nexus.to_string(),
             })?;
 
