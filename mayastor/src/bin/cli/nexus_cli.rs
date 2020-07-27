@@ -67,6 +67,12 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
                 .required(true)
                 .index(2)
                 .help("uri of child to add"),
+        )
+        .arg(
+            Arg::with_name("norebuild")
+                .default_value("false")
+                .index(3)
+                .help("determines if a rebuild job runs automatically"),
         );
 
     let remove = SubCommand::with_name("remove")
