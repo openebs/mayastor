@@ -14,6 +14,7 @@ use std::{collections::HashMap, convert::TryFrom};
 use url::Url;
 
 use async_trait::async_trait;
+#[derive(Debug)]
 pub struct Malloc {
     /// the name of the bdev we created, this is equal to the URI path minus
     /// the leading '/'

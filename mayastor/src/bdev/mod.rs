@@ -20,9 +20,9 @@ pub use nexus::{
     },
 };
 
-pub trait BdevCreateDestroy: CreateDestroy + GetName {}
+pub trait BdevCreateDestroy: CreateDestroy + GetName + std::fmt::Debug {}
 
-impl<T: CreateDestroy + GetName> BdevCreateDestroy for T {}
+impl<T: CreateDestroy + GetName + std::fmt::Debug> BdevCreateDestroy for T {}
 
 #[async_trait(?Send)]
 /// Main trait that must be implemented for every supported device type.
