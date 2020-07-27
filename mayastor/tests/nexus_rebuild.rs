@@ -64,14 +64,14 @@ fn get_disk(number: u64) -> String {
     if get_err_bdev().contains(&number) {
         format!("error_device{}", number)
     } else {
-        format!("/tmp/disk{}.img", number)
+        format!("/tmp/{}-disk{}.img", nexus_name(), number)
     }
 }
 fn get_dev(number: u64) -> String {
     if get_err_bdev().contains(&number) {
         format!("bdev:///EE_error_device{}", number)
     } else {
-        format!("aio://{}-{}?blk_size=512", nexus_name(), get_disk(number))
+        format!("aio://{}?blk_size=512", get_disk(number))
     }
 }
 

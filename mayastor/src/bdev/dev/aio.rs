@@ -17,7 +17,7 @@ use crate::{
 #[derive(Debug)]
 pub(super) struct Aio {
     name: String,
-    file: String,
+    alias: String,
     blk_size: u32,
     uuid: Option<uuid::Uuid>,
 }
@@ -60,8 +60,8 @@ impl TryFrom<&Url> for Aio {
         }
 
         Ok(Aio {
-            name: url.to_string(),
-            file: format!("/{}", segments.join("/")),
+            name: url.path().into(),
+            alias: url.to_string(),
             blk_size,
             uuid,
         })
@@ -87,10 +87,9 @@ impl CreateDestroy for Aio {
         }
 
         let cname = CString::new(self.get_name()).unwrap();
-        let filename = CString::new(self.file.clone()).unwrap();
 
         let errno = unsafe {
-            create_aio_bdev(cname.as_ptr(), filename.as_ptr(), self.blk_size)
+            create_aio_bdev(cname.as_ptr(), cname.as_ptr(), self.blk_size)
         };
 
         async {
@@ -99,10 +98,18 @@ impl CreateDestroy for Aio {
                     name: self.get_name(),
                 })
                 .map(|name| {
-                    self.uuid.map(|u| {
-                        Bdev::lookup_by_name(&name)
-                            .map(|mut b| b.set_uuid(Some(u.to_string())))
-                    });
+                    if let Some(mut bdev) = Bdev::lookup_by_name(&self.name) {
+                        if let Some(uuid) = self.uuid {
+                            bdev.set_uuid(Some(uuid.to_string()));
+                        }
+                        if !bdev.add_alias(&self.alias) {
+                            error!(
+                                "Failed to add alias {} to device {}",
+                                self.alias,
+                                self.get_name()
+                            );
+                        }
+                    };
                     name
                 })
         }
