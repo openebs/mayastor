@@ -2,9 +2,10 @@ use mayastor::{
     bdev::{nexus_create, nexus_lookup, ChildStatus},
     core::{mayastor_env_stop, MayastorCliArgs, MayastorEnvironment, Reactor},
 };
-use std::{ops::Deref, process::Command};
 
 static NEXUS_NAME: &str = "nexus";
+
+static FILE_SIZE: u64 = 64 * 1024 * 1024; // 64MiB
 
 static DISKNAME1: &str = "/tmp/disk1.img";
 static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
@@ -16,35 +17,13 @@ pub mod common;
 
 fn test_start() {
     common::mayastor_test_init();
-    // Create disk images
-    let disks = [DISKNAME1, DISKNAME2];
-    disks
-        .iter()
-        .map(|disk| {
-            let output = Command::new("truncate")
-                .args(&["-s", "64m", disk])
-                .output()
-                .expect("failed to create disk image");
-
-            assert_eq!(output.status.success(), true);
-        })
-        .for_each(drop);
+    common::truncate_file(DISKNAME1, FILE_SIZE);
+    common::truncate_file(DISKNAME2, FILE_SIZE);
 }
 
 fn test_finish() {
-    // Destroy disk images
-    let disks = [DISKNAME1, DISKNAME2];
-    disks
-        .iter()
-        .map(|disk| {
-            let output = Command::new("rm")
-                .args(&[disk.deref()])
-                .output()
-                .expect("failed to delete disk image");
-
-            assert_eq!(output.status.success(), true);
-        })
-        .for_each(drop);
+    let disks = [DISKNAME1.into(), DISKNAME2.into()];
+    common::delete_file(&disks);
 }
 
 #[test]
