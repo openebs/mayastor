@@ -25,6 +25,7 @@ const ISCSI_IQN_PREFIX: &str = "iqn.1980-05.mayastor";
 #[derive(Debug)]
 pub(super) struct Iscsi {
     name: String,
+    alias: String,
     iqn: String,
     url: String,
     uuid: Option<uuid::Uuid>,
@@ -74,7 +75,8 @@ impl TryFrom<&Url> for Iscsi {
         }
 
         Ok(Iscsi {
-            name: url.to_string(),
+            name: url.path()[1 ..].into(),
+            alias: url.to_string(),
             iqn: format!("{}:{}", ISCSI_IQN_PREFIX, Uuid::new_v4()),
             url: if segments.len() == 2 {
                 url[.. url::Position::AfterPath].to_string()
@@ -150,7 +152,14 @@ impl CreateDestroy for Iscsi {
             })?;
 
         if let Some(u) = self.uuid {
-            bdev.set_uuid(Some(u.to_string()))
+            bdev.set_uuid(Some(u.to_string()));
+        }
+        if !bdev.add_alias(&self.alias) {
+            error!(
+                "Failed to add alias {} to device {}",
+                self.alias,
+                self.get_name()
+            );
         }
 
         Ok(bdev.name())

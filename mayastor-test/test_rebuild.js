@@ -66,29 +66,29 @@ const configNexus = `
 const nexusArgs = {
   uuid: UUID,
   size: 131072,
-  children: [`aio:///${child1}?blk_size=4096`]
+  children: [`aio://${child1}?blk_size=4096`]
 };
 
 const rebuildArgs = {
   uuid: UUID,
-  uri: `aio:///${child2}?blk_size=4096`
+  uri: `aio://${child2}?blk_size=4096`
 };
 
 const addChildArgs = {
   uuid: UUID,
-  uri: `aio:///${child2}?blk_size=4096`,
+  uri: `aio://${child2}?blk_size=4096`,
   norebuild: true
 };
 
 const childOnlineArgs = {
   uuid: UUID,
-  uri: `aio:///${child2}?blk_size=4096`,
+  uri: `aio://${child2}?blk_size=4096`,
   action: 1
 };
 
 const childOfflineArgs = {
   uuid: UUID,
-  uri: `aio:///${child2}?blk_size=4096`,
+  uri: `aio://${child2}?blk_size=4096`,
   action: 0
 };
 

@@ -30,8 +30,11 @@ const DEFAULT_NVMF_PORT: u16 = 4420;
 
 #[derive(Debug)]
 pub(super) struct Nvmf {
-    /// name of the bdev that should be created
+    /// name of the nvme controller and base name of the bdev
+    /// that should be created for each namespace found
     name: String,
+    /// alias which can be used to open the bdev
+    alias: String,
     /// the remote target host (address)
     host: String,
     /// the transport service id (ie. port)
@@ -109,7 +112,8 @@ impl TryFrom<&Url> for Nvmf {
         }
 
         Ok(Nvmf {
-            name: url.to_string(),
+            name: url.path()[1 ..].into(),
+            alias: url.to_string(),
             host: host.to_string(),
             port: url.port().unwrap_or(DEFAULT_NVMF_PORT),
             subnqn: segments[0].to_string(),
@@ -133,9 +137,9 @@ impl CreateDestroy for Nvmf {
 
     /// Create an NVMF bdev
     async fn create(&self) -> Result<String, Self::Error> {
-        if Bdev::lookup_by_name(&self.name).is_some() {
+        if Bdev::lookup_by_name(&self.get_name()).is_some() {
             return Err(NexusBdevError::BdevExists {
-                name: self.name.clone(),
+                name: self.get_name(),
             });
         }
 
@@ -185,13 +189,20 @@ impl CreateDestroy for Nvmf {
                 name: self.name.clone(),
             })?;
 
-        Bdev::lookup_by_name(&self.get_name()).map(|b| {
-            self.uuid.map(|u| {
-                if b.uuid_as_string() != u.to_hyphenated().to_string() {
-                    error!("Connected to device {} but expect to connect to {} instead", b.uuid_as_string(), u.to_hyphenated().to_string());
+        if let Some(bdev) = Bdev::lookup_by_name(&self.get_name()) {
+            if let Some(u) = self.uuid {
+                if bdev.uuid_as_string() != u.to_hyphenated().to_string() {
+                    error!("Connected to device {} but expect to connect to {} instead", bdev.uuid_as_string(), u.to_hyphenated().to_string());
                 }
-            })
-        });
+            };
+            if !bdev.add_alias(&self.alias) {
+                error!(
+                    "Failed to add alias {} to device {}",
+                    self.alias,
+                    self.get_name()
+                );
+            }
+        };
 
         Ok(unsafe { CStr::from_ptr(context.names[0]) }
             .to_str()
@@ -217,7 +228,7 @@ impl CreateDestroy for Nvmf {
                 .await
             }
             None => Err(NexusBdevError::BdevNotFound {
-                name: self.name.clone(),
+                name: self.get_name(),
             }),
         }
     }

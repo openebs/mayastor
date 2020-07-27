@@ -335,6 +335,7 @@ message Bdev {
 	uint32 blk_size = 5;
 	bool claimed = 6;
 	string claimed_by = 7;
+	string aliases = 8;
 }
 
 message Bdevs {
