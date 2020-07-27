@@ -18,8 +18,8 @@ pub struct Malloc {
     /// the name of the bdev we created, this is equal to the URI path minus
     /// the leading '/'
     name: String,
-    /// list of aliases which can be used to open the bdev
-    aliases: Vec<String>,
+    /// alias which can be used to open the bdev
+    alias: String,
     /// the number of blocks the device should have
     num_blocks: u64,
     /// the size of a single block if no blk_size is given we default to 512
@@ -105,7 +105,7 @@ impl TryFrom<&Url> for Malloc {
 
         Ok(Self {
             name: uri.path()[1 ..].into(),
-            aliases: vec![uri.to_string()],
+            alias: uri.to_string(),
             num_blocks: if num_blocks != 0 {
                 num_blocks
             } else {
@@ -155,10 +155,11 @@ impl CreateDestroy for Malloc {
             self.uuid.map(|u| {
                 Bdev::lookup_by_name(&self.name).map(|mut b| {
                     b.set_uuid(Some(u.to_string()));
-                    if !b.add_aliases(&self.aliases) {
+                    if !b.add_alias(&self.alias) {
                         error!(
-                            "Failed to add all aliases to device {}",
-                            self.name
+                            "Failed to add alias {} to device {}",
+                            self.alias,
+                            self.get_name()
                         );
                     }
                 })

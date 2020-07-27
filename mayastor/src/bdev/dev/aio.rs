@@ -17,7 +17,7 @@ use crate::{
 #[derive(Debug)]
 pub(super) struct Aio {
     name: String,
-    aliases: Vec<String>,
+    alias: String,
     blk_size: u32,
     uuid: Option<uuid::Uuid>,
 }
@@ -61,7 +61,7 @@ impl TryFrom<&Url> for Aio {
 
         Ok(Aio {
             name: url.path().into(),
-            aliases: vec![url.to_string()],
+            alias: url.to_string(),
             blk_size,
             uuid,
         })
@@ -102,10 +102,11 @@ impl CreateDestroy for Aio {
                         if let Some(uuid) = self.uuid {
                             bdev.set_uuid(Some(uuid.to_string()));
                         }
-                        if !bdev.add_aliases(&self.aliases) {
+                        if !bdev.add_alias(&self.alias) {
                             error!(
-                                "Failed to add all aliases to device {}",
-                                self.name
+                                "Failed to add alias {} to device {}",
+                                self.alias,
+                                self.get_name()
                             );
                         }
                     };

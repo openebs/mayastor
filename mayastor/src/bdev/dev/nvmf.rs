@@ -33,8 +33,8 @@ pub(super) struct Nvmf {
     /// name of the nvme controller and base name of the bdev
     /// that should be created for each namespace found
     name: String,
-    /// list of aliases which can be used to open the bdev
-    aliases: Vec<String>,
+    /// alias which can be used to open the bdev
+    alias: String,
     /// the remote target host (address)
     host: String,
     /// the transport service id (ie. port)
@@ -113,7 +113,7 @@ impl TryFrom<&Url> for Nvmf {
 
         Ok(Nvmf {
             name: url.path()[1 ..].into(),
-            aliases: vec![url.to_string()],
+            alias: url.to_string(),
             host: host.to_string(),
             port: url.port().unwrap_or(DEFAULT_NVMF_PORT),
             subnqn: segments[0].to_string(),
@@ -195,9 +195,10 @@ impl CreateDestroy for Nvmf {
                     error!("Connected to device {} but expect to connect to {} instead", bdev.uuid_as_string(), u.to_hyphenated().to_string());
                 }
             };
-            if !bdev.add_aliases(&self.aliases) {
+            if !bdev.add_alias(&self.alias) {
                 error!(
-                    "Failed to add all aliases to device {}",
+                    "Failed to add alias {} to device {}",
+                    self.alias,
                     self.get_name()
                 );
             }
