@@ -17,6 +17,7 @@ pub async fn handler(
         ("list", Some(args)) => list(ctx, args).await,
         ("create", Some(args)) => create(ctx, args).await,
         ("share", Some(args)) => share(ctx, args).await,
+        ("destroy", Some(args)) => destroy(ctx, args).await,
         ("unshare", Some(args)) => unshare(ctx, args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {} does not exist", cmd)))
@@ -28,6 +29,10 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
     let create = SubCommand::with_name("create")
         .about("Create a new bdev by specifying a URI")
         .arg(Arg::with_name("uri").required(true).index(1));
+
+    let destroy = SubCommand::with_name("destroy")
+        .about("destroy the given bdev")
+        .arg(Arg::with_name("name").required(true).index(1));
 
     let share = SubCommand::with_name("share")
         .about("share the given bdev")
@@ -55,6 +60,7 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
         .subcommand(share)
         .subcommand(unshare)
         .subcommand(create)
+        .subcommand(destroy)
 }
 
 async fn list(mut ctx: Context, _args: &ArgMatches<'_>) -> Result<(), Status> {
@@ -85,6 +91,41 @@ async fn create(mut ctx: Context, args: &ArgMatches<'_>) -> Result<(), Status> {
             .unwrap()
     );
     Ok(())
+}
+
+async fn destroy(
+    mut ctx: Context,
+    args: &ArgMatches<'_>,
+) -> Result<(), Status> {
+    let name = args.value_of("name").unwrap().to_owned();
+    let bdevs = ctx.bdev.list(Null {}).await?.into_inner();
+
+    if let Some(bdev) = bdevs.bdevs.iter().find(|b| b.name == name) {
+        // un share the bdev
+        let _ = ctx
+            .bdev
+            .unshare(CreateReply {
+                name,
+            })
+            .await?;
+
+        let response = ctx
+            .bdev
+            .destroy(BdevUri {
+                uri: bdev.uri.clone(),
+            })
+            .await?;
+        println!(
+            "{}",
+            serde_json::to_string_pretty(&response.into_inner())
+                .unwrap()
+                .to_colored_json_auto()
+                .unwrap()
+        );
+        Ok(())
+    } else {
+        Err(Status::not_found(name))
+    }
 }
 
 async fn share(mut ctx: Context, args: &ArgMatches<'_>) -> Result<(), Status> {

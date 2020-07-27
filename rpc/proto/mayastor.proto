@@ -320,6 +320,7 @@ message RebuildProgressReply {
 service BdevRpc {
   rpc List(mayastor.Null) returns (Bdevs) {}
   rpc Create(BdevUri) returns (CreateReply) {}
+  rpc Destroy(BdevUri) returns (Null) {}
   rpc Share(BdevShareRequest) returns (BdevShareReply) {}
   rpc Unshare(CreateReply) returns (Null) {}
 }
