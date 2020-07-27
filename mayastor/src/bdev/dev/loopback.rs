@@ -13,6 +13,7 @@ use crate::{
 #[derive(Debug)]
 pub(super) struct Loopback {
     name: String,
+    aliases: Vec<String>,
     uuid: Option<uuid::Uuid>,
 }
 
@@ -44,6 +45,7 @@ impl TryFrom<&Url> for Loopback {
 
         Ok(Loopback {
             name: segments.join("/"),
+            aliases: vec![url.to_string()],
             uuid,
         })
     }
@@ -60,10 +62,14 @@ impl CreateDestroy for Loopback {
     type Error = NexusBdevError;
 
     async fn create(&self) -> Result<String, Self::Error> {
-        self.uuid.map(|u| {
-            Bdev::lookup_by_name(&self.name)
-                .map(|mut b| b.set_uuid(Some(u.to_string())))
-        });
+        if let Some(mut bdev) = Bdev::lookup_by_name(&self.name) {
+            if let Some(uuid) = self.uuid {
+                bdev.set_uuid(Some(uuid.to_string()));
+            }
+            if !bdev.add_aliases(&self.aliases) {
+                error!("Failed to add all aliases to device {}", self.name);
+            }
+        };
         Ok(self.get_name())
     }
 

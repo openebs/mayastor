@@ -17,7 +17,7 @@ use crate::{
 #[derive(Debug)]
 pub(super) struct Uring {
     name: String,
-    file: String,
+    aliases: Vec<String>,
     blk_size: u32,
     uuid: Option<uuid::Uuid>,
 }
@@ -60,8 +60,8 @@ impl TryFrom<&Url> for Uring {
         }
 
         Ok(Uring {
-            name: url.to_string(),
-            file: format!("/{}", segments.join("/")),
+            name: url.path().into(),
+            aliases: vec![url.to_string()],
             blk_size,
             uuid,
         })
@@ -87,14 +87,19 @@ impl CreateDestroy for Uring {
         }
 
         let cname = CString::new(self.get_name()).unwrap();
-        let filename = CString::new(self.file.clone()).unwrap();
 
         let name = Bdev::from_ptr(unsafe {
-            create_uring_bdev(cname.as_ptr(), filename.as_ptr(), self.blk_size)
+            create_uring_bdev(cname.as_ptr(), cname.as_ptr(), self.blk_size)
         })
         .map(|mut bdev| {
             if let Some(u) = self.uuid {
                 bdev.set_uuid(Some(u.to_string()))
+            }
+            if !bdev.add_aliases(&self.aliases) {
+                error!(
+                    "Failed to add all aliases to device {}",
+                    self.get_name()
+                );
             }
             bdev.name()
         });

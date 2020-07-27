@@ -40,6 +40,7 @@ impl From<Bdev> for RpcBdev {
             blk_size: b.block_len(),
             claimed: b.is_claimed(),
             claimed_by: b.claimed_by().unwrap_or_else(|| "Orphaned".into()),
+            aliases: b.aliases().join(","),
         }
     }
 }

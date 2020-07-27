@@ -195,6 +195,16 @@ impl Bdev {
         uuid.to_hyphenated().to_string()
     }
 
+    /// Set a list of aliases on the bdev, used to find the bdev later
+    pub fn add_aliases(&self, alias: &[String]) -> bool {
+        let r = alias
+            .iter()
+            .filter(|a| -> bool { !self.add_alias(a) })
+            .collect::<Vec<&String>>();
+
+        r.is_empty()
+    }
+
     /// Set an alias on the bdev, this alias can be used to find the bdev later
     pub fn add_alias(&self, alias: &str) -> bool {
         let alias = std::ffi::CString::new(alias).unwrap();
