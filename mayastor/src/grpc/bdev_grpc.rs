@@ -18,7 +18,7 @@ use rpc::mayastor::{
 use crate::{
     core::{Bdev, Reactors, Share},
     grpc::GrpcResult,
-    nexus_uri::{bdev_create, NexusBdevError},
+    nexus_uri::{bdev_create, bdev_destroy, NexusBdevError},
 };
 
 impl From<NexusBdevError> for tonic::Status {
@@ -81,6 +81,14 @@ impl BdevRpc for BdevSvc {
         Ok(Response::new(CreateReply {
             name: bdev,
         }))
+    }
+
+    #[instrument(level = "debug", err)]
+    async fn destroy(&self, request: Request<BdevUri>) -> GrpcResult<Null> {
+        let uri = request.into_inner().uri;
+        let _bdev = locally! { async move { bdev_destroy(&uri).await } };
+
+        Ok(Response::new(Null {}))
     }
 
     #[instrument(level = "debug", err)]
