@@ -136,10 +136,6 @@ async fn start(
     let uuid = matches.value_of("uuid").unwrap().to_string();
     let uri = matches.value_of("uri").unwrap().to_string();
 
-    ctx.v2(&format!(
-        "Starting rebuild of child {} on nexus {}",
-        uri, uuid
-    ));
     ctx.client
         .start_rebuild(rpc::StartRebuildRequest {
             uuid: uuid.clone(),
@@ -147,7 +143,7 @@ async fn start(
         })
         .await?;
     ctx.v1(&format!(
-        "Started rebuild of child {} on nexus {}",
+        "Starting rebuild of child {} on nexus {}",
         uri, uuid
     ));
     Ok(())
@@ -160,10 +156,6 @@ async fn stop(
     let uuid = matches.value_of("uuid").unwrap().to_string();
     let uri = matches.value_of("uri").unwrap().to_string();
 
-    ctx.v2(&format!(
-        "Stopping rebuild of child {} on nexus {}",
-        uri, uuid
-    ));
     ctx.client
         .stop_rebuild(rpc::StopRebuildRequest {
             uuid: uuid.clone(),
@@ -171,7 +163,7 @@ async fn stop(
         })
         .await?;
     ctx.v1(&format!(
-        "Stopped rebuild of child {} on nexus {}",
+        "Stopping rebuild of child {} on nexus {}",
         uri, uuid
     ));
     Ok(())
@@ -184,10 +176,6 @@ async fn pause(
     let uuid = matches.value_of("uuid").unwrap().to_string();
     let uri = matches.value_of("uri").unwrap().to_string();
 
-    ctx.v2(&format!(
-        "Pausing rebuild of child {} on nexus {}",
-        uri, uuid
-    ));
     ctx.client
         .pause_rebuild(rpc::PauseRebuildRequest {
             uuid: uuid.clone(),
@@ -195,7 +183,7 @@ async fn pause(
         })
         .await?;
     ctx.v1(&format!(
-        "Paused rebuild of child {} on nexus {}",
+        "Pausing rebuild of child {} on nexus {}",
         uri, uuid
     ));
     Ok(())
@@ -208,10 +196,6 @@ async fn resume(
     let uuid = matches.value_of("uuid").unwrap().to_string();
     let uri = matches.value_of("uri").unwrap().to_string();
 
-    ctx.v2(&format!(
-        "Resuming rebuild of child {} on nexus {}",
-        uri, uuid
-    ));
     ctx.client
         .resume_rebuild(rpc::ResumeRebuildRequest {
             uuid: uuid.clone(),
@@ -219,7 +203,7 @@ async fn resume(
         })
         .await?;
     ctx.v1(&format!(
-        "Resumed rebuild of child {} on nexus {}",
+        "Resuming rebuild of child {} on nexus {}",
         uri, uuid
     ));
     Ok(())
