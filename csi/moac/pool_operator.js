@@ -200,17 +200,6 @@ class PoolOperator {
       return;
     }
 
-    if (
-      !resource.disks.every(
-        (ent) => ent.startsWith('/dev/') && ent.indexOf('..') === -1
-      )
-    ) {
-      const msg = 'Disk must be absolute path beginning with /dev';
-      log.error(`Cannot create pool "${name}": ${msg}`);
-      await this._updateResourceProps(name, 'pending', msg);
-      return;
-    }
-
     const node = this.registry.getNode(nodeName);
     if (!node) {
       const msg = `mayastor does not run on node "${nodeName}"`;
@@ -312,6 +301,7 @@ class PoolOperator {
       name,
       state,
       reason,
+      pool.disks,
       pool.capacity,
       pool.used
     );
@@ -324,13 +314,14 @@ class PoolOperator {
   // NOTE: This method does not throw if the update fails as there is nothing
   // we can do if it fails. Though we log an error message in such a case.
   //
-  // @param {string} name      Name of the pool.
-  // @param {string} state     State of the pool.
-  // @param {string} reason    Reason describing the root cause of the state.
-  // @param {number} capacity  Capacity of the pool in bytes.
-  // @param {number} used      Used bytes in the pool.
+  // @param {string} name       Name of the pool.
+  // @param {string} state      State of the pool.
+  // @param {string} [reason]   Reason describing the root cause of the state.
+  // @param {string[]} [disks]  Disk URIs.
+  // @param {number} [capacity] Capacity of the pool in bytes.
+  // @param {number} [used]     Used bytes in the pool.
   //
-  async _updateResourceProps (name, state, reason, capacity, used) {
+  async _updateResourceProps (name, state, reason, disks, capacity, used) {
     // For the update of CRD status we need a real k8s pool object, change the
     // status in it and store it back. Another reason for grabbing the latest
     // version of CRD from watcher cache (even if this.resource contains an older
@@ -351,7 +342,8 @@ class PoolOperator {
       state === status.state &&
       reason === status.reason &&
       capacity === status.capacity &&
-      used === status.used
+      used === status.used &&
+      _.isEqual(disks, status.disks)
     ) {
       return;
     }
@@ -359,6 +351,7 @@ class PoolOperator {
     log.debug(`Updating properties of pool resource "${name}"`);
     status.state = state;
     status.reason = reason || '';
+    status.disks = disks || [];
     if (capacity != null) {
       status.capacity = capacity;
     }
