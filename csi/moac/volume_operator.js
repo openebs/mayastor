@@ -252,7 +252,7 @@ class VolumeOperator {
     };
     if (volume.nexus) {
       st.nexus = {
-        devicePath: volume.nexus.devicePath || '',
+        deviceUri: volume.nexus.deviceUri || '',
         state: volume.nexus.state,
         children: volume.nexus.children.map((ch) => {
           return {

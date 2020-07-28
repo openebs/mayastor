@@ -121,9 +121,9 @@ impl Nexus {
                     NbdDisk::create(&name).await.context(ShareNbdNexus {
                         name: self.name.clone(),
                     })?;
-                let device_path = nbd_disk.as_uri();
+                let device_uri = nbd_disk.as_uri();
                 self.nexus_target = Some(NexusTarget::NbdDisk(nbd_disk));
-                device_path
+                device_uri
             }
             ShareProtocolNexus::NexusIscsi => {
                 // Publish the nexus to system using an iscsi target and return
@@ -201,9 +201,8 @@ impl Nexus {
         Ok(())
     }
 
-    /// Return path /dev/... under which the nexus is shared or None if not
-    /// shared as nbd.
-    pub fn get_share_path(&self) -> Option<String> {
+    /// Return URI under which the nexus is shared or None if not shared.
+    pub fn get_share_uri(&self) -> Option<String> {
         match self.nexus_target {
             Some(NexusTarget::NbdDisk(ref disk)) => Some(disk.as_uri()),
             Some(NexusTarget::NexusIscsiTarget(ref iscsi_target)) => {

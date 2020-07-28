@@ -64,9 +64,9 @@ module.exports = function () {
     nexus.bind(node);
     volume.newNexus(nexus);
 
-    stub.resolves({ devicePath: '/dev/nbd0' });
+    stub.resolves({ deviceUri: 'file:///dev/nbd0' });
     await volume.publish('nbd');
-    expect(nexus.devicePath).to.equal('/dev/nbd0');
+    expect(nexus.deviceUri).to.equal('file:///dev/nbd0');
     sinon.assert.calledOnce(stub);
     sinon.assert.calledWithMatch(stub, 'publishNexus', {
       uuid: UUID,
@@ -75,7 +75,7 @@ module.exports = function () {
 
     stub.resolves({});
     await volume.unpublish();
-    expect(nexus.devicePath).to.equal('');
+    expect(nexus.deviceUri).to.equal('');
     sinon.assert.calledTwice(stub);
     sinon.assert.calledWithMatch(stub.secondCall, 'unpublishNexus', {
       uuid: UUID

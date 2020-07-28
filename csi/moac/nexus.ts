@@ -17,7 +17,7 @@ export class Nexus {
   node?: any;
   uuid: string;
   size: number;
-  devicePath: string;
+  deviceUri: string;
   state: string;
   children: any[];
 
@@ -26,7 +26,7 @@ export class Nexus {
   // @param {object}   props    Nexus properties as obtained from the storage node.
   // @param {string}   props.uuid       ID of the nexus.
   // @param {number}   props.size       Capacity of the nexus in bytes.
-  // @param {string}   props.devicePath Block device path to the nexus.
+  // @param {string}   props.deviceUri  Block device path to the nexus.
   // @param {string}   props.state      State of the nexus.
   // @param {object[]} props.children   Replicas comprising the nexus (uri and state).
   //
@@ -34,7 +34,7 @@ export class Nexus {
     this.node = null; // set by registerNexus method on node
     this.uuid = props.uuid;
     this.size = props.size;
-    this.devicePath = props.devicePath;
+    this.deviceUri = props.deviceUri;
     this.state = props.state;
     // children of the nexus (replica URIs and their state)
     this.children = [].concat(props.children || []).sort(compareChildren);
@@ -50,7 +50,7 @@ export class Nexus {
   // @param {object}   props            Properties defining the nexus.
   // @param {string}   props.uuid       ID of the nexus.
   // @param {number}   props.size       Capacity of the nexus in bytes.
-  // @param {string}   props.devicePath Block device path to the nexus.
+  // @param {string}   props.deviceUri  Block device URI of the nexus.
   // @param {string}   props.state      State of the nexus.
   // @param {object[]} props.children   Replicas comprising the nexus (uri and state).
   //
@@ -61,8 +61,8 @@ export class Nexus {
       this.size = props.size;
       changed = true;
     }
-    if (this.devicePath !== props.devicePath) {
-      this.devicePath = props.devicePath;
+    if (this.deviceUri !== props.deviceUri) {
+      this.deviceUri = props.deviceUri;
       changed = true;
     }
     if (this.state !== props.state) {
@@ -128,7 +128,7 @@ export class Nexus {
   async publish(protocol: string) {
     var res;
 
-    if (this.devicePath) {
+    if (this.deviceUri) {
       throw new GrpcError(
         GrpcCode.ALREADY_EXISTS,
         `Nexus ${this} has been already published`
@@ -158,10 +158,10 @@ export class Nexus {
         `Failed to publish nexus "${this}": ${err}`
       );
     }
-    log.info(`Nexus "${this}" is published at "${res.devicePath}"`);
-    this.devicePath = res.devicePath;
+    log.info(`Nexus "${this}" is published at "${res.deviceUri}"`);
+    this.deviceUri = res.deviceUri;
     this._emitMod();
-    return res.devicePath;
+    return res.deviceUri;
   }
 
   // Unpublish nexus.
@@ -177,7 +177,7 @@ export class Nexus {
       );
     }
     log.info(`Nexus "${this}" was unpublished`);
-    this.devicePath = '';
+    this.deviceUri = '';
     this._emitMod();
   }
 

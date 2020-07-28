@@ -123,7 +123,7 @@ describe('cli', function () {
             key: 'CRYPTO'
           },
           output: {
-            devicePath: '/dev/blah'
+            deviceUri: 'file:///dev/blah'
           }
         },
         {
@@ -162,7 +162,7 @@ describe('cli', function () {
                 size: 100 * (1024 * 1024),
                 state: 1,
                 children: [{ uri: 'child1', state: 0 }, { uri: 'child2', state: 3 }],
-                devicePath: '/dev/blah',
+                deviceUri: 'file:///dev/blah',
                 rebuilds: 123
               },
               {
@@ -170,7 +170,7 @@ describe('cli', function () {
                 size: 10 * (1024 * 1024),
                 state: 2,
                 children: [],
-                devicePath: '/dev/blah2',
+                deviceUri: 'file:///dev/blah2',
                 rebuilds: 1
               }
             ]
@@ -406,7 +406,7 @@ describe('cli', function () {
           return done(err);
         }
         assert.isEmpty(stderr);
-        assert.match(stdout, /Nexus published at \/dev\/blah/);
+        assert.match(stdout, /Nexus published at file:\/\/\/dev\/blah/);
         done();
       });
     });
@@ -478,14 +478,14 @@ describe('cli', function () {
         assert.lengthOf(nexus, 2);
 
         assert.equal(nexus[0].name, UUID1);
-        assert.equal(nexus[0].path, '/dev/blah');
+        assert.equal(nexus[0].path, 'file:///dev/blah');
         assert.equal(nexus[0].size, '104857600');
         assert.equal(nexus[0].state, 'online');
         assert.equal(nexus[0].rebuilds, '123');
         assert.equal(nexus[0].children, 'child1,child2');
 
         assert.equal(nexus[1].name, UUID2);
-        assert.equal(nexus[1].path, '/dev/blah2');
+        assert.equal(nexus[1].path, 'file:///dev/blah2');
         assert.equal(nexus[1].size, '10485760');
         assert.equal(nexus[1].state, 'degraded');
         assert.equal(nexus[1].rebuilds, '1');

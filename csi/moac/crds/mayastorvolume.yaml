@@ -96,8 +96,8 @@ spec:
               description: Frontend of the volume.
               type: object
               properties:
-                devicePath:
-                  description: Block device under which the volume is accessible.
+                deviceUri:
+                  description: URI of a block device for IO.
                   type: string
                 state:
                   description: State of the nexus.

@@ -48,7 +48,7 @@ module.exports = function () {
     node: 'node2',
     state: 'healthy',
     nexus: {
-      devicePath: '/dev/nbd0',
+      deviceUri: 'file:///dev/nbd0',
       state: 'NEXUS_ONLINE',
       children: [
         {
@@ -162,7 +162,7 @@ module.exports = function () {
           node: 'node2',
           state: 'healthy',
           nexus: {
-            devicePath: '/dev/nbd0',
+            deviceUri: 'file:///dev/nbd0',
             state: 'NEXUS_ONLINE',
             children: [
               {
@@ -195,7 +195,7 @@ module.exports = function () {
       expect(res.status.size).to.equal(110);
       expect(res.status.node).to.equal('node2');
       expect(res.status.state).to.equal('healthy');
-      expect(res.status.nexus.devicePath).to.equal('/dev/nbd0');
+      expect(res.status.nexus.deviceUri).to.equal('file:///dev/nbd0');
       expect(res.status.nexus.state).to.equal('NEXUS_ONLINE');
       expect(res.status.nexus.children).to.have.length(1);
       expect(res.status.nexus.children[0].uri).to.equal('bdev:///' + UUID);

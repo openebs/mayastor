@@ -214,7 +214,7 @@ async fn nexus_list(
             let state = nexus_state_to_str(n.state);
             let mut row = vec![
                 n.uuid.clone(),
-                n.device_path.clone(),
+                n.device_uri.clone(),
                 size,
                 state.to_string(),
                 n.rebuilds.to_string(),
@@ -300,10 +300,7 @@ async fn nexus_publish(
             share: prot.into(),
         })
         .await?;
-    ctx.v1(&format!(
-        "Nexus published at {}",
-        resp.get_ref().device_path
-    ));
+    ctx.v1(&format!("Nexus published at {}", resp.get_ref().device_uri));
     Ok(())
 }
 
