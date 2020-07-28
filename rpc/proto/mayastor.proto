@@ -224,9 +224,9 @@ message Nexus {
   uint64 size = 2;             // size of the volume in bytes
   NexusState state = 3;        // current state of the nexus
   repeated Child children = 4; // array of children
-  // Path to device file for the volume (missing if not published).
+  // URI of the device for the volume (missing if not published).
   // Missing property and empty string are treated the same.
-  string device_path = 5;
+  string device_uri = 5;
   uint32 rebuilds = 6;         // total number of rebuild tasks
 }
 
@@ -258,7 +258,7 @@ message PublishNexusRequest {
 }
 
 message PublishNexusReply {
-  string device_path = 1; // i.e. /dev/nbdX
+  string device_uri = 1; // i.e. file:///dev/nbd0
 }
 
 message UnpublishNexusRequest {

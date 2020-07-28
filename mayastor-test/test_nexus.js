@@ -119,7 +119,7 @@ function controlPlaneTest (thisProtocol) {
       },
       (err, res) => {
         if (err) done(err);
-        assert(res.device_path);
+        assert(res.device_uri);
         done();
       }
     );
@@ -140,7 +140,7 @@ function controlPlaneTest (thisProtocol) {
       },
       (err, res) => {
         if (err) done(err);
-        assert(res.device_path);
+        assert(res.device_uri);
         done();
       }
     );
@@ -169,7 +169,7 @@ function controlPlaneTest (thisProtocol) {
       },
       (err, res) => {
         if (err) done(err);
-        assert(res.device_path);
+        assert(res.device_uri);
         done();
       }
     );
@@ -198,9 +198,9 @@ function controlPlaneTest (thisProtocol) {
       },
       (err, res) => {
         if (err) done(err);
-        assert(res.device_path);
+        assert(res.device_uri);
         if (thisProtocol === enums.NEXUS_NVMF) {
-          assert.equal(res.device_path, `nvmf://${externIp}:8420/nqn.2019-05.io.openebs:crypto-nexus-${UUID}`);
+          assert.equal(res.device_uri, `nvmf://${externIp}:8420/nqn.2019-05.io.openebs:crypto-nexus-${UUID}`);
         }
         done();
       }
@@ -552,8 +552,8 @@ describe('nexus', function () {
         },
         (err, res) => {
           if (err) done(err);
-          assert(res.device_path);
-          nbdDeviceUri = res.device_path;
+          assert(res.device_uri);
+          nbdDeviceUri = res.device_uri;
           done();
         }
       );
@@ -605,8 +605,8 @@ describe('nexus', function () {
         },
         (err, res) => {
           if (err) done(err);
-          assert(res.device_path);
-          uri = res.device_path;
+          assert(res.device_uri);
+          uri = res.device_uri;
           done();
         }
       );
@@ -666,8 +666,8 @@ describe('nexus', function () {
         },
         (err, res) => {
           if (err) done(err);
-          assert(res.device_path);
-          uri = res.device_path;
+          assert(res.device_uri);
+          uri = res.device_uri;
           done();
         }
       );

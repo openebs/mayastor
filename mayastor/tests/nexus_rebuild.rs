@@ -228,7 +228,7 @@ fn rebuild_with_load() {
         nexus_create(NEXUS_SIZE, 1, false).await;
         let nexus = nexus_lookup(nexus_name()).unwrap();
         let nexus_device =
-            common::device_path_from_uri(nexus.get_share_path().unwrap());
+            common::device_path_from_uri(nexus.get_share_uri().unwrap());
 
         let (s, r1) = unbounded::<i32>();
         std::thread::spawn(move || {

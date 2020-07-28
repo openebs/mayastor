@@ -262,13 +262,13 @@ impl mayastor_server::Mayastor for MayastorSvc {
             }
         };
 
-        let device_path = locally! { async move {
+        let device_uri = locally! { async move {
             nexus_lookup(&args.uuid)?.share(share_protocol, key).await
         }};
 
-        info!("Published nexus {} under {}", uuid, device_path);
+        info!("Published nexus {} under {}", uuid, device_uri);
         Ok(Response::new(PublishNexusReply {
-            device_path,
+            device_uri,
         }))
     }
 
