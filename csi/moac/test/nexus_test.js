@@ -17,7 +17,7 @@ module.exports = function () {
   var props = {
     uuid: UUID,
     size: 100,
-    devicePath: '',
+    deviceUri: '',
     state: 'NEXUS_ONLINE',
     children: [
       {
@@ -93,8 +93,8 @@ module.exports = function () {
       expect(nexus.size).to.equal(1000);
     });
 
-    it('should emit event upon change of devicePath property', () => {
-      newProps.devicePath = '/dev/nbd0';
+    it('should emit event upon change of deviceUri property', () => {
+      newProps.deviceUri = 'file:///dev/nbd0';
       nexus.merge(newProps);
 
       // First event is new nexus event
@@ -103,7 +103,7 @@ module.exports = function () {
         eventType: 'mod',
         object: nexus
       });
-      expect(nexus.devicePath).to.equal('/dev/nbd0');
+      expect(nexus.deviceUri).to.equal('file:///dev/nbd0');
     });
 
     it('should emit event upon change of state property', () => {
@@ -183,7 +183,7 @@ module.exports = function () {
     });
 
     it('should not publish the nexus with whatever protocol', async () => {
-      callStub.resolves({ devicePath: '/dev/whatever0' });
+      callStub.resolves({ deviceUri: 'file:///dev/whatever0' });
       callStub.rejects(new GrpcError(GrpcCode.NOT_FOUND, 'Test failure'));
 
       await shouldFailWith(GrpcCode.NOT_FOUND, async () => {
@@ -194,7 +194,7 @@ module.exports = function () {
     });
 
     it('should publish the nexus with iscsi protocol', async () => {
-      callStub.resolves({ devicePath: '/dev/iscsi' });
+      callStub.resolves({ deviceUri: 'iscsi://host/dev/iscsi' });
 
       await nexus.publish('iscsi');
 
@@ -204,7 +204,7 @@ module.exports = function () {
         key: '',
         share: 2
       });
-      expect(nexus.devicePath).to.equal('/dev/iscsi');
+      expect(nexus.deviceUri).to.equal('iscsi://host/dev/iscsi');
       sinon.assert.calledOnce(eventSpy);
       sinon.assert.calledWith(eventSpy, 'nexus', {
         eventType: 'mod',
@@ -213,7 +213,7 @@ module.exports = function () {
     });
 
     it('should publish the nexus with nvmf protocol', async () => {
-      callStub.resolves({ devicePath: '/dev/nvme0' });
+      callStub.resolves({ deviceUri: 'nvmf://host/nvme0' });
 
       await nexus.publish('nvmf');
 
@@ -223,7 +223,7 @@ module.exports = function () {
         key: '',
         share: 1
       });
-      expect(nexus.devicePath).to.equal('/dev/nvme0');
+      expect(nexus.deviceUri).to.equal('nvmf://host/nvme0');
       sinon.assert.calledOnce(eventSpy);
       sinon.assert.calledWith(eventSpy, 'nexus', {
         eventType: 'mod',
@@ -232,7 +232,7 @@ module.exports = function () {
     });
 
     it('should publish the nexus with nbd protocol', async () => {
-      callStub.resolves({ devicePath: '/dev/nbd0' });
+      callStub.resolves({ deviceUri: 'file:///dev/nbd0' });
 
       await nexus.publish('nbd');
 
@@ -242,7 +242,7 @@ module.exports = function () {
         key: '',
         share: 0 // Nbd for now
       });
-      expect(nexus.devicePath).to.equal('/dev/nbd0');
+      expect(nexus.deviceUri).to.equal('file:///dev/nbd0');
       sinon.assert.calledOnce(eventSpy);
       sinon.assert.calledWith(eventSpy, 'nexus', {
         eventType: 'mod',
@@ -257,7 +257,7 @@ module.exports = function () {
 
       sinon.assert.calledOnce(callStub);
       sinon.assert.calledWith(callStub, 'unpublishNexus', { uuid: UUID });
-      expect(nexus.devicePath).to.equal('');
+      expect(nexus.deviceUri).to.equal('');
       sinon.assert.calledOnce(eventSpy);
       sinon.assert.calledWith(eventSpy, 'nexus', {
         eventType: 'mod',

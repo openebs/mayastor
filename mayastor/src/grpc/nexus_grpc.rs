@@ -56,7 +56,7 @@ impl Nexus {
             uuid: name_to_uuid(&self.name).to_string(),
             size: self.size,
             state: rpc::NexusState::from(self.status()) as i32,
-            device_path: self.get_share_path().unwrap_or_default(),
+            device_uri: self.get_share_uri().unwrap_or_default(),
             children: self
                 .children
                 .iter()

@@ -107,7 +107,7 @@ module.exports = function () {
     nexus = new Nexus({
       uuid: UUID,
       size: 95,
-      devicePath: '',
+      deviceUri: '',
       state: 'NEXUS_ONLINE',
       children: [
         {
@@ -340,7 +340,7 @@ module.exports = function () {
       const nexus = new Nexus({
         uuid: UUID,
         size: 10,
-        devicePath: '',
+        deviceUri: '',
         state: 'NEXUS_ONLINE',
         children: [
           {
@@ -400,7 +400,7 @@ module.exports = function () {
       const nexus = new Nexus({
         uuid: UUID,
         size: 95,
-        devicePath: '',
+        deviceUri: '',
         state: 'NEXUS_ONLINE',
         children: [
           {

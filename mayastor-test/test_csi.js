@@ -347,7 +347,7 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
             const uuid = BASE_UUID + n;
             // stash the published URIs in a map indexed
             // on the uuid of the volume.
-            publishedUris[uuid] = { uri: results[n].device_path };
+            publishedUris[uuid] = { uri: results[n].device_uri };
           }
           done();
         }

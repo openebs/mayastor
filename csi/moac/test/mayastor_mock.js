@@ -255,9 +255,9 @@ class MayastorServer {
         assert.equal(0, args.share); // Must be value of NEXUS_NBD for now
         var idx = self.nexus.findIndex((n) => n.uuid === args.uuid);
         if (idx >= 0) {
-          self.nexus[idx].devicePath = '/dev/nbd0';
+          self.nexus[idx].deviceUri = 'file:///dev/nbd0';
           cb(null, {
-            devicePath: '/dev/nbd0'
+            deviceUri: 'file:///dev/nbd0'
           });
         } else {
           const err = new Error('not found');
@@ -270,7 +270,7 @@ class MayastorServer {
         assertHasKeys(args, ['uuid']);
         var idx = self.nexus.findIndex((n) => n.uuid === args.uuid);
         if (idx >= 0) {
-          delete self.nexus[idx].devicePath;
+          delete self.nexus[idx].deviceUri;
           cb(null, {});
         } else {
           const err = new Error('not found');
