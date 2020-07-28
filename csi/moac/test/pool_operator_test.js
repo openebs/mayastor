@@ -62,6 +62,7 @@ module.exports = function () {
     };
     if (state) {
       const status = { state };
+      status.disks = disks.map((d) => `aio://${d}`);
       if (reason != null) status.reason = reason;
       if (capacity != null) status.capacity = capacity;
       if (used != null) status.used = used;
@@ -182,7 +183,7 @@ module.exports = function () {
           new Pool({
             name: 'pool',
             node: node,
-            disks: ['/dev/sdb'],
+            disks: ['aio:///dev/sdb'],
             state: 'POOL_DEGRADED',
             capacity: 100,
             used: 10
@@ -226,7 +227,7 @@ module.exports = function () {
           new Pool({
             name: 'pool',
             node: node,
-            disks: ['/dev/sdb'],
+            disks: ['aio:///dev/sdb'],
             state: 'POOL_DEGRADED',
             capacity: 100,
             used: 10
@@ -249,7 +250,7 @@ module.exports = function () {
       it('should not try to create a pool when pool with the same name already exists', async () => {
         const pool = new Pool({
           name: 'pool',
-          disks: ['/dev/sdb'],
+          disks: ['aio:///dev/sdb'],
           state: 'POOL_DEGRADED',
           capacity: 100,
           used: 10
@@ -278,6 +279,7 @@ module.exports = function () {
             status: {
               state: 'degraded',
               reason: '',
+              disks: ['aio:///dev/sdb'],
               capacity: 100,
               used: 10
             }
@@ -290,7 +292,7 @@ module.exports = function () {
       it('should leave the pool untouched when pool exists and is on a different node', async () => {
         const pool = new Pool({
           name: 'pool',
-          disks: ['/dev/sdb'],
+          disks: ['aio:///dev/sdb'],
           state: 'POOL_ONLINE',
           capacity: 100,
           used: 10
@@ -321,7 +323,8 @@ module.exports = function () {
           body: {
             status: {
               state: 'online',
-              reason: ''
+              reason: '',
+              disks: ['aio:///dev/sdb']
             }
           }
         });
@@ -428,49 +431,13 @@ module.exports = function () {
           }
         });
       });
-
-      it('should not create a pool if disk name is invalid', async () => {
-        const node = new Node('node');
-        const createPoolStub = sinon.stub(node, 'createPool');
-        createPoolStub.resolves(
-          new Pool({
-            name: 'pool',
-            node: node,
-            disks: ['/dev/../sdb'],
-            state: 'POOL_ONLINE',
-            capacity: 100,
-            used: 4
-          })
-        );
-        oper = await MockedPoolOperator([], [node]);
-        // trigger "new" event
-        oper.watcher.newObject(
-          createPoolResource('pool', 'node', ['/dev/../sdb'])
-        );
-
-        // give event callbacks time to propagate
-        await sleep(10);
-
-        sinon.assert.calledOnce(msStub);
-        sinon.assert.calledWith(msStub, 'pool');
-        sinon.assert.calledOnce(putStub);
-        sinon.assert.calledWithMatch(putStub, {
-          body: {
-            status: {
-              state: 'pending',
-              reason: 'Disk must be absolute path beginning with /dev'
-            }
-          }
-        });
-        sinon.assert.notCalled(createPoolStub);
-      });
     });
 
     describe('del event', () => {
       it('should destroy a pool', async () => {
         const pool = new Pool({
           name: 'pool',
-          disks: ['/dev/sdb'],
+          disks: ['aio:///dev/sdb'],
           state: 'POOL_DEGRADED',
           capacity: 100,
           used: 10
@@ -506,7 +473,7 @@ module.exports = function () {
       it('should not fail if pool does not exist', async () => {
         const pool = new Pool({
           name: 'pool',
-          disks: ['/dev/sdb'],
+          disks: ['aio:///dev/sdb'],
           state: 'POOL_DEGRADED',
           capacity: 100,
           used: 10
@@ -529,7 +496,7 @@ module.exports = function () {
       it('should destroy the pool even if it is on a different node', async () => {
         const pool = new Pool({
           name: 'pool',
-          disks: ['/dev/sdb'],
+          disks: ['aio:///dev/sdb'],
           state: 'POOL_DEGRADED',
           capacity: 100,
           used: 10
@@ -555,7 +522,7 @@ module.exports = function () {
       it('should delete the resource even if the destroy fails', async () => {
         const pool = new Pool({
           name: 'pool',
-          disks: ['/dev/sdb'],
+          disks: ['aio:///dev/sdb'],
           state: 'POOL_DEGRADED',
           capacity: 100,
           used: 10,
@@ -586,7 +553,7 @@ module.exports = function () {
       it('should not do anything if pool object has not changed', async () => {
         const pool = new Pool({
           name: 'pool',
-          disks: ['/dev/sdb', '/dev/sdc'],
+          disks: ['aio:///dev/sdb', 'aio:///dev/sdc'],
           state: 'POOL_DEGRADED',
           capacity: 100,
           used: 10
@@ -624,7 +591,7 @@ module.exports = function () {
       it('should not do anything if disks change', async () => {
         const pool = new Pool({
           name: 'pool',
-          disks: ['/dev/sdb'],
+          disks: ['aio:///dev/sdb'],
           state: 'POOL_DEGRADED',
           capacity: 100,
           used: 10
@@ -643,7 +610,7 @@ module.exports = function () {
         // called during the initial sync
         sinon.assert.calledOnce(msStub);
         // the real state
-        expect(node.pools[0].disks[0]).to.equal('/dev/sdb');
+        expect(node.pools[0].disks[0]).to.equal('aio:///dev/sdb');
         // watcher state
         expect(oper.watcher.list()[0].disks[0]).to.equal('/dev/sdc');
         // operator state
@@ -653,7 +620,7 @@ module.exports = function () {
       it('should not do anything if node changes', async () => {
         const pool = new Pool({
           name: 'pool',
-          disks: ['/dev/sdb'],
+          disks: ['aio:///dev/sdb'],
           state: 'POOL_DEGRADED',
           capacity: 100,
           used: 10
@@ -700,7 +667,7 @@ module.exports = function () {
         new Pool({
           name: 'pool',
           node: node,
-          disks: ['/dev/sdb'],
+          disks: ['aio:///dev/sdb'],
           state: 'POOL_ONLINE',
           capacity: 100,
           used: 4
@@ -729,7 +696,7 @@ module.exports = function () {
     it('should not create pool upon node sync event if it exists', async () => {
       const pool = new Pool({
         name: 'pool',
-        disks: ['/dev/sdb'],
+        disks: ['aio:///dev/sdb'],
         state: 'POOL_ONLINE',
         capacity: 100,
         used: 4
@@ -760,7 +727,7 @@ module.exports = function () {
     it('should not create pool upon node sync event if it exists on another node', async () => {
       const pool = new Pool({
         name: 'pool',
-        disks: ['/dev/sdb'],
+        disks: ['aio:///dev/sdb'],
         state: 'POOL_ONLINE',
         capacity: 100,
         used: 4
@@ -795,7 +762,7 @@ module.exports = function () {
     it('should remove pool upon pool new event if there is no pool resource', async () => {
       const pool = new Pool({
         name: 'pool',
-        disks: ['/dev/sdb'],
+        disks: ['aio:///dev/sdb'],
         state: 'POOL_ONLINE',
         capacity: 100,
         used: 4,
@@ -815,7 +782,7 @@ module.exports = function () {
       const offlineReason = 'mayastor does not run on the node "node"';
       const pool = new Pool({
         name: 'pool',
-        disks: ['/dev/sdb'],
+        disks: ['aio:///dev/sdb'],
         state: 'POOL_ONLINE',
         capacity: 100,
         used: 4
@@ -869,7 +836,7 @@ module.exports = function () {
         eventType: 'mod',
         object: new Pool({
           name: 'pool',
-          disks: ['/dev/sdb'],
+          disks: ['aio:///dev/sdb'],
           state: 'POOL_OFFLINE',
           capacity: 100,
           used: 4
@@ -887,7 +854,7 @@ module.exports = function () {
     it('should create pool upon pool del event if pool resource exist', async () => {
       const pool = new Pool({
         name: 'pool',
-        disks: ['/dev/sdb'],
+        disks: ['aio:///dev/sdb'],
         state: 'POOL_ONLINE',
         capacity: 100,
         used: 4
@@ -945,7 +912,7 @@ module.exports = function () {
         eventType: 'del',
         object: new Pool({
           name: 'pool',
-          disks: ['/dev/sdb'],
+          disks: ['aio:///dev/sdb'],
           state: 'POOL_ONLINE',
           capacity: 100,
           used: 4

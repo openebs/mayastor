@@ -47,7 +47,7 @@ spec:
               description: Name of the k8s node where the storage pool is located.
               type: string
             disks:
-              description: Disk device names from /dev which comprise the storage pool.
+              description: Disk devices (paths or URIs) that should be used for the pool.
               type: array
               items:
                 type: string
@@ -61,6 +61,11 @@ spec:
             reason:
               description: Reason for the pool state value if applicable.
               type: string
+            disks:
+              description: Disk device URIs that are actually used for the pool.
+              type: array
+              items:
+                type: string
             capacity:
               description: Capacity of the pool in bytes.
               type: integer
