@@ -3,11 +3,13 @@
 This quickstart guide has been tested against the following platforms and configurations:
 
 - kubeadm (vanilla k8s cluster)
-    - k8s version 1.14 or newer
+    - k8s version 1.18 or later
 
 ### Requirements
 
 #### General
+
+Storage nodes (nodes that run mayastor DaemonSet) require:
 
 * 2 x86-64 CPU cores with SSE4.2 instruction support:
   * Intel Nehalem processor (march=nehalem) and newer
@@ -16,7 +18,10 @@ This quickstart guide has been tested against the following platforms and config
 * Mayastor DaemonSet (MDS) requires:
   * Privileged mode
   * 2MB hugepages support
-* Where using iSCSI see [Prerequisites (iSCSI client)](https://docs.openebs.io/docs/next/prerequisites.html)
+
+Nodes running mayastor CSI plugin (by default all nodes in the cluster) require:
+
+* [iSCSI client](https://docs.openebs.io/docs/next/prerequisites.html)
 
  #### On Microsoft AKS
 * It is not necessary to implement the iSCSI prerequisites guide as directed above, since the worker node images provided by Microsoft are already suitably configured as provisioned
@@ -59,16 +64,7 @@ A worker node which will not host/contribute storage capacity to Mayastor does n
     > If you modify the huge page configuration of a node, you *must* restart the kubelet or reboot the node
 
 
-2.  Load the Network Block Device (NBD) kernel module.  This is necessary *only* if it is intended to use nbd transport for volume provisioning.
-
-    ```
-    modprobe {nbd}
-     ```
-    To make this change persistent across reboots add the line
-    `nbd` to `/etc/modules-load.d/modules.conf`
-
-
-3.  Label the storage nodes (here we demonstrate labeling of the node named "node1") :
+2.  Label the storage nodes (here we demonstrate labeling of the node named "node1") :
     ```bash
     kubectl label node node1 openebs.io/engine=mayastor
     ```
@@ -77,12 +73,12 @@ A worker node which will not host/contribute storage capacity to Mayastor does n
 
 The YAML files named below are to be found in the `deploy` folder of the Mayastor repository
 
-4.  Create the Mayastor namespace:
+3.  Create the Mayastor namespace:
     ```bash
     kubectl create -f namespace.yaml
     ```
 
-5.  Deploy the Mayastor and CSI components
+4.  Deploy the Mayastor and CSI components
     ```bash
     kubectl create -f nats-deployment.yaml
     kubectl create -f csi-daemonset.yaml
@@ -92,7 +88,7 @@ The YAML files named below are to be found in the `deploy` folder of the Mayasto
     kubectl create -f mayastor-daemonset.yaml
     ```
 
-6.  Confirm that the pods are running:
+5.  Confirm that the pods are running:
     ```bash
     kubectl -n mayastor get pod
     ```
@@ -108,7 +104,7 @@ The YAML files named below are to be found in the `deploy` folder of the Mayasto
     mayastor-8lfmv         1/1     Running   0          28s
     ```
 
-7. Confirm that the Mayastor daemonset is fully deployed:
+6. Confirm that the Mayastor daemonset is fully deployed:
     ```bash
     kubectl -n mayastor get daemonset
     ```
@@ -128,7 +124,7 @@ The YAML files named below are to be found in the `deploy` folder of the Mayasto
     node-3     online    112s
     ```
 
-8.  Create a Storage Pool(s) for volume provisioning.  Each Storage Node typically hosts a Storage Pool, although a single pool is satisfactory for testing purposes.  (In the following example, replace `disk` and `node` with the appropriate values for your own configuration):
+7.  Create a Storage Pool(s) for volume provisioning.  Each Storage Node typically hosts a Storage Pool, although a single pool is satisfactory for testing purposes.  (In the following example, replace `disk` and `node` with the appropriate values for your own configuration):
     ```bash
     cat <<EOF | kubectl create -f -
     apiVersion: "openebs.io/v1alpha1"
@@ -174,39 +170,22 @@ The YAML files named below are to be found in the `deploy` folder of the Mayasto
 
 #### Testing the Deployment
 
-9.  Create Storage Classes which use the Mayastor CSI plugin as their basis for volume provisioning:
+8.  Create Storage Class which uses the Mayastor CSI plugin as its basis for volume provisioning:
 
-    Currently Mayastor-provisioned Persistent Volumes can made available over iSCSI or NBD, where iSCSI is strongly encouraged as it gives significantly better performance
-
-  * iSCSI
     ```bash
     cat <<EOF | kubectl create -f -
     kind: StorageClass
     apiVersion: storage.k8s.io/v1
     metadata:
-      name: mayastor-iscsi
+      name: mayastor
     parameters:
       repl: '1'
       protocol: 'iscsi'
     provisioner: io.openebs.csi-mayastor
     EOF
     ```
-  * NBD (if required)
-    ```bash
-    cat <<EOF | kubectl create -f -
-    kind: StorageClass
-    apiVersion: storage.k8s.io/v1
-    metadata:
-      name: mayastor-nbd
-    parameters:
-      repl: '1'
-      protocol: 'nbd'
-    provisioner: io.openebs.csi-mayastor
-    EOF
-    ```
 
-
-10. Creating a Persistent Volume Claim (PVC):
+9. Creating a Persistent Volume Claim (PVC):
     ```bash
     cat <<EOF | kubectl create -f -
     apiVersion: v1
@@ -219,11 +198,9 @@ The YAML files named below are to be found in the `deploy` folder of the Mayasto
       resources:
         requests:
           storage: 1Gi
-      storageClassName: mayastor-iscsi
+      storageClassName: mayastor
     EOF
     ```
-
-    Note: Change the value of `storageClassName` as appropriate to use the transport required (nbd, or iSCSI).
 
     Verify that the PVC and Persistent Volume (PV) for the PVC have been
     created:
@@ -242,7 +219,7 @@ The YAML files named below are to be found in the `deploy` folder of the Mayasto
     pvc-21d56e09-5b78-11e9-905a-589cfc0d76a7   1Gi        RWO            Delete           Bound    default/ms-volume-claim   mayastor                27s
     ```
 
-11. Check that the volume resource has been created and its internal status is `online`:
+10. Check that the volume resource has been created and its internal status is `online`:
     ```bash
     kubectl -n mayastor get msv 21d56e09-5b78-11e9-905a-589cfc0d76a7
     ```
@@ -266,7 +243,7 @@ The YAML files named below are to be found in the `deploy` folder of the Mayasto
       State:   online
     ```
 
-12. Deploy a pod which will mount the volume and which contains the fio test tool:
+11. Deploy a pod which will mount the volume and which contains the fio test tool:
     ```bash
     cat <<EOF | kubectl create -f -
     kind: Pod
@@ -294,7 +271,7 @@ The YAML files named below are to be found in the `deploy` folder of the Mayasto
     kubectl get pod
     ```
 
-13. Run fio on the volume for 60s and verify that io is handled as expected and without errors:
+12. Run fio on the volume for 60s and verify that io is handled as expected and without errors:
     ```bash
     kubectl exec -it fio -- fio --name=benchtest --size=800m --filename=/volume/test --direct=1 --rw=randrw --ioengine=libaio --bs=4k --iodepth=16 --numjobs=1 --time_based --runtime=60
     ```
