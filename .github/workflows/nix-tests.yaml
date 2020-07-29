@@ -1,19 +1,23 @@
 name: "Nix Workflow Tests"
 on:
-  #pull_request:
-  #  paths-ignore:
-  #push:
-  #  branches:
-  #    - develop
+  pull_request:
+    paths-ignore:
+  push:
+    branches:
+      - develop
 jobs:
   main:
     name: Run Nix Tests
     runs-on: self-hosted
     timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: $GITHUB_WORKSPACE/repo-under-test
     steps:
       - uses: actions/checkout@v2
         with:
           path: repo-under-test # Checkout with a new path, to avoid permissions on the runner.
       - run: modprobe kvm_intel nested=1 # Could do this once persistently on the runner.
       - run: echo "::set-env name=NIX_PATH::/home/gila/.nix-defexpr/channels"
-      - run: nix-build $GITHUB_WORKSPACE/repo-under-test/nix/test/basic/default.nix -A fio_nvme_basic
+      - run: [ -L ./result ] && nix-store --delete ./result --ignore-liveness
+      - run: nix-build ./nix/test/basic/default.nix -A fio_nvme_basic
