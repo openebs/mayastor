@@ -14,51 +14,51 @@ package mayastor;
 // Replica holds the actual user data. From user application the
 // data are accessed indirectly through nexus object.
 service Mayastor {
-	// Storage pool related methods.
-	//
-	// Storage pool is made up of block devices disks and provides a storage
-	// space for thin provisioning of replicas.
+  // Storage pool related methods.
+  //
+  // Storage pool is made up of block devices disks and provides a storage
+  // space for thin provisioning of replicas.
 
-	rpc CreatePool (CreatePoolRequest) returns (Pool) {}
-	rpc DestroyPool (DestroyPoolRequest) returns (Null) {}
-	rpc ListPools (Null) returns (ListPoolsReply) {}
+  rpc CreatePool (CreatePoolRequest) returns (Pool) {}
+  rpc DestroyPool (DestroyPoolRequest) returns (Null) {}
+  rpc ListPools (Null) returns (ListPoolsReply) {}
 
-	// Replica related methods.
-	//
-	// Replica allocates space from storage pool.
+  // Replica related methods.
+  //
+  // Replica allocates space from storage pool.
 
-	rpc CreateReplica (CreateReplicaRequest) returns (Replica) {}
-	rpc DestroyReplica (DestroyReplicaRequest) returns (Null) {}
-	rpc ListReplicas (Null) returns (ListReplicasReply) {}
-	rpc StatReplicas (Null) returns (StatReplicasReply) {}
-	rpc ShareReplica (ShareReplicaRequest) returns (ShareReplicaReply) {}
+  rpc CreateReplica (CreateReplicaRequest) returns (Replica) {}
+  rpc DestroyReplica (DestroyReplicaRequest) returns (Null) {}
+  rpc ListReplicas (Null) returns (ListReplicasReply) {}
+  rpc StatReplicas (Null) returns (StatReplicasReply) {}
+  rpc ShareReplica (ShareReplicaRequest) returns (ShareReplicaReply) {}
 
-	// Nexus related methods.
-	//
-	// Nexus is a logical frontend representing a data volume taking care of
-	// replication and rebuild in the background.
+  // Nexus related methods.
+  //
+  // Nexus is a logical frontend representing a data volume taking care of
+  // replication and rebuild in the background.
 
-	rpc CreateNexus (CreateNexusRequest) returns (Nexus) {}
-	rpc DestroyNexus (DestroyNexusRequest) returns (Null) {}
-	rpc ListNexus (Null) returns (ListNexusReply) {}
-	rpc AddChildNexus (AddChildNexusRequest) returns (Child) {}
-	rpc RemoveChildNexus (RemoveChildNexusRequest) returns (Null) {}
+  rpc CreateNexus (CreateNexusRequest) returns (Nexus) {}
+  rpc DestroyNexus (DestroyNexusRequest) returns (Null) {}
+  rpc ListNexus (Null) returns (ListNexusReply) {}
+  rpc AddChildNexus (AddChildNexusRequest) returns (Child) {}
+  rpc RemoveChildNexus (RemoveChildNexusRequest) returns (Null) {}
 
-	// This method is called by control plane to construct a block device
-	// (/dev/...) that will be used to connect the nexus to the OS.
-	rpc PublishNexus (PublishNexusRequest) returns (PublishNexusReply) {}
-	rpc UnpublishNexus (UnpublishNexusRequest) returns (Null) {}
+  // This method is called by control plane to construct a block device
+  // (/dev/...) that will be used to connect the nexus to the OS.
+  rpc PublishNexus (PublishNexusRequest) returns (PublishNexusReply) {}
+  rpc UnpublishNexus (UnpublishNexusRequest) returns (Null) {}
 
-	// Nexus child operations
-	rpc ChildOperation(ChildNexusRequest) returns (Null) {}
+  // Nexus child operations
+  rpc ChildOperation(ChildNexusRequest) returns (Null) {}
 
-	// Rebuild operations
-	rpc StartRebuild (StartRebuildRequest) returns (Null) {}
-	rpc StopRebuild (StopRebuildRequest) returns (Null) {}
-	rpc PauseRebuild (PauseRebuildRequest) returns (Null) {}
-	rpc ResumeRebuild (ResumeRebuildRequest) returns (Null) {}
-	rpc GetRebuildState (RebuildStateRequest) returns (RebuildStateReply) {}
-	rpc GetRebuildProgress (RebuildProgressRequest) returns (RebuildProgressReply) {}
+  // Rebuild operations
+  rpc StartRebuild (StartRebuildRequest) returns (Null) {}
+  rpc StopRebuild (StopRebuildRequest) returns (Null) {}
+  rpc PauseRebuild (PauseRebuildRequest) returns (Null) {}
+  rpc ResumeRebuild (ResumeRebuildRequest) returns (Null) {}
+  rpc GetRebuildState (RebuildStateRequest) returns (RebuildStateReply) {}
+  rpc GetRebuildProgress (RebuildProgressRequest) returns (RebuildProgressReply) {}
 }
 
 // Means no arguments or no return value.
@@ -178,7 +178,7 @@ message StatReplicasReply {
 message ShareReplicaRequest {
   string uuid = 1;  // uuid of the replica
   ShareProtocolReplica share = 2;  // protocol used for exposing the replica
-                            // Use "NONE" to disable remote access.
+  // Use "NONE" to disable remote access.
 }
 
 // Share replica response.
@@ -266,13 +266,13 @@ message UnpublishNexusRequest {
 }
 
 enum ChildAction {
-  offline= 0;
+  offline = 0;
   online = 1;
 }
 
 message ChildNexusRequest {
   string uuid = 1;
-  string uri =2;
+  string uri = 2;
   ChildAction action = 3;
 }
 
@@ -318,39 +318,39 @@ message RebuildProgressReply {
 // mayastor outside the scope of CSI.
 
 service BdevRpc {
-	rpc List(mayastor.Null) returns (Bdevs) {}
-	rpc Create(BdevUri) returns (CreateReply) {}
+  rpc List(mayastor.Null) returns (Bdevs) {}
+  rpc Create(BdevUri) returns (CreateReply) {}
   rpc Share(BdevShareRequest) returns (BdevShareReply) {}
   rpc Unshare(CreateReply) returns (Null) {}
 }
 
 message BdevShareRequest {
- string name = 1;
- string proto = 2;
+  string name = 1;
+  string proto = 2;
 }
 
 message BdevShareReply {
-  string uri =1;
+  string uri = 1;
 }
 
 message Bdev {
-	string name = 1;
-	string uuid = 2;
-	uint64 num_blocks = 3;
-	uint32 blk_size = 5;
-	bool claimed = 6;
-	string claimed_by = 7;
-	string aliases = 8;
+  string name = 1;
+  string uuid = 2;
+  uint64 num_blocks = 3;
+  uint32 blk_size = 5;
+  bool claimed = 6;
+  string claimed_by = 7;
+  string aliases = 8;
 }
 
 message Bdevs {
-	repeated Bdev bdevs = 1;
+  repeated Bdev bdevs = 1;
 }
 
 message BdevUri {
-	string uri = 1;
+  string uri = 1;
 }
 
 message CreateReply {
-	string name = 1;
+  string name = 1;
 }

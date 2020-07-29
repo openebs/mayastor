@@ -9,18 +9,29 @@
 use std::{fmt::Display, fs, fs::File, io::Write, path::Path};
 
 use byte_unit::Byte;
+use futures::FutureExt;
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
+use snafu::Snafu;
+use spdk_sys::{
+    spdk_json_write_ctx,
+    spdk_json_write_val_raw,
+    spdk_subsystem,
+    spdk_subsystem_fini_next,
+    spdk_subsystem_init_next,
+};
 
 use crate::{
     bdev::{nexus::instances, nexus_create, VerboseError},
     core::{Bdev, Cores, Reactor},
+    jsonrpc::{jsonrpc_register, Code, RpcErrorCode},
     nexus_uri::bdev_create,
     pool::{create_pool, PoolsIter},
     subsys::{
-        opts::{
+        config::opts::{
             BdevOpts,
             ErrStoreOpts,
+            GetOpts,
             IscsiTgtOpts,
             NexusOpts,
             NvmeBdevOpts,
@@ -30,9 +41,84 @@ use crate::{
     },
 };
 
-use super::opts::GetOpts;
+#[derive(Debug, Clone, Snafu)]
+pub enum Error {}
+
+impl RpcErrorCode for Error {
+    fn rpc_error_code(&self) -> Code {
+        Code::InternalError
+    }
+}
+pub(crate) mod opts;
 
 pub static CONFIG: OnceCell<Config> = OnceCell::new();
+
+pub struct ConfigSubsystem(pub *mut spdk_subsystem);
+
+impl Default for ConfigSubsystem {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ConfigSubsystem {
+    extern "C" fn init() {
+        debug!("mayastor subsystem init");
+
+        // write the config out to disk where the target is the same as source
+        // if no config file is given, simply return Ok().
+        jsonrpc_register::<(), _, _, Error>("mayastor_config_export", |_| {
+            let f = async move {
+                let cfg = Config::get().refresh().unwrap();
+                if let Some(target) = cfg.source.as_ref() {
+                    if let Err(e) = cfg.write(&target) {
+                        error!("error writing config file {} {}", target, e);
+                    }
+                } else {
+                    warn!("request to save config file but no source file was given, guess \
+                    you have to scribble it down yourself {}", '\u{1f609}');
+                }
+                Ok(())
+            };
+
+            f.boxed_local()
+        });
+
+        unsafe { spdk_subsystem_init_next(0) };
+    }
+
+    extern "C" fn fini() {
+        debug!("mayastor subsystem fini");
+        unsafe { spdk_subsystem_fini_next() };
+    }
+
+    extern "C" fn config(w: *mut spdk_json_write_ctx) {
+        let data = match serde_json::to_string(Config::get()) {
+            Ok(it) => it,
+            _ => return,
+        };
+
+        unsafe {
+            spdk_json_write_val_raw(
+                w,
+                data.as_ptr() as *const _,
+                data.as_bytes().len() as u64,
+            );
+        }
+    }
+
+    pub fn new() -> Self {
+        static MAYASTOR_SUBSYS: &str = "MayastorConfig";
+        debug!("creating Mayastor subsystem...");
+        let mut ss = Box::new(spdk_subsystem::default());
+        ss.name = std::ffi::CString::new(MAYASTOR_SUBSYS).unwrap().into_raw();
+        ss.init = Some(Self::init);
+        ss.fini = Some(Self::fini);
+        ss.write_config_json = Some(Self::config);
+
+        Self(Box::into_raw(ss))
+    }
+}
 
 /// Main config structure of Mayastor. This structure can be persisted to disk.
 #[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
