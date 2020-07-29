@@ -314,13 +314,23 @@ message RebuildProgressReply {
   uint32 progress = 1;  // progress percentage
 }
 
-
-// Anything what follows here are private interfaces used for testing or
-// debugging mayastor. Do not use it for anything serious.
+// Anything what follows here are private interfaces used for interacting with
+// mayastor outside the scope of CSI.
 
 service BdevRpc {
 	rpc List(mayastor.Null) returns (Bdevs) {}
 	rpc Create(BdevUri) returns (CreateReply) {}
+  rpc Share(BdevShareRequest) returns (BdevShareReply) {}
+  rpc Unshare(CreateReply) returns (Null) {}
+}
+
+message BdevShareRequest {
+ string name = 1;
+ string proto = 2;
+}
+
+message BdevShareReply {
+  string uri =1;
 }
 
 message Bdev {
