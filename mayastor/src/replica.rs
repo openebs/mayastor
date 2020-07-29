@@ -282,7 +282,7 @@ impl Replica {
                 .context(ShareNvmf {})?,
             ShareType::Iscsi => {
                 target::iscsi::share(&uuid, &bdev, target::Side::Replica)
-                    .context(ShareIscsi {})?
+                    .context(ShareIscsi {})?;
             }
         }
         Ok(())

@@ -248,9 +248,6 @@ impl RebuildJob {
 impl RebuildState {
     /// Final update for a rebuild job
     pub fn done(self) -> bool {
-        match self {
-            Self::Stopped | Self::Failed | Self::Completed => true,
-            _ => false,
-        }
+        matches!(self, Self::Stopped | Self::Failed | Self::Completed)
     }
 }

@@ -152,10 +152,7 @@ impl Reactors {
 
     /// advertise what scheduling options we support
     extern "C" fn can_op(op: spdk_sys::spdk_thread_op) -> bool {
-        match op {
-            spdk_sys::SPDK_THREAD_OP_NEW => true,
-            _ => false,
-        }
+        matches!(op, spdk_sys::SPDK_THREAD_OP_NEW)
     }
 
     /// do the advertised scheduling option

@@ -1,11 +1,13 @@
 //!
 //! methods to directly interact with the bdev layer
 
-use crate::context::Context;
-use clap::{App, AppSettings, ArgMatches, SubCommand};
+use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 use colored_json::prelude::*;
-use rpc::mayastor::Null;
 use tonic::Status;
+
+use rpc::mayastor::{BdevShareRequest, BdevUri, CreateReply, Null};
+
+use crate::context::Context;
 
 pub async fn handler(
     ctx: Context,
@@ -13,6 +15,9 @@ pub async fn handler(
 ) -> Result<(), Status> {
     match matches.subcommand() {
         ("list", Some(args)) => list(ctx, args).await,
+        ("create", Some(args)) => create(ctx, args).await,
+        ("share", Some(args)) => share(ctx, args).await,
+        ("unshare", Some(args)) => unshare(ctx, args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {} does not exist", cmd)))
         }
@@ -20,6 +25,25 @@ pub async fn handler(
 }
 pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
     let list = SubCommand::with_name("list").about("List all bdevs");
+    let create = SubCommand::with_name("create")
+        .about("Create a new bdev by specifying a URI")
+        .arg(Arg::with_name("uri").required(true).index(1));
+
+    let share = SubCommand::with_name("share")
+        .about("share the given bdev")
+        .arg(Arg::with_name("name").required(true).index(1))
+        .arg(
+            Arg::with_name("protocol")
+                .help("the protocol to used to share the given bdev")
+                .required(false)
+                .default_value("nvmf")
+                .value_names(&["nvmf", "iscsi"]),
+        );
+
+    let unshare = SubCommand::with_name("unshare")
+        .about("unshare the given bdev")
+        .arg(Arg::with_name("name").required(true).index(1));
+
     SubCommand::with_name("bdev")
         .settings(&[
             AppSettings::SubcommandRequiredElseHelp,
@@ -28,6 +52,9 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
         ])
         .about("Block device management")
         .subcommand(list)
+        .subcommand(share)
+        .subcommand(unshare)
+        .subcommand(create)
 }
 
 async fn list(mut ctx: Context, _args: &ArgMatches<'_>) -> Result<(), Status> {
@@ -40,5 +67,63 @@ async fn list(mut ctx: Context, _args: &ArgMatches<'_>) -> Result<(), Status> {
             .unwrap()
     );
 
+    Ok(())
+}
+async fn create(mut ctx: Context, args: &ArgMatches<'_>) -> Result<(), Status> {
+    let uri = args.value_of("uri").unwrap().to_owned();
+    let response = ctx
+        .bdev
+        .create(BdevUri {
+            uri,
+        })
+        .await?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&response.into_inner())
+            .unwrap()
+            .to_colored_json_auto()
+            .unwrap()
+    );
+    Ok(())
+}
+
+async fn share(mut ctx: Context, args: &ArgMatches<'_>) -> Result<(), Status> {
+    let name = args.value_of("name").unwrap().to_owned();
+    let protocol = args.value_of("protocol").unwrap().to_owned();
+    let response = ctx
+        .bdev
+        .share(BdevShareRequest {
+            name,
+            proto: protocol,
+        })
+        .await?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&response.into_inner())
+            .unwrap()
+            .to_colored_json_auto()
+            .unwrap()
+    );
+    Ok(())
+}
+
+async fn unshare(
+    mut ctx: Context,
+    args: &ArgMatches<'_>,
+) -> Result<(), Status> {
+    let name = args.value_of("name").unwrap().to_owned();
+    let response = ctx
+        .bdev
+        .unshare(CreateReply {
+            name,
+        })
+        .await?;
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&response.into_inner())
+            .unwrap()
+            .to_colored_json_auto()
+            .unwrap()
+    );
     Ok(())
 }

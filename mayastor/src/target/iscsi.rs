@@ -225,7 +225,7 @@ fn share_as_iscsi_target(
 
 /// Export given bdev over iscsi. That involves creating iscsi target and
 /// adding the bdev as LUN to it.
-pub fn share(bdev_name: &str, bdev: &Bdev, side: Side) -> Result<()> {
+pub fn share(bdev_name: &str, bdev: &Bdev, side: Side) -> Result<String> {
     let iqn = match side {
         Side::Nexus => share_as_iscsi_target(
             bdev_name,
@@ -240,8 +240,9 @@ pub fn share(bdev_name: &str, bdev: &Bdev, side: Side) -> Result<()> {
             ISCSI_INITIATOR_GROUP,
         )?,
     };
+
     info!("Created iscsi target {} for {}", iqn, bdev_name);
-    Ok(())
+    Ok(iqn)
 }
 
 /// Undo export of a bdev over iscsi done above.
