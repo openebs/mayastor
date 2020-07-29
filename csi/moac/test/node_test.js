@@ -20,7 +20,7 @@ module.exports = function () {
   var pools = [
     {
       name: 'pool',
-      disks: ['/dev/sdb', '/dev/sdc'],
+      disks: ['aio:///dev/sdb', 'aio:///dev/sdc'],
       state: enums.POOL_ONLINE,
       capacity: 100,
       used: 14

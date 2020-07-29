@@ -8,7 +8,8 @@ const { MayastorServer } = require('./mayastor_mock');
 const { GrpcClient, GrpcCode } = require('../grpc_client');
 const { shouldFailWith } = require('./utils');
 
-const EGRESS_ENDPOINT = '127.0.0.1:12345';
+const MS_ENDPOINT = '127.0.0.1:12345';
+const UUID = '88dba542-d187-11ea-87d0-0242ac130003';
 
 module.exports = function () {
   var srv;
@@ -16,7 +17,7 @@ module.exports = function () {
 
   // start a fake mayastor server and initialize the client
   before(() => {
-    client = new GrpcClient(EGRESS_ENDPOINT);
+    client = new GrpcClient(MS_ENDPOINT);
   });
 
   beforeEach(() => {
@@ -30,7 +31,7 @@ module.exports = function () {
           used: 4
         }
       ];
-      srv = new MayastorServer(EGRESS_ENDPOINT, pools).start();
+      srv = new MayastorServer(MS_ENDPOINT, pools).start();
     }
   });
 
@@ -54,7 +55,7 @@ module.exports = function () {
 
   it('should throw if grpc method fails', async () => {
     await shouldFailWith(grpc.status.NOT_FOUND, async () => {
-      await client.call('destroyPool', { name: 'unknown-pool' });
+      await client.call('removeChildNexus', { uuid: UUID, uri: 'bdev://bbb' });
     });
   });
 

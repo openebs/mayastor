@@ -339,16 +339,8 @@ class Node extends EventEmitter {
   async createPool (name, disks) {
     log.debug(`Creating pool "${name}@${this.name}" ...`);
 
-    var poolInfo;
-    try {
-      poolInfo = await this.call('createPool', { name, disks });
-      log.info(`Created pool "${name}@${this.name}"`);
-    } catch (err) {
-      // TODO: Make rpc idempotent
-      if (err.code !== GrpcCode.ALREADY_EXISTS) {
-        throw err;
-      }
-    }
+    var poolInfo = await this.call('createPool', { name, disks });
+    log.info(`Created pool "${name}@${this.name}"`);
 
     const newPool = new Pool(poolInfo);
     this._registerPool(newPool);
@@ -365,16 +357,8 @@ class Node extends EventEmitter {
     const children = replicas.map((r) => r.uri);
     log.debug(`Creating nexus "${uuid}@${this.name}"`);
 
-    var nexusInfo;
-    try {
-      nexusInfo = await this.call('createNexus', { uuid, size, children });
-      log.info(`Created nexus "${uuid}@${this.name}"`);
-    } catch (err) {
-      // TODO: Make rpc idempotent
-      if (err.code !== GrpcCode.ALREADY_EXISTS) {
-        throw err;
-      }
-    }
+    var nexusInfo = await this.call('createNexus', { uuid, size, children });
+    log.info(`Created nexus "${uuid}@${this.name}"`);
 
     const newNexus = new Nexus(nexusInfo);
     this._registerNexus(newNexus);

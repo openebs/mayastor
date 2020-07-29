@@ -468,12 +468,14 @@ pub(crate) async fn create_replica(
             uuid: args.uuid.clone(),
         })?,
     };
-    // Should we ignore EEXIST error?
-    let replica = Replica::create(&args.uuid, &args.pool, args.size, args.thin)
-        .await
-        .context(CreateReplica {
-            uuid: args.uuid.clone(),
-        })?;
+    let replica = match Replica::lookup(&args.uuid) {
+        Some(r) => r,
+        None => Replica::create(&args.uuid, &args.pool, args.size, args.thin)
+            .await
+            .context(CreateReplica {
+                uuid: args.uuid.clone(),
+            })?,
+    };
 
     // TODO: destroy replica if the share operation fails
     match want_share {
@@ -501,9 +503,7 @@ pub(crate) async fn destroy_replica(
         Some(replica) => replica.destroy().await.context(DestroyReplica {
             uuid: args.uuid,
         }),
-        None => Err(Error::ReplicaNotFound {}).context(DestroyReplica {
-            uuid: args.uuid,
-        }),
+        None => Ok(()),
     }
 }
 

@@ -12,7 +12,12 @@ use crate::{
     },
     core::Cores,
     grpc::{
-        nexus_grpc::{nexus_add_child, nexus_lookup, uuid_to_name},
+        nexus_grpc::{
+            nexus_add_child,
+            nexus_destroy,
+            nexus_lookup,
+            uuid_to_name,
+        },
         GrpcResult,
     },
     pool,
@@ -178,7 +183,9 @@ impl mayastor_server::Mayastor for MayastorSvc {
         trace!("{:?}", args);
         let uuid = args.uuid.clone();
         debug!("Destroying nexus {} ...", uuid);
-        locally! { async move { nexus_lookup(&args.uuid)?.destroy().await }};
+        locally! { async move {
+            nexus_destroy(&args.uuid).await
+        }};
         info!("Destroyed nexus {}", uuid);
         Ok(Response::new(Null {}))
     }
