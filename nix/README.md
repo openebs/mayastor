@@ -33,5 +33,10 @@ With the overlay in place you can start nix-shell a within the project root.
 To have iscsid enabled on your NixOS system you can use the service file
 in your `configuration`.
 
+## nix-shell
 
+Build environment for mayastor including all test and debug dependencies.
+It can be run with two arguments:
 
+* `--arg nospdk true`: to use your own SPDK.
+* `--arg norust true`: to use your own rust toolchain.
