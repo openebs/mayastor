@@ -259,7 +259,7 @@ impl NvmfSubsystem {
     /// start the subsystem previously created -- note that we destroy it on
     /// failure to ensure the state is not in limbo and to avoid leaking
     /// resources
-    pub async fn start(self) -> Result<(), Error> {
+    pub async fn start(self) -> Result<String, Error> {
         extern "C" fn start_cb(
             ss: *mut spdk_nvmf_subsystem,
             arg: *mut c_void,
@@ -302,7 +302,7 @@ impl NvmfSubsystem {
         })?;
 
         info!("started {:?}", self.get_nqn());
-        Ok(())
+        Ok(self.get_nqn())
     }
 
     /// stop the subsystem
@@ -340,7 +340,10 @@ impl NvmfSubsystem {
             source: Errno::from_i32(e),
             nqn: self.get_nqn(),
             msg: "failed to stop the subsystem".to_string(),
-        })
+        })?;
+
+        info!("stopped {}", self.get_nqn());
+        Ok(())
     }
 
     /// we are not making use of pause and resume yet but this will be needed

@@ -22,10 +22,7 @@ use spdk_sys::{
 pub use subsystem::{NvmfSubsystem, SubType};
 pub use target::Target;
 
-use crate::{
-    core::Bdev,
-    subsys::{nvmf::target::NVMF_TGT, Config},
-};
+use crate::subsys::{nvmf::target::NVMF_TGT, Config};
 
 mod poll_groups;
 mod subsystem;
@@ -62,7 +59,7 @@ pub enum Error {
         msg: String,
     },
     #[snafu(display("Failed to create share for  {} {}", bdev, msg))]
-    Share { bdev: Bdev, msg: String },
+    Share { bdev: String, msg: String },
     #[snafu(display("Failed to add namespace for  {} {}", bdev, msg))]
     Namespace { bdev: String, msg: String },
 }
