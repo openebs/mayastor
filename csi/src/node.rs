@@ -1,19 +1,31 @@
-use std::{boxed::Box, fs, io::ErrorKind, path::PathBuf, vec::Vec};
+use std::{
+    boxed::Box,
+    fs,
+    io::ErrorKind,
+    path::PathBuf,
+    time::Duration,
+    vec::Vec,
+};
 
 use tonic::{Code, Request, Response, Status};
 
+macro_rules! failure {
+    (Code::$code:ident, $msg:literal) => {{ error!($msg); Status::new(Code::$code, $msg) }};
+    (Code::$code:ident, $fmt:literal $(,$args:expr)+) => {{ let message = format!($fmt $(,$args)+); error!("{}", message); Status::new(Code::$code, message) }};
+}
+
 use glob::glob;
+use uuid::Uuid;
 
 use crate::{
-    csi::{volume_capability::access_mode::Mode, *},
-    format::probed_format,
-    mount::{match_mount, mount_fs, mount_opts_compare, unmount_fs},
+    csi::{
+        volume_capability::{access_mode::Mode, AccessType, MountVolume},
+        *,
+    },
+    dev::Device,
+    format::prepare_device,
+    mount::{self, subset, ReadOnly},
 };
-
-mod iscsiutil;
-use iscsiutil::{iscsi_attach_disk, iscsi_detach_disk, iscsi_find};
-mod nvmfutil;
-use nvmfutil::{nvmf_attach_disk, nvmf_detach_disk, nvmf_find};
 
 #[derive(Clone, Debug)]
 pub struct Node {
@@ -31,34 +43,61 @@ pub struct Node {
 // for CO when attaching volumes to pods. It is out of scope of storage
 // plugin running on particular node to check that access mode for particular
 // publish or stage request makes sense.
+
+/// Check that the access_mode from VolumeCapability is consistent with
+/// the readonly status
 fn check_access_mode(
-    volume_id: &str,
-    access_mode: &Option<volume_capability::AccessMode>,
+    volume_capability: &Option<VolumeCapability>,
     readonly: bool,
 ) -> Result<(), String> {
-    let rdonly_access_mode = match access_mode {
-        Some(m) => match Mode::from_i32(m.mode).unwrap() {
-            Mode::SingleNodeWriter => false,
-            Mode::SingleNodeReaderOnly => true,
-            Mode::MultiNodeReaderOnly => true,
-            Mode::MultiNodeSingleWriter => false,
-            _ => {
-                return Err(format!(
-                    "Unsupported publish volume mode {:?} for {}",
-                    Mode::from_i32(m.mode),
-                    volume_id
-                ));
-            }
+    match volume_capability {
+        Some(capability) => match &capability.access_mode {
+            Some(access) => match Mode::from_i32(access.mode) {
+                Some(mode) => match mode {
+                    Mode::SingleNodeWriter | Mode::MultiNodeSingleWriter => {
+                        Ok(())
+                    }
+                    Mode::SingleNodeReaderOnly | Mode::MultiNodeReaderOnly => {
+                        if readonly {
+                            return Ok(());
+                        }
+                        Err(format!("volume capability: invalid combination of access mode ({:?}) and mount flag (rw)", mode))
+                    }
+                    Mode::Unknown => Err(String::from(
+                        "volume capability: unknown access mode",
+                    )),
+                    _ => Err(format!(
+                        "volume capability: unsupported access mode: {:?}",
+                        mode
+                    )),
+                },
+                None => Err(format!(
+                    "volume capability: invalid access mode: {}",
+                    access.mode
+                )),
+            },
+            None => Err(String::from("volume capability: missing access mode")),
         },
-        None => return Err(format!("Missing publish mode for {}", volume_id)),
-    };
-    if !readonly && rdonly_access_mode {
-        Err(format!(
-            "Invalid combination of access mode and ro mount flag for {}",
-            volume_id,
-        ))
-    } else {
-        Ok(())
+        None => Err(String::from("missing volume capability")),
+    }
+}
+
+// TODO: Need to support block volumes
+/// Retrieve the MountVolume from VolumeCapability
+fn get_access_mount(
+    volume_capability: &Option<VolumeCapability>,
+) -> Result<&MountVolume, String> {
+    match volume_capability {
+        Some(capability) => match &capability.access_type {
+            Some(access) => match access {
+                AccessType::Block(_) => Err(String::from(
+                    "volume capability: BLOCK volumes not currently supported",
+                )),
+                AccessType::Mount(mount) => Ok(mount),
+            },
+            None => Err(String::from("volume capability: missing access type")),
+        },
+        None => Err(String::from("missing volume capability")),
     }
 }
 
@@ -137,114 +176,192 @@ impl node_server::Node for Node {
         let target_path = &msg.target_path;
         let volume_id = &msg.volume_id;
 
-        // According to the spec, the staging path is optional, but must be set
-        // if the plugin advertises stage volume -- which we do so here we go.
-        if staging_path == "" || target_path == "" {
-            return Err(Status::new(
+        if volume_id.is_empty() {
+            return Err(failure!(
                 Code::InvalidArgument,
-                format!("Invalid target or staging path for {}", volume_id),
+                "Failed to publish volume: missing volume id"
             ));
         }
 
-        // TODO: Support raw volumes
-        let mnt = match msg.volume_capability.as_ref().unwrap().access_type {
-            Some(volume_capability::AccessType::Mount(ref m)) => m,
-            Some(volume_capability::AccessType::Block(_)) => {
-                return Err(Status::new(
-                    Code::InvalidArgument,
-                    "Raw block not ratified yet",
-                ));
-            }
-            None => {
-                return Err(Status::new(
-                    Code::InvalidArgument,
-                    format!("Missing access type for {}", volume_id),
-                ));
-            }
-        };
-
-        // apparently, it does not matter what the source (device) is
-        // to me thats odd but thats how the spec says it today
-        if match_mount(None, Some(staging_path), true).is_none() {
-            return Err(Status::new(
+        if target_path.is_empty() {
+            return Err(failure!(
                 Code::InvalidArgument,
-                format!(
-                    "No mount {} for volume {} (hint: volume unstaged?)",
-                    staging_path, volume_id
-                ),
+                "Failed to publish volume {}: missing target path",
+                volume_id
             ));
         }
 
-        if let Err(reason) = check_access_mode(
-            volume_id,
-            &msg.volume_capability.as_ref().unwrap().access_mode,
-            msg.readonly,
-        ) {
-            return Err(Status::new(Code::InvalidArgument, reason));
+        // Note that the staging path is NOT optional,
+        // as we advertise StageUnstageVolume.
+        if staging_path.is_empty() {
+            return Err(failure!(
+                Code::InvalidArgument,
+                "Failed to publish volume {}: missing staging path",
+                volume_id
+            ));
         }
 
-        let filesystem = if mnt.fs_type.is_empty() {
-            &self.filesystems[0]
-        } else {
-            match self.filesystems.iter().find(|ent| **ent == mnt.fs_type) {
-                Some(fs) => fs,
-                None => {
-                    return Err(Status::new(
-                        Code::InvalidArgument,
-                        format!("Filesystem {} is not supported", mnt.fs_type),
-                    ));
+        // TODO: Support block volumes
+        let mnt =
+            get_access_mount(&msg.volume_capability).map_err(|error| {
+                failure!(
+                    Code::InvalidArgument,
+                    "Failed to publish volume {}: {}",
+                    volume_id,
+                    error
+                )
+            })?;
+
+        debug!(
+            "Publishing volume {} from {} to {}",
+            volume_id, staging_path, target_path
+        );
+
+        let staged =
+            mount::find_mount(None, Some(staging_path)).ok_or_else(|| {
+                failure!(
+                    Code::InvalidArgument,
+                    "Failed to publish volume {}: no mount for staging path {}",
+                    volume_id,
+                    staging_path
+                )
+            })?;
+
+        // TODO: Should also check that the staged "device"
+        // corresponds to the the volume uuid
+
+        if let Err(error) =
+            check_access_mode(&msg.volume_capability, msg.readonly)
+        {
+            return Err(failure!(
+                Code::InvalidArgument,
+                "Failed to publish volume {}: {}",
+                volume_id,
+                error
+            ));
+        }
+
+        if mnt.fs_type != "" && mnt.fs_type != staged.fstype {
+            return Err(failure!(
+                Code::InvalidArgument,
+                "Failed to publish volume {}: filesystem type ({}) does not match staged volume ({})",
+                volume_id,
+                mnt.fs_type,
+                staged.fstype
+            ));
+        }
+
+        if self
+            .filesystems
+            .iter()
+            .find(|&entry| entry == &staged.fstype)
+            .is_none()
+        {
+            return Err(failure!(
+                Code::InvalidArgument,
+                "Failed to publish volume {}: unsupported filesystem type: {}",
+                volume_id,
+                staged.fstype
+            ));
+        }
+
+        let readonly = staged.options.readonly();
+
+        if readonly && !msg.readonly {
+            return Err(failure!(
+                Code::InvalidArgument,
+                "Failed to publish volume {}: volume is staged as \"ro\" but publish requires \"rw\"",
+                volume_id
+            ));
+        }
+
+        if let Some(mount) = mount::find_mount(None, Some(target_path)) {
+            if mount.source != staged.source {
+                return Err(failure!(
+                    Code::AlreadyExists,
+                    "Failed to publish volume {}: directory {} is already in use",
+                    volume_id,
+                    target_path
+                ));
+            }
+
+            if !subset(&mnt.mount_flags, &mount.options)
+                || msg.readonly != mount.options.readonly()
+            {
+                return Err(failure!(
+                    Code::AlreadyExists,
+                    "Failed to publish volume {}: directory {} is already mounted but with incompatible flags",
+                    volume_id,
+                    target_path
+                ));
+            }
+
+            info!(
+                "Volume {} is already published to {}",
+                volume_id, target_path
+            );
+
+            return Ok(Response::new(NodePublishVolumeResponse {}));
+        }
+
+        debug!("Creating directory {}", target_path);
+
+        if let Err(error) = fs::create_dir_all(PathBuf::from(target_path)) {
+            if error.kind() != ErrorKind::AlreadyExists {
+                return Err(failure!(
+                    Code::Internal,
+                    "Failed to publish volume {}: failed to create directory {}: {}",
+                    volume_id,
+                    target_path,
+                    error
+                ));
+            }
+        }
+
+        debug!("Mounting {} to {}", staging_path, target_path);
+
+        if let Err(error) =
+            mount::bind_mount(&staging_path, &target_path, false)
+        {
+            return Err(failure!(
+                Code::Internal,
+                "Failed to publish volume {}: failed to mount {} to {}: {}",
+                volume_id,
+                staging_path,
+                target_path,
+                error
+            ));
+        }
+
+        if msg.readonly && !readonly {
+            let mut options = mnt.mount_flags.clone();
+            options.push(String::from("ro"));
+
+            debug!("Remounting {} as readonly", target_path);
+
+            if let Err(error) = mount::bind_remount(&target_path, &options) {
+                let message = format!(
+                    "Failed to publish volume {}: failed to mount {} to {} as readonly: {}",
+                    volume_id,
+                    staging_path,
+                    target_path,
+                    error
+                );
+
+                error!("Failed to remount {}: {}", target_path, error);
+
+                debug!("Unmounting {}", target_path);
+
+                if let Err(error) = mount::bind_unmount(&target_path) {
+                    error!("Failed to unmount {}: {}", target_path, error);
                 }
-            }
-        };
-        let mut mnt_flags = mnt.mount_flags.clone();
 
-        if msg.readonly {
-            mnt_flags.push("ro".into());
-        } else {
-            mnt_flags.push("rw".into());
-        }
-
-        if let Some(mount) =
-            match_mount(Some(staging_path), Some(target_path), true)
-        {
-            // we are already mounted check flags, if they match return OK
-            let equal =
-                mount_opts_compare(&mnt_flags, &mount.opts, msg.readonly);
-
-            if equal {
-                info!("Already mounted with compatible flags");
-                return Ok(Response::new(NodePublishVolumeResponse {}));
-            } else {
-                // this is just to provide more context around the error
-                return Err(Status::new(
-                        Code::AlreadyExists,
-                        "Failed to publish volume, already exists with incompatible flags".to_string()
-                    ));
+                return Err(Status::new(Code::Internal, message));
             }
         }
 
-        // if we are here, it means that we mount it for the first time or -- we
-        // are mounting the same staged volume again to a different target.
-        if let Err(err) = fs::create_dir_all(PathBuf::from(target_path)) {
-            return Err(Status::new(
-                Code::Internal,
-                format!(
-                    "Failed to create mountpoint {} for volume {}: {}",
-                    target_path, volume_id, err
-                ),
-            ));
-        }
-        if let Err(err) =
-            mount_fs(&staging_path, &target_path, true, &filesystem, &mnt_flags)
-        {
-            Err(Status::new(
-                Code::Internal,
-                format!("Failed to publish volume {}: {}", volume_id, err),
-            ))
-        } else {
-            info!("Published volume {}", volume_id);
-            Ok(Response::new(NodePublishVolumeResponse {}))
-        }
+        info!("Volume {} published to {}", volume_id, target_path);
+        Ok(Response::new(NodePublishVolumeResponse {}))
     }
 
     /// This RPC is called by the CO when a workload using the specified
@@ -266,33 +383,74 @@ impl node_server::Node for Node {
         let target_path = &msg.target_path;
         let volume_id = &msg.volume_id;
 
-        // TODO: Support raw volumes
-        match match_mount(None, Some(target_path), true) {
-            Some(_) => {
-                debug!("Unmount volume {} at {}...", volume_id, target_path);
-
-                if let Err(err) = unmount_fs(target_path, true) {
-                    return Err(Status::new(
-                        Code::Internal,
-                        format!(
-                            "Failed to unpublish volume {}: {}",
-                            volume_id, err
-                        ),
-                    ));
-                }
-                info!("Unpublished volume {} at {}", volume_id, target_path);
-            }
-            None => error!("Volume {} is not published", volume_id),
+        if volume_id.is_empty() {
+            return Err(failure!(
+                Code::InvalidArgument,
+                "Failed to unpublish volume: missing volume id"
+            ));
         }
 
+        if target_path.is_empty() {
+            return Err(failure!(
+                Code::InvalidArgument,
+                "Failed to unpublish volume {}: missing target path",
+                volume_id
+            ));
+        }
+
+        debug!("Unpublishing volume {} from {}", volume_id, target_path);
+
+        if mount::find_mount(None, Some(target_path)).is_none() {
+            // No mount found for target_path.
+            // The idempotency requirement means this is not an error.
+            // Just clean up as best we can and claim success.
+
+            if let Err(error) = fs::remove_dir(PathBuf::from(target_path)) {
+                if error.kind() != ErrorKind::NotFound {
+                    error!(
+                        "Failed to remove directory {}: {}",
+                        target_path, error
+                    );
+                }
+            }
+
+            info!(
+                "Volume {} is already unpublished from {}",
+                volume_id, target_path
+            );
+
+            return Ok(Response::new(NodeUnpublishVolumeResponse {}));
+        }
+
+        debug!("Unmounting {}", target_path);
+
+        if let Err(error) = mount::bind_unmount(target_path) {
+            return Err(failure!(
+                Code::Internal,
+                "Failed to unpublish volume {}: failed to unmount {}: {}",
+                volume_id,
+                target_path,
+                error
+            ));
+        }
+
+        debug!("Removing directory {}", target_path);
+
+        if let Err(error) = fs::remove_dir(PathBuf::from(target_path)) {
+            if error.kind() != ErrorKind::NotFound {
+                error!("Failed to remove directory {}: {}", target_path, error);
+            }
+        }
+
+        info!("Volume {} unpublished from {}", volume_id, target_path);
         Ok(Response::new(NodeUnpublishVolumeResponse {}))
     }
 
-    /// Get volume stats method is currently not implemented. But it's simple
-    /// to do.
+    /// Get volume stats method is currently not implemented,
+    /// although it's simple to do.
     ///
-    /// TODO: Just read the data about capacity/used space inodes/bytes from
-    /// the system using the mountpoint.
+    /// TODO: Just read the data about capacity/used space
+    /// inodes/bytes from the system using the mountpoint.
     async fn node_get_volume_stats(
         &self,
         request: Request<NodeGetVolumeStatsRequest>,
@@ -334,55 +492,56 @@ impl node_server::Node for Node {
 
         trace!("node_stage_volume {:?}", msg);
 
-        if staging_path == "" || volume_id == "" {
-            return Err(Status::new(
+        if volume_id.is_empty() {
+            return Err(failure!(
                 Code::InvalidArgument,
-                "Invalid target path or volume id",
+                "Failed to stage volume: missing volume id"
             ));
         }
 
-        if msg.volume_capability.is_none() {
-            return Err(Status::new(
+        if staging_path.is_empty() {
+            return Err(failure!(
                 Code::InvalidArgument,
-                format!("No volume capabilities provided for {}", volume_id),
+                "Failed to stage volume {}: missing staging path",
+                volume_id
             ));
         }
 
-        // TODO: support raw block volumes
-        let mnt = match msg.volume_capability.as_ref().unwrap().access_type {
-            Some(volume_capability::AccessType::Mount(ref m)) => m.clone(),
-            Some(volume_capability::AccessType::Block(_)) => {
-                return Err(Status::new(
+        // TODO: Support block volumes
+        let mnt =
+            get_access_mount(&msg.volume_capability).map_err(|error| {
+                failure!(
                     Code::InvalidArgument,
-                    "Raw block support is not supported",
-                ))
-            }
-            None => {
-                return Err(Status::new(
-                    Code::InvalidArgument,
-                    format!("Missing access type for volume {}", volume_id),
-                ))
-            }
-        };
+                    "Failed to stage volume {}: {}",
+                    volume_id,
+                    error
+                )
+            })?;
 
-        if let Err(reason) = check_access_mode(
-            &volume_id,
-            &msg.volume_capability.as_ref().unwrap().access_mode,
+        if let Err(error) = check_access_mode(
+            &msg.volume_capability,
             // relax the check a bit by pretending all stage mounts are ro
             true,
         ) {
-            return Err(Status::new(Code::InvalidArgument, reason));
+            return Err(failure!(
+                Code::InvalidArgument,
+                "Failed to stage volume {}: {}",
+                volume_id,
+                error
+            ));
         };
 
-        let filesystem = if mnt.fs_type.is_empty() {
-            self.filesystems[0].clone()
+        let fstype = if mnt.fs_type.is_empty() {
+            &self.filesystems[0]
         } else {
-            match self.filesystems.iter().find(|ent| **ent == mnt.fs_type) {
-                Some(fs) => fs.clone(),
+            match self.filesystems.iter().find(|&entry| entry == &mnt.fs_type) {
+                Some(fstype) => fstype,
                 None => {
-                    return Err(Status::new(
+                    return Err(failure!(
                         Code::InvalidArgument,
-                        format!("Filesystem {} is not supported", mnt.fs_type),
+                        "Failed to stage volume {}: unsupported filesystem type: {}",
+                        volume_id,
+                        mnt.fs_type
                     ));
                 }
             }
@@ -390,103 +549,172 @@ impl node_server::Node for Node {
 
         debug!("Staging volume {} to {}", volume_id, staging_path);
 
-        if let Err(err) = fs::create_dir_all(PathBuf::from(&staging_path)) {
-            if err.kind() != ErrorKind::AlreadyExists {
-                return Err(Status::new(
-                    Code::Internal,
-                    format!(
-                        "Failed to create mountpoint {} for volume {}: {}",
-                        &staging_path, volume_id, err
-                    ),
-                ));
-            }
-        }
+        let uri = publish_context.get("uri").ok_or_else(|| {
+            failure!(
+                Code::InvalidArgument,
+                "Failed to stage volume {}: URI attribute missing from publish context",
+                volume_id
+            )
+        })?;
 
-        let uri = match publish_context.get("uri") {
-            Some(pc_uri) => pc_uri,
-            _ => {
-                return Err(Status::new(
-                    Code::Internal,
-                    "Missing URI attribute in volume publish context",
-                ))
-            }
-        };
+        debug!("Volume {} has URI {}", volume_id, uri);
 
-        debug!("URI is {}", uri);
+        let device = Device::parse(&uri).map_err(|error| {
+            failure!(
+                Code::Internal,
+                "Failed to stage volume {}: error parsing URI {}: {}",
+                volume_id,
+                uri,
+                error
+            )
+        })?;
 
-        let device_path = match url::Url::parse(uri) {
-            Ok(url) => match url.scheme() {
-                "iscsi" => {
-                    match iscsi_attach_disk(uri) {
-                        Ok(devpath) => devpath,
-                        Err(e) => {
-                            return Err(Status::new(
-                                Code::NotFound,
-                                format!("{}", e),
-                            ))
-                        }
-                    }
-                    // The nexus may reside on another node,
-                    // currently there is no way to retrieve the nexus details
-                    // from a remote node.
-                }
-                "nvmf" => match nvmf_attach_disk(uri) {
-                    Ok(devpath) => devpath,
-                    Err(e) => {
-                        return Err(Status::new(
-                            Code::NotFound,
-                            format!("{}", e),
-                        ))
-                    }
-                },
-                "file" => String::from(url.path()),
-                _ => {
-                    return Err(Status::new(
-                        Code::InvalidArgument,
-                        format!("Unsupported {}", uri),
-                    ))
-                }
-            },
-            Err(e) => {
-                return Err(Status::new(
-                    Code::InvalidArgument,
-                    format!("Invalid uri {}", e),
-                ))
-            }
-        };
+        if let Some(device_path) = device.find().await.map_err(|error| {
+            failure!(
+            Code::Internal,
+            "Failed to stage volume {}: error locating device for URI {}: {}",
+            volume_id,
+            uri,
+            error
+        )
+        })? {
+            debug!("Found device {} for URI {}", device_path, uri);
 
-        debug!("device_path is {} for uri {}", device_path, uri);
-
-        if let Some(mount) =
-            match_mount(Some(&device_path), Some(&staging_path), false)
-        {
-            if mount.source == device_path && &mount.dest == staging_path {
-                // the device is already mounted we should
-                // return OK
+            if mount::find_mount(Some(&device_path), Some(&staging_path))
+                .is_some()
+            {
+                debug!(
+                    "Device {} is already mounted onto {}",
+                    device_path, staging_path
+                );
+                info!(
+                    "Volume {} is already staged to {}",
+                    volume_id, staging_path
+                );
                 return Ok(Response::new(NodeStageVolumeResponse {}));
-            } else {
-                // something else is there already
-                return Err(Status::new(
+            }
+
+            // abort if device is mounted somewhere else
+            if mount::find_mount(Some(&device_path), None).is_some() {
+                return Err(failure!(
                     Code::AlreadyExists,
-                    format!("Mountpoint {} is already used", staging_path,),
+                    "Failed to stage volume {}: device {} is already mounted elsewhere",
+                    volume_id,
+                    device_path
                 ));
             }
+
+            // abort if some another device is mounted on staging_path
+            if mount::find_mount(None, Some(&staging_path)).is_some() {
+                return Err(failure!(
+                    Code::AlreadyExists,
+                    "Failed to stage volume {}: another device is already mounted onto {}",
+                    volume_id,
+                    staging_path
+                ));
+            }
+
+            if let Err(error) = prepare_device(&device_path, &fstype).await {
+                return Err(failure!(
+                    Code::Internal,
+                    "Failed to stage volume {}: error preparing device {}: {}",
+                    volume_id,
+                    device_path,
+                    error
+                ));
+            }
+
+            debug!("Mounting device {} onto {}", device_path, staging_path);
+
+            if let Err(error) = mount::filesystem_mount(
+                &device_path,
+                &staging_path,
+                &fstype,
+                &mnt.mount_flags,
+            ) {
+                return Err(failure!(
+                    Code::Internal,
+                    "Failed to stage volume {}: failed to mount device {} onto {}: {}",
+                    volume_id,
+                    device_path,
+                    staging_path,
+                    error
+                ));
+            }
+
+            info!("Volume {} staged to {}", volume_id, staging_path);
+            return Ok(Response::new(NodeStageVolumeResponse {}));
         }
 
-        if let Err(e) = probed_format(&device_path, &filesystem).await {
-            return Err(Status::new(Code::Internal, e));
+        // device is not attached
+
+        // abort if some another device is mounted on staging_path
+        if mount::find_mount(None, Some(&staging_path)).is_some() {
+            return Err(failure!(
+                Code::AlreadyExists,
+                "Failed to stage volume {}: another device is already mounted onto {}",
+                volume_id,
+                staging_path
+            ));
         }
 
-        match mount_fs(
+        debug!("Attaching volume");
+        if let Err(error) = device.attach().await {
+            return Err(failure!(
+                Code::Internal,
+                "Failed to stage volume {}: attach failed: {}",
+                volume_id,
+                error
+            ));
+        }
+
+        // 10 retries at 100ms intervals
+        const TIMEOUT: Duration = Duration::from_millis(100);
+        const RETRIES: u32 = 10;
+
+        let device_path = Device::wait_for_device(device, TIMEOUT, RETRIES)
+            .await
+            .map_err(|error| {
+                failure!(
+                    Code::Internal,
+                    "Failed to stage volume {}: {}",
+                    volume_id,
+                    error
+                )
+            })?;
+
+        debug!("Found new device {} for URI {}", device_path, uri);
+
+        if let Err(error) = prepare_device(&device_path, &fstype).await {
+            return Err(failure!(
+                Code::Internal,
+                "Failed to stage volume {}: error preparing device {}: {}",
+                volume_id,
+                device_path,
+                error
+            ));
+        }
+
+        debug!("Mounting device {} onto {}", device_path, staging_path);
+
+        if let Err(error) = mount::filesystem_mount(
             &device_path,
             &staging_path,
-            false,
-            &filesystem,
+            &fstype,
             &mnt.mount_flags,
         ) {
-            Err(r) => Err(Status::new(Code::Internal, r)),
-            Ok(_) => Ok(Response::new(NodeStageVolumeResponse {})),
+            return Err(failure!(
+                Code::Internal,
+                "Failed to stage volume {}: failed to mount device {} onto {}: {}",
+                volume_id,
+                device_path,
+                staging_path,
+                error
+            ));
         }
+
+        info!("Volume {} staged to {}", volume_id, staging_path);
+        Ok(Response::new(NodeStageVolumeResponse {}))
     }
 
     async fn node_unstage_volume(
@@ -494,32 +722,137 @@ impl node_server::Node for Node {
         request: Request<NodeUnstageVolumeRequest>,
     ) -> Result<Response<NodeUnstageVolumeResponse>, Status> {
         let msg = request.into_inner();
+
         let volume_id = msg.volume_id.clone();
-        let stage_path = msg.staging_target_path;
+        let staging_path = msg.staging_target_path;
 
-        debug!("Unstaging volume {} at {}", volume_id, stage_path);
+        if volume_id.is_empty() {
+            return Err(failure!(
+                Code::InvalidArgument,
+                "Failed to unstage volume: missing volume id"
+            ));
+        }
 
-        if match_mount(None, Some(&stage_path), false).is_none() {
-            // if already unstaged or staging does not match target path -
-            // must reply OK
+        if staging_path.is_empty() {
+            return Err(failure!(
+                Code::InvalidArgument,
+                "Failed to unstage volume {}: missing staging path",
+                volume_id
+            ));
+        }
+
+        debug!("Unstaging volume {} from {}", volume_id, staging_path);
+
+        let uuid = Uuid::parse_str(&volume_id).map_err(|error| {
+            failure!(
+                Code::Internal,
+                "Failed to unstage volume {}: not a valid UUID: {}",
+                volume_id,
+                error
+            )
+        })?;
+
+        if let Some(device) = Device::lookup(&uuid).await.map_err(|error| {
+            failure!(
+                Code::Internal,
+                "Failed to unstage volume {}: error locating device: {}",
+                volume_id,
+                error
+            )
+        })? {
+            let device_path = device.devname();
+            debug!("Device path is {}", device_path);
+
+            if mount::find_mount(Some(&device_path), Some(&staging_path))
+                .is_some()
+            {
+                debug!(
+                    "Unmounting device {} from {}",
+                    device_path, staging_path
+                );
+
+                if let Err(error) = mount::filesystem_unmount(&staging_path) {
+                    return Err(failure!(
+                        Code::Internal,
+                        "Failed to unstage volume {}: failed to unmount device {} from {}: {}",
+                        volume_id,
+                        device_path,
+                        staging_path,
+                        error
+                    ));
+                }
+
+                debug!("Detaching device {}", device_path);
+                if let Err(error) = device.detach().await {
+                    return Err(failure!(
+                        Code::Internal,
+                        "Failed to unstage volume {}: failed to detach device {}: {}",
+                        volume_id,
+                        device_path,
+                        error
+                    ));
+                }
+
+                info!("Volume {} unstaged from {}", volume_id, staging_path);
+                return Ok(Response::new(NodeUnstageVolumeResponse {}));
+            }
+
+            // abort if device is mounted somewhere else
+            if mount::find_mount(Some(&device_path), None).is_some() {
+                return Err(failure!(
+                    Code::AlreadyExists,
+                    "Failed to unstage volume {}: device {} is mounted elsewhere",
+                    volume_id,
+                    device_path
+                ));
+            }
+
+            // abort if some other device is mounted on staging_path
+            if mount::find_mount(None, Some(&staging_path)).is_some() {
+                return Err(failure!(
+                    Code::AlreadyExists,
+                    "Failed to stage volume {}: another device is mounted onto {}",
+                    volume_id,
+                    staging_path
+                ));
+            }
+
+            debug!("Detaching device {}", device_path);
+            if let Err(error) = device.detach().await {
+                return Err(failure!(
+                    Code::Internal,
+                    "Failed to unstage volume {}: failed to detach device {}: {}",
+                    volume_id,
+                    device_path,
+                    error
+                ));
+            }
+
+            info!("Volume {} unstaged from {}", volume_id, staging_path);
             return Ok(Response::new(NodeUnstageVolumeResponse {}));
         }
-        if let Err(reason) = unmount_fs(&stage_path, false) {
-            return Err(Status::new(Code::Internal, reason));
+
+        // We did not find a device in udev.
+        // This need not be an error however, as some device types (eg. nbd)
+        // don't show up there. In the case where a mount is present,
+        // just assume that the device in question does not need
+        // to be detached once it has been unmounted.
+
+        if let Some(mount) = mount::find_mount(None, Some(&staging_path)) {
+            debug!("Unmounting device {} from {}", mount.source, staging_path);
+            if let Err(error) = mount::filesystem_unmount(&staging_path) {
+                return Err(failure!(
+                    Code::Internal,
+                    "Failed to unstage volume {}: failed to unmount device {} from {}: {}",
+                    volume_id,
+                    mount.source,
+                    staging_path,
+                    error
+                ));
+            }
         }
 
-        if let Some(devpath) = iscsi_find(volume_id.as_str()) {
-            debug!("unstage: iSCSI device path is {}", devpath);
-            // Clean up after successful unmount, if required.
-            if let Err(err) = iscsi_detach_disk(volume_id.as_str()) {
-                return Err(Status::new(Code::Internal, format!("{}", err)));
-            }
-        } else if let Some(devpath) = nvmf_find(volume_id.as_str()) {
-            debug!("unstage: nvmf detach {}", devpath);
-            if let Err(err) = nvmf_detach_disk(volume_id.as_str()) {
-                return Err(Status::new(Code::Internal, format!("{}", err)));
-            }
-        }
+        info!("Volume {} unstaged from {}", volume_id, staging_path);
         Ok(Response::new(NodeUnstageVolumeResponse {}))
     }
 }
