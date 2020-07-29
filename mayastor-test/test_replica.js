@@ -196,11 +196,8 @@ describe('replica', function () {
     );
   });
 
-  it('should return error from create when the pool exists', (done) => {
-    client.createPool({ name: POOL, disks: disks }, (err) => {
-      assert.equal(err.code, grpc.status.ALREADY_EXISTS);
-      done();
-    });
+  it('should succeed if creating a pool that already exists', (done) => {
+    client.createPool({ name: POOL, disks: disks }, done);
   });
 
   it('should list the pool', (done) => {
@@ -300,7 +297,7 @@ describe('replica', function () {
     );
   });
 
-  it('should fail if creating replica that already exists', (done) => {
+  it('should succeed if creating replica that already exists', (done) => {
     client.createReplica(
       {
         uuid: UUID,
@@ -309,10 +306,7 @@ describe('replica', function () {
         share: 'NONE',
         size: 8 * (1024 * 1024) // keep this multiple of cluster size (4MB)
       },
-      (err) => {
-        assert.equal(err.code, grpc.status.ALREADY_EXISTS);
-        done();
-      }
+      done
     );
   });
 
@@ -443,12 +437,9 @@ describe('replica', function () {
     });
   });
 
-  it('should return NotFound for a non existing replica', (done) => {
+  it('should succeed when destroying replica that does not exist', (done) => {
     const unknownUuid = 'c35fa4dd-d527-4b7b-9cf0-436b8bb0ba77';
-    client.destroyReplica({ uuid: unknownUuid }, (err, res) => {
-      assert.equal(err.code, grpc.status.NOT_FOUND);
-      done();
-    });
+    client.destroyReplica({ uuid: unknownUuid }, done);
   });
 
   it('should destroy the replica', (done) => {
@@ -498,15 +489,8 @@ describe('replica', function () {
     });
   });
 
-  it('should not destroy a pool which does not exist', (done) => {
-    client.destroyPool({ name: POOL }, (err, res) => {
-      if (err) {
-        assert.equal(err.code, grpc.status.NOT_FOUND);
-        done();
-      } else {
-        done(new Error('Expected error and did not get any'));
-      }
-    });
+  it('should succeed when destroying a pool that does not exist', (done) => {
+    client.destroyPool({ name: POOL }, done);
   });
 
   it('should not list the pool', (done) => {

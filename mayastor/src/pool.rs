@@ -520,10 +520,8 @@ pub(crate) async fn create_pool(
         });
     }
 
-    if Pool::lookup(&args.name).is_some() {
-        return Err(Error::AlreadyExists {
-            name: args.name,
-        });
+    if let Some(pool) = Pool::lookup(&args.name) {
+        return Ok(pool.into());
     }
 
     // TODO: We would like to check if the disk is in use, but there
@@ -563,14 +561,8 @@ pub(crate) async fn create_pool(
 }
 
 pub(crate) async fn destroy_pool(args: rpc::DestroyPoolRequest) -> Result<()> {
-    let pool = match Pool::lookup(&args.name) {
-        Some(p) => p,
-        None => {
-            return Err(Error::UnknownPool {
-                name: args.name,
-            });
-        }
-    };
-    pool.destroy().await?;
+    if let Some(p) = Pool::lookup(&args.name) {
+        p.destroy().await?;
+    }
     Ok(())
 }

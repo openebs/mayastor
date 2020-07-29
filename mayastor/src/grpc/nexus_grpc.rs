@@ -112,6 +112,17 @@ pub async fn nexus_add_child(
     args: rpc::AddChildNexusRequest,
 ) -> Result<rpc::Child, Error> {
     let n = nexus_lookup(&args.uuid)?;
+    // TODO: do not add child if it already exists (idempotency)
+    // For that we need api to check existence of child by name (not uri that
+    // contain parameters that may change).
     n.add_child(&args.uri, args.norebuild).await?;
     n.get_child_by_name(&args.uri).map(|ch| ch.to_grpc())
+}
+
+/// Idempotent destruction of the nexus.
+pub async fn nexus_destroy(uuid: &str) -> Result<(), Error> {
+    if let Ok(n) = nexus_lookup(uuid) {
+        n.destroy().await?;
+    };
+    Ok(())
 }

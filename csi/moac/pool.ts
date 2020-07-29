@@ -232,16 +232,8 @@ export class Pool {
 
     log.debug(`Creating replica "${uuid}" on the pool "${this}" ...`);
 
-    var replicaInfo;
-    try {
-      replicaInfo = await this.node.call('createReplica', { uuid, pool, size, thin, share });
-      log.info(`Created replica "${uuid}" on the pool "${this}"`);
-    } catch (err) {
-      // TODO: Make rpc idempotent
-      if (err.code !== GrpcCode.ALREADY_EXISTS) {
-        throw err;
-      }
-    }
+    var replicaInfo = await this.node.call('createReplica', { uuid, pool, size, thin, share });
+    log.info(`Created replica "${uuid}" on the pool "${this}"`);
 
     const newReplica = new Replica(replicaInfo);
     this.registerReplica(newReplica);

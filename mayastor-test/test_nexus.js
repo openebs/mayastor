@@ -373,7 +373,7 @@ describe('nexus', function () {
     );
   });
 
-  it('should create a nexus using all types of replicas', (done) => {
+  function createNexusWithAllTypes (done) {
     const args = {
       uuid: UUID,
       size: diskSize,
@@ -386,7 +386,11 @@ describe('nexus', function () {
     if (doIscsiReplica) args.children.push(`iscsi://iscsi://${externIp}:${iscsiReplicaPort}/iqn.2019-05.io.openebs:disk1`);
     if (doUring()) args.children.push(`uring://${uringFile}?blk_size=4096`);
 
-    client.createNexus(args, (err, nexus) => {
+    client.createNexus(args, done);
+  }
+
+  it('should create a nexus using all types of replicas', (done) => {
+    createNexusWithAllTypes((err, nexus) => {
       if (err) return done(err);
       const expectedChildren = 3 + doIscsiReplica + doUring();
       assert.equal(nexus.uuid, UUID);
@@ -418,6 +422,15 @@ describe('nexus', function () {
         );
         assert.equal(nexus.children[uringIndex].state, 'CHILD_ONLINE');
       }
+      done();
+    });
+  });
+
+  it('should succeed if creating the same nexus that already exists', (done) => {
+    createNexusWithAllTypes((err, nexus) => {
+      if (err) return done(err);
+      assert.equal(nexus.uuid, UUID);
+      assert.equal(nexus.state, 'NEXUS_ONLINE');
       done();
     });
   });

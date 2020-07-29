@@ -72,23 +72,18 @@ class MayastorServer {
           ['name', 'disks', 'blockSize', 'ioIf'],
           ['blockSize', 'ioIf']
         );
-        if (self.pools.find((p) => p.name === args.name)) {
-          const err = new Error('already exists');
-          err.code = grpc.status.ALREADY_EXISTS;
-          cb(err);
-        } else {
-          const pool = {
+        var pool = self.pools.find((p) => p.name === args.name);
+        if (!pool) {
+          pool = {
             name: args.name,
-            disks: args.disks,
+            disks: args.disks.map((d) => `aio://${d}`),
             state: enums.POOL_ONLINE,
             capacity: 100,
             used: 4
           };
           self.pools.push(pool);
-          const ret = _.cloneDeep(pool);
-          ret.disks = ret.disks.map((d) => `aio://${d}`);
-          cb(null, ret);
         }
+        cb(null, pool);
       },
       destroyPool: (call, cb) => {
         const args = call.request;
@@ -96,29 +91,20 @@ class MayastorServer {
         var idx = self.pools.findIndex((p) => p.name === args.name);
         if (idx >= 0) {
           self.pools.splice(idx, 1);
-          cb(null, {});
-        } else {
-          const err = new Error('not found');
-          err.code = grpc.status.NOT_FOUND;
-          cb(err);
         }
+        cb(null, {});
       },
       listPools: (_unused, cb) => {
         cb(null, {
-          pools: self.pools.map(p => {
-            p = _.cloneDeep(p);
-            p.disks = p.disks.map((d) => `aio://${d}`);
-            return p;
-          })
+          pools: self.pools
         });
       },
       createReplica: (call, cb) => {
         const args = call.request;
         assertHasKeys(args, ['uuid', 'pool', 'size', 'thin', 'share']);
-        if (self.replicas.find((r) => r.uuid === args.uuid)) {
-          const err = new Error('already exists');
-          err.code = grpc.status.ALREADY_EXISTS;
-          return cb(err);
+        var r = self.replicas.find((r) => r.uuid === args.uuid);
+        if (r) {
+          return cb(null, r);
         }
         const pool = self.pools.find((p) => p.name === args.pool);
         if (!pool) {
@@ -138,7 +124,7 @@ class MayastorServer {
           uri = 'nvmf://192.168.0.1:4020/' + args.uuid;
         }
 
-        const r = {
+        r = {
           uuid: args.uuid,
           pool: args.pool,
           size: args.size,
@@ -159,12 +145,8 @@ class MayastorServer {
             var pool = self.pools.find((p) => p.name === r.pool);
             pool.used -= r.size;
           }
-          cb(null, {});
-        } else {
-          const err = new Error('not found');
-          err.code = grpc.status.NOT_FOUND;
-          cb(err);
         }
+        cb(null, {});
       },
       listReplicas: (_unused, cb) => {
         cb(null, { replicas: self.replicas });
@@ -212,25 +194,23 @@ class MayastorServer {
       createNexus: (call, cb) => {
         const args = call.request;
         assertHasKeys(args, ['uuid', 'size', 'children']);
-        if (self.nexus.find((r) => r.uuid === args.uuid)) {
-          const err = new Error('already exists');
-          err.code = grpc.status.ALREADY_EXISTS;
-          return cb(err);
+        var nexus = self.nexus.find((r) => r.uuid === args.uuid);
+        if (!nexus) {
+          nexus = {
+            uuid: args.uuid,
+            size: args.size,
+            state: enums.NEXUS_ONLINE,
+            children: args.children.map((r) => {
+              return {
+                uri: r,
+                state: enums.CHILD_ONLINE,
+                rebuildProgress: 0
+              };
+            })
+            // device_path omitted
+          };
+          self.nexus.push(nexus);
         }
-        const nexus = {
-          uuid: args.uuid,
-          size: args.size,
-          state: enums.NEXUS_ONLINE,
-          children: args.children.map((r) => {
-            return {
-              uri: r,
-              state: enums.CHILD_ONLINE,
-              rebuildProgress: 0
-            };
-          })
-          // device_path omitted
-        };
-        self.nexus.push(nexus);
         cb(null, nexus);
       },
       destroyNexus: (call, cb) => {
@@ -239,12 +219,8 @@ class MayastorServer {
         var idx = self.nexus.findIndex((n) => n.uuid === args.uuid);
         if (idx >= 0) {
           self.nexus.splice(idx, 1);
-          cb(null, {});
-        } else {
-          const err = new Error('not found');
-          err.code = grpc.status.NOT_FOUND;
-          cb(err);
         }
+        cb(null, {});
       },
       listNexus: (_unused, cb) => {
         cb(null, { nexusList: self.nexus });
