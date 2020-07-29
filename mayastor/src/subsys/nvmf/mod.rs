@@ -22,7 +22,10 @@ use spdk_sys::{
 pub use subsystem::{NvmfSubsystem, SubType};
 pub use target::Target;
 
-use crate::subsys::{nvmf::target::NVMF_TGT, Config};
+use crate::{
+    jsonrpc::{Code, RpcErrorCode},
+    subsys::{nvmf::target::NVMF_TGT, Config},
+};
 
 mod poll_groups;
 mod subsystem;
@@ -38,7 +41,12 @@ impl Default for Nvmf {
     }
 }
 
-#[derive(Debug, Snafu)]
+impl RpcErrorCode for Error {
+    fn rpc_error_code(&self) -> Code {
+        Code::InternalError
+    }
+}
+#[derive(Debug, Clone, Snafu)]
 pub enum Error {
     #[snafu(display("Failed to create nvmf target {}", msg))]
     CreateTarget { msg: String },

@@ -78,7 +78,7 @@ fn yaml_load_from_existing() {
         let out = ms
             .rpc_call(
                 "framework_get_config",
-                serde_json::json!({"name": "mayastor"}),
+                serde_json::json!({"name": "MayastorConfig"}),
             )
             .unwrap();
 
