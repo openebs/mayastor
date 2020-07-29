@@ -5,6 +5,8 @@
 
 extern crate clap;
 #[macro_use]
+extern crate lazy_static;
+#[macro_use]
 extern crate log;
 
 use std::{
@@ -36,8 +38,12 @@ pub mod csi {
     tonic::include_proto!("csi.v1");
 }
 
+mod dev;
+mod error;
+
 mod format;
 mod identity;
+mod match_dev;
 mod mount;
 mod node;
 
