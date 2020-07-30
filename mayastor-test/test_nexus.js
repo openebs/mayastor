@@ -42,38 +42,9 @@ const doIscsiReplica = false;
 // production.
 const configNexus = `
 [Malloc]
-  NumberOfLuns 2
+  NumberOfLuns 1
   LunSizeInMB  64
   BlockSize    4096
-
-[iSCSI]
-  NodeBase "iqn.2019-05.io.openebs"
-  # Socket I/O timeout sec. (0 is infinite)
-  Timeout 30
-  DiscoveryAuthMethod None
-  DefaultTime2Wait 2
-  DefaultTime2Retain 60
-  ImmediateData Yes
-  ErrorRecoveryLevel 0
-  # Reduce mem requirements for iSCSI
-  MaxSessions 2
-  MaxConnectionsPerSession 1
-
-[PortalGroup1]
-  Portal GR1 0.0.0.0:${iscsiReplicaPort}
-
-[InitiatorGroup1]
-  InitiatorName Any
-  Netmask ${externIp}/24
-
-[TargetNode0]
-  TargetName "iqn.2019-05.io.openebs:disk1"
-  TargetAlias "Backend Malloc1"
-  Mapping PortalGroup1 InitiatorGroup1
-  AuthMethod None
-  UseDigest Auto
-  LUN0 Malloc1
-  QueueDepth 1
 `;
 
 // The config just for nvmf target which cannot run in the same process as
@@ -732,8 +703,8 @@ describe('nexus', function () {
         uuid: UUID,
         size: 131072,
         children: [
-        `iscsi://${externIp}:${iscsiReplicaPort}/iqn.2019-05.io.openebs:disk1`,
-        `aio://${aioFile}?blk_size=512`
+        'malloc:///malloc1?size_mb=64',
+        `aio://${aioFile}?blk_size=4096`
         ]
       };
       client.createNexus(args, (err) => {
@@ -748,7 +719,7 @@ describe('nexus', function () {
         uuid: UUID,
         size: 2 * diskSize,
         children: [
-        `iscsi://${externIp}:${iscsiReplicaPort}/iqn.2019-05.io.openebs:disk1`,
+        `aio://${aioFile}?blk_size=4096`,
         'nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk2'
         ]
       };
