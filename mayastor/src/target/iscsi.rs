@@ -47,7 +47,7 @@ use crate::{
 use once_cell::sync::Lazy;
 
 /// iSCSI target related errors
-#[derive(Debug, Snafu)]
+#[derive(Debug, Snafu, Clone)]
 pub enum Error {
     #[snafu(display("Failed to create default portal group"))]
     CreatePortalGroup {},

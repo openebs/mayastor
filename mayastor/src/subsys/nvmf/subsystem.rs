@@ -114,13 +114,16 @@ impl From<*mut spdk_nvmf_subsystem> for NvmfSubsystem {
     }
 }
 
-impl TryFrom<&Bdev> for NvmfSubsystem {
+impl TryFrom<Bdev> for NvmfSubsystem {
     type Error = Error;
 
-    fn try_from(bdev: &Bdev) -> Result<Self, Self::Error> {
+    fn try_from(bdev: Bdev) -> Result<Self, Self::Error> {
         let ss = NvmfSubsystem::new(bdev.name().as_str())?;
         ss.allow_any(true);
-        ss.add_namespace(bdev)?;
+        if let Err(e) = ss.add_namespace(&bdev) {
+            ss.destroy();
+            return Err(e);
+        }
         Ok(ss)
     }
 }

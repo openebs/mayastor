@@ -47,6 +47,7 @@ impl RpcErrorCode for Error {
     }
 }
 #[derive(Debug, Clone, Snafu)]
+#[snafu(visibility = "pub")]
 pub enum Error {
     #[snafu(display("Failed to create nvmf target {}", msg))]
     CreateTarget { msg: String },

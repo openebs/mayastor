@@ -1,10 +1,12 @@
 use std::{
+    convert::TryFrom,
     ffi::CStr,
     fmt::{Debug, Display, Formatter},
     os::raw::c_void,
     ptr::NonNull,
 };
 
+use async_trait::async_trait;
 use futures::channel::oneshot;
 use nix::errno::Errno;
 
@@ -27,8 +29,16 @@ use spdk_sys::{
 };
 
 use crate::{
-    core::{uuid::Uuid, CoreError, Descriptor},
+    core::{
+        share::{Protocol, Share},
+        uuid::Uuid,
+        CoreError,
+        CoreError::{ShareIscsi, ShareNvmf},
+        Descriptor,
+    },
     ffihelper::{cb_arg, AsStr},
+    subsys::NvmfSubsystem,
+    target::{iscsi, Side},
 };
 
 #[derive(Debug)]
@@ -45,7 +55,65 @@ pub struct Stat {
 /// It is not possible to remove a bdev through a core other than the management
 /// core. This means that the structure is always valid for the lifetime of the
 /// scope.
+#[derive(Clone)]
 pub struct Bdev(NonNull<spdk_bdev>);
+
+#[async_trait(? Send)]
+impl Share for Bdev {
+    type Error = CoreError;
+    type Output = String;
+
+    async fn share_iscsi(&self) -> Result<Self::Output, Self::Error> {
+        iscsi::share(&self.name(), &self, Side::Nexus).map_err(|source| {
+            ShareIscsi {
+                source,
+            }
+        })
+    }
+
+    async fn share_nvmf(self) -> Result<Self::Output, Self::Error> {
+        let ss = NvmfSubsystem::try_from(self).map_err(|source| ShareNvmf {
+            source,
+        })?;
+
+        let shared_as = ss.start().await.map_err(|source| ShareNvmf {
+            source,
+        })?;
+
+        info!("shared {}", shared_as);
+        Ok(shared_as)
+    }
+
+    async fn unshare(&self) -> Result<Self::Output, Self::Error> {
+        match self.shared() {
+            Some(Protocol::Nvmf) => {
+                let ss = NvmfSubsystem::nqn_lookup(&self.name()).unwrap();
+                ss.stop().await.map_err(|source| ShareNvmf {
+                    source,
+                })?;
+                ss.destroy();
+            }
+            Some(Protocol::Iscsi) => {
+                iscsi::unshare(&self.name()).await.map_err(|source| {
+                    ShareIscsi {
+                        source,
+                    }
+                })?;
+            }
+            None => {}
+        }
+
+        Ok(self.name())
+    }
+
+    fn shared(&self) -> Option<Protocol> {
+        match self.claimed_by() {
+            Some(t) if t == "NVMe-oF Target" => Some(Protocol::Nvmf),
+            Some(t) if t == "iSCSI Target" => Some(Protocol::Iscsi),
+            _ => None,
+        }
+    }
+}
 
 impl Bdev {
     extern "C" fn hot_remove(ctx: *mut c_void) {
@@ -340,7 +408,7 @@ impl From<*mut spdk_bdev> for Bdev {
         if let Some(b) = NonNull::new(b) {
             Bdev(b)
         } else {
-            panic!("nullptr dereferenced while accessing a bdev");
+            panic!("nullptr dereference while accessing a bdev");
         }
     }
 }
