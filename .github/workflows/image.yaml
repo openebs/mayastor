@@ -17,11 +17,11 @@ jobs:
         with:
           name: mayastor
           skipNixBuild: true
-      - run: nix-build -A node-moacImage -o /tmp/node-moacImage
+      - run: nix-build -A images.moac-image -o /tmp/moac-image
       - uses: actions/upload-artifact@v2
         with:
           name: mayastor-moac-image
-          path: /tmp/node-moacImage
+          path: /tmp/moac-image
         if: ${{ github.event_name != 'pull_request' }}
   Mayastor:
     name: Build Mayastor image
@@ -36,4 +36,4 @@ jobs:
         with:
           name: mayastor
           skipNixBuild: true
-      - run: nix-build -A images.mayastor-develop -o /tmp/mayastorImage
+      - run: nix-build -A images.mayastor-image -o /tmp/mayastorImage
