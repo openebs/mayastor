@@ -1,7 +1,17 @@
-use crate::core::CoreError;
+use async_trait::async_trait;
 
-pub trait Share {
-    fn share_iscsi(&self, port: u32) -> Result<(), CoreError>;
-    fn share_nvmf(&self, port: u32) -> Result<(), CoreError>;
-    fn unshare(&self) -> Result<(), CoreError>;
+#[derive(Debug, PartialOrd, PartialEq)]
+pub enum Protocol {
+    Nvmf,
+    Iscsi,
+}
+
+#[async_trait(? Send)]
+pub trait Share: std::fmt::Debug {
+    type Error;
+    type Output: std::fmt::Display + std::fmt::Debug;
+    async fn share_iscsi(&self) -> Result<Self::Output, Self::Error>;
+    async fn share_nvmf(self) -> Result<Self::Output, Self::Error>;
+    async fn unshare(&self) -> Result<Self::Output, Self::Error>;
+    fn shared(&self) -> Option<Protocol>;
 }
