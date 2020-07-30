@@ -13,8 +13,8 @@ use url::Url;
 
 use spdk_sys::{
     self,
-    spdk_bdev_nvme_create,
-    spdk_bdev_nvme_delete,
+    bdev_nvme_create,
+    bdev_nvme_delete,
     spdk_nvme_host_id,
     spdk_nvme_transport_id,
 };
@@ -163,7 +163,7 @@ impl CreateDestroy for Nvmf {
         let (sender, receiver) = oneshot::channel::<ErrnoResult<()>>();
 
         let errno = unsafe {
-            spdk_bdev_nvme_create(
+            bdev_nvme_create(
                 &mut context.trid,
                 &mut context.hostid,
                 cname.as_ptr(),
@@ -216,7 +216,7 @@ impl CreateDestroy for Nvmf {
             Some(_) => {
                 let cname = CString::new(self.name.clone()).unwrap();
 
-                let errno = unsafe { spdk_bdev_nvme_delete(cname.as_ptr()) };
+                let errno = unsafe { bdev_nvme_delete(cname.as_ptr()) };
 
                 async {
                     errno_result_from_i32((), errno).context(

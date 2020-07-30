@@ -429,9 +429,9 @@ describe('replica', function () {
       res = res[0];
       assert.equal(res.pool, POOL);
       // new bdevs are not written (unless they are lvols or so)
-      assert.isAbove(parseInt(res.stats.num_read_ops), 0);
+      assert.equal(parseInt(res.stats.num_read_ops), 0);
       assert.equal(parseInt(res.stats.num_write_ops), 0);
-      assert.isAbove(parseInt(res.stats.bytes_read), 0);
+      assert.equal(parseInt(res.stats.bytes_read), 0);
       assert.equal(parseInt(res.stats.bytes_written), 0);
       done();
     });
@@ -877,8 +877,7 @@ describe('replica', function () {
               res = res[0];
               assert.equal(res.pool, POOL);
               assert.equal(res.size, 8 * 1024 * 1024);
-              // todo: thin_provision should not change
-              assert.equal(res.thin, false);
+              assert.equal(res.thin, true);
               // todo: config file should reexport replicas
               assert.equal(res.share, 'REPLICA_NONE');
               next();

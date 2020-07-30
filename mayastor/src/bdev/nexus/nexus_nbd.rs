@@ -18,15 +18,15 @@ use nix::{convert_ioctl_res, errno::Errno, libc};
 use snafu::{ResultExt, Snafu};
 
 use spdk_sys::{
+    nbd_disk_find_by_nbd_path,
     spdk_nbd_disk,
-    spdk_nbd_disk_find_by_nbd_path,
     spdk_nbd_get_path,
     spdk_nbd_start,
 };
 use sysfs::parse_value;
 
 use crate::{
-    core::Reactors,
+    core::{Mthread, Reactors},
     ffihelper::{cb_arg, errno_result_from_i32, ErrnoResult},
 };
 
@@ -59,6 +59,7 @@ pub(crate) fn wait_until_ready(path: &str) -> Result<(), ()> {
 
     // start a thread that loops and tries to open us and asks for our size
     thread::spawn(move || {
+        Mthread::unaffinitize();
         let size: u64 = 0;
         for _i in 1i32 .. 100 {
             std::thread::sleep(Duration::from_millis(1));
@@ -121,7 +122,7 @@ pub fn find_unused() -> Result<String, NbdError> {
                     let nbd_device =
                         CString::new(format!("/dev/{}", name)).unwrap();
                     let ptr = unsafe {
-                        spdk_nbd_disk_find_by_nbd_path(nbd_device.as_ptr())
+                        nbd_disk_find_by_nbd_path(nbd_device.as_ptr())
                     };
 
                     if ptr.is_null() {
@@ -230,6 +231,7 @@ impl NbdDisk {
         let ptr = self.nbd_ptr as usize;
         let name = self.get_path();
         thread::spawn(move || {
+            Mthread::unaffinitize();
             unsafe { nbd_disconnect(ptr as *mut _) };
             debug!("NBD device disconnected successfully");
             s.store(true, SeqCst);
