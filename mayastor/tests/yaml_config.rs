@@ -51,8 +51,7 @@ fn yaml_load_from_existing() {
     common::truncate_file("/tmp/disk1.img", 1024 * 64);
 
     let bdev = subsys::BaseBdev {
-        uri: "aio:///tmp/disk1.img?blk_size=512".to_string(),
-        uuid: Some("3dbbaeb0-ec02-4962-99c5-4e8f67c6b80c".to_string()),
+        uri: "aio:///tmp/disk1.img?blk_size=512&uuid=3dbbaeb0-ec02-4962-99c5-4e8f67c6b80c".to_string(),
     };
 
     cfg.source = Some("/tmp/loadme.yaml".into());
@@ -92,18 +91,14 @@ fn yaml_load_from_existing() {
 
         assert_eq!(
             base_bdevs[0]["uri"].as_str().unwrap(),
-            "aio:///tmp/disk1.img?blk_size=512"
-        );
-        assert_eq!(
-            base_bdevs[0]["uuid"].as_str().unwrap(),
-            "3dbbaeb0-ec02-4962-99c5-4e8f67c6b80c"
+            "aio:///tmp/disk1.img?blk_size=512&uuid=3dbbaeb0-ec02-4962-99c5-4e8f67c6b80c"
         );
 
         // out of scope for testing this but -- lets ensure the bdev is actually
         // here
         let bdev = ms.rpc_call(
             "bdev_get_bdevs",
-            serde_json::json!({"name": "aio:///tmp/disk1.img?blk_size=512"}),
+            serde_json::json!({"name": "aio:///tmp/disk1.img?blk_size=512&uuid=3dbbaeb0-ec02-4962-99c5-4e8f67c6b80c"}),
         ).unwrap();
 
         assert_ne!(bdev.as_array().unwrap().len(), 0);

@@ -35,18 +35,14 @@ static UUID2: &str = "11111111-76b6-4fcf-864d-1027d4038756";
 static NXNAME: &str = "replica_timeout_test";
 
 fn generate_config() {
-    let uri1 = BDEVNAME1.into();
-    let uri2 = BDEVNAME2.into();
     let mut config = Config::default();
 
     let child1_bdev = subsys::BaseBdev {
-        uri: uri1,
-        uuid: Some(UUID1.into()),
+        uri: format!("{}&uuid={}", BDEVNAME1, UUID1),
     };
 
     let child2_bdev = subsys::BaseBdev {
-        uri: uri2,
-        uuid: Some(UUID2.into()),
+        uri: format!("{}&uuid={}", BDEVNAME2, UUID2),
     };
 
     config.base_bdevs = Some(vec![child1_bdev]);
