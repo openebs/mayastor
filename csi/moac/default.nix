@@ -43,7 +43,7 @@ result // rec {
   #    of layering.
   buildImage = pkgs.dockerTools.buildLayeredImage {
     name = "mayadata/moac";
-    tag = "latest";
+    tag = "develop";
     created = "now";
     contents = [ pkgs.busybox package ];
     config = {
