@@ -169,25 +169,6 @@ it is rather simple:
    ./result/...
    ```
 
-## Building a Docker image
-
-In MOAC's directory run:
-
-```bash
-nix-build default.nix -A buildImage
-```
-
-At the end of the build is printed path to docker image tar archive. Import
-it to a docker (don't use _import_ command) and run bash to poke around:
-
-```bash
-docker load -i /nix/store/hash-docker-image-moac.tar.gz
-docker run --rm -it image-hash /bin/bash
-```
-
-TODO: The resulting image is insanely big because the nix includes false
-dependencies that are needed only at build time (npm and such).
-
 ## Architecture
 
 Unfortunately ASCII art is not good with colours. Left side of the picture

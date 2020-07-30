@@ -1,140 +1,101 @@
+# It would be cool to produce OCI images instead of docker images to
+# avoid dependency on docker tool chain. Though the maturity of OCI
+# builder in nixpkgs is questionable which is why we postpone this step.
+
 { stdenv
 , busybox
 , dockerTools
 , e2fsprogs
+, git
 , lib
-, libaio
-, libiscsi
-, libspdk
-, libudev
-, liburing
-, openssl
-, utillinux
+, moac
 , writeScriptBin
 , xfsprogs
 , mayastor
-, sources
+, mayastor-dev
+, mayastor-adhoc
 }:
-
-rec {
-
+let
+  versionDrv = import ../../lib/version.nix { inherit lib stdenv git; };
+  version = builtins.readFile "${versionDrv}";
   env = stdenv.lib.makeBinPath [ busybox xfsprogs e2fsprogs ];
 
-  # image that does not do a build
-  mayastor-adhoc = stdenv.mkDerivation {
-    name = "mayastor-dev";
-    version = "1.0";
-    src = [
-      ../../../target/debug/mayastor
-      ../../../target/debug/mayastor-csi
-      ../../../target/debug/mayastor-client
-      ../../../target/debug/jsonrpc
-    ];
-
-    buildInputs = [
-      libaio
-      libiscsi.lib
-      libspdk
-      liburing
-      libudev
-      openssl
-      xfsprogs
-      e2fsprogs
-    ];
-
-    unpackPhase = ''
-      for srcFile in $src; do
-         cp $srcFile $(stripHash $srcFile)
-      done
-    '';
-    dontBuild = true;
-    dontConfigure = true;
-    installPhase = ''
-      mkdir -p $out/bin
-      install * $out/bin
-    '';
-  };
-
-
-  quick = dockerTools.buildImage {
-    name = "mayadata/mayastor";
-    tag = "adhoc";
+  # common props for all mayastor images
+  mayastorImageProps = {
+    tag = version;
     created = "now";
-    contents = [ busybox mayastor-adhoc ];
     config = {
       Env = [ "PATH=${env}" ];
       ExposedPorts = { "10124/tcp" = { }; };
       Entrypoint = [ "/bin/mayastor" ];
     };
     extraCommands = ''
-      mkdir  tmp
+      mkdir tmp
       mkdir -p var/tmp
     '';
   };
-
-  mayastor-image-release = dockerTools.buildImage {
-    name = "mayadata/mayastor";
-    tag = sources.mayastor.branch;
+  mayastorCsiImageProps = {
+    tag = version;
     created = "now";
+    config = {
+      Entrypoint = [ "/bin/mayastor-csi" ];
+      Env = [ "PATH=${env}" ];
+    };
+    extraCommands = ''
+      mkdir tmp
+      mkdir -p var/tmp
+    '';
+  };
+in
+rec {
+  mayastor-image = dockerTools.buildImage (mayastorImageProps // {
+    name = "mayadata/mayastor";
     contents = [ busybox mayastor ];
-    config = {
-      Env = [ "PATH=${env}" ];
-      ExposedPorts = { "10124/tcp" = { }; };
-      Entrypoint = [ "/bin/mayastor" ];
-    };
-    extraCommands = ''
-      mkdir  tmp
-      mkdir -p var/tmp
-    '';
-  };
+  });
+
+  mayastor-dev-image = dockerTools.buildImage (mayastorImageProps // {
+    name = "mayadata/mayastor-dev";
+    contents = [ busybox mayastor-dev ];
+  });
+
+  mayastor-adhoc-image = dockerTools.buildImage (mayastorImageProps // {
+    name = "mayadata/mayastor-adhoc";
+    contents = [ busybox mayastor-adhoc ];
+  });
 
   mayastorIscsiadm = writeScriptBin "mayastor-iscsiadm" ''
     #!${stdenv.shell}
     chroot /host /usr/bin/env -i PATH="/sbin:/bin:/usr/bin" iscsiadm "$@"
   '';
 
-  csi-release = dockerTools.buildLayeredImage {
+  mayastor-csi-image = dockerTools.buildLayeredImage (mayastorCsiImageProps // {
     name = "mayadata/mayastor-csi";
-    tag = sources.mayastor.branch;
-    created = "now";
     contents = [ busybox mayastor mayastorIscsiadm ];
-    config = {
-      Entrypoint = [ "/bin/mayastor-csi" ];
-      Env = [ "PATH=${env}" ];
-    };
-  };
+  });
 
+  mayastor-csi-dev-image = dockerTools.buildImage (mayastorCsiImageProps // {
+    name = "mayadata/mayastor-csi-dev";
+    contents = [ busybox mayastor-dev mayastorIscsiadm ];
+  });
 
-  # images during CI
-
-  mayastor-develop = mayastor.override { release = false; };
-
-  mayastor-image-develop = dockerTools.buildImage {
-    name = "mayadata/mayastor";
-    tag = "develop";
+  # The algorithm for placing packages into the layers is not optimal.
+  # There are a couple of layers with negligable size and then there is one
+  # big layer with everything else. That defeats the purpose of layering.
+  moac-image = dockerTools.buildLayeredImage {
+    name = "mayadata/moac";
+    tag = version;
     created = "now";
-    contents = [ busybox mayastor-develop ];
+    contents = [ busybox moac ];
     config = {
-      Env = [ "PATH=${env}" ];
-      ExposedPorts = { "10124/tcp" = { }; };
-      Entrypoint = [ "/bin/mayastor" ];
+      Entrypoint = [ "${moac.out}/bin/moac" ];
+      ExposedPorts = { "3000/tcp" = { }; };
+      Env = [ "PATH=${moac.env}:${moac.out}/bin" ];
+      WorkDir = "${moac.out}";
     };
     extraCommands = ''
-      mkdir  tmp
-      mkdir -p var/tmp
+      chmod u+w bin
+      ln -s ${moac.out}/bin/moac bin/moac
+      chmod u-w bin
     '';
   };
-
-  mayastor-csi-develop = dockerTools.buildImage {
-    name = "mayadata/mayastor-csi";
-    tag = "develop";
-    created = "now";
-    contents = [ busybox mayastor-develop mayastorIscsiadm ];
-    config = {
-      Env = [ "PATH=${env}" ];
-      ExposedPorts = { "10124/tcp" = { }; };
-      Entrypoint = [ "/bin/mayastor-csi" ];
-    };
-  };
-
 }
