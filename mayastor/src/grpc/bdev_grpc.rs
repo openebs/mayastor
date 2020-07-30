@@ -1,14 +1,6 @@
-use crate::{
-    core::Bdev,
-    grpc::GrpcResult,
-    nexus_uri::{bdev_create, NexusBdevError},
-    subsys::NvmfSubsystem,
-};
+use tonic::{Request, Response, Status};
+use tracing::instrument;
 
-use crate::{
-    core::Reactors,
-    target::{iscsi, Side},
-};
 use rpc::mayastor::{
     bdev_rpc_server::BdevRpc,
     Bdev as RpcBdev,
@@ -19,9 +11,12 @@ use rpc::mayastor::{
     CreateReply,
     Null,
 };
-use std::convert::TryFrom;
-use tonic::{Request, Response, Status};
-use tracing::instrument;
+
+use crate::{
+    core::{Bdev, Reactors, Share},
+    grpc::GrpcResult,
+    nexus_uri::{bdev_create, NexusBdevError},
+};
 
 impl From<NexusBdevError> for tonic::Status {
     fn from(e: NexusBdevError) -> Self {
@@ -102,18 +97,17 @@ impl BdevRpc for BdevSvc {
         }
 
         match proto.as_str() {
-            // we default to nvmf
             "nvmf" => Reactors::master().spawn_local(async move {
                 let bdev = Bdev::lookup_by_name(&name).unwrap();
-                let ss = NvmfSubsystem::try_from(&bdev).unwrap();
-                ss.start()
+                bdev.share_nvmf()
                     .await
                     .map_err(|e| Status::internal(e.to_string()))
             }),
 
             "iscsi" => Reactors::master().spawn_local(async move {
                 let bdev = Bdev::lookup_by_name(&name).unwrap();
-                iscsi::share(&bdev.name(), &bdev, Side::Nexus)
+                bdev.share_iscsi()
+                    .await
                     .map_err(|e| Status::internal(e.to_string()))
             }),
 
@@ -133,18 +127,10 @@ impl BdevRpc for BdevSvc {
         let name = request.into_inner().name;
         let hdl = Reactors::master().spawn_local(async move {
             let bdev = Bdev::lookup_by_name(&name).unwrap();
-            match bdev.claimed_by() {
-                Some(t) if t == "NVMe-oF Target" => {
-                    if let Some(ss) = NvmfSubsystem::nqn_lookup(&bdev.name()) {
-                        let _ = ss.stop().await;
-                        ss.destroy();
-                    }
-                }
-                Some(t) if t == "iSCSI Target" => {
-                    let _ = iscsi::unshare(&bdev.name()).await;
-                }
-                _ => {}
-            }
+            let _ = bdev
+                .unshare()
+                .await
+                .map_err(|e| Status::internal(e.to_string()));
         });
 
         hdl.await.unwrap();

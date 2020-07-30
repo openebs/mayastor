@@ -707,7 +707,7 @@ pub async fn share(uuid: &str, bdev: &Bdev) -> Result<()> {
         assert_eq!(bdev.name(), ss.bdev().unwrap().name());
         return Ok(());
     };
-    let ss = NvmfSubsystem::try_from(bdev).unwrap();
+    let ss = NvmfSubsystem::try_from(bdev.clone()).unwrap();
     ss.start().await.unwrap();
     Ok(())
 }

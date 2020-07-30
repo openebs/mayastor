@@ -4,7 +4,7 @@ pub use ::uuid::Uuid;
 use nix::errno::Errno;
 use snafu::Snafu;
 
-use crate::subsys;
+use crate::{subsys::NvmfError, target::iscsi};
 pub use bdev::{Bdev, BdevIter};
 pub use channel::IoChannel;
 pub use cpu_cores::{Core, Cores};
@@ -18,6 +18,7 @@ pub use env::{
 };
 pub use handle::BdevHandle;
 pub use reactor::{Reactor, ReactorState, Reactors, REACTOR_LIST};
+pub use share::{Protocol, Share};
 pub use thread::Mthread;
 
 mod bdev;
@@ -90,9 +91,12 @@ pub enum CoreError {
     },
     #[snafu(display("Reset failed"))]
     ResetFailed {},
-    #[snafu(display("failed to share {} {}", source, msg))]
-    ShareError {
-        source: subsys::NvmfError,
-        msg: String,
+    #[snafu(display("failed to share {}", source))]
+    ShareNvmf {
+        source: NvmfError,
+    },
+    #[snafu(display("failed to share {}", source))]
+    ShareIscsi {
+        source: iscsi::Error,
     },
 }
