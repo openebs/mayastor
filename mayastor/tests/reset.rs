@@ -20,19 +20,18 @@ static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
 static DISKNAME2: &str = "/tmp/disk2.img";
 static BDEVNAME2: &str = "aio:///tmp/disk2.img?blk_size=512";
 
+static UUID1: &str = "00000000-76b6-4fcf-864d-1027d4038756";
+static UUID2: &str = "11111111-76b6-4fcf-864d-1027d4038756";
+
 fn generate_config() {
-    let uri1 = BDEVNAME1.into();
-    let uri2 = BDEVNAME2.into();
     let mut config = Config::default();
 
     let child1_bdev = subsys::BaseBdev {
-        uri: uri1,
-        uuid: Some("00000000-76b6-4fcf-864d-1027d4038756".into()),
+        uri: format!("{}&uuid={}", BDEVNAME1, UUID1),
     };
 
     let child2_bdev = subsys::BaseBdev {
-        uri: uri2,
-        uuid: Some("11111111-76b6-4fcf-864d-1027d4038756".into()),
+        uri: format!("{}&uuid={}", BDEVNAME2, UUID2),
     };
 
     config.base_bdevs = Some(vec![child1_bdev]);

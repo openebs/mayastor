@@ -1,6 +1,9 @@
 use tonic::{Request, Response, Status};
 use tracing::instrument;
 
+use std::convert::TryFrom;
+use url::Url;
+
 use rpc::mayastor::{
     bdev_rpc_server::BdevRpc,
     Bdev as RpcBdev,
@@ -45,6 +48,7 @@ impl From<Bdev> for RpcBdev {
             claimed: b.is_claimed(),
             claimed_by: b.claimed_by().unwrap_or_else(|| "Orphaned".into()),
             aliases: b.aliases().join(","),
+            uri: Url::try_from(b).map_or("".into(), |u| u.to_string()),
         }
     }
 }
@@ -95,17 +99,17 @@ impl BdevRpc for BdevSvc {
         if proto != "iscsi" && proto != "nvmf" {
             return Err(Status::invalid_argument(proto));
         }
-
+        let bdev_name = name.clone();
         match proto.as_str() {
             "nvmf" => Reactors::master().spawn_local(async move {
-                let bdev = Bdev::lookup_by_name(&name).unwrap();
+                let bdev = Bdev::lookup_by_name(&bdev_name).unwrap();
                 bdev.share_nvmf()
                     .await
                     .map_err(|e| Status::internal(e.to_string()))
             }),
 
             "iscsi" => Reactors::master().spawn_local(async move {
-                let bdev = Bdev::lookup_by_name(&name).unwrap();
+                let bdev = Bdev::lookup_by_name(&bdev_name).unwrap();
                 bdev.share_iscsi()
                     .await
                     .map_err(|e| Status::internal(e.to_string()))
@@ -116,8 +120,9 @@ impl BdevRpc for BdevSvc {
         .await
         .unwrap()
         .map(|share| {
+            let bdev = Bdev::lookup_by_name(&name).unwrap();
             Response::new(BdevShareReply {
-                uri: share,
+                uri: bdev.get_share_uri().unwrap_or(share),
             })
         })
     }

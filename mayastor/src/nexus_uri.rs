@@ -1,11 +1,11 @@
-use std::{num::ParseIntError, str::ParseBoolError};
+use std::{convert::TryFrom, num::ParseIntError, str::ParseBoolError};
 
 use futures::channel::oneshot::Canceled;
 use nix::errno::Errno;
 use snafu::Snafu;
 use url::ParseError;
 
-use crate::bdev::Uri;
+use crate::{bdev::Uri, core::Bdev};
 
 // parse URI and bdev create/destroy errors common for all types of bdevs
 #[derive(Debug, Snafu, Clone)]
@@ -14,6 +14,12 @@ pub enum NexusBdevError {
     // Generic URL parse errors
     #[snafu(display("Error parsing URI \"{}\"", uri))]
     UrlParseError { source: ParseError, uri: String },
+    #[snafu(display(
+        "No matching URI found for bdev {} in aliases {:?}",
+        name,
+        aliases
+    ))]
+    BdevNoUri { name: String, aliases: Vec<String> },
     #[snafu(display("Unsupported URI scheme: {}", scheme))]
     UriSchemeUnsupported { scheme: String },
     // Scheme specific URI format errors
@@ -75,4 +81,42 @@ pub async fn bdev_destroy(uri: &str) -> Result<(), NexusBdevError> {
 
 pub fn bdev_get_name(uri: &str) -> Result<String, NexusBdevError> {
     Ok(Uri::parse(uri)?.get_name())
+}
+
+impl std::cmp::PartialEq<url::Url> for Bdev {
+    fn eq(&self, uri: &url::Url) -> bool {
+        match Uri::parse(&uri.to_string()) {
+            Ok(device) if device.get_name() == self.name() => {
+                self.driver()
+                    == match uri.scheme() {
+                        "nvmf" => "nvme",
+                        scheme => scheme,
+                    }
+            }
+            _ => false,
+        }
+    }
+}
+
+impl TryFrom<Bdev> for url::Url {
+    type Error = NexusBdevError;
+
+    fn try_from(bdev: Bdev) -> Result<Self, Self::Error> {
+        for alias in bdev.aliases().iter() {
+            if let Ok(mut uri) = url::Url::parse(alias) {
+                if bdev == uri {
+                    if uri.query_pairs().find(|e| e.0 == "uuid").is_none() {
+                        uri.query_pairs_mut()
+                            .append_pair("uuid", &bdev.uuid_as_string());
+                    }
+                    return Ok(uri);
+                }
+            }
+        }
+
+        Err(NexusBdevError::BdevNoUri {
+            name: bdev.name(),
+            aliases: bdev.aliases(),
+        })
+    }
 }

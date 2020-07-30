@@ -38,7 +38,7 @@ use crate::{
     },
     ffihelper::{cb_arg, AsStr},
     subsys::NvmfSubsystem,
-    target::{iscsi, Side},
+    target::{iscsi, nvmf, Side},
 };
 
 #[derive(Debug)]
@@ -111,6 +111,15 @@ impl Share for Bdev {
             Some(t) if t == "NVMe-oF Target" => Some(Protocol::Nvmf),
             Some(t) if t == "iSCSI Target" => Some(Protocol::Iscsi),
             _ => None,
+        }
+    }
+
+    /// return share URI for nvmf and iscsi
+    fn get_share_uri(&self) -> Option<String> {
+        match self.shared() {
+            Some(Protocol::Nvmf) => nvmf::get_uri(&self.name()),
+            Some(Protocol::Iscsi) => iscsi::get_uri(Side::Nexus, &self.name()),
+            None => None,
         }
     }
 }

@@ -208,6 +208,9 @@ impl Nexus {
             Some(NexusTarget::NexusIscsiTarget(ref iscsi_target)) => {
                 Some(iscsi_target.as_uri())
             }
+            Some(NexusTarget::NexusNvmfTarget(ref nvmf_target)) => {
+                Some(nvmf_target.as_uri())
+            }
             _ => None,
         }
     }
