@@ -6,7 +6,14 @@
 //! spell out the YAML spec for a given sub component. Serde will fill
 //! in the default when missing, which are defined within the individual
 //! options.
-use std::{fmt::Display, fs, fs::File, io::Write, path::Path};
+use std::{
+    convert::TryFrom,
+    fmt::Display,
+    fs,
+    fs::File,
+    io::Write,
+    path::Path,
+};
 
 use byte_unit::Byte;
 use futures::FutureExt;
@@ -237,9 +244,10 @@ impl Config {
         if let Some(bdevs) = Bdev::bdev_first() {
             let result = bdevs
                 .into_iter()
+                .filter(|b| url::Url::try_from(b.clone()).is_ok())
                 .map(|b| BaseBdev {
-                    uri: b.name(),
-                    uuid: Some(b.uuid_as_string()),
+                    uri: url::Url::try_from(b.clone())
+                        .map_or(b.name(), |u| u.to_string()),
                 })
                 .collect::<Vec<_>>();
 
@@ -337,24 +345,18 @@ impl Config {
         if let Some(bdevs) = self.base_bdevs.as_ref() {
             for bdev in bdevs {
                 info!("creating bdev {}", bdev.uri);
-                if bdev_create(&bdev.uri).await.is_err() {
+                if let Err(e) = bdev_create(&bdev.uri).await {
                     warn!(
-                        "failed to create bdev {} during config load",
-                        bdev.uri
+                        "failed to create bdev {} during config load, error={}",
+                        bdev.uri,
+                        e.verbose(),
                     );
                     failures += 1;
                     continue;
                 }
 
-                let mut my_bdev = Bdev::lookup_by_name(&bdev.uri).unwrap();
-
-                // if we were given some UUID set it now
-                if let Some(uuid) = bdev.uuid.as_ref() {
-                    my_bdev.set_uuid(Some(uuid.clone()));
-                }
-
+                let my_bdev = Bdev::lookup_by_name(&bdev.uri).unwrap();
                 let uuid = my_bdev.uuid_as_string();
-                assert_eq!(bdev.uuid.as_ref(), Some(&uuid));
 
                 if !self.implicit_share_base {
                     continue;
@@ -380,7 +382,11 @@ impl Config {
             for pool in pools {
                 info!("creating pool {}", pool.name);
                 if let Err(e) = create_pool(pool.into()).await {
-                    error!("Failed to create pool {}. {}", pool.name, e);
+                    error!(
+                        "Failed to create pool {}. {}",
+                        pool.name,
+                        e.verbose()
+                    );
                     failures += 1;
                 }
             }
@@ -429,9 +435,6 @@ pub struct NexusBdev {
 pub struct BaseBdev {
     /// bdevs to create outside of the nexus control
     pub uri: String,
-    /// optional UUID to create the bdev with, typically you want to set this
-    /// during tests
-    pub uuid: Option<String>,
 }
 
 #[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
