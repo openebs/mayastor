@@ -7,10 +7,10 @@ use std::ptr::copy_nonoverlapping;
 use serde::{Deserialize, Serialize};
 
 use spdk_sys::{
+    bdev_nvme_get_opts,
+    bdev_nvme_set_opts,
     iscsi_opts_copy,
-    spdk_bdev_nvme_get_opts,
     spdk_bdev_nvme_opts,
-    spdk_bdev_nvme_set_opts,
     spdk_bdev_opts,
     spdk_bdev_set_opts,
     spdk_iscsi_opts,
@@ -191,6 +191,8 @@ impl From<TcpTransportOpts> for spdk_nvmf_transport_opts {
             c2h_success: o.ch2_success,
             dif_insert_or_strip: o.dif_insert_or_strip,
             sock_priority: o.sock_priority,
+            acceptor_backlog: 0,
+            abort_timeout_sec: 0,
         }
     }
 }
@@ -227,16 +229,14 @@ impl GetOpts for NvmeBdevOpts {
     fn get(&self) -> Self {
         let opts = spdk_bdev_nvme_opts::default();
         unsafe {
-            spdk_bdev_nvme_get_opts(
-                &opts as *const _ as *mut spdk_bdev_nvme_opts,
-            )
+            bdev_nvme_get_opts(&opts as *const _ as *mut spdk_bdev_nvme_opts)
         };
         opts.into()
     }
 
     fn set(&self) -> bool {
         let opts = Box::new(self.into());
-        if unsafe { spdk_bdev_nvme_set_opts(Box::into_raw(opts)) } != 0 {
+        if unsafe { bdev_nvme_set_opts(Box::into_raw(opts)) } != 0 {
             return false;
         }
         true
@@ -349,6 +349,7 @@ impl From<&BdevOpts> for spdk_bdev_opts {
         Self {
             bdev_io_pool_size: o.bdev_io_pool_size,
             bdev_io_cache_size: o.bdev_io_cache_size,
+            bdev_auto_examine: false,
         }
     }
 }

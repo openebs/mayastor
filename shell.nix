@@ -35,6 +35,8 @@ mkShell {
     nats-server
     nodejs-12_x
     numactl
+    meson
+    ninja
     nvme-cli
     openssl
     pkg-config

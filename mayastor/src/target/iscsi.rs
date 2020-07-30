@@ -12,6 +12,7 @@ use std::{
     ptr,
 };
 
+use crate::ffihelper::IntoCString;
 use futures::channel::oneshot;
 use nix::errno::Errno;
 use snafu::{ResultExt, Snafu};
@@ -32,7 +33,6 @@ use spdk_sys::{
     iscsi_portal_grp_unregister,
     iscsi_shutdown_tgt_node_by_name,
     iscsi_tgt_node_construct,
-    spdk_bdev_get_name,
     spdk_bdev_module,
     spdk_bdev_module_claim_bdev,
     spdk_bdev_module_release_bdev,
@@ -165,51 +165,45 @@ fn destroy_iscsi_groups() {
 }
 
 pub fn fini() {
-    destroy_iscsi_groups();
+    // dont destroy things as this is handled by the subsystem
+    // to fix any error messages we should implement the hotremove
+    // callbacks
 }
 
 fn share_as_iscsi_target(
     bdev_name: &str,
     bdev: &Bdev,
-    mut pg_idx: c_int,
-    mut ig_idx: c_int,
+    pg_idx: c_int,
+    ig_idx: c_int,
 ) -> Result<String, Error> {
-    let iqn = target_name(bdev_name);
-    let c_iqn = CString::new(iqn.clone()).unwrap();
+    let iqn = target_name(bdev_name).into_cstring();
 
-    let mut lun_id: c_int = LUN;
-    let idx = ISCSI_IDX.with(move |iscsi_idx| {
-        let idx = *iscsi_idx.borrow();
-        *iscsi_idx.borrow_mut() = idx + 1;
-        idx
-    });
+    let pg_tags = [pg_idx].as_mut_ptr();
+    let ig_tags = [ig_idx].as_mut_ptr();
+    let lun_ids = [0].as_mut_ptr();
 
     let tgt = unsafe {
         iscsi_tgt_node_construct(
-            idx,                   // target_index
-            c_iqn.as_ptr(),        // name
-            ptr::null(),           // alias
-            &mut pg_idx as *mut _, // pg_tag_list
-            &mut ig_idx as *mut _, // ig_tag_list
-            1,                     /* portal and initiator
-                                    * group list length */
-            &mut spdk_bdev_get_name(bdev.as_ptr()), /* bdev name, how iscsi
-                                                     * target gets
-                                                     * associated with a
-                                                     * bdev */
-            &mut lun_id as *mut _, // lun id
-            1,                     // length of lun id list
-            128,                   // max queue depth
-            false,                 // disable chap
-            false,                 // require chap
-            false,                 // mutual chap
-            0,                     // chap group
-            false,                 // header digest
-            false,                 // data digest
+            -1,
+            iqn.as_ptr(),
+            ptr::null(),
+            pg_tags,
+            ig_tags,
+            1,
+            &mut bdev.name().into_cstring().as_ptr(),
+            lun_ids,
+            1,
+            128,
+            true,
+            false,
+            false,
+            0,
+            false,
+            false,
         )
     };
     if tgt.is_null() {
-        error!("Failed to create iscsi target {}", iqn);
+        error!("Failed to create iscsi target {}", bdev.name());
         Err(Error::CreateTarget {})
     } else {
         let _ = unsafe {
@@ -219,7 +213,7 @@ fn share_as_iscsi_target(
                 ISCSI_BDEV_MOD.as_mut_ptr(),
             )
         };
-        Ok(iqn)
+        Ok(target_name(bdev_name))
     }
 }
 

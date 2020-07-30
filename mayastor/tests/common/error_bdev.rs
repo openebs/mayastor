@@ -1,8 +1,4 @@
-use spdk_sys::{
-    create_aio_bdev,
-    spdk_vbdev_error_create,
-    spdk_vbdev_error_inject_error,
-};
+use spdk_sys::{create_aio_bdev, vbdev_error_create, vbdev_error_inject_error};
 pub use spdk_sys::{SPDK_BDEV_IO_TYPE_READ, SPDK_BDEV_IO_TYPE_WRITE};
 
 // constant used by the vbdev_error module but not exported
@@ -22,7 +18,9 @@ pub fn create_error_bdev(error_device: &str, backing_device: &str) {
     let err_bdev_name_str = std::ffi::CString::new(error_device.to_string())
         .expect("Failed to create name string");
     unsafe {
-        retval = spdk_vbdev_error_create(err_bdev_name_str.as_ptr()); // create the error bdev around it
+        retval = vbdev_error_create(err_bdev_name_str.as_ptr()); // create the
+                                                                 // error bdev
+                                                                 // around it
     }
     assert_eq!(retval, 0);
 }
@@ -34,7 +32,7 @@ pub fn inject_error(error_device: &str, op: u32, mode: u32, count: u32) {
     let raw = err_bdev_name_str.into_raw();
 
     unsafe {
-        retval = spdk_vbdev_error_inject_error(raw, op, mode, count);
+        retval = vbdev_error_inject_error(raw, op, mode, count);
     }
     assert_eq!(retval, 0);
 }

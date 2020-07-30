@@ -5,16 +5,10 @@ use std::{
 };
 
 use nix::errno::Errno;
-use rand::seq::SliceRandom;
 
 use spdk_sys::{
     spdk_env_get_core_count,
-    spdk_nvmf_get_optimal_poll_group,
-    spdk_nvmf_poll_group,
-    spdk_nvmf_poll_group_add,
     spdk_nvmf_poll_group_destroy,
-    spdk_nvmf_qpair,
-    spdk_nvmf_qpair_disconnect,
     spdk_nvmf_subsystem_create,
     spdk_nvmf_subsystem_set_mn,
     spdk_nvmf_target_opts,
@@ -250,70 +244,10 @@ impl Target {
             });
         });
     }
-
-    /// select a poll group to use for the incoming qpair
-    fn select_pg(qp: *mut spdk_nvmf_qpair) -> Result<PollGroup> {
-        NVMF_PGS.with(|pgs| {
-            let pgs = pgs.borrow();
-            if let Some(pg) = pgs.iter().find(|pg| {
-                let gr = unsafe { spdk_nvmf_get_optimal_poll_group(qp) };
-                pg.group_ptr() == gr
-            }) {
-                Ok(pg.clone())
-            } else {
-                let pg = pgs.choose(&mut rand::thread_rng()).unwrap().clone();
-                Ok(pg)
-            }
-        })
-    }
-
-    // this will be removed in future releases as this is going to be pushed
-    // down into libnvmf, to avoid to much churn here simply use cb styles
-    extern "C" fn new_qpair(qp: *mut spdk_nvmf_qpair, _: *mut c_void) {
-        extern "C" fn qp_add_to_pg(pg: *mut c_void) {
-            let ctx: Box<(*mut spdk_nvmf_poll_group, *mut spdk_nvmf_qpair)> =
-                unsafe { Box::from_raw(pg as *mut _) };
-
-            unsafe {
-                if spdk_nvmf_poll_group_add(ctx.0, ctx.1) != 0 {
-                    spdk_nvmf_qpair_disconnect(
-                        ctx.1,
-                        None,
-                        std::ptr::null_mut(),
-                    );
-                }
-            }
-        }
-
-        NVMF_TGT.with(|tgt| {
-            if tgt.borrow().next_state != TargetState::Running {
-                warn!("TGT is not running, dropping connection request");
-                unsafe {
-                    spdk_nvmf_qpair_disconnect(qp, None, std::ptr::null_mut())
-                };
-                return;
-            }
-        });
-
-        Self::select_pg(qp)
-            .map(|p| {
-                let ctx = Box::new((p.group_ptr(), qp));
-                p.thread
-                    .send_msg(qp_add_to_pg, Box::into_raw(ctx) as *mut c_void)
-            })
-            .unwrap();
-    }
-
     /// poll function that the acceptor runs
     extern "C" fn acceptor_poll(tgt: *mut c_void) -> i32 {
         let tgt = tgt as *mut spdk_nvmf_tgt;
-        unsafe {
-            spdk_nvmf_tgt_accept(
-                tgt,
-                Some(Self::new_qpair),
-                std::ptr::null_mut(),
-            )
-        };
+        unsafe { spdk_nvmf_tgt_accept(tgt) };
 
         0
     }
