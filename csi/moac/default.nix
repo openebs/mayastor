@@ -3,7 +3,6 @@
 #   node2nix -l package-lock.json --nodejs-12 -c node-composition.nix
 #
 # It is used to bundle rpc proto files from mayastor repo to moac nix package.
-# And to build docker image.
 
 { pkgs ? import <nixpkgs> { inherit system; }
 , system ? builtins.currentSystem
@@ -29,28 +28,5 @@ result // rec {
     # add nodejs and busybox to this variable to set it later to ammend the
     # path variable. This makes it easer to exec into the container
     env = pkgs.stdenv.lib.makeBinPath [ pkgs.busybox pkgs.nodejs-slim-12_x ];
-  };
-  # The current way of creating a docker image has a number of issues.
-  # 1) It would be cool to produce OCI image instead of docker image to
-  #    avoid dependency on docker tool chain. Though the maturity of oci
-  #    builder in nixpkgs is questionable which is why we delayed this step.
-  # 2) We would like to create a /bin/moac symlink so that we don't need to
-  #    remember a creeky path to moac script containing a hash. Trying to do
-  #    so in extraCommands script yields eperm error.
-  # 3) The algorithm for placing packages into the layers is not optimal.
-  #    There are a couple of layers with negligable size and then there is
-  #    one big layer with everything else. That defeats the purpose
-  #    of layering.
-  buildImage = pkgs.dockerTools.buildLayeredImage {
-    name = "mayadata/moac";
-    tag = "develop";
-    created = "now";
-    contents = [ pkgs.busybox package ];
-    config = {
-      Entrypoint = [ "${package.out}/bin/moac" ];
-      ExposedPorts = { "3000/tcp" = { }; };
-      Env = [ "PATH=${package.env}:${package.out}/bin" ];
-      WorkDir = "${package.out}";
-    };
   };
 }

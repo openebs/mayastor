@@ -34,7 +34,7 @@ in
 
       environment = {
         systemPackages = with pkgs; [
-          images.mayastor-develop
+          mayastor
         ];
 
         etc."mayastor-config.yaml" = {
@@ -53,7 +53,7 @@ in
         };
 
         serviceConfig = {
-          ExecStart = "${pkgs.images.mayastor-develop}/bin/mayastor -g 0.0.0.0:10124 -y /etc/mayastor-config.yaml";
+          ExecStart = "${pkgs.mayastor}/bin/mayastor -g 0.0.0.0:10124 -y /etc/mayastor-config.yaml";
         };
       };
     };
@@ -78,7 +78,7 @@ in
 
       environment = {
         systemPackages = with pkgs; [
-          images.mayastor-develop
+          mayastor
         ];
 
         etc."mayastor-config.yaml" = {
@@ -97,7 +97,7 @@ in
         };
 
         serviceConfig = {
-          ExecStart = "${pkgs.images.mayastor-develop}/bin/mayastor -g 0.0.0.0:10124 -y /etc/mayastor-config.yaml";
+          ExecStart = "${pkgs.mayastor}/bin/mayastor -g 0.0.0.0:10124 -y /etc/mayastor-config.yaml";
         };
       };
     };

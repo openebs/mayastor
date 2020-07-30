@@ -209,6 +209,32 @@ Or, you can copy over the .so to `/usr/local/lib` or something similar.
 
 One this is done, you should be able to run `cargo build --all`
 
+## Building docker images
+
+Use NIX to build the images. Note that the images are based on NIX packages
+that are built as part of building the image. The tag of the image will be
+short commit hash of the top-most commit or a tag name of the commit if
+present. Example of building a moac package:
+
+```bash
+nix-build -A images.moac-image
+```
+
+At the end of the build is printed path to docker image tar archive. Load the
+image into Docker (don't use _import_ command) and run bash to poke around:
+
+```bash
+docker load -i /nix/store/hash-docker-image-moac.tar.gz
+docker run --rm -it image-hash /bin/bash
+```
+
+Mayastor and csi plugin images can have multiple flavours. Production image
+name does not contain the flavour name (i.e. `mayastor-image`). Debug image
+contains the `dev` in its name (i.e. `mayastor-dev-image`). Mayastor package
+has additional flavour called `adhoc` (`mayastor-adhoc-image`), that is handy
+for testing because it is not based on mayastor package but rather on whatever
+binaries are present in `target/debug` directory.
+
 ## Some background information
 
 MayaStor makes use of subsystems that are not yet part of major distributions, for example:
@@ -223,10 +249,10 @@ Mayastor, in all cases, **requires the nightly rust compiler with async support*
 You don't need to have a 5.x kernel unless you want to use NVMF.
 
 If you already have rust installed but not nightly, use rustup to install it before continuing.
+
 ### spdk-sys
+
 The crate that provides the glue between SPDK and Mayastor is hosted in this [repo](https://github.com/openebs/spdk-sys)
 feel free to go through it and determine if you want to install libspdk using those instructions or directly from
 [here](https://github.com/openebs/spdk). If you chose either of these methods, make sure you install such that
 during linking, it can be found.
-
-
