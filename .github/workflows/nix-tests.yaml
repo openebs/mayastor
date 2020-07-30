@@ -16,8 +16,8 @@ jobs:
     steps:
       - uses: actions/checkout@v2
         with:
-          path: repo-under-test # Checkout with a new path, to avoid permissions on the runner.
+          path: $GITHUB_WORKSPACE/repo-under-test # Checkout with a new path, to avoid permissions on the runner.
       - run: modprobe kvm_intel nested=1 # Could do this once persistently on the runner.
       - run: echo "::set-env name=NIX_PATH::/home/gila/.nix-defexpr/channels"
-      - run: [ -L ./result ] && nix-store --delete ./result --ignore-liveness
+      - run: bash -c "if [ -L ./result ]; then nix-store --delete ./result --ignore-liveness; fi"
       - run: nix-build ./nix/test/basic/default.nix -A fio_nvme_basic
