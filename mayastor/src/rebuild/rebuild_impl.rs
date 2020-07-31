@@ -42,9 +42,10 @@ struct TaskResult {
 }
 
 /// Number of concurrent copy tasks per rebuild job
-const SEGMENT_TASKS: usize = 4;
+const SEGMENT_TASKS: usize = 16;
 /// Size of each segment used by the copy task
-pub const SEGMENT_SIZE: u64 = 10 * 1024; // 10KiB
+/// Set to 64KiB to match SPDK's max buffer size (SPDK_BDEV_LARGE_BUF_MAX_SIZE)
+pub const SEGMENT_SIZE: u64 = 64 * 1024; // 64KiB
 
 /// Each rebuild task needs a unique buffer to read/write from source to target
 /// A mpsc channel is used to communicate with the management task
