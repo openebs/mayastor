@@ -17,6 +17,7 @@ pub mod common;
 
 fn test_start() {
     common::mayastor_test_init();
+    common::delete_file(&[DISKNAME1.into(), DISKNAME2.into()]);
     common::truncate_file(DISKNAME1, FILE_SIZE);
     common::truncate_file(DISKNAME2, FILE_SIZE);
 }
