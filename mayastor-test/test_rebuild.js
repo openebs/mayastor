@@ -15,8 +15,8 @@ const protoLoader = require('@grpc/proto-loader');
 // backend file for aio bdev
 const child1 = '/tmp/child1';
 const child2 = '/tmp/child2';
-// 64MB is the size of nexus and replicas
-const diskSize = 64 * 1024 * 1024;
+// 100MB is the size of nexus and replicas
+const diskSize = 100 * 1024 * 1024;
 // nexus UUID
 const UUID = 'dbe4d7eb-118a-4d15-b789-a18d9af6ff21';
 // external IP address detected by common lib
@@ -65,7 +65,7 @@ const configNexus = `
 
 const nexusArgs = {
   uuid: UUID,
-  size: 131072,
+  size: 104857600, // Size in bytes
   children: [`aio://${child1}?blk_size=4096`]
 };
 

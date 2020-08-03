@@ -10,7 +10,7 @@ use futures::{
 use once_cell::sync::OnceCell;
 use snafu::ResultExt;
 
-use spdk_sys::spdk_get_thread;
+use spdk_sys::{spdk_get_thread, SPDK_BDEV_LARGE_BUF_MAX_SIZE};
 
 use crate::{
     bdev::VerboseError,
@@ -42,9 +42,9 @@ struct TaskResult {
 }
 
 /// Number of concurrent copy tasks per rebuild job
-const SEGMENT_TASKS: usize = 4;
+const SEGMENT_TASKS: usize = 16;
 /// Size of each segment used by the copy task
-pub const SEGMENT_SIZE: u64 = 10 * 1024; // 10KiB
+pub const SEGMENT_SIZE: u64 = SPDK_BDEV_LARGE_BUF_MAX_SIZE as u64;
 
 /// Each rebuild task needs a unique buffer to read/write from source to target
 /// A mpsc channel is used to communicate with the management task
