@@ -21,7 +21,8 @@ pub fn nexus_name() -> &'static str {
     &NEXUS_NAME.lock().unwrap()
 }
 
-static NEXUS_SIZE: u64 = 5 * 1024 * 1024; // 10MiB
+static NEXUS_SIZE: u64 = 5 * 1024 * 1024; // 5MiB
+static LARGE_NEXUS_SIZE: u64 = 100 * 1024 * 1024; // 100MiB
 
 // approximate on-disk metadata that will be written to the child by the nexus
 const META_SIZE: u64 = 5 * 1024 * 1024; // 5MiB
@@ -35,6 +36,16 @@ fn test_ini(name: &'static str) {
     for i in 0 .. MAX_CHILDREN {
         common::delete_file(&[get_disk(i)]);
         common::truncate_file_bytes(&get_disk(i), NEXUS_SIZE + META_SIZE);
+    }
+}
+fn test_ini_large_nexus(name: &'static str) {
+    *NEXUS_NAME.lock().unwrap() = name;
+    get_err_bdev().clear();
+
+    test_init!();
+    for i in 0 .. MAX_CHILDREN {
+        common::delete_file(&[get_disk(i)]);
+        common::truncate_file_bytes(&get_disk(i), LARGE_NEXUS_SIZE + META_SIZE);
     }
 }
 fn test_fini() {
@@ -118,7 +129,7 @@ fn rebuild_test_add() {
 
 #[test]
 fn rebuild_progress() {
-    test_ini("rebuild_progress");
+    test_ini_large_nexus("rebuild_progress");
 
     async fn test_progress(polls: u64, progress: u32) -> u32 {
         let nexus = nexus_lookup(nexus_name()).unwrap();
@@ -129,7 +140,7 @@ fn rebuild_progress() {
         common::wait_for_rebuild(
             get_dev(1),
             RebuildState::Paused,
-            std::time::Duration::from_millis(100),
+            std::time::Duration::from_millis(1000),
         )
         .unwrap();
         let p = nexus.get_rebuild_progress(&get_dev(1)).unwrap();
@@ -138,7 +149,7 @@ fn rebuild_progress() {
     };
 
     Reactor::block_on(async {
-        nexus_create(NEXUS_SIZE, 1, false).await;
+        nexus_create(LARGE_NEXUS_SIZE, 1, false).await;
         nexus_add_child(1, false).await;
         // naive check to see if progress is being made
         let mut progress = 0;
