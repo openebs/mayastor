@@ -52,17 +52,9 @@ macro_rules! require {
     };
 }
 
-pub(super) fn match_iscsi_device<'a>(
-    device: &'a Device,
-    key: &str,
-) -> Option<(&'a str, &'a str)> {
+pub(super) fn match_iscsi_device(device: &Device) -> Option<(&str, &str)> {
     require!("Nexus_CAS_Driver" == device.property_value("ID_MODEL"));
     require!("scsi" == device.property_value("ID_BUS"));
-
-    require!(let serial = device.property_value("ID_SCSI_SERIAL"));
-    if !key.starts_with(serial) {
-        return None;
-    }
 
     require!(let devname = device.property_value("DEVNAME"));
     require!(let path = device.property_value("ID_PATH"));
@@ -76,6 +68,7 @@ pub(super) fn match_nvmf_device<'a>(
 ) -> Option<&'a str> {
     require!("Mayastor NVMe controller" == device.property_value("ID_MODEL"));
     require!(key == device.property_value("ID_WWN"));
+
     require!(let devname = device.property_value("DEVNAME"));
 
     Some(devname)
