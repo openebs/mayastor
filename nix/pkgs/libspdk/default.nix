@@ -3,6 +3,7 @@
 , cunit
 , enableDebug ? false
 , fetchFromGitHub
+, pkgconfig
 , git
 , lcov
 , libaio
@@ -10,6 +11,8 @@
 , liburing
 , libuuid
 , nasm
+, ninja
+, meson
 , ncurses
 , numactl
 , openssl
@@ -21,15 +24,22 @@ with stdenv.lib;
 stdenv.mkDerivation rec {
 
   pname = "libspdk";
-  version = "20.04.01";
+  version = "20.07";
 
   src = fetchFromGitHub {
     owner = "openebs";
     repo = "spdk";
-    rev = "690919c526e3754a49691dd7d7cb834268d43af2";
-    sha256 = "12mnxnv5fh7d50d24da94yn0i2prny676ridinvyljffbfr7hznj";
+    rev = "19298f1d329ace17f0ec58c0e4f77b65b731c5a5";
+    sha256 = "0d86437lldax3ci5mkgh179n1nkd2f5yy8g2v0qp3msdsp09w424";
     fetchSubmodules = true;
   };
+
+  nativeBuildInputs = [
+    meson
+    ninja
+    pkgconfig
+    python3
+  ];
 
   buildInputs = [
     binutils
@@ -41,7 +51,6 @@ stdenv.mkDerivation rec {
     ncurses
     numactl
     openssl
-    python3
   ] ++ stdenv.lib.optionals enableDebug [ cunit lcov ];
 
   # add this once we merged this new option from upstream. The tests are going
@@ -55,8 +64,8 @@ stdenv.mkDerivation rec {
     "${enableFeature enableDebug "unit-tests"}"
     "--target-arch=nehalem"
     "--without-isal"
+    "--without-vhost"
     "--with-iscsi-initiator"
-    "--with-internal-vhost-lib"
     "--with-crypto"
   ] ++ stdenv.lib.optionals (enableDebug) [ "--enable-debug" ];
 
@@ -74,9 +83,10 @@ stdenv.mkDerivation rec {
 
   hardeningDisable = [ "all" ];
 
-  postBuild = ''
+  buildPhase = ''
+      make -j`nproc`
     find . -type f -name 'libspdk_ut_mock.a' -delete
-    find . -type f -name 'librte_vhost.a' -delete
+    #find . -type f -name 'librte_vhost.a' -delete
 
     $CC -shared -o libspdk.so \
     -lc  -laio -liscsi -lnuma -ldl -lrt -luuid -lpthread -lcrypto \
@@ -85,8 +95,21 @@ stdenv.mkDerivation rec {
     $(find dpdk/build/lib -type f -name 'librte_*.a*') \
     $(find intel-ipsec-mb -type f -name 'libIPSec_*.a*') \
     -Wl,--no-whole-archive
-
   '';
+
+ # postBuild = ''
+ #   find . -type f -name 'libspdk_ut_mock.a' -delete
+ #   #find . -type f -name 'librte_vhost.a' -delete
+
+ #   $CC -shared -o libspdk.so \
+ #   -lc  -laio -liscsi -lnuma -ldl -lrt -luuid -lpthread -lcrypto \
+ #   -Wl,--whole-archive \
+ #   $(find build/lib -type f -name 'libspdk_*.a*' -o -name 'librte_*.a*') \
+ #   $(find dpdk/build/lib -type f -name 'librte_*.a*') \
+ #   $(find intel-ipsec-mb -type f -name 'libIPSec_*.a*') \
+ #   -Wl,--no-whole-archive
+
+ # '';
 
   installPhase = ''
     mkdir -p $out/lib

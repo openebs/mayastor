@@ -500,11 +500,7 @@ impl Target {
     extern "C" fn acceptor_poll(target_ptr: *mut c_void) -> c_int {
         unsafe {
             let target = &mut *(target_ptr as *mut Self);
-            spdk_nvmf_tgt_accept(
-                target.inner,
-                Some(Self::new_qpair),
-                target as *mut Self as *mut c_void,
-            );
+            spdk_nvmf_tgt_accept(target.inner);
         }
         -1
     }
