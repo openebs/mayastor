@@ -151,7 +151,7 @@ impl Attach for IscsiAttach {
     }
 
     async fn find(&self) -> Result<Option<DeviceName>, DeviceError> {
-        let key: String = format!("nexus-{}", self.uuid.to_string());
+        let key: String = self.to_path();
 
         let mut enumerator = Enumerator::new()?;
 
@@ -159,15 +159,10 @@ impl Attach for IscsiAttach {
         enumerator.match_property("DEVTYPE", "disk")?;
 
         for device in enumerator.scan_devices()? {
-            if let Some((devname, path)) = match_iscsi_device(&device, &key) {
-                // Need to check for false positives, as the udev
-                // attribute (ID_SCSI_SERIAL) that we match against
-                // is likely to be truncated.
-                if self.to_path() != path {
-                    continue;
+            if let Some((devname, path)) = match_iscsi_device(&device) {
+                if path == key {
+                    return Ok(Some(devname.to_string()));
                 }
-
-                return Ok(Some(devname.to_string()));
             }
         }
 

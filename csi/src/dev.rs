@@ -82,7 +82,6 @@ impl Device {
     pub async fn lookup(
         uuid: &Uuid,
     ) -> Result<Option<Box<dyn Detach>>, DeviceError> {
-        let iscsi_key: String = format!("nexus-{}", uuid.to_string());
         let nvmf_key: String = format!("uuid.{}", uuid.to_string());
 
         let mut enumerator = Enumerator::new()?;
@@ -92,19 +91,16 @@ impl Device {
 
         for device in enumerator.scan_devices()? {
             if let Some((devname, path)) =
-                match_dev::match_iscsi_device(&device, &iscsi_key)
+                match_dev::match_iscsi_device(&device)
             {
                 let value =
                     iscsi::IscsiDetach::from_path(devname.to_string(), path)?;
 
-                // Need to check for false positives, as the udev
-                // attribute (ID_SCSI_SERIAL) that we match against
-                // is likely to be truncated.
-                if value.uuid() != uuid {
-                    continue;
+                if value.uuid() == uuid {
+                    return Ok(Some(Box::new(value)));
                 }
 
-                return Ok(Some(Box::new(value)));
+                continue;
             }
 
             if let Some(devname) =
