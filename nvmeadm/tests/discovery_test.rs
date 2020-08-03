@@ -21,7 +21,7 @@ static CONFIG_TEXT: &str = "[Malloc]
 [Transport]
   Type TCP
   # reduce memory requirements
-  NumSharedBuffers 32
+  NumSharedBuffers 64
 [Subsystem1]
   NQN nqn.2019-05.io.openebs:disk2
   Listen TCP 127.0.0.1:NVMF_PORT
