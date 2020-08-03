@@ -573,11 +573,13 @@ fn rebuild_multiple() {
 
         for child in 1 ..= active_rebuilds {
             nexus_add_child(child, false).await;
+            nexus.pause_rebuild(&get_dev(child)).await.unwrap();
         }
 
         assert_eq!(RebuildJob::count(), active_rebuilds as usize);
 
         for child in 1 ..= active_rebuilds {
+            nexus.resume_rebuild(&get_dev(child)).await.unwrap();
             common::wait_for_rebuild(
                 get_dev(child),
                 RebuildState::Completed,
