@@ -75,7 +75,8 @@ impl TryFrom<&Url> for Iscsi {
         }
 
         Ok(Iscsi {
-            name: url.path()[1 ..].into(),
+            name: url[url::Position::BeforeHost .. url::Position::AfterPath]
+                .into(),
             alias: url.to_string(),
             iqn: format!("{}:{}", ISCSI_IQN_PREFIX, Uuid::new_v4()),
             url: if segments.len() == 2 {

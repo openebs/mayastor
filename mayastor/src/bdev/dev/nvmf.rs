@@ -112,7 +112,8 @@ impl TryFrom<&Url> for Nvmf {
         }
 
         Ok(Nvmf {
-            name: url.path()[1 ..].into(),
+            name: url[url::Position::BeforeHost .. url::Position::AfterPath]
+                .into(),
             alias: url.to_string(),
             host: host.to_string(),
             port: url.port().unwrap_or(DEFAULT_NVMF_PORT),
