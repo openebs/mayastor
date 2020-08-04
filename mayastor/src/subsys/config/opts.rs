@@ -503,8 +503,8 @@ impl Default for ErrStoreOpts {
     fn default() -> Self {
         Self {
             err_store_size: 256,
-            enable_err_store: false,
-            action: ActionType::Ignore,
+            enable_err_store: true,
+            action: ActionType::Fault,
             max_errors: 5,
             retention_ns: 10_000_000_000,
         }

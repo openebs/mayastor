@@ -246,7 +246,9 @@ impl Nexus {
     ) {
         let now = Instant::now();
         let cfg = Config::get();
-        if cfg.err_store_opts.enable_err_store {
+        if cfg.err_store_opts.enable_err_store
+            && (io_op_type == io_type::READ || io_op_type == io_type::WRITE)
+        {
             let nexus_name = self.name.clone();
             // dispatch message to management core to do this
             let mgmt_reactor = Reactors::get_by_core(Cores::first()).unwrap();
