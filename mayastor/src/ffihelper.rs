@@ -8,8 +8,15 @@ use std::{
     ptr::NonNull,
 };
 
-use futures::channel::oneshot;
+use futures::channel::{
+    oneshot,
+    oneshot::{Receiver, Sender},
+};
 use nix::errno::Errno;
+
+pub fn pair<T>() -> (Sender<T>, Receiver<T>) {
+    oneshot::channel::<T>()
+}
 
 pub(crate) trait AsStr {
     fn as_str(&self) -> &str;
