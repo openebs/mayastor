@@ -63,11 +63,16 @@ function createCsiClient (service) {
 }
 
 function cleanPublishDir (mountTarget, done) {
-  const proc = common.runAsRoot('umount', ['-f', mountTarget]);
+  const proc = common.runAsRoot('umount', ['-f', mountTarget + '/fs_mnt']);
   proc.once('close', (code, signal) => {
     try {
+      fs.rmdirSync(mountTarget + '/fs_mnt');
+    } catch (err) {
+    }
+    try {
       fs.rmdirSync(mountTarget);
-    } catch (err) {}
+    } catch (err) {
+    }
 
     done();
   });
@@ -412,7 +417,7 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
       it('should be able to stage volume (xfs)', (done) => {
         client.nodeStageVolume(getDefaultArgs(), (err) => {
           if (err) return done(err);
-          assert.equal(getFsType(mountTarget), 'xfs');
+          assert.equal(getFsType(mountTarget + '/fs_mnt'), 'xfs');
           done();
         });
       });
@@ -550,7 +555,7 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
           },
           (err) => {
             if (err) return done(err);
-            assert.equal(getFsType(mountTarget), 'ext4');
+            assert.equal(getFsType(mountTarget + '/fs_mnt'), 'ext4');
             done();
           }
         );

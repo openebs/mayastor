@@ -267,3 +267,47 @@ pub fn bind_unmount(target: &str) -> Result<(), Error> {
 
     Ok(())
 }
+
+/// Mount a block device
+pub fn blockdevice_mount(
+    source: &str,
+    target: &str,
+    readonly: bool,
+) -> Result<Mount, Error> {
+    debug!("Mounting {} ...", source);
+
+    let mut flags = MountFlags::empty();
+    flags.insert(MountFlags::BIND);
+
+    let mount = Mount::new(
+        source,
+        target,
+        FilesystemType::Manual("none"),
+        flags,
+        None,
+    )?;
+    info!("Block device {} mounted to {}", source, target,);
+
+    if readonly {
+        flags.insert(MountFlags::REMOUNT);
+        flags.insert(MountFlags::RDONLY);
+
+        let mount =
+            Mount::new("", target, FilesystemType::Manual(""), flags, None)?;
+        info!("Remounted block device {} (readonly) to {}", source, target,);
+        return Ok(mount);
+    }
+
+    Ok(mount)
+}
+
+/// Unmount a block device.
+pub fn blockdevice_unmount(target: &str) -> Result<(), Error> {
+    let flags = UnmountFlags::FORCE;
+
+    debug!("Unmounting block device {} (flags={:?}) ...", target, flags);
+
+    unmount(&target, flags)?;
+    info!("block device at {} has been unmounted", target);
+    Ok(())
+}
