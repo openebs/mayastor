@@ -66,8 +66,10 @@ rec {
       ExposedPorts = { "10124/tcp" = { }; };
       Entrypoint = [ "/bin/mayastor" ];
     };
-    # This directory is for mayastor jsonrpc socket file
-    extraCommands = "mkdir -p var/tmp";
+    extraCommands = ''
+      mkdir  tmp
+      mkdir -p var/tmp
+    '';
   };
 
   mayastor-image-release = dockerTools.buildImage {
@@ -80,8 +82,10 @@ rec {
       ExposedPorts = { "10124/tcp" = { }; };
       Entrypoint = [ "/bin/mayastor" ];
     };
-    # This directory is for mayastor jsonrpc socket file
-    extraCommands = "mkdir -p var/tmp";
+    extraCommands = ''
+      mkdir  tmp
+      mkdir -p var/tmp
+    '';
   };
 
   mayastorIscsiadm = writeScriptBin "mayastor-iscsiadm" ''
@@ -115,8 +119,10 @@ rec {
       ExposedPorts = { "10124/tcp" = { }; };
       Entrypoint = [ "/bin/mayastor" ];
     };
-    # This directory is for mayastor jsonrpc socket file
-    extraCommands = "mkdir -p var/tmp";
+    extraCommands = ''
+      mkdir  tmp
+      mkdir -p var/tmp
+    '';
   };
 
   mayastor-csi-develop = dockerTools.buildImage {
