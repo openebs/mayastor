@@ -124,6 +124,7 @@ fn yaml_pool_tests() {
         disks: vec!["/tmp/disk1.img".into()],
         blk_size: 512,
         io_if: 1,
+        replicas: Default::default(),
     };
 
     // we use this UUID to ensure that the created pool is indeed  -- the pool

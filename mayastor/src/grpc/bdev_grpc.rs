@@ -17,7 +17,7 @@ use rpc::mayastor::{
 
 use crate::{
     core::{Bdev, Reactors, Share},
-    grpc::GrpcResult,
+    grpc::{sync_config, GrpcResult},
     nexus_uri::{bdev_create, bdev_destroy, NexusBdevError},
 };
 
@@ -75,20 +75,26 @@ impl BdevRpc for BdevSvc {
         &self,
         request: Request<BdevUri>,
     ) -> Result<Response<CreateReply>, Status> {
-        let uri = request.into_inner().uri;
-        let bdev = locally! { async move { bdev_create(&uri).await } };
+        sync_config(async {
+            let uri = request.into_inner().uri;
+            let bdev = locally! { async move { bdev_create(&uri).await } };
 
-        Ok(Response::new(CreateReply {
-            name: bdev,
-        }))
+            Ok(Response::new(CreateReply {
+                name: bdev,
+            }))
+        })
+        .await
     }
 
     #[instrument(level = "debug", err)]
     async fn destroy(&self, request: Request<BdevUri>) -> GrpcResult<Null> {
-        let uri = request.into_inner().uri;
-        let _bdev = locally! { async move { bdev_destroy(&uri).await } };
+        sync_config(async {
+            let uri = request.into_inner().uri;
+            let _bdev = locally! { async move { bdev_destroy(&uri).await } };
 
-        Ok(Response::new(Null {}))
+            Ok(Response::new(Null {}))
+        })
+        .await
     }
 
     #[instrument(level = "debug", err)]
@@ -96,58 +102,63 @@ impl BdevRpc for BdevSvc {
         &self,
         request: Request<BdevShareRequest>,
     ) -> GrpcResult<BdevShareReply> {
-        let r = request.into_inner();
-        let name = r.name;
-        let proto = r.proto;
+        sync_config(async {
+            let r = request.into_inner();
+            let name = r.name;
+            let proto = r.proto;
 
-        if Bdev::lookup_by_name(&name).is_none() {
-            return Err(Status::not_found(name));
-        }
+            if Bdev::lookup_by_name(&name).is_none() {
+                return Err(Status::not_found(name));
+            }
 
-        if proto != "iscsi" && proto != "nvmf" {
-            return Err(Status::invalid_argument(proto));
-        }
-        let bdev_name = name.clone();
-        match proto.as_str() {
-            "nvmf" => Reactors::master().spawn_local(async move {
-                let bdev = Bdev::lookup_by_name(&bdev_name).unwrap();
-                bdev.share_nvmf()
-                    .await
-                    .map_err(|e| Status::internal(e.to_string()))
-            }),
+            if proto != "iscsi" && proto != "nvmf" {
+                return Err(Status::invalid_argument(proto));
+            }
+            let bdev_name = name.clone();
+            match proto.as_str() {
+                "nvmf" => Reactors::master().spawn_local(async move {
+                    let bdev = Bdev::lookup_by_name(&bdev_name).unwrap();
+                    bdev.share_nvmf()
+                        .await
+                        .map_err(|e| Status::internal(e.to_string()))
+                }),
 
-            "iscsi" => Reactors::master().spawn_local(async move {
-                let bdev = Bdev::lookup_by_name(&bdev_name).unwrap();
-                bdev.share_iscsi()
-                    .await
-                    .map_err(|e| Status::internal(e.to_string()))
-            }),
+                "iscsi" => Reactors::master().spawn_local(async move {
+                    let bdev = Bdev::lookup_by_name(&bdev_name).unwrap();
+                    bdev.share_iscsi()
+                        .await
+                        .map_err(|e| Status::internal(e.to_string()))
+                }),
 
-            _ => unreachable!(),
-        }
-        .await
-        .unwrap()
-        .map(|share| {
-            let bdev = Bdev::lookup_by_name(&name).unwrap();
-            Response::new(BdevShareReply {
-                uri: bdev.share_uri().unwrap_or(share),
+                _ => unreachable!(),
+            }
+            .await
+            .unwrap()
+            .map(|share| {
+                let bdev = Bdev::lookup_by_name(&name).unwrap();
+                Response::new(BdevShareReply {
+                    uri: bdev.share_uri().unwrap_or(share),
+                })
             })
         })
+        .await
     }
 
     #[instrument(level = "debug", err)]
     async fn unshare(&self, request: Request<CreateReply>) -> GrpcResult<Null> {
-        let name = request.into_inner().name;
-        let hdl = Reactors::master().spawn_local(async move {
-            let bdev = Bdev::lookup_by_name(&name).unwrap();
-            let _ = bdev
-                .unshare()
-                .await
-                .map_err(|e| Status::internal(e.to_string()));
-        });
+        sync_config(async {
+            let name = request.into_inner().name;
+            let hdl = Reactors::master().spawn_local(async move {
+                let bdev = Bdev::lookup_by_name(&name).unwrap();
+                let _ = bdev
+                    .unshare()
+                    .await
+                    .map_err(|e| Status::internal(e.to_string()));
+            });
 
-        hdl.await.unwrap();
-
-        Ok(Response::new(Null {}))
+            hdl.await.unwrap();
+            Ok(Response::new(Null {}))
+        })
+        .await
     }
 }
