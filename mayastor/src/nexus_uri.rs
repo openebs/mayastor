@@ -83,6 +83,21 @@ pub fn bdev_get_name(uri: &str) -> Result<String, NexusBdevError> {
     Ok(Uri::parse(uri)?.get_name())
 }
 
+impl std::cmp::PartialEq<url::Url> for &Bdev {
+    fn eq(&self, uri: &url::Url) -> bool {
+        match Uri::parse(&uri.to_string()) {
+            Ok(device) if device.get_name() == self.name() => {
+                self.driver()
+                    == match uri.scheme() {
+                        "nvmf" | "pcie" => "nvme",
+                        scheme => scheme,
+                    }
+            }
+            _ => false,
+        }
+    }
+}
+
 impl std::cmp::PartialEq<url::Url> for Bdev {
     fn eq(&self, uri: &url::Url) -> bool {
         match Uri::parse(&uri.to_string()) {

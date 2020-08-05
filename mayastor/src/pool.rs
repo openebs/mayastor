@@ -10,6 +10,7 @@ use std::{
 
 use futures::channel::oneshot;
 use snafu::Snafu;
+use url::Url;
 
 use rpc::mayastor as rpc;
 use spdk_sys::{
@@ -32,9 +33,10 @@ use spdk_sys::{
 };
 
 use crate::{
-    bdev::util::uring,
-    core::Bdev,
+    bdev::{util::uring, Uri},
+    core::{Bdev, Share},
     ffihelper::{cb_arg, done_cb},
+    nexus_uri::{bdev_destroy, NexusBdevError},
     replica::ReplicaIter,
 };
 
@@ -215,7 +217,7 @@ pub struct Pool {
 }
 
 impl Pool {
-    /// Easy converter from raw pointer to Pool object
+    /// An easy converter from a raw pointer to Pool object
     unsafe fn from_ptr(ptr: *mut lvol_store_bdev) -> Pool {
         Pool {
             lvs_ptr: (*ptr).lvs,
@@ -274,7 +276,6 @@ impl Pool {
             spdk_bs_free_cluster_count(lvs.blobstore) * cluster_size
         }
     }
-
     /// Return raw pointer to spdk lvol store structure
     pub fn as_ptr(&self) -> *mut spdk_lvol_store {
         self.lvs_ptr
@@ -287,7 +288,7 @@ impl Pool {
             None => {
                 return Err(Error::UnknownBdev {
                     name: String::from(disk),
-                })
+                });
             }
         };
         let pool_name = CString::new(name).unwrap();
@@ -339,7 +340,7 @@ impl Pool {
             None => {
                 return Err(Error::UnknownBdev {
                     name: String::from(disk),
-                })
+                });
             }
         };
 
@@ -419,41 +420,59 @@ impl Pool {
                 return Ok(());
             }
         };
-        let base_bdev_type = base_bdev.driver();
-        debug!("Destroying bdev type {}", base_bdev_type);
-
-        let (sender, receiver) = oneshot::channel::<i32>();
-        if base_bdev_type == "aio" {
-            unsafe {
-                bdev_aio_delete(
-                    base_bdev.as_ptr(),
-                    Some(done_cb),
-                    cb_arg(sender),
-                );
-            }
+        if let Some(uri) = base_bdev.bdev_uri() {
+            debug!("destroying bdev {}", uri);
+            bdev_destroy(&uri)
+                .await
+                .map_err(|_e| Error::FailedDestroyBdev {
+                    bdev: base_bdev.name(),
+                    bdev_type: base_bdev.driver(),
+                    name,
+                    errno: -1,
+                })
+                .map(|_| Ok(()))?
         } else {
-            unsafe {
-                delete_uring_bdev(
-                    base_bdev.as_ptr(),
-                    Some(done_cb),
-                    cb_arg(sender),
-                );
-            }
-        }
-        let bdev_errno = receiver.await.expect("Cancellation is not supported");
-        if bdev_errno != 0 {
-            Err(Error::FailedDestroyBdev {
-                bdev: base_bdev_name,
-                bdev_type: base_bdev_type,
-                name,
-                errno: bdev_errno,
-            })
-        } else {
-            info!(
-                "The pool {} and base bdev {} type {} have been destroyed",
-                name, base_bdev_name, base_bdev_type
+            let base_bdev_type = base_bdev.driver();
+            debug!(
+                "Destroying bdev {} type {}",
+                base_bdev.name(),
+                base_bdev_type
             );
-            Ok(())
+
+            let (sender, receiver) = oneshot::channel::<i32>();
+            if base_bdev_type == "aio" {
+                unsafe {
+                    bdev_aio_delete(
+                        base_bdev.as_ptr(),
+                        Some(done_cb),
+                        cb_arg(sender),
+                    );
+                }
+            } else {
+                unsafe {
+                    delete_uring_bdev(
+                        base_bdev.as_ptr(),
+                        Some(done_cb),
+                        cb_arg(sender),
+                    );
+                }
+            }
+            let bdev_errno =
+                receiver.await.expect("Cancellation is not supported");
+            if bdev_errno != 0 {
+                Err(Error::FailedDestroyBdev {
+                    bdev: base_bdev_name,
+                    bdev_type: base_bdev_type,
+                    name,
+                    errno: bdev_errno,
+                })
+            } else {
+                info!(
+                    "The pool {} and base bdev {} type {} have been destroyed",
+                    name, base_bdev_name, base_bdev_type
+                );
+                Ok(())
+            }
         }
     }
 }
@@ -510,9 +529,7 @@ impl From<Pool> for rpc::Pool {
     }
 }
 
-pub(crate) async fn create_pool(
-    args: rpc::CreatePoolRequest,
-) -> Result<rpc::Pool> {
+async fn create_pool_legacy(args: rpc::CreatePoolRequest) -> Result<rpc::Pool> {
     // TODO: support RAID-0 devices
     if args.disks.len() != 1 {
         return Err(Error::BadNumDisks {
@@ -521,7 +538,13 @@ pub(crate) async fn create_pool(
     }
 
     if let Some(pool) = Pool::lookup(&args.name) {
-        return Ok(pool.into());
+        return if pool.get_base_bdev().name() == args.disks[0] {
+            Ok(pool.into())
+        } else {
+            Err(Error::AlreadyExists {
+                name: args.name,
+            })
+        };
     }
 
     // TODO: We would like to check if the disk is in use, but there
@@ -558,6 +581,63 @@ pub(crate) async fn create_pool(
     };
     let pool = Pool::create(&args.name, disk).await?;
     Ok(pool.into())
+}
+
+fn is_uri_scheme(disks: &[String]) -> bool {
+    !disks.iter().any(|d| Url::parse(d).is_err())
+}
+
+async fn create_pool_uri(args: rpc::CreatePoolRequest) -> Result<rpc::Pool> {
+    if args.disks.len() != 1 {
+        return Err(Error::BadNumDisks {
+            num: args.disks.len(),
+        });
+    }
+
+    let parsed = Uri::parse(&args.disks[0]).map_err(|e| Error::BadBdev {
+        bdev_if: e.to_string(),
+        name: args.disks[0].clone(),
+    })?;
+
+    if let Some(pool) = Pool::lookup(&args.name) {
+        return if pool.get_base_bdev().name() == parsed.get_name() {
+            Ok(pool.into())
+        } else {
+            Err(Error::AlreadyExists {
+                name: args.name,
+            })
+        };
+    }
+
+    let bdev = match parsed.create().await {
+        Err(e) => match e {
+            NexusBdevError::BdevExists {
+                ..
+            } => Ok(parsed.get_name()),
+            _ => Err(Error::BadBdev {
+                bdev_if: "".to_string(),
+                name: parsed.get_name(),
+            }),
+        },
+        Ok(name) => Ok(name),
+    }?;
+
+    if let Ok(pool) = Pool::import(&args.name, &bdev).await {
+        return Ok(pool.into());
+    }
+
+    let pool = Pool::create(&args.name, &bdev).await?;
+    Ok(pool.into())
+}
+
+pub async fn create_pool(args: rpc::CreatePoolRequest) -> Result<rpc::Pool> {
+    if is_uri_scheme(&args.disks) {
+        debug!("pool creation with URI scheme");
+        create_pool_uri(args).await
+    } else {
+        debug!("pool creation with legacy scheme");
+        create_pool_legacy(args).await
+    }
 }
 
 pub(crate) async fn destroy_pool(args: rpc::DestroyPoolRequest) -> Result<()> {

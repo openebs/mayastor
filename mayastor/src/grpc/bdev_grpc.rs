@@ -130,7 +130,7 @@ impl BdevRpc for BdevSvc {
         .map(|share| {
             let bdev = Bdev::lookup_by_name(&name).unwrap();
             Response::new(BdevShareReply {
-                uri: bdev.get_share_uri().unwrap_or(share),
+                uri: bdev.share_uri().unwrap_or(share),
             })
         })
     }

@@ -14,5 +14,6 @@ pub trait Share: std::fmt::Debug {
     async fn share_nvmf(self) -> Result<Self::Output, Self::Error>;
     async fn unshare(&self) -> Result<Self::Output, Self::Error>;
     fn shared(&self) -> Option<Protocol>;
-    fn get_share_uri(&self) -> Option<String>;
+    fn share_uri(&self) -> Option<String>;
+    fn bdev_uri(&self) -> Option<String>;
 }
