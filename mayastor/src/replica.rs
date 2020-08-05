@@ -139,6 +139,7 @@ pub struct Replica {
     lvol_ptr: *mut spdk_lvol,
 }
 
+#[derive(Debug, PartialEq, Serialize, Deserialize, Clone, Copy)]
 /// Types of remote access storage protocols and IDs for sharing replicas.
 pub enum ShareType {
     Nvmf,
