@@ -115,12 +115,27 @@ impl Share for Bdev {
     }
 
     /// return share URI for nvmf and iscsi
-    fn get_share_uri(&self) -> Option<String> {
+    fn share_uri(&self) -> Option<String> {
         match self.shared() {
             Some(Protocol::Nvmf) => nvmf::get_uri(&self.name()),
             Some(Protocol::Iscsi) => iscsi::get_uri(Side::Nexus, &self.name()),
             None => None,
         }
+    }
+
+    fn bdev_uri(&self) -> Option<String> {
+        for alias in self.aliases().iter() {
+            if let Ok(mut uri) = url::Url::parse(alias) {
+                if self == uri {
+                    if uri.query_pairs().find(|e| e.0 == "uuid").is_none() {
+                        uri.query_pairs_mut()
+                            .append_pair("uuid", &self.uuid_as_string());
+                    }
+                    return Some(uri.to_string());
+                }
+            }
+        }
+        None
     }
 }
 
