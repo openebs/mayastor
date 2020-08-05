@@ -12,7 +12,7 @@ pub use common::error_bdev::{
     VBDEV_IO_FAILURE,
 };
 use mayastor::{
-    bdev::{nexus_create, nexus_lookup, NexusErrStore, QueryType},
+    bdev::{nexus_create, nexus_lookup, ActionType, NexusErrStore, QueryType},
     core::{
         mayastor_env_stop,
         Bdev,
@@ -45,6 +45,7 @@ fn nexus_error_count_test() {
 
     let mut config = Config::default();
     config.err_store_opts.enable_err_store = true;
+    config.err_store_opts.action = ActionType::Ignore;
     config.err_store_opts.err_store_size = 256;
     config.write(YAML_CONFIG_FILE).unwrap();
     test_init!(YAML_CONFIG_FILE);
