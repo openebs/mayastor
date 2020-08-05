@@ -34,6 +34,7 @@ use crate::{
     jsonrpc::{jsonrpc_register, Code, RpcErrorCode},
     nexus_uri::bdev_create,
     pool::{create_pool, PoolsIter},
+    replica::{self, ReplicaIter, ShareType},
     subsys::{
         config::opts::{
             BdevOpts,
@@ -263,6 +264,12 @@ impl Config {
                 disks: vec![p.get_base_bdev().name()],
                 blk_size: p.get_base_bdev().block_len(),
                 io_if: 0, // AIO
+                replicas: ReplicaIter::new()
+                    .map(|p| Replica {
+                        name: p.get_uuid().to_string(),
+                        share: p.get_share_type(),
+                    })
+                    .collect::<Vec<_>>(),
             })
             .collect::<Vec<_>>();
 
@@ -393,22 +400,81 @@ impl Config {
         }
         failures
     }
+
+    /// Share any pool replicas defined in the config file.
+    async fn share_replicas(&self) {
+        if let Some(pools) = self.pools.as_ref() {
+            let replicas = pools
+                .iter()
+                .map(|p| {
+                    p.replicas
+                        .iter()
+                        .filter(|r| r.share.is_some())
+                        .filter_map(|replica| {
+                            ReplicaIter::new()
+                                .find(|dev| dev.get_uuid() == replica.name)
+                                .map(|dev| (dev, replica.share.unwrap()))
+                        })
+                        .collect::<Vec<(replica::Replica, ShareType)>>()
+                })
+                .flatten()
+                .collect::<Vec<(replica::Replica, ShareType)>>();
+
+            for (dev, share) in replicas {
+                if let Err(error) = dev.share(share).await {
+                    error!(
+                        "Failed to share {} over {:?}, error={}",
+                        dev.get_uuid(),
+                        share,
+                        error
+                    );
+                }
+            }
+        }
+    }
+
+    pub fn import_nexuses() -> bool {
+        match std::env::var_os("IMPORT_NEXUSES") {
+            Some(val) => val.into_string().unwrap().parse::<bool>().unwrap(),
+            None => true,
+        }
+    }
+
     /// Import bdevs with a specific order
     pub fn import_bdevs(&'static self) {
         assert_eq!(Cores::current(), Cores::first());
         Reactor::block_on(async move {
-            // the order is pretty arbitrary the only key thing here is that
-            // there should not be any duplicate bdevs in the config
+            // There should not be any duplicate bdevs in the config
             // file. We count any creation failures, but we do not retry.
 
-            let mut errors = self.create_nexus_bdevs().await;
+            // The nexus should be created after the pools as it may be using
+            // the pool's lvol
+            // The base bdevs need to be created after the nexus as otherwise
+            // the nexus create will fail
+
+            let mut errors = self.create_pools().await;
+            self.share_replicas().await;
+
+            if Self::import_nexuses() {
+                errors += self.create_nexus_bdevs().await;
+            }
+
             errors += self.create_base_bdevs().await;
-            errors += self.create_pools().await;
 
             if errors != 0 {
                 warn!("Not all bdevs({}) where imported successfully", errors);
             }
         });
+    }
+
+    /// exports the current configuration to the mayastor config file
+    pub(crate) fn export_config() -> Result<(), std::io::Error> {
+        let cfg = Config::get().refresh().unwrap();
+        match cfg.source.as_ref() {
+            Some(target) => cfg.write(&target),
+            // no config file to export to
+            None => Ok(()),
+        }
     }
 }
 
@@ -449,6 +515,8 @@ pub struct Pool {
     pub blk_size: u32,
     /// use AIO, uring or auto detect
     pub io_if: i32,
+    /// list of replicas to share on load
+    pub replicas: Vec<Replica>,
 }
 
 /// Convert Pool into a gRPC request payload
@@ -461,4 +529,13 @@ impl From<&Pool> for rpc::mayastor::CreatePoolRequest {
             io_if: o.io_if,
         }
     }
+}
+
+#[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
+/// Pool replicas that we share via `ShareType`
+pub struct Replica {
+    /// name of the replica
+    pub name: String,
+    /// share type if shared
+    pub share: Option<ShareType>,
 }

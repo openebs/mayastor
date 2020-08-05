@@ -33,6 +33,30 @@ mod mayastor_grpc;
 mod nexus_grpc;
 mod server;
 
+use crate::subsys::Config;
+use futures::Future;
 pub use server::MayastorGrpcServer;
 use tonic::{Response, Status};
+
 pub type GrpcResult<T> = std::result::Result<Response<T>, Status>;
+
+/// Used by the gRPC method implementations to sync the current configuration by
+/// exporting it to a config file
+/// If `sync_config` fails then the method should return a failure
+/// requiring the gRPC caller to retry the method, which should be idempotent
+pub async fn sync_config<F, T>(future: F) -> GrpcResult<T>
+where
+    F: Future<Output = GrpcResult<T>>,
+{
+    let result = future.await;
+    if result.is_ok() {
+        match Config::export_config() {
+            Ok(_) => {}
+            Err(e) => {
+                error!("Failed to export config file: {}", e);
+                return Err(Status::data_loss("Failed to export config"));
+            }
+        }
+    }
+    result
+}
