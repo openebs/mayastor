@@ -44,7 +44,7 @@ At a high-level, MayaStor consists of two major components.
 ### **Control plane:**
 
  * A single instance K8s controller which implements the [CSI](https://github.com/container-storage-interface/spec/blob/master/spec.md)
- controller spec but also private interfaces that otherwise would be implemented by your storage system.  This is called Mother Of All Containers native storage or *MAOC*  for short; it runs as a k8s deployment.
+ controller spec but also private interfaces that otherwise would be implemented by your storage system.  This is called Mother Of All Containers native storage or *MOAC*  for short; it runs as a k8s deployment.
 
  * A _per_ node instance *mayastor-csi* plugin which implements the identity and node grpc services from CSI protocol.
 
