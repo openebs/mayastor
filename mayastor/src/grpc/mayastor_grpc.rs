@@ -200,12 +200,9 @@ impl mayastor_server::Mayastor for MayastorSvc {
         sync_config(async {
             let args = request.into_inner();
             trace!("{:?}", args);
-            let uuid = args.uuid.clone();
-            debug!("Destroying nexus {} ...", uuid);
             locally! { async move {
                 nexus_destroy(&args.uuid).await
             }};
-            info!("Destroyed nexus {}", uuid);
             Ok(Response::new(Null {}))
         })
         .await
