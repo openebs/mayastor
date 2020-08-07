@@ -41,6 +41,8 @@ pub mod csi {
 mod dev;
 mod error;
 
+mod block_vol;
+mod filesystem_vol;
 mod format;
 mod identity;
 mod match_dev;
