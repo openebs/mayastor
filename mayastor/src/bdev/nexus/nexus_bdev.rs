@@ -556,6 +556,7 @@ impl Nexus {
         }
 
         if r.await.unwrap() {
+            info!("Nexus {} destroyed", self.name);
             Ok(())
         } else {
             Err(Error::NexusDestroy {
