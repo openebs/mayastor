@@ -31,8 +31,7 @@ pub struct Node {
     pub filesystems: Vec<String>,
 }
 
-// Timeout settings for device attach
-// 10 retries at 100ms intervals
+// 10 retries at 100ms intervals = 1 second.
 const ATTACH_TIMEOUT_INTERVAL: Duration = Duration::from_millis(100);
 const ATTACH_RETRIES: u32 = 100;
 
@@ -401,7 +400,7 @@ impl node_server::Node for Node {
         })? {
             Some(devpath) => devpath,
             None => {
-                debug!("Attaching volume");
+                debug!("Attaching volume {}", &msg.volume_id);
                 // device.attach is idempotent, so does not restart the attach
                 // process
                 if let Err(error) = device.attach().await {
