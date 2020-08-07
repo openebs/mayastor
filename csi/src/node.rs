@@ -31,7 +31,6 @@ pub struct Node {
     pub filesystems: Vec<String>,
 }
 
-// 10 retries at 100ms intervals = 1 second.
 const ATTACH_TIMEOUT_INTERVAL: Duration = Duration::from_millis(100);
 const ATTACH_RETRIES: u32 = 100;
 
