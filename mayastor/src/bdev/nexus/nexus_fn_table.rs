@@ -118,9 +118,20 @@ impl NexusFnTable {
                         nio.fail();
                     }
                 }
-                io_type::FLUSH => nexus.flush(io, &ch),
-                io_type::WRITE_ZEROES => nexus.write_zeroes(io, &ch),
-
+                io_type::FLUSH => {
+                    if nexus.io_is_supported(io_type) {
+                        nexus.flush(io, &ch)
+                    } else {
+                        nio.fail()
+                    }
+                }
+                io_type::WRITE_ZEROES => {
+                    if nexus.io_is_supported(io_type) {
+                        nexus.write_zeroes(io, &ch)
+                    } else {
+                        nio.fail()
+                    }
+                }
                 _ => panic!(
                     "{} Received unsupported IO! type {}",
                     nexus.name, io_type
