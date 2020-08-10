@@ -209,7 +209,7 @@ impl NexusChild {
         let child_size = bdev.size_in_bytes();
         if parent_size > child_size {
             error!(
-                "{}: child to small parent size: {} child size: {}",
+                "{}: child too small, parent size: {} child size: {}",
                 self.name, parent_size, child_size
             );
             self.state = ChildState::ConfigInvalid;

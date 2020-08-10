@@ -79,6 +79,11 @@ pub enum CoreError {
     ResetDispatch {
         source: Errno,
     },
+    #[snafu(display("Failed to dispatch NVMe Admin",))]
+    NvmeAdminDispatch {
+        source: Errno,
+        opcode: u16,
+    },
     #[snafu(display("Write failed at offset {} length {}", offset, len))]
     WriteFailed {
         offset: u64,
@@ -91,6 +96,10 @@ pub enum CoreError {
     },
     #[snafu(display("Reset failed"))]
     ResetFailed {},
+    #[snafu(display("NVMe Admin failed"))]
+    NvmeAdminFailed {
+        opcode: u16,
+    },
     #[snafu(display("failed to share {}", source))]
     ShareNvmf {
         source: NvmfError,
