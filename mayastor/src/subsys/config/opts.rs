@@ -197,7 +197,7 @@ impl From<TcpTransportOpts> for spdk_nvmf_transport_opts {
     }
 }
 
-/// generic settings for the NVMe bdev (all our replica's)
+/// generic settings for the NVMe bdev (all our replicas)
 #[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct NvmeBdevOpts {

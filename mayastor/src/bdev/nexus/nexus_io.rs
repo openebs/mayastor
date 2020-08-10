@@ -54,7 +54,7 @@ pub mod io_type {
     //    pub const INVALID: u32 = 0;
     pub const FLUSH: u32 = 4;
     pub const RESET: u32 = 5;
-    //    pub const NVME_ADMIN: u32 = 6;
+    pub const NVME_ADMIN: u32 = 6;
     //    pub const NVME_IO: u32 = 7;
     //    pub const NVME_IO_MD: u32 = 8;
     pub const WRITE_ZEROES: u32 = 9;
@@ -73,6 +73,12 @@ pub mod io_status {
     pub const FAILED: i32 = -1;
     //pub const PENDING: i32 = 0;
     pub const SUCCESS: i32 = 1;
+}
+
+/// NVMe Admin opcode, from nvme_spec.h
+pub mod nvme_admin_opc {
+    // Vendor-specific
+    pub const CREATE_SNAPSHOT: u8 = 0xc0;
 }
 
 impl Bio {
@@ -183,6 +189,24 @@ impl Bio {
     #[inline]
     pub(crate) fn num_blocks(&self) -> u64 {
         unsafe { (*self.0).u.bdev.num_blocks }
+    }
+
+    /// NVMe passthru command
+    #[inline]
+    pub(crate) fn nvme_cmd(&self) -> spdk_sys::spdk_nvme_cmd {
+        unsafe { (*self.0).u.nvme_passthru.cmd }
+    }
+
+    /// raw pointer to NVMe passthru data buffer
+    #[inline]
+    pub(crate) fn nvme_buf(&self) -> *mut c_void {
+        unsafe { (*self.0).u.nvme_passthru.buf }
+    }
+
+    /// NVMe passthru number of bytes to transfer
+    #[inline]
+    pub(crate) fn nvme_nbytes(&self) -> u64 {
+        unsafe { (*self.0).u.nvme_passthru.nbytes }
     }
 
     /// free the io directly without completion note that the IO is not freed
