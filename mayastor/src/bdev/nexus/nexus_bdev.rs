@@ -22,6 +22,7 @@ use spdk_sys::{
     spdk_bdev_flush_blocks,
     spdk_bdev_io,
     spdk_bdev_io_get_buf,
+    spdk_bdev_nvme_admin_passthru,
     spdk_bdev_readv_blocks,
     spdk_bdev_register,
     spdk_bdev_reset,
@@ -32,6 +33,7 @@ use spdk_sys::{
     spdk_io_channel,
     spdk_io_device_register,
     spdk_io_device_unregister,
+    spdk_nvmf_request,
 };
 
 use crate::{
@@ -41,7 +43,7 @@ use crate::{
             instances,
             nexus_channel::{DREvent, NexusChannel, NexusChannelInner},
             nexus_child::{ChildError, ChildState, ChildStatus, NexusChild},
-            nexus_io::{io_status, Bio},
+            nexus_io::{io_status, nvme_admin_opc, Bio},
             nexus_iscsi::{NexusIscsiError, NexusIscsiTarget},
             nexus_label::LabelError,
             nexus_nbd::{NbdDisk, NbdError},
@@ -52,6 +54,7 @@ use crate::{
     ffihelper::errno_result_from_i32,
     nexus_uri::{bdev_destroy, NexusBdevError},
     rebuild::RebuildError,
+    replica::Replica,
 };
 
 /// Obtain the full error chain
@@ -372,6 +375,60 @@ impl Drop for Nexus {
     }
 }
 
+extern "C" fn nvmf_create_snapshot_hdlr(req: *mut spdk_nvmf_request) -> i32 {
+    debug!("nvmf_create_snapshot_hdlr {:?}", req);
+
+    let subsys = unsafe { spdk_sys::spdk_nvmf_request_get_subsystem(req) };
+    if subsys.is_null() {
+        debug!("subsystem is null");
+        return -1;
+    }
+
+    /* Only process this request if it has exactly one namespace */
+    if unsafe { spdk_sys::spdk_nvmf_subsystem_get_max_nsid(subsys) } != 1 {
+        debug!("multiple namespaces");
+        return -1;
+    }
+
+    /* Forward to first namespace if it supports NVME admin commands */
+    let mut bdev: *mut spdk_bdev = std::ptr::null_mut();
+    let mut desc: *mut spdk_bdev_desc = std::ptr::null_mut();
+    let mut ch: *mut spdk_io_channel = std::ptr::null_mut();
+    let rc = unsafe {
+        spdk_sys::spdk_nvmf_request_get_bdev(
+            1, req, &mut bdev, &mut desc, &mut ch,
+        )
+    };
+    if rc != 0 {
+        /* No bdev found for this namespace. Continue. */
+        debug!("no bdev found");
+        return -1;
+    }
+
+    let bd = Bdev::from(bdev);
+    if let Some(replica) = Replica::from_bdev(&bd) {
+        let cmd = unsafe { &*spdk_sys::spdk_nvmf_request_get_cmd(req) };
+        let snapshot_time = unsafe {
+            cmd.__bindgen_anon_1.cdw10 as u64
+                | (cmd.__bindgen_anon_2.cdw11 as u64) << 32
+        };
+        let snapshot_name = format!("{}-snap-{}", bd.name(), snapshot_time);
+        replica.create_snapshot(req, &snapshot_name);
+        1 // SPDK_NVMF_REQUEST_EXEC_STATUS_ASYNCHRONOUS
+    } else {
+        -1
+    }
+}
+
+pub fn setup_create_snapshot_hdlr() {
+    unsafe {
+        spdk_sys::spdk_nvmf_set_custom_admin_cmd_hdlr(
+            nvme_admin_opc::CREATE_SNAPSHOT,
+            Some(nvmf_create_snapshot_hdlr),
+        );
+    }
+}
+
 impl Nexus {
     /// create a new nexus instance with optionally directly attaching
     /// children to it.
@@ -613,7 +670,7 @@ impl Nexus {
     }
 
     /// determine if any of the children do not support the requested
-    /// io type. Brake the loop on first occurrence.
+    /// io type. Break the loop on first occurrence.
     /// TODO: optionally add this check during nexus creation
     pub fn io_is_supported(&self, io_type: u32) -> bool {
         self.children
@@ -884,6 +941,45 @@ impl Nexus {
                     c,
                     io.offset() + io.nexus_as_ref().data_ent_offset,
                     io.num_blocks(),
+                    Some(Self::io_completion),
+                    pio as *mut _,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        if results.iter().any(|r| *r != 0) {
+            error!(
+                "{}: Failed to submit dispatched IO {:?}",
+                io.nexus_as_ref().name,
+                pio
+            );
+        }
+    }
+
+    pub(crate) fn nvme_admin(
+        &self,
+        pio: *mut spdk_bdev_io,
+        channels: &NexusChannelInner,
+    ) {
+        let mut io = Bio(pio);
+        if io.nvme_cmd().opc() == nvme_admin_opc::CREATE_SNAPSHOT as u16 {
+            // FIXME: pause IO before dispatching
+            debug!("Passing thru create snapshot as NVMe Admin command");
+        }
+        // for pools, pass thru only works with our vendor commands as the
+        // underlying bdev is not nvmf
+        io.ctx_as_mut_ref().in_flight = channels.ch.len() as i8;
+        let results = channels
+            .ch
+            .iter()
+            .map(|c| unsafe {
+                let (desc, chan) = c.io_tuple();
+                spdk_bdev_nvme_admin_passthru(
+                    desc,
+                    chan,
+                    &io.nvme_cmd(),
+                    io.nvme_buf(),
+                    io.nvme_nbytes(),
                     Some(Self::io_completion),
                     pio as *mut _,
                 )
