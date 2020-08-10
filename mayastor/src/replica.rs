@@ -12,7 +12,10 @@ use snafu::{ResultExt, Snafu};
 
 use spdk_sys::{
     spdk_lvol,
+    spdk_nvme_cpl,
+    spdk_nvmf_request,
     vbdev_lvol_create,
+    vbdev_lvol_create_snapshot,
     vbdev_lvol_destroy,
     vbdev_lvol_get_from_bdev,
     LVOL_CLEAR_WITH_UNMAP,
@@ -225,17 +228,20 @@ impl Replica {
     /// Lookup replica by uuid (=name).
     pub fn lookup(uuid: &str) -> Option<Self> {
         match Bdev::lookup_by_name(uuid) {
-            Some(bdev) => {
-                let lvol = unsafe { vbdev_lvol_get_from_bdev(bdev.as_ptr()) };
-                if lvol.is_null() {
-                    None
-                } else {
-                    Some(Self {
-                        lvol_ptr: lvol,
-                    })
-                }
-            }
+            Some(bdev) => Replica::from_bdev(&bdev),
             None => None,
+        }
+    }
+
+    /// Look up replica from Bdev
+    pub fn from_bdev(bdev: &Bdev) -> Option<Self> {
+        let lvol = unsafe { vbdev_lvol_get_from_bdev(bdev.as_ptr()) };
+        if lvol.is_null() {
+            None
+        } else {
+            Some(Self {
+                lvol_ptr: lvol,
+            })
         }
     }
 
@@ -265,6 +271,25 @@ impl Replica {
 
         info!("Destroyed replica {}", uuid);
         Ok(())
+    }
+
+    /// Create a snapshot
+    pub fn create_snapshot(
+        self,
+        nvmf_req: *mut spdk_nvmf_request,
+        snapshot_name: &str,
+    ) {
+        let c_snapshot_name = CString::new(snapshot_name).unwrap();
+        unsafe {
+            vbdev_lvol_create_snapshot(
+                self.as_ptr(),
+                c_snapshot_name.as_ptr(),
+                Some(Self::snapshot_done_cb),
+                nvmf_req as *mut c_void,
+            )
+        };
+
+        info!("Creating snapshot {}", snapshot_name);
     }
 
     /// Expose replica over supported remote access storage protocols (nvmf
@@ -368,6 +393,37 @@ impl Replica {
         sender
             .send(errno_result_from_i32(lvol_ptr, errno))
             .expect("Receiver is gone");
+    }
+
+    /// Callback called from SPDK for snapshot create method.
+    extern "C" fn snapshot_done_cb(
+        nvmf_req_ptr: *mut c_void,
+        _lvol_ptr: *mut spdk_lvol,
+        errno: i32,
+    ) {
+        let rsp: &mut spdk_nvme_cpl = unsafe {
+            &mut *spdk_sys::spdk_nvmf_request_get_response(
+                nvmf_req_ptr as *mut spdk_nvmf_request,
+            )
+        };
+
+        unsafe {
+            rsp.__bindgen_anon_1.status.set_sct(0); // SPDK_NVME_SCT_GENERIC
+            rsp.__bindgen_anon_1.status.set_sc(match errno {
+                0 => 0,
+                _ => {
+                    debug!("vbdev_lvol_create_snapshot errno {}", errno);
+                    0x06 // SPDK_NVME_SC_INTERNAL_DEVICE_ERROR
+                }
+            })
+        }
+
+        // From nvmf_bdev_ctrlr_complete_cmd
+        unsafe {
+            spdk_sys::spdk_nvmf_request_complete(
+                nvmf_req_ptr as *mut spdk_nvmf_request,
+            );
+        }
     }
 }
 

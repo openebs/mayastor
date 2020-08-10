@@ -23,6 +23,7 @@ pub use subsystem::{NvmfSubsystem, SubType};
 pub use target::Target;
 
 use crate::{
+    bdev::nexus::nexus_bdev,
     jsonrpc::{Code, RpcErrorCode},
     subsys::{nvmf::target::NVMF_TGT, Config},
 };
@@ -83,7 +84,10 @@ impl Nvmf {
     extern "C" fn init() {
         debug!("mayastor nvmf subsystem init");
 
-        // this code only ever gets run on the fist core
+        // this code only ever gets run on the first core
+
+        // set up custom NVMe Admin command handler
+        nexus_bdev::setup_create_snapshot_hdlr();
 
         if Config::get().nexus_opts.nvmf_enable {
             NVMF_TGT.with(|tgt| {
