@@ -505,7 +505,7 @@ impl Default for ErrStoreOpts {
             err_store_size: 256,
             enable_err_store: true,
             action: ActionType::Fault,
-            max_errors: 5,
+            max_errors: 64,
             retention_ns: 10_000_000_000,
         }
     }
