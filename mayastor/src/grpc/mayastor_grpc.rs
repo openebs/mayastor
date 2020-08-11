@@ -318,7 +318,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
             let uuid = args.uuid.clone();
             debug!("Unpublishing nexus {} ...", uuid);
             locally! { async move {
-                nexus_lookup(&args.uuid)?.unshare().await
+                nexus_lookup(&args.uuid)?.unshare_nexus().await
             }};
             info!("Unpublished nexus {}", uuid);
             Ok(Response::new(Null {}))

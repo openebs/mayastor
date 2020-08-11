@@ -1,5 +1,6 @@
 use std::ffi::CString;
 
+use async_trait::async_trait;
 use futures::channel::oneshot;
 use snafu::ResultExt;
 
@@ -12,6 +13,7 @@ use crate::{
             CreateCryptoBdev,
             DestroyCryptoBdev,
             Error,
+            Error::AlreadyShared,
             Nexus,
             NexusTarget,
             ShareIscsiNexus,
@@ -20,15 +22,95 @@ use crate::{
         },
         nexus_iscsi::NexusIscsiTarget,
         nexus_nbd::NbdDisk,
-        nexus_nvmf::NexusNvmfTarget,
+        nexus_nvmf::{NexusNvmfError, NexusNvmfTarget},
     },
-    core::Bdev,
+    core::{Bdev, Protocol, Share},
     ffihelper::{cb_arg, done_errno_cb, errno_result_from_i32, ErrnoResult},
 };
 
 /// we are using the multi buffer encryption implementation using CBC as the
 /// algorithm
 const CRYPTO_FLAVOUR: &str = "crypto_aesni_mb";
+
+#[async_trait(? Send)]
+///
+/// The sharing of the nexus is different compared to regular bdevs
+/// the Impl of ['Share'] handles this accordingly
+///
+/// The nexus and replicas are typically shared over different
+/// endpoints (not targets) however, we want to avoid to much
+/// iSCSI specifics and for bdevs the need for different endpoints
+/// is not implemented yet as the need for it has not arrived yet.
+impl Share for Nexus {
+    type Error = Error;
+    type Output = String;
+
+    async fn share_iscsi(&self) -> Result<Self::Output, Self::Error> {
+        match self.shared() {
+            Some(Protocol::Iscsi) => Ok(self.share_uri().unwrap()),
+            Some(p) => {
+                warn!("nexus {} already shared as {:?}", self.name, p);
+                Err(AlreadyShared {
+                    name: self.name.clone(),
+                })
+            }
+            None => {
+                // share_iscsi() returns the iqn but not the full share URI, so
+                // we swallow that and return the share_uri()
+                self.bdev
+                    .share_iscsi()
+                    .await
+                    .map_err(|_e| Error::NotShared {
+                        name: "".to_string(),
+                    })
+                    .map(|_u| self.share_uri().unwrap())
+            }
+        }
+    }
+
+    async fn share_nvmf(&self) -> Result<Self::Output, Self::Error> {
+        // by mistake the trait here takes self instead of &self
+        let bdev = Bdev::from(self.bdev.as_ptr());
+        match self.shared() {
+            Some(Protocol::Nvmf) => Ok(self.share_uri().unwrap()),
+            Some(p) => {
+                warn!("nexus {} already shared as {}", self.name, p);
+                Err(AlreadyShared {
+                    name: self.name.clone(),
+                })
+            }
+            None => bdev
+                .share_nvmf()
+                .await
+                .map_err(|e| Error::ShareNvmfNexus {
+                    source: NexusNvmfError::CreateTargetFailed {
+                        dev: "".to_string(),
+                        err: e.to_string(),
+                    },
+                    name: self.name.clone(),
+                })
+                .map(|_| self.share_uri().unwrap()),
+        }
+    }
+
+    async fn unshare(&self) -> Result<Self::Output, Self::Error> {
+        self.bdev.unshare().await.map_err(|_e| Error::NotShared {
+            name: self.name.clone(),
+        })
+    }
+
+    fn shared(&self) -> Option<Protocol> {
+        self.bdev.shared()
+    }
+
+    fn share_uri(&self) -> Option<String> {
+        self.bdev.share_uri()
+    }
+
+    fn bdev_uri(&self) -> Option<String> {
+        self.bdev.bdev_uri()
+    }
+}
 
 impl Nexus {
     pub async fn share(
@@ -158,7 +240,7 @@ impl Nexus {
     /// where the top-level dev is claimed by the subsystem that exports the
     /// bdev. As such, we must first destroy the share and move our way down
     /// from there.
-    pub async fn unshare(&mut self) -> Result<(), Error> {
+    pub async fn unshare_nexus(&mut self) -> Result<(), Error> {
         match self.nexus_target.take() {
             Some(NexusTarget::NbdDisk(disk)) => {
                 disk.destroy();

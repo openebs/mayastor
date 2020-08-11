@@ -66,7 +66,7 @@ fn mount_fs() {
 
         reactor_poll!(r);
         // destroy the share and the nexus
-        nexus.unshare().await.unwrap();
+        nexus.unshare_nexus().await.unwrap();
         nexus.destroy().await.unwrap();
 
         // create a split nexus, i.e two nexus devices which each one leg of the
@@ -99,7 +99,7 @@ fn mount_fs() {
         let md5_left: String;
         reactor_poll!(r, md5_left);
 
-        left.unshare().await.unwrap();
+        left.unshare_nexus().await.unwrap();
         left.destroy().await.unwrap();
 
         let s1 = s.clone();
@@ -111,7 +111,7 @@ fn mount_fs() {
 
         let md5_right;
         reactor_poll!(r, md5_right);
-        right.unshare().await.unwrap();
+        right.unshare_nexus().await.unwrap();
         right.destroy().await.unwrap();
         assert_eq!(md5_left, md5_right);
     }
