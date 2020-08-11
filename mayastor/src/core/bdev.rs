@@ -74,9 +74,11 @@ impl Share for Bdev {
     }
 
     /// share the bdev over NVMe-OF TCP
-    async fn share_nvmf(self) -> Result<Self::Output, Self::Error> {
-        let ss = NvmfSubsystem::try_from(self).map_err(|source| ShareNvmf {
-            source,
+    async fn share_nvmf(&self) -> Result<Self::Output, Self::Error> {
+        let ss = NvmfSubsystem::try_from(self.clone()).map_err(|source| {
+            ShareNvmf {
+                source,
+            }
         })?;
 
         let shared_as = ss.start().await.map_err(|source| ShareNvmf {
@@ -89,6 +91,7 @@ impl Share for Bdev {
 
     /// unshare the bdev regardless of current active share
     async fn unshare(&self) -> Result<Self::Output, Self::Error> {
+        dbg!(&self);
         match self.shared() {
             Some(Protocol::Nvmf) => {
                 let ss = NvmfSubsystem::nqn_lookup(&self.name()).unwrap();
@@ -98,11 +101,11 @@ impl Share for Bdev {
                 ss.destroy();
             }
             Some(Protocol::Iscsi) => {
-                iscsi::unshare(&self.name()).await.map_err(|source| {
+                dbg!(iscsi::unshare(&self.name()).await.map_err(|source| {
                     ShareIscsi {
                         source,
                     }
-                })?;
+                })?);
             }
             None => {}
         }

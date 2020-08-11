@@ -98,7 +98,10 @@ fn add_child() {
             // Unshare nexus
             Reactor::block_on(async {
                 let nexus = nexus_lookup(NEXUS_NAME).unwrap();
-                nexus.unshare().await.expect("Failed to unshare nexus");
+                nexus
+                    .unshare_nexus()
+                    .await
+                    .expect("Failed to unshare nexus");
             });
 
             mayastor_env_stop(0);
