@@ -525,7 +525,7 @@ impl Nexus {
             }
         }
 
-        let _ = self.unshare().await;
+        let _ = self.unshare_nexus().await;
         assert_eq!(self.share_handle, None);
 
         for child in self.children.iter() {
