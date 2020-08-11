@@ -39,7 +39,7 @@ use spdk_sys::{
 };
 
 use crate::{
-    core::Bdev,
+    core::{Bdev, Protocol, Reactor, Share},
     ffihelper::{cb_arg, done_errno_cb, ErrnoResult},
     subsys::Config,
     target::Side,
@@ -165,9 +165,26 @@ fn destroy_iscsi_groups() {
 }
 
 pub fn fini() {
-    // dont destroy things as this is handled by the subsystem
-    // to fix any error messages we should implement the hotremove
-    // callbacks
+    // as the nvmf target is fully implemented as its own submodule, we also
+    // fully handle the setup and tear down. For iSCSI however, we use the
+    // native subsystem as such, we must undo what we did prior to shutting
+    // down.
+
+    Reactor::block_on(async {
+        if let Some(bdevs) = Bdev::bdev_first() {
+            for b in bdevs {
+                if let Some(Protocol::Iscsi) = b.shared() {
+                    if let Err(e) = b.unshare().await {
+                        error!(
+                            "{} shared but failed to unshare {}",
+                            b.name(),
+                            e.to_string()
+                        )
+                    }
+                }
+            }
+        }
+    });
 }
 
 fn share_as_iscsi_target(
