@@ -190,25 +190,21 @@ pub fn fini() {
 fn share_as_iscsi_target(
     bdev_name: &str,
     bdev: &Bdev,
-    pg_idx: c_int,
-    ig_idx: c_int,
+    mut pg_idx: c_int,
+    mut ig_idx: c_int,
 ) -> Result<String, Error> {
     let iqn = target_name(bdev_name).into_cstring();
-
-    let pg_tags = [pg_idx].as_mut_ptr();
-    let ig_tags = [ig_idx].as_mut_ptr();
-    let lun_ids = [0].as_mut_ptr();
 
     let tgt = unsafe {
         iscsi_tgt_node_construct(
             -1,
             iqn.as_ptr(),
             ptr::null(),
-            pg_tags,
-            ig_tags,
+            &mut pg_idx as *mut _,
+            &mut ig_idx as *mut _,
             1,
             &mut bdev.name().into_cstring().as_ptr(),
-            lun_ids,
+            &mut LUN as *mut _,
             1,
             128,
             true,
