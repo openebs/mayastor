@@ -343,6 +343,9 @@ message Bdev {
   string claimed_by = 7;
   string aliases = 8;
   string uri = 9;
+  string product_name = 10;
+  string share_uri = 11;
+
 }
 
 message Bdevs {
