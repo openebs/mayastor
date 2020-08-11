@@ -29,6 +29,7 @@ use spdk_sys::{
 };
 
 use crate::{
+    bdev::nexus::instances,
     core::{
         share::{Protocol, Share},
         uuid::Uuid,
@@ -142,7 +143,15 @@ impl Share for Bdev {
 impl Bdev {
     extern "C" fn hot_remove(ctx: *mut c_void) {
         let bdev = Bdev(NonNull::new(ctx as *mut spdk_bdev).unwrap());
-        debug!("called hot remove cb for nexus {:?}", bdev);
+
+        instances().iter_mut().for_each(|n| {
+            n.children.iter_mut().for_each(|b| {
+                if b.bdev.as_ref().unwrap().name() == bdev.name() {
+                    info!("hot remove {} from {}", b.name, b.parent);
+                    b.close();
+                }
+            })
+        });
     }
 
     /// open a bdev by its name in read_write mode.
