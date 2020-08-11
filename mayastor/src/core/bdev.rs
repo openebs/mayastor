@@ -64,6 +64,7 @@ impl Share for Bdev {
     type Error = CoreError;
     type Output = String;
 
+    /// share the bdev over iscsi
     async fn share_iscsi(&self) -> Result<Self::Output, Self::Error> {
         iscsi::share(&self.name(), &self, Side::Nexus).map_err(|source| {
             ShareIscsi {
@@ -72,6 +73,7 @@ impl Share for Bdev {
         })
     }
 
+    /// share the bdev over NVMe-OF TCP
     async fn share_nvmf(self) -> Result<Self::Output, Self::Error> {
         let ss = NvmfSubsystem::try_from(self).map_err(|source| ShareNvmf {
             source,
@@ -85,6 +87,7 @@ impl Share for Bdev {
         Ok(shared_as)
     }
 
+    /// unshare the bdev regardless of current active share
     async fn unshare(&self) -> Result<Self::Output, Self::Error> {
         match self.shared() {
             Some(Protocol::Nvmf) => {
@@ -107,6 +110,7 @@ impl Share for Bdev {
         Ok(self.name())
     }
 
+    /// returns if the bdev is currently shared
     fn shared(&self) -> Option<Protocol> {
         match self.claimed_by() {
             Some(t) if t == "NVMe-oF Target" => Some(Protocol::Nvmf),
@@ -115,7 +119,8 @@ impl Share for Bdev {
         }
     }
 
-    /// return share URI for nvmf and iscsi
+    /// return share URI for nvmf and iscsi (does "share path" not sound
+    /// better?)
     fn share_uri(&self) -> Option<String> {
         match self.shared() {
             Some(Protocol::Nvmf) => nvmf::get_uri(&self.name()),
@@ -124,6 +129,7 @@ impl Share for Bdev {
         }
     }
 
+    /// return the URI that was used to construct the bdev
     fn bdev_uri(&self) -> Option<String> {
         for alias in self.aliases().iter() {
             if let Ok(mut uri) = url::Url::parse(alias) {
@@ -141,11 +147,22 @@ impl Share for Bdev {
 }
 
 impl Bdev {
+    /// bdevs are created and destroyed in order, adding a bdev to the nexus
+    /// does interferes with this order. There we traverse all nexuses
+    /// looking for our a child and then close it when found.
+    ///
+    /// By default -- when opening the bdev through the ['Bdev'] module
+    /// we by default, pass the context of the bdev being opened. If we
+    /// need/want to optimize the performance (o^n) we can opt for passing
+    /// a reference to the nexus instead avoiding the lookup.
+    ///
+    /// This does not handle any deep level of nesting
     extern "C" fn hot_remove(ctx: *mut c_void) {
         let bdev = Bdev(NonNull::new(ctx as *mut spdk_bdev).unwrap());
-
         instances().iter_mut().for_each(|n| {
             n.children.iter_mut().for_each(|b| {
+                // note: it would perhaps be wise to close all children
+                // here in one blow to avoid unneeded lookups
                 if b.bdev.as_ref().unwrap().name() == bdev.name() {
                     info!("hot remove {} from {}", b.name, b.parent);
                     b.close();
@@ -191,10 +208,12 @@ impl Bdev {
         }
     }
 
+    /// returns true if this bdev is claimed by some other component
     pub fn is_claimed(&self) -> bool {
         !unsafe { self.0.as_ref().internal.claim_module.is_null() }
     }
 
+    /// returns by who the bdev is claimed
     pub fn claimed_by(&self) -> Option<String> {
         let ptr = unsafe { self.0.as_ref().internal.claim_module };
         if ptr.is_null() {
