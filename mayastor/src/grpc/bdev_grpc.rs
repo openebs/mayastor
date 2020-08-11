@@ -48,6 +48,8 @@ impl From<Bdev> for RpcBdev {
             claimed: b.is_claimed(),
             claimed_by: b.claimed_by().unwrap_or_else(|| "Orphaned".into()),
             aliases: b.aliases().join(","),
+            product_name: b.product_name(),
+            share_uri: b.share_uri().unwrap_or_else(|| "".into()),
             uri: Url::try_from(b).map_or("".into(), |u| u.to_string()),
         }
     }
