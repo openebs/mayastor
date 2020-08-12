@@ -122,7 +122,12 @@ pub async fn nexus_add_child(
 /// Idempotent destruction of the nexus.
 pub async fn nexus_destroy(uuid: &str) -> Result<(), Error> {
     if let Ok(n) = nexus_lookup(uuid) {
-        n.destroy().await?;
+        let result = n.destroy().await;
+        if result.is_ok() {
+            info!("Nexus {} destroyed", uuid)
+        } else {
+            return result;
+        }
     };
     Ok(())
 }

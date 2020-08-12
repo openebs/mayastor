@@ -287,12 +287,7 @@ async fn do_shutdown(arg: *mut c_void) {
     }
 
     nats::message_bus_stop();
-
-    let cfg = Config::get();
-    if cfg.nexus_opts.iscsi_enable {
-        iscsi::fini();
-        debug!("iSCSI target down");
-    };
+    iscsi::fini();
 
     unsafe {
         spdk_rpc_finish();
