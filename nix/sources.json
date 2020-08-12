@@ -24,17 +24,18 @@
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
     "mayastor": {
-        "branch": "v0.2.0",
+        "branch": "v0.3.0",
         "cargosha256": "1234",
         "description": "A cloud native declarative data plane in containers for containers",
         "homepage": null,
         "owner": "openebs",
         "repo": "mayastor",
-        "rev": "4c1d742273ab48a7f93cd08284b031c0694c9557",
-        "sha256": "1x4f4s4xgxlpb8rrw1k00iww2cy03ijbrilp58lkrblvxgrz73vv",
+        "rev": "8470ac075112aca9533db5ffb8367b8e3f8d14c1",
+        "sha256": "1g9n6rhiggirmw2gjas7wig0p8jgkqnnbvfcqknn7257clc3pp5q",
         "type": "tarball",
-        "url": "https://github.com/openebs/mayastor/archive/4c1d742273ab48a7f93cd08284b031c0694c9557.tar.gz",
-        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
+        "url": "https://github.com/openebs/mayastor/archive/8470ac075112aca9533db5ffb8367b8e3f8d14c1.tar.gz",
+        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz",
+        "version": "0.3.0"
     },
     "niv": {
         "branch": "master",
