@@ -4,6 +4,7 @@ use mayastor::{
     bdev::{nexus_create, nexus_lookup},
     core::{
         mayastor_env_stop,
+        Bdev,
         MayastorCliArgs,
         MayastorEnvironment,
         Protocol,
@@ -18,9 +19,9 @@ pub mod common;
 fn nexus_test() {
     common::mayastor_test_init();
     let mut args = MayastorCliArgs::default();
-    args.reactor_mask = "0x3".into();
+    args.reactor_mask = "0xF".into();
 
-    let result = catch_unwind(|| {
+    catch_unwind(|| {
         MayastorEnvironment::new(args)
             .start(|| {
                 // create a nexus and share it via iSCSI
@@ -68,8 +69,32 @@ fn nexus_test() {
                     assert_eq!(shared, shared2);
                     assert_eq!(nexus.shared(), Some(Protocol::Nvmf));
                 });
+
+                // sharing the bdev directly, over iSCSI or nvmf should result
+                // in an error
+                Reactor::block_on(async {
+                    let bdev = Bdev::lookup_by_name("nexus0").unwrap();
+                    assert_eq!(bdev.share_iscsi().await.is_err(), true);
+                    assert_eq!(bdev.share_nvmf().await.is_err(), true);
+                });
+
+                // unshare the nexus
+                Reactor::block_on(async {
+                    let nexus = nexus_lookup("nexus0").unwrap();
+                    nexus.unshare().await.unwrap();
+                });
+
+                Reactor::block_on(async {
+                    let nexus = nexus_lookup("nexus0").unwrap();
+                    assert_eq!(nexus.shared(), None);
+                    let bdev = Bdev::lookup_by_name("nexus0").unwrap();
+                    assert_eq!(bdev.shared(), None);
+                    nexus.destroy().await.unwrap();
+                });
+
                 mayastor_env_stop(0);
             })
             .unwrap();
-    });
+    })
+    .unwrap();
 }
