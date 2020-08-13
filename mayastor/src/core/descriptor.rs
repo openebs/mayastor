@@ -16,7 +16,7 @@ use spdk_sys::{
 
 use crate::{
     bdev::nexus::nexus_module::NEXUS_MODULE,
-    core::{channel::IoChannel, Bdev, BdevHandle, CoreError},
+    core::{channel::IoChannel, Bdev, BdevHandle, CoreError, Mthread},
 };
 
 /// NewType around a descriptor, multiple descriptor to the same bdev is
@@ -159,11 +159,24 @@ impl Descriptor {
     }
 }
 
+extern "C" fn _bdev_close(arg: *mut c_void) {
+    unsafe {
+        spdk_bdev_close(arg as *mut spdk_bdev_desc);
+    }
+}
+
+/// when we get hot-removed we might be asked to close ourselves
+/// however, this request might come from a different thread as
+/// targets (for example) are running on their own thread.
 impl Drop for Descriptor {
     fn drop(&mut self) {
         trace!("[D] {:?}", self);
-        unsafe {
-            spdk_bdev_close(self.0);
+        if Mthread::current().unwrap() == Mthread::get_init() {
+            unsafe {
+                spdk_bdev_close(self.0);
+            }
+        } else {
+            Mthread::get_init().send_msg(_bdev_close, self.0 as *mut _);
         }
     }
 }

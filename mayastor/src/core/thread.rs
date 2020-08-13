@@ -16,7 +16,7 @@ use spdk_sys::{
     spdk_unaffinitize_thread,
 };
 
-use crate::core::{cpu_cores::CpuMask, Cores};
+use crate::core::cpu_cores::CpuMask;
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -24,7 +24,7 @@ pub enum Error {
     InvalidThread {},
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, PartialEq, Clone, Copy)]
 /// struct that wraps an SPDK thread. The name thread is chosen poorly and
 /// should not be confused with an actual thread. Consider it more to be
 /// analogous to a container to which you can submit work and poll it to drive
@@ -33,7 +33,6 @@ pub struct Mthread(pub(crate) *mut spdk_thread);
 
 impl Mthread {
     pub fn get_init() -> Mthread {
-        assert_eq!(Cores::current(), Cores::first());
         Mthread::from_null_checked(unsafe { spdk_thread_get_by_id(1) }).unwrap()
     }
 
