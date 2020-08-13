@@ -91,7 +91,6 @@ impl Share for Bdev {
 
     /// unshare the bdev regardless of current active share
     async fn unshare(&self) -> Result<Self::Output, Self::Error> {
-        dbg!(&self);
         match self.shared() {
             Some(Protocol::Nvmf) => {
                 let ss = NvmfSubsystem::nqn_lookup(&self.name()).unwrap();
@@ -101,11 +100,11 @@ impl Share for Bdev {
                 ss.destroy();
             }
             Some(Protocol::Iscsi) => {
-                dbg!(iscsi::unshare(&self.name()).await.map_err(|source| {
+                iscsi::unshare(&self.name()).await.map_err(|source| {
                     ShareIscsi {
                         source,
                     }
-                })?);
+                })?;
             }
             None => {}
         }
