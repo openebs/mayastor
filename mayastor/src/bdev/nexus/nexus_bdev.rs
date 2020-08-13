@@ -50,7 +50,7 @@ use crate::{
             nexus_nvmf::{NexusNvmfError, NexusNvmfTarget},
         },
     },
-    core::{Bdev, DmaError},
+    core::{Bdev, DmaError, Share},
     ffihelper::errno_result_from_i32,
     nexus_uri::{bdev_destroy, NexusBdevError},
     rebuild::RebuildError,
@@ -551,14 +551,11 @@ impl Nexus {
         }
 
         trace!("{}: closing, from state: {:?} ", self.name, self.state);
-        self.children
-            .iter_mut()
-            .map(|c| {
-                if c.state == ChildState::Open {
-                    c.close();
-                }
-            })
-            .for_each(drop);
+        self.children.iter_mut().for_each(|c| {
+            if c.state == ChildState::Open {
+                c.close();
+            }
+        });
 
         unsafe {
             spdk_io_device_unregister(self.as_ptr(), None);
@@ -584,6 +581,10 @@ impl Nexus {
 
         let _ = self.unshare_nexus().await;
         assert_eq!(self.share_handle, None);
+
+        // no-op when not shared and will be removed once the old share bits are
+        // gone
+        self.bdev.unshare().await.unwrap();
 
         for child in self.children.iter() {
             self.stop_rebuild(&child.name).await.ok();
