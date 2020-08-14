@@ -23,11 +23,11 @@ pub use subsystem::{NvmfSubsystem, SubType};
 pub use target::Target;
 
 use crate::{
-    bdev::nexus::nexus_bdev,
     jsonrpc::{Code, RpcErrorCode},
     subsys::{nvmf::target::NVMF_TGT, Config},
 };
 
+mod admin_cmd;
 mod poll_groups;
 mod subsystem;
 mod target;
@@ -87,7 +87,7 @@ impl Nvmf {
         // this code only ever gets run on the first core
 
         // set up custom NVMe Admin command handler
-        nexus_bdev::setup_create_snapshot_hdlr();
+        admin_cmd::setup_create_snapshot_hdlr();
 
         if Config::get().nexus_opts.nvmf_enable {
             NVMF_TGT.with(|tgt| {
