@@ -2,17 +2,10 @@
 
 use std::{thread, time};
 
-use common::ms_exec::MayastorProcess;
+use common::{bdev_io, ms_exec::MayastorProcess};
 use mayastor::{
     bdev::{nexus_create, nexus_lookup},
-    core::{
-        mayastor_env_stop,
-        BdevHandle,
-        CoreError,
-        MayastorCliArgs,
-        MayastorEnvironment,
-        Reactor,
-    },
+    core::{mayastor_env_stop, MayastorCliArgs, MayastorEnvironment, Reactor},
     subsys,
     subsys::Config,
 };
@@ -82,8 +75,8 @@ fn replica_stop_cont() {
 
     Reactor::block_on(async {
         create_nexus(true).await;
-        write_some().await;
-        read_some().await.unwrap();
+        bdev_io::write_some(NXNAME).await.unwrap();
+        bdev_io::read_some(NXNAME).await.unwrap();
         ms.sig_stop();
         let handle = thread::spawn(move || {
             // Sufficiently long to cause a controller reset
@@ -92,11 +85,11 @@ fn replica_stop_cont() {
             ms.sig_cont();
             ms
         });
-        read_some()
+        bdev_io::read_some(NXNAME)
             .await
             .expect_err("should fail read after controller reset");
         ms = handle.join().unwrap();
-        read_some()
+        bdev_io::read_some(NXNAME)
             .await
             .expect("should read again after Nexus child continued");
         nexus_lookup(NXNAME).unwrap().destroy().await.unwrap();
@@ -123,20 +116,20 @@ fn replica_term() {
 
     Reactor::block_on(async {
         create_nexus(false).await;
-        write_some().await;
-        read_some().await.unwrap();
+        bdev_io::write_some(NXNAME).await.unwrap();
+        bdev_io::read_some(NXNAME).await.unwrap();
     });
     ms1.sig_term();
     thread::sleep(time::Duration::from_secs(1));
     Reactor::block_on(async {
-        read_some()
+        bdev_io::read_some(NXNAME)
             .await
             .expect("should read with 1 Nexus child terminated");
     });
     ms2.sig_term();
     thread::sleep(time::Duration::from_secs(1));
     Reactor::block_on(async {
-        read_some()
+        bdev_io::read_some(NXNAME)
             .await
             .expect_err("should fail read with 2 Nexus children terminated");
     });
@@ -160,36 +153,4 @@ async fn create_nexus(single: bool) {
     nexus_create(NXNAME, DISKSIZE_KB * 1024, None, &ch)
         .await
         .unwrap();
-}
-
-async fn write_some() {
-    let bdev = BdevHandle::open(NXNAME, true, false).unwrap();
-    let mut buf = bdev.dma_malloc(512).expect("failed to allocate buffer");
-    buf.fill(0xff);
-
-    let s = buf.as_slice();
-    assert_eq!(s[0], 0xff);
-
-    bdev.write_at(0, &buf).await.unwrap();
-}
-
-async fn read_some() -> Result<(), CoreError> {
-    let bdev = BdevHandle::open(NXNAME, true, false).unwrap();
-    let mut buf = bdev.dma_malloc(1024).expect("failed to allocate buffer");
-    let slice = buf.as_mut_slice();
-
-    assert_eq!(slice[0], 0);
-    slice[512] = 0xff;
-    assert_eq!(slice[512], 0xff);
-
-    let len = bdev.read_at(0, &mut buf).await?;
-    assert_eq!(len, 1024);
-
-    let slice = buf.as_slice();
-
-    for &it in slice.iter().take(512) {
-        assert_eq!(it, 0xff);
-    }
-    assert_eq!(slice[512], 0);
-    Ok(())
 }
