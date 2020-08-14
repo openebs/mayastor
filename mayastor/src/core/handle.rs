@@ -197,6 +197,7 @@ impl BdevHandle {
         }
     }
 
+    /// create a snapshot on all children
     pub async fn create_snapshot(&self) -> Result<usize, CoreError> {
         let mut cmd = spdk_sys::spdk_nvme_cmd::default();
         cmd.set_opc(nvme_admin_opc::CREATE_SNAPSHOT.into());
@@ -211,6 +212,7 @@ impl BdevHandle {
         self.nvme_admin(&cmd).await
     }
 
+    /// sends an NVMe Admin command with a custom opcode to all children
     pub async fn nvme_admin_custom(
         &self,
         opcode: u8,
@@ -220,6 +222,7 @@ impl BdevHandle {
         self.nvme_admin(&cmd).await
     }
 
+    /// sends the specified NVMe Admin command to all children
     pub async fn nvme_admin(
         &self,
         nvme_cmd: &spdk_sys::spdk_nvme_cmd,

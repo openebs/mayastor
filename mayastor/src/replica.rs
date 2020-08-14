@@ -13,6 +13,7 @@ use snafu::{ResultExt, Snafu};
 use spdk_sys::{
     spdk_lvol,
     spdk_nvme_cpl,
+    spdk_nvme_status,
     spdk_nvmf_request,
     vbdev_lvol_create,
     vbdev_lvol_create_snapshot,
@@ -25,7 +26,13 @@ use spdk_sys::{
 
 use crate::{
     core::Bdev,
-    ffihelper::{cb_arg, done_errno_cb, errno_result_from_i32, ErrnoResult},
+    ffihelper::{
+        cb_arg,
+        done_errno_cb,
+        errno_result_from_i32,
+        ErrnoResult,
+        IntoCString,
+    },
     pool::Pool,
     subsys::NvmfSubsystem,
     target,
@@ -279,12 +286,42 @@ impl Replica {
         nvmf_req: *mut spdk_nvmf_request,
         snapshot_name: &str,
     ) {
-        let c_snapshot_name = CString::new(snapshot_name).unwrap();
+        extern "C" fn snapshot_done_cb(
+            nvmf_req_ptr: *mut c_void,
+            _lvol_ptr: *mut spdk_lvol,
+            errno: i32,
+        ) {
+            let rsp: &mut spdk_nvme_cpl = unsafe {
+                &mut *spdk_sys::spdk_nvmf_request_get_response(
+                    nvmf_req_ptr as *mut spdk_nvmf_request,
+                )
+            };
+            let nvme_status: &mut spdk_nvme_status =
+                unsafe { &mut rsp.__bindgen_anon_1.status };
+
+            nvme_status.set_sct(0); // SPDK_NVME_SCT_GENERIC
+            nvme_status.set_sc(match errno {
+                0 => 0,
+                _ => {
+                    debug!("vbdev_lvol_create_snapshot errno {}", errno);
+                    0x06 // SPDK_NVME_SC_INTERNAL_DEVICE_ERROR
+                }
+            });
+
+            // From nvmf_bdev_ctrlr_complete_cmd
+            unsafe {
+                spdk_sys::spdk_nvmf_request_complete(
+                    nvmf_req_ptr as *mut spdk_nvmf_request,
+                );
+            }
+        }
+
+        let c_snapshot_name = snapshot_name.into_cstring();
         unsafe {
             vbdev_lvol_create_snapshot(
                 self.as_ptr(),
                 c_snapshot_name.as_ptr(),
-                Some(Self::snapshot_done_cb),
+                Some(snapshot_done_cb),
                 nvmf_req as *mut c_void,
             )
         };
@@ -393,37 +430,6 @@ impl Replica {
         sender
             .send(errno_result_from_i32(lvol_ptr, errno))
             .expect("Receiver is gone");
-    }
-
-    /// Callback called from SPDK for snapshot create method.
-    extern "C" fn snapshot_done_cb(
-        nvmf_req_ptr: *mut c_void,
-        _lvol_ptr: *mut spdk_lvol,
-        errno: i32,
-    ) {
-        let rsp: &mut spdk_nvme_cpl = unsafe {
-            &mut *spdk_sys::spdk_nvmf_request_get_response(
-                nvmf_req_ptr as *mut spdk_nvmf_request,
-            )
-        };
-
-        unsafe {
-            rsp.__bindgen_anon_1.status.set_sct(0); // SPDK_NVME_SCT_GENERIC
-            rsp.__bindgen_anon_1.status.set_sc(match errno {
-                0 => 0,
-                _ => {
-                    debug!("vbdev_lvol_create_snapshot errno {}", errno);
-                    0x06 // SPDK_NVME_SC_INTERNAL_DEVICE_ERROR
-                }
-            })
-        }
-
-        // From nvmf_bdev_ctrlr_complete_cmd
-        unsafe {
-            spdk_sys::spdk_nvmf_request_complete(
-                nvmf_req_ptr as *mut spdk_nvmf_request,
-            );
-        }
     }
 }
 
