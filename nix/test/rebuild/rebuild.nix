@@ -5,6 +5,7 @@ let
   nexus_uuid = "19b98ac8-c1ea-11ea-8e3b-d74f5d324a22";
   replica1_uuid = "9a9843db-f715-4f52-8aa4-119f5df3d05d";
   replica2_uuid = "9a9843db-f715-4f52-8aa4-119f5df3d06e";
+  common = import ../common.nix { inherit pkgs; };
 in
 {
   name = "rebuild";
@@ -13,97 +14,13 @@ in
   };
 
   nodes = {
-    node1 = { config, lib, ... }: {
-
-      virtualisation = {
-        memorySize = 2048;
-        emptyDiskImages = [ 512 ];
-        vlans = [ 1 ];
-      };
-
-      boot = {
-        kernel.sysctl = {
-          "vm.nr_hugepages" = 512;
-        };
-      };
-
-      networking.firewall.enable = false;
-      networking.interfaces.eth1.ipv4.addresses = pkgs.lib.mkOverride 0 [
-        { address = node1ip; prefixLength = 24; }
-      ];
-
-      environment = {
-        systemPackages = with pkgs; [
-          mayastor
-        ];
-
-        etc."mayastor-config.yaml" = {
-          mode = "0664";
-          source = ./node1-mayastor-config.yaml;
-        };
-      };
-
-      systemd.services.mayastor = {
-        enable = true;
-        wantedBy = [ "multi-user.target" ];
-        after = [ "network.target" ];
-        description = "Mayastor";
-        environment = {
-          MY_POD_IP = node1ip;
-        };
-
-        serviceConfig = {
-          ExecStart = "${pkgs.mayastor}/bin/mayastor -g 0.0.0.0:10124 -y /etc/mayastor-config.yaml";
-        };
-      };
-    };
-    node2 = { config, lib, ... }: {
-
-      virtualisation = {
-        memorySize = 2048;
-        emptyDiskImages = [ 512 ];
-        vlans = [ 1 ];
-      };
-
-      boot = {
-        kernel.sysctl = {
-          "vm.nr_hugepages" = 512;
-        };
-      };
-
-      networking.firewall.enable = false;
-      networking.interfaces.eth1.ipv4.addresses = pkgs.lib.mkOverride 0 [
-        { address = node2ip; prefixLength = 24; }
-      ];
-
-      environment = {
-        systemPackages = with pkgs; [
-          mayastor
-        ];
-
-        etc."mayastor-config.yaml" = {
-          mode = "0664";
-          source = ./node2-mayastor-config.yaml;
-        };
-      };
-
-      systemd.services.mayastor = {
-        enable = true;
-        wantedBy = [ "multi-user.target" ];
-        after = [ "network.target" ];
-        description = "Mayastor";
-        environment = {
-          MY_POD_IP = node2ip;
-        };
-
-        serviceConfig = {
-          ExecStart = "${pkgs.mayastor}/bin/mayastor -g 0.0.0.0:10124 -y /etc/mayastor-config.yaml";
-        };
-      };
-    };
+    node1 = common.defaultMayastorNode { ip = node1ip; mayatorConfigYaml = ./node1-mayastor-config.yaml; };
+    node2 = common.defaultMayastorNode { ip = node2ip; mayatorConfigYaml = ./node2-mayastor-config.yaml; };
   };
 
   testScript = ''
+    ${common.importMayastorUtils}
+
     from time import sleep
 
 
@@ -152,8 +69,7 @@ in
 
     def startup():
         start_all()
-        node1.wait_for_unit("multi-user.target")
-        node2.wait_for_unit("multi-user.target")
+        mayastorUtils.wait_for_mayastor_all(machines)
 
         # Create replicas on nodes
         node1.succeed(
