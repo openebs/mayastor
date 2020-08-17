@@ -374,4 +374,23 @@ impl mayastor_server::Mayastor for MayastorSvc {
             nexus_lookup(&args.uuid)?.get_rebuild_progress(&args.uri)
         }}))
     }
+
+    #[instrument(level = "debug", err)]
+    async fn create_snapshot(
+        &self,
+        request: Request<CreateSnapshotRequest>,
+    ) -> GrpcResult<CreateSnapshotReply> {
+        sync_config(async {
+            let args = request.into_inner();
+            let uuid = args.uuid.clone();
+            debug!("Creating snapshot on nexus {} ...", uuid);
+            let reply = locally! { async move {
+                nexus_lookup(&args.uuid)?.create_snapshot().await
+            }};
+            info!("Created snapshot on nexus {}", uuid);
+            trace!("{:?}", reply);
+            Ok(Response::new(reply))
+        })
+        .await
+    }
 }

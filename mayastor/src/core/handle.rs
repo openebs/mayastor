@@ -58,6 +58,15 @@ impl BdevHandle {
         })
     }
 
+    /// open a new bdev handle given a bdev
+    pub fn open_with_bdev(
+        bdev: &Bdev,
+        read_write: bool,
+    ) -> Result<BdevHandle, CoreError> {
+        let desc = bdev.open(read_write)?;
+        BdevHandle::try_from(Arc::new(desc))
+    }
+
     /// close the BdevHandle causing
     pub fn close(self) {
         drop(self);
@@ -198,10 +207,11 @@ impl BdevHandle {
     }
 
     /// create a snapshot on all children
-    pub async fn create_snapshot(&self) -> Result<usize, CoreError> {
+    /// returns snapshot time as u64 seconds since Unix epoch
+    pub async fn create_snapshot(&self) -> Result<u64, CoreError> {
         let mut cmd = spdk_sys::spdk_nvme_cmd::default();
         cmd.set_opc(nvme_admin_opc::CREATE_SNAPSHOT.into());
-        // Snapshot time as u64 seconds since Unix epoch encoded in cdw10/11
+        // encode snapshot time in cdw10/11
         let now = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
@@ -209,7 +219,8 @@ impl BdevHandle {
         cmd.__bindgen_anon_1.cdw10 = now as u32;
         cmd.__bindgen_anon_2.cdw11 = (now >> 32) as u32;
         debug!("Creating snapshot at {}", now);
-        self.nvme_admin(&cmd).await
+        self.nvme_admin(&cmd).await?;
+        Ok(now as u64)
     }
 
     /// sends an NVMe Admin command with a custom opcode to all children
@@ -248,7 +259,7 @@ impl BdevHandle {
             });
         }
 
-        if r.await.expect("Failed awaiting NVME Admin IO") {
+        if r.await.expect("Failed awaiting NVMe Admin IO") {
             Ok(0)
         } else {
             Err(CoreError::NvmeAdminFailed {
