@@ -238,7 +238,7 @@ in
             rebuild_state, expected_state
         )
 
-    with subtest("get number rebuilds"):
+    with subtest("get number of rebuilds"):
         num_rebuilds = get_num_rebuilds()
         expected_num_rebuilds = 1
         assert (

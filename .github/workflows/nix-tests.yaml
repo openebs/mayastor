@@ -21,3 +21,4 @@ jobs:
       - run: echo "::set-env name=NIX_PATH::/home/gila/.nix-defexpr/channels"
       - run: bash -c "if [ -L ./result ]; then nix-store --delete ./result --ignore-liveness; fi"
       - run: nix-build ./nix/test/basic/default.nix -A fio_nvme_basic
+      - run: nix-build ./nix/test/rebuild/default.nix -A rebuild
