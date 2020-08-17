@@ -48,7 +48,8 @@ extern "C" fn nvmf_create_snapshot_hdlr(req: *mut spdk_nvmf_request) -> i32 {
             cmd.__bindgen_anon_1.cdw10 as u64
                 | (cmd.__bindgen_anon_2.cdw11 as u64) << 32
         };
-        let snapshot_name = format!("{}-snap-{}", bd.name(), snapshot_time);
+        let snapshot_name =
+            Replica::format_snapshot_name(&bd.name(), snapshot_time);
         // Blobfs operations must be on md_thread
         Reactors::master().send_future(async move {
             replica.create_snapshot(req, &snapshot_name).await;

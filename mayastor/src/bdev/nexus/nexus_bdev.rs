@@ -227,6 +227,10 @@ pub enum Error {
         name: String,
         state: String,
     },
+    #[snafu(display("Failed to get BdevHandle for snapshot operation"))]
+    FailedGetHandle,
+    #[snafu(display("Failed to create snapshot"))]
+    FailedCreateSnapshot,
 }
 
 impl From<Error> for tonic::Status {

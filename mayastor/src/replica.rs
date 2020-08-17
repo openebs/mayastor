@@ -280,6 +280,12 @@ impl Replica {
         Ok(())
     }
 
+    /// Format snapshot name
+    /// base_name is the nexus or replica UUID
+    pub fn format_snapshot_name(base_name: &str, snapshot_time: u64) -> String {
+        format!("{}-snap-{}", base_name, snapshot_time)
+    }
+
     /// Create a snapshot
     pub async fn create_snapshot(
         self,
