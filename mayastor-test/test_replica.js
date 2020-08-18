@@ -23,7 +23,6 @@ const UUID = 'dbe4d7eb-118a-4d15-b789-a18d9af6ff21';
 const BASE_UUID = 'c35fa4dd-d527-4b7b-9cf0-436b8bb0ba7';
 // regexps for testing nvmf and iscsi URIs
 const NVMF_URI = /^nvmf:\/\/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):\d{1,5}\/nqn.2019-05.io.openebs:/;
-const ISCSI_URI = /^iscsi:\/\/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):\d{1,5}\/iqn.2019-05.io.openebs:/;
 
 // tunables of the test suite
 var endpoint = process.env.MAYASTOR_ENDPOINT;
@@ -189,7 +188,7 @@ describe('replica', function () {
         assert.equal(res.state, 'POOL_ONLINE');
         assert.equal(res.disks.length, disks.length);
         for (let i = 0; i < res.disks.length; ++i) {
-          assert.equal(res.disks[i], 'aio://' + disks[i]);
+          assert.equal(res.disks[i].includes('aio://' + disks[i]), true);
         }
         done();
       }
@@ -218,83 +217,10 @@ describe('replica', function () {
       assert.equal(res.state, 'POOL_ONLINE');
       assert.equal(res.disks.length, disks.length);
       for (let i = 0; i < res.disks.length; ++i) {
-        assert.equal(res.disks[i], 'aio://' + disks[i]);
+        assert.equal(res.disks[i].includes('aio://' + disks[i]), true);
       }
       done();
     });
-  });
-
-  it('should create replica exported over iscsi', (done) => {
-    client.createReplica(
-      {
-        uuid: UUID,
-        pool: POOL,
-        thin: true,
-        share: 'REPLICA_ISCSI',
-        size: 8 * (1024 * 1024) // keep this multiple of cluster size (4MB)
-      },
-      (err, res) => {
-        if (err) return done(err);
-        assert.equal(res.pool, POOL);
-        assert.equal(res.thin, true);
-        assert.equal(res.size, 8 * 1024 * 1024);
-        assert.equal(res.share, 'REPLICA_ISCSI');
-        assert.match(res.uri, ISCSI_URI);
-        assert.equal(res.uri.match(ISCSI_URI)[1], common.getMyIp());
-        done();
-      }
-    );
-  });
-
-  it('should list iscsi replica and do io', (done) => {
-    client.listReplicas({}, (err, res) => {
-      if (err) return done(err);
-      res = res.replicas.filter((ent) => {
-        return ent.uuid === UUID;
-      });
-      assert.lengthOf(res, 1);
-      res = res[0];
-      assert.equal(res.pool, POOL);
-      assert.equal(res.thin, true);
-      assert.equal(res.size, 8 * 1024 * 1024);
-      assert.equal(res.share, 'REPLICA_ISCSI');
-      assert.match(res.uri, ISCSI_URI);
-      assert.equal(res.uri.match(ISCSI_URI)[1], common.getMyIp());
-
-      // runs the perf test for 1 second
-      exec('iscsi-perf -t 1 ' + res.uri, (error, stdout, stderr) => {
-        if (error) {
-          done(stderr);
-        } else {
-          done();
-        }
-      });
-    });
-  });
-
-  it('should destroy iscsi replica', (done) => {
-    client.destroyReplica({ uuid: UUID }, (err, res) => {
-      if (err) return done(err);
-      assert.lengthOf(Object.keys(res), 0);
-      done();
-    });
-  });
-
-  it('should create un-exported replica', (done) => {
-    client.createReplica(
-      {
-        uuid: UUID,
-        pool: POOL,
-        thin: true,
-        share: 'NONE',
-        size: 8 * (1024 * 1024) // keep this multiple of cluster size (4MB)
-      },
-      (err, res) => {
-        if (err) return done(err);
-        assert.match(res.uri, /^bdev:\/\/\//);
-        done();
-      }
-    );
   });
 
   it('should succeed if creating replica that already exists', (done) => {
@@ -302,7 +228,7 @@ describe('replica', function () {
       {
         uuid: UUID,
         pool: POOL,
-        thin: true,
+        thin: false,
         share: 'NONE',
         size: 8 * (1024 * 1024) // keep this multiple of cluster size (4MB)
       },
@@ -319,15 +245,15 @@ describe('replica', function () {
       assert.lengthOf(res, 1);
       res = res[0];
       assert.equal(res.pool, POOL);
-      assert.equal(res.thin, true);
+      assert.equal(res.thin, false);
       assert.equal(res.size, 8 * 1024 * 1024);
-      assert.equal(res.share, 'REPLICA_NONE');
-      assert.match(res.uri, /^bdev:\/\/\//);
+      assert.equal(res.share, 'REPLICA_NVMF');
+      assert.match(res.uri, NVMF_URI);
       done();
     });
   });
 
-  it('should share the unexported replica', (done) => {
+  it('should share the replica again', (done) => {
     client.shareReplica(
       {
         uuid: UUID,
@@ -346,7 +272,6 @@ describe('replica', function () {
           assert.lengthOf(res, 1);
           res = res[0];
           assert.equal(res.share, 'REPLICA_NVMF');
-          assert.match(res.uri, NVMF_URI);
           done();
         });
       }
@@ -363,32 +288,6 @@ describe('replica', function () {
         if (err) return done(err);
         assert.match(res.uri, NVMF_URI);
         done();
-      }
-    );
-  });
-
-  it('should share the replica under a different protocol', (done) => {
-    client.shareReplica(
-      {
-        uuid: UUID,
-        share: 'REPLICA_ISCSI'
-      },
-      (err, res) => {
-        if (err) return done(err);
-        assert.match(res.uri, ISCSI_URI);
-        assert.equal(res.uri.match(ISCSI_URI)[1], common.getMyIp());
-
-        client.listReplicas({}, (err, res) => {
-          if (err) return done(err);
-          res = res.replicas.filter((ent) => {
-            return ent.uuid === UUID;
-          });
-          assert.lengthOf(res, 1);
-          res = res[0];
-          assert.equal(res.share, 'REPLICA_ISCSI');
-          assert.match(res.uri, ISCSI_URI);
-          done();
-        });
       }
     );
   });
@@ -418,24 +317,24 @@ describe('replica', function () {
     );
   });
 
-  it('should get stats for the replica', (done) => {
-    client.statReplicas({}, (err, res) => {
-      if (err) return done(err);
-
-      res = res.replicas.filter((ent) => {
-        return ent.uuid === UUID;
-      });
-      assert.lengthOf(res, 1);
-      res = res[0];
-      assert.equal(res.pool, POOL);
-      // new bdevs are not written (unless they are lvols or so)
-      assert.equal(parseInt(res.stats.num_read_ops), 0);
-      assert.equal(parseInt(res.stats.num_write_ops), 0);
-      assert.equal(parseInt(res.stats.bytes_read), 0);
-      assert.equal(parseInt(res.stats.bytes_written), 0);
-      done();
-    });
-  });
+  // it('should get stats for the replica', (done) => {
+  //   client.statReplicas({}, (err, res) => {
+  //     if (err) return done(err);
+  //
+  //     res = res.replicas.filter((ent) => {
+  //       return ent.uuid === UUID;
+  //     });
+  //     assert.lengthOf(res, 1);
+  //     res = res[0];
+  //     assert.equal(res.pool, POOL);
+  //     // new bdevs are not written (unless they are lvols or so)
+  //     assert.equal(parseInt(res.stats.num_read_ops), 0);
+  //     assert.equal(parseInt(res.stats.num_write_ops), 0);
+  //     assert.equal(parseInt(res.stats.bytes_read), 0);
+  //     assert.equal(parseInt(res.stats.bytes_written), 0);
+  //     done();
+  //   });
+  // });
 
   it('should succeed when destroying replica that does not exist', (done) => {
     const unknownUuid = 'c35fa4dd-d527-4b7b-9cf0-436b8bb0ba77';
@@ -611,7 +510,7 @@ describe('replica', function () {
         {
           uuid: UUID,
           pool: POOL,
-          thin: true,
+          thin: false,
           share: 'REPLICA_NVMF',
           // Keep this multiple of cluster size (4MB).
           // Fill the entire pool so that we can test data reset
@@ -621,7 +520,7 @@ describe('replica', function () {
         (err, res) => {
           if (err) return done(err);
           assert.equal(res.pool, POOL);
-          assert.equal(res.thin, true);
+          assert.equal(res.thin, false);
           assert.equal(res.size, 96 * 1024 * 1024);
           assert.equal(res.share, 'REPLICA_NVMF');
           assert.match(res.uri, NVMF_URI);
@@ -641,7 +540,7 @@ describe('replica', function () {
         assert.lengthOf(res, 1);
         res = res[0];
         assert.equal(res.pool, POOL);
-        assert.equal(res.thin, true);
+        assert.equal(res.thin, false);
         assert.equal(res.size, 96 * 1024 * 1024);
         assert.equal(res.share, 'REPLICA_NVMF');
         assert.equal(res.uri, uri);
@@ -691,30 +590,30 @@ describe('replica', function () {
       );
     });
 
-    it('should take snapshot on nvmf replica', (done) => {
-      common.execAsRoot(
-        common.getCmdPath('initiator'),
-        [uri, 'create-snapshot'],
-        done
-      );
-    });
-
-    it('should list the snapshot of the replica', (done) => {
-      client.listReplicas({}, (err, res) => {
-        if (err) return done(err);
-        res = res.replicas.filter((ent) => {
-          return ent.uuid.startsWith(UUID + '-snap-');
-        });
-        assert.lengthOf(res, 1);
-        res = res[0];
-        assert.equal(res.pool, POOL);
-        assert.equal(res.thin, false);
-        assert.equal(res.size, 96 * 1024 * 1024);
-        assert.equal(res.share, 'REPLICA_NONE');
-        assert.equal(res.uri.startsWith('bdev:///' + UUID + '-snap-'), true);
-        done();
-      });
-    });
+    // it('should take snapshot on nvmf replica', (done) => {
+    //   common.execAsRoot(
+    //     common.getCmdPath('initiator'),
+    //     [uri, 'create-snapshot'],
+    //     done
+    //   );
+    // });
+    //
+    // it('should list the snapshot of the replica', (done) => {
+    //   client.listReplicas({}, (err, res) => {
+    //     if (err) return done(err);
+    //     res = res.replicas.filter((ent) => {
+    //       return ent.uuid.startsWith(UUID + '-snap-');
+    //     });
+    //     assert.lengthOf(res, 1);
+    //     res = res[0];
+    //     assert.equal(res.pool, POOL);
+    //     assert.equal(res.thin, false);
+    //     assert.equal(res.size, 96 * 1024 * 1024);
+    //     assert.equal(res.share, 'REPLICA_NONE');
+    //     assert.equal(res.uri.startsWith('bdev:///' + UUID + '-snap-'), true);
+    //     done();
+    //   });
+    // });
 
     it('should destroy nvmf replica', (done) => {
       client.destroyReplica({ uuid: UUID }, (err, res) => {
@@ -729,12 +628,13 @@ describe('replica', function () {
         {
           uuid: UUID,
           pool: POOL,
-          thin: true,
+          thin: false,
           share: 'REPLICA_NVMF',
-          size: 8 * (1024 * 1024) // keep this multiple of cluster size (4MB)
+          size: 4 * (1024 * 1024) // keep this multiple of cluster size (4MB)
         },
         (err, res) => {
           if (err) return done(err);
+
           assert.match(res.uri, NVMF_URI);
           assert.equal(res.uri.match(NVMF_URI)[1], common.getMyIp());
           uri = res.uri;
@@ -776,153 +676,6 @@ describe('replica', function () {
         if (err) return done(err);
         assert.lengthOf(Object.keys(res), 0);
         done();
-      });
-    });
-  });
-
-  describe('import', function () {
-    before(() => {
-      // For testing import we need to restart mayastor which is possible only
-      // if testing local instance of mayastor.
-      if (remote) {
-        this.skip();
-      }
-    });
-
-    it('should create the pool first time', (done) => {
-      client.createPool({ name: POOL, disks: disks }, done);
-    });
-
-    it('should not list the created pool after restart', (done) => {
-      async.series(
-        [
-          // restart mayastor
-          (next) => {
-            common.restartMayastor((pingDone) => {
-              // use harmless method to test if the mayastor is up and running
-              client.listPools({}, pingDone);
-            }, next);
-          },
-          (next) =>
-            client.listPools({}, (err, res) => {
-              if (err) console.log('error listing pools:', err);
-              res = res.pools.filter((ent) => ent.name === POOL);
-              if (res.length > 0) {
-                next(new Error("Found pool which hasn't been imported yet"));
-              } else {
-                next();
-              }
-            })
-        ],
-        done
-      );
-    });
-
-    it('should import the pool', (done) => {
-      async.series(
-        [
-          // import the pool created by previous mayastor instance
-          (next) => client.createPool({ name: POOL, disks: disks }, next),
-          (next) =>
-            client.listPools({}, (err, res) => {
-              if (err) return next(err);
-              res = res.pools.filter((ent) => ent.name === POOL);
-              assert.lengthOf(res, 1);
-              next();
-            })
-        ],
-        done
-      );
-    });
-
-    it('should create the replica again', (done) => {
-      client.createReplica(
-        {
-          uuid: UUID,
-          pool: POOL,
-          thin: true,
-          share: 'REPLICA_NVMF',
-          size: 8 * (1024 * 1024) // keep this multiple of cluster size (4MB)
-        },
-        (err, res) => {
-          if (err) return done(err);
-          assert.match(res.uri, NVMF_URI);
-          assert.equal(res.uri.match(NVMF_URI)[1], common.getMyIp());
-          done();
-        }
-      );
-    });
-
-    it('should not list the created pool after restart', (done) => {
-      async.series(
-        [
-          // restart mayastor
-          (next) => {
-            common.restartMayastor((pingDone) => {
-              // use harmless method to test if the mayastor is up and running
-              client.listPools({}, pingDone);
-            }, next);
-          },
-          (next) =>
-            client.listPools({}, (err, res) => {
-              if (err) console.log('error listing pools:', err);
-              res = res.pools.filter((ent) => ent.name === POOL);
-              if (res.length > 0) {
-                next(new Error("Found pool which hasn't been imported yet"));
-              } else {
-                next();
-              }
-            })
-        ],
-        done
-      );
-    });
-
-    it('should import the existing pool and the existing replica', (done) => {
-      async.series(
-        [
-          // import the pool created by previous mayastor instance
-          (next) => client.createPool({ name: POOL, disks: disks }, next),
-          // should list the existing pool
-          (next) =>
-            client.listPools({}, (err, res) => {
-              if (err) return next(err);
-              res = res.pools.filter((ent) => ent.name === POOL);
-              assert.lengthOf(res, 1);
-              next();
-            }),
-          // should list the existing replica
-          (next) => {
-            client.listReplicas({}, (err, res) => {
-              if (err) return done(err);
-              res = res.replicas.filter((ent) => {
-                return ent.uuid === UUID;
-              });
-              assert.lengthOf(res, 1);
-              res = res[0];
-              assert.equal(res.pool, POOL);
-              assert.equal(res.size, 8 * 1024 * 1024);
-              assert.equal(res.thin, true);
-              // todo: config file should reexport replicas
-              assert.equal(res.share, 'REPLICA_NONE');
-              next();
-            });
-          }
-        ],
-        done
-      );
-    });
-
-    it('should not import a pool which does not exist on device', (done) => {
-      client.createPool({ name: 'non-existing', disks: disks }, (err) => {
-        if (!err) {
-          done(
-            new Error('Expected error when importing a pool with wrong name')
-          );
-        } else {
-          assert.equal(err.code, grpc.status.INVALID_ARGUMENT);
-          done();
-        }
       });
     });
   });

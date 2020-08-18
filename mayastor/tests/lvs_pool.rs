@@ -348,7 +348,7 @@ fn lvs_pool_test() {
                     );
 
                     assert_eq!(pool.lvols().unwrap().count(), 0);
-                    pool.destroy().await.unwrap();
+                    pool.export().await.unwrap();
                 });
 
                 // validate the expected state of mayastor
@@ -366,6 +366,17 @@ fn lvs_pool_test() {
                     // no bdevs left
 
                     assert_eq!(Bdev::bdev_first().into_iter().count(), 0);
+
+                    // importing a pool with the wrong name should fail
+                    Lvs::create_or_import(CreatePoolRequest {
+                        name: "jpool".into(),
+                        disks: vec!["aio:///tmp/disk1.img".into()],
+                        block_size: 0,
+                        io_if: 0,
+                    })
+                    .await
+                    .err()
+                    .unwrap();
                 });
 
                 mayastor_env_stop(0);

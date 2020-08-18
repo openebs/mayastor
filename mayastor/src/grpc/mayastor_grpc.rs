@@ -1,4 +1,12 @@
 //! Mayastor grpc methods implementation.
+//!
+//! The Mayastor gRPC methods serve as a higher abstraction for provisioning
+//! replicas and targets to be used with CSI.
+//!
+//! We want to keep the code here to a minimal, for example grpc/pool.rs
+//! contains all the conversions and mappings etc to whatever interface from a
+//! grpc perspective we provide. Also, by doing his, we can test the methods
+//! without the need for setting up a grpc client.
 
 use tonic::{Request, Response, Status};
 use tracing::instrument;
@@ -10,7 +18,6 @@ use crate::{
         nexus::{instances, nexus_bdev},
         nexus_create,
     },
-    core::Cores,
     grpc::{
         nexus_grpc::{
             nexus_add_child,
@@ -18,11 +25,10 @@ use crate::{
             nexus_lookup,
             uuid_to_name,
         },
+        pool_grpc,
         sync_config,
         GrpcResult,
     },
-    pool,
-    replica,
 };
 
 #[derive(Debug)]
@@ -34,32 +40,18 @@ pub struct MayastorSvc {}
 #[tonic::async_trait]
 impl mayastor_server::Mayastor for MayastorSvc {
     #[instrument(level = "debug", err)]
+
     async fn create_pool(
         &self,
         request: Request<CreatePoolRequest>,
     ) -> GrpcResult<Pool> {
-        sync_config(async {
-            let args = request.into_inner();
-            trace!("{:?}", args);
-            let name = args.name.clone();
+        let args = request.into_inner();
 
-            if args.disks.is_empty() {
-                return Err(Status::invalid_argument("Missing devices"));
-            }
-            debug!(
-                "Creating pool {} on {} with block size {}, io_if {}...",
-                name,
-                args.disks.join(" "),
-                args.block_size,
-                args.io_if,
-            );
+        if args.disks.is_empty() {
+            return Err(Status::invalid_argument("Missing devices"));
+        }
 
-            let pool = locally! { pool::create_pool(args) };
-
-            info!("Created or imported pool {}", name);
-            Ok(Response::new(pool))
-        })
-        .await
+        sync_config(pool_grpc::create(args)).await
     }
 
     #[instrument(level = "debug", err)]
@@ -67,32 +59,16 @@ impl mayastor_server::Mayastor for MayastorSvc {
         &self,
         request: Request<DestroyPoolRequest>,
     ) -> GrpcResult<Null> {
-        sync_config(async {
-            let args = request.into_inner();
-            trace!("{:?}", args);
-            let name = args.name.clone();
-            debug!("Destroying pool {} ...", name);
-            locally! { pool::destroy_pool(args) };
-            info!("Destroyed pool {}", name);
-            Ok(Response::new(Null {}))
-        })
-        .await
+        let args = request.into_inner();
+        sync_config(pool_grpc::destroy(args)).await
     }
 
     #[instrument(level = "debug", err)]
     async fn list_pools(
         &self,
-        request: Request<Null>,
+        _request: Request<Null>,
     ) -> GrpcResult<ListPoolsReply> {
-        let args = request.into_inner();
-        trace!("{:?}", args);
-        assert_eq!(Cores::current(), Cores::first());
-        let reply = ListPoolsReply {
-            pools: pool::PoolsIter::new().map(|p| p.into()).collect::<Vec<_>>(),
-        };
-
-        trace!("{:?}", reply);
-        Ok(Response::new(reply))
+        pool_grpc::list()
     }
 
     #[instrument(level = "debug", err)]
@@ -100,16 +76,8 @@ impl mayastor_server::Mayastor for MayastorSvc {
         &self,
         request: Request<CreateReplicaRequest>,
     ) -> GrpcResult<Replica> {
-        sync_config(async {
-            let args = request.into_inner();
-            trace!("{:?}", args);
-            let uuid = args.uuid.clone();
-            debug!("Creating replica {} on {} ...", uuid, args.pool);
-            let replica = locally! { replica::create_replica(args) };
-            info!("Created replica {} ...", uuid);
-            Ok(Response::new(replica))
-        })
-        .await
+        let args = request.into_inner();
+        sync_config(pool_grpc::create_replica(args)).await
     }
 
     #[instrument(level = "debug", err)]
@@ -117,41 +85,27 @@ impl mayastor_server::Mayastor for MayastorSvc {
         &self,
         request: Request<DestroyReplicaRequest>,
     ) -> GrpcResult<Null> {
-        sync_config(async {
-            let args = request.into_inner();
-            trace!("{:?}", args);
-            let uuid = args.uuid.clone();
-            debug!("Destroying replica {} ...", uuid);
-            locally! { replica::destroy_replica(args) };
-            info!("Destroyed replica {} ...", uuid);
-            Ok(Response::new(Null {}))
-        })
-        .await
+        let args = request.into_inner();
+        sync_config(pool_grpc::destroy_replica(args)).await
     }
 
     #[instrument(level = "debug", err)]
     async fn list_replicas(
         &self,
-        request: Request<Null>,
+        _request: Request<Null>,
     ) -> GrpcResult<ListReplicasReply> {
-        let args = request.into_inner();
-        trace!("{:?}", args);
-        assert_eq!(Cores::current(), Cores::first());
-        let reply = replica::list_replicas();
-        trace!("{:?}", reply);
-        Ok(Response::new(reply))
+        pool_grpc::list_replicas()
     }
 
     #[instrument(level = "debug", err)]
+    // TODO; lost track of what this is supposed to do
     async fn stat_replicas(
         &self,
-        request: Request<Null>,
+        _request: Request<Null>,
     ) -> GrpcResult<StatReplicasReply> {
-        let args = request.into_inner();
-        trace!("{:?}", args);
-        let reply = locally! { replica::stat_replicas() };
-        trace!("{:?}", reply);
-        Ok(Response::new(reply))
+        Ok(Response::new(StatReplicasReply {
+            replicas: vec![],
+        }))
     }
 
     #[instrument(level = "debug", err)]
@@ -159,17 +113,8 @@ impl mayastor_server::Mayastor for MayastorSvc {
         &self,
         request: Request<ShareReplicaRequest>,
     ) -> GrpcResult<ShareReplicaReply> {
-        sync_config(async {
-            let args = request.into_inner();
-            trace!("{:?}", args);
-            let uuid = args.uuid.clone();
-            debug!("Sharing replica {} ...", uuid);
-            let reply = locally! { replica::share_replica(args) };
-            info!("Shared replica {}", uuid);
-            trace!("{:?}", reply);
-            Ok(Response::new(reply))
-        })
-        .await
+        let args = request.into_inner();
+        sync_config(pool_grpc::share_replica(args)).await
     }
 
     #[instrument(level = "debug", err)]
@@ -177,15 +122,14 @@ impl mayastor_server::Mayastor for MayastorSvc {
         &self,
         request: Request<CreateNexusRequest>,
     ) -> GrpcResult<Nexus> {
-        sync_config( async {
+        sync_config(async {
             let args = request.into_inner();
-            trace!("{:?}", args);
             let uuid = args.uuid.clone();
             let name = uuid_to_name(&args.uuid)?;
-            debug!("Creating nexus {} ...", uuid);
             locally! { async move {
                 nexus_create(&name, args.size, Some(&args.uuid), &args.children).await
-            }};
+            }}
+            ;
             let nexus = nexus_lookup(&uuid)?;
             info!("Created nexus {}", uuid);
             Ok(Response::new(nexus.to_grpc()))
@@ -291,7 +235,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                     return Err(nexus_bdev::Error::InvalidShareProtocol {
                         sp_value: args.share as i32,
                     }
-                    .into())
+                    .into());
                 }
             };
 

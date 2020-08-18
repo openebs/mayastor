@@ -1,3 +1,17 @@
+pub mod pool_grpc;
+
+use std::error::Error;
+
+use futures::Future;
+use tonic::{Response, Status};
+
+pub use server::MayastorGrpcServer;
+
+use crate::{
+    core::{Cores, Reactor},
+    subsys::Config,
+};
+
 fn print_error_chain(err: &dyn std::error::Error) -> String {
     let mut msg = format!("{}", err);
     let mut opt_source = err.source();
@@ -33,12 +47,24 @@ mod mayastor_grpc;
 mod nexus_grpc;
 mod server;
 
-use crate::subsys::Config;
-use futures::Future;
-pub use server::MayastorGrpcServer;
-use tonic::{Response, Status};
-
 pub type GrpcResult<T> = std::result::Result<Response<T>, Status>;
+
+/// call the given future within the context of the reactor on the first core
+/// on the init thread, while the future is waiting to be completed the reactor
+/// is continuously polled so that forward progress can be made
+pub fn rpc_call<G, I, L, A>(future: G) -> Result<Response<A>, tonic::Status>
+where
+    G: Future<Output = Result<I, L>> + 'static,
+    I: 'static,
+    A: 'static + From<I>,
+    L: Into<Status> + Error + 'static,
+{
+    assert_eq!(Cores::current(), Cores::first());
+    Reactor::block_on(future)
+        .unwrap()
+        .map(|r| Response::new(A::from(r)))
+        .map_err(|e| e.into())
+}
 
 /// Used by the gRPC method implementations to sync the current configuration by
 /// exporting it to a config file
@@ -50,12 +76,9 @@ where
 {
     let result = future.await;
     if result.is_ok() {
-        match Config::export_config() {
-            Ok(_) => {}
-            Err(e) => {
-                error!("Failed to export config file: {}", e);
-                return Err(Status::data_loss("Failed to export config"));
-            }
+        if let Err(e) = Config::export_config() {
+            error!("Failed to export config file: {}", e);
+            return Err(Status::data_loss("Failed to export config"));
         }
     }
     result
