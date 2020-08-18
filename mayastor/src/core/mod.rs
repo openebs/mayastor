@@ -108,4 +108,8 @@ pub enum CoreError {
     ShareIscsi {
         source: iscsi::Error,
     },
+    #[snafu(display("the operation is invalid for this bdev: {}", source))]
+    NotSupported {
+        source: Errno,
+    },
 }

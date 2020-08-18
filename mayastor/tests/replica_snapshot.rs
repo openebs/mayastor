@@ -1,6 +1,6 @@
 use std::{io, io::Write, process::Command, thread, time};
 
-use common::ms_exec::MayastorProcess;
+use common::{bdev_io, ms_exec::MayastorProcess};
 use mayastor::{
     bdev::nexus_create,
     core::{
@@ -100,17 +100,17 @@ fn replica_snapshot() {
 
     Reactor::block_on(async {
         create_nexus().await;
-        write_some().await.unwrap();
+        bdev_io::write_some(NXNAME).await.unwrap();
         custom_nvme_admin(0xc1)
             .await
             .expect_err("unexpectedly succeeded invalid nvme admin command");
-        read_some().await.unwrap();
+        bdev_io::read_some(NXNAME).await.unwrap();
         create_snapshot().await.unwrap();
         // Check that IO to the replica still works after creating a snapshot
         // Checking the snapshot itself is tbd
-        read_some().await.unwrap();
-        write_some().await.unwrap();
-        read_some().await.unwrap();
+        bdev_io::read_some(NXNAME).await.unwrap();
+        bdev_io::write_some(NXNAME).await.unwrap();
+        bdev_io::read_some(NXNAME).await.unwrap();
     });
     mayastor_env_stop(0);
 
@@ -126,39 +126,6 @@ async fn create_nexus() {
     nexus_create(NXNAME, 64 * 1024 * 1024, None, &ch)
         .await
         .unwrap();
-}
-
-async fn write_some() -> Result<(), CoreError> {
-    let h = BdevHandle::open(NXNAME, true, false).unwrap();
-    let mut buf = h.dma_malloc(512).expect("failed to allocate buffer");
-    buf.fill(0xff);
-
-    let s = buf.as_slice();
-    assert_eq!(s[0], 0xff);
-
-    h.write_at(0, &buf).await?;
-    Ok(())
-}
-
-async fn read_some() -> Result<(), CoreError> {
-    let h = BdevHandle::open(NXNAME, true, false).unwrap();
-    let mut buf = h.dma_malloc(1024).expect("failed to allocate buffer");
-    let slice = buf.as_mut_slice();
-
-    assert_eq!(slice[0], 0);
-    slice[512] = 0xff;
-    assert_eq!(slice[512], 0xff);
-
-    let len = h.read_at(0, &mut buf).await?;
-    assert_eq!(len, 1024);
-
-    let slice = buf.as_slice();
-
-    for &it in slice.iter().take(512) {
-        assert_eq!(it, 0xff);
-    }
-    assert_eq!(slice[512], 0);
-    Ok(())
 }
 
 async fn create_snapshot() -> Result<(), CoreError> {
