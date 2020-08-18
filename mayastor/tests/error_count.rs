@@ -57,7 +57,7 @@ fn nexus_error_count_test() {
         err_read_nexus_both(true).await;
     });
 
-    reactor_run_millis(1); // give time for any errors to be added to the error store
+    reactor_run_millis(10); // give time for any errors to be added to the error store
 
     nexus_err_query_and_test(
         BDEV_EE_ERROR_DEVICE,
@@ -90,7 +90,7 @@ fn nexus_error_count_test() {
         err_read_nexus_both(true).await;
     });
 
-    reactor_run_millis(1); // give time for any errors to be added to the error store
+    reactor_run_millis(10); // give time for any errors to be added to the error store
 
     nexus_err_query_and_test(
         BDEV_EE_ERROR_DEVICE,
@@ -123,7 +123,7 @@ fn nexus_error_count_test() {
         err_write_nexus(true).await;
     });
 
-    reactor_run_millis(1); // give time for any errors to be added to the error store
+    reactor_run_millis(10); // give time for any errors to be added to the error store
 
     nexus_err_query_and_test(
         BDEV_EE_ERROR_DEVICE,
@@ -168,7 +168,7 @@ fn nexus_error_count_test() {
         }
     });
 
-    reactor_run_millis(10); // give time for any errors to be added to the error store
+    reactor_run_millis(100); // give time for any errors to be added to the error store
 
     nexus_err_query_and_test(
         BDEV_EE_ERROR_DEVICE,
