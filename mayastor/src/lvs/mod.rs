@@ -1,7 +1,7 @@
 pub use error::Error;
 pub use lvol::{Lvol, PropName, PropValue};
-pub use pool::Lvs;
+pub use lvs_pool::Lvs;
 
 mod error;
 mod lvol;
-mod pool;
+mod lvs_pool;

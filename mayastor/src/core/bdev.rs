@@ -106,7 +106,7 @@ impl Share for Bdev {
                     }
                 })?;
             }
-            None => {}
+            Some(Protocol::None) | None => {}
         }
 
         Ok(self.name())
@@ -127,7 +127,8 @@ impl Share for Bdev {
         match self.shared() {
             Some(Protocol::Nvmf) => nvmf::get_uri(&self.name()),
             Some(Protocol::Iscsi) => iscsi::get_uri(Side::Nexus, &self.name()),
-            None => None,
+            Some(Protocol::None) => None,
+            _ => None,
         }
     }
 
@@ -319,12 +320,11 @@ impl Bdev {
 
     /// Set a list of aliases on the bdev, used to find the bdev later
     pub fn add_aliases(&self, alias: &[String]) -> bool {
-        let r = alias
+        alias
             .iter()
             .filter(|a| -> bool { !self.add_alias(a) })
-            .collect::<Vec<&String>>();
-
-        r.is_empty()
+            .count()
+            == 0
     }
 
     /// Set an alias on the bdev, this alias can be used to find the bdev later

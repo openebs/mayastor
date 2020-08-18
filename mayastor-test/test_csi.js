@@ -29,10 +29,13 @@ var csiSock = common.CSI_ENDPOINT;
 
 // One big malloc bdev which we put lvol store on.
 const CONFIG = `
-[Malloc]
-NumberOfLuns 1
-LunSizeInMB  150
-BlockSize    4096
+sync_disable: true
+base_bdevs:
+  - uri: "malloc:///malloc0?size_mb=64&uuid=11111111-0000-0000-0000-000000000000&blk_size=4096"
+  - uri: "malloc:///malloc1?size_mb=64&uuid=11111111-0000-0000-0000-000000000001&blk_size=4096"
+  - uri: "malloc:///malloc2?size_mb=64&uuid=11111111-0000-0000-0000-000000000002&blk_size=4096"
+  - uri: "malloc:///malloc3?size_mb=64&uuid=11111111-0000-0000-0000-000000000003&blk_size=4096"
+  - uri: "malloc:///malloc4?size_mb=64&uuid=11111111-0000-0000-0000-000000000004&blk_size=4096"
 `;
 // uuid without the last digit
 const BASE_UUID = '11111111-0000-0000-0000-00000000000';
@@ -110,7 +113,7 @@ describe('csi', function () {
   // NOTE: Don't use mayastor in setup - we test CSI interface and we don't want
   // to depend on correct function of mayastor iface in order to test CSI.
   before((done) => {
-    common.startMayastor(CONFIG);
+    common.startMayastor(null, null, null,  CONFIG);
     common.startMayastorCsi();
 
     var client = common.createGrpcClient();
@@ -131,32 +134,6 @@ describe('csi', function () {
           }, next);
         },
         (next) => {
-          common.jsonrpcCommand(
-            'construct_lvol_store',
-            { bdev_name: 'Malloc0', lvs_name: 'tpool' },
-            next
-          );
-        },
-        (next) => {
-          async.times(
-            5,
-            function (n, next) {
-              const uuid = BASE_UUID + n;
-              client.createReplica(
-                {
-                  uuid: uuid,
-                  pool: 'tpool',
-                  thin: false,
-                  size: 25 * 1024 * 1024,
-                  share: 0 // "NONE"
-                },
-                next
-              );
-            },
-            next
-          );
-        },
-        (next) => {
           async.times(
             5,
             function (n, next) {
@@ -164,8 +141,8 @@ describe('csi', function () {
               client.createNexus(
                 {
                   uuid: uuid,
-                  size: 25 * 1024 * 1024,
-                  children: ['bdev:///' + BASE_UUID + n]
+                  size: 64* 1024 * 1024,
+                  children: ['bdev:///malloc' + n]
                 },
                 next
               );
@@ -310,7 +287,6 @@ describe('csi', function () {
   });
 
   csiProtocolTest('NBD', enums.NEXUS_NBD, 10000);
-  // TODO: find out why it takes 2 minutes to execute the tests
   csiProtocolTest('iSCSI', enums.NEXUS_ISCSI, 120000);
   csiProtocolTest('NVMF', enums.NEXUS_NVMF, 120000);
 });
