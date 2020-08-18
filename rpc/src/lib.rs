@@ -10,5 +10,12 @@ extern crate tonic;
 #[allow(clippy::unit_arg)]
 #[allow(clippy::redundant_closure)]
 pub mod mayastor {
+
+    impl From<()> for Null {
+        fn from(_: ()) -> Self {
+            Self {}
+        }
+    }
+
     include!(concat!(env!("OUT_DIR"), "/mayastor.rs"));
 }

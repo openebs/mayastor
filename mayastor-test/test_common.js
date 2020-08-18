@@ -188,9 +188,14 @@ function startSpdk (config, args, env) {
 }
 
 // Start mayastor process and return immediately.
-function startMayastor (config, args, env) {
+function startMayastor (config, args, env, yaml) {
   args = args || ['-r', SOCK, '-g', grpcEndpoint];
   env = env || {};
+
+  if (yaml) {
+    fs.writeFileSync(MS_CONFIG_PATH, yaml,  { mode : 0o777});
+    args = args.concat(['-y', MS_CONFIG_PATH]);
+  }
 
   if (config) {
     fs.writeFileSync(MS_CONFIG_PATH, config);

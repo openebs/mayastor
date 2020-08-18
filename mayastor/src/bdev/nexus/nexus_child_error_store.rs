@@ -82,18 +82,11 @@ impl NexusErrStore {
     pub const IO_FAILED: i32 = io_status::FAILED;
 
     pub fn new(max_records: usize) -> Self {
-        let mut es = NexusErrStore {
+        Self {
             no_of_records: 0,
             next_record_index: 0,
-            records: Vec::with_capacity(max_records),
-        };
-
-        let er: NexusChildErrorRecord = Default::default();
-
-        for _ in 0 .. max_records {
-            es.records.push(er);
+            records: vec![NexusChildErrorRecord::default(); max_records],
         }
-        es
     }
 
     pub fn add_record(

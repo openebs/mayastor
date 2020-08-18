@@ -4,6 +4,7 @@ use std::fmt::Display;
 
 #[derive(Debug, PartialOrd, PartialEq)]
 pub enum Protocol {
+    None,
     Nvmf,
     Iscsi,
 }
@@ -11,6 +12,7 @@ pub enum Protocol {
 impl Display for Protocol {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         let p = match self {
+            Self::None => "Not shared",
             Self::Iscsi => "iSCSI",
             Self::Nvmf => "NVMe-oF TCP",
         };
