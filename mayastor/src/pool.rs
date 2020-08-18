@@ -639,10 +639,3 @@ pub async fn create_pool(args: rpc::CreatePoolRequest) -> Result<rpc::Pool> {
         create_pool_legacy(args).await
     }
 }
-
-pub(crate) async fn destroy_pool(args: rpc::DestroyPoolRequest) -> Result<()> {
-    if let Some(p) = Pool::lookup(&args.name) {
-        p.destroy().await?;
-    }
-    Ok(())
-}
