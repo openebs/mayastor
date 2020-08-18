@@ -129,7 +129,7 @@ impl ConfigSubsystem {
 }
 
 /// Main config structure of Mayastor. This structure can be persisted to disk.
-#[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     /// location of the config file that we loaded
@@ -158,6 +158,27 @@ pub struct Config {
     pub pools: Option<Vec<Pool>>,
     /// any  base bdevs created implicitly share them over nvmf
     pub implicit_share_base: bool,
+    /// flag to enable or disable config sync
+    pub sync_disable: bool,
+}
+
+impl Default for Config {
+    fn default() -> Self {
+        Self {
+            source: None,
+            nvmf_tcp_tgt_conf: Default::default(),
+            iscsi_tgt_conf: Default::default(),
+            nvme_bdev_opts: Default::default(),
+            bdev_opts: Default::default(),
+            nexus_opts: Default::default(),
+            err_store_opts: Default::default(),
+            base_bdevs: None,
+            nexus_bdevs: None,
+            pools: None,
+            implicit_share_base: false,
+            sync_disable: false,
+        }
+    }
 }
 
 impl Config {
@@ -200,8 +221,11 @@ impl Config {
             // the file is empty
             config = Config::default();
         }
-        // use the source luke!
-        config.source = Some(file.to_string());
+
+        if !config.sync_disable {
+            // use the source luke!
+            config.source = Some(file.to_string());
+        }
         Ok(config)
     }
 
@@ -224,6 +248,7 @@ impl Config {
             pools: None,
             implicit_share_base: true,
             err_store_opts: self.err_store_opts.get(),
+            sync_disable: self.sync_disable,
         };
 
         // collect nexus bdevs and insert them into the config

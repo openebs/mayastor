@@ -45,6 +45,7 @@ impl From<*mut spdk_lvol_store> for Lvs {
 /// iterator over all lvol stores
 pub struct LvsIterator(*mut lvol_store_bdev);
 
+/// returns a new
 impl LvsIterator {
     fn new() -> Self {
         LvsIterator(unsafe { vbdev_lvol_store_first() })
@@ -99,12 +100,20 @@ impl Lvs {
     /// generic lvol store callback
     extern "C" fn lvs_cb(
         sender_ptr: *mut c_void,
-        _lvs: *mut spdk_lvol_store,
+        lvs: *mut spdk_lvol_store,
         errno: i32,
     ) {
-        let sender =
-            unsafe { Box::from_raw(sender_ptr as *mut oneshot::Sender<i32>) };
-        sender.send(errno).unwrap();
+        let sender = unsafe {
+            Box::from_raw(sender_ptr as *mut oneshot::Sender<ErrnoResult<Lvs>>)
+        };
+
+        if errno == 0 {
+            sender.send(Ok(Lvs::from(lvs))).expect("receiver gone");
+        } else {
+            sender
+                .send(Err(Errno::from_i32(errno.abs())))
+                .expect("receiver gone");
+        }
     }
 
     /// callback when operation has been performed on lvol
@@ -174,7 +183,7 @@ impl Lvs {
     /// imports a pool based on its name and base bdev name
     #[instrument(level = "debug", err)]
     pub async fn import(name: &str, bdev: &str) -> Result<Lvs, Error> {
-        let (sender, receiver) = pair::<i32>();
+        let (sender, receiver) = pair::<ErrnoResult<Lvs>>();
 
         debug!("Trying to import pool {} on {}", name, bdev);
 
@@ -200,6 +209,8 @@ impl Lvs {
         }
 
         unsafe {
+            // EXISTS is SHOULD be returned when we import a lvs with different
+            // names this however is not the case.
             vbdev_lvs_examine(
                 bdev.as_ptr(),
                 Some(Self::lvs_cb),
@@ -207,25 +218,27 @@ impl Lvs {
             );
         }
 
-        receiver
+        // when no pool name can be determined the or failed to compare to the
+        // desired pool name EILSEQ is returned
+        let lvs = receiver
             .await
             .expect("Cancellation is not supported")
-            .to_result(|e| Error::Import {
-                err: Errno::from_i32(e),
+            .map_err(|err| Error::Import {
+                err,
                 msg: name.into(),
             })?;
 
-        // could be that a pool with a different name was imported
-        match Self::lookup(&name) {
-            Some(pool) => {
-                pool.share_all().await;
-                info!("The pool '{}' has been imported", name);
-                Ok(pool)
-            }
-            None => Err(Error::Import {
-                err: Errno::ENOENT,
-                msg: format!("No pool '{}' found to import", name),
-            }),
+        if name != lvs.name() {
+            warn!("no pool with name {} found on this device -- unloading the pool", name);
+            lvs.export().await.unwrap();
+            Err(Error::Import {
+                err: Errno::EINVAL,
+                msg: "Invalid pool name specified for devices".to_string(),
+            })
+        } else {
+            lvs.share_all().await;
+            info!("The pool '{}' has been imported", name);
+            Ok(lvs)
         }
     }
 
@@ -234,7 +247,7 @@ impl Lvs {
     pub async fn create(name: &str, bdev: &str) -> Result<Lvs, Error> {
         let pool_name = name.into_cstring();
 
-        let (sender, receiver) = pair::<i32>();
+        let (sender, receiver) = pair::<ErrnoResult<Lvs>>();
         unsafe {
             vbdev_lvs_create(
                 Bdev::lookup_by_name(bdev).unwrap().as_ptr(),
@@ -257,8 +270,8 @@ impl Lvs {
         receiver
             .await
             .expect("Cancellation is not supported")
-            .to_result(|e| Error::Create {
-                err: Errno::from_i32(e),
+            .map_err(|err| Error::Create {
+                err,
                 msg: "failed to create pool".into(),
             })?;
 
@@ -280,16 +293,50 @@ impl Lvs {
         args: CreatePoolRequest,
     ) -> Result<Lvs, Error> {
         if args.disks.len() != 1 {
-            return Err(Error::BadNumDisks {
-                num: args.disks.len(),
+            return Err(Error::Invalid {
+                source: Errno::EINVAL,
+                msg: format!(
+                    "invalid number {} of devices {:?}",
+                    args.disks.len(),
+                    args.disks
+                ),
             });
         }
 
-        let parsed =
-            Uri::parse(&args.disks[0]).map_err(|e| Error::InvalidBdev {
-                source: e,
-                msg: "invalid bdev specified for pool".to_string(),
-            })?;
+        // this is a legacy argument, should not be used typically
+        if args.block_size != 512
+            && args.block_size != 4096
+            && args.block_size != 0
+        {
+            return Err(Error::Invalid {
+                source: Errno::EINVAL,
+                msg: format!(
+                    "invalid block size specified {}",
+                    args.block_size
+                ),
+            });
+        }
+
+        // fixup the device uri's to URL
+        let disks = args
+            .disks
+            .iter()
+            .map(|d| {
+                if d.starts_with("/dev") {
+                    format!("aio://{}", d)
+                } else {
+                    d.clone()
+                }
+            })
+            .collect::<Vec<_>>();
+
+        let parsed = Uri::parse(&disks[0]).map_err(|e| Error::InvalidBdev {
+            source: e,
+            msg: format!(
+                "invalid bdev uri: {:?} specified for pool {}",
+                args.disks, args.name
+            ),
+        })?;
 
         if let Some(pool) = Self::lookup(&args.name) {
             return if pool.base_bdev().name() == parsed.get_name() {
@@ -317,7 +364,25 @@ impl Lvs {
 
         match Self::import(&args.name, &bdev).await {
             Ok(pool) => Ok(pool),
-            Err(_) => Self::create(&args.name, &bdev).await,
+            Err(Error::Import {
+                err,
+                msg,
+            }) if err == Errno::EINVAL => {
+                // there is a pool here, but it does not match the name
+                error!("pool name mismatch");
+                Err(Error::Import {
+                    err,
+                    msg,
+                })
+            }
+            // else some other error, try to create the the pool
+            Err(Error::Import {
+                err, ..
+            }) if err == Errno::EILSEQ => Self::create(&args.name, &bdev).await,
+            Err(e) => {
+                error!("{}", e.to_string());
+                Err(e)
+            }
         }
     }
 

@@ -31,7 +31,7 @@ use crate::{
         FfiResult,
         IntoCString,
     },
-    lvs::{error::Error, pool::Lvs},
+    lvs::{error::Error, lvs_pool::Lvs},
 };
 
 /// properties we allow for being set on the lvol, this information is stored on
@@ -207,6 +207,9 @@ impl Lvol {
         }
 
         let name = self.name();
+
+        // we must always unshare before destroying bdev
+        let _ = self.unshare().await;
 
         let (s, r) = pair::<i32>();
         unsafe {

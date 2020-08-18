@@ -282,7 +282,7 @@ describe('nexus', function () {
             '-r',
             '/tmp/target.sock',
             '-s',
-            '128'
+            '128',
           ]);
           next();
         },
