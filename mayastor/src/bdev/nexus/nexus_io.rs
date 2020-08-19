@@ -87,6 +87,14 @@ impl Bio {
         unsafe { Bdev::from((*self.0).bdev) }
     }
 
+    /// create and return a new, initialized Bio object
+    pub fn new(pio: *mut spdk_bdev_io, in_flight: i8) -> Bio {
+        let mut io = Bio(pio);
+        io.ctx_as_mut_ref().in_flight = in_flight;
+        io.ctx_as_mut_ref().status = io_status::SUCCESS;
+        io
+    }
+
     /// complete an IO for the nexus. In the IO completion routine in
     /// `[nexus_bdev]` will set the IoStatus for each IO where success ==
     /// false.

@@ -676,12 +676,10 @@ impl Nexus {
         pio: *mut spdk_bdev_io,
         channels: &mut NexusChannelInner,
     ) {
-        let mut io = Bio(pio);
+        let mut io = Bio::new(pio, 1); // only 1 in flight
 
         // we use RR to read from the children also, set that we only need
         // to read from one child before we complete the IO to the callee.
-        io.ctx_as_mut_ref().in_flight = 1;
-
         let child = channels.child_select();
 
         // if there is no buffer space for us allocated within the request
@@ -740,9 +738,8 @@ impl Nexus {
         pio: *mut spdk_bdev_io,
         channels: &NexusChannelInner,
     ) {
-        let mut io = Bio(pio);
         // in case of resets, we want to reset all underlying children
-        io.ctx_as_mut_ref().in_flight = channels.ch.len() as i8;
+        let io = Bio::new(pio, channels.ch.len() as i8);
         let results = channels
             .ch
             .iter()
@@ -774,9 +771,8 @@ impl Nexus {
         pio: *mut spdk_bdev_io,
         channels: &NexusChannelInner,
     ) {
-        let mut io = Bio(pio);
         // in case of writes, we want to write to all underlying children
-        io.ctx_as_mut_ref().in_flight = channels.ch.len() as i8;
+        let io = Bio::new(pio, channels.ch.len() as i8);
         let results = channels
             .ch
             .iter()
@@ -810,8 +806,7 @@ impl Nexus {
         pio: *mut spdk_bdev_io,
         channels: &NexusChannelInner,
     ) {
-        let mut io = Bio(pio);
-        io.ctx_as_mut_ref().in_flight = channels.ch.len() as i8;
+        let io = Bio::new(pio, channels.ch.len() as i8);
         let results = channels
             .ch
             .iter()
@@ -842,8 +837,7 @@ impl Nexus {
         pio: *mut spdk_bdev_io,
         channels: &NexusChannelInner,
     ) {
-        let mut io = Bio(pio);
-        io.ctx_as_mut_ref().in_flight = channels.ch.len() as i8;
+        let io = Bio::new(pio, channels.ch.len() as i8);
         let results = channels
             .ch
             .iter()
@@ -874,8 +868,7 @@ impl Nexus {
         pio: *mut spdk_bdev_io,
         channels: &NexusChannelInner,
     ) {
-        let mut io = Bio(pio);
-        io.ctx_as_mut_ref().in_flight = channels.ch.len() as i8;
+        let io = Bio::new(pio, channels.ch.len() as i8);
         let results = channels
             .ch
             .iter()
@@ -906,14 +899,13 @@ impl Nexus {
         pio: *mut spdk_bdev_io,
         channels: &NexusChannelInner,
     ) {
-        let mut io = Bio(pio);
+        let io = Bio::new(pio, channels.ch.len() as i8);
         if io.nvme_cmd().opc() == nvme_admin_opc::CREATE_SNAPSHOT as u16 {
             // FIXME: pause IO before dispatching
             debug!("Passing thru create snapshot as NVMe Admin command");
         }
         // for pools, pass thru only works with our vendor commands as the
         // underlying bdev is not nvmf
-        io.ctx_as_mut_ref().in_flight = channels.ch.len() as i8;
         let results = channels
             .ch
             .iter()
