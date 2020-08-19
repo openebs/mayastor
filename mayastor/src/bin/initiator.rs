@@ -116,6 +116,15 @@ async fn write(uri: &str, offset: u64, file: &str) -> Result<()> {
     Ok(())
 }
 
+/// Create a snapshot.
+async fn create_snapshot(uri: &str) -> Result<()> {
+    let bdev = create_bdev(uri).await?;
+    let h = Bdev::open(&bdev, true).unwrap().into_handle().unwrap();
+    let t = h.create_snapshot().await?;
+    info!("snapshot taken at {}", t);
+    Ok(())
+}
+
 /// Connect to the target.
 async fn connect(uri: &str) -> Result<()> {
     let _bdev = create_bdev(uri).await?;
@@ -150,6 +159,8 @@ fn main() {
                 .help("File to read data from that will be written to the replica")
                 .required(true)
                 .index(1)))
+        .subcommand(SubCommand::with_name("create-snapshot")
+            .about("Create a snapshot on the replica"))
         .get_matches();
 
     logger::init("INFO");
@@ -178,6 +189,8 @@ fn main() {
                 read(&uri, offset, matches.value_of("FILE").unwrap()).await
             } else if let Some(matches) = matches.subcommand_matches("write") {
                 write(&uri, offset, matches.value_of("FILE").unwrap()).await
+            } else if matches.subcommand_matches("create-snapshot").is_some() {
+                create_snapshot(&uri).await
             } else {
                 connect(&uri).await
             };
