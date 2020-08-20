@@ -691,6 +691,31 @@ describe('replica', function () {
       );
     });
 
+    it('should take snapshot on nvmf replica', (done) => {
+      common.execAsRoot(
+        common.getCmdPath('initiator'),
+        [uri, 'create-snapshot'],
+        done
+      );
+    });
+
+    it('should list the snapshot of the replica', (done) => {
+      client.listReplicas({}, (err, res) => {
+        if (err) return done(err);
+        res = res.replicas.filter((ent) => {
+          return ent.uuid.startsWith(UUID + '-snap-');
+        });
+        assert.lengthOf(res, 1);
+        res = res[0];
+        assert.equal(res.pool, POOL);
+        assert.equal(res.thin, false);
+        assert.equal(res.size, 96 * 1024 * 1024);
+        assert.equal(res.share, 'REPLICA_NONE');
+        assert.equal(res.uri.startsWith('bdev:///' + UUID + '-snap-'), true);
+        done();
+      });
+    });
+
     it('should destroy nvmf replica', (done) => {
       client.destroyReplica({ uuid: UUID }, (err, res) => {
         if (err) return done(err);
