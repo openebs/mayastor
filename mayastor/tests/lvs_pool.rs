@@ -311,7 +311,7 @@ fn lvs_pool_test() {
 
                     for l in pool.lvols().unwrap() {
                         if l.name() == "notshared" {
-                            assert_eq!(l.shared(), None);
+                            assert_eq!(l.shared().is_some(), false);
                         } else {
                             assert_eq!(l.shared().unwrap(), Protocol::Nvmf);
                         }

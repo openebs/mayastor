@@ -107,6 +107,9 @@ impl Share for Bdev {
                 })?;
             }
             Some(Protocol::None) | None => {}
+            Some(Protocol::Invalid) => {
+                error!("shared with invalid protocol {}", self.name())
+            }
         }
 
         Ok(self.name())
@@ -127,8 +130,7 @@ impl Share for Bdev {
         match self.shared() {
             Some(Protocol::Nvmf) => nvmf::get_uri(&self.name()),
             Some(Protocol::Iscsi) => iscsi::get_uri(Side::Nexus, &self.name()),
-            Some(Protocol::None) => None,
-            _ => None,
+            _ => Some(format!("bdev:///{}", self.name())),
         }
     }
 

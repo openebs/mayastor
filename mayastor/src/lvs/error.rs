@@ -1,34 +1,71 @@
-use crate::{core::CoreError, nexus_uri::NexusBdevError};
 use nix::errno::Errno;
 use snafu::Snafu;
+
+use crate::{core::CoreError, lvs::PropName, nexus_uri::NexusBdevError};
 
 #[derive(Debug, Snafu)]
 #[snafu(visibility = "pub(crate)")]
 pub enum Error {
-    #[snafu(display("errno {}: {}", err.to_string(), msg))]
-    Import { err: Errno, msg: String },
-    #[snafu(display("failed to create pool {}", msg))]
-    Create { err: Errno, msg: String },
-    #[snafu(display("errno {}: {}", err.to_string(), msg))]
-    Export { err: Errno, msg: String },
-    #[snafu(display("source {}: {}", source.to_string(), msg))]
-    Destroy { source: NexusBdevError, msg: String },
-    #[snafu(display("source {}: {}", source.to_string(), msg))]
-    InvalidBdev { source: NexusBdevError, msg: String },
+    #[snafu(display("failed to import pool {}", name))]
+    Import { source: Errno, name: String },
+
+    #[snafu(display("failed to create pool {}", name))]
+    Create { source: Errno, name: String },
+
+    #[snafu(display("failed to export pool {}", name))]
+    Export { source: Errno, name: String },
+
+    #[snafu(display("failed to destroy pool {}", name))]
+    Destroy {
+        source: NexusBdevError,
+        name: String,
+    },
+
+    InvalidBdev {
+        source: NexusBdevError,
+        name: String,
+    },
+
     #[snafu(display("errno {}: {}", source.to_string(), msg))]
     Invalid { source: Errno, msg: String },
-    #[snafu(display("lvol exists {}", msg))]
-    RepExists { err: Errno, msg: String },
-    #[snafu(display("failed to create lvol {}", msg))]
-    RepCreate { source: Errno, msg: String },
-    #[snafu(display("failed to create lvol {}", msg))]
-    RepDestroy { source: Errno, msg: String },
-    #[snafu(display("bdev is not a lvol"))]
-    NotALvol { source: Errno, msg: String },
-    #[snafu(display("source: {} {}", source.to_string(), msg))]
-    LvolShare { source: CoreError, msg: String },
-    #[snafu(display("failed to share lvol {}", msg))]
-    LvolUnShare { source: CoreError, msg: String },
-    #[snafu(display("errno {}: {}", source.to_string(), msg))]
-    Property { source: Errno, msg: String },
+
+    #[snafu(display("lvol exists {}", name))]
+    RepExists { source: Errno, name: String },
+
+    #[snafu(display("failed to create lvol {}", name))]
+    RepCreate { source: Errno, name: String },
+
+    #[snafu(display("failed to destroy lvol {}", name))]
+    RepDestroy { source: Errno, name: String },
+
+    #[snafu(display("bdev {} is not a lvol", name))]
+    NotALvol { source: Errno, name: String },
+
+    #[snafu(display("failed to share lvol {}", name))]
+    LvolShare { source: CoreError, name: String },
+
+    #[snafu(display("failed to unshare lvol {}", name))]
+    LvolUnShare { source: CoreError, name: String },
+
+    #[snafu(display(
+        "failed to get property {} ({}) from {}",
+        prop,
+        source,
+        name
+    ))]
+    GetProperty {
+        source: Errno,
+        prop: PropName,
+        name: String,
+    },
+    #[snafu(display("failed to set property {} on {}", prop, name))]
+    SetProperty {
+        source: Errno,
+        prop: PropName,
+        name: String,
+    },
+    #[snafu(display("failed to sync properties {}", name))]
+    SyncProperty { source: Errno, name: String },
+    #[snafu(display("invalid property value: {}", name))]
+    Property { source: Errno, name: String },
 }

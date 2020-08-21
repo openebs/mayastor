@@ -7,6 +7,18 @@ pub enum Protocol {
     None,
     Nvmf,
     Iscsi,
+    Invalid,
+}
+
+impl From<i32> for Protocol {
+    fn from(p: i32) -> Self {
+        match p {
+            0 => Self::None,
+            1 => Self::Nvmf,
+            2 => Self::Iscsi,
+            _ => Self::Invalid,
+        }
+    }
 }
 
 impl Display for Protocol {
@@ -15,6 +27,7 @@ impl Display for Protocol {
             Self::None => "Not shared",
             Self::Iscsi => "iSCSI",
             Self::Nvmf => "NVMe-oF TCP",
+            Self::Invalid => "Invalid protocol",
         };
         write!(f, "{}", p)
     }
