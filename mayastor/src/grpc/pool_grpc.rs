@@ -49,6 +49,7 @@ impl From<Protocol> for i32 {
             Protocol::None => 0,
             Protocol::Nvmf => 1,
             Protocol::Iscsi => 2,
+            Protocol::Invalid => i32::MAX,
         }
     }
 }
@@ -72,14 +73,8 @@ impl From<Lvol> for Replica {
             pool: l.pool(),
             thin: l.is_thin(),
             size: l.size(),
-            share: if l.shared().is_none() {
-                Protocol::None.into()
-            } else {
-                l.shared().unwrap().into()
-            },
-            uri: l
-                .share_uri()
-                .unwrap_or_else(|| format!("bdev:///{}", l.name())),
+            share: l.shared().unwrap().into(),
+            uri: l.share_uri().unwrap(),
         }
     }
 }
@@ -92,9 +87,8 @@ pub async fn create(args: CreatePoolRequest) -> GrpcResult<Pool> {
     rpc_call(Lvs::create_or_import(args))
 }
 
-/// Destroy a pool; this method name is somewhat misleading. It does not
-/// destroy the pool rather it exports the pool. If the pool does not
-/// exist; it returns OK.
+/// Destroy a pool; and deletes all lvols
+// If the pool does not exist; it returns OK.
 #[instrument(level = "debug", err)]
 pub async fn destroy(args: DestroyPoolRequest) -> GrpcResult<Null> {
     if let Some(pool) = Lvs::lookup(&args.name) {
@@ -111,8 +105,9 @@ pub fn list() -> GrpcResult<ListPoolsReply> {
     }))
 }
 
-/// create a replica on the given pool returns an Error if the lvol already
-/// exists
+/// create a replica on the given pool returns an OK if the lvol already
+/// exist. If replica fails to share, it will be destroyed prior to returning
+/// an error.
 #[instrument(level = "debug", err)]
 pub async fn create_replica(args: CreateReplicaRequest) -> GrpcResult<Replica> {
     if Lvs::lookup(&args.pool).is_none() {
@@ -124,24 +119,37 @@ pub async fn create_replica(args: CreateReplicaRequest) -> GrpcResult<Replica> {
         return Ok(Response::new(Replica::from(lvol)));
     }
 
+    if !matches!(Protocol::from(args.share), Protocol::None | Protocol::Nvmf) {
+        return Err(Status::invalid_argument(format!(
+            "invalid protocol {}",
+            args.share
+        )));
+    }
+
     rpc_call(async move {
         let p = Lvs::lookup(&args.pool).unwrap();
         match p.create_lvol(&args.uuid, args.size, false).await {
-            Ok(lvol) => match lvol.share_nvmf().await {
-                Ok(s) => {
-                    debug!("created and shared {} as {}", lvol, s);
-                    Ok(lvol)
+            Ok(lvol) if Protocol::from(args.share) == Protocol::Nvmf => {
+                match lvol.share_nvmf().await {
+                    Ok(s) => {
+                        debug!("created and shared {} as {}", lvol, s);
+                        Ok(lvol)
+                    }
+                    Err(e) => {
+                        debug!(
+                            "failed to share created lvol {}: {} .. destroying",
+                            lvol,
+                            e.to_string()
+                        );
+                        let _ = lvol.destroy().await;
+                        Err(e)
+                    }
                 }
-                Err(e) => {
-                    debug!(
-                        "failed to share created lvol {}: {} .. destroying",
-                        lvol,
-                        e.to_string()
-                    );
-                    let _ = lvol.destroy().await;
-                    Err(e)
-                }
-            },
+            }
+            Ok(lvol) => {
+                debug!("created lvol {}", lvol);
+                Ok(lvol)
+            }
             Err(e) => Err(e),
         }
     })
@@ -191,32 +199,39 @@ pub async fn share_replica(
         if let Some(b) = Bdev::lookup_by_name(&args.uuid) {
             let lvol = Lvol::try_from(b)?;
 
-            if lvol.shared().is_some() && args.share == 1 {
+            // if we are already shared return OK
+            if lvol.shared() == Some(Protocol::from(args.share)) {
                 return Ok(ShareReplicaReply {
                     uri: lvol.share_uri().unwrap(),
                 });
             }
-            match args.share {
-                0 => lvol.unshare().await.map(|_| ShareReplicaReply {
-                    uri: format!("bdev:///{}", lvol.name()),
-                }),
+            match Protocol::from(args.share) {
+                Protocol::None => {
+                    lvol.unshare().await.map(|_| ShareReplicaReply {
+                        uri: format!("bdev:///{}", lvol.name()),
+                    })
+                }
 
-                1 => lvol.share_nvmf().await.map(|_| ShareReplicaReply {
-                    uri: lvol.share_uri().unwrap(),
-                }),
-                _ => Err(LvsError::LvolShare {
-                    source: CoreError::NotSupported {
-                        source: Errno::ENOSYS,
-                    },
-                    msg: "protocol not supported for lvols".to_string(),
-                }),
+                Protocol::Nvmf => {
+                    lvol.share_nvmf().await.map(|_| ShareReplicaReply {
+                        uri: lvol.share_uri().unwrap(),
+                    })
+                }
+                Protocol::Iscsi | Protocol::Invalid => {
+                    Err(LvsError::LvolShare {
+                        source: CoreError::NotSupported {
+                            source: Errno::ENOSYS,
+                        },
+                        name: args.uuid,
+                    })
+                }
             }
         } else {
             Err(LvsError::InvalidBdev {
                 source: NexusBdevError::BdevNotFound {
-                    name: args.uuid,
+                    name: args.uuid.clone(),
                 },
-                msg: "no such lvol to share".to_string(),
+                name: args.uuid,
             })
         }
     })

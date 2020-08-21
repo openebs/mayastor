@@ -223,7 +223,40 @@ describe('replica', function () {
     });
   });
 
-  it('should succeed if creating replica that already exists', (done) => {
+  it('should not create a replica exported over iscsi', (done) => {
+    client.createReplica(
+        {
+          uuid: UUID,
+          pool: POOL,
+          thin: true,
+          share: 'REPLICA_ISCSI',
+          size: 8 * (1024 * 1024) // keep this multiple of cluster size (4MB)
+        },
+        (err, res) => {
+          assert.equal(err.code, grpc.status.INVALID_ARGUMENT)
+          done();
+        }
+    );
+  });
+  it('should create un-exported replica', (done) => {
+    client.createReplica(
+        {
+          uuid: UUID,
+          pool: POOL,
+          thin: true,
+          share: 'NONE',
+          size: 8 * (1024 * 1024) // keep this multiple of cluster size (4MB)
+        },
+        (err, res) => {
+          if (err) return done(err);
+          assert.match(res.uri, /^bdev:\/\/\//);
+          done();
+        }
+    );
+  });
+
+
+  it('should succeed if creating a replica that already exists', (done) => {
     client.createReplica(
       {
         uuid: UUID,
@@ -247,13 +280,13 @@ describe('replica', function () {
       assert.equal(res.pool, POOL);
       assert.equal(res.thin, false);
       assert.equal(res.size, 8 * 1024 * 1024);
-      assert.equal(res.share, 'REPLICA_NVMF');
-      assert.match(res.uri, NVMF_URI);
+      assert.equal(res.share, 'REPLICA_NONE');
+      assert.match(res.uri, /^bdev:\/\/\//);
       done();
     });
   });
 
-  it('should share the replica again', (done) => {
+  it('should share the un-exported replica again', (done) => {
     client.shareReplica(
       {
         uuid: UUID,
