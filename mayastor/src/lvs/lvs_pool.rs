@@ -191,7 +191,7 @@ impl Lvs {
             source: NexusBdevError::BdevNotFound {
                 name: bdev.to_string(),
             },
-            msg: "trying to import a pool on a bdev that does not exist".into(),
+            name: name.to_string(),
         })?;
 
         // examining a bdev that is in-use by an lvs, will hang to avoid this
@@ -199,12 +199,8 @@ impl Lvs {
 
         if bdev.is_claimed() {
             return Err(Error::Import {
-                err: Errno::EBUSY,
-                msg: format!(
-                    "bdev {} is already in use by {}",
-                    bdev.name(),
-                    bdev.claimed_by().unwrap()
-                ),
+                source: Errno::EBUSY,
+                name: bdev.name(),
             });
         }
 
@@ -224,16 +220,16 @@ impl Lvs {
             .await
             .expect("Cancellation is not supported")
             .map_err(|err| Error::Import {
-                err,
-                msg: name.into(),
+                source: err,
+                name: name.into(),
             })?;
 
         if name != lvs.name() {
             warn!("no pool with name {} found on this device -- unloading the pool", name);
             lvs.export().await.unwrap();
             Err(Error::Import {
-                err: Errno::EINVAL,
-                msg: "Invalid pool name specified for devices".to_string(),
+                source: Errno::EINVAL,
+                name: name.into(),
             })
         } else {
             lvs.share_all().await;
@@ -263,16 +259,16 @@ impl Lvs {
             )
         }
         .to_result(|e| Error::Create {
-            err: Errno::from_i32(e),
-            msg: format!("failed to create pool '{}'", name),
+            source: Errno::from_i32(e),
+            name: name.to_string(),
         })?;
 
         receiver
             .await
             .expect("Cancellation is not supported")
             .map_err(|err| Error::Create {
-                err,
-                msg: "failed to create pool".into(),
+                source: err,
+                name: name.to_string(),
             })?;
 
         match Self::lookup(&name) {
@@ -281,8 +277,8 @@ impl Lvs {
                 Ok(pool)
             }
             None => Err(Error::Create {
-                err: Errno::ENOENT,
-                msg: format!("The pool {} is gone right after creation!", name),
+                source: Errno::ENOENT,
+                name: name.to_string(),
             }),
         }
     }
@@ -332,10 +328,7 @@ impl Lvs {
 
         let parsed = Uri::parse(&disks[0]).map_err(|e| Error::InvalidBdev {
             source: e,
-            msg: format!(
-                "invalid bdev uri: {:?} specified for pool {}",
-                args.disks, args.name
-            ),
+            name: args.name.clone(),
         })?;
 
         if let Some(pool) = Self::lookup(&args.name) {
@@ -343,8 +336,8 @@ impl Lvs {
                 Ok(pool)
             } else {
                 Err(Error::Create {
-                    err: Errno::EEXIST,
-                    msg: format!("pool {} already exists", args.name),
+                    source: Errno::EEXIST,
+                    name: args.name.clone(),
                 })
             };
         }
@@ -356,7 +349,7 @@ impl Lvs {
                 } => Ok(parsed.get_name()),
                 _ => Err(Error::InvalidBdev {
                     source: e,
-                    msg: "base_bdev for the pool does not match".into(),
+                    name: args.disks[0].clone(),
                 }),
             },
             Ok(name) => Ok(name),
@@ -365,20 +358,22 @@ impl Lvs {
         match Self::import(&args.name, &bdev).await {
             Ok(pool) => Ok(pool),
             Err(Error::Import {
-                err,
-                msg,
-            }) if err == Errno::EINVAL => {
+                source,
+                name,
+            }) if source == Errno::EINVAL => {
                 // there is a pool here, but it does not match the name
                 error!("pool name mismatch");
                 Err(Error::Import {
-                    err,
-                    msg,
+                    source,
+                    name,
                 })
             }
             // else some other error, try to create the the pool
             Err(Error::Import {
-                err, ..
-            }) if err == Errno::EILSEQ => Self::create(&args.name, &bdev).await,
+                source, ..
+            }) if source == Errno::EILSEQ => {
+                Self::create(&args.name, &bdev).await
+            }
             Err(e) => {
                 error!("{}", e.to_string());
                 Err(e)
@@ -403,8 +398,8 @@ impl Lvs {
         r.await
             .expect("callback gone while exporting lvs")
             .to_result(|e| Error::Export {
-                err: Errno::from_i32(e),
-                msg: format!("failed to export pool {}", pool),
+                source: Errno::from_i32(e),
+                name: pool.clone(),
             })?;
 
         info!("pool {} exported successfully", pool);
@@ -412,11 +407,7 @@ impl Lvs {
             .await
             .map_err(|e| Error::Destroy {
                 source: e,
-                msg: format!(
-                    "pool {} destroyed but failed to delete base_bdev {}",
-                    pool,
-                    base_bdev.name()
-                ),
+                name: base_bdev.name(),
             })?;
         Ok(())
     }
@@ -482,8 +473,8 @@ impl Lvs {
         r.await
             .expect("callback gone while destroying lvs")
             .to_result(|e| Error::Export {
-                err: Errno::from_i32(e),
-                msg: format!("failed to export pool {}", pool),
+                source: Errno::from_i32(e),
+                name: pool.clone(),
             })?;
 
         info!("pool {} destroyed successfully", pool);
@@ -492,11 +483,7 @@ impl Lvs {
             .await
             .map_err(|e| Error::Destroy {
                 source: e,
-                msg: format!(
-                    "pool {} destroyed but failed to delete base_bdev {}",
-                    pool,
-                    base_bdev.name()
-                ),
+                name: base_bdev.name(),
             })?;
 
         Ok(())
@@ -539,18 +526,18 @@ impl Lvs {
 
         if Bdev::lookup_by_name(name).is_some() {
             return Err(Error::RepExists {
-                err: Errno::EEXIST,
-                msg: format!("lvol {} already exists", name),
+                source: Errno::EEXIST,
+                name: name.to_string(),
             });
         };
 
         let (s, r) = pair::<ErrnoResult<*mut spdk_lvol>>();
 
-        let name = name.into_cstring();
+        let cname = name.into_cstring();
         unsafe {
             vbdev_lvol_create(
                 self.0.as_ptr(),
-                name.as_ptr(),
+                cname.as_ptr(),
                 size,
                 thin,
                 clear_method,
@@ -560,7 +547,7 @@ impl Lvs {
         }
         .to_result(|e| Error::RepCreate {
             source: Errno::from_i32(e),
-            msg: "failed to dispatch lvol creation event".to_string(),
+            name: name.to_string(),
         })?;
 
         let lvol =
@@ -568,7 +555,7 @@ impl Lvs {
                 .expect("lvol creation callback dropped")
                 .map_err(|e| Error::RepCreate {
                     source: e,
-                    msg: "".to_string(),
+                    name: name.to_string(),
                 })?;
 
         Ok(Lvol(NonNull::new(lvol).unwrap()))
