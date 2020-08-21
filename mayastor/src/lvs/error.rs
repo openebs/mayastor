@@ -1,7 +1,7 @@
 use nix::errno::Errno;
 use snafu::Snafu;
 
-use crate::{core::CoreError, nexus_uri::NexusBdevError};
+use crate::{core::CoreError, lvs::PropName, nexus_uri::NexusBdevError};
 
 #[derive(Debug, Snafu)]
 #[snafu(visibility = "pub(crate)")]
@@ -47,11 +47,24 @@ pub enum Error {
     #[snafu(display("failed to unshare lvol {}", name))]
     LvolUnShare { source: CoreError, name: String },
 
-    #[snafu(display("failed to get  property {}", name))]
-    GetProperty { source: Errno, name: String },
-    #[snafu(display("failed to set property {}", name))]
-    SetProperty { source: Errno, name: String },
-    #[snafu(display("failed to set property {}", name))]
+    #[snafu(display(
+        "failed to get property {} ({}) from {}",
+        prop,
+        source,
+        name
+    ))]
+    GetProperty {
+        source: Errno,
+        prop: PropName,
+        name: String,
+    },
+    #[snafu(display("failed to set property {} on {}", prop, name))]
+    SetProperty {
+        source: Errno,
+        prop: PropName,
+        name: String,
+    },
+    #[snafu(display("failed to sync properties {}", name))]
     SyncProperty { source: Errno, name: String },
     #[snafu(display("invalid property value: {}", name))]
     Property { source: Errno, name: String },

@@ -120,7 +120,7 @@ impl Share for Bdev {
         match self.claimed_by() {
             Some(t) if t == "NVMe-oF Target" => Some(Protocol::Nvmf),
             Some(t) if t == "iSCSI Target" => Some(Protocol::Iscsi),
-            _ => Some(Protocol::None),
+            _ => None,
         }
     }
 
@@ -130,8 +130,7 @@ impl Share for Bdev {
         match self.shared() {
             Some(Protocol::Nvmf) => nvmf::get_uri(&self.name()),
             Some(Protocol::Iscsi) => iscsi::get_uri(Side::Nexus, &self.name()),
-            Some(Protocol::None) => Some(format!("bdev:///{}", self.name())),
-            _ => None,
+            _ => Some(format!("bdev:///{}", self.name())),
         }
     }
 

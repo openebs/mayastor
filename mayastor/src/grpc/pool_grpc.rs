@@ -73,7 +73,7 @@ impl From<Lvol> for Replica {
             pool: l.pool(),
             thin: l.is_thin(),
             size: l.size(),
-            share: l.shared().unwrap().into(),
+            share: l.shared().unwrap_or(Protocol::None).into(),
             uri: l.share_uri().unwrap(),
         }
     }

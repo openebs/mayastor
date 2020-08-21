@@ -36,7 +36,7 @@ use crate::{
 
 /// properties we allow for being set on the lvol, this information is stored on
 /// disk
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum PropValue {
     Shared(bool),
@@ -46,6 +46,23 @@ pub enum PropValue {
 #[non_exhaustive]
 pub enum PropName {
     Shared,
+}
+
+impl From<PropValue> for PropName {
+    fn from(v: PropValue) -> Self {
+        match v {
+            PropValue::Shared(_) => Self::Shared,
+        }
+    }
+}
+
+impl Display for PropName {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            PropName::Shared => "shared",
+        };
+        write!(f, "{}", name)
+    }
 }
 
 #[derive(Debug)]
@@ -243,7 +260,7 @@ impl Lvol {
 
         match prop {
             PropValue::Shared(val) => {
-                let name = "shared".into_cstring();
+                let name = PropName::from(prop).to_string().into_cstring();
                 let value = if val { "true" } else { "false" }.into_cstring();
                 unsafe {
                     spdk_blob_set_xattr(
@@ -255,6 +272,7 @@ impl Lvol {
                 }
                 .to_result(|e| Error::SetProperty {
                     source: Errno::from_i32(e),
+                    prop: prop.into(),
                     name: self.name(),
                 })?;
             }
@@ -283,7 +301,7 @@ impl Lvol {
 
         match prop {
             PropName::Shared => {
-                let name = "shared".into_cstring();
+                let name = prop.to_string().into_cstring();
                 let mut value: *const libc::c_char =
                     std::ptr::null::<libc::c_char>();
                 let mut value_len: u64 = 0;
@@ -297,6 +315,7 @@ impl Lvol {
                 }
                 .to_result(|e| Error::GetProperty {
                     source: Errno::from_i32(e),
+                    prop,
                     name: self.name(),
                 })?;
                 match unsafe { CStr::from_ptr(value).to_str() } {
