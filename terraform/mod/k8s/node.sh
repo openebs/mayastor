@@ -1,10 +1,21 @@
 #!/bin/bash
 set -ex
 
+function addKernelModules() {
+    for module in $@; do
+        sudo modprobe $module
+        echo $module | sudo tee -a /etc/modules-load.d/kvm.conf
+    done
+}
+
+function addHugePages() {
+    echo $1 | sudo tee /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
+    echo "vm.nr_hugepages = $1" | sudo tee -a /etc/sysctl.d/10-kubeadm.conf
+}
+
 sudo grep -qa container=lxc /proc/1/environ || (
-    echo ${nr_hugepages} | sudo tee  /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
-    sudo modprobe nbd
-    sudo modprobe xfs
+    addHugePages ${nr_hugepages}
+    addKernelModules nbd xfs
 
     case ${modprobe_nvme} in
         ubuntu-20.04-server-cloudimg-amd64.img)
@@ -13,8 +24,7 @@ sudo grep -qa container=lxc /proc/1/environ || (
             # install linux-modules-extra-<kernel-release>
             # so that we can load kernel module nvme-tcp
             sudo apt -y install `apt search linux-modules-extra | fgrep \`uname -r\` | sed -e "s/,.*//"`
-            sudo modprobe nvme-tcp
-            sudo modprobe nvmet
+            addKernelModules nvme-tcp nvmet
             ;;
         *)
             echo "nvme kernel modules not loaded!"
