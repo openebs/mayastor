@@ -36,7 +36,7 @@ use crate::{
 
 /// properties we allow for being set on the lvol, this information is stored on
 /// disk
-#[derive(Debug, PartialEq)]
+#[derive(Debug, Copy, Clone, PartialEq)]
 #[non_exhaustive]
 pub enum PropValue {
     Shared(bool),
@@ -46,6 +46,23 @@ pub enum PropValue {
 #[non_exhaustive]
 pub enum PropName {
     Shared,
+}
+
+impl From<PropValue> for PropName {
+    fn from(v: PropValue) -> Self {
+        match v {
+            PropValue::Shared(_) => Self::Shared,
+        }
+    }
+}
+
+impl Display for PropName {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        let name = match self {
+            PropName::Shared => "shared",
+        };
+        write!(f, "{}", name)
+    }
 }
 
 #[derive(Debug)]
@@ -65,7 +82,7 @@ impl TryFrom<Bdev> for Lvol {
         } else {
             Err(Error::NotALvol {
                 source: Errno::EINVAL,
-                msg: format!("bdev {} is not a lvol", b.name()),
+                name: b.name(),
             })
         }
     }
@@ -94,7 +111,7 @@ impl Share for Lvol {
             source: CoreError::NotSupported {
                 source: Errno::EINVAL,
             },
-            msg: "iSCSI shares not allowed for lvols".to_string(),
+            name: self.name(),
         })
     }
 
@@ -104,7 +121,7 @@ impl Share for Lvol {
         let share = self.as_bdev().share_nvmf().await.map_err(|e| {
             Error::LvolShare {
                 source: e,
-                msg: format!("failed to share lvol {}", self.name()),
+                name: self.name(),
             }
         })?;
 
@@ -122,7 +139,7 @@ impl Share for Lvol {
                 .await
                 .map_err(|e| Error::LvolUnShare {
                     source: e,
-                    msg: format!("failed to unshare {}", self.name()),
+                    name: self.name(),
                 })?;
 
         self.set(PropValue::Shared(false)).await?;
@@ -220,7 +237,7 @@ impl Lvol {
             .expect("lvol destroy callback is gone")
             .to_result(|e| Error::RepDestroy {
                 source: Errno::from_i32(e),
-                msg: format!("failed to destroy lvol {}", name),
+                name: self.name(),
             })?;
 
         info!("Destroyed lvol {}", name);
@@ -243,7 +260,7 @@ impl Lvol {
 
         match prop {
             PropValue::Shared(val) => {
-                let name = "shared".into_cstring();
+                let name = PropName::from(prop).to_string().into_cstring();
                 let value = if val { "true" } else { "false" }.into_cstring();
                 unsafe {
                     spdk_blob_set_xattr(
@@ -253,13 +270,10 @@ impl Lvol {
                         value.as_bytes_with_nul().len() as u16,
                     )
                 }
-                .to_result(|e| Error::Property {
+                .to_result(|e| Error::SetProperty {
                     source: Errno::from_i32(e),
-                    msg: format!(
-                        "failed to set the property {:?} on {}",
-                        prop,
-                        self.name()
-                    ),
+                    prop: prop.into(),
+                    name: self.name(),
                 })?;
             }
         };
@@ -270,9 +284,9 @@ impl Lvol {
         };
 
         r.await.expect("sync callback is gone").to_result(|e| {
-            Error::Property {
+            Error::SyncProperty {
                 source: Errno::from_i32(e),
-                msg: format!("failed to sync blob md for {}", self.name()),
+                name: self.name(),
             }
         })?;
 
@@ -287,7 +301,7 @@ impl Lvol {
 
         match prop {
             PropName::Shared => {
-                let name = "shared".into_cstring();
+                let name = prop.to_string().into_cstring();
                 let mut value: *const libc::c_char =
                     std::ptr::null::<libc::c_char>();
                 let mut value_len: u64 = 0;
@@ -299,17 +313,17 @@ impl Lvol {
                         &mut value_len,
                     )
                 }
-                .to_result(|e| Error::Property {
+                .to_result(|e| Error::GetProperty {
                     source: Errno::from_i32(e),
-                    msg: format!("failed to get the property {:?}", prop),
+                    prop,
+                    name: self.name(),
                 })?;
                 match unsafe { CStr::from_ptr(value).to_str() } {
                     Ok("true") => Ok(PropValue::Shared(true)),
                     Ok("false") => Ok(PropValue::Shared(false)),
                     _ => Err(Error::Property {
                         source: Errno::EINVAL,
-                        msg: "the property contained an invalid value"
-                            .to_string(),
+                        name: self.name(),
                     }),
                 }
             }
