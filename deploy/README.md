@@ -134,7 +134,7 @@ The YAML files named below are to be found in the `deploy` folder of the Mayasto
       namespace: mayastor
     spec:
       node: workernode1
-      disk: ["/dev/vdb"]
+      disks: ["/dev/vdb"]
     EOF
     ```
     > Note: Currently, the membership of Mayastor Storage Pools is restricted to a single disk device
