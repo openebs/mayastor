@@ -242,13 +242,11 @@ fn rebuild_with_load() {
             common::device_path_from_uri(nexus.get_share_uri().unwrap());
 
         let (s, r1) = unbounded::<i32>();
-        std::thread::spawn(move || {
-            Mthread::unaffinitize();
+        Mthread::spawn_unaffinitized(move || {
             s.send(common::fio_verify_size(&nexus_device, NEXUS_SIZE * 2))
         });
         let (s, r2) = unbounded::<()>();
-        std::thread::spawn(move || {
-            Mthread::unaffinitize();
+        Mthread::spawn_unaffinitized(move || {
             std::thread::sleep(std::time::Duration::from_millis(1500));
             s.send(())
         });

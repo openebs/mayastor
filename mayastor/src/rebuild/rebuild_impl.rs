@@ -88,7 +88,7 @@ impl Within<u64> for std::ops::Range<u64> {
 
 impl RebuildJob {
     /// Stores a rebuild job in the rebuild job list
-    pub(super) fn store(self: Self) -> Result<(), RebuildError> {
+    pub(super) fn store(self) -> Result<(), RebuildError> {
         let rebuild_list = Self::get_instances();
 
         if rebuild_list.contains_key(&self.destination) {
