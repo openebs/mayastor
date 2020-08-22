@@ -9,7 +9,6 @@ use std::{
     os::unix::io::AsRawFd,
     path::Path,
     sync::{atomic::AtomicBool, Arc},
-    thread,
     time::Duration,
 };
 
@@ -58,8 +57,7 @@ pub(crate) fn wait_until_ready(path: &str) -> Result<(), ()> {
     let s = started.clone();
 
     // start a thread that loops and tries to open us and asks for our size
-    thread::spawn(move || {
-        Mthread::unaffinitize();
+    Mthread::spawn_unaffinitized(move || {
         let size: u64 = 0;
         for _i in 1i32 .. 100 {
             std::thread::sleep(Duration::from_millis(1));
@@ -230,8 +228,7 @@ impl NbdDisk {
 
         let ptr = self.nbd_ptr as usize;
         let name = self.get_path();
-        thread::spawn(move || {
-            Mthread::unaffinitize();
+        Mthread::spawn_unaffinitized(move || {
             unsafe { nbd_disconnect(ptr as *mut _) };
             debug!("NBD device disconnected successfully");
             s.store(true, SeqCst);

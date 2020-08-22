@@ -13,10 +13,9 @@ use spdk_sys::{
     spdk_thread_is_exited,
     spdk_thread_poll,
     spdk_thread_send_msg,
-    spdk_unaffinitize_thread,
 };
 
-use crate::core::cpu_cores::CpuMask;
+use crate::core::{cpu_cores::CpuMask, Cores};
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -58,9 +57,9 @@ impl Mthread {
     ///
     /// # Note
     ///
-    /// Avoid any blocking calls as it will block the reactor, and avoid
-    /// long-running functions in general follow the nodejs event loop
-    /// model, and you should be good.
+    /// Avoid any blocking calls as it will block the whole reactor. Also, avoid
+    /// long-running functions. In general if you follow the nodejs event loop
+    /// model, you should be good.
     pub fn with<F: FnOnce()>(self, f: F) -> Self {
         let _th = Self::current();
         self.enter();
@@ -148,7 +147,35 @@ impl Mthread {
         assert_eq!(rc, 0);
     }
 
-    pub fn unaffinitize() {
-        unsafe { spdk_unaffinitize_thread() }
+    pub fn spawn_unaffinitized<F, T>(f: F) -> std::thread::JoinHandle<T>
+    where
+        F: FnOnce() -> T + Send + 'static,
+        T: Send + 'static,
+    {
+        std::thread::spawn(|| {
+            Self::unaffinitize();
+            f()
+        })
+    }
+
+    fn unaffinitize() {
+        unsafe {
+            let mut set: libc::cpu_set_t = std::mem::zeroed();
+            for i in 0 .. libc::sysconf(libc::_SC_NPROCESSORS_ONLN) {
+                libc::CPU_SET(i as usize, &mut set)
+            }
+
+            Cores::count()
+                .into_iter()
+                .for_each(|i| libc::CPU_CLR(i as usize, &mut set));
+
+            libc::sched_setaffinity(
+                0,
+                std::mem::size_of::<libc::cpu_set_t>(),
+                &set,
+            );
+
+            warn!("thread pinned to core {}", libc::sched_getcpu());
+        }
     }
 }

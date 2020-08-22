@@ -37,6 +37,10 @@ impl Cores {
         unsafe { spdk_env_get_current_core() }
     }
 
+    pub fn id(&self) -> u32 {
+        self.0
+    }
+
     fn get_core(c: Core) -> u32 {
         unsafe {
             match c {
@@ -82,7 +86,6 @@ impl Iterator for CoreInterator {
         }
     }
 }
-
 pub struct CpuMask(spdk_cpuset);
 
 impl CpuMask {
