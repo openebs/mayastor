@@ -39,8 +39,7 @@ fn mount_fs() {
         // create an XFS filesystem on the nexus device
         let s1 = s.clone();
         let mkfs_dev = device.clone();
-        std::thread::spawn(move || {
-            Mthread::unaffinitize();
+        Mthread::spawn_unaffinitized(move || {
             if !common::mkfs(&mkfs_dev, &fstype) {
                 s1.send(format!(
                     "Failed to format {} with {}",
@@ -58,8 +57,7 @@ fn mount_fs() {
 
         //mount the device, create a file and return the md5 of that file
         let s1 = s.clone();
-        std::thread::spawn(move || {
-            Mthread::unaffinitize();
+        Mthread::spawn_unaffinitized(move || {
             let md5 = common::mount_and_write_file(&device);
             s1.send(md5).unwrap();
         });
@@ -92,8 +90,7 @@ fn mount_fs() {
         );
 
         let s1 = s.clone();
-        std::thread::spawn(move || {
-            Mthread::unaffinitize();
+        Mthread::spawn_unaffinitized(move || {
             s1.send(common::mount_and_get_md5(&left_device))
         });
         let md5_left: String;
@@ -104,8 +101,7 @@ fn mount_fs() {
 
         let s1 = s.clone();
         // read the md5 of the right side of the mirror
-        std::thread::spawn(move || {
-            Mthread::unaffinitize();
+        Mthread::spawn_unaffinitized(move || {
             s1.send(common::mount_and_get_md5(&right_device))
         });
 
@@ -144,8 +140,7 @@ fn mount_fs_1() {
                 .unwrap(),
         );
 
-        std::thread::spawn(move || {
-            Mthread::unaffinitize();
+        Mthread::spawn_unaffinitized(move || {
             for _i in 0 .. 10 {
                 common::mount_umount(&device);
             }
@@ -173,8 +168,7 @@ fn mount_fs_2() {
         );
         let (s, r) = unbounded::<String>();
 
-        std::thread::spawn(move || {
-            Mthread::unaffinitize();
+        Mthread::spawn_unaffinitized(move || {
             s.send(common::fio_run_verify(&device))
         });
         reactor_poll!(r);
