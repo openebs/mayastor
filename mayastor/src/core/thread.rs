@@ -13,7 +13,6 @@ use spdk_sys::{
     spdk_thread_is_exited,
     spdk_thread_poll,
     spdk_thread_send_msg,
-    spdk_unaffinitize_thread,
 };
 
 use crate::core::cpu_cores::CpuMask;
@@ -149,6 +148,15 @@ impl Mthread {
     }
 
     pub fn unaffinitize() {
-        unsafe { spdk_unaffinitize_thread() }
+        let mut set = unsafe { std::mem::zeroed::<libc::cpu_set_t>() };
+        unsafe { libc::CPU_SET(4, &mut set) };
+        unsafe {
+            libc::sched_setaffinity(
+                0,
+                std::mem::size_of::<libc::cpu_set_t>(),
+                &set,
+            )
+        };
+        warn!("thread pinned to core {}", unsafe { libc::sched_getcpu() });
     }
 }

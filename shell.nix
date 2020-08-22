@@ -45,6 +45,7 @@ mkShell {
     python3
     utillinux
     xfsprogs
+    rust-analyzer
   ]
   ++ (if (nospdk) then [ libspdk.buildInputs ] else [ libspdk ])
   ++ pkgs.lib.optional (!norust) channel.nightly.rust;
