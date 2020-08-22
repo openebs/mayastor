@@ -4,7 +4,6 @@ use std::{
     io::Write,
     panic,
     process::{Command, Stdio},
-    thread,
     time::Duration,
 };
 
@@ -68,8 +67,7 @@ impl MayastorProcess {
         let mayastor = get_path("mayastor");
 
         let (tx, rx) = std::sync::mpsc::channel::<MayastorProcess>();
-        thread::spawn(move || {
-            Mthread::unaffinitize();
+        Mthread::spawn_unaffinitized(move || {
             if let Err(e) = fs::create_dir(hugetlbfs_path()) {
                 panic!("failed to create hugetlbfs mount path {}", e);
             }
