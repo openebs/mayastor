@@ -232,13 +232,13 @@ impl Nexus {
         self.child_count -= 1;
         self.reconfigure(DREvent::ChildRemove).await;
 
-        child.destroy().await.context(DestroyChild {
+        let result = child.destroy().await.context(DestroyChild {
             name: self.name.clone(),
             child: uri,
-        })?;
+        });
 
         self.start_rebuild_jobs(cancelled_rebuilding_children).await;
-        Ok(())
+        result
     }
 
     /// offline a child device and reconfigure the IO channels
