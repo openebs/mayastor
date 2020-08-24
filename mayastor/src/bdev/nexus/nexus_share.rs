@@ -48,13 +48,7 @@ impl Share for Nexus {
     async fn share_iscsi(&self) -> Result<Self::Output, Self::Error> {
         match self.shared() {
             Some(Protocol::Iscsi) => Ok(self.share_uri().unwrap()),
-            Some(p) => {
-                error!("nexus {} already shared as {:?}", self.name, p);
-                Err(AlreadyShared {
-                    name: self.name.clone(),
-                })
-            }
-            None => self
+            Some(Protocol::Off) | None => self
                 .bdev
                 .share_iscsi()
                 .await
@@ -66,6 +60,12 @@ impl Share for Nexus {
                     name: self.name.clone(),
                 })
                 .map(|_u| self.share_uri().unwrap()),
+            Some(p) => {
+                error!("nexus {} already shared as {:?}", self.name, p);
+                Err(AlreadyShared {
+                    name: self.name.clone(),
+                })
+            }
         }
     }
 
@@ -73,13 +73,7 @@ impl Share for Nexus {
         let bdev = Bdev::from(self.bdev.as_ptr());
         match self.shared() {
             Some(Protocol::Nvmf) => Ok(self.share_uri().unwrap()),
-            Some(p) => {
-                warn!("nexus {} already shared as {}", self.name, p);
-                Err(AlreadyShared {
-                    name: self.name.clone(),
-                })
-            }
-            None => bdev
+            Some(Protocol::Off) | None => bdev
                 .share_nvmf()
                 .await
                 .map_err(|e| Error::ShareNvmfNexus {
@@ -90,6 +84,12 @@ impl Share for Nexus {
                     name: self.name.clone(),
                 })
                 .map(|_| self.share_uri().unwrap()),
+            Some(p) => {
+                warn!("nexus {} already shared as {}", self.name, p);
+                Err(AlreadyShared {
+                    name: self.name.clone(),
+                })
+            }
         }
     }
 
