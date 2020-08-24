@@ -121,7 +121,7 @@ impl RebuildJob {
         })?;
         let destination_hdl = BdevHandle::open(
             &bdev_get_name(destination).context(BdevInvalidURI {
-                uri: source.to_string(),
+                uri: destination.to_string(),
             })?,
             true,
             false,
