@@ -106,21 +106,19 @@ impl Share for Bdev {
                     }
                 })?;
             }
-            Some(Protocol::None) | None => {}
-            Some(Protocol::Invalid) => {
-                error!("shared with invalid protocol {}", self.name())
-            }
+            Some(Protocol::Off) | None => {}
         }
 
         Ok(self.name())
     }
 
     /// returns if the bdev is currently shared
+    /// TODO: we could do better here
     fn shared(&self) -> Option<Protocol> {
         match self.claimed_by() {
             Some(t) if t == "NVMe-oF Target" => Some(Protocol::Nvmf),
             Some(t) if t == "iSCSI Target" => Some(Protocol::Iscsi),
-            _ => None,
+            _ => Some(Protocol::Off),
         }
     }
 
