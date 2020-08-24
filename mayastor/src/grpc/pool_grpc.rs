@@ -46,10 +46,9 @@ impl From<LvsError> for Status {
 impl From<Protocol> for i32 {
     fn from(p: Protocol) -> Self {
         match p {
-            Protocol::None => 0,
+            Protocol::Off => 0,
             Protocol::Nvmf => 1,
             Protocol::Iscsi => 2,
-            Protocol::Invalid => i32::MAX,
         }
     }
 }
@@ -73,7 +72,7 @@ impl From<Lvol> for Replica {
             pool: l.pool(),
             thin: l.is_thin(),
             size: l.size(),
-            share: l.shared().unwrap_or(Protocol::None).into(),
+            share: l.shared().unwrap().into(),
             uri: l.share_uri().unwrap(),
         }
     }
@@ -119,7 +118,7 @@ pub async fn create_replica(args: CreateReplicaRequest) -> GrpcResult<Replica> {
         return Ok(Response::new(Replica::from(lvol)));
     }
 
-    if !matches!(Protocol::from(args.share), Protocol::None | Protocol::Nvmf) {
+    if !matches!(Protocol::from(args.share), Protocol::Off | Protocol::Nvmf) {
         return Err(Status::invalid_argument(format!(
             "invalid protocol {}",
             args.share
@@ -206,7 +205,7 @@ pub async fn share_replica(
                 });
             }
             match Protocol::from(args.share) {
-                Protocol::None => {
+                Protocol::Off => {
                     lvol.unshare().await.map(|_| ShareReplicaReply {
                         uri: format!("bdev:///{}", lvol.name()),
                     })
@@ -217,14 +216,12 @@ pub async fn share_replica(
                         uri: lvol.share_uri().unwrap(),
                     })
                 }
-                Protocol::Iscsi | Protocol::Invalid => {
-                    Err(LvsError::LvolShare {
-                        source: CoreError::NotSupported {
-                            source: Errno::ENOSYS,
-                        },
-                        name: args.uuid,
-                    })
-                }
+                Protocol::Iscsi => Err(LvsError::LvolShare {
+                    source: CoreError::NotSupported {
+                        source: Errno::ENOSYS,
+                    },
+                    name: args.uuid,
+                }),
             }
         } else {
             Err(LvsError::InvalidBdev {
