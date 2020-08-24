@@ -161,37 +161,42 @@ impl Nexus {
         })
     }
 
-    /// Cancels all rebuilds jobs associated with the child
-    /// If any job is found with the child as a destination then the job is
-    /// stopped. If any job is found with the child as a source then
-    /// the job is replaced with a new one with another healthy child
-    /// as src, if found
-    /// todo: how to proceed if no healthy child is found?
-    pub async fn cancel_child_rebuild_jobs(&mut self, name: &str) {
+    /// Cancels all rebuilds jobs associated with the child.
+    /// Returns a list of rebuilding children whose rebuild job was cancelled.
+    pub async fn cancel_child_rebuild_jobs(
+        &mut self,
+        name: &str,
+    ) -> Vec<String> {
         let mut src_jobs = self.get_rebuild_job_src(name);
+        let mut terminated_jobs = Vec::new();
+        let mut rebuilding_children = Vec::new();
 
-        let mut replace_jobs = Vec::new();
-
-        // terminates all jobs with the child as a source
+        // terminate all jobs with the child as a source
         src_jobs.iter_mut().for_each(|j| {
-            replace_jobs
-                .push((j.destination.clone(), j.as_client().terminate()));
+            terminated_jobs.push(j.as_client().terminate());
+            rebuilding_children.push(j.destination.clone());
         });
 
-        for job in replace_jobs {
-            // before we can start a new rebuild we need to wait
-            // for the previous rebuild to complete
-            if let Err(e) = job.1.await {
+        // wait for the jobs to complete terminating
+        for job in terminated_jobs {
+            if let Err(e) = job.await {
                 error!("Error {} when waiting for the job to terminate", e);
-            }
-
-            if let Err(e) = self.start_rebuild(&job.0).await {
-                error!("Failed to recreate rebuild: {}", e.verbose());
             }
         }
 
-        // terminates the only possible job with the child as a destination
+        // terminate the only possible job with the child as a destination
         self.terminate_rebuild(name);
+        rebuilding_children
+    }
+
+    /// Start a rebuild for each of the children
+    /// todo: how to proceed if no healthy child is found?
+    pub async fn start_rebuild_jobs(&mut self, child_names: Vec<String>) {
+        for name in child_names {
+            if let Err(e) = self.start_rebuild(&name).await {
+                error!("Failed to start rebuild: {}", e.verbose());
+            }
+        }
     }
 
     /// Return rebuild job associated with the src child name.
