@@ -217,7 +217,8 @@ impl Nexus {
             });
         }
 
-        self.cancel_child_rebuild_jobs(uri).await;
+        let cancelled_rebuilding_children =
+            self.cancel_child_rebuild_jobs(uri).await;
 
         let idx = match self.children.iter().position(|c| c.name == uri) {
             None => return Ok(()),
@@ -234,7 +235,10 @@ impl Nexus {
         child.destroy().await.context(DestroyChild {
             name: self.name.clone(),
             child: uri,
-        })
+        })?;
+
+        self.start_rebuild_jobs(cancelled_rebuilding_children).await;
+        Ok(())
     }
 
     /// offline a child device and reconfigure the IO channels
@@ -244,7 +248,8 @@ impl Nexus {
     ) -> Result<NexusStatus, Error> {
         trace!("{}: Offline child request for {}", self.name, name);
 
-        self.cancel_child_rebuild_jobs(name).await;
+        let cancelled_rebuilding_children =
+            self.cancel_child_rebuild_jobs(name).await;
 
         if let Some(child) = self.children.iter_mut().find(|c| c.name == name) {
             child.offline();
@@ -256,6 +261,7 @@ impl Nexus {
         }
 
         self.reconfigure(DREvent::ChildOffline).await;
+        self.start_rebuild_jobs(cancelled_rebuilding_children).await;
 
         Ok(self.status())
     }
@@ -271,20 +277,27 @@ impl Nexus {
             });
         }
 
-        self.cancel_child_rebuild_jobs(name).await;
+        let cancelled_rebuilding_children =
+            self.cancel_child_rebuild_jobs(name).await;
 
-        if let Some(child) = self.children.iter_mut().find(|c| c.name == name) {
-            if child.status() != ChildStatus::Faulted {
-                child.fault();
-                self.reconfigure(DREvent::ChildFault).await;
+        let result = match self.children.iter_mut().find(|c| c.name == name) {
+            Some(child) => {
+                if child.status() != ChildStatus::Faulted {
+                    child.fault();
+                    self.reconfigure(DREvent::ChildFault).await;
+                }
+                Ok(())
             }
-            Ok(())
-        } else {
-            Err(Error::ChildNotFound {
+            None => Err(Error::ChildNotFound {
                 name: self.name.clone(),
                 child: name.to_owned(),
-            })
-        }
+            }),
+        };
+
+        // start rebuilding the children that previously had their rebuild jobs
+        // cancelled, in spite of whether or not the child was correctly faulted
+        self.start_rebuild_jobs(cancelled_rebuilding_children).await;
+        result
     }
 
     /// online a child and reconfigure the IO channels. The child is already

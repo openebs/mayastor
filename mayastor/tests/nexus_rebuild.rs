@@ -463,7 +463,7 @@ fn rebuild_lookup() {
         }
 
         let _ = nexus.start_rebuild(&get_dev(children)).await.unwrap();
-        for child in 0 .. children - 1 {
+        for child in 0 .. children {
             RebuildJob::lookup(&get_dev(child))
                 .expect_err("rebuild job not created yet");
         }
