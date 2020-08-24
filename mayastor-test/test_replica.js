@@ -301,6 +301,7 @@ describe('replica', function () {
           assert.lengthOf(res, 1);
           res = res[0];
           assert.equal(res.share, 'REPLICA_NVMF');
+          assert.match(res.uri, NVMF_URI);
           done();
         });
       }

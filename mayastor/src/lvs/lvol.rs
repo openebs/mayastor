@@ -96,7 +96,7 @@ impl From<Lvol> for Bdev {
 
 impl Display for Lvol {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}:{}", self.pool(), self.name())
+        write!(f, "{}/{}", self.pool(), self.name())
     }
 }
 
@@ -126,7 +126,7 @@ impl Share for Lvol {
         })?;
 
         self.set(PropValue::Shared(true)).await?;
-
+        info!("shared {}", self);
         Ok(share)
     }
 
@@ -143,6 +143,7 @@ impl Share for Lvol {
                 })?;
 
         self.set(PropValue::Shared(false)).await?;
+        info!("unshared {}", self);
         Ok(share)
     }
 
@@ -240,7 +241,7 @@ impl Lvol {
                 name: self.name(),
             })?;
 
-        info!("Destroyed lvol {}", name);
+        info!("Destroyed {}", name);
         Ok(name)
     }
 
