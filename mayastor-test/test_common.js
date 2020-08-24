@@ -193,7 +193,7 @@ function startMayastor (config, args, env, yaml) {
   env = env || {};
 
   if (yaml) {
-    fs.writeFileSync(MS_CONFIG_PATH, yaml,  { mode : 0o777});
+    fs.writeFileSync(MS_CONFIG_PATH, yaml);
     args = args.concat(['-y', MS_CONFIG_PATH]);
   }
 

@@ -28,7 +28,6 @@ const NVMF_URI = /^nvmf:\/\/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):\d{1,5}\/nqn.20
 var endpoint = process.env.MAYASTOR_ENDPOINT;
 var disks = process.env.MAYASTOR_DISKS;
 
-var remote; // true if the test suite is run against a remote grpc server
 var implicitDisk;
 
 // Create fake disk device used for testing (size 100M)
@@ -78,11 +77,9 @@ describe('replica', function () {
     // if no explicit gRPC endpoint given then create one by starting
     // mayastor and grpc server
     if (!endpoint) {
-      remote = false;
       endpoint = common.grpcEndpoint;
       common.startMayastor();
     } else {
-      remote = true;
     }
   });
 
@@ -225,36 +222,35 @@ describe('replica', function () {
 
   it('should not create a replica exported over iscsi', (done) => {
     client.createReplica(
-        {
-          uuid: UUID,
-          pool: POOL,
-          thin: true,
-          share: 'REPLICA_ISCSI',
-          size: 8 * (1024 * 1024) // keep this multiple of cluster size (4MB)
-        },
-        (err, res) => {
-          assert.equal(err.code, grpc.status.INVALID_ARGUMENT)
-          done();
-        }
+      {
+        uuid: UUID,
+        pool: POOL,
+        thin: true,
+        share: 'REPLICA_ISCSI',
+        size: 8 * (1024 * 1024) // keep this multiple of cluster size (4MB)
+      },
+      (err, res) => {
+        assert.equal(err.code, grpc.status.INVALID_ARGUMENT);
+        done();
+      }
     );
   });
   it('should create un-exported replica', (done) => {
     client.createReplica(
-        {
-          uuid: UUID,
-          pool: POOL,
-          thin: true,
-          share: 'NONE',
-          size: 8 * (1024 * 1024) // keep this multiple of cluster size (4MB)
-        },
-        (err, res) => {
-          if (err) return done(err);
-          assert.match(res.uri, /^bdev:\/\/\//);
-          done();
-        }
+      {
+        uuid: UUID,
+        pool: POOL,
+        thin: true,
+        share: 'NONE',
+        size: 8 * (1024 * 1024) // keep this multiple of cluster size (4MB)
+      },
+      (err, res) => {
+        if (err) return done(err);
+        assert.match(res.uri, /^bdev:\/\/\//);
+        done();
+      }
     );
   });
-
 
   it('should succeed if creating a replica that already exists', (done) => {
     client.createReplica(
@@ -350,24 +346,23 @@ describe('replica', function () {
     );
   });
 
-  // it('should get stats for the replica', (done) => {
-  //   client.statReplicas({}, (err, res) => {
-  //     if (err) return done(err);
-  //
-  //     res = res.replicas.filter((ent) => {
-  //       return ent.uuid === UUID;
-  //     });
-  //     assert.lengthOf(res, 1);
-  //     res = res[0];
-  //     assert.equal(res.pool, POOL);
-  //     // new bdevs are not written (unless they are lvols or so)
-  //     assert.equal(parseInt(res.stats.num_read_ops), 0);
-  //     assert.equal(parseInt(res.stats.num_write_ops), 0);
-  //     assert.equal(parseInt(res.stats.bytes_read), 0);
-  //     assert.equal(parseInt(res.stats.bytes_written), 0);
-  //     done();
-  //   });
-  // });
+  it('should get stats for the replica', (done) => {
+    client.statReplicas({}, (err, res) => {
+      if (err) return done(err);
+
+      res = res.replicas.filter((ent) => {
+        return ent.uuid === UUID;
+      });
+      assert.lengthOf(res, 1);
+      res = res[0];
+      assert.equal(res.pool, POOL);
+      assert.equal(parseInt(res.stats.num_read_ops), 0);
+      assert.equal(parseInt(res.stats.num_write_ops), 0);
+      assert.equal(parseInt(res.stats.bytes_read), 0);
+      assert.equal(parseInt(res.stats.bytes_written), 0);
+      done();
+    });
+  });
 
   it('should succeed when destroying replica that does not exist', (done) => {
     const unknownUuid = 'c35fa4dd-d527-4b7b-9cf0-436b8bb0ba77';
@@ -622,6 +617,8 @@ describe('replica', function () {
         done
       );
     });
+
+    // FIXME: test is disabled for now as it crashes
 
     // it('should take snapshot on nvmf replica', (done) => {
     //   common.execAsRoot(
