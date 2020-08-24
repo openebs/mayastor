@@ -103,9 +103,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
         &self,
         _request: Request<Null>,
     ) -> GrpcResult<StatReplicasReply> {
-        Ok(Response::new(StatReplicasReply {
-            replicas: vec![],
-        }))
+        pool_grpc::stat_replica().await
     }
 
     #[instrument(level = "debug", err)]

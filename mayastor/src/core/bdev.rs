@@ -43,7 +43,7 @@ use crate::{
 };
 
 #[derive(Debug)]
-pub struct Stat {
+pub struct BdevStats {
     pub num_read_ops: u64,
     pub num_write_ops: u64,
     pub bytes_read: u64,
@@ -394,7 +394,7 @@ impl Bdev {
     }
 
     /// Get bdev stats or errno value in case of an error.
-    pub async fn stats(&self) -> Result<Stat, i32> {
+    pub async fn stats(&self) -> Result<BdevStats, i32> {
         let mut stat: spdk_bdev_io_stat = Default::default();
         let (sender, receiver) = oneshot::channel::<i32>();
 
@@ -413,7 +413,7 @@ impl Bdev {
             Err(errno)
         } else {
             // stat is populated with the stats by now
-            Ok(Stat {
+            Ok(BdevStats {
                 num_read_ops: stat.num_read_ops,
                 num_write_ops: stat.num_write_ops,
                 bytes_read: stat.bytes_read,
