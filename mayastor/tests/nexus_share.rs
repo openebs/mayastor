@@ -19,7 +19,7 @@ pub mod common;
 fn nexus_test() {
     common::mayastor_test_init();
     let mut args = MayastorCliArgs::default();
-    args.reactor_mask = "0xF".into();
+    args.reactor_mask = "0x2".into();
 
     catch_unwind(|| {
         MayastorEnvironment::new(args)
@@ -61,7 +61,7 @@ fn nexus_test() {
                     let nexus = nexus_lookup("nexus0").unwrap();
                     nexus.unshare().await.unwrap();
                     let shared = nexus.shared();
-                    assert_eq!(shared, None);
+                    assert_eq!(shared, Some(Protocol::Off));
 
                     let shared = nexus.share_nvmf().await.unwrap();
                     let shared2 = nexus.share_nvmf().await.unwrap();
@@ -86,9 +86,9 @@ fn nexus_test() {
 
                 Reactor::block_on(async {
                     let nexus = nexus_lookup("nexus0").unwrap();
-                    assert_eq!(nexus.shared(), None);
+                    assert_eq!(nexus.shared(), Some(Protocol::Off));
                     let bdev = Bdev::lookup_by_name("nexus0").unwrap();
-                    assert_eq!(bdev.shared(), None);
+                    assert_eq!(bdev.shared(), Some(Protocol::Off));
                     nexus.destroy().await.unwrap();
                 });
 
