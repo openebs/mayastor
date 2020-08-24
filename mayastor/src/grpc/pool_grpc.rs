@@ -88,7 +88,7 @@ pub async fn create(args: CreatePoolRequest) -> GrpcResult<Pool> {
 }
 
 /// Destroy a pool; and deletes all lvols
-// If the pool does not exist; it returns OK.
+/// If the pool does not exist; it returns OK.
 #[instrument(level = "debug", err)]
 pub async fn destroy(args: DestroyPoolRequest) -> GrpcResult<Null> {
     if let Some(pool) = Lvs::lookup(&args.name) {
