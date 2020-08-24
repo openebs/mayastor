@@ -45,7 +45,7 @@ impl From<*mut spdk_lvol_store> for Lvs {
 /// iterator over all lvol stores
 pub struct LvsIterator(*mut lvol_store_bdev);
 
-/// returns a new
+/// returns a new lvs iterator
 impl LvsIterator {
     fn new() -> Self {
         LvsIterator(unsafe { vbdev_lvol_store_first() })
@@ -368,16 +368,25 @@ impl Lvs {
                     name,
                 })
             }
-            // else some other error, try to create the the pool
+            // try to create the the pool
             Err(Error::Import {
                 source, ..
             }) if source == Errno::EILSEQ => {
-                Self::create(&args.name, &bdev).await
+                match Self::create(&args.name, &bdev).await {
+                    Err(create) => {
+                        let _ = parsed.destroy().await.map_err(|_e| {
+                            // we failed to delete the base_bdev be loud about it
+                            // there is not much we can do about it here, likely
+                            // some desc is still holding on to it or something.
+                            error!("failed to delete base_bdev {} after failed pool creation", bdev);
+                        });
+                        Err(create)
+                    }
+                    Ok(pool) => Ok(pool),
+                }
             }
-            Err(e) => {
-                error!("{}", e.to_string());
-                Err(e)
-            }
+            // some other error, bubble it back up
+            Err(e) => Err(e),
         }
     }
 

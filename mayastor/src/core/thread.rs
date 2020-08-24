@@ -147,6 +147,8 @@ impl Mthread {
         assert_eq!(rc, 0);
     }
 
+    /// spawns a thread and setting its affinity to the inverse cpu set of
+    /// mayastor
     pub fn spawn_unaffinitized<F, T>(f: F) -> std::thread::JoinHandle<T>
     where
         F: FnOnce() -> T + Send + 'static,
@@ -175,7 +177,7 @@ impl Mthread {
                 &set,
             );
 
-            warn!("thread pinned to core {}", libc::sched_getcpu());
+            info!("pthread started on core {}", libc::sched_getcpu());
         }
     }
 }
