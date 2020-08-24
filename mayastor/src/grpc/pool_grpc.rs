@@ -1,13 +1,12 @@
 //!
 //! RPC methods as they are implemented for MOAC.
 
-use crate::{
-    core::{Bdev, CoreError, Protocol, Share},
-    grpc::{rpc_call, GrpcResult},
-    lvs::{Error as LvsError, Error, Lvol, Lvs},
-    nexus_uri::NexusBdevError,
-};
+use std::convert::TryFrom;
+
 use nix::errno::Errno;
+use tonic::{Response, Status};
+use tracing::instrument;
+
 use rpc::mayastor::{
     CreatePoolRequest,
     CreateReplicaRequest,
@@ -19,12 +18,19 @@ use rpc::mayastor::{
     Pool,
     PoolState,
     Replica,
+    ReplicaStats,
     ShareReplicaReply,
     ShareReplicaRequest,
+    StatReplicasReply,
+    Stats,
 };
-use std::convert::TryFrom;
-use tonic::{Response, Status};
-use tracing::instrument;
+
+use crate::{
+    core::{Bdev, BdevStats, CoreError, Protocol, Share},
+    grpc::{rpc_call, GrpcResult},
+    lvs::{Error as LvsError, Error, Lvol, Lvs},
+    nexus_uri::NexusBdevError,
+};
 
 impl From<LvsError> for Status {
     fn from(e: LvsError) -> Self {
@@ -61,6 +67,17 @@ impl From<Lvs> for Pool {
             state: PoolState::PoolOnline.into(),
             capacity: l.capacity(),
             used: l.used(),
+        }
+    }
+}
+
+impl From<BdevStats> for Stats {
+    fn from(b: BdevStats) -> Self {
+        Self {
+            num_read_ops: b.num_read_ops,
+            num_write_ops: b.num_write_ops,
+            bytes_read: b.bytes_read,
+            bytes_written: b.bytes_written,
         }
     }
 }
@@ -231,5 +248,36 @@ pub async fn share_replica(
                 name: args.uuid,
             })
         }
+    })
+}
+
+/// get the stats of replica's (lvol's only)
+#[instrument(level = "debug", err)]
+pub async fn stat_replica() -> GrpcResult<StatReplicasReply> {
+    rpc_call::<_, _, LvsError, _>(async {
+        let mut lvols = Vec::new();
+        if let Some(bdev) = Bdev::bdev_first() {
+            bdev.into_iter()
+                .filter(|b| b.driver() == "lvol")
+                .for_each(|b| lvols.push(Lvol::try_from(b).unwrap()))
+        }
+
+        let mut replicas = Vec::new();
+        for l in lvols {
+            let stats = l.as_bdev().stats().await;
+            if stats.is_err() {
+                error!("failed to get stats for lvol: {}", l);
+            }
+
+            replicas.push(ReplicaStats {
+                uuid: l.name(),
+                pool: l.pool(),
+                stats: stats.ok().map(Stats::from),
+            });
+        }
+
+        Ok(StatReplicasReply {
+            replicas,
+        })
     })
 }
