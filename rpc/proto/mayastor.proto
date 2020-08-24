@@ -1,4 +1,5 @@
 // The definition of mayastor gRPC interface.
+
 // This interface is supposed to be independent on particular computing
 // environment (i.e. kubernetes).
 

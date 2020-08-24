@@ -559,14 +559,16 @@ impl Lvs {
             name: name.to_string(),
         })?;
 
-        let lvol =
-            r.await
-                .expect("lvol creation callback dropped")
-                .map_err(|e| Error::RepCreate {
-                    source: e,
-                    name: name.to_string(),
-                })?;
+        let lvol = r
+            .await
+            .expect("lvol creation callback dropped")
+            .map_err(|e| Error::RepCreate {
+                source: e,
+                name: name.to_string(),
+            })
+            .map(|lvol| Lvol(NonNull::new(lvol).unwrap()))?;
 
-        Ok(Lvol(NonNull::new(lvol).unwrap()))
+        info!("created {}", lvol);
+        Ok(lvol)
     }
 }
