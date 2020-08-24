@@ -5,7 +5,7 @@ use nix::errno::Errno;
 use snafu::Snafu;
 
 use crate::{subsys::NvmfError, target::iscsi};
-pub use bdev::{Bdev, BdevIter};
+pub use bdev::{Bdev, BdevIter, BdevStats};
 pub use channel::IoChannel;
 pub use cpu_cores::{Core, Cores};
 pub use descriptor::{Descriptor, RangeContext};
