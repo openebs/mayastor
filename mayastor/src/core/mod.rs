@@ -63,7 +63,7 @@ pub enum CoreError {
     WriteDispatch {
         source: Errno,
         offset: u64,
-        len: usize,
+        len: u64,
     },
     #[snafu(display(
         "Failed to dispatch read at offset {} length {}",
@@ -73,7 +73,7 @@ pub enum CoreError {
     ReadDispatch {
         source: Errno,
         offset: u64,
-        len: usize,
+        len: u64,
     },
     #[snafu(display("Failed to dispatch reset",))]
     ResetDispatch {
@@ -87,12 +87,12 @@ pub enum CoreError {
     #[snafu(display("Write failed at offset {} length {}", offset, len))]
     WriteFailed {
         offset: u64,
-        len: usize,
+        len: u64,
     },
     #[snafu(display("Read failed at offset {} length {}", offset, len))]
     ReadFailed {
         offset: u64,
-        len: usize,
+        len: u64,
     },
     #[snafu(display("Reset failed"))]
     ResetFailed {},

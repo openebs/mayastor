@@ -1,7 +1,6 @@
 use std::ffi::{c_void, CString};
 
 use snafu::Snafu;
-
 use spdk_sys::{
     spdk_get_thread,
     spdk_set_thread,
@@ -144,6 +143,43 @@ impl Mthread {
         arg: *mut c_void,
     ) {
         let rc = unsafe { spdk_thread_send_msg(self.0, Some(f), arg) };
+        assert_eq!(rc, 0);
+    }
+
+    /// send the given thread 'msg' in xPDK speak.
+    pub fn msg<F, T>(&self, t: T, f: F)
+    where
+        F: FnMut(T),
+        T: std::fmt::Debug + 'static,
+    {
+        // context structure which is passed to the callback as argument
+        struct Ctx<F, T: std::fmt::Debug> {
+            closure: F,
+            args: T,
+        }
+
+        // helper routine to unpack the closure and its arguments
+        extern "C" fn trampoline<F, T>(arg: *mut c_void)
+        where
+            F: FnMut(T),
+            T: 'static + std::fmt::Debug,
+        {
+            let mut ctx = unsafe { Box::from_raw(arg as *mut Ctx<F, T>) };
+            (ctx.closure)(ctx.args);
+        }
+
+        let ctx = Box::new(Ctx {
+            closure: f,
+            args: t,
+        });
+
+        let rc = unsafe {
+            spdk_thread_send_msg(
+                self.0,
+                Some(trampoline::<F, T>),
+                Box::into_raw(ctx).cast(),
+            )
+        };
         assert_eq!(rc, 0);
     }
 

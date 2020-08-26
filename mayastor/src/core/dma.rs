@@ -10,7 +10,12 @@ use std::{
 
 use snafu::Snafu;
 
-use spdk_sys::{spdk_dma_free, spdk_dma_zmalloc};
+use spdk_sys::{
+    spdk_dma_free,
+    spdk_zmalloc,
+    SPDK_ENV_LCORE_ID_ANY,
+    SPDK_MALLOC_DMA,
+};
 
 #[derive(Debug, Snafu, Clone)]
 pub enum DmaError {
@@ -24,7 +29,7 @@ pub struct DmaBuf {
     /// a raw pointer to the buffer
     buf: *mut c_void,
     /// the length of the allocated buffer
-    length: usize,
+    length: u64,
 }
 
 impl DmaBuf {
@@ -44,19 +49,21 @@ impl DmaBuf {
             std::ptr::write_bytes(
                 self.as_mut_slice().as_ptr() as *mut u8,
                 val,
-                self.length,
+                self.length as usize,
             )
         }
     }
 
     /// Allocate a buffer suitable for IO (wired and backed by huge page memory)
-    pub fn new(size: usize, alignment: u8) -> Result<Self, DmaError> {
+    pub fn new(size: u64, alignment: u64) -> Result<Self, DmaError> {
         let buf;
         unsafe {
-            buf = spdk_dma_zmalloc(
-                size as u64,
-                1 << alignment as usize,
+            buf = spdk_zmalloc(
+                size,
+                alignment,
                 std::ptr::null_mut(),
+                SPDK_ENV_LCORE_ID_ANY as i32,
+                SPDK_MALLOC_DMA,
             )
         };
 
@@ -71,7 +78,7 @@ impl DmaBuf {
     }
 
     /// Return length of the allocated buffer.
-    pub fn len(&self) -> usize {
+    pub fn len(&self) -> u64 {
         self.length
     }
 
