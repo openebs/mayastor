@@ -328,11 +328,10 @@ impl NexusChild {
             MetaDataHeader::METADATA_HEADER_SIZE as u64,
             block_size,
         );
-        let mut buf = desc.dma_malloc((blocks * block_size) as usize).context(
-            ReadAlloc {
+        let mut buf =
+            desc.dma_malloc(blocks * block_size).context(ReadAlloc {
                 name: String::from("header"),
-            },
-        )?;
+            })?;
         self.read_at((partition_lba + 1) * block_size, &mut buf)
             .await
             .context(ReadError {
@@ -347,9 +346,8 @@ impl NexusChild {
                 (header.used_entries * header.entry_size) as u64,
                 block_size,
             );
-            let mut buf = desc
-                .dma_malloc((blocks * block_size) as usize)
-                .context(ReadAlloc {
+            let mut buf =
+                desc.dma_malloc(blocks * block_size).context(ReadAlloc {
                     name: String::from("index"),
                 })?;
             self.read_at(
@@ -390,11 +388,10 @@ impl NexusChild {
         let block_size = bdev.block_len() as u64;
 
         let blocks = entry.data_end - entry.data_start + 1;
-        let mut buf = desc.dma_malloc((blocks * block_size) as usize).context(
-            ReadAlloc {
+        let mut buf =
+            desc.dma_malloc(blocks * block_size).context(ReadAlloc {
                 name: String::from("object"),
-            },
-        )?;
+            })?;
         self.read_at(
             (metadata.header.self_lba + entry.data_start) * block_size,
             &mut buf,
@@ -419,9 +416,8 @@ impl NexusChild {
 
         for entry in &metadata.index {
             let blocks = entry.data_end - entry.data_start + 1;
-            let mut buf = desc
-                .dma_malloc((blocks * block_size) as usize)
-                .context(ReadAlloc {
+            let mut buf =
+                desc.dma_malloc(blocks * block_size).context(ReadAlloc {
                     name: String::from("object"),
                 })?;
             self.read_at(
@@ -452,11 +448,10 @@ impl NexusChild {
                     as u64,
                 block_size,
             );
-        let mut buf =
-            DmaBuf::new((blocks * block_size) as usize, bdev.alignment())
-                .context(WriteAlloc {
-                    name: String::from("index"),
-                })?;
+        let mut buf = DmaBuf::new(blocks * block_size, bdev.alignment())
+            .context(WriteAlloc {
+                name: String::from("index"),
+            })?;
         let mut writer = Cursor::new(buf.as_mut_slice());
 
         // Header
@@ -525,11 +520,10 @@ impl NexusChild {
             return Err(MetaDataError::PartitionSizeExceeded {});
         }
 
-        let mut buf =
-            DmaBuf::new((blocks * block_size) as usize, bdev.alignment())
-                .context(WriteAlloc {
-                    name: String::from("object"),
-                })?;
+        let mut buf = DmaBuf::new(block_size * blocks, bdev.alignment())
+            .context(WriteAlloc {
+                name: String::from("object"),
+            })?;
         let mut writer = Cursor::new(buf.as_mut_slice());
 
         serialize_into(&mut writer, config).context(SerializeError {})?;
@@ -596,9 +590,8 @@ impl NexusChild {
                 return Err(MetaDataError::PartitionSizeExceeded {});
             }
 
-            let mut buf =
-                DmaBuf::new((blocks * block_size) as usize, bdev.alignment())
-                    .context(WriteAlloc {
+            let mut buf = DmaBuf::new(blocks * block_size, bdev.alignment())
+                .context(WriteAlloc {
                     name: String::from("object"),
                 })?;
             let mut writer = Cursor::new(buf.as_mut_slice());
@@ -661,13 +654,10 @@ impl NexusChild {
         for entry in &mut metadata.index {
             if entry.data_start > start {
                 let blocks = entry.data_end - entry.data_start;
-                let mut buf = DmaBuf::new(
-                    ((blocks + 1) * block_size) as usize,
-                    alignment,
-                )
-                .context(ReadAlloc {
-                    name: String::from("object"),
-                })?;
+                let mut buf = DmaBuf::new((blocks + 1) * block_size, alignment)
+                    .context(ReadAlloc {
+                        name: String::from("object"),
+                    })?;
                 self.read_at(
                     (self_lba + entry.data_start) * block_size,
                     &mut buf,

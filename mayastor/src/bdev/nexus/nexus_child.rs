@@ -423,7 +423,7 @@ impl NexusChild {
         &self,
         offset: u64,
         buf: &mut DmaBuf,
-    ) -> Result<usize, ChildIoError> {
+    ) -> Result<u64, ChildIoError> {
         match self.bdev_handle.as_ref() {
             Some(desc) => {
                 Ok(desc.read_at(offset, buf).await.context(ReadError {

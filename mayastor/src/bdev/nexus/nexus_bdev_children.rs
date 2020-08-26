@@ -419,7 +419,7 @@ impl Nexus {
                         self.name, *s, self.bdev.alignment()
                     );
                     unsafe {
-                        (*self.bdev.as_ptr()).required_alignment = *s;
+                        (*self.bdev.as_ptr()).required_alignment = *s as u8;
                     }
                 }
             })

@@ -15,6 +15,7 @@ use spdk_sys::{
     spdk_bdev_first,
     spdk_bdev_get_aliases,
     spdk_bdev_get_block_size,
+    spdk_bdev_get_buf_align,
     spdk_bdev_get_by_name,
     spdk_bdev_get_device_stat,
     spdk_bdev_get_name,
@@ -276,8 +277,8 @@ impl Bdev {
     }
 
     /// returns the alignment of the bdev
-    pub fn alignment(&self) -> u8 {
-        unsafe { self.0.as_ref().required_alignment }
+    pub fn alignment(&self) -> u64 {
+        unsafe { spdk_bdev_get_buf_align(self.0.as_ptr()) }
     }
 
     /// returns the configured product name
