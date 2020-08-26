@@ -7,4 +7,3 @@ typedef void maya_logger(int level, const char *file, const int line,
 
 // pointer is set from within rust to point to our logging trampoline
 maya_logger *logfn = NULL;
-
