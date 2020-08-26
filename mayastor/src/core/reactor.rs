@@ -475,6 +475,7 @@ impl Reactor {
 
         self.receive_futures();
         self.run_futures();
+        drop(threads);
 
         while let Ok(i) = self.incoming.pop() {
             self.threads.borrow_mut().push_back(i);

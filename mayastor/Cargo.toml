@@ -28,6 +28,10 @@ path = "src/bin/cli/cli.rs"
 name = "jsonrpc"
 path = "src/bin/jsonrpc.rs"
 
+[[bin]]
+name = "casperf"
+path = "src/bin/casperf.rs"
+
 [dependencies]
 async-task = "3.0"
 async-trait = "0.1.36"

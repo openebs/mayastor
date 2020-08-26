@@ -237,13 +237,11 @@ impl Nexus {
             block_size,
         );
         // allocate 2 extra blocks for the MBR and GPT header respectively
-        let mut buf = DmaBuf::new(
-            ((blocks + 2) * block_size) as usize,
-            self.bdev.alignment(),
-        )
-        .context(WriteAlloc {
-            name: String::from("primary"),
-        })?;
+        let mut buf =
+            DmaBuf::new((blocks + 2) * block_size, self.bdev.alignment())
+                .context(WriteAlloc {
+                    name: String::from("primary"),
+                })?;
         let mut writer = Cursor::new(buf.as_mut_slice());
 
         // Protective MBR
@@ -281,13 +279,11 @@ impl Nexus {
             block_size,
         );
         // allocate 1 extra block for the GPT header
-        let mut buf = DmaBuf::new(
-            ((blocks + 1) * block_size) as usize,
-            self.bdev.alignment(),
-        )
-        .context(WriteAlloc {
-            name: String::from("secondary"),
-        })?;
+        let mut buf =
+            DmaBuf::new((blocks + 1) * block_size, self.bdev.alignment())
+                .context(WriteAlloc {
+                    name: String::from("secondary"),
+                })?;
         let mut writer = Cursor::new(buf.as_mut_slice());
 
         // Secondary partition table
@@ -923,10 +919,9 @@ impl NexusChild {
 
         //
         // Protective MBR
-        let mut buf =
-            desc.dma_malloc(block_size as usize).context(ReadAlloc {
-                name: String::from("header"),
-            })?;
+        let mut buf = desc.dma_malloc(block_size).context(ReadAlloc {
+            name: String::from("header"),
+        })?;
         self.read_at(0, &mut buf).await.context(ReadError {
             name: String::from("MBR"),
         })?;
@@ -1027,11 +1022,10 @@ impl NexusChild {
             (active.entry_size * active.num_entries) as u64,
             block_size,
         );
-        let mut buf = desc.dma_malloc((blocks * block_size) as usize).context(
-            ReadAlloc {
+        let mut buf =
+            desc.dma_malloc(blocks * block_size).context(ReadAlloc {
                 name: String::from("partition table"),
-            },
-        )?;
+            })?;
         let offset = active.lba_table * block_size;
         self.read_at(offset, &mut buf).await.context(ReadError {
             name: String::from("partition table"),

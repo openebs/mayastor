@@ -56,12 +56,10 @@ impl Uri {
 
             // retain this for the time being for backwards compatibility
             "bdev" => Ok(Box::new(loopback::Loopback::try_from(&url)?)),
-
-            // backend iSCSI target - most stable
-            "iscsi" => Ok(Box::new(iscsi::Iscsi::try_from(&url)?)),
-
             // arbitrary bdev found in spdk (used for local replicas)
             "loopback" => Ok(Box::new(loopback::Loopback::try_from(&url)?)),
+            // backend iSCSI target - most stable
+            "iscsi" => Ok(Box::new(iscsi::Iscsi::try_from(&url)?)),
 
             // backend NVMF target - fairly unstable (as of Linux 5.2)
             "nvmf" => Ok(Box::new(nvmf::Nvmf::try_from(&url)?)),

@@ -156,7 +156,7 @@ impl RebuildJob {
 
         for _ in 0 .. tasks.total {
             let copy_buffer = destination_hdl
-                .dma_malloc((segment_size_blks * block_size) as usize)
+                .dma_malloc(segment_size_blks * block_size)
                 .context(NoCopyBuffer {})?;
             tasks.tasks.push(RebuildTask {
                 buffer: copy_buffer,
@@ -323,7 +323,7 @@ impl RebuildJob {
 
             copy_buffer = self
                 .destination_hdl
-                .dma_malloc((segment_size_blks * self.block_size) as usize)
+                .dma_malloc(segment_size_blks * self.block_size)
                 .context(NoCopyBuffer {})?;
 
             &mut copy_buffer
