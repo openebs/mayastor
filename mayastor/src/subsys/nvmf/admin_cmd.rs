@@ -4,7 +4,7 @@ use spdk_sys::{spdk_bdev, spdk_bdev_desc, spdk_io_channel, spdk_nvmf_request};
 
 use crate::{
     bdev::nexus::nexus_io::nvme_admin_opc,
-    core::Bdev,
+    core::{Bdev, Cores, Reactors},
     replica::Replica,
 };
 
@@ -49,7 +49,11 @@ extern "C" fn nvmf_create_snapshot_hdlr(req: *mut spdk_nvmf_request) -> i32 {
                 | (cmd.__bindgen_anon_2.cdw11 as u64) << 32
         };
         let snapshot_name = format!("{}-snap-{}", bd.name(), snapshot_time);
-        replica.create_snapshot(req, &snapshot_name);
+        // Blobfs operations must be on md_thread
+        let mgmt_reactor = Reactors::get_by_core(Cores::first()).unwrap();
+        mgmt_reactor.send_future(async move {
+            replica.create_snapshot(req, &snapshot_name).await;
+        });
         1 // SPDK_NVMF_REQUEST_EXEC_STATUS_ASYNCHRONOUS
     } else {
         -1
