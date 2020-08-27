@@ -373,7 +373,8 @@ class CsiServer {
         preferredNodes: shouldNodes,
         requiredNodes: mustNodes,
         requiredBytes: args.capacityRange.requiredBytes,
-        limitBytes: args.capacityRange.limitBytes
+        limitBytes: args.capacityRange.limitBytes,
+        protocol: protocol
       });
     } catch (err) {
       return cb(err);

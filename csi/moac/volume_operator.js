@@ -131,7 +131,8 @@ class VolumeOperator {
         preferredNodes: [].concat(msv.spec.preferredNodes || []).sort(),
         requiredNodes: [].concat(msv.spec.requiredNodes || []).sort(),
         requiredBytes: msv.spec.requiredBytes,
-        limitBytes: msv.spec.limitBytes || 0
+        limitBytes: msv.spec.limitBytes || 0,
+        protocol: msv.spec.protocol
       }
     };
     // volatile part
@@ -226,7 +227,8 @@ class VolumeOperator {
       preferredNodes: _.clone(volume.preferredNodes),
       requiredNodes: _.clone(volume.requiredNodes),
       requiredBytes: volume.requiredBytes,
-      limitBytes: volume.limitBytes
+      limitBytes: volume.limitBytes,
+      protocol: volume.protocol
     };
   }
 
@@ -380,7 +382,7 @@ class VolumeOperator {
   _bindWatcher (watcher) {
     var self = this;
     watcher.on('new', (obj) => {
-      self.workq.push(obj, self._createVolume.bind(self));
+      self.workq.push(obj, self._importVolume.bind(self));
     });
     watcher.on('mod', (obj) => {
       self.workq.push(obj, self._modifyVolume.bind(self));
@@ -390,11 +392,12 @@ class VolumeOperator {
     });
   }
 
-  // Create a volume or update its spec if it already exists.
+  // When moac restarts the volume manager does not know which volumes exist.
+  // We need to import volumes based on the k8s resources.
   //
   // @param {object}   resource    Volume resource properties.
   //
-  async _createVolume (resource) {
+  async _importVolume (resource) {
     const uuid = resource.metadata.name;
     const createdIdx = this.createdBySelf.indexOf(uuid);
     if (createdIdx >= 0) {
@@ -402,12 +405,13 @@ class VolumeOperator {
       this.createdBySelf.splice(createdIdx, 1);
       return;
     }
-    log.debug(`Creating volume "${uuid}" in response to "new" resource event`);
+
+    log.debug(`Importing volume "${uuid}" in response to "new" resource event`);
     try {
-      await this.volumes.createVolume(uuid, resource.spec);
+      await this.volumes.importVolume(uuid, resource.spec, resource.status);
     } catch (err) {
       log.error(
-        `Failed to create volume "${uuid}" based on new resource: ${err}`
+        `Failed to import volume "${uuid}" based on new resource: ${err}`
       );
       await this._updateStatus(uuid, {
         state: 'pending',
