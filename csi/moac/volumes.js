@@ -89,6 +89,7 @@ class Volumes extends EventEmitter {
   // @params  {string[]} spec.requiredNodes   Replicas must be on these nodes.
   // @params  {number}   spec.requiredBytes   The volume must have at least this size.
   // @params  {number}   spec.limitBytes      The volume should not be bigger than this.
+  // @params  {string}   spec.protocol        The share protocol for the nexus.
   // @returns {object}   New volume object.
   //
   async createVolume (uuid, spec) {
@@ -157,6 +158,57 @@ class Volumes extends EventEmitter {
       eventType: 'del',
       object: volume
     });
+  }
+
+  // Import the volume object (just the object) and add it to the internal list
+  // of volumes. The method is idempotent. If a volume with the same uuid
+  // already exists, then update its parameters.
+  //
+  // @param   {string}   uuid                 ID of the volume.
+  // @param   {object}   spec                 Properties of the volume.
+  // @params  {number}   spec.replicaCount    Number of desired replicas.
+  // @params  {string[]} spec.preferredNodes  Nodes to prefer for scheduling replicas.
+  // @params  {string[]} spec.requiredNodes   Replicas must be on these nodes.
+  // @params  {number}   spec.requiredBytes   The volume must have at least this size.
+  // @params  {number}   spec.limitBytes      The volume should not be bigger than this.
+  // @params  {string}   spec.protocol        The share protocol for the nexus.
+  // @params  {object}   status               Current properties of the volume
+  // @returns {object}   New volume object.
+  //
+  async importVolume (uuid, spec, status) {
+    let volume = this.volumes[uuid];
+
+    if (volume) {
+      if (volume.update(spec)) {
+        this.emit('volume', {
+          eventType: 'mod',
+          object: volume
+        });
+        volume.fsa();
+      }
+    } else {
+      volume = new Volume(uuid, this.registry, spec, status.size);
+      this.volumes[uuid] = volume;
+
+      // attach any associated replicas to the volume
+      this.registry.getReplicaSet(uuid).forEach((r) => volume.newReplica(r));
+
+      const nexus = this.registry.getNexus(uuid);
+      if (nexus) {
+        volume.newNexus(nexus);
+      } else {
+        // if the nexus still exists then it will get attached eventually
+        // otherwise, it will not be recreated and the volume will remain
+        // in an unusable pending state until some other entity recreates it
+      }
+
+      this.emit('volume', {
+        eventType: 'new',
+        object: volume
+      });
+      volume.fsa();
+    }
+    return volume;
   }
 }
 
