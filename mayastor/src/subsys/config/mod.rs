@@ -246,7 +246,7 @@ impl Config {
             base_bdevs: None,
             nexus_bdevs: None,
             pools: None,
-            implicit_share_base: true,
+            implicit_share_base: self.implicit_share_base,
             err_store_opts: self.err_store_opts.get(),
             sync_disable: self.sync_disable,
         };

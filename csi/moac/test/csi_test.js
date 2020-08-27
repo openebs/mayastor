@@ -200,7 +200,8 @@ module.exports = function () {
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 10,
-        limitBytes: 20
+        limitBytes: 20,
+        protocol: 'nbd'
       });
       sinon.stub(returnedVolume, 'getSize').returns(20);
       sinon.stub(returnedVolume, 'getNodeName').returns('some-node');
@@ -400,7 +401,8 @@ module.exports = function () {
           preferredNodes: [],
           requiredNodes: ['node'],
           requiredBytes: 50,
-          limitBytes: 0
+          limitBytes: 0,
+          protocol: 'nbd'
         });
       });
 
@@ -436,7 +438,8 @@ module.exports = function () {
           preferredNodes: ['node'],
           requiredNodes: [],
           requiredBytes: 50,
-          limitBytes: 50
+          limitBytes: 50,
+          protocol: 'nbd'
         });
       });
 
@@ -461,7 +464,8 @@ module.exports = function () {
           preferredNodes: [],
           requiredNodes: [],
           requiredBytes: 50,
-          limitBytes: 70
+          limitBytes: 70,
+          protocol: 'nbd'
         });
       });
 

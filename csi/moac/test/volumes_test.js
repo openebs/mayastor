@@ -130,7 +130,8 @@ module.exports = function () {
       preferredNodes: [],
       requiredNodes: [],
       requiredBytes: 90,
-      limitBytes: 110
+      limitBytes: 110,
+      protocol: 'nbd'
     });
     volumes.volumes[UUID] = volume;
 
@@ -158,7 +159,8 @@ module.exports = function () {
           preferredNodes: [],
           requiredNodes: ['node2', 'node3'],
           requiredBytes: 100,
-          limitBytes: 110
+          limitBytes: 110,
+          protocol: 'nbd'
         })
       );
       expect(volEvents).to.have.lengthOf(2);
@@ -198,7 +200,8 @@ module.exports = function () {
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 90,
-        limitBytes: 0
+        limitBytes: 0,
+        protocol: 'nbd'
       });
       expect(volume.size).to.equal(90);
       expect(volume.state).to.equal('healthy');
@@ -242,7 +245,8 @@ module.exports = function () {
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 10,
-        limitBytes: 50
+        limitBytes: 50,
+        protocol: 'nbd'
       });
       expect(volume.size).to.equal(50);
       expect(volume.state).to.equal('healthy');
@@ -265,7 +269,8 @@ module.exports = function () {
           preferredNodes: [],
           requiredNodes: [],
           requiredBytes: 0,
-          limitBytes: 0
+          limitBytes: 0,
+          protocol: 'nbd'
         })
       );
       sinon.assert.notCalled(stub1);
@@ -303,7 +308,8 @@ module.exports = function () {
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 10,
-        limitBytes: 50
+        limitBytes: 50,
+        protocol: 'nbd'
       });
       await waitUntil(() => !!volume.nexus, 'nexus');
       sinon.assert.notCalled(stub2);
@@ -360,7 +366,8 @@ module.exports = function () {
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 10,
-        limitBytes: 50
+        limitBytes: 50,
+        protocol: 'nbd'
       });
       await waitUntil(
         () =>
@@ -389,6 +396,134 @@ module.exports = function () {
       expect(volEvents[0].eventType).to.equal('new');
       expect(volEvents[1].eventType).to.equal('mod');
       expect(volEvents[2].eventType).to.equal('mod');
+    });
+  });
+
+  describe('import volume from MSV CRD', function () {
+    // this creates an env with 3 pools on 3 nodes without any replica and nexus
+    beforeEach(createTestEnv);
+
+    afterEach(() => {
+      volumes.stop();
+    });
+
+    const volumeCRD = {
+      UUID: UUID,
+      spec: {
+        replicaCount: 2,
+        preferredNodes: [],
+        requiredNodes: [],
+        requiredBytes: 10,
+        limitBytes: 50,
+        protocol: 'nbd'
+      },
+      status: {
+        size: 40
+      }
+    };
+
+    it('should import volume', async () => {
+      const replica = new Replica({
+        uuid: UUID,
+        size: 10,
+        share: 'REPLICA_NONE',
+        uri: `bdev:///${UUID}`
+      });
+      replica.pool = { node: node1 };
+      const getReplicaSetStub = sinon.stub(registry, 'getReplicaSet');
+      getReplicaSetStub.returns([replica]);
+
+      volumes.start();
+      await volumes.importVolume(volumeCRD.UUID, volumeCRD.spec, volumeCRD.status);
+    });
+
+    it('imported volume should keep the same size', async () => {
+      volumes.start();
+      volume = await volumes.importVolume(volumeCRD.UUID, volumeCRD.spec, volumeCRD.status);
+      expect(volume.state).to.equal('pending');
+      expect(volume.size).to.equal(40);
+      expect(volEvents).to.have.lengthOf(1);
+      expect(volEvents[0].eventType).to.equal('new');
+    });
+
+    it('imported volume should attach to the replicas', async () => {
+      const replica1 = new Replica({
+        uuid: UUID,
+        size: 40,
+        share: 'REPLICA_NONE',
+        uri: `bdev:///${UUID}`
+      });
+      replica1.pool = { node: node1 };
+      const replica2 = new Replica({
+        uuid: UUID,
+        size: 40,
+        share: 'REPLICA_NVMF',
+        uri: `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${UUID}`
+      });
+      replica2.pool = { node: node2 };
+      const getReplicaSetStub = sinon.stub(registry, 'getReplicaSet');
+      getReplicaSetStub.returns([replica1, replica2]);
+
+      volumes.start();
+      volume = await volumes.importVolume(volumeCRD.UUID, volumeCRD.spec, volumeCRD.status);
+      expect(Object.keys(volume.replicas)).to.have.lengthOf(2);
+      expect(Object.values(volume.replicas)[0]).to.equal(replica1);
+      expect(Object.values(volume.replicas)[1]).to.equal(replica2);
+      expect(volume.state).to.equal('pending');
+      expect(volEvents).to.have.lengthOf(1);
+      expect(volEvents[0].eventType).to.equal('new');
+    });
+
+    it('imported volume with all replicas and nexus available should be healthy', async () => {
+      const nexus = new Nexus({
+        uuid: UUID,
+        size: 20,
+        deviceUri: '',
+        state: 'NEXUS_ONLINE',
+        children: [
+          {
+            uri: `bdev:///${UUID}`,
+            state: 'CHILD_ONLINE'
+          },
+          {
+            uri: `nvmf://remote/${UUID}`,
+            state: 'CHILD_ONLINE'
+          }
+        ]
+      });
+      nexus.node = node1;
+      node1._registerNexus(nexus);
+
+      const replica1 = new Replica({
+        uuid: UUID,
+        size: 40,
+        share: 'REPLICA_NONE',
+        uri: `bdev:///${UUID}`
+      });
+      replica1.pool = { node: node1 };
+      const replica2 = new Replica({
+        uuid: UUID,
+        size: 40,
+        share: 'REPLICA_NVMF',
+        uri: `nvmf://remote/${UUID}`
+      });
+      replica2.pool = { node: node2 };
+      const getReplicaSetStub = sinon.stub(registry, 'getReplicaSet');
+      getReplicaSetStub.returns([replica1, replica2]);
+      const getNexusStub = sinon.stub(registry, 'getNexus');
+      getNexusStub.returns(nexus);
+
+      volumes.start();
+      volume = await volumes.importVolume(volumeCRD.UUID, volumeCRD.spec, volumeCRD.status);
+      expect(Object.keys(volume.replicas)).to.have.lengthOf(2);
+      expect(Object.values(volume.replicas)[0]).to.equal(replica1);
+      expect(Object.values(volume.replicas)[1]).to.equal(replica2);
+      expect(volume.state).to.equal('healthy');
+      expect(volEvents).to.have.lengthOf(2);
+      expect(volEvents[0].eventType).to.equal('new');
+      expect(volEvents[1].eventType).to.equal('mod');
+      expect(volume.nexus).is.not.null();
+      expect(volume.nexus.children).to.have.lengthOf(2);
     });
   });
 
@@ -429,7 +564,8 @@ module.exports = function () {
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 90,
-        limitBytes: 110
+        limitBytes: 110,
+        protocol: 'nbd'
       });
       volume.newReplica(replica);
       volumes.volumes[UUID] = volume;
@@ -450,7 +586,8 @@ module.exports = function () {
         preferredNodes: [node2.name],
         requiredNodes: [node1.name],
         requiredBytes: 89,
-        limitBytes: 111
+        limitBytes: 111,
+        protocol: 'nbd'
       });
       sinon.assert.notCalled(stub1);
       sinon.assert.notCalled(stub2);
@@ -473,7 +610,8 @@ module.exports = function () {
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 90,
-        limitBytes: 110
+        limitBytes: 110,
+        protocol: 'nbd'
       });
       sinon.assert.notCalled(stub1);
       sinon.assert.notCalled(stub2);
@@ -489,7 +627,8 @@ module.exports = function () {
           preferredNodes: [],
           requiredNodes: [],
           requiredBytes: 90,
-          limitBytes: 94
+          limitBytes: 94,
+          protocol: 'nbd'
         })
       );
     });
@@ -501,9 +640,21 @@ module.exports = function () {
           preferredNodes: [],
           requiredNodes: [],
           requiredBytes: 96,
-          limitBytes: 110
+          limitBytes: 110,
+          protocol: 'nbd'
         })
       );
+    });
+
+    it('should fail to change the protocol', async () => {
+      await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () => volumes.createVolume(UUID, {
+        replicaCount: 1,
+        preferredNodes: [node2.name],
+        requiredNodes: [node1.name],
+        requiredBytes: 89,
+        limitBytes: 111,
+        protocol: 'nvmf'
+      }));
     });
   });
 
@@ -587,7 +738,8 @@ module.exports = function () {
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 90,
-        limitBytes: 110
+        limitBytes: 110,
+        protocol: 'nbd'
       });
 
       await waitUntil(
@@ -684,7 +836,8 @@ module.exports = function () {
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 90,
-        limitBytes: 110
+        limitBytes: 110,
+        protocol: 'nbd'
       });
 
       await waitUntil(
@@ -715,7 +868,8 @@ module.exports = function () {
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 90,
-        limitBytes: 110
+        limitBytes: 110,
+        protocol: 'nbd'
       });
 
       try {
@@ -756,7 +910,8 @@ module.exports = function () {
         preferredNodes: [],
         requiredNodes: ['node2', 'node3'],
         requiredBytes: 90,
-        limitBytes: 110
+        limitBytes: 110,
+        protocol: 'nbd'
       });
 
       await waitUntil(() => nexus.children.length === 3, 'new replica');
@@ -805,7 +960,8 @@ module.exports = function () {
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 90,
-        limitBytes: 110
+        limitBytes: 110,
+        protocol: 'nbd'
       });
       await waitUntil(() => volume.state === 'degraded', 'degraded volume');
 
@@ -966,7 +1122,8 @@ module.exports = function () {
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 90,
-        limitBytes: 110
+        limitBytes: 110,
+        protocol: 'nbd'
       });
 
       sinon.assert.calledTwice(stub1);
