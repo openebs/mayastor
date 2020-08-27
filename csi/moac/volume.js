@@ -23,8 +23,10 @@ class Volume {
   // @params {string[]} spec.requiredNodes   Replicas must be on these nodes.
   // @params {number}   spec.requiredBytes   The volume must have at least this size.
   // @params {number}   spec.limitBytes      The volume should not be bigger than this.
+  // @params {string}   spec.protocol        The share protocol for the nexus.
+  // @params {object}   [size=0]             Current properties of the volume.
   //
-  constructor (uuid, registry, spec) {
+  constructor (uuid, registry, spec, size = 0) {
     assert(spec);
     // specification of the volume
     this.uuid = uuid;
@@ -34,7 +36,8 @@ class Volume {
     this.requiredNodes = _.clone(spec.requiredNodes || []).sort();
     this.requiredBytes = spec.requiredBytes;
     this.limitBytes = spec.limitBytes;
-    this.size = 0;
+    this.protocol = spec.protocol;
+    this.size = size;
     // state variables of the volume
     this.nexus = null;
     this.replicas = {}; // replicas indexed by node name
@@ -545,6 +548,7 @@ class Volume {
   // @params {string[]} spec.requiredNodes   Replicas must be on these nodes.
   // @params {number}   spec.requiredBytes   The volume must have at least this size.
   // @params {number}   spec.limitBytes      The volume should not be bigger than this.
+  // @params {string}   spec.protocol        The share protocol for the nexus.
   // @returns {boolean} True if the volume spec has changed, false otherwise.
   //
   update (spec) {
@@ -560,6 +564,12 @@ class Volume {
       throw new GrpcError(
         GrpcCode.INVALID_ARGUMENT,
         `Shrinking the volume "${this}" is not supported`
+      );
+    }
+    if (this.protocol !== spec.protocol) {
+      throw new GrpcError(
+        GrpcCode.INVALID_ARGUMENT,
+        `Changing the protocol for volume "${this}" is not supported`
       );
     }
 

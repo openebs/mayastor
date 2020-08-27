@@ -75,6 +75,9 @@ spec:
               description: The maximum size of the volume (if zero then same as the requiredBytes).
               type: integer
               minimum: 0
+            protocol:
+              description: Share protocol of the nexus
+              type: string
         status:
           description: Properties related to current state of the volume.
           type: object

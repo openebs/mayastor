@@ -41,7 +41,8 @@ module.exports = function () {
     preferredNodes: ['node1', 'node2'],
     requiredNodes: ['node2'],
     requiredBytes: 100,
-    limitBytes: 120
+    limitBytes: 120,
+    protocol: 'nbd'
   };
   var defaultStatus = {
     size: 110,
@@ -304,40 +305,48 @@ module.exports = function () {
       }
     });
 
-    it('should call create volume for existing resources when starting the operator', async () => {
+    it('should call import volume for existing resources when starting the operator', async () => {
       const registry = new Registry();
       const volumes = new Volumes(registry);
-      const createVolumeStub = sinon.stub(volumes, 'createVolume');
+      const importVolumeStub = sinon.stub(volumes, 'importVolume');
       // return value is not used so just return something
-      createVolumeStub.resolves({ uuid: UUID });
+      importVolumeStub.resolves({ uuid: UUID });
 
       oper = await mockedVolumeOperator(
         [createVolumeResource(UUID, defaultSpec, defaultStatus)],
         volumes
       );
-      sinon.assert.calledOnce(createVolumeStub);
-      sinon.assert.calledWith(createVolumeStub, UUID, defaultSpec);
+      sinon.assert.calledOnce(importVolumeStub);
+      sinon.assert.calledWith(importVolumeStub, UUID, defaultSpec);
     });
 
-    it('should create volume upon "new" event', async () => {
+    it('should import volume upon "new" event', async () => {
       const registry = new Registry();
       const volumes = new Volumes(registry);
-      const createVolumeStub = sinon.stub(volumes, 'createVolume');
-      createVolumeStub.resolves({ uuid: UUID });
+      const defaultStatus =
+      {
+        node: 'ksnode-1',
+        replicas: [],
+        size: 1024,
+        state: 'healthy'
+      };
+
+      const importVolumeStub = sinon.stub(volumes, 'importVolume');
+      importVolumeStub.resolves({ uuid: UUID });
 
       oper = await mockedVolumeOperator([], volumes);
       // trigger "new" event
-      oper.watcher.newObject(createVolumeResource(UUID, defaultSpec));
-      sinon.assert.calledOnce(createVolumeStub);
-      sinon.assert.calledWith(createVolumeStub, UUID, defaultSpec);
+      oper.watcher.newObject(createVolumeResource(UUID, defaultSpec, defaultStatus));
+      sinon.assert.calledOnce(importVolumeStub);
+      sinon.assert.calledWith(importVolumeStub, UUID, defaultSpec, defaultStatus);
     });
 
-    it('should not try to create volume upon "new" event if the resource was self-created', async () => {
+    it('should not try to import volume upon "new" event if the resource was self-created', async () => {
       const registry = new Registry();
       const volumes = new Volumes(registry);
       sinon.stub(volumes, 'get').returns([]);
-      const createVolumeStub = sinon.stub(volumes, 'createVolume');
-      createVolumeStub.resolves({ uuid: UUID });
+      const importVolumeStub = sinon.stub(volumes, 'importVolume');
+      importVolumeStub.resolves({ uuid: UUID });
 
       oper = await mockedVolumeOperator([], volumes);
       // Pretend the volume creation through i.e. CSI.
@@ -350,14 +359,14 @@ module.exports = function () {
       await sleep(10);
       // now trigger "new" watcher event (natural consequence of the above)
       oper.watcher.newObject(createVolumeResource(UUID, defaultSpec));
-      sinon.assert.notCalled(createVolumeStub);
+      sinon.assert.notCalled(importVolumeStub);
     });
 
-    it('should set reason in resource if volume creation fails upon "new" event', async () => {
+    it('should set reason in resource if volume import fails upon "new" event', async () => {
       const registry = new Registry();
       const volumes = new Volumes(registry);
-      const createVolumeStub = sinon.stub(volumes, 'createVolume');
-      createVolumeStub.rejects(
+      const importVolumeStub = sinon.stub(volumes, 'importVolume');
+      importVolumeStub.rejects(
         new GrpcError(GrpcCode.INTERNAL, 'create failed')
       );
 
@@ -365,7 +374,7 @@ module.exports = function () {
       // trigger "new" event
       oper.watcher.newObject(createVolumeResource(UUID, defaultSpec));
       await sleep(10);
-      sinon.assert.calledOnce(createVolumeStub);
+      sinon.assert.calledOnce(importVolumeStub);
       sinon.assert.calledOnce(msStub);
       sinon.assert.calledWith(msStub, UUID);
       sinon.assert.notCalled(postStub);
@@ -436,7 +445,8 @@ module.exports = function () {
           preferredNodes: ['node1'],
           requiredNodes: [],
           requiredBytes: 90,
-          limitBytes: 130
+          limitBytes: 130,
+          protocol: 'nbd'
         },
         defaultStatus
       );
@@ -476,7 +486,8 @@ module.exports = function () {
           preferredNodes: ['node1'],
           requiredNodes: [],
           requiredBytes: 111,
-          limitBytes: 130
+          limitBytes: 130,
+          protocol: 'nbd'
         },
         defaultStatus
       );
@@ -653,7 +664,8 @@ module.exports = function () {
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 90,
-        limitBytes: 130
+        limitBytes: 130,
+        protocol: 'nvmf'
       };
       const volume = new Volume(UUID, registry, newSpec);
       volumes.emit('volume', {
@@ -711,7 +723,8 @@ module.exports = function () {
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 90,
-        limitBytes: 130
+        limitBytes: 130,
+        protocol: 'nbd'
       };
       const volume = new Volume(UUID, registry, newSpec);
       volumes.emit('volume', {
@@ -738,7 +751,8 @@ module.exports = function () {
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 90,
-        limitBytes: 130
+        limitBytes: 130,
+        protocol: 'nbd'
       };
       const volume = new Volume(UUID, registry, newSpec);
       volumes.emit('volume', {
