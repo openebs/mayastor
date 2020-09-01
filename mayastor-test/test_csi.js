@@ -80,6 +80,13 @@ function createPublishDir (mountTarget) {
   fs.mkdirSync(mountTarget);
 }
 
+function cleanBlockfile (blockfile, done) {
+  const proc = common.runAsRoot('rm', ['-f', blockfile]);
+  proc.once('close', (code, signal) => {
+    done();
+  });
+}
+
 // Returns a callback which verifies that method ended with given grpc error.
 function shouldFailWith (code, done) {
   return function (err, res) {
@@ -113,7 +120,7 @@ describe('csi', function () {
   // NOTE: Don't use mayastor in setup - we test CSI interface and we don't want
   // to depend on correct function of mayastor iface in order to test CSI.
   before((done) => {
-    common.startMayastor(null, null, null,  CONFIG);
+    common.startMayastor(null, null, null, CONFIG);
     common.startMayastorCsi();
 
     var client = common.createGrpcClient();
@@ -141,7 +148,7 @@ describe('csi', function () {
               client.createNexus(
                 {
                   uuid: uuid,
-                  size: 64* 1024 * 1024,
+                  size: 64 * 1024 * 1024,
                   children: ['bdev:///malloc' + n]
                 },
                 next
@@ -657,7 +664,7 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
           );
         });
 
-        it('should publish a volume in ro mode and test it is idempotent op', (done) => {
+        it('should publish a volume in ro mode and test it is an idempotent op', (done) => {
           const args = {
             volume_id: UUID4,
             publish_context: publishedUris[UUID4],
@@ -910,6 +917,470 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
             (err) => {
               if (err) return done(err);
               assert.isUndefined(getFsType(bindTarget2));
+              done();
+            }
+          );
+        });
+      });
+    });
+
+    describe('stage and unstage block volume', function () {
+      var client;
+      var mountTarget = '/tmp/target2';
+
+      before((done) => {
+        client = createCsiClient('Node');
+        cleanPublishDir(mountTarget, () => {
+          createPublishDir(mountTarget);
+          done();
+        });
+      });
+
+      after((done) => {
+        if (client != null) {
+          client.close();
+        }
+        cleanPublishDir(mountTarget, done);
+      });
+
+      it('should be able to stage block volume', (done) => {
+        client.nodeStageVolume(
+          {
+            volume_id: UUID3,
+            publish_context: publishedUris[UUID3],
+            staging_target_path: mountTarget,
+            volume_capability: {
+              access_mode: {
+                mode: 'MULTI_NODE_READER_ONLY'
+              },
+              block: {
+              }
+            },
+            readonly: false,
+            secrets: {},
+            volume_context: {}
+          },
+          (err) => {
+            if (err) return done(err);
+            assert.isUndefined(getFsType(mountTarget));
+            done();
+          }
+        );
+      });
+
+      it('should be able to unstage block volume', (done) => {
+        client.nodeUnstageVolume(
+          {
+            volume_id: UUID3,
+            staging_target_path: mountTarget
+          },
+          (err) => {
+            if (err) return done(err);
+            assert.isUndefined(getFsType(mountTarget));
+            done();
+          }
+        );
+      });
+    });
+
+    // The combinations of ro/rw and access mode flags are quite confusing.
+    // See the source code for more info on how this should work.
+    describe('publish and unpublish block volumes', function () {
+      var client;
+
+      before(() => {
+        client = createCsiClient('Node');
+      });
+
+      after(() => {
+        if (client != null) {
+          client.close();
+        }
+      });
+
+      describe('MULTI_NODE_READER_ONLY staged volume', function () {
+        var mountTarget = '/tmp/target3';
+        var mountTarget2 = '/tmp/target4';
+        var bindTarget1 = '/tmp/blockvol_bind1';
+        var bindTarget2 = '/tmp/blockvol_bind2';
+
+        before((done) => {
+          const stageArgs = {
+            volume_id: UUID4,
+            publish_context: publishedUris[UUID4],
+            staging_target_path: mountTarget,
+            volume_capability: {
+              access_mode: {
+                mode: 'MULTI_NODE_READER_ONLY'
+              },
+              block: {
+              }
+            },
+            readonly: false,
+            secrets: {},
+            volume_context: {}
+          };
+
+          const stageArgs2 = {
+            volume_id: UUID5,
+            publish_context: publishedUris[UUID5],
+            staging_target_path: mountTarget2,
+            volume_capability: {
+              access_mode: {
+                mode: 'MULTI_NODE_READER_ONLY'
+              },
+              block: {
+              }
+            },
+            readonly: false,
+            secrets: {},
+            volume_context: {}
+          };
+
+          async.series(
+            [
+              (next) => {
+                cleanBlockfile(bindTarget1, next);
+              },
+              (next) => {
+                cleanBlockfile(bindTarget2, next);
+              },
+              (next) => {
+                cleanPublishDir(mountTarget, () => {
+                  client.nodeStageVolume(stageArgs, next);
+                });
+              },
+              (next) => {
+                cleanPublishDir(mountTarget, () => {
+                  client.nodeStageVolume(stageArgs2, next);
+                });
+              }
+            ],
+            done
+          );
+        });
+
+        after((done) => {
+          async.series(
+            [
+              (next) => {
+                client.nodeUnstageVolume(
+                  {
+                    volume_id: UUID4,
+                    staging_target_path: mountTarget
+                  },
+                  next
+                );
+              },
+              (next) => {
+                client.nodeUnstageVolume(
+                  {
+                    volume_id: UUID5,
+                    staging_target_path: mountTarget2
+                  },
+                  next
+                );
+              },
+              (next) => {
+                cleanPublishDir(mountTarget, next);
+              },
+              (next) => {
+                cleanBlockfile(bindTarget1, next);
+              },
+              (next) => {
+                cleanBlockfile(bindTarget2, next);
+              }
+            ],
+            done
+          );
+        });
+
+        it('should publish a block volume in ro mode and test it is an idempotent op', (done) => {
+          const args = {
+            volume_id: UUID4,
+            publish_context: publishedUris[UUID4],
+            staging_target_path: mountTarget,
+            target_path: bindTarget1,
+            volume_capability: {
+              access_mode: {
+                mode: 'MULTI_NODE_READER_ONLY'
+              },
+              block: {
+              }
+            },
+            readonly: true
+          };
+
+          client.nodePublishVolume(args, (err) => {
+            if (err) return done(err);
+            assert.equal(fs.existsSync(bindTarget1), true);
+            assert.equal(getFsType(bindTarget1), 'devtmpfs');
+            // re-publish should succeed (idempotent)
+            client.nodePublishVolume(args, done);
+          });
+        });
+
+        it('should fail when publishing another volume on the same target path', (done) => {
+          const args = {
+            volume_id: UUID5,
+            publish_context: publishedUris[UUID5],
+            staging_target_path: mountTarget,
+            target_path: bindTarget1,
+            volume_capability: {
+              access_mode: {
+                mode: 'MULTI_NODE_READER_ONLY'
+              },
+              block: {
+              }
+            },
+            readonly: true
+          };
+
+          client.nodePublishVolume(
+            args,
+            shouldFailWith(grpc.status.INTERNAL, done)
+          );
+        });
+
+        it('should fail when re-publishing with a different staging path', (done) => {
+          const args = {
+            volume_id: UUID4,
+            publish_context: publishedUris[UUID4],
+            staging_target_path: '/invalid_staging_path',
+            target_path: bindTarget1,
+            volume_capability: {
+              access_mode: {
+                mode: 'MULTI_NODE_READER_ONLY'
+              },
+              block: {
+              }
+            }
+          };
+
+          client.nodePublishVolume(
+            args,
+            shouldFailWith(grpc.status.INVALID_ARGUMENT, done)
+          );
+        });
+
+        it('should fail with a missing target path', (done) => {
+          const args = {
+            volume_id: UUID4,
+            publish_context: publishedUris[UUID4],
+            staging_target_path: mountTarget,
+            volume_capability: {
+              access_mode: {
+                mode: 'MULTI_NODE_READER_ONLY'
+              },
+              block: {
+              }
+            }
+          };
+
+          client.nodePublishVolume(
+            args,
+            shouldFailWith(grpc.status.INVALID_ARGUMENT, done)
+          );
+        });
+
+        it('should fail to publish the block volume as rw', (done) => {
+          const args = {
+            volume_id: UUID4,
+            publish_context: publishedUris[UUID4],
+            staging_target_path: mountTarget,
+            target_path: bindTarget2,
+            volume_capability: {
+              access_mode: {
+                mode: 'MULTI_NODE_READER_ONLY'
+              },
+              block: {
+              }
+            },
+            readonly: false
+          };
+
+          client.nodePublishVolume(
+            args,
+            shouldFailWith(grpc.status.INVALID_ARGUMENT, (err) => {
+              if (err) return done(err);
+              assert.equal(fs.existsSync(bindTarget2), false);
+              assert.isUndefined(getFsType(bindTarget2));
+              done();
+            })
+          );
+        });
+
+        it('should be able to unpublish ro block volume', (done) => {
+          client.nodeUnpublishVolume(
+            {
+              volume_id: UUID4,
+              target_path: bindTarget2
+            },
+            (err) => {
+              if (err) return done(err);
+              assert.equal(fs.existsSync(bindTarget2), false);
+              assert.isUndefined(getFsType(bindTarget2));
+              done();
+            }
+          );
+        });
+
+        it('should be able to unpublish rw block volume', (done) => {
+          client.nodeUnpublishVolume(
+            {
+              volume_id: UUID4,
+              target_path: bindTarget1
+            },
+            (err) => {
+              if (err) return done(err);
+              assert.equal(fs.existsSync(bindTarget1), false);
+              // we cannot assert because the fs is lazily unmounted
+              assert.isUndefined(getFsType(bindTarget1));
+              done();
+            }
+          );
+        });
+      });
+
+      describe('MULTI_NODE_SINGLE_WRITER staged volume', function () {
+        var mountTarget = '/tmp/target4';
+        var bindTarget1 = '/tmp/blockvol_bind1';
+        var bindTarget2 = '/tmp/blockvol_bind2';
+
+        before((done) => {
+          const stageArgs = {
+            volume_id: UUID5,
+            publish_context: publishedUris[UUID5],
+            staging_target_path: mountTarget,
+            volume_capability: {
+              access_mode: {
+                mode: 'MULTI_NODE_SINGLE_WRITER'
+              },
+              block: {
+              }
+            },
+            secrets: {},
+            volume_context: {}
+          };
+
+          async.series(
+            [
+              (next) => {
+                cleanBlockfile(bindTarget1, next);
+              },
+              (next) => {
+                cleanBlockfile(bindTarget2, next);
+              },
+              (next) => {
+                cleanPublishDir(mountTarget, () => {
+                  client.nodeStageVolume(stageArgs, next);
+                });
+              }
+            ],
+            done
+          );
+        });
+
+        after((done) => {
+          async.series(
+            [
+              (next) => {
+                client.nodeUnstageVolume(
+                  {
+                    volume_id: UUID5,
+                    staging_target_path: mountTarget
+                  },
+                  next
+                );
+              },
+              (next) => {
+                cleanPublishDir(mountTarget, next);
+              },
+              (next) => {
+                cleanBlockfile(bindTarget1, next);
+              },
+              (next) => {
+                cleanBlockfile(bindTarget2, next);
+              }
+            ],
+            done
+          );
+        });
+
+        it('should publish ro volume', (done) => {
+          const args = {
+            volume_id: UUID5,
+            publish_context: publishedUris[UUID5],
+            staging_target_path: mountTarget,
+            target_path: bindTarget1,
+            readonly: true,
+            volume_capability: {
+              access_mode: {
+                mode: 'MULTI_NODE_SINGLE_WRITER'
+              },
+              block: {
+              }
+            }
+          };
+
+          client.nodePublishVolume(args, (err) => {
+            if (err) return done(err);
+            assert.equal(fs.existsSync(bindTarget1), true);
+            assert.equal(getFsType(bindTarget1), 'devtmpfs');
+            // re-publish should succeed (idempotent)
+            client.nodePublishVolume(args, done);
+          });
+        });
+
+        it('should publish rw volume', (done) => {
+          const args = {
+            volume_id: UUID5,
+            publish_context: publishedUris[UUID5],
+            staging_target_path: mountTarget,
+            target_path: bindTarget2,
+            volume_capability: {
+              access_mode: {
+                mode: 'MULTI_NODE_SINGLE_WRITER'
+              },
+              block: {
+              }
+            }
+          };
+
+          client.nodePublishVolume(args, (err) => {
+            if (err) return done(err);
+            assert.equal(fs.existsSync(bindTarget2), true);
+            assert.equal(getFsType(bindTarget2), 'devtmpfs');
+            done();
+          });
+        });
+
+        it('should be able to unpublish ro volume', (done) => {
+          client.nodeUnpublishVolume(
+            {
+              volume_id: UUID5,
+              target_path: bindTarget1
+            },
+            (err) => {
+              if (err) return done(err);
+              // we cannot assert because the fs is lazily unmounted
+              assert.isUndefined(getFsType(bindTarget1));
+              assert.equal(fs.existsSync(bindTarget1), false);
+              done();
+            }
+          );
+        });
+
+        it('should be able to unpublish rw volume', (done) => {
+          client.nodeUnpublishVolume(
+            {
+              volume_id: UUID5,
+              target_path: bindTarget2
+            },
+            (err) => {
+              if (err) return done(err);
+              assert.isUndefined(getFsType(bindTarget2));
+              assert.equal(fs.existsSync(bindTarget2), false);
               done();
             }
           );
