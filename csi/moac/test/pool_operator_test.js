@@ -431,6 +431,90 @@ module.exports = function () {
           }
         });
       });
+
+      it('when a pool is pre-imported it should be created once the node arrives and is synced', async () => {
+        const node = new Node('node');
+        oper = await MockedPoolOperator([createPoolResource('pool', 'node', ['/dev/sdb'])], [node]);
+
+        // give event callbacks time to propagate
+        await sleep(10);
+
+        sinon.assert.calledTwice(msStub);
+        sinon.assert.calledWith(msStub, 'pool');
+        sinon.assert.calledTwice(putStub);
+
+        sinon.assert.calledWithMatch(putStub, {
+          body: {
+            status: {
+              state: 'pending',
+              reason: 'Error: Broken connection to mayastor on node "node"'
+            }
+          }
+        });
+      });
+
+      it('should create a pool once the node arrives and is synced', async () => {
+        oper = await MockedPoolOperator([], []);
+        oper.watcher.newObject(
+          createPoolResource('pool', 'node', ['/dev/sdb'])
+        );
+
+        // give event callbacks time to propagate
+        await sleep(10);
+
+        sinon.assert.calledOnce(msStub);
+        sinon.assert.calledWith(msStub, 'pool');
+        sinon.assert.calledOnce(putStub);
+        sinon.assert.calledWithMatch(putStub, {
+          body: {
+            status: {
+              state: 'pending',
+              reason: 'mayastor does not run on node "node"'
+            }
+          }
+        });
+
+        const node = new Node('node');
+        oper.registry._registerNode(node);
+        oper.registry.emit('node', {
+          eventType: 'mod',
+          object: node
+        });
+
+        // give event callbacks time to propagate
+        await sleep(10);
+
+        // node is not yet synced
+        sinon.assert.calledThrice(msStub);
+        sinon.assert.calledThrice(putStub);
+        sinon.assert.calledWithMatch(putStub, {
+          body: {
+            status: {
+              state: 'pending',
+              reason: 'mayastor does not run on node "node"'
+            }
+          }
+        });
+
+        node.connect();
+        oper.registry.emit('node', {
+          eventType: 'mod',
+          object: node
+        });
+
+        // give event callbacks time to propagate
+        await sleep(10);
+
+        // tried to create the pool but the node is a fake
+        sinon.assert.calledWithMatch(putStub, {
+          body: {
+            status: {
+              state: 'pending',
+              reason: 'Error: Broken connection to mayastor on node "node"'
+            }
+          }
+        });
+      });
     });
 
     describe('del event', () => {
