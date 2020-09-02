@@ -233,6 +233,10 @@ fn equals_findmnt_device(findmnt_device_path: &str, device_path: &str) -> bool {
         if tmp == findmnt_device_path {
             return true;
         }
+        let tmp = format!("udev[/{}]", v[l - 1]);
+        if tmp == findmnt_device_path {
+            return true;
+        }
     }
     false
 }
