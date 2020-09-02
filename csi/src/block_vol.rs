@@ -223,19 +223,36 @@ fn findmnt_device(mountpoint: &str) -> Result<Option<String>, DeviceError> {
 /// Unfortunately findmnt may return device names in a format different
 /// to that returned by udev.
 fn equals_findmnt_device(findmnt_device_path: &str, device_path: &str) -> bool {
+    lazy_static! {
+        static ref RE_FINDMNT: regex::Regex = regex::Regex::new(
+            r"(?x).*dev\[(?P<device>/.*)\]
+        ",
+        )
+        .unwrap();
+    }
+
+    lazy_static! {
+        static ref RE_DEVPATH: regex::Regex =
+            regex::Regex::new(r"(?x)/dev(?P<device>/.*)",).unwrap();
+    }
+
     if device_path == findmnt_device_path {
         return true;
     } else {
-        let v: Vec<&str> = device_path.split('/').collect();
-        let l = v.len();
-        assert_eq!(v[l - 2], "dev");
-        let tmp = format!("dev[/{}]", v[l - 1]);
-        if tmp == findmnt_device_path {
-            return true;
-        }
-        let tmp = format!("udev[/{}]", v[l - 1]);
-        if tmp == findmnt_device_path {
-            return true;
+        // compare the "core" parts of the paths returned by findmnt
+        // udev
+        match RE_DEVPATH.captures(device_path) {
+            Some(dcaps) => match RE_FINDMNT.captures(findmnt_device_path) {
+                Some(fcaps) => {
+                    return dcaps["device"] == fcaps["device"];
+                }
+                _ => {
+                    warn!("unexpected path from findmnt!");
+                }
+            },
+            _ => {
+                warn!("unexpected device path format!");
+            }
         }
     }
     false
