@@ -95,52 +95,50 @@ impl NexusFnTable {
         io: *mut spdk_bdev_io,
     ) {
         if let Some(io_type) = Bio::io_type(io) {
-            let mut nio = Bio(io);
-            let mut ch = NexusChannel::inner_from_channel(channel);
+            let nio = Bio(io); // this just to get a reference to the nexus
             let nexus = nio.nexus_as_ref();
+            let mut ch = NexusChannel::inner_from_channel(channel);
+
+            let mut bio = match io_type {
+                io_type::READ => Bio::new(io, 1, channel),
+                _ => Bio::new(io, ch.ch.len() as i8, channel),
+            };
 
             match io_type {
-                io_type::READ => {
-                    //trace!("{}: Dispatching READ {:p}", nexus.name(), io);
-                    nexus.readv(io, &mut ch)
-                }
-                io_type::WRITE => {
-                    //trace!("{}: Dispatching WRITE {:p}", nexus.name(), io);
-                    nexus.writev(io, &ch)
-                }
+                io_type::READ => nexus.readv(&mut bio, &mut ch),
+                io_type::WRITE => nexus.writev(&bio, &ch),
                 io_type::RESET => {
-                    trace!("{}: Dispatching RESET {:p}", nexus.bdev.name(), io);
-                    nexus.reset(io, &ch)
+                    trace!("{}: Dispatching RESET", nexus.bdev.name());
+                    nexus.reset(&bio, &ch)
                 }
                 io_type::UNMAP => {
                     if nexus.io_is_supported(io_type) {
-                        nexus.unmap(io, &ch)
+                        nexus.unmap(&bio, &ch)
                     } else {
-                        nio.fail();
+                        bio.fail();
                     }
                 }
                 io_type::FLUSH => {
                     if nexus.io_is_supported(io_type) {
-                        nexus.flush(io, &ch)
+                        nexus.flush(&bio, &ch)
                     } else {
-                        nio.fail()
+                        bio.fail()
                     }
                 }
                 io_type::WRITE_ZEROES => {
                     if nexus.io_is_supported(io_type) {
-                        nexus.write_zeroes(io, &ch)
+                        nexus.write_zeroes(&bio, &ch)
                     } else {
-                        nio.fail()
+                        bio.fail()
                     }
                 }
                 io_type::NVME_ADMIN => {
                     if nexus.io_is_supported(io_type) {
-                        nexus.nvme_admin(io, &ch)
+                        nexus.nvme_admin(&bio, &ch)
                     } else {
-                        nio.fail()
+                        bio.fail()
                     }
                 }
-
                 _ => panic!(
                     "{} Received unsupported IO! type {}",
                     nexus.name, io_type

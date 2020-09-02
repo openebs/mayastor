@@ -497,6 +497,9 @@ pub struct ErrStoreOpts {
 
     /// errors older than this are ignored
     pub retention_ns: u64,
+
+    /// the maximum number IO attempts per IO
+    pub max_io_attempts: u32,
 }
 
 impl Default for ErrStoreOpts {
@@ -507,6 +510,7 @@ impl Default for ErrStoreOpts {
             action: ActionType::Fault,
             max_errors: 64,
             retention_ns: 10_000_000_000,
+            max_io_attempts: 1,
         }
     }
 }

@@ -130,6 +130,8 @@ impl NexusChannel {
         let nexus = unsafe { Nexus::from_raw(device) };
         debug!("{}: Creating IO channels at {:p}", nexus.bdev.name(), ctx);
 
+        let max_io_attempts = nexus.max_io_attempts;
+
         let ch = NexusChannel::from_raw(ctx);
         let mut channels = Box::new(NexusChannelInner {
             ch: Vec::new(),
@@ -144,7 +146,9 @@ impl NexusChannel {
             .filter(|c| c.status() == ChildStatus::Online)
             .map(|c| {
                 channels.ch.push(
-                    BdevHandle::try_from(c.get_descriptor().unwrap()).unwrap(),
+                    BdevHandle::try_from(c.get_descriptor().unwrap())
+                        .unwrap()
+                        .set_retries(max_io_attempts),
                 )
             })
             .for_each(drop);
