@@ -97,14 +97,18 @@ class PoolOperator {
     // event handlers to follow changes to them.
     await self.watcher.start();
     self._bindWatcher(self.watcher);
-    self.watcher.list().forEach((r) => (self.resource[r.name] = r));
+    self.watcher.list().forEach((r) => {
+      const poolName = r.name;
+      log.debug(`Reading pool custom resource "${poolName}"`);
+      self.resource[poolName] = r;
+    });
 
     // this will start async processing of node and pool events
     self.eventStream = new EventStream({ registry: self.registry });
     self.eventStream.on('data', async (ev) => {
       if (ev.kind === 'pool') {
         await self.workq.push(ev, self._onPoolEvent.bind(self));
-      } else if (ev.kind === 'node' && ev.eventType === 'sync') {
+      } else if (ev.kind === 'node' && (ev.eventType === 'sync' || ev.eventType === 'mod')) {
         await self.workq.push(ev.object.name, self._onNodeSyncEvent.bind(self));
       }
     });
