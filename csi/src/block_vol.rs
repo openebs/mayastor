@@ -64,23 +64,25 @@ pub async fn publish_block_volume(
                         );
                         return Ok(());
                     } else {
-                        failure!(
-                Code::Internal,
-                "Failed to publish volume {}: found device {} mounted at {}, not {}",
-                volume_id,
-                fm_devpath,
-                target_path,
-                device_path);
+                        return Err(Status::new(
+                                Code::Internal,
+                                format!(
+                                    "Failed to publish volume {}: found device {} mounted at {}, not {}",
+                                    volume_id,
+                                    fm_devpath,
+                                    target_path,
+                                    device_path)));
                     }
                 }
             }
             Err(err) => {
-                failure!(
-            Code::Internal,
-            "Failed to publish volume {}: error whilst checking mount on {} : {}",
-            volume_id,
-            target_path,
-            err);
+                return Err(Status::new(
+                        Code::Internal,
+                        format!(
+                            "Failed to publish volume {}: error whilst checking mount on {} : {}",
+                            volume_id,
+                            target_path,
+                            err)));
             }
         }
 

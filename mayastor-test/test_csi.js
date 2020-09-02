@@ -1006,7 +1006,6 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
         var stagingPath2 = '/tmp/target4';
         var publishPath1 = '/tmp/blockvol1';
         var publishPath2 = '/tmp/blockvol2';
-        var publishPath3 = '/tmp/blockvol3';
 
         before((done) => {
           const stageArgs = {
@@ -1048,9 +1047,6 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
               },
               (next) => {
                 cleanBlockMount(publishPath2, next);
-              },
-              (next) => {
-                cleanBlockMount(publishPath3, next);
               },
               (next) => {
                 cleanPublishDir(stagingPath, () => {
@@ -1099,9 +1095,6 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
               },
               (next) => {
                 cleanBlockMount(publishPath2, next);
-              },
-              (next) => {
-                cleanBlockMount(publishPath3, next);
               }
             ],
             done
@@ -1138,7 +1131,7 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
             volume_id: UUID5,
             publish_context: publishedUris[UUID5],
             staging_target_path: stagingPath2,
-            target_path: publishPath3,
+            target_path: publishPath1,
             volume_capability: {
               access_mode: {
                 mode: 'MULTI_NODE_READER_ONLY'
