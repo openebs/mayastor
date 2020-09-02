@@ -7,6 +7,7 @@
 , libaio
 , libiscsi
 , libspdk
+, libspdk-dev
 , libudev
 , liburing
 , llvmPackages
@@ -59,7 +60,6 @@ let
     LIBCLANG_PATH = "${llvmPackages.libclang}/lib";
     PROTOC = "${protobuf}/bin/protoc";
     PROTOC_INCLUDE = "${protobuf}/include";
-    SPDK_PATH = "${libspdk}";
 
     nativeBuildInputs = [
       clang
@@ -70,7 +70,6 @@ let
       protobuf
       libaio
       libiscsi.lib
-      libspdk
       libudev
       liburing
       numactl
@@ -83,9 +82,16 @@ let
   };
 in
 {
-  release = rustPlatform.buildRustPackage (buildProps // { buildType = "release"; });
-  # TODO: We want more changes for debug flavour, i.e. spdk configured with debug
-  debug = rustPlatform.buildRustPackage (buildProps // { buildType = "debug"; });
+  release = rustPlatform.buildRustPackage (buildProps // {
+    buildType = "release";
+    buildInputs = buildProps.buildInputs ++ [ libspdk ];
+    SPDK_PATH = "${libspdk}";
+  });
+  debug = rustPlatform.buildRustPackage (buildProps // {
+    buildType = "debug";
+    buildInputs = buildProps.buildInputs ++ [ libspdk-dev ];
+    SPDK_PATH = "${libspdk-dev}";
+  });
   # this is for image that does not do a build of mayastor
   adhoc = stdenv.mkDerivation {
     name = "mayastor-adhoc";
@@ -100,7 +106,7 @@ in
     buildInputs = [
       libaio
       libiscsi.lib
-      libspdk
+      libspdk-dev
       liburing
       libudev
       openssl
