@@ -80,10 +80,13 @@ function createPublishDir (mountTarget) {
   fs.mkdirSync(mountTarget);
 }
 
-function cleanBlockfile (blockfile, done) {
-  const proc = common.runAsRoot('rm', ['-f', blockfile]);
+function cleanBlockMount (blockfile, done) {
+  const proc = common.runAsRoot('umount', ['-f', blockfile]);
   proc.once('close', (code, signal) => {
-    done();
+    const proc = common.runAsRoot('rm', ['-f', blockfile]);
+    proc.once('close', (code, signal) => {
+      done();
+    });
   });
 }
 
@@ -999,16 +1002,17 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
       });
 
       describe('MULTI_NODE_READER_ONLY staged volume', function () {
-        var mountTarget = '/tmp/target3';
-        var mountTarget2 = '/tmp/target4';
-        var bindTarget1 = '/tmp/blockvol_bind1';
-        var bindTarget2 = '/tmp/blockvol_bind2';
+        var stagingPath = '/tmp/target3';
+        var stagingPath2 = '/tmp/target4';
+        var publishPath1 = '/tmp/blockvol1';
+        var publishPath2 = '/tmp/blockvol2';
+        var publishPath3 = '/tmp/blockvol3';
 
         before((done) => {
           const stageArgs = {
             volume_id: UUID4,
             publish_context: publishedUris[UUID4],
-            staging_target_path: mountTarget,
+            staging_target_path: stagingPath,
             volume_capability: {
               access_mode: {
                 mode: 'MULTI_NODE_READER_ONLY'
@@ -1024,7 +1028,7 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
           const stageArgs2 = {
             volume_id: UUID5,
             publish_context: publishedUris[UUID5],
-            staging_target_path: mountTarget2,
+            staging_target_path: stagingPath2,
             volume_capability: {
               access_mode: {
                 mode: 'MULTI_NODE_READER_ONLY'
@@ -1040,18 +1044,21 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
           async.series(
             [
               (next) => {
-                cleanBlockfile(bindTarget1, next);
+                cleanBlockMount(publishPath1, next);
               },
               (next) => {
-                cleanBlockfile(bindTarget2, next);
+                cleanBlockMount(publishPath2, next);
               },
               (next) => {
-                cleanPublishDir(mountTarget, () => {
+                cleanBlockMount(publishPath3, next);
+              },
+              (next) => {
+                cleanPublishDir(stagingPath, () => {
                   client.nodeStageVolume(stageArgs, next);
                 });
               },
               (next) => {
-                cleanPublishDir(mountTarget, () => {
+                cleanPublishDir(stagingPath2, () => {
                   client.nodeStageVolume(stageArgs2, next);
                 });
               }
@@ -1067,7 +1074,7 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
                 client.nodeUnstageVolume(
                   {
                     volume_id: UUID4,
-                    staging_target_path: mountTarget
+                    staging_target_path: stagingPath
                   },
                   next
                 );
@@ -1076,19 +1083,25 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
                 client.nodeUnstageVolume(
                   {
                     volume_id: UUID5,
-                    staging_target_path: mountTarget2
+                    staging_target_path: stagingPath2
                   },
                   next
                 );
               },
               (next) => {
-                cleanPublishDir(mountTarget, next);
+                cleanPublishDir(stagingPath, next);
               },
               (next) => {
-                cleanBlockfile(bindTarget1, next);
+                cleanPublishDir(stagingPath2, next);
               },
               (next) => {
-                cleanBlockfile(bindTarget2, next);
+                cleanBlockMount(publishPath1, next);
+              },
+              (next) => {
+                cleanBlockMount(publishPath2, next);
+              },
+              (next) => {
+                cleanBlockMount(publishPath3, next);
               }
             ],
             done
@@ -1099,8 +1112,8 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
           const args = {
             volume_id: UUID4,
             publish_context: publishedUris[UUID4],
-            staging_target_path: mountTarget,
-            target_path: bindTarget1,
+            staging_target_path: stagingPath,
+            target_path: publishPath1,
             volume_capability: {
               access_mode: {
                 mode: 'MULTI_NODE_READER_ONLY'
@@ -1113,8 +1126,8 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
 
           client.nodePublishVolume(args, (err) => {
             if (err) return done(err);
-            assert.equal(fs.existsSync(bindTarget1), true);
-            assert.equal(getFsType(bindTarget1), 'devtmpfs');
+            assert.equal(fs.existsSync(publishPath1), true);
+            assert.equal(getFsType(publishPath1), 'devtmpfs');
             // re-publish should succeed (idempotent)
             client.nodePublishVolume(args, done);
           });
@@ -1124,8 +1137,8 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
           const args = {
             volume_id: UUID5,
             publish_context: publishedUris[UUID5],
-            staging_target_path: mountTarget,
-            target_path: bindTarget1,
+            staging_target_path: stagingPath2,
+            target_path: publishPath3,
             volume_capability: {
               access_mode: {
                 mode: 'MULTI_NODE_READER_ONLY'
@@ -1147,7 +1160,7 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
             volume_id: UUID4,
             publish_context: publishedUris[UUID4],
             staging_target_path: '/invalid_staging_path',
-            target_path: bindTarget1,
+            target_path: publishPath1,
             volume_capability: {
               access_mode: {
                 mode: 'MULTI_NODE_READER_ONLY'
@@ -1167,7 +1180,7 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
           const args = {
             volume_id: UUID4,
             publish_context: publishedUris[UUID4],
-            staging_target_path: mountTarget,
+            staging_target_path: stagingPath,
             volume_capability: {
               access_mode: {
                 mode: 'MULTI_NODE_READER_ONLY'
@@ -1187,8 +1200,8 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
           const args = {
             volume_id: UUID4,
             publish_context: publishedUris[UUID4],
-            staging_target_path: mountTarget,
-            target_path: bindTarget2,
+            staging_target_path: stagingPath,
+            target_path: publishPath2,
             volume_capability: {
               access_mode: {
                 mode: 'MULTI_NODE_READER_ONLY'
@@ -1203,8 +1216,8 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
             args,
             shouldFailWith(grpc.status.INVALID_ARGUMENT, (err) => {
               if (err) return done(err);
-              assert.equal(fs.existsSync(bindTarget2), false);
-              assert.isUndefined(getFsType(bindTarget2));
+              assert.equal(fs.existsSync(publishPath2), false);
+              assert.isUndefined(getFsType(publishPath2));
               done();
             })
           );
@@ -1214,12 +1227,12 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
           client.nodeUnpublishVolume(
             {
               volume_id: UUID4,
-              target_path: bindTarget2
+              target_path: publishPath2
             },
             (err) => {
               if (err) return done(err);
-              assert.equal(fs.existsSync(bindTarget2), false);
-              assert.isUndefined(getFsType(bindTarget2));
+              assert.equal(fs.existsSync(publishPath2), false);
+              assert.isUndefined(getFsType(publishPath2));
               done();
             }
           );
@@ -1229,13 +1242,12 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
           client.nodeUnpublishVolume(
             {
               volume_id: UUID4,
-              target_path: bindTarget1
+              target_path: publishPath1
             },
             (err) => {
               if (err) return done(err);
-              assert.equal(fs.existsSync(bindTarget1), false);
-              // we cannot assert because the fs is lazily unmounted
-              assert.isUndefined(getFsType(bindTarget1));
+              assert.equal(fs.existsSync(publishPath1), false);
+              assert.isUndefined(getFsType(publishPath1));
               done();
             }
           );
@@ -1243,15 +1255,15 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
       });
 
       describe('MULTI_NODE_SINGLE_WRITER staged volume', function () {
-        var mountTarget = '/tmp/target4';
-        var bindTarget1 = '/tmp/blockvol_bind1';
-        var bindTarget2 = '/tmp/blockvol_bind2';
+        var stagingPath = '/tmp/target4';
+        var publishPath1 = '/tmp/blockvol1';
+        var publishPath2 = '/tmp/blockvol2';
 
         before((done) => {
           const stageArgs = {
             volume_id: UUID5,
             publish_context: publishedUris[UUID5],
-            staging_target_path: mountTarget,
+            staging_target_path: stagingPath,
             volume_capability: {
               access_mode: {
                 mode: 'MULTI_NODE_SINGLE_WRITER'
@@ -1266,13 +1278,13 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
           async.series(
             [
               (next) => {
-                cleanBlockfile(bindTarget1, next);
+                cleanBlockMount(publishPath1, next);
               },
               (next) => {
-                cleanBlockfile(bindTarget2, next);
+                cleanBlockMount(publishPath2, next);
               },
               (next) => {
-                cleanPublishDir(mountTarget, () => {
+                cleanPublishDir(stagingPath, () => {
                   client.nodeStageVolume(stageArgs, next);
                 });
               }
@@ -1288,19 +1300,19 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
                 client.nodeUnstageVolume(
                   {
                     volume_id: UUID5,
-                    staging_target_path: mountTarget
+                    staging_target_path: stagingPath
                   },
                   next
                 );
               },
               (next) => {
-                cleanPublishDir(mountTarget, next);
+                cleanPublishDir(stagingPath, next);
               },
               (next) => {
-                cleanBlockfile(bindTarget1, next);
+                cleanBlockMount(publishPath1, next);
               },
               (next) => {
-                cleanBlockfile(bindTarget2, next);
+                cleanBlockMount(publishPath2, next);
               }
             ],
             done
@@ -1311,8 +1323,8 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
           const args = {
             volume_id: UUID5,
             publish_context: publishedUris[UUID5],
-            staging_target_path: mountTarget,
-            target_path: bindTarget1,
+            staging_target_path: stagingPath,
+            target_path: publishPath1,
             readonly: true,
             volume_capability: {
               access_mode: {
@@ -1325,8 +1337,8 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
 
           client.nodePublishVolume(args, (err) => {
             if (err) return done(err);
-            assert.equal(fs.existsSync(bindTarget1), true);
-            assert.equal(getFsType(bindTarget1), 'devtmpfs');
+            assert.equal(fs.existsSync(publishPath1), true);
+            assert.equal(getFsType(publishPath1), 'devtmpfs');
             // re-publish should succeed (idempotent)
             client.nodePublishVolume(args, done);
           });
@@ -1336,8 +1348,8 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
           const args = {
             volume_id: UUID5,
             publish_context: publishedUris[UUID5],
-            staging_target_path: mountTarget,
-            target_path: bindTarget2,
+            staging_target_path: stagingPath,
+            target_path: publishPath2,
             volume_capability: {
               access_mode: {
                 mode: 'MULTI_NODE_SINGLE_WRITER'
@@ -1349,8 +1361,8 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
 
           client.nodePublishVolume(args, (err) => {
             if (err) return done(err);
-            assert.equal(fs.existsSync(bindTarget2), true);
-            assert.equal(getFsType(bindTarget2), 'devtmpfs');
+            assert.equal(fs.existsSync(publishPath2), true);
+            assert.equal(getFsType(publishPath2), 'devtmpfs');
             done();
           });
         });
@@ -1359,13 +1371,12 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
           client.nodeUnpublishVolume(
             {
               volume_id: UUID5,
-              target_path: bindTarget1
+              target_path: publishPath1
             },
             (err) => {
               if (err) return done(err);
-              // we cannot assert because the fs is lazily unmounted
-              assert.isUndefined(getFsType(bindTarget1));
-              assert.equal(fs.existsSync(bindTarget1), false);
+              assert.isUndefined(getFsType(publishPath1));
+              assert.equal(fs.existsSync(publishPath1), false);
               done();
             }
           );
@@ -1375,12 +1386,12 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
           client.nodeUnpublishVolume(
             {
               volume_id: UUID5,
-              target_path: bindTarget2
+              target_path: publishPath2
             },
             (err) => {
               if (err) return done(err);
-              assert.isUndefined(getFsType(bindTarget2));
-              assert.equal(fs.existsSync(bindTarget2), false);
+              assert.isUndefined(getFsType(publishPath2));
+              assert.equal(fs.existsSync(publishPath2), false);
               done();
             }
           );

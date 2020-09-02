@@ -84,22 +84,7 @@ pub async fn publish_block_volume(
             }
         }
 
-        let devt = unsafe { libc::makedev(259, 254) };
-
-        let cstr_dst = std::ffi::CString::new(target_path.as_str()).unwrap();
-        let res =
-            unsafe { libc::mknod(cstr_dst.as_ptr(), libc::S_IFBLK, devt) };
-
-        if res != 0 {
-            let e = nix::errno::errno();
-            return Err(failure!(
-                Code::Internal,
-                "Failed to publish volume {}: mknod at {} failed: {}",
-                volume_id,
-                target_path,
-                e
-            ));
-        }
+        std::fs::File::create(&target_path)?;
 
         if let Err(error) = mount::blockdevice_mount(
             &device_path,
