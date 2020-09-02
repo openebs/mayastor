@@ -30,7 +30,7 @@ use spdk_sys::{
 
 use crate::{
     bdev::{nexus::instances, nexus_create, VerboseError},
-    core::{Bdev, Cores, Reactor},
+    core::{Bdev, Cores, Reactor, Share},
     jsonrpc::{jsonrpc_register, Code, RpcErrorCode},
     nexus_uri::bdev_create,
     pool::{create_pool, PoolsIter},
@@ -284,17 +284,20 @@ impl Config {
 
         // collect any pools that are on the system, and insert them
         let pools = PoolsIter::new()
-            .map(|p| Pool {
-                name: p.get_name().into(),
-                disks: vec![p.get_base_bdev().name()],
-                blk_size: p.get_base_bdev().block_len(),
-                io_if: 0, // AIO
-                replicas: ReplicaIter::new()
-                    .map(|p| Replica {
-                        name: p.get_uuid().to_string(),
-                        share: p.get_share_type(),
-                    })
-                    .collect::<Vec<_>>(),
+            .map(|p| {
+                let base = p.get_base_bdev();
+                Pool {
+                    name: p.get_name().into(),
+                    disks: vec![base.bdev_uri().unwrap_or_else(|| base.name())],
+                    blk_size: base.block_len(),
+                    io_if: 0, // AIO
+                    replicas: ReplicaIter::new()
+                        .map(|p| Replica {
+                            name: p.get_uuid().to_string(),
+                            share: p.get_share_type(),
+                        })
+                        .collect::<Vec<_>>(),
+                }
             })
             .collect::<Vec<_>>();
 
