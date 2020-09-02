@@ -27,19 +27,18 @@ class NodeStub extends Node {
         return n;
       });
     }
+    // keep existing behaviour and set the fake node to synced by default
+    this.syncFailed = 0;
   }
 
   connect (endpoint) {
+    this.syncFailed = 0;
     this.endpoint = endpoint;
   }
 
   disconnect () {
+    this.syncFailed = this.syncBadLimit + 1;
     this.endpoint = null;
-  }
-
-  // the fake connect does not kick off sync so we pretend we are always in sync
-  isSynced () {
-    return true;
   }
 }
 
