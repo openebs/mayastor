@@ -90,10 +90,8 @@ function cleanBlockMount (blockfile, done) {
 }
 
 function cleanupiSCSISession (tp, iqn, done) {
-  const proc = common.runAsRoot('iscsiadm', ['--mode', 'node', '--targetname', iqn, '--portal', tp, '--logout']);
-  proc.once('close', (code, signal) => {
-    const proc2 = common.runAsRoot('iscsiadm', ['-m', 'node', '-o', 'delete', '-T', iqn]);
-    proc2.once('close', (code, signal) => {
+  common.execAsRoot('iscsiadm', ['--mode', 'node', '--targetname', iqn, '--portal', tp, '--logout'], () => {
+    common.execAsRoot('iscsiadm', ['-m', 'node', '-o', 'delete', '-T', iqn], () => {
       done();
     });
   });
