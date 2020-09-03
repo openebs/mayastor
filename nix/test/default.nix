@@ -15,4 +15,5 @@ in
   nvmf_ports = pkgs.nixosTest ./nvmf/nvmf_ports.nix;
   nvmf_distributed = pkgs.nixosTest ./nvmf/nvmf_distributed.nix;
   rebuild = pkgs.nixosTest ./rebuild/rebuild.nix;
+  disconnect = pkgs.nixosTest ./disconnect/disconnect.nix;
 }
