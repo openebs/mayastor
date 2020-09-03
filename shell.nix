@@ -46,13 +46,13 @@ mkShell {
     utillinux
     xfsprogs
   ]
-  ++ (if (nospdk) then [ libspdk.buildInputs ] else [ libspdk ])
+  ++ (if (nospdk) then [ libspdk-dev.buildInputs ] else [ libspdk-dev ])
   ++ pkgs.lib.optional (!norust) channel.nightly.rust;
 
   LIBCLANG_PATH = mayastor.LIBCLANG_PATH;
   PROTOC = mayastor.PROTOC;
   PROTOC_INCLUDE = mayastor.PROTOC_INCLUDE;
-  SPDK_PATH = if nospdk then null else "${libspdk}";
+  SPDK_PATH = if nospdk then null else "${libspdk-dev}";
 
   shellHook = ''
     ${pkgs.lib.optionalString (nospdk) "cowsay ${nospdk_moth}"}
