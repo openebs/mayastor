@@ -81,10 +81,8 @@ function createPublishDir (mountTarget) {
 }
 
 function cleanBlockMount (blockfile, done) {
-  const proc = common.runAsRoot('umount', ['-f', blockfile]);
-  proc.once('close', (code, signal) => {
-    const proc = common.runAsRoot('rm', ['-f', blockfile]);
-    proc.once('close', (code, signal) => {
+  common.execAsRoot('umount', ['-f', blockfile], () => {
+    common.execAsRoot('rm', ['-f', blockfile], () => {
       done();
     });
   });
