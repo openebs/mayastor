@@ -13,6 +13,7 @@
 
 'use strict';
 
+const URL = require('url').URL;
 const assert = require('chai').assert;
 const async = require('async');
 const fs = require('fs');
@@ -86,6 +87,24 @@ function cleanBlockMount (blockfile, done) {
       done();
     });
   });
+}
+
+function cleanupiSCSISession (tp, iqn, done) {
+  common.execAsRoot('iscsiadm', ['--mode', 'node', '--targetname', iqn, '--portal', tp, '--logout'], () => {
+    common.execAsRoot('iscsiadm', ['-m', 'node', '-o', 'delete', '-T', iqn], () => {
+      done();
+    });
+  });
+}
+
+function cleanupNexusSession (url, done) {
+  if (url.protocol === 'iscsi:') {
+    const tp = url.host;
+    const iqn = url.pathname.split('/')[1];
+    cleanupiSCSISession(tp, iqn, done);
+  } else {
+    done();
+  }
 }
 
 // Returns a callback which verifies that method ended with given grpc error.
@@ -345,7 +364,9 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
         5,
         function (n, next) {
           const uuid = BASE_UUID + n;
-          client.unpublishNexus({ uuid: uuid }, next);
+          cleanupNexusSession(new URL(publishedUris[uuid].uri), function () {
+            client.unpublishNexus({ uuid: uuid }, next);
+          });
         },
         function () {
           client.close();
