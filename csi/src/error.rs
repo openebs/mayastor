@@ -1,7 +1,8 @@
 //! Definition of DeviceError used by the attach and detach code.
+use std::string::FromUtf8Error;
 
 pub struct DeviceError {
-    message: String,
+    pub message: String,
 }
 
 impl DeviceError {
@@ -66,6 +67,22 @@ impl From<String> for DeviceError {
     fn from(message: String) -> DeviceError {
         DeviceError {
             message,
+        }
+    }
+}
+
+impl From<serde_json::error::Error> for DeviceError {
+    fn from(error: serde_json::error::Error) -> DeviceError {
+        DeviceError {
+            message: format!("{}", error),
+        }
+    }
+}
+
+impl From<FromUtf8Error> for DeviceError {
+    fn from(error: FromUtf8Error) -> DeviceError {
+        DeviceError {
+            message: format!("{}", error),
         }
     }
 }
