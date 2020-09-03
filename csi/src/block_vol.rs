@@ -1,7 +1,7 @@
 //! Functions for CSI publish and unpublish block mode volumes.
 
 use serde_json::Value;
-use std::process::Command;
+use std::{path::Path, process::Command};
 
 use tonic::{Code, Status};
 
@@ -53,18 +53,25 @@ pub async fn publish_block_volume(
             error
         )
     })? {
-        // Idempotency, if we have done this already just return success.
-        match findmnt_device(target_path) {
-            Ok(findmnt_dev) => {
-                if let Some(fm_devpath) = findmnt_dev {
-                    if equals_findmnt_device(&fm_devpath, &device_path) {
-                        debug!(
-                            "{}({}) is already mounted onto {}",
-                            fm_devpath, device_path, target_path
-                        );
-                        return Ok(());
-                    } else {
-                        return Err(Status::new(
+        let path_target = Path::new(target_path);
+        if path_target.exists()
+            && !path_target.is_file()
+            && !path_target.is_dir()
+        {
+            //target exists and is a special file
+
+            // Idempotency, if we have done this already just return success.
+            match findmnt_device(target_path) {
+                Ok(findmnt_dev) => {
+                    if let Some(fm_devpath) = findmnt_dev {
+                        if equals_findmnt_device(&fm_devpath, &device_path) {
+                            debug!(
+                                "{}({}) is already mounted onto {}",
+                                fm_devpath, device_path, target_path
+                            );
+                            return Ok(());
+                        } else {
+                            return Err(Status::new(
                                 Code::Internal,
                                 format!(
                                     "Failed to publish volume {}: found device {} mounted at {}, not {}",
@@ -72,21 +79,24 @@ pub async fn publish_block_volume(
                                     fm_devpath,
                                     target_path,
                                     device_path)));
+                        }
                     }
                 }
-            }
-            Err(err) => {
-                return Err(Status::new(
+                Err(err) => {
+                    return Err(Status::new(
                         Code::Internal,
                         format!(
                             "Failed to publish volume {}: error whilst checking mount on {} : {}",
                             volume_id,
                             target_path,
                             err)));
+                }
             }
         }
 
-        std::fs::File::create(&target_path)?;
+        if !path_target.exists() {
+            std::fs::File::create(&target_path)?;
+        }
 
         if let Err(error) = mount::blockdevice_mount(
             &device_path,
