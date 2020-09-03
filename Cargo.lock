@@ -441,6 +441,7 @@ dependencies = [
  "prost-types",
  "regex",
  "run_script",
+ "serde_json",
  "snafu",
  "sys-mount",
  "tokio",
