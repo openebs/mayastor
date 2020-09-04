@@ -390,6 +390,15 @@ impl node_server::Node for Node {
             ));
         };
 
+        if let Err(error) = get_access_type(&msg.volume_capability) {
+            return Err(failure!(
+                Code::InvalidArgument,
+                "Failed to stage volume {}: {}",
+                &msg.volume_id,
+                error
+            ));
+        }
+
         let uri = &msg.publish_context.get("uri").ok_or_else(|| {
             failure!(
                 Code::InvalidArgument,
