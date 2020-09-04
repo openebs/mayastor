@@ -390,14 +390,17 @@ impl node_server::Node for Node {
             ));
         };
 
-        if let Err(error) = get_access_type(&msg.volume_capability) {
-            return Err(failure!(
-                Code::InvalidArgument,
-                "Failed to stage volume {}: {}",
-                &msg.volume_id,
-                error
-            ));
-        }
+        let access_type = match get_access_type(&msg.volume_capability) {
+            Ok(accesstype) => accesstype,
+            Err(error) => {
+                return Err(failure!(
+                    Code::InvalidArgument,
+                    "Failed to stage volume {}: {}",
+                    &msg.volume_id,
+                    error
+                ));
+            }
+        };
 
         let uri = &msg.publish_context.get("uri").ok_or_else(|| {
             failure!(
@@ -473,14 +476,7 @@ impl node_server::Node for Node {
         };
 
         // Attach successful, now stage mount if required.
-        match get_access_type(&msg.volume_capability).map_err(|error| {
-            failure!(
-                Code::InvalidArgument,
-                "Failed to publish volume {}: {}",
-                &msg.volume_id,
-                error
-            )
-        })? {
+        match access_type {
             AccessType::Mount(mnt) => {
                 if let Err(fsmount_error) =
                     stage_fs_volume(&msg, device_path, &mnt, &self.filesystems)
