@@ -369,7 +369,7 @@ impl Target {
     pub fn running(&mut self) {
         self.enable_discovery();
         info!(
-            "nvmf target accepting new connections and is ready to role..{}",
+            "nvmf target accepting new connections and is ready to roll..{}",
             '\u{1F483}'
         );
 
