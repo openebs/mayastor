@@ -96,6 +96,32 @@ fn get_access_type(
     }
 }
 
+/// Detach the nexus device from the system, either at volume unstage,
+/// or after failed filesystem mount at volume stage.
+async fn detach(uuid: &Uuid, errheader: String) -> Result<(), Status> {
+    if let Some(device) = Device::lookup(uuid).await.map_err(|error| {
+        failure!(
+            Code::Internal,
+            "{} error locating device: {}",
+            &errheader,
+            error
+        )
+    })? {
+        let device_path = device.devname();
+        debug!("Detaching device {}", device_path);
+        if let Err(error) = device.detach().await {
+            return Err(failure!(
+                Code::Internal,
+                "{} failed to detach device {}: {}",
+                errheader,
+                device_path,
+                error
+            ));
+        }
+    }
+    Ok(())
+}
+
 impl Node {}
 #[tonic::async_trait]
 impl node_server::Node for Node {
@@ -372,6 +398,15 @@ impl node_server::Node for Node {
             )
         })?;
 
+        let uuid = Uuid::parse_str(&msg.volume_id).map_err(|error| {
+            failure!(
+                Code::Internal,
+                "Failed to stage volume {}: not a valid UUID: {}",
+                &msg.volume_id,
+                error
+            )
+        })?;
+
         // Note checking existence of staging_target_path, is delegated to
         // code handling those volume types where it is relevant.
 
@@ -438,8 +473,20 @@ impl node_server::Node for Node {
             )
         })? {
             AccessType::Mount(mnt) => {
-                stage_fs_volume(&msg, device_path, &mnt, &self.filesystems)
+                if let Err(fsmount_error) =
+                    stage_fs_volume(&msg, device_path, &mnt, &self.filesystems)
+                        .await
+                {
+                    detach(
+                        &uuid,
+                        format!(
+                            "Failed to stage volume {}: {};",
+                            &msg.volume_id, fsmount_error
+                        ),
+                    )
                     .await?;
+                    return Err(fsmount_error);
+                }
             }
             AccessType::Block(_) => {
                 // block volumes are not staged
@@ -491,29 +538,11 @@ impl node_server::Node for Node {
         // If the device is attached, detach the device.
         // Device::lookup will return None for nbd devices,
         // this is correct, as the attach for nbd is a no-op.
-        if let Some(device) = Device::lookup(&uuid).await.map_err(|error| {
-            failure!(
-                Code::Internal,
-                "Failed to unstage volume {}: error locating device: {}",
-                &msg.volume_id,
-                error
-            )
-        })? {
-            let device_path = device.devname();
-            debug!("Device path is {}", device_path);
-
-            debug!("Detaching device {}", device_path);
-            if let Err(error) = device.detach().await {
-                return Err(failure!(
-                        Code::Internal,
-                        "Failed to unstage volume {}: failed to detach device {}: {}",
-                        &msg.volume_id,
-                        device_path,
-                        error
-                    ));
-            }
-        }
-
+        detach(
+            &uuid,
+            format!("Failed to unstage volume {}:", &msg.volume_id),
+        )
+        .await?;
         info!("Volume {} unstaged", &msg.volume_id);
         Ok(Response::new(NodeUnstageVolumeResponse {}))
     }
