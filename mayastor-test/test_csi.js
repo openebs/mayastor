@@ -97,11 +97,20 @@ function cleanupiSCSISession (tp, iqn, done) {
   });
 }
 
+function cleanupNvmfSession (nqn, done) {
+  common.execAsRoot('nvme', ['disconnect', nqn], () => {
+    done();
+  });
+}
+
 function cleanupNexusSession (url, done) {
   if (url.protocol === 'iscsi:') {
     const tp = url.host;
     const iqn = url.pathname.split('/')[1];
     cleanupiSCSISession(tp, iqn, done);
+  } else if (url.protocol === 'nvmf:') {
+    const nqn = url.pathname.split('/')[1];
+    cleanupNvmfSession(nqn, done);
   } else {
     done();
   }
