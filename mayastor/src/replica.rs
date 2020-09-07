@@ -281,7 +281,7 @@ impl Replica {
     }
 
     /// Create a snapshot
-    pub fn create_snapshot(
+    pub async fn create_snapshot(
         self,
         nvmf_req: *mut spdk_nvmf_request,
         snapshot_name: &str,
