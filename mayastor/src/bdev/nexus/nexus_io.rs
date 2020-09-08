@@ -13,15 +13,10 @@ use spdk_sys::{
 use crate::{
     bdev::nexus::{
         nexus_bdev::{Nexus, NEXUS_PRODUCT_ID},
-        nexus_channel::NexusChannel,
+        nexus_fn_table::NexusFnTable,
     },
-    core::{Bdev, BdevHandle},
+    core::Bdev,
 };
-
-#[derive(Debug)]
-pub struct RetryCounts {
-    pub retries: Vec<u32>,
-}
 
 /// NioCtx provides context on a per IO basis
 #[derive(Debug, Clone)]
@@ -30,10 +25,10 @@ pub struct NioCtx {
     pub(crate) in_flight: i8,
     /// status of the IO
     pub(crate) status: i32,
+    /// attempts left
+    pub(crate) io_attempts: i32,
     /// pointer to the inner channels
     pub(crate) nexus_channel: *mut spdk_io_channel,
-    /// pointer to the retry counts
-    pub(crate) retry_counts: *mut RetryCounts,
 }
 
 /// BIO is a wrapper to provides a "less unsafe" wrappers around raw
@@ -104,18 +99,22 @@ impl Bio {
         unsafe { Bdev::from((*self.0).bdev) }
     }
 
-    /// create and return a new, initialized Bio object
-    pub fn new(
-        pio: *mut spdk_bdev_io,
-        in_flight: i8,
+    /// initialize the ctx fields of an spdk_bdev_io
+    pub fn init(
+        io: *mut spdk_bdev_io,
         nexus_channel: *mut spdk_io_channel,
-    ) -> Bio {
-        let mut io = Bio(pio);
-        io.ctx_as_mut_ref().in_flight = in_flight;
-        io.ctx_as_mut_ref().status = io_status::SUCCESS;
-        io.ctx_as_mut_ref().nexus_channel = nexus_channel;
-        io.ctx_as_mut_ref().retry_counts = std::ptr::null_mut();
-        io
+        io_attempts: i32,
+    ) {
+        let mut bio = Bio(io);
+        bio.ctx_as_mut_ref().io_attempts = io_attempts;
+        bio.ctx_as_mut_ref().nexus_channel = nexus_channel;
+    }
+
+    /// reset the ctx fields of an spdk_bdev_io to submit or resubmit an IO
+    pub fn reset(io: *mut spdk_bdev_io, in_flight: i8) {
+        let mut bio = Bio(io);
+        bio.ctx_as_mut_ref().in_flight = in_flight;
+        bio.ctx_as_mut_ref().status = io_status::SUCCESS;
     }
 
     /// complete an IO for the nexus. In the IO completion routine in
@@ -134,57 +133,15 @@ impl Bio {
                 debug!("BIO for nexus marked completed but has outstanding")
             }
         }
-        self.drop_retries();
         unsafe {
             spdk_bdev_io_complete(self.0, io_status::SUCCESS);
         }
     }
     /// mark the IO as failed
     #[inline]
-    pub(crate) fn fail(&mut self) {
-        self.drop_retries();
+    pub(crate) fn fail(&self) {
         unsafe {
             spdk_bdev_io_complete(self.0, io_status::FAILED);
-        }
-    }
-
-    /// ensure the retry_counts box is freed
-    #[inline]
-    pub(crate) fn drop_retries(&mut self) {
-        unsafe {
-            if !self.ctx_as_mut_ref().retry_counts.is_null() {
-                let _retries =
-                    Box::from_raw(self.ctx_as_mut_ref().retry_counts);
-                self.ctx_as_mut_ref().retry_counts = std::ptr::null_mut();
-            }
-        }
-    }
-
-    /// get the boxed RetryCounts struct from the Bio, or create if absent
-    #[inline]
-    pub(crate) fn get_or_create_retries(
-        &mut self,
-        channel_count: usize,
-    ) -> Box<RetryCounts> {
-        unsafe {
-            if !self.ctx_as_mut_ref().retry_counts.is_null() {
-                let retries = Box::from_raw(self.ctx_as_mut_ref().retry_counts);
-                self.ctx_as_mut_ref().retry_counts = std::ptr::null_mut();
-                retries
-            } else {
-                Box::new(RetryCounts {
-                    retries: vec![0; channel_count],
-                })
-            }
-        }
-    }
-
-    /// pass the boxed RetryCounts structure into the Bio
-    pub(crate) fn set_retries(&mut self, retries: Box<RetryCounts>) {
-        if self.ctx_as_mut_ref().retry_counts.is_null() {
-            self.ctx_as_mut_ref().retry_counts = Box::into_raw(retries);
-        } else {
-            panic!("Retry pointer not free"); // internal error
         }
     }
 
@@ -195,6 +152,12 @@ impl Bio {
         child_io: *const spdk_bdev_io,
         success: bool,
     ) {
+        self.ctx_as_mut_ref().in_flight -= 1;
+
+        if cfg!(debug_assertions) {
+            assert!(self.ctx_as_mut_ref().in_flight >= 0);
+        }
+
         if !success && !child_io.is_null() {
             let io_type = Bio::io_type(self.0).unwrap();
             let io_offset = self.offset();
@@ -209,98 +172,23 @@ impl Bio {
                     io_num_blocks,
                 );
             }
-
-            if self.try_re_submit(child_io) {
-                return;
-            }
-            self.ctx_as_mut_ref().status = io_status::FAILED;
-        }
-        self.ctx_as_mut_ref().in_flight -= 1;
-
-        if cfg!(debug_assertions) {
-            assert!(self.ctx_as_mut_ref().in_flight >= 0);
         }
 
         if self.ctx_as_mut_ref().in_flight == 0 {
             if self.ctx_as_mut_ref().status == io_status::FAILED {
-                self.fail();
+                self.ctx_as_mut_ref().io_attempts -= 1;
+                if self.ctx_as_mut_ref().io_attempts > 0 {
+                    NexusFnTable::io_submit_or_resubmit(
+                        self.ctx_as_mut_ref().nexus_channel,
+                        self.0,
+                    );
+                } else {
+                    self.fail();
+                }
             } else {
                 self.ok();
             }
         }
-    }
-
-    /// Attempt to re-submit the IO to the same child. Return true if it did.
-    #[inline]
-    pub(crate) fn try_re_submit(
-        &mut self,
-        child_io: *const spdk_bdev_io,
-    ) -> bool {
-        let spdk_channel = self.ctx_as_mut_ref().nexus_channel;
-        let ch = NexusChannel::inner_from_channel(spdk_channel);
-
-        for (idx, h) in ch.ch.iter().enumerate() {
-            // find which handle this IO is associated with
-            unsafe {
-                if h.desc.get_bdev().as_ptr() == (*child_io).bdev {
-                    if h.num_retries > 1 {
-                        // 0 and 1 means we never retry
-
-                        // if the retry count vector doen't exist, create it
-                        let mut retry_count_desc =
-                            self.get_or_create_retries(ch.ch.len());
-                        // record the extra re-try
-                        retry_count_desc.retries[idx] += 1;
-                        let highest = retry_count_desc.retries[idx];
-                        // save the retries back in the parent Bio
-                        self.set_retries(retry_count_desc);
-
-                        if highest < h.num_retries {
-                            // we can try again
-                            return self.re_submit(h);
-                        }
-                    }
-                    return false; // no (more) re-attempts allowed
-                }
-            }
-        }
-        false // could not find bdev
-    }
-
-    /// Re-send an IO to the specified BdevHandle, return true on success
-    #[inline]
-    pub(crate) fn re_submit(&mut self, handle: &BdevHandle) -> bool {
-        if let Some(io_type) = Bio::io_type(self.0) {
-            let ret = match io_type {
-                io_type::READ => {
-                    let (desc, chan) = handle.io_tuple();
-                    Nexus::readv_impl(self.0, desc, chan)
-                }
-                io_type::WRITE => Nexus::writev_impl(self, handle),
-                io_type::RESET => Nexus::reset_impl(self.0, handle),
-                io_type::UNMAP => Nexus::unmap_impl(self, handle),
-                io_type::FLUSH => Nexus::flush_impl(self, handle),
-                io_type::WRITE_ZEROES => Nexus::write_zeroes_impl(self, handle),
-                io_type::NVME_ADMIN => Nexus::nvme_admin_impl(self, handle),
-
-                _ => panic!(
-                    "{} Retrying unsupported IO! type {}",
-                    self.nexus_as_ref().name,
-                    io_type
-                ),
-            };
-            if ret != 0 {
-                error!(
-                    "{}: Failed to re-submit dispatched IO {:p}",
-                    self.nexus_as_ref().name,
-                    self
-                );
-                return false;
-            } else {
-                return true;
-            }
-        }
-        false
     }
 
     /// obtain the Nexus struct embedded within the bdev

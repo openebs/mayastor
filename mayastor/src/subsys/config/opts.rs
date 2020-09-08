@@ -499,7 +499,7 @@ pub struct ErrStoreOpts {
     pub retention_ns: u64,
 
     /// the maximum number IO attempts per IO
-    pub max_io_attempts: u32,
+    pub max_io_attempts: i32,
 }
 
 impl Default for ErrStoreOpts {

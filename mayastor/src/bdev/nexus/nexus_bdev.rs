@@ -42,14 +42,14 @@ use crate::{
             instances,
             nexus_channel::{DREvent, NexusChannel, NexusChannelInner},
             nexus_child::{ChildError, ChildState, ChildStatus, NexusChild},
-            nexus_io::{nvme_admin_opc, Bio},
+            nexus_io::{io_status, nvme_admin_opc, Bio},
             nexus_iscsi::{NexusIscsiError, NexusIscsiTarget},
             nexus_label::LabelError,
             nexus_nbd::{NbdDisk, NbdError},
             nexus_nvmf::{NexusNvmfError, NexusNvmfTarget},
         },
     },
-    core::{Bdev, BdevHandle, DmaError, Share},
+    core::{Bdev, DmaError, Share},
     ffihelper::errno_result_from_i32,
     nexus_uri::{bdev_destroy, NexusBdevError},
     rebuild::RebuildError,
@@ -316,7 +316,7 @@ pub struct Nexus {
     /// enum containing the protocol-specific target used to publish the nexus
     pub nexus_target: Option<NexusTarget>,
     /// the maximum number of times to attempt to send an IO
-    pub(crate) max_io_attempts: u32,
+    pub(crate) max_io_attempts: i32,
 }
 
 unsafe impl core::marker::Sync for Nexus {}
@@ -646,6 +646,8 @@ impl Nexus {
                 (*child_io).type_,
                 pio
             );
+
+            pio.ctx_as_mut_ref().status = io_status::FAILED;
         }
         pio.assess(child_io, success);
         // always free the child IO
@@ -675,7 +677,7 @@ impl Nexus {
     }
 
     /// read vectored io from the underlying children.
-    pub(crate) fn readv(&self, io: &mut Bio, channels: &mut NexusChannelInner) {
+    pub(crate) fn readv(&self, io: &Bio, channels: &mut NexusChannelInner) {
         // we use RR to read from the children also, set that we only need
         // to read from one child before we complete the IO to the callee.
         let child = channels.child_select();
@@ -737,7 +739,16 @@ impl Nexus {
         let results = channels
             .ch
             .iter()
-            .map(|handle| Self::reset_impl(io.0, handle))
+            .map(|c| unsafe {
+                let (bdev, chan) = c.io_tuple();
+                trace!("Dispatched RESET");
+                spdk_bdev_reset(
+                    bdev,
+                    chan,
+                    Some(Self::io_completion),
+                    io.0 as *mut _,
+                )
+            })
             .collect::<Vec<_>>();
 
         // if any of the children failed to dispatch
@@ -747,24 +758,6 @@ impl Nexus {
                 io.nexus_as_ref().name,
                 io.0
             );
-        }
-    }
-
-    /// send the reset IO to a single bdev
-    #[inline]
-    pub(crate) fn reset_impl(
-        pio: *mut spdk_bdev_io,
-        handle: &BdevHandle,
-    ) -> i32 {
-        let (bdev, chan) = handle.io_tuple();
-        trace!("Dispatched RESET");
-        unsafe {
-            spdk_bdev_reset(
-                bdev,
-                chan,
-                Some(Self::io_completion),
-                pio as *mut _,
-            )
         }
     }
 
@@ -774,7 +767,19 @@ impl Nexus {
         let results = channels
             .ch
             .iter()
-            .map(|handle| Self::writev_impl(io, handle))
+            .map(|c| unsafe {
+                let (desc, chan) = c.io_tuple();
+                spdk_bdev_writev_blocks(
+                    desc,
+                    chan,
+                    io.iovs(),
+                    io.iov_count(),
+                    io.offset() + io.nexus_as_ref().data_ent_offset,
+                    io.num_blocks(),
+                    Some(Self::io_completion),
+                    io.0 as *mut _,
+                )
+            })
             .collect::<Vec<_>>();
 
         // if any of the children failed to dispatch
@@ -787,29 +792,21 @@ impl Nexus {
         }
     }
 
-    /// send the writev IO to a single bdev
-    #[inline]
-    pub(crate) fn writev_impl(io: &Bio, handle: &BdevHandle) -> i32 {
-        let (desc, chan) = handle.io_tuple();
-        unsafe {
-            spdk_bdev_writev_blocks(
-                desc,
-                chan,
-                io.iovs(),
-                io.iov_count(),
-                io.offset() + io.nexus_as_ref().data_ent_offset,
-                io.num_blocks(),
-                Some(Self::io_completion),
-                io.0 as *mut _,
-            )
-        }
-    }
-
     pub(crate) fn unmap(&self, io: &Bio, channels: &NexusChannelInner) {
         let results = channels
             .ch
             .iter()
-            .map(|c| Self::unmap_impl(io, c))
+            .map(|c| unsafe {
+                let (desc, chan) = c.io_tuple();
+                spdk_bdev_unmap_blocks(
+                    desc,
+                    chan,
+                    io.offset() + io.nexus_as_ref().data_ent_offset,
+                    io.num_blocks(),
+                    Some(Self::io_completion),
+                    io.0 as *mut _,
+                )
+            })
             .collect::<Vec<_>>();
 
         if results.iter().any(|r| *r != 0) {
@@ -818,22 +815,6 @@ impl Nexus {
                 io.nexus_as_ref().name,
                 io.0
             );
-        }
-    }
-
-    /// send the unmap IO to a single bdev
-    #[inline]
-    pub(crate) fn unmap_impl(io: &Bio, handle: &BdevHandle) -> i32 {
-        let (desc, chan) = handle.io_tuple();
-        unsafe {
-            spdk_bdev_unmap_blocks(
-                desc,
-                chan,
-                io.offset() + io.nexus_as_ref().data_ent_offset,
-                io.num_blocks(),
-                Some(Self::io_completion),
-                io.0 as *mut _,
-            )
         }
     }
 
@@ -841,7 +822,17 @@ impl Nexus {
         let results = channels
             .ch
             .iter()
-            .map(|c| Self::flush_impl(io, c))
+            .map(|c| unsafe {
+                let (b, c) = c.io_tuple();
+                spdk_bdev_flush_blocks(
+                    b,
+                    c,
+                    io.offset() + io.nexus_as_ref().data_ent_offset,
+                    io.num_blocks(),
+                    Some(Self::io_completion),
+                    io.0 as *mut _,
+                )
+            })
             .collect::<Vec<_>>();
 
         if results.iter().any(|r| *r != 0) {
@@ -850,22 +841,6 @@ impl Nexus {
                 io.nexus_as_ref().name,
                 io.0
             );
-        }
-    }
-
-    /// send the flush IO to a single bdev
-    #[inline]
-    pub(crate) fn flush_impl(io: &Bio, handle: &BdevHandle) -> i32 {
-        let (b, c) = handle.io_tuple();
-        unsafe {
-            spdk_bdev_flush_blocks(
-                b,
-                c,
-                io.offset() + io.nexus_as_ref().data_ent_offset,
-                io.num_blocks(),
-                Some(Self::io_completion),
-                io.0 as *mut _,
-            )
         }
     }
 
@@ -873,7 +848,17 @@ impl Nexus {
         let results = channels
             .ch
             .iter()
-            .map(|c| Self::write_zeroes_impl(io, c))
+            .map(|c| unsafe {
+                let (b, c) = c.io_tuple();
+                spdk_bdev_write_zeroes_blocks(
+                    b,
+                    c,
+                    io.offset() + io.nexus_as_ref().data_ent_offset,
+                    io.num_blocks(),
+                    Some(Self::io_completion),
+                    io.0 as *mut _,
+                )
+            })
             .collect::<Vec<_>>();
 
         if results.iter().any(|r| *r != 0) {
@@ -882,22 +867,6 @@ impl Nexus {
                 io.nexus_as_ref().name,
                 io.0
             );
-        }
-    }
-
-    /// send the write_zeroes IO to a single bdev
-    #[inline]
-    pub(crate) fn write_zeroes_impl(io: &Bio, handle: &BdevHandle) -> i32 {
-        let (b, c) = handle.io_tuple();
-        unsafe {
-            spdk_bdev_write_zeroes_blocks(
-                b,
-                c,
-                io.offset() + io.nexus_as_ref().data_ent_offset,
-                io.num_blocks(),
-                Some(Self::io_completion),
-                io.0 as *mut _,
-            )
         }
     }
 
@@ -911,7 +880,18 @@ impl Nexus {
         let results = channels
             .ch
             .iter()
-            .map(|c| Self::nvme_admin_impl(io, c))
+            .map(|c| unsafe {
+                let (desc, chan) = c.io_tuple();
+                spdk_bdev_nvme_admin_passthru(
+                    desc,
+                    chan,
+                    &io.nvme_cmd(),
+                    io.nvme_buf(),
+                    io.nvme_nbytes(),
+                    Some(Self::io_completion),
+                    io.0 as *mut _,
+                )
+            })
             .collect::<Vec<_>>();
 
         if results.iter().any(|r| *r != 0) {
@@ -920,23 +900,6 @@ impl Nexus {
                 io.nexus_as_ref().name,
                 io.0
             );
-        }
-    }
-
-    /// send the nvme admin command to a single bdev
-    #[inline]
-    pub(crate) fn nvme_admin_impl(io: &Bio, handle: &BdevHandle) -> i32 {
-        let (desc, chan) = handle.io_tuple();
-        unsafe {
-            spdk_bdev_nvme_admin_passthru(
-                desc,
-                chan,
-                &io.nvme_cmd(),
-                io.nvme_buf(),
-                io.nvme_nbytes(),
-                Some(Self::io_completion),
-                io.0 as *mut _,
-            )
         }
     }
 

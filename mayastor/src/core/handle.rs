@@ -34,7 +34,6 @@ use crate::{
 pub struct BdevHandle {
     pub desc: ManuallyDrop<Arc<Descriptor>>,
     pub channel: ManuallyDrop<IoChannel>,
-    pub num_retries: u32,
 }
 
 impl BdevHandle {
@@ -97,15 +96,6 @@ impl BdevHandle {
         }
 
         sender.send(success).expect("io completion error");
-    }
-
-    /// set number of retries for IO
-    pub fn set_retries(mut self, retries: u32) -> Self {
-        self.num_retries = match retries {
-            0 => 1,
-            _ => retries,
-        };
-        self
     }
 
     /// write the ['DmaBuf'] to the given offset. This function is implemented
@@ -294,7 +284,6 @@ impl TryFrom<Descriptor> for BdevHandle {
             return Ok(Self {
                 desc: ManuallyDrop::new(Arc::new(desc)),
                 channel: ManuallyDrop::new(channel),
-                num_retries: 1,
             });
         }
 
@@ -312,7 +301,6 @@ impl TryFrom<Arc<Descriptor>> for BdevHandle {
             return Ok(Self {
                 desc: ManuallyDrop::new(desc),
                 channel: ManuallyDrop::new(channel),
-                num_retries: 1,
             });
         }
 

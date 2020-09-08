@@ -90,53 +90,67 @@ impl NexusFnTable {
 
     /// Main entry point to submit IO to the underlying children this uses
     /// callbacks rather than futures and closures for performance reasons.
-    extern "C" fn io_submit(
+    /// This function is not called when the IO is re-submitted (see below).
+    pub extern "C" fn io_submit(
+        channel: *mut spdk_io_channel,
+        io: *mut spdk_bdev_io,
+    ) {
+        // only set the number of IO attempts before the first attempt
+        Bio::init(io, channel, Bio(io).nexus_as_ref().max_io_attempts);
+        Self::io_submit_or_resubmit(channel, io);
+    }
+
+    /// Submit an IO to the children at the first or subsequent attempts.
+    pub fn io_submit_or_resubmit(
         channel: *mut spdk_io_channel,
         io: *mut spdk_bdev_io,
     ) {
         if let Some(io_type) = Bio::io_type(io) {
-            let nio = Bio(io); // this just to get a reference to the nexus
-            let nexus = nio.nexus_as_ref();
             let mut ch = NexusChannel::inner_from_channel(channel);
 
-            let mut bio = match io_type {
-                io_type::READ => Bio::new(io, 1, channel),
-                _ => Bio::new(io, ch.ch.len() as i8, channel),
+            // set the fields that need to be reset if this IO is ever
+            // resubmitted
+            match io_type {
+                io_type::READ => Bio::reset(io, 1),
+                _ => Bio::reset(io, ch.ch.len() as i8),
             };
 
+            let nio = Bio(io);
+            let nexus = nio.nexus_as_ref();
+
             match io_type {
-                io_type::READ => nexus.readv(&mut bio, &mut ch),
-                io_type::WRITE => nexus.writev(&bio, &ch),
+                io_type::READ => nexus.readv(&nio, &mut ch),
+                io_type::WRITE => nexus.writev(&nio, &ch),
                 io_type::RESET => {
                     trace!("{}: Dispatching RESET", nexus.bdev.name());
-                    nexus.reset(&bio, &ch)
+                    nexus.reset(&nio, &ch)
                 }
                 io_type::UNMAP => {
                     if nexus.io_is_supported(io_type) {
-                        nexus.unmap(&bio, &ch)
+                        nexus.unmap(&nio, &ch)
                     } else {
-                        bio.fail();
+                        nio.fail();
                     }
                 }
                 io_type::FLUSH => {
                     if nexus.io_is_supported(io_type) {
-                        nexus.flush(&bio, &ch)
+                        nexus.flush(&nio, &ch)
                     } else {
-                        bio.fail()
+                        nio.fail()
                     }
                 }
                 io_type::WRITE_ZEROES => {
                     if nexus.io_is_supported(io_type) {
-                        nexus.write_zeroes(&bio, &ch)
+                        nexus.write_zeroes(&nio, &ch)
                     } else {
-                        bio.fail()
+                        nio.fail()
                     }
                 }
                 io_type::NVME_ADMIN => {
                     if nexus.io_is_supported(io_type) {
-                        nexus.nvme_admin(&bio, &ch)
+                        nexus.nvme_admin(&nio, &ch)
                     } else {
-                        bio.fail()
+                        nio.fail()
                     }
                 }
                 _ => panic!(
