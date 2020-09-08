@@ -232,10 +232,15 @@ fn findmnt_device(mountpoint: &str) -> Result<Option<String>, DeviceError> {
 
 /// Unfortunately findmnt may return device names in a format different
 /// to that returned by udev.
+/// findmnt_device_path is the source field returned from findmnt and
+///   can be different for the same source on different systems,
+///   for example
+///   dev[/nvme0n1], udev[/nvme0n1], tmpfs[/nvme0n1], devtmpfs[/nvme0n1]
+/// device_path is the device path returned from udev.
 fn equals_findmnt_device(findmnt_device_path: &str, device_path: &str) -> bool {
     lazy_static! {
         static ref RE_FINDMNT: regex::Regex = regex::Regex::new(
-            r"(?x).*dev\[(?P<device>/.*)\]
+            r"(?x).*\[(?P<device>/.*)\]
         ",
         )
         .unwrap();
