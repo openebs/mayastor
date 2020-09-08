@@ -235,7 +235,7 @@ fn findmnt_device(mountpoint: &str) -> Result<Option<String>, DeviceError> {
 fn equals_findmnt_device(findmnt_device_path: &str, device_path: &str) -> bool {
     lazy_static! {
         static ref RE_FINDMNT: regex::Regex = regex::Regex::new(
-            r"(?x).*dev\[(?P<device>/.*)\]
+            r"(?x).*\[(?P<device>/.*)\]
         ",
         )
         .unwrap();
