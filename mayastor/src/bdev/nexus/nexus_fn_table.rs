@@ -90,57 +90,68 @@ impl NexusFnTable {
 
     /// Main entry point to submit IO to the underlying children this uses
     /// callbacks rather than futures and closures for performance reasons.
-    extern "C" fn io_submit(
+    /// This function is not called when the IO is re-submitted (see below).
+    pub extern "C" fn io_submit(
+        channel: *mut spdk_io_channel,
+        io: *mut spdk_bdev_io,
+    ) {
+        // only set the number of IO attempts before the first attempt
+        Bio::init(io, channel, Bio(io).nexus_as_ref().max_io_attempts);
+        Self::io_submit_or_resubmit(channel, io);
+    }
+
+    /// Submit an IO to the children at the first or subsequent attempts.
+    pub fn io_submit_or_resubmit(
         channel: *mut spdk_io_channel,
         io: *mut spdk_bdev_io,
     ) {
         if let Some(io_type) = Bio::io_type(io) {
-            let mut nio = Bio(io);
             let mut ch = NexusChannel::inner_from_channel(channel);
+
+            // set the fields that need to be (re)set per-attempt
+            match io_type {
+                io_type::READ => Bio::reset(io, 1),
+                _ => Bio::reset(io, ch.ch.len() as i8),
+            };
+
+            let nio = Bio(io);
             let nexus = nio.nexus_as_ref();
 
             match io_type {
-                io_type::READ => {
-                    //trace!("{}: Dispatching READ {:p}", nexus.name(), io);
-                    nexus.readv(io, &mut ch)
-                }
-                io_type::WRITE => {
-                    //trace!("{}: Dispatching WRITE {:p}", nexus.name(), io);
-                    nexus.writev(io, &ch)
-                }
+                io_type::READ => nexus.readv(&nio, &mut ch),
+                io_type::WRITE => nexus.writev(&nio, &ch),
                 io_type::RESET => {
-                    trace!("{}: Dispatching RESET {:p}", nexus.bdev.name(), io);
-                    nexus.reset(io, &ch)
+                    trace!("{}: Dispatching RESET", nexus.bdev.name());
+                    nexus.reset(&nio, &ch)
                 }
                 io_type::UNMAP => {
                     if nexus.io_is_supported(io_type) {
-                        nexus.unmap(io, &ch)
+                        nexus.unmap(&nio, &ch)
                     } else {
                         nio.fail();
                     }
                 }
                 io_type::FLUSH => {
                     if nexus.io_is_supported(io_type) {
-                        nexus.flush(io, &ch)
+                        nexus.flush(&nio, &ch)
                     } else {
                         nio.fail()
                     }
                 }
                 io_type::WRITE_ZEROES => {
                     if nexus.io_is_supported(io_type) {
-                        nexus.write_zeroes(io, &ch)
+                        nexus.write_zeroes(&nio, &ch)
                     } else {
                         nio.fail()
                     }
                 }
                 io_type::NVME_ADMIN => {
                     if nexus.io_is_supported(io_type) {
-                        nexus.nvme_admin(io, &ch)
+                        nexus.nvme_admin(&nio, &ch)
                     } else {
                         nio.fail()
                     }
                 }
-
                 _ => panic!(
                     "{} Received unsupported IO! type {}",
                     nexus.name, io_type

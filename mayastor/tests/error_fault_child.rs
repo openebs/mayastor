@@ -1,8 +1,5 @@
 extern crate log;
 
-use crossbeam::channel::unbounded;
-
-use std::time::Duration;
 pub mod common;
 
 pub use common::error_bdev::{
@@ -75,14 +72,14 @@ fn nexus_fault_child_test() {
 
         for _ in 0 .. 3 {
             err_read_nexus_both(false).await;
-            reactor_run_millis(1);
+            common::reactor_run_millis(1);
         }
         for _ in 0 .. 2 {
             // the second iteration causes the error count to exceed the max no
             // of retry errors (4) for the read and causes the child to be
             // removed
             err_read_nexus_both(false).await;
-            reactor_run_millis(1);
+            common::reactor_run_millis(1);
         }
     });
 
@@ -167,13 +164,4 @@ async fn err_write_nexus(succeed: bool) {
             assert_eq!(succeed, false);
         }
     };
-}
-
-fn reactor_run_millis(milliseconds: u64) {
-    let (s, r) = unbounded::<()>();
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(milliseconds));
-        s.send(())
-    });
-    reactor_poll!(r);
 }

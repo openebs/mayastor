@@ -3,10 +3,18 @@ use std::fmt::{Debug, Formatter};
 
 use libc::c_void;
 
-use spdk_sys::{spdk_bdev_free_io, spdk_bdev_io, spdk_bdev_io_complete};
+use spdk_sys::{
+    spdk_bdev_free_io,
+    spdk_bdev_io,
+    spdk_bdev_io_complete,
+    spdk_io_channel,
+};
 
 use crate::{
-    bdev::nexus::nexus_bdev::{Nexus, NEXUS_PRODUCT_ID},
+    bdev::nexus::{
+        nexus_bdev::{Nexus, NEXUS_PRODUCT_ID},
+        nexus_fn_table::NexusFnTable,
+    },
     core::Bdev,
 };
 
@@ -17,6 +25,10 @@ pub struct NioCtx {
     pub(crate) in_flight: i8,
     /// status of the IO
     pub(crate) status: i32,
+    /// attempts left
+    pub(crate) io_attempts: i32,
+    /// pointer to the inner channels
+    pub(crate) nexus_channel: *mut spdk_io_channel,
 }
 
 /// BIO is a wrapper to provides a "less unsafe" wrappers around raw
@@ -87,12 +99,22 @@ impl Bio {
         unsafe { Bdev::from((*self.0).bdev) }
     }
 
-    /// create and return a new, initialized Bio object
-    pub fn new(pio: *mut spdk_bdev_io, in_flight: i8) -> Bio {
-        let mut io = Bio(pio);
-        io.ctx_as_mut_ref().in_flight = in_flight;
-        io.ctx_as_mut_ref().status = io_status::SUCCESS;
-        io
+    /// initialize the ctx fields of an spdk_bdev_io
+    pub fn init(
+        io: *mut spdk_bdev_io,
+        nexus_channel: *mut spdk_io_channel,
+        io_attempts: i32,
+    ) {
+        let mut bio = Bio(io);
+        bio.ctx_as_mut_ref().io_attempts = io_attempts;
+        bio.ctx_as_mut_ref().nexus_channel = nexus_channel;
+    }
+
+    /// reset the ctx fields of an spdk_bdev_io to submit or resubmit an IO
+    pub fn reset(io: *mut spdk_bdev_io, in_flight: i8) {
+        let mut bio = Bio(io);
+        bio.ctx_as_mut_ref().in_flight = in_flight;
+        bio.ctx_as_mut_ref().status = io_status::SUCCESS;
     }
 
     /// complete an IO for the nexus. In the IO completion routine in
@@ -111,13 +133,16 @@ impl Bio {
                 debug!("BIO for nexus marked completed but has outstanding")
             }
         }
-
-        unsafe { spdk_bdev_io_complete(self.0, io_status::SUCCESS) };
+        unsafe {
+            spdk_bdev_io_complete(self.0, io_status::SUCCESS);
+        }
     }
     /// mark the IO as failed
     #[inline]
-    pub(crate) fn fail(&mut self) {
-        unsafe { spdk_bdev_io_complete(self.0, io_status::FAILED) };
+    pub(crate) fn fail(&self) {
+        unsafe {
+            spdk_bdev_io_complete(self.0, io_status::FAILED);
+        }
     }
 
     /// assess the IO if we need to mark it failed or ok.
@@ -129,9 +154,7 @@ impl Bio {
     ) {
         self.ctx_as_mut_ref().in_flight -= 1;
 
-        if cfg!(debug_assertions) {
-            assert_ne!(self.ctx_as_mut_ref().in_flight, -1);
-        }
+        debug_assert!(self.ctx_as_mut_ref().in_flight >= 0);
 
         if !success && !child_io.is_null() {
             let io_type = Bio::io_type(self.0).unwrap();
@@ -151,7 +174,15 @@ impl Bio {
 
         if self.ctx_as_mut_ref().in_flight == 0 {
             if self.ctx_as_mut_ref().status == io_status::FAILED {
-                self.fail();
+                self.ctx_as_mut_ref().io_attempts -= 1;
+                if self.ctx_as_mut_ref().io_attempts > 0 {
+                    NexusFnTable::io_submit_or_resubmit(
+                        self.ctx_as_mut_ref().nexus_channel,
+                        self.0,
+                    );
+                } else {
+                    self.fail();
+                }
             } else {
                 self.ok();
             }
