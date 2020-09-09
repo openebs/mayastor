@@ -47,19 +47,25 @@ fn reactor_start_stop() {
             Reactors::master().poll_once();
         }
 
-        Cores::count().into_iter().for_each(|_| {
-            Mthread::spawn_unaffinitized(|| {
-                std::thread::sleep(Duration::from_secs(1));
+        let threads = Cores::count()
+            .into_iter()
+            .map(|_| {
+                Mthread::spawn_unaffinitized(|| {
+                    std::thread::sleep(Duration::from_secs(1));
 
-                let cpu = unsafe { libc::sched_getcpu() };
-                // TODO: The main thread does not know when this assertion
-                // triggers and the test will hapilly pass.
-                assert_eq!(cpu as u32 > Cores::last().id(), true)
-            });
-        });
+                    let cpu = unsafe { libc::sched_getcpu() };
+                    assert!(cpu as u32 > Cores::last().id())
+                })
+            })
+            .collect::<Vec<std::thread::JoinHandle<()>>>();
+
         std::thread::sleep(Duration::from_secs(3));
 
         mayastor_env_stop(0);
+
+        for thread in threads {
+            thread.join().unwrap();
+        }
     })
     .unwrap();
 }
