@@ -16,4 +16,5 @@ in
   nvmf_distributed = pkgs.nixosTest ./nvmf/nvmf_distributed.nix;
   rebuild = pkgs.nixosTest ./rebuild/rebuild.nix;
   disconnect = pkgs.nixosTest ./disconnect/disconnect.nix;
+  child_status = pkgs.nixosTest ./child_status/child_status.nix;
 }

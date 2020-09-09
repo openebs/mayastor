@@ -206,6 +206,26 @@ impl mayastor_server::Mayastor for MayastorSvc {
     }
 
     #[instrument(level = "debug", err)]
+    async fn fault_nexus_child(
+        &self,
+        request: Request<FaultNexusChildRequest>,
+    ) -> GrpcResult<Null> {
+        sync_config(async {
+            let args = request.into_inner();
+            trace!("{:?}", args);
+            let uuid = args.uuid.clone();
+            let uri = args.uri.clone();
+            debug!("Faulting child {} on nexus {}", uri, uuid);
+            locally! { async move {
+                nexus_lookup(&args.uuid)?.fault_child(&args.uri).await
+            }};
+            info!("Faulted child {} on nexus {}", uri, uuid);
+            Ok(Response::new(Null {}))
+        })
+        .await
+    }
+
+    #[instrument(level = "debug", err)]
     async fn publish_nexus(
         &self,
         request: Request<PublishNexusRequest>,

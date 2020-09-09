@@ -40,6 +40,7 @@ use crate::{
             },
             nexus_channel::DREvent,
             nexus_child::{ChildState, ChildStatus, NexusChild},
+            nexus_child_status_config::ChildStatusConfig,
             nexus_label::{
                 LabelError,
                 NexusChildLabel,
@@ -181,6 +182,9 @@ impl Nexus {
                 // it can never take part in the IO path
                 // of the nexus until it's rebuilt from a healthy child.
                 child.out_of_sync(true);
+                if ChildStatusConfig::add(&child).is_err() {
+                    error!("Failed to add child status information");
+                }
 
                 self.children.push(child);
                 self.child_count += 1;
@@ -231,6 +235,9 @@ impl Nexus {
         let mut child = self.children.remove(idx);
         self.child_count -= 1;
         self.reconfigure(DREvent::ChildRemove).await;
+
+        // Update child status to remove this child
+        NexusChild::save_state_change();
 
         let result = child.destroy().await.context(DestroyChild {
             name: self.name.clone(),

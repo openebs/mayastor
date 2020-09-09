@@ -1,4 +1,4 @@
-use crate::{context::Context, parse_size};
+use crate::{context::Context, nexus_child_cli, parse_size};
 use ::rpc::mayastor as rpc;
 use byte_unit::Byte;
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
@@ -124,6 +124,7 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
         .subcommand(unpublish)
         .subcommand(list)
         .subcommand(children)
+        .subcommand(nexus_child_cli::subcommands())
 }
 
 pub async fn handler(
@@ -139,6 +140,7 @@ pub async fn handler(
         ("unpublish", Some(args)) => nexus_unpublish(ctx, &args).await,
         ("add", Some(args)) => nexus_add(ctx, &args).await,
         ("remove", Some(args)) => nexus_remove(ctx, &args).await,
+        ("child", Some(args)) => nexus_child_cli::handler(ctx, args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {} does not exist", cmd)))
         }

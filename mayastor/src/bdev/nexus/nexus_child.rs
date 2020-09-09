@@ -7,7 +7,10 @@ use snafu::{ResultExt, Snafu};
 use spdk_sys::{spdk_bdev_module_release_bdev, spdk_io_channel};
 
 use crate::{
-    bdev::NexusErrStore,
+    bdev::{
+        nexus::nexus_child_status_config::ChildStatusConfig,
+        NexusErrStore,
+    },
     core::{Bdev, BdevHandle, CoreError, Descriptor, DmaBuf},
     nexus_uri::{bdev_destroy, NexusBdevError},
     rebuild::{ClientOperations, RebuildJob},
@@ -62,8 +65,8 @@ pub enum ChildStatus {
     Faulted,
 }
 
-#[derive(Debug, Serialize, Default)]
-struct StatusReasons {
+#[derive(Debug, Serialize, Deserialize, Default, Copy, Clone)]
+pub(crate) struct StatusReasons {
     /// Degraded
     ///
     /// out of sync - needs to be rebuilt
@@ -147,7 +150,7 @@ pub struct NexusChild {
     pub(crate) desc: Option<Arc<Descriptor>>,
     /// current state of the child
     pub(crate) state: ChildState,
-    status_reasons: StatusReasons,
+    pub(crate) status_reasons: StatusReasons,
     /// descriptor obtained after opening a device
     #[serde(skip_serializing)]
     pub(crate) bdev_handle: Option<BdevHandle>,
@@ -244,17 +247,20 @@ impl NexusChild {
     pub(crate) fn fault(&mut self) {
         self.close();
         self.status_reasons.fatal_error();
+        NexusChild::save_state_change();
     }
     /// Set the child as out of sync with the nexus
     /// It requires a full rebuild before it can service IO
     /// and remains degraded until such time
     pub(crate) fn out_of_sync(&mut self, out_of_sync: bool) {
         self.status_reasons.out_of_sync(out_of_sync);
+        NexusChild::save_state_change();
     }
     /// Set the child as temporarily offline
     pub(crate) fn offline(&mut self) {
         self.close();
         self.status_reasons.offline(true);
+        NexusChild::save_state_change();
     }
     /// Online a previously offlined child
     pub(crate) fn online(
@@ -266,8 +272,16 @@ impl NexusChild {
         }
         self.open(parent_size).map(|s| {
             self.status_reasons.offline(false);
+            NexusChild::save_state_change();
             s
         })
+    }
+
+    /// Save the state of the children to the config file
+    pub(crate) fn save_state_change() {
+        if ChildStatusConfig::save().is_err() {
+            error!("Failed to save child status information");
+        }
     }
 
     /// Status of the child
@@ -290,10 +304,10 @@ impl NexusChild {
             ChildState::Init => ChildStatus::Degraded,
             ChildState::ConfigInvalid => ChildStatus::Faulted,
             ChildState::Closed => {
-                if self.status_reasons.offline {
-                    ChildStatus::Degraded
-                } else {
+                if self.status_reasons.fatal_error {
                     ChildStatus::Faulted
+                } else {
+                    ChildStatus::Degraded
                 }
             }
             ChildState::Open => {

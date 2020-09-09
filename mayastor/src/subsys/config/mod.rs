@@ -29,7 +29,16 @@ use spdk_sys::{
 };
 
 use crate::{
-    bdev::{nexus::instances, nexus_create, VerboseError},
+    bdev::{
+        nexus::{
+            instances,
+            nexus_child::NexusChild,
+            nexus_child_status_config::ChildStatusConfig,
+        },
+        nexus_create,
+        ChildStatus,
+        VerboseError,
+    },
     core::{Bdev, Cores, Reactor, Share},
     jsonrpc::{jsonrpc_register, Code, RpcErrorCode},
     nexus_uri::bdev_create,
@@ -371,7 +380,51 @@ impl Config {
                 }
             }
         }
+
+        // Apply the saved child status and start rebuilding any degraded
+        // children
+        ChildStatusConfig::apply().await;
+        self.start_rebuilds().await;
+
         failures
+    }
+
+    /// start rebuilding any child that is in the degraded state
+    async fn start_rebuilds(&self) {
+        if let Some(nexuses) = self.nexus_bdevs.as_ref() {
+            for nexus in nexuses {
+                if let Some(nexus_instance) =
+                    instances().iter().find(|n| n.name == nexus.name)
+                {
+                    let degraded_children: Vec<&NexusChild> = nexus_instance
+                        .children
+                        .iter()
+                        .filter(|child| child.status() == ChildStatus::Degraded)
+                        .collect::<Vec<_>>();
+
+                    // Get a mutable reference to the nexus instance. We can't
+                    // do this when we first get the nexus instance (above)
+                    // because it would cause multiple mutable borrows.
+                    // We use "expect" here because we have already checked that
+                    // the nexus exists above so we don't expect this to fail.
+                    let nexus_instance = instances()
+                        .iter_mut()
+                        .find(|n| n.name == nexus.name)
+                        .expect("Failed to find nexus");
+
+                    for child in degraded_children {
+                        dbg!("Start rebuilding child {}", &child.name);
+                        if nexus_instance
+                            .start_rebuild(&child.name)
+                            .await
+                            .is_err()
+                        {
+                            error!("Failed to start rebuild for {}", child);
+                        }
+                    }
+                }
+            }
+        }
     }
 
     /// create base bdevs and export these over nvmf if configured
@@ -490,7 +543,7 @@ impl Config {
             errors += self.create_base_bdevs().await;
 
             if errors != 0 {
-                warn!("Not all bdevs({}) where imported successfully", errors);
+                warn!("Not all bdevs({}) were imported successfully", errors);
             }
         });
     }
@@ -511,7 +564,7 @@ impl Config {
 /// that if a base_bdev, and a nexus child refer to the same resources, the
 /// creation of the nexus will fail.
 pub struct NexusBdev {
-    /// name of the nexus to be crated
+    /// name of the nexus to be created
     pub name: String,
     /// UUID the nexus should take. Note that we do not check currently if the
     /// GPT labels have the same UUID

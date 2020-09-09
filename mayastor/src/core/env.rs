@@ -40,6 +40,7 @@ use spdk_sys::{
 };
 
 use crate::{
+    bdev::nexus::nexus_child_status_config::ChildStatusConfig,
     core::{
         reactor::{Reactor, ReactorState, Reactors},
         Cores,
@@ -630,6 +631,18 @@ impl MayastorEnvironment {
         cfg.apply();
     }
 
+    // load the child status file
+    fn load_child_status(&self) {
+        ChildStatusConfig::get_or_init(|| {
+            if let Ok(cfg) = ChildStatusConfig::load() {
+                cfg
+            } else {
+                // if the configuration is invalid exit early
+                std::process::exit(-1);
+            }
+        });
+    }
+
     /// initialize the core, call this before all else
     pub fn init(mut self) -> Self {
         // setup the logger as soon as possible
@@ -640,6 +653,8 @@ impl MayastorEnvironment {
         // no real harm of loading this ini file as long as there are no
         // conflicting bdev definitions
         self.read_config_file().unwrap();
+
+        self.load_child_status();
 
         // bootstrap DPDK and its magic
         self.initialize_eal();
