@@ -4,26 +4,14 @@
 //! That's the reason for global sender protected by the mutex, that normally
 //! would not be needed and currently is used only to terminate the message bus.
 
-use std::{
-    env,
-    io::Error as IoError,
-    net::SocketAddr,
-    str::FromStr,
-    sync::Mutex,
-    time::Duration,
-};
+use std::{env, sync::Mutex, time::Duration};
 
 use futures::{channel::mpsc, select, FutureExt, StreamExt};
+use nats::asynk::{connect, Connection};
 use once_cell::sync::Lazy;
 use serde::{Deserialize, Serialize};
-use snafu::{ResultExt, Snafu};
-use tokio::{net::lookup_host, time::delay_for};
-use tokio_nats::{
-    connect,
-    Error as TokioNatsError,
-    NatsClient,
-    NatsConfigBuilder,
-};
+use snafu::Snafu;
+use tokio::time::delay_for;
 
 /// Mayastor sends registration messages in this interval (kind of heart-beat)
 const HB_INTERVAL: u64 = 10;
@@ -41,26 +29,12 @@ static SENDER: Lazy<Mutex<Option<mpsc::Sender<()>>>> =
 #[derive(Debug, Snafu)]
 enum Error {
     #[snafu(display(
-        "Failed to resolve NATS server '{}': {}",
-        server,
-        source
-    ))]
-    ResolveServer { source: IoError, server: String },
-    #[snafu(display("Failed to resolve NATS server '{}'", server))]
-    ResolveServerEmpty { server: String },
-    #[snafu(display(
-        "Failed to build NATS client for '{}': {:?}",
-        server,
-        cause
-    ))]
-    BuildClient { cause: String, server: String },
-    #[snafu(display(
         "Failed to connect to the NATS server {}: {:?}",
         server,
         cause
     ))]
     ConnectFailed {
-        cause: TokioNatsError,
+        cause: std::io::Error,
         server: String,
     },
     #[snafu(display(
@@ -68,9 +42,9 @@ enum Error {
     ))]
     NotStarted {},
     #[snafu(display("Failed to queue register request: {:?}", cause))]
-    QueueRegister { cause: TokioNatsError },
+    QueueRegister { cause: std::io::Error },
     #[snafu(display("Failed to queue deregister request: {:?}", cause))]
-    QueueDeregister { cause: TokioNatsError },
+    QueueDeregister { cause: std::io::Error },
 }
 
 /// Register message payload
@@ -87,19 +61,6 @@ struct DeregisterArgs {
     id: String,
 }
 
-/// Resolve a hostname or return an error.
-async fn resolve(name: &str) -> Result<String, Error> {
-    let mut ips = lookup_host(name).await.context(ResolveServer {
-        server: name.to_owned(),
-    })?;
-    match ips.next() {
-        None => Err(Error::ResolveServerEmpty {
-            server: name.to_owned(),
-        }),
-        Some(ip) => Ok(ip.to_string()),
-    }
-}
-
 /// Message bus implementation
 struct MessageBus {
     /// NATS server endpoint
@@ -109,7 +70,7 @@ struct MessageBus {
     /// gRPC endpoint of the server provided by mayastor
     grpc_endpoint: String,
     /// NATS client
-    client: Option<NatsClient>,
+    client: Option<Connection>,
     /// heartbeat interval (how often the register message is sent)
     hb_interval: Duration,
 }
@@ -186,27 +147,14 @@ impl MessageBus {
 
     /// Try to connect to the NATS server including DNS resolution step if
     /// needed.
-    async fn connect(&self) -> Result<NatsClient, Error> {
-        // Resolve the hostname of the server - nats lib won't do that for us
-        let server_ip = match SocketAddr::from_str(&self.server) {
-            Ok(_) => self.server.clone(),
-            Err(_) => resolve(&self.server).await?,
-        };
-
-        debug!("Connecting to the message bus");
-        let config = NatsConfigBuilder::default()
-            .reconnection_period(self.hb_interval)
-            .server(&server_ip)
-            .build()
-            .map_err(|cause| Error::BuildClient {
+    async fn connect(&self) -> Result<Connection, Error> {
+        debug!("Connecting to the message bus...");
+        connect(&self.server)
+            .await
+            .map_err(|err| Error::ConnectFailed {
                 server: self.server.clone(),
-                cause,
-            })?;
-
-        connect(config).await.map_err(|err| Error::ConnectFailed {
-            server: self.server.clone(),
-            cause: err,
-        })
+                cause: err,
+            })
     }
 
     /// Send a register message to the NATS server.
