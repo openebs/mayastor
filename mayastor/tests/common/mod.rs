@@ -1,3 +1,9 @@
+//! Test utility functions.
+//!
+//! TODO: All functions here should return errors instead of using assert and
+//! panic macros. The caller can decide how to handle the error appropriately.
+//! Panics and asserts in this file are still ok for usage & programming errors.
+
 use std::{env, io, io::Write, process::Command, time::Duration};
 
 use crossbeam::channel::{after, select, unbounded};
@@ -38,6 +44,7 @@ where
 }
 
 pub static MSTEST: OnceCell<MayastorEnvironment> = OnceCell::new();
+
 #[macro_export]
 macro_rules! reactor_poll {
     ($ch:ident, $name:ident) => {
@@ -64,6 +71,22 @@ macro_rules! reactor_poll {
         mayastor::core::Reactors::current();
     };
 }
+
+/// The same as reactor_poll above but it asserts that the result received
+/// from the channel is as expected.
+#[macro_export]
+macro_rules! assert_reactor_poll {
+    ($ch:ident, $val:expr) => {
+        loop {
+            mayastor::core::Reactors::current().poll_once();
+            if let Ok(r) = $ch.try_recv() {
+                assert_eq!(r, $val);
+                break;
+            }
+        }
+    };
+}
+
 #[macro_export]
 macro_rules! test_init {
     () => {
@@ -181,9 +204,13 @@ pub fn delete_file(disks: &[String]) {
         .args(&["-rf"])
         .args(disks)
         .output()
-        .expect("failed delete test file");
+        .expect("failed to execute rm");
 
-    assert_eq!(output.status.success(), true);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr),
+    );
 }
 
 pub fn compare_files(a: &str, b: &str) {
@@ -197,7 +224,7 @@ pub fn compare_files(a: &str, b: &str) {
     assert_eq!(output.status.success(), true);
 }
 
-pub fn mount_umount(device: &str) -> String {
+pub fn mount_umount(device: &str) -> Result<String, String> {
     let (exit, stdout, stderr) = run_script::run(
         r#"
         mkdir -p /tmp/__test
@@ -209,13 +236,14 @@ pub fn mount_umount(device: &str) -> String {
         &run_script::ScriptOptions::new(),
     )
     .unwrap();
-    if exit != 0 {
-        panic!("Script failed with error: {}", stderr);
+    if exit == 0 {
+        Ok(stdout)
+    } else {
+        Err(stderr)
     }
-    stdout
 }
 
-pub fn mount_and_write_file(device: &str) -> String {
+pub fn mount_and_write_file(device: &str) -> Result<String, String> {
     let mut options = ScriptOptions::new();
     options.exit_on_error = true;
     options.print_commands = false;
@@ -235,12 +263,13 @@ pub fn mount_and_write_file(device: &str) -> String {
     )
     .unwrap();
     if exit != 0 {
-        panic!("Script failed with error: {}", stderr);
+        Err(stderr)
+    } else {
+        Ok(stdout)
     }
-    stdout.trim_end().to_string()
 }
 
-pub fn mount_and_get_md5(device: &str) -> String {
+pub fn mount_and_get_md5(device: &str) -> Result<String, String> {
     let (exit, stdout, stderr) = run_script::run(
         r#"
         mkdir -p /tmp/__test
@@ -255,12 +284,13 @@ pub fn mount_and_get_md5(device: &str) -> String {
     )
     .unwrap();
     if exit != 0 {
-        panic!("Script failed with error: {}", stderr);
+        Err(stderr)
+    } else {
+        Ok(stdout)
     }
-    stdout
 }
 
-pub fn fio_run_verify(device: &str) -> String {
+pub fn fio_run_verify(device: &str) -> Result<String, String> {
     let (exit, stdout, stderr) = run_script::run(
         r#"
         fio --name=randrw --rw=randrw --ioengine=libaio --direct=1 --time_based=1 \
@@ -271,8 +301,11 @@ pub fn fio_run_verify(device: &str) -> String {
     &run_script::ScriptOptions::new(),
     )
         .unwrap();
-    assert_eq!(exit, 0, "fio failed: {}", stderr);
-    stdout
+    if exit == 0 {
+        Ok(stdout)
+    } else {
+        Err(stderr)
+    }
 }
 
 pub fn clean_up_temp() {
