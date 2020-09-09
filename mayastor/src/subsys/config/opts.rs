@@ -498,7 +498,7 @@ pub struct ErrStoreOpts {
     /// errors older than this are ignored
     pub retention_ns: u64,
 
-    /// the maximum number IO attempts per IO
+    /// the maximum number of IO attempts per IO
     pub max_io_attempts: i32,
 }
 

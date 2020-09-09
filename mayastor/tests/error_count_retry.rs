@@ -1,9 +1,5 @@
 extern crate log;
 
-use std::time::Duration;
-
-use crossbeam::channel::unbounded;
-
 pub use common::error_bdev::{
     create_error_bdev,
     inject_error,
@@ -56,7 +52,7 @@ fn nexus_error_count_retry_test() {
         err_read_nexus(true).await;
     });
 
-    reactor_run_millis(10); // give time for any errors to be added to the error store
+    common::reactor_run_millis(10); // give time for any errors to be added to the error store
 
     nexus_err_query_and_test(
         BDEV_EE_ERROR_DEVICE,
@@ -77,7 +73,7 @@ fn nexus_error_count_retry_test() {
         err_write_nexus(true).await;
     });
 
-    reactor_run_millis(10); // give time for any errors to be added to the error store
+    common::reactor_run_millis(10); // give time for any errors to be added to the error store
 
     nexus_err_query_and_test(
         BDEV_EE_ERROR_DEVICE,
@@ -175,13 +171,4 @@ async fn err_read_nexus(succeed: bool) {
             assert_eq!(succeed, false);
         }
     };
-}
-
-fn reactor_run_millis(milliseconds: u64) {
-    let (s, r) = unbounded::<()>();
-    std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(milliseconds));
-        s.send(())
-    });
-    reactor_poll!(r);
 }

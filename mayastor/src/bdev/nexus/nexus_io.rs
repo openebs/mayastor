@@ -154,9 +154,7 @@ impl Bio {
     ) {
         self.ctx_as_mut_ref().in_flight -= 1;
 
-        if cfg!(debug_assertions) {
-            assert!(self.ctx_as_mut_ref().in_flight >= 0);
-        }
+        debug_assert!(self.ctx_as_mut_ref().in_flight >= 0);
 
         if !success && !child_io.is_null() {
             let io_type = Bio::io_type(self.0).unwrap();

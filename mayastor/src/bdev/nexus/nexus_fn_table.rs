@@ -108,8 +108,7 @@ impl NexusFnTable {
         if let Some(io_type) = Bio::io_type(io) {
             let mut ch = NexusChannel::inner_from_channel(channel);
 
-            // set the fields that need to be reset if this IO is ever
-            // resubmitted
+            // set the fields that need to be (re)set per-attempt
             match io_type {
                 io_type::READ => Bio::reset(io, 1),
                 _ => Bio::reset(io, ch.ch.len() as i8),
