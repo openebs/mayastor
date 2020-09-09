@@ -446,3 +446,12 @@ pub fn fio_verify_size(device: &str, size: u64) -> i32 {
     log::info!("stdout: {}\nstderr: {}", stdout, stderr);
     exit
 }
+
+pub fn reactor_run_millis(milliseconds: u64) {
+    let (s, r) = unbounded::<()>();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(milliseconds));
+        s.send(())
+    });
+    reactor_poll!(r);
+}
