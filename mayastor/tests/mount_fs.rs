@@ -35,34 +35,37 @@ fn mount_fs() {
                 .unwrap(),
         );
 
-        let (s, r) = unbounded();
         // create an XFS filesystem on the nexus device
-        let s1 = s.clone();
-        let mkfs_dev = device.clone();
-        Mthread::spawn_unaffinitized(move || {
-            if !common::mkfs(&mkfs_dev, &fstype) {
-                s1.send(format!(
-                    "Failed to format {} with {}",
-                    mkfs_dev, fstype
-                ))
-                .unwrap();
-            } else {
-                s1.send("".to_string()).unwrap();
-            }
-        });
+        {
+            let (s, r) = unbounded();
+            let mkfs_dev = device.clone();
+            Mthread::spawn_unaffinitized(move || {
+                if !common::mkfs(&mkfs_dev, &fstype) {
+                    s.send(format!(
+                        "Failed to format {} with {}",
+                        mkfs_dev, fstype
+                    ))
+                    .unwrap();
+                } else {
+                    s.send("".to_string()).unwrap();
+                }
+            });
 
-        let result;
-        reactor_poll!(r, result);
-        assert_eq!(result, "",);
+            assert_reactor_poll!(r, "");
+        }
 
-        //mount the device, create a file and return the md5 of that file
-        let s1 = s.clone();
-        Mthread::spawn_unaffinitized(move || {
-            let md5 = common::mount_and_write_file(&device);
-            s1.send(md5).unwrap();
-        });
+        // mount the device, create a file and return the md5 of that file
+        {
+            let (s, r) = unbounded();
+            Mthread::spawn_unaffinitized(move || {
+                s.send(match common::mount_and_write_file(&device) {
+                    Ok(_) => "".to_owned(),
+                    Err(err) => err,
+                })
+            });
 
-        reactor_poll!(r);
+            assert_reactor_poll!(r, "");
+        }
         // destroy the share and the nexus
         nexus.unshare_nexus().await.unwrap();
         nexus.destroy().await.unwrap();
@@ -89,12 +92,14 @@ fn mount_fs() {
                 .unwrap(),
         );
 
+        let (s, r) = unbounded();
         let s1 = s.clone();
         Mthread::spawn_unaffinitized(move || {
             s1.send(common::mount_and_get_md5(&left_device))
         });
-        let md5_left: String;
+        let md5_left;
         reactor_poll!(r, md5_left);
+        assert!(md5_left.is_ok());
 
         left.unshare_nexus().await.unwrap();
         left.destroy().await.unwrap();
@@ -107,9 +112,10 @@ fn mount_fs() {
 
         let md5_right;
         reactor_poll!(r, md5_right);
+        assert!(md5_right.is_ok());
         right.unshare_nexus().await.unwrap();
         right.destroy().await.unwrap();
-        assert_eq!(md5_left, md5_right);
+        assert_eq!(md5_left.unwrap(), md5_right.unwrap());
     }
 
     test_init!();
@@ -142,12 +148,14 @@ fn mount_fs_1() {
 
         Mthread::spawn_unaffinitized(move || {
             for _i in 0 .. 10 {
-                common::mount_umount(&device);
+                if let Err(err) = common::mount_umount(&device) {
+                    return s.send(err);
+                }
             }
             s.send("".into())
         });
 
-        reactor_poll!(r);
+        assert_reactor_poll!(r, "");
         nexus.destroy().await.unwrap();
     });
 }
@@ -169,9 +177,12 @@ fn mount_fs_2() {
         let (s, r) = unbounded::<String>();
 
         Mthread::spawn_unaffinitized(move || {
-            s.send(common::fio_run_verify(&device))
+            s.send(match common::fio_run_verify(&device) {
+                Ok(_) => "".to_owned(),
+                Err(err) => err,
+            })
         });
-        reactor_poll!(r);
+        assert_reactor_poll!(r, "");
         nexus.destroy().await.unwrap();
     });
 
