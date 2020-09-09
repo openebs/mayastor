@@ -14,11 +14,12 @@ use pin_utils::core_reexport::time::Duration;
 
 pub mod common;
 
+// This test requires the system to have at least 2 cpus
 #[test]
 fn reactor_start_stop() {
     common::mayastor_test_init();
     let mut args = MayastorCliArgs::default();
-    args.reactor_mask = "0xF".to_string();
+    args.reactor_mask = "0x1".to_string();
     let ms = MayastorEnvironment::new(args);
 
     static mut WAIT_FOR: Lazy<AtomicUsize> =
@@ -51,6 +52,8 @@ fn reactor_start_stop() {
                 std::thread::sleep(Duration::from_secs(1));
 
                 let cpu = unsafe { libc::sched_getcpu() };
+                // TODO: The main thread does not know when this assertion
+                // triggers and the test will hapilly pass.
                 assert_eq!(cpu as u32 > Cores::last().id(), true)
             });
         });

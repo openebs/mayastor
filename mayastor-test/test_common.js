@@ -137,8 +137,12 @@ function getMyIp () {
 }
 
 // Common code for starting mayastor, mayastor-csi and spdk processes.
-function startProcess (command, args, env, closeCb, psName) {
-  assert(!procs[command]);
+function startProcess (command, args, env, closeCb, psName, suffix) {
+  let procsIndex = command;
+  if (suffix) {
+    procsIndex += suffix;
+  }
+  assert(!procs[procsIndex]);
   const proc = runAsRoot(getCmdPath(command), args, env, psName);
   proc.output = [];
 
@@ -153,10 +157,10 @@ function startProcess (command, args, env, closeCb, psName) {
     console.log('-----------------------------------------------------');
     console.log(proc.output.join('').trim());
     console.log('-----------------------------------------------------');
-    delete procs[command];
+    delete procs[procsIndex];
     if (closeCb) closeCb();
   });
-  procs[command] = proc;
+  procs[procsIndex] = proc;
 }
 
 // Start spdk process and return immediately.
@@ -188,18 +192,22 @@ function startSpdk (config, args, env) {
 }
 
 // Start mayastor process and return immediately.
-function startMayastor (config, args, env, yaml) {
+function startMayastor (config, args, env, yaml, suffix) {
   args = args || ['-r', SOCK, '-g', grpcEndpoint];
   env = env || {};
+  let configPath = MS_CONFIG_PATH;
+  if (suffix) {
+    configPath += suffix;
+  }
 
   if (yaml) {
-    fs.writeFileSync(MS_CONFIG_PATH, yaml);
-    args = args.concat(['-y', MS_CONFIG_PATH]);
+    fs.writeFileSync(configPath, yaml);
+    args = args.concat(['-y', configPath]);
   }
 
   if (config) {
-    fs.writeFileSync(MS_CONFIG_PATH, config);
-    args = args.concat(['-c', MS_CONFIG_PATH]);
+    fs.writeFileSync(configPath, config);
+    args = args.concat(['-c', configPath]);
   }
 
   startProcess(
@@ -214,10 +222,11 @@ function startMayastor (config, args, env, yaml) {
     ),
     () => {
       try {
-        fs.unlinkSync(MS_CONFIG_PATH);
+        fs.unlinkSync(configPath);
       } catch (err) {}
     },
-    'mayastor'
+    'mayastor',
+    suffix
   );
 }
 
@@ -265,7 +274,7 @@ function stopAll (done) {
     (name, cb) => {
       const proc = procs[name];
       console.log(`Stopping ${name} with pid ${proc.pid} ...`);
-      killSudoedProcess(name, proc.pid, (err) => {
+      killSudoedProcess(proc.nameInPs, proc.pid, (err) => {
         if (err) return cb(null, err);
         // let other close event handlers on the process run
         setTimeout(cb, 0);
@@ -369,7 +378,8 @@ function jsonrpcCommand (method, args, done) {
 }
 
 // Create mayastor grpc client. Must be closed by the user when not used anymore.
-function createGrpcClient () {
+function createGrpcClient (endpoint) {
+  endpoint = endpoint || grpcEndpoint;
   var client = createClient(
     {
       protoPath: path.join(
@@ -389,7 +399,7 @@ function createGrpcClient () {
         oneofs: true
       }
     },
-    grpcEndpoint
+    endpoint
   );
   if (!client) {
     throw new Error('Failed to initialize grpc client');

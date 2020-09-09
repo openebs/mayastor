@@ -18,6 +18,7 @@ mod nexus_cli;
 mod pool_cli;
 mod rebuild_cli;
 mod replica_cli;
+mod snapshot_cli;
 
 type MayaClient = MayastorClient<Channel>;
 type BdevClient = BdevRpcClient<Channel>;
@@ -76,6 +77,7 @@ async fn main() -> Result<(), Status> {
         .subcommand(replica_cli::subcommands())
         .subcommand(bdev_cli::subcommands())
         .subcommand(rebuild_cli::subcommands())
+        .subcommand(snapshot_cli::subcommands())
         .get_matches();
 
     let ctx = Context::new(&matches).await;
@@ -86,6 +88,7 @@ async fn main() -> Result<(), Status> {
         ("pool", Some(args)) => pool_cli::handler(ctx, args).await?,
         ("replica", Some(args)) => replica_cli::handler(ctx, args).await?,
         ("rebuild", Some(args)) => rebuild_cli::handler(ctx, args).await?,
+        ("snapshot", Some(args)) => snapshot_cli::handler(ctx, args).await?,
 
         _ => eprintln!("Internal Error: Not implemented"),
     };

@@ -1,7 +1,8 @@
 apiVersion: "openebs.io/v1alpha1"
 kind: MayastorPool
 metadata:
-  name: pool
+  #name: unique
+  generateName: pool-
   namespace: mayastor
 spec:
   node: MYHOSTNAME
