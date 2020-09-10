@@ -10,7 +10,7 @@ in
   name = "child_status";
 
   nodes = {
-    node = common.defaultMayastorNode { ip = node_ip; };
+    node = common.defaultMayastorNode { ip = node_ip; childStatusConfigYaml = "/tmp/child-status.yaml"; };
   };
 
   testScript = ''

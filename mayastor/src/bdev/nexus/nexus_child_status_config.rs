@@ -19,10 +19,11 @@ use crate::bdev::nexus::{
 };
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs, fs::File, io::Write};
+use std::{collections::HashMap, fs, fs::File, io::Write, sync::Once};
 
 type ChildName = String;
-pub const CONFIG_FILE: &str = "/tmp/child_status.yaml";
+static mut CONFIG_FILE: Option<String> = None;
+static INIT: Once = Once::new();
 pub static STATUS_CONFIG: OnceCell<ChildStatusConfig> = OnceCell::new();
 
 #[derive(Serialize, Deserialize, Debug)]
@@ -54,19 +55,27 @@ impl ChildStatusConfig {
     }
 
     /// Load the configuration file if it exists otherwise use default values.
-    pub(crate) fn load() -> Result<ChildStatusConfig, ()> {
-        debug!("Loading configuration file from {}", CONFIG_FILE);
-        let cfg = fs::read(&CONFIG_FILE).unwrap_or_default();
-        if cfg.is_empty() {
-            Ok(ChildStatusConfig::default())
-        } else {
-            match serde_yaml::from_slice(&cfg) {
-                Ok(config) => Ok(config),
-                Err(e) => {
-                    error!("{}", e);
-                    Err(())
+    pub(crate) fn load(
+        cfg_file_path: &Option<String>,
+    ) -> Result<ChildStatusConfig, ()> {
+        if let Some(cfg_location) = cfg_file_path {
+            ChildStatusConfig::init_config_location(cfg_location);
+
+            debug!("Loading configuration file from {}", cfg_location);
+            let cfg = fs::read(cfg_location).unwrap_or_default();
+            if cfg.is_empty() {
+                Ok(ChildStatusConfig::default())
+            } else {
+                match serde_yaml::from_slice(&cfg) {
+                    Ok(config) => Ok(config),
+                    Err(e) => {
+                        error!("{}", e);
+                        Err(())
+                    }
                 }
             }
+        } else {
+            Ok(ChildStatusConfig::default())
         }
     }
 
@@ -84,7 +93,7 @@ impl ChildStatusConfig {
                     child.status_reasons = *status;
                 }
             });
-            nexus.reconfigure(DREvent::ChildApplyStatus).await;
+            nexus.reconfigure(DREvent::ChildStatusSync).await;
         }
     }
 
@@ -95,6 +104,18 @@ impl ChildStatusConfig {
 
     /// Save the status of all children to the configuration file.
     fn do_save(cfg: Option<ChildStatusConfig>) -> Result<(), std::io::Error> {
+        let cfg_file;
+        unsafe {
+            match CONFIG_FILE.clone() {
+                Some(cfg) => cfg_file = cfg,
+                None => {
+                    // If a configuration file wasn't specified, nothing has to
+                    // be done.
+                    return Ok(());
+                }
+            }
+        }
+
         debug!("Saving child status");
         let mut status_cfg = match cfg {
             Some(cfg) => cfg,
@@ -113,7 +134,7 @@ impl ChildStatusConfig {
 
         match serde_yaml::to_string(&status_cfg) {
             Ok(s) => {
-                let mut cfg_file = File::create(CONFIG_FILE)?;
+                let mut cfg_file = File::create(cfg_file)?;
                 cfg_file.write_all(s.as_bytes())
             }
             Err(_) => Err(std::io::Error::new(
@@ -125,7 +146,7 @@ impl ChildStatusConfig {
 
     /// Add the child to the configuration and then save it.
     /// The configuration is updated on a status change and expects the child to
-    /// already be listed as a nexus child. However, When a child is added,
+    /// already be listed as a nexus child. However, when a child is added,
     /// the status is changed before it is added to the nexus children list.
     /// Therefore, we have to explicitly add the child to the configuration
     /// here.
@@ -135,5 +156,12 @@ impl ChildStatusConfig {
         };
         cfg.status.insert(child.name.clone(), child.status_reasons);
         ChildStatusConfig::do_save(Some(cfg))
+    }
+
+    /// Initialise the config file location
+    fn init_config_location(path: &str) {
+        INIT.call_once(|| unsafe {
+            CONFIG_FILE = Some(path.to_string());
+        });
     }
 }

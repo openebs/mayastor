@@ -234,10 +234,10 @@ impl Nexus {
 
         let mut child = self.children.remove(idx);
         self.child_count -= 1;
-        self.reconfigure(DREvent::ChildRemove).await;
 
         // Update child status to remove this child
         NexusChild::save_state_change();
+        self.reconfigure(DREvent::ChildRemove).await;
 
         let result = child.destroy().await.context(DestroyChild {
             name: self.name.clone(),
@@ -321,7 +321,6 @@ impl Nexus {
                 child: name.to_owned(),
                 name: self.name.clone(),
             })?;
-            child.out_of_sync(true);
             self.start_rebuild(name).await.map(|_| {})?;
             Ok(self.status())
         } else {

@@ -272,6 +272,7 @@ impl NexusChild {
         }
         self.open(parent_size).map(|s| {
             self.status_reasons.offline(false);
+            self.status_reasons.out_of_sync(true);
             NexusChild::save_state_change();
             s
         })
