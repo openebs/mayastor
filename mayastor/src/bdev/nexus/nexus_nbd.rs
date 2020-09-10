@@ -59,29 +59,35 @@ pub(crate) fn wait_until_ready(path: &str) -> Result<(), ()> {
     // start a thread that loops and tries to open us and asks for our size
     Mthread::spawn_unaffinitized(move || {
         let size: u64 = 0;
-        for _i in 1i32 .. 100 {
-            std::thread::sleep(Duration::from_millis(1));
-            let f = OpenOptions::new().read(true).open(Path::new(&tpath));
-            if f.is_err() {
-                continue;
+        let mut delay = 1;
+        for _i in 0i32 .. 10 {
+            if let Ok(f) = OpenOptions::new().read(true).open(Path::new(&tpath))
+            {
+                let res = unsafe {
+                    convert_ioctl_res!(libc::ioctl(
+                        f.as_raw_fd(),
+                        u64::from(IOCTL_BLKGETSIZE),
+                        &size
+                    ))
+                };
+                if res.is_ok() && size != 0 {
+                    break;
+                }
             }
-            let res = unsafe {
-                convert_ioctl_res!(libc::ioctl(
-                    f.unwrap().as_raw_fd(),
-                    u64::from(IOCTL_BLKGETSIZE),
-                    &size
-                ))
-            };
-
-            if res.is_err() {
-                continue;
-            }
-
-            if size != 0 {
-                s.store(true, SeqCst);
-                break;
-            }
+            debug!("Disk {} not ready yet, sleeping {} ms...", tpath, delay);
+            std::thread::sleep(Duration::from_millis(delay));
+            delay *= 2;
         }
+        if size > 0 {
+            debug!("Disk {} is ready (size={})", tpath, size);
+        } else {
+            warn!(
+                "Disk {} not ready but continuing anyway - expect problems",
+                tpath
+            );
+        }
+
+        s.store(true, SeqCst);
     });
 
     // the above thread is running, make sure we keep polling/turning the

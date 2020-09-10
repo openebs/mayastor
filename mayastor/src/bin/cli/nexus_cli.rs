@@ -17,7 +17,7 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
             Arg::with_name("size")
                 .required(true)
                 .index(2)
-                .help("size in mb"),
+                .help("size with optional unit suffix"),
         )
         .arg(
             Arg::with_name("children")
