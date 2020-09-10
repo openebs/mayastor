@@ -45,6 +45,8 @@ pub enum DREvent {
     ChildRemove,
     /// Child rebuild event
     ChildRebuild,
+    /// Child status information is being applied
+    ChildStatusSync,
 }
 
 impl NexusChannelInner {
@@ -167,7 +169,8 @@ impl NexusChannel {
             | DREvent::ChildOnline
             | DREvent::ChildRemove
             | DREvent::ChildFault
-            | DREvent::ChildRebuild => unsafe {
+            | DREvent::ChildRebuild
+            | DREvent::ChildStatusSync => unsafe {
                 spdk_for_each_channel(
                     device,
                     Some(NexusChannel::refresh_io_channels),

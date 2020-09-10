@@ -8,7 +8,7 @@ in
   name = "fio_against_nvmf_target";
 
   nodes = {
-    target = common.defaultMayastorNode { ip = targetIp; mayatorConfigYaml = ./mayastor-config.yaml; };
+    target = common.defaultMayastorNode { ip = targetIp; mayastorConfigYaml = ./mayastor-config.yaml; };
     initiator = common.defaultMayastorNode { ip = initiatorIp; };
   };
 

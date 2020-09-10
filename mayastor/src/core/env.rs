@@ -40,6 +40,7 @@ use spdk_sys::{
 };
 
 use crate::{
+    bdev::nexus::nexus_child_status_config::ChildStatusConfig,
     core::{
         reactor::{Reactor, ReactorState, Reactors},
         Cores,
@@ -128,6 +129,9 @@ pub struct MayastorCliArgs {
     #[structopt(short = "y")]
     /// path to mayastor config file
     pub mayastor_config: Option<String>,
+    #[structopt(short = "C")]
+    /// path to child status config file
+    pub child_status_config: Option<String>,
     #[structopt(long = "huge-dir")]
     /// path to hugedir
     pub hugedir: Option<String>,
@@ -151,6 +155,7 @@ impl Default for MayastorCliArgs {
             log_components: vec![],
             config: None,
             mayastor_config: None,
+            child_status_config: None,
             hugedir: None,
         }
     }
@@ -207,6 +212,7 @@ pub struct MayastorEnvironment {
     nats_endpoint: Option<String>,
     grpc_endpoint: Option<String>,
     mayastor_config: Option<String>,
+    child_status_config: Option<String>,
     delay_subsystem_init: bool,
     enable_coredump: bool,
     env_context: Option<String>,
@@ -241,6 +247,7 @@ impl Default for MayastorEnvironment {
             nats_endpoint: None,
             grpc_endpoint: None,
             mayastor_config: None,
+            child_status_config: None,
             delay_subsystem_init: false,
             enable_coredump: true,
             env_context: None,
@@ -346,6 +353,7 @@ impl MayastorEnvironment {
             node_name: args.node_name.unwrap_or_else(|| "mayastor-node".into()),
             config: args.config,
             mayastor_config: args.mayastor_config,
+            child_status_config: args.child_status_config,
             log_component: args.log_components,
             mem_size: args.mem_size,
             no_pci: args.no_pci,
@@ -621,13 +629,26 @@ impl MayastorEnvironment {
                     cfg
                 } else {
                     // if the configuration is invalid exit early
-                    std::process::exit(-1);
+                    panic!("Failed to load the mayastor configuration")
                 }
             })
         } else {
             Config::get_or_init(Config::default)
         };
         cfg.apply();
+    }
+
+    // load the child status file
+    fn load_child_status(&self) {
+        ChildStatusConfig::get_or_init(|| {
+            if let Ok(cfg) = ChildStatusConfig::load(&self.child_status_config)
+            {
+                cfg
+            } else {
+                // if the configuration is invalid exit early
+                panic!("Failed to load the child status configuration")
+            }
+        });
     }
 
     /// initialize the core, call this before all else
@@ -640,6 +661,8 @@ impl MayastorEnvironment {
         // no real harm of loading this ini file as long as there are no
         // conflicting bdev definitions
         self.read_config_file().unwrap();
+
+        self.load_child_status();
 
         // bootstrap DPDK and its magic
         self.initialize_eal();

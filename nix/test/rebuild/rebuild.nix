@@ -14,8 +14,8 @@ in
   };
 
   nodes = {
-    node1 = common.defaultMayastorNode { ip = node1ip; mayatorConfigYaml = ./node1-mayastor-config.yaml; };
-    node2 = common.defaultMayastorNode { ip = node2ip; mayatorConfigYaml = ./node2-mayastor-config.yaml; };
+    node1 = common.defaultMayastorNode { ip = node1ip; mayastorConfigYaml = ./node1-mayastor-config.yaml; };
+    node2 = common.defaultMayastorNode { ip = node2ip; mayastorConfigYaml = ./node2-mayastor-config.yaml; };
   };
 
   testScript = ''

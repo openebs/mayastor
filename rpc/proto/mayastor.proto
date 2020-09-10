@@ -44,6 +44,7 @@ service Mayastor {
   rpc ListNexus (Null) returns (ListNexusReply) {}
   rpc AddChildNexus (AddChildNexusRequest) returns (Child) {}
   rpc RemoveChildNexus (RemoveChildNexusRequest) returns (Null) {}
+  rpc FaultNexusChild (FaultNexusChildRequest) returns (Null) {}
 
   // This method is called by control plane to construct a block device
   // (/dev/...) that will be used to connect the nexus to the OS.
@@ -251,6 +252,11 @@ message AddChildNexusRequest {
 message RemoveChildNexusRequest {
   string uuid = 1;    // uuid of the nexus
   string uri = 2;     // URI of the child device to be removed
+}
+
+message FaultNexusChildRequest {
+  string uuid = 1;    // uuid of the nexus
+  string uri = 2;     // URI of the child device to be faulted
 }
 
 // this message will be subject to change as we will add support for remote

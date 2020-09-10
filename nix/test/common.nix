@@ -1,17 +1,18 @@
 { pkgs, ... }:
 {
-    importMayastorUtils = ''
-      import sys
-      
-      sys.path.insert(0, "${./pythonLibs}")
-      import mayastorUtils
-    '';
+  importMayastorUtils = ''
+    import sys
 
-    # We provide sensible defaults for these fields, so that tests can be decluttered.
-    # TODO Find a way to have the default IP just be DHCP
-    defaultMayastorNode = {
-      ip ? "192.168.0.1",
-      mayatorConfigYaml ? ./default-mayastor-config.yaml
+    sys.path.insert(0, "${./pythonLibs}")
+    import mayastorUtils
+  '';
+
+  # We provide sensible defaults for these fields, so that tests can be decluttered.
+  # TODO Find a way to have the default IP just be DHCP
+  defaultMayastorNode =
+    { ip ? "192.168.0.1"
+    , mayastorConfigYaml ? ./default-mayastor-config.yaml
+    , childStatusConfigYaml ? ""
     }: { config, lib, ... }: {
 
       virtualisation = {
@@ -43,7 +44,7 @@
 
         etc."mayastor-config.yaml" = {
           mode = "0664";
-          source = mayatorConfigYaml;
+          source = mayastorConfigYaml;
         };
       };
 
@@ -57,7 +58,10 @@
         };
 
         serviceConfig = {
-          ExecStart = "${pkgs.mayastor}/bin/mayastor -g 0.0.0.0:10124 -y /etc/mayastor-config.yaml";
+          ExecStart =
+            if childStatusConfigYaml == ""
+            then "${pkgs.mayastor}/bin/mayastor -g 0.0.0.0:10124 -y /etc/mayastor-config.yaml"
+            else "${pkgs.mayastor}/bin/mayastor -g 0.0.0.0:10124 -y /etc/mayastor-config.yaml -C ${childStatusConfigYaml}";
         };
       };
     };

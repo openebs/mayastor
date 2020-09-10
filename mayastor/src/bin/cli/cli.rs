@@ -14,6 +14,7 @@ use crate::context::Context;
 
 mod bdev_cli;
 mod context;
+mod nexus_child_cli;
 mod nexus_cli;
 mod pool_cli;
 mod rebuild_cli;

@@ -11,13 +11,13 @@ in
   };
 
   nodes = {
-    target = common.defaultMayastorNode { ip = targetIp; mayatorConfigYaml = ./mayastor-config.yaml; };
+    target = common.defaultMayastorNode { ip = targetIp; mayastorConfigYaml = ./mayastor-config.yaml; };
     initiator = common.defaultMayastorNode { ip = initiatorIp; };
   };
 
   testScript = ''
     ${common.importMayastorUtils}
-    
+
     start_all()
     mayastorUtils.wait_for_mayastor_all(machines)
 

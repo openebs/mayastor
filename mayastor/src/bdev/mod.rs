@@ -11,6 +11,7 @@ pub use nexus::{
     },
     nexus_child::ChildStatus,
     nexus_child_error_store::{ActionType, NexusErrStore, QueryType},
+    nexus_child_status_config,
     nexus_label::{GPTHeader, GptEntry},
     nexus_metadata_content::{
         NexusConfig,
