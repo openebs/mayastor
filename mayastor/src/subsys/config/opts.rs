@@ -450,7 +450,6 @@ impl From<&IscsiTgtOpts> for spdk_iscsi_opts {
 
 extern "C" {
     /// global shared variable defined by tgt implementation
-    #[no_mangle]
     static mut g_spdk_iscsi_opts: *mut spdk_iscsi_opts;
 }
 

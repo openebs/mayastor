@@ -3,7 +3,7 @@
 
 extern crate clap;
 #[macro_use]
-extern crate log;
+extern crate tracing;
 
 use std::{
     fmt,

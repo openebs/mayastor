@@ -33,7 +33,7 @@ pub(crate) async fn prepare_device(
     trace!(
         "Output from {} command: {}",
         binary,
-        String::from_utf8(output.stdout).unwrap()
+        String::from_utf8(output.stdout.clone()).unwrap()
     );
 
     if output.status.success() {

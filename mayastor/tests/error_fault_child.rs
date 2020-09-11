@@ -1,5 +1,3 @@
-extern crate log;
-
 pub mod common;
 
 pub use common::error_bdev::{
