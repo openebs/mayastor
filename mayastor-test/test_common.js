@@ -356,25 +356,23 @@ function restartMayastorCsi (ping, done) {
 }
 
 // Execute rpc method using jsonrpc client
-function jsonrpcCommand (method, args, done) {
-  exec(
-    getCmdPath('jsonrpc') +
-      ' -s ' +
-      SOCK +
-      ' raw' +
-      ' ' +
-      method +
-      " '" +
-      JSON.stringify(args) +
-      "'",
-    (err, stdout, stderr) => {
-      if (err) {
-        done(new Error(stderr));
-      } else {
-        done(err, stdout);
-      }
+function jsonrpcCommand (sock, method, args, done) {
+  if (!sock) sock = SOCK;
+  if (!done) {
+    done = args;
+    args = null;
+  }
+  var cmd = getCmdPath('jsonrpc') + ' -s ' + sock + ' raw' + ' ' + method;
+  if (args !== null && args !== undefined) {
+    cmd += " '" + JSON.stringify(args) + "'";
+  }
+  exec(cmd, (err, stdout, stderr) => {
+    if (err) {
+      done(new Error(stderr));
+    } else {
+      done(err, stdout);
     }
-  );
+  });
 }
 
 // Create mayastor grpc client. Must be closed by the user when not used anymore.

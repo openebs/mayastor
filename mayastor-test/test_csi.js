@@ -165,7 +165,7 @@ describe('csi', function () {
                 return pingDone(err);
               }
               // use harmless method to test if the mayastor is up and running
-              common.jsonrpcCommand('get_bdevs', {}, pingDone);
+              client.listPools({}, pingDone);
             });
           }, next);
         },
