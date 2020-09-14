@@ -16,6 +16,7 @@ pushd spdk || { echo "Can not find spdk directory"; exit; }
 	--without-vhost \
 	--with-iscsi-initiator \
 	--with-crypto \
+	--with-uring \
 	--disable-unit-tests
 
 make -j $(nproc)
@@ -29,6 +30,7 @@ find . -type f -name 'libspdk_ut_mock.a' -delete
 
 $CC -shared -o libspdk.so \
 	-lc  -laio -liscsi -lnuma -ldl -lrt -luuid -lpthread -lcrypto \
+	-luring \
 	-Wl,--whole-archive \
 	$(find build/lib -type f -name 'libspdk_*.a*' -o -name 'librte_*.a*') \
 	$(find dpdk/build/lib -type f -name 'librte_*.a*') \

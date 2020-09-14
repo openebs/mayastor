@@ -31,6 +31,7 @@ mkShell {
     libiscsi
     libiscsi.bin
     libudev
+    liburing
     llvmPackages.libclang
     nats-server
     nodejs-12_x
