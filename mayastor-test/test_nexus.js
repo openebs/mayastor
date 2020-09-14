@@ -285,7 +285,10 @@ describe('nexus', function () {
             '-s',
             '128'
           ]);
-          next();
+          common.waitFor((pingDone) => {
+            // use harmless method to test if spdk is up and running
+            common.jsonrpcCommand('/tmp/target.sock', 'bdev_get_bdevs', pingDone);
+          }, next);
         },
         (next) => {
           fs.writeFile(aioFile, '', next);
