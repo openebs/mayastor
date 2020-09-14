@@ -24,8 +24,8 @@ let
     src = fetchFromGitHub {
       owner = "openebs";
       repo = "spdk";
-      rev = "5e21f145309129f0fba95652eba7363ba3c92007";
-      sha256 = "1rk1sncwpx9yy46mlp802ijxgsxi3v4i7lz36q199axw7i46pijq";
+      rev = "b09bed5edaca1d827a6432ca602639d43e3e93a0";
+      sha256 = "0y26p4m99gbnf6iz2vbai26msnry7m428g8q3icpg28izmnk00d1";
       #sha256 = stdenv.lib.fakeSha256;
       fetchSubmodules = true;
     };
@@ -55,6 +55,7 @@ let
       "--without-vhost"
       "--with-iscsi-initiator"
       "--with-crypto"
+      "--with-uring"
     ];
 
 
@@ -78,6 +79,7 @@ let
 
       $CC -shared -o libspdk.so \
       -lc  -laio -liscsi -lnuma -ldl -lrt -luuid -lpthread -lcrypto \
+      -luring \
       -Wl,--whole-archive \
       $(find build/lib -type f -name 'libspdk_*.a*' -o -name 'librte_*.a*') \
       $(find dpdk/build/lib -type f -name 'librte_*.a*') \

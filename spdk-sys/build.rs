@@ -112,6 +112,7 @@ fn main() {
     println!("cargo:rustc-link-lib=uuid");
     println!("cargo:rustc-link-lib=numa");
     println!("cargo:rustc-link-lib=crypto");
+    println!("cargo:rustc-link-lib=uring");
 
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=wrapper.h");
