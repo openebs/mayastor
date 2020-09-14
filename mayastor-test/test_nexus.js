@@ -205,6 +205,7 @@ var doUring = (function () {
         if (error) {
           return;
         }
+        // FIXME enable once a fixed Ubuntu kernel 5.4 is released
         supportsUring = false;
       });
     }
@@ -703,7 +704,7 @@ describe('nexus', function () {
         uuid: UUID,
         size: 131072,
         children: [
-        'malloc:///malloc1?size_mb=64',
+          'malloc:///malloc1?size_mb=64',
         `aio://${aioFile}?blk_size=4096`
         ]
       };

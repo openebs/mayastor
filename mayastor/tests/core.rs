@@ -37,7 +37,9 @@ fn do_uring() -> bool {
                 && uring::fs_type_supported(DISKNAME3)
                 && uring::kernel_support();
         });
-        DO_URING
+        false
+        // FIXME enable once a fixed Ubuntu kernel 5.4 is released
+        // DO_URING
     }
 }
 

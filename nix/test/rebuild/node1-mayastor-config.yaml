@@ -14,6 +14,6 @@ pools:
     disks:
       - "/dev/vdb"
     blk_size: 4096
-    io_if: 0
+    io_if: 1
     replicas: []
 implicit_share_base: true

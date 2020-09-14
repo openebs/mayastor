@@ -66,13 +66,7 @@ impl Uri {
             "pcie" => Ok(Box::new(nvme::NVMe::try_from(&url)?)),
 
             // also for testing - requires Linux 5.1 or higher
-            // "uring" => Ok(Box::new(uring::Uring::try_from(&url)?)),
-
-            // Uring has been temporarily disabled.
-            // We should not enable it by default until we can
-            // be sure that most users are at 5.5 or later.
-            // Just fake it for now by substituting AIO.
-            "uring" => Ok(Box::new(aio::Aio::try_from(&url)?)),
+            "uring" => Ok(Box::new(uring::Uring::try_from(&url)?)),
 
             scheme => Err(NexusBdevError::UriSchemeUnsupported {
                 scheme: scheme.to_string(),

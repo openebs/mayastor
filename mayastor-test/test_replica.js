@@ -445,15 +445,16 @@ describe('replica', function () {
       exec(URING_SUPPORT_CMD, (error) => {
         if (error) {
           self.skip();
-        } else {
-          self.skip();
         }
+        self.skip();
+        // FIXME enable once a fixed Ubuntu kernel 5.4 is released
+        // done();
       });
     });
 
     it('should create a pool with uring io_if', (done) => {
       client.createPool(
-        { name: POOL, disks: disks, io_if: enums.POOL_IO_URING },
+        { name: POOL, disks: disks.map((d) => `uring://${d}`), io_if: enums.POOL_IO_URING },
         (err, res) => {
           if (err) return done(err);
           assert.equal(res.name, POOL);
@@ -466,7 +467,7 @@ describe('replica', function () {
           assert.equal(res.state, 'POOL_ONLINE');
           assert.equal(res.disks.length, disks.length);
           for (let i = 0; i < res.disks.length; ++i) {
-            assert.equal(res.disks[i], 'uring://' + disks[i]);
+            assert.equal(res.disks[i].includes('uring://' + disks[i]), true);
           }
           done();
         }
@@ -487,7 +488,7 @@ describe('replica', function () {
         assert.equal(res.state, 'POOL_ONLINE');
         assert.equal(res.disks.length, disks.length);
         for (let i = 0; i < res.disks.length; ++i) {
-          assert.equal(res.disks[i], 'uring://' + disks[i]);
+          assert.equal(res.disks[i].includes('uring://' + disks[i]), true);
         }
         done();
       });
