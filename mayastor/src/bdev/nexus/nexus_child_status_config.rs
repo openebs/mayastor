@@ -7,7 +7,7 @@
 //! then be called which will set the status of all children to match the
 //! configuration.
 //!
-//! The save function should be called whenever a child's status is updated.
+//! The update function should be called whenever a child's status is changed.
 //! This will update the configuration file but WILL NOT update the in-memory
 //! ChildStatusConfig structure as this is only required on startup and not
 //! during runtime.
@@ -97,13 +97,44 @@ impl ChildStatusConfig {
         }
     }
 
-    /// A public wrapper around the actual save function.
-    pub(crate) fn save() -> Result<(), std::io::Error> {
-        ChildStatusConfig::do_save(None)
+    /// Add the child status to the configuration.
+    /// This function is called before the child is added to the list of nexus
+    /// children, therefore the child has to be explicitly added to the
+    /// configuration here as it won't be part of the running configuration yet.
+    pub(crate) fn add(
+        child_name: &str,
+        status: &StatusReasons,
+    ) -> Result<(), std::io::Error> {
+        let mut cfg = ChildStatusConfig::get_running_cfg();
+        if cfg.status.contains_key(child_name) {
+            // We shouldn't ever get here because you can't add a child if it
+            // is already part of the nexus. However, just in case, log a
+            // message and don't update the child status.
+            error!(
+                "The child {} is already added as a nexus child",
+                child_name
+            );
+            return Ok(());
+        }
+        cfg.status.insert(child_name.to_string(), *status);
+        ChildStatusConfig::do_save(&cfg)
     }
 
-    /// Save the status of all children to the configuration file.
-    fn do_save(cfg: Option<ChildStatusConfig>) -> Result<(), std::io::Error> {
+    /// Update the configuration to remove the child.
+    /// This function is called before the child is removed from the list of
+    /// nexus children, therefore the child has to be explicitly removed from
+    /// the running configuration here.
+    pub(crate) fn remove(child_name: &str) -> Result<(), std::io::Error> {
+        let mut cfg = ChildStatusConfig::get_running_cfg();
+        if cfg.status.contains_key(child_name) {
+            debug!("Removing child {} from configuration", child_name);
+            cfg.status.remove(child_name);
+        }
+        ChildStatusConfig::do_save(&cfg)
+    }
+
+    // Update the status of the child in the configuration.
+    pub(crate) fn update(child: &NexusChild) -> Result<(), std::io::Error> {
         let cfg_file;
         unsafe {
             match CONFIG_FILE.clone() {
@@ -116,12 +147,8 @@ impl ChildStatusConfig {
             }
         }
 
-        debug!("Saving child status");
-        let mut status_cfg = match cfg {
-            Some(cfg) => cfg,
-            None => ChildStatusConfig {
-                status: HashMap::new(),
-            },
+        let mut status_cfg = ChildStatusConfig {
+            status: HashMap::new(),
         };
 
         instances().iter().for_each(|nexus| {
@@ -131,6 +158,17 @@ impl ChildStatusConfig {
                     .insert(child.name.clone(), child.status_reasons);
             });
         });
+
+        if status_cfg
+            .status
+            .insert(child.name.clone(), child.status_reasons)
+            .is_none()
+        {
+            debug!(
+                "Added child {} with status {:?} to configuration",
+                child.name, child.status_reasons
+            );
+        }
 
         match serde_yaml::to_string(&status_cfg) {
             Ok(s) => {
@@ -144,18 +182,10 @@ impl ChildStatusConfig {
         }
     }
 
-    /// Add the child to the configuration and then save it.
-    /// The configuration is updated on a status change and expects the child to
-    /// already be listed as a nexus child. However, when a child is added,
-    /// the status is changed before it is added to the nexus children list.
-    /// Therefore, we have to explicitly add the child to the configuration
-    /// here.
-    pub(crate) fn add(child: &NexusChild) -> Result<(), std::io::Error> {
-        let mut cfg = ChildStatusConfig {
-            status: HashMap::new(),
-        };
-        cfg.status.insert(child.name.clone(), child.status_reasons);
-        ChildStatusConfig::do_save(Some(cfg))
+    /// Save the state of the running configuration.
+    pub(crate) fn save() -> Result<(), std::io::Error> {
+        let cfg = ChildStatusConfig::get_running_cfg();
+        ChildStatusConfig::do_save(&cfg)
     }
 
     /// Initialise the config file location
@@ -163,5 +193,46 @@ impl ChildStatusConfig {
         INIT.call_once(|| unsafe {
             CONFIG_FILE = Some(path.to_string());
         });
+    }
+
+    /// Generates a configuration with the current state of the running system.
+    fn get_running_cfg() -> ChildStatusConfig {
+        let mut cfg = ChildStatusConfig {
+            status: HashMap::new(),
+        };
+        instances().iter().for_each(|nexus| {
+            nexus.children.iter().for_each(|child| {
+                cfg.status.insert(child.name.clone(), child.status_reasons);
+            });
+        });
+        cfg
+    }
+
+    /// Save the passed in configuration to a file.
+    fn do_save(cfg: &ChildStatusConfig) -> Result<(), std::io::Error> {
+        let cfg_file;
+        unsafe {
+            match CONFIG_FILE.clone() {
+                Some(cfg) => cfg_file = cfg,
+                None => {
+                    // If a configuration file wasn't specified, nothing has to
+                    // be done.
+                    return Ok(());
+                }
+            }
+        }
+
+        debug!("Saving child status configuration to {}", cfg_file);
+
+        match serde_yaml::to_string(cfg) {
+            Ok(s) => {
+                let mut cfg_file = File::create(cfg_file)?;
+                cfg_file.write_all(s.as_bytes())
+            }
+            Err(_) => Err(std::io::Error::new(
+                std::io::ErrorKind::Other,
+                "failed to serialize status config",
+            )),
+        }
     }
 }

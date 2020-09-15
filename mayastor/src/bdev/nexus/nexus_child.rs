@@ -80,6 +80,12 @@ pub(crate) struct StatusReasons {
 }
 
 impl StatusReasons {
+    pub(crate) fn new() -> Self {
+        Self {
+            ..Default::default()
+        }
+    }
+
     /// a fault occurred, it is not recoverable
     fn fatal_error(&mut self) {
         self.fatal_error = true;
@@ -91,7 +97,7 @@ impl StatusReasons {
     }
 
     /// out of sync with nexus, needs a rebuild
-    fn out_of_sync(&mut self, out_of_sync: bool) {
+    pub(crate) fn out_of_sync(&mut self, out_of_sync: bool) {
         self.out_of_sync = out_of_sync;
     }
 }
@@ -247,20 +253,20 @@ impl NexusChild {
     pub(crate) fn fault(&mut self) {
         self.close();
         self.status_reasons.fatal_error();
-        NexusChild::save_state_change();
+        NexusChild::update_child_status_config(self);
     }
     /// Set the child as out of sync with the nexus
     /// It requires a full rebuild before it can service IO
     /// and remains degraded until such time
     pub(crate) fn out_of_sync(&mut self, out_of_sync: bool) {
         self.status_reasons.out_of_sync(out_of_sync);
-        NexusChild::save_state_change();
+        NexusChild::update_child_status_config(self);
     }
     /// Set the child as temporarily offline
     pub(crate) fn offline(&mut self) {
         self.close();
         self.status_reasons.offline(true);
-        NexusChild::save_state_change();
+        NexusChild::update_child_status_config(self);
     }
     /// Online a previously offlined child
     pub(crate) fn online(
@@ -273,15 +279,15 @@ impl NexusChild {
         self.open(parent_size).map(|s| {
             self.status_reasons.offline(false);
             self.status_reasons.out_of_sync(true);
-            NexusChild::save_state_change();
+            NexusChild::update_child_status_config(self);
             s
         })
     }
 
-    /// Save the state of the children to the config file
-    pub(crate) fn save_state_change() {
-        if ChildStatusConfig::save().is_err() {
-            error!("Failed to save child status information");
+    /// Update the state of the child in the configuration
+    pub(crate) fn update_child_status_config(child: &NexusChild) {
+        if ChildStatusConfig::update(child).is_err() {
+            error!("Failed to update child status information");
         }
     }
 

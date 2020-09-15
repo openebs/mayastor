@@ -25,3 +25,4 @@ jobs:
       - run: nix-build ./nix/test -A nvmf_distributed
       - run: nix-build ./nix/test -A nvmf_ports
       - run: nix-build ./nix/test -A child_status
+      - run: nix-build ./nix/test -A validation

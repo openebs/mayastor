@@ -40,7 +40,6 @@ use crate::{
             },
             nexus_channel::DREvent,
             nexus_child::{ChildState, ChildStatus, NexusChild},
-            nexus_child_status_config::ChildStatusConfig,
             nexus_label::{
                 LabelError,
                 NexusChildLabel,
@@ -52,6 +51,7 @@ use crate::{
     },
     core::Bdev,
     nexus_uri::{bdev_create, bdev_destroy, NexusBdevError},
+    validation::nexus_validator,
 };
 
 impl Nexus {
@@ -105,26 +105,29 @@ impl Nexus {
         uri: &str,
         norebuild: bool,
     ) -> Result<NexusStatus, Error> {
-        let status = self.add_child_only(uri).await?;
+        nexus_validator::add_child(&self.name.clone(), uri, async {
+            let status = self.add_child_only(uri).await?;
 
-        if !norebuild {
-            if let Err(e) = self.start_rebuild(&uri).await {
-                // todo: CAS-253 retry starting the rebuild again when ready
-                error!(
-                    "Child added but rebuild failed to start: {}",
-                    e.verbose()
-                );
-                match self.get_child_by_name(uri) {
-                    Ok(child) => child.fault(),
-                    Err(e) => error!(
-                        "Failed to find newly added child {}, error: {}",
-                        uri,
+            if !norebuild {
+                if let Err(e) = self.start_rebuild(&uri).await {
+                    // todo: CAS-253 retry starting the rebuild again when ready
+                    error!(
+                        "Child added but rebuild failed to start: {}",
                         e.verbose()
-                    ),
-                };
+                    );
+                    match self.get_child_by_name(uri) {
+                        Ok(child) => child.fault(),
+                        Err(e) => error!(
+                            "Failed to find newly added child {}, error: {}",
+                            uri,
+                            e.verbose()
+                        ),
+                    };
+                }
             }
-        }
-        Ok(status)
+            Ok(status)
+        })
+        .await
     }
 
     /// The child may require a rebuild first, so the nexus will
@@ -182,9 +185,6 @@ impl Nexus {
                 // it can never take part in the IO path
                 // of the nexus until it's rebuilt from a healthy child.
                 child.out_of_sync(true);
-                if ChildStatusConfig::add(&child).is_err() {
-                    error!("Failed to add child status information");
-                }
 
                 self.children.push(child);
                 self.child_count += 1;
@@ -214,38 +214,31 @@ impl Nexus {
     /// Destroy child with given uri.
     /// If the child does not exist the method returns success.
     pub async fn remove_child(&mut self, uri: &str) -> Result<(), Error> {
-        if self.child_count == 1 {
-            return Err(Error::DestroyLastChild {
+        nexus_validator::remove_child(&self.name.clone(), uri, async {
+            let cancelled_rebuilding_children =
+                self.cancel_child_rebuild_jobs(uri).await;
+
+            let idx = match self.children.iter().position(|c| c.name == uri) {
+                None => return Ok(()),
+                Some(val) => val,
+            };
+
+            self.children[idx].close();
+            assert_eq!(self.children[idx].state, ChildState::Closed);
+
+            let mut child = self.children.remove(idx);
+            self.child_count -= 1;
+            self.reconfigure(DREvent::ChildRemove).await;
+
+            let result = child.destroy().await.context(DestroyChild {
                 name: self.name.clone(),
-                child: uri.to_owned(),
+                child: uri,
             });
-        }
 
-        let cancelled_rebuilding_children =
-            self.cancel_child_rebuild_jobs(uri).await;
-
-        let idx = match self.children.iter().position(|c| c.name == uri) {
-            None => return Ok(()),
-            Some(val) => val,
-        };
-
-        self.children[idx].close();
-        assert_eq!(self.children[idx].state, ChildState::Closed);
-
-        let mut child = self.children.remove(idx);
-        self.child_count -= 1;
-
-        // Update child status to remove this child
-        NexusChild::save_state_change();
-        self.reconfigure(DREvent::ChildRemove).await;
-
-        let result = child.destroy().await.context(DestroyChild {
-            name: self.name.clone(),
-            child: uri,
-        });
-
-        self.start_rebuild_jobs(cancelled_rebuilding_children).await;
-        result
+            self.start_rebuild_jobs(cancelled_rebuilding_children).await;
+            result
+        })
+        .await
     }
 
     /// offline a child device and reconfigure the IO channels

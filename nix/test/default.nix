@@ -17,4 +17,5 @@ in
   rebuild = pkgs.nixosTest ./rebuild/rebuild.nix;
   disconnect = pkgs.nixosTest ./disconnect/disconnect.nix;
   child_status = pkgs.nixosTest ./child_status/child_status.nix;
+  validation = pkgs.nixosTest ./validation/validation.nix;
 }

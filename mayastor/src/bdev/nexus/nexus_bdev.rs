@@ -54,6 +54,7 @@ use crate::{
     nexus_uri::{bdev_destroy, NexusBdevError},
     rebuild::RebuildError,
     subsys::Config,
+    validation::nexus_validator::NexusValidationError,
 };
 
 /// Obtain the full error chain
@@ -232,6 +233,8 @@ pub enum Error {
     FailedGetHandle,
     #[snafu(display("Failed to create snapshot"))]
     FailedCreateSnapshot,
+    #[snafu(display("Validation failed"))]
+    ValidationFailed { source: NexusValidationError },
 }
 
 impl From<Error> for tonic::Status {
