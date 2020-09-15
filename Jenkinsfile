@@ -31,6 +31,8 @@ pipeline {
             sh 'nix-build ./nix/test -A fio_nvme_basic'
             sh 'nix-build ./nix/test -A nvmf_distributed'
             sh 'nix-build ./nix/test -A nvmf_ports'
+            sh 'nix-build ./nix/test -A child_status'
+            sh 'nix-build ./nix/test -A validation'
           }
         }
         stage('moac unit tests') {

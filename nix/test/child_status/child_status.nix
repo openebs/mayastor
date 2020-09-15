@@ -58,6 +58,11 @@ in
         )
 
 
+    def wait_for_mayastor():
+        # A simple grpc call which will return success when mayastor is running
+        node.wait_until_succeeds("mayastor-client -a ${node_ip} nexus list")
+
+
     init()
 
     with subtest("rebuild on mayastor restart"):
@@ -69,7 +74,7 @@ in
 
         # Restart mayastor service
         node.systemctl("restart mayastor")
-        sleep(1)
+        wait_for_mayastor()
 
         # Rebuild should have been completed and everything should be healthy
         check_nexus_state("online")
@@ -84,7 +89,7 @@ in
 
         # Restart mayastor service
         node.systemctl("restart mayastor")
-        sleep(1)
+        wait_for_mayastor()
 
         # The faulted child should remain faulted causing the nexus to be in a degraded state
         check_nexus_state("degraded")
