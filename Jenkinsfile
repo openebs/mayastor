@@ -23,6 +23,11 @@ pipeline {
           steps {
             sh 'nix-shell --run "./scripts/node-test.sh"'
           }
+          post {
+            always {
+              junit '*-xunit-report.xml'
+            }
+          }
         }
         stage('nix tests') {
           agent { label 'nixos-mayastor-kvm' }
@@ -37,6 +42,11 @@ pipeline {
           agent { label 'nixos-mayastor' }
           steps {
             sh 'nix-shell --run "./scripts/moac-test.sh"'
+          }
+          post {
+            always {
+              junit 'moac-xunit-report.xml'
+            }
           }
         }
       }

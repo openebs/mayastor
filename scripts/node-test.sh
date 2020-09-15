@@ -7,10 +7,9 @@ export PATH=$PATH:${HOME}/.cargo/bin
 cargo build --all
 cd mayastor-test
 npm install
-./node_modules/mocha/bin/mocha test_cli.js
-./node_modules/mocha/bin/mocha test_replica.js
-./node_modules/mocha/bin/mocha test_nexus.js
-./node_modules/mocha/bin/mocha test_csi.js
-./node_modules/mocha/bin/mocha test_rebuild.js
-./node_modules/mocha/bin/mocha test_snapshot.js
-./node_modules/mocha/bin/mocha test_nats.js
+
+for ts in cli replica nexus csi rebuild snapshot nats; do
+  ./node_modules/mocha/bin/mocha test_${ts}.js \
+      --reporter ./multi_reporter.js \
+      --reporter-options reporters="xunit spec",output=../${ts}-xunit-report.xml
+done
