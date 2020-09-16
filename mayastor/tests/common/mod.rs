@@ -11,6 +11,8 @@ use once_cell::sync::OnceCell;
 use run_script::{self, ScriptOptions};
 use url::{ParseError, Url};
 
+use tracing::{error, info, trace};
+
 use mayastor::{
     core::{MayastorEnvironment, Mthread},
     logger,
@@ -330,7 +332,7 @@ pub fn dd_urandom_blkdev(device: &str) -> i32 {
     &run_script::ScriptOptions::new(),
     )
     .unwrap();
-    log::trace!("dd_urandom_blkdev:\nstdout: {}\nstderr: {}", stdout, stderr);
+    trace!("dd_urandom_blkdev:\nstdout: {}\nstderr: {}", stdout, stderr);
     exit
 }
 pub fn dd_urandom_file_size(device: &str, size: u64) -> String {
@@ -437,15 +439,15 @@ pub fn wait_for_rebuild(
         while curr_state != state && error.is_ok() {
             select! {
                 recv(ch) -> state => {
-                    log::trace!("rebuild of child {} signalled with state {:?}", cname, state);
+                    trace!("rebuild of child {} signalled with state {:?}", cname, state);
                     curr_state = state.unwrap_or_else(|e| {
-                        log::error!("failed to wait for the rebuild with error: {}", e);
+                        error!("failed to wait for the rebuild with error: {}", e);
                         error = Err(());
                         curr_state
                     })
                 },
                 recv(after(timeout - now.elapsed())) -> _ => {
-                    log::error!("timed out waiting for the rebuild after {:?}", timeout);
+                    error!("timed out waiting for the rebuild after {:?}", timeout);
                     error = Err(())
                 }
             }
@@ -476,7 +478,7 @@ pub fn fio_verify_size(device: &str, size: u64) -> i32 {
         &run_script::ScriptOptions::new(),
     )
     .unwrap();
-    log::info!("stdout: {}\nstderr: {}", stdout, stderr);
+    info!("stdout: {}\nstderr: {}", stdout, stderr);
     exit
 }
 

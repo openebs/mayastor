@@ -1,7 +1,7 @@
 #[macro_use]
 extern crate ioctl_gen;
 #[macro_use]
-extern crate log;
+extern crate tracing;
 extern crate nix;
 #[macro_use]
 extern crate serde;

@@ -45,7 +45,6 @@ use futures::{
     task::{Context, Poll},
     Future,
 };
-use log::info;
 use once_cell::sync::OnceCell;
 use serde::export::Formatter;
 

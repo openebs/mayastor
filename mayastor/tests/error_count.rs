@@ -1,5 +1,3 @@
-extern crate log;
-
 pub use common::error_bdev::{
     create_error_bdev,
     inject_error,
@@ -7,6 +5,7 @@ pub use common::error_bdev::{
     SPDK_BDEV_IO_TYPE_WRITE,
     VBDEV_IO_FAILURE,
 };
+
 use mayastor::{
     bdev::{nexus_create, nexus_lookup, ActionType, NexusErrStore, QueryType},
     core::{

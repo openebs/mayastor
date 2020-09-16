@@ -204,7 +204,7 @@ fn share_as_iscsi_target(
             &mut ig_idx as *mut _,
             1,
             &mut bdev.name().into_cstring().as_ptr(),
-            &mut LUN as *mut _,
+            &LUN as *const _ as *mut _,
             1,
             128,
             true,

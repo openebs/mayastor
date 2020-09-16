@@ -1,9 +1,21 @@
-use std::{ffi::CStr, io::Write, os::raw::c_char, path::Path};
+use std::{ffi::CStr, os::raw::c_char, str::FromStr};
 
-use env_logger::{Builder, Env};
-use log::{logger, Level, Record};
+use tracing_log::format_trace;
+use tracing_subscriber::fmt::{format::FmtSpan, time::FormatTime, Subscriber};
 
-use spdk_sys::spdk_log_get_print_level;
+use spdk_sys::{spdk_log_get_print_level, spdk_log_level};
+
+fn from_spdk_level(level: spdk_log_level) -> log::Level {
+    match level {
+        spdk_sys::SPDK_LOG_ERROR => log::Level::Error,
+        spdk_sys::SPDK_LOG_WARN => log::Level::Warn,
+        spdk_sys::SPDK_LOG_INFO => log::Level::Info,
+        spdk_sys::SPDK_LOG_NOTICE => log::Level::Debug,
+        spdk_sys::SPDK_LOG_DEBUG => log::Level::Trace,
+        // any other level unknown to us is logged as an error
+        _ => log::Level::Error,
+    }
+}
 
 /// Log messages originating from SPDK, are processed by this function.
 /// Note that the log levels between spdk and rust do not exactly match.
@@ -13,44 +25,43 @@ use spdk_sys::spdk_log_get_print_level;
 /// a safe function.
 #[allow(clippy::not_unsafe_ptr_arg_deref)]
 pub extern "C" fn log_impl(
-    level: i32,
+    spdk_level: spdk_log_level,
     file: *const c_char,
     line: u32,
     _func: *const c_char,
     buf: *const c_char,
     _n: i32, // the number of bytes written into buf
 ) {
+    if spdk_level == spdk_sys::SPDK_LOG_DISABLED {
+        return;
+    }
+
+    if unsafe { spdk_log_get_print_level() } < spdk_level {
+        return;
+    }
+
     // remove new line characters from the log messages if any
     let fmt =
         unsafe { CStr::from_ptr(buf).to_string_lossy().trim_end().to_string() };
     let filename = unsafe { CStr::from_ptr(file).to_str().unwrap() };
 
-    if unsafe { spdk_log_get_print_level() } < level {
-        return;
-    }
-
-    let lvl = match level {
-        spdk_sys::SPDK_LOG_DISABLED => return,
-        spdk_sys::SPDK_LOG_ERROR => Level::Error,
-        spdk_sys::SPDK_LOG_WARN => Level::Warn,
-        // the default level for now
-        spdk_sys::SPDK_LOG_INFO => Level::Info,
-        spdk_sys::SPDK_LOG_NOTICE => Level::Debug,
-        spdk_sys::SPDK_LOG_DEBUG => Level::Trace,
-        // if the error level is unknown to us we log it as an error by
-        // default
-        _ => Level::Error,
-    };
-
-    logger().log(
-        &Record::builder()
+    format_trace(
+        &log::Record::builder()
             .args(format_args!("{}", fmt))
             .target(module_path!())
             .file(Some(filename))
             .line(Some(line))
-            .level(lvl)
+            .level(from_spdk_level(spdk_level))
             .build(),
-    );
+    )
+    .unwrap();
+}
+
+struct CustomTime<'a>(&'a str);
+impl FormatTime for CustomTime<'_> {
+    fn format_time(&self, w: &mut dyn std::fmt::Write) -> std::fmt::Result {
+        write!(w, "{}", chrono::Local::now().format(self.0))
+    }
 }
 
 /// This function configures the logging format. The loglevel is also processed
@@ -60,25 +71,14 @@ pub extern "C" fn log_impl(
 /// We might want to suppress certain messages, as some of them are redundant,
 /// in particular, the NOTICE messages as such, they are mapped to debug.
 pub fn init(level: &str) {
-    let mut builder =
-        Builder::from_env(Env::default().default_filter_or(level.to_string()));
-
-    builder.format(|buf, record| {
-        let mut level_style = buf.default_level_style(record.level());
-        level_style.set_intense(true);
-        writeln!(
-            buf,
-            "[{} {} {}:{}] {}",
-            buf.timestamp_nanos(),
-            level_style.value(record.level()),
-            Path::new(record.file().unwrap())
-                .file_name()
-                .unwrap()
-                .to_str()
-                .unwrap(),
-            record.line().unwrap(),
-            record.args()
+    let subscriber = Subscriber::builder()
+        .with_timer(CustomTime("%FT%T%.9f%Z"))
+        .with_span_events(FmtSpan::FULL)
+        .with_max_level(
+            tracing::Level::from_str(level).unwrap_or(tracing::Level::TRACE),
         )
-    });
-    builder.init();
+        .finish();
+
+    tracing::subscriber::set_global_default(subscriber)
+        .expect("failed to set default subscriber");
 }

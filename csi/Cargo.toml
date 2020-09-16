@@ -29,7 +29,6 @@ http-body = "0.2"
 itertools = "0.9"
 lazy_static = "1.4.0"
 libc = "0.2"
-log = "0.4"
 loopdev = "*"
 nix = "0.16"
 nvmeadm = { path = "../nvmeadm", version = "0.1.0" }
@@ -46,6 +45,9 @@ tokio = { version = "0.2", features = ["full"] }
 run_script = "*"
 tonic = "0.1"
 tower = "0.3"
+tracing = "0.1"
+tracing-futures = "0.2.4"
+tracing-subscriber = "0.2.0"
 udev = "0.4"
 url = "2.1.1"
 uuid = { version = "0.7", features = ["v4"] }

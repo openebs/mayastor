@@ -1,5 +1,5 @@
 #[macro_use]
-extern crate log;
+extern crate tracing;
 
 use std::{
     cell::{Ref, RefCell, RefMut},

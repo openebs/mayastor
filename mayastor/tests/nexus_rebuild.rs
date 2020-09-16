@@ -2,6 +2,7 @@ use std::sync::Mutex;
 
 use crossbeam::channel::unbounded;
 use once_cell::sync::Lazy;
+use tracing::error;
 
 use common::error_bdev;
 use mayastor::{
@@ -387,7 +388,7 @@ fn rebuild_sizes() {
             nexus.add_child(&get_dev(2), true).await.unwrap();
             // within start_rebuild the size should be validated
             let _ = nexus.start_rebuild(&get_dev(2)).await.unwrap_or_else(|e| {
-                log::error!( "Case {} - Child should have started to rebuild but got error:\n {:}",
+                error!( "Case {} - Child should have started to rebuild but got error:\n {:}",
                     test_case_index, e.verbose());
                 panic!(
                     "Case {} - Child should have started to rebuild but got error:\n {}",
@@ -451,10 +452,9 @@ fn rebuild_lookup() {
             RebuildJob::lookup_src(&get_dev(child))
                 .iter()
                 .inspect(|&job| {
-                    log::error!(
+                    error!(
                         "Job {:?} should be associated with src child {}",
-                        job,
-                        child
+                        job, child
                     );
                 })
                 .any(|_| panic!("Should not have found any jobs!"));
@@ -476,10 +476,9 @@ fn rebuild_lookup() {
                     .iter()
                     .filter(|s| s.destination != get_dev(child))
                     .inspect(|&job| {
-                        log::error!(
+                        error!(
                             "Job {:?} should be associated with src child {}",
-                            job,
-                            child
+                            job, child
                         );
                     })
                     .any(|_| panic!("Should not have found any jobs!"));
