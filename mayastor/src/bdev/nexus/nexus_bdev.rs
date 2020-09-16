@@ -19,7 +19,6 @@ use tonic::{Code, Status};
 use spdk_sys::{
     spdk_bdev,
     spdk_bdev_desc,
-    spdk_bdev_flush_blocks,
     spdk_bdev_io,
     spdk_bdev_io_get_buf,
     spdk_bdev_nvme_admin_passthru,
@@ -640,22 +639,23 @@ impl Nexus {
         success: bool,
         parent_io: *mut c_void,
     ) {
-        let mut pio = Bio(parent_io as *mut _);
+        let mut pio = Bio::from(parent_io);
+        let mut chio = Bio::from(child_io);
 
         // if any child IO has failed record this within the io context
         if !success {
             trace!(
                 "child IO {:?} ({}) of parent {:?} failed",
-                Bio(child_io),
-                (*child_io).type_,
+                chio,
+                chio.io_type(),
                 pio
             );
 
             pio.ctx_as_mut_ref().status = io_status::FAILED;
         }
-        pio.assess(child_io, success);
+        pio.assess(&mut chio, success);
         // always free the child IO
-        Bio::io_free(child_io);
+        chio.free();
     }
 
     /// callback when the IO has buffer associated with itself
@@ -665,7 +665,7 @@ impl Nexus {
         success: bool,
     ) {
         if !success {
-            let bio = Bio(io);
+            let bio = Bio::from(io);
             let nexus = bio.nexus_as_ref();
             warn!("{}: Failed to get io buffer for io {:?}", nexus.name, bio);
         }
@@ -674,7 +674,7 @@ impl Nexus {
         let (desc, ch) = ch.ch[ch.previous].io_tuple();
         let ret = Self::readv_impl(io, desc, ch);
         if ret != 0 {
-            let bio = Bio(io);
+            let bio = Bio::from(io);
             let nexus = bio.nexus_as_ref();
             error!("{}: Failed to submit IO {:?}", nexus.name, bio);
         }
@@ -691,7 +691,7 @@ impl Nexus {
         if io.need_buf() {
             unsafe {
                 spdk_bdev_io_get_buf(
-                    io.0,
+                    io.as_ptr(),
                     Some(Self::nexus_get_buf_cb),
                     io.num_blocks() * io.block_len(),
                 )
@@ -701,13 +701,13 @@ impl Nexus {
 
         let (desc, ch) = channels.ch[child].io_tuple();
 
-        let ret = Self::readv_impl(io.0, desc, ch);
+        let ret = Self::readv_impl(io.as_ptr(), desc, ch);
 
         if ret != 0 {
             error!(
                 "{}: Failed to submit dispatched IO {:p}",
                 io.nexus_as_ref().name,
-                io.0
+                io.as_ptr()
             );
 
             io.fail();
@@ -721,7 +721,7 @@ impl Nexus {
         desc: *mut spdk_bdev_desc,
         ch: *mut spdk_io_channel,
     ) -> i32 {
-        let io = Bio(pio);
+        let io = Bio::from(pio);
         let nexus = io.nexus_as_ref();
         unsafe {
             spdk_bdev_readv_blocks(
@@ -732,7 +732,7 @@ impl Nexus {
                 io.offset() + nexus.data_ent_offset,
                 io.num_blocks(),
                 Some(Self::io_completion),
-                io.0 as *mut _,
+                io.as_ptr() as *mut _,
             )
         }
     }
@@ -750,7 +750,7 @@ impl Nexus {
                     bdev,
                     chan,
                     Some(Self::io_completion),
-                    io.0 as *mut _,
+                    io.as_ptr() as *mut _,
                 )
             })
             .collect::<Vec<_>>();
@@ -760,7 +760,7 @@ impl Nexus {
             error!(
                 "{}: Failed to submit dispatched IO {:?}",
                 io.nexus_as_ref().name,
-                io.0
+                io.as_ptr(),
             );
         }
     }
@@ -781,7 +781,7 @@ impl Nexus {
                     io.offset() + io.nexus_as_ref().data_ent_offset,
                     io.num_blocks(),
                     Some(Self::io_completion),
-                    io.0 as *mut _,
+                    io.as_ptr() as *mut _,
                 )
             })
             .collect::<Vec<_>>();
@@ -791,7 +791,7 @@ impl Nexus {
             error!(
                 "{}: Failed to submit dispatched IO {:?}",
                 io.nexus_as_ref().name,
-                io.0
+                io.as_ptr()
             );
         }
     }
@@ -808,7 +808,7 @@ impl Nexus {
                     io.offset() + io.nexus_as_ref().data_ent_offset,
                     io.num_blocks(),
                     Some(Self::io_completion),
-                    io.0 as *mut _,
+                    io.as_ptr() as *mut _,
                 )
             })
             .collect::<Vec<_>>();
@@ -817,33 +817,7 @@ impl Nexus {
             error!(
                 "{}: Failed to submit dispatched IO {:?}",
                 io.nexus_as_ref().name,
-                io.0
-            );
-        }
-    }
-
-    pub(crate) fn flush(&self, io: &Bio, channels: &NexusChannelInner) {
-        let results = channels
-            .ch
-            .iter()
-            .map(|c| unsafe {
-                let (b, c) = c.io_tuple();
-                spdk_bdev_flush_blocks(
-                    b,
-                    c,
-                    io.offset() + io.nexus_as_ref().data_ent_offset,
-                    io.num_blocks(),
-                    Some(Self::io_completion),
-                    io.0 as *mut _,
-                )
-            })
-            .collect::<Vec<_>>();
-
-        if results.iter().any(|r| *r != 0) {
-            error!(
-                "{}: Failed to submit dispatched IO {:?}",
-                io.nexus_as_ref().name,
-                io.0
+                io.as_ptr()
             );
         }
     }
@@ -860,7 +834,7 @@ impl Nexus {
                     io.offset() + io.nexus_as_ref().data_ent_offset,
                     io.num_blocks(),
                     Some(Self::io_completion),
-                    io.0 as *mut _,
+                    io.as_ptr() as *mut _,
                 )
             })
             .collect::<Vec<_>>();
@@ -869,7 +843,7 @@ impl Nexus {
             error!(
                 "{}: Failed to submit dispatched IO {:?}",
                 io.nexus_as_ref().name,
-                io.0
+                io.as_ptr()
             );
         }
     }
@@ -893,7 +867,7 @@ impl Nexus {
                     io.nvme_buf(),
                     io.nvme_nbytes(),
                     Some(Self::io_completion),
-                    io.0 as *mut _,
+                    io.as_ptr() as *mut _,
                 )
             })
             .collect::<Vec<_>>();
@@ -902,7 +876,7 @@ impl Nexus {
             error!(
                 "{}: Failed to submit dispatched IO {:?}",
                 io.nexus_as_ref().name,
-                io.0
+                io.as_ptr()
             );
         }
     }

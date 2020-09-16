@@ -7,6 +7,7 @@ use spdk_sys::{
     spdk_bdev_free_io,
     spdk_bdev_io,
     spdk_bdev_io_complete,
+    spdk_bdev_io_get_io_channel,
     spdk_io_channel,
 };
 
@@ -17,6 +18,7 @@ use crate::{
     },
     core::Bdev,
 };
+use std::ptr::NonNull;
 
 /// NioCtx provides context on a per IO basis
 #[derive(Debug, Clone)]
@@ -27,8 +29,6 @@ pub struct NioCtx {
     pub(crate) status: i32,
     /// attempts left
     pub(crate) io_attempts: i32,
-    /// pointer to the inner channels
-    pub(crate) nexus_channel: *mut spdk_io_channel,
 }
 
 /// BIO is a wrapper to provides a "less unsafe" wrappers around raw
@@ -52,7 +52,20 @@ pub struct NioCtx {
 ///
 /// 2.  The IO pointers are never accessed from any other thread
 /// and care must be taken that you never pass an IO ptr to another core
-pub(crate) struct Bio(pub *mut spdk_bdev_io);
+#[derive(Clone)]
+pub(crate) struct Bio(NonNull<spdk_bdev_io>);
+
+impl From<*mut c_void> for Bio {
+    fn from(io: *mut c_void) -> Self {
+        Bio(NonNull::new(io as *mut spdk_bdev_io).unwrap())
+    }
+}
+
+impl From<*mut spdk_bdev_io> for Bio {
+    fn from(io: *mut spdk_bdev_io) -> Self {
+        Bio(NonNull::new(io as *mut spdk_bdev_io).unwrap())
+    }
+}
 
 /// redefinition of IO types to make them (a) shorter and (b) get rid of the
 /// enum conversion bloat.
@@ -96,25 +109,22 @@ pub mod nvme_admin_opc {
 impl Bio {
     /// obtain tbe Bdev this IO is associated with
     pub(crate) fn bdev_as_ref(&self) -> Bdev {
-        unsafe { Bdev::from((*self.0).bdev) }
+        unsafe { Bdev::from(self.0.as_ref().bdev) }
+    }
+
+    pub(crate) fn io_channel(&self) -> *mut spdk_io_channel {
+        unsafe { spdk_bdev_io_get_io_channel(self.0.as_ptr()) }
     }
 
     /// initialize the ctx fields of an spdk_bdev_io
-    pub fn init(
-        io: *mut spdk_bdev_io,
-        nexus_channel: *mut spdk_io_channel,
-        io_attempts: i32,
-    ) {
-        let mut bio = Bio(io);
-        bio.ctx_as_mut_ref().io_attempts = io_attempts;
-        bio.ctx_as_mut_ref().nexus_channel = nexus_channel;
+    pub fn init(&mut self) {
+        self.ctx_as_mut_ref().io_attempts = self.nexus_as_ref().max_io_attempts;
     }
 
     /// reset the ctx fields of an spdk_bdev_io to submit or resubmit an IO
-    pub fn reset(io: *mut spdk_bdev_io, in_flight: i8) {
-        let mut bio = Bio(io);
-        bio.ctx_as_mut_ref().in_flight = in_flight;
-        bio.ctx_as_mut_ref().status = io_status::SUCCESS;
+    pub fn reset(&mut self, in_flight: usize) {
+        self.ctx_as_mut_ref().in_flight = in_flight as i8;
+        self.ctx_as_mut_ref().status = io_status::SUCCESS;
     }
 
     /// complete an IO for the nexus. In the IO completion routine in
@@ -134,42 +144,34 @@ impl Bio {
             }
         }
         unsafe {
-            spdk_bdev_io_complete(self.0, io_status::SUCCESS);
+            spdk_bdev_io_complete(self.0.as_ptr(), io_status::SUCCESS);
         }
     }
     /// mark the IO as failed
     #[inline]
     pub(crate) fn fail(&self) {
         unsafe {
-            spdk_bdev_io_complete(self.0, io_status::FAILED);
+            spdk_bdev_io_complete(self.0.as_ptr(), io_status::FAILED);
         }
     }
 
     /// assess the IO if we need to mark it failed or ok.
     #[inline]
-    pub(crate) fn assess(
-        &mut self,
-        child_io: *const spdk_bdev_io,
-        success: bool,
-    ) {
+    pub(crate) fn assess(&mut self, child_io: &mut Bio, success: bool) {
         self.ctx_as_mut_ref().in_flight -= 1;
 
         debug_assert!(self.ctx_as_mut_ref().in_flight >= 0);
 
-        if !success && !child_io.is_null() {
-            let io_type = Bio::io_type(self.0).unwrap();
+        if !success {
             let io_offset = self.offset();
             let io_num_blocks = self.num_blocks();
-
-            unsafe {
-                self.nexus_as_ref().error_record_add(
-                    (*child_io).bdev,
-                    io_type,
-                    io_status::FAILED,
-                    io_offset,
-                    io_num_blocks,
-                );
-            }
+            self.nexus_as_ref().error_record_add(
+                child_io.bdev_as_ref().as_ptr(),
+                self.io_type(),
+                io_status::FAILED,
+                io_offset,
+                io_num_blocks,
+            );
         }
 
         if self.ctx_as_mut_ref().in_flight == 0 {
@@ -177,8 +179,8 @@ impl Bio {
                 self.ctx_as_mut_ref().io_attempts -= 1;
                 if self.ctx_as_mut_ref().io_attempts > 0 {
                     NexusFnTable::io_submit_or_resubmit(
-                        self.ctx_as_mut_ref().nexus_channel,
-                        self.0,
+                        self.io_channel(),
+                        &mut self.clone(),
                     );
                 } else {
                     self.fail();
@@ -201,74 +203,67 @@ impl Bio {
     #[inline]
     pub(crate) fn ctx_as_mut_ref(&mut self) -> &mut NioCtx {
         unsafe {
-            &mut *((*self.0).driver_ctx.as_mut_ptr() as *const c_void
-                as *mut NioCtx)
+            &mut *(self.0.as_mut().driver_ctx.as_mut_ptr() as *mut NioCtx)
         }
     }
 
     /// get a raw pointer to the base of the iov
     #[inline]
     pub(crate) fn iovs(&self) -> *mut spdk_sys::iovec {
-        unsafe { (*self.0).u.bdev.iovs }
+        unsafe { self.0.as_ref().u.bdev.iovs }
     }
 
     /// number of iovs that are part of this IO
     #[inline]
     pub(crate) fn iov_count(&self) -> i32 {
-        unsafe { (*self.0).u.bdev.iovcnt }
+        unsafe { self.0.as_ref().u.bdev.iovcnt }
     }
 
     /// offset where we do the IO on the device
     #[inline]
     pub(crate) fn offset(&self) -> u64 {
-        unsafe { (*self.0).u.bdev.offset_blocks }
+        unsafe { self.0.as_ref().u.bdev.offset_blocks }
     }
 
     /// num of blocks this IO will read/write/unmap
     #[inline]
     pub(crate) fn num_blocks(&self) -> u64 {
-        unsafe { (*self.0).u.bdev.num_blocks }
+        unsafe { self.0.as_ref().u.bdev.num_blocks }
     }
 
     /// NVMe passthru command
     #[inline]
     pub(crate) fn nvme_cmd(&self) -> spdk_sys::spdk_nvme_cmd {
-        unsafe { (*self.0).u.nvme_passthru.cmd }
+        unsafe { self.0.as_ref().u.nvme_passthru.cmd }
     }
 
     /// raw pointer to NVMe passthru data buffer
     #[inline]
     pub(crate) fn nvme_buf(&self) -> *mut c_void {
-        unsafe { (*self.0).u.nvme_passthru.buf }
+        unsafe { self.0.as_ref().u.nvme_passthru.buf as *mut _ }
     }
 
     /// NVMe passthru number of bytes to transfer
     #[inline]
     pub(crate) fn nvme_nbytes(&self) -> u64 {
-        unsafe { (*self.0).u.nvme_passthru.nbytes }
+        unsafe { self.0.as_ref().u.nvme_passthru.nbytes }
     }
 
-    /// free the io directly without completion note that the IO is not freed
-    /// but rather put back into the mempool, which is allocated during startup
-    #[inline]
-    pub(crate) fn io_free(io: *mut spdk_bdev_io) {
-        unsafe { spdk_bdev_free_io(io) }
+    /// free the IO
+    pub(crate) fn free(&self) {
+        unsafe { spdk_bdev_free_io(self.0.as_ptr()) }
     }
 
     /// determine the type of this IO
     #[inline]
-    pub(crate) fn io_type(io: *mut spdk_bdev_io) -> Option<u32> {
-        if io.is_null() {
-            trace!("io is null!!");
-            return None;
-        }
-        Some(unsafe { (*io).type_ } as u32)
+    pub(crate) fn io_type(&self) -> u32 {
+        unsafe { self.0.as_ref().type_ as u32 }
     }
 
     /// get the block length of this IO
     #[inline]
     pub(crate) fn block_len(&self) -> u64 {
-        unsafe { u64::from((*(*self.0).bdev).blocklen) }
+        self.bdev_as_ref().block_len() as u64
     }
 
     /// determine if the IO needs an indirect buffer this can happen for example
@@ -284,6 +279,10 @@ impl Bio {
             slice[0].iov_base.is_null()
         }
     }
+
+    pub(crate) fn as_ptr(&self) -> *mut spdk_bdev_io {
+        self.0.as_ptr()
+    }
 }
 
 impl Debug for Bio {
@@ -294,7 +293,7 @@ impl Debug for Bio {
             self.bdev_as_ref().name(),
             self.offset(),
             self.num_blocks(),
-            Bio::io_type(self.0).unwrap(),
+            self.io_type(),
             self
         )
     }
