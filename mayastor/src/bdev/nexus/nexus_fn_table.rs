@@ -96,71 +96,67 @@ impl NexusFnTable {
         io: *mut spdk_bdev_io,
     ) {
         // only set the number of IO attempts before the first attempt
-        Bio::init(io, channel, Bio(io).nexus_as_ref().max_io_attempts);
-        Self::io_submit_or_resubmit(channel, io);
+        let mut bio = Bio::from(io);
+        bio.init();
+        Self::io_submit_or_resubmit(channel, &mut bio);
     }
 
     /// Submit an IO to the children at the first or subsequent attempts.
-    pub fn io_submit_or_resubmit(
+    pub(crate) fn io_submit_or_resubmit(
         channel: *mut spdk_io_channel,
-        io: *mut spdk_bdev_io,
+        nio: &mut Bio,
     ) {
-        if let Some(io_type) = Bio::io_type(io) {
-            let mut ch = NexusChannel::inner_from_channel(channel);
+        let mut ch = NexusChannel::inner_from_channel(channel);
 
-            // set the fields that need to be (re)set per-attempt
-            match io_type {
-                io_type::READ => Bio::reset(io, 1),
-                _ => Bio::reset(io, ch.ch.len() as i8),
-            };
-
-            let nio = Bio(io);
-            let nexus = nio.nexus_as_ref();
-
-            match io_type {
-                io_type::READ => nexus.readv(&nio, &mut ch),
-                io_type::WRITE => nexus.writev(&nio, &ch),
-                io_type::RESET => {
-                    trace!("{}: Dispatching RESET", nexus.bdev.name());
-                    nexus.reset(&nio, &ch)
-                }
-                io_type::UNMAP => {
-                    if nexus.io_is_supported(io_type) {
-                        nexus.unmap(&nio, &ch)
-                    } else {
-                        nio.fail();
-                    }
-                }
-                io_type::FLUSH => {
-                    if nexus.io_is_supported(io_type) {
-                        nexus.flush(&nio, &ch)
-                    } else {
-                        nio.fail()
-                    }
-                }
-                io_type::WRITE_ZEROES => {
-                    if nexus.io_is_supported(io_type) {
-                        nexus.write_zeroes(&nio, &ch)
-                    } else {
-                        nio.fail()
-                    }
-                }
-                io_type::NVME_ADMIN => {
-                    if nexus.io_is_supported(io_type) {
-                        nexus.nvme_admin(&nio, &ch)
-                    } else {
-                        nio.fail()
-                    }
-                }
-                _ => panic!(
-                    "{} Received unsupported IO! type {}",
-                    nexus.name, io_type
-                ),
-            };
+        // set the fields that need to be (re)set per-attempt
+        if nio.io_type() == io_type::READ {
+            nio.reset(1);
         } else {
-            // something is very wrong ...
-            error!("Received unknown IO type {}", unsafe { (*io).type_ });
+            nio.reset(ch.ch.len())
         }
+
+        let nexus = nio.nexus_as_ref();
+        let io_type = nio.io_type();
+        match io_type {
+            io_type::READ => nexus.readv(&nio, &mut ch),
+            io_type::WRITE => nexus.writev(&nio, &ch),
+            io_type::RESET => {
+                trace!("{}: Dispatching RESET", nexus.bdev.name());
+                nexus.reset(&nio, &ch)
+            }
+            io_type::UNMAP => {
+                if nexus.io_is_supported(io_type) {
+                    nexus.unmap(&nio, &ch)
+                } else {
+                    nio.fail();
+                }
+            }
+            io_type::FLUSH => {
+                // our replica's are attached to as nvme controllers
+                // who always support flush. This can be troublesome
+                // so we complete the IO directly.
+                nio.reset(0);
+                nio.ok();
+            }
+            io_type::WRITE_ZEROES => {
+                if nexus.io_is_supported(io_type) {
+                    nexus.write_zeroes(&nio, &ch)
+                } else {
+                    nio.fail()
+                }
+            }
+            io_type::NVME_ADMIN => {
+                if nexus.io_is_supported(io_type) {
+                    nexus.nvme_admin(&nio, &ch)
+                } else {
+                    nio.fail()
+                }
+            }
+            _ => panic!(
+                "{} Received unsupported IO! type {}",
+                nexus.name, io_type
+            ),
+        };
     }
 
     /// called per core to create IO channels per Nexus instance
