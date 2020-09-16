@@ -156,7 +156,7 @@ class Volume {
           } catch (err) {
             throw new GrpcError(
               GrpcCode.INTERNAL,
-              `Failed to set share pcol to ${share} for replica "${replica}": ${err}`
+              `Failed to set share protocol to ${share} for replica "${replica}": ${err}`
             );
           }
         }
@@ -529,7 +529,7 @@ class Volume {
         } catch (err) {
           throw new GrpcError(
             GrpcCode.INTERNAL,
-            `Failed to set share pcol to ${share} for replica "${replica}": ${err}`
+            `Failed to set share protocol to ${share} for replica "${replica}": ${err}`
           );
         }
       }

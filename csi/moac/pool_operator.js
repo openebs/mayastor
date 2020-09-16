@@ -11,6 +11,8 @@ const log = require('./logger').Logger('pool-operator');
 const Watcher = require('./watcher');
 const EventStream = require('./event_stream');
 const Workq = require('./workq');
+const { FinalizerHelper } = require('./finalizer_helper');
+const poolFinalizerValue = 'finalizer.mayastor.openebs.io';
 
 // Load custom resource definition
 const crdPool = yaml.safeLoad(
@@ -28,6 +30,12 @@ class PoolOperator {
     this.resource = {}; // List of storage pool resources indexed by name.
     this.watcher = null; // pool CRD watcher.
     this.workq = new Workq(); // for serializing pool operations
+    this.finalizerHelper = new FinalizerHelper(
+      this.namespace,
+      crdPool.spec.group,
+      crdPool.spec.version,
+      crdPool.spec.names.plural
+    );
   }
 
   // Create pool CRD if it doesn't exist and augment client object so that CRD
@@ -110,6 +118,8 @@ class PoolOperator {
         await self.workq.push(ev, self._onPoolEvent.bind(self));
       } else if (ev.kind === 'node' && (ev.eventType === 'sync' || ev.eventType === 'mod')) {
         await self.workq.push(ev.object.name, self._onNodeSyncEvent.bind(self));
+      } else if (ev.kind === 'replica' && (ev.eventType === 'new' || ev.eventType === 'del')) {
+        await self.workq.push(ev, self._onReplicaEvent.bind(self));
       }
     });
   }
@@ -154,6 +164,35 @@ class PoolOperator {
     );
     for (let i = 0; i < resources.length; i++) {
       await this._createPool(resources[i]);
+    }
+  }
+
+  // Handler for new/del replica events
+  //
+  // @param {object} ev       Replica event as received from event stream.
+  //
+  async _onReplicaEvent (ev) {
+    const replica = ev.object;
+
+    log.debug(`Received "${ev.eventType}" event for replica "${replica.name}"`);
+
+    if (replica.pool === undefined) {
+      log.warn(`not processing for finalizers: pool not defined for replica ${replica.name}.`);
+      return;
+    }
+
+    const pool = this.registry.getPool(replica.pool.name);
+    if (pool == null) {
+      log.warn(`not processing for finalizers: failed to retrieve pool ${replica.pool.name}`);
+      return;
+    }
+
+    log.debug(`On "${ev.eventType}" event for replica "${replica.name}", replica count=${pool.replicas.length}`);
+
+    if (pool.replicas.length > 0) {
+      this.finalizerHelper.addFinalizerToCR(replica.pool.name, poolFinalizerValue);
+    } else {
+      this.finalizerHelper.removeFinalizerFromCR(replica.pool.name, poolFinalizerValue);
     }
   }
 
@@ -307,7 +346,8 @@ class PoolOperator {
       reason,
       pool.disks,
       pool.capacity,
-      pool.used
+      pool.used,
+      pool.replicas.length
     );
   }
 
@@ -324,8 +364,9 @@ class PoolOperator {
   // @param {string[]} [disks]  Disk URIs.
   // @param {number} [capacity] Capacity of the pool in bytes.
   // @param {number} [used]     Used bytes in the pool.
+  // @param {number} [replicacount] Count of replicas using the pool.
   //
-  async _updateResourceProps (name, state, reason, disks, capacity, used) {
+  async _updateResourceProps (name, state, reason, disks, capacity, used, replicacount) {
     // For the update of CRD status we need a real k8s pool object, change the
     // status in it and store it back. Another reason for grabbing the latest
     // version of CRD from watcher cache (even if this.resource contains an older
@@ -362,7 +403,6 @@ class PoolOperator {
     if (used != null) {
       status.used = used;
     }
-    k8sPool.status = status;
 
     try {
       await this.k8sClient.apis['openebs.io'].v1alpha1
@@ -371,6 +411,15 @@ class PoolOperator {
         .status.put({ body: k8sPool });
     } catch (err) {
       log.error(`Failed to update status of pool "${name}": ${err}`);
+    }
+    k8sPool.status = status;
+
+    if (replicacount != null) {
+      if (replicacount === 0) {
+        this.finalizerHelper.removeFinalizer(k8sPool, name, poolFinalizerValue);
+      } else {
+        this.finalizerHelper.addFinalizer(k8sPool, name, poolFinalizerValue);
+      }
     }
   }
 }
