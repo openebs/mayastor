@@ -11,6 +11,7 @@ use mayastor::{
         MayastorEnvironment,
         Reactor,
     },
+    lvs::Lvol,
     subsys,
     subsys::Config,
 };
@@ -25,6 +26,7 @@ static CFGNAME1: &str = "/tmp/child1.yaml";
 static UUID1: &str = "00000000-76b6-4fcf-864d-1027d4038756";
 
 static NXNAME: &str = "replica_snapshot_test";
+static NXNAME_SNAP: &str = "replica_snapshot_test-snap";
 
 fn generate_config() {
     let mut config = Config::default();
@@ -82,6 +84,26 @@ fn conf_mayastor() {
     }
 }
 
+fn share_snapshot(t: u64) {
+    let msc = "../target/debug/mayastor-client";
+    let output = Command::new(msc)
+        .args(&[
+            "-p",
+            "10125",
+            "replica",
+            "share",
+            &Lvol::format_snapshot_name(UUID1, t),
+            "nvmf",
+        ])
+        .output()
+        .expect("could not exec mayastor-client");
+
+    if !output.status.success() {
+        io::stderr().write_all(&output.stderr).unwrap();
+        panic!("failed to configure mayastor");
+    }
+}
+
 #[test]
 fn replica_snapshot() {
     generate_config();
@@ -99,41 +121,59 @@ fn replica_snapshot() {
     test_init!();
 
     Reactor::block_on(async {
-        create_nexus().await;
-        bdev_io::write_some(NXNAME).await.unwrap();
+        create_nexus(0).await;
+        bdev_io::write_some(NXNAME, 0, 0xff).await.unwrap();
         custom_nvme_admin(0xc1)
             .await
             .expect_err("unexpectedly succeeded invalid nvme admin command");
-        bdev_io::read_some(NXNAME).await.unwrap();
-        create_snapshot().await.unwrap();
+        bdev_io::read_some(NXNAME, 0, 0xff).await.unwrap();
+        let t = create_snapshot().await.unwrap();
         // Check that IO to the replica still works after creating a snapshot
-        // Checking the snapshot itself is tbd
-        bdev_io::read_some(NXNAME).await.unwrap();
-        bdev_io::write_some(NXNAME).await.unwrap();
-        bdev_io::read_some(NXNAME).await.unwrap();
+        bdev_io::read_some(NXNAME, 0, 0xff).await.unwrap();
+        bdev_io::write_some(NXNAME, 0, 0xff).await.unwrap();
+        bdev_io::read_some(NXNAME, 0, 0xff).await.unwrap();
+        bdev_io::write_some(NXNAME, 1024, 0xaa).await.unwrap();
+        bdev_io::read_some(NXNAME, 1024, 0xaa).await.unwrap();
+        // Share the snapshot and create a new nexus
+        share_snapshot(t);
+        create_nexus(t).await;
+        bdev_io::write_some(NXNAME_SNAP, 0, 0xff)
+            .await
+            .expect_err("writing to snapshot should fail");
+        // Verify that data read from snapshot remains unchanged
+        bdev_io::write_some(NXNAME, 0, 0x55).await.unwrap();
+        bdev_io::read_some(NXNAME, 0, 0x55).await.unwrap();
+        bdev_io::read_some(NXNAME_SNAP, 0, 0xff).await.unwrap();
+        bdev_io::read_some(NXNAME_SNAP, 1024, 0).await.unwrap();
     });
     mayastor_env_stop(0);
 
     common::delete_file(&[DISKNAME1.to_string()]);
 }
 
-async fn create_nexus() {
-    let ch = vec![
-        "nvmf://127.0.0.1:8430/nqn.2019-05.io.openebs:".to_string()
-            + &UUID1.to_string(),
-    ];
+async fn create_nexus(t: u64) {
+    let mut child_name = "nvmf://127.0.0.1:8430/nqn.2019-05.io.openebs:"
+        .to_string()
+        + &UUID1.to_string();
+    let mut nexus_name = NXNAME;
+    if t > 0 {
+        child_name = Lvol::format_snapshot_name(&child_name, t);
+        nexus_name = NXNAME_SNAP;
+    }
+    let ch = vec![child_name];
 
-    nexus_create(NXNAME, 64 * 1024 * 1024, None, &ch)
+    nexus_create(&nexus_name, 64 * 1024 * 1024, None, &ch)
         .await
         .unwrap();
 }
 
-async fn create_snapshot() -> Result<(), CoreError> {
+async fn create_snapshot() -> Result<u64, CoreError> {
     let h = BdevHandle::open(NXNAME, true, false).unwrap();
-    h.create_snapshot()
+    let t = h
+        .create_snapshot()
         .await
         .expect("failed to create snapshot");
-    Ok(())
+    Ok(t)
 }
 
 async fn custom_nvme_admin(opc: u8) -> Result<(), CoreError> {

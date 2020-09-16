@@ -14,6 +14,8 @@ use tracing::instrument;
 
 use spdk_sys::{
     spdk_blob_get_xattr_value,
+    spdk_blob_is_read_only,
+    spdk_blob_is_snapshot,
     spdk_blob_set_xattr,
     spdk_blob_sync_md,
     spdk_lvol,
@@ -219,6 +221,16 @@ impl Lvol {
         unsafe { self.0.as_ref().thin_provision }
     }
 
+    /// returns a boolean indicating if the lvol is read-only
+    pub fn is_read_only(&self) -> bool {
+        unsafe { spdk_blob_is_read_only(self.0.as_ref().blob) }
+    }
+
+    /// returns a boolean indicating if the lvol is a snapshot
+    pub fn is_snapshot(&self) -> bool {
+        unsafe { spdk_blob_is_snapshot(self.0.as_ref().blob) }
+    }
+
     /// destroy the lvol
     #[instrument(level = "debug", err)]
     pub async fn destroy(self) -> Result<String, Error> {
@@ -263,6 +275,13 @@ impl Lvol {
         let blob = unsafe { self.0.as_ref().blob };
         assert_ne!(blob.is_null(), true);
 
+        if self.is_snapshot() {
+            warn!("ignoring set property on snapshot {}", self.name());
+            return Ok(());
+        }
+        if self.is_read_only() {
+            warn!("{} is read-only", self.name());
+        }
         match prop {
             PropValue::Shared(val) => {
                 let name = PropName::from(prop).to_string().into_cstring();
