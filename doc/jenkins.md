@@ -70,7 +70,7 @@ for system configuration of nodes (as opposed to using ansible, salt, etc.).
    };
 
    environment.systemPackages = with pkgs; [
-     wget vim git
+     wget curl vim git
    ];
    }
    ```
@@ -144,6 +144,8 @@ for system configuration of nodes (as opposed to using ansible, salt, etc.).
    boot.kernelModules = [ "nbd" "xfs" "nvme_tcp" "kvm_intel" ];
    boot.extraModprobeConfig = "options kvm_intel nested=1";
 
+   virtualisation.docker.enable = true;
+
    networking.firewall.enable = false;
    networking.hostName = "ci-slave";
 
@@ -164,16 +166,16 @@ for system configuration of nodes (as opposed to using ansible, salt, etc.).
    # account is also possible.
    users.users.mayastor = {
      isNormalUser = true;
-     extraGroups = [ "wheel" ]; # Enable ‘sudo’ for the user.
+     extraGroups = [ "wheel" "docker" ]; # Enable ‘sudo’ for the user.
      password = "";
      openssh.authorizedKeys.keys = [ "ssh-rsa your-key ..." ];
    };
 
-   users.users.jenkins.extraGroups = [ "wheel" ];
+   users.users.jenkins.extraGroups = [ "wheel" "docker" ];
    users.users.jenkins.openssh.authorizedKeys.keys = [ "ssh-rsa key used by Jenkins master ..." ];
 
    environment.systemPackages = with pkgs; [
-     wget vim git jdk openiscsi nvme-cli
+     wget curl vim git jdk openiscsi nvme-cli
    ];
    }
    ```
