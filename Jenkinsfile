@@ -1,9 +1,22 @@
 pipeline {
   agent none
+  triggers {
+    cron('0 2 * * *')
+  }
 
   stages {
     stage('linter') {
       agent { label 'nixos-mayastor' }
+      when {
+        beforeAgent true
+        anyOf {
+          branch 'PR-*'
+          allOf {
+            branch 'develop'
+            triggeredBy 'TimerTrigger'
+          }
+        }
+      }
       steps {
         sh 'nix-shell --run "cargo fmt --all -- --check"'
         sh 'nix-shell --run "cargo clippy --all-targets -- -D warnings"'
@@ -11,6 +24,16 @@ pipeline {
       }
     }
     stage('test') {
+      when {
+        beforeAgent true
+        anyOf {
+          branch 'PR-*'
+          allOf {
+            branch 'develop'
+            triggeredBy 'TimerTrigger'
+          }
+        }
+      }
       parallel {
         stage('rust unit tests') {
           agent { label 'nixos-mayastor' }
@@ -49,14 +72,41 @@ pipeline {
             }
           }
         }
+        stage('dev images') {
+          agent { label 'nixos-mayastor' }
+          steps {
+            sh 'nix-build --no-out-link -A images.mayastor-dev-image'
+            sh 'nix-build --no-out-link -A images.mayastor-csi-dev-image'
+            sh 'nix-build --no-out-link -A images.moac-image'
+            sh 'nix-store --delete /nix/store/*docker-image*'
+          }
+        }
       }
     }
-    stage('images') {
+    stage('push images') {
       agent { label 'nixos-mayastor' }
+      when {
+        beforeAgent true
+        anyOf {
+          branch 'master'
+          branch 'release/*'
+          allOf {
+            branch 'develop'
+            triggeredBy 'TimerTrigger'
+          }
+        }
+      }
       steps {
-        sh 'nix-build --no-out-link -A images.mayastor-dev-image'
-        sh 'nix-build --no-out-link -A images.mayastor-csi-dev-image'
-        sh 'nix-build --no-out-link -A images.moac-image'
+        withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
+          sh 'echo $PASSWORD | docker login -u $USERNAME --password-stdin'
+        }
+        sh './scripts/release.sh'
+      }
+      post {
+        always {
+          sh 'docker logout'
+          sh 'docker image prune --all --force'
+        }
       }
     }
   }
