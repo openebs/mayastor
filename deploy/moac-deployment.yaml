@@ -44,7 +44,7 @@ spec:
               mountPath: /var/lib/csi/sockets/pluginproxy/
 
         - name: moac
-          image: mayadata/moac:v0.3.0
+          image: mayadata/moac:latest
           imagePullPolicy: Always
           args:
             - "--csi-address=$(CSI_ENDPOINT)"
