@@ -13,7 +13,10 @@ pipeline {
           branch 'PR-*'
           allOf {
             branch 'develop'
-            triggeredBy 'TimerTrigger'
+            anyOf {
+              triggeredBy 'TimerTrigger'
+              triggeredBy cause: 'UserIdCause'
+            }
           }
         }
       }
@@ -30,7 +33,10 @@ pipeline {
           branch 'PR-*'
           allOf {
             branch 'develop'
-            triggeredBy 'TimerTrigger'
+            anyOf {
+              triggeredBy 'TimerTrigger'
+              triggeredBy cause: 'UserIdCause'
+            }
           }
         }
       }
@@ -92,7 +98,10 @@ pipeline {
           branch 'release/*'
           allOf {
             branch 'develop'
-            triggeredBy 'TimerTrigger'
+            anyOf {
+              triggeredBy 'TimerTrigger'
+              triggeredBy cause: 'UserIdCause'
+            }
           }
         }
       }
