@@ -129,8 +129,13 @@ fn create_pool_legacy() {
 
                 // validate they are there again and then destroy them
                 Reactor::block_on(async {
-                    assert_eq!(PoolsIter::new().count(), 2);
-                    for p in PoolsIter::new() {
+                    // Note: destroying the pools as you iterate over
+                    // them gives undefined behaviour currently (18/09/2020).
+                    // So collect() the pools into a vec first and then
+                    // iterate over that.
+                    let pools: Vec<Pool> = PoolsIter::new().collect();
+                    assert_eq!(pools.len(), 2);
+                    for p in pools {
                         p.destroy().await.unwrap();
                     }
                 });
