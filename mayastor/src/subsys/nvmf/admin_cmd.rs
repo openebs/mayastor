@@ -1,14 +1,52 @@
 //! Handlers for custom NVMe Admin commands
 
-use std::convert::TryFrom;
+use std::{convert::TryFrom, ffi::c_void, ptr::NonNull};
 
-use spdk_sys::{spdk_bdev, spdk_bdev_desc, spdk_io_channel, spdk_nvmf_request};
+use spdk_sys::{
+    spdk_bdev,
+    spdk_bdev_desc,
+    spdk_io_channel,
+    spdk_nvme_cpl,
+    spdk_nvme_status,
+    spdk_nvmf_request,
+};
 
 use crate::{
     bdev::nexus::nexus_io::nvme_admin_opc,
     core::{Bdev, Reactors},
     lvs::Lvol,
 };
+
+#[derive(Clone)]
+pub struct NvmeCpl(pub(crate) NonNull<spdk_nvme_cpl>);
+
+impl NvmeCpl {
+    /// Returns the NVMe status
+    pub(crate) fn status(&mut self) -> &mut spdk_nvme_status {
+        unsafe { &mut *spdk_sys::get_nvme_status(self.0.as_mut()) }
+    }
+}
+
+#[derive(Clone)]
+pub struct NvmfReq(pub(crate) NonNull<spdk_nvmf_request>);
+
+impl NvmfReq {
+    /// Returns the NVMe completion
+    pub(crate) fn response(&self) -> NvmeCpl {
+        NvmeCpl(
+            NonNull::new(unsafe {
+                &mut *spdk_sys::spdk_nvmf_request_get_response(self.0.as_ptr())
+            })
+            .unwrap(),
+        )
+    }
+}
+
+impl From<*mut c_void> for NvmfReq {
+    fn from(ptr: *mut c_void) -> Self {
+        NvmfReq(NonNull::new(ptr as *mut spdk_nvmf_request).unwrap())
+    }
+}
 
 /// NVMf custom command handler for opcode c0h
 /// Called from nvmf_ctrlr_process_admin_cmd
@@ -53,9 +91,10 @@ extern "C" fn nvmf_create_snapshot_hdlr(req: *mut spdk_nvmf_request) -> i32 {
         };
         let snapshot_name =
             Lvol::format_snapshot_name(&base_name, snapshot_time);
+        let nvmf_req = NvmfReq(NonNull::new(req).unwrap());
         // Blobfs operations must be on md_thread
         Reactors::master().send_future(async move {
-            lvol.create_snapshot(req, &snapshot_name).await;
+            lvol.create_snapshot(&nvmf_req, &snapshot_name).await;
         });
         1 // SPDK_NVMF_REQUEST_EXEC_STATUS_ASYNCHRONOUS
     } else {

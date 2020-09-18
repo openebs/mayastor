@@ -31,6 +31,10 @@ fn build_wrapper() {
         .include("spdk/include")
         .file("logwrapper.c")
         .compile("logwrapper");
+    cc::Build::new()
+        .include("spdk/include")
+        .file("nvme_helper.c")
+        .compile("nvme_helper");
 }
 
 fn main() {
@@ -77,6 +81,7 @@ fn main() {
         .whitelist_function("^bdev.*")
         .whitelist_function("^nbd_.*")
         .whitelist_function("^vbdev_.*")
+        .whitelist_function("^get_nvme.*")
         .blacklist_type("^longfunc")
         .whitelist_var("^NVMF.*")
         .whitelist_var("^SPDK.*")
@@ -117,4 +122,5 @@ fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=wrapper.h");
     println!("cargo:rerun-if-changed=logwrapper.c");
+    println!("cargo:rerun-if-changed=nvme_helper.c");
 }

@@ -11,6 +11,8 @@ pub use config::{
 };
 pub use nvmf::{
     Error as NvmfError,
+    NvmeCpl,
+    NvmfReq,
     NvmfSubsystem,
     SubType,
     Target as NvmfTarget,

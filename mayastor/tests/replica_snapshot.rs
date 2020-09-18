@@ -123,6 +123,7 @@ fn replica_snapshot() {
     Reactor::block_on(async {
         create_nexus(0).await;
         bdev_io::write_some(NXNAME, 0, 0xff).await.unwrap();
+        // Issue an unimplemented vendor command
         custom_nvme_admin(0xc1)
             .await
             .expect_err("unexpectedly succeeded invalid nvme admin command");

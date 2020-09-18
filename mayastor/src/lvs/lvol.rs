@@ -19,9 +19,6 @@ use spdk_sys::{
     spdk_blob_set_xattr,
     spdk_blob_sync_md,
     spdk_lvol,
-    spdk_nvme_cpl,
-    spdk_nvme_status,
-    spdk_nvmf_request,
     vbdev_lvol_create_snapshot,
     vbdev_lvol_destroy,
     vbdev_lvol_get_from_bdev,
@@ -38,6 +35,7 @@ use crate::{
         IntoCString,
     },
     lvs::{error::Error, lvs_pool::Lvs},
+    subsys::NvmfReq,
 };
 
 /// properties we allow for being set on the lvol, this information is stored on
@@ -362,8 +360,8 @@ impl Lvol {
 
     /// Create a snapshot
     pub async fn create_snapshot(
-        self,
-        nvmf_req: *mut spdk_nvmf_request,
+        &self,
+        nvmf_req: &NvmfReq,
         snapshot_name: &str,
     ) {
         extern "C" fn snapshot_done_cb(
@@ -371,13 +369,9 @@ impl Lvol {
             _lvol_ptr: *mut spdk_lvol,
             errno: i32,
         ) {
-            let rsp: &mut spdk_nvme_cpl = unsafe {
-                &mut *spdk_sys::spdk_nvmf_request_get_response(
-                    nvmf_req_ptr as *mut spdk_nvmf_request,
-                )
-            };
-            let nvme_status: &mut spdk_nvme_status =
-                unsafe { &mut rsp.__bindgen_anon_1.status };
+            let nvmf_req = NvmfReq::from(nvmf_req_ptr);
+            let mut rsp = nvmf_req.response();
+            let nvme_status = rsp.status();
 
             nvme_status.set_sct(0); // SPDK_NVME_SCT_GENERIC
             nvme_status.set_sc(match errno {
@@ -390,9 +384,7 @@ impl Lvol {
 
             // From nvmf_bdev_ctrlr_complete_cmd
             unsafe {
-                spdk_sys::spdk_nvmf_request_complete(
-                    nvmf_req_ptr as *mut spdk_nvmf_request,
-                );
+                spdk_sys::spdk_nvmf_request_complete(nvmf_req.0.as_ptr());
             }
         }
 
@@ -402,7 +394,7 @@ impl Lvol {
                 self.0.as_ptr(),
                 c_snapshot_name.as_ptr(),
                 Some(snapshot_done_cb),
-                nvmf_req as *mut c_void,
+                nvmf_req.0.as_ptr().cast(),
             )
         };
 
