@@ -20,3 +20,6 @@ nexus: add metadata for resuming rebuild
 
 Followed by a longer explanation.
 
+## Bors
+
+We are using bors bot to automate testing and merging of PRs in scalable way.

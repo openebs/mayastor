@@ -12,11 +12,11 @@ pipeline {
         anyOf {
           allOf {
             branch 'staging'
-            triggeredBy 'SCMTrigger'
+            not { triggeredBy 'TimerTrigger' }
           }
           allOf {
             branch 'trying'
-            triggeredBy 'SCMTrigger'
+            not { triggeredBy 'TimerTrigger' }
           }
         }
       }
@@ -32,11 +32,11 @@ pipeline {
         anyOf {
           allOf {
             branch 'staging'
-            triggeredBy 'SCMTrigger'
+            not { triggeredBy 'TimerTrigger' }
           }
           allOf {
             branch 'trying'
-            triggeredBy 'SCMTrigger'
+            not { triggeredBy 'TimerTrigger' }
           }
           allOf {
             branch 'develop'
@@ -103,25 +103,15 @@ pipeline {
         anyOf {
           allOf {
             branch 'master'
-            triggeredBy 'SCMTrigger'
-            anyOf {
-              triggeredBy 'SCMTrigger'
-              triggeredBy cause: 'UserIdCause'
-            }
+            not { triggeredBy 'TimerTrigger' }
           }
           allOf {
             branch 'release/*'
-            anyOf {
-              triggeredBy 'SCMTrigger'
-              triggeredBy cause: 'UserIdCause'
-            }
+            not { triggeredBy 'TimerTrigger' }
           }
           allOf {
             branch 'develop'
-            anyOf {
-              triggeredBy 'TimerTrigger'
-              triggeredBy cause: 'UserIdCause'
-            }
+            not { triggeredBy 'TimerTrigger' }
           }
         }
       }
