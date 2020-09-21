@@ -10,13 +10,13 @@ pipeline {
       when {
         beforeAgent true
         anyOf {
-          branch 'PR-*'
           allOf {
-            branch 'develop'
-            anyOf {
-              triggeredBy 'TimerTrigger'
-              triggeredBy cause: 'UserIdCause'
-            }
+            branch 'staging'
+            triggeredBy 'SCMTrigger'
+          }
+          allOf {
+            branch 'trying'
+            triggeredBy 'SCMTrigger'
           }
         }
       }
@@ -30,7 +30,14 @@ pipeline {
       when {
         beforeAgent true
         anyOf {
-          branch 'PR-*'
+          allOf {
+            branch 'staging'
+            triggeredBy 'SCMTrigger'
+          }
+          allOf {
+            branch 'trying'
+            triggeredBy 'SCMTrigger'
+          }
           allOf {
             branch 'develop'
             anyOf {
@@ -94,8 +101,21 @@ pipeline {
       when {
         beforeAgent true
         anyOf {
-          branch 'master'
-          branch 'release/*'
+          allOf {
+            branch 'master'
+            triggeredBy 'SCMTrigger'
+            anyOf {
+              triggeredBy 'SCMTrigger'
+              triggeredBy cause: 'UserIdCause'
+            }
+          }
+          allOf {
+            branch 'release/*'
+            anyOf {
+              triggeredBy 'SCMTrigger'
+              triggeredBy cause: 'UserIdCause'
+            }
+          }
           allOf {
             branch 'develop'
             anyOf {
