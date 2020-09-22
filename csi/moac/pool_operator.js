@@ -404,6 +404,7 @@ class PoolOperator {
       status.used = used;
     }
 
+    k8sPool.status = status;
     try {
       await this.k8sClient.apis['openebs.io'].v1alpha1
         .namespaces(this.namespace)
@@ -412,7 +413,6 @@ class PoolOperator {
     } catch (err) {
       log.error(`Failed to update status of pool "${name}": ${err}`);
     }
-    k8sPool.status = status;
 
     if (replicacount != null) {
       if (replicacount === 0) {
