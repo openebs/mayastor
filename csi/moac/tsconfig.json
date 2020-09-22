@@ -63,6 +63,7 @@
   "files": [
     "replica.ts",
     "pool.ts",
-    "nexus.ts"
+    "nexus.ts",
+    "finalizer_helper.ts"
   ]
 }
