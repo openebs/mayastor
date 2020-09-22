@@ -12,11 +12,7 @@ use snafu::{ResultExt, Snafu};
 
 use spdk_sys::{
     spdk_lvol,
-    spdk_nvme_cpl,
-    spdk_nvme_status,
-    spdk_nvmf_request,
     vbdev_lvol_create,
-    vbdev_lvol_create_snapshot,
     vbdev_lvol_destroy,
     vbdev_lvol_get_from_bdev,
     LVOL_CLEAR_WITH_UNMAP,
@@ -26,13 +22,7 @@ use spdk_sys::{
 
 use crate::{
     core::Bdev,
-    ffihelper::{
-        cb_arg,
-        done_errno_cb,
-        errno_result_from_i32,
-        ErrnoResult,
-        IntoCString,
-    },
+    ffihelper::{cb_arg, done_errno_cb, errno_result_from_i32, ErrnoResult},
     pool::Pool,
     subsys::NvmfSubsystem,
     target,
@@ -278,61 +268,6 @@ impl Replica {
 
         info!("Destroyed replica {}", uuid);
         Ok(())
-    }
-
-    /// Format snapshot name
-    /// base_name is the nexus or replica UUID
-    pub fn format_snapshot_name(base_name: &str, snapshot_time: u64) -> String {
-        format!("{}-snap-{}", base_name, snapshot_time)
-    }
-
-    /// Create a snapshot
-    pub async fn create_snapshot(
-        self,
-        nvmf_req: *mut spdk_nvmf_request,
-        snapshot_name: &str,
-    ) {
-        extern "C" fn snapshot_done_cb(
-            nvmf_req_ptr: *mut c_void,
-            _lvol_ptr: *mut spdk_lvol,
-            errno: i32,
-        ) {
-            let rsp: &mut spdk_nvme_cpl = unsafe {
-                &mut *spdk_sys::spdk_nvmf_request_get_response(
-                    nvmf_req_ptr as *mut spdk_nvmf_request,
-                )
-            };
-            let nvme_status: &mut spdk_nvme_status =
-                unsafe { &mut rsp.__bindgen_anon_1.status };
-
-            nvme_status.set_sct(0); // SPDK_NVME_SCT_GENERIC
-            nvme_status.set_sc(match errno {
-                0 => 0,
-                _ => {
-                    debug!("vbdev_lvol_create_snapshot errno {}", errno);
-                    0x06 // SPDK_NVME_SC_INTERNAL_DEVICE_ERROR
-                }
-            });
-
-            // From nvmf_bdev_ctrlr_complete_cmd
-            unsafe {
-                spdk_sys::spdk_nvmf_request_complete(
-                    nvmf_req_ptr as *mut spdk_nvmf_request,
-                );
-            }
-        }
-
-        let c_snapshot_name = snapshot_name.into_cstring();
-        unsafe {
-            vbdev_lvol_create_snapshot(
-                self.as_ptr(),
-                c_snapshot_name.as_ptr(),
-                Some(snapshot_done_cb),
-                nvmf_req as *mut c_void,
-            )
-        };
-
-        info!("Creating snapshot {}", snapshot_name);
     }
 
     /// Expose replica over supported remote access storage protocols (nvmf

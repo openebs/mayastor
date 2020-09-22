@@ -14,9 +14,12 @@ use tracing::instrument;
 
 use spdk_sys::{
     spdk_blob_get_xattr_value,
+    spdk_blob_is_read_only,
+    spdk_blob_is_snapshot,
     spdk_blob_set_xattr,
     spdk_blob_sync_md,
     spdk_lvol,
+    vbdev_lvol_create_snapshot,
     vbdev_lvol_destroy,
     vbdev_lvol_get_from_bdev,
 };
@@ -32,6 +35,7 @@ use crate::{
         IntoCString,
     },
     lvs::{error::Error, lvs_pool::Lvs},
+    subsys::NvmfReq,
 };
 
 /// properties we allow for being set on the lvol, this information is stored on
@@ -215,6 +219,16 @@ impl Lvol {
         unsafe { self.0.as_ref().thin_provision }
     }
 
+    /// returns a boolean indicating if the lvol is read-only
+    pub fn is_read_only(&self) -> bool {
+        unsafe { spdk_blob_is_read_only(self.0.as_ref().blob) }
+    }
+
+    /// returns a boolean indicating if the lvol is a snapshot
+    pub fn is_snapshot(&self) -> bool {
+        unsafe { spdk_blob_is_snapshot(self.0.as_ref().blob) }
+    }
+
     /// destroy the lvol
     #[instrument(level = "debug", err)]
     pub async fn destroy(self) -> Result<String, Error> {
@@ -259,6 +273,13 @@ impl Lvol {
         let blob = unsafe { self.0.as_ref().blob };
         assert_ne!(blob.is_null(), true);
 
+        if self.is_snapshot() {
+            warn!("ignoring set property on snapshot {}", self.name());
+            return Ok(());
+        }
+        if self.is_read_only() {
+            warn!("{} is read-only", self.name());
+        }
         match prop {
             PropValue::Shared(val) => {
                 let name = PropName::from(prop).to_string().into_cstring();
@@ -329,5 +350,54 @@ impl Lvol {
                 }
             }
         }
+    }
+
+    /// Format snapshot name
+    /// base_name is the nexus or replica UUID
+    pub fn format_snapshot_name(base_name: &str, snapshot_time: u64) -> String {
+        format!("{}-snap-{}", base_name, snapshot_time)
+    }
+
+    /// Create a snapshot
+    pub async fn create_snapshot(
+        &self,
+        nvmf_req: &NvmfReq,
+        snapshot_name: &str,
+    ) {
+        extern "C" fn snapshot_done_cb(
+            nvmf_req_ptr: *mut c_void,
+            _lvol_ptr: *mut spdk_lvol,
+            errno: i32,
+        ) {
+            let nvmf_req = NvmfReq::from(nvmf_req_ptr);
+            let mut rsp = nvmf_req.response();
+            let nvme_status = rsp.status();
+
+            nvme_status.set_sct(0); // SPDK_NVME_SCT_GENERIC
+            nvme_status.set_sc(match errno {
+                0 => 0,
+                _ => {
+                    debug!("vbdev_lvol_create_snapshot errno {}", errno);
+                    0x06 // SPDK_NVME_SC_INTERNAL_DEVICE_ERROR
+                }
+            });
+
+            // From nvmf_bdev_ctrlr_complete_cmd
+            unsafe {
+                spdk_sys::spdk_nvmf_request_complete(nvmf_req.0.as_ptr());
+            }
+        }
+
+        let c_snapshot_name = snapshot_name.into_cstring();
+        unsafe {
+            vbdev_lvol_create_snapshot(
+                self.0.as_ptr(),
+                c_snapshot_name.as_ptr(),
+                Some(snapshot_done_cb),
+                nvmf_req.0.as_ptr().cast(),
+            )
+        };
+
+        info!("Creating snapshot {}", snapshot_name);
     }
 }
