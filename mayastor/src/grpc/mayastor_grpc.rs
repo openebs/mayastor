@@ -11,7 +11,7 @@
 use tonic::{Request, Response, Status};
 use tracing::instrument;
 
-use rpc::mayastor::*;
+use ::rpc::mayastor::*;
 
 use crate::{
     bdev::{

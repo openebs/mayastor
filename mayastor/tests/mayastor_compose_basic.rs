@@ -1,18 +1,16 @@
-#![allow(unused_assignments)]
-
-use common::{bdev_io, Builder, MayastorTest};
 use mayastor::{
-    bdev::{nexus_create, nexus_lookup},
-    core::MayastorCliArgs,
+    bdev::nexus_create,
+    core::{Bdev, MayastorCliArgs},
+    nexus_uri::bdev_create,
 };
 use rpc::mayastor::{BdevShareRequest, BdevUri, Null};
-use tokio::time::Duration;
 
 pub mod common;
-static NXNAME: &str = "nexus";
+use common::{Builder, MayastorTest};
 
 #[tokio::test]
-async fn replica_stop_cont() {
+async fn compose_up_down() {
+    // create a new composeTest and run a basic example
     let test = Builder::new()
         .name("cargo-test")
         .network("10.1.0.0/16")
@@ -42,14 +40,19 @@ async fn replica_stop_cont() {
             })
             .await
             .unwrap();
+
+        test.logs(&h.name).await.unwrap();
     }
 
+    // start mayastor and do something the container bdev, this will shutdown
+    // on drop. The main thread will not block as it used too.
     let mayastor = MayastorTest::new(MayastorCliArgs::default());
 
+    // create a nexus over the bdevs
     mayastor
         .spawn(async move {
             nexus_create(
-                NXNAME,
+                "foo",
                 1024 * 1024 * 50,
                 None,
                 &[
@@ -64,38 +67,30 @@ async fn replica_stop_cont() {
                 ],
             )
             .await
-            .unwrap();
-            bdev_io::write_some(NXNAME, 0, 0xff).await.unwrap();
-            bdev_io::read_some(NXNAME, 0, 0xff).await.unwrap();
         })
-        .await;
+        .await
+        .unwrap();
 
-    test.pause("ms1").await.unwrap();
-    let mut ticker = tokio::time::interval(Duration::from_secs(1));
-    for i in 1 .. 6 {
-        ticker.tick().await;
-        println!("waiting for the container to be fully suspended... {}/5", i);
-    }
-
-    mayastor.send(async {
-        // we do not determine if the IO completed with an error or not just
-        // that it completes.
-        let _ = dbg!(bdev_io::read_some(NXNAME, 0, 0xff).await);
-        let _ = dbg!(bdev_io::read_some(NXNAME, 0, 0xff).await);
-    });
-
-    println!("IO submitted unfreezing container...");
-
-    for i in 1 .. 6 {
-        ticker.tick().await;
-        println!("unfreeze delay... {}/5", i);
-    }
-    test.thaw("ms1").await.unwrap();
-    println!("container thawed");
+    // why not
     mayastor
         .spawn(async {
-            let nexus = nexus_lookup(NXNAME).unwrap();
-            nexus.destroy().await.unwrap();
+            bdev_create("malloc:///malloc0?size_mb=100").await.unwrap();
         })
         .await;
+
+    // this will not compile: -- as it should not compile as bdev is not !Send
+    // let bdev = mayastor.spawn(async { Bdev::lookup_by_name("foo") }).await;
+
+    let bdevs = mayastor
+        .spawn(async {
+            Bdev::bdev_first()
+                .unwrap()
+                .into_iter()
+                .map(|b| b.name())
+                .collect::<Vec<String>>()
+        })
+        .await;
+
+    // should return 4 bdevs
+    assert_eq!(bdevs.len(), 4);
 }

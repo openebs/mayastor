@@ -32,7 +32,7 @@ fn print_error_chain(err: &dyn std::error::Error) -> String {
 macro_rules! locally {
     ($body:expr) => {{
         let hdl = crate::core::Reactors::current().spawn_local($body);
-        match hdl.await.unwrap() {
+        match hdl.await {
             Ok(res) => res,
             Err(err) => {
                 error!("{}", crate::grpc::print_error_chain(&err));
@@ -56,8 +56,8 @@ pub fn rpc_call<G, I, L, A>(future: G) -> Result<Response<A>, tonic::Status>
 where
     G: Future<Output = Result<I, L>> + 'static,
     I: 'static,
-    A: 'static + From<I>,
     L: Into<Status> + Error + 'static,
+    A: 'static + From<I>,
 {
     assert_eq!(Cores::current(), Cores::first());
     Reactor::block_on(future)

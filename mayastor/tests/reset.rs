@@ -1,102 +1,55 @@
-use common::ms_exec::MayastorProcess;
-use mayastor::{
-    bdev::nexus_create,
-    core::{
-        mayastor_env_stop,
-        BdevHandle,
-        MayastorCliArgs,
-        MayastorEnvironment,
-        Reactor,
-    },
-    subsys,
-    subsys::Config,
-};
+use mayastor::bdev::nexus_create;
+
+use mayastor::core::{BdevHandle, MayastorCliArgs};
+use rpc::mayastor::{BdevShareRequest, BdevUri};
 
 pub mod common;
 
-static DISKNAME1: &str = "/tmp/disk1.img";
-static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
-
-static DISKNAME2: &str = "/tmp/disk2.img";
-static BDEVNAME2: &str = "aio:///tmp/disk2.img?blk_size=512";
-
-static UUID1: &str = "00000000-76b6-4fcf-864d-1027d4038756";
-static UUID2: &str = "11111111-76b6-4fcf-864d-1027d4038756";
-
-fn generate_config() {
-    let mut config = Config::default();
-
-    let child1_bdev = subsys::BaseBdev {
-        uri: format!("{}&uuid={}", BDEVNAME1, UUID1),
-    };
-
-    let child2_bdev = subsys::BaseBdev {
-        uri: format!("{}&uuid={}", BDEVNAME2, UUID2),
-    };
-
-    config.base_bdevs = Some(vec![child1_bdev]);
-    config.implicit_share_base = true;
-    config.nexus_opts.iscsi_enable = false;
-    config.nexus_opts.nvmf_replica_port = 8430;
-    config.nexus_opts.nvmf_nexus_port = 8440;
-    config.write("/tmp/child1.yaml").unwrap();
-
-    config.base_bdevs = Some(vec![child2_bdev]);
-    config.nexus_opts.nvmf_replica_port = 8431;
-    config.nexus_opts.nvmf_nexus_port = 8441;
-    config.write("/tmp/child2.yaml").unwrap();
-}
-
-#[test]
-fn nexus_reset_mirror() {
-    generate_config();
-
-    common::truncate_file(DISKNAME1, 64 * 1024);
-    common::truncate_file(DISKNAME2, 64 * 1024);
-
-    let args = vec![
-        "-s".to_string(),
-        "128".to_string(),
-        "-y".to_string(),
-        "/tmp/child1.yaml".to_string(),
-        "-g".to_string(),
-        "127.0.0.1:10124".to_string(),
-    ];
-
-    let _ms1 = MayastorProcess::new(Box::from(args)).unwrap();
-
-    let args = vec![
-        "-s".to_string(),
-        "128".to_string(),
-        "-y".to_string(),
-        "/tmp/child2.yaml".to_string(),
-        "-g".to_string(),
-        "127.0.0.1:10125".to_string(),
-    ];
-
-    let _ms2 = MayastorProcess::new(Box::from(args)).unwrap();
-
-    test_init!();
-
-    Reactor::block_on(async {
-        create_nexus().await;
-        reset().await;
-    });
-    mayastor_env_stop(0);
-}
-
-async fn create_nexus() {
-    let ch = vec![
-        "nvmf://127.0.0.1:8431/nqn.2019-05.io.openebs:11111111-76b6-4fcf-864d-1027d4038756".to_string(),
-        "nvmf://127.0.0.1:8430/nqn.2019-05.io.openebs:00000000-76b6-4fcf-864d-1027d4038756".into()
-    ];
-
-    nexus_create("reset_test", 64 * 1024 * 1024, None, &ch)
+#[tokio::test]
+async fn nexus_reset_mirror() {
+    let test = common::Builder::new()
+        .name("cargo-test")
+        .network("10.1.0.0/16")
+        .add_container("ms2")
+        .add_container("ms1")
+        .with_clean(true)
+        .build()
         .await
         .unwrap();
-}
 
-async fn reset() {
-    let bdev = BdevHandle::open("reset_test", true, true).unwrap();
-    bdev.reset().await.unwrap();
+    let mut hdls = test.grpc_handles().await.unwrap();
+
+    let mut children: Vec<String> = Vec::new();
+    for h in &mut hdls {
+        h.bdev
+            .create(BdevUri {
+                uri: "malloc:///disk0?size_mb=100".into(),
+            })
+            .await
+            .unwrap();
+        children.push(
+            h.bdev
+                .share(BdevShareRequest {
+                    name: "disk0".into(),
+                    proto: "nvmf".into(),
+                })
+                .await
+                .unwrap()
+                .into_inner()
+                .uri,
+        )
+    }
+    let mayastor = common::MayastorTest::new(MayastorCliArgs::default());
+
+    // test the reset
+    mayastor
+        .spawn(async move {
+            nexus_create("reset_test", 1024 * 1024 * 50, None, &children)
+                .await
+                .unwrap();
+
+            let bdev = BdevHandle::open("reset_test", true, true).unwrap();
+            bdev.reset().await.unwrap();
+        })
+        .await
 }

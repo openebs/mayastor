@@ -5,7 +5,7 @@
 #![allow(dead_code)]
 use std::ffi::CStr;
 
-use rpc::mayastor as rpc;
+use ::rpc::mayastor as rpc;
 use snafu::{ResultExt, Snafu};
 
 use spdk_sys::{spdk_lvol, vbdev_lvol_get_from_bdev};

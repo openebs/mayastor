@@ -1,6 +1,6 @@
 //! Helpers related to nexus grpc methods.
 
-use rpc::mayastor as rpc;
+use ::rpc::mayastor as rpc;
 use std::convert::From;
 use uuid::Uuid;
 

@@ -33,6 +33,7 @@ fn build_wrapper() {
         .compile("logwrapper");
     cc::Build::new()
         .include("spdk/include")
+        .include(".")
         .file("nvme_helper.c")
         .compile("nvme_helper");
 }
