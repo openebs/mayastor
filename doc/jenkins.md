@@ -109,8 +109,11 @@ for system configuration of nodes (as opposed to using ansible, salt, etc.).
 5. Load initial Jenkins page. Create mayastor user and set a password.
    Don't install any plugins.
 
-6. After initial configuration install "blue ocean", ssh agent and
-   "multibranch scan webhook trigger" Jenkins plugins.
+6. After initial configuration install following plugins:
+   * blue ocean
+   * ssh agent
+   * multibranch scan webhook trigger
+   * embeddable build status
 
 7. Enable read-only access for unauthenticated clients.
 
