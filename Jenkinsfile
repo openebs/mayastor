@@ -111,7 +111,10 @@ pipeline {
           }
           allOf {
             branch 'develop'
-            not { triggeredBy 'TimerTrigger' }
+            anyOf {
+              triggeredBy 'TimerTrigger'
+              triggeredBy cause: 'UserIdCause'
+            }
           }
         }
       }
