@@ -114,6 +114,9 @@ for system configuration of nodes (as opposed to using ansible, salt, etc.).
    * ssh agent
    * multibranch scan webhook trigger
    * embeddable build status
+   * pipeline stage view
+   * slack
+   * disable GitHub Multibranch Status
 
 7. Enable read-only access for unauthenticated clients.
 

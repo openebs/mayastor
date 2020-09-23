@@ -1,3 +1,46 @@
+#!/usr/bin/env groovy
+
+// Update status of a commit in github
+def updateGithubCommitStatus(msg, state) {
+  step([
+    $class: 'GitHubCommitStatusSetter',
+    reposSource: [$class: "ManuallyEnteredRepositorySource", url: "https://github.com/openebs/Mayastor.git"],
+    commitShaSource: [$class: "ManuallyEnteredShaSource", sha: env.GIT_COMMIT],
+    errorHandlers: [[$class: "ChangingBuildStatusErrorHandler", result: "UNSTABLE"]],
+    contextSource: [
+      $class: 'ManuallyEnteredCommitContextSource',
+      context: 'continuous-integration/jenkins/branch'
+    ],
+    statusResultSource: [
+      $class: 'ConditionalStatusResultSource',
+      results: [
+        [$class: 'AnyBuildResult', message: msg, state: state]
+      ]
+    ]
+  ])
+}
+
+// Send out a slack message if branch got broken or has recovered
+def notifySlackUponStateChange(build) {
+  def cur = build.getResult()
+  def prev = build.getPreviousBuild().getResult()
+  if (cur != prev) {
+    if (cur == 'SUCCESS') {
+      slackSend(
+        channel: '#mayastor-backend',
+        color: 'normal',
+        message: "Branch ${env.BRANCH_NAME} has been fixed :beers: (<${env.BUILD_URL}|Open>)"
+      )
+    } else if (prev == 'SUCCESS') {
+      slackSend(
+        channel: '#mayastor-backend',
+        color: 'danger',
+        message: "Branch ${env.BRANCH_NAME} is broken :face_with_raised_eyebrow: (<${env.BUILD_URL}|Open>)"
+      )
+    }
+  }
+}
+
 pipeline {
   agent none
   triggers {
@@ -21,6 +64,7 @@ pipeline {
         }
       }
       steps {
+        updateGithubCommitStatus('Started to test the commit', 'pending')
         sh 'nix-shell --run "cargo fmt --all -- --check"'
         sh 'nix-shell --run "cargo clippy --all-targets -- -D warnings"'
         sh 'nix-shell --run "./scripts/js-check.sh"'
@@ -119,6 +163,7 @@ pipeline {
         }
       }
       steps {
+        updateGithubCommitStatus('Started to test the commit', 'pending')
         withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
           sh 'echo $PASSWORD | docker login -u $USERNAME --password-stdin'
         }
@@ -128,6 +173,31 @@ pipeline {
         always {
           sh 'docker logout'
           sh 'docker image prune --all --force'
+        }
+      }
+    }
+  }
+
+  // The main motivation for post block is that if all stages were skipped
+  // (which happens when running cron job and branch != develop) then we don't
+  // want to set commit status in github (jenkins will implicitly set it to
+  // success).
+  post {
+    always {
+      node(null) {
+        script {
+          // If no tests were run then we should neither be updating commit
+          // status in github nor send any slack messages
+          if (currentBuild.result != null) {
+            if (currentBuild.getResult() == 'SUCCESS') {
+              updateGithubCommitStatus('Looks good', 'success')
+            } else {
+              updateGithubCommitStatus('Test failed', 'failure')
+            }
+            if (env.BRANCH_NAME == 'develop') {
+              notifySlackUponStateChange(currentBuild)
+            }
+          }
         }
       }
     }
