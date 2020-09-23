@@ -58,7 +58,7 @@ describe('snapshot', function () {
           // SPDK hangs if nvme initiator and target are in the same instance.
           //
           // Use -s option to limit hugepage allocation.
-          common.startMayastor(null, [
+          common.startMayastor(config, [
             '-r',
             '/tmp/target.sock',
             '-s',
@@ -67,7 +67,6 @@ describe('snapshot', function () {
             '127.0.0.1:10125'
           ],
           null,
-          config,
           '_tgt');
           common.waitFor((pingDone) => {
             // use harmless method to test if the mayastor is up and running

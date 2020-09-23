@@ -149,7 +149,7 @@ describe('csi', function () {
   // NOTE: Don't use mayastor in setup - we test CSI interface and we don't want
   // to depend on correct function of mayastor iface in order to test CSI.
   before((done) => {
-    common.startMayastor(null, null, null, CONFIG);
+    common.startMayastor(CONFIG);
     common.startMayastorCsi();
 
     var client = common.createGrpcClient();

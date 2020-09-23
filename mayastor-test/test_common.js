@@ -192,7 +192,7 @@ function startSpdk (config, args, env) {
 }
 
 // Start mayastor process and return immediately.
-function startMayastor (config, args, env, yaml, suffix) {
+function startMayastor (config, args, env, suffix) {
   args = args || ['-r', SOCK, '-g', grpcEndpoint];
   env = env || {};
   let configPath = MS_CONFIG_PATH;
@@ -200,14 +200,9 @@ function startMayastor (config, args, env, yaml, suffix) {
     configPath += suffix;
   }
 
-  if (yaml) {
-    fs.writeFileSync(configPath, yaml);
-    args = args.concat(['-y', configPath]);
-  }
-
   if (config) {
     fs.writeFileSync(configPath, config);
-    args = args.concat(['-c', configPath]);
+    args = args.concat(['-y', configPath]);
   }
 
   startProcess(

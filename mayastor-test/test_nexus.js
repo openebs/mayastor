@@ -41,10 +41,9 @@ const doIscsiReplica = false;
 // test the nexus with implementation of replicas which are used in the
 // production.
 const configNexus = `
-[Malloc]
-  NumberOfLuns 1
-  LunSizeInMB  64
-  BlockSize    4096
+sync_disable: true
+base_bdevs:
+  - uri: "malloc:///Malloc0?size_mb=64&blk_size=4096"
 `;
 
 // The config just for nvmf target which cannot run in the same process as

@@ -19,49 +19,6 @@ const child2 = '/tmp/child2';
 const diskSize = 100 * 1024 * 1024;
 // nexus UUID
 const UUID = 'dbe4d7eb-118a-4d15-b789-a18d9af6ff21';
-// external IP address detected by common lib
-const externIp = common.getMyIp();
-
-// Instead of using mayastor grpc methods to create replicas we use a config
-// file to create them. Advantage is that we don't depend on bugs in replica
-// code (the nexus tests are more independent). Disadvantage is that we don't
-// test the nexus with implementation of replicas which are used in the
-// production.
-const configNexus = `
-[Malloc]
-  NumberOfLuns 2
-  LunSizeInMB  64
-  BlockSize    4096
-
-[iSCSI]
-  NodeBase "iqn.2019-05.io.openebs"
-  # Socket I/O timeout sec. (0 is infinite)
-  Timeout 30
-  DiscoveryAuthMethod None
-  DefaultTime2Wait 2
-  DefaultTime2Retain 60
-  ImmediateData Yes
-  ErrorRecoveryLevel 0
-  # Reduce mem requirements for iSCSI
-  MaxSessions 1
-  MaxConnectionsPerSession 1
-
-[PortalGroup1]
-  Portal GR1 0.0.0.0:3261
-
-[InitiatorGroup1]
-  InitiatorName Any
-  Netmask ${externIp}/24
-
-[TargetNode0]
-  TargetName "iqn.2019-05.io.openebs:disk1"
-  TargetAlias "Backend Malloc1"
-  Mapping PortalGroup1 InitiatorGroup1
-  AuthMethod None
-  UseDigest Auto
-  LUN0 Malloc1
-  QueueDepth 1
-`;
 
 const nexusArgs = {
   uuid: UUID,
@@ -190,7 +147,7 @@ describe('rebuild tests', function () {
           fs.truncate(child2, diskSize, next);
         },
         (next) => {
-          common.startMayastor(configNexus, ['-r', common.SOCK, '-g', common.grpcEndpoint, '-s', 386]);
+          common.startMayastor(null, ['-r', common.SOCK, '-g', common.grpcEndpoint, '-s', 384]);
           common.waitFor((pingDone) => {
             pingMayastor(pingDone);
           }, next);
