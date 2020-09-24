@@ -1,11 +1,11 @@
 #!/usr/bin/env groovy
 
 // Update status of a commit in github
-def updateGithubCommitStatus(msg, state) {
+def updateGithubCommitStatus(commit, msg, state) {
   step([
     $class: 'GitHubCommitStatusSetter',
     reposSource: [$class: "ManuallyEnteredRepositorySource", url: "https://github.com/openebs/Mayastor.git"],
-    commitShaSource: [$class: "ManuallyEnteredShaSource", sha: env.GIT_COMMIT],
+    commitShaSource: [$class: "ManuallyEnteredShaSource", sha: commit],
     errorHandlers: [[$class: "ChangingBuildStatusErrorHandler", result: "UNSTABLE"]],
     contextSource: [
       $class: 'ManuallyEnteredCommitContextSource',
@@ -64,7 +64,7 @@ pipeline {
         }
       }
       steps {
-        updateGithubCommitStatus('Started to test the commit', 'pending')
+        updateGithubCommitStatus(env.GIT_COMMIT, 'Started to test the commit', 'pending')
         sh 'nix-shell --run "cargo fmt --all -- --check"'
         sh 'nix-shell --run "cargo clippy --all-targets -- -D warnings"'
         sh 'nix-shell --run "./scripts/js-check.sh"'
@@ -163,7 +163,7 @@ pipeline {
         }
       }
       steps {
-        updateGithubCommitStatus('Started to test the commit', 'pending')
+        updateGithubCommitStatus(env.GIT_COMMIT, 'Started to test the commit', 'pending')
         withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
           sh 'echo $PASSWORD | docker login -u $USERNAME --password-stdin'
         }
@@ -190,9 +190,9 @@ pipeline {
           // status in github nor send any slack messages
           if (currentBuild.result != null) {
             if (currentBuild.getResult() == 'SUCCESS') {
-              updateGithubCommitStatus('Looks good', 'success')
+              updateGithubCommitStatus(env.GIT_COMMIT, 'Looks good', 'success')
             } else {
-              updateGithubCommitStatus('Test failed', 'failure')
+              updateGithubCommitStatus(env.GIT_COMMIT, 'Test failed', 'failure')
             }
             if (env.BRANCH_NAME == 'develop') {
               notifySlackUponStateChange(currentBuild)
