@@ -11,39 +11,30 @@ use std::{
     time::Duration,
 };
 
-static CONFIG_TEXT: &str = "[Malloc]
-  NumberOfLuns 1
-  LunSizeInMB  64
-  BlockSize    4096
-[Nvmf]
-  AcceptorPollRate 10000
-  ConnectionScheduler RoundRobin
-[Transport]
-  Type TCP
-  # reduce memory requirements
-  NumSharedBuffers 64
-[Subsystem1]
-  NQN nqn.2019-05.io.openebs:disk2
-  Listen TCP 127.0.0.1:NVMF_PORT
-  AllowAnyHost Yes
-  SN MAYASTOR0000000001
-  MN NEXUSController1
-  MaxNamespaces 1
-  Namespace Malloc0 1
+static CONFIG_TEXT: &str = "sync_disable: true
+base_bdevs:
+  - uri: \"malloc:///Malloc0?size_mb=64&blk_size=4096&uuid=dbe4d7eb-118a-4d15-b789-a18d9af6ff29\"
+nexus_opts:
+  nvmf_nexus_port: 4422
+  nvmf_replica_port: NVMF_PORT
+  iscsi_enable: false
+nvmf_tcp_tgt_conf:
+  max_namespaces: 2
 # although not used we still have to reduce mem requirements for iSCSI
-[iSCSI]
-  MaxSessions 1
-  MaxConnectionsPerSession 1
+iscsi_tgt_conf:
+  max_sessions: 1
+  max_connections_per_session: 1
+implicit_share_base: true
 ";
 
-const CONFIG_FILE: &str = "/tmp/nvmeadm_nvmf_target.config";
+const CONFIG_FILE: &str = "/tmp/nvmeadm_nvmf_target.yaml";
 
-const SERVED_DISK_NQN: &str = "nqn.2019-05.io.openebs:disk2";
+const SERVED_DISK_NQN: &str =
+    "nqn.2019-05.io.openebs:dbe4d7eb-118a-4d15-b789-a18d9af6ff29";
 
 const TARGET_PORT: u32 = 9523;
 
-// Writes out a config file for spdk, but with the specified port for nvmf to
-// use
+/// Write out a config file for Mayastor, but with the specified port for nvmf
 fn create_config_file(config_file: &str, nvmf_port: &str) {
     let path = Path::new(config_file);
     let mut config = match File::create(&path) {
@@ -67,8 +58,8 @@ fn create_config_file(config_file: &str, nvmf_port: &str) {
     }
 }
 
-// Waits for spdk to start up and accept connections on the specified port
-fn wait_for_spdk_ready(listening_port: u32) -> Result<(), String> {
+/// Wait for Mayastor to start up and accept connections on the specified port
+fn wait_for_mayastor_ready(listening_port: u32) -> Result<(), String> {
     let dest = format!("127.0.0.1:{}", listening_port);
     let socket_addr: SocketAddr = dest.parse().expect("Badly formed address");
 
@@ -96,20 +87,20 @@ fn wait_for_spdk_ready(listening_port: u32) -> Result<(), String> {
 }
 
 pub struct NvmfTarget {
-    /// The std::process::Child for the process running spdk
+    /// The std::process::Child for the process running Mayastor
     pub spdk_proc: std::process::Child,
 }
 
 impl NvmfTarget {
     pub fn new(config_file: &str, nvmf_port: &str) -> Result<Self, Error> {
         create_config_file(config_file, nvmf_port);
-        let spdk_proc = Command::new("../target/debug/spdk")
-            .arg("-c")
+        let spdk_proc = Command::new("../target/debug/mayastor")
+            .arg("-y")
             .arg(CONFIG_FILE)
             .spawn()
             .expect("Failed to start spdk!");
 
-        wait_for_spdk_ready(TARGET_PORT).expect("spdk not ready");
+        wait_for_mayastor_ready(TARGET_PORT).expect("mayastor not ready");
 
         let _ = DiscoveryBuilder::default()
             .transport("tcp".to_string())

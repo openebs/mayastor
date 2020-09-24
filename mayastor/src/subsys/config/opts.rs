@@ -211,9 +211,9 @@ pub struct NvmeBdevOpts {
     arbitration_burst: u32,
     /// max number of low priority cmds a controller may launch at one time
     low_priority_weight: u32,
-    /// max number of medium priority cmds a controller my launch at one time
+    /// max number of medium priority cmds a controller may launch at one time
     medium_priority_weight: u32,
-    /// max number of high priority cmds a controller my launch at one time
+    /// max number of high priority cmds a controller may launch at one time
     high_priority_weight: u32,
     /// admin queue polling period
     nvme_adminq_poll_period_us: u64,
@@ -372,7 +372,7 @@ pub struct IscsiTgtOpts {
     mutual_chap: bool,
     /// chap group
     chap_group: i32,
-    /// max number of sessions in th host
+    /// max number of sessions in the host
     max_sessions: u32,
     /// max connections per session
     max_connections_per_session: u32,
@@ -465,7 +465,7 @@ impl GetOpts for IscsiTgtOpts {
         unsafe {
             // spdk_iscsi_opts_copy copies our struct to a new portion of
             // memory and returns a pointer to it which we store into the
-            // defined global. Later one, when iscsi initializes those options
+            // defined global. Later on, when iscsi initializes, those options
             // are verified and then -- copied to g_spdk_iscsi. Once they
             // are copied g_spdk_iscsi_opts is freed.
             g_spdk_iscsi_opts = iscsi_opts_copy(&mut self.into());
