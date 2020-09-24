@@ -15,7 +15,6 @@ const sudo = require('./sudo');
 
 const SOCK = '/tmp/mayastor_test.sock';
 const MS_CONFIG_PATH = '/tmp/mayastor_test.cfg';
-const SPDK_CONFIG_PATH = '/tmp/spdk_test.cfg';
 const GRPC_PORT = 10124;
 const CSI_ENDPOINT = '/tmp/mayastor_csi_test.sock';
 const CSI_ID = 'test-node-id';
@@ -161,34 +160,6 @@ function startProcess (command, args, env, closeCb, psName, suffix) {
     if (closeCb) closeCb();
   });
   procs[procsIndex] = proc;
-}
-
-// Start spdk process and return immediately.
-function startSpdk (config, args, env) {
-  args = args || ['-r', SOCK];
-  env = env || {};
-
-  if (config) {
-    fs.writeFileSync(SPDK_CONFIG_PATH, config);
-    args = args.concat(['-c', SPDK_CONFIG_PATH]);
-  }
-
-  startProcess(
-    'spdk',
-    args,
-    _.assign(
-      {
-        MAYASTOR_DELAY: '1'
-      },
-      env
-    ),
-    () => {
-      try {
-        fs.unlinkSync(SPDK_CONFIG_PATH);
-      } catch (err) {}
-    },
-    'reactor_0'
-  );
 }
 
 // Start mayastor process and return immediately.
@@ -470,7 +441,6 @@ module.exports = {
   CSI_ENDPOINT,
   CSI_ID,
   SOCK,
-  startSpdk,
   startMayastor,
   startMayastorCsi,
   stopAll,
