@@ -18,13 +18,13 @@ const RECONNECT_DELAY = 300;
 const GRPC_ENDPOINT = '127.0.0.1:12345';
 const NODE_NAME = 'node-name';
 
-var natsProc;
+let natsProc;
 
 // Starts nats server and call callback when the server is up and ready.
 function startNats (done) {
   natsProc = spawn('nats-server', ['-a', NATS_HOST, '-p', NATS_PORT]);
-  var doneCalled = false;
-  var stderr = '';
+  let doneCalled = false;
+  let stderr = '';
 
   natsProc.stderr.on('data', (data) => {
     stderr += data.toString();
@@ -56,9 +56,25 @@ function stopNats () {
 }
 
 module.exports = function () {
-  var eventBus;
-  var registry;
-  var nc;
+  let eventBus;
+  let registry;
+  let nc;
+  const sc = nats.StringCodec();
+
+  function connectNats (done) {
+    nats.connect({
+      servers: [`nats://${NATS_EP}`]
+    })
+      .then((res) => {
+        nc = res;
+        done();
+      })
+      .catch(() => {
+        setTimeout(() => {
+          connectNats(done);
+        }, 200);
+      });
+  }
 
   // Create registry, event bus object, nats client and start nat server
   before((done) => {
@@ -67,8 +83,7 @@ module.exports = function () {
     eventBus = new MessageBus(registry, RECONNECT_DELAY);
     startNats(err => {
       if (err) return done(err);
-      nc = nats.connect(`nats://${NATS_EP}`);
-      nc.on('connect', () => done());
+      connectNats(done);
     });
   });
 
@@ -90,10 +105,10 @@ module.exports = function () {
   });
 
   it('should register a node', async () => {
-    nc.publish('v0/registry', JSON.stringify({
+    nc.publish('v0/registry', sc.encode(JSON.stringify({
       id: 'v0/register',
       data: { id: NODE_NAME, grpcEndpoint: GRPC_ENDPOINT }
-    }));
+    })));
     await waitUntil(async () => {
       return registry.getNode(NODE_NAME);
     }, 1000, 'new node');
@@ -103,34 +118,34 @@ module.exports = function () {
   });
 
   it('should ignore register request with missing node name', async () => {
-    nc.publish('v0/registry', JSON.stringify({
+    nc.publish('v0/registry', sc.encode(JSON.stringify({
       id: 'v0/register',
       data: { grpcEndpoint: GRPC_ENDPOINT }
-    }));
+    })));
     // small delay to wait for a possible crash of moac
     await sleep(10);
   });
 
   it('should ignore register request with missing grpc endpoint', async () => {
-    nc.publish('v0/registry', JSON.stringify({
+    nc.publish('v0/registry', sc.encode(JSON.stringify({
       id: 'v0/register',
       data: { id: NODE_NAME }
-    }));
+    })));
     // small delay to wait for a possible crash of moac
     await sleep(10);
   });
 
   it('should not crash upon a request with invalid JSON', async () => {
-    nc.publish('v0/register', '{"id": "NODE", "grpcEndpoint": "something"');
+    nc.publish('v0/register', sc.encode('{"id": "NODE", "grpcEndpoint": "something"'));
     // small delay to wait for a possible crash of moac
     await sleep(10);
   });
 
   it('should deregister a node', async () => {
-    nc.publish('v0/registry', JSON.stringify({
+    nc.publish('v0/registry', sc.encode(JSON.stringify({
       id: 'v0/deregister',
       data: { id: NODE_NAME }
-    }));
+    })));
     await waitUntil(async () => {
       return !registry.getNode(NODE_NAME);
     }, 1000, 'node removal');

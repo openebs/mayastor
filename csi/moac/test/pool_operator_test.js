@@ -1,17 +1,10 @@
 // Unit tests for the pool operator
 //
-// We don't test the init method which depends on k8s api client and watcher.
-// That method *must* be tested manually and in real k8s environment. For the
-// rest of the dependencies we provide fake objects which mimic the real
-// behaviour and allow us to test pool operator in isolation from other
-// components.
-//
 // Pool operator depends on a couple of modules:
 //  * registry (real)
 //  * node object (fake)
 //  * pool object (fake)
-//  * watcher (fake)
-//  * k8s client (fake)
+//  * watcher (mocked)
 //
 // As you can see most of them must be fake in order to do detailed testing
 // of pool operator. That makes the code more complicated and less readable.
@@ -21,162 +14,232 @@
 const expect = require('chai').expect;
 const sinon = require('sinon');
 const sleep = require('sleep-promise');
+const { KubeConfig } = require('client-node-fixed-watcher');
 const Registry = require('../registry');
 const { GrpcError, GrpcCode } = require('../grpc_client');
-const PoolOperator = require('../pool_operator');
+const { PoolOperator, PoolResource } = require('../pool_operator');
 const { Pool } = require('../pool');
-const Watcher = require('./watcher_stub');
+const { Replica } = require('../replica');
+const { mockCache } = require('./watcher_stub');
 const Node = require('./node_stub');
 
 const NAMESPACE = 'mayastor';
+const EVENT_PROPAGATION_DELAY = 10;
 
-module.exports = function () {
-  var msStub, putStub;
+const fakeConfig = {
+  clusters: [
+    {
+      name: 'cluster',
+      server: 'foo.company.com'
+    }
+  ],
+  contexts: [
+    {
+      cluster: 'cluster',
+      user: 'user'
+    }
+  ],
+  users: [{ name: 'user' }]
+};
 
-  // Create k8s pool resource object
-  function createPoolResource (
+// Create k8s pool resource object
+function createK8sPoolResource (
+  name,
+  node,
+  disks,
+  finalizers,
+  state,
+  reason,
+  capacity,
+  used
+) {
+  const obj = {
+    apiVersion: 'openebs.io/v1alpha1',
+    kind: 'MayastorPool',
+    metadata: {
+      creationTimestamp: '2019-02-15T18:23:53Z',
+      generation: 1,
+      name: name,
+      namespace: NAMESPACE,
+      finalizers: finalizers,
+      resourceVersion: '627981',
+      selfLink: `/apis/openebs.io/v1alpha1/namespaces/${NAMESPACE}/mayastorpools/${name}`,
+      uid: 'd99f06a9-314e-11e9-b086-589cfc0d76a7'
+    },
+    spec: {
+      node: node,
+      disks: disks
+    }
+  };
+  if (state) {
+    const status = { state };
+    status.disks = disks.map((d) => `aio://${d}`);
+    if (reason != null) status.reason = reason;
+    if (capacity != null) status.capacity = capacity;
+    if (used != null) status.used = used;
+    obj.status = status;
+  }
+  return obj;
+}
+
+function createPoolResource (
+  name,
+  node,
+  disks,
+  finalizers,
+  state,
+  reason,
+  capacity,
+  used
+) {
+  return new PoolResource(createK8sPoolResource(
     name,
     node,
     disks,
+    finalizers,
     state,
     reason,
     capacity,
     used
-  ) {
-    const obj = {
-      apiVersion: 'openebs.io/v1alpha1',
-      kind: 'MayastorPool',
-      metadata: {
-        creationTimestamp: '2019-02-15T18:23:53Z',
-        generation: 1,
-        name: name,
-        namespace: NAMESPACE,
-        resourceVersion: '627981',
-        selfLink: `/apis/openebs.io/v1alpha1/namespaces/${NAMESPACE}/mayastorpools/${name}`,
-        uid: 'd99f06a9-314e-11e9-b086-589cfc0d76a7'
-      },
-      spec: {
-        node: node,
-        disks: disks
-      }
-    };
-    if (state) {
-      const status = { state };
-      status.disks = disks.map((d) => `aio://${d}`);
-      if (reason != null) status.reason = reason;
-      if (capacity != null) status.capacity = capacity;
-      if (used != null) status.used = used;
-      obj.status = status;
-    }
-    return obj;
-  }
+  ));
+}
 
-  // k8s api client stub.
-  //
-  // Note that this stub serves only for PUT method on mayastor resource
-  // endpoint to update the status of resource. Fake watcher that is used
-  // in the tests does not use this client stub.
-  function createK8sClient (watcher) {
-    const mayastorpools = { mayastorpools: function (name) {} };
-    const namespaces = function (ns) {
-      expect(ns).to.equal(NAMESPACE);
-      return mayastorpools;
-    };
-    const client = {
-      apis: {
-        'openebs.io': {
-          v1alpha1: { namespaces }
-        }
-      }
-    };
-    msStub = sinon.stub(mayastorpools, 'mayastorpools');
-    const msObject = {
-      status: {
-        // the tricky thing here is that we have to update watcher's cache
-        // if we use this fake k8s client to change the object in order to
-        // mimic real behaviour.
-        put: async function (payload) {
-          watcher.objects[payload.body.metadata.name].status =
-            payload.body.status;
-          // simulate the asynchronicity of the put
-          // await sleep(1);
-        }
-      }
-    };
-    putStub = sinon.stub(msObject.status, 'put');
-    putStub.callThrough();
-    msStub.returns(msObject);
-    return client;
-  }
+// Create a pool operator object suitable for testing - with mocked watcher etc.
+function createPoolOperator (nodes) {
+  const registry = new Registry();
+  registry.Node = Node;
+  nodes = nodes || [];
+  nodes.forEach((n) => (registry.nodes[n.name] = n));
+  const kc = new KubeConfig();
+  Object.assign(kc, fakeConfig);
+  return new PoolOperator(NAMESPACE, kc, registry);
+}
 
-  // Create a pool operator object suitable for testing - with fake watcher
-  // and fake k8s api client.
-  async function MockedPoolOperator (k8sObjects, nodes) {
-    const oper = new PoolOperator(NAMESPACE);
-    const registry = new Registry();
-    registry.Node = Node;
-    nodes = nodes || [];
-    nodes.forEach((n) => (registry.nodes[n.name] = n));
-    oper.registry = registry;
-    oper.watcher = new Watcher(oper._filterMayastorPool, k8sObjects);
-    oper.k8sClient = createK8sClient(oper.watcher);
-
-    await oper.start();
-
-    // Let the initial "new" events pass by so that they don't interfere with
-    // whatever we are going to do with the operator after we return.
-    //
-    // TODO: Hardcoded delays are ugly. Find a better way. Applies to all
-    // sleeps in this file.
-    if (nodes.length > 0) {
-      await sleep(10);
-    }
-
-    return oper;
-  }
-
-  describe('resource filter', () => {
-    it('valid mayastor pool should pass the filter', () => {
+module.exports = function () {
+  describe('PoolResource constructor', () => {
+    it('should create valid mayastor pool with status', () => {
       const obj = createPoolResource(
         'pool',
         'node',
         ['/dev/sdc', '/dev/sdb'],
-        'OFFLINE',
+        ['some.finalizer.com'],
+        'offline',
         'The node is down'
       );
-      const res = PoolOperator.prototype._filterMayastorPool(obj);
-      expect(res).to.have.all.keys('name', 'node', 'disks');
-      expect(res.name).to.equal('pool');
-      expect(res.node).to.equal('node');
+      expect(obj.metadata.name).to.equal('pool');
+      expect(obj.spec.node).to.equal('node');
       // the filter should sort the disks
-      expect(JSON.stringify(res.disks)).to.equal(
+      expect(JSON.stringify(obj.spec.disks)).to.equal(
         JSON.stringify(['/dev/sdb', '/dev/sdc'])
       );
-      expect(res.state).to.be.undefined();
+      expect(obj.status.state).to.equal('offline');
+      expect(obj.status.reason).to.equal('The node is down');
+      expect(obj.status.disks).to.deep.equal(['aio:///dev/sdc', 'aio:///dev/sdb']);
+      expect(obj.status.capacity).to.be.undefined();
+      expect(obj.status.used).to.be.undefined();
     });
 
-    it('valid mayastor pool without status should pass the filter', () => {
+    it('should create valid mayastor pool without status', () => {
       const obj = createPoolResource('pool', 'node', ['/dev/sdc', '/dev/sdb']);
-      const res = PoolOperator.prototype._filterMayastorPool(obj);
-      expect(res).to.have.all.keys('name', 'node', 'disks');
-      expect(res.name).to.equal('pool');
-      expect(res.node).to.equal('node');
-      expect(res.state).to.be.undefined();
+      expect(obj.metadata.name).to.equal('pool');
+      expect(obj.spec.node).to.equal('node');
+      expect(obj.status.state).to.equal('unknown');
+    });
+
+    it('should not create mayastor pool without node specification', () => {
+      expect(() => createPoolResource(
+        'pool',
+        undefined,
+        ['/dev/sdc', '/dev/sdb']
+      )).to.throw();
+    });
+  });
+
+  describe('init method', () => {
+    let kc, oper, fakeApiStub;
+
+    beforeEach(() => {
+      const registry = new Registry();
+      kc = new KubeConfig();
+      Object.assign(kc, fakeConfig);
+      oper = new PoolOperator(NAMESPACE, kc, registry);
+      const makeApiStub = sinon.stub(kc, 'makeApiClient');
+      const fakeApi = {
+        createCustomResourceDefinition: () => null
+      };
+      fakeApiStub = sinon.stub(fakeApi, 'createCustomResourceDefinition');
+      makeApiStub.returns(fakeApi);
+    });
+
+    afterEach(() => {
+      if (oper) {
+        oper.stop();
+        oper = undefined;
+      }
+    });
+
+    it('should create CRD if it does not exist', async () => {
+      fakeApiStub.resolves();
+      await oper.init(kc);
+    });
+
+    it('should ignore error if CRD already exists', async () => {
+      fakeApiStub.rejects({
+        statusCode: 409
+      });
+      await oper.init(kc);
+    });
+
+    it('should throw if CRD creation fails', async () => {
+      fakeApiStub.rejects({
+        statusCode: 404
+      });
+      try {
+        await oper.init(kc);
+      } catch (err) {
+        return;
+      }
+      throw new Error('Init did not fail');
     });
   });
 
   describe('watcher events', () => {
-    var oper; // pool operator
+    let oper; // pool operator
 
-    afterEach(async () => {
+    afterEach(() => {
       if (oper) {
-        await oper.stop();
+        oper.stop();
         oper = null;
       }
     });
 
     describe('new event', () => {
+      it('should process resources that existed before the operator was started', async () => {
+        let stubs;
+        oper = createPoolOperator([]);
+        const poolResource = createPoolResource('pool', 'node', ['/dev/sdb']);
+        mockCache(oper.watcher, (arg) => {
+          stubs = arg;
+          stubs.get.returns(poolResource);
+          stubs.list.returns([poolResource]);
+        });
+        await oper.start();
+        // give time to registry to install its callbacks
+        await sleep(EVENT_PROPAGATION_DELAY);
+
+        sinon.assert.notCalled(stubs.create);
+        sinon.assert.notCalled(stubs.delete);
+        sinon.assert.notCalled(stubs.update);
+        sinon.assert.calledOnce(stubs.updateStatus);
+        expect(stubs.updateStatus.args[0][5].metadata.name).to.equal('pool');
+        expect(stubs.updateStatus.args[0][5].status).to.deep.equal({
+          state: 'pending',
+          reason: 'mayastor does not run on node "node"'
+        });
+      });
+
       it('should set "state" to PENDING when creating a pool', async () => {
+        let stubs;
         const node = new Node('node');
         const createPoolStub = sinon.stub(node, 'createPool');
         createPoolStub.resolves(
@@ -189,37 +252,35 @@ module.exports = function () {
             used: 10
           })
         );
-        oper = await MockedPoolOperator([], [node]);
+        oper = createPoolOperator([node]);
+        const poolResource = createPoolResource('pool', 'node', ['/dev/sdb']);
+        mockCache(oper.watcher, (arg) => {
+          stubs = arg;
+          stubs.get.returns(poolResource);
+        });
+        await oper.start();
+        // give time to registry to install its callbacks
+        await sleep(EVENT_PROPAGATION_DELAY);
         // trigger "new" event
-        oper.watcher.newObject(
-          createPoolResource('pool', 'node', ['/dev/sdb'])
-        );
-
+        oper.watcher.emit('new', poolResource);
         // give event callbacks time to propagate
-        await sleep(10);
+        await sleep(EVENT_PROPAGATION_DELAY);
 
         sinon.assert.calledOnce(createPoolStub);
         sinon.assert.calledWith(createPoolStub, 'pool', ['/dev/sdb']);
-        sinon.assert.calledOnce(msStub);
-        sinon.assert.calledWith(msStub, 'pool');
-        sinon.assert.calledOnce(putStub);
-        sinon.assert.calledWithMatch(putStub, {
-          body: {
-            kind: 'MayastorPool',
-            metadata: {
-              name: 'pool',
-              generation: 1,
-              resourceVersion: '627981'
-            },
-            status: {
-              state: 'pending',
-              reason: 'Creating the pool'
-            }
-          }
+        sinon.assert.notCalled(stubs.create);
+        sinon.assert.notCalled(stubs.delete);
+        sinon.assert.notCalled(stubs.update);
+        sinon.assert.calledOnce(stubs.updateStatus);
+        expect(stubs.updateStatus.args[0][5].metadata.name).to.equal('pool');
+        expect(stubs.updateStatus.args[0][5].status).to.deep.equal({
+          state: 'pending',
+          reason: 'Creating the pool'
         });
       });
 
       it('should not try to create a pool if the node has not been synced', async () => {
+        let stubs;
         const node = new Node('node');
         sinon.stub(node, 'isSynced').returns(false);
         const createPoolStub = sinon.stub(node, 'createPool');
@@ -233,21 +294,30 @@ module.exports = function () {
             used: 10
           })
         );
-        oper = await MockedPoolOperator([], [node]);
+        oper = createPoolOperator([node]);
+        const poolResource = createPoolResource('pool', 'node', ['/dev/sdb']);
+        mockCache(oper.watcher, (arg) => {
+          stubs = arg;
+          stubs.get.returns(poolResource);
+        });
+        await oper.start();
+        // give time to registry to install its callbacks
+        await sleep(EVENT_PROPAGATION_DELAY);
         // trigger "new" event
-        oper.watcher.newObject(
-          createPoolResource('pool', 'node', ['/dev/sdb'])
-        );
-
+        oper.watcher.emit('new', poolResource);
         // give event callbacks time to propagate
-        await sleep(10);
+        await sleep(EVENT_PROPAGATION_DELAY);
 
         sinon.assert.notCalled(createPoolStub);
-        sinon.assert.notCalled(msStub);
-        sinon.assert.notCalled(putStub);
+        sinon.assert.notCalled(stubs.create);
+        sinon.assert.notCalled(stubs.delete);
+        sinon.assert.notCalled(stubs.update);
+        sinon.assert.calledOnce(stubs.updateStatus);
       });
 
       it('should not try to create a pool when pool with the same name already exists', async () => {
+        let stubs;
+        const node = new Node('node', {}, []);
         const pool = new Pool({
           name: 'pool',
           disks: ['aio:///dev/sdb'],
@@ -255,270 +325,248 @@ module.exports = function () {
           capacity: 100,
           used: 10
         });
-        const node = new Node('node', {}, []);
         const createPoolStub = sinon.stub(node, 'createPool');
         createPoolStub.resolves(pool);
-        oper = await MockedPoolOperator([], [node]);
+
+        oper = createPoolOperator([node]);
+        const poolResource = createPoolResource('pool', 'node', ['/dev/sdb', '/dev/sdc']);
+        mockCache(oper.watcher, (arg) => {
+          stubs = arg;
+          stubs.get.returns(poolResource);
+        });
+        await oper.start();
+        // give time to registry to install its callbacks
+        await sleep(EVENT_PROPAGATION_DELAY);
         // this creates the inconsistency between real and k8s state which we are testing
         node.pools.push(pool);
         // trigger "new" event
-        oper.watcher.newObject(
-          // does not matter that the disks are different - still the same pool
-          createPoolResource('pool', 'node', ['/dev/sdb', '/dev/sdc'])
-        );
-
+        oper.watcher.emit('new', poolResource);
         // give event callbacks time to propagate
-        await sleep(10);
+        await sleep(EVENT_PROPAGATION_DELAY);
 
-        // the stub is called when the new node is synced
-        sinon.assert.calledOnce(msStub);
-        sinon.assert.calledWith(msStub, 'pool');
-        sinon.assert.calledOnce(putStub);
-        sinon.assert.calledWithMatch(putStub, {
-          body: {
-            status: {
-              state: 'degraded',
-              reason: '',
-              disks: ['aio:///dev/sdb'],
-              capacity: 100,
-              used: 10
-            }
-          }
-        });
         sinon.assert.notCalled(createPoolStub);
+        sinon.assert.notCalled(stubs.create);
+        sinon.assert.notCalled(stubs.delete);
+        sinon.assert.notCalled(stubs.update);
+        sinon.assert.calledOnce(stubs.updateStatus);
+        expect(stubs.updateStatus.args[0][5].status).to.deep.equal({
+          state: 'degraded',
+          reason: '',
+          disks: ['aio:///dev/sdb'],
+          capacity: 100,
+          used: 10
+        });
       });
 
       // important test as moving the pool between nodes would destroy data
       it('should leave the pool untouched when pool exists and is on a different node', async () => {
+        let stubs;
+        const node1 = new Node('node1', {}, []);
+        const node2 = new Node('node2');
         const pool = new Pool({
           name: 'pool',
           disks: ['aio:///dev/sdb'],
-          state: 'POOL_ONLINE',
+          state: 'POOL_DEGRADED',
           capacity: 100,
           used: 10
         });
-        const node1 = new Node('node1', {}, []);
-        const node2 = new Node('node2');
         const createPoolStub1 = sinon.stub(node1, 'createPool');
         const createPoolStub2 = sinon.stub(node2, 'createPool');
         createPoolStub1.resolves(pool);
         createPoolStub2.resolves(pool);
-        oper = await MockedPoolOperator([], [node1, node2]);
+
+        oper = createPoolOperator([node1, node2]);
+        const poolResource = createPoolResource('pool', 'node2', ['/dev/sdb', '/dev/sdc']);
+        mockCache(oper.watcher, (arg) => {
+          stubs = arg;
+          stubs.get.returns(poolResource);
+        });
+        await oper.start();
+        // give time to registry to install its callbacks
+        await sleep(EVENT_PROPAGATION_DELAY);
         // we assign the pool to node1 but later in the event it will be on node2
         node1.pools.push(pool);
         // trigger "new" event
-        oper.watcher.newObject(
-          // does not matter that the disks are different - still the same pool
-          createPoolResource('pool', 'node2', ['/dev/sdb', '/dev/sdc'])
-        );
-
+        oper.watcher.emit('new', poolResource);
         // give event callbacks time to propagate
-        await sleep(10);
+        await sleep(EVENT_PROPAGATION_DELAY);
 
-        // the stub is called when the new node is synced
-        sinon.assert.calledOnce(msStub);
-        sinon.assert.calledWith(msStub, 'pool');
-        sinon.assert.calledOnce(putStub);
-        sinon.assert.calledWithMatch(putStub, {
-          body: {
-            status: {
-              state: 'online',
-              reason: '',
-              disks: ['aio:///dev/sdb']
-            }
-          }
-        });
         sinon.assert.notCalled(createPoolStub1);
         sinon.assert.notCalled(createPoolStub2);
+        sinon.assert.notCalled(stubs.create);
+        sinon.assert.notCalled(stubs.delete);
+        sinon.assert.notCalled(stubs.update);
+        sinon.assert.calledOnce(stubs.updateStatus);
+        expect(stubs.updateStatus.args[0][5].status).to.deep.equal({
+          state: 'degraded',
+          reason: '',
+          disks: ['aio:///dev/sdb'],
+          capacity: 100,
+          used: 10
+        });
       });
 
       it('should set "reason" to error message when create pool fails', async () => {
+        let stubs;
         const node = new Node('node');
         const createPoolStub = sinon.stub(node, 'createPool');
         createPoolStub.rejects(
           new GrpcError(GrpcCode.INTERNAL, 'create failed')
         );
-        oper = await MockedPoolOperator([], [node]);
+        oper = createPoolOperator([node]);
+        const poolResource = createPoolResource('pool', 'node', ['/dev/sdb']);
+        mockCache(oper.watcher, (arg) => {
+          stubs = arg;
+          stubs.get.returns(poolResource);
+        });
+        await oper.start();
+        // give time to registry to install its callbacks
+        await sleep(EVENT_PROPAGATION_DELAY);
         // trigger "new" event
-        oper.watcher.newObject(
-          createPoolResource('pool', 'node', ['/dev/sdb'])
-        );
-
+        oper.watcher.emit('new', poolResource);
         // give event callbacks time to propagate
-        await sleep(10);
+        await sleep(EVENT_PROPAGATION_DELAY);
 
-        sinon.assert.calledTwice(msStub);
-        sinon.assert.alwaysCalledWith(msStub, 'pool');
-        sinon.assert.calledTwice(putStub);
-        sinon.assert.calledWithMatch(putStub.firstCall, {
-          body: {
-            status: {
-              state: 'pending',
-              reason: 'Creating the pool'
-            }
-          }
-        });
-        sinon.assert.calledWithMatch(putStub.secondCall, {
-          body: {
-            status: {
-              state: 'pending',
-              reason: 'Error: create failed'
-            }
-          }
-        });
         sinon.assert.calledOnce(createPoolStub);
         sinon.assert.calledWith(createPoolStub, 'pool', ['/dev/sdb']);
+        sinon.assert.notCalled(stubs.create);
+        sinon.assert.notCalled(stubs.delete);
+        sinon.assert.notCalled(stubs.update);
+        sinon.assert.calledTwice(stubs.updateStatus);
+        expect(stubs.updateStatus.args[0][5].status).to.deep.equal({
+          state: 'pending',
+          reason: 'Creating the pool'
+        });
+        expect(stubs.updateStatus.args[1][5].status).to.deep.equal({
+          state: 'error',
+          reason: 'Error: create failed'
+        });
       });
 
       it('should ignore failure to update the resource state', async () => {
+        let stubs;
         const node = new Node('node');
         const createPoolStub = sinon.stub(node, 'createPool');
         createPoolStub.rejects(
           new GrpcError(GrpcCode.INTERNAL, 'create failed')
         );
-        oper = await MockedPoolOperator([], [node]);
-        putStub.rejects(new Error('http put error'));
+        oper = createPoolOperator([node]);
+        const poolResource = createPoolResource('pool', 'node', ['/dev/sdb']);
+        mockCache(oper.watcher, (arg) => {
+          stubs = arg;
+          stubs.get.returns(poolResource);
+          stubs.updateStatus.resolves(new Error('http put error'));
+        });
+        await oper.start();
+        // give time to registry to install its callbacks
+        await sleep(EVENT_PROPAGATION_DELAY);
         // trigger "new" event
-        oper.watcher.newObject(
-          createPoolResource('pool', 'node', ['/dev/sdb'])
-        );
-
+        oper.watcher.emit('new', poolResource);
         // give event callbacks time to propagate
-        await sleep(10);
+        await sleep(EVENT_PROPAGATION_DELAY);
 
-        sinon.assert.calledTwice(msStub);
-        sinon.assert.alwaysCalledWith(msStub, 'pool');
-        sinon.assert.calledTwice(putStub);
-        sinon.assert.calledWithMatch(putStub.firstCall, {
-          body: {
-            status: {
-              state: 'pending',
-              reason: 'Creating the pool'
-            }
-          }
-        });
-        sinon.assert.calledWithMatch(putStub.secondCall, {
-          body: {
-            status: {
-              state: 'pending',
-              reason: 'Error: create failed'
-            }
-          }
-        });
         sinon.assert.calledOnce(createPoolStub);
         sinon.assert.calledWith(createPoolStub, 'pool', ['/dev/sdb']);
+        sinon.assert.notCalled(stubs.create);
+        sinon.assert.notCalled(stubs.delete);
+        sinon.assert.notCalled(stubs.update);
+        sinon.assert.calledTwice(stubs.updateStatus);
       });
 
       it('should not create a pool if node does not exist', async () => {
-        oper = await MockedPoolOperator([], []);
-        // trigger "new" event
-        oper.watcher.newObject(
-          createPoolResource('pool', 'node', ['/dev/sdb'])
-        );
-
-        // give event callbacks time to propagate
-        await sleep(10);
-
-        sinon.assert.calledOnce(msStub);
-        sinon.assert.calledWith(msStub, 'pool');
-        sinon.assert.calledOnce(putStub);
-        sinon.assert.calledWithMatch(putStub, {
-          body: {
-            status: {
-              state: 'pending',
-              reason: 'mayastor does not run on node "node"'
-            }
-          }
+        let stubs;
+        oper = createPoolOperator([]);
+        const poolResource = createPoolResource('pool', 'node', ['/dev/sdb']);
+        mockCache(oper.watcher, (arg) => {
+          stubs = arg;
+          stubs.get.returns(poolResource);
         });
-      });
-
-      it('when a pool is pre-imported it should be created once the node arrives and is synced', async () => {
-        const node = new Node('node');
-        oper = await MockedPoolOperator([createPoolResource('pool', 'node', ['/dev/sdb'])], [node]);
-
+        await oper.start();
+        // give time to registry to install its callbacks
+        await sleep(EVENT_PROPAGATION_DELAY);
+        // trigger "new" event
+        oper.watcher.emit('new', poolResource);
         // give event callbacks time to propagate
-        await sleep(10);
+        await sleep(EVENT_PROPAGATION_DELAY);
 
-        sinon.assert.calledTwice(msStub);
-        sinon.assert.calledWith(msStub, 'pool');
-        sinon.assert.calledTwice(putStub);
-
-        sinon.assert.calledWithMatch(putStub, {
-          body: {
-            status: {
-              state: 'pending',
-              reason: 'Error: Broken connection to mayastor on node "node"'
-            }
-          }
+        sinon.assert.notCalled(stubs.create);
+        sinon.assert.notCalled(stubs.delete);
+        sinon.assert.notCalled(stubs.update);
+        sinon.assert.calledOnce(stubs.updateStatus);
+        expect(stubs.updateStatus.args[0][5].status).to.deep.equal({
+          state: 'pending',
+          reason: 'mayastor does not run on node "node"'
         });
       });
 
       it('should create a pool once the node arrives and is synced', async () => {
-        oper = await MockedPoolOperator([], []);
-        oper.watcher.newObject(
-          createPoolResource('pool', 'node', ['/dev/sdb'])
-        );
+        let stubs;
+        oper = createPoolOperator([]);
+        const poolResource = createPoolResource('pool', 'node', ['/dev/sdb']);
+        mockCache(oper.watcher, (arg) => {
+          stubs = arg;
+          stubs.get.returns(poolResource);
+          stubs.list.returns([poolResource]);
+        });
+        await oper.start();
+        // give time to registry to install its callbacks
+        await sleep(EVENT_PROPAGATION_DELAY);
 
-        // give event callbacks time to propagate
-        await sleep(10);
-
-        sinon.assert.calledOnce(msStub);
-        sinon.assert.calledWith(msStub, 'pool');
-        sinon.assert.calledOnce(putStub);
-        sinon.assert.calledWithMatch(putStub, {
-          body: {
-            status: {
-              state: 'pending',
-              reason: 'mayastor does not run on node "node"'
-            }
-          }
+        sinon.assert.notCalled(stubs.create);
+        sinon.assert.notCalled(stubs.delete);
+        sinon.assert.notCalled(stubs.update);
+        sinon.assert.calledOnce(stubs.updateStatus);
+        expect(stubs.updateStatus.args[0][5].status).to.deep.equal({
+          state: 'pending',
+          reason: 'mayastor does not run on node "node"'
         });
 
         const node = new Node('node');
+        const syncedStub = sinon.stub(node, 'isSynced');
+        syncedStub.returns(false);
         oper.registry._registerNode(node);
         oper.registry.emit('node', {
           eventType: 'mod',
           object: node
         });
-
         // give event callbacks time to propagate
-        await sleep(10);
+        await sleep(EVENT_PROPAGATION_DELAY);
 
         // node is not yet synced
-        sinon.assert.calledThrice(msStub);
-        sinon.assert.calledThrice(putStub);
-        sinon.assert.calledWithMatch(putStub, {
-          body: {
-            status: {
-              state: 'pending',
-              reason: 'mayastor does not run on node "node"'
-            }
-          }
+        sinon.assert.calledTwice(stubs.updateStatus);
+        expect(stubs.updateStatus.args[0][5].status).to.deep.equal({
+          state: 'pending',
+          reason: 'mayastor does not run on node "node"'
+        });
+        expect(stubs.updateStatus.args[1][5].status).to.deep.equal({
+          state: 'pending',
+          reason: 'mayastor on node "node" is offline'
         });
 
-        node.connect();
+        syncedStub.returns(true);
         oper.registry.emit('node', {
           eventType: 'mod',
           object: node
         });
-
         // give event callbacks time to propagate
-        await sleep(10);
+        await sleep(EVENT_PROPAGATION_DELAY);
 
         // tried to create the pool but the node is a fake
-        sinon.assert.calledWithMatch(putStub, {
-          body: {
-            status: {
-              state: 'pending',
-              reason: 'Error: Broken connection to mayastor on node "node"'
-            }
-          }
+        sinon.assert.callCount(stubs.updateStatus, 4);
+        expect(stubs.updateStatus.args[2][5].status).to.deep.equal({
+          state: 'pending',
+          reason: 'Creating the pool'
+        });
+        expect(stubs.updateStatus.args[3][5].status).to.deep.equal({
+          state: 'error',
+          reason: 'Error: Broken connection to mayastor on node "node"'
         });
       });
     });
 
     describe('del event', () => {
       it('should destroy a pool', async () => {
+        let stubs;
         const pool = new Pool({
           name: 'pool',
           disks: ['aio:///dev/sdb'],
@@ -529,32 +577,39 @@ module.exports = function () {
         const destroyStub = sinon.stub(pool, 'destroy');
         destroyStub.resolves();
         const node = new Node('node', {}, [pool]);
-        oper = await MockedPoolOperator(
-          [
-            createPoolResource(
-              'pool',
-              'node',
-              ['/dev/sdb'],
-              'degraded',
-              '',
-              100,
-              10
-            )
-          ],
-          [node]
+        oper = createPoolOperator([node]);
+        const poolResource = createPoolResource(
+          'pool',
+          'node',
+          ['/dev/sdb'],
+          [],
+          'degraded',
+          '',
+          100,
+          10
         );
-
+        mockCache(oper.watcher, (arg) => {
+          stubs = arg;
+          stubs.get.returns(poolResource);
+        });
+        await oper.start();
+        // give time to registry to install its callbacks
+        await sleep(EVENT_PROPAGATION_DELAY);
         // trigger "del" event
-        oper.watcher.delObject('pool');
+        oper.watcher.emit('del', poolResource);
         // give event callbacks time to propagate
-        await sleep(10);
+        await sleep(EVENT_PROPAGATION_DELAY);
 
-        sinon.assert.notCalled(msStub);
+        // called in response to registry new event
+        sinon.assert.notCalled(stubs.updateStatus);
         sinon.assert.calledOnce(destroyStub);
-        expect(oper.resource).to.not.have.key('pool');
+        sinon.assert.notCalled(stubs.create);
+        sinon.assert.notCalled(stubs.update);
+        sinon.assert.notCalled(stubs.delete);
       });
 
       it('should not fail if pool does not exist', async () => {
+        let stubs;
         const pool = new Pool({
           name: 'pool',
           disks: ['aio:///dev/sdb'],
@@ -562,22 +617,42 @@ module.exports = function () {
           capacity: 100,
           used: 10
         });
+        const destroyStub = sinon.stub(pool, 'destroy');
+        destroyStub.resolves();
         const node = new Node('node', {}, [pool]);
-        oper = await MockedPoolOperator(
-          [createPoolResource('pool', 'node', ['/dev/sdb'], 'OFFLINE', '')],
-          [node]
+        oper = createPoolOperator([node]);
+        const poolResource = createPoolResource(
+          'pool',
+          'node',
+          ['/dev/sdb'],
+          [],
+          'offline',
+          ''
         );
+        mockCache(oper.watcher, (arg) => {
+          stubs = arg;
+          stubs.get.returns(poolResource);
+        });
+        await oper.start();
+        // give time to registry to install its callbacks
+        await sleep(EVENT_PROPAGATION_DELAY);
         // we create the inconsistency between k8s and real state
         node.pools = [];
         // trigger "del" event
-        oper.watcher.delObject('pool');
+        oper.watcher.emit('del', poolResource);
+        // give event callbacks time to propagate
+        await sleep(EVENT_PROPAGATION_DELAY);
 
-        // called during the initial sync
-        sinon.assert.calledOnce(msStub);
-        expect(oper.resource).to.not.have.key('pool');
+        // called in response to registry new event
+        sinon.assert.calledOnce(stubs.updateStatus);
+        sinon.assert.notCalled(destroyStub);
+        sinon.assert.notCalled(stubs.create);
+        sinon.assert.notCalled(stubs.update);
+        sinon.assert.notCalled(stubs.delete);
       });
 
       it('should destroy the pool even if it is on a different node', async () => {
+        let stubs;
         const pool = new Pool({
           name: 'pool',
           disks: ['aio:///dev/sdb'],
@@ -589,52 +664,84 @@ module.exports = function () {
         destroyStub.resolves();
         const node1 = new Node('node1', {}, []);
         const node2 = new Node('node2', {}, [pool]);
-        oper = await MockedPoolOperator(
-          [createPoolResource('pool', 'node1', ['/dev/sdb'], 'online', '')],
-          [node1, node2]
+        oper = createPoolOperator([node1, node2]);
+        const poolResource = createPoolResource(
+          'pool',
+          'node1',
+          ['/dev/sdb'],
+          [],
+          'degraded',
+          '',
+          100,
+          10
         );
+        mockCache(oper.watcher, (arg) => {
+          stubs = arg;
+          stubs.get.returns(poolResource);
+        });
+        await oper.start();
+        // give time to registry to install its callbacks
+        await sleep(EVENT_PROPAGATION_DELAY);
         // trigger "del" event
-        oper.watcher.delObject('pool');
+        oper.watcher.emit('del', poolResource);
+        // give event callbacks time to propagate
+        await sleep(EVENT_PROPAGATION_DELAY);
 
-        // called during the initial sync
-        sinon.assert.calledOnce(msStub);
-
+        // called in response to registry new event
+        sinon.assert.notCalled(stubs.updateStatus);
         sinon.assert.calledOnce(destroyStub);
-        expect(oper.resource).to.not.have.key('pool');
+        sinon.assert.notCalled(stubs.create);
+        sinon.assert.notCalled(stubs.update);
+        sinon.assert.notCalled(stubs.delete);
       });
 
-      it('should delete the resource even if the destroy fails', async () => {
+      it('should not crash if the destroy fails', async () => {
+        let stubs;
         const pool = new Pool({
           name: 'pool',
           disks: ['aio:///dev/sdb'],
           state: 'POOL_DEGRADED',
           capacity: 100,
-          used: 10,
-          destroy: async function () {}
+          used: 10
         });
         const destroyStub = sinon.stub(pool, 'destroy');
         destroyStub.rejects(new GrpcError(GrpcCode.INTERNAL, 'destroy failed'));
         const node = new Node('node', {}, [pool]);
-        oper = await MockedPoolOperator(
-          [createPoolResource('pool', 'node', ['/dev/sdb'], 'DEGRADED', '')],
-          [node]
+        oper = createPoolOperator([node]);
+        const poolResource = createPoolResource(
+          'pool',
+          'node',
+          ['/dev/sdb'],
+          [],
+          'degraded',
+          '',
+          100,
+          10
         );
+        mockCache(oper.watcher, (arg) => {
+          stubs = arg;
+          stubs.get.returns(poolResource);
+        });
+        await oper.start();
+        // give time to registry to install its callbacks
+        await sleep(EVENT_PROPAGATION_DELAY);
         // trigger "del" event
-        oper.watcher.delObject('pool');
-
+        oper.watcher.emit('del', poolResource);
         // give event callbacks time to propagate
-        await sleep(10);
+        await sleep(EVENT_PROPAGATION_DELAY);
 
-        // called during the initial sync
-        sinon.assert.calledOnce(msStub);
-
+        // called in response to registry new event
+        sinon.assert.notCalled(stubs.updateStatus);
         sinon.assert.calledOnce(destroyStub);
-        expect(oper.resource).to.not.have.key('pool');
+        sinon.assert.notCalled(stubs.create);
+        sinon.assert.notCalled(stubs.update);
+        sinon.assert.notCalled(stubs.delete);
       });
     });
 
     describe('mod event', () => {
       it('should not do anything if pool object has not changed', async () => {
+        let stubs;
         const pool = new Pool({
           name: 'pool',
           disks: ['aio:///dev/sdb', 'aio:///dev/sdc'],
@@ -643,36 +750,36 @@ module.exports = function () {
           used: 10
         });
         const node = new Node('node', {}, [pool]);
-        oper = await MockedPoolOperator(
-          [
-            createPoolResource(
-              'pool',
-              'node',
-              ['/dev/sdb', '/dev/sdc'],
-              'DEGRADED',
-              ''
-            )
-          ],
-          [node]
+        oper = createPoolOperator([node]);
+        const poolResource = createPoolResource(
+          'pool',
+          'node',
+          ['/dev/sdb', '/dev/sdc'],
+          [],
+          'degraded',
+          ''
         );
-
-        // called during the initial sync
-        sinon.assert.calledOnce(msStub);
-
+        mockCache(oper.watcher, (arg) => {
+          stubs = arg;
+          stubs.get.returns(poolResource);
+        });
+        await oper.start();
+        // give time to registry to install its callbacks
+        await sleep(EVENT_PROPAGATION_DELAY);
         // trigger "mod" event
-        oper.watcher.modObject(
-          createPoolResource('pool', 'node', ['/dev/sdc', '/dev/sdb'])
-        );
+        oper.watcher.emit('mod', poolResource);
+        // give event callbacks time to propagate
+        await sleep(EVENT_PROPAGATION_DELAY);
 
-        // called during the initial sync
-        sinon.assert.calledOnce(msStub);
-        // operator state
-        expect(oper.resource.pool.disks).to.have.lengthOf(2);
-        expect(oper.resource.pool.disks[0]).to.equal('/dev/sdb');
-        expect(oper.resource.pool.disks[1]).to.equal('/dev/sdc');
+        // called in response to registry new event
+        sinon.assert.calledOnce(stubs.updateStatus);
+        sinon.assert.notCalled(stubs.create);
+        sinon.assert.notCalled(stubs.update);
+        sinon.assert.notCalled(stubs.delete);
       });
 
       it('should not do anything if disks change', async () => {
+        let stubs;
         const pool = new Pool({
           name: 'pool',
           disks: ['aio:///dev/sdb'],
@@ -681,27 +788,38 @@ module.exports = function () {
           used: 10
         });
         const node = new Node('node', {}, [pool]);
-        oper = await MockedPoolOperator(
-          [createPoolResource('pool', 'node', ['/dev/sdb'], 'DEGRADED', '')],
-          [node]
+        oper = createPoolOperator([node]);
+        const poolResource = createPoolResource(
+          'pool',
+          'node',
+          ['/dev/sdc'],
+          [],
+          'degraded',
+          ''
         );
-
+        mockCache(oper.watcher, (arg) => {
+          stubs = arg;
+          stubs.get.returns(poolResource);
+        });
+        await oper.start();
+        // give time to registry to install its callbacks
+        await sleep(EVENT_PROPAGATION_DELAY);
         // trigger "mod" event
-        oper.watcher.modObject(
-          createPoolResource('pool', 'node', ['/dev/sdc'])
-        );
+        oper.watcher.emit('mod', poolResource);
+        // give event callbacks time to propagate
+        await sleep(EVENT_PROPAGATION_DELAY);
 
-        // called during the initial sync
-        sinon.assert.calledOnce(msStub);
+        // called in response to registry new event
+        sinon.assert.calledOnce(stubs.updateStatus);
+        sinon.assert.notCalled(stubs.create);
+        sinon.assert.notCalled(stubs.update);
+        sinon.assert.notCalled(stubs.delete);
         // the real state
         expect(node.pools[0].disks[0]).to.equal('aio:///dev/sdb');
-        // watcher state
-        expect(oper.watcher.list()[0].disks[0]).to.equal('/dev/sdc');
-        // operator state
-        expect(oper.resource.pool.disks[0]).to.equal('/dev/sdc');
       });
 
       it('should not do anything if node changes', async () => {
+        let stubs;
         const pool = new Pool({
           name: 'pool',
           disks: ['aio:///dev/sdb'],
@@ -711,31 +829,38 @@ module.exports = function () {
         });
         const node1 = new Node('node1', {}, [pool]);
         const node2 = new Node('node2', {}, []);
-        oper = await MockedPoolOperator(
-          [createPoolResource('pool', 'node1', ['/dev/sdb'], 'DEGRADED', '')],
-          [node1]
+        oper = createPoolOperator([node1, node2]);
+        const poolResource = createPoolResource(
+          'pool',
+          'node2',
+          ['/dev/sdb'],
+          [],
+          'degraded',
+          ''
         );
-
+        mockCache(oper.watcher, (arg) => {
+          stubs = arg;
+          stubs.get.returns(poolResource);
+        });
+        await oper.start();
+        // give time to registry to install its callbacks
+        await sleep(EVENT_PROPAGATION_DELAY);
         // trigger "mod" event
-        oper.watcher.modObject(
-          createPoolResource('pool', 'node2', ['/dev/sdb'])
-        );
+        oper.watcher.emit('mod', poolResource);
+        // give event callbacks time to propagate
+        await sleep(EVENT_PROPAGATION_DELAY);
 
-        // called during the initial sync
-        sinon.assert.calledOnce(msStub);
-        // the real state
-        expect(node1.pools).to.have.lengthOf(1);
-        expect(node2.pools).to.have.lengthOf(0);
-        // watcher state
-        expect(oper.watcher.list()[0].node).to.equal('node2');
-        // operator state
-        expect(oper.resource.pool.node).to.equal('node2');
+        // called in response to registry new event
+        sinon.assert.calledOnce(stubs.updateStatus);
+        sinon.assert.notCalled(stubs.create);
+        sinon.assert.notCalled(stubs.update);
+        sinon.assert.notCalled(stubs.delete);
       });
     });
   });
 
   describe('node events', () => {
-    var oper; // pool operator
+    let oper; // pool operator
 
     afterEach(async () => {
       if (oper) {
@@ -745,39 +870,70 @@ module.exports = function () {
     });
 
     it('should create pool upon node sync event if it does not exist', async () => {
+      let stubs;
+      const pool = new Pool({
+        name: 'pool',
+        disks: ['aio:///dev/sdb'],
+        state: 'POOL_DEGRADED',
+        capacity: 100,
+        used: 10
+      });
       const node = new Node('node', {}, []);
       const createPoolStub = sinon.stub(node, 'createPool');
-      createPoolStub.resolves(
-        new Pool({
-          name: 'pool',
-          node: node,
-          disks: ['aio:///dev/sdb'],
-          state: 'POOL_ONLINE',
-          capacity: 100,
-          used: 4
-        })
+      const isSyncedStub = sinon.stub(node, 'isSynced');
+      createPoolStub.resolves(pool);
+      isSyncedStub.onCall(0).returns(false);
+      isSyncedStub.onCall(1).returns(true);
+      oper = createPoolOperator([node]);
+      const poolResource1 = createPoolResource(
+        'pool',
+        'node',
+        ['/dev/sdb'],
+        [],
+        'degraded',
+        ''
       );
-      oper = await MockedPoolOperator(
-        [createPoolResource('pool', 'node', ['/dev/sdb'])],
-        [node]
+      const poolResource2 = createPoolResource(
+        'pool',
+        'node',
+        ['/dev/sdb'],
+        [],
+        'pending',
+        'mayastor on node "node" is offline'
       );
+      mockCache(oper.watcher, (arg) => {
+        stubs = arg;
+        stubs.get.onCall(0).returns(poolResource1);
+        stubs.get.onCall(1).returns(poolResource2);
+        stubs.list.returns([poolResource1]);
+      });
+      await oper.start();
+      // give time to registry to install its callbacks
+      await sleep(EVENT_PROPAGATION_DELAY);
+      oper.registry.emit('node', {
+        eventType: 'sync',
+        object: node
+      });
+      await sleep(EVENT_PROPAGATION_DELAY);
 
-      sinon.assert.calledOnce(msStub);
-      sinon.assert.calledWith(msStub, 'pool');
-      sinon.assert.calledOnce(putStub);
-      sinon.assert.calledWithMatch(putStub, {
-        body: {
-          status: {
-            state: 'pending',
-            reason: 'Creating the pool'
-          }
-        }
+      sinon.assert.notCalled(stubs.create);
+      sinon.assert.notCalled(stubs.delete);
+      sinon.assert.notCalled(stubs.update);
+      sinon.assert.calledTwice(stubs.updateStatus);
+      expect(stubs.updateStatus.args[0][5].status).to.deep.equal({
+        state: 'pending',
+        reason: 'mayastor on node "node" is offline'
+      });
+      expect(stubs.updateStatus.args[1][5].status).to.deep.equal({
+        state: 'pending',
+        reason: 'Creating the pool'
       });
       sinon.assert.calledOnce(createPoolStub);
       sinon.assert.calledWith(createPoolStub, 'pool', ['/dev/sdb']);
     });
 
-    it('should not create pool upon node sync event if it exists', async () => {
+    it('should add finalizer for new pool resource', async () => {
+      let stubs;
       const pool = new Pool({
         name: 'pool',
         disks: ['aio:///dev/sdb'],
@@ -785,36 +941,156 @@ module.exports = function () {
         capacity: 100,
         used: 4
       });
+      // replica will trigger finalizer
+      const replica1 = new Replica({ uuid: 'UUID1' });
+      const replica2 = new Replica({ uuid: 'UUID2' });
+      replica1.pool = pool;
+      pool.replicas = [replica1];
       const node = new Node('node', {}, [pool]);
-      const createPoolStub = sinon.stub(node, 'createPool');
-      createPoolStub.resolves(pool);
-      oper = await MockedPoolOperator(
-        [
-          createPoolResource(
-            'pool',
-            'node',
-            ['/dev/sdb'],
-            'online',
-            '',
-            100,
-            4
-          )
-        ],
-        [node]
-      );
+      oper = createPoolOperator([node]);
 
-      sinon.assert.notCalled(msStub);
-      sinon.assert.notCalled(putStub);
-      sinon.assert.notCalled(createPoolStub);
+      const poolResource = createK8sPoolResource(
+        'pool',
+        'node1',
+        ['/dev/sdb'],
+        [],
+        'online',
+        '',
+        100,
+        4
+      );
+      mockCache(oper.watcher, (arg) => {
+        stubs = arg;
+        stubs.get.returns(poolResource);
+        stubs.update.resolves();
+      });
+      await oper.start();
+      // give time to registry to install its callbacks
+      await sleep(EVENT_PROPAGATION_DELAY);
+
+      sinon.assert.calledOnce(stubs.update);
+      expect(stubs.update.args[0][5].metadata.finalizers).to.deep.equal([
+        'finalizer.mayastor.openebs.io'
+      ]);
+
+      // add a second replica - should not change anything
+      pool.replicas.push(replica2);
+      oper.registry.emit('replica', {
+        eventType: 'new',
+        object: replica2
+      });
+      await sleep(EVENT_PROPAGATION_DELAY);
+
+      sinon.assert.calledOnce(stubs.update);
+      sinon.assert.notCalled(stubs.create);
+      sinon.assert.notCalled(stubs.delete);
+      sinon.assert.notCalled(stubs.updateStatus);
     });
 
-    it('should not create pool upon node sync event if it exists on another node', async () => {
+    it('should remove finalizer when last replica is removed', async () => {
+      let stubs;
       const pool = new Pool({
         name: 'pool',
         disks: ['aio:///dev/sdb'],
         state: 'POOL_ONLINE',
         capacity: 100,
         used: 4
+      });
+      const replica1 = new Replica({ uuid: 'UUID1' });
+      const replica2 = new Replica({ uuid: 'UUID2' });
+      pool.replicas = [replica1, replica2];
+      replica1.pool = pool;
+      replica2.pool = pool;
+      const node = new Node('node', {}, [pool]);
+      oper = createPoolOperator([node]);
+
+      const poolResource = createK8sPoolResource(
+        'pool',
+        'node1',
+        ['/dev/sdb'],
+        ['finalizer.mayastor.openebs.io'],
+        'online',
+        '',
+        100,
+        4
+      );
+      mockCache(oper.watcher, (arg) => {
+        stubs = arg;
+        stubs.get.returns(poolResource);
+        stubs.update.resolves();
+      });
+      await oper.start();
+      // give time to registry to install its callbacks
+      await sleep(EVENT_PROPAGATION_DELAY);
+
+      sinon.assert.notCalled(stubs.update);
+      pool.replicas.splice(1, 1);
+      oper.registry.emit('replica', {
+        eventType: 'del',
+        object: replica2
+      });
+      await sleep(EVENT_PROPAGATION_DELAY);
+      sinon.assert.notCalled(stubs.update);
+      pool.replicas = [];
+      oper.registry.emit('replica', {
+        eventType: 'del',
+        object: replica1
+      });
+      await sleep(EVENT_PROPAGATION_DELAY);
+      sinon.assert.calledOnce(stubs.update);
+      expect(stubs.update.args[0][5].metadata.finalizers).to.have.lengthOf(0);
+      sinon.assert.notCalled(stubs.create);
+      sinon.assert.notCalled(stubs.delete);
+      sinon.assert.notCalled(stubs.updateStatus);
+    });
+
+    it('should not create pool upon node sync event if it exists', async () => {
+      let stubs;
+      const pool = new Pool({
+        name: 'pool',
+        disks: ['aio:///dev/sdb'],
+        state: 'POOL_DEGRADED',
+        capacity: 100,
+        used: 10
+      });
+      const node = new Node('node', {}, [pool]);
+      const createPoolStub = sinon.stub(node, 'createPool');
+      createPoolStub.resolves(pool);
+      oper = createPoolOperator([node]);
+      const poolResource = createPoolResource(
+        'pool',
+        'node',
+        ['/dev/sdb'],
+        [],
+        'degraded',
+        '',
+        100,
+        10
+      );
+      mockCache(oper.watcher, (arg) => {
+        stubs = arg;
+        stubs.get.returns(poolResource);
+        stubs.list.returns([poolResource]);
+      });
+      await oper.start();
+      // give time to registry to install its callbacks
+      await sleep(EVENT_PROPAGATION_DELAY);
+
+      sinon.assert.notCalled(stubs.create);
+      sinon.assert.notCalled(stubs.update);
+      sinon.assert.notCalled(stubs.delete);
+      sinon.assert.notCalled(stubs.updateStatus);
+      sinon.assert.notCalled(createPoolStub);
+    });
+
+    it('should not create pool upon node sync event if it exists on another node', async () => {
+      let stubs;
+      const pool = new Pool({
+        name: 'pool',
+        disks: ['aio:///dev/sdb'],
+        state: 'POOL_DEGRADED',
+        capacity: 100,
+        used: 10
       });
       const node1 = new Node('node1', {}, []);
       const node2 = new Node('node2', {}, [pool]);
@@ -822,47 +1098,64 @@ module.exports = function () {
       const createPoolStub2 = sinon.stub(node2, 'createPool');
       createPoolStub1.resolves(pool);
       createPoolStub2.resolves(pool);
-      oper = await MockedPoolOperator(
-        [
-          createPoolResource(
-            'pool',
-            'node1',
-            ['/dev/sdb'],
-            'online',
-            '',
-            100,
-            4
-          )
-        ],
-        [node1, node2]
+      oper = createPoolOperator([node1, node2]);
+      const poolResource = createPoolResource(
+        'pool',
+        'node1',
+        ['/dev/sdb'],
+        [],
+        'degraded',
+        '',
+        100,
+        10
       );
+      mockCache(oper.watcher, (arg) => {
+        stubs = arg;
+        stubs.get.returns(poolResource);
+        stubs.list.returns([poolResource]);
+      });
+      await oper.start();
+      // give time to registry to install its callbacks
+      await sleep(EVENT_PROPAGATION_DELAY);
 
-      sinon.assert.notCalled(msStub);
-      sinon.assert.notCalled(putStub);
+      sinon.assert.notCalled(stubs.create);
+      sinon.assert.notCalled(stubs.update);
+      sinon.assert.notCalled(stubs.delete);
+      sinon.assert.notCalled(stubs.updateStatus);
       sinon.assert.notCalled(createPoolStub1);
       sinon.assert.notCalled(createPoolStub2);
     });
 
     it('should remove pool upon pool new event if there is no pool resource', async () => {
+      let stubs;
       const pool = new Pool({
         name: 'pool',
         disks: ['aio:///dev/sdb'],
         state: 'POOL_ONLINE',
         capacity: 100,
-        used: 4,
-        destroy: async function () {}
+        used: 4
       });
       const destroyStub = sinon.stub(pool, 'destroy');
       destroyStub.resolves();
       const node = new Node('node', {}, [pool]);
-      oper = await MockedPoolOperator([], [node]);
+      oper = createPoolOperator([node]);
 
-      sinon.assert.notCalled(msStub);
-      sinon.assert.notCalled(putStub);
+      mockCache(oper.watcher, (arg) => {
+        stubs = arg;
+      });
+      await oper.start();
+      // give time to registry to install its callbacks
+      await sleep(EVENT_PROPAGATION_DELAY);
+
+      sinon.assert.notCalled(stubs.create);
+      sinon.assert.notCalled(stubs.update);
+      sinon.assert.notCalled(stubs.delete);
+      sinon.assert.notCalled(stubs.updateStatus);
       sinon.assert.calledOnce(destroyStub);
     });
 
     it('should update resource properties upon pool mod event', async () => {
+      let stubs;
       const offlineReason = 'mayastor does not run on the node "node"';
       const pool = new Pool({
         name: 'pool',
@@ -872,70 +1165,84 @@ module.exports = function () {
         used: 4
       });
       const node = new Node('node', {}, [pool]);
-      oper = await MockedPoolOperator(
-        [
-          createPoolResource(
-            'pool',
-            'node',
-            ['/dev/sdb'],
-            'online',
-            '',
-            100,
-            4
-          )
-        ],
-        [node]
-      );
+      oper = createPoolOperator([node]);
 
-      pool.state = 'POOL_OFFLINE';
+      const poolResource = createPoolResource(
+        'pool',
+        'node1',
+        ['/dev/sdb'],
+        [],
+        'online',
+        '',
+        100,
+        4
+      );
+      mockCache(oper.watcher, (arg) => {
+        stubs = arg;
+        stubs.get.returns(poolResource);
+      });
+      await oper.start();
+      // give time to registry to install its callbacks
+      await sleep(EVENT_PROPAGATION_DELAY);
+
       // simulate pool mod event
+      pool.state = 'POOL_OFFLINE';
       oper.registry.emit('pool', {
         eventType: 'mod',
         object: pool
       });
-
       // Give event time to propagate
-      await sleep(10);
+      await sleep(EVENT_PROPAGATION_DELAY);
 
-      sinon.assert.calledOnce(msStub);
-      sinon.assert.calledWith(msStub, 'pool');
-      sinon.assert.calledOnce(putStub);
-      sinon.assert.calledWithMatch(putStub, {
-        body: {
-          status: {
-            state: 'offline',
-            reason: offlineReason
-          }
-        }
+      sinon.assert.notCalled(stubs.create);
+      sinon.assert.notCalled(stubs.delete);
+      sinon.assert.notCalled(stubs.update);
+      sinon.assert.calledOnce(stubs.updateStatus);
+      expect(stubs.updateStatus.args[0][5].status).to.deep.equal({
+        state: 'offline',
+        reason: offlineReason,
+        capacity: 100,
+        disks: ['aio:///dev/sdb'],
+        used: 4
       });
-      expect(oper.watcher.objects.pool.status.state).to.equal('offline');
-      expect(oper.watcher.objects.pool.status.reason).to.equal(offlineReason);
     });
 
     it('should ignore pool mod event if pool resource does not exist', async () => {
-      const node = new Node('node', {}, []);
-      oper = await MockedPoolOperator([], [node]);
+      let stubs;
+      const pool = new Pool({
+        name: 'pool',
+        disks: ['aio:///dev/sdb'],
+        state: 'POOL_ONLINE',
+        capacity: 100,
+        used: 4
+      });
+      const node = new Node('node', {}, [pool]);
+      oper = createPoolOperator([node]);
 
+      mockCache(oper.watcher, (arg) => {
+        stubs = arg;
+      });
+      await oper.start();
+      // give time to registry to install its callbacks
+      await sleep(EVENT_PROPAGATION_DELAY);
+
+      // simulate pool mod event
+      pool.state = 'POOL_OFFLINE';
       oper.registry.emit('pool', {
         eventType: 'mod',
-        object: new Pool({
-          name: 'pool',
-          disks: ['aio:///dev/sdb'],
-          state: 'POOL_OFFLINE',
-          capacity: 100,
-          used: 4
-        })
+        object: pool
       });
-
       // Give event time to propagate
-      await sleep(10);
+      await sleep(EVENT_PROPAGATION_DELAY);
 
-      sinon.assert.notCalled(msStub);
-      sinon.assert.notCalled(putStub);
-      expect(oper.resource.pool).to.be.undefined();
+      sinon.assert.notCalled(stubs.create);
+      sinon.assert.notCalled(stubs.update);
+      sinon.assert.notCalled(stubs.delete);
+      sinon.assert.notCalled(stubs.updateStatus);
     });
 
     it('should create pool upon pool del event if pool resource exist', async () => {
+      let stubs;
       const pool = new Pool({
         name: 'pool',
         disks: ['aio:///dev/sdb'],
@@ -946,22 +1253,24 @@ module.exports = function () {
       const node = new Node('node', {}, [pool]);
       const createPoolStub = sinon.stub(node, 'createPool');
       createPoolStub.resolves(pool);
-      oper = await MockedPoolOperator(
-        [
-          createPoolResource(
-            'pool',
-            'node',
-            ['/dev/sdb'],
-            'online',
-            '',
-            100,
-            4
-          )
-        ],
-        [node]
+      oper = createPoolOperator([node]);
+      const poolResource = createPoolResource(
+        'pool',
+        'node',
+        ['/dev/sdb'],
+        [],
+        'online',
+        '',
+        100,
+        4
       );
-
-      sinon.assert.notCalled(msStub);
+      mockCache(oper.watcher, (arg) => {
+        stubs = arg;
+        stubs.get.returns(poolResource);
+      });
+      await oper.start();
+      // give time to registry to install its callbacks
+      await sleep(EVENT_PROPAGATION_DELAY);
       sinon.assert.notCalled(createPoolStub);
 
       node.pools = [];
@@ -969,43 +1278,51 @@ module.exports = function () {
         eventType: 'del',
         object: pool
       });
-
       // Give event time to propagate
-      await sleep(10);
+      await sleep(EVENT_PROPAGATION_DELAY);
 
-      sinon.assert.calledOnce(msStub);
-      sinon.assert.calledWith(msStub, 'pool');
-      sinon.assert.calledOnce(putStub);
-      sinon.assert.calledWithMatch(putStub, {
-        body: {
-          status: {
-            state: 'pending',
-            reason: 'Creating the pool'
-          }
-        }
-      });
       sinon.assert.calledOnce(createPoolStub);
       sinon.assert.calledWith(createPoolStub, 'pool', ['/dev/sdb']);
+      sinon.assert.notCalled(stubs.create);
+      sinon.assert.notCalled(stubs.update);
+      sinon.assert.notCalled(stubs.delete);
+      sinon.assert.calledOnce(stubs.updateStatus);
+      expect(stubs.updateStatus.args[0][5].status).to.deep.equal({
+        state: 'pending',
+        reason: 'Creating the pool'
+      });
     });
 
     it('should ignore pool del event if pool resource does not exist', async () => {
+      let stubs;
+      const pool = new Pool({
+        name: 'pool',
+        disks: ['aio:///dev/sdb'],
+        state: 'POOL_ONLINE',
+        capacity: 100,
+        used: 4
+      });
       const node = new Node('node', {}, []);
-      oper = await MockedPoolOperator([], [node]);
+      oper = createPoolOperator([node]);
+      mockCache(oper.watcher, (arg) => {
+        stubs = arg;
+      });
+      await oper.start();
+      // give time to registry to install its callbacks
+      await sleep(EVENT_PROPAGATION_DELAY);
 
+      node.pools = [];
       oper.registry.emit('pool', {
         eventType: 'del',
-        object: new Pool({
-          name: 'pool',
-          disks: ['aio:///dev/sdb'],
-          state: 'POOL_ONLINE',
-          capacity: 100,
-          used: 4
-        })
+        object: pool
       });
-
       // Give event time to propagate
-      await sleep(10);
-      sinon.assert.notCalled(msStub);
+      await sleep(EVENT_PROPAGATION_DELAY);
+
+      sinon.assert.notCalled(stubs.create);
+      sinon.assert.notCalled(stubs.update);
+      sinon.assert.notCalled(stubs.delete);
+      sinon.assert.notCalled(stubs.updateStatus);
     });
   });
 };

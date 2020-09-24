@@ -1,79 +1,49 @@
-// Fake watcher which simulates the real one.
+// Fake watcher that isolates the watcher from k8s api server using sinon stubs.
 
 'use strict';
 
-const assert = require('assert');
-const EventEmitter = require('events');
+const sinon = require('sinon');
 
-// It can be used instead of real watcher in tests of other classes depending
-// on the watcher.
-class Watcher extends EventEmitter {
-  // Construct a watcher with initial set of objects passed in arg.
-  constructor (filterCb, objects) {
-    super();
-    this.filterCb = filterCb;
-    this.objects = {};
-    for (let i = 0; i < objects.length; i++) {
-      this.objects[objects[i].metadata.name] = objects[i];
-    }
-  }
+// stubsCb callback can override default return values of k8s api calls
+function mockCache (cache, stubsCb) {
+  // do not wait for confirming events from k8s
+  cache.eventTimeout = 0;
 
-  injectObject (obj) {
-    this.objects[obj.metadata.name] = obj;
-  }
+  // mock k8s api calls
+  cache.createStub = sinon.stub(cache.k8sApi, 'createNamespacedCustomObject');
+  cache.updateStub = sinon.stub(cache.k8sApi, 'replaceNamespacedCustomObject');
+  cache.updateStatusStub = sinon.stub(cache.k8sApi, 'replaceNamespacedCustomObjectStatus');
+  cache.deleteStub = sinon.stub(cache.k8sApi, 'deleteNamespacedCustomObject');
+  cache.getStub = sinon.stub(cache.listWatch, 'get');
+  cache.listStub = sinon.stub(cache.listWatch, 'list');
+  const stubs = {
+    create: cache.createStub,
+    update: cache.updateStub,
+    updateStatus: cache.updateStatusStub,
+    delete: cache.deleteStub,
+    get: cache.getStub,
+    list: cache.listStub
+  };
+  stubs.create.resolves();
+  stubs.update.resolves();
+  stubs.updateStatus.resolves();
+  stubs.delete.resolves();
+  stubs.get.returns();
+  stubs.list.returns([]);
+  if (stubsCb) stubsCb(stubs);
 
-  newObject (obj) {
-    this.objects[obj.metadata.name] = obj;
-    this.emit('new', this.filterCb(obj));
-  }
+  // convenience function for emitting watcher events
+  stubs.emitKubeEvent = (ev, data) => {
+    cache.listWatch.callbackCache[ev].forEach((cb) => cb(data));
+  };
 
-  delObject (name) {
-    var obj = this.objects[name];
-    assert(obj);
-    delete this.objects[name];
-    this.emit('del', this.filterCb(obj));
-  }
-
-  modObject (obj) {
-    this.objects[obj.metadata.name] = obj;
-    this.emit('mod', this.filterCb(obj));
-  }
-
-  async start () {
-    var self = this;
-    return new Promise((resolve, reject) => {
-      setTimeout(() => {
-        for (const name in self.objects) {
-          // real objects coming from GET method also don't have kind and
-          // apiVersion attrs so strip these props to mimic the real case.
-          delete self.objects[name].kind;
-          delete self.objects[name].apiVersion;
-          self.emit('new', self.filterCb(self.objects[name]));
-        }
-        resolve();
-      }, 0);
+  // mock the watcher to start even without k8s
+  const startStub = sinon.stub(cache.listWatch, 'start');
+  startStub.callsFake(async () => {
+    stubs.list().forEach((ent) => {
+      stubs.emitKubeEvent('add', ent);
     });
-  }
-
-  async stop () {}
-
-  async getRawBypass (name) {
-    return this.getRaw(name);
-  }
-
-  getRaw (name) {
-    const obj = this.objects[name];
-    if (!obj) {
-      return null;
-    } else {
-      return JSON.parse(JSON.stringify(obj));
-    }
-  }
-
-  list () {
-    var self = this;
-    return Object.values(this.objects).map((ent) => self.filterCb(ent));
-  }
+  });
 }
 
-module.exports = Watcher;
+module.exports = { mockCache };

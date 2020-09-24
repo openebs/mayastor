@@ -11,7 +11,7 @@
     // "jsx": "preserve",                     /* Specify JSX code generation: 'preserve', 'react-native', or 'react'. */
     // "declaration": true,                   /* Generates corresponding '.d.ts' file. */
     // "declarationMap": true,                /* Generates a sourcemap for each corresponding '.d.ts' file. */
-    // "sourceMap": true,                     /* Generates corresponding '.map' file. */
+    "sourceMap": true,                     /* Generates corresponding '.map' file. */
     // "outFile": "./",                       /* Concatenate and emit output to single file. */
     // "outDir": "./",                        /* Redirect output structure to the directory. */
     // "rootDir": "./",                       /* Specify the root directory of input files. Use to control the output directory structure with --outDir. */
@@ -61,9 +61,12 @@
     "resolveJsonModule": true /* allows for importing, extracting types from and generating .json files */
   },
   "files": [
+    "watcher.ts",
+    "nexus.ts",
+    "node_operator.ts",
     "replica.ts",
     "pool.ts",
-    "nexus.ts",
-    "finalizer_helper.ts"
+    "pool_operator.ts",
+    "volume_operator.ts",
   ]
 }
