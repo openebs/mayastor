@@ -84,6 +84,7 @@ command and copy paste the output to `~/.kube/config`:
 ansible -i ansible-hosts -a 'sudo cat /etc/kubernetes/admin.conf' master
 ----
 
+Note that for libvirt the configuration works with Terraform versions 0.13 upwards.
 === Setting up libvirt on Nixos
 
 To use the libvirt provider, you must enable libvirtd
