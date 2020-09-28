@@ -40,7 +40,7 @@ use crate::{
         nexus::{
             instances,
             nexus_channel::{DREvent, NexusChannel, NexusChannelInner},
-            nexus_child::{ChildError, ChildState, ChildStatus, NexusChild},
+            nexus_child::{ChildError, ChildState, NexusChild},
             nexus_io::{io_status, nvme_admin_opc, Bio},
             nexus_iscsi::{NexusIscsiError, NexusIscsiTarget},
             nexus_label::LabelError,
@@ -505,7 +505,7 @@ impl Nexus {
 
         trace!("{}: closing, from state: {:?} ", self.name, self.state);
         self.children.iter_mut().for_each(|c| {
-            if c.state == ChildState::Open {
+            if c.state() == ChildState::Open {
                 c.close();
             }
         });
@@ -900,14 +900,14 @@ impl Nexus {
                     .children
                     .iter()
                     // All children are online, so the Nexus is also online
-                    .all(|c| c.status() == ChildStatus::Online)
+                    .all(|c| c.state() == ChildState::Open)
                 {
                     NexusStatus::Online
                 } else if self
                     .children
                     .iter()
                     // at least one child online, so the Nexus is also online
-                    .any(|c| c.status() == ChildStatus::Online)
+                    .any(|c| c.state() == ChildState::Open)
                 {
                     NexusStatus::Degraded
                 } else {

@@ -32,11 +32,10 @@ use crate::{
     bdev::{
         nexus::{
             instances,
-            nexus_child::NexusChild,
+            nexus_child::{ChildState, NexusChild, Reason},
             nexus_child_status_config::ChildStatusConfig,
         },
         nexus_create,
-        ChildStatus,
         VerboseError,
     },
     core::{Bdev, Cores, Reactor, Share},
@@ -399,7 +398,10 @@ impl Config {
                     let degraded_children: Vec<&NexusChild> = nexus_instance
                         .children
                         .iter()
-                        .filter(|child| child.status() == ChildStatus::Degraded)
+                        .filter(|child| {
+                            child.state()
+                                == ChildState::Faulted(Reason::OutOfSync)
+                        })
                         .collect::<Vec<_>>();
 
                     // Get a mutable reference to the nexus instance. We can't

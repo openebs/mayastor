@@ -8,17 +8,24 @@ use crate::{
     bdev::nexus::{
         instances,
         nexus_bdev::{Error, Nexus, NexusStatus},
-        nexus_child::{ChildStatus, NexusChild},
+        nexus_child::{ChildState, NexusChild, Reason},
     },
     rebuild::RebuildJob,
 };
 
-impl From<ChildStatus> for rpc::ChildState {
-    fn from(child: ChildStatus) -> Self {
+/// Map the internal child states into rpc child states (i.e. the states that
+/// the control plane sees)
+impl From<ChildState> for rpc::ChildState {
+    fn from(child: ChildState) -> Self {
         match child {
-            ChildStatus::Faulted => rpc::ChildState::ChildFaulted,
-            ChildStatus::Degraded => rpc::ChildState::ChildDegraded,
-            ChildStatus::Online => rpc::ChildState::ChildOnline,
+            ChildState::Init => rpc::ChildState::ChildDegraded,
+            ChildState::ConfigInvalid => rpc::ChildState::ChildFaulted,
+            ChildState::Open => rpc::ChildState::ChildOnline,
+            ChildState::Closed => rpc::ChildState::ChildDegraded,
+            ChildState::Faulted(reason) => match reason {
+                Reason::OutOfSync => rpc::ChildState::ChildDegraded,
+                _ => rpc::ChildState::ChildFaulted,
+            },
         }
     }
 }
@@ -40,7 +47,7 @@ impl NexusChild {
     pub fn to_grpc(&self) -> rpc::Child {
         rpc::Child {
             uri: self.name.clone(),
-            state: rpc::ChildState::from(self.status()) as i32,
+            state: rpc::ChildState::from(self.state()) as i32,
             rebuild_progress: self.get_rebuild_progress(),
         }
     }
