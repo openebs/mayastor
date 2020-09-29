@@ -15,7 +15,7 @@ use spdk_sys::{
     spdk_bdev_desc,
     spdk_bdev_free_io,
     spdk_bdev_io,
-    spdk_bdev_nvme_admin_passthru,
+    spdk_bdev_nvme_admin_passthru_ro,
     spdk_bdev_read,
     spdk_bdev_reset,
     spdk_bdev_write,
@@ -240,8 +240,10 @@ impl BdevHandle {
     ) -> Result<usize, CoreError> {
         trace!("Sending nvme_admin {}", nvme_cmd.opc());
         let (s, r) = oneshot::channel::<bool>();
+        // Use the spdk-sys variant spdk_bdev_nvme_admin_passthru that
+        // assumes read commands
         let errno = unsafe {
-            spdk_bdev_nvme_admin_passthru(
+            spdk_bdev_nvme_admin_passthru_ro(
                 self.desc.as_ptr(),
                 self.channel.as_ptr(),
                 &*nvme_cmd,

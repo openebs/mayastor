@@ -177,6 +177,20 @@ describe('snapshot', function () {
     });
   });
 
+  it('should publish the nexus on nvmf', (done) => {
+    client.publishNexus(
+      {
+        uuid: UUID,
+        share: enums.NEXUS_NVMF
+      },
+      (err, res) => {
+        if (err) done(err);
+        assert(res.device_uri);
+        done();
+      }
+    );
+  });
+
   it('should create a snapshot on the nexus', (done) => {
     const args = { uuid: UUID };
     client.createSnapshot(args, (err) => {
