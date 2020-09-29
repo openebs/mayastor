@@ -39,7 +39,7 @@ use crate::{
                 OpenChild,
             },
             nexus_channel::DREvent,
-            nexus_child::{ChildState, ChildStatus, NexusChild},
+            nexus_child::{ChildState, NexusChild},
             nexus_child_status_config::ChildStatusConfig,
             nexus_label::{
                 LabelError,
@@ -48,6 +48,7 @@ use crate::{
                 NexusLabelStatus,
             },
         },
+        Reason,
         VerboseError,
     },
     core::Bdev,
@@ -115,7 +116,7 @@ impl Nexus {
                     e.verbose()
                 );
                 match self.get_child_by_name(uri) {
-                    Ok(child) => child.fault(),
+                    Ok(child) => child.fault(Reason::RebuildFailed),
                     Err(e) => error!(
                         "Failed to find newly added child {}, error: {}",
                         uri,
@@ -181,7 +182,7 @@ impl Nexus {
 
                 // it can never take part in the IO path
                 // of the nexus until it's rebuilt from a healthy child.
-                child.out_of_sync(true);
+                child.fault(Reason::OutOfSync);
                 if ChildStatusConfig::add(&child).is_err() {
                     error!("Failed to add child status information");
                 }
@@ -230,7 +231,7 @@ impl Nexus {
         };
 
         self.children[idx].close();
-        assert_eq!(self.children[idx].state, ChildState::Closed);
+        assert_eq!(self.children[idx].state(), ChildState::Closed);
 
         let mut child = self.children.remove(idx);
         self.child_count -= 1;
@@ -274,7 +275,11 @@ impl Nexus {
     }
 
     /// fault a child device and reconfigure the IO channels
-    pub async fn fault_child(&mut self, name: &str) -> Result<(), Error> {
+    pub async fn fault_child(
+        &mut self,
+        name: &str,
+        reason: Reason,
+    ) -> Result<(), Error> {
         trace!("{}: fault child request for {}", self.name, name);
 
         if self.child_count < 2 {
@@ -289,9 +294,13 @@ impl Nexus {
 
         let result = match self.children.iter_mut().find(|c| c.name == name) {
             Some(child) => {
-                if child.status() != ChildStatus::Faulted {
-                    child.fault();
-                    self.reconfigure(DREvent::ChildFault).await;
+                match child.state() {
+                    ChildState::Faulted(_) => {}
+                    _ => {
+                        child.fault(reason);
+                        NexusChild::save_state_change();
+                        self.reconfigure(DREvent::ChildFault).await;
+                    }
                 }
                 Ok(())
             }
@@ -348,7 +357,7 @@ impl Nexus {
     pub fn examine_child(&mut self, name: &str) -> bool {
         self.children
             .iter_mut()
-            .filter(|c| c.state == ChildState::Init && c.name == name)
+            .filter(|c| c.state() == ChildState::Init && c.name == name)
             .any(|c| {
                 if let Some(bdev) = Bdev::lookup_by_name(name) {
                     c.bdev = Some(bdev);
@@ -515,7 +524,7 @@ impl Nexus {
         let mut blockcnt = std::u64::MAX;
         self.children
             .iter()
-            .filter(|c| c.state == ChildState::Open)
+            .filter(|c| c.state() == ChildState::Open)
             .map(|c| c.bdev.as_ref().unwrap().num_blocks())
             .collect::<Vec<_>>()
             .iter()

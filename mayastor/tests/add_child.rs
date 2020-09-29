@@ -1,5 +1,8 @@
+#[macro_use]
+extern crate assert_matches;
+
 use mayastor::{
-    bdev::{nexus_create, nexus_lookup, ChildStatus},
+    bdev::{nexus_create, nexus_lookup, ChildState, Reason},
     core::{mayastor_env_stop, MayastorCliArgs, MayastorEnvironment, Reactor},
 };
 
@@ -48,9 +51,12 @@ fn add_child() {
                     .await
                     .expect("Failed to add child");
                 assert_eq!(nexus.children.len(), 2);
-                // A faulted state indicates the child was added but something
-                // went wrong i.e. the rebuild failed to start
-                assert_ne!(nexus.children[1].status(), ChildStatus::Faulted);
+
+                // Expect the added child to be in the out-of-sync state
+                assert_matches!(
+                    nexus.children[1].state(),
+                    ChildState::Faulted(Reason::OutOfSync)
+                );
             });
 
             // Test removing a child from an unshared nexus
@@ -80,9 +86,12 @@ fn add_child() {
                     .await
                     .expect("Failed to add child");
                 assert_eq!(nexus.children.len(), 2);
-                // A faulted state indicates the child was added but something
-                // went wrong i.e. the rebuild failed to start
-                assert_ne!(nexus.children[1].status(), ChildStatus::Faulted);
+
+                // Expect the added child to be in the out-of-sync state
+                assert_matches!(
+                    nexus.children[1].state(),
+                    ChildState::Faulted(Reason::OutOfSync)
+                );
             });
 
             // Test removing a child from a shared nexus

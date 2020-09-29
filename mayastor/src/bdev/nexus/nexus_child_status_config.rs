@@ -15,7 +15,7 @@
 use crate::bdev::nexus::{
     instances,
     nexus_channel::DREvent,
-    nexus_child::{NexusChild, StatusReasons},
+    nexus_child::{ChildState, NexusChild},
 };
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
@@ -28,7 +28,7 @@ pub static STATUS_CONFIG: OnceCell<ChildStatusConfig> = OnceCell::new();
 
 #[derive(Serialize, Deserialize, Debug)]
 pub struct ChildStatusConfig {
-    status: HashMap<ChildName, StatusReasons>,
+    status: HashMap<ChildName, ChildState>,
 }
 
 impl Default for ChildStatusConfig {
@@ -90,7 +90,7 @@ impl ChildStatusConfig {
                         "Apply state to child {}, reasons {:?}",
                         child.name, status
                     );
-                    child.status_reasons = *status;
+                    child.set_state(*status);
                 }
             });
             nexus.reconfigure(DREvent::ChildStatusSync).await;
@@ -126,9 +126,7 @@ impl ChildStatusConfig {
 
         instances().iter().for_each(|nexus| {
             nexus.children.iter().for_each(|child| {
-                status_cfg
-                    .status
-                    .insert(child.name.clone(), child.status_reasons);
+                status_cfg.status.insert(child.name.clone(), child.state());
             });
         });
 
@@ -154,7 +152,7 @@ impl ChildStatusConfig {
         let mut cfg = ChildStatusConfig {
             status: HashMap::new(),
         };
-        cfg.status.insert(child.name.clone(), child.status_reasons);
+        cfg.status.insert(child.name.clone(), child.state());
         ChildStatusConfig::do_save(Some(cfg))
     }
 

@@ -17,6 +17,7 @@ use crate::{
     bdev::{
         nexus::{instances, nexus_bdev},
         nexus_create,
+        Reason,
     },
     grpc::{
         nexus_grpc::{
@@ -217,7 +218,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
             let uri = args.uri.clone();
             debug!("Faulting child {} on nexus {}", uri, uuid);
             locally! { async move {
-                nexus_lookup(&args.uuid)?.fault_child(&args.uri).await
+                nexus_lookup(&args.uuid)?.fault_child(&args.uri, Reason::Rpc).await
             }};
             info!("Faulted child {} on nexus {}", uri, uuid);
             Ok(Response::new(Null {}))
