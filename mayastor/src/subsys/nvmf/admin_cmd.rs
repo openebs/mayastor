@@ -1,18 +1,25 @@
 //! Handlers for custom NVMe Admin commands
 
-use std::{convert::TryFrom, ffi::c_void, ptr::NonNull};
+use std::{
+    convert::TryFrom,
+    ffi::c_void,
+    ptr::NonNull,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use spdk_sys::{
     spdk_bdev,
     spdk_bdev_desc,
     spdk_io_channel,
+    spdk_nvme_cmd,
     spdk_nvme_cpl,
     spdk_nvme_status,
+    spdk_nvmf_bdev_ctrlr_nvme_passthru_admin,
     spdk_nvmf_request,
 };
 
 use crate::{
-    bdev::nexus::nexus_io::nvme_admin_opc,
+    bdev::nexus::{nexus_io::nvme_admin_opc, nexus_module},
     core::{Bdev, Reactors},
     lvs::Lvol,
 };
@@ -23,7 +30,7 @@ pub struct NvmeCpl(pub(crate) NonNull<spdk_nvme_cpl>);
 impl NvmeCpl {
     /// Returns the NVMe status
     pub(crate) fn status(&mut self) -> &mut spdk_nvme_status {
-        unsafe { &mut *spdk_sys::get_nvme_status(self.0.as_mut()) }
+        unsafe { &mut *spdk_sys::nvme_status_get(self.0.as_mut()) }
     }
 }
 
@@ -46,6 +53,21 @@ impl From<*mut c_void> for NvmfReq {
     fn from(ptr: *mut c_void) -> Self {
         NvmfReq(NonNull::new(ptr as *mut spdk_nvmf_request).unwrap())
     }
+}
+
+/// Set the snapshot time in an spdk_nvme_cmd struct to the current time
+/// Returns seconds since Unix epoch
+pub fn set_snapshot_time(cmd: &mut spdk_nvme_cmd) -> u64 {
+    // encode snapshot time in cdw10/11
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_secs();
+    unsafe {
+        *spdk_sys::nvme_cmd_cdw10_get(&mut *cmd) = now as u32;
+        *spdk_sys::nvme_cmd_cdw11_get(&mut *cmd) = (now >> 32) as u32;
+    }
+    now as u64
 }
 
 /// NVMf custom command handler for opcode c0h
@@ -83,11 +105,20 @@ extern "C" fn nvmf_create_snapshot_hdlr(req: *mut spdk_nvmf_request) -> i32 {
 
     let bd = Bdev::from(bdev);
     let base_name = bd.name();
-    if let Ok(lvol) = Lvol::try_from(bd) {
-        let cmd = unsafe { &*spdk_sys::spdk_nvmf_request_get_cmd(req) };
+    if bd.driver() == nexus_module::NEXUS_NAME {
+        // Received command on a published Nexus
+        set_snapshot_time(unsafe {
+            &mut *spdk_sys::spdk_nvmf_request_get_cmd(req)
+        });
+        unsafe {
+            spdk_nvmf_bdev_ctrlr_nvme_passthru_admin(bdev, desc, ch, req, None)
+        }
+    } else if let Ok(lvol) = Lvol::try_from(bd) {
+        // Received command on a shared replica (lvol)
+        let cmd = unsafe { spdk_sys::spdk_nvmf_request_get_cmd(req) };
         let snapshot_time = unsafe {
-            cmd.__bindgen_anon_1.cdw10 as u64
-                | (cmd.__bindgen_anon_2.cdw11 as u64) << 32
+            *spdk_sys::nvme_cmd_cdw10_get(cmd) as u64
+                | (*spdk_sys::nvme_cmd_cdw11_get(cmd) as u64) << 32
         };
         let snapshot_name =
             Lvol::format_snapshot_name(&base_name, snapshot_time);
@@ -98,6 +129,7 @@ extern "C" fn nvmf_create_snapshot_hdlr(req: *mut spdk_nvmf_request) -> i32 {
         });
         1 // SPDK_NVMF_REQUEST_EXEC_STATUS_ASYNCHRONOUS
     } else {
+        debug!("unsupported bdev driver");
         -1
     }
 }

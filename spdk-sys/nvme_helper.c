@@ -5,13 +5,23 @@
 #include <spdk/nvme_spec.h>
 #include <spdk/thread.h>
 
+uint32_t *
+nvme_cmd_cdw10_get(struct spdk_nvme_cmd *cmd) {
+       return &cmd->cdw10;
+}
+
+uint32_t *
+nvme_cmd_cdw11_get(struct spdk_nvme_cmd *cmd) {
+       return &cmd->cdw11;
+}
+
 struct spdk_nvme_status *
-get_nvme_status(struct spdk_nvme_cpl *cpl) {
+nvme_status_get(struct spdk_nvme_cpl *cpl) {
 	return &cpl->status;
 }
 
 uint16_t *
-get_nvme_status_raw(struct spdk_nvme_cpl *cpl) {
+nvme_status_raw_get(struct spdk_nvme_cpl *cpl) {
 	return &cpl->status_raw;
 }
 
