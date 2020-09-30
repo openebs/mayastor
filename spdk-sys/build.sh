@@ -22,7 +22,7 @@ pushd spdk || { echo "Can not find spdk directory"; exit; }
 make -j $(nproc)
 
 # delete things we for sure do not want link
-find . -type f -name 'libspdk_event_nvmf.a' -delete
+#find . -type f -name 'libspdk_event_nvmf.a' -delete
 find . -type f -name 'libspdk_ut_mock.a' -delete
 #find . -type f -name 'librte_vhost.a' -delete
 

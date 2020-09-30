@@ -74,7 +74,7 @@ let
 
     buildPhase = ''
       make -j`nproc`
-      find . -type f -name 'libspdk_event_nvmf.a' -delete
+      #find . -type f -name 'libspdk_event_nvmf.a' -delete
       find . -type f -name 'libspdk_ut_mock.a' -delete
       #find . -type f -name 'librte_vhost.a' -delete
 
