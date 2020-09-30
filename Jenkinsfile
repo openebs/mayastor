@@ -97,6 +97,12 @@ pipeline {
           steps {
             sh 'nix-shell --run "./scripts/cargo-test.sh"'
           }
+          post {
+            always {
+              // temporary workaround for leaked spdk_iscsi_conns files
+              sh 'sudo rm -f /dev/shm/*'
+            }
+          }
         }
         stage('mocha api tests') {
           agent { label 'nixos-mayastor' }
@@ -106,6 +112,8 @@ pipeline {
           post {
             always {
               junit '*-xunit-report.xml'
+              // temporary workaround for leaked spdk_iscsi_conns files
+              sh 'sudo rm -f /dev/shm/*'
             }
           }
         }
