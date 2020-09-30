@@ -14,7 +14,7 @@ use std::{
 
 use byte_unit::{Byte, ByteUnit};
 use futures::{channel::oneshot, future};
-use once_cell::sync::Lazy;
+use once_cell::sync::{Lazy, OnceCell};
 use snafu::Snafu;
 use structopt::StructOpt;
 use tokio::{runtime::Builder, task};
@@ -48,8 +48,7 @@ use crate::{
     },
     grpc,
     logger,
-    nats,
-    subsys::Config,
+    subsys::{self, Config},
     target::iscsi,
 };
 
@@ -73,19 +72,6 @@ fn parse_mb(src: &str) -> Result<i32, String> {
     }
 }
 
-/// If endpoint is Some() and is missing a port number then add the provided
-/// one.
-fn add_default_port(endpoint: Option<String>, port: u16) -> Option<String> {
-    match endpoint {
-        Some(ep) => Some(if ep.contains(':') {
-            ep
-        } else {
-            format!("{}:{}", ep, port)
-        }),
-        None => None,
-    }
-}
-
 #[derive(Debug, StructOpt)]
 #[structopt(
     name = "Mayastor",
@@ -97,9 +83,9 @@ pub struct MayastorCliArgs {
     #[structopt(short = "c")]
     /// Path to the configuration file if any
     pub config: Option<String>,
-    #[structopt(short = "g")]
-    /// IP address and port for gRPC server to listen on
-    pub grpc_endpoint: Option<String>,
+    #[structopt(short = "g", default_value = grpc::default_endpoint_str())]
+    /// IP address and port (optional) for the gRPC server to listen on
+    pub grpc_endpoint: String,
     #[structopt(short = "L")]
     /// Enable logging for sub components
     pub log_components: Vec<String>,
@@ -110,8 +96,8 @@ pub struct MayastorCliArgs {
     /// Name of the node where mayastor is running (ID used by control plane)
     pub node_name: Option<String>,
     #[structopt(short = "n")]
-    /// IP address and port of the NATS server
-    pub nats_endpoint: Option<String>,
+    /// Hostname/IP and port (optional) of the message bus server
+    pub mbus_endpoint: Option<String>,
     /// The maximum amount of hugepage memory we are allowed to allocate in MiB
     /// (default: all)
     #[structopt(
@@ -144,8 +130,8 @@ pub struct MayastorCliArgs {
 impl Default for MayastorCliArgs {
     fn default() -> Self {
         Self {
-            grpc_endpoint: None,
-            nats_endpoint: None,
+            grpc_endpoint: grpc::default_endpoint().to_string(),
+            mbus_endpoint: None,
             node_name: None,
             env_context: None,
             reactor_mask: "0x1".into(),
@@ -208,9 +194,9 @@ type Result<T, E = EnvError> = std::result::Result<T, E>;
 #[derive(Debug, Clone)]
 pub struct MayastorEnvironment {
     pub config: Option<String>,
-    node_name: String,
-    nats_endpoint: Option<String>,
-    grpc_endpoint: Option<String>,
+    pub node_name: String,
+    pub mbus_endpoint: Option<String>,
+    pub grpc_endpoint: Option<std::net::SocketAddr>,
     mayastor_config: Option<String>,
     child_status_config: Option<String>,
     delay_subsystem_init: bool,
@@ -244,7 +230,7 @@ impl Default for MayastorEnvironment {
         Self {
             config: None,
             node_name: "mayastor-node".into(),
-            nats_endpoint: None,
+            mbus_endpoint: None,
             grpc_endpoint: None,
             mayastor_config: None,
             child_status_config: None,
@@ -293,7 +279,6 @@ async fn do_shutdown(arg: *mut c_void) {
         warn!("Mayastor stopped non-zero: {}", rc);
     }
 
-    nats::message_bus_stop();
     iscsi::fini();
 
     unsafe {
@@ -345,11 +330,12 @@ struct SubsystemCtx {
     sender: futures::channel::oneshot::Sender<bool>,
 }
 
+static MAYASTOR_DEFAULT_ENV: OnceCell<MayastorEnvironment> = OnceCell::new();
 impl MayastorEnvironment {
     pub fn new(args: MayastorCliArgs) -> Self {
         Self {
-            grpc_endpoint: add_default_port(args.grpc_endpoint, 10124),
-            nats_endpoint: add_default_port(args.nats_endpoint, 4222),
+            grpc_endpoint: Some(grpc::endpoint(args.grpc_endpoint)),
+            mbus_endpoint: subsys::mbus_endpoint(args.mbus_endpoint),
             node_name: args.node_name.unwrap_or_else(|| "mayastor-node".into()),
             config: args.config,
             mayastor_config: args.mayastor_config,
@@ -362,6 +348,21 @@ impl MayastorEnvironment {
             hugedir: args.hugedir,
             env_context: args.env_context,
             ..Default::default()
+        }
+        .setup_static()
+    }
+
+    fn setup_static(self) -> Self {
+        MAYASTOR_DEFAULT_ENV.get_or_init(|| self.clone());
+        self
+    }
+
+    /// Get the global environment (first created on new)
+    /// or otherwise the default one (used by the tests)
+    pub fn global_or_default() -> Self {
+        match MAYASTOR_DEFAULT_ENV.get() {
+            Some(env) => env.clone(),
+            None => MayastorEnvironment::default(),
         }
     }
 
@@ -653,6 +654,9 @@ impl MayastorEnvironment {
 
     /// initialize the core, call this before all else
     pub fn init(mut self) -> Self {
+        // initialise the message bus
+        subsys::message_bus_init();
+
         // setup the logger as soon as possible
         self.init_logger().unwrap();
 
@@ -744,9 +748,7 @@ impl MayastorEnvironment {
         F: FnOnce() + 'static,
     {
         type FutureResult = Result<(), ()>;
-        let grpc_endpoint = self.grpc_endpoint.clone();
-        let nats_endpoint = self.nats_endpoint.clone();
-        let node_name = self.node_name.clone();
+        let grpc_endpoint = self.grpc_endpoint;
         self.init();
 
         let mut rt = Builder::new()
@@ -764,16 +766,12 @@ impl MayastorEnvironment {
                     let mut futures: Vec<
                         Pin<Box<dyn future::Future<Output = FutureResult>>>,
                     > = Vec::new();
-                    if let Some(grpc_ep) = grpc_endpoint.as_ref() {
+                    if let Some(grpc_endpoint) = grpc_endpoint {
                         futures.push(Box::pin(grpc::MayastorGrpcServer::run(
-                            grpc_ep,
+                            grpc_endpoint,
                         )));
-                        if let Some(nats_ep) = nats_endpoint.as_ref() {
-                            futures.push(Box::pin(nats::message_bus_run(
-                                nats_ep, &node_name, grpc_ep,
-                            )));
-                        }
-                    };
+                    }
+                    futures.push(Box::pin(subsys::Registration::run()));
                     futures.push(Box::pin(master));
                     let _out = future::try_join_all(futures).await;
                     info!("reactors stopped");

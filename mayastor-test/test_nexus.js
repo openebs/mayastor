@@ -270,7 +270,9 @@ describe('nexus', function () {
             '-r',
             '/tmp/target.sock',
             '-s',
-            '128'
+            '128',
+            '-g',
+            '127.0.0.1:10125'
           ],
           { MY_POD_IP: '127.0.0.1' },
           '_tgt');
