@@ -160,6 +160,12 @@ pub enum Error {
         name
     ))]
     RemoveLastChild { child: String, name: String },
+    #[snafu(display(
+        "Cannot fault the last healthy child {} of nexus {}",
+        child,
+        name
+    ))]
+    FaultingLastHealthyChild { child: String, name: String },
     #[snafu(display("Failed to destroy child {} of nexus {}", child, name))]
     DestroyChild {
         source: NexusBdevError,
