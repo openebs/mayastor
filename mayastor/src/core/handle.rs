@@ -4,7 +4,6 @@ use std::{
     mem::ManuallyDrop,
     os::raw::c_void,
     sync::Arc,
-    time::{SystemTime, UNIX_EPOCH},
 };
 
 use futures::channel::oneshot;
@@ -15,7 +14,7 @@ use spdk_sys::{
     spdk_bdev_desc,
     spdk_bdev_free_io,
     spdk_bdev_io,
-    spdk_bdev_nvme_admin_passthru,
+    spdk_bdev_nvme_admin_passthru_ro,
     spdk_bdev_read,
     spdk_bdev_reset,
     spdk_bdev_write,
@@ -26,6 +25,7 @@ use crate::{
     bdev::nexus::nexus_io::nvme_admin_opc,
     core::{Bdev, CoreError, Descriptor, DmaBuf, DmaError, IoChannel},
     ffihelper::cb_arg,
+    subsys,
 };
 
 /// A handle to a bdev, is an interface to submit IO. The ['Descriptor'] may be
@@ -211,13 +211,7 @@ impl BdevHandle {
     pub async fn create_snapshot(&self) -> Result<u64, CoreError> {
         let mut cmd = spdk_sys::spdk_nvme_cmd::default();
         cmd.set_opc(nvme_admin_opc::CREATE_SNAPSHOT.into());
-        // encode snapshot time in cdw10/11
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        cmd.__bindgen_anon_1.cdw10 = now as u32;
-        cmd.__bindgen_anon_2.cdw11 = (now >> 32) as u32;
+        let now = subsys::set_snapshot_time(&mut cmd);
         debug!("Creating snapshot at {}", now);
         self.nvme_admin(&cmd).await?;
         Ok(now as u64)
@@ -240,8 +234,10 @@ impl BdevHandle {
     ) -> Result<usize, CoreError> {
         trace!("Sending nvme_admin {}", nvme_cmd.opc());
         let (s, r) = oneshot::channel::<bool>();
+        // Use the spdk-sys variant spdk_bdev_nvme_admin_passthru that
+        // assumes read commands
         let errno = unsafe {
-            spdk_bdev_nvme_admin_passthru(
+            spdk_bdev_nvme_admin_passthru_ro(
                 self.desc.as_ptr(),
                 self.channel.as_ptr(),
                 &*nvme_cmd,

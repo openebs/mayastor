@@ -35,6 +35,9 @@ nexus_opts:
 var client, client2;
 var disks;
 
+// URI of Nexus published over NVMf
+var nexusUri;
+
 describe('snapshot', function () {
   this.timeout(10000); // for network tests we need long timeouts
 
@@ -177,6 +180,21 @@ describe('snapshot', function () {
     });
   });
 
+  it('should publish the nexus on nvmf', (done) => {
+    client.publishNexus(
+      {
+        uuid: UUID,
+        share: enums.NEXUS_NVMF
+      },
+      (err, res) => {
+        if (err) done(err);
+        assert(res.device_uri);
+        nexusUri = res.device_uri;
+        done();
+      }
+    );
+  });
+
   it('should create a snapshot on the nexus', (done) => {
     const args = { uuid: UUID };
     client.createSnapshot(args, (err) => {
@@ -196,6 +214,32 @@ describe('snapshot', function () {
       assert.equal(res.uuid.startsWith(replicaUuid + '-snap-'), true);
       assert.equal(res.share, 'REPLICA_NONE');
       assert.match(res.uri, /^bdev:\/\/\//);
+      // Wait 1 second so that the 2nd snapshot has a different name and can
+      // be created successfully
+      setTimeout(done, 1000);
+    });
+  });
+
+  it('should take snapshot on nvmf-published nexus', (done) => {
+    common.execAsRoot(
+      common.getCmdPath('initiator'),
+      [nexusUri, 'create-snapshot'],
+      done
+    );
+  });
+
+  it('should list the 2 snapshots as replicas', (done) => {
+    client2.listReplicas({}, (err, res) => {
+      if (err) return done(err);
+
+      res = res.replicas.filter((ent) => ent.pool === poolName);
+      assert.lengthOf(res, 3);
+      var i;
+      for (i = 1; i < 3; i++) {
+        assert.equal(res[i].uuid.startsWith(replicaUuid + '-snap-'), true);
+        assert.equal(res[i].share, 'REPLICA_NONE');
+        assert.match(res[i].uri, /^bdev:\/\/\//);
+      }
       done();
     });
   });
