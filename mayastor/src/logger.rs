@@ -1,7 +1,10 @@
 use std::{ffi::CStr, os::raw::c_char, str::FromStr};
 
 use tracing_log::format_trace;
-use tracing_subscriber::fmt::{format::FmtSpan, time::FormatTime, Subscriber};
+use tracing_subscriber::{
+    fmt::{format::FmtSpan, time::FormatTime, Subscriber},
+    EnvFilter,
+};
 
 use spdk_sys::{spdk_log_get_print_level, spdk_log_level};
 
@@ -71,14 +74,18 @@ impl FormatTime for CustomTime<'_> {
 /// We might want to suppress certain messages, as some of them are redundant,
 /// in particular, the NOTICE messages as such, they are mapped to debug.
 pub fn init(level: &str) {
-    let subscriber = Subscriber::builder()
+    let builder = Subscriber::builder()
         .with_timer(CustomTime("%FT%T%.9f%Z"))
-        .with_span_events(FmtSpan::FULL)
-        .with_max_level(
-            tracing::Level::from_str(level).unwrap_or(tracing::Level::TRACE),
-        )
-        .finish();
+        .with_span_events(FmtSpan::FULL);
 
-    tracing::subscriber::set_global_default(subscriber)
-        .expect("failed to set default subscriber");
+    if let Ok(filter) = EnvFilter::try_from_default_env() {
+        let subscriber = builder.with_env_filter(filter).finish();
+        tracing::subscriber::set_global_default(subscriber)
+    } else {
+        let max_level =
+            tracing::Level::from_str(level).unwrap_or(tracing::Level::INFO);
+        let subscriber = builder.with_max_level(max_level).finish();
+        tracing::subscriber::set_global_default(subscriber)
+    }
+    .expect("failed to set default subscriber");
 }
