@@ -289,6 +289,20 @@ impl Nexus {
             });
         }
 
+        let healthy_children = self
+            .children
+            .iter()
+            .filter(|c| c.state() == ChildState::Open)
+            .collect::<Vec<_>>();
+
+        if healthy_children.len() == 1 && healthy_children[0].name == name {
+            // the last healthy child cannot be faulted
+            return Err(Error::FaultingLastHealthyChild {
+                name: self.name.clone(),
+                child: name.to_owned(),
+            });
+        }
+
         let cancelled_rebuilding_children =
             self.cancel_child_rebuild_jobs(name).await;
 
