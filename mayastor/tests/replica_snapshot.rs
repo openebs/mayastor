@@ -37,7 +37,7 @@ fn generate_config() {
     config.nexus_opts.nvmf_nexus_port = 8440;
     let pool = subsys::Pool {
         name: "pool0".to_string(),
-        disks: vec![DISKNAME1.to_string()],
+        disks: vec!["aio://".to_string() + &DISKNAME1.to_string()],
         blk_size: 512,
         io_if: 1, // AIO
         replicas: Default::default(),

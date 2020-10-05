@@ -40,8 +40,9 @@ use crate::{
     },
     core::{Bdev, Cores, Reactor, Share},
     jsonrpc::{jsonrpc_register, Code, RpcErrorCode},
+    lvs::Lvs,
     nexus_uri::bdev_create,
-    pool::{create_pool, PoolsIter},
+    pool::PoolsIter,
     replica::{self, ReplicaIter, ShareType},
     subsys::{
         config::opts::{
@@ -471,7 +472,7 @@ impl Config {
         if let Some(pools) = self.pools.as_ref() {
             for pool in pools {
                 info!("creating pool {}", pool.name);
-                if let Err(e) = create_pool(pool.into()).await {
+                if let Err(e) = Lvs::create_or_import(pool.into()).await {
                     error!(
                         "Failed to create pool {}. {}",
                         pool.name,

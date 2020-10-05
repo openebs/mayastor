@@ -30,6 +30,13 @@ nexus_opts:
   iscsi_enable: false
   iscsi_nexus_port: 3260
   iscsi_replica_port: 3262
+pools:
+  - name: pool0
+    disks:
+      - aio:///tmp/pool-backend
+    blk_size: 512
+    io_if: 1
+    replicas: []
 `;
 
 var client, client2;
@@ -50,10 +57,16 @@ describe('snapshot', function () {
     if (!client2) {
       return done(new Error('Failed to initialize grpc client for 2nd Mayastor instance'));
     }
-    disks = ['aio://' + poolFile];
+    disks = [poolFile];
 
     async.series(
       [
+        (next) => {
+          fs.writeFile(poolFile, '', next);
+        },
+        (next) => {
+          fs.truncate(poolFile, diskSize, next);
+        },
         // start this as early as possible to avoid mayastor getting connection refused.
         (next) => {
           // Start another mayastor instance for the remote nvmf target of the
@@ -75,12 +88,6 @@ describe('snapshot', function () {
             // use harmless method to test if the mayastor is up and running
             client2.listPools({}, pingDone);
           }, next);
-        },
-        (next) => {
-          fs.writeFile(poolFile, '', next);
-        },
-        (next) => {
-          fs.truncate(poolFile, diskSize, next);
         },
         (next) => {
           common.startMayastor(null, ['-r', common.SOCK, '-g', common.grpcEndpoint, '-s', 384]);
@@ -118,10 +125,20 @@ describe('snapshot', function () {
     );
   });
 
+  it('should destroy the pool loaded from yaml', (done) => {
+    client2.destroyPool(
+      { name: poolName },
+      (err, res) => {
+        if (err) return done(err);
+        done();
+      }
+    );
+  });
+
   it('should create a pool with aio bdevs', (done) => {
     // explicitly specify aio as that always works
     client2.createPool(
-      { name: poolName, disks: disks, io_if: enums.POOL_IO_AIO },
+      { name: poolName, disks: disks.map((d) => `aio://${d}`) },
       (err, res) => {
         if (err) return done(err);
         assert.equal(res.name, poolName);

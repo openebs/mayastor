@@ -12,7 +12,7 @@ err_store_opts:
 pools:
   - name: "pool1"
     disks:
-      - "/dev/vdb"
+      - "aio:///dev/vdb"
     blk_size: 4096
     io_if: 1
     replicas: []
