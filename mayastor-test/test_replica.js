@@ -160,9 +160,9 @@ describe('replica', function () {
 
   it('should not create a pool with invalid block size', (done) => {
     client.createPool(
-      { name: POOL, disks: disks, block_size: 1238513 },
+      { name: POOL, disks: disks.map((d) => `${d}?blk_size=1238513`) },
       (err) => {
-        assert.equal(err.code, grpc.status.INVALID_ARGUMENT);
+        assert.equal(err.code, grpc.status.INTERNAL);
         done();
       }
     );

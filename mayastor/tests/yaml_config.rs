@@ -122,8 +122,6 @@ fn yaml_pool_tests() {
     let pool = subsys::Pool {
         name: "tpool".to_string(),
         disks: vec!["/tmp/disk1.img".into()],
-        blk_size: 512,
-        io_if: 1,
         replicas: Default::default(),
     };
 

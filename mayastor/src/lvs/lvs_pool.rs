@@ -300,20 +300,6 @@ impl Lvs {
             });
         }
 
-        // this is a legacy argument, should not be used typically
-        if args.block_size != 512
-            && args.block_size != 4096
-            && args.block_size != 0
-        {
-            return Err(Error::Invalid {
-                source: Errno::EINVAL,
-                msg: format!(
-                    "invalid block size specified {}",
-                    args.block_size
-                ),
-            });
-        }
-
         // default to uring if kernel supports it
         let disks = args
             .disks

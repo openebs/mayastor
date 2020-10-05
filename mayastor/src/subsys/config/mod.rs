@@ -298,8 +298,6 @@ impl Config {
                 Pool {
                     name: p.get_name().into(),
                     disks: vec![base.bdev_uri().unwrap_or_else(|| base.name())],
-                    blk_size: base.block_len(),
-                    io_if: 0, // AIO
                     replicas: ReplicaIter::new()
                         .map(|p| Replica {
                             name: p.get_uuid().to_string(),
@@ -595,10 +593,6 @@ pub struct Pool {
     pub name: String,
     /// bdevs to create outside of the nexus control
     pub disks: Vec<String>,
-    /// the block_size the pool should use
-    pub blk_size: u32,
-    /// use AIO, uring or auto detect
-    pub io_if: i32,
     /// list of replicas to share on load
     pub replicas: Vec<Replica>,
 }
@@ -609,8 +603,6 @@ impl From<&Pool> for rpc::mayastor::CreatePoolRequest {
         Self {
             name: o.name.clone(),
             disks: o.disks.clone(),
-            block_size: o.blk_size,
-            io_if: o.io_if,
         }
     }
 }

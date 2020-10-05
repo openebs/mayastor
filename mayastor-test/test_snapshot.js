@@ -34,8 +34,6 @@ pools:
   - name: pool0
     disks:
       - aio:///tmp/pool-backend
-    blk_size: 512
-    io_if: 1
     replicas: []
 `;
 

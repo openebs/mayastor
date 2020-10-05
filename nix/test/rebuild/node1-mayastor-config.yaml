@@ -12,8 +12,6 @@ err_store_opts:
 pools:
   - name: "pool1"
     disks:
-      - "aio:///dev/vdb"
-    blk_size: 4096
-    io_if: 1
+      - "aio:///dev/vdb?blk_size=4096"
     replicas: []
 implicit_share_base: true

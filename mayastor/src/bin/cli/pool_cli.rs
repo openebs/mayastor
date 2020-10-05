@@ -2,25 +2,11 @@ use super::context::Context;
 use ::rpc::mayastor as rpc;
 use byte_unit::Byte;
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
-use tonic::{Code, Status};
+use tonic::Status;
 
 pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
     let create = SubCommand::with_name("create")
         .about("Create storage pool")
-        .arg(
-            Arg::with_name("block-size")
-                .short("b")
-                .long("block-size")
-                .value_name("NUMBER")
-                .help("block size of the underlying devices"),
-        )
-        .arg(
-            Arg::with_name("io-if")
-                .short("i")
-                .long("io-if")
-                .value_name("IF")
-                .help("I/O interface for the underlying devices"),
-        )
         .arg(
             Arg::with_name("pool")
                 .required(true)
@@ -78,24 +64,12 @@ async fn create(
         .unwrap()
         .map(|dev| dev.to_owned())
         .collect();
-    let block_size = value_t!(matches.value_of("block-size"), u32).unwrap_or(0);
-    let io_if = match matches.value_of("io-if") {
-        None | Some("auto") => Ok(rpc::PoolIoIf::PoolIoAuto as i32),
-        Some("aio") => Ok(rpc::PoolIoIf::PoolIoAio as i32),
-        Some("uring") => Ok(rpc::PoolIoIf::PoolIoUring as i32),
-        Some(_) => Err(Status::new(
-            Code::Internal,
-            "Invalid value of I/O interface".to_owned(),
-        )),
-    }?;
 
     ctx.v2(&format!("Creating pool {}", name));
     ctx.client
         .create_pool(rpc::CreatePoolRequest {
             name: name.clone(),
             disks,
-            block_size,
-            io_if,
         })
         .await?;
     ctx.v1(&format!("Created pool {}", name));
