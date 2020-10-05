@@ -9,12 +9,12 @@ use rpc::mayastor::{
 pub struct MayastorGrpcServer {}
 
 impl MayastorGrpcServer {
-    pub async fn run(endpoint: &str) -> Result<(), ()> {
+    pub async fn run(endpoint: std::net::SocketAddr) -> Result<(), ()> {
         info!("gRPC server configured at address {}", endpoint);
         let svc = Server::builder()
             .add_service(MayastorRpcServer::new(MayastorSvc {}))
             .add_service(BdevRpcServer::new(BdevSvc {}))
-            .serve(endpoint.parse().unwrap());
+            .serve(endpoint);
 
         match svc.await {
             Ok(_) => Ok(()),

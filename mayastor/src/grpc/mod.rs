@@ -83,3 +83,42 @@ where
     }
     result
 }
+
+macro_rules! default_ip {
+    () => {
+        "0.0.0.0"
+    };
+}
+macro_rules! default_port {
+    () => {
+        10124
+    };
+}
+
+/// Default server port
+pub fn default_port() -> u16 {
+    default_port!()
+}
+
+/// Default endpoint - ip:port
+pub fn default_endpoint_str() -> &'static str {
+    concat!(default_ip!(), ":", default_port!())
+}
+
+/// Default endpoint - ip:port
+pub fn default_endpoint() -> std::net::SocketAddr {
+    default_endpoint_str()
+        .parse()
+        .expect("Expected a valid endpoint")
+}
+
+/// If endpoint is missing a port number then add the default one.
+pub fn endpoint(endpoint: String) -> std::net::SocketAddr {
+    (if endpoint.contains(':') {
+        endpoint
+    } else {
+        format!("{}:{}", endpoint, default_port())
+    })
+    .parse()
+    .expect("Invalid gRPC endpoint")
+}
