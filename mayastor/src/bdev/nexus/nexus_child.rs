@@ -38,8 +38,8 @@ pub enum ChildError {
     OpenChild { source: CoreError },
     #[snafu(display("Claim child"))]
     ClaimChild { source: Errno },
-    #[snafu(display("Child is closed"))]
-    ChildClosed {},
+    #[snafu(display("Child is inaccessible"))]
+    ChildInaccessible {},
     #[snafu(display("Invalid state of child"))]
     ChildInvalid {},
     #[snafu(display("Opening child bdev without bdev pointer"))]
@@ -362,17 +362,23 @@ impl NexusChild {
         }
     }
 
-    /// returns if a child can be written to
-    pub fn can_rw(&self) -> bool {
+    /// Check if the child is in a state that can service I/O.
+    /// When out-of-sync, the child is still accessible (can accept I/O)
+    /// because:
+    /// 1. An added child starts in the out-of-sync state and may require its
+    ///    label and metadata to be updated
+    /// 2. It needs to be rebuilt
+    fn is_accessible(&self) -> bool {
         self.state() == ChildState::Open
+            || self.state() == ChildState::Faulted(Reason::OutOfSync)
     }
 
     /// return references to child's bdev and descriptor
     /// both must be present - otherwise it is considered an error
     pub fn get_dev(&self) -> Result<(&Bdev, &BdevHandle), ChildError> {
-        if !self.can_rw() {
-            info!("{}: Closed child: {}", self.parent, self.name);
-            return Err(ChildError::ChildClosed {});
+        if !self.is_accessible() {
+            info!("{}: Child is inaccessible: {}", self.parent, self.name);
+            return Err(ChildError::ChildInaccessible {});
         }
 
         if let Some(bdev) = &self.bdev {
