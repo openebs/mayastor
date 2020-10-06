@@ -27,9 +27,10 @@ use spdk_sys::{
     LVS_CLEAR_WITH_NONE,
     SPDK_BDEV_IO_TYPE_UNMAP,
 };
+use url::Url;
 
 use crate::{
-    bdev::Uri,
+    bdev::{util::uring, Uri},
     core::{Bdev, Share, Uuid},
     ffihelper::{cb_arg, pair, AsStr, ErrnoResult, FfiResult, IntoCString},
     lvs::{Error, Lvol, PropName, PropValue},
@@ -299,27 +300,21 @@ impl Lvs {
             });
         }
 
-        // this is a legacy argument, should not be used typically
-        if args.block_size != 512
-            && args.block_size != 4096
-            && args.block_size != 0
-        {
-            return Err(Error::Invalid {
-                source: Errno::EINVAL,
-                msg: format!(
-                    "invalid block size specified {}",
-                    args.block_size
-                ),
-            });
-        }
-
-        // fixup the device uri's to URL
+        // default to uring if kernel supports it
         let disks = args
             .disks
             .iter()
             .map(|d| {
-                if d.starts_with("/dev") {
-                    format!("aio://{}", d)
+                if Url::parse(d).is_err() {
+                    format!(
+                        "{}://{}",
+                        if uring::kernel_support() {
+                            "uring"
+                        } else {
+                            "aio"
+                        },
+                        d,
+                    )
                 } else {
                     d.clone()
                 }
@@ -368,7 +363,7 @@ impl Lvs {
                     name,
                 })
             }
-            // try to create the the pool
+            // try to create the pool
             Err(Error::Import {
                 source, ..
             }) if source == Errno::EILSEQ => {

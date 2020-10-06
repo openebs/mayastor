@@ -61,8 +61,7 @@ describe('cli', function () {
           method: 'CreatePool',
           input: {
             name: POOL,
-            disks: [DISK],
-            blockSize: 512
+            disks: [DISK]
           },
           output: {
             name: POOL,
@@ -294,7 +293,7 @@ describe('cli', function () {
 
     it('should create a pool', function (done) {
       const cmd = util.format(
-        '%s pool create -b 512 %s %s',
+        '%s pool create %s %s',
         EGRESS_CMD,
         POOL,
         DISK

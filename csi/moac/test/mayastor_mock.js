@@ -69,8 +69,8 @@ class MayastorServer {
         const args = call.request;
         assertHasKeys(
           args,
-          ['name', 'disks', 'blockSize', 'ioIf'],
-          ['blockSize', 'ioIf']
+          ['name', 'disks'],
+          []
         );
         var pool = self.pools.find((p) => p.name === args.name);
         if (!pool) {

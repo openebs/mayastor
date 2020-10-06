@@ -33,8 +33,6 @@ fn lvs_pool_rpc() {
                     pool_grpc::create(CreatePoolRequest {
                         name: "tpool".to_string(),
                         disks: vec!["aio:///tmp/disk1.img".into()],
-                        block_size: 0,
-                        io_if: 0,
                     })
                     .await
                     .unwrap();
@@ -43,8 +41,6 @@ fn lvs_pool_rpc() {
                     pool_grpc::create(CreatePoolRequest {
                         name: "tpool".to_string(),
                         disks: vec!["aio:///tmp/disk1.img".into()],
-                        block_size: 0,
-                        io_if: 0,
                     })
                     .await
                     .unwrap();
