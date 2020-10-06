@@ -3,10 +3,7 @@
 //! They provide abstraction on top of aio and uring bdev, lvol store, etc
 //! and export simple-to-use json-rpc methods for managing pools.
 
-use std::{
-    ffi::{CStr, CString},
-    os::raw::c_char,
-};
+use std::{ffi::CStr, os::raw::c_char};
 
 use rpc::mayastor as rpc;
 use spdk_sys::{
@@ -15,8 +12,6 @@ use spdk_sys::{
     spdk_bs_get_cluster_size,
     spdk_bs_total_data_cluster_count,
     spdk_lvol_store,
-    vbdev_get_lvol_store_by_name,
-    vbdev_get_lvs_bdev_by_lvs,
     vbdev_lvol_store_first,
     vbdev_lvol_store_next,
 };
@@ -42,24 +37,6 @@ impl Pool {
             lvs_ptr: (*ptr).lvs,
             lvs_bdev_ptr: ptr,
         }
-    }
-
-    /// Look up existing pool by name
-    pub fn lookup(name: &str) -> Option<Self> {
-        let name = CString::new(name).unwrap();
-        let lvs_ptr = unsafe { vbdev_get_lvol_store_by_name(name.as_ptr()) };
-        if lvs_ptr.is_null() {
-            return None;
-        }
-        let lvs_bdev_ptr = unsafe { vbdev_get_lvs_bdev_by_lvs(lvs_ptr) };
-        if lvs_bdev_ptr.is_null() {
-            // can happen if lvs is being destroyed
-            return None;
-        }
-        Some(Self {
-            lvs_ptr,
-            lvs_bdev_ptr,
-        })
     }
 
     /// Get name of the pool.
@@ -94,10 +71,6 @@ impl Pool {
             let cluster_size = spdk_bs_get_cluster_size(lvs.blobstore);
             spdk_bs_free_cluster_count(lvs.blobstore) * cluster_size
         }
-    }
-    /// Return raw pointer to spdk lvol store structure
-    pub fn as_ptr(&self) -> *mut spdk_lvol_store {
-        self.lvs_ptr
     }
 }
 
