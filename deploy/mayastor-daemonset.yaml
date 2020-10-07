@@ -29,6 +29,10 @@ spec:
       # belong to Guaranteed QoS class, hence can never get evicted in case of
       # pressure unless they exceed those limits. limits and requests must be
       # the same.
+      initContainers:
+      - name: message-bus-probe
+        image: busybox:latest
+        command: ['sh', '-c', 'until nc -vz nats 4222; do echo "Waiting for message bus..."; sleep 1; done;']
       containers:
       - name: mayastor
         image: mayadata/mayastor:latest
@@ -42,8 +46,6 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: status.podIP
-        - name: IMPORT_NEXUSES
-          value: "false"
         args:
         - "-N$(MY_NODE_NAME)"
         - "-g$(MY_POD_IP)"
