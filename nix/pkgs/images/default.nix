@@ -47,6 +47,17 @@ let
       mkdir -p var/tmp
     '';
   };
+  servicesImageProps = {
+    tag = version;
+    created = "now";
+    config = {
+      Env = [ "PATH=${env}" ];
+    };
+    extraCommands = ''
+      mkdir tmp
+      mkdir -p var/tmp
+    '';
+  };
 in
 rec {
   mayastor-image = dockerTools.buildImage (mayastorImageProps // {
@@ -99,4 +110,16 @@ rec {
       chmod u-w bin
     '';
   };
+
+  services-kiiss-image = dockerTools.buildLayeredImage (servicesImageProps // {
+    name = "mayadata/services-kiiss";
+    contents = [ busybox mayastor ];
+    config = { Entrypoint = [ "/bin/kiiss" ]; };
+  });
+
+  services-kiiss-dev-image = dockerTools.buildImage (servicesImageProps // {
+    name = "mayadata/services-kiiss-dev";
+    contents = [ busybox mayastor ];
+    config = { Entrypoint = [ "/bin/kiiss" ]; };
+  });
 }

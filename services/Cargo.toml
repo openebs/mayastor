@@ -4,6 +4,10 @@ version = "0.1.0"
 authors = ["Tiago Castro <tiago.castro@mayadata.io>"]
 edition = "2018"
 
+[[bin]]
+name = "kiiss"
+path = "kiiss/src/server.rs"
+
 [lib]
 name = "common"
 path = "common/src/lib.rs"
@@ -21,7 +25,7 @@ async-trait = "0.1.36"
 dyn-clonable = "0.9.0"
 smol = "1.0.0"
 snafu = "0.6"
-
+lazy_static = "1.4.0"
 
 [dependencies.serde]
 features = ["derive"]

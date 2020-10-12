@@ -2789,6 +2789,7 @@ dependencies = [
  "dyn-clonable",
  "env_logger",
  "futures",
+ "lazy_static",
  "log",
  "mbus_api",
  "nats",
