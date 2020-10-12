@@ -1545,6 +1545,7 @@ dependencies = [
  "nix 0.16.1",
  "once_cell",
  "pin-utils",
+ "proc-mounts",
  "prost",
  "prost-derive",
  "prost-types",
@@ -1567,6 +1568,7 @@ dependencies = [
  "tracing-futures",
  "tracing-log",
  "tracing-subscriber",
+ "udev",
  "url",
  "uuid",
 ]
