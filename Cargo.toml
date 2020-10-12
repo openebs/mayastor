@@ -14,5 +14,6 @@ members = [
 	"nvmeadm",
 	"rpc",
 	"sysfs",
+	"services",
 	"mbus-api"
 ]

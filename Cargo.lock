@@ -2782,6 +2782,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "services"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "dyn-clonable",
+ "env_logger",
+ "futures",
+ "log",
+ "mbus_api",
+ "nats",
+ "serde",
+ "serde_json",
+ "smol",
+ "snafu",
+ "structopt",
+ "tokio",
+]
+
+[[package]]
 name = "sha2"
 version = "0.8.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
