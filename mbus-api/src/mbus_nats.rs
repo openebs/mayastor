@@ -1,24 +1,42 @@
-//! NATS implementation of the `MessageBus` connecting mayastor to the control
-//! plane components.
-
-use super::{Channel, MessageBus};
-use async_trait::async_trait;
+use super::*;
+use log::{info, warn};
 use nats::asynk::Connection;
 use once_cell::sync::OnceCell;
-use serde::Serialize;
 use smol::io;
 
-pub(super) static NATS_MSG_BUS: OnceCell<NatsMessageBus> = OnceCell::new();
-pub(super) fn message_bus_init(server: String) {
+static NATS_MSG_BUS: OnceCell<NatsMessageBus> = OnceCell::new();
+/// Initialise the Nats Message Bus with the current tokio runtime
+/// (the runtime MUST be setup already or we will panic)
+pub fn message_bus_init_tokio(server: String) {
     NATS_MSG_BUS.get_or_init(|| {
         // Waits for the message bus to become ready
-        tokio::runtime::Handle::current()
-            .block_on(async { NatsMessageBus::new(&server).await })
+        tokio::runtime::Handle::current().block_on(async {
+            NatsMessageBus::new(&server, BusOptions::new()).await
+        })
     });
+}
+/// Initialise the Nats Message Bus
+pub async fn message_bus_init(server: String) {
+    let nc = NatsMessageBus::new(&server, BusOptions::new()).await;
+    NATS_MSG_BUS
+        .set(nc)
+        .ok()
+        .expect("Expect to be initialised only once");
+}
+
+/// Get the static `NatsMessageBus` as a boxed `MessageBus`
+pub fn bus() -> DynBus {
+    Box::new(
+        NATS_MSG_BUS
+            .get()
+            .expect("Should be initialised before use")
+            .clone(),
+    )
 }
 
 // Would we want to have both sync and async clients?
-pub struct NatsMessageBus {
+#[derive(Clone)]
+struct NatsMessageBus {
     connection: Connection,
 }
 impl NatsMessageBus {
@@ -29,7 +47,11 @@ impl NatsMessageBus {
         let interval = std::time::Duration::from_millis(500);
         let mut log_error = true;
         loop {
-            match nats::asynk::connect(server).await {
+            match BusOptions::new()
+                .max_reconnects(None)
+                .connect_async(server)
+                .await
+            {
                 Ok(connection) => {
                     info!(
                         "Successfully connected to the nats server {}",
@@ -52,7 +74,7 @@ impl NatsMessageBus {
         }
     }
 
-    async fn new(server: &str) -> Self {
+    async fn new(server: &str, _options: BusOptions) -> Self {
         Self {
             connection: Self::connect(server).await,
         }
@@ -60,44 +82,32 @@ impl NatsMessageBus {
 }
 
 #[async_trait]
-impl MessageBus for NatsMessageBus {
+impl Bus for NatsMessageBus {
     async fn publish(
         &self,
         channel: Channel,
-        message: impl Serialize
-            + std::marker::Send
-            + std::marker::Sync
-            + 'async_trait,
+        message: &[u8],
     ) -> std::io::Result<()> {
-        let payload = serde_json::to_vec(&message)?;
-        self.connection
-            .publish(&channel.to_string(), &payload)
-            .await
+        self.connection.publish(&channel.to_string(), message).await
     }
 
-    async fn send(
-        &self,
-        _channel: Channel,
-        _message: impl Serialize
-            + std::marker::Send
-            + std::marker::Sync
-            + 'async_trait,
-    ) -> Result<(), ()> {
+    async fn send(&self, _channel: Channel, _message: &[u8]) -> io::Result<()> {
         unimplemented!()
     }
 
     async fn request(
         &self,
-        _channel: Channel,
-        _message: impl Serialize
-            + std::marker::Send
-            + std::marker::Sync
-            + 'async_trait,
-    ) -> Result<Vec<u8>, ()> {
-        unimplemented!()
+        channel: Channel,
+        message: &[u8],
+    ) -> io::Result<BusMessage> {
+        self.connection.request(&channel.to_string(), message).await
     }
 
     async fn flush(&self) -> io::Result<()> {
         self.connection.flush().await
+    }
+
+    async fn subscribe(&self, channel: Channel) -> io::Result<BusSubscription> {
+        self.connection.subscribe(&channel.to_string()).await
     }
 }

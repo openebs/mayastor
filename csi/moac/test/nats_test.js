@@ -90,9 +90,9 @@ module.exports = function () {
   });
 
   it('should register a node', async () => {
-    nc.publish('register', JSON.stringify({
-      id: NODE_NAME,
-      grpcEndpoint: GRPC_ENDPOINT
+    nc.publish('registry', JSON.stringify({
+      id: 'register',
+      data: { id: NODE_NAME, grpcEndpoint: GRPC_ENDPOINT }
     }));
     await waitUntil(async () => {
       return registry.getNode(NODE_NAME);
@@ -103,16 +103,18 @@ module.exports = function () {
   });
 
   it('should ignore register request with missing node name', async () => {
-    nc.publish('register', JSON.stringify({
-      grpcEndpoint: GRPC_ENDPOINT
+    nc.publish('registry', JSON.stringify({
+      id: 'register',
+      data: { grpcEndpoint: GRPC_ENDPOINT }
     }));
     // small delay to wait for a possible crash of moac
     await sleep(10);
   });
 
   it('should ignore register request with missing grpc endpoint', async () => {
-    nc.publish('register', JSON.stringify({
-      id: NODE_NAME
+    nc.publish('registry', JSON.stringify({
+      id: 'register',
+      data: { id: NODE_NAME }
     }));
     // small delay to wait for a possible crash of moac
     await sleep(10);
@@ -125,8 +127,9 @@ module.exports = function () {
   });
 
   it('should deregister a node', async () => {
-    nc.publish('deregister', JSON.stringify({
-      id: NODE_NAME
+    nc.publish('registry', JSON.stringify({
+      id: 'deregister',
+      data: { id: NODE_NAME }
     }));
     await waitUntil(async () => {
       return !registry.getNode(NODE_NAME);

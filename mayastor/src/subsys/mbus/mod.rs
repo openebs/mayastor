@@ -5,16 +5,11 @@
 //! A Registration subsystem is used to keep moac in the loop
 //! about the lifecycle of mayastor instances.
 
-pub mod mbus_nats;
 pub mod registration;
 
 use crate::core::MayastorEnvironment;
-use async_trait::async_trait;
 use dns_lookup::{lookup_addr, lookup_host};
-use mbus_nats::NATS_MSG_BUS;
 use registration::Registration;
-use serde::Serialize;
-use smol::io;
 use spdk_sys::{
     spdk_add_subsystem,
     spdk_subsystem,
@@ -95,65 +90,8 @@ impl MessageBusSubsystem {
     }
 }
 
-/// Available Message Bus channels
-pub enum Channel {
-    /// Registration of mayastor with the control plane
-    Register,
-    /// DeRegistration of mayastor with the control plane
-    DeRegister,
-}
-
-impl std::fmt::Display for Channel {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match *self {
-            Channel::Register => write!(f, "register"),
-            Channel::DeRegister => write!(f, "deregister"),
-        }
-    }
-}
-
-#[async_trait]
-pub trait MessageBus {
-    /// publish a message - not guaranteed to be sent or received (fire and
-    /// forget)
-    async fn publish(
-        &self,
-        channel: Channel,
-        message: impl Serialize
-            + std::marker::Send
-            + std::marker::Sync
-            + 'async_trait,
-    ) -> std::io::Result<()>;
-    /// Send a message and wait for it to be received by the target component
-    async fn send(
-        &self,
-        channel: Channel,
-        message: impl Serialize
-            + std::marker::Send
-            + std::marker::Sync
-            + 'async_trait,
-    ) -> Result<(), ()>;
-    /// Send a message and request a reply from the target component
-    async fn request(
-        &self,
-        channel: Channel,
-        message: impl Serialize
-            + std::marker::Send
-            + std::marker::Sync
-            + 'async_trait,
-    ) -> Result<Vec<u8>, ()>;
-    /// Flush queued messages to the server
-    async fn flush(&self) -> io::Result<()>;
-}
-
 pub fn message_bus_init() {
     if let Some(nats) = MayastorEnvironment::global_or_default().mbus_endpoint {
-        mbus_nats::message_bus_init(nats);
+        mbus_api::message_bus_init_tokio(nats);
     }
-}
-
-pub fn message_bus() -> &'static impl MessageBus {
-    NATS_MSG_BUS
-        .get()
-        .expect("Should be initialised before use")
 }

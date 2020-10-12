@@ -92,46 +92,49 @@ class MessageBus {
     }
   }
 
-  _subscribe () {
-    this.nc.subscribe('register', (err, msg) => {
-      if (err) {
-        log.error(`Error receiving a registration message: ${err}`);
-        return;
-      }
-      const data = this._parsePayload(msg);
-      if (!data) {
-        return;
-      }
-      const ep = data.grpcEndpoint;
-      if (typeof ep !== 'string' || ep.length === 0) {
-        log.error('Invalid grpc endpoint in registration message');
-        return;
-      }
-      const id = data.id;
-      if (typeof id !== 'string' || id.length === 0) {
-        log.error('Invalid node name in registration message');
-        return;
-      }
-      log.trace(`"${id}" with "${ep}" requested registration`);
-      this.registry.addNode(id, ep);
-    });
+  _registrationReceived (data) {
+    const ep = data.grpcEndpoint;
+    if (typeof ep !== 'string' || ep.length === 0) {
+      log.error('Invalid grpc endpoint in registration message');
+      return;
+    }
+    const id = data.id;
+    if (typeof id !== 'string' || id.length === 0) {
+      log.error('Invalid node name in registration message');
+      return;
+    }
+    log.trace(`"${id}" with "${ep}" requested registration`);
+    this.registry.addNode(id, ep);
+  }
+  _deregistrationReceived (data) {
+    const id = data.id;
+    if (typeof id !== 'string' || id.length === 0) {
+      log.error('Invalid node name in deregistration message');
+      return;
+    }
+    log.trace(`"${id}" requested deregistration`);
+    this.registry.removeNode(id);
+  }
 
-    this.nc.subscribe('deregister', (err, msg) => {
+  _subscribe () {
+    this.nc.subscribe('registry', (err, msg) => {
       if (err) {
-        log.error(`Error receiving a deregistration message: ${err}`);
+        log.error(`Error receiving a registry message: ${err}`);
         return;
       }
-      const data = this._parsePayload(msg);
-      if (!data) {
+      const payload = this._parsePayload(msg);
+      if (!payload) {
         return;
       }
-      const id = data.id;
-      if (typeof id !== 'string' || id.length === 0) {
-        log.error('Invalid node name in deregistration message');
-        return;
+
+      if (payload.id == "register") {
+        this._registrationReceived(payload.data);
+      } else if (payload.id == "deregister") {
+        this._deregistrationReceived(payload.data);
+      } else {
+        const id = payload.id;
+        log.error(`Unknown registry message: ${id}`);
       }
-      log.trace(`"${id}" requested deregistration`);
-      this.registry.removeNode(id);
     });
   }
 }
