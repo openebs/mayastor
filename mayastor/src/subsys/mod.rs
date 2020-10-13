@@ -10,6 +10,7 @@ pub use config::{
     Pool,
 };
 pub use nvmf::{
+    create_snapshot,
     set_snapshot_time,
     Error as NvmfError,
     NvmeCpl,

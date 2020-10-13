@@ -61,11 +61,11 @@ impl NexusFnTable {
         let nexus = unsafe { Nexus::from_raw(ctx) };
         match io_type {
             // we always assume the device supports read/write commands
-            io_type::READ | io_type::WRITE => true,
+            // allow NVMe Admin as it is needed for local replicas
+            io_type::READ | io_type::WRITE | io_type::NVME_ADMIN => true,
             io_type::FLUSH
             | io_type::RESET
             | io_type::UNMAP
-            | io_type::NVME_ADMIN
             | io_type::WRITE_ZEROES => {
                 let supported = nexus.io_is_supported(io_type);
                 if !supported {
@@ -145,13 +145,7 @@ impl NexusFnTable {
                     nio.fail()
                 }
             }
-            io_type::NVME_ADMIN => {
-                if nexus.io_is_supported(io_type) {
-                    nexus.nvme_admin(&nio, &ch)
-                } else {
-                    nio.fail()
-                }
-            }
+            io_type::NVME_ADMIN => nexus.nvme_admin(&nio, &ch),
             _ => panic!(
                 "{} Received unsupported IO! type {}",
                 nexus.name, io_type

@@ -15,6 +15,16 @@ nvme_cmd_cdw11_get(struct spdk_nvme_cmd *cmd) {
        return &cmd->cdw11;
 }
 
+uint32_t
+nvme_cmd_cdw10_get_val(const struct spdk_nvme_cmd *cmd) {
+       return cmd->cdw10;
+}
+
+uint32_t
+nvme_cmd_cdw11_get_val(const struct spdk_nvme_cmd *cmd) {
+       return cmd->cdw11;
+}
+
 struct spdk_nvme_status *
 nvme_status_get(struct spdk_nvme_cpl *cpl) {
 	return &cpl->status;

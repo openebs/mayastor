@@ -5,6 +5,7 @@
 //! application needs synchronous mirroring may be required.
 
 use std::{
+    convert::TryFrom,
     fmt,
     fmt::{Display, Formatter},
     os::raw::c_void,
@@ -48,10 +49,12 @@ use crate::{
             nexus_nvmf::{NexusNvmfError, NexusNvmfTarget},
         },
     },
-    core::{Bdev, DmaError, Share},
+    core::{Bdev, CoreError, DmaError, Share},
     ffihelper::errno_result_from_i32,
+    lvs::Lvol,
     nexus_uri::{bdev_destroy, NexusBdevError},
     rebuild::RebuildError,
+    subsys,
     subsys::Config,
 };
 
@@ -235,8 +238,8 @@ pub enum Error {
     },
     #[snafu(display("Failed to get BdevHandle for snapshot operation"))]
     FailedGetHandle,
-    #[snafu(display("Failed to create snapshot"))]
-    FailedCreateSnapshot,
+    #[snafu(display("Failed to create snapshot on nexus {}", name))]
+    FailedCreateSnapshot { name: String, source: CoreError },
 }
 
 impl From<Error> for tonic::Status {
@@ -666,6 +669,32 @@ impl Nexus {
         chio.free();
     }
 
+    /// IO completion for local replica
+    pub fn io_completion_local(success: bool, parent_io: *mut c_void) {
+        let mut pio = Bio::from(parent_io);
+        let pio_ctx = pio.ctx_as_mut_ref();
+
+        if !success {
+            pio_ctx.status = io_status::FAILED;
+        }
+
+        // As there is no child IO, perform the IO accounting that Bio::assess
+        // does here, without error recording or retries.
+        pio_ctx.in_flight -= 1;
+        debug_assert!(pio_ctx.in_flight >= 0);
+
+        if pio_ctx.in_flight == 0 {
+            if pio_ctx.status == io_status::FAILED {
+                pio_ctx.io_attempts -= 1;
+                if pio_ctx.io_attempts == 0 {
+                    pio.fail();
+                }
+            } else {
+                pio.ok();
+            }
+        }
+    }
+
     /// callback when the IO has buffer associated with itself
     extern "C" fn nexus_get_buf_cb(
         ch: *mut spdk_io_channel,
@@ -861,12 +890,40 @@ impl Nexus {
             // FIXME: pause IO before dispatching
             debug!("Passing thru create snapshot as NVMe Admin command");
         }
-        // for pools, pass thru only works with our vendor commands as the
+        // for replicas, passthru only works with our vendor commands as the
         // underlying bdev is not nvmf
         let results = channels
             .ch
             .iter()
             .map(|c| unsafe {
+                debug!("nvme_admin on {}", c.get_bdev().driver());
+                if c.get_bdev().driver() == "lvol" {
+                    // Local replica, vbdev_lvol does not support NVMe Admin
+                    // so call function directly
+                    let lvol = Lvol::try_from(c.get_bdev()).unwrap();
+                    match io.nvme_cmd().opc() as u8 {
+                        nvme_admin_opc::CREATE_SNAPSHOT => {
+                            subsys::create_snapshot(
+                                lvol,
+                                &io.nvme_cmd(),
+                                io.as_ptr(),
+                            );
+                        }
+                        _ => {
+                            error!(
+                                "{}: Unsupported NVMe Admin command {:x}h from IO {:?}",
+                                io.nexus_as_ref().name,
+                                io.nvme_cmd().opc(),
+                                io.as_ptr()
+                            );
+                            Self::io_completion_local(
+                                false,
+                                io.as_ptr().cast(),
+                            );
+                        }
+                    }
+                    return 0;
+                }
                 let (desc, chan) = c.io_tuple();
                 spdk_bdev_nvme_admin_passthru(
                     desc,
