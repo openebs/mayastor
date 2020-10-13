@@ -6,7 +6,7 @@ use tracing::error;
 
 use common::error_bdev;
 use mayastor::{
-    bdev::{nexus_lookup, ChildStatus, VerboseError},
+    bdev::{nexus_lookup, ChildState, Reason, VerboseError},
     core::{MayastorCliArgs, MayastorEnvironment, Mthread, Reactor},
     rebuild::{RebuildJob, RebuildState, SEGMENT_SIZE},
 };
@@ -635,7 +635,10 @@ fn rebuild_fault_src() {
         .unwrap();
         // allow the nexus futures to run
         reactor_poll!(10);
-        assert_eq!(nexus.children[1].status(), ChildStatus::Faulted);
+        assert_eq!(
+            nexus.children[1].state(),
+            ChildState::Faulted(Reason::RebuildFailed)
+        );
 
         nexus_lookup(nexus_name()).unwrap().destroy().await.unwrap();
     });
@@ -669,7 +672,10 @@ fn rebuild_fault_dst() {
         .unwrap();
         // allow the nexus futures to run
         reactor_poll!(10);
-        assert_eq!(nexus.children[1].status(), ChildStatus::Faulted);
+        assert_eq!(
+            nexus.children[1].state(),
+            ChildState::Faulted(Reason::RebuildFailed)
+        );
 
         nexus_lookup(nexus_name()).unwrap().destroy().await.unwrap();
     });

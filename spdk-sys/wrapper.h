@@ -35,4 +35,4 @@
 #include <spdk_internal/lvolstore.h>
 
 #include "logwrapper.h"
-
+#include "nvme_helper.h"

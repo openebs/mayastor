@@ -8,15 +8,18 @@ use serde::export::{fmt::Error, Formatter};
 use spdk_sys::{spdk_bdev, spdk_bdev_io_type};
 
 use crate::{
-    bdev::nexus::{
-        nexus_bdev,
-        nexus_bdev::{
-            nexus_lookup,
-            Error::{ChildMissing, ChildMissingErrStore},
-            Nexus,
+    bdev::{
+        nexus::{
+            nexus_bdev,
+            nexus_bdev::{
+                nexus_lookup,
+                Error::{ChildMissing, ChildMissingErrStore},
+                Nexus,
+            },
+            nexus_child::{ChildState, NexusChild},
+            nexus_io::{io_status, io_type},
         },
-        nexus_child::{ChildState, NexusChild},
-        nexus_io::{io_status, io_type},
+        Reason,
     },
     core::{Cores, Reactors},
     subsys::Config,
@@ -279,7 +282,7 @@ impl Nexus {
         trace!("Adding error record {} bdev {:?}", io_op_type, bdev);
         for child in nexus.children.iter_mut() {
             if child.bdev.as_ref().unwrap().as_ptr() as *const _ == bdev {
-                if child.state == ChildState::Open {
+                if child.state() == ChildState::Open {
                     if child.err_store.is_some() {
                         child.err_store.as_mut().unwrap().add_record(
                             io_op_type,
@@ -299,7 +302,11 @@ impl Nexus {
                         {
                             let child_name = child.name.clone();
                             info!("Faulting child {}", child_name);
-                            if nexus.fault_child(&child_name).await.is_err() {
+                            if nexus
+                                .fault_child(&child_name, Reason::IoError)
+                                .await
+                                .is_err()
+                            {
                                 error!(
                                     "Failed to fault the child {}",
                                     child_name,
@@ -316,7 +323,7 @@ impl Nexus {
                     return;
                 }
                 let child_name = child.name.clone();
-                trace!("Ignoring error response sent to non-open child {}, state {:?}", child_name, child.state);
+                trace!("Ignoring error response sent to non-open child {}, state {:?}", child_name, child.state());
                 return;
             }
         }

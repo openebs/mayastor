@@ -14,6 +14,7 @@ use crate::context::Context;
 
 mod bdev_cli;
 mod context;
+mod device_cli;
 mod nexus_child_cli;
 mod nexus_cli;
 mod pool_cli;
@@ -77,6 +78,7 @@ async fn main() -> Result<(), Status> {
         .subcommand(nexus_cli::subcommands())
         .subcommand(replica_cli::subcommands())
         .subcommand(bdev_cli::subcommands())
+        .subcommand(device_cli::subcommands())
         .subcommand(rebuild_cli::subcommands())
         .subcommand(snapshot_cli::subcommands())
         .get_matches();
@@ -85,6 +87,7 @@ async fn main() -> Result<(), Status> {
 
     match matches.subcommand() {
         ("bdev", Some(args)) => bdev_cli::handler(ctx, args).await?,
+        ("device", Some(args)) => device_cli::handler(ctx, args).await?,
         ("nexus", Some(args)) => nexus_cli::handler(ctx, args).await?,
         ("pool", Some(args)) => pool_cli::handler(ctx, args).await?,
         ("replica", Some(args)) => replica_cli::handler(ctx, args).await?,

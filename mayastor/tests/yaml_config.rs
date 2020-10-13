@@ -122,8 +122,6 @@ fn yaml_pool_tests() {
     let pool = subsys::Pool {
         name: "tpool".to_string(),
         disks: vec!["/tmp/disk1.img".into()],
-        blk_size: 512,
-        io_if: 1,
         replicas: Default::default(),
     };
 
@@ -236,6 +234,8 @@ fn yaml_multi_maya() {
         "128".into(),
         "-y".into(),
         "/tmp/first.yaml".into(),
+        "-g".to_string(),
+        "127.0.0.1:10124".to_string(),
     ];
 
     let second_args = vec![
@@ -243,6 +243,8 @@ fn yaml_multi_maya() {
         "128".into(),
         "-y".into(),
         "/tmp/second.yaml".into(),
+        "-g".to_string(),
+        "127.0.0.1:10125".to_string(),
     ];
 
     run_test(Box::from(first_args), |ms1| {

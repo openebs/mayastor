@@ -64,25 +64,19 @@ service Mayastor {
 
   // Snapshot operations
   rpc CreateSnapshot (CreateSnapshotRequest) returns (CreateSnapshotReply) {}
+
+  // Enumerate block devices on current host
+  rpc ListBlockDevices (ListBlockDevicesRequest) returns (ListBlockDevicesReply) {}
 }
 
 // Means no arguments or no return value.
 message Null {}
-
-// I/O interface used for underlying disks in a pool
-enum PoolIoIf {
-  POOL_IO_AUTO = 0;    // prefer uring if supported, falling back to aio
-  POOL_IO_AIO = 1;     // Linux AIO
-  POOL_IO_URING = 2;   // io_uring, requires Linux 5.1
-}
 
 // Create pool arguments.
 // Currently we support only concatenation of disks (RAID-0).
 message CreatePoolRequest {
   string name = 1;           // name of the pool
   repeated string disks = 2; // disk device paths or URIs to be claimed by the pool
-  uint32 block_size = 3; // when using files, we need to specify the block_size
-  PoolIoIf io_if = 4;        // I/O interface
 }
 
 // State of the storage pool (terminology comes from ZFS).
@@ -376,4 +370,40 @@ message BdevUri {
 
 message CreateReply {
   string name = 1;
+}
+
+message BlockDevice {
+  message Partition {
+    string parent = 1;          // devname of parent device to which this partition belongs
+    uint32 number = 2;          // partition number
+    string name = 3;            // partition name
+    string scheme = 4;          // partition scheme: gpt, dos, ...
+    string typeid = 5;          // partition type identifier
+    string uuid = 6;            // UUID identifying partition
+  }
+  message Filesystem {
+    string fstype = 1;          // filesystem type: ext3, ntfs, ...
+    string label = 2;           // volume label
+    string uuid = 3;            // UUID identifying the volume (filesystem)
+    string mountpoint = 4;      // path where filesystem is currently mounted
+  }
+  string devname = 1;           // entry in /dev associated with device
+  string devtype = 2;           // currently "disk" or "partition"
+  uint32 devmajor = 3;          // major device number
+  uint32 devminor = 4;          // minor device number
+  string model = 5;             // device model - useful for identifying mayastor devices
+  string devpath = 6;           // official device path
+  repeated string devlinks = 7; // list of udev generated symlinks by which device may be identified
+  uint64 size = 8;              // size of device in (512 byte) blocks
+  Partition partition = 9;      // partition information in case where device represents a partition
+  Filesystem filesystem = 10;   // filesystem information in case where a filesystem is present
+  bool available = 11;          // identifies if device is available for use (ie. is not "currently" in use)
+}
+
+message ListBlockDevicesRequest {
+  bool all = 1;                 // list "all" block devices found (not just "available" ones)
+}
+
+message ListBlockDevicesReply {
+  repeated BlockDevice devices = 1;
 }

@@ -32,17 +32,17 @@ use crate::{
     bdev::{
         nexus::{
             instances,
-            nexus_child::NexusChild,
+            nexus_child::{ChildState, NexusChild, Reason},
             nexus_child_status_config::ChildStatusConfig,
         },
         nexus_create,
-        ChildStatus,
         VerboseError,
     },
     core::{Bdev, Cores, Reactor, Share},
     jsonrpc::{jsonrpc_register, Code, RpcErrorCode},
+    lvs::Lvs,
     nexus_uri::bdev_create,
-    pool::{create_pool, PoolsIter},
+    pool::PoolsIter,
     replica::{self, ReplicaIter, ShareType},
     subsys::{
         config::opts::{
@@ -298,8 +298,6 @@ impl Config {
                 Pool {
                     name: p.get_name().into(),
                     disks: vec![base.bdev_uri().unwrap_or_else(|| base.name())],
-                    blk_size: base.block_len(),
-                    io_if: 0, // AIO
                     replicas: ReplicaIter::new()
                         .map(|p| Replica {
                             name: p.get_uuid().to_string(),
@@ -399,7 +397,10 @@ impl Config {
                     let degraded_children: Vec<&NexusChild> = nexus_instance
                         .children
                         .iter()
-                        .filter(|child| child.status() == ChildStatus::Degraded)
+                        .filter(|child| {
+                            child.state()
+                                == ChildState::Faulted(Reason::OutOfSync)
+                        })
                         .collect::<Vec<_>>();
 
                     // Get a mutable reference to the nexus instance. We can't
@@ -469,7 +470,7 @@ impl Config {
         if let Some(pools) = self.pools.as_ref() {
             for pool in pools {
                 info!("creating pool {}", pool.name);
-                if let Err(e) = create_pool(pool.into()).await {
+                if let Err(e) = Lvs::create_or_import(pool.into()).await {
                     error!(
                         "Failed to create pool {}. {}",
                         pool.name,
@@ -592,10 +593,6 @@ pub struct Pool {
     pub name: String,
     /// bdevs to create outside of the nexus control
     pub disks: Vec<String>,
-    /// the block_size the pool should use
-    pub blk_size: u32,
-    /// use AIO, uring or auto detect
-    pub io_if: i32,
     /// list of replicas to share on load
     pub replicas: Vec<Replica>,
 }
@@ -606,8 +603,6 @@ impl From<&Pool> for rpc::mayastor::CreatePoolRequest {
         Self {
             name: o.name.clone(),
             disks: o.disks.clone(),
-            block_size: o.blk_size,
-            io_if: o.io_if,
         }
     }
 }

@@ -22,7 +22,7 @@ use crate::{
 
 use super::instances;
 
-const NEXUS_NAME: &str = "NEXUS_CAS_MODULE";
+pub const NEXUS_NAME: &str = "NEXUS_CAS_MODULE";
 
 pub static NEXUS_MODULE: Lazy<NexusModule> = Lazy::new(NexusModule::new);
 

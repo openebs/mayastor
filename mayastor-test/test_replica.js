@@ -13,7 +13,6 @@ const path = require('path');
 const { exec } = require('child_process');
 const grpc = require('grpc');
 const common = require('./test_common');
-const enums = require('./grpc_enums');
 
 const POOL = 'tpool';
 const DISK_FILE = '/tmp/mayastor_test_disk';
@@ -161,9 +160,9 @@ describe('replica', function () {
 
   it('should not create a pool with invalid block size', (done) => {
     client.createPool(
-      { name: POOL, disks: disks, block_size: 1238513 },
+      { name: POOL, disks: disks.map((d) => `${d}?blk_size=1238513`) },
       (err) => {
-        assert.equal(err.code, grpc.status.INVALID_ARGUMENT);
+        assert.equal(err.code, grpc.status.INTERNAL);
         done();
       }
     );
@@ -172,7 +171,7 @@ describe('replica', function () {
   it('should create a pool with aio bdevs', (done) => {
     // explicitly specify aio as that always works
     client.createPool(
-      { name: POOL, disks: disks, io_if: enums.POOL_IO_AIO },
+      { name: POOL, disks: disks.map((d) => `aio://${d}`) },
       (err, res) => {
         if (err) return done(err);
         assert.equal(res.name, POOL);
@@ -452,9 +451,9 @@ describe('replica', function () {
       });
     });
 
-    it('should create a pool with uring io_if', (done) => {
+    it('should create a pool with uring bdevs', (done) => {
       client.createPool(
-        { name: POOL, disks: disks.map((d) => `uring://${d}`), io_if: enums.POOL_IO_URING },
+        { name: POOL, disks: disks.map((d) => `uring://${d}`) },
         (err, res) => {
           if (err) return done(err);
           assert.equal(res.name, POOL);

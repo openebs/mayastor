@@ -3,48 +3,18 @@
 //! Replica is a logical data volume exported over nvmf (in SPDK terminology
 //! an lvol). Here we define methods for easy management of replicas.
 #![allow(dead_code)]
-use std::ffi::{c_void, CStr, CString};
+use std::ffi::CStr;
 
-use futures::channel::oneshot;
-use nix::errno::Errno;
 use rpc::mayastor as rpc;
 use snafu::{ResultExt, Snafu};
 
-use spdk_sys::{
-    spdk_lvol,
-    spdk_nvme_cpl,
-    spdk_nvme_status,
-    spdk_nvmf_request,
-    vbdev_lvol_create,
-    vbdev_lvol_create_snapshot,
-    vbdev_lvol_destroy,
-    vbdev_lvol_get_from_bdev,
-    LVOL_CLEAR_WITH_UNMAP,
-    LVOL_CLEAR_WITH_WRITE_ZEROES,
-    SPDK_BDEV_IO_TYPE_UNMAP,
-};
+use spdk_sys::{spdk_lvol, vbdev_lvol_get_from_bdev};
 
-use crate::{
-    core::Bdev,
-    ffihelper::{
-        cb_arg,
-        done_errno_cb,
-        errno_result_from_i32,
-        ErrnoResult,
-        IntoCString,
-    },
-    pool::Pool,
-    subsys::NvmfSubsystem,
-    target,
-};
+use crate::{core::Bdev, subsys::NvmfSubsystem, target};
 
 /// These are high-level context errors one for each rpc method.
 #[derive(Debug, Snafu)]
 pub enum RpcError {
-    #[snafu(display("Failed to create replica {}", uuid))]
-    CreateReplica { source: Error, uuid: String },
-    #[snafu(display("Failed to destroy replica {}", uuid))]
-    DestroyReplica { source: Error, uuid: String },
     #[snafu(display("Failed to (un)share replica {}", uuid))]
     ShareReplica { source: Error, uuid: String },
 }
@@ -52,12 +22,6 @@ pub enum RpcError {
 impl From<RpcError> for tonic::Status {
     fn from(e: RpcError) -> Self {
         match e {
-            RpcError::CreateReplica {
-                source, ..
-            } => Self::from(source),
-            RpcError::DestroyReplica {
-                source, ..
-            } => Self::from(source),
             RpcError::ShareReplica {
                 source, ..
             } => Self::from(source),
@@ -68,16 +32,6 @@ impl From<RpcError> for tonic::Status {
 // Replica errors.
 #[derive(Debug, Snafu)]
 pub enum Error {
-    #[snafu(display("The pool \"{}\" does not exist", pool))]
-    PoolNotFound { pool: String },
-    #[snafu(display("Replica already exists"))]
-    ReplicaExists {},
-    #[snafu(display("Invalid parameters"))]
-    InvalidParams {},
-    #[snafu(display("Failed to create lvol"))]
-    CreateLvol { source: Errno },
-    #[snafu(display("Failed to destroy lvol"))]
-    DestroyLvol { source: Errno },
     #[snafu(display("Replica has been already shared"))]
     ReplicaShared {},
     #[snafu(display("share nvmf"))]
@@ -97,21 +51,6 @@ pub enum Error {
 impl From<Error> for tonic::Status {
     fn from(e: Error) -> Self {
         match e {
-            Error::PoolNotFound {
-                ..
-            } => Self::not_found(e.to_string()),
-            Error::ReplicaExists {
-                ..
-            } => Self::already_exists(e.to_string()),
-            Error::InvalidParams {
-                ..
-            } => Self::invalid_argument(e.to_string()),
-            Error::CreateLvol {
-                ..
-            } => Self::invalid_argument(e.to_string()),
-            Error::DestroyLvol {
-                ..
-            } => Self::internal(e.to_string()),
             Error::ReplicaShared {
                 ..
             } => Self::internal(e.to_string()),
@@ -175,63 +114,6 @@ fn detect_share(uuid: &str) -> Option<(ShareType, String)> {
 }
 
 impl Replica {
-    /// Create replica on storage pool.
-    pub async fn create(
-        uuid: &str,
-        pool: &str,
-        size: u64,
-        thin: bool,
-    ) -> Result<Self> {
-        let pool = match Pool::lookup(pool) {
-            Some(p) => p,
-            None => {
-                return Err(Error::PoolNotFound {
-                    pool: pool.to_owned(),
-                })
-            }
-        };
-        let clear_method = if pool
-            .get_base_bdev()
-            .io_type_supported(SPDK_BDEV_IO_TYPE_UNMAP)
-        {
-            LVOL_CLEAR_WITH_UNMAP
-        } else {
-            LVOL_CLEAR_WITH_WRITE_ZEROES
-        };
-
-        if Self::lookup(uuid).is_some() {
-            return Err(Error::ReplicaExists {});
-        }
-        let c_uuid = CString::new(uuid).unwrap();
-        let (sender, receiver) =
-            oneshot::channel::<ErrnoResult<*mut spdk_lvol>>();
-        let rc = unsafe {
-            vbdev_lvol_create(
-                pool.as_ptr(),
-                c_uuid.as_ptr(),
-                size,
-                thin,
-                clear_method,
-                Some(Self::replica_done_cb),
-                cb_arg(sender),
-            )
-        };
-        if rc != 0 {
-            // XXX sender is leaked
-            return Err(Error::InvalidParams {});
-        }
-
-        let lvol_ptr = receiver
-            .await
-            .expect("Cancellation is not supported")
-            .context(CreateLvol {})?;
-
-        info!("Created replica {} on pool {}", uuid, pool.get_name());
-        Ok(Self {
-            lvol_ptr,
-        })
-    }
-
     /// Lookup replica by uuid (=name).
     pub fn lookup(uuid: &str) -> Option<Self> {
         match Bdev::lookup_by_name(uuid) {
@@ -250,89 +132,6 @@ impl Replica {
                 lvol_ptr: lvol,
             })
         }
-    }
-
-    /// Destroy replica. Consumes the "self" so after calling this method self
-    /// can't be used anymore. If the replica is shared, it is unshared before
-    /// the destruction.
-    //
-    // TODO: Error value should contain self so that it can be used when
-    // destroy fails.
-    pub async fn destroy(self) -> Result<()> {
-        self.unshare().await?;
-
-        let uuid = self.get_uuid();
-        let (sender, receiver) = oneshot::channel::<ErrnoResult<()>>();
-        unsafe {
-            vbdev_lvol_destroy(
-                self.lvol_ptr,
-                Some(done_errno_cb),
-                cb_arg(sender),
-            );
-        }
-
-        receiver
-            .await
-            .expect("Cancellation is not supported")
-            .context(DestroyLvol {})?;
-
-        info!("Destroyed replica {}", uuid);
-        Ok(())
-    }
-
-    /// Format snapshot name
-    /// base_name is the nexus or replica UUID
-    pub fn format_snapshot_name(base_name: &str, snapshot_time: u64) -> String {
-        format!("{}-snap-{}", base_name, snapshot_time)
-    }
-
-    /// Create a snapshot
-    pub async fn create_snapshot(
-        self,
-        nvmf_req: *mut spdk_nvmf_request,
-        snapshot_name: &str,
-    ) {
-        extern "C" fn snapshot_done_cb(
-            nvmf_req_ptr: *mut c_void,
-            _lvol_ptr: *mut spdk_lvol,
-            errno: i32,
-        ) {
-            let rsp: &mut spdk_nvme_cpl = unsafe {
-                &mut *spdk_sys::spdk_nvmf_request_get_response(
-                    nvmf_req_ptr as *mut spdk_nvmf_request,
-                )
-            };
-            let nvme_status: &mut spdk_nvme_status =
-                unsafe { &mut rsp.__bindgen_anon_1.status };
-
-            nvme_status.set_sct(0); // SPDK_NVME_SCT_GENERIC
-            nvme_status.set_sc(match errno {
-                0 => 0,
-                _ => {
-                    debug!("vbdev_lvol_create_snapshot errno {}", errno);
-                    0x06 // SPDK_NVME_SC_INTERNAL_DEVICE_ERROR
-                }
-            });
-
-            // From nvmf_bdev_ctrlr_complete_cmd
-            unsafe {
-                spdk_sys::spdk_nvmf_request_complete(
-                    nvmf_req_ptr as *mut spdk_nvmf_request,
-                );
-            }
-        }
-
-        let c_snapshot_name = snapshot_name.into_cstring();
-        unsafe {
-            vbdev_lvol_create_snapshot(
-                self.as_ptr(),
-                c_snapshot_name.as_ptr(),
-                Some(snapshot_done_cb),
-                nvmf_req as *mut c_void,
-            )
-        };
-
-        info!("Creating snapshot {}", snapshot_name);
     }
 
     /// Expose replica over supported remote access storage protocols (nvmf
@@ -415,27 +214,6 @@ impl Replica {
     /// Return if replica has been thin provisioned.
     pub fn is_thin(&self) -> bool {
         unsafe { (*self.lvol_ptr).thin_provision }
-    }
-
-    /// Return raw pointer to lvol (C struct spdk_lvol).
-    pub fn as_ptr(&self) -> *mut spdk_lvol {
-        self.lvol_ptr
-    }
-
-    /// Callback called from SPDK for replica create method.
-    extern "C" fn replica_done_cb(
-        sender_ptr: *mut c_void,
-        lvol_ptr: *mut spdk_lvol,
-        errno: i32,
-    ) {
-        let sender = unsafe {
-            Box::from_raw(
-                sender_ptr as *mut oneshot::Sender<ErrnoResult<*mut spdk_lvol>>,
-            )
-        };
-        sender
-            .send(errno_result_from_i32(lvol_ptr, errno))
-            .expect("Receiver is gone");
     }
 }
 
@@ -523,107 +301,6 @@ impl From<Replica> for rpc::Replica {
             uri: r.get_share_uri(),
         }
     }
-}
-
-pub(crate) async fn create_replica(
-    args: rpc::CreateReplicaRequest,
-) -> Result<rpc::Replica, RpcError> {
-    let want_share = match rpc::ShareProtocolReplica::from_i32(args.share) {
-        Some(val) => val,
-        None => Err(Error::InvalidProtocol {
-            protocol: args.share,
-        })
-        .context(CreateReplica {
-            uuid: args.uuid.clone(),
-        })?,
-    };
-    let replica = match Replica::lookup(&args.uuid) {
-        Some(r) => r,
-        None => Replica::create(&args.uuid, &args.pool, args.size, args.thin)
-            .await
-            .context(CreateReplica {
-                uuid: args.uuid.clone(),
-            })?,
-    };
-
-    // TODO: destroy replica if the share operation fails
-    match want_share {
-        rpc::ShareProtocolReplica::ReplicaNvmf => replica
-            .share(ShareType::Nvmf)
-            .await
-            .context(CreateReplica {
-                uuid: args.uuid.clone(),
-            })?,
-        rpc::ShareProtocolReplica::ReplicaIscsi => replica
-            .share(ShareType::Iscsi)
-            .await
-            .context(CreateReplica {
-                uuid: args.uuid.clone(),
-            })?,
-        rpc::ShareProtocolReplica::ReplicaNone => (),
-    }
-    Ok(replica.into())
-}
-
-pub(crate) async fn destroy_replica(
-    args: rpc::DestroyReplicaRequest,
-) -> Result<(), RpcError> {
-    match Replica::lookup(&args.uuid) {
-        Some(replica) => replica.destroy().await.context(DestroyReplica {
-            uuid: args.uuid,
-        }),
-        None => Ok(()),
-    }
-}
-
-pub(crate) fn list_replicas() -> rpc::ListReplicasReply {
-    rpc::ListReplicasReply {
-        replicas: ReplicaIter::new()
-            .map(|r| r.into())
-            .collect::<Vec<rpc::Replica>>(),
-    }
-}
-
-pub(crate) async fn stat_replicas() -> Result<rpc::StatReplicasReply, RpcError>
-{
-    let mut stats = Vec::new();
-
-    // XXX is it safe to hold bdev pointer in iterator across context
-    // switch!?
-    for r in ReplicaIter::new() {
-        let lvol = r.as_ptr();
-        let uuid = r.get_uuid().to_owned();
-        let pool = r.get_pool_name().to_owned();
-        let bdev: Bdev = unsafe { (*lvol).bdev.into() };
-
-        // cancellation point here
-        let st = bdev.stats().await;
-
-        match st {
-            Ok(st) => {
-                stats.push(rpc::ReplicaStats {
-                    uuid,
-                    pool,
-                    stats: Some(rpc::Stats {
-                        num_read_ops: st.num_read_ops,
-                        num_write_ops: st.num_write_ops,
-                        bytes_read: st.bytes_read,
-                        bytes_written: st.bytes_written,
-                    }),
-                });
-            }
-            Err(errno) => {
-                warn!(
-                    "Failed to get stats for {} (errno={})",
-                    bdev.name(),
-                    errno
-                );
-            }
-        }
-    }
-    Ok(rpc::StatReplicasReply {
-        replicas: stats,
-    })
 }
 
 pub(crate) async fn share_replica(

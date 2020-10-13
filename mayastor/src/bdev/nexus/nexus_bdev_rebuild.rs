@@ -16,7 +16,7 @@ use crate::{
                 RemoveRebuildJob,
             },
             nexus_channel::DREvent,
-            nexus_child::{ChildState, ChildStatus},
+            nexus_child::{ChildState, NexusChild, Reason},
         },
         VerboseError,
     },
@@ -36,7 +36,7 @@ impl Nexus {
         let src_child_name = match self
             .children
             .iter()
-            .find(|c| c.state == ChildState::Open && c.name != name)
+            .find(|c| c.state() == ChildState::Open && c.name != name)
         {
             Some(child) => Ok(child.name.clone()),
             None => Err(Error::NoRebuildSource {
@@ -46,13 +46,15 @@ impl Nexus {
 
         let dst_child_name =
             match self.children.iter_mut().find(|c| c.name == name) {
-                Some(c) if c.status() == ChildStatus::Degraded => {
+                Some(c)
+                    if c.state() == ChildState::Faulted(Reason::OutOfSync) =>
+                {
                     Ok(c.name.clone())
                 }
                 Some(c) => Err(Error::ChildNotDegraded {
                     child: name.to_owned(),
                     name: self.name.clone(),
-                    state: c.status().to_string(),
+                    state: c.state().to_string(),
                 }),
                 None => Err(Error::ChildNotFound {
                     child: name.to_owned(),
@@ -236,13 +238,12 @@ impl Nexus {
 
         match job.state() {
             RebuildState::Completed => {
-                recovering_child.out_of_sync(false);
+                recovering_child.set_state(ChildState::Open);
+                NexusChild::save_state_change();
                 info!(
                     "Child {} has been rebuilt successfully",
                     recovering_child.name
                 );
-
-                assert_eq!(recovering_child.status(), ChildStatus::Online);
             }
             RebuildState::Stopped => {
                 info!(
@@ -259,7 +260,7 @@ impl Nexus {
                 {
                     // todo: retry rebuild using another child as source?
                 }
-                recovering_child.fault();
+                recovering_child.fault(Reason::RebuildFailed);
                 error!(
                     "Rebuild job for child {} of nexus {} failed, error: {}",
                     &job.destination,
@@ -268,7 +269,7 @@ impl Nexus {
                 );
             }
             _ => {
-                recovering_child.fault();
+                recovering_child.fault(Reason::RebuildFailed);
                 error!(
                     "Rebuild job for child {} of nexus {} failed with state {:?}",
                     &job.destination,

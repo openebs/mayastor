@@ -29,7 +29,7 @@ rules:
   # must read mayastor pools info
 - apiGroups: ["openebs.io"]
   resources: ["mayastorpools"]
-  verbs: ["get", "list", "watch", "update"]
+  verbs: ["get", "list", "watch", "update", "replace"]
   # must update mayastor pools status
 - apiGroups: ["openebs.io"]
   resources: ["mayastorpools/status"]

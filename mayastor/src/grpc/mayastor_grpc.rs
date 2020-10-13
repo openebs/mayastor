@@ -17,6 +17,7 @@ use crate::{
     bdev::{
         nexus::{instances, nexus_bdev},
         nexus_create,
+        Reason,
     },
     grpc::{
         nexus_grpc::{
@@ -29,6 +30,7 @@ use crate::{
         sync_config,
         GrpcResult,
     },
+    host::blk_device,
 };
 
 #[derive(Debug)]
@@ -217,7 +219,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
             let uri = args.uri.clone();
             debug!("Faulting child {} on nexus {}", uri, uuid);
             locally! { async move {
-                nexus_lookup(&args.uuid)?.fault_child(&args.uri).await
+                nexus_lookup(&args.uuid)?.fault_child(&args.uri, Reason::Rpc).await
             }};
             info!("Faulted child {} on nexus {}", uri, uuid);
             Ok(Response::new(Null {}))
@@ -412,5 +414,18 @@ impl mayastor_server::Mayastor for MayastorSvc {
             Ok(Response::new(reply))
         })
         .await
+    }
+
+    #[instrument(level = "debug", err)]
+    async fn list_block_devices(
+        &self,
+        request: Request<ListBlockDevicesRequest>,
+    ) -> GrpcResult<ListBlockDevicesReply> {
+        let args = request.into_inner();
+        let reply = ListBlockDevicesReply {
+            devices: blk_device::list_block_devices(args.all).await?,
+        };
+        trace!("{:?}", reply);
+        Ok(Response::new(reply))
     }
 }

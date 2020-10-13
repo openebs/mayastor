@@ -19,6 +19,7 @@ const url = require('url');
 // just some UUID used for nexus ID
 const UUID = 'dbe4d7eb-118a-4d15-b789-a18d9af6ff21';
 const UUID2 = 'dbe4d7eb-118a-4d15-b789-a18d9af6ff22';
+const TGTUUID = 'dbe4d7eb-118a-4d15-b789-a18d9af6ff29';
 
 // backend file for aio bdev
 const aioFile = '/tmp/aio-backend';
@@ -41,42 +42,28 @@ const doIscsiReplica = false;
 // test the nexus with implementation of replicas which are used in the
 // production.
 const configNexus = `
-[Malloc]
-  NumberOfLuns 1
-  LunSizeInMB  64
-  BlockSize    4096
+sync_disable: true
+base_bdevs:
+  - uri: "malloc:///Malloc0?size_mb=64&blk_size=4096"
 `;
 
 // The config just for nvmf target which cannot run in the same process as
 // the nvmf initiator (SPDK limitation).
 const configNvmfTarget = `
-[Malloc]
-  NumberOfLuns 1
-  LunSizeInMB  64
-  BlockSize    4096
-
-[Nvmf]
-  AcceptorPollRate 10000
-  ConnectionScheduler RoundRobin
-
-[Transport]
-  Type TCP
-  # reduce memory requirements
-  NumSharedBuffers 64
-
-[Subsystem1]
-  NQN nqn.2019-05.io.openebs:disk2
-  Listen TCP 127.0.0.1:8420
-  AllowAnyHost Yes
-  SN MAYASTOR0000000001
-  MN NEXUSController1
-  MaxNamespaces 1
-  Namespace Malloc0 1
-
+sync_disable: true
+base_bdevs:
+  - uri: "malloc:///Malloc0?size_mb=64&blk_size=4096&uuid=${TGTUUID}"
+nexus_opts:
+  nvmf_nexus_port: 4422
+  nvmf_replica_port: 8420
+  iscsi_enable: false
+nvmf_tcp_tgt_conf:
+  max_namespaces: 2
 # although not used we still have to reduce mem requirements for iSCSI
-[iSCSI]
-  MaxSessions 1
-  MaxConnectionsPerSession 1
+iscsi_tgt_conf:
+  max_sessions: 1
+  max_connections_per_session: 1
+implicit_share_base: true
 `;
 
 var client;
@@ -255,7 +242,7 @@ describe('nexus', function () {
     uuid: UUID,
     size: 131072,
     children: [
-      'nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk2',
+      `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${TGTUUID}`,
       `aio://${aioFile}?blk_size=4096`
     ]
   };
@@ -272,19 +259,23 @@ describe('nexus', function () {
         common.ensureNbdWritable,
         // start this as early as possible to avoid mayastor getting connection refused.
         (next) => {
-          // Start two spdk instances. The first one will hold the remote
+          // Start two Mayastor instances. The first one will hold the remote
           // nvmf target and the second one everything including nexus.
           // We must do this because if nvme initiator and target are in
           // the same instance, the SPDK will hang.
           //
           // In order not to exceed available memory in hugepages when running
           // two instances we use the -s option to limit allocated mem.
-          common.startSpdk(configNvmfTarget, [
+          common.startMayastor(configNvmfTarget, [
             '-r',
             '/tmp/target.sock',
             '-s',
-            '128'
-          ]);
+            '128',
+            '-g',
+            '127.0.0.1:10125'
+          ],
+          { MY_POD_IP: '127.0.0.1' },
+          '_tgt');
           common.waitFor((pingDone) => {
             // use harmless method to test if spdk is up and running
             common.jsonrpcCommand('/tmp/target.sock', 'bdev_get_bdevs', pingDone);
@@ -355,7 +346,7 @@ describe('nexus', function () {
       children: [
         'bdev:///Malloc0',
         `aio://${aioFile}?blk_size=4096`,
-        'nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk2'
+        `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${TGTUUID}`
       ]
     };
     if (doIscsiReplica) args.children.push(`iscsi://iscsi://${externIp}:${iscsiReplicaPort}/iqn.2019-05.io.openebs:disk1`);
@@ -378,7 +369,7 @@ describe('nexus', function () {
 
       assert.equal(
         nexus.children[2].uri,
-        'nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk2'
+        `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${TGTUUID}`
       );
       assert.equal(nexus.children[2].state, 'CHILD_ONLINE');
       if (doIscsiReplica) {
@@ -428,7 +419,7 @@ describe('nexus', function () {
 
       assert.equal(
         nexus.children[2].uri,
-        'nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk2'
+        `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${TGTUUID}`
       );
       assert.equal(nexus.children[2].state, 'CHILD_ONLINE');
       if (doIscsiReplica) {
@@ -454,7 +445,7 @@ describe('nexus', function () {
   it('should be able to remove one of its children', (done) => {
     const args = {
       uuid: UUID,
-      uri: 'nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk2'
+      uri: `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${TGTUUID}`
     };
 
     client.removeChildNexus(args, (err) => {
@@ -472,7 +463,7 @@ describe('nexus', function () {
   });
 
   it('should be able to add the child back', (done) => {
-    const uri = 'nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk2';
+    const uri = `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${TGTUUID}`;
     const args = {
       uuid: UUID,
       uri: uri,
@@ -499,7 +490,7 @@ describe('nexus', function () {
     const args = {
       uuid: UUID2,
       size: 131072,
-      children: ['nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk2']
+      children: [`nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${TGTUUID}`]
     };
 
     client.createNexus(args, (err) => {
@@ -724,7 +715,7 @@ describe('nexus', function () {
         size: 2 * diskSize,
         children: [
         `aio://${aioFile}?blk_size=4096`,
-        'nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:disk2'
+        `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${TGTUUID}`
         ]
       };
 

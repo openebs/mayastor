@@ -75,8 +75,8 @@ fn replica_stop_cont() {
 
     Reactor::block_on(async {
         create_nexus(true).await;
-        bdev_io::write_some(NXNAME).await.unwrap();
-        bdev_io::read_some(NXNAME).await.unwrap();
+        bdev_io::write_some(NXNAME, 0, 0xff).await.unwrap();
+        bdev_io::read_some(NXNAME, 0, 0xff).await.unwrap();
         ms.sig_stop();
         let handle = thread::spawn(move || {
             // Sufficiently long to cause a controller reset
@@ -85,11 +85,11 @@ fn replica_stop_cont() {
             ms.sig_cont();
             ms
         });
-        bdev_io::read_some(NXNAME)
+        bdev_io::read_some(NXNAME, 0, 0xff)
             .await
             .expect_err("should fail read after controller reset");
         ms = handle.join().unwrap();
-        bdev_io::read_some(NXNAME)
+        bdev_io::read_some(NXNAME, 0, 0xff)
             .await
             .expect("should read again after Nexus child continued");
         nexus_lookup(NXNAME).unwrap().destroy().await.unwrap();
@@ -116,20 +116,20 @@ fn replica_term() {
 
     Reactor::block_on(async {
         create_nexus(false).await;
-        bdev_io::write_some(NXNAME).await.unwrap();
-        bdev_io::read_some(NXNAME).await.unwrap();
+        bdev_io::write_some(NXNAME, 0, 0xff).await.unwrap();
+        bdev_io::read_some(NXNAME, 0, 0xff).await.unwrap();
     });
     ms1.sig_term();
     thread::sleep(time::Duration::from_secs(1));
     Reactor::block_on(async {
-        bdev_io::read_some(NXNAME)
+        bdev_io::read_some(NXNAME, 0, 0xff)
             .await
             .expect("should read with 1 Nexus child terminated");
     });
     ms2.sig_term();
     thread::sleep(time::Duration::from_secs(1));
     Reactor::block_on(async {
-        bdev_io::read_some(NXNAME)
+        bdev_io::read_some(NXNAME, 0, 0xff)
             .await
             .expect_err("should fail read with 2 Nexus children terminated");
     });

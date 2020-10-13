@@ -30,10 +30,18 @@ nexus_opts:
   iscsi_enable: false
   iscsi_nexus_port: 3260
   iscsi_replica_port: 3262
+pools:
+  - name: pool0
+    disks:
+      - aio:///tmp/pool-backend
+    replicas: []
 `;
 
 var client, client2;
 var disks;
+
+// URI of Nexus published over NVMf
+var nexusUri;
 
 describe('snapshot', function () {
   this.timeout(10000); // for network tests we need long timeouts
@@ -47,10 +55,16 @@ describe('snapshot', function () {
     if (!client2) {
       return done(new Error('Failed to initialize grpc client for 2nd Mayastor instance'));
     }
-    disks = ['aio://' + poolFile];
+    disks = [poolFile];
 
     async.series(
       [
+        (next) => {
+          fs.writeFile(poolFile, '', next);
+        },
+        (next) => {
+          fs.truncate(poolFile, diskSize, next);
+        },
         // start this as early as possible to avoid mayastor getting connection refused.
         (next) => {
           // Start another mayastor instance for the remote nvmf target of the
@@ -58,7 +72,7 @@ describe('snapshot', function () {
           // SPDK hangs if nvme initiator and target are in the same instance.
           //
           // Use -s option to limit hugepage allocation.
-          common.startMayastor(null, [
+          common.startMayastor(config, [
             '-r',
             '/tmp/target.sock',
             '-s',
@@ -67,18 +81,11 @@ describe('snapshot', function () {
             '127.0.0.1:10125'
           ],
           null,
-          config,
           '_tgt');
           common.waitFor((pingDone) => {
             // use harmless method to test if the mayastor is up and running
             client2.listPools({}, pingDone);
           }, next);
-        },
-        (next) => {
-          fs.writeFile(poolFile, '', next);
-        },
-        (next) => {
-          fs.truncate(poolFile, diskSize, next);
         },
         (next) => {
           common.startMayastor(null, ['-r', common.SOCK, '-g', common.grpcEndpoint, '-s', 384]);
@@ -116,10 +123,20 @@ describe('snapshot', function () {
     );
   });
 
+  it('should destroy the pool loaded from yaml', (done) => {
+    client2.destroyPool(
+      { name: poolName },
+      (err, res) => {
+        if (err) return done(err);
+        done();
+      }
+    );
+  });
+
   it('should create a pool with aio bdevs', (done) => {
     // explicitly specify aio as that always works
     client2.createPool(
-      { name: poolName, disks: disks, io_if: enums.POOL_IO_AIO },
+      { name: poolName, disks: disks.map((d) => `aio://${d}`) },
       (err, res) => {
         if (err) return done(err);
         assert.equal(res.name, poolName);
@@ -178,6 +195,21 @@ describe('snapshot', function () {
     });
   });
 
+  it('should publish the nexus on nvmf', (done) => {
+    client.publishNexus(
+      {
+        uuid: UUID,
+        share: enums.NEXUS_NVMF
+      },
+      (err, res) => {
+        if (err) done(err);
+        assert(res.device_uri);
+        nexusUri = res.device_uri;
+        done();
+      }
+    );
+  });
+
   it('should create a snapshot on the nexus', (done) => {
     const args = { uuid: UUID };
     client.createSnapshot(args, (err) => {
@@ -197,6 +229,32 @@ describe('snapshot', function () {
       assert.equal(res.uuid.startsWith(replicaUuid + '-snap-'), true);
       assert.equal(res.share, 'REPLICA_NONE');
       assert.match(res.uri, /^bdev:\/\/\//);
+      // Wait 1 second so that the 2nd snapshot has a different name and can
+      // be created successfully
+      setTimeout(done, 1000);
+    });
+  });
+
+  it('should take snapshot on nvmf-published nexus', (done) => {
+    common.execAsRoot(
+      common.getCmdPath('initiator'),
+      [nexusUri, 'create-snapshot'],
+      done
+    );
+  });
+
+  it('should list the 2 snapshots as replicas', (done) => {
+    client2.listReplicas({}, (err, res) => {
+      if (err) return done(err);
+
+      res = res.replicas.filter((ent) => ent.pool === poolName);
+      assert.lengthOf(res, 3);
+      var i;
+      for (i = 1; i < 3; i++) {
+        assert.equal(res[i].uuid.startsWith(replicaUuid + '-snap-'), true);
+        assert.equal(res[i].share, 'REPLICA_NONE');
+        assert.match(res[i].uri, /^bdev:\/\/\//);
+      }
       done();
     });
   });

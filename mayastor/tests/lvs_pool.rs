@@ -46,8 +46,6 @@ fn lvs_pool_test() {
                     Lvs::create_or_import(CreatePoolRequest {
                         name: "tpool".into(),
                         disks: vec!["aio:///tmp/disk1.img".into()],
-                        block_size: 0,
-                        io_if: 0,
                     })
                     .await
                     .unwrap();
@@ -60,8 +58,6 @@ fn lvs_pool_test() {
                         Lvs::create_or_import(CreatePoolRequest {
                             name: "tpool".into(),
                             disks: vec!["aio:///tmp/disk1.img".into()],
-                            block_size: 0,
-                            io_if: 0,
                         })
                         .await
                         .is_ok(),
@@ -173,8 +169,6 @@ fn lvs_pool_test() {
                     let pool2 = Lvs::create_or_import(CreatePoolRequest {
                         name: "tpool2".to_string(),
                         disks: vec!["malloc:///malloc0?size_mb=64".to_string()],
-                        block_size: 0,
-                        io_if: 0,
                     })
                     .await
                     .unwrap();
@@ -206,8 +200,6 @@ fn lvs_pool_test() {
                     let pool = Lvs::create_or_import(CreatePoolRequest {
                         name: "tpool".to_string(),
                         disks: vec!["aio:///tmp/disk1.img".to_string()],
-                        block_size: 0,
-                        io_if: 0,
                     })
                     .await
                     .unwrap();
@@ -336,8 +328,6 @@ fn lvs_pool_test() {
                     let pool = Lvs::create_or_import(CreatePoolRequest {
                         name: "tpool".into(),
                         disks: vec!["aio:///tmp/disk1.img".into()],
-                        block_size: 0,
-                        io_if: 0,
                     })
                     .await
                     .unwrap();
@@ -371,8 +361,6 @@ fn lvs_pool_test() {
                     Lvs::create_or_import(CreatePoolRequest {
                         name: "jpool".into(),
                         disks: vec!["aio:///tmp/disk1.img".into()],
-                        block_size: 0,
-                        io_if: 0,
                     })
                     .await
                     .err()

@@ -1,8 +1,10 @@
-# MayaStor ![CI-basic](https://github.com/openebs/Mayastor/workflows/CI-basic/badge.svg) [![Releases](https://img.shields.io/github/release/openebs/Mayastor/all.svg?style=flat-square)](https://github.com/openebs/Mayastor/releases)
-[![built with nix](https://builtwithnix.org/badge.svg)](https://builtwithnix.org)
-![CI-basic](https://github.com/openebs/Mayastor/workflows/CI-basic/badge.svg)
-[![Slack](https://img.shields.io/badge/JOIN-SLACK-blue)]( https://openebs-community.slack.com)
+# MayaStor
+
+[![Releases](https://img.shields.io/github/release/openebs/Mayastor/all.svg?style=flat-square)](https://github.com/openebs/Mayastor/releases)
+[![CI-basic](https://mayastor-ci.mayadata.io/buildStatus/icon?job=Mayastor%2Fdevelop)](https://mayastor-ci.mayadata.io/blue/organizations/jenkins/Mayastor/activity/)
+[![Slack](https://img.shields.io/badge/JOIN-SLACK-blue)](https://kubernetes.slack.com/messages/openebs)
 [![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fopenebs%2FMayaStor.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2Fopenebs%2FMayaStor?ref=badge_shield)
+[![built with nix](https://builtwithnix.org/badge.svg)](https://builtwithnix.org)
 
 <img width="300" align="right" alt="OpenEBS Logo" src="https://raw.githubusercontent.com/cncf/artwork/master/projects/openebs/stacked/color/openebs-stacked-color.png" xmlns="http://www.w3.org/1999/html">
 
