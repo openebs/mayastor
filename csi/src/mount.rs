@@ -257,9 +257,7 @@ pub fn bind_remount(target: &str, options: &[String]) -> Result<Mount, Error> {
 /// Unmounts a path that has previously been bind mounted.
 /// Should not be used for unmounting devices.
 pub fn bind_unmount(target: &str) -> Result<(), Error> {
-    let mut flags = UnmountFlags::empty();
-
-    flags.insert(UnmountFlags::FORCE);
+    let flags = UnmountFlags::empty();
 
     unmount(target, flags)?;
 
@@ -303,7 +301,7 @@ pub fn blockdevice_mount(
 
 /// Unmount a block device.
 pub fn blockdevice_unmount(target: &str) -> Result<(), Error> {
-    let flags = UnmountFlags::FORCE;
+    let flags = UnmountFlags::empty();
 
     debug!("Unmounting block device {} (flags={:?}) ...", target, flags);
 
