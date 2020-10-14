@@ -19,6 +19,7 @@ use clap::{App, Arg};
 use csi::{identity_server::IdentityServer, node_server::NodeServer};
 use env_logger::{Builder, Env};
 use futures::stream::TryStreamExt;
+use nodeplugin_grpc::MayastorNodePluginGrpcServer;
 use std::{
     path::Path,
     pin::Pin,
@@ -38,16 +39,17 @@ pub mod csi {
     tonic::include_proto!("csi.v1");
 }
 
+mod block_vol;
 mod dev;
 mod error;
-
-mod block_vol;
 mod filesystem_vol;
 mod format;
+mod freezefs;
 mod identity;
 mod match_dev;
 mod mount;
 mod node;
+mod nodeplugin_grpc;
 
 use snafu::Snafu;
 
@@ -109,6 +111,8 @@ impl AsyncWrite for UnixStream {
     }
 }
 
+const GRPC_PORT: u16 = 10199;
+
 #[tokio::main]
 async fn main() -> Result<(), String> {
     let matches = App::new("Mayastor CSI plugin")
@@ -136,6 +140,15 @@ async fn main() -> Result<(), String> {
                 .takes_value(true),
         )
         .arg(
+            Arg::with_name("grpc-endpoint")
+                .short("g")
+                .long("grpc-endpoint")
+                .value_name("NAME")
+                .help("ip address where this instance runs, and optionally the gRPC port")
+                .required(true)
+                .takes_value(true),
+        )
+        .arg(
             Arg::with_name("v")
                 .short("v")
                 .multiple(true)
@@ -144,6 +157,7 @@ async fn main() -> Result<(), String> {
         .get_matches();
 
     let node_name = matches.value_of("node-name").unwrap();
+    let endpoint = matches.value_of("grpc-endpoint").unwrap();
     let csi_socket = matches
         .value_of("csi-socket")
         .unwrap_or("/var/tmp/csi.sock");
@@ -191,16 +205,42 @@ async fn main() -> Result<(), String> {
         }
     }
 
-    let mut uds_sock = UnixListener::bind(csi_socket).unwrap();
-    info!("CSI plugin bound to {}", csi_socket);
+    let sock_addr = if endpoint.contains(':') {
+        endpoint.to_string()
+    } else {
+        format!("{}:{}", endpoint, GRPC_PORT)
+    };
 
-    let uds = Server::builder()
-        .add_service(NodeServer::new(Node {
-            node_name: node_name.into(),
-            filesystems: probe_filesystems(),
-        }))
-        .add_service(IdentityServer::new(Identity {}))
-        .serve_with_incoming(uds_sock.incoming().map_ok(UnixStream));
-    let _ = uds.await;
+    let _ = tokio::join!(
+        CSIServer::run(csi_socket, node_name),
+        MayastorNodePluginGrpcServer::run(
+            sock_addr.parse().expect("Invalid gRPC endpoint")
+        ),
+    );
+
     Ok(())
+}
+
+struct CSIServer {}
+
+impl CSIServer {
+    pub async fn run(csi_socket: &str, node_name: &str) -> Result<(), ()> {
+        let mut uds_sock = UnixListener::bind(csi_socket).unwrap();
+        info!("CSI plugin bound to {}", csi_socket);
+
+        if let Err(e) = Server::builder()
+            .add_service(NodeServer::new(Node {
+                node_name: node_name.into(),
+                filesystems: probe_filesystems(),
+            }))
+            .add_service(IdentityServer::new(Identity {}))
+            .serve_with_incoming(uds_sock.incoming().map_ok(UnixStream))
+            .await
+        {
+            error!("CSI server failed with error: {}", e);
+            return Err(());
+        }
+
+        Ok(())
+    }
 }

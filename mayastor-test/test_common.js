@@ -203,7 +203,9 @@ function startMayastorCsi () {
     '-n',
     'test-node-id',
     '-c',
-    CSI_ENDPOINT
+    CSI_ENDPOINT,
+    '-g',
+    LOCALHOST
   ]);
 }
 
