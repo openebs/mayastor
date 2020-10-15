@@ -43,6 +43,7 @@ macro_rules! locally {
 }
 
 mod bdev_grpc;
+mod json_grpc;
 mod mayastor_grpc;
 mod nexus_grpc;
 mod server;

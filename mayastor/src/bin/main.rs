@@ -51,6 +51,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("free_pages: {} nr_pages: {}", free_pages, nr_pages);
 
     let grpc_endpoint = grpc::endpoint(args.grpc_endpoint.clone());
+    let rpc_address = args.rpc_address.clone();
 
     let ms = rt.enter(|| MayastorEnvironment::new(args).init());
 
@@ -60,7 +61,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     futures.push(master.boxed_local());
     futures.push(subsys::Registration::run().boxed_local());
-    futures.push(grpc::MayastorGrpcServer::run(grpc_endpoint).boxed_local());
+    futures.push(
+        grpc::MayastorGrpcServer::run(grpc_endpoint, rpc_address).boxed_local(),
+    );
 
     rt.block_on(futures::future::try_join_all(futures))
         .expect_err("reactor exit in abnormal state");
