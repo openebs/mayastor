@@ -196,7 +196,7 @@ impl Mthread {
         })
     }
 
-    fn unaffinitize() {
+    pub fn unaffinitize() {
         unsafe {
             let mut set: libc::cpu_set_t = std::mem::zeroed();
             for i in 0 .. libc::sysconf(libc::_SC_NPROCESSORS_ONLN) {

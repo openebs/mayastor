@@ -70,7 +70,7 @@ impl NexusChannelInner {
         info!(
             "{}(tid:{:?}), refreshing IO channels",
             nexus.name,
-            std::thread::current().name().unwrap()
+            std::thread::current().name().unwrap_or("none")
         );
 
         trace!(

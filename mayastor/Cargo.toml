@@ -33,7 +33,7 @@ name = "casperf"
 path = "src/bin/casperf.rs"
 
 [dependencies]
-async-task = "3.0"
+async-task = "4.0.2"
 async-trait = "0.1.36"
 bincode = "1.2"
 byte-unit = "3.0.1"
@@ -77,7 +77,8 @@ udev = "0.4"
 url = "2.1"
 smol = "1.0.0"
 dns-lookup = "1.0.4"
-
+ipnetwork = "0.17.0"
+bollard = "0.8.0"
 [dependencies.rpc]
 path = "../rpc"
 
