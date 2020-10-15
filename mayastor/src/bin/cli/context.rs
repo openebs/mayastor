@@ -74,8 +74,11 @@ impl Context {
                 headers
                     .iter()
                     .map(|h| {
-                        (if h.starts_with('>') { &h[1 ..] } else { h })
-                            .to_string()
+                        if let Some(stripped) = h.strip_prefix('>') {
+                            stripped.to_string()
+                        } else {
+                            h.to_string()
+                        }
                     })
                     .collect(),
             );

@@ -180,33 +180,30 @@ fn main() {
         cfg.nexus_opts.nvmf_enable = false;
         cfg
     });
-    ms.start(move || {
-        let fut = async move {
-            let res = if let Some(matches) = matches.subcommand_matches("read")
-            {
-                read(&uri, offset, matches.value_of("FILE").unwrap()).await
-            } else if let Some(matches) = matches.subcommand_matches("write") {
-                write(&uri, offset, matches.value_of("FILE").unwrap()).await
-            } else if matches.subcommand_matches("create-snapshot").is_some() {
-                create_snapshot(&uri).await
-            } else {
-                connect(&uri).await
-            };
-            if let Err(err) = res {
-                error!("{}", err);
-                -1
-            } else {
-                0
-            }
+
+    ms.init();
+    let fut = async move {
+        let res = if let Some(matches) = matches.subcommand_matches("read") {
+            read(&uri, offset, matches.value_of("FILE").unwrap()).await
+        } else if let Some(matches) = matches.subcommand_matches("write") {
+            write(&uri, offset, matches.value_of("FILE").unwrap()).await
+        } else if matches.subcommand_matches("create-snapshot").is_some() {
+            create_snapshot(&uri).await
+        } else {
+            connect(&uri).await
         };
+        if let Err(err) = res {
+            error!("{}", err);
+            -1
+        } else {
+            0
+        }
+    };
 
-        Reactor::block_on(async move {
-            let rc = fut.await;
-            info!("{}", rc);
-            std::process::exit(rc);
-        });
-
-        mayastor_env_stop(0)
-    })
-    .unwrap();
+    Reactor::block_on(async move {
+        let rc = fut.await;
+        info!("{}", rc);
+        mayastor_env_stop(0);
+        std::process::exit(rc);
+    });
 }

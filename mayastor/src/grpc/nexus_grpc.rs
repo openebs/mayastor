@@ -80,8 +80,8 @@ impl Nexus {
 /// unconventional name that likely means it was not created using nexus
 /// rpc api, we return the whole name without modifications as it is.
 fn name_to_uuid(name: &str) -> &str {
-    if name.starts_with("nexus-") {
-        &name[6 ..]
+    if let Some(stripped) = name.strip_prefix("nexus-") {
+        stripped
     } else {
         name
     }
