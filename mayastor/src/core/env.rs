@@ -90,7 +90,7 @@ pub struct MayastorCliArgs {
     #[structopt(short = "L")]
     /// Enable logging for sub components
     pub log_components: Vec<String>,
-    #[structopt(short = "m", default_value = "0x1")]
+    #[structopt(short = "m", default_value = "0x3")]
     /// The reactor mask to be used for starting up the instance
     pub reactor_mask: String,
     #[structopt(short = "N")]
@@ -135,7 +135,7 @@ impl Default for MayastorCliArgs {
             mbus_endpoint: None,
             node_name: None,
             env_context: None,
-            reactor_mask: "0x1".into(),
+            reactor_mask: "0x3".into(),
             mem_size: 0,
             rpc_address: "/var/tmp/mayastor.sock".to_string(),
             no_pci: true,

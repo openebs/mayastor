@@ -1,5 +1,3 @@
-pub mod common;
-
 pub use common::error_bdev::{
     create_error_bdev,
     inject_error,
@@ -7,18 +5,13 @@ pub use common::error_bdev::{
     SPDK_BDEV_IO_TYPE_WRITE,
     VBDEV_IO_FAILURE,
 };
-
 use mayastor::{
-    bdev::{nexus_create, nexus_lookup, ActionType, NexusStatus},
-    core::{
-        mayastor_env_stop,
-        Bdev,
-        MayastorCliArgs,
-        MayastorEnvironment,
-        Reactor,
-    },
+    bdev::{ActionType, nexus_create, nexus_lookup, NexusStatus},
+    core::{Bdev, MayastorCliArgs},
     subsys::Config,
 };
+
+pub mod common;
 
 static ERROR_COUNT_TEST_NEXUS: &str = "error_fault_child_test_nexus";
 
@@ -28,13 +21,14 @@ static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
 static DISKNAME2: &str = "/tmp/disk2.img";
 
 static ERROR_DEVICE: &str = "error_device";
-static EE_ERROR_DEVICE: &str = "EE_error_device"; // The prefix is added by the vbdev_error module
+static EE_ERROR_DEVICE: &str = "EE_error_device";
+// The prefix is added by the vbdev_error module
 static BDEV_EE_ERROR_DEVICE: &str = "bdev:///EE_error_device";
 
 static YAML_CONFIG_FILE: &str = "/tmp/error_fault_child_test_nexus.yaml";
 
-#[test]
-fn nexus_fault_child_test() {
+#[tokio::test]
+async fn nexus_fault_child_test() {
     common::truncate_file(DISKNAME1, 64 * 1024);
     common::truncate_file(DISKNAME2, 64 * 1024);
 
@@ -46,10 +40,13 @@ fn nexus_fault_child_test() {
     config.err_store_opts.max_errors = 4;
 
     config.write(YAML_CONFIG_FILE).unwrap();
+    let ms = common::MayastorTest::new(MayastorCliArgs {
+        mayastor_config: Some(YAML_CONFIG_FILE.to_string()),
+        reactor_mask: "0x3".to_string(),
+        ..Default::default()
+    });
 
-    test_init!(YAML_CONFIG_FILE);
-
-    Reactor::block_on(async {
+    ms.spawn(async {
         create_error_bdev(ERROR_DEVICE, DISKNAME2);
         create_nexus().await;
 
@@ -68,34 +65,36 @@ fn nexus_fault_child_test() {
             10,
         );
 
-        for _ in 0 .. 3 {
+        for _ in 0..3 {
             err_read_nexus_both(false).await;
             common::reactor_run_millis(1);
         }
-        for _ in 0 .. 2 {
+        for _ in 0..2 {
             // the second iteration causes the error count to exceed the max no
             // of retry errors (4) for the read and causes the child to be
             // removed
             err_read_nexus_both(false).await;
             common::reactor_run_millis(1);
         }
-    });
+    })
+        .await;
 
     // error child should be removed from the IO path here
 
-    check_nexus_state_is(NexusStatus::Degraded);
+    ms.spawn(async { check_nexus_state_is(NexusStatus::Degraded) })
+        .await;
 
-    Reactor::block_on(async {
+    ms.spawn(async {
         err_read_nexus_both(true).await; // should succeed because both IOs go to the remaining child
         err_write_nexus(true).await; // should succeed because the IO goes to
-                                     // the remaining child
-    });
+        // the remaining child
+    })
+        .await;
 
-    Reactor::block_on(async {
+    ms.spawn(async {
         delete_nexus().await;
-    });
-
-    mayastor_env_stop(0);
+    })
+        .await;
 
     common::delete_file(&[DISKNAME1.to_string()]);
     common::delete_file(&[DISKNAME2.to_string()]);
