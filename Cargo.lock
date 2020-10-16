@@ -961,6 +961,33 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "134951f4028bdadb9b84baf4232681efbf277da25144b9b0ad65df75946c422b"
 
 [[package]]
+name = "dyn-clonable"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4e9232f0e607a262ceb9bd5141a3dfb3e4db6994b31989bbfd845878cba59fd4"
+dependencies = [
+ "dyn-clonable-impl",
+ "dyn-clone",
+]
+
+[[package]]
+name = "dyn-clonable-impl"
+version = "0.9.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "558e40ea573c374cf53507fd240b7ee2f5477df7cfebdb97323ec61c719399c5"
+dependencies = [
+ "proc-macro2 1.0.24",
+ "quote 1.0.7",
+ "syn 1.0.44",
+]
+
+[[package]]
+name = "dyn-clone"
+version = "1.0.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "4c53dc3a653e0f64081026e4bf048d48fec9fce90c66e8326ca7292df0ff2d82"
+
+[[package]]
 name = "ed25519"
 version = "1.0.0-pre.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1719,6 +1746,7 @@ dependencies = [
  "jsonrpc",
  "libc",
  "log",
+ "mbus_api",
  "nats",
  "nix 0.16.1",
  "once_cell",
@@ -1756,6 +1784,24 @@ name = "maybe-uninit"
 version = "2.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "60302e4db3a61da70c0cb7991976248362f30319e88850c487b9b95bbf059e00"
+
+[[package]]
+name = "mbus_api"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "dyn-clonable",
+ "env_logger",
+ "log",
+ "nats",
+ "once_cell",
+ "serde",
+ "serde_json",
+ "smol",
+ "snafu",
+ "structopt",
+ "tokio",
+]
 
 [[package]]
 name = "memchr"
@@ -2733,6 +2779,26 @@ dependencies = [
  "linked-hash-map",
  "serde",
  "yaml-rust",
+]
+
+[[package]]
+name = "services"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "dyn-clonable",
+ "env_logger",
+ "futures",
+ "lazy_static",
+ "log",
+ "mbus_api",
+ "nats",
+ "serde",
+ "serde_json",
+ "smol",
+ "snafu",
+ "structopt",
+ "tokio",
 ]
 
 [[package]]

@@ -41,7 +41,7 @@ let
   buildProps = rec {
     name = "mayastor";
     #cargoSha256 = "0000000000000000000000000000000000000000000000000000";
-    cargoSha256 = "0mr03cr6i1n5g4dx8v651rq3zblym71cb2vkvg5nqgb34li4br9j";
+    cargoSha256 = "0r6cix3s60c3qaj3lsr3bbr6by28rhapclcs4jw5d68s882i2lh8";
     inherit version;
     src = whitelistSource ../../../. [
       "Cargo.lock"
@@ -55,6 +55,8 @@ let
       "rpc"
       "spdk-sys"
       "sysfs"
+      "mbus-api"
+      "services"
     ];
 
     LIBCLANG_PATH = "${llvmPackages.libclang}/lib";
@@ -92,7 +94,7 @@ in
     buildInputs = buildProps.buildInputs ++ [ libspdk-dev ];
     SPDK_PATH = "${libspdk-dev}";
   });
-  # this is for image that does not do a build of mayastor
+  # this is for an image that does not do a build of mayastor
   adhoc = stdenv.mkDerivation {
     name = "mayastor-adhoc";
     inherit version;
@@ -101,6 +103,7 @@ in
       ../../../target/debug/mayastor-csi
       ../../../target/debug/mayastor-client
       ../../../target/debug/jsonrpc
+      ../../../target/debug/kiiss
     ];
 
     buildInputs = [

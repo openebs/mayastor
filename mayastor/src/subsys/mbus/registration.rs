@@ -7,11 +7,9 @@
 //! but can be overridden by the `MAYASTOR_HB_INTERVAL` environment variable.
 //! containing the node name and the grpc endpoint.
 
-use super::MessageBus;
-use crate::subsys::mbus::Channel;
 use futures::{select, FutureExt, StreamExt};
+use mbus_api::*;
 use once_cell::sync::OnceCell;
-use serde::{Deserialize, Serialize};
 use snafu::Snafu;
 use std::{env, time::Duration};
 
@@ -43,20 +41,6 @@ pub enum Error {
     QueueRegister { cause: std::io::Error },
     #[snafu(display("Failed to queue deregister request: {:?}", cause))]
     QueueDeregister { cause: std::io::Error },
-}
-
-/// Register message payload
-#[derive(Serialize, Deserialize, Debug)]
-struct RegisterArgs {
-    id: String,
-    #[serde(rename = "grpcEndpoint")]
-    grpc_endpoint: String,
-}
-
-/// Deregister message payload
-#[derive(Serialize, Deserialize, Debug)]
-struct DeregisterArgs {
-    id: String,
 }
 
 #[derive(Clone)]
@@ -156,12 +140,13 @@ impl Registration {
 
     /// Send a register message to the MessageBus.
     async fn register(&self) -> Result<(), Error> {
-        let payload = RegisterArgs {
+        let payload = Register {
             id: self.config.node.clone(),
             grpc_endpoint: self.config.grpc_endpoint.clone(),
         };
-        super::message_bus()
-            .publish(Channel::Register, &payload)
+
+        payload
+            .publish()
             .await
             .map_err(|cause| Error::QueueRegister {
                 cause,
@@ -180,16 +165,18 @@ impl Registration {
 
     /// Send a deregister message to the MessageBus.
     async fn deregister(&self) -> Result<(), Error> {
-        let payload = DeregisterArgs {
+        let payload = Deregister {
             id: self.config.node.clone(),
         };
-        super::message_bus()
-            .publish(Channel::DeRegister, &payload)
+
+        payload
+            .publish()
             .await
-            .map_err(|cause| Error::QueueDeregister {
+            .map_err(|cause| Error::QueueRegister {
                 cause,
             })?;
-        if let Err(e) = super::message_bus().flush().await {
+
+        if let Err(e) = bus().flush().await {
             error!("Failed to explicitly flush: {}", e);
         }
 

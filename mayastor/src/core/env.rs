@@ -14,6 +14,7 @@ use std::{
 
 use byte_unit::{Byte, ByteUnit};
 use futures::{channel::oneshot, future};
+use mbus_api::{ConfigGetCurrent, Message, ReplyConfig};
 use once_cell::sync::{Lazy, OnceCell};
 use snafu::Snafu;
 use structopt::StructOpt;
@@ -601,7 +602,7 @@ impl MayastorEnvironment {
         }
     }
 
-    /// start the  JSON rpc server which listens only to a local path
+    /// start the JSON rpc server which listens only to a local path
     extern "C" fn start_rpc(rc: i32, arg: *mut c_void) {
         let ctx = unsafe { Box::from_raw(arg as *mut SubsystemCtx) };
 
@@ -637,6 +638,21 @@ impl MayastorEnvironment {
             Config::get_or_init(Config::default)
         };
         cfg.apply();
+    }
+
+    #[allow(dead_code)]
+    async fn get_service_config(&self) -> ReplyConfig {
+        if self.mbus_endpoint.is_some() {
+            ConfigGetCurrent {
+                kind: mbus_api::Config::MayastorConfig,
+            }
+            .request()
+            .await
+            // we need the library to be able to retry
+            .unwrap()
+        } else {
+            Default::default()
+        }
     }
 
     // load the child status file

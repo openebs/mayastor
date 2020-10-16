@@ -28,7 +28,6 @@ pub use mbus::{
     mbus_endpoint,
     message_bus_init,
     registration::Registration,
-    MessageBus,
     MessageBusSubsystem,
 };
 
