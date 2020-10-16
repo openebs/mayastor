@@ -17,7 +17,7 @@ use futures::{channel::oneshot, future};
 use once_cell::sync::{Lazy, OnceCell};
 use snafu::Snafu;
 use structopt::StructOpt;
-use tokio::{runtime::Builder, task};
+use tokio::runtime::Builder;
 
 use spdk_sys::{
     maya_log,
@@ -671,11 +671,6 @@ impl MayastorEnvironment {
         // bootstrap DPDK and its magic
         self.initialize_eal();
 
-        if self.enable_coredump {
-            //TODO
-            warn!("rlimit configuration not implemented");
-        }
-
         info!(
             "Total number of cores available: {}",
             Cores::count().into_iter().count()
@@ -733,7 +728,7 @@ impl MayastorEnvironment {
     }
 
     // finalize our environment
-    fn fini() {
+    pub fn fini(&self) {
         unsafe {
             spdk_trace_cleanup();
             spdk_thread_lib_fini();
@@ -749,7 +744,7 @@ impl MayastorEnvironment {
     {
         type FutureResult = Result<(), ()>;
         let grpc_endpoint = self.grpc_endpoint;
-        self.init();
+        let ms = self.init();
 
         let mut rt = Builder::new()
             .basic_scheduler()
@@ -757,27 +752,22 @@ impl MayastorEnvironment {
             .build()
             .unwrap();
 
-        let local = task::LocalSet::new();
         rt.block_on(async {
-            local
-                .run_until(async {
-                    let master = Reactors::current();
-                    master.send_future(async { f() });
-                    let mut futures: Vec<
-                        Pin<Box<dyn future::Future<Output = FutureResult>>>,
-                    > = Vec::new();
-                    if let Some(grpc_endpoint) = grpc_endpoint {
-                        futures.push(Box::pin(grpc::MayastorGrpcServer::run(
-                            grpc_endpoint,
-                        )));
-                    }
-                    futures.push(Box::pin(subsys::Registration::run()));
-                    futures.push(Box::pin(master));
-                    let _out = future::try_join_all(futures).await;
-                    info!("reactors stopped");
-                    Self::fini();
-                })
-                .await
+            let master = Reactors::current();
+            master.send_future(async { f() });
+            let mut futures: Vec<
+                Pin<Box<dyn future::Future<Output = FutureResult>>>,
+            > = Vec::new();
+            if let Some(grpc_endpoint) = grpc_endpoint {
+                futures.push(Box::pin(grpc::MayastorGrpcServer::run(
+                    grpc_endpoint,
+                )));
+            }
+            futures.push(Box::pin(subsys::Registration::run()));
+            futures.push(Box::pin(master));
+            let _out = future::try_join_all(futures).await;
+            info!("reactors stopped");
+            ms.fini();
         });
 
         Ok(*GLOBAL_RC.lock().unwrap())

@@ -368,36 +368,34 @@ fn main() {
     args.reactor_mask = "0x2".to_string();
     //args.grpc_endpoint = Some("0.0.0.0".to_string());
 
-    let ms = MayastorEnvironment::new(args);
-    ms.start(move || {
-        sig_override();
+    MayastorEnvironment::new(args).init();
+    sig_override();
+    Reactors::master().send_future(async move {
+        let jobs = uris
+            .iter_mut()
+            .map(|u| Job::new(u, io_size, qd))
+            .collect::<Vec<_>>();
 
-        Reactors::master().send_future(async move {
-            let jobs = uris
-                .iter_mut()
-                .map(|u| Job::new(u, io_size, qd))
-                .collect::<Vec<_>>();
+        for j in jobs {
+            let job = j.await;
+            let thread =
+                Mthread::new(job.bdev.name(), Cores::current()).unwrap();
+            thread.msg(job, |job| {
+                job.run();
+            });
+        }
 
-            for j in jobs {
-                let job = j.await;
-                let thread =
-                    Mthread::new(job.bdev.name(), Cores::current()).unwrap();
-                thread.msg(job, |job| {
-                    job.run();
-                });
-            }
+        unsafe {
+            PERF_TICK.with(|p| {
+                *p.borrow_mut() = NonNull::new(spdk_sys::spdk_poller_register(
+                    Some(perf_tick),
+                    std::ptr::null_mut(),
+                    1_000_000,
+                ))
+            });
+        }
+    });
 
-            unsafe {
-                PERF_TICK.with(|p| {
-                    *p.borrow_mut() =
-                        NonNull::new(spdk_sys::spdk_poller_register(
-                            Some(perf_tick),
-                            std::ptr::null_mut(),
-                            1_000_000,
-                        ))
-                });
-            }
-        });
-    })
-    .unwrap();
+    Reactors::master().running();
+    Reactors::master().poll_reactor();
 }

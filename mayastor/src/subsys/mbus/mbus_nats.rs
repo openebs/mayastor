@@ -12,8 +12,7 @@ pub(super) static NATS_MSG_BUS: OnceCell<NatsMessageBus> = OnceCell::new();
 pub(super) fn message_bus_init(server: String) {
     NATS_MSG_BUS.get_or_init(|| {
         // Waits for the message bus to become ready
-        tokio::runtime::Runtime::new()
-            .unwrap()
+        tokio::runtime::Handle::current()
             .block_on(async { NatsMessageBus::new(&server).await })
     });
 }
