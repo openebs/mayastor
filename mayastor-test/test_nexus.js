@@ -187,13 +187,11 @@ var doUring = (function () {
         'debug',
         'uring-support'
       );
-      const CMD = URING_SUPPORT_CMD + ' ' + uringFile;
-      exec(CMD, (error) => {
+      exec(URING_SUPPORT_CMD, (error) => {
         if (error) {
           return;
         }
-        // FIXME enable once a fixed Ubuntu kernel 5.4 is released
-        supportsUring = false;
+        supportsUring = true;
       });
     }
     return supportsUring;

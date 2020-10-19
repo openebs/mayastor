@@ -48,7 +48,7 @@ env_logger = "0.7"
 futures = "0.3"
 futures-timer = "2.0"
 git-version = "0.3"
-io-uring = "0.3.4"
+io-uring = "0.4.0"
 ioctl-gen = "0.1.1"
 jsonrpc = { path = "../jsonrpc"}
 libc = "0.2"
