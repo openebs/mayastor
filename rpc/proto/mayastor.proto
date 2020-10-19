@@ -67,6 +67,9 @@ service Mayastor {
 
   // Enumerate block devices on current host
   rpc ListBlockDevices (ListBlockDevicesRequest) returns (ListBlockDevicesReply) {}
+
+  // Obtain resource usage statistics for the current process
+  rpc GetResourceUsage (Null) returns (GetResourceUsageReply) {}
 }
 
 // Means no arguments or no return value.
@@ -360,6 +363,23 @@ message ListBlockDevicesRequest {
 
 message ListBlockDevicesReply {
   repeated BlockDevice devices = 1;
+}
+
+message ResourceUsage {
+  int64 soft_faults = 1;        // page reclaims (soft page faults)
+  int64 hard_faults = 2;        // hard page faults
+  int64 swaps = 3;              // swaps
+  int64 in_block_ops = 4;       // input block operations
+  int64 out_block_ops = 5;      // output block operations
+  int64 ipc_msg_send = 6;       // IPC messages sent
+  int64 ipc_msg_rcv = 7;        // IPC messages received
+  int64 signals = 8;            // signals received
+  int64 vol_csw = 9;            // voluntary context switches
+  int64 invol_csw = 10;         // involuntary context switches
+}
+
+message GetResourceUsageReply {
+  ResourceUsage usage = 1;
 }
 
 // Anything what follows here are private interfaces used for interacting with

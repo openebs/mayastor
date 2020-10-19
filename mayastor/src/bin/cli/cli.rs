@@ -19,6 +19,7 @@ mod device_cli;
 mod jsonrpc_cli;
 mod nexus_child_cli;
 mod nexus_cli;
+mod perf_cli;
 mod pool_cli;
 mod rebuild_cli;
 mod replica_cli;
@@ -82,6 +83,7 @@ async fn main() -> Result<(), Status> {
         .subcommand(replica_cli::subcommands())
         .subcommand(bdev_cli::subcommands())
         .subcommand(device_cli::subcommands())
+        .subcommand(perf_cli::subcommands())
         .subcommand(rebuild_cli::subcommands())
         .subcommand(snapshot_cli::subcommands())
         .subcommand(jsonrpc_cli::subcommands())
@@ -93,6 +95,7 @@ async fn main() -> Result<(), Status> {
         ("bdev", Some(args)) => bdev_cli::handler(ctx, args).await?,
         ("device", Some(args)) => device_cli::handler(ctx, args).await?,
         ("nexus", Some(args)) => nexus_cli::handler(ctx, args).await?,
+        ("perf", Some(args)) => perf_cli::handler(ctx, args).await?,
         ("pool", Some(args)) => pool_cli::handler(ctx, args).await?,
         ("replica", Some(args)) => replica_cli::handler(ctx, args).await?,
         ("rebuild", Some(args)) => rebuild_cli::handler(ctx, args).await?,

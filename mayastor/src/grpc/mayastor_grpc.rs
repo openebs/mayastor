@@ -30,7 +30,7 @@ use crate::{
         sync_config,
         GrpcResult,
     },
-    host::blk_device,
+    host::{blk_device, resource},
 };
 
 #[derive(Debug)]
@@ -424,6 +424,19 @@ impl mayastor_server::Mayastor for MayastorSvc {
         let args = request.into_inner();
         let reply = ListBlockDevicesReply {
             devices: blk_device::list_block_devices(args.all).await?,
+        };
+        trace!("{:?}", reply);
+        Ok(Response::new(reply))
+    }
+
+    #[instrument(level = "debug", err)]
+    async fn get_resource_usage(
+        &self,
+        _request: Request<Null>,
+    ) -> GrpcResult<GetResourceUsageReply> {
+        let usage = resource::get_resource_usage().await?;
+        let reply = GetResourceUsageReply {
+            usage: Some(usage),
         };
         trace!("{:?}", reply);
         Ok(Response::new(reply))
