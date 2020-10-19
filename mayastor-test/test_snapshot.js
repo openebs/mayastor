@@ -10,9 +10,11 @@ const enums = require('./grpc_enums');
 const UUID = 'dbe4d7eb-118a-4d15-b789-a18d9af6ff21';
 
 const replicaUuid = '00000000-76b6-4fcf-864d-1027d4038756';
-const poolName = 'pool0';
+const poolName = 'pool1';
+const pool2Name = 'pool2';
 // backend file for pool
-const poolFile = '/tmp/pool-backend';
+const poolFile = '/tmp/pool1-backend';
+const pool2File = '/tmp/pool2-backend';
 // 128MB is the size of pool
 const diskSize = 128 * 1024 * 1024;
 // 64MB is the size of replica
@@ -31,14 +33,14 @@ nexus_opts:
   iscsi_nexus_port: 3260
   iscsi_replica_port: 3262
 pools:
-  - name: pool0
+  - name: pool2
     disks:
-      - aio:///tmp/pool-backend
+      - aio:///tmp/pool2-backend
     replicas: []
 `;
 
 var client, client2;
-var disks;
+var disks, disks2;
 
 // URI of Nexus published over NVMf
 var nexusUri;
@@ -56,6 +58,7 @@ describe('snapshot', function () {
       return done(new Error('Failed to initialize grpc client for 2nd Mayastor instance'));
     }
     disks = [poolFile];
+    disks2 = [pool2File];
 
     async.series(
       [
@@ -64,6 +67,12 @@ describe('snapshot', function () {
         },
         (next) => {
           fs.truncate(poolFile, diskSize, next);
+        },
+        (next) => {
+          fs.writeFile(pool2File, '', next);
+        },
+        (next) => {
+          fs.truncate(pool2File, diskSize, next);
         },
         // start this as early as possible to avoid mayastor getting connection refused.
         (next) => {
@@ -109,6 +118,12 @@ describe('snapshot', function () {
             if (err) console.log('unlink failed:', poolFile, err);
             next();
           });
+        },
+        (next) => {
+          fs.unlink(pool2File, (err) => {
+            if (err) console.log('unlink failed:', pool2File, err);
+            next();
+          });
         }
       ],
       (err) => {
@@ -125,7 +140,7 @@ describe('snapshot', function () {
 
   it('should destroy the pool loaded from yaml', (done) => {
     client2.destroyPool(
-      { name: poolName },
+      { name: pool2Name },
       (err, res) => {
         if (err) return done(err);
         done();
@@ -133,9 +148,9 @@ describe('snapshot', function () {
     );
   });
 
-  it('should create a pool with aio bdevs', (done) => {
+  it('should create a local pool with aio bdevs', (done) => {
     // explicitly specify aio as that always works
-    client2.createPool(
+    client.createPool(
       { name: poolName, disks: disks.map((d) => `aio://${d}`) },
       (err, res) => {
         if (err) return done(err);
@@ -151,11 +166,45 @@ describe('snapshot', function () {
     );
   });
 
-  it('should create a replica exported over nvmf', (done) => {
-    client2.createReplica(
+  it('should create a remote pool with aio bdevs', (done) => {
+    client2.createPool(
+      { name: pool2Name, disks: disks2.map((d) => `aio://${d}`) },
+      (err, res) => {
+        if (err) return done(err);
+        assert.equal(res.name, pool2Name);
+        assert.equal(res.used, 0);
+        assert.equal(res.state, 'POOL_ONLINE');
+        assert.equal(res.disks.length, disks2.length);
+        for (let i = 0; i < res.disks.length; ++i) {
+          assert.equal(res.disks[i].includes(disks2[i]), true);
+        }
+        done();
+      }
+    );
+  });
+
+  it('should create a local replica', (done) => {
+    client.createReplica(
       {
         uuid: replicaUuid,
         pool: poolName,
+        thin: true,
+        share: 'REPLICA_NONE',
+        size: replicaSize
+      },
+      (err, res) => {
+        if (err) return done(err);
+        assert.match(res.uri, /^bdev:\/\//);
+        done();
+      }
+    );
+  });
+
+  it('should create a remote replica exported over nvmf', (done) => {
+    client2.createReplica(
+      {
+        uuid: replicaUuid,
+        pool: pool2Name,
         thin: true,
         share: 'REPLICA_NVMF',
         size: replicaSize
@@ -168,11 +217,12 @@ describe('snapshot', function () {
     );
   });
 
-  it('should create a nexus with 1 nvmf replica', (done) => {
+  it('should create a nexus with a local replica and 1 remote nvmf replica', (done) => {
     const args = {
       uuid: UUID,
       size: 131072,
-      children: ['nvmf://' + common.getMyIp() + ':8430/nqn.2019-05.io.openebs:' + replicaUuid]
+      children: ['loopback:///' + replicaUuid,
+        'nvmf://' + common.getMyIp() + ':8430/nqn.2019-05.io.openebs:' + replicaUuid]
     };
 
     client.createNexus(args, (err) => {
@@ -187,7 +237,7 @@ describe('snapshot', function () {
       assert.lengthOf(res.nexus_list, 1);
       const nexus = res.nexus_list[0];
 
-      const expectedChildren = 1;
+      const expectedChildren = 2;
       assert.equal(nexus.uuid, UUID);
       assert.equal(nexus.state, 'NEXUS_ONLINE');
       assert.lengthOf(nexus.children, expectedChildren);
@@ -218,11 +268,26 @@ describe('snapshot', function () {
     });
   });
 
-  it('should list the snapshot as a replica', (done) => {
-    client2.listReplicas({}, (err, res) => {
+  it('should list the snapshot as a local replica', (done) => {
+    client.listReplicas({}, (err, res) => {
       if (err) return done(err);
 
       res = res.replicas.filter((ent) => ent.pool === poolName);
+      assert.lengthOf(res, 2);
+      res = res[1];
+
+      assert.equal(res.uuid.startsWith(replicaUuid + '-snap-'), true);
+      assert.equal(res.share, 'REPLICA_NONE');
+      assert.match(res.uri, /^bdev:\/\/\//);
+      done();
+    });
+  });
+
+  it('should list the snapshot as a remote replica', (done) => {
+    client2.listReplicas({}, (err, res) => {
+      if (err) return done(err);
+
+      res = res.replicas.filter((ent) => ent.pool === pool2Name);
       assert.lengthOf(res, 2);
       res = res[1];
 
@@ -243,11 +308,27 @@ describe('snapshot', function () {
     );
   });
 
-  it('should list the 2 snapshots as replicas', (done) => {
-    client2.listReplicas({}, (err, res) => {
+  it('should list the 2 snapshots as local replicas', (done) => {
+    client.listReplicas({}, (err, res) => {
       if (err) return done(err);
 
       res = res.replicas.filter((ent) => ent.pool === poolName);
+      assert.lengthOf(res, 3);
+      var i;
+      for (i = 1; i < 3; i++) {
+        assert.equal(res[i].uuid.startsWith(replicaUuid + '-snap-'), true);
+        assert.equal(res[i].share, 'REPLICA_NONE');
+        assert.match(res[i].uri, /^bdev:\/\/\//);
+      }
+      done();
+    });
+  });
+
+  it('should list the 2 snapshots as remote replicas', (done) => {
+    client2.listReplicas({}, (err, res) => {
+      if (err) return done(err);
+
+      res = res.replicas.filter((ent) => ent.pool === pool2Name);
       assert.lengthOf(res, 3);
       var i;
       for (i = 1; i < 3; i++) {

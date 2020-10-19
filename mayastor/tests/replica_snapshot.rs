@@ -11,7 +11,7 @@ use mayastor::{
         MayastorEnvironment,
         Reactor,
     },
-    lvs::Lvol,
+    lvs::{Lvol, Lvs},
     subsys,
     subsys::Config,
 };
@@ -19,10 +19,12 @@ use mayastor::{
 pub mod common;
 
 static DISKNAME1: &str = "/tmp/disk1.img";
+static DISKNAME2: &str = "/tmp/disk2.img";
 
 static DISKSIZE_KB: u64 = 128 * 1024;
 
 static CFGNAME1: &str = "/tmp/child1.yaml";
+static CFGNAME2: &str = "/tmp/child2.yaml";
 static UUID1: &str = "00000000-76b6-4fcf-864d-1027d4038756";
 
 static NXNAME: &str = "replica_snapshot_test";
@@ -31,17 +33,23 @@ static NXNAME_SNAP: &str = "replica_snapshot_test-snap";
 fn generate_config() {
     let mut config = Config::default();
 
-    config.implicit_share_base = true;
     config.nexus_opts.iscsi_enable = false;
-    config.nexus_opts.nvmf_replica_port = 8430;
-    config.nexus_opts.nvmf_nexus_port = 8440;
-    let pool = subsys::Pool {
-        name: "pool0".to_string(),
+    let pool1 = subsys::Pool {
+        name: "pool1".to_string(),
         disks: vec!["aio://".to_string() + &DISKNAME1.to_string()],
         replicas: Default::default(),
     };
-    config.pools = Some(vec![pool]);
+    config.pools = Some(vec![pool1]);
     config.write(CFGNAME1).unwrap();
+    config.nexus_opts.nvmf_replica_port = 8430;
+    config.nexus_opts.nvmf_nexus_port = 8440;
+    let pool2 = subsys::Pool {
+        name: "pool2".to_string(),
+        disks: vec!["aio://".to_string() + &DISKNAME2.to_string()],
+        replicas: Default::default(),
+    };
+    config.pools = Some(vec![pool2]);
+    config.write(CFGNAME2).unwrap();
 }
 
 fn start_mayastor(cfg: &str) -> MayastorProcess {
@@ -57,68 +65,68 @@ fn start_mayastor(cfg: &str) -> MayastorProcess {
     MayastorProcess::new(Box::from(args)).unwrap()
 }
 
-fn conf_mayastor() {
-    // configuration yaml does not yet support creating replicas
+fn conf_mayastor(msc_args: &[&str]) {
     let msc = "../target/debug/mayastor-client";
     let output = Command::new(msc)
-        .args(&[
-            "-p",
-            "10125",
-            "replica",
-            "create",
-            "--protocol",
-            "nvmf",
-            "pool0",
-            UUID1,
-            "--size",
-            "64M",
-        ])
+        .args(&*msc_args)
         .output()
         .expect("could not exec mayastor-client");
-
     if !output.status.success() {
         io::stderr().write_all(&output.stderr).unwrap();
         panic!("failed to configure mayastor");
     }
 }
 
-fn share_snapshot(t: u64) {
-    let msc = "../target/debug/mayastor-client";
-    let output = Command::new(msc)
-        .args(&[
-            "-p",
-            "10125",
-            "replica",
-            "share",
-            &Lvol::format_snapshot_name(UUID1, t),
-            "nvmf",
-        ])
-        .output()
-        .expect("could not exec mayastor-client");
+fn create_replica() {
+    // configuration yaml does not yet support creating replicas
+    conf_mayastor(&[
+        "-p",
+        "10125",
+        "replica",
+        "create",
+        "--protocol",
+        "nvmf",
+        "pool2",
+        UUID1,
+        "--size",
+        "64M",
+    ]);
+}
 
-    if !output.status.success() {
-        io::stderr().write_all(&output.stderr).unwrap();
-        panic!("failed to configure mayastor");
-    }
+fn share_snapshot(t: u64) {
+    conf_mayastor(&[
+        "-p",
+        "10125",
+        "replica",
+        "share",
+        &Lvol::format_snapshot_name(UUID1, t),
+        "nvmf",
+    ]);
 }
 
 #[test]
 fn replica_snapshot() {
     generate_config();
 
-    // Start with a fresh pool
+    // Start with fresh pools
     common::delete_file(&[DISKNAME1.to_string()]);
     common::truncate_file(DISKNAME1, DISKSIZE_KB);
+    common::delete_file(&[DISKNAME2.to_string()]);
+    common::truncate_file(DISKNAME2, DISKSIZE_KB);
 
-    let _ms1 = start_mayastor(CFGNAME1);
+    let _ms2 = start_mayastor(CFGNAME2);
     // Allow Mayastor process to start listening on NVMf port
     thread::sleep(time::Duration::from_millis(250));
 
-    conf_mayastor();
+    create_replica();
 
-    test_init!();
+    test_init!(CFGNAME1);
 
     Reactor::block_on(async {
+        let pool = Lvs::lookup("pool1").unwrap();
+        pool.create_lvol(UUID1, 64 * 1024 * 1024, true)
+            .await
+            .unwrap();
         create_nexus(0).await;
         bdev_io::write_some(NXNAME, 0, 0xff).await.unwrap();
         // Issue an unimplemented vendor command
@@ -148,20 +156,24 @@ fn replica_snapshot() {
     mayastor_env_stop(0);
 
     common::delete_file(&[DISKNAME1.to_string()]);
+    common::delete_file(&[DISKNAME2.to_string()]);
 }
 
 async fn create_nexus(t: u64) {
-    let mut child_name = "nvmf://127.0.0.1:8430/nqn.2019-05.io.openebs:"
-        .to_string()
-        + &UUID1.to_string();
+    let mut children = vec![
+        "loopback:///".to_string() + &UUID1.to_string(),
+        "nvmf://127.0.0.1:8430/nqn.2019-05.io.openebs:".to_string()
+            + &UUID1.to_string(),
+    ];
     let mut nexus_name = NXNAME;
     if t > 0 {
-        child_name = Lvol::format_snapshot_name(&child_name, t);
+        children
+            .iter_mut()
+            .for_each(|c| *c = Lvol::format_snapshot_name(&c, t));
         nexus_name = NXNAME_SNAP;
     }
-    let ch = vec![child_name];
 
-    nexus_create(&nexus_name, 64 * 1024 * 1024, None, &ch)
+    nexus_create(&nexus_name, 64 * 1024 * 1024, None, &children)
         .await
         .unwrap();
 }

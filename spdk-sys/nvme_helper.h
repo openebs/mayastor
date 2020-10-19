@@ -7,6 +7,8 @@ struct spdk_nvme_cmd;
 struct spdk_nvme_cpl;
 struct spdk_nvme_status;
 
+uint32_t nvme_cmd_cdw10_get_val(const struct spdk_nvme_cmd *cmd);
+uint32_t nvme_cmd_cdw11_get_val(const struct spdk_nvme_cmd *cmd);
 uint32_t *nvme_cmd_cdw10_get(struct spdk_nvme_cmd *cmd);
 uint32_t *nvme_cmd_cdw11_get(struct spdk_nvme_cmd *cmd);
 

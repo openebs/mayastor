@@ -79,7 +79,7 @@ pub enum CoreError {
     ResetDispatch {
         source: Errno,
     },
-    #[snafu(display("Failed to dispatch NVMe Admin",))]
+    #[snafu(display("Failed to dispatch NVMe Admin command {:x}h", opcode))]
     NvmeAdminDispatch {
         source: Errno,
         opcode: u16,
@@ -96,7 +96,7 @@ pub enum CoreError {
     },
     #[snafu(display("Reset failed"))]
     ResetFailed {},
-    #[snafu(display("NVMe Admin failed"))]
+    #[snafu(display("NVMe Admin command {:x}h failed", opcode))]
     NvmeAdminFailed {
         opcode: u16,
     },
