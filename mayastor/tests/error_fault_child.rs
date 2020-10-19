@@ -6,7 +6,7 @@ pub use common::error_bdev::{
     VBDEV_IO_FAILURE,
 };
 use mayastor::{
-    bdev::{ActionType, nexus_create, nexus_lookup, NexusStatus},
+    bdev::{nexus_create, nexus_lookup, ActionType, NexusStatus},
     core::{Bdev, MayastorCliArgs},
     subsys::Config,
 };
@@ -65,11 +65,11 @@ async fn nexus_fault_child_test() {
             10,
         );
 
-        for _ in 0..3 {
+        for _ in 0 .. 3 {
             err_read_nexus_both(false).await;
             common::reactor_run_millis(1);
         }
-        for _ in 0..2 {
+        for _ in 0 .. 2 {
             // the second iteration causes the error count to exceed the max no
             // of retry errors (4) for the read and causes the child to be
             // removed
@@ -77,7 +77,7 @@ async fn nexus_fault_child_test() {
             common::reactor_run_millis(1);
         }
     })
-        .await;
+    .await;
 
     // error child should be removed from the IO path here
 
@@ -87,14 +87,14 @@ async fn nexus_fault_child_test() {
     ms.spawn(async {
         err_read_nexus_both(true).await; // should succeed because both IOs go to the remaining child
         err_write_nexus(true).await; // should succeed because the IO goes to
-        // the remaining child
+                                     // the remaining child
     })
-        .await;
+    .await;
 
     ms.spawn(async {
         delete_nexus().await;
     })
-        .await;
+    .await;
 
     common::delete_file(&[DISKNAME1.to_string()]);
     common::delete_file(&[DISKNAME2.to_string()]);

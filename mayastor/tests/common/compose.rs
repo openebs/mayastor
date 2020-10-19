@@ -37,7 +37,7 @@ use ipnetwork::Ipv4Network;
 use tokio::sync::oneshot::channel;
 use tonic::transport::Channel;
 
-use crate::{common, common::mayastor_test_init};
+use crate::common::mayastor_test_init;
 use ::rpc::mayastor::{
     bdev_rpc_client::BdevRpcClient,
     mayastor_client::MayastorClient,

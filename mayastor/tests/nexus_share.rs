@@ -1,12 +1,9 @@
-use std::panic::catch_unwind;
-
 use mayastor::{
     bdev::{nexus_create, nexus_lookup},
     core::{
         mayastor_env_stop,
         Bdev,
         MayastorCliArgs,
-        MayastorEnvironment,
         Protocol,
         Reactor,
         Share,

@@ -6,7 +6,7 @@ use uuid::Uuid;
 use common::MayastorTest;
 use mayastor::{
     bdev::{nexus_create, nexus_lookup, util::uring},
-    core::{Bdev, BdevHandle, MayastorCliArgs, Reactor},
+    core::{Bdev, BdevHandle, MayastorCliArgs},
     nexus_uri::{bdev_create, bdev_destroy},
 };
 use rpc::mayastor::ShareProtocolNexus;

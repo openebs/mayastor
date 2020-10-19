@@ -1,15 +1,6 @@
-use std::panic::catch_unwind;
-
+use common::MayastorTest;
 use mayastor::{
-    core::{
-        mayastor_env_stop,
-        Bdev,
-        MayastorCliArgs,
-        MayastorEnvironment,
-        Protocol,
-        Reactor,
-        Share,
-    },
+    core::{Bdev, MayastorCliArgs, Protocol, Share},
     lvs::{Lvs, PropName, PropValue},
     nexus_uri::bdev_create,
     subsys::NvmfSubsystem,
@@ -17,7 +8,7 @@ use mayastor::{
 use rpc::mayastor::CreatePoolRequest;
 
 pub mod common;
-use common::MayastorTest;
+
 static DISKNAME1: &str = "/tmp/disk1.img";
 
 #[tokio::test]
