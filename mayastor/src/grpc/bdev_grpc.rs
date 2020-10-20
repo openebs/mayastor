@@ -56,7 +56,7 @@ impl From<Bdev> for RpcBdev {
 }
 
 #[derive(Debug)]
-pub struct BdevSvc {}
+pub struct BdevSvc;
 
 #[tonic::async_trait]
 impl BdevRpc for BdevSvc {

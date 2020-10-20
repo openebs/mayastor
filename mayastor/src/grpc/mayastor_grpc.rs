@@ -37,7 +37,7 @@ use crate::{
 struct UnixStream(tokio::net::UnixStream);
 
 #[derive(Debug)]
-pub struct MayastorSvc {}
+pub struct MayastorSvc;
 
 #[tonic::async_trait]
 impl mayastor_server::Mayastor for MayastorSvc {

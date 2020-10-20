@@ -760,6 +760,7 @@ impl MayastorEnvironment {
     {
         type FutureResult = Result<(), ()>;
         let grpc_endpoint = self.grpc_endpoint;
+        let rpc_addr = self.rpc_addr.clone();
         let ms = self.init();
 
         let mut rt = Builder::new()
@@ -777,6 +778,7 @@ impl MayastorEnvironment {
             if let Some(grpc_endpoint) = grpc_endpoint {
                 futures.push(Box::pin(grpc::MayastorGrpcServer::run(
                     grpc_endpoint,
+                    rpc_addr,
                 )));
             }
             futures.push(Box::pin(subsys::Registration::run()));

@@ -1,4 +1,4 @@
-use crate::{BdevClient, MayaClient};
+use crate::{BdevClient, JsonClient, MayaClient};
 use byte_unit::Byte;
 use clap::ArgMatches;
 use std::cmp::max;
@@ -6,6 +6,7 @@ use std::cmp::max;
 pub struct Context {
     pub(crate) client: MayaClient,
     pub(crate) bdev: BdevClient,
+    pub(crate) json: JsonClient,
     verbosity: u64,
     units: char,
 }
@@ -32,9 +33,13 @@ impl Context {
         }
 
         let client = MayaClient::connect(uri.clone()).await.unwrap();
+        let bdev = BdevClient::connect(uri.clone()).await.unwrap();
+        let json = JsonClient::connect(uri).await.unwrap();
+
         Context {
             client,
-            bdev: BdevClient::connect(uri).await.unwrap(),
+            bdev,
+            json,
             verbosity,
             units,
         }

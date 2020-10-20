@@ -171,8 +171,8 @@ impl Service {
         }
     }
 
-    async fn process_message<'a>(
-        arguments: Arguments<'a>,
+    async fn process_message(
+        arguments: Arguments<'_>,
         subscriptions: &[Box<dyn ServiceSubscriber>],
     ) -> Result<(), ServiceError> {
         let channel = arguments.request.channel();
