@@ -38,11 +38,16 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: spec.nodeName
+        - name: MY_POD_IP
+          valueFrom:
+            fieldRef:
+              fieldPath: status.podIP
         - name: RUST_BACKTRACE
           value: "1"
         args:
         - "--csi-socket=/csi/csi.sock"
         - "--node-name=$(MY_NODE_NAME)"
+        - "--grpc-endpoint=$(MY_POD_IP):10199"
         - "-v"
         volumeMounts:
         - name: device
@@ -87,6 +92,11 @@ spec:
           requests:
             cpu: "100m"
             memory: "50Mi"
+        # Mayastor node plugin gRPC server
+        ports:
+        - containerPort: 10199
+          protocol: TCP
+          name: mayastor-node
       volumes:
       - name: device
         hostPath:
