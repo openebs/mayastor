@@ -445,9 +445,7 @@ describe('replica', function () {
         if (error) {
           self.skip();
         }
-        self.skip();
-        // FIXME enable once a fixed Ubuntu kernel 5.4 is released
-        // done();
+        done();
       });
     });
 

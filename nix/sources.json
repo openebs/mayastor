@@ -12,15 +12,15 @@
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
     "liburing": {
-        "branch": "liburing-0.6",
+        "branch": "liburing-0.7",
         "description": null,
         "homepage": null,
         "owner": "axboe",
         "repo": "liburing",
-        "rev": "f0c5c54945ae92a00cdbb43bdf3abaeab6bd3a23",
-        "sha256": "06lrqx0ch8yszy6ck5y0kj8wn7i1bnjlrdgxbmr3g32ymic1hyln",
+        "rev": "45f0735219a615ae848033c47c7e2d85d101d43e",
+        "sha256": "15z44l7y4c6s6dlf7v8lq4znlsjbja2r4ifbni0l8cdcnq0w3zh3",
         "type": "tarball",
-        "url": "https://github.com/axboe/liburing/archive/f0c5c54945ae92a00cdbb43bdf3abaeab6bd3a23.tar.gz",
+        "url": "https://github.com/axboe/liburing/archive/45f0735219a615ae848033c47c7e2d85d101d43e.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
     "niv": {
