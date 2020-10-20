@@ -14,7 +14,7 @@ use crate::{
         },
         NexusErrStore,
     },
-    core::{Bdev, BdevHandle, CoreError, Descriptor, DmaBuf},
+    core::{Bdev, BdevHandle, CoreError, Descriptor},
     nexus_uri::{bdev_destroy, NexusBdevError},
     rebuild::{ClientOperations, RebuildJob},
     subsys::Config,
@@ -44,18 +44,8 @@ pub enum ChildError {
     ChildInvalid {},
     #[snafu(display("Opening child bdev without bdev pointer"))]
     OpenWithoutBdev {},
-    #[snafu(display("Failed to create a BdevHandle for child"))]
+    #[snafu(display("Failed to create a BdevHandle for child: {}", source))]
     HandleCreate { source: CoreError },
-}
-
-#[derive(Debug, Snafu)]
-pub enum ChildIoError {
-    #[snafu(display("Error writing to {}: {}", name, source))]
-    WriteError { source: CoreError, name: String },
-    #[snafu(display("Error reading from {}: {}", name, source))]
-    ReadError { source: CoreError, name: String },
-    #[snafu(display("Invalid descriptor for child bdev {}", name))]
-    InvalidDescriptor { name: String },
 }
 
 #[derive(Debug, Serialize, PartialEq, Deserialize, Copy, Clone)]
@@ -136,9 +126,6 @@ pub struct NexusChild {
     /// current state of the child
     #[serde(skip_serializing)]
     state: ChildState,
-    /// descriptor obtained after opening a device
-    #[serde(skip_serializing)]
-    pub(crate) bdev_handle: Option<BdevHandle>,
     /// record of most-recent IO errors
     #[serde(skip_serializing)]
     pub(crate) err_store: Option<NexusErrStore>,
@@ -231,7 +218,6 @@ impl NexusChild {
             },
         )?);
 
-        self.bdev_handle = Some(BdevHandle::try_from(desc.clone()).unwrap());
         self.desc = Some(desc);
 
         let cfg = Config::get();
@@ -323,9 +309,7 @@ impl NexusChild {
             }
         }
         // just to be explicit
-        let hdl = self.bdev_handle.take();
         let desc = self.desc.take();
-        drop(hdl);
         drop(desc);
     }
 
@@ -345,7 +329,6 @@ impl NexusChild {
             desc: None,
             ch: std::ptr::null_mut(),
             state: ChildState::Init,
-            bdev_handle: None,
             err_store: None,
         }
     }
@@ -373,57 +356,22 @@ impl NexusChild {
             || self.state() == ChildState::Faulted(Reason::OutOfSync)
     }
 
-    /// return references to child's bdev and descriptor
+    /// return reference to child's bdev and a new BdevHandle
     /// both must be present - otherwise it is considered an error
-    pub fn get_dev(&self) -> Result<(&Bdev, &BdevHandle), ChildError> {
+    pub fn get_dev(&self) -> Result<(&Bdev, BdevHandle), ChildError> {
         if !self.is_accessible() {
             info!("{}: Child is inaccessible: {}", self.parent, self.name);
             return Err(ChildError::ChildInaccessible {});
         }
 
         if let Some(bdev) = &self.bdev {
-            if let Some(desc) = &self.bdev_handle {
-                return Ok((bdev, desc));
+            if let Ok(desc) = self.get_descriptor() {
+                let hndl =
+                    BdevHandle::try_from(desc).context(HandleCreate {})?;
+                return Ok((bdev, hndl));
             }
         }
-
         Err(ChildError::ChildInvalid {})
-    }
-
-    /// write the contents of the buffer to this child
-    pub async fn write_at(
-        &self,
-        offset: u64,
-        buf: &DmaBuf,
-    ) -> Result<usize, ChildIoError> {
-        match self.bdev_handle.as_ref() {
-            Some(desc) => {
-                Ok(desc.write_at(offset, buf).await.context(WriteError {
-                    name: self.name.clone(),
-                })?)
-            }
-            None => Err(ChildIoError::InvalidDescriptor {
-                name: self.name.clone(),
-            }),
-        }
-    }
-
-    /// read from this child device into the given buffer
-    pub async fn read_at(
-        &self,
-        offset: u64,
-        buf: &mut DmaBuf,
-    ) -> Result<u64, ChildIoError> {
-        match self.bdev_handle.as_ref() {
-            Some(desc) => {
-                Ok(desc.read_at(offset, buf).await.context(ReadError {
-                    name: self.name.clone(),
-                })?)
-            }
-            None => Err(ChildIoError::InvalidDescriptor {
-                name: self.name.clone(),
-            }),
-        }
     }
 
     /// Return the rebuild job which is rebuilding this child, if rebuilding

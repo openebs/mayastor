@@ -52,12 +52,6 @@
 //! The nbd0 zero device does not show the partitions when mounting
 //! it without the nexus in the data path, there would be two paritions
 //! ```
-use std::{
-    fmt::{self, Display},
-    io::{Cursor, Seek, SeekFrom},
-    str::FromStr,
-};
-
 use bincode::{deserialize_from, serialize, serialize_into, Error};
 use crc::{crc32, Hasher32};
 use futures::future::join_all;
@@ -66,14 +60,19 @@ use serde::{
     ser::{Serialize, SerializeTuple, Serializer},
 };
 use snafu::{ResultExt, Snafu};
+use std::{
+    fmt::{self, Display},
+    io::{Cursor, Seek, SeekFrom},
+    str::FromStr,
+};
 use uuid::{self, parser, Uuid};
 
 use crate::{
     bdev::nexus::{
         nexus_bdev::Nexus,
-        nexus_child::{ChildError, ChildIoError, NexusChild},
+        nexus_child::{ChildError, NexusChild},
     },
-    core::{DmaBuf, DmaError},
+    core::{CoreError, DmaBuf, DmaError},
 };
 
 #[derive(Debug, Snafu)]
@@ -81,9 +80,9 @@ pub enum LabelError {
     #[snafu(display("{}", source))]
     NexusChildError { source: ChildError },
     #[snafu(display("Error reading {}: {}", name, source))]
-    ReadError { name: String, source: ChildIoError },
+    ReadError { name: String, source: CoreError },
     #[snafu(display("Write error: {}", source))]
-    WriteError { source: ChildIoError },
+    WriteError { name: String, source: CoreError },
     #[snafu(display(
         "Failed to allocate buffer for reading {}: {}",
         name,
@@ -131,6 +130,12 @@ pub enum LabelError {
     BackupLocation {},
     #[snafu(display("GPT partition table location is incorrect"))]
     PartitionTableLocation {},
+    #[snafu(display(
+        "Could not get handle for child bdev {}: {}",
+        name,
+        source
+    ))]
+    HandleCreate { name: String, source: ChildError },
 }
 
 struct LabelData {
@@ -345,7 +350,7 @@ impl Nexus {
         for result in join_all(futures).await {
             if let Err(error) = result {
                 // return the first error
-                return Err(error).context(WriteError {});
+                return Err(error);
             }
         }
 
@@ -384,7 +389,7 @@ impl Nexus {
         for result in join_all(futures).await {
             if let Err(error) = result {
                 // return the first error
-                return Err(error).context(WriteError {});
+                return Err(error);
             }
         }
 
@@ -914,15 +919,15 @@ impl NexusLabel {
 impl NexusChild {
     /// read and validate this child's label
     pub async fn probe_label(&self) -> Result<NexusLabel, LabelError> {
-        let (bdev, desc) = self.get_dev().context(NexusChildError {})?;
+        let (bdev, hndl) = self.get_dev().context(NexusChildError {})?;
         let block_size = bdev.block_len() as u64;
 
         //
         // Protective MBR
-        let mut buf = desc.dma_malloc(block_size).context(ReadAlloc {
+        let mut buf = hndl.dma_malloc(block_size).context(ReadAlloc {
             name: String::from("header"),
         })?;
-        self.read_at(0, &mut buf).await.context(ReadError {
+        hndl.read_at(0, &mut buf).await.context(ReadError {
             name: String::from("MBR"),
         })?;
         let mbr = NexusLabel::read_mbr(&buf)?;
@@ -936,7 +941,7 @@ impl NexusChild {
         // GPT header(s)
 
         // Get primary.
-        self.read_at(block_size, &mut buf)
+        hndl.read_at(block_size, &mut buf)
             .await
             .context(ReadError {
                 name: String::from("primary GPT header"),
@@ -947,7 +952,7 @@ impl NexusChild {
                 active = &primary;
                 // Get secondary.
                 let offset = (bdev.num_blocks() - 1) * block_size;
-                self.read_at(offset, &mut buf).await.context(ReadError {
+                hndl.read_at(offset, &mut buf).await.context(ReadError {
                     name: String::from("secondary GPT header"),
                 })?;
                 match NexusLabel::read_secondary_header(&buf) {
@@ -986,7 +991,7 @@ impl NexusChild {
                 );
                 // Get secondary and see if we are able to proceed.
                 let offset = (bdev.num_blocks() - 1) * block_size;
-                self.read_at(offset, &mut buf).await.context(ReadError {
+                hndl.read_at(offset, &mut buf).await.context(ReadError {
                     name: String::from("secondary GPT header"),
                 })?;
                 match NexusLabel::read_secondary_header(&buf) {
@@ -1023,11 +1028,11 @@ impl NexusChild {
             block_size,
         );
         let mut buf =
-            desc.dma_malloc(blocks * block_size).context(ReadAlloc {
+            hndl.dma_malloc(blocks * block_size).context(ReadAlloc {
                 name: String::from("partition table"),
             })?;
         let offset = active.lba_table * block_size;
-        self.read_at(offset, &mut buf).await.context(ReadError {
+        hndl.read_at(offset, &mut buf).await.context(ReadError {
             name: String::from("partition table"),
         })?;
         let mut partitions = NexusLabel::read_partitions(&buf, active)?;
@@ -1063,6 +1068,20 @@ impl NexusChild {
             child: self,
             label,
         }
+    }
+
+    /// write the contents of the buffer to this child
+    async fn write_at(
+        &self,
+        offset: u64,
+        buf: &DmaBuf,
+    ) -> Result<usize, LabelError> {
+        let (_bdev, hndl) = self.get_dev().context(HandleCreate {
+            name: self.name.clone(),
+        })?;
+        Ok(hndl.write_at(offset, buf).await.context(WriteError {
+            name: self.name.clone(),
+        })?)
     }
 }
 
