@@ -347,7 +347,7 @@ fn create_portal_group(
 
     let portal_port = CString::new(port_no.to_string()).unwrap();
     let portal_host = CString::new(address.to_owned()).unwrap();
-    let pg = unsafe { iscsi_portal_grp_create(pg_no) };
+    let pg = unsafe { iscsi_portal_grp_create(pg_no, false) };
     if pg.is_null() {
         return Err(Error::CreatePortalGroup {});
     }

@@ -22,6 +22,7 @@ make -j $(nproc)
 
 # delete things we for sure do not want link
 find . -type f -name 'libspdk_event_nvmf.a' -delete
+find . -type f -name 'libspdk_sock_uring.a' -delete
 find . -type f -name 'libspdk_ut_mock.a' -delete
 
 # the event libraries are the libraries that parse configuration files
