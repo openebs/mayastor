@@ -17,7 +17,7 @@ pub use send::*;
 use serde::{Deserialize, Serialize};
 use smol::io;
 use snafu::Snafu;
-use std::{fmt::Debug, marker::PhantomData, str::FromStr};
+use std::{fmt::Debug, marker::PhantomData, str::FromStr, time::Duration};
 
 /// Available Message Bus channels
 #[derive(Clone, Debug)]
@@ -169,6 +169,12 @@ pub trait Message {
     async fn publish(&self) -> io::Result<()>;
     /// publish a message with a request for a `Self::Reply` reply
     async fn request(&self) -> io::Result<Self::Reply>;
+    /// publish a message with a request for a `Self::Reply` reply
+    /// and non default timeout options
+    async fn request_ext(
+        &self,
+        options: TimeoutOptions,
+    ) -> io::Result<Self::Reply>;
 }
 
 /// The preamble is used to peek into messages so allowing for them to be routed
@@ -214,6 +220,55 @@ pub type BusOptions = nats::Options;
 /// Save on typing
 pub type DynBus = Box<dyn Bus>;
 
+/// Timeout for receiving a reply to a request message
+/// Max number of retries until it gives up
+#[derive(Clone)]
+pub struct TimeoutOptions {
+    /// initial request message timeout
+    pub(crate) timeout: std::time::Duration,
+    /// max number of retries following the initial attempt's timeout
+    pub(crate) max_retries: Option<u32>,
+}
+
+impl TimeoutOptions {
+    pub(crate) fn default_timeout() -> Duration {
+        Duration::from_secs(6)
+    }
+    pub(crate) fn default_max_retries() -> u32 {
+        6
+    }
+}
+
+impl Default for TimeoutOptions {
+    fn default() -> Self {
+        Self {
+            timeout: Self::default_timeout(),
+            max_retries: Some(Self::default_max_retries()),
+        }
+    }
+}
+
+impl TimeoutOptions {
+    /// New options with default values
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    /// Timeout after which we'll either fail the request or start retrying
+    /// if max_retries is greater than 0 or None
+    pub fn with_timeout(mut self, timeout: Duration) -> Self {
+        self.timeout = timeout;
+        self
+    }
+
+    /// Specify a max number of retries before giving up
+    /// None for unlimited retries
+    pub fn with_max_retries(mut self, max_retries: Option<u32>) -> Self {
+        self.max_retries = max_retries;
+        self
+    }
+}
+
 /// Messaging Bus trait with "generic" publish and request/reply semantics
 #[async_trait]
 #[clonable]
@@ -232,6 +287,7 @@ pub trait Bus: Clone + Send + Sync {
         &self,
         channel: Channel,
         message: &[u8],
+        options: Option<TimeoutOptions>,
     ) -> io::Result<BusMessage>;
     /// Flush queued messages to the server
     async fn flush(&self) -> io::Result<()>;

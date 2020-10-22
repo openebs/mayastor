@@ -1,6 +1,7 @@
 use log::info;
 use mbus_api::{Message, *};
 use serde::{Deserialize, Serialize};
+use std::time::Duration;
 use structopt::StructOpt;
 use tokio::stream::StreamExt;
 
@@ -72,7 +73,12 @@ async fn main() {
         start_server_side().await;
     }
 
-    let reply = DummyRequest {}.request().await.unwrap();
+    let options = TimeoutOptions::new()
+        .with_timeout(Duration::from_secs(1))
+        .with_max_retries(Some(3));
+
+    // request() will use the bus default timeout and retries
+    let reply = DummyRequest {}.request_ext(options).await.unwrap();
     info!("Received reply: {:?}", reply);
 
     // We can also use the following api to specify a different channel and bus
