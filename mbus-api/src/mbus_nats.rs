@@ -11,13 +11,20 @@ pub fn message_bus_init_tokio(server: String) {
     NATS_MSG_BUS.get_or_init(|| {
         // Waits for the message bus to become ready
         tokio::runtime::Handle::current().block_on(async {
-            NatsMessageBus::new(&server, BusOptions::new()).await
+            NatsMessageBus::new(
+                &server,
+                BusOptions::new(),
+                TimeoutOptions::new(),
+            )
+            .await
         })
     });
 }
 /// Initialise the Nats Message Bus
 pub async fn message_bus_init(server: String) {
-    let nc = NatsMessageBus::new(&server, BusOptions::new()).await;
+    let nc =
+        NatsMessageBus::new(&server, BusOptions::new(), TimeoutOptions::new())
+            .await;
     NATS_MSG_BUS
         .set(nc)
         .ok()
@@ -37,6 +44,7 @@ pub fn bus() -> DynBus {
 // Would we want to have both sync and async clients?
 #[derive(Clone)]
 struct NatsMessageBus {
+    timeout_options: TimeoutOptions,
     connection: Connection,
 }
 impl NatsMessageBus {
@@ -74,8 +82,13 @@ impl NatsMessageBus {
         }
     }
 
-    async fn new(server: &str, _options: BusOptions) -> Self {
+    async fn new(
+        server: &str,
+        _bus_options: BusOptions,
+        timeout_options: TimeoutOptions,
+    ) -> Self {
         Self {
+            timeout_options,
             connection: Self::connect(server).await,
         }
     }
@@ -99,8 +112,43 @@ impl Bus for NatsMessageBus {
         &self,
         channel: Channel,
         message: &[u8],
+        options: Option<TimeoutOptions>,
     ) -> io::Result<BusMessage> {
-        self.connection.request(&channel.to_string(), message).await
+        let channel = &channel.to_string();
+
+        let options = options.unwrap_or_else(|| self.timeout_options.clone());
+        let mut timeout = options.timeout;
+        let mut retries = 0;
+
+        loop {
+            let request = self.connection.request(channel, message);
+
+            let result = tokio::time::timeout(timeout, request).await;
+            if let Ok(r) = result {
+                return r;
+            }
+            if Some(retries) == options.max_retries {
+                log::error!("Timed out on {}", channel);
+                return Err(io::ErrorKind::TimedOut.into());
+            }
+
+            log::debug!(
+                "Timeout after {:?} on {} - {} retries left",
+                timeout,
+                channel,
+                if let Some(max) = options.max_retries {
+                    (max - retries).to_string()
+                } else {
+                    "unlimited".to_string()
+                }
+            );
+
+            retries += 1;
+            timeout = std::cmp::min(
+                Duration::from_secs(1) * retries,
+                Duration::from_secs(10),
+            );
+        }
     }
 
     async fn flush(&self) -> io::Result<()> {

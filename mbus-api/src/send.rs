@@ -151,6 +151,12 @@ macro_rules! bus_impl_message {
             async fn request(&self) -> smol::io::Result<$R> {
                 $T::Request(self, self.channel(), bus()).await
             }
+            async fn request_ext(
+                &self,
+                options: TimeoutOptions,
+            ) -> smol::io::Result<$R> {
+                $T::Request_Ext(self, self.channel(), bus(), options).await
+            }
         }
     };
 }
@@ -174,7 +180,21 @@ where
         bus: DynBus,
     ) -> io::Result<R> {
         let msg = SendMessage::<S, R>::new(payload, channel, bus);
-        msg.request().await
+        msg.request(None).await
+    }
+
+    /// Sends the message and requests a reply
+    /// May fail if the bus fails to publish the message.
+    /// With additional timeout parameters
+    #[allow(non_snake_case)]
+    async fn Request_Ext(
+        payload: &'a S,
+        channel: Channel,
+        bus: DynBus,
+        options: TimeoutOptions,
+    ) -> io::Result<R> {
+        let msg = SendMessage::<S, R>::new(payload, channel, bus);
+        msg.request(Some(options)).await
     }
 }
 
@@ -253,11 +273,16 @@ where
     }
 
     /// Sends the message and requests a reply.
-    /// todo: add timeout with retry logic?
-    pub(crate) async fn request(&self) -> io::Result<R> {
+    pub(crate) async fn request(
+        &self,
+        options: Option<TimeoutOptions>,
+    ) -> io::Result<R> {
         let payload = serde_json::to_vec(&self.payload)?;
-        let reply =
-            self.bus.request(self.channel.clone(), &payload).await?.data;
+        let reply = self
+            .bus
+            .request(self.channel.clone(), &payload, options)
+            .await?
+            .data;
         let reply: ReplyPayload<R> = serde_json::from_slice(&reply)?;
         reply.0.map_err(|error| {
             io::Error::new(io::ErrorKind::Other, format!("{:?}", error))
