@@ -103,6 +103,9 @@ pub struct Reactor {
     /// incoming threads that have been scheduled to this core but are not
     /// polled yet
     incoming: crossbeam::queue::SegQueue<Mthread>,
+    /// flag to indicate that there are incoming threads to be polled.
+    /// This is to avoid polling the incoming thread queue too frequently.
+    has_incoming: Cell<bool>,
     /// the logical core this reactor is created on
     lcore: u32,
     /// represents the state of the reactor
@@ -179,6 +182,7 @@ impl Reactors {
                     r.lcore
                 );
                 r.incoming.push(Mthread(thread));
+                r.has_incoming.set(true);
                 return true;
             }
             false
@@ -267,6 +271,7 @@ impl Reactor {
         Self {
             threads: RefCell::new(VecDeque::new()),
             incoming: crossbeam::queue::SegQueue::new(),
+            has_incoming: Cell::new(false),
             lcore: core,
             flags: Cell::new(ReactorState::Init),
             sx,
@@ -455,16 +460,19 @@ impl Reactor {
             t.poll();
         });
 
-        while let Ok(i) = self.incoming.pop() {
-            self.threads.borrow_mut().push_back(i);
+        if self.has_incoming.get() {
+            self.has_incoming.set(false);
+
+            while let Ok(i) = self.incoming.pop() {
+                self.threads.borrow_mut().push_back(i);
+            }
         }
     }
 
     /// poll the threads n times but only poll the futures queue once and look
     /// for incoming only once.
     ///
-    /// We might want to set a flag that we need to run futures and or incoming
-    /// queues
+    /// We might want to set a flag that we need to run futures
     pub fn poll_times(&self, times: u32) {
         let threads = self.threads.borrow();
         for _ in 0 .. times {
@@ -477,8 +485,12 @@ impl Reactor {
         self.run_futures();
         drop(threads);
 
-        while let Ok(i) = self.incoming.pop() {
-            self.threads.borrow_mut().push_back(i);
+        if self.has_incoming.get() {
+            self.has_incoming.set(false);
+
+            while let Ok(i) = self.incoming.pop() {
+                self.threads.borrow_mut().push_back(i);
+            }
         }
     }
 }
