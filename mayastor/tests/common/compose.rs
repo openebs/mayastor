@@ -492,7 +492,7 @@ impl ComposeTest {
         Ok(())
     }
 
-    /// ge the logs from the container. It would be nice to make it implicit
+    /// get the logs from the container. It would be nice to make it implicit
     /// that is, when you make a rpc call, whatever logs where created due to
     /// that are returned
     pub async fn logs(&self, name: &str) -> Result<(), Error> {
