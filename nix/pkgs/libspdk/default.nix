@@ -52,7 +52,6 @@ let
     configureFlags = [
       "--target-arch=nehalem"
       "--without-isal"
-      "--without-vhost"
       "--with-iscsi-initiator"
       "--with-crypto"
       "--with-uring"
@@ -76,7 +75,6 @@ let
       make -j`nproc`
       find . -type f -name 'libspdk_event_nvmf.a' -delete
       find . -type f -name 'libspdk_ut_mock.a' -delete
-      #find . -type f -name 'librte_vhost.a' -delete
 
       $CC -shared -o libspdk.so \
       -lc  -laio -liscsi -lnuma -ldl -lrt -luuid -lpthread -lcrypto \

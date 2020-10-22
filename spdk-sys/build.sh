@@ -13,7 +13,6 @@ pushd spdk || { echo "Can not find spdk directory"; exit; }
 	--target-arch=nehalem \
 	--disable-tests \
 	--without-isal \
-	--without-vhost \
 	--with-iscsi-initiator \
 	--with-crypto \
 	--with-uring \
@@ -24,7 +23,6 @@ make -j $(nproc)
 # delete things we for sure do not want link
 find . -type f -name 'libspdk_event_nvmf.a' -delete
 find . -type f -name 'libspdk_ut_mock.a' -delete
-#find . -type f -name 'librte_vhost.a' -delete
 
 # the event libraries are the libraries that parse configuration files
 # we do our own config file parsing, and we setup our own targets.
