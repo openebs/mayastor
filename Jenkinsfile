@@ -117,15 +117,6 @@ pipeline {
             }
           }
         }
-        stage('nix tests') {
-          agent { label 'nixos-mayastor-kvm' }
-          steps {
-            sh 'nix-build ./nix/test -A rebuild'
-            sh 'nix-build ./nix/test -A fio_nvme_basic'
-            sh 'nix-build ./nix/test -A nvmf_distributed'
-            sh 'nix-build ./nix/test -A nvmf_ports'
-          }
-        }
         stage('moac unit tests') {
           agent { label 'nixos-mayastor' }
           steps {
