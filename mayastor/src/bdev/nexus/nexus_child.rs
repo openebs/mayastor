@@ -439,4 +439,16 @@ impl NexusChild {
             .map(|j| j.stats().progress as i32)
             .unwrap_or_else(|| -1)
     }
+
+    /// Determines if a child is local to the nexus (i.e. on the same node)
+    pub fn is_local(&self) -> Option<bool> {
+        match &self.bdev {
+            Some(bdev) => {
+                // A local child is not exported over nvme or iscsi
+                let local = bdev.driver() != "nvme" && bdev.driver() != "iscsi";
+                Some(local)
+            }
+            None => None,
+        }
+    }
 }
