@@ -460,9 +460,7 @@ impl Reactor {
             t.poll();
         });
 
-        if self.has_incoming.get() {
-            self.has_incoming.set(false);
-
+        if self.has_incoming.replace(false) {
             while let Ok(i) = self.incoming.pop() {
                 self.threads.borrow_mut().push_back(i);
             }
@@ -485,9 +483,7 @@ impl Reactor {
         self.run_futures();
         drop(threads);
 
-        if self.has_incoming.get() {
-            self.has_incoming.set(false);
-
+        if self.has_incoming.replace(false) {
             while let Ok(i) = self.incoming.pop() {
                 self.threads.borrow_mut().push_back(i);
             }
