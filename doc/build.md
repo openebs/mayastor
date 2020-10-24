@@ -5,9 +5,9 @@ use the nightly compiler. Nightly is required in all of the provided build possi
 
 Build options
 ==================
-- [Building with Nix (recommended)](Building-the-sources-with-nixpkg)
-- [Build inside docker](Build-inside-docker)
-- [Building the hard way](Build-it-the-hard-way)
+- [Building with Nix (recommended)](#Building-the-sources-with-nixpkg)
+- [Build inside docker](#Build-inside-docker)
+- [Building the hard way](#Build-it-the-hard-way)
 
 ## Building the sources with nixpkg
 
