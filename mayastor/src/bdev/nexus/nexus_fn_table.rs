@@ -110,9 +110,11 @@ impl NexusFnTable {
 
         // set the fields that need to be (re)set per-attempt
         if nio.io_type() == io_type::READ {
+            // set that we only need to read from one child
+            // before we complete the IO to the callee.
             nio.reset(1);
         } else {
-            nio.reset(ch.ch.len())
+            nio.reset(ch.write_ch.len())
         }
 
         let nexus = nio.nexus_as_ref();

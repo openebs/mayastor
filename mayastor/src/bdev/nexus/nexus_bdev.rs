@@ -708,7 +708,7 @@ impl Nexus {
         }
 
         let ch = NexusChannel::inner_from_channel(ch);
-        let (desc, ch) = ch.ch[ch.previous].io_tuple();
+        let (desc, ch) = ch.read_ch[ch.previous].io_tuple();
         let ret = Self::readv_impl(io, desc, ch);
         if ret != 0 {
             let bio = Bio::from(io);
@@ -719,8 +719,7 @@ impl Nexus {
 
     /// read vectored io from the underlying children.
     pub(crate) fn readv(&self, io: &Bio, channels: &mut NexusChannelInner) {
-        // we use RR to read from the children also, set that we only need
-        // to read from one child before we complete the IO to the callee.
+        // we use RR to read from the children.
         let child = channels.child_select();
 
         // if there is no buffer space for us allocated within the request
@@ -736,7 +735,7 @@ impl Nexus {
             return;
         }
 
-        let (desc, ch) = channels.ch[child].io_tuple();
+        let (desc, ch) = channels.read_ch[child].io_tuple();
 
         let ret = Self::readv_impl(io.as_ptr(), desc, ch);
 
@@ -778,7 +777,7 @@ impl Nexus {
     pub(crate) fn reset(&self, io: &Bio, channels: &NexusChannelInner) {
         // in case of resets, we want to reset all underlying children
         let results = channels
-            .ch
+            .write_ch
             .iter()
             .map(|c| unsafe {
                 let (bdev, chan) = c.io_tuple();
@@ -806,7 +805,7 @@ impl Nexus {
     pub(crate) fn writev(&self, io: &Bio, channels: &NexusChannelInner) {
         // in case of writes, we want to write to all underlying children
         let results = channels
-            .ch
+            .write_ch
             .iter()
             .map(|c| unsafe {
                 let (desc, chan) = c.io_tuple();
@@ -835,7 +834,7 @@ impl Nexus {
 
     pub(crate) fn unmap(&self, io: &Bio, channels: &NexusChannelInner) {
         let results = channels
-            .ch
+            .write_ch
             .iter()
             .map(|c| unsafe {
                 let (desc, chan) = c.io_tuple();
@@ -861,7 +860,7 @@ impl Nexus {
 
     pub(crate) fn write_zeroes(&self, io: &Bio, channels: &NexusChannelInner) {
         let results = channels
-            .ch
+            .write_ch
             .iter()
             .map(|c| unsafe {
                 let (b, c) = c.io_tuple();
@@ -893,7 +892,7 @@ impl Nexus {
         // for replicas, passthru only works with our vendor commands as the
         // underlying bdev is not nvmf
         let results = channels
-            .ch
+            .write_ch
             .iter()
             .map(|c| unsafe {
                 debug!("nvme_admin on {}", c.get_bdev().driver());
