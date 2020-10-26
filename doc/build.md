@@ -45,7 +45,7 @@ Installation of a [nix package manager](https://nixos.org/nix/download.html) on
 other distros:
 
 ```bash
-curl https://nixos.org/nix/install | sh
+curl -L https://nixos.org/nix/install | sh
 ```
 
 We have provided a `shell.nix` file that can be used to build and compile
