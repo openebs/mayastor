@@ -22,8 +22,15 @@ service MayastorNodePlugin {
   // Unfreeze the file system identified by the volume ID,
   // no check is made if the file system had been previously frozen.
   rpc UnfreezeFS (UnfreezeFSRequest) returns (UnfreezeFSReply) {}
+  // Find the volume identified by the volume ID, and return the mount type:
+  // raw block or filesystem
+  rpc FindVolume (FindVolumeRequest) returns (FindVolumeReply) {}
 }
 
+enum VolumeType {
+  VOLUME_TYPE_FILESYSTEM = 0; // File system mount
+  VOLUME_TYPE_RAWBLOCK = 1;   // Raw block device mount
+}
 // The request message containing ID of the volume to be frozen
 message FreezeFSRequest {
   string volume_id = 1;
@@ -41,4 +48,14 @@ message UnfreezeFSRequest {
 
 // The response message for the unfreeze request.
 message UnfreezeFSReply {
+}
+
+// Message for request on a volume
+message FindVolumeRequest {
+  string volume_id = 1;
+}
+
+// Message for response to a request for a volume
+message FindVolumeReply {
+  VolumeType volume_type = 1;
 }

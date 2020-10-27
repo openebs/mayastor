@@ -43,34 +43,14 @@ mod block_vol;
 mod dev;
 mod error;
 mod filesystem_vol;
+mod findmnt;
 mod format;
-mod freezefs;
 mod identity;
 mod match_dev;
 mod mount;
 mod node;
 mod nodeplugin_grpc;
-
-use snafu::Snafu;
-
-#[derive(Debug, Snafu)]
-#[snafu(visibility = "pub(crate)")]
-pub enum CSIError {
-    #[snafu(display("iscsiadm error: {}", error))]
-    Iscsiadm { error: String },
-    #[snafu(display("Cannot find {}", execname))]
-    ExecutableNotFound { execname: String },
-    #[snafu(display("Could not attach disk after {:?}", value))]
-    AttachTimeout { value: std::time::Duration },
-    #[snafu(display("Invalid URI {}", uristr))]
-    InvalidURI { uristr: String },
-    #[snafu(display("Invalid device path {}", devpath))]
-    InvalidDevicePath { devpath: String },
-    #[snafu(display("Not found {}", value))]
-    NotFound { value: String },
-    #[snafu(display("{}", error))]
-    Nvmf { error: String },
-}
+mod nodeplugin_svc;
 
 #[derive(Debug)]
 struct UnixStream(tokio::net::UnixStream);
