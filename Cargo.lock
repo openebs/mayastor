@@ -1723,6 +1723,7 @@ name = "mayastor"
 version = "0.1.0"
 dependencies = [
  "assert_matches",
+ "async-mutex",
  "async-task",
  "async-trait",
  "bincode",

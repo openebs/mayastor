@@ -10,6 +10,7 @@ use std::{
     os::raw::c_void,
 };
 
+use async_mutex::Mutex;
 use futures::channel::oneshot;
 use nix::errno::Errno;
 use serde::Serialize;
@@ -313,6 +314,8 @@ pub struct Nexus {
     pub nexus_target: Option<NexusTarget>,
     /// the maximum number of times to attempt to send an IO
     pub(crate) max_io_attempts: i32,
+    /// mutex to serialise reconfigure
+    reconfigure_mutex: Mutex<()>,
 }
 
 unsafe impl core::marker::Sync for Nexus {}
@@ -405,6 +408,7 @@ impl Nexus {
             size,
             nexus_target: None,
             max_io_attempts: cfg.err_store_opts.max_io_attempts,
+            reconfigure_mutex: Mutex::new(()),
         });
 
         n.bdev.set_uuid(match uuid {
@@ -439,8 +443,9 @@ impl Nexus {
 
     /// reconfigure the child event handler
     pub(crate) async fn reconfigure(&mut self, event: DREvent) {
+        let _var = self.reconfigure_mutex.lock().await;
         let (s, r) = oneshot::channel::<i32>();
-        //assert!(self.dr_complete_notify.is_none());
+        assert!(self.dr_complete_notify.is_none());
         self.dr_complete_notify = Some(s);
 
         info!(

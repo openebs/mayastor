@@ -34,14 +34,12 @@ let
             lib.hasPrefix (toString (src + "/${allowedPrefix}")) path)
           allowedPrefixes)
       src;
-
   version_drv = import ../../lib/version.nix { inherit lib stdenv git; };
   version = builtins.readFile "${version_drv}";
-
   buildProps = rec {
     name = "mayastor";
     #cargoSha256 = "0000000000000000000000000000000000000000000000000000";
-    cargoSha256 = "0flkzd6ygri3vibw7g7b9ibw8b1sbrir036il3i9jvapfq8kgxaf";
+    cargoSha256 = "0smfd31mzxgnprd30536ww2csy9n0mksaac09p6b138pp7gk7lsj";
     inherit version;
     src = whitelistSource ../../../. [
       "Cargo.lock"
@@ -84,16 +82,18 @@ let
   };
 in
 {
-  release = rustPlatform.buildRustPackage (buildProps // {
-    buildType = "release";
-    buildInputs = buildProps.buildInputs ++ [ libspdk ];
-    SPDK_PATH = "${libspdk}";
-  });
-  debug = rustPlatform.buildRustPackage (buildProps // {
-    buildType = "debug";
-    buildInputs = buildProps.buildInputs ++ [ libspdk-dev ];
-    SPDK_PATH = "${libspdk-dev}";
-  });
+  release = rustPlatform.buildRustPackage
+    (buildProps // {
+      buildType = "release";
+      buildInputs = buildProps.buildInputs ++ [ libspdk ];
+      SPDK_PATH = "${libspdk}";
+    });
+  debug = rustPlatform.buildRustPackage
+    (buildProps // {
+      buildType = "debug";
+      buildInputs = buildProps.buildInputs ++ [ libspdk-dev ];
+      SPDK_PATH = "${libspdk-dev}";
+    });
   # this is for an image that does not do a build of mayastor
   adhoc = stdenv.mkDerivation {
     name = "mayastor-adhoc";
