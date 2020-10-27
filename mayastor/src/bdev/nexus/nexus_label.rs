@@ -79,9 +79,9 @@ use crate::{
 pub enum LabelError {
     #[snafu(display("{}", source))]
     NexusChildError { source: ChildError },
-    #[snafu(display("Error reading {}: {}", name, source))]
+    #[snafu(display("Error reading {}", name))]
     ReadError { name: String, source: CoreError },
-    #[snafu(display("Write error: {}", source))]
+    #[snafu(display("Write error"))]
     WriteError { name: String, source: CoreError },
     #[snafu(display(
         "Failed to allocate buffer for reading {}: {}",
@@ -130,11 +130,7 @@ pub enum LabelError {
     BackupLocation {},
     #[snafu(display("GPT partition table location is incorrect"))]
     PartitionTableLocation {},
-    #[snafu(display(
-        "Could not get handle for child bdev {}: {}",
-        name,
-        source
-    ))]
+    #[snafu(display("Could not get handle for child bdev {}", name,))]
     HandleCreate { name: String, source: ChildError },
 }
 

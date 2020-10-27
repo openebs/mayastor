@@ -44,7 +44,7 @@ pub enum ChildError {
     ChildInvalid {},
     #[snafu(display("Opening child bdev without bdev pointer"))]
     OpenWithoutBdev {},
-    #[snafu(display("Failed to create a BdevHandle for child: {}", source))]
+    #[snafu(display("Failed to create a BdevHandle for child"))]
     HandleCreate { source: CoreError },
 }
 
