@@ -329,6 +329,8 @@ pub struct Nexus {
     pub nexus_target: Option<NexusTarget>,
     /// the maximum number of times to attempt to send an IO
     pub(crate) max_io_attempts: i32,
+    /// queue of channels for futures waiting to call reconfigure
+    reconfigure_queue: Vec<oneshot::Sender<()>>,
 }
 
 unsafe impl core::marker::Sync for Nexus {}
@@ -421,6 +423,7 @@ impl Nexus {
             size,
             nexus_target: None,
             max_io_attempts: cfg.err_store_opts.max_io_attempts,
+            reconfigure_queue: Vec::new(),
         });
 
         n.bdev.set_uuid(match uuid {
@@ -453,10 +456,31 @@ impl Nexus {
         u64::from(self.bdev.block_len()) * self.bdev.num_blocks()
     }
 
+    /// if another future is reconfiguring, wait until it is finished
+    async fn await_reconfigure(&mut self) {
+        if self.dr_complete_notify.is_some() {
+            // a reconfigure is underway
+            let (s, r) = oneshot::channel::<()>();
+            self.reconfigure_queue.push(s);
+            let _ = r.await;
+        }
+    }
+
+    /// signal to a waiting future that it can continue
+    fn release_reconfigure(&mut self) {
+        if self.reconfigure_queue.get(0).is_some() {
+            self.reconfigure_queue
+                .remove(0)
+                .send(())
+                .expect("await_reconfigure channel gone");
+        }
+    }
+
     /// reconfigure the child event handler
     pub(crate) async fn reconfigure(&mut self, event: DREvent) {
+        self.await_reconfigure().await;
         let (s, r) = oneshot::channel::<i32>();
-        //assert!(self.dr_complete_notify.is_none());
+        assert!(self.dr_complete_notify.is_none());
         self.dr_complete_notify = Some(s);
 
         info!(
@@ -467,11 +491,11 @@ impl Nexus {
         NexusChannel::reconfigure(self.as_ptr(), &event);
 
         let result = r.await;
-
         info!(
             "{}: Dynamic reconfiguration event: {:?} completed {:?}",
             self.name, event, result
         );
+        self.release_reconfigure();
     }
 
     /// Opens the Nexus instance for IO
