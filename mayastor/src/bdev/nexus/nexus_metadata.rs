@@ -48,11 +48,11 @@ use snafu::{ResultExt, Snafu};
 use crate::{
     bdev::nexus::{
         nexus_bdev::Nexus,
-        nexus_child::{ChildError, ChildIoError, NexusChild},
+        nexus_child::{ChildError, NexusChild},
         nexus_label::{Aligned, GptEntry, GptGuid, LabelError},
         nexus_metadata_content::NexusConfig,
     },
-    core::{DmaBuf, DmaError},
+    core::{CoreError, DmaBuf, DmaError},
 };
 
 #[derive(Debug, Snafu)]
@@ -62,9 +62,9 @@ pub enum MetaDataError {
     #[snafu(display("Error probing disk label: {}", source))]
     ProbeLabelError { source: LabelError },
     #[snafu(display("Error reading {}: {}", name, source))]
-    ReadError { name: String, source: ChildIoError },
+    ReadError { name: String, source: CoreError },
     #[snafu(display("Error writing {}: {}", name, source))]
-    WriteError { name: String, source: ChildIoError },
+    WriteError { name: String, source: CoreError },
     #[snafu(display(
         "Failed to allocate buffer for reading {}: {}",
         name,
@@ -319,7 +319,7 @@ impl NexusChild {
         &self,
         partition_lba: u64,
     ) -> Result<NexusMetaData, MetaDataError> {
-        let (bdev, desc) = self.get_dev().context(NexusChildError {})?;
+        let (bdev, hndl) = self.get_dev().context(NexusChildError {})?;
         let block_size = bdev.block_len() as u64;
 
         //
@@ -329,10 +329,10 @@ impl NexusChild {
             block_size,
         );
         let mut buf =
-            desc.dma_malloc(blocks * block_size).context(ReadAlloc {
+            hndl.dma_malloc(blocks * block_size).context(ReadAlloc {
                 name: String::from("header"),
             })?;
-        self.read_at((partition_lba + 1) * block_size, &mut buf)
+        hndl.read_at((partition_lba + 1) * block_size, &mut buf)
             .await
             .context(ReadError {
                 name: String::from("header"),
@@ -347,10 +347,10 @@ impl NexusChild {
                 block_size,
             );
             let mut buf =
-                desc.dma_malloc(blocks * block_size).context(ReadAlloc {
+                hndl.dma_malloc(blocks * block_size).context(ReadAlloc {
                     name: String::from("index"),
                 })?;
-            self.read_at(
+            hndl.read_at(
                 (header.self_lba + header.index_start) * block_size,
                 &mut buf,
             )
@@ -384,15 +384,15 @@ impl NexusChild {
 
         let entry = &metadata.index[selected as usize];
 
-        let (bdev, desc) = self.get_dev().context(NexusChildError {})?;
+        let (bdev, hndl) = self.get_dev().context(NexusChildError {})?;
         let block_size = bdev.block_len() as u64;
 
         let blocks = entry.data_end - entry.data_start + 1;
         let mut buf =
-            desc.dma_malloc(blocks * block_size).context(ReadAlloc {
+            hndl.dma_malloc(blocks * block_size).context(ReadAlloc {
                 name: String::from("object"),
             })?;
-        self.read_at(
+        hndl.read_at(
             (metadata.header.self_lba + entry.data_start) * block_size,
             &mut buf,
         )
@@ -409,7 +409,7 @@ impl NexusChild {
         &self,
         metadata: &NexusMetaData,
     ) -> Result<Vec<NexusConfig>, MetaDataError> {
-        let (bdev, desc) = self.get_dev().context(NexusChildError {})?;
+        let (bdev, hndl) = self.get_dev().context(NexusChildError {})?;
         let block_size = bdev.block_len() as u64;
 
         let mut list: Vec<NexusConfig> = Vec::new();
@@ -417,10 +417,10 @@ impl NexusChild {
         for entry in &metadata.index {
             let blocks = entry.data_end - entry.data_start + 1;
             let mut buf =
-                desc.dma_malloc(blocks * block_size).context(ReadAlloc {
+                hndl.dma_malloc(blocks * block_size).context(ReadAlloc {
                     name: String::from("object"),
                 })?;
-            self.read_at(
+            hndl.read_at(
                 (metadata.header.self_lba + entry.data_start) * block_size,
                 &mut buf,
             )
@@ -439,7 +439,7 @@ impl NexusChild {
         &self,
         metadata: &NexusMetaData,
     ) -> Result<(), MetaDataError> {
-        let (bdev, _desc) = self.get_dev().context(NexusChildError {})?;
+        let (bdev, hndl) = self.get_dev().context(NexusChildError {})?;
         let block_size = bdev.block_len() as u64;
 
         let blocks = metadata.header.index_start
@@ -466,7 +466,7 @@ impl NexusChild {
             serialize_into(&mut writer, entry).context(SerializeError {})?;
         }
 
-        self.write_at(metadata.header.self_lba * block_size, &buf)
+        hndl.write_at(metadata.header.self_lba * block_size, &buf)
             .await
             .context(WriteError {
                 name: String::from("index"),
@@ -478,7 +478,7 @@ impl NexusChild {
     /// Write a config object to disk.
     /// Also add a corresponding entry to the index and update the header.
     /// Will fail if there is insufficent space remaining on the disk.
-    pub async fn write_config_object(
+    async fn write_config_object(
         &self,
         metadata: &mut NexusMetaData,
         config: &NexusConfig,
@@ -491,7 +491,7 @@ impl NexusChild {
             });
         }
 
-        let (bdev, _desc) = self.get_dev().context(NexusChildError {})?;
+        let (bdev, hndl) = self.get_dev().context(NexusChildError {})?;
         let block_size = bdev.block_len() as u64;
 
         let timestamp = now
@@ -529,7 +529,7 @@ impl NexusChild {
         serialize_into(&mut writer, config).context(SerializeError {})?;
         let checksum = crc32::checksum_ieee(buf.as_slice());
 
-        self.write_at((metadata.header.self_lba + start) * block_size, &buf)
+        hndl.write_at((metadata.header.self_lba + start) * block_size, &buf)
             .await
             .context(WriteError {
                 name: String::from("object"),
@@ -568,7 +568,7 @@ impl NexusChild {
 
         let mut index: Vec<MetaDataIndexEntry> = Vec::new();
 
-        let (bdev, _desc) = self.get_dev().context(NexusChildError {})?;
+        let (bdev, hndl) = self.get_dev().context(NexusChildError {})?;
         let block_size = bdev.block_len() as u64;
 
         let timestamp = now
@@ -599,7 +599,7 @@ impl NexusChild {
             serialize_into(&mut writer, config).context(SerializeError {})?;
             let checksum = crc32::checksum_ieee(buf.as_slice());
 
-            self.write_at((header.self_lba + start) * block_size, &buf)
+            hndl.write_at((header.self_lba + start) * block_size, &buf)
                 .await
                 .context(WriteError {
                     name: String::from("object"),
@@ -644,7 +644,7 @@ impl NexusChild {
         &mut self,
         metadata: &mut NexusMetaData,
     ) -> Result<(), MetaDataError> {
-        let (bdev, _desc) = self.get_dev().context(NexusChildError {})?;
+        let (bdev, hndl) = self.get_dev().context(NexusChildError {})?;
         let block_size = bdev.block_len() as u64;
         let alignment = bdev.alignment();
 
@@ -658,7 +658,7 @@ impl NexusChild {
                     .context(ReadAlloc {
                         name: String::from("object"),
                     })?;
-                self.read_at(
+                hndl.read_at(
                     (self_lba + entry.data_start) * block_size,
                     &mut buf,
                 )
@@ -666,7 +666,7 @@ impl NexusChild {
                 .context(ReadError {
                     name: String::from("object"),
                 })?;
-                self.write_at((self_lba + start) * block_size, &buf)
+                hndl.write_at((self_lba + start) * block_size, &buf)
                     .await
                     .context(WriteError {
                         name: String::from("object"),
@@ -695,7 +695,7 @@ impl NexusChild {
     pub async fn create_metadata(
         &mut self,
     ) -> Result<NexusMetaData, MetaDataError> {
-        let (bdev, _desc) = self.get_dev().context(NexusChildError {})?;
+        let (bdev, _hndl) = self.get_dev().context(NexusChildError {})?;
 
         if let Some(partition) = self
             .probe_label()
