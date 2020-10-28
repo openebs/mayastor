@@ -26,8 +26,8 @@ pub(crate) struct NexusChannel {
 #[repr(C)]
 #[derive(Debug)]
 pub(crate) struct NexusChannelInner {
-    pub(crate) ch: Vec<BdevHandle>,
-    pub(crate) write_only: usize,
+    pub(crate) writers: Vec<BdevHandle>,
+    pub(crate) readers: Vec<BdevHandle>,
     pub(crate) previous: usize,
     device: *mut c_void,
 }
@@ -52,7 +52,8 @@ pub enum DREvent {
 impl NexusChannelInner {
     /// very simplistic routine to rotate between children for read operations
     pub(crate) fn child_select(&mut self) -> usize {
-        if self.previous != self.ch.len() - self.write_only - 1 {
+        debug_assert!(!self.readers.is_empty());
+        if self.previous < self.readers.len() - 1 {
             self.previous += 1;
         } else {
             self.previous = 0;
@@ -74,37 +75,41 @@ impl NexusChannelInner {
         );
 
         trace!(
-            "{}: Current number of IO channels {}",
+            "{}: Current number of IO channels write: {} read: {}",
             nexus.name,
-            self.ch.len(),
+            self.writers.len(),
+            self.readers.len(),
         );
 
         // clear the vector of channels and reset other internal values,
         // clearing the values will drop any existing handles in the
         // channel
-        self.ch.clear();
+        self.writers.clear();
+        self.readers.clear();
         self.previous = 0;
-        self.write_only = 0;
 
-        // iterate to over all our children which are in the open state
+        // iterate over all our children which are in the open state
         nexus
             .children
             .iter_mut()
             .filter(|c| c.state() == ChildState::Open)
             .for_each(|c| {
-                self.ch.push(
+                self.writers.push(
                     BdevHandle::try_from(c.get_descriptor().unwrap()).unwrap(),
-                )
+                );
+                self.readers.push(
+                    BdevHandle::try_from(c.get_descriptor().unwrap()).unwrap(),
+                );
             });
 
-        if !self.ch.is_empty() {
+        // then add write-only children
+        if !self.readers.is_empty() {
             nexus
                 .children
                 .iter_mut()
                 .filter(|c| c.rebuilding())
                 .map(|c| {
-                    self.write_only += 1;
-                    self.ch.push(
+                    self.writers.push(
                         BdevHandle::try_from(c.get_descriptor().unwrap())
                             .unwrap(),
                     )
@@ -113,9 +118,10 @@ impl NexusChannelInner {
         }
 
         trace!(
-            "{}: New number of IO channels {} out of {} children",
+            "{}: New number of IO channels write:{} read:{} out of {} children",
             nexus.name,
-            self.ch.len(),
+            self.writers.len(),
+            self.readers.len(),
             nexus.children.len()
         );
 
@@ -134,9 +140,9 @@ impl NexusChannel {
 
         let ch = NexusChannel::from_raw(ctx);
         let mut channels = Box::new(NexusChannelInner {
-            ch: Vec::new(),
+            writers: Vec::new(),
+            readers: Vec::new(),
             previous: 0,
-            write_only: 0,
             device,
         });
 
@@ -145,9 +151,12 @@ impl NexusChannel {
             .iter_mut()
             .filter(|c| c.state() == ChildState::Open)
             .map(|c| {
-                channels.ch.push(
+                channels.writers.push(
                     BdevHandle::try_from(c.get_descriptor().unwrap()).unwrap(),
-                )
+                );
+                channels.readers.push(
+                    BdevHandle::try_from(c.get_descriptor().unwrap()).unwrap(),
+                );
             })
             .for_each(drop);
         ch.inner = Box::into_raw(channels);
@@ -159,7 +168,8 @@ impl NexusChannel {
         let nexus = unsafe { Nexus::from_raw(device) };
         debug!("{} Destroying IO channels", nexus.bdev.name());
         let inner = NexusChannel::from_raw(ctx).inner_mut();
-        inner.ch.clear();
+        inner.writers.clear();
+        inner.readers.clear();
     }
 
     /// function called when we receive a Dynamic Reconfigure event (DR)
