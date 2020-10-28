@@ -34,6 +34,7 @@ mod aio;
 mod iscsi;
 mod loopback;
 mod malloc;
+mod null;
 mod nvme;
 mod nvmf;
 mod uring;
@@ -53,6 +54,7 @@ impl Uri {
             // really should not be used other than for testing
             "aio" => Ok(Box::new(aio::Aio::try_from(&url)?)),
             "malloc" => Ok(Box::new(malloc::Malloc::try_from(&url)?)),
+            "null" => Ok(Box::new(null::Null::try_from(&url)?)),
 
             // retain this for the time being for backwards compatibility
             "bdev" => Ok(Box::new(loopback::Loopback::try_from(&url)?)),
