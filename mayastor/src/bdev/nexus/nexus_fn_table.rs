@@ -114,7 +114,7 @@ impl NexusFnTable {
             // before we complete the IO to the callee.
             nio.reset(1);
         } else {
-            nio.reset(ch.write_ch.len())
+            nio.reset(ch.writers.len())
         }
 
         let nexus = nio.nexus_as_ref();
