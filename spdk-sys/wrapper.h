@@ -5,6 +5,7 @@
 #include <bdev/lvol/vbdev_lvol.h>
 #include <bdev/nvme/bdev_nvme.h>
 #include <bdev/malloc/bdev_malloc.h>
+#include <bdev/null/bdev_null.h>
 #include <bdev/uring/bdev_uring.h>
 #include <iscsi/init_grp.h>
 #include <iscsi/iscsi.h>
