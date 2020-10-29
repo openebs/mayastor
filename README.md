@@ -110,7 +110,7 @@ buf.fill(0xff);
 // same IO. Put differently. A single IO becomes three IOs
 bd.write_at(0, &mut buf).await.unwrap();
 
-// fill the buffer with zeroes and read back the data
+// fill the buffer with zeros and read back the data
 buf.fill(0x00);
 bd.read_at(0, &mut buf).await.unwrap();
 
@@ -125,11 +125,11 @@ and they want the most simple (but fast) storage device. For a more elaborate ex
 
 To communicate with the children, the Nexus uses industry standard protocols. Currently, the Nexus has support for
 direct access to local storage and remote storage using NVMF or iSCSI. The other advantage is that if you were to remove
-the Nexus out of the data path, you would still ba able to access your data as if Mayastor was not there.
+the Nexus out of the data path, you would still be able to access your data as if Mayastor was not there.
 
 The Nexus itself does not store any data and in its most simplistic form the Nexus is a proxy towards real storage
 devices where the transport may vary. It can however, as mentioned, "transform" the data, which makes it possible to
-store copies of your data within different cloud systems. One of the other ideas we have is to write block device on top
+store copies of your data within different cloud systems. One of the other ideas we have is to write a block device on top
 of a S3 bucket such that you can create PVCs from [Minio](https://min.io/), AWS or any other compatible S3 bucket. This
 simplifies the replication model for the Nexus itself somewhat but creates a bit more on the buffering side of things.
 What model fits best for you? You get to decide!
@@ -169,10 +169,10 @@ vhost-user code can be seen in the link section (still in C).
 ## Client
 
 <p align="justify">
-Although that a client for gRPC server is not required for the product,
+Although a client for gRPC server is not required for the product,
 it is important for testing and troubleshooting. The client
 allows you to manage storage pools and replicas and just use `--help`
-option if not sure how to use it. CSI services are not covered by the client.
+option if you are not sure how to use it. CSI services are not covered by the client.
 
 <p align="justify">
 In following example of a client session is assumed that mayastor has been
