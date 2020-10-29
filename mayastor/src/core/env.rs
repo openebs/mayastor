@@ -23,10 +23,6 @@ use tokio::runtime::Builder;
 use spdk_sys::{
     maya_log,
     spdk_app_shutdown_cb,
-    spdk_conf_allocate,
-    spdk_conf_free,
-    spdk_conf_read,
-    spdk_conf_set_as_default,
     spdk_log_level,
     spdk_log_open,
     spdk_log_set_level,
@@ -81,9 +77,6 @@ fn parse_mb(src: &str) -> Result<i32, String> {
     setting(structopt::clap::AppSettings::ColoredHelp)
 )]
 pub struct MayastorCliArgs {
-    #[structopt(short = "c")]
-    /// Path to the configuration file if any
-    pub config: Option<String>,
     #[structopt(short = "g", default_value = grpc::default_endpoint_str())]
     /// IP address and port (optional) for the gRPC server to listen on
     pub grpc_endpoint: String,
@@ -140,7 +133,6 @@ impl Default for MayastorCliArgs {
             rpc_address: "/var/tmp/mayastor.sock".to_string(),
             no_pci: true,
             log_components: vec![],
-            config: None,
             mayastor_config: None,
             child_status_config: None,
             hugedir: None,
@@ -181,8 +173,6 @@ extern "C" {
 pub enum EnvError {
     #[snafu(display("Failed to install signal handler"))]
     SetSigHdl { source: nix::Error },
-    #[snafu(display("Failed to read configuration file: {}", reason))]
-    ParseConfig { reason: String },
     #[snafu(display("Failed to initialize logging subsystem"))]
     InitLog,
     #[snafu(display("Failed to initialize {} target", target))]
@@ -194,7 +184,6 @@ type Result<T, E = EnvError> = std::result::Result<T, E>;
 /// Mayastor argument
 #[derive(Debug, Clone)]
 pub struct MayastorEnvironment {
-    pub config: Option<String>,
     pub node_name: String,
     pub mbus_endpoint: Option<String>,
     pub grpc_endpoint: Option<std::net::SocketAddr>,
@@ -229,7 +218,6 @@ pub struct MayastorEnvironment {
 impl Default for MayastorEnvironment {
     fn default() -> Self {
         Self {
-            config: None,
             node_name: "mayastor-node".into(),
             mbus_endpoint: None,
             grpc_endpoint: None,
@@ -338,7 +326,6 @@ impl MayastorEnvironment {
             grpc_endpoint: Some(grpc::endpoint(args.grpc_endpoint)),
             mbus_endpoint: subsys::mbus_endpoint(args.mbus_endpoint),
             node_name: args.node_name.unwrap_or_else(|| "mayastor-node".into()),
-            config: args.config,
             mayastor_config: args.mayastor_config,
             child_status_config: args.child_status_config,
             log_component: args.log_components,
@@ -384,44 +371,6 @@ impl MayastorEnvironment {
         .unwrap();
 
         Ok(())
-    }
-
-    /// read the config file we use this mostly for testing
-    fn read_config_file(&self) -> Result<()> {
-        if self.config.is_none() {
-            return Ok(());
-        }
-
-        let path =
-            CString::new(self.config.as_ref().unwrap().as_str()).unwrap();
-        let config = unsafe { spdk_conf_allocate() };
-
-        assert_ne!(config, std::ptr::null_mut());
-
-        if unsafe { spdk_conf_read(config, path.as_ptr()) } != 0 {
-            return Err(EnvError::ParseConfig {
-                reason: "Failed to read file from disk".into(),
-            });
-        }
-
-        let rc = unsafe {
-            if spdk_sys::spdk_conf_first_section(config).is_null() {
-                Err(EnvError::ParseConfig {
-                    reason: "failed to parse config file".into(),
-                })
-            } else {
-                Ok(())
-            }
-        };
-
-        if rc.is_ok() {
-            trace!("Setting default config to {:p}", config);
-            unsafe { spdk_conf_set_as_default(config) };
-        } else {
-            unsafe { spdk_conf_free(config) }
-        }
-
-        rc
     }
 
     /// construct an array of options to be passed to EAL and start it
@@ -677,10 +626,6 @@ impl MayastorEnvironment {
         self.init_logger().unwrap();
 
         self.load_yaml_config();
-        // load the .ini format file, still here to allow CI passing. There is
-        // no real harm of loading this ini file as long as there are no
-        // conflicting bdev definitions
-        self.read_config_file().unwrap();
 
         self.load_child_status();
 
