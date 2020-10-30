@@ -1,5 +1,4 @@
-use crate::parse_value;
-use failure::Error;
+use crate::{parse_value, NvmeError};
 use glob::glob;
 use std::{os::unix::fs::FileTypeExt, path::Path};
 
@@ -33,7 +32,7 @@ impl NvmeDevice {
     /// Construct a new NVMe device from a given path. The [struct.NvmeDevice]
     /// will fill in all the details defined within the structure or return an
     /// error if the value for the structure could not be found.
-    fn new(p: &Path) -> Result<Self, Error> {
+    fn new(p: &Path) -> Result<Self, NvmeError> {
         let name = p.file_name().unwrap().to_str().unwrap();
         let devpath = format!("/sys/block/{}", name);
         let subsyspath = format!("/sys/block/{}/device", name);
@@ -65,7 +64,7 @@ pub struct NvmeDeviceList {
 }
 
 impl Iterator for NvmeDeviceList {
-    type Item = Result<NvmeDevice, Error>;
+    type Item = Result<NvmeDevice, NvmeError>;
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(e) = self.devices.pop() {
             return Some(NvmeDevice::new(Path::new(&e)));

@@ -25,6 +25,31 @@ use crate::{
     },
 };
 
+//{EXPERIMENT
+use once_cell::sync::Lazy;
+use std::{collections::HashMap, sync::Mutex, thread};
+
+static STAGINGMAP: Lazy<Mutex<HashMap<String, bool>>> =
+    Lazy::new(|| Mutex::new(HashMap::new()));
+
+fn sm_contains(volid: &str) -> bool {
+    STAGINGMAP.lock().unwrap().contains_key(volid)
+}
+
+fn sm_insert(volid: &str, v: bool) -> Option<bool> {
+    STAGINGMAP.lock().unwrap().insert(volid.to_string(), v)
+}
+
+fn sm_remove(volid: &str) -> Option<bool> {
+    STAGINGMAP.lock().unwrap().remove(volid)
+}
+
+fn sm_sleep() {
+    let timeout = Duration::from_secs(30);
+    thread::sleep(timeout);
+}
+//}EXPERIMENT
+
 #[derive(Clone, Debug)]
 pub struct Node {
     pub node_name: String,
@@ -475,6 +500,18 @@ impl node_server::Node for Node {
             }
         };
 
+        if sm_contains(&msg.volume_id) {
+            info!("XXX Volume {} staging in progress....", &msg.volume_id);
+            return Err(failure!(
+                Code::Unavailable,
+                "Failed to stage volume {}: in progress....",
+                &msg.volume_id
+            ));
+        }
+        let _ = sm_insert(&msg.volume_id, true);
+        info!("XXX Volume {} staging sleeping ....", &msg.volume_id);
+        sm_sleep();
+        info!("XXX Volume {} staging sleep done", &msg.volume_id);
         // Attach successful, now stage mount if required.
         match access_type {
             AccessType::Mount(mnt) => {
@@ -482,6 +519,7 @@ impl node_server::Node for Node {
                     stage_fs_volume(&msg, device_path, &mnt, &self.filesystems)
                         .await
                 {
+                    let _ = sm_remove(&msg.volume_id);
                     detach(
                         &uuid,
                         format!(
@@ -497,6 +535,7 @@ impl node_server::Node for Node {
                 // block volumes are not staged
             }
         }
+        let _ = sm_remove(&msg.volume_id);
         Ok(Response::new(NodeStageVolumeResponse {}))
     }
 

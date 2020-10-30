@@ -20,8 +20,6 @@
 
 #[macro_use]
 extern crate derive_builder;
-#[macro_use]
-extern crate failure;
 extern crate glob;
 #[macro_use]
 extern crate nix;
@@ -30,17 +28,13 @@ extern crate ioctl_gen;
 #[macro_use]
 extern crate enum_primitive_derive;
 use crate::nvme_page::NvmeAdminCmd;
-use std::{
-    fs,
-    io::{self, ErrorKind},
-    path::Path,
-    str::FromStr,
-};
+use std::{fs, io, path::Path, str::FromStr};
 
 pub mod nvme_namespaces;
 mod nvme_page;
 pub mod nvmf_discovery;
 pub mod nvmf_subsystem;
+use snafu::{ResultExt, Snafu};
 
 /// the device entry in /dev for issuing ioctls to the kernels nvme driver
 const NVME_FABRICS_PATH: &str = "/dev/nvme-fabrics";
@@ -48,42 +42,30 @@ const NVME_FABRICS_PATH: &str = "/dev/nvme-fabrics";
 const NVME_ADMIN_CMD_IOCTL: u32 =
     iowr!(b'N', 0x41, std::mem::size_of::<NvmeAdminCmd>());
 
-#[derive(Debug, Fail)]
+#[derive(Debug, Snafu)]
+#[allow(missing_docs)]
+#[snafu(visibility = "pub(crate)")]
 pub enum NvmeError {
-    #[fail(display = "IO error: {}", error)]
-    IoError { error: io::Error },
-    #[fail(display = "nqn: {} not found", _0)]
-    NqnNotFound(String),
-    #[fail(display = "controller with nqn: {} not found", _0)]
-    CtlNotFound(String),
-    #[fail(display = "no nvmf subsystems found")]
-    NoSubsystems,
+    #[snafu(display("IO error:"))]
+    IoError { source: io::Error },
+    #[snafu(display("Failed to parse {} : {}", path, contents))]
+    ParseError { path: String, contents: String },
 }
-impl From<io::Error> for NvmeError {
-    fn from(err: io::Error) -> NvmeError {
-        NvmeError::IoError {
-            error: err,
-        }
-    }
-}
+
 /// Read and parse value from a sysfs file
-pub fn parse_value<T>(dir: &Path, file: &str) -> Result<T, std::io::Error>
+pub fn parse_value<T>(dir: &Path, file: &str) -> Result<T, NvmeError>
 where
     T: FromStr,
 {
     let path = dir.join(file);
-    let s = fs::read_to_string(&path)?;
+    let s = fs::read_to_string(&path).context(IoError {})?;
     let s = s.trim();
 
     match s.parse() {
         Ok(v) => Ok(v),
-        Err(_) => Err(std::io::Error::new(
-            ErrorKind::InvalidData,
-            format!(
-                "Failed to parse {}: {}",
-                path.as_path().to_str().unwrap(),
-                s
-            ),
-        )),
+        Err(_) => Err(NvmeError::ParseError {
+            path: path.as_path().to_str().unwrap().to_string(),
+            contents: s.to_string(),
+        }),
     }
 }

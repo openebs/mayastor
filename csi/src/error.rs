@@ -86,3 +86,11 @@ impl From<FromUtf8Error> for DeviceError {
         }
     }
 }
+
+impl From<nvmeadm::nvmf_discovery::NvmeError> for DeviceError {
+    fn from(error: nvmeadm::nvmf_discovery::NvmeError) -> DeviceError {
+        DeviceError {
+            message: format!("{}", error),
+        }
+    }
+}
