@@ -146,7 +146,7 @@ pub static GLOBAL_RC: Lazy<Arc<Mutex<i32>>> =
     Lazy::new(|| Arc::new(Mutex::new(-1)));
 
 /// keep track if we have received a signal already
-pub static SIG_RECIEVED: Lazy<AtomicBool> =
+pub static SIG_RECEIVED: Lazy<AtomicBool> =
     Lazy::new(|| AtomicBool::new(false));
 
 /// FFI functions that are needed to initialize the environment
@@ -299,12 +299,12 @@ unsafe extern "C" fn signal_trampoline(_: *mut c_void) {
 
 /// called on SIGINT and SIGTERM
 extern "C" fn mayastor_signal_handler(signo: i32) {
-    if SIG_RECIEVED.load(SeqCst) {
+    if SIG_RECEIVED.load(SeqCst) {
         return;
     }
 
     warn!("Received SIGNO: {}", signo);
-    SIG_RECIEVED.store(true, SeqCst);
+    SIG_RECEIVED.store(true, SeqCst);
     unsafe {
         spdk_thread_send_critical_msg(
             Mthread::get_init().0,
