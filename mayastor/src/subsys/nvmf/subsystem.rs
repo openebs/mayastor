@@ -101,7 +101,10 @@ impl Debug for NvmfSubsystem {
                 .field("subnqn", &self.0.as_ref().subnqn.as_str().to_string())
                 .field("sn", &self.0.as_ref().sn.as_str().to_string())
                 .field("mn", &self.0.as_ref().mn.as_str().to_string())
-                .field("allow_any_host", &self.0.as_ref().allow_any_host)
+                .field(
+                    "allow_any_host",
+                    &self.0.as_ref().flags.allow_any_host(),
+                )
                 .field("listeners", &self.listeners_to_vec())
                 .finish()
         }

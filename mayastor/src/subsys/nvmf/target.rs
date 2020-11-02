@@ -7,13 +7,13 @@ use std::{
 use nix::errno::Errno;
 
 use spdk_sys::{
+    nvmf_tgt_accept,
     spdk_env_get_core_count,
     spdk_nvmf_poll_group_destroy,
     spdk_nvmf_subsystem_create,
     spdk_nvmf_subsystem_set_mn,
     spdk_nvmf_target_opts,
     spdk_nvmf_tgt,
-    spdk_nvmf_tgt_accept,
     spdk_nvmf_tgt_create,
     spdk_nvmf_tgt_destroy,
     spdk_nvmf_tgt_listen,
@@ -246,8 +246,7 @@ impl Target {
     }
     /// poll function that the acceptor runs
     extern "C" fn acceptor_poll(tgt: *mut c_void) -> i32 {
-        let tgt = tgt as *mut spdk_nvmf_tgt;
-        unsafe { spdk_nvmf_tgt_accept(tgt) };
+        unsafe { nvmf_tgt_accept(tgt) };
 
         0
     }

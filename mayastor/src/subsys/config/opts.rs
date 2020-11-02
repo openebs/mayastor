@@ -186,13 +186,10 @@ impl From<TcpTransportOpts> for spdk_nvmf_transport_opts {
             max_aq_depth: o.max_aq_depth,
             num_shared_buffers: o.num_shared_buf,
             buf_cache_size: o.buf_cache_size,
-            max_srq_depth: o.max_srq_depth,
-            no_srq: o.no_srq,
-            c2h_success: o.ch2_success,
             dif_insert_or_strip: o.dif_insert_or_strip,
-            sock_priority: o.sock_priority,
-            acceptor_backlog: 0,
             abort_timeout_sec: 0,
+            association_timeout: 120000,
+            transport_specific: std::ptr::null(),
         }
     }
 }
@@ -392,6 +389,10 @@ pub struct IscsiTgtOpts {
     error_recovery_level: u32,
     /// todo
     allow_duplicate_isid: bool,
+    /// todo
+    max_large_data_in_per_connection: u32,
+    /// todo
+    max_r2t_per_connection: u32,
 }
 
 impl Default for IscsiTgtOpts {
@@ -415,6 +416,8 @@ impl Default for IscsiTgtOpts {
             immediate_data: true,
             error_recovery_level: 0,
             allow_duplicate_isid: false,
+            max_large_data_in_per_connection: 64,
+            max_r2t_per_connection: 64,
         }
     }
 }
@@ -444,6 +447,8 @@ impl From<&IscsiTgtOpts> for spdk_iscsi_opts {
             ImmediateData: o.immediate_data,
             ErrorRecoveryLevel: o.error_recovery_level,
             AllowDuplicateIsid: o.allow_duplicate_isid,
+            MaxLargeDataInPerConnection: o.max_large_data_in_per_connection,
+            MaxR2TPerConnection: o.max_r2t_per_connection,
         }
     }
 }

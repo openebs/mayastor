@@ -243,11 +243,12 @@ impl Lvs {
     /// Create a pool on base bdev
     pub async fn create(name: &str, bdev: &str) -> Result<Lvs, Error> {
         let pool_name = name.into_cstring();
+        let bdev_name = bdev.into_cstring();
 
         let (sender, receiver) = pair::<ErrnoResult<Lvs>>();
         unsafe {
             vbdev_lvs_create(
-                Bdev::lookup_by_name(bdev).unwrap().as_ptr(),
+                bdev_name.as_ptr(),
                 pool_name.as_ptr(),
                 0,
                 // We used to clear a pool with UNMAP but that takes awfully

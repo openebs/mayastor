@@ -19,6 +19,7 @@ use once_cell::sync::Lazy;
 use snafu::{ResultExt, Snafu};
 
 use spdk_sys::{
+    nvmf_tgt_accept,
     spdk_nvme_transport_id,
     spdk_nvmf_poll_group,
     spdk_nvmf_poll_group_add,
@@ -41,7 +42,6 @@ use spdk_sys::{
     spdk_nvmf_subsystem_stop,
     spdk_nvmf_target_opts,
     spdk_nvmf_tgt,
-    spdk_nvmf_tgt_accept,
     spdk_nvmf_tgt_add_transport,
     spdk_nvmf_tgt_create,
     spdk_nvmf_tgt_destroy,
@@ -500,7 +500,7 @@ impl Target {
     extern "C" fn acceptor_poll(target_ptr: *mut c_void) -> c_int {
         unsafe {
             let target = &mut *(target_ptr as *mut Self);
-            spdk_nvmf_tgt_accept(target.inner);
+            nvmf_tgt_accept(target.inner.cast());
         }
         -1
     }

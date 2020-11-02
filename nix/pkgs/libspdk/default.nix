@@ -19,13 +19,13 @@
 let
   # Derivation attributes for production version of libspdk
   drvAttrs = rec {
-    version = "20.07";
+    version = "20.10";
 
     src = fetchFromGitHub {
       owner = "openebs";
       repo = "spdk";
-      rev = "b09bed5edaca1d827a6432ca602639d43e3e93a0";
-      sha256 = "0y26p4m99gbnf6iz2vbai26msnry7m428g8q3icpg28izmnk00d1";
+      rev = "46b25360887c5d19433f575c7ad14259721abc6f";
+      sha256 = "0cjnpkqx95cgrk9kbm4drrd5piimprz7wsbiahsllm1j2avdzsfs";
       #sha256 = stdenv.lib.fakeSha256;
       fetchSubmodules = true;
     };
@@ -52,7 +52,6 @@ let
     configureFlags = [
       "--target-arch=nehalem"
       "--without-isal"
-      "--without-vhost"
       "--with-iscsi-initiator"
       "--with-crypto"
       "--with-uring"
@@ -75,8 +74,8 @@ let
     buildPhase = ''
       make -j`nproc`
       find . -type f -name 'libspdk_event_nvmf.a' -delete
+      find . -type f -name 'libspdk_sock_uring.a' -delete
       find . -type f -name 'libspdk_ut_mock.a' -delete
-      #find . -type f -name 'librte_vhost.a' -delete
 
       $CC -shared -o libspdk.so \
       -lc  -laio -liscsi -lnuma -ldl -lrt -luuid -lpthread -lcrypto \
