@@ -74,7 +74,7 @@ impl Iterator for NvmfSubsystemIterator {
         } else {
             let current = self.0;
             self.0 = unsafe { spdk_nvmf_subsystem_get_next(current) };
-            Some(NvmfSubsystem(NonNull::new(current).unwrap()))
+            NonNull::new(current).map(NvmfSubsystem)
         }
     }
 }
@@ -498,15 +498,12 @@ impl NvmfSubsystem {
     /// first namespace
     pub fn bdev(&self) -> Option<Bdev> {
         let ns = unsafe { spdk_nvmf_subsystem_get_first_ns(self.0.as_ptr()) };
+
         if ns.is_null() {
             return None;
         }
-        let b = unsafe { spdk_nvmf_ns_get_bdev(ns) };
-        if b.is_null() {
-            return None;
-        }
 
-        Some(Bdev::from(b))
+        Bdev::from_ptr(unsafe { spdk_nvmf_ns_get_bdev(ns) })
     }
 
     fn listeners_to_vec(&self) -> Option<Vec<TransportID>> {

@@ -92,19 +92,25 @@ impl Iterator for PoolsIter {
     type Item = Pool;
 
     fn next(&mut self) -> Option<Self::Item> {
-        let next_ptr = match self.lvs_bdev_ptr {
-            None => unsafe { vbdev_lvol_store_first() },
-            Some(ptr) => {
-                assert!(!ptr.is_null());
-                unsafe { vbdev_lvol_store_next(ptr) }
+        match self.lvs_bdev_ptr {
+            Some(current) => {
+                if current.is_null() {
+                    return None;
+                }
+                self.lvs_bdev_ptr =
+                    Some(unsafe { vbdev_lvol_store_next(current) });
+                Some(unsafe { Pool::from_ptr(current) })
             }
-        };
-        self.lvs_bdev_ptr = Some(next_ptr);
-
-        if next_ptr.is_null() {
-            None
-        } else {
-            Some(unsafe { Pool::from_ptr(next_ptr) })
+            None => {
+                let current = unsafe { vbdev_lvol_store_first() };
+                if current.is_null() {
+                    self.lvs_bdev_ptr = Some(current);
+                    return None;
+                }
+                self.lvs_bdev_ptr =
+                    Some(unsafe { vbdev_lvol_store_next(current) });
+                Some(unsafe { Pool::from_ptr(current) })
+            }
         }
     }
 }

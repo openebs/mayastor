@@ -147,7 +147,7 @@ function controlPlaneTest (thisProtocol) {
     });
   });
 
-  it('should re-publish the nexus using a crypto-key', (done) => {
+  it.skip('should re-publish the nexus using a crypto-key', (done) => {
     client.publishNexus(
       {
         uuid: UUID,

@@ -1,6 +1,6 @@
 use std::{
     convert::TryFrom,
-    ffi::CStr,
+    ffi::{CStr, CString},
     fmt::{Debug, Display, Formatter},
     os::raw::c_void,
     ptr::NonNull,
@@ -9,6 +9,7 @@ use std::{
 use async_trait::async_trait;
 use futures::channel::oneshot;
 use nix::errno::Errno;
+use snafu::ResultExt;
 
 use spdk_sys::{
     spdk_bdev,
@@ -35,8 +36,11 @@ use crate::{
         share::{Protocol, Share},
         uuid::Uuid,
         CoreError,
-        CoreError::{ShareIscsi, ShareNvmf},
         Descriptor,
+        ShareIscsi,
+        ShareNvmf,
+        UnshareIscsi,
+        UnshareNvmf,
     },
     ffihelper::{cb_arg, AsStr},
     subsys::NvmfSubsystem,
@@ -67,45 +71,30 @@ impl Share for Bdev {
 
     /// share the bdev over iscsi
     async fn share_iscsi(&self) -> Result<Self::Output, Self::Error> {
-        iscsi::share(&self.name(), &self, Side::Nexus).map_err(|source| {
-            ShareIscsi {
-                source,
-            }
-        })
+        iscsi::share(&self.name(), &self, Side::Nexus).context(ShareIscsi {})
     }
 
     /// share the bdev over NVMe-OF TCP
     async fn share_nvmf(&self) -> Result<Self::Output, Self::Error> {
-        let ss = NvmfSubsystem::try_from(self.clone()).map_err(|source| {
-            ShareNvmf {
-                source,
-            }
-        })?;
-
-        let shared_as = ss.start().await.map_err(|source| ShareNvmf {
-            source,
-        })?;
-
-        info!("shared {}", shared_as);
-        Ok(shared_as)
+        let subsystem =
+            NvmfSubsystem::try_from(self.clone()).context(ShareNvmf {})?;
+        subsystem.start().await.context(ShareNvmf {})
     }
 
     /// unshare the bdev regardless of current active share
     async fn unshare(&self) -> Result<Self::Output, Self::Error> {
         match self.shared() {
             Some(Protocol::Nvmf) => {
-                let ss = NvmfSubsystem::nqn_lookup(&self.name()).unwrap();
-                ss.stop().await.map_err(|source| ShareNvmf {
-                    source,
-                })?;
-                ss.destroy();
+                if let Some(subsystem) = NvmfSubsystem::nqn_lookup(&self.name())
+                {
+                    subsystem.stop().await.context(UnshareNvmf {})?;
+                    subsystem.destroy();
+                }
             }
             Some(Protocol::Iscsi) => {
-                iscsi::unshare(&self.name()).await.map_err(|source| {
-                    ShareIscsi {
-                        source,
-                    }
-                })?;
+                iscsi::unshare(&self.name())
+                    .await
+                    .context(UnshareIscsi {})?;
             }
             Some(Protocol::Off) | None => {}
         }
@@ -229,24 +218,15 @@ impl Bdev {
 
     /// construct bdev from raw pointer
     pub fn from_ptr(bdev: *mut spdk_bdev) -> Option<Bdev> {
-        if let Some(ptr) = NonNull::new(bdev) {
-            Some(Bdev(ptr))
-        } else {
-            None
-        }
+        NonNull::new(bdev).map(Bdev)
     }
 
     /// lookup a bdev by its name
     pub fn lookup_by_name(name: &str) -> Option<Bdev> {
-        let name = std::ffi::CString::new(name).unwrap();
-        if let Some(bdev) =
-            NonNull::new(unsafe { spdk_bdev_get_by_name(name.as_ptr()) })
-        {
-            Some(Bdev(bdev))
-        } else {
-            None
-        }
+        let name = CString::new(name).unwrap();
+        Self::from_ptr(unsafe { spdk_bdev_get_by_name(name.as_ptr()) })
     }
+
     /// returns the block_size of the underlying device
     pub fn block_len(&self) -> u32 {
         unsafe { spdk_bdev_get_block_size(self.0.as_ptr()) }
@@ -307,9 +287,7 @@ impl Bdev {
 
     /// the UUID that is set for this bdev, all bdevs should have a UUID set
     pub fn uuid(&self) -> Uuid {
-        Uuid {
-            0: unsafe { spdk_bdev_get_uuid(self.0.as_ptr()) },
-        }
+        Uuid(unsafe { spdk_bdev_get_uuid(self.0.as_ptr()) })
     }
 
     /// converts the UUID to a string
@@ -330,7 +308,7 @@ impl Bdev {
 
     /// Set an alias on the bdev, this alias can be used to find the bdev later
     pub fn add_alias(&self, alias: &str) -> bool {
-        let alias = std::ffi::CString::new(alias).unwrap();
+        let alias = CString::new(alias).unwrap();
         let ret = unsafe {
             spdk_sys::spdk_bdev_alias_add(self.0.as_ptr(), alias.as_ptr())
         };
@@ -424,13 +402,7 @@ impl Bdev {
     }
     /// returns the first bdev in the list
     pub fn bdev_first() -> Option<Bdev> {
-        let bdev = unsafe { spdk_bdev_first() };
-
-        if bdev.is_null() {
-            None
-        } else {
-            Some(Bdev::from(bdev))
-        }
+        Self::from_ptr(unsafe { spdk_bdev_first() })
     }
 }
 
@@ -448,23 +420,20 @@ impl IntoIterator for Bdev {
 impl Iterator for BdevIter {
     type Item = Bdev;
     fn next(&mut self) -> Option<Bdev> {
-        if !self.0.is_null() {
+        if self.0.is_null() {
+            None
+        } else {
             let current = self.0;
             self.0 = unsafe { spdk_bdev_next(current) };
-            Some(Bdev::from(current))
-        } else {
-            None
+            Bdev::from_ptr(current)
         }
     }
 }
 
 impl From<*mut spdk_bdev> for Bdev {
-    fn from(b: *mut spdk_bdev) -> Self {
-        if let Some(b) = NonNull::new(b) {
-            Bdev(b)
-        } else {
-            panic!("nullptr dereference while accessing a bdev");
-        }
+    fn from(bdev: *mut spdk_bdev) -> Self {
+        Self::from_ptr(bdev)
+            .expect("nullptr dereference while accessing a bdev")
     }
 }
 

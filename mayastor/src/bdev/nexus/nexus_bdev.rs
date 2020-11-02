@@ -6,7 +6,6 @@
 
 use std::{
     convert::TryFrom,
-    fmt,
     fmt::{Display, Formatter},
     os::raw::c_void,
 };
@@ -43,10 +42,8 @@ use crate::{
             nexus_channel::{DREvent, NexusChannel, NexusChannelInner},
             nexus_child::{ChildError, ChildState, NexusChild},
             nexus_io::{io_status, nvme_admin_opc, Bio},
-            nexus_iscsi::{NexusIscsiError, NexusIscsiTarget},
             nexus_label::LabelError,
             nexus_nbd::{NbdDisk, NbdError},
-            nexus_nvmf::{NexusNvmfError, NexusNvmfTarget},
         },
     },
     core::{Bdev, CoreError, DmaError, Share},
@@ -105,15 +102,11 @@ pub enum Error {
     #[snafu(display("Failed to share nexus over NBD {}", name))]
     ShareNbdNexus { source: NbdError, name: String },
     #[snafu(display("Failed to share iscsi nexus {}", name))]
-    ShareIscsiNexus {
-        source: NexusIscsiError,
-        name: String,
-    },
+    ShareIscsiNexus { source: CoreError, name: String },
     #[snafu(display("Failed to share nvmf nexus {}", name))]
-    ShareNvmfNexus {
-        source: NexusNvmfError,
-        name: String,
-    },
+    ShareNvmfNexus { source: CoreError, name: String },
+    #[snafu(display("Failed to unshare nexus {}", name))]
+    UnshareNexus { source: CoreError, name: String },
     #[snafu(display("Failed to allocate label of nexus {}", name))]
     AllocLabel { source: DmaError, name: String },
     #[snafu(display("Failed to write label of nexus {}", name))]
@@ -285,20 +278,11 @@ impl From<Error> for tonic::Status {
 
 pub(crate) static NEXUS_PRODUCT_ID: &str = "Nexus CAS Driver v0.0.1";
 
+#[derive(Debug)]
 pub enum NexusTarget {
     NbdDisk(NbdDisk),
-    NexusIscsiTarget(NexusIscsiTarget),
-    NexusNvmfTarget(NexusNvmfTarget),
-}
-
-impl fmt::Debug for NexusTarget {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            NexusTarget::NbdDisk(disk) => fmt::Debug::fmt(&disk, f),
-            NexusTarget::NexusIscsiTarget(tgt) => fmt::Debug::fmt(&tgt, f),
-            NexusTarget::NexusNvmfTarget(tgt) => fmt::Debug::fmt(&tgt, f),
-        }
-    }
+    NexusIscsiTarget,
+    NexusNvmfTarget,
 }
 
 /// The main nexus structure
