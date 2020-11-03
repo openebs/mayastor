@@ -104,8 +104,16 @@ pub enum CoreError {
     ShareNvmf {
         source: NvmfError,
     },
+    #[snafu(display("failed to unshare {}", source))]
+    UnshareNvmf {
+        source: NvmfError,
+    },
     #[snafu(display("failed to share {}", source))]
     ShareIscsi {
+        source: iscsi::Error,
+    },
+    #[snafu(display("failed to unshare {}", source))]
+    UnshareIscsi {
         source: iscsi::Error,
     },
     #[snafu(display("the operation is invalid for this bdev: {}", source))]

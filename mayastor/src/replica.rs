@@ -10,7 +10,7 @@ use snafu::{ResultExt, Snafu};
 
 use spdk_sys::{spdk_lvol, vbdev_lvol_get_from_bdev};
 
-use crate::{core::Bdev, subsys::NvmfSubsystem, target};
+use crate::{core::Bdev, subsys::NvmfError, target};
 
 /// These are high-level context errors one for each rpc method.
 #[derive(Debug, Snafu)]
@@ -35,11 +35,11 @@ pub enum Error {
     #[snafu(display("Replica has been already shared"))]
     ReplicaShared {},
     #[snafu(display("share nvmf"))]
-    ShareNvmf { source: target::nvmf::Error },
+    ShareNvmf { source: NvmfError },
     #[snafu(display("share iscsi"))]
     ShareIscsi { source: target::iscsi::Error },
     #[snafu(display("unshare nvmf"))]
-    UnshareNvmf { source: target::nvmf::Error },
+    UnshareNvmf { source: NvmfError },
     #[snafu(display("unshare iscsi"))]
     UnshareIscsi { source: target::iscsi::Error },
     #[snafu(display("Invalid share protocol {} in request", protocol))]
@@ -49,29 +49,13 @@ pub enum Error {
 }
 
 impl From<Error> for tonic::Status {
-    fn from(e: Error) -> Self {
-        match e {
-            Error::ReplicaShared {
-                ..
-            } => Self::internal(e.to_string()),
-            Error::ShareNvmf {
-                ..
-            } => Self::internal(e.to_string()),
-            Error::ShareIscsi {
-                ..
-            } => Self::internal(e.to_string()),
-            Error::UnshareNvmf {
-                ..
-            } => Self::internal(e.to_string()),
-            Error::UnshareIscsi {
-                ..
-            } => Self::internal(e.to_string()),
+    fn from(error: Error) -> Self {
+        match error {
             Error::InvalidProtocol {
                 ..
-            } => Self::invalid_argument(e.to_string()),
-            Error::ReplicaNotFound {
-                ..
-            } => Self::not_found(e.to_string()),
+            } => Self::invalid_argument(error.to_string()),
+            Error::ReplicaNotFound {} => Self::not_found(error.to_string()),
+            _ => Self::internal(error.to_string()),
         }
     }
 }
@@ -98,19 +82,17 @@ pub enum ShareType {
 /// Detect share protocol (if any) for replica with given uuid and share ID
 /// string.
 fn detect_share(uuid: &str) -> Option<(ShareType, String)> {
-    // first try nvmf and then try iscsi
-    if let Some(s) = NvmfSubsystem::nqn_lookup(uuid) {
-        let mut ep = s.uri_endpoints().unwrap();
-        return Some((ShareType::Nvmf, ep.pop().unwrap()));
+    // first try nvmf ...
+    if let Some(uri) = target::nvmf::get_uri(uuid) {
+        return Some((ShareType::Nvmf, uri));
     }
 
-    match target::nvmf::get_uri(uuid) {
-        Some(uri) => Some((ShareType::Nvmf, uri)),
-        None => match target::iscsi::get_uri(target::Side::Replica, uuid) {
-            Some(uri) => Some((ShareType::Iscsi, uri)),
-            None => None,
-        },
+    // and then iscsi ...
+    if let Some(uri) = target::iscsi::get_uri(target::Side::Replica, uuid) {
+        return Some((ShareType::Iscsi, uri));
     }
+
+    None
 }
 
 impl Replica {
