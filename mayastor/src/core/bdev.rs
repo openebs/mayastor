@@ -160,7 +160,7 @@ impl Bdev {
                     info!("hot remove {} from {}", b.name, b.parent);
                     b.close();
                 }
-            })
+            });
         });
     }
 
@@ -371,7 +371,6 @@ impl Bdev {
             unsafe { Box::from_raw(sender_ptr as *mut oneshot::Sender<i32>) };
         sender.send(errno).expect("stat_cb receiver is gone");
     }
-
     /// Get bdev stats or errno value in case of an error.
     pub async fn stats(&self) -> Result<BdevStats, i32> {
         let mut stat: spdk_bdev_io_stat = Default::default();

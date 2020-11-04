@@ -8,7 +8,7 @@ use rpc::mayastor::{
 };
 
 pub mod common;
-use common::Builder;
+use common::compose::Builder;
 static DISKNAME1: &str = "/tmp/disk1.img";
 
 #[tokio::test]

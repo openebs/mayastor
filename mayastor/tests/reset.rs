@@ -4,10 +4,10 @@ use mayastor::core::{BdevHandle, MayastorCliArgs};
 use rpc::mayastor::{BdevShareRequest, BdevUri};
 
 pub mod common;
-
+use common::compose;
 #[tokio::test]
 async fn nexus_reset_mirror() {
-    let test = common::Builder::new()
+    let test = compose::Builder::new()
         .name("cargo-test")
         .network("10.1.0.0/16")
         .add_container("ms2")

@@ -265,6 +265,10 @@ impl Bio {
     pub(crate) fn block_len(&self) -> u64 {
         self.bdev_as_ref().block_len() as u64
     }
+    #[inline]
+    pub(crate) fn status(&self) -> i8 {
+        unsafe { self.0.as_ref().internal.status }
+    }
 
     /// determine if the IO needs an indirect buffer this can happen for example
     /// when we do a 512 write to a 4k device.
@@ -289,11 +293,12 @@ impl Debug for Bio {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         writeln!(
             f,
-            "bdev: {} offset: {:?}, num_blocks: {:?}, type: {:?} {:p} ",
+            "bdev: {} offset: {:?}, num_blocks: {:?}, type: {:?} status: {:?}, {:p} ",
             self.bdev_as_ref().name(),
             self.offset(),
             self.num_blocks(),
             self.io_type(),
+            self.status(),
             self
         )
     }
