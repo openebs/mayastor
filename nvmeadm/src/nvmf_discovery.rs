@@ -1,29 +1,28 @@
-use crate::nvme_page::{
-    NvmeAdminCmd,
-    NvmfDiscRspPageEntry,
-    NvmfDiscRspPageHdr,
+use crate::{
+    error,
+    nvme_page::{NvmeAdminCmd, NvmfDiscRspPageEntry, NvmfDiscRspPageHdr},
+    nvmf_subsystem::{NvmeSubsystems, Subsystem},
+    NVME_ADMIN_CMD_IOCTL,
+    NVME_FABRICS_PATH,
 };
-use std::fmt;
-
-use nix::libc::ioctl as nix_ioctl;
-
-use crate::nvmf_subsystem::{NvmeSubsystems, Subsystem};
 
 /// when connecting to a NVMF target, we MAY send a NQN that we want to be
 /// referred as.
 const MACHINE_UUID_PATH: &str = "/sys/class/dmi/id/product_uuid";
 
-use crate::{NvmeError, NVME_ADMIN_CMD_IOCTL, NVME_FABRICS_PATH};
-use failure::Error;
+use error::{ConnectError, DiscoveryError, FileIoError, NvmeError};
+use nix::libc::ioctl as nix_ioctl;
+use num_traits::FromPrimitive;
+use snafu::ResultExt;
 use std::{
+    fmt,
     fs::OpenOptions,
-    io::{Read, Write},
+    io::{ErrorKind, Read, Write},
+    net::IpAddr,
+    os::unix::io::AsRawFd,
     path::Path,
     str::FromStr,
 };
-
-use num_traits::FromPrimitive;
-use std::{net::IpAddr, os::unix::io::AsRawFd};
 
 static HOST_ID: once_cell::sync::Lazy<String> =
     once_cell::sync::Lazy::new(|| {
@@ -136,18 +135,28 @@ impl Discovery {
     ///
     /// The pages are iteratable so you can filter exactly what you are looing
     /// for
-    pub fn discover(&mut self) -> Result<&Vec<DiscoveryLogEntry>, Error> {
+    pub fn discover(&mut self) -> Result<&Vec<DiscoveryLogEntry>, NvmeError> {
         self.arg_string = format!(
             "nqn=nqn.2014-08.org.nvmexpress.discovery,transport={},traddr={},trsvcid={}",
             self.transport, self.traddr, self.trsvcid
         );
         let p = Path::new(NVME_FABRICS_PATH);
 
-        let mut file = OpenOptions::new().write(true).read(true).open(&p)?;
+        let mut file =
+            OpenOptions::new().write(true).read(true).open(&p).context(
+                FileIoError {
+                    filename: NVME_FABRICS_PATH,
+                },
+            )?;
 
-        file.write_all(self.arg_string.as_bytes())?;
+        file.write_all(self.arg_string.as_bytes())
+            .context(FileIoError {
+                filename: NVME_FABRICS_PATH,
+            })?;
         let mut buf = String::new();
-        file.read_to_string(&mut buf)?;
+        file.read_to_string(&mut buf).context(FileIoError {
+            filename: NVME_FABRICS_PATH,
+        })?;
         // get the ctl=value from the controller
         let v = buf.split(',').collect::<Vec<_>>()[0]
             .split('=')
@@ -160,10 +169,14 @@ impl Discovery {
     }
 
     // private function that retrieves number of records
-    fn get_discovery_response_page_entries(&self) -> Result<u64, Error> {
+    fn get_discovery_response_page_entries(&self) -> Result<u64, NvmeError> {
+        let target = format!("/dev/nvme{}", self.ctl_id);
         let f = OpenOptions::new()
             .read(true)
-            .open(Path::new(&format!("/dev/nvme{}", self.ctl_id)))?;
+            .open(Path::new(&target))
+            .context(FileIoError {
+                filename: target,
+            })?;
 
         // See NVM-Express1_3d 5.14
         let hdr_len = std::mem::size_of::<NvmfDiscRspPageHdr>() as u32;
@@ -174,7 +187,7 @@ impl Discovery {
         cmd.dptr_len = hdr_len;
         cmd.dptr = &h as *const _ as u64;
 
-        // bytes to dwords, devide by 4. Spec says 0's value
+        // bytes to dwords, divide by 4. Spec says 0's value
 
         let dword_count = (hdr_len >> 2) - 1;
         let numdl = dword_count & 0xFFFF;
@@ -188,25 +201,29 @@ impl Discovery {
                 f.as_raw_fd(),
                 u64::from(NVME_ADMIN_CMD_IOCTL),
                 &cmd
-            ))?
+            ))
+            .context(DiscoveryError)?;
         };
 
         Ok(h.numrec)
     }
 
     // note we can only transfer max_io size. This means that if the number of
-    // controllers
-    // is larger we have to do {] while() we control the size for our
-    // controllers not others! This means in the future we will have to come
+    // controllers is larger we have to do {} while() we control the size for
+    // our controllers not others! This means in the future we will have to come
     // back to this
     //
-    // What really want is a stream of pages where we can filter process them
+    // What we really want is a stream of pages where we can filter process them
     // one by one.
 
-    fn get_discovery_response_pages(&mut self) -> Result<usize, Error> {
+    fn get_discovery_response_pages(&mut self) -> Result<usize, NvmeError> {
+        let target = format!("/dev/nvme{}", self.ctl_id);
         let f = OpenOptions::new()
             .read(true)
-            .open(Path::new(&format!("/dev/nvme{}", self.ctl_id)))?;
+            .open(Path::new(&target))
+            .context(FileIoError {
+                filename: target,
+            })?;
 
         let count = self.get_discovery_response_page_entries()?;
 
@@ -234,7 +251,8 @@ impl Discovery {
                 f.as_raw_fd(),
                 u64::from(NVME_ADMIN_CMD_IOCTL),
                 &cmd
-            ))?
+            ))
+            .context(DiscoveryError)?
         };
 
         let hdr = unsafe { &mut *(buffer as *mut NvmfDiscRspPageHdr) };
@@ -288,24 +306,35 @@ impl Discovery {
 
     // we need to close the discovery controller when we are done and before we
     // connect
-    fn remove_controller(&self) -> Result<(), Error> {
+    fn remove_controller(&self) -> Result<(), NvmeError> {
         let target =
             format!("/sys/class/nvme/nvme{}/delete_controller", self.ctl_id);
         let path = Path::new(&target);
-        let mut file = OpenOptions::new().write(true).open(&path)?;
-        file.write_all(b"1")?;
+        let mut file = OpenOptions::new().write(true).open(&path).context(
+            FileIoError {
+                filename: &target,
+            },
+        )?;
+        file.write_all(b"1").context(FileIoError {
+            filename: target,
+        })?;
         Ok(())
     }
 
     /// Connect to all discovery log page entries found during the discovery
     /// phase
-    pub fn connect_all(&mut self) -> Result<(), Error> {
+    pub fn connect_all(&mut self) -> Result<(), NvmeError> {
         if self.entries.is_empty() {
-            return Err(Error::from(NvmeError::NoSubsystems));
+            return Err(NvmeError::NoSubsystems {});
         }
         let p = Path::new(NVME_FABRICS_PATH);
 
-        let mut file = OpenOptions::new().write(true).read(true).open(&p)?;
+        let mut file =
+            OpenOptions::new().write(true).read(true).open(&p).context(
+                ConnectError {
+                    filename: NVME_FABRICS_PATH,
+                },
+            )?;
         // we are ignoring errors here, and connect to all possible devices
         if let Err(connections) = self
             .entries
@@ -352,18 +381,29 @@ impl Discovery {
     /// ```
     ///
 
-    pub fn connect(&mut self, nqn: &str) -> Result<String, Error> {
+    pub fn connect(&mut self, nqn: &str) -> Result<String, NvmeError> {
         let p = Path::new(NVME_FABRICS_PATH);
 
         if let Some(ss) = self.entries.iter_mut().find(|p| p.subnqn == nqn) {
             let mut file =
-                OpenOptions::new().write(true).read(true).open(&p)?;
-            file.write_all(ss.build_connect_args().unwrap().as_bytes())?;
+                OpenOptions::new().write(true).read(true).open(&p).context(
+                    ConnectError {
+                        filename: NVME_FABRICS_PATH,
+                    },
+                )?;
+            file.write_all(ss.build_connect_args().unwrap().as_bytes())
+                .context(ConnectError {
+                    filename: NVME_FABRICS_PATH,
+                })?;
             let mut buf = String::new();
-            file.read_to_string(&mut buf)?;
+            file.read_to_string(&mut buf).context(ConnectError {
+                filename: NVME_FABRICS_PATH,
+            })?;
             Ok(buf)
         } else {
-            Err(NvmeError::NqnNotFound(nqn.into()).into())
+            Err(NvmeError::NqnNotFound {
+                text: nqn.into(),
+            })
         }
     }
 }
@@ -387,7 +427,7 @@ impl DiscoveryBuilder {
 }
 
 impl DiscoveryLogEntry {
-    pub fn build_connect_args(&mut self) -> Result<String, Error> {
+    pub fn build_connect_args(&mut self) -> Result<String, NvmeError> {
         let mut connect_args = String::new();
         let host_id = HOST_ID.as_str();
 
@@ -422,7 +462,11 @@ impl DiscoveryLogEntry {
 /// ```
 ///
 
-pub fn connect(ip_addr: &str, port: u32, nqn: &str) -> Result<String, Error> {
+pub fn connect(
+    ip_addr: &str,
+    port: u32,
+    nqn: &str,
+) -> Result<String, NvmeError> {
     let mut connect_args = String::new();
     let host_id = HOST_ID.as_str();
 
@@ -438,10 +482,27 @@ pub fn connect(ip_addr: &str, port: u32, nqn: &str) -> Result<String, Error> {
     connect_args.push_str(&format!("trsvcid={}", port));
     let p = Path::new(NVME_FABRICS_PATH);
 
-    let mut file = OpenOptions::new().write(true).read(true).open(&p)?;
-    file.write_all(connect_args.as_bytes())?;
+    let mut file = OpenOptions::new().write(true).read(true).open(&p).context(
+        ConnectError {
+            filename: NVME_FABRICS_PATH,
+        },
+    )?;
+    if let Err(e) = file.write_all(connect_args.as_bytes()) {
+        match e.kind() {
+            ErrorKind::AlreadyExists => {
+                return Err(NvmeError::ConnectInProgress)
+            }
+            _ => {
+                return Err(NvmeError::IoError {
+                    source: e,
+                })
+            }
+        }
+    }
     let mut buf = String::new();
-    file.read_to_string(&mut buf)?;
+    file.read_to_string(&mut buf).context(ConnectError {
+        filename: NVME_FABRICS_PATH,
+    })?;
     Ok(buf)
 }
 
@@ -452,8 +513,8 @@ pub fn connect(ip_addr: &str, port: u32, nqn: &str) -> Result<String, Error> {
 ///  let num_disconnects = nvmeadm::nvmf_discovery::disconnect("mynqn");
 ///  ```
 
-pub fn disconnect(nqn: &str) -> Result<usize, Error> {
-    let subsys: Result<Vec<Subsystem>, Error> = NvmeSubsystems::new()?
+pub fn disconnect(nqn: &str) -> Result<usize, NvmeError> {
+    let subsys: Result<Vec<Subsystem>, NvmeError> = NvmeSubsystems::new()?
         .filter_map(Result::ok)
         .filter(|e| e.nqn == nqn)
         .map(|e| {

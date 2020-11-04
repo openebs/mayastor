@@ -2052,13 +2052,13 @@ dependencies = [
  "clap",
  "derive_builder",
  "enum-primitive-derive",
- "failure",
  "glob",
  "ioctl-gen",
  "libc",
  "nix 0.14.1",
  "num-traits 0.1.43",
  "once_cell",
+ "snafu",
  "uuid",
 ]
 
