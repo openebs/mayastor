@@ -432,7 +432,7 @@ pub fn wait_for_rebuild(
     let mut curr_state = job.state();
     let ch = job.notify_chan.1.clone();
     let cname = name.clone();
-    let t = std::thread::spawn(move || {
+    let t = Mthread::spawn_unaffinitized(move || {
         let now = std::time::Instant::now();
         let mut error = Ok(());
         while curr_state != state && error.is_ok() {
@@ -483,7 +483,7 @@ pub fn fio_verify_size(device: &str, size: u64) -> i32 {
 
 pub fn reactor_run_millis(milliseconds: u64) {
     let (s, r) = unbounded::<()>();
-    std::thread::spawn(move || {
+    Mthread::spawn_unaffinitized(move || {
         std::thread::sleep(Duration::from_millis(milliseconds));
         s.send(())
     });
