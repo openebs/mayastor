@@ -210,7 +210,7 @@ impl NexusChannel {
 
     /// Refresh the IO channels of the underlying children. Typically, this is
     /// called when a device is either added or removed. IO that has already
-    /// may or may not complete. In case of remove that is fine.
+    /// been issued may or may not complete. In case of remove that is fine.
 
     pub extern "C" fn refresh_io_channels(ch_iter: *mut spdk_io_channel_iter) {
         let channel = unsafe { spdk_io_channel_iter_get_channel(ch_iter) };

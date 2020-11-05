@@ -8,7 +8,7 @@ use snafu::Snafu;
 
 use crate::{
     bdev::VerboseError,
-    core::{BdevHandle, CoreError, Descriptor, DmaError},
+    core::{CoreError, Descriptor, DmaError},
     nexus_uri::NexusBdevError,
 };
 
@@ -116,10 +116,8 @@ pub struct RebuildJob {
     pub(super) nexus_descriptor: Descriptor,
     /// source URI of the healthy child to rebuild from
     pub source: String,
-    pub(super) source_hdl: BdevHandle,
     /// target URI of the out of sync child in need of a rebuild
     pub destination: String,
-    pub(super) destination_hdl: BdevHandle,
     pub(super) block_size: u64,
     pub(super) range: std::ops::Range<u64>,
     pub(super) next: u64,

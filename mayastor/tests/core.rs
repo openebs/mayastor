@@ -136,7 +136,7 @@ async fn core_4() {
     let nexus_size: u64 = 10 * 1024 * 1024; // 10MiB
     let nexus_name: &str = "nexus_sizes";
 
-    // nexus size is always NEXUS_SIZE
+    // nexus size is always "nexus_size"
     // (size of child1, create success, size of child2, add child2 success)
     let test_cases = vec![
         (nexus_size, true, nexus_size * 2, true),

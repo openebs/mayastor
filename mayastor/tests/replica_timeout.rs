@@ -11,6 +11,7 @@ use tokio::time::Duration;
 pub mod common;
 static NXNAME: &str = "nexus";
 
+#[ignore]
 #[tokio::test]
 async fn replica_stop_cont() {
     let test = Builder::new()

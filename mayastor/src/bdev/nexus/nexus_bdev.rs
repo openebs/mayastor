@@ -47,7 +47,7 @@ use crate::{
             nexus_nbd::{NbdDisk, NbdError},
         },
     },
-    core::{Bdev, CoreError, DmaError, Share},
+    core::{Bdev, CoreError, DmaError, Reactor, Share},
     ffihelper::errno_result_from_i32,
     lvs::Lvol,
     nexus_uri::{bdev_destroy, NexusBdevError},
@@ -142,6 +142,12 @@ pub enum Error {
     #[snafu(display("Failed to open child {} of nexus {}", child, name))]
     OpenChild {
         source: ChildError,
+        child: String,
+        name: String,
+    },
+    #[snafu(display("Failed to close child {} of nexus {}", child, name))]
+    CloseChild {
+        source: NexusBdevError,
         child: String,
         name: String,
     },
@@ -467,9 +473,9 @@ impl Nexus {
     pub async fn open(&mut self) -> Result<(), Error> {
         debug!("Opening nexus {}", self.name);
 
-        self.try_open_children()?;
+        self.try_open_children().await?;
         self.sync_labels().await?;
-        self.register()
+        self.register().await
     }
 
     pub async fn sync_labels(&mut self) -> Result<(), Error> {
@@ -502,9 +508,21 @@ impl Nexus {
         }
 
         trace!("{}: closing, from state: {:?} ", self.name, self.state);
-        self.children.iter_mut().for_each(|c| {
-            if c.state() == ChildState::Open {
-                c.close();
+
+        let nexus_name = self.name.clone();
+        Reactor::block_on(async move {
+            let nexus = nexus_lookup(&nexus_name).expect("Nexus not found");
+            for child in &nexus.children {
+                if child.state() == ChildState::Open {
+                    if let Err(e) = child.close().await {
+                        error!(
+                            "{}: child {} failed to close with error {}",
+                            nexus.name,
+                            child.name,
+                            e.verbose()
+                        );
+                    }
+                }
             }
         });
 
@@ -542,12 +560,14 @@ impl Nexus {
         }
 
         for child in self.children.iter_mut() {
-            let _ = child.close();
             info!("Destroying child bdev {}", child.name);
-
-            let r = child.destroy().await;
-            if r.is_err() {
-                error!("Failed to destroy child {}", child.name);
+            if let Err(e) = child.close().await {
+                // TODO: should an error be returned here?
+                error!(
+                    "Failed to close child {} with error {}",
+                    child.name,
+                    e.verbose()
+                );
             }
         }
 
@@ -578,7 +598,7 @@ impl Nexus {
     /// register the bdev with SPDK and set the callbacks for io channel
     /// creation. Once this function is called, the device is visible and can
     /// be used for IO.
-    pub(crate) fn register(&mut self) -> Result<(), Error> {
+    pub(crate) async fn register(&mut self) -> Result<(), Error> {
         assert_eq!(self.state, NexusState::Init);
 
         unsafe {
@@ -604,7 +624,16 @@ impl Nexus {
                 unsafe {
                     spdk_io_device_unregister(self.as_ptr(), None);
                 }
-                self.children.iter_mut().map(|c| c.close()).for_each(drop);
+                for child in &self.children {
+                    if let Err(e) = child.close().await {
+                        error!(
+                            "{}: child {} failed to close with error {}",
+                            self.name,
+                            child.name,
+                            e.verbose()
+                        );
+                    }
+                }
                 self.set_state(NexusState::Closed);
                 Err(err).context(RegisterNexus {
                     name: self.name.clone(),
