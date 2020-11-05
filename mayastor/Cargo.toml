@@ -33,6 +33,7 @@ name = "casperf"
 path = "src/bin/casperf.rs"
 
 [dependencies]
+async-mutex = "1.4.0"
 async-task = "4.0.2"
 async-trait = "0.1.36"
 bincode = "1.2"
