@@ -8,6 +8,10 @@ edition = "2018"
 name = "kiiss"
 path = "kiiss/src/server.rs"
 
+[[bin]]
+name = "node"
+path = "node/src/server.rs"
+
 [lib]
 name = "common"
 path = "common/src/lib.rs"
