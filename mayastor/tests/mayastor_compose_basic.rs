@@ -6,7 +6,7 @@ use mayastor::{
 use rpc::mayastor::{BdevShareRequest, BdevUri, Null};
 
 pub mod common;
-use common::{Builder, MayastorTest};
+use common::{compose::Builder, MayastorTest};
 
 #[tokio::test]
 async fn compose_up_down() {

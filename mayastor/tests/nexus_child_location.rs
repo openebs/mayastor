@@ -5,7 +5,7 @@ use mayastor::{
 use rpc::mayastor::{BdevShareRequest, BdevUri, Null};
 
 pub mod common;
-use common::{Builder, MayastorTest};
+use common::{compose::Builder, MayastorTest};
 
 static NEXUS_NAME: &str = "child_location_nexus";
 

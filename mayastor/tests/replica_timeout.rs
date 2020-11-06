@@ -1,6 +1,6 @@
 #![allow(unused_assignments)]
 
-use common::{bdev_io, Builder, MayastorTest};
+use common::{bdev_io, compose::Builder, MayastorTest};
 use mayastor::{
     bdev::{nexus_create, nexus_lookup},
     core::MayastorCliArgs,
