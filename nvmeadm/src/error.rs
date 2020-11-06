@@ -44,6 +44,10 @@ pub enum NvmeError {
         source: glob::PatternError,
         path_prefix: String,
     },
+    #[snafu(display("NVMe URI invalid: {}", source))]
+    UrlError { source: url::ParseError },
+    #[snafu(display("Transport type {} not supported", trtype))]
+    TransportError { trtype: String },
 }
 
 impl From<std::io::Error> for NvmeError {

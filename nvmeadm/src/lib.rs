@@ -38,7 +38,9 @@ pub mod nvmf_subsystem;
 
 use error::{IoError, NvmeError};
 use snafu::ResultExt;
+mod nvme_uri;
 
+pub use nvme_uri::NvmeTarget;
 /// the device entry in /dev for issuing ioctls to the kernels nvme driver
 const NVME_FABRICS_PATH: &str = "/dev/nvme-fabrics";
 /// ioctl for passing any NVMe command to the kernel

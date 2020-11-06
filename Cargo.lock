@@ -2049,6 +2049,7 @@ dependencies = [
  "num-traits 0.1.43",
  "once_cell",
  "snafu",
+ "url",
  "uuid",
 ]
 

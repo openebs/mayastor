@@ -464,7 +464,7 @@ impl DiscoveryLogEntry {
 
 pub fn connect(
     ip_addr: &str,
-    port: u32,
+    port: u16,
     nqn: &str,
 ) -> Result<String, NvmeError> {
     let mut connect_args = String::new();
@@ -488,16 +488,12 @@ pub fn connect(
         },
     )?;
     if let Err(e) = file.write_all(connect_args.as_bytes()) {
-        match e.kind() {
-            ErrorKind::AlreadyExists => {
-                return Err(NvmeError::ConnectInProgress)
-            }
-            _ => {
-                return Err(NvmeError::IoError {
-                    source: e,
-                })
-            }
-        }
+        return match e.kind() {
+            ErrorKind::AlreadyExists => Err(NvmeError::ConnectInProgress),
+            _ => Err(NvmeError::IoError {
+                source: e,
+            }),
+        };
     }
     let mut buf = String::new();
     file.read_to_string(&mut buf).context(ConnectError {
