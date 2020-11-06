@@ -140,8 +140,8 @@ async fn io_driver() {
     let compose = compose::Builder::new()
         .name("cargo-test")
         .network("10.1.0.0/16")
-        .add_container("ms2")
-        .add_container("ms1")
+        .add_container("nvmf-target1")
+        .add_container("nvmf-target2")
         .with_clean(true)
         .build()
         .await

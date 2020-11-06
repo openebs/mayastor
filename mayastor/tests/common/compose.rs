@@ -648,7 +648,7 @@ impl<'a> MayastorTest<'a> {
             .spawn(move || {
                 MayastorEnvironment::new(args).init();
                 tx.send(Reactors::master()).unwrap();
-                Reactors::master().running();
+                Reactors::master().developer_delayed();
                 Reactors::master().poll_reactor();
             })
             .unwrap();
