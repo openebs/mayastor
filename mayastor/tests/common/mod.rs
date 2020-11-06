@@ -18,7 +18,6 @@ use mayastor::{
     logger,
     rebuild::{ClientOperations, RebuildJob, RebuildState},
 };
-use spdk_sys::spdk_get_thread;
 
 pub mod bdev_io;
 pub mod compose;
@@ -320,8 +319,8 @@ pub fn clean_up_temp() {
     .unwrap();
 }
 
-pub fn thread() -> Option<Mthread> {
-    Mthread::from_null_checked(unsafe { spdk_get_thread() })
+pub fn thread() -> Mthread {
+    Mthread::get_init()
 }
 
 pub fn dd_urandom_blkdev(device: &str) -> i32 {

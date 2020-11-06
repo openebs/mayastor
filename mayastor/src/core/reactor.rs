@@ -171,14 +171,14 @@ impl Reactors {
         let mask = unsafe { spdk_thread_get_cpumask(thread) };
         let scheduled = Reactors::iter().any(|r| {
             if unsafe { spdk_cpuset_get_cpu(mask, r.lcore) } {
-                let mt = Mthread(thread);
+                let mt = Mthread::from(thread);
                 info!(
                     "scheduled {} {:p} on core:{}",
                     mt.name(),
                     thread,
                     r.lcore
                 );
-                r.incoming.push(Mthread(thread));
+                r.incoming.push(mt);
                 return true;
             }
             false
@@ -343,7 +343,8 @@ impl Reactor {
         F: Future<Output = R> + 'static,
         R: 'static,
     {
-        let _thread = Mthread::current();
+        // hold on to the any potential thread we might be running on right now
+        let thread = Mthread::current();
         Mthread::get_init().enter();
         let schedule = |t| QUEUE.with(|(s, _)| s.send(t).unwrap());
         let (runnable, task) = async_task::spawn_local(future, schedule);
@@ -359,14 +360,9 @@ impl Reactor {
             match task.as_mut().poll(cx) {
                 Poll::Ready(output) => {
                     Mthread::get_init().exit();
-                    _thread.map(|t| {
-                        debug!(
-                            "restoring thread from {:?} to {:?}",
-                            Mthread::current(),
-                            _thread
-                        );
+                    if let Some(t) = thread {
                         t.enter()
-                    });
+                    }
                     return Some(output);
                 }
                 Poll::Pending => {
