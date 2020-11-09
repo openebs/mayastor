@@ -631,7 +631,7 @@ impl ComposeTest {
     }
 
     /// stop the container
-    async fn stop(&self, name: &str) -> Result<(), Error> {
+    pub async fn stop(&self, name: &str) -> Result<(), Error> {
         let id = self.containers.get(name).unwrap();
         if let Err(e) = self
             .docker

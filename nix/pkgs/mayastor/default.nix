@@ -55,6 +55,7 @@ let
       "sysfs"
       "mbus-api"
       "services"
+      "rest"
     ];
 
     LIBCLANG_PATH = "${llvmPackages.libclang}/lib";

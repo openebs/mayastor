@@ -17,4 +17,5 @@ members = [
 	"services",
 	"mbus-api",
     "composer",
+    "rest",
 ]
