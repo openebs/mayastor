@@ -6,8 +6,6 @@ use std::{
     time::Duration,
 };
 
-use crossbeam::crossbeam_channel::bounded;
-
 use bollard::{
     container::{
         Config,
@@ -32,6 +30,7 @@ use bollard::{
     },
     Docker,
 };
+use crossbeam::crossbeam_channel::bounded;
 use futures::TryStreamExt;
 use ipnetwork::Ipv4Network;
 use tokio::sync::oneshot::channel;
@@ -118,7 +117,7 @@ impl Builder {
             name: "".to_string(),
             containers: Default::default(),
             network: "10.1.0.0".to_string(),
-            clean: false,
+            clean: true,
         }
     }
 
@@ -292,7 +291,7 @@ impl ComposeTest {
         })
     }
 
-    async fn network_remove(&mut self) -> Result<(), Error> {
+    async fn network_remove(&self) -> Result<(), Error> {
         // if the network is not found, its not an error, any other error is
         // reported as such. Networks can only be destroyed when all containers
         // attached to it are removed. To get a list of attached
@@ -351,11 +350,14 @@ impl ComposeTest {
         Ok(())
     }
 
-    /// remove all containers
-    pub async fn remove_all(&mut self) -> Result<(), Error> {
+    /// remove all containers and its network
+    async fn remove_all(&self) -> Result<(), Error> {
         for k in &self.containers {
             self.stop(&k.0).await?;
             self.remove_container(&k.0).await?;
+            while let Ok(_c) = self.docker.inspect_container(&k.0, None).await {
+                tokio::time::delay_for(Duration::from_millis(500)).await;
+            }
         }
         self.network_remove().await?;
         Ok(())
@@ -478,7 +480,7 @@ impl ComposeTest {
             .stop_container(
                 id.0.as_str(),
                 Some(StopContainerOptions {
-                    t: 5,
+                    t: 3,
                 }),
             )
             .await
@@ -567,24 +569,8 @@ impl ComposeTest {
         Ok(handles)
     }
 
-    pub fn down(&self) {
-        if self.clean {
-            self.containers.keys().for_each(|c| {
-                std::process::Command::new("docker")
-                    .args(&["stop", c])
-                    .output()
-                    .unwrap();
-                std::process::Command::new("docker")
-                    .args(&["rm", c])
-                    .output()
-                    .unwrap();
-            });
-
-            std::process::Command::new("docker")
-                .args(&["network", "rm", &self.name])
-                .output()
-                .unwrap();
-        }
+    pub async fn down(&self) {
+        self.remove_all().await.unwrap();
     }
 }
 
@@ -648,7 +634,7 @@ impl<'a> MayastorTest<'a> {
             .spawn(move || {
                 MayastorEnvironment::new(args).init();
                 tx.send(Reactors::master()).unwrap();
-                Reactors::master().running();
+                Reactors::master().developer_delayed();
                 Reactors::master().poll_reactor();
             })
             .unwrap();
