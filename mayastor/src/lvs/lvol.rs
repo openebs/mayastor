@@ -417,12 +417,10 @@ impl Lvol {
                 error!("vbdev_lvol_create_snapshot errno {}", errno);
             }
             // Must complete IO on thread IO was submitted from
-            let thread = Mthread::from_null_checked(unsafe {
+            Mthread::from(unsafe {
                 spdk_sys::spdk_bdev_io_get_thread(bio_ptr.cast())
             })
-            .expect("bio must have been submitted from an spdk_thread");
-            thread.enter();
-            Nexus::io_completion_local(errno == 0, bio_ptr);
+            .with(|| Nexus::io_completion_local(errno == 0, bio_ptr));
         }
 
         let c_snapshot_name = snapshot_name.into_cstring();

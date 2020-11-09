@@ -307,7 +307,7 @@ extern "C" fn mayastor_signal_handler(signo: i32) {
     SIG_RECEIVED.store(true, SeqCst);
     unsafe {
         spdk_thread_send_critical_msg(
-            Mthread::get_init().0,
+            Mthread::get_init().into_raw(),
             Some(signal_trampoline),
         );
     };
