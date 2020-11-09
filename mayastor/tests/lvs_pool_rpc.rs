@@ -9,7 +9,6 @@ use rpc::mayastor::{
 
 pub mod common;
 use common::compose::Builder;
-static DISKNAME1: &str = "/tmp/disk1.img";
 
 #[tokio::test]
 async fn lvs_pool_rpc() {
@@ -141,5 +140,4 @@ async fn lvs_pool_rpc() {
         .unwrap();
 
     test.logs("ms1").await.unwrap();
-    common::delete_file(&[DISKNAME1.into()]);
 }

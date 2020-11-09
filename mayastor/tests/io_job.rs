@@ -194,6 +194,7 @@ async fn io_driver() {
         .await
         .unwrap();
     // now we manually destroy the docker containers
-    DOCKER_COMPOSE.get().unwrap().down();
+    DOCKER_COMPOSE.get().unwrap().down().await;
+
     // ms gets dropped and will call mayastor_env_stop()
 }
