@@ -26,7 +26,7 @@ pub struct NvmeDevice {
     /// firmware revision
     fw_rev: String,
     /// the nqn of the subsystem this device instance is connected to
-    subsysnqn: String,
+    pub subsysnqn: String,
 }
 
 impl NvmeDevice {
@@ -47,11 +47,12 @@ impl NvmeDevice {
             model: parse_value(&subsys, "model")?,
             serial: parse_value(&subsys, "serial")?,
             size: parse_value(&source, "size")?,
-            // NOTE: during my testing, it seems that NON fabric devices
-            // do not have a UUID, this means that local PCIe devices will
-            // be filtered out automatically. We should not depend on this
-            // feature or, bug until we gather more data
-            uuid: parse_value(&source, "uuid")?,
+            // /* NOTE: during my testing, it seems that NON fabric devices
+            //  * do not have a UUID, this means that local PCIe devices will
+            //  * be filtered out automatically. We should not depend on this
+            //  * feature or, bug until we gather more data
+            uuid: parse_value(&source, "uuid")
+                .unwrap_or_else(|_| String::from("N/A")),
             wwid: parse_value(&source, "wwid")?,
             nsid: parse_value(&source, "nsid")?,
         })

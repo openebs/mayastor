@@ -38,8 +38,8 @@ let
   version = builtins.readFile "${version_drv}";
   buildProps = rec {
     name = "mayastor";
-    #cargoSha256 = "0000000000000000000000000000000000000000000000000000";
-    cargoSha256 = "08raaybbxpg9vj12nmd91pd8jqxdh3rmvkyin81isbqqmawgnkq7";
+    # cargoSha256 = "0000000000000000000000000000000000000000000000000000";
+    cargoSha256 = "07d3yvl43pqw5iwjpb1rd9b34s572m8w4p89nmqd68pc0kmpq4d2";
     inherit version;
     src = whitelistSource ../../../. [
       "Cargo.lock"

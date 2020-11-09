@@ -73,11 +73,9 @@ impl TryFrom<&Url> for NvmfAttach {
 #[tonic::async_trait]
 impl Attach for NvmfAttach {
     async fn attach(&self) -> Result<(), DeviceError> {
-        if let Err(error) = nvmeadm::nvmf_discovery::connect(
-            &self.host,
-            self.port as u32,
-            &self.nqn,
-        ) {
+        if let Err(error) =
+            nvmeadm::nvmf_discovery::connect(&self.host, self.port, &self.nqn)
+        {
             match (error) {
                 nvmeadm::error::NvmeError::ConnectInProgress => return Ok(()),
                 _ => {
