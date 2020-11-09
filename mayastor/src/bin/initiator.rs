@@ -114,6 +114,24 @@ async fn write(uri: &str, offset: u64, file: &str) -> Result<()> {
     Ok(())
 }
 
+/// NVMe Admin. Only works with read commands without a buffer requirement.
+async fn nvme_admin(uri: &str, opcode: u8) -> Result<()> {
+    let bdev = create_bdev(uri).await?;
+    let h = Bdev::open(&bdev, true).unwrap().into_handle().unwrap();
+    h.nvme_admin_custom(opcode).await?;
+    Ok(())
+}
+
+/// NVMe Admin identify controller, write output to a file.
+async fn identify_ctrlr(uri: &str, file: &str) -> Result<()> {
+    let bdev = create_bdev(uri).await?;
+    let h = Bdev::open(&bdev, true).unwrap().into_handle().unwrap();
+    let mut buf = h.dma_malloc(4096).unwrap();
+    h.nvme_identify_ctrlr(&mut buf).await?;
+    fs::write(file, buf.as_slice())?;
+    Ok(())
+}
+
 /// Create a snapshot.
 async fn create_snapshot(uri: &str) -> Result<()> {
     let bdev = create_bdev(uri).await?;
@@ -157,6 +175,18 @@ fn main() {
                 .help("File to read data from that will be written to the replica")
                 .required(true)
                 .index(1)))
+        .subcommand(SubCommand::with_name("nvme-admin")
+            .about("Send a custom NVMe Admin command")
+            .arg(Arg::with_name("opcode")
+                .help("Admin command opcode to send")
+                .required(true)
+                .index(1)))
+        .subcommand(SubCommand::with_name("id-ctrlr")
+            .about("Send NVMe Admin identify controller command")
+            .arg(Arg::with_name("FILE")
+                .help("File to write output of identify controller command")
+                .required(true)
+                .index(1)))
         .subcommand(SubCommand::with_name("create-snapshot")
             .about("Create a snapshot on the replica"))
         .get_matches();
@@ -187,6 +217,14 @@ fn main() {
             read(&uri, offset, matches.value_of("FILE").unwrap()).await
         } else if let Some(matches) = matches.subcommand_matches("write") {
             write(&uri, offset, matches.value_of("FILE").unwrap()).await
+        } else if let Some(matches) = matches.subcommand_matches("nvme-admin") {
+            let opcode: u8 = match matches.value_of("opcode") {
+                Some(val) => val.parse().expect("Opcode must be a number"),
+                None => 0,
+            };
+            nvme_admin(&uri, opcode).await
+        } else if let Some(matches) = matches.subcommand_matches("id-ctrlr") {
+            identify_ctrlr(&uri, matches.value_of("FILE").unwrap()).await
         } else if matches.subcommand_matches("create-snapshot").is_some() {
             create_snapshot(&uri).await
         } else {

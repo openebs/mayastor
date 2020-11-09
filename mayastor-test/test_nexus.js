@@ -614,6 +614,7 @@ describe('nexus', function () {
 
   describe('nvmf datapath', function () {
     const blockFile = '/tmp/test_block';
+    const idCtrlrFile = '/tmp/nvme-id-ctrlr';
 
     function rmBlockFile (done) {
       common.execAsRoot('rm', ['-f', blockFile], () => {
@@ -657,6 +658,27 @@ describe('nexus', function () {
         } else {
           // The discovery reply text should contain our nexus
           assert.include(stdout.toString(), 'nqn.2019-05.io.openebs:nexus-' + UUID);
+          done();
+        }
+      });
+    });
+
+    // technically control path but this is nvmf-only
+    it('should identify nvmf controller', (done) => {
+      common.execAsRoot(common.getCmdPath('initiator'), [uri, 'id-ctrlr', idCtrlrFile], (err, stdout) => {
+        if (err) {
+          done(err);
+        } else {
+          fs.readFile(idCtrlrFile, (err, data) => {
+            if (err) throw err;
+            // Identify Controller Data Structure
+            // nvme_id_ctrl or spdk_nvme_ctrlr_data
+            assert.equal(data.length, 4096);
+            // model number
+            assert.equal(data.slice(24, 32).toString(), 'Mayastor');
+            // cmic, bit 3 ana_reporting
+            assert.equal((data[76] & 0x8), 0x8, 'ANA reporting should be enabled');
+          });
           done();
         }
       });
