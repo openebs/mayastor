@@ -101,11 +101,17 @@ impl Nexus {
     /// used for shutdown operations and
     /// unlike the client operation stop, this command does not fail
     /// as it overrides the previous client operations
-    fn terminate_rebuild(&self, name: &str) {
+    async fn terminate_rebuild(&self, name: &str) {
         // If a rebuild job is not found that's ok
         // as we were just going to remove it anyway.
         if let Ok(rj) = self.get_rebuild_job(name) {
-            let _ = rj.as_client().terminate();
+            let ch = rj.as_client().terminate();
+            if let Err(e) = ch.await {
+                error!(
+                    "Failed to wait on rebuild job for child {} to terminate with error {}", name,
+                    e.verbose()
+                );
+            }
         }
     }
 
@@ -187,7 +193,7 @@ impl Nexus {
         }
 
         // terminate the only possible job with the child as a destination
-        self.terminate_rebuild(name);
+        self.terminate_rebuild(name).await;
         rebuilding_children
     }
 
@@ -260,7 +266,7 @@ impl Nexus {
                 {
                     // todo: retry rebuild using another child as source?
                 }
-                recovering_child.fault(Reason::RebuildFailed);
+                recovering_child.fault(Reason::RebuildFailed).await;
                 error!(
                     "Rebuild job for child {} of nexus {} failed, error: {}",
                     &job.destination,
@@ -269,7 +275,7 @@ impl Nexus {
                 );
             }
             _ => {
-                recovering_child.fault(Reason::RebuildFailed);
+                recovering_child.fault(Reason::RebuildFailed).await;
                 error!(
                     "Rebuild job for child {} of nexus {} failed with state {:?}",
                     &job.destination,

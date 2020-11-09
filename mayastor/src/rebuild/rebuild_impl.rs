@@ -111,26 +111,9 @@ impl RebuildJob {
         range: std::ops::Range<u64>,
         notify_fn: fn(String, String) -> (),
     ) -> Result<Self, RebuildError> {
-        let source_hdl = BdevHandle::open(
-            &bdev_get_name(source).context(BdevInvalidURI {
-                uri: source.to_string(),
-            })?,
-            false,
-            false,
-        )
-        .context(NoBdevHandle {
-            bdev: source,
-        })?;
-        let destination_hdl = BdevHandle::open(
-            &bdev_get_name(destination).context(BdevInvalidURI {
-                uri: destination.to_string(),
-            })?,
-            true,
-            false,
-        )
-        .context(NoBdevHandle {
-            bdev: destination,
-        })?;
+        let source_hdl = RebuildJob::open_handle(source, false, false)?;
+        let destination_hdl =
+            RebuildJob::open_handle(destination, true, false)?;
 
         if !Self::validate(
             &source_hdl.get_bdev(),
@@ -180,9 +163,7 @@ impl RebuildJob {
             nexus,
             nexus_descriptor,
             source,
-            source_hdl,
             destination,
-            destination_hdl,
             next: range.start,
             range,
             block_size,
@@ -308,6 +289,9 @@ impl RebuildJob {
         blk: u64,
     ) -> Result<(), RebuildError> {
         let mut copy_buffer: DmaBuf;
+        let source_hdl = RebuildJob::open_handle(&self.source, false, false)?;
+        let destination_hdl =
+            RebuildJob::open_handle(&self.destination, true, false)?;
 
         let copy_buffer = if self.get_segment_size_blks(blk)
             == self.segment_size_blks
@@ -321,22 +305,21 @@ impl RebuildJob {
                     self.segment_size_blks, segment_size_blks, blk, self.range,
                 );
 
-            copy_buffer = self
-                .destination_hdl
+            copy_buffer = destination_hdl
                 .dma_malloc(segment_size_blks * self.block_size)
                 .context(NoCopyBuffer {})?;
 
             &mut copy_buffer
         };
 
-        self.source_hdl
+        source_hdl
             .read_at(blk * self.block_size, copy_buffer)
             .await
             .context(ReadIoError {
                 bdev: &self.source,
             })?;
 
-        self.destination_hdl
+        destination_hdl
             .write_at(blk * self.block_size, copy_buffer)
             .await
             .context(WriteIoError {
@@ -437,6 +420,24 @@ impl RebuildJob {
             });
 
         unsafe { &mut *global_instances.inner.get() }
+    }
+
+    /// Open a bdev handle for the given uri
+    fn open_handle(
+        uri: &str,
+        read_write: bool,
+        claim: bool,
+    ) -> Result<BdevHandle, RebuildError> {
+        BdevHandle::open(
+            &bdev_get_name(uri).context(BdevInvalidURI {
+                uri: uri.to_string(),
+            })?,
+            read_write,
+            claim,
+        )
+        .context(NoBdevHandle {
+            bdev: uri,
+        })
     }
 }
 

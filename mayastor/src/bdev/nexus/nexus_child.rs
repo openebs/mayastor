@@ -4,18 +4,19 @@ use nix::errno::Errno;
 use serde::{export::Formatter, Serialize};
 use snafu::{ResultExt, Snafu};
 
-use spdk_sys::{spdk_bdev_module_release_bdev, spdk_io_channel};
-
 use crate::{
     bdev::{
         nexus::{
+            nexus_channel::DREvent,
             nexus_child::ChildState::Faulted,
             nexus_child_status_config::ChildStatusConfig,
         },
+        nexus_lookup,
         NexusErrStore,
+        VerboseError,
     },
-    core::{Bdev, BdevHandle, CoreError, Descriptor},
-    nexus_uri::{bdev_destroy, NexusBdevError},
+    core::{Bdev, BdevHandle, CoreError, Descriptor, Reactor},
+    nexus_uri::{bdev_create, bdev_destroy, NexusBdevError},
     rebuild::{ClientOperations, RebuildJob},
     subsys::Config,
 };
@@ -46,6 +47,11 @@ pub enum ChildError {
     OpenWithoutBdev {},
     #[snafu(display("Failed to create a BdevHandle for child"))]
     HandleCreate { source: CoreError },
+    #[snafu(display("Failed to create a Bdev for child {}", child))]
+    ChildBdevCreate {
+        child: String,
+        source: NexusBdevError,
+    },
 }
 
 #[derive(Debug, Serialize, PartialEq, Deserialize, Copy, Clone)]
@@ -118,9 +124,6 @@ pub struct NexusChild {
     #[serde(skip_serializing)]
     /// the bdev wrapped in Bdev
     pub(crate) bdev: Option<Bdev>,
-    #[serde(skip_serializing)]
-    /// channel on which we submit the IO
-    pub(crate) ch: *mut spdk_io_channel,
     #[serde(skip_serializing)]
     pub(crate) desc: Option<Arc<Descriptor>>,
     /// current state of the child
@@ -235,13 +238,20 @@ impl NexusChild {
     /// Fault the child with a specific reason.
     /// We do not close the child if it is out-of-sync because it will
     /// subsequently be rebuilt.
-    pub(crate) fn fault(&mut self, reason: Reason) {
+    pub(crate) async fn fault(&mut self, reason: Reason) {
         match reason {
             Reason::OutOfSync => {
                 self.set_state(ChildState::Faulted(reason));
             }
             _ => {
-                self._close();
+                if let Err(e) = self.close().await {
+                    error!(
+                        "{}: child {} failed to close with error {}",
+                        self.parent,
+                        self.name,
+                        e.verbose()
+                    );
+                }
                 self.set_state(ChildState::Faulted(reason));
             }
         }
@@ -249,19 +259,39 @@ impl NexusChild {
     }
 
     /// Set the child as temporarily offline
-    /// TODO: channels need to be updated when bdevs are closed
-    pub(crate) fn offline(&mut self) {
-        self.close();
+    pub(crate) async fn offline(&mut self) {
+        if let Err(e) = self.close().await {
+            error!(
+                "{}: child {} failed to close with error {}",
+                self.parent,
+                self.name,
+                e.verbose()
+            );
+        }
         NexusChild::save_state_change();
     }
 
     /// Online a previously offlined child.
     /// The child is set out-of-sync so that it will be rebuilt.
     /// TODO: channels need to be updated when bdevs are opened
-    pub(crate) fn online(
+    pub(crate) async fn online(
         &mut self,
         parent_size: u64,
     ) -> Result<String, ChildError> {
+        // Only online a child if it was previously set offline. Check for a
+        // "Closed" state as that is what offlining a child will set it to.
+        match self.state {
+            ChildState::Closed => {
+                // Re-create the bdev as it will have been previously destroyed.
+                let name =
+                    bdev_create(&self.name).await.context(ChildBdevCreate {
+                        child: self.name.clone(),
+                    })?;
+                self.bdev = Bdev::lookup_by_name(&name);
+            }
+            _ => return Err(ChildError::ChildNotClosed {}),
+        }
+
         let result = self.open(parent_size);
         self.set_state(ChildState::Faulted(Reason::OutOfSync));
         NexusChild::save_state_change();
@@ -298,26 +328,41 @@ impl NexusChild {
         }
     }
 
-    /// closed the descriptor and handle, does not destroy the bdev
-    fn _close(&mut self) {
-        trace!("{}: Closing child {}", self.parent, self.name);
-        if let Some(bdev) = self.bdev.as_ref() {
-            unsafe {
-                if !(*bdev.as_ptr()).internal.claim_module.is_null() {
-                    spdk_bdev_module_release_bdev(bdev.as_ptr());
-                }
-            }
+    /// Close the nexus child.
+    pub(crate) async fn close(&self) -> Result<(), NexusBdevError> {
+        info!("Closing child {}", self.name);
+        if self.desc.is_some() && self.bdev.is_some() {
+            self.desc.as_ref().unwrap().unclaim();
         }
-        // just to be explicit
-        let desc = self.desc.take();
-        drop(desc);
+        // Destruction raises an SPDK_BDEV_EVENT_REMOVE event.
+        self.destroy().await
     }
 
-    /// close the bdev -- we have no means of determining if this succeeds
-    pub(crate) fn close(&mut self) -> ChildState {
-        self._close();
+    /// Called in response to a SPDK_BDEV_EVENT_REMOVE event.
+    /// All the necessary teardown should be performed here before the bdev is
+    /// removed.
+    ///
+    /// Note: The descriptor *must* be dropped for the remove to complete.
+    pub(crate) fn remove(&mut self) {
+        info!("Removing child {}", self.name);
+
+        // Remove the child from the I/O path.
         self.set_state(ChildState::Closed);
-        ChildState::Closed
+        let nexus_name = self.parent.clone();
+        Reactor::block_on(async move {
+            match nexus_lookup(&nexus_name) {
+                Some(n) => n.reconfigure(DREvent::ChildRemove).await,
+                None => error!("Nexus {} not found", nexus_name),
+            }
+        });
+
+        // The bdev is being removed, so ensure we don't use it again.
+        self.bdev = None;
+
+        // Dropping the last descriptor results in the bdev being removed.
+        // This must be performed in this function.
+        let desc = self.desc.take();
+        drop(desc);
     }
 
     /// create a new nexus child
@@ -327,16 +372,14 @@ impl NexusChild {
             bdev,
             parent,
             desc: None,
-            ch: std::ptr::null_mut(),
             state: ChildState::Init,
             err_store: None,
         }
     }
 
     /// destroy the child bdev
-    pub(crate) async fn destroy(&mut self) -> Result<(), NexusBdevError> {
+    pub(crate) async fn destroy(&self) -> Result<(), NexusBdevError> {
         trace!("destroying child {:?}", self);
-        assert_eq!(self.state(), ChildState::Closed);
         if let Some(_bdev) = &self.bdev {
             bdev_destroy(&self.name).await
         } else {

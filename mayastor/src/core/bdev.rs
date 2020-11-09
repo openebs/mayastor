@@ -13,6 +13,7 @@ use snafu::ResultExt;
 
 use spdk_sys::{
     spdk_bdev,
+    spdk_bdev_event_type,
     spdk_bdev_first,
     spdk_bdev_get_aliases,
     spdk_bdev_get_block_size,
@@ -26,7 +27,7 @@ use spdk_sys::{
     spdk_bdev_io_stat,
     spdk_bdev_io_type_supported,
     spdk_bdev_next,
-    spdk_bdev_open,
+    spdk_bdev_open_ext,
     spdk_uuid_generate,
 };
 
@@ -140,30 +141,6 @@ impl Share for Bdev {
 }
 
 impl Bdev {
-    /// bdevs are created and destroyed in order, adding a bdev to the nexus
-    /// does interferes with this order. There we traverse all nexuses
-    /// looking for our a child and then close it when found.
-    ///
-    /// By default -- when opening the bdev through the ['Bdev'] module
-    /// we by default, pass the context of the bdev being opened. If we
-    /// need/want to optimize the performance (o^n) we can opt for passing
-    /// a reference to the nexus instead avoiding the lookup.
-    ///
-    /// This does not handle any deep level of nesting
-    extern "C" fn hot_remove(ctx: *mut c_void) {
-        let bdev = Bdev(NonNull::new(ctx as *mut spdk_bdev).unwrap());
-        instances().iter_mut().for_each(|n| {
-            n.children.iter_mut().for_each(|b| {
-                // note: it would perhaps be wise to close all children
-                // here in one blow to avoid unneeded lookups
-                if b.bdev.as_ref().unwrap().name() == bdev.name() {
-                    info!("hot remove {} from {}", b.name, b.parent);
-                    b.close();
-                }
-            });
-        });
-    }
-
     /// open a bdev by its name in read_write mode.
     pub fn open_by_name(
         name: &str,
@@ -178,16 +155,56 @@ impl Bdev {
         }
     }
 
+    /// Called by spdk when there is an asynchronous bdev event i.e. removal.
+    extern "C" fn event_cb(
+        event: spdk_bdev_event_type,
+        bdev: *mut spdk_bdev,
+        _ctx: *mut c_void,
+    ) {
+        let bdev = Bdev(NonNull::new(bdev).unwrap());
+        // Take the appropriate action for the given event type
+        match event {
+            spdk_sys::SPDK_BDEV_EVENT_REMOVE => {
+                info!("Received remove event for bdev {}", bdev.name());
+                instances().iter_mut().for_each(|n| {
+                    n.children
+                        .iter_mut()
+                        .filter(|c| {
+                            c.bdev.is_some()
+                                && c.bdev.as_ref().unwrap().name()
+                                    == bdev.name()
+                        })
+                        .for_each(|c| {
+                            c.remove();
+                        });
+                });
+            }
+            spdk_sys::SPDK_BDEV_EVENT_RESIZE => {
+                info!("Received resize event for bdev {}", bdev.name())
+            }
+            spdk_sys::SPDK_BDEV_EVENT_MEDIA_MANAGEMENT => info!(
+                "Received media management event for bdev {}",
+                bdev.name()
+            ),
+            _ => error!(
+                "Received unknown event {} for bdev {}",
+                event,
+                bdev.name()
+            ),
+        }
+    }
+
     /// open the current bdev, the bdev can be opened multiple times resulting
     /// in a new descriptor for each call.
     pub fn open(&self, read_write: bool) -> Result<Descriptor, CoreError> {
         let mut descriptor = std::ptr::null_mut();
+        let cname = CString::new(self.name()).unwrap();
         let rc = unsafe {
-            spdk_bdev_open(
-                self.as_ptr(),
+            spdk_bdev_open_ext(
+                cname.as_ptr(),
                 read_write,
-                Some(Self::hot_remove),
-                self.as_ptr() as *mut _,
+                Some(Self::event_cb),
+                std::ptr::null_mut(),
                 &mut descriptor,
             )
         };
@@ -371,6 +388,7 @@ impl Bdev {
             unsafe { Box::from_raw(sender_ptr as *mut oneshot::Sender<i32>) };
         sender.send(errno).expect("stat_cb receiver is gone");
     }
+
     /// Get bdev stats or errno value in case of an error.
     pub async fn stats(&self) -> Result<BdevStats, i32> {
         let mut stat: spdk_bdev_io_stat = Default::default();
