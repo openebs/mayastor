@@ -38,8 +38,8 @@ let
   version = builtins.readFile "${version_drv}";
   buildProps = rec {
     name = "mayastor";
-    # cargoSha256 = "0000000000000000000000000000000000000000000000000000";
-    cargoSha256 = "0rrkj111h7h5blj6qx28166hygag3y92zn5isqig03fnib2zx3mi";
+    #cargoSha256 = "0000000000000000000000000000000000000000000000000000";
+    cargoSha256 = "0dmg0y1wp3gkfiql80b8li20x6l407cih16i9sdbbly34bc84w09";
     inherit version;
     src = whitelistSource ../../../. [
       "Cargo.lock"
@@ -56,6 +56,8 @@ let
       "mbus-api"
       "services"
       "rest"
+      "operators"
+      "composer"
     ];
 
     LIBCLANG_PATH = "${llvmPackages.libclang}/lib";

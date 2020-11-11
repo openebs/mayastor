@@ -16,6 +16,7 @@ members = [
 	"sysfs",
 	"services",
 	"mbus-api",
-    "composer",
-    "rest",
+	"composer",
+	"rest",
+	"operators",
 ]
