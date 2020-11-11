@@ -171,10 +171,7 @@ impl Nexus {
 
     /// Cancels all rebuilds jobs associated with the child.
     /// Returns a list of rebuilding children whose rebuild job was cancelled.
-    pub async fn cancel_child_rebuild_jobs(
-        &mut self,
-        name: &str,
-    ) -> Vec<String> {
+    pub async fn cancel_child_rebuild_jobs(&self, name: &str) -> Vec<String> {
         let mut src_jobs = self.get_rebuild_job_src(name);
         let mut terminated_jobs = Vec::new();
         let mut rebuilding_children = Vec::new();
@@ -210,7 +207,7 @@ impl Nexus {
     /// Return rebuild job associated with the src child name.
     /// Return error if no rebuild job associated with it.
     fn get_rebuild_job_src<'a>(
-        &mut self,
+        &self,
         name: &'a str,
     ) -> Vec<&'a mut RebuildJob> {
         let jobs = RebuildJob::lookup_src(&name);
