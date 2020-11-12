@@ -18,7 +18,7 @@ use crate::bdev::nexus::{
     instances,
     nexus_bdev::Nexus,
     nexus_channel::NexusChannel,
-    nexus_io::{io_type, Bio},
+    nexus_io::{Bio, IoType},
 };
 
 static NEXUS_FN_TBL: Lazy<NexusFnTable> = Lazy::new(NexusFnTable::new);
@@ -59,28 +59,29 @@ impl NexusFnTable {
         io_type: spdk_bdev_io_type,
     ) -> bool {
         let nexus = unsafe { Nexus::from_raw(ctx) };
-        match io_type {
+        let _io_type = IoType::from(io_type);
+        match _io_type {
             // we always assume the device supports read/write commands
             // allow NVMe Admin as it is needed for local replicas
-            io_type::READ | io_type::WRITE | io_type::NVME_ADMIN => true,
-            io_type::FLUSH
-            | io_type::RESET
-            | io_type::UNMAP
-            | io_type::WRITE_ZEROES => {
-                let supported = nexus.io_is_supported(io_type);
+            IoType::Read | IoType::Write | IoType::NvmeAdmin => true,
+            IoType::Flush
+            | IoType::Reset
+            | IoType::Unmap
+            | IoType::WriteZeros => {
+                let supported = nexus.io_is_supported(_io_type);
                 if !supported {
                     trace!(
                         "IO type {:?} not supported for {}",
-                        io_type,
+                        _io_type,
                         nexus.bdev.name()
                     );
                 }
                 supported
             }
             _ => {
-                trace!(
-                    "un matched IO type {} not supported for {}",
-                    io_type,
+                debug!(
+                    "un matched IO type {:#?} not supported for {}",
+                    _io_type,
                     nexus.bdev.name()
                 );
                 false
@@ -109,7 +110,7 @@ impl NexusFnTable {
         let mut ch = NexusChannel::inner_from_channel(channel);
 
         // set the fields that need to be (re)set per-attempt
-        if nio.io_type() == io_type::READ {
+        if nio.io_type() == IoType::Read {
             // set that we only need to read from one child
             // before we complete the IO to the callee.
             nio.reset(1);
@@ -120,36 +121,36 @@ impl NexusFnTable {
         let nexus = nio.nexus_as_ref();
         let io_type = nio.io_type();
         match io_type {
-            io_type::READ => nexus.readv(&nio, &mut ch),
-            io_type::WRITE => nexus.writev(&nio, &ch),
-            io_type::RESET => {
+            IoType::Read => nexus.readv(&nio, &mut ch),
+            IoType::Write => nexus.writev(&nio, &ch),
+            IoType::Reset => {
                 trace!("{}: Dispatching RESET", nexus.bdev.name());
                 nexus.reset(&nio, &ch)
             }
-            io_type::UNMAP => {
+            IoType::Unmap => {
                 if nexus.io_is_supported(io_type) {
                     nexus.unmap(&nio, &ch)
                 } else {
                     nio.fail();
                 }
             }
-            io_type::FLUSH => {
+            IoType::Flush => {
                 // our replica's are attached to as nvme controllers
                 // who always support flush. This can be troublesome
                 // so we complete the IO directly.
                 nio.reset(0);
                 nio.ok();
             }
-            io_type::WRITE_ZEROES => {
+            IoType::WriteZeros => {
                 if nexus.io_is_supported(io_type) {
                     nexus.write_zeroes(&nio, &ch)
                 } else {
                     nio.fail()
                 }
             }
-            io_type::NVME_ADMIN => nexus.nvme_admin(&nio, &ch),
+            IoType::NvmeAdmin => nexus.nvme_admin(&nio, &ch),
             _ => panic!(
-                "{} Received unsupported IO! type {}",
+                "{} Received unsupported IO! type {:#?}",
                 nexus.name, io_type
             ),
         };

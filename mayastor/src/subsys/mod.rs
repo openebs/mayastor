@@ -2,7 +2,7 @@
 //! Main file to register additional subsystems
 
 pub use config::{
-    opts::NexusOpts,
+    opts::{NexusOpts, NvmeBdevOpts},
     BaseBdev,
     Config,
     ConfigSubsystem,

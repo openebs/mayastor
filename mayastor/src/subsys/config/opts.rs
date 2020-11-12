@@ -16,6 +16,7 @@ use spdk_sys::{
     spdk_iscsi_opts,
     spdk_nvmf_target_opts,
     spdk_nvmf_transport_opts,
+    SPDK_BDEV_NVME_TIMEOUT_ACTION_ABORT,
 };
 
 use crate::bdev::ActionType;
@@ -202,27 +203,27 @@ impl From<TcpTransportOpts> for spdk_nvmf_transport_opts {
 #[serde(default, deny_unknown_fields)]
 pub struct NvmeBdevOpts {
     /// action take on timeout
-    action_on_timeout: u32,
+    pub action_on_timeout: u32,
     /// timeout for each command
-    timeout_us: u64,
+    pub timeout_us: u64,
     /// retry count
-    retry_count: u32,
+    pub retry_count: u32,
     /// TODO
-    arbitration_burst: u32,
+    pub arbitration_burst: u32,
     /// max number of low priority cmds a controller may launch at one time
-    low_priority_weight: u32,
+    pub low_priority_weight: u32,
     /// max number of medium priority cmds a controller may launch at one time
-    medium_priority_weight: u32,
+    pub medium_priority_weight: u32,
     /// max number of high priority cmds a controller may launch at one time
-    high_priority_weight: u32,
+    pub high_priority_weight: u32,
     /// admin queue polling period
-    nvme_adminq_poll_period_us: u64,
+    pub nvme_adminq_poll_period_us: u64,
     /// ioq polling period
-    nvme_ioq_poll_period_us: u64,
+    pub nvme_ioq_poll_period_us: u64,
     /// number of requests per nvme IO queue
-    io_queue_requests: u32,
+    pub io_queue_requests: u32,
     /// allow for batching of commands
-    delay_cmd_submit: bool,
+    pub delay_cmd_submit: bool,
 }
 
 impl GetOpts for NvmeBdevOpts {
@@ -236,6 +237,7 @@ impl GetOpts for NvmeBdevOpts {
 
     fn set(&self) -> bool {
         let opts = Box::new(self.into());
+        debug!("{:?}", &opts);
         if unsafe { bdev_nvme_set_opts(Box::into_raw(opts)) } != 0 {
             return false;
         }
@@ -246,14 +248,14 @@ impl GetOpts for NvmeBdevOpts {
 impl Default for NvmeBdevOpts {
     fn default() -> Self {
         Self {
-            action_on_timeout: 1,
-            timeout_us: 2_000_000,
-            retry_count: 5,
+            action_on_timeout: SPDK_BDEV_NVME_TIMEOUT_ACTION_ABORT,
+            timeout_us: 30_000_000,
+            retry_count: 3,
             arbitration_burst: 0,
             low_priority_weight: 0,
             medium_priority_weight: 0,
             high_priority_weight: 0,
-            nvme_adminq_poll_period_us: 10_000,
+            nvme_adminq_poll_period_us: 100,
             nvme_ioq_poll_period_us: 0,
             io_queue_requests: 0,
             delay_cmd_submit: true,

@@ -27,7 +27,7 @@ static EE_ERROR_DEVICE: &str = "EE_error_device";
 static BDEV_EE_ERROR_DEVICE: &str = "bdev:///EE_error_device";
 
 static YAML_CONFIG_FILE: &str = "/tmp/error_count_test_nexus.yaml";
-
+#[ignore]
 #[tokio::test]
 async fn nexus_error_count_test() {
     common::truncate_file(DISKNAME1, 64 * 1024);

@@ -58,7 +58,7 @@ impl Nexus {
     /// register children with the nexus, only allowed during the nexus init
     /// phase
     pub fn register_children(&mut self, dev_name: &[String]) {
-        assert_eq!(self.state, NexusState::Init);
+        assert_eq!(*self.state.lock().unwrap(), NexusState::Init);
         self.child_count = dev_name.len() as u32;
         dev_name
             .iter()
@@ -79,7 +79,7 @@ impl Nexus {
         &mut self,
         uri: &str,
     ) -> Result<(), NexusBdevError> {
-        assert_eq!(self.state, NexusState::Init);
+        assert_eq!(*self.state.lock().unwrap(), NexusState::Init);
         let name = bdev_create(&uri).await?;
         self.children.push(NexusChild::new(
             uri.to_string(),
@@ -548,6 +548,14 @@ impl Nexus {
             })
             .for_each(drop);
         blockcnt
+    }
+
+    /// lookup a child by its name
+    pub fn child_lookup(&self, name: &str) -> Option<&NexusChild> {
+        self.children
+            .iter()
+            .filter(|c| c.bdev.as_ref().is_some())
+            .find(|c| c.bdev.as_ref().unwrap().name() == name)
     }
 
     pub fn get_child_by_name(

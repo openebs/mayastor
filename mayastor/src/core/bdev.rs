@@ -32,7 +32,7 @@ use spdk_sys::{
 };
 
 use crate::{
-    bdev::nexus::instances,
+    bdev::nexus::{instances, nexus_io::IoType},
     core::{
         share::{Protocol, Share},
         uuid::Uuid,
@@ -348,8 +348,8 @@ impl Bdev {
     }
 
     /// returns whenever the bdev supports the requested IO type
-    pub fn io_type_supported(&self, io_type: u32) -> bool {
-        unsafe { spdk_bdev_io_type_supported(self.0.as_ptr(), io_type) }
+    pub fn io_type_supported(&self, io_type: IoType) -> bool {
+        unsafe { spdk_bdev_io_type_supported(self.0.as_ptr(), io_type.into()) }
     }
 
     /// returns the bdev as a ptr

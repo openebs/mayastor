@@ -20,6 +20,7 @@ use crate::{
     rebuild::{ClientOperations, RebuildJob},
     subsys::Config,
 };
+use crossbeam::atomic::AtomicCell;
 
 #[derive(Debug, Snafu)]
 pub enum ChildError {
@@ -54,7 +55,7 @@ pub enum ChildError {
     },
 }
 
-#[derive(Debug, Serialize, PartialEq, Deserialize, Copy, Clone)]
+#[derive(Debug, Serialize, PartialEq, Deserialize, Eq, Copy, Clone)]
 pub enum Reason {
     /// no particular reason for the child to be in this state
     /// this is typically the init state
@@ -88,7 +89,7 @@ impl Display for Reason {
     }
 }
 
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, Eq, PartialEq)]
 pub enum ChildState {
     /// child has not been opened, but we are in the process of opening it
     Init,
@@ -128,7 +129,7 @@ pub struct NexusChild {
     pub(crate) desc: Option<Arc<Descriptor>>,
     /// current state of the child
     #[serde(skip_serializing)]
-    state: ChildState,
+    pub state: AtomicCell<ChildState>,
     /// record of most-recent IO errors
     #[serde(skip_serializing)]
     pub(crate) err_store: Option<NexusErrStore>,
@@ -153,16 +154,16 @@ impl Display for NexusChild {
 }
 
 impl NexusChild {
-    pub(crate) fn set_state(&mut self, state: ChildState) {
+    pub(crate) fn set_state(&self, state: ChildState) {
         trace!(
             "{}: child {}: state change from {} to {}",
             self.parent,
             self.name,
-            self.state.to_string(),
+            self.state.load().to_string(),
             state.to_string(),
         );
 
-        self.state = state;
+        self.state.store(state);
     }
 
     /// Open the child in RW mode and claim the device to be ours. If the child
@@ -280,7 +281,7 @@ impl NexusChild {
     ) -> Result<String, ChildError> {
         // Only online a child if it was previously set offline. Check for a
         // "Closed" state as that is what offlining a child will set it to.
-        match self.state {
+        match self.state.load() {
             ChildState::Closed => {
                 // Re-create the bdev as it will have been previously destroyed.
                 let name =
@@ -307,7 +308,7 @@ impl NexusChild {
 
     /// returns the state of the child
     pub fn state(&self) -> ChildState {
-        self.state
+        self.state.load()
     }
 
     pub(crate) fn rebuilding(&self) -> bool {
@@ -372,7 +373,7 @@ impl NexusChild {
             bdev,
             parent,
             desc: None,
-            state: ChildState::Init,
+            state: AtomicCell::new(ChildState::Init),
             err_store: None,
         }
     }

@@ -15,12 +15,15 @@ pub use env::{
     MayastorCliArgs,
     MayastorEnvironment,
     GLOBAL_RC,
+    SIG_RECEIVED,
 };
 
 pub use handle::BdevHandle;
 pub use reactor::{Reactor, ReactorState, Reactors, REACTOR_LIST};
 pub use share::{Protocol, Share};
 pub use thread::Mthread;
+pub use nvme::{NvmeStatus,GenericStatusCode};
+
 
 mod bdev;
 mod channel;
@@ -30,11 +33,11 @@ mod dma;
 mod env;
 mod handle;
 pub mod io_driver;
+mod nvme;
 mod reactor;
 mod share;
 pub(crate) mod thread;
 mod uuid;
-
 #[derive(Debug, Snafu, Clone)]
 #[snafu(visibility = "pub")]
 pub enum CoreError {

@@ -188,7 +188,18 @@ impl Job {
         let job = unsafe { ioq.job.as_mut() };
 
         if !success {
-            error!("{}: {:#?}", job.thread.as_ref().unwrap().name(), bdev_io);
+            // trace!(
+            //     "core: {} mthread: {:?}{}: {:#?}",
+            //     Cores::current(),
+            //     Mthread::current().unwrap(),
+            //     job.thread.as_ref().unwrap().name(),
+            //     bdev_io
+            // );
+
+            // let bio = Bio::from(bdev_io);
+            // dbg!(&bio);
+            //
+            // dbg!(NvmeStatus::from(bio));
         }
 
         assert_eq!(Cores::current(), job.core);

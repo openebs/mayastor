@@ -353,7 +353,7 @@ impl Config {
     pub fn apply(&self) {
         info!("Applying Mayastor configuration settings");
         // note: nvmf target does not have a set method
-        self.nvme_bdev_opts.set();
+        assert_eq!(self.nvme_bdev_opts.set(), true);
         self.bdev_opts.set();
         self.iscsi_tgt_conf.set();
     }

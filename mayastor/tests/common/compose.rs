@@ -11,7 +11,9 @@ use mayastor::core::{
     MayastorEnvironment,
     Reactor,
     Reactors,
+    GLOBAL_RC,
 };
+use std::time::Duration;
 
 /// Mayastor test structure that simplifies sending futures. Mayastor has
 /// its own reactor, which is not tokio based, so we need to handle properly
@@ -86,10 +88,14 @@ impl<'a> MayastorTest<'a> {
     }
 
     /// explicitly stop mayastor
-    pub async fn stop(mut self) {
+    pub async fn stop(&self) {
         self.spawn(async { mayastor_env_stop(0) }).await;
-        let hdl = self.thdl.take().unwrap();
-        hdl.join().unwrap()
+        loop {
+            if *GLOBAL_RC.lock().unwrap() == 0 {
+                break;
+            }
+            tokio::time::delay_for(Duration::from_millis(500)).await;
+        }
     }
 }
 

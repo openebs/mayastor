@@ -123,7 +123,7 @@ impl NexusModule {
 
         instances
             .iter_mut()
-            .filter(|nexus| nexus.state == NexusState::Init)
+            .filter(|nexus| *nexus.state.lock().unwrap() == NexusState::Init)
             .any(|nexus| {
                 if nexus.examine_child(&name) {
                     info!(

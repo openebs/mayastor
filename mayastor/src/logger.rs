@@ -211,7 +211,7 @@ impl std::fmt::Display for Location<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(file) = self.meta.file() {
             if let Some(line) = self.meta.line() {
-                write!(f, "({}:{}) ", basename(file), line)?;
+                write!(f, "{}:{}] ", basename(file), line)?;
             }
         }
         Ok(())
@@ -240,7 +240,7 @@ where
 
         write!(
             writer,
-            "[{} {} {}] ",
+            "[{} {} {}:",
             chrono::Local::now().format("%FT%T%.9f%Z"),
             FormatLevel::new(meta.level(), self.ansi),
             meta.target()
