@@ -1742,6 +1742,7 @@ dependencies = [
  "mbus_api",
  "nats",
  "nix 0.16.1",
+ "nvmeadm",
  "once_cell",
  "pin-utils",
  "proc-mounts",

@@ -10,7 +10,7 @@ use std::{os::unix::fs::FileTypeExt, path::Path};
 #[derive(Debug, Default)]
 pub struct NvmeDevice {
     /// device path of the device
-    path: String,
+    pub path: String,
     /// the device model defined by the manufacturer
     model: String,
     /// serial number of the device
