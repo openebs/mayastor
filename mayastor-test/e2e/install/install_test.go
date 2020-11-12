@@ -3,6 +3,7 @@ package basic_test
 import (
 	"context"
 	"fmt"
+	corev1 "k8s.io/api/core/v1"
 	"os/exec"
 	"path"
 	"runtime"
@@ -69,7 +70,16 @@ func mayastorReadyPodCount() int {
 		fmt.Println("Failed to get mayastor DaemonSet")
 		return -1
 	}
-	return int(mayastorDaemonSet.Status.CurrentNumberScheduled)
+	return int(mayastorDaemonSet.Status.NumberAvailable)
+}
+
+func moacReadyPodCount() int {
+	var moacDeployment appsv1.Deployment
+	if k8sClient.Get(context.TODO(), types.NamespacedName{Name: "moac", Namespace: "mayastor"}, &moacDeployment) != nil {
+		fmt.Println("Failed to get MOAC deployment")
+		return -1
+	}
+	return int(moacDeployment.Status.AvailableReplicas)
 }
 
 // Install mayastor on the cluster under test.
@@ -77,6 +87,7 @@ func mayastorReadyPodCount() int {
 // objects, so that we can verfiy the local deploy yamls are correct.
 func installMayastor() {
 	applyDeployYaml("namespace.yaml")
+	applyDeployYaml("storage-class.yaml")
 	applyDeployYaml("moac-rbac.yaml")
 	applyDeployYaml("mayastorpoolcrd.yaml")
 	applyDeployYaml("nats-deployment.yaml")
@@ -90,6 +101,26 @@ func installMayastor() {
 		"120s", // timeout
 		"1s",   // polling interval
 	).Should(Equal(3))
+
+	Eventually(moacReadyPodCount(),
+		"60s", // timeout
+		"1s",  // polling interval
+	).Should(Equal(1))
+
+	// Now create pools on all nodes.
+	// Note the disk for use on each node has been set in deploy/pool.yaml
+	nodeList := corev1.NodeList{}
+	if (k8sClient.List(context.TODO(), &nodeList, &client.ListOptions{}) != nil) {
+		fmt.Println("Failed to list Nodes, pools not created")
+		return
+	}
+	for _, k8node := range nodeList.Items {
+		bashcmd := "NODE_NAME=" + k8node.Name + " envsubst < " + "pool.yaml" + " | kubectl apply -f -"
+		cmd := exec.Command("bash", "-c", bashcmd)
+		cmd.Dir = getTemplateYamlDir()
+		_, err := cmd.CombinedOutput()
+		Expect(err).ToNot(HaveOccurred())
+	}
 }
 
 func TestInstallSuite(t *testing.T) {
