@@ -122,7 +122,7 @@ fn rebuild_test_add() {
             .await
             .expect("rebuild not expected to be present");
 
-        nexus_lookup(nexus_name()).unwrap().destroy().await.unwrap();
+        nexus.destroy().await.unwrap();
     });
 
     test_fini();

@@ -346,6 +346,9 @@ impl NexusChild {
     pub(crate) fn remove(&mut self) {
         info!("Removing child {}", self.name);
 
+        // The bdev is being removed, so ensure we don't use it again.
+        self.bdev = None;
+
         // Remove the child from the I/O path.
         self.set_state(ChildState::Closed);
         let nexus_name = self.parent.clone();
@@ -355,9 +358,6 @@ impl NexusChild {
                 None => error!("Nexus {} not found", nexus_name),
             }
         });
-
-        // The bdev is being removed, so ensure we don't use it again.
-        self.bdev = None;
 
         // Dropping the last descriptor results in the bdev being removed.
         // This must be performed in this function.

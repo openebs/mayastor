@@ -555,8 +555,10 @@ impl Nexus {
         // gone
         self.bdev.unshare().await.unwrap();
 
+        // wait for all rebuild jobs to be cancelled before proceeding with the
+        // destruction of the nexus
         for child in self.children.iter() {
-            self.stop_rebuild(&child.name).await.ok();
+            self.cancel_child_rebuild_jobs(&child.name).await;
         }
 
         for child in self.children.iter_mut() {
