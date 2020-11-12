@@ -42,6 +42,25 @@ func applyDeployYaml(filename string) {
 	Expect(err).ToNot(HaveOccurred())
 }
 
+// Encapsulate the logic to find where the templated yamls are
+func getTemplateYamlDir() string {
+	_, filename, _, _ := runtime.Caller(0)
+	return path.Clean(filename + "/../deploy")
+}
+
+func makeImageName(registryaddress string, registryport string, imagename string, imageversion string) string {
+	return registryaddress + ":" + registryport + "/mayadata/" + imagename + ":" + imageversion
+}
+
+func applyTemplatedYaml(filename string, imagename string) {
+	fullimagename := makeImageName("172.18.8.101", "30291", imagename, "ci")
+	bashcmd := "IMAGE_NAME=" + fullimagename + " envsubst < " + filename + " | kubectl apply -f -"
+	cmd := exec.Command("bash", "-c", bashcmd)
+	cmd.Dir = getTemplateYamlDir()
+	_, err := cmd.CombinedOutput()
+	Expect(err).ToNot(HaveOccurred())
+}
+
 // We expect this to fail a few times before it succeeds,
 // so no throwing errors from here.
 func mayastorReadyPodCount() int {
@@ -50,7 +69,6 @@ func mayastorReadyPodCount() int {
 		fmt.Println("Failed to get mayastor DaemonSet")
 		return -1
 	}
-
 	return int(mayastorDaemonSet.Status.CurrentNumberScheduled)
 }
 
@@ -62,16 +80,16 @@ func installMayastor() {
 	applyDeployYaml("moac-rbac.yaml")
 	applyDeployYaml("mayastorpoolcrd.yaml")
 	applyDeployYaml("nats-deployment.yaml")
-	applyDeployYaml("csi-daemonset.yaml")
-	applyDeployYaml("moac-deployment.yaml")
-	applyDeployYaml("mayastor-daemonset.yaml")
+	applyTemplatedYaml("csi-daemonset.yaml.template", "mayastor-csi")
+	applyTemplatedYaml("moac-deployment.yaml.template", "moac")
+	applyTemplatedYaml("mayastor-daemonset.yaml.template", "mayastor")
 
 	// Given the yamls and the environment described in the test readme,
-	// we expect mayastor to be running on exactly 2 nodes.
-	Eventually(mayastorReadyPodCount(),
-		"60s", // timeout
-		"1s",  // polling interval
-	).Should(Equal(2))
+	// we expect mayastor to be running on exactly 3 nodes.
+	Eventually(mayastorReadyPodCount,
+		"120s", // timeout
+		"1s",   // polling interval
+	).Should(Equal(3))
 }
 
 func TestInstallSuite(t *testing.T) {
