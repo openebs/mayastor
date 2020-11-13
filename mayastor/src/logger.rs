@@ -1,4 +1,4 @@
-use std::{ffi::CStr, os::raw::c_char, str::FromStr};
+use std::{ffi::CStr, os::raw::c_char};
 
 use tracing_log::format_trace;
 use tracing_subscriber::{
@@ -78,14 +78,11 @@ pub fn init(level: &str) {
         .with_timer(CustomTime("%FT%T%.9f%Z"))
         .with_span_events(FmtSpan::FULL);
 
-    if let Ok(filter) = EnvFilter::try_from_default_env() {
-        let subscriber = builder.with_env_filter(filter).finish();
-        tracing::subscriber::set_global_default(subscriber)
+    let subscriber = if let Ok(filter) = EnvFilter::try_from_default_env() {
+        builder.with_env_filter(filter).finish()
     } else {
-        let max_level =
-            tracing::Level::from_str(level).unwrap_or(tracing::Level::INFO);
-        let subscriber = builder.with_max_level(max_level).finish();
-        tracing::subscriber::set_global_default(subscriber)
-    }
-    .expect("failed to set default subscriber");
+        builder.with_env_filter(level).finish()
+    };
+    tracing::subscriber::set_global_default(subscriber)
+        .expect("failed to set default subscriber");
 }
