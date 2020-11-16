@@ -27,6 +27,9 @@ prepare_kubespray_repo() {
 \$vm_cpus = 4
 \$kube_node_instances_with_disks = true
 \$kube_node_instances_with_disks_size = "2G"
+\$kube_node_instances_with_disks_number = 1
+\$os = "ubuntu2004"
+\$etcd_instances = 1
 \$kube_master_instances = 1
 EOF
   popd
@@ -64,6 +67,9 @@ setup_one_node() {
 
     vagrant ssh $node_name -c "echo \"{\\\"insecure-registries\\\" : [\\\"${REGISTRY_ENDPOINT}\\\"]}\" | sudo tee /etc/docker/daemon.json"
     vagrant ssh $node_name -c "sudo service docker restart"
+    vagrant ssh $node_name -c "sudo systemctl enable iscsid"
+    vagrant ssh $node_name -c "sudo systemctl start iscsid"
+    vagrant ssh $node_name -c "sudo modprobe nvme-tcp nvmet"
 
     # Make sure everything's back after those restarts...
     export -f wait_for_ready
