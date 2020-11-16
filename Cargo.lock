@@ -1714,10 +1714,12 @@ checksum = "7ffc5c5338469d4d3ea17d269fa8ea3512ad247247c30bd2df69e68309ed0a08"
 name = "mayastor"
 version = "0.1.0"
 dependencies = [
+ "ansi_term 0.12.1",
  "assert_matches",
  "async-mutex",
  "async-task",
  "async-trait",
+ "atty",
  "bincode",
  "bollard",
  "byte-unit",
@@ -1765,6 +1767,7 @@ dependencies = [
  "tonic",
  "tower",
  "tracing",
+ "tracing-core",
  "tracing-futures",
  "tracing-log",
  "tracing-subscriber",
