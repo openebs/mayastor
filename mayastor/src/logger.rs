@@ -3,7 +3,7 @@ use std::{ffi::CStr, fmt::Write, os::raw::c_char, path::Path};
 use ansi_term::{Colour, Style};
 
 use tracing_core::{event::Event, Metadata};
-use tracing_log::{format_trace, NormalizeEvent};
+use tracing_log::{LogTracer, NormalizeEvent};
 use tracing_subscriber::{
     fmt::{
         format::{FmtSpan, FormatEvent, FormatFields},
@@ -55,7 +55,7 @@ pub extern "C" fn log_impl(
         unsafe { CStr::from_ptr(buf).to_string_lossy().trim_end().to_string() };
     let filename = unsafe { CStr::from_ptr(file).to_str().unwrap() };
 
-    format_trace(
+    log::logger().log(
         &log::Record::builder()
             .args(format_args!("{}", arg))
             .level(from_spdk_level(spdk_level))
@@ -63,8 +63,7 @@ pub extern "C" fn log_impl(
             .file(Some(filename))
             .line(Some(line))
             .build(),
-    )
-    .unwrap();
+    );
 }
 
 // Custom struct used to format the log/trace LEVEL
@@ -132,7 +131,7 @@ where
     ansi: bool,
 }
 
-impl<'a, S, N: 'a> CustomContext<'a, S, N>
+impl<'a, S, N> CustomContext<'a, S, N>
 where
     S: tracing_core::subscriber::Subscriber + for<'s> LookupSpan<'s>,
     N: for<'w> FormatFields<'w> + 'static,
@@ -268,10 +267,17 @@ where
 /// We might want to suppress certain messages, as some of them are redundant,
 /// in particular, the NOTICE messages as such, they are mapped to debug.
 pub fn init(level: &str) {
+    // Set up a "logger" that simply translates any "log" messages it receives
+    // to trace events. This is for our custom spdk log messages, but also
+    // for any other third party crates still using the logging facade.
+    LogTracer::init().expect("failed to initialise LogTracer");
+
+    // Our own custom format for displaying trace events.
     let format = CustomFormat {
         ansi: atty::is(atty::Stream::Stdout),
     };
 
+    // Create a default subscriber.
     let builder = tracing_subscriber::fmt::Subscriber::builder()
         .with_span_events(FmtSpan::FULL)
         .event_format(format);
