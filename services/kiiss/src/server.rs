@@ -3,12 +3,11 @@ extern crate lazy_static;
 
 use async_trait::async_trait;
 use common::*;
-use log::info;
-use mbus_api::*;
-use smol::io;
+use mbus_api::{v0::*, *};
 use std::{collections::HashMap, convert::TryInto, marker::PhantomData};
 use structopt::StructOpt;
 use tokio::sync::Mutex;
+use tracing::info;
 
 #[derive(Debug, StructOpt)]
 struct CliArgs {
@@ -37,7 +36,7 @@ lazy_static! {
 
 #[async_trait]
 impl ServiceSubscriber for ServiceHandler<ConfigUpdate> {
-    async fn handler(&self, args: Arguments<'_>) -> Result<(), io::Error> {
+    async fn handler(&self, args: Arguments<'_>) -> Result<(), Error> {
         let data: ConfigUpdate = args.request.inner()?;
         info!("Received: {:?}", data);
 
@@ -66,7 +65,7 @@ impl ServiceSubscriber for ServiceHandler<ConfigUpdate> {
 
 #[async_trait]
 impl ServiceSubscriber for ServiceHandler<ConfigGetCurrent> {
-    async fn handler(&self, args: Arguments<'_>) -> Result<(), io::Error> {
+    async fn handler(&self, args: Arguments<'_>) -> Result<(), Error> {
         let data: ConfigGetCurrent = args.request.inner()?;
         info!("Received: {:?}", data);
 
@@ -85,14 +84,14 @@ impl ServiceSubscriber for ServiceHandler<ConfigGetCurrent> {
                     .await
                 }
                 None => {
-                    msg.reply(Err(Error::WithMessage {
+                    msg.reply(Err(BusError::WithMessage {
                         message: "Config is missing".into(),
                     }))
                     .await
                 }
             },
             None => {
-                msg.reply(Err(Error::WithMessage {
+                msg.reply(Err(BusError::WithMessage {
                     message: "Config is missing".into(),
                 }))
                 .await
@@ -106,7 +105,7 @@ impl ServiceSubscriber for ServiceHandler<ConfigGetCurrent> {
 
 #[async_trait]
 impl ServiceSubscriber for ServiceHandler<Register> {
-    async fn handler(&self, args: Arguments<'_>) -> Result<(), io::Error> {
+    async fn handler(&self, args: Arguments<'_>) -> Result<(), Error> {
         let _: ReceivedMessage<Register, ()> = args.request.try_into()?;
         Ok(())
     }
@@ -117,7 +116,7 @@ impl ServiceSubscriber for ServiceHandler<Register> {
 
 #[async_trait]
 impl ServiceSubscriber for ServiceHandler<Deregister> {
-    async fn handler(&self, args: Arguments<'_>) -> Result<(), io::Error> {
+    async fn handler(&self, args: Arguments<'_>) -> Result<(), Error> {
         let _: ReceivedMessage<Deregister, ()> = args.request.try_into()?;
         Ok(())
     }
@@ -126,12 +125,17 @@ impl ServiceSubscriber for ServiceHandler<Deregister> {
     }
 }
 
+fn init_tracing() {
+    if let Ok(filter) = tracing_subscriber::EnvFilter::try_from_default_env() {
+        tracing_subscriber::fmt().with_env_filter(filter).init();
+    } else {
+        tracing_subscriber::fmt().with_env_filter("info").init();
+    }
+}
+
 #[tokio::main]
 async fn main() {
-    env_logger::init_from_env(
-        env_logger::Env::default()
-            .filter_or(env_logger::DEFAULT_FILTER_ENV, "info"),
-    );
+    init_tracing();
 
     let cli_args = CliArgs::from_args();
     info!("Using options: {:?}", &cli_args);
@@ -140,10 +144,10 @@ async fn main() {
 }
 
 async fn server(cli_args: CliArgs) {
-    Service::builder(cli_args.url, Channel::Kiiss)
+    Service::builder(cli_args.url, ChannelVs::Kiiss)
         .with_subscription(ServiceHandler::<ConfigUpdate>::default())
         .with_subscription(ServiceHandler::<ConfigGetCurrent>::default())
-        .with_channel(Channel::Registry)
+        .with_channel(ChannelVs::Registry)
         .with_subscription(ServiceHandler::<Register>::default())
         .with_subscription(ServiceHandler::<Deregister>::default())
         .run()

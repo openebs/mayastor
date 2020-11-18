@@ -8,25 +8,26 @@ use async_trait::async_trait;
 use dyn_clonable::clonable;
 use futures::{future::join_all, stream::StreamExt};
 use mbus_api::*;
-use smol::io;
 use snafu::{OptionExt, ResultExt, Snafu};
-use std::collections::HashMap;
+use state::Container;
+use std::{collections::HashMap, convert::Into, ops::Deref};
+use tracing::{debug, error};
 
 #[derive(Debug, Snafu)]
 #[allow(missing_docs)]
 pub enum ServiceError {
-    #[snafu(display("Channel {} has been closed.", channel))]
+    #[snafu(display("Channel {} has been closed.", channel.to_string()))]
     GetMessage {
         channel: Channel,
     },
-    #[snafu(display("Failed to subscribe on Channel {}", channel))]
+    #[snafu(display("Failed to subscribe on Channel {}", channel.to_string()))]
     Subscribe {
         channel: Channel,
-        source: io::Error,
+        source: Error,
     },
     GetMessageId {
         channel: Channel,
-        source: io::Error,
+        source: Error,
     },
     FindSubscription {
         channel: Channel,
@@ -35,32 +36,43 @@ pub enum ServiceError {
     HandleMessage {
         channel: Channel,
         id: MessageId,
-        source: io::Error,
+        source: Error,
     },
 }
 
 /// Runnable service with N subscriptions which listen on a given
 /// message bus channel on a specific ID
-#[derive(Default)]
 pub struct Service {
     server: String,
     channel: Channel,
     subscriptions: HashMap<String, Vec<Box<dyn ServiceSubscriber>>>,
+    shared_state: std::sync::Arc<state::Container>,
+}
+
+impl Default for Service {
+    fn default() -> Self {
+        Self {
+            server: "".to_string(),
+            channel: Default::default(),
+            subscriptions: Default::default(),
+            shared_state: std::sync::Arc::new(Container::new()),
+        }
+    }
 }
 
 /// Service Arguments for the service handler callback
 pub struct Arguments<'a> {
     /// Service context, like access to the message bus
-    pub context: Context<'a>,
+    pub context: &'a Context<'a>,
     /// Access to the actual message bus request
     pub request: Request<'a>,
 }
 
 impl<'a> Arguments<'a> {
     /// Returns a new Service Argument to be use by a Service Handler
-    pub fn new(bus: &'a DynBus, msg: &'a BusMessage) -> Self {
+    pub fn new(context: &'a Context, msg: &'a BusMessage) -> Self {
         Self {
-            context: bus.into(),
+            context,
             request: msg.into(),
         }
     }
@@ -71,20 +83,26 @@ impl<'a> Arguments<'a> {
 #[derive(Clone)]
 pub struct Context<'a> {
     bus: &'a DynBus,
-}
-
-impl<'a> From<&'a DynBus> for Context<'a> {
-    fn from(bus: &'a DynBus) -> Self {
-        Self {
-            bus,
-        }
-    }
+    state: &'a Container,
 }
 
 impl<'a> Context<'a> {
+    /// create a new context
+    pub fn new(bus: &'a DynBus, state: &'a Container) -> Self {
+        Self {
+            bus,
+            state,
+        }
+    }
     /// get the message bus from the context
     pub fn get_bus_as_ref(&self) -> &'a DynBus {
         self.bus
+    }
+    /// get the shared state of type `T` from the context
+    pub fn get_state<T: Send + Sync + 'static>(&self) -> &T {
+        self.state
+            .try_get()
+            .expect("Requested data type not shared via with_shared_data!")
     }
 }
 
@@ -97,24 +115,52 @@ pub type Request<'a> = ReceivedRawMessage<'a>;
 /// which processes the messages and a filter to match message types
 pub trait ServiceSubscriber: Clone + Send + Sync {
     /// async handler which processes the messages
-    async fn handler(&self, args: Arguments<'_>) -> Result<(), io::Error>;
+    async fn handler(&self, args: Arguments<'_>) -> Result<(), Error>;
     /// filter which identifies which messages may be routed to the handler
     fn filter(&self) -> Vec<MessageId>;
 }
 
 impl Service {
     /// Setup default service connecting to `server` on subject `channel`
-    pub fn builder(server: String, channel: Channel) -> Self {
+    pub fn builder(server: String, channel: impl Into<Channel>) -> Self {
         Self {
             server,
-            channel,
+            channel: channel.into(),
             ..Default::default()
         }
     }
 
-    /// Setup default `channel`
-    pub fn with_channel(mut self, channel: Channel) -> Self {
-        self.channel = channel;
+    /// Setup default `channel` where `with_subscription` will listen on
+    pub fn with_channel(mut self, channel: impl Into<Channel>) -> Self {
+        self.channel = channel.into();
+        self
+    }
+
+    /// Add a new service-wide shared state which can be retried in the handlers
+    /// (more than one type of data can be added).
+    /// The type must be `Send + Sync + 'static`.
+    ///
+    /// Example:
+    /// # async fn main() {
+    /// # Service::builder(cli_args.url, Channel::Registry)
+    ///         .with_shared_state(NodeStore::default())
+    ///         .with_shared_state(More {})
+    ///         .with_subscription(ServiceHandler::<Register>::default())
+    /// #         .run().await;
+    ///
+    /// # async fn handler(&self, args: Arguments<'_>) -> Result<(), Error> {
+    ///    let store: &NodeStore = args.context.get_state();
+    ///    let more: &More = args.context.get_state();
+    /// # Ok(())
+    /// # }
+    pub fn with_shared_state<T: Send + Sync + 'static>(self, state: T) -> Self {
+        let type_name = std::any::type_name::<T>();
+        if !self.shared_state.set(state) {
+            panic!(format!(
+                "Shared state for type '{}' has already been set!",
+                type_name
+            ));
+        }
         self
     }
 
@@ -151,6 +197,7 @@ impl Service {
         bus: DynBus,
         channel: Channel,
         subscriptions: &[Box<dyn ServiceSubscriber>],
+        state: std::sync::Arc<Container>,
     ) -> Result<(), ServiceError> {
         let mut handle =
             bus.subscribe(channel.clone()).await.context(Subscribe {
@@ -161,12 +208,15 @@ impl Service {
             let message = handle.next().await.context(GetMessage {
                 channel: channel.clone(),
             })?;
-            let args = Arguments::new(&bus, &message);
+
+            let context = Context::new(&bus, state.deref());
+            let args = Arguments::new(&context, &message);
+            debug!("Processing message: {{ {} }}", args.request);
 
             if let Err(error) =
                 Self::process_message(args, &subscriptions).await
             {
-                log::error!("Error processing message: {}", error);
+                error!("Error processing message: {}", error);
             }
         }
     }
@@ -201,7 +251,7 @@ impl Service {
 
         if let Err(error) = result.as_ref() {
             // todo: should an error be returned to the sender?
-            log::error!(
+            error!(
                 "Error handling message id {:?}: {:?}",
                 subscription.filter(),
                 error
@@ -228,10 +278,16 @@ impl Service {
             let bus = bus.clone();
             let channel = subscriptions.0.clone();
             let subscriptions = subscriptions.1.clone();
+            let state = self.shared_state.clone();
 
             let handle = tokio::spawn(async move {
-                Self::run_channel(bus, channel.parse().unwrap(), &subscriptions)
-                    .await
+                Self::run_channel(
+                    bus,
+                    channel.parse().unwrap(),
+                    &subscriptions,
+                    state,
+                )
+                .await
             });
 
             threads.push(handle);
@@ -241,11 +297,9 @@ impl Service {
             .await
             .iter()
             .for_each(|result| match result {
-                Err(error) => {
-                    log::error!("Failed to wait for thread: {:?}", error)
-                }
+                Err(error) => error!("Failed to wait for thread: {:?}", error),
                 Ok(Err(error)) => {
-                    log::error!("Error running channel thread: {:?}", error)
+                    error!("Error running channel thread: {:?}", error)
                 }
                 _ => {}
             });

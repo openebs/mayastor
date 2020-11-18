@@ -14,7 +14,7 @@ struct CliArgs {
     url: String,
 
     /// Channel to send to
-    #[structopt(long, short, default_value = "default")]
+    #[structopt(long, short, default_value = "v0/default")]
     channel: Channel,
 
     /// With server in this binary
@@ -65,6 +65,8 @@ async fn main() {
             .filter_or(env_logger::DEFAULT_FILTER_ENV, "info"),
     );
     let cli_args = CliArgs::from_args();
+    log::info!("Using args: {:?}", cli_args);
+
     message_bus_init(cli_args.url).await;
 
     if cli_args.server {
@@ -82,9 +84,12 @@ async fn main() {
     info!("Received reply: {:?}", reply);
 
     // We can also use the following api to specify a different channel and bus
-    let reply =
-        DummyRequest::Request(&DummyRequest {}, Channel::Default, bus())
-            .await
-            .unwrap();
+    let reply = DummyRequest::Request(
+        &DummyRequest {},
+        Channel::v0(v0::ChannelVs::Default),
+        bus(),
+    )
+    .await
+    .unwrap();
     info!("Received reply: {:?}", reply);
 }

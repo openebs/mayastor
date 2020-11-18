@@ -1,6 +1,6 @@
-use log::info;
-use mbus_api::*;
+use mbus_api::{v0::*, *};
 use structopt::StructOpt;
+use tracing::info;
 
 #[derive(Debug, StructOpt)]
 struct CliArgs {
@@ -11,12 +11,17 @@ struct CliArgs {
     url: String,
 }
 
+fn init_tracing() {
+    if let Ok(filter) = tracing_subscriber::EnvFilter::try_from_default_env() {
+        tracing_subscriber::fmt().with_env_filter(filter).init();
+    } else {
+        tracing_subscriber::fmt().with_env_filter("info").init();
+    }
+}
+
 #[tokio::main]
 async fn main() {
-    env_logger::init_from_env(
-        env_logger::Env::default()
-            .filter_or(env_logger::DEFAULT_FILTER_ENV, "info"),
-    );
+    init_tracing();
 
     client().await;
 }
@@ -37,7 +42,7 @@ async fn client() {
         &ConfigGetCurrent {
             kind: Config::MayastorConfig,
         },
-        Channel::Kiiss,
+        Channel::v0(v0::ChannelVs::Kiiss),
         bus(),
     )
     .await

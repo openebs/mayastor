@@ -117,7 +117,7 @@ class MessageBus {
   }
 
   _subscribe () {
-    this.nc.subscribe('registry', (err, msg) => {
+    this.nc.subscribe('v0/registry', (err, msg) => {
       if (err) {
         log.error(`Error receiving a registry message: ${err}`);
         return;
@@ -127,9 +127,9 @@ class MessageBus {
         return;
       }
 
-      if (payload.id == "register") {
+      if (payload.id == "v0/register") {
         this._registrationReceived(payload.data);
-      } else if (payload.id == "deregister") {
+      } else if (payload.id == "v0/deregister") {
         this._deregistrationReceived(payload.data);
       } else {
         const id = payload.id;

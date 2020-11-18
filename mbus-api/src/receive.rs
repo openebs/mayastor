@@ -53,8 +53,8 @@ where
         let request: SendPayload<S> =
             serde_json::from_slice(&bus_message.data)?;
         if request.id == request.data.id() {
-            log::info!(
-                "We have a message from '{}': {:?}",
+            log::trace!(
+                "Received message from '{}': {:?}",
                 request.sender,
                 request.data
             );
@@ -78,10 +78,23 @@ pub struct ReceivedRawMessage<'a> {
     bus_msg: &'a BusMessage,
 }
 
+impl std::fmt::Display for ReceivedRawMessage<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "channel: {}, msg_id: {:?}, reply_id: {:?}, data: {:?}",
+            self.bus_msg.subject,
+            self.id(),
+            self.bus_msg.reply,
+            std::str::from_utf8(&self.bus_msg.data)
+        )
+    }
+}
+
 impl<'a> ReceivedRawMessage<'a> {
     /// Get a copy of the actual payload data which was sent
     /// May fail if the raw data cannot be deserialized into `S`
-    pub fn inner<S: Deserialize<'a>>(&self) -> io::Result<S> {
+    pub fn inner<S: Deserialize<'a> + Message>(&self) -> io::Result<S> {
         let request: SendPayload<S> =
             serde_json::from_slice(&self.bus_msg.data)?;
         Ok(request.data)
@@ -154,8 +167,8 @@ impl<T> From<T> for ReplyPayload<T> {
     }
 }
 
-impl<T> From<Result<T, Error>> for ReplyPayload<T> {
-    fn from(val: Result<T, Error>) -> Self {
+impl<T> From<Result<T, BusError>> for ReplyPayload<T> {
+    fn from(val: Result<T, BusError>) -> Self {
         ReplyPayload(val)
     }
 }

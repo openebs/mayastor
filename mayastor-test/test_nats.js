@@ -53,7 +53,7 @@ function stopNats (done) {
 }
 
 function assertRegisterMessage (msg) {
-  assert(JSON.parse(msg).id == "register" );
+  assert(JSON.parse(msg).id == "v0/register" );
   const args = JSON.parse(msg).data;
   assert.hasAllKeys(args, ['id', 'grpcEndpoint']);
   assert.strictEqual(args.id, NODE_NAME);
@@ -91,7 +91,7 @@ describe('nats', function () {
         MAYASTOR_HB_INTERVAL: HB_INTERVAL
       });
       // wait for the register message
-      const sid = client.subscribe('registry', (msg) => {
+      const sid = client.subscribe('v0/registry', (msg) => {
         client.unsubscribe(sid);
         assertRegisterMessage(msg);
         done();
@@ -100,7 +100,7 @@ describe('nats', function () {
   });
 
   it('should keep sending registration messages', (done) => {
-    const sid = client.subscribe('registry', (msg) => {
+    const sid = client.subscribe('v0/registry', (msg) => {
       client.unsubscribe(sid);
       assertRegisterMessage(msg);
       done();
@@ -111,7 +111,7 @@ describe('nats', function () {
     // simulate outage of NATS server for a duration of two heartbeats
     stopNats(() => {
       setTimeout(() => {
-        const sid = client.subscribe('registry', (msg) => {
+        const sid = client.subscribe('v0/registry', (msg) => {
           client.unsubscribe(sid);
           assertRegisterMessage(msg);
           done();
@@ -124,9 +124,9 @@ describe('nats', function () {
   });
 
   it('should send a deregistration message when mayastor is shut down', (done) => {
-    const sid = client.subscribe('registry', (msg) => {
+    const sid = client.subscribe('v0/registry', (msg) => {
       client.unsubscribe(sid);
-      assert(JSON.parse(msg).id == "deregister" );
+      assert(JSON.parse(msg).id == "v0/deregister" );
       const args = JSON.parse(msg).data;
       assert.hasAllKeys(args, ['id']);
       assert.strictEqual(args.id, NODE_NAME);

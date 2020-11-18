@@ -16,6 +16,9 @@ dyn-clonable = "0.9.0"
 smol = "1.0.0"
 once_cell = "1.4.1"
 snafu = "0.6"
+strum = "0.19"
+strum_macros = "0.19"
+tracing = "0.1"
 
 [dependencies.serde]
 features = ["derive"]

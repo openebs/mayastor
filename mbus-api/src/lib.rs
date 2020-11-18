@@ -8,6 +8,8 @@ mod mbus_nats;
 pub mod receive;
 /// send messages traits
 pub mod send;
+/// Version 0 of the messages
+pub mod v0;
 
 use async_trait::async_trait;
 use dyn_clonable::clonable;
@@ -19,138 +21,102 @@ use smol::io;
 use snafu::Snafu;
 use std::{fmt::Debug, marker::PhantomData, str::FromStr, time::Duration};
 
+/// Common error type for send/receive
+pub type Error = io::Error;
+
 /// Available Message Bus channels
 #[derive(Clone, Debug)]
+#[allow(non_camel_case_types)]
 pub enum Channel {
-    /// Default
-    Default,
-    /// Registration of mayastor instances with the control plane
-    Registry,
-    /// Keep it In Sync Service
-    Kiiss,
-    /// Reply to requested Channel
-    Reply(String),
+    /// Version 0 of the Channels
+    v0(v0::ChannelVs),
 }
 
 impl FromStr for Channel {
-    type Err = String;
+    type Err = strum::ParseError;
 
     fn from_str(source: &str) -> Result<Self, Self::Err> {
-        match source {
-            "default" => Ok(Self::Default),
-            "registry" => Ok(Self::Registry),
-            "kiiss" => Ok(Self::Kiiss),
-            _ => Err(format!("Could not parse the channel: {}", source)),
+        match &source[0 ..= 2] {
+            "v0/" => {
+                let c: v0::ChannelVs = source[3 ..].parse()?;
+                Ok(Self::v0(c))
+            }
+            _ => Err(strum::ParseError::VariantNotFound),
+        }
+    }
+}
+impl ToString for Channel {
+    fn to_string(&self) -> String {
+        match self {
+            Self::v0(channel) => format!("v0/{}", channel.to_string()),
         }
     }
 }
 
 impl Default for Channel {
     fn default() -> Self {
-        Channel::Default
-    }
-}
-
-impl std::fmt::Display for Channel {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            Channel::Default => write!(f, "default"),
-            Channel::Registry => write!(f, "registry"),
-            Channel::Kiiss => write!(f, "kiiss"),
-            Channel::Reply(ch) => write!(f, "{}", ch),
-        }
+        Channel::v0(v0::ChannelVs::Default)
     }
 }
 
 /// Message id which uniquely identifies every type of unsolicited message
 /// The solicited (replies) message do not currently carry an id as they
 /// are sent to a specific requested channel
-#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, PartialEq, Clone)]
+#[allow(non_camel_case_types)]
 pub enum MessageId {
-    /// Default
-    Default,
-    /// Update Config
-    ConfigUpdate,
-    /// Request current Config
-    ConfigGetCurrent,
-    /// Register mayastor
-    Register,
-    /// Deregister mayastor
-    Deregister,
+    /// Version 0
+    v0(v0::MessageIdVs),
+}
+
+impl Serialize for MessageId {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        serializer.serialize_str(self.to_string().as_str())
+    }
+}
+impl<'de> Deserialize<'de> for MessageId {
+    fn deserialize<D>(deserializer: D) -> Result<MessageId, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let string = String::deserialize(deserializer)?;
+        match string.parse() {
+            Ok(id) => Ok(id),
+            Err(error) => {
+                let error =
+                    format!("Failed to parse into MessageId, error: {}", error);
+                Err(serde::de::Error::custom(error))
+            }
+        }
+    }
+}
+
+impl FromStr for MessageId {
+    type Err = strum::ParseError;
+
+    fn from_str(source: &str) -> Result<Self, Self::Err> {
+        match &source[0 ..= 2] {
+            "v0/" => {
+                let id: v0::MessageIdVs = source[3 ..].parse()?;
+                Ok(Self::v0(id))
+            }
+            _ => Err(strum::ParseError::VariantNotFound),
+        }
+    }
+}
+impl ToString for MessageId {
+    fn to_string(&self) -> String {
+        match self {
+            Self::v0(id) => format!("v0/{}", id.to_string()),
+        }
+    }
 }
 
 /// Sender identification (eg which mayastor instance sent the message)
 pub type SenderId = String;
-
-/// Mayastor configurations
-/// Currently, we have the global mayastor config and the child states config
-#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq, Hash)]
-pub enum Config {
-    /// Mayastor global config
-    MayastorConfig,
-    /// Mayastor child states config
-    ChildStatesConfig,
-}
-impl Default for Config {
-    fn default() -> Self {
-        Config::MayastorConfig
-    }
-}
-
-/// Config Messages
-
-/// Update mayastor configuration
-#[derive(Serialize, Deserialize, Debug, Default, Clone)]
-pub struct ConfigUpdate {
-    /// type of config being updated
-    pub kind: Config,
-    /// actual config data
-    pub data: Vec<u8>,
-}
-bus_impl_message_all!(ConfigUpdate, ConfigUpdate, (), Kiiss);
-
-/// Request message configuration used by mayastor to request configuration
-/// from a control plane service
-#[derive(Serialize, Deserialize, Debug, Default, Clone)]
-pub struct ConfigGetCurrent {
-    /// type of config requested
-    pub kind: Config,
-}
-/// Reply message configuration returned by a controle plane service to mayastor
-#[derive(Serialize, Deserialize, Debug, Default, Clone)]
-pub struct ReplyConfig {
-    /// config data
-    pub config: Vec<u8>,
-}
-bus_impl_message_all!(
-    ConfigGetCurrent,
-    ConfigGetCurrent,
-    ReplyConfig,
-    Kiiss,
-    GetConfig
-);
-
-/// Registration
-
-/// Register message payload
-#[derive(Serialize, Deserialize, Default, Debug, Clone)]
-pub struct Register {
-    /// id of the mayastor instance
-    pub id: String,
-    /// grpc_endpoint of the mayastor instance
-    #[serde(rename = "grpcEndpoint")]
-    pub grpc_endpoint: String,
-}
-bus_impl_message_all!(Register, Register, (), Registry);
-
-/// Deregister message payload
-#[derive(Serialize, Deserialize, Default, Debug, Clone)]
-pub struct Deregister {
-    /// id of the mayastor instance
-    pub id: String,
-}
-bus_impl_message_all!(Deregister, Deregister, (), Registry);
 
 /// This trait defines all Bus Messages which must:
 /// 1 - be uniquely identifiable via MessageId
@@ -198,7 +164,7 @@ struct SendPayload<T> {
 /// for any other operation
 #[derive(Serialize, Deserialize, Debug, Snafu)]
 #[allow(missing_docs)]
-pub enum Error {
+pub enum BusError {
     #[snafu(display("Generic Failure, message={}", message))]
     WithMessage { message: String },
     #[snafu(display("Ill formed request when deserializing the request"))]
@@ -208,7 +174,7 @@ pub enum Error {
 /// Payload returned to the sender
 /// Includes an error as the operations may be fallible
 #[derive(Serialize, Deserialize)]
-pub struct ReplyPayload<T>(pub Result<T, Error>);
+pub struct ReplyPayload<T>(pub Result<T, BusError>);
 
 // todo: implement thin wrappers on these
 /// MessageBus raw Message
