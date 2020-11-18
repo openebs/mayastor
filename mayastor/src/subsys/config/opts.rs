@@ -133,7 +133,7 @@ pub struct TcpTransportOpts {
     max_io_size: u32,
     /// IO unit size
     io_unit_size: u32,
-    /// max admin queue depth (?)
+    /// max admin queue depth per admin queue
     max_aq_depth: u32,
     /// num of shared buffers
     num_shared_buf: u32,
@@ -147,8 +147,11 @@ pub struct TcpTransportOpts {
     ch2_success: bool,
     /// dif
     dif_insert_or_strip: bool,
-    /// no idea
+    /// The socket priority of the connection owned by this transport (TCP
+    /// only)
     sock_priority: u32,
+    /// abort execution timeout
+    abort_timeout_sec: u32,
 }
 
 impl Default for TcpTransportOpts {
@@ -160,14 +163,14 @@ impl Default for TcpTransportOpts {
             io_unit_size: 131_072,
             ch2_success: true,
             max_qpairs_per_ctrl: 128,
-            num_shared_buf: 511,
-            // reduce when we have a single target
+            num_shared_buf: 2048,
             buf_cache_size: 64,
             dif_insert_or_strip: false,
             max_aq_depth: 128,
             max_srq_depth: 0, // RDMA
             no_srq: false,    // RDMA
             sock_priority: 0,
+            abort_timeout_sec: 1,
         }
     }
 }
@@ -187,7 +190,7 @@ impl From<TcpTransportOpts> for spdk_nvmf_transport_opts {
             num_shared_buffers: o.num_shared_buf,
             buf_cache_size: o.buf_cache_size,
             dif_insert_or_strip: o.dif_insert_or_strip,
-            abort_timeout_sec: 0,
+            abort_timeout_sec: o.abort_timeout_sec,
             association_timeout: 120000,
             transport_specific: std::ptr::null(),
         }
