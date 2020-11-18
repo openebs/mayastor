@@ -51,8 +51,8 @@ const opts = yargs
 const nc = nats.connect(opts.s);
 nc.on('connect', () => {
   if (opts._[0] === 'register') {
-    nc.publish('registry', JSON.stringify({
-      id: "register",
+    nc.publish('v0/registry', JSON.stringify({
+      id: "v0/register",
       sender: "moac",
       data: {
       id: opts.node,
@@ -60,8 +60,8 @@ nc.on('connect', () => {
       }
     }));
   } else if (opts._[0] === 'deregister') {
-    nc.publish('registry', JSON.stringify({
-      id: "deregister",
+    nc.publish('v0/registry', JSON.stringify({
+      id: "v0/deregister",
       sender: "moac",
       data: {
       id: opts.node

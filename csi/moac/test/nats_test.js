@@ -90,8 +90,8 @@ module.exports = function () {
   });
 
   it('should register a node', async () => {
-    nc.publish('registry', JSON.stringify({
-      id: 'register',
+    nc.publish('v0/registry', JSON.stringify({
+      id: 'v0/register',
       data: { id: NODE_NAME, grpcEndpoint: GRPC_ENDPOINT }
     }));
     await waitUntil(async () => {
@@ -103,8 +103,8 @@ module.exports = function () {
   });
 
   it('should ignore register request with missing node name', async () => {
-    nc.publish('registry', JSON.stringify({
-      id: 'register',
+    nc.publish('v0/registry', JSON.stringify({
+      id: 'v0/register',
       data: { grpcEndpoint: GRPC_ENDPOINT }
     }));
     // small delay to wait for a possible crash of moac
@@ -112,8 +112,8 @@ module.exports = function () {
   });
 
   it('should ignore register request with missing grpc endpoint', async () => {
-    nc.publish('registry', JSON.stringify({
-      id: 'register',
+    nc.publish('v0/registry', JSON.stringify({
+      id: 'v0/register',
       data: { id: NODE_NAME }
     }));
     // small delay to wait for a possible crash of moac
@@ -121,14 +121,14 @@ module.exports = function () {
   });
 
   it('should not crash upon a request with invalid JSON', async () => {
-    nc.publish('register', '{"id": "NODE", "grpcEndpoint": "something"');
+    nc.publish('v0/register', '{"id": "NODE", "grpcEndpoint": "something"');
     // small delay to wait for a possible crash of moac
     await sleep(10);
   });
 
   it('should deregister a node', async () => {
-    nc.publish('registry', JSON.stringify({
-      id: 'deregister',
+    nc.publish('v0/registry', JSON.stringify({
+      id: 'v0/deregister',
       data: { id: NODE_NAME }
     }));
     await waitUntil(async () => {

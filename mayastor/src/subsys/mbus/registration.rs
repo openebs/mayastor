@@ -8,7 +8,7 @@
 //! containing the node name and the grpc endpoint.
 
 use futures::{select, FutureExt, StreamExt};
-use mbus_api::*;
+use mbus_api::{v0::*, *};
 use once_cell::sync::OnceCell;
 use snafu::Snafu;
 use std::{env, time::Duration};

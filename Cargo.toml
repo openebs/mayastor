@@ -15,5 +15,8 @@ members = [
 	"rpc",
 	"sysfs",
 	"services",
-	"mbus-api"
+	"mbus-api",
+	"composer",
+	"rest",
+	"operators",
 ]

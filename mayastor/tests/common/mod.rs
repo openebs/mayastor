@@ -24,7 +24,7 @@ pub mod compose;
 pub mod error_bdev;
 pub mod ms_exec;
 
-pub use compose::{ComposeTest, MayastorTest, RpcHandle};
+pub use compose::MayastorTest;
 
 /// call F cnt times, and sleep for a duration between each invocation
 pub fn retry<F, T, E>(mut cnt: u32, timeout: Duration, mut f: F) -> T

@@ -139,12 +139,8 @@ macro_rules! bus_impl_message {
         impl Message for $S {
             type Reply = $R;
 
-            fn id(&self) -> MessageId {
-                MessageId::$I
-            }
-            fn channel(&self) -> Channel {
-                Channel::$C
-            }
+            impl_channel_id!($I, $C);
+
             async fn publish(&self) -> smol::io::Result<()> {
                 $T::Publish(self, self.channel(), bus()).await
             }

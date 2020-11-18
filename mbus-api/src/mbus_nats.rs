@@ -1,8 +1,8 @@
 use super::*;
-use log::{info, warn};
 use nats::asynk::Connection;
 use once_cell::sync::OnceCell;
 use smol::io;
+use tracing::{info, warn};
 
 static NATS_MSG_BUS: OnceCell<NatsMessageBus> = OnceCell::new();
 /// Initialise the Nats Message Bus with the current tokio runtime

@@ -13,7 +13,7 @@ struct CliArgs {
     url: String,
 
     /// Channel to listen on
-    #[structopt(long, short, default_value = "default")]
+    #[structopt(long, short, default_value = "v0/default")]
     channel: Channel,
 
     /// Receiver version
@@ -68,6 +68,9 @@ async fn main() {
             .filter_or(env_logger::DEFAULT_FILTER_ENV, "info"),
     );
     let cli_args = CliArgs::from_args();
+    log::info!("Using args: {:?}", cli_args);
+    log::info!("CH: {}", Channel::v0(v0::ChannelVs::Default).to_string());
+
     message_bus_init(cli_args.url).await;
 
     let mut sub = bus().subscribe(cli_args.channel).await.unwrap();
@@ -117,7 +120,7 @@ async fn receive_v3(sub: &mut nats::asynk::Subscription, count: u64) {
         message.try_into().unwrap();
     message
         // same function can receive an error
-        .reply(Err(Error::WithMessage {
+        .reply(Err(BusError::WithMessage {
             message: format!("Fake Error {}", count),
         }))
         .await

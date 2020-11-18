@@ -2,7 +2,6 @@ use async_trait::async_trait;
 use common::*;
 use mbus_api::*;
 use serde::{Deserialize, Serialize};
-use smol::io;
 use std::{convert::TryInto, marker::PhantomData};
 use structopt::StructOpt;
 
@@ -36,7 +35,7 @@ bus_impl_message_all!(GetSvcName, Default, SvcName, Default);
 
 #[async_trait]
 impl ServiceSubscriber for ServiceHandler<GetSvcName> {
-    async fn handler(&self, args: Arguments<'_>) -> Result<(), io::Error> {
+    async fn handler(&self, args: Arguments<'_>) -> Result<(), Error> {
         let msg: ReceivedMessage<GetSvcName, SvcName> =
             args.request.try_into()?;
 
@@ -73,7 +72,7 @@ async fn client() {
 async fn server() {
     let cli_args = CliArgs::from_args();
 
-    Service::builder(cli_args.url, Channel::Default)
+    Service::builder(cli_args.url, v0::ChannelVs::Default)
         .with_subscription(ServiceHandler::<GetSvcName>::default())
         .run()
         .await;
