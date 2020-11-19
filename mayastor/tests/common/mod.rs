@@ -134,7 +134,7 @@ pub fn mayastor_test_init() {
                 panic!("binary: {} not present in path", binary);
             }
         });
-    logger::init("mayastor=DEBUG");
+    logger::init("info,mayastor=DEBUG");
     mayastor::CPS_INIT!();
 }
 
