@@ -51,7 +51,7 @@ async fn client() -> Result<(), Box<dyn std::error::Error>> {
         .add_container_spec(
             ContainerSpec::new(
                 "rest",
-                Binary::from_nix("rest").with_args(nats_arg.clone()),
+                Binary::from_dbg("rest").with_args(nats_arg.clone()),
             )
             .with_portmap("8080", "8080"),
         )
@@ -65,12 +65,13 @@ async fn client() -> Result<(), Box<dyn std::error::Error>> {
         .build_only()
         .await?;
 
-    orderly_start(&test).await?;
-
-    client_test(mayastor, &test).await?;
+    let result = client_test(mayastor, &test).await;
 
     // run with --nocapture to see all the logs
     test.logs_all().await?;
+
+    result?;
+
     Ok(())
 }
 
@@ -78,8 +79,10 @@ async fn client_test(
     mayastor: &str,
     test: &ComposeTest,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let client = ActixRestClient::new("https://localhost:8080").unwrap().v0();
-    let nodes = client.get_nodes().await.unwrap();
+    orderly_start(&test).await?;
+
+    let client = ActixRestClient::new("https://localhost:8080")?.v0();
+    let nodes = client.get_nodes().await?;
     assert_eq!(nodes.len(), 1);
     assert_eq!(
         nodes.first().unwrap(),
