@@ -81,10 +81,10 @@ fn parse_mb(src: &str) -> Result<i32, String> {
 )]
 pub struct MayastorCliArgs {
     #[structopt(short = "g", default_value = grpc::default_endpoint_str())]
-    /// IP address and port (optional) for the gRPC server to listen on
+    /// IP address and port (optional) for the gRPC server to listen on.
     pub grpc_endpoint: String,
     #[structopt(short = "L")]
-    /// Enable logging for sub components
+    /// Enable logging for sub components.
     pub log_components: Vec<String>,
     #[structopt(short = "m", default_value = "0x1")]
     /// The reactor mask to be used for starting up the instance
@@ -93,10 +93,10 @@ pub struct MayastorCliArgs {
     /// Name of the node where mayastor is running (ID used by control plane)
     pub node_name: Option<String>,
     #[structopt(short = "n")]
-    /// Hostname/IP and port (optional) of the message bus server
+    /// Hostname/IP and port (optional) of the message bus server.
     pub mbus_endpoint: Option<String>,
     /// The maximum amount of hugepage memory we are allowed to allocate in MiB
-    /// (default: all)
+    /// a value of 0 means no limits.
     #[structopt(
     short = "s",
     parse(try_from_str = parse_mb),
@@ -104,23 +104,27 @@ pub struct MayastorCliArgs {
     )]
     pub mem_size: i32,
     #[structopt(short = "u")]
-    /// Disable the use of PCIe devices
+    /// Disable the use of PCIe devices.
     pub no_pci: bool,
     #[structopt(short = "r", default_value = "/var/tmp/mayastor.sock")]
-    /// Path to create the rpc socket
+    /// Path to create the rpc socket.
     pub rpc_address: String,
     #[structopt(short = "y")]
-    /// path to mayastor config file
+    /// Path to mayastor YAML config file.
     pub mayastor_config: Option<String>,
     #[structopt(short = "C")]
-    /// path to child status config file
+    /// Path to child status config file.
     pub child_status_config: Option<String>,
     #[structopt(long = "huge-dir")]
-    /// path to hugedir
+    /// Path to hugedir.
     pub hugedir: Option<String>,
     #[structopt(long = "env-context")]
-    /// pass additional arguments to the EAL environment
+    /// Pass additional arguments to the EAL environment.
     pub env_context: Option<String>,
+    #[structopt(short = "-l")]
+    /// List of cores to run on instead of using the core mask. When specified
+    /// it supersedes the core mask (-m) argument.
+    pub core_list: Option<String>,
 }
 
 /// Defaults are redefined here in case of using it during tests
@@ -139,6 +143,7 @@ impl Default for MayastorCliArgs {
             mayastor_config: None,
             child_status_config: None,
             hugedir: None,
+            core_list: None,
         }
     }
 }
@@ -216,6 +221,7 @@ pub struct MayastorEnvironment {
     tpoint_group_mask: String,
     unlink_hugepage: bool,
     log_component: Vec<String>,
+    core_list: Option<String>,
 }
 
 impl Default for MayastorEnvironment {
@@ -250,6 +256,7 @@ impl Default for MayastorEnvironment {
             tpoint_group_mask: String::new(),
             unlink_hugepage: true,
             log_component: vec![],
+            core_list: None,
         }
     }
 }
@@ -338,6 +345,7 @@ impl MayastorEnvironment {
             rpc_addr: args.rpc_address,
             hugedir: args.hugedir,
             env_context: args.env_context,
+            core_list: args.core_list,
             ..Default::default()
         }
         .setup_static()
@@ -381,8 +389,6 @@ impl MayastorEnvironment {
         let mut args: Vec<CString> = Vec::new();
 
         args.push(CString::new(self.name.clone()).unwrap());
-
-        args.push(CString::new(format!("-c {}", self.reactor_mask)).unwrap());
 
         if self.mem_channel > 0 {
             args.push(
@@ -468,6 +474,17 @@ impl MayastorEnvironment {
                     .map(|s| CString::new(s.to_string()).unwrap())
                     .collect::<Vec<_>>(),
             );
+        }
+
+        // when -l is specified it overrules the core mask. The core mask still
+        // carries our default of 0x1 such that existing testing code
+        // does not require any changes.
+        if let Some(list) = &self.core_list {
+            args.push(CString::new(format!("-l {}", list)).unwrap());
+        } else {
+            args.push(
+                CString::new(format!("-c {}", self.reactor_mask)).unwrap(),
+            )
         }
 
         let mut cargs = args
