@@ -129,7 +129,7 @@ class Node extends EventEmitter {
   // Sync triggered by the timer. It ensures that the sync does run in
   // parallel with any other rpc call or another sync.
   async sync () {
-    var nextSync;
+    let nextSync;
     this.syncTimer = null;
 
     try {
@@ -147,6 +147,8 @@ class Node extends EventEmitter {
         this._offline();
       } else if (this.syncFailed <= this.syncBadLimit) {
         log.warn(`Failed to sync the node "${this.name}": ${err}`);
+      } else {
+        log.debug(`Failed to sync the node "${this.name}": ${err}`);
       }
     }
 
@@ -159,31 +161,28 @@ class Node extends EventEmitter {
   // Synchronize nexus, replicas and pools. Called from work queue so it cannot
   // interfere with other grpc calls.
   async _sync () {
-    var reply;
-    var pools, nexus, replicas;
-
     log.debug(`Syncing the node "${this.name}"`);
 
     // TODO: Harden checking of outputs of the methods below
-    reply = await this._call({
+    let reply = await this._call({
       method: 'listNexus',
       args: {}
     });
-    nexus = reply.nexusList;
+    const nexus = reply.nexusList;
     reply = await this._call({
       method: 'listPools',
       args: {}
     });
-    pools = reply.pools;
+    const pools = reply.pools;
     reply = await this._call({
       method: 'listReplicas',
       args: {}
     });
-    replicas = reply.replicas;
+    const replicas = reply.replicas;
 
     // Move the the node to online state before we attempt to merge objects
     // because they might need to invoke rpc methods on the node.
-    var wasOffline = this.syncFailed > 0;
+    const wasOffline = this.syncFailed > 0;
     if (wasOffline) {
       this.syncFailed = 0;
     }
@@ -210,21 +209,20 @@ class Node extends EventEmitter {
   // @param {object[]} replicas New replicas with properties.
   //
   _mergePoolsAndReplicas (pools, replicas) {
-    var self = this;
     // detect modified and new pools
     pools.forEach((props) => {
       const poolReplicas = replicas.filter((r) => r.pool === props.name);
-      const pool = self.pools.find((p) => p.name === props.name);
+      const pool = this.pools.find((p) => p.name === props.name);
       if (pool) {
         // the pool already exists - update it
         pool.merge(props, poolReplicas);
       } else {
         // it is a new pool
-        self._registerPool(new Pool(props), poolReplicas);
+        this._registerPool(new Pool(props), poolReplicas);
       }
     });
     // remove pools that no longer exist
-    self.pools
+    this.pools
       .filter((p) => !pools.find((ent) => ent.name === p.name))
       .forEach((p) => p.unbind());
   }
@@ -242,20 +240,19 @@ class Node extends EventEmitter {
   // @param {object[]} nexusList  List of nexus obtained from storage node.
   //
   _mergeNexus (nexusList) {
-    var self = this;
     // detect modified and new pools
     nexusList.forEach((props) => {
-      const nexus = self.nexus.find((n) => n.uuid === props.uuid);
+      const nexus = this.nexus.find((n) => n.uuid === props.uuid);
       if (nexus) {
         // the nexus already exists - update it
         nexus.merge(props);
       } else {
         // it is a new nexus
-        self._registerNexus(new Nexus(props, []));
+        this._registerNexus(new Nexus(props, []));
       }
     });
     // remove nexus that no longer exist
-    const removedNexus = self.nexus.filter(
+    const removedNexus = this.nexus.filter(
       (n) => !nexusList.find((ent) => ent.uuid === n.uuid)
     );
     removedNexus.forEach((n) => n.destroy());
@@ -339,7 +336,7 @@ class Node extends EventEmitter {
   async createPool (name, disks) {
     log.debug(`Creating pool "${name}@${this.name}" ...`);
 
-    var poolInfo = await this.call('createPool', { name, disks });
+    const poolInfo = await this.call('createPool', { name, disks });
     log.info(`Created pool "${name}@${this.name}"`);
 
     const newPool = new Pool(poolInfo);
@@ -357,7 +354,7 @@ class Node extends EventEmitter {
     const children = replicas.map((r) => r.uri);
     log.debug(`Creating nexus "${uuid}@${this.name}"`);
 
-    var nexusInfo = await this.call('createNexus', { uuid, size, children });
+    const nexusInfo = await this.call('createNexus', { uuid, size, children });
     log.info(`Created nexus "${uuid}@${this.name}"`);
 
     const newNexus = new Nexus(nexusInfo);

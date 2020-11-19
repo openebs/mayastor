@@ -5,54 +5,46 @@
 
 'use strict';
 
-const { Client, KubeConfig } = require('kubernetes-client');
-const Request = require('kubernetes-client/backends/request');
+const { KubeConfig } = require('client-node-fixed-watcher');
 const yargs = require('yargs');
 const logger = require('./logger');
 const Registry = require('./registry');
-const NodeOperator = require('./node_operator');
-const PoolOperator = require('./pool_operator');
+const { NodeOperator } = require('./node_operator');
+const { PoolOperator } = require('./pool_operator');
 const Volumes = require('./volumes');
-const VolumeOperator = require('./volume_operator');
+const { VolumeOperator } = require('./volume_operator');
 const ApiServer = require('./rest_api');
 const CsiServer = require('./csi').CsiServer;
 const { MessageBus } = require('./nats');
 
 const log = new logger.Logger();
 
-// Read k8s client configuration, in order to be able to connect to k8s api
-// server, either from a file or from environment and return k8s client
-// object.
+// Load k8s config file.
 //
 // @param   {string} [kubefile]    Kube config file.
 // @returns {object}  k8s client object.
-function createK8sClient (kubefile) {
-  var backend;
+function createKubeConfig (kubefile) {
+  const kubeConfig = new KubeConfig();
   try {
-    if (kubefile != null) {
+    if (kubefile) {
       log.info('Reading k8s configuration from file ' + kubefile);
-      const kubeconfig = new KubeConfig();
-      kubeconfig.loadFromFile(kubefile);
-      backend = new Request({ kubeconfig });
+      kubeConfig.loadFromFile(kubefile);
+    } else {
+      kubeConfig.loadFromDefault();
     }
-    return new Client({ backend });
   } catch (e) {
     log.error('Cannot get k8s client configuration: ' + e);
     process.exit(1);
   }
+  return kubeConfig;
 }
 
 async function main () {
-  var client;
-  var registry;
-  var volumes;
-  var poolOper;
-  var volumeOper;
-  var csiNodeOper;
-  var nodeOper;
-  var csiServer;
-  var apiServer;
-  var messageBus;
+  let poolOper;
+  let volumeOper;
+  let csiNodeOper;
+  let nodeOper;
+  let kubeConfig;
 
   const opts = yargs
     .options({
@@ -96,6 +88,12 @@ async function main () {
         alias: 'verbose',
         describe: 'Print debug log messages',
         count: true
+      },
+      w: {
+        alias: 'watcher-idle-timeout',
+        describe: 'Restart watcher connections after this many seconds if idle',
+        default: 0,
+        number: true
       }
     })
     .help('help')
@@ -118,13 +116,13 @@ async function main () {
     if (csiServer) csiServer.undoReady();
     if (apiServer) apiServer.stop();
     if (!opts.s) {
-      if (volumeOper) await volumeOper.stop();
+      if (volumeOper) volumeOper.stop();
     }
     if (volumes) volumes.stop();
     if (!opts.s) {
-      if (poolOper) await poolOper.stop();
+      if (poolOper) poolOper.stop();
       if (csiNodeOper) await csiNodeOper.stop();
-      if (nodeOper) await nodeOper.stop();
+      if (nodeOper) nodeOper.stop();
     }
     if (messageBus) messageBus.stop();
     if (registry) registry.close();
@@ -142,40 +140,53 @@ async function main () {
 
   // Create csi server before starting lengthy initialization so that we can
   // serve csi.identity() calls while getting ready.
-  csiServer = new CsiServer(opts.csiAddress);
+  const csiServer = new CsiServer(opts.csiAddress);
   await csiServer.start();
-  registry = new Registry();
+  const registry = new Registry();
 
   // Listen to register and deregister messages from mayastor nodes
-  messageBus = new MessageBus(registry);
+  const messageBus = new MessageBus(registry);
   messageBus.start(opts.m);
 
   if (!opts.s) {
     // Create k8s client and load openAPI spec from k8s api server
-    client = createK8sClient(opts.kubeconfig);
-    log.debug('Loading openAPI spec from the server');
-    await client.loadSpec();
+    kubeConfig = createKubeConfig(opts.kubeconfig);
 
     // Start k8s operators
-    nodeOper = new NodeOperator(opts.namespace);
-    await nodeOper.init(client, registry);
+    nodeOper = new NodeOperator(
+      opts.namespace,
+      kubeConfig,
+      registry,
+      opts.watcherIdleTimeout
+    );
+    await nodeOper.init(kubeConfig);
     await nodeOper.start();
 
-    poolOper = new PoolOperator(opts.namespace);
-    await poolOper.init(client, registry);
+    poolOper = new PoolOperator(
+      opts.namespace,
+      kubeConfig,
+      registry,
+      opts.watcherIdleTimeout
+    );
+    await poolOper.init(kubeConfig);
     await poolOper.start();
   }
 
-  volumes = new Volumes(registry);
+  const volumes = new Volumes(registry);
   volumes.start();
 
   if (!opts.s) {
-    volumeOper = new VolumeOperator(opts.namespace);
-    await volumeOper.init(client, volumes);
+    volumeOper = new VolumeOperator(
+      opts.namespace,
+      kubeConfig,
+      volumes,
+      opts.watcherIdleTimeout
+    );
+    await volumeOper.init(kubeConfig);
     await volumeOper.start();
   }
 
-  apiServer = new ApiServer(registry);
+  const apiServer = new ApiServer(registry);
   await apiServer.start(opts.port);
 
   csiServer.makeReady(registry, volumes);

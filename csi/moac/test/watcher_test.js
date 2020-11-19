@@ -1,12 +1,34 @@
-// Unit tests for the watcher.
-//
-// We fake the k8s api watch and collection endpoints so that the tests are
-// runable without k8s environment and let us test corner cases which would
-// normally be impossible to test.
+// Tests for the object cache (watcher).
 
+const _ = require('lodash');
 const expect = require('chai').expect;
-const Watcher = require('../watcher');
-const Readable = require('stream').Readable;
+const sinon = require('sinon');
+const sleep = require('sleep-promise');
+const { KubeConfig } = require('client-node-fixed-watcher');
+const { CustomResourceCache } = require('../watcher');
+
+// slightly modified cache tunings not to wait too long when testing things
+const IDLE_TIMEOUT_MS = 500;
+const RESTART_DELAY_MS = 300;
+const EVENT_TIMEOUT_MS = 200;
+const EVENT_DELAY_MS = 100;
+const EYE_BLINK_MS = 30;
+
+const fakeConfig = {
+  clusters: [
+    {
+      name: 'cluster',
+      server: 'foo.company.com'
+    }
+  ],
+  contexts: [
+    {
+      cluster: 'cluster',
+      user: 'user'
+    }
+  ],
+  users: [{ name: 'user' }]
+};
 
 // Create fake k8s object. Example of true k8s object follows:
 //
@@ -36,490 +58,460 @@ const Readable = require('stream').Readable;
 //        ...
 //    }
 //  }
-function createObject (name, generation, val) {
+function createApple (name, finalizers, spec) {
   return {
-    kind: 'mykind',
     apiVersion: 'my.group.io/v1alpha1',
-    metadata: { name, generation },
-    spec: { val }
+    kind: 'apple',
+    metadata: { name, finalizers },
+    spec
   };
 }
 
-// Simple filter that produces objects {name, val} from the objects
-// created by the createObject() above and only objects with val > 100
-// pass through the filter.
-function objectFilter (k8sObject) {
-  if (k8sObject.kind !== 'mykind') {
-    return null;
-  }
-  if (k8sObject.spec.val > 100) {
-    return {
-      name: k8sObject.metadata.name,
-      val: k8sObject.spec.val
+// Test class
+class Apple {
+  constructor (obj) {
+    this.metadata = {
+      name: obj.metadata.name
     };
-  } else {
-    return null;
+    if (obj.spec === 'invalid') {
+      throw new Error('Invalid object');
+    }
+    this.spec = obj.spec;
   }
 }
 
-// A stub for GET k8s API request returning a collection of k8s objects which
-// were previously set by add() method.
-class GetMock {
-  constructor (delay) {
-    this.delay = delay;
-    this.objects = {};
-    this.statusCode = 200;
-  }
-
-  setStatusCode (code) {
-    this.statusCode = code;
-  }
-
-  add (obj) {
-    this.objects[obj.metadata.name] = obj;
-  }
-
-  remove (name) {
-    delete this.objects[name];
-  }
-
-  reset () {
-    this.objects = {};
-  }
-
-  template () {
-    var gMock = this;
-    function template (name) {
-      return { get: async function () { return gMock.getForce(name); } };
-    }
-    template.get = function () { return gMock.get(); };
-    return template;
-  }
-
-  async getForce (name) {
-    if (this.objects[name]) {
-      return { statusCode: this.statusCode, body: this.objects[name] };
-    }
-    throw Object.assign(
-      new Error(`"${name}" not found`),
-      { code: 404 }
-    );
-  }
-
-  get () {
-    var self = this;
-    return new Promise((resolve, reject) => {
-      setTimeout(() => {
-        resolve({
-          statusCode: 200,
-          body: { items: Object.values(self.objects) }
-        });
-      }, self.delay || 0);
-    });
-  }
-}
-
-// A mock representing k8s watch stream.
-// You can feed arbitrary objects to it and it will pass them to a consumer.
-// Example of k8s watch stream event follows:
-//
-// {
-//  "type": "ADDED",
-//  "object": {
-//     ... (object as shown in GetMock example above)
-//  }
-// }
-class StreamMock extends Readable {
-  constructor () {
-    super({ autoDestroy: true, objectMode: true });
-    this.feeds = [];
-    this.wantMore = false;
-  }
-
-  _read (size) {
-    while (true) {
-      const obj = this.feeds.shift();
-      if (obj === undefined) {
-        this.wantMore = true;
-        break;
-      }
-      this.push(obj);
-    }
-  }
-
-  feed (type, object) {
-    this.feeds.push({
-      type,
-      object
-    });
-    if (this.wantMore) {
-      this.wantMore = false;
-      this._read();
-    }
-  }
-
-  end () {
-    this.feeds.push(null);
-    if (this.wantMore) {
-      this.wantMore = false;
-      this._read();
-    }
-  }
-
-  getObjectStream () {
-    return this;
-  }
-}
-
-// This is for test cases where we need to test disconnected watch stream.
-// In that case, the watcher will create a new instance of watch stream
-// (by calling getObjectStream) and we need to keep track of latest created stream
-// in order to be able to feed data to it etc.
-class StreamMockTracker {
-  constructor () {
-    this.current = null;
-  }
-
-  // create a new stream (mimics nodejs k8s client api)
-  getObjectStream () {
-    const s = new StreamMock();
-    this.current = s;
-    return s;
-  }
-
-  // get the most recently created underlaying stream
-  latest () {
-    return this.current;
-  }
+// Create a cache with a listWatch object with fake start method that does
+// nothing instead of connecting to k8s cluster.
+function createMockedCache () {
+  const kc = new KubeConfig();
+  Object.assign(kc, fakeConfig);
+  const watcher = new CustomResourceCache('namespace', 'apple', kc, Apple, {
+    restartDelay: RESTART_DELAY_MS,
+    eventTimeout: EVENT_TIMEOUT_MS,
+    idleTimeout: IDLE_TIMEOUT_MS
+  });
+  // convenience function for generating k8s watcher events
+  watcher.emitKubeEvent = (ev, data) => {
+    watcher.listWatch.callbackCache[ev].forEach((cb) => cb(data));
+  };
+  const startStub = sinon.stub(watcher.listWatch, 'start');
+  startStub.onCall(0).resolves();
+  return [watcher, startStub];
 }
 
 module.exports = function () {
-  // Basic watcher operations grouped in describe to avoid repeating watcher
-  // initialization & tear down for each test case.
-  describe('watch events', () => {
-    var getMock = new GetMock();
-    var streamMock = new StreamMock();
-    var watcher;
-    var newList = [];
-    var modList = [];
-    var delList = [];
+  this.timeout(10000);
 
-    before(() => {
-      watcher = new Watcher('test', getMock.template(), streamMock, objectFilter);
-      watcher.on('new', (obj) => newList.push(obj));
-      watcher.on('mod', (obj) => modList.push(obj));
-      watcher.on('del', (obj) => delList.push(obj));
-
-      getMock.add(createObject('valid-object', 1, 123));
-      getMock.add(createObject('invalid-object', 1, 99));
+  it('should create a cache and block in start until connected', async () => {
+    const kc = new KubeConfig();
+    Object.assign(kc, fakeConfig);
+    const watcher = new CustomResourceCache('namespace', 'apple', kc, Apple, {
+      restartDelay: RESTART_DELAY_MS,
+      eventTimeout: EVENT_TIMEOUT_MS
     });
-
-    after(() => {
-      watcher.stop();
-      streamMock.end();
-    });
-
-    it('should init cache only with objects which pass through the filter', async () => {
-      await watcher.start();
-
-      expect(modList).to.have.lengthOf(0);
-      expect(delList).to.have.lengthOf(0);
-      expect(newList).to.have.lengthOf(1);
-      expect(newList[0].name).to.equal('valid-object');
-      expect(newList[0].val).to.equal(123);
-
-      const lst = watcher.list();
-      expect(lst).to.have.lengthOf(1);
-      expect(lst[0]).to.have.all.keys('name', 'val');
-      expect(lst[0].name).to.equal('valid-object');
-      expect(lst[0].val).to.equal(123);
-
-      const rawObj = watcher.getRaw('valid-object');
-      expect(rawObj).to.deep.equal(createObject('valid-object', 1, 123));
-    });
-
-    it('should add object to the cache only if it passes through the filter', (done) => {
-      // invalid object should not be added
-      streamMock.feed('ADDED', createObject('add-invalid-object', 1, 90));
-      // valid object should be added
-      streamMock.feed('ADDED', createObject('evented-object', 1, 155));
-
-      function check () {
-        expect(modList).to.have.lengthOf(0);
-        expect(delList).to.have.lengthOf(0);
-        expect(newList).to.have.lengthOf(2);
-        expect(newList[1].name).to.equal('evented-object');
-        expect(newList[1].val).to.equal(155);
-        done();
-      }
-
-      // Use a trick to check 'new' event regardless if it has already arrived
-      // or will arrive yet.
-      if (newList.length > 1) {
-        check();
-      } else {
-        watcher.once('new', () => process.nextTick(check));
-      }
-    });
-
-    it('should modify object in the cache if it passes through the filter', (done) => {
-      // new object should be added and new event emitted (not the mod event)
-      streamMock.feed('MODIFIED', createObject('new-object', 1, 160));
-      // object with old generation number should be ignored
-      streamMock.feed('MODIFIED', createObject('evented-object', 1, 155));
-      // object should be modified
-      streamMock.feed('MODIFIED', createObject('evented-object', 2, 156));
-      // object should be modified (without gen number)
-      streamMock.feed(
-        'MODIFIED',
-        createObject('evented-object', undefined, 157)
-      );
-
-      function check () {
-        expect(delList).to.have.lengthOf(0);
-        expect(modList).to.have.lengthOf(2);
-        expect(modList[0].name).to.equal('evented-object');
-        expect(modList[0].val).to.equal(156);
-        expect(modList[1].name).to.equal('evented-object');
-        expect(modList[1].val).to.equal(157);
-        expect(newList).to.have.lengthOf(3);
-        expect(newList[2].name).to.equal('new-object');
-        expect(newList[2].val).to.equal(160);
-        done();
-      }
-
-      if (modList.length > 0) {
-        check();
-      } else {
-        watcher.once('mod', () => process.nextTick(check));
-      }
-    });
-
-    it('should remove object from the cache if it exists', (done) => {
-      streamMock.feed('DELETED', createObject('unknown-object', 1, 160));
-      streamMock.feed('DELETED', createObject('evented-object', 2, 156));
-
-      function check () {
-        expect(newList).to.have.lengthOf(3);
-        expect(modList).to.have.lengthOf(2);
-        expect(delList).to.have.lengthOf(1);
-        expect(delList[0].name).to.equal('evented-object');
-        expect(delList[0].val).to.equal(156);
-        done();
-      }
-
-      if (delList.length > 0) {
-        check();
-      } else {
-        watcher.once('del', () => process.nextTick(check));
-      }
-    });
-
-    it('should not crash upon error watch event', () => {
-      streamMock.feed('ERROR', createObject('error-object', 1, 160));
-    });
-
-    it('should not crash upon unknown watch event', () => {
-      streamMock.feed('UNKNOWN', createObject('some-object', 1, 160));
-    });
-
-    it('should bypass the watcher when using getRawBypass', async () => {
-      await watcher.start();
-
-      getMock.add(createObject('new-object', 1, 123));
-
-      var obj = watcher.getRaw('new-object');
-      expect(obj).is.null();
-
-      obj = await watcher.getRawBypass('new-object');
-      expect(obj).is.not.null();
-
-      // getRawBypass also adds the newly retrieved object to the watcher cache so we should now see it
-      obj = watcher.getRaw('new-object');
-      expect(obj).is.not.null();
-    });
-
-    it('should fail gracefully when using getRawBypass', async () => {
-      await watcher.start();
-
-      var obj = await watcher.getRawBypass('new-object-2');
-      expect(obj).is.null();
-
-      getMock.add(createObject('new-object-2', 1, 123));
-
-      getMock.setStatusCode(408);
-
-      obj = await watcher.getRawBypass('new-object-2');
-      expect(obj).is.null();
-
-      obj = watcher.getRaw('new-object-2');
-      expect(obj).is.null();
-
-      getMock.setStatusCode(200);
-
-      obj = await watcher.getRawBypass('new-object-2');
-      expect(obj).is.not.null();
-    });
-  });
-
-  it('should defer event processing when sync is in progress', async () => {
-    var getMock = new GetMock();
-    var streamMock = new StreamMock();
-    var watcher = new Watcher('test', getMock, streamMock, objectFilter);
-    var newCount = 0;
-    var modCount = 0;
-
-    // Use trick of queueing event with newer generation # for an object which
-    // is returned by GET. If event processing is done after GET, then we will
-    // see one new and one mod event. If not then we will see only one new
-    // event.
-    getMock.add(createObject('object', 1, 155));
-    streamMock.feed('MODIFIED', createObject('object', 2, 156));
-    watcher.on('new', () => newCount++);
-    watcher.on('mod', () => modCount++);
-
+    const startStub = sinon.stub(watcher.listWatch, 'start');
+    startStub.onCall(0).rejects();
+    startStub.onCall(1).rejects();
+    startStub.onCall(2).resolves();
+    const startTime = new Date();
     await watcher.start();
-
-    expect(newCount).to.equal(1);
-    expect(modCount).to.equal(1);
-
+    const delta = new Date() - startTime;
+    sinon.assert.calledThrice(startStub);
+    expect(watcher.isConnected()).to.be.true();
+    expect(delta).to.be.within(2 * RESTART_DELAY_MS, 3 * RESTART_DELAY_MS);
     watcher.stop();
-    streamMock.end();
   });
 
-  it('should merge old and new objects upon resync', (done) => {
-    var getMock = new GetMock();
-    var streamMockTracker = new StreamMockTracker();
-    var watcher = new Watcher('test', getMock, streamMockTracker, objectFilter);
-    var newObjs = [];
-    var modObjs = [];
-    var delObjs = [];
+  it('should reconnect watcher if it gets disconnected', async () => {
+    const [watcher, startStub] = createMockedCache();
+    await watcher.start();
+    sinon.assert.calledOnce(startStub);
+    expect(watcher.isConnected()).to.be.true();
+    startStub.onCall(1).rejects(new Error('start failed'));
+    startStub.onCall(2).resolves();
+    watcher.emitKubeEvent('error', new Error('got disconnected'));
+    await sleep(RESTART_DELAY_MS * 1.5);
+    sinon.assert.calledTwice(startStub);
+    expect(watcher.isConnected()).to.be.false();
+    await sleep(RESTART_DELAY_MS);
+    sinon.assert.calledThrice(startStub);
+    expect(watcher.isConnected()).to.be.true();
+    watcher.stop();
+  });
 
-    getMock.add(createObject('object-to-be-retained', 1, 155));
-    getMock.add(createObject('object-to-be-modified', 1, 155));
-    getMock.add(createObject('object-to-be-deleted', 1, 155));
+  it('should reset watcher if idle for too long', async () => {
+    const [watcher, startStub] = createMockedCache();
+    await watcher.start();
+    sinon.assert.calledOnce(startStub);
+    expect(watcher.isConnected()).to.be.true();
+    startStub.onCall(1).resolves();
+    await sleep(IDLE_TIMEOUT_MS * 1.5);
+    sinon.assert.calledTwice(startStub);
+    expect(watcher.isConnected()).to.be.true();
+    watcher.stop();
+  });
 
-    watcher.on('new', (obj) => newObjs.push(obj));
-    watcher.on('mod', (obj) => modObjs.push(obj));
-    watcher.on('del', (obj) => delObjs.push(obj));
+  describe('methods', function () {
+    let watcher;
+    let timeout;
 
-    watcher.start().then(() => {
-      expect(newObjs).to.have.lengthOf(3);
-      expect(modObjs).to.have.lengthOf(0);
-      expect(delObjs).to.have.lengthOf(0);
+    beforeEach(async () => {
+      let startStub;
+      timeout = undefined;
+      [watcher, startStub] = createMockedCache();
+      startStub.resolves();
+      await watcher.start();
+    });
 
-      streamMockTracker
-        .latest()
-        .feed('MODIFIED', createObject('object-to-be-retained', 2, 156));
-      getMock.reset();
-      getMock.add(createObject('object-to-be-retained', 2, 156));
-      getMock.add(createObject('object-to-be-modified', 2, 156));
-      getMock.add(createObject('object-to-be-created', 1, 156));
-
-      streamMockTracker.latest().end();
-
-      watcher.once('sync', () => {
-        expect(newObjs).to.have.lengthOf(4);
-        expect(modObjs).to.have.lengthOf(2);
-        expect(delObjs).to.have.lengthOf(1);
-        expect(newObjs[3].name).to.equal('object-to-be-created');
-        expect(modObjs[0].name).to.equal('object-to-be-retained');
-        expect(modObjs[1].name).to.equal('object-to-be-modified');
-        expect(delObjs[0].name).to.equal('object-to-be-deleted');
-
+    afterEach(() => {
+      if (watcher) {
         watcher.stop();
-        streamMockTracker.latest().end();
-        done();
+        watcher = undefined;
+      }
+      if (timeout) {
+        clearTimeout(timeout);
+      }
+    });
+
+    function assertReplaceCalledWith (stub, name, obj, attrs) {
+      const newObj = _.cloneDeep(obj);
+      _.merge(newObj, attrs);
+      sinon.assert.calledOnce(stub);
+      sinon.assert.calledWith(stub, 'openebs.io', 'v1alpha1', 'namespace',
+        'apples', name, newObj);
+    }
+
+    it('should list all objects', () => {
+      const listStub = sinon.stub(watcher.listWatch, 'list');
+      listStub.returns([
+        createApple('name1', [], 'valid'),
+        createApple('name2', [], 'invalid'),
+        createApple('name3', [], 'valid')
+      ]);
+      const objs = watcher.list();
+      expect(objs).to.have.length(2);
+      expect(objs[0].metadata.name).to.equal('name1');
+      expect(objs[1].metadata.name).to.equal('name3');
+    });
+
+    it('should get object by name', () => {
+      const getStub = sinon.stub(watcher.listWatch, 'get');
+      getStub.returns(createApple('name1', [], 'valid'));
+      const obj = watcher.get('name1');
+      expect(obj).to.be.an.instanceof(Apple);
+      expect(obj.metadata.name).to.equal('name1');
+      sinon.assert.calledWith(getStub, 'name1');
+    });
+
+    it('should get undefined if object does not exist', () => {
+      const getStub = sinon.stub(watcher.listWatch, 'get');
+      getStub.returns(undefined);
+      const obj = watcher.get('name1');
+      expect(obj).to.be.undefined();
+      sinon.assert.calledWith(getStub, 'name1');
+    });
+
+    it('should create an object and wait for new event', async () => {
+      const createStub = sinon.stub(watcher.k8sApi, 'createNamespacedCustomObject');
+      createStub.resolves();
+      const apple = createApple('name1', [], 'valid');
+      const startTime = new Date();
+      timeout = setTimeout(() => watcher.emitKubeEvent('add', apple), EVENT_DELAY_MS);
+      await watcher.create(apple);
+      const delta = new Date() - startTime;
+      expect(delta).to.be.within(EVENT_DELAY_MS, EVENT_DELAY_MS + EYE_BLINK_MS);
+      sinon.assert.calledOnce(createStub);
+    });
+
+    it('should timeout when "add" event does not come after a create', async () => {
+      const createStub = sinon.stub(watcher.k8sApi, 'createNamespacedCustomObject');
+      createStub.resolves();
+      const apple = createApple('name1', [], 'valid');
+      const startTime = new Date();
+      await watcher.create(apple);
+      const delta = new Date() - startTime;
+      expect(delta).to.be.within(EVENT_TIMEOUT_MS, EVENT_TIMEOUT_MS + EYE_BLINK_MS);
+      sinon.assert.calledOnce(createStub);
+    });
+
+    it('should update object and wait for mod event', async () => {
+      const replaceStub = sinon.stub(watcher.k8sApi, 'replaceNamespacedCustomObject');
+      replaceStub.resolves();
+      const getStub = sinon.stub(watcher.listWatch, 'get');
+      const apple = createApple('name1', [], 'valid');
+      const newApple = createApple('name1', [], 'also valid');
+      getStub.returns(apple);
+      const startTime = new Date();
+      timeout = setTimeout(() => watcher.emitKubeEvent('update', newApple), EVENT_DELAY_MS);
+      await watcher.update('name1', (orig) => {
+        return createApple(orig.metadata.name, [], 'also valid');
+      });
+      const delta = new Date() - startTime;
+      expect(delta).to.be.within(EVENT_DELAY_MS, EVENT_DELAY_MS + EYE_BLINK_MS);
+      assertReplaceCalledWith(replaceStub, 'name1', apple, {
+        spec: 'also valid'
       });
     });
-  });
 
-  it('should recover when watch fails during the sync', async () => {
-    class BrokenStreamMock {
-      constructor () {
-        this.iter = 0;
-        this.current = null;
-      }
+    it('should not try to update object if it does not exist', async () => {
+      const replaceStub = sinon.stub(watcher.k8sApi, 'replaceNamespacedCustomObject');
+      replaceStub.resolves();
+      const getStub = sinon.stub(watcher.listWatch, 'get');
+      getStub.returns();
+      await watcher.update('name1', (orig) => {
+        return createApple(orig.metadata.name, [], 'also valid');
+      });
+      sinon.assert.notCalled(replaceStub);
+    });
 
-      // We will fail (end) the stream 3x and 4th attempt will succeed
-      getObjectStream () {
-        const s = new StreamMock();
-        this.current = s;
-        if (this.iter < 3) {
-          s.end();
-        }
-        this.iter++;
-        return s;
-      }
+    it('should timeout when "update" event does not come after an update', async () => {
+      const replaceStub = sinon.stub(watcher.k8sApi, 'replaceNamespacedCustomObject');
+      replaceStub.resolves();
+      const getStub = sinon.stub(watcher.listWatch, 'get');
+      const apple = createApple('name1', [], 'valid');
+      getStub.returns(apple);
+      const startTime = new Date();
+      await watcher.update('name1', (orig) => {
+        return createApple(orig.metadata.name, [], 'also valid');
+      });
+      const delta = new Date() - startTime;
+      expect(delta).to.be.within(EVENT_TIMEOUT_MS, EVENT_TIMEOUT_MS + EYE_BLINK_MS);
+      sinon.assert.calledOnce(replaceStub);
+    });
 
-      // get the most recently created underlaying stream
-      latest () {
-        return this.current;
-      }
-    }
+    it('should retry update of an object if it fails', async () => {
+      const replaceStub = sinon.stub(watcher.k8sApi, 'replaceNamespacedCustomObject');
+      replaceStub.onCall(0).rejects(new Error('update failed'));
+      replaceStub.onCall(1).resolves();
+      const getStub = sinon.stub(watcher.listWatch, 'get');
+      const apple = createApple('name1', [], 'valid');
+      getStub.returns(apple);
+      await watcher.update('name1', (orig) => {
+        return createApple(orig.metadata.name, [], 'also valid');
+      });
+      sinon.assert.calledTwice(replaceStub);
+    });
 
-    var getMock = new GetMock(100);
-    var brokenStreamMock = new BrokenStreamMock();
-    var watcher = new Watcher('test', getMock, brokenStreamMock, objectFilter);
-
-    var start = Date.now();
-    await watcher.start();
-    var diff = (Date.now() - start) / 1000;
-
-    // three retries will accumulate 7 seconds (1, 2 and 4s)
-    expect(diff).to.be.at.least(6);
-    expect(diff).to.be.at.most(8);
-    watcher.stop();
-    brokenStreamMock.latest().end();
-  }).timeout(10000);
-
-  it('should recover when GET fails during the sync', async () => {
-    class BrokenGetMock {
-      constructor (stream) {
-        this.stream = stream;
-        this.iter = 0;
-      }
-
-      get () {
-        var self = this;
-        return new Promise((resolve, reject) => {
-          setTimeout(() => {
-            if (self.iter++ < 3) {
-              const err = new Error('Not found');
-              err.statusCode = 404;
-              err.body = {};
-              reject(err);
-              // TODO: defect in current implementation of watcher is that
-              // it waits for end of watch connection even when GET fails
-              self.stream.latest().end();
-            } else {
-              resolve({
-                statusCode: 200,
-                body: { items: [] }
-              });
-            }
-          }, 0);
+    it('should update status of object', async () => {
+      const replaceStub = sinon.stub(watcher.k8sApi, 'replaceNamespacedCustomObjectStatus');
+      replaceStub.resolves();
+      const getStub = sinon.stub(watcher.listWatch, 'get');
+      const apple = createApple('name1', [], 'valid');
+      getStub.returns(apple);
+      await watcher.updateStatus('name1', (orig) => {
+        return _.assign({}, apple, {
+          status: 'some-state'
         });
+      });
+      assertReplaceCalledWith(replaceStub, 'name1', apple, {
+        status: 'some-state'
+      });
+    });
+
+    it('should not try to update status of object if it does not exist', async () => {
+      const replaceStub = sinon.stub(watcher.k8sApi, 'replaceNamespacedCustomObjectStatus');
+      replaceStub.resolves();
+      const getStub = sinon.stub(watcher.listWatch, 'get');
+      const apple = createApple('name1', [], 'valid');
+      getStub.returns();
+      await watcher.updateStatus('name1', (orig) => {
+        return _.assign({}, apple, {
+          status: 'some-state'
+        });
+      });
+      sinon.assert.notCalled(replaceStub);
+    });
+
+    it('should timeout when "update" event does not come after status update', async () => {
+      const replaceStub = sinon.stub(watcher.k8sApi, 'replaceNamespacedCustomObjectStatus');
+      replaceStub.resolves();
+      const getStub = sinon.stub(watcher.listWatch, 'get');
+      const apple = createApple('name1', [], 'valid');
+      getStub.returns(apple);
+      const startTime = new Date();
+      await watcher.updateStatus('name1', (orig) => {
+        return _.assign({}, apple, {
+          status: 'some-state'
+        });
+      });
+      const delta = new Date() - startTime;
+      expect(delta).to.be.within(EVENT_TIMEOUT_MS, EVENT_TIMEOUT_MS + EYE_BLINK_MS);
+      sinon.assert.calledOnce(replaceStub);
+    });
+
+    it('should retry status update of an object if it fails', async () => {
+      const replaceStub = sinon.stub(watcher.k8sApi, 'replaceNamespacedCustomObjectStatus');
+      replaceStub.onCall(0).rejects(new Error('update failed'));
+      replaceStub.onCall(1).resolves();
+      const getStub = sinon.stub(watcher.listWatch, 'get');
+      const apple = createApple('name1', [], 'valid');
+      getStub.returns(apple);
+      await watcher.updateStatus('name1', (orig) => {
+        return _.assign({}, apple, {
+          status: 'some-state'
+        });
+      });
+      sinon.assert.calledTwice(replaceStub);
+    });
+
+    it('should fail if status update fails twice', async () => {
+      const replaceStub = sinon.stub(watcher.k8sApi, 'replaceNamespacedCustomObjectStatus');
+      replaceStub.onCall(0).rejects(new Error('update failed first time'));
+      replaceStub.onCall(1).rejects(new Error('update failed second time'));
+      const getStub = sinon.stub(watcher.listWatch, 'get');
+      const apple = createApple('name1', [], 'valid');
+      getStub.returns(apple);
+      let error;
+      try {
+        await watcher.updateStatus('name1', (orig) => {
+          return _.assign({}, apple, {
+            status: 'some-state'
+          });
+        });
+      } catch (err) {
+        error = err;
       }
-    }
+      expect(error.message).to.equal('Status update of apple "name1" failed: update failed second time');
+      sinon.assert.calledTwice(replaceStub);
+    });
 
-    var streamMockTracker = new StreamMockTracker();
-    var brokenGetMock = new BrokenGetMock(streamMockTracker);
-    var watcher = new Watcher(
-      'test',
-      brokenGetMock,
-      streamMockTracker,
-      objectFilter
-    );
+    it('should delete the object and wait for "delete" event', async () => {
+      const deleteStub = sinon.stub(watcher.k8sApi, 'deleteNamespacedCustomObject');
+      deleteStub.resolves();
+      const getStub = sinon.stub(watcher.listWatch, 'get');
+      const apple = createApple('name1', [], 'valid');
+      getStub.returns(apple);
+      const startTime = new Date();
+      timeout = setTimeout(() => watcher.emitKubeEvent('delete', apple), EVENT_DELAY_MS);
+      await watcher.delete('name1');
+      const delta = new Date() - startTime;
+      sinon.assert.calledOnce(deleteStub);
+      sinon.assert.calledWith(deleteStub, 'openebs.io', 'v1alpha1', 'namespace',
+        'apples', 'name1');
+      expect(delta).to.be.within(EVENT_DELAY_MS, EVENT_DELAY_MS + EYE_BLINK_MS);
+    });
 
-    var start = Date.now();
-    await watcher.start();
-    var diff = (Date.now() - start) / 1000;
+    it('should timeout when "delete" event does not come after a delete', async () => {
+      const deleteStub = sinon.stub(watcher.k8sApi, 'deleteNamespacedCustomObject');
+      deleteStub.resolves();
+      const getStub = sinon.stub(watcher.listWatch, 'get');
+      const apple = createApple('name1', [], 'valid');
+      getStub.returns(apple);
+      const startTime = new Date();
+      await watcher.delete('name1');
+      const delta = new Date() - startTime;
+      sinon.assert.calledOnce(deleteStub);
+      expect(delta).to.be.within(EVENT_TIMEOUT_MS, EVENT_TIMEOUT_MS + EYE_BLINK_MS);
+    });
 
-    // three retries will accumulate 7 seconds (1, 2 and 4s)
-    expect(diff).to.be.at.least(6);
-    expect(diff).to.be.at.most(8);
-    watcher.stop();
-    streamMockTracker.latest().end();
-  }).timeout(10000);
+    it('should not try to delete object that does not exist', async () => {
+      const deleteStub = sinon.stub(watcher.k8sApi, 'deleteNamespacedCustomObject');
+      deleteStub.resolves();
+      const getStub = sinon.stub(watcher.listWatch, 'get');
+      const apple = createApple('name1', [], 'valid');
+      getStub.returns();
+      timeout = setTimeout(() => watcher.emitKubeEvent('delete', apple), EVENT_DELAY_MS);
+      await watcher.delete('name1');
+      sinon.assert.notCalled(deleteStub);
+    });
+
+    it('should add finalizer to object without any', async () => {
+      const replaceStub = sinon.stub(watcher.k8sApi, 'replaceNamespacedCustomObject');
+      replaceStub.resolves();
+      const getStub = sinon.stub(watcher.listWatch, 'get');
+      const apple = createApple('name1', [], 'valid');
+      getStub.returns(apple);
+      const startTime = new Date();
+      timeout = setTimeout(() => watcher.emitKubeEvent('update', apple), EVENT_DELAY_MS);
+      await watcher.addFinalizer('name1', 'test.finalizer.com');
+      const delta = new Date() - startTime;
+      expect(delta).to.be.within(EVENT_DELAY_MS, EVENT_DELAY_MS + EYE_BLINK_MS);
+      assertReplaceCalledWith(replaceStub, 'name1', apple, {
+        metadata: {
+          finalizers: ['test.finalizer.com']
+        }
+      });
+    });
+
+    it('should add another finalizer to object', async () => {
+      const replaceStub = sinon.stub(watcher.k8sApi, 'replaceNamespacedCustomObject');
+      replaceStub.resolves();
+      const getStub = sinon.stub(watcher.listWatch, 'get');
+      const apple = createApple('name1', ['test.finalizer.com', 'test2.finalizer.com'], 'valid');
+      getStub.returns(apple);
+      const startTime = new Date();
+      timeout = setTimeout(() => watcher.emitKubeEvent('update', apple), EVENT_DELAY_MS);
+      await watcher.addFinalizer('name1', 'new.finalizer.com');
+      const delta = new Date() - startTime;
+      expect(delta).to.be.within(EVENT_DELAY_MS, EVENT_DELAY_MS + EYE_BLINK_MS);
+      assertReplaceCalledWith(replaceStub, 'name1', apple, {
+        metadata: {
+          finalizers: ['new.finalizer.com', 'test.finalizer.com', 'test2.finalizer.com']
+        }
+      });
+    });
+
+    it('should not add twice the same finalizer', async () => {
+      const replaceStub = sinon.stub(watcher.k8sApi, 'replaceNamespacedCustomObject');
+      replaceStub.resolves();
+      const getStub = sinon.stub(watcher.listWatch, 'get');
+      const apple = createApple('name1', ['test.finalizer.com', 'test2.finalizer.com'], 'valid');
+      getStub.returns(apple);
+      timeout = setTimeout(() => watcher.emitKubeEvent('update', apple), EVENT_DELAY_MS);
+      await watcher.addFinalizer('name1', 'test.finalizer.com');
+      sinon.assert.notCalled(replaceStub);
+    });
+
+    it('should not add the finalizer if object does not exist', async () => {
+      const replaceStub = sinon.stub(watcher.k8sApi, 'replaceNamespacedCustomObject');
+      replaceStub.resolves();
+      const getStub = sinon.stub(watcher.listWatch, 'get');
+      const apple = createApple('name1', [], 'valid');
+      getStub.returns();
+      timeout = setTimeout(() => watcher.emitKubeEvent('update', apple), EVENT_DELAY_MS);
+      await watcher.addFinalizer('name1', 'test.finalizer.com');
+      sinon.assert.notCalled(replaceStub);
+    });
+
+    it('should remove finalizer from object', async () => {
+      const replaceStub = sinon.stub(watcher.k8sApi, 'replaceNamespacedCustomObject');
+      replaceStub.resolves();
+      const getStub = sinon.stub(watcher.listWatch, 'get');
+      const apple = createApple('name1', ['test.finalizer.com', 'test2.finalizer.com'], 'valid');
+      getStub.returns(apple);
+      const startTime = new Date();
+      timeout = setTimeout(() => watcher.emitKubeEvent('update', apple), EVENT_DELAY_MS);
+      await watcher.removeFinalizer('name1', 'test.finalizer.com');
+      const delta = new Date() - startTime;
+      expect(delta).to.be.within(EVENT_DELAY_MS, EVENT_DELAY_MS + EYE_BLINK_MS);
+      sinon.assert.calledOnce(replaceStub);
+      assertReplaceCalledWith(replaceStub, 'name1', apple, {
+        metadata: {
+          finalizers: ['test2.finalizer.com']
+        }
+      });
+    });
+
+    it('should not try to remove finalizer that does not exist', async () => {
+      const replaceStub = sinon.stub(watcher.k8sApi, 'replaceNamespacedCustomObject');
+      replaceStub.resolves();
+      const getStub = sinon.stub(watcher.listWatch, 'get');
+      const apple = createApple('name1', ['test2.finalizer.com'], 'valid');
+      getStub.returns(apple);
+      timeout = setTimeout(() => watcher.emitKubeEvent('update', apple), EVENT_DELAY_MS);
+      await watcher.removeFinalizer('name1', 'test.finalizer.com');
+      sinon.assert.notCalled(replaceStub);
+    });
+
+    it('should not try to remove finalizer if object does not exist', async () => {
+      const replaceStub = sinon.stub(watcher.k8sApi, 'replaceNamespacedCustomObject');
+      replaceStub.resolves();
+      const getStub = sinon.stub(watcher.listWatch, 'get');
+      const apple = createApple('name1', ['test.finalizer.com'], 'valid');
+      getStub.returns();
+      timeout = setTimeout(() => watcher.emitKubeEvent('update', apple), EVENT_DELAY_MS);
+      await watcher.removeFinalizer('name1', 'test.finalizer.com');
+      sinon.assert.notCalled(replaceStub);
+    });
+  });
 };
