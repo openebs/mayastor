@@ -15,7 +15,7 @@
   "scripts": {
     "prepare": "./bundle_protos.sh",
     "clean": "rm -f replica.js pool.js nexus.js",
-    "purge": "rm -rf node_modules proto replica.js pool.js nexus.js watcher.js node_operator.js pool_operator.js volume_operator.js",
+    "purge": "rm -rf node_modules proto node.js replica.js pool.js nexus.js watcher.js node_operator.js pool_operator.js volume.js volumes.js volume_operator.js *.js.map",
     "compile": "tsc --pretty",
     "start": "./index.js",
     "test": "mocha test/index.js",

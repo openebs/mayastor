@@ -4,7 +4,7 @@
 
 const _ = require('lodash');
 const expect = require('chai').expect;
-const Node = require('../node');
+const { Node } = require('../node');
 const { Nexus } = require('../nexus');
 const { Pool } = require('../pool');
 const { Replica } = require('../replica');
@@ -15,9 +15,9 @@ const UUID = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cbb';
 const MS_ENDPOINT = '127.0.0.1:12345';
 
 module.exports = function () {
-  var srv;
-  var node;
-  var pools = [
+  let srv;
+  let node;
+  const pools = [
     {
       name: 'pool',
       disks: ['aio:///dev/sdb', 'aio:///dev/sdc'],
@@ -26,7 +26,7 @@ module.exports = function () {
       used: 14
     }
   ];
-  var replicas = [
+  const replicas = [
     {
       uuid: UUID,
       pool: 'pool',
@@ -36,7 +36,7 @@ module.exports = function () {
       uri: 'bdev:///' + UUID
     }
   ];
-  var nexus = [
+  const nexus = [
     {
       uuid: UUID,
       size: 10,
@@ -262,7 +262,7 @@ module.exports = function () {
       });
 
       it('should emit event when a pool is deleted', (done) => {
-        var replicaRemoved = false;
+        let replicaRemoved = false;
 
         node.once('replica', (ev) => {
           expect(ev.eventType).to.equal('del');
@@ -283,7 +283,7 @@ module.exports = function () {
 
       it('should emit event when a pool with replica is created', (done) => {
         const newUuid = 'f04015e1-3689-4e34-9bed-e2dbba1e4a29';
-        var poolAdded = false;
+        let poolAdded = false;
 
         node.once('pool', (ev) => {
           expect(ev.eventType).to.equal('new');
@@ -498,7 +498,7 @@ module.exports = function () {
 
           // pool/replica/nexus event should be emitted before node event and
           // node should be online when emitting those events.
-          var poolEvent;
+          let poolEvent;
           node.once('pool', (ev) => {
             expect(node.isSynced()).to.be.true();
             poolEvent = ev;
@@ -517,9 +517,9 @@ module.exports = function () {
   });
 
   describe('object create', function () {
-    var replica;
-    var pool;
-    var nexus;
+    let replica;
+    let pool;
+    let nexus;
 
     this.timeout(100);
 
@@ -606,7 +606,7 @@ module.exports = function () {
 
     // start a fake mayastor server
     before((done) => {
-      var pools = [
+      const pools = [
         {
           name: 'pool1',
           disks: ['/dev/sdb', '/dev/sdc'],
@@ -622,7 +622,7 @@ module.exports = function () {
           used: 14
         }
       ];
-      var replicas = [
+      const replicas = [
         {
           uuid: UUID1,
           pool: 'pool1',

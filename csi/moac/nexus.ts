@@ -7,9 +7,40 @@ const log = require('./logger').Logger('nexus');
 
 import { Replica } from './replica';
 
-function compareChildren(a: any, b: any) {
-  assert(a.uri);
-  assert(b.uri);
+// Protocol used to export nexus (volume)
+export enum Protocol {
+  Unknown = 'unknown',
+  Nbd = 'nbd',
+  Iscsi = 'iscsi',
+  Nvmf = 'nvmf',
+}
+
+export function protocolFromString(val: string): Protocol {
+  if (val == Protocol.Nbd) {
+    return Protocol.Nbd;
+  } else if (val == Protocol.Iscsi) {
+    return Protocol.Iscsi;
+  } else if (val == Protocol.Nvmf) {
+    return Protocol.Nvmf;
+  } else {
+    return Protocol.Unknown;
+  }
+}
+
+// Represents a child with uri and state properties.
+// TODO: define state as enum.
+export class Child {
+  constructor(public uri: string, public state: string) {
+    assert(uri);
+    assert(state);
+  }
+  isEqual(ch: Child) {
+    return (ch.uri === this.uri && ch.state === this.state);
+  }
+}
+
+// Used with .sort() method to enforce deterministic order of children.
+function compareChildren(a: Child, b: Child) {
   return a.uri.localeCompare(b.uri);
 }
 
@@ -19,7 +50,7 @@ export class Nexus {
   size: number;
   deviceUri: string;
   state: string;
-  children: any[];
+  children: Child[];
 
   // Construct new nexus object.
   //
@@ -37,7 +68,9 @@ export class Nexus {
     this.deviceUri = props.deviceUri;
     this.state = props.state;
     // children of the nexus (replica URIs and their state)
-    this.children = [].concat(props.children || []).sort(compareChildren);
+    this.children = (props.children || [])
+      .map((ch: any) => new Child(ch.uri, ch.state))
+      .sort(compareChildren);
   }
 
   // Stringify the nexus
@@ -69,8 +102,21 @@ export class Nexus {
       this.state = props.state;
       changed = true;
     }
-    const children = [].concat(props.children).sort(compareChildren);
-    if (!_.isEqual(this.children, children)) {
+    const children = props.children
+      .map((ch: any) => new Child(ch.uri, ch.state))
+      .sort(compareChildren);
+    let childrenChanged = false;
+    if (this.children.length !== children.length) {
+      childrenChanged = true;
+    } else {
+      for (let i = 0; i < this.children.length; i++) {
+        if (!this.children[i].isEqual(children[i])) {
+          childrenChanged = true;
+          break;
+        }
+      }
+    }
+    if (childrenChanged) {
       this.children = children;
       changed = true;
     }
@@ -122,10 +168,10 @@ export class Nexus {
   }
 
   // Publish the nexus to make accessible for IO.
-  // @params {string}   protocol      The nexus share protocol.
-  // @returns {string} The device path of nexus block device.
+  // @params protocol      The nexus share protocol.
+  // @returns The device path of nexus block device.
   //
-  async publish(protocol: string) {
+  async publish(protocol: Protocol): Promise<string> {
     var res;
 
     if (this.deviceUri) {
@@ -181,6 +227,12 @@ export class Nexus {
     this._emitMod();
   }
 
+  // Get URI under which the nexus is published or "undefined" if it hasn't been
+  // published.
+  getUri(): string | undefined {
+    return this.deviceUri || undefined;
+  }
+
   // Add replica to the nexus.
   //
   // @param {object} replica   Replica object to add to the nexus.
@@ -208,7 +260,7 @@ export class Nexus {
     }
     // The child will need to be rebuilt when added, but until we get
     // confirmation back from the nexus, set it as pending
-    this.children.push(childInfo);
+    this.children.push(new Child(childInfo.uri, childInfo.state));
     this.children.sort(compareChildren);
     log.info(`Replica uri "${uri}" added to the nexus "${this}"`);
     this._emitMod();
@@ -248,18 +300,8 @@ export class Nexus {
   // Destroy nexus on storage node.
   async destroy() {
     log.debug(`Destroying nexus "${this}" ...`);
-
-    try {
-      await this.node.call('destroyNexus', { uuid: this.uuid });
-      log.info(`Destroyed nexus "${this}"`);
-    } catch (err) {
-      // TODO: make destroyNexus idempotent
-      if (err.code !== GrpcCode.NOT_FOUND) {
-        throw err;
-      }
-      log.warn(`Destroyed nexus "${this}" does not exist`);
-    }
-
+    await this.node.call('destroyNexus', { uuid: this.uuid });
+    log.info(`Destroyed nexus "${this}"`);
     this.unbind();
   }
 }

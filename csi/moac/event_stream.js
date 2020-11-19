@@ -83,7 +83,7 @@ class EventStream extends Readable {
     }
     // Populate stream with objects which already exist but for consumer
     // they appear as new.
-    var self = this;
+    const self = this;
     if (self.registry) {
       self.registry.getNode().forEach((node) => {
         self.events.push({
@@ -122,7 +122,7 @@ class EventStream extends Readable {
       });
     }
     if (self.volumes) {
-      self.volumes.get().forEach((volume) => {
+      self.volumes.list().forEach((volume) => {
         self.events.push({
           kind: 'volume',
           eventType: 'new',

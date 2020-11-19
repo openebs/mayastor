@@ -3,7 +3,7 @@
 
 'use strict';
 
-const Node = require('../node');
+const { Node } = require('../node');
 
 // It can be used instead of real node object in tests of components that
 // depend on the Node.
@@ -14,16 +14,15 @@ class NodeStub extends Node {
   constructor (name, opts, pools, nexus) {
     super(name, opts);
 
-    var self = this;
     if (pools) {
-      self.pools = pools.map((p) => {
-        p.node = self;
+      this.pools = pools.map((p) => {
+        p.node = this;
         return p;
       });
     }
     if (nexus) {
-      self.nexus = nexus.map((n) => {
-        n.node = self;
+      this.nexus = nexus.map((n) => {
+        n.node = this;
         return n;
       });
     }

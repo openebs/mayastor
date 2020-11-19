@@ -5,7 +5,7 @@
 const _ = require('lodash');
 const expect = require('chai').expect;
 const sinon = require('sinon');
-const Node = require('../node');
+const { Node } = require('../node');
 const { Replica } = require('../replica');
 const { Nexus } = require('../nexus');
 const { shouldFailWith } = require('./utils');
@@ -14,7 +14,7 @@ const { GrpcCode, GrpcError } = require('../grpc_client');
 const UUID = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cbb';
 
 module.exports = function () {
-  var props = {
+  const props = {
     uuid: UUID,
     size: 100,
     deviceUri: '',
@@ -66,7 +66,7 @@ module.exports = function () {
   });
 
   describe('mod event', () => {
-    var node, eventSpy, nexus, newProps;
+    let node, eventSpy, nexus, newProps;
 
     beforeEach(() => {
       node = new Node('node');
@@ -162,7 +162,7 @@ module.exports = function () {
   });
 
   describe('grpc', () => {
-    var node, nexus, eventSpy, callStub;
+    let node, nexus, eventSpy, callStub;
 
     // Create a sample nexus bound to a node
     beforeEach((done) => {

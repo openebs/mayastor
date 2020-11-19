@@ -229,58 +229,73 @@ crucial for understanding what and when can happen with the volume. Imperfect
 approximation of FSA diagram for the volume follows:
 
 ```text
-              new volume
-                 +
-                 |
-            +----v-----+
-            |          |
-            | pending  <--+ nexus deleted
-            |          |
-            +----+-----+
-                 |
-nexus modified+--| new nexus
-replica events   |                        +----------+
-                 v                yes     |          |
-             nexus offline? +-------------> offline  |
-                 +                        |          |
-                 |                        +----------+
-                 | no
-                 |                        +----------+
-                 v                    no  |          |
-             any replica online?  +-------> faulted  |
-                 +                        |          |
-                 |                        +----------+
-                 | yes
-                 |
-                 v
-             insufficient # of online  yes
-             and rebuild replicas?    +--->create a new
-                 +                         replica (async)
-                 |                               +
-                 |                               |
-                 | no                            |
-                 |                          +----v-----+
-                 v                     yes  |          |
-             any replica in rebuild? +------> degraded |
-                 +                          |          |
-                 |                          +----------+
-                 | no
-                 |
-                 v
-            +----+------+
-            |           |
-            | healthy   |
-            |           |
-            +----+------+
-                 |
-                 v                yes
-             any replica faulty? +--> remove it
-                 +
-                 | no
-                 v
-             more online replicas yes
-             than needed?        +---> remove the least
-                                       preferred replica
+                             new volume
+                                +
+                                |
+                           +----v-----+
+                           |          |
+                           | pending  |
+                           |          |
+                           +----+-----+
+                                |
+                                | set up the volume
+                                |
+                           +----v-----+
+                           |          |
+                           | healthy  |
+                           |          |
+                           +----+-----+
+                                |
+                                |
+                    yes         v             no
+                    +--+is volume published?+--+
+                    |                          |
+                    |                          |                        +----------+
+                    v                          v                    no  |          |
+          yes  is any replica              any replica online?  +-------> faulted  |
+reshare  <---+ unreachable from                +                        |          |
+replica           nexus?                       |                        +----------+
+                    +                          | yes
+                    | no                       |
+          yes       v                          v                        +----------+
+recreate <---+ is nexus missing?           insufficient # of sound yes  |          |      create new
+nexus               +                       replicas?             +-----> degraded +----> replica
+                    | no                                                |          |
+          no        v                                                   +-----^----+
+share    <---+ is nexus exposed?                                              |
+nexus               +                                                         |
+                    | yes                                                     |
+                    v                                                         |
+               insufficient # of  yes                                         |
+               sound replicas?   +--------------------------------------------+
+                    +
+                    | no
+                    v            +------------+
+               volume under yes  |            |
+                 rebuild?  +-----> degraded   |
+                    +            |            |
+                    | no         +------------+
+                    v
+                +---+-----+
+                |         |
+                | healthy |
+                |         |
+                +---+-----+
+                    |
+                    v               yes
+                any replica faulty? +--> remove it
+                    +
+                    | no
+                    v
+                more online replicas yes
+                than needed?        +---> remove the least
+                    +                     preferred replica
+                    | no
+                    v
+                should move
+                volume to    yes
+                different   +--->  create new replica
+                node(s)?
 ```
 
 ## Troubleshooting

@@ -12,7 +12,7 @@ spec:
         # The status part is updated by the controller and spec part by the user
         # usually. Well, not in this case. The mayastor's control plane updates both
         # parts and user is allowed to update some of the properties in the spec
-        # too. The status part is read-only for the user as it is usually done.
+        # too. Though status part remains read-only for the user.
         status: {}
       schema:
         openAPIV3Schema:
@@ -70,13 +70,18 @@ spec:
                 reason:
                   description: Further explanation of the state if applicable.
                   type: string
-                node:
-                  description: Name of the k8s node with the nexus.
-                  type: string
+                targetNodes:
+                  description: k8s node(s) with storage targets for the volume.
+                  type: array
+                  items:
+                    type: string
                 nexus:
                   description: Frontend of the volume.
                   type: object
                   properties:
+                    node:
+                      description: Name of the k8s node with the nexus.
+                      type: string
                     deviceUri:
                       description: URI of a block device for IO.
                       type: string
@@ -115,10 +120,11 @@ spec:
                         description: Is replica reachable by control plane.
                         type: boolean
       additionalPrinterColumns:
-        - name: Node
-          type: string
-          description: Node where the volume is located
-          jsonPath: .status.node
+        - name: Targets
+          type: array
+          description: k8s node(s) with storage targets for the volume.
+          jsonPath: .status.targetNodes
+          items: string
         - name: Size
           type: integer
           format: int64

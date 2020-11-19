@@ -2,14 +2,13 @@
 // replicas). Consumers can use it to receive information about the storage
 // objects and notifications about the changes.
 
-'use strict';
+import assert from 'assert';
+import { Pool } from './pool';
+import { Nexus } from './nexus';
+import { Replica } from './replica';
 
-const assert = require('assert');
 const EventEmitter = require('events');
 const Workq = require('./workq');
-const { Nexus } = require('./nexus');
-const { Pool } = require('./pool');
-const { Replica } = require('./replica');
 const log = require('./logger').Logger('node');
 const { GrpcClient, GrpcCode, GrpcError } = require('./grpc_client');
 
@@ -19,7 +18,19 @@ const { GrpcClient, GrpcCode, GrpcError } = require('./grpc_client');
 // "node": node related events with payload { eventType: "sync", object: node }
 //         when the node is sync'd after previous sync failure(s).
 // "pool", "replica", "nexus": with eventType "new", "mod", "del".
-class Node extends EventEmitter {
+export class Node extends EventEmitter {
+  name: string;
+  syncPeriod: number;
+  syncRetry: number;
+  syncBadLimit: number;
+  endpoint: string | null;
+  client: any;
+  workq: any;
+  syncFailed: number;
+  syncTimer: NodeJS.Timeout | null;
+  nexus: Nexus[];
+  pools: Pool[];
+
   // Create a storage node object.
   //
   // @param {string} name              Node name.
@@ -27,7 +38,7 @@ class Node extends EventEmitter {
   // @param {number} opts.syncPeriod   How often to sync healthy node (in ms).
   // @param {number} opts.syncRetry    How often to retry sync if it failed (in ms).
   // @param {number} opts.syncBadLimit Flip the node to offline state after this many retries have failed.
-  constructor (name, opts) {
+  constructor (name: string, opts: any) {
     opts = opts || {};
 
     super();
@@ -51,12 +62,12 @@ class Node extends EventEmitter {
   }
 
   // Stringify node object.
-  toString () {
+  toString(): string {
     return this.name;
   }
 
   // Create grpc connection to the mayastor server
-  connect (endpoint) {
+  connect(endpoint: string) {
     if (this.client) {
       if (this.endpoint === endpoint) {
         // nothing changed
@@ -66,7 +77,10 @@ class Node extends EventEmitter {
           `mayastor endpoint on node "${this.name}" changed from "${this.endpoint}" to "${endpoint}"`
         );
         this.client.close();
-        clearTimeout(this.syncTimer);
+        if (this.syncTimer) {
+          clearTimeout(this.syncTimer);
+          this.syncTimer = null;
+        }
       }
     } else {
       log.info(`new mayastor node "${this.name}" with endpoint "${endpoint}"`);
@@ -77,18 +91,20 @@ class Node extends EventEmitter {
   }
 
   // Close the grpc connection
-  disconnect () {
+  disconnect() {
     log.info(`mayastor on node "${this.name}" is gone`);
     assert(this.client);
     this.client.close();
     this.client = null;
-    clearTimeout(this.syncTimer);
-    this.syncTimer = null;
+    if (this.syncTimer) {
+      clearTimeout(this.syncTimer);
+      this.syncTimer = null;
+    }
     this.syncFailed = this.syncBadLimit + 1;
     this._offline();
   }
 
-  unbind () {
+  unbind() {
     // todo: on user explicit removal should we destroy the pools as well?
     this.pools.forEach((pool) => pool.unbind());
     this.nexus.forEach((nexus) => nexus.unbind());
@@ -96,7 +112,7 @@ class Node extends EventEmitter {
 
   // The node is considered broken, emit offline events on all objects
   // that are present on the node.
-  _offline () {
+  _offline() {
     this.emit('node', {
       eventType: 'mod',
       object: this
@@ -108,15 +124,15 @@ class Node extends EventEmitter {
   // Call grpc method on storage node. The calls are serialized in order
   // to prevent race conditions and inconsistencies.
   //
-  // @param {string} method  gRPC method name.
-  // @param {object} args    Arguments for gRPC method.
-  // @returns {object} A promise that evals to return value of gRPC method.
+  // @param method  gRPC method name.
+  // @param args    Arguments for gRPC method.
+  // @returns A promise that evals to return value of gRPC method.
   //
-  async call (method, args) {
+  async call(method: string, args: any): Promise<any> {
     return this.workq.push({ method, args }, this._call.bind(this));
   }
 
-  async _call (ctx) {
+  async _call(ctx: any) {
     if (!this.client) {
       throw new GrpcError(
         GrpcCode.INTERNAL,
@@ -128,7 +144,7 @@ class Node extends EventEmitter {
 
   // Sync triggered by the timer. It ensures that the sync does run in
   // parallel with any other rpc call or another sync.
-  async sync () {
+  async sync() {
     let nextSync;
     this.syncTimer = null;
 
@@ -160,7 +176,7 @@ class Node extends EventEmitter {
 
   // Synchronize nexus, replicas and pools. Called from work queue so it cannot
   // interfere with other grpc calls.
-  async _sync () {
+  async _sync() {
     log.debug(`Syncing the node "${this.name}"`);
 
     // TODO: Harden checking of outputs of the methods below
@@ -208,7 +224,7 @@ class Node extends EventEmitter {
   // @param {object[]} pools    New pools with properties.
   // @param {object[]} replicas New replicas with properties.
   //
-  _mergePoolsAndReplicas (pools, replicas) {
+  _mergePoolsAndReplicas(pools: any[], replicas: any[]) {
     // detect modified and new pools
     pools.forEach((props) => {
       const poolReplicas = replicas.filter((r) => r.pool === props.name);
@@ -239,7 +255,7 @@ class Node extends EventEmitter {
   //
   // @param {object[]} nexusList  List of nexus obtained from storage node.
   //
-  _mergeNexus (nexusList) {
+  _mergeNexus(nexusList: any[]) {
     // detect modified and new pools
     nexusList.forEach((props) => {
       const nexus = this.nexus.find((n) => n.uuid === props.uuid);
@@ -248,7 +264,7 @@ class Node extends EventEmitter {
         nexus.merge(props);
       } else {
         // it is a new nexus
-        this._registerNexus(new Nexus(props, []));
+        this._registerNexus(new Nexus(props));
       }
     });
     // remove nexus that no longer exist
@@ -263,19 +279,19 @@ class Node extends EventEmitter {
   // @param {object}   pool        New pool object.
   // @param {object[]} [replicas]  New replicas on the pool.
   //
-  _registerPool (pool, replicas) {
+  _registerPool(pool: Pool, replicas: any) {
     assert(!this.pools.find((p) => p.name === pool.name));
     this.pools.push(pool);
     pool.bind(this);
     replicas = replicas || [];
-    replicas.forEach((r) => pool.registerReplica(new Replica(r)));
+    replicas.forEach((r: any) => pool.registerReplica(new Replica(r)));
   }
 
   // Remove the pool from list of pools of this node.
   //
   // @param {object} pool  The pool to be deregistered from the node.
   //
-  unregisterPool (pool) {
+  unregisterPool(pool: Pool) {
     const idx = this.pools.indexOf(pool);
     if (idx >= 0) {
       this.pools.splice(idx, 1);
@@ -290,7 +306,7 @@ class Node extends EventEmitter {
   //
   // @param {object} nexus      New nexus object.
   //
-  _registerNexus (nexus) {
+  _registerNexus(nexus: Nexus) {
     assert(!this.nexus.find((p) => p.uuid === nexus.uuid));
     this.nexus.push(nexus);
     nexus.bind(this);
@@ -300,7 +316,7 @@ class Node extends EventEmitter {
   //
   // @param {object} nexus  The nexus to be deregistered from the node.
   //
-  unregisterNexus (nexus) {
+  unregisterNexus(nexus: Nexus) {
     const idx = this.nexus.indexOf(nexus);
     if (idx >= 0) {
       this.nexus.splice(idx, 1);
@@ -313,44 +329,45 @@ class Node extends EventEmitter {
 
   // Get all replicas across all pools on this node.
   //
-  // @returns {object[]}  All replicas on this node.
-  getReplicas () {
-    return this.pools.reduce((acc, pool) => acc.concat(pool.replicas), []);
+  // @returns All replicas on this node.
+  getReplicas(): Replica[] {
+    return this.pools.reduce(
+      (acc: Replica[], pool: Pool) => acc.concat(pool.replicas), []);
   }
 
   // Return true if the node is considered healthy which means that its state
   // is synchronized with the state maintained on behalf of this node object.
   //
-  // @returns {boolean} True if the node is healthy, false otherwise.
+  // @returns True if the node is healthy, false otherwise.
   //
-  isSynced () {
+  isSynced(): boolean {
     return this.syncFailed <= this.syncBadLimit;
   }
 
   // Create storage pool on this node.
   //
-  // @param {string}   name   Name of the new pool.
-  // @param {string[]} disks  List of disk devices for the pool.
-  // @returns {object} New pool object.
+  // @param name   Name of the new pool.
+  // @param disks  List of disk devices for the pool.
+  // @returns New pool object.
   //
-  async createPool (name, disks) {
+  async createPool(name: string, disks: string[]): Promise<Pool> {
     log.debug(`Creating pool "${name}@${this.name}" ...`);
 
     const poolInfo = await this.call('createPool', { name, disks });
     log.info(`Created pool "${name}@${this.name}"`);
 
     const newPool = new Pool(poolInfo);
-    this._registerPool(newPool);
+    this._registerPool(newPool, []);
     return newPool;
   }
 
   // Create nexus on this node.
   //
-  // @param {string}   uuid      ID of the new nexus.
-  // @param {number}   size      Size of nexus in bytes.
-  // @param {object[]} replicas  Replica objects comprising the nexus.
-  // @returns {object} New nexus object.
-  async createNexus (uuid, size, replicas) {
+  // @param uuid      ID of the new nexus.
+  // @param size      Size of nexus in bytes.
+  // @param replicas  Replica objects comprising the nexus.
+  // @returns New nexus object.
+  async createNexus(uuid: string, size: number, replicas: Replica[]): Promise<Nexus> {
     const children = replicas.map((r) => r.uri);
     log.debug(`Creating nexus "${uuid}@${this.name}"`);
 
@@ -364,12 +381,10 @@ class Node extends EventEmitter {
 
   // Get IO statistics for all replicas on the node.
   //
-  // @returns {object[]} Array of stats where each object is for a different replica and keys are stats names and values stats values.
-  async getStats () {
+  // @returns Array of stats where each object is for a different replica and keys are stats names and values stats values.
+  async getStats(): Promise<any[]> {
     log.debug(`Retrieving volume stats from node "${this}"`);
     const reply = await this.call('statReplicas', {});
     return reply.replicas;
   }
 }
-
-module.exports = Node;
