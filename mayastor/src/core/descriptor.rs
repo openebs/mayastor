@@ -192,7 +192,7 @@ impl Drop for Descriptor {
 
 impl Debug for Descriptor {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
-        if self.0 != std::ptr::null_mut() {
+        if !self.0.is_null() {
             write!(
                 f,
                 "Descriptor {:p} for bdev: {}",
@@ -200,7 +200,7 @@ impl Debug for Descriptor {
                 self.get_bdev().name()
             )
         } else {
-            write!(f, "not alloacted")
+            Ok(())
         }
     }
 }

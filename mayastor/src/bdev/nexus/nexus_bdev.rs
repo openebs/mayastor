@@ -606,13 +606,10 @@ impl Nexus {
 
     /// resume IO to the bdev
     pub(crate) async fn resume(&self) -> Result<(), Error> {
-        match self.shared() {
-            Some(Protocol::Nvmf) => {
-                if let Some(subsystem) = NvmfSubsystem::nqn_lookup(&self.name) {
-                    subsystem.resume().await.unwrap();
-                }
+        if let Some(Protocol::Nvmf) = self.shared() {
+            if let Some(subsystem) = NvmfSubsystem::nqn_lookup(&self.name) {
+                subsystem.resume().await.unwrap();
             }
-            _ => {}
         }
 
         Ok(())
@@ -621,13 +618,10 @@ impl Nexus {
     /// suspend any incoming IO to the bdev pausing the controller allows us to
     /// handle internal events and which is a protocol feature.
     pub(crate) async fn pause(&self) -> Result<(), Error> {
-        match self.shared() {
-            Some(Protocol::Nvmf) => {
-                if let Some(subsystem) = NvmfSubsystem::nqn_lookup(&self.name) {
-                    subsystem.pause().await.unwrap();
-                }
+        if let Some(Protocol::Nvmf) = self.shared() {
+            if let Some(subsystem) = NvmfSubsystem::nqn_lookup(&self.name) {
+                subsystem.pause().await.unwrap();
             }
-            _ => {}
         }
 
         Ok(())

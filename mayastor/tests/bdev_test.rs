@@ -42,7 +42,6 @@ use std::{
 use once_cell::sync::OnceCell;
 
 const NEXUS_UUID: &str = "00000000-0000-0000-0000-000000000001";
-//const NEXUS_NAME: &str = "nexus-00000000-0000-0000-0000-000000000001";
 
 use common::compose::{Builder, ComposeTest, MayastorTest};
 use mayastor::{
