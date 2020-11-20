@@ -145,9 +145,7 @@ impl From<u32> for IoType {
             15 => Self::CompareAndWrite,
             16 => Self::Abort,
             17 => Self::IoNumTypes,
-            _ => {
-                panic!("invalid IO type")
-            }
+            _ => panic!("invalid IO type"),
         }
     }
 }
@@ -178,9 +176,7 @@ impl From<i32> for IoStatus {
             -1 => Self::Failed,
             0 => Self::Pending,
             1 => Self::Success,
-            _ => {
-                panic!("invalid status code")
-            }
+            _ => panic!("invalid status code"),
         }
     }
 }

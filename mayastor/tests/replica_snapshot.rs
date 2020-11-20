@@ -103,7 +103,7 @@ fn share_snapshot(t: u64) {
         "nvmf",
     ]);
 }
-
+#[ignore]
 #[test]
 fn replica_snapshot() {
     generate_config();

@@ -19,11 +19,10 @@ pub use env::{
 };
 
 pub use handle::BdevHandle;
+pub use nvme::{GenericStatusCode, NvmeStatus};
 pub use reactor::{Reactor, ReactorState, Reactors, REACTOR_LIST};
 pub use share::{Protocol, Share};
 pub use thread::Mthread;
-pub use nvme::{NvmeStatus,GenericStatusCode};
-
 
 mod bdev;
 mod channel;

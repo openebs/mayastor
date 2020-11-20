@@ -40,7 +40,12 @@ use crate::{
         nexus,
         nexus::{
             instances,
-            nexus_channel::{DREvent, NexusChannel, NexusChannelInner},
+            nexus_channel::{
+                DREvent,
+                NexusChannel,
+                NexusChannelInner,
+                ReconfigureCtx,
+            },
             nexus_child::{ChildError, ChildState, NexusChild},
             nexus_io::{nvme_admin_opc, Bio, IoStatus, IoType},
             nexus_label::LabelError,
@@ -55,6 +60,7 @@ use crate::{
     subsys,
     subsys::{Config, NvmfSubsystem},
 };
+use std::ptr::NonNull;
 
 /// Obtain the full error chain
 pub trait VerboseError {
@@ -309,8 +315,6 @@ pub struct Nexus {
     bdev_raw: *mut spdk_bdev,
     /// represents the current state of the Nexus
     pub(super) state: std::sync::Mutex<NexusState>,
-    /// Dynamic Reconfigure event
-    pub dr_complete_notify: Option<oneshot::Sender<i32>>,
     /// the offset in num blocks where the data partition starts
     pub data_ent_offset: u64,
     /// the handle to be used when sharing the nexus, this allows for the bdev
@@ -409,7 +413,6 @@ impl Nexus {
             bdev: Bdev::from(&*b as *const _ as *mut spdk_bdev),
             state: std::sync::Mutex::new(NexusState::Init),
             bdev_raw: Box::into_raw(b),
-            dr_complete_notify: None,
             data_ent_offset: 0,
             share_handle: None,
             size,
@@ -452,17 +455,20 @@ impl Nexus {
     pub(crate) async fn reconfigure(&mut self, event: DREvent) {
         let _var = self.reconfigure_mutex.lock().await;
         let (s, r) = oneshot::channel::<i32>();
-        assert!(self.dr_complete_notify.is_none());
-        self.dr_complete_notify = Some(s);
 
         info!(
             "{}: Dynamic reconfiguration event: {:?} started",
             self.name, event
         );
 
-        NexusChannel::reconfigure(self.as_ptr(), &event);
+        let ctx = Box::new(ReconfigureCtx::new(
+            s,
+            NonNull::new(self.as_ptr()).unwrap(),
+        ));
 
-        let result = r.await;
+        NexusChannel::reconfigure(self.as_ptr(), ctx, &event);
+
+        let result = r.await.expect("reconfigure sender already dropped");
 
         info!(
             "{}: Dynamic reconfiguration event: {:?} completed {:?}",
