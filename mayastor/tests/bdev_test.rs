@@ -117,7 +117,7 @@ async fn create_nexus(container: &str, mut kiddos: Vec<String>) -> String {
     let bdev = h
         .bdev
         .create(BdevUri {
-            uri: "malloc:///disk0?size_mb=100".into(),
+            uri: "malloc:///disk0?size_mb=64".into(),
         })
         .await
         .unwrap();
@@ -127,7 +127,7 @@ async fn create_nexus(container: &str, mut kiddos: Vec<String>) -> String {
     h.mayastor
         .create_nexus(CreateNexusRequest {
             uuid: NEXUS_UUID.to_string(),
-            size: 96 * 1024 * 1024,
+            size: 60 * 1024 * 1024,
             children: kiddos,
         })
         .await
@@ -150,8 +150,8 @@ async fn create_nexus(container: &str, mut kiddos: Vec<String>) -> String {
 /// IO flows through mayastorTest to all 3 containers
 async fn create_topology(queue: Arc<JobQueue>) {
     let r1 = create_target("ms1").await;
-    let r2 = create_target("ms2").await;
-    let endpoint = create_nexus("ms3", vec![r1, r2]).await;
+    // let r2 = create_target("ms2").await;
+    let endpoint = create_nexus("ms3", vec![r1]).await;
 
     // the nexus is running on ms3 we will use a 4th instance of mayastor to
     // create a nvmf bdev and push IO to it.
@@ -172,7 +172,7 @@ async fn create_topology(queue: Arc<JobQueue>) {
             let job = io_driver::Builder::new()
                 .core(c)
                 .bdev(bdev)
-                .qd(64)
+                .qd(8)
                 .io_size(512)
                 .build()
                 .await;
@@ -272,10 +272,10 @@ async fn nvmf_bdev_test() {
             "ms1",
             Binary::from_dbg("mayastor").with_args(vec!["-l", "1"]),
         )
-        .add_container_bin(
-            "ms2",
-            Binary::from_dbg("mayastor").with_args(vec!["-l", "2"]),
-        )
+        // .add_container_bin(
+        //     "ms2",
+        //     Binary::from_dbg("mayastor").with_args(vec!["-l", "2"]),
+        // )
         .add_container_bin(
             "ms3",
             Binary::from_dbg("mayastor").with_args(vec!["-l", "3"]),
