@@ -1,7 +1,7 @@
 # MayaStor
 
 [![Releases](https://img.shields.io/github/release/openebs/Mayastor/all.svg?style=flat-square)](https://github.com/openebs/Mayastor/releases)
-[![CI-basic](https://mayastor-ci.mayadata.io/buildStatus/icon?job=Mayastor%2Fdevelop)](https://mayastor-ci.mayadata.io/blue/organizations/jenkins/Mayastor/activity/)
+[![CI-basic](https://mayastor-ci.mayadata.io/buildStatus/icon?job=Mayastor%2Fmaster)](https://mayastor-ci.mayadata.io/blue/organizations/jenkins/Mayastor/activity/)
 [![Slack](https://img.shields.io/badge/JOIN-SLACK-blue)](https://kubernetes.slack.com/messages/openebs)
 [![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fopenebs%2FMayaStor.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2Fopenebs%2FMayaStor?ref=badge_shield)
 [![built with nix](https://builtwithnix.org/badge.svg)](https://builtwithnix.org)
