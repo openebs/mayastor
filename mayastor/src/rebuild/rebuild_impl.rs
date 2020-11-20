@@ -500,6 +500,8 @@ impl ClientOperations for RebuildJob {
             progress,
             segment_size_blks: self.segment_size_blks,
             block_size: self.block_size,
+            tasks_total: self.task_pool.total as u64,
+            tasks_active: self.task_pool.active as u64,
         }
     }
 
@@ -597,11 +599,21 @@ impl RebuildJob {
     }
 
     async fn await_all_tasks(&mut self) {
-        while self.await_one_task().await.is_some() {
-            if self.task_pool.active == 0 {
-                break;
+        debug!(
+            "Awaiting all active tasks({}) for rebuild {}",
+            self.task_pool.active, self.destination
+        );
+        while self.task_pool.active > 0 {
+            if self.await_one_task().await.is_none() {
+                error!("Failed to wait for {} rebuild tasks due mpsc channel failure.", self.task_pool.active);
+                self.fail();
+                return;
             }
         }
+        debug!(
+            "Finished awaiting all tasks for rebuild {}",
+            self.destination
+        );
     }
 
     /// Sends one segment worth of data in a reactor future and notifies the

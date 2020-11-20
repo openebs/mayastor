@@ -386,6 +386,18 @@ impl mayastor_server::Mayastor for MayastorSvc {
     }
 
     #[instrument(level = "debug", err)]
+    async fn get_rebuild_stats(
+        &self,
+        request: Request<RebuildStatsRequest>,
+    ) -> GrpcResult<RebuildStatsReply> {
+        let args = request.into_inner();
+        trace!("{:?}", args);
+        Ok(Response::new(locally! { async move {
+            nexus_lookup(&args.uuid)?.get_rebuild_stats(&args.uri).await
+        }}))
+    }
+
+    #[instrument(level = "debug", err)]
     async fn get_rebuild_progress(
         &self,
         request: Request<RebuildProgressRequest>,
