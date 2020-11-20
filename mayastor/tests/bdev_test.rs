@@ -288,7 +288,7 @@ async fn nvmf_bdev_test() {
 
     DOCKER_COMPOSE.set(compose).unwrap();
     // this is based on the number of containers above.
-    let mask = format!("{:#01x}", (1 << 4) | (1 << 5));
+    let mask = format!("{:#01x}", (1 << 1) | (1 << 2));
     let ms = MayastorTest::new(MayastorCliArgs {
         reactor_mask: mask,
         no_pci: true,
