@@ -8,6 +8,7 @@ use spdk_sys::{
     spdk_io_channel,
     spdk_io_channel_iter,
     spdk_io_channel_iter_get_channel,
+    spdk_io_channel_iter_get_ctx,
     spdk_io_channel_iter_get_io_device,
 };
 
@@ -15,6 +16,8 @@ use crate::{
     bdev::{nexus::nexus_child::ChildState, Nexus},
     core::BdevHandle,
 };
+use futures::channel::oneshot;
+use std::ptr::NonNull;
 
 /// io channel, per core
 #[repr(C)]
@@ -30,6 +33,27 @@ pub(crate) struct NexusChannelInner {
     pub(crate) readers: Vec<BdevHandle>,
     pub(crate) previous: usize,
     device: *mut c_void,
+}
+
+#[derive(Debug)]
+/// reconfigure context holding among others
+/// the completion channel.
+pub struct ReconfigureCtx {
+    /// channel to send completion on.
+    sender: oneshot::Sender<i32>,
+    device: NonNull<c_void>,
+}
+
+impl ReconfigureCtx {
+    pub(crate) fn new(
+        sender: oneshot::Sender<i32>,
+        device: NonNull<c_void>,
+    ) -> Self {
+        Self {
+            sender,
+            device,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -173,7 +197,11 @@ impl NexusChannel {
     }
 
     /// function called when we receive a Dynamic Reconfigure event (DR)
-    pub extern "C" fn reconfigure(device: *mut c_void, event: &DREvent) {
+    pub extern "C" fn reconfigure(
+        device: *mut c_void,
+        ctx: Box<ReconfigureCtx>,
+        event: &DREvent,
+    ) {
         match event {
             DREvent::ChildOffline
             | DREvent::ChildOnline
@@ -184,7 +212,7 @@ impl NexusChannel {
                 spdk_for_each_channel(
                     device,
                     Some(NexusChannel::refresh_io_channels),
-                    std::ptr::null_mut(),
+                    Box::into_raw(ctx).cast(),
                     Some(Self::reconfigure_completed),
                 );
             },
@@ -200,12 +228,14 @@ impl NexusChannel {
             Nexus::from_raw(spdk_io_channel_iter_get_io_device(ch_iter))
         };
 
-        trace!("{}: Reconfigure completed", nexus.name);
-        if let Some(sender) = nexus.dr_complete_notify.take() {
-            sender.send(status).expect("reconfigure channel gone");
-        } else {
-            error!("DR error");
-        }
+        let ctx: Box<ReconfigureCtx> = unsafe {
+            Box::from_raw(
+                spdk_io_channel_iter_get_ctx(ch_iter) as *mut ReconfigureCtx
+            )
+        };
+
+        info!("{}: Reconfigure completed", nexus.name);
+        ctx.sender.send(status).expect("reconfigure channel gone");
     }
 
     /// Refresh the IO channels of the underlying children. Typically, this is

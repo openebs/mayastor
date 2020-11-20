@@ -230,6 +230,8 @@ pub struct Builder {
     network: String,
     /// delete the container and network when dropped
     clean: bool,
+    /// destroy existing containers if any
+    prune: bool,
 }
 
 impl Default for Builder {
@@ -246,6 +248,7 @@ impl Builder {
             containers: Default::default(),
             network: "10.1.0.0".to_string(),
             clean: true,
+            prune: true,
         }
     }
 
@@ -285,6 +288,10 @@ impl Builder {
         self
     }
 
+    pub fn with_prune(mut self, enable: bool) -> Builder {
+        self.prune = enable;
+        self
+    }
     /// build the config and start the containers
     pub async fn build(
         self,
@@ -326,6 +333,7 @@ impl Builder {
             ipam,
             label: format!("io.mayastor.test.{}", self.name),
             clean: self.clean,
+            prune: self.prune,
         };
 
         compose.network_id =
@@ -375,6 +383,7 @@ pub struct ComposeTest {
     label: String,
     /// automatically clean up the things we have created for this test
     clean: bool,
+    pub prune: bool,
 }
 
 impl Drop for ComposeTest {
@@ -519,6 +528,29 @@ impl ComposeTest {
         spec: &ContainerSpec,
         ipv4: &str,
     ) -> Result<(), Error> {
+        if self.prune {
+            let _ = self
+                .docker
+                .stop_container(
+                    &spec.name,
+                    Some(StopContainerOptions {
+                        t: 0,
+                    }),
+                )
+                .await;
+            let _ = self
+                .docker
+                .remove_container(
+                    &spec.name,
+                    Some(RemoveContainerOptions {
+                        v: false,
+                        force: false,
+                        link: false,
+                    }),
+                )
+                .await;
+        }
+
         let host_config = HostConfig {
             binds: Some(vec![
                 format!("{}:{}", self.srcdir, self.srcdir),
@@ -739,7 +771,7 @@ impl ComposeTest {
             handles.push(
                 RpcHandle::connect(
                     v.0.clone(),
-                    format!("{}:10124", v.1.1).parse::<SocketAddr>().unwrap(),
+                    format!("{}:10124", v.1 .1).parse::<SocketAddr>().unwrap(),
                 )
                 .await?,
             );
@@ -753,7 +785,7 @@ impl ComposeTest {
         match self.containers.iter().find(|&c| c.0 == name) {
             Some(container) => Ok(RpcHandle::connect(
                 container.0.clone(),
-                format!("{}:10124", container.1.1)
+                format!("{}:10124", container.1 .1)
                     .parse::<SocketAddr>()
                     .unwrap(),
             )

@@ -41,7 +41,6 @@ pub enum NbdError {
 }
 
 extern "C" {
-    //TODO this is defined in nbd_internal.h but is not part of our bindings
     fn nbd_disconnect(nbd: *mut spdk_nbd_disk);
 }
 

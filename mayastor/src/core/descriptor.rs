@@ -192,12 +192,16 @@ impl Drop for Descriptor {
 
 impl Debug for Descriptor {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
-        write!(
-            f,
-            "Descriptor {:p} for bdev: {}",
-            self.as_ptr(),
-            self.get_bdev().name()
-        )
+        if !self.0.is_null() {
+            write!(
+                f,
+                "Descriptor {:p} for bdev: {}",
+                self.as_ptr(),
+                self.get_bdev().name()
+            )
+        } else {
+            Ok(())
+        }
     }
 }
 

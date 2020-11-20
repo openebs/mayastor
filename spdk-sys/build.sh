@@ -5,7 +5,7 @@
 #
 
 pushd spdk || { echo "Can not find spdk directory"; exit; }
-
+rm libspdk.so
 [ ! -d dpdk/.git ] || { echo "Submodules not checked out?"; exit; }
 
 

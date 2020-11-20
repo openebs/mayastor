@@ -372,8 +372,7 @@ impl NvmfSubsystem {
 
     /// we are not making use of pause and resume yet but this will be needed
     /// when we start to move things around
-    #[allow(dead_code)]
-    async fn pause(&self) -> Result<(), Error> {
+    pub async fn pause(&self) -> Result<(), Error> {
         extern "C" fn pause_cb(
             ss: *mut spdk_nvmf_subsystem,
             arg: *mut c_void,
@@ -413,9 +412,7 @@ impl NvmfSubsystem {
             msg: "failed to pause the subsystem".to_string(),
         })
     }
-
-    #[allow(dead_code)]
-    async fn resume(&self) -> Result<(), Error> {
+    pub async fn resume(&self) -> Result<(), Error> {
         extern "C" fn resume_cb(
             ss: *mut spdk_nvmf_subsystem,
             arg: *mut c_void,

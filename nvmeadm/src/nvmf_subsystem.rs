@@ -45,7 +45,7 @@ impl Subsystem {
         let serial = parse_value::<String>(&source, "serial")?;
         let model = parse_value::<String>(&source, "model")?;
 
-        if serial == "" || model == "" {
+        if serial.is_empty() || model.is_empty() {
             return Err(NvmeError::CtlNotFound {
                 text: "discovery controller".into(),
             });

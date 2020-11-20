@@ -243,7 +243,7 @@ impl Discovery {
         let numdl: u16 = (dword_count & 0xFFFF) as u16;
         let numdu: u16 = (dword_count >> 16) as u16;
 
-        cmd.cdw10 = 0x70 | u32::from(numdl) << 16 as u32;
+        cmd.cdw10 = 0x70 | u32::from(numdl) << 16_u32;
         cmd.cdw11 = u32::from(numdu);
 
         let _ret = unsafe {

@@ -76,15 +76,12 @@ impl Attach for NvmfAttach {
         if let Err(error) =
             nvmeadm::nvmf_discovery::connect(&self.host, self.port, &self.nqn)
         {
-            match (error) {
-                nvmeadm::error::NvmeError::ConnectInProgress => return Ok(()),
+            return match error {
+                nvmeadm::error::NvmeError::ConnectInProgress => Ok(()),
                 _ => {
-                    return Err(DeviceError::from(format!(
-                        "connect failed: {}",
-                        error
-                    )))
+                    Err(DeviceError::from(format!("connect failed: {}", error)))
                 }
-            }
+            };
         }
 
         Ok(())
@@ -124,10 +121,6 @@ impl NvmfDetach {
 
 #[tonic::async_trait]
 impl Detach for NvmfDetach {
-    fn devname(&self) -> DeviceName {
-        self.name.clone()
-    }
-
     async fn detach(&self) -> Result<(), DeviceError> {
         if nvmeadm::nvmf_discovery::disconnect(&self.nqn)? == 0 {
             return Err(DeviceError::from(format!(
@@ -137,5 +130,9 @@ impl Detach for NvmfDetach {
         }
 
         Ok(())
+    }
+
+    fn devname(&self) -> DeviceName {
+        self.name.clone()
     }
 }

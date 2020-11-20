@@ -175,7 +175,7 @@ pub fn publish_fs_volume(
     // TODO: Should also check that the staged "device"
     // corresponds to the the volume uuid
 
-    if mnt.fs_type != "" && mnt.fs_type != staged.fstype {
+    if !mnt.fs_type.is_empty() && mnt.fs_type != staged.fstype {
         return Err(failure!(
                 Code::InvalidArgument,
                 "Failed to publish volume {}: filesystem type ({}) does not match staged volume ({})",

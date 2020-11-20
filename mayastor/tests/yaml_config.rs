@@ -209,7 +209,7 @@ fn yaml_pool_tests() {
     // delete the pool
     common::delete_file(&["/tmp/disk1.img".into()]);
 }
-
+#[ignore]
 #[test]
 // Try to see if we can start two mayastor instances where the nvmf and iSCSI
 // target is disabled for one of them. If we did not disable one of them, one
