@@ -142,11 +142,11 @@ impl Service {
     ///
     /// Example:
     /// # async fn main() {
-    /// # Service::builder(cli_args.url, Channel::Registry)
+    /// Service::builder(cli_args.url, Channel::Registry)
     ///         .with_shared_state(NodeStore::default())
     ///         .with_shared_state(More {})
     ///         .with_subscription(ServiceHandler::<Register>::default())
-    /// #         .run().await;
+    ///         .run().await;
     ///
     /// # async fn handler(&self, args: Arguments<'_>) -> Result<(), Error> {
     ///    let store: &NodeStore = args.context.get_state();
