@@ -331,7 +331,7 @@ impl Builder {
             network_id: "".to_string(),
             containers: Default::default(),
             ipam,
-            label: format!("io.mayastor.test.{}", self.name),
+            label_prefix: "io.mayastor.test".to_string(),
             clean: self.clean,
             prune: self.prune,
         };
@@ -379,8 +379,9 @@ pub struct ComposeTest {
     containers: HashMap<ContainerName, (ContainerId, Ipv4Addr)>,
     /// the default network configuration we use for our test cases
     ipam: Ipam,
-    /// set on containers and networks
-    label: String,
+    /// prefix for labels set on containers and networks
+    ///   $prefix.name = $name will be created automatically
+    label_prefix: String,
     /// automatically clean up the things we have created for this test
     clean: bool,
     pub prune: bool,
@@ -422,6 +423,7 @@ impl ComposeTest {
             return Ok(self.network_id.clone());
         }
 
+        let name_label = format!("{}.name", self.label_prefix);
         let create_opts = CreateNetworkOptions {
             name: self.name.as_str(),
             check_duplicate: true,
@@ -434,7 +436,9 @@ impl ComposeTest {
             options: vec![("com.docker.network.bridge.name", "mayabridge0")]
                 .into_iter()
                 .collect(),
-            labels: vec![(self.label.as_str(), "true")].into_iter().collect(),
+            labels: vec![(name_label.as_str(), self.name.as_str())]
+                .into_iter()
+                .collect(),
         };
 
         self.docker.create_network(create_opts).await.map(|r| {
@@ -477,7 +481,8 @@ impl ComposeTest {
                 all: true,
                 filters: vec![(
                     "label",
-                    vec![format!("{}=true", self.label).as_str()],
+                    vec![format!("{}.name={}", self.label_prefix, self.name)
+                        .as_str()],
                 )]
                 .into_iter()
                 .collect(),
@@ -609,6 +614,7 @@ impl ComposeTest {
             })
         }
 
+        let name_label = format!("{}.name", self.label_prefix);
         let config = Config {
             cmd: Some(cmd.iter().map(|s| s.as_str()).collect()),
             env: Some(env.iter().map(|s| s.as_str()).collect()),
@@ -629,7 +635,9 @@ impl ComposeTest {
                 .collect(),
             ),
             labels: Some(
-                vec![(self.label.as_str(), "true")].into_iter().collect(),
+                vec![(name_label.as_str(), self.name.as_str())]
+                    .into_iter()
+                    .collect(),
             ),
             exposed_ports: Some(exposed_ports),
             ..Default::default()

@@ -10,7 +10,7 @@ use mayastor::{
 use rpc::mayastor::{BdevShareRequest, BdevUri};
 
 pub mod common;
-use common::compose::{self, ComposeTest, MayastorTest};
+use common::compose::{self, Binary, ComposeTest, MayastorTest};
 use mayastor::core::io_driver::JobQueue;
 
 static DOCKER_COMPOSE: OnceCell<ComposeTest> = OnceCell::new();
@@ -137,11 +137,19 @@ async fn io_driver() {
     let queue = Arc::new(JobQueue::new());
 
     // create the docker containers
+    // we are pinning them to 3rd and 4th core spectively to improve stability
+    // of the test. Be aware that default docker container cpuset is 0-3!
     let compose = compose::Builder::new()
         .name("cargo-test")
         .network("10.1.0.0/16")
-        .add_container("nvmf-target1")
-        .add_container("nvmf-target2")
+        .add_container_bin(
+            "nvmf-target1",
+            Binary::from_dbg("mayastor").with_args(vec!["-l", "2"]),
+        )
+        .add_container_bin(
+            "nvmf-target2",
+            Binary::from_dbg("mayastor").with_args(vec!["-l", "3"]),
+        )
         .with_clean(true)
         .build()
         .await
