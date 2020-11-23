@@ -145,7 +145,7 @@ for system configuration of nodes (as opposed to using ansible, salt, etc.).
    services.jenkinsSlave.enable = true;
    services.iscsid.enable = true;
 
-   boot.kernelParams = ["hugepages=2048" "hugepagesz=2MB"];
+   boot.kernelParams = ["hugepages=4096" "hugepagesz=2MB"];
    boot.initrd.kernelModules = ["xfs"];
    boot.kernelModules = [ "nbd" "xfs" "nvme_tcp" "kvm_intel" ];
    boot.extraModprobeConfig = "options kvm_intel nested=1";
