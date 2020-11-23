@@ -39,7 +39,8 @@ use rpc::mayastor::{
     bdev_rpc_client::BdevRpcClient,
     mayastor_client::MayastorClient,
 };
-
+pub const TEST_NET_NAME: &str = "mayastor-testing-network";
+pub const TEST_NET_NETWORK: &str = "10.1.0.0/16";
 #[derive(Clone)]
 pub struct RpcHandle {
     pub name: String,
@@ -424,8 +425,9 @@ impl ComposeTest {
         }
 
         let name_label = format!("{}.name", self.label_prefix);
+        // we use the same network everywhere
         let create_opts = CreateNetworkOptions {
-            name: self.name.as_str(),
+            name: TEST_NET_NAME,
             check_duplicate: true,
             driver: "bridge",
             internal: false,
@@ -465,7 +467,7 @@ impl ComposeTest {
     pub async fn network_list(&self) -> Result<Vec<Network>, Error> {
         self.docker
             .list_networks(Some(ListNetworksOptions {
-                filters: vec![("name", vec![self.name.as_str()])]
+                filters: vec![("name", vec![TEST_NET_NAME])]
                     .into_iter()
                     .collect(),
             }))

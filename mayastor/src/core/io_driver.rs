@@ -396,7 +396,10 @@ impl JobQueue {
         }
     }
 
-    /// stop all jobs
+    /// stop all jobs we allow holding the lock during await as its fine here
+    /// because we are shutting down and can only ever shut down if all jobs
+    /// stop
+    #[allow(clippy::await_holding_lock)]
     pub async fn stop_all(&self) {
         let mut inner = self.inner.lock().unwrap();
         while let Some(mut job) = inner.pop() {

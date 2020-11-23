@@ -124,4 +124,8 @@ pub enum CoreError {
     NotSupported {
         source: Errno,
     },
+    #[snafu(display("failed to configure reactor: {}", source))]
+    ReactorError {
+        source: Errno,
+    },
 }

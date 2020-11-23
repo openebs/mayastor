@@ -238,7 +238,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
             let uuid = args.uuid.clone();
             debug!("Publishing nexus {} ...", uuid);
 
-            if args.key != "" && args.key.len() != 16 {
+            if !args.key.is_empty() && args.key.len() != 16 {
                 return Err(nexus_bdev::Error::InvalidKey {}.into());
             }
 

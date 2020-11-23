@@ -22,7 +22,6 @@ use mayastor::{
 pub mod bdev_io;
 pub mod compose;
 pub mod error_bdev;
-pub mod ms_exec;
 
 pub use compose::MayastorTest;
 

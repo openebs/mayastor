@@ -68,11 +68,12 @@ mod tests {
     #[tokio::test]
     async fn bus() -> Result<(), Box<dyn std::error::Error>> {
         init_tracing();
-        let nats_arg = vec!["-n", "nats.rest_backend"];
+        let natsep = format!("nats.{}", TEST_NET_NAME);
+        let nats_arg = vec!["-n", &natsep];
         let mayastor = "node-test-name";
         let test = Builder::new()
             .name("rest_backend")
-            .network("10.1.0.0/16")
+            .network(TEST_NET_NETWORK)
             .add_container_bin(
                 "nats",
                 Binary::from_nix("nats-server").with_arg("-DV"),

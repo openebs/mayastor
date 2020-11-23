@@ -1,3 +1,18 @@
+use std::{
+    fmt,
+    fs::OpenOptions,
+    io::{ErrorKind, Read, Write},
+    net::IpAddr,
+    os::unix::io::AsRawFd,
+    path::Path,
+    str::FromStr,
+};
+
+use error::{ConnectError, DiscoveryError, FileIoError, NvmeError};
+use nix::libc::ioctl as nix_ioctl;
+use num_traits::FromPrimitive;
+use snafu::ResultExt;
+
 use crate::{
     error,
     nvme_page::{NvmeAdminCmd, NvmfDiscRspPageEntry, NvmfDiscRspPageHdr},
@@ -9,20 +24,6 @@ use crate::{
 /// when connecting to a NVMF target, we MAY send a NQN that we want to be
 /// referred as.
 const MACHINE_UUID_PATH: &str = "/sys/class/dmi/id/product_uuid";
-
-use error::{ConnectError, DiscoveryError, FileIoError, NvmeError};
-use nix::libc::ioctl as nix_ioctl;
-use num_traits::FromPrimitive;
-use snafu::ResultExt;
-use std::{
-    fmt,
-    fs::OpenOptions,
-    io::{ErrorKind, Read, Write},
-    net::IpAddr,
-    os::unix::io::AsRawFd,
-    path::Path,
-    str::FromStr,
-};
 
 static HOST_ID: once_cell::sync::Lazy<String> =
     once_cell::sync::Lazy::new(|| {
@@ -181,11 +182,13 @@ impl Discovery {
         // See NVM-Express1_3d 5.14
         let hdr_len = std::mem::size_of::<NvmfDiscRspPageHdr>() as u32;
         let h = NvmfDiscRspPageHdr::default();
-        let mut cmd = NvmeAdminCmd::default();
-        cmd.opcode = 0x02;
-        cmd.nsid = 0;
-        cmd.dptr_len = hdr_len;
-        cmd.dptr = &h as *const _ as u64;
+        let mut cmd = NvmeAdminCmd {
+            opcode: 0x02,
+            nsid: 0,
+            dptr: &h as *const _ as u64,
+            dptr_len: hdr_len,
+            ..Default::default()
+        };
 
         // bytes to dwords, divide by 4. Spec says 0's value
 
@@ -230,14 +233,16 @@ impl Discovery {
         let hdr_len = std::mem::size_of::<NvmfDiscRspPageHdr>();
         let response_len = std::mem::size_of::<NvmfDiscRspPageEntry>();
         let total_length = hdr_len + (response_len * count as usize);
+        // TODO: fixme
         let buffer = unsafe { libc::calloc(1, total_length) };
 
-        let mut cmd = NvmeAdminCmd::default();
-
-        cmd.opcode = 0x02;
-        cmd.nsid = 0;
-        cmd.dptr_len = total_length as u32;
-        cmd.dptr = buffer as *const _ as u64;
+        let mut cmd = NvmeAdminCmd {
+            opcode: 0x02,
+            nsid: 0,
+            dptr: buffer as _,
+            dptr_len: total_length as _,
+            ..Default::default()
+        };
 
         let dword_count = ((total_length >> 2) - 1) as u32;
         let numdl: u16 = (dword_count & 0xFFFF) as u16;
@@ -246,14 +251,20 @@ impl Discovery {
         cmd.cdw10 = 0x70 | u32::from(numdl) << 16_u32;
         cmd.cdw11 = u32::from(numdu);
 
-        let _ret = unsafe {
+        let ret = unsafe {
             convert_ioctl_res!(nix_ioctl(
                 f.as_raw_fd(),
                 u64::from(NVME_ADMIN_CMD_IOCTL),
                 &cmd
             ))
-            .context(DiscoveryError)?
         };
+
+        if let Err(e) = ret {
+            unsafe { libc::free(buffer) };
+            return Err(NvmeError::DiscoveryError {
+                source: e,
+            });
+        }
 
         let hdr = unsafe { &mut *(buffer as *mut NvmfDiscRspPageHdr) };
         let entries = unsafe { hdr.entries.as_slice(hdr.numrec as usize) };

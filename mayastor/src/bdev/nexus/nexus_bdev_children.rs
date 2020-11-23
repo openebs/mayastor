@@ -23,6 +23,8 @@
 //! When reconfiguring the nexus, we traverse all our children, create new IO
 //! channels for all children that are in the open state.
 
+use std::env;
+
 use futures::future::join_all;
 use snafu::ResultExt;
 
@@ -523,7 +525,20 @@ impl Nexus {
         let label = self.generate_label();
 
         // ... and write it out to ALL children.
-        self.write_all_labels(&label).await?;
+        let label = match self.write_all_labels(&label).await {
+            Ok(_) => Ok(label),
+            Err(LabelError::ReReadError {
+                ..
+            }) => {
+                if env::var("NEXUS_LABEL_IGNORE_ERRORS").is_ok() {
+                    warn!("ignoring label error on request");
+                    Ok(label)
+                } else {
+                    Err(LabelError::ProbeError {})
+                }
+            }
+            Err(e) => Err(e),
+        }?;
 
         info!("{}: new label: {}", self.name, label.primary.guid);
         trace!("{}: new label:\n{}", self.name, label);

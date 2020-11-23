@@ -35,12 +35,16 @@ unsafe impl Send for NexusFnTable {}
 
 impl NexusFnTable {
     fn new() -> Self {
-        let mut f_tbl = spdk_bdev_fn_table::default();
-        f_tbl.io_type_supported = Some(Self::io_supported);
-        f_tbl.submit_request = Some(Self::io_submit);
-        f_tbl.get_io_channel = Some(Self::io_channel);
-        f_tbl.destruct = Some(Self::destruct);
-        f_tbl.dump_info_json = Some(Self::dump_info_json);
+        let f_tbl = spdk_bdev_fn_table {
+            io_type_supported: Some(Self::io_supported),
+            submit_request: Some(Self::io_submit),
+            get_io_channel: Some(Self::io_channel),
+            destruct: Some(Self::destruct),
+            dump_info_json: Some(Self::dump_info_json),
+            write_config_json: None,
+            get_spin_time: None,
+        };
+
         NexusFnTable {
             f_tbl,
         }

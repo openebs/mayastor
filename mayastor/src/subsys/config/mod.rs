@@ -86,7 +86,7 @@ impl ConfigSubsystem {
         // if no config file is given, simply return Ok().
         jsonrpc_register::<(), _, _, Error>("mayastor_config_export", |_| {
             let f = async move {
-                let cfg = Config::get().refresh().unwrap();
+                let cfg = Config::get().refresh();
                 if let Some(target) = cfg.source.as_ref() {
                     if let Err(e) = cfg.write(&target) {
                         error!("error writing config file {} {}", target, e);
@@ -208,7 +208,7 @@ impl Config {
     /// read the config file from disk. If the config file is empty, return the
     /// default config, but store the empty config file with in the struct to be
     /// used during saving to disk.
-    pub fn read<P>(file: P) -> Result<Config, ()>
+    pub fn read<P>(file: P) -> Result<Config, serde_yaml::Error>
     where
         P: AsRef<Path> + Display + ToString,
     {
@@ -222,7 +222,7 @@ impl Config {
                 Ok(v) => config = v,
                 Err(e) => {
                     error!("{}", e);
-                    return Err(());
+                    return Err(e);
                 }
             };
         } else {
@@ -240,7 +240,7 @@ impl Config {
 
     /// collect current configuration snapshot into a new Config object that can
     /// be exported to a file (YAML or JSON)
-    pub fn refresh(&self) -> Result<Self, ()> {
+    pub fn refresh(&self) -> Self {
         // the config is immutable, so we construct a new one which is mutable
         // such that we can scribble in the current bdevs. The config
         // gets loaded with the current settings, as we know that these
@@ -310,7 +310,7 @@ impl Config {
 
         current.pools = Some(pools);
 
-        Ok(current)
+        current
     }
 
     /// write the current pool configuration to disk
@@ -537,7 +537,7 @@ impl Config {
 
     /// exports the current configuration to the mayastor config file
     pub(crate) fn export_config() -> Result<(), std::io::Error> {
-        let cfg = Config::get().refresh().unwrap();
+        let cfg = Config::get().refresh();
         match cfg.source.as_ref() {
             Some(target) => cfg.write_pools(&target),
             // no config file to export to

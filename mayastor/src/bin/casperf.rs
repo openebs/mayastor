@@ -363,10 +363,10 @@ fn main() {
 
     let io_size = value_t!(matches.value_of("io_size"), u64).unwrap_or(IO_SIZE);
     let qd = value_t!(matches.value_of("queue_depth"), u64).unwrap_or(QD);
-    let mut args = MayastorCliArgs::default();
-
-    args.reactor_mask = "0x2".to_string();
-    //args.grpc_endpoint = Some("0.0.0.0".to_string());
+    let args = MayastorCliArgs {
+        reactor_mask: "0x2".to_string(),
+        ..Default::default()
+    };
 
     MayastorEnvironment::new(args).init();
     sig_override();
