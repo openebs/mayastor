@@ -140,12 +140,16 @@ pub struct RebuildStats {
     pub blocks_total: u64,
     /// number of blocks recovered
     pub blocks_recovered: u64,
-    /// rebuild progress in % (0-100)
+    /// rebuild progress in %
     pub progress: u64,
     /// granularity of each recovery copy in blocks
     pub segment_size_blks: u64,
     /// size in bytes of each block
     pub block_size: u64,
+    /// total number of concurrent rebuild tasks
+    pub tasks_total: u64,
+    /// number of current active tasks
+    pub tasks_active: u64,
 }
 
 /// Public facing operations on a Rebuild Job

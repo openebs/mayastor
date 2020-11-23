@@ -60,6 +60,7 @@ service Mayastor {
   rpc PauseRebuild (PauseRebuildRequest) returns (Null) {}
   rpc ResumeRebuild (ResumeRebuildRequest) returns (Null) {}
   rpc GetRebuildState (RebuildStateRequest) returns (RebuildStateReply) {}
+  rpc GetRebuildStats (RebuildStatsRequest) returns (RebuildStatsReply) {}
   rpc GetRebuildProgress (RebuildProgressRequest) returns (RebuildProgressReply) {}
 
   // Snapshot operations
@@ -290,6 +291,21 @@ message RebuildStateRequest {
 
 message RebuildStateReply {
   string state = 1; // current rebuild state (i.e. ready/running/completed etc.)
+}
+
+message RebuildStatsRequest {
+  string uuid = 1;  // uuid of the nexus
+  string uri = 2;   // uri of the destination child
+}
+
+message RebuildStatsReply {
+  uint64 blocks_total = 1; // total number of blocks to recover
+  uint64 blocks_recovered = 2; // number of blocks recovered
+  uint64 progress = 3; // rebuild progress %
+  uint64 segment_size_blks = 4; // granularity of each recovery copy in blocks
+  uint64 block_size = 5; // size in bytes of each block
+  uint64 tasks_total = 6; // total number of concurrent rebuild tasks
+  uint64 tasks_active = 7; // number of current active tasks
 }
 
 message StartRebuildRequest {

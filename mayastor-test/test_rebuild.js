@@ -112,6 +112,17 @@ describe('rebuild tests', function () {
     assert.equal(res.state, expected);
   }
 
+  async function checkRebuildStats () {
+    const stats = await client.getRebuildStats().sendMessage(rebuildArgs);
+    assert.isTrue(stats.blocksTotal > 0);
+    assert.isTrue(stats.blocksRecovered > 0);
+    assert.isTrue(stats.progress > 0);
+    assert.isTrue(stats.segmentSizeBlks > 0);
+    assert.isTrue(stats.blockSize === 4096);
+    assert.isTrue(stats.tasksTotal > 0);
+    assert.isTrue(stats.tasksActive === 0);
+  }
+
   function pingMayastor (done) {
     // use harmless method to test if the mayastor is up and running
     client
@@ -310,6 +321,10 @@ describe('rebuild tests', function () {
 
     it('check number of rebuilds', async () => {
       await checkNumRebuilds('1');
+    });
+
+    it('check stats', async () => {
+      await checkRebuildStats();
     });
   });
 

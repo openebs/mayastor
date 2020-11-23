@@ -1,7 +1,11 @@
 use futures::channel::oneshot::Receiver;
 use snafu::ResultExt;
 
-use rpc::mayastor::{RebuildProgressReply, RebuildStateReply};
+use rpc::mayastor::{
+    RebuildProgressReply,
+    RebuildStateReply,
+    RebuildStatsReply,
+};
 
 use crate::{
     bdev::{
@@ -21,7 +25,13 @@ use crate::{
         VerboseError,
     },
     core::Reactors,
-    rebuild::{ClientOperations, RebuildError, RebuildJob, RebuildState},
+    rebuild::{
+        ClientOperations,
+        RebuildError,
+        RebuildJob,
+        RebuildState,
+        RebuildStats,
+    },
 };
 
 impl Nexus {
@@ -155,6 +165,15 @@ impl Nexus {
         Ok(RebuildStateReply {
             state: rj.state().to_string(),
         })
+    }
+
+    /// Return the stats of a rebuild job
+    pub async fn get_rebuild_stats(
+        &mut self,
+        name: &str,
+    ) -> Result<RebuildStatsReply, Error> {
+        let rj = self.get_rebuild_job(name)?;
+        Ok(rj.stats().into())
     }
 
     /// Returns the rebuild progress of child target `name`
@@ -321,6 +340,20 @@ impl Nexus {
             }
         } else {
             error!("Failed to find nexus {} for rebuild job {}", nexus, job);
+        }
+    }
+}
+
+impl From<RebuildStats> for RebuildStatsReply {
+    fn from(stats: RebuildStats) -> Self {
+        RebuildStatsReply {
+            blocks_total: stats.blocks_total,
+            blocks_recovered: stats.blocks_recovered,
+            progress: stats.progress,
+            segment_size_blks: stats.segment_size_blks,
+            block_size: stats.block_size,
+            tasks_total: stats.tasks_total,
+            tasks_active: stats.tasks_active,
         }
     }
 }
