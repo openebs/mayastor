@@ -9,7 +9,7 @@ pub use nexus::{
         NexusStatus,
         VerboseError,
     },
-    nexus_child::{ChildState, Reason},
+    nexus_child::{lookup_child_from_bdev, ChildState, Reason},
     nexus_child_error_store::{ActionType, NexusErrStore, QueryType},
     nexus_child_status_config,
     nexus_io::Bio,

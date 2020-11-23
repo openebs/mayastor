@@ -7,6 +7,7 @@ use snafu::{ResultExt, Snafu};
 use crate::{
     bdev::{
         nexus::{
+            instances,
             nexus_channel::DREvent,
             nexus_child::ChildState::Faulted,
             nexus_child_status_config::ChildStatusConfig,
@@ -15,12 +16,13 @@ use crate::{
         NexusErrStore,
         VerboseError,
     },
-    core::{Bdev, BdevHandle, CoreError, Descriptor, Reactor},
+    core::{Bdev, BdevHandle, CoreError, Descriptor, Reactor, Reactors},
     nexus_uri::{bdev_create, bdev_destroy, NexusBdevError},
     rebuild::{ClientOperations, RebuildJob},
     subsys::Config,
 };
 use crossbeam::atomic::AtomicCell;
+use futures::{channel::mpsc, SinkExt, StreamExt};
 
 #[derive(Debug, Snafu)]
 pub enum ChildError {
@@ -133,6 +135,8 @@ pub struct NexusChild {
     /// record of most-recent IO errors
     #[serde(skip_serializing)]
     pub(crate) err_store: Option<NexusErrStore>,
+    #[serde(skip_serializing)]
+    remove_channel: (mpsc::Sender<()>, mpsc::Receiver<()>),
 }
 
 impl Display for NexusChild {
@@ -330,13 +334,28 @@ impl NexusChild {
     }
 
     /// Close the nexus child.
-    pub(crate) async fn close(&self) -> Result<(), NexusBdevError> {
+    pub(crate) async fn close(&mut self) -> Result<(), NexusBdevError> {
         info!("Closing child {}", self.name);
-        if self.desc.is_some() && self.bdev.is_some() {
+        if self.bdev.is_none() {
+            info!("Child {} already closed", self.name);
+            return Ok(());
+        }
+
+        if self.desc.is_some() {
             self.desc.as_ref().unwrap().unclaim();
         }
+
         // Destruction raises an SPDK_BDEV_EVENT_REMOVE event.
-        self.destroy().await
+        let destroyed = self.destroy().await;
+
+        // Only wait for bdev removal if the child has been initialised.
+        // An unintialised child won't have an underlying bdev.
+        if self.state.load() != ChildState::Init {
+            self.remove_channel.1.next().await;
+        }
+
+        info!("Child {} closed", self.name);
+        destroyed
     }
 
     /// Called in response to a SPDK_BDEV_EVENT_REMOVE event.
@@ -375,6 +394,23 @@ impl NexusChild {
         // This must be performed in this function.
         let desc = self.desc.take();
         drop(desc);
+
+        self.remove_complete();
+        info!("Child {} removed", self.name);
+    }
+
+    /// Signal that the child removal is complete.
+    fn remove_complete(&self) {
+        let mut sender = self.remove_channel.0.clone();
+        let name = self.name.clone();
+        Reactors::current().send_future(async move {
+            if let Err(e) = sender.send(()).await {
+                error!(
+                    "Failed to send remove complete for child {}, error {}",
+                    name, e
+                );
+            }
+        });
     }
 
     /// create a new nexus child
@@ -386,6 +422,7 @@ impl NexusChild {
             desc: None,
             state: AtomicCell::new(ChildState::Init),
             err_store: None,
+            remove_channel: mpsc::channel(0),
         }
     }
 
@@ -454,4 +491,18 @@ impl NexusChild {
             None => None,
         }
     }
+}
+
+/// Looks up a child based on the underlying bdev name
+pub fn lookup_child_from_bdev(bdev_name: &str) -> Option<&mut NexusChild> {
+    for nexus in instances() {
+        for child in &mut nexus.children {
+            if child.bdev.is_some()
+                && child.bdev.as_ref().unwrap().name() == bdev_name
+            {
+                return Some(child);
+            }
+        }
+    }
+    None
 }

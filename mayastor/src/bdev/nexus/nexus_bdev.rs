@@ -519,7 +519,7 @@ impl Nexus {
         let nexus_name = self.name.clone();
         Reactor::block_on(async move {
             let nexus = nexus_lookup(&nexus_name).expect("Nexus not found");
-            for child in &nexus.children {
+            for child in &mut nexus.children {
                 if child.state() == ChildState::Open {
                     if let Err(e) = child.close().await {
                         error!(
@@ -656,7 +656,7 @@ impl Nexus {
                 unsafe {
                     spdk_io_device_unregister(self.as_ptr(), None);
                 }
-                for child in &self.children {
+                for child in &mut self.children {
                     if let Err(e) = child.close().await {
                         error!(
                             "{}: child {} failed to close with error {}",
