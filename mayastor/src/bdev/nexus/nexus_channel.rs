@@ -75,14 +75,17 @@ pub enum DREvent {
 
 impl NexusChannelInner {
     /// very simplistic routine to rotate between children for read operations
-    pub(crate) fn child_select(&mut self) -> usize {
-        debug_assert!(!self.readers.is_empty());
-        if self.previous < self.readers.len() - 1 {
-            self.previous += 1;
+    pub(crate) fn child_select(&mut self) -> Option<usize> {
+        if self.readers.is_empty() {
+            None
         } else {
-            self.previous = 0;
+            if self.previous < self.readers.len() - 1 {
+                self.previous += 1;
+            } else {
+                self.previous = 0;
+            }
+            Some(self.previous)
         }
-        self.previous
     }
 
     /// refreshing our channels simply means that we either have a child going

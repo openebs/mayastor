@@ -285,10 +285,11 @@ impl Bio {
 
             if current_state == ChildState::Open {
                 warn!(
-                    "core {} thread {:?}, faulting child {}",
+                    "core {} thread {:?}, faulting child {} : {:#?}",
                     Cores::current(),
                     Mthread::current(),
-                    child
+                    child,
+                    NvmeStatus::from(child_io.clone())
                 );
 
                 let name = n.name.clone();

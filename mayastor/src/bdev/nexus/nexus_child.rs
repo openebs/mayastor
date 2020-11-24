@@ -365,6 +365,7 @@ impl NexusChild {
     /// Note: The descriptor *must* be dropped for the remove to complete.
     pub(crate) fn remove(&mut self) {
         info!("Removing child {}", self.name);
+        dbg!(&self);
 
         // The bdev is being removed, so ensure we don't use it again.
         self.bdev = None;

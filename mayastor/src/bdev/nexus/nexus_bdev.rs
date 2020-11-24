@@ -453,7 +453,6 @@ impl Nexus {
 
     /// reconfigure the child event handler
     pub(crate) async fn reconfigure(&mut self, event: DREvent) {
-        let _var = self.reconfigure_mutex.lock().await;
         let (s, r) = oneshot::channel::<i32>();
 
         info!(
@@ -568,7 +567,7 @@ impl Nexus {
             self.cancel_child_rebuild_jobs(&child.name).await;
         }
 
-        for child in self.children.iter_mut() {
+        for child in self.children.pop() {
             info!("Destroying child bdev {}", child.name);
             if let Err(e) = child.close().await {
                 // TODO: should an error be returned here?
@@ -771,6 +770,9 @@ impl Nexus {
     pub(crate) fn readv(&self, io: &Bio, channels: &mut NexusChannelInner) {
         // we use RR to read from the children.
         let child = channels.child_select();
+        if child.is_none() {
+            return;
+        }
 
         // if there is no buffer space for us allocated within the request
         // allocate it now, taking care of proper alignment
@@ -785,7 +787,7 @@ impl Nexus {
             return;
         }
 
-        let (desc, ch) = channels.readers[child].io_tuple();
+        let (desc, ch) = channels.readers[child.unwrap()].io_tuple();
 
         let ret = Self::readv_impl(io.as_ptr(), desc, ch);
 
