@@ -108,8 +108,8 @@ pipeline {
           }
           post {
             always {
-              // temporary workaround for leaked spdk_iscsi_conns files
-              sh 'sudo rm -f /dev/shm/*'
+              // in case of abnormal termination of any nvmf test
+              sh 'sudo nvme disconnect-all'
             }
           }
         }
@@ -121,8 +121,6 @@ pipeline {
           post {
             always {
               junit '*-xunit-report.xml'
-              // temporary workaround for leaked spdk_iscsi_conns files
-              sh 'sudo rm -f /dev/shm/*'
             }
           }
         }
