@@ -88,9 +88,11 @@ impl TransportID {
     pub fn new(port: u16) -> Self {
         let address = get_ipv4_address().unwrap();
 
-        let mut trid: spdk_nvme_transport_id = Default::default();
-        trid.trtype = SPDK_NVME_TRANSPORT_TCP;
-        trid.adrfam = SPDK_NVMF_ADRFAM_IPV4;
+        let mut trid = spdk_nvme_transport_id {
+            trtype: SPDK_NVME_TRANSPORT_TCP,
+            adrfam: SPDK_NVMF_ADRFAM_IPV4,
+            ..Default::default()
+        };
 
         let c_addr = address.into_cstring();
         let port = format!("{}", port);

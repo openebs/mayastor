@@ -19,6 +19,7 @@ use mayastor::{
         Bdev,
         CoreError,
         DmaError,
+        MayastorCliArgs,
         MayastorEnvironment,
         Reactor,
     },
@@ -199,10 +200,6 @@ fn main() {
         None => 0,
     };
 
-    let mut ms = MayastorEnvironment::default();
-
-    ms.name = "initiator".into();
-    ms.rpc_addr = "/tmp/initiator.sock".into();
     // This tool is just a client, so don't start iSCSI or NVMEoF services.
     Config::get_or_init(|| {
         let mut cfg = Config::default();
@@ -210,6 +207,8 @@ fn main() {
         cfg.nexus_opts.nvmf_enable = false;
         cfg
     });
+
+    let ms = MayastorEnvironment::new(MayastorCliArgs::default());
 
     ms.init();
     let fut = async move {

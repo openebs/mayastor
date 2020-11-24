@@ -189,8 +189,10 @@ impl NvmfSubsystem {
 
     /// add the given bdev to this namespace
     pub fn add_namespace(&self, bdev: &Bdev) -> Result<(), Error> {
-        let mut opts = spdk_nvmf_ns_opts::default();
-        opts.nguid = bdev.uuid().as_bytes();
+        let opts = spdk_nvmf_ns_opts {
+            nguid: bdev.uuid().as_bytes(),
+            ..Default::default()
+        };
         let ns_id = unsafe {
             spdk_nvmf_subsystem_add_ns(
                 self.0.as_ptr(),

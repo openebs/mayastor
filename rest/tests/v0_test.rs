@@ -1,4 +1,5 @@
 mod test;
+use composer::{TEST_NET_NAME, TEST_NET_NETWORK};
 use mbus_api::{
     v0::{GetNodes, NodeState},
     Message,
@@ -32,11 +33,12 @@ async fn orderly_start(
 async fn client() -> Result<(), Box<dyn std::error::Error>> {
     test::init();
 
-    let nats_arg = vec!["-n", "nats.rest"];
+    let natsep = format!("nats.{}", TEST_NET_NAME);
+    let nats_arg = vec!["-n", &natsep];
     let mayastor = "node-test-name";
     let test = Builder::new()
         .name("rest")
-        .network("10.1.0.0/16")
+        .network(TEST_NET_NETWORK)
         .add_container_spec(
             ContainerSpec::new(
                 "nats",

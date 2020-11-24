@@ -132,6 +132,8 @@ pub enum LabelError {
     PartitionTableLocation {},
     #[snafu(display("Could not get handle for child bdev {}", name,))]
     HandleCreate { name: String, source: ChildError },
+    #[snafu(display("The written label could not be read from disk, likely the child {} is a null device", name))]
+    ReReadError { name: String },
 }
 
 struct LabelData {
@@ -396,7 +398,9 @@ impl Nexus {
                     "{}: {}: Error validating newly written disk label: {}",
                     child.parent, child.name, error
                 );
-                return Err(LabelError::ProbeError {});
+                return Err(LabelError::ReReadError {
+                    name: child.name.clone(),
+                });
             }
             info!("{}: {}: Disk label written", child.parent, child.name);
         }

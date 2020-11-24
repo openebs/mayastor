@@ -251,11 +251,12 @@ mod tests {
     #[tokio::test]
     async fn node() -> Result<(), Box<dyn std::error::Error>> {
         init_tracing();
-        let nats_arg = vec!["-n", "nats.node"];
+        let natsep = format!("nats.{}", TEST_NET_NAME);
+        let nats_arg = vec!["-n", &natsep];
         let maya_name = "node-test-name";
         let test = Builder::new()
             .name("node")
-            .network("10.1.0.0/16")
+            .network(TEST_NET_NETWORK)
             .add_container_bin(
                 "nats",
                 Binary::from_nix("nats-server").with_arg("-DV"),

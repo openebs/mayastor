@@ -57,7 +57,8 @@ use spdk_sys::{
     spdk_thread_lib_init_ext,
 };
 
-use crate::core::{Cores, Mthread};
+use crate::core::{CoreError, Cores, Mthread};
+use nix::errno::Errno;
 use std::cell::Cell;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -203,7 +204,8 @@ impl Reactors {
     /// start polling the reactors on the given core, when multiple cores are
     /// involved they must be running during init as they must process in coming
     /// messages that are send as part of the init process.
-    pub fn launch_remote(core: u32) -> Result<(), ()> {
+    #[allow(clippy::needless_return)]
+    pub fn launch_remote(core: u32) -> Result<(), CoreError> {
         // the master core -- who is the only core that can call this function
         // should not be launched this way. For that use ['launch_master`].
         // Nothing prevents anyone from call this function twice now.
@@ -219,13 +221,19 @@ impl Reactors {
                     core as *const u32 as *mut c_void,
                 )
             };
-            if rc == 0 {
-                return Ok(());
-            }
+            return if rc == 0 {
+                Ok(())
+            } else {
+                error!("failed to launch core {}", core);
+                Err(CoreError::ReactorError {
+                    source: Errno::from_i32(rc),
+                })
+            };
+        } else {
+            Err(CoreError::ReactorError {
+                source: Errno::ENOSYS,
+            })
         }
-
-        error!("failed to launch core {}", core);
-        Err(())
     }
 
     /// get a reference to a ['Reactor'] associated with the given core.
