@@ -219,7 +219,7 @@ module.exports = function () {
       timeout = setTimeout(() => watcher.emitKubeEvent('add', apple), EVENT_DELAY_MS);
       await watcher.create(apple);
       const delta = new Date() - startTime;
-      expect(delta).to.be.within(EVENT_DELAY_MS, EVENT_DELAY_MS + EYE_BLINK_MS);
+      expect(delta).to.be.within(EVENT_DELAY_MS - 2, EVENT_DELAY_MS + EYE_BLINK_MS);
       sinon.assert.calledOnce(createStub);
     });
 
@@ -247,7 +247,7 @@ module.exports = function () {
         return createApple(orig.metadata.name, [], 'also valid');
       });
       const delta = new Date() - startTime;
-      expect(delta).to.be.within(EVENT_DELAY_MS, EVENT_DELAY_MS + EYE_BLINK_MS);
+      expect(delta).to.be.within(EVENT_DELAY_MS - 2, EVENT_DELAY_MS + EYE_BLINK_MS);
       assertReplaceCalledWith(replaceStub, 'name1', apple, {
         spec: 'also valid'
       });
@@ -388,7 +388,7 @@ module.exports = function () {
       sinon.assert.calledOnce(deleteStub);
       sinon.assert.calledWith(deleteStub, 'openebs.io', 'v1alpha1', 'namespace',
         'apples', 'name1');
-      expect(delta).to.be.within(EVENT_DELAY_MS, EVENT_DELAY_MS + EYE_BLINK_MS);
+      expect(delta).to.be.within(EVENT_DELAY_MS - 2, EVENT_DELAY_MS + EYE_BLINK_MS);
     });
 
     it('should timeout when "delete" event does not come after a delete', async () => {
@@ -425,7 +425,7 @@ module.exports = function () {
       timeout = setTimeout(() => watcher.emitKubeEvent('update', apple), EVENT_DELAY_MS);
       await watcher.addFinalizer('name1', 'test.finalizer.com');
       const delta = new Date() - startTime;
-      expect(delta).to.be.within(EVENT_DELAY_MS, EVENT_DELAY_MS + EYE_BLINK_MS);
+      expect(delta).to.be.within(EVENT_DELAY_MS - 2, EVENT_DELAY_MS + EYE_BLINK_MS);
       assertReplaceCalledWith(replaceStub, 'name1', apple, {
         metadata: {
           finalizers: ['test.finalizer.com']
@@ -443,7 +443,7 @@ module.exports = function () {
       timeout = setTimeout(() => watcher.emitKubeEvent('update', apple), EVENT_DELAY_MS);
       await watcher.addFinalizer('name1', 'new.finalizer.com');
       const delta = new Date() - startTime;
-      expect(delta).to.be.within(EVENT_DELAY_MS, EVENT_DELAY_MS + EYE_BLINK_MS);
+      expect(delta).to.be.within(EVENT_DELAY_MS - 2, EVENT_DELAY_MS + EYE_BLINK_MS);
       assertReplaceCalledWith(replaceStub, 'name1', apple, {
         metadata: {
           finalizers: ['new.finalizer.com', 'test.finalizer.com', 'test2.finalizer.com']
@@ -483,7 +483,7 @@ module.exports = function () {
       timeout = setTimeout(() => watcher.emitKubeEvent('update', apple), EVENT_DELAY_MS);
       await watcher.removeFinalizer('name1', 'test.finalizer.com');
       const delta = new Date() - startTime;
-      expect(delta).to.be.within(EVENT_DELAY_MS, EVENT_DELAY_MS + EYE_BLINK_MS);
+      expect(delta).to.be.within(EVENT_DELAY_MS - 2, EVENT_DELAY_MS + EYE_BLINK_MS);
       sinon.assert.calledOnce(replaceStub);
       assertReplaceCalledWith(replaceStub, 'name1', apple, {
         metadata: {
