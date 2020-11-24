@@ -32,6 +32,8 @@ use crate::{
 // include/uapi/linux/fs.h
 const IOCTL_BLKGETSIZE: u32 = ior!(0x12, 114, std::mem::size_of::<u64>());
 const SET_TIMEOUT: u32 = io!(0xab, 9);
+const SET_SIZE: u32 = io!(0xab, 2);
+
 #[derive(Debug, Snafu)]
 pub enum NbdError {
     #[snafu(display("No free NBD devices available (is NBD kmod loaded?)"))]
@@ -55,8 +57,23 @@ pub(crate) fn wait_until_ready(path: &str) -> Result<(), ()> {
     let tpath = String::from(path);
     let s = started.clone();
 
+    debug!("Waiting for NBD device {} to become ready...", path);
     // start a thread that loops and tries to open us and asks for our size
     Mthread::spawn_unaffinitized(move || {
+        // this should not be needed but for some unknown reason, we end up with
+        // stale NBD devices. Setting this to non zero, prevents that from
+        // happening (although we dont actually timeout).
+        let timeout = 3;
+        let f = OpenOptions::new().read(true).open(Path::new(&tpath));
+        unsafe {
+            convert_ioctl_res!(libc::ioctl(
+                f.unwrap().as_raw_fd(),
+                SET_TIMEOUT as u64,
+                timeout
+            ))
+        }
+        .unwrap();
+        debug!("Timeout of NBD device {} was set to {}", tpath, timeout);
         let size: u64 = 0;
         let mut delay = 1;
         for _i in 0i32 .. 10 {
@@ -181,6 +198,13 @@ pub async fn start(
         .context(StartNbd {
             dev: device_path.to_owned(),
         })
+        .map(|ok| {
+            info!(
+                "Nbd device {} for parent {} started",
+                device_path, bdev_name
+            );
+            ok
+        })
 }
 
 /// NBD disk representation.
@@ -195,20 +219,6 @@ impl NbdDisk {
         // find a NBD device which is available
         let device_path = find_unused()?;
         let nbd_ptr = start(bdev_name, &device_path).await?;
-
-        // this should not be needed but for some unknown reason, we end up with
-        // stale NBD devices. Setting this to non zero, prevents that from
-        // happening (although we dont actually timeout).
-
-        let f = OpenOptions::new().read(true).open(Path::new(&device_path));
-        unsafe {
-            convert_ioctl_res!(libc::ioctl(
-                f.unwrap().as_raw_fd(),
-                SET_TIMEOUT as u64,
-                3,
-            ))
-        }
-        .unwrap();
 
         // we wait for the dev to come up online because
         // otherwise the mount done too early would fail.
@@ -233,8 +243,25 @@ impl NbdDisk {
 
         let ptr = self.nbd_ptr as usize;
         let name = self.get_path();
+        let nbd_name = name.clone();
+        debug!("Stopping NBD device {}...", name);
         Mthread::spawn_unaffinitized(move || {
-            unsafe { nbd_disconnect(ptr as *mut _) };
+            unsafe {
+                // After disconnecting a disk changed event is triggered which
+                // causes a refresh of the size back to the
+                // original size and a partition scan.
+                // Set the size to 0 before disconnecting in hopes of stopping
+                // that.
+                let f =
+                    OpenOptions::new().read(true).open(Path::new(&nbd_name));
+                convert_ioctl_res!(libc::ioctl(
+                    f.unwrap().as_raw_fd(),
+                    SET_SIZE as u64,
+                    0
+                ))
+                .unwrap();
+                nbd_disconnect(ptr as *mut _);
+            };
             debug!("NBD device disconnected successfully");
             s.store(true, SeqCst);
         });

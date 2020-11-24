@@ -184,6 +184,9 @@ fn test_against_real_target() {
         .connect(SERVED_DISK_NQN)
         .expect("Problem connecting to valid target");
 
+    // allow the part scan to complete for most cases
+    std::thread::sleep(std::time::Duration::from_secs(1));
+
     // Check that we CAN disconnect from a served NQN
     let num_disconnects = disconnect(SERVED_DISK_NQN);
     assert_eq!(num_disconnects.unwrap(), 1);
