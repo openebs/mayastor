@@ -1,4 +1,4 @@
-use std::{ffi::CStr, fmt::Write, os::raw::c_char, path::Path};
+use std::{ffi::CStr, os::raw::c_char, path::Path};
 
 use ansi_term::{Colour, Style};
 
@@ -170,7 +170,7 @@ where
             .flat_map(|span| span.from_root().chain(std::iter::once(span)));
 
         for span in scope {
-            write!(f, "{}", bold.paint(span.metadata().name()))?;
+            write!(f, ":{}", bold.paint(span.metadata().name()))?;
 
             let extensions = span.extensions();
 
@@ -181,8 +181,6 @@ where
             if !fields.is_empty() {
                 write!(f, "{}{}{}", bold.paint("{"), fields, bold.paint("}"))?;
             }
-
-            f.write_char(' ')?;
         }
 
         Ok(())
@@ -211,7 +209,7 @@ impl std::fmt::Display for Location<'_> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         if let Some(file) = self.meta.file() {
             if let Some(line) = self.meta.line() {
-                write!(f, "{}:{}] ", basename(file), line)?;
+                write!(f, ":{}:{}", basename(file), line)?;
             }
         }
         Ok(())
@@ -240,19 +238,13 @@ where
 
         write!(
             writer,
-            "[{} {} {}:",
+            "[{} {} {}{}{}] ",
             chrono::Local::now().format("%FT%T%.9f%Z"),
             FormatLevel::new(meta.level(), self.ansi),
-            meta.target()
+            meta.target(),
+            CustomContext::new(context, event.parent(), self.ansi),
+            Location::new(&meta)
         )?;
-
-        write!(
-            writer,
-            "{}",
-            CustomContext::new(context, event.parent(), self.ansi)
-        )?;
-
-        write!(writer, "{}", Location::new(&meta))?;
 
         context.format_fields(writer, event)?;
 
