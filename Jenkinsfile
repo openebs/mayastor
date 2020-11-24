@@ -104,6 +104,7 @@ pipeline {
         stage('rust unit tests') {
           agent { label 'nixos-mayastor' }
           steps {
+            sh 'printenv'
             sh 'nix-shell --run "./scripts/cargo-test.sh"'
           }
           post {
@@ -116,6 +117,7 @@ pipeline {
         stage('mocha api tests') {
           agent { label 'nixos-mayastor' }
           steps {
+            sh 'printenv'
             sh 'nix-shell --run "./scripts/node-test.sh"'
           }
           post {
@@ -127,6 +129,7 @@ pipeline {
         stage('moac unit tests') {
           agent { label 'nixos-mayastor' }
           steps {
+            sh 'printenv'
             sh 'nix-shell --run "./scripts/moac-test.sh"'
           }
           post {
