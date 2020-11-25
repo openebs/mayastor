@@ -1,7 +1,7 @@
 package node_disconnect_iscsi_test
 
 import (
-	"e2e-basic/nightly/common"
+	"e2e-basic/common"
 	"fmt"
 	"os/exec"
 	"testing"
