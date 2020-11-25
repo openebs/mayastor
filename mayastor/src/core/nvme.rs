@@ -4,7 +4,7 @@ use spdk_sys::spdk_bdev_io_get_nvme_status;
 #[derive(Debug, Copy, Clone, Eq, PartialOrd, PartialEq)]
 pub enum GenericStatusCode {
     Success,
-    InvalidOPCode,
+    InvalidOpcode,
     InternalDeviceError,
     AbortedRequested,
     Reserved,
@@ -15,7 +15,7 @@ impl From<i32> for GenericStatusCode {
     fn from(i: i32) -> Self {
         match i {
             0x00 => Self::Success,
-            0x1 => Self::InvalidOPCode,
+            0x01 => Self::InvalidOpcode,
             0x06 => Self::InternalDeviceError,
             0x07 => Self::AbortedRequested,
             0x08 => Self::AbortedSubmissionQueueDeleted,

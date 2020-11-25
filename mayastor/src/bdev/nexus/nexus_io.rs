@@ -26,7 +26,7 @@ use crate::{
         NexusStatus,
         Reason,
     },
-    core::{Bdev, Cores, Mthread, NvmeStatus, Reactors},
+    core::{Bdev, Cores, GenericStatusCode, Mthread, NvmeStatus, Reactors},
     nexus_uri::bdev_destroy,
 };
 
@@ -262,6 +262,59 @@ impl Bio {
         }
     }
 
+    /// assess non-success IO, out of the hot path
+    #[inline(never)]
+    fn assess_non_success(&mut self, child_io: &mut Bio) {
+        // note although this is not the hot path, with a sufficiently high
+        // queue depth it can turn whitehot rather quickly
+        let nvme_status = NvmeStatus::from(child_io.clone());
+        // invalid NVMe opcodes are not sufficient to fault a child
+        // currently only tests send those
+        if nvme_status.status_code() == GenericStatusCode::InvalidOpcode {
+            return;
+        }
+        error!("{:#?}", nvme_status);
+        let child = child_io.bdev_as_ref();
+        let n = self.nexus_as_ref();
+
+        if let Some(child) = n.child_lookup(&child.name()) {
+            let current_state = child.state.compare_and_swap(
+                ChildState::Open,
+                ChildState::Faulted(Reason::IoError),
+            );
+
+            if current_state == ChildState::Open {
+                warn!(
+                    "core {} thread {:?}, faulting child {}",
+                    Cores::current(),
+                    Mthread::current(),
+                    child
+                );
+
+                let name = n.name.clone();
+                let uri = child.name.clone();
+
+                let fut = async move {
+                    if let Some(nexus) = nexus_lookup(&name) {
+                        nexus.pause().await.unwrap();
+                        nexus.reconfigure(DREvent::ChildFault).await;
+                        bdev_destroy(&uri).await.unwrap();
+                        if nexus.status() != NexusStatus::Faulted {
+                            nexus.resume().await.unwrap();
+                        } else {
+                            error!(":{} has no children left... ", nexus);
+                        }
+                    }
+                };
+
+                Reactors::master().send_future(fut);
+            }
+        } else {
+            debug!("core {} thread {:?}, not faulting child {} as its already being removed",
+                        Cores::current(), Mthread::current(), child);
+        }
+    }
+
     /// assess the IO if we need to mark it failed or ok.
     #[inline]
     pub(crate) fn assess(&mut self, child_io: &mut Bio, success: bool) {
@@ -273,48 +326,7 @@ impl Bio {
         }
 
         if !success {
-            // note although this is not the hot path, with a sufficiently high
-            // queue depth it can turn whitehot rather quickly
-            error!("{:#?}", NvmeStatus::from(child_io.clone()));
-            let child = child_io.bdev_as_ref();
-            let n = self.nexus_as_ref();
-
-            if let Some(child) = n.child_lookup(&child.name()) {
-                let current_state = child.state.compare_and_swap(
-                    ChildState::Open,
-                    ChildState::Faulted(Reason::IoError),
-                );
-
-                if current_state == ChildState::Open {
-                    warn!(
-                        "core {} thread {:?}, faulting child {}",
-                        Cores::current(),
-                        Mthread::current(),
-                        child
-                    );
-
-                    let name = n.name.clone();
-                    let uri = child.name.clone();
-
-                    let fut = async move {
-                        if let Some(nexus) = nexus_lookup(&name) {
-                            nexus.pause().await.unwrap();
-                            nexus.reconfigure(DREvent::ChildFault).await;
-                            bdev_destroy(&uri).await.unwrap();
-                            if nexus.status() != NexusStatus::Faulted {
-                                nexus.resume().await.unwrap();
-                            } else {
-                                error!(":{} has no children left... ", nexus);
-                            }
-                        }
-                    };
-
-                    Reactors::master().send_future(fut);
-                }
-            } else {
-                debug!("core {} thread {:?}, not faulting child {} as its already being removed",
-                           Cores::current(), Mthread::current(), child);
-            }
+            self.assess_non_success(child_io);
         }
 
         let pio_ctx = self.ctx_as_mut_ref();
