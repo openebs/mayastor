@@ -16,7 +16,7 @@ use crate::{
     nexus_uri::bdev_create,
 };
 
-#[derive(Debug)]
+#[derive(Debug, Copy, Clone)]
 pub enum IoType {
     /// perform random read operations
     READ,
@@ -324,7 +324,7 @@ impl Builder {
             queue.push(Io {
                 buf: DmaBuf::new(self.io_size as u64, bdev.alignment())
                     .unwrap(),
-                iot: IoType::READ,
+                iot: self.iot,
                 offset,
                 job: NonNull::dangling(),
             });

@@ -452,7 +452,7 @@ impl Nexus {
     }
 
     /// reconfigure the child event handler
-    pub(crate) async fn reconfigure(&mut self, event: DREvent) {
+    pub(crate) async fn reconfigure(&self, event: DREvent) {
         let (s, r) = oneshot::channel::<i32>();
 
         info!(

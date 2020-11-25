@@ -5,13 +5,14 @@ use mayastor::core::{
     Bdev,
     Cores,
     MayastorCliArgs,
+    Share,
     SIG_RECEIVED,
 };
 static MAYASTOR: OnceCell<MayastorTest> = OnceCell::new();
 
 use mayastor::{
     bdev::{nexus_create, nexus_lookup},
-    core::io_driver::JobQueue,
+    core::io_driver::{IoType, JobQueue},
 };
 use once_cell::sync::OnceCell;
 use std::{
@@ -26,14 +27,22 @@ async fn create_nexus() {
         .map(|i| format!("nvmf://127.0.0.1/replica{}", i))
         .collect::<Vec<String>>();
 
-    nexus_create("nexus0", 250 * 1024 * 1024 * 1024, None, &children)
-        .await
-        .unwrap();
+    nexus_create(
+        "e1e27668-fbe1-4c8a-9108-513f6e44d342",
+        250 * 1024 * 1024 * 1024,
+        None,
+        &children,
+    )
+    .await
+    .unwrap();
+
+    let nexus = nexus_lookup("e1e27668-fbe1-4c8a-9108-513f6e44d342").unwrap();
+    nexus.share_nvmf().await;
 }
 
 async fn remove_child(index: usize) {
     let to_remove = format!("127.0.0.1/replica{}", index);
-    let nexus = nexus_lookup("nexus0").unwrap();
+    let nexus = nexus_lookup("e1e27668-fbe1-4c8a-9108-513f6e44d342").unwrap();
     nexus.remove_child(&to_remove).await.unwrap()
 }
 
@@ -46,11 +55,14 @@ async fn start_workload(queue: Arc<JobQueue>) {
     let ms = MAYASTOR.get().unwrap();
     ms.spawn(async move {
         for c in Cores::count() {
-            let bdev = Bdev::lookup_by_name("nexus0").unwrap();
+            let bdev =
+                Bdev::lookup_by_name("e1e27668-fbe1-4c8a-9108-513f6e44d342")
+                    .unwrap();
             let job = io_driver::Builder::new()
                 .core(c)
+                .rw(IoType::WRITE)
                 .bdev(bdev)
-                .qd(8)
+                .qd(64)
                 .io_size(512)
                 .build()
                 .await;
@@ -63,8 +75,9 @@ async fn start_workload(queue: Arc<JobQueue>) {
 #[tokio::test]
 async fn nvmet_nexus_test() {
     std::env::set_var("NEXUS_LABEL_IGNORE_ERRORS", "1");
+    std::env::set_var("MY_POD_IP", "192.168.1.4");
     let ms = MayastorTest::new(MayastorCliArgs {
-        reactor_mask: 0x3.to_string(),
+        reactor_mask: 0xA.to_string(),
         no_pci: true,
         grpc_endpoint: "0.0.0.0".to_string(),
         ..Default::default()
@@ -73,9 +86,6 @@ async fn nvmet_nexus_test() {
 
     ms.spawn(create_nexus()).await;
     ms.spawn(bdev_info()).await;
-
-    let queue = Arc::new(JobQueue::new());
-    start_workload(Arc::clone(&queue)).await;
 
     let mut ticker = tokio::time::interval(Duration::from_millis(1000));
     // ctrl was hit so exit the loop here
@@ -92,6 +102,5 @@ async fn nvmet_nexus_test() {
         ticker.tick().await;
     }
 
-    queue.stop_all().await;
     ms.stop().await;
 }
