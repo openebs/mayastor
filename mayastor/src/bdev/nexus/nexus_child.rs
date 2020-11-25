@@ -350,8 +350,19 @@ impl NexusChild {
         // The bdev is being removed, so ensure we don't use it again.
         self.bdev = None;
 
+        match self.state.load() {
+            ChildState::Open | Faulted(Reason::OutOfSync) => {
+                // Change the state of the child to ensure it is taken out of
+                // the I/O path when the nexus is reconfigured.
+                self.set_state(ChildState::Closed)
+            }
+            ChildState::Init
+            | ChildState::ConfigInvalid
+            | ChildState::Closed
+            | Faulted(_) => {}
+        }
+
         // Remove the child from the I/O path.
-        self.set_state(ChildState::Closed);
         let nexus_name = self.parent.clone();
         Reactor::block_on(async move {
             match nexus_lookup(&nexus_name) {
