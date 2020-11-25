@@ -1,13 +1,5 @@
 #!/usr/bin/env groovy
 
-// Will ABORT current job for cases when we don't want to build
-if (currentBuild.getBuildCauses('jenkins.branch.BranchIndexingCause') &&
-    BRANCH_NAME == "develop") {
-    print "INFO: Branch Indexing, aborting job."
-    currentBuild.result = 'ABORTED'
-    return
-}
-
 // Update status of a commit in github
 def updateGithubCommitStatus(commit, msg, state) {
   step([
@@ -72,6 +64,25 @@ pipeline {
   }
 
   stages {
+    stage('init') {
+      agent { label 'nixos-mayastor' }
+      steps {
+        // TODO: We want to disable built-in github commit notifications.
+        // skip-notifications-trait plugin in combination with checkout scm step
+        // should do that but not sure how exactly.
+        checkout scm
+        script {
+          // Will ABORT current job for cases when we don't want to build
+          if (currentBuild.getBuildCauses('jenkins.branch.BranchIndexingCause') &&
+              BRANCH_NAME == "develop") {
+              print "INFO: Branch Indexing, aborting job."
+              currentBuild.result = 'ABORTED'
+              error('Stopping early')
+          }
+        }
+        updateGithubCommitStatus(env.GIT_COMMIT, 'Test started', 'pending')
+      }
+    }
     stage('linter') {
       agent { label 'nixos-mayastor' }
       when {
@@ -84,7 +95,6 @@ pipeline {
         }
       }
       steps {
-        updateGithubCommitStatus(env.GIT_COMMIT, 'Started to test the commit', 'pending')
         sh 'nix-shell --run "cargo fmt --all -- --check"'
         sh 'nix-shell --run "cargo clippy --all-targets -- -D warnings"'
         sh 'nix-shell --run "./scripts/js-check.sh"'
@@ -160,7 +170,6 @@ pipeline {
         }
       }
       steps {
-        updateGithubCommitStatus(env.GIT_COMMIT, 'Started to test the commit', 'pending')
         withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
           sh 'echo $PASSWORD | docker login -u $USERNAME --password-stdin'
         }
