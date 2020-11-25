@@ -33,7 +33,7 @@ var testEnv *envtest.Environment
 /// Examine the nodes in the k8s cluster and return
 /// the IP address of the master node (if one exists),
 /// The assumption is that the test-registry is accessible via the IP addr of the master,
-/// or any node in the cluster if the master noe does not exist
+/// or any node in the cluster if the master node does not exist
 /// TODO Refine how we workout the address of the test-registry
 func getRegistryAddress() (string, error) {
 	var master = ""
@@ -128,8 +128,6 @@ func teardownMayastor() {
 	deleteDeployYaml("storage-class.yaml")
 	deleteDeployYaml("namespace.yaml")
 
-	// Given the yamls and the environment described in the test readme,
-	// we expect mayastor to be running on exactly 3 nodes.
 	Eventually(mayastorReadyPodCount,
 		"120s", // timeout
 		"1s",   // polling interval
