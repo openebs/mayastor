@@ -1,6 +1,10 @@
 # It would be cool to produce OCI images instead of docker images to
 # avoid dependency on docker tool chain. Though the maturity of OCI
 # builder in nixpkgs is questionable which is why we postpone this step.
+#
+# We limit max number of image layers to 42 because there is a bug in
+# containerd triggered when there are too many layers:
+# https://github.com/containerd/containerd/issues/4684
 
 { stdenv
 , busybox
@@ -83,6 +87,7 @@ rec {
   mayastor-csi-image = dockerTools.buildLayeredImage (mayastorCsiImageProps // {
     name = "mayadata/mayastor-csi";
     contents = [ busybox mayastor mayastorIscsiadm ];
+    maxLayers = 42;
   });
 
   mayastor-csi-dev-image = dockerTools.buildImage (mayastorCsiImageProps // {
@@ -109,12 +114,14 @@ rec {
       ln -s ${moac.out}/bin/moac bin/moac
       chmod u-w bin
     '';
+    maxLayers = 42;
   };
 
   services-kiiss-image = dockerTools.buildLayeredImage (servicesImageProps // {
     name = "mayadata/services-kiiss";
     contents = [ busybox mayastor ];
     config = { Entrypoint = [ "/bin/kiiss" ]; };
+    maxLayers = 42;
   });
 
   services-kiiss-dev-image = dockerTools.buildImage (servicesImageProps // {
