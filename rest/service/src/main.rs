@@ -1,5 +1,4 @@
-mod message_bus;
-use message_bus::v0::{MessageBus, *};
+use mbus_api::message_bus::v0::{MessageBus, *};
 
 use actix_web::{
     get,

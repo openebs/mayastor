@@ -135,7 +135,7 @@ macro_rules! bus_impl_message {
         bus_impl_message!($S, $I, $R, $C, $S);
     };
     ($S:ident, $I:ident, $R:tt, $C:ident, $T:ident) => {
-        #[async_trait::async_trait(?Send)]
+        #[async_trait::async_trait]
         impl Message for $S {
             type Reply = $R;
 
@@ -157,15 +157,31 @@ macro_rules! bus_impl_message {
     };
 }
 
+/// Implement request for all objects of `Type`
+#[macro_export]
+macro_rules! bus_impl_vector_request {
+    ($Request:ident, $Inner:ident) => {
+        /// Request all the `Inner` elements
+        #[derive(Serialize, Deserialize, Default, Debug, Clone)]
+        pub struct $Request(pub Vec<$Inner>);
+        impl $Request {
+            /// returns the first element of the tuple and consumes self
+            pub fn into_inner(self) -> Vec<$Inner> {
+                self.0
+            }
+        }
+    };
+}
+
 /// Trait to send a message `bus` request with the `payload` type `S` via a
 /// a `channel` and requesting a response back with the payload type `R`
 /// via a specific reply channel.
 /// Trait can be implemented using the macro helper `bus_impl_request`.
-#[async_trait(?Send)]
+#[async_trait]
 pub trait MessageRequest<'a, S, R>
 where
-    S: 'a + Sync + Message + Serialize,
-    for<'de> R: Deserialize<'de> + Default + 'a + Sync,
+    S: 'a + Sync + Send + Message + Serialize,
+    for<'de> R: Deserialize<'de> + Default + 'a + Sync + Send,
 {
     /// Sends the message and requests a reply
     /// May fail if the bus fails to publish the message.
@@ -197,11 +213,11 @@ where
 /// Trait to send a message `bus` publish with the `payload` type `S` via a
 /// a `channel`. No reply is requested.
 /// Trait can be implemented using the macro helper `bus_impl_publish`.
-#[async_trait(?Send)]
+#[async_trait]
 pub trait MessagePublish<'a, S, R>
 where
-    S: 'a + Sync + Message + Serialize,
-    for<'de> R: Deserialize<'de> + Default + 'a + Sync,
+    S: 'a + Sync + Send + Message + Serialize,
+    for<'de> R: Deserialize<'de> + Default + 'a + Sync + Send,
 {
     /// Publishes the Message - not guaranteed to be sent or received (fire and
     /// forget)

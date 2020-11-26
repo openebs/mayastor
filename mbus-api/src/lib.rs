@@ -4,6 +4,8 @@
 //! We could split these out further into categories when they start to grow
 
 mod mbus_nats;
+/// Message bus client interface
+pub mod message_bus;
 /// received message traits
 pub mod receive;
 /// send messages traits
@@ -126,7 +128,7 @@ pub type SenderId = String;
 /// This trait defines all Bus Messages which must:
 /// 1 - be uniquely identifiable via MessageId
 /// 2 - have a default Channel on which they are sent/received
-#[async_trait(?Send)]
+#[async_trait]
 pub trait Message {
     /// type which is sent back in response to a request
     type Reply;

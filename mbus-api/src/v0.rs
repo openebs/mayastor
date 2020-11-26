@@ -179,7 +179,5 @@ pub struct Node {
     pub state: NodeState,
 }
 
-/// All the nodes
-#[derive(Serialize, Deserialize, Default, Debug, Clone)]
-pub struct Nodes(pub Vec<Node>);
+bus_impl_vector_request!(Nodes, Node);
 bus_impl_message_all!(GetNodes, GetNodes, Nodes, Node);

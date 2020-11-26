@@ -1,17 +1,19 @@
+use crate::{v0::*, *};
 use async_trait::async_trait;
-use mbus_api::{v0::*, *};
 
 /// Mayastor Node
-pub type Node = mbus_api::v0::Node;
+pub type Node = crate::v0::Node;
 
-/// Interface used by the rest service to interact with the mayastor
+/// Interface used by the rest service to interact with the control plane
 /// services via the message bus
-#[async_trait(?Send)]
+#[async_trait]
 pub trait MessageBusTrait: Sized {
+    /// Get all known nodes from the registry
     #[tracing::instrument(level = "info")]
     async fn get_nodes() -> std::io::Result<Vec<Node>> {
-        GetNodes {}.request().await.map(|v| v.0)
+        GetNodes {}.request().await.map(|v| v.into_inner())
     }
+    /// Get a node through its id
     #[tracing::instrument(level = "info")]
     async fn get_node(id: String) -> std::io::Result<Option<Node>> {
         let nodes = Self::get_nodes().await?;
@@ -31,7 +33,7 @@ mod tests {
 
     async fn bus_init() -> Result<(), Box<dyn std::error::Error>> {
         tokio::time::timeout(std::time::Duration::from_secs(2), async {
-            mbus_api::message_bus_init("10.1.0.2".into()).await
+            crate::message_bus_init("10.1.0.2".into()).await
         })
         .await?;
         Ok(())
