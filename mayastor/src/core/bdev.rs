@@ -32,7 +32,7 @@ use spdk_sys::{
 };
 
 use crate::{
-    bdev::nexus::{instances, nexus_io::IoType},
+    bdev::{lookup_child_from_bdev, nexus::nexus_io::IoType},
     core::{
         share::{Protocol, Share},
         uuid::Uuid,
@@ -166,18 +166,9 @@ impl Bdev {
         match event {
             spdk_sys::SPDK_BDEV_EVENT_REMOVE => {
                 info!("Received remove event for bdev {}", bdev.name());
-                instances().iter_mut().for_each(|n| {
-                    n.children
-                        .iter_mut()
-                        .filter(|c| {
-                            c.bdev.is_some()
-                                && c.bdev.as_ref().unwrap().name()
-                                    == bdev.name()
-                        })
-                        .for_each(|c| {
-                            c.remove();
-                        });
-                });
+                if let Some(child) = lookup_child_from_bdev(&bdev.name()) {
+                    child.remove();
+                }
             }
             spdk_sys::SPDK_BDEV_EVENT_RESIZE => {
                 info!("Received resize event for bdev {}", bdev.name())

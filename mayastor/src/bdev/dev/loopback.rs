@@ -5,7 +5,7 @@ use snafu::ResultExt;
 use url::Url;
 
 use crate::{
-    bdev::{util::uri, CreateDestroy, GetName},
+    bdev::{lookup_child_from_bdev, util::uri, CreateDestroy, GetName},
     core::Bdev,
     nexus_uri::{self, NexusBdevError},
 };
@@ -78,6 +78,9 @@ impl CreateDestroy for Loopback {
     }
 
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
+        if let Some(child) = lookup_child_from_bdev(&self.name) {
+            child.remove();
+        }
         Ok(())
     }
 }
