@@ -607,7 +607,7 @@ impl MayastorEnvironment {
     }
 
     #[allow(dead_code)]
-    async fn get_service_config(&self) -> Result<ReplyConfig, std::io::Error> {
+    async fn get_service_config(&self) -> Result<ReplyConfig, mbus_api::Error> {
         if self.mbus_endpoint.is_some() {
             Ok(ConfigGetCurrent {
                 kind: MayastorConfig,

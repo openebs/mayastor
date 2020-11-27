@@ -165,8 +165,7 @@ impl ServiceSubscriber for ServiceHandler<Deregister> {
 #[async_trait]
 impl ServiceSubscriber for ServiceHandler<GetNodes> {
     async fn handler(&self, args: Arguments<'_>) -> Result<(), Error> {
-        let request: ReceivedMessage<GetNodes, Nodes> =
-            args.request.try_into()?;
+        let request: ReceivedMessage<GetNodes> = args.request.try_into()?;
 
         let store: &NodeStore = args.context.get_state();
         let nodes = store.get_nodes().await;

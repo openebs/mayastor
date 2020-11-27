@@ -1,6 +1,11 @@
 use crate::{v0::*, *};
 use async_trait::async_trait;
 
+/// Error sending/receiving
+pub type Error = crate::Error;
+/// Result for sending/receiving
+pub type BusResult<T> = crate::BusResult<T>;
+
 /// Mayastor Node
 pub type Node = crate::v0::Node;
 
@@ -10,12 +15,12 @@ pub type Node = crate::v0::Node;
 pub trait MessageBusTrait: Sized {
     /// Get all known nodes from the registry
     #[tracing::instrument(level = "info")]
-    async fn get_nodes() -> std::io::Result<Vec<Node>> {
-        GetNodes {}.request().await.map(|v| v.into_inner())
+    async fn get_nodes() -> BusResult<Vec<Node>> {
+        GetNodes {}.request().await.map(|v| v.0)
     }
     /// Get a node through its id
     #[tracing::instrument(level = "info")]
-    async fn get_node(id: String) -> std::io::Result<Option<Node>> {
+    async fn get_node(id: String) -> BusResult<Option<Node>> {
         let nodes = Self::get_nodes().await?;
         Ok(nodes.into_iter().find(|n| n.id == id))
     }

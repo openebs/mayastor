@@ -1,11 +1,11 @@
 use super::*;
 use serde::{Deserialize, Serialize};
 use std::fmt::Debug;
-use strum_macros::EnumString;
+use strum_macros::{EnumString, ToString};
 
 /// Versioned Channels
-#[derive(Clone, Debug, EnumString, strum_macros::ToString)]
-#[strum(serialize_all = "snake_case")]
+#[derive(Clone, Debug, EnumString, ToString)]
+#[strum(serialize_all = "camelCase")]
 pub enum ChannelVs {
     /// Default
     Default,
@@ -29,13 +29,13 @@ impl From<ChannelVs> for Channel {
 }
 
 /// Versioned Message Id's
-#[derive(
-    Debug, PartialEq, Clone, strum_macros::ToString, strum_macros::EnumString,
-)]
+#[derive(Debug, PartialEq, Clone, ToString, EnumString)]
 #[strum(serialize_all = "camelCase")]
 pub enum MessageIdVs {
     /// Default
     Default,
+    /// Liveness Probe
+    Liveness,
     /// Update Config
     ConfigUpdate,
     /// Request current Config
@@ -64,6 +64,11 @@ macro_rules! impl_channel_id {
         }
     };
 }
+
+/// Liveness Probe
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
+pub struct Liveness {}
+bus_impl_message_all!(Liveness, Liveness, (), Default);
 
 /// Mayastor configurations
 /// Currently, we have the global mayastor config and the child states config
@@ -135,24 +140,18 @@ pub struct Deregister {
 bus_impl_message_all!(Deregister, Deregister, (), Registry);
 
 /// Node Service
-
+///
 /// Get all the nodes
 #[derive(Serialize, Deserialize, Default, Debug, Clone)]
 pub struct GetNodes {}
 
 /// State of the Node
 #[derive(
-    Serialize,
-    Deserialize,
-    Debug,
-    Clone,
-    EnumString,
-    strum_macros::ToString,
-    Eq,
-    PartialEq,
+    Serialize, Deserialize, Debug, Clone, EnumString, ToString, Eq, PartialEq,
 )]
-#[strum(serialize_all = "camelCase")]
 pub enum NodeState {
+    /// Node has unexpectedly disappeared
+    Unknown,
     /// Node is deemed online if it has not missed the
     /// registration keep alive deadline
     Online,
@@ -163,7 +162,7 @@ pub enum NodeState {
 
 impl Default for NodeState {
     fn default() -> Self {
-        Self::Offline
+        Self::Unknown
     }
 }
 

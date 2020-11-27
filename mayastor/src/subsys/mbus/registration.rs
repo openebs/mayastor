@@ -38,9 +38,9 @@ pub enum Error {
     ))]
     NotStarted {},
     #[snafu(display("Failed to queue register request: {:?}", cause))]
-    QueueRegister { cause: std::io::Error },
+    QueueRegister { cause: mbus_api::Error },
     #[snafu(display("Failed to queue deregister request: {:?}", cause))]
-    QueueDeregister { cause: std::io::Error },
+    QueueDeregister { cause: mbus_api::Error },
 }
 
 #[derive(Clone)]

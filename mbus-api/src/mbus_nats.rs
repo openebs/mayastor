@@ -1,7 +1,6 @@
 use super::*;
 use nats::asynk::Connection;
 use once_cell::sync::OnceCell;
-use smol::io;
 use tracing::{info, warn};
 
 static NATS_MSG_BUS: OnceCell<NatsMessageBus> = OnceCell::new();
@@ -108,15 +107,17 @@ impl NatsMessageBus {
 
 #[async_trait]
 impl Bus for NatsMessageBus {
-    async fn publish(
-        &self,
-        channel: Channel,
-        message: &[u8],
-    ) -> std::io::Result<()> {
-        self.connection.publish(&channel.to_string(), message).await
+    async fn publish(&self, channel: Channel, message: &[u8]) -> BusResult<()> {
+        self.connection
+            .publish(&channel.to_string(), message)
+            .await
+            .context(Publish {
+                channel: channel.to_string(),
+                payload: String::from_utf8(Vec::from(message)),
+            })
     }
 
-    async fn send(&self, _channel: Channel, _message: &[u8]) -> io::Result<()> {
+    async fn send(&self, _channel: Channel, _message: &[u8]) -> BusResult<()> {
         unimplemented!()
     }
 
@@ -124,11 +125,13 @@ impl Bus for NatsMessageBus {
         &self,
         channel: Channel,
         message: &[u8],
-        options: Option<TimeoutOptions>,
-    ) -> io::Result<BusMessage> {
+        req_options: Option<TimeoutOptions>,
+    ) -> BusResult<BusMessage> {
         let channel = &channel.to_string();
 
-        let options = options.unwrap_or_else(|| self.timeout_options.clone());
+        let options = req_options
+            .clone()
+            .unwrap_or_else(|| self.timeout_options.clone());
         let mut timeout = options.timeout;
         let mut retries = 0;
 
@@ -137,14 +140,23 @@ impl Bus for NatsMessageBus {
 
             let result = tokio::time::timeout(timeout, request).await;
             if let Ok(r) = result {
-                return r;
+                return r.context(Publish {
+                    channel: channel.to_string(),
+                    payload: String::from_utf8(Vec::from(message)),
+                });
             }
             if Some(retries) == options.max_retries {
-                log::error!("Timed out on {}", channel);
-                return Err(io::ErrorKind::TimedOut.into());
+                let error = Error::RequestTimeout {
+                    channel: channel.to_string(),
+                    payload: String::from_utf8(Vec::from(message)),
+                    options: req_options
+                        .unwrap_or_else(|| self.timeout_options.clone()),
+                };
+                tracing::error!("{}", error);
+                return Err(error);
             }
 
-            log::debug!(
+            tracing::debug!(
                 "Timeout after {:?} on {} - {} retries left",
                 timeout,
                 channel,
@@ -157,17 +169,22 @@ impl Bus for NatsMessageBus {
 
             retries += 1;
             timeout = std::cmp::min(
-                Duration::from_secs(1) * retries,
+                options.timeout_step * retries,
                 Duration::from_secs(10),
             );
         }
     }
 
-    async fn flush(&self) -> io::Result<()> {
-        self.connection.flush().await
+    async fn flush(&self) -> BusResult<()> {
+        self.connection.flush().await.context(Flush {})
     }
 
-    async fn subscribe(&self, channel: Channel) -> io::Result<BusSubscription> {
-        self.connection.subscribe(&channel.to_string()).await
+    async fn subscribe(&self, channel: Channel) -> BusResult<BusSubscription> {
+        self.connection
+            .subscribe(&channel.to_string())
+            .await
+            .context(Subscribe {
+                channel: channel.to_string(),
+            })
     }
 }

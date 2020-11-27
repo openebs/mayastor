@@ -7,32 +7,28 @@
 use async_trait::async_trait;
 use dyn_clonable::clonable;
 use futures::{future::join_all, stream::StreamExt};
-use mbus_api::*;
+use mbus_api::{v0::Liveness, *};
 use snafu::{OptionExt, ResultExt, Snafu};
 use state::Container;
-use std::{collections::HashMap, convert::Into, ops::Deref};
+use std::{
+    collections::HashMap,
+    convert::{Into, TryInto},
+    ops::Deref,
+};
 use tracing::{debug, error};
 
 #[derive(Debug, Snafu)]
 #[allow(missing_docs)]
 pub enum ServiceError {
-    #[snafu(display("Channel {} has been closed.", channel.to_string()))]
-    GetMessage {
-        channel: Channel,
-    },
-    #[snafu(display("Failed to subscribe on Channel {}", channel.to_string()))]
-    Subscribe {
-        channel: Channel,
-        source: Error,
-    },
-    GetMessageId {
-        channel: Channel,
-        source: Error,
-    },
-    FindSubscription {
-        channel: Channel,
-        id: MessageId,
-    },
+    #[snafu(display("Channel '{}' has been closed.", channel.to_string()))]
+    GetMessage { channel: Channel },
+    #[snafu(display("Failed to subscribe on Channel '{}'", channel.to_string()))]
+    Subscribe { channel: Channel, source: Error },
+    #[snafu(display("Failed to get message Id on Channel '{}'", channel.to_string()))]
+    GetMessageId { channel: Channel, source: Error },
+    #[snafu(display("Failed to find subscription '{}' on Channel '{}'", id.to_string(), channel.to_string()))]
+    FindSubscription { channel: Channel, id: MessageId },
+    #[snafu(display("Failed to handle message id '{}' on Channel '{}'", id.to_string(), channel.to_string()))]
     HandleMessage {
         channel: Channel,
         id: MessageId,
@@ -44,6 +40,7 @@ pub enum ServiceError {
 /// message bus channel on a specific ID
 pub struct Service {
     server: String,
+    server_connected: bool,
     channel: Channel,
     subscriptions: HashMap<String, Vec<Box<dyn ServiceSubscriber>>>,
     shared_state: std::sync::Arc<state::Container>,
@@ -53,6 +50,7 @@ impl Default for Service {
     fn default() -> Self {
         Self {
             server: "".to_string(),
+            server_connected: false,
             channel: Default::default(),
             subscriptions: Default::default(),
             shared_state: std::sync::Arc::new(Container::new()),
@@ -60,6 +58,7 @@ impl Default for Service {
     }
 }
 
+#[derive(Clone)]
 /// Service Arguments for the service handler callback
 pub struct Arguments<'a> {
     /// Service context, like access to the message bus
@@ -100,9 +99,17 @@ impl<'a> Context<'a> {
     }
     /// get the shared state of type `T` from the context
     pub fn get_state<T: Send + Sync + 'static>(&self) -> &T {
-        self.state
-            .try_get()
-            .expect("Requested data type not shared via with_shared_data!")
+        match self.state.try_get() {
+            Some(state) => state,
+            None => {
+                let type_name = std::any::type_name::<T>();
+                let error = format!(
+                    "Requested data type '{}' not shared via with_shared_data",
+                    type_name
+                );
+                panic!(error);
+            }
+        }
     }
 }
 
@@ -125,8 +132,25 @@ impl Service {
     pub fn builder(server: String, channel: impl Into<Channel>) -> Self {
         Self {
             server,
+            server_connected: false,
             channel: channel.into(),
             ..Default::default()
+        }
+    }
+
+    /// Connect to the provided message bus server immediately
+    /// Useful for when dealing with async shared data which might required the
+    /// message bus before the builder is complete
+    pub async fn connect(mut self) -> Self {
+        self.message_bus_init().await;
+        self
+    }
+
+    async fn message_bus_init(&mut self) {
+        if !self.server_connected {
+            // todo: parse connection options when nats has better support
+            mbus_api::message_bus_init(self.server.clone()).await;
+            self.server_connected = true;
         }
     }
 
@@ -155,6 +179,7 @@ impl Service {
     /// # }
     pub fn with_shared_state<T: Send + Sync + 'static>(self, state: T) -> Self {
         let type_name = std::any::type_name::<T>();
+        tracing::debug!("Adding shared type: {}", type_name);
         if !self.shared_state.set(state) {
             panic!(format!(
                 "Shared state for type '{}' has already been set!",
@@ -162,6 +187,40 @@ impl Service {
             ));
         }
         self
+    }
+
+    /// Add a default liveness endpoint which can be used to probe
+    /// the service for liveness on the current selected channel.
+    ///
+    /// Example:
+    /// # async fn main() {
+    /// Service::builder(cli_args.url, ChannelVs::Node)
+    ///         .with_default_liveness()
+    ///         .with_subscription(ServiceHandler::<GetNodes>::default())
+    ///         .run().await;
+    ///
+    /// # async fn alive() -> bool {
+    ///    Liveness{}.request().await.is_ok()
+    /// # }
+    pub fn with_default_liveness(self) -> Self {
+        #[derive(Clone, Default)]
+        struct ServiceHandler<T> {
+            data: std::marker::PhantomData<T>,
+        }
+
+        #[async_trait]
+        impl ServiceSubscriber for ServiceHandler<Liveness> {
+            async fn handler(&self, args: Arguments<'_>) -> Result<(), Error> {
+                let request: ReceivedMessage<Liveness> =
+                    args.request.try_into()?;
+                request.reply(()).await
+            }
+            fn filter(&self) -> Vec<MessageId> {
+                vec![Liveness::default().id()]
+            }
+        }
+
+        self.with_subscription(ServiceHandler::<Liveness>::default())
     }
 
     /// Add a new subscriber on the default channel
@@ -216,7 +275,7 @@ impl Service {
             if let Err(error) =
                 Self::process_message(args, &subscriptions).await
             {
-                error!("Error processing message: {}", error);
+                error!("Error processing message: {}", error.full_string());
             }
         }
     }
@@ -240,25 +299,43 @@ impl Service {
                 id: id.clone(),
             })?;
 
-        let result =
-            subscription
-                .handler(arguments)
-                .await
-                .context(HandleMessage {
-                    channel: channel.clone(),
-                    id: id.clone(),
-                });
+        let result = subscription.handler(arguments.clone()).await;
 
+        Self::assess_handler_error(&result, &arguments).await;
+
+        result.context(HandleMessage {
+            channel: channel.clone(),
+            id: id.clone(),
+        })
+    }
+
+    async fn assess_handler_error(
+        result: &Result<(), Error>,
+        arguments: &Arguments<'_>,
+    ) {
         if let Err(error) = result.as_ref() {
-            // todo: should an error be returned to the sender?
-            error!(
-                "Error handling message id {:?}: {:?}",
-                subscription.filter(),
-                error
-            );
+            match error {
+                Error::DeserializeSend {
+                    ..
+                } => {
+                    arguments
+                        .request
+                        .respond::<(), _>(Err(ReplyError::DeserializeReq {
+                            message: error.full_string(),
+                        }))
+                        .await
+                }
+                _ => {
+                    arguments
+                        .request
+                        .respond::<(), _>(Err(ReplyError::Process {
+                            message: error.full_string(),
+                        }))
+                        .await
+                }
+            }
+            .ok();
         }
-
-        result
     }
 
     /// Runs the server which services all subscribers asynchronously until all
@@ -268,10 +345,10 @@ impl Service {
     /// each channel benefits from a tokio thread which routes messages
     /// accordingly todo: only one subscriber per message id supported at
     /// the moment
-    pub async fn run(&self) {
+    pub async fn run(&mut self) {
         let mut threads = vec![];
-        // todo: parse connection options when nats has better support for it
-        mbus_api::message_bus_init(self.server.clone()).await;
+
+        self.message_bus_init().await;
         let bus = mbus_api::bus();
 
         for subscriptions in self.subscriptions.iter() {

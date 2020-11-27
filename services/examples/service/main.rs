@@ -36,8 +36,7 @@ bus_impl_message_all!(GetSvcName, Default, SvcName, Default);
 #[async_trait]
 impl ServiceSubscriber for ServiceHandler<GetSvcName> {
     async fn handler(&self, args: Arguments<'_>) -> Result<(), Error> {
-        let msg: ReceivedMessage<GetSvcName, SvcName> =
-            args.request.try_into()?;
+        let msg: ReceivedMessage<GetSvcName> = args.request.try_into()?;
 
         let reply = SvcName("example".into());
 
