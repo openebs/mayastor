@@ -36,9 +36,17 @@ pub struct NioCtx {
     /// read consistency
     pub(crate) in_flight: i8,
     /// status of the IO
-    pub(crate) status: i32,
+    pub(crate) status: IoStatus,
     /// attempts left
     pub(crate) io_attempts: i32,
+}
+
+impl NioCtx {
+    #[inline]
+    pub fn dec(&mut self) {
+        self.in_flight -= 1;
+        debug_assert!(self.in_flight >= 0);
+    }
 }
 
 /// BIO is a wrapper to provides a "less unsafe" wrappers around raw
@@ -231,7 +239,7 @@ impl Bio {
     /// reset the ctx fields of an spdk_bdev_io to submit or resubmit an IO
     pub fn reset(&mut self, in_flight: usize) {
         self.ctx_as_mut_ref().in_flight = in_flight as i8;
-        self.ctx_as_mut_ref().status = IoStatus::Success.into();
+        self.ctx_as_mut_ref().status = IoStatus::Success;
     }
 
     /// complete an IO for the nexus. In the IO completion routine in
@@ -241,7 +249,7 @@ impl Bio {
     pub(crate) fn ok(&mut self) {
         if cfg!(debug_assertions) {
             // have a child IO that has failed
-            if self.ctx_as_mut_ref().status < 0 {
+            if self.ctx_as_mut_ref().status != IoStatus::Success {
                 debug!("BIO for nexus {} failed", self.nexus_as_ref().name)
             }
             // we are marking the IO done but not all child IOs have returned,
@@ -262,78 +270,11 @@ impl Bio {
         }
     }
 
-    /// assess non-success IO, out of the hot path
-    #[inline(never)]
-    fn assess_non_success(&mut self, child_io: &mut Bio) {
-        // note although this is not the hot path, with a sufficiently high
-        // queue depth it can turn whitehot rather quickly
-        let nvme_status = NvmeStatus::from(child_io.clone());
-        // invalid NVMe opcodes are not sufficient to fault a child
-        // currently only tests send those
-        if nvme_status.status_code() == GenericStatusCode::InvalidOpcode {
-            return;
-        }
-        error!("{:#?}", nvme_status);
-        let child = child_io.bdev_as_ref();
-        let n = self.nexus_as_ref();
-
-        if let Some(child) = n.child_lookup(&child.name()) {
-            let current_state = child.state.compare_and_swap(
-                ChildState::Open,
-                ChildState::Faulted(Reason::IoError),
-            );
-
-            if current_state == ChildState::Open {
-                warn!(
-                    "core {} thread {:?}, faulting child {} : {:#?}",
-                    Cores::current(),
-                    Mthread::current(),
-                    child,
-                    NvmeStatus::from(child_io.clone())
-                );
-
-                let name = n.name.clone();
-                let uri = child.name.clone();
-
-                let fut = async move {
-                    if let Some(nexus) = nexus_lookup(&name) {
-                        nexus.pause().await.unwrap();
-                        nexus.reconfigure(DREvent::ChildFault).await;
-                        bdev_destroy(&uri).await.unwrap();
-                        if nexus.status() != NexusStatus::Faulted {
-                            nexus.resume().await.unwrap();
-                        } else {
-                            error!(":{} has no children left... ", nexus);
-                        }
-                    }
-                };
-
-                Reactors::master().send_future(fut);
-            }
-        } else {
-            debug!("core {} thread {:?}, not faulting child {} as its already being removed",
-                        Cores::current(), Mthread::current(), child);
-        }
-    }
-
-    /// assess the IO if we need to mark it failed or ok.
     #[inline]
-    pub(crate) fn assess(&mut self, child_io: &mut Bio, success: bool) {
-        {
-            let pio_ctx = self.ctx_as_mut_ref();
-            pio_ctx.in_flight -= 1;
-
-            debug_assert!(pio_ctx.in_flight >= 0);
-        }
-
-        if !success {
-            self.assess_non_success(child_io);
-        }
-
+    pub(crate) fn complete(&mut self) {
         let pio_ctx = self.ctx_as_mut_ref();
-
         if pio_ctx.in_flight == 0 {
-            if IoStatus::from(pio_ctx.status) == IoStatus::Failed {
+            if pio_ctx.status == IoStatus::Failed {
                 pio_ctx.io_attempts -= 1;
                 if pio_ctx.io_attempts > 0 {
                     NexusFnTable::io_submit_or_resubmit(
@@ -349,6 +290,65 @@ impl Bio {
         }
     }
 
+    /// assess the IO if we need to mark it failed or ok.
+    #[inline]
+    pub(crate) fn assess(&mut self, child_io: &mut Bio, success: bool) {
+        self.ctx_as_mut_ref().dec();
+
+        if !success {
+            // currently, only tests send those but invalid op codes should not
+            // result into faulting a child device.
+            if NvmeStatus::from(child_io.clone()).status_code()
+                == GenericStatusCode::InvalidOpcode
+            {
+                self.complete();
+                return;
+            }
+
+            // all other status codes indicate a fatal error
+            Reactors::master().send_future(Self::child_retire(
+                self.nexus_as_ref().name.clone(),
+                child_io.bdev_as_ref(),
+            ));
+        }
+
+        self.complete();
+    }
+
+    async fn child_retire(nexus: String, child: Bdev) {
+        error!("{:#?}", child);
+
+        if let Some(nexus) = nexus_lookup(&nexus) {
+            if let Some(child) = nexus.child_lookup(&child.name()) {
+                let current_state = child.state.compare_and_swap(
+                    ChildState::Open,
+                    ChildState::Faulted(Reason::IoError),
+                );
+
+                if current_state == ChildState::Open {
+                    warn!(
+                        "core {} thread {:?}, faulting child {}",
+                        Cores::current(),
+                        Mthread::current(),
+                        child,
+                    );
+
+                    let uri = child.name.clone();
+                    nexus.pause().await.unwrap();
+                    nexus.reconfigure(DREvent::ChildFault).await;
+                    //nexus.remove_child(&uri).await.unwrap();
+                    bdev_destroy(&uri).await.unwrap();
+                    if nexus.status() != NexusStatus::Faulted {
+                        nexus.resume().await.unwrap();
+                    } else {
+                        error!(":{} has no children left... ", nexus);
+                    }
+                }
+            }
+        } else {
+            debug!("{} does not belong (anymore) to nexus {}", child, nexus);
+        }
+    }
     /// obtain the Nexus struct embedded within the bdev
     pub(crate) fn nexus_as_ref(&self) -> &Nexus {
         let b = self.bdev_as_ref();

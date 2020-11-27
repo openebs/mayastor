@@ -10,7 +10,6 @@ use std::{
     os::raw::c_void,
 };
 
-use async_mutex::Mutex;
 use futures::channel::oneshot;
 use nix::errno::Errno;
 use serde::Serialize;
@@ -324,8 +323,6 @@ pub struct Nexus {
     pub nexus_target: Option<NexusTarget>,
     /// the maximum number of times to attempt to send an IO
     pub(crate) max_io_attempts: i32,
-    /// mutex to serialise reconfigure
-    reconfigure_mutex: Mutex<()>,
 }
 
 unsafe impl core::marker::Sync for Nexus {}
@@ -418,7 +415,6 @@ impl Nexus {
             size,
             nexus_target: None,
             max_io_attempts: cfg.err_store_opts.max_io_attempts,
-            reconfigure_mutex: Mutex::new(()),
         });
 
         n.bdev.set_uuid(match uuid {
@@ -542,6 +538,7 @@ impl Nexus {
 
     /// Destroy the nexus
     pub async fn destroy(&mut self) -> Result<(), Error> {
+        info!("Destroying nexus {}", self.name);
         // used to synchronize the destroy call
         extern "C" fn nexus_destroy_cb(arg: *mut c_void, rc: i32) {
             let s = unsafe { Box::from_raw(arg as *mut oneshot::Sender<bool>) };
@@ -567,7 +564,7 @@ impl Nexus {
             self.cancel_child_rebuild_jobs(&child.name).await;
         }
 
-        for child in self.children.pop() {
+        for child in self.children.iter_mut() {
             info!("Destroying child bdev {}", child.name);
             if let Err(e) = child.close().await {
                 // TODO: should an error be returned here?
@@ -578,8 +575,6 @@ impl Nexus {
                 );
             }
         }
-
-        info!("Destroying nexus {}", self.name);
 
         let (s, r) = oneshot::channel::<bool>();
 
@@ -711,7 +706,7 @@ impl Nexus {
                 pio
             );
 
-            pio.ctx_as_mut_ref().status = IoStatus::Failed.into();
+            pio.ctx_as_mut_ref().status = IoStatus::Failed;
         }
         pio.assess(&mut chio, success);
         // always free the child IO
@@ -724,7 +719,7 @@ impl Nexus {
         let pio_ctx = pio.ctx_as_mut_ref();
 
         if !success {
-            pio_ctx.status = IoStatus::Failed.into();
+            pio_ctx.status = IoStatus::Failed;
         }
 
         // As there is no child IO, perform the IO accounting that Bio::assess
@@ -733,7 +728,7 @@ impl Nexus {
         debug_assert!(pio_ctx.in_flight >= 0);
 
         if pio_ctx.in_flight == 0 {
-            if IoStatus::from(pio_ctx.status) == IoStatus::Failed {
+            if pio_ctx.status == IoStatus::Failed {
                 pio_ctx.io_attempts -= 1;
                 if pio_ctx.io_attempts == 0 {
                     pio.fail();

@@ -9,8 +9,11 @@ static BDEV: &str = "malloc:///malloc0?size_mb=64";
 
 #[tokio::test]
 async fn iscsi_target() {
-    let mut args = MayastorCliArgs::default();
-    args.reactor_mask = "0x3".into();
+    let args = MayastorCliArgs {
+        reactor_mask: "0x3".into(),
+        ..Default::default()
+    };
+
     let ms = common::MayastorTest::new(args);
     ms.spawn(async {
         // test we can create a nvmf subsystem

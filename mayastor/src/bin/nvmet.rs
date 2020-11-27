@@ -1,14 +1,24 @@
+//!
+//! This utility assists in testing nexus behaviour by simply allow one to
+//! start it against well-known targets. Example usage is:
+//!
+//! ```bash
+//! nvmet -u nvmf://10.1.0.101/replica1 \
+//!         nvmf://10.1.0.102/replica1 \
+//!         nvmf://10.1.0.103/replica1
+//! ```
+//! This will start a nexus which is shared over MY_POD_IP. Another env variable
+//! is set to ignore labeling errors. This does not work for rebuild tests
+//! however.
 use clap::{App, AppSettings, Arg, ArgMatches};
 use futures::FutureExt;
 use mayastor::{
-    bdev::{nexus_create, nexus_lookup, util::uring},
+    bdev::{nexus_create, nexus_lookup},
     core::{MayastorCliArgs, MayastorEnvironment, Reactors, Share},
     grpc,
-    grpc::endpoint,
     logger,
-    subsys,
 };
-use std::path::Path;
+
 mayastor::CPS_INIT!();
 #[macro_use]
 extern crate tracing;
@@ -16,17 +26,13 @@ extern crate tracing;
 const NEXUS: &str = "nexus-e1e27668-fbe1-4c8a-9108-513f6e44d342";
 
 async fn create_nexus(args: &ArgMatches<'_>) {
-    let ep = args.values_of("endpoint").expect("invalid endpoints");
+    let ep = args.values_of("uri").expect("invalid endpoints");
 
-    let children = ep
-        .into_iter()
-        .map(|v| {
-            dbg!(v);
-            format!("nvmf://{}/replica1", v)
-        })
-        .collect::<Vec<String>>();
+    let size = args.value_of("size").unwrap().parse::<u64>().unwrap();
 
-    nexus_create(NEXUS, 250 * 1024 * 1024 * 1024, Some(NEXUS), &children)
+    let children = ep.into_iter().map(|v| v.into()).collect::<Vec<String>>();
+
+    nexus_create(NEXUS, size * 1024 * 1024, Some(NEXUS), &children)
         .await
         .unwrap();
 
@@ -34,9 +40,8 @@ async fn create_nexus(args: &ArgMatches<'_>) {
     nexus.share_nvmf().await.unwrap();
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() {
     std::env::set_var("NEXUS_LABEL_IGNORE_ERRORS", "1");
-    std::env::set_var("MY_POD_IP", "192.168.1.4");
 
     let matches = App::new("NVMeT CLI")
         .version("0.1")
@@ -44,23 +49,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             AppSettings::ColoredHelp,
             AppSettings::ColorAlways])
         .about("NVMe test utility to quickly create a nexus over existing nvme targets")
+        .arg(Arg::with_name("size")
+            .required(true)
+            .default_value("64")
+            .short("s")
+            .long("size") 
+            .help("Size of the nexus to create in MB")
+        )
         .arg(
-            Arg::with_name("replica-index")
-                .short("n")
-                .long("replica-index")
-                .default_value("1")
-                .help("index of the NQN to connect to e.g 1 for replica1"))
-        .arg(
-            Arg::with_name("endpoint")
-                .short("e")
+            Arg::with_name("uri")
+                .short("u")
                 .min_values(1)
-                .long("endpoint")
-                .help("endpoints to connect to"))
+                .long("uris")
+                .help("NVMe-OF TCP targets to connect to"))
         .get_matches();
 
-    let mut margs = MayastorCliArgs::default();
-
-    margs.rpc_address = "0.0.0.0:10124".to_string();
+    let margs = MayastorCliArgs {
+        rpc_address: "0.0.0.0:10124".to_string(),
+        reactor_mask: "0xF".to_string(),
+        ..Default::default()
+    };
 
     logger::init("INFO");
 
@@ -81,18 +89,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         create_nexus(&matches).await;
     });
 
-    let mut futures = Vec::new();
-
-    futures.push(master.boxed_local());
-    futures.push(subsys::Registration::run().boxed_local());
-    futures.push(
+    let futures = vec![
+        master.boxed_local(),
         grpc::MayastorGrpcServer::run(grpc_endpoint, rpc_address).boxed_local(),
-    );
+    ];
 
     rt.block_on(futures::future::try_join_all(futures))
         .expect_err("reactor exit in abnormal state");
 
     ms.fini();
-
-    Ok(())
 }

@@ -15,8 +15,10 @@ static DISKNAME1: &str = "/tmp/disk1.img";
 async fn lvs_pool_test() {
     common::delete_file(&[DISKNAME1.into()]);
     common::truncate_file(DISKNAME1, 64 * 1024);
-    let mut args = MayastorCliArgs::default();
-    args.reactor_mask = "0x3".into();
+    let args = MayastorCliArgs {
+        reactor_mask: "0x3".into(),
+        ..Default::default()
+    };
     let ms = MayastorTest::new(args);
 
     // should fail to import a pool that does not exist on disk

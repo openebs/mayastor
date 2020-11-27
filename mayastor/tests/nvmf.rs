@@ -21,8 +21,10 @@ static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
 fn nvmf_target() {
     common::mayastor_test_init();
     common::truncate_file(DISKNAME1, 64 * 1024);
-    let mut args = MayastorCliArgs::default();
-    args.reactor_mask = "0x3".into();
+    let args = MayastorCliArgs {
+        reactor_mask: "0x3".into(),
+        ..Default::default()
+    };
     MayastorEnvironment::new(args)
         .start(|| {
             // test we can create a nvmf subsystem

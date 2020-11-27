@@ -85,7 +85,7 @@ async fn create_target(container: &str) -> String {
         .unwrap();
     h.bdev
         .create(BdevUri {
-            uri: "malloc:///disk0?size_mb=100".into(),
+            uri: "malloc:///disk0?size_mb=64".into(),
         })
         .await
         .unwrap();
@@ -99,6 +99,7 @@ async fn create_target(container: &str) -> String {
         .await
         .unwrap();
 
+    DOCKER_COMPOSE.get().unwrap().logs_all().await.unwrap();
     ep.into_inner().uri
 }
 

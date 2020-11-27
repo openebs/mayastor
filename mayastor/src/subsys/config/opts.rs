@@ -17,7 +17,6 @@ use spdk_sys::{
     spdk_nvmf_target_opts,
     spdk_nvmf_transport_opts,
     SPDK_BDEV_NVME_TIMEOUT_ACTION_ABORT,
-    SPDK_BDEV_NVME_TIMEOUT_ACTION_RESET,
 };
 
 use crate::bdev::ActionType;

@@ -417,15 +417,11 @@ pub fn get_device_size(nexus_device: &str) -> u64 {
 }
 
 /// Waits for the rebuild to reach `state`, up to `timeout`
-pub fn wait_for_rebuild(
-    name: String,
-    state: RebuildState,
-    timeout: Duration,
-) -> Result<(), ()> {
+pub fn wait_for_rebuild(name: String, state: RebuildState, timeout: Duration) {
     let (s, r) = unbounded::<()>();
     let job = match RebuildJob::lookup(&name) {
         Ok(job) => job,
-        Err(_) => return Ok(()),
+        Err(_) => return,
     };
     job.as_client().stats();
 
@@ -459,7 +455,7 @@ pub fn wait_for_rebuild(
     if let Ok(job) = RebuildJob::lookup(&name) {
         job.as_client().stats();
     }
-    t.join().unwrap()
+    t.join().unwrap().unwrap();
 }
 
 pub fn fio_verify_size(device: &str, size: u64) -> i32 {

@@ -142,8 +142,7 @@ fn rebuild_progress() {
             get_dev(1),
             RebuildState::Paused,
             std::time::Duration::from_millis(1000),
-        )
-        .unwrap();
+        );
         let p = nexus.get_rebuild_progress(&get_dev(1)).unwrap();
         assert!(p.progress >= progress);
         p.progress
@@ -316,8 +315,7 @@ async fn nexus_add_child(new_child: u64, wait: bool) {
             get_dev(new_child),
             RebuildState::Completed,
             std::time::Duration::from_secs(10),
-        )
-        .unwrap();
+        );
 
         nexus_test_child(new_child).await;
     } else {
@@ -331,8 +329,7 @@ async fn nexus_test_child(child: u64) {
         get_dev(child),
         RebuildState::Completed,
         std::time::Duration::from_secs(10),
-    )
-    .unwrap();
+    );
 
     let nexus = nexus_lookup(nexus_name()).unwrap();
 
@@ -403,8 +400,7 @@ fn rebuild_sizes() {
                 get_dev(2),
                 RebuildState::Completed,
                 std::time::Duration::from_secs(20),
-            )
-            .unwrap();
+            );
 
             nexus.destroy().await.unwrap();
         });
@@ -548,8 +544,7 @@ fn rebuild_operations() {
             RebuildState::Stopped,
             // already stopping, should be enough
             std::time::Duration::from_millis(250),
-        )
-        .unwrap();
+        );
         // already stopped
         nexus.stop_rebuild(&get_dev(1)).await.unwrap();
 
@@ -584,8 +579,7 @@ fn rebuild_multiple() {
                 get_dev(child),
                 RebuildState::Completed,
                 std::time::Duration::from_secs(20),
-            )
-            .unwrap();
+            );
             nexus.remove_child(&get_dev(child)).await.unwrap();
         }
 
@@ -601,8 +595,7 @@ fn rebuild_multiple() {
                 get_dev(child),
                 RebuildState::Running,
                 std::time::Duration::from_millis(100),
-            )
-            .unwrap();
+            );
             nexus.remove_child(&get_dev(child)).await.unwrap();
         }
 
@@ -634,8 +627,7 @@ fn rebuild_fault_src() {
             get_dev(1),
             RebuildState::Failed,
             std::time::Duration::from_secs(20),
-        )
-        .unwrap();
+        );
         // allow the nexus futures to run
         reactor_poll!(10);
         assert_eq!(
@@ -671,8 +663,7 @@ fn rebuild_fault_dst() {
             get_dev(1),
             RebuildState::Failed,
             std::time::Duration::from_secs(20),
-        )
-        .unwrap();
+        );
         // allow the nexus futures to run
         reactor_poll!(10);
         assert_eq!(

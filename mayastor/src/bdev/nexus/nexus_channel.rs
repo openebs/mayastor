@@ -14,7 +14,7 @@ use spdk_sys::{
 
 use crate::{
     bdev::{nexus::nexus_child::ChildState, Nexus},
-    core::BdevHandle,
+    core::{BdevHandle, Mthread},
 };
 use futures::channel::oneshot;
 use std::ptr::NonNull;
@@ -75,6 +75,10 @@ pub enum DREvent {
 
 impl NexusChannelInner {
     /// very simplistic routine to rotate between children for read operations
+    /// note that the channels can be None during a reconfigure; this is usually
+    /// not the case but a side effect of using the async. As we poll
+    /// threads more often depending on what core we are on etc, we might be
+    /// "awaiting' while the thread is already trying to submit IO.
     pub(crate) fn child_select(&mut self) -> Option<usize> {
         if self.readers.is_empty() {
             None
@@ -96,9 +100,9 @@ impl NexusChannelInner {
     pub(crate) fn refresh(&mut self) {
         let nexus = unsafe { Nexus::from_raw(self.device) };
         info!(
-            "{}(tid:{:?}), refreshing IO channels",
+            "{}(thread:{:?}), refreshing IO channels",
             nexus.name,
-            std::thread::current().name().unwrap_or("none")
+            Mthread::current().unwrap().name(),
         );
 
         trace!(

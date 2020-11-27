@@ -71,7 +71,6 @@ impl From<i32> for GenericStatusCode {
         match i {
             0x00 => Self::Success,
             0x01 => Self::InvalidOpcode,
-            0x01 => Self::InvalidOPCode,
             0x02 => Self::InvalidFieldInCommand,
             0x03 => Self::CommandIDConflict,
             0x04 => Self::DataTransferError,
