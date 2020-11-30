@@ -15,8 +15,10 @@ use common::MayastorTest;
 
 #[tokio::test]
 async fn nexus_test() {
-    let mut args = MayastorCliArgs::default();
-    args.reactor_mask = "0x2".into();
+    let args = MayastorCliArgs {
+        reactor_mask: "0x3".into(),
+        ..Default::default()
+    };
 
     MayastorTest::new(args)
         .spawn(async {

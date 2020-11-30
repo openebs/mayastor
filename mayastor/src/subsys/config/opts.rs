@@ -255,7 +255,7 @@ impl Default for NvmeBdevOpts {
             low_priority_weight: 0,
             medium_priority_weight: 0,
             high_priority_weight: 0,
-            nvme_adminq_poll_period_us: 100,
+            nvme_adminq_poll_period_us: 0,
             nvme_ioq_poll_period_us: 0,
             io_queue_requests: 0,
             delay_cmd_submit: true,

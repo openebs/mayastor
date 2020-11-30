@@ -279,7 +279,6 @@ async fn do_shutdown(arg: *mut c_void) {
     }
 
     iscsi::fini();
-
     unsafe {
         spdk_rpc_finish();
         spdk_subsystem_fini(Some(reactors_stop), arg);
@@ -366,7 +365,7 @@ impl MayastorEnvironment {
     }
 
     /// configure signal handling
-    fn install_signal_handlers(&self) -> Result<()> {
+    fn install_signal_handlers(&self) {
         unsafe {
             signal_hook::register(signal_hook::SIGTERM, || {
                 mayastor_signal_handler(1)
@@ -380,8 +379,6 @@ impl MayastorEnvironment {
             })
         }
         .unwrap();
-
-        Ok(())
     }
 
     /// construct an array of options to be passed to EAL and start it
@@ -656,7 +653,7 @@ impl MayastorEnvironment {
         );
 
         // setup our signal handlers
-        self.install_signal_handlers().unwrap();
+        self.install_signal_handlers();
 
         // allocate a Reactor per core
         Reactors::init();

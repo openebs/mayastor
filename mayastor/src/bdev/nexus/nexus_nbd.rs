@@ -51,7 +51,7 @@ extern "C" {
 /// perspective. This is somewhat annoying, but what makes matters worse is that
 /// if we are running the device creation path, on the same core that is
 /// handling the IO, we get into a state where we make no forward progress.
-pub(crate) fn wait_until_ready(path: &str) -> Result<(), ()> {
+pub(crate) fn wait_until_ready(path: &str) {
     let started = Arc::new(AtomicBool::new(false));
 
     let tpath = String::from(path);
@@ -112,8 +112,6 @@ pub(crate) fn wait_until_ready(path: &str) -> Result<(), ()> {
     while !started.load(SeqCst) {
         Reactors::current().poll_once();
     }
-
-    Ok(())
 }
 
 /// Return first unused nbd device in /dev.
@@ -223,7 +221,7 @@ impl NbdDisk {
         // we wait for the dev to come up online because
         // otherwise the mount done too early would fail.
         // If it times out, continue anyway and let the mount fail.
-        wait_until_ready(&device_path).unwrap();
+        wait_until_ready(&device_path);
         info!("Started nbd disk {} for {}", device_path, bdev_name);
 
         Ok(Self {

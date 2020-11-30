@@ -26,7 +26,7 @@ async fn create_work(queue: Arc<JobQueue>) {
         // create the bdev
         h.bdev
             .create(BdevUri {
-                uri: "malloc:///disk0?size_mb=100".into(),
+                uri: "malloc:///disk0?size_mb=64".into(),
             })
             .await
             .unwrap();
@@ -40,6 +40,8 @@ async fn create_work(queue: Arc<JobQueue>) {
             .unwrap();
     }
 
+    DOCKER_COMPOSE.get().unwrap().logs_all().await.unwrap();
+
     // get a reference to mayastor (used later)
     let ms = MAYASTOR.get().unwrap();
 
@@ -49,7 +51,7 @@ async fn create_work(queue: Arc<JobQueue>) {
     ms.spawn(async move {
         nexus_create(
             "nexus0",
-            1024 * 1024 * 50,
+            1024 * 1024 * 60,
             None,
             &[
                 format!(
@@ -72,20 +74,7 @@ async fn create_work(queue: Arc<JobQueue>) {
         let job = io_driver::Builder::new()
             .core(1)
             .bdev(bdev)
-            .qd(64)
-            .io_size(512)
-            .build()
-            .await;
-
-        // start the first job
-        queue.start(job);
-
-        // create a new job and start it. Note that the malloc bdev is created
-        // implicitly with the uri() argument
-        let job = io_driver::Builder::new()
-            .core(0)
-            .uri("malloc:///disk0?size_mb=100")
-            .qd(64)
+            .qd(32)
             .io_size(512)
             .build()
             .await;
@@ -150,6 +139,7 @@ async fn io_driver() {
             "nvmf-target2",
             Binary::from_dbg("mayastor").with_args(vec!["-l", "3"]),
         )
+        .with_prune(true)
         .with_clean(true)
         .build()
         .await

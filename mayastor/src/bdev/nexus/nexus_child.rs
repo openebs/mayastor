@@ -369,26 +369,32 @@ impl NexusChild {
         // The bdev is being removed, so ensure we don't use it again.
         self.bdev = None;
 
-        match self.state.load() {
-            ChildState::Open | Faulted(Reason::OutOfSync) => {
+        let state = self.state();
+
+        match state {
+            ChildState::Open
+            | Faulted(Reason::OutOfSync)
+            | Faulted(Reason::IoError) => {
                 // Change the state of the child to ensure it is taken out of
                 // the I/O path when the nexus is reconfigured.
                 self.set_state(ChildState::Closed)
             }
-            ChildState::Init
-            | ChildState::ConfigInvalid
-            | ChildState::Closed
-            | Faulted(_) => {}
+            // leave the state into whatever we found it as
+            _ => {}
         }
 
-        // Remove the child from the I/O path.
-        let nexus_name = self.parent.clone();
-        Reactor::block_on(async move {
-            match nexus_lookup(&nexus_name) {
-                Some(n) => n.reconfigure(DREvent::ChildRemove).await,
-                None => error!("Nexus {} not found", nexus_name),
-            }
-        });
+        // Remove the child from the I/O path. If we had an IO error the bdev,
+        // the channels where already reconfigured so we dont have to do
+        // that twice.
+        if state != ChildState::Faulted(Reason::IoError) {
+            let nexus_name = self.parent.clone();
+            Reactor::block_on(async move {
+                match nexus_lookup(&nexus_name) {
+                    Some(n) => n.reconfigure(DREvent::ChildRemove).await,
+                    None => error!("Nexus {} not found", nexus_name),
+                }
+            });
+        }
 
         // Dropping the last descriptor results in the bdev being removed.
         // This must be performed in this function.

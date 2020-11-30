@@ -193,7 +193,7 @@ impl NexusErrStore {
         }
     }
 
-    fn error_fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+    fn error_fmt(&self, f: &mut Formatter<'_>) {
         let mut idx = self.next_record_index;
         write!(f, "\nErrors ({}):", self.no_of_records)
             .expect("invalid format");
@@ -215,19 +215,20 @@ impl NexusErrStore {
             )
             .expect("invalid format");
         }
-        Ok(())
     }
 }
 
 impl Debug for NexusErrStore {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
-        self.error_fmt(f)
+        self.error_fmt(f);
+        Ok(())
     }
 }
 
 impl Display for NexusErrStore {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
-        self.error_fmt(f)
+        self.error_fmt(f);
+        Ok(())
     }
 }
 
