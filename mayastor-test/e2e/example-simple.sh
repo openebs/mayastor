@@ -7,7 +7,7 @@ pushd setup
   ./bringup-cluster.sh
 popd
 
-../../scripts/release.sh --private-registry "172.18.8.101:30291" --skip-publish-to-dockerhub
+../../scripts/release.sh --registry "172.18.8.101:30291" --alias-tag "ci"
 
 pushd install
   go test

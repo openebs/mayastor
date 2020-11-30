@@ -9,14 +9,14 @@ cd "$(dirname ${BASH_SOURCE[0]})"
 pushd setup
   ./bringup-cluster.sh &
 popd
-../../scripts/release.sh --skip-publish-to-dockerhub &
+../../scripts/release.sh --skip-publish &
 
 for job in $(jobs -p); do
   wait $job
 done
 
 # Now that everything up and built, push the images...
-../../scripts/release.sh --skip-publish-to-dockerhub --skip-build --private-registry "172.18.8.101:30291"
+../../scripts/release.sh --skip-build --alias-tag "ci" --registry "172.18.8.101:30291"
 
 # ... and install mayastor.
 pushd install
