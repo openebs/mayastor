@@ -47,12 +47,12 @@ bringup_cluster() {
 
 # Runs in a timeout, so we need to pass in $MASTER_NODE_IP and $REGISTRY_PORT
 wait_for_ready() {
-  while ! kubectl get nodes; do   
+  while ! kubectl get nodes; do
     sleep 1
   done
 
   # Wait for the registry to be accessible
-  while ! nc -z $1 $2; do   
+  while ! nc -z $1 $2; do
     sleep 1
   done
 }
