@@ -1,5 +1,5 @@
 // JIRA: CAS-500
-package pvc_stress_test
+package pvc_stress_fio_test
 
 import (
 	"fmt"
@@ -24,6 +24,7 @@ var defTimeoutSecs = "30s"
 //	1. The PVC status transitions to bound,
 //	2. The associated PV is created and its status transitions bound
 //	3. The associated MV is created and has a State "healthy"
+//  4. That a test application (fio) can read and write to the volume
 // then Delete the PVC and verify that
 //	1. The PVC is deleted
 //	2. The associated PV is deleted
@@ -106,6 +107,27 @@ func testPVC(volName string, scName string) {
 		"1s",           // polling interval
 	).Should(Equal("healthy"))
 
+	// Create the fio Pod
+	fioPodName := "fio-" + volName
+	pod, err := Cmn.CreateFioPod(fioPodName, volName)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(pod).ToNot(BeNil())
+
+	// Wait for the fio Pod to transition to running
+	Eventually(func() bool {
+		return Cmn.IsPodRunning(fioPodName)
+	},
+		defTimeoutSecs,
+		"1s",
+	).Should(Equal(true))
+
+	// Run the fio test
+	Cmn.RunFio(fioPodName, 5)
+
+	// Delete the fio pod
+	err = Cmn.DeletePod(fioPodName)
+	Expect(err).ToNot(HaveOccurred())
+
 	// Delete the PVC
 	deleteErr := Cmn.DeletePVC(volName)
 	Expect(deleteErr).To(BeNil())
@@ -136,7 +158,7 @@ func testPVC(volName string, scName string) {
 }
 
 func stressTestPVC() {
-	for ix := 0; ix < 100; ix++ {
+	for ix := 0; ix < 10; ix++ {
 		testPVC(fmt.Sprintf("stress-pvc-nvmf-%d", ix), "mayastor-nvmf")
 		testPVC(fmt.Sprintf("stress-pvc-iscsi-%d", ix), "mayastor-iscsi")
 	}
@@ -147,7 +169,7 @@ func TestPVCStress(t *testing.T) {
 	RunSpecs(t, "PVC Stress Test Suite")
 }
 
-var _ = Describe("Mayastor PVC Stress test", func() {
+var _ = Describe("Mayastor PVC Stress test with fio", func() {
 	It("should stress test use of PVCs provisioned over iSCSI and NVMe-of", func() {
 		stressTestPVC()
 	})

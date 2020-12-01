@@ -1,12 +1,19 @@
 #!/usr/bin/env bash
 
-# For stress tests the default go test timeout of 10 minutes may be
-# insufficient.
-# We start with a timeout value of 0 and bump up the value by addsing
-# the number of seconds for each test.
-timeout=0
-#pvc_stress run duration is around 7 minutes, add 10 minutes to handle
-#unexpected delays.
-timeout=$(( timeout + 600 ))
+# The default go test timeout of 10 minutes may be insufficient.
 
+# We start with a timeout value of 60 seconds and bump up the value
+# adding a number of seconds for each test.
+timeout=60
+
+#pvc_stress run duration is around 7 minutes for 100 iterations,
+# add 8 minutes to handle variations in timing.
+timeout=$(( timeout + 480 ))
+
+#pvc_stress_fio run duration is around 11 minutes for 10 iterations,
+# with fio duration set to 5 seconds.
+# add 12 minutes to handle variations in timing.
+timeout=$(( timeout + 720 ))
+
+# FIXME: we want to pvc_stress before pvc_stress_fio.
 go test ./... --timeout "${timeout}s"

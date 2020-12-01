@@ -16,7 +16,7 @@ var defTimeoutSecs = "90s"
 
 func nvmfTest() {
 	fmt.Printf("running fio\n")
-	common.RunFio()
+	common.RunFio("fio", 20)
 }
 
 func TestNvmfVol(t *testing.T) {

@@ -45,13 +45,13 @@ func LabelNode(nodename string, label string) {
 }
 
 // Status part of the mayastor volume CRD
-type mayastorVolStatus struct {
-	state  string
-	reason string
-	node   string
+type MayastorVolStatus struct {
+	State  string
+	Reason string
+	Node   string
 }
 
-func GetMSV(uuid string) *mayastorVolStatus {
+func GetMSV(uuid string) *MayastorVolStatus {
 	msvGVR := schema.GroupVersionResource{
 		Group:    "openebs.io",
 		Version:  "v1alpha1",
@@ -74,7 +74,7 @@ func GetMSV(uuid string) *mayastorVolStatus {
 	if !found {
 		return nil
 	}
-	msVol := mayastorVolStatus{}
+	msVol := MayastorVolStatus{}
 	v := reflect.ValueOf(status)
 	if v.Kind() == reflect.Map {
 		for _, key := range v.MapKeys() {
@@ -82,13 +82,13 @@ func GetMSV(uuid string) *mayastorVolStatus {
 			val := v.MapIndex(key)
 			switch sKey {
 			case "state":
-				msVol.state = val.Interface().(string)
+				msVol.State = val.Interface().(string)
 				break
 			case "reason":
-				msVol.reason = val.Interface().(string)
+				msVol.Reason = val.Interface().(string)
 				break
 			case "node":
-				msVol.node = val.Interface().(string)
+				msVol.Node = val.Interface().(string)
 				break
 			}
 		}
@@ -149,9 +149,8 @@ func IsPVCDeleted(volName string) bool {
 // Check for a deleted Persistent Volume,
 // either the object does not exist
 // or the status phase is invalid.
-func IsPVDeleted(volName *string) bool {
-	vn := *volName
-	pv, err := gTestEnv.KubeInt.CoreV1().PersistentVolumes().Get(context.TODO(), vn, metav1.GetOptions{})
+func IsPVDeleted(volName string) bool {
+	pv, err := gTestEnv.KubeInt.CoreV1().PersistentVolumes().Get(context.TODO(), volName, metav1.GetOptions{})
 	if err != nil {
 		// Unfortunately there is no associated error code so we resort to string comparison
 		if strings.HasPrefix(err.Error(), "persistentvolumes") &&
@@ -195,14 +194,14 @@ func GetPvStatusPhase(volname string) (phase corev1.PersistentVolumePhase) {
 func GetMsvState(uuid string) string {
 	msv := GetMSV(uuid)
 	Expect(msv).ToNot(BeNil())
-	return fmt.Sprintf("%s", msv.state)
+	return fmt.Sprintf("%s", msv.State)
 }
 
 // Retrieve the nexus node hosting the Mayastor Volume
 func GetMsvNode(uuid string) string {
 	msv := GetMSV(uuid)
 	Expect(msv).ToNot(BeNil())
-	return fmt.Sprintf("%s", msv.node)
+	return fmt.Sprintf("%s", msv.Node)
 }
 
 // Create a PVC and verify that
@@ -305,7 +304,7 @@ func RmPVC(volName string, scName string) {
 
 	// Wait for the PV to be deleted.
 	Eventually(func() bool {
-		return IsPVDeleted(&(pvc.Spec.VolumeName))
+		return IsPVDeleted(pvc.Spec.VolumeName)
 	},
 		defTimeoutSecs, // timeout
 		"1s",           // polling interval
@@ -320,12 +319,13 @@ func RmPVC(volName string, scName string) {
 	).Should(Equal(true))
 }
 
-func RunFio() {
+func RunFio(podName string, duration int) {
+	argRuntime := fmt.Sprintf("--runtime=%d", duration)
 	cmd := exec.Command(
 		"kubectl",
 		"exec",
 		"-it",
-		"fio",
+		podName,
 		"--",
 		"fio",
 		"--name=benchtest",
@@ -338,7 +338,7 @@ func RunFio() {
 		"--iodepth=16",
 		"--numjobs=1",
 		"--time_based",
-		"--runtime=20",
+		argRuntime,
 	)
 	cmd.Dir = ""
 	_, err := cmd.CombinedOutput()
@@ -351,4 +351,81 @@ func FioReadyPod() bool {
 		return false
 	}
 	return fioPod.Status.Phase == v1.PodRunning
+}
+
+func IsPodRunning(podName string) bool {
+	var pod corev1.Pod
+	if gTestEnv.K8sClient.Get(context.TODO(), types.NamespacedName{Name: podName, Namespace: "default"}, &pod) != nil {
+		return false
+	}
+	return pod.Status.Phase == v1.PodRunning
+}
+
+/// Create a PVC in default namespace, no options and no context
+func CreatePVC(pvc *v1.PersistentVolumeClaim) (*v1.PersistentVolumeClaim, error) {
+	return gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims("default").Create(context.TODO(), pvc, metav1.CreateOptions{})
+}
+
+/// Retrieve a PVC in default namespace, no options and no context
+func GetPVC(volName string) (*v1.PersistentVolumeClaim, error) {
+	return gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims("default").Get(context.TODO(), volName, metav1.GetOptions{})
+}
+
+/// Delete a PVC in default namespace, no options and no context
+func DeletePVC(volName string) error {
+	return gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims("default").Delete(context.TODO(), volName, metav1.DeleteOptions{})
+}
+
+/// Retrieve a PV in default namespace, no options and no context
+func GetPV(volName string) (*v1.PersistentVolume, error) {
+	return gTestEnv.KubeInt.CoreV1().PersistentVolumes().Get(context.TODO(), volName, metav1.GetOptions{})
+}
+
+/// Create a Pod in default namespace, no options and no context
+func CreatePod(podDef *corev1.Pod) (*corev1.Pod, error) {
+	return gTestEnv.KubeInt.CoreV1().Pods("default").Create(context.TODO(), podDef, metav1.CreateOptions{})
+}
+
+/// Delete a Pod in default namespace, no options and no context
+func DeletePod(podName string) error {
+	return gTestEnv.KubeInt.CoreV1().Pods("default").Delete(context.TODO(), podName, metav1.DeleteOptions{})
+}
+
+/// Create a test fio pod in default namespace, no options and no context
+/// mayastor volume is mounted on /volume
+func CreateFioPod(podName string, volName string) (*corev1.Pod, error) {
+	podDef := corev1.Pod{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      podName,
+			Namespace: "default",
+		},
+		Spec: corev1.PodSpec{
+			Containers: []corev1.Container{
+				{
+					Name:    podName,
+					Image:   "nixery.dev/shell/fio/tini",
+					Command: []string{"tini", "--"},
+					Args:    []string{"sleep", "1000000"},
+					VolumeMounts: []corev1.VolumeMount{
+						{
+							Name:      "ms-volume",
+							MountPath: "/volume",
+						},
+					},
+				},
+			},
+			Volumes: []corev1.Volume{
+				{
+					Name: "ms-volume",
+					VolumeSource: corev1.VolumeSource{
+						PersistentVolumeClaim: &corev1.PersistentVolumeClaimVolumeSource{
+							ClaimName: volName,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	return CreatePod(&podDef)
 }
