@@ -6,4 +6,4 @@ metadata:
   namespace: mayastor
 spec:
   node: ${NODE_NAME}
-  disks: ["/dev/sda"]
+  disks: ["${POOL_DEVICE}"]

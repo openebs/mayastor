@@ -4,9 +4,11 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"path"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -87,13 +89,18 @@ func getTestClusterDetails() (string, int, []string, error) {
 		return "", 0, nil, errors.New("no usable nodes found")
 	}
 
-	/// TODO Refine how we workout the address of the test-registry
-	/// If there is master node, use its IP address as the registry IP address
-	if len(master) != 0 {
-		return master, nme, mayastorNodes, nil
+	registry := os.Getenv("e2e_docker_registry")
+	if len(registry) == 0 {
+		// a registry was not specified
+		// If there is master node, use its IP address as the registry IP address
+		if len(master) != 0 {
+			registry = master + ":30291"
+		} else {
+			/// Otherwise choose the IP address of first node in the list  as the registry IP address
+			registry = nodeIPs[0] + ":30291"
+		}
 	}
-	/// Otherwise choose the IP address of first node in the list  as the registry IP address
-	return nodeIPs[0], nme, mayastorNodes, nil
+	return registry, nme, mayastorNodes, nil
 }
 
 // Encapsulate the logic to find where the deploy yamls are
@@ -116,12 +123,12 @@ func getTemplateYamlDir() string {
 	return path.Clean(filename + "/../deploy")
 }
 
-func makeImageName(registryAddress string, registryport string, imagename string, imageversion string) string {
-	return registryAddress + ":" + registryport + "/mayadata/" + imagename + ":" + imageversion
+func makeImageName(registryAddress string, imagename string, imageversion string) string {
+	return registryAddress + "/mayadata/" + imagename + ":" + imageversion
 }
 
 func applyTemplatedYaml(filename string, imagename string, registryAddress string) {
-	fullimagename := makeImageName(registryAddress, "30291", imagename, "ci")
+	fullimagename := makeImageName(registryAddress, imagename, "ci")
 	bashcmd := "IMAGE_NAME=" + fullimagename + " envsubst < " + filename + " | kubectl apply -f -"
 	cmd := exec.Command("bash", "-c", bashcmd)
 	cmd.Dir = getTemplateYamlDir()
@@ -147,6 +154,37 @@ func moacReadyPodCount() int {
 		return -1
 	}
 	return int(moacDeployment.Status.AvailableReplicas)
+}
+
+// create pools for the cluster
+func createPools(mayastorNodes []string) {
+	envPoolYamls := os.Getenv("e2e_pool_yaml_files")
+	poolDevice := os.Getenv("e2e_pool_device")
+	if len(envPoolYamls) != 0 {
+		// Apply the list of externally defined pool yaml files
+		// NO check is made on the status of pools
+		poolYamlFiles := strings.Split(envPoolYamls, ",")
+		for _, poolYaml := range poolYamlFiles {
+			fmt.Println("applying ", poolYaml)
+			bashcmd := "kubectl apply -f " + poolYaml
+			cmd := exec.Command("bash", "-c", bashcmd)
+			_, err := cmd.CombinedOutput()
+			Expect(err).ToNot(HaveOccurred())
+		}
+	} else if len(poolDevice) != 0 {
+		// Use the template file to create pools as per the devices
+		// NO check is made on the status of pools
+		for _, mayastorNode := range mayastorNodes {
+			fmt.Println("creating pool on:", mayastorNode, " using device:", poolDevice)
+			bashcmd := "NODE_NAME=" + mayastorNode + " POOL_DEVICE=" + poolDevice + " envsubst < " + "pool.yaml.template" + " | kubectl apply -f -"
+			cmd := exec.Command("bash", "-c", bashcmd)
+			cmd.Dir = getTemplateYamlDir()
+			_, err := cmd.CombinedOutput()
+			Expect(err).ToNot(HaveOccurred())
+		}
+	} else {
+		// No pools created
+	}
 }
 
 // Install mayastor on the cluster under test.
@@ -181,15 +219,7 @@ func installMayastor() {
 	).Should(Equal(1))
 
 	// Now create pools on all nodes.
-	// Note the disk for use on each node has been set in deploy/pool.yaml
-	// TODO make the pool disk configurable
-	for _, mayastorNode := range mayastorNodes {
-		bashcmd := "NODE_NAME=" + mayastorNode + " envsubst < " + "pool.yaml" + " | kubectl apply -f -"
-		cmd := exec.Command("bash", "-c", bashcmd)
-		cmd.Dir = getTemplateYamlDir()
-		_, err := cmd.CombinedOutput()
-		Expect(err).ToNot(HaveOccurred())
-	}
+	createPools(mayastorNodes)
 }
 
 func TestInstallSuite(t *testing.T) {
