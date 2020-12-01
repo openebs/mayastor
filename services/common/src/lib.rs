@@ -4,6 +4,9 @@
 //! It's meant to facilitate the creation of services with a helper builder to
 //! subscribe handlers for different message identifiers.
 
+/// wrapper for mayastor resources
+pub mod wrapper;
+
 use async_trait::async_trait;
 use dyn_clonable::clonable;
 use futures::{future::join_all, stream::StreamExt};

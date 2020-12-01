@@ -39,7 +39,7 @@ dependencies = [
  "derive_more",
  "either",
  "futures-util",
- "http 0.2.1",
+ "http 0.2.2",
  "log",
  "rustls",
  "tokio-rustls",
@@ -76,7 +76,7 @@ dependencies = [
  "futures-util",
  "fxhash",
  "h2",
- "http 0.2.1",
+ "http 0.2.2",
  "httparse",
  "indexmap",
  "itoa",
@@ -113,7 +113,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd1f7dbda1645bf7da33554db60891755f6c01c1b2169e2f4c492098d30c235"
 dependencies = [
  "bytestring",
- "http 0.2.1",
+ "http 0.2.2",
  "log",
  "regex",
  "serde",
@@ -736,7 +736,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "hex",
- "http 0.2.1",
+ "http 0.2.2",
  "hyper",
  "hyper-rustls",
  "hyper-unix-connector",
@@ -1930,7 +1930,7 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "futures-util",
- "http 0.2.1",
+ "http 0.2.2",
  "indexmap",
  "slab",
  "tokio",
@@ -1993,9 +1993,9 @@ dependencies = [
 
 [[package]]
 name = "http"
-version = "0.2.1"
+version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "28d569972648b2c512421b5f2a405ad6ac9666547189d0c5477a3f200f3e02f9"
+checksum = "84129d298a6d57d246960ff8eb831ca4af3f96d29e2e28848dae275408658e26"
 dependencies = [
  "bytes 0.5.6",
  "fnv",
@@ -2009,7 +2009,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4908999be8b408e507d4148f3374a6f9e34e941f2d8c3928b1d565f1453291d"
 dependencies = [
  "bytes 0.5.6",
- "http 0.2.1",
+ "http 0.2.2",
 ]
 
 [[package]]
@@ -2019,7 +2019,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13d5ff830006f7646652e057693569bfe0d51760c0085a071769d142a205111b"
 dependencies = [
  "bytes 0.5.6",
- "http 0.2.1",
+ "http 0.2.2",
 ]
 
 [[package]]
@@ -2060,7 +2060,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "h2",
- "http 0.2.1",
+ "http 0.2.2",
  "http-body 0.3.1",
  "httparse",
  "httpdate",
@@ -2282,7 +2282,7 @@ dependencies = [
  "base64 0.12.3",
  "bytes 0.5.6",
  "chrono",
- "http 0.2.1",
+ "http 0.2.2",
  "percent-encoding 2.1.0",
  "serde",
  "serde-value",
@@ -2314,7 +2314,7 @@ dependencies = [
  "either",
  "futures",
  "futures-util",
- "http 0.2.1",
+ "http 0.2.2",
  "jsonpath_lib",
  "k8s-openapi",
  "log",
@@ -3497,7 +3497,7 @@ dependencies = [
  "encoding_rs",
  "futures-core",
  "futures-util",
- "http 0.2.1",
+ "http 0.2.2",
  "http-body 0.3.1",
  "hyper",
  "hyper-tls",
@@ -3548,6 +3548,7 @@ dependencies = [
  "rustls",
  "serde",
  "serde_json",
+ "snafu",
  "structopt",
  "strum",
  "strum_macros",
@@ -3867,6 +3868,7 @@ dependencies = [
  "composer",
  "dyn-clonable",
  "futures",
+ "http 0.2.2",
  "humantime 2.0.1",
  "lazy_static",
  "mbus_api",
@@ -3879,6 +3881,7 @@ dependencies = [
  "state",
  "structopt",
  "tokio",
+ "tonic",
  "tracing",
  "tracing-futures",
  "tracing-subscriber",
@@ -4502,7 +4505,7 @@ dependencies = [
  "bytes 0.5.6",
  "futures-core",
  "futures-util",
- "http 0.2.1",
+ "http 0.2.2",
  "http-body 0.3.1",
  "hyper",
  "percent-encoding 1.0.1",

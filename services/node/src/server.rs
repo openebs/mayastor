@@ -200,6 +200,7 @@ async fn server(cli_args: CliArgs) {
         .with_subscription(ServiceHandler::<Register>::default())
         .with_subscription(ServiceHandler::<Deregister>::default())
         .with_channel(ChannelVs::Node)
+        .with_default_liveness()
         .with_subscription(ServiceHandler::<GetNodes>::default())
         .run()
         .await;

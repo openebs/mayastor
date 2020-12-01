@@ -12,6 +12,10 @@ path = "kiiss/src/server.rs"
 name = "node"
 path = "node/src/server.rs"
 
+[[bin]]
+name = "pool"
+path = "pool/src/server.rs"
+
 [lib]
 name = "common"
 path = "common/src/lib.rs"
@@ -21,6 +25,7 @@ mbus_api = { path = "../mbus-api" }
 nats = "0.8"
 structopt = "0.3.15"
 tokio = { version = "0.2", features = ["full"] }
+tonic = "0.1"
 futures = "0.3.6"
 serde_json = "1.0"
 async-trait = "0.1.36"
@@ -33,10 +38,11 @@ state = "0.4.2"
 tracing = "0.1"
 tracing-subscriber = "0.2"
 tracing-futures = "0.2.4"
+rpc = { path = "../rpc" }
+http = "0.2.2"
 
 [dev-dependencies]
 composer = { path = "../composer" }
-rpc = { path = "../rpc" }
 
 [dependencies.serde]
 features = ["derive"]

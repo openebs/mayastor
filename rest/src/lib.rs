@@ -14,7 +14,7 @@
 /// expose different versions of the client
 pub mod versions;
 
-use actix_web::client::Client;
+use actix_web::{body::Body, client::Client};
 use serde::Deserialize;
 use std::{io::BufReader, string::ToString};
 
@@ -54,9 +54,59 @@ impl ActixRestClient {
         let uri = format!("{}{}", self.url, urn);
 
         let mut rest_response =
-            self.client.get(uri).send().await.map_err(|error| {
+            self.client.get(uri.clone()).send().await.map_err(|error| {
                 anyhow::anyhow!(
-                    "Failed to get nodes from rest, err={:?}",
+                    "Failed to get uri '{}' from rest, err={:?}",
+                    uri,
+                    error
+                )
+            })?;
+
+        let rest_body = rest_response.body().await?;
+        Ok(serde_json::from_slice::<R>(&rest_body)?)
+    }
+    async fn put<R, B: Into<Body>>(
+        &self,
+        urn: String,
+        body: B,
+    ) -> anyhow::Result<R>
+    where
+        for<'de> R: Deserialize<'de>,
+    {
+        let uri = format!("{}{}", self.url, urn);
+
+        let mut rest_response = self
+            .client
+            .put(uri.clone())
+            .content_type("application/json")
+            .send_body(body)
+            .await
+            .map_err(|error| {
+                anyhow::anyhow!(
+                    "Failed to put uri '{}' from rest, err={:?}",
+                    uri,
+                    error
+                )
+            })?;
+
+        let rest_body = rest_response.body().await?;
+        Ok(serde_json::from_slice::<R>(&rest_body)?)
+    }
+    async fn del<R>(&self, urn: String) -> anyhow::Result<R>
+    where
+        for<'de> R: Deserialize<'de>,
+    {
+        let uri = format!("{}{}", self.url, urn);
+
+        let mut rest_response = self
+            .client
+            .delete(uri.clone())
+            .send()
+            .await
+            .map_err(|error| {
+                anyhow::anyhow!(
+                    "Failed to delete uri '{}' from rest, err={:?}",
+                    uri,
                     error
                 )
             })?;

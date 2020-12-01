@@ -28,6 +28,7 @@ tracing-futures = "0.2.4"
 strum = "0.19"
 strum_macros = "0.19"
 anyhow = "1.0.32"
+snafu = "0.6"
 
 [dev-dependencies]
 composer = { path = "../composer" }

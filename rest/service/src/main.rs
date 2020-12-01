@@ -1,14 +1,6 @@
-use mbus_api::message_bus::v0::{MessageBus, *};
+mod v0;
 
-use actix_web::{
-    get,
-    middleware,
-    web,
-    App,
-    HttpResponse,
-    HttpServer,
-    Responder,
-};
+use actix_web::{middleware, App, HttpServer};
 use rustls::{
     internal::pemfile::{certs, rsa_private_keys},
     NoClientAuth,
@@ -27,29 +19,6 @@ struct CliArgs {
     /// Default: nats://0.0.0.0:4222
     #[structopt(long, short, default_value = "nats://0.0.0.0:4222")]
     nats: String,
-}
-
-#[get("/v0/nodes")]
-async fn get_nodes() -> impl Responder {
-    match MessageBus::get_nodes().await {
-        Ok(nodes) => HttpResponse::Ok().json(nodes),
-        Err(error) => {
-            let error = serde_json::json!({"error": error.to_string()});
-            HttpResponse::InternalServerError().json(error)
-        }
-    }
-}
-
-#[get("/v0/nodes/{id}")]
-async fn get_node(web::Path(node_id): web::Path<String>) -> impl Responder {
-    match MessageBus::get_node(node_id).await {
-        Ok(Some(node)) => HttpResponse::Ok().json(node),
-        Ok(None) => HttpResponse::NoContent().json(()),
-        Err(error) => {
-            let error = serde_json::json!({"error": error.to_string()});
-            HttpResponse::InternalServerError().json(error)
-        }
-    }
 }
 
 fn init_tracing() {
@@ -80,8 +49,9 @@ async fn main() -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .wrap(middleware::Logger::default())
-            .service(get_nodes)
-            .service(get_node)
+            .service(v0::nodes::factory())
+            .service(v0::pools::factory())
+            .service(v0::replicas::factory())
     })
     .bind_rustls(CliArgs::from_args().rest, config)?
     .run()
