@@ -28,7 +28,9 @@ type TestEnvironment struct {
 	DynamicClient dynamic.Interface
 }
 
-func SetupTestEnv() TestEnvironment {
+var gTestEnv TestEnvironment
+
+func SetupTestEnv() {
 
 	By("bootstrapping test environment")
 	useCluster := true
@@ -70,7 +72,7 @@ func SetupTestEnv() TestEnvironment {
 	dynamicClient := dynamic.NewForConfigOrDie(restConfig)
 	Expect(dynamicClient).ToNot(BeNil())
 
-	return TestEnvironment{
+	gTestEnv = TestEnvironment{
 		Cfg:           cfg,
 		K8sClient:     k8sClient,
 		KubeInt:       kubeInt,
@@ -80,7 +82,7 @@ func SetupTestEnv() TestEnvironment {
 	}
 }
 
-func TeardownTestEnv(env *TestEnvironment) {
-	err := env.TestEnv.Stop()
+func TeardownTestEnv() {
+	err := gTestEnv.TestEnv.Stop()
 	Expect(err).ToNot(HaveOccurred())
 }

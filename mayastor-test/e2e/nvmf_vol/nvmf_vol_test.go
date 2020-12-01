@@ -14,8 +14,6 @@ import (
 
 var defTimeoutSecs = "90s"
 
-var g_environment common.TestEnvironment
-
 func nvmfTest() {
 	fmt.Printf("running fio\n")
 	common.RunFio()
@@ -36,14 +34,14 @@ var _ = BeforeSuite(func(done Done) {
 
 	logf.SetLogger(zap.LoggerTo(GinkgoWriter, true))
 
-	g_environment = common.SetupTestEnv()
+	common.SetupTestEnv()
 
-	common.MkPVC(fmt.Sprintf("vol-test-pvc-nvmf"), "mayastor-nvmf", &g_environment.DynamicClient, &g_environment.KubeInt)
+	common.MkPVC(fmt.Sprintf("vol-test-pvc-nvmf"), "mayastor-nvmf")
 	common.ApplyDeployYaml("deploy/fio_nvmf.yaml")
 
 	fmt.Printf("waiting for fio\n")
 	Eventually(func() bool {
-		return common.FioReadyPod(&g_environment.K8sClient)
+		return common.FioReadyPod()
 	},
 		defTimeoutSecs, // timeout
 		"1s",           // polling interval
@@ -61,7 +59,7 @@ var _ = AfterSuite(func() {
 	common.DeleteDeployYaml("deploy/fio_nvmf.yaml")
 
 	fmt.Printf("removing pvc\n")
-	common.RmPVC(fmt.Sprintf("vol-test-pvc-nvmf"), "mayastor-nvmf", &g_environment.DynamicClient, &g_environment.KubeInt)
+	common.RmPVC(fmt.Sprintf("vol-test-pvc-nvmf"), "mayastor-nvmf")
 
-	common.TeardownTestEnv(&g_environment)
+	common.TeardownTestEnv()
 })
