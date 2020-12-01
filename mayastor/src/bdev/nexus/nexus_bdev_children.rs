@@ -23,6 +23,8 @@
 //! When reconfiguring the nexus, we traverse all our children, create new IO
 //! channels for all children that are in the open state.
 
+use std::env;
+
 use futures::future::join_all;
 use snafu::ResultExt;
 
@@ -31,7 +33,6 @@ use crate::{
         nexus::{
             nexus_bdev::{
                 CreateChild,
-                DestroyChild,
                 Error,
                 Nexus,
                 NexusState,
@@ -59,7 +60,7 @@ impl Nexus {
     /// register children with the nexus, only allowed during the nexus init
     /// phase
     pub fn register_children(&mut self, dev_name: &[String]) {
-        assert_eq!(self.state, NexusState::Init);
+        assert_eq!(*self.state.lock().unwrap(), NexusState::Init);
         self.child_count = dev_name.len() as u32;
         dev_name
             .iter()
@@ -80,7 +81,7 @@ impl Nexus {
         &mut self,
         uri: &str,
     ) -> Result<(), NexusBdevError> {
-        assert_eq!(self.state, NexusState::Init);
+        assert_eq!(*self.state.lock().unwrap(), NexusState::Init);
         let name = bdev_create(&uri).await?;
         self.children.push(NexusChild::new(
             uri.to_string(),
@@ -116,7 +117,7 @@ impl Nexus {
                     e.verbose()
                 );
                 match self.get_child_by_name(uri) {
-                    Ok(child) => child.fault(Reason::RebuildFailed),
+                    Ok(child) => child.fault(Reason::RebuildFailed).await,
                     Err(e) => error!(
                         "Failed to find newly added child {}, error: {}",
                         uri,
@@ -182,7 +183,7 @@ impl Nexus {
 
                 // it can never take part in the IO path
                 // of the nexus until it's rebuilt from a healthy child.
-                child.fault(Reason::OutOfSync);
+                child.fault(Reason::OutOfSync).await;
                 if ChildStatusConfig::add(&child).is_err() {
                     error!("Failed to add child status information");
                 }
@@ -230,23 +231,22 @@ impl Nexus {
             Some(val) => val,
         };
 
-        self.children[idx].close();
-        assert_eq!(self.children[idx].state(), ChildState::Closed);
+        if let Err(e) = self.children[idx].close().await {
+            return Err(Error::CloseChild {
+                name: self.name.clone(),
+                child: self.children[idx].name.clone(),
+                source: e,
+            });
+        }
 
-        let mut child = self.children.remove(idx);
+        self.children.remove(idx);
         self.child_count -= 1;
 
         // Update child status to remove this child
         NexusChild::save_state_change();
-        self.reconfigure(DREvent::ChildRemove).await;
-
-        let result = child.destroy().await.context(DestroyChild {
-            name: self.name.clone(),
-            child: uri,
-        });
 
         self.start_rebuild_jobs(cancelled_rebuilding_children).await;
-        result
+        Ok(())
     }
 
     /// offline a child device and reconfigure the IO channels
@@ -260,7 +260,7 @@ impl Nexus {
             self.cancel_child_rebuild_jobs(name).await;
 
         if let Some(child) = self.children.iter_mut().find(|c| c.name == name) {
-            child.offline();
+            child.offline().await;
         } else {
             return Err(Error::ChildNotFound {
                 name: self.name.clone(),
@@ -311,7 +311,7 @@ impl Nexus {
                 match child.state() {
                     ChildState::Faulted(_) => {}
                     _ => {
-                        child.fault(reason);
+                        child.fault(reason).await;
                         NexusChild::save_state_change();
                         self.reconfigure(DREvent::ChildFault).await;
                     }
@@ -340,7 +340,7 @@ impl Nexus {
         trace!("{} Online child request", self.name);
 
         if let Some(child) = self.children.iter_mut().find(|c| c.name == name) {
-            child.online(self.size).context(OpenChild {
+            child.online(self.size).await.context(OpenChild {
                 child: name.to_owned(),
                 name: self.name.clone(),
             })?;
@@ -356,10 +356,7 @@ impl Nexus {
     /// destroy all children that are part of this nexus closes any child
     /// that might be open first
     pub(crate) async fn destroy_children(&mut self) {
-        let futures = self.children.iter_mut().map(|c| {
-            c.close();
-            c.destroy()
-        });
+        let futures = self.children.iter_mut().map(|c| c.close());
         let results = join_all(futures).await;
         if results.iter().any(|c| c.is_err()) {
             error!("{}: Failed to destroy child", self.name);
@@ -382,7 +379,7 @@ impl Nexus {
     }
 
     /// try to open all the child devices
-    pub(crate) fn try_open_children(&mut self) -> Result<(), Error> {
+    pub(crate) async fn try_open_children(&mut self) -> Result<(), Error> {
         if self.children.is_empty()
             || self.children.iter().any(|c| c.bdev.is_none())
         {
@@ -418,19 +415,23 @@ impl Nexus {
         // completed yet so we fail the registration all together for now.
 
         if !error.is_empty() {
-            open.into_iter()
-                .map(Result::unwrap)
-                .map(|name| {
-                    if let Some(child) =
-                        self.children.iter_mut().find(|c| c.name == name)
-                    {
-                        let _ = child.close();
-                    } else {
-                        error!("{}: child {} failed to open", self.name, name);
+            for open_child in open {
+                let name = open_child.unwrap();
+                if let Some(child) =
+                    self.children.iter_mut().find(|c| c.name == name)
+                {
+                    if let Err(e) = child.close().await {
+                        error!(
+                            "{}: child {} failed to close with error {}",
+                            self.name,
+                            name,
+                            e.verbose()
+                        );
                     }
-                })
-                .for_each(drop);
-
+                } else {
+                    error!("{}: child {} failed to open", self.name, name);
+                }
+            }
             return Err(Error::NexusIncomplete {
                 name: self.name.clone(),
             });
@@ -524,7 +525,20 @@ impl Nexus {
         let label = self.generate_label();
 
         // ... and write it out to ALL children.
-        self.write_all_labels(&label).await?;
+        let label = match self.write_all_labels(&label).await {
+            Ok(_) => Ok(label),
+            Err(LabelError::ReReadError {
+                ..
+            }) => {
+                if env::var("NEXUS_LABEL_IGNORE_ERRORS").is_ok() {
+                    warn!("ignoring label error on request");
+                    Ok(label)
+                } else {
+                    Err(LabelError::ProbeError {})
+                }
+            }
+            Err(e) => Err(e),
+        }?;
 
         info!("{}: new label: {}", self.name, label.primary.guid);
         trace!("{}: new label:\n{}", self.name, label);
@@ -549,6 +563,14 @@ impl Nexus {
             })
             .for_each(drop);
         blockcnt
+    }
+
+    /// lookup a child by its name
+    pub fn child_lookup(&self, name: &str) -> Option<&NexusChild> {
+        self.children
+            .iter()
+            .filter(|c| c.bdev.as_ref().is_some())
+            .find(|c| c.bdev.as_ref().unwrap().name() == name)
     }
 
     pub fn get_child_by_name(

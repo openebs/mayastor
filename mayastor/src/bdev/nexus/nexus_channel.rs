@@ -8,13 +8,16 @@ use spdk_sys::{
     spdk_io_channel,
     spdk_io_channel_iter,
     spdk_io_channel_iter_get_channel,
+    spdk_io_channel_iter_get_ctx,
     spdk_io_channel_iter_get_io_device,
 };
 
 use crate::{
     bdev::{nexus::nexus_child::ChildState, Nexus},
-    core::BdevHandle,
+    core::{BdevHandle, Mthread},
 };
+use futures::channel::oneshot;
+use std::ptr::NonNull;
 
 /// io channel, per core
 #[repr(C)]
@@ -26,10 +29,31 @@ pub(crate) struct NexusChannel {
 #[repr(C)]
 #[derive(Debug)]
 pub(crate) struct NexusChannelInner {
-    pub(crate) ch: Vec<BdevHandle>,
-    pub(crate) write_only: usize,
+    pub(crate) writers: Vec<BdevHandle>,
+    pub(crate) readers: Vec<BdevHandle>,
     pub(crate) previous: usize,
     device: *mut c_void,
+}
+
+#[derive(Debug)]
+/// reconfigure context holding among others
+/// the completion channel.
+pub struct ReconfigureCtx {
+    /// channel to send completion on.
+    sender: oneshot::Sender<i32>,
+    device: NonNull<c_void>,
+}
+
+impl ReconfigureCtx {
+    pub(crate) fn new(
+        sender: oneshot::Sender<i32>,
+        device: NonNull<c_void>,
+    ) -> Self {
+        Self {
+            sender,
+            device,
+        }
+    }
 }
 
 #[derive(Debug)]
@@ -51,13 +75,21 @@ pub enum DREvent {
 
 impl NexusChannelInner {
     /// very simplistic routine to rotate between children for read operations
-    pub(crate) fn child_select(&mut self) -> usize {
-        if self.previous != self.ch.len() - self.write_only - 1 {
-            self.previous += 1;
+    /// note that the channels can be None during a reconfigure; this is usually
+    /// not the case but a side effect of using the async. As we poll
+    /// threads more often depending on what core we are on etc, we might be
+    /// "awaiting' while the thread is already trying to submit IO.
+    pub(crate) fn child_select(&mut self) -> Option<usize> {
+        if self.readers.is_empty() {
+            None
         } else {
-            self.previous = 0;
+            if self.previous < self.readers.len() - 1 {
+                self.previous += 1;
+            } else {
+                self.previous = 0;
+            }
+            Some(self.previous)
         }
-        self.previous
     }
 
     /// refreshing our channels simply means that we either have a child going
@@ -68,43 +100,47 @@ impl NexusChannelInner {
     pub(crate) fn refresh(&mut self) {
         let nexus = unsafe { Nexus::from_raw(self.device) };
         info!(
-            "{}(tid:{:?}), refreshing IO channels",
+            "{}(thread:{:?}), refreshing IO channels",
             nexus.name,
-            std::thread::current().name().unwrap()
+            Mthread::current().unwrap().name(),
         );
 
         trace!(
-            "{}: Current number of IO channels {}",
+            "{}: Current number of IO channels write: {} read: {}",
             nexus.name,
-            self.ch.len(),
+            self.writers.len(),
+            self.readers.len(),
         );
 
         // clear the vector of channels and reset other internal values,
         // clearing the values will drop any existing handles in the
         // channel
-        self.ch.clear();
+        self.writers.clear();
+        self.readers.clear();
         self.previous = 0;
-        self.write_only = 0;
 
-        // iterate to over all our children which are in the open state
+        // iterate over all our children which are in the open state
         nexus
             .children
             .iter_mut()
             .filter(|c| c.state() == ChildState::Open)
             .for_each(|c| {
-                self.ch.push(
+                self.writers.push(
                     BdevHandle::try_from(c.get_descriptor().unwrap()).unwrap(),
-                )
+                );
+                self.readers.push(
+                    BdevHandle::try_from(c.get_descriptor().unwrap()).unwrap(),
+                );
             });
 
-        if !self.ch.is_empty() {
+        // then add write-only children
+        if !self.readers.is_empty() {
             nexus
                 .children
                 .iter_mut()
                 .filter(|c| c.rebuilding())
                 .map(|c| {
-                    self.write_only += 1;
-                    self.ch.push(
+                    self.writers.push(
                         BdevHandle::try_from(c.get_descriptor().unwrap())
                             .unwrap(),
                     )
@@ -113,9 +149,10 @@ impl NexusChannelInner {
         }
 
         trace!(
-            "{}: New number of IO channels {} out of {} children",
+            "{}: New number of IO channels write:{} read:{} out of {} children",
             nexus.name,
-            self.ch.len(),
+            self.writers.len(),
+            self.readers.len(),
             nexus.children.len()
         );
 
@@ -134,9 +171,9 @@ impl NexusChannel {
 
         let ch = NexusChannel::from_raw(ctx);
         let mut channels = Box::new(NexusChannelInner {
-            ch: Vec::new(),
+            writers: Vec::new(),
+            readers: Vec::new(),
             previous: 0,
-            write_only: 0,
             device,
         });
 
@@ -145,9 +182,12 @@ impl NexusChannel {
             .iter_mut()
             .filter(|c| c.state() == ChildState::Open)
             .map(|c| {
-                channels.ch.push(
+                channels.writers.push(
                     BdevHandle::try_from(c.get_descriptor().unwrap()).unwrap(),
-                )
+                );
+                channels.readers.push(
+                    BdevHandle::try_from(c.get_descriptor().unwrap()).unwrap(),
+                );
             })
             .for_each(drop);
         ch.inner = Box::into_raw(channels);
@@ -159,11 +199,16 @@ impl NexusChannel {
         let nexus = unsafe { Nexus::from_raw(device) };
         debug!("{} Destroying IO channels", nexus.bdev.name());
         let inner = NexusChannel::from_raw(ctx).inner_mut();
-        inner.ch.clear();
+        inner.writers.clear();
+        inner.readers.clear();
     }
 
     /// function called when we receive a Dynamic Reconfigure event (DR)
-    pub extern "C" fn reconfigure(device: *mut c_void, event: &DREvent) {
+    pub extern "C" fn reconfigure(
+        device: *mut c_void,
+        ctx: Box<ReconfigureCtx>,
+        event: &DREvent,
+    ) {
         match event {
             DREvent::ChildOffline
             | DREvent::ChildOnline
@@ -174,7 +219,7 @@ impl NexusChannel {
                 spdk_for_each_channel(
                     device,
                     Some(NexusChannel::refresh_io_channels),
-                    std::ptr::null_mut(),
+                    Box::into_raw(ctx).cast(),
                     Some(Self::reconfigure_completed),
                 );
             },
@@ -190,17 +235,19 @@ impl NexusChannel {
             Nexus::from_raw(spdk_io_channel_iter_get_io_device(ch_iter))
         };
 
-        trace!("{}: Reconfigure completed", nexus.name);
-        if let Some(sender) = nexus.dr_complete_notify.take() {
-            sender.send(status).expect("reconfigure channel gone");
-        } else {
-            error!("DR error");
-        }
+        let ctx: Box<ReconfigureCtx> = unsafe {
+            Box::from_raw(
+                spdk_io_channel_iter_get_ctx(ch_iter) as *mut ReconfigureCtx
+            )
+        };
+
+        info!("{}: Reconfigure completed", nexus.name);
+        ctx.sender.send(status).expect("reconfigure channel gone");
     }
 
     /// Refresh the IO channels of the underlying children. Typically, this is
     /// called when a device is either added or removed. IO that has already
-    /// may or may not complete. In case of remove that is fine.
+    /// been issued may or may not complete. In case of remove that is fine.
 
     pub extern "C" fn refresh_io_channels(ch_iter: *mut spdk_io_channel_iter) {
         let channel = unsafe { spdk_io_channel_iter_get_channel(ch_iter) };

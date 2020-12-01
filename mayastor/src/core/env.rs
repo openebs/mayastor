@@ -14,18 +14,18 @@ use std::{
 
 use byte_unit::{Byte, ByteUnit};
 use futures::{channel::oneshot, future};
+use mbus_api::{
+    v0::{Config::MayastorConfig, ConfigGetCurrent, ReplyConfig},
+    Message,
+};
 use once_cell::sync::{Lazy, OnceCell};
 use snafu::Snafu;
 use structopt::StructOpt;
-use tokio::{runtime::Builder, task};
+use tokio::runtime::Builder;
 
 use spdk_sys::{
     maya_log,
     spdk_app_shutdown_cb,
-    spdk_conf_allocate,
-    spdk_conf_free,
-    spdk_conf_read,
-    spdk_conf_set_as_default,
     spdk_log_level,
     spdk_log_open,
     spdk_log_set_level,
@@ -80,14 +80,11 @@ fn parse_mb(src: &str) -> Result<i32, String> {
     setting(structopt::clap::AppSettings::ColoredHelp)
 )]
 pub struct MayastorCliArgs {
-    #[structopt(short = "c")]
-    /// Path to the configuration file if any
-    pub config: Option<String>,
     #[structopt(short = "g", default_value = grpc::default_endpoint_str())]
-    /// IP address and port (optional) for the gRPC server to listen on
+    /// IP address and port (optional) for the gRPC server to listen on.
     pub grpc_endpoint: String,
     #[structopt(short = "L")]
-    /// Enable logging for sub components
+    /// Enable logging for sub components.
     pub log_components: Vec<String>,
     #[structopt(short = "m", default_value = "0x1")]
     /// The reactor mask to be used for starting up the instance
@@ -96,10 +93,10 @@ pub struct MayastorCliArgs {
     /// Name of the node where mayastor is running (ID used by control plane)
     pub node_name: Option<String>,
     #[structopt(short = "n")]
-    /// Hostname/IP and port (optional) of the message bus server
+    /// Hostname/IP and port (optional) of the message bus server.
     pub mbus_endpoint: Option<String>,
     /// The maximum amount of hugepage memory we are allowed to allocate in MiB
-    /// (default: all)
+    /// a value of 0 means no limits.
     #[structopt(
     short = "s",
     parse(try_from_str = parse_mb),
@@ -107,23 +104,27 @@ pub struct MayastorCliArgs {
     )]
     pub mem_size: i32,
     #[structopt(short = "u")]
-    /// Disable the use of PCIe devices
+    /// Disable the use of PCIe devices.
     pub no_pci: bool,
     #[structopt(short = "r", default_value = "/var/tmp/mayastor.sock")]
-    /// Path to create the rpc socket
+    /// Path to create the rpc socket.
     pub rpc_address: String,
     #[structopt(short = "y")]
-    /// path to mayastor config file
+    /// Path to mayastor YAML config file.
     pub mayastor_config: Option<String>,
     #[structopt(short = "C")]
-    /// path to child status config file
+    /// Path to child status config file.
     pub child_status_config: Option<String>,
     #[structopt(long = "huge-dir")]
-    /// path to hugedir
+    /// Path to hugedir.
     pub hugedir: Option<String>,
     #[structopt(long = "env-context")]
-    /// pass additional arguments to the EAL environment
+    /// Pass additional arguments to the EAL environment.
     pub env_context: Option<String>,
+    #[structopt(short = "-l")]
+    /// List of cores to run on instead of using the core mask. When specified
+    /// it supersedes the core mask (-m) argument.
+    pub core_list: Option<String>,
 }
 
 /// Defaults are redefined here in case of using it during tests
@@ -139,10 +140,10 @@ impl Default for MayastorCliArgs {
             rpc_address: "/var/tmp/mayastor.sock".to_string(),
             no_pci: true,
             log_components: vec![],
-            config: None,
             mayastor_config: None,
             child_status_config: None,
             hugedir: None,
+            core_list: None,
         }
     }
 }
@@ -153,7 +154,7 @@ pub static GLOBAL_RC: Lazy<Arc<Mutex<i32>>> =
     Lazy::new(|| Arc::new(Mutex::new(-1)));
 
 /// keep track if we have received a signal already
-pub static SIG_RECIEVED: Lazy<AtomicBool> =
+pub static SIG_RECEIVED: Lazy<AtomicBool> =
     Lazy::new(|| AtomicBool::new(false));
 
 /// FFI functions that are needed to initialize the environment
@@ -180,8 +181,6 @@ extern "C" {
 pub enum EnvError {
     #[snafu(display("Failed to install signal handler"))]
     SetSigHdl { source: nix::Error },
-    #[snafu(display("Failed to read configuration file: {}", reason))]
-    ParseConfig { reason: String },
     #[snafu(display("Failed to initialize logging subsystem"))]
     InitLog,
     #[snafu(display("Failed to initialize {} target", target))]
@@ -193,7 +192,6 @@ type Result<T, E = EnvError> = std::result::Result<T, E>;
 /// Mayastor argument
 #[derive(Debug, Clone)]
 pub struct MayastorEnvironment {
-    pub config: Option<String>,
     pub node_name: String,
     pub mbus_endpoint: Option<String>,
     pub grpc_endpoint: Option<std::net::SocketAddr>,
@@ -223,12 +221,12 @@ pub struct MayastorEnvironment {
     tpoint_group_mask: String,
     unlink_hugepage: bool,
     log_component: Vec<String>,
+    core_list: Option<String>,
 }
 
 impl Default for MayastorEnvironment {
     fn default() -> Self {
         Self {
-            config: None,
             node_name: "mayastor-node".into(),
             mbus_endpoint: None,
             grpc_endpoint: None,
@@ -258,6 +256,7 @@ impl Default for MayastorEnvironment {
             tpoint_group_mask: String::new(),
             unlink_hugepage: true,
             log_component: vec![],
+            core_list: None,
         }
     }
 }
@@ -280,7 +279,6 @@ async fn do_shutdown(arg: *mut c_void) {
     }
 
     iscsi::fini();
-
     unsafe {
         spdk_rpc_finish();
         spdk_subsystem_fini(Some(reactors_stop), arg);
@@ -310,15 +308,15 @@ unsafe extern "C" fn signal_trampoline(_: *mut c_void) {
 
 /// called on SIGINT and SIGTERM
 extern "C" fn mayastor_signal_handler(signo: i32) {
-    if SIG_RECIEVED.load(SeqCst) {
+    if SIG_RECEIVED.load(SeqCst) {
         return;
     }
 
     warn!("Received SIGNO: {}", signo);
-    SIG_RECIEVED.store(true, SeqCst);
+    SIG_RECEIVED.store(true, SeqCst);
     unsafe {
         spdk_thread_send_critical_msg(
-            Mthread::get_init().0,
+            Mthread::get_init().into_raw(),
             Some(signal_trampoline),
         );
     };
@@ -337,7 +335,6 @@ impl MayastorEnvironment {
             grpc_endpoint: Some(grpc::endpoint(args.grpc_endpoint)),
             mbus_endpoint: subsys::mbus_endpoint(args.mbus_endpoint),
             node_name: args.node_name.unwrap_or_else(|| "mayastor-node".into()),
-            config: args.config,
             mayastor_config: args.mayastor_config,
             child_status_config: args.child_status_config,
             log_component: args.log_components,
@@ -347,6 +344,7 @@ impl MayastorEnvironment {
             rpc_addr: args.rpc_address,
             hugedir: args.hugedir,
             env_context: args.env_context,
+            core_list: args.core_list,
             ..Default::default()
         }
         .setup_static()
@@ -367,7 +365,7 @@ impl MayastorEnvironment {
     }
 
     /// configure signal handling
-    fn install_signal_handlers(&self) -> Result<()> {
+    fn install_signal_handlers(&self) {
         unsafe {
             signal_hook::register(signal_hook::SIGTERM, || {
                 mayastor_signal_handler(1)
@@ -381,46 +379,6 @@ impl MayastorEnvironment {
             })
         }
         .unwrap();
-
-        Ok(())
-    }
-
-    /// read the config file we use this mostly for testing
-    fn read_config_file(&self) -> Result<()> {
-        if self.config.is_none() {
-            return Ok(());
-        }
-
-        let path =
-            CString::new(self.config.as_ref().unwrap().as_str()).unwrap();
-        let config = unsafe { spdk_conf_allocate() };
-
-        assert_ne!(config, std::ptr::null_mut());
-
-        if unsafe { spdk_conf_read(config, path.as_ptr()) } != 0 {
-            return Err(EnvError::ParseConfig {
-                reason: "Failed to read file from disk".into(),
-            });
-        }
-
-        let rc = unsafe {
-            if spdk_sys::spdk_conf_first_section(config).is_null() {
-                Err(EnvError::ParseConfig {
-                    reason: "failed to parse config file".into(),
-                })
-            } else {
-                Ok(())
-            }
-        };
-
-        if rc.is_ok() {
-            trace!("Setting default config to {:p}", config);
-            unsafe { spdk_conf_set_as_default(config) };
-        } else {
-            unsafe { spdk_conf_free(config) }
-        }
-
-        rc
     }
 
     /// construct an array of options to be passed to EAL and start it
@@ -428,8 +386,6 @@ impl MayastorEnvironment {
         let mut args: Vec<CString> = Vec::new();
 
         args.push(CString::new(self.name.clone()).unwrap());
-
-        args.push(CString::new(format!("-c {}", self.reactor_mask)).unwrap());
 
         if self.mem_channel > 0 {
             args.push(
@@ -517,6 +473,17 @@ impl MayastorEnvironment {
             );
         }
 
+        // when -l is specified it overrules the core mask. The core mask still
+        // carries our default of 0x1 such that existing testing code
+        // does not require any changes.
+        if let Some(list) = &self.core_list {
+            args.push(CString::new(format!("-l {}", list)).unwrap());
+        } else {
+            args.push(
+                CString::new(format!("-c {}", self.reactor_mask)).unwrap(),
+            )
+        }
+
         let mut cargs = args
             .iter()
             .map(|arg| arg.as_ptr())
@@ -601,7 +568,7 @@ impl MayastorEnvironment {
         }
     }
 
-    /// start the  JSON rpc server which listens only to a local path
+    /// start the JSON rpc server which listens only to a local path
     extern "C" fn start_rpc(rc: i32, arg: *mut c_void) {
         let ctx = unsafe { Box::from_raw(arg as *mut SubsystemCtx) };
 
@@ -639,6 +606,19 @@ impl MayastorEnvironment {
         cfg.apply();
     }
 
+    #[allow(dead_code)]
+    async fn get_service_config(&self) -> Result<ReplyConfig, std::io::Error> {
+        if self.mbus_endpoint.is_some() {
+            Ok(ConfigGetCurrent {
+                kind: MayastorConfig,
+            }
+            .request()
+            .await?)
+        } else {
+            Ok(Default::default())
+        }
+    }
+
     // load the child status file
     fn load_child_status(&self) {
         ChildStatusConfig::get_or_init(|| {
@@ -661,20 +641,11 @@ impl MayastorEnvironment {
         self.init_logger().unwrap();
 
         self.load_yaml_config();
-        // load the .ini format file, still here to allow CI passing. There is
-        // no real harm of loading this ini file as long as there are no
-        // conflicting bdev definitions
-        self.read_config_file().unwrap();
 
         self.load_child_status();
 
         // bootstrap DPDK and its magic
         self.initialize_eal();
-
-        if self.enable_coredump {
-            //TODO
-            warn!("rlimit configuration not implemented");
-        }
 
         info!(
             "Total number of cores available: {}",
@@ -682,7 +653,7 @@ impl MayastorEnvironment {
         );
 
         // setup our signal handlers
-        self.install_signal_handlers().unwrap();
+        self.install_signal_handlers();
 
         // allocate a Reactor per core
         Reactors::init();
@@ -733,7 +704,7 @@ impl MayastorEnvironment {
     }
 
     // finalize our environment
-    fn fini() {
+    pub fn fini(&self) {
         unsafe {
             spdk_trace_cleanup();
             spdk_thread_lib_fini();
@@ -749,7 +720,8 @@ impl MayastorEnvironment {
     {
         type FutureResult = Result<(), ()>;
         let grpc_endpoint = self.grpc_endpoint;
-        self.init();
+        let rpc_addr = self.rpc_addr.clone();
+        let ms = self.init();
 
         let mut rt = Builder::new()
             .basic_scheduler()
@@ -757,27 +729,23 @@ impl MayastorEnvironment {
             .build()
             .unwrap();
 
-        let local = task::LocalSet::new();
         rt.block_on(async {
-            local
-                .run_until(async {
-                    let master = Reactors::current();
-                    master.send_future(async { f() });
-                    let mut futures: Vec<
-                        Pin<Box<dyn future::Future<Output = FutureResult>>>,
-                    > = Vec::new();
-                    if let Some(grpc_endpoint) = grpc_endpoint {
-                        futures.push(Box::pin(grpc::MayastorGrpcServer::run(
-                            grpc_endpoint,
-                        )));
-                    }
-                    futures.push(Box::pin(subsys::Registration::run()));
-                    futures.push(Box::pin(master));
-                    let _out = future::try_join_all(futures).await;
-                    info!("reactors stopped");
-                    Self::fini();
-                })
-                .await
+            let master = Reactors::current();
+            master.send_future(async { f() });
+            let mut futures: Vec<
+                Pin<Box<dyn future::Future<Output = FutureResult>>>,
+            > = Vec::new();
+            if let Some(grpc_endpoint) = grpc_endpoint {
+                futures.push(Box::pin(grpc::MayastorGrpcServer::run(
+                    grpc_endpoint,
+                    rpc_addr,
+                )));
+            }
+            futures.push(Box::pin(subsys::Registration::run()));
+            futures.push(Box::pin(master));
+            let _out = future::try_join_all(futures).await;
+            info!("reactors stopped");
+            ms.fini();
         });
 
         Ok(*GLOBAL_RC.lock().unwrap())

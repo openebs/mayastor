@@ -104,7 +104,6 @@ extern "C" fn nvmf_create_snapshot_hdlr(req: *mut spdk_nvmf_request) -> i32 {
     }
 
     let bd = Bdev::from(bdev);
-    let base_name = bd.name();
     if bd.driver() == nexus_module::NEXUS_NAME {
         // Received command on a published Nexus
         set_snapshot_time(unsafe {
@@ -117,11 +116,11 @@ extern "C" fn nvmf_create_snapshot_hdlr(req: *mut spdk_nvmf_request) -> i32 {
         // Received command on a shared replica (lvol)
         let cmd = unsafe { spdk_sys::spdk_nvmf_request_get_cmd(req) };
         let snapshot_time = unsafe {
-            *spdk_sys::nvme_cmd_cdw10_get(cmd) as u64
-                | (*spdk_sys::nvme_cmd_cdw11_get(cmd) as u64) << 32
+            spdk_sys::nvme_cmd_cdw10_get_val(cmd) as u64
+                | (spdk_sys::nvme_cmd_cdw11_get_val(cmd) as u64) << 32
         };
         let snapshot_name =
-            Lvol::format_snapshot_name(&base_name, snapshot_time);
+            Lvol::format_snapshot_name(&lvol.name(), snapshot_time);
         let nvmf_req = NvmfReq(NonNull::new(req).unwrap());
         // Blobfs operations must be on md_thread
         Reactors::master().send_future(async move {
@@ -132,6 +131,22 @@ extern "C" fn nvmf_create_snapshot_hdlr(req: *mut spdk_nvmf_request) -> i32 {
         debug!("unsupported bdev driver");
         -1
     }
+}
+
+pub fn create_snapshot(
+    lvol: Lvol,
+    cmd: &spdk_sys::spdk_nvme_cmd,
+    io: *mut spdk_sys::spdk_bdev_io,
+) {
+    let snapshot_time = unsafe {
+        spdk_sys::nvme_cmd_cdw10_get_val(&*cmd) as u64
+            | (spdk_sys::nvme_cmd_cdw11_get_val(&*cmd) as u64) << 32
+    };
+    let snapshot_name = Lvol::format_snapshot_name(&lvol.name(), snapshot_time);
+    // Blobfs operations must be on md_thread
+    Reactors::master().send_future(async move {
+        lvol.create_snapshot_local(io, &snapshot_name).await;
+    });
 }
 
 /// Register custom NVMe admin command handler

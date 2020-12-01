@@ -1,6 +1,9 @@
 [patch.crates-io]
-h2 = { git = "https://github.com/gila/h2", branch = "v0.2.6"}
+h2 = { git = "https://github.com/gila/h2", branch = "v0.2.7"}
 partition-identity = { git = "https://github.com/openebs/partition-identity.git" }
+
+[profile.dev]
+panic = "abort"
 
 [workspace]
 members = [
@@ -11,4 +14,9 @@ members = [
 	"nvmeadm",
 	"rpc",
 	"sysfs",
+	"services",
+	"mbus-api",
+	"composer",
+	"rest",
+	"operators",
 ]

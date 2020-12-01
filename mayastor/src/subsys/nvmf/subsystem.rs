@@ -30,6 +30,7 @@ use spdk_sys::{
     spdk_nvmf_subsystem_pause,
     spdk_nvmf_subsystem_resume,
     spdk_nvmf_subsystem_set_allow_any_host,
+    spdk_nvmf_subsystem_set_ana_reporting,
     spdk_nvmf_subsystem_set_mn,
     spdk_nvmf_subsystem_set_sn,
     spdk_nvmf_subsystem_start,
@@ -74,7 +75,7 @@ impl Iterator for NvmfSubsystemIterator {
         } else {
             let current = self.0;
             self.0 = unsafe { spdk_nvmf_subsystem_get_next(current) };
-            Some(NvmfSubsystem(NonNull::new(current).unwrap()))
+            NonNull::new(current).map(NvmfSubsystem)
         }
     }
 }
@@ -101,7 +102,11 @@ impl Debug for NvmfSubsystem {
                 .field("subnqn", &self.0.as_ref().subnqn.as_str().to_string())
                 .field("sn", &self.0.as_ref().sn.as_str().to_string())
                 .field("mn", &self.0.as_ref().mn.as_str().to_string())
-                .field("allow_any_host", &self.0.as_ref().allow_any_host)
+                .field(
+                    "allow_any_host",
+                    &self.0.as_ref().flags.allow_any_host(),
+                )
+                .field("ana_reporting", &self.0.as_ref().flags.ana_reporting())
                 .field("listeners", &self.listeners_to_vec())
                 .finish()
         }
@@ -119,6 +124,7 @@ impl TryFrom<Bdev> for NvmfSubsystem {
 
     fn try_from(bdev: Bdev) -> Result<Self, Self::Error> {
         let ss = NvmfSubsystem::new(bdev.name().as_str())?;
+        ss.set_ana_reporting(true)?;
         ss.allow_any(true);
         if let Err(e) = ss.add_namespace(&bdev) {
             ss.destroy();
@@ -165,7 +171,7 @@ impl NvmfSubsystem {
             .to_result(|e| Error::Subsystem {
                 source: Errno::from_i32(e),
                 nqn: uuid.into(),
-                msg: "failed to set serial".into(),
+                msg: "failed to set model number".into(),
             })?;
 
         Ok(NvmfSubsystem(ss))
@@ -175,6 +181,7 @@ impl NvmfSubsystem {
     /// mostly due to testing.
     pub fn new_with_uuid(uuid: &str, bdev: &Bdev) -> Result<Self, Error> {
         let ss = NvmfSubsystem::new(uuid)?;
+        ss.set_ana_reporting(true)?;
         ss.allow_any(true);
         ss.add_namespace(bdev)?;
         Ok(ss)
@@ -182,8 +189,10 @@ impl NvmfSubsystem {
 
     /// add the given bdev to this namespace
     pub fn add_namespace(&self, bdev: &Bdev) -> Result<(), Error> {
-        let mut opts = spdk_nvmf_ns_opts::default();
-        opts.nguid = bdev.uuid().as_bytes();
+        let opts = spdk_nvmf_ns_opts {
+            nguid: bdev.uuid().as_bytes(),
+            ..Default::default()
+        };
         let ns_id = unsafe {
             spdk_nvmf_subsystem_add_ns(
                 self.0.as_ptr(),
@@ -194,8 +203,8 @@ impl NvmfSubsystem {
             )
         };
 
-        // the first name space should be 1 and we do not (currently) use
-        // more then one namespace
+        // the first namespace should be 1 and we do not (currently) use
+        // more than one namespace
 
         if ns_id < 1 {
             Err(Error::Namespace {
@@ -221,11 +230,25 @@ impl NvmfSubsystem {
                 .to_string()
         }
     }
+
     /// allow any host to connect to the subsystem
     pub fn allow_any(&self, enable: bool) {
         unsafe {
             spdk_nvmf_subsystem_set_allow_any_host(self.0.as_ptr(), enable)
         };
+    }
+
+    /// enable Asymmetric Namespace Access (ANA) reporting
+    pub fn set_ana_reporting(&self, enable: bool) -> Result<(), Error> {
+        unsafe {
+            spdk_nvmf_subsystem_set_ana_reporting(self.0.as_ptr(), enable)
+        }
+        .to_result(|e| Error::Subsystem {
+            source: Errno::from_i32(e),
+            nqn: self.get_nqn(),
+            msg: format!("failed to set ANA reporting, enable {}", enable),
+        })?;
+        Ok(())
     }
 
     // we currently allow all listeners to the subsystem
@@ -251,7 +274,7 @@ impl NvmfSubsystem {
             );
         }
 
-        r.await.expect("listen a callback gone").to_result(|e| {
+        r.await.expect("listener callback gone").to_result(|e| {
             Error::Transport {
                 source: Errno::from_i32(e),
                 msg: "Failed to add listener".to_string(),
@@ -351,8 +374,7 @@ impl NvmfSubsystem {
 
     /// we are not making use of pause and resume yet but this will be needed
     /// when we start to move things around
-    #[allow(dead_code)]
-    async fn pause(&self) -> Result<(), Error> {
+    pub async fn pause(&self) -> Result<(), Error> {
         extern "C" fn pause_cb(
             ss: *mut spdk_nvmf_subsystem,
             arg: *mut c_void,
@@ -389,12 +411,10 @@ impl NvmfSubsystem {
         r.await.unwrap().to_result(|e| Error::Subsystem {
             source: Errno::from_i32(e),
             nqn: self.get_nqn(),
-            msg: "failed to stop the subsystem".to_string(),
+            msg: "failed to pause the subsystem".to_string(),
         })
     }
-
-    #[allow(dead_code)]
-    async fn resume(&self) -> Result<(), Error> {
+    pub async fn resume(&self) -> Result<(), Error> {
         extern "C" fn resume_cb(
             ss: *mut spdk_nvmf_subsystem,
             arg: *mut c_void,
@@ -495,15 +515,12 @@ impl NvmfSubsystem {
     /// first namespace
     pub fn bdev(&self) -> Option<Bdev> {
         let ns = unsafe { spdk_nvmf_subsystem_get_first_ns(self.0.as_ptr()) };
+
         if ns.is_null() {
             return None;
         }
-        let b = unsafe { spdk_nvmf_ns_get_bdev(ns) };
-        if b.is_null() {
-            return None;
-        }
 
-        Some(Bdev::from(b))
+        Bdev::from_ptr(unsafe { spdk_nvmf_ns_get_bdev(ns) })
     }
 
     fn listeners_to_vec(&self) -> Option<Vec<TransportID>> {

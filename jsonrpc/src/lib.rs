@@ -59,7 +59,7 @@ pub struct RpcError {
     pub data: Option<serde_json::Value>,
 }
 
-/// Make json-rpc request and parse reply and return user data to caller.
+/// Make json-rpc request, parse reply, and return user data to caller.
 pub async fn call<A, R>(
     sock_path: &str,
     method: &str,
@@ -69,21 +69,15 @@ where
     A: serde::ser::Serialize,
     R: 'static + serde::de::DeserializeOwned + Send,
 {
-    let params = match args {
-        Some(val) => Some(serde_json::to_value(val).unwrap()),
-        None => None,
-    };
-
     let request = Request {
         method,
-        params,
+        params: args.map(serde_json::to_value).transpose()?,
         id: From::from(0),
         jsonrpc: Some("2.0"),
     };
 
     let mut buf = serde_json::to_vec(&request)?;
-    let sock = sock_path.to_string();
-    let mut socket = UnixStream::connect(sock).await?;
+    let mut socket = UnixStream::connect(String::from(sock_path)).await?;
 
     trace!("JSON request: {}", String::from_utf8_lossy(&buf));
 
@@ -94,10 +88,7 @@ where
     socket.read_to_end(&mut buf).await?;
     socket.shutdown(Shutdown::Both)?;
 
-    match parse_reply::<R>(&buf) {
-        Ok(val) => Ok(val),
-        Err(err) => Err(err),
-    }
+    parse_reply(&buf)
 }
 
 /// Parse json-rpc reply (defined by spec) and return user data embedded in
@@ -110,52 +101,43 @@ where
 
     match serde_json::from_slice::<Response>(reply_raw) {
         Ok(reply) => {
-            if let Some(vers) = reply.jsonrpc {
-                if vers != "2.0" {
+            if let Some(version) = reply.jsonrpc {
+                if version != "2.0" {
                     return Err(Error::InvalidVersion);
                 }
             }
+
             if !reply.id.is_number() || reply.id.as_i64().unwrap() != 0 {
                 return Err(Error::InvalidReplyId);
             }
 
-            if let Some(err) = reply.error {
-                Err(Error::RpcError {
-                    code: match err.code {
-                        -32700 => RpcCode::ParseError,
-                        -32600 => RpcCode::InvalidRequest,
-                        -32601 => RpcCode::MethodNotFound,
-                        -32602 => RpcCode::InvalidParams,
-                        -32603 => RpcCode::InternalError,
-                        val => {
-                            if val == -(Errno::ENOENT as i32) {
-                                RpcCode::NotFound
-                            } else if val == -(Errno::EEXIST as i32) {
-                                RpcCode::AlreadyExists
-                            } else {
-                                error!("Unknown json-rpc error code {}", val);
-                                RpcCode::InternalError
-                            }
+            if let Some(error) = reply.error {
+                let code = match -error.code {
+                    32700 => RpcCode::ParseError,
+                    32600 => RpcCode::InvalidRequest,
+                    32601 => RpcCode::MethodNotFound,
+                    32602 => RpcCode::InvalidParams,
+                    32603 => RpcCode::InternalError,
+                    value => match Errno::from_i32(value) {
+                        Errno::ENOENT => RpcCode::NotFound,
+                        Errno::EEXIST => RpcCode::AlreadyExists,
+                        _ => {
+                            error!("Unknown json-rpc error code {}", value);
+                            RpcCode::InternalError
                         }
                     },
-                    msg: err.message,
-                })
-            } else {
-                match reply.result {
-                    Some(result) => match serde_json::from_value::<T>(result) {
-                        Ok(val) => Ok(val),
-                        Err(err) => Err(Error::ParseError(err)),
-                    },
-                    // if there is no result fabricate null value == ()
-                    None => match serde_json::from_value::<T>(
-                        serde_json::value::Value::Null,
-                    ) {
-                        Ok(val) => Ok(val),
-                        Err(err) => Err(Error::ParseError(err)),
-                    },
-                }
+                };
+                return Err(Error::RpcError {
+                    code,
+                    msg: error.message,
+                });
             }
+
+            serde_json::from_value(
+                reply.result.unwrap_or(serde_json::value::Value::Null),
+            )
+            .map_err(Error::ParseError)
         }
-        Err(err) => Err(Error::ParseError(err)),
+        Err(error) => Err(Error::ParseError(error)),
     }
 }

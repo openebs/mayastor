@@ -11,7 +11,7 @@
 use tonic::{Request, Response, Status};
 use tracing::instrument;
 
-use rpc::mayastor::*;
+use ::rpc::mayastor::*;
 
 use crate::{
     bdev::{
@@ -30,14 +30,14 @@ use crate::{
         sync_config,
         GrpcResult,
     },
-    host::blk_device,
+    host::{blk_device, resource},
 };
 
 #[derive(Debug)]
 struct UnixStream(tokio::net::UnixStream);
 
 #[derive(Debug)]
-pub struct MayastorSvc {}
+pub struct MayastorSvc;
 
 #[tonic::async_trait]
 impl mayastor_server::Mayastor for MayastorSvc {
@@ -238,7 +238,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
             let uuid = args.uuid.clone();
             debug!("Publishing nexus {} ...", uuid);
 
-            if args.key != "" && args.key.len() != 16 {
+            if !args.key.is_empty() && args.key.len() != 16 {
                 return Err(nexus_bdev::Error::InvalidKey {}.into());
             }
 
@@ -386,6 +386,18 @@ impl mayastor_server::Mayastor for MayastorSvc {
     }
 
     #[instrument(level = "debug", err)]
+    async fn get_rebuild_stats(
+        &self,
+        request: Request<RebuildStatsRequest>,
+    ) -> GrpcResult<RebuildStatsReply> {
+        let args = request.into_inner();
+        trace!("{:?}", args);
+        Ok(Response::new(locally! { async move {
+            nexus_lookup(&args.uuid)?.get_rebuild_stats(&args.uri).await
+        }}))
+    }
+
+    #[instrument(level = "debug", err)]
     async fn get_rebuild_progress(
         &self,
         request: Request<RebuildProgressRequest>,
@@ -424,6 +436,19 @@ impl mayastor_server::Mayastor for MayastorSvc {
         let args = request.into_inner();
         let reply = ListBlockDevicesReply {
             devices: blk_device::list_block_devices(args.all).await?,
+        };
+        trace!("{:?}", reply);
+        Ok(Response::new(reply))
+    }
+
+    #[instrument(level = "debug", err)]
+    async fn get_resource_usage(
+        &self,
+        _request: Request<Null>,
+    ) -> GrpcResult<GetResourceUsageReply> {
+        let usage = resource::get_resource_usage().await?;
+        let reply = GetResourceUsageReply {
+            usage: Some(usage),
         };
         trace!("{:?}", reply);
         Ok(Response::new(reply))

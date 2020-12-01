@@ -25,17 +25,13 @@ spec:
       nodeSelector:
         openebs.io/engine: mayastor
         kubernetes.io/arch: amd64
-      # NOTE: Each container must have mem/cpu limits defined in order to
-      # belong to Guaranteed QoS class, hence can never get evicted in case of
-      # pressure unless they exceed those limits. limits and requests must be
-      # the same.
       initContainers:
       - name: message-bus-probe
         image: busybox:latest
         command: ['sh', '-c', 'until nc -vz nats 4222; do echo "Waiting for message bus..."; sleep 1; done;']
       containers:
       - name: mayastor
-        image: mayadata/mayastor:latest
+        image: mayadata/mayastor:v0.6.0
         imagePullPolicy: Always
         env:
         - name: MY_NODE_NAME
@@ -46,10 +42,24 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: status.podIP
+        - name: IMPORT_NEXUSES
+          value: "false"
         args:
+        # In order to select what cores mayastor should be running on, a mask or a list can be specified.
+        # For example: -m 0x1 will tell mayastor to only use one core which is equivalent to -l 1
+        # Using a mask of 0x3 will use the first 2 cores, which is equivalent to -l 1-2
+        #
+        # The -l argument supports ranges to be able to do the same as passing a mask for example:
+        # -l 1,2,10-20 means use core 1, 2, 10 to 20
+        #
+        # Note:
+        # 1. When both -m and -l are specified the -l argument is takes precedence.
+        # 2. Ensure that the CPU resources are updated accordingly. If you use 2 CPUs, the CPU: field should also read 2.
         - "-N$(MY_NODE_NAME)"
         - "-g$(MY_POD_IP)"
         - "-nnats"
+        - "-y/var/local/mayastor/config.yaml"
+        - "-m0x3"
         securityContext:
           privileged: true
         volumeMounts:
@@ -57,13 +67,20 @@ spec:
           mountPath: /dev
         - name: dshm
           mountPath: /dev/shm
+        - name: configlocation
+          mountPath: /var/local/mayastor/
+        - name: config
+          mountPath: /var/local/mayastor/config.yaml
         resources:
+          # NOTE: Each container must have mem/cpu limits defined in order to
+          # belong to Guaranteed QoS class, hence can never get evicted in case of
+          # pressure unless they exceed those limits. limits and requests must be the same.
           limits:
-            cpu: "1"
+            cpu: "2"
             memory: "500Mi"
             hugepages-2Mi: "1Gi"
           requests:
-            cpu: "1"
+            cpu: "2"
             memory: "500Mi"
             hugepages-2Mi: "1Gi"
         ports:
@@ -82,3 +99,11 @@ spec:
       - name: hugepage
         emptyDir:
           medium: HugePages
+      - name: configlocation
+        hostPath:
+          path: /var/local/mayastor/
+          type: DirectoryOrCreate
+      - name: config
+        hostPath:
+          path: /var/local/mayastor/config.yaml
+          type: FileOrCreate

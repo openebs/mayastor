@@ -16,6 +16,7 @@ use spdk_sys::{
     spdk_iscsi_opts,
     spdk_nvmf_target_opts,
     spdk_nvmf_transport_opts,
+    SPDK_BDEV_NVME_TIMEOUT_ACTION_ABORT,
 };
 
 use crate::bdev::ActionType;
@@ -133,7 +134,7 @@ pub struct TcpTransportOpts {
     max_io_size: u32,
     /// IO unit size
     io_unit_size: u32,
-    /// max admin queue depth (?)
+    /// max admin queue depth per admin queue
     max_aq_depth: u32,
     /// num of shared buffers
     num_shared_buf: u32,
@@ -147,8 +148,11 @@ pub struct TcpTransportOpts {
     ch2_success: bool,
     /// dif
     dif_insert_or_strip: bool,
-    /// no idea
+    /// The socket priority of the connection owned by this transport (TCP
+    /// only)
     sock_priority: u32,
+    /// abort execution timeout
+    abort_timeout_sec: u32,
 }
 
 impl Default for TcpTransportOpts {
@@ -160,14 +164,14 @@ impl Default for TcpTransportOpts {
             io_unit_size: 131_072,
             ch2_success: true,
             max_qpairs_per_ctrl: 128,
-            num_shared_buf: 511,
-            // reduce when we have a single target
+            num_shared_buf: 2048,
             buf_cache_size: 64,
             dif_insert_or_strip: false,
             max_aq_depth: 128,
             max_srq_depth: 0, // RDMA
             no_srq: false,    // RDMA
             sock_priority: 0,
+            abort_timeout_sec: 1,
         }
     }
 }
@@ -186,13 +190,10 @@ impl From<TcpTransportOpts> for spdk_nvmf_transport_opts {
             max_aq_depth: o.max_aq_depth,
             num_shared_buffers: o.num_shared_buf,
             buf_cache_size: o.buf_cache_size,
-            max_srq_depth: o.max_srq_depth,
-            no_srq: o.no_srq,
-            c2h_success: o.ch2_success,
             dif_insert_or_strip: o.dif_insert_or_strip,
-            sock_priority: o.sock_priority,
-            acceptor_backlog: 0,
-            abort_timeout_sec: 0,
+            abort_timeout_sec: o.abort_timeout_sec,
+            association_timeout: 120000,
+            transport_specific: std::ptr::null(),
         }
     }
 }
@@ -202,27 +203,27 @@ impl From<TcpTransportOpts> for spdk_nvmf_transport_opts {
 #[serde(default, deny_unknown_fields)]
 pub struct NvmeBdevOpts {
     /// action take on timeout
-    action_on_timeout: u32,
+    pub action_on_timeout: u32,
     /// timeout for each command
-    timeout_us: u64,
+    pub timeout_us: u64,
     /// retry count
-    retry_count: u32,
+    pub retry_count: u32,
     /// TODO
-    arbitration_burst: u32,
+    pub arbitration_burst: u32,
     /// max number of low priority cmds a controller may launch at one time
-    low_priority_weight: u32,
+    pub low_priority_weight: u32,
     /// max number of medium priority cmds a controller may launch at one time
-    medium_priority_weight: u32,
+    pub medium_priority_weight: u32,
     /// max number of high priority cmds a controller may launch at one time
-    high_priority_weight: u32,
+    pub high_priority_weight: u32,
     /// admin queue polling period
-    nvme_adminq_poll_period_us: u64,
+    pub nvme_adminq_poll_period_us: u64,
     /// ioq polling period
-    nvme_ioq_poll_period_us: u64,
+    pub nvme_ioq_poll_period_us: u64,
     /// number of requests per nvme IO queue
-    io_queue_requests: u32,
+    pub io_queue_requests: u32,
     /// allow for batching of commands
-    delay_cmd_submit: bool,
+    pub delay_cmd_submit: bool,
 }
 
 impl GetOpts for NvmeBdevOpts {
@@ -236,6 +237,7 @@ impl GetOpts for NvmeBdevOpts {
 
     fn set(&self) -> bool {
         let opts = Box::new(self.into());
+        debug!("{:?}", &opts);
         if unsafe { bdev_nvme_set_opts(Box::into_raw(opts)) } != 0 {
             return false;
         }
@@ -246,14 +248,14 @@ impl GetOpts for NvmeBdevOpts {
 impl Default for NvmeBdevOpts {
     fn default() -> Self {
         Self {
-            action_on_timeout: 1,
-            timeout_us: 2_000_000,
-            retry_count: 5,
+            action_on_timeout: SPDK_BDEV_NVME_TIMEOUT_ACTION_ABORT,
+            timeout_us: 30_000_000,
+            retry_count: 3,
             arbitration_burst: 0,
             low_priority_weight: 0,
             medium_priority_weight: 0,
             high_priority_weight: 0,
-            nvme_adminq_poll_period_us: 10_000,
+            nvme_adminq_poll_period_us: 0,
             nvme_ioq_poll_period_us: 0,
             io_queue_requests: 0,
             delay_cmd_submit: true,
@@ -392,6 +394,10 @@ pub struct IscsiTgtOpts {
     error_recovery_level: u32,
     /// todo
     allow_duplicate_isid: bool,
+    /// todo
+    max_large_data_in_per_connection: u32,
+    /// todo
+    max_r2t_per_connection: u32,
 }
 
 impl Default for IscsiTgtOpts {
@@ -415,6 +421,8 @@ impl Default for IscsiTgtOpts {
             immediate_data: true,
             error_recovery_level: 0,
             allow_duplicate_isid: false,
+            max_large_data_in_per_connection: 64,
+            max_r2t_per_connection: 64,
         }
     }
 }
@@ -444,6 +452,8 @@ impl From<&IscsiTgtOpts> for spdk_iscsi_opts {
             ImmediateData: o.immediate_data,
             ErrorRecoveryLevel: o.error_recovery_level,
             AllowDuplicateIsid: o.allow_duplicate_isid,
+            MaxLargeDataInPerConnection: o.max_large_data_in_per_connection,
+            MaxR2TPerConnection: o.max_r2t_per_connection,
         }
     }
 }

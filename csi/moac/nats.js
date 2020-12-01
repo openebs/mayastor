@@ -49,26 +49,28 @@ class MessageBus {
     return this.connected;
   }
 
+  // The method is async but returns immediately.
+  // However it's up to caller if she wants to wait for it.
   _connect () {
     log.debug(`Connecting to NATS at "${this.endpoint}" ...`);
     if (this.timeout) clearTimeout(this.timeout);
     assert(!this.nc);
-    this.nc = nats.connect({
+    nats.connect({
       servers: [`nats://${this.endpoint}`]
-    });
-    var self = this;
-    this.nc.on('connect', () => {
-      log.info(`Connected to NATS message bus at "${this.endpoint}"`);
-      self.connected = true;
-      self._subscribe();
-    });
-    this.nc.on('error', (err) => {
-      log.error(`${err}`);
-      self._disconnect();
-      log.debug(`Reconnecting after ${self.reconnectDelay}ms`);
-      // reconnect but give it some time to recover to prevent spinning in loop
-      self.timeout = setTimeout(self._connect.bind(self), self.reconnectDelay);
-    });
+    })
+      .then((nc) => {
+        log.info(`Connected to NATS message bus at "${this.endpoint}"`);
+        this.nc = nc;
+        this.connected = true;
+        this._subscribe();
+      })
+      .catch((err) => {
+        log.error(`${err}`);
+        this._disconnect();
+        log.debug(`Reconnecting after ${this.reconnectDelay}ms`);
+        // reconnect but give it some time to recover to prevent spinning in loop
+        this.timeout = setTimeout(this._connect.bind(this), this.reconnectDelay);
+      });
   }
 
   _disconnect () {
@@ -81,58 +83,59 @@ class MessageBus {
   }
 
   _parsePayload (msg) {
-    if (typeof (msg.data) !== 'string') {
-      log.error(`Invalid payload in ${msg.subject} message: not a string`);
-      return;
-    }
+    const sc = nats.StringCodec();
     try {
-      return JSON.parse(msg.data);
+      return JSON.parse(sc.decode(msg.data));
     } catch (e) {
       log.error(`Invalid payload in ${msg.subject} message: not a JSON`);
     }
   }
 
-  _subscribe () {
-    this.nc.subscribe('register', (err, msg) => {
-      if (err) {
-        log.error(`Error receiving a registration message: ${err}`);
-        return;
-      }
-      const data = this._parsePayload(msg);
-      if (!data) {
-        return;
-      }
-      const ep = data.grpcEndpoint;
-      if (typeof ep !== 'string' || ep.length === 0) {
-        log.error('Invalid grpc endpoint in registration message');
-        return;
-      }
-      const id = data.id;
-      if (typeof id !== 'string' || id.length === 0) {
-        log.error('Invalid node name in registration message');
-        return;
-      }
-      log.trace(`"${id}" with "${ep}" requested registration`);
-      this.registry.addNode(id, ep);
-    });
+  _registrationReceived (data) {
+    const ep = data.grpcEndpoint;
+    if (typeof ep !== 'string' || ep.length === 0) {
+      log.error('Invalid grpc endpoint in registration message');
+      return;
+    }
+    const id = data.id;
+    if (typeof id !== 'string' || id.length === 0) {
+      log.error('Invalid node name in registration message');
+      return;
+    }
+    log.trace(`"${id}" with "${ep}" requested registration`);
+    this.registry.addNode(id, ep);
+  }
 
-    this.nc.subscribe('deregister', (err, msg) => {
-      if (err) {
-        log.error(`Error receiving a deregistration message: ${err}`);
+  _deregistrationReceived (data) {
+    const id = data.id;
+    if (typeof id !== 'string' || id.length === 0) {
+      log.error('Invalid node name in deregistration message');
+      return;
+    }
+    log.trace(`"${id}" requested deregistration`);
+    this.registry.removeNode(id);
+  }
+
+  _subscribe () {
+    const registrySub = this.nc.subscribe('v0/registry');
+    this._registryHandler(registrySub);
+  }
+
+  async _registryHandler (sub) {
+    for await (const m of sub) {
+      const payload = this._parsePayload(m);
+      if (!payload) {
         return;
       }
-      const data = this._parsePayload(msg);
-      if (!data) {
-        return;
+      if (payload.id === 'v0/register') {
+        this._registrationReceived(payload.data);
+      } else if (payload.id === 'v0/deregister') {
+        this._deregistrationReceived(payload.data);
+      } else {
+        const id = payload.id;
+        log.error(`Unknown registry message: ${id}`);
       }
-      const id = data.id;
-      if (typeof id !== 'string' || id.length === 0) {
-        log.error('Invalid node name in deregistration message');
-        return;
-      }
-      log.trace(`"${id}" requested deregistration`);
-      this.registry.removeNode(id);
-    });
+    }
   }
 }
 

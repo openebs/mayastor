@@ -5,7 +5,7 @@ pub async fn write_some(
     offset: u64,
     fill: u8,
 ) -> Result<(), CoreError> {
-    let h = BdevHandle::open(nexus_name, true, false).unwrap();
+    let h = BdevHandle::open(nexus_name, true, false)?;
     let mut buf = h.dma_malloc(512).expect("failed to allocate buffer");
     buf.fill(fill);
 
@@ -21,7 +21,7 @@ pub async fn read_some(
     offset: u64,
     fill: u8,
 ) -> Result<(), CoreError> {
-    let h = BdevHandle::open(nexus_name, true, false).unwrap();
+    let h = BdevHandle::open(nexus_name, true, false)?;
     let mut buf = h.dma_malloc(1024).expect("failed to allocate buffer");
     let slice = buf.as_mut_slice();
 

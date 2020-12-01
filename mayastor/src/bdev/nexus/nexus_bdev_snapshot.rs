@@ -16,7 +16,10 @@ impl Nexus {
                 Ok(t) => Ok(CreateSnapshotReply {
                     name: Lvol::format_snapshot_name(&self.bdev.name(), t),
                 }),
-                Err(_e) => Err(Error::FailedCreateSnapshot),
+                Err(e) => Err(Error::FailedCreateSnapshot {
+                    name: self.bdev.name(),
+                    source: e,
+                }),
             }
         } else {
             Err(Error::FailedGetHandle)

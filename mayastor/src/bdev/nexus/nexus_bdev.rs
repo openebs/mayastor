@@ -5,7 +5,7 @@
 //! application needs synchronous mirroring may be required.
 
 use std::{
-    fmt,
+    convert::TryFrom,
     fmt::{Display, Formatter},
     os::raw::c_void,
 };
@@ -39,21 +39,27 @@ use crate::{
         nexus,
         nexus::{
             instances,
-            nexus_channel::{DREvent, NexusChannel, NexusChannelInner},
+            nexus_channel::{
+                DREvent,
+                NexusChannel,
+                NexusChannelInner,
+                ReconfigureCtx,
+            },
             nexus_child::{ChildError, ChildState, NexusChild},
-            nexus_io::{io_status, nvme_admin_opc, Bio},
-            nexus_iscsi::{NexusIscsiError, NexusIscsiTarget},
+            nexus_io::{nvme_admin_opc, Bio, IoStatus, IoType},
             nexus_label::LabelError,
             nexus_nbd::{NbdDisk, NbdError},
-            nexus_nvmf::{NexusNvmfError, NexusNvmfTarget},
         },
     },
-    core::{Bdev, DmaError, Share},
+    core::{Bdev, CoreError, DmaError, Protocol, Reactor, Share},
     ffihelper::errno_result_from_i32,
+    lvs::Lvol,
     nexus_uri::{bdev_destroy, NexusBdevError},
     rebuild::RebuildError,
-    subsys::Config,
+    subsys,
+    subsys::{Config, NvmfSubsystem},
 };
+use std::ptr::NonNull;
 
 /// Obtain the full error chain
 pub trait VerboseError {
@@ -102,15 +108,11 @@ pub enum Error {
     #[snafu(display("Failed to share nexus over NBD {}", name))]
     ShareNbdNexus { source: NbdError, name: String },
     #[snafu(display("Failed to share iscsi nexus {}", name))]
-    ShareIscsiNexus {
-        source: NexusIscsiError,
-        name: String,
-    },
+    ShareIscsiNexus { source: CoreError, name: String },
     #[snafu(display("Failed to share nvmf nexus {}", name))]
-    ShareNvmfNexus {
-        source: NexusNvmfError,
-        name: String,
-    },
+    ShareNvmfNexus { source: CoreError, name: String },
+    #[snafu(display("Failed to unshare nexus {}", name))]
+    UnshareNexus { source: CoreError, name: String },
     #[snafu(display("Failed to allocate label of nexus {}", name))]
     AllocLabel { source: DmaError, name: String },
     #[snafu(display("Failed to write label of nexus {}", name))]
@@ -145,6 +147,12 @@ pub enum Error {
     #[snafu(display("Failed to open child {} of nexus {}", child, name))]
     OpenChild {
         source: ChildError,
+        child: String,
+        name: String,
+    },
+    #[snafu(display("Failed to close child {} of nexus {}", child, name))]
+    CloseChild {
+        source: NexusBdevError,
         child: String,
         name: String,
     },
@@ -235,8 +243,8 @@ pub enum Error {
     },
     #[snafu(display("Failed to get BdevHandle for snapshot operation"))]
     FailedGetHandle,
-    #[snafu(display("Failed to create snapshot"))]
-    FailedCreateSnapshot,
+    #[snafu(display("Failed to create snapshot on nexus {}", name))]
+    FailedCreateSnapshot { name: String, source: CoreError },
 }
 
 impl From<Error> for tonic::Status {
@@ -282,20 +290,11 @@ impl From<Error> for tonic::Status {
 
 pub(crate) static NEXUS_PRODUCT_ID: &str = "Nexus CAS Driver v0.0.1";
 
+#[derive(Debug)]
 pub enum NexusTarget {
     NbdDisk(NbdDisk),
-    NexusIscsiTarget(NexusIscsiTarget),
-    NexusNvmfTarget(NexusNvmfTarget),
-}
-
-impl fmt::Debug for NexusTarget {
-    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
-        match self {
-            NexusTarget::NbdDisk(disk) => fmt::Debug::fmt(&disk, f),
-            NexusTarget::NexusIscsiTarget(tgt) => fmt::Debug::fmt(&tgt, f),
-            NexusTarget::NexusNvmfTarget(tgt) => fmt::Debug::fmt(&tgt, f),
-        }
-    }
+    NexusIscsiTarget,
+    NexusNvmfTarget,
 }
 
 /// The main nexus structure
@@ -314,9 +313,7 @@ pub struct Nexus {
     /// raw pointer to bdev (to destruct it later using Box::from_raw())
     bdev_raw: *mut spdk_bdev,
     /// represents the current state of the Nexus
-    pub(super) state: NexusState,
-    /// Dynamic Reconfigure event
-    pub dr_complete_notify: Option<oneshot::Sender<i32>>,
+    pub(super) state: std::sync::Mutex<NexusState>,
     /// the offset in num blocks where the data partition starts
     pub data_ent_offset: u64,
     /// the handle to be used when sharing the nexus, this allows for the bdev
@@ -395,6 +392,7 @@ impl Nexus {
         child_bdevs: Option<&[String]>,
     ) -> Box<Self> {
         let mut b = Box::new(spdk_bdev::default());
+
         b.name = c_str!(name);
         b.product_name = c_str!(NEXUS_PRODUCT_ID);
         b.fn_table = nexus::fn_table().unwrap();
@@ -410,9 +408,8 @@ impl Nexus {
             child_count: 0,
             children: Vec::new(),
             bdev: Bdev::from(&*b as *const _ as *mut spdk_bdev),
-            state: NexusState::Init,
+            state: std::sync::Mutex::new(NexusState::Init),
             bdev_raw: Box::into_raw(b),
-            dr_complete_notify: None,
             data_ent_offset: 0,
             share_handle: None,
             size,
@@ -442,7 +439,7 @@ impl Nexus {
             "{} Transitioned state from {:?} to {:?}",
             self.name, self.state, state
         );
-        self.state = state;
+        *self.state.lock().unwrap() = state;
         state
     }
     /// returns the size in bytes of the nexus instance
@@ -451,19 +448,22 @@ impl Nexus {
     }
 
     /// reconfigure the child event handler
-    pub(crate) async fn reconfigure(&mut self, event: DREvent) {
+    pub(crate) async fn reconfigure(&self, event: DREvent) {
         let (s, r) = oneshot::channel::<i32>();
-        //assert!(self.dr_complete_notify.is_none());
-        self.dr_complete_notify = Some(s);
 
         info!(
             "{}: Dynamic reconfiguration event: {:?} started",
             self.name, event
         );
 
-        NexusChannel::reconfigure(self.as_ptr(), &event);
+        let ctx = Box::new(ReconfigureCtx::new(
+            s,
+            NonNull::new(self.as_ptr()).unwrap(),
+        ));
 
-        let result = r.await;
+        NexusChannel::reconfigure(self.as_ptr(), ctx, &event);
+
+        let result = r.await.expect("reconfigure sender already dropped");
 
         info!(
             "{}: Dynamic reconfiguration event: {:?} completed {:?}",
@@ -475,9 +475,9 @@ impl Nexus {
     pub async fn open(&mut self) -> Result<(), Error> {
         debug!("Opening nexus {}", self.name);
 
-        self.try_open_children()?;
+        self.try_open_children().await?;
         self.sync_labels().await?;
-        self.register()
+        self.register().await
     }
 
     pub async fn sync_labels(&mut self) -> Result<(), Error> {
@@ -504,15 +504,27 @@ impl Nexus {
     pub(crate) fn destruct(&mut self) -> NexusState {
         // a closed operation might already be in progress calling unregister
         // will trip an assertion within the external libraries
-        if self.state == NexusState::Closed {
+        if *self.state.lock().unwrap() == NexusState::Closed {
             trace!("{}: already closed", self.name);
-            return self.state;
+            return NexusState::Closed;
         }
 
         trace!("{}: closing, from state: {:?} ", self.name, self.state);
-        self.children.iter_mut().for_each(|c| {
-            if c.state() == ChildState::Open {
-                c.close();
+
+        let nexus_name = self.name.clone();
+        Reactor::block_on(async move {
+            let nexus = nexus_lookup(&nexus_name).expect("Nexus not found");
+            for child in &mut nexus.children {
+                if child.state() == ChildState::Open {
+                    if let Err(e) = child.close().await {
+                        error!(
+                            "{}: child {} failed to close with error {}",
+                            nexus.name,
+                            child.name,
+                            e.verbose()
+                        );
+                    }
+                }
             }
         });
 
@@ -526,6 +538,7 @@ impl Nexus {
 
     /// Destroy the nexus
     pub async fn destroy(&mut self) -> Result<(), Error> {
+        info!("Destroying nexus {}", self.name);
         // used to synchronize the destroy call
         extern "C" fn nexus_destroy_cb(arg: *mut c_void, rc: i32) {
             let s = unsafe { Box::from_raw(arg as *mut oneshot::Sender<bool>) };
@@ -545,21 +558,23 @@ impl Nexus {
         // gone
         self.bdev.unshare().await.unwrap();
 
+        // wait for all rebuild jobs to be cancelled before proceeding with the
+        // destruction of the nexus
         for child in self.children.iter() {
-            self.stop_rebuild(&child.name).await.ok();
+            self.cancel_child_rebuild_jobs(&child.name).await;
         }
 
         for child in self.children.iter_mut() {
-            let _ = child.close();
             info!("Destroying child bdev {}", child.name);
-
-            let r = child.destroy().await;
-            if r.is_err() {
-                error!("Failed to destroy child {}", child.name);
+            if let Err(e) = child.close().await {
+                // TODO: should an error be returned here?
+                error!(
+                    "Failed to close child {} with error {}",
+                    child.name,
+                    e.verbose()
+                );
             }
         }
-
-        info!("Destroying nexus {}", self.name);
 
         let (s, r) = oneshot::channel::<bool>();
 
@@ -583,11 +598,34 @@ impl Nexus {
         }
     }
 
+    /// resume IO to the bdev
+    pub(crate) async fn resume(&self) -> Result<(), Error> {
+        if let Some(Protocol::Nvmf) = self.shared() {
+            if let Some(subsystem) = NvmfSubsystem::nqn_lookup(&self.name) {
+                subsystem.resume().await.unwrap();
+            }
+        }
+
+        Ok(())
+    }
+
+    /// suspend any incoming IO to the bdev pausing the controller allows us to
+    /// handle internal events and which is a protocol feature.
+    pub(crate) async fn pause(&self) -> Result<(), Error> {
+        if let Some(Protocol::Nvmf) = self.shared() {
+            if let Some(subsystem) = NvmfSubsystem::nqn_lookup(&self.name) {
+                subsystem.pause().await.unwrap();
+            }
+        }
+
+        Ok(())
+    }
+
     /// register the bdev with SPDK and set the callbacks for io channel
     /// creation. Once this function is called, the device is visible and can
     /// be used for IO.
-    pub(crate) fn register(&mut self) -> Result<(), Error> {
-        assert_eq!(self.state, NexusState::Init);
+    pub(crate) async fn register(&mut self) -> Result<(), Error> {
+        assert_eq!(*self.state.lock().unwrap(), NexusState::Init);
 
         unsafe {
             spdk_io_device_register(
@@ -612,7 +650,16 @@ impl Nexus {
                 unsafe {
                     spdk_io_device_unregister(self.as_ptr(), None);
                 }
-                self.children.iter_mut().map(|c| c.close()).for_each(drop);
+                for child in &mut self.children {
+                    if let Err(e) = child.close().await {
+                        error!(
+                            "{}: child {} failed to close with error {}",
+                            self.name,
+                            child.name,
+                            e.verbose()
+                        );
+                    }
+                }
                 self.set_state(NexusState::Closed);
                 Err(err).context(RegisterNexus {
                     name: self.name.clone(),
@@ -634,7 +681,7 @@ impl Nexus {
     /// determine if any of the children do not support the requested
     /// io type. Break the loop on first occurrence.
     /// TODO: optionally add this check during nexus creation
-    pub fn io_is_supported(&self, io_type: u32) -> bool {
+    pub fn io_is_supported(&self, io_type: IoType) -> bool {
         self.children
             .iter()
             .filter_map(|e| e.bdev.as_ref())
@@ -653,17 +700,43 @@ impl Nexus {
         // if any child IO has failed record this within the io context
         if !success {
             trace!(
-                "child IO {:?} ({}) of parent {:?} failed",
+                "child IO {:?} ({:#?}) of parent {:?} failed",
                 chio,
                 chio.io_type(),
                 pio
             );
 
-            pio.ctx_as_mut_ref().status = io_status::FAILED;
+            pio.ctx_as_mut_ref().status = IoStatus::Failed;
         }
         pio.assess(&mut chio, success);
         // always free the child IO
         chio.free();
+    }
+
+    /// IO completion for local replica
+    pub fn io_completion_local(success: bool, parent_io: *mut c_void) {
+        let mut pio = Bio::from(parent_io);
+        let pio_ctx = pio.ctx_as_mut_ref();
+
+        if !success {
+            pio_ctx.status = IoStatus::Failed;
+        }
+
+        // As there is no child IO, perform the IO accounting that Bio::assess
+        // does here, without error recording or retries.
+        pio_ctx.in_flight -= 1;
+        debug_assert!(pio_ctx.in_flight >= 0);
+
+        if pio_ctx.in_flight == 0 {
+            if pio_ctx.status == IoStatus::Failed {
+                pio_ctx.io_attempts -= 1;
+                if pio_ctx.io_attempts == 0 {
+                    pio.fail();
+                }
+            } else {
+                pio.ok();
+            }
+        }
     }
 
     /// callback when the IO has buffer associated with itself
@@ -679,7 +752,7 @@ impl Nexus {
         }
 
         let ch = NexusChannel::inner_from_channel(ch);
-        let (desc, ch) = ch.ch[ch.previous].io_tuple();
+        let (desc, ch) = ch.readers[ch.previous].io_tuple();
         let ret = Self::readv_impl(io, desc, ch);
         if ret != 0 {
             let bio = Bio::from(io);
@@ -690,9 +763,11 @@ impl Nexus {
 
     /// read vectored io from the underlying children.
     pub(crate) fn readv(&self, io: &Bio, channels: &mut NexusChannelInner) {
-        // we use RR to read from the children also, set that we only need
-        // to read from one child before we complete the IO to the callee.
+        // we use RR to read from the children.
         let child = channels.child_select();
+        if child.is_none() {
+            return;
+        }
 
         // if there is no buffer space for us allocated within the request
         // allocate it now, taking care of proper alignment
@@ -707,7 +782,7 @@ impl Nexus {
             return;
         }
 
-        let (desc, ch) = channels.ch[child].io_tuple();
+        let (desc, ch) = channels.readers[child.unwrap()].io_tuple();
 
         let ret = Self::readv_impl(io.as_ptr(), desc, ch);
 
@@ -749,7 +824,7 @@ impl Nexus {
     pub(crate) fn reset(&self, io: &Bio, channels: &NexusChannelInner) {
         // in case of resets, we want to reset all underlying children
         let results = channels
-            .ch
+            .writers
             .iter()
             .map(|c| unsafe {
                 let (bdev, chan) = c.io_tuple();
@@ -777,7 +852,7 @@ impl Nexus {
     pub(crate) fn writev(&self, io: &Bio, channels: &NexusChannelInner) {
         // in case of writes, we want to write to all underlying children
         let results = channels
-            .ch
+            .writers
             .iter()
             .map(|c| unsafe {
                 let (desc, chan) = c.io_tuple();
@@ -806,7 +881,7 @@ impl Nexus {
 
     pub(crate) fn unmap(&self, io: &Bio, channels: &NexusChannelInner) {
         let results = channels
-            .ch
+            .writers
             .iter()
             .map(|c| unsafe {
                 let (desc, chan) = c.io_tuple();
@@ -832,7 +907,7 @@ impl Nexus {
 
     pub(crate) fn write_zeroes(&self, io: &Bio, channels: &NexusChannelInner) {
         let results = channels
-            .ch
+            .writers
             .iter()
             .map(|c| unsafe {
                 let (b, c) = c.io_tuple();
@@ -861,12 +936,40 @@ impl Nexus {
             // FIXME: pause IO before dispatching
             debug!("Passing thru create snapshot as NVMe Admin command");
         }
-        // for pools, pass thru only works with our vendor commands as the
+        // for replicas, passthru only works with our vendor commands as the
         // underlying bdev is not nvmf
         let results = channels
-            .ch
+            .writers
             .iter()
             .map(|c| unsafe {
+                debug!("nvme_admin on {}", c.get_bdev().driver());
+                if c.get_bdev().driver() == "lvol" {
+                    // Local replica, vbdev_lvol does not support NVMe Admin
+                    // so call function directly
+                    let lvol = Lvol::try_from(c.get_bdev()).unwrap();
+                    match io.nvme_cmd().opc() as u8 {
+                        nvme_admin_opc::CREATE_SNAPSHOT => {
+                            subsys::create_snapshot(
+                                lvol,
+                                &io.nvme_cmd(),
+                                io.as_ptr(),
+                            );
+                        }
+                        _ => {
+                            error!(
+                                "{}: Unsupported NVMe Admin command {:x}h from IO {:?}",
+                                io.nexus_as_ref().name,
+                                io.nvme_cmd().opc(),
+                                io.as_ptr()
+                            );
+                            Self::io_completion_local(
+                                false,
+                                io.as_ptr().cast(),
+                            );
+                        }
+                    }
+                    return 0;
+                }
                 let (desc, chan) = c.io_tuple();
                 spdk_bdev_nvme_admin_passthru(
                     desc,
@@ -900,7 +1003,7 @@ impl Nexus {
     /// No child is online so the nexus is faulted
     /// This may be made more configurable in the future
     pub fn status(&self) -> NexusStatus {
-        match self.state {
+        match *self.state.lock().unwrap() {
             NexusState::Init => NexusStatus::Degraded,
             NexusState::Closed => NexusStatus::Faulted,
             NexusState::Open => {

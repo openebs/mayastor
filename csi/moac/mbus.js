@@ -51,17 +51,26 @@ const opts = yargs
 const nc = nats.connect(opts.s);
 nc.on('connect', () => {
   if (opts._[0] === 'register') {
-    nc.publish('register', JSON.stringify({
+    nc.publish('v0/registry', JSON.stringify({
+      id: "v0/register",
+      sender: "moac",
+      data: {
       id: opts.node,
       grpcEndpoint: opts.grpc
+      }
     }));
   } else if (opts._[0] === 'deregister') {
-    nc.publish('deregister', JSON.stringify({
+    nc.publish('v0/registry', JSON.stringify({
+      id: "v0/deregister",
+      sender: "moac",
+      data: {
       id: opts.node
+      }
     }));
   } else if (opts._[0] === 'raw') {
     nc.publish(opts.name, opts.payload);
   }
+  nc.flush();
   nc.close();
   process.exit(0);
 });

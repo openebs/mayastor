@@ -1,5 +1,13 @@
 #!/usr/bin/env groovy
 
+// Will ABORT current job for cases when we don't want to build
+if (currentBuild.getBuildCauses('jenkins.branch.BranchIndexingCause') &&
+    BRANCH_NAME == "develop") {
+    print "INFO: Branch Indexing, aborting job."
+    currentBuild.result = 'ABORTED'
+    return
+}
+
 // Update status of a commit in github
 def updateGithubCommitStatus(commit, msg, state) {
   step([
@@ -20,10 +28,23 @@ def updateGithubCommitStatus(commit, msg, state) {
   ])
 }
 
+// Searches previous builds to find first non aborted one
+def getLastNonAbortedBuild(build) {
+  if (build == null) {
+    return null;
+  }
+
+  if(build.result.toString().equals("ABORTED")) {
+    return getLastNonAbortedBuild(build.getPreviousBuild());
+  } else {
+    return build;
+  }
+}
+
 // Send out a slack message if branch got broken or has recovered
 def notifySlackUponStateChange(build) {
   def cur = build.getResult()
-  def prev = build.getPreviousBuild().getResult()
+  def prev = getLastNonAbortedBuild(build.getPreviousBuild())?.getResult()
   if (cur != prev) {
     if (cur == 'SUCCESS') {
       slackSend(
@@ -41,10 +62,13 @@ def notifySlackUponStateChange(build) {
   }
 }
 
+// Only schedule regular builds on develop branch, so we don't need to guard against it
+String cron_schedule = BRANCH_NAME == "develop" ? "0 2 * * *" : ""
+
 pipeline {
   agent none
   triggers {
-    cron('0 2 * * *')
+    cron(cron_schedule)
   }
 
   stages {
@@ -52,14 +76,10 @@ pipeline {
       agent { label 'nixos-mayastor' }
       when {
         beforeAgent true
-        anyOf {
-          allOf {
-            branch 'staging'
-            not { triggeredBy 'TimerTrigger' }
-          }
-          allOf {
-            branch 'trying'
-            not { triggeredBy 'TimerTrigger' }
+        not {
+          anyOf {
+            branch 'master'
+            branch 'release/*'
           }
         }
       }
@@ -73,21 +93,10 @@ pipeline {
     stage('test') {
       when {
         beforeAgent true
-        anyOf {
-          allOf {
-            branch 'staging'
-            not { triggeredBy 'TimerTrigger' }
-          }
-          allOf {
-            branch 'trying'
-            not { triggeredBy 'TimerTrigger' }
-          }
-          allOf {
-            branch 'develop'
-            anyOf {
-              triggeredBy 'TimerTrigger'
-              triggeredBy cause: 'UserIdCause'
-            }
+        not {
+          anyOf {
+            branch 'master'
+            branch 'release/*'
           }
         }
       }
@@ -95,40 +104,32 @@ pipeline {
         stage('rust unit tests') {
           agent { label 'nixos-mayastor' }
           steps {
+            sh 'printenv'
             sh 'nix-shell --run "./scripts/cargo-test.sh"'
           }
           post {
             always {
-              // temporary workaround for leaked spdk_iscsi_conns files
-              sh 'sudo rm -f /dev/shm/*'
+              // in case of abnormal termination of any nvmf test
+              sh 'sudo nvme disconnect-all'
             }
           }
         }
         stage('mocha api tests') {
           agent { label 'nixos-mayastor' }
           steps {
+            sh 'printenv'
             sh 'nix-shell --run "./scripts/node-test.sh"'
           }
           post {
             always {
               junit '*-xunit-report.xml'
-              // temporary workaround for leaked spdk_iscsi_conns files
-              sh 'sudo rm -f /dev/shm/*'
             }
-          }
-        }
-        stage('nix tests') {
-          agent { label 'nixos-mayastor-kvm' }
-          steps {
-            sh 'nix-build ./nix/test -A rebuild'
-            sh 'nix-build ./nix/test -A fio_nvme_basic'
-            sh 'nix-build ./nix/test -A nvmf_distributed'
-            sh 'nix-build ./nix/test -A nvmf_ports'
           }
         }
         stage('moac unit tests') {
           agent { label 'nixos-mayastor' }
           steps {
+            sh 'printenv'
             sh 'nix-shell --run "./scripts/moac-test.sh"'
           }
           post {
@@ -153,21 +154,9 @@ pipeline {
       when {
         beforeAgent true
         anyOf {
-          allOf {
-            branch 'master'
-            not { triggeredBy 'TimerTrigger' }
-          }
-          allOf {
-            branch 'release/*'
-            not { triggeredBy 'TimerTrigger' }
-          }
-          allOf {
-            branch 'develop'
-            anyOf {
-              triggeredBy 'TimerTrigger'
-              triggeredBy cause: 'UserIdCause'
-            }
-          }
+          branch 'master'
+          branch 'release/*'
+          branch 'develop'
         }
       }
       steps {

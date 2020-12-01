@@ -35,7 +35,7 @@ spec:
         command: ['sh', '-c', 'until nc -vz nats 4222; do echo "Waiting for message bus..."; sleep 1; done;']
       containers:
         - name: mayastor
-          image: mayadata/mayastor:latest
+          image: mayadata/mayastor:v0.6.0
           imagePullPolicy: Always
           env:
             - name: MY_NODE_NAME

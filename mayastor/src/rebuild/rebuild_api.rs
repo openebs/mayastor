@@ -8,7 +8,7 @@ use snafu::Snafu;
 
 use crate::{
     bdev::VerboseError,
-    core::{BdevHandle, CoreError, Descriptor, DmaError},
+    core::{CoreError, Descriptor, DmaError},
     nexus_uri::NexusBdevError,
 };
 
@@ -116,10 +116,8 @@ pub struct RebuildJob {
     pub(super) nexus_descriptor: Descriptor,
     /// source URI of the healthy child to rebuild from
     pub source: String,
-    pub(super) source_hdl: BdevHandle,
     /// target URI of the out of sync child in need of a rebuild
     pub destination: String,
-    pub(super) destination_hdl: BdevHandle,
     pub(super) block_size: u64,
     pub(super) range: std::ops::Range<u64>,
     pub(super) next: u64,
@@ -142,12 +140,16 @@ pub struct RebuildStats {
     pub blocks_total: u64,
     /// number of blocks recovered
     pub blocks_recovered: u64,
-    /// rebuild progress in % (0-100)
+    /// rebuild progress in %
     pub progress: u64,
     /// granularity of each recovery copy in blocks
     pub segment_size_blks: u64,
     /// size in bytes of each block
     pub block_size: u64,
+    /// total number of concurrent rebuild tasks
+    pub tasks_total: u64,
+    /// number of current active tasks
+    pub tasks_active: u64,
 }
 
 /// Public facing operations on a Rebuild Job

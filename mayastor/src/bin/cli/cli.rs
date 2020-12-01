@@ -7,6 +7,7 @@ use tonic::{transport::Channel, Status};
 
 use ::rpc::mayastor::{
     bdev_rpc_client::BdevRpcClient,
+    json_rpc_client::JsonRpcClient,
     mayastor_client::MayastorClient,
 };
 
@@ -15,8 +16,10 @@ use crate::context::Context;
 mod bdev_cli;
 mod context;
 mod device_cli;
+mod jsonrpc_cli;
 mod nexus_child_cli;
 mod nexus_cli;
+mod perf_cli;
 mod pool_cli;
 mod rebuild_cli;
 mod replica_cli;
@@ -24,6 +27,7 @@ mod snapshot_cli;
 
 type MayaClient = MayastorClient<Channel>;
 type BdevClient = BdevRpcClient<Channel>;
+type JsonClient = JsonRpcClient<Channel>;
 
 pub(crate) fn parse_size(src: &str) -> Result<Byte, String> {
     Byte::from_str(src).map_err(|_| src.to_string())
@@ -79,8 +83,10 @@ async fn main() -> Result<(), Status> {
         .subcommand(replica_cli::subcommands())
         .subcommand(bdev_cli::subcommands())
         .subcommand(device_cli::subcommands())
+        .subcommand(perf_cli::subcommands())
         .subcommand(rebuild_cli::subcommands())
         .subcommand(snapshot_cli::subcommands())
+        .subcommand(jsonrpc_cli::subcommands())
         .get_matches();
 
     let ctx = Context::new(&matches).await;
@@ -89,10 +95,14 @@ async fn main() -> Result<(), Status> {
         ("bdev", Some(args)) => bdev_cli::handler(ctx, args).await?,
         ("device", Some(args)) => device_cli::handler(ctx, args).await?,
         ("nexus", Some(args)) => nexus_cli::handler(ctx, args).await?,
+        ("perf", Some(args)) => perf_cli::handler(ctx, args).await?,
         ("pool", Some(args)) => pool_cli::handler(ctx, args).await?,
         ("replica", Some(args)) => replica_cli::handler(ctx, args).await?,
         ("rebuild", Some(args)) => rebuild_cli::handler(ctx, args).await?,
         ("snapshot", Some(args)) => snapshot_cli::handler(ctx, args).await?,
+        ("jsonrpc", Some(args)) => {
+            jsonrpc_cli::json_rpc_call(ctx, args).await?
+        }
 
         _ => eprintln!("Internal Error: Not implemented"),
     };

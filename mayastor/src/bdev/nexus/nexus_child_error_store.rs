@@ -5,7 +5,7 @@ use std::{
 
 use serde::export::{fmt::Error, Formatter};
 
-use spdk_sys::{spdk_bdev, spdk_bdev_io_type};
+use spdk_sys::spdk_bdev;
 
 use crate::{
     bdev::{
@@ -17,7 +17,7 @@ use crate::{
                 Nexus,
             },
             nexus_child::{ChildState, NexusChild},
-            nexus_io::{io_status, io_type},
+            nexus_io::{IoStatus, IoType},
         },
         Reason,
     },
@@ -30,15 +30,15 @@ pub struct NexusChildErrorRecord {
     io_offset: u64,
     io_num_blocks: u64,
     timestamp: Instant,
-    io_error: i32,
-    io_op: spdk_bdev_io_type,
+    io_error: IoStatus,
+    io_op: IoType,
 }
 
 impl Default for NexusChildErrorRecord {
     fn default() -> Self {
         Self {
-            io_op: 0,
-            io_error: 0,
+            io_op: IoType::Invalid,
+            io_error: IoStatus::Failed,
             io_offset: 0,
             io_num_blocks: 0,
             timestamp: Instant::now(), // for lack of another suitable default
@@ -67,22 +67,22 @@ pub enum ActionType {
 }
 
 impl NexusErrStore {
-    pub const READ_FLAG: u32 = 1 << (io_type::READ - 1);
-    pub const WRITE_FLAG: u32 = 1 << (io_type::WRITE - 1);
-    pub const UNMAP_FLAG: u32 = 1 << (io_type::UNMAP - 1);
-    pub const FLUSH_FLAG: u32 = 1 << (io_type::FLUSH - 1);
-    pub const RESET_FLAG: u32 = 1 << (io_type::RESET - 1);
+    pub const READ_FLAG: u32 = 1 << (IoType::Read as u32 - 1);
+    pub const WRITE_FLAG: u32 = 1 << (IoType::Write as u32 - 1);
+    pub const UNMAP_FLAG: u32 = 1 << (IoType::Unmap as u32 - 1);
+    pub const FLUSH_FLAG: u32 = 1 << (IoType::Flush as u32 - 1);
+    pub const RESET_FLAG: u32 = 1 << (IoType::Reset as u32 - 1);
 
     pub const IO_FAILED_FLAG: u32 = 1;
 
     // the following definitions are for the error_store unit test
-    pub const IO_TYPE_READ: u32 = io_type::READ;
-    pub const IO_TYPE_WRITE: u32 = io_type::WRITE;
-    pub const IO_TYPE_UNMAP: u32 = io_type::UNMAP;
-    pub const IO_TYPE_FLUSH: u32 = io_type::FLUSH;
-    pub const IO_TYPE_RESET: u32 = io_type::RESET;
+    pub const IO_TYPE_READ: u32 = IoType::Read as u32;
+    pub const IO_TYPE_WRITE: u32 = IoType::Write as u32;
+    pub const IO_TYPE_UNMAP: u32 = IoType::Unmap as u32;
+    pub const IO_TYPE_FLUSH: u32 = IoType::Flush as u32;
+    pub const IO_TYPE_RESET: u32 = IoType::Reset as u32;
 
-    pub const IO_FAILED: i32 = io_status::FAILED;
+    pub const IO_FAILED: i32 = IoStatus::Failed as i32;
 
     pub fn new(max_records: usize) -> Self {
         Self {
@@ -94,8 +94,8 @@ impl NexusErrStore {
 
     pub fn add_record(
         &mut self,
-        io_op: spdk_bdev_io_type,
-        io_error: i32,
+        io_op: IoType,
+        io_error: IoStatus,
         io_offset: u64,
         io_num_blocks: u64,
         timestamp: Instant,
@@ -126,20 +126,20 @@ impl NexusErrStore {
         target_timestamp: Option<Instant>,
     ) -> bool {
         match record.io_op {
-            io_type::READ if (io_op_flags & NexusErrStore::READ_FLAG) != 0 => {}
-            io_type::WRITE
-                if (io_op_flags & NexusErrStore::WRITE_FLAG) != 0 => {}
-            io_type::UNMAP
-                if (io_op_flags & NexusErrStore::UNMAP_FLAG) != 0 => {}
-            io_type::FLUSH
-                if (io_op_flags & NexusErrStore::FLUSH_FLAG) != 0 => {}
-            io_type::RESET
-                if (io_op_flags & NexusErrStore::RESET_FLAG) != 0 => {}
+            IoType::Read if (io_op_flags & NexusErrStore::READ_FLAG) != 0 => {}
+            IoType::Write if (io_op_flags & NexusErrStore::WRITE_FLAG) != 0 => {
+            }
+            IoType::Unmap if (io_op_flags & NexusErrStore::UNMAP_FLAG) != 0 => {
+            }
+            IoType::Flush if (io_op_flags & NexusErrStore::FLUSH_FLAG) != 0 => {
+            }
+            IoType::Reset if (io_op_flags & NexusErrStore::RESET_FLAG) != 0 => {
+            }
             _ => return false,
         };
 
         match record.io_error {
-            io_status::FAILED
+            IoStatus::Failed
                 if (io_error_flags & NexusErrStore::IO_FAILED_FLAG) != 0 => {}
             _ => return false,
         };
@@ -193,7 +193,7 @@ impl NexusErrStore {
         }
     }
 
-    fn error_fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
+    fn error_fmt(&self, f: &mut Formatter<'_>) {
         let mut idx = self.next_record_index;
         write!(f, "\nErrors ({}):", self.no_of_records)
             .expect("invalid format");
@@ -205,7 +205,7 @@ impl NexusErrStore {
             }
             write!(
                 f,
-                "\n    {}: timestamp:{:?} op:{} error:{} offset:{} blocks:{}",
+                "\n    {}: timestamp:{:?} op:{:?} error:{:?} offset:{} blocks:{}",
                 n,
                 self.records[idx].timestamp,
                 self.records[idx].io_op,
@@ -215,19 +215,20 @@ impl NexusErrStore {
             )
             .expect("invalid format");
         }
-        Ok(())
     }
 }
 
 impl Debug for NexusErrStore {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
-        self.error_fmt(f)
+        self.error_fmt(f);
+        Ok(())
     }
 }
 
 impl Display for NexusErrStore {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
-        self.error_fmt(f)
+        self.error_fmt(f);
+        Ok(())
     }
 }
 
@@ -235,15 +236,15 @@ impl Nexus {
     pub fn error_record_add(
         &self,
         bdev: *const spdk_bdev,
-        io_op_type: spdk_bdev_io_type,
-        io_error_type: i32,
+        io_op_type: IoType,
+        io_error_type: IoStatus,
         io_offset: u64,
         io_num_blocks: u64,
     ) {
         let now = Instant::now();
         let cfg = Config::get();
         if cfg.err_store_opts.enable_err_store
-            && (io_op_type == io_type::READ || io_op_type == io_type::WRITE)
+            && (io_op_type == IoType::Read || io_op_type == IoType::Write)
         {
             let nexus_name = self.name.clone();
             // dispatch message to management core to do this
@@ -266,8 +267,8 @@ impl Nexus {
     async fn future_error_record_add(
         name: String,
         bdev: *const spdk_bdev,
-        io_op_type: spdk_bdev_io_type,
-        io_error_type: i32,
+        io_op_type: IoType,
+        io_error_type: IoStatus,
         io_offset: u64,
         io_num_blocks: u64,
         now: Instant,
@@ -279,55 +280,57 @@ impl Nexus {
                 return;
             }
         };
-        trace!("Adding error record {} bdev {:?}", io_op_type, bdev);
+        trace!("Adding error record {:?} bdev {:?}", io_op_type, bdev);
         for child in nexus.children.iter_mut() {
-            if child.bdev.as_ref().unwrap().as_ptr() as *const _ == bdev {
-                if child.state() == ChildState::Open {
-                    if child.err_store.is_some() {
-                        child.err_store.as_mut().unwrap().add_record(
-                            io_op_type,
-                            io_error_type,
-                            io_offset,
-                            io_num_blocks,
-                            now,
-                        );
-                        let cfg = Config::get();
-                        if cfg.err_store_opts.action == ActionType::Fault
-                            && !Self::assess_child(
-                                &child,
-                                cfg.err_store_opts.max_errors,
-                                cfg.err_store_opts.retention_ns,
-                                QueryType::Total,
-                            )
-                        {
-                            let child_name = child.name.clone();
-                            info!("Faulting child {}", child_name);
-                            if nexus
-                                .fault_child(&child_name, Reason::IoError)
-                                .await
-                                .is_err()
+            if let Some(bdev) = child.bdev.as_ref() {
+                if bdev.as_ptr() as *const _ == bdev {
+                    if child.state() == ChildState::Open {
+                        if child.err_store.is_some() {
+                            child.err_store.as_mut().unwrap().add_record(
+                                io_op_type,
+                                io_error_type,
+                                io_offset,
+                                io_num_blocks,
+                                now,
+                            );
+                            let cfg = Config::get();
+                            if cfg.err_store_opts.action == ActionType::Fault
+                                && !Self::assess_child(
+                                    &child,
+                                    cfg.err_store_opts.max_errors,
+                                    cfg.err_store_opts.retention_ns,
+                                    QueryType::Total,
+                                )
                             {
-                                error!(
-                                    "Failed to fault the child {}",
-                                    child_name,
-                                );
+                                let child_name = child.name.clone();
+                                info!("Faulting child {}", child_name);
+                                if nexus
+                                    .fault_child(&child_name, Reason::IoError)
+                                    .await
+                                    .is_err()
+                                {
+                                    error!(
+                                        "Failed to fault the child {}",
+                                        child_name,
+                                    );
+                                }
                             }
+                        } else {
+                            let child_name = child.name.clone();
+                            error!(
+                                "Failed to record error - no error store in child {}",
+                                child_name,
+                            );
                         }
-                    } else {
-                        let child_name = child.name.clone();
-                        error!(
-                            "Failed to record error - no error store in child {}",
-                            child_name,
-                        );
+                        return;
                     }
+                    let child_name = child.name.clone();
+                    trace!("Ignoring error response sent to non-open child {}, state {:?}", child_name, child.state());
                     return;
                 }
-                let child_name = child.name.clone();
-                trace!("Ignoring error response sent to non-open child {}, state {:?}", child_name, child.state());
-                return;
             }
+            //error!("Failed to record error - could not find child");
         }
-        error!("Failed to record error - could not find child");
     }
 
     pub fn error_record_query(

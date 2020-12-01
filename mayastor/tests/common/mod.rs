@@ -4,7 +4,7 @@
 //! panic macros. The caller can decide how to handle the error appropriately.
 //! Panics and asserts in this file are still ok for usage & programming errors.
 
-use std::{env, io, io::Write, process::Command, time::Duration};
+use std::{io, io::Write, process::Command, time::Duration};
 
 use crossbeam::channel::{after, select, unbounded};
 use once_cell::sync::OnceCell;
@@ -18,11 +18,12 @@ use mayastor::{
     logger,
     rebuild::{ClientOperations, RebuildJob, RebuildState},
 };
-use spdk_sys::spdk_get_thread;
 
 pub mod bdev_io;
+pub mod compose;
 pub mod error_bdev;
-pub mod ms_exec;
+
+pub use compose::MayastorTest;
 
 /// call F cnt times, and sleep for a duration between each invocation
 pub fn retry<F, T, E>(mut cnt: u32, timeout: Duration, mut f: F) -> T
@@ -132,9 +133,7 @@ pub fn mayastor_test_init() {
                 panic!("binary: {} not present in path", binary);
             }
         });
-
-    logger::init("DEBUG");
-    env::set_var("MAYASTOR_LOGLEVEL", "4");
+    logger::init("info,mayastor=DEBUG");
     mayastor::CPS_INIT!();
 }
 
@@ -319,8 +318,8 @@ pub fn clean_up_temp() {
     .unwrap();
 }
 
-pub fn thread() -> Option<Mthread> {
-    Mthread::from_null_checked(unsafe { spdk_get_thread() })
+pub fn thread() -> Mthread {
+    Mthread::get_init()
 }
 
 pub fn dd_urandom_blkdev(device: &str) -> i32 {
@@ -418,22 +417,18 @@ pub fn get_device_size(nexus_device: &str) -> u64 {
 }
 
 /// Waits for the rebuild to reach `state`, up to `timeout`
-pub fn wait_for_rebuild(
-    name: String,
-    state: RebuildState,
-    timeout: Duration,
-) -> Result<(), ()> {
+pub fn wait_for_rebuild(name: String, state: RebuildState, timeout: Duration) {
     let (s, r) = unbounded::<()>();
     let job = match RebuildJob::lookup(&name) {
         Ok(job) => job,
-        Err(_) => return Ok(()),
+        Err(_) => return,
     };
     job.as_client().stats();
 
     let mut curr_state = job.state();
     let ch = job.notify_chan.1.clone();
     let cname = name.clone();
-    let t = std::thread::spawn(move || {
+    let t = Mthread::spawn_unaffinitized(move || {
         let now = std::time::Instant::now();
         let mut error = Ok(());
         while curr_state != state && error.is_ok() {
@@ -460,7 +455,7 @@ pub fn wait_for_rebuild(
     if let Ok(job) = RebuildJob::lookup(&name) {
         job.as_client().stats();
     }
-    t.join().unwrap()
+    t.join().unwrap().unwrap();
 }
 
 pub fn fio_verify_size(device: &str, size: u64) -> i32 {
@@ -484,7 +479,7 @@ pub fn fio_verify_size(device: &str, size: u64) -> i32 {
 
 pub fn reactor_run_millis(milliseconds: u64) {
     let (s, r) = unbounded::<()>();
-    std::thread::spawn(move || {
+    Mthread::spawn_unaffinitized(move || {
         std::thread::sleep(Duration::from_millis(milliseconds));
         s.send(())
     });

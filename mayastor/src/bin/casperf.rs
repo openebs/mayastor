@@ -363,41 +363,39 @@ fn main() {
 
     let io_size = value_t!(matches.value_of("io_size"), u64).unwrap_or(IO_SIZE);
     let qd = value_t!(matches.value_of("queue_depth"), u64).unwrap_or(QD);
-    let mut args = MayastorCliArgs::default();
+    let args = MayastorCliArgs {
+        reactor_mask: "0x2".to_string(),
+        ..Default::default()
+    };
 
-    args.reactor_mask = "0x2".to_string();
-    //args.grpc_endpoint = Some("0.0.0.0".to_string());
+    MayastorEnvironment::new(args).init();
+    sig_override();
+    Reactors::master().send_future(async move {
+        let jobs = uris
+            .iter_mut()
+            .map(|u| Job::new(u, io_size, qd))
+            .collect::<Vec<_>>();
 
-    let ms = MayastorEnvironment::new(args);
-    ms.start(move || {
-        sig_override();
+        for j in jobs {
+            let job = j.await;
+            let thread =
+                Mthread::new(job.bdev.name(), Cores::current()).unwrap();
+            thread.msg(job, |job| {
+                job.run();
+            });
+        }
 
-        Reactors::master().send_future(async move {
-            let jobs = uris
-                .iter_mut()
-                .map(|u| Job::new(u, io_size, qd))
-                .collect::<Vec<_>>();
+        unsafe {
+            PERF_TICK.with(|p| {
+                *p.borrow_mut() = NonNull::new(spdk_sys::spdk_poller_register(
+                    Some(perf_tick),
+                    std::ptr::null_mut(),
+                    1_000_000,
+                ))
+            });
+        }
+    });
 
-            for j in jobs {
-                let job = j.await;
-                let thread =
-                    Mthread::new(job.bdev.name(), Cores::current()).unwrap();
-                thread.msg(job, |job| {
-                    job.run();
-                });
-            }
-
-            unsafe {
-                PERF_TICK.with(|p| {
-                    *p.borrow_mut() =
-                        NonNull::new(spdk_sys::spdk_poller_register(
-                            Some(perf_tick),
-                            std::ptr::null_mut(),
-                            1_000_000,
-                        ))
-                });
-            }
-        });
-    })
-    .unwrap();
+    Reactors::master().running();
+    Reactors::master().poll_reactor();
 }

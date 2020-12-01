@@ -57,7 +57,8 @@ use spdk_sys::{
     spdk_thread_lib_init_ext,
 };
 
-use crate::core::{Cores, Mthread};
+use crate::core::{CoreError, Cores, Mthread};
+use nix::errno::Errno;
 use std::cell::Cell;
 
 #[derive(Debug, Clone, Copy, PartialEq)]
@@ -115,7 +116,7 @@ pub struct Reactor {
 
 thread_local! {
     /// This queue holds any in coming futures from other cores
-    static QUEUE: (Sender<async_task::Task<()>>, Receiver<async_task::Task<()>>) = unbounded();
+    static QUEUE: (Sender<async_task::Runnable>, Receiver<async_task::Runnable>) = unbounded();
 }
 
 impl Reactors {
@@ -171,14 +172,14 @@ impl Reactors {
         let mask = unsafe { spdk_thread_get_cpumask(thread) };
         let scheduled = Reactors::iter().any(|r| {
             if unsafe { spdk_cpuset_get_cpu(mask, r.lcore) } {
-                let mt = Mthread(thread);
+                let mt = Mthread::from(thread);
                 info!(
                     "scheduled {} {:p} on core:{}",
                     mt.name(),
                     thread,
                     r.lcore
                 );
-                r.incoming.push(Mthread(thread));
+                r.incoming.push(mt);
                 return true;
             }
             false
@@ -203,7 +204,8 @@ impl Reactors {
     /// start polling the reactors on the given core, when multiple cores are
     /// involved they must be running during init as they must process in coming
     /// messages that are send as part of the init process.
-    pub fn launch_remote(core: u32) -> Result<(), ()> {
+    #[allow(clippy::needless_return)]
+    pub fn launch_remote(core: u32) -> Result<(), CoreError> {
         // the master core -- who is the only core that can call this function
         // should not be launched this way. For that use ['launch_master`].
         // Nothing prevents anyone from call this function twice now.
@@ -219,13 +221,19 @@ impl Reactors {
                     core as *const u32 as *mut c_void,
                 )
             };
-            if rc == 0 {
-                return Ok(());
-            }
+            return if rc == 0 {
+                Ok(())
+            } else {
+                error!("failed to launch core {}", core);
+                Err(CoreError::ReactorError {
+                    source: Errno::from_i32(rc),
+                })
+            };
+        } else {
+            Err(CoreError::ReactorError {
+                source: Errno::ENOSYS,
+            })
         }
-
-        error!("failed to launch core {}", core);
-        Err(())
     }
 
     /// get a reference to a ['Reactor'] associated with the given core.
@@ -304,7 +312,7 @@ impl Reactor {
     /// receive futures if any
     fn receive_futures(&self) {
         self.rx.try_iter().for_each(|m| {
-            self.spawn_local(m);
+            self.spawn_local(m).detach();
         });
     }
 
@@ -316,8 +324,9 @@ impl Reactor {
         self.sx.send(Box::pin(future)).unwrap();
     }
 
-    /// spawn a future locally on this core
-    pub fn spawn_local<F, R>(&self, future: F) -> async_task::JoinHandle<R, ()>
+    /// spawn a future locally on this core; note that you can *not* use the
+    /// handle to complete the future with a different runtime.
+    pub fn spawn_local<F, R>(&self, future: F) -> async_task::Task<R>
     where
         F: Future<Output = R> + 'static,
         R: 'static,
@@ -327,12 +336,12 @@ impl Reactor {
         // busy etc.
         let schedule = |t| QUEUE.with(|(s, _)| s.send(t).unwrap());
 
-        let (task, handle) = async_task::spawn_local(future, schedule, ());
-        task.schedule();
+        let (runnable, task) = async_task::spawn_local(future, schedule);
+        runnable.schedule();
         // the handler typically has no meaning to us unless we want to wait for
         // the spawned future to complete before we continue which is
         // done, in example with ['block_on']
-        handle
+        task
     }
 
     /// spawn a future locally on the current core block until the future is
@@ -342,31 +351,27 @@ impl Reactor {
         F: Future<Output = R> + 'static,
         R: 'static,
     {
-        let _thread = Mthread::current();
+        // hold on to the any potential thread we might be running on right now
+        let thread = Mthread::current();
         Mthread::get_init().enter();
         let schedule = |t| QUEUE.with(|(s, _)| s.send(t).unwrap());
-        let (task, handle) = async_task::spawn_local(future, schedule, ());
+        let (runnable, task) = async_task::spawn_local(future, schedule);
 
-        let waker = handle.waker();
+        let waker = runnable.waker();
         let cx = &mut Context::from_waker(&waker);
 
-        pin_utils::pin_mut!(handle);
-        task.schedule();
+        pin_utils::pin_mut!(task);
+        runnable.schedule();
         let reactor = Reactors::master();
 
         loop {
-            match handle.as_mut().poll(cx) {
+            match task.as_mut().poll(cx) {
                 Poll::Ready(output) => {
                     Mthread::get_init().exit();
-                    _thread.map(|t| {
-                        debug!(
-                            "restoring thread from {:?} to {:?}",
-                            Mthread::current(),
-                            _thread
-                        );
+                    if let Some(t) = thread {
                         t.enter()
-                    });
-                    return output;
+                    }
+                    return Some(output);
                 }
                 Poll::Pending => {
                     reactor.poll_once();

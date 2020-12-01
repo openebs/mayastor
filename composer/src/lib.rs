@@ -1,0 +1,847 @@
+use std::{
+    collections::HashMap,
+    net::{Ipv4Addr, SocketAddr, TcpStream},
+    thread,
+    time::Duration,
+};
+
+use bollard::{
+    container::{
+        Config,
+        CreateContainerOptions,
+        ListContainersOptions,
+        LogsOptions,
+        NetworkingConfig,
+        RemoveContainerOptions,
+        StopContainerOptions,
+    },
+    errors::Error,
+    network::{CreateNetworkOptions, ListNetworksOptions},
+    service::{
+        ContainerSummaryInner,
+        EndpointIpamConfig,
+        EndpointSettings,
+        HostConfig,
+        Ipam,
+        Mount,
+        MountTypeEnum,
+        Network,
+        PortMap,
+    },
+    Docker,
+};
+use futures::TryStreamExt;
+use ipnetwork::Ipv4Network;
+use tonic::transport::Channel;
+
+use bollard::models::ContainerInspectResponse;
+use rpc::mayastor::{
+    bdev_rpc_client::BdevRpcClient,
+    mayastor_client::MayastorClient,
+};
+pub const TEST_NET_NAME: &str = "mayastor-testing-network";
+pub const TEST_NET_NETWORK: &str = "10.1.0.0/16";
+#[derive(Clone)]
+pub struct RpcHandle {
+    pub name: String,
+    pub endpoint: SocketAddr,
+    pub mayastor: MayastorClient<Channel>,
+    pub bdev: BdevRpcClient<Channel>,
+}
+
+impl RpcHandle {
+    /// connect to the containers and construct a handle
+    async fn connect(
+        name: String,
+        endpoint: SocketAddr,
+    ) -> Result<Self, String> {
+        let mut attempts = 60;
+        loop {
+            if TcpStream::connect_timeout(&endpoint, Duration::from_millis(100))
+                .is_ok()
+            {
+                break;
+            } else {
+                thread::sleep(Duration::from_millis(101));
+            }
+            attempts -= 1;
+            if attempts == 0 {
+                return Err(format!(
+                    "Failed to connect to {}/{}",
+                    name, endpoint
+                ));
+            }
+        }
+
+        let mayastor =
+            MayastorClient::connect(format!("http://{}", endpoint.to_string()))
+                .await
+                .unwrap();
+        let bdev =
+            BdevRpcClient::connect(format!("http://{}", endpoint.to_string()))
+                .await
+                .unwrap();
+
+        Ok(Self {
+            name,
+            mayastor,
+            bdev,
+            endpoint,
+        })
+    }
+}
+
+/// Path to local binary and arguments
+#[derive(Default, Clone)]
+pub struct Binary {
+    path: String,
+    arguments: Vec<String>,
+}
+
+impl Binary {
+    /// Setup local binary from target debug and arguments
+    pub fn from_dbg(name: &str) -> Self {
+        let path = std::path::PathBuf::from(std::env!("CARGO_MANIFEST_DIR"));
+        let srcdir = path.parent().unwrap().to_string_lossy();
+
+        Self::new(format!("{}/target/debug/{}", srcdir, name), vec![])
+    }
+    /// Setup nix shell binary from path and arguments
+    pub fn from_nix(name: &str) -> Self {
+        Self::new(Self::which(name).expect("binary should exist"), vec![])
+    }
+    /// Add single argument
+    /// Only one argument can be passed per use. So instead of:
+    ///
+    /// # Self::from_dbg("hello")
+    /// .with_arg("-n nats")
+    /// # ;
+    ///
+    /// usage would be:
+    ///
+    /// # Self::from_dbg("hello")
+    /// .with_arg("-n")
+    /// .with_arg("nats")
+    /// # ;
+    pub fn with_arg(mut self, arg: &str) -> Self {
+        self.arguments.push(arg.into());
+        self
+    }
+    /// Add multiple arguments via a vector
+    pub fn with_args<S: Into<String>>(mut self, mut args: Vec<S>) -> Self {
+        self.arguments.extend(args.drain(..).map(|s| s.into()));
+        self
+    }
+
+    fn which(name: &str) -> std::io::Result<String> {
+        let output = std::process::Command::new("which").arg(name).output()?;
+        Ok(String::from_utf8_lossy(&output.stdout).trim().into())
+    }
+    fn new(path: String, args: Vec<String>) -> Self {
+        Self {
+            path,
+            arguments: args,
+        }
+    }
+}
+
+impl Into<Vec<String>> for Binary {
+    fn into(self) -> Vec<String> {
+        let mut v = vec![self.path.clone()];
+        v.extend(self.arguments);
+        v
+    }
+}
+
+/// Specs of the allowed containers include only the binary path
+/// (relative to src) and the required arguments
+#[derive(Default, Clone)]
+pub struct ContainerSpec {
+    /// Name of the container
+    name: ContainerName,
+    /// Binary configuration
+    binary: Binary,
+    /// Port mapping to host ports
+    port_map: Option<PortMap>,
+    /// Use Init container
+    init: Option<bool>,
+    /// Key-Map of environment variables
+    /// Starts with RUST_LOG=debug,h2=info
+    env: HashMap<String, String>,
+}
+
+impl Into<Vec<String>> for &ContainerSpec {
+    fn into(self) -> Vec<String> {
+        self.binary.clone().into()
+    }
+}
+
+impl ContainerSpec {
+    /// Create new ContainerSpec from name and binary
+    pub fn new(name: &str, binary: Binary) -> Self {
+        let mut env = HashMap::new();
+        env.insert("RUST_LOG".to_string(), "debug,h2=info".to_string());
+        Self {
+            name: name.into(),
+            binary,
+            init: Some(true),
+            env,
+            ..Default::default()
+        }
+    }
+    /// Add port mapping from container to host
+    pub fn with_portmap(mut self, from: &str, to: &str) -> Self {
+        let from = format!("{}/tcp", from);
+        let mut port_map = bollard::service::PortMap::new();
+        let binding = bollard::service::PortBinding {
+            host_ip: None,
+            host_port: Some(to.into()),
+        };
+        port_map.insert(from, Some(vec![binding]));
+        self.port_map = Some(port_map);
+        self
+    }
+    /// Add environment key-val, eg for setting the RUST_LOG
+    /// If a key already exists, the value is replaced
+    pub fn with_env(mut self, key: &str, val: &str) -> Self {
+        if let Some(old) = self.env.insert(key.into(), val.into()) {
+            println!("Replaced key {} val {} with val {}", key, old, val);
+        }
+        self
+    }
+    fn env_to_vec(&self) -> Vec<String> {
+        let mut vec = vec![];
+        self.env.iter().for_each(|(k, v)| {
+            vec.push(format!("{}={}", k, v));
+        });
+        vec
+    }
+}
+
+pub struct Builder {
+    /// name of the experiment this name will be used as a network and labels
+    /// this way we can "group" all objects within docker to match this test
+    /// test. It is highly recommend you use a sane name for this as it will
+    /// help you during debugging
+    name: String,
+    /// containers we want to create, note these are mayastor containers
+    /// only
+    containers: Vec<ContainerSpec>,
+    /// the network for the tests used
+    network: String,
+    /// delete the container and network when dropped
+    clean: bool,
+    /// destroy existing containers if any
+    prune: bool,
+}
+
+impl Default for Builder {
+    fn default() -> Self {
+        Builder::new()
+    }
+}
+
+impl Builder {
+    /// construct a new builder for `[ComposeTest']
+    pub fn new() -> Self {
+        Self {
+            name: "".to_string(),
+            containers: Default::default(),
+            network: "10.1.0.0".to_string(),
+            clean: true,
+            prune: true,
+        }
+    }
+
+    /// set the network for this test
+    pub fn network(mut self, network: &str) -> Builder {
+        self.network = network.to_owned();
+        self
+    }
+
+    /// the name to be used as labels and network name
+    pub fn name(mut self, name: &str) -> Builder {
+        self.name = name.to_owned();
+        self
+    }
+
+    /// add a mayastor container with a name
+    pub fn add_container(mut self, name: &str) -> Builder {
+        self.containers
+            .push(ContainerSpec::new(name, Binary::from_dbg("mayastor")));
+        self
+    }
+
+    /// add a generic container which runs a local binary
+    pub fn add_container_spec(mut self, spec: ContainerSpec) -> Builder {
+        self.containers.push(spec);
+        self
+    }
+
+    /// add a generic container which runs a local binary
+    pub fn add_container_bin(self, name: &str, bin: Binary) -> Builder {
+        self.add_container_spec(ContainerSpec::new(name, bin))
+    }
+
+    /// clean on drop?
+    pub fn with_clean(mut self, enable: bool) -> Builder {
+        self.clean = enable;
+        self
+    }
+
+    pub fn with_prune(mut self, enable: bool) -> Builder {
+        self.prune = enable;
+        self
+    }
+    /// build the config and start the containers
+    pub async fn build(
+        self,
+    ) -> Result<ComposeTest, Box<dyn std::error::Error>> {
+        let mut compose = self.build_only().await?;
+        compose.start_all().await?;
+        Ok(compose)
+    }
+
+    /// build the config but don't start the containers
+    pub async fn build_only(
+        self,
+    ) -> Result<ComposeTest, Box<dyn std::error::Error>> {
+        let net: Ipv4Network = self.network.parse()?;
+
+        let path = std::path::PathBuf::from(std::env!("CARGO_MANIFEST_DIR"));
+        let srcdir = path.parent().unwrap().to_string_lossy().into();
+        let docker = Docker::connect_with_unix_defaults()?;
+
+        let mut cfg = HashMap::new();
+        cfg.insert(
+            "Subnet".to_string(),
+            format!("{}/{}", net.network().to_string(), net.prefix()),
+        );
+        cfg.insert("Gateway".into(), net.nth(1).unwrap().to_string());
+
+        let ipam = Ipam {
+            driver: Some("default".into()),
+            config: Some(vec![cfg]),
+            options: None,
+        };
+
+        let mut compose = ComposeTest {
+            name: self.name.clone(),
+            srcdir,
+            docker,
+            network_id: "".to_string(),
+            containers: Default::default(),
+            ipam,
+            label_prefix: "io.mayastor.test".to_string(),
+            clean: self.clean,
+            prune: self.prune,
+        };
+
+        compose.network_id =
+            compose.network_create().await.map_err(|e| e.to_string())?;
+
+        // containers are created where the IPs are ordinal
+        for (i, spec) in self.containers.iter().enumerate() {
+            compose
+                .create_container(
+                    spec,
+                    &net.nth((i + 2) as u32).unwrap().to_string(),
+                )
+                .await?;
+        }
+
+        Ok(compose)
+    }
+}
+
+///
+/// Some types to avoid confusion when
+///
+/// different networks are referred to, internally as networkId in docker
+type NetworkId = String;
+/// container name
+type ContainerName = String;
+/// container ID
+type ContainerId = String;
+
+#[derive(Clone, Debug)]
+pub struct ComposeTest {
+    /// used as the network name
+    name: String,
+    /// the source dir the tests are run in
+    srcdir: String,
+    /// handle to the docker daemon
+    docker: Docker,
+    /// the network id is used to attach containers to networks
+    network_id: NetworkId,
+    /// the name of containers and their (IDs, Ipv4) we have created
+    /// perhaps not an ideal data structure, but we can improve it later
+    /// if we need to
+    containers: HashMap<ContainerName, (ContainerId, Ipv4Addr)>,
+    /// the default network configuration we use for our test cases
+    ipam: Ipam,
+    /// prefix for labels set on containers and networks
+    ///   $prefix.name = $name will be created automatically
+    label_prefix: String,
+    /// automatically clean up the things we have created for this test
+    clean: bool,
+    pub prune: bool,
+}
+
+impl Drop for ComposeTest {
+    /// destroy the containers and network. Notice that we use sync code here
+    fn drop(&mut self) {
+        if self.clean {
+            self.containers.keys().for_each(|c| {
+                std::process::Command::new("docker")
+                    .args(&["stop", c])
+                    .output()
+                    .unwrap();
+                std::process::Command::new("docker")
+                    .args(&["rm", c])
+                    .output()
+                    .unwrap();
+            });
+
+            std::process::Command::new("docker")
+                .args(&["network", "rm", &self.name])
+                .output()
+                .unwrap();
+        }
+    }
+}
+
+impl ComposeTest {
+    /// Create a new network, with default settings. If a network with the same
+    /// name already exists it will be reused. Note that we do not check the
+    /// networking IP and/or subnets
+    async fn network_create(&mut self) -> Result<NetworkId, Error> {
+        let mut net = self.network_list().await?;
+
+        if !net.is_empty() {
+            let first = net.pop().unwrap();
+            self.network_id = first.id.unwrap();
+            return Ok(self.network_id.clone());
+        }
+
+        let name_label = format!("{}.name", self.label_prefix);
+        // we use the same network everywhere
+        let create_opts = CreateNetworkOptions {
+            name: TEST_NET_NAME,
+            check_duplicate: true,
+            driver: "bridge",
+            internal: false,
+            attachable: true,
+            ingress: false,
+            ipam: self.ipam.clone(),
+            enable_ipv6: false,
+            options: vec![("com.docker.network.bridge.name", "mayabridge0")]
+                .into_iter()
+                .collect(),
+            labels: vec![(name_label.as_str(), self.name.as_str())]
+                .into_iter()
+                .collect(),
+        };
+
+        self.docker.create_network(create_opts).await.map(|r| {
+            self.network_id = r.id.unwrap();
+            self.network_id.clone()
+        })
+    }
+
+    async fn network_remove(&self) -> Result<(), Error> {
+        // if the network is not found, its not an error, any other error is
+        // reported as such. Networks can only be destroyed when all containers
+        // attached to it are removed. To get a list of attached
+        // containers, use network_list()
+        if let Err(e) = self.docker.remove_network(&self.name).await {
+            if !matches!(e, Error::DockerResponseNotFoundError{..}) {
+                return Err(e);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// list all the docker networks
+    pub async fn network_list(&self) -> Result<Vec<Network>, Error> {
+        self.docker
+            .list_networks(Some(ListNetworksOptions {
+                filters: vec![("name", vec![TEST_NET_NAME])]
+                    .into_iter()
+                    .collect(),
+            }))
+            .await
+    }
+
+    /// list containers
+    pub async fn list_containers(
+        &self,
+    ) -> Result<Vec<ContainerSummaryInner>, Error> {
+        self.docker
+            .list_containers(Some(ListContainersOptions {
+                all: true,
+                filters: vec![(
+                    "label",
+                    vec![format!("{}.name={}", self.label_prefix, self.name)
+                        .as_str()],
+                )]
+                .into_iter()
+                .collect(),
+                ..Default::default()
+            }))
+            .await
+    }
+
+    /// remove a container from the configuration
+    async fn remove_container(&self, name: &str) -> Result<(), Error> {
+        self.docker
+            .remove_container(
+                name,
+                Some(RemoveContainerOptions {
+                    v: true,
+                    force: true,
+                    link: false,
+                }),
+            )
+            .await?;
+
+        Ok(())
+    }
+
+    /// remove all containers and its network
+    async fn remove_all(&self) -> Result<(), Error> {
+        for k in &self.containers {
+            self.stop(&k.0).await?;
+            self.remove_container(&k.0).await?;
+            while let Ok(_c) = self.docker.inspect_container(&k.0, None).await {
+                tokio::time::delay_for(Duration::from_millis(500)).await;
+            }
+        }
+        self.network_remove().await?;
+        Ok(())
+    }
+
+    /// we need to construct several objects to create a setup that meets our
+    /// liking:
+    ///
+    /// (1) hostconfig: that configures the host side of the container, i.e what
+    /// features/settings from the host perspective do we want too setup
+    /// for the container. (2) endpoints: this allows us to plugin in the
+    /// container into our network configuration (3) config: the actual
+    /// config which includes the above objects
+    async fn create_container(
+        &mut self,
+        spec: &ContainerSpec,
+        ipv4: &str,
+    ) -> Result<(), Error> {
+        if self.prune {
+            let _ = self
+                .docker
+                .stop_container(
+                    &spec.name,
+                    Some(StopContainerOptions {
+                        t: 0,
+                    }),
+                )
+                .await;
+            let _ = self
+                .docker
+                .remove_container(
+                    &spec.name,
+                    Some(RemoveContainerOptions {
+                        v: false,
+                        force: false,
+                        link: false,
+                    }),
+                )
+                .await;
+        }
+
+        let host_config = HostConfig {
+            binds: Some(vec![
+                format!("{}:{}", self.srcdir, self.srcdir),
+                "/nix:/nix:ro".into(),
+                "/dev/hugepages:/dev/hugepages:rw".into(),
+            ]),
+            mounts: Some(vec![
+                // DPDK needs to have a /tmp
+                Mount {
+                    target: Some("/tmp".into()),
+                    typ: Some(MountTypeEnum::TMPFS),
+                    ..Default::default()
+                },
+                // mayastor needs to have a /var/tmp
+                Mount {
+                    target: Some("/var/tmp".into()),
+                    typ: Some(MountTypeEnum::TMPFS),
+                    ..Default::default()
+                },
+            ]),
+            cap_add: Some(vec![
+                "SYS_ADMIN".to_string(),
+                "IPC_LOCK".into(),
+                "SYS_NICE".into(),
+            ]),
+            security_opt: Some(vec!["seccomp:unconfined".into()]),
+            init: spec.init,
+            port_bindings: spec.port_map.clone(),
+            ..Default::default()
+        };
+
+        let mut endpoints_config = HashMap::new();
+        endpoints_config.insert(
+            self.name.as_str(),
+            EndpointSettings {
+                network_id: Some(self.network_id.to_string()),
+                ipam_config: Some(EndpointIpamConfig {
+                    ipv4_address: Some(ipv4.into()),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+        );
+
+        let mut env = spec.env_to_vec();
+        env.push(format!("MY_POD_IP={}", ipv4));
+
+        let cmd: Vec<String> = spec.into();
+        let name = spec.name.as_str();
+
+        // figure out why ports to expose based on the port mapping
+        let mut exposed_ports = HashMap::new();
+        if let Some(map) = spec.port_map.as_ref() {
+            map.iter().for_each(|binding| {
+                exposed_ports.insert(binding.0.as_str(), HashMap::new());
+            })
+        }
+
+        let name_label = format!("{}.name", self.label_prefix);
+        let config = Config {
+            cmd: Some(cmd.iter().map(|s| s.as_str()).collect()),
+            env: Some(env.iter().map(|s| s.as_str()).collect()),
+            image: None, // notice we do not have a base image here
+            hostname: Some(name),
+            host_config: Some(host_config),
+            networking_config: Some(NetworkingConfig {
+                endpoints_config,
+            }),
+            working_dir: Some(self.srcdir.as_str()),
+            volumes: Some(
+                vec![
+                    ("/dev/hugepages", HashMap::new()),
+                    ("/nix", HashMap::new()),
+                    (self.srcdir.as_str(), HashMap::new()),
+                ]
+                .into_iter()
+                .collect(),
+            ),
+            labels: Some(
+                vec![(name_label.as_str(), self.name.as_str())]
+                    .into_iter()
+                    .collect(),
+            ),
+            exposed_ports: Some(exposed_ports),
+            ..Default::default()
+        };
+
+        let container = self
+            .docker
+            .create_container(
+                Some(CreateContainerOptions {
+                    name,
+                }),
+                config,
+            )
+            .await
+            .unwrap();
+
+        self.containers
+            .insert(name.to_string(), (container.id, ipv4.parse().unwrap()));
+
+        Ok(())
+    }
+
+    /// start the container
+    pub async fn start(&self, name: &str) -> Result<(), Error> {
+        let id = self.containers.get(name).unwrap();
+        self.docker
+            .start_container::<&str>(id.0.as_str(), None)
+            .await?;
+
+        Ok(())
+    }
+
+    /// stop the container
+    pub async fn stop(&self, name: &str) -> Result<(), Error> {
+        let id = self.containers.get(name).unwrap();
+        if let Err(e) = self
+            .docker
+            .stop_container(
+                id.0.as_str(),
+                Some(StopContainerOptions {
+                    t: 3,
+                }),
+            )
+            .await
+        {
+            // where already stopped
+            if !matches!(e, Error::DockerResponseNotModifiedError{..}) {
+                return Err(e);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// get the logs from the container. It would be nice to make it implicit
+    /// that is, when you make a rpc call, whatever logs where created due to
+    /// that are returned
+    pub async fn logs(&self, name: &str) -> Result<(), Error> {
+        let logs = self
+            .docker
+            .logs(
+                name,
+                Some(LogsOptions {
+                    follow: false,
+                    stdout: true,
+                    stderr: true,
+                    since: 0, // TODO log lines since last call?
+                    until: 0,
+                    timestamps: false,
+                    tail: "all",
+                }),
+            )
+            .try_collect::<Vec<_>>()
+            .await?;
+
+        logs.iter().for_each(|l| print!("{}:{}", name, l));
+        Ok(())
+    }
+
+    /// get the logs from all of the containers. It would be nice to make it
+    /// implicit that is, when you make a rpc call, whatever logs where
+    /// created due to that are returned
+    pub async fn logs_all(&self) -> Result<(), Error> {
+        for container in &self.containers {
+            let _ = self.logs(&container.0).await;
+        }
+        Ok(())
+    }
+
+    /// start all the containers
+    async fn start_all(&mut self) -> Result<(), Error> {
+        for k in &self.containers {
+            self.start(&k.0).await?;
+        }
+
+        Ok(())
+    }
+
+    /// start the containers
+    pub async fn start_containers(
+        &self,
+        containers: Vec<&str>,
+    ) -> Result<(), Error> {
+        for k in containers {
+            self.start(k).await?;
+        }
+        Ok(())
+    }
+
+    /// inspect the given container
+    pub async fn inspect(
+        &self,
+        name: &str,
+    ) -> Result<ContainerInspectResponse, Error> {
+        self.docker.inspect_container(name, None).await
+    }
+
+    /// pause the container; unfortunately, when the API returns it does not
+    /// mean that the container indeed is frozen completely, in the sense
+    /// that it's not to be assumed that right after a call -- the container
+    /// stops responding.
+    pub async fn pause(&self, name: &str) -> Result<(), Error> {
+        let id = self.containers.get(name).unwrap();
+        self.docker.pause_container(id.0.as_str()).await?;
+
+        Ok(())
+    }
+
+    /// un_pause the container
+    pub async fn thaw(&self, name: &str) -> Result<(), Error> {
+        let id = self.containers.get(name).unwrap();
+        self.docker.unpause_container(id.0.as_str()).await
+    }
+
+    /// return grpc handles to the containers
+    pub async fn grpc_handles(&self) -> Result<Vec<RpcHandle>, String> {
+        let mut handles = Vec::new();
+        for v in &self.containers {
+            handles.push(
+                RpcHandle::connect(
+                    v.0.clone(),
+                    format!("{}:10124", v.1 .1).parse::<SocketAddr>().unwrap(),
+                )
+                .await?,
+            );
+        }
+
+        Ok(handles)
+    }
+
+    /// return grpc handle to the container
+    pub async fn grpc_handle(&self, name: &str) -> Result<RpcHandle, String> {
+        match self.containers.iter().find(|&c| c.0 == name) {
+            Some(container) => Ok(RpcHandle::connect(
+                container.0.clone(),
+                format!("{}:10124", container.1 .1)
+                    .parse::<SocketAddr>()
+                    .unwrap(),
+            )
+            .await?),
+            None => Err(format!("Container {} not found!", name)),
+        }
+    }
+
+    /// explicitly remove all containers
+    pub async fn down(&self) {
+        self.remove_all().await.unwrap();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use rpc::mayastor::Null;
+
+    #[tokio::test]
+    async fn compose() {
+        let test = Builder::new()
+            .name("composer")
+            .network("10.1.0.0/16")
+            .add_container_spec(
+                ContainerSpec::new(
+                    "nats",
+                    Binary::from_nix("nats-server").with_arg("-DV"),
+                )
+                .with_portmap("4222", "4222"),
+            )
+            .add_container("mayastor")
+            .add_container_bin(
+                "mayastor2",
+                Binary::from_dbg("mayastor")
+                    .with_args(vec!["-n", "nats.composer"]),
+            )
+            .with_clean(true)
+            .build()
+            .await
+            .unwrap();
+
+        let mut hdl = test.grpc_handle("mayastor").await.unwrap();
+        hdl.mayastor.list_nexus(Null {}).await.expect("list nexus");
+
+        // run with --nocapture to get the logs
+        test.logs_all().await.unwrap();
+    }
+}

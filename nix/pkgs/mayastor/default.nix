@@ -34,14 +34,12 @@ let
             lib.hasPrefix (toString (src + "/${allowedPrefix}")) path)
           allowedPrefixes)
       src;
-
   version_drv = import ../../lib/version.nix { inherit lib stdenv git; };
   version = builtins.readFile "${version_drv}";
-
   buildProps = rec {
     name = "mayastor";
     #cargoSha256 = "0000000000000000000000000000000000000000000000000000";
-    cargoSha256 = "1m8097h48zz4d20gk9q1aw25548m2aqfxjlr6nck7chrqccvwr54";
+    cargoSha256 = "1jpp98vnshymzfm1rhm7hpkgkiah47k0xgpa8ywji1znsvp8wqsc";
     inherit version;
     src = whitelistSource ../../../. [
       "Cargo.lock"
@@ -55,6 +53,11 @@ let
       "rpc"
       "spdk-sys"
       "sysfs"
+      "mbus-api"
+      "services"
+      "rest"
+      "operators"
+      "composer"
     ];
 
     LIBCLANG_PATH = "${llvmPackages.libclang}/lib";
@@ -82,17 +85,19 @@ let
   };
 in
 {
-  release = rustPlatform.buildRustPackage (buildProps // {
-    buildType = "release";
-    buildInputs = buildProps.buildInputs ++ [ libspdk ];
-    SPDK_PATH = "${libspdk}";
-  });
-  debug = rustPlatform.buildRustPackage (buildProps // {
-    buildType = "debug";
-    buildInputs = buildProps.buildInputs ++ [ libspdk-dev ];
-    SPDK_PATH = "${libspdk-dev}";
-  });
-  # this is for image that does not do a build of mayastor
+  release = rustPlatform.buildRustPackage
+    (buildProps // {
+      buildType = "release";
+      buildInputs = buildProps.buildInputs ++ [ libspdk ];
+      SPDK_PATH = "${libspdk}";
+    });
+  debug = rustPlatform.buildRustPackage
+    (buildProps // {
+      buildType = "debug";
+      buildInputs = buildProps.buildInputs ++ [ libspdk-dev ];
+      SPDK_PATH = "${libspdk-dev}";
+    });
+  # this is for an image that does not do a build of mayastor
   adhoc = stdenv.mkDerivation {
     name = "mayastor-adhoc";
     inherit version;
@@ -101,6 +106,7 @@ in
       ../../../target/debug/mayastor-csi
       ../../../target/debug/mayastor-client
       ../../../target/debug/jsonrpc
+      ../../../target/debug/kiiss
     ];
 
     buildInputs = [

@@ -36,8 +36,6 @@ fn remove_child() {
         .expect("failed exec truncate");
 
     assert_eq!(output.status.success(), true);
-    let mut args = MayastorCliArgs::default();
-    args.log_components = vec!["all".into()];
     let rc = MayastorEnvironment::new(MayastorCliArgs::default())
         .start(|| Reactor::block_on(works()).unwrap())
         .unwrap();

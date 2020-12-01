@@ -1,9 +1,9 @@
-use crate::{parse_value, NvmeError};
-use failure::Error;
+use crate::{error, parse_value};
+use error::{FileIoError, InvalidPath, NvmeError, SubSysError};
 use glob::glob;
-use std::{fs::OpenOptions, io::Write, path::Path};
+use snafu::ResultExt;
+use std::{fs::OpenOptions, io::Write, path::Path, str::FromStr};
 
-use std::str::FromStr;
 /// Subsystem struct shows us all the connect fabrics. This does not include
 /// NVMe devices that are connected by trtype=PCIe
 #[derive(Default, Clone, Debug)]
@@ -29,9 +29,12 @@ pub struct Subsystem {
 impl Subsystem {
     /// scans the sysfs directory for attached subsystems skips any transport
     /// that does not contain a value that is being read in the implementation
-    pub fn new(source: &Path) -> Result<Self, Error> {
+    pub fn new(source: &Path) -> Result<Self, NvmeError> {
         let name = source
-            .strip_prefix("/sys/devices/virtual/nvme-fabrics/ctl")?
+            .strip_prefix("/sys/devices/virtual/nvme-fabrics/ctl")
+            .context(InvalidPath {
+                path: format!("{:?}", source),
+            })?
             .display()
             .to_string();
         let instance = u32::from_str(name.trim_start_matches("nvme")).unwrap();
@@ -42,10 +45,10 @@ impl Subsystem {
         let serial = parse_value::<String>(&source, "serial")?;
         let model = parse_value::<String>(&source, "model")?;
 
-        if serial == "" || model == "" {
-            return Err(
-                NvmeError::CtlNotFound("discovery controller".into()).into()
-            );
+        if serial.is_empty() || model.is_empty() {
+            return Err(NvmeError::CtlNotFound {
+                text: "discovery controller".into(),
+            });
         }
 
         // if it does not have a serial and or model -- its a discovery
@@ -64,30 +67,51 @@ impl Subsystem {
         })
     }
     /// issue a rescan to the controller to find new namespaces
-    pub fn rescan(&self) -> Result<(), Error> {
-        let target = format!("/sys/class/nvme/{}/rescan_controller", self.name);
-        let path = Path::new(&target);
+    pub fn rescan(&self) -> Result<(), NvmeError> {
+        let filename =
+            format!("/sys/class/nvme/{}/rescan_controller", self.name);
+        let path = Path::new(&filename);
 
-        let mut file = OpenOptions::new().write(true).open(&path)?;
-        file.write_all(b"1")?;
+        let mut file = OpenOptions::new().write(true).open(&path).context(
+            FileIoError {
+                filename: &filename,
+            },
+        )?;
+        file.write_all(b"1").context(FileIoError {
+            filename,
+        })?;
         Ok(())
     }
     /// disconnects the transport dropping all namespaces
-    pub fn disconnect(&self) -> Result<(), Error> {
-        let target = format!("/sys/class/nvme/{}/delete_controller", self.name);
-        let path = Path::new(&target);
+    pub fn disconnect(&self) -> Result<(), NvmeError> {
+        let filename =
+            format!("/sys/class/nvme/{}/delete_controller", self.name);
+        let path = Path::new(&filename);
 
-        let mut file = OpenOptions::new().write(true).open(&path)?;
-        file.write_all(b"1")?;
+        let mut file = OpenOptions::new().write(true).open(&path).context(
+            FileIoError {
+                filename: &filename,
+            },
+        )?;
+        file.write_all(b"1").context(FileIoError {
+            filename,
+        })?;
         Ok(())
     }
     /// resets the nvme controller
-    pub fn reset(&self) -> Result<(), Error> {
-        let target = format!("/sys/class/nvme/{}/reset_controller", self.name);
-        let path = Path::new(&target);
+    pub fn reset(&self) -> Result<(), NvmeError> {
+        let filename =
+            format!("/sys/class/nvme/{}/reset_controller", self.name);
+        let path = Path::new(&filename);
 
-        let mut file = OpenOptions::new().write(true).open(&path)?;
-        file.write_all(b"1")?;
+        let mut file = OpenOptions::new().write(true).open(&path).context(
+            FileIoError {
+                filename: &filename,
+            },
+        )?;
+        file.write_all(b"1").context(FileIoError {
+            filename,
+        })?;
         Ok(())
     }
 }
@@ -99,7 +123,7 @@ pub struct NvmeSubsystems {
 }
 
 impl Iterator for NvmeSubsystems {
-    type Item = Result<Subsystem, Error>;
+    type Item = Result<Subsystem, NvmeError>;
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(e) = self.entries.pop() {
             return Some(Subsystem::new(Path::new(&e)));
@@ -110,8 +134,11 @@ impl Iterator for NvmeSubsystems {
 
 impl NvmeSubsystems {
     /// Construct a new list of subsystems
-    pub fn new() -> Result<Self, Error> {
-        let path_entries = glob("/sys/devices/virtual/nvme-fabrics/ctl/nvme*")?;
+    pub fn new() -> Result<Self, NvmeError> {
+        let path_prefix = "/sys/devices/virtual/nvme-fabrics/ctl/nvme*";
+        let path_entries = glob(path_prefix).context(SubSysError {
+            path_prefix,
+        })?;
         let mut entries = Vec::new();
         for entry in path_entries {
             if let Ok(path) = entry {

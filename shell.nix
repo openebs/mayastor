@@ -21,6 +21,7 @@ mkShell {
   # fortify does not work with -O0 which is used by spdk when --enable-debug
   hardeningDisable = [ "fortify" ];
   buildInputs = [
+    docker-compose
     clang
     cowsay
     e2fsprogs
@@ -36,6 +37,7 @@ mkShell {
     nats-server
     nodejs-12_x
     numactl
+    nvmet-cli
     meson
     ninja
     nvme-cli

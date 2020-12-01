@@ -24,7 +24,7 @@
     "read": "^1.0.7",
     "semistandard": "^14.2.0",
     "sleep-promise": "^8.0.1",
-    "systeminformation": "^4.23.1",
+    "systeminformation": "^4.27.11",
     "wtfnode": "^0.8.1"
   },
   "author": "Jan Kryl <jan.kryl@mayadata.io>",

@@ -61,6 +61,15 @@ impl Descriptor {
         err == 0
     }
 
+    /// unclaim a previously claimed bdev
+    pub(crate) fn unclaim(&self) {
+        unsafe {
+            if !(*self.get_bdev().as_ptr()).internal.claim_module.is_null() {
+                spdk_bdev_module_release_bdev(self.get_bdev().as_ptr());
+            }
+        }
+    }
+
     /// release a previously claimed bdev
     pub fn release(&self) {
         unsafe {
@@ -165,7 +174,7 @@ extern "C" fn _bdev_close(arg: *mut c_void) {
     }
 }
 
-/// when we get hot-removed we might be asked to close ourselves
+/// when we get removed we might be asked to close ourselves
 /// however, this request might come from a different thread as
 /// targets (for example) are running on their own thread.
 impl Drop for Descriptor {
@@ -183,12 +192,16 @@ impl Drop for Descriptor {
 
 impl Debug for Descriptor {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
-        write!(
-            f,
-            "Descriptor {:p} for bdev: {}",
-            self.as_ptr(),
-            self.get_bdev().name()
-        )
+        if !self.0.is_null() {
+            write!(
+                f,
+                "Descriptor {:p} for bdev: {}",
+                self.as_ptr(),
+                self.get_bdev().name()
+            )
+        } else {
+            Ok(())
+        }
     }
 }
 

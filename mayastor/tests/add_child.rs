@@ -3,7 +3,7 @@ extern crate assert_matches;
 
 use mayastor::{
     bdev::{nexus_create, nexus_lookup, ChildState, Reason},
-    core::{mayastor_env_stop, MayastorCliArgs, MayastorEnvironment, Reactor},
+    core::MayastorCliArgs,
 };
 
 static NEXUS_NAME: &str = "nexus";
@@ -17,9 +17,9 @@ static DISKNAME2: &str = "/tmp/disk2.img";
 static BDEVNAME2: &str = "aio:///tmp/disk2.img?blk_size=512";
 
 pub mod common;
+use common::MayastorTest;
 
 fn test_start() {
-    common::mayastor_test_init();
     common::delete_file(&[DISKNAME1.into(), DISKNAME2.into()]);
     common::truncate_file(DISKNAME1, FILE_SIZE);
     common::truncate_file(DISKNAME2, FILE_SIZE);
@@ -30,92 +30,94 @@ fn test_finish() {
     common::delete_file(&disks);
 }
 
-#[test]
-fn add_child() {
+#[tokio::test]
+async fn add_child() {
     test_start();
-    let rc = MayastorEnvironment::new(MayastorCliArgs::default())
-        .start(|| {
-            // Create a nexus with a single child
-            Reactor::block_on(async {
-                let children = vec![BDEVNAME1.to_string()];
-                nexus_create(NEXUS_NAME, 512 * 131_072, None, &children)
-                    .await
-                    .expect("Failed to create nexus");
-            });
+    let ms = MayastorTest::new(MayastorCliArgs::default());
+    // Create a nexus with a single child
+    ms.spawn(async {
+        let children = vec![BDEVNAME1.to_string()];
+        nexus_create(NEXUS_NAME, 512 * 131_072, None, &children)
+            .await
+            .expect("Failed to create nexus");
+    })
+    .await;
 
-            // Test adding a child to an unshared nexus
-            Reactor::block_on(async {
-                let nexus = nexus_lookup(NEXUS_NAME).unwrap();
-                nexus
-                    .add_child(BDEVNAME2, false)
-                    .await
-                    .expect("Failed to add child");
-                assert_eq!(nexus.children.len(), 2);
+    // Test adding a child to an unshared nexus
+    ms.spawn(async {
+        let nexus = nexus_lookup(NEXUS_NAME).unwrap();
+        nexus
+            .add_child(BDEVNAME2, false)
+            .await
+            .expect("Failed to add child");
+        assert_eq!(nexus.children.len(), 2);
 
-                // Expect the added child to be in the out-of-sync state
-                assert_matches!(
-                    nexus.children[1].state(),
-                    ChildState::Faulted(Reason::OutOfSync)
-                );
-            });
+        // Expect the added child to be in the out-of-sync state
+        assert_matches!(
+            nexus.children[1].state(),
+            ChildState::Faulted(Reason::OutOfSync)
+        );
+    })
+    .await;
 
-            // Test removing a child from an unshared nexus
-            Reactor::block_on(async {
-                let nexus = nexus_lookup(NEXUS_NAME).unwrap();
-                nexus
-                    .remove_child(BDEVNAME2)
-                    .await
-                    .expect("Failed to remove child");
-                assert_eq!(nexus.children.len(), 1);
-            });
+    // Test removing a child from an unshared nexus
+    ms.spawn(async {
+        let nexus = nexus_lookup(NEXUS_NAME).unwrap();
+        nexus
+            .remove_child(BDEVNAME2)
+            .await
+            .expect("Failed to remove child");
+        assert_eq!(nexus.children.len(), 1);
+    })
+    .await;
 
-            // Share nexus
-            Reactor::block_on(async {
-                let nexus = nexus_lookup(NEXUS_NAME).unwrap();
-                nexus
-                    .share(rpc::mayastor::ShareProtocolNexus::NexusIscsi, None)
-                    .await
-                    .expect("Failed to share nexus");
-            });
+    // Share nexus
+    ms.spawn(async {
+        let nexus = nexus_lookup(NEXUS_NAME).unwrap();
+        nexus
+            .share(rpc::mayastor::ShareProtocolNexus::NexusIscsi, None)
+            .await
+            .expect("Failed to share nexus");
+    })
+    .await;
 
-            // Test adding a child to a shared nexus
-            Reactor::block_on(async {
-                let nexus = nexus_lookup(NEXUS_NAME).unwrap();
-                nexus
-                    .add_child(BDEVNAME2, false)
-                    .await
-                    .expect("Failed to add child");
-                assert_eq!(nexus.children.len(), 2);
+    // Test adding a child to a shared nexus
+    ms.spawn(async {
+        let nexus = nexus_lookup(NEXUS_NAME).unwrap();
+        nexus
+            .add_child(BDEVNAME2, false)
+            .await
+            .expect("Failed to add child");
+        assert_eq!(nexus.children.len(), 2);
 
-                // Expect the added child to be in the out-of-sync state
-                assert_matches!(
-                    nexus.children[1].state(),
-                    ChildState::Faulted(Reason::OutOfSync)
-                );
-            });
+        // Expect the added child to be in the out-of-sync state
+        assert_matches!(
+            nexus.children[1].state(),
+            ChildState::Faulted(Reason::OutOfSync)
+        );
+    })
+    .await;
 
-            // Test removing a child from a shared nexus
-            Reactor::block_on(async {
-                let nexus = nexus_lookup(NEXUS_NAME).unwrap();
-                nexus
-                    .remove_child(BDEVNAME2)
-                    .await
-                    .expect("Failed to remove child");
-                assert_eq!(nexus.children.len(), 1);
-            });
+    // Test removing a child from a shared nexus
+    ms.spawn(async {
+        let nexus = nexus_lookup(NEXUS_NAME).unwrap();
+        nexus
+            .remove_child(BDEVNAME2)
+            .await
+            .expect("Failed to remove child");
+        assert_eq!(nexus.children.len(), 1);
+    })
+    .await;
 
-            // Unshare nexus
-            Reactor::block_on(async {
-                let nexus = nexus_lookup(NEXUS_NAME).unwrap();
-                nexus
-                    .unshare_nexus()
-                    .await
-                    .expect("Failed to unshare nexus");
-            });
+    // Unshare nexus
+    ms.spawn(async {
+        let nexus = nexus_lookup(NEXUS_NAME).unwrap();
+        nexus
+            .unshare_nexus()
+            .await
+            .expect("Failed to unshare nexus");
+    })
+    .await;
 
-            mayastor_env_stop(0);
-        })
-        .unwrap();
-    assert_eq!(rc, 0);
     test_finish();
 }

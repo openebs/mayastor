@@ -56,7 +56,7 @@ impl From<Bdev> for RpcBdev {
 }
 
 #[derive(Debug)]
-pub struct BdevSvc {}
+pub struct BdevSvc;
 
 #[tonic::async_trait]
 impl BdevRpc for BdevSvc {
@@ -135,7 +135,6 @@ impl BdevRpc for BdevSvc {
                 _ => unreachable!(),
             }
             .await
-            .unwrap()
             .map(|share| {
                 let bdev = Bdev::lookup_by_name(&name).unwrap();
                 Response::new(BdevShareReply {
@@ -158,7 +157,7 @@ impl BdevRpc for BdevSvc {
                     .map_err(|e| Status::internal(e.to_string()));
             });
 
-            hdl.await.unwrap();
+            hdl.await;
             Ok(Response::new(Null {}))
         })
         .await

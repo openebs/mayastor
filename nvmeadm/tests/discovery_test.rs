@@ -1,6 +1,5 @@
 use nvmeadm::nvmf_discovery::{disconnect, DiscoveryBuilder};
 
-use failure::Error;
 use std::{
     fs::File,
     io::prelude::*,
@@ -92,7 +91,7 @@ pub struct NvmfTarget {
 }
 
 impl NvmfTarget {
-    pub fn new(config_file: &str, nvmf_port: &str) -> Result<Self, Error> {
+    pub fn new(config_file: &str, nvmf_port: &str) -> Self {
         create_config_file(config_file, nvmf_port);
         let spdk_proc = Command::new("../target/debug/mayastor")
             .arg("-y")
@@ -109,9 +108,9 @@ impl NvmfTarget {
             .build()
             .unwrap();
 
-        Ok(NvmfTarget {
+        Self {
             spdk_proc,
-        })
+        }
     }
 }
 
@@ -184,6 +183,9 @@ fn test_against_real_target() {
     let _expect_to_connect = explorer
         .connect(SERVED_DISK_NQN)
         .expect("Problem connecting to valid target");
+
+    // allow the part scan to complete for most cases
+    std::thread::sleep(std::time::Duration::from_secs(1));
 
     // Check that we CAN disconnect from a served NQN
     let num_disconnects = disconnect(SERVED_DISK_NQN);

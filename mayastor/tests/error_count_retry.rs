@@ -9,13 +9,7 @@ pub use common::error_bdev::{
 };
 use mayastor::{
     bdev::{nexus_create, nexus_lookup, ActionType, NexusErrStore, QueryType},
-    core::{
-        mayastor_env_stop,
-        Bdev,
-        MayastorCliArgs,
-        MayastorEnvironment,
-        Reactor,
-    },
+    core::{Bdev, MayastorCliArgs},
     subsys::Config,
 };
 
@@ -30,9 +24,9 @@ static EE_ERROR_DEVICE: &str = "EE_error_retry_device"; // The prefix is added b
 static BDEV_EE_ERROR_DEVICE: &str = "bdev:///EE_error_retry_device";
 
 static YAML_CONFIG_FILE: &str = "/tmp/error_count_retry_nexus.yaml";
-
-#[test]
-fn nexus_error_count_retry_test() {
+#[ignore]
+#[tokio::test]
+async fn nexus_error_count_retry_test() {
     common::truncate_file(DISKNAME1, 64 * 1024);
 
     let mut config = Config::default();
@@ -42,28 +36,32 @@ fn nexus_error_count_retry_test() {
     config.err_store_opts.max_io_attempts = 2;
 
     config.write(YAML_CONFIG_FILE).unwrap();
-    test_init!(YAML_CONFIG_FILE);
+    let ms = common::MayastorTest::new(MayastorCliArgs {
+        mayastor_config: Some(YAML_CONFIG_FILE.to_string()),
+        reactor_mask: "0x3".to_string(),
+        ..Default::default()
+    });
 
     // baseline test with no errors injected
-    Reactor::block_on(async {
+    ms.spawn(async {
         create_error_bdev(ERROR_DEVICE, DISKNAME1);
         create_nexus().await;
         err_write_nexus(true).await;
         err_read_nexus(true).await;
-    });
+    })
+    .await;
 
-    common::reactor_run_millis(10); // give time for any errors to be added to the error store
-
-    nexus_err_query_and_test(
+    ms.spawn(nexus_err_query_and_test(
         BDEV_EE_ERROR_DEVICE,
         NexusErrStore::READ_FLAG | NexusErrStore::WRITE_FLAG,
         0,
         Some(1_000_000_000),
-    );
+    ))
+    .await;
 
     // 1 write error injected, 2 attempts allowed, 1 write error should be
     // logged and the IO should succeed
-    Reactor::block_on(async {
+    ms.spawn(async {
         inject_error(
             EE_ERROR_DEVICE,
             SPDK_BDEV_IO_TYPE_WRITE,
@@ -71,20 +69,20 @@ fn nexus_error_count_retry_test() {
             1,
         );
         err_write_nexus(true).await;
-    });
+    })
+    .await;
 
-    common::reactor_run_millis(10); // give time for any errors to be added to the error store
-
-    nexus_err_query_and_test(
+    ms.spawn(nexus_err_query_and_test(
         BDEV_EE_ERROR_DEVICE,
         NexusErrStore::WRITE_FLAG,
         1,
         Some(1_000_000_000),
-    );
+    ))
+    .await;
 
     // 2 errors injected, 2 attempts allowed, 1 read attempt, 2 read errors
     // should be logged and the IO should fail
-    Reactor::block_on(async {
+    ms.spawn(async {
         inject_error(
             EE_ERROR_DEVICE,
             SPDK_BDEV_IO_TYPE_READ,
@@ -92,14 +90,14 @@ fn nexus_error_count_retry_test() {
             2,
         );
         err_read_nexus(false).await;
-    });
+    })
+    .await;
 
     // IO should now succeed
-    Reactor::block_on(async {
+    ms.spawn(async {
         err_read_nexus(true).await;
-    });
-
-    mayastor_env_stop(0);
+    })
+    .await;
 
     common::delete_file(&[DISKNAME1.to_string()]);
     common::delete_file(&[YAML_CONFIG_FILE.to_string()]);
@@ -113,7 +111,7 @@ async fn create_nexus() {
         .unwrap();
 }
 
-fn nexus_err_query_and_test(
+async fn nexus_err_query_and_test(
     child_bdev: &str,
     io_type_flags: u32,
     expected_count: u32,

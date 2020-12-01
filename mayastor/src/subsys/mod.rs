@@ -2,7 +2,7 @@
 //! Main file to register additional subsystems
 
 pub use config::{
-    opts::NexusOpts,
+    opts::{NexusOpts, NvmeBdevOpts},
     BaseBdev,
     Config,
     ConfigSubsystem,
@@ -10,6 +10,7 @@ pub use config::{
     Pool,
 };
 pub use nvmf::{
+    create_snapshot,
     set_snapshot_time,
     Error as NvmfError,
     NvmeCpl,
@@ -28,7 +29,6 @@ pub use mbus::{
     mbus_endpoint,
     message_bus_init,
     registration::Registration,
-    MessageBus,
     MessageBusSubsystem,
 };
 

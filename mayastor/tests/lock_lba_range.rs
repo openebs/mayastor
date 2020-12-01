@@ -1,6 +1,6 @@
+#![allow(clippy::await_holding_refcell_ref)]
 #[macro_use]
 extern crate tracing;
-
 use std::{
     cell::{Ref, RefCell, RefMut},
     ops::{Deref, DerefMut},

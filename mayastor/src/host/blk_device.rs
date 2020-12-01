@@ -127,15 +127,13 @@ fn usable_partition(partition: &Option<Partition>) -> bool {
 // At present this simply involves examining the value of
 // the udev "ID_MODEL" property.
 fn mayastor_device(device: &Device) -> bool {
-    match device
-        .property_value("ID_MODEL")
-        .map(|s| s.to_str())
-        .flatten()
-    {
-        Some("Mayastor NVMe controller") => true, // NVMF
-        Some("Nexus_CAS_Driver") => true,         // iSCSI
-        _ => false,
-    }
+    matches!(
+        device
+            .property_value("ID_MODEL")
+            .map(|s| s.to_str())
+            .flatten(),
+        Some("Mayastor NVMe controller") | Some("Nexus_CAS_Driver")
+    )
 }
 
 // Create a new Partition object from udev::Device properties
@@ -234,7 +232,7 @@ fn new_device(
                 .flatten()
                 .unwrap_or("")
                 .split(' ')
-                .filter(|&s| s != "")
+                .filter(|&s| !s.is_empty())
                 .map(String::from)
                 .collect(),
             size,

@@ -25,12 +25,11 @@ use spdk_sys::{
     LVOL_CLEAR_WITH_UNMAP,
     LVOL_CLEAR_WITH_WRITE_ZEROES,
     LVS_CLEAR_WITH_NONE,
-    SPDK_BDEV_IO_TYPE_UNMAP,
 };
 use url::Url;
 
 use crate::{
-    bdev::{util::uring, Uri},
+    bdev::{nexus::nexus_io::IoType, util::uring, Uri},
     core::{Bdev, Share, Uuid},
     ffihelper::{cb_arg, pair, AsStr, ErrnoResult, FfiResult, IntoCString},
     lvs::{Error, Lvol, PropName, PropValue},
@@ -243,11 +242,12 @@ impl Lvs {
     /// Create a pool on base bdev
     pub async fn create(name: &str, bdev: &str) -> Result<Lvs, Error> {
         let pool_name = name.into_cstring();
+        let bdev_name = bdev.into_cstring();
 
         let (sender, receiver) = pair::<ErrnoResult<Lvs>>();
         unsafe {
             vbdev_lvs_create(
-                Bdev::lookup_by_name(bdev).unwrap().as_ptr(),
+                bdev_name.as_ptr(),
                 pool_name.as_ptr(),
                 0,
                 // We used to clear a pool with UNMAP but that takes awfully
@@ -521,12 +521,12 @@ impl Lvs {
         size: u64,
         thin: bool,
     ) -> Result<Lvol, Error> {
-        let clear_method =
-            if self.base_bdev().io_type_supported(SPDK_BDEV_IO_TYPE_UNMAP) {
-                LVOL_CLEAR_WITH_UNMAP
-            } else {
-                LVOL_CLEAR_WITH_WRITE_ZEROES
-            };
+        let clear_method = if self.base_bdev().io_type_supported(IoType::Unmap)
+        {
+            LVOL_CLEAR_WITH_UNMAP
+        } else {
+            LVOL_CLEAR_WITH_WRITE_ZEROES
+        };
 
         if Bdev::lookup_by_name(name).is_some() {
             return Err(Error::RepExists {

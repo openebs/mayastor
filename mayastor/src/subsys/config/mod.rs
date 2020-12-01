@@ -43,7 +43,7 @@ use crate::{
     lvs::Lvs,
     nexus_uri::bdev_create,
     pool::PoolsIter,
-    replica::{self, ReplicaIter, ShareType},
+    replica::{ReplicaIter, ShareType},
     subsys::{
         config::opts::{
             BdevOpts,
@@ -86,7 +86,7 @@ impl ConfigSubsystem {
         // if no config file is given, simply return Ok().
         jsonrpc_register::<(), _, _, Error>("mayastor_config_export", |_| {
             let f = async move {
-                let cfg = Config::get().refresh().unwrap();
+                let cfg = Config::get().refresh();
                 if let Some(target) = cfg.source.as_ref() {
                     if let Err(e) = cfg.write(&target) {
                         error!("error writing config file {} {}", target, e);
@@ -156,6 +156,8 @@ pub struct Config {
     pub nexus_opts: NexusOpts,
     /// error store opts
     pub err_store_opts: ErrStoreOpts,
+    /// list of pools to create on load
+    pub pools: Option<Vec<Pool>>,
     ///
     /// The next options are intended for usage during testing
     ///
@@ -163,9 +165,7 @@ pub struct Config {
     pub base_bdevs: Option<Vec<BaseBdev>>,
     /// list of nexus bdevs that will create the base bdevs implicitly
     pub nexus_bdevs: Option<Vec<NexusBdev>>,
-    /// list of pools to create on load, the base_bdevs should be created first
-    pub pools: Option<Vec<Pool>>,
-    /// any  base bdevs created implicitly share them over nvmf
+    /// any base bdevs created implicitly are shared over nvmf
     pub implicit_share_base: bool,
     /// flag to enable or disable config sync
     pub sync_disable: bool,
@@ -208,7 +208,7 @@ impl Config {
     /// read the config file from disk. If the config file is empty, return the
     /// default config, but store the empty config file with in the struct to be
     /// used during saving to disk.
-    pub fn read<P>(file: P) -> Result<Config, ()>
+    pub fn read<P>(file: P) -> Result<Config, serde_yaml::Error>
     where
         P: AsRef<Path> + Display + ToString,
     {
@@ -222,7 +222,7 @@ impl Config {
                 Ok(v) => config = v,
                 Err(e) => {
                     error!("{}", e);
-                    return Err(());
+                    return Err(e);
                 }
             };
         } else {
@@ -240,7 +240,7 @@ impl Config {
 
     /// collect current configuration snapshot into a new Config object that can
     /// be exported to a file (YAML or JSON)
-    pub fn refresh(&self) -> Result<Self, ()> {
+    pub fn refresh(&self) -> Self {
         // the config is immutable, so we construct a new one which is mutable
         // such that we can scribble in the current bdevs. The config
         // gets loaded with the current settings, as we know that these
@@ -310,7 +310,26 @@ impl Config {
 
         current.pools = Some(pools);
 
-        Ok(current)
+        current
+    }
+
+    /// write the current pool configuration to disk
+    pub fn write_pools<P>(&self, file: P) -> Result<(), std::io::Error>
+    where
+        P: AsRef<Path>,
+    {
+        let pools = serde_json::json!({
+            "pools": self.pools.clone()
+        });
+
+        if let Ok(s) = serde_yaml::to_string(&pools) {
+            let mut file = File::create(file)?;
+            return file.write_all(s.as_bytes());
+        }
+        Err(std::io::Error::new(
+            std::io::ErrorKind::Other,
+            "failed to serialize the pool config",
+        ))
     }
 
     /// write the current configuration to disk
@@ -334,7 +353,7 @@ impl Config {
     pub fn apply(&self) {
         info!("Applying Mayastor configuration settings");
         // note: nvmf target does not have a set method
-        self.nvme_bdev_opts.set();
+        assert_eq!(self.nvme_bdev_opts.set(), true);
         self.bdev_opts.set();
         self.iscsi_tgt_conf.set();
     }
@@ -483,38 +502,6 @@ impl Config {
         failures
     }
 
-    /// Share any pool replicas defined in the config file.
-    async fn share_replicas(&self) {
-        if let Some(pools) = self.pools.as_ref() {
-            let replicas = pools
-                .iter()
-                .map(|p| {
-                    p.replicas
-                        .iter()
-                        .filter(|r| r.share.is_some())
-                        .filter_map(|replica| {
-                            ReplicaIter::new()
-                                .find(|dev| dev.get_uuid() == replica.name)
-                                .map(|dev| (dev, replica.share.unwrap()))
-                        })
-                        .collect::<Vec<(replica::Replica, ShareType)>>()
-                })
-                .flatten()
-                .collect::<Vec<(replica::Replica, ShareType)>>();
-
-            for (dev, share) in replicas {
-                if let Err(error) = dev.share(share).await {
-                    error!(
-                        "Failed to share {} over {:?}, error={}",
-                        dev.get_uuid(),
-                        share,
-                        error
-                    );
-                }
-            }
-        }
-    }
-
     pub fn import_nexuses() -> bool {
         match std::env::var_os("IMPORT_NEXUSES") {
             Some(val) => val.into_string().unwrap().parse::<bool>().unwrap(),
@@ -535,7 +522,6 @@ impl Config {
             // the nexus create will fail
 
             let mut errors = self.create_pools().await;
-            self.share_replicas().await;
 
             if Self::import_nexuses() {
                 errors += self.create_nexus_bdevs().await;
@@ -551,9 +537,9 @@ impl Config {
 
     /// exports the current configuration to the mayastor config file
     pub(crate) fn export_config() -> Result<(), std::io::Error> {
-        let cfg = Config::get().refresh().unwrap();
+        let cfg = Config::get().refresh();
         match cfg.source.as_ref() {
-            Some(target) => cfg.write(&target),
+            Some(target) => cfg.write_pools(&target),
             // no config file to export to
             None => Ok(()),
         }
@@ -585,7 +571,7 @@ pub struct BaseBdev {
     pub uri: String,
 }
 
-#[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Default, PartialEq, Serialize, Deserialize, Clone)]
 /// Pools that we create. Future work will include the ability to create RAID0
 /// or RAID5.
 pub struct Pool {
@@ -593,7 +579,7 @@ pub struct Pool {
     pub name: String,
     /// bdevs to create outside of the nexus control
     pub disks: Vec<String>,
-    /// list of replicas to share on load
+    /// list of replicas (not required, informational only)
     pub replicas: Vec<Replica>,
 }
 
@@ -607,7 +593,7 @@ impl From<&Pool> for rpc::mayastor::CreatePoolRequest {
     }
 }
 
-#[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Default, PartialEq, Serialize, Deserialize, Clone)]
 /// Pool replicas that we share via `ShareType`
 pub struct Replica {
     /// name of the replica

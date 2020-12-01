@@ -26,26 +26,25 @@ pub enum Error {
     GenericError(String),
 }
 
-impl Error {
-    /// Conversion from jsonrpc error to grpc status.
-    ///
-    /// NOTE: normally we would have a From<Error> trait for Status type, but
-    /// we can't since both Status type and From trait are external.
-    pub fn into_status(self) -> Status {
-        match self {
+impl From<RpcCode> for Code {
+    fn from(code: RpcCode) -> Code {
+        match code {
+            RpcCode::InvalidParams => Code::InvalidArgument,
+            RpcCode::NotFound => Code::NotFound,
+            RpcCode::AlreadyExists => Code::AlreadyExists,
+            _ => Code::Internal,
+        }
+    }
+}
+
+impl From<Error> for Status {
+    fn from(error: Error) -> Status {
+        match error {
             Error::RpcError {
                 code,
                 msg,
-            } => {
-                let code = match code {
-                    RpcCode::InvalidParams => Code::InvalidArgument,
-                    RpcCode::NotFound => Code::NotFound,
-                    RpcCode::AlreadyExists => Code::AlreadyExists,
-                    _ => Code::Internal,
-                };
-                Status::new(code, msg)
-            }
-            _ => Status::new(Code::Internal, self.to_string()),
+            } => Status::new(code.into(), msg),
+            _ => Status::new(Code::Internal, error.to_string()),
         }
     }
 }
@@ -70,11 +69,6 @@ impl fmt::Display for Error {
     }
 }
 
-impl From<Error> for Status {
-    fn from(e: Error) -> Self {
-        e.into_status()
-    }
-}
 // Automatic conversion functions for simply using .into() on various return
 // types follow
 

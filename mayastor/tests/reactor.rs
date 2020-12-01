@@ -17,9 +17,11 @@ pub mod common;
 // This test requires the system to have at least 2 cpus
 #[test]
 fn reactor_start_stop() {
-    common::mayastor_test_init();
-    let mut args = MayastorCliArgs::default();
-    args.reactor_mask = "0x1".to_string();
+    let args = MayastorCliArgs {
+        reactor_mask: "0x3".into(),
+        ..Default::default()
+    };
+
     let ms = MayastorEnvironment::new(args);
 
     static mut WAIT_FOR: Lazy<AtomicUsize> =

@@ -60,6 +60,7 @@ service Mayastor {
   rpc PauseRebuild (PauseRebuildRequest) returns (Null) {}
   rpc ResumeRebuild (ResumeRebuildRequest) returns (Null) {}
   rpc GetRebuildState (RebuildStateRequest) returns (RebuildStateReply) {}
+  rpc GetRebuildStats (RebuildStatsRequest) returns (RebuildStatsReply) {}
   rpc GetRebuildProgress (RebuildProgressRequest) returns (RebuildProgressReply) {}
 
   // Snapshot operations
@@ -67,6 +68,9 @@ service Mayastor {
 
   // Enumerate block devices on current host
   rpc ListBlockDevices (ListBlockDevicesRequest) returns (ListBlockDevicesReply) {}
+
+  // Obtain resource usage statistics for the current process
+  rpc GetResourceUsage (Null) returns (GetResourceUsageReply) {}
 }
 
 // Means no arguments or no return value.
@@ -289,6 +293,21 @@ message RebuildStateReply {
   string state = 1; // current rebuild state (i.e. ready/running/completed etc.)
 }
 
+message RebuildStatsRequest {
+  string uuid = 1;  // uuid of the nexus
+  string uri = 2;   // uri of the destination child
+}
+
+message RebuildStatsReply {
+  uint64 blocks_total = 1; // total number of blocks to recover
+  uint64 blocks_recovered = 2; // number of blocks recovered
+  uint64 progress = 3; // rebuild progress %
+  uint64 segment_size_blks = 4; // granularity of each recovery copy in blocks
+  uint64 block_size = 5; // size in bytes of each block
+  uint64 tasks_total = 6; // total number of concurrent rebuild tasks
+  uint64 tasks_active = 7; // number of current active tasks
+}
+
 message StartRebuildRequest {
   string uuid = 1;  // uuid of the nexus
   string uri = 2;   // uri of the child to be rebuilt
@@ -324,6 +343,59 @@ message CreateSnapshotRequest {
 
 message CreateSnapshotReply {
   string name = 1; // name of snapshot created
+}
+
+message BlockDevice {
+  message Partition {
+    string parent = 1;          // devname of parent device to which this partition belongs
+    uint32 number = 2;          // partition number
+    string name = 3;            // partition name
+    string scheme = 4;          // partition scheme: gpt, dos, ...
+    string typeid = 5;          // partition type identifier
+    string uuid = 6;            // UUID identifying partition
+  }
+  message Filesystem {
+    string fstype = 1;          // filesystem type: ext3, ntfs, ...
+    string label = 2;           // volume label
+    string uuid = 3;            // UUID identifying the volume (filesystem)
+    string mountpoint = 4;      // path where filesystem is currently mounted
+  }
+  string devname = 1;           // entry in /dev associated with device
+  string devtype = 2;           // currently "disk" or "partition"
+  uint32 devmajor = 3;          // major device number
+  uint32 devminor = 4;          // minor device number
+  string model = 5;             // device model - useful for identifying mayastor devices
+  string devpath = 6;           // official device path
+  repeated string devlinks = 7; // list of udev generated symlinks by which device may be identified
+  uint64 size = 8;              // size of device in (512 byte) blocks
+  Partition partition = 9;      // partition information in case where device represents a partition
+  Filesystem filesystem = 10;   // filesystem information in case where a filesystem is present
+  bool available = 11;          // identifies if device is available for use (ie. is not "currently" in use)
+}
+
+message ListBlockDevicesRequest {
+  bool all = 1;                 // list "all" block devices found (not just "available" ones)
+}
+
+message ListBlockDevicesReply {
+  repeated BlockDevice devices = 1;
+}
+
+message ResourceUsage {
+  int64 soft_faults = 1;        // page reclaims (soft page faults)
+  int64 hard_faults = 2;        // hard page faults
+  int64 swaps = 3;              // swaps
+  int64 in_block_ops = 4;       // input block operations
+  int64 out_block_ops = 5;      // output block operations
+  int64 ipc_msg_send = 6;       // IPC messages sent
+  int64 ipc_msg_rcv = 7;        // IPC messages received
+  int64 signals = 8;            // signals received
+  int64 vol_csw = 9;            // voluntary context switches
+  int64 invol_csw = 10;         // involuntary context switches
+}
+
+message GetResourceUsageReply {
+  ResourceUsage usage = 1;
 }
 
 // Anything what follows here are private interfaces used for interacting with
@@ -372,38 +444,18 @@ message CreateReply {
   string name = 1;
 }
 
-message BlockDevice {
-  message Partition {
-    string parent = 1;          // devname of parent device to which this partition belongs
-    uint32 number = 2;          // partition number
-    string name = 3;            // partition name
-    string scheme = 4;          // partition scheme: gpt, dos, ...
-    string typeid = 5;          // partition type identifier
-    string uuid = 6;            // UUID identifying partition
-  }
-  message Filesystem {
-    string fstype = 1;          // filesystem type: ext3, ntfs, ...
-    string label = 2;           // volume label
-    string uuid = 3;            // UUID identifying the volume (filesystem)
-    string mountpoint = 4;      // path where filesystem is currently mounted
-  }
-  string devname = 1;           // entry in /dev associated with device
-  string devtype = 2;           // currently "disk" or "partition"
-  uint32 devmajor = 3;          // major device number
-  uint32 devminor = 4;          // minor device number
-  string model = 5;             // device model - useful for identifying mayastor devices
-  string devpath = 6;           // official device path
-  repeated string devlinks = 7; // list of udev generated symlinks by which device may be identified
-  uint64 size = 8;              // size of device in (512 byte) blocks
-  Partition partition = 9;      // partition information in case where device represents a partition
-  Filesystem filesystem = 10;   // filesystem information in case where a filesystem is present
-  bool available = 11;          // identifies if device is available for use (ie. is not "currently" in use)
+// SPDK json-rpc proxy service
+
+service JsonRpc {
+  // Call a (SPDK) json-rpc method
+  rpc JsonRpcCall (JsonRpcRequest) returns (JsonRpcReply) {}
 }
 
-message ListBlockDevicesRequest {
-  bool all = 1;                 // list "all" block devices found (not just "available" ones)
+message JsonRpcRequest {
+    string method = 1;
+    string params = 2;
 }
 
-message ListBlockDevicesReply {
-  repeated BlockDevice devices = 1;
+message JsonRpcReply {
+    string result = 1;
 }

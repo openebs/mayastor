@@ -1,5 +1,8 @@
 use core::fmt;
-use std::fmt::{Debug, Formatter};
+use std::{
+    fmt::{Debug, Formatter},
+    ptr::NonNull,
+};
 
 use libc::c_void;
 
@@ -12,13 +15,20 @@ use spdk_sys::{
 };
 
 use crate::{
-    bdev::nexus::{
-        nexus_bdev::{Nexus, NEXUS_PRODUCT_ID},
-        nexus_fn_table::NexusFnTable,
+    bdev::{
+        nexus::{
+            nexus_bdev::{Nexus, NEXUS_PRODUCT_ID},
+            nexus_channel::DREvent,
+            nexus_fn_table::NexusFnTable,
+        },
+        nexus_lookup,
+        ChildState,
+        NexusStatus,
+        Reason,
     },
-    core::Bdev,
+    core::{Bdev, Cores, GenericStatusCode, Mthread, NvmeStatus, Reactors},
+    nexus_uri::bdev_destroy,
 };
-use std::ptr::NonNull;
 
 /// NioCtx provides context on a per IO basis
 #[derive(Debug, Clone)]
@@ -26,9 +36,17 @@ pub struct NioCtx {
     /// read consistency
     pub(crate) in_flight: i8,
     /// status of the IO
-    pub(crate) status: i32,
+    pub(crate) status: IoStatus,
     /// attempts left
     pub(crate) io_attempts: i32,
+}
+
+impl NioCtx {
+    #[inline]
+    pub fn dec(&mut self) {
+        self.in_flight -= 1;
+        debug_assert!(self.in_flight >= 0);
+    }
 }
 
 /// BIO is a wrapper to provides a "less unsafe" wrappers around raw
@@ -53,7 +71,7 @@ pub struct NioCtx {
 /// 2.  The IO pointers are never accessed from any other thread
 /// and care must be taken that you never pass an IO ptr to another core
 #[derive(Clone)]
-pub(crate) struct Bio(NonNull<spdk_bdev_io>);
+pub struct Bio(NonNull<spdk_bdev_io>);
 
 impl From<*mut c_void> for Bio {
     fn from(io: *mut c_void) -> Self {
@@ -67,41 +85,138 @@ impl From<*mut spdk_bdev_io> for Bio {
     }
 }
 
-/// redefinition of IO types to make them (a) shorter and (b) get rid of the
-/// enum conversion bloat.
-///
-/// The commented types are currently not used in our code base, uncomment as
-/// needed.
-pub mod io_type {
-    pub const READ: u32 = 1;
-    pub const WRITE: u32 = 2;
-    pub const UNMAP: u32 = 3;
-    //    pub const INVALID: u32 = 0;
-    pub const FLUSH: u32 = 4;
-    pub const RESET: u32 = 5;
-    pub const NVME_ADMIN: u32 = 6;
-    //    pub const NVME_IO: u32 = 7;
-    //    pub const NVME_IO_MD: u32 = 8;
-    pub const WRITE_ZEROES: u32 = 9;
-    //    pub const ZCOPY: u32 = 10;
-    //    pub const GET_ZONE_INFO: u32 = 11;
-    //    pub const ZONE_MANAGMENT: u32 = 12;
-    //    pub const ZONE_APPEND: u32 = 13;
-    //    pub const IO_NUM_TYPES: u32 = 14;
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Eq)]
+pub enum IoType {
+    Invalid,
+    Read,
+    Write,
+    Unmap,
+    Flush,
+    Reset,
+    NvmeAdmin,
+    NvmeIO,
+    NvmeIOMD,
+    WriteZeros,
+    ZeroCopy,
+    ZoneInfo,
+    ZoneManagement,
+    ZoneAppend,
+    Compare,
+    CompareAndWrite,
+    Abort,
+    IoNumTypes,
 }
 
-/// the status of an IO - note: values copied from spdk bdev_module.h
-pub mod io_status {
-    //pub const NOMEM: i32 = -4;
-    //pub const SCSI_ERROR: i32 = -3;
-    //pub const NVME_ERROR: i32 = -2;
-    pub const FAILED: i32 = -1;
-    //pub const PENDING: i32 = 0;
-    pub const SUCCESS: i32 = 1;
+impl From<IoType> for u32 {
+    fn from(t: IoType) -> Self {
+        match t {
+            IoType::Invalid => 0,
+            IoType::Read => 1,
+            IoType::Write => 2,
+            IoType::Unmap => 3,
+            IoType::Flush => 4,
+            IoType::Reset => 5,
+            IoType::NvmeAdmin => 6,
+            IoType::NvmeIO => 7,
+            IoType::NvmeIOMD => 8,
+            IoType::WriteZeros => 9,
+            IoType::ZeroCopy => 10,
+            IoType::ZoneInfo => 11,
+            IoType::ZoneManagement => 12,
+            IoType::ZoneAppend => 13,
+            IoType::Compare => 14,
+            IoType::CompareAndWrite => 15,
+            IoType::Abort => 16,
+            IoType::IoNumTypes => 17,
+        }
+    }
 }
 
+impl From<u32> for IoType {
+    fn from(u: u32) -> Self {
+        match u {
+            0 => Self::Invalid,
+            1 => Self::Read,
+            2 => Self::Write,
+            3 => Self::Unmap,
+            4 => Self::Flush,
+            5 => Self::Reset,
+            6 => Self::NvmeAdmin,
+            7 => Self::NvmeIO,
+            8 => Self::NvmeIOMD,
+            9 => Self::WriteZeros,
+            10 => Self::ZeroCopy,
+            11 => Self::ZoneInfo,
+            12 => Self::ZoneManagement,
+            13 => Self::ZoneAppend,
+            14 => Self::Compare,
+            15 => Self::CompareAndWrite,
+            16 => Self::Abort,
+            17 => Self::IoNumTypes,
+            _ => panic!("invalid IO type"),
+        }
+    }
+}
+
+#[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum IoStatus {
+    Aborted,
+    FirstFusedFailed,
+    MisCompared,
+    NoMemory,
+    ScsiError,
+    NvmeError,
+    Failed,
+    Pending,
+    Success,
+}
+
+impl From<i32> for IoStatus {
+    fn from(status: i32) -> Self {
+        match status {
+            -7 => Self::Aborted,
+            -6 => Self::FirstFusedFailed,
+            -5 => Self::MisCompared,
+            -4 => Self::NoMemory,
+            -3 => Self::ScsiError,
+            -2 => Self::NvmeError,
+            -1 => Self::Failed,
+            0 => Self::Pending,
+            1 => Self::Success,
+            _ => panic!("invalid status code"),
+        }
+    }
+}
+
+impl From<IoStatus> for i32 {
+    fn from(i: IoStatus) -> Self {
+        match i {
+            IoStatus::Aborted => -7,
+            IoStatus::FirstFusedFailed => -6,
+            IoStatus::MisCompared => -5,
+            IoStatus::NoMemory => -4,
+            IoStatus::ScsiError => -3,
+            IoStatus::NvmeError => -2,
+            IoStatus::Failed => -1,
+            IoStatus::Pending => 0,
+            IoStatus::Success => 1,
+        }
+    }
+}
+
+impl From<i8> for IoStatus {
+    fn from(status: i8) -> Self {
+        (status as i32).into()
+    }
+}
 /// NVMe Admin opcode, from nvme_spec.h
 pub mod nvme_admin_opc {
+    // pub const GET_LOG_PAGE: u8 = 0x02;
+    pub const IDENTIFY: u8 = 0x06;
+    // pub const ABORT: u8 = 0x08;
+    // pub const SET_FEATURES: u8 = 0x09;
+    // pub const GET_FEATURES: u8 = 0x0a;
     // Vendor-specific
     pub const CREATE_SNAPSHOT: u8 = 0xc0;
 }
@@ -124,7 +239,7 @@ impl Bio {
     /// reset the ctx fields of an spdk_bdev_io to submit or resubmit an IO
     pub fn reset(&mut self, in_flight: usize) {
         self.ctx_as_mut_ref().in_flight = in_flight as i8;
-        self.ctx_as_mut_ref().status = io_status::SUCCESS;
+        self.ctx_as_mut_ref().status = IoStatus::Success;
     }
 
     /// complete an IO for the nexus. In the IO completion routine in
@@ -134,7 +249,7 @@ impl Bio {
     pub(crate) fn ok(&mut self) {
         if cfg!(debug_assertions) {
             // have a child IO that has failed
-            if self.ctx_as_mut_ref().status < 0 {
+            if self.ctx_as_mut_ref().status != IoStatus::Success {
                 debug!("BIO for nexus {} failed", self.nexus_as_ref().name)
             }
             // we are marking the IO done but not all child IOs have returned,
@@ -144,40 +259,24 @@ impl Bio {
             }
         }
         unsafe {
-            spdk_bdev_io_complete(self.0.as_ptr(), io_status::SUCCESS);
+            spdk_bdev_io_complete(self.0.as_ptr(), IoStatus::Success.into())
         }
     }
     /// mark the IO as failed
     #[inline]
     pub(crate) fn fail(&self) {
         unsafe {
-            spdk_bdev_io_complete(self.0.as_ptr(), io_status::FAILED);
+            spdk_bdev_io_complete(self.0.as_ptr(), IoStatus::Failed.into())
         }
     }
 
-    /// assess the IO if we need to mark it failed or ok.
     #[inline]
-    pub(crate) fn assess(&mut self, child_io: &mut Bio, success: bool) {
-        self.ctx_as_mut_ref().in_flight -= 1;
-
-        debug_assert!(self.ctx_as_mut_ref().in_flight >= 0);
-
-        if !success {
-            let io_offset = self.offset();
-            let io_num_blocks = self.num_blocks();
-            self.nexus_as_ref().error_record_add(
-                child_io.bdev_as_ref().as_ptr(),
-                self.io_type(),
-                io_status::FAILED,
-                io_offset,
-                io_num_blocks,
-            );
-        }
-
-        if self.ctx_as_mut_ref().in_flight == 0 {
-            if self.ctx_as_mut_ref().status == io_status::FAILED {
-                self.ctx_as_mut_ref().io_attempts -= 1;
-                if self.ctx_as_mut_ref().io_attempts > 0 {
+    pub(crate) fn complete(&mut self) {
+        let pio_ctx = self.ctx_as_mut_ref();
+        if pio_ctx.in_flight == 0 {
+            if pio_ctx.status == IoStatus::Failed {
+                pio_ctx.io_attempts -= 1;
+                if pio_ctx.io_attempts > 0 {
                     NexusFnTable::io_submit_or_resubmit(
                         self.io_channel(),
                         &mut self.clone(),
@@ -191,6 +290,65 @@ impl Bio {
         }
     }
 
+    /// assess the IO if we need to mark it failed or ok.
+    #[inline]
+    pub(crate) fn assess(&mut self, child_io: &mut Bio, success: bool) {
+        self.ctx_as_mut_ref().dec();
+
+        if !success {
+            // currently, only tests send those but invalid op codes should not
+            // result into faulting a child device.
+            if NvmeStatus::from(child_io.clone()).status_code()
+                == GenericStatusCode::InvalidOpcode
+            {
+                self.complete();
+                return;
+            }
+
+            // all other status codes indicate a fatal error
+            Reactors::master().send_future(Self::child_retire(
+                self.nexus_as_ref().name.clone(),
+                child_io.bdev_as_ref(),
+            ));
+        }
+
+        self.complete();
+    }
+
+    async fn child_retire(nexus: String, child: Bdev) {
+        error!("{:#?}", child);
+
+        if let Some(nexus) = nexus_lookup(&nexus) {
+            if let Some(child) = nexus.child_lookup(&child.name()) {
+                let current_state = child.state.compare_and_swap(
+                    ChildState::Open,
+                    ChildState::Faulted(Reason::IoError),
+                );
+
+                if current_state == ChildState::Open {
+                    warn!(
+                        "core {} thread {:?}, faulting child {}",
+                        Cores::current(),
+                        Mthread::current(),
+                        child,
+                    );
+
+                    let uri = child.name.clone();
+                    nexus.pause().await.unwrap();
+                    nexus.reconfigure(DREvent::ChildFault).await;
+                    //nexus.remove_child(&uri).await.unwrap();
+                    bdev_destroy(&uri).await.unwrap();
+                    if nexus.status() != NexusStatus::Faulted {
+                        nexus.resume().await.unwrap();
+                    } else {
+                        error!(":{} has no children left... ", nexus);
+                    }
+                }
+            }
+        } else {
+            debug!("{} does not belong (anymore) to nexus {}", child, nexus);
+        }
+    }
     /// obtain the Nexus struct embedded within the bdev
     pub(crate) fn nexus_as_ref(&self) -> &Nexus {
         let b = self.bdev_as_ref();
@@ -256,14 +414,18 @@ impl Bio {
 
     /// determine the type of this IO
     #[inline]
-    pub(crate) fn io_type(&self) -> u32 {
-        unsafe { self.0.as_ref().type_ as u32 }
+    pub(crate) fn io_type(&self) -> IoType {
+        unsafe { self.0.as_ref().type_ as u32 }.into()
     }
 
     /// get the block length of this IO
     #[inline]
     pub(crate) fn block_len(&self) -> u64 {
         self.bdev_as_ref().block_len() as u64
+    }
+    #[inline]
+    pub(crate) fn status(&self) -> IoStatus {
+        unsafe { self.0.as_ref().internal.status }.into()
     }
 
     /// determine if the IO needs an indirect buffer this can happen for example
@@ -289,11 +451,12 @@ impl Debug for Bio {
     fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
         writeln!(
             f,
-            "bdev: {} offset: {:?}, num_blocks: {:?}, type: {:?} {:p} ",
+            "bdev: {} offset: {:?}, num_blocks: {:?}, type: {:?} status: {:?}, {:p} ",
             self.bdev_as_ref().name(),
             self.offset(),
             self.num_blocks(),
             self.io_type(),
+            self.status(),
             self
         )
     }

@@ -5,9 +5,9 @@ use the nightly compiler. Nightly is required in all of the provided build possi
 
 Build options
 ==================
-- [Building with Nix (recommended)](Building-the-sources-with-nixpkg)
-- [Build inside docker](Build-inside-docker)
-- [Building the hard way](Build-it-the-hard-way)
+- [Building with Nix (recommended)](#Building-the-sources-with-nixpkg)
+- [Build inside docker](#Build-inside-docker)
+- [Building the hard way](#Build-it-the-hard-way)
 
 ## Building the sources with nixpkg
 
@@ -45,7 +45,7 @@ Installation of a [nix package manager](https://nixos.org/nix/download.html) on
 other distros:
 
 ```bash
-curl https://nixos.org/nix/install | sh
+curl -L https://nixos.org/nix/install | sh
 ```
 
 We have provided a `shell.nix` file that can be used to build and compile

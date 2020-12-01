@@ -9,6 +9,7 @@ use std::{
 use async_trait::async_trait;
 use futures::channel::oneshot;
 use snafu::ResultExt;
+use tracing::instrument;
 use url::Url;
 
 use spdk_sys::{
@@ -137,6 +138,7 @@ impl CreateDestroy for Nvmf {
     type Error = NexusBdevError;
 
     /// Create an NVMF bdev
+    #[instrument(err)]
     async fn create(&self) -> Result<String, Self::Error> {
         if Bdev::lookup_by_name(&self.get_name()).is_some() {
             return Err(NexusBdevError::BdevExists {

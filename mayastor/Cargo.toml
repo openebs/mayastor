@@ -33,8 +33,11 @@ name = "casperf"
 path = "src/bin/casperf.rs"
 
 [dependencies]
-async-task = "3.0"
+ansi_term = "0.12"
+async-mutex = "1.4.0"
+async-task = "4.0.2"
 async-trait = "0.1.36"
+atty = "0.2"
 bincode = "1.2"
 byte-unit = "3.0.1"
 bytes = "0.4.12"
@@ -48,7 +51,7 @@ env_logger = "0.7"
 futures = "0.3"
 futures-timer = "2.0"
 git-version = "0.3"
-io-uring = "0.3.4"
+io-uring = "0.4.0"
 ioctl-gen = "0.1.1"
 jsonrpc = { path = "../jsonrpc"}
 libc = "0.2"
@@ -70,13 +73,18 @@ nats = "0.8"
 tonic = "0.1"
 tower = "0.3"
 tracing = "0.1"
+tracing-core = "0.1"
 tracing-futures = "0.2.4"
-tracing-log = "0.1.1"
-tracing-subscriber = "0.2.0"
+tracing-log = "0.1"
+tracing-subscriber = "0.2"
 udev = "0.4"
 url = "2.1"
 smol = "1.0.0"
 dns-lookup = "1.0.4"
+ipnetwork = "0.17.0"
+bollard = "0.8.0"
+mbus_api = { path = "../mbus-api" }
+nvmeadm = {path = "../nvmeadm", version = "0.1.0"}
 
 [dependencies.rpc]
 path = "../rpc"
@@ -102,3 +110,4 @@ version = "0.7"
 [dev-dependencies]
 assert_matches = "1.2"
 run_script = "*"
+composer = { path = "../composer" }

@@ -1,5 +1,5 @@
-use crate::parse_value;
-use failure::Error;
+use crate::{error, parse_value};
+use error::NvmeError;
 use glob::glob;
 use std::{os::unix::fs::FileTypeExt, path::Path};
 
@@ -10,7 +10,7 @@ use std::{os::unix::fs::FileTypeExt, path::Path};
 #[derive(Debug, Default)]
 pub struct NvmeDevice {
     /// device path of the device
-    path: String,
+    pub path: String,
     /// the device model defined by the manufacturer
     model: String,
     /// serial number of the device
@@ -26,14 +26,14 @@ pub struct NvmeDevice {
     /// firmware revision
     fw_rev: String,
     /// the nqn of the subsystem this device instance is connected to
-    subsysnqn: String,
+    pub subsysnqn: String,
 }
 
 impl NvmeDevice {
     /// Construct a new NVMe device from a given path. The [struct.NvmeDevice]
     /// will fill in all the details defined within the structure or return an
     /// error if the value for the structure could not be found.
-    fn new(p: &Path) -> Result<Self, Error> {
+    fn new(p: &Path) -> Result<Self, NvmeError> {
         let name = p.file_name().unwrap().to_str().unwrap();
         let devpath = format!("/sys/block/{}", name);
         let subsyspath = format!("/sys/block/{}/device", name);
@@ -47,11 +47,12 @@ impl NvmeDevice {
             model: parse_value(&subsys, "model")?,
             serial: parse_value(&subsys, "serial")?,
             size: parse_value(&source, "size")?,
-            // NOTE: during my testing, it seems that NON fabric devices
-            // do not have a UUID, this means that local PCIe devices will
-            // be filtered out automatically. We should not depend on this
-            // feature or, bug until we gather more data
-            uuid: parse_value(&source, "uuid")?,
+            // /* NOTE: during my testing, it seems that NON fabric devices
+            //  * do not have a UUID, this means that local PCIe devices will
+            //  * be filtered out automatically. We should not depend on this
+            //  * feature or, bug until we gather more data
+            uuid: parse_value(&source, "uuid")
+                .unwrap_or_else(|_| String::from("N/A")),
             wwid: parse_value(&source, "wwid")?,
             nsid: parse_value(&source, "nsid")?,
         })
@@ -65,7 +66,7 @@ pub struct NvmeDeviceList {
 }
 
 impl Iterator for NvmeDeviceList {
-    type Item = Result<NvmeDevice, Error>;
+    type Item = Result<NvmeDevice, NvmeError>;
     fn next(&mut self) -> Option<Self::Item> {
         if let Some(e) = self.devices.pop() {
             return Some(NvmeDevice::new(Path::new(&e)));

@@ -1,7 +1,11 @@
 use futures::channel::oneshot::Receiver;
 use snafu::ResultExt;
 
-use rpc::mayastor::{RebuildProgressReply, RebuildStateReply};
+use rpc::mayastor::{
+    RebuildProgressReply,
+    RebuildStateReply,
+    RebuildStatsReply,
+};
 
 use crate::{
     bdev::{
@@ -21,7 +25,13 @@ use crate::{
         VerboseError,
     },
     core::Reactors,
-    rebuild::{ClientOperations, RebuildError, RebuildJob, RebuildState},
+    rebuild::{
+        ClientOperations,
+        RebuildError,
+        RebuildJob,
+        RebuildState,
+        RebuildStats,
+    },
 };
 
 impl Nexus {
@@ -101,11 +111,17 @@ impl Nexus {
     /// used for shutdown operations and
     /// unlike the client operation stop, this command does not fail
     /// as it overrides the previous client operations
-    fn terminate_rebuild(&self, name: &str) {
+    async fn terminate_rebuild(&self, name: &str) {
         // If a rebuild job is not found that's ok
         // as we were just going to remove it anyway.
         if let Ok(rj) = self.get_rebuild_job(name) {
-            let _ = rj.as_client().terminate();
+            let ch = rj.as_client().terminate();
+            if let Err(e) = ch.await {
+                error!(
+                    "Failed to wait on rebuild job for child {} to terminate with error {}", name,
+                    e.verbose()
+                );
+            }
         }
     }
 
@@ -151,6 +167,15 @@ impl Nexus {
         })
     }
 
+    /// Return the stats of a rebuild job
+    pub async fn get_rebuild_stats(
+        &mut self,
+        name: &str,
+    ) -> Result<RebuildStatsReply, Error> {
+        let rj = self.get_rebuild_job(name)?;
+        Ok(rj.stats().into())
+    }
+
     /// Returns the rebuild progress of child target `name`
     pub fn get_rebuild_progress(
         &self,
@@ -165,10 +190,7 @@ impl Nexus {
 
     /// Cancels all rebuilds jobs associated with the child.
     /// Returns a list of rebuilding children whose rebuild job was cancelled.
-    pub async fn cancel_child_rebuild_jobs(
-        &mut self,
-        name: &str,
-    ) -> Vec<String> {
+    pub async fn cancel_child_rebuild_jobs(&self, name: &str) -> Vec<String> {
         let mut src_jobs = self.get_rebuild_job_src(name);
         let mut terminated_jobs = Vec::new();
         let mut rebuilding_children = Vec::new();
@@ -187,7 +209,7 @@ impl Nexus {
         }
 
         // terminate the only possible job with the child as a destination
-        self.terminate_rebuild(name);
+        self.terminate_rebuild(name).await;
         rebuilding_children
     }
 
@@ -204,7 +226,7 @@ impl Nexus {
     /// Return rebuild job associated with the src child name.
     /// Return error if no rebuild job associated with it.
     fn get_rebuild_job_src<'a>(
-        &mut self,
+        &self,
         name: &'a str,
     ) -> Vec<&'a mut RebuildJob> {
         let jobs = RebuildJob::lookup_src(&name);
@@ -260,7 +282,7 @@ impl Nexus {
                 {
                     // todo: retry rebuild using another child as source?
                 }
-                recovering_child.fault(Reason::RebuildFailed);
+                recovering_child.fault(Reason::RebuildFailed).await;
                 error!(
                     "Rebuild job for child {} of nexus {} failed, error: {}",
                     &job.destination,
@@ -269,7 +291,7 @@ impl Nexus {
                 );
             }
             _ => {
-                recovering_child.fault(Reason::RebuildFailed);
+                recovering_child.fault(Reason::RebuildFailed).await;
                 error!(
                     "Rebuild job for child {} of nexus {} failed with state {:?}",
                     &job.destination,
@@ -318,6 +340,20 @@ impl Nexus {
             }
         } else {
             error!("Failed to find nexus {} for rebuild job {}", nexus, job);
+        }
+    }
+}
+
+impl From<RebuildStats> for RebuildStatsReply {
+    fn from(stats: RebuildStats) -> Self {
+        RebuildStatsReply {
+            blocks_total: stats.blocks_total,
+            blocks_recovered: stats.blocks_recovered,
+            progress: stats.progress,
+            segment_size_blks: stats.segment_size_blks,
+            block_size: stats.block_size,
+            tasks_total: stats.tasks_total,
+            tasks_active: stats.tasks_active,
         }
     }
 }

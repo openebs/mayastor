@@ -145,10 +145,18 @@ for system configuration of nodes (as opposed to using ansible, salt, etc.).
    services.jenkinsSlave.enable = true;
    services.iscsid.enable = true;
 
-   boot.kernelParams = ["hugepages=2048" "hugepagesz=2MB"];
+   boot.kernelParams = ["hugepages=4096" "hugepagesz=2MB"];
    boot.initrd.kernelModules = ["xfs"];
    boot.kernelModules = [ "nbd" "xfs" "nvme_tcp" "kvm_intel" ];
    boot.extraModprobeConfig = "options kvm_intel nested=1";
+
+   nix.gc = {
+     automatic = true;
+     dates = "daily";
+   };
+   nix.extraOptions = ''
+     min-free = ${toString (10 * 1024 * 1024 * 1024)}
+   '';
 
    virtualisation.docker.enable = true;
 
@@ -181,7 +189,7 @@ for system configuration of nodes (as opposed to using ansible, salt, etc.).
    users.users.jenkins.openssh.authorizedKeys.keys = [ "ssh-rsa key used by Jenkins master ..." ];
 
    environment.systemPackages = with pkgs; [
-     wget curl vim git jdk openiscsi nvme-cli
+     wget curl vim git jdk openiscsi nvme-cli lsof
    ];
    }
    ```

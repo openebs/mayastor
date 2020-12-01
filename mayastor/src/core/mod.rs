@@ -15,8 +15,11 @@ pub use env::{
     MayastorCliArgs,
     MayastorEnvironment,
     GLOBAL_RC,
+    SIG_RECEIVED,
 };
+
 pub use handle::BdevHandle;
+pub use nvme::{GenericStatusCode, NvmeStatus};
 pub use reactor::{Reactor, ReactorState, Reactors, REACTOR_LIST};
 pub use share::{Protocol, Share};
 pub use thread::Mthread;
@@ -28,11 +31,12 @@ mod descriptor;
 mod dma;
 mod env;
 mod handle;
+pub mod io_driver;
+mod nvme;
 mod reactor;
 mod share;
 pub(crate) mod thread;
 mod uuid;
-
 #[derive(Debug, Snafu, Clone)]
 #[snafu(visibility = "pub")]
 pub enum CoreError {
@@ -79,7 +83,7 @@ pub enum CoreError {
     ResetDispatch {
         source: Errno,
     },
-    #[snafu(display("Failed to dispatch NVMe Admin",))]
+    #[snafu(display("Failed to dispatch NVMe Admin command {:x}h", opcode))]
     NvmeAdminDispatch {
         source: Errno,
         opcode: u16,
@@ -96,7 +100,7 @@ pub enum CoreError {
     },
     #[snafu(display("Reset failed"))]
     ResetFailed {},
-    #[snafu(display("NVMe Admin failed"))]
+    #[snafu(display("NVMe Admin command {:x}h failed", opcode))]
     NvmeAdminFailed {
         opcode: u16,
     },
@@ -104,12 +108,24 @@ pub enum CoreError {
     ShareNvmf {
         source: NvmfError,
     },
+    #[snafu(display("failed to unshare {}", source))]
+    UnshareNvmf {
+        source: NvmfError,
+    },
     #[snafu(display("failed to share {}", source))]
     ShareIscsi {
         source: iscsi::Error,
     },
+    #[snafu(display("failed to unshare {}", source))]
+    UnshareIscsi {
+        source: iscsi::Error,
+    },
     #[snafu(display("the operation is invalid for this bdev: {}", source))]
     NotSupported {
+        source: Errno,
+    },
+    #[snafu(display("failed to configure reactor: {}", source))]
+    ReactorError {
         source: Errno,
     },
 }

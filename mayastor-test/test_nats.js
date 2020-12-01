@@ -6,6 +6,7 @@ const assert = require('chai').assert;
 const { spawn } = require('child_process');
 const common = require('./test_common');
 const nats = require('nats');
+const util = require('util')
 
 const HB_INTERVAL = 1;
 const NATS_PORT = 14222;
@@ -52,7 +53,8 @@ function stopNats (done) {
 }
 
 function assertRegisterMessage (msg) {
-  const args = JSON.parse(msg);
+  assert(JSON.parse(msg).id == "v0/register" );
+  const args = JSON.parse(msg).data;
   assert.hasAllKeys(args, ['id', 'grpcEndpoint']);
   assert.strictEqual(args.id, NODE_NAME);
   assert.strictEqual(args.grpcEndpoint, common.grpcEndpoint);
@@ -89,7 +91,7 @@ describe('nats', function () {
         MAYASTOR_HB_INTERVAL: HB_INTERVAL
       });
       // wait for the register message
-      const sid = client.subscribe('register', (msg) => {
+      const sid = client.subscribe('v0/registry', (msg) => {
         client.unsubscribe(sid);
         assertRegisterMessage(msg);
         done();
@@ -98,7 +100,7 @@ describe('nats', function () {
   });
 
   it('should keep sending registration messages', (done) => {
-    const sid = client.subscribe('register', (msg) => {
+    const sid = client.subscribe('v0/registry', (msg) => {
       client.unsubscribe(sid);
       assertRegisterMessage(msg);
       done();
@@ -109,7 +111,7 @@ describe('nats', function () {
     // simulate outage of NATS server for a duration of two heartbeats
     stopNats(() => {
       setTimeout(() => {
-        const sid = client.subscribe('register', (msg) => {
+        const sid = client.subscribe('v0/registry', (msg) => {
           client.unsubscribe(sid);
           assertRegisterMessage(msg);
           done();
@@ -122,9 +124,10 @@ describe('nats', function () {
   });
 
   it('should send a deregistration message when mayastor is shut down', (done) => {
-    const sid = client.subscribe('deregister', (msg) => {
+    const sid = client.subscribe('v0/registry', (msg) => {
       client.unsubscribe(sid);
-      const args = JSON.parse(msg);
+      assert(JSON.parse(msg).id == "v0/deregister" );
+      const args = JSON.parse(msg).data;
       assert.hasAllKeys(args, ['id']);
       assert.strictEqual(args.id, NODE_NAME);
       done();

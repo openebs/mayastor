@@ -122,7 +122,7 @@ fn rebuild_test_add() {
             .await
             .expect("rebuild not expected to be present");
 
-        nexus_lookup(nexus_name()).unwrap().destroy().await.unwrap();
+        nexus.destroy().await.unwrap();
     });
 
     test_fini();
@@ -142,8 +142,7 @@ fn rebuild_progress() {
             get_dev(1),
             RebuildState::Paused,
             std::time::Duration::from_millis(1000),
-        )
-        .unwrap();
+        );
         let p = nexus.get_rebuild_progress(&get_dev(1)).unwrap();
         assert!(p.progress >= progress);
         p.progress
@@ -239,8 +238,7 @@ fn rebuild_with_load() {
     Reactor::block_on(async {
         nexus_create(NEXUS_SIZE, 1, false).await;
         let nexus = nexus_lookup(nexus_name()).unwrap();
-        let nexus_device =
-            common::device_path_from_uri(nexus.get_share_uri().unwrap());
+        let nexus_device = nexus_share().await;
 
         let (s, r1) = unbounded::<i32>();
         Mthread::spawn_unaffinitized(move || {
@@ -276,19 +274,11 @@ async fn nexus_create(size: u64, children: u64, fill_random: bool) {
         .await
         .unwrap();
 
-    let nexus = nexus_lookup(nexus_name()).unwrap();
-    let device = common::device_path_from_uri(
-        nexus
-            .share(ShareProtocolNexus::NexusNbd, None)
-            .await
-            .unwrap(),
-    );
-    reactor_poll!(100);
-
     if fill_random {
+        let device = nexus_share().await;
         let nexus_device = device.clone();
         let (s, r) = unbounded::<i32>();
-        std::thread::spawn(move || {
+        Mthread::spawn_unaffinitized(move || {
             s.send(common::dd_urandom_blkdev(&nexus_device))
         });
         let dd_result: i32;
@@ -296,11 +286,23 @@ async fn nexus_create(size: u64, children: u64, fill_random: bool) {
         assert_eq!(dd_result, 0, "Failed to fill nexus with random data");
 
         let (s, r) = unbounded::<String>();
-        std::thread::spawn(move || {
+        Mthread::spawn_unaffinitized(move || {
             s.send(common::compare_nexus_device(&device, &get_disk(0), true))
         });
         reactor_poll!(r);
     }
+}
+
+async fn nexus_share() -> String {
+    let nexus = nexus_lookup(nexus_name()).unwrap();
+    let device = common::device_path_from_uri(
+        nexus
+            .share(ShareProtocolNexus::NexusNbd, None)
+            .await
+            .unwrap(),
+    );
+    reactor_poll!(200);
+    device
 }
 
 async fn nexus_add_child(new_child: u64, wait: bool) {
@@ -313,8 +315,7 @@ async fn nexus_add_child(new_child: u64, wait: bool) {
             get_dev(new_child),
             RebuildState::Completed,
             std::time::Duration::from_secs(10),
-        )
-        .unwrap();
+        );
 
         nexus_test_child(new_child).await;
     } else {
@@ -328,13 +329,12 @@ async fn nexus_test_child(child: u64) {
         get_dev(child),
         RebuildState::Completed,
         std::time::Duration::from_secs(10),
-    )
-    .unwrap();
+    );
 
     let nexus = nexus_lookup(nexus_name()).unwrap();
 
     let (s, r) = unbounded::<String>();
-    std::thread::spawn(move || {
+    Mthread::spawn_unaffinitized(move || {
         s.send(common::compare_devices(
             &get_disk(0),
             &get_disk(child),
@@ -400,8 +400,7 @@ fn rebuild_sizes() {
                 get_dev(2),
                 RebuildState::Completed,
                 std::time::Duration::from_secs(20),
-            )
-            .unwrap();
+            );
 
             nexus.destroy().await.unwrap();
         });
@@ -545,8 +544,7 @@ fn rebuild_operations() {
             RebuildState::Stopped,
             // already stopping, should be enough
             std::time::Duration::from_millis(250),
-        )
-        .unwrap();
+        );
         // already stopped
         nexus.stop_rebuild(&get_dev(1)).await.unwrap();
 
@@ -581,8 +579,7 @@ fn rebuild_multiple() {
                 get_dev(child),
                 RebuildState::Completed,
                 std::time::Duration::from_secs(20),
-            )
-            .unwrap();
+            );
             nexus.remove_child(&get_dev(child)).await.unwrap();
         }
 
@@ -598,8 +595,7 @@ fn rebuild_multiple() {
                 get_dev(child),
                 RebuildState::Running,
                 std::time::Duration::from_millis(100),
-            )
-            .unwrap();
+            );
             nexus.remove_child(&get_dev(child)).await.unwrap();
         }
 
@@ -631,8 +627,7 @@ fn rebuild_fault_src() {
             get_dev(1),
             RebuildState::Failed,
             std::time::Duration::from_secs(20),
-        )
-        .unwrap();
+        );
         // allow the nexus futures to run
         reactor_poll!(10);
         assert_eq!(
@@ -668,8 +663,7 @@ fn rebuild_fault_dst() {
             get_dev(1),
             RebuildState::Failed,
             std::time::Duration::from_secs(20),
-        )
-        .unwrap();
+        );
         // allow the nexus futures to run
         reactor_poll!(10);
         assert_eq!(

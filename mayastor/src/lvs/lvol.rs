@@ -25,7 +25,8 @@ use spdk_sys::{
 };
 
 use crate::{
-    core::{Bdev, CoreError, Protocol, Share},
+    bdev::nexus::nexus_bdev::Nexus,
+    core::{Bdev, CoreError, Mthread, Protocol, Share},
     ffihelper::{
         cb_arg,
         errno_result_from_i32,
@@ -377,7 +378,7 @@ impl Lvol {
             nvme_status.set_sc(match errno {
                 0 => 0,
                 _ => {
-                    debug!("vbdev_lvol_create_snapshot errno {}", errno);
+                    error!("vbdev_lvol_create_snapshot errno {}", errno);
                     0x06 // SPDK_NVME_SC_INTERNAL_DEVICE_ERROR
                 }
             });
@@ -398,6 +399,40 @@ impl Lvol {
             )
         };
 
-        info!("Creating snapshot {}", snapshot_name);
+        info!("Creating snapshot {} on {}", snapshot_name, &self);
+    }
+
+    /// Create snapshot for local replica
+    pub async fn create_snapshot_local(
+        &self,
+        io: *mut spdk_sys::spdk_bdev_io,
+        snapshot_name: &str,
+    ) {
+        extern "C" fn snapshot_done_cb(
+            bio_ptr: *mut c_void,
+            _lvol_ptr: *mut spdk_lvol,
+            errno: i32,
+        ) {
+            if errno != 0 {
+                error!("vbdev_lvol_create_snapshot errno {}", errno);
+            }
+            // Must complete IO on thread IO was submitted from
+            Mthread::from(unsafe {
+                spdk_sys::spdk_bdev_io_get_thread(bio_ptr.cast())
+            })
+            .with(|| Nexus::io_completion_local(errno == 0, bio_ptr));
+        }
+
+        let c_snapshot_name = snapshot_name.into_cstring();
+        unsafe {
+            vbdev_lvol_create_snapshot(
+                self.0.as_ptr(),
+                c_snapshot_name.as_ptr(),
+                Some(snapshot_done_cb),
+                io.cast(),
+            )
+        };
+
+        info!("Creating snapshot {} on {}", snapshot_name, &self);
     }
 }

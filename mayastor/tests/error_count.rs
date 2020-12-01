@@ -5,16 +5,10 @@ pub use common::error_bdev::{
     SPDK_BDEV_IO_TYPE_WRITE,
     VBDEV_IO_FAILURE,
 };
-
+use common::MayastorTest;
 use mayastor::{
     bdev::{nexus_create, nexus_lookup, ActionType, NexusErrStore, QueryType},
-    core::{
-        mayastor_env_stop,
-        Bdev,
-        MayastorCliArgs,
-        MayastorEnvironment,
-        Reactor,
-    },
+    core::{Bdev, MayastorCliArgs},
     subsys::Config,
 };
 
@@ -28,13 +22,14 @@ static BDEVNAME1: &str = "aio:///tmp/disk1.img?blk_size=512";
 static DISKNAME2: &str = "/tmp/disk2.img";
 
 static ERROR_DEVICE: &str = "error_device";
-static EE_ERROR_DEVICE: &str = "EE_error_device"; // The prefix is added by the vbdev_error module
+static EE_ERROR_DEVICE: &str = "EE_error_device";
+// The prefix is added by the vbdev_error module
 static BDEV_EE_ERROR_DEVICE: &str = "bdev:///EE_error_device";
 
 static YAML_CONFIG_FILE: &str = "/tmp/error_count_test_nexus.yaml";
-
-#[test]
-fn nexus_error_count_test() {
+#[ignore]
+#[tokio::test]
+async fn nexus_error_count_test() {
     common::truncate_file(DISKNAME1, 64 * 1024);
     common::truncate_file(DISKNAME2, 64 * 1024);
 
@@ -43,38 +38,45 @@ fn nexus_error_count_test() {
     config.err_store_opts.action = ActionType::Ignore;
     config.err_store_opts.err_store_size = 256;
     config.write(YAML_CONFIG_FILE).unwrap();
-    test_init!(YAML_CONFIG_FILE);
+    let ms = MayastorTest::new(MayastorCliArgs {
+        mayastor_config: Some(YAML_CONFIG_FILE.to_string()),
+        reactor_mask: "0x3".to_string(),
+        ..Default::default()
+    });
 
-    Reactor::block_on(async {
+    ms.spawn(async {
         create_error_bdev(ERROR_DEVICE, DISKNAME2);
         create_nexus().await;
         err_write_nexus(true).await;
         err_read_nexus_both(true).await;
-    });
+    })
+    .await;
 
-    common::reactor_run_millis(10); // give time for any errors to be added to the error store
-
-    nexus_err_query_and_test(
+    ms.spawn(nexus_err_query_and_test(
         BDEV_EE_ERROR_DEVICE,
         NexusErrStore::READ_FLAG,
         0,
         Some(1_000_000_000),
-    );
+    ))
+    .await;
 
-    nexus_err_query_and_test(
+    ms.spawn(nexus_err_query_and_test(
         BDEV_EE_ERROR_DEVICE,
         NexusErrStore::WRITE_FLAG,
         0,
         Some(1_000_000_000),
-    );
-    nexus_err_query_and_test(
+    ))
+    .await;
+
+    ms.spawn(nexus_err_query_and_test(
         BDEVNAME1,
         NexusErrStore::READ_FLAG | NexusErrStore::WRITE_FLAG,
         0,
         Some(1_000_000_000),
-    );
+    ))
+    .await;
 
-    Reactor::block_on(async {
+    ms.spawn(async {
         inject_error(
             EE_ERROR_DEVICE,
             SPDK_BDEV_IO_TYPE_WRITE,
@@ -83,31 +85,34 @@ fn nexus_error_count_test() {
         );
         err_write_nexus(false).await;
         err_read_nexus_both(true).await;
-    });
+    })
+    .await;
 
-    common::reactor_run_millis(10); // give time for any errors to be added to the error store
-
-    nexus_err_query_and_test(
+    ms.spawn(nexus_err_query_and_test(
         BDEV_EE_ERROR_DEVICE,
         NexusErrStore::READ_FLAG,
         0,
         Some(1_000_000_000),
-    );
+    ))
+    .await;
 
-    nexus_err_query_and_test(
+    ms.spawn(nexus_err_query_and_test(
         BDEV_EE_ERROR_DEVICE,
         NexusErrStore::WRITE_FLAG,
         1,
         Some(1_000_000_000),
-    );
-    nexus_err_query_and_test(
+    ))
+    .await;
+
+    ms.spawn(nexus_err_query_and_test(
         BDEVNAME1,
         NexusErrStore::READ_FLAG | NexusErrStore::WRITE_FLAG,
         0,
         Some(1_000_000_000),
-    );
+    ))
+    .await;
 
-    Reactor::block_on(async {
+    ms.spawn(async {
         inject_error(
             EE_ERROR_DEVICE,
             SPDK_BDEV_IO_TYPE_READ,
@@ -116,33 +121,36 @@ fn nexus_error_count_test() {
         );
         err_read_nexus_both(false).await;
         err_write_nexus(true).await;
-    });
+    })
+    .await;
 
-    common::reactor_run_millis(10); // give time for any errors to be added to the error store
-
-    nexus_err_query_and_test(
+    ms.spawn(nexus_err_query_and_test(
         BDEV_EE_ERROR_DEVICE,
         NexusErrStore::READ_FLAG,
         1,
         Some(1_000_000_000),
-    );
+    ))
+    .await;
 
-    nexus_err_query_and_test(
+    ms.spawn(nexus_err_query_and_test(
         BDEV_EE_ERROR_DEVICE,
         NexusErrStore::WRITE_FLAG,
         1,
         Some(1_000_000_000),
-    );
-    nexus_err_query_and_test(
+    ))
+    .await;
+
+    ms.spawn(nexus_err_query_and_test(
         BDEVNAME1,
         NexusErrStore::READ_FLAG | NexusErrStore::WRITE_FLAG,
         0,
         Some(1_000_000_000),
-    );
+    ))
+    .await;
 
     // overflow the error store with errored reads and writes, assumes default
     // buffer size of 256 records
-    Reactor::block_on(async {
+    ms.spawn(async {
         inject_error(
             EE_ERROR_DEVICE,
             SPDK_BDEV_IO_TYPE_READ,
@@ -161,45 +169,48 @@ fn nexus_error_count_test() {
         for _ in 0 .. 100 {
             err_write_nexus(false).await;
         }
-    });
+    })
+    .await;
 
-    common::reactor_run_millis(100); // give time for any errors to be added to the error store
-
-    nexus_err_query_and_test(
+    ms.spawn(nexus_err_query_and_test(
         BDEV_EE_ERROR_DEVICE,
         NexusErrStore::READ_FLAG,
         156,
         Some(10_000_000_000),
-    );
-    nexus_err_query_and_test(
+    ))
+    .await;
+
+    ms.spawn(nexus_err_query_and_test(
         BDEV_EE_ERROR_DEVICE,
         NexusErrStore::WRITE_FLAG,
         100,
         Some(10_000_000_000),
-    );
+    ))
+    .await;
 
-    nexus_err_query_and_test(
+    ms.spawn(nexus_err_query_and_test(
         BDEV_EE_ERROR_DEVICE,
         NexusErrStore::WRITE_FLAG,
         0,
         Some(0), // too recent, so nothing there
-    );
+    ))
+    .await;
 
-    nexus_err_query_and_test(
+    ms.spawn(nexus_err_query_and_test(
         BDEV_EE_ERROR_DEVICE,
         NexusErrStore::WRITE_FLAG,
         100,
         Some(1_000_000_000_000_000_000), // underflow, so assumes any age
-    );
+    ))
+    .await;
 
-    nexus_err_query_and_test(
+    ms.spawn(nexus_err_query_and_test(
         BDEV_EE_ERROR_DEVICE,
         NexusErrStore::WRITE_FLAG,
         100,
         None, // no time specified
-    );
-
-    mayastor_env_stop(0);
+    ))
+    .await;
 
     common::delete_file(&[DISKNAME1.to_string()]);
     common::delete_file(&[DISKNAME2.to_string()]);
@@ -214,7 +225,7 @@ async fn create_nexus() {
         .unwrap();
 }
 
-fn nexus_err_query_and_test(
+async fn nexus_err_query_and_test(
     child_bdev: &str,
     io_type_flags: u32,
     expected_count: u32,
