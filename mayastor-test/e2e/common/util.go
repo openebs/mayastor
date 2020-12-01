@@ -19,9 +19,6 @@ import (
 	"reflect"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
-	"k8s.io/client-go/dynamic"
-	"k8s.io/client-go/kubernetes"
-	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 var defTimeoutSecs = "90s"
@@ -54,13 +51,13 @@ type mayastorVolStatus struct {
 	node   string
 }
 
-func GetMSV(uuid string, dynamicClient *dynamic.Interface) *mayastorVolStatus {
+func GetMSV(uuid string) *mayastorVolStatus {
 	msvGVR := schema.GroupVersionResource{
 		Group:    "openebs.io",
 		Version:  "v1alpha1",
 		Resource: "mayastorvolumes",
 	}
-	msv, err := (*dynamicClient).Resource(msvGVR).Namespace("mayastor").Get(context.TODO(), uuid, metav1.GetOptions{})
+	msv, err := g_environment.DynamicClient.Resource(msvGVR).Namespace("mayastor").Get(context.TODO(), uuid, metav1.GetOptions{})
 	if err != nil {
 		fmt.Println(err)
 		return nil
@@ -101,14 +98,14 @@ func GetMSV(uuid string, dynamicClient *dynamic.Interface) *mayastorVolStatus {
 
 // Check for a deleted Mayastor Volume,
 // the object does not exist if deleted
-func IsMSVDeleted(uuid string, dynamicClient *dynamic.Interface) bool {
+func IsMSVDeleted(uuid string) bool {
 	msvGVR := schema.GroupVersionResource{
 		Group:    "openebs.io",
 		Version:  "v1alpha1",
 		Resource: "mayastorvolumes",
 	}
 
-	msv, err := (*dynamicClient).Resource(msvGVR).Namespace("mayastor").Get(context.TODO(), uuid, metav1.GetOptions{})
+	msv, err := g_environment.DynamicClient.Resource(msvGVR).Namespace("mayastor").Get(context.TODO(), uuid, metav1.GetOptions{})
 
 	if err != nil {
 		// Unfortunately there is no associated error code so we resort to string comparison
@@ -126,8 +123,8 @@ func IsMSVDeleted(uuid string, dynamicClient *dynamic.Interface) bool {
 // Check for a deleted Persistent Volume Claim,
 // either the object does not exist
 // or the status phase is invalid.
-func IsPVCDeleted(volName string, kubeInt *kubernetes.Interface) bool {
-	pvc, err := (*kubeInt).CoreV1().PersistentVolumeClaims("default").Get(context.TODO(), volName, metav1.GetOptions{})
+func IsPVCDeleted(volName string) bool {
+	pvc, err := g_environment.KubeInt.CoreV1().PersistentVolumeClaims("default").Get(context.TODO(), volName, metav1.GetOptions{})
 	if err != nil {
 		// Unfortunately there is no associated error code so we resort to string comparison
 		if strings.HasPrefix(err.Error(), "persistentvolumeclaims") &&
@@ -152,9 +149,9 @@ func IsPVCDeleted(volName string, kubeInt *kubernetes.Interface) bool {
 // Check for a deleted Persistent Volume,
 // either the object does not exist
 // or the status phase is invalid.
-func IsPVDeleted(volName *string, kubeInt *kubernetes.Interface) bool {
+func IsPVDeleted(volName *string) bool {
 	vn := *volName
-	pv, err := (*kubeInt).CoreV1().PersistentVolumes().Get(context.TODO(), vn, metav1.GetOptions{})
+	pv, err := g_environment.KubeInt.CoreV1().PersistentVolumes().Get(context.TODO(), vn, metav1.GetOptions{})
 	if err != nil {
 		// Unfortunately there is no associated error code so we resort to string comparison
 		if strings.HasPrefix(err.Error(), "persistentvolumes") &&
@@ -179,31 +176,31 @@ func IsPVDeleted(volName *string, kubeInt *kubernetes.Interface) bool {
 }
 
 // Retrieve status phase of a Persistent Volume Claim
-func GetPvcStatusPhase(volname string, kubeInt *kubernetes.Interface) (phase corev1.PersistentVolumeClaimPhase) {
-	pvc, getPvcErr := (*kubeInt).CoreV1().PersistentVolumeClaims("default").Get(context.TODO(), volname, metav1.GetOptions{})
+func GetPvcStatusPhase(volname string) (phase corev1.PersistentVolumeClaimPhase) {
+	pvc, getPvcErr := g_environment.KubeInt.CoreV1().PersistentVolumeClaims("default").Get(context.TODO(), volname, metav1.GetOptions{})
 	Expect(getPvcErr).To(BeNil())
 	Expect(pvc).ToNot(BeNil())
 	return pvc.Status.Phase
 }
 
 // Retrieve status phase of a Persistent Volume
-func GetPvStatusPhase(volname string, kubeInt *kubernetes.Interface) (phase corev1.PersistentVolumePhase) {
-	pv, getPvErr := (*kubeInt).CoreV1().PersistentVolumes().Get(context.TODO(), volname, metav1.GetOptions{})
+func GetPvStatusPhase(volname string) (phase corev1.PersistentVolumePhase) {
+	pv, getPvErr := g_environment.KubeInt.CoreV1().PersistentVolumes().Get(context.TODO(), volname, metav1.GetOptions{})
 	Expect(getPvErr).To(BeNil())
 	Expect(pv).ToNot(BeNil())
 	return pv.Status.Phase
 }
 
 // Retrieve the state of a Mayastor Volume
-func GetMsvState(uuid string, dynamicClient *dynamic.Interface) string {
-	msv := GetMSV(uuid, dynamicClient)
+func GetMsvState(uuid string) string {
+	msv := GetMSV(uuid)
 	Expect(msv).ToNot(BeNil())
 	return fmt.Sprintf("%s", msv.state)
 }
 
 // Retrieve the nexus node hosting the Mayastor Volume
-func GetMsvNode(uuid string, dynamicClient *dynamic.Interface) string {
-	msv := GetMSV(uuid, dynamicClient)
+func GetMsvNode(uuid string) string {
+	msv := GetMSV(uuid)
 	Expect(msv).ToNot(BeNil())
 	return fmt.Sprintf("%s", msv.node)
 }
@@ -212,7 +209,7 @@ func GetMsvNode(uuid string, dynamicClient *dynamic.Interface) string {
 //	1. The PVC status transitions to bound,
 //	2. The associated PV is created and its status transitions bound
 //	3. The associated MV is created and has a State "healthy"
-func MkPVC(volName string, scName string, dynamicClient *dynamic.Interface, kubeInt *kubernetes.Interface) string {
+func MkPVC(volName string, scName string) string {
 	fmt.Printf("creating %s, %s\n", volName, scName)
 	// PVC create options
 	createOpts := &corev1.PersistentVolumeClaim{
@@ -232,7 +229,7 @@ func MkPVC(volName string, scName string, dynamicClient *dynamic.Interface, kube
 	}
 
 	// Create the PVC.
-	PVCApi := (*kubeInt).CoreV1().PersistentVolumeClaims
+	PVCApi := g_environment.KubeInt.CoreV1().PersistentVolumeClaims
 	_, createErr := PVCApi("default").Create(context.TODO(), createOpts, metav1.CreateOptions{})
 	Expect(createErr).To(BeNil())
 
@@ -243,7 +240,7 @@ func MkPVC(volName string, scName string, dynamicClient *dynamic.Interface, kube
 
 	// Wait for the PVC to be bound.
 	Eventually(func() corev1.PersistentVolumeClaimPhase {
-		return GetPvcStatusPhase(volName, kubeInt)
+		return GetPvcStatusPhase(volName)
 	},
 		defTimeoutSecs, // timeout
 		"1s",           // polling interval
@@ -256,7 +253,7 @@ func MkPVC(volName string, scName string, dynamicClient *dynamic.Interface, kube
 
 	// Wait for the PV to be provisioned
 	Eventually(func() *corev1.PersistentVolume {
-		pv, getPvErr := (*kubeInt).CoreV1().PersistentVolumes().Get(context.TODO(), pvc.Spec.VolumeName, metav1.GetOptions{})
+		pv, getPvErr := g_environment.KubeInt.CoreV1().PersistentVolumes().Get(context.TODO(), pvc.Spec.VolumeName, metav1.GetOptions{})
 		if getPvErr != nil {
 			return nil
 		}
@@ -269,13 +266,13 @@ func MkPVC(volName string, scName string, dynamicClient *dynamic.Interface, kube
 
 	// Wait for the PV to be bound.
 	Eventually(func() corev1.PersistentVolumePhase {
-		return GetPvStatusPhase(pvc.Spec.VolumeName, kubeInt)
+		return GetPvStatusPhase(pvc.Spec.VolumeName)
 	},
 		defTimeoutSecs, // timeout
 		"1s",           // polling interval
 	).Should(Equal(corev1.VolumeBound))
 
-	msv := GetMSV(string(pvc.ObjectMeta.UID), dynamicClient)
+	msv := GetMSV(string(pvc.ObjectMeta.UID))
 	Expect(msv).ToNot(BeNil())
 	return string(pvc.ObjectMeta.UID)
 }
@@ -284,10 +281,10 @@ func MkPVC(volName string, scName string, dynamicClient *dynamic.Interface, kube
 //	1. The PVC is deleted
 //	2. The associated PV is deleted
 //  3. The associated MV is deleted
-func RmPVC(volName string, scName string, dynamicClient *dynamic.Interface, kubeInt *kubernetes.Interface) {
+func RmPVC(volName string, scName string) {
 	fmt.Printf("removing %s, %s\n", volName, scName)
 
-	PVCApi := (*kubeInt).CoreV1().PersistentVolumeClaims
+	PVCApi := g_environment.KubeInt.CoreV1().PersistentVolumeClaims
 
 	// Confirm the PVC has been created.
 	pvc, getPvcErr := PVCApi("default").Get(context.TODO(), volName, metav1.GetOptions{})
@@ -300,7 +297,7 @@ func RmPVC(volName string, scName string, dynamicClient *dynamic.Interface, kube
 
 	// Wait for the PVC to be deleted.
 	Eventually(func() bool {
-		return IsPVCDeleted(volName, kubeInt)
+		return IsPVCDeleted(volName)
 	},
 		defTimeoutSecs, // timeout
 		"1s",           // polling interval
@@ -308,7 +305,7 @@ func RmPVC(volName string, scName string, dynamicClient *dynamic.Interface, kube
 
 	// Wait for the PV to be deleted.
 	Eventually(func() bool {
-		return IsPVDeleted(&(pvc.Spec.VolumeName), kubeInt)
+		return IsPVDeleted(&(pvc.Spec.VolumeName))
 	},
 		defTimeoutSecs, // timeout
 		"1s",           // polling interval
@@ -316,7 +313,7 @@ func RmPVC(volName string, scName string, dynamicClient *dynamic.Interface, kube
 
 	// Wait for the MSV to be deleted.
 	Eventually(func() bool {
-		return IsMSVDeleted(string(pvc.ObjectMeta.UID), dynamicClient)
+		return IsMSVDeleted(string(pvc.ObjectMeta.UID))
 	},
 		defTimeoutSecs, // timeout
 		"1s",           // polling interval
@@ -348,9 +345,9 @@ func RunFio() {
 	Expect(err).ToNot(HaveOccurred())
 }
 
-func FioReadyPod(k8sClient *client.Client) bool {
+func FioReadyPod() bool {
 	var fioPod corev1.Pod
-	if (*k8sClient).Get(context.TODO(), types.NamespacedName{Name: "fio", Namespace: "default"}, &fioPod) != nil {
+	if g_environment.K8sClient.Get(context.TODO(), types.NamespacedName{Name: "fio", Namespace: "default"}, &fioPod) != nil {
 		return false
 	}
 	return fioPod.Status.Phase == v1.PodRunning
