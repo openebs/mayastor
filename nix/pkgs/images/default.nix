@@ -129,4 +129,11 @@ rec {
     contents = [ busybox mayastor ];
     config = { Entrypoint = [ "/bin/kiiss" ]; };
   });
+
+  mayastor-client-image = dockerTools.buildImage (servicesImageProps // {
+    name = "mayadata/mayastor-client";
+    contents = [ busybox mayastor ];
+    config = { Entrypoint = [ "/bin/mayastor-client" ]; };
+  });
+
 }
