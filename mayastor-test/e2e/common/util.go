@@ -57,7 +57,7 @@ func GetMSV(uuid string) *mayastorVolStatus {
 		Version:  "v1alpha1",
 		Resource: "mayastorvolumes",
 	}
-	msv, err := g_environment.DynamicClient.Resource(msvGVR).Namespace("mayastor").Get(context.TODO(), uuid, metav1.GetOptions{})
+	msv, err := gTestEnv.DynamicClient.Resource(msvGVR).Namespace("mayastor").Get(context.TODO(), uuid, metav1.GetOptions{})
 	if err != nil {
 		fmt.Println(err)
 		return nil
@@ -105,7 +105,7 @@ func IsMSVDeleted(uuid string) bool {
 		Resource: "mayastorvolumes",
 	}
 
-	msv, err := g_environment.DynamicClient.Resource(msvGVR).Namespace("mayastor").Get(context.TODO(), uuid, metav1.GetOptions{})
+	msv, err := gTestEnv.DynamicClient.Resource(msvGVR).Namespace("mayastor").Get(context.TODO(), uuid, metav1.GetOptions{})
 
 	if err != nil {
 		// Unfortunately there is no associated error code so we resort to string comparison
@@ -124,7 +124,7 @@ func IsMSVDeleted(uuid string) bool {
 // either the object does not exist
 // or the status phase is invalid.
 func IsPVCDeleted(volName string) bool {
-	pvc, err := g_environment.KubeInt.CoreV1().PersistentVolumeClaims("default").Get(context.TODO(), volName, metav1.GetOptions{})
+	pvc, err := gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims("default").Get(context.TODO(), volName, metav1.GetOptions{})
 	if err != nil {
 		// Unfortunately there is no associated error code so we resort to string comparison
 		if strings.HasPrefix(err.Error(), "persistentvolumeclaims") &&
@@ -151,7 +151,7 @@ func IsPVCDeleted(volName string) bool {
 // or the status phase is invalid.
 func IsPVDeleted(volName *string) bool {
 	vn := *volName
-	pv, err := g_environment.KubeInt.CoreV1().PersistentVolumes().Get(context.TODO(), vn, metav1.GetOptions{})
+	pv, err := gTestEnv.KubeInt.CoreV1().PersistentVolumes().Get(context.TODO(), vn, metav1.GetOptions{})
 	if err != nil {
 		// Unfortunately there is no associated error code so we resort to string comparison
 		if strings.HasPrefix(err.Error(), "persistentvolumes") &&
@@ -177,7 +177,7 @@ func IsPVDeleted(volName *string) bool {
 
 // Retrieve status phase of a Persistent Volume Claim
 func GetPvcStatusPhase(volname string) (phase corev1.PersistentVolumeClaimPhase) {
-	pvc, getPvcErr := g_environment.KubeInt.CoreV1().PersistentVolumeClaims("default").Get(context.TODO(), volname, metav1.GetOptions{})
+	pvc, getPvcErr := gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims("default").Get(context.TODO(), volname, metav1.GetOptions{})
 	Expect(getPvcErr).To(BeNil())
 	Expect(pvc).ToNot(BeNil())
 	return pvc.Status.Phase
@@ -185,7 +185,7 @@ func GetPvcStatusPhase(volname string) (phase corev1.PersistentVolumeClaimPhase)
 
 // Retrieve status phase of a Persistent Volume
 func GetPvStatusPhase(volname string) (phase corev1.PersistentVolumePhase) {
-	pv, getPvErr := g_environment.KubeInt.CoreV1().PersistentVolumes().Get(context.TODO(), volname, metav1.GetOptions{})
+	pv, getPvErr := gTestEnv.KubeInt.CoreV1().PersistentVolumes().Get(context.TODO(), volname, metav1.GetOptions{})
 	Expect(getPvErr).To(BeNil())
 	Expect(pv).ToNot(BeNil())
 	return pv.Status.Phase
@@ -229,7 +229,7 @@ func MkPVC(volName string, scName string) string {
 	}
 
 	// Create the PVC.
-	PVCApi := g_environment.KubeInt.CoreV1().PersistentVolumeClaims
+	PVCApi := gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims
 	_, createErr := PVCApi("default").Create(context.TODO(), createOpts, metav1.CreateOptions{})
 	Expect(createErr).To(BeNil())
 
@@ -253,7 +253,7 @@ func MkPVC(volName string, scName string) string {
 
 	// Wait for the PV to be provisioned
 	Eventually(func() *corev1.PersistentVolume {
-		pv, getPvErr := g_environment.KubeInt.CoreV1().PersistentVolumes().Get(context.TODO(), pvc.Spec.VolumeName, metav1.GetOptions{})
+		pv, getPvErr := gTestEnv.KubeInt.CoreV1().PersistentVolumes().Get(context.TODO(), pvc.Spec.VolumeName, metav1.GetOptions{})
 		if getPvErr != nil {
 			return nil
 		}
@@ -284,7 +284,7 @@ func MkPVC(volName string, scName string) string {
 func RmPVC(volName string, scName string) {
 	fmt.Printf("removing %s, %s\n", volName, scName)
 
-	PVCApi := g_environment.KubeInt.CoreV1().PersistentVolumeClaims
+	PVCApi := gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims
 
 	// Confirm the PVC has been created.
 	pvc, getPvcErr := PVCApi("default").Get(context.TODO(), volName, metav1.GetOptions{})
@@ -347,7 +347,7 @@ func RunFio() {
 
 func FioReadyPod() bool {
 	var fioPod corev1.Pod
-	if g_environment.K8sClient.Get(context.TODO(), types.NamespacedName{Name: "fio", Namespace: "default"}, &fioPod) != nil {
+	if gTestEnv.K8sClient.Get(context.TODO(), types.NamespacedName{Name: "fio", Namespace: "default"}, &fioPod) != nil {
 		return false
 	}
 	return fioPod.Status.Phase == v1.PodRunning
