@@ -59,6 +59,10 @@ String cron_schedule = BRANCH_NAME == "develop" ? "0 2 * * *" : ""
 
 pipeline {
   agent none
+  options {
+    timeout(time: 2, unit: 'HOURS')
+    parallelsAlwaysFailFast()
+  }
   triggers {
     cron(cron_schedule)
   }
@@ -66,6 +70,7 @@ pipeline {
   stages {
     stage('init') {
       agent { label 'nixos-mayastor' }
+      options { skipDefaultCheckout true }
       steps {
         // TODO: We want to disable built-in github commit notifications.
         // skip-notifications-trait plugin in combination with checkout scm step
@@ -76,8 +81,9 @@ pipeline {
           if (currentBuild.getBuildCauses('jenkins.branch.BranchIndexingCause') &&
               BRANCH_NAME == "develop") {
               print "INFO: Branch Indexing, aborting job."
-              currentBuild.result = 'ABORTED'
-              error('Stopping early')
+              currentBuild.getRawBuild().getExecutor().interrupt(Result.SUCCESS)
+              sleep(3)   // Interrupt is not blocking and does not take effect immediately.
+              return
           }
         }
         updateGithubCommitStatus(env.GIT_COMMIT, 'Test started', 'pending')
