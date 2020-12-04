@@ -1,25 +1,5 @@
 #!/usr/bin/env groovy
 
-// Update status of a commit in github
-def updateGithubCommitStatus(commit, msg, state) {
-  step([
-    $class: 'GitHubCommitStatusSetter',
-    reposSource: [$class: "ManuallyEnteredRepositorySource", url: "https://github.com/openebs/Mayastor.git"],
-    commitShaSource: [$class: "ManuallyEnteredShaSource", sha: commit],
-    errorHandlers: [[$class: "ChangingBuildStatusErrorHandler", result: "UNSTABLE"]],
-    contextSource: [
-      $class: 'ManuallyEnteredCommitContextSource',
-      context: 'continuous-integration/jenkins/branch'
-    ],
-    statusResultSource: [
-      $class: 'ConditionalStatusResultSource',
-      results: [
-        [$class: 'AnyBuildResult', message: msg, state: state]
-      ]
-    ]
-  ])
-}
-
 // Searches previous builds to find first non aborted one
 def getLastNonAbortedBuild(build) {
   if (build == null) {
@@ -70,12 +50,7 @@ pipeline {
   stages {
     stage('init') {
       agent { label 'nixos-mayastor' }
-      options { skipDefaultCheckout true }
       steps {
-        // TODO: We want to disable built-in github commit notifications.
-        // skip-notifications-trait plugin in combination with checkout scm step
-        // should do that but not sure how exactly.
-        checkout scm
         script {
           // Will ABORT current job for cases when we don't want to build
           if (currentBuild.getBuildCauses('jenkins.branch.BranchIndexingCause') &&
@@ -86,7 +61,14 @@ pipeline {
               return
           }
         }
-        updateGithubCommitStatus(env.GIT_COMMIT, 'Test started', 'pending')
+        step([
+          $class: 'GitHubSetCommitStatusBuilder',
+          contextSource: [
+            $class: 'ManuallyEnteredCommitContextSource',
+            context: 'continuous-integration/jenkins/branch'
+          ],
+          statusMessage: [ content: 'Pipeline started' ]
+        ])
       }
     }
     stage('linter') {
@@ -201,11 +183,20 @@ pipeline {
           // If no tests were run then we should neither be updating commit
           // status in github nor send any slack messages
           if (currentBuild.result != null) {
-            if (currentBuild.getResult() == 'SUCCESS') {
-              updateGithubCommitStatus(env.GIT_COMMIT, 'Looks good', 'success')
-            } else {
-              updateGithubCommitStatus(env.GIT_COMMIT, 'Test failed', 'failure')
-            }
+            step([
+              $class: 'GitHubCommitStatusSetter',
+              errorHandlers: [[$class: "ChangingBuildStatusErrorHandler", result: "UNSTABLE"]],
+              contextSource: [
+                $class: 'ManuallyEnteredCommitContextSource',
+                context: 'continuous-integration/jenkins/branch'
+              ],
+              statusResultSource: [
+                $class: 'ConditionalStatusResultSource',
+                results: [
+                  [$class: 'AnyBuildResult', message: 'Pipeline result', state: currentBuild.getResult()]
+                ]
+              ]
+            ])
             if (env.BRANCH_NAME == 'develop') {
               notifySlackUponStateChange(currentBuild)
             }
