@@ -2,12 +2,14 @@ package common
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os/exec"
 	"strings"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
@@ -426,6 +428,45 @@ func CreateFioPod(podName string, volName string) (*corev1.Pod, error) {
 			},
 		},
 	}
-
 	return CreatePod(&podDef)
+}
+
+type NodeLocation struct {
+	NodeName     string
+	IPAddress    string
+	MayastorNode bool
+}
+
+// returns vector of populated NodeLocation structs
+func GetNodeLocs() ([]NodeLocation, error) {
+	nodeList := corev1.NodeList{}
+
+	if gTestEnv.K8sClient.List(context.TODO(), &nodeList, &client.ListOptions{}) != nil {
+		return nil, errors.New("failed to list nodes")
+	}
+	NodeLocs := make([]NodeLocation, 0, len(nodeList.Items))
+	for _, k8snode := range nodeList.Items {
+		addrstr := ""
+		namestr := ""
+		mayastorNode := false
+		for label, value := range k8snode.Labels {
+			if label == "openebs.io/engine" && value == "mayastor" {
+				mayastorNode = true
+			}
+		}
+		for _, addr := range k8snode.Status.Addresses {
+			if addr.Type == corev1.NodeInternalIP {
+				addrstr = addr.Address
+			}
+			if addr.Type == corev1.NodeHostName {
+				namestr = addr.Address
+			}
+		}
+		if namestr != "" && addrstr != "" {
+			NodeLocs = append(NodeLocs, NodeLocation{NodeName: namestr, IPAddress: addrstr, MayastorNode: mayastorNode})
+		} else {
+			return nil, errors.New("node lacks expected fields")
+		}
+	}
+	return NodeLocs, nil
 }
