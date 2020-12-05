@@ -6,6 +6,13 @@ use snafu::Snafu;
 
 use crate::{subsys::NvmfError, target::iscsi};
 pub use bdev::{Bdev, BdevIter, BdevStats};
+pub use block_device::{
+    BlockDevice,
+    BlockDeviceDescriptor,
+    BlockDeviceHandle,
+    BlockDeviceStats,
+    LbaRangeController,
+};
 pub use channel::IoChannel;
 pub use cpu_cores::{Core, Cores};
 pub use descriptor::{Descriptor, RangeContext};
@@ -25,6 +32,7 @@ pub use share::{Protocol, Share};
 pub use thread::Mthread;
 
 mod bdev;
+mod block_device;
 mod channel;
 mod cpu_cores;
 mod descriptor;
@@ -36,7 +44,7 @@ mod nvme;
 mod reactor;
 mod share;
 pub(crate) mod thread;
-mod uuid;
+pub mod uuid;
 #[derive(Debug, Snafu, Clone)]
 #[snafu(visibility = "pub")]
 pub enum CoreError {
