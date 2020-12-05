@@ -1532,6 +1532,7 @@ dependencies = [
  "io-uring",
  "ioctl-gen",
  "jsonrpc",
+ "lazy_static",
  "libc",
  "log",
  "mbus_api",

@@ -37,6 +37,7 @@ mod malloc;
 mod null;
 mod nvme;
 mod nvmf;
+mod nvmx;
 mod uring;
 
 impl Uri {
@@ -69,6 +70,9 @@ impl Uri {
 
             // also for testing - requires Linux 5.1 or higher
             "uring" => Ok(Box::new(uring::Uring::try_from(&url)?)),
+
+            // new NVMF device for Nexus 2.0
+            "nvmx" => Ok(Box::new(nvmx::NvmfDeviceTemplate::try_from(&url)?)),
 
             scheme => Err(NexusBdevError::UriSchemeUnsupported {
                 scheme: scheme.to_string(),
