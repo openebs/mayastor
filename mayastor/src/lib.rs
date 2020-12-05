@@ -9,6 +9,9 @@ extern crate serde_json;
 extern crate snafu;
 extern crate spdk_sys;
 
+#[macro_use]
+extern crate lazy_static;
+
 pub mod bdev;
 pub mod core;
 pub mod delay;
