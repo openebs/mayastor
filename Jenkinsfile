@@ -34,6 +34,14 @@ def notifySlackUponStateChange(build) {
   }
 }
 
+// Will ABORT current job for cases when we don't want to build
+if (currentBuild.getBuildCauses('jenkins.branch.BranchIndexingCause') &&
+    BRANCH_NAME == "develop") {
+    print "INFO: Branch Indexing, aborting job."
+    currentBuild.result = 'ABORTED'
+    return
+}
+
 // Only schedule regular builds on develop branch, so we don't need to guard against it
 String cron_schedule = BRANCH_NAME == "develop" ? "0 2 * * *" : ""
 
@@ -51,16 +59,6 @@ pipeline {
     stage('init') {
       agent { label 'nixos-mayastor' }
       steps {
-        script {
-          // Will ABORT current job for cases when we don't want to build
-          if (currentBuild.getBuildCauses('jenkins.branch.BranchIndexingCause') &&
-              BRANCH_NAME == "develop") {
-              print "INFO: Branch Indexing, aborting job."
-              currentBuild.getRawBuild().getExecutor().interrupt(Result.SUCCESS)
-              sleep(3)   // Interrupt is not blocking and does not take effect immediately.
-              return
-          }
-        }
         step([
           $class: 'GitHubSetCommitStatusBuilder',
           contextSource: [
