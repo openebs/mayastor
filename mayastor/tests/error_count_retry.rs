@@ -1,139 +1,141 @@
-extern crate log;
-
 pub use common::error_bdev::{
     create_error_bdev,
     inject_error,
-    SPDK_BDEV_IO_TYPE_READ,
     SPDK_BDEV_IO_TYPE_WRITE,
     VBDEV_IO_FAILURE,
 };
 use mayastor::{
-    bdev::{nexus_create, nexus_lookup, ActionType, NexusErrStore, QueryType},
+    bdev::{nexus_create, nexus_lookup, NexusStatus},
     core::{Bdev, MayastorCliArgs},
     subsys::Config,
 };
 
+use common::MayastorTest;
+use once_cell::sync::OnceCell;
+
 pub mod common;
 
-static ERROR_COUNT_TEST_NEXUS: &str = "error_count_retry_nexus";
+static YAML_CONFIG_FILE: &str = "/tmp/error_retry_test.yaml";
+static MS: OnceCell<MayastorTest> = OnceCell::new();
 
-static DISKNAME1: &str = "/tmp/disk1.img";
+static NON_ERROR_DISK: &str = "/tmp/non_error.img";
+static ERROR_DISK: &str = "/tmp/error.img";
+static NON_ERROR_BASE_BDEV: &str = "aio:///tmp/non_error.img?blk_size=512";
 
-static ERROR_DEVICE: &str = "error_retry_device";
-static EE_ERROR_DEVICE: &str = "EE_error_retry_device"; // The prefix is added by the vbdev_error module
-static BDEV_EE_ERROR_DEVICE: &str = "bdev:///EE_error_retry_device";
-
-static YAML_CONFIG_FILE: &str = "/tmp/error_count_retry_nexus.yaml";
-#[ignore]
-#[tokio::test]
-async fn nexus_error_count_retry_test() {
-    common::truncate_file(DISKNAME1, 64 * 1024);
-
+fn mayastor() -> &'static MayastorTest<'static> {
     let mut config = Config::default();
-    config.err_store_opts.enable_err_store = true;
-    config.err_store_opts.action = ActionType::Ignore;
-    config.err_store_opts.err_store_size = 256;
     config.err_store_opts.max_io_attempts = 2;
-
     config.write(YAML_CONFIG_FILE).unwrap();
-    let ms = common::MayastorTest::new(MayastorCliArgs {
-        mayastor_config: Some(YAML_CONFIG_FILE.to_string()),
-        reactor_mask: "0x3".to_string(),
-        ..Default::default()
+
+    let ms = MS.get_or_init(|| {
+        MayastorTest::new(MayastorCliArgs {
+            mayastor_config: Some(YAML_CONFIG_FILE.to_string()),
+            reactor_mask: "0x3".to_string(),
+            ..Default::default()
+        })
     });
+    &ms
+}
 
-    // baseline test with no errors injected
-    ms.spawn(async {
-        create_error_bdev(ERROR_DEVICE, DISKNAME1);
-        create_nexus().await;
-        err_write_nexus(true).await;
-        err_read_nexus(true).await;
-    })
-    .await;
+#[tokio::test]
+async fn nexus_retry_child_write_succeed_test() {
+    let nexus_name = "error_retry_write_succeed";
+    let error_device = "error_device_write_succeed";
+    let ee_error_device = format!("EE_{}", error_device);
+    let bdev_ee_error_device = format!("bdev:///{}", ee_error_device);
 
-    ms.spawn(nexus_err_query_and_test(
-        BDEV_EE_ERROR_DEVICE,
-        NexusErrStore::READ_FLAG | NexusErrStore::WRITE_FLAG,
-        0,
-        Some(1_000_000_000),
-    ))
-    .await;
+    common::truncate_file(ERROR_DISK, 64 * 1024);
+    common::truncate_file(NON_ERROR_DISK, 64 * 1024);
 
-    // 1 write error injected, 2 attempts allowed, 1 write error should be
-    // logged and the IO should succeed
-    ms.spawn(async {
-        inject_error(
-            EE_ERROR_DEVICE,
-            SPDK_BDEV_IO_TYPE_WRITE,
-            VBDEV_IO_FAILURE,
-            1,
-        );
-        err_write_nexus(true).await;
-    })
-    .await;
+    mayastor()
+        .spawn(async move {
+            create_error_bdev(error_device, ERROR_DISK);
+            create_nexus(
+                nexus_name,
+                &bdev_ee_error_device,
+                &NON_ERROR_BASE_BDEV,
+            )
+            .await;
 
-    ms.spawn(nexus_err_query_and_test(
-        BDEV_EE_ERROR_DEVICE,
-        NexusErrStore::WRITE_FLAG,
-        1,
-        Some(1_000_000_000),
-    ))
-    .await;
+            check_nexus_state_is(nexus_name, NexusStatus::Online);
 
-    // 2 errors injected, 2 attempts allowed, 1 read attempt, 2 read errors
-    // should be logged and the IO should fail
-    ms.spawn(async {
-        inject_error(
-            EE_ERROR_DEVICE,
-            SPDK_BDEV_IO_TYPE_READ,
-            VBDEV_IO_FAILURE,
-            2,
-        );
-        err_read_nexus(false).await;
-    })
-    .await;
+            inject_error(
+                &ee_error_device,
+                SPDK_BDEV_IO_TYPE_WRITE,
+                VBDEV_IO_FAILURE,
+                1,
+            );
 
-    // IO should now succeed
-    ms.spawn(async {
-        err_read_nexus(true).await;
-    })
-    .await;
+            err_write_nexus(nexus_name, true).await; //should succeed, 2 attempts vs 1 error
+            check_nexus_state_is(nexus_name, NexusStatus::Degraded);
+            delete_nexus(nexus_name).await;
+        })
+        .await;
 
-    common::delete_file(&[DISKNAME1.to_string()]);
+    common::delete_file(&[ERROR_DISK.to_string()]);
+    common::delete_file(&[NON_ERROR_DISK.to_string()]);
     common::delete_file(&[YAML_CONFIG_FILE.to_string()]);
 }
 
-async fn create_nexus() {
-    let ch = vec![BDEV_EE_ERROR_DEVICE.to_string()];
+#[tokio::test]
+async fn nexus_retry_child_write_fail_test() {
+    let nexus_name = "error_retry_write_fail";
+    let error_device = "error_device_write_fail";
+    let ee_error_device = format!("EE_{}", error_device);
+    let bdev_ee_error_device = format!("bdev:///{}", ee_error_device);
 
-    nexus_create(ERROR_COUNT_TEST_NEXUS, 64 * 1024 * 1024, None, &ch)
+    common::truncate_file(ERROR_DISK, 64 * 1024);
+    common::truncate_file(NON_ERROR_DISK, 64 * 1024);
+
+    mayastor()
+        .spawn(async move {
+            create_error_bdev(error_device, ERROR_DISK);
+            create_nexus(
+                nexus_name,
+                &bdev_ee_error_device,
+                &NON_ERROR_BASE_BDEV,
+            )
+            .await;
+            check_nexus_state_is(nexus_name, NexusStatus::Online);
+
+            inject_error(
+                &ee_error_device,
+                SPDK_BDEV_IO_TYPE_WRITE,
+                VBDEV_IO_FAILURE,
+                2,
+            );
+
+            err_write_nexus(nexus_name, false).await; //should fail, 2 attempts vs 2 errors
+            check_nexus_state_is(nexus_name, NexusStatus::Degraded);
+            delete_nexus(nexus_name).await;
+        })
+        .await;
+
+    common::delete_file(&[ERROR_DISK.to_string()]);
+    common::delete_file(&[NON_ERROR_DISK.to_string()]);
+    common::delete_file(&[YAML_CONFIG_FILE.to_string()]);
+}
+
+fn check_nexus_state_is(name: &str, expected_status: NexusStatus) {
+    let nexus = nexus_lookup(name).unwrap();
+    assert_eq!(nexus.status(), expected_status);
+}
+
+async fn create_nexus(name: &str, err_dev: &str, dev: &str) {
+    let ch = vec![err_dev.to_string(), dev.to_string()];
+
+    nexus_create(&name.to_string(), 64 * 1024 * 1024, None, &ch)
         .await
         .unwrap();
 }
 
-async fn nexus_err_query_and_test(
-    child_bdev: &str,
-    io_type_flags: u32,
-    expected_count: u32,
-    age_nano: Option<u64>,
-) {
-    let nexus = nexus_lookup(ERROR_COUNT_TEST_NEXUS).unwrap();
-    let count = nexus
-        .error_record_query(
-            child_bdev,
-            io_type_flags,
-            NexusErrStore::IO_FAILED_FLAG,
-            age_nano,
-            QueryType::Total,
-        )
-        .expect("failed to query child");
-    assert!(count.is_some()); // true if the error_store is enabled
-    assert_eq!(count.unwrap(), expected_count);
+async fn delete_nexus(name: &str) {
+    let n = nexus_lookup(name).unwrap();
+    n.destroy().await.unwrap();
 }
 
-async fn err_write_nexus(succeed: bool) {
-    let bdev = Bdev::lookup_by_name(ERROR_COUNT_TEST_NEXUS)
-        .expect("failed to lookup nexus");
+async fn err_write_nexus(name: &str, succeed: bool) {
+    let bdev = Bdev::lookup_by_name(name).expect("failed to lookup nexus");
     let d = bdev
         .open(true)
         .expect("failed open bdev")
@@ -142,26 +144,6 @@ async fn err_write_nexus(succeed: bool) {
     let buf = d.dma_malloc(512).expect("failed to allocate buffer");
 
     match d.write_at(0, &buf).await {
-        Ok(_) => {
-            assert_eq!(succeed, true);
-        }
-        Err(_) => {
-            assert_eq!(succeed, false);
-        }
-    };
-}
-
-async fn err_read_nexus(succeed: bool) {
-    let bdev = Bdev::lookup_by_name(ERROR_COUNT_TEST_NEXUS)
-        .expect("failed to lookup nexus");
-    let d = bdev
-        .open(true)
-        .expect("failed open bdev")
-        .into_handle()
-        .unwrap();
-    let mut buf = d.dma_malloc(512).expect("failed to allocate buffer");
-
-    match d.read_at(0, &mut buf).await {
         Ok(_) => {
             assert_eq!(succeed, true);
         }
