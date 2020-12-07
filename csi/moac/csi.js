@@ -77,15 +77,17 @@ function checkCapabilities (caps) {
 // @param   {object} volume   Volume object.
 // @returns {object} K8s CSI volume object.
 function createK8sVolumeObject (volume) {
-  return {
+  const obj = {
     volumeId: volume.uuid,
     capacityBytes: volume.getSize(),
-    accessibleTopology: [
-      {
-        segments: { 'kubernetes.io/hostname': volume.getNodeName() }
-      }
-    ]
+    accessibleTopology: []
   };
+  if (volume.protocol.toLowerCase() === 'nbd') {
+    obj.accessibleTopology.push({
+      segments: { 'kubernetes.io/hostname': volume.getNodeName() }
+    });
+  }
+  return obj;
 }
 
 // CSI Controller implementation.
@@ -117,9 +119,9 @@ class CsiServer {
 
     // Wrap all controller methods by a check for readiness of the csi server
     // and request/response logging to avoid repeating code.
-    var self = this;
-    var controllerMethods = {};
-    var methodNames = [
+    const self = this;
+    const controllerMethods = {};
+    let methodNames = [
       'createVolume',
       'deleteVolume',
       'controllerPublishVolume',
@@ -197,7 +199,7 @@ class CsiServer {
 
   // Stop the grpc server.
   async stop () {
-    var self = this;
+    const self = this;
     return new Promise((resolve, reject) => {
       log.info('Shutting down grpc server');
       self.server.tryShutdown(resolve);
@@ -237,7 +239,7 @@ class CsiServer {
   }
 
   getPluginCapabilities (_, cb) {
-    var caps = ['CONTROLLER_SERVICE', 'VOLUME_ACCESSIBILITY_CONSTRAINTS'];
+    const caps = ['CONTROLLER_SERVICE', 'VOLUME_ACCESSIBILITY_CONSTRAINTS'];
     log.debug('getPluginCapabilities request: ' + caps.join(', '));
     cb(null, {
       capabilities: caps.map((c) => {
@@ -256,7 +258,7 @@ class CsiServer {
   //
 
   async controllerGetCapabilities (_, cb) {
-    var caps = [
+    const caps = [
       'CREATE_DELETE_VOLUME',
       'PUBLISH_UNPUBLISH_VOLUME',
       'LIST_VOLUMES',
@@ -271,7 +273,7 @@ class CsiServer {
   }
 
   async createVolume (call, cb) {
-    var args = call.request;
+    const args = call.request;
 
     log.debug(
       `Request to create volume "${args.name}" with size ` +
@@ -366,7 +368,7 @@ class CsiServer {
     }
 
     // create the volume
-    var volume;
+    let volume;
     try {
       volume = await this.volumes.createVolume(uuid, {
         replicaCount: count,
@@ -402,7 +404,7 @@ class CsiServer {
   }
 
   async deleteVolume (call, cb) {
-    var args = call.request;
+    const args = call.request;
 
     log.debug(`Request to destroy volume "${args.volumeId}"`);
 
@@ -416,8 +418,8 @@ class CsiServer {
   }
 
   async listVolumes (call, cb) {
-    var args = call.request;
-    var ctx = {};
+    const args = call.request;
+    let ctx = {};
 
     if (args.startingToken) {
       ctx = this.listContexts[args.startingToken];
@@ -434,7 +436,7 @@ class CsiServer {
       log.debug('Request to list volumes');
       ctx = {
         volumes: this.volumes
-          .get()
+          .list()
           .map(createK8sVolumeObject)
           .map((v) => {
             return { volume: v };
@@ -446,7 +448,7 @@ class CsiServer {
       args.maxEntries = 1000;
     }
 
-    var entries = ctx.volumes.splice(0, args.maxEntries);
+    const entries = ctx.volumes.splice(0, args.maxEntries);
 
     // TODO: purge list contexts older than .. (1 min)
     if (ctx.volumes.length > 0) {
@@ -462,7 +464,7 @@ class CsiServer {
   }
 
   async controllerPublishVolume (call, cb) {
-    var args = call.request;
+    const args = call.request;
 
     log.debug(
       `Request to publish volume "${args.volumeId}" on "${args.nodeId}"`
@@ -543,7 +545,7 @@ class CsiServer {
   }
 
   async controllerUnpublishVolume (call, cb) {
-    var args = call.request;
+    const args = call.request;
 
     log.debug(`Request to unpublish volume "${args.volumeId}"`);
 
@@ -569,7 +571,7 @@ class CsiServer {
   }
 
   async validateVolumeCapabilities (call, cb) {
-    var args = call.request;
+    const args = call.request;
 
     log.debug(`Request to validate volume capabilities for "${args.volumeId}"`);
 
@@ -600,8 +602,8 @@ class CsiServer {
   // XXX Is the caller interested in total capacity (sum of all pools) or
   // a capacity usable by a single volume?
   async getCapacity (call, cb) {
-    var nodeName;
-    var args = call.request;
+    let nodeName;
+    const args = call.request;
 
     if (args.volumeCapabilities) {
       try {

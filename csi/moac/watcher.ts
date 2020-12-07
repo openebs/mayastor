@@ -500,7 +500,7 @@ export class CustomResourceCache<T> extends EventEmitter {
       name,
       async () => {
         try {
-          this.k8sApi.deleteNamespacedCustomObject(
+          await this.k8sApi.deleteNamespacedCustomObject(
             GROUP,
             VERSION,
             this.namespace,

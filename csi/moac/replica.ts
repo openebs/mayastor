@@ -136,18 +136,8 @@ export class Replica {
     if (!this.pool) {
       throw new Error('Cannot offline a replica that has not been bound');
     }
-
-    try {
-      await this.pool.node.call('destroyReplica', { uuid: this.uuid });
-      log.info(`Destroyed replica "${this}"`);
-    } catch (err) {
-      // TODO: make destroyReplica idempotent
-      if (err.code !== GrpcCode.NOT_FOUND) {
-        throw err;
-      }
-      log.warn(`Destroyed replica "${this}" does not exist`);
-    }
-
+    await this.pool.node.call('destroyReplica', { uuid: this.uuid });
+    log.info(`Destroyed replica "${this}"`);
     this.unbind();
   }
 

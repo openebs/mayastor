@@ -8,7 +8,7 @@
 const assert = require('assert');
 const EventEmitter = require('events');
 const log = require('./logger').Logger('registry');
-const Node = require('./node');
+const { Node } = require('./node');
 
 // List of events emitted by the registry.
 //
@@ -45,7 +45,7 @@ class Registry extends EventEmitter {
   // @param {string} name      Name of the node.
   // @param {string} endpoint  Endpoint for gRPC communication.
   addNode (name, endpoint) {
-    var node = this.nodes[name];
+    let node = this.nodes[name];
     if (node) {
       // if grpc endpoint has not changed, then this will not do anything
       if (node.endpoint !== endpoint) {
@@ -81,9 +81,8 @@ class Registry extends EventEmitter {
       `mayastor on node "${node.name}" and endpoint "${node.endpoint}" just joined`
     );
 
-    var self = this;
     eventObjects.forEach((objType) => {
-      node.on(objType, (ev) => self.emit(objType, ev));
+      node.on(objType, (ev) => this.emit(objType, ev));
     });
   }
 

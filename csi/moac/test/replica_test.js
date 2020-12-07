@@ -5,7 +5,7 @@
 const _ = require('lodash');
 const expect = require('chai').expect;
 const sinon = require('sinon');
-const Node = require('../node');
+const { Node } = require('../node');
 const { Pool } = require('../pool');
 const { Replica } = require('../replica');
 const { shouldFailWith } = require('./utils');
@@ -14,14 +14,14 @@ const { GrpcCode, GrpcError } = require('../grpc_client');
 const UUID = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cbb';
 
 module.exports = function () {
-  var poolProps = {
+  const poolProps = {
     name: 'pool',
     disks: ['/dev/sda'],
     state: 'POOL_ONLINE',
     capacity: 100,
     used: 4
   };
-  var props = {
+  const props = {
     uuid: UUID,
     pool: 'pool',
     size: 100,
@@ -30,7 +30,7 @@ module.exports = function () {
   };
 
   describe('mod event', () => {
-    var node, eventSpy, replica, pool, newProps;
+    let node, eventSpy, replica, pool, newProps;
 
     beforeEach(() => {
       node = new Node('node');
@@ -216,28 +216,5 @@ module.exports = function () {
     });
     expect(replica.pool).to.equal(pool);
     expect(pool.replicas).to.have.lengthOf(1);
-  });
-
-  it('should ignore NOT_FOUND error when destroying the replica', (done) => {
-    const node = new Node('node');
-    const stub = sinon.stub(node, 'call');
-    stub.rejects(new GrpcError(GrpcCode.NOT_FOUND, 'not found test failure'));
-    const pool = new Pool(poolProps);
-    node._registerPool(pool);
-    const replica = new Replica(props);
-    pool.registerReplica(replica);
-
-    node.once('replica', (ev) => {
-      expect(ev.eventType).to.equal('del');
-      expect(ev.object).to.equal(replica);
-      sinon.assert.calledOnce(stub);
-      sinon.assert.calledWith(stub, 'destroyReplica', { uuid: UUID });
-      setTimeout(() => {
-        expect(replica.pool).to.be.undefined();
-        expect(pool.replicas).to.have.lengthOf(0);
-        done();
-      }, 0);
-    });
-    replica.destroy();
   });
 };

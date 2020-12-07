@@ -55,6 +55,9 @@ import {
   CustomResourceCache,
   CustomResourceMeta,
 } from './watcher';
+import { Protocol, protocolFromString } from './nexus';
+import { Volumes } from './volumes';
+import { VolumeState, volumeStateFromString } from './volume';
 
 const RESOURCE_NAME: string = 'mayastorvolume';
 const crdVolume = yaml.safeLoad(
@@ -62,55 +65,6 @@ const crdVolume = yaml.safeLoad(
 );
 // lower-case letters uuid pattern
 const uuidRegexp = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[089ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-
-// Protocol used to export nexus (volume)
-enum Protocol {
-  Unknown = 'unknown',
-  Nbd = 'nbd',
-  Iscsi = 'iscsi',
-  Nvmf = 'nvmf',
-}
-
-function protocolFromString(val: string): Protocol {
-  if (val == Protocol.Nbd) {
-    return Protocol.Nbd;
-  } else if (val == Protocol.Iscsi) {
-    return Protocol.Iscsi;
-  } else if (val == Protocol.Nvmf) {
-    return Protocol.Nvmf;
-  } else {
-    return Protocol.Unknown;
-  }
-}
-
-// State of the volume
-enum State {
-  Unknown = 'unknown',
-  Healthy = 'healthy',
-  Degraded = 'degraded',
-  Faulted = 'faulted',
-  Pending = 'pending',
-  Offline = 'offline',
-  Error = 'error',
-}
-
-function stateFromString(val: string): State {
-  if (val == State.Healthy) {
-    return State.Healthy;
-  } else if (val == State.Degraded) {
-    return State.Degraded;
-  } else if (val == State.Faulted) {
-    return State.Faulted;
-  } else if (val == State.Pending) {
-    return State.Pending;
-  } else if (val == State.Offline) {
-    return State.Offline;
-  } else if (val == State.Error) {
-    return State.Error;
-  } else {
-    return State.Unknown;
-  }
-}
 
 // Spec part in volume resource
 type VolumeSpec = {
@@ -125,9 +79,9 @@ type VolumeSpec = {
 // Optional status part in volume resource
 type VolumeStatus = {
   size: number,
-  state: State,
+  state: VolumeState,
   reason?: string,
-  node: string,
+  targetNodes?: string[], // node name of nexus if the volume is published
   replicas: {
     node: string,
     pool: string,
@@ -135,6 +89,7 @@ type VolumeStatus = {
     offline: boolean,
   }[],
   nexus?: {
+    node: string,
     deviceUri?: string,
     state: string,
     children: {
@@ -182,14 +137,16 @@ export class VolumeResource extends CustomResource {
     if (status !== undefined) {
       this.status = <VolumeStatus> {
         size: status.size || 0,
-        state: stateFromString(status.state),
-        node: status.node,
+        state: volumeStateFromString(status.state),
         // sort the replicas according to uri to have deterministic order
         replicas: [].concat(status.replicas || []).sort((a: any, b: any) => {
           if (a.uri < b.uri) return -1;
           else if (a.uri > b.uri) return 1;
           else return 0;
         }),
+      };
+      if (status.targetNodes) {
+        this.status.targetNodes = [].concat(status.targetNodes).sort();
       }
       if (status.nexus) {
         this.status.nexus = status.nexus;
@@ -210,7 +167,7 @@ export class VolumeResource extends CustomResource {
 // Volume operator managing volume k8s custom resources.
 export class VolumeOperator {
   namespace: string;
-  volumes: any; // Volume manager
+  volumes: Volumes; // Volume manager
   eventStream: any; // A stream of node, replica and nexus events.
   watcher: CustomResourceCache<VolumeResource>; // volume resource watcher.
   workq: any; // Events from k8s are serialized so that we don't flood moac by
@@ -225,7 +182,7 @@ export class VolumeOperator {
   constructor (
     namespace: string,
     kubeConfig: KubeConfig,
-    volumes: any,
+    volumes: Volumes,
     idleTimeout: number | undefined,
   ) {
     this.namespace = namespace;
@@ -318,8 +275,7 @@ export class VolumeOperator {
   _volumeToStatus (volume: any): VolumeStatus {
     const st: VolumeStatus = {
       size: volume.getSize(),
-      state: stateFromString(volume.state),
-      node: volume.getNodeName(),
+      state: volumeStateFromString(volume.state),
       replicas: Object.values(volume.replicas).map((r: any) => {
         return {
           node: r.pool.node.name,
@@ -329,8 +285,12 @@ export class VolumeOperator {
         };
       })
     };
+    if (volume.getNodeName()) {
+      st.targetNodes = [ volume.getNodeName() ];
+    }
     if (volume.nexus) {
       st.nexus = {
+        node: volume.nexus.node.name,
         deviceUri: volume.nexus.deviceUri || '',
         state: volume.nexus.state,
         children: volume.nexus.children.map((ch: any) => {
@@ -416,7 +376,7 @@ export class VolumeOperator {
   }
 
   // Set state and reason not touching the other status fields.
-  async _updateState (uuid: string, state: State, reason: string) {
+  async _updateState (uuid: string, state: VolumeState, reason: string) {
     try {
       await this.watcher.updateStatus(uuid, (orig: VolumeResource) => {
         if (orig.status?.state === state && orig.status?.reason === reason) {
@@ -476,7 +436,7 @@ export class VolumeOperator {
     watcher.on('del', (obj: VolumeResource) => {
       // most likely it was not user but us (the operator) who deleted
       // the resource. So check if it really exists first.
-      if (this.volumes.get(obj.metadata.name)) {
+      if (this.volumes.get(obj.metadata.name!)) {
         this.workq.push(obj.metadata.name, this._destroyVolume.bind(this));
       }
     });
@@ -492,12 +452,12 @@ export class VolumeOperator {
 
     log.debug(`Importing volume "${uuid}" in response to "new" resource event`);
     try {
-      await this.volumes.importVolume(uuid, resource.spec, resource.status);
+      this.volumes.importVolume(uuid, resource.spec, resource.status);
     } catch (err) {
       log.error(
         `Failed to import volume "${uuid}" based on new resource: ${err}`
       );
-      await this._updateState(uuid, State.Error, err.toString());
+      await this._updateState(uuid, VolumeState.Error, err.toString());
     }
   }
 
@@ -516,12 +476,7 @@ export class VolumeOperator {
       return;
     }
     try {
-      if (volume.update(resource.spec)) {
-        log.debug(
-          `Updating volume "${uuid}" in response to "mod" resource event`
-        );
-        volume.fsa();
-      }
+      volume.update(resource.spec);
     } catch (err) {
       log.error(`Failed to update volume "${uuid}" based on resource: ${err}`);
     }

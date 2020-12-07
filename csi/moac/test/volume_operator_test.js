@@ -8,8 +8,8 @@ const sinon = require('sinon');
 const sleep = require('sleep-promise');
 const { KubeConfig } = require('client-node-fixed-watcher');
 const Registry = require('../registry');
-const Volume = require('../volume');
-const Volumes = require('../volumes');
+const { Volume } = require('../volume');
+const { Volumes } = require('../volumes');
 const { VolumeOperator, VolumeResource } = require('../volume_operator');
 const { GrpcError, GrpcCode } = require('../grpc_client');
 const { mockCache } = require('./watcher_stub');
@@ -57,11 +57,12 @@ const defaultSpec = {
 
 const defaultStatus = {
   size: 110,
-  node: 'node2',
+  targetNodes: ['node2'],
   state: 'healthy',
   nexus: {
     deviceUri: 'file:///dev/nbd0',
     state: 'NEXUS_ONLINE',
+    node: 'node2',
     children: [
       {
         uri: 'bdev:///' + UUID,
@@ -130,6 +131,7 @@ module.exports = function () {
           nexus: {
             deviceUri: 'file:///dev/nbd0',
             state: 'NEXUS_ONLINE',
+            node: 'node2',
             children: [
               {
                 uri: 'bdev:///' + UUID,
@@ -157,10 +159,10 @@ module.exports = function () {
       expect(res.spec.requiredBytes).to.equal(100);
       expect(res.spec.limitBytes).to.equal(120);
       expect(res.status.size).to.equal(110);
-      expect(res.status.node).to.equal('node2');
       expect(res.status.state).to.equal('healthy');
       expect(res.status.nexus.deviceUri).to.equal('file:///dev/nbd0');
       expect(res.status.nexus.state).to.equal('NEXUS_ONLINE');
+      expect(res.status.nexus.node).to.equal('node2');
       expect(res.status.nexus.children).to.have.length(1);
       expect(res.status.nexus.children[0].uri).to.equal('bdev:///' + UUID);
       expect(res.status.nexus.children[0].state).to.equal('CHILD_ONLINE');
@@ -180,14 +182,14 @@ module.exports = function () {
         },
         {
           size: 100,
-          node: 'node2',
+          targetNodes: ['node2'],
           state: 'online' // "online" is not a valid volume state
         }
       );
       expect(res.metadata.name).to.equal(UUID);
       expect(res.spec.replicaCount).to.equal(1);
       expect(res.status.size).to.equal(100);
-      expect(res.status.node).to.equal('node2');
+      expect(res.status.targetNodes).to.deep.equal(['node2']);
       expect(res.status.state).to.equal('unknown');
     });
 
@@ -203,7 +205,7 @@ module.exports = function () {
         },
         {
           size: 110,
-          node: 'node2',
+          targetNodes: ['node2'],
           state: 'healthy',
           replicas: []
         }
@@ -219,7 +221,7 @@ module.exports = function () {
       expect(res.spec.requiredBytes).to.equal(100);
       expect(res.spec.limitBytes).to.equal(120);
       expect(res.status.size).to.equal(110);
-      expect(res.status.node).to.equal('node2');
+      expect(res.status.targetNodes).to.deep.equal(['node2']);
       expect(res.status.state).to.equal('healthy');
       expect(res.status.nexus).is.undefined();
       expect(res.status.replicas).to.have.lengthOf(0);
@@ -335,7 +337,7 @@ module.exports = function () {
       const volumes = new Volumes(registry);
       const importVolumeStub = sinon.stub(volumes, 'importVolume');
       // return value is not used so just return something
-      importVolumeStub.resolves({ uuid: UUID });
+      importVolumeStub.returns({ uuid: UUID });
 
       const volumeResource = createVolumeResource(UUID, defaultSpec, defaultStatus);
       oper = await createVolumeOperator(volumes, (arg) => {
@@ -356,7 +358,7 @@ module.exports = function () {
       const registry = new Registry();
       const volumes = new Volumes(registry);
       const importVolumeStub = sinon.stub(volumes, 'importVolume');
-      importVolumeStub.rejects(
+      importVolumeStub.throws(
         new GrpcError(GrpcCode.INTERNAL, 'create failed')
       );
 
@@ -428,16 +430,18 @@ module.exports = function () {
       let stubs;
       const registry = new Registry();
       const volumes = new Volumes(registry);
-      const volume = new Volume(UUID, registry, defaultSpec);
+      const volume = new Volume(UUID, registry, () => {}, defaultSpec);
       volume.size = 110;
       const fsaStub = sinon.stub(volume, 'fsa');
       fsaStub.returns();
       sinon
         .stub(volumes, 'get')
         .withArgs(UUID)
-        .returns(volume)
+        .returns(volume);
+      sinon
+        .stub(volumes, 'list')
         .withArgs()
-        .returns([]);
+        .returns([volume]);
       const oldObj = createVolumeResource(UUID, defaultSpec, defaultStatus);
       // new changed specification of the object
       const newObj = createVolumeResource(
@@ -474,16 +478,18 @@ module.exports = function () {
       let stubs;
       const registry = new Registry();
       const volumes = new Volumes(registry);
-      const volume = new Volume(UUID, registry, defaultSpec);
+      const volume = new Volume(UUID, registry, () => {}, defaultSpec);
       volume.size = 110;
       const fsaStub = sinon.stub(volume, 'fsa');
       fsaStub.resolves();
       sinon
         .stub(volumes, 'get')
         .withArgs(UUID)
-        .returns(volume)
+        .returns(volume);
+      sinon
+        .stub(volumes, 'list')
         .withArgs()
-        .returns([]);
+        .returns([volume]);
       const oldObj = createVolumeResource(UUID, defaultSpec, defaultStatus);
       // new changed specification of the object
       const newObj = createVolumeResource(
@@ -518,14 +524,16 @@ module.exports = function () {
       let stubs;
       const registry = new Registry();
       const volumes = new Volumes(registry);
-      const volume = new Volume(UUID, registry, defaultSpec);
+      const volume = new Volume(UUID, registry, () => {}, defaultSpec);
       volume.size = 110;
       const fsaStub = sinon.stub(volume, 'fsa');
       fsaStub.returns();
       sinon
         .stub(volumes, 'get')
         .withArgs(UUID)
-        .returns(volume)
+        .returns(volume);
+      sinon
+        .stub(volumes, 'list')
         .withArgs()
         .returns([]);
       const oldObj = createVolumeResource(UUID, defaultSpec, defaultStatus);
@@ -558,12 +566,14 @@ module.exports = function () {
     it('should create a resource upon "new" volume event', async () => {
       let stubs;
       const registry = new Registry();
-      const volume = new Volume(UUID, registry, defaultSpec, 100);
+      const volume = new Volume(UUID, registry, () => {}, defaultSpec);
       const volumes = new Volumes(registry);
       sinon
         .stub(volumes, 'get')
         .withArgs(UUID)
-        .returns(volume)
+        .returns(volume);
+      sinon
+        .stub(volumes, 'list')
         .withArgs()
         .returns([volume]);
 
@@ -582,18 +592,18 @@ module.exports = function () {
       expect(stubs.create.args[0][4].spec).to.deep.equal(defaultSpec);
       sinon.assert.calledOnce(stubs.updateStatus);
       expect(stubs.updateStatus.args[0][5].status).to.deep.equal({
-        node: '',
         replicas: [],
-        size: 100,
+        size: 0,
         state: 'pending'
       });
+      expect(stubs.updateStatus.args[0][5].status.targetNodes).to.be.undefined();
     });
 
     it('should not crash if POST fails upon "new" volume event', async () => {
       let stubs;
       const registry = new Registry();
       const volumes = new Volumes(registry);
-      const volume = new Volume(UUID, registry, defaultSpec);
+      const volume = new Volume(UUID, registry, () => {}, defaultSpec);
       sinon.stub(volumes, 'get').returns([]);
 
       const volumeResource = createVolumeResource(UUID, defaultSpec);
@@ -620,11 +630,13 @@ module.exports = function () {
       const volumes = new Volumes(registry);
       const newSpec = _.cloneDeep(defaultSpec);
       newSpec.replicaCount += 1;
-      const volume = new Volume(UUID, registry, newSpec);
+      const volume = new Volume(UUID, registry, () => {}, newSpec);
       sinon
         .stub(volumes, 'get')
         .withArgs(UUID)
-        .returns(volume)
+        .returns(volume);
+      sinon
+        .stub(volumes, 'list')
         .withArgs()
         .returns([volume]);
 
@@ -646,17 +658,19 @@ module.exports = function () {
       let stubs;
       const registry = new Registry();
       const volumes = new Volumes(registry);
-      const volume = new Volume(UUID, registry, defaultSpec, 100);
+      const volume = new Volume(UUID, registry, () => {}, defaultSpec, 'pending', 100, 'node2');
       sinon
         .stub(volumes, 'get')
         .withArgs(UUID)
-        .returns(volume)
+        .returns(volume);
+      sinon
+        .stub(volumes, 'list')
         .withArgs()
         .returns([volume]);
 
       const volumeResource = createVolumeResource(UUID, defaultSpec, {
         size: 100,
-        node: '',
+        targetNodes: ['node2'],
         state: 'pending',
         replicas: []
       });
@@ -694,7 +708,7 @@ module.exports = function () {
         limitBytes: 130,
         protocol: 'nvmf'
       };
-      const volume = new Volume(UUID, registry, newSpec);
+      const volume = new Volume(UUID, registry, () => {}, newSpec);
       volumes.emit('volume', {
         eventType: 'mod',
         object: volume
@@ -720,7 +734,7 @@ module.exports = function () {
         stubs.updateStatus.resolves();
       });
 
-      const volume = new Volume(UUID, registry, defaultSpec);
+      const volume = new Volume(UUID, registry, () => {}, defaultSpec);
       volumes.emit('volume', {
         eventType: 'mod',
         object: volume
@@ -753,7 +767,7 @@ module.exports = function () {
         limitBytes: 130,
         protocol: 'nbd'
       };
-      const volume = new Volume(UUID, registry, newSpec);
+      const volume = new Volume(UUID, registry, () => {}, newSpec);
       volumes.emit('volume', {
         eventType: 'mod',
         object: volume
@@ -783,7 +797,7 @@ module.exports = function () {
         limitBytes: 130,
         protocol: 'nbd'
       };
-      const volume = new Volume(UUID, registry, newSpec);
+      const volume = new Volume(UUID, registry, () => {}, newSpec);
       volumes.emit('volume', {
         eventType: 'mod',
         object: volume
@@ -808,7 +822,7 @@ module.exports = function () {
         stubs.delete.resolves();
       });
 
-      const volume = new Volume(UUID, registry, defaultSpec);
+      const volume = new Volume(UUID, registry, () => {}, defaultSpec);
       volumes.emit('volume', {
         eventType: 'del',
         object: volume
@@ -831,7 +845,7 @@ module.exports = function () {
         stubs.delete.rejects(new Error('delete failed'));
       });
 
-      const volume = new Volume(UUID, registry, defaultSpec);
+      const volume = new Volume(UUID, registry, () => {}, defaultSpec);
       volumes.emit('volume', {
         eventType: 'del',
         object: volume
@@ -853,7 +867,7 @@ module.exports = function () {
         stubs.delete.resolves();
       });
 
-      const volume = new Volume(UUID, registry, defaultSpec);
+      const volume = new Volume(UUID, registry, () => {}, defaultSpec);
       volumes.emit('volume', {
         eventType: 'del',
         object: volume

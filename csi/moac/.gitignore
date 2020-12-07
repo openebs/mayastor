@@ -3,9 +3,12 @@
 /result
 /watcher.js
 /nexus.js
+/node.js
 /node_operator.js
 /pool.js
 /pool_operator.js
 /replica.js
+/volume.js
+/volumes.js
 /volume_operator.js
 /*.js.map
