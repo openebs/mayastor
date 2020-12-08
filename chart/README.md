@@ -23,7 +23,7 @@ kubectl delete namespace mayastor
 
 ## templating
 
-[ ] templatize namespace properly - helm installs to `default` but mayastor hardcodes `mayastor` namespace
+[ ] templatize namespace properly - mayastor namespace is hardcoded in yaml templates
   - use Release.Namespace
   - use Release.Name
 [ ] allow pulling image from authenticated repository
