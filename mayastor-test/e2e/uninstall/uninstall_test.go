@@ -2,7 +2,6 @@ package basic_test
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os/exec"
 	"path"
@@ -14,7 +13,6 @@ import (
 	. "github.com/onsi/gomega"
 
 	appsv1 "k8s.io/api/apps/v1"
-	coreV1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/deprecated/scheme"
 	"k8s.io/client-go/rest"
@@ -29,46 +27,6 @@ var cfg *rest.Config
 var k8sClient client.Client
 var k8sManager ctrl.Manager
 var testEnv *envtest.Environment
-
-/// Examine the nodes in the k8s cluster and return
-/// the IP address of the master node (if one exists),
-/// The assumption is that the test-registry is accessible via the IP addr of the master,
-/// or any node in the cluster if the master node does not exist
-/// TODO Refine how we workout the address of the test-registry
-func getRegistryAddress() (string, error) {
-	var master = ""
-	nodeList := coreV1.NodeList{}
-	if (k8sClient.List(context.TODO(), &nodeList, &client.ListOptions{}) != nil) {
-		return master, errors.New("failed to list nodes")
-	}
-	nodeIPs := make([]string, len(nodeList.Items))
-	for ix, k8node := range nodeList.Items {
-		for _, k8Addr := range k8node.Status.Addresses {
-			if k8Addr.Type == coreV1.NodeInternalIP {
-				nodeIPs[ix] = k8Addr.Address
-				for label := range k8node.Labels {
-					if label == "node-role.kubernetes.io/master" {
-						master = k8Addr.Address
-					}
-				}
-			}
-		}
-	}
-
-	/// TODO Refine how we workout the address of the test-registry
-
-	/// If there is master node, use its IP address as the registry IP address
-	if len(master) != 0 {
-		return master, nil
-	}
-
-	if len(nodeIPs) == 0 {
-		return "", errors.New("no usable nodes found")
-	}
-
-	/// Choose the IP address of first node in the list as the registry IP address
-	return nodeIPs[0], nil
-}
 
 // Encapsulate the logic to find where the deploy yamls are
 func getDeployYamlDir() string {
@@ -94,15 +52,6 @@ func makeImageName(registryAddress string, registryport string, imagename string
 	return registryAddress + ":" + registryport + "/mayadata/" + imagename + ":" + imageversion
 }
 
-func deleteTemplatedYaml(filename string, imagename string, registryAddress string) {
-	fullimagename := makeImageName(registryAddress, "30291", imagename, "ci")
-	bashcmd := "IMAGE_NAME=" + fullimagename + " envsubst < " + filename + " | kubectl delete -f -"
-	cmd := exec.Command("bash", "-c", bashcmd)
-	cmd.Dir = getTemplateYamlDir()
-	_, err := cmd.CombinedOutput()
-	Expect(err).ToNot(HaveOccurred())
-}
-
 // We expect this to fail a few times before it succeeds,
 // so no throwing errors from here.
 func mayastorReadyPodCount() int {
@@ -117,11 +66,9 @@ func mayastorReadyPodCount() int {
 // We deliberately call out to kubectl, rather than constructing the client-go
 // objects, so that we can verfiy the local deploy yamls are correct.
 func teardownMayastor() {
-	registryAddress, err := getRegistryAddress()
-	Expect(err).ToNot(HaveOccurred())
-	deleteTemplatedYaml("mayastor-daemonset.yaml.template", "mayastor", registryAddress)
-	deleteTemplatedYaml("moac-deployment.yaml.template", "moac", registryAddress)
-	deleteTemplatedYaml("csi-daemonset.yaml.template", "mayastor-csi", registryAddress)
+	deleteDeployYaml("mayastor-daemonset.yaml")
+	deleteDeployYaml("moac-deployment.yaml")
+	deleteDeployYaml("csi-daemonset.yaml")
 	deleteDeployYaml("nats-deployment.yaml")
 	deleteDeployYaml("mayastorpoolcrd.yaml")
 	deleteDeployYaml("moac-rbac.yaml")
