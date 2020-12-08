@@ -121,14 +121,12 @@ spec:
                         type: boolean
       additionalPrinterColumns:
         - name: Targets
-          type: array
+          type: string
           description: k8s node(s) with storage targets for the volume.
           jsonPath: .status.targetNodes
-          items: string
         - name: Size
           type: integer
           format: int64
-          minimum: 0
           description: Size of the volume
           jsonPath: .status.size
         - name: State
