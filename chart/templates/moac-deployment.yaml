@@ -1,19 +1,4 @@
 ---
-# Source: mayastor/templates/moac-deployment.yaml
-kind: Service
-apiVersion: v1
-metadata:
-  name: moac
-  namespace: mayastor
-spec:
-  selector:
-    app: moac
-  ports:
-  - protocol: TCP
-    port: 4000
-    targetPort: 4000
----
-# Source: mayastor/templates/moac-deployment.yaml
 kind: Deployment
 apiVersion: apps/v1
 metadata:
@@ -59,7 +44,7 @@ spec:
               mountPath: /var/lib/csi/sockets/pluginproxy/
 
         - name: moac
-          image: mayadata/moac:latest
+          image: {{ include "mayastorImagesPrefix" . }}mayadata/moac:{{ .Values.mayastorImagesTag }}
           imagePullPolicy: Always
           args:
             - "--csi-address=$(CSI_ENDPOINT)"
@@ -84,3 +69,16 @@ spec:
       volumes:
         - name: socket-dir
           emptyDir:
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: moac
+  namespace: mayastor
+spec:
+  selector:
+    app: moac
+  ports:
+  - protocol: TCP
+    port: 4000
+    targetPort: 4000

@@ -1,5 +1,3 @@
----
-# Source: mayastor/templates/mayastor-daemonset.yaml
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -33,7 +31,7 @@ spec:
         command: ['sh', '-c', 'until nc -vz nats 4222; do echo "Waiting for message bus..."; sleep 1; done;']
       containers:
       - name: mayastor
-        image: mayadata/mayastor:latest
+        image: {{ include "mayastorImagesPrefix" . }}mayadata/mayastor:{{ .Values.mayastorImagesTag }}
         imagePullPolicy: Always
         env:
         - name: MY_NODE_NAME

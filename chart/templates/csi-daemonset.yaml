@@ -1,5 +1,3 @@
----
-# Source: mayastor/templates/csi-daemonset.yaml
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -30,7 +28,7 @@ spec:
       # the same.
       containers:
       - name: mayastor-csi
-        image: mayadata/mayastor-csi:latest
+        image: {{ include "mayastorImagesPrefix" . }}mayadata/mayastor-csi:{{ .Values.mayastorImagesTag }}
         imagePullPolicy: Always
         # we need privileged because we mount filesystems and use mknod
         securityContext:
