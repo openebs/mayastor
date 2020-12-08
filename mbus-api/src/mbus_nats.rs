@@ -31,6 +31,18 @@ pub async fn message_bus_init(server: String) {
         .expect("Expect to be initialised only once");
 }
 
+/// Initialise the Nats Message Bus with Options
+pub async fn message_bus_init_options(
+    server: String,
+    timeouts: TimeoutOptions,
+) {
+    let nc = NatsMessageBus::new(&server, BusOptions::new(), timeouts).await;
+    NATS_MSG_BUS
+        .set(nc)
+        .ok()
+        .expect("Expect to be initialised only once");
+}
+
 /// Get the static `NatsMessageBus` as a boxed `MessageBus`
 pub fn bus() -> DynBus {
     Box::new(

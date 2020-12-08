@@ -955,9 +955,12 @@ dependencies = [
  "crossbeam",
  "futures",
  "ipnetwork",
+ "mbus_api",
  "rpc",
  "tokio",
  "tonic",
+ "tracing",
+ "tracing-subscriber",
 ]
 
 [[package]]

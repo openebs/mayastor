@@ -13,7 +13,12 @@ pub mod v0;
 
 use async_trait::async_trait;
 use dyn_clonable::clonable;
-pub use mbus_nats::{bus, message_bus_init, message_bus_init_tokio};
+pub use mbus_nats::{
+    bus,
+    message_bus_init,
+    message_bus_init_options,
+    message_bus_init_tokio,
+};
 pub use receive::*;
 pub use send::*;
 use serde::{Deserialize, Serialize};
@@ -188,10 +193,12 @@ pub type DynBus = Box<dyn Bus>;
 
 /// Timeout for receiving a reply to a request message
 /// Max number of retries until it gives up
-#[derive(Clone)]
+#[derive(Clone, Debug)]
 pub struct TimeoutOptions {
     /// initial request message timeout
     pub(crate) timeout: std::time::Duration,
+    /// request message incremental timeout step
+    pub(crate) timeout_step: std::time::Duration,
     /// max number of retries following the initial attempt's timeout
     pub(crate) max_retries: Option<u32>,
 }
@@ -199,6 +206,9 @@ pub struct TimeoutOptions {
 impl TimeoutOptions {
     pub(crate) fn default_timeout() -> Duration {
         Duration::from_secs(6)
+    }
+    pub(crate) fn default_timeout_step() -> Duration {
+        Duration::from_secs(1)
     }
     pub(crate) fn default_max_retries() -> u32 {
         6
@@ -209,6 +219,7 @@ impl Default for TimeoutOptions {
     fn default() -> Self {
         Self {
             timeout: Self::default_timeout(),
+            timeout_step: Self::default_timeout_step(),
             max_retries: Some(Self::default_max_retries()),
         }
     }
@@ -227,10 +238,19 @@ impl TimeoutOptions {
         self
     }
 
+    /// Timeout multiplied at each iteration
+    pub fn with_timeout_backoff(mut self, timeout: Duration) -> Self {
+        self.timeout_step = timeout;
+        self
+    }
+
     /// Specify a max number of retries before giving up
     /// None for unlimited retries
-    pub fn with_max_retries(mut self, max_retries: Option<u32>) -> Self {
-        self.max_retries = max_retries;
+    pub fn with_max_retries<M: Into<Option<u32>>>(
+        mut self,
+        max_retries: M,
+    ) -> Self {
+        self.max_retries = max_retries.into();
         self
     }
 }

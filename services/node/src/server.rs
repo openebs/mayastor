@@ -251,12 +251,9 @@ mod tests {
     #[tokio::test]
     async fn node() -> Result<(), Box<dyn std::error::Error>> {
         init_tracing();
-        let natsep = format!("nats.{}", TEST_NET_NAME);
-        let nats_arg = vec!["-n", &natsep];
         let maya_name = "node-test-name";
         let test = Builder::new()
             .name("node")
-            .network(TEST_NET_NETWORK)
             .add_container_bin(
                 "nats",
                 Binary::from_nix("nats-server").with_arg("-DV"),
@@ -264,17 +261,18 @@ mod tests {
             .add_container_bin(
                 "node",
                 Binary::from_dbg("node")
-                    .with_args(nats_arg.clone())
+                    .with_nats("-n")
                     .with_args(vec!["-d", "2sec"]),
             )
             .add_container_bin(
                 "mayastor",
                 Binary::from_dbg("mayastor")
-                    .with_args(nats_arg.clone())
+                    .with_nats("-n")
                     .with_args(vec!["-N", maya_name]),
             )
             .with_clean(true)
-            .build_only()
+            .autorun(false)
+            .build()
             .await?;
 
         orderly_start(&test).await?;

@@ -13,6 +13,7 @@ use bollard::{
         LogsOptions,
         NetworkingConfig,
         RemoveContainerOptions,
+        RestartContainerOptions,
         StopContainerOptions,
     },
     errors::Error,
@@ -35,10 +36,12 @@ use ipnetwork::Ipv4Network;
 use tonic::transport::Channel;
 
 use bollard::models::ContainerInspectResponse;
+use mbus_api::TimeoutOptions;
 use rpc::mayastor::{
     bdev_rpc_client::BdevRpcClient,
     mayastor_client::MayastorClient,
 };
+
 pub const TEST_NET_NAME: &str = "mayastor-testing-network";
 pub const TEST_NET_NETWORK: &str = "10.1.0.0/16";
 #[derive(Clone)]
@@ -55,7 +58,7 @@ impl RpcHandle {
         name: String,
         endpoint: SocketAddr,
     ) -> Result<Self, String> {
-        let mut attempts = 60;
+        let mut attempts = 40;
         loop {
             if TcpStream::connect_timeout(&endpoint, Duration::from_millis(100))
                 .is_ok()
@@ -96,6 +99,8 @@ impl RpcHandle {
 pub struct Binary {
     path: String,
     arguments: Vec<String>,
+    nats_arg: String,
+    env: HashMap<String, String>,
 }
 
 impl Binary {
@@ -132,6 +137,27 @@ impl Binary {
         self.arguments.extend(args.drain(..).map(|s| s.into()));
         self
     }
+    /// Set the nats endpoint via the provided argument
+    pub fn with_nats(mut self, arg: &str) -> Self {
+        self.nats_arg = arg.to_string();
+        self
+    }
+    /// Add environment variables for the container
+    pub fn with_env(mut self, key: &str, val: &str) -> Self {
+        if let Some(old) = self.env.insert(key.into(), val.into()) {
+            println!("Replaced key {} val {} with val {}", key, old, val);
+        }
+        self
+    }
+    /// pick up the nats argument name for a particular binary from nats_arg
+    /// and fill up the nats server endpoint using the network name
+    fn setup_nats(&mut self, network: &str) {
+        if !self.nats_arg.is_empty() {
+            self.arguments.push(self.nats_arg.clone());
+            self.arguments.push(format!("nats.{}:4222", network));
+            self.nats_arg = String::new();
+        }
+    }
 
     fn which(name: &str) -> std::io::Result<String> {
         let output = std::process::Command::new("which").arg(name).output()?;
@@ -141,6 +167,7 @@ impl Binary {
         Self {
             path,
             arguments: args,
+            ..Default::default()
         }
     }
 }
@@ -152,6 +179,9 @@ impl Into<Vec<String>> for Binary {
         v
     }
 }
+
+const RUST_LOG_DEFAULT: &str =
+    "debug,actix_web=debug,actix=debug,h2=info,hyper=info,tower_buffer=info,bollard=info,rustls=info";
 
 /// Specs of the allowed containers include only the binary path
 /// (relative to src) and the required arguments
@@ -180,7 +210,7 @@ impl ContainerSpec {
     /// Create new ContainerSpec from name and binary
     pub fn new(name: &str, binary: Binary) -> Self {
         let mut env = HashMap::new();
-        env.insert("RUST_LOG".to_string(), "debug,h2=info".to_string());
+        env.insert("RUST_LOG".to_string(), RUST_LOG_DEFAULT.to_string());
         Self {
             name: name.into(),
             binary,
@@ -192,13 +222,17 @@ impl ContainerSpec {
     /// Add port mapping from container to host
     pub fn with_portmap(mut self, from: &str, to: &str) -> Self {
         let from = format!("{}/tcp", from);
-        let mut port_map = bollard::service::PortMap::new();
         let binding = bollard::service::PortBinding {
             host_ip: None,
             host_port: Some(to.into()),
         };
-        port_map.insert(from, Some(vec![binding]));
-        self.port_map = Some(port_map);
+        if let Some(pm) = &mut self.port_map {
+            pm.insert(from, Some(vec![binding]));
+        } else {
+            let mut port_map = bollard::service::PortMap::new();
+            port_map.insert(from, Some(vec![binding]));
+            self.port_map = Some(port_map);
+        }
         self
     }
     /// Add environment key-val, eg for setting the RUST_LOG
@@ -209,7 +243,10 @@ impl ContainerSpec {
         }
         self
     }
-    fn env_to_vec(&self) -> Vec<String> {
+
+    /// Environment variables as a vector with each element as:
+    /// "{key}={value}"
+    fn environment(&self) -> Vec<String> {
         let mut vec = vec![];
         self.env.iter().for_each(|(k, v)| {
             vec.push(format!("{}={}", k, v));
@@ -233,6 +270,10 @@ pub struct Builder {
     clean: bool,
     /// destroy existing containers if any
     prune: bool,
+    /// run all containers on build
+    autorun: bool,
+    /// output container logs on panic
+    logs_on_panic: bool,
 }
 
 impl Default for Builder {
@@ -245,12 +286,20 @@ impl Builder {
     /// construct a new builder for `[ComposeTest']
     pub fn new() -> Self {
         Self {
-            name: "".to_string(),
+            name: TEST_NET_NAME.to_string(),
             containers: Default::default(),
-            network: "10.1.0.0".to_string(),
+            network: "10.1.0.0/16".to_string(),
             clean: true,
             prune: true,
+            autorun: true,
+            logs_on_panic: true,
         }
+    }
+
+    /// run all containers on build
+    pub fn autorun(mut self, run: bool) -> Builder {
+        self.autorun = run;
+        self
     }
 
     /// set the network for this test
@@ -279,7 +328,8 @@ impl Builder {
     }
 
     /// add a generic container which runs a local binary
-    pub fn add_container_bin(self, name: &str, bin: Binary) -> Builder {
+    pub fn add_container_bin(self, name: &str, mut bin: Binary) -> Builder {
+        bin.setup_nats(&self.name);
         self.add_container_spec(ContainerSpec::new(name, bin))
     }
 
@@ -289,6 +339,7 @@ impl Builder {
         self
     }
 
+    /// prune containers and networks on start
     pub fn with_prune(mut self, enable: bool) -> Builder {
         self.prune = enable;
         self
@@ -297,13 +348,16 @@ impl Builder {
     pub async fn build(
         self,
     ) -> Result<ComposeTest, Box<dyn std::error::Error>> {
+        let autorun = self.autorun;
         let mut compose = self.build_only().await?;
-        compose.start_all().await?;
+        if autorun {
+            compose.start_all().await?;
+        }
         Ok(compose)
     }
 
     /// build the config but don't start the containers
-    pub async fn build_only(
+    async fn build_only(
         self,
     ) -> Result<ComposeTest, Box<dyn std::error::Error>> {
         let net: Ipv4Network = self.network.parse()?;
@@ -335,6 +389,7 @@ impl Builder {
             label_prefix: "io.mayastor.test".to_string(),
             clean: self.clean,
             prune: self.prune,
+            logs_on_panic: self.logs_on_panic,
         };
 
         compose.network_id =
@@ -386,11 +441,22 @@ pub struct ComposeTest {
     /// automatically clean up the things we have created for this test
     clean: bool,
     pub prune: bool,
+    /// output container logs on panic
+    logs_on_panic: bool,
 }
 
 impl Drop for ComposeTest {
     /// destroy the containers and network. Notice that we use sync code here
     fn drop(&mut self) {
+        if thread::panicking() && self.logs_on_panic {
+            self.containers.keys().for_each(|name| {
+                tracing::error!("Logs from container '{}':", name);
+                let _ = std::process::Command::new("docker")
+                    .args(&["logs", name])
+                    .status();
+            });
+        }
+
         if self.clean {
             self.containers.keys().for_each(|c| {
                 std::process::Command::new("docker")
@@ -416,18 +482,23 @@ impl ComposeTest {
     /// name already exists it will be reused. Note that we do not check the
     /// networking IP and/or subnets
     async fn network_create(&mut self) -> Result<NetworkId, Error> {
-        let mut net = self.network_list().await?;
+        let mut net = self.network_list_labeled().await?;
 
         if !net.is_empty() {
             let first = net.pop().unwrap();
-            self.network_id = first.id.unwrap();
-            return Ok(self.network_id.clone());
+            if Some(self.name.clone()) == first.name {
+                // reuse the same network
+                self.network_id = first.id.unwrap();
+                return Ok(self.network_id.clone());
+            } else {
+                self.network_remove_labeled().await?;
+            }
         }
 
         let name_label = format!("{}.name", self.label_prefix);
         // we use the same network everywhere
         let create_opts = CreateNetworkOptions {
-            name: TEST_NET_NAME,
+            name: self.name.as_str(),
             check_duplicate: true,
             driver: "bridge",
             internal: false,
@@ -449,12 +520,36 @@ impl ComposeTest {
         })
     }
 
-    async fn network_remove(&self) -> Result<(), Error> {
+    async fn network_remove_labeled(&self) -> Result<(), Error> {
+        let our_networks = self.network_list_labeled().await?;
+        for network in our_networks {
+            let name = &network.name.unwrap();
+            self.remove_network_containers(name).await?;
+            self.network_remove(name).await?;
+        }
+        Ok(())
+    }
+
+    /// remove all containers from the network
+    async fn remove_network_containers(&self, name: &str) -> Result<(), Error> {
+        let containers = self.list_network_containers(name).await?;
+        for k in &containers {
+            let name = k.id.clone().unwrap();
+            self.remove_container(&name).await?;
+            while let Ok(_c) = self.docker.inspect_container(&name, None).await
+            {
+                tokio::time::delay_for(Duration::from_millis(500)).await;
+            }
+        }
+        Ok(())
+    }
+
+    async fn network_remove(&self, name: &str) -> Result<(), Error> {
         // if the network is not found, its not an error, any other error is
         // reported as such. Networks can only be destroyed when all containers
         // attached to it are removed. To get a list of attached
         // containers, use network_list()
-        if let Err(e) = self.docker.remove_network(&self.name).await {
+        if let Err(e) = self.docker.remove_network(name).await {
             if !matches!(e, Error::DockerResponseNotFoundError{..}) {
                 return Err(e);
             }
@@ -463,13 +558,26 @@ impl ComposeTest {
         Ok(())
     }
 
-    /// list all the docker networks
-    pub async fn network_list(&self) -> Result<Vec<Network>, Error> {
+    /// list all the docker networks with our filter
+    pub async fn network_list_labeled(&self) -> Result<Vec<Network>, Error> {
         self.docker
             .list_networks(Some(ListNetworksOptions {
-                filters: vec![("name", vec![TEST_NET_NAME])]
+                filters: vec![("label", vec!["io.mayastor.test.name"])]
                     .into_iter()
                     .collect(),
+            }))
+            .await
+    }
+
+    async fn list_network_containers(
+        &self,
+        name: &str,
+    ) -> Result<Vec<ContainerSummaryInner>, Error> {
+        self.docker
+            .list_containers(Some(ListContainersOptions {
+                all: true,
+                filters: vec![("network", vec![name])].into_iter().collect(),
+                ..Default::default()
             }))
             .await
     }
@@ -518,7 +626,7 @@ impl ComposeTest {
                 tokio::time::delay_for(Duration::from_millis(500)).await;
             }
         }
-        self.network_remove().await?;
+        self.network_remove(&self.name).await?;
         Ok(())
     }
 
@@ -602,7 +710,7 @@ impl ComposeTest {
             },
         );
 
-        let mut env = spec.env_to_vec();
+        let mut env = spec.environment();
         env.push(format!("MY_POD_IP={}", ipv4));
 
         let cmd: Vec<String> = spec.into();
@@ -680,6 +788,28 @@ impl ComposeTest {
             .stop_container(
                 id.0.as_str(),
                 Some(StopContainerOptions {
+                    t: 3,
+                }),
+            )
+            .await
+        {
+            // where already stopped
+            if !matches!(e, Error::DockerResponseNotModifiedError{..}) {
+                return Err(e);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// restart the container
+    pub async fn restart(&self, name: &str) -> Result<(), Error> {
+        let id = self.containers.get(name).unwrap();
+        if let Err(e) = self
+            .docker
+            .restart_container(
+                id.0.as_str(),
+                Some(RestartContainerOptions {
                     t: 3,
                 }),
             )
@@ -808,6 +938,24 @@ impl ComposeTest {
     pub async fn down(&self) {
         self.remove_all().await.unwrap();
     }
+
+    /// connect to message bus helper for the cargo test code
+    pub async fn connect_to_bus(&self, name: &str) {
+        let (_, ip) = self.containers.get(name).unwrap();
+        let url = format!("{}", ip);
+        tokio::time::timeout(std::time::Duration::from_secs(2), async {
+            mbus_api::message_bus_init_options(
+                url,
+                TimeoutOptions::new()
+                    .with_timeout(Duration::from_millis(500))
+                    .with_timeout_backoff(Duration::from_millis(500))
+                    .with_max_retries(10),
+            )
+            .await
+        })
+        .await
+        .unwrap();
+    }
 }
 
 #[cfg(test)]
@@ -821,7 +969,7 @@ mod tests {
             .name("composer")
             .network("10.1.0.0/16")
             .add_container_spec(
-                ContainerSpec::new(
+                ContainerSpec::from_binary(
                     "nats",
                     Binary::from_nix("nats-server").with_arg("-DV"),
                 )

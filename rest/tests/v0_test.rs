@@ -1,5 +1,4 @@
 mod test;
-use composer::{TEST_NET_NAME, TEST_NET_NETWORK};
 use mbus_api::{
     v0::{GetNodes, NodeState},
     Message,
@@ -33,38 +32,33 @@ async fn orderly_start(
 async fn client() -> Result<(), Box<dyn std::error::Error>> {
     test::init();
 
-    let natsep = format!("nats.{}", TEST_NET_NAME);
-    let nats_arg = vec!["-n", &natsep];
     let mayastor = "node-test-name";
     let test = Builder::new()
         .name("rest")
-        .network(TEST_NET_NETWORK)
         .add_container_spec(
-            ContainerSpec::new(
+            ContainerSpec::from_binary(
                 "nats",
                 Binary::from_nix("nats-server").with_arg("-DV"),
             )
             .with_portmap("4222", "4222"),
         )
-        .add_container_bin(
-            "node",
-            Binary::from_dbg("node").with_args(nats_arg.clone()),
-        )
+        .add_container_bin("node", Binary::from_dbg("node").with_nats("-n"))
         .add_container_spec(
-            ContainerSpec::new(
+            ContainerSpec::from_binary(
                 "rest",
-                Binary::from_dbg("rest").with_args(nats_arg.clone()),
+                Binary::from_dbg("rest").with_nats("-n"),
             )
             .with_portmap("8080", "8080"),
         )
         .add_container_bin(
             "mayastor",
             Binary::from_dbg("mayastor")
-                .with_args(nats_arg.clone())
+                .with_nats("-n")
                 .with_args(vec!["-N", mayastor]),
         )
         .with_clean(true)
-        .build_only()
+        .autorun(false)
+        .build()
         .await?;
 
     let result = client_test(mayastor, &test).await;
