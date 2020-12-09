@@ -49,7 +49,6 @@ pipeline {
   agent none
   options {
     timeout(time: 2, unit: 'HOURS')
-    parallelsAlwaysFailFast()
   }
   triggers {
     cron(cron_schedule)
@@ -134,14 +133,17 @@ pipeline {
             }
           }
         }
-        stage('dev images') {
-          agent { label 'nixos-mayastor' }
-          steps {
-            sh 'nix-build --no-out-link -A images.mayastor-dev-image'
-            sh 'nix-build --no-out-link -A images.mayastor-csi-dev-image'
-            sh 'nix-build --no-out-link -A images.moac-image'
-            sh 'nix-store --delete /nix/store/*docker-image*'
-          }
+      }
+    }
+    stage('e2e tests') {
+      agent { label 'nixos-mayastor' }
+      steps {
+        // build images (REGISTRY is set in jenkin's global configuration)
+        sh "./scripts/release.sh --debug --alias-tag ci --registry ${env.REGISTRY}"
+        // save space by removing docker images that are never reused
+        sh 'nix-store --delete /nix/store/*docker-image*'
+        withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
+          sh 'kubectl get nodes -o wide'
         }
       }
     }
