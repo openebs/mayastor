@@ -375,9 +375,7 @@ impl NexusChild {
         let state = self.state();
 
         match state {
-            ChildState::Open
-            | Faulted(Reason::OutOfSync)
-            | Faulted(Reason::IoError) => {
+            ChildState::Open | Faulted(Reason::OutOfSync) => {
                 // Change the state of the child to ensure it is taken out of
                 // the I/O path when the nexus is reconfigured.
                 self.set_state(ChildState::Closed)
