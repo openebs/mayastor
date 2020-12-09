@@ -42,6 +42,7 @@ func GetNodes(uuid string) (string, []string) {
 
 	var nodeToIsolate = ""
 	nexusNode := common.GetMsvNode(uuid)
+	Expect(nexusNode != "")
 	fmt.Printf("nexus node is \"%s\"\n", nexusNode)
 
 	var otherAddresses []string
@@ -78,6 +79,34 @@ func LossTest(nodeToIsolate string, otherNodes []string, disconnectionMethod str
 	DisconnectNode(nodeToIsolate, otherNodes, disconnectionMethod)
 
 	fmt.Printf("waiting up to 90s for disconnection to affect the nexus\n")
+	Eventually(func() string {
+		return common.GetMsvState(uuid)
+	},
+		90*time.Second, // timeout
+		"1s",           // polling interval
+	).Should(Equal("degraded"))
+
+	fmt.Printf("volume is in state \"%s\"\n", common.GetMsvState(uuid))
+
+	fmt.Printf("running fio while node is disconnected\n")
+	common.RunFio("fio", 20)
+
+	fmt.Printf("reconnecting \"%s\"\n", nodeToIsolate)
+	ReconnectNode(nodeToIsolate, otherNodes, true, disconnectionMethod)
+
+	fmt.Printf("running fio when node is reconnected\n")
+	common.RunFio("fio", 20)
+}
+
+// Remove the replica without running IO and verify that the volume becomes degraded but is still functional
+func LossWhenIdleTest(nodeToIsolate string, otherNodes []string, disconnectionMethod string, uuid string) {
+	fmt.Printf("disconnecting \"%s\"\n", nodeToIsolate)
+
+	DisconnectNode(nodeToIsolate, otherNodes, disconnectionMethod)
+
+	fmt.Printf("waiting up to 90s for disconnection to affect the nexus\n")
+	//time.Sleep(90 * time.Second)
+
 	Eventually(func() string {
 		return common.GetMsvState(uuid)
 	},

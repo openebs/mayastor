@@ -46,9 +46,8 @@ func DeleteDeployYaml(filename string) {
 
 // Status part of the mayastor volume CRD
 type MayastorVolStatus struct {
-	State  string
-	Reason string
-	Node   string
+	State string
+	Node  string
 }
 
 func GetMSV(uuid string) *MayastorVolStatus {
@@ -84,11 +83,12 @@ func GetMSV(uuid string) *MayastorVolStatus {
 			case "state":
 				msVol.State = val.Interface().(string)
 				break
-			case "reason":
-				msVol.Reason = val.Interface().(string)
-				break
-			case "node":
-				msVol.Node = val.Interface().(string)
+			case "nexus":
+				nexusInt := val.Interface().(map[string]interface{})
+				if node, ok := nexusInt["node"].(string); ok {
+					msVol.Node = node
+				}
+				Expect(msVol.Node != "")
 				break
 			}
 		}
