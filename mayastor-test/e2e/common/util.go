@@ -5,13 +5,18 @@ import (
 	"errors"
 	"fmt"
 	"os/exec"
+	"regexp"
+	"strconv"
 	"strings"
+	"time"
 
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 
 	corev1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
+
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,13 +39,6 @@ func ApplyDeployYaml(filename string) {
 
 func DeleteDeployYaml(filename string) {
 	cmd := exec.Command("kubectl", "delete", "-f", filename)
-	cmd.Dir = ""
-	_, err := cmd.CombinedOutput()
-	Expect(err).ToNot(HaveOccurred())
-}
-
-func LabelNode(nodename string, label string) {
-	cmd := exec.Command("kubectl", "label", "node", nodename, label)
 	cmd.Dir = ""
 	_, err := cmd.CombinedOutput()
 	Expect(err).ToNot(HaveOccurred())
@@ -393,9 +391,14 @@ func DeletePod(podName string) error {
 	return gTestEnv.KubeInt.CoreV1().Pods("default").Delete(context.TODO(), podName, metav1.DeleteOptions{})
 }
 
+func CreateFioPod(podName string, volName string) (*corev1.Pod, error) {
+	podDef := CreateFioPodDef(podName, volName)
+	return CreatePod(podDef)
+}
+
 /// Create a test fio pod in default namespace, no options and no context
 /// mayastor volume is mounted on /volume
-func CreateFioPod(podName string, volName string) (*corev1.Pod, error) {
+func CreateFioPodDef(podName string, volName string) *corev1.Pod {
 	podDef := corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      podName,
@@ -428,7 +431,7 @@ func CreateFioPod(podName string, volName string) (*corev1.Pod, error) {
 			},
 		},
 	}
-	return CreatePod(&podDef)
+	return &podDef
 }
 
 type NodeLocation struct {
@@ -469,4 +472,166 @@ func GetNodeLocs() ([]NodeLocation, error) {
 		}
 	}
 	return NodeLocs, nil
+}
+
+// create a storage class
+func MkStorageClass(scName string, scReplicas int, protocol string, provisioner string) {
+	createOpts := &storagev1.StorageClass{
+		ObjectMeta: metav1.ObjectMeta{
+			Name:      scName,
+			Namespace: "default",
+		},
+		Provisioner: provisioner,
+	}
+	createOpts.Parameters = make(map[string]string)
+	createOpts.Parameters["protocol"] = protocol
+	createOpts.Parameters["repl"] = strconv.Itoa(scReplicas)
+
+	ScApi := gTestEnv.KubeInt.StorageV1().StorageClasses
+	_, createErr := ScApi().Create(context.TODO(), createOpts, metav1.CreateOptions{})
+	Expect(createErr).To(BeNil())
+}
+
+// remove a storage class
+func RmStorageClass(scName string) {
+	ScApi := gTestEnv.KubeInt.StorageV1().StorageClasses
+	deleteErr := ScApi().Delete(context.TODO(), scName, metav1.DeleteOptions{})
+	Expect(deleteErr).To(BeNil())
+}
+
+// Add a node selector to the given pod definition
+func ApplyNodeSelectorToPodObject(pod *corev1.Pod, label string, value string) {
+	if pod.Spec.NodeSelector == nil {
+		pod.Spec.NodeSelector = make(map[string]string)
+	}
+	pod.Spec.NodeSelector[label] = value
+}
+
+// Add a node selector to the deployment spec and apply
+func ApplyNodeSelectorToDeployment(deploymentName string, namespace string, label string, value string) {
+	depApi := gTestEnv.KubeInt.AppsV1().Deployments
+	deployment, err := depApi(namespace).Get(context.TODO(), deploymentName, metav1.GetOptions{})
+	Expect(err).ToNot(HaveOccurred())
+	if deployment.Spec.Template.Spec.NodeSelector == nil {
+		deployment.Spec.Template.Spec.NodeSelector = make(map[string]string)
+	}
+	deployment.Spec.Template.Spec.NodeSelector[label] = value
+	_, err = depApi("mayastor").Update(context.TODO(), deployment, metav1.UpdateOptions{})
+	Expect(err).ToNot(HaveOccurred())
+}
+
+// Remove all node selectors from the deployment spec and apply
+func RemoveAllNodeSelectorsFromDeployment(deploymentName string, namespace string) {
+	depApi := gTestEnv.KubeInt.AppsV1().Deployments
+	deployment, err := depApi(namespace).Get(context.TODO(), deploymentName, metav1.GetOptions{})
+	Expect(err).ToNot(HaveOccurred())
+	if deployment.Spec.Template.Spec.NodeSelector != nil {
+		deployment.Spec.Template.Spec.NodeSelector = nil
+		_, err = depApi("mayastor").Update(context.TODO(), deployment, metav1.UpdateOptions{})
+	}
+	Expect(err).ToNot(HaveOccurred())
+}
+
+// Adjust the number of replicas in the deployment
+func SetDeploymentReplication(deploymentName string, namespace string, replicas *int32) {
+	depApi := gTestEnv.KubeInt.AppsV1().Deployments
+	deployment, err := depApi(namespace).Get(context.TODO(), deploymentName, metav1.GetOptions{})
+	Expect(err).ToNot(HaveOccurred())
+	deployment.Spec.Replicas = replicas
+	_, err = depApi("mayastor").Update(context.TODO(), deployment, metav1.UpdateOptions{})
+	Expect(err).ToNot(HaveOccurred())
+}
+
+// TODO remove dependency on kubectl
+// label is a string in the form "key=value"
+// function still succeeds if label already present
+func LabelNode(nodename string, label string) {
+	cmd := exec.Command("kubectl", "label", "node", nodename, label, "--overwrite=true")
+	cmd.Dir = ""
+	_, err := cmd.CombinedOutput()
+	Expect(err).ToNot(HaveOccurred())
+}
+
+// TODO remove dependency on kubectl
+// function still succeeds if label not present
+func UnlabelNode(nodename string, label string) {
+	cmd := exec.Command("kubectl", "label", "node", nodename, label+"-")
+	cmd.Dir = ""
+	_, err := cmd.CombinedOutput()
+	Expect(err).ToNot(HaveOccurred())
+}
+
+// Wait until all instances of the specified pod are absent from the given node
+func WaitForPodAbsentFromNode(podNameRegexp string, namespace string, nodeName string, timeoutSeconds int) error {
+	var validID = regexp.MustCompile(podNameRegexp)
+	var podAbsent bool = false
+
+	podApi := gTestEnv.KubeInt.CoreV1().Pods
+
+	for i := 0; i < timeoutSeconds && podAbsent == false; i++ {
+		podAbsent = true
+		time.Sleep(time.Second)
+		podList, err := podApi(namespace).List(context.TODO(), metav1.ListOptions{})
+		if err != nil {
+			return errors.New("failed to list pods")
+		}
+		for _, pod := range podList.Items {
+			if pod.Spec.NodeName == nodeName {
+				if validID.MatchString(pod.Name) {
+					podAbsent = false
+					break
+				}
+			}
+		}
+	}
+	if podAbsent == false {
+		return errors.New("timed out waiting for pod")
+	}
+	return nil
+}
+
+// Wait until the instance of the specified pod is present and in the running
+// state on the given node
+func WaitForPodRunningOnNode(podNameRegexp string, namespace string, nodeName string, timeoutSeconds int) error {
+	var validID = regexp.MustCompile(podNameRegexp)
+	podReady := false
+
+	podApi := gTestEnv.KubeInt.CoreV1().Pods
+
+	for i := 0; i < timeoutSeconds && podReady == false; i++ {
+		time.Sleep(time.Second)
+		podList, err := podApi(namespace).List(context.TODO(), metav1.ListOptions{})
+		if err != nil {
+			return errors.New("failed to list pods")
+		}
+		for _, pod := range podList.Items {
+			if pod.Spec.NodeName == nodeName && pod.Status.Phase == v1.PodRunning {
+				if validID.MatchString(pod.Name) {
+					podReady = true
+					break
+				}
+			}
+		}
+	}
+	if podReady == false {
+		return errors.New("timed out waiting for pod")
+	}
+	return nil
+}
+
+// returns true if the pod is present on the given node
+func PodPresentOnNode(podNameRegexp string, namespace string, nodeName string) bool {
+	var validID = regexp.MustCompile(podNameRegexp)
+	podApi := gTestEnv.KubeInt.CoreV1().Pods
+	podList, err := podApi(namespace).List(context.TODO(), metav1.ListOptions{})
+	Expect(err).ToNot(HaveOccurred())
+
+	for _, pod := range podList.Items {
+		if pod.Spec.NodeName == nodeName {
+			if validID.MatchString(pod.Name) {
+				return true
+			}
+		}
+	}
+	return false
 }

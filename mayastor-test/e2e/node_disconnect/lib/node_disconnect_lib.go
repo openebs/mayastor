@@ -13,6 +13,7 @@ var (
 	defTimeoutSecs = "90s"
 )
 
+// disconnect a node from the other nodes in the cluster
 func DisconnectNode(vmname string, otherNodes []string, method string) {
 	for _, targetIP := range otherNodes {
 		cmd := exec.Command("bash", "../lib/io_connect_node.sh", vmname, targetIP, "DISCONNECT", method)
@@ -22,6 +23,7 @@ func DisconnectNode(vmname string, otherNodes []string, method string) {
 	}
 }
 
+// reconnect a node to the other nodes in the cluster
 func ReconnectNode(vmname string, otherNodes []string, checkError bool, method string) {
 	for _, targetIP := range otherNodes {
 		cmd := exec.Command("bash", "../lib/io_connect_node.sh", vmname, targetIP, "RECONNECT", method)
@@ -65,6 +67,7 @@ func GetNodes(uuid string) (string, []string) {
 	return nodeToIsolate, otherAddresses
 }
 
+// Run fio against the cluster while a replica is being removed and reconnected to the network
 func LossTest(nodeToIsolate string, otherNodes []string, disconnectionMethod string, uuid string) {
 	fmt.Printf("running spawned fio\n")
 	go common.RunFio("fio", 20)
@@ -74,15 +77,18 @@ func LossTest(nodeToIsolate string, otherNodes []string, disconnectionMethod str
 
 	DisconnectNode(nodeToIsolate, otherNodes, disconnectionMethod)
 
-	fmt.Printf("waiting 60s for disconnection to affect the nexus\n")
-	time.Sleep(60 * time.Second)
+	fmt.Printf("waiting up to 90s for disconnection to affect the nexus\n")
+	Eventually(func() string {
+		return common.GetMsvState(uuid)
+	},
+		90*time.Second, // timeout
+		"1s",           // polling interval
+	).Should(Equal("degraded"))
+
+	fmt.Printf("volume is in state \"%s\"\n", common.GetMsvState(uuid))
 
 	fmt.Printf("running fio while node is disconnected\n")
 	common.RunFio("fio", 20)
-
-	volumeState := common.GetMsvState(uuid)
-	fmt.Printf("Volume state is \"%s\"\n", volumeState)
-	Expect(volumeState == "degraded")
 
 	fmt.Printf("reconnecting \"%s\"\n", nodeToIsolate)
 	ReconnectNode(nodeToIsolate, otherNodes, true, disconnectionMethod)
@@ -91,10 +97,11 @@ func LossTest(nodeToIsolate string, otherNodes []string, disconnectionMethod str
 	common.RunFio("fio", 20)
 }
 
-func Setup(pvc_name string, storage_class_name string, fio_yaml_path string) string {
+// Common steps required when setting up the test
+func Setup(pvc_name string, storage_class_name string) string {
 	uuid := common.MkPVC(fmt.Sprintf(pvc_name), storage_class_name)
 
-	common.ApplyDeployYaml(fio_yaml_path)
+	CreateFioOnRefugeNode("fio", pvc_name)
 
 	fmt.Printf("waiting for fio\n")
 	Eventually(func() bool {
@@ -106,11 +113,21 @@ func Setup(pvc_name string, storage_class_name string, fio_yaml_path string) str
 	return uuid
 }
 
-func Teardown(pvc_name string, storage_class_name string, fio_yaml_path string) {
+// Common steps required when tearing down the test
+func Teardown(pvcName string, storageClassName string) {
 
 	fmt.Printf("removing fio pod\n")
-	common.DeleteDeployYaml(fio_yaml_path)
+	err := common.DeletePod("fio")
+	Expect(err).ToNot(HaveOccurred())
 
 	fmt.Printf("removing pvc\n")
-	common.RmPVC(fmt.Sprintf(pvc_name), storage_class_name)
+	common.RmPVC(fmt.Sprintf(pvcName), storageClassName)
+}
+
+// Deploy an instance of fio on a node labelled as "podrefuge"
+func CreateFioOnRefugeNode(podName string, vol_claim_name string) {
+	podObj := common.CreateFioPodDef(podName, vol_claim_name)
+	common.ApplyNodeSelectorToPodObject(podObj, "openebs.io/podrefuge", "true")
+	_, err := common.CreatePod(podObj)
+	Expect(err).ToNot(HaveOccurred())
 }

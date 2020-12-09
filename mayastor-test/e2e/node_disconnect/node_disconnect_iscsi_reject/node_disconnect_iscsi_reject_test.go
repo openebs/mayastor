@@ -3,7 +3,6 @@ package node_disconnect_iscsi_reject_test
 import (
 	"e2e-basic/common"
 	disconnect_lib "e2e-basic/node_disconnect/lib"
-	"fmt"
 	"testing"
 
 	. "github.com/onsi/ginkgo"
@@ -39,7 +38,7 @@ var _ = Describe("Mayastor node loss test", func() {
 var _ = BeforeSuite(func(done Done) {
 	logf.SetLogger(zap.LoggerTo(GinkgoWriter, true))
 	common.SetupTestEnv()
-	g_uuid = disconnect_lib.Setup("loss-test-pvc-iscsi", "mayastor-iscsi", "../deploy/fio_iscsi.yaml")
+	g_uuid = disconnect_lib.Setup("loss-test-pvc-iscsi", "mayastor-iscsi-2")
 	close(done)
 }, 60)
 
@@ -49,8 +48,7 @@ var _ = AfterSuite(func() {
 	By("tearing down the test environment")
 
 	// ensure node is reconnected in the event of a test failure
-	fmt.Printf("reconnecting %s\n", g_nodeToIsolate)
 	disconnect_lib.ReconnectNode(g_nodeToIsolate, g_otherNodes, false, g_disconnectMethod)
-	disconnect_lib.Teardown("loss-test-pvc-iscsi", "mayastor-iscsi", "../deploy/fio_iscsi.yaml")
+	disconnect_lib.Teardown("loss-test-pvc-iscsi", "mayastor-iscsi-2")
 	common.TeardownTestEnv()
 })
