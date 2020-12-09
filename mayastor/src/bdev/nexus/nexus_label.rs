@@ -919,10 +919,12 @@ impl NexusLabel {
 impl NexusChild {
     /// read and validate this child's label
     pub async fn probe_label(&self) -> Result<NexusLabel, LabelError> {
-        let (bdev, hndl) = self.get_dev().context(NexusChildError {})?;
-        let block_size = bdev.block_len() as u64;
+        let hndl = self.handle().context(ReadError {
+            name: self.name.clone(),
+        })?;
+        let bdev = hndl.get_bdev();
+        let block_size = hndl.get_bdev().block_len() as u64;
 
-        //
         // Protective MBR
         let mut buf = hndl.dma_malloc(block_size).context(ReadAlloc {
             name: String::from("header"),
@@ -1076,10 +1078,10 @@ impl NexusChild {
         offset: u64,
         buf: &DmaBuf,
     ) -> Result<usize, LabelError> {
-        let (_bdev, hndl) = self.get_dev().context(HandleCreate {
+        let hdl = self.handle().context(WriteError {
             name: self.name.clone(),
         })?;
-        Ok(hndl.write_at(offset, buf).await.context(WriteError {
+        Ok(hdl.write_at(offset, buf).await.context(WriteError {
             name: self.name.clone(),
         })?)
     }

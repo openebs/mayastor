@@ -1,6 +1,8 @@
 //!
 //! IO is driven by means of so called channels.
-use std::{convert::TryFrom, ffi::c_void};
+use std::{ffi::c_void, ptr::NonNull};
+
+use futures::channel::oneshot;
 
 use spdk_sys::{
     spdk_for_each_channel,
@@ -13,11 +15,9 @@ use spdk_sys::{
 };
 
 use crate::{
-    bdev::{nexus::nexus_child::ChildState, Nexus},
+    bdev::{nexus::nexus_child::ChildState, Nexus, Reason},
     core::{BdevHandle, Mthread},
 };
-use futures::channel::oneshot;
-use std::ptr::NonNull;
 
 /// io channel, per core
 #[repr(C)]
@@ -125,12 +125,12 @@ impl NexusChannelInner {
             .iter_mut()
             .filter(|c| c.state() == ChildState::Open)
             .for_each(|c| {
-                self.writers.push(
-                    BdevHandle::try_from(c.get_descriptor().unwrap()).unwrap(),
-                );
-                self.readers.push(
-                    BdevHandle::try_from(c.get_descriptor().unwrap()).unwrap(),
-                );
+                if let Ok(hdl) = c.handle() {
+                    self.readers.push(hdl);
+                } else {
+                    c.set_state(ChildState::Faulted(Reason::CantOpen));
+                    error!("failed to create handle for {}", c);
+                }
             });
 
         // then add write-only children
@@ -139,13 +139,14 @@ impl NexusChannelInner {
                 .children
                 .iter_mut()
                 .filter(|c| c.rebuilding())
-                .map(|c| {
-                    self.writers.push(
-                        BdevHandle::try_from(c.get_descriptor().unwrap())
-                            .unwrap(),
-                    )
-                })
-                .for_each(drop);
+                .for_each(|c| {
+                    if let Ok(hdl) = c.handle() {
+                        self.writers.push(hdl);
+                    } else {
+                        c.set_state(ChildState::Faulted(Reason::CantOpen));
+                        error!("failed to create handle for {}", c);
+                    }
+                });
         }
 
         trace!(
@@ -181,15 +182,16 @@ impl NexusChannel {
             .children
             .iter_mut()
             .filter(|c| c.state() == ChildState::Open)
-            .map(|c| {
-                channels.writers.push(
-                    BdevHandle::try_from(c.get_descriptor().unwrap()).unwrap(),
-                );
-                channels.readers.push(
-                    BdevHandle::try_from(c.get_descriptor().unwrap()).unwrap(),
-                );
-            })
-            .for_each(drop);
+            .for_each(|c| match (c.handle(), c.handle()) {
+                (Ok(w), Ok(r)) => {
+                    channels.writers.push(w);
+                    channels.readers.push(r);
+                }
+                _ => {
+                    c.set_state(ChildState::Faulted(Reason::CantOpen));
+                    error!("Failed to get handle for {}, skipping bdev", c)
+                }
+            });
         ch.inner = Box::into_raw(channels);
         0
     }

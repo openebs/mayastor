@@ -37,6 +37,10 @@ impl Descriptor {
     pub fn get_channel(&self) -> Option<IoChannel> {
         let ch = unsafe { spdk_bdev_get_io_channel(self.0) };
         if ch.is_null() {
+            error!(
+                "failed to get IO channel for, probably low on memory! {}",
+                self.get_bdev().name(),
+            );
             None
         } else {
             IoChannel::from_null_checked(ch)

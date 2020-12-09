@@ -197,6 +197,9 @@ impl NexusChild {
             ChildState::Open => {
                 // the child (should) already be open
                 assert_eq!(self.bdev.is_some(), true);
+                assert_eq!(self.desc.is_some(), true);
+                info!("called open on an already opened child");
+                return Ok(self.name.clone());
             }
             _ => {}
         }
@@ -325,7 +328,7 @@ impl NexusChild {
     /// return a descriptor to this child
     pub fn get_descriptor(&self) -> Result<Arc<Descriptor>, CoreError> {
         if let Some(ref d) = self.desc {
-            Ok(d.clone())
+            Ok(Arc::clone(d))
         } else {
             Err(CoreError::InvalidDescriptor {
                 name: self.name.clone(),
@@ -349,7 +352,7 @@ impl NexusChild {
         let destroyed = self.destroy().await;
 
         // Only wait for bdev removal if the child has been initialised.
-        // An unintialised child won't have an underlying bdev.
+        // An uninitialized child won't have an underlying bdev.
         if self.state.load() != ChildState::Init {
             self.remove_channel.1.next().await;
         }
@@ -456,20 +459,18 @@ impl NexusChild {
 
     /// return reference to child's bdev and a new BdevHandle
     /// both must be present - otherwise it is considered an error
-    pub fn get_dev(&self) -> Result<(&Bdev, BdevHandle), ChildError> {
+    pub(crate) fn get_dev(&self) -> Result<(Bdev, BdevHandle), ChildError> {
         if !self.is_accessible() {
             info!("{}: Child is inaccessible: {}", self.parent, self.name);
             return Err(ChildError::ChildInaccessible {});
         }
 
-        if let Some(bdev) = &self.bdev {
-            if let Ok(desc) = self.get_descriptor() {
-                let hndl =
-                    BdevHandle::try_from(desc).context(HandleCreate {})?;
-                return Ok((bdev, hndl));
-            }
-        }
-        Err(ChildError::ChildInvalid {})
+        let hdl = self
+            .handle()
+            .map_err(|_| ChildError::ChildInaccessible {})?;
+        let bdev = hdl.get_bdev();
+
+        Ok((bdev, hdl))
     }
 
     /// Return the rebuild job which is rebuilding this child, if rebuilding
@@ -495,6 +496,17 @@ impl NexusChild {
                 Some(local)
             }
             None => None,
+        }
+    }
+
+    pub fn handle(&self) -> Result<BdevHandle, CoreError> {
+        if let Some(desc) = self.desc.as_ref() {
+            BdevHandle::try_from(Arc::clone(desc))
+        } else {
+            error!("BUG: Child {} does not have valid descriptor", self.name);
+            Err(CoreError::InvalidDescriptor {
+                name: self.name.clone(),
+            })
         }
     }
 }
