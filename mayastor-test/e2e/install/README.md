@@ -33,5 +33,5 @@ go test
 Or
 ```sh
 cd Maystor/e2e/install
-e2e_docker_registry='192.168.122.1:5000' e2e_pool_yaml_files='/e2e/pools.yaml' go test
+e2e_docker_registry='192.168.122.1:5000' e2e_pool_device='/dev/nvme1n1' go test
 ```

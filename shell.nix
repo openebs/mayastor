@@ -26,8 +26,11 @@ mkShell {
     cowsay
     e2fsprogs
     fio
+    envsubst # for e2e tests
     gdb
+    go
     gptfdisk
+    kubernetes-helm
     libaio
     libiscsi
     libiscsi.bin

@@ -138,12 +138,15 @@ pipeline {
     stage('e2e tests') {
       agent { label 'nixos-mayastor' }
       steps {
-        // build images (REGISTRY is set in jenkin's global configuration)
-        sh "./scripts/release.sh --debug --alias-tag ci --registry ${env.REGISTRY}"
+        // Build images (REGISTRY is set in jenkin's global configuration).
+        // Note: We might want to build and test dev images that have more
+        // assertions instead but that complicates e2e tests a bit.
+        sh "./scripts/release.sh --alias-tag ci --registry ${env.REGISTRY}"
         // save space by removing docker images that are never reused
         sh 'nix-store --delete /nix/store/*docker-image*'
         withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
           sh 'kubectl get nodes -o wide'
+          sh "nix-shell --run './scripts/e2e-test.sh ${env.REGISTRY}'"
         }
       }
     }
