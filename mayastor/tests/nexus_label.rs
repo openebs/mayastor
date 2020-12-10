@@ -1,5 +1,4 @@
 use std::{
-    convert::TryFrom,
     io::{Cursor, Read, Seek, SeekFrom},
     process::Command,
 };
@@ -10,7 +9,6 @@ use mayastor::{
     bdev::{nexus_create, nexus_lookup, GPTHeader, GptEntry},
     core::{
         mayastor_env_stop,
-        BdevHandle,
         DmaBuf,
         MayastorCliArgs,
         MayastorEnvironment,
@@ -126,8 +124,7 @@ async fn make_nexus() {
 async fn label_child() {
     let nexus = nexus_lookup("gpt_nexus").unwrap();
     let child = &mut nexus.children[0];
-    let desc = child.get_descriptor().unwrap();
-    let hdl = BdevHandle::try_from(desc).unwrap();
+    let hdl = child.handle().unwrap();
 
     let mut file = std::fs::File::open("./gpt_primary_test_data.bin").unwrap();
     let mut buffer = hdl.dma_malloc(34 * 512).unwrap();
