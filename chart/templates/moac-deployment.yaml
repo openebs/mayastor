@@ -44,7 +44,7 @@ spec:
               mountPath: /var/lib/csi/sockets/pluginproxy/
 
         - name: moac
-          image: ${IMAGE_NAME}
+          image: {{ include "mayastorImagesPrefix" . }}mayadata/moac:{{ .Values.mayastorImagesTag }}
           imagePullPolicy: Always
           args:
             - "--csi-address=$(CSI_ENDPOINT)"

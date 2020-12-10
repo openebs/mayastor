@@ -1,3 +1,5 @@
+---
+# Source: mayastor/templates/csi-daemonset.yaml
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:

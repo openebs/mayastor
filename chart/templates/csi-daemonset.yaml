@@ -28,7 +28,7 @@ spec:
       # the same.
       containers:
       - name: mayastor-csi
-        image: ${IMAGE_NAME}
+        image: {{ include "mayastorImagesPrefix" . }}mayadata/mayastor-csi:{{ .Values.mayastorImagesTag }}
         imagePullPolicy: Always
         # we need privileged because we mount filesystems and use mknod
         securityContext:

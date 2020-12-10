@@ -1,12 +1,10 @@
 ---
-# Source: mayastor/templates/moac-rbac.yaml
 apiVersion: v1
 kind: ServiceAccount
 metadata:
   name: moac
   namespace: mayastor
 ---
-# Source: mayastor/templates/moac-rbac.yaml
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
@@ -81,7 +79,6 @@ rules:
   resources: ["volumeattachments/status"]
   verbs: ["patch"]
 ---
-# Source: mayastor/templates/moac-rbac.yaml
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:

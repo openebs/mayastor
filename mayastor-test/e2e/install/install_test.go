@@ -127,6 +127,13 @@ func makeImageName(registryAddress string, imagename string, imageversion string
 	return registryAddress + "/mayadata/" + imagename + ":" + imageversion
 }
 
+func generateYamls(registryAddress string) {
+	bashcmd := "../../../scripts/generate-deploy-yamls.sh  ci " + registryAddress
+	cmd := exec.Command("bash", "-c", bashcmd)
+	_, err := cmd.CombinedOutput()
+	Expect(err).ToNot(HaveOccurred())
+}
+
 func applyTemplatedYaml(filename string, imagename string, registryAddress string) {
 	fullimagename := makeImageName(registryAddress, imagename, "ci")
 	bashcmd := "IMAGE_NAME=" + fullimagename + " envsubst < " + filename + " | kubectl apply -f -"
@@ -202,9 +209,10 @@ func installMayastor() {
 	applyDeployYaml("moac-rbac.yaml")
 	applyDeployYaml("mayastorpoolcrd.yaml")
 	applyDeployYaml("nats-deployment.yaml")
-	applyTemplatedYaml("csi-daemonset.yaml.template", "mayastor-csi", registryAddress)
-	applyTemplatedYaml("moac-deployment.yaml.template", "moac", registryAddress)
-	applyTemplatedYaml("mayastor-daemonset.yaml.template", "mayastor", registryAddress)
+	generateYamls(registryAddress)
+	applyDeployYaml("csi-daemonset.yaml")
+	applyDeployYaml("moac-deployment")
+	applyDeployYaml("mayastor-daemonset")
 
 	// Given the yamls and the environment described in the test readme,
 	// we expect mayastor to be running on exactly 2 nodes.
