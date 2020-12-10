@@ -124,10 +124,12 @@ impl NexusChannelInner {
             .children
             .iter_mut()
             .filter(|c| c.state() == ChildState::Open)
-            .for_each(|c| {
-                if let Ok(hdl) = c.handle() {
-                    self.readers.push(hdl);
-                } else {
+            .for_each(|c| match (c.handle(), c.handle()) {
+                (Ok(w), Ok(r)) => {
+                    self.writers.push(w);
+                    self.readers.push(r);
+                }
+                _ => {
                     c.set_state(ChildState::Faulted(Reason::CantOpen));
                     error!("failed to create handle for {}", c);
                 }

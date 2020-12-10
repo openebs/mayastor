@@ -497,7 +497,26 @@ async fn rebuild_operations() {
 
     // Stop rebuild - this will cause the rebuild job to be removed
     stop_rebuild(nexus_hdl, child2).await;
-    assert_eq!(get_num_rebuilds(nexus_hdl).await, 0);
+
+    let mut ticker = tokio::time::interval(Duration::from_millis(1000));
+    let mut number = u32::MAX;
+    let mut retries = 5;
+    loop {
+        ticker.tick().await;
+        if get_num_rebuilds(nexus_hdl).await == 0 {
+            number = 0;
+            break;
+        }
+
+        retries -= 1;
+        if retries == 0 {
+            break;
+        }
+    }
+
+    if number != 0 {
+        panic!("retries failed");
+    }
 }
 
 /// Test multiple rebuilds running at the same time.
@@ -958,7 +977,6 @@ async fn wait_for_child_state(
     }
     false
 }
-
 /// Returns the state of the nexus with the given uuid.
 async fn get_nexus_state(hdl: &mut RpcHandle, uuid: &str) -> Option<i32> {
     let list = hdl
