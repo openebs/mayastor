@@ -16,6 +16,10 @@ path = "node/src/server.rs"
 name = "pool"
 path = "pool/src/server.rs"
 
+[[bin]]
+name = "volume"
+path = "volume/src/server.rs"
+
 [lib]
 name = "common"
 path = "common/src/lib.rs"
@@ -39,7 +43,8 @@ tracing = "0.1"
 tracing-subscriber = "0.2"
 tracing-futures = "0.2.4"
 rpc = { path = "../rpc" }
-http = "0.2.2"
+url = "2.2.0"
+http = "0.2.1"
 
 [dev-dependencies]
 composer = { path = "../composer" }

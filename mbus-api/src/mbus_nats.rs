@@ -47,7 +47,7 @@ pub fn bus() -> DynBus {
     Box::new(
         NATS_MSG_BUS
             .get()
-            .expect("Should be initialised before use")
+            .expect("Shared message bus should be initialised before use.")
             .clone(),
     )
 }

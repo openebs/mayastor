@@ -56,6 +56,40 @@ pub type ShareReplica = crate::v0::ShareReplica;
 pub type UnshareReplica = crate::v0::UnshareReplica;
 /// Query Filter
 pub type Filter = crate::v0::Filter;
+/// Nexus from the volume service
+pub type Nexus = crate::v0::Nexus;
+/// Vector of Nexuses from the volume service
+pub type Nexuses = crate::v0::Nexuses;
+/// State of the nexus
+pub type NexusState = crate::v0::NexusState;
+/// Child of the nexus
+pub type Child = crate::v0::Child;
+/// State of the child
+pub type ChildState = crate::v0::ChildState;
+/// Nexus Create
+pub type CreateNexus = crate::v0::CreateNexus;
+/// Nexus Destroy
+pub type DestroyNexus = crate::v0::DestroyNexus;
+/// Nexus Share
+pub type ShareNexus = crate::v0::ShareNexus;
+/// Nexus Unshare
+pub type UnshareNexus = crate::v0::UnshareNexus;
+/// Remove Nexus Child
+pub type RemoveNexusChild = crate::v0::RemoveNexusChild;
+/// Add Nexus Child
+pub type AddNexusChild = crate::v0::AddNexusChild;
+/// Volume
+pub type Volume = crate::v0::Volume;
+/// Volumes
+pub type Volumes = crate::v0::Volumes;
+/// Add Volume
+pub type CreateVolume = crate::v0::CreateVolume;
+/// Delete Volume
+pub type DestroyVolume = crate::v0::DestroyVolume;
+/// Add Volume Nexus
+pub type AddVolumeNexus = crate::v0::AddVolumeNexus;
+/// Remove Volume Nexus
+pub type RemoveVolumeNexus = crate::v0::RemoveVolumeNexus;
 
 macro_rules! only_one {
     ($list:ident) => {
@@ -162,6 +196,109 @@ pub trait MessageBusTrait: Sized {
     #[tracing::instrument(level = "debug", err)]
     async fn unshare_replica(request: UnshareReplica) -> BusResult<()> {
         let _ = request.request().await?;
+        Ok(())
+    }
+
+    /// Get nexuses with filter
+    #[tracing::instrument(level = "debug", err)]
+    async fn get_nexuses(filter: Filter) -> BusResult<Vec<Nexus>> {
+        let nexuses = GetNexuses {
+            filter,
+        }
+        .request()
+        .await?;
+        Ok(nexuses.into_inner())
+    }
+
+    /// Get nexus with filter
+    #[tracing::instrument(level = "debug", err)]
+    async fn get_nexus(filter: Filter) -> BusResult<Nexus> {
+        let nexuses = Self::get_nexuses(filter).await?;
+        only_one!(nexuses)
+    }
+
+    /// create nexus
+    #[tracing::instrument(level = "debug", err)]
+    async fn create_nexus(request: CreateNexus) -> BusResult<Nexus> {
+        Ok(request.request().await?)
+    }
+
+    /// destroy nexus
+    #[tracing::instrument(level = "debug", err)]
+    async fn destroy_nexus(request: DestroyNexus) -> BusResult<()> {
+        request.request().await?;
+        Ok(())
+    }
+
+    /// share nexus
+    #[tracing::instrument(level = "debug", err)]
+    async fn share_nexus(request: ShareNexus) -> BusResult<String> {
+        Ok(request.request().await?)
+    }
+
+    /// unshare nexus
+    #[tracing::instrument(level = "debug", err)]
+    async fn unshare_nexus(request: UnshareNexus) -> BusResult<()> {
+        request.request().await?;
+        Ok(())
+    }
+
+    /// add nexus child
+    #[tracing::instrument(level = "debug", err)]
+    #[allow(clippy::unit_arg)]
+    async fn add_nexus_child(request: AddNexusChild) -> BusResult<Child> {
+        Ok(request.request().await?)
+    }
+
+    /// remove nexus child
+    #[tracing::instrument(level = "debug", err)]
+    #[allow(clippy::unit_arg)]
+    async fn remove_nexus_child(request: RemoveNexusChild) -> BusResult<()> {
+        request.request().await?;
+        Ok(())
+    }
+
+    /// Get volumes with filter
+    #[tracing::instrument(level = "debug", err)]
+    async fn get_volumes(filter: Filter) -> BusResult<Vec<Volume>> {
+        let volumes = GetVolumes {
+            filter,
+        }
+        .request()
+        .await?;
+        Ok(volumes.into_inner())
+    }
+
+    /// Get volume with filter
+    #[tracing::instrument(level = "debug", err)]
+    async fn get_volume(filter: Filter) -> BusResult<Volume> {
+        let volumes = Self::get_volumes(filter).await?;
+        only_one!(volumes)
+    }
+
+    /// create volume
+    #[tracing::instrument(level = "debug", err)]
+    async fn create_volume(request: CreateVolume) -> BusResult<Volume> {
+        Ok(request.request().await?)
+    }
+
+    /// delete volume
+    #[tracing::instrument(level = "debug", err)]
+    async fn delete_volume(request: DestroyVolume) -> BusResult<()> {
+        request.request().await?;
+        Ok(())
+    }
+
+    /// add volume nexus
+    #[tracing::instrument(level = "debug", err)]
+    async fn add_volume_nexus(request: AddVolumeNexus) -> BusResult<Nexus> {
+        Ok(request.request().await?)
+    }
+
+    /// remove volume nexus
+    #[tracing::instrument(level = "debug", err)]
+    async fn remove_volume_nexus(request: RemoveVolumeNexus) -> BusResult<()> {
+        request.request().await?;
         Ok(())
     }
 }

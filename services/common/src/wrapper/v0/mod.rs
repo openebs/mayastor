@@ -6,6 +6,7 @@ mod registry;
 
 pub use pool::NodeWrapperPool;
 pub use registry::Registry;
+pub use volume::NodeWrapperVolume;
 
 use async_trait::async_trait;
 use dyn_clonable::clonable;
@@ -16,6 +17,7 @@ use mbus_api::{
 use rpc::mayastor::{mayastor_client::MayastorClient, Null};
 use snafu::{ResultExt, Snafu};
 use std::{
+    cmp::Ordering,
     collections::HashMap,
     fmt::Debug,
     marker::PhantomData,
@@ -31,6 +33,14 @@ use tonic::transport::Channel;
 pub enum SvcError {
     #[snafu(display("Failed to get nodes from the node service"))]
     BusGetNodes { source: BusError },
+    #[snafu(display("Failed to get pools from the pool service"))]
+    BusGetPools { source: mbus_api::Error },
+    #[snafu(display("Failed to create pool from the pool service"))]
+    BusCreatePool { source: mbus_api::Error },
+    #[snafu(display("Failed to destroy pool from the pool service"))]
+    BusDestroyPool { source: mbus_api::Error },
+    #[snafu(display("Failed to destroy pool from the pool service"))]
+    BusGetReplicas { source: mbus_api::Error },
     #[snafu(display("Failed to get node '{}' from the node service", node))]
     BusGetNode { source: BusError, node: String },
     #[snafu(display("Node '{}' is not online", node))]
@@ -70,12 +80,55 @@ pub enum SvcError {
     #[snafu(display("Failed to unshare nexus via gRPC"))]
     GrpcUnshareNexus { source: tonic::Status },
     #[snafu(display("Failed to volume due to insufficient resources"))]
-    NotEnoughResources {},
+    NotEnoughResources { source: NotEnough },
     #[snafu(display("Invalid arguments"))]
     InvalidArguments {},
     #[snafu(display("Not implemented"))]
     NotImplemented {},
 }
 
+impl From<NotEnough> for SvcError {
+    fn from(source: NotEnough) -> Self {
+        Self::NotEnoughResources {
+            source,
+        }
+    }
+}
+
+/// Not enough resources available
+#[derive(Debug, Snafu)]
+#[allow(missing_docs)]
+pub enum NotEnough {
+    #[snafu(display(
+        "Not enough suitable pools available, {}/{}",
+        have,
+        need
+    ))]
+    OfPools { have: u64, need: u64 },
+    #[snafu(display("Not enough replicas available, {}/{}", have, need))]
+    OfReplicas { have: u64, need: u64 },
+    #[snafu(display("Not enough nexuses available, {}/{}", have, need))]
+    OfNexuses { have: u64, need: u64 },
+}
+
+/// Implement default fake NodeNexusChildTrait for a type
+#[macro_export]
+macro_rules! impl_no_nexus_child {
+    ($F:ident) => {
+        #[async_trait]
+        impl NodeNexusChildTrait for $F {}
+    };
+}
+
+/// Implement default fake NodeNexusTrait for a type
+#[macro_export]
+macro_rules! impl_no_nexus {
+    ($F:ident) => {
+        #[async_trait]
+        impl NodeNexusTrait for $F {}
+    };
+}
+
 mod node_traits;
 mod pool;
+mod volume;

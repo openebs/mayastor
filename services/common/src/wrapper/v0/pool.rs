@@ -273,6 +273,9 @@ impl NodeWrapperPool {
     }
 }
 
+impl_no_nexus_child!(NodeWrapperPool);
+impl_no_nexus!(NodeWrapperPool);
+
 /// Helper methods to convert between the message bus types and the
 /// mayastor gRPC types
 

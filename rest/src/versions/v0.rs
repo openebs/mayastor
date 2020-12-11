@@ -32,6 +32,10 @@ pub type CreatePool = v0::CreatePool;
 pub type CreateReplica = v0::CreateReplica;
 /// Replica Destroy
 pub type DestroyReplica = v0::DestroyReplica;
+/// Replica Share
+pub type ShareReplica = v0::ShareReplica;
+/// Replica Unshare
+pub type UnshareReplica = v0::UnshareReplica;
 /// Pool Destroy
 pub type DestroyPool = v0::DestroyPool;
 /// Create Replica Body JSON
@@ -98,8 +102,119 @@ impl CreateReplicaBody {
         }
     }
 }
-/// Filter Nodes, Pools, Replicas
+/// Filter Nodes, Pools, Replicas, Nexuses
 pub type Filter = v0::Filter;
+/// Nexus from the volume service
+pub type Nexus = v0::Nexus;
+/// Vector of Nexuses from the volume service
+pub type Nexuses = v0::Nexuses;
+/// State of the nexus
+pub type NexusState = v0::NexusState;
+/// Child of the nexus
+pub type Child = v0::Child;
+/// State of the child
+pub type ChildState = v0::ChildState;
+/// Nexus Create
+pub type CreateNexus = v0::CreateNexus;
+/// Nexus Destroy
+pub type DestroyNexus = v0::DestroyNexus;
+/// Nexus Share
+pub type ShareNexus = v0::ShareNexus;
+/// Nexus Unshare
+pub type UnshareNexus = v0::UnshareNexus;
+
+/// Create Nexus Body JSON
+#[derive(Serialize, Deserialize, Default, Debug, Clone)]
+pub struct CreateNexusBody {
+    /// size of the device in bytes
+    pub size: u64,
+    /// replica can be iscsi and nvmf remote targets or a local spdk bdev
+    /// (i.e. bdev:///name-of-the-bdev).
+    ///
+    /// uris to the targets we connect to
+    pub children: Vec<String>,
+}
+impl From<CreateNexus> for CreateNexusBody {
+    fn from(create: CreateNexus) -> Self {
+        CreateNexusBody {
+            size: create.size,
+            children: create.children,
+        }
+    }
+}
+impl CreateNexusBody {
+    /// convert into message bus type
+    pub fn bus_request(
+        &self,
+        node_id: String,
+        nexus_id: String,
+    ) -> v0::CreateNexus {
+        v0::CreateNexus {
+            node: node_id,
+            uuid: nexus_id,
+            size: self.size,
+            children: self.children.clone(),
+        }
+    }
+}
+/// Remove Nexus Child
+pub type RemoveNexusChild = v0::RemoveNexusChild;
+/// Add Nexus Child
+pub type AddNexusChild = v0::AddNexusChild;
+/// Volume
+pub type Volume = v0::Volume;
+/// Volumes
+pub type Volumes = v0::Volumes;
+/// Add Volume
+pub type CreateVolume = v0::CreateVolume;
+/// Destroy Volume
+pub type DestroyVolume = v0::DestroyVolume;
+
+/// Create Volume Body JSON
+#[derive(Serialize, Deserialize, Default, Debug, Clone)]
+pub struct CreateVolumeBody {
+    /// size of the volume in bytes
+    pub size: u64,
+    /// number of children nexuses (ANA)
+    pub nexuses: u64,
+    /// number of replicas per nexus
+    pub replicas: u64,
+    /// only these nodes can be used for the replicas
+    #[serde(default)]
+    pub allowed_nodes: Vec<String>,
+    /// preferred nodes for the replicas
+    #[serde(default)]
+    pub preferred_nodes: Vec<String>,
+    /// preferred nodes for the nexuses
+    #[serde(default)]
+    pub preferred_nexus_nodes: Vec<String>,
+}
+impl From<CreateVolume> for CreateVolumeBody {
+    fn from(create: CreateVolume) -> Self {
+        CreateVolumeBody {
+            size: create.size,
+            nexuses: create.nexuses,
+            replicas: create.replicas,
+            preferred_nodes: create.preferred_nodes,
+            allowed_nodes: create.allowed_nodes,
+            preferred_nexus_nodes: create.preferred_nexus_nodes,
+        }
+    }
+}
+impl CreateVolumeBody {
+    /// convert into message bus type
+    pub fn bus_request(&self, volume_id: String) -> CreateVolume {
+        CreateVolume {
+            uuid: volume_id,
+            size: self.size,
+            nexuses: self.nexuses,
+            replicas: self.replicas,
+            allowed_nodes: self.allowed_nodes.clone(),
+            preferred_nodes: self.preferred_nodes.clone(),
+            preferred_nexus_nodes: self.preferred_nexus_nodes.clone(),
+        }
+    }
+}
 
 /// RestClient interface
 #[async_trait(?Send)]
@@ -108,34 +223,78 @@ pub trait RestClient {
     async fn get_nodes(&self) -> anyhow::Result<Vec<Node>>;
     /// Get all the known pools
     async fn get_pools(&self, filter: Filter) -> anyhow::Result<Vec<Pool>>;
+    /// Create new pool with arguments
+    async fn create_pool(&self, args: CreatePool) -> anyhow::Result<Pool>;
+    /// Destroy pool with arguments
+    async fn destroy_pool(&self, args: DestroyPool) -> anyhow::Result<()>;
     /// Get all the known replicas
     async fn get_replicas(
         &self,
         filter: Filter,
     ) -> anyhow::Result<Vec<Replica>>;
-    /// Create new pool with arguments
-    async fn create_pool(&self, args: CreatePool) -> anyhow::Result<Pool>;
     /// Create new replica with arguments
     async fn create_replica(
         &self,
         args: CreateReplica,
     ) -> anyhow::Result<Replica>;
-    /// Destroy pool with arguments
-    async fn destroy_pool(&self, args: DestroyPool) -> anyhow::Result<()>;
     /// Destroy replica with arguments
     async fn destroy_replica(&self, args: DestroyReplica)
         -> anyhow::Result<()>;
+    /// Share replica with arguments
+    async fn share_replica(&self, args: ShareReplica)
+        -> anyhow::Result<String>;
+    /// Unshare replica with arguments
+    async fn unshare_replica(&self, args: UnshareReplica)
+        -> anyhow::Result<()>;
+    /// Get all the known pools
+    async fn get_nexuses(&self, filter: Filter) -> anyhow::Result<Vec<Nexus>>;
+    /// Create new nexus with arguments
+    async fn create_nexus(&self, args: CreateNexus) -> anyhow::Result<Nexus>;
+    /// Destroy nexus with arguments
+    async fn destroy_nexus(&self, args: DestroyNexus) -> anyhow::Result<()>;
+    /// Share nexus
+    async fn share_nexus(&self, args: ShareNexus) -> anyhow::Result<Nexus>;
+    /// Unshare nexus
+    async fn unshare_nexus(&self, args: UnshareNexus) -> anyhow::Result<()>;
+    /// Remove nexus child
+    async fn remove_nexus_child(
+        &self,
+        args: RemoveNexusChild,
+    ) -> anyhow::Result<()>;
+    /// Add nexus child
+    async fn add_nexus_child(
+        &self,
+        args: AddNexusChild,
+    ) -> anyhow::Result<Child>;
+    /// Get all children by filter
+    async fn get_nexus_children(
+        &self,
+        filter: Filter,
+    ) -> anyhow::Result<Vec<Child>>;
+    /// Get all volumes by filter
+    async fn get_volumes(&self, filter: Filter) -> anyhow::Result<Vec<Volume>>;
+    /// Create volume
+    async fn create_volume(&self, args: CreateVolume)
+        -> anyhow::Result<Volume>;
+    /// Destroy volume
+    async fn destroy_volume(&self, args: DestroyVolume) -> anyhow::Result<()>;
 }
 
 #[derive(Display, Debug)]
 #[allow(clippy::enum_variant_names)]
 enum RestURNs {
     #[strum(serialize = "nodes")]
-    GetNodes(Nodes),
+    GetNodes(Node),
     #[strum(serialize = "pools")]
-    GetPools(Pools),
+    GetPools(Pool),
     #[strum(serialize = "replicas")]
-    GetReplicas(Replicas),
+    GetReplicas(Replica),
+    #[strum(serialize = "nexuses")]
+    GetNexuses(Nexus),
+    #[strum(serialize = "children")]
+    GetChildren(Child),
+    #[strum(serialize = "volumes")]
+    GetVolumes(Volume),
     /* does not work as expect as format! only takes literals...
      * #[strum(serialize = "nodes/{}/pools/{}")]
      * PutPool(Pool), */
@@ -143,21 +302,18 @@ enum RestURNs {
 
 macro_rules! get_all {
     ($S:ident, $T:ident) => {
-        $S.get(
-            format!("/v0/{}", RestURNs::$T(Default::default()).to_string()),
-            RestURNs::$T,
-        )
+        $S.get_vec(format!(
+            "/v0/{}",
+            RestURNs::$T(Default::default()).to_string()
+        ))
     };
 }
 macro_rules! get_filter {
     ($S:ident, $F:ident, $T:ident) => {
-        $S.get(
-            format!(
-                "/v0/{}",
-                get_filtered_urn($F, &RestURNs::$T(Default::default()))?
-            ),
-            RestURNs::$T,
-        )
+        $S.get_vec(format!(
+            "/v0/{}",
+            get_filtered_urn($F, &RestURNs::$T(Default::default()))?
+        ))
     };
 }
 
@@ -188,6 +344,27 @@ fn get_filtered_urn(filter: Filter, r: &RestURNs) -> anyhow::Result<String> {
                 format!("nodes/{}/pools/{}/replicas/{}", n, p, r)
             }
             Filter::PoolReplica(p, r) => format!("pools/{}/replicas/{}", p, r),
+            _ => return Err(anyhow::Error::msg("Invalid filter for replicas")),
+        },
+        RestURNs::GetNexuses(_) => match filter {
+            Filter::None => "nexuses".to_string(),
+            Filter::Node(n) => format!("nodes/{}/nexuses", n),
+            Filter::NodeNexus(n, x) => format!("nodes/{}/nexuses/{}", n, x),
+            Filter::Nexus(x) => format!("nexuses/{}", x),
+            _ => return Err(anyhow::Error::msg("Invalid filter for nexuses")),
+        },
+        RestURNs::GetChildren(_) => match filter {
+            Filter::NodeNexus(n, x) => {
+                format!("nodes/{}/nexuses/{}/children", n, x)
+            }
+            Filter::Nexus(x) => format!("nexuses/{}/children", x),
+            _ => return Err(anyhow::Error::msg("Invalid filter for nexuses")),
+        },
+        RestURNs::GetVolumes(_) => match filter {
+            Filter::None => "volumes".to_string(),
+            Filter::Node(n) => format!("nodes/{}/volumes", n),
+            Filter::Volume(x) => format!("volumes/{}", x),
+            _ => return Err(anyhow::Error::msg("Invalid filter for volumes")),
         },
     };
 
@@ -198,12 +375,24 @@ fn get_filtered_urn(filter: Filter, r: &RestURNs) -> anyhow::Result<String> {
 impl RestClient for ActixRestClient {
     async fn get_nodes(&self) -> anyhow::Result<Vec<Node>> {
         let nodes = get_all!(self, GetNodes).await?;
-        Ok(nodes.into_inner())
+        Ok(nodes)
     }
 
     async fn get_pools(&self, filter: Filter) -> anyhow::Result<Vec<Pool>> {
         let pools = get_filter!(self, filter, GetPools).await?;
-        Ok(pools.into_inner())
+        Ok(pools)
+    }
+
+    async fn create_pool(&self, args: CreatePool) -> anyhow::Result<Pool> {
+        let urn = format!("/v0/nodes/{}/pools/{}", &args.node, &args.name);
+        let pool = self.put(urn, CreatePoolBody::from(args)).await?;
+        Ok(pool)
+    }
+
+    async fn destroy_pool(&self, args: DestroyPool) -> anyhow::Result<()> {
+        let urn = format!("/v0/nodes/{}/pools/{}", &args.node, &args.name);
+        self.del(urn).await?;
+        Ok(())
     }
 
     async fn get_replicas(
@@ -211,13 +400,7 @@ impl RestClient for ActixRestClient {
         filter: Filter,
     ) -> anyhow::Result<Vec<Replica>> {
         let replicas = get_filter!(self, filter, GetReplicas).await?;
-        Ok(replicas.into_inner())
-    }
-
-    async fn create_pool(&self, args: CreatePool) -> anyhow::Result<Pool> {
-        let urn = format!("/v0/nodes/{}/pools/{}", &args.node, &args.name);
-        let pool = self.put(urn, CreatePoolBody::from(args)).await?;
-        Ok(pool)
+        Ok(replicas)
     }
 
     async fn create_replica(
@@ -232,12 +415,6 @@ impl RestClient for ActixRestClient {
         Ok(replica)
     }
 
-    async fn destroy_pool(&self, args: DestroyPool) -> anyhow::Result<()> {
-        let urn = format!("/v0/nodes/{}/pools/{}", &args.node, &args.name);
-        self.del(urn).await?;
-        Ok(())
-    }
-
     async fn destroy_replica(
         &self,
         args: DestroyReplica,
@@ -249,6 +426,125 @@ impl RestClient for ActixRestClient {
         self.del(urn).await?;
         Ok(())
     }
+
+    /// Share replica with arguments
+    async fn share_replica(
+        &self,
+        args: ShareReplica,
+    ) -> anyhow::Result<String> {
+        let urn = format!(
+            "/v0/nodes/{}/pools/{}/replicas/{}/share/{}",
+            &args.node,
+            &args.pool,
+            &args.uuid,
+            args.protocol.to_string()
+        );
+        let share = self.put(urn, Body::Empty).await?;
+        Ok(share)
+    }
+    /// Unshare replica with arguments
+    async fn unshare_replica(
+        &self,
+        args: UnshareReplica,
+    ) -> anyhow::Result<()> {
+        let urn = format!(
+            "/v0/nodes/{}/pools/{}/replicas/{}/share",
+            &args.node, &args.pool, &args.uuid
+        );
+        self.del(urn).await?;
+        Ok(())
+    }
+
+    async fn get_nexuses(&self, filter: Filter) -> anyhow::Result<Vec<Nexus>> {
+        let nexuses = get_filter!(self, filter, GetNexuses).await?;
+        Ok(nexuses)
+    }
+
+    async fn get_nexus_children(
+        &self,
+        filter: Filter,
+    ) -> anyhow::Result<Vec<Child>> {
+        let children = get_filter!(self, filter, GetChildren).await?;
+        Ok(children)
+    }
+
+    async fn create_nexus(&self, args: CreateNexus) -> anyhow::Result<Nexus> {
+        let urn = format!("/v0/nodes/{}/nexuses/{}", &args.node, &args.uuid);
+        let replica = self.put(urn, CreateNexusBody::from(args)).await?;
+        Ok(replica)
+    }
+
+    async fn destroy_nexus(&self, args: DestroyNexus) -> anyhow::Result<()> {
+        let urn = format!("/v0/nodes/{}/nexuses/{}", &args.node, &args.uuid);
+        self.del(urn).await?;
+        Ok(())
+    }
+
+    /// Share nexus
+    async fn share_nexus(&self, args: ShareNexus) -> anyhow::Result<Nexus> {
+        let urn = format!(
+            "/v0/nodes/{}/nexuses/{}/share/{}",
+            &args.node,
+            &args.uuid,
+            args.protocol.to_string()
+        );
+        let nexus = self.put(urn, Body::Empty).await?;
+        Ok(nexus)
+    }
+
+    /// Unshare nexus
+    async fn unshare_nexus(&self, args: UnshareNexus) -> anyhow::Result<()> {
+        let urn =
+            format!("/v0/nodes/{}/nexuses/{}/share", &args.node, &args.uuid);
+        self.del(urn).await?;
+        Ok(())
+    }
+
+    async fn remove_nexus_child(
+        &self,
+        args: RemoveNexusChild,
+    ) -> anyhow::Result<()> {
+        let urn = match url::Url::parse(&args.uri) {
+            Ok(uri) => {
+                // remove initial '/'
+                uri.path()[1 ..].to_string()
+            }
+            _ => args.uri.clone(),
+        };
+        self.del(urn).await?;
+        Ok(())
+    }
+    async fn add_nexus_child(
+        &self,
+        args: AddNexusChild,
+    ) -> anyhow::Result<Child> {
+        let urn = format!(
+            "/v0/nodes/{}/nexuses/{}/children/{}",
+            &args.node, &args.nexus, &args.uri
+        );
+        let replica = self.put(urn, Body::Empty).await?;
+        Ok(replica)
+    }
+
+    async fn get_volumes(&self, filter: Filter) -> anyhow::Result<Vec<Volume>> {
+        let volumes = get_filter!(self, filter, GetVolumes).await?;
+        Ok(volumes)
+    }
+
+    async fn create_volume(
+        &self,
+        args: CreateVolume,
+    ) -> anyhow::Result<Volume> {
+        let urn = format!("/v0/volumes/{}", &args.uuid);
+        let volume = self.put(urn, CreateVolumeBody::from(args)).await?;
+        Ok(volume)
+    }
+
+    async fn destroy_volume(&self, args: DestroyVolume) -> anyhow::Result<()> {
+        let urn = format!("/v0/volumes/{}", &args.uuid);
+        self.del(urn).await?;
+        Ok(())
+    }
 }
 
 impl Into<Body> for CreatePoolBody {
@@ -257,6 +553,16 @@ impl Into<Body> for CreatePoolBody {
     }
 }
 impl Into<Body> for CreateReplicaBody {
+    fn into(self) -> Body {
+        Body::from(serde_json::to_value(self).unwrap())
+    }
+}
+impl Into<Body> for CreateNexusBody {
+    fn into(self) -> Body {
+        Body::from(serde_json::to_value(self).unwrap())
+    }
+}
+impl Into<Body> for CreateVolumeBody {
     fn into(self) -> Body {
         Body::from(serde_json::to_value(self).unwrap())
     }

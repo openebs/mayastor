@@ -89,12 +89,109 @@ pub trait NodePoolTrait: Send + Sync + Debug + Clone {
     fn on_destroy_pool(&mut self, pool: &str);
 }
 
+/// Trait for a Node Nexus which can be implemented to interact with mayastor
+/// node nexuses either via gRPC or MBUS or with a service via MBUS
+#[async_trait]
+#[clonable]
+#[allow(unused_variables)]
+pub trait NodeNexusTrait: Send + Sync + Debug + Clone {
+    /// Get the internal nexuses
+    fn nexuses(&self) -> Vec<Nexus> {
+        vec![]
+    }
+
+    /// Fetch all nexuses via gRPC or MBUS
+    async fn fetch_nexuses(&self) -> Result<Vec<Nexus>, SvcError> {
+        Err(SvcError::NotImplemented {})
+    }
+
+    /// Create a nexus on a node via gRPC or MBUS
+    async fn create_nexus(
+        &self,
+        request: &CreateNexus,
+    ) -> Result<Nexus, SvcError> {
+        Err(SvcError::NotImplemented {})
+    }
+
+    /// Destroy a nexus on a node via gRPC or MBUS
+    async fn destroy_nexus(
+        &self,
+        request: &DestroyNexus,
+    ) -> Result<(), SvcError> {
+        Err(SvcError::NotImplemented {})
+    }
+
+    /// Share a nexus on the node via gRPC
+    async fn share_nexus(
+        &self,
+        request: &ShareNexus,
+    ) -> Result<String, SvcError> {
+        Err(SvcError::NotImplemented {})
+    }
+
+    /// Unshare a nexus on the node via gRPC
+    async fn unshare_nexus(
+        &self,
+        request: &UnshareNexus,
+    ) -> Result<(), SvcError> {
+        Err(SvcError::NotImplemented {})
+    }
+
+    /// Update internal nexus list following a create
+    fn on_create_nexus(&mut self, nexus: &Nexus) {}
+    /// Update internal nexus following a share/unshare
+    fn on_update_nexus(&mut self, nexus: &str, uri: &str) {}
+    /// Update internal nexus list following a destroy
+    fn on_destroy_nexus(&mut self, nexus: &str) {}
+}
+
+/// Trait for a Node Nexus Children which can be implemented to interact with
+/// mayastor node nexus children either via gRPC or MBUS or with a service via
+/// MBUS
+#[async_trait]
+#[clonable]
+#[allow(unused_variables)]
+pub trait NodeNexusChildTrait: Send + Sync + Debug + Clone {
+    /// Fetch all children via gRPC or MBUS
+    async fn fetch_children(&self) -> Result<Vec<Child>, SvcError> {
+        Err(SvcError::NotImplemented {})
+    }
+
+    /// Add a child to a nexus via gRPC or MBUS
+    async fn add_child(
+        &self,
+        request: &AddNexusChild,
+    ) -> Result<Child, SvcError> {
+        Err(SvcError::NotImplemented {})
+    }
+
+    /// Remove a child from a nexus via gRPC or MBUS
+    async fn remove_child(
+        &self,
+        request: &RemoveNexusChild,
+    ) -> Result<(), SvcError> {
+        Err(SvcError::NotImplemented {})
+    }
+
+    /// Update internal nexus children following a create
+    fn on_add_child(&mut self, nexus: &str, child: &Child) {}
+    /// Update internal nexus children following a remove
+    fn on_remove_child(&mut self, request: &RemoveNexusChild) {}
+}
+
 /// Trait for a Node which can be implemented to interact with mayastor
 /// node replicas either via gRPC or MBUS or with a service via MBUS
 #[async_trait]
 #[clonable]
 pub trait NodeWrapperTrait:
-    Send + Sync + Debug + Clone + NodeReplicaTrait + NodePoolTrait
+    Send
+    + Sync
+    + Debug
+    + Clone
+    + NodeReplicaTrait
+    + NodePoolTrait
+    + NodeNexusTrait
+    + NodeNexusChildTrait
 {
     /// New NodeWrapper for the node
     #[allow(clippy::new_ret_no_self)]
@@ -220,6 +317,49 @@ impl PoolWrapper {
         {
             replica.share = share.clone();
             replica.uri = uri.to_string();
+        }
+    }
+}
+
+// 1. state ( online > degraded )
+// 2. smaller n replicas
+// (here we should have pool IO stats over time so we can pick less active
+// pools rather than the number of replicas which is useless if the volumes
+// are not active)
+impl PartialOrd for PoolWrapper {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match self.pool.state.partial_cmp(&other.pool.state) {
+            Some(Ordering::Greater) => Some(Ordering::Greater),
+            Some(Ordering::Less) => Some(Ordering::Less),
+            Some(Ordering::Equal) => {
+                match self.replicas.len().cmp(&other.replicas.len()) {
+                    Ordering::Greater => Some(Ordering::Greater),
+                    Ordering::Less => Some(Ordering::Less),
+                    Ordering::Equal => {
+                        Some(self.free_space().cmp(&other.free_space()))
+                    }
+                }
+            }
+            None => None,
+        }
+    }
+}
+
+impl Ord for PoolWrapper {
+    fn cmp(&self, other: &Self) -> Ordering {
+        match self.pool.state.partial_cmp(&other.pool.state) {
+            Some(Ordering::Greater) => Ordering::Greater,
+            Some(Ordering::Less) => Ordering::Less,
+            Some(Ordering::Equal) => {
+                match self.replicas.len().cmp(&other.replicas.len()) {
+                    Ordering::Greater => Ordering::Greater,
+                    Ordering::Less => Ordering::Less,
+                    Ordering::Equal => {
+                        self.free_space().cmp(&other.free_space())
+                    }
+                }
+            }
+            None => Ordering::Equal,
         }
     }
 }

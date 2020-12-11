@@ -47,7 +47,7 @@ impl ActixRestClient {
             url: url.to_string(),
         })
     }
-    async fn get<R, Y>(&self, urn: String, _: fn(R) -> Y) -> anyhow::Result<R>
+    async fn get_vec<R>(&self, urn: String) -> anyhow::Result<Vec<R>>
     where
         for<'de> R: Deserialize<'de>,
     {
@@ -63,7 +63,10 @@ impl ActixRestClient {
             })?;
 
         let rest_body = rest_response.body().await?;
-        Ok(serde_json::from_slice::<R>(&rest_body)?)
+        match serde_json::from_slice(&rest_body) {
+            Ok(result) => Ok(result),
+            Err(_) => Ok(vec![serde_json::from_slice::<R>(&rest_body)?]),
+        }
     }
     async fn put<R, B: Into<Body>>(
         &self,

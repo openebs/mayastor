@@ -295,6 +295,131 @@ impl<T: NodeWrapperTrait + Default + 'static + Clone> Registry<T> {
         Ok(())
     }
 
+    async fn on_create_nexus(&self, nexus: &Nexus) {
+        let mut nodes = self.nodes.lock().await;
+        let node = nodes.get_mut(&nexus.node);
+        if let Some(node) = node {
+            node.on_create_nexus(nexus);
+        }
+    }
+    async fn on_destroy_nexus(&self, request: &DestroyNexus) {
+        let mut nodes = self.nodes.lock().await;
+        let node = nodes.get_mut(&request.node);
+        if let Some(node) = node {
+            node.on_destroy_nexus(&request.uuid);
+        }
+    }
+    async fn on_add_nexus_child(&self, node: &str, nexus: &str, child: &Child) {
+        let mut nodes = self.nodes.lock().await;
+        let node = nodes.get_mut(node);
+        if let Some(node) = node {
+            node.on_add_child(nexus, child);
+        }
+    }
+    async fn on_remove_nexus_child(&self, request: &RemoveNexusChild) {
+        let mut nodes = self.nodes.lock().await;
+        let node = nodes.get_mut(&request.node);
+        if let Some(node) = node {
+            node.on_remove_child(request);
+        }
+    }
+    async fn on_update_nexus(&self, node: &str, nexus: &str, uri: &str) {
+        let mut nodes = self.nodes.lock().await;
+        let node = nodes.get_mut(node);
+        if let Some(node) = node {
+            node.on_update_nexus(nexus, uri);
+        }
+    }
+
+    /// List all cached nexuses
+    pub async fn list_nexuses(&self) -> Vec<Nexus> {
+        let nodes = self.nodes.lock().await;
+        nodes
+            .values()
+            .map(|node| node.nexuses())
+            .flatten()
+            .collect()
+    }
+
+    /// List all cached nexuses from node
+    pub async fn list_node_nexuses(&self, node: &str) -> Vec<Nexus> {
+        let nodes = self.list_nodes_wrapper().await;
+        if let Some(node) = nodes.iter().find(|&n| n.id() == node) {
+            node.nexuses()
+        } else {
+            // hmm, or return error, node not found?
+            vec![]
+        }
+    }
+
+    /// Create nexus
+    pub async fn create_nexus(
+        &self,
+        request: &CreateNexus,
+    ) -> Result<Nexus, SvcError> {
+        let node = self.get_node(&request.node).await?;
+        let nexus = node.create_nexus(request).await?;
+        self.on_create_nexus(&nexus).await;
+        Ok(nexus)
+    }
+
+    /// Destroy nexus
+    pub async fn destroy_nexus(
+        &self,
+        request: &DestroyNexus,
+    ) -> Result<(), SvcError> {
+        let node = self.get_node(&request.node).await?;
+        node.destroy_nexus(request).await?;
+        self.on_destroy_nexus(request).await;
+        Ok(())
+    }
+
+    /// Create nexus
+    pub async fn share_nexus(
+        &self,
+        request: &ShareNexus,
+    ) -> Result<String, SvcError> {
+        let node = self.get_node(&request.node).await?;
+        let share = node.share_nexus(request).await?;
+        self.on_update_nexus(&request.node, &request.uuid, &share)
+            .await;
+        Ok(share)
+    }
+
+    /// Destroy nexus
+    pub async fn unshare_nexus(
+        &self,
+        request: &UnshareNexus,
+    ) -> Result<(), SvcError> {
+        let node = self.get_node(&request.node).await?;
+        node.unshare_nexus(request).await?;
+        self.on_update_nexus(&request.node, &request.uuid, "").await;
+        Ok(())
+    }
+
+    /// Add nexus child
+    pub async fn add_nexus_child(
+        &self,
+        request: &AddNexusChild,
+    ) -> Result<Child, SvcError> {
+        let node = self.get_node(&request.node).await?;
+        let child = node.add_child(request).await?;
+        self.on_add_nexus_child(&request.node, &request.nexus, &child)
+            .await;
+        Ok(child)
+    }
+
+    /// Remove nexus child
+    pub async fn remove_nexus_child(
+        &self,
+        request: &RemoveNexusChild,
+    ) -> Result<(), SvcError> {
+        let node = self.get_node(&request.node).await?;
+        node.remove_child(request).await?;
+        self.on_remove_nexus_child(request).await;
+        Ok(())
+    }
+
     /// Found this node via the node service
     /// Update its resource list or add it to the registry if not there yet
     async fn found_node(&self, node: &Node) {

@@ -1,6 +1,6 @@
 use super::*;
 use serde::{Deserialize, Serialize};
-use std::fmt::Debug;
+use std::{cmp::Ordering, fmt::Debug};
 use strum_macros::{EnumString, ToString};
 
 /// Versioned Channels
@@ -15,6 +15,10 @@ pub enum ChannelVs {
     Node,
     /// Pool Service which manages mayastor pools and replicas
     Pool,
+    /// Volume Service which manages mayastor volumes
+    Volume,
+    /// Nexus Service which manages mayastor nexuses
+    Nexus,
     /// Keep it In Sync Service
     Kiiss,
 }
@@ -67,6 +71,32 @@ pub enum MessageIdVs {
     ShareReplica,
     /// Unshare Replica,
     UnshareReplica,
+    /// Volume Service
+    ///
+    /// Get nexuses with filter
+    GetNexuses,
+    /// Create nexus
+    CreateNexus,
+    /// Destroy Nexus
+    DestroyNexus,
+    /// Share Nexus
+    ShareNexus,
+    /// Unshare Nexus
+    UnshareNexus,
+    /// Remove a child from its parent nexus
+    RemoveNexusChild,
+    /// Add a child to a nexus
+    AddNexusChild,
+    /// Get all volumes
+    GetVolumes,
+    /// Create Volume,
+    CreateVolume,
+    /// Delete Volume
+    DestroyVolume,
+    /// Add nexus to volume
+    AddVolumeNexus,
+    /// Remove nexus from volume
+    RemoveVolumeNexus,
 }
 
 // Only V0 should export this macro
@@ -226,6 +256,16 @@ pub enum Filter {
     PoolReplica(String, String),
     /// Filter by Replica id
     Replica(String),
+    /// Volume filters
+    ///
+    /// Filter by Node and Nexus
+    NodeNexus(String, String),
+    /// Filter by Nexus
+    Nexus(String),
+    /// Filter by Node and Volume
+    NodeVolume(String, String),
+    /// Filter by Volume
+    Volume(String),
 }
 impl Default for Filter {
     fn default() -> Self {
@@ -288,6 +328,38 @@ pub struct Pool {
     pub capacity: u64,
     /// used bytes from the pool
     pub used: u64,
+}
+
+// online > degraded > unknown/faulted
+impl PartialOrd for PoolState {
+    fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+        match self {
+            PoolState::Unknown => match other {
+                PoolState::Unknown => None,
+                PoolState::Online => Some(Ordering::Less),
+                PoolState::Degraded => Some(Ordering::Less),
+                PoolState::Faulted => None,
+            },
+            PoolState::Online => match other {
+                PoolState::Unknown => Some(Ordering::Greater),
+                PoolState::Online => Some(Ordering::Equal),
+                PoolState::Degraded => Some(Ordering::Greater),
+                PoolState::Faulted => Some(Ordering::Greater),
+            },
+            PoolState::Degraded => match other {
+                PoolState::Unknown => Some(Ordering::Greater),
+                PoolState::Online => Some(Ordering::Less),
+                PoolState::Degraded => Some(Ordering::Equal),
+                PoolState::Faulted => Some(Ordering::Greater),
+            },
+            PoolState::Faulted => match other {
+                PoolState::Unknown => None,
+                PoolState::Online => Some(Ordering::Less),
+                PoolState::Degraded => Some(Ordering::Less),
+                PoolState::Faulted => Some(Ordering::Equal),
+            },
+        }
+    }
 }
 
 /// Create Pool Request
@@ -473,3 +545,270 @@ impl From<i32> for ReplicaState {
         }
     }
 }
+
+/// Volume Nexuses
+///
+/// Get all the nexuses with a filter selection
+#[derive(Serialize, Deserialize, Default, Debug, Clone)]
+pub struct GetNexuses {
+    /// Filter request
+    pub filter: Filter,
+}
+
+/// Nexus information
+#[derive(Serialize, Deserialize, Default, Debug, Clone, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Nexus {
+    /// id of the mayastor instance
+    pub node: String,
+    /// uuid of the nexus
+    pub uuid: String,
+    /// size of the volume in bytes
+    pub size: u64,
+    /// current state of the nexus
+    pub state: NexusState,
+    /// array of children
+    pub children: Vec<Child>,
+    /// URI of the device for the volume (missing if not published).
+    /// Missing property and empty string are treated the same.
+    pub device_uri: String,
+    /// total number of rebuild tasks
+    pub rebuilds: u32,
+}
+
+/// Child information
+#[derive(Serialize, Deserialize, Default, Debug, Clone, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Child {
+    /// uri of the child device
+    pub uri: String,
+    /// state of the child
+    pub state: ChildState,
+    /// current rebuild progress (%)
+    pub rebuild_progress: Option<i32>,
+}
+
+/// Child State information
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
+pub enum ChildState {
+    /// Default Unknown state
+    Unknown = 0,
+    /// healthy and contains the latest bits
+    Online = 1,
+    /// rebuild is in progress (or other recoverable error)
+    Degraded = 2,
+    /// unrecoverable error (control plane must act)
+    Faulted = 3,
+}
+impl Default for ChildState {
+    fn default() -> Self {
+        Self::Unknown
+    }
+}
+impl From<i32> for ChildState {
+    fn from(src: i32) -> Self {
+        match src {
+            1 => Self::Online,
+            2 => Self::Degraded,
+            3 => Self::Faulted,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+/// Nexus State information
+#[derive(
+    Serialize, Deserialize, Debug, Clone, EnumString, ToString, Eq, PartialEq,
+)]
+pub enum NexusState {
+    /// Default Unknown state
+    Unknown = 0,
+    /// healthy and working
+    Online = 1,
+    /// not healthy but is able to serve IO (i.e. rebuild is in progress)
+    Degraded = 2,
+    /// broken and unable to serve IO
+    Faulted = 3,
+}
+impl Default for NexusState {
+    fn default() -> Self {
+        Self::Unknown
+    }
+}
+impl From<i32> for NexusState {
+    fn from(src: i32) -> Self {
+        match src {
+            1 => Self::Online,
+            2 => Self::Degraded,
+            3 => Self::Faulted,
+            _ => Self::Unknown,
+        }
+    }
+}
+
+bus_impl_vector_request!(Nexuses, Nexus);
+bus_impl_message_all!(GetNexuses, GetNexuses, Nexuses, Nexus);
+
+/// Create Nexus Request
+#[derive(Serialize, Deserialize, Default, Debug, Clone, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateNexus {
+    /// id of the mayastor instance
+    pub node: String,
+    /// this UUID will be set in as the UUID
+    pub uuid: String,
+    /// size of the device in bytes
+    pub size: u64,
+    /// replica can be iscsi and nvmf remote targets or a local spdk bdev
+    /// (i.e. bdev:///name-of-the-bdev).
+    ///
+    /// uris to the targets we connect to
+    pub children: Vec<String>,
+}
+bus_impl_message_all!(CreateNexus, CreateNexus, Nexus, Nexus);
+
+/// Destroy Nexus Request
+#[derive(Serialize, Deserialize, Default, Debug, Clone, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct DestroyNexus {
+    /// id of the mayastor instance
+    pub node: String,
+    /// uuid of the nexus
+    pub uuid: String,
+}
+bus_impl_message_all!(DestroyNexus, DestroyNexus, (), Nexus);
+
+/// Share Nexus Request
+#[derive(Serialize, Deserialize, Default, Debug, Clone, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct ShareNexus {
+    /// id of the mayastor instance
+    pub node: String,
+    /// uuid of the nexus
+    pub uuid: String,
+    /// encryption key
+    pub key: Option<String>,
+    /// share protocol
+    pub protocol: Protocol,
+}
+bus_impl_message_all!(ShareNexus, ShareNexus, String, Nexus);
+
+/// Unshare Nexus Request
+#[derive(Serialize, Deserialize, Default, Debug, Clone, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct UnshareNexus {
+    /// id of the mayastor instance
+    pub node: String,
+    /// uuid of the nexus
+    pub uuid: String,
+}
+bus_impl_message_all!(UnshareNexus, UnshareNexus, (), Nexus);
+
+/// Remove Child from Nexus Request
+#[derive(Serialize, Deserialize, Default, Debug, Clone, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoveNexusChild {
+    /// id of the mayastor instance
+    pub node: String,
+    /// uuid of the nexus
+    pub nexus: String,
+    /// URI of the child device to be removed
+    pub uri: String,
+}
+bus_impl_message_all!(RemoveNexusChild, RemoveNexusChild, (), Nexus);
+
+/// Add child to Nexus Request
+#[derive(Serialize, Deserialize, Default, Debug, Clone, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct AddNexusChild {
+    /// id of the mayastor instance
+    pub node: String,
+    /// uuid of the nexus
+    pub nexus: String,
+    /// URI of the child device to be added
+    pub uri: String,
+    /// auto start rebuilding
+    pub auto_rebuild: bool,
+}
+bus_impl_message_all!(AddNexusChild, AddNexusChild, Child, Nexus);
+
+/// Volumes
+///
+/// Volume information
+#[derive(Serialize, Deserialize, Default, Debug, Clone, Eq, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct Volume {
+    /// name of the volume
+    pub uuid: String,
+    /// size of the volume in bytes
+    pub size: u64,
+    /// current state of the volume
+    pub state: NexusState,
+    /// array of children nexuses
+    pub children: Vec<Nexus>,
+}
+
+/// Get volumes
+#[derive(Serialize, Deserialize, Default, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct GetVolumes {
+    /// filter volumes
+    pub filter: Filter,
+}
+bus_impl_vector_request!(Volumes, Volume);
+bus_impl_message_all!(GetVolumes, GetVolumes, Volumes, Volume);
+
+/// Create volume
+#[derive(Serialize, Deserialize, Default, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct CreateVolume {
+    /// uuid of the volume
+    pub uuid: String,
+    /// size of the volume in bytes
+    pub size: u64,
+    /// number of children nexuses (ANA)
+    pub nexuses: u64,
+    /// number of replicas per nexus
+    pub replicas: u64,
+    /// only these nodes can be used for the replicas
+    #[serde(default)]
+    pub allowed_nodes: Vec<String>,
+    /// preferred nodes for the replicas
+    #[serde(default)]
+    pub preferred_nodes: Vec<String>,
+    /// preferred nodes for the nexuses
+    #[serde(default)]
+    pub preferred_nexus_nodes: Vec<String>,
+}
+bus_impl_message_all!(CreateVolume, CreateVolume, Volume, Volume);
+
+/// Delete volume
+#[derive(Serialize, Deserialize, Default, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct DestroyVolume {
+    /// uuid of the volume
+    pub uuid: String,
+}
+bus_impl_message_all!(DestroyVolume, DestroyVolume, (), Volume);
+
+/// Add ANA Nexus to volume
+#[derive(Serialize, Deserialize, Default, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct AddVolumeNexus {
+    /// uuid of the volume
+    pub uuid: String,
+    /// preferred node id for the nexus
+    pub preferred_node: Option<String>,
+}
+bus_impl_message_all!(AddVolumeNexus, AddVolumeNexus, Nexus, Volume);
+
+/// Add ANA Nexus to volume
+#[derive(Serialize, Deserialize, Default, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct RemoveVolumeNexus {
+    /// uuid of the volume
+    pub uuid: String,
+    /// id of the node where the nexus lives
+    pub node: Option<String>,
+}
+bus_impl_message_all!(RemoveVolumeNexus, RemoveVolumeNexus, (), Volume);

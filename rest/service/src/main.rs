@@ -52,6 +52,9 @@ async fn main() -> std::io::Result<()> {
             .service(v0::nodes::factory())
             .service(v0::pools::factory())
             .service(v0::replicas::factory())
+            .service(v0::nexuses::factory())
+            .service(v0::children::factory())
+            .service(v0::volumes::factory())
     })
     .bind_rustls(CliArgs::from_args().rest, config)?
     .run()
