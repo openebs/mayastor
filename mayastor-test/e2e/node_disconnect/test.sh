@@ -11,9 +11,9 @@ timeout=200
 (cd nvmf_reject_idle && go test -timeout "${timeout}s")
 (cd iscsi_reject_idle && go test -timeout "${timeout}s")
 
-# These tests currently fail
-# (cd nvmf_drop && go test -timeout "${timeout}s")
-# (cd iscsi_drop && go test -timeout "${timeout}s")
+# These two tests currently fail so are run with -c (compile only)
+(cd nvmf_drop && go test -c -timeout "${timeout}s")
+(cd iscsi_drop && go test -c -timeout "${timeout}s")
 
 (cd teardown && go test -timeout "${timeout}s")
 

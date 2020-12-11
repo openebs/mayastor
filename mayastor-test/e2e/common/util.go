@@ -46,8 +46,9 @@ func DeleteDeployYaml(filename string) {
 
 // Status part of the mayastor volume CRD
 type MayastorVolStatus struct {
-	State string
-	Node  string
+	State    string
+	Node     string
+	Replicas []string
 }
 
 func GetMSV(uuid string) *MayastorVolStatus {
@@ -74,6 +75,9 @@ func GetMSV(uuid string) *MayastorVolStatus {
 		return nil
 	}
 	msVol := MayastorVolStatus{}
+
+	msVol.Replicas = make([]string, 0, 4)
+
 	v := reflect.ValueOf(status)
 	if v.Kind() == reflect.Map {
 		for _, key := range v.MapKeys() {
@@ -82,18 +86,33 @@ func GetMSV(uuid string) *MayastorVolStatus {
 			switch sKey {
 			case "state":
 				msVol.State = val.Interface().(string)
-				break
 			case "nexus":
 				nexusInt := val.Interface().(map[string]interface{})
 				if node, ok := nexusInt["node"].(string); ok {
 					msVol.Node = node
 				}
-				Expect(msVol.Node != "")
-				break
+			case "replicas":
+				replicas := val.Interface().([]interface{})
+				for _, replica := range replicas {
+					replicaMap := reflect.ValueOf(replica)
+					if replicaMap.Kind() == reflect.Map {
+						for _, field := range replicaMap.MapKeys() {
+							switch field.Interface().(string) {
+							case "node":
+								value := replicaMap.MapIndex(field)
+								msVol.Replicas = append(msVol.Replicas, value.Interface().(string))
+							}
+						}
+					}
+				}
 			}
 		}
+		// Note: msVol.Node can be unassigned here if the volume is not mounted
+		Expect(msVol.State).NotTo(Equal(""))
+		Expect(len(msVol.Replicas)).To(BeNumerically(">", 0))
+		return &msVol
 	}
-	return &msVol
+	return nil
 }
 
 // Check for a deleted Mayastor Volume,
@@ -197,11 +216,12 @@ func GetMsvState(uuid string) string {
 	return fmt.Sprintf("%s", msv.State)
 }
 
-// Retrieve the nexus node hosting the Mayastor Volume
-func GetMsvNode(uuid string) string {
+// Retrieve the nexus node hosting the Mayastor Volume,
+// and the names of the replica nodes
+func GetMsvNodes(uuid string) (string, []string) {
 	msv := GetMSV(uuid)
 	Expect(msv).ToNot(BeNil())
-	return fmt.Sprintf("%s", msv.Node)
+	return msv.Node, msv.Replicas
 }
 
 // Create a PVC and verify that
