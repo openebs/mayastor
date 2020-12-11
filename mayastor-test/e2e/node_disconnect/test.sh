@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
 set -e
-timeout=200
+timeout=500
 
 (cd setup && go test -timeout "${timeout}s")
 
@@ -14,6 +14,8 @@ timeout=200
 # These two tests currently fail so are run with -c (compile only)
 (cd nvmf_drop && go test -c -timeout "${timeout}s")
 (cd iscsi_drop && go test -c -timeout "${timeout}s")
+
+(cd nvmf_reject_reassign && go test -timeout "${timeout}s")
 
 (cd teardown && go test -timeout "${timeout}s")
 
