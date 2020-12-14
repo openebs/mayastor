@@ -27,18 +27,11 @@ use url::Url;
 
 use crate::{
     bdev::{BdevCreateDestroy, Uri},
+    core::{BlockDevice, BlockDeviceDescriptor, CoreError},
     nexus_uri::{self, NexusBdevError},
 };
 
-mod aio;
-mod iscsi;
-mod loopback;
-mod malloc;
-mod null;
-mod nvme;
-mod nvmf;
 mod nvmx;
-mod uring;
 
 impl Uri {
     pub fn parse(
@@ -52,31 +45,39 @@ impl Uri {
         })?;
 
         match url.scheme() {
-            // really should not be used other than for testing
-            "aio" => Ok(Box::new(aio::Aio::try_from(&url)?)),
-            "malloc" => Ok(Box::new(malloc::Malloc::try_from(&url)?)),
-            "null" => Ok(Box::new(null::Null::try_from(&url)?)),
-
-            // retain this for the time being for backwards compatibility
-            "bdev" => Ok(Box::new(loopback::Loopback::try_from(&url)?)),
-            // arbitrary bdev found in spdk (used for local replicas)
-            "loopback" => Ok(Box::new(loopback::Loopback::try_from(&url)?)),
-            // backend iSCSI target - most stable
-            "iscsi" => Ok(Box::new(iscsi::Iscsi::try_from(&url)?)),
-
             // backend NVMF target - fairly unstable (as of Linux 5.2)
-            "nvmf" => Ok(Box::new(nvmf::Nvmf::try_from(&url)?)),
-            "pcie" => Ok(Box::new(nvme::NVMe::try_from(&url)?)),
-
-            // also for testing - requires Linux 5.1 or higher
-            "uring" => Ok(Box::new(uring::Uring::try_from(&url)?)),
-
-            // new NVMF device for Nexus 2.0
-            "nvmx" => Ok(Box::new(nvmx::NvmfDeviceTemplate::try_from(&url)?)),
+            "nvmf" => Ok(Box::new(nvmx::NvmfDeviceTemplate::try_from(&url)?)),
 
             scheme => Err(NexusBdevError::UriSchemeUnsupported {
                 scheme: scheme.to_string(),
             }),
         }
     }
+}
+
+// Lookup up a block device via its symbolic name.
+pub fn device_lookup(name: &str) -> Option<Box<dyn BlockDevice>> {
+    debug!("Looking up device by name: {}", name);
+
+    // First, try to lookup NVMF devices bypassing SPDK device namespace,
+    // and lookup bdev afterwards.
+    nvmx::lookup_by_name(name)
+}
+
+#[instrument]
+pub async fn device_create(uri: &str) -> Result<String, NexusBdevError> {
+    Uri::parse(uri)?.create().await
+}
+
+#[instrument]
+pub async fn device_destroy(uri: &str) -> Result<(), NexusBdevError> {
+    Uri::parse(uri)?.destroy().await
+}
+
+#[instrument]
+pub fn device_open(
+    name: &str,
+    read_write: bool,
+) -> Result<Box<dyn BlockDeviceDescriptor>, CoreError> {
+    nvmx::open_by_name(name, read_write)
 }
