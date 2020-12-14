@@ -1,4 +1,9 @@
-use crate::{bdev::nexus::nexus_io::IoType, nexus_uri::NexusBdevError};
+use crate::{
+    bdev::nexus::nexus_io::IoType,
+    core::{CoreError, DmaBuf},
+    nexus_uri::NexusBdevError,
+};
+use async_trait::async_trait;
 
 #[derive(Debug, Default)]
 pub struct BlockDeviceStats {
@@ -17,7 +22,7 @@ pub trait BlockDevice {
     fn size_in_bytes(&self) -> u64;
 
     /// Returns the size of a block of the underlying device
-    fn block_len(&self) -> u32;
+    fn block_len(&self) -> u64;
 
     /// Returns number of blocks for the device.
     fn num_blocks(&self) -> u64;
@@ -53,15 +58,21 @@ pub trait BlockDevice {
  */
 pub trait BlockDeviceDescriptor {
     fn get_device(&self) -> Box<dyn BlockDevice>;
-    //fn get_handle(&self) -> Result<Box<dyn BlockDeviceHandle>, Self::Error>;
-    //fn get_lba_range_controller(&self) -> Result<Box<dyn BlockDeviceHandle>,
-    // Self::Error>
+    fn into_handle(
+        self: Box<Self>,
+    ) -> Result<Box<dyn BlockDeviceHandle>, NexusBdevError>;
 }
 
 /*
  * Core trait that represents a device I/O handle.
  * TODO: Add text.
  */
-pub trait BlockDeviceHandle {}
+#[async_trait(?Send)]
+pub trait BlockDeviceHandle {
+    fn get_device(&self) -> Box<dyn BlockDevice>;
+
+    // NVMe specific commands.
+    async fn nvme_identify_ctrlr(&self) -> Result<DmaBuf, CoreError>;
+}
 
 pub trait LbaRangeController {}
