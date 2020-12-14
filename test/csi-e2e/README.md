@@ -10,7 +10,7 @@ These tests have been ported from kubernetes CSI NFS driver at https://github.co
 * `LARGE_CLAIM_SIZE` - Size of large PVCs created by the testsuite, defaults to `500Mi`
 
 ## Changes for mayastor
-* Location of the test directory within the repo is `mayastor-test/csi-e2e`
+* Location of the test directory within the repo is `test/csi-e2e`
 * Naming from `csi-nfs` to `csi-mayastor`
 * Claim sizes have been downsized from
   * `10Gi` to `50Mi`
@@ -36,6 +36,6 @@ To run the tests execute `runtests.sh` from this directory.
 
 ### TODO
 Remove workaround for side effect of running this test, when CAS-566 is fixed.
-In `mayastor-test/csi-e2e/runtest.sh` all Mayastor Volumes are deleted after
+In `test/csi-e2e/runtest.sh` all Mayastor Volumes are deleted after
 the test run. Until CAS-566 is fixed this is required as this will have an
 impact on tests run subsequently in particular the uninstall test.

@@ -39,11 +39,11 @@ pools:
     replicas: []
 `;
 
-var client, client2;
-var disks, disks2;
+let client, client2;
+let disks, disks2;
 
 // URI of Nexus published over NVMf
-var nexusUri;
+let nexusUri;
 
 describe('snapshot', function () {
   this.timeout(10000); // for network tests we need long timeouts
@@ -314,7 +314,7 @@ describe('snapshot', function () {
 
       res = res.replicas.filter((ent) => ent.pool === poolName);
       assert.lengthOf(res, 3);
-      var i;
+      let i;
       for (i = 1; i < 3; i++) {
         assert.equal(res[i].uuid.startsWith(replicaUuid + '-snap-'), true);
         assert.equal(res[i].share, 'REPLICA_NONE');
@@ -330,7 +330,7 @@ describe('snapshot', function () {
 
       res = res.replicas.filter((ent) => ent.pool === pool2Name);
       assert.lengthOf(res, 3);
-      var i;
+      let i;
       for (i = 1; i < 3; i++) {
         assert.equal(res[i].uuid.startsWith(replicaUuid + '-snap-'), true);
         assert.equal(res[i].share, 'REPLICA_NONE');

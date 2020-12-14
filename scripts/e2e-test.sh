@@ -17,7 +17,7 @@ export e2e_docker_registry="$REGISTRY"
 export e2e_pool_device=/dev/nvme1n1
 
 for dir in $TESTS; do
-  cd "$SCRIPTDIR/../mayastor-test/e2e/$dir"
+  cd "$SCRIPTDIR/../test/e2e/$dir"
   if ! go test; then
     test_failed=1
     break
@@ -25,7 +25,7 @@ for dir in $TESTS; do
 done
 
 # must always run uninstall test in order to clean up the cluster
-cd "$SCRIPTDIR/../mayastor-test/e2e/uninstall"
+cd "$SCRIPTDIR/../test/e2e/uninstall"
 go test
 
 if [ -n "$test_failed" ]; then

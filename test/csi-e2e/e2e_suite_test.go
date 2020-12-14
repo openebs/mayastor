@@ -77,7 +77,7 @@ func execTestCmd(cmds []testCmd) {
 	err := os.Chdir("../..")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer func() {
-		err := os.Chdir("mayastor-test/csi-e2e")
+		err := os.Chdir("test/csi-e2e")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}()
 

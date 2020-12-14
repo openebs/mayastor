@@ -23,13 +23,14 @@ const UUID3 = '753b391c-9b04-4ce3-9c74-9d949152e543';
 const CLIENT_CMD = path.join(
   __dirname,
   '..',
+  '..',
   'target',
   'debug',
   'mayastor-client'
 );
 const EGRESS_CMD = CLIENT_CMD + ' -p ' + EGRESS_PORT;
 
-var mayastorMockServer;
+let mayastorMockServer;
 
 // Here we initialize gRPC mock server with predefined replies for requests
 // we use in the tests below. Note that the request must exactly match the
@@ -39,6 +40,7 @@ function runMockServer (rules) {
   mayastorMockServer = createMockServer({
     protoPath: path.join(
       __dirname,
+      '..',
       '..',
       'rpc',
       'proto',

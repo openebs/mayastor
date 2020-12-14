@@ -95,7 +95,7 @@ NAME                                 PATH     SIZE STATE  REBUILDS CHILDREN
 
 Now this is not all that exciting, but as we you can see in [pool.rs](../mayastor/src/pool.rs) we can
 actually thin provision volumes out of the disks.  You can also have a look into our test case that demonstrates
-that [here](../mayastor-test/test_cli.js). We can also add files to the mix and the Nexus would be
+that [here](../test/grpc/test_cli.js). We can also add files to the mix and the Nexus would be
 fine writing to it as it were a local disk.
 
 ```bash
