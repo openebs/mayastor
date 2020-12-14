@@ -65,6 +65,8 @@ spec:
         volumeMounts:
         - name: device
           mountPath: /dev
+        - name: udev
+          mountPath: /run/udev
         - name: dshm
           mountPath: /dev/shm
         - name: configlocation
@@ -91,6 +93,10 @@ spec:
       - name: device
         hostPath:
           path: /dev
+          type: Directory
+      - name: udev
+        hostPath:
+          path: /run/udev
           type: Directory
       - name: dshm
         emptyDir:
