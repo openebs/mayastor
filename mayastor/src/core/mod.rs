@@ -137,4 +137,8 @@ pub enum CoreError {
     ReactorError {
         source: Errno,
     },
+    #[snafu(display("Failed to allocate DMA buffer of {} bytes", size))]
+    DmaAllocationError {
+        size: u64,
+    },
 }

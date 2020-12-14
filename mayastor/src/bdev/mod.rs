@@ -46,3 +46,5 @@ pub struct Uri;
 pub(crate) mod dev;
 pub(crate) mod nexus;
 pub mod util;
+
+pub use dev::{device_create, device_destroy, device_lookup, device_open};
