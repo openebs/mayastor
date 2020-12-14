@@ -31,7 +31,7 @@ func TestNodeLoss(t *testing.T) {
 }
 
 var _ = Describe("Mayastor node loss test", func() {
-	It("should verify behaviour when a node becomes inaccessible", func() {
+	It("should verify nvmf nexus behaviour when a node becomes inaccessible (iptables REJECT)", func() {
 		lossTest()
 	})
 })

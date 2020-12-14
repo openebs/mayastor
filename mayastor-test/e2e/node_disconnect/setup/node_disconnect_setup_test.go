@@ -28,7 +28,7 @@ func disconnectSetupTest() {
 
 	nodeList, err := common.GetNodeLocs()
 	Expect(err).ToNot(HaveOccurred())
-	Expect(len(nodeList) >= 3)
+	Expect(len(nodeList)).To(BeNumerically(">=", 3))
 
 	// sort the nodes - that also means k8s-1 is the refuge on local clusters
 	sort.Slice(nodeList, func(i, j int) bool { return nodeList[i].NodeName < nodeList[j].NodeName })
@@ -43,7 +43,7 @@ func disconnectSetupTest() {
 			common.LabelNode(refugeNode, "openebs.io/podrefuge=true")
 		}
 	}
-	Expect(refugeNode != "")
+	Expect(refugeNode).NotTo(Equal(""))
 
 	moacOnRefugeNode := common.PodPresentOnNode(moac_regexp, namespace, refugeNode)
 

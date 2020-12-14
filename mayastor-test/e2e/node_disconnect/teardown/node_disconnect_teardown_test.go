@@ -23,7 +23,7 @@ func disconnectTeardownTest() {
 
 	nodeList, err := common.GetNodeLocs()
 	Expect(err).ToNot(HaveOccurred())
-	Expect(len(nodeList) >= 3)
+	Expect(len(nodeList)).To(BeNumerically(">=", 3))
 
 	// apply/remove the labels whether present or not
 	// An error will not occur if the label is already present/absent

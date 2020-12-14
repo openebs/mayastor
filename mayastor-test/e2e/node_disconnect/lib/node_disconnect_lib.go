@@ -10,7 +10,8 @@ import (
 )
 
 var (
-	defTimeoutSecs = "90s"
+	defTimeoutSecs           = "90s"
+	disconnectionTimeoutSecs = "90s"
 )
 
 // disconnect a node from the other nodes in the cluster
@@ -41,20 +42,20 @@ func GetNodes(uuid string) (string, []string) {
 	Expect(err).ToNot(HaveOccurred())
 
 	var nodeToIsolate = ""
-	nexusNode := common.GetMsvNode(uuid)
-	Expect(nexusNode != "")
+	nexusNode, replicas := common.GetMsvNodes(uuid)
+	Expect(nexusNode).NotTo(Equal(""))
 	fmt.Printf("nexus node is \"%s\"\n", nexusNode)
 
 	var otherAddresses []string
 
-	// find a node which is not the nexus
-	for _, node := range nodeList {
-		if node.NodeName != nexusNode && node.MayastorNode == true {
-			nodeToIsolate = node.NodeName
+	// find a node which is not the nexus and is a replica
+	for _, node := range replicas {
+		if node != nexusNode {
+			nodeToIsolate = node
 			break
 		}
 	}
-	Expect(nodeToIsolate != "")
+	Expect(nodeToIsolate).NotTo(Equal(""))
 
 	// get a list of the other ip addresses in the cluster
 	for _, node := range nodeList {
@@ -62,7 +63,7 @@ func GetNodes(uuid string) (string, []string) {
 			otherAddresses = append(otherAddresses, node.IPAddress)
 		}
 	}
-	Expect(len(otherAddresses) != 0)
+	Expect(len(otherAddresses)).To(BeNumerically(">", 0))
 
 	fmt.Printf("node to isolate is \"%s\"\n", nodeToIsolate)
 	return nodeToIsolate, otherAddresses
@@ -104,14 +105,12 @@ func LossWhenIdleTest(nodeToIsolate string, otherNodes []string, disconnectionMe
 
 	DisconnectNode(nodeToIsolate, otherNodes, disconnectionMethod)
 
-	fmt.Printf("waiting up to 90s for disconnection to affect the nexus\n")
-	//time.Sleep(90 * time.Second)
-
+	fmt.Printf("waiting up to %s for disconnection to affect the nexus\n", disconnectionTimeoutSecs)
 	Eventually(func() string {
 		return common.GetMsvState(uuid)
 	},
-		90*time.Second, // timeout
-		"1s",           // polling interval
+		disconnectionTimeoutSecs, // timeout
+		"1s",                     // polling interval
 	).Should(Equal("degraded"))
 
 	fmt.Printf("volume is in state \"%s\"\n", common.GetMsvState(uuid))
