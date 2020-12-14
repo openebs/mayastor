@@ -358,7 +358,7 @@ fn create_portal_group(
             return Err(Error::CreatePortal {});
         }
         iscsi_portal_grp_add_portal(pg, p);
-        if iscsi_portal_grp_open(pg) != 0 {
+        if iscsi_portal_grp_open(pg, false) != 0 {
             iscsi_portal_grp_release(pg);
             return Err(Error::AddPortal {});
         }

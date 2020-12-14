@@ -43,6 +43,7 @@ impl NexusFnTable {
             dump_info_json: Some(Self::dump_info_json),
             write_config_json: None,
             get_spin_time: None,
+            get_module_ctx: None,
         };
 
         NexusFnTable {
