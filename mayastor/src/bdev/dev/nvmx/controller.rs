@@ -8,25 +8,23 @@ use std::{
     mem::size_of,
     os::raw::c_void,
     ptr::{copy_nonoverlapping, NonNull},
-    sync::RwLock,
+    sync::{Arc, Mutex},
 };
 use tracing::instrument;
 use url::Url;
 
 use spdk_sys::{
     self,
+    spdk_io_device_register,
+    spdk_io_device_unregister,
     spdk_nvme_connect_async,
     spdk_nvme_ctrlr,
     spdk_nvme_ctrlr_get_default_ctrlr_opts,
     spdk_nvme_ctrlr_get_ns,
     spdk_nvme_ctrlr_opts,
+    spdk_nvme_ctrlr_process_admin_completions,
+    spdk_nvme_detach,
     spdk_nvme_ns,
-    spdk_nvme_ns_get_extended_sector_size,
-    spdk_nvme_ns_get_md_size,
-    spdk_nvme_ns_get_num_sectors,
-    spdk_nvme_ns_get_size,
-    spdk_nvme_ns_get_uuid,
-    spdk_nvme_ns_supports_compare,
     spdk_nvme_probe_ctx,
     spdk_nvme_probe_poll_async,
     spdk_nvme_transport_id,
@@ -36,13 +34,14 @@ use spdk_sys::{
 };
 
 use crate::{
-    bdev::{nexus::nexus_io::IoType, util::uri, CreateDestroy, GetName},
-    core::{
-        uuid::Uuid,
-        BlockDevice,
-        BlockDeviceDescriptor,
-        BlockDeviceStats,
-        CoreError,
+    bdev::{
+        dev::nvmx::{
+            channel::{NvmeControllerIoChannel, NvmeIoChannel},
+            NVME_CONTROLLERS,
+        },
+        util::uri,
+        CreateDestroy,
+        GetName,
     },
     ffihelper::ErrnoResult,
     nexus_uri::{
@@ -51,11 +50,6 @@ use crate::{
     },
     subsys::NvmeBdevOpts,
 };
-
-lazy_static! {
-    static ref NVME_CONTROLLERS: RwLock<HashMap<String, NvmeController>> =
-        RwLock::new(HashMap::<String, NvmeController>::new());
-}
 
 const DEFAULT_NVMF_PORT: u16 = 8420;
 
@@ -154,10 +148,116 @@ impl TryFrom<&Url> for NvmfDeviceTemplate {
     }
 }
 
+impl GetName for NvmfDeviceTemplate {
+    fn get_name(&self) -> String {
+        format!("{}n1", self.name)
+    }
+}
+
+#[derive(Debug, PartialEq)]
+pub enum NvmeControllerState {
+    Initializing,
+    Running,
+}
+pub struct NvmeControllerInner {
+    ctrlr: NonNull<spdk_nvme_ctrlr>,
+    adminq_poller: NonNull<spdk_poller>,
+}
+/*
+ * NVME controller implementation.
+ */
+pub struct NvmeController {
+    name: String,
+    id: u64,
+    state: NvmeControllerState,
+    inner: Option<NvmeControllerInner>,
+}
+
+unsafe impl Send for NvmeController {}
+unsafe impl Sync for NvmeController {}
+
+impl Drop for NvmeController {
+    fn drop(&mut self) {
+        debug!("{}: dropping controller object", self.get_name());
+    }
+}
+
+impl NvmeController {
+    fn new(name: &str) -> Self {
+        let l = NvmeController {
+            name: String::from(name),
+            id: 0,
+            state: NvmeControllerState::Initializing,
+            inner: None,
+        };
+
+        debug!("{}: New controller created", l.get_name());
+        l
+    }
+
+    pub fn get_name(&self) -> String {
+        self.name.clone()
+    }
+
+    pub fn id(&self) -> u64 {
+        assert_ne!(self.id, 0, "Controller ID is not yet initialized");
+        self.id
+    }
+
+    fn set_id(&mut self, id: u64) -> u64 {
+        assert_ne!(id, 0, "Controller ID can't be zero");
+        self.id = id;
+        debug!("{} ID set to 0x{:X}", self.name, self.id);
+        id
+    }
+
+    // As of now, only 1 namespace per controller is supported.
+    pub fn spdk_namespace(&self) -> *mut spdk_nvme_ns {
+        if self.inner.is_none() {
+            std::ptr::null_mut()
+        } else {
+            unsafe {
+                spdk_nvme_ctrlr_get_ns(
+                    self.inner.as_ref().unwrap().ctrlr.as_ptr(),
+                    1,
+                )
+            }
+        }
+    }
+
+    pub fn spdk_handle(&self) -> *mut spdk_nvme_ctrlr {
+        if self.inner.is_none() {
+            error!("{} No SPDK handle configured !", self.name);
+            std::ptr::null_mut()
+        } else {
+            debug!(
+                "{} SPDK handle: {:p}",
+                self.name,
+                self.inner.as_ref().unwrap().ctrlr.as_ptr()
+            );
+            self.inner.as_ref().unwrap().ctrlr.as_ptr()
+        }
+    }
+}
+
 extern "C" fn nvme_async_poll(ctx: *mut c_void) -> i32 {
     let _rc =
         unsafe { spdk_nvme_probe_poll_async(ctx as *mut spdk_nvme_probe_ctx) };
     1
+}
+
+extern "C" fn nvme_poll_adminq(ctx: *mut c_void) -> i32 {
+    //println!("adminq poll");
+
+    let rc = unsafe {
+        spdk_nvme_ctrlr_process_admin_completions(ctx as *mut spdk_nvme_ctrlr)
+    };
+
+    if rc == 0 {
+        0
+    } else {
+        1
+    }
 }
 
 // Callback to be called once NVME controller successfully created.
@@ -175,12 +275,69 @@ extern "C" fn connect_attach_cb(
         spdk_poller_unregister(&mut poller);
     }
 
+    let cid = ctrlr as u64;
+
     // Save SPDK controller reference for further use.
-    let mut controllers = NVME_CONTROLLERS.write().unwrap();
-    let mut nvme_controller = controllers.get_mut(&context.name).unwrap();
-    nvme_controller.spdk_nvme_ctrlr = ctrlr;
+    let controllers = NVME_CONTROLLERS.write().unwrap();
+    // Create a clone of controller to insert later for ID lookup.
+    let rc = controllers.get(&context.name).unwrap();
+    let clone = Arc::clone(rc);
+    let mut controller = rc.lock().unwrap();
+
+    controller.set_id(cid);
+    // Register I/O device for the controller.
+    unsafe {
+        spdk_io_device_register(
+            controller.id() as *mut c_void,
+            Some(NvmeControllerIoChannel::create),
+            Some(NvmeControllerIoChannel::destroy),
+            std::mem::size_of::<NvmeIoChannel>() as u32,
+            controller.get_name().as_ptr() as *const i8,
+        )
+    }
+    debug!(
+        "{}: I/O device registered at 0x{:X}",
+        controller.get_name(),
+        controller.id()
+    );
+
+    // Configure poller for controller's admin queue.
+    let default_opts = NvmeBdevOpts::default();
+
+    let adminq_poller = unsafe {
+        spdk_poller_register_named(
+            Some(nvme_poll_adminq),
+            ctrlr as *mut c_void,
+            default_opts.nvme_adminq_poll_period_us,
+            "nvme_poll_adminq\0" as *const _ as *mut _,
+        )
+    };
+
+    if adminq_poller.is_null() {
+        error!(
+            "{}: failed to create admin queue poller",
+            controller.get_name()
+        );
+    }
+
+    let inner_state = NvmeControllerInner {
+        ctrlr: NonNull::new(ctrlr).unwrap(),
+        adminq_poller: NonNull::new(adminq_poller).unwrap(),
+    };
+    controller.inner.replace(inner_state);
+    controller.state = NvmeControllerState::Running;
+
+    // Release the guard early to let the waiter access the controller instance
+    // safely.
+    drop(controller);
     drop(controllers);
 
+    // Add 'controller id -> controller' mapping once the controller is fully
+    // setup.
+    let mut controllers = NVME_CONTROLLERS.write().unwrap();
+    controllers.insert(cid.to_string(), clone);
+
+    // Wake up the waiter and complete controller registration.
     let sender = context.sender.take().unwrap();
     sender
         .send(Ok(()))
@@ -206,7 +363,8 @@ impl CreateDestroy for NvmfDeviceTemplate {
         // Insert a new controller instance (uninitialized) as a guard, and
         // release the lock to keep the write path as short, as
         // possible.
-        controllers.insert(cname.clone(), NvmeController::new(&cname));
+        let rc = Arc::new(Mutex::new(NvmeController::new(&cname)));
+        controllers.insert(cname.clone(), rc);
         drop(controllers);
 
         let mut context = NvmeControllerContext::new(self);
@@ -221,8 +379,12 @@ impl CreateDestroy for NvmfDeviceTemplate {
         };
 
         if probe_ctx.is_null() {
+            // Remove controller record before returning error.
+            let mut controllers = NVME_CONTROLLERS.write().unwrap();
+            controllers.remove(&cname);
+
             return Err(NexusBdevError::CreateBdev {
-                name: "XXX".to_string(),
+                name: cname,
                 source: Errno::ENODEV,
             });
         }
@@ -232,7 +394,7 @@ impl CreateDestroy for NvmfDeviceTemplate {
             spdk_poller_register_named(
                 Some(nvme_async_poll),
                 probe_ctx as *mut c_void,
-                1000,
+                1000, // TODO: fix.
                 "nvme_async_poll\0" as *const _ as *mut _,
             )
         };
@@ -249,20 +411,20 @@ impl CreateDestroy for NvmfDeviceTemplate {
                 name: self.name.clone(),
             })?;
 
-        // Finally, configure controller's innter state.
-        let inner_state = NvmeControllerInner {};
+        // Check that controller is fully initialized.
+        let controllers = NVME_CONTROLLERS.read().unwrap();
+        let controller = controllers.get(&cname).unwrap().lock().unwrap();
+        assert_eq!(
+            controller.state,
+            NvmeControllerState::Running,
+            "NVMe controller is not fully initialized"
+        );
 
-        let mut controllers = NVME_CONTROLLERS.write().unwrap();
-        let nvme_controller = controllers.get_mut(&cname).unwrap();
-        nvme_controller.inner.replace(inner_state);
-        nvme_controller.state = NvmeControllerState::Runing;
-
-        drop(controllers);
-        test_ctrl_open(&cname);
-
+        info!("{} NVMe controller successfully initialized", cname);
         Ok(cname)
     }
 
+    // nvme_bdev_ctrlr_create
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
         let cname = self.get_name();
 
@@ -273,14 +435,37 @@ impl CreateDestroy for NvmfDeviceTemplate {
             });
         }
 
-        controllers.remove(&cname).unwrap();
-        Ok(())
-    }
-}
+        // Remove 'controller name -> controller' mapping.
+        let e = controllers.remove(&cname).unwrap();
+        let mut controller = e.lock().unwrap();
+        debug!("{}: removing NVMe controller", cname);
 
-impl GetName for NvmfDeviceTemplate {
-    fn get_name(&self) -> String {
-        format!("{}n1", self.name)
+        if let Some(inner) = controller.inner.take() {
+            debug!("{} unregistering adminq poller", controller.get_name());
+            unsafe {
+                spdk_poller_unregister(&mut inner.adminq_poller.as_ptr());
+            }
+
+            debug!(
+                "{}: unregistering I/O device at 0x{:X}",
+                controller.get_name(),
+                controller.id()
+            );
+            unsafe {
+                spdk_io_device_unregister(controller.id() as *mut c_void, None);
+            }
+
+            // Detach SPDK controller.
+            let rc = unsafe { spdk_nvme_detach(inner.ctrlr.as_ptr()) };
+
+            assert_eq!(rc, 0, "Failed to detach NVMe controller");
+            debug!("{}: NVMe controller successfully detached", cname);
+        }
+
+        // Remove 'controller id->controller' mappig.
+        controllers.remove(&controller.id().to_string());
+
+        Ok(())
     }
 }
 
@@ -348,205 +533,6 @@ impl NvmeControllerContext {
             sender: Some(sender),
             receiver,
             poller: None,
-        }
-    }
-}
-
-enum NvmeControllerState {
-    Initializing,
-    Runing,
-}
-
-struct NvmeControllerInner {}
-
-/*
- * Descriptor for an opened NVMe device that represents a namespace for
- * an NVMe controller.
- */
-struct NvmeDeviceDescriptor {
-    ns: NonNull<spdk_nvme_ns>,
-    name: String,
-}
-
-impl NvmeDeviceDescriptor {
-    fn create(
-        controller: &NvmeController,
-    ) -> Result<Box<dyn BlockDeviceDescriptor>, CoreError> {
-        let ns: *mut spdk_nvme_ns =
-            unsafe { spdk_nvme_ctrlr_get_ns(controller.as_ptr(), 1) };
-
-        if ns.is_null() {
-            Err(CoreError::OpenBdev {
-                source: Errno::ENODEV,
-            })
-        } else {
-            Ok(Box::new(NvmeDeviceDescriptor {
-                ns: NonNull::new(ns).unwrap(),
-                name: controller.get_name(),
-            }))
-        }
-    }
-}
-
-impl BlockDeviceDescriptor for NvmeDeviceDescriptor {
-    fn get_device(&self) -> Box<dyn BlockDevice> {
-        println!("descriptor created for device {:?}", self.name);
-        Box::new(NvmeBlockDevice::from_ns(&self.name, self.ns.as_ptr()))
-    }
-}
-
-/*
- * NVME controller implementation.
- */
-pub(super) struct NvmeController {
-    name: String,
-    state: NvmeControllerState,
-    spdk_nvme_ctrlr: *mut spdk_nvme_ctrlr,
-    inner: Option<NvmeControllerInner>,
-}
-
-unsafe impl Send for NvmeController {}
-unsafe impl Sync for NvmeController {}
-
-impl NvmeController {
-    fn new(name: &str) -> Self {
-        NvmeController {
-            name: String::from(name),
-            state: NvmeControllerState::Initializing,
-            inner: None,
-            spdk_nvme_ctrlr: std::ptr::null_mut(),
-        }
-    }
-
-    fn get_name(&self) -> String {
-        self.name.clone()
-    }
-
-    fn as_ptr(&self) -> *mut spdk_nvme_ctrlr {
-        self.spdk_nvme_ctrlr as *mut spdk_nvme_ctrlr
-    }
-}
-
-struct NvmeBlockDevice {
-    ns: NonNull<spdk_nvme_ns>,
-    name: String,
-}
-
-impl NvmeBlockDevice {
-    pub fn open_by_name(
-        name: &str,
-        _read_write: bool,
-    ) -> Result<Box<dyn BlockDeviceDescriptor>, CoreError> {
-        let controllers = NVME_CONTROLLERS.read().unwrap();
-        if !controllers.contains_key(name) {
-            return Err(CoreError::OpenBdev {
-                source: Errno::ENODEV,
-            });
-        }
-        let controller = controllers.get(name).unwrap();
-        let descr = NvmeDeviceDescriptor::create(controller)?;
-        Ok(descr)
-    }
-
-    fn from_ns(name: &str, ns: *mut spdk_nvme_ns) -> NvmeBlockDevice {
-        NvmeBlockDevice {
-            ns: NonNull::new(ns)
-                .expect("nullptr dereference while accessing NVMe namespace"),
-            name: String::from(name),
-        }
-    }
-}
-
-impl BlockDevice for NvmeBlockDevice {
-    fn size_in_bytes(&self) -> u64 {
-        unsafe { spdk_nvme_ns_get_size(self.ns.as_ptr()) }
-    }
-
-    fn block_len(&self) -> u32 {
-        unsafe { spdk_nvme_ns_get_extended_sector_size(self.ns.as_ptr()) }
-    }
-
-    fn num_blocks(&self) -> u64 {
-        unsafe { spdk_nvme_ns_get_num_sectors(self.ns.as_ptr()) }
-    }
-
-    fn uuid(&self) -> String {
-        let u = Uuid(unsafe { spdk_nvme_ns_get_uuid(self.ns.as_ptr()) });
-        uuid::Uuid::from_bytes(u.as_bytes())
-            .to_hyphenated()
-            .to_string()
-    }
-
-    fn product_name(&self) -> String {
-        "NVMe disk".to_string()
-    }
-
-    fn driver_name(&self) -> String {
-        String::from("nvme")
-    }
-
-    fn device_name(&self) -> String {
-        self.name.clone()
-    }
-
-    fn alignment(&self) -> u64 {
-        1
-    }
-
-    fn io_type_supported(&self, io_type: IoType) -> bool {
-        let spdk_ns = self.ns.as_ptr();
-
-        // bdev_nvme_io_type_supported
-        match io_type {
-            IoType::Read
-            | IoType::Write
-            | IoType::Reset
-            | IoType::Flush
-            | IoType::NvmeAdmin
-            | IoType::NvmeIO
-            | IoType::Abort => true,
-            IoType::Compare => unsafe {
-                spdk_nvme_ns_supports_compare(spdk_ns)
-            },
-            IoType::NvmeIOMD => {
-                let t = unsafe { spdk_nvme_ns_get_md_size(spdk_ns) };
-                t > 0
-            }
-            IoType::Unmap => false,
-            IoType::WriteZeros => false,
-            IoType::CompareAndWrite => false,
-            _ => false,
-        }
-    }
-
-    fn io_stats(&self) -> Result<BlockDeviceStats, NexusBdevError> {
-        Ok(Default::default())
-    }
-
-    fn claimed_by(&self) -> Option<String> {
-        None
-    }
-}
-
-pub fn test_ctrl_open(cname: &str) {
-    match NvmeBlockDevice::open_by_name(cname, false) {
-        Err(e) => println!("** FAILED TO OPEN DEVICE: {:?}", e),
-        Ok(descr) => {
-            println!("** DEVICE OPENED !");
-
-            let bdev = descr.get_device();
-            println!("= size_in bytes: {}", bdev.size_in_bytes());
-            println!("= block_len: {}", bdev.block_len());
-            println!("= num_blocks: {}", bdev.num_blocks());
-            println!("= uuid: {:?}", bdev.uuid());
-            println!("= product_name: {:?}", bdev.product_name());
-            println!("= driver_name: {:?}", bdev.driver_name());
-            println!("= device_name: {:?}", bdev.device_name());
-            println!("= alignment: {:?}", bdev.alignment());
-            println!(
-                "= io_type_supported: {:?}",
-                bdev.io_type_supported(IoType::Unmap)
-            );
         }
     }
 }
