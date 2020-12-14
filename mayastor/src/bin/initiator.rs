@@ -14,6 +14,7 @@ use std::{
 use clap::{App, Arg, SubCommand};
 
 use mayastor::{
+    bdev::{device_create, device_open},
     core::{
         mayastor_env_stop,
         Bdev,
@@ -125,10 +126,9 @@ async fn nvme_admin(uri: &str, opcode: u8) -> Result<()> {
 
 /// NVMe Admin identify controller, write output to a file.
 async fn identify_ctrlr(uri: &str, file: &str) -> Result<()> {
-    let bdev = create_bdev(uri).await?;
-    let h = Bdev::open(&bdev, true).unwrap().into_handle().unwrap();
-    let mut buf = h.dma_malloc(4096).unwrap();
-    h.nvme_identify_ctrlr(&mut buf).await?;
+    let bdev = device_create(uri).await?;
+    let h = device_open(&bdev, true).unwrap().into_handle().unwrap();
+    let buf = h.nvme_identify_ctrlr().await.unwrap();
     fs::write(file, buf.as_slice())?;
     Ok(())
 }
