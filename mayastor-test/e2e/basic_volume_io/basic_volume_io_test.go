@@ -16,10 +16,10 @@ var defTimeoutSecs = "90s"
 
 func TestBasicVolumeIO(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Basic volume IO tests, nvm-of tcp and iSCSI")
+	RunSpecs(t, "Basic volume IO tests, NVMe-oF TCP and iSCSI")
 }
 
-func basicVolumeIOTest(scName string ) {
+func basicVolumeIOTest(scName string) {
 	volName := "basic-vol-io-test-" + scName
 	// Create the volume
 	common.MkPVC(volName, scName)
@@ -59,7 +59,7 @@ var _ = Describe("Mayastor Volume IO test", func() {
 })
 
 var _ = BeforeSuite(func(done Done) {
-	logf.SetLogger(zap.New(zap.UseDevMode(true),zap.WriteTo(GinkgoWriter)))
+	logf.SetLogger(zap.New(zap.UseDevMode(true), zap.WriteTo(GinkgoWriter)))
 	common.SetupTestEnv()
 
 	close(done)
