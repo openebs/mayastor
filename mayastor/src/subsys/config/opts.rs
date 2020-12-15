@@ -140,17 +140,8 @@ pub struct TcpTransportOpts {
     num_shared_buf: u32,
     /// cache size
     buf_cache_size: u32,
-    /// RDMA only
-    max_srq_depth: u32,
-    /// RDMA only
-    no_srq: bool,
-    /// optimize success
-    ch2_success: bool,
     /// dif
     dif_insert_or_strip: bool,
-    /// The socket priority of the connection owned by this transport (TCP
-    /// only)
-    sock_priority: u32,
     /// abort execution timeout
     abort_timeout_sec: u32,
 }
@@ -162,15 +153,11 @@ impl Default for TcpTransportOpts {
             in_capsule_data_size: 4096,
             max_io_size: 131_072,
             io_unit_size: 131_072,
-            ch2_success: true,
             max_qpairs_per_ctrl: 128,
             num_shared_buf: 2048,
             buf_cache_size: 64,
             dif_insert_or_strip: false,
             max_aq_depth: 128,
-            max_srq_depth: 0, // RDMA
-            no_srq: false,    // RDMA
-            sock_priority: 0,
             abort_timeout_sec: 1,
         }
     }
@@ -194,6 +181,7 @@ impl From<TcpTransportOpts> for spdk_nvmf_transport_opts {
             abort_timeout_sec: o.abort_timeout_sec,
             association_timeout: 120000,
             transport_specific: std::ptr::null(),
+            opts_size: std::mem::size_of::<spdk_nvmf_transport_opts>() as u64,
         }
     }
 }
@@ -206,6 +194,8 @@ pub struct NvmeBdevOpts {
     pub action_on_timeout: u32,
     /// timeout for each command
     pub timeout_us: u64,
+    /// keep-alive timeout
+    pub keep_alive_timeout_ms: u32,
     /// retry count
     pub retry_count: u32,
     /// TODO
@@ -250,6 +240,7 @@ impl Default for NvmeBdevOpts {
         Self {
             action_on_timeout: SPDK_BDEV_NVME_TIMEOUT_ACTION_ABORT,
             timeout_us: 30_000_000,
+            keep_alive_timeout_ms: 10_000,
             retry_count: 3,
             arbitration_burst: 0,
             low_priority_weight: 0,
@@ -268,6 +259,7 @@ impl From<spdk_bdev_nvme_opts> for NvmeBdevOpts {
         Self {
             action_on_timeout: o.action_on_timeout,
             timeout_us: o.timeout_us,
+            keep_alive_timeout_ms: o.keep_alive_timeout_ms,
             retry_count: o.retry_count,
             arbitration_burst: o.arbitration_burst,
             low_priority_weight: o.low_priority_weight,
@@ -286,6 +278,7 @@ impl From<&NvmeBdevOpts> for spdk_bdev_nvme_opts {
         Self {
             action_on_timeout: o.action_on_timeout,
             timeout_us: o.timeout_us,
+            keep_alive_timeout_ms: o.keep_alive_timeout_ms,
             retry_count: o.retry_count,
             arbitration_burst: o.arbitration_burst,
             low_priority_weight: o.low_priority_weight,

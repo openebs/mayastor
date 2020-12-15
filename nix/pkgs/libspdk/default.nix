@@ -19,13 +19,13 @@
 let
   # Derivation attributes for production version of libspdk
   drvAttrs = rec {
-    version = "20.10";
+    version = "21.01-pre";
 
     src = fetchFromGitHub {
       owner = "openebs";
       repo = "spdk";
-      rev = "46b25360887c5d19433f575c7ad14259721abc6f";
-      sha256 = "0cjnpkqx95cgrk9kbm4drrd5piimprz7wsbiahsllm1j2avdzsfs";
+      rev = "285a96fb4bd5fb53876635ec86ebe55089b1ffde";
+      sha256 = "0bn40y28iafma19q7fh15ga651d7bcpx85ih5lyi4azvb0l0zjqv";
       #sha256 = stdenv.lib.fakeSha256;
       fetchSubmodules = true;
     };
