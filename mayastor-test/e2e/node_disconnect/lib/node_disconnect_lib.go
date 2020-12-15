@@ -12,6 +12,7 @@ import (
 var (
 	defTimeoutSecs           = "90s"
 	disconnectionTimeoutSecs = "90s"
+	repairTimeoutSecs        = "90s"
 )
 
 // disconnect a node from the other nodes in the cluster
@@ -79,12 +80,12 @@ func LossTest(nodeToIsolate string, otherNodes []string, disconnectionMethod str
 
 	DisconnectNode(nodeToIsolate, otherNodes, disconnectionMethod)
 
-	fmt.Printf("waiting up to 90s for disconnection to affect the nexus\n")
+	fmt.Printf("waiting up to %s for disconnection to affect the nexus\n", disconnectionTimeoutSecs)
 	Eventually(func() string {
 		return common.GetMsvState(uuid)
 	},
-		90*time.Second, // timeout
-		"1s",           // polling interval
+		disconnectionTimeoutSecs, // timeout
+		"1s",                     // polling interval
 	).Should(Equal("degraded"))
 
 	fmt.Printf("volume is in state \"%s\"\n", common.GetMsvState(uuid))
@@ -112,6 +113,51 @@ func LossWhenIdleTest(nodeToIsolate string, otherNodes []string, disconnectionMe
 		disconnectionTimeoutSecs, // timeout
 		"1s",                     // polling interval
 	).Should(Equal("degraded"))
+
+	fmt.Printf("volume is in state \"%s\"\n", common.GetMsvState(uuid))
+
+	fmt.Printf("running fio while node is disconnected\n")
+	common.RunFio("fio", 20)
+
+	fmt.Printf("reconnecting \"%s\"\n", nodeToIsolate)
+	ReconnectNode(nodeToIsolate, otherNodes, true, disconnectionMethod)
+
+	fmt.Printf("running fio when node is reconnected\n")
+	common.RunFio("fio", 20)
+}
+
+// Run fio against the cluster while a replica node is being removed,
+// wait for the volume to become degraded, then wait for it to be repaired.
+// Run fio against repaired volume, and again after node is reconnected.
+func ReplicaReassignTest(nodeToIsolate string, otherNodes []string, disconnectionMethod string, uuid string) {
+	// This test needs at least 4 nodes, a refuge node, a mayastor node to isolate, and 2 other mayastor nodes
+	Expect(len(otherNodes)).To(BeNumerically(">=", 3))
+
+	fmt.Printf("running spawned fio\n")
+	go common.RunFio("fio", 20)
+
+	time.Sleep(5 * time.Second)
+	fmt.Printf("disconnecting \"%s\"\n", nodeToIsolate)
+
+	DisconnectNode(nodeToIsolate, otherNodes, disconnectionMethod)
+
+	fmt.Printf("waiting up to %s for disconnection to affect the nexus\n", disconnectionTimeoutSecs)
+	Eventually(func() string {
+		return common.GetMsvState(uuid)
+	},
+		disconnectionTimeoutSecs, // timeout
+		"1s",                     // polling interval
+	).Should(Equal("degraded"))
+
+	fmt.Printf("volume is in state \"%s\"\n", common.GetMsvState(uuid))
+
+	fmt.Printf("waiting up to %s for the volume to be repaired\n", repairTimeoutSecs)
+	Eventually(func() string {
+		return common.GetMsvState(uuid)
+	},
+		repairTimeoutSecs, // timeout
+		"1s",              // polling interval
+	).Should(Equal("healthy"))
 
 	fmt.Printf("volume is in state \"%s\"\n", common.GetMsvState(uuid))
 
