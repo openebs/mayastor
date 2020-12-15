@@ -113,8 +113,8 @@ func getDeployYamlDir() string {
 func applyDeployYaml(filename string) {
 	cmd := exec.Command("kubectl", "apply", "-f", filename)
 	cmd.Dir = getDeployYamlDir()
-	_, err := cmd.CombinedOutput()
-	Expect(err).ToNot(HaveOccurred())
+	out, err := cmd.CombinedOutput()
+	Expect(err).ToNot(HaveOccurred(), "%s", out)
 }
 
 // Encapsulate the logic to find where the templated yamls are
@@ -130,8 +130,8 @@ func makeImageName(registryAddress string, imagename string, imageversion string
 func generateYamls(registryAddress string) {
 	bashcmd := "../../../scripts/generate-deploy-yamls.sh  ci " + registryAddress
 	cmd := exec.Command("bash", "-c", bashcmd)
-	_, err := cmd.CombinedOutput()
-	Expect(err).ToNot(HaveOccurred())
+	out, err := cmd.CombinedOutput()
+	Expect(err).ToNot(HaveOccurred(), "%s", out)
 }
 
 func applyTemplatedYaml(filename string, imagename string, registryAddress string) {
@@ -139,8 +139,8 @@ func applyTemplatedYaml(filename string, imagename string, registryAddress strin
 	bashcmd := "IMAGE_NAME=" + fullimagename + " envsubst < " + filename + " | kubectl apply -f -"
 	cmd := exec.Command("bash", "-c", bashcmd)
 	cmd.Dir = getTemplateYamlDir()
-	_, err := cmd.CombinedOutput()
-	Expect(err).ToNot(HaveOccurred())
+	out, err := cmd.CombinedOutput()
+	Expect(err).ToNot(HaveOccurred(), "%s", out)
 }
 
 // We expect this to fail a few times before it succeeds,
@@ -164,6 +164,9 @@ func moacReadyPodCount() int {
 }
 
 // create pools for the cluster
+//
+// TODO: Ideally there should be one way how to create pools without using
+// two env variables to do a similar thing.
 func createPools(mayastorNodes []string) {
 	envPoolYamls := os.Getenv("e2e_pool_yaml_files")
 	poolDevice := os.Getenv("e2e_pool_device")
@@ -186,11 +189,11 @@ func createPools(mayastorNodes []string) {
 			bashcmd := "NODE_NAME=" + mayastorNode + " POOL_DEVICE=" + poolDevice + " envsubst < " + "pool.yaml.template" + " | kubectl apply -f -"
 			cmd := exec.Command("bash", "-c", bashcmd)
 			cmd.Dir = getTemplateYamlDir()
-			_, err := cmd.CombinedOutput()
-			Expect(err).ToNot(HaveOccurred())
+			out, err := cmd.CombinedOutput()
+			Expect(err).ToNot(HaveOccurred(), "%s", out)
 		}
 	} else {
-		// No pools created
+		Expect(false).To(BeTrue(), "Neither e2e_pool_yaml_files nor e2e_pool_device specified")
 	}
 }
 
@@ -211,13 +214,13 @@ func installMayastor() {
 	applyDeployYaml("nats-deployment.yaml")
 	generateYamls(registryAddress)
 	applyDeployYaml("csi-daemonset.yaml")
-	applyDeployYaml("moac-deployment")
-	applyDeployYaml("mayastor-daemonset")
+	applyDeployYaml("moac-deployment.yaml")
+	applyDeployYaml("mayastor-daemonset.yaml")
 
 	// Given the yamls and the environment described in the test readme,
 	// we expect mayastor to be running on exactly 2 nodes.
 	Eventually(mayastorReadyPodCount,
-		"120s", // timeout
+		"180s", // timeout
 		"1s",   // polling interval
 	).Should(Equal(numMayastorInstances))
 
