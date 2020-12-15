@@ -152,6 +152,10 @@ impl Nexus {
                 self.unshare().await?;
             }
             Some(NexusTarget::NexusNvmfTarget) => {
+                // NVMf subsystem must be in 'active' state
+                // A faulted Nexus would be paused, resume it first
+                self.resume().await.unwrap();
+
                 self.unshare().await?;
             }
             None => {
