@@ -20,15 +20,15 @@ const CSI_ENDPOINT = '/tmp/mayastor_csi_test.sock';
 const CSI_ID = 'test-node-id';
 const LOCALHOST = '127.0.0.1';
 
-var testPort = process.env.TEST_PORT || GRPC_PORT;
-var myIp = getMyIp() || LOCALHOST;
-var grpcEndpoint = myIp + ':' + testPort;
+const testPort = process.env.TEST_PORT || GRPC_PORT;
+const myIp = getMyIp() || LOCALHOST;
+const grpcEndpoint = myIp + ':' + testPort;
 // started processes indexed by the program name
-var procs = {};
+let procs = {};
 
 // Construct path to a rust binary in target/debug/... dir.
 function getCmdPath (name) {
-  return path.join(__dirname, '..', 'target', 'debug', name);
+  return path.join(__dirname, '..', '..', 'target', 'debug', name);
 }
 
 // Run the command as root. We use sudo to gain root privileges.
@@ -211,7 +211,7 @@ function startMayastorCsi () {
 
 function killSudoedProcess (name, pid, done) {
   find('name', name).then((res) => {
-    var whichPid;
+    let whichPid;
     if (process.geteuid() === 0) {
       whichPid = 'pid';
     } else {
@@ -330,7 +330,7 @@ function jsonrpcCommand (sock, method, args, done) {
     done = args;
     args = null;
   }
-  var cmd = getCmdPath('jsonrpc') + ' -s ' + sock + ' raw' + ' ' + method;
+  let cmd = getCmdPath('jsonrpc') + ' -s ' + sock + ' raw' + ' ' + method;
   if (args !== null && args !== undefined) {
     cmd += " '" + JSON.stringify(args) + "'";
   }
@@ -346,10 +346,11 @@ function jsonrpcCommand (sock, method, args, done) {
 // Create mayastor grpc client. Must be closed by the user when not used anymore.
 function createGrpcClient (endpoint) {
   endpoint = endpoint || grpcEndpoint;
-  var client = createClient(
+  const client = createClient(
     {
       protoPath: path.join(
         __dirname,
+        '..',
         '..',
         'rpc',
         'proto',
@@ -375,7 +376,7 @@ function createGrpcClient (endpoint) {
 
 // Create mayastor grpc client, call a method and return the result of it.
 function callGrpcMethod (method, args, done) {
-  var client;
+  let client;
   try {
     client = createGrpcClient();
   } catch (err) {

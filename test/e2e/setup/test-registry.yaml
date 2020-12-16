@@ -29,4 +29,3 @@ spec:
       containers:
       - name: test-registry
         image: registry:2
-        

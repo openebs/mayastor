@@ -66,7 +66,7 @@ iscsi_tgt_conf:
 implicit_share_base: true
 `;
 
-var client;
+let client;
 
 function controlPlaneTest (thisProtocol) {
   it('should publish the nexus', (done) => {
@@ -173,15 +173,16 @@ function controlPlaneTest (thisProtocol) {
   });
 }
 
-var doUring = (function () {
-  var executed = false;
-  var supportsUring = false;
+const doUring = (function () {
+  let executed = false;
+  let supportsUring = false;
   return function () {
     if (!executed) {
       executed = true;
       const { exec } = require('child_process');
       const URING_SUPPORT_CMD = path.join(
         __dirname,
+        '..',
         '..',
         'target',
         'debug',
@@ -519,7 +520,7 @@ describe('nexus', function () {
   }); // End describe('nbd control')
 
   describe('nbd datapath', function () {
-    var nbdDeviceUri;
+    let nbdDeviceUri;
 
     it('should publish the nexus', (done) => {
       client.publishNexus(
@@ -572,7 +573,7 @@ describe('nexus', function () {
   }); // End describe('iscsi control')
 
   describe('iscsi datapath', function () {
-    var uri;
+    let uri;
 
     it('should publish the nexus', (done) => {
       client.publishNexus(
@@ -635,7 +636,7 @@ describe('nexus', function () {
       );
     });
 
-    var uri;
+    let uri;
     it('should publish the nexus', (done) => {
       client.publishNexus(
         {
