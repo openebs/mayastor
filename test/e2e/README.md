@@ -48,3 +48,5 @@ If you'd like to run the tests as a whole (as they are run in our CI/CD
 pipeline) then use the script `./scripts/e2e-test.sh`.
 
 To run particular test cd to the directory with tests and type `go test`.
+Most of the tests assume that mayastor is already installed. `install` test
+can be run to do that.

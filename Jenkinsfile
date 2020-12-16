@@ -137,6 +137,13 @@ pipeline {
     }
     stage('e2e tests') {
       agent { label 'nixos-mayastor' }
+      environment {
+        GIT_COMMIT_SHORT = sh(
+          // using printf to get rid of trailing newline
+          script: "printf \$(git rev-parse --short ${GIT_COMMIT})",
+          returnStdout: true
+        )
+      }
       steps {
         // Build images (REGISTRY is set in jenkin's global configuration).
         // Note: We might want to build and test dev images that have more
@@ -146,7 +153,7 @@ pipeline {
         sh 'nix-store --delete /nix/store/*docker-image*'
         withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
           sh 'kubectl get nodes -o wide'
-          sh "nix-shell --run './scripts/e2e-test.sh ${env.REGISTRY}'"
+          sh "nix-shell --run './scripts/e2e-test.sh --device /dev/nvme1n1 --tag \"${env.GIT_COMMIT_SHORT}\" --registry \"${env.REGISTRY}\"'"
         }
       }
     }

@@ -39,12 +39,12 @@ var testEnv *envtest.Environment
 /// The assumption is that the test-registry is accessible via the IP addr of the master,
 /// or any node in the cluster if the master noe does not exist
 /// TODO Refine how we workout the address of the test-registry
-func getTestClusterDetails() (string, int, []string, error) {
+func getTestClusterDetails() (string, string, int, []string, error) {
 	var master = ""
 	var nme = 0
 	nodeList := coreV1.NodeList{}
 	if (k8sClient.List(context.TODO(), &nodeList, &client.ListOptions{}) != nil) {
-		return master, nme, nil, errors.New("failed to list nodes")
+		return "", "", 0, nil, errors.New("failed to list nodes")
 	}
 	nodeIPs := make([]string, len(nodeList.Items))
 	for ix, k8node := range nodeList.Items {
@@ -65,7 +65,7 @@ func getTestClusterDetails() (string, int, []string, error) {
 
 	// At least one node where mayastor can be deployed must exist
 	if nme == 0 {
-		return "", 0, nil, errors.New("no usable nodes found for the mayastor engine")
+		return "", "", 0, nil, errors.New("no usable nodes found for the mayastor engine")
 	}
 
 	mayastorNodes := make([]string, nme)
@@ -86,9 +86,13 @@ func getTestClusterDetails() (string, int, []string, error) {
 	// Redundant check, but keep it anyway, we are writing a test after all.
 	// We should have found at least one node!
 	if len(nodeIPs) == 0 {
-		return "", 0, nil, errors.New("no usable nodes found")
+		return "", "", 0, nil, errors.New("no usable nodes found")
 	}
 
+	tag := os.Getenv("e2e_image_tag")
+	if len(tag) == 0 {
+		tag = "ci"
+	}
 	registry := os.Getenv("e2e_docker_registry")
 	if len(registry) == 0 {
 		// a registry was not specified
@@ -100,7 +104,7 @@ func getTestClusterDetails() (string, int, []string, error) {
 			registry = nodeIPs[0] + ":30291"
 		}
 	}
-	return registry, nme, mayastorNodes, nil
+	return tag, registry, nme, mayastorNodes, nil
 }
 
 // Encapsulate the logic to find where the deploy yamls are
@@ -127,18 +131,9 @@ func makeImageName(registryAddress string, imagename string, imageversion string
 	return registryAddress + "/mayadata/" + imagename + ":" + imageversion
 }
 
-func generateYamls(registryAddress string) {
-	bashcmd := "../../../scripts/generate-deploy-yamls.sh -t ../../../test-yamls ci " + registryAddress
+func generateYamls(imageTag string, registryAddress string) {
+	bashcmd := fmt.Sprintf("../../../scripts/generate-deploy-yamls.sh -t ../../../test-yamls %s %s", imageTag, registryAddress)
 	cmd := exec.Command("bash", "-c", bashcmd)
-	out, err := cmd.CombinedOutput()
-	Expect(err).ToNot(HaveOccurred(), "%s", out)
-}
-
-func applyTemplatedYaml(filename string, imagename string, registryAddress string) {
-	fullimagename := makeImageName(registryAddress, imagename, "ci")
-	bashcmd := "IMAGE_NAME=" + fullimagename + " envsubst < " + filename + " | kubectl apply -f -"
-	cmd := exec.Command("bash", "-c", bashcmd)
-	cmd.Dir = getTemplateYamlDir()
 	out, err := cmd.CombinedOutput()
 	Expect(err).ToNot(HaveOccurred(), "%s", out)
 }
@@ -201,11 +196,11 @@ func createPools(mayastorNodes []string) {
 // We deliberately call out to kubectl, rather than constructing the client-go
 // objects, so that we can verfiy the local deploy yamls are correct.
 func installMayastor() {
-	registryAddress, numMayastorInstances, mayastorNodes, err := getTestClusterDetails()
+	imageTag, registryAddress, numMayastorInstances, mayastorNodes, err := getTestClusterDetails()
 	Expect(err).ToNot(HaveOccurred())
 	Expect(numMayastorInstances).ToNot(Equal(0))
 
-	fmt.Printf("registry address %v, number of mayastor instances=%v\n", registryAddress, numMayastorInstances)
+	fmt.Printf("tag %v, registry %v, # of mayastor instances=%v\n", imageTag, registryAddress, numMayastorInstances)
 
 	// FIXME use absolute paths, do not depend on CWD
 	applyDeployYaml("namespace.yaml")
@@ -213,7 +208,7 @@ func installMayastor() {
 	applyDeployYaml("moac-rbac.yaml")
 	applyDeployYaml("mayastorpoolcrd.yaml")
 	applyDeployYaml("nats-deployment.yaml")
-	generateYamls(registryAddress)
+	generateYamls(imageTag, registryAddress)
 	applyDeployYaml("../test-yamls/csi-daemonset.yaml")
 	applyDeployYaml("../test-yamls/moac-deployment.yaml")
 	applyDeployYaml("../test-yamls/mayastor-daemonset.yaml")
@@ -226,7 +221,7 @@ func installMayastor() {
 	).Should(Equal(numMayastorInstances))
 
 	Eventually(moacReadyPodCount(),
-		"60s", // timeout
+		"180s", // timeout
 		"1s",  // polling interval
 	).Should(Equal(1))
 
