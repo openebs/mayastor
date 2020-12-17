@@ -128,7 +128,7 @@ func makeImageName(registryAddress string, imagename string, imageversion string
 }
 
 func generateYamls(registryAddress string) {
-	bashcmd := "../../../scripts/generate-deploy-yamls.sh  ci " + registryAddress
+	bashcmd := "../../../scripts/generate-deploy-yamls.sh -t ../../../test-yamls ci " + registryAddress
 	cmd := exec.Command("bash", "-c", bashcmd)
 	out, err := cmd.CombinedOutput()
 	Expect(err).ToNot(HaveOccurred(), "%s", out)
@@ -207,15 +207,16 @@ func installMayastor() {
 
 	fmt.Printf("registry address %v, number of mayastor instances=%v\n", registryAddress, numMayastorInstances)
 
+	// FIXME use absolute paths, do not depend on CWD
 	applyDeployYaml("namespace.yaml")
 	applyDeployYaml("storage-class.yaml")
 	applyDeployYaml("moac-rbac.yaml")
 	applyDeployYaml("mayastorpoolcrd.yaml")
 	applyDeployYaml("nats-deployment.yaml")
 	generateYamls(registryAddress)
-	applyDeployYaml("csi-daemonset.yaml")
-	applyDeployYaml("moac-deployment.yaml")
-	applyDeployYaml("mayastor-daemonset.yaml")
+	applyDeployYaml("../test-yamls/csi-daemonset.yaml")
+	applyDeployYaml("../test-yamls/moac-deployment.yaml")
+	applyDeployYaml("../test-yamls/mayastor-daemonset.yaml")
 
 	// Given the yamls and the environment described in the test readme,
 	// we expect mayastor to be running on exactly 2 nodes.
