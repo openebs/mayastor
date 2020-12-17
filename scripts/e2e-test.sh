@@ -1,10 +1,10 @@
-#!/usr/bin/env sh
+#!/usr/bin/env bash
 
-set -e
+set -eux
 
 SCRIPTDIR=$(dirname "$(realpath "$0")")
 REGISTRY=$1
-TESTS="install"
+TESTS="install basic_volume_io"
 
 # TODO: Add proper argument parser
 if [ -z "$REGISTRY" ]; then
@@ -18,7 +18,7 @@ export e2e_pool_device=/dev/nvme1n1
 
 for dir in $TESTS; do
   cd "$SCRIPTDIR/../test/e2e/$dir"
-  if ! go test; then
+  if ! go test -v . -ginkgo.v -ginkgo.progress -timeout 0 ; then
     test_failed=1
     break
   fi

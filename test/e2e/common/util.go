@@ -291,8 +291,13 @@ func MkPVC(volName string, scName string) string {
 		"1s",           // polling interval
 	).Should(Equal(corev1.VolumeBound))
 
-	msv := GetMSV(string(pvc.ObjectMeta.UID))
-	Expect(msv).ToNot(BeNil())
+	Eventually(func() *MayastorVolStatus {
+		return GetMSV(string(pvc.ObjectMeta.UID))
+	},
+	defTimeoutSecs,
+	"1s",
+	).Should(Not(BeNil()))
+
 	return string(pvc.ObjectMeta.UID)
 }
 
