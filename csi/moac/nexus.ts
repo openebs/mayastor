@@ -262,6 +262,7 @@ export class Nexus {
     // confirmation back from the nexus, set it as pending
     this.children.push(new Child(childInfo.uri, childInfo.state));
     this.children.sort(compareChildren);
+    this.state = "NEXUS_DEGRADED"
     log.info(`Replica uri "${uri}" added to the nexus "${this}"`);
     this._emitMod();
   }
