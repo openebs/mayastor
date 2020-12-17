@@ -193,6 +193,11 @@ func IsPVDeleted(volName string) bool {
 	}
 }
 
+// IsPvcBound returns true if a PVC with the given name is bound otherwise false is returned.
+func IsPvcBound(pvcName string) bool {
+	return GetPvcStatusPhase(pvcName) == corev1.ClaimBound
+}
+
 // Retrieve status phase of a Persistent Volume Claim
 func GetPvcStatusPhase(volname string) (phase corev1.PersistentVolumeClaimPhase) {
 	pvc, getPvcErr := gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims("default").Get(context.TODO(), volname, metav1.GetOptions{})
@@ -294,8 +299,8 @@ func MkPVC(volName string, scName string) string {
 	Eventually(func() *MayastorVolStatus {
 		return GetMSV(string(pvc.ObjectMeta.UID))
 	},
-	defTimeoutSecs,
-	"1s",
+		defTimeoutSecs,
+		"1s",
 	).Should(Not(BeNil()))
 
 	return string(pvc.ObjectMeta.UID)
@@ -659,4 +664,170 @@ func PodPresentOnNode(podNameRegexp string, namespace string, nodeName string) b
 		}
 	}
 	return false
+}
+
+// Return a group version resource for a MSV
+func getMsvGvr() schema.GroupVersionResource {
+	return schema.GroupVersionResource{
+		Group:    "openebs.io",
+		Version:  "v1alpha1",
+		Resource: "mayastorvolumes",
+	}
+}
+
+// Get the k8s MSV CRD
+func getMsv(uuid string) (*unstructured.Unstructured, error) {
+	msvGVR := getMsvGvr()
+	return gTestEnv.DynamicClient.Resource(msvGVR).Namespace("mayastor").Get(context.TODO(), uuid, metav1.GetOptions{})
+}
+
+// Get a field within the MSV.
+// The "fields" argument specifies the path within the MSV where the field should be found.
+// E.g. for the replicaCount field which is nested under the MSV spec the function should be called like:
+//		getMsvFieldValue(<uuid>, "spec", "replicaCount")
+func getMsvFieldValue(uuid string, fields ...string) (interface{}, error) {
+	msv, err := getMsv(uuid)
+	if err != nil {
+		return nil, fmt.Errorf("Failed to get MSV with error %v", err)
+	}
+	if msv == nil {
+		return nil, fmt.Errorf("MSV with uuid %s does not exist", uuid)
+	}
+
+	field, found, err := unstructured.NestedFieldCopy(msv.Object, fields...)
+	if err != nil {
+		// The last field is the one that we were looking for.
+		lastFieldIndex := len(fields) - 1
+		return nil, fmt.Errorf("Failed to get field %s with error %v", fields[lastFieldIndex], err)
+	}
+	if !found {
+		// The last field is the one that we were looking for.
+		lastFieldIndex := len(fields) - 1
+		return nil, fmt.Errorf("Failed to find field %s", fields[lastFieldIndex])
+	}
+	return field, nil
+}
+
+// GetNumReplicas returns the number of replicas in the MSV.
+// An error is returned if the number of replicas cannot be retrieved.
+func GetNumReplicas(uuid string) (int64, error) {
+	// Get the number of replicas from the MSV.
+	repl, err := getMsvFieldValue(uuid, "spec", "replicaCount")
+	if err != nil {
+		return 0, err
+	}
+	if repl == nil {
+		return 0, fmt.Errorf("Failed to get replicaCount")
+	}
+
+	return reflect.ValueOf(repl).Interface().(int64), nil
+}
+
+// UpdateNumReplicas sets the number of replicas in the MSV to the desired number.
+// An error is returned if the number of replicas cannot be updated.
+func UpdateNumReplicas(uuid string, numReplicas int64) error {
+	msv, err := getMsv(uuid)
+	if err != nil {
+		return fmt.Errorf("Failed to get MSV with error %v", err)
+	}
+	if msv == nil {
+		return fmt.Errorf("MSV not found")
+	}
+
+	// Set the number of replicas in the MSV.
+	err = unstructured.SetNestedField(msv.Object, numReplicas, "spec", "replicaCount")
+	if err != nil {
+		return err
+	}
+
+	// Update the k8s MSV object.
+	msvGVR := getMsvGvr()
+	_, err = gTestEnv.DynamicClient.Resource(msvGVR).Namespace("mayastor").Update(context.TODO(), msv, metav1.UpdateOptions{})
+	if err != nil {
+		return fmt.Errorf("Failed to update MSV: %v", err)
+	}
+	return nil
+}
+
+// GetNumChildren returns the number of nexus children listed in the MSV
+func GetNumChildren(uuid string) int {
+	children, err := getMsvFieldValue(uuid, "status", "nexus", "children")
+	if err != nil {
+		return 0
+	}
+	if children == nil {
+		return 0
+	}
+
+	switch reflect.TypeOf(children).Kind() {
+	case reflect.Slice:
+		return reflect.ValueOf(children).Len()
+	}
+	return 0
+}
+
+// NexusChild represents the information stored in the MSV about the child
+type NexusChild struct {
+	State string
+	URI   string
+}
+
+// GetChildren returns a slice containing information about the children.
+// An error is returned if the child information cannot be retrieved.
+func GetChildren(uuid string) ([]NexusChild, error) {
+	children, err := getMsvFieldValue(uuid, "status", "nexus", "children")
+	if err != nil {
+		return nil, fmt.Errorf("Failed to get children with error %v", err)
+	}
+	if children == nil {
+		return nil, fmt.Errorf("Failed to find children")
+	}
+
+	nexusChildren := make([]NexusChild, 2)
+
+	switch reflect.TypeOf(children).Kind() {
+	case reflect.Slice:
+		s := reflect.ValueOf(children)
+		for i := 0; i < s.Len(); i++ {
+			child := s.Index(i).Elem()
+			if child.Kind() == reflect.Map {
+				for _, key := range child.MapKeys() {
+					skey := key.Interface().(string)
+					switch skey {
+					case "state":
+						nexusChildren[i].State = child.MapIndex(key).Interface().(string)
+					case "uri":
+						nexusChildren[i].URI = child.MapIndex(key).Interface().(string)
+					}
+				}
+			}
+		}
+	}
+
+	return nexusChildren, nil
+}
+
+// GetNexusState returns the nexus state from the MSV.
+// An error is returned if the nexus state cannot be retrieved.
+func GetNexusState(uuid string) (string, error) {
+	// Get the state of the nexus from the MSV.
+	state, err := getMsvFieldValue(uuid, "status", "nexus", "state")
+	if err != nil {
+		return "", err
+	}
+	if state == nil {
+		return "", fmt.Errorf("Failed to get nexus state")
+	}
+
+	return reflect.ValueOf(state).Interface().(string), nil
+}
+
+// IsVolumePublished returns true if the volume is published.
+// A volume is published if the "targetNodes" field exists in the MSV.
+func IsVolumePublished(uuid string) bool {
+	_, err := getMsvFieldValue(uuid, "status", "targetNodes")
+	if err != nil {
+		return false
+	}
+	return true
 }
