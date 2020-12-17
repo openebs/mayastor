@@ -50,7 +50,7 @@ const childOfflineArgs = {
 };
 
 function createGrpcClient () {
-  const PROTO_PATH = path.join(__dirname, '/../rpc/proto/mayastor.proto');
+  const PROTO_PATH = path.join(__dirname, '/../../rpc/proto/mayastor.proto');
 
   // Load mayastor proto file with mayastor service
   const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
@@ -72,11 +72,11 @@ function createGrpcClient () {
 }
 
 describe('rebuild tests', function () {
-  var client;
+  let client;
 
   this.timeout(10000); // for network tests we need long timeouts
 
-  var ObjectType = {
+  const ObjectType = {
     NEXUS: 0,
     SOURCE_CHILD: 1,
     DESTINATION_CHILD: 2
@@ -183,10 +183,10 @@ describe('rebuild tests', function () {
         common.stopAll,
         common.restoreNbdPerms,
         (next) => {
-          fs.unlink(child1, (err) => next()); // eslint-disable-line handle-callback-err
+          fs.unlink(child1, () => next());
         },
         (next) => {
-          fs.unlink(child2, (err) => next()); // eslint-disable-line handle-callback-err
+          fs.unlink(child2, () => next());
         },
         (next) => {
           client
@@ -195,7 +195,7 @@ describe('rebuild tests', function () {
             .then(() => {
               next();
             })
-            .catch((err) => { // eslint-disable-line handle-callback-err
+            .catch(() => {
               done();
             })
             .catch(done);

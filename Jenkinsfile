@@ -109,11 +109,11 @@ pipeline {
             }
           }
         }
-        stage('mocha api tests') {
+        stage('grpc tests') {
           agent { label 'nixos-mayastor' }
           steps {
             sh 'printenv'
-            sh 'nix-shell --run "./scripts/node-test.sh"'
+            sh 'nix-shell --run "./scripts/grpc-test.sh"'
           }
           post {
             always {

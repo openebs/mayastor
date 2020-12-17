@@ -11,21 +11,20 @@ nix-shell
 
 The within the Nix shell you opened above:
 ```sh
-git submodule update --init
 cargo build --all
 ```
 
 ## Running All Tests
 
 ```sh
-./test.sh
+./scripts/grpc-test.sh
 ```
 
 ## Running Individual Tests
 
 Test use mocha. To set this up:
 ```sh
-cd mayastor-test
+cd test/grpc
 npm install
 ```
 
@@ -51,7 +50,6 @@ note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace.
 Failures like that above are generally because you're building outside of a Nix shell.
 
 ```sh
-cd Mayastor
 nix-shell
 ```
 

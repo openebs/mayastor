@@ -6,20 +6,19 @@ const assert = require('chai').assert;
 const { spawn } = require('child_process');
 const common = require('./test_common');
 const nats = require('nats');
-const util = require('util')
 
 const HB_INTERVAL = 1;
 const NATS_PORT = 14222;
 const NATS_ENDPOINT = common.getMyIp() + ':' + NATS_PORT;
 const NODE_NAME = 'weird-node-name';
 
-var natsProc;
+let natsProc;
 
 // start nats server
 function startNats (done) {
   natsProc = spawn('nats-server', ['-a', common.getMyIp(), '-p', NATS_PORT]);
-  var doneCalled = false;
-  var stderr = '';
+  let doneCalled = false;
+  let stderr = '';
 
   natsProc.stderr.on('data', (data) => {
     stderr += data.toString();
@@ -53,7 +52,7 @@ function stopNats (done) {
 }
 
 function assertRegisterMessage (msg) {
-  assert(JSON.parse(msg).id == "v0/register" );
+  assert.strictEqual(JSON.parse(msg).id, 'v0/register');
   const args = JSON.parse(msg).data;
   assert.hasAllKeys(args, ['id', 'grpcEndpoint']);
   assert.strictEqual(args.id, NODE_NAME);
@@ -64,7 +63,7 @@ function assertRegisterMessage (msg) {
 // of the tests and setting the right environment for each test would be
 // tedious.
 describe('nats', function () {
-  var client;
+  let client;
 
   // longer timeout - the tests wait for register messages
   this.timeout(5000);
@@ -126,7 +125,7 @@ describe('nats', function () {
   it('should send a deregistration message when mayastor is shut down', (done) => {
     const sid = client.subscribe('v0/registry', (msg) => {
       client.unsubscribe(sid);
-      assert(JSON.parse(msg).id == "v0/deregister" );
+      assert.strictEqual(JSON.parse(msg).id, 'v0/deregister');
       const args = JSON.parse(msg).data;
       assert.hasAllKeys(args, ['id']);
       assert.strictEqual(args.id, NODE_NAME);

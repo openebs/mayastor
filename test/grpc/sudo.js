@@ -1,27 +1,27 @@
 'use strict';
 
-var spawn = require('child_process').spawn;
-var path = require('path');
-var read = require('read');
-var inpathSync = require('inpath').sync;
-var pidof = require('pidof');
+const spawn = require('child_process').spawn;
+const path = require('path');
+const read = require('read');
+const inpathSync = require('inpath').sync;
+const pidof = require('pidof');
 
 const sudoBin = inpathSync('sudo', process.env.PATH.split(':'));
 
-var cachedPassword;
+let cachedPassword;
 
 function sudo (command, options, nameInPs) {
-  var prompt = '#node-sudo-passwd#';
-  var prompts = 0;
+  const prompt = '#node-sudo-passwd#';
+  let prompts = 0;
   nameInPs = nameInPs || path.basename(command[0]);
 
-  var args = ['-S', '-E', '-p', prompt];
+  const args = ['-S', '-E', '-p', prompt];
   args.push.apply(args, command);
   options = options || {};
-  var spawnOptions = options.spawnOptions || {};
+  const spawnOptions = options.spawnOptions || {};
   spawnOptions.stdio = 'pipe';
 
-  var child = spawn(sudoBin, args, spawnOptions);
+  const child = spawn(sudoBin, args, spawnOptions);
 
   // Wait for the sudo:d binary to start up
   function waitForStartup (err, pid) {
@@ -43,7 +43,7 @@ function sudo (command, options, nameInPs) {
 
   // FIXME: Remove this handler when the child has successfully started
   child.stderr.on('data', function (data) {
-    var lines = data
+    const lines = data
       .toString()
       .trim()
       .split('\n');

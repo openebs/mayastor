@@ -14,7 +14,7 @@ for path in "$@"; do
 	if [ "$rel_path" != "$path" ]; then
 		MOAC_FILES="$MOAC_FILES $rel_path"
 	else
-		rel_path=`echo $path | sed 's,mayastor-test/,,'`
+		rel_path=`echo $path | sed 's,test/grpc/,,'`
 		if [ "$rel_path" != "$path" ]; then
 			MS_TEST_FILES="$MS_TEST_FILES $rel_path"
 		fi
@@ -27,5 +27,5 @@ if [ -n "$MOAC_FILES" ]; then
 fi
 
 if [ -n "$MS_TEST_FILES" ]; then
-	( cd $SCRIPTDIR/../mayastor-test && npx semistandard --fix $MS_TEST_FILES )
+	( cd $SCRIPTDIR/../test/grpc && npx semistandard --fix $MS_TEST_FILES )
 fi

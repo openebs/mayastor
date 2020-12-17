@@ -26,7 +26,7 @@ const grpc = require('grpc-uds');
 const common = require('./test_common');
 const enums = require('./grpc_enums');
 
-var csiSock = common.CSI_ENDPOINT;
+const csiSock = common.CSI_ENDPOINT;
 
 // One big malloc bdev which we put lvol store on.
 const CONFIG = `
@@ -50,7 +50,7 @@ const UUID5 = BASE_UUID + '4';
 function createCsiClient (service) {
   const pkgDef = grpc.loadPackageDefinition(
     protoLoader.loadSync(
-      path.join(__dirname, '..', 'csi', 'proto', 'csi.proto'),
+      path.join(__dirname, '..', '..', 'csi', 'proto', 'csi.proto'),
       {
         // this is to load google/descriptor.proto
         includeDirs: ['./node_modules/protobufjs'],
@@ -152,7 +152,7 @@ describe('csi', function () {
     common.startMayastor(CONFIG);
     common.startMayastorCsi();
 
-    var client = common.createGrpcClient();
+    const client = common.createGrpcClient();
 
     async.series(
       [
@@ -209,7 +209,7 @@ describe('csi', function () {
 
   describe('general', function () {
     it('should start even if there is a stale csi socket file', (done) => {
-      var client = createCsiClient('Identity');
+      const client = createCsiClient('Identity');
 
       async.series(
         [
@@ -233,7 +233,7 @@ describe('csi', function () {
   });
 
   describe('identity', function () {
-    var client;
+    let client;
 
     before(() => {
       client = createCsiClient('Identity');
@@ -282,7 +282,7 @@ describe('csi', function () {
   });
 
   describe('node', function () {
-    var client;
+    let client;
 
     before(() => {
       client = createCsiClient('Node');
@@ -336,7 +336,7 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
     // NOTE: Don't use mayastor in setup - we test CSI interface and we don't want
     // to depend on correct function of mayastor iface in order to test CSI.
     before((done) => {
-      var client = common.createGrpcClient();
+      const client = common.createGrpcClient();
       async.times(
         5,
         (n, next) => {
@@ -355,7 +355,7 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
           if (err) {
             return done(err);
           }
-          for (var n in results) {
+          for (const n in results) {
             const uuid = BASE_UUID + n;
             // stash the published URIs in a map indexed
             // on the uuid of the volume.
@@ -368,7 +368,7 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
 
     // stop mayastor server if it was started by us
     after((done) => {
-      var client = common.createGrpcClient();
+      const client = common.createGrpcClient();
       async.times(
         5,
         function (n, next) {
@@ -385,8 +385,8 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
     });
 
     describe('stage and unstage xfs volume', function () {
-      var client;
-      var mountTarget = '/tmp/target0';
+      let client;
+      const mountTarget = '/tmp/target0';
 
       // get default args for stage op with xfs fs
       function getDefaultArgs () {
@@ -526,8 +526,8 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
     });
 
     describe('stage and unstage ext4 volume', function () {
-      var client;
-      var mountTarget = '/tmp/target1';
+      let client;
+      const mountTarget = '/tmp/target1';
 
       before((done) => {
         client = createCsiClient('Node');
@@ -586,8 +586,8 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
     });
 
     describe('stage misc', function () {
-      var client;
-      var mountTarget = '/tmp/target2';
+      let client;
+      const mountTarget = '/tmp/target2';
 
       before((done) => {
         client = createCsiClient('Node');
@@ -628,7 +628,7 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
     // The combinations of ro/rw and access mode flags are quite confusing.
     // See the source code for more info on how this should work.
     describe('publish and unpublish', function () {
-      var client;
+      let client;
 
       before(() => {
         client = createCsiClient('Node');
@@ -641,9 +641,9 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
       });
 
       describe('MULTI_NODE_READER_ONLY staged volume', function () {
-        var mountTarget = '/tmp/target3';
-        var bindTarget1 = '/tmp/bind1';
-        var bindTarget2 = '/tmp/bind2';
+        const mountTarget = '/tmp/target3';
+        const bindTarget1 = '/tmp/bind1';
+        const bindTarget2 = '/tmp/bind2';
 
         before((done) => {
           const stageArgs = {
@@ -822,9 +822,9 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
       });
 
       describe('MULTI_NODE_SINGLE_WRITER staged volume', function () {
-        var mountTarget = '/tmp/target4';
-        var bindTarget1 = '/tmp/bind1';
-        var bindTarget2 = '/tmp/bind2';
+        const mountTarget = '/tmp/target4';
+        const bindTarget1 = '/tmp/bind1';
+        const bindTarget2 = '/tmp/bind2';
 
         before((done) => {
           const stageArgs = {
@@ -956,8 +956,8 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
     });
 
     describe('stage and unstage block volume', function () {
-      var client;
-      var mountTarget = '/tmp/target2';
+      let client;
+      const mountTarget = '/tmp/target2';
 
       before((done) => {
         client = createCsiClient('Node');
@@ -1017,7 +1017,7 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
     // The combinations of ro/rw and access mode flags are quite confusing.
     // See the source code for more info on how this should work.
     describe('publish and unpublish block volumes', function () {
-      var client;
+      let client;
 
       before(() => {
         client = createCsiClient('Node');
@@ -1030,10 +1030,10 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
       });
 
       describe('MULTI_NODE_READER_ONLY staged volume', function () {
-        var stagingPath = '/tmp/target3';
-        var stagingPath2 = '/tmp/target4';
-        var publishPath1 = '/tmp/blockvol1';
-        var publishPath2 = '/tmp/blockvol2';
+        const stagingPath = '/tmp/target3';
+        const stagingPath2 = '/tmp/target4';
+        const publishPath1 = '/tmp/blockvol1';
+        const publishPath2 = '/tmp/blockvol2';
 
         before((done) => {
           const stageArgs = {
@@ -1276,9 +1276,9 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
       });
 
       describe('MULTI_NODE_SINGLE_WRITER staged volume', function () {
-        var stagingPath = '/tmp/target4';
-        var publishPath1 = '/tmp/blockvol1';
-        var publishPath2 = '/tmp/blockvol2';
+        const stagingPath = '/tmp/target4';
+        const publishPath1 = '/tmp/blockvol1';
+        const publishPath2 = '/tmp/blockvol2';
 
         before((done) => {
           const stageArgs = {

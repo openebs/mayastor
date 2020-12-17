@@ -24,10 +24,15 @@ const BASE_UUID = 'c35fa4dd-d527-4b7b-9cf0-436b8bb0ba7';
 const NVMF_URI = /^nvmf:\/\/(\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}):\d{1,5}\/nqn.2019-05.io.openebs:/;
 
 // tunables of the test suite
-var endpoint = process.env.MAYASTOR_ENDPOINT;
-var disks = process.env.MAYASTOR_DISKS;
+//
+// TODO: sort of a dead code or dead functionality that would be probably
+// better to remove originally made to run tests on any mayastor instance,
+// currently test suite always starts mayastor and provides necessary
+// resources like disks.
+let endpoint = process.env.MAYASTOR_ENDPOINT;
+let disks = process.env.MAYASTOR_DISKS;
 
-var implicitDisk;
+let implicitDisk;
 
 // Create fake disk device used for testing (size 100M)
 function createTestDisk (diskFile, done) {
@@ -58,7 +63,7 @@ function destroyTestDisk (diskFile, loopDev, done) {
 }
 
 describe('replica', function () {
-  var client;
+  let client;
 
   this.timeout(10000); // for network tests we need long timeouts
 
@@ -78,7 +83,6 @@ describe('replica', function () {
     if (!endpoint) {
       endpoint = common.grpcEndpoint;
       common.startMayastor();
-    } else {
     }
   });
 
@@ -436,11 +440,12 @@ describe('replica', function () {
       const URING_SUPPORT_CMD = path.join(
         __dirname,
         '..',
+        '..',
         'target',
         'debug',
         'uring-support'
       );
-      var self = this;
+      const self = this;
       exec(URING_SUPPORT_CMD, (error) => {
         if (error) {
           self.skip();
