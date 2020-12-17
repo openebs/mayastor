@@ -213,7 +213,7 @@ func GetPvStatusPhase(volname string) (phase corev1.PersistentVolumePhase) {
 func GetMsvState(uuid string) string {
 	msv := GetMSV(uuid)
 	Expect(msv).ToNot(BeNil())
-	return fmt.Sprintf("%s", msv.State)
+	return msv.State
 }
 
 // Retrieve the nexus node hosting the Mayastor Volume,

@@ -1,21 +1,12 @@
 #!/usr/bin/env bash
 
 set -e
-timeout=500
 
-(cd setup && go test -timeout "${timeout}s")
+cd "$(dirname ${BASH_SOURCE[0]})"
 
-(cd nvmf_reject && go test -timeout "${timeout}s")
-(cd iscsi_reject && go test -timeout "${timeout}s")
+timeout=1000
 
-(cd nvmf_reject_idle && go test -timeout "${timeout}s")
-(cd iscsi_reject_idle && go test -timeout "${timeout}s")
+(cd replica_disconnect && go test -timeout "${timeout}s")
 
-# These two tests currently fail so are run with -c (compile only)
-(cd nvmf_drop && go test -c -timeout "${timeout}s")
-(cd iscsi_drop && go test -c -timeout "${timeout}s")
-
-(cd nvmf_reject_reassign && go test -timeout "${timeout}s")
-
-(cd teardown && go test -timeout "${timeout}s")
-
+# the following test requires a cluster with at least 4 nodes
+(cd replica_reassign && go test -timeout "${timeout}s")
