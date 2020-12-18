@@ -11,6 +11,10 @@ import (
 const mayastorRegexp = "^mayastor-.....$"
 const moacRegexp = "^moac-..........-.....$"
 const namespace = "mayastor"
+const engineLabel = "openebs.io/engine"
+const mayastorLabel = "mayastor"
+const refugeLabel = "openebs.io/podrefuge"
+const refugeLabelValue = "true"
 const timeoutSeconds = 100
 
 // DisconnectSetup
@@ -30,8 +34,8 @@ func DisconnectSetup() {
 	for i, node := range nodeList {
 		if i == refugeIndex {
 			refugeNode = node.NodeName
-			common.UnlabelNode(refugeNode, "openebs.io/engine")
-			common.LabelNode(refugeNode, "openebs.io/podrefuge=true")
+			common.UnlabelNode(refugeNode, engineLabel)
+			common.LabelNode(refugeNode, refugeLabel, refugeLabelValue)
 		}
 	}
 	Expect(refugeNode).NotTo(Equal(""))
@@ -40,7 +44,7 @@ func DisconnectSetup() {
 
 	// Update moac to ensure it stays on the refuge node (even if it currently is)
 	fmt.Printf("apply moac node selector for node \"%s\"\n", refugeNode)
-	common.ApplyNodeSelectorToDeployment("moac", namespace, "openebs.io/podrefuge", "true")
+	common.ApplyNodeSelectorToDeployment("moac", namespace, refugeLabel, refugeLabelValue)
 
 	// if not already on the refuge node
 	if moacOnRefugeNode == false {
@@ -91,8 +95,8 @@ func DisconnectTeardown() {
 	// apply/remove the labels whether present or not
 	// An error will not occur if the label is already present/absent
 	for _, node := range nodeList {
-		common.LabelNode(node.NodeName, "openebs.io/engine=mayastor")
-		common.UnlabelNode(node.NodeName, "openebs.io/podrefuge")
+		common.LabelNode(node.NodeName, engineLabel, mayastorLabel)
+		common.UnlabelNode(node.NodeName, refugeLabel)
 	}
 
 	fmt.Printf("remove moac node affinity\n")

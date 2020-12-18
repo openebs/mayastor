@@ -294,8 +294,8 @@ func MkPVC(volName string, scName string) string {
 	Eventually(func() *MayastorVolStatus {
 		return GetMSV(string(pvc.ObjectMeta.UID))
 	},
-	defTimeoutSecs,
-	"1s",
+		defTimeoutSecs,
+		"1s",
 	).Should(Not(BeNil()))
 
 	return string(pvc.ObjectMeta.UID)
@@ -559,19 +559,31 @@ func RemoveAllNodeSelectorsFromDeployment(deploymentName string, namespace strin
 
 // Adjust the number of replicas in the deployment
 func SetDeploymentReplication(deploymentName string, namespace string, replicas *int32) {
-	depApi := gTestEnv.KubeInt.AppsV1().Deployments
-	deployment, err := depApi(namespace).Get(context.TODO(), deploymentName, metav1.GetOptions{})
-	Expect(err).ToNot(HaveOccurred())
-	deployment.Spec.Replicas = replicas
-	_, err = depApi("mayastor").Update(context.TODO(), deployment, metav1.UpdateOptions{})
+	depAPI := gTestEnv.KubeInt.AppsV1().Deployments
+	var err error
+
+	// this is to cater for a race condition, occasionally seen,
+	// when the deployment is changed between Get and Update
+	for attempts := 0; attempts < 10; attempts++ {
+		deployment, err := depAPI(namespace).Get(context.TODO(), deploymentName, metav1.GetOptions{})
+		Expect(err).ToNot(HaveOccurred())
+		deployment.Spec.Replicas = replicas
+		deployment, err = depAPI("mayastor").Update(context.TODO(), deployment, metav1.UpdateOptions{})
+		if err == nil {
+			break
+		}
+		fmt.Printf("Re-trying update attempt due to error: %v\n", err)
+		time.Sleep(1 * time.Second)
+	}
 	Expect(err).ToNot(HaveOccurred())
 }
 
 // TODO remove dependency on kubectl
 // label is a string in the form "key=value"
 // function still succeeds if label already present
-func LabelNode(nodename string, label string) {
-	cmd := exec.Command("kubectl", "label", "node", nodename, label, "--overwrite=true")
+func LabelNode(nodename string, label string, value string) {
+	labelAssign := fmt.Sprintf("%s=%s", label, value)
+	cmd := exec.Command("kubectl", "label", "node", nodename, labelAssign, "--overwrite=true")
 	cmd.Dir = ""
 	_, err := cmd.CombinedOutput()
 	Expect(err).ToNot(HaveOccurred())
@@ -615,33 +627,46 @@ func WaitForPodAbsentFromNode(podNameRegexp string, namespace string, nodeName s
 	return nil
 }
 
+// Get the execution status of the given pod, or nil if it does not exist
+func getPodStatus(podNameRegexp string, namespace string, nodeName string) *v1.PodPhase {
+	var validID = regexp.MustCompile(podNameRegexp)
+	podAPI := gTestEnv.KubeInt.CoreV1().Pods
+	podList, err := podAPI(namespace).List(context.TODO(), metav1.ListOptions{})
+	Expect(err).ToNot(HaveOccurred())
+	for _, pod := range podList.Items {
+		if pod.Spec.NodeName == nodeName && validID.MatchString(pod.Name) {
+			return &pod.Status.Phase
+		}
+	}
+	return nil // pod not found
+}
+
 // Wait until the instance of the specified pod is present and in the running
 // state on the given node
 func WaitForPodRunningOnNode(podNameRegexp string, namespace string, nodeName string, timeoutSeconds int) error {
-	var validID = regexp.MustCompile(podNameRegexp)
-	podReady := false
+	for i := 0; i < timeoutSeconds; i++ {
+		stat := getPodStatus(podNameRegexp, namespace, nodeName)
 
-	podApi := gTestEnv.KubeInt.CoreV1().Pods
+		if stat != nil && *stat == v1.PodRunning {
+			return nil
+		}
+		time.Sleep(1 * time.Second)
+	}
+	return errors.New("timed out waiting for pod to be running")
+}
 
-	for i := 0; i < timeoutSeconds && podReady == false; i++ {
-		time.Sleep(time.Second)
-		podList, err := podApi(namespace).List(context.TODO(), metav1.ListOptions{})
-		if err != nil {
-			return errors.New("failed to list pods")
+// Wait until the instance of the specified pod is absent or not in the running
+// state on the given node
+func WaitForPodNotRunningOnNode(podNameRegexp string, namespace string, nodeName string, timeoutSeconds int) error {
+	for i := 0; i < timeoutSeconds; i++ {
+		stat := getPodStatus(podNameRegexp, namespace, nodeName)
+
+		if stat == nil || *stat != v1.PodRunning {
+			return nil
 		}
-		for _, pod := range podList.Items {
-			if pod.Spec.NodeName == nodeName && pod.Status.Phase == v1.PodRunning {
-				if validID.MatchString(pod.Name) {
-					podReady = true
-					break
-				}
-			}
-		}
+		time.Sleep(1 * time.Second)
 	}
-	if podReady == false {
-		return errors.New("timed out waiting for pod")
-	}
-	return nil
+	return errors.New("timed out waiting for pod to stop running")
 }
 
 // returns true if the pod is present on the given node
