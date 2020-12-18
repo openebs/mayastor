@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
-GINKGO_FLAGS="-ginkgo.v -ginkgo.progress"
-go test -v -timeout=0 . ${GINKGO_FLAGS}
+set -eux
+cd "$(dirname "$(realpath "$0")")"
+go test -v . -ginkgo.v -ginkgo.progress -timeout 0
 
 # Required until CAS-566
 # "Mayastor volumes not destroyed when PV is destroyed if storage class reclaim policy is Retain"
