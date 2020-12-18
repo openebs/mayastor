@@ -40,39 +40,39 @@ var _ = Describe("Mayastor replica disconnection test", func() {
 	})
 
 	It("should verify nvmf nexus behaviour when a node becomes inaccessible (iptables REJECT)", func() {
-		env = disconnect_lib.Setup("loss-test-pvc-nvmf", "mayastor-nvmf-2", "fio", reject)
+		env = disconnect_lib.SetupWithRefuge("loss-test-pvc-nvmf", "mayastor-nvmf-2", "fio", reject)
 		env.LossTest()
 		env.Teardown()
 	})
 
 	It("should verify iscsi nexus behaviour when a node becomes inaccessible (iptables REJECT)", func() {
-		env = disconnect_lib.Setup("loss-test-pvc-iscsi", "mayastor-iscsi-2", "fio", reject)
+		env = disconnect_lib.SetupWithRefuge("loss-test-pvc-iscsi", "mayastor-iscsi-2", "fio", reject)
 		env.LossTest()
 		env.Teardown()
 	})
 
 	if run_drop {
 		It("should verify nvmf nexus behaviour when a node becomes inaccessible (iptables DROP)", func() {
-			env = disconnect_lib.Setup("loss-test-pvc-nvmf", "mayastor-nvmf-2", "fio", drop)
+			env = disconnect_lib.SetupWithRefuge("loss-test-pvc-nvmf", "mayastor-nvmf-2", "fio", drop)
 			env.LossTest()
 			env.Teardown()
 		})
 
 		It("should verify iscsi nexus behaviour when a node becomes inaccessible (iptables DROP)", func() {
-			env = disconnect_lib.Setup("loss-test-pvc-iscsi", "mayastor-iscsi-2", "fio", drop)
+			env = disconnect_lib.SetupWithRefuge("loss-test-pvc-iscsi", "mayastor-iscsi-2", "fio", drop)
 			env.LossTest()
 			env.Teardown()
 		})
 	}
 
 	It("should verify nvmf nexus behaviour when a node becomes inaccessible when no IO is received (iptables REJECT)", func() {
-		env = disconnect_lib.Setup("loss-test-pvc-nvmf", "mayastor-nvmf-2", "fio", reject)
+		env = disconnect_lib.SetupWithRefuge("loss-test-pvc-nvmf", "mayastor-nvmf-2", "fio", reject)
 		env.LossWhenIdleTest()
 		env.Teardown()
 	})
 
 	It("should verify iscsi nexus behaviour when a node becomes inaccessible when no IO is received (iptables REJECT)", func() {
-		env = disconnect_lib.Setup("loss-test-pvc-iscsi", "mayastor-iscsi-2", "fio", reject)
+		env = disconnect_lib.SetupWithRefuge("loss-test-pvc-iscsi", "mayastor-iscsi-2", "fio", reject)
 		env.LossWhenIdleTest()
 		env.Teardown()
 	})

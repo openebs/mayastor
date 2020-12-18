@@ -3,7 +3,7 @@
 set -eux
 
 SCRIPTDIR=$(dirname "$(realpath "$0")")
-TESTS="install basic_volume_io"
+TESTS="install basic_volume_io node_disconnect/replica_pod_remove"
 DEVICE=
 REGISTRY=
 TAG=

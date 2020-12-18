@@ -36,7 +36,7 @@ var _ = Describe("Mayastor replica reassignment test", func() {
 	})
 
 	It("should verify nvmf nexus repair of volume when a node becomes inaccessible", func() {
-		env = disconnect_lib.Setup("loss-test-pvc-nvmf", "mayastor-nvmf-2", "fio", reject)
+		env = disconnect_lib.SetupWithRefuge("loss-test-pvc-nvmf", "mayastor-nvmf-2", "fio", reject)
 		env.ReplicaReassignTest()
 		env.Teardown()
 	})
