@@ -17,24 +17,29 @@ limitations under the License.
 package testsuites
 
 import (
-	"mayastor-csi-e2e/driver"
+	"fmt"
 
+	"e2e-basic/csi/driver"
 	"github.com/onsi/ginkgo"
+	"github.com/onsi/gomega"
 	v1 "k8s.io/api/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
+	"k8s.io/kubernetes/test/e2e/framework"
 )
 
-// DynamicallyProvisionedCmdVolumeTest will provision required StorageClass(es), PVC(s) and Pod(s)
+// DynamicallyProvisionedReadOnlyVolumeTest will provision required StorageClass(es), PVC(s) and Pod(s)
 // Waiting for the PV provisioner to create a new PV
-// Testing if the Pod(s) Cmd is run with a 0 exit code
-type DynamicallyProvisionedCmdVolumeTest struct {
+// Testing that the Pod(s) cannot write to the volume when mounted
+type DynamicallyProvisionedReadOnlyVolumeTest struct {
 	CSIDriver              driver.DynamicPVTestDriver
 	Pods                   []PodDetails
 	StorageClassParameters map[string]string
 }
 
-func (t *DynamicallyProvisionedCmdVolumeTest) Run(client clientset.Interface, namespace *v1.Namespace) {
+func (t *DynamicallyProvisionedReadOnlyVolumeTest) Run(client clientset.Interface, namespace *v1.Namespace) {
 	for _, pod := range t.Pods {
+		expectedReadOnlyLog := "Read-only file system"
+
 		tpod, cleanup := pod.SetupWithDynamicVolumes(client, namespace, t.CSIDriver, t.StorageClassParameters)
 		// defer must be called here for resources not get removed before using them
 		for i := range cleanup {
@@ -44,7 +49,11 @@ func (t *DynamicallyProvisionedCmdVolumeTest) Run(client clientset.Interface, na
 		ginkgo.By("deploying the pod")
 		tpod.Create()
 		defer tpod.Cleanup()
-		ginkgo.By("checking that the pods command exits with no error")
-		tpod.WaitForSuccess()
+		ginkgo.By("checking that the pods command exits with an error")
+		tpod.WaitForFailure()
+		ginkgo.By("checking that pod logs contain expected message")
+		body, err := tpod.Logs()
+		framework.ExpectNoError(err, fmt.Sprintf("Error getting logs for pod %s: %v", tpod.pod.Name, err))
+		gomega.Expect(string(body)).To(gomega.ContainSubstring(expectedReadOnlyLog))
 	}
 }

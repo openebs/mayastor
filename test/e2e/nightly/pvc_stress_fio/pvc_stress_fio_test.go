@@ -17,6 +17,7 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	. "github.com/onsi/ginkgo"
+	"github.com/onsi/ginkgo/reporters"
 	. "github.com/onsi/gomega"
 )
 
@@ -202,10 +203,19 @@ func stressTestPVC(iters int, runFio bool) {
 
 func TestPVCStress(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "PVC Stress Test Suite")
+	reportDir := os.Getenv("e2e_reports_dir")
+	junitReporter := reporters.NewJUnitReporter(reportDir + "/pvc-stress-junit.xml")
+	RunSpecsWithDefaultAndCustomReporters(t, "PVC Stress Test Suite",
+		[]Reporter{junitReporter})
 }
 
 var _ = Describe("Mayastor PVC Stress test", func() {
+	AfterEach(func() {
+		// Check resource leakage
+		err := Cmn.AfterEachCheck()
+		Expect(err).ToNot(HaveOccurred())
+	})
+
 	It("should stress test creation and deletion of PVCs provisioned over iSCSI and NVMe-of", func() {
 		stressTestPVC(cdIterations, false)
 	})
@@ -240,15 +250,6 @@ var _ = BeforeSuite(func(done Done) {
 }, 60)
 
 var _ = AfterSuite(func() {
-	// Cleanup resources leftover in the event of failure.
-	for _, pod := range podNames {
-		err := Cmn.DeletePod(pod)
-		Expect(err).ToNot(HaveOccurred())
-	}
-	for _, vol := range volNames {
-		Cmn.RmPVC(vol.volName, vol.scName)
-	}
-
 	// NB This only tears down the local structures for talking to the cluster,
 	// not the kubernetes cluster itself.
 	By("tearing down the test environment")

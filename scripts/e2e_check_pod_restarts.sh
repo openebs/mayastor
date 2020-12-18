@@ -13,6 +13,8 @@ restarts=$(kubectl get pods -n mayastor | grep -e mayastor -e moac | awk '{print
 for num in $restarts
 do
     if [ "$num" -ne "0" ]; then
+        # Useful to dump what failure was seen
+        kubectl get pods -n mayastor
         exit 255
     fi
 done

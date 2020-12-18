@@ -17,29 +17,25 @@ limitations under the License.
 package testsuites
 
 import (
+	"e2e-basic/csi/driver"
+
 	"github.com/onsi/ginkgo"
 	v1 "k8s.io/api/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
-	"mayastor-csi-e2e/driver"
 )
 
-// DynamicallyProvisionedCollocatedPodTest will provision required StorageClass(es), PVC(s) and Pod(s)
+// DynamicallyProvisionedCmdVolumeTest will provision required StorageClass(es), PVC(s) and Pod(s)
 // Waiting for the PV provisioner to create a new PV
-// Testing if multiple Pod(s) can write simultaneously
-type DynamicallyProvisionedCollocatedPodTest struct {
+// Testing if the Pod(s) Cmd is run with a 0 exit code
+type DynamicallyProvisionedCmdVolumeTest struct {
 	CSIDriver              driver.DynamicPVTestDriver
 	Pods                   []PodDetails
-	ColocatePods           bool
 	StorageClassParameters map[string]string
 }
 
-func (t *DynamicallyProvisionedCollocatedPodTest) Run(client clientset.Interface, namespace *v1.Namespace) {
-	nodeName := ""
+func (t *DynamicallyProvisionedCmdVolumeTest) Run(client clientset.Interface, namespace *v1.Namespace) {
 	for _, pod := range t.Pods {
 		tpod, cleanup := pod.SetupWithDynamicVolumes(client, namespace, t.CSIDriver, t.StorageClassParameters)
-		if t.ColocatePods && nodeName != "" {
-			tpod.SetNodeSelector(map[string]string{"name": nodeName})
-		}
 		// defer must be called here for resources not get removed before using them
 		for i := range cleanup {
 			defer cleanup[i]()
@@ -48,10 +44,7 @@ func (t *DynamicallyProvisionedCollocatedPodTest) Run(client clientset.Interface
 		ginkgo.By("deploying the pod")
 		tpod.Create()
 		defer tpod.Cleanup()
-
-		ginkgo.By("checking that the pod is running")
-		tpod.WaitForRunning()
-		nodeName = tpod.pod.Spec.NodeName
+		ginkgo.By("checking that the pods command exits with no error")
+		tpod.WaitForSuccess()
 	}
-
 }

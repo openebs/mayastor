@@ -4,9 +4,11 @@ import (
 	"e2e-basic/common"
 	disconnect_lib "e2e-basic/node_disconnect/lib"
 
+	"os"
 	"testing"
 
 	. "github.com/onsi/ginkgo"
+	"github.com/onsi/ginkgo/reporters"
 	. "github.com/onsi/gomega"
 
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -23,7 +25,10 @@ const run_drop = false
 
 func TestNodeLoss(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Replica disconnection tests")
+	reportDir := os.Getenv("e2e_reports_dir")
+	junitReporter := reporters.NewJUnitReporter(reportDir + "/replica-disconnect-junit.xml")
+	RunSpecsWithDefaultAndCustomReporters(t, "Replica disconnection tests",
+		[]Reporter{junitReporter})
 }
 
 var _ = Describe("Mayastor replica disconnection test", func() {
@@ -79,7 +84,7 @@ var _ = Describe("Mayastor replica disconnection test", func() {
 })
 
 var _ = BeforeSuite(func(done Done) {
-	logf.SetLogger(zap.LoggerTo(GinkgoWriter, true))
+	logf.SetLogger(zap.New(zap.UseDevMode(true), zap.WriteTo(GinkgoWriter)))
 	common.SetupTestEnv()
 	close(done)
 }, 60)

@@ -18,16 +18,14 @@ package e2e
 
 import (
 	"flag"
-	"log"
 	"os"
-	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/onsi/ginkgo"
+	"github.com/onsi/ginkgo/reporters"
 	"github.com/onsi/gomega"
-//	"github.com/pborman/uuid"
+
 	"k8s.io/kubernetes/test/e2e/framework"
 	"k8s.io/kubernetes/test/e2e/framework/config"
 )
@@ -38,7 +36,7 @@ const (
 
 var (
 	defaultStorageClassParameters = map[string]string{
-		"repl":  "1",
+		"repl":     "1",
 		"protocol": "nvmf",
 	}
 )
@@ -73,11 +71,13 @@ func handleFlags() {
 	flag.Parse()
 }
 
+/* Disabled for mayastor, higher level scripts check of POD restarts.
+   checks for pod restart after every test it runs.
 func execTestCmd(cmds []testCmd) {
-	err := os.Chdir("../..")
+	err := os.Chdir("../../..")
 	gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	defer func() {
-		err := os.Chdir("test/csi-e2e")
+		err := os.Chdir("test/e2e/csi")
 		gomega.Expect(err).NotTo(gomega.HaveOccurred())
 	}()
 
@@ -96,8 +96,11 @@ func execTestCmd(cmds []testCmd) {
 		log.Println(cmd.endLog)
 	}
 }
+*/
 
 func TestE2E(t *testing.T) {
 	gomega.RegisterFailHandler(ginkgo.Fail)
-	ginkgo.RunSpecs(t, "E2E Suite")
+	reportDir := os.Getenv("e2e_reports_dir")
+	junitReporter := reporters.NewJUnitReporter(reportDir + "/csi-junit.xml")
+	ginkgo.RunSpecsWithDefaultAndCustomReporters(t, "CSI E2E Suite", []ginkgo.Reporter{junitReporter})
 }

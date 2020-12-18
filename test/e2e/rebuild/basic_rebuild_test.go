@@ -1,10 +1,13 @@
 package basic_rebuild_test
 
 import (
-	"e2e-basic/common"
+	"os"
 	"testing"
 
+	"e2e-basic/common"
+
 	. "github.com/onsi/ginkgo"
+	"github.com/onsi/ginkgo/reporters"
 	. "github.com/onsi/gomega"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -70,7 +73,10 @@ func basicRebuildTest() {
 
 func TestRebuild(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Rebuild Test Suite")
+	reportDir := os.Getenv("e2e_reports_dir")
+	junitReporter := reporters.NewJUnitReporter(reportDir + "/rebuild-junit.xml")
+	RunSpecsWithDefaultAndCustomReporters(t, "Rebuild Test Suite",
+		[]Reporter{junitReporter})
 }
 
 var _ = Describe("Mayastor rebuild test", func() {
@@ -80,7 +86,7 @@ var _ = Describe("Mayastor rebuild test", func() {
 })
 
 var _ = BeforeSuite(func(done Done) {
-	logf.SetLogger(zap.LoggerTo(GinkgoWriter, true))
+	logf.SetLogger(zap.New(zap.UseDevMode(true), zap.WriteTo(GinkgoWriter)))
 	common.SetupTestEnv()
 	close(done)
 }, 60)
