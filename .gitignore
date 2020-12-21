@@ -9,3 +9,4 @@
 **/*.tfstate*
 mayastor/local-randrw-0-verify.state
 mayastor/local-write_verify-0-verify.state
+test-yamls/*
