@@ -145,15 +145,25 @@ pipeline {
         )
       }
       steps {
+        // e2e tests are the most demanding step for space on the disk so we
+        // test the free space here rather than repeating the same code in all
+        // stages.
+        sh "./scripts/reclaim-space.sh 10"
         // Build images (REGISTRY is set in jenkin's global configuration).
         // Note: We might want to build and test dev images that have more
         // assertions instead but that complicates e2e tests a bit.
         sh "./scripts/release.sh --alias-tag ci --registry ${env.REGISTRY}"
-        // save space by removing docker images that are never reused
-        sh 'nix-store --delete /nix/store/*docker-image*'
         withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
           sh 'kubectl get nodes -o wide'
           sh "nix-shell --run './scripts/e2e-test.sh --device /dev/nvme1n1 --tag \"${env.GIT_COMMIT_SHORT}\" --registry \"${env.REGISTRY}\"'"
+        }
+      }
+      // Always remove all docker images because they are usually used just once
+      // and underlaying pkgs are already cached by nix so they can be easily
+      // recreated.
+      post {
+        always {
+          sh 'docker image prune --all --force'
         }
       }
     }

@@ -150,14 +150,6 @@ for system configuration of nodes (as opposed to using ansible, salt, etc.).
    boot.kernelModules = [ "nbd" "xfs" "nvme_tcp" "kvm_intel" ];
    boot.extraModprobeConfig = "options kvm_intel nested=1";
 
-   nix.gc = {
-     automatic = true;
-     dates = "daily";
-   };
-   nix.extraOptions = ''
-     min-free = ${toString (10 * 1024 * 1024 * 1024)}
-   '';
-
    virtualisation.docker.enable = true;
 
    networking.firewall.enable = false;
