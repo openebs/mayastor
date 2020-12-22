@@ -2,8 +2,9 @@ mod channel;
 mod controller;
 mod device;
 mod handle;
+mod namespace;
 
-pub use channel::{NvmeControllerIoChannel, NvmeIoChannel};
+pub use channel::{NvmeControllerIoChannel, NvmeIoChannel, NvmeIoChannelInner};
 pub use controller::{
     NvmeController,
     NvmeControllerInner,
@@ -12,6 +13,7 @@ pub use controller::{
 };
 pub use device::{lookup_by_name, open_by_name, NvmeBlockDevice};
 pub use handle::NvmeDeviceHandle;
+pub use namespace::NvmeNamespace;
 
 use std::{
     collections::HashMap,
