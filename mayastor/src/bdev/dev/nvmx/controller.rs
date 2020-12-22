@@ -24,7 +24,6 @@ use spdk_sys::{
     spdk_nvme_ctrlr_opts,
     spdk_nvme_ctrlr_process_admin_completions,
     spdk_nvme_detach,
-    spdk_nvme_ns,
     spdk_nvme_probe_ctx,
     spdk_nvme_probe_poll_async,
     spdk_nvme_transport_id,
@@ -37,6 +36,7 @@ use crate::{
     bdev::{
         dev::nvmx::{
             channel::{NvmeControllerIoChannel, NvmeIoChannel},
+            NvmeNamespace,
             NVME_CONTROLLERS,
         },
         util::uri,
@@ -160,6 +160,7 @@ pub enum NvmeControllerState {
     Running,
 }
 pub struct NvmeControllerInner {
+    namespaces: Vec<Arc<NvmeNamespace>>,
     ctrlr: NonNull<spdk_nvme_ctrlr>,
     adminq_poller: NonNull<spdk_poller>,
 }
@@ -169,6 +170,7 @@ pub struct NvmeControllerInner {
 pub struct NvmeController {
     name: String,
     id: u64,
+    prchk_flags: u32,
     state: NvmeControllerState,
     inner: Option<NvmeControllerInner>,
 }
@@ -183,10 +185,11 @@ impl Drop for NvmeController {
 }
 
 impl NvmeController {
-    fn new(name: &str) -> Self {
+    fn new(name: &str, prchk_flags: u32) -> Self {
         let l = NvmeController {
             name: String::from(name),
             id: 0,
+            prchk_flags,
             state: NvmeControllerState::Initializing,
             inner: None,
         };
@@ -197,6 +200,10 @@ impl NvmeController {
 
     pub fn get_name(&self) -> String {
         self.name.clone()
+    }
+
+    pub fn get_flags(&self) -> u32 {
+        self.prchk_flags
     }
 
     pub fn id(&self) -> u64 {
@@ -212,15 +219,15 @@ impl NvmeController {
     }
 
     // As of now, only 1 namespace per controller is supported.
-    pub fn spdk_namespace(&self) -> *mut spdk_nvme_ns {
+    pub fn namespace(&self) -> Option<Arc<NvmeNamespace>> {
         if self.inner.is_none() {
-            std::ptr::null_mut()
+            None
         } else {
-            unsafe {
-                spdk_nvme_ctrlr_get_ns(
-                    self.inner.as_ref().unwrap().ctrlr.as_ptr(),
-                    1,
-                )
+            let inner = self.inner.as_ref().unwrap();
+            if let Some(ns) = inner.namespaces.get(0) {
+                Some(Arc::clone(ns))
+            } else {
+                None
             }
         }
     }
@@ -320,10 +327,25 @@ extern "C" fn connect_attach_cb(
         );
     }
 
+    let mut namespaces: Vec<Arc<NvmeNamespace>> = Vec::new();
+    // Initialize namespaces (currently only 1).
+    let ns = unsafe { spdk_nvme_ctrlr_get_ns(ctrlr, 1) };
+
+    if ns.is_null() {
+        warn!(
+            "{} no namespaces reported by the NVMe controller",
+            controller.get_name()
+        );
+    } else {
+        namespaces.push(Arc::new(NvmeNamespace::from_ptr(ns)));
+    }
+
     let inner_state = NvmeControllerInner {
         ctrlr: NonNull::new(ctrlr).unwrap(),
         adminq_poller: NonNull::new(adminq_poller).unwrap(),
+        namespaces,
     };
+
     controller.inner.replace(inner_state);
     controller.state = NvmeControllerState::Running;
 
@@ -363,7 +385,8 @@ impl CreateDestroy for NvmfDeviceTemplate {
         // Insert a new controller instance (uninitialized) as a guard, and
         // release the lock to keep the write path as short, as
         // possible.
-        let rc = Arc::new(Mutex::new(NvmeController::new(&cname)));
+        let rc =
+            Arc::new(Mutex::new(NvmeController::new(&cname, self.prchk_flags)));
         controllers.insert(cname.clone(), rc);
         drop(controllers);
 
