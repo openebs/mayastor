@@ -5,13 +5,16 @@ use std::{cmp::max, mem::size_of, os::raw::c_void, ptr::NonNull};
 use crate::{bdev::dev::nvmx::NVME_CONTROLLERS, subsys::NvmeBdevOpts};
 
 use spdk_sys::{
+    spdk_io_channel,
     spdk_nvme_ctrlr_alloc_io_qpair,
     spdk_nvme_ctrlr_connect_io_qpair,
     spdk_nvme_ctrlr_get_default_io_qpair_opts,
+    spdk_nvme_ctrlr_reconnect_io_qpair,
     spdk_nvme_io_qpair_opts,
     spdk_nvme_poll_group,
     spdk_nvme_poll_group_add,
     spdk_nvme_poll_group_create,
+    spdk_nvme_poll_group_process_completions,
     spdk_nvme_qpair,
     spdk_poller,
     spdk_poller_register_named,
@@ -32,15 +35,44 @@ impl NvmeIoChannel {
     fn inner_mut(&mut self) -> &mut NvmeIoChannelInner {
         unsafe { &mut *self.inner }
     }
+
+    #[inline]
+    pub fn inner_from_channel<'a>(
+        io_channel: *mut spdk_io_channel,
+    ) -> &'a mut NvmeIoChannelInner {
+        NvmeIoChannel::from_raw(Self::io_channel_ctx(io_channel)).inner_mut()
+    }
+
+    #[inline]
+    fn io_channel_ctx(ch: *mut spdk_io_channel) -> *mut c_void {
+        unsafe {
+            (ch as *mut u8).add(size_of::<spdk_io_channel>()) as *mut c_void
+        }
+    }
 }
 
-struct NvmeIoChannelInner {
-    qpair: NonNull<spdk_nvme_qpair>,
+pub struct NvmeIoChannelInner {
+    pub qpair: NonNull<spdk_nvme_qpair>,
     poll_group: NonNull<spdk_nvme_poll_group>,
     poller: NonNull<spdk_poller>,
 }
 
 pub struct NvmeControllerIoChannel {}
+
+extern "C" fn disconnected_qpair_cb(
+    qpair: *mut spdk_nvme_qpair,
+    _ctx: *mut c_void,
+) {
+    warn!("NVMe qpair disconnected !");
+    /*
+     * Currently, just try to reconnect indefinitely. If we are doing a
+     * reset, the reset will reconnect a qpair and we will stop getting a
+     * callback for this one.
+     */
+    unsafe {
+        spdk_nvme_ctrlr_reconnect_io_qpair(qpair);
+    }
+}
 
 extern "C" fn nvme_poll(ctx: *mut c_void) -> i32 {
     let inner = NvmeIoChannel::from_raw(ctx).inner_mut();
@@ -58,7 +90,19 @@ extern "C" fn nvme_poll(ctx: *mut c_void) -> i32 {
         error!("qpair is null");
     }
 
-    1
+    let num_completions = unsafe {
+        spdk_nvme_poll_group_process_completions(
+            inner.poll_group.as_ptr(),
+            0,
+            Some(disconnected_qpair_cb),
+        )
+    };
+
+    if num_completions > 0 {
+        1
+    } else {
+        0
+    }
 }
 
 impl NvmeControllerIoChannel {

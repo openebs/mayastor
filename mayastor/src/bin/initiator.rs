@@ -90,12 +90,10 @@ async fn create_bdev(uri: &str) -> Result<Bdev> {
 
 /// Read block of data from bdev at given offset to a file.
 async fn read(uri: &str, offset: u64, file: &str) -> Result<()> {
-    let bdev = create_bdev(uri).await?;
-    let desc = Bdev::open(&bdev, false).unwrap().into_handle().unwrap();
-    let mut buf = desc
-        .dma_malloc(desc.get_bdev().block_len() as usize as u64)
-        .unwrap();
-    let n = desc.read_at(offset, &mut buf).await?;
+    let bdev = device_create(uri).await?;
+    let h = device_open(&bdev, false).unwrap().into_handle().unwrap();
+    let buf = h.dma_malloc(h.get_device().block_len() as u64).unwrap();
+    let n = h.read_at(offset, &buf).await?;
     fs::write(file, buf.as_slice())?;
     info!("{} bytes read", n);
     Ok(())
@@ -103,16 +101,16 @@ async fn read(uri: &str, offset: u64, file: &str) -> Result<()> {
 
 /// Write block of data from file to bdev at given offset.
 async fn write(uri: &str, offset: u64, file: &str) -> Result<()> {
-    let bdev = create_bdev(uri).await?;
+    let bdev = device_create(uri).await?;
     let bytes = fs::read(file)?;
-    let desc = Bdev::open(&bdev, true).unwrap().into_handle().unwrap();
-    let mut buf = desc.dma_malloc(desc.get_bdev().block_len() as u64).unwrap();
-    let mut n = buf.as_mut_slice().write(&bytes[..]).unwrap();
+    let h = device_open(&bdev, false).unwrap().into_handle().unwrap();
+    let mut buf = h.dma_malloc(h.get_device().block_len() as u64).unwrap();
+    let n = buf.as_mut_slice().write(&bytes[..]).unwrap();
     if n < buf.len() as usize {
         warn!("Writing a buffer which was not fully initialized from a file");
     }
-    n = desc.write_at(offset, &buf).await?;
-    info!("{} bytes written", n);
+    let written = h.write_at(offset, &buf).await?;
+    info!("{} bytes written", written);
     Ok(())
 }
 
