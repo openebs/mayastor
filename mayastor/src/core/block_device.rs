@@ -1,9 +1,10 @@
 use crate::{
     bdev::nexus::nexus_io::IoType,
-    core::{CoreError, DmaBuf},
+    core::{CoreError, DmaBuf, DmaError},
     nexus_uri::NexusBdevError,
 };
 use async_trait::async_trait;
+use std::os::raw::c_void;
 
 #[derive(Debug, Default)]
 pub struct BlockDeviceStats {
@@ -63,16 +64,39 @@ pub trait BlockDeviceDescriptor {
     ) -> Result<Box<dyn BlockDeviceHandle>, NexusBdevError>;
 }
 
+pub type IoCompletionCallback = fn(*const c_void) -> ();
+
 /*
  * Core trait that represents a device I/O handle.
  * TODO: Add text.
  */
 #[async_trait(?Send)]
 pub trait BlockDeviceHandle {
+    // Generic functions.
     fn get_device(&self) -> Box<dyn BlockDevice>;
+    fn dma_malloc(&self, size: u64) -> Result<DmaBuf, DmaError>;
 
-    // NVMe specific commands.
+    // Futures-based I/O functions.
+    async fn read_at(
+        &self,
+        offset: u64,
+        buffer: &DmaBuf,
+    ) -> Result<u64, CoreError>;
+    async fn write_at(
+        &self,
+        offset: u64,
+        buffer: &DmaBuf,
+    ) -> Result<u64, CoreError>;
     async fn nvme_identify_ctrlr(&self) -> Result<DmaBuf, CoreError>;
+
+    // Callback-based I/O functions.
+    fn read(
+        &self,
+        offset: u64,
+        buffer: &DmaBuf,
+        cb: IoCompletionCallback,
+        ctx: *mut c_void,
+    ) -> i32;
 }
 
 pub trait LbaRangeController {}

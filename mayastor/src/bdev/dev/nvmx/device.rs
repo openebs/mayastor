@@ -1,25 +1,19 @@
 use nix::errno::Errno;
-use std::{convert::From, ptr::NonNull};
+use std::{convert::From, ptr::NonNull, sync::Arc};
 
-use spdk_sys::{
-    self,
-    spdk_nvme_ctrlr,
-    spdk_nvme_ns,
-    spdk_nvme_ns_get_extended_sector_size,
-    spdk_nvme_ns_get_md_size,
-    spdk_nvme_ns_get_num_sectors,
-    spdk_nvme_ns_get_size,
-    spdk_nvme_ns_get_uuid,
-    spdk_nvme_ns_supports_compare,
-};
+use spdk_sys::{self, spdk_nvme_ctrlr};
 
 use crate::{
     bdev::{
-        dev::nvmx::{NvmeController, NvmeDeviceHandle, NVME_CONTROLLERS},
+        dev::nvmx::{
+            NvmeController,
+            NvmeDeviceHandle,
+            NvmeNamespace,
+            NVME_CONTROLLERS,
+        },
         nexus::nexus_io::IoType,
     },
     core::{
-        uuid::Uuid,
         BlockDevice,
         BlockDeviceDescriptor,
         BlockDeviceHandle,
@@ -30,7 +24,7 @@ use crate::{
 };
 
 pub struct NvmeBlockDevice {
-    ns: NonNull<spdk_nvme_ns>,
+    ns: Arc<NvmeNamespace>,
     name: String,
 }
 /*
@@ -38,36 +32,36 @@ pub struct NvmeBlockDevice {
  * an NVMe controller.
  */
 pub struct NvmeDeviceDescriptor {
-    ns: NonNull<spdk_nvme_ns>,
+    ns: Arc<NvmeNamespace>,
     ctrlr: NonNull<spdk_nvme_ctrlr>,
     io_device_id: u64,
     name: String,
+    prchk_flags: u32,
 }
 
 impl NvmeDeviceDescriptor {
     fn create(
         controller: &NvmeController,
     ) -> Result<Box<dyn BlockDeviceDescriptor>, CoreError> {
-        let ns = controller.spdk_namespace();
-
-        if ns.is_null() {
-            Err(CoreError::OpenBdev {
-                source: Errno::ENODEV,
-            })
-        } else {
+        if let Some(ns) = controller.namespace() {
             Ok(Box::new(NvmeDeviceDescriptor {
-                ns: NonNull::new(ns).unwrap(),
+                ns: Arc::clone(&ns),
                 io_device_id: controller.id(),
                 name: controller.get_name(),
                 ctrlr: NonNull::new(controller.spdk_handle()).unwrap(),
+                prchk_flags: controller.get_flags(),
             }))
+        } else {
+            Err(CoreError::OpenBdev {
+                source: Errno::ENODEV,
+            })
         }
     }
 }
 
 impl BlockDeviceDescriptor for NvmeDeviceDescriptor {
     fn get_device(&self) -> Box<dyn BlockDevice> {
-        Box::new(NvmeBlockDevice::from_ns(&self.name, self.ns.as_ptr()))
+        Box::new(NvmeBlockDevice::from_ns(&self.name, Arc::clone(&self.ns)))
     }
 
     fn into_handle(
@@ -78,6 +72,7 @@ impl BlockDeviceDescriptor for NvmeDeviceDescriptor {
             self.io_device_id,
             self.ctrlr,
             self.ns,
+            self.prchk_flags,
         )?))
     }
 }
@@ -103,10 +98,9 @@ impl NvmeBlockDevice {
         Ok(descr)
     }
 
-    pub fn from_ns(name: &str, ns: *mut spdk_nvme_ns) -> NvmeBlockDevice {
+    pub fn from_ns(name: &str, ns: Arc<NvmeNamespace>) -> NvmeBlockDevice {
         NvmeBlockDevice {
-            ns: NonNull::new(ns)
-                .expect("nullptr dereference while accessing NVMe namespace"),
+            ns,
             name: String::from(name),
         }
     }
@@ -114,24 +108,19 @@ impl NvmeBlockDevice {
 
 impl BlockDevice for NvmeBlockDevice {
     fn size_in_bytes(&self) -> u64 {
-        unsafe { spdk_nvme_ns_get_size(self.ns.as_ptr()) }
+        self.ns.size_in_bytes()
     }
 
     fn block_len(&self) -> u64 {
-        unsafe {
-            spdk_nvme_ns_get_extended_sector_size(self.ns.as_ptr()) as u64
-        }
+        self.ns.block_len()
     }
 
     fn num_blocks(&self) -> u64 {
-        unsafe { spdk_nvme_ns_get_num_sectors(self.ns.as_ptr()) }
+        self.ns.num_blocks()
     }
 
     fn uuid(&self) -> String {
-        let u = Uuid(unsafe { spdk_nvme_ns_get_uuid(self.ns.as_ptr()) });
-        uuid::Uuid::from_bytes(u.as_bytes())
-            .to_hyphenated()
-            .to_string()
+        self.ns.uuid()
     }
 
     fn product_name(&self) -> String {
@@ -147,12 +136,10 @@ impl BlockDevice for NvmeBlockDevice {
     }
 
     fn alignment(&self) -> u64 {
-        1
+        self.ns.alignment()
     }
 
     fn io_type_supported(&self, io_type: IoType) -> bool {
-        let spdk_ns = self.ns.as_ptr();
-
         // bdev_nvme_io_type_supported
         match io_type {
             IoType::Read
@@ -162,13 +149,8 @@ impl BlockDevice for NvmeBlockDevice {
             | IoType::NvmeAdmin
             | IoType::NvmeIO
             | IoType::Abort => true,
-            IoType::Compare => unsafe {
-                spdk_nvme_ns_supports_compare(spdk_ns)
-            },
-            IoType::NvmeIOMD => {
-                let t = unsafe { spdk_nvme_ns_get_md_size(spdk_ns) };
-                t > 0
-            }
+            IoType::Compare => self.ns.supports_compare(),
+            IoType::NvmeIOMD => self.ns.md_size() > 0,
             IoType::Unmap => false,
             IoType::WriteZeros => false,
             IoType::CompareAndWrite => false,
@@ -190,10 +172,13 @@ impl BlockDevice for NvmeBlockDevice {
  */
 pub fn lookup_by_name(name: &str) -> Option<Box<dyn BlockDevice>> {
     match NVME_CONTROLLERS.read().unwrap().get(name) {
-        Some(ctrlr) => Some(Box::new(NvmeBlockDevice::from_ns(
-            name,
-            ctrlr.lock().unwrap().spdk_namespace(),
-        ))),
+        Some(ctrlr) => {
+            if let Some(ns) = ctrlr.lock().unwrap().namespace() {
+                Some(Box::new(NvmeBlockDevice::from_ns(name, ns)))
+            } else {
+                None
+            }
+        }
         _ => None,
     }
 }
