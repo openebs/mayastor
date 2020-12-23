@@ -9,11 +9,8 @@ spec:
        claimName: ms-volume-claim
   containers:
     - name: fio
-      image: nixery.dev/shell/fio/tini
-      command: [ "tini", "--" ]
-      args:
-        - sleep
-        - "1000000"
+      image: alpine
+      command: [ "sh", "-c", "apk add fio && sleep 1000000" ]
       volumeMounts:
         - mountPath: "/volume"
           name: ms-volume

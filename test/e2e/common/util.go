@@ -294,8 +294,8 @@ func MkPVC(volName string, scName string) string {
 	Eventually(func() *MayastorVolStatus {
 		return GetMSV(string(pvc.ObjectMeta.UID))
 	},
-	defTimeoutSecs,
-	"1s",
+		defTimeoutSecs,
+		"1s",
 	).Should(Not(BeNil()))
 
 	return string(pvc.ObjectMeta.UID)
@@ -433,9 +433,8 @@ func CreateFioPodDef(podName string, volName string) *corev1.Pod {
 			Containers: []corev1.Container{
 				{
 					Name:    podName,
-					Image:   "nixery.dev/shell/fio/tini",
-					Command: []string{"tini", "--"},
-					Args:    []string{"sleep", "1000000"},
+					Image:   "alpine",
+					Command: []string{"sh", "-c", "apk add fio && sleep 1000000"},
 					VolumeMounts: []corev1.VolumeMount{
 						{
 							Name:      "ms-volume",
