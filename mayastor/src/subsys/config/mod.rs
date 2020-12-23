@@ -53,6 +53,7 @@ use crate::{
             NexusOpts,
             NvmeBdevOpts,
             NvmfTgtConfig,
+            PosixSocketOpts,
         },
         NvmfSubsystem,
     },
@@ -169,6 +170,7 @@ pub struct Config {
     pub implicit_share_base: bool,
     /// flag to enable or disable config sync
     pub sync_disable: bool,
+    pub socket_opts: PosixSocketOpts,
 }
 
 impl Default for Config {
@@ -186,6 +188,7 @@ impl Default for Config {
             pools: None,
             implicit_share_base: false,
             sync_disable: false,
+            socket_opts: Default::default(),
         }
     }
 }
@@ -258,6 +261,7 @@ impl Config {
             implicit_share_base: self.implicit_share_base,
             err_store_opts: self.err_store_opts.get(),
             sync_disable: self.sync_disable,
+            socket_opts: self.socket_opts.get(),
         };
 
         // collect nexus bdevs and insert them into the config
@@ -352,6 +356,7 @@ impl Config {
     /// default trait for that structure.
     pub fn apply(&self) {
         info!("Applying Mayastor configuration settings");
+        assert_eq!(self.socket_opts.set(), true);
         // note: nvmf target does not have a set method
         assert_eq!(self.nvme_bdev_opts.set(), true);
         self.bdev_opts.set();

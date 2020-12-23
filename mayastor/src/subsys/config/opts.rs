@@ -16,6 +16,9 @@ use spdk_sys::{
     spdk_iscsi_opts,
     spdk_nvmf_target_opts,
     spdk_nvmf_transport_opts,
+    spdk_sock_impl_get_opts,
+    spdk_sock_impl_opts,
+    spdk_sock_impl_set_opts,
     SPDK_BDEV_NVME_TIMEOUT_ACTION_ABORT,
 };
 
@@ -479,6 +482,78 @@ impl GetOpts for IscsiTgtOpts {
         }
 
         true
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct PosixSocketOpts {
+    recv_buf_size: u32,
+    send_buf_size: u32,
+    enable_recv_pipe: bool,
+    enable_zero_copy_send: bool,
+    enable_quickack: bool,
+    enable_placement_id: bool,
+}
+
+impl Default for PosixSocketOpts {
+    fn default() -> Self {
+        Self {
+            recv_buf_size: 2097152,
+            send_buf_size: 2097152,
+            enable_recv_pipe: true,
+            enable_zero_copy_send: true,
+            enable_quickack: true,
+            enable_placement_id: true,
+        }
+    }
+}
+
+impl GetOpts for PosixSocketOpts {
+    fn get(&self) -> Self {
+        let opts = spdk_sock_impl_opts::default();
+
+        unsafe {
+            let name = std::ffi::CString::new("posix").unwrap();
+            let mut size = std::mem::size_of::<spdk_sock_impl_opts>() as u64;
+            let rc = spdk_sock_impl_get_opts(
+                name.as_ptr(),
+                &opts as *const _ as *mut spdk_sock_impl_opts,
+                &mut size,
+            );
+            assert_eq!(rc, 0);
+        };
+
+        Self {
+            recv_buf_size: opts.recv_buf_size,
+            send_buf_size: opts.send_buf_size,
+            enable_recv_pipe: opts.enable_recv_pipe,
+            enable_zero_copy_send: opts.enable_zerocopy_send,
+            enable_quickack: opts.enable_quickack,
+            enable_placement_id: opts.enable_placement_id,
+        }
+    }
+
+    fn set(&self) -> bool {
+        let opts = spdk_sock_impl_opts {
+            recv_buf_size: self.recv_buf_size,
+            send_buf_size: self.send_buf_size,
+            enable_recv_pipe: self.enable_recv_pipe,
+            enable_zerocopy_send: self.enable_zero_copy_send,
+            enable_quickack: self.enable_quickack,
+            enable_placement_id: self.enable_placement_id,
+        };
+
+        let size = std::mem::size_of::<spdk_sock_impl_opts>() as u64;
+        unsafe {
+            let name = std::ffi::CString::new("posix").unwrap();
+            let rc = spdk_sock_impl_set_opts(
+                name.as_ptr(),
+                &opts as *const _ as *mut spdk_sock_impl_opts,
+                size,
+            );
+            rc == 0
+        }
     }
 }
 
