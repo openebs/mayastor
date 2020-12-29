@@ -1,6 +1,9 @@
 use async_trait::async_trait;
 use futures::channel::oneshot;
+use once_cell::sync::OnceCell;
 use std::{os::raw::c_void, ptr::NonNull, sync::Arc};
+
+use crate::core::mempool::MemoryPool;
 
 use crate::{
     bdev::{
@@ -21,6 +24,7 @@ use crate::{
 
 use spdk_sys::{
     self,
+    iovec,
     spdk_get_io_channel,
     spdk_io_channel,
     spdk_nvme_cpl,
@@ -29,6 +33,30 @@ use spdk_sys::{
     spdk_nvme_ns_cmd_read,
     spdk_nvme_ns_cmd_write,
 };
+
+/*
+ * I/O context for NVMe controller I/O operation. Used as a placeholder for
+ * storing user context and also private state of I/O operations, specific to
+ * the controller.
+ */
+struct NvmeIoCtx {
+    _cb: IoCompletionCallback,
+    _cb_ctx: *mut c_void,
+    _iov: *mut iovec,
+    _iovcnt: u32,
+    _curr_iov: u32,
+}
+
+unsafe impl Send for NvmeIoCtx {}
+unsafe impl Sync for NvmeIoCtx {}
+
+// Size of the memory pool for NVMe I/O structures.
+const IOCTX_POOL_SIZE: u64 = 64 * 1024 - 1;
+
+// Memory pool for NVMe controller - specific I/O context, which is used
+// in every user BIO-based I/O operation.
+static IOCTX_POOL: OnceCell<MemoryPool<NvmeIoCtx>> = OnceCell::new();
+
 /*
  * I/O handle for NVMe block device.
  */
@@ -53,6 +81,14 @@ impl NvmeDeviceHandle {
         ns: Arc<NvmeNamespace>,
         prchk_flags: u32,
     ) -> Result<NvmeDeviceHandle, NexusBdevError> {
+        // Initialize memory pool for holding I/O context now, during the slow
+        // path, to make sure it's available before the first I/O
+        // oepration takes place.
+        IOCTX_POOL.get_or_init(|| MemoryPool::<NvmeIoCtx>::create(
+            "nvme_ctrl_io_ctx",
+            IOCTX_POOL_SIZE
+        ).expect("Failed to create memory pool for NVMe controller I/O contexts"));
+
         // Obtain SPDK I/O channel for NVMe controller.
         let io_channel: *mut spdk_io_channel =
             unsafe { spdk_get_io_channel(id as *mut c_void) };
@@ -86,6 +122,7 @@ impl NvmeDeviceHandle {
         let alignment =
             (offset_bytes % self.block_len) | (num_bytes % self.block_len);
 
+        // TODO: Optimize for ^2.
         (alignment == 0, offset_blocks, num_blocks)
     }
 
@@ -130,12 +167,14 @@ extern "C" fn nvme_admin_passthru_done(
     done_cb(ctx, true);
 }
 
+/*
 extern "C" fn nvme_io_completion(
     _ctx: *mut c_void,
     _cpl: *const spdk_nvme_cpl,
 ) {
     println!("NVMe I/O completed !");
 }
+*/
 
 extern "C" fn nvme_async_io_completion(
     ctx: *mut c_void,
@@ -293,48 +332,16 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         }
     }
 
-    fn read(
+    // bdev_nvme_get_buf_cb
+    fn readv_blocks(
         &self,
-        offset: u64,
-        buffer: &DmaBuf,
+        _iov: *mut iovec,
+        _iovcnt: i32,
+        _offset_blocks: u64,
+        _num_blocks: u64,
         _cb: IoCompletionCallback,
-        ctx: *mut c_void,
+        _cb_arg: *const c_void,
     ) -> i32 {
-        let (valid, offset_blocks, num_blocks) =
-            self.bytes_to_blocks(offset, buffer.len());
-
-        debug!(
-            "{} read(offset={}, size={})",
-            self.name,
-            offset,
-            buffer.len()
-        );
-        // Make sure offset/size matches device block size.
-        if !valid {
-            return -libc::EINVAL;
-        }
-        // nbdev->disk.dif_check_flags
-        //self.prchk_flags
-
-        let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
-
-        let rc = unsafe {
-            spdk_nvme_ns_cmd_read(
-                self.ns.as_ptr(),
-                inner.qpair.as_ptr(),
-                **buffer,
-                offset_blocks,
-                num_blocks as u32,
-                Some(nvme_io_completion),
-                ctx,
-                self.prchk_flags,
-            )
-        };
-
-        if rc != 0 && rc != libc::ENOMEM {
-            error!("{} read failed: rc = {}", self.name, rc);
-        }
-
-        rc
+        0
     }
 }
