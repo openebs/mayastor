@@ -14,6 +14,8 @@ pub struct BlockDeviceStats {
     pub bytes_written: u64,
 }
 
+use spdk_sys::iovec;
+
 /*
  * Core trait that represents a block device.
  * TODO: Add text.
@@ -90,12 +92,14 @@ pub trait BlockDeviceHandle {
     async fn nvme_identify_ctrlr(&self) -> Result<DmaBuf, CoreError>;
 
     // Callback-based I/O functions.
-    fn read(
+    fn readv_blocks(
         &self,
-        offset: u64,
-        buffer: &DmaBuf,
+        iov: *mut iovec,
+        iovcnt: i32,
+        offset_blocks: u64,
+        num_blocks: u64,
         cb: IoCompletionCallback,
-        ctx: *mut c_void,
+        cb_arg: *const c_void,
     ) -> i32;
 }
 

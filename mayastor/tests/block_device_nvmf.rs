@@ -156,6 +156,8 @@ async fn nvmf_device_read_write_at() {
         r = handle.read_at(OP_OFFSET + BUF_SIZE, &dbuf).await.unwrap();
         assert_eq!(r, BUF_SIZE, "The amount of data read mismatches");
         check_buf_pattern(&dbuf, IO_PATTERN);
+
+        device_destroy(&url).await.unwrap();
     })
     .await;
 }
