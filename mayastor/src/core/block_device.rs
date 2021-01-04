@@ -53,6 +53,12 @@ pub trait BlockDevice {
 
     /// Checks if block device has been claimed.
     fn claimed_by(&self) -> Option<String>;
+
+    // Open device and obtain a descriptor.
+    fn open(
+        &self,
+        read_write: bool,
+    ) -> Result<Box<dyn BlockDeviceDescriptor>, CoreError>;
 }
 
 /*
@@ -66,7 +72,7 @@ pub trait BlockDeviceDescriptor {
     ) -> Result<Box<dyn BlockDeviceHandle>, NexusBdevError>;
 }
 
-pub type IoCompletionCallback = fn(*const c_void) -> ();
+pub type IoCompletionCallback = fn(bool, *const c_void) -> ();
 
 /*
  * Core trait that represents a device I/O handle.
@@ -89,7 +95,6 @@ pub trait BlockDeviceHandle {
         offset: u64,
         buffer: &DmaBuf,
     ) -> Result<u64, CoreError>;
-    async fn nvme_identify_ctrlr(&self) -> Result<DmaBuf, CoreError>;
 
     // Callback-based I/O functions.
     fn readv_blocks(
@@ -100,7 +105,32 @@ pub trait BlockDeviceHandle {
         num_blocks: u64,
         cb: IoCompletionCallback,
         cb_arg: *const c_void,
-    ) -> i32;
+    ) -> Result<(), CoreError>;
+
+    /*
+    fn writev_blocks(
+        &self,
+        iov: *mut iovec,
+        iovcnt: i32,
+        offset_blocks: u64,
+        num_blocks: u64,
+        cb: IoCompletionCallback,
+        cb_arg: *const c_void,
+    ) -> Result<(), CoreError>;
+    */
+
+    // fn reset(&self, cb: IoCompletionCallback, cb_arg: *const c_void);
+    // fn unmap_blocks(offset_blocks, num_blocks, cb, cb_arg);
+    // fn write_zeroes(offset_blocks, num_blocks, cb, cb_arg);
+
+    // async fn reset(&self) -> Result<usize, CoreError>
+
+    // NVMe only.
+
+    // async fn create_snapshot(&self) -> Result<u64, CoreError>
+    // async fn nvme_admin_custom(&self, opcode: u8) -> Result<(), CoreError>
+    // pub async fn nvme_admin(
+    async fn nvme_identify_ctrlr(&self) -> Result<DmaBuf, CoreError>;
 }
 
 pub trait LbaRangeController {}
