@@ -3,7 +3,7 @@
 set -eux
 
 SCRIPTDIR=$(dirname "$(realpath "$0")")
-TESTS=${e2e_tests:-"install basic_volume_io csi uninstall"}
+TESTS="install basic_volume_io csi uninstall"
 DEVICE=
 REGISTRY=
 TAG=
@@ -16,10 +16,12 @@ Usage: $0 [OPTIONS]
 Options:
   --device <path>           Device path to use for storage pools.
   --registry <host[:port]>  Registry to pull the mayastor images from.
-  --tag <name>              Docker image tag of mayastor images (default "ci")
+  --tag <name>              Docker image tag of mayastor images (default: "ci")
+  --tests <list of tests>   Lists of tests to run, delimited by spaces (default: "$TESTS")
 
 Examples:
   $0 --registry 127.0.0.1:5000 --tag a80ce0c
+
 EOF
 }
 
@@ -29,21 +31,22 @@ while [ "$#" -gt 0 ]; do
     -d|--device)
       shift
       DEVICE=$1
-      shift
       ;;
     -r|--registry)
       shift
       REGISTRY=$1
-      shift
       ;;
     -t|--tag)
       shift
       TAG=$1
-      shift
       ;;
     -h|--help)
       help
       exit 0
+      ;;
+    -T|--tests)
+      shift
+      TESTS="$1"
       ;;
     *)
       echo "Unknown option: $1"
@@ -51,6 +54,7 @@ while [ "$#" -gt 0 ]; do
       exit 1
       ;;
   esac
+  shift
 done
 
 if [ -z "$DEVICE" ]; then
@@ -70,7 +74,7 @@ test_failed=
 
 # Run go test in directory specified as $1 (relative path)
 function runGoTest {
-    echo "Run go test in $PWD/\"$1\""
+    echo "Running go test in $PWD/\"$1\""
     if [ -z "$1" ] || [ ! -d "$1" ]; then
         return 1
     fi
@@ -86,12 +90,11 @@ function runGoTest {
 for dir in $TESTS; do
   cd "$TESTDIR"
   case "$dir" in
-      uninstall)
-          # defer till after all tests have been run.
-          ;;
       csi)
         # TODO move the csi-e2e tests to a subdirectory under e2e
         # issues with using the same go.mod file prevents this at the moment.
+        # Finally manual intervention is required to cleanup after the test
+        # run, see CAS-566.
         cd "../csi-e2e/"
         if ! ./runtest.sh ; then
             test_failed=1
@@ -105,20 +108,6 @@ for dir in $TESTS; do
         fi
         ;;
   esac
-done
-
-for dir in $TESTS; do
-  cd "$TESTDIR"
-  case "$dir" in
-      uninstall)
-        echo "Uninstalling mayastor....."
-        if ! runGoTest "$dir" ; then
-            test_failed=1
-        fi
-        ;;
-      *)
-        ;;
-   esac
 done
 
 if [ -n "$test_failed" ]; then
