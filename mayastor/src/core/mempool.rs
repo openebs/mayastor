@@ -65,21 +65,23 @@ impl<T: Sized> MemoryPool<T> {
 
     // Get free element from memory pool and initialize memory with target
     // object.
-    pub fn get(&mut self, val: T) -> *mut T {
+    pub fn get(&self, val: T) -> Option<*mut T> {
         let ptr: *mut T =
             unsafe { spdk_mempool_get(self.pool.as_ptr()) } as *mut T;
 
-        if !ptr.is_null() {
-            unsafe {
-                *ptr = val;
-            }
+        if ptr.is_null() {
+            return None;
         }
 
-        ptr
+        unsafe {
+            *ptr = val;
+        }
+
+        Some(ptr)
     }
 
     // Return allocated element to memory pool.
-    pub fn put(&mut self, ptr: *mut T) {
+    pub fn put(&self, ptr: *mut T) {
         unsafe {
             spdk_mempool_put(self.pool.as_ptr(), ptr as *mut c_void);
         }
