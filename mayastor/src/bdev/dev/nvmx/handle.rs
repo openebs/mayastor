@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use futures::channel::oneshot;
+use nix::errno::Errno;
 use once_cell::sync::OnceCell;
 use std::{os::raw::c_void, ptr::NonNull, sync::Arc};
 
@@ -7,7 +8,12 @@ use crate::core::mempool::MemoryPool;
 
 use crate::{
     bdev::{
-        dev::nvmx::{NvmeBlockDevice, NvmeIoChannel, NvmeNamespace},
+        dev::nvmx::{
+            utils::{nvme_cpl_is_pi_error, nvme_cpl_succeeded},
+            NvmeBlockDevice,
+            NvmeIoChannel,
+            NvmeNamespace,
+        },
         nexus::nexus_io::nvme_admin_opc,
     },
     core::{
@@ -31,6 +37,7 @@ use spdk_sys::{
     spdk_nvme_ctrlr,
     spdk_nvme_ctrlr_cmd_admin_raw,
     spdk_nvme_ns_cmd_read,
+    spdk_nvme_ns_cmd_readv,
     spdk_nvme_ns_cmd_write,
 };
 
@@ -40,11 +47,12 @@ use spdk_sys::{
  * the controller.
  */
 struct NvmeIoCtx {
-    _cb: IoCompletionCallback,
-    _cb_ctx: *mut c_void,
-    _iov: *mut iovec,
-    _iovcnt: u32,
-    _curr_iov: u32,
+    cb: IoCompletionCallback,
+    cb_arg: *const c_void,
+    iov: *mut iovec,
+    iovcnt: u64,
+    iovpos: u64,
+    iov_offset: u64,
 }
 
 unsafe impl Send for NvmeIoCtx {}
@@ -167,14 +175,84 @@ extern "C" fn nvme_admin_passthru_done(
     done_cb(ctx, true);
 }
 
-/*
-extern "C" fn nvme_io_completion(
-    _ctx: *mut c_void,
-    _cpl: *const spdk_nvme_cpl,
-) {
-    println!("NVMe I/O completed !");
+extern "C" fn nvme_queued_reset_sgl(ctx: *mut c_void, sgl_offset: u32) {
+    debug!("resetting SGL entry at offset {}", sgl_offset);
+
+    let nvme_io_ctx = unsafe { &mut *(ctx as *mut NvmeIoCtx) };
+
+    nvme_io_ctx.iov_offset = sgl_offset as u64;
+    nvme_io_ctx.iovpos = 0;
+
+    while nvme_io_ctx.iovpos < nvme_io_ctx.iovcnt {
+        unsafe {
+            let iov = nvme_io_ctx.iov.add(nvme_io_ctx.iovpos as usize);
+            if nvme_io_ctx.iov_offset < (*iov).iov_len {
+                break;
+            }
+
+            nvme_io_ctx.iov_offset -= (*iov).iov_len;
+        }
+
+        nvme_io_ctx.iovpos += 1;
+    }
+
+    debug!(
+        "SGL reset done. iov_offset={}, iovpos={}",
+        nvme_io_ctx.iov_offset, nvme_io_ctx.iovpos
+    );
 }
-*/
+
+extern "C" fn nvme_queued_next_sge(
+    ctx: *mut c_void,
+    address: *mut *mut c_void,
+    length: *mut u32,
+) -> i32 {
+    let nvme_io_ctx = unsafe { &mut *(ctx as *mut NvmeIoCtx) };
+
+    assert!(nvme_io_ctx.iovpos < nvme_io_ctx.iovcnt);
+
+    unsafe {
+        let iov = nvme_io_ctx.iov.add(nvme_io_ctx.iovpos as usize);
+
+        let mut a = (*iov).iov_base as u64;
+        *length = (*iov).iov_len as u32;
+
+        if nvme_io_ctx.iov_offset > 0 {
+            assert!(nvme_io_ctx.iov_offset <= (*iov).iov_len);
+            a += nvme_io_ctx.iov_offset;
+            *length -= nvme_io_ctx.iov_offset as u32;
+        }
+
+        nvme_io_ctx.iov_offset += *length as u64;
+        if nvme_io_ctx.iov_offset == (*iov).iov_len {
+            nvme_io_ctx.iovpos += 1;
+            nvme_io_ctx.iov_offset = 0;
+        }
+
+        **(address as *mut *mut u64) = a;
+    }
+
+    0
+}
+
+extern "C" fn nvme_readv_done(ctx: *mut c_void, cpl: *const spdk_nvme_cpl) {
+    let nvme_io_ctx = ctx as *mut NvmeIoCtx;
+
+    println!("NVMe I/O completed !");
+
+    // Check if operation successfully completed.
+    if nvme_cpl_is_pi_error(cpl) {
+        error!("readv completed with PI error");
+    }
+
+    // Invoke caller's callback.
+    unsafe {
+        ((*nvme_io_ctx).cb)(nvme_cpl_succeeded(cpl), (*nvme_io_ctx).cb_arg);
+    }
+
+    let pool = IOCTX_POOL.get().unwrap();
+    pool.put(nvme_io_ctx);
+}
 
 extern "C" fn nvme_async_io_completion(
     ctx: *mut c_void,
@@ -335,13 +413,93 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
     // bdev_nvme_get_buf_cb
     fn readv_blocks(
         &self,
-        _iov: *mut iovec,
-        _iovcnt: i32,
-        _offset_blocks: u64,
-        _num_blocks: u64,
-        _cb: IoCompletionCallback,
-        _cb_arg: *const c_void,
-    ) -> i32 {
-        0
+        iov: *mut iovec,
+        iovcnt: i32,
+        offset_blocks: u64,
+        num_blocks: u64,
+        cb: IoCompletionCallback,
+        cb_arg: *const c_void,
+    ) -> Result<(), CoreError> {
+        // Make sure I/O structures look sane.
+        // As of now, we assume that I/O vector is fully prepared by the caller.
+        if iovcnt <= 0 {
+            error!("insufficient number of elements in I/O vector: {}", iovcnt);
+            return Err(CoreError::ReadDispatch {
+                source: Errno::EINVAL,
+                offset: offset_blocks,
+                len: num_blocks,
+            });
+        }
+        unsafe {
+            if (*iov).iov_base.is_null() {
+                error!("I/O vector is not initialized");
+
+                return Err(CoreError::ReadDispatch {
+                    source: Errno::EINVAL,
+                    offset: offset_blocks,
+                    len: num_blocks,
+                });
+            }
+        }
+
+        let pool = IOCTX_POOL.get().unwrap();
+
+        if let Some(bio) = pool.get(NvmeIoCtx {
+            cb,
+            cb_arg,
+            iov,
+            iovcnt: iovcnt as u64,
+            iovpos: 0,
+            iov_offset: 0,
+        }) {
+            let inner =
+                NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
+            let rc;
+
+            if iovcnt == 1 {
+                rc = unsafe {
+                    spdk_nvme_ns_cmd_read(
+                        self.ns.as_ptr(),
+                        inner.qpair.as_ptr(),
+                        (*iov).iov_base,
+                        offset_blocks,
+                        num_blocks as u32,
+                        Some(nvme_readv_done),
+                        bio as *mut c_void,
+                        self.prchk_flags,
+                    )
+                };
+            } else {
+                rc = unsafe {
+                    spdk_nvme_ns_cmd_readv(
+                        self.ns.as_ptr(),
+                        inner.qpair.as_ptr(),
+                        offset_blocks,
+                        num_blocks as u32,
+                        Some(nvme_readv_done),
+                        bio as *mut c_void,
+                        self.prchk_flags,
+                        Some(nvme_queued_reset_sgl),
+                        Some(nvme_queued_next_sge),
+                    )
+                }
+            }
+
+            if rc < 0 {
+                Err(CoreError::ReadDispatch {
+                    source: Errno::from_i32(-rc),
+                    offset: offset_blocks,
+                    len: num_blocks,
+                })
+            } else {
+                Ok(())
+            }
+        } else {
+            Err(CoreError::ReadDispatch {
+                source: Errno::ENOMEM,
+                offset: offset_blocks,
+                len: num_blocks,
+            })
+        }
     }
 }
