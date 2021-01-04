@@ -31,7 +31,7 @@ async fn test_get() {
 
     ms.spawn(async move {
         // Create pool.
-        let mut pool = MemoryPool::<TestCtx>::create("test_pool", POOL_SIZE)
+        let pool = MemoryPool::<TestCtx>::create("test_pool", POOL_SIZE)
             .expect("Failed to create test memory pool");
 
         let mut used_addrs = HashMap::<usize, *mut TestCtx>::new();
@@ -42,13 +42,14 @@ async fn test_get() {
             let id: u64 = i;
             let pos: u32 = 3 * i as u32;
 
-            let p = pool.get(TestCtx {
+            let o = pool.get(TestCtx {
                 id,
                 pos,
                 ctx: c_c,
             });
 
-            assert!(!p.is_null(), "Failed to get element from memory pool");
+            assert!(o.is_some(), "Failed to get element from memory pool");
+            let p = o.unwrap();
 
             let e = unsafe { p.as_ref().unwrap() };
             // Make sure element is properly initialized.
@@ -67,14 +68,14 @@ async fn test_get() {
         }
 
         // Now pool is full and the following allocation must fail.
-        let p = pool.get(TestCtx {
+        let o = pool.get(TestCtx {
             id: 1,
             pos: 1984,
             ctx: c_c,
         });
 
         assert!(
-            p.is_null(),
+            o.is_none(),
             "Successfully allocated element from fully consumed memory pool"
         );
 
@@ -91,14 +92,15 @@ async fn test_get() {
         // Now try to allocate elements - we must see the same addresses as the
         // ones we just freed.
         for _ in 0 .. TEST_BULK_SIZE {
-            let p = pool.get(TestCtx {
+            let o = pool.get(TestCtx {
                 id: 1,
                 pos: 1984,
                 ctx: c_c,
             });
 
             // Make sure element is available.
-            assert!(!p.is_null(), "Failed to get element from memory pool");
+            assert!(o.is_some(), "Failed to get element from memory pool");
+            let p = o.unwrap();
             let a = p as usize;
 
             // Make sure address is free and not used in any existing
