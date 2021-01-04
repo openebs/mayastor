@@ -3,6 +3,7 @@ mod controller;
 mod device;
 mod handle;
 mod namespace;
+mod utils;
 
 pub use channel::{NvmeControllerIoChannel, NvmeIoChannel, NvmeIoChannelInner};
 pub use controller::{
