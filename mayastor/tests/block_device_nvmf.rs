@@ -1,3 +1,4 @@
+use libc::c_void;
 use once_cell::sync::OnceCell;
 
 use mayastor::{
@@ -5,13 +6,19 @@ use mayastor::{
     core::{DmaBuf, MayastorCliArgs},
 };
 
+use std::{slice, str, sync::Arc};
+
+use core::sync::atomic::AtomicPtr;
+
+use spdk_sys::{self, iovec};
+
 pub mod common;
 use common::compose::MayastorTest;
 use uuid::Uuid;
 
 static MAYASTOR: OnceCell<MayastorTest> = OnceCell::new();
 
-//const MAYASTOR_CTRLR_TITLE: &str = "Mayastor NVMe controler";
+const MAYASTOR_CTRLR_TITLE: &str = "Mayastor NVMe controler";
 //const MAYASTOR_NQN_PREFIX: &str = "nqn.2019-05.io.openebs:";
 
 fn get_ms() -> &'static MayastorTest<'static> {
@@ -160,4 +167,94 @@ async fn nvmf_device_read_write_at() {
         device_destroy(&url).await.unwrap();
     })
     .await;
+}
+
+#[tokio::test]
+async fn nvmf_device_read_write_test() {
+    const BUF_SIZE: u64 = 32768;
+
+    let ms = get_ms();
+    let u = Arc::new(launch_instance().await);
+    let mut url = Arc::clone(&u);
+
+    // Placeholder structure to let all the fields outlive API invocations.
+    struct IoCtx {
+        iov: iovec,
+        iovcnt: i32,
+        dma_buf: DmaBuf,
+    }
+
+    // Read completion callback.
+    fn read_completion_callback(success: bool, ctx: *const c_void) {
+        println!("readv_blocks() completed !");
+
+        assert!(success, "readv_blocks() failed");
+        // Make sure we were passed tha same pattern string as requested.
+        let s = unsafe {
+            let slice = slice::from_raw_parts(
+                ctx as *const u8,
+                MAYASTOR_CTRLR_TITLE.len(),
+            );
+            str::from_utf8(slice).unwrap()
+        };
+
+        assert_eq!(s, MAYASTOR_CTRLR_TITLE);
+    }
+
+    let buf_ptr = ms
+        .spawn(async move {
+            let name = device_create(&(*url)).await.unwrap();
+            let descr = device_open(&name, false).unwrap();
+            let handle = descr.into_handle().unwrap();
+            let device = handle.get_device();
+
+            // Create a buffer with the guard pattern.
+            let mut io_ctx = IoCtx {
+                iov: iovec::default(),
+                iovcnt: 1,
+                dma_buf: create_io_buffer(
+                    device.alignment(),
+                    BUF_SIZE,
+                    GUARD_PATTERN,
+                ),
+            };
+
+            io_ctx.iov.iov_base = *io_ctx.dma_buf;
+            io_ctx.iov.iov_len = BUF_SIZE;
+
+            // Initiate a read operation into the buffer.
+            handle
+                .readv_blocks(
+                    &mut io_ctx.iov,
+                    io_ctx.iovcnt,
+                    (3 * 1024 * 1024) / device.block_len(),
+                    BUF_SIZE / device.block_len(),
+                    read_completion_callback,
+                    // Use a predefined string to check that we receive the
+                    // same context pointer as we pass upon
+                    // invocation. For this call we don't need any
+                    // specific, operation-related context.
+                    MAYASTOR_CTRLR_TITLE.as_ptr() as *const c_void,
+                )
+                .unwrap();
+
+            AtomicPtr::new(Box::into_raw(Box::new(io_ctx)))
+        })
+        .await;
+
+    // Sleep for a few seconds to let I/O operation complete.
+    println!("Sleeping for 3 secs to let I/O operation complete");
+    tokio::time::delay_for(std::time::Duration::from_secs(3)).await;
+    println!("Awakened.");
+
+    // Check the contents of the buffer to make sure it has been overwritten
+    // with data pattern. We should see all zeroes in the buffer instead of
+    // the guard pattern.
+    let b = buf_ptr.into_inner();
+    check_buf_pattern(unsafe { &((*b).dma_buf) }, 0);
+
+    url = Arc::clone(&u);
+    ms.send(async move {
+        device_destroy(&(*url)).await.unwrap();
+    });
 }
