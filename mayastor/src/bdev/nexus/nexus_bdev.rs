@@ -766,6 +766,12 @@ impl Nexus {
         // we use RR to read from the children.
         let child = channels.child_select();
         if child.is_none() {
+            error!(
+                "{}: No child available to read from {:p}",
+                io.nexus_as_ref().name,
+                io.as_ptr(),
+            );
+            io.fail();
             return;
         }
 
@@ -820,6 +826,23 @@ impl Nexus {
         }
     }
 
+    /// check results after submitting IO, failing if all failed to submit
+    #[inline(always)]
+    fn check_io_submission(&self, results: &[i32], io: &Bio) {
+        // if any of the children failed to dispatch
+        if results.iter().any(|r| *r != 0) {
+            error!(
+                "{}: Failed to submit dispatched IO {:?}",
+                io.nexus_as_ref().name,
+                io.as_ptr(),
+            );
+        }
+
+        if results.iter().all(|r| *r != 0) {
+            io.fail();
+        }
+    }
+
     /// send reset IO to the underlying children.
     pub(crate) fn reset(&self, io: &Bio, channels: &NexusChannelInner) {
         // in case of resets, we want to reset all underlying children
@@ -838,14 +861,7 @@ impl Nexus {
             })
             .collect::<Vec<_>>();
 
-        // if any of the children failed to dispatch
-        if results.iter().any(|r| *r != 0) {
-            error!(
-                "{}: Failed to submit dispatched IO {:?}",
-                io.nexus_as_ref().name,
-                io.as_ptr(),
-            );
-        }
+        self.check_io_submission(&results, &io);
     }
 
     /// write vectored IO to the underlying children.
@@ -869,14 +885,7 @@ impl Nexus {
             })
             .collect::<Vec<_>>();
 
-        // if any of the children failed to dispatch
-        if results.iter().any(|r| *r != 0) {
-            error!(
-                "{}: Failed to submit dispatched IO {:?}",
-                io.nexus_as_ref().name,
-                io.as_ptr()
-            );
-        }
+        self.check_io_submission(&results, &io);
     }
 
     pub(crate) fn unmap(&self, io: &Bio, channels: &NexusChannelInner) {
@@ -896,13 +905,7 @@ impl Nexus {
             })
             .collect::<Vec<_>>();
 
-        if results.iter().any(|r| *r != 0) {
-            error!(
-                "{}: Failed to submit dispatched IO {:?}",
-                io.nexus_as_ref().name,
-                io.as_ptr()
-            );
-        }
+        self.check_io_submission(&results, &io);
     }
 
     pub(crate) fn write_zeroes(&self, io: &Bio, channels: &NexusChannelInner) {
@@ -922,13 +925,7 @@ impl Nexus {
             })
             .collect::<Vec<_>>();
 
-        if results.iter().any(|r| *r != 0) {
-            error!(
-                "{}: Failed to submit dispatched IO {:?}",
-                io.nexus_as_ref().name,
-                io.as_ptr()
-            );
-        }
+        self.check_io_submission(&results, &io);
     }
 
     pub(crate) fn nvme_admin(&self, io: &Bio, channels: &NexusChannelInner) {
@@ -983,13 +980,7 @@ impl Nexus {
             })
             .collect::<Vec<_>>();
 
-        if results.iter().any(|r| *r != 0) {
-            error!(
-                "{}: Failed to submit dispatched IO {:?}",
-                io.nexus_as_ref().name,
-                io.as_ptr()
-            );
-        }
+        self.check_io_submission(&results, &io);
     }
 
     /// Status of the nexus
