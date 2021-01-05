@@ -39,6 +39,7 @@ use spdk_sys::{
     spdk_nvme_ns_cmd_read,
     spdk_nvme_ns_cmd_readv,
     spdk_nvme_ns_cmd_write,
+    spdk_nvme_ns_cmd_writev,
 };
 
 /*
@@ -176,8 +177,6 @@ extern "C" fn nvme_admin_passthru_done(
 }
 
 extern "C" fn nvme_queued_reset_sgl(ctx: *mut c_void, sgl_offset: u32) {
-    debug!("resetting SGL entry at offset {}", sgl_offset);
-
     let nvme_io_ctx = unsafe { &mut *(ctx as *mut NvmeIoCtx) };
 
     nvme_io_ctx.iov_offset = sgl_offset as u64;
@@ -195,11 +194,6 @@ extern "C" fn nvme_queued_reset_sgl(ctx: *mut c_void, sgl_offset: u32) {
 
         nvme_io_ctx.iovpos += 1;
     }
-
-    debug!(
-        "SGL reset done. iov_offset={}, iovpos={}",
-        nvme_io_ctx.iov_offset, nvme_io_ctx.iovpos
-    );
 }
 
 extern "C" fn nvme_queued_next_sge(
@@ -229,22 +223,18 @@ extern "C" fn nvme_queued_next_sge(
             nvme_io_ctx.iov_offset = 0;
         }
 
-        **(address as *mut *mut u64) = a;
+        *(address as *mut u64) = a;
     }
 
     0
 }
 
-extern "C" fn nvme_readv_done(ctx: *mut c_void, cpl: *const spdk_nvme_cpl) {
-    let nvme_io_ctx = ctx as *mut NvmeIoCtx;
-
-    println!("NVMe I/O completed !");
-
-    // Check if operation successfully completed.
-    if nvme_cpl_is_pi_error(cpl) {
-        error!("readv completed with PI error");
-    }
-
+/// Notify the caller and deallocate Nvme IO context.
+#[inline]
+fn complete_nvme_command(
+    nvme_io_ctx: *mut NvmeIoCtx,
+    cpl: *const spdk_nvme_cpl,
+) {
     // Invoke caller's callback.
     unsafe {
         ((*nvme_io_ctx).cb)(nvme_cpl_succeeded(cpl), (*nvme_io_ctx).cb_arg);
@@ -254,12 +244,91 @@ extern "C" fn nvme_readv_done(ctx: *mut c_void, cpl: *const spdk_nvme_cpl) {
     pool.put(nvme_io_ctx);
 }
 
+/// Completion handler for vectored write requests.
+extern "C" fn nvme_writev_done(ctx: *mut c_void, cpl: *const spdk_nvme_cpl) {
+    let nvme_io_ctx = ctx as *mut NvmeIoCtx;
+
+    println!("NVMe writev I/O completed !");
+
+    // Check if operation successfully completed.
+    if nvme_cpl_is_pi_error(cpl) {
+        error!("readv completed with PI error");
+    }
+
+    complete_nvme_command(nvme_io_ctx, cpl);
+}
+
+/// I/O completion handler for all read requests (vectored/non-vectored)
+/// and non-vectored write requests.
+extern "C" fn nvme_io_done(ctx: *mut c_void, cpl: *const spdk_nvme_cpl) {
+    let nvme_io_ctx = ctx as *mut NvmeIoCtx;
+
+    println!("NVMe I/O completed !");
+
+    // Check if operation successfully completed.
+    if nvme_cpl_is_pi_error(cpl) {
+        error!("readv completed with PI error");
+    }
+
+    complete_nvme_command(nvme_io_ctx, cpl);
+}
+
 extern "C" fn nvme_async_io_completion(
     ctx: *mut c_void,
     _cpl: *const spdk_nvme_cpl,
 ) {
     println!("Async NVMe I/O completed !");
     done_cb(ctx, true);
+}
+
+#[inline]
+fn check_io_args(
+    iov: *mut iovec,
+    iovcnt: i32,
+    offset_blocks: u64,
+    num_blocks: u64,
+) -> Result<(), CoreError> {
+    // Make sure I/O structures look sane.
+    // As of now, we assume that I/O vector is fully prepared by the caller.
+    if iovcnt <= 0 {
+        error!("insufficient number of elements in I/O vector: {}", iovcnt);
+        return Err(CoreError::ReadDispatch {
+            source: Errno::EINVAL,
+            offset: offset_blocks,
+            len: num_blocks,
+        });
+    }
+    unsafe {
+        if (*iov).iov_base.is_null() {
+            error!("I/O vector is not initialized");
+
+            return Err(CoreError::ReadDispatch {
+                source: Errno::EINVAL,
+                offset: offset_blocks,
+                len: num_blocks,
+            });
+        }
+    }
+    Ok(())
+}
+
+#[inline]
+fn alloc_nvme_io_ctx(
+    ctx: NvmeIoCtx,
+    offset_blocks: u64,
+    num_blocks: u64,
+) -> Result<*mut NvmeIoCtx, CoreError> {
+    let pool = IOCTX_POOL.get().unwrap();
+
+    if let Some(c) = pool.get(ctx) {
+        Ok(c)
+    } else {
+        Err(CoreError::ReadDispatch {
+            source: Errno::ENOMEM,
+            offset: offset_blocks,
+            len: num_blocks,
+        })
+    }
 }
 
 #[async_trait(? Send)]
@@ -420,86 +489,128 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         cb: IoCompletionCallback,
         cb_arg: *const c_void,
     ) -> Result<(), CoreError> {
-        // Make sure I/O structures look sane.
-        // As of now, we assume that I/O vector is fully prepared by the caller.
-        if iovcnt <= 0 {
-            error!("insufficient number of elements in I/O vector: {}", iovcnt);
-            return Err(CoreError::ReadDispatch {
-                source: Errno::EINVAL,
-                offset: offset_blocks,
-                len: num_blocks,
-            });
-        }
-        unsafe {
-            if (*iov).iov_base.is_null() {
-                error!("I/O vector is not initialized");
+        check_io_args(iov, iovcnt, offset_blocks, num_blocks)?;
 
-                return Err(CoreError::ReadDispatch {
-                    source: Errno::EINVAL,
-                    offset: offset_blocks,
-                    len: num_blocks,
-                });
-            }
-        }
+        let bio = alloc_nvme_io_ctx(
+            NvmeIoCtx {
+                cb,
+                cb_arg,
+                iov,
+                iovcnt: iovcnt as u64,
+                iovpos: 0,
+                iov_offset: 0,
+            },
+            offset_blocks,
+            num_blocks,
+        )?;
 
-        let pool = IOCTX_POOL.get().unwrap();
+        let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
+        let rc;
 
-        if let Some(bio) = pool.get(NvmeIoCtx {
-            cb,
-            cb_arg,
-            iov,
-            iovcnt: iovcnt as u64,
-            iovpos: 0,
-            iov_offset: 0,
-        }) {
-            let inner =
-                NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
-            let rc;
-
-            if iovcnt == 1 {
-                rc = unsafe {
-                    spdk_nvme_ns_cmd_read(
-                        self.ns.as_ptr(),
-                        inner.qpair.as_ptr(),
-                        (*iov).iov_base,
-                        offset_blocks,
-                        num_blocks as u32,
-                        Some(nvme_readv_done),
-                        bio as *mut c_void,
-                        self.prchk_flags,
-                    )
-                };
-            } else {
-                rc = unsafe {
-                    spdk_nvme_ns_cmd_readv(
-                        self.ns.as_ptr(),
-                        inner.qpair.as_ptr(),
-                        offset_blocks,
-                        num_blocks as u32,
-                        Some(nvme_readv_done),
-                        bio as *mut c_void,
-                        self.prchk_flags,
-                        Some(nvme_queued_reset_sgl),
-                        Some(nvme_queued_next_sge),
-                    )
-                }
-            }
-
-            if rc < 0 {
-                Err(CoreError::ReadDispatch {
-                    source: Errno::from_i32(-rc),
-                    offset: offset_blocks,
-                    len: num_blocks,
-                })
-            } else {
-                Ok(())
-            }
+        if iovcnt == 1 {
+            rc = unsafe {
+                spdk_nvme_ns_cmd_read(
+                    self.ns.as_ptr(),
+                    inner.qpair.as_ptr(),
+                    (*iov).iov_base,
+                    offset_blocks,
+                    num_blocks as u32,
+                    Some(nvme_io_done),
+                    bio as *mut c_void,
+                    self.prchk_flags,
+                )
+            };
         } else {
+            rc = unsafe {
+                spdk_nvme_ns_cmd_readv(
+                    self.ns.as_ptr(),
+                    inner.qpair.as_ptr(),
+                    offset_blocks,
+                    num_blocks as u32,
+                    Some(nvme_io_done),
+                    bio as *mut c_void,
+                    self.prchk_flags,
+                    Some(nvme_queued_reset_sgl),
+                    Some(nvme_queued_next_sge),
+                )
+            }
+        }
+
+        if rc < 0 {
             Err(CoreError::ReadDispatch {
-                source: Errno::ENOMEM,
+                source: Errno::from_i32(-rc),
                 offset: offset_blocks,
                 len: num_blocks,
             })
+        } else {
+            Ok(())
+        }
+    }
+
+    fn writev_blocks(
+        &self,
+        iov: *mut iovec,
+        iovcnt: i32,
+        offset_blocks: u64,
+        num_blocks: u64,
+        cb: IoCompletionCallback,
+        cb_arg: *const c_void,
+    ) -> Result<(), CoreError> {
+        check_io_args(iov, iovcnt, offset_blocks, num_blocks)?;
+
+        let bio = alloc_nvme_io_ctx(
+            NvmeIoCtx {
+                cb,
+                cb_arg,
+                iov,
+                iovcnt: iovcnt as u64,
+                iovpos: 0,
+                iov_offset: 0,
+            },
+            offset_blocks,
+            num_blocks,
+        )?;
+
+        let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
+        let rc;
+
+        if iovcnt == 1 {
+            rc = unsafe {
+                spdk_nvme_ns_cmd_write(
+                    self.ns.as_ptr(),
+                    inner.qpair.as_ptr(),
+                    (*iov).iov_base,
+                    offset_blocks,
+                    num_blocks as u32,
+                    Some(nvme_io_done),
+                    bio as *mut c_void,
+                    self.prchk_flags,
+                )
+            };
+        } else {
+            rc = unsafe {
+                spdk_nvme_ns_cmd_writev(
+                    self.ns.as_ptr(),
+                    inner.qpair.as_ptr(),
+                    offset_blocks,
+                    num_blocks as u32,
+                    Some(nvme_writev_done),
+                    bio as *mut c_void,
+                    self.prchk_flags,
+                    Some(nvme_queued_reset_sgl),
+                    Some(nvme_queued_next_sge),
+                )
+            }
+        }
+
+        if rc < 0 {
+            Err(CoreError::ReadDispatch {
+                source: Errno::from_i32(-rc),
+                offset: offset_blocks,
+                len: num_blocks,
+            })
+        } else {
+            Ok(())
         }
     }
 }
