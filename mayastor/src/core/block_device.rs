@@ -107,7 +107,6 @@ pub trait BlockDeviceHandle {
         cb_arg: *const c_void,
     ) -> Result<(), CoreError>;
 
-    /*
     fn writev_blocks(
         &self,
         iov: *mut iovec,
@@ -117,7 +116,6 @@ pub trait BlockDeviceHandle {
         cb: IoCompletionCallback,
         cb_arg: *const c_void,
     ) -> Result<(), CoreError>;
-    */
 
     // fn reset(&self, cb: IoCompletionCallback, cb_arg: *const c_void);
     // fn unmap_blocks(offset_blocks, num_blocks, cb, cb_arg);
