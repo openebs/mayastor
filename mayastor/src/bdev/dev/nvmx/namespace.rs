@@ -12,6 +12,7 @@ use spdk_sys::{
     spdk_nvme_ns_get_uuid,
     spdk_nvme_ns_supports_compare,
 };
+#[derive(Debug)]
 pub struct NvmeNamespace(NonNull<spdk_nvme_ns>);
 
 impl NvmeNamespace {
