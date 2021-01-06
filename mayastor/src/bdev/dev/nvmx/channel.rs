@@ -127,7 +127,7 @@ impl NvmeControllerIoChannel {
 
         unsafe {
             spdk_nvme_ctrlr_get_default_io_qpair_opts(
-                controller.spdk_handle(),
+                controller.ctrlr_as_ptr(),
                 &mut opts,
                 size_of::<spdk_nvme_io_qpair_opts>() as u64,
             )
@@ -141,7 +141,7 @@ impl NvmeControllerIoChannel {
 
         let qpair: *mut spdk_nvme_qpair = unsafe {
             spdk_nvme_ctrlr_alloc_io_qpair(
-                controller.spdk_handle(),
+                controller.ctrlr_as_ptr(),
                 &opts,
                 size_of::<spdk_nvme_io_qpair_opts>() as u64,
             )
@@ -194,7 +194,7 @@ impl NvmeControllerIoChannel {
 
         // Connect qpair.
         rc = unsafe {
-            spdk_nvme_ctrlr_connect_io_qpair(controller.spdk_handle(), qpair)
+            spdk_nvme_ctrlr_connect_io_qpair(controller.ctrlr_as_ptr(), qpair)
         };
 
         if rc != 0 {
