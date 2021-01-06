@@ -29,7 +29,7 @@
     "client-node-fixed-watcher": "^0.13.2",
     "express": "^4.17.1",
     "grpc-promise": "^1.4.0",
-    "grpc-uds": "^0.1.4",
+    "grpc-uds": "^0.1.6",
     "js-yaml": "^3.14.0",
     "lodash": "^4.17.20",
     "nats": "^2.0.0-27",
