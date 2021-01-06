@@ -23,6 +23,10 @@ use spdk_sys::{
 };
 
 use crate::bdev::ActionType;
+use std::{
+    fmt::{Debug, Display},
+    str::FromStr,
+};
 
 pub trait GetOpts {
     fn get(&self) -> Self;
@@ -89,7 +93,7 @@ pub struct NvmfTgtConfig {
     /// the max number of namespaces this target should allow for
     pub max_namespaces: u32,
     /// TCP transport options
-    pub opts: TcpTransportOpts,
+    pub opts: NvmfTcpTransportOpts,
 }
 
 impl From<NvmfTgtConfig> for Box<spdk_nvmf_target_opts> {
@@ -112,7 +116,7 @@ impl Default for NvmfTgtConfig {
         Self {
             name: "mayastor_target".to_string(),
             max_namespaces: 110,
-            opts: TcpTransportOpts::default(),
+            opts: NvmfTcpTransportOpts::default(),
         }
     }
 }
@@ -126,7 +130,7 @@ impl GetOpts for NvmfTgtConfig {
 /// Settings for the TCP transport
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
-pub struct TcpTransportOpts {
+pub struct NvmfTcpTransportOpts {
     /// max queue depth
     max_queue_depth: u16,
     /// max qpairs per controller
@@ -149,16 +153,39 @@ pub struct TcpTransportOpts {
     abort_timeout_sec: u32,
 }
 
-impl Default for TcpTransportOpts {
+/// try to read an env variable or returns the default when not found
+fn try_from_env<T>(name: &str, default: T) -> T
+where
+    T: FromStr + Display + Copy,
+    <T as FromStr>::Err: Debug + Display,
+{
+    std::env::var(name).map_or_else(
+        |_| default,
+        |v| {
+            match v.parse::<T>() {
+               Ok(val) => {
+                   info!("Overriding {} value to '{}'", name, val);
+                   val
+               },
+               Err(e) => {
+                   error!("Invalid value: {} (error {}) specified for {}. Reverting to default ({})", v, e, name, default);
+                   default
+               }
+            }
+        },
+    )
+}
+
+impl Default for NvmfTcpTransportOpts {
     fn default() -> Self {
         Self {
-            max_queue_depth: 64,
+            max_queue_depth: try_from_env("NVMF_TCP_MAX_QUEUE_DEPTH", 64),
             in_capsule_data_size: 4096,
             max_io_size: 131_072,
             io_unit_size: 131_072,
             max_qpairs_per_ctrl: 128,
-            num_shared_buf: 2048,
-            buf_cache_size: 64,
+            num_shared_buf: try_from_env("NVMF_TCP_NUM_SHARED_BUF", 2048),
+            buf_cache_size: try_from_env("NVMF_TCP_BUF_CACHE_SIZE", 64),
             dif_insert_or_strip: false,
             max_aq_depth: 128,
             abort_timeout_sec: 1,
@@ -169,8 +196,8 @@ impl Default for TcpTransportOpts {
 /// we cannot add derives for YAML to these structs directly, so we need to
 /// copy them. The upside though, is that if the FFI structures change, we will
 /// know about it during compile time.
-impl From<TcpTransportOpts> for spdk_nvmf_transport_opts {
-    fn from(o: TcpTransportOpts) -> Self {
+impl From<NvmfTcpTransportOpts> for spdk_nvmf_transport_opts {
+    fn from(o: NvmfTcpTransportOpts) -> Self {
         Self {
             max_queue_depth: o.max_queue_depth,
             max_qpairs_per_ctrlr: o.max_qpairs_per_ctrl,
@@ -242,15 +269,18 @@ impl Default for NvmeBdevOpts {
     fn default() -> Self {
         Self {
             action_on_timeout: SPDK_BDEV_NVME_TIMEOUT_ACTION_ABORT,
-            timeout_us: 30_000_000,
-            keep_alive_timeout_ms: 10_000,
-            retry_count: 3,
+            timeout_us: try_from_env("NVME_TIMEOUT_US", 30_000_000),
+            keep_alive_timeout_ms: try_from_env("NVME_KATO_MS", 10_000),
+            retry_count: try_from_env("NVME_RETRY_COUNT", 3),
             arbitration_burst: 0,
             low_priority_weight: 0,
             medium_priority_weight: 0,
             high_priority_weight: 0,
-            nvme_adminq_poll_period_us: 0,
-            nvme_ioq_poll_period_us: 0,
+            nvme_adminq_poll_period_us: try_from_env(
+                "NVME_ADMINQ_POLL_PERIOD_US",
+                0,
+            ),
+            nvme_ioq_poll_period_us: try_from_env("NVME_IOQ_POLL_PERIOD_US", 0),
             io_queue_requests: 0,
             delay_cmd_submit: true,
         }
@@ -327,8 +357,8 @@ impl GetOpts for BdevOpts {
 impl Default for BdevOpts {
     fn default() -> Self {
         Self {
-            bdev_io_pool_size: 65535,
-            bdev_io_cache_size: 512,
+            bdev_io_pool_size: try_from_env("BDEV_IO_POOL_SIZE", 65535),
+            bdev_io_cache_size: try_from_env("BDEV_IO_CACHE_SIZE", 512),
         }
     }
 }
@@ -401,7 +431,7 @@ impl Default for IscsiTgtOpts {
         Self {
             authfile: "".to_string(),
             nodebase: "iqn.2019-05.io.openebs".to_string(),
-            timeout: 5,
+            timeout: try_from_env("ISCSI_TIMEOUT_SEC", 30),
             nop_ininterval: 1,
             disable_chap: false,
             require_chap: false,
@@ -499,12 +529,12 @@ pub struct PosixSocketOpts {
 impl Default for PosixSocketOpts {
     fn default() -> Self {
         Self {
-            recv_buf_size: 2097152,
-            send_buf_size: 2097152,
-            enable_recv_pipe: true,
-            enable_zero_copy_send: true,
-            enable_quickack: true,
-            enable_placement_id: true,
+            recv_buf_size: try_from_env("SOCK_RECV_BUF_SIZE", 2097152),
+            send_buf_size: try_from_env("SOCK_SEND_BUF_SIZE", 2097152),
+            enable_recv_pipe: try_from_env("SOCK_ENABLE_RECV_PIPE", true),
+            enable_zero_copy_send: try_from_env("SOCK_ZERO_COPY_SEND", true),
+            enable_quickack: try_from_env("SOCK_ENABLE_QUICKACK", true),
+            enable_placement_id: try_from_env("SOCK_ENABLE_PLACEMENT_ID", true),
         }
     }
 }

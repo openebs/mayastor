@@ -352,15 +352,20 @@ impl Config {
     }
 
     /// apply the hybrid configuration that is loaded from YAML. Hybrid in the
-    /// sense that options not defined, will default to values defined by the
-    /// default trait for that structure.
+    /// sense that options not defined, will default to the impl of Default.
+    ///
+    /// Note; for nvmf there is no set/get option. This is because the way
+    /// transports are constructed. The target accepts an opt parameter, thus
+    /// it does not consult a global (mutable) data structure
     pub fn apply(&self) {
         info!("Applying Mayastor configuration settings");
         assert_eq!(self.socket_opts.set(), true);
-        // note: nvmf target does not have a set method
         assert_eq!(self.nvme_bdev_opts.set(), true);
-        self.bdev_opts.set();
+        assert_eq!(self.bdev_opts.set(), true);
+
+        // no way to validate this
         self.iscsi_tgt_conf.set();
+        debug!("{:#?}", self);
     }
 
     /// create any nexus bdevs any failure will be logged, but we will silently
