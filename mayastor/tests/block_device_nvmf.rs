@@ -35,9 +35,7 @@ fn get_ms() -> &'static MayastorTest<'static> {
 }
 
 async fn launch_instance() -> String {
-    // TODO: Spawn MayaStor instance properly.
-    return "nvmf://172.16.175.130:8420/nqn.2019-05.io.openebs:disk0"
-        .to_string();
+    return "nvmf://127.0.0.1:4420/replica0".to_string();
 }
 
 #[tokio::test]
