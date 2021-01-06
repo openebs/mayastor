@@ -338,9 +338,8 @@ impl Bio {
                     nexus.reconfigure(DREvent::ChildFault).await;
                     //nexus.remove_child(&uri).await.unwrap();
                     bdev_destroy(&uri).await.unwrap();
-                    if nexus.status() != NexusStatus::Faulted {
-                        nexus.resume().await.unwrap();
-                    } else {
+                    nexus.resume().await.unwrap();
+                    if nexus.status() == NexusStatus::Faulted {
                         error!(":{} has no children left... ", nexus);
                     }
                 }
