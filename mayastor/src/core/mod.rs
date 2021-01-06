@@ -33,10 +33,12 @@ mod env;
 mod handle;
 pub mod io_driver;
 mod nvme;
+pub mod poller;
 mod reactor;
 mod share;
 pub(crate) mod thread;
 mod uuid;
+
 #[derive(Debug, Snafu, Clone)]
 #[snafu(visibility = "pub")]
 pub enum CoreError {
