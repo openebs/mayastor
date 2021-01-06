@@ -73,6 +73,10 @@ for dir in $TESTS; do
     test_failed=1
     break
   fi
+  if ! ("$SCRIPTDIR"/e2e_check_pod_restarts.sh) ; then
+      test_failed=1
+      break
+  fi
 done
 
 # must always run uninstall test in order to clean up the cluster
