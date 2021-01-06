@@ -48,8 +48,8 @@ impl NvmeDeviceDescriptor {
                 ns: Arc::clone(&ns),
                 io_device_id: controller.id(),
                 name: controller.get_name(),
-                ctrlr: NonNull::new(controller.spdk_handle()).unwrap(),
-                prchk_flags: controller.get_flags(),
+                ctrlr: NonNull::new(controller.ctrlr_as_ptr()).unwrap(),
+                prchk_flags: controller.flags(),
             }))
         } else {
             Err(CoreError::OpenBdev {
