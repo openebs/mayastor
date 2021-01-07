@@ -79,9 +79,15 @@ for dir in $TESTS; do
   fi
 done
 
+if [ -n "$test_failed" ]; then
+    "$SCRIPTDIR"/e2e-cluster-dump.sh
+fi
+
 # must always run uninstall test in order to clean up the cluster
 cd "$SCRIPTDIR/../test/e2e/uninstall"
-go test
+if ! go test -v . -ginkgo.v -ginkgo.progress -timeout 0 ; then
+    "$SCRIPTDIR"/e2e-cluster-dump.sh --clusteronly
+fi
 
 if [ -n "$test_failed" ]; then
   exit 1
