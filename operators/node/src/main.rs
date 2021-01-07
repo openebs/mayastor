@@ -16,6 +16,10 @@ struct CliArgs {
     /// Polling period
     #[structopt(long, short, default_value = "30s")]
     period: humantime::Duration,
+
+    /// Trace rest requests to the Jaeger endpoint agent
+    #[structopt(long, short)]
+    jaeger: Option<String>,
 }
 
 #[derive(CustomResource, Deserialize, Serialize, Clone, Debug)]
@@ -47,22 +51,45 @@ impl TryFrom<&MayastorNode> for Node {
     }
 }
 
-fn init_tracing() {
+use opentelemetry::{
+    global,
+    sdk::{propagation::TraceContextPropagator, trace::Tracer},
+};
+use opentelemetry_jaeger::Uninstall;
+
+fn init_tracing() -> Option<(Tracer, Uninstall)> {
     if let Ok(filter) = tracing_subscriber::EnvFilter::try_from_default_env() {
         tracing_subscriber::fmt().with_env_filter(filter).init();
     } else {
         tracing_subscriber::fmt().with_env_filter("info").init();
     }
+    if let Some(agent) = CliArgs::from_args().jaeger {
+        tracing::info!("Starting jaeger trace pipeline at {}...", agent);
+        // Start a new jaeger trace pipeline
+        global::set_text_map_propagator(TraceContextPropagator::new());
+        let (_tracer, _uninstall) = opentelemetry_jaeger::new_pipeline()
+            .with_agent_endpoint(agent)
+            .with_service_name("rest-server")
+            .install()
+            .expect("Jaeger pipeline install error");
+        Some((_tracer, _uninstall))
+    } else {
+        None
+    }
 }
 
 #[actix_web::main]
 async fn main() -> anyhow::Result<()> {
-    init_tracing();
+    // need to keep the jaeger pipeline tracer alive, if enabled
+    let _tracer = init_tracing();
 
     let polling_period = CliArgs::from_args().period.into();
 
     let rest_url = format!("https://{}", CliArgs::from_args().rest);
-    let rest_cli = rest_client::ActixRestClient::new(&rest_url)?;
+    let rest_cli = rest_client::ActixRestClient::new(
+        &rest_url,
+        CliArgs::from_args().jaeger.is_some(),
+    )?;
 
     let kube_client = kube::Client::try_default().await?;
     let namespace = "mayastor";

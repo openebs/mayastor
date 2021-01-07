@@ -3,6 +3,7 @@ use mbus_api::{
     v0::{ChannelVs, Liveness, NodeState, PoolState},
     Message,
 };
+use opentelemetry::{global, sdk::propagation::TraceContextPropagator};
 use rest_client::{versions::v0::*, ActixRestClient};
 use rpc::mayastor::Null;
 use tracing::info;
@@ -15,9 +16,11 @@ async fn wait_for_services() {
 
 // to avoid waiting for timeouts
 async fn orderly_start(test: &ComposeTest) {
-    test.start_containers(vec!["nats", "node", "pool", "volume", "rest"])
-        .await
-        .unwrap();
+    test.start_containers(vec![
+        "nats", "node", "pool", "volume", "rest", "jaeger",
+    ])
+    .await
+    .unwrap();
 
     test.connect_to_bus("nats").await;
     wait_for_services().await;
@@ -30,6 +33,12 @@ async fn orderly_start(test: &ComposeTest) {
 
 #[actix_rt::test]
 async fn client() {
+    global::set_text_map_propagator(TraceContextPropagator::new());
+    let (_tracer, _uninstall) = opentelemetry_jaeger::new_pipeline()
+        .with_service_name("rest-client")
+        .install()
+        .unwrap();
+
     let mayastor = "node-test-name";
     let test = Builder::new()
         .name("rest")
@@ -43,9 +52,12 @@ async fn client() {
         .add_container_spec(
             ContainerSpec::from_binary(
                 "rest",
-                Binary::from_dbg("rest").with_nats("-n"),
+                Binary::from_dbg("rest")
+                    .with_nats("-n")
+                    .with_args(vec!["-j", "10.1.0.8:6831"]),
             )
-            .with_portmap("8080", "8080"),
+            .with_portmap("8080", "8080")
+            .with_portmap("8081", "8081"),
         )
         .add_container_bin(
             "mayastor",
@@ -54,8 +66,19 @@ async fn client() {
                 .with_args(vec!["-N", mayastor])
                 .with_args(vec!["-g", "10.1.0.7:10124"]),
         )
+        .add_container_spec(
+            ContainerSpec::from_image(
+                "jaeger",
+                "jaegertracing/all-in-one:latest",
+            )
+            .with_portmap("16686", "16686")
+            .with_portmap("6831/udp", "6831/udp")
+            .with_portmap("6832/udp", "6832/udp"),
+        )
+        //.with_base_image("alpine:latest".to_string())
         .with_default_tracing()
         .autorun(false)
+        //.with_clean(false)
         .build()
         .await
         .unwrap();
@@ -66,7 +89,9 @@ async fn client() {
 async fn client_test(mayastor: &str, test: &ComposeTest) {
     orderly_start(&test).await;
 
-    let client = ActixRestClient::new("https://localhost:8080").unwrap().v0();
+    let client = ActixRestClient::new("https://localhost:8080", true)
+        .unwrap()
+        .v0();
     let nodes = client.get_nodes().await.unwrap();
     assert_eq!(nodes.len(), 1);
     assert_eq!(
@@ -169,12 +194,21 @@ async fn client_test(mayastor: &str, test: &ComposeTest) {
         }
     );
 
-    let _ = client.add_nexus_child(AddNexusChild {
+    let child = client.add_nexus_child(AddNexusChild {
         node: nexus.node.clone(),
         nexus: nexus.uuid.clone(),
         uri: "malloc:///malloc2?blk_size=512&size_mb=100&uuid=b940f4f2-d45d-4404-8167-3b0366f9e2b1".to_string(),
         auto_rebuild: true,
     }).await.unwrap();
+
+    assert_eq!(
+        Some(&child),
+        client
+            .get_nexus_children(Filter::Nexus(nexus.uuid.clone()))
+            .await
+            .unwrap()
+            .last()
+    );
 
     client
         .destroy_nexus(DestroyNexus {

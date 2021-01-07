@@ -19,19 +19,45 @@ struct CliArgs {
     /// Default: nats://0.0.0.0:4222
     #[structopt(long, short, default_value = "nats://0.0.0.0:4222")]
     nats: String,
+
+    /// Trace rest requests to the Jaeger endpoint agent
+    #[structopt(long, short)]
+    jaeger: Option<String>,
 }
 
-fn init_tracing() {
+use actix_web_opentelemetry::RequestTracing;
+use opentelemetry::{
+    global,
+    sdk::{propagation::TraceContextPropagator, trace::Tracer},
+};
+use opentelemetry_jaeger::Uninstall;
+
+fn init_tracing() -> Option<(Tracer, Uninstall)> {
     if let Ok(filter) = tracing_subscriber::EnvFilter::try_from_default_env() {
         tracing_subscriber::fmt().with_env_filter(filter).init();
     } else {
         tracing_subscriber::fmt().with_env_filter("info").init();
     }
+    if let Some(agent) = CliArgs::from_args().jaeger {
+        tracing::info!("Starting jaeger trace pipeline at {}...", agent);
+        // Start a new jaeger trace pipeline
+        global::set_text_map_propagator(TraceContextPropagator::new());
+        let (_tracer, _uninstall) = opentelemetry_jaeger::new_pipeline()
+            .with_agent_endpoint(agent)
+            .with_service_name("rest-server")
+            .install()
+            .expect("Jaeger pipeline install error");
+        Some((_tracer, _uninstall))
+    } else {
+        None
+    }
 }
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
-    init_tracing();
+    // need to keep the jaeger pipeline tracer alive, if enabled
+    let _tracer = init_tracing();
+
     mbus_api::message_bus_init(CliArgs::from_args().nats).await;
 
     // dummy certificates
@@ -48,6 +74,7 @@ async fn main() -> std::io::Result<()> {
 
     HttpServer::new(move || {
         App::new()
+            .wrap(RequestTracing::new())
             .wrap(middleware::Logger::default())
             .service(v0::nodes::factory())
             .service(v0::pools::factory())
