@@ -31,11 +31,11 @@ use bollard::{
     },
     Docker,
 };
-use futures::TryStreamExt;
+use futures::{StreamExt, TryStreamExt};
 use ipnetwork::Ipv4Network;
 use tonic::transport::Channel;
 
-use bollard::models::ContainerInspectResponse;
+use bollard::{image::CreateImageOptions, models::ContainerInspectResponse};
 use mbus_api::TimeoutOptions;
 use rpc::mayastor::{
     bdev_rpc_client::BdevRpcClient,
@@ -159,6 +159,11 @@ impl Binary {
         }
     }
 
+    fn commands(&self) -> Vec<String> {
+        let mut v = vec![self.path.clone()];
+        v.extend(self.arguments.clone());
+        v
+    }
     fn which(name: &str) -> std::io::Result<String> {
         let output = std::process::Command::new("which").arg(name).output()?;
         Ok(String::from_utf8_lossy(&output.stdout).trim().into())
@@ -172,14 +177,6 @@ impl Binary {
     }
 }
 
-impl Into<Vec<String>> for Binary {
-    fn into(self) -> Vec<String> {
-        let mut v = vec![self.path.clone()];
-        v.extend(self.arguments);
-        v
-    }
-}
-
 const RUST_LOG_DEFAULT: &str =
     "debug,actix_web=debug,actix=debug,h2=info,hyper=info,tower_buffer=info,bollard=info,rustls=info";
 
@@ -189,8 +186,14 @@ const RUST_LOG_DEFAULT: &str =
 pub struct ContainerSpec {
     /// Name of the container
     name: ContainerName,
-    /// Binary configuration
-    binary: Binary,
+    /// Base image of the container
+    image: Option<String>,
+    /// Command to run
+    command: Option<String>,
+    /// command arguments to run
+    arguments: Option<Vec<String>>,
+    /// local binary
+    binary: Option<Binary>,
     /// Port mapping to host ports
     port_map: Option<PortMap>,
     /// Use Init container
@@ -200,21 +203,30 @@ pub struct ContainerSpec {
     env: HashMap<String, String>,
 }
 
-impl Into<Vec<String>> for &ContainerSpec {
-    fn into(self) -> Vec<String> {
-        self.binary.clone().into()
-    }
-}
-
 impl ContainerSpec {
     /// Create new ContainerSpec from name and binary
-    pub fn new(name: &str, binary: Binary) -> Self {
+    pub fn from_binary(name: &str, binary: Binary) -> Self {
+        let mut env = binary.env.clone();
+        if !env.contains_key("RUST_LOG") {
+            env.insert("RUST_LOG".to_string(), RUST_LOG_DEFAULT.to_string());
+        }
+        Self {
+            name: name.into(),
+            image: None,
+            binary: Some(binary),
+            init: Some(true),
+            env,
+            ..Default::default()
+        }
+    }
+    /// Create new ContainerSpec from name and image
+    pub fn from_image(name: &str, image: &str) -> Self {
         let mut env = HashMap::new();
         env.insert("RUST_LOG".to_string(), RUST_LOG_DEFAULT.to_string());
         Self {
             name: name.into(),
-            binary,
             init: Some(true),
+            image: Some(image.into()),
             env,
             ..Default::default()
         }
@@ -253,6 +265,18 @@ impl ContainerSpec {
         });
         vec
     }
+    /// Command/entrypoint followed by/and arguments
+    fn commands(&self) -> Vec<String> {
+        let mut commands = vec![];
+        if let Some(mut binary) = self.binary.clone() {
+            binary.setup_nats(&self.name);
+            commands.extend(binary.commands());
+        } else if let Some(command) = self.command.clone() {
+            commands.push(command);
+        }
+        commands.extend(self.arguments.clone().unwrap_or_default());
+        commands
+    }
 }
 
 pub struct Builder {
@@ -272,6 +296,8 @@ pub struct Builder {
     prune: bool,
     /// run all containers on build
     autorun: bool,
+    /// base image for image-less containers
+    image: Option<String>,
     /// output container logs on panic
     logs_on_panic: bool,
 }
@@ -292,6 +318,7 @@ impl Builder {
             clean: true,
             prune: true,
             autorun: true,
+            image: None,
             logs_on_panic: true,
         }
     }
@@ -316,8 +343,10 @@ impl Builder {
 
     /// add a mayastor container with a name
     pub fn add_container(mut self, name: &str) -> Builder {
-        self.containers
-            .push(ContainerSpec::new(name, Binary::from_dbg("mayastor")));
+        self.containers.push(ContainerSpec::from_binary(
+            name,
+            Binary::from_dbg("mayastor"),
+        ));
         self
     }
 
@@ -330,7 +359,13 @@ impl Builder {
     /// add a generic container which runs a local binary
     pub fn add_container_bin(self, name: &str, mut bin: Binary) -> Builder {
         bin.setup_nats(&self.name);
-        self.add_container_spec(ContainerSpec::new(name, bin))
+        self.add_container_spec(ContainerSpec::from_binary(name, bin))
+    }
+
+    /// add a docker container
+    /// todo: still need to pull the image manually
+    pub fn add_container_image(self, name: &str, image: Binary) -> Builder {
+        self.add_container_spec(ContainerSpec::from_binary(name, image))
     }
 
     /// clean on drop?
@@ -344,6 +379,41 @@ impl Builder {
         self.prune = enable;
         self
     }
+
+    /// output logs on panic
+    pub fn with_logs(mut self, enable: bool) -> Builder {
+        self.logs_on_panic = enable;
+        self
+    }
+
+    /// use base image for all binary containers
+    /// note, the image must be present locally
+    /// todo: pull image, if not present
+    pub fn with_base_image<S: Into<Option<String>>>(
+        mut self,
+        image: S,
+    ) -> Builder {
+        self.image = image.into();
+        self
+    }
+
+    /// setup tracing for the cargo test code with `RUST_LOG` const
+    pub fn with_default_tracing(self) -> Self {
+        self.with_tracing(RUST_LOG_DEFAULT)
+    }
+
+    /// setup tracing for the cargo test code with `filter`
+    pub fn with_tracing(self, filter: &str) -> Self {
+        if let Ok(filter) =
+            tracing_subscriber::EnvFilter::try_from_default_env()
+        {
+            tracing_subscriber::fmt().with_env_filter(filter).init();
+        } else {
+            tracing_subscriber::fmt().with_env_filter(filter).init();
+        }
+        self
+    }
+
     /// build the config and start the containers
     pub async fn build(
         self,
@@ -389,6 +459,7 @@ impl Builder {
             label_prefix: "io.mayastor.test".to_string(),
             clean: self.clean,
             prune: self.prune,
+            image: self.image,
             logs_on_panic: self.logs_on_panic,
         };
 
@@ -441,6 +512,8 @@ pub struct ComposeTest {
     /// automatically clean up the things we have created for this test
     clean: bool,
     pub prune: bool,
+    /// base image for image-less containers
+    image: Option<String>,
     /// output container logs on panic
     logs_on_panic: bool,
 }
@@ -713,10 +786,7 @@ impl ComposeTest {
         let mut env = spec.environment();
         env.push(format!("MY_POD_IP={}", ipv4));
 
-        let cmd: Vec<String> = spec.into();
-        let name = spec.name.as_str();
-
-        // figure out why ports to expose based on the port mapping
+        // figure out which ports to expose based on the port mapping
         let mut exposed_ports = HashMap::new();
         if let Some(map) = spec.port_map.as_ref() {
             map.iter().for_each(|binding| {
@@ -724,11 +794,18 @@ impl ComposeTest {
             })
         }
 
+        let name = spec.name.as_str();
+        let cmd = spec.commands();
+        let cmd = cmd.iter().map(|s| s.as_str()).collect();
+        let image = spec
+            .image
+            .as_ref()
+            .map_or_else(|| self.image.as_deref(), |s| Some(s.as_str()));
         let name_label = format!("{}.name", self.label_prefix);
         let config = Config {
-            cmd: Some(cmd.iter().map(|s| s.as_str()).collect()),
+            cmd: Some(cmd),
             env: Some(env.iter().map(|s| s.as_str()).collect()),
-            image: None, // notice we do not have a base image here
+            image,
             hostname: Some(name),
             host_config: Some(host_config),
             networking_config: Some(NetworkingConfig {
@@ -753,6 +830,8 @@ impl ComposeTest {
             ..Default::default()
         };
 
+        self.pull_missing_image(&spec.image).await;
+
         let container = self
             .docker
             .create_container(
@@ -768,6 +847,45 @@ impl ComposeTest {
             .insert(name.to_string(), (container.id, ipv4.parse().unwrap()));
 
         Ok(())
+    }
+
+    /// Pulls the docker image, if one is specified and is not present locally
+    async fn pull_missing_image(&self, image: &Option<String>) {
+        if let Some(image) = image {
+            if !self.image_exists(image).await {
+                self.pull_image(image).await;
+            }
+        }
+    }
+
+    /// Check if image exists locally
+    async fn image_exists(&self, image: &str) -> bool {
+        let images = self.docker.list_images::<String>(None).await.unwrap();
+        images
+            .iter()
+            .any(|i| i.repo_tags.iter().any(|t| t == image))
+    }
+
+    /// Pulls the docker image
+    async fn pull_image(&self, image: &str) {
+        let mut stream = self
+            .docker
+            .create_image(
+                Some(CreateImageOptions {
+                    from_image: image,
+                    ..Default::default()
+                }),
+                None,
+                None,
+            )
+            .into_future()
+            .await;
+
+        while let Some(result) = stream.0.as_ref() {
+            let info = result.as_ref().unwrap();
+            tracing::trace!("{:?}", &info);
+            stream = stream.1.into_future().await;
+        }
     }
 
     /// start the container
