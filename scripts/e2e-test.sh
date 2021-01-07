@@ -80,7 +80,6 @@ for dir in $TESTS; do
 done
 
 if [ -n "$test_failed" ]; then
-    # "$SCRIPTDIR"/e2e-cluster-dump.sh --path "/tmp/e2e-fail-logs"
     "$SCRIPTDIR"/e2e-cluster-dump.sh
 fi
 
@@ -88,7 +87,6 @@ fi
 cd "$SCRIPTDIR/../test/e2e/uninstall"
 if ! go test -v . -ginkgo.v -ginkgo.progress -timeout 0 ; then
     "$SCRIPTDIR"/e2e-cluster-dump.sh --clusteronly
-    # "$SCRIPTDIR"/e2e-cluster-dump.sh --path /tmp/uninstall-fail-logs
 fi
 
 if [ -n "$test_failed" ]; then
