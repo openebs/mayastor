@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+set -e
+
 help() {
   cat <<EOF
 This script generates logs for mayastor pods and cluster state.
@@ -7,10 +9,10 @@ This script generates logs for mayastor pods and cluster state.
 Usage: $0 [OPTIONS]
 
 Options:
-  --path <path>   Location to store log files
+  --destdir <path>   Location to store log files
   --clusteronly   Only generate cluster information
 
-If --path is not specified the data is dumped to stdout
+If --destdir is not specified the data is dumped to stdout
 EOF
 }
 
@@ -71,7 +73,7 @@ function logs-csi-containers {
     for pod in $mayastor_csipods
     do
         echo "# $pod csi-driver-registrar $* ---------------------------------"
-        kubectl -n mayastor logs "$@" "$pod"  csi-driver-registrar
+        kubectl -n mayastor logs "$@" "$pod" csi-driver-registrar
     done
 
     moacpod=$(kubectl -n mayastor get pods | grep moac | sed -e 's/ .*//')
@@ -162,7 +164,7 @@ destdir=
 # Parse arguments
 while [ "$#" -gt 0 ]; do
   case "$1" in
-    -p|--path)
+    -d|--destdir)
       shift
       destdir="$1"
       ;;
