@@ -19,20 +19,20 @@ pub(crate) fn factory() -> impl HttpServiceFactory {
 
 #[get("/v0/nexuses/{nexus_id}/children")]
 async fn get_nexus_children(
-    web::Path(nexus_id): web::Path<String>,
+    web::Path(nexus_id): web::Path<NexusId>,
 ) -> impl Responder {
     get_children_response(Filter::Nexus(nexus_id)).await
 }
 #[get("/v0/nodes/{node_id}/nexuses/{nexus_id}/children")]
 async fn get_node_nexus_children(
-    web::Path((node_id, nexus_id)): web::Path<(String, String)>,
+    web::Path((node_id, nexus_id)): web::Path<(NodeId, NexusId)>,
 ) -> impl Responder {
     get_children_response(Filter::NodeNexus(node_id, nexus_id)).await
 }
 
 #[get("/v0/nexuses/{nexus_id}/children/{child_id:.*}")]
 async fn get_nexus_child(
-    web::Path((nexus_id, child_id)): web::Path<(String, String)>,
+    web::Path((nexus_id, child_id)): web::Path<(NexusId, ChildUri)>,
     req: HttpRequest,
 ) -> impl Responder {
     get_child_response(child_id, req, Filter::Nexus(nexus_id)).await
@@ -40,9 +40,9 @@ async fn get_nexus_child(
 #[get("/v0/nodes/{node_id}/nexuses/{nexus_id}/children/{child_id:.*}")]
 async fn get_node_nexus_child(
     web::Path((node_id, nexus_id, child_id)): web::Path<(
-        String,
-        String,
-        String,
+        NodeId,
+        NexusId,
+        ChildUri,
     )>,
     req: HttpRequest,
 ) -> impl Responder {
@@ -52,7 +52,7 @@ async fn get_node_nexus_child(
 
 #[put("/v0/nexuses/{nexus_id}/children/{child_id:.*}")]
 async fn add_nexus_child(
-    web::Path((nexus_id, child_id)): web::Path<(String, String)>,
+    web::Path((nexus_id, child_id)): web::Path<(NexusId, ChildUri)>,
     req: HttpRequest,
 ) -> impl Responder {
     add_child_filtered(child_id, req, Filter::Nexus(nexus_id)).await
@@ -60,9 +60,9 @@ async fn add_nexus_child(
 #[put("/v0/nodes/{node_id}/nexuses/{nexus_id}/children/{child_id:.*}")]
 async fn add_node_nexus_child(
     web::Path((node_id, nexus_id, child_id)): web::Path<(
-        String,
-        String,
-        String,
+        NodeId,
+        NexusId,
+        ChildUri,
     )>,
     req: HttpRequest,
 ) -> impl Responder {
@@ -72,7 +72,7 @@ async fn add_node_nexus_child(
 
 #[delete("/v0/nexuses/{nexus_id}/children/{child_id:.*}")]
 async fn delete_nexus_child(
-    web::Path((nexus_id, child_id)): web::Path<(String, String)>,
+    web::Path((nexus_id, child_id)): web::Path<(NexusId, ChildUri)>,
     req: HttpRequest,
 ) -> impl Responder {
     delete_child_filtered(child_id, req, Filter::Nexus(nexus_id)).await
@@ -80,9 +80,9 @@ async fn delete_nexus_child(
 #[delete("/v0/nodes/{node_id}/nexuses/{nexus_id}/children/{child_id:.*}")]
 async fn delete_node_nexus_child(
     web::Path((node_id, nexus_id, child_id)): web::Path<(
-        String,
-        String,
-        String,
+        NodeId,
+        NexusId,
+        ChildUri,
     )>,
     req: HttpRequest,
 ) -> impl Responder {
@@ -98,7 +98,7 @@ async fn get_children_response(
 }
 
 async fn get_child_response(
-    child_id: String,
+    child_id: ChildUri,
     req: HttpRequest,
     filter: Filter,
 ) -> Result<HttpResponse, RestError> {
@@ -108,8 +108,11 @@ async fn get_child_response(
     RestRespond::ok(child)
 }
 
-fn find_nexus_child(nexus: &Nexus, child_uri: &str) -> Result<Child, BusError> {
-    if let Some(child) = nexus.children.iter().find(|&c| c.uri == child_uri) {
+fn find_nexus_child(
+    nexus: &Nexus,
+    child_uri: &ChildUri,
+) -> Result<Child, BusError> {
+    if let Some(child) = nexus.children.iter().find(|&c| &c.uri == child_uri) {
         Ok(child.clone())
     } else {
         Err(BusError::NotFound)
@@ -117,7 +120,7 @@ fn find_nexus_child(nexus: &Nexus, child_uri: &str) -> Result<Child, BusError> {
 }
 
 async fn add_child_filtered(
-    child_id: String,
+    child_id: ChildUri,
     req: HttpRequest,
     filter: Filter,
 ) -> impl Responder {
@@ -138,7 +141,7 @@ async fn add_child_filtered(
 }
 
 async fn delete_child_filtered(
-    child_id: String,
+    child_id: ChildUri,
     req: HttpRequest,
     filter: Filter,
 ) -> impl Responder {
@@ -157,8 +160,9 @@ async fn delete_child_filtered(
     RestRespond::result(MessageBus::remove_nexus_child(destroy).await)
 }
 
-fn build_child_uri(child_id: String, req: HttpRequest) -> String {
-    match url::Url::parse(&child_id) {
+fn build_child_uri(child_id: ChildUri, req: HttpRequest) -> ChildUri {
+    let child_id = child_id.to_string();
+    ChildUri::from(match url::Url::parse(child_id.as_str()) {
         Ok(_) => {
             if req.query_string().is_empty() {
                 child_id
@@ -170,5 +174,5 @@ fn build_child_uri(child_id: String, req: HttpRequest) -> String {
             // not a URL, it's probably legacy, default to AIO
             format!("aio://{}", child_id)
         }
-    }
+    })
 }

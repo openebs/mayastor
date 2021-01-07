@@ -5,8 +5,8 @@ use mbus_api::Message;
 #[derive(Debug, Default, Clone)]
 pub struct NodeWrapperVolume {
     node: Node,
-    pools: HashMap<String, PoolWrapper>,
-    nexuses: HashMap<String, Nexus>,
+    pools: HashMap<PoolId, PoolWrapper>,
+    nexuses: HashMap<NexusId, Nexus>,
 }
 
 #[async_trait]
@@ -36,10 +36,10 @@ impl NodePoolTrait for NodeWrapperVolume {
 
     async fn on_create_pool(&mut self, pool: &Pool, replicas: &[Replica]) {
         self.pools
-            .insert(pool.name.clone(), PoolWrapper::new_from(&pool, replicas));
+            .insert(pool.id.clone(), PoolWrapper::new_from(&pool, replicas));
     }
 
-    fn on_destroy_pool(&mut self, pool: &str) {
+    fn on_destroy_pool(&mut self, pool: &PoolId) {
         self.pools.remove(pool);
     }
 }
@@ -95,7 +95,7 @@ impl NodeReplicaTrait for NodeWrapperVolume {
         }
     }
 
-    fn on_destroy_replica(&mut self, pool: &str, replica: &str) {
+    fn on_destroy_replica(&mut self, pool: &PoolId, replica: &ReplicaId) {
         if let Some(pool) = self.pools.get_mut(pool) {
             pool.removed_replica(replica)
         }
@@ -103,8 +103,8 @@ impl NodeReplicaTrait for NodeWrapperVolume {
 
     fn on_update_replica(
         &mut self,
-        pool: &str,
-        replica: &str,
+        pool: &PoolId,
+        replica: &ReplicaId,
         share: &Protocol,
         uri: &str,
     ) {
@@ -199,13 +199,13 @@ impl NodeNexusTrait for NodeWrapperVolume {
         self.nexuses.insert(nexus.uuid.clone(), nexus.clone());
     }
 
-    fn on_update_nexus(&mut self, nexus: &str, uri: &str) {
+    fn on_update_nexus(&mut self, nexus: &NexusId, uri: &str) {
         if let Some(nexus) = self.nexuses.get_mut(nexus) {
             nexus.device_uri = uri.to_string();
         }
     }
 
-    fn on_destroy_nexus(&mut self, nexus: &str) {
+    fn on_destroy_nexus(&mut self, nexus: &NexusId) {
         self.nexuses.remove(nexus);
     }
 }
@@ -244,7 +244,7 @@ impl NodeNexusChildTrait for NodeWrapperVolume {
         Ok(())
     }
 
-    fn on_add_child(&mut self, nexus: &str, child: &Child) {
+    fn on_add_child(&mut self, nexus: &NexusId, child: &Child) {
         if let Some(nexus) = self.nexuses.get_mut(nexus) {
             nexus.children.push(child.clone());
         }
@@ -259,11 +259,11 @@ impl NodeNexusChildTrait for NodeWrapperVolume {
 
 #[async_trait]
 impl NodeWrapperTrait for NodeWrapperVolume {
-    async fn new(node: &str) -> Result<NodeWrapper, SvcError> {
+    async fn new(node: &NodeId) -> Result<NodeWrapper, SvcError> {
         Ok(Box::new(Self::new_wrapper(node).await?))
     }
 
-    fn id(&self) -> String {
+    fn id(&self) -> NodeId {
         self.node.id.clone()
     }
     fn node(&self) -> Node {
@@ -327,7 +327,7 @@ impl NodeWrapperTrait for NodeWrapperVolume {
 
 impl NodeWrapperVolume {
     /// Fetch node via the message bus
-    async fn fetch_node(node: &str) -> Result<Node, SvcError> {
+    async fn fetch_node(node: &NodeId) -> Result<Node, SvcError> {
         MessageBus::get_node(node).await.context(BusGetNode {
             node,
         })
@@ -335,7 +335,7 @@ impl NodeWrapperVolume {
 
     /// New node wrapper for the pool service containing
     /// a list of pools and replicas
-    async fn new_wrapper(node: &str) -> Result<NodeWrapperVolume, SvcError> {
+    async fn new_wrapper(node: &NodeId) -> Result<NodeWrapperVolume, SvcError> {
         let mut node = Self {
             // if we can't even fetch the node, then no point in proceeding
             node: NodeWrapperVolume::fetch_node(node).await?,
@@ -351,7 +351,7 @@ impl NodeWrapperVolume {
             for pool in &pools {
                 let replicas = replicas
                     .iter()
-                    .filter(|r| r.pool == pool.name)
+                    .filter(|r| r.pool == pool.id)
                     .cloned()
                     .collect::<Vec<_>>();
                 node.on_create_pool(pool, &replicas).await;
@@ -367,10 +367,11 @@ impl NodeWrapperVolume {
     }
 }
 
-fn rpc_nexus_to_bus(rpc_nexus: &rpc::mayastor::Nexus, id: String) -> Nexus {
+fn rpc_nexus_to_bus(rpc_nexus: &rpc::mayastor::Nexus, id: NodeId) -> Nexus {
+    let rpc_nexus = rpc_nexus.clone();
     Nexus {
         node: id,
-        uuid: rpc_nexus.uuid.clone(),
+        uuid: rpc_nexus.uuid.into(),
         size: rpc_nexus.size,
         state: NexusState::from(rpc_nexus.state),
         children: rpc_nexus
@@ -383,8 +384,9 @@ fn rpc_nexus_to_bus(rpc_nexus: &rpc::mayastor::Nexus, id: String) -> Nexus {
     }
 }
 fn rpc_child_to_bus(rpc_child: &rpc::mayastor::Child) -> Child {
+    let rpc_child = rpc_child.clone();
     Child {
-        uri: rpc_child.uri.clone(),
+        uri: rpc_child.uri.into(),
         state: ChildState::from(rpc_child.state),
         rebuild_progress: if rpc_child.rebuild_progress >= 0 {
             Some(rpc_child.rebuild_progress)
@@ -396,49 +398,53 @@ fn rpc_child_to_bus(rpc_child: &rpc::mayastor::Child) -> Child {
 fn bus_nexus_to_rpc(
     request: &CreateNexus,
 ) -> rpc::mayastor::CreateNexusRequest {
+    let request = request.clone();
     rpc::mayastor::CreateNexusRequest {
-        uuid: request.uuid.clone(),
+        uuid: request.uuid.into(),
         size: request.size,
-        children: request.children.clone(),
+        children: request.children.iter().map(|c| c.to_string()).collect(),
     }
 }
 fn bus_nexus_share_to_rpc(
     request: &ShareNexus,
 ) -> rpc::mayastor::PublishNexusRequest {
+    let request = request.clone();
     rpc::mayastor::PublishNexusRequest {
-        uuid: request.uuid.clone(),
+        uuid: request.uuid.into(),
         key: request.key.clone().unwrap_or_default(),
-        share: request.protocol.clone() as i32,
+        share: request.protocol as i32,
     }
 }
 fn bus_nexus_unshare_to_rpc(
     request: &UnshareNexus,
 ) -> rpc::mayastor::UnpublishNexusRequest {
     rpc::mayastor::UnpublishNexusRequest {
-        uuid: request.uuid.clone(),
+        uuid: request.uuid.clone().into(),
     }
 }
 fn bus_nexus_destroy_to_rpc(
     request: &DestroyNexus,
 ) -> rpc::mayastor::DestroyNexusRequest {
     rpc::mayastor::DestroyNexusRequest {
-        uuid: request.uuid.clone(),
+        uuid: request.uuid.clone().into(),
     }
 }
 fn bus_nexus_child_add_to_rpc(
     request: &AddNexusChild,
 ) -> rpc::mayastor::AddChildNexusRequest {
+    let request = request.clone();
     rpc::mayastor::AddChildNexusRequest {
-        uuid: request.nexus.clone(),
-        uri: request.uri.clone(),
+        uuid: request.nexus.into(),
+        uri: request.uri.into(),
         norebuild: !request.auto_rebuild,
     }
 }
 fn bus_nexus_child_remove_to_rpc(
     request: &RemoveNexusChild,
 ) -> rpc::mayastor::RemoveChildNexusRequest {
+    let request = request.clone();
     rpc::mayastor::RemoveChildNexusRequest {
-        uuid: request.nexus.clone(),
-        uri: request.uri.clone(),
+        uuid: request.nexus.into(),
+        uri: request.uri.into(),
     }
 }

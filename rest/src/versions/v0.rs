@@ -18,11 +18,11 @@ pub type Node = v0::Node;
 pub type Nodes = v0::Nodes;
 /// Pool from the node service
 pub type Pool = v0::Pool;
-/// Vector of Pools from the node service
+/// Vector of Pools from the pool service
 pub type Pools = v0::Pools;
 /// Replica
 pub type Replica = v0::Replica;
-/// Vector of Replicas from the node service
+/// Vector of Replicas from the pool service
 pub type Replicas = v0::Replicas;
 /// Replica protocol
 pub type Protocol = v0::Protocol;
@@ -65,12 +65,12 @@ impl CreatePoolBody {
     /// convert into message bus type
     pub fn bus_request(
         &self,
-        node_id: String,
-        pool_id: String,
+        node_id: NodeId,
+        pool_id: PoolId,
     ) -> v0::CreatePool {
         v0::CreatePool {
             node: node_id,
-            name: pool_id,
+            id: pool_id,
             disks: self.disks.clone(),
         }
     }
@@ -88,9 +88,9 @@ impl CreateReplicaBody {
     /// convert into message bus type
     pub fn bus_request(
         &self,
-        node_id: String,
-        pool_id: String,
-        uuid: String,
+        node_id: NodeId,
+        pool_id: PoolId,
+        uuid: ReplicaId,
     ) -> v0::CreateReplica {
         v0::CreateReplica {
             node: node_id,
@@ -110,6 +110,8 @@ pub type Nexus = v0::Nexus;
 pub type Nexuses = v0::Nexuses;
 /// State of the nexus
 pub type NexusState = v0::NexusState;
+/// State of the nexus
+pub type VolumeState = v0::VolumeState;
 /// Child of the nexus
 pub type Child = v0::Child;
 /// State of the child
@@ -132,7 +134,7 @@ pub struct CreateNexusBody {
     /// (i.e. bdev:///name-of-the-bdev).
     ///
     /// uris to the targets we connect to
-    pub children: Vec<String>,
+    pub children: Vec<ChildUri>,
 }
 impl From<CreateNexus> for CreateNexusBody {
     fn from(create: CreateNexus) -> Self {
@@ -146,8 +148,8 @@ impl CreateNexusBody {
     /// convert into message bus type
     pub fn bus_request(
         &self,
-        node_id: String,
-        nexus_id: String,
+        node_id: NodeId,
+        nexus_id: NexusId,
     ) -> v0::CreateNexus {
         v0::CreateNexus {
             node: node_id,
@@ -165,10 +167,22 @@ pub type AddNexusChild = v0::AddNexusChild;
 pub type Volume = v0::Volume;
 /// Volumes
 pub type Volumes = v0::Volumes;
-/// Add Volume
+/// Create Volume
 pub type CreateVolume = v0::CreateVolume;
 /// Destroy Volume
 pub type DestroyVolume = v0::DestroyVolume;
+/// Id of a mayastor node
+pub type NodeId = v0::NodeId;
+/// Id of a mayastor pool
+pub type PoolId = v0::PoolId;
+/// UUID of a mayastor pool replica
+pub type ReplicaId = v0::ReplicaId;
+/// UUID of a mayastor nexus
+pub type NexusId = v0::NexusId;
+/// URI of a mayastor nexus child
+pub type ChildUri = v0::ChildUri;
+/// UUID of a mayastor volume
+pub type VolumeId = v0::VolumeId;
 
 /// Create Volume Body JSON
 #[derive(Serialize, Deserialize, Default, Debug, Clone)]
@@ -181,13 +195,13 @@ pub struct CreateVolumeBody {
     pub replicas: u64,
     /// only these nodes can be used for the replicas
     #[serde(default)]
-    pub allowed_nodes: Vec<String>,
+    pub allowed_nodes: Vec<NodeId>,
     /// preferred nodes for the replicas
     #[serde(default)]
-    pub preferred_nodes: Vec<String>,
+    pub preferred_nodes: Vec<NodeId>,
     /// preferred nodes for the nexuses
     #[serde(default)]
-    pub preferred_nexus_nodes: Vec<String>,
+    pub preferred_nexus_nodes: Vec<NodeId>,
 }
 impl From<CreateVolume> for CreateVolumeBody {
     fn from(create: CreateVolume) -> Self {
@@ -203,7 +217,7 @@ impl From<CreateVolume> for CreateVolumeBody {
 }
 impl CreateVolumeBody {
     /// convert into message bus type
-    pub fn bus_request(&self, volume_id: String) -> CreateVolume {
+    pub fn bus_request(&self, volume_id: VolumeId) -> CreateVolume {
         CreateVolume {
             uuid: volume_id,
             size: self.size,
@@ -246,7 +260,7 @@ pub trait RestClient {
     /// Unshare replica with arguments
     async fn unshare_replica(&self, args: UnshareReplica)
         -> anyhow::Result<()>;
-    /// Get all the known pools
+    /// Get all the known nexuses
     async fn get_nexuses(&self, filter: Filter) -> anyhow::Result<Vec<Nexus>>;
     /// Create new nexus with arguments
     async fn create_nexus(&self, args: CreateNexus) -> anyhow::Result<Nexus>;
@@ -384,13 +398,13 @@ impl RestClient for ActixRestClient {
     }
 
     async fn create_pool(&self, args: CreatePool) -> anyhow::Result<Pool> {
-        let urn = format!("/v0/nodes/{}/pools/{}", &args.node, &args.name);
+        let urn = format!("/v0/nodes/{}/pools/{}", &args.node, &args.id);
         let pool = self.put(urn, CreatePoolBody::from(args)).await?;
         Ok(pool)
     }
 
     async fn destroy_pool(&self, args: DestroyPool) -> anyhow::Result<()> {
-        let urn = format!("/v0/nodes/{}/pools/{}", &args.node, &args.name);
+        let urn = format!("/v0/nodes/{}/pools/{}", &args.node, &args.id);
         self.del(urn).await?;
         Ok(())
     }
@@ -504,12 +518,12 @@ impl RestClient for ActixRestClient {
         &self,
         args: RemoveNexusChild,
     ) -> anyhow::Result<()> {
-        let urn = match url::Url::parse(&args.uri) {
+        let urn = match url::Url::parse(args.uri.as_str()) {
             Ok(uri) => {
                 // remove initial '/'
                 uri.path()[1 ..].to_string()
             }
-            _ => args.uri.clone(),
+            _ => args.uri.to_string(),
         };
         self.del(urn).await?;
         Ok(())

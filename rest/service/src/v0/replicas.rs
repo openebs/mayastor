@@ -29,7 +29,7 @@ async fn get_replicas() -> impl Responder {
 }
 #[get("/v0/replicas/{id}")]
 async fn get_replica(
-    web::Path(replica_id): web::Path<String>,
+    web::Path(replica_id): web::Path<ReplicaId>,
 ) -> impl Responder {
     RestRespond::result(
         MessageBus::get_replica(Filter::Replica(replica_id)).await,
@@ -38,14 +38,14 @@ async fn get_replica(
 
 #[get("/v0/nodes/{id}/replicas")]
 async fn get_node_replicas(
-    web::Path(node_id): web::Path<String>,
+    web::Path(node_id): web::Path<NodeId>,
 ) -> impl Responder {
     RestRespond::result(MessageBus::get_replicas(Filter::Node(node_id)).await)
 }
 
 #[get("/v0/nodes/{node_id}/pools/{pool_id}/replicas")]
 async fn get_node_pool_replicas(
-    web::Path((node_id, pool_id)): web::Path<(String, String)>,
+    web::Path((node_id, pool_id)): web::Path<(NodeId, PoolId)>,
 ) -> impl Responder {
     RestRespond::result(
         MessageBus::get_replicas(Filter::NodePool(node_id, pool_id)).await,
@@ -54,9 +54,9 @@ async fn get_node_pool_replicas(
 #[get("/v0/nodes/{node_id}/pools/{pool_id}/replicas/{replica_id}")]
 async fn get_node_pool_replica(
     web::Path((node_id, pool_id, replica_id)): web::Path<(
-        String,
-        String,
-        String,
+        NodeId,
+        PoolId,
+        ReplicaId,
     )>,
 ) -> impl Responder {
     RestRespond::result(
@@ -70,9 +70,9 @@ async fn get_node_pool_replica(
 #[put("/v0/nodes/{node_id}/pools/{pool_id}/replicas/{replica_id}")]
 async fn put_node_pool_replica(
     web::Path((node_id, pool_id, replica_id)): web::Path<(
-        String,
-        String,
-        String,
+        NodeId,
+        PoolId,
+        ReplicaId,
     )>,
     create: web::Json<CreateReplicaBody>,
 ) -> impl Responder {
@@ -84,7 +84,7 @@ async fn put_node_pool_replica(
 }
 #[put("/v0/pools/{pool_id}/replicas/{replica_id}")]
 async fn put_pool_replica(
-    web::Path((pool_id, replica_id)): web::Path<(String, String)>,
+    web::Path((pool_id, replica_id)): web::Path<(PoolId, ReplicaId)>,
     create: web::Json<CreateReplicaBody>,
 ) -> impl Responder {
     put_replica(
@@ -97,16 +97,16 @@ async fn put_pool_replica(
 #[delete("/v0/nodes/{node_id}/pools/{pool_id}/replicas/{replica_id}")]
 async fn del_node_pool_replica(
     web::Path((node_id, pool_id, replica_id)): web::Path<(
-        String,
-        String,
-        String,
+        NodeId,
+        PoolId,
+        ReplicaId,
     )>,
 ) -> impl Responder {
     destroy_replica(Filter::NodePoolReplica(node_id, pool_id, replica_id)).await
 }
 #[delete("/v0/pools/{pool_id}/replicas/{replica_id}")]
 async fn del_pool_replica(
-    web::Path((pool_id, replica_id)): web::Path<(String, String)>,
+    web::Path((pool_id, replica_id)): web::Path<(PoolId, ReplicaId)>,
 ) -> impl Responder {
     destroy_replica(Filter::PoolReplica(pool_id, replica_id)).await
 }
@@ -114,9 +114,9 @@ async fn del_pool_replica(
 #[put("/v0/nodes/{node_id}/pools/{pool_id}/replicas/{replica_id}/share/{protocol}")]
 async fn put_node_pool_replica_share(
     web::Path((node_id, pool_id, replica_id, protocol)): web::Path<(
-        String,
-        String,
-        String,
+        NodeId,
+        PoolId,
+        ReplicaId,
         Protocol,
     )>,
 ) -> impl Responder {
@@ -129,8 +129,8 @@ async fn put_node_pool_replica_share(
 #[put("/v0/pools/{pool_id}/replicas/{replica_id}/share/{protocol}")]
 async fn put_pool_replica_share(
     web::Path((pool_id, replica_id, protocol)): web::Path<(
-        String,
-        String,
+        PoolId,
+        ReplicaId,
         Protocol,
     )>,
 ) -> impl Responder {
@@ -140,16 +140,16 @@ async fn put_pool_replica_share(
 #[delete("/v0/nodes/{node_id}/pools/{pool_id}/replicas/{replica_id}/share")]
 async fn del_node_pool_replica_share(
     web::Path((node_id, pool_id, replica_id)): web::Path<(
-        String,
-        String,
-        String,
+        NodeId,
+        PoolId,
+        ReplicaId,
     )>,
 ) -> impl Responder {
     unshare_replica(Filter::NodePoolReplica(node_id, pool_id, replica_id)).await
 }
 #[delete("/v0/pools/{pool_id}/replicas/{replica_id}/share")]
 async fn del_pool_replica_share(
-    web::Path((pool_id, replica_id)): web::Path<(String, String)>,
+    web::Path((pool_id, replica_id)): web::Path<(PoolId, ReplicaId)>,
 ) -> impl Responder {
     unshare_replica(Filter::PoolReplica(pool_id, replica_id)).await
 }

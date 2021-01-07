@@ -171,11 +171,11 @@ bus_impl_message_all!(
 /// Registration
 
 /// Register message payload
-#[derive(Serialize, Deserialize, Default, Debug, Clone, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Default, Debug, Clone)]
 #[serde(rename_all = "camelCase")]
 pub struct Register {
     /// id of the mayastor instance
-    pub id: String,
+    pub id: NodeId,
     /// grpc_endpoint of the mayastor instance
     pub grpc_endpoint: String,
 }
@@ -185,7 +185,7 @@ bus_impl_message_all!(Register, Register, (), Registry);
 #[derive(Serialize, Deserialize, Default, Debug, Clone)]
 pub struct Deregister {
     /// id of the mayastor instance
-    pub id: String,
+    pub id: NodeId,
 }
 bus_impl_message_all!(Deregister, Deregister, (), Registry);
 
@@ -221,7 +221,7 @@ impl Default for NodeState {
 #[serde(rename_all = "camelCase")]
 pub struct Node {
     /// id of the mayastor instance
-    pub id: String,
+    pub id: NodeId,
     /// grpc_endpoint of the mayastor instance
     pub grpc_endpoint: String,
     /// deemed state of the node
@@ -241,37 +241,93 @@ pub enum Filter {
     /// All objects
     None,
     /// Filter by Node id
-    Node(String),
+    Node(NodeId),
     /// Pool filters
     ///
     /// Filter by Pool id
-    Pool(String),
+    Pool(PoolId),
     /// Filter by Node and Pool id
-    NodePool(String, String),
+    NodePool(NodeId, PoolId),
     /// Filter by Node and Replica id
-    NodeReplica(String, String),
+    NodeReplica(NodeId, ReplicaId),
     /// Filter by Node, Pool and Replica id
-    NodePoolReplica(String, String, String),
+    NodePoolReplica(NodeId, PoolId, ReplicaId),
     /// Filter by Pool and Replica id
-    PoolReplica(String, String),
+    PoolReplica(PoolId, ReplicaId),
     /// Filter by Replica id
-    Replica(String),
+    Replica(ReplicaId),
     /// Volume filters
     ///
     /// Filter by Node and Nexus
-    NodeNexus(String, String),
+    NodeNexus(NodeId, NexusId),
     /// Filter by Nexus
-    Nexus(String),
+    Nexus(NexusId),
     /// Filter by Node and Volume
-    NodeVolume(String, String),
+    NodeVolume(NodeId, VolumeId),
     /// Filter by Volume
-    Volume(String),
+    Volume(VolumeId),
 }
 impl Default for Filter {
     fn default() -> Self {
         Self::None
     }
 }
+
+macro_rules! bus_impl_string_id {
+    ($Name:ident, $Doc:literal) => {
+        #[doc = $Doc]
+        #[derive(Serialize, Deserialize, Default, Debug, Clone, Eq, PartialEq, Hash)]
+        pub struct $Name(pub String);
+
+        impl std::fmt::Display for $Name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{}", self.0)
+            }
+        }
+
+        impl $Name {
+            /// Build Self from a string trait id
+            pub fn from<T: Into<String>>(id: T) -> Self {
+                $Name(id.into())
+            }
+            /// Build Self from a string trait id
+            pub fn as_str<'a>(&'a self) -> &'a str {
+                self.0.as_str()
+            }
+        }
+
+        impl From<&str> for $Name {
+            fn from(id: &str) -> Self {
+                $Name::from(id)
+            }
+        }
+
+        impl From<String> for $Name {
+            fn from(id: String) -> Self {
+                $Name::from(id.as_str())
+            }
+        }
+
+        impl Into<$Name> for &$Name {
+            fn into(self) -> $Name {
+                self.clone()
+            }
+        }
+
+        impl Into<String> for $Name {
+            fn into(self) -> String {
+                self.to_string()
+            }
+        }
+    };
+}
+
+bus_impl_string_id!(NodeId, "UUID of a mayastor node");
+bus_impl_string_id!(PoolId, "UUID of a mayastor pool");
+bus_impl_string_id!(ReplicaId, "UUID of a mayastor pool replica");
+bus_impl_string_id!(NexusId, "UUID of a mayastor nexus");
+bus_impl_string_id!(ChildUri, "URI of a mayastor nexus child");
+bus_impl_string_id!(VolumeId, "UUID of a mayastor volume");
 
 /// Pool Service
 /// Get all the pools from specific node or None for all nodes
@@ -317,9 +373,9 @@ impl From<i32> for PoolState {
 #[serde(rename_all = "camelCase")]
 pub struct Pool {
     /// id of the mayastor instance
-    pub node: String,
-    /// name of the pool
-    pub name: String,
+    pub node: NodeId,
+    /// id of the pool
+    pub id: PoolId,
     /// absolute disk paths claimed by the pool
     pub disks: Vec<String>,
     /// current state of the pool
@@ -367,9 +423,9 @@ impl PartialOrd for PoolState {
 #[serde(rename_all = "camelCase")]
 pub struct CreatePool {
     /// id of the mayastor instance
-    pub node: String,
-    /// name of the pool
-    pub name: String,
+    pub node: NodeId,
+    /// id of the pool
+    pub id: PoolId,
     /// disk device paths or URIs to be claimed by the pool
     pub disks: Vec<String>,
 }
@@ -380,9 +436,9 @@ bus_impl_message_all!(CreatePool, CreatePool, Pool, Pool);
 #[serde(rename_all = "camelCase")]
 pub struct DestroyPool {
     /// id of the mayastor instance
-    pub node: String,
-    /// name of the pool
-    pub name: String,
+    pub node: NodeId,
+    /// id of the pool
+    pub id: PoolId,
 }
 bus_impl_message_all!(DestroyPool, DestroyPool, (), Pool);
 
@@ -402,11 +458,11 @@ pub struct GetReplicas {
 #[serde(rename_all = "camelCase")]
 pub struct Replica {
     /// id of the mayastor instance
-    pub node: String,
+    pub node: NodeId,
     /// uuid of the replica
-    pub uuid: String,
-    /// name of the pool
-    pub pool: String,
+    pub uuid: ReplicaId,
+    /// id of the pool
+    pub pool: PoolId,
     /// thin provisioning
     pub thin: bool,
     /// size of the replica in bytes
@@ -425,11 +481,11 @@ bus_impl_message_all!(GetReplicas, GetReplicas, Replicas, Pool);
 #[serde(rename_all = "camelCase")]
 pub struct CreateReplica {
     /// id of the mayastor instance
-    pub node: String,
+    pub node: NodeId,
     /// uuid of the replica
-    pub uuid: String,
-    /// name of the pool
-    pub pool: String,
+    pub uuid: ReplicaId,
+    /// id of the pool
+    pub pool: PoolId,
     /// size of the replica in bytes
     pub size: u64,
     /// thin provisioning
@@ -444,11 +500,11 @@ bus_impl_message_all!(CreateReplica, CreateReplica, Replica, Pool);
 #[serde(rename_all = "camelCase")]
 pub struct DestroyReplica {
     /// id of the mayastor instance
-    pub node: String,
-    /// name of the pool
-    pub pool: String,
+    pub node: NodeId,
+    /// id of the pool
+    pub pool: PoolId,
     /// uuid of the replica
-    pub uuid: String,
+    pub uuid: ReplicaId,
 }
 bus_impl_message_all!(DestroyReplica, DestroyReplica, (), Pool);
 
@@ -457,11 +513,11 @@ bus_impl_message_all!(DestroyReplica, DestroyReplica, (), Pool);
 #[serde(rename_all = "camelCase")]
 pub struct ShareReplica {
     /// id of the mayastor instance
-    pub node: String,
-    /// name of the pool
-    pub pool: String,
+    pub node: NodeId,
+    /// id of the pool
+    pub pool: PoolId,
     /// uuid of the replica
-    pub uuid: String,
+    pub uuid: ReplicaId,
     /// protocol used for exposing the replica
     pub protocol: Protocol,
 }
@@ -472,11 +528,11 @@ bus_impl_message_all!(ShareReplica, ShareReplica, String, Pool);
 #[serde(rename_all = "camelCase")]
 pub struct UnshareReplica {
     /// id of the mayastor instance
-    pub node: String,
-    /// name of the pool
-    pub pool: String,
+    pub node: NodeId,
+    /// id of the pool
+    pub pool: PoolId,
     /// uuid of the replica
-    pub uuid: String,
+    pub uuid: ReplicaId,
 }
 bus_impl_message_all!(UnshareReplica, UnshareReplica, (), Pool);
 
@@ -522,11 +578,11 @@ impl From<i32> for Protocol {
 pub enum ReplicaState {
     /// unknown state
     Unknown = 0,
-    /// the pool is in normal working order
+    /// the replica is in normal working order
     Online = 1,
-    /// the pool has experienced a failure but can still function
+    /// the replica has experienced a failure but can still function
     Degraded = 2,
-    /// the pool is completely inaccessible
+    /// the replica is completely inaccessible
     Faulted = 3,
 }
 
@@ -560,9 +616,9 @@ pub struct GetNexuses {
 #[serde(rename_all = "camelCase")]
 pub struct Nexus {
     /// id of the mayastor instance
-    pub node: String,
+    pub node: NodeId,
     /// uuid of the nexus
-    pub uuid: String,
+    pub uuid: NexusId,
     /// size of the volume in bytes
     pub size: u64,
     /// current state of the nexus
@@ -581,7 +637,7 @@ pub struct Nexus {
 #[serde(rename_all = "camelCase")]
 pub struct Child {
     /// uri of the child device
-    pub uri: String,
+    pub uri: ChildUri,
     /// state of the child
     pub state: ChildState,
     /// current rebuild progress (%)
@@ -654,16 +710,16 @@ bus_impl_message_all!(GetNexuses, GetNexuses, Nexuses, Nexus);
 #[serde(rename_all = "camelCase")]
 pub struct CreateNexus {
     /// id of the mayastor instance
-    pub node: String,
-    /// this UUID will be set in as the UUID
-    pub uuid: String,
+    pub node: NodeId,
+    /// the nexus uuid will be set to this
+    pub uuid: NexusId,
     /// size of the device in bytes
     pub size: u64,
     /// replica can be iscsi and nvmf remote targets or a local spdk bdev
     /// (i.e. bdev:///name-of-the-bdev).
     ///
     /// uris to the targets we connect to
-    pub children: Vec<String>,
+    pub children: Vec<ChildUri>,
 }
 bus_impl_message_all!(CreateNexus, CreateNexus, Nexus, Nexus);
 
@@ -672,9 +728,9 @@ bus_impl_message_all!(CreateNexus, CreateNexus, Nexus, Nexus);
 #[serde(rename_all = "camelCase")]
 pub struct DestroyNexus {
     /// id of the mayastor instance
-    pub node: String,
+    pub node: NodeId,
     /// uuid of the nexus
-    pub uuid: String,
+    pub uuid: NexusId,
 }
 bus_impl_message_all!(DestroyNexus, DestroyNexus, (), Nexus);
 
@@ -683,9 +739,9 @@ bus_impl_message_all!(DestroyNexus, DestroyNexus, (), Nexus);
 #[serde(rename_all = "camelCase")]
 pub struct ShareNexus {
     /// id of the mayastor instance
-    pub node: String,
+    pub node: NodeId,
     /// uuid of the nexus
-    pub uuid: String,
+    pub uuid: NexusId,
     /// encryption key
     pub key: Option<String>,
     /// share protocol
@@ -698,9 +754,9 @@ bus_impl_message_all!(ShareNexus, ShareNexus, String, Nexus);
 #[serde(rename_all = "camelCase")]
 pub struct UnshareNexus {
     /// id of the mayastor instance
-    pub node: String,
+    pub node: NodeId,
     /// uuid of the nexus
-    pub uuid: String,
+    pub uuid: NexusId,
 }
 bus_impl_message_all!(UnshareNexus, UnshareNexus, (), Nexus);
 
@@ -709,11 +765,11 @@ bus_impl_message_all!(UnshareNexus, UnshareNexus, (), Nexus);
 #[serde(rename_all = "camelCase")]
 pub struct RemoveNexusChild {
     /// id of the mayastor instance
-    pub node: String,
+    pub node: NodeId,
     /// uuid of the nexus
-    pub nexus: String,
+    pub nexus: NexusId,
     /// URI of the child device to be removed
-    pub uri: String,
+    pub uri: ChildUri,
 }
 bus_impl_message_all!(RemoveNexusChild, RemoveNexusChild, (), Nexus);
 
@@ -722,11 +778,11 @@ bus_impl_message_all!(RemoveNexusChild, RemoveNexusChild, (), Nexus);
 #[serde(rename_all = "camelCase")]
 pub struct AddNexusChild {
     /// id of the mayastor instance
-    pub node: String,
+    pub node: NodeId,
     /// uuid of the nexus
-    pub nexus: String,
+    pub nexus: NexusId,
     /// URI of the child device to be added
-    pub uri: String,
+    pub uri: ChildUri,
     /// auto start rebuilding
     pub auto_rebuild: bool,
 }
@@ -739,14 +795,18 @@ bus_impl_message_all!(AddNexusChild, AddNexusChild, Child, Nexus);
 #[serde(rename_all = "camelCase")]
 pub struct Volume {
     /// name of the volume
-    pub uuid: String,
+    pub uuid: VolumeId,
     /// size of the volume in bytes
     pub size: u64,
     /// current state of the volume
-    pub state: NexusState,
+    pub state: VolumeState,
     /// array of children nexuses
     pub children: Vec<Nexus>,
 }
+
+/// Volume State information
+/// Currently it's the same as the nexus
+pub type VolumeState = NexusState;
 
 /// Get volumes
 #[derive(Serialize, Deserialize, Default, Debug, Clone)]
@@ -763,7 +823,7 @@ bus_impl_message_all!(GetVolumes, GetVolumes, Volumes, Volume);
 #[serde(rename_all = "camelCase")]
 pub struct CreateVolume {
     /// uuid of the volume
-    pub uuid: String,
+    pub uuid: VolumeId,
     /// size of the volume in bytes
     pub size: u64,
     /// number of children nexuses (ANA)
@@ -772,13 +832,13 @@ pub struct CreateVolume {
     pub replicas: u64,
     /// only these nodes can be used for the replicas
     #[serde(default)]
-    pub allowed_nodes: Vec<String>,
+    pub allowed_nodes: Vec<NodeId>,
     /// preferred nodes for the replicas
     #[serde(default)]
-    pub preferred_nodes: Vec<String>,
+    pub preferred_nodes: Vec<NodeId>,
     /// preferred nodes for the nexuses
     #[serde(default)]
-    pub preferred_nexus_nodes: Vec<String>,
+    pub preferred_nexus_nodes: Vec<NodeId>,
 }
 bus_impl_message_all!(CreateVolume, CreateVolume, Volume, Volume);
 
@@ -787,7 +847,7 @@ bus_impl_message_all!(CreateVolume, CreateVolume, Volume, Volume);
 #[serde(rename_all = "camelCase")]
 pub struct DestroyVolume {
     /// uuid of the volume
-    pub uuid: String,
+    pub uuid: VolumeId,
 }
 bus_impl_message_all!(DestroyVolume, DestroyVolume, (), Volume);
 
@@ -796,9 +856,9 @@ bus_impl_message_all!(DestroyVolume, DestroyVolume, (), Volume);
 #[serde(rename_all = "camelCase")]
 pub struct AddVolumeNexus {
     /// uuid of the volume
-    pub uuid: String,
+    pub uuid: VolumeId,
     /// preferred node id for the nexus
-    pub preferred_node: Option<String>,
+    pub preferred_node: Option<NodeId>,
 }
 bus_impl_message_all!(AddVolumeNexus, AddVolumeNexus, Nexus, Volume);
 
@@ -807,8 +867,8 @@ bus_impl_message_all!(AddVolumeNexus, AddVolumeNexus, Nexus, Volume);
 #[serde(rename_all = "camelCase")]
 pub struct RemoveVolumeNexus {
     /// uuid of the volume
-    pub uuid: String,
+    pub uuid: VolumeId,
     /// id of the node where the nexus lives
-    pub node: Option<String>,
+    pub node: Option<NodeId>,
 }
 bus_impl_message_all!(RemoveVolumeNexus, RemoveVolumeNexus, (), Volume);

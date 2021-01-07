@@ -27,7 +27,7 @@ impl PoolSvc {
     /// Get all pools from node or from all nodes
     async fn get_node_pools(
         &self,
-        node_id: Option<String>,
+        node_id: Option<NodeId>,
     ) -> Result<Vec<Pool>, SvcError> {
         Ok(match node_id {
             None => self.registry.list_pools().await,
@@ -38,7 +38,7 @@ impl PoolSvc {
     /// Get all replicas from node or from all nodes
     async fn get_node_replicas(
         &self,
-        node_id: Option<String>,
+        node_id: Option<NodeId>,
     ) -> Result<Vec<Replica>, SvcError> {
         Ok(match node_id {
             None => self.registry.list_replicas().await,
@@ -58,19 +58,11 @@ impl PoolSvc {
             Filter::Node(node_id) => self.get_node_pools(Some(node_id)).await?,
             Filter::NodePool(node_id, pool_id) => {
                 let pools = self.get_node_pools(Some(node_id)).await?;
-                pools
-                    .iter()
-                    .filter(|&p| p.name == pool_id)
-                    .cloned()
-                    .collect()
+                pools.iter().filter(|&p| p.id == pool_id).cloned().collect()
             }
             Filter::Pool(pool_id) => {
                 let pools = self.get_node_pools(None).await?;
-                pools
-                    .iter()
-                    .filter(|&p| p.name == pool_id)
-                    .cloned()
-                    .collect()
+                pools.iter().filter(|&p| p.id == pool_id).cloned().collect()
             }
             _ => {
                 return Err(SvcError::InvalidFilter {
@@ -166,7 +158,7 @@ impl PoolSvc {
         self.registry.destroy_replica(&request).await
     }
 
-    /// Create replica
+    /// Share replica
     #[tracing::instrument(level = "debug", err)]
     pub(super) async fn share_replica(
         &self,
@@ -175,7 +167,7 @@ impl PoolSvc {
         self.registry.share_replica(&request).await
     }
 
-    /// Create replica
+    /// Unshare replica
     #[tracing::instrument(level = "debug", err)]
     pub(super) async fn unshare_replica(
         &self,

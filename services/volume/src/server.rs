@@ -40,7 +40,7 @@ macro_rules! impl_service_handler {
                 let request: ReceivedMessage<$RequestType> =
                     args.request.try_into()?;
 
-                let service: &VolumeSvc = args.context.get_state();
+                let service: &VolumeSvc = args.context.get_state()?;
                 let reply = service
                     .$ServiceFnName(&request.inner())
                     .await
@@ -186,8 +186,8 @@ mod tests {
 
     async fn prepare_pools(mayastor: &str, mayastor2: &str) {
         CreatePool {
-            node: mayastor.to_string(),
-            name: "pooloop".to_string(),
+            node: mayastor.into(),
+            id: "pooloop".into(),
             disks: vec!["malloc:///disk0?size_mb=100".into()],
         }
         .request()
@@ -195,8 +195,8 @@ mod tests {
         .unwrap();
 
         CreatePool {
-            node: mayastor2.to_string(),
-            name: "pooloop".to_string(),
+            node: mayastor2.into(),
+            id: "pooloop".into(),
             disks: vec!["malloc:///disk0?size_mb=100".into()],
         }
         .request()
@@ -227,7 +227,7 @@ mod tests {
             node: mayastor.into(),
             uuid: "f086f12c-1728-449e-be32-9415051090d6".into(),
             size: 5242880,
-            children: vec![replica.uri, local],
+            children: vec![replica.uri.into(), local],
         }
         .request()
         .await
@@ -249,16 +249,16 @@ mod tests {
 
         DestroyNexus {
             node: mayastor.into(),
-            uuid: "f086f12c-1728-449e-be32-9415051090d6".to_string(),
+            uuid: "f086f12c-1728-449e-be32-9415051090d6".into(),
         }
         .request()
         .await
         .unwrap();
 
         DestroyReplica {
-            node: replica.node.to_string(),
-            pool: replica.pool.to_string(),
-            uuid: replica.uuid.to_string(),
+            node: replica.node,
+            pool: replica.pool,
+            uuid: replica.uuid,
         }
         .request()
         .await
@@ -269,7 +269,7 @@ mod tests {
 
     async fn test_volume() {
         let volume = CreateVolume {
-            uuid: "359b7e1a-b724-443b-98b4-e6d97fabbb40".to_string(),
+            uuid: "359b7e1a-b724-443b-98b4-e6d97fabbb40".into(),
             size: 5242880,
             nexuses: 1,
             replicas: 2,
@@ -285,7 +285,7 @@ mod tests {
         assert_eq!(Some(&volume), volumes.first());
 
         DestroyVolume {
-            uuid: "359b7e1a-b724-443b-98b4-e6d97fabbb40".to_string(),
+            uuid: "359b7e1a-b724-443b-98b4-e6d97fabbb40".into(),
         }
         .request()
         .await

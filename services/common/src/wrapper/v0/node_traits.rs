@@ -56,12 +56,12 @@ pub trait NodeReplicaTrait: Send + Sync + Debug + Clone {
     /// Update internal replica list following a create
     fn on_create_replica(&mut self, replica: &Replica);
     /// Update internal replica list following a destroy
-    fn on_destroy_replica(&mut self, pool: &str, replica: &str);
+    fn on_destroy_replica(&mut self, pool: &PoolId, replica: &ReplicaId);
     /// Update internal replica list following an update
     fn on_update_replica(
         &mut self,
-        pool: &str,
-        replica: &str,
+        pool: &PoolId,
+        replica: &ReplicaId,
         share: &Protocol,
         uri: &str,
     );
@@ -86,7 +86,7 @@ pub trait NodePoolTrait: Send + Sync + Debug + Clone {
     /// Update internal pool list following a create
     async fn on_create_pool(&mut self, pool: &Pool, replicas: &[Replica]);
     /// Update internal pool list following a destroy
-    fn on_destroy_pool(&mut self, pool: &str);
+    fn on_destroy_pool(&mut self, pool: &PoolId);
 }
 
 /// Trait for a Node Nexus which can be implemented to interact with mayastor
@@ -140,9 +140,9 @@ pub trait NodeNexusTrait: Send + Sync + Debug + Clone {
     /// Update internal nexus list following a create
     fn on_create_nexus(&mut self, nexus: &Nexus) {}
     /// Update internal nexus following a share/unshare
-    fn on_update_nexus(&mut self, nexus: &str, uri: &str) {}
+    fn on_update_nexus(&mut self, nexus: &NexusId, uri: &str) {}
     /// Update internal nexus list following a destroy
-    fn on_destroy_nexus(&mut self, nexus: &str) {}
+    fn on_destroy_nexus(&mut self, nexus: &NexusId) {}
 }
 
 /// Trait for a Node Nexus Children which can be implemented to interact with
@@ -174,7 +174,7 @@ pub trait NodeNexusChildTrait: Send + Sync + Debug + Clone {
     }
 
     /// Update internal nexus children following a create
-    fn on_add_child(&mut self, nexus: &str, child: &Child) {}
+    fn on_add_child(&mut self, nexus: &NexusId, child: &Child) {}
     /// Update internal nexus children following a remove
     fn on_remove_child(&mut self, request: &RemoveNexusChild) {}
 }
@@ -195,7 +195,7 @@ pub trait NodeWrapperTrait:
 {
     /// New NodeWrapper for the node
     #[allow(clippy::new_ret_no_self)]
-    async fn new(node: &str) -> Result<NodeWrapper, SvcError>
+    async fn new(node: &NodeId) -> Result<NodeWrapper, SvcError>
     where
         Self: Sized;
     /// Fetch all nodes via the message bus
@@ -207,7 +207,7 @@ pub trait NodeWrapperTrait:
     }
 
     /// Get the internal id
-    fn id(&self) -> String;
+    fn id(&self) -> NodeId;
     /// Get the internal node
     fn node(&self) -> Node;
     /// Get the internal pools
@@ -268,11 +268,11 @@ impl PoolWrapper {
         self.pool.clone()
     }
     /// Get the pool uuid
-    pub fn uuid(&self) -> String {
-        self.pool.name.clone()
+    pub fn uuid(&self) -> PoolId {
+        self.pool.id.clone()
     }
     /// Get the pool node name
-    pub fn node(&self) -> String {
+    pub fn node(&self) -> NodeId {
         self.pool.node.clone()
     }
     /// Get the pool state
@@ -282,10 +282,16 @@ impl PoolWrapper {
 
     /// Get the free space
     pub fn free_space(&self) -> u64 {
-        if self.pool.capacity > self.pool.used {
+        if self.pool.capacity >= self.pool.used {
             self.pool.capacity - self.pool.used
         } else {
             // odd, let's report no free space available
+            tracing::error!(
+                "Pool '{}' has a capacity of '{} B' but is using '{} B'",
+                self.pool.id,
+                self.pool.capacity,
+                self.pool.used
+            );
             0
         }
     }
@@ -305,15 +311,20 @@ impl PoolWrapper {
         self.replicas.push(replica.clone())
     }
     /// Remove replica from list
-    pub fn removed_replica(&mut self, uuid: &str) {
-        self.replicas.retain(|replica| replica.uuid != uuid)
+    pub fn removed_replica(&mut self, uuid: &ReplicaId) {
+        self.replicas.retain(|replica| &replica.uuid != uuid)
     }
     /// update replica from list
-    pub fn updated_replica(&mut self, uuid: &str, share: &Protocol, uri: &str) {
+    pub fn updated_replica(
+        &mut self,
+        uuid: &ReplicaId,
+        share: &Protocol,
+        uri: &str,
+    ) {
         if let Some(replica) = self
             .replicas
             .iter_mut()
-            .find(|replica| replica.uuid == uuid)
+            .find(|replica| &replica.uuid == uuid)
         {
             replica.share = share.clone();
             replica.uri = uri.to_string();

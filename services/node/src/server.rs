@@ -76,7 +76,7 @@ struct NodeStore {
     inner: std::sync::Arc<NodeStoreInner>,
 }
 struct NodeStoreInner {
-    state: Mutex<HashMap<String, (Node, Watchdog)>>,
+    state: Mutex<HashMap<NodeId, (Node, Watchdog)>>,
     deadline: std::time::Duration,
 }
 impl Default for NodeStoreInner {
@@ -119,7 +119,7 @@ impl NodeStore {
         state.remove(&node.id);
     }
     /// Offline node through its id
-    async fn offline(&self, id: String) {
+    async fn offline(&self, id: NodeId) {
         let mut state = self.inner.state.lock().await;
         if let Some(n) = state.get_mut(&id) {
             n.0.state = NodeState::Offline;
@@ -141,7 +141,7 @@ impl NodeStore {
 #[async_trait]
 impl ServiceSubscriber for ServiceHandler<Register> {
     async fn handler(&self, args: Arguments<'_>) -> Result<(), Error> {
-        let store: &NodeStore = args.context.get_state();
+        let store: &NodeStore = args.context.get_state()?;
         store.register(args.request.inner()?).await;
         Ok(())
     }
@@ -153,7 +153,7 @@ impl ServiceSubscriber for ServiceHandler<Register> {
 #[async_trait]
 impl ServiceSubscriber for ServiceHandler<Deregister> {
     async fn handler(&self, args: Arguments<'_>) -> Result<(), Error> {
-        let store: &NodeStore = args.context.get_state();
+        let store: &NodeStore = args.context.get_state()?;
         store.deregister(args.request.inner()?).await;
         Ok(())
     }
@@ -167,7 +167,7 @@ impl ServiceSubscriber for ServiceHandler<GetNodes> {
     async fn handler(&self, args: Arguments<'_>) -> Result<(), Error> {
         let request: ReceivedMessage<GetNodes> = args.request.try_into()?;
 
-        let store: &NodeStore = args.context.get_state();
+        let store: &NodeStore = args.context.get_state()?;
         let nodes = store.get_nodes().await;
         request.reply(Nodes(nodes)).await
     }
@@ -249,9 +249,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn node() -> Result<(), Box<dyn std::error::Error>> {
+    async fn node() {
         init_tracing();
-        let maya_name = "node-test-name";
+        let maya_name = NodeId::from("node-test-name");
         let test = Builder::new()
             .name("node")
             .add_container_bin(
@@ -268,41 +268,37 @@ mod tests {
                 "mayastor",
                 Binary::from_dbg("mayastor")
                     .with_nats("-n")
-                    .with_args(vec!["-N", maya_name]),
+                    .with_args(vec!["-N", maya_name.as_str()]),
             )
-            .with_clean(true)
             .autorun(false)
             .build()
-            .await?;
+            .await
+            .unwrap();
 
-        orderly_start(&test).await?;
+        orderly_start(&test).await.unwrap();
 
-        let nodes = GetNodes {}.request().await?;
+        let nodes = GetNodes {}.request().await.unwrap();
         tracing::info!("Nodes: {:?}", nodes);
         assert_eq!(nodes.0.len(), 1);
         assert_eq!(
             nodes.0.first().unwrap(),
             &Node {
-                id: maya_name.to_string(),
+                id: maya_name.clone(),
                 grpc_endpoint: "0.0.0.0:10124".to_string(),
                 state: NodeState::Online,
             }
         );
         tokio::time::delay_for(std::time::Duration::from_secs(2)).await;
-        let nodes = GetNodes {}.request().await?;
+        let nodes = GetNodes {}.request().await.unwrap();
         tracing::info!("Nodes: {:?}", nodes);
         assert_eq!(nodes.0.len(), 1);
         assert_eq!(
             nodes.0.first().unwrap(),
             &Node {
-                id: maya_name.to_string(),
+                id: maya_name.clone(),
                 grpc_endpoint: "0.0.0.0:10124".to_string(),
                 state: NodeState::Offline,
             }
         );
-
-        // run with --nocapture to see all the logs
-        test.logs_all().await?;
-        Ok(())
     }
 }

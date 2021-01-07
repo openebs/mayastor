@@ -75,18 +75,21 @@ async fn client() {
             .with_portmap("6831/udp", "6831/udp")
             .with_portmap("6832/udp", "6832/udp"),
         )
+        // uncomment to run alpine commands within the containers
         //.with_base_image("alpine:latest".to_string())
         .with_default_tracing()
         .autorun(false)
+        // uncomment to leave containers running allowing us access the jaeger
+        // traces at localhost:16686
         //.with_clean(false)
         .build()
         .await
         .unwrap();
 
-    client_test(mayastor, &test).await;
+    client_test(&mayastor.into(), &test).await;
 }
 
-async fn client_test(mayastor: &str, test: &ComposeTest) {
+async fn client_test(mayastor: &NodeId, test: &ComposeTest) {
     orderly_start(&test).await;
 
     let client = ActixRestClient::new("https://localhost:8080", true)
@@ -97,7 +100,7 @@ async fn client_test(mayastor: &str, test: &ComposeTest) {
     assert_eq!(
         nodes.first().unwrap(),
         &Node {
-            id: mayastor.to_string(),
+            id: mayastor.clone(),
             grpc_endpoint: "10.1.0.7:10124".to_string(),
             state: NodeState::Online,
         }
@@ -105,16 +108,16 @@ async fn client_test(mayastor: &str, test: &ComposeTest) {
     info!("Nodes: {:#?}", nodes);
     let _ = client.get_pools(Filter::None).await.unwrap();
     let pool = client.create_pool(CreatePool {
-        node: mayastor.to_string(),
-        name: "pooloop".to_string(),
+        node: mayastor.clone(),
+        id: "pooloop".into(),
         disks:
     vec!["malloc:///malloc0?blk_size=512&size_mb=100&uuid=b940f4f2-d45d-4404-8167-3b0366f9e2b0".to_string()] }).await.unwrap();
     info!("Pools: {:#?}", pool);
     assert_eq!(
         pool,
         Pool {
-            node: "node-test-name".to_string(),
-            name: "pooloop".to_string(),
+            node: "node-test-name".into(),
+            id: "pooloop".into(),
             disks: vec!["malloc:///malloc0?blk_size=512&size_mb=100&uuid=b940f4f2-d45d-4404-8167-3b0366f9e2b0".to_string()],
             state: PoolState::Online,
             capacity: 100663296,
@@ -129,8 +132,8 @@ async fn client_test(mayastor: &str, test: &ComposeTest) {
     let replica = client
         .create_replica(CreateReplica {
             node: pool.node.clone(),
-            pool: pool.name.clone(),
-            uuid: "replica1".to_string(),
+            pool: pool.id.clone(),
+            uuid: "replica1".into(),
             size: 12582912, /* actual size will be a multiple of 4MB so just
                              * create it like so */
             thin: true,
@@ -143,8 +146,8 @@ async fn client_test(mayastor: &str, test: &ComposeTest) {
         replica,
         Replica {
             node: pool.node.clone(),
-            uuid: "replica1".to_string(),
-            pool: pool.name.clone(),
+            uuid: "replica1".into(),
+            pool: pool.id.clone(),
             thin: false,
             size: 12582912,
             share: Protocol::Nvmf,
@@ -170,22 +173,22 @@ async fn client_test(mayastor: &str, test: &ComposeTest) {
     assert_eq!(nexuses.len(), 0);
     let nexus = client
         .create_nexus(CreateNexus {
-            node: "node-test-name".to_string(),
-            uuid: "058a95e5-cee6-4e81-b682-fe864ca99b9c".to_string(),
+            node: "node-test-name".into(),
+            uuid: "058a95e5-cee6-4e81-b682-fe864ca99b9c".into(),
             size: 12582912,
-            children: vec!["malloc:///malloc1?blk_size=512&size_mb=100&uuid=b940f4f2-d45d-4404-8167-3b0366f9e2b0".to_string()]})
+            children: vec!["malloc:///malloc1?blk_size=512&size_mb=100&uuid=b940f4f2-d45d-4404-8167-3b0366f9e2b0".into()]})
         .await.unwrap();
     info!("Nexus: {:#?}", nexus);
 
     assert_eq!(
         nexus,
         Nexus {
-            node: "node-test-name".to_string(),
-            uuid: "058a95e5-cee6-4e81-b682-fe864ca99b9c".to_string(),
+            node: "node-test-name".into(),
+            uuid: "058a95e5-cee6-4e81-b682-fe864ca99b9c".into(),
             size: 12582912,
             state: NexusState::Online,
             children: vec![Child {
-                uri: "malloc:///malloc1?blk_size=512&size_mb=100&uuid=b940f4f2-d45d-4404-8167-3b0366f9e2b0".to_string(),
+                uri: "malloc:///malloc1?blk_size=512&size_mb=100&uuid=b940f4f2-d45d-4404-8167-3b0366f9e2b0".into(),
                 state: ChildState::Online,
                 rebuild_progress: None
             }],
@@ -197,7 +200,7 @@ async fn client_test(mayastor: &str, test: &ComposeTest) {
     let child = client.add_nexus_child(AddNexusChild {
         node: nexus.node.clone(),
         nexus: nexus.uuid.clone(),
-        uri: "malloc:///malloc2?blk_size=512&size_mb=100&uuid=b940f4f2-d45d-4404-8167-3b0366f9e2b1".to_string(),
+        uri: "malloc:///malloc2?blk_size=512&size_mb=100&uuid=b940f4f2-d45d-4404-8167-3b0366f9e2b1".into(),
         auto_rebuild: true,
     }).await.unwrap();
 
@@ -221,7 +224,7 @@ async fn client_test(mayastor: &str, test: &ComposeTest) {
 
     let volume = client
         .create_volume(CreateVolume {
-            uuid: "058a95e5-cee6-4e81-b682-fe864ca99b9c".to_string(),
+            uuid: "058a95e5-cee6-4e81-b682-fe864ca99b9c".into(),
             size: 12582912,
             nexuses: 1,
             replicas: 1,
@@ -236,9 +239,9 @@ async fn client_test(mayastor: &str, test: &ComposeTest) {
     assert_eq!(
         Some(&volume),
         client
-            .get_volumes(Filter::Volume(
-                "058a95e5-cee6-4e81-b682-fe864ca99b9c".into()
-            ))
+            .get_volumes(Filter::Volume(VolumeId::from(
+                "058a95e5-cee6-4e81-b682-fe864ca99b9c"
+            )))
             .await
             .unwrap()
             .first()
@@ -246,7 +249,7 @@ async fn client_test(mayastor: &str, test: &ComposeTest) {
 
     client
         .destroy_volume(DestroyVolume {
-            uuid: "058a95e5-cee6-4e81-b682-fe864ca99b9c".to_string(),
+            uuid: "058a95e5-cee6-4e81-b682-fe864ca99b9c".into(),
         })
         .await
         .unwrap();
@@ -256,7 +259,7 @@ async fn client_test(mayastor: &str, test: &ComposeTest) {
     client
         .destroy_pool(DestroyPool {
             node: pool.node.clone(),
-            name: pool.name,
+            id: pool.id,
         })
         .await
         .unwrap();

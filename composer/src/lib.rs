@@ -99,7 +99,7 @@ impl RpcHandle {
 pub struct Binary {
     path: String,
     arguments: Vec<String>,
-    nats_arg: String,
+    nats_arg: Option<String>,
     env: HashMap<String, String>,
 }
 
@@ -139,7 +139,7 @@ impl Binary {
     }
     /// Set the nats endpoint via the provided argument
     pub fn with_nats(mut self, arg: &str) -> Self {
-        self.nats_arg = arg.to_string();
+        self.nats_arg = Some(arg.to_string());
         self
     }
     /// Add environment variables for the container
@@ -152,10 +152,11 @@ impl Binary {
     /// pick up the nats argument name for a particular binary from nats_arg
     /// and fill up the nats server endpoint using the network name
     fn setup_nats(&mut self, network: &str) {
-        if !self.nats_arg.is_empty() {
-            self.arguments.push(self.nats_arg.clone());
-            self.arguments.push(format!("nats.{}:4222", network));
-            self.nats_arg = String::new();
+        if let Some(nats_arg) = self.nats_arg.take() {
+            if !nats_arg.is_empty() {
+                self.arguments.push(nats_arg);
+                self.arguments.push(format!("nats.{}:4222", network));
+            }
         }
     }
 
@@ -212,7 +213,6 @@ impl ContainerSpec {
         }
         Self {
             name: name.into(),
-            image: None,
             binary: Some(binary),
             init: Some(true),
             env,
@@ -362,8 +362,7 @@ impl Builder {
         self.add_container_spec(ContainerSpec::from_binary(name, bin))
     }
 
-    /// add a docker container
-    /// todo: still need to pull the image manually
+    /// add a docker container which will be pulled if not present
     pub fn add_container_image(self, name: &str, image: Binary) -> Builder {
         self.add_container_spec(ContainerSpec::from_binary(name, image))
     }
@@ -387,8 +386,6 @@ impl Builder {
     }
 
     /// use base image for all binary containers
-    /// note, the image must be present locally
-    /// todo: pull image, if not present
     pub fn with_base_image<S: Into<Option<String>>>(
         mut self,
         image: S,

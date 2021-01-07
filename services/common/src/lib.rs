@@ -101,16 +101,19 @@ impl<'a> Context<'a> {
         self.bus
     }
     /// get the shared state of type `T` from the context
-    pub fn get_state<T: Send + Sync + 'static>(&self) -> &T {
+    pub fn get_state<T: Send + Sync + 'static>(&self) -> Result<&T, Error> {
         match self.state.try_get() {
-            Some(state) => state,
+            Some(state) => Ok(state),
             None => {
                 let type_name = std::any::type_name::<T>();
-                let error = format!(
+                let error_msg = format!(
                     "Requested data type '{}' not shared via with_shared_data",
                     type_name
                 );
-                panic!(error);
+                error!("{}", error_msg);
+                Err(Error::ServiceError {
+                    message: error_msg,
+                })
             }
         }
     }
@@ -176,8 +179,8 @@ impl Service {
     ///         .run().await;
     ///
     /// # async fn handler(&self, args: Arguments<'_>) -> Result<(), Error> {
-    ///    let store: &NodeStore = args.context.get_state();
-    ///    let more: &More = args.context.get_state();
+    ///    let store: &NodeStore = args.context.get_state()?;
+    ///    let more: &More = args.context.get_state()?;
     /// # Ok(())
     /// # }
     pub fn with_shared_state<T: Send + Sync + 'static>(self, state: T) -> Self {

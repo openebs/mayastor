@@ -30,7 +30,7 @@ pub type BusResult<T> = Result<T, BusError>;
 
 /// Node
 pub type Node = crate::v0::Node;
-/// Nodes list
+/// Node list
 pub type Nodes = crate::v0::Nodes;
 /// Pool
 pub type Pool = crate::v0::Pool;
@@ -62,6 +62,8 @@ pub type Nexus = crate::v0::Nexus;
 pub type Nexuses = crate::v0::Nexuses;
 /// State of the nexus
 pub type NexusState = crate::v0::NexusState;
+/// State of the volume
+pub type VolumeState = crate::v0::VolumeState;
 /// Child of the nexus
 pub type Child = crate::v0::Child;
 /// State of the child
@@ -82,7 +84,7 @@ pub type AddNexusChild = crate::v0::AddNexusChild;
 pub type Volume = crate::v0::Volume;
 /// Volumes
 pub type Volumes = crate::v0::Volumes;
-/// Add Volume
+/// Create Volume
 pub type CreateVolume = crate::v0::CreateVolume;
 /// Delete Volume
 pub type DestroyVolume = crate::v0::DestroyVolume;
@@ -90,6 +92,18 @@ pub type DestroyVolume = crate::v0::DestroyVolume;
 pub type AddVolumeNexus = crate::v0::AddVolumeNexus;
 /// Remove Volume Nexus
 pub type RemoveVolumeNexus = crate::v0::RemoveVolumeNexus;
+/// Id of a mayastor node
+pub type NodeId = crate::v0::NodeId;
+/// Id of a mayastor pool
+pub type PoolId = crate::v0::PoolId;
+/// UUID of a mayastor pool replica
+pub type ReplicaId = crate::v0::ReplicaId;
+/// UUID of a mayastor nexus
+pub type NexusId = crate::v0::NexusId;
+/// URI of a mayastor nexus child
+pub type ChildUri = crate::v0::ChildUri;
+/// UUID of a mayastor volume
+pub type VolumeId = crate::v0::VolumeId;
 
 macro_rules! only_one {
     ($list:ident) => {
@@ -117,10 +131,12 @@ pub trait MessageBusTrait: Sized {
 
     /// Get node with `id`
     #[tracing::instrument(level = "debug", err)]
-    async fn get_node(id: &str) -> BusResult<Node> {
+    async fn get_node(id: &NodeId) -> BusResult<Node> {
         let nodes = Self::get_nodes().await?;
-        let nodes =
-            nodes.into_iter().filter(|n| n.id == id).collect::<Vec<_>>();
+        let nodes = nodes
+            .into_iter()
+            .filter(|n| &n.id == id)
+            .collect::<Vec<_>>();
         only_one!(nodes)
     }
 
@@ -186,13 +202,13 @@ pub trait MessageBusTrait: Sized {
         Ok(())
     }
 
-    /// create replica
+    /// share replica
     #[tracing::instrument(level = "debug", err)]
     async fn share_replica(request: ShareReplica) -> BusResult<String> {
         Ok(request.request().await?)
     }
 
-    /// create replica
+    /// unshare replica
     #[tracing::instrument(level = "debug", err)]
     async fn unshare_replica(request: UnshareReplica) -> BusResult<()> {
         let _ = request.request().await?;
@@ -373,7 +389,7 @@ mod tests {
 
         orderly_start(&test).await?;
 
-        test_bus_backend(mayastor, &test).await?;
+        test_bus_backend(&NodeId::from(mayastor), &test).await?;
 
         // run with --nocapture to see all the logs
         test.logs_all().await?;
@@ -381,7 +397,7 @@ mod tests {
     }
 
     async fn test_bus_backend(
-        mayastor: &str,
+        mayastor: &NodeId,
         test: &ComposeTest,
     ) -> Result<(), Box<dyn std::error::Error>> {
         let nodes = MessageBus::get_nodes().await?;
@@ -390,7 +406,7 @@ mod tests {
         assert_eq!(
             nodes.first().unwrap(),
             &Node {
-                id: mayastor.to_string(),
+                id: mayastor.clone(),
                 grpc_endpoint: "0.0.0.0:10124".to_string(),
                 state: NodeState::Online,
             }
@@ -399,7 +415,7 @@ mod tests {
         assert_eq!(
             node,
             Node {
-                id: mayastor.to_string(),
+                id: mayastor.clone(),
                 grpc_endpoint: "0.0.0.0:10124".to_string(),
                 state: NodeState::Online,
             }

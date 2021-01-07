@@ -45,8 +45,8 @@ pub enum Error {
 
 #[derive(Clone)]
 struct Configuration {
-    /// Name of the node that mayastor is running on
-    node: String,
+    /// Id of the node that mayastor is running on
+    node: NodeId,
     /// gRPC endpoint of the server provided by mayastor
     grpc_endpoint: String,
     /// heartbeat interval (how often the register message is sent)
@@ -67,7 +67,9 @@ static MESSAGE_BUS_REG: OnceCell<Registration> = OnceCell::new();
 impl Registration {
     /// initialise the global registration instance
     pub(super) fn init(node: &str, grpc_endpoint: &str) {
-        MESSAGE_BUS_REG.get_or_init(|| Registration::new(node, grpc_endpoint));
+        MESSAGE_BUS_REG.get_or_init(|| {
+            Registration::new(&NodeId::from(node), grpc_endpoint)
+        });
     }
 
     /// terminate and re-register
@@ -88,7 +90,7 @@ impl Registration {
         Ok(())
     }
 
-    fn new(node: &str, grpc_endpoint: &str) -> Registration {
+    fn new(node: &NodeId, grpc_endpoint: &str) -> Registration {
         let (msg_sender, msg_receiver) = smol::channel::unbounded::<()>();
         let config = Configuration {
             node: node.to_owned(),

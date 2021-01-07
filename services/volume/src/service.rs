@@ -23,10 +23,10 @@ impl VolumeSvc {
         self.registry.start();
     }
 
-    /// Get all pools from node or from all nodes
+    /// Get all nexuses from node or from all nodes
     async fn get_node_nexuses(
         &self,
-        node_id: Option<String>,
+        node_id: Option<NodeId>,
     ) -> Result<Vec<Nexus>, SvcError> {
         Ok(match node_id {
             None => self.registry.list_nexuses().await,
@@ -89,7 +89,7 @@ impl VolumeSvc {
         self.registry.destroy_nexus(request).await
     }
 
-    /// Create nexus
+    /// Share nexus
     #[tracing::instrument(level = "debug", err)]
     pub(super) async fn share_nexus(
         &self,
@@ -98,7 +98,7 @@ impl VolumeSvc {
         self.registry.share_nexus(request).await
     }
 
-    /// Destroy nexus
+    /// Unshare nexus
     #[tracing::instrument(level = "debug", err)]
     pub(super) async fn unshare_nexus(
         &self,
@@ -136,7 +136,7 @@ impl VolumeSvc {
             nexus
                 .iter()
                 .map(|n| Volume {
-                    uuid: n.uuid.clone(),
+                    uuid: VolumeId::from(n.uuid.as_str()),
                     size: n.size,
                     state: n.state.clone(),
                     children: vec![n.clone()],
@@ -210,7 +210,7 @@ impl VolumeSvc {
         while let Some(pool) = pools.pop() {
             let create_replica = CreateReplica {
                 node: pool.node(),
-                uuid: request.uuid.clone(),
+                uuid: ReplicaId::from(request.uuid.as_str()),
                 pool: pool.uuid(),
                 size: request.size,
                 thin: true,
@@ -249,9 +249,12 @@ impl VolumeSvc {
             for i in 0 .. request.nexuses {
                 let create_nexus = CreateNexus {
                     node: replicas[i as usize].node.clone(),
-                    uuid: request.uuid.clone(),
+                    uuid: NexusId::from(request.uuid.as_str()),
                     size: request.size,
-                    children: replicas.iter().map(|r| r.uri.clone()).collect(),
+                    children: replicas
+                        .iter()
+                        .map(|r| r.uri.to_string().into())
+                        .collect(),
                 };
 
                 match self.registry.create_nexus(&create_nexus).await {
@@ -305,18 +308,20 @@ impl VolumeSvc {
         let nexuses = self.registry.list_nexuses().await;
         let nexuses = nexuses
             .iter()
-            .filter(|n| n.uuid == request.uuid)
+            .filter(|n| n.uuid.as_str() == request.uuid.as_str())
             .collect::<Vec<_>>();
         for nexus in nexuses {
             self.registry
                 .destroy_nexus(&DestroyNexus {
                     node: nexus.node.clone(),
-                    uuid: request.uuid.clone(),
+                    uuid: NexusId::from(request.uuid.as_str()),
                 })
                 .await?;
             for child in &nexus.children {
                 let replicas = self.registry.list_replicas().await;
-                let replica = replicas.iter().find(|r| r.uri == child.uri);
+                let replica = replicas
+                    .iter()
+                    .find(|r| r.uri.as_str() == child.uri.as_str());
                 if let Some(replica) = replica {
                     self.registry
                         .destroy_replica(&DestroyReplica {

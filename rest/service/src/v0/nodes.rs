@@ -16,6 +16,6 @@ async fn get_nodes() -> impl Responder {
     RestRespond::result(MessageBus::get_nodes().await)
 }
 #[get("/v0/nodes/{id}")]
-async fn get_node(web::Path(node_id): web::Path<String>) -> impl Responder {
+async fn get_node(web::Path(node_id): web::Path<NodeId>) -> impl Responder {
     RestRespond::result(MessageBus::get_node(&node_id).await)
 }

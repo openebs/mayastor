@@ -40,7 +40,7 @@ impl TryFrom<&MayastorNode> for Node {
     type Error = strum::ParseError;
     fn try_from(kube_node: &MayastorNode) -> Result<Self, Self::Error> {
         Ok(Node {
-            id: kube_node.name(),
+            id: NodeId::from(kube_node.name()),
             grpc_endpoint: kube_node.spec.grpc_endpoint.clone(),
             state: kube_node
                 .status
@@ -69,7 +69,7 @@ fn init_tracing() -> Option<(Tracer, Uninstall)> {
         global::set_text_map_propagator(TraceContextPropagator::new());
         let (_tracer, _uninstall) = opentelemetry_jaeger::new_pipeline()
             .with_agent_endpoint(agent)
-            .with_service_name("rest-server")
+            .with_service_name("node-operator")
             .install()
             .expect("Jaeger pipeline install error");
         Some((_tracer, _uninstall))
@@ -134,7 +134,7 @@ async fn polling_work(
         .filter(|node| {
             !kube_nodes
                 .iter()
-                .any(|kube_node| kube_node.name() == node.id)
+                .any(|kube_node| kube_node.name() == node.id.to_string())
         })
         .collect::<Vec<&Node>>();
 
@@ -142,7 +142,9 @@ async fn polling_work(
     let delete_nodes = kube_nodes
         .iter()
         .filter(|kube_node| {
-            !rest_nodes.iter().any(|node| kube_node.name() == node.id)
+            !rest_nodes
+                .iter()
+                .any(|node| kube_node.name() == node.id.to_string())
         })
         .collect::<Vec<&MayastorNode>>();
 
@@ -224,7 +226,7 @@ async fn node_create(
     node: &Node,
 ) -> anyhow::Result<()> {
     let kube_node = MayastorNode::new(
-        &node.id,
+        node.id.as_str(),
         MayastorNodeSpec {
             grpc_endpoint: node.grpc_endpoint.clone(),
         },
@@ -255,7 +257,7 @@ async fn node_update(
     let post_params = PostParams::default();
     let status = Some(node.state.to_string());
 
-    let mut kube_node = nodes_api.get(&node.id).await?;
+    let mut kube_node = nodes_api.get(node.id.as_str()).await?;
     kube_node.status = status.clone();
 
     let kube_node = nodes_api
