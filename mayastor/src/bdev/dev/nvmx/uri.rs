@@ -15,22 +15,18 @@ use std::{
 use async_trait::async_trait;
 use futures::channel::oneshot;
 use nix::errno::Errno;
+use poller::Poller;
 use snafu::ResultExt;
-use tracing::instrument;
-use url::Url;
-
 use spdk_sys::{
     spdk_nvme_connect_async,
     spdk_nvme_ctrlr,
     spdk_nvme_ctrlr_get_default_ctrlr_opts,
     spdk_nvme_ctrlr_opts,
-    spdk_nvme_probe_ctx,
     spdk_nvme_probe_poll_async,
     spdk_nvme_transport_id,
-    spdk_poller,
-    spdk_poller_register_named,
-    spdk_poller_unregister,
 };
+use tracing::instrument;
+use url::Url;
 
 use crate::{
     bdev::{
@@ -39,6 +35,7 @@ use crate::{
         CreateDestroy,
         GetName,
     },
+    core::poller,
     ffihelper::ErrnoResult,
     nexus_uri::{
         NexusBdevError,
@@ -59,10 +56,6 @@ extern "C" fn connect_attach_cb(
     let context =
         unsafe { &mut *(_cb_ctx as *const _ as *mut NvmeControllerContext) };
     controller::connected_attached_cb(context, NonNull::new(ctrlr).unwrap());
-}
-/// returns -EAGAIN if there is more work to be done here!
-extern "C" fn nvme_async_poll(ctx: *mut c_void) -> i32 {
-    unsafe { spdk_nvme_probe_poll_async(ctx as *mut spdk_nvme_probe_ctx) }
 }
 
 #[derive(Debug)]
@@ -167,16 +160,16 @@ impl GetName for NvmfDeviceTemplate {
 }
 
 // Context for an NVMe controller being created.
-pub(crate) struct NvmeControllerContext {
+pub(crate) struct NvmeControllerContext<'probe> {
     opts: spdk_nvme_ctrlr_opts,
     name: String,
     trid: spdk_nvme_transport_id,
     sender: Option<oneshot::Sender<Result<(), Errno>>>,
     receiver: oneshot::Receiver<Result<(), Errno>>,
-    poller: Option<NonNull<spdk_poller>>,
+    poller: Option<Poller<'probe>>,
 }
 
-impl NvmeControllerContext {
+impl<'probe> NvmeControllerContext<'probe> {
     pub fn new(template: &NvmfDeviceTemplate) -> NvmeControllerContext {
         let port = template.port.to_string();
         let protocol = "tcp";
@@ -235,10 +228,7 @@ impl NvmeControllerContext {
 
     /// unregister the poller used during connect/attach
     pub(crate) fn unregister_poller(&mut self) {
-        let poller = self.poller.take().expect("No poller registered");
-        unsafe {
-            spdk_poller_unregister(&mut poller.as_ptr());
-        }
+        self.poller.take().expect("No poller registered");
     }
 
     pub fn name(&self) -> String {
@@ -292,16 +282,13 @@ impl CreateDestroy for NvmfDeviceTemplate {
             });
         }
 
-        // Register poller to check for connection status.
-        let poller = NonNull::new(unsafe {
-            spdk_poller_register_named(
-                Some(nvme_async_poll),
-                probe_ctx.unwrap().as_ptr().cast(),
-                1000, // TODO: fix.
-                "nvme_async_poll\0" as *const _ as *mut _,
-            )
-        })
-        .expect("failed to create attach poller");
+        let poller = poller::Builder::new()
+            .with_name("nvme_async_probe_poller")
+            .with_interval(1000)
+            .with_poll_fn(move || unsafe {
+                spdk_nvme_probe_poll_async(probe_ctx.unwrap().as_ptr())
+            })
+            .build();
 
         context.poller = Some(poller);
 
