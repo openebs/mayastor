@@ -110,15 +110,16 @@ impl NvmeControllerIoChannel {
         let id = device as u64;
 
         debug!("Creating IO channel for controller ID 0x{:X}", id);
-        let controllers = NVME_CONTROLLERS.read().unwrap();
-        let controller = match controllers.get(&id.to_string()) {
+
+        let controller = match NVME_CONTROLLERS.lookup_by_name(id.to_string()) {
             None => {
                 error!("No NVMe controller found for ID 0x{:X}", id);
                 return 1;
             }
-            Some(c) => c.lock().unwrap(),
+            Some(c) => c,
         };
 
+        let controller = controller.lock().expect("lock error");
         let nvme_channel = NvmeIoChannel::from_raw(ctx);
 
         // Create qpair for target controller.
