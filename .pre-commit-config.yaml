@@ -30,3 +30,11 @@ repos:
         pass_filenames: true
         types: [file, javascript]
         language: system
+    -   id: commit-lint
+        name: Commit Lint
+        description: Runs commitlint against the commit message.
+        language: system
+        entry: bash -c "cat $1 | npx commitlint"
+        args: [$1]
+        stages: [commit-msg]
+

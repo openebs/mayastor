@@ -69,6 +69,6 @@ mkShell {
     ${pkgs.lib.optionalString (norust) "cowsay ${norust_moth}"}
     ${pkgs.lib.optionalString (norust) "echo 'Hint: use rustup tool.'"}
     ${pkgs.lib.optionalString (norust) "echo"}
-    pre-commit install
+    pre-commit install --hook commit-msg
   '';
 }
