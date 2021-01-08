@@ -20,12 +20,10 @@ use tracing::instrument;
 use url::Url;
 
 use spdk_sys::{
-    spdk_io_device_unregister,
     spdk_nvme_connect_async,
     spdk_nvme_ctrlr,
     spdk_nvme_ctrlr_get_default_ctrlr_opts,
     spdk_nvme_ctrlr_opts,
-    spdk_nvme_detach,
     spdk_nvme_probe_ctx,
     spdk_nvme_probe_poll_async,
     spdk_nvme_transport_id,
@@ -54,6 +52,8 @@ use crate::{
     subsys::NvmeBdevOpts,
 };
 use futures::channel::oneshot::Sender;
+
+use super::nvme_controller_remove;
 
 const DEFAULT_NVMF_PORT: u16 = 8420;
 // Callback to be called once NVMe controller is successfully created.
@@ -247,6 +247,7 @@ impl NvmeControllerContext {
             spdk_poller_unregister(&mut poller.as_ptr());
         }
     }
+
     pub fn name(&self) -> String {
         self.name.clone()
     }
@@ -343,45 +344,12 @@ impl CreateDestroy for NvmfDeviceTemplate {
 
     // nvme_bdev_ctrlr_create
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
-        let cname = self.get_name();
-
-        let mut controllers = NVME_CONTROLLERS.write().unwrap();
-        if !controllers.contains_key(&cname) {
-            return Err(NexusBdevError::BdevNotFound {
-                name: cname,
-            });
-        }
-
-        // Remove 'controller name -> controller' mapping.
-        let e = controllers.remove(&cname).unwrap();
-        let mut controller = e.lock().unwrap();
-        debug!("{}: removing NVMe controller", cname);
-
-        if let Some(inner) = controller.inner.take() {
-            debug!("{} unregistering adminq poller", controller.get_name());
-            unsafe {
-                spdk_poller_unregister(&mut inner.adminq_poller.as_ptr());
+        let name = nvme_controller_remove(self.get_name()).map_err(|_| {
+            NexusBdevError::BdevNotFound {
+                name: self.get_name(),
             }
-
-            debug!(
-                "{}: unregistering I/O device at 0x{:X}",
-                controller.get_name(),
-                controller.id()
-            );
-            unsafe {
-                spdk_io_device_unregister(controller.id() as *mut c_void, None);
-            }
-
-            // Detach SPDK controller.
-            let rc = unsafe { spdk_nvme_detach(inner.ctrlr.as_ptr()) };
-
-            assert_eq!(rc, 0, "Failed to detach NVMe controller");
-            debug!("{}: NVMe controller successfully detached", cname);
-        }
-
-        // Remove 'controller id->controller' mappig.
-        controllers.remove(&controller.id().to_string());
-
+        })?;
+        debug!("{}: removed from controller list", name);
         Ok(())
     }
 }
