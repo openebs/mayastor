@@ -34,12 +34,7 @@ use spdk_sys::{
 
 use crate::{
     bdev::{
-        dev::nvmx::{
-            controller,
-            nvme_controller_lookup,
-            NvmeControllerState,
-            NVME_CONTROLLERS,
-        },
+        dev::nvmx::{controller, NvmeControllerState, NVME_CONTROLLERS},
         util::uri,
         CreateDestroy,
         GetName,
@@ -52,8 +47,6 @@ use crate::{
     subsys::NvmeBdevOpts,
 };
 use futures::channel::oneshot::Sender;
-
-use super::nvme_controller_remove;
 
 const DEFAULT_NVMF_PORT: u16 = 8420;
 // Callback to be called once NVMe controller is successfully created.
@@ -263,10 +256,7 @@ impl CreateDestroy for NvmfDeviceTemplate {
     #[instrument(err)]
     async fn create(&self) -> Result<String, Self::Error> {
         let cname = self.get_name();
-
-        // Check against existing controller with the transport ID.
-        let mut controllers = NVME_CONTROLLERS.write().unwrap();
-        if controllers.contains_key(&cname) {
+        if let Some(_) = NVME_CONTROLLERS.lookup_by_name(&cname) {
             return Err(NexusBdevError::BdevExists {
                 name: cname,
             });
@@ -279,8 +269,8 @@ impl CreateDestroy for NvmfDeviceTemplate {
             controller::NvmeController::new(&cname, self.prchk_flags)
                 .expect("failed to create new NVMe controller instance"),
         ));
-        controllers.insert(cname.clone(), rc);
-        drop(controllers);
+
+        NVME_CONTROLLERS.insert_controller(cname.clone(), rc);
 
         let mut context = NvmeControllerContext::new(self);
 
@@ -295,9 +285,7 @@ impl CreateDestroy for NvmfDeviceTemplate {
 
         if probe_ctx.is_none() {
             // Remove controller record before returning error.
-            let mut controllers = NVME_CONTROLLERS.write().unwrap();
-            controllers.remove(&cname);
-
+            NVME_CONTROLLERS.remove_by_name(&cname).unwrap();
             return Err(NexusBdevError::CreateBdev {
                 name: cname,
                 source: Errno::ENODEV,
@@ -327,8 +315,9 @@ impl CreateDestroy for NvmfDeviceTemplate {
                 name: self.name.clone(),
             })?;
 
-        let controller =
-            nvme_controller_lookup(&cname).expect("no controller in the list");
+        let controller = NVME_CONTROLLERS
+            .lookup_by_name(&cname)
+            .expect("no controller in the list");
 
         let controller = controller.lock().expect("failed to lock controller");
 
@@ -344,11 +333,12 @@ impl CreateDestroy for NvmfDeviceTemplate {
 
     // nvme_bdev_ctrlr_create
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
-        let name = nvme_controller_remove(self.get_name()).map_err(|_| {
-            NexusBdevError::BdevNotFound {
-                name: self.get_name(),
-            }
-        })?;
+        let name =
+            NVME_CONTROLLERS
+                .remove_by_name(self.get_name())
+                .map_err(|_| NexusBdevError::BdevNotFound {
+                    name: self.get_name(),
+                })?;
         debug!("{}: removed from controller list", name);
         Ok(())
     }
