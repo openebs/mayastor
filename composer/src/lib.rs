@@ -620,7 +620,7 @@ impl ComposeTest {
         // attached to it are removed. To get a list of attached
         // containers, use network_list()
         if let Err(e) = self.docker.remove_network(name).await {
-            if !matches!(e, Error::DockerResponseNotFoundError{..}) {
+            if !matches!(e, Error::DockerResponseNotFoundError { .. }) {
                 return Err(e);
             }
         }
@@ -909,7 +909,7 @@ impl ComposeTest {
             .await
         {
             // where already stopped
-            if !matches!(e, Error::DockerResponseNotModifiedError{..}) {
+            if !matches!(e, Error::DockerResponseNotModifiedError { .. }) {
                 return Err(e);
             }
         }
@@ -931,7 +931,7 @@ impl ComposeTest {
             .await
         {
             // where already stopped
-            if !matches!(e, Error::DockerResponseNotModifiedError{..}) {
+            if !matches!(e, Error::DockerResponseNotModifiedError { .. }) {
                 return Err(e);
             }
         }
