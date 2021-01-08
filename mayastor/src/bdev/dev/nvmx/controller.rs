@@ -10,11 +10,14 @@ use std::{
 
 use spdk_sys::{
     spdk_io_device_register,
+    spdk_io_device_unregister,
     spdk_nvme_ctrlr,
     spdk_nvme_ctrlr_get_ns,
     spdk_nvme_ctrlr_process_admin_completions,
+    spdk_nvme_detach,
     spdk_poller,
     spdk_poller_register_named,
+    spdk_poller_unregister,
 };
 
 use crate::bdev::dev::nvmx::{
@@ -64,21 +67,15 @@ impl NvmeControllerInner {
  */
 #[derive(Debug)]
 pub struct NvmeController {
-    pub(crate) name: String,
-    pub(crate) id: u64,
-    pub(crate) prchk_flags: u32,
+    name: String,
+    id: u64,
+    prchk_flags: u32,
     pub(crate) state: NvmeControllerState,
-    pub(crate) inner: Option<NvmeControllerInner>,
+    inner: Option<NvmeControllerInner>,
 }
 
 unsafe impl Send for NvmeController {}
 unsafe impl Sync for NvmeController {}
-
-impl Drop for NvmeController {
-    fn drop(&mut self) {
-        debug!("{}: dropping controller object", self.get_name());
-    }
-}
 
 impl NvmeController {
     /// Creates a new NVMe controller with the given name.
@@ -174,6 +171,26 @@ impl NvmeController {
 
         self.inner.as_mut().unwrap().namespaces =
             vec![Arc::new(NvmeNamespace::from_ptr(ns))]
+    }
+}
+
+impl Drop for NvmeController {
+    fn drop(&mut self) {
+        let inner = self.inner.take().expect("nvme inner already gone");
+        unsafe { spdk_poller_unregister(&mut inner.adminq_poller.as_ptr()) }
+
+        debug!(
+            "{}: unregistering I/O device at 0x{:X}",
+            self.get_name(),
+            self.id()
+        );
+        unsafe {
+            spdk_io_device_unregister(self.id() as *mut c_void, None);
+        }
+        let rc = unsafe { spdk_nvme_detach(inner.ctrlr.as_ptr()) };
+
+        assert_eq!(rc, 0, "Failed to detach NVMe controller");
+        debug!("{}: NVMe controller successfully detached", self.name);
     }
 }
 
