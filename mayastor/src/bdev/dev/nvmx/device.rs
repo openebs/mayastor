@@ -87,13 +87,13 @@ impl NvmeBlockDevice {
             warn!("read-only mode is not supported in NvmeBlockDevice::open_by_name()");
         }
 
-        let controllers = NVME_CONTROLLERS.read().unwrap();
-        if !controllers.contains_key(name) {
-            return Err(CoreError::OpenBdev {
-                source: Errno::ENODEV,
-            });
-        }
-        let controller = controllers.get(name).unwrap().lock().unwrap();
+        let controller = NVME_CONTROLLERS.lookup_by_name(name).ok_or(
+            CoreError::BdevNotFound {
+                name: name.to_string(),
+            },
+        )?;
+
+        let controller = controller.lock().expect("lock poisened");
         let descr = NvmeDeviceDescriptor::create(&controller)?;
         Ok(descr)
     }
@@ -178,15 +178,16 @@ impl BlockDevice for NvmeBlockDevice {
  * Lookup target NVMeOF device by its name (starts with nvmf://).
  */
 pub fn lookup_by_name(name: &str) -> Option<Box<dyn BlockDevice>> {
-    match NVME_CONTROLLERS.read().unwrap().get(name) {
-        Some(ctrlr) => {
-            if let Some(ns) = ctrlr.lock().unwrap().namespace() {
-                Some(Box::new(NvmeBlockDevice::from_ns(name, ns)))
-            } else {
-                None
-            }
-        }
-        _ => None,
+    if let Some(c) = NVME_CONTROLLERS.lookup_by_name(name) {
+        let ns = c
+            .lock()
+            .expect("failed to lock NVMe controlelr")
+            .namespace()
+            .expect("no namespaces for this controller");
+        Some(Box::new(NvmeBlockDevice::from_ns(name, ns)))
+    } else {
+        debug!("{}: NVMe controller not found", name);
+        None
     }
 }
 
