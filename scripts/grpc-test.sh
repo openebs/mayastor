@@ -1,11 +1,12 @@
-#!/usr/bin/env sh
+#!/usr/bin/env bash
 
 set -euxo pipefail
 
-export PATH=$PATH:${HOME}/.cargo/bin
+export PATH="$PATH:${HOME}/.cargo/bin"
+export npm_config_jobs=$(nproc)
 
 cargo build --all
-cd test/grpc
+cd "$(dirname "$0")/../test/grpc"
 npm install
 
 for ts in cli replica nexus csi rebuild snapshot nats; do

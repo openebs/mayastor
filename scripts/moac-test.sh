@@ -1,8 +1,9 @@
-#!/usr/bin/env sh
+#!/usr/bin/env bash
 
 set -euxo pipefail
 
-cd csi/moac
+cd "$(dirname "$0")/../csi/moac"
+export npm_config_jobs=$(nproc)
 npm install
 npm run prepare
 npm run compile
