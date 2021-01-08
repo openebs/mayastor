@@ -6,13 +6,13 @@
 use std::{
     collections::HashMap,
     convert::{From, TryFrom},
-    mem::size_of,
-    os::raw::c_void,
-    ptr::{copy_nonoverlapping, NonNull},
+    ffi::c_void,
+    ptr::NonNull,
     sync::{Arc, Mutex},
 };
 
 use async_trait::async_trait;
+use controller::options::NvmeControllerOpts;
 use futures::channel::oneshot;
 use nix::errno::Errno;
 use poller::Poller;
@@ -20,7 +20,6 @@ use snafu::ResultExt;
 use spdk_sys::{
     spdk_nvme_connect_async,
     spdk_nvme_ctrlr,
-    spdk_nvme_ctrlr_get_default_ctrlr_opts,
     spdk_nvme_ctrlr_opts,
     spdk_nvme_probe_poll_async,
     spdk_nvme_transport_id,
@@ -41,10 +40,10 @@ use crate::{
         NexusBdevError,
         {self},
     },
-    subsys::NvmeBdevOpts,
 };
 use futures::channel::oneshot::Sender;
 
+use super::controller::transport::NvmeTransportId;
 const DEFAULT_NVMF_PORT: u16 = 8420;
 // Callback to be called once NVMe controller is successfully created.
 extern "C" fn connect_attach_cb(
@@ -161,9 +160,9 @@ impl GetName for NvmfDeviceTemplate {
 
 // Context for an NVMe controller being created.
 pub(crate) struct NvmeControllerContext<'probe> {
-    opts: spdk_nvme_ctrlr_opts,
+    opts: NvmeControllerOpts,
     name: String,
-    trid: spdk_nvme_transport_id,
+    trid: NvmeTransportId,
     sender: Option<oneshot::Sender<Result<(), Errno>>>,
     receiver: oneshot::Receiver<Result<(), Errno>>,
     poller: Option<Poller<'probe>>,
@@ -171,48 +170,15 @@ pub(crate) struct NvmeControllerContext<'probe> {
 
 impl<'probe> NvmeControllerContext<'probe> {
     pub fn new(template: &NvmfDeviceTemplate) -> NvmeControllerContext {
-        let port = template.port.to_string();
-        let protocol = "tcp";
+        let trid = controller::transport::Builder::new()
+            .with_subnqn(&template.subnqn)
+            .with_svcid(&template.port.to_string())
+            .with_traddr(&template.host)
+            .build();
 
-        let default_opts = NvmeBdevOpts::default();
-        let mut trid = spdk_nvme_transport_id::default();
-        let mut opts = spdk_nvme_ctrlr_opts::default();
-
-        // Initialize options for NVMe controller to defaults.
-        unsafe {
-            spdk_nvme_ctrlr_get_default_ctrlr_opts(
-                &mut opts,
-                size_of::<spdk_nvme_ctrlr_opts>() as u64,
-            );
-        }
-
-        opts.transport_retry_count = default_opts.retry_count as u8;
-
-        unsafe {
-            copy_nonoverlapping(
-                protocol.as_ptr() as *const c_void,
-                &mut trid.trstring[0] as *const _ as *mut c_void,
-                protocol.len(),
-            );
-            copy_nonoverlapping(
-                template.host.as_ptr() as *const c_void,
-                &mut trid.traddr[0] as *const _ as *mut c_void,
-                template.host.len(),
-            );
-            copy_nonoverlapping(
-                port.as_ptr() as *const c_void,
-                &mut trid.trsvcid[0] as *const _ as *mut c_void,
-                port.len(),
-            );
-            copy_nonoverlapping(
-                template.subnqn.as_ptr() as *const c_void,
-                &mut trid.subnqn[0] as *const _ as *mut c_void,
-                template.subnqn.len(),
-            );
-        }
-
-        trid.trtype = spdk_sys::SPDK_NVME_TRANSPORT_TCP;
-        trid.adrfam = spdk_sys::SPDK_NVMF_ADRFAM_IPV4;
+        let opts = controller::options::Builder::new()
+            .with_transport_retry_count(5)
+            .build();
 
         let (sender, receiver) = oneshot::channel::<ErrnoResult<()>>();
 
@@ -267,8 +233,8 @@ impl CreateDestroy for NvmfDeviceTemplate {
         // Initiate connection with remote NVMe target.
         let probe_ctx = NonNull::new(unsafe {
             spdk_nvme_connect_async(
-                &context.trid,
-                &context.opts,
+                context.trid.as_ptr(),
+                context.opts.as_ptr(),
                 Some(connect_attach_cb),
             )
         });
