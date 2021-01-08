@@ -1,12 +1,7 @@
 //!
 //!
 //! This file contains the main structures for a NVMe controller
-use std::{
-    convert::From,
-    os::raw::c_void,
-    ptr::NonNull,
-    sync::{Arc, Mutex},
-};
+use std::{convert::From, os::raw::c_void, ptr::NonNull, sync::Arc};
 
 use spdk_sys::{
     spdk_io_device_register,
@@ -23,7 +18,6 @@ use spdk_sys::{
 use crate::bdev::dev::nvmx::{
     channel::{NvmeControllerIoChannel, NvmeIoChannel},
     nvme_bdev_running_config,
-    nvme_controller_lookup,
     uri::NvmeControllerContext,
     NvmeNamespace,
     NVME_CONTROLLERS,
@@ -176,7 +170,7 @@ impl NvmeController {
 
 impl Drop for NvmeController {
     fn drop(&mut self) {
-        let inner = self.inner.take().expect("nvme inner already gone");
+        let inner = self.inner.take().expect("NVMe inner already gone");
         unsafe { spdk_poller_unregister(&mut inner.adminq_poller.as_ptr()) }
 
         debug!(
@@ -220,8 +214,9 @@ pub(crate) fn connected_attached_cb(
 
     // get a reference to our controller we created when we kicked of the async
     // attaching process
-    let controller =
-        nvme_controller_lookup(&ctx.name()).expect("no controller in the list");
+    let controller = NVME_CONTROLLERS
+        .lookup_by_name(&ctx.name())
+        .expect("no controller in the list");
 
     // clone it now such that we can lock the original, and insert it later.
     let ctl = Arc::clone(&controller);
@@ -241,14 +236,9 @@ pub(crate) fn connected_attached_cb(
     controller.populate_namespaces();
     controller.state = NvmeControllerState::Running;
 
-    nvme_controller_insert(cid, ctl);
+    NVME_CONTROLLERS.insert_controller(cid.to_string(), ctl);
     // Wake up the waiter and complete controller registration.
     ctx.sender()
         .send(Ok(()))
         .expect("done callback receiver side disappeared");
-}
-
-fn nvme_controller_insert(cid: u64, ctl: Arc<Mutex<NvmeController>>) {
-    let mut controllers = NVME_CONTROLLERS.write().unwrap();
-    controllers.insert(cid.to_string(), ctl);
 }
