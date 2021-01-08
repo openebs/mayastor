@@ -242,3 +242,297 @@ pub(crate) fn connected_attached_cb(
         .send(Ok(()))
         .expect("done callback receiver side disappeared");
 }
+
+pub(crate) mod options {
+    use std::mem::size_of;
+
+    use spdk_sys::{
+        spdk_nvme_ctrlr_get_default_ctrlr_opts,
+        spdk_nvme_ctrlr_opts,
+    };
+
+    /// structure that holds the default NVMe controller options. This is
+    /// different from ['NvmeBdevOpts'] as it exposes more control over
+    /// variables.
+
+    pub struct NvmeControllerOpts(spdk_nvme_ctrlr_opts);
+    impl NvmeControllerOpts {
+        pub fn as_ptr(&self) -> *const spdk_nvme_ctrlr_opts {
+            &self.0
+        }
+    }
+
+    impl Default for NvmeControllerOpts {
+        fn default() -> Self {
+            let mut default = spdk_nvme_ctrlr_opts::default();
+            unsafe {
+                spdk_nvme_ctrlr_get_default_ctrlr_opts(
+                    &mut default,
+                    size_of::<spdk_nvme_ctrlr_opts>() as u64,
+                );
+            }
+
+            Self(default)
+        }
+    }
+
+    #[derive(Debug, Default)]
+    pub struct Builder {
+        admin_timeout_ms: Option<u32>,
+        disable_error_logging: Option<bool>,
+        fabrics_connect_timeout_us: Option<u64>,
+        transport_retry_count: Option<u8>,
+        keep_alive_timeout_ms: Option<u32>,
+    }
+
+    #[allow(dead_code)]
+    impl Builder {
+        pub fn new() -> Self {
+            Self::default()
+        }
+
+        pub fn with_admin_timeout_ms(mut self, timeout: u32) -> Self {
+            self.admin_timeout_ms = Some(timeout);
+            self
+        }
+        pub fn with_fabrics_connect_timeout_us(mut self, timeout: u64) -> Self {
+            self.fabrics_connect_timeout_us = Some(timeout);
+            self
+        }
+
+        pub fn with_transport_retry_count(mut self, count: u8) -> Self {
+            self.transport_retry_count = Some(count);
+            self
+        }
+
+        pub fn with_keep_alive_timeout_ms(mut self, timeout: u32) -> Self {
+            self.keep_alive_timeout_ms = Some(timeout);
+            self
+        }
+
+        pub fn disable_error_logging(mut self, disable: bool) -> Self {
+            self.disable_error_logging = Some(disable);
+            self
+        }
+
+        /// Builder to override default values
+        pub fn build(self) -> NvmeControllerOpts {
+            let mut opts = NvmeControllerOpts::default();
+
+            if let Some(timeout_ms) = self.admin_timeout_ms {
+                opts.0.admin_timeout_ms = timeout_ms;
+            }
+            if let Some(timeout_us) = self.fabrics_connect_timeout_us {
+                opts.0.fabrics_connect_timeout_us = timeout_us;
+            }
+
+            if let Some(retries) = self.transport_retry_count {
+                opts.0.transport_retry_count = retries;
+            }
+
+            if let Some(timeout_ms) = self.keep_alive_timeout_ms {
+                opts.0.keep_alive_timeout_ms = timeout_ms;
+            }
+
+            opts
+        }
+    }
+    #[cfg(test)]
+    mod test {
+        use crate::bdev::dev::nvmx::controller::options;
+
+        #[test]
+        fn nvme_default_controller_options() {
+            let opts = options::Builder::new()
+                .with_admin_timeout_ms(1)
+                .with_fabrics_connect_timeout_us(1)
+                .with_transport_retry_count(1)
+                .build();
+
+            assert_eq!(opts.0.admin_timeout_ms, 1);
+            assert_eq!(opts.0.fabrics_connect_timeout_us, 1);
+            assert_eq!(opts.0.transport_retry_count, 1);
+        }
+    }
+}
+
+pub(crate) mod transport {
+    use libc::c_void;
+    use spdk_sys::spdk_nvme_transport_id;
+    use std::{ffi::CStr, fmt::Debug, ptr::copy_nonoverlapping};
+
+    pub struct NvmeTransportId(spdk_nvme_transport_id);
+
+    impl Debug for NvmeTransportId {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            writeln!(
+                f,
+                "Transport ID: {}: {}: {}: {}:",
+                self.trtype(),
+                self.traddr(),
+                self.subnqn(),
+                self.svcid()
+            )
+        }
+    }
+
+    impl NvmeTransportId {
+        pub fn trtype(&self) -> String {
+            unsafe {
+                CStr::from_ptr(&self.0.trstring[0])
+                    .to_string_lossy()
+                    .to_string()
+            }
+        }
+
+        pub fn traddr(&self) -> String {
+            unsafe {
+                CStr::from_ptr(&self.0.traddr[0])
+                    .to_string_lossy()
+                    .to_string()
+            }
+        }
+
+        pub fn subnqn(&self) -> String {
+            unsafe {
+                CStr::from_ptr(&self.0.subnqn[0])
+                    .to_string_lossy()
+                    .to_string()
+            }
+        }
+        pub fn svcid(&self) -> String {
+            unsafe {
+                CStr::from_ptr(&self.0.trsvcid[0])
+                    .to_string_lossy()
+                    .to_string()
+            }
+        }
+
+        pub fn as_ptr(&self) -> *const spdk_nvme_transport_id {
+            &self.0
+        }
+    }
+
+    #[derive(Debug)]
+    enum TransportId {
+        TCP = 0x3,
+    }
+
+    impl Default for TransportId {
+        fn default() -> Self {
+            Self::TCP
+        }
+    }
+
+    impl From<TransportId> for String {
+        fn from(t: TransportId) -> Self {
+            match t {
+                TransportId::TCP => String::from("tcp"),
+            }
+        }
+    }
+
+    #[derive(Debug)]
+    #[allow(dead_code)]
+    pub(crate) enum AdressFamily {
+        NvmfAdrfamIpv4 = 0x1,
+        NvmfAdrfamIpv6 = 0x2,
+        NvmfAdrfamIb = 0x3,
+        NvmfAdrfamFc = 0x4,
+        NvmfAdrfamLoop = 0xfe,
+    }
+
+    impl Default for AdressFamily {
+        fn default() -> Self {
+            Self::NvmfAdrfamIpv4
+        }
+    }
+
+    #[derive(Default, Debug)]
+    pub struct Builder {
+        trid: TransportId,
+        adrfam: AdressFamily,
+        svcid: String,
+        traddr: String,
+        subnqn: String,
+    }
+
+    impl Builder {
+        pub fn new() -> Self {
+            Self {
+                ..Default::default()
+            }
+        }
+
+        /// the address to connect to
+        pub fn with_traddr(mut self, traddr: &str) -> Self {
+            self.traddr = traddr.to_string();
+            self
+        }
+        /// svcid (port) to connect to
+
+        pub fn with_svcid(mut self, svcid: &str) -> Self {
+            self.svcid = svcid.to_string();
+            self
+        }
+
+        /// target nqn
+        pub fn with_subnqn(mut self, subnqn: &str) -> Self {
+            self.subnqn = subnqn.to_string();
+            self
+        }
+
+        /// builder for transportID currently defaults to TCP IPv4
+        pub fn build(self) -> NvmeTransportId {
+            let trtype = String::from(TransportId::TCP);
+            let mut trid = spdk_nvme_transport_id::default();
+
+            trid.adrfam = AdressFamily::NvmfAdrfamIpv4 as u32;
+            trid.trtype = TransportId::TCP as u32;
+
+            unsafe {
+                copy_nonoverlapping(
+                    trtype.as_ptr().cast(),
+                    &mut trid.trstring[0] as *const _ as *mut c_void,
+                    trtype.len(),
+                );
+
+                copy_nonoverlapping(
+                    self.traddr.as_ptr().cast(),
+                    &mut trid.traddr[0] as *const _ as *mut c_void,
+                    self.traddr.len(),
+                );
+                copy_nonoverlapping(
+                    self.svcid.as_ptr() as *const c_void,
+                    &mut trid.trsvcid[0] as *const _ as *mut c_void,
+                    self.svcid.len(),
+                );
+                copy_nonoverlapping(
+                    self.subnqn.as_ptr() as *const c_void,
+                    &mut trid.subnqn[0] as *const _ as *mut c_void,
+                    self.subnqn.len(),
+                );
+            };
+
+            NvmeTransportId(trid)
+        }
+    }
+
+    #[cfg(test)]
+    mod test {
+        use crate::bdev::dev::nvmx::controller::transport;
+
+        #[test]
+        fn test_transport_id() {
+            let transport = transport::Builder::new()
+                .with_subnqn("nqn.2021-01-01:test.nqn")
+                .with_svcid("4420")
+                .with_traddr("127.0.0.1")
+                .build();
+
+            assert_eq!(transport.traddr(), "127.0.0.1");
+            assert_eq!(transport.subnqn(), "nqn.2021-01-01:test.nqn");
+            assert_eq!(transport.svcid(), "4420");
+        }
+    }
+}
