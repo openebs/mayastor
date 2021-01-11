@@ -2020,13 +2020,13 @@ let
         sha512 = "4BBXHXb5OjjBh7luylu8vFqL6H6aPn/LeqpQaSBeRzO/Xv95wHW/WkU9TJRqaCTMZ5wq9jTSvlJWp0vRJy1pVA==";
       };
     };
-    "grpc-uds-0.1.4" = {
+    "grpc-uds-0.1.6" = {
       name = "grpc-uds";
       packageName = "grpc-uds";
-      version = "0.1.4";
+      version = "0.1.6";
       src = fetchurl {
-        url = "https://registry.npmjs.org/grpc-uds/-/grpc-uds-0.1.4.tgz";
-        sha512 = "AzSJ8SscZuCmqZLyS7i/UbutJDuAkPnfN7wWZzkW7TA+xi7T1g2G7duYc/bgwhB4aTi/RwUs7KemJpKA4W5ZOw==";
+        url = "https://registry.npmjs.org/grpc-uds/-/grpc-uds-0.1.6.tgz";
+        sha512 = "l7sxZFjrdm6C7e0OHcyclrQGgaFQUxHD4jA93h9jnIzAw0NmJk+2xvnEe5chC8BOVv9cAVWKGPQyyOAzJoafwA==";
       };
     };
     "har-schema-2.0.0" = {
@@ -3019,13 +3019,13 @@ let
         sha512 = "sGkPx+VjMtmA6MX27oA4FBFELFCZZ4S4XqeGOXCv68tT+jb3vk/RyaKWP0PTKyWtmLSM0b+adUTEvbs1PEaH2w==";
       };
     };
-    "nan-2.14.1" = {
+    "nan-2.14.2" = {
       name = "nan";
       packageName = "nan";
-      version = "2.14.1";
+      version = "2.14.2";
       src = fetchurl {
-        url = "https://registry.npmjs.org/nan/-/nan-2.14.1.tgz";
-        sha512 = "isWHgVjnFjh2x2yuJ/tj3JbwoHu3UC2dX5G/88Cm24yB6YopVgxvBObDY7n5xW6ExmFhJpSEQqFPvq9zaXc8Jw==";
+        url = "https://registry.npmjs.org/nan/-/nan-2.14.2.tgz";
+        sha512 = "M2ufzIiINKCuDfBSAUr1vWQ+vuVcA9kqx8JJUsbQi6yf1uGRyb7HfpdfUr5qLXf3B/t8dPvcjhKMmlfnP47EzQ==";
       };
     };
     "nats-2.0.0-209" = {
@@ -4819,13 +4819,13 @@ let
         sha512 = "PSNhEJDejZYV7h50BohL09Er9VaIefr2LMAf3OEmpCkjOi34eYyQYAXUTjEQtZJTKcF0E2UKTh+osDLsgNim9Q==";
       };
     };
-    "y18n-3.2.1" = {
+    "y18n-3.2.2" = {
       name = "y18n";
       packageName = "y18n";
-      version = "3.2.1";
+      version = "3.2.2";
       src = fetchurl {
-        url = "https://registry.npmjs.org/y18n/-/y18n-3.2.1.tgz";
-        sha1 = "6d15fba884c08679c0d77e88e7759e811e07fa41";
+        url = "https://registry.npmjs.org/y18n/-/y18n-3.2.2.tgz";
+        sha512 = "uGZHXkHnhF0XeeAPgnKfPv1bgKAYyVvmNL1xlKsPYZPaIHxGti2hHqvOCQv71XMsLxu1QjergkqogUnms5D3YQ==";
       };
     };
     "y18n-4.0.0" = {
@@ -5242,7 +5242,7 @@ let
       sources."graceful-fs-4.2.4"
       sources."growl-1.10.5"
       sources."grpc-promise-1.4.0"
-      (sources."grpc-uds-0.1.4" // {
+      (sources."grpc-uds-0.1.6" // {
         dependencies = [
           sources."protobufjs-5.0.3"
           sources."yargs-3.32.0"
@@ -5373,7 +5373,7 @@ let
         ];
       })
       sources."ms-2.0.0"
-      sources."nan-2.14.1"
+      sources."nan-2.14.2"
       sources."nats-2.0.0-209"
       sources."natural-compare-1.4.0"
       sources."negotiator-0.6.2"
@@ -5622,7 +5622,7 @@ let
       sources."ws-7.4.0"
       sources."wtfnode-0.8.3"
       sources."xdg-basedir-4.0.0"
-      sources."y18n-3.2.1"
+      sources."y18n-3.2.2"
       sources."yallist-4.0.0"
       (sources."yargs-16.0.3" // {
         dependencies = [

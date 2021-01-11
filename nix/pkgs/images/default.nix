@@ -113,6 +113,11 @@ rec {
       chmod u+w bin
       ln -s ${moac.out}/bin/moac bin/moac
       chmod u-w bin
+      # workaround for detect-libc npm module unable to detect glibc system
+      chmod u+w .
+      mkdir -p usr/sbin
+      touch usr/sbin/detect-glibc-in-nix-container
+      chmod u-w .
     '';
     maxLayers = 42;
   };

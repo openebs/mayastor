@@ -15,7 +15,7 @@
     "grpc-kit": "^0.2.0",
     "grpc-mock": "^0.7.0",
     "grpc-promise": "^1.4.0",
-    "grpc-uds": "^0.1.4",
+    "grpc-uds": "^0.1.6",
     "inpath": "^1.0.2",
     "lodash": "^4.17.19",
     "mocha": "^7.1.1",
