@@ -7,7 +7,7 @@ set -eux
 
 SCRIPTDIR=$(dirname "$(realpath "$0")")
 # new tests should be added before the replica_pod_remove test
-TESTS="install basic_volume_io replica node_disconnect/replica_pod_remove"
+TESTS="install basic_volume_io replica rebuild node_disconnect/replica_pod_remove"
 DEVICE=
 REGISTRY=
 TAG=
