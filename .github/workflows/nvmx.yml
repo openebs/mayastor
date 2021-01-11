@@ -1,0 +1,24 @@
+name: NVMx testing
+on:
+  push:
+    branches:
+      - "feature/nvmx"
+  pull_request:
+    branches:
+      - "gila:**"
+      - "mtzaurus:**"
+jobs:
+  nvmx_test:
+    name: run nvmx cargo-tests
+    runs-on: ubuntu-20.04
+    steps:
+      - uses: actions/checkout@v2
+      - uses: cachix/install-nix-action@v12
+      - run: sudo apt-get install crda wireless-crda nvme-cli -y
+      - run: |+
+          pkgName=linux-modules-extra-5.4.0-1032-azure_5.4.0-1032.33_amd64.deb
+          wget "http://launchpadlibrarian.net/506842029/${pkgName}"
+          sudo dpkg -i $pkgName
+      - run: (echo 2048 | sudo tee /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages )
+      - run: sudo ./scripts/block_devs.sh
+      - run: nix-shell --run "./scripts/nvmx-test.sh"
