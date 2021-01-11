@@ -3,6 +3,7 @@ package replica_pod_remove_test
 import (
 	"e2e-basic/common"
 	disconnect_lib "e2e-basic/node_disconnect/lib"
+
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
@@ -15,7 +16,8 @@ import (
 )
 
 var env disconnect_lib.DisconnectEnv
-var gStorageClass string = ""
+
+const gStorageClass = "mayastor-nvmf-pod-remove-test-sc"
 
 func TestMayastorPodLoss(t *testing.T) {
 	RegisterFailHandler(Fail)
@@ -26,14 +28,12 @@ func TestMayastorPodLoss(t *testing.T) {
 }
 
 var _ = Describe("Mayastor replica pod removal test", func() {
-
 	It("should define the storage class to use", func() {
-		common.MkStorageClass("mayastor-nvmf-3", 3, "nvmf", "io.openebs.csi-mayastor")
-		gStorageClass = "mayastor-nvmf-3"
+		common.MkStorageClass(gStorageClass, 2, "nvmf", "io.openebs.csi-mayastor")
 	})
 
 	It("should verify nvmf nexus behaviour when a mayastor pod is removed", func() {
-		env = disconnect_lib.Setup("loss-test-pvc-nvmf", "mayastor-nvmf-3", "fio")
+		env = disconnect_lib.Setup("loss-test-pvc-nvmf", gStorageClass, "fio-pod-remove-test")
 		env.PodLossTest()
 	})
 })
@@ -50,8 +50,6 @@ var _ = AfterSuite(func() {
 	env.UnsuppressMayastorPod()
 	env.Teardown() // removes fio pod and volume
 
-	if gStorageClass != "" {
-		common.RmStorageClass(gStorageClass)
-	}
+	common.RmStorageClass(gStorageClass)
 	common.TeardownTestEnv()
 })
