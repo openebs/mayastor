@@ -45,7 +45,7 @@ impl NvmeDeviceDescriptor {
     ) -> Result<Box<dyn BlockDeviceDescriptor>, CoreError> {
         if let Some(ns) = controller.namespace() {
             Ok(Box::new(NvmeDeviceDescriptor {
-                ns: Arc::clone(&ns),
+                ns,
                 io_device_id: controller.id(),
                 name: controller.get_name(),
                 ctrlr: NonNull::new(controller.ctrlr_as_ptr()).unwrap(),
@@ -66,7 +66,7 @@ impl BlockDeviceDescriptor for NvmeDeviceDescriptor {
 
     fn into_handle(
         self: Box<Self>,
-    ) -> Result<Box<dyn BlockDeviceHandle>, NexusBdevError> {
+    ) -> Result<Box<dyn BlockDeviceHandle>, CoreError> {
         Ok(Box::new(NvmeDeviceHandle::create(
             &self.name,
             self.io_device_id,
