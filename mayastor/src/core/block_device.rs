@@ -69,7 +69,7 @@ pub trait BlockDeviceDescriptor {
     fn get_device(&self) -> Box<dyn BlockDevice>;
     fn into_handle(
         self: Box<Self>,
-    ) -> Result<Box<dyn BlockDeviceHandle>, NexusBdevError>;
+    ) -> Result<Box<dyn BlockDeviceHandle>, CoreError>;
 }
 
 pub type IoCompletionCallback = fn(bool, *const c_void) -> ();
@@ -117,17 +117,23 @@ pub trait BlockDeviceHandle {
         cb_arg: *const c_void,
     ) -> Result<(), CoreError>;
 
-    // fn reset(&self, cb: IoCompletionCallback, cb_arg: *const c_void);
-    // fn unmap_blocks(offset_blocks, num_blocks, cb, cb_arg);
+    fn reset(
+        &self,
+        cb: IoCompletionCallback,
+        cb_arg: *const c_void,
+    ) -> Result<(), CoreError>;
+
+    // fn unmap_blocks(u64: offset_blocks, u64: num_blocks, cb:
+    // IoCompletionCallback, cb_arg: *const c_void) -> Result<(), CoreError>;
     // fn write_zeroes(offset_blocks, num_blocks, cb, cb_arg);
 
-    // async fn reset(&self) -> Result<usize, CoreError>
-
     // NVMe only.
-
-    // async fn create_snapshot(&self) -> Result<u64, CoreError>
-    // async fn nvme_admin_custom(&self, opcode: u8) -> Result<(), CoreError>
-    // pub async fn nvme_admin(
+    async fn nvme_admin_custom(&self, opcode: u8) -> Result<(), CoreError>;
+    async fn nvme_admin(
+        &self,
+        nvme_cmd: &spdk_sys::spdk_nvme_cmd,
+        buffer: Option<&mut DmaBuf>,
+    ) -> Result<(), CoreError>;
     async fn nvme_identify_ctrlr(&self) -> Result<DmaBuf, CoreError>;
 }
 

@@ -212,7 +212,7 @@ impl CreateDestroy for NvmfDeviceTemplate {
     #[instrument(err)]
     async fn create(&self) -> Result<String, Self::Error> {
         let cname = self.get_name();
-        if let Some(_) = NVME_CONTROLLERS.lookup_by_name(&cname) {
+        if NVME_CONTROLLERS.lookup_by_name(&cname).is_some() {
             return Err(NexusBdevError::BdevExists {
                 name: cname,
             });
