@@ -1,5 +1,6 @@
 use std::{
     ffi::{c_void, CString},
+    fmt,
     ptr::NonNull,
     time::Duration,
 };
@@ -28,6 +29,16 @@ pub struct Poller<'a> {
     inner: NonNull<spdk_poller>,
     ctx: NonNull<PollCtx<'a>>,
     stopped: bool,
+    name: String,
+}
+
+impl<'a> fmt::Debug for Poller<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Poller")
+            .field("name", &self.name)
+            .field("stopped", &self.stopped)
+            .finish()
+    }
 }
 
 impl<'a> Poller<'a> {
@@ -121,14 +132,19 @@ impl<'a> Builder<'a> {
         let ctx = NonNull::new(Box::into_raw(Box::new(PollCtx(poll_fn))))
             .expect("failed to allocate new poller context");
 
+        let name;
         let inner = NonNull::new(unsafe {
             if self.name.is_none() {
+                name = "<unnamed>".to_string();
                 spdk_poller_register(
                     Some(_cb),
                     ctx.as_ptr().cast(),
                     self.interval.as_micros() as u64,
                 )
             } else {
+                name =
+                    String::from(self.name.as_ref().unwrap().to_str().unwrap());
+
                 spdk_poller_register_named(
                     Some(_cb),
                     ctx.as_ptr().cast(),
@@ -143,6 +159,7 @@ impl<'a> Builder<'a> {
             inner,
             ctx,
             stopped: false,
+            name,
         }
     }
 }

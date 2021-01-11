@@ -1,52 +1,60 @@
 //!
 //!
 //! This file contains the main structures for a NVMe controller
+use nix::errno::Errno;
+use once_cell::sync::OnceCell;
 use std::{convert::From, os::raw::c_void, ptr::NonNull, sync::Arc};
 
 use spdk_sys::{
+    spdk_for_each_channel,
+    spdk_for_each_channel_continue,
+    spdk_io_channel_iter,
+    spdk_io_channel_iter_get_channel,
+    spdk_io_channel_iter_get_ctx,
+    spdk_io_channel_iter_get_io_device,
     spdk_io_device_register,
     spdk_io_device_unregister,
     spdk_nvme_ctrlr,
     spdk_nvme_ctrlr_get_ns,
     spdk_nvme_ctrlr_process_admin_completions,
+    spdk_nvme_ctrlr_reset,
     spdk_nvme_detach,
-    spdk_poller,
-    spdk_poller_register_named,
-    spdk_poller_unregister,
 };
 
-use crate::bdev::dev::nvmx::{
-    channel::{NvmeControllerIoChannel, NvmeIoChannel},
-    nvme_bdev_running_config,
-    uri::NvmeControllerContext,
-    NvmeNamespace,
-    NVME_CONTROLLERS,
+use crate::{
+    bdev::dev::nvmx::{
+        channel::{NvmeControllerIoChannel, NvmeIoChannel},
+        nvme_bdev_running_config,
+        uri::NvmeControllerContext,
+        NvmeNamespace,
+        NVME_CONTROLLERS,
+    },
+    core::{mempool::MemoryPool, poller, CoreError, IoCompletionCallback},
 };
 
-#[derive(Debug, PartialEq)]
-pub enum NvmeControllerState {
-    Initializing,
-    Running,
+const RESET_CTX_POOL_SIZE: u64 = 1024 - 1;
+
+// Memory pool for keeping context during controller resets.
+static RESET_CTX_POOL: OnceCell<MemoryPool<ResetCtx>> = OnceCell::new();
+
+struct ResetCtx {
+    name: String,
+    cb: IoCompletionCallback,
+    cb_arg: *const c_void,
+    spdk_handle: *mut spdk_nvme_ctrlr,
 }
 
-#[derive(Debug)]
-pub(crate) struct NvmeControllerInner {
-    pub(crate) namespaces: Vec<Arc<NvmeNamespace>>,
-    pub(crate) ctrlr: NonNull<spdk_nvme_ctrlr>,
-    pub(crate) adminq_poller: NonNull<spdk_poller>,
-}
-
-impl NvmeControllerInner {
+impl<'a> NvmeControllerInner<'a> {
     fn new(ctrlr: NonNull<spdk_nvme_ctrlr>) -> Self {
-        let adminq_poller = NonNull::new(unsafe {
-            spdk_poller_register_named(
-                Some(nvme_poll_adminq),
-                ctrlr.as_ptr().cast(),
+        let ctx = ctrlr.as_ptr().cast();
+
+        let adminq_poller = poller::Builder::new()
+            .with_name("nvme_poll_adminq")
+            .with_interval(
                 nvme_bdev_running_config().nvme_adminq_poll_period_us,
-                "nvme_poll_adminq\0" as *const _ as *mut _,
             )
-        })
-        .expect("failed to create poller");
+            .with_poll_fn(move || nvme_poll_adminq(ctx))
+            .build();
 
         Self {
             ctrlr,
@@ -56,22 +64,49 @@ impl NvmeControllerInner {
     }
 }
 
+#[derive(Debug, PartialEq)]
+pub enum NvmeControllerState {
+    Initializing,
+    Running,
+    Resetting,
+    Destroying,
+}
+
+impl ToString for NvmeControllerState {
+    fn to_string(&self) -> String {
+        match *self {
+            NvmeControllerState::Initializing => "Initializing",
+            NvmeControllerState::Running => "Running",
+            NvmeControllerState::Resetting => "Resetting",
+            NvmeControllerState::Destroying => "Destroying",
+        }
+        .parse()
+        .unwrap()
+    }
+}
+
+#[derive(Debug)]
+pub struct NvmeControllerInner<'a> {
+    namespaces: Vec<Arc<NvmeNamespace>>,
+    ctrlr: NonNull<spdk_nvme_ctrlr>,
+    adminq_poller: poller::Poller<'a>,
+}
 /*
  * NVME controller implementation.
  */
 #[derive(Debug)]
-pub struct NvmeController {
+pub struct NvmeController<'a> {
     name: String,
     id: u64,
     prchk_flags: u32,
     pub(crate) state: NvmeControllerState,
-    inner: Option<NvmeControllerInner>,
+    inner: Option<NvmeControllerInner<'a>>,
 }
 
-unsafe impl Send for NvmeController {}
-unsafe impl Sync for NvmeController {}
+unsafe impl<'a> Send for NvmeController<'a> {}
+unsafe impl<'a> Sync for NvmeController<'a> {}
 
-impl NvmeController {
+impl<'a> NvmeController<'a> {
     /// Creates a new NVMe controller with the given name.
     pub fn new(name: &str, prchk_flags: u32) -> Option<Self> {
         let l = NvmeController {
@@ -107,6 +142,13 @@ impl NvmeController {
         self.id = id;
         debug!("{} ID set to 0x{:X}", self.name, self.id);
         id
+    }
+
+    fn set_state(&mut self, new_state: NvmeControllerState) {
+        info!(
+            "{} Transitioned from state {:?} to {:?}",
+            self.name, self.state, new_state
+        );
     }
 
     // As of now, only 1 namespace per controller is supported.
@@ -166,12 +208,190 @@ impl NvmeController {
         self.inner.as_mut().unwrap().namespaces =
             vec![Arc::new(NvmeNamespace::from_ptr(ns))]
     }
+
+    pub fn reset(
+        &mut self,
+        cb: IoCompletionCallback,
+        cb_arg: *const c_void,
+        failover: bool,
+    ) -> Result<(), CoreError> {
+        info!(
+            "{} initiating controller reset, failover = {}",
+            self.name, failover
+        );
+
+        // Reset can be initiated only via a mutable reference, so we know for
+        // sure that the caller is owning the controller exclusively, so
+        // we can freely modify controller's state without extra
+        // locking.
+        match self.state {
+            NvmeControllerState::Initializing
+            | NvmeControllerState::Destroying
+            | NvmeControllerState::Resetting => {
+                error!(
+                    "{} Controller is in '{:?}' state, reset not possible",
+                    self.name, self.state
+                );
+                return Err(CoreError::ResetDispatch {
+                    source: Errno::EBUSY,
+                });
+            }
+            _ => {}
+        }
+
+        if failover {
+            warn!(
+                "{} failover is not supported for controller reset",
+                self.name
+            );
+        }
+
+        let reset_ctx = RESET_CTX_POOL
+            .get()
+            .unwrap()
+            .get(ResetCtx {
+                name: self.name.clone(),
+                cb,
+                cb_arg,
+                spdk_handle: self.ctrlr_as_ptr(),
+            })
+            .ok_or(CoreError::ResetDispatch {
+                source: Errno::ENOMEM,
+            })?;
+
+        // Mark controller as being under reset and schedule asynchronous reset.
+        self.set_state(NvmeControllerState::Resetting);
+
+        unsafe {
+            spdk_for_each_channel(
+                self.id as *mut c_void,
+                Some(NvmeController::reset_destroy_channels),
+                reset_ctx as *mut c_void,
+                Some(NvmeController::reset_destroy_channels_done),
+            );
+        }
+        Ok(())
+    }
+
+    fn complete_reset(reset_ctx: &ResetCtx, status: i32) {
+        // Set controller state to Running and invoke completion callback.
+        let c = NVME_CONTROLLERS
+            .lookup_by_name(&reset_ctx.name)
+            .expect("Controller was removed while reset is in progress");
+        let mut controller = c.lock().expect("lock poisoned");
+
+        controller.set_state(NvmeControllerState::Running);
+        // Unlock the controller before calling the callback to avoid potential
+        // deadlocks.
+        drop(controller);
+
+        (reset_ctx.cb)(status == 0, reset_ctx.cb_arg);
+    }
+
+    extern "C" fn reset_destroy_channels(i: *mut spdk_io_channel_iter) {
+        let ch = unsafe { spdk_io_channel_iter_get_channel(i) };
+        let inner = NvmeIoChannel::inner_from_channel(ch);
+
+        debug!("Resetting I/O channel");
+        let rc = inner.reset();
+        if rc == 0 {
+            debug!("I/O channel successfully reset");
+        } else {
+            error!("failed to reset I/O channel, reset aborted");
+        }
+
+        unsafe { spdk_for_each_channel_continue(i, rc) };
+    }
+
+    extern "C" fn reset_destroy_channels_done(
+        i: *mut spdk_io_channel_iter,
+        status: i32,
+    ) {
+        unsafe {
+            let reset_ctx = spdk_io_channel_iter_get_ctx(i) as *mut ResetCtx;
+
+            if status != 0 {
+                error!(
+                    "{}: controller reset failed with status = {}",
+                    (*reset_ctx).name,
+                    status
+                );
+                NvmeController::complete_reset(&*reset_ctx, status);
+                return;
+            }
+
+            info!("{} all qpairs successfully deallocated", (*reset_ctx).name);
+
+            let rc = spdk_nvme_ctrlr_reset((*reset_ctx).spdk_handle);
+            if rc != 0 {
+                error!(
+                    "{} failed to reset controller, rc = {}",
+                    (*reset_ctx).name,
+                    rc
+                );
+                NvmeController::complete_reset(&*reset_ctx, rc);
+            } else {
+                info!("{} controller successfully reset", (*reset_ctx).name);
+
+                /* Recreate all of the I/O queue pairs */
+                spdk_for_each_channel(
+                    spdk_io_channel_iter_get_io_device(i),
+                    Some(NvmeController::reset_create_channels),
+                    spdk_io_channel_iter_get_ctx(i),
+                    Some(NvmeController::reset_create_channels_done),
+                );
+            }
+        }
+    }
+
+    extern "C" fn reset_create_channels(i: *mut spdk_io_channel_iter) {
+        let reset_ctx =
+            unsafe { spdk_io_channel_iter_get_ctx(i) as *mut ResetCtx };
+        let ch = unsafe { spdk_io_channel_iter_get_channel(i) };
+        let inner = NvmeIoChannel::inner_from_channel(ch);
+
+        debug!("Reinitializing I/O channel");
+        unsafe {
+            let rc = inner
+                .reinitialize(&(*reset_ctx).name, (*reset_ctx).spdk_handle);
+            if rc != 0 {
+                error!(
+                    "{} failed to reinitialize I/O channel, rc = {}",
+                    (*reset_ctx).name,
+                    rc
+                );
+            } else {
+                info!(
+                    "{} I/O channel successfully reinitialized",
+                    (*reset_ctx).name
+                );
+            }
+
+            spdk_for_each_channel_continue(i, rc)
+        }
+    }
+
+    extern "C" fn reset_create_channels_done(
+        i: *mut spdk_io_channel_iter,
+        status: i32,
+    ) {
+        unsafe {
+            let reset_ctx = spdk_io_channel_iter_get_ctx(i) as *mut ResetCtx;
+
+            info!(
+                "{} controller reset completed, status = {}",
+                (*reset_ctx).name,
+                status
+            );
+            NvmeController::complete_reset(&*reset_ctx, status);
+        }
+    }
 }
 
-impl Drop for NvmeController {
+impl<'a> Drop for NvmeController<'a> {
     fn drop(&mut self) {
         let inner = self.inner.take().expect("NVMe inner already gone");
-        unsafe { spdk_poller_unregister(&mut inner.adminq_poller.as_ptr()) }
+        inner.adminq_poller.stop();
 
         debug!(
             "{}: unregistering I/O device at 0x{:X}",
@@ -236,7 +456,19 @@ pub(crate) fn connected_attached_cb(
     controller.populate_namespaces();
     controller.state = NvmeControllerState::Running;
 
+    // Proactively initialize cache for controller operations.
+    RESET_CTX_POOL.get_or_init(|| {
+        MemoryPool::<ResetCtx>::create(
+            "nvme_ctrlr_reset_ctx",
+            RESET_CTX_POOL_SIZE,
+        )
+        .expect(
+            "Failed to create memory pool for NVMe controller reset contexts",
+        )
+    });
+
     NVME_CONTROLLERS.insert_controller(cid.to_string(), ctl);
+
     // Wake up the waiter and complete controller registration.
     ctx.sender()
         .send(Ok(()))
@@ -485,10 +717,11 @@ pub(crate) mod transport {
         /// builder for transportID currently defaults to TCP IPv4
         pub fn build(self) -> NvmeTransportId {
             let trtype = String::from(TransportId::TCP);
-            let mut trid = spdk_nvme_transport_id::default();
-
-            trid.adrfam = AdressFamily::NvmfAdrfamIpv4 as u32;
-            trid.trtype = TransportId::TCP as u32;
+            let mut trid = spdk_nvme_transport_id {
+                adrfam: AdressFamily::NvmfAdrfamIpv4 as u32,
+                trtype: TransportId::TCP as u32,
+                ..Default::default()
+            };
 
             unsafe {
                 copy_nonoverlapping(
