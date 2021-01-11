@@ -244,20 +244,6 @@ export class Volume {
         return;
       }
 
-      // check number of replicas for the volume
-      const newReplicaCount = this.replicaCount - Object.values(this.replicas).length;
-      if (newReplicaCount > 0) {
-        this._setState(VolumeState.Degraded);
-        try {
-          await this._createReplicas(newReplicaCount);
-        } catch (err) {
-          logError(err);
-        }
-        // New replicas will be added to the volume through events. On next fsa
-        // enter they will be there and we may continue beyound this point then.
-        return;
-      }
-
       if (!this.publishedOn) {
         // If the volume hasn't been published we can't do anything more than what
         // we have done (that is maintain required # of replicas). When we create
@@ -329,9 +315,9 @@ export class Volume {
     }
 
     // pair nexus children with replica objects to get the full picture
-    const childReplicaPairs: {ch: Child, r: Replica | undefined}[] = this.nexus.children.map((ch) => {
+    const childReplicaPairs: { ch: Child, r: Replica | undefined }[] = this.nexus.children.map((ch) => {
       const r = Object.values(this.replicas).find((r) => r.uri === ch.uri);
-      return {ch, r};
+      return { ch, r };
     });
     // add newly found replicas to the nexus (one by one)
     const newReplicas = Object.values(this.replicas).filter((r) => {
@@ -421,7 +407,7 @@ export class Volume {
         if (!rmPair && onlineCount > this.replicaCount) {
           // The replica with the lowest score must go away
           const rmReplica = this._prioritizeReplicas(
-            <Replica[]> childReplicaPairs
+            <Replica[]>childReplicaPairs
               .map((pair) => pair.r)
               .filter((r) => r !== undefined)
           ).pop();
@@ -541,7 +527,7 @@ export class Volume {
     if (pools.length < count) {
       log.error(
         `No suitable pool(s) for volume "${this}" with capacity ` +
-          `${this.requiredBytes} and replica count ${this.replicaCount}`
+        `${this.requiredBytes} and replica count ${this.replicaCount}`
       );
       throw new GrpcError(
         GrpcCode.RESOURCE_EXHAUSTED,
@@ -604,7 +590,7 @@ export class Volume {
   // @param   {object} replica  Replica object.
   // @returns {number} Score from 0 to 18.
   //
-  _scoreReplica (replica: Replica) {
+  _scoreReplica(replica: Replica) {
     let score = 0;
     const node = replica.pool!.node;
 
