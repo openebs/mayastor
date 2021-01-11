@@ -1,45 +1,51 @@
 /* I/O channel for NVMe controller, one per core. */
 
+use crate::{
+    bdev::dev::nvmx::NVME_CONTROLLERS,
+    core::poller,
+    subsys::NvmeBdevOpts,
+};
 use std::{cmp::max, mem::size_of, os::raw::c_void, ptr::NonNull};
-
-use crate::{bdev::dev::nvmx::NVME_CONTROLLERS, subsys::NvmeBdevOpts};
 
 use spdk_sys::{
     spdk_io_channel,
+    spdk_nvme_ctrlr,
     spdk_nvme_ctrlr_alloc_io_qpair,
     spdk_nvme_ctrlr_connect_io_qpair,
+    spdk_nvme_ctrlr_free_io_qpair,
     spdk_nvme_ctrlr_get_default_io_qpair_opts,
     spdk_nvme_ctrlr_reconnect_io_qpair,
     spdk_nvme_io_qpair_opts,
     spdk_nvme_poll_group,
     spdk_nvme_poll_group_add,
     spdk_nvme_poll_group_create,
+    spdk_nvme_poll_group_destroy,
     spdk_nvme_poll_group_process_completions,
+    spdk_nvme_poll_group_remove,
     spdk_nvme_qpair,
-    spdk_poller,
-    spdk_poller_register_named,
+    spdk_put_io_channel,
 };
 
 #[repr(C)]
-pub struct NvmeIoChannel {
-    inner: *mut NvmeIoChannelInner,
+pub struct NvmeIoChannel<'a> {
+    inner: *mut NvmeIoChannelInner<'a>,
 }
 
-impl NvmeIoChannel {
+impl<'a> NvmeIoChannel<'a> {
     #[inline]
-    fn from_raw<'a>(p: *mut c_void) -> &'a mut NvmeIoChannel {
+    fn from_raw(p: *mut c_void) -> &'a mut NvmeIoChannel<'a> {
         unsafe { &mut *(p as *mut NvmeIoChannel) }
     }
 
     #[inline]
-    fn inner_mut(&mut self) -> &mut NvmeIoChannelInner {
+    fn inner_mut(&mut self) -> &'a mut NvmeIoChannelInner<'a> {
         unsafe { &mut *self.inner }
     }
 
     #[inline]
-    pub fn inner_from_channel<'a>(
+    pub fn inner_from_channel(
         io_channel: *mut spdk_io_channel,
-    ) -> &'a mut NvmeIoChannelInner {
+    ) -> &'a mut NvmeIoChannelInner<'a> {
         NvmeIoChannel::from_raw(Self::io_channel_ctx(io_channel)).inner_mut()
     }
 
@@ -51,13 +57,82 @@ impl NvmeIoChannel {
     }
 }
 
-pub struct NvmeIoChannelInner {
-    pub qpair: NonNull<spdk_nvme_qpair>,
+pub struct NvmeIoChannelInner<'a> {
+    // qpair and poller needs to be a raw pointer since it's gonna be NULL'ed
+    // upon unregistration.
+    pub qpair: *mut spdk_nvme_qpair,
     poll_group: NonNull<spdk_nvme_poll_group>,
-    poller: NonNull<spdk_poller>,
+    poller: poller::Poller<'a>,
 }
 
-pub struct NvmeControllerIoChannel {}
+impl NvmeIoChannelInner<'_> {
+    /// Resets channel, making it unusable till reinitialize() is called.
+    pub fn reset(&mut self) -> i32 {
+        if self.qpair.is_null() {
+            return 0;
+        }
+
+        0
+    }
+
+    /// Reinitializes channel after reset.
+    pub fn reinitialize(
+        &mut self,
+        ctrlr_name: &str,
+        ctrlr_handle: *mut spdk_nvme_ctrlr,
+    ) -> i32 {
+        // Create qpair for target controller.
+        let mut opts = spdk_nvme_io_qpair_opts::default();
+        let default_opts = NvmeBdevOpts::default();
+
+        unsafe {
+            spdk_nvme_ctrlr_get_default_io_qpair_opts(
+                ctrlr_handle,
+                &mut opts,
+                size_of::<spdk_nvme_io_qpair_opts>() as u64,
+            );
+
+            opts.io_queue_requests =
+                max(opts.io_queue_requests, default_opts.io_queue_requests);
+            opts.create_only = true;
+
+            let qpair: *mut spdk_nvme_qpair = spdk_nvme_ctrlr_alloc_io_qpair(
+                ctrlr_handle,
+                &opts,
+                size_of::<spdk_nvme_io_qpair_opts>() as u64,
+            );
+
+            if qpair.is_null() {
+                error!("{} Failed to allocate qpair", ctrlr_name);
+                return -libc::ENOMEM;
+            }
+
+            let mut rc =
+                spdk_nvme_poll_group_add(self.poll_group.as_ptr(), qpair);
+
+            if rc != 0 {
+                error!("{} failed to add qpair to poll group", ctrlr_name);
+                spdk_nvme_ctrlr_free_io_qpair(qpair);
+                return rc;
+            }
+
+            rc = spdk_nvme_ctrlr_connect_io_qpair(ctrlr_handle, qpair);
+
+            if rc != 0 {
+                error!("{} failed to connect qpair (errno={})", ctrlr_name, rc);
+                spdk_nvme_poll_group_remove(self.poll_group.as_ptr(), qpair);
+                spdk_nvme_ctrlr_free_io_qpair(qpair);
+                return rc;
+            }
+
+            debug!("{} I/O channel successfully reinitialized", ctrlr_name);
+            self.qpair = qpair;
+            0
+        }
+    }
+}
+
+pub struct NvmeControllerIoChannel(NonNull<spdk_io_channel>);
 
 extern "C" fn disconnected_qpair_cb(
     qpair: *mut spdk_nvme_qpair,
@@ -76,19 +151,6 @@ extern "C" fn disconnected_qpair_cb(
 
 extern "C" fn nvme_poll(ctx: *mut c_void) -> i32 {
     let inner = NvmeIoChannel::from_raw(ctx).inner_mut();
-
-    // TODO: only for passing git-commit hooks. Pollers will be used later.
-    if inner.poller.as_ptr().is_null() {
-        error!("poller is null");
-    }
-
-    if inner.poll_group.as_ptr().is_null() {
-        error!("poll_group is null");
-    }
-
-    if inner.qpair.as_ptr().is_null() {
-        error!("qpair is null");
-    }
 
     let num_completions = unsafe {
         spdk_nvme_poll_group_process_completions(
@@ -121,8 +183,6 @@ impl NvmeControllerIoChannel {
 
         let controller = controller.lock().expect("lock error");
         let nvme_channel = NvmeIoChannel::from_raw(ctx);
-
-        // Create qpair for target controller.
         let mut opts = spdk_nvme_io_qpair_opts::default();
         let default_opts = NvmeBdevOpts::default();
 
@@ -134,8 +194,6 @@ impl NvmeControllerIoChannel {
             )
         }
 
-        //opts.__bindgen_anon_1.delay_cmd_submit =
-        // default_opts.delay_cmd_submit;
         opts.io_queue_requests =
             max(opts.io_queue_requests, default_opts.io_queue_requests);
         opts.create_only = true;
@@ -167,19 +225,15 @@ impl NvmeControllerIoChannel {
         }
 
         // Create poller.
-        let poller = unsafe {
-            spdk_poller_register_named(
-                Some(nvme_poll),
-                ctx as *mut c_void,
-                default_opts.nvme_ioq_poll_period_us,
-                "nvme_poll\0" as *const _ as *mut _,
-            )
-        };
+        let poller = poller::Builder::new()
+            .with_interval(default_opts.nvme_ioq_poll_period_us)
+            .with_poll_fn(move || nvme_poll(ctx))
+            .build();
 
         let inner = Box::new(NvmeIoChannelInner {
-            qpair: NonNull::new(qpair).unwrap(),
+            qpair,
             poll_group: NonNull::new(poll_group).unwrap(),
-            poller: NonNull::new(poller).unwrap(),
+            poller,
         });
 
         nvme_channel.inner = Box::into_raw(inner);
@@ -211,12 +265,60 @@ impl NvmeControllerIoChannel {
         0
     }
 
-    pub extern "C" fn destroy(device: *mut c_void, _ctx: *mut c_void) {
+    /// Callback function to be invoked by SPDK to deinitialize I/O channel for
+    /// NVMe controller.
+    pub extern "C" fn destroy(device: *mut c_void, ctx: *mut c_void) {
         debug!(
             "Destroying IO channel for controller ID 0x{:X}",
             device as u64
         );
-        // let controller = unsafe {NvmeController::from_raw(device)};
-        // debug!("{} Destroying IO channels", controller.get_name());
+
+        let ch = NvmeIoChannel::from_raw(ctx);
+        let inner = unsafe { Box::from_raw(ch.inner) };
+
+        // Release resources associated with this particular channel.
+        unsafe {
+            if !inner.qpair.is_null() {
+                spdk_nvme_poll_group_remove(
+                    inner.poll_group.as_ptr(),
+                    inner.qpair,
+                );
+            }
+            inner.poller.stop();
+            spdk_nvme_poll_group_destroy(inner.poll_group.as_ptr());
+
+            if !inner.qpair.is_null() {
+                spdk_nvme_ctrlr_free_io_qpair(inner.qpair);
+            }
+        };
+
+        debug!(
+            "IO channel for controller ID 0x{:X} successfully destroyed",
+            device as u64
+        );
+    }
+}
+
+/// Wrapper around SPDK I/O channel.
+impl NvmeControllerIoChannel {
+    pub fn from_null_checked(
+        ch: *mut spdk_io_channel,
+    ) -> Option<NvmeControllerIoChannel> {
+        if ch.is_null() {
+            None
+        } else {
+            Some(NvmeControllerIoChannel(NonNull::new(ch).unwrap()))
+        }
+    }
+
+    pub fn as_ptr(&self) -> *mut spdk_io_channel {
+        self.0.as_ptr()
+    }
+}
+
+impl Drop for NvmeControllerIoChannel {
+    fn drop(&mut self) {
+        debug!("I/O channel {:p} dropped", self.0.as_ptr());
+        unsafe { spdk_put_io_channel(self.0.as_ptr()) }
     }
 }

@@ -26,20 +26,20 @@ use std::{
 use once_cell::sync::Lazy;
 
 #[derive(Debug)]
-pub(crate) struct NVMeCtlrList {
-    entries: RwLock<HashMap<String, Arc<Mutex<NvmeController>>>>,
+pub(crate) struct NVMeCtlrList<'a> {
+    entries: RwLock<HashMap<String, Arc<Mutex<NvmeController<'a>>>>>,
 }
 
-impl NVMeCtlrList {
+impl<'a> NVMeCtlrList<'a> {
     fn write_lock(
         &self,
-    ) -> RwLockWriteGuard<HashMap<String, Arc<Mutex<NvmeController>>>> {
+    ) -> RwLockWriteGuard<HashMap<String, Arc<Mutex<NvmeController<'a>>>>> {
         self.entries.write().expect("rwlock poisoned")
     }
 
     fn read_lock(
         &self,
-    ) -> RwLockReadGuard<HashMap<String, Arc<Mutex<NvmeController>>>> {
+    ) -> RwLockReadGuard<HashMap<String, Arc<Mutex<NvmeController<'a>>>>> {
         self.entries.read().expect("rwlock poisoned")
     }
 
@@ -47,7 +47,7 @@ impl NVMeCtlrList {
     pub fn lookup_by_name<T: Into<String>>(
         &self,
         name: T,
-    ) -> Option<Arc<Mutex<NvmeController>>> {
+    ) -> Option<Arc<Mutex<NvmeController<'a>>>> {
         let entries = self.read_lock();
         entries.get(&name.into()).map(|e| Arc::clone(e))
     }
@@ -84,14 +84,14 @@ impl NVMeCtlrList {
     pub fn insert_controller(
         &self,
         cid: String,
-        ctl: Arc<Mutex<NvmeController>>,
+        ctl: Arc<Mutex<NvmeController<'a>>>,
     ) {
         let mut entries = self.write_lock();
         entries.insert(cid, ctl);
     }
 }
 
-impl Default for NVMeCtlrList {
+impl<'a> Default for NVMeCtlrList<'a> {
     fn default() -> Self {
         Self {
             entries: RwLock::new(
@@ -101,8 +101,7 @@ impl Default for NVMeCtlrList {
     }
 }
 
-static NVME_CONTROLLERS: Lazy<NVMeCtlrList> =
-    Lazy::new(|| NVMeCtlrList::default());
+static NVME_CONTROLLERS: Lazy<NVMeCtlrList> = Lazy::new(NVMeCtlrList::default);
 
 pub fn nvme_bdev_running_config() -> &'static NvmeBdevOpts {
     &Config::get().nvme_bdev_opts

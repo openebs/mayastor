@@ -2,17 +2,19 @@ use async_trait::async_trait;
 use futures::channel::oneshot;
 use nix::errno::Errno;
 use once_cell::sync::OnceCell;
-use std::{os::raw::c_void, ptr::NonNull, sync::Arc};
+use std::{mem::ManuallyDrop, os::raw::c_void, ptr::NonNull, sync::Arc};
 
 use crate::core::mempool::MemoryPool;
 
 use crate::{
     bdev::{
         dev::nvmx::{
+            channel::NvmeControllerIoChannel,
             utils::{nvme_cpl_is_pi_error, nvme_cpl_succeeded},
             NvmeBlockDevice,
             NvmeIoChannel,
             NvmeNamespace,
+            NVME_CONTROLLERS,
         },
         nexus::nexus_io::nvme_admin_opc,
     },
@@ -25,14 +27,12 @@ use crate::{
         IoCompletionCallback,
     },
     ffihelper::{cb_arg, done_cb},
-    nexus_uri::NexusBdevError,
 };
 
 use spdk_sys::{
     self,
     iovec,
     spdk_get_io_channel,
-    spdk_io_channel,
     spdk_nvme_cpl,
     spdk_nvme_ctrlr,
     spdk_nvme_ctrlr_cmd_admin_raw,
@@ -41,6 +41,8 @@ use spdk_sys::{
     spdk_nvme_ns_cmd_write,
     spdk_nvme_ns_cmd_writev,
 };
+
+use super::NvmeIoChannelInner;
 
 /*
  * I/O context for NVMe controller I/O operation. Used as a placeholder for
@@ -70,7 +72,7 @@ static IOCTX_POOL: OnceCell<MemoryPool<NvmeIoCtx>> = OnceCell::new();
  * I/O handle for NVMe block device.
  */
 pub struct NvmeDeviceHandle {
-    io_channel: NonNull<spdk_io_channel>,
+    io_channel: ManuallyDrop<NvmeControllerIoChannel>,
     ctrlr: NonNull<spdk_nvme_ctrlr>,
     name: String,
     ns: Arc<NvmeNamespace>,
@@ -89,7 +91,7 @@ impl NvmeDeviceHandle {
         ctrlr: NonNull<spdk_nvme_ctrlr>,
         ns: Arc<NvmeNamespace>,
         prchk_flags: u32,
-    ) -> Result<NvmeDeviceHandle, NexusBdevError> {
+    ) -> Result<NvmeDeviceHandle, CoreError> {
         // Initialize memory pool for holding I/O context now, during the slow
         // path, to make sure it's available before the first I/O
         // oepration takes place.
@@ -99,25 +101,23 @@ impl NvmeDeviceHandle {
         ).expect("Failed to create memory pool for NVMe controller I/O contexts"));
 
         // Obtain SPDK I/O channel for NVMe controller.
-        let io_channel: *mut spdk_io_channel =
-            unsafe { spdk_get_io_channel(id as *mut c_void) };
+        let io_channel = NvmeControllerIoChannel::from_null_checked(unsafe {
+            spdk_get_io_channel(id as *mut c_void)
+        })
+        .ok_or(CoreError::GetIoChannel {
+            name: name.to_string(),
+        })?;
 
-        if io_channel.is_null() {
-            Err(NexusBdevError::BdevNotFound {
-                name: name.to_string(),
-            })
-        } else {
-            Ok(NvmeDeviceHandle {
-                name: name.to_string(),
-                io_channel: NonNull::new(io_channel).unwrap(),
-                ctrlr,
-                _num_blocks: ns.num_blocks(),
-                block_len: ns.block_len(),
-                _size_in_bytes: ns.size_in_bytes(),
-                prchk_flags,
-                ns,
-            })
-        }
+        Ok(NvmeDeviceHandle {
+            name: name.to_string(),
+            io_channel: ManuallyDrop::new(io_channel),
+            ctrlr,
+            _num_blocks: ns.num_blocks(),
+            block_len: ns.block_len(),
+            _size_in_bytes: ns.size_in_bytes(),
+            prchk_flags,
+            ns,
+        })
     }
 
     #[inline]
@@ -134,46 +134,14 @@ impl NvmeDeviceHandle {
         // TODO: Optimize for ^2.
         (alignment == 0, offset_blocks, num_blocks)
     }
-
-    pub async fn send_ctrlr_admin_cmd(
-        &self,
-        cmd: &mut spdk_sys::spdk_nvme_cmd,
-        buffer: Option<&mut DmaBuf>,
-    ) -> Result<(), CoreError> {
-        let (ptr, size) = match buffer {
-            Some(buf) => (**buf, buf.len()),
-            None => (std::ptr::null_mut(), 0),
-        };
-
-        let (s, r) = oneshot::channel::<bool>();
-
-        let _rc = unsafe {
-            spdk_nvme_ctrlr_cmd_admin_raw(
-                self.ctrlr.as_ptr(),
-                cmd,
-                ptr,
-                size as u32,
-                Some(nvme_admin_passthru_done),
-                cb_arg(s),
-            )
-        };
-
-        if r.await.expect("Failed awaiting NVMe Admin command I/O") {
-            Ok(())
-        } else {
-            Err(CoreError::NvmeAdminFailed {
-                opcode: (*cmd).opc(),
-            })
-        }
-    }
 }
 
 extern "C" fn nvme_admin_passthru_done(
     ctx: *mut c_void,
-    _cpl: *const spdk_nvme_cpl,
+    cpl: *const spdk_nvme_cpl,
 ) {
-    println!("Admin passthrough completed !");
-    done_cb(ctx, true);
+    debug!("Admin passthrough completed !");
+    done_cb(ctx, nvme_cpl_succeeded(cpl));
 }
 
 extern "C" fn nvme_queued_reset_sgl(ctx: *mut c_void, sgl_offset: u32) {
@@ -248,7 +216,7 @@ fn complete_nvme_command(
 extern "C" fn nvme_writev_done(ctx: *mut c_void, cpl: *const spdk_nvme_cpl) {
     let nvme_io_ctx = ctx as *mut NvmeIoCtx;
 
-    println!("NVMe writev I/O completed !");
+    debug!("NVMe writev I/O completed !");
 
     // Check if operation successfully completed.
     if nvme_cpl_is_pi_error(cpl) {
@@ -263,7 +231,7 @@ extern "C" fn nvme_writev_done(ctx: *mut c_void, cpl: *const spdk_nvme_cpl) {
 extern "C" fn nvme_io_done(ctx: *mut c_void, cpl: *const spdk_nvme_cpl) {
     let nvme_io_ctx = ctx as *mut NvmeIoCtx;
 
-    println!("NVMe I/O completed !");
+    debug!("NVMe I/O completed !");
 
     // Check if operation successfully completed.
     if nvme_cpl_is_pi_error(cpl) {
@@ -275,13 +243,12 @@ extern "C" fn nvme_io_done(ctx: *mut c_void, cpl: *const spdk_nvme_cpl) {
 
 extern "C" fn nvme_async_io_completion(
     ctx: *mut c_void,
-    _cpl: *const spdk_nvme_cpl,
+    cpl: *const spdk_nvme_cpl,
 ) {
-    println!("Async NVMe I/O completed !");
-    done_cb(ctx, true);
+    debug!("Async NVMe I/O completed !");
+    done_cb(ctx, nvme_cpl_succeeded(cpl));
 }
 
-#[inline]
 fn check_io_args(
     iov: *mut iovec,
     iovcnt: i32,
@@ -312,7 +279,6 @@ fn check_io_args(
     Ok(())
 }
 
-#[inline]
 fn alloc_nvme_io_ctx(
     ctx: NvmeIoCtx,
     offset_blocks: u64,
@@ -331,7 +297,45 @@ fn alloc_nvme_io_ctx(
     }
 }
 
-#[async_trait(? Send)]
+enum IoType {
+    READ,
+    WRITE,
+}
+
+/// Check whether channel is suitable for serving I/O.
+fn check_channel_for_rw_io(
+    op: IoType,
+    inner: &NvmeIoChannelInner,
+    offset_blocks: u64,
+    num_blocks: u64,
+) -> Result<(), CoreError> {
+    let mut errno = 0;
+
+    // Check against concurrent controller reset, which results in valid
+    // I/O channel but deactivated I/O pair.
+    if inner.qpair.is_null() {
+        errno = libc::EBUSY
+    }
+
+    if errno == 0 {
+        Ok(())
+    } else {
+        match op {
+            IoType::READ => Err(CoreError::ReadDispatch {
+                source: Errno::from_i32(errno),
+                offset: offset_blocks,
+                len: num_blocks,
+            }),
+            IoType::WRITE => Err(CoreError::WriteDispatch {
+                source: Errno::from_i32(errno),
+                offset: offset_blocks,
+                len: num_blocks,
+            }),
+        }
+    }
+}
+
+#[async_trait(?Send)]
 impl BlockDeviceHandle for NvmeDeviceHandle {
     fn get_device(&self) -> Box<dyn BlockDevice> {
         Box::new(NvmeBlockDevice::from_ns(&self.name, Arc::clone(&self.ns)))
@@ -353,7 +357,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         cmd.nsid = 0xffffffff;
         // Controller Identifier
         unsafe { *spdk_sys::nvme_cmd_cdw10_get(&mut cmd) = 1 };
-        self.send_ctrlr_admin_cmd(&mut cmd, Some(&mut buf)).await?;
+        self.nvme_admin(&cmd, Some(&mut buf)).await?;
         Ok(buf)
     }
 
@@ -385,12 +389,21 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         }
 
         let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
+
+        // Make sure channel allows I/O.
+        check_channel_for_rw_io(
+            IoType::READ,
+            inner,
+            offset_blocks,
+            num_blocks,
+        )?;
+
         let (s, r) = oneshot::channel::<bool>();
 
         let rc = unsafe {
             spdk_nvme_ns_cmd_read(
                 self.ns.as_ptr(),
-                inner.qpair.as_ptr(),
+                inner.qpair,
                 **buffer,
                 offset_blocks,
                 num_blocks as u32,
@@ -400,7 +413,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
             )
         };
 
-        if rc != 0 && rc != libc::ENOMEM {
+        if rc != 0 && rc != -libc::ENOMEM {
             error!("{} read failed: rc = {}", self.name, rc);
             return Err(CoreError::ReadFailed {
                 offset,
@@ -446,12 +459,21 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         }
 
         let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
+
+        // Make sure channel allows I/O.
+        check_channel_for_rw_io(
+            IoType::WRITE,
+            inner,
+            offset_blocks,
+            num_blocks,
+        )?;
+
         let (s, r) = oneshot::channel::<bool>();
 
         let rc = unsafe {
             spdk_nvme_ns_cmd_write(
                 self.ns.as_ptr(),
-                inner.qpair.as_ptr(),
+                inner.qpair,
                 **buffer,
                 offset_blocks,
                 num_blocks as u32,
@@ -461,7 +483,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
             )
         };
 
-        if rc != 0 && rc != libc::ENOMEM {
+        if rc != 0 && rc != -libc::ENOMEM {
             error!("{} write failed: rc = {}", self.name, rc);
             return Err(CoreError::WriteFailed {
                 offset,
@@ -491,6 +513,16 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
     ) -> Result<(), CoreError> {
         check_io_args(iov, iovcnt, offset_blocks, num_blocks)?;
 
+        let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
+
+        // Make sure channel allows I/O.
+        check_channel_for_rw_io(
+            IoType::READ,
+            inner,
+            offset_blocks,
+            num_blocks,
+        )?;
+
         let bio = alloc_nvme_io_ctx(
             NvmeIoCtx {
                 cb,
@@ -504,14 +536,13 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
             num_blocks,
         )?;
 
-        let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
         let rc;
 
         if iovcnt == 1 {
             rc = unsafe {
                 spdk_nvme_ns_cmd_read(
                     self.ns.as_ptr(),
-                    inner.qpair.as_ptr(),
+                    inner.qpair,
                     (*iov).iov_base,
                     offset_blocks,
                     num_blocks as u32,
@@ -524,7 +555,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
             rc = unsafe {
                 spdk_nvme_ns_cmd_readv(
                     self.ns.as_ptr(),
-                    inner.qpair.as_ptr(),
+                    inner.qpair,
                     offset_blocks,
                     num_blocks as u32,
                     Some(nvme_io_done),
@@ -558,6 +589,16 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
     ) -> Result<(), CoreError> {
         check_io_args(iov, iovcnt, offset_blocks, num_blocks)?;
 
+        let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
+
+        // Make sure channel allows I/O.
+        check_channel_for_rw_io(
+            IoType::WRITE,
+            inner,
+            offset_blocks,
+            num_blocks,
+        )?;
+
         let bio = alloc_nvme_io_ctx(
             NvmeIoCtx {
                 cb,
@@ -571,14 +612,13 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
             num_blocks,
         )?;
 
-        let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
         let rc;
 
         if iovcnt == 1 {
             rc = unsafe {
                 spdk_nvme_ns_cmd_write(
                     self.ns.as_ptr(),
-                    inner.qpair.as_ptr(),
+                    inner.qpair,
                     (*iov).iov_base,
                     offset_blocks,
                     num_blocks as u32,
@@ -591,7 +631,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
             rc = unsafe {
                 spdk_nvme_ns_cmd_writev(
                     self.ns.as_ptr(),
-                    inner.qpair.as_ptr(),
+                    inner.qpair,
                     offset_blocks,
                     num_blocks as u32,
                     Some(nvme_writev_done),
@@ -604,7 +644,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         }
 
         if rc < 0 {
-            Err(CoreError::ReadDispatch {
+            Err(CoreError::WriteDispatch {
                 source: Errno::from_i32(-rc),
                 offset: offset_blocks,
                 len: num_blocks,
@@ -612,5 +652,67 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         } else {
             Ok(())
         }
+    }
+
+    async fn nvme_admin_custom(&self, opcode: u8) -> Result<(), CoreError> {
+        let mut cmd = spdk_sys::spdk_nvme_cmd::default();
+        cmd.set_opc(opcode.into());
+        self.nvme_admin(&cmd, None).await
+    }
+
+    async fn nvme_admin(
+        &self,
+        cmd: &spdk_sys::spdk_nvme_cmd,
+        buffer: Option<&mut DmaBuf>,
+    ) -> Result<(), CoreError> {
+        let mut pcmd = *cmd; // Make a private mutable copy of the command.
+
+        let (ptr, size) = match buffer {
+            Some(buf) => (**buf, buf.len()),
+            None => (std::ptr::null_mut(), 0),
+        };
+
+        let (s, r) = oneshot::channel::<bool>();
+
+        let _rc = unsafe {
+            spdk_nvme_ctrlr_cmd_admin_raw(
+                self.ctrlr.as_ptr(),
+                &mut pcmd,
+                ptr,
+                size as u32,
+                Some(nvme_admin_passthru_done),
+                cb_arg(s),
+            )
+        };
+
+        if r.await.expect("Failed awaiting NVMe Admin command I/O") {
+            Ok(())
+        } else {
+            Err(CoreError::NvmeAdminFailed {
+                opcode: (*cmd).opc(),
+            })
+        }
+    }
+
+    fn reset(
+        &self,
+        cb: IoCompletionCallback,
+        cb_arg: *const c_void,
+    ) -> Result<(), CoreError> {
+        let controller = NVME_CONTROLLERS.lookup_by_name(&self.name).ok_or(
+            CoreError::BdevNotFound {
+                name: self.name.to_string(),
+            },
+        )?;
+        let mut controller = controller.lock().expect("lock poisoned");
+
+        // Schedule asynchronous controller reset.
+        controller.reset(cb, cb_arg, false)
+    }
+}
+
+impl Drop for NvmeDeviceHandle {
+    fn drop(&mut self) {
+        unsafe { ManuallyDrop::drop(&mut self.io_channel) }
     }
 }
