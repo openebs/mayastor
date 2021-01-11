@@ -19,7 +19,11 @@ for system configuration of nodes (as opposed to using ansible, salt, etc.).
    {
    imports = [ ./hardware.nix ];
 
-   services.openssh.enable = true;
+   services.openssh = {
+     enable = true;
+     passwordAuthentication = false;
+     challengeResponseAuthentication = false;
+   };
    services.jenkins.enable = true;
 
    networking.firewall.enable = false;
@@ -141,7 +145,11 @@ for system configuration of nodes (as opposed to using ansible, salt, etc.).
 
    boot.kernelPackages = pkgs.linuxPackages_5_7;
 
-   services.openssh.enable = true;
+   services.openssh = {
+     enable = true;
+     passwordAuthentication = false;
+     challengeResponseAuthentication = false;
+   };
    services.jenkinsSlave.enable = true;
    services.iscsid.enable = true;
 
