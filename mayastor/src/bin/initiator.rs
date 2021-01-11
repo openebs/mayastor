@@ -116,8 +116,8 @@ async fn write(uri: &str, offset: u64, file: &str) -> Result<()> {
 
 /// NVMe Admin. Only works with read commands without a buffer requirement.
 async fn nvme_admin(uri: &str, opcode: u8) -> Result<()> {
-    let bdev = create_bdev(uri).await?;
-    let h = Bdev::open(&bdev, true).unwrap().into_handle().unwrap();
+    let bdev = device_create(uri).await?;
+    let h = device_open(&bdev, true).unwrap().into_handle().unwrap();
     h.nvme_admin_custom(opcode).await?;
     Ok(())
 }
