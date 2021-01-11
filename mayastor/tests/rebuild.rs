@@ -54,10 +54,7 @@ async fn rebuild_basic() {
     .unwrap());
 
     // Check nexus is healthy after rebuild completion.
-    assert!(
-        wait_for_rebuild_completion(nexus_hdl, child, Duration::from_secs(20))
-            .await
-    );
+    assert!(wait_for_successful_rebuild(nexus_hdl, child).await);
     check_nexus_state(nexus_hdl, NexusState::NexusOnline).await;
 }
 
@@ -371,14 +368,7 @@ async fn rebuild_sizes() {
 
         // Add the local child and wait for rebuild.
         add_child(nexus_hdl, &local_child, true).await;
-        assert!(
-            wait_for_rebuild_completion(
-                nexus_hdl,
-                &local_child,
-                Duration::from_secs(2),
-            )
-            .await
-        );
+        assert!(wait_for_successful_rebuild(nexus_hdl, &local_child).await);
 
         // Teardown
         destroy_nexus(nexus_hdl).await;
@@ -424,14 +414,7 @@ async fn rebuild_segment_sizes() {
 
         // Wait for rebuild to complete.
         add_child(nexus_hdl, &child2, true).await;
-        assert!(
-            wait_for_rebuild_completion(
-                nexus_hdl,
-                &child2,
-                Duration::from_secs(5)
-            )
-            .await
-        );
+        assert!(wait_for_successful_rebuild(nexus_hdl, &child2).await);
 
         // Teardown
         destroy_nexus(nexus_hdl).await;
@@ -577,14 +560,7 @@ async fn rebuild_multiple() {
         resume_rebuild(nexus_hdl, &child.share_uri)
             .await
             .expect("Failed to resume rebuild");
-        assert!(
-            wait_for_rebuild_completion(
-                nexus_hdl,
-                &child.share_uri,
-                Duration::from_secs(10),
-            )
-            .await
-        );
+        assert!(wait_for_successful_rebuild(nexus_hdl, &child.share_uri).await);
         remove_child(nexus_hdl, &child.share_uri).await;
     }
     assert_eq!(get_num_rebuilds(nexus_hdl).await, 0);
@@ -596,14 +572,7 @@ async fn rebuild_multiple() {
 
     // Wait for rebuilds to complete
     for child in &degraded_children {
-        assert!(
-            wait_for_rebuild_completion(
-                nexus_hdl,
-                &child.share_uri,
-                Duration::from_secs(10),
-            )
-            .await
-        );
+        assert!(wait_for_successful_rebuild(nexus_hdl, &child.share_uri).await);
     }
 }
 
@@ -653,10 +622,7 @@ async fn rebuild_with_load() {
     assert_eq!(fio_result, 0, "Failed to run fio_verify_size");
 
     // Wait for rebuild to complete.
-    assert!(
-        wait_for_rebuild_completion(nexus_hdl, &child2, Duration::from_secs(1))
-            .await
-    );
+    assert!(wait_for_successful_rebuild(nexus_hdl, &child2).await);
 
     // Disconnect and destroy nexus
     nvmf_disconnect(nexus_uri);
@@ -898,16 +864,20 @@ async fn get_num_rebuilds(hdl: &mut RpcHandle) -> u32 {
 }
 
 /// Get the rebuild progress for the given child.
-async fn get_rebuild_progress(hdl: &mut RpcHandle, child: &str) -> u32 {
-    let reply = hdl
+/// Return None if the progress cannot be obtained i.e. because the rebuild job
+/// has completed.
+async fn get_rebuild_progress(hdl: &mut RpcHandle, child: &str) -> Option<u32> {
+    match hdl
         .mayastor
         .get_rebuild_progress(RebuildProgressRequest {
             uuid: NEXUS_UUID.into(),
             uri: child.into(),
         })
         .await
-        .expect("Failed to get rebuild progress");
-    reply.into_inner().progress
+    {
+        Ok(reply) => Some(reply.into_inner().progress),
+        Err(_) => None,
+    }
 }
 
 /// Waits on the given rebuild state or times out.
@@ -949,14 +919,42 @@ async fn get_rebuild_state(hdl: &mut RpcHandle, child: &str) -> Option<String> {
     }
 }
 
-/// Returns true if the rebuild has completed.
-/// A rebuild is deemed to be complete if the destination child is online.
-async fn wait_for_rebuild_completion(
-    hdl: &mut RpcHandle,
-    child: &str,
-    timeout: Duration,
-) -> bool {
-    wait_for_child_state(hdl, child, ChildState::ChildOnline, timeout).await
+/// Returns true if the rebuild has completed successfully i.e. the destination
+/// child is 'online'.
+/// Returns false if:
+///     1. The rebuild does not make any progress within the progress window
+///     2. The rebuild takes longer than the TIMEOUT time.
+async fn wait_for_successful_rebuild(hdl: &mut RpcHandle, child: &str) -> bool {
+    let mut last_progress = 0;
+    let mut progress_start_time = std::time::Instant::now();
+    let progress_window = std::time::Duration::from_secs(5);
+    let time = std::time::Instant::now();
+    const TIMEOUT: Duration = std::time::Duration::from_secs(30);
+
+    // Keep looping while progress is being made and the rebuild has not timed
+    // out.
+    while std::time::Instant::now() - progress_start_time < progress_window
+        || time.elapsed().as_millis() < TIMEOUT.as_millis()
+    {
+        match get_rebuild_progress(hdl, child).await {
+            Some(progress) => {
+                if progress - last_progress > 0 {
+                    // Progress has been made, reset the progress window.
+                    progress_start_time = std::time::Instant::now();
+                    last_progress = progress;
+                }
+            }
+            None => {
+                // 'None' is returned when the rebuild job cannot be found -
+                // which can indicate rebuild completion.
+                // If the child is online, the rebuild completed successfully.
+                return get_child_state(hdl, child).await
+                    == ChildState::ChildOnline as i32;
+            }
+        }
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    return false;
 }
 
 /// Wait on the given child state or times out.
@@ -969,14 +967,19 @@ async fn wait_for_child_state(
 ) -> bool {
     let time = std::time::Instant::now();
     while time.elapsed().as_millis() < timeout.as_millis() {
-        let c = get_child(hdl, NEXUS_UUID, child).await;
-        if c.state == state as i32 {
+        if get_child_state(hdl, child).await == state as i32 {
             return true;
         }
         std::thread::sleep(Duration::from_millis(10));
     }
     false
 }
+
+/// Return the current state of the given child.
+async fn get_child_state(hdl: &mut RpcHandle, child: &str) -> i32 {
+    get_child(hdl, NEXUS_UUID, child).await.state
+}
+
 /// Returns the state of the nexus with the given uuid.
 async fn get_nexus_state(hdl: &mut RpcHandle, uuid: &str) -> Option<i32> {
     let list = hdl
