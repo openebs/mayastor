@@ -3,7 +3,7 @@ use once_cell::sync::OnceCell;
 
 use mayastor::{
     bdev::{device_create, device_destroy, device_lookup, device_open},
-    core::{DmaBuf, MayastorCliArgs},
+    core::{BlockDeviceHandle, DmaBuf, MayastorCliArgs},
 };
 
 use std::{
@@ -35,7 +35,9 @@ fn get_ms() -> &'static MayastorTest<'static> {
 }
 
 async fn launch_instance() -> String {
-    return "nvmf://127.0.0.1:4420/replica0".to_string();
+    // TODO: Spawn MayaStor instance properly.
+    return "nvmf://172.16.175.130:8420/nqn.2019-05.io.openebs:disk0"
+        .to_string();
 }
 
 #[tokio::test]
@@ -82,6 +84,7 @@ async fn nvmf_device_create_destroy() {
 async fn nvmf_device_identify_controller() {
     let ms = get_ms();
     let url = launch_instance().await;
+    let u = url.clone();
 
     ms.spawn(async move {
         let name = device_create(&url).await.unwrap();
@@ -89,7 +92,17 @@ async fn nvmf_device_identify_controller() {
         let handle = descr.into_handle().unwrap();
 
         let _buf = handle.nvme_identify_ctrlr().await.unwrap();
-        device_destroy(&url).await.unwrap();
+    })
+    .await;
+
+    println!(
+        "Sleeping for 1 sec to let all async resource cleanup operations complete"
+    );
+    tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
+    println!("Awakened.");
+
+    ms.spawn(async move {
+        device_destroy(&u).await.unwrap();
     })
     .await;
 }
@@ -134,6 +147,7 @@ fn flag_callback_invocation() {
 async fn nvmf_device_read_write_at() {
     let ms = get_ms();
     let url = launch_instance().await;
+    let u = url.clone();
 
     // Perform a sequence of write-read operations to write test pattern to the
     // device via write_at() and verify data integrity via read_at().
@@ -184,8 +198,18 @@ async fn nvmf_device_read_write_at() {
         r = handle.read_at(OP_OFFSET + BUF_SIZE, &dbuf).await.unwrap();
         assert_eq!(r, BUF_SIZE, "The amount of data read mismatches");
         check_buf_pattern(&dbuf, IO_PATTERN);
+    })
+    .await;
 
-        device_destroy(&url).await.unwrap();
+    println!(
+        "Sleeping for 1 sec to let all async resource cleanup operations complete"
+    );
+    tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
+    println!("Awakened.");
+
+    // Safely destroy the device once all handles are freed.
+    ms.spawn(async move {
+        device_destroy(&u).await.unwrap();
     })
     .await;
 }
@@ -203,6 +227,7 @@ async fn nvmf_device_readv_test() {
         iov: iovec,
         iovcnt: i32,
         dma_buf: DmaBuf,
+        handle: Box<dyn BlockDeviceHandle>,
     }
 
     // Read completion callback.
@@ -242,13 +267,15 @@ async fn nvmf_device_readv_test() {
                     BUF_SIZE,
                     GUARD_PATTERN,
                 ),
+                handle,
             };
 
             io_ctx.iov.iov_base = *io_ctx.dma_buf;
             io_ctx.iov.iov_len = BUF_SIZE;
 
             // Initiate a read operation into the buffer.
-            handle
+            io_ctx
+                .handle
                 .readv_blocks(
                     &mut io_ctx.iov,
                     io_ctx.iovcnt,
@@ -278,6 +305,21 @@ async fn nvmf_device_readv_test() {
     let b = buf_ptr.into_inner();
     check_buf_pattern(unsafe { &((*b).dma_buf) }, 0);
 
+    // Turn placeholder structure into a box to trigger drop() action
+    // on handle's resources once the box is dropped.
+    ms.spawn(async move {
+        let _ph = unsafe { Box::from_raw(b) };
+    })
+    .await;
+
+    // Sleep for 1 sec to let async resource cleanup actions be processed.
+    println!(
+        "Sleeping for 1 sec to let all async resource cleanup operations complete"
+    );
+    tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
+    println!("Awakened.");
+
+    // Once all handles are closed, destroy the device.
     url = Arc::clone(&u);
     ms.spawn(async move {
         device_destroy(&(*url)).await.unwrap();
@@ -292,7 +334,7 @@ async fn nvmf_device_writev_test() {
 
     let ms = get_ms();
     let u = Arc::new(launch_instance().await);
-    let mut url = Arc::clone(&u);
+    let url = Arc::clone(&u);
 
     // Read completion callback.
     fn write_completion_callback(success: bool, ctx: *const c_void) {
@@ -316,7 +358,7 @@ async fn nvmf_device_writev_test() {
     struct IoCtx {
         iov: iovec,
         dma_buf: DmaBuf,
-        device_name: String,
+        handle: Box<dyn BlockDeviceHandle>,
     }
 
     // Clear callback invocation flag.
@@ -344,12 +386,12 @@ async fn nvmf_device_writev_test() {
 
             let mut ctx = IoCtx {
                 iov: iovec::default(),
-                device_name: name,
                 dma_buf: create_io_buffer(
                     device.alignment(),
                     BUF_SIZE,
                     IO_PATTERN,
                 ),
+                handle,
             };
 
             ctx.iov.iov_base = *ctx.dma_buf;
@@ -357,7 +399,7 @@ async fn nvmf_device_writev_test() {
 
             // Write data buffer between guard buffers to catch writes outside
             // the range.
-            handle
+            ctx.handle
                 .writev_blocks(
                     &mut ctx.iov,
                     1,
@@ -382,31 +424,49 @@ async fn nvmf_device_writev_test() {
     println!("Awakened.");
 
     // Read data just written and check that no boundaries were crossed.
-    url = Arc::clone(&u);
     ms.spawn(async move {
         let ctx = unsafe { Box::<IoCtx>::from_raw(ctx.into_inner()) };
-        let device = device_lookup(&ctx.device_name).unwrap();
-        let handle = device.open(true).unwrap().into_handle().unwrap();
+        let device = ctx.handle.get_device();
 
         // Check the first guard buffer.
         let g1 = DmaBuf::new(BUF_SIZE, device.alignment()).unwrap();
-        let mut r = handle.read_at(OP_OFFSET, &g1).await.unwrap();
+        let mut r = ctx.handle.read_at(OP_OFFSET, &g1).await.unwrap();
         assert_eq!(r, BUF_SIZE, "The amount of data read mismatches");
         check_buf_pattern(&g1, GUARD_PATTERN);
 
         // Check the second guard buffer.
         let g2 = DmaBuf::new(BUF_SIZE, device.alignment()).unwrap();
-        r = handle.read_at(OP_OFFSET + 2 * BUF_SIZE, &g2).await.unwrap();
+        r = ctx
+            .handle
+            .read_at(OP_OFFSET + 2 * BUF_SIZE, &g2)
+            .await
+            .unwrap();
         assert_eq!(r, BUF_SIZE, "The amount of data read mismatches");
         check_buf_pattern(&g2, GUARD_PATTERN);
 
         // Check the data region between guard buffers.
         let dbuf = DmaBuf::new(BUF_SIZE, device.alignment()).unwrap();
-        r = handle.read_at(OP_OFFSET + BUF_SIZE, &dbuf).await.unwrap();
+        r = ctx
+            .handle
+            .read_at(OP_OFFSET + BUF_SIZE, &dbuf)
+            .await
+            .unwrap();
         assert_eq!(r, BUF_SIZE, "The amount of data read mismatches");
         check_buf_pattern(&dbuf, IO_PATTERN);
+        // Device handle will be dropped once the box is dropped, which triggers
+        // async reclamation for handle's resources.
+    })
+    .await;
 
-        device_destroy(&(*url)).await.unwrap();
+    println!(
+        "Sleeping for 1 sec to let all async resource cleanup operations complete"
+    );
+    tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
+    println!("Awakened.");
+
+    // Safely destroy the device once all handles are freed.
+    ms.spawn(async move {
+        device_destroy(&u).await.unwrap();
     })
     .await;
 }
@@ -451,6 +511,7 @@ async fn nvmf_device_readv_iovs_test() {
     struct IoCtx {
         iovs: *mut iovec,
         buffers: Vec<DmaBuf>,
+        handle: Box<dyn BlockDeviceHandle>,
     }
 
     // Clear callback invocation flag.
@@ -484,16 +545,18 @@ async fn nvmf_device_readv_iovs_test() {
             let io_ctx = IoCtx {
                 iovs,
                 buffers,
+                handle,
             };
 
             // First, write data pattern of required size.
             let data_buf =
                 create_io_buffer(device.alignment(), iosize, IO_PATTERN);
-            let r = handle.write_at(OP_OFFSET, &data_buf).await.unwrap();
+            let r = io_ctx.handle.write_at(OP_OFFSET, &data_buf).await.unwrap();
             assert_eq!(r, iosize, "The amount of data written mismatches");
 
             // Initiate a read operation into the I/O vectors.
-            handle
+            io_ctx
+                .handle
                 .readv_blocks(
                     io_ctx.iovs,
                     IOVCNT as i32,
@@ -524,7 +587,19 @@ async fn nvmf_device_readv_iovs_test() {
         for b in &ctx.buffers {
             check_buf_pattern(b, IO_PATTERN);
         }
+        // Device handle will be dropped once the box is dropped, which triggers
+        // async reclamation for handle's resources.
+    })
+    .await;
 
+    println!(
+        "Sleeping for 1 sec to let all async resource cleanup operations complete"
+    );
+    tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
+    println!("Awakened.");
+
+    // Safely destroy the device once all handles are freed.
+    ms.spawn(async move {
         device_destroy(&(*url)).await.unwrap();
     })
     .await;
@@ -548,17 +623,17 @@ async fn nvmf_device_writev_iovs_test() {
 
     let ms = get_ms();
     let u = Arc::new(launch_instance().await);
-    let mut url = Arc::clone(&u);
+    let url = Arc::clone(&u);
 
     // Clear callback invocation flag.
     clear_callback_invocation_flag();
 
-    // Read completion callback.
-    fn read_completion_callback(success: bool, ctx: *const c_void) {
+    // Write completion callback.
+    fn write_completion_callback(success: bool, ctx: *const c_void) {
         // Make sure callback is invoked only once.
         flag_callback_invocation();
 
-        assert!(success, "readv_blocks() failed");
+        assert!(success, "writev_blocks() failed");
         // Make sure we were passed tha same pattern string as requested.
         let s = unsafe {
             let slice = slice::from_raw_parts(
@@ -575,7 +650,7 @@ async fn nvmf_device_writev_iovs_test() {
     struct IoCtx {
         iovs: *mut iovec,
         buffers: Vec<DmaBuf>,
-        device_name: String,
+        handle: Box<dyn BlockDeviceHandle>,
     }
 
     let io_ctx = ms
@@ -605,32 +680,35 @@ async fn nvmf_device_writev_iovs_test() {
             let io_ctx = IoCtx {
                 iovs,
                 buffers,
-                device_name,
+                handle,
             };
 
             // First, write 2 guard buffers before and after target I/O
             // location.
             let guard_buf =
                 create_io_buffer(device.alignment(), GUARD_SIZE, GUARD_PATTERN);
-            let mut r = handle
+            let mut r = io_ctx
+                .handle
                 .write_at(OP_OFFSET - GUARD_SIZE, &guard_buf)
                 .await
                 .unwrap();
             assert_eq!(r, GUARD_SIZE, "The amount of data written mismatches");
-            r = handle
+            r = io_ctx
+                .handle
                 .write_at(OP_OFFSET + iosize, &guard_buf)
                 .await
                 .unwrap();
             assert_eq!(r, GUARD_SIZE, "The amount of data written mismatches");
 
             // Initiate a write operation into the I/O vectors.
-            handle
+            io_ctx
+                .handle
                 .writev_blocks(
                     io_ctx.iovs,
                     IOVCNT as i32,
                     OP_OFFSET / device.block_len(),
                     iosize / device.block_len(),
-                    read_completion_callback,
+                    write_completion_callback,
                     // Use a predefined string to check that we receive the
                     // same context pointer as we pass upon
                     // invocation. For this call we don't need any
@@ -648,11 +726,9 @@ async fn nvmf_device_writev_iovs_test() {
     tokio::time::delay_for(std::time::Duration::from_secs(3)).await;
     println!("Awakened.");
 
-    url = Arc::clone(&u);
     ms.spawn(async move {
         let ctx = unsafe { Box::<IoCtx>::from_raw(io_ctx.into_inner()) };
-        let device = device_lookup(&ctx.device_name).unwrap();
-        let handle = device.open(true).unwrap().into_handle().unwrap();
+        let device = ctx.handle.get_device();
 
         // Make sure buffers content didn't change.
         for b in &ctx.buffers {
@@ -661,23 +737,151 @@ async fn nvmf_device_writev_iovs_test() {
 
         // Check the first guard buffer.
         let g1 = DmaBuf::new(GUARD_SIZE, device.alignment()).unwrap();
-        let mut r = handle.read_at(OP_OFFSET - GUARD_SIZE, &g1).await.unwrap();
+        let mut r = ctx
+            .handle
+            .read_at(OP_OFFSET - GUARD_SIZE, &g1)
+            .await
+            .unwrap();
         assert_eq!(r, GUARD_SIZE, "The amount of data read mismatches");
         check_buf_pattern(&g1, GUARD_PATTERN);
 
         // Check the second guard buffer.
         let g2 = DmaBuf::new(GUARD_SIZE, device.alignment()).unwrap();
-        r = handle.read_at(OP_OFFSET + iosize, &g2).await.unwrap();
+        r = ctx.handle.read_at(OP_OFFSET + iosize, &g2).await.unwrap();
         assert_eq!(r, GUARD_SIZE, "The amount of data read mismatches");
         check_buf_pattern(&g2, GUARD_PATTERN);
 
         // Check the data region between guard buffers.
         let dbuf = DmaBuf::new(iosize, device.alignment()).unwrap();
-        r = handle.read_at(OP_OFFSET, &dbuf).await.unwrap();
+        r = ctx.handle.read_at(OP_OFFSET, &dbuf).await.unwrap();
         assert_eq!(r, iosize, "The amount of data read mismatches");
         check_buf_pattern(&dbuf, IO_PATTERN);
+        // Device handle will be dropped once the box is dropped, which triggers
+        // async reclamation for handle's resources.
+    })
+    .await;
 
-        device_destroy(&(*url)).await.unwrap();
+    println!(
+        "Sleeping for 1 sec to let all async resource cleanup operations complete"
+    );
+    tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
+    println!("Awakened.");
+
+    // Safely destroy the device once all handles are freed.
+    ms.spawn(async move {
+        device_destroy(&(*u)).await.unwrap();
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn nvmf_device_admin_ctrl() {
+    let ms = get_ms();
+    let url = launch_instance().await;
+    let url2 = url.clone();
+
+    ms.spawn(async move {
+        let name = device_create(&url).await.unwrap();
+        let descr = device_open(&name, false).unwrap();
+        let handle = descr.into_handle().unwrap();
+
+        handle.nvme_admin_custom(0xCF).await.expect_err(
+            "successfully executed invalid NVMe admin command (0xCF)",
+        );
+    })
+    .await;
+
+    println!(
+        "Sleeping for 1 sec to let all async resource cleanup operations complete"
+    );
+    tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
+    println!("Awakened.");
+
+    // Destroy controller after all resources are freed.
+    ms.spawn(async move {
+        device_destroy(&url2).await.unwrap();
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn nvmf_device_reset() {
+    let ms = get_ms();
+    let url = launch_instance().await;
+    let url2 = url.clone();
+
+    // Clear callback invocation flag.
+    clear_callback_invocation_flag();
+
+    struct DeviceIoCtx {
+        handle: Box<dyn BlockDeviceHandle>,
+    }
+
+    // Read completion callback.
+    fn reset_completion_callback(success: bool, ctx: *const c_void) {
+        // Make sure callback is invoked only once.
+        flag_callback_invocation();
+
+        assert!(success, "reset() failed");
+        // Make sure we were passed tha same pattern string as requested.
+        let s = unsafe {
+            let slice = slice::from_raw_parts(
+                ctx as *const u8,
+                MAYASTOR_CTRLR_TITLE.len(),
+            );
+            str::from_utf8(slice).unwrap()
+        };
+
+        assert_eq!(s, MAYASTOR_CTRLR_TITLE);
+    }
+
+    let op_ctx = ms
+        .spawn(async move {
+            let name = device_create(&url).await.unwrap();
+            let descr = device_open(&name, false).unwrap();
+            let handle = descr.into_handle().unwrap();
+
+            handle
+                .reset(
+                    reset_completion_callback,
+                    // Use a predefined string to check that we receive the
+                    // same context pointer as we pass upon
+                    // invocation. For this call we don't need any
+                    // specific, operation-related context.
+                    MAYASTOR_CTRLR_TITLE.as_ptr() as *const c_void,
+                )
+                .unwrap();
+
+            AtomicPtr::new(Box::into_raw(Box::new(DeviceIoCtx {
+                handle,
+            })))
+        })
+        .await;
+
+    // Sleep for a few seconds to let reset operation complete.
+    println!("Sleeping for 2 secs to let reset operation complete");
+    tokio::time::delay_for(std::time::Duration::from_secs(3)).await;
+    println!("Awakened.");
+
+    ms.spawn(async move {
+        let io_ctx = unsafe { Box::from_raw(op_ctx.into_inner()) };
+        println!(
+            "Identifying controller using a newly recreated I/O channels."
+        );
+        io_ctx.handle.nvme_identify_ctrlr().await.unwrap();
+        println!("Controller successfully identified");
+    })
+    .await;
+
+    println!(
+        "Sleeping for 1 sec to let all async resource cleanup operations complete"
+    );
+    tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
+    println!("Awakened.");
+
+    // Destroy controller after all resources are freed.
+    ms.spawn(async move {
+        device_destroy(&url2).await.unwrap();
     })
     .await;
 }
