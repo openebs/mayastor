@@ -17,7 +17,7 @@ use spdk_sys::{
 use crate::{
     bdev::{
         nexus::{
-            nexus_bdev::{Nexus, NEXUS_PRODUCT_ID},
+            nexus_bdev::{Nexus, VerboseError, NEXUS_PRODUCT_ID},
             nexus_channel::DREvent,
             nexus_fn_table::NexusFnTable,
         },
@@ -27,7 +27,6 @@ use crate::{
         Reason,
     },
     core::{Bdev, Cores, GenericStatusCode, Mthread, NvmeStatus, Reactors},
-    nexus_uri::bdev_destroy,
 };
 
 /// NioCtx provides context on a per IO basis
@@ -337,7 +336,20 @@ impl Bio {
                     nexus.pause().await.unwrap();
                     nexus.reconfigure(DREvent::ChildFault).await;
                     //nexus.remove_child(&uri).await.unwrap();
-                    bdev_destroy(&uri).await.unwrap();
+                    match nexus.get_child_by_name(&uri) {
+                        Ok(c) => {
+                            if let Err(errclose) = c.close().await {
+                                error!(
+                                    "{}: child failed to close with error {}",
+                                    uri,
+                                    errclose.verbose()
+                                );
+                            }
+                        }
+                        Err(errget) => {
+                            error!(":{} finding {} to close", errget, uri)
+                        }
+                    }
                     nexus.resume().await.unwrap();
                     if nexus.status() == NexusStatus::Faulted {
                         error!(":{} has no children left... ", nexus);
