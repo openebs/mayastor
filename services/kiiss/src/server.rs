@@ -40,7 +40,8 @@ impl ServiceSubscriber for ServiceHandler<ConfigUpdate> {
         let data: ConfigUpdate = args.request.inner()?;
         info!("Received: {:?}", data);
 
-        let msg: ReceivedMessage<ConfigUpdate, ()> = args.request.try_into()?;
+        let msg: ReceivedMessageExt<ConfigUpdate, ()> =
+            args.request.try_into()?;
         let config = msg.inner();
 
         let mut state = CONFIGS.state.lock().await;
@@ -69,7 +70,7 @@ impl ServiceSubscriber for ServiceHandler<ConfigGetCurrent> {
         let data: ConfigGetCurrent = args.request.inner()?;
         info!("Received: {:?}", data);
 
-        let msg: ReceivedMessage<ConfigGetCurrent, ReplyConfig> =
+        let msg: ReceivedMessageExt<ConfigGetCurrent, ReplyConfig> =
             args.request.try_into()?;
         let request = msg.inner();
 
@@ -84,14 +85,14 @@ impl ServiceSubscriber for ServiceHandler<ConfigGetCurrent> {
                     .await
                 }
                 None => {
-                    msg.reply(Err(BusError::WithMessage {
+                    msg.reply(Err(ReplyError::WithMessage {
                         message: "Config is missing".into(),
                     }))
                     .await
                 }
             },
             None => {
-                msg.reply(Err(BusError::WithMessage {
+                msg.reply(Err(ReplyError::WithMessage {
                     message: "Config is missing".into(),
                 }))
                 .await
@@ -106,7 +107,7 @@ impl ServiceSubscriber for ServiceHandler<ConfigGetCurrent> {
 #[async_trait]
 impl ServiceSubscriber for ServiceHandler<Register> {
     async fn handler(&self, args: Arguments<'_>) -> Result<(), Error> {
-        let _: ReceivedMessage<Register, ()> = args.request.try_into()?;
+        let _: ReceivedMessageExt<Register, ()> = args.request.try_into()?;
         Ok(())
     }
     fn filter(&self) -> Vec<MessageId> {
@@ -117,7 +118,7 @@ impl ServiceSubscriber for ServiceHandler<Register> {
 #[async_trait]
 impl ServiceSubscriber for ServiceHandler<Deregister> {
     async fn handler(&self, args: Arguments<'_>) -> Result<(), Error> {
-        let _: ReceivedMessage<Deregister, ()> = args.request.try_into()?;
+        let _: ReceivedMessageExt<Deregister, ()> = args.request.try_into()?;
         Ok(())
     }
     fn filter(&self) -> Vec<MessageId> {

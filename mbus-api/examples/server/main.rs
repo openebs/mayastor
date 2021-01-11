@@ -104,7 +104,7 @@ async fn receive_v2(sub: &mut nats::asynk::Subscription, count: u64) {
     let message = &sub.next().await.unwrap();
     // notice that try_into can fail if the received type does not
     // match the received message
-    let message: ReceivedMessage<DummyRequest, DummyReply> =
+    let message: ReceivedMessageExt<DummyRequest, DummyReply> =
         message.try_into().unwrap();
     message
         .reply(DummyReply {
@@ -116,11 +116,11 @@ async fn receive_v2(sub: &mut nats::asynk::Subscription, count: u64) {
 
 async fn receive_v3(sub: &mut nats::asynk::Subscription, count: u64) {
     let message = &sub.next().await.unwrap();
-    let message: ReceivedMessage<DummyRequest, DummyReply> =
+    let message: ReceivedMessageExt<DummyRequest, DummyReply> =
         message.try_into().unwrap();
     message
         // same function can receive an error
-        .reply(Err(BusError::WithMessage {
+        .reply(Err(ReplyError::WithMessage {
             message: format!("Fake Error {}", count),
         }))
         .await

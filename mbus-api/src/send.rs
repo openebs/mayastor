@@ -135,23 +135,52 @@ macro_rules! bus_impl_message {
         bus_impl_message!($S, $I, $R, $C, $S);
     };
     ($S:ident, $I:ident, $R:tt, $C:ident, $T:ident) => {
-        #[async_trait::async_trait(?Send)]
+        #[async_trait::async_trait]
         impl Message for $S {
             type Reply = $R;
 
             impl_channel_id!($I, $C);
 
-            async fn publish(&self) -> smol::io::Result<()> {
+            async fn publish(&self) -> BusResult<()> {
                 $T::Publish(self, self.channel(), bus()).await
             }
-            async fn request(&self) -> smol::io::Result<$R> {
+            async fn request(&self) -> BusResult<$R> {
                 $T::Request(self, self.channel(), bus()).await
+            }
+            async fn request_on<C: Into<Channel> + Send>(
+                &self,
+                channel: C,
+            ) -> BusResult<$R> {
+                $T::Request(self, channel.into(), bus()).await
             }
             async fn request_ext(
                 &self,
                 options: TimeoutOptions,
-            ) -> smol::io::Result<$R> {
+            ) -> BusResult<$R> {
                 $T::Request_Ext(self, self.channel(), bus(), options).await
+            }
+            async fn request_on_ext<C: Into<Channel> + Send>(
+                &self,
+                channel: C,
+                options: TimeoutOptions,
+            ) -> BusResult<$R> {
+                $T::Request_Ext(self, channel.into(), bus(), options).await
+            }
+        }
+    };
+}
+
+/// Implement request for all objects of `Type`
+#[macro_export]
+macro_rules! bus_impl_vector_request {
+    ($Request:ident, $Inner:ident) => {
+        /// Request all the `Inner` elements
+        #[derive(Serialize, Deserialize, Default, Debug, Clone)]
+        pub struct $Request(pub Vec<$Inner>);
+        impl $Request {
+            /// returns the first element of the tuple and consumes self
+            pub fn into_inner(self) -> Vec<$Inner> {
+                self.0
             }
         }
     };
@@ -161,21 +190,21 @@ macro_rules! bus_impl_message {
 /// a `channel` and requesting a response back with the payload type `R`
 /// via a specific reply channel.
 /// Trait can be implemented using the macro helper `bus_impl_request`.
-#[async_trait(?Send)]
+#[async_trait]
 pub trait MessageRequest<'a, S, R>
 where
-    S: 'a + Sync + Message + Serialize,
-    for<'de> R: Deserialize<'de> + Default + 'a + Sync,
+    S: 'a + Sync + Send + Message + Serialize,
+    for<'de> R: Deserialize<'de> + Default + 'a + Sync + Send,
 {
     /// Sends the message and requests a reply
     /// May fail if the bus fails to publish the message.
     #[allow(non_snake_case)]
-    async fn Request(
+    async fn Request<C: Into<Channel> + Send>(
         payload: &'a S,
-        channel: Channel,
+        channel: C,
         bus: DynBus,
-    ) -> io::Result<R> {
-        let msg = SendMessage::<S, R>::new(payload, channel, bus);
+    ) -> BusResult<R> {
+        let msg = SendMessage::<S, R>::new(payload, channel.into(), bus);
         msg.request(None).await
     }
 
@@ -188,7 +217,7 @@ where
         channel: Channel,
         bus: DynBus,
         options: TimeoutOptions,
-    ) -> io::Result<R> {
+    ) -> BusResult<R> {
         let msg = SendMessage::<S, R>::new(payload, channel, bus);
         msg.request(Some(options)).await
     }
@@ -197,11 +226,11 @@ where
 /// Trait to send a message `bus` publish with the `payload` type `S` via a
 /// a `channel`. No reply is requested.
 /// Trait can be implemented using the macro helper `bus_impl_publish`.
-#[async_trait(?Send)]
+#[async_trait]
 pub trait MessagePublish<'a, S, R>
 where
-    S: 'a + Sync + Message + Serialize,
-    for<'de> R: Deserialize<'de> + Default + 'a + Sync,
+    S: 'a + Sync + Send + Message + Serialize,
+    for<'de> R: Deserialize<'de> + Default + 'a + Sync + Send,
 {
     /// Publishes the Message - not guaranteed to be sent or received (fire and
     /// forget)
@@ -211,7 +240,7 @@ where
         payload: &'a S,
         channel: Channel,
         bus: DynBus,
-    ) -> io::Result<()> {
+    ) -> BusResult<()> {
         let msg = SendMessage::<S, R>::new(payload, channel, bus);
         msg.publish().await
     }
@@ -263,8 +292,11 @@ where
 
     /// Publishes the Message - not guaranteed to be sent or received (fire and
     /// forget).
-    pub(crate) async fn publish(&self) -> io::Result<()> {
-        let payload = serde_json::to_vec(&self.payload)?;
+    pub(crate) async fn publish(&self) -> BusResult<()> {
+        let payload =
+            serde_json::to_vec(&self.payload).context(SerializeSend {
+                channel: self.channel.clone(),
+            })?;
         self.bus.publish(self.channel.clone(), &payload).await
     }
 
@@ -272,16 +304,21 @@ where
     pub(crate) async fn request(
         &self,
         options: Option<TimeoutOptions>,
-    ) -> io::Result<R> {
-        let payload = serde_json::to_vec(&self.payload)?;
+    ) -> BusResult<R> {
+        let payload =
+            serde_json::to_vec(&self.payload).context(SerializeSend {
+                channel: self.channel.clone(),
+            })?;
         let reply = self
             .bus
             .request(self.channel.clone(), &payload, options)
             .await?
             .data;
-        let reply: ReplyPayload<R> = serde_json::from_slice(&reply)?;
-        reply.0.map_err(|error| {
-            io::Error::new(io::ErrorKind::Other, format!("{:?}", error))
-        })
+        let reply: ReplyPayload<R> =
+            serde_json::from_slice(&reply).context(DeserializeReceive {
+                request: serde_json::to_string(&self.payload),
+                reply: String::from_utf8(reply),
+            })?;
+        reply.0.context(ReplyWithError {})
     }
 }
