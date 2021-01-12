@@ -14,7 +14,7 @@ use snafu::Snafu;
 use std::{env, time::Duration};
 
 /// Mayastor sends registration messages in this interval (kind of heart-beat)
-const HB_INTERVAL: Duration = Duration::from_secs(10);
+const HB_INTERVAL: Duration = Duration::from_secs(5);
 
 /// Errors for pool operations.
 ///

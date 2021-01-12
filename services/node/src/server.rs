@@ -14,8 +14,8 @@ struct CliArgs {
     #[structopt(long, short, default_value = "nats://127.0.0.1:4222")]
     nats: String,
     /// Deadline for the mayastor instance keep alive registration
-    /// Default: 20s
-    #[structopt(long, short, default_value = "20s")]
+    /// Default: 10s
+    #[structopt(long, short, default_value = "10s")]
     deadline: humantime::Duration,
 }
 
