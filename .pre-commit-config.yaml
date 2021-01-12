@@ -34,7 +34,7 @@ repos:
         name: Commit Lint
         description: Runs commitlint against the commit message.
         language: system
-        entry: bash -c "cat $1 | npx commitlint"
+        entry: bash -c "npm install @commitlint/config-conventional @commitlint/cli; cat $1 | npx commitlint"
         args: [$1]
         stages: [commit-msg]
 
