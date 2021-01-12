@@ -24,7 +24,7 @@ fi
 
 set -x
 nix-collect-garbage
-docker prune --force --all
+docker image prune --force --all
 set +x
 
 echo "Available space after cleanup: $(get_avail_gib) GiB"
