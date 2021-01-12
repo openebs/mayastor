@@ -18,5 +18,4 @@ jobs:
           last_commit=HEAD^2 # don't lint the merge commit
           npx commitlint --from $first_commit~1 --to $last_commit -V
       - name: Lint Pull Request
-        run: echo $'${{ github.event.pull_request.title }}\n\n${{ github.event.pull_request.body }}' | npx commitlint -V
-
+        run: echo "${{ github.event.pull_request.title }}"$'\n\n'"${{ github.event.pull_request.body }}" | npx commitlint -V
