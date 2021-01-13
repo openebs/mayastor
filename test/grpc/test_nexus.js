@@ -827,6 +827,31 @@ describe('nexus', function () {
       }
     });
 
+    // must be last nvmf test as it removes ns
+    it('should remove namespace from nvmf subsystem', (done) => {
+      const args = {
+        nqn: `nqn.2019-05.io.openebs:${TGTUUID}`,
+        nsid: 1
+      };
+      common.jsonrpcCommand('/tmp/target.sock', 'nvmf_subsystem_remove_ns', args, done);
+    });
+
+    it('should fail to create nexus with child that has no namespaces', (done) => {
+      const args = {
+        uuid: UUID,
+        size: diskSize,
+        children: [
+        `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${TGTUUID}`
+        ]
+      };
+
+      client.createNexus(args, (err) => {
+        if (!err) return done(new Error('Expected error'));
+        assert.equal(err.code, grpc.status.INVALID_ARGUMENT);
+        done();
+      });
+    });
+
     it('should have zero nexus devices left', (done) => {
       client.listNexus({}, (err, res) => {
         if (err) return done(err);
