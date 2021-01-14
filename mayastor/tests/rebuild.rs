@@ -636,6 +636,191 @@ async fn rebuild_with_load() {
     nvmf_disconnect(child2);
 }
 
+/// Test rebuild when restarting the source container.
+#[tokio::test]
+async fn rebuild_restart_src() {
+    let test = start_infrastructure("rebuild_restart_src").await;
+    let (mut ms1, ms2, ms3) = setup_test(&test, 1).await;
+    let nexus_hdl = &mut ms1;
+    let rebuild_dst = &get_share_uri(&ms3);
+
+    // Check a rebuild is started for a newly added child.
+    add_child(nexus_hdl, rebuild_dst, true).await;
+    assert!(wait_for_rebuild_state(
+        nexus_hdl,
+        rebuild_dst,
+        "running",
+        Duration::from_secs(1),
+    )
+    .await
+    .unwrap());
+
+    // Restart the rebuild source container and check that the rebuild fails.
+    test.restart("ms2")
+        .await
+        .expect("Failed to restart rebuild source");
+    assert_eq!(
+        wait_for_successful_rebuild(nexus_hdl, rebuild_dst).await,
+        false
+    );
+    assert_eq!(get_num_rebuilds(nexus_hdl).await, 0);
+
+    // Check the states of the nexus and children.
+    // Note: A failed rebuild will not change the state of the source child
+    // (even if it fails to read from it), but it will fault the destination
+    // child.
+    check_nexus_state(nexus_hdl, NexusState::NexusDegraded).await;
+    let rebuild_src = &get_share_uri(&ms2);
+    assert_eq!(
+        get_child_state(nexus_hdl, rebuild_src).await,
+        ChildState::ChildOnline as i32
+    );
+    assert_eq!(
+        get_child_state(nexus_hdl, rebuild_dst).await,
+        ChildState::ChildFaulted as i32
+    );
+}
+
+/// Test rebuild when restarting the destination container.
+#[tokio::test]
+async fn rebuild_restart_dst() {
+    let test = start_infrastructure("rebuild_restart_dst").await;
+    let (mut ms1, ms2, ms3) = setup_test(&test, 1).await;
+    let nexus_hdl = &mut ms1;
+    let rebuild_dst = &get_share_uri(&ms3);
+
+    // Check a rebuild is started for a newly added child.
+    add_child(nexus_hdl, rebuild_dst, true).await;
+    assert!(wait_for_rebuild_state(
+        nexus_hdl,
+        rebuild_dst,
+        "running",
+        Duration::from_secs(1),
+    )
+    .await
+    .unwrap());
+
+    // Restart the rebuild destination container and check the rebuild fails.
+    test.restart("ms3")
+        .await
+        .expect("Failed to restart rebuild destination");
+    assert_eq!(
+        wait_for_successful_rebuild(nexus_hdl, rebuild_dst).await,
+        false
+    );
+    assert_eq!(get_num_rebuilds(nexus_hdl).await, 0);
+
+    // Check the states of the nexus and children.
+    // Note: A failed rebuild will not change the state of the source child
+    // (even if it fails to read from it), but it will fault the destination
+    // child.
+    check_nexus_state(nexus_hdl, NexusState::NexusDegraded).await;
+    let rebuild_src = &get_share_uri(&ms2);
+    assert_eq!(
+        get_child_state(nexus_hdl, rebuild_src).await,
+        ChildState::ChildOnline as i32
+    );
+    assert_eq!(
+        get_child_state(nexus_hdl, rebuild_dst).await,
+        ChildState::ChildFaulted as i32
+    );
+}
+
+/// Test rebuild when disconnecting the source container from the network.
+#[tokio::test]
+async fn rebuild_src_disconnect() {
+    let test_name = "rebuild_src_disconnect";
+    let test = start_infrastructure(test_name).await;
+    let (mut ms1, ms2, ms3) = setup_test(&test, 1).await;
+    let nexus_hdl = &mut ms1;
+    let rebuild_dst = &get_share_uri(&ms3);
+
+    // Check a rebuild is started for a newly added child.
+    add_child(nexus_hdl, rebuild_dst, true).await;
+    assert!(wait_for_rebuild_state(
+        nexus_hdl,
+        rebuild_dst,
+        "running",
+        Duration::from_secs(1),
+    )
+    .await
+    .unwrap());
+
+    // Disconnect the rebuild source container from the network and check that
+    // the rebuild terminates. This requires a large timeout because it takes
+    // some time for the NVMf subsystem to report the error up.
+    test.disconnect("ms2")
+        .await
+        .expect("Failed to disconnect source container from network");
+    assert_eq!(
+        wait_for_num_rebuilds(nexus_hdl, 0, Duration::from_secs(180)).await,
+        true
+    );
+
+    // Check the states of the nexus and children.
+    // Note: A failed rebuild will not change the state of the source child
+    // (even if it fails to read from it), but it will fault the destination
+    // child.
+    check_nexus_state(nexus_hdl, NexusState::NexusDegraded).await;
+    let rebuild_src = &get_share_uri(&ms2);
+    assert_eq!(
+        get_child_state(nexus_hdl, rebuild_src).await,
+        ChildState::ChildOnline as i32
+    );
+    assert_eq!(
+        get_child_state(nexus_hdl, rebuild_dst).await,
+        ChildState::ChildFaulted as i32
+    );
+}
+
+/// Test rebuild when disconnecting the destination container from the
+/// network.
+#[tokio::test]
+async fn rebuild_dst_disconnect() {
+    let test_name = "rebuild_dst_disconnect";
+    let test = start_infrastructure(test_name).await;
+    let (mut ms1, ms2, ms3) = setup_test(&test, 1).await;
+    let nexus_hdl = &mut ms1;
+    let rebuild_dst = &get_share_uri(&ms3);
+
+    // Check a rebuild is started for a newly added child.
+    add_child(nexus_hdl, rebuild_dst, true).await;
+    assert!(wait_for_rebuild_state(
+        nexus_hdl,
+        rebuild_dst,
+        "running",
+        Duration::from_secs(1),
+    )
+    .await
+    .unwrap());
+
+    // Disconnect the rebuild destination container from the network and check
+    // that the rebuild terminates. This requires a large timeout because it
+    // takes some time for the NVMf subsystem to report the error up.
+    test.disconnect("ms3")
+        .await
+        .expect("Failed to disconnect destination container from network");
+    assert_eq!(
+        wait_for_num_rebuilds(nexus_hdl, 0, Duration::from_secs(180)).await,
+        true
+    );
+
+    // Check the states of the nexus and children.
+    // Note: A failed rebuild will not change the state of the source child
+    // (even if it fails to read from it), but it will fault the destination
+    // child.
+    check_nexus_state(nexus_hdl, NexusState::NexusDegraded).await;
+    let rebuild_src = &get_share_uri(&ms2);
+    assert_eq!(
+        get_child_state(nexus_hdl, rebuild_src).await,
+        ChildState::ChildOnline as i32
+    );
+    assert_eq!(
+        get_child_state(nexus_hdl, rebuild_dst).await,
+        ChildState::ChildFaulted as i32
+    );
+}
+
 /// Build the infrastructure required to run the tests.
 async fn start_infrastructure(test_name: &str) -> ComposeTest {
     Builder::new()
@@ -878,6 +1063,23 @@ async fn get_rebuild_progress(hdl: &mut RpcHandle, child: &str) -> Option<u32> {
         Ok(reply) => Some(reply.into_inner().progress),
         Err(_) => None,
     }
+}
+
+/// Wait for the number of rebuilds to reach the desired number.
+/// Returns false if a timeout occurs.
+async fn wait_for_num_rebuilds(
+    hdl: &mut RpcHandle,
+    num_rebuilds: u32,
+    timeout: Duration,
+) -> bool {
+    let time = std::time::Instant::now();
+    while time.elapsed().as_millis() < timeout.as_millis() {
+        if get_num_rebuilds(hdl).await == num_rebuilds {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    false
 }
 
 /// Waits on the given rebuild state or times out.
