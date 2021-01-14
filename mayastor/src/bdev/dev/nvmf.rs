@@ -148,22 +148,22 @@ impl CreateDestroy for Nvmf {
 
         extern "C" fn done_nvme_create_cb(
             arg: *mut c_void,
-            _bdev_count: c_ulong,
+            bdev_count: c_ulong,
             errno: c_int,
         ) {
             let sender = unsafe {
-                Box::from_raw(arg as *mut oneshot::Sender<ErrnoResult<()>>)
+                Box::from_raw(arg as *mut oneshot::Sender<ErrnoResult<usize>>)
             };
 
             sender
-                .send(errno_result_from_i32((), errno))
+                .send(errno_result_from_i32(bdev_count as usize, errno))
                 .expect("done callback receiver side disappeared");
         }
 
         let cname = CString::new(self.name.clone()).unwrap();
         let mut context = NvmeCreateContext::new(self);
 
-        let (sender, receiver) = oneshot::channel::<ErrnoResult<()>>();
+        let (sender, receiver) = oneshot::channel::<ErrnoResult<usize>>();
 
         let errno = unsafe {
             bdev_nvme_create(
@@ -183,7 +183,7 @@ impl CreateDestroy for Nvmf {
             name: self.name.clone(),
         })?;
 
-        receiver
+        let bdev_count = receiver
             .await
             .context(nexus_uri::CancelBdev {
                 name: self.name.clone(),
@@ -192,6 +192,19 @@ impl CreateDestroy for Nvmf {
                 name: self.name.clone(),
             })?;
 
+        if bdev_count == 0 {
+            error!("No nvme bdev created, no namespaces?");
+            // Remove partially created nvme bdev which doesn't show up in
+            // the list of bdevs
+            let errno = unsafe { bdev_nvme_delete(cname.as_ptr()) };
+            info!(
+                "removed partially created bdev {}, returned {}",
+                self.name, errno
+            );
+            return Err(NexusBdevError::BdevNotFound {
+                name: self.name.clone(),
+            });
+        }
         if let Some(bdev) = Bdev::lookup_by_name(&self.get_name()) {
             if let Some(u) = self.uuid {
                 if bdev.uuid_as_string() != u.to_hyphenated().to_string() {
