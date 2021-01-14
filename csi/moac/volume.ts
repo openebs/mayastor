@@ -209,8 +209,10 @@ export class Volume {
     this.emitEvent('del');
   }
 
-  // Trigger the run of FSA. It will either run immediately or if it is already
-  // running, it will start again when the current run finishes.
+  // Trigger the run of FSA. It will always run asynchronously to give caller
+  // a chance to perform other changes to the volume before everything is
+  // checked by FSA. If it is already running, it will start again when the
+  // current run finishes.
   //
   // Why critical section on fsa? Certain operations done by fsa are async. If
   // we allow another process to enter fsa before the async operation is done
@@ -219,11 +221,13 @@ export class Volume {
   // done yet).
   fsa() {
     if (this.runFsa++ === 0) {
-      this._fsa().finally(() => {
-        const runAgain = this.runFsa > 1;
-        this.runFsa = 0;
-        if (runAgain) this.fsa();
-      });
+      setImmediate(() => {
+        this._fsa().finally(() => {
+          const runAgain = this.runFsa > 1;
+          this.runFsa = 0;
+          if (runAgain) this.fsa();
+        });
+      })
     }
   }
 

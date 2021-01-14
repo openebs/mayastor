@@ -91,18 +91,21 @@ class EventStream extends Readable {
           eventType: 'new',
           object: node
         });
+        // First we emit replica and then pool events. Otherwise volume manager
+        // could start creating new volume on imported pool although that the
+        // volume is already there.
         node.pools.forEach((obj) => {
-          self.events.push({
-            kind: 'pool',
-            eventType: 'new',
-            object: obj
-          });
           obj.replicas.forEach((obj) => {
             self.events.push({
               kind: 'replica',
               eventType: 'new',
               object: obj
             });
+          });
+          self.events.push({
+            kind: 'pool',
+            eventType: 'new',
+            object: obj
           });
         });
         node.nexus.forEach((obj) => {

@@ -171,9 +171,6 @@ module.exports = function () {
       expect(events[i].kind).to.equal('node');
       expect(events[i].eventType).to.equal('new');
       expect(events[i++].object.name).to.equal('node1');
-      expect(events[i].kind).to.equal('pool');
-      expect(events[i].eventType).to.equal('new');
-      expect(events[i++].object.name).to.equal('pool1');
       expect(events[i].kind).to.equal('replica');
       expect(events[i].eventType).to.equal('new');
       expect(events[i++].object.uuid).to.equal('uuid1');
@@ -182,10 +179,13 @@ module.exports = function () {
       expect(events[i++].object.uuid).to.equal('uuid2');
       expect(events[i].kind).to.equal('pool');
       expect(events[i].eventType).to.equal('new');
-      expect(events[i++].object.name).to.equal('pool2');
+      expect(events[i++].object.name).to.equal('pool1');
       expect(events[i].kind).to.equal('replica');
       expect(events[i].eventType).to.equal('new');
       expect(events[i++].object.uuid).to.equal('uuid3');
+      expect(events[i].kind).to.equal('pool');
+      expect(events[i].eventType).to.equal('new');
+      expect(events[i++].object.name).to.equal('pool2');
       expect(events[i].kind).to.equal('nexus');
       expect(events[i].eventType).to.equal('new');
       expect(events[i++].object.uuid).to.equal('nexus1');
@@ -198,9 +198,6 @@ module.exports = function () {
       expect(events[i].kind).to.equal('node');
       expect(events[i].eventType).to.equal('new');
       expect(events[i++].object.name).to.equal('node2');
-      expect(events[i].kind).to.equal('pool');
-      expect(events[i].eventType).to.equal('new');
-      expect(events[i++].object.name).to.equal('pool3');
       expect(events[i].kind).to.equal('replica');
       expect(events[i].eventType).to.equal('new');
       expect(events[i++].object.uuid).to.equal('uuid4');
@@ -210,6 +207,9 @@ module.exports = function () {
       expect(events[i].kind).to.equal('replica');
       expect(events[i].eventType).to.equal('new');
       expect(events[i++].object.uuid).to.equal('uuid6');
+      expect(events[i].kind).to.equal('pool');
+      expect(events[i].eventType).to.equal('new');
+      expect(events[i++].object.name).to.equal('pool3');
       expect(events[i].kind).to.equal('node');
       expect(events[i].eventType).to.equal('sync');
       expect(events[i++].object.name).to.equal('node2');

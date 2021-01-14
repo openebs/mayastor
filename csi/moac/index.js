@@ -40,11 +40,13 @@ function createKubeConfig (kubefile) {
 }
 
 async function main () {
+  let apiServer;
   let poolOper;
   let volumeOper;
   let csiNodeOper;
   let nodeOper;
   let kubeConfig;
+  let warmupTimer;
 
   const opts = yargs
     .options({
@@ -53,6 +55,12 @@ async function main () {
         describe: 'Socket path where to listen for incoming CSI requests',
         default: '/var/tmp/csi.sock',
         string: true
+      },
+      i: {
+        alias: 'heartbeat-interval',
+        describe: 'Interval used by storage nodes for registration messages (seconds)',
+        default: 5,
+        number: true
       },
       k: {
         alias: 'kubeconfig',
@@ -113,6 +121,7 @@ async function main () {
 
   // We must install signal handlers before grpc lib does it.
   async function cleanUp () {
+    if (warmupTimer) clearTimeout(warmupTimer);
     if (csiServer) csiServer.undoReady();
     if (apiServer) apiServer.stop();
     if (!opts.s) {
@@ -175,22 +184,27 @@ async function main () {
   const volumes = new Volumes(registry);
   volumes.start();
 
-  if (!opts.s) {
-    volumeOper = new VolumeOperator(
-      opts.namespace,
-      kubeConfig,
-      volumes,
-      opts.watcherIdleTimeout
-    );
-    await volumeOper.init(kubeConfig);
-    await volumeOper.start();
-  }
+  const warmupSecs = Math.floor(1.5 * opts.i);
+  log.info(`Warming up will take ${warmupSecs} seconds ...`);
+  warmupTimer = setTimeout(async () => {
+    warmupTimer = undefined;
+    if (!opts.s) {
+      volumeOper = new VolumeOperator(
+        opts.namespace,
+        kubeConfig,
+        volumes,
+        opts.watcherIdleTimeout
+      );
+      await volumeOper.init(kubeConfig);
+      await volumeOper.start();
+    }
 
-  const apiServer = new ApiServer(registry);
-  await apiServer.start(opts.port);
+    apiServer = new ApiServer(registry);
+    await apiServer.start(opts.port);
 
-  csiServer.makeReady(registry, volumes);
-  log.info('MOAC is up and ready to 🚀');
+    csiServer.makeReady(registry, volumes);
+    log.info('MOAC is warmed up and ready to 🚀');
+  }, warmupSecs * 1000);
 }
 
 main();

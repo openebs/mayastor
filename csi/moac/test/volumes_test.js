@@ -19,8 +19,10 @@ const { Volumes } = require('../volumes');
 const { GrpcCode } = require('../grpc_client');
 const { shouldFailWith, waitUntil } = require('./utils');
 const enums = require('./grpc_enums');
+const sleep = require('sleep-promise');
 
 const UUID = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cbb';
+const EYE_BLINK_MS = 30;
 
 module.exports = function () {
   let registry, volumes;
@@ -399,27 +401,40 @@ module.exports = function () {
     it('should import a volume and fault it if there are no replicas', async () => {
       volumes.start();
       volume = await volumes.importVolume(UUID, volumeSpec, { size: 40 });
+      // give FSA a chance to run
+      await sleep(EYE_BLINK_MS);
       expect(volume.state).to.equal('faulted');
       expect(Object.keys(volume.replicas)).to.have.lengthOf(0);
     });
 
     it('should import a volume without nexus', async () => {
-      const replica = new Replica({
+      const replica1 = new Replica({
         uuid: UUID,
-        size: 10,
+        size: 40,
         share: 'REPLICA_NONE',
         uri: `bdev:///${UUID}`
       });
-      replica.pool = { node: node1 };
+      replica1.pool = { node: node1 };
+      const replica2 = new Replica({
+        uuid: UUID,
+        size: 40,
+        share: 'REPLICA_NVMF',
+        uri: `nvmf:///${UUID}`
+      });
+      replica2.pool = { node: node2 };
       const getReplicaSetStub = sinon.stub(registry, 'getReplicaSet');
-      getReplicaSetStub.returns([replica]);
+      getReplicaSetStub.returns([replica1, replica2]);
 
       volumes.start();
       volume = await volumes.importVolume(UUID, volumeSpec, { size: 40 });
+      expect(volume.state).to.equal('unknown');
+      expect(Object.keys(volume.replicas)).to.have.lengthOf(2);
+      // give FSA a chance to run
+      await sleep(EYE_BLINK_MS);
       expect(volume.nexus).to.be.null();
       expect(volume.state).to.equal('healthy');
       expect(volume.size).to.equal(40);
-      expect(volEvents).to.have.lengthOf(3);
+      expect(volEvents).to.have.lengthOf(4);
     });
 
     it('should import unpublished volume with nexus', async () => {
@@ -450,6 +465,8 @@ module.exports = function () {
 
       volumes.start();
       volume = await volumes.importVolume(UUID, volumeSpec, { size: 40 });
+      // give FSA a chance to run
+      await sleep(EYE_BLINK_MS);
       expect(volume.nexus.getUri()).to.be.undefined();
       expect(Object.keys(volume.replicas)).to.have.lengthOf(1);
       expect(Object.values(volume.replicas)[0]).to.equal(replica);
