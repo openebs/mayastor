@@ -19,4 +19,5 @@ members = [
 	"composer",
 	"rest",
 	"operators",
+	"mayastor-macros"
 ]
