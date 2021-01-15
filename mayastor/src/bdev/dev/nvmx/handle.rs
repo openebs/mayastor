@@ -2,7 +2,13 @@ use async_trait::async_trait;
 use futures::channel::oneshot;
 use nix::errno::Errno;
 use once_cell::sync::OnceCell;
-use std::{mem::ManuallyDrop, os::raw::c_void, ptr::NonNull, sync::Arc};
+use std::{
+    alloc::Layout,
+    mem::ManuallyDrop,
+    os::raw::c_void,
+    ptr::NonNull,
+    sync::Arc,
+};
 
 use crate::core::mempool::MemoryPool;
 
@@ -10,6 +16,7 @@ use crate::{
     bdev::{
         dev::nvmx::{
             channel::NvmeControllerIoChannel,
+            utils,
             utils::{nvme_cpl_is_pi_error, nvme_cpl_succeeded},
             NvmeBlockDevice,
             NvmeIoChannel,
@@ -36,6 +43,8 @@ use spdk_sys::{
     spdk_nvme_cpl,
     spdk_nvme_ctrlr,
     spdk_nvme_ctrlr_cmd_admin_raw,
+    spdk_nvme_dsm_range,
+    spdk_nvme_ns_cmd_dataset_management,
     spdk_nvme_ns_cmd_read,
     spdk_nvme_ns_cmd_readv,
     spdk_nvme_ns_cmd_write,
@@ -67,6 +76,14 @@ const IOCTX_POOL_SIZE: u64 = 64 * 1024 - 1;
 // Memory pool for NVMe controller - specific I/O context, which is used
 // in every user BIO-based I/O operation.
 static IOCTX_POOL: OnceCell<MemoryPool<NvmeIoCtx>> = OnceCell::new();
+
+// Maximum number of range sets that may be specified in the dataset management
+// command.
+const SPDK_NVME_DATASET_MANAGEMENT_MAX_RANGES: u64 = 256;
+
+// Maximum number of blocks that may be specified in a single dataset management
+// range.
+const SPDK_NVME_DATASET_MANAGEMENT_RANGE_MAX_BLOCKS: u64 = 0xFFFFFFFF;
 
 /*
  * I/O handle for NVMe block device.
@@ -220,7 +237,7 @@ extern "C" fn nvme_writev_done(ctx: *mut c_void, cpl: *const spdk_nvme_cpl) {
 
     // Check if operation successfully completed.
     if nvme_cpl_is_pi_error(cpl) {
-        error!("readv completed with PI error");
+        error!("writev completed with PI error");
     }
 
     complete_nvme_command(nvme_io_ctx, cpl);
@@ -249,7 +266,17 @@ extern "C" fn nvme_async_io_completion(
     done_cb(ctx, nvme_cpl_succeeded(cpl));
 }
 
+extern "C" fn nvme_unmap_completion(
+    ctx: *mut c_void,
+    cpl: *const spdk_nvme_cpl,
+) {
+    let nvme_io_ctx = ctx as *mut NvmeIoCtx;
+    debug!("Async unmap completed");
+    complete_nvme_command(nvme_io_ctx, cpl);
+}
+
 fn check_io_args(
+    op: IoType,
     iov: *mut iovec,
     iovcnt: i32,
     offset_blocks: u64,
@@ -259,27 +286,56 @@ fn check_io_args(
     // As of now, we assume that I/O vector is fully prepared by the caller.
     if iovcnt <= 0 {
         error!("insufficient number of elements in I/O vector: {}", iovcnt);
-        return Err(CoreError::ReadDispatch {
-            source: Errno::EINVAL,
-            offset: offset_blocks,
-            len: num_blocks,
-        });
+        return Err(io_type_to_err(
+            op,
+            libc::EINVAL,
+            offset_blocks,
+            num_blocks,
+        ));
     }
     unsafe {
         if (*iov).iov_base.is_null() {
             error!("I/O vector is not initialized");
-
-            return Err(CoreError::ReadDispatch {
-                source: Errno::EINVAL,
-                offset: offset_blocks,
-                len: num_blocks,
-            });
+            return Err(io_type_to_err(
+                op,
+                libc::EINVAL,
+                offset_blocks,
+                num_blocks,
+            ));
         }
     }
     Ok(())
 }
 
+fn io_type_to_err(
+    op: IoType,
+    errno: i32,
+    offset_blocks: u64,
+    num_blocks: u64,
+) -> CoreError {
+    assert!(errno > 0, "Errno code must be provided");
+
+    match op {
+        IoType::READ => CoreError::ReadDispatch {
+            source: Errno::from_i32(errno),
+            offset: offset_blocks,
+            len: num_blocks,
+        },
+        IoType::WRITE => CoreError::WriteDispatch {
+            source: Errno::from_i32(errno),
+            offset: offset_blocks,
+            len: num_blocks,
+        },
+        IoType::UNMAP => CoreError::NvmeUnmapDispatch {
+            source: Errno::from_i32(errno),
+            offset: offset_blocks,
+            len: num_blocks,
+        },
+    }
+}
+
 fn alloc_nvme_io_ctx(
+    op: IoType,
     ctx: NvmeIoCtx,
     offset_blocks: u64,
     num_blocks: u64,
@@ -289,21 +345,18 @@ fn alloc_nvme_io_ctx(
     if let Some(c) = pool.get(ctx) {
         Ok(c)
     } else {
-        Err(CoreError::ReadDispatch {
-            source: Errno::ENOMEM,
-            offset: offset_blocks,
-            len: num_blocks,
-        })
+        Err(io_type_to_err(op, libc::ENOMEM, offset_blocks, num_blocks))
     }
 }
 
 enum IoType {
     READ,
     WRITE,
+    UNMAP,
 }
 
 /// Check whether channel is suitable for serving I/O.
-fn check_channel_for_rw_io(
+fn check_channel_for_io(
     op: IoType,
     inner: &NvmeIoChannelInner,
     offset_blocks: u64,
@@ -320,18 +373,7 @@ fn check_channel_for_rw_io(
     if errno == 0 {
         Ok(())
     } else {
-        match op {
-            IoType::READ => Err(CoreError::ReadDispatch {
-                source: Errno::from_i32(errno),
-                offset: offset_blocks,
-                len: num_blocks,
-            }),
-            IoType::WRITE => Err(CoreError::WriteDispatch {
-                source: Errno::from_i32(errno),
-                offset: offset_blocks,
-                len: num_blocks,
-            }),
-        }
+        Err(io_type_to_err(op, errno, offset_blocks, num_blocks))
     }
 }
 
@@ -391,12 +433,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
 
         // Make sure channel allows I/O.
-        check_channel_for_rw_io(
-            IoType::READ,
-            inner,
-            offset_blocks,
-            num_blocks,
-        )?;
+        check_channel_for_io(IoType::READ, inner, offset_blocks, num_blocks)?;
 
         let (s, r) = oneshot::channel::<bool>();
 
@@ -461,12 +498,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
 
         // Make sure channel allows I/O.
-        check_channel_for_rw_io(
-            IoType::WRITE,
-            inner,
-            offset_blocks,
-            num_blocks,
-        )?;
+        check_channel_for_io(IoType::WRITE, inner, offset_blocks, num_blocks)?;
 
         let (s, r) = oneshot::channel::<bool>();
 
@@ -511,19 +543,20 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         cb: IoCompletionCallback,
         cb_arg: *const c_void,
     ) -> Result<(), CoreError> {
-        check_io_args(iov, iovcnt, offset_blocks, num_blocks)?;
+        check_io_args(IoType::READ, iov, iovcnt, offset_blocks, num_blocks)?;
 
         let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
 
         // Make sure channel allows I/O.
-        check_channel_for_rw_io(
-            IoType::READ,
-            inner,
-            offset_blocks,
-            num_blocks,
-        )?;
+        check_channel_for_io(IoType::READ, inner, offset_blocks, num_blocks)?;
+
+        let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
+
+        // Make sure channel allows I/O.
+        check_channel_for_io(IoType::READ, inner, offset_blocks, num_blocks)?;
 
         let bio = alloc_nvme_io_ctx(
+            IoType::READ,
             NvmeIoCtx {
                 cb,
                 cb_arg,
@@ -587,19 +620,20 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         cb: IoCompletionCallback,
         cb_arg: *const c_void,
     ) -> Result<(), CoreError> {
-        check_io_args(iov, iovcnt, offset_blocks, num_blocks)?;
+        check_io_args(IoType::WRITE, iov, iovcnt, offset_blocks, num_blocks)?;
 
         let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
 
         // Make sure channel allows I/O.
-        check_channel_for_rw_io(
-            IoType::WRITE,
-            inner,
-            offset_blocks,
-            num_blocks,
-        )?;
+        check_channel_for_io(IoType::WRITE, inner, offset_blocks, num_blocks)?;
+
+        let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
+
+        // Make sure channel allows I/O.
+        check_channel_for_io(IoType::WRITE, inner, offset_blocks, num_blocks)?;
 
         let bio = alloc_nvme_io_ctx(
+            IoType::WRITE,
             NvmeIoCtx {
                 cb,
                 cb_arg,
@@ -708,6 +742,116 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
 
         // Schedule asynchronous controller reset.
         controller.reset(cb, cb_arg, false)
+    }
+
+    fn unmap_blocks(
+        &self,
+        offset_blocks: u64,
+        num_blocks: u64,
+        cb: IoCompletionCallback,
+        cb_arg: *const c_void,
+    ) -> Result<(), CoreError> {
+        let num_ranges =
+            (num_blocks + SPDK_NVME_DATASET_MANAGEMENT_RANGE_MAX_BLOCKS - 1)
+                / SPDK_NVME_DATASET_MANAGEMENT_RANGE_MAX_BLOCKS;
+
+        if num_ranges > SPDK_NVME_DATASET_MANAGEMENT_MAX_RANGES {
+            return Err(CoreError::NvmeUnmapDispatch {
+                source: Errno::EINVAL,
+                offset: offset_blocks,
+                len: num_blocks,
+            });
+        }
+
+        let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
+
+        // Make sure channel allows I/O.
+        check_channel_for_io(IoType::UNMAP, inner, offset_blocks, num_blocks)?;
+
+        let bio = alloc_nvme_io_ctx(
+            IoType::READ,
+            NvmeIoCtx {
+                cb,
+                cb_arg,
+                iov: std::ptr::null_mut() as *mut iovec, // No I/O vec involved.
+                iovcnt: 0,
+                iovpos: 0,
+                iov_offset: 0,
+            },
+            offset_blocks,
+            num_blocks,
+        )?;
+
+        let l = Layout::array::<spdk_nvme_dsm_range>(
+            SPDK_NVME_DATASET_MANAGEMENT_MAX_RANGES as usize,
+        )
+        .unwrap();
+        let dsm_ranges =
+            unsafe { std::alloc::alloc(l) as *mut spdk_nvme_dsm_range };
+
+        let mut remaining = num_blocks;
+        let mut offset = offset_blocks;
+        let mut range_id: usize = 0;
+
+        // Fill max-size ranges until the remaining blocks fit into one range.
+        while remaining > SPDK_NVME_DATASET_MANAGEMENT_RANGE_MAX_BLOCKS {
+            unsafe {
+                let mut range = spdk_nvme_dsm_range::default();
+
+                range.attributes.raw = 0;
+                range.length =
+                    SPDK_NVME_DATASET_MANAGEMENT_RANGE_MAX_BLOCKS as u32;
+                range.starting_lba = offset;
+
+                *dsm_ranges.add(range_id) = range;
+            }
+
+            offset += SPDK_NVME_DATASET_MANAGEMENT_RANGE_MAX_BLOCKS;
+            remaining -= SPDK_NVME_DATASET_MANAGEMENT_RANGE_MAX_BLOCKS;
+            range_id += 1;
+        }
+
+        // Setup range that describes the remaining blocks and schedule unmap.
+        let rc = unsafe {
+            let mut range = spdk_nvme_dsm_range::default();
+
+            range.attributes.raw = 0;
+            range.length = remaining as u32;
+            range.starting_lba = offset;
+
+            *dsm_ranges.add(range_id) = range;
+
+            spdk_nvme_ns_cmd_dataset_management(
+                self.ns.as_ptr(),
+                inner.qpair,
+                utils::NvmeDsmAttribute::Deallocate as u32,
+                dsm_ranges,
+                num_ranges as u16,
+                Some(nvme_unmap_completion),
+                bio as *mut c_void,
+            )
+        };
+
+        if rc < 0 {
+            Err(CoreError::NvmeUnmapDispatch {
+                source: Errno::from_i32(-rc),
+                offset: offset_blocks,
+                len: num_blocks,
+            })
+        } else {
+            Ok(())
+        }
+    }
+
+    fn write_zeroes(
+        &self,
+        offset_blocks: u64,
+        num_blocks: u64,
+        cb: IoCompletionCallback,
+        cb_arg: *const c_void,
+    ) -> Result<(), CoreError> {
+        // Write zeroes are done through unmap.
+        self.unmap_blocks(offset_blocks, num_blocks, cb, cb_arg)
     }
 }
 
