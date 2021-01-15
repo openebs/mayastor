@@ -35,7 +35,11 @@ use futures::{StreamExt, TryStreamExt};
 use ipnetwork::Ipv4Network;
 use tonic::transport::Channel;
 
-use bollard::{image::CreateImageOptions, models::ContainerInspectResponse};
+use bollard::{
+    image::CreateImageOptions,
+    models::ContainerInspectResponse,
+    network::DisconnectNetworkOptions,
+};
 use mbus_api::TimeoutOptions;
 use rpc::mayastor::{
     bdev_rpc_client::BdevRpcClient,
@@ -937,6 +941,20 @@ impl ComposeTest {
         }
 
         Ok(())
+    }
+
+    /// disconnect container from the network
+    pub async fn disconnect(&self, container_name: &str) -> Result<(), Error> {
+        let id = self.containers.get(container_name).unwrap();
+        self.docker
+            .disconnect_network(
+                &self.network_id,
+                DisconnectNetworkOptions {
+                    container: id.0.as_str(),
+                    force: false,
+                },
+            )
+            .await
     }
 
     /// get the logs from the container. It would be nice to make it implicit
