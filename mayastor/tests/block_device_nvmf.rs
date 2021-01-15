@@ -35,9 +35,7 @@ fn get_ms() -> &'static MayastorTest<'static> {
 }
 
 async fn launch_instance() -> String {
-    // TODO: Spawn MayaStor instance properly.
-    return "nvmf://172.16.175.130:8420/nqn.2019-05.io.openebs:disk0"
-        .to_string();
+    return "nvmf://127.0.0.1:4420/replica0".to_string();
 }
 
 #[tokio::test]
@@ -143,6 +141,19 @@ fn flag_callback_invocation() {
     );
 }
 
+fn check_callback_invocation() {
+    assert_eq!(
+        INVOCATION_FLAG.compare_exchange(
+            true,
+            false,
+            Ordering::Acquire,
+            Ordering::Relaxed
+        ),
+        Ok(true),
+        "Callback has not been called"
+    );
+}
+
 #[tokio::test]
 async fn nvmf_device_read_write_at() {
     let ms = get_ms();
@@ -236,7 +247,7 @@ async fn nvmf_device_readv_test() {
         flag_callback_invocation();
 
         assert!(success, "readv_blocks() failed");
-        // Make sure we were passed tha same pattern string as requested.
+        // Make sure we were passed the same pattern string as requested.
         let s = unsafe {
             let slice = slice::from_raw_parts(
                 ctx as *const u8,
@@ -299,6 +310,9 @@ async fn nvmf_device_readv_test() {
     tokio::time::delay_for(std::time::Duration::from_secs(3)).await;
     println!("Awakened.");
 
+    // Check that the callback has been called.
+    check_callback_invocation();
+
     // Check the contents of the buffer to make sure it has been overwritten
     // with data pattern. We should see all zeroes in the buffer instead of
     // the guard pattern.
@@ -342,7 +356,7 @@ async fn nvmf_device_writev_test() {
         flag_callback_invocation();
 
         assert!(success, "writev_blocks() failed");
-        // Make sure we were passed tha same pattern string as requested.
+        // Make sure we were passed the same pattern string as requested.
         let s = unsafe {
             let slice = slice::from_raw_parts(
                 ctx as *const u8,
@@ -423,6 +437,9 @@ async fn nvmf_device_writev_test() {
     tokio::time::delay_for(std::time::Duration::from_secs(3)).await;
     println!("Awakened.");
 
+    // Check that the callback has been called.
+    check_callback_invocation();
+
     // Read data just written and check that no boundaries were crossed.
     ms.spawn(async move {
         let ctx = unsafe { Box::<IoCtx>::from_raw(ctx.into_inner()) };
@@ -495,7 +512,7 @@ async fn nvmf_device_readv_iovs_test() {
         flag_callback_invocation();
 
         assert!(success, "readv_blocks() failed");
-        // Make sure we were passed tha same pattern string as requested.
+        // Make sure we were passed the same pattern string as requested.
         let s = unsafe {
             let slice = slice::from_raw_parts(
                 ctx as *const u8,
@@ -580,6 +597,9 @@ async fn nvmf_device_readv_iovs_test() {
     tokio::time::delay_for(std::time::Duration::from_secs(3)).await;
     println!("Awakened.");
 
+    // Check that the callback has been called.
+    check_callback_invocation();
+
     url = Arc::clone(&u);
     ms.spawn(async move {
         let ctx = unsafe { Box::<IoCtx>::from_raw(io_ctx.into_inner()) };
@@ -634,7 +654,7 @@ async fn nvmf_device_writev_iovs_test() {
         flag_callback_invocation();
 
         assert!(success, "writev_blocks() failed");
-        // Make sure we were passed tha same pattern string as requested.
+        // Make sure we were passed the same pattern string as requested.
         let s = unsafe {
             let slice = slice::from_raw_parts(
                 ctx as *const u8,
@@ -725,6 +745,9 @@ async fn nvmf_device_writev_iovs_test() {
     println!("Sleeping for 2 secs to let I/O operation complete");
     tokio::time::delay_for(std::time::Duration::from_secs(3)).await;
     println!("Awakened.");
+
+    // Check that the callback has been called.
+    check_callback_invocation();
 
     ms.spawn(async move {
         let ctx = unsafe { Box::<IoCtx>::from_raw(io_ctx.into_inner()) };
@@ -823,7 +846,7 @@ async fn nvmf_device_reset() {
         flag_callback_invocation();
 
         assert!(success, "reset() failed");
-        // Make sure we were passed tha same pattern string as requested.
+        // Make sure we were passed the same pattern string as requested.
         let s = unsafe {
             let slice = slice::from_raw_parts(
                 ctx as *const u8,
@@ -863,6 +886,9 @@ async fn nvmf_device_reset() {
     tokio::time::delay_for(std::time::Duration::from_secs(3)).await;
     println!("Awakened.");
 
+    // Check that the callback has been called.
+    check_callback_invocation();
+
     ms.spawn(async move {
         let io_ctx = unsafe { Box::from_raw(op_ctx.into_inner()) };
         println!(
@@ -884,4 +910,168 @@ async fn nvmf_device_reset() {
         device_destroy(&url2).await.unwrap();
     })
     .await;
+}
+
+async fn wipe_device_blocks(is_unmap: bool) {
+    let ms = get_ms();
+    let url = launch_instance().await;
+    let url2 = url.clone();
+
+    struct DeviceIoCtx {
+        handle: Box<dyn BlockDeviceHandle>,
+    }
+
+    const BUF_SIZE: u64 = 32768;
+    const OP_OFFSET: u64 = 12 * 1024 * 1024;
+
+    // Read completion callback.
+    fn wipe_completion_callback(success: bool, ctx: *const c_void) {
+        // Make sure callback is invoked only once.
+        flag_callback_invocation();
+
+        assert!(success, "block deallocation failed");
+        // Make sure we were passed the same pattern string as requested.
+        let s = unsafe {
+            let slice = slice::from_raw_parts(
+                ctx as *const u8,
+                MAYASTOR_CTRLR_TITLE.len(),
+            );
+            str::from_utf8(slice).unwrap()
+        };
+
+        assert_eq!(s, MAYASTOR_CTRLR_TITLE);
+    }
+
+    // Clear callback invocation flag.
+    clear_callback_invocation_flag();
+
+    // Write guard buffers and data buffer, then unmap data buffer and check
+    // if it was unmapped.
+    let op_ctx = ms
+        .spawn(async move {
+            let name = device_create(&url).await.unwrap();
+            let descr = device_open(&name, false).unwrap();
+            let handle = descr.into_handle().unwrap();
+            let device = handle.get_device();
+
+            let guard_buf =
+                create_io_buffer(device.alignment(), BUF_SIZE, GUARD_PATTERN);
+
+            // First, write 2 guard buffers before and after target I/O
+            // location.
+            let mut r = handle.write_at(OP_OFFSET, &guard_buf).await.unwrap();
+            assert_eq!(r, BUF_SIZE, "The amount of data written mismatches");
+            r = handle
+                .write_at(OP_OFFSET + 2 * BUF_SIZE, &guard_buf)
+                .await
+                .unwrap();
+            assert_eq!(r, BUF_SIZE, "The amount of data written mismatches");
+
+            // Write data buffer between guard buffers.
+            let data_buf =
+                create_io_buffer(device.alignment(), BUF_SIZE, IO_PATTERN);
+            r = handle
+                .write_at(OP_OFFSET + BUF_SIZE, &data_buf)
+                .await
+                .unwrap();
+            assert_eq!(r, BUF_SIZE, "The amount of data written mismatches");
+
+            if is_unmap {
+                handle
+                    .unmap_blocks(
+                        (OP_OFFSET + BUF_SIZE) / device.block_len(),
+                        BUF_SIZE / device.block_len(),
+                        wipe_completion_callback,
+                        // Use a predefined string to check that we receive the
+                        // same context pointer as we pass upon
+                        // invocation. For this call we don't need any
+                        // specific, operation-related context.
+                        MAYASTOR_CTRLR_TITLE.as_ptr() as *const c_void,
+                    )
+                    .unwrap();
+            } else {
+                handle
+                    .write_zeroes(
+                        (OP_OFFSET + BUF_SIZE) / device.block_len(),
+                        BUF_SIZE / device.block_len(),
+                        wipe_completion_callback,
+                        // Use a predefined string to check that we receive the
+                        // same context pointer as we pass upon
+                        // invocation. For this call we don't need any
+                        // specific, operation-related context.
+                        MAYASTOR_CTRLR_TITLE.as_ptr() as *const c_void,
+                    )
+                    .unwrap();
+            }
+
+            AtomicPtr::new(Box::into_raw(Box::new(DeviceIoCtx {
+                handle,
+            })))
+        })
+        .await;
+
+    // Sleep for a few seconds to let unmap operation complete.
+    println!("Sleeping for 2 secs to let operation complete");
+    tokio::time::delay_for(std::time::Duration::from_secs(3)).await;
+    println!("Awakened.");
+
+    ms.spawn(async move {
+        let io_ctx = unsafe { Box::from_raw(op_ctx.into_inner()) };
+        let device = io_ctx.handle.get_device();
+
+        // Check the first guard buffer.
+        let g1 = DmaBuf::new(BUF_SIZE, device.alignment()).unwrap();
+        let mut r = io_ctx.handle.read_at(OP_OFFSET, &g1).await.unwrap();
+        assert_eq!(r, BUF_SIZE, "The amount of data read mismatches");
+        check_buf_pattern(&g1, GUARD_PATTERN);
+
+        // Check the second guard buffer.
+        let g2 = DmaBuf::new(BUF_SIZE, device.alignment()).unwrap();
+        r = io_ctx
+            .handle
+            .read_at(OP_OFFSET + 2 * BUF_SIZE, &g2)
+            .await
+            .unwrap();
+        assert_eq!(r, BUF_SIZE, "The amount of data read mismatches");
+        check_buf_pattern(&g2, GUARD_PATTERN);
+
+        // Check that data buffer has been unmapped.
+        // Note that we allocate a buffer with non-zero content to make sure we
+        // read zeroes afterwards.
+        let dbuf = create_io_buffer(device.alignment(), BUF_SIZE, 0x1);
+        r = io_ctx
+            .handle
+            .read_at(OP_OFFSET + BUF_SIZE, &dbuf)
+            .await
+            .unwrap();
+        assert_eq!(r, BUF_SIZE, "The amount of data read mismatches");
+        check_buf_pattern(&dbuf, 0x0); // Unmapped blocks must be read as
+                                       // zeroes.
+    })
+    .await;
+
+    println!(
+        "Sleeping for 1 sec to let all async resource cleanup operations complete"
+    );
+    tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
+    println!("Awakened.");
+
+    // Destroy controller after all resources are freed.
+    ms.spawn(async move {
+        device_destroy(&url2).await.unwrap();
+    })
+    .await;
+
+    // Check that the callback has been called.
+    check_callback_invocation();
+}
+
+#[tokio::test]
+async fn nvmf_device_unmap_blocks() {
+    wipe_device_blocks(true).await;
+}
+
+#[tokio::test]
+async fn nvmf_device_write_zeroes() {
+    wipe_device_blocks(false).await;
 }
