@@ -58,10 +58,9 @@ pub(crate) fn nvme_cpl_succeeded(cpl: *const spdk_nvme_cpl) -> bool {
         && sc == NvmeGenericCommandStatusCode::Success as u16
 }
 /* Bit set of attributes for DATASET MANAGEMENT commands. */
-/*
+#[allow(dead_code)]
 pub enum NvmeDsmAttribute {
     IntegralRead = 0x1,
     IntegralWrite = 0x2,
     Deallocate = 0x4,
 }
-*/

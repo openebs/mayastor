@@ -123,9 +123,21 @@ pub trait BlockDeviceHandle {
         cb_arg: *const c_void,
     ) -> Result<(), CoreError>;
 
-    // fn unmap_blocks(u64: offset_blocks, u64: num_blocks, cb:
-    // IoCompletionCallback, cb_arg: *const c_void) -> Result<(), CoreError>;
-    // fn write_zeroes(offset_blocks, num_blocks, cb, cb_arg);
+    fn unmap_blocks(
+        &self,
+        offset_blocks: u64,
+        num_blocks: u64,
+        cb: IoCompletionCallback,
+        cb_arg: *const c_void,
+    ) -> Result<(), CoreError>;
+
+    fn write_zeroes(
+        &self,
+        offset_blocks: u64,
+        num_blocks: u64,
+        cb: IoCompletionCallback,
+        cb_arg: *const c_void,
+    ) -> Result<(), CoreError>;
 
     // NVMe only.
     async fn nvme_admin_custom(&self, opcode: u8) -> Result<(), CoreError>;
