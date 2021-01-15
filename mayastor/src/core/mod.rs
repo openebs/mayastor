@@ -102,6 +102,16 @@ pub enum CoreError {
         source: Errno,
         opcode: u16,
     },
+    #[snafu(display(
+        "Failed to dispatch unmap at offset {} length {}",
+        offset,
+        len
+    ))]
+    NvmeUnmapDispatch {
+        source: Errno,
+        offset: u64,
+        len: u64,
+    },
     #[snafu(display("Write failed at offset {} length {}", offset, len))]
     WriteFailed {
         offset: u64,
