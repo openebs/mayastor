@@ -776,6 +776,7 @@ async fn rebuild_src_disconnect() {
 /// Test rebuild when disconnecting the destination container from the
 /// network.
 #[tokio::test]
+#[ignore]
 async fn rebuild_dst_disconnect() {
     let test_name = "rebuild_dst_disconnect";
     let test = start_infrastructure(test_name).await;
