@@ -1,5 +1,15 @@
 #!/usr/bin/env groovy
 
+// On-demand E2E infra configuration
+// https://mayadata.atlassian.net/wiki/spaces/MS/pages/247332965/Test+infrastructure#On-Demand-E2E-K8S-Clusters
+
+def e2e_build_cluster_job='k8s-build-cluster' // Jenkins job to build cluster
+def e2e_destroy_cluster_job='k8s-destroy-cluster' // Jenkins job to destroy cluster
+// Environment to run e2e test in (job param of $e2e_build_cluster_job)
+def e2e_environment="hcloud-kubeadm"
+// Global variable to pass current k8s job between stages
+def k8s_job=""
+
 // Searches previous builds to find first non aborted one
 def getLastNonAbortedBuild(build) {
   if (build == null) {
@@ -133,37 +143,97 @@ pipeline {
             }
           }
         }
-      }
-    }
-    stage('e2e tests') {
-      agent { label 'nixos-mayastor' }
-      environment {
-        GIT_COMMIT_SHORT = sh(
-          // using printf to get rid of trailing newline
-          script: "printf \$(git rev-parse --short ${GIT_COMMIT})",
-          returnStdout: true
-        )
-      }
-      steps {
-        // e2e tests are the most demanding step for space on the disk so we
-        // test the free space here rather than repeating the same code in all
-        // stages.
-        sh "./scripts/reclaim-space.sh 10"
-        // Build images (REGISTRY is set in jenkin's global configuration).
-        // Note: We might want to build and test dev images that have more
-        // assertions instead but that complicates e2e tests a bit.
-        sh "./scripts/release.sh --alias-tag ci --registry ${env.REGISTRY}"
-        withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
-          sh 'kubectl get nodes -o wide'
-          sh "nix-shell --run './scripts/e2e-test.sh --device /dev/nvme1n1 --tag \"${env.GIT_COMMIT_SHORT}\" --registry \"${env.REGISTRY}\"'"
-        }
-      }
-      // Always remove all docker images because they are usually used just once
-      // and underlaying pkgs are already cached by nix so they can be easily
-      // recreated.
-      post {
-        always {
-          sh 'docker image prune --all --force'
+        stage('e2e tests') {
+          stages {
+            stage('e2e docker images') {
+              agent { label 'nixos-mayastor' }
+              steps {
+                // e2e tests are the most demanding step for space on the disk so we
+                // test the free space here rather than repeating the same code in all
+                // stages.
+                sh "./scripts/reclaim-space.sh 10"
+                // Build images (REGISTRY is set in jenkin's global configuration).
+                // Note: We might want to build and test dev images that have more
+                // assertions instead but that complicates e2e tests a bit.
+                sh "./scripts/release.sh --alias-tag ci --registry \"${env.REGISTRY}\""
+                // Always remove all docker images because they are usually used just once
+                // and underlaying pkgs are already cached by nix so they can be easily
+                // recreated.
+              }
+              post {
+                always {
+                  sh 'docker image prune --all --force'
+                }
+              }
+            }
+            stage('build e2e cluster') {
+              agent { label 'nixos' }
+              steps {
+                script {
+                  k8s_job=build(
+                    job: "${e2e_build_cluster_job}",
+                    propagate: true,
+                    wait: true,
+                    parameters: [[
+                      $class: 'StringParameterValue',
+                      name: "ENVIRONMENT",
+                      value: "${e2e_environment}"
+                    ]]
+                  )
+                }
+              }
+            }
+            stage('run e2e') {
+              agent { label 'nixos-mayastor' }
+              environment {
+                GIT_COMMIT_SHORT = sh(
+                  // using printf to get rid of trailing newline
+                  script: "printf \$(git rev-parse --short ${GIT_COMMIT})",
+                  returnStdout: true
+                )
+                KUBECONFIG = "${env.WORKSPACE}/${e2e_environment}/modules/k8s/secrets/admin.conf"
+              }
+              steps {
+                // FIXME(arne-rusek): move hcloud's config to top-level dir in TF scripts
+                sh """
+                  mkdir -p "${e2e_environment}/modules/k8s/secrets"
+                """
+                copyArtifacts(
+                    projectName: "${k8s_job.getProjectName()}",
+                    selector: specific("${k8s_job.getNumber()}"),
+                    filter: "${e2e_environment}/modules/k8s/secrets/admin.conf",
+                    target: "",
+                    fingerprintArtifacts: true
+                )
+                sh 'kubectl get nodes -o wide'
+                sh "nix-shell --run './scripts/e2e-test.sh --device /dev/sdb --tag \"${env.GIT_COMMIT_SHORT}\" --registry \"${env.REGISTRY}\"'"
+              }
+            }
+            stage('destroy e2e cluster') {
+              agent { label 'nixos' }
+              steps {
+                script {
+                  build(
+                    job: "${e2e_destroy_cluster_job}",
+                    propagate: true,
+                    wait: true,
+                    parameters: [
+                      [
+                        $class: 'StringParameterValue',
+                        name: "ENVIRONMENT",
+                        value: "${e2e_environment}"
+                      ],
+                      [
+                        $class: 'RunParameterValue',
+                        name: "BUILD",
+                        runId:"${k8s_job.getProjectName()}#${k8s_job.getNumber()}"
+                      ]
+                    ]
+                  )
+                }
+              }
+            }
+          }
         }
       }
     }
