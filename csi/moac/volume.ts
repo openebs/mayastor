@@ -646,9 +646,16 @@ export class Volume {
     }
     replicaSet.splice(this.replicaCount);
 
-    // If nexus does not exist it will be created on the same node as the most
-    // preferred replica.
-    const nexusNode = this.nexus ? this.nexus.node : replicaSet[0].pool!.node;
+    // If nexus does not exist it will be created on one of the replica nodes
+    // with the least # of nexuses.
+    let nexusNode;
+    if (this.nexus) {
+      nexusNode = this.nexus.node;
+    } else {
+      nexusNode = replicaSet
+        .map((r: Replica) => r.pool!.node)
+        .sort((a: Node, b: Node) => a.nexus.length - b.nexus.length)[0];
+    }
 
     for (let i = 0; i < replicaSet.length; i++) {
       const replica = replicaSet[i];
