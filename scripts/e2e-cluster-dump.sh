@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 
-set -e
+# This script makes the best attempt to dump stuff
+# so ignore fails and keep paddling.
+# set -e
 
 help() {
   cat <<EOF
@@ -17,54 +19,54 @@ EOF
 }
 
 function cluster-get {
-    echo "#-- PODS mayastor* --------------------"
+    echo "-- PODS mayastor* --------------------"
     # csi tests creates relevant namespaces containing mayastor
     mns=$(kubectl get ns | grep mayastor | sed -e "s/ .*//")
     for ns in $mns
     do
         kubectl -n "$ns" -o wide get pods --sort-by=.metadata.creationTimestamp
     done
-    echo "#-- PODS ------------------------------"
+    echo "-- PODS ------------------------------"
     kubectl get -o wide pods --sort-by=.metadata.creationTimestamp
-    echo "#-- PVCS ------------------------------"
+    echo "-- PVCS ------------------------------"
     kubectl get pvc --sort-by=.metadata.creationTimestamp
-    echo "#-- PV --------------------------------"
+    echo "-- PV --------------------------------"
     kubectl get pv --sort-by=.metadata.creationTimestamp
-    echo "#-- Storage Classes -------------------"
+    echo "-- Storage Classes -------------------"
     kubectl get sc --sort-by=.metadata.creationTimestamp
-    echo "#-- Mayastor Pools --------------------"
+    echo "-- Mayastor Pools --------------------"
     kubectl -n mayastor get msp --sort-by=.metadata.creationTimestamp
-    echo "#-- Mayastor Volumes ------------------"
+    echo "-- Mayastor Volumes ------------------"
     kubectl -n mayastor get msv --sort-by=.metadata.creationTimestamp
-    echo "#-- Mayastor Nodes --------------------"
+    echo "-- Mayastor Nodes --------------------"
     kubectl -n mayastor get msn --sort-by=.metadata.creationTimestamp
-    echo "#-- K8s Nodes -----------------------------"
+    echo "-- K8s Nodes -----------------------------"
     kubectl get nodes -o wide --show-labels
 }
 
 function cluster-describe {
-    echo "#-- PODS mayastor* --------------------"
+    echo "-- PODS mayastor* --------------------"
     # csi tests creates relevant namespaces containing mayastor
     mns=$(kubectl get ns | grep mayastor | sed -e "s/ .*//")
     for ns in $mns
     do
         kubectl -n "$ns" describe pods
     done
-    echo "#-- PODS ------------------------------"
+    echo "-- PODS ------------------------------"
     kubectl describe pods
-    echo "#-- PVCS ------------------------------"
+    echo "-- PVCS ------------------------------"
     kubectl describe pvc
-    echo "#-- PV --------------------------------"
+    echo "-- PV --------------------------------"
     kubectl describe pv
-    echo "#-- Storage Classes -------------------"
+    echo "-- Storage Classes -------------------"
     kubectl describe sc
-    echo "#-- Mayastor Pools --------------------"
+    echo "-- Mayastor Pools --------------------"
     kubectl -n mayastor describe msp
-    echo "#-- Mayastor Volumes ------------------"
+    echo "-- Mayastor Volumes ------------------"
     kubectl -n mayastor describe msv
-    echo "#-- Mayastor Nodes --------------------"
+    echo "-- Mayastor Nodes --------------------"
     kubectl -n mayastor describe msn
-    echo "#-- K8s Nodes -----------------------------"
+    echo "-- K8s Nodes -----------------------------"
     kubectl describe nodes
 }
 
@@ -109,6 +111,10 @@ function logs-moac {
 
 # $1 = podlogs, 0 => do not generate pod logs
 function dump-to-stdout {
+    echo "# Cluster ---------------------------------"
+    cluster-get
+    cluster-describe
+
     if [ "$1" -ne 0 ]; then
         logs-moac
         logs-mayastor
@@ -120,9 +126,7 @@ function dump-to-stdout {
         logs-csi-mayastor -p
         logs-csi-containers -p
     fi
-
-    cluster-get
-    cluster-describe
+    echo "# END ---------------------------------"
 }
 
 # $1 = podlogs, 0 => do not generate pod logs
@@ -131,6 +135,10 @@ function dump-to-dir {
     dest="$2"
     echo "Generating logs in $dest"
     mkdir -p "$dest"
+
+    cluster-get >& "$dest/cluster.get.txt"
+    cluster-describe >& "$dest/cluster.describe.txt"
+
     if [ "$1" -ne 0 ]; then
         logs-moac >& "$dest/moac.log"
         logs-mayastor >& "$dest/mayastor.log"
@@ -142,9 +150,6 @@ function dump-to-dir {
         logs-csi-mayastor -p >& "$dest/csi-mayastor.previous.log"
         logs-csi-containers -p >& "$dest/csi-containers.previous.log"
     fi
-
-    cluster-get >& "$dest/cluster.get.txt"
-    cluster-describe >& "$dest/cluster.describe.txt"
 }
 
 # $1 = podlogs, 0 => do not generate pod logs

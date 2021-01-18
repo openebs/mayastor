@@ -4,9 +4,11 @@ import (
 	"e2e-basic/common"
 	disconnect_lib "e2e-basic/node_disconnect/lib"
 
+	"os"
 	"testing"
 
 	. "github.com/onsi/ginkgo"
+	"github.com/onsi/ginkgo/reporters"
 	. "github.com/onsi/gomega"
 
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -21,7 +23,10 @@ const reject = "REJECT"
 
 func TestReplicaReassign(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Replica reassignment test")
+	reportDir := os.Getenv("e2e_reports_dir")
+	junitReporter := reporters.NewJUnitReporter(reportDir + "/replica-reassign-junit.xml")
+	RunSpecsWithDefaultAndCustomReporters(t, "Replica reassignment test",
+		[]Reporter{junitReporter})
 }
 
 var _ = Describe("Mayastor replica reassignment test", func() {
@@ -43,7 +48,7 @@ var _ = Describe("Mayastor replica reassignment test", func() {
 })
 
 var _ = BeforeSuite(func(done Done) {
-	logf.SetLogger(zap.LoggerTo(GinkgoWriter, true))
+	logf.SetLogger(zap.New(zap.UseDevMode(true), zap.WriteTo(GinkgoWriter)))
 	common.SetupTestEnv()
 	close(done)
 }, 60)

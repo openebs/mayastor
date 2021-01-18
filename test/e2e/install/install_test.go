@@ -13,6 +13,7 @@ import (
 	"time"
 
 	. "github.com/onsi/ginkgo"
+	"github.com/onsi/ginkgo/reporters"
 	. "github.com/onsi/gomega"
 
 	appsV1 "k8s.io/api/apps/v1"
@@ -214,15 +215,15 @@ func installMayastor() {
 	applyDeployYaml("../test-yamls/mayastor-daemonset.yaml")
 
 	// Given the yamls and the environment described in the test readme,
-	// we expect mayastor to be running on exactly 2 nodes.
+	// we expect mayastor to be running on exactly numMayastorInstances nodes.
 	Eventually(mayastorReadyPodCount,
 		"180s", // timeout
 		"1s",   // polling interval
 	).Should(Equal(numMayastorInstances))
 
 	Eventually(moacReadyPodCount(),
-		"180s", // timeout
-		"1s",  // polling interval
+		"360s", // timeout
+		"1s",   // polling interval
 	).Should(Equal(1))
 
 	// Now create pools on all nodes.
@@ -231,7 +232,10 @@ func installMayastor() {
 
 func TestInstallSuite(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Basic Install Suite")
+	reportDir := os.Getenv("e2e_reports_dir")
+	junitReporter := reporters.NewJUnitReporter(reportDir + "/install-junit.xml")
+	RunSpecsWithDefaultAndCustomReporters(t, "Basic Install Suite",
+		[]Reporter{junitReporter})
 }
 
 var _ = Describe("Mayastor setup", func() {
@@ -241,7 +245,7 @@ var _ = Describe("Mayastor setup", func() {
 })
 
 var _ = BeforeSuite(func(done Done) {
-	logf.SetLogger(zap.LoggerTo(GinkgoWriter, true))
+	logf.SetLogger(zap.New(zap.UseDevMode(true), zap.WriteTo(GinkgoWriter)))
 
 	By("bootstrapping test environment")
 	useCluster := true
@@ -267,7 +271,7 @@ var _ = BeforeSuite(func(done Done) {
 
 	mgrSyncCtx, mgrSyncCtxCancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer mgrSyncCtxCancel()
-	if synced := k8sManager.GetCache().WaitForCacheSync(mgrSyncCtx.Done()); !synced {
+	if synced := k8sManager.GetCache().WaitForCacheSync(mgrSyncCtx); !synced {
 		fmt.Println("Failed to sync")
 	}
 

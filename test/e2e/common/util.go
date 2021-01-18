@@ -26,6 +26,7 @@ import (
 	"reflect"
 
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 var defTimeoutSecs = "90s"
@@ -137,6 +138,17 @@ func IsMSVDeleted(uuid string) bool {
 	Expect(err).To(BeNil())
 	Expect(msv).ToNot(BeNil())
 	return false
+}
+
+func DeleteMSV(uuid string) error {
+	msvGVR := schema.GroupVersionResource{
+		Group:    "openebs.io",
+		Version:  "v1alpha1",
+		Resource: "mayastorvolumes",
+	}
+
+	err := gTestEnv.DynamicClient.Resource(msvGVR).Namespace("mayastor").Delete(context.TODO(), uuid, metav1.DeleteOptions{})
+	return err
 }
 
 // Check for a deleted Persistent Volume Claim,
@@ -421,6 +433,31 @@ func DeletePod(podName string) error {
 	return gTestEnv.KubeInt.CoreV1().Pods("default").Delete(context.TODO(), podName, metav1.DeleteOptions{})
 }
 
+/// Delete all pods in the default namespace
+// returns:
+// 1) success i.e. true if all pods were deleted or there were no pods to delete.
+// 2) the number of pods found
+func DeleteAllPods() (bool, int) {
+	logf.Log.Info("DeleteAllPods")
+	success := true
+	numPods := 0
+	pods, err := gTestEnv.KubeInt.CoreV1().Pods("default").List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		logf.Log.Error(err, "DeleteAllPods: list pods failed.")
+		success = false
+	}
+	if err == nil && pods != nil {
+		numPods = len(pods.Items)
+		for _, pod := range pods.Items {
+			logf.Log.Info("DeleteAllPods: Deleting", "pod", pod.Name)
+			if err := DeletePod(pod.Name); err != nil {
+				success = false
+			}
+		}
+	}
+	return success, numPods
+}
+
 func CreateFioPod(podName string, volName string) (*corev1.Pod, error) {
 	podDef := CreateFioPodDef(podName, volName)
 	return CreatePod(podDef)
@@ -437,10 +474,9 @@ func CreateFioPodDef(podName string, volName string) *corev1.Pod {
 		Spec: corev1.PodSpec{
 			Containers: []corev1.Container{
 				{
-					Name:    podName,
-					Image:   "nixery.dev/shell/fio/tini",
-					Command: []string{"tini", "--"},
-					Args:    []string{"sleep", "1000000"},
+					Name:  podName,
+					Image: "dmonakhov/alpine-fio",
+					Args:  []string{"sleep", "1000000"},
 					VolumeMounts: []corev1.VolumeMount{
 						{
 							Name:      "ms-volume",
@@ -854,5 +890,188 @@ func IsVolumePublished(uuid string) bool {
 	if err != nil {
 		return false
 	}
+	return true
+}
+
+// Make best attempt to delete PVCs, PVs and MSVs
+func DeleteAllVolumeResources() (bool, bool) {
+	logf.Log.Info("DeleteAllVolumeResources")
+	foundResources := false
+	success := true
+
+	// Delete all PVCs found
+	// Phase 1 to delete dangling resources
+	pvcs, err := gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims("default").List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		logf.Log.Error(err, "DeleteAllVolumeResources: list PVCs failed.")
+		success = false
+	}
+	if err == nil && pvcs != nil && len(pvcs.Items) != 0 {
+		foundResources = true
+		logf.Log.Info("DeleteAllVolumeResources: deleting PersistentVolumeClaims")
+		for _, pvc := range pvcs.Items {
+			if err := DeletePVC(pvc.Name); err != nil {
+				success = false
+			}
+		}
+	}
+
+	// Delete all PVs found
+	pvs, err := gTestEnv.KubeInt.CoreV1().PersistentVolumes().List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		logf.Log.Error(err, "DeleteAllVolumeResources: list PVs failed.")
+	}
+	if err == nil && pvs != nil && len(pvs.Items) != 0 {
+		logf.Log.Info("DeleteAllVolumeResources: deleting PersistentVolumes")
+		for _, pv := range pvs.Items {
+			if err := gTestEnv.KubeInt.CoreV1().PersistentVolumes().Delete(context.TODO(), pv.Name, metav1.DeleteOptions{}); err != nil {
+				success = false
+			}
+		}
+	}
+
+	// Wait 2 minutes for resources to be deleted
+	for attempts := 0; attempts < 120; attempts++ {
+		numPvcs := 0
+		pvcs, err := gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims("default").List(context.TODO(), metav1.ListOptions{})
+		if err == nil && pvcs != nil {
+			numPvcs = len(pvcs.Items)
+		}
+
+		numPvs := 0
+		pvs, err := gTestEnv.KubeInt.CoreV1().PersistentVolumes().List(context.TODO(), metav1.ListOptions{})
+		if err == nil && pvs != nil {
+			numPvs = len(pvs.Items)
+		}
+
+		if numPvcs == 0 && numPvs == 0 {
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
+
+	// If after deleting PVCs and PVs Mayastor volumes are leftover
+	// try cleaning them up explicitly
+	msvGVR := schema.GroupVersionResource{
+		Group:    "openebs.io",
+		Version:  "v1alpha1",
+		Resource: "mayastorvolumes",
+	}
+
+	msvs, err := gTestEnv.DynamicClient.Resource(msvGVR).Namespace("mayastor").List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		// This function may be called by AfterSuite by uninstall test so listing MSVs may fail correctly
+		logf.Log.Info("DeleteAllVolumeResources: list MSVs failed.", "Error", err)
+	}
+	if err == nil && msvs != nil && len(msvs.Items) != 0 {
+		logf.Log.Info("DeleteAllVolumeResources: deleting MayastorVolumes")
+		for _, msv := range msvs.Items {
+			if err := DeleteMSV(msv.GetName()); err != nil {
+				success = false
+			}
+		}
+	}
+
+	// Wait 2 minutes for resources to be deleted
+	for attempts := 0; attempts < 120; attempts++ {
+		numMsvs := 0
+		msvs, err := gTestEnv.DynamicClient.Resource(msvGVR).Namespace("mayastor").List(context.TODO(), metav1.ListOptions{})
+		if err == nil && msvs != nil {
+			numMsvs = len(msvs.Items)
+		}
+		if numMsvs == 0 {
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
+
+	return success, foundResources
+}
+
+func AfterSuiteCleanup() {
+	logf.Log.Info("AfterSuiteCleanup")
+	_, _ = DeleteAllVolumeResources()
+}
+
+// Check that no PVs, PVCs and MSVs are still extant.
+// Returns an error if resources exists.
+func AfterEachCheck() error {
+	var errorMsg = ""
+
+	logf.Log.Info("AfterEachCheck")
+
+	// Phase 1 to delete dangling resources
+	pvcs, _ := gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims("default").List(context.TODO(), metav1.ListOptions{})
+	if len(pvcs.Items) != 0 {
+		errorMsg += " found leftover PersistentVolumeClaims"
+		logf.Log.Info("AfterEachCheck: found leftover PersistentVolumeClaims, test fails.")
+	}
+
+	pvs, _ := gTestEnv.KubeInt.CoreV1().PersistentVolumes().List(context.TODO(), metav1.ListOptions{})
+	if len(pvs.Items) != 0 {
+		errorMsg += " found leftover PersistentVolumes"
+		logf.Log.Info("AfterEachCheck: found leftover PersistentVolumes, test fails.")
+	}
+
+	// Mayastor volumes
+	msvGVR := schema.GroupVersionResource{
+		Group:    "openebs.io",
+		Version:  "v1alpha1",
+		Resource: "mayastorvolumes",
+	}
+	msvs, _ := gTestEnv.DynamicClient.Resource(msvGVR).Namespace("mayastor").List(context.TODO(), metav1.ListOptions{})
+	if len(msvs.Items) != 0 {
+		errorMsg += " found leftover MayastorVolumes"
+		logf.Log.Info("AfterEachCheck: found leftover MayastorVolumes, test fails.")
+	}
+
+	if len(errorMsg) != 0 {
+		return errors.New(errorMsg)
+	}
+	return nil
+}
+
+func MayastorUndeletedPodCount() int {
+	pods, err := gTestEnv.KubeInt.CoreV1().Pods("mayastor").List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		logf.Log.Error(err, "MayastorUndeletedPodCount: list pods failed.")
+		return 0
+	}
+	if pods != nil {
+		return len(pods.Items)
+	}
+	logf.Log.Info("MayastorUndeletedPodCount: nil list returned.")
+	return 0
+}
+
+// Force deletion of all existing mayastor pods
+// Returns true if pods were deleted, false otherwise
+func ForceDeleteMayastorPods() bool {
+	logf.Log.Info("EnsureMayastorDeleted")
+	pods, err := gTestEnv.KubeInt.CoreV1().Pods("mayastor").List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		logf.Log.Error(err, "EnsureMayastorDeleted: list pods failed.")
+		return false
+	}
+	if pods == nil || len(pods.Items) == 0 {
+		return false
+	}
+
+	logf.Log.Info("EnsureMayastorDeleted: MayastorPods found.", "Count", len(pods.Items))
+	for _, pod := range pods.Items {
+		logf.Log.Info("EnsureMayastorDeleted: Force deleting", "pod", pod.Name)
+		cmd := exec.Command("kubectl", "-n", "mayastor", "delete", "pod", pod.Name, "--grace-period", "0", "--force")
+		_, err := cmd.CombinedOutput()
+		if err != nil {
+			logf.Log.Error(err, "EnsureMayastorDeleted", "podName", pod.Name)
+		}
+	}
+
+	// We have made the best effort to cleanup, give things time to settle.
+	for attempts := 0; attempts < 30 && MayastorUndeletedPodCount() != 0; attempts++ {
+		time.Sleep(2 * time.Second)
+	}
+
+	logf.Log.Info("EnsureMayastorDeleted: lingering Mayastor pods were found !!!!!!!!")
 	return true
 }

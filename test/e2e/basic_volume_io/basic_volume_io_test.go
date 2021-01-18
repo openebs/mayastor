@@ -4,15 +4,17 @@ package basic_volume_io_test
 
 import (
 	"e2e-basic/common"
+	"os"
 	"testing"
 
 	. "github.com/onsi/ginkgo"
+	"github.com/onsi/ginkgo/reporters"
 	. "github.com/onsi/gomega"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
-var defTimeoutSecs = "90s"
+var defTimeoutSecs = "120s"
 
 type volSc struct {
 	volName string
@@ -24,7 +26,9 @@ var volNames []volSc
 
 func TestBasicVolumeIO(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Basic volume IO tests, NVMe-oF TCP and iSCSI")
+	reportDir := os.Getenv("e2e_reports_dir")
+	junitReporter := reporters.NewJUnitReporter(reportDir + "/basic-volume-io-junit.xml")
+	RunSpecsWithDefaultAndCustomReporters(t, "Basic volume IO tests, NVMe-oF TCP and iSCSI", []Reporter{junitReporter})
 }
 
 func basicVolumeIOTest(scName string) {
@@ -63,6 +67,15 @@ func basicVolumeIOTest(scName string) {
 }
 
 var _ = Describe("Mayastor Volume IO test", func() {
+
+	AfterEach(func() {
+		logf.Log.Info("AfterEach")
+
+		// Check resource leakage.
+		err := common.AfterEachCheck()
+		Expect(err).ToNot(HaveOccurred())
+	})
+
 	It("should verify an NVMe-oF TCP volume can process IO", func() {
 		basicVolumeIOTest("mayastor-nvmf")
 	})
@@ -79,14 +92,6 @@ var _ = BeforeSuite(func(done Done) {
 }, 60)
 
 var _ = AfterSuite(func() {
-	// Cleanup resources leftover in the event of failure.
-	for _, pod := range podNames {
-		_ = common.DeletePod(pod)
-	}
-	for _, vol := range volNames {
-		common.RmPVC(vol.volName, vol.scName)
-	}
-
 	// NB This only tears down the local structures for talking to the cluster,
 	// not the kubernetes cluster itself.	By("tearing down the test environment")
 	common.TeardownTestEnv()

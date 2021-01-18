@@ -1,32 +1,20 @@
 package basic_test
 
 import (
-	"context"
-	"fmt"
+	"e2e-basic/common"
+	. "github.com/onsi/ginkgo"
+	"github.com/onsi/ginkgo/reporters"
+	. "github.com/onsi/gomega"
+	"os"
 	"os/exec"
 	"path"
 	"runtime"
 	"testing"
 	"time"
 
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
-
-	appsv1 "k8s.io/api/apps/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/deprecated/scheme"
-	"k8s.io/client-go/rest"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
-
-var cfg *rest.Config
-var k8sClient client.Client
-var k8sManager ctrl.Manager
-var testEnv *envtest.Environment
 
 // Encapsulate the logic to find where the deploy yamls are
 func getDeployYamlDir() string {
@@ -42,48 +30,73 @@ func deleteDeployYaml(filename string) {
 	Expect(err).ToNot(HaveOccurred())
 }
 
-// Encapsulate the logic to find where the templated yamls are
-func getTemplateYamlDir() string {
-	_, filename, _, _ := runtime.Caller(0)
-	return path.Clean(filename + "/../../install/deploy")
-}
-
-func makeImageName(registryAddress string, registryport string, imagename string, imageversion string) string {
-	return registryAddress + ":" + registryport + "/mayadata/" + imagename + ":" + imageversion
-}
-
-// We expect this to fail a few times before it succeeds,
-// so no throwing errors from here.
-func mayastorReadyPodCount() int {
-	var mayastorDaemonSet appsv1.DaemonSet
-	if k8sClient.Get(context.TODO(), types.NamespacedName{Name: "mayastor", Namespace: "mayastor"}, &mayastorDaemonSet) != nil {
-		return -1
-	}
-	return int(mayastorDaemonSet.Status.CurrentNumberScheduled)
+// Helper for deleting mayastor CRDs
+func deleteCRD(crdName string) {
+	cmd := exec.Command("kubectl", "delete", "crd", crdName)
+	_, err := cmd.CombinedOutput()
+	Expect(err).ToNot(HaveOccurred())
 }
 
 // Teardown mayastor on the cluster under test.
 // We deliberately call out to kubectl, rather than constructing the client-go
 // objects, so that we can verfiy the local deploy yamls are correct.
 func teardownMayastor() {
-	deleteDeployYaml("mayastor-daemonset.yaml")
-	deleteDeployYaml("moac-deployment.yaml")
-	deleteDeployYaml("csi-daemonset.yaml")
-	deleteDeployYaml("nats-deployment.yaml")
+	// The correct sequence for a reusable  cluster is
+	// Delete all pods in the default namespace
+	// Delete all pvcs
+	// Then uninstall mayastor
+	podsDeleted, podCount := common.DeleteAllPods()
+	pvcsDeleted, pvcsFound := common.DeleteAllVolumeResources()
+
+	logf.Log.Info("Cleanup done, Uninstalling mayastor")
+	// Deletes can stall indefinitely, try to mitigate this
+	// by running the deletes in different threads
+	go deleteDeployYaml("csi-daemonset.yaml")
+	time.Sleep(10 * time.Second)
+	go deleteDeployYaml("mayastor-daemonset.yaml")
+	time.Sleep(5 * time.Second)
+	go deleteDeployYaml("moac-deployment.yaml")
+	time.Sleep(5 * time.Second)
+	go deleteDeployYaml("nats-deployment.yaml")
+	time.Sleep(5 * time.Second)
+
+	{
+		iters := 18
+		logf.Log.Info("Waiting for Mayastor pods to be deleted", "timeout seconds", iters*10)
+		numMayastorPods := common.MayastorUndeletedPodCount()
+		for attempts := 0; attempts < iters && numMayastorPods != 0; attempts++ {
+			time.Sleep(10 * time.Second)
+			numMayastorPods = common.MayastorUndeletedPodCount()
+			logf.Log.Info("", "numMayastorPods", numMayastorPods)
+		}
+	}
+
+	// The focus is on trying to make the cluster reusable, so we try to delete everything.
+	// TODO: When we start using a cluster for a single test run  move these set of deletes to after all checks.
 	deleteDeployYaml("mayastorpoolcrd.yaml")
 	deleteDeployYaml("moac-rbac.yaml")
 	deleteDeployYaml("storage-class.yaml")
+	deleteCRD("mayastornodes.openebs.io")
+	deleteCRD("mayastorvolumes.openebs.io")
+	// Attempt to forcefully delete pods
+	// TODO replace this function call when a single cluster is used for a single test run, with a check.
+	forceDeleted := common.ForceDeleteMayastorPods()
 	deleteDeployYaml("namespace.yaml")
+	Expect(forceDeleted).To(BeFalse())
 
-	Eventually(mayastorReadyPodCount,
-		"120s", // timeout
-		"1s",   // polling interval
-	).Should(Equal(-1))
+	Expect(podsDeleted).To(BeTrue())
+	Expect(podCount).To(BeZero())
+	Expect(pvcsFound).To(BeFalse())
+	Expect(pvcsDeleted).To(BeTrue())
+	Expect(common.MayastorUndeletedPodCount()).To(Equal(0))
 }
 
 func TestTeardownSuite(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "Basic Teardown Suite")
+	reportDir := os.Getenv("e2e_reports_dir")
+	junitReporter := reporters.NewJUnitReporter(reportDir + "/uninstall-junit.xml")
+	RunSpecsWithDefaultAndCustomReporters(t, "Basic Teardown Suite",
+		[]Reporter{junitReporter})
 }
 
 var _ = Describe("Mayastor setup", func() {
@@ -93,38 +106,8 @@ var _ = Describe("Mayastor setup", func() {
 })
 
 var _ = BeforeSuite(func(done Done) {
-	logf.SetLogger(zap.LoggerTo(GinkgoWriter, true))
-
-	By("bootstrapping test environment")
-	useCluster := true
-	testEnv = &envtest.Environment{
-		UseExistingCluster:       &useCluster,
-		AttachControlPlaneOutput: true,
-	}
-
-	var err error
-	cfg, err = testEnv.Start()
-	Expect(err).ToNot(HaveOccurred())
-	Expect(cfg).ToNot(BeNil())
-
-	k8sManager, err = ctrl.NewManager(cfg, ctrl.Options{
-		Scheme: scheme.Scheme,
-	})
-	Expect(err).ToNot(HaveOccurred())
-
-	go func() {
-		err = k8sManager.Start(ctrl.SetupSignalHandler())
-		Expect(err).ToNot(HaveOccurred())
-	}()
-
-	mgrSyncCtx, mgrSyncCtxCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer mgrSyncCtxCancel()
-	if synced := k8sManager.GetCache().WaitForCacheSync(mgrSyncCtx.Done()); !synced {
-		fmt.Println("Failed to sync")
-	}
-
-	k8sClient = k8sManager.GetClient()
-	Expect(k8sClient).ToNot(BeNil())
+	logf.SetLogger(zap.New(zap.UseDevMode(true), zap.WriteTo(GinkgoWriter)))
+	common.SetupTestEnv()
 
 	close(done)
 }, 60)
@@ -133,6 +116,5 @@ var _ = AfterSuite(func() {
 	// NB This only tears down the local structures for talking to the cluster,
 	// not the kubernetes cluster itself.
 	By("tearing down the test environment")
-	err := testEnv.Stop()
-	Expect(err).ToNot(HaveOccurred())
+	common.TeardownTestEnv()
 })

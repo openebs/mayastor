@@ -17,10 +17,10 @@ limitations under the License.
 package testsuites
 
 import (
+	"e2e-basic/csi/driver"
 	"github.com/onsi/ginkgo"
 	v1 "k8s.io/api/core/v1"
 	clientset "k8s.io/client-go/kubernetes"
-	"mayastor-csi-e2e/driver"
 )
 
 // DynamicallyProvisionedDeletePodTest will provision required StorageClass and Deployment
