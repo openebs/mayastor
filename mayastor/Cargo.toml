@@ -3,10 +3,11 @@ authors = ["Jeffry Molanus <jeffry.molanus@gmail.com>"]
 edition = "2018"
 name = "mayastor"
 version = "0.1.0"
+default-run = "mayastor-client"
 
 [[bin]]
 name = "mayastor"
-path = "src/bin/main.rs"
+path = "src/bin/mayastor.rs"
 
 [[bin]]
 name = "spdk"
@@ -22,7 +23,7 @@ path = "src/bin/uring-support.rs"
 
 [[bin]]
 name = "mayastor-client"
-path = "src/bin/cli/cli.rs"
+path = "src/bin/mayastor-client/main.rs"
 
 [[bin]]
 name = "jsonrpc"

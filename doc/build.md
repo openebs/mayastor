@@ -91,7 +91,7 @@ After that you should be able to start MayaStor:
 
 ```bash
 $ ./target/debug/mayastor
-main.rs:  28:: *NOTICE*: free_pages: 658 nr_pages: 1024
+mayastor.rs:  28:: *NOTICE*: free_pages: 658 nr_pages: 1024
 Starting SPDK v19.07 / DPDK 19.05.0 initialization...
 [ DPDK EAL parameters: MayaStor --no-shconf -c 0x1 --log-level=lib.eal:6 --log-level=lib.cryptodev:5 --log-level=user1:6 --base-virtaddr=0x200000000000 --match-allocations --file-prefix=spdk_pid57086 ]
 app.c: 627:spdk_app_start: *NOTICE*: Total cores available: 1
@@ -108,7 +108,7 @@ nvmf_target.rs: 344:: *NOTICE*: Added tcp nvmf transport 127.0.0.1:4401
 tcp.c: 730:spdk_nvmf_tcp_listen: *NOTICE*: *** NVMe/TCP Target Listening on 127.0.0.1 port 4401 ***
 nvmf_target.rs: 364:: *NOTICE*: nvmf target listens on 127.0.0.1:4401
 nvmf_target.rs: 415:: *NOTICE*: nvmf target 127.0.0.1:4401 accepts new connections
-main.rs:  31:: *NOTICE*: MayaStor started (fcaf10b-modified)...
+mayastor.rs:  31:: *NOTICE*: MayaStor started (fcaf10b-modified)...
 ```
 
 Feel free to change the [DockerFile](../Dockerfile) to your convenience.
