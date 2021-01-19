@@ -1,4 +1,6 @@
+#![allow(clippy::field_reassign_with_default)]
 use super::*;
+use paperclip::actix::Apiv2Schema;
 use serde::{Deserialize, Serialize};
 use std::{cmp::Ordering, fmt::Debug};
 use strum_macros::{EnumString, ToString};
@@ -197,7 +199,15 @@ pub struct GetNodes {}
 
 /// State of the Node
 #[derive(
-    Serialize, Deserialize, Debug, Clone, EnumString, ToString, Eq, PartialEq,
+    Serialize,
+    Deserialize,
+    Debug,
+    Clone,
+    EnumString,
+    ToString,
+    Eq,
+    PartialEq,
+    Apiv2Schema,
 )]
 pub enum NodeState {
     /// Node has unexpectedly disappeared
@@ -217,7 +227,9 @@ impl Default for NodeState {
 }
 
 /// Node information
-#[derive(Serialize, Deserialize, Default, Debug, Clone, Eq, PartialEq)]
+#[derive(
+    Serialize, Deserialize, Default, Debug, Clone, Eq, PartialEq, Apiv2Schema,
+)]
 #[serde(rename_all = "camelCase")]
 pub struct Node {
     /// id of the mayastor instance
@@ -276,8 +288,8 @@ impl Default for Filter {
 macro_rules! bus_impl_string_id {
     ($Name:ident, $Doc:literal) => {
         #[doc = $Doc]
-        #[derive(Serialize, Deserialize, Default, Debug, Clone, Eq, PartialEq, Hash)]
-        pub struct $Name(pub String);
+        #[derive(Serialize, Deserialize, Default, Debug, Clone, Eq, PartialEq, Hash, Apiv2Schema)]
+        pub struct $Name(String);
 
         impl std::fmt::Display for $Name {
             fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -322,8 +334,8 @@ macro_rules! bus_impl_string_id {
     };
 }
 
-bus_impl_string_id!(NodeId, "UUID of a mayastor node");
-bus_impl_string_id!(PoolId, "UUID of a mayastor pool");
+bus_impl_string_id!(NodeId, "ID of a mayastor node");
+bus_impl_string_id!(PoolId, "ID of a mayastor pool");
 bus_impl_string_id!(ReplicaId, "UUID of a mayastor pool replica");
 bus_impl_string_id!(NexusId, "UUID of a mayastor nexus");
 bus_impl_string_id!(ChildUri, "URI of a mayastor nexus child");
@@ -339,7 +351,15 @@ pub struct GetPools {
 
 /// State of the Pool
 #[derive(
-    Serialize, Deserialize, Debug, Clone, EnumString, ToString, Eq, PartialEq,
+    Serialize,
+    Deserialize,
+    Debug,
+    Clone,
+    EnumString,
+    ToString,
+    Eq,
+    PartialEq,
+    Apiv2Schema,
 )]
 pub enum PoolState {
     /// unknown state
@@ -369,7 +389,9 @@ impl From<i32> for PoolState {
 }
 
 /// Pool information
-#[derive(Serialize, Deserialize, Default, Debug, Clone, Eq, PartialEq)]
+#[derive(
+    Serialize, Deserialize, Default, Debug, Clone, Eq, PartialEq, Apiv2Schema,
+)]
 #[serde(rename_all = "camelCase")]
 pub struct Pool {
     /// id of the mayastor instance
@@ -454,7 +476,9 @@ pub struct GetReplicas {
 }
 
 /// Replica information
-#[derive(Serialize, Deserialize, Default, Debug, Clone, Eq, PartialEq)]
+#[derive(
+    Serialize, Deserialize, Default, Debug, Clone, Eq, PartialEq, Apiv2Schema,
+)]
 #[serde(rename_all = "camelCase")]
 pub struct Replica {
     /// id of the mayastor instance
@@ -538,7 +562,15 @@ bus_impl_message_all!(UnshareReplica, UnshareReplica, (), Pool);
 
 /// Indicates what protocol the bdev is shared as
 #[derive(
-    Serialize, Deserialize, Debug, Clone, EnumString, ToString, Eq, PartialEq,
+    Serialize,
+    Deserialize,
+    Debug,
+    Clone,
+    EnumString,
+    ToString,
+    Eq,
+    PartialEq,
+    Apiv2Schema,
 )]
 #[strum(serialize_all = "camelCase")]
 #[serde(rename_all = "camelCase")]
@@ -571,7 +603,15 @@ impl From<i32> for Protocol {
 
 /// State of the Replica
 #[derive(
-    Serialize, Deserialize, Debug, Clone, EnumString, ToString, Eq, PartialEq,
+    Serialize,
+    Deserialize,
+    Debug,
+    Clone,
+    EnumString,
+    ToString,
+    Eq,
+    PartialEq,
+    Apiv2Schema,
 )]
 #[strum(serialize_all = "camelCase")]
 #[serde(rename_all = "camelCase")]
@@ -612,7 +652,9 @@ pub struct GetNexuses {
 }
 
 /// Nexus information
-#[derive(Serialize, Deserialize, Default, Debug, Clone, Eq, PartialEq)]
+#[derive(
+    Serialize, Deserialize, Default, Debug, Clone, Eq, PartialEq, Apiv2Schema,
+)]
 #[serde(rename_all = "camelCase")]
 pub struct Nexus {
     /// id of the mayastor instance
@@ -633,7 +675,9 @@ pub struct Nexus {
 }
 
 /// Child information
-#[derive(Serialize, Deserialize, Default, Debug, Clone, Eq, PartialEq)]
+#[derive(
+    Serialize, Deserialize, Default, Debug, Clone, Eq, PartialEq, Apiv2Schema,
+)]
 #[serde(rename_all = "camelCase")]
 pub struct Child {
     /// uri of the child device
@@ -645,7 +689,7 @@ pub struct Child {
 }
 
 /// Child State information
-#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq)]
+#[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq, Apiv2Schema)]
 pub enum ChildState {
     /// Default Unknown state
     Unknown = 0,
@@ -674,7 +718,15 @@ impl From<i32> for ChildState {
 
 /// Nexus State information
 #[derive(
-    Serialize, Deserialize, Debug, Clone, EnumString, ToString, Eq, PartialEq,
+    Serialize,
+    Deserialize,
+    Debug,
+    Clone,
+    EnumString,
+    ToString,
+    Eq,
+    PartialEq,
+    Apiv2Schema,
 )]
 pub enum NexusState {
     /// Default Unknown state
@@ -791,7 +843,9 @@ bus_impl_message_all!(AddNexusChild, AddNexusChild, Child, Nexus);
 /// Volumes
 ///
 /// Volume information
-#[derive(Serialize, Deserialize, Default, Debug, Clone, Eq, PartialEq)]
+#[derive(
+    Serialize, Deserialize, Default, Debug, Clone, Eq, PartialEq, Apiv2Schema,
+)]
 #[serde(rename_all = "camelCase")]
 pub struct Volume {
     /// name of the volume

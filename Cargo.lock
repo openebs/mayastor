@@ -39,7 +39,7 @@ dependencies = [
  "derive_more",
  "either",
  "futures-util",
- "http 0.2.2",
+ "http 0.2.3",
  "log",
  "rustls",
  "tokio-rustls",
@@ -76,7 +76,7 @@ dependencies = [
  "futures-util",
  "fxhash",
  "h2",
- "http 0.2.2",
+ "http 0.2.3",
  "httparse",
  "indexmap",
  "itoa",
@@ -122,7 +122,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "bbd1f7dbda1645bf7da33554db60891755f6c01c1b2169e2f4c492098d30c235"
 dependencies = [
  "bytestring",
- "http 0.2.2",
+ "http 0.2.3",
  "log",
  "regex",
  "serde",
@@ -750,7 +750,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "hex",
- "http 0.2.2",
+ "http 0.2.3",
  "hyper",
  "hyper-rustls",
  "hyper-unix-connector",
@@ -841,6 +841,12 @@ name = "bytes"
 version = "0.5.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "0e4cec68f03f32e44924783795810fa50a7035d8c8ebe78580ad7e6c703fba38"
+
+[[package]]
+name = "bytes"
+version = "1.0.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b700ce4376041dcd0a327fd0097c41095743c4c8af8887265942faf1100bd040"
 
 [[package]]
 name = "bytesize"
@@ -1954,7 +1960,7 @@ dependencies = [
  "futures-core",
  "futures-sink",
  "futures-util",
- "http 0.2.2",
+ "http 0.2.3",
  "indexmap",
  "slab",
  "tokio",
@@ -2017,11 +2023,11 @@ dependencies = [
 
 [[package]]
 name = "http"
-version = "0.2.2"
+version = "0.2.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "84129d298a6d57d246960ff8eb831ca4af3f96d29e2e28848dae275408658e26"
+checksum = "7245cd7449cc792608c3c8a9eaf69bd4eabbabf802713748fd739c98b82f0747"
 dependencies = [
- "bytes 0.5.6",
+ "bytes 1.0.1",
  "fnv",
  "itoa",
 ]
@@ -2033,7 +2039,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d4908999be8b408e507d4148f3374a6f9e34e941f2d8c3928b1d565f1453291d"
 dependencies = [
  "bytes 0.5.6",
- "http 0.2.2",
+ "http 0.2.3",
 ]
 
 [[package]]
@@ -2043,7 +2049,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "13d5ff830006f7646652e057693569bfe0d51760c0085a071769d142a205111b"
 dependencies = [
  "bytes 0.5.6",
- "http 0.2.2",
+ "http 0.2.3",
 ]
 
 [[package]]
@@ -2084,7 +2090,7 @@ dependencies = [
  "futures-core",
  "futures-util",
  "h2",
- "http 0.2.2",
+ "http 0.2.3",
  "http-body 0.3.1",
  "httparse",
  "httpdate",
@@ -2312,7 +2318,7 @@ dependencies = [
  "base64 0.12.3",
  "bytes 0.5.6",
  "chrono",
- "http 0.2.2",
+ "http 0.2.3",
  "percent-encoding 2.1.0",
  "serde",
  "serde-value",
@@ -2344,7 +2350,7 @@ dependencies = [
  "either",
  "futures",
  "futures-util",
- "http 0.2.2",
+ "http 0.2.3",
  "jsonpath_lib",
  "k8s-openapi",
  "log",
@@ -2449,6 +2455,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "dd96ffd135b2fd7b973ac026d28085defbe8983df057ced3eb4f2130b0831312"
 dependencies = [
  "scopeguard",
+ "serde",
 ]
 
 [[package]]
@@ -2603,6 +2610,7 @@ dependencies = [
  "log",
  "nats",
  "once_cell",
+ "paperclip",
  "rpc",
  "serde",
  "serde_json",
@@ -3046,6 +3054,81 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9fe9037165d7023b1228bc4ae9a2fa1a2b0095eca6c2998c624723dfd01314a5"
 dependencies = [
  "num-traits 0.2.14",
+]
+
+[[package]]
+name = "paperclip"
+version = "0.5.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7cc445ec12c9ce0ba673cfda392c4aaea27bc5e26fa3e7bd2689386208f00f7b"
+dependencies = [
+ "anyhow",
+ "itertools 0.9.0",
+ "once_cell",
+ "paperclip-actix",
+ "paperclip-core",
+ "paperclip-macros",
+ "parking_lot",
+ "semver",
+ "serde",
+ "serde_derive",
+ "serde_json",
+ "serde_yaml",
+ "thiserror",
+ "url",
+]
+
+[[package]]
+name = "paperclip-actix"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f3d2788500bb13c5b0d453e2225e38ed7369f630a14adade8840fee12ee41e5"
+dependencies = [
+ "actix-service",
+ "actix-web",
+ "futures",
+ "once_cell",
+ "paperclip-core",
+ "paperclip-macros",
+ "parking_lot",
+ "serde_json",
+]
+
+[[package]]
+name = "paperclip-core"
+version = "0.3.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b82c73e73209604585f3c8e3eb3c1f386ddc521d5311047d2de25a88a91f3613"
+dependencies = [
+ "actix-web",
+ "mime",
+ "once_cell",
+ "paperclip-macros",
+ "parking_lot",
+ "pin-project 1.0.2",
+ "regex",
+ "serde",
+ "serde_json",
+ "serde_yaml",
+ "thiserror",
+]
+
+[[package]]
+name = "paperclip-macros"
+version = "0.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c526435a3b0cbc5145d3aa6d66fd32adf987b9f588ace873c01ed2bc6e23f451"
+dependencies = [
+ "heck",
+ "http 0.2.3",
+ "lazy_static",
+ "mime",
+ "proc-macro-error",
+ "proc-macro2 1.0.24",
+ "quote 1.0.8",
+ "strum",
+ "strum_macros",
+ "syn 1.0.51",
 ]
 
 [[package]]
@@ -3587,7 +3670,7 @@ dependencies = [
  "encoding_rs",
  "futures-core",
  "futures-util",
- "http 0.2.2",
+ "http 0.2.3",
  "http-body 0.3.1",
  "hyper",
  "hyper-tls",
@@ -3634,9 +3717,12 @@ dependencies = [
  "async-trait",
  "composer",
  "futures",
+ "http 0.2.3",
+ "mayastor-macros",
  "mbus_api",
  "opentelemetry",
  "opentelemetry-jaeger",
+ "paperclip",
  "rpc",
  "rustls",
  "serde",
@@ -3645,6 +3731,7 @@ dependencies = [
  "structopt",
  "strum",
  "strum_macros",
+ "tinytemplate",
  "tokio",
  "tracing",
  "tracing-futures",
@@ -3963,7 +4050,7 @@ dependencies = [
  "composer",
  "dyn-clonable",
  "futures",
- "http 0.2.2",
+ "http 0.2.3",
  "humantime 2.0.1",
  "lazy_static",
  "mbus_api",
@@ -4503,6 +4590,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "tinytemplate"
+version = "1.2.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a2ada8616fad06a2d0c455adc530de4ef57605a8120cc65da9653e0e9623ca74"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "tinyvec"
 version = "1.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4614,7 +4711,7 @@ dependencies = [
  "bytes 0.5.6",
  "futures-core",
  "futures-util",
- "http 0.2.2",
+ "http 0.2.3",
  "http-body 0.3.1",
  "hyper",
  "percent-encoding 1.0.1",

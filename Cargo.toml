@@ -1,6 +1,7 @@
 [patch.crates-io]
 h2 = { git = "https://github.com/gila/h2", branch = "v0.2.7"}
 partition-identity = { git = "https://github.com/openebs/partition-identity.git" }
+#paperclip = { git = "https://github.com/tiagolobocastro/paperclip.git", branch = "tuple_struct_doc", features = ["actix3-nightly"] }
 
 [profile.dev]
 panic = "abort"
