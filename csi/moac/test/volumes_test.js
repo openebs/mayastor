@@ -22,6 +22,7 @@ const enums = require('./grpc_enums');
 const sleep = require('sleep-promise');
 
 const UUID = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cbb';
+const UUID2 = 'aa5e39e9-0c0e-4973-8a3a-0dccada09cbc';
 const EYE_BLINK_MS = 30;
 
 module.exports = function () {
@@ -378,6 +379,142 @@ module.exports = function () {
       expect(Object.keys(volume.replicas)).to.have.lengthOf(1);
       expect(volume.nexus).to.equal(nexus);
       expect(volEvents).to.have.lengthOf(6);
+    });
+
+    it('should distribute nexuses evenly over available nodes', async () => {
+      const replica1 = new Replica({
+        uuid: UUID,
+        size: 95,
+        share: 'REPLICA_NONE',
+        uri: `bdev:///${UUID}`
+      });
+      const replica2 = new Replica({
+        uuid: UUID,
+        size: 95,
+        share: 'REPLICA_NONE',
+        uri: `bdev:///${UUID}`
+      });
+      const replica3 = new Replica({
+        uuid: UUID,
+        size: 95,
+        share: 'REPLICA_NONE',
+        uri: `bdev:///${UUID}`
+      });
+      const replica4 = new Replica({
+        uuid: UUID2,
+        size: 95,
+        share: 'REPLICA_NONE',
+        uri: `bdev:///${UUID2}`
+      });
+      const replica5 = new Replica({
+        uuid: UUID2,
+        size: 95,
+        share: 'REPLICA_NONE',
+        uri: `bdev:///${UUID2}`
+      });
+      const replica6 = new Replica({
+        uuid: UUID2,
+        size: 95,
+        share: 'REPLICA_NONE',
+        uri: `bdev:///${UUID2}`
+      });
+      replica1.pool = pool1;
+      replica2.pool = pool2;
+      replica3.pool = pool3;
+      replica4.pool = pool1;
+      replica5.pool = pool2;
+      replica6.pool = pool3;
+
+      // Fake the volume
+      volume = new Volume(UUID, registry, () => {}, {
+        replicaCount: 3,
+        preferredNodes: [],
+        requiredNodes: [],
+        requiredBytes: 90,
+        limitBytes: 110,
+        protocol: 'nvmf'
+      });
+      volume.newReplica(replica1);
+      volume.newReplica(replica2);
+      volume.newReplica(replica3);
+
+      const volume2 = new Volume(UUID2, registry, () => {}, {
+        replicaCount: 3,
+        preferredNodes: [],
+        requiredNodes: [],
+        requiredBytes: 90,
+        limitBytes: 110,
+        protocol: 'nvmf'
+      });
+      volume2.newReplica(replica4);
+      volume2.newReplica(replica5);
+      volume2.newReplica(replica6);
+      volumes.volumes[UUID] = volume;
+      volumes.volumes[UUID2] = volume2;
+      volume.state = 'healthy';
+      volume2.state = 'healthy';
+
+      volumes.start();
+
+      // set share pcols for replicas of the first volume
+      stub2.onCall(0).resolves({ uri: `nvmf://${UUID}` });
+      stub3.onCall(0).resolves({ uri: `nvmf://${UUID}` });
+      // create first nexus reply
+      stub1.onCall(0).resolves({
+        uuid: UUID,
+        deviceUri: '',
+        size: 95,
+        state: 'NEXUS_ONLINE',
+        children: [{
+          uri: `bdev:///${UUID}`,
+          state: 'CHILD_ONLINE'
+        }, {
+          uri: `nvmf://${UUID}`,
+          state: 'CHILD_ONLINE'
+        }, {
+          uri: `nvmf://${UUID}`,
+          state: 'CHILD_ONLINE'
+        }]
+      });
+      // nexus publish reply
+      stub1.onCall(1).resolves({
+        deviceUri: `nvmf://${UUID}`
+      });
+
+      // publish the first volume
+      let uri = await volume.publish('nvmf');
+      expect(uri).to.equal(`nvmf://${UUID}`);
+      expect(volume.publishedOn).to.equal('node1');
+
+      // set share pcols for replicas of the first volume
+      stub1.onCall(2).resolves({ uri: `nvmf://${UUID2}` });
+      stub3.onCall(1).resolves({ uri: `nvmf://${UUID2}` });
+      // create second nexus reply
+      stub2.onCall(1).resolves({
+        uuid: UUID2,
+        deviceUri: '',
+        size: 95,
+        state: 'NEXUS_ONLINE',
+        children: [{
+          uri: `bdev:///${UUID2}`,
+          state: 'CHILD_ONLINE'
+        }, {
+          uri: `nvmf://${UUID2}`,
+          state: 'CHILD_ONLINE'
+        }, {
+          uri: `nvmf://${UUID2}`,
+          state: 'CHILD_ONLINE'
+        }]
+      });
+      // nexus publish reply
+      stub2.onCall(2).resolves({
+        deviceUri: `nvmf://${UUID2}`
+      });
+
+      // publish the second volume - should be on a different node
+      uri = await volume2.publish('nvmf');
+      expect(uri).to.equal(`nvmf://${UUID2}`);
+      expect(volume2.publishedOn).to.equal('node2');
     });
   });
 
