@@ -117,7 +117,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
         sync_config(pool_grpc::share_replica(args)).await
     }
 
-    #[instrument(level = "debug", err)]
+    #[instrument(level = "info", err)]
     async fn create_nexus(
         &self,
         request: Request<CreateNexusRequest>,
@@ -128,8 +128,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
             let name = uuid_to_name(&args.uuid)?;
             locally! { async move {
                 nexus_create(&name, args.size, Some(&args.uuid), &args.children).await
-            }}
-            ;
+            }};
             let nexus = nexus_lookup(&uuid)?;
             info!("Created nexus {}", uuid);
             Ok(Response::new(nexus.to_grpc()))
