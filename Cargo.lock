@@ -2611,6 +2611,7 @@ dependencies = [
  "nats",
  "once_cell",
  "paperclip",
+ "percent-encoding 2.1.0",
  "rpc",
  "serde",
  "serde_json",

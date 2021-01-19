@@ -42,10 +42,13 @@ async fn client() {
     let mayastor = "node-test-name";
     let test = Builder::new()
         .name("rest")
-        .add_container_spec(ContainerSpec::from_binary(
-            "nats",
-            Binary::from_nix("nats-server").with_arg("-DV"),
-        ))
+        .add_container_spec(
+            ContainerSpec::from_binary(
+                "nats",
+                Binary::from_nix("nats-server").with_arg("-DV"),
+            )
+            .with_portmap("4222", "4222"),
+        )
         .add_container_bin("node", Binary::from_dbg("node").with_nats("-n"))
         .add_container_bin("pool", Binary::from_dbg("pool").with_nats("-n"))
         .add_container_bin("volume", Binary::from_dbg("volume").with_nats("-n"))

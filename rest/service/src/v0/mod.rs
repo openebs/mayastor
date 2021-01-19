@@ -7,6 +7,7 @@ pub mod nexuses;
 pub mod nodes;
 pub mod pools;
 pub mod replicas;
+pub mod swagger_ui;
 pub mod volumes;
 
 use mbus_api::{

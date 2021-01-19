@@ -1,6 +1,7 @@
 #![allow(clippy::field_reassign_with_default)]
 use super::*;
 use paperclip::actix::Apiv2Schema;
+use percent_encoding::percent_decode_str;
 use serde::{Deserialize, Serialize};
 use std::{cmp::Ordering, fmt::Debug};
 use strum_macros::{EnumString, ToString};
@@ -285,7 +286,7 @@ impl Default for Filter {
     }
 }
 
-macro_rules! bus_impl_string_id {
+macro_rules! bus_impl_string_id_inner {
     ($Name:ident, $Doc:literal) => {
         #[doc = $Doc]
         #[derive(Serialize, Deserialize, Default, Debug, Clone, Eq, PartialEq, Hash, Apiv2Schema)]
@@ -299,10 +300,6 @@ macro_rules! bus_impl_string_id {
 
         impl $Name {
             /// Build Self from a string trait id
-            pub fn from<T: Into<String>>(id: T) -> Self {
-                $Name(id.into())
-            }
-            /// Build Self from a string trait id
             pub fn as_str<'a>(&'a self) -> &'a str {
                 self.0.as_str()
             }
@@ -313,7 +310,6 @@ macro_rules! bus_impl_string_id {
                 $Name::from(id)
             }
         }
-
         impl From<String> for $Name {
             fn from(id: String) -> Self {
                 $Name::from(id.as_str())
@@ -334,11 +330,40 @@ macro_rules! bus_impl_string_id {
     };
 }
 
+macro_rules! bus_impl_string_id {
+    ($Name:ident, $Doc:literal) => {
+        bus_impl_string_id_inner!($Name, $Doc);
+        impl $Name {
+            /// Build Self from a string trait id
+            pub fn from<T: Into<String>>(id: T) -> Self {
+                $Name(id.into())
+            }
+        }
+    };
+}
+
+macro_rules! bus_impl_string_id_percent_decoding {
+    ($Name:ident, $Doc:literal) => {
+        bus_impl_string_id_inner!($Name, $Doc);
+        impl $Name {
+            /// Build Self from a string trait id
+            pub fn from<T: Into<String>>(id: T) -> Self {
+                let src: String = id.into();
+                let decoded_src = percent_decode_str(src.clone().as_str())
+                    .decode_utf8()
+                    .unwrap_or(src.into())
+                    .to_string();
+                $Name(decoded_src)
+            }
+        }
+    };
+}
+
 bus_impl_string_id!(NodeId, "ID of a mayastor node");
 bus_impl_string_id!(PoolId, "ID of a mayastor pool");
 bus_impl_string_id!(ReplicaId, "UUID of a mayastor pool replica");
 bus_impl_string_id!(NexusId, "UUID of a mayastor nexus");
-bus_impl_string_id!(ChildUri, "URI of a mayastor nexus child");
+bus_impl_string_id_percent_decoding!(ChildUri, "URI of a mayastor nexus child");
 bus_impl_string_id!(VolumeId, "UUID of a mayastor volume");
 
 /// Pool Service

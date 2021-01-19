@@ -607,6 +607,9 @@ pub struct RestError {
     message: String,
 }
 
+#[cfg(not(feature = "nightly"))]
+impl paperclip::v2::schema::Apiv2Errors for RestError {}
+
 impl RestError {
     // todo: response type convention
     fn get_resp_error(&self) -> HttpResponse {
