@@ -388,11 +388,7 @@ func RunFio(podName string, duration int) {
 }
 
 func FioReadyPod() bool {
-	var fioPod corev1.Pod
-	if gTestEnv.K8sClient.Get(context.TODO(), types.NamespacedName{Name: "fio", Namespace: "default"}, &fioPod) != nil {
-		return false
-	}
-	return fioPod.Status.Phase == v1.PodRunning
+	return IsPodRunning("fio")
 }
 
 func IsPodRunning(podName string) bool {
