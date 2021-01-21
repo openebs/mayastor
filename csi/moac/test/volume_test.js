@@ -166,7 +166,7 @@ module.exports = function () {
     await volume.unpublish();
     expect(volume.getNodeName()).to.be.undefined();
     sinon.assert.calledOnce(stub);
-    sinon.assert.calledWithMatch(stub, 'destroyNexus', {
+    sinon.assert.calledWithMatch(stub, 'unpublishNexus', {
       uuid: UUID
     });
   });
@@ -184,10 +184,7 @@ module.exports = function () {
 
     await volume.unpublish();
     expect(volume.getNodeName()).to.be.undefined();
-    sinon.assert.calledOnce(stub);
-    sinon.assert.calledWithMatch(stub, 'destroyNexus', {
-      uuid: UUID
-    });
+    sinon.assert.notCalled(stub);
   });
 
   it('should unpublish volume without nexus', async () => {

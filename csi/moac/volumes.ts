@@ -127,12 +127,6 @@ export class Volumes extends EventEmitter {
         eventType: 'new',
         object: volume
       });
-      // check for components that already exist and assign them to the volume
-      this.registry.getReplicaSet(uuid).forEach((r: Replica) => volume.newReplica(r));
-      const nexus: Nexus = this.registry.getNexus(uuid);
-      if (nexus) {
-        volume.newNexus(nexus);
-      }
 
       try {
         await volume.create();
@@ -199,16 +193,9 @@ export class Volumes extends EventEmitter {
           object: volume
         });
       }, spec, status.state, status.size, publishedOn);
+      volume.attach();
+      volume.state = VolumeState.Unknown;
       this.volumes[uuid] = volume;
-
-      // attach any associated replicas to the volume
-      this.registry.getReplicaSet(uuid).forEach((r: Replica) => volume.newReplica(r));
-
-      const nexus = this.registry.getNexus(uuid);
-      if (nexus) {
-        volume.newNexus(nexus);
-      }
-      volume._setState(VolumeState.Unknown);
       volume.fsa();
     }
     return volume;
