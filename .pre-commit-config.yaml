@@ -30,11 +30,16 @@ repos:
         pass_filenames: true
         types: [file, javascript]
         language: system
-    -   id: commit-lint
-        name: Commit Lint
-        description: Runs commitlint against the commit message.
+    -   id: conventional
+        name: Conventional Commits
+        description: Ensures commits are conventional.
         language: system
-        entry: bash -c "npm install @commitlint/config-conventional @commitlint/cli; cat $1 | npx commitlint"
-        args: [$1]
-        stages: [commit-msg]
+        pass_filenames: false
+        entry: nix-shell default.nix -A convco --run "convco check || true"
+    -   id: changelog
+        name: Updated Changelog
+        description: Updates the changelog (to include up to before this commit -- including this commit is not possible).
+        language: system
+        pass_filenames: false
+        entry: nix-shell default.nix -A convco --run 'convco changelog > CHANGELOG.md'
 
