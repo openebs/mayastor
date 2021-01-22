@@ -117,7 +117,8 @@ impl NvmfTarget {
 impl Drop for NvmfTarget {
     fn drop(&mut self) {
         // Ensure we end with no connected disk
-        let _ = disconnect(SERVED_DISK_NQN);
+        disconnect(SERVED_DISK_NQN)
+            .expect("Should disconnect from the target device");
 
         // Kill the spdk nvmf target
         self.spdk_proc.kill().expect("Failed to kill SPDK process");
@@ -156,7 +157,7 @@ fn connect_test() {
 
 #[test]
 fn disconnect_test() {
-    let _ = disconnect("mynqn");
+    disconnect("mynqn").expect("Should disconnect from the target device");
 }
 
 #[test]

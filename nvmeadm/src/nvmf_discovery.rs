@@ -529,5 +529,5 @@ pub fn disconnect(nqn: &str) -> Result<usize, NvmeError> {
             Ok(e)
         })
         .collect();
-    Ok(subsys.unwrap().len())
+    Ok(subsys?.len())
 }
