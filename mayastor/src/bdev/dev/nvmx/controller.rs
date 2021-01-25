@@ -11,7 +11,6 @@ use spdk_sys::{
     spdk_io_channel_iter,
     spdk_io_channel_iter_get_channel,
     spdk_io_channel_iter_get_ctx,
-    spdk_io_channel_iter_get_io_device,
     spdk_io_device_register,
     spdk_io_device_unregister,
     spdk_nvme_ctrlr,
@@ -23,13 +22,19 @@ use spdk_sys::{
 
 use crate::{
     bdev::dev::nvmx::{
-        channel::{NvmeControllerIoChannel, NvmeIoChannel},
+        channel::{NvmeControllerIoChannel, NvmeIoChannel, NvmeIoChannelInner},
         nvme_bdev_running_config,
         uri::NvmeControllerContext,
         NvmeNamespace,
         NVME_CONTROLLERS,
     },
-    core::{mempool::MemoryPool, poller, CoreError, IoCompletionCallback},
+    core::{
+        mempool::MemoryPool,
+        poller,
+        CoreError,
+        IoCompletionCallback,
+        IoCompletionCallbackArg,
+    },
 };
 
 const RESET_CTX_POOL_SIZE: u64 = 1024 - 1;
@@ -40,13 +45,22 @@ static RESET_CTX_POOL: OnceCell<MemoryPool<ResetCtx>> = OnceCell::new();
 struct ResetCtx {
     name: String,
     cb: IoCompletionCallback,
-    cb_arg: *const c_void,
+    cb_arg: IoCompletionCallbackArg,
     spdk_handle: *mut spdk_nvme_ctrlr,
+    io_device: Arc<IoDevice>,
+}
+
+struct ShutdownCtx {
+    name: String,
+    cb: IoCompletionCallback,
+    cb_arg: IoCompletionCallbackArg,
 }
 
 impl<'a> NvmeControllerInner<'a> {
-    fn new(ctrlr: NonNull<spdk_nvme_ctrlr>) -> Self {
+    fn new(ctrlr: NonNull<spdk_nvme_ctrlr>, name: String) -> Self {
         let ctx = ctrlr.as_ptr().cast();
+
+        let io_device = Arc::new(IoDevice::create(ctx, name));
 
         let adminq_poller = poller::Builder::new()
             .with_name("nvme_poll_adminq")
@@ -60,16 +74,17 @@ impl<'a> NvmeControllerInner<'a> {
             ctrlr,
             adminq_poller,
             namespaces: Vec::new(),
+            io_device,
         }
     }
 }
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, Copy, Clone)]
 pub enum NvmeControllerState {
     Initializing,
     Running,
-    Resetting,
-    Destroying,
+    Unconfiguring,
+    Unconfigured,
 }
 
 impl ToString for NvmeControllerState {
@@ -77,8 +92,8 @@ impl ToString for NvmeControllerState {
         match *self {
             NvmeControllerState::Initializing => "Initializing",
             NvmeControllerState::Running => "Running",
-            NvmeControllerState::Resetting => "Resetting",
-            NvmeControllerState::Destroying => "Destroying",
+            NvmeControllerState::Unconfiguring => "Unconfiguring",
+            NvmeControllerState::Unconfigured => "Unconfigured",
         }
         .parse()
         .unwrap()
@@ -90,6 +105,7 @@ pub struct NvmeControllerInner<'a> {
     namespaces: Vec<Arc<NvmeNamespace>>,
     ctrlr: NonNull<spdk_nvme_ctrlr>,
     adminq_poller: poller::Poller<'a>,
+    io_device: Arc<IoDevice>,
 }
 /*
  * NVME controller implementation.
@@ -101,6 +117,7 @@ pub struct NvmeController<'a> {
     prchk_flags: u32,
     pub(crate) state: NvmeControllerState,
     inner: Option<NvmeControllerInner<'a>>,
+    reset_active: bool,
 }
 
 unsafe impl<'a> Send for NvmeController<'a> {}
@@ -115,9 +132,10 @@ impl<'a> NvmeController<'a> {
             prchk_flags,
             state: NvmeControllerState::Initializing,
             inner: None,
+            reset_active: false,
         };
 
-        debug!("{}: new NVMe controller created", l.get_name());
+        debug!("{}: new NVMe controller created", l.name);
         Some(l)
     }
 
@@ -149,6 +167,7 @@ impl<'a> NvmeController<'a> {
             "{} Transitioned from state {:?} to {:?}",
             self.name, self.state, new_state
         );
+        self.state = new_state;
     }
 
     // As of now, only 1 namespace per controller is supported.
@@ -164,25 +183,6 @@ impl<'a> NvmeController<'a> {
             debug!("no namespaces associated with the current controller");
             None
         }
-    }
-
-    /// register the controller as an io device
-    fn register_io_device(&self) {
-        unsafe {
-            spdk_io_device_register(
-                self.id() as *mut c_void,
-                Some(NvmeControllerIoChannel::create),
-                Some(NvmeControllerIoChannel::destroy),
-                std::mem::size_of::<NvmeIoChannel>() as u32,
-                self.get_name().as_ptr() as *const i8,
-            )
-        }
-
-        debug!(
-            "{}: I/O device registered at 0x{:X}",
-            self.get_name(),
-            self.id()
-        );
     }
 
     /// we should try to avoid this
@@ -201,7 +201,7 @@ impl<'a> NvmeController<'a> {
         if ns.is_null() {
             warn!(
                 "{} no namespaces reported by the NVMe controller",
-                self.get_name()
+                self.name
             );
         }
 
@@ -209,25 +209,31 @@ impl<'a> NvmeController<'a> {
             vec![Arc::new(NvmeNamespace::from_ptr(ns))]
     }
 
+    /// Get controller state.
+    pub fn get_state(&self) -> NvmeControllerState {
+        self.state
+    }
+
+    /// Reset the controller.
+    /// Upon reset all pending I/O operations are cancelled and all I/O handles
+    /// are reinitialized.
     pub fn reset(
         &mut self,
         cb: IoCompletionCallback,
-        cb_arg: *const c_void,
+        cb_arg: IoCompletionCallbackArg,
         failover: bool,
     ) -> Result<(), CoreError> {
-        info!(
-            "{} initiating controller reset, failover = {}",
-            self.name, failover
-        );
-
-        // Reset can be initiated only via a mutable reference, so we know for
-        // sure that the caller is owning the controller exclusively, so
-        // we can freely modify controller's state without extra
-        // locking.
         match self.state {
-            NvmeControllerState::Initializing
-            | NvmeControllerState::Destroying
-            | NvmeControllerState::Resetting => {
+            NvmeControllerState::Running => {
+                // Make sure no reset is happening.
+                if self.reset_active {
+                    error!("{} reset already in progress", self.name);
+                    return Err(CoreError::ResetDispatch {
+                        source: Errno::EBUSY,
+                    });
+                }
+            }
+            _ => {
                 error!(
                     "{} Controller is in '{:?}' state, reset not possible",
                     self.name, self.state
@@ -236,8 +242,12 @@ impl<'a> NvmeController<'a> {
                     source: Errno::EBUSY,
                 });
             }
-            _ => {}
         }
+
+        info!(
+            "{} initiating controller reset, failover = {}",
+            self.name, failover
+        );
 
         if failover {
             warn!(
@@ -246,145 +256,210 @@ impl<'a> NvmeController<'a> {
             );
         }
 
-        let reset_ctx = RESET_CTX_POOL
-            .get()
-            .unwrap()
-            .get(ResetCtx {
-                name: self.name.clone(),
-                cb,
-                cb_arg,
-                spdk_handle: self.ctrlr_as_ptr(),
-            })
-            .ok_or(CoreError::ResetDispatch {
-                source: Errno::ENOMEM,
-            })?;
+        let io_device = Arc::clone(&self.inner.as_ref().unwrap().io_device);
+        let reset_ctx = ResetCtx {
+            name: self.name.clone(),
+            cb,
+            cb_arg,
+            spdk_handle: self.ctrlr_as_ptr(),
+            io_device,
+        };
 
         // Mark controller as being under reset and schedule asynchronous reset.
-        self.set_state(NvmeControllerState::Resetting);
+        self.reset_active = true;
 
-        unsafe {
-            spdk_for_each_channel(
-                self.id as *mut c_void,
-                Some(NvmeController::reset_destroy_channels),
-                reset_ctx as *mut c_void,
-                Some(NvmeController::reset_destroy_channels_done),
-            );
-        }
+        // Iterate over all I/O channels and rrest/econfigure them one by one.
+        self.inner.as_ref().unwrap().io_device.traverse_io_channels(
+            NvmeController::_reset_destroy_channels,
+            NvmeController::_reset_destroy_channels_done,
+            reset_ctx,
+        );
         Ok(())
     }
 
-    fn complete_reset(reset_ctx: &ResetCtx, status: i32) {
-        // Set controller state to Running and invoke completion callback.
-        let c = NVME_CONTROLLERS
-            .lookup_by_name(&reset_ctx.name)
-            .expect("Controller was removed while reset is in progress");
-        let mut controller = c.lock().expect("lock poisoned");
+    fn _shutdown_channels(
+        channel: &mut NvmeIoChannelInner,
+        ctx: &mut ShutdownCtx,
+    ) -> i32 {
+        let rc = channel.shutdown();
 
-        controller.set_state(NvmeControllerState::Running);
-        // Unlock the controller before calling the callback to avoid potential
-        // deadlocks.
+        if rc == 0 {
+            debug!("{} I/O channel successfully shutdown", ctx.name);
+        } else {
+            error!("{} failed to reset I/O channel, reset aborted", ctx.name);
+        }
+        rc
+    }
+
+    fn _shutdown_channels_done(result: i32, ctx: ShutdownCtx) {
+        info!("{} all I/O channels shutted down", ctx.name);
+
+        let controller = NVME_CONTROLLERS
+            .lookup_by_name(&ctx.name)
+            .expect("Controller disappeared while being shutdown");
+        let mut controller = controller.lock().expect("lock poisoned");
+
+        // Finalize controller shutdown and invoke callback.
+        controller.clear_namespaces();
+        controller.set_state(NvmeControllerState::Unconfigured);
+
         drop(controller);
+        info!("{} shutdown complete, result = {}", ctx.name, result);
+        (ctx.cb)(result == 0, ctx.cb_arg);
+    }
+
+    fn clear_namespaces(&mut self) {
+        let inner = self
+            .inner
+            .as_mut()
+            .expect("(BUG) no inner NVMe controller defined yet");
+        inner.namespaces.clear();
+        debug!("{} all namespaces removed", self.name);
+    }
+
+    /// Shutdown the controller and all its resources.
+    /// This function deallocates all controller's resources (I/O queues, I/O
+    /// channels and pollers), aborts all active I/O operations and
+    /// unregisters the I/O device associated with the controller.
+    pub fn shutdown(
+        &mut self,
+        cb: IoCompletionCallback,
+        cb_arg: IoCompletionCallbackArg,
+    ) -> Result<(), CoreError> {
+        match self.state {
+            NvmeControllerState::Running |
+            // We allow subsequent device shutdowns in case of failures.
+            NvmeControllerState::Unconfiguring => {},
+            _ => {
+                error!("{} failed to shutdown controller is {:?} state", self.name, self.state);
+                return Err(CoreError::ResetDispatch{
+                    source: Errno::EBUSY
+                });
+            }
+        }
+
+        info!("{} shutting down the controller", self.name);
+        self.set_state(NvmeControllerState::Unconfiguring);
+
+        let ctx = ShutdownCtx {
+            name: self.get_name(),
+            cb,
+            cb_arg,
+        };
+
+        // Schedule asynchronous device shutdown and return.
+        self.inner.as_ref().unwrap().io_device.traverse_io_channels(
+            NvmeController::_shutdown_channels,
+            NvmeController::_shutdown_channels_done,
+            ctx,
+        );
+
+        Ok(())
+    }
+
+    fn _complete_reset(reset_ctx: ResetCtx, status: i32) {
+        // Lookup controller carefully, as it can be removed while reset
+        // in progress.
+        let c = NVME_CONTROLLERS.lookup_by_name(reset_ctx.name);
+        if let Some(controller) = c {
+            let mut controller = controller.lock().expect("lock poisoned");
+
+            // If controller exists, its state must reflect active reset
+            // operation, as no other operations are allowed upon
+            // reset except device removal.
+            assert!(controller.reset_active);
+
+            // Clear reset flag and invoke completion callback.
+            controller.reset_active = false;
+
+            // Unlock the controller before calling the callback to avoid
+            // potential deadlocks.
+            drop(controller);
+        }
 
         (reset_ctx.cb)(status == 0, reset_ctx.cb_arg);
     }
 
-    extern "C" fn reset_destroy_channels(i: *mut spdk_io_channel_iter) {
-        let ch = unsafe { spdk_io_channel_iter_get_channel(i) };
-        let inner = NvmeIoChannel::inner_from_channel(ch);
+    fn _reset_destroy_channels(
+        channel: &mut NvmeIoChannelInner,
+        _ctx: &mut ResetCtx,
+    ) -> i32 {
+        debug!("Resetting I/O channel ");
+        let rc = channel.reset();
 
-        debug!("Resetting I/O channel");
-        let rc = inner.reset();
         if rc == 0 {
             debug!("I/O channel successfully reset");
         } else {
             error!("failed to reset I/O channel, reset aborted");
         }
-
-        unsafe { spdk_for_each_channel_continue(i, rc) };
+        rc
     }
 
-    extern "C" fn reset_destroy_channels_done(
-        i: *mut spdk_io_channel_iter,
-        status: i32,
-    ) {
-        unsafe {
-            let reset_ctx = spdk_io_channel_iter_get_ctx(i) as *mut ResetCtx;
+    fn _reset_destroy_channels_done(status: i32, reset_ctx: ResetCtx) {
+        if status != 0 {
+            error!(
+                "{}: controller reset failed with status = {}",
+                reset_ctx.name, status
+            );
+            NvmeController::_complete_reset(reset_ctx, status);
+            return;
+        }
 
-            if status != 0 {
-                error!(
-                    "{}: controller reset failed with status = {}",
-                    (*reset_ctx).name,
-                    status
-                );
-                NvmeController::complete_reset(&*reset_ctx, status);
-                return;
-            }
+        info!("{} all I/O channels successfully reset", reset_ctx.name);
 
-            info!("{} all qpairs successfully deallocated", (*reset_ctx).name);
+        let rc = unsafe { spdk_nvme_ctrlr_reset(reset_ctx.spdk_handle) };
+        if rc != 0 {
+            error!(
+                "{} failed to reset controller, rc = {}",
+                reset_ctx.name, rc
+            );
+            NvmeController::_complete_reset(reset_ctx, rc);
+        } else {
+            info!(
+                "{} controller successfully reset, reinitializing I/O channels",
+                reset_ctx.name
+            );
 
-            let rc = spdk_nvme_ctrlr_reset((*reset_ctx).spdk_handle);
-            if rc != 0 {
-                error!(
-                    "{} failed to reset controller, rc = {}",
-                    (*reset_ctx).name,
-                    rc
-                );
-                NvmeController::complete_reset(&*reset_ctx, rc);
-            } else {
-                info!("{} controller successfully reset", (*reset_ctx).name);
-
-                /* Recreate all of the I/O queue pairs */
-                spdk_for_each_channel(
-                    spdk_io_channel_iter_get_io_device(i),
-                    Some(NvmeController::reset_create_channels),
-                    spdk_io_channel_iter_get_ctx(i),
-                    Some(NvmeController::reset_create_channels_done),
-                );
-            }
+            /* Once controller is successfully reset, schedule another I/O
+             * channel traversal to restore all I/O channels.
+             */
+            let io_device = Arc::clone(&reset_ctx.io_device);
+            io_device.traverse_io_channels(
+                NvmeController::_reset_create_channels,
+                NvmeController::_reset_create_channels_done,
+                reset_ctx,
+            );
         }
     }
 
-    extern "C" fn reset_create_channels(i: *mut spdk_io_channel_iter) {
-        let reset_ctx =
-            unsafe { spdk_io_channel_iter_get_ctx(i) as *mut ResetCtx };
-        let ch = unsafe { spdk_io_channel_iter_get_channel(i) };
-        let inner = NvmeIoChannel::inner_from_channel(ch);
+    fn _reset_create_channels(
+        channel: &mut NvmeIoChannelInner,
+        reset_ctx: &mut ResetCtx,
+    ) -> i32 {
+        // Make sure no cuncurrent shutdown takes place.
+        if channel.is_shutdown() {
+            return 0;
+        }
 
         debug!("Reinitializing I/O channel");
-        unsafe {
-            let rc = inner
-                .reinitialize(&(*reset_ctx).name, (*reset_ctx).spdk_handle);
-            if rc != 0 {
-                error!(
-                    "{} failed to reinitialize I/O channel, rc = {}",
-                    (*reset_ctx).name,
-                    rc
-                );
-            } else {
-                info!(
-                    "{} I/O channel successfully reinitialized",
-                    (*reset_ctx).name
-                );
-            }
-
-            spdk_for_each_channel_continue(i, rc)
+        let rc = channel.reinitialize(&reset_ctx.name, reset_ctx.spdk_handle);
+        if rc != 0 {
+            error!(
+                "{} failed to reinitialize I/O channel, rc = {}",
+                reset_ctx.name, rc
+            );
+        } else {
+            info!("{} I/O channel successfully reinitialized", reset_ctx.name);
         }
+        rc
     }
 
-    extern "C" fn reset_create_channels_done(
-        i: *mut spdk_io_channel_iter,
-        status: i32,
-    ) {
-        unsafe {
-            let reset_ctx = spdk_io_channel_iter_get_ctx(i) as *mut ResetCtx;
-
-            info!(
-                "{} controller reset completed, status = {}",
-                (*reset_ctx).name,
-                status
-            );
-            NvmeController::complete_reset(&*reset_ctx, status);
-        }
+    fn _reset_create_channels_done(status: i32, reset_ctx: ResetCtx) {
+        info!(
+            "{} controller reset completed, status = {}",
+            reset_ctx.name, status
+        );
+        NvmeController::_complete_reset(reset_ctx, status);
     }
 }
 
@@ -393,14 +468,6 @@ impl<'a> Drop for NvmeController<'a> {
         let inner = self.inner.take().expect("NVMe inner already gone");
         inner.adminq_poller.stop();
 
-        debug!(
-            "{}: unregistering I/O device at 0x{:X}",
-            self.get_name(),
-            self.id()
-        );
-        unsafe {
-            spdk_io_device_unregister(self.id() as *mut c_void, None);
-        }
         let rc = unsafe { spdk_nvme_detach(inner.ctrlr.as_ptr()) };
 
         assert_eq!(rc, 0, "Failed to detach NVMe controller");
@@ -444,14 +511,8 @@ pub(crate) fn connected_attached_cb(
     let mut controller = controller.lock().unwrap();
 
     controller.set_id(cid);
-    controller.inner = Some(NvmeControllerInner::new(ctrlr));
-    controller.register_io_device();
-
-    debug!(
-        "{}: I/O device registered at 0x{:X}",
-        controller.get_name(),
-        controller.id()
-    );
+    controller.inner =
+        Some(NvmeControllerInner::new(ctrlr, controller.get_name()));
 
     controller.populate_namespaces();
     controller.state = NvmeControllerState::Running;
@@ -584,6 +645,112 @@ pub(crate) mod options {
             assert_eq!(opts.0.admin_timeout_ms, 1);
             assert_eq!(opts.0.fabrics_connect_timeout_us, 1);
             assert_eq!(opts.0.transport_retry_count, 1);
+        }
+    }
+}
+
+#[derive(Debug)]
+struct IoDevice(NonNull<c_void>);
+
+/// Wrapper around SPDK I/O device.
+impl IoDevice {
+    /// Register the controller as an I/O device.
+    fn create(devptr: *mut c_void, name: String) -> Self {
+        unsafe {
+            spdk_io_device_register(
+                devptr,
+                Some(NvmeControllerIoChannel::create),
+                Some(NvmeControllerIoChannel::destroy),
+                std::mem::size_of::<NvmeIoChannel>() as u32,
+                name.as_ptr() as *const i8,
+            )
+        }
+
+        debug!("{} I/O device registered at {:p}", name, devptr);
+
+        Self(NonNull::new(devptr).unwrap())
+    }
+
+    /// Iterate over all I/O channels associated with this I/O device.
+    fn traverse_io_channels<T>(
+        &self,
+        channel_cb: impl FnMut(&mut NvmeIoChannelInner, &mut T) -> i32 + 'static,
+        done_cb: impl FnMut(i32, T) + 'static,
+        caller_ctx: T,
+    ) {
+        struct TraverseCtx<N> {
+            channel_cb: Box<
+                dyn FnMut(&mut NvmeIoChannelInner, &mut N) -> i32 + 'static,
+            >,
+            done_cb: Box<dyn FnMut(i32, N) + 'static>,
+            ctx: N,
+        }
+
+        let traverse_ctx = Box::into_raw(Box::new(TraverseCtx {
+            channel_cb: Box::new(channel_cb),
+            done_cb: Box::new(done_cb),
+            ctx: caller_ctx,
+        }));
+        assert!(
+            !traverse_ctx.is_null(),
+            "Failed to allocate contex for I/O channels iteration"
+        );
+
+        /// Low-level per-channel visitor to be invoked by SPDK I/O channel
+        /// enumeration logic.
+        extern "C" fn _visit_channel<V>(i: *mut spdk_io_channel_iter) {
+            let traverse_ctx = unsafe {
+                let p = spdk_io_channel_iter_get_ctx(i) as *mut TraverseCtx<V>;
+                &mut *p
+            };
+            let io_channel = unsafe {
+                let ch = spdk_io_channel_iter_get_channel(i);
+                NvmeIoChannel::inner_from_channel(ch)
+            };
+
+            let rc =
+                (traverse_ctx.channel_cb)(io_channel, &mut traverse_ctx.ctx);
+
+            unsafe {
+                spdk_for_each_channel_continue(i, rc);
+            }
+        }
+
+        /// Low-level completion callback for SPDK I/O channel enumeration
+        /// logic.
+        extern "C" fn _visit_channel_done<V>(
+            i: *mut spdk_io_channel_iter,
+            status: i32,
+        ) {
+            // Reconstruct the context box to let all the resources be properly
+            // dropped.
+            let mut traverse_ctx = unsafe {
+                Box::<TraverseCtx<V>>::from_raw(
+                    spdk_io_channel_iter_get_ctx(i) as *mut TraverseCtx<V>
+                )
+            };
+
+            (traverse_ctx.done_cb)(status, traverse_ctx.ctx);
+        }
+
+        // Start I/O channel iteration via SPDK.
+        unsafe {
+            spdk_for_each_channel(
+                self.0.as_ptr(),
+                Some(_visit_channel::<T>),
+                traverse_ctx as *mut c_void,
+                Some(_visit_channel_done::<T>),
+            );
+        }
+    }
+}
+
+impl Drop for IoDevice {
+    fn drop(&mut self) {
+        debug!("unregistering I/O device at {:p}", self.0.as_ptr());
+
+        unsafe {
+            spdk_io_device_unregister(self.0.as_ptr(), None);
         }
     }
 }

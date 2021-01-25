@@ -12,6 +12,7 @@ pub use block_device::{
     BlockDeviceHandle,
     BlockDeviceStats,
     IoCompletionCallback,
+    IoCompletionCallbackArg,
     LbaRangeController,
 };
 pub use channel::IoChannel;
