@@ -54,7 +54,7 @@ function runMockServer (rules) {
   mayastorMockServer.listen('127.0.0.1:' + EGRESS_PORT);
 }
 
-describe('cli', function () {
+describe('mayastor-client', function () {
   describe('success', function () {
     before(() => {
       process.env.RUST_BACKTRACE = '1';
