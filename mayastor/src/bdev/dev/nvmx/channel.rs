@@ -1,17 +1,19 @@
 /* I/O channel for NVMe controller, one per core. */
 
 use crate::{
-    bdev::dev::nvmx::NVME_CONTROLLERS,
+    bdev::dev::nvmx::{NvmeControllerState, NVME_CONTROLLERS},
     core::poller,
     subsys::NvmeBdevOpts,
 };
 use std::{cmp::max, mem::size_of, os::raw::c_void, ptr::NonNull};
 
 use spdk_sys::{
+    nvme_qpair_abort_reqs,
     spdk_io_channel,
     spdk_nvme_ctrlr,
     spdk_nvme_ctrlr_alloc_io_qpair,
     spdk_nvme_ctrlr_connect_io_qpair,
+    spdk_nvme_ctrlr_disconnect_io_qpair,
     spdk_nvme_ctrlr_free_io_qpair,
     spdk_nvme_ctrlr_get_default_io_qpair_opts,
     spdk_nvme_ctrlr_reconnect_io_qpair,
@@ -63,24 +65,75 @@ pub struct NvmeIoChannelInner<'a> {
     pub qpair: *mut spdk_nvme_qpair,
     poll_group: NonNull<spdk_nvme_poll_group>,
     poller: poller::Poller<'a>,
+    // Flag to indicate the shutdown state of the channel.
+    // We need such a flag to differentiate between channel reset and shutdown.
+    // Channel reset is a reversible operation, which is followed by
+    // reinitialize(), which 'resurrects' channel (i.e. recreates all its
+    // I/O resources): such behaviour is observed during controller reset.
+    // Shutdown, in contrary, means 'one-way' ticket for the channel, which
+    // doesn't assume any further resurrections: such behaviour is seen
+    // upon controller shutdown. Being able to differentiate between these
+    // 2 states allows controller reset to behave properly in parallel with
+    // shutdown (if case reset is initiated before shutdown), and
+    // not to reinitialize channels already processed by shutdown logic.
+    is_shutdown: bool,
 }
 
 impl NvmeIoChannelInner<'_> {
-    /// Resets channel, making it unusable till reinitialize() is called.
+    /// Reset channel, making it unusable till reinitialize() is called.
     pub fn reset(&mut self) -> i32 {
         if self.qpair.is_null() {
             return 0;
         }
 
-        0
+        self._abort_queue();
+
+        let q = self.qpair;
+        self.qpair = std::ptr::null_mut();
+
+        unsafe {
+            spdk_nvme_ctrlr_disconnect_io_qpair(q);
+            spdk_nvme_ctrlr_free_io_qpair(q)
+        }
     }
 
-    /// Reinitializes channel after reset.
+    /// Checks whether the I/O channel is shutdown.
+    pub fn is_shutdown(&self) -> bool {
+        self.is_shutdown
+    }
+
+    /// Shutdown I/O channel and make it completely unusable for I/O.
+    pub fn shutdown(&mut self) -> i32 {
+        if self.is_shutdown {
+            return 0;
+        }
+
+        let rc = self.reset();
+        if rc == 0 {
+            self.is_shutdown = true;
+        }
+        rc
+    }
+
+    /// Aborts all the requests in the qpair.
+    fn _abort_queue(&self) {
+        unsafe { nvme_qpair_abort_reqs(self.qpair, 1) };
+    }
+
+    /// Reinitializes channel after reset unless the channel is shutdown.
     pub fn reinitialize(
         &mut self,
         ctrlr_name: &str,
         ctrlr_handle: *mut spdk_nvme_ctrlr,
     ) -> i32 {
+        if self.is_shutdown {
+            error!(
+                "{} I/O channel is shutdown, channel reinitialization not possible",
+                ctrlr_name
+            );
+            return -libc::ENODEV;
+        }
+
         // Create qpair for target controller.
         let mut opts = spdk_nvme_io_qpair_opts::default();
         let default_opts = NvmeBdevOpts::default();
@@ -182,6 +235,17 @@ impl NvmeControllerIoChannel {
         };
 
         let controller = controller.lock().expect("lock error");
+
+        // Make sure controller is available.
+        if controller.get_state() != NvmeControllerState::Running {
+            error!(
+                "{} controller is in {:?} state, I/O channel creation not possible",
+                controller.get_name(),
+                controller.get_state()
+            );
+            return 1;
+        }
+
         let nvme_channel = NvmeIoChannel::from_raw(ctx);
         let mut opts = spdk_nvme_io_qpair_opts::default();
         let default_opts = NvmeBdevOpts::default();
@@ -234,6 +298,7 @@ impl NvmeControllerIoChannel {
             qpair,
             poll_group: NonNull::new(poll_group).unwrap(),
             poller,
+            is_shutdown: false,
         });
 
         nvme_channel.inner = Box::into_raw(inner);
