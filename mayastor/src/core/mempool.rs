@@ -52,8 +52,8 @@ impl<T: Sized> MemoryPool<T> {
         }
 
         info!(
-            "Memory pool '{}' with {} elements successfully created",
-            name, size
+            "Memory pool '{}' with {} elements ({} bytes size) successfully created",
+            name, size, size_of::<T>()
         );
         Some(Self {
             pool: NonNull::new(pool).unwrap(),
@@ -74,7 +74,7 @@ impl<T: Sized> MemoryPool<T> {
         }
 
         unsafe {
-            *ptr = val;
+            ptr.write(val);
         }
 
         Some(ptr)
