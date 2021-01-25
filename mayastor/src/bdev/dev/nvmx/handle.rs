@@ -32,6 +32,7 @@ use crate::{
         DmaBuf,
         DmaError,
         IoCompletionCallback,
+        IoCompletionCallbackArg,
     },
     ffihelper::{cb_arg, done_cb},
 };
@@ -60,7 +61,7 @@ use super::NvmeIoChannelInner;
  */
 struct NvmeIoCtx {
     cb: IoCompletionCallback,
-    cb_arg: *const c_void,
+    cb_arg: IoCompletionCallbackArg,
     iov: *mut iovec,
     iovcnt: u64,
     iovpos: u64,
@@ -248,8 +249,6 @@ extern "C" fn nvme_writev_done(ctx: *mut c_void, cpl: *const spdk_nvme_cpl) {
 extern "C" fn nvme_io_done(ctx: *mut c_void, cpl: *const spdk_nvme_cpl) {
     let nvme_io_ctx = ctx as *mut NvmeIoCtx;
 
-    debug!("NVMe I/O completed !");
-
     // Check if operation successfully completed.
     if nvme_cpl_is_pi_error(cpl) {
         error!("readv completed with PI error");
@@ -367,7 +366,7 @@ fn check_channel_for_io(
     // Check against concurrent controller reset, which results in valid
     // I/O channel but deactivated I/O pair.
     if inner.qpair.is_null() {
-        errno = libc::EBUSY
+        errno = libc::ENODEV;
     }
 
     if errno == 0 {
@@ -541,14 +540,9 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         offset_blocks: u64,
         num_blocks: u64,
         cb: IoCompletionCallback,
-        cb_arg: *const c_void,
+        cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError> {
         check_io_args(IoType::READ, iov, iovcnt, offset_blocks, num_blocks)?;
-
-        let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
-
-        // Make sure channel allows I/O.
-        check_channel_for_io(IoType::READ, inner, offset_blocks, num_blocks)?;
 
         let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
 
@@ -618,14 +612,9 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         offset_blocks: u64,
         num_blocks: u64,
         cb: IoCompletionCallback,
-        cb_arg: *const c_void,
+        cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError> {
         check_io_args(IoType::WRITE, iov, iovcnt, offset_blocks, num_blocks)?;
-
-        let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
-
-        // Make sure channel allows I/O.
-        check_channel_for_io(IoType::WRITE, inner, offset_blocks, num_blocks)?;
 
         let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
 
@@ -701,6 +690,16 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
     ) -> Result<(), CoreError> {
         let mut pcmd = *cmd; // Make a private mutable copy of the command.
 
+        let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
+
+        // Make sure channel allows I/O.
+        if inner.qpair.is_null() {
+            return Err(CoreError::NvmeAdminDispatch {
+                source: Errno::ENODEV,
+                opcode: cmd.opc(),
+            });
+        }
+
         let (ptr, size) = match buffer {
             Some(buf) => (**buf, buf.len()),
             None => (std::ptr::null_mut(), 0),
@@ -731,7 +730,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
     fn reset(
         &self,
         cb: IoCompletionCallback,
-        cb_arg: *const c_void,
+        cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError> {
         let controller = NVME_CONTROLLERS.lookup_by_name(&self.name).ok_or(
             CoreError::BdevNotFound {
@@ -749,7 +748,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         offset_blocks: u64,
         num_blocks: u64,
         cb: IoCompletionCallback,
-        cb_arg: *const c_void,
+        cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError> {
         let num_ranges =
             (num_blocks + SPDK_NVME_DATASET_MANAGEMENT_RANGE_MAX_BLOCKS - 1)
@@ -848,7 +847,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         offset_blocks: u64,
         num_blocks: u64,
         cb: IoCompletionCallback,
-        cb_arg: *const c_void,
+        cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError> {
         // Write zeroes are done through unmap.
         self.unmap_blocks(offset_blocks, num_blocks, cb, cb_arg)

@@ -2,6 +2,7 @@
 #include <stdint.h>
 
 #include <spdk/bdev.h>
+#include <spdk/nvme.h>
 
 struct spdk_nvme_cmd;
 struct spdk_nvme_cpl;
@@ -19,3 +20,6 @@ int
 spdk_bdev_nvme_admin_passthru_ro(struct spdk_bdev_desc *desc, struct spdk_io_channel *ch,
 			      const struct spdk_nvme_cmd *cmd, void *buf, size_t nbytes,
 			      spdk_bdev_io_completion_cb cb, void *cb_arg);
+
+void
+nvme_qpair_abort_reqs(struct spdk_nvme_qpair *qpair, uint32_t dnr);
