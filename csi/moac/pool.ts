@@ -187,17 +187,8 @@ export class Pool {
   // Destroy the pool and remove it from the list of pools on the node.
   async destroy() {
     log.debug(`Destroying pool "${this}" ...`);
-
-    try {
-      await this.node.call('destroyPool', { name: this.name });
-      log.info(`Destroyed pool "${this}"`);
-    } catch (err) {
-      // TODO: make destroyPool idempotent
-      if (err.code !== GrpcCode.NOT_FOUND) {
-        throw err;
-      }
-      log.warn(`Removed pool "${this}" does not exist`);
-    }
+    await this.node.call('destroyPool', { name: this.name });
+    log.info(`Destroyed pool "${this}"`);
     this.unbind();
   }
 

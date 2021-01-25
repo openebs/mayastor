@@ -53,12 +53,14 @@ describe('moac', function () {
   it('start moac process', function (done) {
     // Starting moac, which includes loading all NPM modules from disk, takes
     // time when running in docker with FS mounted from non-linux host.
-    this.timeout(4000);
+    this.timeout(5000);
 
     const child = spawn(path.join(__dirname, '..', 'index.js'), [
       '-s',
       // NATS does not run but just to verify that the option works
-      '--message-bus=127.0.0.1'
+      '--message-bus=127.0.0.1',
+      // shorten the warm up to make the test faster
+      '--heartbeat-interval=1'
     ]);
     let stderr = '';
 

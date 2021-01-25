@@ -133,7 +133,7 @@ echo 512 | sudo tee  /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
 Then, for example:
 
 ```bash
-root@gilakubuntu:/MayaStor/mayastor-test# ./node_modules/mocha/bin/mocha test_csi.js
+root@gilakubuntu:/MayaStor/test/grpc# ./node_modules/mocha/bin/mocha test_csi.js
   csi
     identity
       ✓ probe

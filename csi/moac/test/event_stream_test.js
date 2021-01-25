@@ -9,8 +9,8 @@ const { Pool } = require('../pool');
 const { Replica } = require('../replica');
 const { Nexus } = require('../nexus');
 const Registry = require('../registry');
-const Volume = require('../volume');
-const Volumes = require('../volumes');
+const { Volume } = require('../volume');
+const { Volumes } = require('../volumes');
 const EventStream = require('../event_stream');
 
 module.exports = function () {
@@ -35,7 +35,7 @@ module.exports = function () {
     const registry = new Registry();
     const volumes = new Volumes(registry);
     const getNodeStub = sinon.stub(registry, 'getNode');
-    const getVolumeStub = sinon.stub(volumes, 'get');
+    const getVolumeStub = sinon.stub(volumes, 'list');
     // The initial state of the nodes. "new" event should be written to the
     // stream for all these objects and one "sync" event for each node meaning
     // that the reader has caught up with the initial state.
@@ -66,8 +66,8 @@ module.exports = function () {
       )
     ]);
     getVolumeStub.returns([
-      new Volume('volume1', registry, {}),
-      new Volume('volume2', registry, {})
+      new Volume('volume1', registry, () => {}, {}),
+      new Volume('volume2', registry, () => {}, {})
     ]);
 
     // set low high water mark to test buffered reads
@@ -171,9 +171,6 @@ module.exports = function () {
       expect(events[i].kind).to.equal('node');
       expect(events[i].eventType).to.equal('new');
       expect(events[i++].object.name).to.equal('node1');
-      expect(events[i].kind).to.equal('pool');
-      expect(events[i].eventType).to.equal('new');
-      expect(events[i++].object.name).to.equal('pool1');
       expect(events[i].kind).to.equal('replica');
       expect(events[i].eventType).to.equal('new');
       expect(events[i++].object.uuid).to.equal('uuid1');
@@ -182,10 +179,13 @@ module.exports = function () {
       expect(events[i++].object.uuid).to.equal('uuid2');
       expect(events[i].kind).to.equal('pool');
       expect(events[i].eventType).to.equal('new');
-      expect(events[i++].object.name).to.equal('pool2');
+      expect(events[i++].object.name).to.equal('pool1');
       expect(events[i].kind).to.equal('replica');
       expect(events[i].eventType).to.equal('new');
       expect(events[i++].object.uuid).to.equal('uuid3');
+      expect(events[i].kind).to.equal('pool');
+      expect(events[i].eventType).to.equal('new');
+      expect(events[i++].object.name).to.equal('pool2');
       expect(events[i].kind).to.equal('nexus');
       expect(events[i].eventType).to.equal('new');
       expect(events[i++].object.uuid).to.equal('nexus1');
@@ -198,9 +198,6 @@ module.exports = function () {
       expect(events[i].kind).to.equal('node');
       expect(events[i].eventType).to.equal('new');
       expect(events[i++].object.name).to.equal('node2');
-      expect(events[i].kind).to.equal('pool');
-      expect(events[i].eventType).to.equal('new');
-      expect(events[i++].object.name).to.equal('pool3');
       expect(events[i].kind).to.equal('replica');
       expect(events[i].eventType).to.equal('new');
       expect(events[i++].object.uuid).to.equal('uuid4');
@@ -210,6 +207,9 @@ module.exports = function () {
       expect(events[i].kind).to.equal('replica');
       expect(events[i].eventType).to.equal('new');
       expect(events[i++].object.uuid).to.equal('uuid6');
+      expect(events[i].kind).to.equal('pool');
+      expect(events[i].eventType).to.equal('new');
+      expect(events[i++].object.name).to.equal('pool3');
       expect(events[i].kind).to.equal('node');
       expect(events[i].eventType).to.equal('sync');
       expect(events[i++].object.name).to.equal('node2');

@@ -1,0 +1,9 @@
+apiVersion: "openebs.io/v1alpha1"
+kind: MayastorPool
+metadata:
+  name: pool-${NODE_NAME}
+  #generateName: pool-${NODE_NAME}
+  namespace: mayastor
+spec:
+  node: ${NODE_NAME}
+  disks: ["${POOL_DEVICE}"]

@@ -19,7 +19,11 @@ for system configuration of nodes (as opposed to using ansible, salt, etc.).
    {
    imports = [ ./hardware.nix ];
 
-   services.openssh.enable = true;
+   services.openssh = {
+     enable = true;
+     passwordAuthentication = false;
+     challengeResponseAuthentication = false;
+   };
    services.jenkins.enable = true;
 
    networking.firewall.enable = false;
@@ -141,7 +145,11 @@ for system configuration of nodes (as opposed to using ansible, salt, etc.).
 
    boot.kernelPackages = pkgs.linuxPackages_5_7;
 
-   services.openssh.enable = true;
+   services.openssh = {
+     enable = true;
+     passwordAuthentication = false;
+     challengeResponseAuthentication = false;
+   };
    services.jenkinsSlave.enable = true;
    services.iscsid.enable = true;
 
@@ -149,14 +157,6 @@ for system configuration of nodes (as opposed to using ansible, salt, etc.).
    boot.initrd.kernelModules = ["xfs"];
    boot.kernelModules = [ "nbd" "xfs" "nvme_tcp" "kvm_intel" ];
    boot.extraModprobeConfig = "options kvm_intel nested=1";
-
-   nix.gc = {
-     automatic = true;
-     dates = "daily";
-   };
-   nix.extraOptions = ''
-     min-free = ${toString (10 * 1024 * 1024 * 1024)}
-   '';
 
    virtualisation.docker.enable = true;
 
@@ -189,7 +189,7 @@ for system configuration of nodes (as opposed to using ansible, salt, etc.).
    users.users.jenkins.openssh.authorizedKeys.keys = [ "ssh-rsa key used by Jenkins master ..." ];
 
    environment.systemPackages = with pkgs; [
-     wget curl vim git jdk openiscsi nvme-cli lsof
+     wget curl vim git jdk openiscsi nvme-cli lsof kubectl
    ];
    }
    ```
@@ -226,8 +226,13 @@ for system configuration of nodes (as opposed to using ansible, salt, etc.).
 
 3. Hardware file is the same as for the master (if needed).
 
-4. Set password for Jenkins user using passwd. You will need it when joining
-   the slave from Jenkins web UI.
+4. Create /etc/docker/daemon.json, replace private registry IP in there and restart the docker daemon:
+   ```
+   {
+     "insecure-registries" : ["192.168.1.60:5000"]
+   }
+   ```
+   This will allow the worker node to push docker images to http registry.
 
 5. You can repeat the steps and set as many slaves you want.
 

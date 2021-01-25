@@ -1,33 +1,5 @@
 #!/usr/bin/env groovy
 
-// Will ABORT current job for cases when we don't want to build
-if (currentBuild.getBuildCauses('jenkins.branch.BranchIndexingCause') &&
-    BRANCH_NAME == "develop") {
-    print "INFO: Branch Indexing, aborting job."
-    currentBuild.result = 'ABORTED'
-    return
-}
-
-// Update status of a commit in github
-def updateGithubCommitStatus(commit, msg, state) {
-  step([
-    $class: 'GitHubCommitStatusSetter',
-    reposSource: [$class: "ManuallyEnteredRepositorySource", url: "https://github.com/openebs/Mayastor.git"],
-    commitShaSource: [$class: "ManuallyEnteredShaSource", sha: commit],
-    errorHandlers: [[$class: "ChangingBuildStatusErrorHandler", result: "UNSTABLE"]],
-    contextSource: [
-      $class: 'ManuallyEnteredCommitContextSource',
-      context: 'continuous-integration/jenkins/branch'
-    ],
-    statusResultSource: [
-      $class: 'ConditionalStatusResultSource',
-      results: [
-        [$class: 'AnyBuildResult', message: msg, state: state]
-      ]
-    ]
-  ])
-}
-
 // Searches previous builds to find first non aborted one
 def getLastNonAbortedBuild(build) {
   if (build == null) {
@@ -62,16 +34,40 @@ def notifySlackUponStateChange(build) {
   }
 }
 
+// Will ABORT current job for cases when we don't want to build
+if (currentBuild.getBuildCauses('jenkins.branch.BranchIndexingCause') &&
+    BRANCH_NAME == "develop") {
+    print "INFO: Branch Indexing, aborting job."
+    currentBuild.result = 'ABORTED'
+    return
+}
+
 // Only schedule regular builds on develop branch, so we don't need to guard against it
 String cron_schedule = BRANCH_NAME == "develop" ? "0 2 * * *" : ""
 
 pipeline {
   agent none
+  options {
+    timeout(time: 2, unit: 'HOURS')
+  }
   triggers {
     cron(cron_schedule)
   }
 
   stages {
+    stage('init') {
+      agent { label 'nixos-mayastor' }
+      steps {
+        step([
+          $class: 'GitHubSetCommitStatusBuilder',
+          contextSource: [
+            $class: 'ManuallyEnteredCommitContextSource',
+            context: 'continuous-integration/jenkins/branch'
+          ],
+          statusMessage: [ content: 'Pipeline started' ]
+        ])
+      }
+    }
     stage('linter') {
       agent { label 'nixos-mayastor' }
       when {
@@ -84,7 +80,6 @@ pipeline {
         }
       }
       steps {
-        updateGithubCommitStatus(env.GIT_COMMIT, 'Started to test the commit', 'pending')
         sh 'nix-shell --run "cargo fmt --all -- --check"'
         sh 'nix-shell --run "cargo clippy --all-targets -- -D warnings"'
         sh 'nix-shell --run "./scripts/js-check.sh"'
@@ -114,11 +109,11 @@ pipeline {
             }
           }
         }
-        stage('mocha api tests') {
+        stage('grpc tests') {
           agent { label 'nixos-mayastor' }
           steps {
             sh 'printenv'
-            sh 'nix-shell --run "./scripts/node-test.sh"'
+            sh 'nix-shell --run "./scripts/grpc-test.sh"'
           }
           post {
             always {
@@ -138,14 +133,37 @@ pipeline {
             }
           }
         }
-        stage('dev images') {
-          agent { label 'nixos-mayastor' }
-          steps {
-            sh 'nix-build --no-out-link -A images.mayastor-dev-image'
-            sh 'nix-build --no-out-link -A images.mayastor-csi-dev-image'
-            sh 'nix-build --no-out-link -A images.moac-image'
-            sh 'nix-store --delete /nix/store/*docker-image*'
-          }
+      }
+    }
+    stage('e2e tests') {
+      agent { label 'nixos-mayastor' }
+      environment {
+        GIT_COMMIT_SHORT = sh(
+          // using printf to get rid of trailing newline
+          script: "printf \$(git rev-parse --short ${GIT_COMMIT})",
+          returnStdout: true
+        )
+      }
+      steps {
+        // e2e tests are the most demanding step for space on the disk so we
+        // test the free space here rather than repeating the same code in all
+        // stages.
+        sh "./scripts/reclaim-space.sh 10"
+        // Build images (REGISTRY is set in jenkin's global configuration).
+        // Note: We might want to build and test dev images that have more
+        // assertions instead but that complicates e2e tests a bit.
+        sh "./scripts/release.sh --alias-tag ci --registry ${env.REGISTRY}"
+        withCredentials([file(credentialsId: 'kubeconfig', variable: 'KUBECONFIG')]) {
+          sh 'kubectl get nodes -o wide'
+          sh "nix-shell --run './scripts/e2e-test.sh --device /dev/nvme1n1 --tag \"${env.GIT_COMMIT_SHORT}\" --registry \"${env.REGISTRY}\"'"
+        }
+      }
+      // Always remove all docker images because they are usually used just once
+      // and underlaying pkgs are already cached by nix so they can be easily
+      // recreated.
+      post {
+        always {
+          sh 'docker image prune --all --force'
         }
       }
     }
@@ -160,7 +178,6 @@ pipeline {
         }
       }
       steps {
-        updateGithubCommitStatus(env.GIT_COMMIT, 'Started to test the commit', 'pending')
         withCredentials([usernamePassword(credentialsId: 'dockerhub', usernameVariable: 'USERNAME', passwordVariable: 'PASSWORD')]) {
           sh 'echo $PASSWORD | docker login -u $USERNAME --password-stdin'
         }
@@ -186,11 +203,20 @@ pipeline {
           // If no tests were run then we should neither be updating commit
           // status in github nor send any slack messages
           if (currentBuild.result != null) {
-            if (currentBuild.getResult() == 'SUCCESS') {
-              updateGithubCommitStatus(env.GIT_COMMIT, 'Looks good', 'success')
-            } else {
-              updateGithubCommitStatus(env.GIT_COMMIT, 'Test failed', 'failure')
-            }
+            step([
+              $class: 'GitHubCommitStatusSetter',
+              errorHandlers: [[$class: "ChangingBuildStatusErrorHandler", result: "UNSTABLE"]],
+              contextSource: [
+                $class: 'ManuallyEnteredCommitContextSource',
+                context: 'continuous-integration/jenkins/branch'
+              ],
+              statusResultSource: [
+                $class: 'ConditionalStatusResultSource',
+                results: [
+                  [$class: 'AnyBuildResult', message: 'Pipeline result', state: currentBuild.getResult()]
+                ]
+              ]
+            ])
             if (env.BRANCH_NAME == 'develop') {
               notifySlackUponStateChange(currentBuild)
             }

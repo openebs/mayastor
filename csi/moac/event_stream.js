@@ -83,7 +83,7 @@ class EventStream extends Readable {
     }
     // Populate stream with objects which already exist but for consumer
     // they appear as new.
-    var self = this;
+    const self = this;
     if (self.registry) {
       self.registry.getNode().forEach((node) => {
         self.events.push({
@@ -91,18 +91,21 @@ class EventStream extends Readable {
           eventType: 'new',
           object: node
         });
+        // First we emit replica and then pool events. Otherwise volume manager
+        // could start creating new volume on imported pool although that the
+        // volume is already there.
         node.pools.forEach((obj) => {
-          self.events.push({
-            kind: 'pool',
-            eventType: 'new',
-            object: obj
-          });
           obj.replicas.forEach((obj) => {
             self.events.push({
               kind: 'replica',
               eventType: 'new',
               object: obj
             });
+          });
+          self.events.push({
+            kind: 'pool',
+            eventType: 'new',
+            object: obj
           });
         });
         node.nexus.forEach((obj) => {
@@ -122,7 +125,7 @@ class EventStream extends Readable {
       });
     }
     if (self.volumes) {
-      self.volumes.get().forEach((volume) => {
+      self.volumes.list().forEach((volume) => {
         self.events.push({
           kind: 'volume',
           eventType: 'new',

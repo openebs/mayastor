@@ -6,7 +6,7 @@ const expect = require('chai').expect;
 const http = require('http');
 const sinon = require('sinon');
 const Registry = require('../registry');
-const Node = require('../node');
+const { Node } = require('../node');
 const { GrpcError, GrpcCode } = require('../grpc_client');
 const ApiServer = require('../rest_api');
 
@@ -17,8 +17,8 @@ const UUID2 = '02de3df9-ce18-4164-89e1-b1cbf7a88e52';
 const UUID3 = '02de3df9-ce18-4164-89e1-b1cbf7a88e53';
 
 module.exports = function () {
-  var apiServer;
-  var call1, call2, call3, call4;
+  let apiServer;
+  let call1, call2, call3, call4;
 
   before(() => {
     const node1 = new Node('node1');

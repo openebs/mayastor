@@ -1,23 +1,32 @@
-#![allow(unused_assignments)]
-
-use common::{bdev_io, compose::Builder, MayastorTest};
+use common::{compose::Builder, MayastorTest};
 use mayastor::{
-    bdev::{nexus_create, nexus_lookup},
+    bdev::{nexus_create, nexus_lookup, NexusStatus},
     core::MayastorCliArgs,
+    subsys::{Config, NvmeBdevOpts},
 };
-use rpc::mayastor::{BdevShareRequest, BdevUri, Null};
+use rpc::mayastor::{BdevShareRequest, BdevUri, Null, ShareProtocolNexus};
+use std::process::{Command, Stdio};
 use tokio::time::Duration;
 
 pub mod common;
 static NXNAME: &str = "nexus";
 
-#[ignore]
 #[tokio::test]
 async fn replica_stop_cont() {
+    // Use shorter timeouts than the defaults to reduce test runtime
+    Config::get_or_init(|| Config {
+        nvme_bdev_opts: NvmeBdevOpts {
+            timeout_us: 5_000_000,
+            keep_alive_timeout_ms: 5_000,
+            retry_count: 2,
+            ..Default::default()
+        },
+        ..Default::default()
+    })
+    .apply();
     let test = Builder::new()
         .name("cargo-test")
         .network("10.1.0.0/16")
-        .add_container("ms2")
         .add_container("ms1")
         .with_clean(true)
         .build()
@@ -47,27 +56,25 @@ async fn replica_stop_cont() {
 
     let mayastor = MayastorTest::new(MayastorCliArgs::default());
 
+    // create a nexus with the remote replica as its child
     mayastor
         .spawn(async move {
             nexus_create(
                 NXNAME,
                 1024 * 1024 * 50,
                 None,
-                &[
-                    format!(
-                        "nvmf://{}:8420/nqn.2019-05.io.openebs:disk0",
-                        hdls[0].endpoint.ip()
-                    ),
-                    format!(
-                        "nvmf://{}:8420/nqn.2019-05.io.openebs:disk0",
-                        hdls[1].endpoint.ip()
-                    ),
-                ],
+                &[format!(
+                    "nvmf://{}:8420/nqn.2019-05.io.openebs:disk0",
+                    hdls[0].endpoint.ip()
+                )],
             )
             .await
             .unwrap();
-            bdev_io::write_some(NXNAME, 0, 0xff).await.unwrap();
-            bdev_io::read_some(NXNAME, 0, 0xff).await.unwrap();
+            nexus_lookup(&NXNAME)
+                .unwrap()
+                .share(ShareProtocolNexus::NexusNvmf, None)
+                .await
+                .expect("should publish nexus over nvmf");
         })
         .await;
 
@@ -78,25 +85,49 @@ async fn replica_stop_cont() {
         println!("waiting for the container to be fully suspended... {}/5", i);
     }
 
-    mayastor.send(async {
-        // we do not determine if the IO completed with an error or not just
-        // that it completes.
-        let _ = dbg!(bdev_io::read_some(NXNAME, 0, 0xff).await);
-        let _ = dbg!(bdev_io::read_some(NXNAME, 0, 0xff).await);
-    });
+    // initiate the read and leave it in the background to time out
+    let nxuri =
+        format!("nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:{}", NXNAME);
+    Command::new("../target/debug/initiator")
+        .args(&[&nxuri, "read", "/tmp/tmpread"])
+        .stdout(Stdio::piped())
+        .spawn()
+        .expect("should send read from initiator");
 
     println!("IO submitted unfreezing container...");
 
-    for i in 1 .. 6 {
+    // KATO is 5s, wait at least that long
+    let n = 10;
+    for i in 1 ..= n {
         ticker.tick().await;
-        println!("unfreeze delay... {}/5", i);
+        println!("unfreeze delay... {}/{}", i, n);
     }
     test.thaw("ms1").await.unwrap();
     println!("container thawed");
+
+    // Wait for faulting to complete first
+    ticker.tick().await;
+
+    // with no child to send read to, io should still complete as failed
+    let status = Command::new("../target/debug/initiator")
+        .args(&[&nxuri, "read", "/tmp/tmpread"])
+        .stdout(Stdio::piped())
+        .status()
+        .expect("should send read from initiator");
+    assert!(!status.success());
+
+    // unshare the nexus while its status is faulted
     mayastor
-        .spawn(async {
-            let nexus = nexus_lookup(NXNAME).unwrap();
-            nexus.destroy().await.unwrap();
+        .spawn(async move {
+            assert_eq!(
+                nexus_lookup(&NXNAME).unwrap().status(),
+                NexusStatus::Faulted,
+            );
+            nexus_lookup(&NXNAME)
+                .unwrap()
+                .unshare_nexus()
+                .await
+                .expect("should unpublish nexus");
         })
         .await;
 }

@@ -27,7 +27,7 @@ be mounted at /workspace from the host.
 There are two components in mayastor project that are written in JS:
 
 * moac
-* mayastor-test
+* test/grpc
 
 For both of them the same vscode configuration applies. We will be using
 [standardjs vscode plugin](https://marketplace.visualstudio.com/items?itemName=chenxsan.vscode-standardjs).
@@ -45,7 +45,7 @@ used to configure the plugin:
     "standard.semistandard": true,
     "standard.workingDirectories": [
         "csi/moac",
-        "mayastor-test"
+        "test/grpc"
     ]
 }
 ```

@@ -15,7 +15,7 @@
   "scripts": {
     "prepare": "./bundle_protos.sh",
     "clean": "rm -f replica.js pool.js nexus.js",
-    "purge": "rm -rf node_modules proto replica.js pool.js nexus.js watcher.js node_operator.js pool_operator.js volume_operator.js",
+    "purge": "rm -rf node_modules proto node.js replica.js pool.js nexus.js watcher.js node_operator.js pool_operator.js volume.js volumes.js volume_operator.js *.js.map",
     "compile": "tsc --pretty",
     "start": "./index.js",
     "test": "mocha test/index.js",
@@ -26,10 +26,10 @@
   "dependencies": {
     "@grpc/proto-loader": "^0.5.5",
     "@types/lodash": "^4.14.161",
-    "client-node-fixed-watcher": "^0.13.2",
+    "client-node-fixed-watcher": "^0.13.4",
     "express": "^4.17.1",
     "grpc-promise": "^1.4.0",
-    "grpc-uds": "^0.1.4",
+    "grpc-uds": "^0.1.6",
     "js-yaml": "^3.14.0",
     "lodash": "^4.17.20",
     "nats": "^2.0.0-27",

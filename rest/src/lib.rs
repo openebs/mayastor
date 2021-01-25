@@ -14,7 +14,8 @@
 /// expose different versions of the client
 pub mod versions;
 
-use actix_web::client::Client;
+use actix_web::{body::Body, client::Client};
+use actix_web_opentelemetry::ClientExt;
 use serde::Deserialize;
 use std::{io::BufReader, string::ToString};
 
@@ -23,11 +24,12 @@ use std::{io::BufReader, string::ToString};
 pub struct ActixRestClient {
     client: actix_web::client::Client,
     url: String,
+    trace: bool,
 }
 
 impl ActixRestClient {
     /// creates a new client which uses the specified `url`
-    pub fn new(url: &str) -> anyhow::Result<Self> {
+    pub fn new(url: &str, trace: bool) -> anyhow::Result<Self> {
         let cert_file = &mut BufReader::new(
             &std::include_bytes!("../certs/rsa/ca.cert")[..],
         );
@@ -45,21 +47,90 @@ impl ActixRestClient {
         Ok(Self {
             client: rest_client,
             url: url.to_string(),
+            trace,
         })
     }
-    async fn get<R, Y>(&self, urn: String, _: fn(R) -> Y) -> anyhow::Result<R>
+    async fn get_vec<R>(&self, urn: String) -> anyhow::Result<Vec<R>>
     where
         for<'de> R: Deserialize<'de>,
     {
         let uri = format!("{}{}", self.url, urn);
 
-        let mut rest_response =
-            self.client.get(uri).send().await.map_err(|error| {
-                anyhow::anyhow!(
-                    "Failed to get nodes from rest, err={:?}",
-                    error
-                )
-            })?;
+        let result = if self.trace {
+            self.client.get(uri.clone()).trace_request().send().await
+        } else {
+            self.client.get(uri.clone()).send().await
+        };
+
+        let mut rest_response = result.map_err(|error| {
+            anyhow::anyhow!(
+                "Failed to get uri '{}' from rest, err={:?}",
+                uri,
+                error
+            )
+        })?;
+
+        let rest_body = rest_response.body().await?;
+        match serde_json::from_slice(&rest_body) {
+            Ok(result) => Ok(result),
+            Err(_) => Ok(vec![serde_json::from_slice::<R>(&rest_body)?]),
+        }
+    }
+    async fn put<R, B: Into<Body>>(
+        &self,
+        urn: String,
+        body: B,
+    ) -> anyhow::Result<R>
+    where
+        for<'de> R: Deserialize<'de>,
+    {
+        let uri = format!("{}{}", self.url, urn);
+
+        let result = if self.trace {
+            self.client
+                .put(uri.clone())
+                .content_type("application/json")
+                .trace_request()
+                .send_body(body)
+                .await
+        } else {
+            self.client
+                .put(uri.clone())
+                .content_type("application/json")
+                .send_body(body)
+                .await
+        };
+
+        let mut rest_response = result.map_err(|error| {
+            anyhow::anyhow!(
+                "Failed to put uri '{}' from rest, err={:?}",
+                uri,
+                error
+            )
+        })?;
+
+        let rest_body = rest_response.body().await?;
+        Ok(serde_json::from_slice::<R>(&rest_body)?)
+    }
+    async fn del<R>(&self, urn: String) -> anyhow::Result<R>
+    where
+        for<'de> R: Deserialize<'de>,
+    {
+        let uri = format!("{}{}", self.url, urn);
+
+        let result = if self.trace {
+            self.client.delete(uri.clone()).trace_request().send().await
+        } else {
+            self.client.delete(uri.clone()).send().await
+        };
+
+        let mut rest_response = result.map_err(|error| {
+            anyhow::anyhow!(
+                "Failed to delete uri '{}' from rest, err={:?}",
+                uri,
+                error
+            )
+        })?;
 
         let rest_body = rest_response.body().await?;
         Ok(serde_json::from_slice::<R>(&rest_body)?)

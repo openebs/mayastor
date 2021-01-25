@@ -5,7 +5,7 @@
 const _ = require('lodash');
 const expect = require('chai').expect;
 const sinon = require('sinon');
-const Node = require('../node');
+const { Node } = require('../node');
 const { Pool } = require('../pool');
 const { Replica } = require('../replica');
 const { shouldFailWith } = require('./utils');
@@ -21,7 +21,7 @@ module.exports = function () {
   };
 
   describe('should emit event upon change of volatile property', () => {
-    var node, eventSpy, pool, newProps;
+    let node, eventSpy, pool, newProps;
 
     beforeEach(() => {
       node = new Node('node');
@@ -215,20 +215,6 @@ module.exports = function () {
       eventType: 'del',
       object: pool
     });
-  });
-
-  it('should ignore NOT_FOUND error when destroying the pool', async () => {
-    const node = new Node('node');
-    const stub = sinon.stub(node, 'call');
-    stub.rejects({ code: 5 });
-    const pool = new Pool(props);
-    node._registerPool(pool);
-
-    await pool.destroy();
-
-    sinon.assert.calledOnce(stub);
-    sinon.assert.calledWithMatch(stub, 'destroyPool', { name: 'pool' });
-    expect(node.pools).to.be.empty();
   });
 
   it('should offline the pool with replica', () => {

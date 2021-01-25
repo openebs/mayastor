@@ -1,0 +1,84 @@
+---
+kind: Deployment
+apiVersion: apps/v1
+metadata:
+  name: moac
+  namespace: mayastor
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: moac
+  template:
+    metadata:
+      labels:
+        app: moac
+    spec:
+      serviceAccount: moac
+      containers:
+        - name: csi-provisioner
+          image: quay.io/k8scsi/csi-provisioner:v1.6.0
+          args:
+            - "--v=2"
+            - "--csi-address=$(ADDRESS)"
+            - "--feature-gates=Topology=true"
+          env:
+            - name: ADDRESS
+              value: /var/lib/csi/sockets/pluginproxy/csi.sock
+          imagePullPolicy: "IfNotPresent"
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /var/lib/csi/sockets/pluginproxy/
+
+        - name: csi-attacher
+          image: quay.io/k8scsi/csi-attacher:v2.2.0
+          args:
+            - "--v=2"
+            - "--csi-address=$(ADDRESS)"
+          env:
+            - name: ADDRESS
+              value: /var/lib/csi/sockets/pluginproxy/csi.sock
+          imagePullPolicy: "IfNotPresent"
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /var/lib/csi/sockets/pluginproxy/
+
+        - name: moac
+          image: {{ include "mayastorImagesPrefix" . }}mayadata/moac:{{ .Values.mayastorImagesTag }}
+          imagePullPolicy: Always
+          args:
+            - "--csi-address=$(CSI_ENDPOINT)"
+            - "--namespace=$(MY_POD_NAMESPACE)"
+            - "--port=4000"
+            - "--message-bus=nats"
+            - "-v"
+          env:
+            - name: CSI_ENDPOINT
+              value: /var/lib/csi/sockets/pluginproxy/csi.sock
+            - name: MY_POD_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+          volumeMounts:
+            - name: socket-dir
+              mountPath: /var/lib/csi/sockets/pluginproxy/
+          ports:
+            - containerPort: 4000
+              protocol: TCP
+              name: "rest-api"
+      volumes:
+        - name: socket-dir
+          emptyDir:
+---
+kind: Service
+apiVersion: v1
+metadata:
+  name: moac
+  namespace: mayastor
+spec:
+  selector:
+    app: moac
+  ports:
+  - protocol: TCP
+    port: 4000
+    targetPort: 4000

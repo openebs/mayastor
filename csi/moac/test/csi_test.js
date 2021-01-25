@@ -10,8 +10,8 @@ const sinon = require('sinon');
 const { CsiServer, csi } = require('../csi');
 const { GrpcError, GrpcCode } = require('../grpc_client');
 const Registry = require('../registry');
-const Volume = require('../volume');
-const Volumes = require('../volumes');
+const { Volume } = require('../volume');
+const { Volumes } = require('../volumes');
 const { shouldFailWith } = require('./utils');
 
 const SOCKPATH = '/tmp/csi_controller_test.sock';
@@ -28,7 +28,7 @@ function getCsiClient (svc) {
 module.exports = function () {
   it('should start even if there is stale socket file', async () => {
     await fs.writeFile(SOCKPATH, 'blabla');
-    var server = new CsiServer(SOCKPATH);
+    const server = new CsiServer(SOCKPATH);
     await server.start();
     await server.stop();
     try {
@@ -43,8 +43,8 @@ module.exports = function () {
   });
 
   describe('identity', function () {
-    var server;
-    var client;
+    let server;
+    let client;
 
     // create csi server and client
     before(async () => {
@@ -95,18 +95,19 @@ module.exports = function () {
   });
 
   describe('controller', function () {
-    var client;
-    var registry, volumes;
-    var getCapacityStub, createVolumeStub, getVolumesStub, destroyVolumeStub;
+    let client;
+    let registry, volumes;
+    let getCapacityStub, createVolumeStub, listVolumesStub, getVolumesStub, destroyVolumeStub;
 
     async function mockedServer (pools, replicas, nexus) {
-      var server = new CsiServer(SOCKPATH);
+      const server = new CsiServer(SOCKPATH);
       await server.start();
       registry = new Registry();
       volumes = new Volumes(registry);
       server.makeReady(registry, volumes);
       getCapacityStub = sinon.stub(registry, 'getCapacity');
       createVolumeStub = sinon.stub(volumes, 'createVolume');
+      listVolumesStub = sinon.stub(volumes, 'list');
       getVolumesStub = sinon.stub(volumes, 'get');
       destroyVolumeStub = sinon.stub(volumes, 'destroyVolume');
       return server;
@@ -125,7 +126,7 @@ module.exports = function () {
     });
 
     describe('generic', function () {
-      var server;
+      let server;
 
       afterEach(async () => {
         if (server) {
@@ -192,10 +193,10 @@ module.exports = function () {
     });
 
     describe('CreateVolume', function () {
-      var server;
+      let server;
       // place-holder for return value from createVolume when we don't care
       // about the data (i.e. when testing error cases).
-      var returnedVolume = new Volume(UUID, registry, {
+      const returnedVolume = new Volume(UUID, registry, () => {}, {
         replicaCount: 1,
         preferredNodes: [],
         requiredNodes: [],
@@ -219,7 +220,7 @@ module.exports = function () {
 
       it('should create a volume and return parameters in volume context', async () => {
         createVolumeStub.resolves(returnedVolume);
-        var parameters = { protocol: 'iscsi', repl: 3, blah: 'again' };
+        const parameters = { protocol: 'iscsi', repl: 3, blah: 'again' };
         const result = await client.createVolume().sendMessage({
           name: 'pvc-' + UUID,
           capacityRange: {
@@ -235,7 +236,7 @@ module.exports = function () {
           parameters: parameters
         });
         // volume context is a of type map<string><string>
-        var expected = {};
+        const expected = {};
         for (const key in parameters) {
           expected[key] = parameters[key].toString();
         }
@@ -247,7 +248,7 @@ module.exports = function () {
 
       it('should create a volume that can be accessed only locally', async () => {
         createVolumeStub.resolves(returnedVolume);
-        var parameters = { protocol: 'nbd', repl: 3, blah: 'again' };
+        const parameters = { protocol: 'nbd', repl: 3, blah: 'again' };
         const result = await client.createVolume().sendMessage({
           name: 'pvc-' + UUID,
           capacityRange: {
@@ -491,7 +492,7 @@ module.exports = function () {
     });
 
     describe('DeleteVolume', function () {
-      var server;
+      let server;
 
       beforeEach(async () => {
         server = await mockedServer();
@@ -527,16 +528,20 @@ module.exports = function () {
     });
 
     describe('ListVolumes', function () {
-      var server;
+      let server;
       // uuid except the last two digits
-      var uuidBase = '4334cc8a-2fed-45ed-866f-3716639db5';
+      const uuidBase = '4334cc8a-2fed-45ed-866f-3716639db5';
 
       // Create army of volumes (100)
       before(async () => {
-        var vols = [];
+        const vols = [];
         for (let i = 0; i < 10; i++) {
           for (let j = 0; j < 10; j++) {
-            const vol = new Volume(uuidBase + i + j, registry, {});
+            const vol = new Volume(uuidBase + i + j, registry, () => {}, {
+              replicaCount: 3,
+              requiredBytes: 100,
+              protocol: 'nbd'
+            });
             const getSizeStub = sinon.stub(vol, 'getSize');
             getSizeStub.returns(100);
             const getNodeName = sinon.stub(vol, 'getNodeName');
@@ -545,7 +550,7 @@ module.exports = function () {
           }
         }
         server = await mockedServer();
-        getVolumesStub.returns(vols);
+        listVolumesStub.returns(vols);
       });
 
       after(async () => {
@@ -603,7 +608,7 @@ module.exports = function () {
     });
 
     describe('ControllerPublishVolume', function () {
-      var server;
+      let server;
 
       before(async () => {
         server = await mockedServer();
@@ -621,7 +626,7 @@ module.exports = function () {
       });
 
       it('should publish volume', async () => {
-        const volume = new Volume(UUID, registry, {});
+        const volume = new Volume(UUID, registry, () => {}, {});
         const publishStub = sinon.stub(volume, 'publish');
         publishStub.resolves('/dev/sdb');
         const getNodeNameStub = sinon.stub(volume, 'getNodeName');
@@ -671,7 +676,7 @@ module.exports = function () {
       });
 
       it('should not publish volume over nbd on a different node', async () => {
-        const volume = new Volume(UUID, registry, {});
+        const volume = new Volume(UUID, registry, () => {}, {});
         const publishStub = sinon.stub(volume, 'publish');
         publishStub.resolves();
         const getNodeNameStub = sinon.stub(volume, 'getNodeName');
@@ -699,7 +704,7 @@ module.exports = function () {
       });
 
       it('should not publish readonly volume', async () => {
-        const volume = new Volume(UUID, registry, {});
+        const volume = new Volume(UUID, registry, () => {}, {});
         const publishStub = sinon.stub(volume, 'publish');
         publishStub.resolves();
         const getNodeNameStub = sinon.stub(volume, 'getNodeName');
@@ -724,7 +729,7 @@ module.exports = function () {
       });
 
       it('should not publish volume with unsupported capability', async () => {
-        const volume = new Volume(UUID, registry, {});
+        const volume = new Volume(UUID, registry, () => {}, {});
         const publishStub = sinon.stub(volume, 'publish');
         publishStub.resolves();
         const getNodeNameStub = sinon.stub(volume, 'getNodeName');
@@ -749,7 +754,7 @@ module.exports = function () {
       });
 
       it('should not publish volume on node with invalid ID', async () => {
-        const volume = new Volume(UUID, registry, {});
+        const volume = new Volume(UUID, registry, () => {}, {});
         const publishStub = sinon.stub(volume, 'publish');
         publishStub.resolves();
         const getNodeNameStub = sinon.stub(volume, 'getNodeName');
@@ -774,7 +779,7 @@ module.exports = function () {
       });
 
       it('should not publish volume if share protocol is not specified', async () => {
-        const volume = new Volume(UUID, registry, {});
+        const volume = new Volume(UUID, registry, () => {}, {});
         const publishStub = sinon.stub(volume, 'publish');
         publishStub.resolves();
         const getNodeNameStub = sinon.stub(volume, 'getNodeName');
@@ -799,7 +804,7 @@ module.exports = function () {
     });
 
     describe('ControllerUnpublishVolume', function () {
-      var server;
+      let server;
 
       before(async () => {
         server = await mockedServer();
@@ -828,7 +833,7 @@ module.exports = function () {
       });
 
       it('should not unpublish volume on pool with invalid ID', async () => {
-        const volume = new Volume(UUID, registry, {});
+        const volume = new Volume(UUID, registry, () => {}, {});
         const unpublishStub = sinon.stub(volume, 'unpublish');
         unpublishStub.resolves();
         const getNodeNameStub = sinon.stub(volume, 'getNodeName');
@@ -844,7 +849,7 @@ module.exports = function () {
       });
 
       it('should unpublish volume', async () => {
-        const volume = new Volume(UUID, registry, {});
+        const volume = new Volume(UUID, registry, () => {}, {});
         const unpublishStub = sinon.stub(volume, 'unpublish');
         unpublishStub.resolves();
         const getNodeNameStub = sinon.stub(volume, 'getNodeName');
@@ -862,7 +867,7 @@ module.exports = function () {
       });
 
       it('should unpublish volume even if on a different node', async () => {
-        const volume = new Volume(UUID, registry, {});
+        const volume = new Volume(UUID, registry, () => {}, {});
         const unpublishStub = sinon.stub(volume, 'unpublish');
         unpublishStub.resolves();
         const getNodeNameStub = sinon.stub(volume, 'getNodeName');
@@ -881,7 +886,7 @@ module.exports = function () {
     });
 
     describe('ValidateVolumeCapabilities', function () {
-      var server;
+      let server;
 
       before(async () => {
         server = await mockedServer();
@@ -895,16 +900,16 @@ module.exports = function () {
       });
 
       it('should report SINGLE_NODE_WRITER cap as valid', async () => {
-        var volume = new Volume(UUID, registry, {});
+        const volume = new Volume(UUID, registry, () => {}, {});
         getVolumesStub.returns(volume);
-        var caps = [
+        const caps = [
           'SINGLE_NODE_WRITER',
           'SINGLE_NODE_READER_ONLY',
           'MULTI_NODE_READER_ONLY',
           'MULTI_NODE_SINGLE_WRITER',
           'MULTI_NODE_MULTI_WRITER'
         ];
-        var resp = await client.validateVolumeCapabilities().sendMessage({
+        const resp = await client.validateVolumeCapabilities().sendMessage({
           volumeId: UUID,
           volumeCapabilities: caps.map((c) => {
             return {
@@ -921,15 +926,15 @@ module.exports = function () {
       });
 
       it('should report other caps than SINGLE_NODE_WRITER as invalid', async () => {
-        var volume = new Volume(UUID, registry, {});
+        const volume = new Volume(UUID, registry, () => {}, {});
         getVolumesStub.returns(volume);
-        var caps = [
+        const caps = [
           'SINGLE_NODE_READER_ONLY',
           'MULTI_NODE_READER_ONLY',
           'MULTI_NODE_SINGLE_WRITER',
           'MULTI_NODE_MULTI_WRITER'
         ];
-        var resp = await client.validateVolumeCapabilities().sendMessage({
+        const resp = await client.validateVolumeCapabilities().sendMessage({
           volumeId: UUID,
           volumeCapabilities: caps.map((c) => {
             return {
@@ -959,7 +964,7 @@ module.exports = function () {
     });
 
     describe('GetCapacity', function () {
-      var server;
+      let server;
 
       before(async () => {
         server = await mockedServer();
@@ -978,7 +983,7 @@ module.exports = function () {
 
       it('should get capacity of a single node with multiple pools', async () => {
         getCapacityStub.returns(75);
-        var resp = await client.getCapacity().sendMessage({
+        const resp = await client.getCapacity().sendMessage({
           accessibleTopology: {
             segments: {
               'kubernetes.io/hostname': 'node1'
@@ -992,7 +997,7 @@ module.exports = function () {
 
       it('should get capacity of all pools on all nodes', async () => {
         getCapacityStub.returns(80);
-        var resp = await client.getCapacity().sendMessage({});
+        const resp = await client.getCapacity().sendMessage({});
         expect(resp.availableCapacity).to.equal(80);
         sinon.assert.calledOnce(getCapacityStub);
         sinon.assert.calledWith(getCapacityStub, undefined);

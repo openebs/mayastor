@@ -337,10 +337,18 @@ impl Bio {
                     nexus.pause().await.unwrap();
                     nexus.reconfigure(DREvent::ChildFault).await;
                     //nexus.remove_child(&uri).await.unwrap();
-                    bdev_destroy(&uri).await.unwrap();
-                    if nexus.status() != NexusStatus::Faulted {
-                        nexus.resume().await.unwrap();
-                    } else {
+
+                    // Note, an error can occur here if a separate task,
+                    // e.g. grpc request is also deleting the child,
+                    // in which case the bdev may no longer exist at
+                    // this point. To be addressed by CAS-632 to
+                    // improve synchronization.
+                    if let Err(err) = bdev_destroy(&uri).await {
+                        error!("{} destroying bdev {}", err, uri)
+                    }
+
+                    nexus.resume().await.unwrap();
+                    if nexus.status() == NexusStatus::Faulted {
                         error!(":{} has no children left... ", nexus);
                     }
                 }

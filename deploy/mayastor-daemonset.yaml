@@ -1,3 +1,5 @@
+---
+# Source: mayastor/templates/mayastor-daemonset.yaml
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
@@ -31,7 +33,7 @@ spec:
         command: ['sh', '-c', 'until nc -vz nats 4222; do echo "Waiting for message bus..."; sleep 1; done;']
       containers:
       - name: mayastor
-        image: mayadata/mayastor:v0.6.0
+        image: mayadata/mayastor:v0.7.0
         imagePullPolicy: Always
         env:
         - name: MY_NODE_NAME
@@ -65,6 +67,8 @@ spec:
         volumeMounts:
         - name: device
           mountPath: /dev
+        - name: udev
+          mountPath: /run/udev
         - name: dshm
           mountPath: /dev/shm
         - name: configlocation
@@ -77,11 +81,11 @@ spec:
           # pressure unless they exceed those limits. limits and requests must be the same.
           limits:
             cpu: "2"
-            memory: "500Mi"
+            memory: "512Mi"
             hugepages-2Mi: "1Gi"
           requests:
             cpu: "2"
-            memory: "500Mi"
+            memory: "512Mi"
             hugepages-2Mi: "1Gi"
         ports:
         - containerPort: 10124
@@ -91,6 +95,10 @@ spec:
       - name: device
         hostPath:
           path: /dev
+          type: Directory
+      - name: udev
+        hostPath:
+          path: /run/udev
           type: Directory
       - name: dshm
         emptyDir:

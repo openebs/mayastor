@@ -53,6 +53,7 @@ use crate::{
             NexusOpts,
             NvmeBdevOpts,
             NvmfTgtConfig,
+            PosixSocketOpts,
         },
         NvmfSubsystem,
     },
@@ -169,6 +170,7 @@ pub struct Config {
     pub implicit_share_base: bool,
     /// flag to enable or disable config sync
     pub sync_disable: bool,
+    pub socket_opts: PosixSocketOpts,
 }
 
 impl Default for Config {
@@ -186,6 +188,7 @@ impl Default for Config {
             pools: None,
             implicit_share_base: false,
             sync_disable: false,
+            socket_opts: Default::default(),
         }
     }
 }
@@ -258,6 +261,7 @@ impl Config {
             implicit_share_base: self.implicit_share_base,
             err_store_opts: self.err_store_opts.get(),
             sync_disable: self.sync_disable,
+            socket_opts: self.socket_opts.get(),
         };
 
         // collect nexus bdevs and insert them into the config
@@ -348,14 +352,20 @@ impl Config {
     }
 
     /// apply the hybrid configuration that is loaded from YAML. Hybrid in the
-    /// sense that options not defined, will default to values defined by the
-    /// default trait for that structure.
+    /// sense that options not defined, will default to the impl of Default.
+    ///
+    /// Note; for nvmf there is no set/get option. This is because the way
+    /// transports are constructed. The target accepts an opt parameter, thus
+    /// it does not consult a global (mutable) data structure
     pub fn apply(&self) {
         info!("Applying Mayastor configuration settings");
-        // note: nvmf target does not have a set method
+        assert_eq!(self.socket_opts.set(), true);
         assert_eq!(self.nvme_bdev_opts.set(), true);
-        self.bdev_opts.set();
+        assert_eq!(self.bdev_opts.set(), true);
+
+        // no way to validate this
         self.iscsi_tgt_conf.set();
+        debug!("{:#?}", self);
     }
 
     /// create any nexus bdevs any failure will be logged, but we will silently

@@ -26,8 +26,11 @@ mkShell {
     cowsay
     e2fsprogs
     fio
+    envsubst # for e2e tests
     gdb
+    go
     gptfdisk
+    kubernetes-helm
     libaio
     libiscsi
     libiscsi.bin
@@ -66,6 +69,6 @@ mkShell {
     ${pkgs.lib.optionalString (norust) "cowsay ${norust_moth}"}
     ${pkgs.lib.optionalString (norust) "echo 'Hint: use rustup tool.'"}
     ${pkgs.lib.optionalString (norust) "echo"}
-    pre-commit install
+    pre-commit install --hook commit-msg
   '';
 }

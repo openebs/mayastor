@@ -31,10 +31,15 @@ pub fn mbus_endpoint(endpoint: Option<String>) -> Option<String> {
                 (endpoint.as_str(), 4222)
             };
 
+            debug!("Looking up nats endpoint {}...", address_or_ip);
             if let Ok(ipv4) = address_or_ip.parse::<Ipv4Addr>() {
-                lookup_addr(&IpAddr::V4(ipv4)).expect("Invalid Ipv4 Address");
+                let nats = lookup_addr(&IpAddr::V4(ipv4))
+                    .expect("Invalid Ipv4 Address");
+                debug!("Nats endpoint found at {}", nats);
             } else {
-                lookup_host(&address_or_ip).expect("Invalid Host Name");
+                let nats =
+                    lookup_host(&address_or_ip).expect("Invalid Host Name");
+                debug!("Nats endpoint found at {:?}", nats);
             }
 
             Some(format!("{}:{}", address_or_ip, port))

@@ -63,10 +63,13 @@
   "files": [
     "watcher.ts",
     "nexus.ts",
+    "node.ts",
     "node_operator.ts",
     "replica.ts",
     "pool.ts",
     "pool_operator.ts",
+    "volume.ts",
+    "volumes.ts",
     "volume_operator.ts",
   ]
 }

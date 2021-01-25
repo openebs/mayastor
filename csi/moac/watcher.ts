@@ -240,7 +240,7 @@ export class CustomResourceCache<T> extends EventEmitter {
       log.error(`Ignoring event ${event} with object without a name`);
       return;
     }
-    log.trace(`Received watcher event ${event} for ${this.name} "${name}"`);
+    log.trace(`Received watcher event ${event} for ${this.name} "${name}": ${JSON.stringify(cr)}`);
     this._setIdleTimeout();
     let confirmOp = this.waiting[name];
     if (confirmOp) {
@@ -273,7 +273,7 @@ export class CustomResourceCache<T> extends EventEmitter {
     return this.listWatch.start()
       .then(() => {
         this.connected = true;
-        log.debug(`${this.name} watcher was started`);
+        log.debug(`${this.name} watcher with ${this.listWatch.list().length} objects was started`);
         log.trace(`Initial content of the "${this.name}" cache: ` +
           this.listWatch.list().map((i: CustomResource) => i.metadata?.name));
         this._setIdleTimeout();
@@ -500,7 +500,7 @@ export class CustomResourceCache<T> extends EventEmitter {
       name,
       async () => {
         try {
-          this.k8sApi.deleteNamespacedCustomObject(
+          await this.k8sApi.deleteNamespacedCustomObject(
             GROUP,
             VERSION,
             this.namespace,
