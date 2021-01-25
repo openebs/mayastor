@@ -21,6 +21,8 @@ strum_macros = "0.19"
 tracing = "0.1"
 tracing-futures = "0.2.4"
 tracing-subscriber = "0.2.0"
+paperclip = { version = "0.5.0", features = ["actix3"] }
+percent-encoding = "2.1.0"
 
 [dev-dependencies]
 composer = { path = "../composer" }

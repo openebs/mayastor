@@ -1,43 +1,40 @@
 use super::*;
 
-struct Factory {}
-impl HttpServiceFactory for Factory {
-    fn register(self, config: &mut AppService) {
-        get_nexus_children.register(config);
-        get_nexus_child.register(config);
-        get_node_nexus_children.register(config);
-        get_node_nexus_child.register(config);
-        add_nexus_child.register(config);
-        add_node_nexus_child.register(config);
-        delete_nexus_child.register(config);
-        delete_node_nexus_child.register(config);
-    }
-}
-pub(crate) fn factory() -> impl HttpServiceFactory {
-    Factory {}
+pub(crate) fn configure(cfg: &mut paperclip::actix::web::ServiceConfig) {
+    cfg.service(get_nexus_children)
+        .service(get_nexus_child)
+        .service(get_node_nexus_children)
+        .service(get_node_nexus_child)
+        .service(add_nexus_child)
+        .service(add_node_nexus_child)
+        .service(delete_nexus_child)
+        .service(delete_node_nexus_child);
 }
 
-#[get("/v0/nexuses/{nexus_id}/children")]
+#[get("/v0/nexuses/{nexus_id}/children", tags(Children))]
 async fn get_nexus_children(
     web::Path(nexus_id): web::Path<NexusId>,
-) -> impl Responder {
+) -> Result<web::Json<Vec<Child>>, RestError> {
     get_children_response(Filter::Nexus(nexus_id)).await
 }
-#[get("/v0/nodes/{node_id}/nexuses/{nexus_id}/children")]
+#[get("/v0/nodes/{node_id}/nexuses/{nexus_id}/children", tags(Children))]
 async fn get_node_nexus_children(
     web::Path((node_id, nexus_id)): web::Path<(NodeId, NexusId)>,
-) -> impl Responder {
+) -> Result<web::Json<Vec<Child>>, RestError> {
     get_children_response(Filter::NodeNexus(node_id, nexus_id)).await
 }
 
-#[get("/v0/nexuses/{nexus_id}/children/{child_id:.*}")]
+#[get("/v0/nexuses/{nexus_id}/children/{child_id:.*}", tags(Children))]
 async fn get_nexus_child(
     web::Path((nexus_id, child_id)): web::Path<(NexusId, ChildUri)>,
     req: HttpRequest,
-) -> impl Responder {
+) -> Result<web::Json<Child>, RestError> {
     get_child_response(child_id, req, Filter::Nexus(nexus_id)).await
 }
-#[get("/v0/nodes/{node_id}/nexuses/{nexus_id}/children/{child_id:.*}")]
+#[get(
+    "/v0/nodes/{node_id}/nexuses/{nexus_id}/children/{child_id:.*}",
+    tags(Children)
+)]
 async fn get_node_nexus_child(
     web::Path((node_id, nexus_id, child_id)): web::Path<(
         NodeId,
@@ -45,19 +42,22 @@ async fn get_node_nexus_child(
         ChildUri,
     )>,
     req: HttpRequest,
-) -> impl Responder {
+) -> Result<web::Json<Child>, RestError> {
     get_child_response(child_id, req, Filter::NodeNexus(node_id, nexus_id))
         .await
 }
 
-#[put("/v0/nexuses/{nexus_id}/children/{child_id:.*}")]
+#[put("/v0/nexuses/{nexus_id}/children/{child_id:.*}", tags(Children))]
 async fn add_nexus_child(
     web::Path((nexus_id, child_id)): web::Path<(NexusId, ChildUri)>,
     req: HttpRequest,
-) -> impl Responder {
+) -> Result<web::Json<Child>, RestError> {
     add_child_filtered(child_id, req, Filter::Nexus(nexus_id)).await
 }
-#[put("/v0/nodes/{node_id}/nexuses/{nexus_id}/children/{child_id:.*}")]
+#[put(
+    "/v0/nodes/{node_id}/nexuses/{nexus_id}/children/{child_id:.*}",
+    tags(Children)
+)]
 async fn add_node_nexus_child(
     web::Path((node_id, nexus_id, child_id)): web::Path<(
         NodeId,
@@ -65,19 +65,22 @@ async fn add_node_nexus_child(
         ChildUri,
     )>,
     req: HttpRequest,
-) -> impl Responder {
+) -> Result<web::Json<Child>, RestError> {
     add_child_filtered(child_id, req, Filter::NodeNexus(node_id, nexus_id))
         .await
 }
 
-#[delete("/v0/nexuses/{nexus_id}/children/{child_id:.*}")]
+#[delete("/v0/nexuses/{nexus_id}/children/{child_id:.*}", tags(Children))]
 async fn delete_nexus_child(
     web::Path((nexus_id, child_id)): web::Path<(NexusId, ChildUri)>,
     req: HttpRequest,
-) -> impl Responder {
+) -> Result<web::Json<()>, RestError> {
     delete_child_filtered(child_id, req, Filter::Nexus(nexus_id)).await
 }
-#[delete("/v0/nodes/{node_id}/nexuses/{nexus_id}/children/{child_id:.*}")]
+#[delete(
+    "/v0/nodes/{node_id}/nexuses/{nexus_id}/children/{child_id:.*}",
+    tags(Children)
+)]
 async fn delete_node_nexus_child(
     web::Path((node_id, nexus_id, child_id)): web::Path<(
         NodeId,
@@ -85,14 +88,14 @@ async fn delete_node_nexus_child(
         ChildUri,
     )>,
     req: HttpRequest,
-) -> impl Responder {
+) -> Result<web::Json<()>, RestError> {
     delete_child_filtered(child_id, req, Filter::NodeNexus(node_id, nexus_id))
         .await
 }
 
 async fn get_children_response(
     filter: Filter,
-) -> Result<HttpResponse, RestError> {
+) -> Result<web::Json<Vec<Child>>, RestError> {
     let nexus = MessageBus::get_nexus(filter).await?;
     RestRespond::ok(nexus.children)
 }
@@ -101,7 +104,7 @@ async fn get_child_response(
     child_id: ChildUri,
     req: HttpRequest,
     filter: Filter,
-) -> Result<HttpResponse, RestError> {
+) -> Result<web::Json<Child>, RestError> {
     let child_id = build_child_uri(child_id, req);
     let nexus = MessageBus::get_nexus(filter).await?;
     let child = find_nexus_child(&nexus, &child_id)?;
@@ -123,12 +126,12 @@ async fn add_child_filtered(
     child_id: ChildUri,
     req: HttpRequest,
     filter: Filter,
-) -> impl Responder {
+) -> Result<web::Json<Child>, RestError> {
     let child_uri = build_child_uri(child_id, req);
 
     let nexus = match MessageBus::get_nexus(filter).await {
         Ok(nexus) => nexus,
-        Err(error) => return (RestError::from(error)).into(),
+        Err(error) => return Err(RestError::from(error)),
     };
 
     let create = AddNexusChild {
@@ -144,12 +147,12 @@ async fn delete_child_filtered(
     child_id: ChildUri,
     req: HttpRequest,
     filter: Filter,
-) -> impl Responder {
+) -> Result<web::Json<()>, RestError> {
     let child_uri = build_child_uri(child_id, req);
 
     let nexus = match MessageBus::get_nexus(filter).await {
         Ok(nexus) => nexus,
-        Err(error) => return (RestError::from(error)).into(),
+        Err(error) => return Err(RestError::from(error)),
     };
 
     let destroy = RemoveNexusChild {

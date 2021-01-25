@@ -1,3 +1,4 @@
+#![allow(clippy::field_reassign_with_default)]
 //! Version 0 of the URI's
 //! Ex: /v0/nodes
 
@@ -6,6 +7,7 @@ pub mod nexuses;
 pub mod nodes;
 pub mod pools;
 pub mod replicas;
+pub mod swagger_ui;
 pub mod volumes;
 
 use mbus_api::{
@@ -15,12 +17,8 @@ use mbus_api::{
 use rest_client::versions::v0::*;
 
 use actix_web::{
-    delete,
-    dev::{AppService, HttpServiceFactory},
-    get,
-    put,
-    web,
+    web::{self, Json},
     HttpRequest,
-    HttpResponse,
-    Responder,
 };
+
+use mayastor_macros::actix::{delete, get, put};

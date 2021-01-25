@@ -1,10 +1,18 @@
+#![allow(clippy::field_reassign_with_default)]
 use super::super::ActixRestClient;
-use actix_web::{body::Body, http::StatusCode, HttpResponse, ResponseError};
+use actix_web::{
+    body::Body,
+    http::StatusCode,
+    web::Json,
+    HttpResponse,
+    ResponseError,
+};
 use async_trait::async_trait;
 use mbus_api::{
     message_bus::{v0, v0::BusError},
     ErrorChain,
 };
+use paperclip::actix::Apiv2Schema;
 use serde::{Deserialize, Serialize};
 use std::{
     fmt::{Display, Formatter},
@@ -39,7 +47,7 @@ pub type UnshareReplica = v0::UnshareReplica;
 /// Pool Destroy
 pub type DestroyPool = v0::DestroyPool;
 /// Create Replica Body JSON
-#[derive(Serialize, Deserialize, Default, Debug, Clone)]
+#[derive(Serialize, Deserialize, Default, Debug, Clone, Apiv2Schema)]
 pub struct CreateReplicaBody {
     /// size of the replica in bytes
     pub size: u64,
@@ -49,7 +57,7 @@ pub struct CreateReplicaBody {
     pub share: Protocol,
 }
 /// Create Pool Body JSON
-#[derive(Serialize, Deserialize, Default, Debug, Clone)]
+#[derive(Serialize, Deserialize, Default, Debug, Clone, Apiv2Schema)]
 pub struct CreatePoolBody {
     /// disk device paths or URIs to be claimed by the pool
     pub disks: Vec<String>,
@@ -126,7 +134,7 @@ pub type ShareNexus = v0::ShareNexus;
 pub type UnshareNexus = v0::UnshareNexus;
 
 /// Create Nexus Body JSON
-#[derive(Serialize, Deserialize, Default, Debug, Clone)]
+#[derive(Serialize, Deserialize, Default, Debug, Clone, Apiv2Schema)]
 pub struct CreateNexusBody {
     /// size of the device in bytes
     pub size: u64,
@@ -185,7 +193,7 @@ pub type ChildUri = v0::ChildUri;
 pub type VolumeId = v0::VolumeId;
 
 /// Create Volume Body JSON
-#[derive(Serialize, Deserialize, Default, Debug, Clone)]
+#[derive(Serialize, Deserialize, Default, Debug, Clone, Apiv2Schema)]
 pub struct CreateVolumeBody {
     /// size of the volume in bytes
     pub size: u64,
@@ -195,13 +203,13 @@ pub struct CreateVolumeBody {
     pub replicas: u64,
     /// only these nodes can be used for the replicas
     #[serde(default)]
-    pub allowed_nodes: Vec<NodeId>,
+    pub allowed_nodes: Option<Vec<NodeId>>,
     /// preferred nodes for the replicas
     #[serde(default)]
-    pub preferred_nodes: Vec<NodeId>,
+    pub preferred_nodes: Option<Vec<NodeId>>,
     /// preferred nodes for the nexuses
     #[serde(default)]
-    pub preferred_nexus_nodes: Vec<NodeId>,
+    pub preferred_nexus_nodes: Option<Vec<NodeId>>,
 }
 impl From<CreateVolume> for CreateVolumeBody {
     fn from(create: CreateVolume) -> Self {
@@ -209,9 +217,9 @@ impl From<CreateVolume> for CreateVolumeBody {
             size: create.size,
             nexuses: create.nexuses,
             replicas: create.replicas,
-            preferred_nodes: create.preferred_nodes,
-            allowed_nodes: create.allowed_nodes,
-            preferred_nexus_nodes: create.preferred_nexus_nodes,
+            preferred_nodes: create.preferred_nodes.into(),
+            allowed_nodes: create.allowed_nodes.into(),
+            preferred_nexus_nodes: create.preferred_nexus_nodes.into(),
         }
     }
 }
@@ -223,9 +231,12 @@ impl CreateVolumeBody {
             size: self.size,
             nexuses: self.nexuses,
             replicas: self.replicas,
-            allowed_nodes: self.allowed_nodes.clone(),
-            preferred_nodes: self.preferred_nodes.clone(),
-            preferred_nexus_nodes: self.preferred_nexus_nodes.clone(),
+            allowed_nodes: self.allowed_nodes.clone().unwrap_or_default(),
+            preferred_nodes: self.preferred_nodes.clone().unwrap_or_default(),
+            preferred_nexus_nodes: self
+                .preferred_nexus_nodes
+                .clone()
+                .unwrap_or_default(),
         }
     }
 }
@@ -474,14 +485,6 @@ impl RestClient for ActixRestClient {
         Ok(nexuses)
     }
 
-    async fn get_nexus_children(
-        &self,
-        filter: Filter,
-    ) -> anyhow::Result<Vec<Child>> {
-        let children = get_filter!(self, filter, GetChildren).await?;
-        Ok(children)
-    }
-
     async fn create_nexus(&self, args: CreateNexus) -> anyhow::Result<Nexus> {
         let urn = format!("/v0/nodes/{}/nexuses/{}", &args.node, &args.uuid);
         let replica = self.put(urn, CreateNexusBody::from(args)).await?;
@@ -528,6 +531,7 @@ impl RestClient for ActixRestClient {
         self.del(urn).await?;
         Ok(())
     }
+
     async fn add_nexus_child(
         &self,
         args: AddNexusChild,
@@ -538,6 +542,13 @@ impl RestClient for ActixRestClient {
         );
         let replica = self.put(urn, Body::Empty).await?;
         Ok(replica)
+    }
+    async fn get_nexus_children(
+        &self,
+        filter: Filter,
+    ) -> anyhow::Result<Vec<Child>> {
+        let children = get_filter!(self, filter, GetChildren).await?;
+        Ok(children)
     }
 
     async fn get_volumes(&self, filter: Filter) -> anyhow::Result<Vec<Volume>> {
@@ -596,11 +607,14 @@ pub struct RestError {
     message: String,
 }
 
+#[cfg(not(feature = "nightly"))]
+impl paperclip::v2::schema::Apiv2Errors for RestError {}
+
 impl RestError {
     // todo: response type convention
     fn get_resp_error(&self) -> HttpResponse {
         match &self.kind {
-            BusError::NotFound => HttpResponse::NoContent().json(()),
+            BusError::NotFound => HttpResponse::NotFound().json(()),
             BusError::NotUnique => {
                 let error = serde_json::json!({"error": self.kind.as_ref(), "message": self.message });
                 tracing::error!("Got error: {}", error);
@@ -661,13 +675,15 @@ impl<T> Display for RestRespond<T> {
 }
 impl<T: Serialize> RestRespond<T> {
     /// Respond with a Result<T, BusError>
-    pub fn result(from: Result<T, BusError>) -> HttpResponse {
-        let resp: Self = from.into();
-        resp.into()
+    pub fn result(from: Result<T, BusError>) -> Result<Json<T>, RestError> {
+        match from {
+            Ok(v) => Ok(Json::<T>(v)),
+            Err(e) => Err(e.into()),
+        }
     }
     /// Respond T with success
-    pub fn ok(object: T) -> Result<HttpResponse, RestError> {
-        Ok(HttpResponse::Ok().json(object))
+    pub fn ok(object: T) -> Result<Json<T>, RestError> {
+        Ok(Json(object))
     }
 }
 impl<T> Into<RestRespond<T>> for Result<T, BusError> {

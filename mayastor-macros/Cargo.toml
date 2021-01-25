@@ -1,0 +1,10 @@
+[package]
+name = "mayastor-macros"
+version = "0.1.0"
+authors = ["Tiago Castro <tiago.castro@mayadata.io>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+actix-openapi-macros = { path = "./actix" }

@@ -270,10 +270,10 @@ impl ContainerSpec {
         vec
     }
     /// Command/entrypoint followed by/and arguments
-    fn commands(&self) -> Vec<String> {
+    fn commands(&self, network: &str) -> Vec<String> {
         let mut commands = vec![];
         if let Some(mut binary) = self.binary.clone() {
-            binary.setup_nats(&self.name);
+            binary.setup_nats(network);
             commands.extend(binary.commands());
         } else if let Some(command) = self.command.clone() {
             commands.push(command);
@@ -563,6 +563,8 @@ impl ComposeTest {
             if Some(self.name.clone()) == first.name {
                 // reuse the same network
                 self.network_id = first.id.unwrap();
+                // but clean up the existing containers
+                self.remove_network_containers(&self.name).await?;
                 return Ok(self.network_id.clone());
             } else {
                 self.network_remove_labeled().await?;
@@ -796,7 +798,7 @@ impl ComposeTest {
         }
 
         let name = spec.name.as_str();
-        let cmd = spec.commands();
+        let cmd = spec.commands(&self.name);
         let cmd = cmd.iter().map(|s| s.as_str()).collect();
         let image = spec
             .image
