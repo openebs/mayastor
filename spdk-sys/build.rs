@@ -88,6 +88,8 @@ fn main() {
         .whitelist_function("^nvmf_subsystem_set_ana_state")
         .whitelist_function("^nvmf_subsystem_set_cntlid_range")
         .whitelist_function("^nvmf_tgt_accept")
+        .whitelist_function("^nvme_qpair_.*")
+        .whitelist_function("^nvme_ctrlr_.*")
         .blacklist_type("^longfunc")
         .whitelist_var("^NVMF.*")
         .whitelist_var("^SPDK.*")

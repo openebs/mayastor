@@ -7,6 +7,7 @@ use crate::{
     bdev::{
         dev::nvmx::{
             NvmeController,
+            NvmeControllerState,
             NvmeDeviceHandle,
             NvmeNamespace,
             NVME_CONTROLLERS,
@@ -94,8 +95,16 @@ impl NvmeBlockDevice {
         )?;
 
         let controller = controller.lock().expect("lock poisened");
-        let descr = NvmeDeviceDescriptor::create(&controller)?;
-        Ok(descr)
+
+        // Make sure controller is available.
+        if controller.get_state() == NvmeControllerState::Running {
+            let descr = NvmeDeviceDescriptor::create(&controller)?;
+            Ok(descr)
+        } else {
+            Err(CoreError::BdevNotFound {
+                name: name.to_string(),
+            })
+        }
     }
 
     pub fn from_ns(name: &str, ns: Arc<NvmeNamespace>) -> NvmeBlockDevice {
@@ -179,16 +188,17 @@ impl BlockDevice for NvmeBlockDevice {
  */
 pub fn lookup_by_name(name: &str) -> Option<Box<dyn BlockDevice>> {
     if let Some(c) = NVME_CONTROLLERS.lookup_by_name(name) {
-        let ns = c
-            .lock()
-            .expect("failed to lock NVMe controlelr")
-            .namespace()
-            .expect("no namespaces for this controller");
-        Some(Box::new(NvmeBlockDevice::from_ns(name, ns)))
-    } else {
-        debug!("{}: NVMe controller not found", name);
-        None
+        let controller = c.lock().expect("mutex poisoned");
+        // Make sure controller is available.
+        if controller.get_state() == NvmeControllerState::Running {
+            let ns = controller
+                .namespace()
+                .expect("no namespaces for this controller");
+            return Some(Box::new(NvmeBlockDevice::from_ns(name, ns)));
+        }
     }
+    debug!("{}: NVMe controller not found", name);
+    None
 }
 
 pub fn open_by_name(
