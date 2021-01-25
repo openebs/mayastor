@@ -33,7 +33,7 @@ spec:
         command: ['sh', '-c', 'until nc -vz nats 4222; do echo "Waiting for message bus..."; sleep 1; done;']
       containers:
       - name: mayastor
-        image: mayadata/mayastor:latest
+        image: mayadata/mayastor:v0.7.0
         imagePullPolicy: Always
         env:
         - name: MY_NODE_NAME
@@ -81,11 +81,11 @@ spec:
           # pressure unless they exceed those limits. limits and requests must be the same.
           limits:
             cpu: "2"
-            memory: "500Mi"
+            memory: "512Mi"
             hugepages-2Mi: "1Gi"
           requests:
             cpu: "2"
-            memory: "500Mi"
+            memory: "512Mi"
             hugepages-2Mi: "1Gi"
         ports:
         - containerPort: 10124
