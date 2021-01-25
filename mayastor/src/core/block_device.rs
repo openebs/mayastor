@@ -72,7 +72,8 @@ pub trait BlockDeviceDescriptor {
     ) -> Result<Box<dyn BlockDeviceHandle>, CoreError>;
 }
 
-pub type IoCompletionCallback = fn(bool, *const c_void) -> ();
+pub type IoCompletionCallbackArg = *mut c_void;
+pub type IoCompletionCallback = fn(bool, IoCompletionCallbackArg) -> ();
 
 /*
  * Core trait that represents a device I/O handle.
@@ -104,7 +105,7 @@ pub trait BlockDeviceHandle {
         offset_blocks: u64,
         num_blocks: u64,
         cb: IoCompletionCallback,
-        cb_arg: *const c_void,
+        cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError>;
 
     fn writev_blocks(
@@ -114,13 +115,13 @@ pub trait BlockDeviceHandle {
         offset_blocks: u64,
         num_blocks: u64,
         cb: IoCompletionCallback,
-        cb_arg: *const c_void,
+        cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError>;
 
     fn reset(
         &self,
         cb: IoCompletionCallback,
-        cb_arg: *const c_void,
+        cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError>;
 
     fn unmap_blocks(
@@ -128,7 +129,7 @@ pub trait BlockDeviceHandle {
         offset_blocks: u64,
         num_blocks: u64,
         cb: IoCompletionCallback,
-        cb_arg: *const c_void,
+        cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError>;
 
     fn write_zeroes(
@@ -136,7 +137,7 @@ pub trait BlockDeviceHandle {
         offset_blocks: u64,
         num_blocks: u64,
         cb: IoCompletionCallback,
-        cb_arg: *const c_void,
+        cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError>;
 
     // NVMe only.
