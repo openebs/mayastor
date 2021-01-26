@@ -132,6 +132,9 @@ pub struct NexusChild {
     /// current state of the child
     #[serde(skip_serializing)]
     pub state: AtomicCell<ChildState>,
+    /// destruction started, differentiates remove events
+    #[serde(skip_serializing)]
+    destroying: AtomicCell<bool>,
     /// record of most-recent IO errors
     #[serde(skip_serializing)]
     pub(crate) err_store: Option<NexusErrStore>,
@@ -229,6 +232,7 @@ impl NexusChild {
             },
         )?);
 
+        self.destroying.store(false);
         self.desc = Some(desc);
 
         let cfg = Config::get();
@@ -318,6 +322,11 @@ impl NexusChild {
         self.state.load()
     }
 
+    /// returns whether destruction has started
+    pub fn destroying(&self) -> bool {
+        self.destroying.load()
+    }
+
     pub(crate) fn rebuilding(&self) -> bool {
         match RebuildJob::lookup(&self.name) {
             Ok(_) => self.state() == ChildState::Faulted(Reason::OutOfSync),
@@ -369,8 +378,14 @@ impl NexusChild {
     pub(crate) fn remove(&mut self) {
         info!("Removing child {}", self.name);
 
-        // The bdev is being removed, so ensure we don't use it again.
-        self.bdev = None;
+        // Only remove the bdev if the child is being destroyed instead of a
+        // hot remove event e.g. NVMe AEN (asynchronous event notification)
+        let destroying = self.destroying();
+        info!("Destroying child: {}", destroying);
+        if destroying {
+            // The bdev is being removed, so ensure we don't use it again.
+            self.bdev = None;
+        }
 
         let state = self.state();
 
@@ -385,7 +400,7 @@ impl NexusChild {
         }
 
         // Remove the child from the I/O path. If we had an IO error the bdev,
-        // the channels where already reconfigured so we dont have to do
+        // the channels were already reconfigured so we don't have to do
         // that twice.
         if state != ChildState::Faulted(Reason::IoError) {
             let nexus_name = self.parent.clone();
@@ -397,10 +412,12 @@ impl NexusChild {
             });
         }
 
-        // Dropping the last descriptor results in the bdev being removed.
-        // This must be performed in this function.
-        let desc = self.desc.take();
-        drop(desc);
+        if destroying {
+            // Dropping the last descriptor results in the bdev being removed.
+            // This must be performed in this function.
+            let desc = self.desc.take();
+            drop(desc);
+        }
 
         self.remove_complete();
         info!("Child {} removed", self.name);
@@ -428,6 +445,7 @@ impl NexusChild {
             parent,
             desc: None,
             state: AtomicCell::new(ChildState::Init),
+            destroying: AtomicCell::new(false),
             err_store: None,
             remove_channel: mpsc::channel(0),
         }
@@ -436,7 +454,8 @@ impl NexusChild {
     /// destroy the child bdev
     pub(crate) async fn destroy(&self) -> Result<(), NexusBdevError> {
         trace!("destroying child {:?}", self);
-        if let Some(_bdev) = &self.bdev {
+        if self.bdev.is_some() {
+            self.destroying.store(true);
             bdev_destroy(&self.name).await
         } else {
             warn!("Destroy child without bdev");

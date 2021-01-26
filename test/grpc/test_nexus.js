@@ -827,13 +827,56 @@ describe('nexus', function () {
       }
     });
 
-    // must be last nvmf test as it removes ns
+    it('should create nexus with nvmf target as child', async () => {
+      const args = {
+        uuid: UUID,
+        size: diskSize,
+        children: [
+        `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${TGTUUID}`
+        ]
+      };
+      await createNexus(args);
+    });
+
     it('should remove namespace from nvmf subsystem', (done) => {
       const args = {
         nqn: `nqn.2019-05.io.openebs:${TGTUUID}`,
         nsid: 1
       };
       common.jsonrpcCommand('/tmp/target.sock', 'nvmf_subsystem_remove_ns', args, done);
+    });
+
+    it('should still have bdev of removed child after remove event', (done) => {
+      common.jsonrpcCommand(null, 'bdev_get_bdevs', (err, out) => {
+        if (err) return done(err);
+        const bdevs = JSON.parse(out);
+        const match = `127.0.0.1:8420/nqn.2019-05.io.openebs:${TGTUUID}n1`;
+        var i;
+        for (i in bdevs) {
+          if (bdevs[i].name === match) {
+            return done();
+          }
+        }
+        done(new Error('bdev not found'));
+      });
+    });
+
+    it('should have nexus in faulted state and its child in degraded state', (done) => {
+      client.listNexus({}, (err, res) => {
+        if (err) return done(err);
+        assert.lengthOf(res.nexus_list, 1);
+        const nexus = res.nexus_list[0];
+
+        assert.equal(nexus.uuid, UUID);
+        assert.equal(nexus.state, 'NEXUS_FAULTED');
+        assert.lengthOf(nexus.children, 1);
+        assert.equal(nexus.children[0].state, 'CHILD_DEGRADED');
+        done();
+      });
+    });
+
+    it('should destroy nexus', async () => {
+      await destroyNexus({ uuid: UUID });
     });
 
     it('should fail to create nexus with child that has no namespaces', (done) => {
@@ -850,6 +893,28 @@ describe('nexus', function () {
         assert.equal(err.code, grpc.status.INVALID_ARGUMENT);
         done();
       });
+    });
+
+    it('should add namespace back to nvmf subsystem', (done) => {
+      const args = {
+        nqn: `nqn.2019-05.io.openebs:${TGTUUID}`,
+        namespace: {
+          bdev_name: 'Malloc0'
+        }
+      };
+      common.jsonrpcCommand('/tmp/target.sock', 'nvmf_subsystem_add_ns', args, done);
+    });
+
+    it('should create then destroy nexus with previously asynchronously removed nvmf target as child', async () => {
+      const args = {
+        uuid: UUID,
+        size: diskSize,
+        children: [
+        `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${TGTUUID}`
+        ]
+      };
+      await createNexus(args);
+      await destroyNexus({ uuid: UUID });
     });
 
     it('should have zero nexus devices left', (done) => {
