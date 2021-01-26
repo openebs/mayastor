@@ -8,9 +8,8 @@ use tracing::{debug, error, info, instrument};
 
 #[derive(Debug, StructOpt)]
 struct CliArgs {
-    /// The Rest Server hostname to connect to
-    /// Default: localhost:8080
-    #[structopt(long, short, default_value = "localhost:8080")]
+    /// The Rest Server URL to connect to
+    #[structopt(long, short, default_value = "https://localhost:8080")]
     rest: String,
 
     /// Polling period
@@ -85,9 +84,8 @@ async fn main() -> anyhow::Result<()> {
 
     let polling_period = CliArgs::from_args().period.into();
 
-    let rest_url = format!("https://{}", CliArgs::from_args().rest);
     let rest_cli = rest_client::ActixRestClient::new(
-        &rest_url,
+        &CliArgs::from_args().rest,
         CliArgs::from_args().jaeger.is_some(),
     )?;
 
@@ -122,7 +120,7 @@ async fn polling_work(
 ) -> anyhow::Result<()> {
     // Fetch all nodes as seen by the control plane via REST
     let rest_nodes = rest_cli.get_nodes().await?;
-    println!("Retrieved rest nodes: {:?}", rest_nodes);
+    debug!("Retrieved rest nodes: {:?}", rest_nodes);
 
     // Fetch all node CRD's from k8s
     let kube_nodes = nodes_get_all(&nodes_api).await?;

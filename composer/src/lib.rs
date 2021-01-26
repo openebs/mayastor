@@ -206,6 +206,8 @@ pub struct ContainerSpec {
     /// Key-Map of environment variables
     /// Starts with RUST_LOG=debug,h2=info
     env: HashMap<String, String>,
+    /// Volume bind dst/source
+    binds: HashMap<String, String>,
 }
 
 impl ContainerSpec {
@@ -258,6 +260,20 @@ impl ContainerSpec {
             println!("Replaced key {} val {} with val {}", key, old, val);
         }
         self
+    }
+    /// use a volume binds between host path and container container
+    pub fn with_bind(mut self, host: &str, container: &str) -> Self {
+        self.binds.insert(container.to_string(), host.to_string());
+        self
+    }
+
+    /// List of volume binds with each element as host:container
+    fn binds(&self) -> Vec<String> {
+        let mut vec = vec![];
+        self.binds.iter().for_each(|(container, host)| {
+            vec.push(format!("{}:{}", host, container));
+        });
+        vec
     }
 
     /// Environment variables as a vector with each element as:
@@ -312,6 +328,14 @@ impl Default for Builder {
     }
 }
 
+/// trait to allow extensibility using the Builder pattern
+pub trait BuilderConfigure {
+    fn configure(
+        &self,
+        cfg: Builder,
+    ) -> Result<Builder, Box<dyn std::error::Error>>;
+}
+
 impl Builder {
     /// construct a new builder for `[ComposeTest']
     pub fn new() -> Self {
@@ -324,6 +348,41 @@ impl Builder {
             autorun: true,
             image: None,
             logs_on_panic: true,
+        }
+    }
+
+    /// get the name of the experiment
+    pub fn get_name(&self) -> String {
+        self.name.clone()
+    }
+
+    /// configure the `Builder` using the `BuilderConfigure` trait
+    pub fn configure(
+        self,
+        cfg: impl BuilderConfigure,
+    ) -> Result<Builder, Box<dyn std::error::Error>> {
+        cfg.configure(self)
+    }
+
+    /// next ordinal container ip
+    pub fn next_container_ip(&self) -> Result<String, Error> {
+        let net: Ipv4Network = self.network.parse().map_err(|error| {
+            bollard::errors::Error::IOError {
+                err: std::io::Error::new(
+                    std::io::ErrorKind::InvalidInput,
+                    format!("Invalid network format: {}", error),
+                ),
+            }
+        })?;
+        let ip = net.nth((self.containers.len() + 2) as u32);
+        match ip {
+            None => Err(bollard::errors::Error::IOError {
+                err: std::io::Error::new(
+                    std::io::ErrorKind::AddrNotAvailable,
+                    "No available ip",
+                ),
+            }),
+            Some(ip) => Ok(ip.to_string()),
         }
     }
 
@@ -512,7 +571,8 @@ pub struct ComposeTest {
     label_prefix: String,
     /// automatically clean up the things we have created for this test
     clean: bool,
-    pub prune: bool,
+    /// remove existing containers upon creation
+    prune: bool,
     /// base image for image-less containers
     image: Option<String>,
     /// output container logs on panic
@@ -557,14 +617,15 @@ impl ComposeTest {
     /// networking IP and/or subnets
     async fn network_create(&mut self) -> Result<NetworkId, Error> {
         let mut net = self.network_list_labeled().await?;
-
         if !net.is_empty() {
             let first = net.pop().unwrap();
             if Some(self.name.clone()) == first.name {
                 // reuse the same network
                 self.network_id = first.id.unwrap();
-                // but clean up the existing containers
-                self.remove_network_containers(&self.name).await?;
+                if self.prune {
+                    // but clean up the existing containers
+                    self.remove_network_containers(&self.name).await?;
+                }
                 return Ok(self.network_id.clone());
             } else {
                 self.network_remove_labeled().await?;
@@ -607,7 +668,10 @@ impl ComposeTest {
     }
 
     /// remove all containers from the network
-    async fn remove_network_containers(&self, name: &str) -> Result<(), Error> {
+    pub async fn remove_network_containers(
+        &self,
+        name: &str,
+    ) -> Result<(), Error> {
         let containers = self.list_network_containers(name).await?;
         for k in &containers {
             let name = k.id.clone().unwrap();
@@ -741,13 +805,14 @@ impl ComposeTest {
                 )
                 .await;
         }
-
+        let mut binds = vec![
+            format!("{}:{}", self.srcdir, self.srcdir),
+            "/nix:/nix:ro".into(),
+            "/dev/hugepages:/dev/hugepages:rw".into(),
+        ];
+        binds.extend(spec.binds());
         let host_config = HostConfig {
-            binds: Some(vec![
-                format!("{}:{}", self.srcdir, self.srcdir),
-                "/nix:/nix:ro".into(),
-                "/dev/hugepages:/dev/hugepages:rw".into(),
-            ]),
+            binds: Some(binds),
             mounts: Some(vec![
                 // DPDK needs to have a /tmp
                 Mount {
@@ -855,8 +920,13 @@ impl ComposeTest {
     /// Pulls the docker image, if one is specified and is not present locally
     async fn pull_missing_image(&self, image: &Option<String>) {
         if let Some(image) = image {
-            if !self.image_exists(image).await {
-                self.pull_image(image).await;
+            let image = if !image.contains(':') {
+                format!("{}:latest", image)
+            } else {
+                image.clone()
+            };
+            if !self.image_exists(&image).await {
+                self.pull_image(&image).await;
             }
         }
     }
@@ -893,7 +963,17 @@ impl ComposeTest {
 
     /// start the container
     pub async fn start(&self, name: &str) -> Result<(), Error> {
-        let id = self.containers.get(name).unwrap();
+        let id = self.containers.get(name).ok_or(
+            bollard::errors::Error::IOError {
+                err: std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    format!(
+                        "Can't start container {} as it was not configured",
+                        name
+                    ),
+                ),
+            },
+        )?;
         self.docker
             .start_container::<&str>(id.0.as_str(), None)
             .await?;
@@ -904,10 +984,15 @@ impl ComposeTest {
     /// stop the container
     pub async fn stop(&self, name: &str) -> Result<(), Error> {
         let id = self.containers.get(name).unwrap();
+        self.stop_id(id.0.as_str()).await
+    }
+
+    /// stop the container by its id
+    pub async fn stop_id(&self, id: &str) -> Result<(), Error> {
         if let Err(e) = self
             .docker
             .stop_container(
-                id.0.as_str(),
+                id,
                 Some(StopContainerOptions {
                     t: 3,
                 }),
@@ -1012,6 +1097,22 @@ impl ComposeTest {
             self.start(k).await?;
         }
         Ok(())
+    }
+
+    /// stop all the containers part of the network
+    /// returns the last error, if any or Ok
+    pub async fn stop_network_containers(&self) -> Result<(), Error> {
+        let mut result = Ok(());
+        let containers = self.list_network_containers(&self.name).await?;
+        for container in containers {
+            if let Some(id) = container.id {
+                if let Err(e) = self.stop_id(&id).await {
+                    println!("Failed to stop container id {:?}", id);
+                    result = Err(e);
+                }
+            }
+        }
+        result
     }
 
     /// inspect the given container

@@ -84,7 +84,7 @@ async fn client() {
         .autorun(false)
         // uncomment to leave containers running allowing us access the jaeger
         // traces at localhost:16686
-        //.with_clean(false)
+        .with_clean(false)
         .build()
         .await
         .unwrap();

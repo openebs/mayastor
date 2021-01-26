@@ -29,7 +29,21 @@ pub struct ActixRestClient {
 
 impl ActixRestClient {
     /// creates a new client which uses the specified `url`
+    /// uses the rustls connector if the url has the https scheme
     pub fn new(url: &str, trace: bool) -> anyhow::Result<Self> {
+        let url: url::Url = url.parse()?;
+
+        match url.scheme() {
+            "https" => Self::new_https(&url, trace),
+            "http" => Self::new_http(&url, trace),
+            invalid => {
+                let msg = format!("Invalid url scheme: {}", invalid);
+                Err(anyhow::Error::msg(msg))
+            }
+        }
+    }
+    /// creates a new secure client
+    fn new_https(url: &url::Url, trace: bool) -> anyhow::Result<Self> {
         let cert_file = &mut BufReader::new(
             &std::include_bytes!("../certs/rsa/ca.cert")[..],
         );
@@ -46,7 +60,15 @@ impl ActixRestClient {
 
         Ok(Self {
             client: rest_client,
-            url: url.to_string(),
+            url: url.to_string().trim_end_matches('/').into(),
+            trace,
+        })
+    }
+    /// creates a new client
+    fn new_http(url: &url::Url, trace: bool) -> anyhow::Result<Self> {
+        Ok(Self {
+            client: Client::new(),
+            url: url.to_string().trim_end_matches('/').into(),
             trace,
         })
     }
