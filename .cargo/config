@@ -1,5 +1,5 @@
 [build]
-rustflags = "-C target-cpu=nehalem"
+rustflags = "-C target-cpu=native"
 
 [profile.release]
 lto = "fat"

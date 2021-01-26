@@ -40,8 +40,8 @@ fn build_wrapper() {
 
 fn main() {
     #![allow(unreachable_code)]
-    #[cfg(not(target_arch = "x86_64"))]
-    panic!("spdk-sys crate is only for x86_64 cpu architecture");
+    // #[cfg(not(target_arch = "x86_64"))]
+    // panic!("spdk-sys crate is only for x86_64 cpu architecture");
     #[cfg(not(target_os = "linux"))]
     panic!("spdk-sys crate works only on linux");
 
@@ -98,7 +98,6 @@ fn main() {
         .derive_default(true)
         .derive_debug(true)
         .derive_copy(true)
-        .clang_arg("-march=nehalem")
         .prepend_enum_name(false)
         .generate_inline_functions(true)
         .parse_callbacks(Box::new(MacroCallback {

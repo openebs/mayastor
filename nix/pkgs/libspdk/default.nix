@@ -50,10 +50,9 @@ let
     ];
 
     configureFlags = [
-      "--target-arch=nehalem"
+      "--target-arch=native"
       "--without-isal"
       "--with-iscsi-initiator"
-      "--with-crypto"
       "--with-uring"
     ];
 
@@ -61,7 +60,7 @@ let
     enableParallelBuilding = true;
 
     preConfigure = ''
-      substituteInPlace dpdk/config/defconfig_x86_64-native-linux-gcc --replace native default
+      substituteInPlace dpdk/config/defconfig_aarch64-native-linux-gcc --replace native default
     '';
 
     configurePhase = ''
