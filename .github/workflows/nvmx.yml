@@ -15,6 +15,7 @@ jobs:
     steps:
       - uses: actions/checkout@v2
       - uses: cachix/install-nix-action@v12
+      - run: sudo apt-get update
       - run: sudo apt-get install crda wireless-crda nvme-cli linux-modules-extra-$(uname -r) -y
       - run: (echo 2048 | sudo tee /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages )
       - run: sudo ./scripts/block_devs.sh
