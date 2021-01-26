@@ -202,7 +202,7 @@ module.exports = function () {
         requiredNodes: [],
         requiredBytes: 10,
         limitBytes: 20,
-        protocol: 'nbd'
+        protocol: 'nvmf'
       });
       sinon.stub(returnedVolume, 'getSize').returns(20);
       sinon.stub(returnedVolume, 'getNodeName').returns('some-node');
@@ -246,31 +246,6 @@ module.exports = function () {
         expect(result.volume.accessibleTopology).to.have.lengthOf(0);
       });
 
-      it('should create a volume that can be accessed only locally', async () => {
-        createVolumeStub.resolves(returnedVolume);
-        const parameters = { protocol: 'nbd', repl: 3, blah: 'again' };
-        const result = await client.createVolume().sendMessage({
-          name: 'pvc-' + UUID,
-          capacityRange: {
-            requiredBytes: 10,
-            limitBytes: 20
-          },
-          volumeCapabilities: [
-            {
-              accessMode: { mode: 'SINGLE_NODE_WRITER' },
-              block: {}
-            }
-          ],
-          parameters: parameters
-        });
-        expect(result.volume.accessibleTopology).to.have.lengthOf(1);
-        expect(result.volume.accessibleTopology[0]).to.eql({
-          segments: {
-            'kubernetes.io/hostname': 'some-node'
-          }
-        });
-      });
-
       it('should fail if topology requirement other than hostname', async () => {
         createVolumeStub.resolves(returnedVolume);
         await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
@@ -290,7 +265,7 @@ module.exports = function () {
               requisite: [{ segments: { rack: 'some-rack-info' } }],
               preferred: []
             },
-            parameters: { protocol: 'nbd' }
+            parameters: { protocol: 'nvmf' }
           })
         );
       });
@@ -311,7 +286,7 @@ module.exports = function () {
                 block: {}
               }
             ],
-            parameters: { protocol: 'nbd' }
+            parameters: { protocol: 'nvmf' }
           })
         );
       });
@@ -331,7 +306,7 @@ module.exports = function () {
                 block: {}
               }
             ],
-            parameters: { protocol: 'nbd' }
+            parameters: { protocol: 'nvmf' }
           })
         );
       });
@@ -353,7 +328,7 @@ module.exports = function () {
                 filesystem: {}
               }
             ],
-            parameters: { protocol: 'nbd' }
+            parameters: { protocol: 'nvmf' }
           })
         );
       });
@@ -373,7 +348,7 @@ module.exports = function () {
                 filesystem: {}
               }
             ],
-            parameters: { protocol: 'nbd' }
+            parameters: { protocol: 'nvmf' }
           })
         );
       });
@@ -395,7 +370,7 @@ module.exports = function () {
           accessibilityRequirements: {
             requisite: [{ segments: { 'kubernetes.io/hostname': 'node' } }]
           },
-          parameters: { protocol: 'nbd' }
+          parameters: { protocol: 'nvmf' }
         });
         sinon.assert.calledWith(createVolumeStub, UUID, {
           replicaCount: 1,
@@ -403,7 +378,7 @@ module.exports = function () {
           requiredNodes: ['node'],
           requiredBytes: 50,
           limitBytes: 0,
-          protocol: 'nbd'
+          protocol: 'nvmf'
         });
       });
 
@@ -432,7 +407,7 @@ module.exports = function () {
               }
             ]
           },
-          parameters: { protocol: 'nbd' }
+          parameters: { protocol: 'nvmf' }
         });
         sinon.assert.calledWith(createVolumeStub, UUID, {
           replicaCount: 1,
@@ -440,7 +415,7 @@ module.exports = function () {
           requiredNodes: [],
           requiredBytes: 50,
           limitBytes: 50,
-          protocol: 'nbd'
+          protocol: 'nvmf'
         });
       });
 
@@ -458,7 +433,7 @@ module.exports = function () {
               block: {}
             }
           ],
-          parameters: { repl: '3', protocol: 'nbd' }
+          parameters: { repl: '3', protocol: 'nvmf' }
         });
         sinon.assert.calledWith(createVolumeStub, UUID, {
           replicaCount: 3,
@@ -466,7 +441,7 @@ module.exports = function () {
           requiredNodes: [],
           requiredBytes: 50,
           limitBytes: 70,
-          protocol: 'nbd'
+          protocol: 'nvmf'
         });
       });
 
@@ -485,7 +460,7 @@ module.exports = function () {
                 block: {}
               }
             ],
-            parameters: { repl: 'bla2', protocol: 'nbd' }
+            parameters: { repl: 'bla2', protocol: 'nvmf' }
           })
         );
       });
@@ -540,7 +515,7 @@ module.exports = function () {
             const vol = new Volume(uuidBase + i + j, registry, () => {}, {
               replicaCount: 3,
               requiredBytes: 100,
-              protocol: 'nbd'
+              protocol: 'nvmf'
             });
             const getSizeStub = sinon.stub(vol, 'getSize');
             getSizeStub.returns(100);
@@ -668,39 +643,11 @@ module.exports = function () {
                 mount_flags: 'ro'
               }
             },
-            volumeContext: { protocol: 'nbd' }
+            volumeContext: { protocol: 'nvmf' }
           })
         );
         sinon.assert.calledOnce(getVolumesStub);
         sinon.assert.calledWith(getVolumesStub, UUID);
-      });
-
-      it('should not publish volume over nbd on a different node', async () => {
-        const volume = new Volume(UUID, registry, () => {}, {});
-        const publishStub = sinon.stub(volume, 'publish');
-        publishStub.resolves();
-        const getNodeNameStub = sinon.stub(volume, 'getNodeName');
-        getNodeNameStub.returns('another-node');
-        getVolumesStub.returns(volume);
-
-        await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
-          client.controllerPublishVolume().sendMessage({
-            volumeId: UUID,
-            nodeId: 'mayastor://node',
-            readonly: false,
-            volumeCapability: {
-              accessMode: { mode: 'SINGLE_NODE_WRITER' },
-              mount: {
-                fsType: 'xfs',
-                mount_flags: 'ro'
-              }
-            },
-            volumeContext: { protocol: 'nbd' }
-          })
-        );
-        sinon.assert.calledOnce(getVolumesStub);
-        sinon.assert.calledWith(getVolumesStub, UUID);
-        sinon.assert.notCalled(publishStub);
       });
 
       it('should not publish readonly volume', async () => {
@@ -723,7 +670,7 @@ module.exports = function () {
                 mount_flags: 'ro'
               }
             },
-            volumeContext: { protocol: 'nbd' }
+            volumeContext: { protocol: 'nvmf' }
           })
         );
       });
@@ -748,7 +695,7 @@ module.exports = function () {
                 mount_flags: 'ro'
               }
             },
-            volumeContext: { protocol: 'nbd' }
+            volumeContext: { protocol: 'nvmf' }
           })
         );
       });
@@ -773,7 +720,7 @@ module.exports = function () {
                 mount_flags: 'ro'
               }
             },
-            volumeContext: { protocol: 'nbd' }
+            volumeContext: { protocol: 'nvmf' }
           })
         );
       });

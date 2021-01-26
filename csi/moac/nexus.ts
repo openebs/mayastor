@@ -1,7 +1,8 @@
 // Nexus object implementation.
 
-const _ = require('lodash');
-const assert = require('assert');
+import assert from 'assert';
+import * as _ from 'lodash';
+
 const { GrpcCode, GrpcError, mayastor } = require('./grpc_client');
 const log = require('./logger').Logger('nexus');
 
@@ -10,15 +11,12 @@ import { Replica } from './replica';
 // Protocol used to export nexus (volume)
 export enum Protocol {
   Unknown = 'unknown',
-  Nbd = 'nbd',
   Iscsi = 'iscsi',
   Nvmf = 'nvmf',
 }
 
 export function protocolFromString(val: string): Protocol {
-  if (val == Protocol.Nbd) {
-    return Protocol.Nbd;
-  } else if (val == Protocol.Iscsi) {
+  if (val == Protocol.Iscsi) {
     return Protocol.Iscsi;
   } else if (val == Protocol.Nvmf) {
     return Protocol.Nvmf;
