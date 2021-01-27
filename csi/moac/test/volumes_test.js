@@ -1045,8 +1045,10 @@ module.exports = function () {
         protocol: 'nbd'
       });
 
-      await waitUntil(() => nexus.children.length === 3, 'new replica');
-      expect(volume.state).to.equal('degraded');
+      await waitUntil(
+        () => nexus.children.length === 3 && volume.state === 'degraded',
+        'degraded volume with new replica'
+      );
 
       const newChild = volume.nexus.children.find(
         (ch) => ch.state === 'CHILD_DEGRADED'
