@@ -40,7 +40,6 @@
 const yaml = require('js-yaml');
 const EventStream = require('./event_stream');
 const log = require('./logger').Logger('volume-operator');
-const Workq = require('./workq');
 
 import assert from 'assert';
 import * as fs from 'fs';
@@ -58,6 +57,7 @@ import {
 import { Protocol, protocolFromString } from './nexus';
 import { Volumes } from './volumes';
 import { VolumeState, volumeStateFromString } from './volume';
+import { Workq } from './workq';
 
 const RESOURCE_NAME: string = 'mayastorvolume';
 const crdVolume = yaml.safeLoad(
@@ -170,8 +170,8 @@ export class VolumeOperator {
   volumes: Volumes; // Volume manager
   eventStream: any; // A stream of node, replica and nexus events.
   watcher: CustomResourceCache<VolumeResource>; // volume resource watcher.
-  workq: any; // Events from k8s are serialized so that we don't flood moac by
-              // concurrent changes to volumes.
+  workq: Workq; // Events from k8s are serialized so that we don't flood moac by
+                // concurrent changes to volumes.
 
   // Create volume operator object.
   //
@@ -188,7 +188,7 @@ export class VolumeOperator {
     this.namespace = namespace;
     this.volumes = volumes;
     this.eventStream = null;
-    this.workq = new Workq();
+    this.workq = new Workq('mayastorvolume');
     this.watcher = new CustomResourceCache(
       this.namespace,
       RESOURCE_NAME,
@@ -436,8 +436,9 @@ export class VolumeOperator {
     watcher.on('del', (obj: VolumeResource) => {
       // most likely it was not user but us (the operator) who deleted
       // the resource. So check if it really exists first.
-      if (this.volumes.get(obj.metadata.name!)) {
-        this.workq.push(obj.metadata.name, this._destroyVolume.bind(this));
+      const name = obj.metadata.name!;
+      if (this.volumes.get(name)) {
+        this.workq.push(name, this._destroyVolume.bind(this));
       }
     });
   }

@@ -72,5 +72,6 @@
     "volumes.ts",
     "volume_operator.ts",
     "watcher.ts",
+    "workq.ts",
   ]
 }

@@ -114,6 +114,36 @@ function createK8sVolumeObject (volume: Volume): K8sVolume {
   return obj;
 }
 
+// Duplicate request cache entry helps to detect retransmits of the same request
+//
+// This may seem like a useless thing but k8s is agressive on retransmitting
+// requests. The first retransmit happens just a tens of ms after the original
+// request. Having many requests that are the same in progress creates havoc
+// and forces mayastor to execute repeating code.
+//
+// NOTE: Assumption is that k8s doesn't submit duplicate request for the same
+// volume (the same uuid) with different parameters.
+//
+class Request {
+  uuid: string; // ID of the object in the operation
+  op: string; // name of the operation
+  callbacks: CsiDoneCb[]; // callbacks to call when done
+
+  constructor (uuid: string, op: string, cb: CsiDoneCb) {
+    this.uuid = uuid;
+    this.op = op;
+    this.callbacks = [cb];
+  }
+
+  wait (cb: CsiDoneCb) {
+    this.callbacks.push(cb);
+  }
+
+  done (err: any, resp?: any) {
+    this.callbacks.forEach((cb) => cb(err, resp));
+  }
+}
+
 // CSI Controller implementation.
 //
 // It implements Identity and Controller grpc services from csi proto file.
@@ -127,6 +157,7 @@ class CsiServer {
   private sockPath: string;
   private nextListContextId: number;
   private listContexts: Record<string, ListContext>;
+  private duplicateRequestCache: Request[];
 
   // Creates new csi server
   //
@@ -139,6 +170,7 @@ class CsiServer {
     this.sockPath = sockPath;
     this.nextListContextId = 1;
     this.listContexts = {};
+    this.duplicateRequestCache = [];
 
     // The data returned by identity service should be kept in sync with
     // responses for the same methods on storage node.
@@ -253,6 +285,32 @@ class CsiServer {
   // This is usually preparation for a shutdown.
   undoReady () {
     this.ready = false;
+  }
+
+  // Find outstanding request by uuid and operation type.
+  _findRequest (uuid: string, op: string): Request | undefined {
+    return this.duplicateRequestCache.find((e) => e.uuid === uuid && e.op === op);
+  }
+
+  _beginRequest (uuid: string, op: string, cb: CsiDoneCb): Request | undefined {
+    let request = this._findRequest(uuid, op);
+    if (request) {
+      log.debug(`Duplicate ${op} volume request detected`);
+      request.wait(cb);
+      return;
+    }
+    request = new Request(uuid, op, cb);
+    this.duplicateRequestCache.push(request);
+    return request;
+  }
+
+  // Remove request entry from the cache and call done callbacks.
+  _endRequest (request: Request, err: any, resp?: any) {
+    let idx = this.duplicateRequestCache.indexOf(request);
+    if (idx >= 0) {
+      this.duplicateRequestCache.splice(idx, 1);
+    }
+    request.done(err, resp);
   }
 
   //
@@ -400,6 +458,12 @@ class CsiServer {
       count = 1;
     }
 
+    // If this is a duplicate request then assure it is executed just once.
+    let request = this._beginRequest(uuid, 'create', cb);
+    if (!request) {
+      return;
+    }
+
     // create the volume
     let volume;
     try {
@@ -412,12 +476,14 @@ class CsiServer {
         protocol: protocol
       });
     } catch (err) {
-      return cb(err);
+      this._endRequest(request, err);
+      return;
     }
 
     // This was used in the old days for NBD protocol
     const accessibleTopology: TopologyKeys[] = [];
-    cb(null, {
+
+    this._endRequest(request, null, {
       volume: {
         capacityBytes: volume.getSize(),
         volumeId: uuid,
@@ -437,13 +503,19 @@ class CsiServer {
 
     log.debug(`Request to destroy volume "${args.volumeId}"`);
 
+    // If this is a duplicate request then assure it is executed just once.
+    let request = this._beginRequest(args.volumeId, 'delete', cb);
+    if (!request) {
+      return;
+    }
+
     try {
       await this.volumes.destroyVolume(args.volumeId);
     } catch (err) {
-      return cb(err);
+      return this._endRequest(request, err);
     }
     log.info(`Volume "${args.volumeId}" destroyed`);
-    cb(null);
+    this._endRequest(request, null);
   }
 
   async listVolumes (call: any, cb: CsiDoneCb) {
@@ -542,6 +614,12 @@ class CsiServer {
       return cb(err);
     }
 
+    // If this is a duplicate request then assure it is executed just once.
+    let request = this._beginRequest(args.volumeId, 'publish', cb);
+    if (!request) {
+      return;
+    }
+
     const publishContext: any = {};
     try {
       publishContext.uri = await volume.publish(protocol);
@@ -551,15 +629,16 @@ class CsiServer {
     } catch (err) {
       if (err.code === grpc.status.ALREADY_EXISTS) {
         log.debug(`Volume "${args.volumeId}" already published on this node`);
-        cb(null, { publishContext });
+        this._endRequest(request, null, { publishContext });
       } else {
         cb(err);
+        this._endRequest(request, err);
       }
       return;
     }
 
     log.info(`Published volume "${args.volumeId}" over ${protocol}`);
-    cb(null, { publishContext });
+    this._endRequest(request, null, { publishContext });
   }
 
   async controllerUnpublishVolume (call: any, cb: CsiDoneCb) {
@@ -580,13 +659,20 @@ class CsiServer {
     } catch (err) {
       return cb(err);
     }
+
+    // If this is a duplicate request then assure it is executed just once.
+    let request = this._beginRequest(args.volumeId, 'unpublish', cb);
+    if (!request) {
+      return;
+    }
+
     try {
       await volume.unpublish();
     } catch (err) {
-      return cb(err);
+      return this._endRequest(request, err);
     }
     log.info(`Unpublished volume "${args.volumeId}"`);
-    cb(null, {});
+    this._endRequest(request, null, {});
   }
 
   async validateVolumeCapabilities (call: any, cb: CsiDoneCb) {

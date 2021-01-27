@@ -7,6 +7,7 @@ const fs = require('fs').promises;
 const grpc = require('grpc-uds');
 const grpcPromise = require('grpc-promise');
 const sinon = require('sinon');
+const sleep = require('sleep-promise');
 const { CsiServer, csi } = require('../csi');
 const { GrpcError, GrpcCode } = require('../grpc_client');
 const Registry = require('../registry');
@@ -464,6 +465,50 @@ module.exports = function () {
           })
         );
       });
+
+      it('should detect duplicate create volume request', (done) => {
+        // We must sleep in the stub. Otherwise reply is sent before the second
+        // request comes in.
+        createVolumeStub.callsFake(async () => {
+          await sleep(10);
+          return returnedVolume;
+        });
+        const create1 = client.createVolume().sendMessage({
+          name: 'pvc-' + UUID,
+          capacityRange: {
+            requiredBytes: 50,
+            limitBytes: 70
+          },
+          volumeCapabilities: [
+            {
+              accessMode: { mode: 'SINGLE_NODE_WRITER' },
+              block: {}
+            }
+          ],
+          parameters: { repl: '3', protocol: 'nvmf' }
+        });
+        const create2 = client.createVolume().sendMessage({
+          name: 'pvc-' + UUID,
+          capacityRange: {
+            requiredBytes: 50,
+            limitBytes: 70
+          },
+          volumeCapabilities: [
+            {
+              accessMode: { mode: 'SINGLE_NODE_WRITER' },
+              block: {}
+            }
+          ],
+          parameters: { repl: '3', protocol: 'nvmf' }
+        });
+        Promise.all([create1, create2]).then((results) => {
+          expect(results).to.have.lengthOf(2);
+          expect(results[0].volume.volumeId).to.equal(UUID);
+          expect(results[1].volume.volumeId).to.equal(UUID);
+          sinon.assert.calledOnce(createVolumeStub);
+          done();
+        });
+      });
     });
 
     describe('DeleteVolume', function () {
@@ -499,6 +544,21 @@ module.exports = function () {
         );
 
         sinon.assert.calledOnce(destroyVolumeStub);
+      });
+
+      it('should detect duplicate delete volume request', (done) => {
+        // We must sleep in the stub. Otherwise reply is sent before the second
+        // request comes in.
+        destroyVolumeStub.callsFake(async () => {
+          await sleep(10);
+        });
+        const delete1 = client.deleteVolume().sendMessage({ volumeId: UUID });
+        const delete2 = client.deleteVolume().sendMessage({ volumeId: UUID });
+        Promise.all([delete1, delete2]).then((results) => {
+          sinon.assert.calledOnce(destroyVolumeStub);
+          expect(results).to.have.lengthOf(2);
+          done();
+        });
       });
     });
 
@@ -601,9 +661,10 @@ module.exports = function () {
       });
 
       it('should publish volume', async () => {
+        const nvmfUri = `nvmf://host/nqn-${UUID}`;
         const volume = new Volume(UUID, registry, () => {}, {});
         const publishStub = sinon.stub(volume, 'publish');
-        publishStub.resolves('/dev/sdb');
+        publishStub.resolves(nvmfUri);
         const getNodeNameStub = sinon.stub(volume, 'getNodeName');
         getNodeNameStub.returns('node');
         getVolumesStub.returns(volume);
@@ -619,13 +680,51 @@ module.exports = function () {
               mount_flags: 'ro'
             }
           },
-          volumeContext: { protocol: 'iscsi' }
+          volumeContext: { protocol: 'nvmf' }
         });
-        expect(reply.publishContext.uri).to.equal('/dev/sdb');
+        expect(reply.publishContext.uri).to.equal(nvmfUri);
         sinon.assert.calledOnce(getVolumesStub);
         sinon.assert.calledWith(getVolumesStub, UUID);
         sinon.assert.calledOnce(publishStub);
-        sinon.assert.calledWith(publishStub, 'iscsi');
+        sinon.assert.calledWith(publishStub, 'nvmf');
+      });
+
+      it('should detect duplicate publish volume request', (done) => {
+        const iscsiUri = `iscsi://host/iqn-${UUID}`;
+        const publishArgs = {
+          volumeId: UUID,
+          nodeId: 'mayastor://node2',
+          readonly: false,
+          volumeCapability: {
+            accessMode: { mode: 'SINGLE_NODE_WRITER' },
+            mount: {
+              fsType: 'xfs',
+              mount_flags: 'ro'
+            }
+          },
+          volumeContext: { protocol: 'iscsi' }
+        };
+        const volume = new Volume(UUID, registry, () => {}, {});
+        const publishStub = sinon.stub(volume, 'publish');
+        // We must sleep in the stub. Otherwise reply is sent before the second
+        // request comes in.
+        publishStub.callsFake(async () => {
+          await sleep(10);
+          return iscsiUri;
+        });
+        const getNodeNameStub = sinon.stub(volume, 'getNodeName');
+        getNodeNameStub.returns('node');
+        getVolumesStub.returns(volume);
+
+        const publish1 = client.controllerPublishVolume().sendMessage(publishArgs);
+        const publish2 = client.controllerPublishVolume().sendMessage(publishArgs);
+        Promise.all([publish1, publish2]).then((results) => {
+          sinon.assert.calledOnce(publishStub);
+          expect(results).to.have.lengthOf(2);
+          expect(results[0].publishContext.uri).to.equal(iscsiUri);
+          expect(results[1].publishContext.uri).to.equal(iscsiUri);
+          done();
+        });
       });
 
       it('should not publish volume if it does not exist', async () => {
@@ -829,6 +928,31 @@ module.exports = function () {
         sinon.assert.calledOnce(getVolumesStub);
         sinon.assert.calledWith(getVolumesStub, UUID);
         sinon.assert.calledOnce(unpublishStub);
+      });
+
+      it('should detect duplicate unpublish volume request', (done) => {
+        const unpublishArgs = {
+          volumeId: UUID,
+          nodeId: 'mayastor://another-node'
+        };
+        const volume = new Volume(UUID, registry, () => {}, {});
+        const unpublishStub = sinon.stub(volume, 'unpublish');
+        // We must sleep in the stub. Otherwise reply is sent before the second
+        // request comes in.
+        unpublishStub.callsFake(async () => {
+          await sleep(10);
+        });
+        const getNodeNameStub = sinon.stub(volume, 'getNodeName');
+        getNodeNameStub.returns('node');
+        getVolumesStub.returns(volume);
+
+        const unpublish1 = client.controllerUnpublishVolume().sendMessage(unpublishArgs);
+        const unpublish2 = client.controllerUnpublishVolume().sendMessage(unpublishArgs);
+        Promise.all([unpublish1, unpublish2]).then((results) => {
+          sinon.assert.calledOnce(unpublishStub);
+          expect(results).to.have.lengthOf(2);
+          done();
+        });
       });
     });
 

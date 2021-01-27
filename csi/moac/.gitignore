@@ -12,4 +12,5 @@
 /volumes.js
 /volume_operator.js
 /watcher.js
+/workq.js
 /*.js.map
