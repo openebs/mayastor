@@ -11,7 +11,7 @@ By running in user space, it does not matter what kernel you use its "Just a con
 ## What is NVMe?
 
 NVMe is a protocol that specifies how data is moved between the CPU and a PCIe device. This protocol was needed
-because CPUs in terms of speed is relatively stable, but the number of cores keeps increasing.
+because CPUs in terms of speed are relatively stable, but the number of cores keeps increasing.
 Also with SSD devices, the CPUs are starting to become the bottleneck.
 
 In short, it meant that  a whole new design was needed (which is not completely new as it borrows a lot
