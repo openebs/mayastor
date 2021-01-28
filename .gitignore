@@ -12,3 +12,4 @@ mayastor/local-write_verify-0-verify.state
 test-yamls/*
 /package-lock.json
 /node_modules
+artifacts/

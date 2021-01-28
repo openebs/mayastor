@@ -22,6 +22,8 @@ mkShell {
   hardeningDisable = [ "fortify" ];
   buildInputs = [
     docker-compose
+    kubectl
+    kind
     clang
     cowsay
     e2fsprogs
@@ -29,6 +31,7 @@ mkShell {
     envsubst # for e2e tests
     gdb
     go
+    git
     gptfdisk
     kubernetes-helm
     libaio
