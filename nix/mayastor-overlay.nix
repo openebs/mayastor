@@ -8,6 +8,8 @@ self: super: {
   mayastor-adhoc = (super.callPackage ./pkgs/mayastor { }).adhoc;
   moac = (import ./../csi/moac { pkgs = super; }).package;
   images = super.callPackage ./pkgs/images { };
+  services = (super.callPackage ./pkgs/images/services { });
+  operators = (super.callPackage ./pkgs/images/operators { });
 
   ms-buildenv = super.callPackage ./pkgs/ms-buildenv { };
   mkContainerEnv = super.callPackage ./lib/mkContainerEnv.nix { };

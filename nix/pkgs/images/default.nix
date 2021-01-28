@@ -51,7 +51,7 @@ let
       mkdir -p var/tmp
     '';
   };
-  servicesImageProps = {
+  clientImageProps = {
     tag = version;
     created = "now";
     config = {
@@ -122,20 +122,7 @@ rec {
     maxLayers = 42;
   };
 
-  services-kiiss-image = dockerTools.buildLayeredImage (servicesImageProps // {
-    name = "mayadata/services-kiiss";
-    contents = [ busybox mayastor ];
-    config = { Entrypoint = [ "/bin/kiiss" ]; };
-    maxLayers = 42;
-  });
-
-  services-kiiss-dev-image = dockerTools.buildImage (servicesImageProps // {
-    name = "mayadata/services-kiiss-dev";
-    contents = [ busybox mayastor ];
-    config = { Entrypoint = [ "/bin/kiiss" ]; };
-  });
-
-  mayastor-client-image = dockerTools.buildImage (servicesImageProps // {
+  mayastor-client-image = dockerTools.buildImage (clientImageProps // {
     name = "mayadata/mayastor-client";
     contents = [ busybox mayastor ];
     config = { Entrypoint = [ "/bin/mayastor-client" ]; };
