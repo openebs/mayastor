@@ -1,7 +1,7 @@
 apiVersion: apps/v1
 kind: DaemonSet
 metadata:
-  namespace: mayastor
+  namespace: {{ .Release.Namespace }}
   name: mayastor
   labels:
     openebs/engine: mayastor
@@ -20,7 +20,7 @@ spec:
         app: mayastor
     spec:
       hostNetwork: true
-      # To resolve services from mayastor namespace
+      # To resolve services from mayastor's namespace
       dnsPolicy: ClusterFirstWithHostNet
       nodeSelector:
         openebs.io/engine: mayastor
@@ -32,7 +32,7 @@ spec:
       containers:
       - name: mayastor
         image: {{ include "mayastorImagesPrefix" . }}mayadata/mayastor:{{ .Values.mayastorImagesTag }}
-        imagePullPolicy: Always
+        imagePullPolicy: {{ .Values.mayastorImagePullPolicy }}
         env:
         - name: MY_NODE_NAME
           valueFrom:
@@ -59,7 +59,7 @@ spec:
         - "-g$(MY_POD_IP)"
         - "-nnats"
         - "-y/var/local/mayastor/config.yaml"
-        - "-m0x3"
+        - "-l{{ include "mayastorCpuSpec" . }}"
         securityContext:
           privileged: true
         volumeMounts:
@@ -78,13 +78,13 @@ spec:
           # belong to Guaranteed QoS class, hence can never get evicted in case of
           # pressure unless they exceed those limits. limits and requests must be the same.
           limits:
-            cpu: "2"
-            memory: "500Mi"
-            hugepages-2Mi: "1Gi"
+            cpu: "{{ .Values.mayastorCpuCount }}"
+            memory: "512Mi"
+            hugepages-2Mi: "{{ .Values.mayastorHugePagesGiB }}Gi"
           requests:
-            cpu: "2"
-            memory: "500Mi"
-            hugepages-2Mi: "1Gi"
+            cpu: "{{ .Values.mayastorCpuCount }}"
+            memory: "512Mi"
+            hugepages-2Mi: "{{ .Values.mayastorHugePagesGiB }}Gi"
         ports:
         - containerPort: 10124
           protocol: TCP

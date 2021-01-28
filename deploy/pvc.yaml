@@ -5,7 +5,9 @@ metadata:
 spec:
   accessModes:
    - ReadWriteOnce
+  # Change to "Block" for raw block device
+  volumeMode: Filesystem
   resources:
     requests:
       storage: 64Mi
-  storageClassName: mayastor
+  storageClassName: mayastor-nvmf

@@ -22,7 +22,7 @@ spec:
         app: mayastor
     spec:
       hostNetwork: true
-      # To resolve services from mayastor namespace
+      # To resolve services from mayastor's namespace
       dnsPolicy: ClusterFirstWithHostNet
       nodeSelector:
         openebs.io/engine: mayastor
@@ -33,7 +33,7 @@ spec:
         command: ['sh', '-c', 'until nc -vz nats 4222; do echo "Waiting for message bus..."; sleep 1; done;']
       containers:
       - name: mayastor
-        image: mayadata/mayastor:latest
+        image: mayadata/mayastor:develop
         imagePullPolicy: Always
         env:
         - name: MY_NODE_NAME
@@ -61,7 +61,7 @@ spec:
         - "-g$(MY_POD_IP)"
         - "-nnats"
         - "-y/var/local/mayastor/config.yaml"
-        - "-m0x3"
+        - "-l1,2"
         securityContext:
           privileged: true
         volumeMounts:
