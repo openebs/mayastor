@@ -61,7 +61,7 @@
     "resolveJsonModule": true /* allows for importing, extracting types from and generating .json files */
   },
   "files": [
-    "watcher.ts",
+    "csi.ts",
     "nexus.ts",
     "node.ts",
     "node_operator.ts",
@@ -71,5 +71,6 @@
     "volume.ts",
     "volumes.ts",
     "volume_operator.ts",
+    "watcher.ts",
   ]
 }

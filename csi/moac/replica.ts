@@ -1,6 +1,8 @@
 // Replica object implementation.
 
-const assert = require('assert');
+import assert from 'assert';
+import * as _ from 'lodash';
+
 const { GrpcCode, GrpcError } = require('./grpc_client');
 const log = require('./logger').Logger('replica');
 

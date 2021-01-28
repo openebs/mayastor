@@ -46,13 +46,13 @@ export function volumeStateFromString(val: string): VolumeState {
 // maintaining desired redundancy.
 export class Volume {
   // volume spec properties
-  private uuid: string;
-  private replicaCount: number;
-  private preferredNodes: string[];
-  private requiredNodes: string[];
-  private requiredBytes: number;
-  private limitBytes: number;
-  private protocol: Protocol;
+  uuid: string;
+  replicaCount: number;
+  preferredNodes: string[];
+  requiredNodes: string[];
+  requiredBytes: number;
+  limitBytes: number;
+  protocol: Protocol;
   // volume status properties
   private size: number;
   private nexus: Nexus | null;

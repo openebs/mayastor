@@ -94,7 +94,7 @@ module.exports = function () {
     });
 
     it('should emit event upon change of deviceUri property', () => {
-      newProps.deviceUri = 'file:///dev/nbd0';
+      newProps.deviceUri = 'nvmf://host/nqn';
       nexus.merge(newProps);
 
       // First event is new nexus event
@@ -103,7 +103,7 @@ module.exports = function () {
         eventType: 'mod',
         object: nexus
       });
-      expect(nexus.deviceUri).to.equal('file:///dev/nbd0');
+      expect(nexus.deviceUri).to.equal('nvmf://host/nqn');
     });
 
     it('should emit event upon change of state property', () => {
@@ -231,18 +231,18 @@ module.exports = function () {
       });
     });
 
-    it('should publish the nexus with nbd protocol', async () => {
-      callStub.resolves({ deviceUri: 'file:///dev/nbd0' });
+    it('should publish the nexus with nvmf protocol', async () => {
+      callStub.resolves({ deviceUri: 'nvmf://host/nqn' });
 
-      await nexus.publish('nbd');
+      await nexus.publish('nvmf');
 
       sinon.assert.calledOnce(callStub);
       sinon.assert.calledWith(callStub, 'publishNexus', {
         uuid: UUID,
         key: '',
-        share: 0 // Nbd for now
+        share: 1
       });
-      expect(nexus.deviceUri).to.equal('file:///dev/nbd0');
+      expect(nexus.deviceUri).to.equal('nvmf://host/nqn');
       sinon.assert.calledOnce(eventSpy);
       sinon.assert.calledWith(eventSpy, 'nexus', {
         eventType: 'mod',
