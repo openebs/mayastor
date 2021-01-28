@@ -42,6 +42,11 @@ function cluster-get {
     kubectl -n mayastor get msn --sort-by=.metadata.creationTimestamp
     echo "-- K8s Nodes -----------------------------"
     kubectl get nodes -o wide --show-labels
+    echo "-- K8s Deployments -------------------"
+    kubectl -n mayastor get deployments
+    echo "-- K8s Daemonsets --------------------"
+    kubectl -n mayastor get daemonsets
+
 }
 
 function cluster-describe {
@@ -66,8 +71,12 @@ function cluster-describe {
     kubectl -n mayastor describe msv
     echo "-- Mayastor Nodes --------------------"
     kubectl -n mayastor describe msn
-    echo "-- K8s Nodes -----------------------------"
+    echo "-- K8s Nodes -------------------------"
     kubectl describe nodes
+    echo "-- K8s Deployments -------------------"
+    kubectl -n mayastor describe deployments
+    echo "-- K8s Daemonsets --------------------"
+    kubectl -n mayastor describe daemonsets
 }
 
 function logs-csi-containers {

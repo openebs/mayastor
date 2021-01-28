@@ -984,6 +984,48 @@ func DeleteAllVolumeResources() (bool, bool) {
 	return success, foundResources
 }
 
+func DeletePools() {
+	poolGVR := schema.GroupVersionResource{
+		Group:    "openebs.io",
+		Version:  "v1alpha1",
+		Resource: "mayastorpools",
+	}
+
+	pools, err := gTestEnv.DynamicClient.Resource(poolGVR).Namespace("mayastor").List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		// This function may be called by AfterSuite by uninstall test so listing MSVs may fail correctly
+		logf.Log.Info("DeletePools: list MSPs failed.", "Error", err)
+	}
+	if err == nil && pools != nil && len(pools.Items) != 0 {
+		logf.Log.Info("DeletePools: deleting MayastorPools")
+		for _, pool := range pools.Items {
+			logf.Log.Info("DeletePools: deleting", "pool", pool.GetName())
+			err = gTestEnv.DynamicClient.Resource(poolGVR).Namespace("mayastor").Delete(context.TODO(), pool.GetName(), metav1.DeleteOptions{})
+			if err != nil {
+				logf.Log.Error(err, "Failed to delete pool", pool.GetName() )
+			}
+		}
+	}
+
+	numPools := 0
+	// Wait 2 minutes for resources to be deleted
+	for attempts := 0; attempts < 120; attempts++ {
+		pools, err := gTestEnv.DynamicClient.Resource(poolGVR).Namespace("mayastor").List(context.TODO(), metav1.ListOptions{})
+		if err == nil && pools != nil {
+			numPools = len(pools.Items)
+		}
+		if numPools == 0 {
+			break
+		}
+		time.Sleep(1 * time.Second)
+	}
+
+	logf.Log.Info("DeletePools: ", "Pool count", numPools)
+	if numPools != 0 {
+		logf.Log.Info("DeletePools: ", "Pools", pools.Items)
+	}
+}
+
 func AfterSuiteCleanup() {
 	logf.Log.Info("AfterSuiteCleanup")
 	_, _ = DeleteAllVolumeResources()

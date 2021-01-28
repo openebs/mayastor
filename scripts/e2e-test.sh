@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-set -eux
+set -eu
 
 SCRIPTDIR=$(dirname "$(realpath "$0")")
 # new tests should be added before the replica_pod_remove test
@@ -26,7 +26,8 @@ Options:
         Note: the last 2 tests should be (if they are to be run)
              node_disconnect/replica_pod_remove uninstall
   --reportsdir <path>       Path to use for junit xml test reports (default: repo root)
-  --logs                    Generate logs and cluster state dump at the end of successful test run.
+  --logs                    Generate logs and cluster state dump at the end of successful test run,
+                            prior to uninstall.
   --onfail <stop|continue>  On fail, stop immediately or continue default($ON_FAIL)
                             Behaviour for "continue" only differs if uninstall is in the list of tests (the default).
 Examples:
@@ -115,11 +116,13 @@ function runGoTest {
     cd "$TESTDIR"
     echo "Running go test in $PWD/\"$1\""
     if [ -z "$1" ] || [ ! -d "$1" ]; then
+        echo "Unable to locate test directory  $PWD/\"$1\""
         return 1
     fi
 
     cd "$1"
     if ! go test -v . -ginkgo.v -ginkgo.progress -timeout 0; then
+        GENERATE_LOGS=1
         return 1
     fi
 
@@ -130,6 +133,12 @@ function runGoTest {
 contains() {
     [[ $1 =~ (^|[[:space:]])$2($|[[:space:]]) ]] && return 0  || return 1
 }
+
+echo "Environment:"
+echo "    e2e_pool_device=$e2e_pool_device"
+echo "    e2e_image_tag=$e2e_image_tag"
+echo "    e2e_docker_registry=$e2e_docker_registry"
+echo "    e2e_reports_dir=$e2e_reports_dir"
 
 echo "list of tests: $TESTS"
 for dir in $TESTS; do
@@ -142,21 +151,22 @@ for dir in $TESTS; do
 
       if ! ("$SCRIPTDIR"/e2e_check_pod_restarts.sh) ; then
           test_failed=1
+          GENERATE_LOGS=1
           break
       fi
 
   fi
 done
 
-if [ "$test_failed" -ne 0 ]; then
+if [ "$GENERATE_LOGS" -ne 0 ]; then
     if ! "$SCRIPTDIR"/e2e-cluster-dump.sh ; then
         # ignore failures in the dump script
         :
     fi
+fi
 
-    if [ "$ON_FAIL" == "stop" ]; then
-        exit 3
-    fi
+if [ "$test_failed" -ne 0 ] && [ "$ON_FAIL" == "stop" ]; then
+    exit 3
 fi
 
 # Always run uninstall test if specified
@@ -172,14 +182,7 @@ fi
 
 if [ "$test_failed" -ne 0 ]; then
     echo "At least one test has FAILED!"
-  exit 1
-fi
-
-if [ "$GENERATE_LOGS" -ne 0 ]; then
-    if ! "$SCRIPTDIR"/e2e-cluster-dump.sh ; then
-        # ignore failures in the dump script
-        :
-    fi
+    exit 1
 fi
 
 echo "All tests have PASSED!"
