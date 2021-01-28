@@ -3173,6 +3173,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "paste"
+version = "1.0.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c5d65c4d95931acda4498f675e332fcbdc9a06705cd07086c510e9b6009cd1c1"
+
+[[package]]
 name = "peeking_take_while"
 version = "0.1.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4056,6 +4062,7 @@ dependencies = [
  "lazy_static",
  "mbus_api",
  "nats",
+ "paste",
  "rpc",
  "serde",
  "serde_json",
@@ -4063,6 +4070,8 @@ dependencies = [
  "snafu",
  "state",
  "structopt",
+ "strum",
+ "strum_macros",
  "tokio",
  "tonic",
  "tracing",

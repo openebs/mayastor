@@ -20,12 +20,17 @@ path = "pool/src/server.rs"
 name = "volume"
 path = "volume/src/server.rs"
 
+[[bin]]
+name = "deployer"
+path = "deployer/src/bin.rs"
+
 [lib]
 name = "common"
 path = "common/src/lib.rs"
 
 [dependencies]
 mbus_api = { path = "../mbus-api" }
+composer = { path = "../composer" }
 nats = "0.8"
 structopt = "0.3.15"
 tokio = { version = "0.2", features = ["full"] }
@@ -45,9 +50,9 @@ tracing-futures = "0.2.4"
 rpc = { path = "../rpc" }
 url = "2.2.0"
 http = "0.2.1"
-
-[dev-dependencies]
-composer = { path = "../composer" }
+strum = "0.19"
+strum_macros = "0.19"
+paste = "1.0.4"
 
 [dependencies.serde]
 features = ["derive"]
