@@ -217,7 +217,7 @@ short commit hash of the top-most commit or a tag name of the commit if
 present. Example of building a moac package:
 
 ```bash
-nix-build -A images.moac-image
+nix-build -A images.moac
 ```
 
 At the end of the build is printed path to docker image tar archive. Load the
@@ -229,9 +229,9 @@ docker run --rm -it image-hash /bin/bash
 ```
 
 Mayastor and csi plugin images can have multiple flavours. Production image
-name does not contain the flavour name (i.e. `mayastor-image`). Debug image
-contains the `dev` in its name (i.e. `mayastor-dev-image`). Mayastor package
-has additional flavour called `adhoc` (`mayastor-adhoc-image`), that is handy
+name does not contain the flavour name (i.e. `mayastor`). Debug image
+contains the `dev` in its name (i.e. `mayastor-dev`). Mayastor package
+has additional flavour called `adhoc` (`mayastor-adhoc`), that is handy
 for testing because it is not based on mayastor package but rather on whatever
 binaries are present in `target/debug` directory.
 

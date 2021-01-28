@@ -107,6 +107,10 @@ in
       ../../../target/debug/mayastor-client
       ../../../target/debug/jsonrpc
       ../../../target/debug/kiiss
+      ../../../target/debug/node
+      ../../../target/debug/volume
+      ../../../target/debug/pool
+      ../../../target/debug/rest
     ];
 
     buildInputs = [
