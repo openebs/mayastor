@@ -38,6 +38,13 @@ func deleteCRD(crdName string) {
 	_ = cmd.Run()
 }
 
+// Create mayastor namespace
+func deleteNamespace() {
+	cmd := exec.Command("kubectl", "delete", "namespace", "mayastor")
+	out, err := cmd.CombinedOutput()
+	Expect(err).ToNot(HaveOccurred(), "%s", out)
+}
+
 // Teardown mayastor on the cluster under test.
 // We deliberately call out to kubectl, rather than constructing the client-go
 // objects, so that we can verfiy the local deploy yamls are correct.
@@ -129,7 +136,7 @@ func teardownMayastor() {
 		if forceDeleted {
 			logf.Log.Info("WARNING: Mayastor pods were force deleted at uninstall!!!")
 		}
-		deleteDeployYaml("namespace.yaml")
+		deleteNamespace()
 		// delete the namespace prior to possibly failing the uninstall
 		// to yield a reusable cluster on fail.
 		Expect(podsDeleted).To(BeTrue())
@@ -147,7 +154,7 @@ func teardownMayastor() {
 		// More verbose here as deleting the namespace is often where this
 		// test hangs.
 		logf.Log.Info("Deleting the mayastor namespace")
-		deleteDeployYaml("namespace.yaml")
+		deleteNamespace()
 		logf.Log.Info("Deleted the mayastor namespace")
 	}
 }
