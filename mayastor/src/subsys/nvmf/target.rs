@@ -293,7 +293,7 @@ impl Target {
         let discovery = unsafe {
             NvmfSubsystem::from(spdk_nvmf_subsystem_create(
                 self.tgt.as_ptr(),
-                SPDK_NVMF_DISCOVERY_NQN.as_ptr() as *const i8,
+                SPDK_NVMF_DISCOVERY_NQN.as_ptr() as *const u8,
                 SPDK_NVMF_SUBTYPE_DISCOVERY,
                 0,
             ))

@@ -35,7 +35,7 @@ extern "C" {
         line: i32,
         func: *const c_char,
         format: *const c_char,
-        args: *mut __va_list_tag,
+        args: __va_list,
     );
 
     pub static mut logfn: LogProto;

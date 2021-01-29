@@ -28,7 +28,7 @@ impl IoChannel {
                 (*self.0)
                     .dev
                     .add(std::mem::size_of::<*mut spdk_io_channel>())
-                    as *mut i8,
+                    as *const u8,
             )
             .to_str()
             .unwrap()

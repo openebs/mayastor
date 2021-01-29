@@ -180,14 +180,14 @@ impl Replica {
     pub fn get_pool_name(&self) -> &str {
         unsafe {
             let lvs = &*(*self.lvol_ptr).lvol_store;
-            CStr::from_ptr(&lvs.name as *const i8).to_str().unwrap()
+            CStr::from_ptr(&lvs.name as *const u8).to_str().unwrap()
         }
     }
 
     /// Get uuid (= name) of the replica.
     pub fn get_uuid(&self) -> &str {
         unsafe {
-            CStr::from_ptr(&(*self.lvol_ptr).name as *const i8)
+            CStr::from_ptr(&(*self.lvol_ptr).name as *const u8)
                 .to_str()
                 .unwrap()
         }

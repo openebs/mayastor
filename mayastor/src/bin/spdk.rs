@@ -46,7 +46,7 @@ fn main() -> Result<(), std::io::Error> {
 
         if spdk_app_parse_args(
             (c_args.len() as c_int) - 1,
-            c_args.as_ptr() as *mut *mut i8,
+            c_args.as_ptr() as *mut *mut u8,
             &mut opts,
             null_mut(), // extra short options i.e. "f:S:"
             null_mut(), // extra long options

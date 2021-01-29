@@ -189,7 +189,7 @@ impl NexusFnTable {
         unsafe {
             spdk_json_write_named_array_begin(
                 w,
-                "children\0".as_ptr() as *mut i8,
+                "children\0".as_ptr() as *const u8,
             );
         };
 

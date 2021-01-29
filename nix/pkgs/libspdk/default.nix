@@ -54,14 +54,14 @@ let
       "--without-isal"
       "--with-iscsi-initiator"
       "--with-uring"
+      # "--with-crypto"
+      "--disable-examples"
+      "--disable-unit-tests"
+      "--disable-tests"
     ];
 
 
     enableParallelBuilding = true;
-
-    preConfigure = ''
-      substituteInPlace dpdk/config/defconfig_aarch64-native-linux-gcc --replace native default
-    '';
 
     configurePhase = ''
       patchShebangs ./.
@@ -77,13 +77,13 @@ let
       find . -type f -name 'libspdk_ut_mock.a' -delete
 
       $CC -shared -o libspdk.so \
-      -lc  -laio -liscsi -lnuma -ldl -lrt -luuid -lpthread -lcrypto \
-      -luring \
-      -Wl,--whole-archive \
-      $(find build/lib -type f -name 'libspdk_*.a*' -o -name 'librte_*.a*') \
-      $(find dpdk/build/lib -type f -name 'librte_*.a*') \
-      $(find intel-ipsec-mb -type f -name 'libIPSec_*.a*') \
-      -Wl,--no-whole-archive
+        -lc  -laio -liscsi -lnuma -ldl -lrt -luuid -lpthread -lcrypto \
+        -luring \
+        -Wl,--whole-archive \
+        $(find build/lib -type f -name 'libspdk_*.a*' -o -name 'librte_*.a*') \
+        $(find dpdk/build/lib -type f -name 'librte_*.a*') \
+        $(find intel-ipsec-mb -type f -name 'libIPSec_*.a*') \
+        -Wl,--no-whole-archive
     '';
 
     installPhase = ''
