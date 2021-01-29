@@ -192,6 +192,7 @@ pipeline {
                   returnStdout: true
                 )
                 KUBECONFIG = "${env.WORKSPACE}/${e2e_environment}/modules/k8s/secrets/admin.conf"
+                TESTPLAN = "ET-71"
               }
               steps {
                 // FIXME(arne-rusek): move hcloud's config to top-level dir in TF scripts
@@ -206,7 +207,31 @@ pipeline {
                     fingerprintArtifacts: true
                 )
                 sh 'kubectl get nodes -o wide'
-                sh "nix-shell --run './scripts/e2e-test.sh --device /dev/sdb --tag \"${env.GIT_COMMIT_SHORT}\" --registry \"${env.REGISTRY}\"'"
+                sh "nix-shell --run './scripts/e2e-test.sh --device /dev/sdb --tag \"${env.GIT_COMMIT_SHORT}\" --registry \"${env.REGISTRY}\" --test_plan \"${env.TESTPLAN}\"'"
+              }
+              post {
+                always { // always send the junit results back to Xray
+                  script {
+                    sh 'ls'
+                    def projectkey = 'ET'
+                    def XML_FILE_LIST = ".xml_file_list"
+                    // look only for xml files with the test plan prefix
+                    sh "ls ${env.TESTPLAN}.*.xml > ${XML_FILE_LIST}"
+                    def junitFiles = readFile(XML_FILE_LIST).split( "\\r?\\n" );
+                    sh "rm -f ${XML_FILE_LIST}"
+                    for (int i = 0; i < junitFiles.size(); i++) {
+                      def filename = junitFiles[i]
+                      step([
+                        $class: 'XrayImportBuilder',
+                        endpointName: '/junit',
+                        importFilePath: "${filename}",
+                        projectKey: "${projectkey}",
+                        testPlanKey: "${env.TESTPLAN}",
+                        serverInstance: "${env.JIRASERVERUUID}"])
+                        sh "rm -f ${filename}"
+                    }
+                  }
+                }
               }
             }
             stage('destroy e2e cluster') {
