@@ -24,6 +24,7 @@ mkShell {
     docker-compose
     kubectl
     kind
+    docker
     clang
     cowsay
     e2fsprogs
