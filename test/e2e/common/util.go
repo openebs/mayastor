@@ -439,7 +439,7 @@ func DeleteAllPods() (bool, int) {
 	numPods := 0
 	pods, err := gTestEnv.KubeInt.CoreV1().Pods("default").List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
-		logf.Log.Error(err, "DeleteAllPods: list pods failed.")
+		logf.Log.Info("DeleteAllPods: list pods failed.", "error", err)
 		success = false
 	}
 	if err == nil && pods != nil {
@@ -889,6 +889,64 @@ func IsVolumePublished(uuid string) bool {
 	return true
 }
 
+func CheckNoPVCs() (bool, error) {
+	logf.Log.Info("CheckNoPVCs")
+	foundResources := false
+
+	pvcs, err := gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims("default").List(context.TODO(), metav1.ListOptions{})
+	if err == nil && pvcs != nil && len(pvcs.Items) != 0 {
+		logf.Log.Info("CheckNoVolumeResources: found PersistentVolumeClaims",
+			"PersistentVolumeClaims", pvcs.Items)
+		foundResources = true
+	}
+	return foundResources, err
+}
+
+func CheckNoPVs() (bool, error) {
+	logf.Log.Info("CheckNoPVs")
+	foundResources := false
+
+	pvs, err := gTestEnv.KubeInt.CoreV1().PersistentVolumes().List(context.TODO(), metav1.ListOptions{})
+	if err == nil && pvs != nil && len(pvs.Items) != 0 {
+		logf.Log.Info("CheckNoVolumeResources: found PersistentVolumes",
+			"PersistentVolumes", pvs.Items)
+		foundResources = true
+	}
+	return foundResources, err
+}
+
+func CheckNoMSVs() (bool, error) {
+	logf.Log.Info("CheckNoMSVs")
+	foundResources := false
+
+	msvGVR := schema.GroupVersionResource{
+		Group:    "openebs.io",
+		Version:  "v1alpha1",
+		Resource: "mayastorvolumes",
+	}
+
+	msvs, err := gTestEnv.DynamicClient.Resource(msvGVR).Namespace("mayastor").List(context.TODO(), metav1.ListOptions{})
+	if err == nil && msvs != nil && len(msvs.Items) != 0 {
+		logf.Log.Info("CheckNoVolumeResources: found MayastorVolumes",
+			"MayastorVolumes", msvs.Items)
+		foundResources = true
+	}
+	return foundResources, err
+}
+
+func CheckNoTestPods() (bool, error) {
+	logf.Log.Info("CheckNoTestPods")
+	foundPods := false
+
+	pods, err := gTestEnv.KubeInt.CoreV1().Pods("default").List(context.TODO(), metav1.ListOptions{})
+	if err == nil && pods != nil && len(pods.Items) != 0 {
+		logf.Log.Info("CheckNoTestPods",
+			"Pods", pods.Items)
+		foundPods = true
+	}
+	return foundPods, err
+}
+
 // Make best attempt to delete PVCs, PVs and MSVs
 func DeleteAllVolumeResources() (bool, bool) {
 	logf.Log.Info("DeleteAllVolumeResources")
@@ -899,7 +957,7 @@ func DeleteAllVolumeResources() (bool, bool) {
 	// Phase 1 to delete dangling resources
 	pvcs, err := gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims("default").List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
-		logf.Log.Error(err, "DeleteAllVolumeResources: list PVCs failed.")
+		logf.Log.Info("DeleteAllVolumeResources: list PVCs failed.", "error", err)
 		success = false
 	}
 	if err == nil && pvcs != nil && len(pvcs.Items) != 0 {
@@ -915,7 +973,7 @@ func DeleteAllVolumeResources() (bool, bool) {
 	// Delete all PVs found
 	pvs, err := gTestEnv.KubeInt.CoreV1().PersistentVolumes().List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
-		logf.Log.Error(err, "DeleteAllVolumeResources: list PVs failed.")
+		logf.Log.Info("DeleteAllVolumeResources: list PVs failed.", "error", err)
 	}
 	if err == nil && pvs != nil && len(pvs.Items) != 0 {
 		logf.Log.Info("DeleteAllVolumeResources: deleting PersistentVolumes")
@@ -1002,7 +1060,7 @@ func DeletePools() {
 			logf.Log.Info("DeletePools: deleting", "pool", pool.GetName())
 			err = gTestEnv.DynamicClient.Resource(poolGVR).Namespace("mayastor").Delete(context.TODO(), pool.GetName(), metav1.DeleteOptions{})
 			if err != nil {
-				logf.Log.Error(err, "Failed to delete pool", pool.GetName() )
+				logf.Log.Error(err, "Failed to delete pool", pool.GetName())
 			}
 		}
 	}

@@ -3,16 +3,17 @@
 set -eu
 
 SCRIPTDIR=$(dirname "$(realpath "$0")")
-# new tests should be added before the replica_pod_remove test
-#TESTS="install basic_volume_io csi replica rebuild node_disconnect/replica_pod_remove uninstall"
-TESTS="install basic_volume_io csi uninstall"
-DEVICE=
-REGISTRY=
-TAG=
 TESTDIR=$(realpath "$SCRIPTDIR/../test/e2e")
 REPORTSDIR=$(realpath "$SCRIPTDIR/..")
-GENERATE_LOGS=0
-ON_FAIL="continue"
+# new tests should be added before the replica_pod_remove test
+#tests="install basic_volume_io csi replica rebuild node_disconnect/replica_pod_remove uninstall"
+tests="install basic_volume_io csi uninstall"
+device=
+registry=
+tag="ci"
+generate_logs=0
+on_fail="stop"
+uninstall_cleanup="n"
 
 help() {
   cat <<EOF
@@ -22,16 +23,17 @@ Options:
   --device <path>           Device path to use for storage pools.
   --registry <host[:port]>  Registry to pull the mayastor images from.
   --tag <name>              Docker image tag of mayastor images (default "ci")
-  --tests <list of tests>   Lists of tests to run, delimited by spaces (default: "$TESTS")
+  --tests <list of tests>   Lists of tests to run, delimited by spaces (default: "$tests")
         Note: the last 2 tests should be (if they are to be run)
              node_disconnect/replica_pod_remove uninstall
   --reportsdir <path>       Path to use for junit xml test reports (default: repo root)
   --logs                    Generate logs and cluster state dump at the end of successful test run,
                             prior to uninstall.
-  --onfail <stop|continue>  On fail, stop immediately or continue default($ON_FAIL)
+  --onfail <stop|continue>  On fail, stop immediately or continue default($on_fail)
                             Behaviour for "continue" only differs if uninstall is in the list of tests (the default).
+  --uninstall_cleanup <y|n> On uninstall cleanup for reusable cluster. default($uninstall_cleanup)
 Examples:
-  $0 --registry 127.0.0.1:5000 --tag a80ce0c
+  $0 --device /dev/nvme0n1 --registry 127.0.0.1:5000 --tag a80ce0c
 EOF
 }
 
@@ -40,19 +42,19 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     -d|--device)
       shift
-      DEVICE=$1
+      device=$1
       ;;
     -r|--registry)
       shift
-      REGISTRY=$1
+      registry=$1
       ;;
     -t|--tag)
       shift
-      TAG=$1
+      tag=$1
       ;;
     -T|--tests)
       shift
-      TESTS="$1"
+      tests="$1"
       ;;
     -R|--reportsdir)
       shift
@@ -63,22 +65,33 @@ while [ "$#" -gt 0 ]; do
       exit 0
       ;;
     -l|--logs)
-      GENERATE_LOGS=1
+      generate_logs=1
       ;;
     --onfail)
         shift
         case $1 in
             continue)
-                ON_FAIL=$1
+                on_fail=$1
                 ;;
             stop)
-                ON_FAIL=$1
+                on_fail=$1
                 ;;
             *)
                 help
                 exit 2
         esac
-        ;;
+      ;;
+    --uninstall_cleanup)
+        shift
+        case $1 in
+            y|n)
+                uninstall_cleanup=$1
+                ;;
+            *)
+                help
+                exit 2
+        esac
+      ;;
     *)
       echo "Unknown option: $1"
       help
@@ -88,25 +101,34 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 
-if [ -z "$DEVICE" ]; then
+if [ -z "$device" ]; then
   echo "Device for storage pools must be specified"
   help
   exit 1
 fi
-export e2e_pool_device=$DEVICE
+export e2e_pool_device=$device
 
-if [ -n "$TAG" ]; then
-  export e2e_image_tag="$TAG"
+if [ -z "$registry" ]; then
+  echo "Registry to pull the mayastor images from, must be specified"
+  help
+  exit 1
 fi
+export e2e_docker_registry="$registry"
 
-if [ -n "$REGISTRY" ]; then
-  export e2e_docker_registry="$REGISTRY"
+if [ -n "$tag" ]; then
+  export e2e_image_tag="$tag"
 fi
 
 export e2e_reports_dir="$REPORTSDIR"
 if [ ! -d "$e2e_reports_dir" ] ; then
     echo "Reports directory $e2e_reports_dir does not exist"
     exit 1
+fi
+
+if [ "$uninstall_cleanup" == 'n' ] ; then
+    export e2e_uninstall_cleanup=0
+else
+    export e2e_uninstall_cleanup=1
 fi
 
 test_failed=0
@@ -122,7 +144,7 @@ function runGoTest {
 
     cd "$1"
     if ! go test -v . -ginkgo.v -ginkgo.progress -timeout 0; then
-        GENERATE_LOGS=1
+        generate_logs=1
         return 1
     fi
 
@@ -139,39 +161,44 @@ echo "    e2e_pool_device=$e2e_pool_device"
 echo "    e2e_image_tag=$e2e_image_tag"
 echo "    e2e_docker_registry=$e2e_docker_registry"
 echo "    e2e_reports_dir=$e2e_reports_dir"
+echo "    e2e_uninstall_cleanup=$e2e_uninstall_cleanup"
 
-echo "list of tests: $TESTS"
-for dir in $TESTS; do
+
+echo "list of tests: $tests"
+for dir in $tests; do
   # defer uninstall till after other tests have been run.
   if [ "$dir" != "uninstall" ] ;  then
       if ! runGoTest "$dir" ; then
+          echo "Test \"$dir\" Failed!!"
           test_failed=1
           break
       fi
 
       if ! ("$SCRIPTDIR"/e2e_check_pod_restarts.sh) ; then
+          echo "Test \"$dir\" Failed!! mayastor pods were restarted."
           test_failed=1
-          GENERATE_LOGS=1
+          generate_logs=1
           break
       fi
 
   fi
 done
 
-if [ "$GENERATE_LOGS" -ne 0 ]; then
+if [ "$generate_logs" -ne 0 ]; then
     if ! "$SCRIPTDIR"/e2e-cluster-dump.sh ; then
         # ignore failures in the dump script
         :
     fi
 fi
 
-if [ "$test_failed" -ne 0 ] && [ "$ON_FAIL" == "stop" ]; then
+if [ "$test_failed" -ne 0 ] && [ "$on_fail" == "stop" ]; then
     exit 3
 fi
 
 # Always run uninstall test if specified
-if contains "$TESTS" "uninstall" ; then
+if contains "$tests" "uninstall" ; then
     if ! runGoTest "uninstall" ; then
+        echo "Test \"uninstall\" Failed!!"
         test_failed=1
         if ! "$SCRIPTDIR"/e2e-cluster-dump.sh --clusteronly ; then
             # ignore failures in the dump script
