@@ -78,13 +78,8 @@ async fn client() {
             .with_portmap("6831/udp", "6831/udp")
             .with_portmap("6832/udp", "6832/udp"),
         )
-        // uncomment to run alpine commands within the containers
-        //.with_base_image("alpine:latest".to_string())
         .with_default_tracing()
         .autorun(false)
-        // uncomment to leave containers running allowing us access the jaeger
-        // traces at localhost:16686
-        .with_clean(false)
         .build()
         .await
         .unwrap();
