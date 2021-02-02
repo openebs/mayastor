@@ -15,6 +15,7 @@
 , openssl
 , python3
 , stdenv
+, system ? builtins.currentSystem
 }:
 let
   # Derivation attributes for production version of libspdk
@@ -49,8 +50,11 @@ let
       openssl
     ];
 
-    configureFlags = [
-      "--target-arch=native"
+    configureFlags = (if (system == "x86_64-linux") then 
+      [ "--target-arch=neleham" ]
+    else
+      []
+    ) ++ [
       "--without-isal"
       "--with-iscsi-initiator"
       "--with-uring"

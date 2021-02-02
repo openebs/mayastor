@@ -40,8 +40,8 @@ fn build_wrapper() {
 
 fn main() {
     #![allow(unreachable_code)]
-    // #[cfg(not(target_arch = "x86_64"))]
-    // panic!("spdk-sys crate is only for x86_64 cpu architecture");
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    panic!("spdk-sys crate is only for x86_64 (Nehelam or later) and aarch64 ISAs.");
     #[cfg(not(target_os = "linux"))]
     panic!("spdk-sys crate works only on linux");
 
