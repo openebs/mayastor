@@ -1,7 +1,12 @@
 mod v0;
 
-use actix_web::{middleware, App, HttpServer};
-use paperclip::actix::OpenApiExt;
+use actix_service::ServiceFactory;
+use actix_web::{
+    dev::{MessageBody, ServiceRequest, ServiceResponse},
+    middleware,
+    App,
+    HttpServer,
+};
 use rustls::{
     internal::pemfile::{certs, rsa_private_keys},
     NoClientAuth,
@@ -9,9 +14,6 @@ use rustls::{
 };
 use std::io::BufReader;
 use structopt::StructOpt;
-
-/// uri where the openapi spec is exposed
-pub(crate) const SPEC_URI: &str = "/v0/api/spec";
 
 #[derive(Debug, StructOpt)]
 pub(crate) struct CliArgs {
@@ -60,6 +62,34 @@ fn init_tracing() -> Option<(Tracer, Uninstall)> {
     }
 }
 
+/// Extension trait for actix-web applications.
+pub trait OpenApiExt<T, B> {
+    /// configures the App with this version's handlers and openapi generation
+    fn configure_api(
+        self,
+        config: &dyn Fn(actix_web::App<T, B>) -> actix_web::App<T, B>,
+    ) -> actix_web::App<T, B>;
+}
+
+impl<T, B> OpenApiExt<T, B> for actix_web::App<T, B>
+where
+    B: MessageBody,
+    T: ServiceFactory<
+        Config = (),
+        Request = ServiceRequest,
+        Response = ServiceResponse<B>,
+        Error = actix_web::Error,
+        InitError = (),
+    >,
+{
+    fn configure_api(
+        self,
+        config: &dyn Fn(actix_web::App<T, B>) -> actix_web::App<T, B>,
+    ) -> actix_web::App<T, B> {
+        config(self)
+    }
+}
+
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     // need to keep the jaeger pipeline tracer alive, if enabled
@@ -83,16 +113,7 @@ async fn main() -> std::io::Result<()> {
         App::new()
             .wrap(RequestTracing::new())
             .wrap(middleware::Logger::default())
-            .wrap_api()
-            .configure(v0::nodes::configure)
-            .configure(v0::pools::configure)
-            .configure(v0::replicas::configure)
-            .configure(v0::nexuses::configure)
-            .configure(v0::children::configure)
-            .configure(v0::volumes::configure)
-            .with_json_spec_at(SPEC_URI)
-            .build()
-            .configure(v0::swagger_ui::configure)
+            .configure_api(&v0::configure_api)
     })
     .bind_rustls(CliArgs::from_args().https, config)?;
     if let Some(http) = CliArgs::from_args().http {

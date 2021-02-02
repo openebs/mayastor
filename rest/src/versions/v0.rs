@@ -8,10 +8,7 @@ use actix_web::{
     ResponseError,
 };
 use async_trait::async_trait;
-use mbus_api::{
-    message_bus::{v0, v0::BusError},
-    ErrorChain,
-};
+pub use mbus_api::message_bus::v0::*;
 use paperclip::actix::Apiv2Schema;
 use serde::{Deserialize, Serialize};
 use std::{
@@ -20,32 +17,6 @@ use std::{
 };
 use strum_macros::{self, Display};
 
-/// Node from the node service
-pub type Node = v0::Node;
-/// Vector of Nodes from the node service
-pub type Nodes = v0::Nodes;
-/// Pool from the node service
-pub type Pool = v0::Pool;
-/// Vector of Pools from the pool service
-pub type Pools = v0::Pools;
-/// Replica
-pub type Replica = v0::Replica;
-/// Vector of Replicas from the pool service
-pub type Replicas = v0::Replicas;
-/// Replica protocol
-pub type Protocol = v0::Protocol;
-/// Create Pool request
-pub type CreatePool = v0::CreatePool;
-/// Create Replica request
-pub type CreateReplica = v0::CreateReplica;
-/// Replica Destroy
-pub type DestroyReplica = v0::DestroyReplica;
-/// Replica Share
-pub type ShareReplica = v0::ShareReplica;
-/// Replica Unshare
-pub type UnshareReplica = v0::UnshareReplica;
-/// Pool Destroy
-pub type DestroyPool = v0::DestroyPool;
 /// Create Replica Body JSON
 #[derive(Serialize, Deserialize, Default, Debug, Clone, Apiv2Schema)]
 pub struct CreateReplicaBody {
@@ -110,28 +81,6 @@ impl CreateReplicaBody {
         }
     }
 }
-/// Filter Nodes, Pools, Replicas, Nexuses
-pub type Filter = v0::Filter;
-/// Nexus from the volume service
-pub type Nexus = v0::Nexus;
-/// Vector of Nexuses from the volume service
-pub type Nexuses = v0::Nexuses;
-/// State of the nexus
-pub type NexusState = v0::NexusState;
-/// State of the nexus
-pub type VolumeState = v0::VolumeState;
-/// Child of the nexus
-pub type Child = v0::Child;
-/// State of the child
-pub type ChildState = v0::ChildState;
-/// Nexus Create
-pub type CreateNexus = v0::CreateNexus;
-/// Nexus Destroy
-pub type DestroyNexus = v0::DestroyNexus;
-/// Nexus Share
-pub type ShareNexus = v0::ShareNexus;
-/// Nexus Unshare
-pub type UnshareNexus = v0::UnshareNexus;
 
 /// Create Nexus Body JSON
 #[derive(Serialize, Deserialize, Default, Debug, Clone, Apiv2Schema)]
@@ -167,30 +116,6 @@ impl CreateNexusBody {
         }
     }
 }
-/// Remove Nexus Child
-pub type RemoveNexusChild = v0::RemoveNexusChild;
-/// Add Nexus Child
-pub type AddNexusChild = v0::AddNexusChild;
-/// Volume
-pub type Volume = v0::Volume;
-/// Volumes
-pub type Volumes = v0::Volumes;
-/// Create Volume
-pub type CreateVolume = v0::CreateVolume;
-/// Destroy Volume
-pub type DestroyVolume = v0::DestroyVolume;
-/// Id of a mayastor node
-pub type NodeId = v0::NodeId;
-/// Id of a mayastor pool
-pub type PoolId = v0::PoolId;
-/// UUID of a mayastor pool replica
-pub type ReplicaId = v0::ReplicaId;
-/// UUID of a mayastor nexus
-pub type NexusId = v0::NexusId;
-/// URI of a mayastor nexus child
-pub type ChildUri = v0::ChildUri;
-/// UUID of a mayastor volume
-pub type VolumeId = v0::VolumeId;
 
 /// Create Volume Body JSON
 #[derive(Serialize, Deserialize, Default, Debug, Clone, Apiv2Schema)]
