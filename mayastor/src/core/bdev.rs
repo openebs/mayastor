@@ -161,7 +161,7 @@ impl Bdev {
         bdev: *mut spdk_bdev,
         _ctx: *mut c_void,
     ) {
-        let bdev = Bdev(NonNull::new(bdev).unwrap());
+        let bdev = Bdev::from_ptr(bdev).unwrap();
         // Take the appropriate action for the given event type
         match event {
             spdk_sys::SPDK_BDEV_EVENT_REMOVE => {
@@ -171,9 +171,9 @@ impl Bdev {
                 }
             }
             spdk_sys::SPDK_BDEV_EVENT_RESIZE => {
-                info!("Received resize event for bdev {}", bdev.name())
+                warn!("Received resize event for bdev {}", bdev.name())
             }
-            spdk_sys::SPDK_BDEV_EVENT_MEDIA_MANAGEMENT => info!(
+            spdk_sys::SPDK_BDEV_EVENT_MEDIA_MANAGEMENT => warn!(
                 "Received media management event for bdev {}",
                 bdev.name()
             ),

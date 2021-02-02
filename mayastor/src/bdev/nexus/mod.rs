@@ -59,3 +59,17 @@ pub fn nexus_instance_new(name: String, size: u64, children: Vec<String>) {
     let list = instances();
     list.push(Nexus::new(&name, size, None, Some(&children)));
 }
+
+/// called during shutdown so that the bdevs for each child is destroyed first
+pub async fn nexus_destroy_all() {
+    info!("destroying all nexuses...");
+    for nexus in instances() {
+        if let Err(e) = nexus.destroy().await {
+            error!(
+                "failed to destroy nexus {} during shutdown: {}",
+                nexus.name, e
+            );
+        }
+    }
+    info!("destroyed all nexuses");
+}

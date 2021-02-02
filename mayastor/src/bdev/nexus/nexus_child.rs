@@ -32,6 +32,8 @@ pub enum ChildError {
     ChildNotClosed {},
     #[snafu(display("Child is faulted, it cannot be reopened"))]
     ChildFaulted {},
+    #[snafu(display("Child is being destroyed"))]
+    ChildBeingDestroyed {},
     #[snafu(display(
         "Child is smaller than parent {} vs {}",
         child_size,
@@ -99,6 +101,8 @@ pub enum ChildState {
     ConfigInvalid,
     /// the child is open for RW
     Open,
+    /// the child is being destroyed
+    Destroying,
     /// the child has been closed by the nexus
     Closed,
     /// the child is faulted
@@ -112,6 +116,7 @@ impl Display for ChildState {
             Self::Init => write!(f, "Init"),
             Self::ConfigInvalid => write!(f, "Config parameters are invalid"),
             Self::Open => write!(f, "Child is open"),
+            Self::Destroying => write!(f, "Child is being destroyed"),
             Self::Closed => write!(f, "Closed"),
         }
     }
@@ -132,6 +137,9 @@ pub struct NexusChild {
     /// current state of the child
     #[serde(skip_serializing)]
     pub state: AtomicCell<ChildState>,
+    /// previous state of the child
+    #[serde(skip_serializing)]
+    pub prev_state: AtomicCell<ChildState>,
     /// record of most-recent IO errors
     #[serde(skip_serializing)]
     pub(crate) err_store: Option<NexusErrStore>,
@@ -159,15 +167,15 @@ impl Display for NexusChild {
 
 impl NexusChild {
     pub(crate) fn set_state(&self, state: ChildState) {
+        let prev_state = self.state.swap(state);
+        self.prev_state.store(prev_state);
         trace!(
             "{}: child {}: state change from {} to {}",
             self.parent,
             self.name,
-            self.state.load().to_string(),
+            prev_state.to_string(),
             state.to_string(),
         );
-
-        self.state.store(state);
     }
 
     /// Open the child in RW mode and claim the device to be ours. If the child
@@ -179,6 +187,7 @@ impl NexusChild {
     /// A child can only be opened if:
     ///  - it's not faulted
     ///  - it's not already opened
+    ///  - it's not being destroyed
     pub(crate) fn open(
         &mut self,
         parent_size: u64,
@@ -200,6 +209,13 @@ impl NexusChild {
                 assert_eq!(self.desc.is_some(), true);
                 info!("called open on an already opened child");
                 return Ok(self.name.clone());
+            }
+            ChildState::Destroying => {
+                error!(
+                    "{}: cannot open child {} being destroyed",
+                    self.parent, self.name
+                );
+                return Err(ChildError::ChildBeingDestroyed {});
             }
             _ => {}
         }
@@ -353,7 +369,10 @@ impl NexusChild {
 
         // Only wait for bdev removal if the child has been initialised.
         // An uninitialized child won't have an underlying bdev.
-        if self.state.load() != ChildState::Init {
+        // Also check previous state as remove event may not have occurred
+        if self.state.load() != ChildState::Init
+            && self.prev_state.load() != ChildState::Init
+        {
             self.remove_channel.1.next().await;
         }
 
@@ -369,11 +388,18 @@ impl NexusChild {
     pub(crate) fn remove(&mut self) {
         info!("Removing child {}", self.name);
 
-        // The bdev is being removed, so ensure we don't use it again.
-        self.bdev = None;
+        let mut state = self.state();
 
-        let state = self.state();
+        let mut destroying = false;
+        // Only remove the bdev if the child is being destroyed instead of
+        // a hot remove event
+        if state == ChildState::Destroying {
+            // The bdev is being removed, so ensure we don't use it again.
+            self.bdev = None;
+            destroying = true;
 
+            state = self.prev_state.load();
+        }
         match state {
             ChildState::Open | Faulted(Reason::OutOfSync) => {
                 // Change the state of the child to ensure it is taken out of
@@ -381,11 +407,20 @@ impl NexusChild {
                 self.set_state(ChildState::Closed)
             }
             // leave the state into whatever we found it as
-            _ => {}
+            _ => {
+                if destroying {
+                    // Restore the previous state
+                    info!(
+                        "Restoring previous child state {}",
+                        state.to_string()
+                    );
+                    self.set_state(state);
+                }
+            }
         }
 
         // Remove the child from the I/O path. If we had an IO error the bdev,
-        // the channels where already reconfigured so we dont have to do
+        // the channels were already reconfigured so we don't have to do
         // that twice.
         if state != ChildState::Faulted(Reason::IoError) {
             let nexus_name = self.parent.clone();
@@ -397,10 +432,11 @@ impl NexusChild {
             });
         }
 
-        // Dropping the last descriptor results in the bdev being removed.
-        // This must be performed in this function.
-        let desc = self.desc.take();
-        drop(desc);
+        if destroying {
+            // Dropping the last descriptor results in the bdev being removed.
+            // This must be performed in this function.
+            self.desc.take();
+        }
 
         self.remove_complete();
         info!("Child {} removed", self.name);
@@ -428,6 +464,7 @@ impl NexusChild {
             parent,
             desc: None,
             state: AtomicCell::new(ChildState::Init),
+            prev_state: AtomicCell::new(ChildState::Init),
             err_store: None,
             remove_channel: mpsc::channel(0),
         }
@@ -436,7 +473,8 @@ impl NexusChild {
     /// destroy the child bdev
     pub(crate) async fn destroy(&self) -> Result<(), NexusBdevError> {
         trace!("destroying child {:?}", self);
-        if let Some(_bdev) = &self.bdev {
+        if self.bdev.is_some() {
+            self.set_state(ChildState::Destroying);
             bdev_destroy(&self.name).await
         } else {
             warn!("Destroy child without bdev");
