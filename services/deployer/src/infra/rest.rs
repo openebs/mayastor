@@ -21,6 +21,7 @@ impl ComponentAction for Rest {
                         "rest",
                         Binary::from_dbg("rest")
                             .with_nats("-n")
+                            .with_arg("--dummy-certificates")
                             .with_args(vec!["--https", "rest:8080"])
                             .with_args(vec!["--http", "rest:8081"]),
                     )
@@ -34,6 +35,7 @@ impl ComponentAction for Rest {
                         "rest",
                         Binary::from_dbg("rest")
                             .with_nats("-n")
+                            .with_arg("--dummy-certificates")
                             .with_args(vec!["-j", &jaeger_config])
                             .with_args(vec!["--https", "rest:8080"])
                             .with_args(vec!["--http", "rest:8081"]),

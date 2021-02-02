@@ -12,7 +12,7 @@ use rustls::{
     NoClientAuth,
     ServerConfig,
 };
-use std::io::BufReader;
+use std::{fs::File, io::BufReader};
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
@@ -28,6 +28,17 @@ pub(crate) struct CliArgs {
     /// Default: nats://0.0.0.0:4222
     #[structopt(long, short, default_value = "nats://0.0.0.0:4222")]
     nats: String,
+
+    /// Path to the certificate file
+    #[structopt(long, short, required_unless = "dummy-certificates")]
+    cert_file: Option<String>,
+    /// Path to the key file
+    #[structopt(long, short, required_unless = "dummy-certificates")]
+    key_file: Option<String>,
+
+    /// Use dummy HTTPS certificates (for testing)
+    #[structopt(long, short, required_unless = "cert-file")]
+    dummy_certificates: bool,
 
     /// Trace rest requests to the Jaeger endpoint agent
     #[structopt(long, short)]
@@ -90,24 +101,61 @@ where
     }
 }
 
-#[actix_web::main]
-async fn main() -> std::io::Result<()> {
-    // need to keep the jaeger pipeline tracer alive, if enabled
-    let _tracer = init_tracing();
+fn get_certificates() -> anyhow::Result<ServerConfig> {
+    if CliArgs::from_args().dummy_certificates {
+        get_dummy_certificates()
+    } else {
+        // guaranteed to be `Some` by the require_unless attribute
+        let cert_file = CliArgs::from_args()
+            .cert_file
+            .expect("cert_file is required");
+        let key_file =
+            CliArgs::from_args().key_file.expect("key_file is required");
+        let cert_file = &mut BufReader::new(File::open(cert_file)?);
+        let key_file = &mut BufReader::new(File::open(key_file)?);
+        load_certificates(cert_file, key_file)
+    }
+}
 
-    mbus_api::message_bus_init(CliArgs::from_args().nats).await;
-
-    // dummy certificates
-    let mut config = ServerConfig::new(NoClientAuth::new());
+fn get_dummy_certificates() -> anyhow::Result<ServerConfig> {
     let cert_file = &mut BufReader::new(
         &std::include_bytes!("../../certs/rsa/user.chain")[..],
     );
     let key_file = &mut BufReader::new(
         &std::include_bytes!("../../certs/rsa/user.rsa")[..],
     );
-    let cert_chain = certs(cert_file).unwrap();
-    let mut keys = rsa_private_keys(key_file).unwrap();
-    config.set_single_cert(cert_chain, keys.remove(0)).unwrap();
+
+    load_certificates(cert_file, key_file)
+}
+
+fn load_certificates<R: std::io::Read>(
+    cert_file: &mut BufReader<R>,
+    key_file: &mut BufReader<R>,
+) -> anyhow::Result<ServerConfig> {
+    let mut config = ServerConfig::new(NoClientAuth::new());
+    let cert_chain = certs(cert_file).map_err(|_| {
+        anyhow::anyhow!(
+            "Failed to retrieve certificates from the certificate file",
+        )
+    })?;
+    let mut keys = rsa_private_keys(key_file).map_err(|_| {
+        anyhow::anyhow!(
+            "Failed to retrieve the rsa private keys from the key file",
+        )
+    })?;
+    if keys.is_empty() {
+        anyhow::bail!("No keys found in the keys file");
+    }
+    config.set_single_cert(cert_chain, keys.remove(0))?;
+    Ok(config)
+}
+
+#[actix_web::main]
+async fn main() -> anyhow::Result<()> {
+    // need to keep the jaeger pipeline tracer alive, if enabled
+    let _tracer = init_tracing();
+
+    mbus_api::message_bus_init(CliArgs::from_args().nats).await;
 
     let server = HttpServer::new(move || {
         App::new()
@@ -115,12 +163,13 @@ async fn main() -> std::io::Result<()> {
             .wrap(middleware::Logger::default())
             .configure_api(&v0::configure_api)
     })
-    .bind_rustls(CliArgs::from_args().https, config)?;
+    .bind_rustls(CliArgs::from_args().https, get_certificates()?)?;
     if let Some(http) = CliArgs::from_args().http {
-        server.bind(http)?
+        server.bind(http).map_err(anyhow::Error::from)?
     } else {
         server
     }
     .run()
     .await
+    .map_err(|e| e.into())
 }
