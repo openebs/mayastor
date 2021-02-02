@@ -6,11 +6,17 @@ import assert from 'assert';
 import { Pool } from './pool';
 import { Nexus } from './nexus';
 import { Replica } from './replica';
+import { Workq } from './workq';
 
 const EventEmitter = require('events');
-const Workq = require('./workq');
 const log = require('./logger').Logger('node');
 const { GrpcClient, GrpcCode, GrpcError } = require('./grpc_client');
+
+// Type used in workq for calling grpc
+type GrpcCallArgs = {
+  method: string;
+  args: any;
+}
 
 // Object represents mayastor storage node.
 //
@@ -25,7 +31,7 @@ export class Node extends EventEmitter {
   syncBadLimit: number;
   endpoint: string | null;
   client: any;
-  workq: any;
+  workq: Workq;
   syncFailed: number;
   syncTimer: NodeJS.Timeout | null;
   nexus: Nexus[];
@@ -49,7 +55,7 @@ export class Node extends EventEmitter {
 
     this.endpoint = null;
     this.client = null; // grpc client handle
-    this.workq = new Workq(); // work queue for serializing grpc calls
+    this.workq = new Workq('grpc call'); // work queue for serializing grpc calls
     // We don't want to switch all objects to offline state when moac starts
     // just because a node is not reachable from the beginning. That's why we
     // set syncFailed to syncBadLimit + 1.
@@ -129,17 +135,19 @@ export class Node extends EventEmitter {
   // @returns A promise that evals to return value of gRPC method.
   //
   async call(method: string, args: any): Promise<any> {
-    return this.workq.push({ method, args }, this._call.bind(this));
+    return this.workq.push({ method, args }, (args: GrpcCallArgs) => {
+      return this._call(args.method, args.args);
+    });
   }
 
-  async _call(ctx: any) {
+  async _call(method: string, args: any): Promise<any> {
     if (!this.client) {
       throw new GrpcError(
         GrpcCode.INTERNAL,
         `Broken connection to mayastor on node "${this.name}"`
       );
     }
-    return this.client.call(ctx.method, ctx.args);
+    return this.client.call(method, args);
   }
 
   // Sync triggered by the timer. It ensures that the sync does run in
@@ -149,7 +157,9 @@ export class Node extends EventEmitter {
     this.syncTimer = null;
 
     try {
-      await this.workq.push({}, this._sync.bind(this));
+      await this.workq.push(null, () => {
+        return this._sync();
+      });
       nextSync = this.syncPeriod;
     } catch (err) {
       // We don't want to cover up unexpected errors. But it's hard to
@@ -180,20 +190,11 @@ export class Node extends EventEmitter {
     log.debug(`Syncing the node "${this.name}"`);
 
     // TODO: Harden checking of outputs of the methods below
-    let reply = await this._call({
-      method: 'listNexus',
-      args: {}
-    });
+    let reply = await this._call('listNexus', {});
     const nexus = reply.nexusList;
-    reply = await this._call({
-      method: 'listPools',
-      args: {}
-    });
+    reply = await this._call('listPools', {});
     const pools = reply.pools;
-    reply = await this._call({
-      method: 'listReplicas',
-      args: {}
-    });
+    reply = await this._call('listReplicas', {});
     const replicas = reply.replicas;
 
     // Move the the node to online state before we attempt to merge objects

@@ -14,8 +14,8 @@
   },
   "scripts": {
     "prepare": "./bundle_protos.sh",
-    "clean": "rm -f csi.js node.js replica.js pool.js nexus.js watcher.js node_operator.js pool_operator.js volume.js volumes.js volume_operator.js *.js.map",
-    "purge": "rm -rf node_modules proto csi.js node.js replica.js pool.js nexus.js watcher.js node_operator.js pool_operator.js volume.js volumes.js volume_operator.js *.js.map",
+    "clean": "rm -f csi.js node.js replica.js pool.js nexus.js watcher.js node_operator.js pool_operator.js volume.js volumes.js volume_operator.js workq.js *.js.map",
+    "purge": "rm -rf node_modules proto csi.js node.js replica.js pool.js nexus.js watcher.js node_operator.js pool_operator.js volume.js volumes.js volume_operator.js workq.js *.js.map",
     "compile": "tsc --pretty",
     "start": "./index.js",
     "test": "mocha test/index.js",

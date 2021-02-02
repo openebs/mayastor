@@ -351,7 +351,7 @@ module.exports = function () {
     });
 
     it('should create the volume object and include pre-existing nexus', async () => {
-      // on node 1 is created replica and nexus
+      // on node 1 is created the replica and added to the nexus
       stub1.onCall(0).resolves({
         uuid: UUID,
         pool: 'pool1',
@@ -551,6 +551,81 @@ module.exports = function () {
       uri = await volume2.publish('nvmf');
       expect(uri).to.equal(`nvmf://${UUID2}`);
       expect(volume2.publishedOn).to.equal('node2');
+    });
+
+    it('should serialize volume creation requests', (done) => {
+      // on node 1 is created replica and nexus
+      stub1.onCall(0).resolves({
+        uuid: UUID,
+        pool: 'pool1',
+        size: 10,
+        thin: false,
+        share: 'REPLICA_NONE',
+        uri: `bdev:///${UUID}`
+      });
+      stub1.onCall(1).resolves({
+        uuid: UUID,
+        size: 10,
+        state: 'NEXUS_ONLINE',
+        children: [
+          {
+            uri: `bdev:///${UUID}`,
+            state: 'CHILD_FAULTED',
+            rebuildProgress: 0
+          }
+        ]
+      });
+      // the same repeats for the second volume
+      stub2.onCall(0).resolves({
+        uuid: UUID2,
+        pool: 'pool2',
+        size: 10,
+        thin: false,
+        share: 'REPLICA_NONE',
+        uri: `bdev:///${UUID2}`
+      });
+      stub2.onCall(1).resolves({
+        uuid: UUID2,
+        size: 10,
+        state: 'NEXUS_ONLINE',
+        children: [
+          {
+            uri: `bdev:///${UUID2}`,
+            state: 'CHILD_FAULTED',
+            rebuildProgress: 0
+          }
+        ]
+      });
+
+      volumes.start();
+
+      // Create both volumes at once
+      const create1 = volumes.createVolume(UUID, {
+        replicaCount: 1,
+        preferredNodes: [],
+        requiredNodes: [],
+        requiredBytes: 10,
+        limitBytes: 50,
+        protocol: 'nvmf'
+      });
+      const create2 = volumes.createVolume(UUID2, {
+        replicaCount: 1,
+        preferredNodes: [],
+        requiredNodes: [],
+        requiredBytes: 10,
+        limitBytes: 50,
+        protocol: 'nvmf'
+      });
+
+      Promise.all([create1, create2]).then(() => {
+        expect(Object.keys(volumes.list())).to.have.lengthOf(2);
+        // If requests are properly serialized then all grpc calls related to
+        // the first volume should precede the second volume's requests.
+        sinon.assert.calledTwice(stub1);
+        sinon.assert.calledTwice(stub2);
+        expect(stub1.secondCall.calledBefore(stub2.firstCall)).to.be.true();
+        done();
+      });
     });
   });
 
