@@ -4,6 +4,7 @@
 //! an lvol). Here we define methods for easy management of replicas.
 #![allow(dead_code)]
 use std::ffi::CStr;
+use std::os::raw::c_char;
 
 use ::rpc::mayastor as rpc;
 use snafu::{ResultExt, Snafu};
@@ -180,14 +181,14 @@ impl Replica {
     pub fn get_pool_name(&self) -> &str {
         unsafe {
             let lvs = &*(*self.lvol_ptr).lvol_store;
-            CStr::from_ptr(&lvs.name as *const u8).to_str().unwrap()
+            CStr::from_ptr(&lvs.name as *const c_char).to_str().unwrap()
         }
     }
 
     /// Get uuid (= name) of the replica.
     pub fn get_uuid(&self) -> &str {
         unsafe {
-            CStr::from_ptr(&(*self.lvol_ptr).name as *const u8)
+            CStr::from_ptr(&(*self.lvol_ptr).name as *const c_char)
                 .to_str()
                 .unwrap()
         }

@@ -1,4 +1,7 @@
-use std::fmt::{Debug, Error, Formatter};
+use std::{
+    fmt::{Debug, Error, Formatter},
+    os::raw::c_char,
+};
 
 use spdk_sys::{spdk_io_channel, spdk_put_io_channel};
 
@@ -28,7 +31,7 @@ impl IoChannel {
                 (*self.0)
                     .dev
                     .add(std::mem::size_of::<*mut spdk_io_channel>())
-                    as *const u8,
+                    as *const c_char,
             )
             .to_str()
             .unwrap()

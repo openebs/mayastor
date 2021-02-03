@@ -51,21 +51,26 @@ let
     ];
 
     configureFlags = (if (system == "x86_64-linux") then 
-      [ "--target-arch=neleham" ]
+      [
+        "--target-arch=nehalem"
+        "--with-crypto"
+      ]
     else
       []
     ) ++ [
       "--without-isal"
       "--with-iscsi-initiator"
       "--with-uring"
-      # "--with-crypto"
       "--disable-examples"
       "--disable-unit-tests"
       "--disable-tests"
     ];
 
-
     enableParallelBuilding = true;
+
+    preConfigure = ''
+      substituteInPlace dpdk/config/defconfig_x86_64-native-linux-gcc --replace native default
+    '';
 
     configurePhase = ''
       patchShebangs ./.
