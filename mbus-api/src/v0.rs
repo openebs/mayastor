@@ -6,6 +6,8 @@ use serde::{Deserialize, Serialize};
 use std::{cmp::Ordering, fmt::Debug};
 use strum_macros::{EnumString, ToString};
 
+pub(super) const VERSION: &str = "v0";
+
 /// Versioned Channels
 #[derive(Clone, Debug, EnumString, ToString)]
 #[strum(serialize_all = "camelCase")]

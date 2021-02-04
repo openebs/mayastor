@@ -1,6 +1,6 @@
 use super::*;
 
-pub(crate) fn configure(cfg: &mut paperclip::actix::web::ServiceConfig) {
+pub(super) fn configure(cfg: &mut paperclip::actix::web::ServiceConfig) {
     cfg.service(get_volumes)
         .service(get_volume)
         .service(get_node_volumes)
@@ -9,25 +9,25 @@ pub(crate) fn configure(cfg: &mut paperclip::actix::web::ServiceConfig) {
         .service(del_volume);
 }
 
-#[get("/v0/volumes", tags(Volumes))]
+#[get("/v0", "/volumes", tags(Volumes))]
 async fn get_volumes() -> Result<Json<Vec<Volume>>, RestError> {
     RestRespond::result(MessageBus::get_volumes(Filter::None).await)
 }
 
-#[get("/v0/volumes/{volume_id}", tags(Volumes))]
+#[get("/v0", "/volumes/{volume_id}", tags(Volumes))]
 async fn get_volume(
     web::Path(volume_id): web::Path<VolumeId>,
 ) -> Result<Json<Volume>, RestError> {
     RestRespond::result(MessageBus::get_volume(Filter::Volume(volume_id)).await)
 }
 
-#[get("/v0/nodes/{node_id}/volumes", tags(Volumes))]
+#[get("/v0", "/nodes/{node_id}/volumes", tags(Volumes))]
 async fn get_node_volumes(
     web::Path(node_id): web::Path<NodeId>,
 ) -> Result<Json<Vec<Volume>>, RestError> {
     RestRespond::result(MessageBus::get_volumes(Filter::Node(node_id)).await)
 }
-#[get("/v0/nodes/{node_id}/volumes/{volume_id}", tags(Volumes))]
+#[get("/v0", "/nodes/{node_id}/volumes/{volume_id}", tags(Volumes))]
 async fn get_node_volume(
     web::Path((node_id, volume_id)): web::Path<(NodeId, VolumeId)>,
 ) -> Result<Json<Volume>, RestError> {
@@ -36,7 +36,7 @@ async fn get_node_volume(
     )
 }
 
-#[put("/v0/volumes/{volume_id}", tags(Volumes))]
+#[put("/v0", "/volumes/{volume_id}", tags(Volumes))]
 async fn put_volume(
     web::Path(volume_id): web::Path<VolumeId>,
     create: web::Json<CreateVolumeBody>,
@@ -45,7 +45,7 @@ async fn put_volume(
     RestRespond::result(MessageBus::create_volume(create).await)
 }
 
-#[delete("/v0/volumes/{volume_id}", tags(Volumes))]
+#[delete("/v0", "/volumes/{volume_id}", tags(Volumes))]
 async fn del_volume(
     web::Path(volume_id): web::Path<VolumeId>,
 ) -> Result<Json<()>, RestError> {

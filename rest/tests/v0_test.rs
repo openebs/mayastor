@@ -55,9 +55,11 @@ async fn client() {
         .add_container_spec(
             ContainerSpec::from_binary(
                 "rest",
-                Binary::from_dbg("rest")
-                    .with_nats("-n")
-                    .with_args(vec!["-j", "10.1.0.8:6831"]),
+                Binary::from_dbg("rest").with_nats("-n").with_args(vec![
+                    "-j",
+                    "10.1.0.8:6831",
+                    "--dummy-certificates",
+                ]),
             )
             .with_portmap("8080", "8080")
             .with_portmap("8081", "8081"),

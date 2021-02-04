@@ -2,10 +2,10 @@ use actix_web::{dev::Factory, web, Error, HttpResponse};
 use futures::future::{ok as fut_ok, Ready};
 use tinytemplate::TinyTemplate;
 
-pub(crate) fn configure(cfg: &mut web::ServiceConfig) {
+pub(super) fn configure(cfg: &mut web::ServiceConfig) {
     cfg.service(
-        web::resource("/v0/swagger-ui").route(
-            web::get().to(GetSwaggerUi(get_swagger_html(crate::SPEC_URI))),
+        web::resource(&format!("{}/swagger-ui", super::version())).route(
+            web::get().to(GetSwaggerUi(get_swagger_html(&super::spec_uri()))),
         ),
     );
 }
