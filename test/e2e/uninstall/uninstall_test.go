@@ -138,11 +138,17 @@ func teardownMayastor() {
 		Expect(pvcsDeleted).To(BeTrue())
 	} else {
 		// FIXME: Temporarily disable this assert CAS-651 has been fixed
+		// and force delete lingering mayastor pods.
 		// Expect(common.MayastorUndeletedPodCount()).To(Equal(0))
 		if common.MayastorUndeletedPodCount() != 0 {
-			logf.Log.Info("WARNING: Mayastor pods not deleted at uninstall!!!")
+			logf.Log.Info("WARNING: Mayastor pods not deleted at uninstall, forcing deletion.")
+			common.ForceDeleteMayastorPods()
 		}
+		// More verbose here as deleting the namespace is often where this
+		// test hangs.
+		logf.Log.Info("Deleting the mayastor namespace")
 		deleteDeployYaml("namespace.yaml")
+		logf.Log.Info("Deleted the mayastor namespace")
 	}
 }
 
