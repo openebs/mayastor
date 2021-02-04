@@ -14,7 +14,7 @@
 , numactl
 , openssl
 , python3
-, stdenv
+, stdenv 
 , system ? builtins.currentSystem
 }:
 let
@@ -53,17 +53,18 @@ let
     configureFlags = (if (system == "x86_64-linux") then 
       [
         "--target-arch=nehalem"
-        "--with-crypto"
+      ]
+    else if (system == "aarch64-linux") then
+      [
+        "--target-arch=armv8-a+crypto"
       ]
     else
       []
     ) ++ [
+      #"--with-crypto"
       "--without-isal"
       "--with-iscsi-initiator"
       "--with-uring"
-      "--disable-examples"
-      "--disable-unit-tests"
-      "--disable-tests"
     ];
 
     enableParallelBuilding = true;
@@ -73,7 +74,7 @@ let
     '';
 
     configurePhase = ''
-      patchShebangs ./.
+      patchShebangs ./. > /dev/null
       ./configure $configureFlags
     '';
 
