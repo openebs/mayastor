@@ -175,6 +175,12 @@ export class Volumes extends EventEmitter {
     delete this.volumes[uuid];
   }
 
+  scheduleDestroyVolume(uuid: string) {
+    const volume = this.volumes[uuid];
+    if (!volume) return;
+    volume.scheduleDestroy()
+  }
+
   // Import the volume object (just the object) and add it to the internal list
   // of volumes. The method is idempotent. If a volume with the same uuid
   // already exists, then update its parameters.

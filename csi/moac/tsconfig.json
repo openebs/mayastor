@@ -73,5 +73,6 @@
     "volume_operator.ts",
     "watcher.ts",
     "workq.ts",
+    "pvhandler.ts",
   ]
 }

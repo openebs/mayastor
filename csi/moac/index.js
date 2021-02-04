@@ -16,6 +16,7 @@ const { VolumeOperator } = require('./volume_operator');
 const ApiServer = require('./rest_api');
 const CsiServer = require('./csi').CsiServer;
 const { MessageBus } = require('./nats');
+const { PVHandler } = require('./pvhandler');
 
 const log = new logger.Logger();
 
@@ -47,6 +48,7 @@ async function main () {
   let nodeOper;
   let kubeConfig;
   let warmupTimer;
+  let pvhandler;
 
   const opts = yargs
     .options({
@@ -205,6 +207,9 @@ async function main () {
     csiServer.makeReady(registry, volumes);
     log.info('MOAC is warmed up and ready to 🚀');
   }, warmupSecs * 1000);
+
+  pvhandler = new PVHandler(volumes)
+  pvhandler.start()
 }
 
 main();

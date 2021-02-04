@@ -196,6 +196,11 @@ export class Volume {
     this.emitEvent('del');
   }
 
+  // Emit delete event
+  scheduleDestroy() {
+      this.emitEvent('del')
+  }
+
   // Trigger the run of FSA. It will always run asynchronously to give caller
   // a chance to perform other changes to the volume before everything is
   // checked by FSA. If it is already running, it will start again when the

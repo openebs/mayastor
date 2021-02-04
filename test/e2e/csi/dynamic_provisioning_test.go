@@ -215,21 +215,21 @@ var _ = ginkgo.Describe("Dynamic Provisioning", func() {
 	})
 
 	// Disable for Mayastor until CAS-566 has been resolved.
-	//	ginkgo.It(fmt.Sprintf("should retain PV with reclaimPolicy %q [mayastor-csi.openebs.io]", v1.PersistentVolumeReclaimRetain), func() {
-	//		reclaimPolicy := v1.PersistentVolumeReclaimRetain
-	//		volumes := []testsuites.VolumeDetails{
-	//			{
-	//				ClaimSize:     smallClaimSize,
-	//				ReclaimPolicy: &reclaimPolicy,
-	//			},
-	//		}
-	//		test := testsuites.DynamicallyProvisionedReclaimPolicyTest{
-	//			CSIDriver:              testDriver,
-	//			Volumes:                volumes,
-	//			StorageClassParameters: defaultStorageClassParameters,
-	//		}
-	//		test.Run(cs, ns)
-	//	})
+	ginkgo.It(fmt.Sprintf("should retain PV with reclaimPolicy %q [mayastor-csi.openebs.io]", v1.PersistentVolumeReclaimRetain), func() {
+		reclaimPolicy := v1.PersistentVolumeReclaimRetain
+		volumes := []testsuites.VolumeDetails{
+			{
+				ClaimSize:     smallClaimSize,
+				ReclaimPolicy: &reclaimPolicy,
+			},
+		}
+		test := testsuites.DynamicallyProvisionedReclaimPolicyTest{
+			CSIDriver:              testDriver,
+			Volumes:                volumes,
+			StorageClassParameters: defaultStorageClassParameters,
+		}
+		test.Run(cs, ns)
+	})
 
 	ginkgo.It("should create a pod with multiple volumes [mayastor-csi.openebs.io]", func() {
 		var cmds []string

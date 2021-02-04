@@ -493,7 +493,7 @@ export class CustomResourceCache<T> extends EventEmitter {
     let orig = this.get(name);
     if (orig === undefined) {
       log.warn(`Tried to delete ${this.name} "${name}" that does not exist`);
-      return new Promise((resolve) => resolve());
+      return new Promise<void>((resolve) => resolve());
     }
     log.trace(`Deleting ${this.name} "${name}"`);
     await this._waitForEvent(
