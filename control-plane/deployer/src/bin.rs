@@ -47,7 +47,7 @@ pub(crate) struct ListOptions {
 #[derive(Debug, Clone, StructOpt)]
 #[structopt(about = "Create and start all components")]
 pub(crate) struct StartOptions {
-    /// Use the following Control Plane Services
+    /// Use the following Control Plane Agents
     /// Specify one service at a time or as a list.
     /// ( "" for no services )
     /// todo: specify start arguments, eg: Node="-v"
@@ -57,7 +57,7 @@ pub(crate) struct StartOptions {
         default_value = "Node, Pool, Volume",
         value_delimiter = ","
     )]
-    services: Vec<ControlPlaneService>,
+    agents: Vec<ControlPlaneAgent>,
 
     /// Use the following Control Plane Operators
     /// Specify one service at a time or as a list

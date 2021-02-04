@@ -27,31 +27,31 @@ use strum_macros::{EnumVariantNames, ToString};
 pub(crate) type Error = Box<dyn std::error::Error>;
 
 #[macro_export]
-macro_rules! impl_ctrlp_services {
+macro_rules! impl_ctrlp_agents {
     ($($name:ident,)+) => {
         #[derive(Debug, Clone)]
-        pub(crate) struct ControlPlaneServices(Vec<ControlPlaneService>);
+        pub(crate) struct ControlPlaneAgents(Vec<ControlPlaneAgent>);
 
         #[derive(Debug, Clone, StructOpt, ToString, EnumVariantNames)]
-        #[structopt(about = "Control Plane Services")]
-        pub(crate) enum ControlPlaneService {
+        #[structopt(about = "Control Plane Agents")]
+        pub(crate) enum ControlPlaneAgent {
             Empty(Empty),
             $(
                 $name($name),
             )+
         }
 
-        impl From<&ControlPlaneService> for Component {
-            fn from(ctrlp_svc: &ControlPlaneService) -> Self {
+        impl From<&ControlPlaneAgent> for Component {
+            fn from(ctrlp_svc: &ControlPlaneAgent) -> Self {
                 match ctrlp_svc {
-                    ControlPlaneService::Empty(obj) => Component::Empty(obj.clone()),
-                    $(ControlPlaneService::$name(obj) => Component::$name(obj.clone()),)+
+                    ControlPlaneAgent::Empty(obj) => Component::Empty(obj.clone()),
+                    $(ControlPlaneAgent::$name(obj) => Component::$name(obj.clone()),)+
                 }
             }
         }
 
         paste! {
-            impl FromStr for ControlPlaneService {
+            impl FromStr for ControlPlaneAgent {
                 type Err = String;
 
                 fn from_str(source: &str) -> Result<Self, Self::Err> {
@@ -59,7 +59,7 @@ macro_rules! impl_ctrlp_services {
                         "" => Self::Empty(Empty::default()),
                         $(stringify!([<$name:lower>]) => Self::$name($name::default()),)+
                         _ => return Err(format!(
-                            "\"{}\" is an invalid type of service! Available types: {:?}",
+                            "\"{}\" is an invalid type of agent! Available types: {:?}",
                             source,
                             Self::VARIANTS
                         )),
@@ -74,9 +74,9 @@ macro_rules! impl_ctrlp_services {
                 let name = stringify!($name).to_ascii_lowercase();
                 if options.build {
                     let status = std::process::Command::new("cargo")
-                        .args(&["build", "-p", "services", "--bin", &name])
+                        .args(&["build", "-p", "agents", "--bin", &name])
                         .status()?;
-                    build_error(&format!("the {} service", name), status.code())?;
+                    build_error(&format!("the {} agent", name), status.code())?;
                 }
                 Ok(cfg.add_container_bin(
                     &name,
@@ -92,7 +92,7 @@ macro_rules! impl_ctrlp_services {
         })+
     };
     ($($name:ident), +) => {
-        impl_ctrlp_services!($($name,)+);
+        impl_ctrlp_agents!($($name,)+);
     };
 }
 
@@ -241,15 +241,15 @@ macro_rules! impl_component {
 
         impl Components {
             pub(crate) fn push_generic_components(&mut self, name: &str, component: Component) {
-                if !ControlPlaneService::VARIANTS.iter().any(|&s| s == name) &&
+                if !ControlPlaneAgent::VARIANTS.iter().any(|&s| s == name) &&
                     !ControlPlaneOperator::VARIANTS.iter().any(|&s| &format!("{}Op", s) == name) {
                     self.0.push(component);
                 }
             }
             pub(crate) fn new(options: StartOptions) -> Components {
-                let services = options.services.clone();
+                let agents = options.agents.clone();
                 let operators = options.operators.clone().unwrap_or_default();
-                let mut components = services
+                let mut components = agents
                     .iter()
                     .map(Component::from)
                     .collect::<Vec<Component>>();
@@ -339,8 +339,8 @@ impl_component! {
     NodeOp,     4,
 }
 
-// Message Bus Control Plane Services
-impl_ctrlp_services!(Node, Pool, Volume);
+// Message Bus Control Plane Agents
+impl_ctrlp_agents!(Node, Pool, Volume);
 
 // Kubernetes Mayastor Low-level Operators
 impl_ctrlp_operators!(Node);

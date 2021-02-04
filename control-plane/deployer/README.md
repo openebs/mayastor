@@ -1,11 +1,11 @@
 # Control Plane Deployer
 
-Deploying all the `control plane services` with all the trimmings is not an entirely straightforward exercise as there
+Deploying all the `control plane agents` with all the trimmings is not an entirely straightforward exercise as there
 are many parts to it, including the additional configuration steps to be able to run multiple `mayastor` instances
 alongside each other.
 
 The `deployer` tool facilitates this by creating a composable docker `"cluster"` which allows us to run any number of
-`mayastor` instances, the `control plane services` and any other pluggable components.
+`mayastor` instances, the `control plane agents` and any other pluggable components.
 
 ## Examples
 
@@ -13,7 +13,7 @@ The `deployer` tool facilitates this by creating a composable docker `"cluster"`
 ```textmate
 [nix-shell:~/git/Mayastor]$ cargo run --bin deployer -- --help
   deployer --help
-  services 0.1.0
+  agents 0.1.0
   Deployment actions
 
   USAGE:
@@ -37,7 +37,7 @@ The help can also be used on each subcommand.
 [nix-shell:~/git/Mayastor]$ cargo run --bin deployer -- start -m 2
     Finished dev [unoptimized + debuginfo] target(s) in 0.13s
      Running `sh /home/tiago/git/myconfigs/maya/test_as_sudo.sh target/debug/deployer start`
-Using options: CliArgs { action: Start(StartOptions { services: [Node(Node), Pool(Pool), Volume(Volume)], base_image: None, jaeger: false, no_rest: false, mayastors: 2, jaeger_image: None, build: false, dns: false, show_info: false, cluster_name: "cluster" }) }
+Using options: CliArgs { action: Start(StartOptions { agents: [Node(Node), Pool(Pool), Volume(Volume)], base_image: None, jaeger: false, no_rest: false, mayastors: 2, jaeger_image: None, build: false, dns: false, show_info: false, cluster_name: "cluster" }) }
 ```
 
 Notice the options which are printed out. They can be overridden - more on this later.
@@ -45,7 +45,7 @@ Notice the options which are printed out. They can be overridden - more on this 
 We could also use the `deploy` tool to inspect the components:
 ```textmate
 [nix-shell:~/git/Mayastor]$ cargo run --bin deployer -- list
-   Compiling services v0.1.0 (/home/tiago/git/Mayastor/services)
+   Compiling agents v0.1.0 (/home/tiago/git/Mayastor/agents)
     Finished dev [unoptimized + debuginfo] target(s) in 5.50s
      Running `sh /home/tiago/git/myconfigs/maya/test_as_sudo.sh target/debug/deployer list`
 Using options: CliArgs { action: List(ListOptions { no_docker: false, format: None }) }
@@ -92,10 +92,10 @@ For more information, please refer to the help argument on every command/subcomm
 For example, to debug the rest server, we'd create a `cluster` without the rest server:
 ```textmate
 [nix-shell:~/git/Mayastor]$ cargo run --bin deployer -- start --no-rest --show-info
-   Compiling services v0.1.0 (/home/tiago/git/Mayastor/services)
+   Compiling agents v0.1.0 (/home/tiago/git/Mayastor/agents)
     Finished dev [unoptimized + debuginfo] target(s) in 5.86s
      Running `sh /home/tiago/git/myconfigs/maya/test_as_sudo.sh target/debug/deployer start --no-rest --show-info`
-Using options: CliArgs { action: Start(StartOptions { services: [Node(Node), Pool(Pool), Volume(Volume)], base_image: None, jaeger: false, no_rest: true, mayastors: 1, jaeger_image: None, build: false, dns: false, show_info: true, cluster_name: "cluster" }) }
+Using options: CliArgs { action: Start(StartOptions { agents: [Node(Node), Pool(Pool), Volume(Volume)], base_image: None, jaeger: false, no_rest: true, mayastors: 1, jaeger_image: None, build: false, dns: false, show_info: true, cluster_name: "cluster" }) }
 [20994b0098d6] [/volume] /home/tiago/git/Mayastor/target/debug/volume -n nats.cluster:4222
 [f4884e343756] [/pool] /home/tiago/git/Mayastor/target/debug/pool -n nats.cluster:4222
 [fb6e78a0b6ef] [/node] /home/tiago/git/Mayastor/target/debug/node -n nats.cluster:4222

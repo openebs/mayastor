@@ -69,7 +69,7 @@ let
       Env = [ "PATH=${env}" ];
     };
   };
-  serviceImageProps = {
+  agentImageProps = {
     tag = version;
     created = "now";
     config = {
@@ -141,77 +141,77 @@ in
     config = { Entrypoint = [ "/bin/mayastor-client" ]; };
   });
 
-  # Release image of kiiss service.
-  kiiss-service = dockerTools.buildLayeredImage (serviceImageProps // {
-    name = "mayadata/kiiss-service";
+  # Release image of kiiss agent.
+  kiiss-agent = dockerTools.buildLayeredImage (agentImageProps // {
+    name = "mayadata/kiiss-agent";
     contents = [ busybox mayastor ];
     config = { Entrypoint = [ "/bin/kiiss" ]; };
     maxLayers = 42;
   });
 
-  # Development image of kiiss service.
-  kiiss-service-dev = dockerTools.buildImage (serviceImageProps // {
-    name = "mayadata/kiiss-service-dev";
+  # Development image of kiiss agent.
+  kiiss-agent-dev = dockerTools.buildImage (agentImageProps // {
+    name = "mayadata/kiiss-agent-dev";
     contents = [ busybox mayastor ];
     config = { Entrypoint = [ "/bin/kiiss" ]; };
   });
 
-  # Release image of node service.
-  node-service = dockerTools.buildLayeredImage (serviceImageProps // {
-    name = "mayadata/node-service";
+  # Release image of node agent.
+  node-agent = dockerTools.buildLayeredImage (agentImageProps // {
+    name = "mayadata/node-agent";
     contents = [ busybox mayastor ];
     config = { Entrypoint = [ "/bin/node" ]; };
     maxLayers = 42;
   });
 
-  # Development image of node service.
-  node-service-dev = dockerTools.buildImage (serviceImageProps // {
-    name = "mayadata/node-service-dev";
+  # Development image of node agent.
+  node-agent-dev = dockerTools.buildImage (agentImageProps // {
+    name = "mayadata/node-agent-dev";
     contents = [ busybox mayastor-dev ];
     config = { Entrypoint = [ "/bin/node" ]; };
   });
 
-  # Release image of volume service.
-  volume-service = dockerTools.buildLayeredImage (serviceImageProps // {
-    name = "mayadata/volume-service";
+  # Release image of volume agent.
+  volume-agent = dockerTools.buildLayeredImage (agentImageProps // {
+    name = "mayadata/volume-agent";
     contents = [ busybox mayastor ];
     config = { Entrypoint = [ "/bin/volume" ]; };
     maxLayers = 42;
   });
 
-  # Development image of volume service.
-  volume-service-dev = dockerTools.buildImage (serviceImageProps // {
-    name = "mayadata/volume-service-dev";
+  # Development image of volume agent.
+  volume-agent-dev = dockerTools.buildImage (agentImageProps // {
+    name = "mayadata/volume-agent-dev";
     contents = [ busybox mayastor-dev ];
     config = { Entrypoint = [ "/bin/volume" ]; };
   });
 
-  # Release image of pool service.
-  pool-service = dockerTools.buildLayeredImage (serviceImageProps // {
-    name = "mayadata/pool-service";
+  # Release image of pool agent.
+  pool-agent = dockerTools.buildLayeredImage (agentImageProps // {
+    name = "mayadata/pool-agent";
     contents = [ busybox mayastor ];
     config = { Entrypoint = [ "/bin/pool" ]; };
     maxLayers = 42;
   });
 
-  # Development image of pool service.
-  pool-service-dev = dockerTools.buildImage (serviceImageProps // {
-    name = "mayadata/pool-service-dev";
+  # Development image of pool agent.
+  pool-agent-dev = dockerTools.buildImage (agentImageProps // {
+    name = "mayadata/pool-agent-dev";
     contents = [ busybox mayastor-dev ];
     config = { Entrypoint = [ "/bin/pool" ]; };
   });
 
-  # Release image of rest service.
-  rest-service = dockerTools.buildLayeredImage (serviceImageProps // {
-    name = "mayadata/rest-service";
+  # Release image of rest agent.
+  rest-agent = dockerTools.buildLayeredImage (agentImageProps // {
+    name = "mayadata/rest-agent";
     contents = [ busybox mayastor ];
     config = { Entrypoint = [ "/bin/rest" ]; };
     maxLayers = 42;
   });
 
-  # Development image of rest service.
-  rest-service-dev = dockerTools.buildImage (serviceImageProps // {
-    name = "mayadata/rest-service-dev";
+  # Development image of rest agent.
+  rest-agent-dev = dockerTools.buildImage (agentImageProps // {
+    name = "mayadata/rest-agent-dev";
     contents = [ busybox mayastor-dev ];
     config = { Entrypoint = [ "/bin/rest" ]; };
   });

@@ -319,6 +319,34 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ee2a4ec343196209d6594e19543ae87a39f96d5534d7174822a3ad825dd6ed7e"
 
 [[package]]
+name = "agents"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "composer",
+ "dyn-clonable",
+ "futures",
+ "http 0.2.3",
+ "humantime 2.0.1",
+ "lazy_static",
+ "mbus_api",
+ "nats",
+ "rpc",
+ "serde",
+ "serde_json",
+ "smol",
+ "snafu",
+ "state",
+ "structopt",
+ "tokio",
+ "tonic",
+ "tracing",
+ "tracing-futures",
+ "tracing-subscriber",
+ "url",
+]
+
+[[package]]
 name = "ahash"
 version = "0.3.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1369,6 +1397,22 @@ name = "data-encoding"
 version = "2.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "993a608597367c6377b258c25d7120740f00ed23a2252b729b1932dd7866f908"
+
+[[package]]
+name = "deployer"
+version = "0.1.0"
+dependencies = [
+ "async-trait",
+ "composer",
+ "mbus_api",
+ "nats",
+ "paste",
+ "rpc",
+ "structopt",
+ "strum",
+ "strum_macros",
+ "tokio",
+]
 
 [[package]]
 name = "derivative"
@@ -2500,6 +2544,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "macros"
+version = "0.1.0"
+dependencies = [
+ "actix-openapi-macros",
+]
+
+[[package]]
 name = "match_cfg"
 version = "0.1.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2584,13 +2635,6 @@ dependencies = [
  "udev",
  "url",
  "uuid",
-]
-
-[[package]]
-name = "mayastor-macros"
-version = "0.1.0"
-dependencies = [
- "actix-openapi-macros",
 ]
 
 [[package]]
@@ -3726,7 +3770,7 @@ dependencies = [
  "composer",
  "futures",
  "http 0.2.3",
- "mayastor-macros",
+ "macros",
  "mbus_api",
  "opentelemetry",
  "opentelemetry-jaeger",
@@ -4048,37 +4092,6 @@ dependencies = [
  "linked-hash-map",
  "serde",
  "yaml-rust",
-]
-
-[[package]]
-name = "services"
-version = "0.1.0"
-dependencies = [
- "async-trait",
- "composer",
- "dyn-clonable",
- "futures",
- "http 0.2.3",
- "humantime 2.0.1",
- "lazy_static",
- "mbus_api",
- "nats",
- "paste",
- "rpc",
- "serde",
- "serde_json",
- "smol",
- "snafu",
- "state",
- "structopt",
- "strum",
- "strum_macros",
- "tokio",
- "tonic",
- "tracing",
- "tracing-futures",
- "tracing-subscriber",
- "url",
 ]
 
 [[package]]

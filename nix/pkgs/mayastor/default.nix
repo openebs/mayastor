@@ -41,7 +41,7 @@ let
   buildProps = rec {
     name = "mayastor";
     #cargoSha256 = "0000000000000000000000000000000000000000000000000000";
-    cargoSha256 = "1kv66ngq371ss2ra8hpr7zxdwvqwnfg0kskl96fqmc2kbbpah2r8";
+    cargoSha256 = "1c5zwaivwsx7gznjvsd0gfhbvjji5q1qbjacdm6vfapqv9i79yfn";
     inherit version;
     src = whitelistSource ../../../. [
       "Cargo.lock"
@@ -55,10 +55,7 @@ let
       "rpc"
       "spdk-sys"
       "sysfs"
-      "mbus-api"
-      "services"
-      "rest"
-      "operators"
+      "control-plane"
       "composer"
     ];
 

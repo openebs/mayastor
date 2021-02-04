@@ -1,0 +1,23 @@
+[package]
+name = "deployer"
+version = "0.1.0"
+authors = ["Tiago Castro <tiago.castro@mayadata.io>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[[bin]]
+name = "deployer"
+path = "src/bin.rs"
+
+[dependencies]
+mbus_api = { path = "../mbus-api" }
+composer = { path = "../../composer" }
+nats = "0.8"
+structopt = "0.3.15"
+tokio = { version = "0.2", features = ["full"] }
+async-trait = "0.1.36"
+rpc = { path = "../../rpc" }
+strum = "0.19"
+strum_macros = "0.19"
+paste = "1.0.4"
