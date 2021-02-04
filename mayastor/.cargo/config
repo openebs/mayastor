@@ -2,3 +2,6 @@
 # cargo will ask you nicely to type your password
 [target.x86_64-unknown-linux-gnu]
 runner = ".cargo/runner.sh"
+
+[target.aarch64-unknown-linux-gnu]
+runner = ".cargo/runner.sh"
