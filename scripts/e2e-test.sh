@@ -14,6 +14,7 @@ tag="ci"
 generate_logs=0
 on_fail="stop"
 uninstall_cleanup="n"
+logsdir=""
 
 help() {
   cat <<EOF
@@ -29,6 +30,7 @@ Options:
   --reportsdir <path>       Path to use for junit xml test reports (default: repo root)
   --logs                    Generate logs and cluster state dump at the end of successful test run,
                             prior to uninstall.
+  --logsdir <path>          Location to generate logs (default: emit to stdout).
   --onfail <stop|continue>  On fail, stop immediately or continue default($on_fail)
                             Behaviour for "continue" only differs if uninstall is in the list of tests (the default).
   --uninstall_cleanup <y|n> On uninstall cleanup for reusable cluster. default($uninstall_cleanup)
@@ -64,8 +66,12 @@ while [ "$#" -gt 0 ]; do
       help
       exit 0
       ;;
-    -l|--logs)
+    --logs)
       generate_logs=1
+      ;;
+    --logsdir)
+      shift
+      logsdir="$1"
       ;;
     --onfail)
         shift
@@ -165,17 +171,17 @@ echo "    e2e_uninstall_cleanup=$e2e_uninstall_cleanup"
 
 
 echo "list of tests: $tests"
-for dir in $tests; do
+for testname in $tests; do
   # defer uninstall till after other tests have been run.
-  if [ "$dir" != "uninstall" ] ;  then
-      if ! runGoTest "$dir" ; then
-          echo "Test \"$dir\" Failed!!"
+  if [ "$testname" != "uninstall" ] ;  then
+      if ! runGoTest "$testname" ; then
+          echo "Test \"$testname\" Failed!!"
           test_failed=1
           break
       fi
 
       if ! ("$SCRIPTDIR"/e2e_check_pod_restarts.sh) ; then
-          echo "Test \"$dir\" Failed!! mayastor pods were restarted."
+          echo "Test \"$testname\" Failed!! mayastor pods were restarted."
           test_failed=1
           generate_logs=1
           break
@@ -185,9 +191,16 @@ for dir in $tests; do
 done
 
 if [ "$generate_logs" -ne 0 ]; then
-    if ! "$SCRIPTDIR"/e2e-cluster-dump.sh ; then
-        # ignore failures in the dump script
-        :
+    if [ -n "$logsdir" ]; then
+        if ! "$SCRIPTDIR"/e2e-cluster-dump.sh --destdir "$logsdir" ; then
+            # ignore failures in the dump script
+            :
+        fi
+    else
+        if ! "$SCRIPTDIR"/e2e-cluster-dump.sh ; then
+            # ignore failures in the dump script
+            :
+        fi
     fi
 fi
 
@@ -200,6 +213,8 @@ if contains "$tests" "uninstall" ; then
     if ! runGoTest "uninstall" ; then
         echo "Test \"uninstall\" Failed!!"
         test_failed=1
+        # Dump to the screen only, we do NOT want to overwrite
+        # logfiles that may have been generated.
         if ! "$SCRIPTDIR"/e2e-cluster-dump.sh --clusteronly ; then
             # ignore failures in the dump script
             :

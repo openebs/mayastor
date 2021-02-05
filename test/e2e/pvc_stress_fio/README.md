@@ -1,11 +1,3 @@
-## About
-Long running stress e2e tests for mayastor
-
-To run the tests use the `test.sh` file.
-
-When adding a test make sure to bump the timeout value suitably.
-
-## Tests
 ### pvc_stress_fio
 ```
 Do {
@@ -62,8 +54,3 @@ Then: The PVC and its corresponding PV should be removed
 Note: For development purposes the number of cycles for each test can be changed through environment variables.
   1 `e2e_pvc_stress_cd_cycles`
   2 `e2e_pvc_stress_crud_cycles`
-
-To run tests from here use the command line below.
-```
-go test -v ./... -ginkgo.v -ginkgo.progress -timeout 0
-```
