@@ -520,16 +520,28 @@ impl<'a> Drop for NvmeController<'a> {
             )
         );
 
-        let inner = self.inner.take().expect("NVMe inner already gone");
+        // Inner state might not be yes available.
+        if self.inner.is_some() {
+            let inner = self.inner.take().expect("NVMe inner already gone");
 
-        debug!("{} detaching NVMe controller", self.name);
-        let rc = unsafe { spdk_nvme_detach(inner.ctrlr.as_ptr()) };
+            debug!(
+                ?self.name,
+                "detaching NVMe controller"
+            );
+            let rc = unsafe { spdk_nvme_detach(inner.ctrlr.as_ptr()) };
 
-        debug!("{} stopping admin queue poller", self.name);
-        inner.adminq_poller.stop();
+            debug!(
+                ?self.name,
+                "stopping admin queue poller"
+            );
+            inner.adminq_poller.stop();
 
-        assert_eq!(rc, 0, "Failed to detach NVMe controller");
-        debug!("{}: NVMe controller successfully detached", self.name);
+            assert_eq!(rc, 0, "Failed to detach NVMe controller");
+            debug!(
+                ?self.name,
+                "NVMe controller successfully detached"
+            );
+        }
 
         unsafe {
             std::ptr::drop_in_place(self.timeout_config);
