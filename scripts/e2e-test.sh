@@ -26,6 +26,7 @@ Options:
   --tests <list of tests>   Lists of tests to run, delimited by spaces (default: "$tests")
         Note: the last 2 tests should be (if they are to be run)
              node_disconnect/replica_pod_remove uninstall
+  --test_plan <test plan>   ID of corresponding Jira/Xray test plan to receive results.
   --reportsdir <path>       Path to use for junit xml test reports (default: repo root)
   --logs                    Generate logs and cluster state dump at the end of successful test run,
                             prior to uninstall.
