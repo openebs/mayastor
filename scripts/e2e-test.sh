@@ -18,14 +18,16 @@ TESTS="install basic_volume_io csi resource_check uninstall"
 EXTENDED_TESTS=""
 
 # Global state variables
-tests=""
-run_extended_tests=
+#  test configuration state variables
 device=
 registry=
 tag="ci"
-generate_logs=0
+#  sript state variables
+tests=""
+run_extended_tests=
 on_fail="stop"
 uninstall_cleanup="n"
+generate_logs=0
 logsdir=""
 
 help() {
@@ -86,6 +88,9 @@ while [ "$#" -gt 0 ]; do
     --logsdir)
       shift
       logsdir="$1"
+      if [[ "${logsdir:0:1}" == '.' ]]; then
+          logsdir="$PWD/$logsdir"
+      fi
       ;;
     -e|--extended)
       run_extended_tests=1
@@ -162,19 +167,22 @@ test_failed=0
 
 # Run go test in directory specified as $1 (relative path)
 function runGoTest {
-    cd "$TESTDIR"
+    pushd "$TESTDIR"
     echo "Running go test in $PWD/\"$1\""
     if [ -z "$1" ] || [ ! -d "$1" ]; then
         echo "Unable to locate test directory  $PWD/\"$1\""
+        popd
         return 1
     fi
 
     cd "$1"
     if ! go test -v . -ginkgo.v -ginkgo.progress -timeout 0; then
         generate_logs=1
+        popd
         return 1
     fi
 
+    popd
     return 0
 }
 
@@ -189,8 +197,14 @@ echo "    e2e_image_tag=$e2e_image_tag"
 echo "    e2e_docker_registry=$e2e_docker_registry"
 echo "    e2e_reports_dir=$e2e_reports_dir"
 echo "    e2e_uninstall_cleanup=$e2e_uninstall_cleanup"
-
-
+echo ""
+echo "Script control settings:"
+echo "    run_extended_tests=$run_extended_tests"
+echo "    on_fail=$on_fail"
+echo "    uninstall_cleanup=$uninstall_cleanup"
+echo "    generate_logs=$generate_logs"
+echo "    logsdir=$logsdir"
+echo ""
 echo "list of tests: $tests"
 for testname in $tests; do
   # defer uninstall till after other tests have been run.
@@ -201,7 +215,7 @@ for testname in $tests; do
           break
       fi
 
-      if ! ("$SCRIPTDIR"/e2e_check_pod_restarts.sh) ; then
+      if ! ("$SCRIPTDIR/e2e_check_pod_restarts.sh") ; then
           echo "Test \"$testname\" Failed!! mayastor pods were restarted."
           test_failed=1
           generate_logs=1
@@ -213,12 +227,12 @@ done
 
 if [ "$generate_logs" -ne 0 ]; then
     if [ -n "$logsdir" ]; then
-        if ! "$SCRIPTDIR"/e2e-cluster-dump.sh --destdir "$logsdir" ; then
+        if ! "$SCRIPTDIR/e2e-cluster-dump.sh" --destdir "$logsdir" ; then
             # ignore failures in the dump script
             :
         fi
     else
-        if ! "$SCRIPTDIR"/e2e-cluster-dump.sh ; then
+        if ! "$SCRIPTDIR/e2e-cluster-dump.sh" ; then
             # ignore failures in the dump script
             :
         fi
@@ -236,7 +250,7 @@ if contains "$tests" "uninstall" ; then
         test_failed=1
         # Dump to the screen only, we do NOT want to overwrite
         # logfiles that may have been generated.
-        if ! "$SCRIPTDIR"/e2e-cluster-dump.sh --clusteronly ; then
+        if ! "$SCRIPTDIR/e2e-cluster-dump.sh" --clusteronly ; then
             # ignore failures in the dump script
             :
         fi
