@@ -100,7 +100,12 @@ func execTestCmd(cmds []testCmd) {
 
 func TestE2E(t *testing.T) {
 	gomega.RegisterFailHandler(ginkgo.Fail)
+	// FIXME: compilation issue prevents use of common.ConstructJunitFileName() here
 	reportDir := os.Getenv("e2e_reports_dir")
-	junitReporter := reporters.NewJUnitReporter(reportDir + "/csi-junit.xml")
+	testPlanPrefix := os.Getenv("test_plan")
+	if testPlanPrefix != "" {
+		testPlanPrefix += "."
+	}
+	junitReporter := reporters.NewJUnitReporter(reportDir + "/" + testPlanPrefix + "csi-junit.xml")
 	ginkgo.RunSpecsWithDefaultAndCustomReporters(t, "CSI E2E Suite", []ginkgo.Reporter{junitReporter})
 }

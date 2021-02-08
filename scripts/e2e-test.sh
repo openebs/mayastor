@@ -13,6 +13,7 @@ registry=
 tag="ci"
 generate_logs=0
 on_fail="stop"
+test_plan_arg=""
 uninstall_cleanup="n"
 logsdir=""
 
@@ -33,6 +34,7 @@ Options:
   --logsdir <path>          Location to generate logs (default: emit to stdout).
   --onfail <stop|continue>  On fail, stop immediately or continue default($on_fail)
                             Behaviour for "continue" only differs if uninstall is in the list of tests (the default).
+  --test_plan <test plan>   ID of corresponding Jira/Xray test plan to receive results.
   --uninstall_cleanup <y|n> On uninstall cleanup for reusable cluster. default($uninstall_cleanup)
 Examples:
   $0 --device /dev/nvme0n1 --registry 127.0.0.1:5000 --tag a80ce0c
@@ -87,6 +89,10 @@ while [ "$#" -gt 0 ]; do
                 exit 2
         esac
       ;;
+    --test_plan)
+      shift
+      test_plan_arg="$1"
+      ;;
     --uninstall_cleanup)
         shift
         case $1 in
@@ -131,6 +137,10 @@ if [ ! -d "$e2e_reports_dir" ] ; then
     exit 1
 fi
 
+if [ -n "$test_plan_arg" ]; then
+  export test_plan="$test_plan_arg"
+fi
+
 if [ "$uninstall_cleanup" == 'n' ] ; then
     export e2e_uninstall_cleanup=0
 else
@@ -168,6 +178,7 @@ echo "    e2e_image_tag=$e2e_image_tag"
 echo "    e2e_docker_registry=$e2e_docker_registry"
 echo "    e2e_reports_dir=$e2e_reports_dir"
 echo "    e2e_uninstall_cleanup=$e2e_uninstall_cleanup"
+echo "    test_plan=$test_plan_arg"
 
 
 echo "list of tests: $tests"

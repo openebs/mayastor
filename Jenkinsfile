@@ -9,6 +9,7 @@ def e2e_destroy_cluster_job='k8s-destroy-cluster' // Jenkins job to destroy clus
 def e2e_environment="hcloud-kubeadm"
 // Global variable to pass current k8s job between stages
 def k8s_job=""
+def projectkey="MQ"
 
 // Searches previous builds to find first non aborted one
 def getLastNonAbortedBuild(build) {
@@ -192,6 +193,7 @@ pipeline {
                   returnStdout: true
                 )
                 KUBECONFIG = "${env.WORKSPACE}/${e2e_environment}/modules/k8s/secrets/admin.conf"
+                TESTPLAN = "MQ-1"
               }
               steps {
                 // FIXME(arne-rusek): move hcloud's config to top-level dir in TF scripts
@@ -206,7 +208,23 @@ pipeline {
                     fingerprintArtifacts: true
                 )
                 sh 'kubectl get nodes -o wide'
-                sh "nix-shell --run './scripts/e2e-test.sh --device /dev/sdb --tag \"${env.GIT_COMMIT_SHORT}\" --registry \"${env.REGISTRY}\"'"
+                sh "nix-shell --run './scripts/e2e-test.sh --device /dev/sdb --tag \"${env.GIT_COMMIT_SHORT}\" --registry \"${env.REGISTRY}\" --test_plan \"${env.TESTPLAN}\"'"
+              }
+              post {
+                always { // always send the junit results back to Xray
+                  script {
+                    // send only the xml files with the test plan prefix
+                    step([
+                      $class: 'XrayImportBuilder',
+                      endpointName: '/junit',
+                      importFilePath: "${env.TESTPLAN}.*.xml",
+                      importToSameExecution: 'true',
+                      projectKey: "${projectkey}",
+                      testPlanKey: "${env.TESTPLAN}",
+                      serverInstance: "${env.JIRASERVERUUID}"])
+                    sh "rm -f ${env.TESTPLAN}.*.xml"
+                  }
+                }
               }
             }
             stage('destroy e2e cluster') {

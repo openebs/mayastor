@@ -7,7 +7,6 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	"os"
 	"testing"
 
 	. "github.com/onsi/ginkgo"
@@ -21,8 +20,8 @@ const gStorageClass = "mayastor-nvmf-pod-remove-test-sc"
 
 func TestMayastorPodLoss(t *testing.T) {
 	RegisterFailHandler(Fail)
-	reportDir := os.Getenv("e2e_reports_dir")
-	junitReporter := reporters.NewJUnitReporter(reportDir + "/replica-pod-remove-junit.xml")
+	junitReporter := reporters.NewJUnitReporter(common.ConstructJunitFileName("replica-pod-remove-junit.xml"))
+
 	RunSpecsWithDefaultAndCustomReporters(t, "Replica pod removal tests",
 		[]Reporter{junitReporter})
 }

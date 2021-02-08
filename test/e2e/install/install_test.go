@@ -16,6 +16,8 @@ import (
 	"github.com/onsi/ginkgo/reporters"
 	. "github.com/onsi/gomega"
 
+	"e2e-basic/common"
+
 	appsV1 "k8s.io/api/apps/v1"
 	coreV1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/types"
@@ -263,8 +265,7 @@ func installMayastor() {
 
 func TestInstallSuite(t *testing.T) {
 	RegisterFailHandler(Fail)
-	reportDir := os.Getenv("e2e_reports_dir")
-	junitReporter := reporters.NewJUnitReporter(reportDir + "/install-junit.xml")
+	junitReporter := reporters.NewJUnitReporter(common.ConstructJunitFileName("install-junit.xml"))
 	RunSpecsWithDefaultAndCustomReporters(t, "Basic Install Suite",
 		[]Reporter{junitReporter})
 }

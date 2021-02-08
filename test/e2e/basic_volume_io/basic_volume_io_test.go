@@ -4,7 +4,6 @@ package basic_volume_io_test
 
 import (
 	"e2e-basic/common"
-	"os"
 	"testing"
 
 	. "github.com/onsi/ginkgo"
@@ -26,8 +25,8 @@ var volNames []volSc
 
 func TestBasicVolumeIO(t *testing.T) {
 	RegisterFailHandler(Fail)
-	reportDir := os.Getenv("e2e_reports_dir")
-	junitReporter := reporters.NewJUnitReporter(reportDir + "/basic-volume-io-junit.xml")
+	junitReporter := reporters.NewJUnitReporter(common.ConstructJunitFileName("basic-volume-io-junit.xml"))
+
 	RunSpecsWithDefaultAndCustomReporters(t, "Basic volume IO tests, NVMe-oF TCP and iSCSI", []Reporter{junitReporter})
 }
 

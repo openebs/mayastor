@@ -203,8 +203,7 @@ func stressTestPVC(iters int, runFio bool) {
 
 func TestPVCStress(t *testing.T) {
 	RegisterFailHandler(Fail)
-	reportDir := os.Getenv("e2e_reports_dir")
-	junitReporter := reporters.NewJUnitReporter(reportDir + "/pvc-stress-junit.xml")
+	junitReporter := reporters.NewJUnitReporter(Cmn.ConstructJunitFileName("pvc-stress-junit.xml"))
 	RunSpecsWithDefaultAndCustomReporters(t, "PVC Stress Test Suite",
 		[]Reporter{junitReporter})
 }

@@ -3,6 +3,7 @@ package common
 import (
 	"context"
 	"fmt"
+	"os"
 	"time"
 
 	"sigs.k8s.io/controller-runtime/pkg/client/config"
@@ -86,4 +87,13 @@ func TeardownTestEnv() {
 	AfterSuiteCleanup()
 	err := gTestEnv.TestEnv.Stop()
 	Expect(err).ToNot(HaveOccurred())
+}
+
+func ConstructJunitFileName(name string) string {
+	reportDir := os.Getenv("e2e_reports_dir")
+	testPlanPrefix := os.Getenv("test_plan")
+	if testPlanPrefix != "" {
+		testPlanPrefix += "."
+	}
+	return reportDir + "/" + testPlanPrefix + name
 }
