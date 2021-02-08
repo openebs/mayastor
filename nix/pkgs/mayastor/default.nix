@@ -2,7 +2,6 @@
 , clang
 , dockerTools
 , e2fsprogs
-, git
 , lib
 , libaio
 , libiscsi
@@ -19,8 +18,10 @@
 , sources
 , xfsprogs
 , utillinux
-, rustup
-, docker-compose
+, llvmPackages_11
+, targetPackages
+, buildPackages
+, targetPlatform
 }:
 let
   channel = import ../../lib/rust.nix { inherit sources; };
@@ -36,8 +37,7 @@ let
             lib.hasPrefix (toString (src + "/${allowedPrefix}")) path)
           allowedPrefixes)
       src;
-  version_drv = import ../../lib/version.nix { inherit lib stdenv git; };
-  version = builtins.readFile "${version_drv}";
+  version = (builtins.fromTOML (builtins.readFile ../../../mayastor/Cargo.toml)).package.version;
   src_list = [
     "Cargo.lock"
     "Cargo.toml"
@@ -63,17 +63,13 @@ let
     PROTOC = "${protobuf}/bin/protoc";
     PROTOC_INCLUDE = "${protobuf}/include";
 
-    # Before editing dependencies, consider:
-    # https://nixos.org/manual/nixpkgs/stable/#ssec-cross-dependency-implementation
-    # https://nixos.org/manual/nixpkgs/stable/#ssec-stdenv-dependencies
-    basePackages = [
-    ];
     nativeBuildInputs = [
-      clang
       pkg-config
+      protobuf
+      llvmPackages_11.clang
     ];
     buildInputs = [
-      llvmPackages.libclang
+      llvmPackages_11.libclang
       protobuf
       libaio
       libiscsi.lib
