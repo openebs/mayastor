@@ -19,6 +19,8 @@
 , sources
 , xfsprogs
 , utillinux
+, rustup
+, docker-compose
 }:
 let
   channel = import ../../lib/rust.nix { inherit sources; };
@@ -64,6 +66,11 @@ let
     PROTOC = "${protobuf}/bin/protoc";
     PROTOC_INCLUDE = "${protobuf}/include";
 
+    # Before editing dependencies, consider:
+    # https://nixos.org/manual/nixpkgs/stable/#ssec-cross-dependency-implementation
+    # https://nixos.org/manual/nixpkgs/stable/#ssec-stdenv-dependencies
+    basePackages = [
+    ];
     nativeBuildInputs = [
       clang
       pkg-config
