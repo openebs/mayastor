@@ -1,13 +1,12 @@
 package replica_test
 
 import (
-	"os"
 	"testing"
 
 	"e2e-basic/common"
+	rep "e2e-basic/common/reporter"
 
 	. "github.com/onsi/ginkgo"
-	"github.com/onsi/ginkgo/reporters"
 	. "github.com/onsi/gomega"
 
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -63,11 +62,7 @@ func addUnpublishedReplicaTest() {
 
 func TestReplica(t *testing.T) {
 	RegisterFailHandler(Fail)
-	reportDir := os.Getenv("e2e_reports_dir")
-	junitReporter := reporters.NewJUnitReporter(reportDir + "/replica-junit.xml")
-	RunSpecsWithDefaultAndCustomReporters(t, "Replica Test Suite",
-		[]Reporter{junitReporter})
-
+	RunSpecsWithDefaultAndCustomReporters(t, "Replica Test Suite", rep.GetReporters("replica"))
 }
 
 var _ = Describe("Mayastor replica tests", func() {

@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	Cmn "e2e-basic/common"
+	rep "e2e-basic/common/reporter"
 
 	coreV1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -17,7 +18,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	. "github.com/onsi/ginkgo"
-	"github.com/onsi/ginkgo/reporters"
 	. "github.com/onsi/gomega"
 )
 
@@ -203,10 +203,7 @@ func stressTestPVC(iters int, runFio bool) {
 
 func TestPVCStress(t *testing.T) {
 	RegisterFailHandler(Fail)
-	reportDir := os.Getenv("e2e_reports_dir")
-	junitReporter := reporters.NewJUnitReporter(reportDir + "/pvc-stress-junit.xml")
-	RunSpecsWithDefaultAndCustomReporters(t, "PVC Stress Test Suite",
-		[]Reporter{junitReporter})
+	RunSpecsWithDefaultAndCustomReporters(t, "PVC Stress Test Suite", rep.GetReporters("pvc-stress"))
 }
 
 var _ = Describe("Mayastor PVC Stress test", func() {

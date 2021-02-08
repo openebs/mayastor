@@ -4,11 +4,10 @@ package basic_volume_io_test
 
 import (
 	"e2e-basic/common"
-	"os"
+	rep "e2e-basic/common/reporter"
 	"testing"
 
 	. "github.com/onsi/ginkgo"
-	"github.com/onsi/ginkgo/reporters"
 	. "github.com/onsi/gomega"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -26,9 +25,7 @@ var volNames []volSc
 
 func TestBasicVolumeIO(t *testing.T) {
 	RegisterFailHandler(Fail)
-	reportDir := os.Getenv("e2e_reports_dir")
-	junitReporter := reporters.NewJUnitReporter(reportDir + "/basic-volume-io-junit.xml")
-	RunSpecsWithDefaultAndCustomReporters(t, "Basic volume IO tests, NVMe-oF TCP and iSCSI", []Reporter{junitReporter})
+	RunSpecsWithDefaultAndCustomReporters(t, "Basic volume IO tests, NVMe-oF TCP and iSCSI", rep.GetReporters("basic-volume-io"))
 }
 
 func basicVolumeIOTest(scName string) {
