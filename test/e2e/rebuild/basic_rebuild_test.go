@@ -1,10 +1,10 @@
 package basic_rebuild_test
 
 import (
-	"os"
 	"testing"
 
 	"e2e-basic/common"
+	"e2e-basic/common/junit"
 
 	. "github.com/onsi/ginkgo"
 	"github.com/onsi/ginkgo/reporters"
@@ -73,8 +73,8 @@ func basicRebuildTest() {
 
 func TestRebuild(t *testing.T) {
 	RegisterFailHandler(Fail)
-	reportDir := os.Getenv("e2e_reports_dir")
-	junitReporter := reporters.NewJUnitReporter(reportDir + "/rebuild-junit.xml")
+	junitReporter := reporters.NewJUnitReporter(junit.ConstructJunitFileName("rebuild-junit.xml"))
+
 	RunSpecsWithDefaultAndCustomReporters(t, "Rebuild Test Suite",
 		[]Reporter{junitReporter})
 }

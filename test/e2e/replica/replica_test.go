@@ -1,10 +1,10 @@
 package replica_test
 
 import (
-	"os"
 	"testing"
 
 	"e2e-basic/common"
+	"e2e-basic/common/junit"
 
 	. "github.com/onsi/ginkgo"
 	"github.com/onsi/ginkgo/reporters"
@@ -63,8 +63,7 @@ func addUnpublishedReplicaTest() {
 
 func TestReplica(t *testing.T) {
 	RegisterFailHandler(Fail)
-	reportDir := os.Getenv("e2e_reports_dir")
-	junitReporter := reporters.NewJUnitReporter(reportDir + "/replica-junit.xml")
+	junitReporter := reporters.NewJUnitReporter(junit.ConstructJunitFileName("replica-junit.xml"))
 	RunSpecsWithDefaultAndCustomReporters(t, "Replica Test Suite",
 		[]Reporter{junitReporter})
 

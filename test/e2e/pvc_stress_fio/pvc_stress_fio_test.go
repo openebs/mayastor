@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	Cmn "e2e-basic/common"
+	"e2e-basic/common/junit"
 
 	coreV1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -203,8 +204,7 @@ func stressTestPVC(iters int, runFio bool) {
 
 func TestPVCStress(t *testing.T) {
 	RegisterFailHandler(Fail)
-	reportDir := os.Getenv("e2e_reports_dir")
-	junitReporter := reporters.NewJUnitReporter(reportDir + "/pvc-stress-junit.xml")
+	junitReporter := reporters.NewJUnitReporter(junit.ConstructJunitFileName("pvc-stress-junit.xml"))
 	RunSpecsWithDefaultAndCustomReporters(t, "PVC Stress Test Suite",
 		[]Reporter{junitReporter})
 }

@@ -17,6 +17,7 @@ limitations under the License.
 package e2e
 
 import (
+	"e2e-basic/common/junit"
 	"flag"
 	"os"
 	"path/filepath"
@@ -100,7 +101,7 @@ func execTestCmd(cmds []testCmd) {
 
 func TestE2E(t *testing.T) {
 	gomega.RegisterFailHandler(ginkgo.Fail)
-	reportDir := os.Getenv("e2e_reports_dir")
-	junitReporter := reporters.NewJUnitReporter(reportDir + "/csi-junit.xml")
+	junitReporter := reporters.NewJUnitReporter(junit.ConstructJunitFileName("csi-junit.xml"))
+
 	ginkgo.RunSpecsWithDefaultAndCustomReporters(t, "CSI E2E Suite", []ginkgo.Reporter{junitReporter})
 }

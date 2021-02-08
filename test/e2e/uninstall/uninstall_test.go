@@ -2,15 +2,18 @@ package basic_test
 
 import (
 	"e2e-basic/common"
-	. "github.com/onsi/ginkgo"
-	"github.com/onsi/ginkgo/reporters"
-	. "github.com/onsi/gomega"
+	"e2e-basic/common/junit"
+
 	"os"
 	"os/exec"
 	"path"
 	"runtime"
 	"testing"
 	"time"
+
+	. "github.com/onsi/ginkgo"
+	"github.com/onsi/ginkgo/reporters"
+	. "github.com/onsi/gomega"
 
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -165,8 +168,7 @@ func TestTeardownSuite(t *testing.T) {
 	if os.Getenv("e2e_uninstall_cleanup") != "0" {
 		cleanup = true
 	}
-	reportDir := os.Getenv("e2e_reports_dir")
-	junitReporter := reporters.NewJUnitReporter(reportDir + "/uninstall-junit.xml")
+	junitReporter := reporters.NewJUnitReporter(junit.ConstructJunitFileName("uninstall-junit.xml"))
 	RunSpecsWithDefaultAndCustomReporters(t, "Basic Teardown Suite",
 		[]Reporter{junitReporter})
 }

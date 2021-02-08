@@ -9,6 +9,8 @@ def e2e_destroy_cluster_job='k8s-destroy-cluster' // Jenkins job to destroy clus
 def e2e_environment="hcloud-kubeadm"
 // Global variable to pass current k8s job between stages
 def k8s_job=""
+def xray_projectkey='MQ'
+def xray_e2e_testplan='MQ-1'
 
 // Searches previous builds to find first non aborted one
 def getLastNonAbortedBuild(build) {
@@ -237,6 +239,19 @@ pipeline {
                         "Note: you need to click `proceed` and will get an empty page when using destroy link. " +
                         "(<https://mayadata.atlassian.net/wiki/spaces/MS/pages/247332965/Test+infrastructure#On-Demand-E2E-K8S-Clusters|doc>)"
                     )
+                  }
+                }
+                always { // always send the junit results back to Xray and Jenkins
+                  junit 'e2e.*.xml'
+                  script {
+                    step([
+                      $class: 'XrayImportBuilder',
+                      endpointName: '/junit',
+                      importFilePath: 'e2e.*.xml',
+                      importToSameExecution: 'true',
+                      projectKey: "${xray_projectkey}",
+                      testPlanKey: "${xray_e2e_testplan}",
+                      serverInstance: "${env.JIRASERVERUUID}"])
                   }
                 }
               }
