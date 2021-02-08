@@ -39,7 +39,7 @@ let
   buildProps = rec {
     name = "mayastor";
     #cargoSha256 = "0000000000000000000000000000000000000000000000000000";
-    cargoSha256 = "0jxi2z78kc0knr3bscyk622rg7b5ynjiw205xl6g4v8saychxpbd";
+    cargoSha256 = "1kv66ngq371ss2ra8hpr7zxdwvqwnfg0kskl96fqmc2kbbpah2r8";
     inherit version;
     src = whitelistSource ../../../. [
       "Cargo.lock"
@@ -107,6 +107,10 @@ in
       ../../../target/debug/mayastor-client
       ../../../target/debug/jsonrpc
       ../../../target/debug/kiiss
+      ../../../target/debug/node
+      ../../../target/debug/volume
+      ../../../target/debug/pool
+      ../../../target/debug/rest
     ];
 
     buildInputs = [

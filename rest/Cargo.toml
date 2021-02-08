@@ -17,6 +17,7 @@ path = "./src/lib.rs"
 [dependencies]
 rustls = "0.18"
 actix-web = { version = "3.2.0", features = ["rustls"] }
+actix-service = "1.0.6"
 mbus_api = { path = "../mbus-api" }
 async-trait = "0.1.41"
 serde_json = "1.0"

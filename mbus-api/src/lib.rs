@@ -146,9 +146,10 @@ impl FromStr for Channel {
     type Err = strum::ParseError;
 
     fn from_str(source: &str) -> Result<Self, Self::Err> {
-        match &source[0 ..= 2] {
-            "v0/" => {
-                let c: v0::ChannelVs = source[3 ..].parse()?;
+        match source.split('/').next() {
+            Some(v0::VERSION) => {
+                let c: v0::ChannelVs =
+                    source[v0::VERSION.len() + 1 ..].parse()?;
                 Ok(Self::v0(c))
             }
             _ => Err(strum::ParseError::VariantNotFound),
@@ -208,9 +209,10 @@ impl FromStr for MessageId {
     type Err = strum::ParseError;
 
     fn from_str(source: &str) -> Result<Self, Self::Err> {
-        match &source[0 ..= 2] {
-            "v0/" => {
-                let id: v0::MessageIdVs = source[3 ..].parse()?;
+        match source.split('/').next() {
+            Some(v0::VERSION) => {
+                let id: v0::MessageIdVs =
+                    source[v0::VERSION.len() + 1 ..].parse()?;
                 Ok(Self::v0(id))
             }
             _ => Err(strum::ParseError::VariantNotFound),
@@ -220,7 +222,7 @@ impl FromStr for MessageId {
 impl ToString for MessageId {
     fn to_string(&self) -> String {
         match self {
-            Self::v0(id) => format!("v0/{}", id.to_string()),
+            Self::v0(id) => format!("{}/{}", v0::VERSION, id.to_string()),
         }
     }
 }

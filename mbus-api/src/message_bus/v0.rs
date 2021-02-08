@@ -1,7 +1,7 @@
 // clippy warning caused by the instrument macro
 #![allow(clippy::unit_arg)]
 
-use crate::{v0::*, *};
+pub use crate::{v0::*, *};
 use async_trait::async_trait;
 
 /// Error sending/receiving
@@ -27,83 +27,6 @@ impl From<Error> for BusError {
 
 /// Result for sending/receiving
 pub type BusResult<T> = Result<T, BusError>;
-
-/// Node
-pub type Node = crate::v0::Node;
-/// Node list
-pub type Nodes = crate::v0::Nodes;
-/// Pool
-pub type Pool = crate::v0::Pool;
-/// Pool list
-pub type Pools = crate::v0::Pools;
-/// Replica
-pub type Replica = crate::v0::Replica;
-/// Replica list
-pub type Replicas = crate::v0::Replicas;
-/// Protocol
-pub type Protocol = crate::v0::Protocol;
-/// Replica Create
-pub type CreateReplica = crate::v0::CreateReplica;
-/// Pool Create
-pub type CreatePool = crate::v0::CreatePool;
-/// Replica Destroy
-pub type DestroyReplica = crate::v0::DestroyReplica;
-/// Pool Destroy
-pub type DestroyPool = crate::v0::DestroyPool;
-/// Replica Share
-pub type ShareReplica = crate::v0::ShareReplica;
-/// Replica Unshare
-pub type UnshareReplica = crate::v0::UnshareReplica;
-/// Query Filter
-pub type Filter = crate::v0::Filter;
-/// Nexus from the volume service
-pub type Nexus = crate::v0::Nexus;
-/// Vector of Nexuses from the volume service
-pub type Nexuses = crate::v0::Nexuses;
-/// State of the nexus
-pub type NexusState = crate::v0::NexusState;
-/// State of the volume
-pub type VolumeState = crate::v0::VolumeState;
-/// Child of the nexus
-pub type Child = crate::v0::Child;
-/// State of the child
-pub type ChildState = crate::v0::ChildState;
-/// Nexus Create
-pub type CreateNexus = crate::v0::CreateNexus;
-/// Nexus Destroy
-pub type DestroyNexus = crate::v0::DestroyNexus;
-/// Nexus Share
-pub type ShareNexus = crate::v0::ShareNexus;
-/// Nexus Unshare
-pub type UnshareNexus = crate::v0::UnshareNexus;
-/// Remove Nexus Child
-pub type RemoveNexusChild = crate::v0::RemoveNexusChild;
-/// Add Nexus Child
-pub type AddNexusChild = crate::v0::AddNexusChild;
-/// Volume
-pub type Volume = crate::v0::Volume;
-/// Volumes
-pub type Volumes = crate::v0::Volumes;
-/// Create Volume
-pub type CreateVolume = crate::v0::CreateVolume;
-/// Delete Volume
-pub type DestroyVolume = crate::v0::DestroyVolume;
-/// Add Volume Nexus
-pub type AddVolumeNexus = crate::v0::AddVolumeNexus;
-/// Remove Volume Nexus
-pub type RemoveVolumeNexus = crate::v0::RemoveVolumeNexus;
-/// Id of a mayastor node
-pub type NodeId = crate::v0::NodeId;
-/// Id of a mayastor pool
-pub type PoolId = crate::v0::PoolId;
-/// UUID of a mayastor pool replica
-pub type ReplicaId = crate::v0::ReplicaId;
-/// UUID of a mayastor nexus
-pub type NexusId = crate::v0::NexusId;
-/// URI of a mayastor nexus child
-pub type ChildUri = crate::v0::ChildUri;
-/// UUID of a mayastor volume
-pub type VolumeId = crate::v0::VolumeId;
 
 macro_rules! only_one {
     ($list:ident) => {

@@ -134,15 +134,15 @@ for name in $IMAGES; do
   # If we're skipping the build, then we just want to upload
   # the images we already have locally.
   if [ -z $SKIP_BUILD ]; then
-    archive=${name}-image
+    archive=${name}
     if [ -z "$REGISTRY" ] && dockerhub_tag_exists $image $TAG; then
       echo "Skipping $image:$TAG that already exists"
       continue
     fi
     echo "Building $image:$TAG ..."
-    $NIX_BUILD --out-link $archive -A images.$archive
-    $DOCKER load -i $archive
-    $RM $archive
+    $NIX_BUILD --out-link $archive-image -A images.$archive
+    $DOCKER load -i $archive-image
+    $RM $archive-image
     if [ "$image" != "$image_basename" ]; then
       echo "Renaming $image_basename:$TAG to $image:$TAG"
       $DOCKER tag "${image_basename}:$TAG" "$image:$TAG"
