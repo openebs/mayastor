@@ -2,7 +2,7 @@ use super::*;
 
 // todo: replace with proc-macros
 
-/// Main Message trait, which should tipically be used to send
+/// Main Message trait, which should typically be used to send
 /// MessageBus messages.
 /// Implements Message trait for the type `S` with the reply type
 /// `R`, the message id `I`, the default channel `C`.

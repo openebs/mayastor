@@ -3,6 +3,7 @@
 //! Ex: /v0/nodes
 
 pub mod children;
+pub mod jsongrpc;
 pub mod nexuses;
 pub mod nodes;
 pub mod pools;
@@ -45,6 +46,7 @@ fn configure(cfg: &mut paperclip::actix::web::ServiceConfig) {
     nexuses::configure(cfg);
     children::configure(cfg);
     volumes::configure(cfg);
+    jsongrpc::configure(cfg);
 }
 
 pub(super) fn configure_api<T, B>(
