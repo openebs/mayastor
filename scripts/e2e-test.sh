@@ -5,9 +5,16 @@ set -eu
 SCRIPTDIR=$(dirname "$(realpath "$0")")
 TESTDIR=$(realpath "$SCRIPTDIR/../test/e2e")
 REPORTSDIR=$(realpath "$SCRIPTDIR/..")
-# new tests should be added before the replica_pod_remove test
+
+# List and Sequence of tests.
 #tests="install basic_volume_io csi replica rebuild node_disconnect/replica_pod_remove uninstall"
-tests="install basic_volume_io csi uninstall"
+# Restrictions:
+#   1. resource_check MUST follow csi 
+#       resource_check is a follow up check for the 3rd party CSI test suite.
+#   2. replicas_pod_remove SHOULD be the last test before uninstall
+#       this is a disruptive test.
+tests="install basic_volume_io csi resource_check uninstall"
+
 device=
 registry=
 tag="ci"
