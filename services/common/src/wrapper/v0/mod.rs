@@ -29,6 +29,7 @@ use tonic::transport::Channel;
 
 /// Common error type for send/receive
 #[derive(Debug, Snafu)]
+#[snafu(visibility = "pub")]
 #[allow(missing_docs)]
 pub enum SvcError {
     #[snafu(display("Failed to get nodes from the node service"))]
@@ -85,6 +86,17 @@ pub enum SvcError {
     InvalidArguments {},
     #[snafu(display("Not implemented"))]
     NotImplemented {},
+    #[snafu(display(
+        "Json RPC call failed for method '{}' with parameters '{}'. Error {}",
+        method,
+        params,
+        error,
+    ))]
+    JsonRpc {
+        method: String,
+        params: String,
+        error: String,
+    },
 }
 
 impl From<NotEnough> for SvcError {

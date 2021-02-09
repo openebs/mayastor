@@ -240,6 +240,12 @@ pub trait MessageBusTrait: Sized {
         request.request().await?;
         Ok(())
     }
+
+    /// Generic JSON gRPC call
+    #[tracing::instrument(level = "debug", err)]
+    async fn json_grpc_call(request: JsonGrpcRequest) -> BusResult<String> {
+        Ok(request.request().await?)
+    }
 }
 
 /// Implementation of the bus interface trait

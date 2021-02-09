@@ -26,6 +26,8 @@ pub enum ChannelVs {
     Nexus,
     /// Keep it In Sync Service
     Kiiss,
+    /// Json gRPC Service
+    JsonGrpc,
 }
 impl Default for ChannelVs {
     fn default() -> Self {
@@ -102,6 +104,8 @@ pub enum MessageIdVs {
     AddVolumeNexus,
     /// Remove nexus from volume
     RemoveVolumeNexus,
+    /// Generic JSON gRPC message
+    JsonGrpc,
 }
 
 // Only V0 should export this macro
@@ -367,6 +371,11 @@ bus_impl_string_id!(ReplicaId, "UUID of a mayastor pool replica");
 bus_impl_string_id!(NexusId, "UUID of a mayastor nexus");
 bus_impl_string_id_percent_decoding!(ChildUri, "URI of a mayastor nexus child");
 bus_impl_string_id!(VolumeId, "UUID of a mayastor volume");
+bus_impl_string_id!(JsonGrpcMethod, "JSON gRPC method");
+bus_impl_string_id!(
+    JsonGrpcParams,
+    "Parameters to be passed to a JSON gRPC method"
+);
 
 /// Pool Service
 /// Get all the pools from specific node or None for all nodes
@@ -953,3 +962,16 @@ pub struct RemoveVolumeNexus {
     pub node: Option<NodeId>,
 }
 bus_impl_message_all!(RemoveVolumeNexus, RemoveVolumeNexus, (), Volume);
+
+/// Generic JSON gRPC request
+#[derive(Serialize, Deserialize, Default, Debug, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct JsonGrpcRequest {
+    /// id of the mayastor instance
+    pub node: NodeId,
+    /// JSON gRPC method to call
+    pub method: JsonGrpcMethod,
+    /// parameters to be passed to the above method
+    pub params: JsonGrpcParams,
+}
+bus_impl_message_all!(JsonGrpcRequest, JsonGrpc, String, JsonGrpc);

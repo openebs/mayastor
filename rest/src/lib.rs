@@ -35,7 +35,7 @@ impl ActixRestClient {
 
         match url.scheme() {
             "https" => Self::new_https(&url, trace),
-            "http" => Self::new_http(&url, trace),
+            "http" => Ok(Self::new_http(&url, trace)),
             invalid => {
                 let msg = format!("Invalid url scheme: {}", invalid);
                 Err(anyhow::Error::msg(msg))
@@ -65,12 +65,12 @@ impl ActixRestClient {
         })
     }
     /// creates a new client
-    fn new_http(url: &url::Url, trace: bool) -> anyhow::Result<Self> {
-        Ok(Self {
+    fn new_http(url: &url::Url, trace: bool) -> Self {
+        Self {
             client: Client::new(),
             url: url.to_string().trim_end_matches('/').into(),
             trace,
-        })
+        }
     }
     async fn get_vec<R>(&self, urn: String) -> anyhow::Result<Vec<R>>
     where
