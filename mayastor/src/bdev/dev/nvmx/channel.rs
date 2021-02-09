@@ -191,7 +191,7 @@ extern "C" fn disconnected_qpair_cb(
     qpair: *mut spdk_nvme_qpair,
     _ctx: *mut c_void,
 ) {
-    warn!("NVMe qpair disconnected !");
+    warn!(?qpair, "NVMe qpair disconnected");
     /*
      * Currently, just try to reconnect indefinitely. If we are doing a
      * reset, the reset will reconnect a qpair and we will stop getting a
@@ -226,7 +226,7 @@ impl NvmeControllerIoChannel {
 
         debug!("Creating IO channel for controller ID 0x{:X}", id);
 
-        let controller = match NVME_CONTROLLERS.lookup_by_name(id.to_string()) {
+        let carc = match NVME_CONTROLLERS.lookup_by_name(id.to_string()) {
             None => {
                 error!("No NVMe controller found for ID 0x{:X}", id);
                 return 1;
@@ -234,17 +234,25 @@ impl NvmeControllerIoChannel {
             Some(c) => c,
         };
 
-        let controller = controller.lock().expect("lock error");
-
-        // Make sure controller is available.
-        if controller.get_state() != NvmeControllerState::Running {
-            error!(
-                "{} controller is in {:?} state, I/O channel creation not possible",
-                controller.get_name(),
-                controller.get_state()
-            );
-            return 1;
-        }
+        let (cname, spdk_handle) = {
+            let controller = carc.lock().expect("lock error");
+            // Make sure controller is available.
+            if controller.get_state() != NvmeControllerState::Running {
+                error!(
+                    "{} controller is in {:?} state, I/O channel creation not possible",
+                    controller.get_name(),
+                    controller.get_state()
+                );
+                return 1;
+            }
+            // Release controller's lock before proceeding to avoid deadlocks,
+            // as qpair-related operations might hang in case of
+            // network connection failures. Note that we still hold
+            // the reference to the controller instance (carc) which
+            // guarantees that the controller exists during I/O channel
+            // creation.
+            (controller.get_name(), controller.ctrlr_as_ptr())
+        };
 
         let nvme_channel = NvmeIoChannel::from_raw(ctx);
         let mut opts = spdk_nvme_io_qpair_opts::default();
@@ -252,7 +260,7 @@ impl NvmeControllerIoChannel {
 
         unsafe {
             spdk_nvme_ctrlr_get_default_io_qpair_opts(
-                controller.ctrlr_as_ptr(),
+                spdk_handle,
                 &mut opts,
                 size_of::<spdk_nvme_io_qpair_opts>() as u64,
             )
@@ -262,29 +270,26 @@ impl NvmeControllerIoChannel {
             max(opts.io_queue_requests, default_opts.io_queue_requests);
         opts.create_only = true;
 
+        debug!("{} allocating I/O qpair", cname);
         let qpair: *mut spdk_nvme_qpair = unsafe {
             spdk_nvme_ctrlr_alloc_io_qpair(
-                controller.ctrlr_as_ptr(),
+                spdk_handle,
                 &opts,
                 size_of::<spdk_nvme_io_qpair_opts>() as u64,
             )
         };
 
         if qpair.is_null() {
-            error!("{} Failed to allocate qpair", controller.get_name());
+            error!("{} Failed to allocate qpair", cname);
             return 1;
         }
-
-        debug!("{} Qpair successfully allocated", controller.get_name());
+        debug!("{} I/O qpair successfully allocated", cname);
 
         // Create poll group.
         let poll_group: *mut spdk_nvme_poll_group =
             unsafe { spdk_nvme_poll_group_create(ctx) };
         if poll_group.is_null() {
-            error!(
-                "{} Failed to create a poll group for the qpair",
-                controller.get_name()
-            );
+            error!("{} Failed to create a poll group for the qpair", cname);
             return 1;
         }
 
@@ -305,28 +310,20 @@ impl NvmeControllerIoChannel {
 
         let mut rc = unsafe { spdk_nvme_poll_group_add(poll_group, qpair) };
         if rc != 0 {
-            error!(
-                "{} failed to add qpair to poll group",
-                controller.get_name()
-            );
+            error!("{} failed to add qpair to poll group", cname);
             return 1;
         }
 
         // Connect qpair.
-        rc = unsafe {
-            spdk_nvme_ctrlr_connect_io_qpair(controller.ctrlr_as_ptr(), qpair)
-        };
+        debug!("{} connecting I/O qpair", cname);
+        rc = unsafe { spdk_nvme_ctrlr_connect_io_qpair(spdk_handle, qpair) };
 
         if rc != 0 {
-            error!(
-                "{} failed to connect qpair (errno={})",
-                controller.get_name(),
-                rc
-            );
+            error!("{} failed to connect qpair (errno={})", cname, rc);
             return 1;
         }
 
-        info!("{} qpair successfully connected", controller.get_name());
+        info!("{} I/O channel {:?} successfully initialized", cname, ctx);
         0
     }
 
