@@ -109,16 +109,10 @@ async fn nvmf_device_identify_controller() {
     })
     .await;
 
-    println!(
-        "Sleeping for 1 sec to let all async resource cleanup operations complete"
-    );
-    tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
-    println!("Awakened.");
-
     ms.spawn(async move {
         device_destroy(&u).await.unwrap();
     })
-    .await;
+    .await
 }
 
 const GUARD_PATTERN: u8 = 0xFF;
@@ -254,12 +248,6 @@ async fn nvmf_device_read_write_at() {
     })
     .await;
 
-    println!(
-        "Sleeping for 1 sec to let all async resource cleanup operations complete"
-    );
-    tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
-    println!("Awakened.");
-
     // Safely destroy the device once all handles are freed.
     ms.spawn(async move {
         device_destroy(&u).await.unwrap();
@@ -367,13 +355,6 @@ async fn nvmf_device_readv_test() {
         let _ph = unsafe { Box::from_raw(b) };
     })
     .await;
-
-    // Sleep for 1 sec to let async resource cleanup actions be processed.
-    println!(
-        "Sleeping for 1 sec to let all async resource cleanup operations complete"
-    );
-    tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
-    println!("Awakened.");
 
     // Once all handles are closed, destroy the device.
     url = Arc::clone(&u);
@@ -517,12 +498,6 @@ async fn nvmf_device_writev_test() {
     })
     .await;
 
-    println!(
-        "Sleeping for 1 sec to let all async resource cleanup operations complete"
-    );
-    tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
-    println!("Awakened.");
-
     // Safely destroy the device once all handles are freed.
     ms.spawn(async move {
         device_destroy(&u).await.unwrap();
@@ -654,9 +629,6 @@ async fn nvmf_device_readv_iovs_test() {
     })
     .await;
 
-    println!(
-        "Sleeping for 1 sec to let all async resource cleanup operations complete"
-    );
     tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
     println!("Awakened.");
 
@@ -826,12 +798,6 @@ async fn nvmf_device_writev_iovs_test() {
     })
     .await;
 
-    println!(
-        "Sleeping for 1 sec to let all async resource cleanup operations complete"
-    );
-    tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
-    println!("Awakened.");
-
     // Safely destroy the device once all handles are freed.
     ms.spawn(async move {
         device_destroy(&(*u)).await.unwrap();
@@ -855,12 +821,6 @@ async fn nvmf_device_admin_ctrl() {
         );
     })
     .await;
-
-    println!(
-        "Sleeping for 1 sec to let all async resource cleanup operations complete"
-    );
-    tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
-    println!("Awakened.");
 
     // Destroy controller after all resources are freed.
     ms.spawn(async move {
@@ -940,12 +900,6 @@ async fn nvmf_device_reset() {
         println!("Controller successfully identified");
     })
     .await;
-
-    println!(
-        "Sleeping for 1 sec to let all async resource cleanup operations complete"
-    );
-    tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
-    println!("Awakened.");
 
     // Destroy controller after all resources are freed.
     ms.spawn(async move {
@@ -1091,12 +1045,6 @@ async fn wipe_device_blocks(is_unmap: bool) {
                                        // zeroes.
     })
     .await;
-
-    println!(
-        "Sleeping for 1 sec to let all async resource cleanup operations complete"
-    );
-    tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
-    println!("Awakened.");
 
     // Destroy controller after all resources are freed.
     ms.spawn(async move {
@@ -1289,13 +1237,6 @@ async fn nvmf_reset_abort_io() {
         let _ph = unsafe { Box::from_raw(b) };
     })
     .await;
-
-    // Sleep for 1 sec to let async resource cleanup actions be processed.
-    println!(
-        "Sleeping for 1 sec to let all async resource cleanup operations complete"
-    );
-    tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
-    println!("Awakened.");
 
     // Once all handles are closed, destroy the device.
     url = Arc::clone(&u);

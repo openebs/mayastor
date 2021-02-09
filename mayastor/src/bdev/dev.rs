@@ -31,6 +31,7 @@ use crate::{
     nexus_uri::{self, NexusBdevError},
 };
 
+mod malloc;
 mod nvmx;
 
 impl Uri {
@@ -47,6 +48,7 @@ impl Uri {
         match url.scheme() {
             // backend NVMF target - fairly unstable (as of Linux 5.2)
             "nvmf" => Ok(Box::new(nvmx::NvmfDeviceTemplate::try_from(&url)?)),
+            "malloc" => Ok(Box::new(malloc::Malloc::try_from(&url)?)),
 
             scheme => Err(NexusBdevError::UriSchemeUnsupported {
                 scheme: scheme.to_string(),
