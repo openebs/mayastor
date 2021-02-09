@@ -40,6 +40,7 @@ use crate::{
         NexusBdevError,
         {self},
     },
+    subsys::NvmeBdevOpts,
 };
 
 use super::controller::transport::NvmeTransportId;
@@ -175,8 +176,10 @@ impl<'probe> NvmeControllerContext<'probe> {
             .with_traddr(&template.host)
             .build();
 
+        let device_defaults = NvmeBdevOpts::default();
         let opts = controller::options::Builder::new()
-            .with_transport_retry_count(5)
+            .with_keep_alive_timeout_ms(device_defaults.keep_alive_timeout_ms)
+            .with_transport_retry_count(device_defaults.retry_count as u8)
             .build();
 
         let (sender, receiver) = oneshot::channel::<ErrnoResult<()>>();
@@ -274,7 +277,7 @@ impl CreateDestroy for NvmfDeviceTemplate {
         let controller = controller.lock().expect("failed to lock controller");
 
         assert_eq!(
-            controller.state,
+            controller.get_state(),
             NvmeControllerState::Running,
             "NVMe controller is not fully initialized"
         );

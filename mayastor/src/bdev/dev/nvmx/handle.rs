@@ -158,7 +158,10 @@ extern "C" fn nvme_admin_passthru_done(
     ctx: *mut c_void,
     cpl: *const spdk_nvme_cpl,
 ) {
-    debug!("Admin passthrough completed !");
+    debug!(
+        "Admin passthrough completed, succeeded={}",
+        nvme_cpl_succeeded(cpl)
+    );
     done_cb(ctx, nvme_cpl_succeeded(cpl));
 }
 
@@ -719,6 +722,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         };
 
         if r.await.expect("Failed awaiting NVMe Admin command I/O") {
+            debug!("nvme_admin() done");
             Ok(())
         } else {
             Err(CoreError::NvmeAdminFailed {

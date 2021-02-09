@@ -1,5 +1,9 @@
 use nix::errno::Errno;
-use std::{convert::From, ptr::NonNull, sync::Arc};
+use std::{
+    convert::From,
+    ptr::NonNull,
+    sync::{Arc, Mutex},
+};
 
 use spdk_sys::{self, spdk_nvme_ctrlr};
 
@@ -20,6 +24,8 @@ use crate::{
         BlockDeviceHandle,
         BlockDeviceStats,
         CoreError,
+        DeviceIoController,
+        DeviceTimeoutAction,
     },
     nexus_uri::NexusBdevError,
 };
@@ -180,6 +186,52 @@ impl BlockDevice for NvmeBlockDevice {
         read_write: bool,
     ) -> Result<Box<dyn BlockDeviceDescriptor>, CoreError> {
         NvmeBlockDevice::open_by_name(&self.name, read_write)
+    }
+
+    fn get_io_controller(&self) -> Option<Box<dyn DeviceIoController>> {
+        Some(Box::new(NvmeDeviceIoController::new(self.name.to_string())))
+    }
+}
+
+struct NvmeDeviceIoController {
+    name: String,
+}
+
+impl NvmeDeviceIoController {
+    pub fn new(name: String) -> Self {
+        Self {
+            name,
+        }
+    }
+
+    fn lookup_controller(
+        &self,
+    ) -> Result<Arc<Mutex<NvmeController<'static>>>, CoreError> {
+        let controller = NVME_CONTROLLERS.lookup_by_name(&self.name).ok_or(
+            CoreError::BdevNotFound {
+                name: self.name.to_string(),
+            },
+        )?;
+        Ok(controller)
+    }
+}
+
+impl DeviceIoController for NvmeDeviceIoController {
+    fn get_timeout_action(&self) -> Result<DeviceTimeoutAction, CoreError> {
+        let controller = self.lookup_controller()?;
+        let controller = controller.lock().expect("lock poisoned");
+
+        controller.get_timeout_action()
+    }
+
+    fn set_timeout_action(
+        &mut self,
+        action: DeviceTimeoutAction,
+    ) -> Result<(), CoreError> {
+        let controller = self.lookup_controller()?;
+        let mut controller = controller.lock().expect("lock poisoned");
+
+        controller.set_timeout_action(action)
     }
 }
 
