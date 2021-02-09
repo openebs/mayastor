@@ -49,26 +49,26 @@ func teardownMayastor() {
 
 	logf.Log.Info("Settings:", "cleanup", cleanup)
 	if !cleanup {
-		found, err := common.CheckNoTestPods()
+		found, err := common.CheckForTestPods()
 		if err != nil {
 			logf.Log.Error(err, "Failed to checking for test pods.")
 		} else {
 			Expect(found).To(BeFalse())
 		}
 
-		found, err = common.CheckNoPVCs()
+		found, err = common.CheckForPVCs()
 		if err != nil {
 			logf.Log.Error(err, "Failed to check for PVCs")
 		}
 		Expect(found).To(BeFalse())
 
-		found, err = common.CheckNoPVs()
+		found, err = common.CheckForPVs()
 		if err != nil {
 			logf.Log.Error(err, "Failed to check PVs")
 		}
 		Expect(found).To(BeFalse())
 
-		found, err = common.CheckNoMSVs()
+		found, err = common.CheckForMSVs()
 		if err != nil {
 			logf.Log.Error(err, "Failed to check MSVs")
 		}

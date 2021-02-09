@@ -889,34 +889,34 @@ func IsVolumePublished(uuid string) bool {
 	return true
 }
 
-func CheckNoPVCs() (bool, error) {
-	logf.Log.Info("CheckNoPVCs")
+func CheckForPVCs() (bool, error) {
+	logf.Log.Info("CheckForPVCs")
 	foundResources := false
 
 	pvcs, err := gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims("default").List(context.TODO(), metav1.ListOptions{})
 	if err == nil && pvcs != nil && len(pvcs.Items) != 0 {
-		logf.Log.Info("CheckNoVolumeResources: found PersistentVolumeClaims",
+		logf.Log.Info("CheckForVolumeResources: found PersistentVolumeClaims",
 			"PersistentVolumeClaims", pvcs.Items)
 		foundResources = true
 	}
 	return foundResources, err
 }
 
-func CheckNoPVs() (bool, error) {
-	logf.Log.Info("CheckNoPVs")
+func CheckForPVs() (bool, error) {
+	logf.Log.Info("CheckForPVs")
 	foundResources := false
 
 	pvs, err := gTestEnv.KubeInt.CoreV1().PersistentVolumes().List(context.TODO(), metav1.ListOptions{})
 	if err == nil && pvs != nil && len(pvs.Items) != 0 {
-		logf.Log.Info("CheckNoVolumeResources: found PersistentVolumes",
+		logf.Log.Info("CheckForVolumeResources: found PersistentVolumes",
 			"PersistentVolumes", pvs.Items)
 		foundResources = true
 	}
 	return foundResources, err
 }
 
-func CheckNoMSVs() (bool, error) {
-	logf.Log.Info("CheckNoMSVs")
+func CheckForMSVs() (bool, error) {
+	logf.Log.Info("CheckForMSVs")
 	foundResources := false
 
 	msvGVR := schema.GroupVersionResource{
@@ -927,20 +927,20 @@ func CheckNoMSVs() (bool, error) {
 
 	msvs, err := gTestEnv.DynamicClient.Resource(msvGVR).Namespace("mayastor").List(context.TODO(), metav1.ListOptions{})
 	if err == nil && msvs != nil && len(msvs.Items) != 0 {
-		logf.Log.Info("CheckNoVolumeResources: found MayastorVolumes",
+		logf.Log.Info("CheckForVolumeResources: found MayastorVolumes",
 			"MayastorVolumes", msvs.Items)
 		foundResources = true
 	}
 	return foundResources, err
 }
 
-func CheckNoTestPods() (bool, error) {
-	logf.Log.Info("CheckNoTestPods")
+func CheckForTestPods() (bool, error) {
+	logf.Log.Info("CheckForTestPods")
 	foundPods := false
 
 	pods, err := gTestEnv.KubeInt.CoreV1().Pods("default").List(context.TODO(), metav1.ListOptions{})
 	if err == nil && pods != nil && len(pods.Items) != 0 {
-		logf.Log.Info("CheckNoTestPods",
+		logf.Log.Info("CheckForTestPods",
 			"Pods", pods.Items)
 		foundPods = true
 	}
