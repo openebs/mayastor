@@ -1,5 +1,7 @@
 mod channel;
 mod controller;
+mod controller_inner;
+mod controller_state;
 mod device;
 mod handle;
 mod namespace;
@@ -7,7 +9,8 @@ mod uri;
 mod utils;
 
 pub use channel::{NvmeControllerIoChannel, NvmeIoChannel, NvmeIoChannelInner};
-pub use controller::{NvmeController, NvmeControllerState};
+pub use controller::NvmeController;
+pub use controller_state::NvmeControllerState;
 pub use device::{lookup_by_name, open_by_name, NvmeBlockDevice};
 pub use handle::NvmeDeviceHandle;
 pub use namespace::NvmeNamespace;
