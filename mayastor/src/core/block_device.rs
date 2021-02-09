@@ -54,11 +54,14 @@ pub trait BlockDevice {
     /// Checks if block device has been claimed.
     fn claimed_by(&self) -> Option<String>;
 
-    // Open device and obtain a descriptor.
+    /// Open device and obtain a descriptor.
     fn open(
         &self,
         read_write: bool,
     ) -> Result<Box<dyn BlockDeviceDescriptor>, CoreError>;
+
+    /// Obtain I/O controller for device.
+    fn get_io_controller(&self) -> Option<Box<dyn DeviceIoController>>;
 }
 
 /*
@@ -151,3 +154,32 @@ pub trait BlockDeviceHandle {
 }
 
 pub trait LbaRangeController {}
+
+#[derive(Debug, PartialEq, Copy, Clone)]
+pub enum DeviceTimeoutAction {
+    /// Abort I/O operation that times out.
+    Abort,
+    /// Reset the  whole device in case any single command times out.
+    Reset,
+    /// Do not take any actions on command timeout.
+    Ignore,
+}
+
+impl ToString for DeviceTimeoutAction {
+    fn to_string(&self) -> String {
+        match *self {
+            Self::Abort => "Abort",
+            Self::Reset => "Reset",
+            Self::Ignore => "Ignore",
+        }
+        .to_string()
+    }
+}
+
+pub trait DeviceIoController {
+    fn get_timeout_action(&self) -> Result<DeviceTimeoutAction, CoreError>;
+    fn set_timeout_action(
+        &mut self,
+        action: DeviceTimeoutAction,
+    ) -> Result<(), CoreError>;
+}

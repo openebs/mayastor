@@ -23,8 +23,16 @@ use spdk_sys::{
 use crate::{
     bdev::dev::nvmx::{
         channel::{NvmeControllerIoChannel, NvmeIoChannel, NvmeIoChannelInner},
+        controller_inner::TimeoutConfig,
+        controller_state::{
+            ControllerFailureReason,
+            ControllerFlag,
+            ControllerStateMachine,
+        },
         nvme_bdev_running_config,
         uri::NvmeControllerContext,
+        NvmeControllerState,
+        NvmeControllerState::*,
         NvmeNamespace,
         NVME_CONTROLLERS,
     },
@@ -48,6 +56,7 @@ struct ResetCtx {
     cb_arg: IoCompletionCallbackArg,
     spdk_handle: *mut spdk_nvme_ctrlr,
     io_device: Arc<IoDevice>,
+    shutdown_in_progress: bool,
 }
 
 struct ShutdownCtx {
@@ -57,17 +66,19 @@ struct ShutdownCtx {
 }
 
 impl<'a> NvmeControllerInner<'a> {
-    fn new(ctrlr: NonNull<spdk_nvme_ctrlr>, name: String) -> Self {
-        let ctx = ctrlr.as_ptr().cast();
-
-        let io_device = Arc::new(IoDevice::create(ctx, name));
+    fn new(
+        ctrlr: NonNull<spdk_nvme_ctrlr>,
+        name: String,
+        cfg: *mut TimeoutConfig,
+    ) -> Self {
+        let io_device = Arc::new(IoDevice::create(ctrlr.as_ptr().cast(), name));
 
         let adminq_poller = poller::Builder::new()
             .with_name("nvme_poll_adminq")
             .with_interval(
                 nvme_bdev_running_config().nvme_adminq_poll_period_us,
             )
-            .with_poll_fn(move || nvme_poll_adminq(ctx))
+            .with_poll_fn(move || nvme_poll_adminq(cfg as *mut c_void))
             .build();
 
         Self {
@@ -78,28 +89,6 @@ impl<'a> NvmeControllerInner<'a> {
         }
     }
 }
-
-#[derive(Debug, PartialEq, Copy, Clone)]
-pub enum NvmeControllerState {
-    Initializing,
-    Running,
-    Unconfiguring,
-    Unconfigured,
-}
-
-impl ToString for NvmeControllerState {
-    fn to_string(&self) -> String {
-        match *self {
-            NvmeControllerState::Initializing => "Initializing",
-            NvmeControllerState::Running => "Running",
-            NvmeControllerState::Unconfiguring => "Unconfiguring",
-            NvmeControllerState::Unconfigured => "Unconfigured",
-        }
-        .parse()
-        .unwrap()
-    }
-}
-
 #[derive(Debug)]
 pub struct NvmeControllerInner<'a> {
     namespaces: Vec<Arc<NvmeNamespace>>,
@@ -112,12 +101,15 @@ pub struct NvmeControllerInner<'a> {
  */
 #[derive(Debug)]
 pub struct NvmeController<'a> {
-    name: String,
+    pub(crate) name: String,
     id: u64,
     prchk_flags: u32,
-    pub(crate) state: NvmeControllerState,
     inner: Option<NvmeControllerInner<'a>>,
-    reset_active: bool,
+    state_machine: ControllerStateMachine,
+    /// Timeout config is accessed by SPDK-driven timeout callback handlers,
+    /// so it needs to be a raw pointer. Mutable members are made atomic to
+    /// eliminate lock contention between API path and callback path.
+    pub(crate) timeout_config: *mut TimeoutConfig,
 }
 
 unsafe impl<'a> Send for NvmeController<'a> {}
@@ -130,9 +122,9 @@ impl<'a> NvmeController<'a> {
             name: String::from(name),
             id: 0,
             prchk_flags,
-            state: NvmeControllerState::Initializing,
+            state_machine: ControllerStateMachine::new(name),
             inner: None,
-            reset_active: false,
+            timeout_config: Box::into_raw(Box::new(TimeoutConfig::new(name))),
         };
 
         debug!("{}: new NVMe controller created", l.name);
@@ -162,14 +154,6 @@ impl<'a> NvmeController<'a> {
         id
     }
 
-    fn set_state(&mut self, new_state: NvmeControllerState) {
-        info!(
-            "{} Transitioned from state {:?} to {:?}",
-            self.name, self.state, new_state
-        );
-        self.state = new_state;
-    }
-
     // As of now, only 1 namespace per controller is supported.
     pub fn namespace(&self) -> Option<Arc<NvmeNamespace>> {
         let inner = self
@@ -194,7 +178,7 @@ impl<'a> NvmeController<'a> {
         })
     }
 
-    /// populate name spaces, at current we only populate the first namespace
+    /// populate name spaces, current we only populate the first namespace
     fn populate_namespaces(&mut self) {
         let ns = unsafe { spdk_nvme_ctrlr_get_ns(self.ctrlr_as_ptr(), 1) };
 
@@ -211,7 +195,7 @@ impl<'a> NvmeController<'a> {
 
     /// Get controller state.
     pub fn get_state(&self) -> NvmeControllerState {
-        self.state
+        self.state_machine.current_state()
     }
 
     /// Reset the controller.
@@ -223,26 +207,28 @@ impl<'a> NvmeController<'a> {
         cb_arg: IoCompletionCallbackArg,
         failover: bool,
     ) -> Result<(), CoreError> {
-        match self.state {
-            NvmeControllerState::Running => {
-                // Make sure no reset is happening.
-                if self.reset_active {
-                    error!("{} reset already in progress", self.name);
-                    return Err(CoreError::ResetDispatch {
-                        source: Errno::EBUSY,
-                    });
-                }
-            }
+        match self.state_machine.current_state() {
+            Running | Faulted(_) => {}
             _ => {
                 error!(
                     "{} Controller is in '{:?}' state, reset not possible",
-                    self.name, self.state
+                    self.name,
+                    self.state_machine.current_state()
                 );
                 return Err(CoreError::ResetDispatch {
                     source: Errno::EBUSY,
                 });
             }
         }
+
+        self.state_machine
+            .set_flag_exclusively(ControllerFlag::ResetActive)
+            .map_err(|_| {
+                error!("{} reset already in progress", self.name);
+                CoreError::ResetDispatch {
+                    source: Errno::EBUSY,
+                }
+            })?;
 
         info!(
             "{} initiating controller reset, failover = {}",
@@ -263,13 +249,13 @@ impl<'a> NvmeController<'a> {
             cb_arg,
             spdk_handle: self.ctrlr_as_ptr(),
             io_device,
+            shutdown_in_progress: false,
         };
 
-        // Mark controller as being under reset and schedule asynchronous reset.
-        self.reset_active = true;
-
+        info!("{}: starting reset", self.name);
+        let inner = self.inner.as_mut().unwrap();
         // Iterate over all I/O channels and rrest/econfigure them one by one.
-        self.inner.as_ref().unwrap().io_device.traverse_io_channels(
+        inner.io_device.traverse_io_channels(
             NvmeController::_reset_destroy_channels,
             NvmeController::_reset_destroy_channels_done,
             reset_ctx,
@@ -286,7 +272,10 @@ impl<'a> NvmeController<'a> {
         if rc == 0 {
             debug!("{} I/O channel successfully shutdown", ctx.name);
         } else {
-            error!("{} failed to reset I/O channel, reset aborted", ctx.name);
+            error!(
+                "{} failed to shutdown I/O channel, reset aborted",
+                ctx.name
+            );
         }
         rc
     }
@@ -299,9 +288,31 @@ impl<'a> NvmeController<'a> {
             .expect("Controller disappeared while being shutdown");
         let mut controller = controller.lock().expect("lock poisoned");
 
+        // In case I/O channels didn't shutdown successfully, mark
+        // the controller as Faulted.
+        if result != 0 {
+            error!("{} failed to shutdown I/O channels, rc = {}. Shutdown aborted.", ctx.name, result);
+            controller
+                .state_machine
+                .transition(Faulted(ControllerFailureReason::ShutdownFailed))
+                .expect("failed to transition controller to Faulted state");
+            return;
+        }
+
+        // Reset the controller to complete all remaining I/O requests after all
+        // I/O channels are closed.
+        debug!("{} resetting NVMe controller", ctx.name);
+        let rc = unsafe { spdk_nvme_ctrlr_reset(controller.ctrlr_as_ptr()) };
+        if rc != 0 {
+            error!("{} failed to reset controller, rc = {}", ctx.name, rc);
+        }
+
         // Finalize controller shutdown and invoke callback.
         controller.clear_namespaces();
-        controller.set_state(NvmeControllerState::Unconfigured);
+        controller
+            .state_machine
+            .transition(Unconfigured)
+            .expect("failed to transition controller to Unconfigured state");
 
         drop(controller);
         info!("{} shutdown complete, result = {}", ctx.name, result);
@@ -326,20 +337,18 @@ impl<'a> NvmeController<'a> {
         cb: IoCompletionCallback,
         cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError> {
-        match self.state {
-            NvmeControllerState::Running |
-            // We allow subsequent device shutdowns in case of failures.
-            NvmeControllerState::Unconfiguring => {},
-            _ => {
-                error!("{} failed to shutdown controller is {:?} state", self.name, self.state);
-                return Err(CoreError::ResetDispatch{
-                    source: Errno::EBUSY
-                });
+        self.state_machine.transition(Unconfiguring).map_err(|_| {
+            error!(
+                "{} controller is in {:?} state, cannot shutdown",
+                self.name,
+                self.state_machine.current_state(),
+            );
+            CoreError::ResetDispatch {
+                source: Errno::EBUSY,
             }
-        }
+        })?;
 
         info!("{} shutting down the controller", self.name);
-        self.set_state(NvmeControllerState::Unconfiguring);
 
         let ctx = ShutdownCtx {
             name: self.get_name(),
@@ -367,10 +376,20 @@ impl<'a> NvmeController<'a> {
             // If controller exists, its state must reflect active reset
             // operation, as no other operations are allowed upon
             // reset except device removal.
-            assert!(controller.reset_active);
+            controller
+                .state_machine
+                .clear_flag_exclusively(ControllerFlag::ResetActive)
+                .expect("Reset flag improperly cleared during reset");
 
-            // Clear reset flag and invoke completion callback.
-            controller.reset_active = false;
+            if status != 0 {
+                // Transition controller into Faulted state, but only if the
+                // controller is in Running state, as concurrent
+                // shutdown might be in place.
+                let _ = controller.state_machine.transition_checked(
+                    Running,
+                    Faulted(ControllerFailureReason::ResetFailed),
+                );
+            }
 
             // Unlock the controller before calling the callback to avoid
             // potential deadlocks.
@@ -382,15 +401,27 @@ impl<'a> NvmeController<'a> {
 
     fn _reset_destroy_channels(
         channel: &mut NvmeIoChannelInner,
-        _ctx: &mut ResetCtx,
+        ctx: &mut ResetCtx,
     ) -> i32 {
-        debug!("Resetting I/O channel ");
+        debug!("Resetting I/O channel");
+
+        // Bail out preliminary if shutdown is active.
+        if ctx.shutdown_in_progress {
+            return 0;
+        }
+
+        // Check in advance for concurrent controller shutdown.
+        if channel.is_shutdown() {
+            ctx.shutdown_in_progress = true;
+            return 0;
+        }
+
         let rc = channel.reset();
 
         if rc == 0 {
             debug!("I/O channel successfully reset");
         } else {
-            error!("failed to reset I/O channel, reset aborted");
+            error!("failed to reset I/O channel (rc={}), reset aborted", rc);
         }
         rc
     }
@@ -405,7 +436,16 @@ impl<'a> NvmeController<'a> {
             return;
         }
 
-        info!("{} all I/O channels successfully reset", reset_ctx.name);
+        info!("{}: all I/O channels successfully reset", reset_ctx.name);
+        // In case shutdown is active, don't reset the controller as its
+        // being removed.
+        if reset_ctx.shutdown_in_progress {
+            info!(
+                "{}: controller shutdown detected, skipping reset",
+                reset_ctx.name
+            );
+            return;
+        }
 
         let rc = unsafe { spdk_nvme_ctrlr_reset(reset_ctx.spdk_handle) };
         if rc != 0 {
@@ -413,6 +453,7 @@ impl<'a> NvmeController<'a> {
                 "{} failed to reset controller, rc = {}",
                 reset_ctx.name, rc
             );
+
             NvmeController::_complete_reset(reset_ctx, rc);
         } else {
             info!(
@@ -465,24 +506,49 @@ impl<'a> NvmeController<'a> {
 
 impl<'a> Drop for NvmeController<'a> {
     fn drop(&mut self) {
-        let inner = self.inner.take().expect("NVMe inner already gone");
-        inner.adminq_poller.stop();
+        let curr_state = self.get_state();
+        debug!("{} dropping controller (state={:?})", self.name, curr_state);
 
+        // Controller must be properly unconfigured to prevent dangerous
+        // side-effects (like active qpairs referring to not existing
+        // controller).
+        assert!(
+            matches!(curr_state, New | Unconfigured),
+            format!(
+                "{} dropping active controller in {:?} state",
+                self.name, curr_state
+            )
+        );
+
+        let inner = self.inner.take().expect("NVMe inner already gone");
+
+        debug!("{} detaching NVMe controller", self.name);
         let rc = unsafe { spdk_nvme_detach(inner.ctrlr.as_ptr()) };
+
+        debug!("{} stopping admin queue poller", self.name);
+        inner.adminq_poller.stop();
 
         assert_eq!(rc, 0, "Failed to detach NVMe controller");
         debug!("{}: NVMe controller successfully detached", self.name);
+
+        unsafe {
+            std::ptr::drop_in_place(self.timeout_config);
+        }
     }
 }
 
 /// return number of completions processed (maybe 0) or negated on error. -ENXIO
-//  in the special case that the qpair is failed at the transport layer.
+/// in the special case that the qpair is failed at the transport layer.
 pub extern "C" fn nvme_poll_adminq(ctx: *mut c_void) -> i32 {
-    //println!("adminq poll");
+    let timeout_cfg = TimeoutConfig::from_ptr(ctx as *mut TimeoutConfig);
 
-    let rc = unsafe {
-        spdk_nvme_ctrlr_process_admin_completions(ctx as *mut spdk_nvme_ctrlr)
-    };
+    let rc =
+        unsafe { spdk_nvme_ctrlr_process_admin_completions(timeout_cfg.ctrlr) };
+
+    // Reset controller upon failure.
+    if rc < 0 {
+        timeout_cfg.reset_controller();
+    }
 
     if rc == 0 {
         0
@@ -507,15 +573,25 @@ pub(crate) fn connected_attached_cb(
 
     // clone it now such that we can lock the original, and insert it later.
     let ctl = Arc::clone(&controller);
-
     let mut controller = controller.lock().unwrap();
+    controller
+        .state_machine
+        .transition(Initializing)
+        .expect("Failed to transition controller into Initialized state");
+
+    unsafe {
+        (*controller.timeout_config).ctrlr = ctrlr.as_ptr();
+    }
 
     controller.set_id(cid);
-    controller.inner =
-        Some(NvmeControllerInner::new(ctrlr, controller.get_name()));
+    controller.inner = Some(NvmeControllerInner::new(
+        ctrlr,
+        controller.get_name(),
+        controller.timeout_config,
+    ));
 
+    controller.configure_timeout();
     controller.populate_namespaces();
-    controller.state = NvmeControllerState::Running;
 
     // Proactively initialize cache for controller operations.
     RESET_CTX_POOL.get_or_init(|| {
@@ -529,6 +605,11 @@ pub(crate) fn connected_attached_cb(
     });
 
     NVME_CONTROLLERS.insert_controller(cid.to_string(), ctl);
+
+    controller
+        .state_machine
+        .transition(Running)
+        .expect("Failed to transition controller into Running state");
 
     // Wake up the waiter and complete controller registration.
     ctx.sender()
@@ -558,6 +639,7 @@ pub(crate) mod options {
     impl Default for NvmeControllerOpts {
         fn default() -> Self {
             let mut default = spdk_nvme_ctrlr_opts::default();
+
             unsafe {
                 spdk_nvme_ctrlr_get_default_ctrlr_opts(
                     &mut default,
