@@ -22,7 +22,7 @@ EXTENDED_TESTS=""
 device=
 registry=
 tag="ci"
-#  sript state variables
+#  script state variables
 tests=""
 run_extended_tests=
 on_fail="stop"
@@ -140,9 +140,7 @@ if [ -n "$tag" ]; then
   export e2e_image_tag="$tag"
 fi
 
-if [ -n "$registry" ]; then
-  export e2e_docker_registry="$registry"
-fi
+export e2e_docker_registry="$registry" # can be empty string
 
 if [ -z "$tests" ]; then
   tests="$TESTS"
