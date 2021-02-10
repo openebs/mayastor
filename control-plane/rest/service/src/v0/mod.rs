@@ -19,7 +19,7 @@ use actix_web::{
     web::{self, Json},
     HttpRequest,
 };
-use mayastor_macros::actix::{delete, get, put};
+use macros::actix::{delete, get, put};
 use paperclip::actix::OpenApiExt;
 
 fn version() -> String {

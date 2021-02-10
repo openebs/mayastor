@@ -25,8 +25,8 @@ paperclip = { version = "0.5.0", features = ["actix3"] }
 percent-encoding = "2.1.0"
 
 [dev-dependencies]
-composer = { path = "../composer" }
-rpc = { path = "../rpc" }
+composer = { path = "../../composer" }
+rpc = { path = "../../rpc" }
 
 [dependencies.serde]
 features = ["derive"]

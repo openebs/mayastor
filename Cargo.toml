@@ -14,10 +14,11 @@ members = [
 	"nvmeadm",
 	"rpc",
 	"sysfs",
-	"services",
-	"mbus-api",
+	"control-plane/agents",
+	"control-plane/mbus-api",
 	"composer",
-	"rest",
-	"operators",
-	"mayastor-macros"
+	"control-plane/rest",
+	"control-plane/operators",
+	"control-plane/macros",
+	"control-plane/deployer"
 ]

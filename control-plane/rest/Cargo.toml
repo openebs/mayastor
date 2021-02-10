@@ -36,13 +36,13 @@ tracing-opentelemetry = "0.10.0"
 opentelemetry = "0.11.2"
 actix-web-opentelemetry = "0.9.0"
 paperclip = { version = "0.5.0", default-features = false, optional = true }
-mayastor-macros = { path = "../mayastor-macros" }
+macros = { path = "../macros" }
 http = "0.2.3"
 tinytemplate = { version = "1.2" }
 
 [dev-dependencies]
-composer = { path = "../composer" }
-rpc = { path = "../rpc" }
+composer = { path = "../../composer" }
+rpc = { path = "../../rpc" }
 tokio = { version = "0.2", features = ["full"] }
 actix-rt = "1.1.1"
 

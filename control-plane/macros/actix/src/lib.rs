@@ -173,7 +173,7 @@ trait actix_web::Responder.
 
 ```rust
 # use actix_web::Json;
-# use mayastor_macros::"#, stringify!($method), ";
+# use macros::"#, stringify!($method), ";
 #[", stringify!($method), r#"("", "/")]
 async fn example() -> Json<()> {
     Json(())

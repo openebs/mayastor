@@ -1,5 +1,5 @@
 [package]
-name = "mayastor-macros"
+name = "macros"
 version = "0.1.0"
 authors = ["Tiago Castro <tiago.castro@mayadata.io>"]
 edition = "2018"

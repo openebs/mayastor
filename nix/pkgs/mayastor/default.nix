@@ -38,30 +38,27 @@ let
       src;
   version_drv = import ../../lib/version.nix { inherit lib stdenv git; };
   version = builtins.readFile "${version_drv}";
+  src_list = [
+    "Cargo.lock"
+    "Cargo.toml"
+    "cli"
+    "csi"
+    "devinfo"
+    "jsonrpc"
+    "mayastor"
+    "nvmeadm"
+    "rpc"
+    "spdk-sys"
+    "sysfs"
+    "control-plane"
+    "composer"
+  ];
   buildProps = rec {
     name = "mayastor";
     #cargoSha256 = "0000000000000000000000000000000000000000000000000000";
-    cargoSha256 = "1kv66ngq371ss2ra8hpr7zxdwvqwnfg0kskl96fqmc2kbbpah2r8";
+    cargoSha256 = "1c5zwaivwsx7gznjvsd0gfhbvjji5q1qbjacdm6vfapqv9i79yfn";
     inherit version;
-    src = whitelistSource ../../../. [
-      "Cargo.lock"
-      "Cargo.toml"
-      "cli"
-      "csi"
-      "devinfo"
-      "jsonrpc"
-      "mayastor"
-      "nvmeadm"
-      "rpc"
-      "spdk-sys"
-      "sysfs"
-      "mbus-api"
-      "services"
-      "rest"
-      "operators"
-      "composer"
-    ];
-
+    src = whitelistSource ../../../. src_list;
     LIBCLANG_PATH = "${llvmPackages.libclang}/lib";
     PROTOC = "${protobuf}/bin/protoc";
     PROTOC_INCLUDE = "${protobuf}/include";
@@ -92,6 +89,7 @@ let
   };
 in
 {
+  inherit src_list;
   release = rustPlatform.buildRustPackage
     (buildProps // {
       buildType = "release";
@@ -113,11 +111,6 @@ in
       ../../../target/debug/mayastor-csi
       ../../../target/debug/mayastor-client
       ../../../target/debug/jsonrpc
-      ../../../target/debug/kiiss
-      ../../../target/debug/node
-      ../../../target/debug/volume
-      ../../../target/debug/pool
-      ../../../target/debug/rest
     ];
 
     buildInputs = [

@@ -19,6 +19,8 @@
 , mayastor-dev
 , mayastor-adhoc
 , utillinux
+, control-plane
+, tini
 }:
 let
   versionDrv = import ../../lib/version.nix { inherit lib stdenv git; };
@@ -69,11 +71,41 @@ let
       Env = [ "PATH=${env}" ];
     };
   };
-  serviceImageProps = {
+  agentImageProps = {
     tag = version;
     created = "now";
     config = {
       Env = [ "PATH=${env}" ];
+    };
+  };
+  build-control-plane-image = { build, name, binary, config ? { } }: dockerTools.buildImage {
+    tag = version;
+    created = "now";
+    name = "mayadata/mayastor-${name}";
+    contents = [ tini busybox control-plane.${build}.${name} ];
+    config = { Entrypoint = [ "tini" "--" "${binary}" ]; } // config;
+  };
+  build-agent-image = { build, name, config ? { } }: build-control-plane-image {
+    inherit build name;
+    binary = "${name}-agent";
+  };
+  build-operator-image = { build, name, config ? { } }: build-control-plane-image {
+    inherit build;
+    name = "${name}-op";
+    binary = "${name}-operator";
+  };
+
+  operator-images = { build }: {
+    node = build-operator-image { inherit build; name = "node"; };
+  };
+  agent-images = { build }: {
+    kiiss = build-agent-image { inherit build; name = "kiiss"; };
+    node = build-agent-image { inherit build; name = "node"; };
+    pool = build-agent-image { inherit build; name = "pool"; };
+    volume = build-agent-image { inherit build; name = "volume"; };
+    rest = build-agent-image {
+      inherit build; name = "rest";
+      config = { ExposedPorts = { "8080/tcp" = { }; "8081/tcp" = { }; }; };
     };
   };
   mayastorIscsiadm = writeScriptBin "mayastor-iscsiadm" ''
@@ -141,93 +173,9 @@ in
     config = { Entrypoint = [ "/bin/mayastor-client" ]; };
   });
 
-  # Release image of kiiss service.
-  kiiss-service = dockerTools.buildLayeredImage (serviceImageProps // {
-    name = "mayadata/kiiss-service";
-    contents = [ busybox mayastor ];
-    config = { Entrypoint = [ "/bin/kiiss" ]; };
-    maxLayers = 42;
-  });
+  agents = agent-images { build = "release"; };
+  agents-dev = agent-images { build = "debug"; };
 
-  # Development image of kiiss service.
-  kiiss-service-dev = dockerTools.buildImage (serviceImageProps // {
-    name = "mayadata/kiiss-service-dev";
-    contents = [ busybox mayastor ];
-    config = { Entrypoint = [ "/bin/kiiss" ]; };
-  });
-
-  # Release image of node service.
-  node-service = dockerTools.buildLayeredImage (serviceImageProps // {
-    name = "mayadata/node-service";
-    contents = [ busybox mayastor ];
-    config = { Entrypoint = [ "/bin/node" ]; };
-    maxLayers = 42;
-  });
-
-  # Development image of node service.
-  node-service-dev = dockerTools.buildImage (serviceImageProps // {
-    name = "mayadata/node-service-dev";
-    contents = [ busybox mayastor-dev ];
-    config = { Entrypoint = [ "/bin/node" ]; };
-  });
-
-  # Release image of volume service.
-  volume-service = dockerTools.buildLayeredImage (serviceImageProps // {
-    name = "mayadata/volume-service";
-    contents = [ busybox mayastor ];
-    config = { Entrypoint = [ "/bin/volume" ]; };
-    maxLayers = 42;
-  });
-
-  # Development image of volume service.
-  volume-service-dev = dockerTools.buildImage (serviceImageProps // {
-    name = "mayadata/volume-service-dev";
-    contents = [ busybox mayastor-dev ];
-    config = { Entrypoint = [ "/bin/volume" ]; };
-  });
-
-  # Release image of pool service.
-  pool-service = dockerTools.buildLayeredImage (serviceImageProps // {
-    name = "mayadata/pool-service";
-    contents = [ busybox mayastor ];
-    config = { Entrypoint = [ "/bin/pool" ]; };
-    maxLayers = 42;
-  });
-
-  # Development image of pool service.
-  pool-service-dev = dockerTools.buildImage (serviceImageProps // {
-    name = "mayadata/pool-service-dev";
-    contents = [ busybox mayastor-dev ];
-    config = { Entrypoint = [ "/bin/pool" ]; };
-  });
-
-  # Release image of rest service.
-  rest-service = dockerTools.buildLayeredImage (serviceImageProps // {
-    name = "mayadata/rest-service";
-    contents = [ busybox mayastor ];
-    config = { Entrypoint = [ "/bin/rest" ]; };
-    maxLayers = 42;
-  });
-
-  # Development image of rest service.
-  rest-service-dev = dockerTools.buildImage (serviceImageProps // {
-    name = "mayadata/rest-service-dev";
-    contents = [ busybox mayastor-dev ];
-    config = { Entrypoint = [ "/bin/rest" ]; };
-  });
-
-  # Release image of node operator.
-  node-operator = dockerTools.buildLayeredImage (operatorImageProps // {
-    name = "mayadata/node-operator";
-    contents = [ busybox mayastor ];
-    config = { Entrypoint = [ "/bin/node-op" ]; };
-    maxLayers = 42;
-  });
-
-  # Development image of node operator.
-  node-operator-dev = dockerTools.buildImage (operatorImageProps // {
-    name = "mayadata/node-operator-dev";
-    contents = [ busybox mayastor-dev ];
-    config = { Entrypoint = [ "/bin/node-op" ]; };
-  });
+  operators = operator-images { build = "release"; };
+  operators-dev = operator-images { build = "debug"; };
 }

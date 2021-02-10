@@ -47,9 +47,9 @@ pub(crate) struct ListOptions {
 #[derive(Debug, Clone, StructOpt)]
 #[structopt(about = "Create and start all components")]
 pub(crate) struct StartOptions {
-    /// Use the following Control Plane Services
-    /// Specify one service at a time or as a list.
-    /// ( "" for no services )
+    /// Use the following Control Plane Agents
+    /// Specify one agent at a time or as a list.
+    /// ( "" for no agents )
     /// todo: specify start arguments, eg: Node="-v"
     #[structopt(
         short,
@@ -57,10 +57,10 @@ pub(crate) struct StartOptions {
         default_value = "Node, Pool, Volume",
         value_delimiter = ","
     )]
-    services: Vec<ControlPlaneService>,
+    agents: Vec<ControlPlaneAgent>,
 
     /// Use the following Control Plane Operators
-    /// Specify one service at a time or as a list
+    /// Specify one operator at a time or as a list
     #[structopt(short, long, value_delimiter = ",")]
     operators: Option<Vec<ControlPlaneOperator>>,
 
@@ -99,7 +99,7 @@ pub(crate) struct StartOptions {
     dns: bool,
 
     /// Show information from the cluster after creation
-    #[structopt(long)]
+    #[structopt(short, long)]
     show_info: bool,
 
     /// Name of the cluster - currently only one allowed at a time

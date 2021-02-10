@@ -1,5 +1,5 @@
 [package]
-name = "services"
+name = "agents"
 version = "0.1.0"
 authors = ["Tiago Castro <tiago.castro@mayadata.io>"]
 edition = "2018"
@@ -21,10 +21,6 @@ name = "volume"
 path = "volume/src/server.rs"
 
 [[bin]]
-name = "deployer"
-path = "deployer/src/bin.rs"
-
-[[bin]]
 name = "jsongrpc"
 path = "jsongrpc/src/server.rs"
 
@@ -35,7 +31,6 @@ path = "common/src/lib.rs"
 
 [dependencies]
 mbus_api = { path = "../mbus-api" }
-composer = { path = "../composer" }
 nats = "0.8"
 structopt = "0.3.15"
 tokio = { version = "0.2", features = ["full"] }
@@ -52,12 +47,12 @@ state = "0.4.2"
 tracing = "0.1"
 tracing-subscriber = "0.2"
 tracing-futures = "0.2.4"
-rpc = { path = "../rpc" }
+rpc = { path = "../../rpc" }
 url = "2.2.0"
 http = "0.2.1"
-strum = "0.19"
-strum_macros = "0.19"
-paste = "1.0.4"
+
+[dev-dependencies]
+composer = { path = "../../composer" }
 
 [dependencies.serde]
 features = ["derive"]
