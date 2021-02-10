@@ -60,16 +60,14 @@ pub fn nexus_instance_new(name: String, size: u64, children: Vec<String>) {
     list.push(Nexus::new(&name, size, None, Some(&children)));
 }
 
-/// called during shutdown so that the bdevs for each child is destroyed first
-pub async fn nexus_destroy_all() {
-    info!("destroying all nexuses...");
+/// called during shutdown so that all nexus children are in Destroying state
+/// so that a possible remove event from SPDK also results in bdev removal
+pub async fn nexus_children_to_destroying_state() {
+    info!("setting all nexus children to destroying state...");
     for nexus in instances() {
-        if let Err(e) = nexus.destroy().await {
-            error!(
-                "failed to destroy nexus {} during shutdown: {}",
-                nexus.name, e
-            );
+        for child in nexus.children.iter() {
+            child.set_state(nexus_child::ChildState::Destroying);
         }
     }
-    info!("destroyed all nexuses");
+    info!("set all nexus children to destroying state");
 }
