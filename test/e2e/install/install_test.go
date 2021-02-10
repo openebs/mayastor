@@ -114,6 +114,13 @@ func getDeployYamlDir() string {
 	return path.Clean(filename + "/../../../../deploy")
 }
 
+// Create mayastor namespace
+func createNamespace() {
+	cmd := exec.Command("kubectl", "create", "namespace", "mayastor")
+	out, err := cmd.CombinedOutput()
+	Expect(err).ToNot(HaveOccurred(), "%s", out)
+}
+
 // Helper for passing yaml from the deploy directory to kubectl
 func applyDeployYaml(filename string) {
 	cmd := exec.Command("kubectl", "apply", "-f", filename)
@@ -228,7 +235,7 @@ func installMayastor() {
 	fmt.Printf("tag %v, registry %v, # of mayastor instances=%v\n", imageTag, registryAddress, numMayastorInstances)
 
 	// FIXME use absolute paths, do not depend on CWD
-	applyDeployYaml("namespace.yaml")
+	createNamespace()
 	applyDeployYaml("storage-class.yaml")
 	applyDeployYaml("moac-rbac.yaml")
 	applyDeployYaml("mayastorpoolcrd.yaml")

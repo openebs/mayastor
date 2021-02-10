@@ -17,3 +17,6 @@ spec:
       volumeMounts:
         - mountPath: "/volume"
           name: ms-volume
+      #volumeDevices:
+      #  - devicePath: /dev/xvda
+      #    name: ms-volume

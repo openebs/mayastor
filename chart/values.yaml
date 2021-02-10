@@ -1,2 +1,8 @@
-mayastorImagesTag: latest
+mayastorImagesTag: develop
+mayastorImagePullPolicy: Always
+mayastorCpuCount: "2"
+mayastorHugePagesGiB: "1"
 mayastorImagesRepo: ""
+mayastorPools:
+  - node: "NODE_NAME"
+    device: "DEVICE"
