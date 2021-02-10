@@ -49,8 +49,8 @@ spec:
             - "--csi-address=$(CSI_ENDPOINT)"
             - "--namespace=$(MY_POD_NAMESPACE)"
             - "--port=4000"
-            - "--message-bus=nats"
-            - "-v"
+            - "--message-bus=nats"{{ if .Values.moacDebug }}
+            - "-vv"{{ end }}
           env:
             - name: CSI_ENDPOINT
               value: /var/lib/csi/sockets/pluginproxy/csi.sock
