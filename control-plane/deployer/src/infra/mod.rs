@@ -336,11 +336,12 @@ impl_component! {
     Node,       2,
     Pool,       3,
     Volume,     3,
+    JsonGrpc,   3,
     NodeOp,     4,
 }
 
 // Message Bus Control Plane Agents
-impl_ctrlp_agents!(Node, Pool, Volume);
+impl_ctrlp_agents!(Node, Pool, Volume, JsonGrpc);
 
 // Kubernetes Mayastor Low-level Operators
 impl_ctrlp_operators!(Node);

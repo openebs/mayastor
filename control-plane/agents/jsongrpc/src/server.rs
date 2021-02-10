@@ -74,6 +74,7 @@ async fn server(cli_args: CliArgs) {
         .connect()
         .await
         .with_subscription(ServiceHandler::<JsonGrpcRequest>::default())
+        .with_default_liveness()
         .run()
         .await;
 }
