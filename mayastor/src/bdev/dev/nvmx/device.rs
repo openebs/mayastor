@@ -24,6 +24,7 @@ use crate::{
         BlockDeviceHandle,
         BlockDeviceStats,
         CoreError,
+        DeviceEventType,
         DeviceIoController,
         DeviceTimeoutAction,
     },
@@ -119,6 +120,17 @@ impl NvmeBlockDevice {
             name: String::from(name),
         }
     }
+
+    fn get_controller(
+        &self,
+    ) -> Result<Arc<Mutex<NvmeController<'static>>>, CoreError> {
+        let controller = NVME_CONTROLLERS.lookup_by_name(&self.name).ok_or(
+            CoreError::BdevNotFound {
+                name: self.name.to_string(),
+            },
+        )?;
+        Ok(controller)
+    }
 }
 
 impl BlockDevice for NvmeBlockDevice {
@@ -190,6 +202,15 @@ impl BlockDevice for NvmeBlockDevice {
 
     fn get_io_controller(&self) -> Option<Box<dyn DeviceIoController>> {
         Some(Box::new(NvmeDeviceIoController::new(self.name.to_string())))
+    }
+
+    fn add_event_listener(
+        &self,
+        listener: fn(DeviceEventType, &str),
+    ) -> Result<(), CoreError> {
+        let controller = self.get_controller()?;
+        let controller = controller.lock().expect("controller lock poisoned");
+        controller.add_event_listener(listener)
     }
 }
 
