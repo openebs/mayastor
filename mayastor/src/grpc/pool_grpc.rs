@@ -135,7 +135,10 @@ pub async fn create_replica(args: CreateReplicaRequest) -> GrpcResult<Replica> {
         return Ok(Response::new(Replica::from(lvol)));
     }
 
-    if !matches!(Protocol::from(args.share), Protocol::Off | Protocol::Nvmf) {
+    if !matches!(
+        Protocol::try_from(args.share)?,
+        Protocol::Off | Protocol::Nvmf
+    ) {
         return Err(Status::invalid_argument(format!(
             "invalid protocol {}",
             args.share
@@ -145,7 +148,7 @@ pub async fn create_replica(args: CreateReplicaRequest) -> GrpcResult<Replica> {
     rpc_call(async move {
         let p = Lvs::lookup(&args.pool).unwrap();
         match p.create_lvol(&args.uuid, args.size, false).await {
-            Ok(lvol) if Protocol::from(args.share) == Protocol::Nvmf => {
+            Ok(lvol) if Protocol::try_from(args.share)? == Protocol::Nvmf => {
                 match lvol.share_nvmf().await {
                     Ok(s) => {
                         debug!("created and shared {} as {}", lvol, s);
@@ -216,12 +219,12 @@ pub async fn share_replica(
             let lvol = Lvol::try_from(b)?;
 
             // if we are already shared return OK
-            if lvol.shared() == Some(Protocol::from(args.share)) {
+            if lvol.shared() == Some(Protocol::try_from(args.share)?) {
                 return Ok(ShareReplicaReply {
                     uri: lvol.share_uri().unwrap(),
                 });
             }
-            match Protocol::from(args.share) {
+            match Protocol::try_from(args.share)? {
                 Protocol::Off => {
                     lvol.unshare().await.map(|_| ShareReplicaReply {
                         uri: format!("bdev:///{}", lvol.name()),

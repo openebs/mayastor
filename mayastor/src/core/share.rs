@@ -1,6 +1,7 @@
+use crate::lvs::Error;
 use async_trait::async_trait;
 use pin_utils::core_reexport::fmt::Formatter;
-use std::fmt::Display;
+use std::{convert::TryFrom, fmt::Display};
 
 #[derive(Debug, PartialOrd, PartialEq)]
 /// Indicates what protocol the bdev is shared as
@@ -13,19 +14,19 @@ pub enum Protocol {
     Iscsi,
 }
 
-impl From<i32> for Protocol {
-    fn from(p: i32) -> Self {
-        match p {
-            0 => Self::Off,
-            1 => Self::Nvmf,
-            2 => Self::Iscsi,
-            // we have to handle the whole range of u32  here
-            // We panic here because the gRPC interface should
-            // have never deserialized into something that is invalid. A
-            // different approach is would be to set this to
-            // something that is invalid but that would
-            // open the flood gates, to much and leak into the code base.
-            _ => panic!("invalid share value"),
+impl TryFrom<i32> for Protocol {
+    type Error = Error;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Off),
+            1 => Ok(Self::Nvmf),
+            2 => Ok(Self::Iscsi),
+            // the gRPC code does not validate enum's so we have
+            // to do it here
+            _ => Err(Error::ReplicaShareProtocol {
+                value,
+            }),
         }
     }
 }
