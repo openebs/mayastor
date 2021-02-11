@@ -1,11 +1,13 @@
 pub mod infra;
 
-use composer::Builder;
 use infra::*;
+
+use composer::Builder;
+use std::convert::TryInto;
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
-struct CliArgs {
+pub struct CliArgs {
     #[structopt(subcommand)]
     action: Action,
 }
@@ -22,31 +24,35 @@ const DEFAULT_CLUSTER_NAME: &str = "cluster";
 
 #[derive(Debug, StructOpt)]
 #[structopt(about = "Stop and delete all components")]
-pub(crate) struct StopOptions {
+pub struct StopOptions {
     /// Name of the cluster
     #[structopt(short, long, default_value = DEFAULT_CLUSTER_NAME)]
-    cluster_name: String,
+    pub cluster_name: String,
 }
 
 #[derive(Debug, Default, StructOpt)]
 #[structopt(about = "List all running components")]
-pub(crate) struct ListOptions {
+pub struct ListOptions {
     /// Simple list without using the docker executable
     #[structopt(short, long)]
-    no_docker: bool,
+    pub no_docker: bool,
 
     /// Format the docker output
     #[structopt(short, long, conflicts_with = "no_docker")]
-    format: Option<String>,
+    pub format: Option<String>,
 
     /// Name of the cluster
     #[structopt(short, long, default_value = DEFAULT_CLUSTER_NAME)]
-    cluster_name: String,
+    pub cluster_name: String,
 }
 
-#[derive(Debug, Clone, StructOpt)]
+pub fn default_agents() -> &'static str {
+    "Node, Pool, Volume"
+}
+
+#[derive(Debug, Default, Clone, StructOpt)]
 #[structopt(about = "Create and start all components")]
-pub(crate) struct StartOptions {
+pub struct StartOptions {
     /// Use the following Control Plane Agents
     /// Specify one agent at a time or as a list.
     /// ( "" for no agents )
@@ -54,57 +60,99 @@ pub(crate) struct StartOptions {
     #[structopt(
         short,
         long,
-        default_value = "Node, Pool, Volume",
+        default_value = default_agents(),
         value_delimiter = ","
     )]
-    agents: Vec<ControlPlaneAgent>,
+    pub agents: Vec<ControlPlaneAgent>,
 
     /// Use the following Control Plane Operators
     /// Specify one operator at a time or as a list
     #[structopt(short, long, value_delimiter = ",")]
-    operators: Option<Vec<ControlPlaneOperator>>,
+    pub operators: Option<Vec<ControlPlaneOperator>>,
 
     /// Kubernetes Config file if using operators
     /// [default: "~/.kube/config"]
     #[structopt(short, long)]
-    kube_config: Option<String>,
+    pub kube_config: Option<String>,
 
     /// Use a base image for the binary components (eg: alpine:latest)
     #[structopt(long)]
-    base_image: Option<String>,
+    pub base_image: Option<String>,
 
     /// Use a jaeger tracing service
     #[structopt(short, long)]
-    jaeger: bool,
+    pub jaeger: bool,
 
     /// Disable the REST Server
     #[structopt(long)]
-    no_rest: bool,
+    pub no_rest: bool,
 
     /// Use `N` mayastor instances
     #[structopt(short, long, default_value = "1")]
-    mayastors: u32,
+    pub mayastors: u32,
 
     /// Use this custom image for the jaeger tracing service
     #[structopt(long, requires = "jaeger")]
-    jaeger_image: Option<String>,
+    pub jaeger_image: Option<String>,
 
     /// Cargo Build each component before deploying
     #[structopt(short, long)]
-    build: bool,
+    pub build: bool,
 
     /// Use a dns resolver for the cluster: defreitas/dns-proxy-server
     /// Note this messes with your /etc/resolv.conf so use at your own risk
     #[structopt(short, long)]
-    dns: bool,
+    pub dns: bool,
 
     /// Show information from the cluster after creation
     #[structopt(short, long)]
-    show_info: bool,
+    pub show_info: bool,
 
     /// Name of the cluster - currently only one allowed at a time
     #[structopt(short, long, default_value = DEFAULT_CLUSTER_NAME)]
-    cluster_name: String,
+    pub cluster_name: String,
+}
+
+impl StartOptions {
+    pub fn with_agents(mut self, agents: Vec<&str>) -> Self {
+        let agents: ControlPlaneAgents = agents.try_into().unwrap();
+        self.agents = agents.into_inner();
+        self
+    }
+    pub fn with_jaeger(mut self, jaeger: bool) -> Self {
+        self.jaeger = jaeger;
+        self
+    }
+    pub fn with_build(mut self, build: bool) -> Self {
+        self.build = build;
+        self
+    }
+    pub fn with_mayastors(mut self, mayastors: i32) -> Self {
+        self.mayastors = mayastors as u32;
+        self
+    }
+    pub fn with_show_info(mut self, show_info: bool) -> Self {
+        self.show_info = show_info;
+        self
+    }
+    pub fn with_cluster_name(mut self, cluster_name: &str) -> Self {
+        self.cluster_name = cluster_name.to_string();
+        self
+    }
+    pub fn with_base_image(
+        mut self,
+        base_image: impl Into<Option<String>>,
+    ) -> Self {
+        self.base_image = base_image.into();
+        self
+    }
+}
+
+impl CliArgs {
+    /// Act upon the requested action
+    pub async fn act(&self) -> Result<(), Error> {
+        self.action.act().await
+    }
 }
 
 impl Action {
@@ -130,6 +178,7 @@ impl StartOptions {
             .await?;
 
         components.start(&composer).await?;
+
         if self.show_info {
             let lister = ListOptions {
                 cluster_name: self.cluster_name.clone(),
@@ -168,15 +217,16 @@ impl ListOptions {
             std::process::Command::new("docker").args(args).status()?;
         build_error("docker", status.code())
     }
-    async fn list_simple(&self) -> Result<(), Error> {
+    /// Simple listing of all started components
+    pub async fn list_simple(&self) -> Result<(), Error> {
         let cfg = Builder::new()
             .name(&self.cluster_name)
-            .with_prune(false)
+            .with_reuse(true)
             .with_clean(false)
             .build()
             .await?;
 
-        for component in cfg.list_containers().await? {
+        for component in cfg.list_cluster_containers().await? {
             let ip = match component.network_settings.clone() {
                 None => None,
                 Some(networks) => match networks.networks {
@@ -213,12 +263,4 @@ fn option_str<F: ToString>(input: Option<F>) -> String {
         Some(input) => input.to_string(),
         None => "?".into(),
     }
-}
-
-#[tokio::main]
-async fn main() -> Result<(), Error> {
-    let cli_args = CliArgs::from_args();
-    println!("Using options: {:?}", &cli_args);
-
-    cli_args.action.act().await
 }

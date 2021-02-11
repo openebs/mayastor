@@ -8,7 +8,11 @@ edition = "2018"
 
 [[bin]]
 name = "deployer"
-path = "src/bin.rs"
+path = "bin/src/deployer.rs"
+
+[lib]
+name = "deployer_lib"
+path = "src/lib.rs"
 
 [dependencies]
 mbus_api = { path = "../mbus-api" }

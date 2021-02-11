@@ -38,10 +38,25 @@ impl ComponentAction for Mayastor {
         }
         Ok(())
     }
+    async fn wait_on(
+        &self,
+        options: &StartOptions,
+        cfg: &ComposeTest,
+    ) -> Result<(), Error> {
+        for i in 0 .. options.mayastors {
+            let mut hdl =
+                cfg.grpc_handle(&Self::name(i, options)).await.unwrap();
+            hdl.mayastor
+                .list_nexus(rpc::mayastor::Null {})
+                .await
+                .unwrap();
+        }
+        Ok(())
+    }
 }
 
 impl Mayastor {
-    fn name(i: u32, options: &StartOptions) -> String {
+    pub fn name(i: u32, options: &StartOptions) -> String {
         if options.mayastors == 1 {
             "mayastor".into()
         } else {
