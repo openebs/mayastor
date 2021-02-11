@@ -40,7 +40,7 @@ async-trait = "0.1.36"
 atty = "0.2"
 bincode = "1.2"
 byte-unit = "3.0.1"
-bytes = "0.4.12"
+bytes = "0.4"  # We are blocked on updating http until we update tonic.
 chrono = "0.4"
 clap = "2.33.0"
 colored_json = "*"
@@ -51,6 +51,7 @@ env_logger = "0.7"
 futures = "0.3"
 futures-timer = "2.0"
 git-version = "0.3"
+http = "0.1" # We are blocked on updating http until we update tonic.
 io-uring = "0.4.0"
 ioctl-gen = "0.1.1"
 jsonrpc = { path = "../jsonrpc"}

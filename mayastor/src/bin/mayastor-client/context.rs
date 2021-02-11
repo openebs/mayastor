@@ -1,7 +1,35 @@
 use crate::{BdevClient, JsonClient, MayaClient};
 use byte_unit::Byte;
+use bytes::Bytes;
 use clap::ArgMatches;
-use std::cmp::max;
+use http::uri::{Authority, PathAndQuery, Scheme, Uri};
+use snafu::{Backtrace, ResultExt, Snafu};
+use std::{cmp::max, str::FromStr};
+use tonic::transport::Endpoint;
+
+#[derive(Debug, Snafu)]
+pub enum Error {
+    #[snafu(display("Invalid URI bytes"))]
+    InvalidUriBytes {
+        source: http::uri::InvalidUriBytes,
+        backtrace: Backtrace,
+    },
+    #[snafu(display("Invalid URI parts"))]
+    InvalidUriParts {
+        source: http::uri::InvalidUriParts,
+        backtrace: Backtrace,
+    },
+    #[snafu(display("Invalid URI"))]
+    TonicInvalidUri {
+        source: tonic::codegen::http::uri::InvalidUri,
+        backtrace: Backtrace,
+    },
+    #[snafu(display("Invalid URI"))]
+    InvalidUri {
+        source: http::uri::InvalidUri,
+        backtrace: Backtrace,
+    },
+}
 
 pub struct Context {
     pub(crate) client: MayaClient,
@@ -12,7 +40,7 @@ pub struct Context {
 }
 
 impl Context {
-    pub(crate) async fn new(matches: &ArgMatches<'_>) -> Self {
+    pub(crate) async fn new(matches: &ArgMatches<'_>) -> Result<Self, Error> {
         let verbosity = if matches.is_present("quiet") {
             0
         } else {
@@ -22,27 +50,48 @@ impl Context {
             .value_of("units")
             .and_then(|u| u.chars().next())
             .unwrap_or('b');
-        let endpoint = {
-            let addr = matches.value_of("address").unwrap_or("127.0.0.1");
-            let port = value_t!(matches.value_of("port"), u16).unwrap_or(10124);
-            format!("{}:{}", addr, port)
+        // Ensure the provided host is defaulted & normalized to what we expect.
+        // TODO: This can be significantly cleaned up when we update tonic 0.1
+        // and its deps.
+        let host = if let Some(host) = matches.value_of("bind") {
+            let uri =
+                Uri::from_shared(Bytes::from(host)).context(InvalidUriBytes)?;
+            let mut parts = uri.into_parts();
+            if parts.scheme.is_none() {
+                parts.scheme = Scheme::from_str("http").ok();
+            }
+            if let Some(ref mut authority) = parts.authority {
+                if authority.port_part().is_none() {
+                    parts.authority = Authority::from_shared(Bytes::from(
+                        format!("{}:{}", authority.host(), 10124),
+                    ))
+                    .ok()
+                }
+            }
+            if parts.path_and_query.is_none() {
+                parts.path_and_query = PathAndQuery::from_str("/").ok();
+            }
+            let uri = Uri::from_parts(parts).context(InvalidUriParts)?;
+            Endpoint::from_shared(uri.to_string()).context(TonicInvalidUri)?
+        } else {
+            Endpoint::from_static("http://127.0.0.1:10124")
         };
-        let uri = format!("http://{}", endpoint);
+
         if verbosity > 1 {
-            println!("Connecting to {}", uri);
+            println!("Connecting to {:?}", host);
         }
 
-        let client = MayaClient::connect(uri.clone()).await.unwrap();
-        let bdev = BdevClient::connect(uri.clone()).await.unwrap();
-        let json = JsonClient::connect(uri).await.unwrap();
+        let client = MayaClient::connect(host.clone()).await.unwrap();
+        let bdev = BdevClient::connect(host.clone()).await.unwrap();
+        let json = JsonClient::connect(host).await.unwrap();
 
-        Context {
+        Ok(Context {
             client,
             bdev,
             json,
             verbosity,
             units,
-        }
+        })
     }
     pub(crate) fn v1(&self, s: &str) {
         if self.verbosity > 0 {
