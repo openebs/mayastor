@@ -1,10 +1,14 @@
+use composer::ComposeTest;
 use libc::c_void;
 use once_cell::sync::{Lazy, OnceCell};
 
+use common::compose::{Builder, MayastorTest};
 use mayastor::{
     bdev::{device_create, device_destroy, device_lookup, device_open},
-    core::{BlockDeviceHandle, DmaBuf, MayastorCliArgs},
+    core::{BlockDeviceHandle, DeviceEventType, DmaBuf, MayastorCliArgs},
+    subsys::{Config, NvmeBdevOpts},
 };
+use rpc::mayastor::{BdevShareRequest, BdevUri, Null};
 
 use std::{
     alloc::Layout,
@@ -19,7 +23,6 @@ use std::{
 use spdk_sys::{self, iovec};
 
 pub mod common;
-use common::compose::MayastorTest;
 use uuid::Uuid;
 
 static MAYASTOR: OnceCell<MayastorTest> = OnceCell::new();
@@ -50,14 +53,61 @@ fn get_ms() -> &'static MayastorTest<'static> {
     &instance
 }
 
-async fn launch_instance() -> String {
-    return "nvmf://127.0.0.1:4420/replica0".to_string();
+async fn launch_instance() -> (ComposeTest, String) {
+    Config::get_or_init(|| Config {
+        nvme_bdev_opts: NvmeBdevOpts {
+            timeout_us: 2_000_000,
+            keep_alive_timeout_ms: 5_000,
+            retry_count: 2,
+            ..Default::default()
+        },
+        ..Default::default()
+    })
+    .apply();
+
+    let test = Builder::new()
+        .name("cargo-test")
+        .network("10.1.0.0/16")
+        .add_container("ms1")
+        .with_clean(true)
+        .build()
+        .await
+        .unwrap();
+
+    // get the handles if needed, to invoke methods to the containers
+    let mut hdls = test.grpc_handles().await.unwrap();
+
+    // create and share a bdev on each container
+    for h in &mut hdls {
+        h.bdev.list(Null {}).await.unwrap();
+        h.bdev
+            .create(BdevUri {
+                uri: "malloc:///disk0?size_mb=128".into(),
+            })
+            .await
+            .unwrap();
+
+        h.bdev
+            .share(BdevShareRequest {
+                name: "disk0".into(),
+                proto: "nvmf".into(),
+            })
+            .await
+            .unwrap();
+    }
+
+    let bdev_url = format!(
+        "nvmf://{}:8420/nqn.2019-05.io.openebs:disk0",
+        hdls[0].endpoint.ip()
+    );
+
+    (test, bdev_url)
 }
 
 #[tokio::test]
 async fn nvmf_device_create_destroy() {
     let ms = get_ms();
-    let url = launch_instance().await;
+    let (_test, url) = launch_instance().await;
 
     ms.spawn(async move {
         let name1 = device_create(&url).await.unwrap();
@@ -97,7 +147,7 @@ async fn nvmf_device_create_destroy() {
 #[tokio::test]
 async fn nvmf_device_identify_controller() {
     let ms = get_ms();
-    let url = launch_instance().await;
+    let (_test, url) = launch_instance().await;
     let u = url.clone();
 
     ms.spawn(async move {
@@ -111,6 +161,48 @@ async fn nvmf_device_identify_controller() {
 
     ms.spawn(async move {
         device_destroy(&u).await.unwrap();
+    })
+    .await
+}
+
+#[tokio::test]
+async fn nvmf_device_events() {
+    let ms = get_ms();
+    let (_test, url) = launch_instance().await;
+    let u = url.clone();
+
+    static DEVICE_NAME: OnceCell<String> = OnceCell::new();
+
+    fn device_event_cb(event: DeviceEventType, device: &str) {
+        // Check event type and device name.
+        assert_eq!(event, DeviceEventType::DeviceRemoved);
+        assert_eq!(
+            device,
+            DEVICE_NAME.get().unwrap(),
+            "device name provided with event mismatches"
+        );
+        flag_callback_invocation();
+    }
+
+    ms.spawn(async move {
+        let name = device_create(&url).await.unwrap();
+        let descr = device_open(&name, false).unwrap();
+        let device = descr.get_device();
+
+        clear_callback_invocation_flag();
+
+        DEVICE_NAME.set(name.clone()).unwrap();
+
+        device.add_event_listener(device_event_cb).unwrap();
+    })
+    .await;
+
+    ms.spawn(async move {
+        // Destroy the device and check for callback invocation.
+        device_destroy(&u).await.unwrap();
+
+        // Assure event has been called.
+        check_callback_invocation();
     })
     .await
 }
@@ -193,7 +285,7 @@ fn check_io_stats(reads: u64, writes: u64) {
 #[tokio::test]
 async fn nvmf_io_stats() {
     let ms = get_ms();
-    let url = launch_instance().await;
+    let (_test, url) = launch_instance().await;
     let u = url.clone();
 
     const BUF_SIZE: u64 = 32768;
@@ -349,7 +441,7 @@ async fn nvmf_io_stats() {
 #[tokio::test]
 async fn nvmf_device_read_write_at() {
     let ms = get_ms();
-    let url = launch_instance().await;
+    let (_test, url) = launch_instance().await;
     let u = url.clone();
 
     // Perform a sequence of write-read operations to write test pattern to the
@@ -416,7 +508,8 @@ async fn nvmf_device_readv_test() {
     const BUF_SIZE: u64 = 32768;
 
     let ms = get_ms();
-    let u = Arc::new(launch_instance().await);
+    let (_test, dev_url) = launch_instance().await;
+    let u = Arc::new(dev_url);
     let mut url = Arc::clone(&u);
 
     // Placeholder structure to let all the fields outlive API invocations.
@@ -526,7 +619,8 @@ async fn nvmf_device_writev_test() {
     const OP_OFFSET: u64 = 4 * 1024 * 1024;
 
     let ms = get_ms();
-    let u = Arc::new(launch_instance().await);
+    let (_test, dev_url) = launch_instance().await;
+    let u = Arc::new(dev_url);
     let url = Arc::clone(&u);
 
     // Read completion callback.
@@ -676,7 +770,8 @@ async fn nvmf_device_readv_iovs_test() {
     let iosize = IOVSIZES.iter().sum();
 
     let ms = get_ms();
-    let u = Arc::new(launch_instance().await);
+    let (_test, dev_url) = launch_instance().await;
+    let u = Arc::new(dev_url);
     let mut url = Arc::clone(&u);
 
     // Read completion callback.
@@ -812,7 +907,8 @@ async fn nvmf_device_writev_iovs_test() {
     let iosize = IOVSIZES.iter().sum();
 
     let ms = get_ms();
-    let u = Arc::new(launch_instance().await);
+    let (_test, dev_url) = launch_instance().await;
+    let u = Arc::new(dev_url);
     let url = Arc::clone(&u);
 
     // Clear callback invocation flag.
@@ -964,7 +1060,7 @@ async fn nvmf_device_writev_iovs_test() {
 #[tokio::test]
 async fn nvmf_device_admin_ctrl() {
     let ms = get_ms();
-    let url = launch_instance().await;
+    let (_test, url) = launch_instance().await;
     let url2 = url.clone();
 
     ms.spawn(async move {
@@ -988,7 +1084,7 @@ async fn nvmf_device_admin_ctrl() {
 #[tokio::test]
 async fn nvmf_device_reset() {
     let ms = get_ms();
-    let url = launch_instance().await;
+    let (_test, url) = launch_instance().await;
     let url2 = url.clone();
 
     // Clear callback invocation flag.
@@ -1066,7 +1162,7 @@ async fn nvmf_device_reset() {
 
 async fn wipe_device_blocks(is_unmap: bool) {
     let ms = get_ms();
-    let url = launch_instance().await;
+    let (_test, url) = launch_instance().await;
     let url2 = url.clone();
 
     struct DeviceIoCtx {
@@ -1228,7 +1324,8 @@ async fn nvmf_reset_abort_io() {
     const NUM_IOS: u64 = 4;
 
     let ms = get_ms();
-    let u = Arc::new(launch_instance().await);
+    let (_test, dev_url) = launch_instance().await;
+    let u = Arc::new(dev_url);
     let mut url = Arc::clone(&u);
 
     // Placeholder structure to let all the fields outlive API invocations.
@@ -1381,11 +1478,7 @@ async fn nvmf_reset_abort_io() {
     check_callback_invocation();
     check_io_stats(NUM_IOS, NUM_IOS);
 
-    // Check the contents of the buffer to make sure it has been overwritten
-    // with data pattern. We should see all zeroes in the buffer instead of
-    // the guard pattern.
     let b = buf_ptr.into_inner();
-    // check_buf_pattern(unsafe { &((*b).dma_buf) }, 0);
 
     // Turn placeholder structure into a box to trigger drop() action
     // on handle's resources once the box is dropped.
@@ -1405,7 +1498,7 @@ async fn nvmf_reset_abort_io() {
 #[tokio::test]
 async fn nvmf_device_io_handle_cleanup() {
     let ms = get_ms();
-    let url = launch_instance().await;
+    let (_test, url) = launch_instance().await;
 
     const BUF_SIZE: u64 = 32768;
     const OP_OFFSET: u64 = 1024 * 1024;

@@ -1,10 +1,17 @@
 //!
 //!
 //! This file contains the main structures for a NVMe controller
+use futures::channel::oneshot;
 use merge::Merge;
 use nix::errno::Errno;
 use once_cell::sync::OnceCell;
-use std::{convert::From, os::raw::c_void, ptr::NonNull, sync::Arc};
+use std::{
+    convert::From,
+    fmt,
+    os::raw::c_void,
+    ptr::NonNull,
+    sync::{Arc, Mutex},
+};
 
 use spdk_sys::{
     spdk_for_each_channel,
@@ -42,9 +49,12 @@ use crate::{
         poller,
         BlockDeviceIoStats,
         CoreError,
+        DeviceEventType,
         IoCompletionCallback,
         IoCompletionCallbackArg,
     },
+    ffihelper::{cb_arg, done_cb},
+    nexus_uri::NexusBdevError,
 };
 
 const RESET_CTX_POOL_SIZE: u64 = 1024 - 1;
@@ -98,20 +108,33 @@ pub struct NvmeControllerInner<'a> {
     adminq_poller: poller::Poller<'a>,
     io_device: Arc<IoDevice>,
 }
+
+type EventCallbackList = Vec<fn(DeviceEventType, &str)>;
+
 /*
  * NVME controller implementation.
  */
-#[derive(Debug)]
 pub struct NvmeController<'a> {
     pub(crate) name: String,
     id: u64,
     prchk_flags: u32,
     inner: Option<NvmeControllerInner<'a>>,
     state_machine: ControllerStateMachine,
+    event_listeners: Mutex<EventCallbackList>,
     /// Timeout config is accessed by SPDK-driven timeout callback handlers,
     /// so it needs to be a raw pointer. Mutable members are made atomic to
     /// eliminate lock contention between API path and callback path.
     pub(crate) timeout_config: *mut TimeoutConfig,
+}
+
+impl<'a> fmt::Debug for NvmeController<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NvmeController")
+            .field("name", &self.name)
+            .field("prchk_flags", &self.prchk_flags)
+            .field("state_machine", &self.state_machine)
+            .finish()
+    }
 }
 
 unsafe impl<'a> Send for NvmeController<'a> {}
@@ -126,6 +149,7 @@ impl<'a> NvmeController<'a> {
             prchk_flags,
             state_machine: ControllerStateMachine::new(name),
             inner: None,
+            event_listeners: Mutex::new(Vec::<fn(DeviceEventType, &str)>::new()),
             timeout_config: Box::into_raw(Box::new(TimeoutConfig::new(name))),
         };
 
@@ -145,7 +169,10 @@ impl<'a> NvmeController<'a> {
 
     /// returns the ID of the controller
     pub fn id(&self) -> u64 {
-        assert_ne!(self.id, 0, "Controller ID is not yet initialized");
+        // If controller is initialized, ID must be set.
+        if self.state_machine.current_state() != New {
+            assert_ne!(self.id, 0, "Controller ID is not yet initialized");
+        }
         self.id
     }
 
@@ -568,6 +595,38 @@ impl<'a> NvmeController<'a> {
         );
         NvmeController::_complete_reset(reset_ctx, status);
     }
+
+    fn notify_event(&self, event: DeviceEventType) -> usize {
+        // Keep a separate copy of all registered listeners in order to not
+        // invoke them with the lock held.
+        let listeners = {
+            let listeners = self
+                .event_listeners
+                .lock()
+                .expect("event listeners lock poisoned");
+            listeners.clone()
+        };
+
+        for l in listeners.iter() {
+            (*l)(event, &self.name);
+        }
+        listeners.len()
+    }
+
+    /// Register listener to monitor device events related to this controller.
+    pub fn add_event_listener(
+        &self,
+        listener: fn(DeviceEventType, &str),
+    ) -> Result<(), CoreError> {
+        let mut listeners = self
+            .event_listeners
+            .lock()
+            .expect("event listeners lock poisoned");
+
+        listeners.push(listener);
+        debug!("{} added event listener", self.name);
+        Ok(())
+    }
 }
 
 impl<'a> Drop for NvmeController<'a> {
@@ -633,6 +692,64 @@ pub extern "C" fn nvme_poll_adminq(ctx: *mut c_void) -> i32 {
     } else {
         1
     }
+}
+
+/// Destroy target controller and notify all listeners about device removal.
+pub(crate) async fn destroy_device(name: String) -> Result<(), NexusBdevError> {
+    let carc = NVME_CONTROLLERS.lookup_by_name(&name).ok_or(
+        NexusBdevError::BdevNotFound {
+            name: String::from(&name),
+        },
+    )?;
+
+    // 1. Initiate controller shutdown, which shuts down all I/O resources
+    // of the controller.
+    let (s, r) = oneshot::channel::<bool>();
+    {
+        let mut controller = carc.lock().expect("lock poisoned");
+
+        fn _shutdown_callback(success: bool, ctx: *mut c_void) {
+            done_cb(ctx, success);
+        }
+
+        controller
+            .shutdown(_shutdown_callback, cb_arg(s))
+            .map_err(|_| NexusBdevError::DestroyBdev {
+                name: String::from(&name),
+                source: Errno::EAGAIN,
+            })?
+    }
+
+    if !r.await.expect("Failed awaiting at shutdown()") {
+        error!(?name, "failed to shutdown controller");
+        return Err(NexusBdevError::DestroyBdev {
+            name: String::from(&name),
+            source: Errno::EAGAIN,
+        });
+    }
+
+    // 2. Remove controller from the list so that a new controller with the
+    // same name can be inserted. Note that there may exist other
+    // references to the controller before removal, but since all
+    // controller's resources have been invalidated, that exposes no
+    // risk, as no operations will be possible on such controllers.
+    if NVME_CONTROLLERS.remove_by_name(&name).is_err() {
+        warn!(?name, "no controller record found, proceeding with removal");
+    } else {
+        debug!(?name, "removed from controller list");
+    }
+
+    // Notify the listeners.
+    debug!(?name, "notifying listeners about device removal");
+    let controller = carc.lock().unwrap();
+    let num_listeners = controller.notify_event(DeviceEventType::DeviceRemoved);
+    debug!(
+        ?name,
+        ?num_listeners,
+        "listeners notified about device removal"
+    );
+
+    Ok(())
 }
 
 pub(crate) fn connected_attached_cb(

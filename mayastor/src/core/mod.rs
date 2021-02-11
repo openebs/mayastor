@@ -11,6 +11,7 @@ pub use block_device::{
     BlockDeviceDescriptor,
     BlockDeviceHandle,
     BlockDeviceIoStats,
+    DeviceEventType,
     DeviceIoController,
     DeviceTimeoutAction,
     IoCompletionCallback,
