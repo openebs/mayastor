@@ -15,8 +15,13 @@
 /// expose different versions of the client
 pub mod versions;
 
-use actix_web::{body::Body, client::Client};
+use actix_web::{
+    body::Body,
+    client::{Client, ClientResponse, PayloadError},
+    web::Bytes,
+};
 use actix_web_opentelemetry::ClientExt;
+use futures::Stream;
 use paperclip::actix::Apiv2Schema;
 use serde::{Deserialize, Serialize};
 use std::{io::BufReader, string::ToString};
@@ -86,7 +91,7 @@ impl ActixRestClient {
             self.client.get(uri.clone()).send().await
         };
 
-        let mut rest_response = result.map_err(|error| {
+        let rest_response = result.map_err(|error| {
             anyhow::anyhow!(
                 "Failed to get uri '{}' from rest, err={:?}",
                 uri,
@@ -94,17 +99,7 @@ impl ActixRestClient {
             )
         })?;
 
-        let rest_body = rest_response.body().await?;
-        if rest_response.status().is_success() {
-            match serde_json::from_slice(&rest_body) {
-                Ok(result) => Ok(result),
-                Err(_) => Ok(vec![serde_json::from_slice::<R>(&rest_body)?]),
-            }
-        } else {
-            let error: serde_json::value::Value =
-                serde_json::from_slice(&rest_body)?;
-            Err(anyhow::anyhow!(error.to_string()))
-        }
+        Self::rest_vec_result(rest_response).await
     }
     async fn put<R, B: Into<Body>>(
         &self,
@@ -131,7 +126,7 @@ impl ActixRestClient {
                 .await
         };
 
-        let mut rest_response = result.map_err(|error| {
+        let rest_response = result.map_err(|error| {
             anyhow::anyhow!(
                 "Failed to put uri '{}' from rest, err={:?}",
                 uri,
@@ -139,14 +134,7 @@ impl ActixRestClient {
             )
         })?;
 
-        let rest_body = rest_response.body().await?;
-        if rest_response.status().is_success() {
-            Ok(serde_json::from_slice::<R>(&rest_body)?)
-        } else {
-            let error: serde_json::value::Value =
-                serde_json::from_slice(&rest_body)?;
-            Err(anyhow::anyhow!(error.to_string()))
-        }
+        Self::rest_result(rest_response).await
     }
     async fn del<R>(&self, urn: String) -> anyhow::Result<R>
     where
@@ -160,7 +148,7 @@ impl ActixRestClient {
             self.client.delete(uri.clone()).send().await
         };
 
-        let mut rest_response = result.map_err(|error| {
+        let rest_response = result.map_err(|error| {
             anyhow::anyhow!(
                 "Failed to delete uri '{}' from rest, err={:?}",
                 uri,
@@ -168,6 +156,36 @@ impl ActixRestClient {
             )
         })?;
 
+        Self::rest_result(rest_response).await
+    }
+
+    async fn rest_vec_result<S, R>(
+        mut rest_response: ClientResponse<S>,
+    ) -> anyhow::Result<Vec<R>>
+    where
+        S: Stream<Item = Result<Bytes, PayloadError>> + Unpin,
+        for<'de> R: Deserialize<'de>,
+    {
+        let rest_body = rest_response.body().await?;
+        if rest_response.status().is_success() {
+            match serde_json::from_slice(&rest_body) {
+                Ok(result) => Ok(result),
+                Err(_) => Ok(vec![serde_json::from_slice::<R>(&rest_body)?]),
+            }
+        } else {
+            let error: serde_json::value::Value =
+                serde_json::from_slice(&rest_body)?;
+            Err(anyhow::anyhow!(error.to_string()))
+        }
+    }
+
+    async fn rest_result<S, R>(
+        mut rest_response: ClientResponse<S>,
+    ) -> anyhow::Result<R>
+    where
+        S: Stream<Item = Result<Bytes, PayloadError>> + Unpin,
+        for<'de> R: Deserialize<'de>,
+    {
         let rest_body = rest_response.body().await?;
         if rest_response.status().is_success() {
             Ok(serde_json::from_slice::<R>(&rest_body)?)

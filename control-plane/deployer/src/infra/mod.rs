@@ -235,6 +235,20 @@ pub fn build_error(name: &str, status: Option<i32>) -> Result<(), Error> {
 }
 
 impl Components {
+    pub async fn start_wait(
+        &self,
+        cfg: &ComposeTest,
+        timeout: std::time::Duration,
+    ) -> Result<(), Error> {
+        match tokio::time::timeout(timeout, self.start_wait_inner(cfg)).await {
+            Ok(result) => result,
+            Err(_) => {
+                let error = format!("Time out of {:?} expired", timeout);
+                Err(std::io::Error::new(std::io::ErrorKind::TimedOut, error)
+                    .into())
+            }
+        }
+    }
     pub async fn start(&self, cfg: &ComposeTest) -> Result<(), Error> {
         let mut last_done = None;
         for component in &self.0 {
@@ -249,6 +263,30 @@ impl Components {
                 .filter(|c| c.boot_order() == component.boot_order());
             for component in components {
                 component.start(&self.1, &cfg).await?;
+            }
+            last_done = Some(component.boot_order());
+        }
+        Ok(())
+    }
+    async fn start_wait_inner(&self, cfg: &ComposeTest) -> Result<(), Error> {
+        let mut last_done = None;
+        for component in &self.0 {
+            if let Some(last_done) = last_done {
+                if component.boot_order() == last_done {
+                    continue;
+                }
+            }
+            let components = self
+                .0
+                .iter()
+                .filter(|c| c.boot_order() == component.boot_order())
+                .collect::<Vec<&Component>>();
+
+            for component in &components {
+                component.start(&self.1, &cfg).await?;
+            }
+            for component in &components {
+                component.wait_on(&self.1, &cfg).await?;
             }
             last_done = Some(component.boot_order());
         }
@@ -313,7 +351,7 @@ macro_rules! impl_component {
                 match tokio::time::timeout(timeout, self.wait_on_inner(cfg)).await {
                     Ok(result) => result,
                     Err(_) => {
-                        let error = format!("Timed out of {:?} expired", timeout);
+                        let error = format!("Time out of {:?} expired", timeout);
                         Err(std::io::Error::new(std::io::ErrorKind::TimedOut, error).into())
                     }
                 }

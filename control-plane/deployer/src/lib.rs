@@ -150,13 +150,13 @@ impl StartOptions {
 
 impl CliArgs {
     /// Act upon the requested action
-    pub async fn act(&self) -> Result<(), Error> {
-        self.action.act().await
+    pub async fn execute(&self) -> Result<(), Error> {
+        self.action.execute().await
     }
 }
 
 impl Action {
-    async fn act(&self) -> Result<(), Error> {
+    async fn execute(&self) -> Result<(), Error> {
         match self {
             Action::Start(options) => options.start(self).await,
             Action::Stop(options) => options.stop(self).await,

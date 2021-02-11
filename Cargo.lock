@@ -1289,6 +1289,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "ctrlp-tests"
+version = "0.1.0"
+dependencies = [
+ "actix-rt",
+ "actix-web-opentelemetry",
+ "anyhow",
+ "composer",
+ "deployer",
+ "opentelemetry",
+ "opentelemetry-jaeger",
+ "rest",
+ "tracing",
+ "tracing-opentelemetry",
+]
+
+[[package]]
 name = "curve25519-dalek"
 version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2668,6 +2684,7 @@ dependencies = [
  "tracing",
  "tracing-futures",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

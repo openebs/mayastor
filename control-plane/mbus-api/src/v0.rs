@@ -296,7 +296,7 @@ impl Default for Filter {
 macro_rules! bus_impl_string_id_inner {
     ($Name:ident, $Doc:literal) => {
         #[doc = $Doc]
-        #[derive(Serialize, Deserialize, Default, Debug, Clone, Eq, PartialEq, Hash, Apiv2Schema)]
+        #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq, Hash, Apiv2Schema)]
         pub struct $Name(String);
 
         impl std::fmt::Display for $Name {
@@ -340,10 +340,20 @@ macro_rules! bus_impl_string_id_inner {
 macro_rules! bus_impl_string_id {
     ($Name:ident, $Doc:literal) => {
         bus_impl_string_id_inner!($Name, $Doc);
+        impl Default for $Name {
+            /// Generates new blank identifier
+            fn default() -> Self {
+                $Name(uuid::Uuid::default().to_string())
+            }
+        }
         impl $Name {
             /// Build Self from a string trait id
             pub fn from<T: Into<String>>(id: T) -> Self {
                 $Name(id.into())
+            }
+            /// Generates new random identifier
+            pub fn new() -> Self {
+                $Name(uuid::Uuid::new_v4().to_string())
             }
         }
     };
@@ -352,6 +362,11 @@ macro_rules! bus_impl_string_id {
 macro_rules! bus_impl_string_id_percent_decoding {
     ($Name:ident, $Doc:literal) => {
         bus_impl_string_id_inner!($Name, $Doc);
+        impl Default for $Name {
+            fn default() -> Self {
+                $Name("".to_string())
+            }
+        }
         impl $Name {
             /// Build Self from a string trait id
             pub fn from<T: Into<String>>(id: T) -> Self {

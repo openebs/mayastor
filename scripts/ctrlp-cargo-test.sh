@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 
-SCRIPTDIR=$(dirname "$0")
-
 cleanup_handler() {
   for c in $(docker ps -a --filter "label=io.mayastor.test.name" --format '{{.ID}}') ; do
     docker kill "$c" || true
@@ -17,9 +15,8 @@ trap cleanup_handler ERR INT QUIT TERM HUP
 
 set -euxo pipefail
 export PATH=$PATH:${HOME}/.cargo/bin
-( cd jsonrpc && cargo test )
 # test dependencies
 cargo build --bins
-( cd mayastor && cargo test -- --test-threads=1 )
-( cd nvmeadm && cargo test )
-"$SCRIPTDIR/ctrlp-cargo-test.sh"
+for test in composer agents rest ctrlp-tests; do
+    cargo test -p ${test} -- --test-threads=1
+done
