@@ -243,7 +243,9 @@ pub trait MessageBusTrait: Sized {
 
     /// Generic JSON gRPC call
     #[tracing::instrument(level = "debug", err)]
-    async fn json_grpc_call(request: JsonGrpcRequest) -> BusResult<String> {
+    async fn json_grpc_call(
+        request: JsonGrpcRequest,
+    ) -> BusResult<serde_json::Value> {
         Ok(request.request().await?)
     }
 }

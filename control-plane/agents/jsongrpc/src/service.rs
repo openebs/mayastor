@@ -2,7 +2,7 @@
 #![allow(clippy::unit_arg)]
 
 use ::rpc::mayastor::{JsonRpcReply, JsonRpcRequest};
-use common::wrapper::v0::{BusGetNode, SvcError};
+use common::wrapper::v0::{BusGetNode, JsonRpcDeserialise, SvcError};
 use mbus_api::message_bus::v0::{MessageBus, *};
 use rpc::mayastor::json_rpc_client::JsonRpcClient;
 use snafu::ResultExt;
@@ -15,7 +15,7 @@ impl JsonGrpcSvc {
     /// Generic JSON gRPC call issued to Mayastor using the JsonRpcClient.
     pub(super) async fn json_grpc_call(
         request: &JsonGrpcRequest,
-    ) -> Result<String, SvcError> {
+    ) -> Result<serde_json::Value, SvcError> {
         let node =
             MessageBus::get_node(&request.node)
                 .await
@@ -39,6 +39,7 @@ impl JsonGrpcSvc {
             })?
             .into_inner();
 
-        Ok(response.result)
+        Ok(serde_json::from_str(&response.result)
+            .context(JsonRpcDeserialise)?)
     }
 }

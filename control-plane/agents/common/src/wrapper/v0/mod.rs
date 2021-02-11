@@ -97,6 +97,8 @@ pub enum SvcError {
         params: String,
         error: String,
     },
+    #[snafu(display("Failed to deserialise JsonRpc response"))]
+    JsonRpcDeserialise { source: serde_json::Error },
 }
 
 impl From<NotEnough> for SvcError {

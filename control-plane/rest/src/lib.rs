@@ -1,4 +1,5 @@
 #![warn(missing_docs)]
+#![allow(clippy::field_reassign_with_default)]
 //! Client library which exposes information from the different mayastor
 //! control plane services through REST
 //! Different versions are exposed through `versions`
@@ -16,7 +17,8 @@ pub mod versions;
 
 use actix_web::{body::Body, client::Client};
 use actix_web_opentelemetry::ClientExt;
-use serde::Deserialize;
+use paperclip::actix::Apiv2Schema;
+use serde::{Deserialize, Serialize};
 use std::{io::BufReader, string::ToString};
 
 /// Actix Rest Client
@@ -93,9 +95,15 @@ impl ActixRestClient {
         })?;
 
         let rest_body = rest_response.body().await?;
-        match serde_json::from_slice(&rest_body) {
-            Ok(result) => Ok(result),
-            Err(_) => Ok(vec![serde_json::from_slice::<R>(&rest_body)?]),
+        if rest_response.status().is_success() {
+            match serde_json::from_slice(&rest_body) {
+                Ok(result) => Ok(result),
+                Err(_) => Ok(vec![serde_json::from_slice::<R>(&rest_body)?]),
+            }
+        } else {
+            let error: serde_json::value::Value =
+                serde_json::from_slice(&rest_body)?;
+            Err(anyhow::anyhow!(error.to_string()))
         }
     }
     async fn put<R, B: Into<Body>>(
@@ -132,7 +140,13 @@ impl ActixRestClient {
         })?;
 
         let rest_body = rest_response.body().await?;
-        Ok(serde_json::from_slice::<R>(&rest_body)?)
+        if rest_response.status().is_success() {
+            Ok(serde_json::from_slice::<R>(&rest_body)?)
+        } else {
+            let error: serde_json::value::Value =
+                serde_json::from_slice(&rest_body)?;
+            Err(anyhow::anyhow!(error.to_string()))
+        }
     }
     async fn del<R>(&self, urn: String) -> anyhow::Result<R>
     where
@@ -155,6 +169,49 @@ impl ActixRestClient {
         })?;
 
         let rest_body = rest_response.body().await?;
-        Ok(serde_json::from_slice::<R>(&rest_body)?)
+        if rest_response.status().is_success() {
+            Ok(serde_json::from_slice::<R>(&rest_body)?)
+        } else {
+            let error: serde_json::value::Value =
+                serde_json::from_slice(&rest_body)?;
+            Err(anyhow::anyhow!(error.to_string()))
+        }
+    }
+}
+
+/// Generic JSON value eg: { "size": 1024 }
+#[derive(Debug, Clone, Apiv2Schema)]
+pub struct JsonGeneric {
+    inner: serde_json::Value,
+}
+impl Serialize for JsonGeneric {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: serde::Serializer,
+    {
+        self.inner.serialize(serializer)
+    }
+}
+impl<'de> Deserialize<'de> for JsonGeneric {
+    fn deserialize<D>(deserializer: D) -> Result<JsonGeneric, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let value = serde_json::Value::deserialize(deserializer)?;
+        Ok(JsonGeneric::from(value))
+    }
+}
+impl std::fmt::Display for JsonGeneric {
+    /// Get inner JSON value as a string
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{}", self.inner.to_string())
+    }
+}
+impl JsonGeneric {
+    /// New JsonGeneric from a JSON value
+    pub fn from(value: serde_json::Value) -> Self {
+        Self {
+            inner: value,
+        }
     }
 }

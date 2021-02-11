@@ -3,6 +3,7 @@ use super::*;
 use paperclip::actix::Apiv2Schema;
 use percent_encoding::percent_decode_str;
 use serde::{Deserialize, Serialize};
+use serde_json::value::Value;
 use std::{cmp::Ordering, fmt::Debug};
 use strum_macros::{EnumString, ToString};
 
@@ -974,4 +975,5 @@ pub struct JsonGrpcRequest {
     /// parameters to be passed to the above method
     pub params: JsonGrpcParams,
 }
-bus_impl_message_all!(JsonGrpcRequest, JsonGrpc, String, JsonGrpc);
+
+bus_impl_message_all!(JsonGrpcRequest, JsonGrpc, Value, JsonGrpc);

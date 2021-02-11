@@ -11,7 +11,7 @@ pub mod replicas;
 pub mod swagger_ui;
 pub mod volumes;
 
-use rest_client::versions::v0::*;
+use rest_client::{versions::v0::*, JsonGeneric};
 
 use actix_service::ServiceFactory;
 use actix_web::{
