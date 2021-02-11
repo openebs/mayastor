@@ -9,12 +9,17 @@ REPORTSDIR=$(realpath "$SCRIPTDIR/..")
 # List and Sequence of tests.
 #tests="install basic_volume_io csi replica rebuild node_disconnect/replica_pod_remove uninstall"
 # Restrictions:
-#   1. resource_check MUST follow csi 
+#   1. resource_check MUST follow csi
 #       resource_check is a follow up check for the 3rd party CSI test suite.
 #   2. replicas_pod_remove SHOULD be the last test before uninstall
 #       this is a disruptive test.
-tests="install basic_volume_io csi resource_check uninstall"
+#TESTS="install basic_volume_io csi replica rebuild node_disconnect/replica_pod_remove uninstall"
+TESTS="install basic_volume_io csi resource_check uninstall"
+EXTENDED_TESTS=""
 
+# Global state variables
+tests=""
+run_extended_tests=
 device=
 registry=
 tag="ci"
@@ -34,6 +39,7 @@ Options:
   --tests <list of tests>   Lists of tests to run, delimited by spaces (default: "$tests")
         Note: the last 2 tests should be (if they are to be run)
              node_disconnect/replica_pod_remove uninstall
+  --extended                Run long running tests also.
   --reportsdir <path>       Path to use for junit xml test reports (default: repo root)
   --logs                    Generate logs and cluster state dump at the end of successful test run,
                             prior to uninstall.
@@ -41,6 +47,7 @@ Options:
   --onfail <stop|continue>  On fail, stop immediately or continue default($on_fail)
                             Behaviour for "continue" only differs if uninstall is in the list of tests (the default).
   --uninstall_cleanup <y|n> On uninstall cleanup for reusable cluster. default($uninstall_cleanup)
+
 Examples:
   $0 --device /dev/nvme0n1 --registry 127.0.0.1:5000 --tag a80ce0c
 EOF
@@ -79,6 +86,9 @@ while [ "$#" -gt 0 ]; do
     --logsdir)
       shift
       logsdir="$1"
+      ;;
+    -e|--extended)
+      run_extended_tests=1
       ;;
     --onfail)
         shift
@@ -121,15 +131,19 @@ if [ -z "$device" ]; then
 fi
 export e2e_pool_device=$device
 
-if [ -z "$registry" ]; then
-  echo "Registry to pull the mayastor images from, must be specified"
-  help
-  exit 1
-fi
-export e2e_docker_registry="$registry"
-
 if [ -n "$tag" ]; then
   export e2e_image_tag="$tag"
+fi
+
+if [ -n "$registry" ]; then
+  export e2e_docker_registry="$registry"
+fi
+
+if [ -z "$tests" ]; then
+  tests="$TESTS"
+  if [ -n "$run_extended_tests" ]; then
+    tests="$tests $EXTENDED_TESTS"
+  fi
 fi
 
 export e2e_reports_dir="$REPORTSDIR"
