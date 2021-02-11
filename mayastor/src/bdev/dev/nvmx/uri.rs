@@ -35,7 +35,7 @@ use crate::{
         GetName,
     },
     core::poller,
-    ffihelper::{cb_arg, done_cb, ErrnoResult},
+    ffihelper::ErrnoResult,
     nexus_uri::{
         NexusBdevError,
         {self},
@@ -286,52 +286,7 @@ impl CreateDestroy for NvmfDeviceTemplate {
         Ok(cname)
     }
 
-    // nvme_bdev_ctrlr_create
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
-        // 1. Initiate controller shutdown, which shuts down all I/O resources
-        // of the controller.
-        let controller = NVME_CONTROLLERS
-            .lookup_by_name(self.get_name())
-            .ok_or(NexusBdevError::BdevNotFound {
-                name: self.get_name(),
-            })?;
-
-        let (s, r) = oneshot::channel::<bool>();
-        {
-            let mut controller = controller.lock().expect("lock poisoned");
-
-            fn _shutdown_callback(success: bool, ctx: *mut c_void) {
-                done_cb(ctx, success);
-            }
-
-            controller.shutdown(_shutdown_callback, cb_arg(s)).map_err(
-                |_| NexusBdevError::DestroyBdev {
-                    source: Errno::EAGAIN,
-                    name: self.get_name(),
-                },
-            )?;
-        }
-
-        if !r.await.expect("Failed awaiting at shutdown()") {
-            error!("{} failed to shutdown controller", self.get_name());
-            return Err(NexusBdevError::DestroyBdev {
-                source: Errno::EAGAIN,
-                name: self.get_name(),
-            });
-        }
-
-        // 2. Remove controller from the list so that a new controller with the
-        // same name can be inserted. Note that there may exist other
-        // references to the controller before removal, but since all
-        // controller's resources have been invalidated, that exposes no
-        // risk, as no operations will be possible on such controllers.
-        let name =
-            NVME_CONTROLLERS
-                .remove_by_name(self.get_name())
-                .map_err(|_| NexusBdevError::BdevNotFound {
-                    name: self.get_name(),
-                })?;
-        debug!("{}: removed from controller list", name);
-        Ok(())
+        controller::destroy_device(self.get_name()).await
     }
 }
