@@ -71,6 +71,12 @@ pub trait BlockDevice {
 
     /// Obtain I/O controller for device.
     fn get_io_controller(&self) -> Option<Box<dyn DeviceIoController>>;
+
+    /// Register device event listener.
+    fn add_event_listener(
+        &self,
+        listener: fn(DeviceEventType, &str),
+    ) -> Result<(), CoreError>;
 }
 
 /*
@@ -191,4 +197,9 @@ pub trait DeviceIoController {
         &mut self,
         action: DeviceTimeoutAction,
     ) -> Result<(), CoreError>;
+}
+
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum DeviceEventType {
+    DeviceRemoved,
 }
