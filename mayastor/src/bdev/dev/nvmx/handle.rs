@@ -368,7 +368,7 @@ fn check_channel_for_io(
 
     // Check against concurrent controller reset, which results in valid
     // I/O channel but deactivated I/O pair.
-    if inner.qpair.is_null() {
+    if inner.qpair.is_none() {
         errno = libc::ENODEV;
     }
 
@@ -442,7 +442,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         let rc = unsafe {
             spdk_nvme_ns_cmd_read(
                 self.ns.as_ptr(),
-                inner.qpair,
+                inner.qpair.as_mut().unwrap().as_ptr(),
                 **buffer,
                 offset_blocks,
                 num_blocks as u32,
@@ -507,7 +507,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         let rc = unsafe {
             spdk_nvme_ns_cmd_write(
                 self.ns.as_ptr(),
-                inner.qpair,
+                inner.qpair.as_mut().unwrap().as_ptr(),
                 **buffer,
                 offset_blocks,
                 num_blocks as u32,
@@ -572,7 +572,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
             rc = unsafe {
                 spdk_nvme_ns_cmd_read(
                     self.ns.as_ptr(),
-                    inner.qpair,
+                    inner.qpair.as_mut().unwrap().as_ptr(),
                     (*iov).iov_base,
                     offset_blocks,
                     num_blocks as u32,
@@ -585,7 +585,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
             rc = unsafe {
                 spdk_nvme_ns_cmd_readv(
                     self.ns.as_ptr(),
-                    inner.qpair,
+                    inner.qpair.as_mut().unwrap().as_ptr(),
                     offset_blocks,
                     num_blocks as u32,
                     Some(nvme_io_done),
@@ -644,7 +644,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
             rc = unsafe {
                 spdk_nvme_ns_cmd_write(
                     self.ns.as_ptr(),
-                    inner.qpair,
+                    inner.qpair.as_mut().unwrap().as_ptr(),
                     (*iov).iov_base,
                     offset_blocks,
                     num_blocks as u32,
@@ -657,7 +657,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
             rc = unsafe {
                 spdk_nvme_ns_cmd_writev(
                     self.ns.as_ptr(),
-                    inner.qpair,
+                    inner.qpair.as_mut().unwrap().as_ptr(),
                     offset_blocks,
                     num_blocks as u32,
                     Some(nvme_writev_done),
@@ -696,7 +696,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
 
         // Make sure channel allows I/O.
-        if inner.qpair.is_null() {
+        if inner.qpair.is_none() {
             return Err(CoreError::NvmeAdminDispatch {
                 source: Errno::ENODEV,
                 opcode: cmd.opc(),
@@ -826,7 +826,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
 
             spdk_nvme_ns_cmd_dataset_management(
                 self.ns.as_ptr(),
-                inner.qpair,
+                inner.qpair.as_mut().unwrap().as_ptr(),
                 utils::NvmeDsmAttribute::Deallocate as u32,
                 dsm_ranges,
                 num_ranges as u16,
