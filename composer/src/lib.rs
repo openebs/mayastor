@@ -764,7 +764,7 @@ impl ComposeTest {
             self.remove_container(&name).await?;
             while let Ok(_c) = self.docker.inspect_container(&name, None).await
             {
-                tokio::time::delay_for(Duration::from_millis(500)).await;
+                tokio::time::sleep(Duration::from_millis(500)).await;
             }
         }
         Ok(())
@@ -849,7 +849,7 @@ impl ComposeTest {
             self.stop(&k.0).await?;
             self.remove_container(&k.0).await?;
             while let Ok(_c) = self.docker.inspect_container(&k.0, None).await {
-                tokio::time::delay_for(Duration::from_millis(500)).await;
+                tokio::time::sleep(Duration::from_millis(500)).await;
             }
         }
         self.network_remove(&self.name).await?;

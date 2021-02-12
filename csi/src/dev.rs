@@ -29,7 +29,7 @@
 
 use std::{collections::HashMap, convert::TryFrom, time::Duration};
 
-use tokio::time::delay_for;
+use tokio::time::sleep;
 use udev::Enumerator;
 use url::Url;
 use uuid::Uuid;
@@ -131,7 +131,7 @@ impl Device {
             if let Some(devname) = device.find().await? {
                 return Ok(devname);
             }
-            delay_for(timeout).await;
+            sleep(timeout).await;
         }
         Err(DeviceError::new("device attach timeout"))
     }

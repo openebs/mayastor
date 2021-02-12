@@ -705,11 +705,7 @@ impl MayastorEnvironment {
         let rpc_addr = self.rpc_addr.clone();
         let ms = self.init();
 
-        let mut rt = Builder::new()
-            .basic_scheduler()
-            .enable_all()
-            .build()
-            .unwrap();
+        let rt = Builder::new_current_thread().enable_all().build().unwrap();
 
         rt.block_on(async {
             let master = Reactors::current();

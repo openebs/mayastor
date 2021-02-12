@@ -15,8 +15,7 @@ mayastor::CPS_INIT!();
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = MayastorCliArgs::from_args();
 
-    let mut rt = tokio::runtime::Builder::new()
-        .basic_scheduler()
+    let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap();
@@ -74,7 +73,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let grpc_endpoint = grpc::endpoint(args.grpc_endpoint.clone());
     let rpc_address = args.rpc_address.clone();
 
-    let ms = rt.enter(|| MayastorEnvironment::new(args).init());
+    let guard = rt.enter();
+    let ms = MayastorEnvironment::new(args).init();
+    drop(guard);
 
     let master = Reactors::master();
     master.send_future(async { info!("Mayastor started {} ...", '\u{1F680}') });
