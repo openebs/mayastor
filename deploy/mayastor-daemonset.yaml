@@ -33,7 +33,7 @@ spec:
         command: ['sh', '-c', 'until nc -vz nats 4222; do echo "Waiting for message bus..."; sleep 1; done;']
       containers:
       - name: mayastor
-        image: mayadata/mayastor:develop
+        image: mayadata/mayastor:v0.7.1
         imagePullPolicy: Always
         env:
         - name: MY_NODE_NAME
