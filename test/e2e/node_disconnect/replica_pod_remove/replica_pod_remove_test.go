@@ -2,16 +2,16 @@ package replica_pod_remove_test
 
 import (
 	"e2e-basic/common"
+	rep "e2e-basic/common/reporter"
+
 	disconnect_lib "e2e-basic/node_disconnect/lib"
 
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
-	"os"
 	"testing"
 
 	. "github.com/onsi/ginkgo"
-	"github.com/onsi/ginkgo/reporters"
 	. "github.com/onsi/gomega"
 )
 
@@ -21,10 +21,7 @@ const gStorageClass = "mayastor-nvmf-pod-remove-test-sc"
 
 func TestMayastorPodLoss(t *testing.T) {
 	RegisterFailHandler(Fail)
-	reportDir := os.Getenv("e2e_reports_dir")
-	junitReporter := reporters.NewJUnitReporter(reportDir + "/replica-pod-remove-junit.xml")
-	RunSpecsWithDefaultAndCustomReporters(t, "Replica pod removal tests",
-		[]Reporter{junitReporter})
+	RunSpecsWithDefaultAndCustomReporters(t, "Replica pod removal tests", rep.GetReporters("replica-pod-remove"))
 }
 
 var _ = Describe("Mayastor replica pod removal test", func() {

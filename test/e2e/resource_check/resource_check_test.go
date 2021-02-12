@@ -2,11 +2,10 @@ package basic_test
 
 import (
 	"e2e-basic/common"
-	"os"
+	rep "e2e-basic/common/reporter"
 	"testing"
 
 	. "github.com/onsi/ginkgo"
-	"github.com/onsi/ginkgo/reporters"
 	. "github.com/onsi/gomega"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
@@ -44,11 +43,7 @@ func resourceCheck() {
 
 func TestResourceCheck(t *testing.T) {
 	RegisterFailHandler(Fail)
-
-	reportDir := os.Getenv("e2e_reports_dir")
-	junitReporter := reporters.NewJUnitReporter(reportDir + "/resource_check-junit.xml")
-	RunSpecsWithDefaultAndCustomReporters(t, "Resource Check Suite",
-		[]Reporter{junitReporter})
+	RunSpecsWithDefaultAndCustomReporters(t, "Resource Check Suite", rep.GetReporters("resource_check"))
 }
 
 var _ = Describe("Mayastor resource check", func() {

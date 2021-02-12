@@ -10,6 +10,11 @@ def e2e_environment="hcloud-kubeadm"
 // Global variable to pass current k8s job between stages
 def k8s_job=""
 
+xray_projectkey='MQ'
+xray_on_demand_testplan='MQ-1'
+xray_nightly_testplan='MQ-17'
+xray_test_execution_type='10059'
+
 // Searches previous builds to find first non aborted one
 def getLastNonAbortedBuild(build) {
   if (build == null) {
@@ -42,6 +47,16 @@ def notifySlackUponStateChange(build) {
       )
     }
   }
+}
+
+def getTestPlan() {
+  def causes = currentBuild.getBuildCauses()
+  for(cause in causes) {
+    if ("${cause}".contains("hudson.triggers.TimerTrigger\$TimerTriggerCause")) {
+      return xray_nightly_testplan
+    }
+  }
+  return xray_on_demand_testplan
 }
 
 // Will ABORT current job for cases when we don't want to build
@@ -245,6 +260,34 @@ pipeline {
                         "Note: you need to click `proceed` and will get an empty page when using destroy link. " +
                         "(<https://mayadata.atlassian.net/wiki/spaces/MS/pages/247332965/Test+infrastructure#On-Demand-E2E-K8S-Clusters|doc>)"
                     )
+                  }
+                }
+                always { // always send the junit results back to Xray and Jenkins
+                  junit 'e2e.*.xml'
+                  script {
+                    def xray_testplan = getTestPlan()
+                    step([
+                      $class: 'XrayImportBuilder',
+                      endpointName: '/junit/multipart',
+                      importFilePath: 'e2e.*.xml',
+                      importToSameExecution: 'true',
+                      projectKey: "${xray_projectkey}",
+                      testPlanKey: "${xray_testplan}",
+                      serverInstance: "${env.JIRASERVERUUID}",
+                      inputInfoSwitcher: 'fileContent',
+                      importInfo: """{
+                        "fields": {
+                          "summary": "Build ${env.BUILD_NUMBER}",
+                          "project": {
+                            "key": "${xray_projectkey}"
+                          },
+                          "issuetype": {
+                            "id": "${xray_test_execution_type}"
+                          },
+                          "description": "Results for build ${env.BUILD_NUMBER} at ${env.BUILD_URL}"
+                        }
+                      }"""
+                    ])
                   }
                 }
               }
