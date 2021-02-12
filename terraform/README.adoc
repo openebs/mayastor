@@ -272,7 +272,7 @@ mayastor-csi images. Replace "hostname" by the name of your registry host.
 
 [source,bash]
 ----
-nix-build '<nixpkgs>' -A images.moac-image
+nix-build '<nixpkgs>' -A images.moac
 docker load <result
 docker tag mayadata/moac hostname:5000/moac:latest
 docker push hostname:5000/moac:latest
@@ -280,7 +280,7 @@ docker push hostname:5000/moac:latest
 
 [source,bash]
 ----
-nix-build '<nixpkgs>' -A images.moac-image
+nix-build '<nixpkgs>' -A images.moac
 skopeo copy --dest-tls-verify=false docker-archive:result docker://hostname:5000/mayadata/moac:latest
 ----
 

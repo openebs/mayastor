@@ -3,7 +3,7 @@ kind: Deployment
 apiVersion: apps/v1
 metadata:
   name: nats
-  namespace: mayastor
+  namespace: {{ .Release.Namespace }}
 spec:
   replicas: 1
   selector:
@@ -27,7 +27,7 @@ kind: Service
 apiVersion: v1
 metadata:
   name: nats
-  namespace: mayastor
+  namespace: {{ .Release.Namespace }}
 spec:
   selector:
     app: nats

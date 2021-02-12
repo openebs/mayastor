@@ -19,6 +19,8 @@
 , sources
 , xfsprogs
 , utillinux
+, rustup
+, docker-compose
 }:
 let
   channel = import ../../lib/rust.nix { inherit sources; };
@@ -36,34 +38,36 @@ let
       src;
   version_drv = import ../../lib/version.nix { inherit lib stdenv git; };
   version = builtins.readFile "${version_drv}";
+  src_list = [
+    "Cargo.lock"
+    "Cargo.toml"
+    "cli"
+    "csi"
+    "devinfo"
+    "jsonrpc"
+    "mayastor"
+    "nvmeadm"
+    "rpc"
+    "spdk-sys"
+    "sysfs"
+    "control-plane"
+    "composer"
+  ];
   buildProps = rec {
     name = "mayastor";
     #cargoSha256 = "0000000000000000000000000000000000000000000000000000";
-    cargoSha256 = "1c93jzly0pa2k7h40m4fn86v39n8a9kra2087rxnqa9nk0gw0lha";
+    cargoSha256 = "1c5zwaivwsx7gznjvsd0gfhbvjji5q1qbjacdm6vfapqv9i79yfn";
     inherit version;
-    src = whitelistSource ../../../. [
-      "Cargo.lock"
-      "Cargo.toml"
-      "cli"
-      "csi"
-      "devinfo"
-      "jsonrpc"
-      "mayastor"
-      "nvmeadm"
-      "rpc"
-      "spdk-sys"
-      "sysfs"
-      "mbus-api"
-      "services"
-      "rest"
-      "operators"
-      "composer"
-    ];
-
+    src = whitelistSource ../../../. src_list;
     LIBCLANG_PATH = "${llvmPackages.libclang}/lib";
     PROTOC = "${protobuf}/bin/protoc";
     PROTOC_INCLUDE = "${protobuf}/include";
 
+    # Before editing dependencies, consider:
+    # https://nixos.org/manual/nixpkgs/stable/#ssec-cross-dependency-implementation
+    # https://nixos.org/manual/nixpkgs/stable/#ssec-stdenv-dependencies
+    basePackages = [
+    ];
     nativeBuildInputs = [
       clang
       pkg-config
@@ -85,6 +89,7 @@ let
   };
 in
 {
+  inherit src_list;
   release = rustPlatform.buildRustPackage
     (buildProps // {
       buildType = "release";
@@ -106,7 +111,6 @@ in
       ../../../target/debug/mayastor-csi
       ../../../target/debug/mayastor-client
       ../../../target/debug/jsonrpc
-      ../../../target/debug/kiiss
     ];
 
     buildInputs = [

@@ -91,10 +91,10 @@ module.exports = function () {
     const node = new Node('node');
     const stub = sinon.stub(node, 'call');
     stub.onCall(0).resolves({});
-    stub.onCall(1).resolves({ deviceUri: 'file:///dev/nbd0' });
+    stub.onCall(1).resolves({ deviceUri: 'nvmf://host/nqn' });
 
     shouldFailWith(GrpcCode.INTERNAL, async () => {
-      await volume.publish('nbd');
+      await volume.publish('nvmf');
     });
     sinon.assert.notCalled(stub);
   });
@@ -103,10 +103,10 @@ module.exports = function () {
     const [volume, node] = createFakeVolume('healthy');
     const stub = sinon.stub(node, 'call');
     stub.onCall(0).resolves({ uuid: UUID, size: 100, state: 'NEXUS_ONLINE', children: [{ uri: `bdev:///${UUID}`, state: 'CHILD_ONLINE' }] });
-    stub.onCall(1).resolves({ deviceUri: 'file:///dev/nbd0' });
+    stub.onCall(1).resolves({ deviceUri: 'nvmf://host/nqn' });
 
-    const uri = await volume.publish('nbd');
-    expect(uri).to.equal('file:///dev/nbd0');
+    const uri = await volume.publish('nvmf');
+    expect(uri).to.equal('nvmf://host/nqn');
     sinon.assert.calledTwice(stub);
     sinon.assert.calledWithMatch(stub.firstCall, 'createNexus', {
       uuid: UUID,
@@ -126,10 +126,10 @@ module.exports = function () {
     nexus.bind(node);
     volume.newNexus(nexus);
 
-    stub.resolves({ deviceUri: 'file:///dev/nbd0' });
-    const uri = await volume.publish('nbd');
-    expect(uri).to.equal('file:///dev/nbd0');
-    expect(nexus.deviceUri).to.equal('file:///dev/nbd0');
+    stub.resolves({ deviceUri: 'nvmf://host/nqn' });
+    const uri = await volume.publish('nvmf');
+    expect(uri).to.equal('nvmf://host/nqn');
+    expect(nexus.deviceUri).to.equal('nvmf://host/nqn');
     sinon.assert.calledOnce(stub);
     sinon.assert.calledWithMatch(stub, 'publishNexus', {
       uuid: UUID,
@@ -144,10 +144,10 @@ module.exports = function () {
     const getUriStub = sinon.stub(nexus, 'getUri');
     nexus.bind(node);
     volume.newNexus(nexus);
-    getUriStub.returns('file:///dev/nbd0');
+    getUriStub.returns('nvmf://host/nqn');
 
-    const uri = await volume.publish('nbd');
-    expect(uri).to.equal('file:///dev/nbd0');
+    const uri = await volume.publish('nvmf');
+    expect(uri).to.equal('nvmf://host/nqn');
     sinon.assert.notCalled(stub);
     sinon.assert.calledOnce(getUriStub);
   });
@@ -160,13 +160,13 @@ module.exports = function () {
     nexus.bind(node);
     volume.newNexus(nexus);
     volume.publishedOn = node.name;
-    getUriStub.returns('file:///dev/nbd0');
+    getUriStub.returns('nvmf://host/nqn');
     stub.onCall(0).resolves({});
 
     await volume.unpublish();
     expect(volume.getNodeName()).to.be.undefined();
     sinon.assert.calledOnce(stub);
-    sinon.assert.calledWithMatch(stub, 'destroyNexus', {
+    sinon.assert.calledWithMatch(stub, 'unpublishNexus', {
       uuid: UUID
     });
   });
@@ -184,10 +184,7 @@ module.exports = function () {
 
     await volume.unpublish();
     expect(volume.getNodeName()).to.be.undefined();
-    sinon.assert.calledOnce(stub);
-    sinon.assert.calledWithMatch(stub, 'destroyNexus', {
-      uuid: UUID
-    });
+    sinon.assert.notCalled(stub);
   });
 
   it('should unpublish volume without nexus', async () => {

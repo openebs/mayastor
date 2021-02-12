@@ -40,7 +40,7 @@ use spdk_sys::{
 };
 
 use crate::{
-    bdev::nexus::nexus_child_status_config::ChildStatusConfig,
+    bdev::{nexus, nexus::nexus_child_status_config::ChildStatusConfig},
     core::{
         reactor::{Reactor, ReactorState, Reactors},
         Cores,
@@ -279,6 +279,7 @@ async fn do_shutdown(arg: *mut c_void) {
     }
 
     iscsi::fini();
+    nexus::nexus_children_to_destroying_state().await;
     unsafe {
         spdk_rpc_finish();
         spdk_subsystem_fini(Some(reactors_stop), arg);

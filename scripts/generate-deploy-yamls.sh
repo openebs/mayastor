@@ -43,10 +43,10 @@ tmpd=$(mktemp -d /tmp/generate-deploy.sh.XXXXXXXX)
 # shellcheck disable=SC2064
 trap "rm -fr '$tmpd'" HUP QUIT EXIT TERM INT
 
-if [ "$mayastor_images_repo" = "NONE" ]; then
-	helm template --set "mayastorImagesTag=$1" mayastor "$SCRIPTDIR/../chart" --output-dir="$tmpd" --namespace mayastor
-else
-	helm template --set "mayastorImagesTag=$1,mayastorImagesRepo=$mayastor_images_repo" mayastor "$SCRIPTDIR/../chart" --output-dir="$tmpd" --namespace mayastor
+template_params="mayastorImagesTag=$1"
+if [ "$mayastor_images_repo" != "NONE" ]; then
+	template_params="$template_params,mayastorImagesRepo=$mayastor_images_repo"
 fi
+helm template --set "$template_params" mayastor "$SCRIPTDIR/../chart" --output-dir="$tmpd" --namespace mayastor
 
 mv "$tmpd"/mayastor/templates/*.yaml "$TARGET_DIR"

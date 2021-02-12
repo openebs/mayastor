@@ -20,7 +20,7 @@ EOF
 
 function cluster-get {
     echo "-- PODS mayastor* --------------------"
-    # csi tests creates relevant namespaces containing mayastor
+    # The CSI tests creates namespaces containing the text mayastor
     mns=$(kubectl get ns | grep mayastor | sed -e "s/ .*//")
     for ns in $mns
     do
@@ -42,11 +42,16 @@ function cluster-get {
     kubectl -n mayastor get msn --sort-by=.metadata.creationTimestamp
     echo "-- K8s Nodes -----------------------------"
     kubectl get nodes -o wide --show-labels
+    echo "-- K8s Deployments -------------------"
+    kubectl -n mayastor get deployments
+    echo "-- K8s Daemonsets --------------------"
+    kubectl -n mayastor get daemonsets
+
 }
 
 function cluster-describe {
     echo "-- PODS mayastor* --------------------"
-    # csi tests creates relevant namespaces containing mayastor
+    # The CSI tests creates namespaces containing the text mayastor
     mns=$(kubectl get ns | grep mayastor | sed -e "s/ .*//")
     for ns in $mns
     do
@@ -66,100 +71,133 @@ function cluster-describe {
     kubectl -n mayastor describe msv
     echo "-- Mayastor Nodes --------------------"
     kubectl -n mayastor describe msn
-    echo "-- K8s Nodes -----------------------------"
+    echo "-- K8s Nodes -------------------------"
     kubectl describe nodes
+    echo "-- K8s Deployments -------------------"
+    kubectl -n mayastor describe deployments
+    echo "-- K8s Daemonsets --------------------"
+    kubectl -n mayastor describe daemonsets
 }
 
-function logs-csi-containers {
+function podHasRestarts {
+    rst=$(kubectl -n mayastor get pods "$1" | grep -v NAME | awk '{print $4}')
+
+    # Adjust the return value, to yield readable statements, like:
+    # if podHasRestarts $podname ; then
+    #     handle_restarted_pods
+    # fi
+    if [ $((rst)) -ne 0 ]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# args filename kubectlargs
+# filename == "" -> stdout
+function kubectlEmitLogs {
+    fname=$1
+    shift
+
+    if [ -n "$fname" ]; then
+        kubectl -n mayastor logs "$@" >& "$fname"
+    else
+        kubectl -n mayastor logs "$@"
+    fi
+}
+
+# args = destdir podname containername
+# if $destdir != "" then log files are generate in $destdir
+#   with the name of the pod and container.
+function emitPodContainerLogs {
+    destdir=$1
+    podname=$2
+    containername=$3
+
+    if [ -z "$podname" ] || [ -z "$containername" ]; then
+        echo "ERROR calling emitPodContainerLogs"
+        return
+    fi
+
+    if podHasRestarts "$podname" ; then
+        if [ -z "$destdir" ]; then
+            echo "# $podname $containername previous -------------------"
+            logfile=""
+        else
+            logfile="$destdir/$podname.$containername.previous.log"
+        fi
+
+        kubectlEmitLogs "$logfile" -p "$podname" "$containername"
+    fi
+
+    if [ -z "$destdir" ]; then
+        echo "# $podname $containername ----------------------------"
+        logfile=""
+    else
+        logfile="$destdir/$podname.$containername.log"
+    fi
+
+    kubectlEmitLogs "$logfile" "$podname" "$containername"
+}
+
+# arg1 = destdir or "" for stdout
+function getLogsMayastorCSI {
     mayastor_csipods=$(kubectl -n mayastor get pods | grep mayastor-csi | sed -e 's/ .*//')
     for pod in $mayastor_csipods
     do
-        echo "# $pod csi-driver-registrar $* ---------------------------------"
-        kubectl -n mayastor logs "$@" "$pod" csi-driver-registrar
-    done
-
-    moacpod=$(kubectl -n mayastor get pods | grep moac | sed -e 's/ .*//')
-    echo "# $moacpod csi-provisioner $* ---------------------------------"
-    kubectl -n mayastor logs "$@" "$moacpod" csi-provisioner
-    echo "# $moacpod csi-attacher $* ---------------------------------"
-    kubectl -n mayastor logs "$@" "$moacpod" csi-attacher
-}
-
-function logs-csi-mayastor {
-    mayastor_csipods=$(kubectl -n mayastor get pods | grep mayastor-csi | sed -e 's/ .*//')
-    for pod in $mayastor_csipods
-    do
-        echo "# $pod mayastor-csi $* ---------------------------------"
-        kubectl -n mayastor logs "$@" "$pod"  mayastor-csi
+        # emitPodContainerLogs destdir podname containername
+        emitPodContainerLogs "$1" "$pod" mayastor-csi
+        emitPodContainerLogs "$1" "$pod" csi-driver-registrar
     done
 }
 
-function logs-mayastor {
+# arg1 = destdir or "" for stdout
+function getLogsMayastor {
     mayastor_pods=$(kubectl -n mayastor get pods | grep mayastor | grep -v mayastor-csi | sed -e 's/ .*//')
     for pod in $mayastor_pods
     do
-        echo "# $pod mayastor $* ---------------------------------"
-        kubectl -n mayastor logs "$@" "$pod"  mayastor
+        # emitPodContainerLogs destdir podname containername
+        emitPodContainerLogs "$1" "$pod" mayastor
     done
 }
 
-function logs-moac {
+# arg1 = destdir or "" for stdout
+function getLogsMOAC {
     moacpod=$(kubectl -n mayastor get pods | grep moac | sed -e 's/ .*//')
-    echo "# $moacpod moac $* ---------------------------------"
-    kubectl -n mayastor logs "$@" "$moacpod" moac
-}
-
-# $1 = podlogs, 0 => do not generate pod logs
-function dump-to-stdout {
-    echo "# Cluster ---------------------------------"
-    cluster-get
-    cluster-describe
-
-    if [ "$1" -ne 0 ]; then
-        logs-moac
-        logs-mayastor
-        logs-csi-mayastor
-        logs-csi-containers
-
-        logs-moac -p
-        logs-mayastor -p
-        logs-csi-mayastor -p
-        logs-csi-containers -p
-    fi
-    echo "# END ---------------------------------"
-}
-
-# $1 = podlogs, 0 => do not generate pod logs
-# $2 = dest  mkdir $dest and generate logs there.
-function dump-to-dir {
-    dest="$2"
-    echo "Generating logs in $dest"
-    mkdir -p "$dest"
-
-    cluster-get >& "$dest/cluster.get.txt"
-    cluster-describe >& "$dest/cluster.describe.txt"
-
-    if [ "$1" -ne 0 ]; then
-        logs-moac >& "$dest/moac.log"
-        logs-mayastor >& "$dest/mayastor.log"
-        logs-csi-mayastor >& "$dest/csi-mayastor.log"
-        logs-csi-containers >& "$dest/csi-containers.log"
-
-        logs-moac -p >& "$dest/moac.previous.log"
-        logs-mayastor -p >& "$dest/mayastor.previous.log"
-        logs-csi-mayastor -p >& "$dest/csi-mayastor.previous.log"
-        logs-csi-containers -p >& "$dest/csi-containers.previous.log"
-    fi
+    # emitPodContainerLogs destdir podname containername
+    emitPodContainerLogs "$1" "$moacpod" moac
+    emitPodContainerLogs "$1" "$moacpod" csi-provisioner
+    emitPodContainerLogs "$1" "$moacpod" csi-attacher
 }
 
 # $1 = podlogs, 0 => do not generate pod logs
 # $2 = [destdir] undefined => dump to stdout,
 #                   otherwise generate log files in $destdir
-function dump {
-    if [ -z "$2" ]; then
-        dump-to-stdout "$1"
+function getLogs {
+    podlogs="$1"
+    shift
+    dest="$1"
+    shift
+
+    if [ -n "$dest" ];
+    then
+        mkdir -p "$dest"
+    fi
+
+    if [ "$podlogs" -ne 0 ]; then
+        getLogsMOAC "$dest"
+        getLogsMayastor "$dest"
+        getLogsMayastorCSI "$dest"
+    fi
+
+    if [ -n "$dest" ];
+    then
+        cluster-get >& "$dest/cluster.get.txt"
+        cluster-describe >& "$dest/cluster.describe.txt"
+        echo "logfiles generated in $dest"
     else
-        dump-to-dir "$1" "$2"
+        cluster-get
+        cluster-describe
     fi
 }
 
@@ -185,5 +223,5 @@ while [ "$#" -gt 0 ]; do
   shift
 done
 
-# @here dump to stdout
-dump "$podlogs" "$destdir"
+# getLogs podlogs destdir
+getLogs "$podlogs" "$destdir"

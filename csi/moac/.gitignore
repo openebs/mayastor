@@ -1,7 +1,7 @@
 /node_modules/
 /proto/
 /result
-/watcher.js
+/csi.js
 /nexus.js
 /node.js
 /node_operator.js
@@ -11,4 +11,6 @@
 /volume.js
 /volumes.js
 /volume_operator.js
+/watcher.js
+/workq.js
 /*.js.map

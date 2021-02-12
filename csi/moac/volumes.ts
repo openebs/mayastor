@@ -1,26 +1,33 @@
 // Volume manager implementation.
 
 import assert from 'assert';
-import { Nexus } from './nexus';
-import { Replica } from './replica';
 import { Volume, VolumeState } from './volume';
+import { Workq } from './workq';
 
 const EventEmitter = require('events');
 const EventStream = require('./event_stream');
 const { GrpcCode, GrpcError } = require('./grpc_client');
 const log = require('./logger').Logger('volumes');
 
+// Type used in "create volume" workq
+type CreateArgs = {
+  uuid: string;
+  spec: any;
+}
+
 // Volume manager that emit events for new/modified/deleted volumes.
 export class Volumes extends EventEmitter {
   private registry: any;
   private events: any; // stream of events from registry
   private volumes: Record<string, Volume>; // volumes indexed by uuid
+  private createWorkq: Workq;
 
   constructor (registry: any) {
     super();
     this.registry = registry;
     this.events = null;
     this.volumes = {};
+    this.createWorkq = new Workq('create volume');
   }
 
   start() {
@@ -88,9 +95,8 @@ export class Volumes extends EventEmitter {
     return Object.values(this.volumes);
   }
 
-  // Create volume object (just the object) and add it to the internal list
-  // of volumes. The method is idempotent. If a volume with the same uuid
-  // already exists, then update its parameters.
+  // We have to serialize create volume requests because concurrent creates
+  // can create havoc in space accounting and contribute to overall mess.
   //
   // @param   {string}   uuid                 ID of the volume.
   // @param   {object}   spec                 Properties of the volume.
@@ -101,8 +107,17 @@ export class Volumes extends EventEmitter {
   // @params  {number}   spec.limitBytes      The volume should not be bigger than this.
   // @params  {string}   spec.protocol        The share protocol for the nexus.
   // @returns {object}   New volume object.
-  //
   async createVolume(uuid: string, spec: any): Promise<Volume> {
+    return await this.createWorkq.push({uuid, spec}, (args: CreateArgs) => {
+      return this._createVolume(args.uuid, args.spec);
+    });
+  }
+
+  // Create volume object (just the object) and add it to the internal list
+  // of volumes. The method is idempotent. If a volume with the same uuid
+  // already exists, then update its parameters.
+  //
+  async _createVolume(uuid: string, spec: any): Promise<Volume> {
     if (!spec.requiredBytes || spec.requiredBytes < 0) {
       throw new GrpcError(
         GrpcCode.INVALID_ARGUMENT,
@@ -127,12 +142,6 @@ export class Volumes extends EventEmitter {
         eventType: 'new',
         object: volume
       });
-      // check for components that already exist and assign them to the volume
-      this.registry.getReplicaSet(uuid).forEach((r: Replica) => volume.newReplica(r));
-      const nexus: Nexus = this.registry.getNexus(uuid);
-      if (nexus) {
-        volume.newNexus(nexus);
-      }
 
       try {
         await volume.create();
@@ -199,16 +208,9 @@ export class Volumes extends EventEmitter {
           object: volume
         });
       }, spec, status.state, status.size, publishedOn);
+      volume.attach();
+      volume.state = VolumeState.Unknown;
       this.volumes[uuid] = volume;
-
-      // attach any associated replicas to the volume
-      this.registry.getReplicaSet(uuid).forEach((r: Replica) => volume.newReplica(r));
-
-      const nexus = this.registry.getNexus(uuid);
-      if (nexus) {
-        volume.newNexus(nexus);
-      }
-      volume._setState(VolumeState.Unknown);
       volume.fsa();
     }
     return volume;

@@ -3,10 +3,11 @@ authors = ["Jeffry Molanus <jeffry.molanus@gmail.com>"]
 edition = "2018"
 name = "mayastor"
 version = "0.1.0"
+default-run = "mayastor-client"
 
 [[bin]]
 name = "mayastor"
-path = "src/bin/main.rs"
+path = "src/bin/mayastor.rs"
 
 [[bin]]
 name = "spdk"
@@ -22,7 +23,7 @@ path = "src/bin/uring-support.rs"
 
 [[bin]]
 name = "mayastor-client"
-path = "src/bin/cli/cli.rs"
+path = "src/bin/mayastor-client/main.rs"
 
 [[bin]]
 name = "jsonrpc"
@@ -82,7 +83,7 @@ smol = "1.0.0"
 dns-lookup = "1.0.4"
 ipnetwork = "0.17.0"
 bollard = "0.8.0"
-mbus_api = { path = "../mbus-api" }
+mbus_api = { path = "../control-plane/mbus-api" }
 nvmeadm = {path = "../nvmeadm", version = "0.1.0"}
 
 [dependencies.rpc]

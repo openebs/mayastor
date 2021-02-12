@@ -17,11 +17,11 @@ import {
   CustomResourceCache,
   CustomResourceMeta,
 } from './watcher';
+import { Workq } from './workq';
 
 const yaml = require('js-yaml');
 const EventStream = require('./event_stream');
 const log = require('./logger').Logger('node-operator');
-const Workq = require('./workq');
 
 const RESOURCE_NAME: string = 'mayastornode';
 const crdNode = yaml.safeLoad(
@@ -75,7 +75,7 @@ export class NodeOperator {
   watcher: CustomResourceCache<NodeResource>; // k8s resource watcher for nodes
   registry: any;
   namespace: string;
-  workq: any; // for serializing node operations
+  workq: Workq; // for serializing node operations
   eventStream: any; // events from the registry
 
   // Create node operator object.
@@ -92,7 +92,7 @@ export class NodeOperator {
   ) {
     assert(registry);
     this.namespace = namespace;
-    this.workq = new Workq();
+    this.workq = new Workq('mayastornode');
     this.registry = registry;
     this.watcher = new CustomResourceCache(
       this.namespace,

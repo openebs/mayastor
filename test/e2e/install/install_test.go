@@ -114,6 +114,13 @@ func getDeployYamlDir() string {
 	return path.Clean(filename + "/../../../../deploy")
 }
 
+// Create mayastor namespace
+func createNamespace() {
+	cmd := exec.Command("kubectl", "create", "namespace", "mayastor")
+	out, err := cmd.CombinedOutput()
+	Expect(err).ToNot(HaveOccurred(), "%s", out)
+}
+
 // Helper for passing yaml from the deploy directory to kubectl
 func applyDeployYaml(filename string) {
 	cmd := exec.Command("kubectl", "apply", "-f", filename)
@@ -126,10 +133,6 @@ func applyDeployYaml(filename string) {
 func getTemplateYamlDir() string {
 	_, filename, _, _ := runtime.Caller(0)
 	return path.Clean(filename + "/../deploy")
-}
-
-func makeImageName(registryAddress string, imagename string, imageversion string) string {
-	return registryAddress + "/mayadata/" + imagename + ":" + imageversion
 }
 
 func generateYamls(imageTag string, registryAddress string) {
@@ -150,13 +153,41 @@ func mayastorReadyPodCount() int {
 	return int(mayastorDaemonSet.Status.NumberAvailable)
 }
 
-func moacReadyPodCount() int {
+func moacReady() bool {
 	var moacDeployment appsV1.Deployment
 	if k8sClient.Get(context.TODO(), types.NamespacedName{Name: "moac", Namespace: "mayastor"}, &moacDeployment) != nil {
-		fmt.Println("Failed to get MOAC deployment")
-		return -1
+		logf.Log.Info("Failed to get MOAC deployment")
+		return false
 	}
-	return int(moacDeployment.Status.AvailableReplicas)
+
+	// { Remove/Reduce verbosity once we have fixed install test occasional failure.
+	logf.Log.Info("moacDeployment.Status",
+		"ObservedGeneration", moacDeployment.Status.ObservedGeneration,
+		"Replicas", moacDeployment.Status.Replicas,
+		"UpdatedReplicas", moacDeployment.Status.UpdatedReplicas,
+		"ReadyReplicas", moacDeployment.Status.ReadyReplicas,
+		"AvailableReplicas", moacDeployment.Status.AvailableReplicas,
+		"UnavailableReplicas", moacDeployment.Status.UnavailableReplicas,
+		"CollisionCount", moacDeployment.Status.CollisionCount)
+	for ix, condition := range moacDeployment.Status.Conditions {
+		logf.Log.Info("Condition", "ix", ix,
+			"Status", condition.Status,
+			"Type", condition.Type,
+			"Message", condition.Message,
+			"Reason", condition.Reason)
+	}
+	// }
+
+	for _, condition := range moacDeployment.Status.Conditions {
+		if condition.Type == appsV1.DeploymentAvailable {
+			if condition.Status == coreV1.ConditionTrue {
+				logf.Log.Info("MOAC is Available")
+				return true
+			}
+		}
+	}
+	logf.Log.Info("MOAC is Not Available")
+	return false
 }
 
 // create pools for the cluster
@@ -204,7 +235,7 @@ func installMayastor() {
 	fmt.Printf("tag %v, registry %v, # of mayastor instances=%v\n", imageTag, registryAddress, numMayastorInstances)
 
 	// FIXME use absolute paths, do not depend on CWD
-	applyDeployYaml("namespace.yaml")
+	createNamespace()
 	applyDeployYaml("storage-class.yaml")
 	applyDeployYaml("moac-rbac.yaml")
 	applyDeployYaml("mayastorpoolcrd.yaml")
@@ -214,20 +245,27 @@ func installMayastor() {
 	applyDeployYaml("../test-yamls/moac-deployment.yaml")
 	applyDeployYaml("../test-yamls/mayastor-daemonset.yaml")
 
-	// Given the yamls and the environment described in the test readme,
+	// Given the yaml files and the environment described in the test readme,
 	// we expect mayastor to be running on exactly numMayastorInstances nodes.
-	Eventually(mayastorReadyPodCount,
+	Eventually(func() int {
+		return mayastorReadyPodCount()
+	},
 		"180s", // timeout
 		"1s",   // polling interval
 	).Should(Equal(numMayastorInstances))
 
-	Eventually(moacReadyPodCount(),
+	// Wait for MOAC to be ready before creating the pools,
+	Eventually(func() bool {
+		return moacReady()
+	},
 		"360s", // timeout
-		"1s",   // polling interval
-	).Should(Equal(1))
+		"2s",   // polling interval
+	).Should(Equal(true))
 
 	// Now create pools on all nodes.
 	createPools(mayastorNodes)
+
+	// Mayastor has been installed and is now ready for use.
 }
 
 func TestInstallSuite(t *testing.T) {

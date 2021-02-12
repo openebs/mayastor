@@ -19,6 +19,8 @@
 , mayastor-dev
 , mayastor-adhoc
 , utillinux
+, control-plane
+, tini
 }:
 let
   versionDrv = import ../../lib/version.nix { inherit lib stdenv git; };
@@ -51,7 +53,7 @@ let
       mkdir -p var/tmp
     '';
   };
-  servicesImageProps = {
+  clientImageProps = {
     tag = version;
     created = "now";
     config = {
@@ -62,35 +64,78 @@ let
       mkdir -p var/tmp
     '';
   };
-in
-rec {
-  mayastor-image = dockerTools.buildImage (mayastorImageProps // {
-    name = "mayadata/mayastor";
-    contents = [ busybox mayastor ];
-  });
+  operatorImageProps = {
+    tag = version;
+    created = "now";
+    config = {
+      Env = [ "PATH=${env}" ];
+    };
+  };
+  agentImageProps = {
+    tag = version;
+    created = "now";
+    config = {
+      Env = [ "PATH=${env}" ];
+    };
+  };
+  build-control-plane-image = { build, name, binary, config ? { } }: dockerTools.buildImage {
+    tag = version;
+    created = "now";
+    name = "mayadata/mayastor-${name}";
+    contents = [ tini busybox control-plane.${build}.${name} ];
+    config = { Entrypoint = [ "tini" "--" "${binary}" ]; } // config;
+  };
+  build-agent-image = { build, name, config ? { } }: build-control-plane-image {
+    inherit build name;
+    binary = "${name}-agent";
+  };
+  build-operator-image = { build, name, config ? { } }: build-control-plane-image {
+    inherit build;
+    name = "${name}-op";
+    binary = "${name}-operator";
+  };
 
-  mayastor-dev-image = dockerTools.buildImage (mayastorImageProps // {
-    name = "mayadata/mayastor-dev";
-    contents = [ busybox mayastor-dev ];
-  });
-
-  mayastor-adhoc-image = dockerTools.buildImage (mayastorImageProps // {
-    name = "mayadata/mayastor-adhoc";
-    contents = [ busybox mayastor-adhoc ];
-  });
-
+  operator-images = { build }: {
+    node = build-operator-image { inherit build; name = "node"; };
+  };
+  agent-images = { build }: {
+    kiiss = build-agent-image { inherit build; name = "kiiss"; };
+    node = build-agent-image { inherit build; name = "node"; };
+    pool = build-agent-image { inherit build; name = "pool"; };
+    volume = build-agent-image { inherit build; name = "volume"; };
+    rest = build-agent-image {
+      inherit build; name = "rest";
+      config = { ExposedPorts = { "8080/tcp" = { }; "8081/tcp" = { }; }; };
+    };
+  };
   mayastorIscsiadm = writeScriptBin "mayastor-iscsiadm" ''
     #!${stdenv.shell}
     chroot /host /usr/bin/env -i PATH="/sbin:/bin:/usr/bin" iscsiadm "$@"
   '';
+in
+{
+  mayastor = dockerTools.buildImage (mayastorImageProps // {
+    name = "mayadata/mayastor";
+    contents = [ busybox mayastor ];
+  });
 
-  mayastor-csi-image = dockerTools.buildLayeredImage (mayastorCsiImageProps // {
+  mayastor-dev = dockerTools.buildImage (mayastorImageProps // {
+    name = "mayadata/mayastor-dev";
+    contents = [ busybox mayastor-dev ];
+  });
+
+  mayastor-adhoc = dockerTools.buildImage (mayastorImageProps // {
+    name = "mayadata/mayastor-adhoc";
+    contents = [ busybox mayastor-adhoc ];
+  });
+
+  mayastor-csi = dockerTools.buildLayeredImage (mayastorCsiImageProps // {
     name = "mayadata/mayastor-csi";
     contents = [ busybox mayastor mayastorIscsiadm ];
     maxLayers = 42;
   });
 
-  mayastor-csi-dev-image = dockerTools.buildImage (mayastorCsiImageProps // {
+  mayastor-csi-dev = dockerTools.buildImage (mayastorCsiImageProps // {
     name = "mayadata/mayastor-csi-dev";
     contents = [ busybox mayastor-dev mayastorIscsiadm ];
   });
@@ -98,7 +143,7 @@ rec {
   # The algorithm for placing packages into the layers is not optimal.
   # There are a couple of layers with negligable size and then there is one
   # big layer with everything else. That defeats the purpose of layering.
-  moac-image = dockerTools.buildLayeredImage {
+  moac = dockerTools.buildLayeredImage {
     name = "mayadata/moac";
     tag = version;
     created = "now";
@@ -122,23 +167,15 @@ rec {
     maxLayers = 42;
   };
 
-  services-kiiss-image = dockerTools.buildLayeredImage (servicesImageProps // {
-    name = "mayadata/services-kiiss";
-    contents = [ busybox mayastor ];
-    config = { Entrypoint = [ "/bin/kiiss" ]; };
-    maxLayers = 42;
-  });
-
-  services-kiiss-dev-image = dockerTools.buildImage (servicesImageProps // {
-    name = "mayadata/services-kiiss-dev";
-    contents = [ busybox mayastor ];
-    config = { Entrypoint = [ "/bin/kiiss" ]; };
-  });
-
-  mayastor-client-image = dockerTools.buildImage (servicesImageProps // {
+  mayastor-client = dockerTools.buildImage (clientImageProps // {
     name = "mayadata/mayastor-client";
     contents = [ busybox mayastor ];
     config = { Entrypoint = [ "/bin/mayastor-client" ]; };
   });
 
+  agents = agent-images { build = "release"; };
+  agents-dev = agent-images { build = "debug"; };
+
+  operators = operator-images { build = "release"; };
+  operators-dev = operator-images { build = "debug"; };
 }

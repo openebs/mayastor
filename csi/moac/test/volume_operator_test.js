@@ -52,7 +52,7 @@ const defaultSpec = {
   requiredNodes: ['node2'],
   requiredBytes: 100,
   limitBytes: 120,
-  protocol: 'nbd'
+  protocol: 'nvmf'
 };
 
 const defaultStatus = {
@@ -60,7 +60,7 @@ const defaultStatus = {
   targetNodes: ['node2'],
   state: 'healthy',
   nexus: {
-    deviceUri: 'file:///dev/nbd0',
+    deviceUri: 'nvmf://host/nqn',
     state: 'NEXUS_ONLINE',
     node: 'node2',
     children: [
@@ -129,7 +129,7 @@ module.exports = function () {
           node: 'node2',
           state: 'healthy',
           nexus: {
-            deviceUri: 'file:///dev/nbd0',
+            deviceUri: 'nvmf://host/nqn',
             state: 'NEXUS_ONLINE',
             node: 'node2',
             children: [
@@ -160,7 +160,7 @@ module.exports = function () {
       expect(res.spec.limitBytes).to.equal(120);
       expect(res.status.size).to.equal(110);
       expect(res.status.state).to.equal('healthy');
-      expect(res.status.nexus.deviceUri).to.equal('file:///dev/nbd0');
+      expect(res.status.nexus.deviceUri).to.equal('nvmf://host/nqn');
       expect(res.status.nexus.state).to.equal('NEXUS_ONLINE');
       expect(res.status.nexus.node).to.equal('node2');
       expect(res.status.nexus.children).to.have.length(1);
@@ -452,7 +452,7 @@ module.exports = function () {
           requiredNodes: [],
           requiredBytes: 90,
           limitBytes: 130,
-          protocol: 'nbd'
+          protocol: 'nvmf'
         },
         defaultStatus
       );
@@ -500,7 +500,7 @@ module.exports = function () {
           requiredNodes: [],
           requiredBytes: 111,
           limitBytes: 130,
-          protocol: 'nbd'
+          protocol: 'nvmf'
         },
         defaultStatus
       );
@@ -765,7 +765,7 @@ module.exports = function () {
         requiredNodes: [],
         requiredBytes: 90,
         limitBytes: 130,
-        protocol: 'nbd'
+        protocol: 'nvmf'
       };
       const volume = new Volume(UUID, registry, () => {}, newSpec);
       volumes.emit('volume', {
@@ -795,7 +795,7 @@ module.exports = function () {
         requiredNodes: [],
         requiredBytes: 90,
         limitBytes: 130,
-        protocol: 'nbd'
+        protocol: 'nvmf'
       };
       const volume = new Volume(UUID, registry, () => {}, newSpec);
       volumes.emit('volume', {

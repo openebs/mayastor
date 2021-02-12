@@ -13,11 +13,11 @@ import {
   CustomResourceCache,
   CustomResourceMeta,
 } from './watcher';
+import { Workq } from './workq';
 
 const yaml = require('js-yaml');
 const log = require('./logger').Logger('pool-operator');
 const EventStream = require('./event_stream');
-const Workq = require('./workq');
 
 const RESOURCE_NAME: string = 'mayastorpool';
 const POOL_FINALIZER = 'finalizer.mayastor.openebs.io';
@@ -125,7 +125,7 @@ export class PoolOperator {
   watcher: CustomResourceCache<PoolResource>; // k8s resource watcher for pools
   registry: any; // registry containing info about mayastor nodes
   eventStream: any; // A stream of node and pool events.
-  workq: any; // for serializing pool operations
+  workq: Workq; // for serializing pool operations
 
   // Create pool operator.
   //
@@ -142,7 +142,7 @@ export class PoolOperator {
     this.namespace = namespace;
     this.registry = registry; // registry containing info about mayastor nodes
     this.eventStream = null; // A stream of node and pool events.
-    this.workq = new Workq(); // for serializing pool operations
+    this.workq = new Workq('mayastorpool'); // for serializing pool operations
     this.watcher = new CustomResourceCache(
       this.namespace,
       RESOURCE_NAME,

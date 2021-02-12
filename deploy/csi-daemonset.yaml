@@ -30,7 +30,7 @@ spec:
       # the same.
       containers:
       - name: mayastor-csi
-        image: mayadata/mayastor-csi:v0.7.0
+        image: mayadata/mayastor-csi:v0.7.1
         imagePullPolicy: Always
         # we need privileged because we mount filesystems and use mknod
         securityContext:
@@ -73,15 +73,10 @@ spec:
             cpu: "100m"
             memory: "50Mi"
       - name: csi-driver-registrar
-        image: quay.io/k8scsi/csi-node-driver-registrar:v1.3.0
+        image: quay.io/k8scsi/csi-node-driver-registrar:v2.1.0
         args:
         - "--csi-address=/csi/csi.sock"
         - "--kubelet-registration-path=/var/lib/kubelet/plugins/mayastor.openebs.io/csi.sock"
-        lifecycle:
-          preStop:
-            exec:
-              # this is needed in order for CSI to detect that the plugin is gone
-              command: ["/bin/sh", "-c", "rm -f /registration/io.openebs.csi-mayastor-reg.sock /csi/csi.sock"]
         volumeMounts:
         - name: plugin-dir
           mountPath: /csi
