@@ -133,7 +133,7 @@ There are a few ways to build Mayastor! If you're hacking on Mayastor, it's best
 > [Nix paper][nix-paper].
 ### Building non-portable Nix derivations
 
-You can build release binaries of Mayastor with [`nix build`](nix-build):
+You can build release binaries of Mayastor with [`nix build`][nix-build]:
 
 ```bash
 for PKG in moac mayastor; do
@@ -173,7 +173,7 @@ done
 
 ### Building Docker images
 
-Build the Docker images with [`nix build`](nix-build):
+Build the Docker images with [`nix build`][nix-build]:
 
 ```bash
 for IMAGE in \
