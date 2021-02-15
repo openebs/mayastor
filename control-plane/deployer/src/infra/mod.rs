@@ -1,16 +1,9 @@
 pub mod dns;
 mod empty;
-pub mod jaeger;
-pub mod mayastor;
-pub mod nats;
-pub mod rest;
-
-pub use ::nats::*;
-pub use dns::*;
-pub use empty::*;
-pub use jaeger::*;
-pub use mayastor::*;
-pub use rest::*;
+mod jaeger;
+mod mayastor;
+mod nats;
+mod rest;
 
 use super::StartOptions;
 use async_trait::async_trait;
@@ -20,25 +13,48 @@ use mbus_api::{
     Message,
 };
 use paste::paste;
-use std::{cmp::Ordering, str::FromStr};
+use std::{cmp::Ordering, convert::TryFrom, str::FromStr};
 use structopt::StructOpt;
 use strum::VariantNames;
 use strum_macros::{EnumVariantNames, ToString};
-pub(crate) type Error = Box<dyn std::error::Error>;
+
+/// Error type used by the deployer
+pub type Error = Box<dyn std::error::Error>;
 
 #[macro_export]
 macro_rules! impl_ctrlp_agents {
     ($($name:ident,)+) => {
+        /// List of Control Plane Agents to deploy
         #[derive(Debug, Clone)]
-        pub(crate) struct ControlPlaneAgents(Vec<ControlPlaneAgent>);
+        pub struct ControlPlaneAgents(Vec<ControlPlaneAgent>);
 
+        impl ControlPlaneAgents {
+            /// Get inner vector of ControlPlaneAgent's
+            pub fn into_inner(self) -> Vec<ControlPlaneAgent> {
+                self.0
+            }
+        }
+
+        /// All the Control Plane Agents
         #[derive(Debug, Clone, StructOpt, ToString, EnumVariantNames)]
         #[structopt(about = "Control Plane Agents")]
-        pub(crate) enum ControlPlaneAgent {
+        pub enum ControlPlaneAgent {
             Empty(Empty),
             $(
                 $name($name),
             )+
+        }
+
+        impl TryFrom<Vec<&str>> for ControlPlaneAgents {
+            type Error = String;
+
+            fn try_from(src: Vec<&str>) -> Result<Self, Self::Error> {
+                let mut vec = vec![];
+                for src in src {
+                    vec.push(ControlPlaneAgent::from_str(src)?);
+                }
+                Ok(ControlPlaneAgents(vec))
+            }
         }
 
         impl From<&ControlPlaneAgent> for Component {
@@ -86,6 +102,9 @@ macro_rules! impl_ctrlp_agents {
             async fn start(&self, _options: &StartOptions, cfg: &ComposeTest) -> Result<(), Error> {
                 let name = stringify!($name).to_ascii_lowercase();
                 cfg.start(&name).await?;
+                Ok(())
+            }
+            async fn wait_on(&self, _options: &StartOptions, _cfg: &ComposeTest) -> Result<(), Error> {
                 Liveness {}.request_on(ChannelVs::$name).await?;
                 Ok(())
             }
@@ -99,12 +118,14 @@ macro_rules! impl_ctrlp_agents {
 #[macro_export]
 macro_rules! impl_ctrlp_operators {
     ($($name:ident,)+) => {
+        /// List of Control Plane Operators to deploy
         #[derive(Debug, Clone)]
-        pub(crate) struct ControlPlaneOperators(Vec<ControlPlaneOperator>);
+        pub struct ControlPlaneOperators(Vec<ControlPlaneOperator>);
 
+        /// All the Control Plane Operators
         #[derive(Debug, Clone, StructOpt, ToString, EnumVariantNames)]
         #[structopt(about = "Control Plane Operators")]
-        pub(crate) enum ControlPlaneOperator {
+        pub enum ControlPlaneOperator {
             Empty(Empty),
             $(
                 $name(paste!{[<$name Op>]}),
@@ -198,10 +219,7 @@ macro_rules! impl_ctrlp_operators {
     };
 }
 
-pub(crate) fn build_error(
-    name: &str,
-    status: Option<i32>,
-) -> Result<(), Error> {
+pub fn build_error(name: &str, status: Option<i32>) -> Result<(), Error> {
     let make_error = |extra: &str| {
         let error = format!("Failed to build {}: {}", name, extra);
         std::io::Error::new(std::io::ErrorKind::Other, error)
@@ -216,19 +234,81 @@ pub(crate) fn build_error(
     }
 }
 
+impl Components {
+    pub async fn start_wait(
+        &self,
+        cfg: &ComposeTest,
+        timeout: std::time::Duration,
+    ) -> Result<(), Error> {
+        match tokio::time::timeout(timeout, self.start_wait_inner(cfg)).await {
+            Ok(result) => result,
+            Err(_) => {
+                let error = format!("Time out of {:?} expired", timeout);
+                Err(std::io::Error::new(std::io::ErrorKind::TimedOut, error)
+                    .into())
+            }
+        }
+    }
+    pub async fn start(&self, cfg: &ComposeTest) -> Result<(), Error> {
+        let mut last_done = None;
+        for component in &self.0 {
+            if let Some(last_done) = last_done {
+                if component.boot_order() == last_done {
+                    continue;
+                }
+            }
+            let components = self
+                .0
+                .iter()
+                .filter(|c| c.boot_order() == component.boot_order());
+            for component in components {
+                component.start(&self.1, &cfg).await?;
+            }
+            last_done = Some(component.boot_order());
+        }
+        Ok(())
+    }
+    async fn start_wait_inner(&self, cfg: &ComposeTest) -> Result<(), Error> {
+        let mut last_done = None;
+        for component in &self.0 {
+            if let Some(last_done) = last_done {
+                if component.boot_order() == last_done {
+                    continue;
+                }
+            }
+            let components = self
+                .0
+                .iter()
+                .filter(|c| c.boot_order() == component.boot_order())
+                .collect::<Vec<&Component>>();
+
+            for component in &components {
+                component.start(&self.1, &cfg).await?;
+            }
+            for component in &components {
+                component.wait_on(&self.1, &cfg).await?;
+            }
+            last_done = Some(component.boot_order());
+        }
+        Ok(())
+    }
+}
+
 #[macro_export]
 macro_rules! impl_component {
     ($($name:ident,$order:literal,)+) => {
+        /// All the Control Plane Components
         #[derive(Debug, Clone, StructOpt, ToString, EnumVariantNames, Eq, PartialEq)]
         #[structopt(about = "Control Plane Components")]
-        pub(crate) enum Component {
+        pub enum Component {
             $(
                 $name($name),
             )+
         }
 
+        /// List of Control Plane Components to deploy
         #[derive(Debug, Clone)]
-        pub(crate) struct Components(Vec<Component>, StartOptions);
+        pub struct Components(Vec<Component>, StartOptions);
         impl BuilderConfigure for Components {
             fn configure(&self, cfg: Builder) -> Result<Builder, Error> {
                 let mut cfg = cfg;
@@ -240,13 +320,13 @@ macro_rules! impl_component {
         }
 
         impl Components {
-            pub(crate) fn push_generic_components(&mut self, name: &str, component: Component) {
+            pub fn push_generic_components(&mut self, name: &str, component: Component) {
                 if !ControlPlaneAgent::VARIANTS.iter().any(|&s| s == name) &&
                     !ControlPlaneOperator::VARIANTS.iter().any(|&s| &format!("{}Op", s) == name) {
                     self.0.push(component);
                 }
             }
-            pub(crate) fn new(options: StartOptions) -> Components {
+            pub fn new(options: StartOptions) -> Components {
                 let agents = options.agents.clone();
                 let operators = options.operators.clone().unwrap_or_default();
                 let mut components = agents
@@ -263,18 +343,35 @@ macro_rules! impl_component {
                 components.0.sort();
                 components
             }
-            pub(crate) async fn start(&self, cfg: &ComposeTest) -> Result<(), Error> {
+            pub async fn wait_on(
+                &self,
+                cfg: &ComposeTest,
+                timeout: std::time::Duration,
+            ) -> Result<(), Error> {
+                match tokio::time::timeout(timeout, self.wait_on_inner(cfg)).await {
+                    Ok(result) => result,
+                    Err(_) => {
+                        let error = format!("Time out of {:?} expired", timeout);
+                        Err(std::io::Error::new(std::io::ErrorKind::TimedOut, error).into())
+                    }
+                }
+            }
+            async fn wait_on_inner(&self, cfg: &ComposeTest) -> Result<(), Error> {
                 for component in &self.0 {
-                    component.start(&self.1, cfg).await?;
+                    component.wait_on(&self.1, cfg).await?;
                 }
                 Ok(())
             }
         }
 
+        /// Trait to manage a component startup sequence
         #[async_trait]
-        pub(crate) trait ComponentAction {
+        pub trait ComponentAction {
             fn configure(&self, options: &StartOptions, cfg: Builder) -> Result<Builder, Error>;
             async fn start(&self, options: &StartOptions, cfg: &ComposeTest) -> Result<(), Error>;
+            async fn wait_on(&self, _options: &StartOptions, _cfg: &ComposeTest) -> Result<(), Error> {
+                Ok(())
+            }
         }
 
         #[async_trait]
@@ -289,6 +386,11 @@ macro_rules! impl_component {
                     $(Self::$name(obj) => obj.start(options, cfg).await,)+
                 }
             }
+            async fn wait_on(&self, options: &StartOptions, cfg: &ComposeTest) -> Result<(), Error> {
+                match self {
+                    $(Self::$name(obj) => obj.wait_on(options, cfg).await,)+
+                }
+            }
         }
 
         $(impl From<$name> for Component {
@@ -297,8 +399,9 @@ macro_rules! impl_component {
             }
         })+
 
+        /// Control Plane Component
         $(#[derive(Default, Debug, Clone, StructOpt, Eq, PartialEq)]
-        pub(crate) struct $name {})+
+        pub struct $name {})+
 
         impl Component {
             fn boot_order(&self) -> u32 {
@@ -328,16 +431,18 @@ macro_rules! impl_component {
 // from lower to high
 impl_component! {
     Empty,      0,
-    Dns,        0,
-    Jaeger,     0,
+    // Note: NATS needs to be the first to support usage of this library in cargo tests
+    // to make sure that the IP does not change between tests
     Nats,       0,
-    Rest,       1,
-    Mayastor,   1,
-    Node,       2,
-    Pool,       3,
-    Volume,     3,
-    JsonGrpc,   3,
-    NodeOp,     4,
+    Dns,        1,
+    Jaeger,     1,
+    Rest,       2,
+    Node,       3,
+    Pool,       4,
+    Volume,     4,
+    JsonGrpc,   4,
+    Mayastor,   5,
+    NodeOp,     6,
 }
 
 // Message Bus Control Plane Agents

@@ -3,6 +3,7 @@ use super::*;
 use paperclip::actix::Apiv2Schema;
 use percent_encoding::percent_decode_str;
 use serde::{Deserialize, Serialize};
+use serde_json::value::Value;
 use std::{cmp::Ordering, fmt::Debug};
 use strum_macros::{EnumString, ToString};
 
@@ -295,7 +296,7 @@ impl Default for Filter {
 macro_rules! bus_impl_string_id_inner {
     ($Name:ident, $Doc:literal) => {
         #[doc = $Doc]
-        #[derive(Serialize, Deserialize, Default, Debug, Clone, Eq, PartialEq, Hash, Apiv2Schema)]
+        #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq, Hash, Apiv2Schema)]
         pub struct $Name(String);
 
         impl std::fmt::Display for $Name {
@@ -339,10 +340,20 @@ macro_rules! bus_impl_string_id_inner {
 macro_rules! bus_impl_string_id {
     ($Name:ident, $Doc:literal) => {
         bus_impl_string_id_inner!($Name, $Doc);
+        impl Default for $Name {
+            /// Generates new blank identifier
+            fn default() -> Self {
+                $Name(uuid::Uuid::default().to_string())
+            }
+        }
         impl $Name {
             /// Build Self from a string trait id
             pub fn from<T: Into<String>>(id: T) -> Self {
                 $Name(id.into())
+            }
+            /// Generates new random identifier
+            pub fn new() -> Self {
+                $Name(uuid::Uuid::new_v4().to_string())
             }
         }
     };
@@ -351,6 +362,11 @@ macro_rules! bus_impl_string_id {
 macro_rules! bus_impl_string_id_percent_decoding {
     ($Name:ident, $Doc:literal) => {
         bus_impl_string_id_inner!($Name, $Doc);
+        impl Default for $Name {
+            fn default() -> Self {
+                $Name("".to_string())
+            }
+        }
         impl $Name {
             /// Build Self from a string trait id
             pub fn from<T: Into<String>>(id: T) -> Self {
@@ -974,4 +990,5 @@ pub struct JsonGrpcRequest {
     /// parameters to be passed to the above method
     pub params: JsonGrpcParams,
 }
-bus_impl_message_all!(JsonGrpcRequest, JsonGrpc, String, JsonGrpc);
+
+bus_impl_message_all!(JsonGrpcRequest, JsonGrpc, Value, JsonGrpc);

@@ -31,15 +31,16 @@ pub async fn message_bus_init(server: String) {
 }
 
 /// Initialise the Nats Message Bus with Options
+/// IGNORES all but the first initialisation of NATS_MSG_BUS
 pub async fn message_bus_init_options(
     server: String,
     timeouts: TimeoutOptions,
 ) {
-    let nc = NatsMessageBus::new(&server, BusOptions::new(), timeouts).await;
-    NATS_MSG_BUS
-        .set(nc)
-        .ok()
-        .expect("Expect to be initialised only once");
+    if NATS_MSG_BUS.get().is_none() {
+        let nc =
+            NatsMessageBus::new(&server, BusOptions::new(), timeouts).await;
+        NATS_MSG_BUS.set(nc).ok();
+    }
 }
 
 /// Get the static `NatsMessageBus` as a boxed `MessageBus`

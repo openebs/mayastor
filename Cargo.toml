@@ -20,5 +20,6 @@ members = [
 	"control-plane/rest",
 	"control-plane/operators",
 	"control-plane/macros",
-	"control-plane/deployer"
+	"control-plane/deployer",
+	"control-plane/tests"
 ]

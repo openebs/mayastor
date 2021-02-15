@@ -68,4 +68,6 @@ pub enum Error {
     SyncProperty { source: Errno, name: String },
     #[snafu(display("invalid property value: {}", name))]
     Property { source: Errno, name: String },
+    #[snafu(display("invalid replica share protocol value: {}", value))]
+    ReplicaShareProtocol { value: i32 },
 }
