@@ -39,7 +39,10 @@ fn main() -> Result<(), std::io::Error> {
     let mut opts: spdk_app_opts = Default::default();
 
     unsafe {
-        spdk_app_opts_init(&mut opts as *mut spdk_app_opts);
+        spdk_app_opts_init(
+            &mut opts as *mut spdk_app_opts,
+            std::mem::size_of::<spdk_app_opts>() as u64,
+        );
 
         if spdk_app_parse_args(
             (c_args.len() as c_int) - 1,

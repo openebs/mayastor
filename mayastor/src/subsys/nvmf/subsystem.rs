@@ -398,6 +398,7 @@ impl NvmfSubsystem {
         unsafe {
             spdk_nvmf_subsystem_pause(
                 self.0.as_ptr(),
+                1,
                 Some(pause_cb),
                 cb_arg(s),
             )

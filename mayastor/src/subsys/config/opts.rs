@@ -332,6 +332,10 @@ pub struct BdevOpts {
     bdev_io_pool_size: u32,
     /// number of bdev IO structures cached per thread
     bdev_io_cache_size: u32,
+    /// small buffer pool size
+    small_buf_pool_size: u32,
+    /// large buffer pool size
+    large_buf_pool_size: u32,
 }
 
 impl GetOpts for BdevOpts {
@@ -340,6 +344,7 @@ impl GetOpts for BdevOpts {
         unsafe {
             spdk_sys::spdk_bdev_get_opts(
                 &opts as *const _ as *mut spdk_bdev_opts,
+                std::mem::size_of::<spdk_bdev_opts>() as u64,
             )
         };
         opts.into()
@@ -359,6 +364,8 @@ impl Default for BdevOpts {
         Self {
             bdev_io_pool_size: try_from_env("BDEV_IO_POOL_SIZE", 65535),
             bdev_io_cache_size: try_from_env("BDEV_IO_CACHE_SIZE", 512),
+            small_buf_pool_size: try_from_env("BDEV_SMALL_BUF_POOL_SIZE", 8191),
+            large_buf_pool_size: try_from_env("BDEV_LARGE_BUF_POOL_SIZE", 1023),
         }
     }
 }
@@ -368,6 +375,8 @@ impl From<spdk_bdev_opts> for BdevOpts {
         Self {
             bdev_io_pool_size: o.bdev_io_pool_size,
             bdev_io_cache_size: o.bdev_io_cache_size,
+            small_buf_pool_size: o.small_buf_pool_size,
+            large_buf_pool_size: o.large_buf_pool_size,
         }
     }
 }
@@ -378,6 +387,9 @@ impl From<&BdevOpts> for spdk_bdev_opts {
             bdev_io_pool_size: o.bdev_io_pool_size,
             bdev_io_cache_size: o.bdev_io_cache_size,
             bdev_auto_examine: false,
+            opts_size: std::mem::size_of::<spdk_bdev_opts>() as u64,
+            small_buf_pool_size: o.small_buf_pool_size,
+            large_buf_pool_size: o.large_buf_pool_size,
         }
     }
 }
