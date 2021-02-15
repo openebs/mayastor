@@ -224,7 +224,7 @@ pipeline {
                 )
                 sh 'kubectl get nodes -o wide'
                 script {
-                  def cmd = "./scripts/e2e-test.sh --device /dev/sdb --tag \"${env.GIT_COMMIT_SHORT}\" --registry \"${env.REGISTRY}\""
+                  def cmd = "./scripts/e2e-test.sh --device /dev/sdb --tag \"${env.GIT_COMMIT_SHORT}\" --registry \"${env.REGISTRY}\" --logs --logsdir \"./logs/mayastor\" "
                   if (run_extended_e2e_tests) {
                     cmd = cmd + " --extended"
                   }
@@ -263,6 +263,7 @@ pipeline {
                   }
                 }
                 always { // always send the junit results back to Xray and Jenkins
+                  archiveArtifacts 'logs/**/*.*'
                   junit 'e2e.*.xml'
                   script {
                     def xray_testplan = getTestPlan()
