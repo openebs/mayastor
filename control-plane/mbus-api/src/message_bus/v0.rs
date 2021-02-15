@@ -248,6 +248,14 @@ pub trait MessageBusTrait: Sized {
     ) -> BusResult<serde_json::Value> {
         Ok(request.request().await?)
     }
+
+    /// Get block devices on a node
+    #[tracing::instrument(level = "debug", err)]
+    async fn get_block_devices(
+        request: GetBlockDevices,
+    ) -> BusResult<BlockDevices> {
+        Ok(request.request().await?)
+    }
 }
 
 /// Implementation of the bus interface trait

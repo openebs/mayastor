@@ -1,4 +1,5 @@
 use super::{node_traits::*, *};
+use crate::wrapper::v0::msg_translation::{MessageBusToRpc, RpcToMessageBus};
 use mbus_api::Message;
 
 /// Implementation of the trait NodeWrapperVolume for the pool service
@@ -144,7 +145,7 @@ impl NodeNexusTrait for NodeWrapperVolume {
         let mut ctx = self.grpc_client().await?;
         let rpc_nexus = ctx
             .client
-            .create_nexus(bus_nexus_to_rpc(request))
+            .create_nexus(request.to_rpc())
             .await
             .context(GrpcCreateNexus {})?;
         Ok(rpc_nexus_to_bus(
@@ -161,7 +162,7 @@ impl NodeNexusTrait for NodeWrapperVolume {
         let mut ctx = self.grpc_client().await?;
         let _ = ctx
             .client
-            .destroy_nexus(bus_nexus_destroy_to_rpc(request))
+            .destroy_nexus(request.to_rpc())
             .await
             .context(GrpcDestroyNexus {})?;
         Ok(())
@@ -175,7 +176,7 @@ impl NodeNexusTrait for NodeWrapperVolume {
         let mut ctx = self.grpc_client().await?;
         let share = ctx
             .client
-            .publish_nexus(bus_nexus_share_to_rpc(request))
+            .publish_nexus(request.to_rpc())
             .await
             .context(GrpcShareNexus {})?;
         Ok(share.into_inner().device_uri)
@@ -189,7 +190,7 @@ impl NodeNexusTrait for NodeWrapperVolume {
         let mut ctx = self.grpc_client().await?;
         let _ = ctx
             .client
-            .unpublish_nexus(bus_nexus_unshare_to_rpc(request))
+            .unpublish_nexus(request.to_rpc())
             .await
             .context(GrpcUnshareNexus {})?;
         Ok(())
@@ -224,10 +225,10 @@ impl NodeNexusChildTrait for NodeWrapperVolume {
         let mut ctx = self.grpc_client().await?;
         let rpc_child = ctx
             .client
-            .add_child_nexus(bus_nexus_child_add_to_rpc(request))
+            .add_child_nexus(request.to_rpc())
             .await
             .context(GrpcDestroyNexus {})?;
-        Ok(rpc_child_to_bus(&rpc_child.into_inner()))
+        Ok(rpc_child.into_inner().to_mbus())
     }
 
     /// Remove a child from its parent nexus via gRPC
@@ -238,7 +239,7 @@ impl NodeNexusChildTrait for NodeWrapperVolume {
         let mut ctx = self.grpc_client().await?;
         let _ = ctx
             .client
-            .remove_child_nexus(bus_nexus_child_remove_to_rpc(request))
+            .remove_child_nexus(request.to_rpc())
             .await
             .context(GrpcDestroyNexus {})?;
         Ok(())
@@ -368,83 +369,7 @@ impl NodeWrapperVolume {
 }
 
 fn rpc_nexus_to_bus(rpc_nexus: &rpc::mayastor::Nexus, id: NodeId) -> Nexus {
-    let rpc_nexus = rpc_nexus.clone();
-    Nexus {
-        node: id,
-        uuid: rpc_nexus.uuid.into(),
-        size: rpc_nexus.size,
-        state: NexusState::from(rpc_nexus.state),
-        children: rpc_nexus
-            .children
-            .iter()
-            .map(|c| rpc_child_to_bus(&c))
-            .collect(),
-        device_uri: rpc_nexus.device_uri.clone(),
-        rebuilds: rpc_nexus.rebuilds,
-    }
-}
-fn rpc_child_to_bus(rpc_child: &rpc::mayastor::Child) -> Child {
-    let rpc_child = rpc_child.clone();
-    Child {
-        uri: rpc_child.uri.into(),
-        state: ChildState::from(rpc_child.state),
-        rebuild_progress: if rpc_child.rebuild_progress >= 0 {
-            Some(rpc_child.rebuild_progress)
-        } else {
-            None
-        },
-    }
-}
-fn bus_nexus_to_rpc(
-    request: &CreateNexus,
-) -> rpc::mayastor::CreateNexusRequest {
-    let request = request.clone();
-    rpc::mayastor::CreateNexusRequest {
-        uuid: request.uuid.into(),
-        size: request.size,
-        children: request.children.iter().map(|c| c.to_string()).collect(),
-    }
-}
-fn bus_nexus_share_to_rpc(
-    request: &ShareNexus,
-) -> rpc::mayastor::PublishNexusRequest {
-    let request = request.clone();
-    rpc::mayastor::PublishNexusRequest {
-        uuid: request.uuid.into(),
-        key: request.key.clone().unwrap_or_default(),
-        share: request.protocol as i32,
-    }
-}
-fn bus_nexus_unshare_to_rpc(
-    request: &UnshareNexus,
-) -> rpc::mayastor::UnpublishNexusRequest {
-    rpc::mayastor::UnpublishNexusRequest {
-        uuid: request.uuid.clone().into(),
-    }
-}
-fn bus_nexus_destroy_to_rpc(
-    request: &DestroyNexus,
-) -> rpc::mayastor::DestroyNexusRequest {
-    rpc::mayastor::DestroyNexusRequest {
-        uuid: request.uuid.clone().into(),
-    }
-}
-fn bus_nexus_child_add_to_rpc(
-    request: &AddNexusChild,
-) -> rpc::mayastor::AddChildNexusRequest {
-    let request = request.clone();
-    rpc::mayastor::AddChildNexusRequest {
-        uuid: request.nexus.into(),
-        uri: request.uri.into(),
-        norebuild: !request.auto_rebuild,
-    }
-}
-fn bus_nexus_child_remove_to_rpc(
-    request: &RemoveNexusChild,
-) -> rpc::mayastor::RemoveChildNexusRequest {
-    let request = request.clone();
-    rpc::mayastor::RemoveChildNexusRequest {
-        uuid: request.nexus.into(),
-        uri: request.uri.into(),
-    }
+    let mut nexus = rpc_nexus.to_mbus();
+    nexus.node = id;
+    nexus
 }

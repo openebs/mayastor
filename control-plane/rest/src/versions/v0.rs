@@ -624,3 +624,12 @@ impl<T: Serialize> Into<HttpResponse> for RestRespond<T> {
         }
     }
 }
+
+/// Contains the query parameters that can be passed when calling
+/// get_block_devices
+#[derive(Deserialize, Apiv2Schema)]
+#[serde(rename_all = "camelCase")]
+pub struct GetBlockDeviceQueryParams {
+    /// specifies whether to list all devices or only usable ones
+    pub all: Option<bool>,
+}

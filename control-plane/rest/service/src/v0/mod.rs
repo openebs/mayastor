@@ -2,6 +2,7 @@
 //! Version 0 of the URI's
 //! Ex: /v0/nodes
 
+pub mod block_devices;
 pub mod children;
 pub mod jsongrpc;
 pub mod nexuses;
@@ -47,6 +48,7 @@ fn configure(cfg: &mut paperclip::actix::web::ServiceConfig) {
     children::configure(cfg);
     volumes::configure(cfg);
     jsongrpc::configure(cfg);
+    block_devices::configure(cfg);
 }
 
 pub(super) fn configure_api<T, B>(
