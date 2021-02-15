@@ -148,31 +148,37 @@ impl CreateDestroy for Null {
             dif_is_head_of_md: false,
         };
 
-        let ret = unsafe {
+        let errno = unsafe {
             let mut bdev: *mut spdk_sys::spdk_bdev = std::ptr::null_mut();
             spdk_sys::bdev_null_create(&mut bdev, &opts)
         };
 
-        if ret != 0 {
-            Err(NexusBdevError::CreateBdev {
-                source: Errno::from_i32(ret),
+        if errno != 0 {
+            return Err(NexusBdevError::CreateBdev {
+                source: Errno::from_i32(errno.abs()),
                 name: self.name.clone(),
-            })
-        } else {
-            self.uuid.map(|u| {
-                Bdev::lookup_by_name(&self.name).map(|mut b| {
-                    b.set_uuid(Some(u.to_string()));
-                    if !b.add_alias(&self.alias) {
-                        error!(
-                            "Failed to add alias {} to device {}",
-                            self.alias,
-                            self.get_name()
-                        );
-                    }
-                })
             });
-            Ok(self.name.clone())
         }
+
+        if let Some(mut bdev) = Bdev::lookup_by_name(&self.name) {
+            if let Some(uuid) = self.uuid {
+                bdev.set_uuid(uuid);
+            }
+
+            if !bdev.add_alias(&self.alias) {
+                error!(
+                    "failed to add alias {} to device {}",
+                    self.alias,
+                    self.get_name()
+                );
+            }
+
+            return Ok(self.name.clone());
+        }
+
+        Err(NexusBdevError::BdevNotFound {
+            name: self.name.clone(),
+        })
     }
 
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {

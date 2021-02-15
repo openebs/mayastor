@@ -418,8 +418,10 @@ impl Nexus {
             nexus_target: None,
         });
 
-        n.bdev.set_uuid(uuid.map(String::from));
+        // set the UUID of the underlying bdev
+        n.set_uuid(uuid);
 
+        // register children
         if let Some(child_bdevs) = child_bdevs {
             n.register_children(child_bdevs);
         }
@@ -429,6 +431,36 @@ impl Nexus {
             (*n.bdev.as_ptr()).ctxt = n.as_ref() as *const _ as *mut c_void;
         }
         n
+    }
+
+    /// Set the UUID of the underlying bdev of this nexus
+    /// Generate a new UUID if specified uuid is None (or invalid)
+    pub fn set_uuid(&mut self, uuid: Option<&str>) {
+        match uuid {
+            Some(s) => match uuid::Uuid::parse_str(s) {
+                Ok(u) => {
+                    self.bdev.set_uuid(u);
+                    info!("UUID set to {} for nexus {}", u, self.name);
+                    return;
+                }
+                Err(error) => {
+                    warn!(
+                        "nexus {}: invalid UUID specified {}: {}",
+                        self.name, s, error
+                    );
+                }
+            },
+            None => {
+                info!("no UUID specified for nexus {}", self.name);
+            }
+        }
+
+        self.bdev.generate_uuid();
+        info!(
+            "using generated UUID {} for nexus {}",
+            uuid::Uuid::from(self.bdev.uuid()),
+            self.name
+        );
     }
 
     /// set the state of the nexus

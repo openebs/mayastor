@@ -2,6 +2,7 @@ use std::{collections::HashMap, convert::TryFrom, ffi::CString};
 
 use async_trait::async_trait;
 use futures::channel::oneshot;
+use nix::errno::Errno;
 use snafu::ResultExt;
 use url::Url;
 
@@ -10,7 +11,7 @@ use spdk_sys::{bdev_aio_delete, create_aio_bdev};
 use crate::{
     bdev::{dev::reject_unknown_parameters, util::uri, CreateDestroy, GetName},
     core::Bdev,
-    ffihelper::{cb_arg, done_errno_cb, errno_result_from_i32, ErrnoResult},
+    ffihelper::{cb_arg, done_errno_cb, ErrnoResult},
     nexus_uri::{self, NexusBdevError},
 };
 
@@ -90,28 +91,32 @@ impl CreateDestroy for Aio {
             create_aio_bdev(cname.as_ptr(), cname.as_ptr(), self.blk_size)
         };
 
-        async {
-            errno_result_from_i32(self.get_name(), errno)
-                .context(nexus_uri::InvalidParams {
-                    name: self.get_name(),
-                })
-                .map(|name| {
-                    if let Some(mut bdev) = Bdev::lookup_by_name(&self.name) {
-                        if let Some(uuid) = self.uuid {
-                            bdev.set_uuid(Some(uuid.to_string()));
-                        }
-                        if !bdev.add_alias(&self.alias) {
-                            error!(
-                                "Failed to add alias {} to device {}",
-                                self.alias,
-                                self.get_name()
-                            );
-                        }
-                    };
-                    name
-                })
+        if errno != 0 {
+            return Err(NexusBdevError::CreateBdev {
+                source: Errno::from_i32(errno.abs()),
+                name: self.get_name(),
+            });
         }
-        .await
+
+        if let Some(mut bdev) = Bdev::lookup_by_name(&self.name) {
+            if let Some(uuid) = self.uuid {
+                bdev.set_uuid(uuid);
+            }
+
+            if !bdev.add_alias(&self.alias) {
+                error!(
+                    "failed to add alias {} to device {}",
+                    self.alias,
+                    self.get_name()
+                );
+            }
+
+            return Ok(self.get_name());
+        }
+
+        Err(NexusBdevError::BdevNotFound {
+            name: self.get_name(),
+        })
     }
 
     /// Destroy the given AIO bdev

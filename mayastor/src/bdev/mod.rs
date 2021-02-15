@@ -11,12 +11,12 @@ pub use nexus::{
     },
     nexus_child::{lookup_child_from_bdev, ChildState, Reason},
     nexus_child_status_config,
-    nexus_label::{GptEntry, GptHeader},
-    nexus_metadata_content::{
-        NexusConfig,
-        NexusConfigVersion1,
-        NexusConfigVersion2,
-        NexusConfigVersion3,
+    nexus_label::{GptEntry, GptGuid as Guid, GptHeader},
+    nexus_metadata::{
+        MetaDataChildEntry,
+        MetaDataIndex,
+        MetaDataObject,
+        NexusMetaData,
     },
 };
 
