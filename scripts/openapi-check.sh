@@ -20,3 +20,6 @@ if [[ $check_rest_src = "yes" ]]; then
 fi
 
 cargo run --bin rest -- -d -o $SPECS
+
+# If the spec was modified then fail the check
+git diff --exit-code $SPECS
