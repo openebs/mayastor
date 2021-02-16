@@ -23,7 +23,7 @@ use crate::{
             NvmeNamespace,
             NVME_CONTROLLERS,
         },
-        nexus::nexus_io::nvme_admin_opc,
+        nexus::nexus_io::{nvme_admin_opc, IoType},
     },
     core::{
         BlockDevice,
@@ -41,6 +41,7 @@ use spdk_sys::{
     self,
     iovec,
     spdk_get_io_channel,
+    spdk_io_channel,
     spdk_nvme_cpl,
     spdk_nvme_ctrlr,
     spdk_nvme_ctrlr_cmd_admin_raw,
@@ -66,6 +67,9 @@ struct NvmeIoCtx {
     iovcnt: u64,
     iovpos: u64,
     iov_offset: u64,
+    op: IoType,
+    num_blocks: u64,
+    channel: Option<*mut spdk_io_channel>,
 }
 
 unsafe impl Send for NvmeIoCtx {}
@@ -220,17 +224,23 @@ extern "C" fn nvme_queued_next_sge(
 
 /// Notify the caller and deallocate Nvme IO context.
 #[inline]
-fn complete_nvme_command(
-    nvme_io_ctx: *mut NvmeIoCtx,
-    cpl: *const spdk_nvme_cpl,
-) {
-    // Invoke caller's callback.
-    unsafe {
-        ((*nvme_io_ctx).cb)(nvme_cpl_succeeded(cpl), (*nvme_io_ctx).cb_arg);
+fn complete_nvme_command(ctx: *mut NvmeIoCtx, cpl: *const spdk_nvme_cpl) {
+    let io_ctx = unsafe { &mut *ctx };
+    let op_succeeded = nvme_cpl_succeeded(cpl);
+
+    // Update I/O statistics in case the operation succeeded.
+    if op_succeeded {
+        if let Some(channel) = io_ctx.channel.take() {
+            let inner = NvmeIoChannel::inner_from_channel(channel);
+            let stats_controller = inner.get_io_stats_controller();
+
+            stats_controller.account_block_io(io_ctx.op, 1, io_ctx.num_blocks);
+        }
     }
 
-    let pool = IOCTX_POOL.get().unwrap();
-    pool.put(nvme_io_ctx);
+    // Invoke caller's callback and free I/O context.
+    (io_ctx.cb)(op_succeeded, io_ctx.cb_arg);
+    IOCTX_POOL.get().unwrap().put(ctx);
 }
 
 /// Completion handler for vectored write requests.
@@ -316,23 +326,30 @@ fn io_type_to_err(
     num_blocks: u64,
 ) -> CoreError {
     assert!(errno > 0, "Errno code must be provided");
+    let source = Errno::from_i32(errno);
 
     match op {
-        IoType::READ => CoreError::ReadDispatch {
-            source: Errno::from_i32(errno),
+        IoType::Read => CoreError::ReadDispatch {
+            source,
             offset: offset_blocks,
             len: num_blocks,
         },
-        IoType::WRITE => CoreError::WriteDispatch {
-            source: Errno::from_i32(errno),
+        IoType::Write => CoreError::WriteDispatch {
+            source,
             offset: offset_blocks,
             len: num_blocks,
         },
-        IoType::UNMAP => CoreError::NvmeUnmapDispatch {
-            source: Errno::from_i32(errno),
+        IoType::Unmap => CoreError::NvmeUnmapDispatch {
+            source,
             offset: offset_blocks,
             len: num_blocks,
         },
+        _ => {
+            warn!("Unsupported I/O operation: {:?}", op);
+            CoreError::NotSupported {
+                source,
+            }
+        }
     }
 }
 
@@ -349,12 +366,6 @@ fn alloc_nvme_io_ctx(
     } else {
         Err(io_type_to_err(op, libc::ENOMEM, offset_blocks, num_blocks))
     }
-}
-
-enum IoType {
-    READ,
-    WRITE,
-    UNMAP,
 }
 
 /// Check whether channel is suitable for serving I/O.
@@ -435,7 +446,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
 
         // Make sure channel allows I/O.
-        check_channel_for_io(IoType::READ, inner, offset_blocks, num_blocks)?;
+        check_channel_for_io(IoType::Read, inner, offset_blocks, num_blocks)?;
 
         let (s, r) = oneshot::channel::<bool>();
 
@@ -461,6 +472,11 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         }
 
         if r.await.expect("Failed awaiting at read_at()") {
+            inner.get_io_stats_controller().account_block_io(
+                IoType::Read,
+                1,
+                num_blocks,
+            );
             Ok(buffer.len())
         } else {
             Err(CoreError::ReadFailed {
@@ -500,7 +516,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
 
         // Make sure channel allows I/O.
-        check_channel_for_io(IoType::WRITE, inner, offset_blocks, num_blocks)?;
+        check_channel_for_io(IoType::Write, inner, offset_blocks, num_blocks)?;
 
         let (s, r) = oneshot::channel::<bool>();
 
@@ -526,6 +542,11 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         }
 
         if r.await.expect("Failed awaiting at write_at()") {
+            inner.get_io_stats_controller().account_block_io(
+                IoType::Write,
+                1,
+                num_blocks,
+            );
             Ok(buffer.len())
         } else {
             Err(CoreError::WriteFailed {
@@ -545,15 +566,16 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         cb: IoCompletionCallback,
         cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError> {
-        check_io_args(IoType::READ, iov, iovcnt, offset_blocks, num_blocks)?;
+        check_io_args(IoType::Read, iov, iovcnt, offset_blocks, num_blocks)?;
 
-        let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
+        let channel = self.io_channel.as_ptr();
+        let inner = NvmeIoChannel::inner_from_channel(channel);
 
         // Make sure channel allows I/O.
-        check_channel_for_io(IoType::READ, inner, offset_blocks, num_blocks)?;
+        check_channel_for_io(IoType::Read, inner, offset_blocks, num_blocks)?;
 
         let bio = alloc_nvme_io_ctx(
-            IoType::READ,
+            IoType::Read,
             NvmeIoCtx {
                 cb,
                 cb_arg,
@@ -561,6 +583,9 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
                 iovcnt: iovcnt as u64,
                 iovpos: 0,
                 iov_offset: 0,
+                channel: Some(channel),
+                op: IoType::Read,
+                num_blocks,
             },
             offset_blocks,
             num_blocks,
@@ -617,15 +642,16 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         cb: IoCompletionCallback,
         cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError> {
-        check_io_args(IoType::WRITE, iov, iovcnt, offset_blocks, num_blocks)?;
+        check_io_args(IoType::Write, iov, iovcnt, offset_blocks, num_blocks)?;
 
-        let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
+        let channel = self.io_channel.as_ptr();
+        let inner = NvmeIoChannel::inner_from_channel(channel);
 
         // Make sure channel allows I/O.
-        check_channel_for_io(IoType::WRITE, inner, offset_blocks, num_blocks)?;
+        check_channel_for_io(IoType::Write, inner, offset_blocks, num_blocks)?;
 
         let bio = alloc_nvme_io_ctx(
-            IoType::WRITE,
+            IoType::Write,
             NvmeIoCtx {
                 cb,
                 cb_arg,
@@ -633,6 +659,9 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
                 iovcnt: iovcnt as u64,
                 iovpos: 0,
                 iov_offset: 0,
+                channel: Some(channel),
+                op: IoType::Write,
+                num_blocks,
             },
             offset_blocks,
             num_blocks,
@@ -766,13 +795,14 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
             });
         }
 
-        let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
+        let channel = self.io_channel.as_ptr();
+        let inner = NvmeIoChannel::inner_from_channel(channel);
 
         // Make sure channel allows I/O.
-        check_channel_for_io(IoType::UNMAP, inner, offset_blocks, num_blocks)?;
+        check_channel_for_io(IoType::Unmap, inner, offset_blocks, num_blocks)?;
 
         let bio = alloc_nvme_io_ctx(
-            IoType::READ,
+            IoType::Unmap,
             NvmeIoCtx {
                 cb,
                 cb_arg,
@@ -780,6 +810,9 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
                 iovcnt: 0,
                 iovpos: 0,
                 iov_offset: 0,
+                channel: Some(channel),
+                op: IoType::Unmap,
+                num_blocks,
             },
             offset_blocks,
             num_blocks,

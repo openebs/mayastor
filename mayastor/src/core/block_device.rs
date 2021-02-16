@@ -1,17 +1,25 @@
 use crate::{
     bdev::nexus::nexus_io::IoType,
     core::{CoreError, DmaBuf, DmaError},
-    nexus_uri::NexusBdevError,
 };
 use async_trait::async_trait;
+use merge::Merge;
 use std::os::raw::c_void;
 
-#[derive(Debug, Default)]
-pub struct BlockDeviceStats {
+#[derive(Debug, Default, Clone, Copy, Merge)]
+pub struct BlockDeviceIoStats {
+    #[merge(strategy = merge::num::saturating_add)]
     pub num_read_ops: u64,
+    #[merge(strategy = merge::num::saturating_add)]
     pub num_write_ops: u64,
+    #[merge(strategy = merge::num::saturating_add)]
     pub bytes_read: u64,
+    #[merge(strategy = merge::num::saturating_add)]
     pub bytes_written: u64,
+    #[merge(strategy = merge::num::saturating_add)]
+    pub num_unmap_ops: u64,
+    #[merge(strategy = merge::num::saturating_add)]
+    pub bytes_unmapped: u64,
 }
 
 use spdk_sys::iovec;
@@ -20,6 +28,7 @@ use spdk_sys::iovec;
  * Core trait that represents a block device.
  * TODO: Add text.
  */
+#[async_trait(?Send)]
 pub trait BlockDevice {
     /// Returns total size in bytes of the device.
     fn size_in_bytes(&self) -> u64;
@@ -49,7 +58,7 @@ pub trait BlockDevice {
     fn io_type_supported(&self, io_type: IoType) -> bool;
 
     /// Obtains I/O statistics for the device.
-    fn io_stats(&self) -> Result<BlockDeviceStats, NexusBdevError>;
+    async fn io_stats(&self) -> Result<BlockDeviceIoStats, CoreError>;
 
     /// Checks if block device has been claimed.
     fn claimed_by(&self) -> Option<String>;
