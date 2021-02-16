@@ -191,6 +191,162 @@ fn check_io_stats(reads: u64, writes: u64) {
 }
 
 #[tokio::test]
+async fn nvmf_io_stats() {
+    let ms = get_ms();
+    let url = launch_instance().await;
+    let u = url.clone();
+
+    const BUF_SIZE: u64 = 32768;
+    const OP_OFFSET: u64 = 1024 * 1024;
+
+    // Placeholder structure to let all the fields outlive API invocations.
+    struct IoCtx {
+        iov: iovec,
+        dma_buf: DmaBuf,
+        handle: Box<dyn BlockDeviceHandle>,
+    }
+
+    fn io_completion_callback(success: bool, _ctx: *mut c_void) {
+        assert!(success, "I/O operation failed");
+    }
+
+    let ptr = ms
+        .spawn(async move {
+            let name = device_create(&url).await.unwrap();
+            let descr = device_open(&name, false).unwrap();
+            let handle = descr.into_handle().unwrap();
+            let device = handle.get_device();
+
+            // Write data buffer.
+            let data_buf =
+                create_io_buffer(device.alignment(), BUF_SIZE, IO_PATTERN);
+            let mut r = handle.write_at(OP_OFFSET, &data_buf).await.unwrap();
+            assert_eq!(r, BUF_SIZE, "The amount of data written mismatches");
+
+            // Read data buffer.
+            let dbuf = DmaBuf::new(2 * BUF_SIZE, device.alignment()).unwrap();
+            r = handle.read_at(OP_OFFSET, &dbuf).await.unwrap();
+            assert_eq!(r, 2 * BUF_SIZE, "The amount of data read mismatches");
+
+            // Check I/O stats for synchronous operations.
+            let stats = device.io_stats().await.unwrap();
+            assert_eq!(
+                stats.num_read_ops, 1,
+                "Number of read operations mismatches"
+            );
+            assert_eq!(
+                stats.bytes_read,
+                2 * BUF_SIZE,
+                "Number of bytes read mismatches"
+            );
+
+            assert_eq!(
+                stats.num_write_ops, 1,
+                "Number of write operations mismatches"
+            );
+            assert_eq!(
+                stats.bytes_written, BUF_SIZE,
+                "Number of bytes written mismatches"
+            );
+
+            let mut ctx = IoCtx {
+                iov: iovec::default(),
+                dma_buf: create_io_buffer(
+                    device.alignment(),
+                    6 * BUF_SIZE,
+                    IO_PATTERN,
+                ),
+                handle,
+            };
+
+            ctx.iov.iov_base = *ctx.dma_buf;
+            ctx.iov.iov_len = 6 * BUF_SIZE;
+
+            // Schedule asynchronous I/O operations and check stats later.
+            ctx.handle
+                .readv_blocks(
+                    &mut ctx.iov,
+                    1,
+                    (3 * 1024 * 1024) / device.block_len(),
+                    6 * BUF_SIZE / device.block_len(),
+                    io_completion_callback,
+                    MAYASTOR_CTRLR_TITLE.as_ptr() as *mut c_void,
+                )
+                .unwrap();
+
+            ctx.handle
+                .writev_blocks(
+                    &mut ctx.iov,
+                    1,
+                    (4 * 1024 * 1024) / device.block_len(),
+                    4 * BUF_SIZE / device.block_len(),
+                    io_completion_callback,
+                    MAYASTOR_CTRLR_TITLE.as_ptr() as *mut c_void,
+                )
+                .unwrap();
+
+            // Unmap blocks.
+            ctx.handle
+                .unmap_blocks(
+                    OP_OFFSET / device.block_len(),
+                    (10 * BUF_SIZE) / device.block_len(),
+                    io_completion_callback,
+                    MAYASTOR_CTRLR_TITLE.as_ptr() as *mut c_void,
+                )
+                .unwrap();
+
+            AtomicPtr::new(Box::into_raw(Box::new(ctx)))
+        })
+        .await;
+
+    // Sleep for a few seconds to let I/O operation complete.
+    println!("Sleeping for 2 secs to let I/O operation complete");
+    tokio::time::delay_for(std::time::Duration::from_secs(2)).await;
+    println!("Awakened.");
+
+    // Check I/O stats and destroy the device.
+    ms.spawn(async move {
+        let b = unsafe { Box::from_raw(ptr.into_inner()) };
+        let device = b.handle.get_device();
+
+        let stats = device.io_stats().await.unwrap();
+
+        assert_eq!(
+            stats.num_unmap_ops, 1,
+            "Number of unmap operations mismatches"
+        );
+        assert_eq!(
+            stats.bytes_unmapped,
+            10 * BUF_SIZE,
+            "Number of bytes unmapped mismatches"
+        );
+
+        assert_eq!(
+            stats.num_read_ops, 2,
+            "Number of read operations mismatches"
+        );
+        assert_eq!(
+            stats.bytes_read,
+            8 * BUF_SIZE,
+            "Number of bytes read mismatches"
+        );
+
+        assert_eq!(
+            stats.num_write_ops, 2,
+            "Number of write operations mismatches"
+        );
+        assert_eq!(
+            stats.bytes_written,
+            5 * BUF_SIZE,
+            "Number of bytes written mismatches"
+        );
+
+        device_destroy(&u).await.unwrap();
+    })
+    .await;
+}
+
+#[tokio::test]
 async fn nvmf_device_read_write_at() {
     let ms = get_ms();
     let url = launch_instance().await;
@@ -337,7 +493,7 @@ async fn nvmf_device_readv_test() {
 
     // Sleep for a few seconds to let I/O operation complete.
     println!("Sleeping for 2 secs to let I/O operation complete");
-    tokio::time::delay_for(std::time::Duration::from_secs(3)).await;
+    tokio::time::delay_for(std::time::Duration::from_secs(2)).await;
     println!("Awakened.");
 
     // Check that the callback has been called.
@@ -457,7 +613,7 @@ async fn nvmf_device_writev_test() {
 
     // Sleep for a few seconds to let I/O operation complete.
     println!("Sleeping for 2 secs to let I/O operation complete");
-    tokio::time::delay_for(std::time::Duration::from_secs(3)).await;
+    tokio::time::delay_for(std::time::Duration::from_secs(2)).await;
     println!("Awakened.");
 
     // Check that the callback has been called.
@@ -611,7 +767,7 @@ async fn nvmf_device_readv_iovs_test() {
 
     // Sleep for a few seconds to let I/O operation complete.
     println!("Sleeping for 2 secs to let I/O operation complete");
-    tokio::time::delay_for(std::time::Duration::from_secs(3)).await;
+    tokio::time::delay_for(std::time::Duration::from_secs(2)).await;
     println!("Awakened.");
 
     // Check that the callback has been called.
@@ -757,7 +913,7 @@ async fn nvmf_device_writev_iovs_test() {
 
     // Sleep for a few seconds to let I/O operation complete.
     println!("Sleeping for 2 secs to let I/O operation complete");
-    tokio::time::delay_for(std::time::Duration::from_secs(3)).await;
+    tokio::time::delay_for(std::time::Duration::from_secs(2)).await;
     println!("Awakened.");
 
     // Check that the callback has been called.
@@ -1008,7 +1164,7 @@ async fn wipe_device_blocks(is_unmap: bool) {
 
     // Sleep for a few seconds to let unmap operation complete.
     println!("Sleeping for 2 secs to let operation complete");
-    tokio::time::delay_for(std::time::Duration::from_secs(3)).await;
+    tokio::time::delay_for(std::time::Duration::from_secs(2)).await;
     println!("Awakened.");
 
     ms.spawn(async move {

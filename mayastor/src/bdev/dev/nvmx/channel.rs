@@ -1,12 +1,15 @@
 /* I/O channel for NVMe controller, one per core. */
 
 use crate::{
-    bdev::dev::nvmx::{
-        nvme_bdev_running_config,
-        NvmeControllerState,
-        NVME_CONTROLLERS,
+    bdev::{
+        dev::nvmx::{
+            nvme_bdev_running_config,
+            NvmeControllerState,
+            NVME_CONTROLLERS,
+        },
+        nexus::nexus_io::IoType,
     },
-    core::{poller, CoreError},
+    core::{poller, BlockDeviceIoStats, CoreError},
 };
 use std::{cmp::max, mem::size_of, os::raw::c_void, ptr::NonNull};
 
@@ -197,6 +200,7 @@ pub struct NvmeIoChannelInner<'a> {
     poll_group: PollGroup,
     poller: poller::Poller<'a>,
     pub qpair: Option<IoQpair>,
+    io_stats_controller: IoStatsController,
     // Flag to indicate the shutdown state of the channel.
     // We need such a flag to differentiate between channel reset and shutdown.
     // Channel reset is a reversible operation, which is followed by
@@ -291,6 +295,70 @@ impl NvmeIoChannelInner<'_> {
         self.qpair = Some(qpair);
         0
     }
+
+    /// Get I/O statistics for channel.
+    #[inline]
+    pub fn get_io_stats_controller(&mut self) -> &mut IoStatsController {
+        &mut self.io_stats_controller
+    }
+}
+pub struct IoStatsController {
+    // Note that for the sake of optimization, all bytes-related I/O stats
+    // (bytes_read, bytes_written and bytes_unmapped) are accounted in
+    // sectors. Translation into bytes occurs only when providing the full
+    // I/O stats to the caller, inside get_io_stats().
+    io_stats: BlockDeviceIoStats,
+    block_size: u64,
+}
+
+/// Top-level wrapper around device I/O statistics.
+impl IoStatsController {
+    fn new(block_size: u64) -> Self {
+        Self {
+            io_stats: BlockDeviceIoStats::default(),
+            block_size,
+        }
+    }
+
+    #[inline]
+    /// Account amount of blocks and I/O operations.
+    pub fn account_block_io(
+        &mut self,
+        op: IoType,
+        num_ops: u64,
+        num_blocks: u64,
+    ) {
+        match op {
+            IoType::Read => {
+                self.io_stats.num_read_ops += num_ops;
+                self.io_stats.bytes_read += num_blocks;
+            }
+            IoType::Write => {
+                self.io_stats.num_write_ops += num_ops;
+                self.io_stats.bytes_written += num_blocks;
+            }
+            IoType::Unmap => {
+                self.io_stats.num_unmap_ops += num_ops;
+                self.io_stats.bytes_unmapped += num_blocks;
+            }
+            _ => {
+                warn!("Unsupported I/O type for I/O statistics: {:?}", op);
+            }
+        }
+    }
+
+    /// Get I/O statistics for channel.
+    #[inline]
+    pub fn get_io_stats(&self) -> BlockDeviceIoStats {
+        let mut stats = self.io_stats;
+
+        // Translate sectors into bytes before returning the stats.
+        stats.bytes_read *= self.block_size;
+        stats.bytes_written *= self.block_size;
+        stats.bytes_unmapped *= self.block_size;
+
+        stats
+    }
 }
 
 pub struct NvmeControllerIoChannel(NonNull<spdk_io_channel>);
@@ -342,7 +410,7 @@ impl NvmeControllerIoChannel {
             Some(c) => c,
         };
 
-        let (cname, spdk_handle) = {
+        let (cname, spdk_handle, block_size) = {
             let controller = carc.lock().expect("lock error");
             // Make sure controller is available.
             if controller.get_state() != NvmeControllerState::Running {
@@ -359,7 +427,11 @@ impl NvmeControllerIoChannel {
             // the reference to the controller instance (carc) which
             // guarantees that the controller exists during I/O channel
             // creation.
-            (controller.get_name(), controller.ctrlr_as_ptr())
+            let block_size = controller
+                .namespace()
+                .expect("No namespaces in active controller")
+                .block_len();
+            (controller.get_name(), controller.ctrlr_as_ptr(), block_size)
         };
 
         let nvme_channel = NvmeIoChannel::from_raw(ctx);
@@ -408,6 +480,7 @@ impl NvmeControllerIoChannel {
             qpair: Some(qpair),
             poll_group,
             poller,
+            io_stats_controller: IoStatsController::new(block_size),
             is_shutdown: false,
         });
 
