@@ -1,6 +1,7 @@
 //!
 //!
 //! This file contains the main structures for a NVMe controller
+use merge::Merge;
 use nix::errno::Errno;
 use once_cell::sync::OnceCell;
 use std::{convert::From, os::raw::c_void, ptr::NonNull, sync::Arc};
@@ -39,6 +40,7 @@ use crate::{
     core::{
         mempool::MemoryPool,
         poller,
+        BlockDeviceIoStats,
         CoreError,
         IoCompletionCallback,
         IoCompletionCallbackArg,
@@ -326,6 +328,70 @@ impl<'a> NvmeController<'a> {
             .expect("(BUG) no inner NVMe controller defined yet");
         inner.namespaces.clear();
         debug!("{} all namespaces removed", self.name);
+    }
+
+    /// Get I/O statistics for all I/O channels of the controller.
+    pub fn get_io_stats<T: 'static + Sized, F>(
+        &self,
+        cb: F,
+        cb_arg: T,
+    ) -> Result<(), CoreError>
+    where
+        F: Fn(Result<BlockDeviceIoStats, CoreError>, T) + 'static,
+    {
+        struct IoStatsCtx<V: 'static + Sized> {
+            cb: Box<dyn Fn(Result<BlockDeviceIoStats, CoreError>, V) + 'static>,
+            cb_arg: V,
+            io_stats: BlockDeviceIoStats,
+        }
+
+        if self.state_machine.current_state() != Running {
+            error!(
+                "{} Controller is in '{:?}' state, reset not possible",
+                self.name,
+                self.state_machine.current_state()
+            );
+            return Err(CoreError::DeviceStatisticsError {
+                source: Errno::EAGAIN,
+            });
+        }
+
+        let ctx = IoStatsCtx {
+            cb: Box::new(cb),
+            cb_arg,
+            io_stats: BlockDeviceIoStats::default(),
+        };
+
+        // Process I/O statistics for a given channel.
+        fn account_channel_stats<N>(
+            channel: &mut NvmeIoChannelInner,
+            ctx: &mut IoStatsCtx<N>,
+        ) -> i32 {
+            ctx.io_stats
+                .merge(channel.get_io_stats_controller().get_io_stats());
+            0
+        }
+
+        // Pass aggregated I/O statistics back to the caller.
+        fn account_channel_stats_done<N>(result: i32, ctx: IoStatsCtx<N>) {
+            let stats = if result == 0 {
+                Ok(ctx.io_stats)
+            } else {
+                Err(CoreError::DeviceStatisticsError {
+                    source: Errno::EAGAIN,
+                })
+            };
+
+            (ctx.cb)(stats, ctx.cb_arg)
+        }
+
+        self.inner.as_ref().unwrap().io_device.traverse_io_channels(
+            account_channel_stats::<T>,
+            account_channel_stats_done::<T>,
+            ctx,
+        );
+
+        Ok(())
     }
 
     /// Shutdown the controller and all its resources.

@@ -10,7 +10,7 @@ pub use block_device::{
     BlockDevice,
     BlockDeviceDescriptor,
     BlockDeviceHandle,
-    BlockDeviceStats,
+    BlockDeviceIoStats,
     DeviceIoController,
     DeviceTimeoutAction,
     IoCompletionCallback,
@@ -158,5 +158,9 @@ pub enum CoreError {
     #[snafu(display("Failed to allocate DMA buffer of {} bytes", size))]
     DmaAllocationError {
         size: u64,
+    },
+    #[snafu(display("Failed to get I/O satistics for device: {}", source))]
+    DeviceStatisticsError {
+        source: Errno,
     },
 }
