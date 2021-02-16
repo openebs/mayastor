@@ -1,3 +1,5 @@
+use async_trait::async_trait;
+use futures::channel::oneshot;
 use nix::errno::Errno;
 use std::{
     convert::From,
@@ -22,12 +24,12 @@ use crate::{
         BlockDevice,
         BlockDeviceDescriptor,
         BlockDeviceHandle,
-        BlockDeviceStats,
+        BlockDeviceIoStats,
         CoreError,
         DeviceIoController,
         DeviceTimeoutAction,
     },
-    nexus_uri::NexusBdevError,
+    ffihelper::{cb_arg, done_cb},
 };
 
 pub struct NvmeBlockDevice {
@@ -100,7 +102,7 @@ impl NvmeBlockDevice {
             },
         )?;
 
-        let controller = controller.lock().expect("lock poisened");
+        let controller = controller.lock().expect("lock poisoned");
 
         // Make sure controller is available.
         if controller.get_state() == NvmeControllerState::Running {
@@ -121,6 +123,7 @@ impl NvmeBlockDevice {
     }
 }
 
+#[async_trait(?Send)]
 impl BlockDevice for NvmeBlockDevice {
     fn size_in_bytes(&self) -> u64 {
         self.ns.size_in_bytes()
@@ -173,8 +176,28 @@ impl BlockDevice for NvmeBlockDevice {
         }
     }
 
-    fn io_stats(&self) -> Result<BlockDeviceStats, NexusBdevError> {
-        Ok(Default::default())
+    async fn io_stats(&self) -> Result<BlockDeviceIoStats, CoreError> {
+        let carc = NVME_CONTROLLERS.lookup_by_name(&self.name).ok_or(
+            CoreError::BdevNotFound {
+                name: self.name.to_string(),
+            },
+        )?;
+
+        let (s, r) =
+            oneshot::channel::<Result<BlockDeviceIoStats, CoreError>>();
+        // Schedule async I/O stats collection and wait for the result.
+        {
+            let controller = carc.lock().expect("lock poisoned");
+
+            controller.get_io_stats(
+                |stats, ch| {
+                    done_cb(ch, stats);
+                },
+                cb_arg(s),
+            )?;
+        }
+
+        r.await.expect("Failed awaiting at io_stats")
     }
 
     fn claimed_by(&self) -> Option<String> {
