@@ -1,10 +1,16 @@
-use async_trait::async_trait;
-use common::*;
-use mbus_api::{v0::*, *};
 use std::{collections::HashMap, convert::TryInto, marker::PhantomData};
+
+use async_trait::async_trait;
 use structopt::StructOpt;
 use tokio::sync::Mutex;
 use tracing::{error, info};
+
+use ::rpc::mayastor::{
+    mayastor_client::MayastorClient,
+    ListBlockDevicesRequest,
+};
+use common::{wrapper::v0::msg_translation::RpcToMessageBus, *};
+use mbus_api::{v0::*, *};
 
 #[derive(Debug, StructOpt)]
 struct CliArgs {
@@ -176,6 +182,62 @@ impl ServiceSubscriber for ServiceHandler<GetNodes> {
     }
 }
 
+#[async_trait]
+impl ServiceSubscriber for ServiceHandler<GetBlockDevices> {
+    async fn handler(&self, args: Arguments<'_>) -> Result<(), Error> {
+        let request: ReceivedMessage<GetBlockDevices> =
+            args.request.try_into()?;
+        let store: &NodeStore = args.context.get_state()?;
+        let nodes = store
+            .get_nodes()
+            .await
+            .into_iter()
+            .filter(|n| n.id == request.inner().node)
+            .collect::<Vec<_>>();
+
+        if nodes.is_empty() {
+            return Err(Error::ServiceError {
+                message: format!(
+                    "Node with id {} not found",
+                    request.inner().node
+                ),
+            });
+        }
+
+        // Only expect one node to match the given ID.
+        assert_eq!(nodes.len(), 1);
+
+        let mut client = MayastorClient::connect(format!(
+            "http://{}",
+            nodes[0].grpc_endpoint
+        ))
+        .await
+        .unwrap();
+
+        // Issue the gRPC request
+        let response = client
+            .list_block_devices(ListBlockDevicesRequest {
+                all: request.inner().all,
+            })
+            .await
+            .unwrap()
+            .into_inner();
+
+        // Convert the rpc types into message bus types before sending the
+        // reply.
+        let bdevs = response
+            .devices
+            .iter()
+            .map(|rpc_bdev| rpc_bdev.to_mbus())
+            .collect::<Vec<BlockDevice>>();
+        request.reply(BlockDevices(bdevs)).await
+    }
+
+    fn filter(&self) -> Vec<MessageId> {
+        vec![GetBlockDevices::default().id()]
+    }
+}
+
 fn init_tracing() {
     if let Ok(filter) = tracing_subscriber::EnvFilter::try_from_default_env() {
         tracing_subscriber::fmt().with_env_filter(filter).init();
@@ -202,6 +264,7 @@ async fn server(cli_args: CliArgs) {
         .with_channel(ChannelVs::Node)
         .with_default_liveness()
         .with_subscription(ServiceHandler::<GetNodes>::default())
+        .with_subscription(ServiceHandler::<GetBlockDevices>::default())
         .run()
         .await;
 }

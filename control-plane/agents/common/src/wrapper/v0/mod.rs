@@ -143,6 +143,7 @@ macro_rules! impl_no_nexus {
     };
 }
 
+pub mod msg_translation;
 mod node_traits;
 mod pool;
 mod volume;
