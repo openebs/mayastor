@@ -37,4 +37,11 @@ repos:
         entry: bash -c "npm install @commitlint/config-conventional @commitlint/cli; cat $1 | npx commitlint"
         args: [$1]
         stages: [commit-msg]
+    -   id: openapi-check
+        name: OpenApi Generator
+        description: Ensures OpenApi spec is up to date
+        entry: ./scripts/openapi-check.sh
+        args: ["--changes"]
+        pass_filenames: false
+        language: system
 

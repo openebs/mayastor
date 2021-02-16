@@ -12,7 +12,7 @@ use rustls::{
     NoClientAuth,
     ServerConfig,
 };
-use std::{fs::File, io::BufReader};
+use std::{fs::File, io::BufReader, str::FromStr};
 use structopt::StructOpt;
 
 #[derive(Debug, StructOpt)]
@@ -40,9 +40,20 @@ pub(crate) struct CliArgs {
     #[structopt(long, short, required_unless = "cert-file")]
     dummy_certificates: bool,
 
+    /// Output the OpenApi specs to this directory
+    #[structopt(long, short, parse(try_from_str = parse_dir))]
+    output_specs: Option<PathBuf>,
+
     /// Trace rest requests to the Jaeger endpoint agent
     #[structopt(long, short)]
     jaeger: Option<String>,
+}
+
+fn parse_dir(src: &str) -> anyhow::Result<std::path::PathBuf> {
+    let path = std::path::PathBuf::from_str(src)?;
+    anyhow::ensure!(path.exists(), "does not exist!");
+    anyhow::ensure!(path.is_dir(), "must be a directory!");
+    Ok(path)
 }
 
 use actix_web_opentelemetry::RequestTracing;
@@ -51,6 +62,7 @@ use opentelemetry::{
     sdk::{propagation::TraceContextPropagator, trace::Tracer},
 };
 use opentelemetry_jaeger::Uninstall;
+use std::path::PathBuf;
 
 fn init_tracing() -> Option<(Tracer, Uninstall)> {
     if let Ok(filter) = tracing_subscriber::EnvFilter::try_from_default_env() {
@@ -155,21 +167,28 @@ async fn main() -> anyhow::Result<()> {
     // need to keep the jaeger pipeline tracer alive, if enabled
     let _tracer = init_tracing();
 
-    mbus_api::message_bus_init(CliArgs::from_args().nats).await;
-
-    let server = HttpServer::new(move || {
+    let app = move || {
         App::new()
             .wrap(RequestTracing::new())
             .wrap(middleware::Logger::default())
             .configure_api(&v0::configure_api)
-    })
-    .bind_rustls(CliArgs::from_args().https, get_certificates()?)?;
-    if let Some(http) = CliArgs::from_args().http {
-        server.bind(http).map_err(anyhow::Error::from)?
+    };
+
+    if CliArgs::from_args().output_specs.is_some() {
+        // call the app which will write out the api specs to files
+        let _ = app();
+        Ok(())
     } else {
-        server
+        mbus_api::message_bus_init(CliArgs::from_args().nats).await;
+        let server = HttpServer::new(app)
+            .bind_rustls(CliArgs::from_args().https, get_certificates()?)?;
+        if let Some(http) = CliArgs::from_args().http {
+            server.bind(http).map_err(anyhow::Error::from)?
+        } else {
+            server
+        }
+        .run()
+        .await
+        .map_err(|e| e.into())
     }
-    .run()
-    .await
-    .map_err(|e| e.into())
 }

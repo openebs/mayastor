@@ -21,6 +21,9 @@ use actix_web::{
 };
 use macros::actix::{delete, get, put};
 use paperclip::actix::OpenApiExt;
+use std::io::Write;
+use structopt::StructOpt;
+use tracing::info;
 
 fn version() -> String {
     "v0".into()
@@ -64,6 +67,17 @@ where
 {
     api.wrap_api_with_spec(get_api())
         .configure(configure)
+        .with_raw_json_spec(|app, spec| {
+            if let Some(dir) = super::CliArgs::from_args().output_specs {
+                let file = dir.join(&format!("{}_api_spec.json", version()));
+                info!("Writing {} to {}", spec_uri(), file.to_string_lossy());
+                let mut file = std::fs::File::create(file)
+                    .expect("Should create the spec file");
+                file.write_all(spec.to_string().as_ref())
+                    .expect("Should write the spec to file");
+            }
+            app
+        })
         .with_json_spec_at(&spec_uri())
         .build()
         .configure(swagger_ui::configure)
