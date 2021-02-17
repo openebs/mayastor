@@ -12,12 +12,13 @@ async fn wait_for_services() {
     Liveness {}.request_on(ChannelVs::Node).await.unwrap();
     Liveness {}.request_on(ChannelVs::Pool).await.unwrap();
     Liveness {}.request_on(ChannelVs::Volume).await.unwrap();
+    Liveness {}.request_on(ChannelVs::JsonGrpc).await.unwrap();
 }
 
 // to avoid waiting for timeouts
 async fn orderly_start(test: &ComposeTest) {
     test.start_containers(vec![
-        "nats", "node", "pool", "volume", "rest", "jaeger",
+        "nats", "node", "pool", "volume", "jsongrpc", "rest", "jaeger",
     ])
     .await
     .unwrap();
@@ -79,6 +80,10 @@ async fn client() {
             .with_portmap("16686", "16686")
             .with_portmap("6831/udp", "6831/udp")
             .with_portmap("6832/udp", "6832/udp"),
+        )
+        .add_container_bin(
+            "jsongrpc",
+            Binary::from_dbg("jsongrpc").with_nats("-n"),
         )
         .with_default_tracing()
         .autorun(false)
@@ -264,6 +269,23 @@ async fn client_test(mayastor: &NodeId, test: &ComposeTest) {
         .await
         .unwrap();
     assert!(client.get_pools(Filter::None).await.unwrap().is_empty());
+
+    client
+        .json_grpc(JsonGrpcRequest {
+            node: mayastor.into(),
+            method: "rpc_get_methods".into(),
+            params: serde_json::json!({}).to_string().into(),
+        })
+        .await
+        .expect("Failed to call JSON gRPC method");
+
+    client
+        .get_block_devices(GetBlockDevices {
+            node: mayastor.into(),
+            all: true,
+        })
+        .await
+        .expect("Failed to get block devices");
 
     test.stop("mayastor").await.unwrap();
     tokio::time::delay_for(std::time::Duration::from_millis(250)).await;

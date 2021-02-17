@@ -1,5 +1,6 @@
 #![allow(clippy::field_reassign_with_default)]
 use super::super::ActixRestClient;
+use crate::JsonGeneric;
 use actix_web::{
     body::Body,
     http::StatusCode,
@@ -228,6 +229,16 @@ pub trait RestClient {
         -> anyhow::Result<Volume>;
     /// Destroy volume
     async fn destroy_volume(&self, args: DestroyVolume) -> anyhow::Result<()>;
+    /// Generic JSON gRPC call
+    async fn json_grpc(
+        &self,
+        args: JsonGrpcRequest,
+    ) -> anyhow::Result<JsonGeneric>;
+    /// Get block devices
+    async fn get_block_devices(
+        &self,
+        args: GetBlockDevices,
+    ) -> anyhow::Result<Vec<BlockDevice>>;
 }
 
 #[derive(Display, Debug)]
@@ -494,6 +505,23 @@ impl RestClient for ActixRestClient {
         let urn = format!("/v0/volumes/{}", &args.uuid);
         self.del(urn).await?;
         Ok(())
+    }
+
+    async fn json_grpc(
+        &self,
+        args: JsonGrpcRequest,
+    ) -> anyhow::Result<JsonGeneric> {
+        let urn = format!("/v0/nodes/{}/jsongrpc/{}", args.node, args.method);
+        self.put(urn, Body::from(args.params.to_string())).await
+    }
+
+    async fn get_block_devices(
+        &self,
+        args: GetBlockDevices,
+    ) -> anyhow::Result<Vec<BlockDevice>> {
+        let urn =
+            format!("/v0/nodes/{}/block_devices?all={}", args.node, args.all);
+        self.get_vec(urn).await
     }
 }
 
