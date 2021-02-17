@@ -193,6 +193,9 @@ pipeline {
             expression { rust_test == true }
           }
           agent { label 'nixos-mayastor' }
+          environment {
+            START_DATE = new Date().format("yyyy-MM-dd HH:mm:ss", TimeZone.getTimeZone('UTC'))
+          }
           steps {
             sh 'printenv'
             sh 'nix-shell --run "./scripts/cargo-test.sh"'
@@ -201,6 +204,7 @@ pipeline {
             always {
               // in case of abnormal termination of any nvmf test
               sh 'sudo nvme disconnect-all'
+              sh './scripts/check-coredumps.sh --since "${START_DATE}"'
             }
           }
         }
@@ -210,6 +214,9 @@ pipeline {
             expression { grpc_test == true }
           }
           agent { label 'nixos-mayastor' }
+          environment {
+            START_DATE = new Date().format("yyyy-MM-dd HH:mm:ss", TimeZone.getTimeZone('UTC'))
+          }
           steps {
             sh 'printenv'
             sh 'nix-shell --run "./scripts/grpc-test.sh"'
@@ -217,6 +224,7 @@ pipeline {
           post {
             always {
               junit '*-xunit-report.xml'
+              sh './scripts/check-coredumps.sh --since "${START_DATE}"'
             }
           }
         }
