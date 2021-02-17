@@ -118,7 +118,7 @@ async fn normal_request_reply() {
                 assert_eq!(res.code, 123);
                 assert!(!res.flag);
             }
-            Err(err) => panic!(format!("{}", err)),
+            Err(err) => panic!("{}", err),
         },
     )
     .await;
@@ -142,7 +142,7 @@ async fn invalid_json() {
         |res: Result<(), Error>| match res {
             Ok(_) => panic!("Expected error and got ok"),
             Err(Error::ParseError(_)) => (),
-            Err(err) => panic!(format!("Wrong error type: {}", err)),
+            Err(err) => panic!("Wrong error type: {}", err),
         },
     )
     .await;
@@ -186,7 +186,7 @@ async fn invalid_version() {
         |res: Result<(), Error>| match res {
             Ok(_) => panic!("Expected error and got ok"),
             Err(Error::InvalidVersion) => (),
-            Err(err) => panic!(format!("Wrong error type: {}", err)),
+            Err(err) => panic!("Wrong error type: {}", err),
         },
     )
     .await;
@@ -209,7 +209,7 @@ async fn missing_version() {
         },
         |res: Result<String, Error>| match res {
             Ok(_) => (),
-            Err(err) => panic!(format!("{}", err)),
+            Err(err) => panic!("{}", err),
         },
     )
     .await;
@@ -233,7 +233,7 @@ async fn wrong_reply_id() {
         |res: Result<String, Error>| match res {
             Ok(_) => panic!("Expected error and got ok"),
             Err(Error::InvalidReplyId) => (),
-            Err(err) => panic!(format!("Wrong error type: {}", err)),
+            Err(err) => panic!("Wrong error type: {}", err),
         },
     )
     .await;
@@ -257,7 +257,7 @@ async fn empty_result_unexpected() {
         |res: Result<(), Error>| match res {
             Ok(_) => panic!("Expected error and got ok"),
             Err(Error::ParseError(_)) => (),
-            Err(err) => panic!(format!("Wrong error type: {}", err)),
+            Err(err) => panic!("Wrong error type: {}", err),
         },
     )
     .await;
@@ -280,7 +280,7 @@ async fn empty_result_expected() {
         },
         |res: Result<(), Error>| match res {
             Ok(_) => (),
-            Err(err) => panic!(format!("Unexpected error {}", err)),
+            Err(err) => panic!("Unexpected error {}", err),
         },
     )
     .await;
@@ -314,7 +314,7 @@ async fn rpc_error() {
                 assert_eq!(code, RpcCode::NotFound);
                 assert_eq!(&msg, "Not found");
             }
-            Err(err) => panic!(format!("Wrong error type: {}", err)),
+            Err(err) => panic!("Wrong error type: {}", err),
         },
     )
     .await;

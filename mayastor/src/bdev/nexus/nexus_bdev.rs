@@ -40,7 +40,7 @@ use crate::{
         nexus::{
             instances,
             nexus_channel::{
-                DREvent,
+                DrEvent,
                 NexusChannel,
                 NexusChannelInner,
                 ReconfigureCtx,
@@ -448,7 +448,7 @@ impl Nexus {
     }
 
     /// reconfigure the child event handler
-    pub(crate) async fn reconfigure(&self, event: DREvent) {
+    pub(crate) async fn reconfigure(&self, event: DrEvent) {
         let (s, r) = oneshot::channel::<i32>();
 
         info!(

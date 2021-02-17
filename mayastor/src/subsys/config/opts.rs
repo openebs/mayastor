@@ -35,8 +35,8 @@ pub trait GetOpts {
     }
 }
 
-#[serde(default, deny_unknown_fields)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct NexusOpts {
     /// enable nvmf target
     pub nvmf_enable: bool,
@@ -85,8 +85,8 @@ impl GetOpts for NexusOpts {
     }
 }
 
-#[serde(default, deny_unknown_fields)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct NvmfTgtConfig {
     /// name of the target to be created
     pub name: String,
@@ -599,8 +599,8 @@ impl GetOpts for PosixSocketOpts {
     }
 }
 
-#[serde(default, deny_unknown_fields)]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
 pub struct ErrStoreOpts {
     /// ring buffer size
     pub err_store_size: usize,

@@ -19,14 +19,14 @@ use crate::{
 #[derive(Debug, Copy, Clone)]
 pub enum IoType {
     /// perform random read operations
-    READ,
+    Read,
     /// perform random write operations
-    WRITE,
+    Write,
 }
 
 impl Default for IoType {
     fn default() -> Self {
-        Self::READ
+        Self::Read
     }
 }
 
@@ -47,8 +47,8 @@ impl Io {
     fn run(&mut self, job: *mut Job) {
         self.job = NonNull::new(job).unwrap();
         match self.iot {
-            IoType::READ => self.read(0),
-            IoType::WRITE => self.write(0),
+            IoType::Read => self.read(0),
+            IoType::Write => self.write(0),
         };
     }
 
@@ -66,8 +66,8 @@ impl Io {
         }
 
         match self.iot {
-            IoType::READ => self.read(offset),
-            IoType::WRITE => self.write(offset),
+            IoType::Read => self.read(offset),
+            IoType::Write => self.write(offset),
         }
     }
 

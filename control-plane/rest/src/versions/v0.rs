@@ -166,6 +166,15 @@ impl CreateVolumeBody {
     }
 }
 
+/// Contains the query parameters that can be passed when calling
+/// get_block_devices
+#[derive(Deserialize, Apiv2Schema)]
+#[serde(rename_all = "camelCase")]
+pub struct GetBlockDeviceQueryParams {
+    /// specifies whether to list all devices or only usable ones
+    pub all: Option<bool>,
+}
+
 /// RestClient interface
 #[async_trait(?Send)]
 pub trait RestClient {
@@ -232,7 +241,7 @@ pub trait RestClient {
 
 #[derive(Display, Debug)]
 #[allow(clippy::enum_variant_names)]
-enum RestURNs {
+enum RestUrns {
     #[strum(serialize = "nodes")]
     GetNodes(Node),
     #[strum(serialize = "pools")]
@@ -254,7 +263,7 @@ macro_rules! get_all {
     ($S:ident, $T:ident) => {
         $S.get_vec(format!(
             "/v0/{}",
-            RestURNs::$T(Default::default()).to_string()
+            RestUrns::$T(Default::default()).to_string()
         ))
     };
 }
@@ -262,26 +271,26 @@ macro_rules! get_filter {
     ($S:ident, $F:ident, $T:ident) => {
         $S.get_vec(format!(
             "/v0/{}",
-            get_filtered_urn($F, &RestURNs::$T(Default::default()))?
+            get_filtered_urn($F, &RestUrns::$T(Default::default()))?
         ))
     };
 }
 
-fn get_filtered_urn(filter: Filter, r: &RestURNs) -> anyhow::Result<String> {
+fn get_filtered_urn(filter: Filter, r: &RestUrns) -> anyhow::Result<String> {
     let urn = match r {
-        RestURNs::GetNodes(_) => match filter {
+        RestUrns::GetNodes(_) => match filter {
             Filter::None => "nodes".to_string(),
             Filter::Node(id) => format!("nodes/{}", id),
             _ => return Err(anyhow::Error::msg("Invalid filter for Nodes")),
         },
-        RestURNs::GetPools(_) => match filter {
+        RestUrns::GetPools(_) => match filter {
             Filter::None => "pools".to_string(),
             Filter::Node(id) => format!("nodes/{}/pools", id),
             Filter::Pool(id) => format!("pools/{}", id),
             Filter::NodePool(n, p) => format!("nodes/{}/pools/{}", n, p),
             _ => return Err(anyhow::Error::msg("Invalid filter for pools")),
         },
-        RestURNs::GetReplicas(_) => match filter {
+        RestUrns::GetReplicas(_) => match filter {
             Filter::None => "replicas".to_string(),
             Filter::Node(id) => format!("nodes/{}/replicas", id),
             Filter::Pool(id) => format!("pools/{}/replicas", id),
@@ -296,21 +305,21 @@ fn get_filtered_urn(filter: Filter, r: &RestURNs) -> anyhow::Result<String> {
             Filter::PoolReplica(p, r) => format!("pools/{}/replicas/{}", p, r),
             _ => return Err(anyhow::Error::msg("Invalid filter for replicas")),
         },
-        RestURNs::GetNexuses(_) => match filter {
+        RestUrns::GetNexuses(_) => match filter {
             Filter::None => "nexuses".to_string(),
             Filter::Node(n) => format!("nodes/{}/nexuses", n),
             Filter::NodeNexus(n, x) => format!("nodes/{}/nexuses/{}", n, x),
             Filter::Nexus(x) => format!("nexuses/{}", x),
             _ => return Err(anyhow::Error::msg("Invalid filter for nexuses")),
         },
-        RestURNs::GetChildren(_) => match filter {
+        RestUrns::GetChildren(_) => match filter {
             Filter::NodeNexus(n, x) => {
                 format!("nodes/{}/nexuses/{}/children", n, x)
             }
             Filter::Nexus(x) => format!("nexuses/{}/children", x),
             _ => return Err(anyhow::Error::msg("Invalid filter for nexuses")),
         },
-        RestURNs::GetVolumes(_) => match filter {
+        RestUrns::GetVolumes(_) => match filter {
             Filter::None => "volumes".to_string(),
             Filter::Node(n) => format!("nodes/{}/volumes", n),
             Filter::Volume(x) => format!("volumes/{}", x),
@@ -497,24 +506,24 @@ impl RestClient for ActixRestClient {
     }
 }
 
-impl Into<Body> for CreatePoolBody {
-    fn into(self) -> Body {
-        Body::from(serde_json::to_value(self).unwrap())
+impl From<CreatePoolBody> for Body {
+    fn from(src: CreatePoolBody) -> Self {
+        Body::from(serde_json::to_value(src).unwrap())
     }
 }
-impl Into<Body> for CreateReplicaBody {
-    fn into(self) -> Body {
-        Body::from(serde_json::to_value(self).unwrap())
+impl From<CreateReplicaBody> for Body {
+    fn from(src: CreateReplicaBody) -> Self {
+        Body::from(serde_json::to_value(src).unwrap())
     }
 }
-impl Into<Body> for CreateNexusBody {
-    fn into(self) -> Body {
-        Body::from(serde_json::to_value(self).unwrap())
+impl From<CreateNexusBody> for Body {
+    fn from(src: CreateNexusBody) -> Self {
+        Body::from(serde_json::to_value(src).unwrap())
     }
 }
-impl Into<Body> for CreateVolumeBody {
-    fn into(self) -> Body {
-        Body::from(serde_json::to_value(self).unwrap())
+impl From<CreateVolumeBody> for Body {
+    fn from(src: CreateVolumeBody) -> Self {
+        Body::from(serde_json::to_value(src).unwrap())
     }
 }
 
@@ -578,9 +587,9 @@ impl From<BusError> for RestError {
         }
     }
 }
-impl Into<HttpResponse> for RestError {
-    fn into(self) -> HttpResponse {
-        self.get_resp_error()
+impl From<RestError> for HttpResponse {
+    fn from(src: RestError) -> Self {
+        src.get_resp_error()
     }
 }
 
@@ -611,25 +620,16 @@ impl<T: Serialize> RestRespond<T> {
         Ok(Json(object))
     }
 }
-impl<T> Into<RestRespond<T>> for Result<T, BusError> {
-    fn into(self) -> RestRespond<T> {
-        RestRespond(self.map_err(RestError::from))
+impl<T> From<Result<T, BusError>> for RestRespond<T> {
+    fn from(src: Result<T, BusError>) -> Self {
+        RestRespond(src.map_err(RestError::from))
     }
 }
-impl<T: Serialize> Into<HttpResponse> for RestRespond<T> {
-    fn into(self) -> HttpResponse {
-        match self.0 {
+impl<T: Serialize> From<RestRespond<T>> for HttpResponse {
+    fn from(src: RestRespond<T>) -> Self {
+        match src.0 {
             Ok(resp) => HttpResponse::Ok().json(resp),
             Err(error) => error.into(),
         }
     }
-}
-
-/// Contains the query parameters that can be passed when calling
-/// get_block_devices
-#[derive(Deserialize, Apiv2Schema)]
-#[serde(rename_all = "camelCase")]
-pub struct GetBlockDeviceQueryParams {
-    /// specifies whether to list all devices or only usable ones
-    pub all: Option<bool>,
 }

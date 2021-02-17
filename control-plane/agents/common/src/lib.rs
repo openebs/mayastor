@@ -187,10 +187,13 @@ impl Service {
         let type_name = std::any::type_name::<T>();
         tracing::debug!("Adding shared type: {}", type_name);
         if !self.shared_state.set(state) {
-            panic!(format!(
-                "Shared state for type '{}' has already been set!",
-                type_name
-            ));
+            panic!(
+                "{}",
+                format!(
+                    "Shared state for type '{}' has already been set!",
+                    type_name
+                )
+            );
         }
         self
     }

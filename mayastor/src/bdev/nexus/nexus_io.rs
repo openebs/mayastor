@@ -18,7 +18,7 @@ use crate::{
     bdev::{
         nexus::{
             nexus_bdev::{Nexus, NEXUS_PRODUCT_ID},
-            nexus_channel::DREvent,
+            nexus_channel::DrEvent,
             nexus_fn_table::NexusFnTable,
         },
         nexus_lookup,
@@ -94,8 +94,8 @@ pub enum IoType {
     Flush,
     Reset,
     NvmeAdmin,
-    NvmeIO,
-    NvmeIOMD,
+    NvmeIo,
+    NvmeIoMd,
     WriteZeros,
     ZeroCopy,
     ZoneInfo,
@@ -117,8 +117,8 @@ impl From<IoType> for u32 {
             IoType::Flush => 4,
             IoType::Reset => 5,
             IoType::NvmeAdmin => 6,
-            IoType::NvmeIO => 7,
-            IoType::NvmeIOMD => 8,
+            IoType::NvmeIo => 7,
+            IoType::NvmeIoMd => 8,
             IoType::WriteZeros => 9,
             IoType::ZeroCopy => 10,
             IoType::ZoneInfo => 11,
@@ -142,8 +142,8 @@ impl From<u32> for IoType {
             4 => Self::Flush,
             5 => Self::Reset,
             6 => Self::NvmeAdmin,
-            7 => Self::NvmeIO,
-            8 => Self::NvmeIOMD,
+            7 => Self::NvmeIo,
+            8 => Self::NvmeIoMd,
             9 => Self::WriteZeros,
             10 => Self::ZeroCopy,
             11 => Self::ZoneInfo,
@@ -335,7 +335,7 @@ impl Bio {
 
                     let uri = child.name.clone();
                     nexus.pause().await.unwrap();
-                    nexus.reconfigure(DREvent::ChildFault).await;
+                    nexus.reconfigure(DrEvent::ChildFault).await;
                     //nexus.remove_child(&uri).await.unwrap();
 
                     // Note, an error can occur here if a separate task,

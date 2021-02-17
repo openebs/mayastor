@@ -9,6 +9,7 @@ extern crate tonic;
 #[allow(clippy::type_complexity)]
 #[allow(clippy::unit_arg)]
 #[allow(clippy::redundant_closure)]
+#[allow(clippy::upper_case_acronyms)]
 pub mod mayastor {
 
     impl From<()> for Null {

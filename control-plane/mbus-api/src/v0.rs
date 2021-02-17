@@ -298,7 +298,16 @@ impl Default for Filter {
 macro_rules! bus_impl_string_id_inner {
     ($Name:ident, $Doc:literal) => {
         #[doc = $Doc]
-        #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialEq, Hash, Apiv2Schema)]
+        #[derive(
+            Serialize,
+            Deserialize,
+            Debug,
+            Clone,
+            Eq,
+            PartialEq,
+            Hash,
+            Apiv2Schema,
+        )]
         pub struct $Name(String);
 
         impl std::fmt::Display for $Name {
@@ -325,15 +334,15 @@ macro_rules! bus_impl_string_id_inner {
             }
         }
 
-        impl Into<$Name> for &$Name {
-            fn into(self) -> $Name {
-                self.clone()
+        impl From<&$Name> for $Name {
+            fn from(id: &$Name) -> $Name {
+                id.clone()
             }
         }
 
-        impl Into<String> for $Name {
-            fn into(self) -> String {
-                self.to_string()
+        impl From<$Name> for String {
+            fn from(id: $Name) -> String {
+                id.to_string()
             }
         }
     };

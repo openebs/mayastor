@@ -14,7 +14,7 @@
 
 use crate::bdev::nexus::{
     instances,
-    nexus_channel::DREvent,
+    nexus_channel::DrEvent,
     nexus_child::{ChildState, NexusChild},
 };
 use once_cell::sync::OnceCell;
@@ -93,7 +93,7 @@ impl ChildStatusConfig {
                     child.set_state(*status);
                 }
             });
-            nexus.reconfigure(DREvent::ChildStatusSync).await;
+            nexus.reconfigure(DrEvent::ChildStatusSync).await;
         }
     }
 

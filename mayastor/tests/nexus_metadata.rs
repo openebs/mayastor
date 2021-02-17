@@ -56,40 +56,38 @@ async fn read_write_metadata() {
     let child = &mut nexus.children[0];
 
     let now = SystemTime::now();
-    let mut data: Vec<NexusConfig> = Vec::new();
-
-    data.push(NexusConfig::Version1(NexusConfigVersion1 {
-        name: "Hello".to_string(),
-        tags: String::from("How now brown cow")
-            .split_whitespace()
-            .map(String::from)
-            .collect(),
-        revision: 38,
-        checksum: 0x3c2d_38ab,
-        data: String::from("Hello from v1"),
-    }));
-
-    data.push(NexusConfig::Version2(NexusConfigVersion2 {
-        name: "Hello".to_string(),
-        tags: String::from("How now brown cow")
-            .split_whitespace()
-            .map(String::from)
-            .collect(),
-        revision: 40,
-        checksum: 0x3c2e_40ab,
-        data: String::from("Hello from v2"),
-        count: 100,
-    }));
-
-    data.push(NexusConfig::Version3(NexusConfigVersion3 {
-        name: "Hello".to_string(),
-        revision: 42,
-        checksum: 0x3c2f_42ab,
-        data: String::from("Hello from v3")
-            .split_whitespace()
-            .map(String::from)
-            .collect(),
-    }));
+    let data = vec![
+        NexusConfig::Version1(NexusConfigVersion1 {
+            name: "Hello".to_string(),
+            tags: String::from("How now brown cow")
+                .split_whitespace()
+                .map(String::from)
+                .collect(),
+            revision: 38,
+            checksum: 0x3c2d_38ab,
+            data: String::from("Hello from v1"),
+        }),
+        NexusConfig::Version2(NexusConfigVersion2 {
+            name: "Hello".to_string(),
+            tags: String::from("How now brown cow")
+                .split_whitespace()
+                .map(String::from)
+                .collect(),
+            revision: 40,
+            checksum: 0x3c2e_40ab,
+            data: String::from("Hello from v2"),
+            count: 100,
+        }),
+        NexusConfig::Version3(NexusConfigVersion3 {
+            name: "Hello".to_string(),
+            revision: 42,
+            checksum: 0x3c2f_42ab,
+            data: String::from("Hello from v3")
+                .split_whitespace()
+                .map(String::from)
+                .collect(),
+        }),
+    ];
 
     // create an index and append two objects
     let mut metadata = child.create_metadata().await.unwrap();

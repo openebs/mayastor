@@ -44,7 +44,7 @@ use crate::{
     core::{Bdev, Reactors},
     ffihelper::{cb_arg, AsStr, FfiResult, IntoCString},
     subsys::{
-        nvmf::{transport::TransportID, Error, NVMF_TGT},
+        nvmf::{transport::TransportId, Error, NVMF_TGT},
         Config,
     },
 };
@@ -262,7 +262,7 @@ impl NvmfSubsystem {
 
         // dont yet enable both ports, IOW just add one transportID now
 
-        let trid_replica = TransportID::new(cfg.nexus_opts.nvmf_replica_port);
+        let trid_replica = TransportId::new(cfg.nexus_opts.nvmf_replica_port);
 
         let (s, r) = oneshot::channel::<i32>();
         unsafe {
@@ -526,7 +526,7 @@ impl NvmfSubsystem {
         Bdev::from_ptr(unsafe { spdk_nvmf_ns_get_bdev(ns) })
     }
 
-    fn listeners_to_vec(&self) -> Option<Vec<TransportID>> {
+    fn listeners_to_vec(&self) -> Option<Vec<TransportId>> {
         unsafe {
             let mut listener =
                 spdk_nvmf_subsystem_get_first_listener(self.0.as_ptr());
@@ -535,7 +535,7 @@ impl NvmfSubsystem {
                 return None;
             }
 
-            let mut ids = vec![TransportID(
+            let mut ids = vec![TransportId(
                 *spdk_nvmf_subsystem_listener_get_trid(listener),
             )];
 
@@ -545,7 +545,7 @@ impl NvmfSubsystem {
                     listener,
                 );
                 if !listener.is_null() {
-                    ids.push(TransportID(
+                    ids.push(TransportId(
                         *spdk_nvmf_subsystem_listener_get_trid(listener),
                     ));
                     continue;

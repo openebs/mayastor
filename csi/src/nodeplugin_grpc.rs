@@ -27,6 +27,7 @@ use nodeplugin_svc::{
 };
 use tonic::{transport::Server, Code, Request, Response, Status};
 
+#[allow(clippy::upper_case_acronyms)]
 pub mod mayastor_node_plugin {
     tonic::include_proto!("mayastornodeplugin");
 }
@@ -49,7 +50,7 @@ impl From<ServiceError> for Status {
             ServiceError::InternalFailure {
                 ..
             } => Status::new(Code::Internal, err.to_string()),
-            ServiceError::IOError {
+            ServiceError::IoError {
                 ..
             } => Status::new(Code::Unknown, err.to_string()),
             ServiceError::InconsistentMountFs {
