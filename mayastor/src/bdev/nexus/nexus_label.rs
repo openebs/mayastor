@@ -54,13 +54,14 @@
 //! ```
 use bincode::{deserialize_from, serialize, serialize_into, Error};
 use crc::{crc32, Hasher32};
-use futures::future::join_all;
 use serde::{
     de::{Deserialize, Deserializer, SeqAccess, Unexpected, Visitor},
     ser::{Serialize, SerializeTuple, Serializer},
 };
 use snafu::{ResultExt, Snafu};
 use std::{
+    cmp::min,
+    convert::From,
     fmt::{self, Display},
     io::{Cursor, Seek, SeekFrom},
     str::FromStr,
@@ -68,43 +69,55 @@ use std::{
 use uuid::{self, parser, Uuid};
 
 use crate::{
-    bdev::nexus::{
-        nexus_bdev::Nexus,
-        nexus_child::{ChildError, NexusChild},
-    },
+    bdev::nexus::{nexus_bdev::Nexus, nexus_child::NexusChild},
     core::{CoreError, DmaBuf, DmaError},
 };
 
 #[derive(Debug, Snafu)]
 pub enum LabelError {
-    #[snafu(display("{}", source))]
-    NexusChildError { source: ChildError },
-    #[snafu(display("Error reading {}", name))]
-    ReadError { name: String, source: CoreError },
-    #[snafu(display("Write error"))]
-    WriteError { name: String, source: CoreError },
-    #[snafu(display(
-        "Failed to allocate buffer for reading {}: {}",
-        name,
-        source
-    ))]
-    ReadAlloc { name: String, source: DmaError },
-    #[snafu(display(
-        "Failed to allocate buffer for writing {}: {}",
-        name,
-        source
-    ))]
-    WriteAlloc { name: String, source: DmaError },
     #[snafu(display("Serialization error: {}", source))]
     SerializeError { source: Error },
+    #[snafu(display(
+        "Failed to allocate buffer for reading from child {}: {}",
+        name,
+        source
+    ))]
+    ReadAlloc { source: DmaError, name: String },
+    #[snafu(display(
+        "Failed to allocate buffer for writing to child {}: {}",
+        name,
+        source
+    ))]
+    WriteAlloc { source: DmaError, name: String },
+    #[snafu(display("Error reading from child {}: {}", name, source))]
+    ReadError { source: CoreError, name: String },
+    #[snafu(display("Error writing to child {}: {}", name, source))]
+    WriteError { source: CoreError, name: String },
+    #[snafu(display("Label is invalid: {}", source))]
+    InvalidLabel { source: ProbeError },
+    #[snafu(display(
+        "Failed to obtain BdevHandle for child {}: {}",
+        name,
+        source
+    ))]
+    HandleError { source: CoreError, name: String },
+    #[snafu(display(
+        "Device is too small to accomodate Metadata partition: blocks={}",
+        blocks
+    ))]
+    DeviceTooSmall { blocks: u64 },
+    #[snafu(display("The written label could not be read from disk, likely the child {} is a null device", name))]
+    ReReadError { name: String },
+}
+
+#[derive(Debug, Snafu)]
+pub enum ProbeError {
     #[snafu(display("Deserialization error: {}", source))]
     DeserializeError { source: Error },
-    #[snafu(display("Label probe error"))]
-    ProbeError {},
-    #[snafu(display("Label is invalid"))]
-    LabelInvalid {},
     #[snafu(display("Incorrect MBR signature"))]
     MbrSignature {},
+    #[snafu(display("Disk size in MBR does not match size in GPT header"))]
+    MbrSize {},
     #[snafu(display("Incorrect GPT header signature"))]
     GptSignature {},
     #[snafu(display(
@@ -126,334 +139,160 @@ pub enum LabelError {
     CompareDiskSize {},
     #[snafu(display("GPT stored partition table checksums differ"))]
     ComparePartitionTableChecksum {},
-    #[snafu(display("Alternate GPT locations are incorrect"))]
-    BackupLocation {},
     #[snafu(display("GPT partition table location is incorrect"))]
     PartitionTableLocation {},
-    #[snafu(display("Could not get handle for child bdev {}", name,))]
-    HandleCreate { name: String, source: ChildError },
-    #[snafu(display("The written label could not be read from disk, likely the child {} is a null device", name))]
-    ReReadError { name: String },
+    #[snafu(display("Missing partition: {}", name))]
+    MissingPartition { name: String },
+    #[snafu(display("Primary GTP header location is incorrect"))]
+    PrimaryLocation {},
+    #[snafu(display("Secondary GTP header location is incorrect"))]
+    SecondaryLocation {},
+    #[snafu(display("Location of first usable block is incorrect"))]
+    FirstUsableBlock {},
+    #[snafu(display("Location of last usable block is incorrect"))]
+    LastUsableBlock {},
+    #[snafu(display("Partition table exceeds maximum size"))]
+    PartitionTableSize {},
+    #[snafu(display("Insufficient space reserved for partition table"))]
+    PartitionTableSpace {},
+    #[snafu(display("Partition starts before first usable block"))]
+    PartitionStart {},
+    #[snafu(display("Partition ends after last usable block"))]
+    PartitionEnd {},
+    #[snafu(display("Partition has negative size"))]
+    NegativePartitionSize {},
+    #[snafu(display("GPT header locations are inconsistent"))]
+    CompareHeaderLocation {},
+    #[snafu(display("Number of partition table entries differ"))]
+    ComparePartitionEntryCount {},
+    #[snafu(display("Partition table entry sizes differ"))]
+    ComparePartitionEntrySize {},
+    #[snafu(display("Incorrect partition layout"))]
+    IncorrectPartitions {},
+    #[snafu(display("Label is invalid"))]
+    LabelRedundancy {},
 }
 
-struct LabelData {
-    offset: u64,
-    buf: DmaBuf,
+pub struct LabelConfig {
+    disk_guid: GptGuid,
+    meta_guid: GptGuid,
+    data_guid: GptGuid,
+}
+
+impl LabelConfig {
+    fn new(guid: GptGuid) -> LabelConfig {
+        LabelConfig {
+            disk_guid: guid,
+            meta_guid: GptGuid::new_random(),
+            data_guid: GptGuid::new_random(),
+        }
+    }
 }
 
 impl Nexus {
     /// Partition Type GUID for our "MayaMeta" partition.
     pub const METADATA_PARTITION_TYPE_ID: &'static str =
         "27663382-e5e6-11e9-81b4-ca5ca5ca5ca5";
+    pub const METADATA_PARTITION_SIZE: u64 = 4 * 1024 * 1024;
 
     /// Generate a new nexus label based on the nexus configuration.
-    /// The meta partition is fixed in size and aligned to a 1MB boundary.
-    pub(crate) fn generate_label(&mut self) -> NexusLabel {
-        let block_size: u32 = self.bdev.block_len();
-        let num_blocks: u64 = self.min_num_blocks();
-
-        //
+    pub(crate) fn generate_label(
+        config: &LabelConfig,
+        block_size: u32,
+        data_blocks: u64,
+        total_blocks: u64,
+    ) -> Result<NexusLabel, LabelError> {
         // (Protective) MBR
         let mut pmbr = Pmbr::default();
+        pmbr.entries[0].protect(total_blocks);
 
-        pmbr.entries[0].ent_type = 0xee; // indicates this is a protective MBR partition
-        pmbr.entries[0].attributes = 0x00;
-        pmbr.entries[0].chs_start = [0x00, 0x02, 0x00];
-        pmbr.entries[0].chs_last = [0xff, 0xff, 0xff];
-
-        // the partition must accurately reflect the disk size where possible.
-        // if the size (in blocks) is too large to fit into 32 bits,
-        // we set the size to 0xffff_ffff
-
-        pmbr.entries[0].lba_start = 1; // "partition" starts immediately after the MBR
-        pmbr.entries[0].num_sectors = if num_blocks > u32::max_value().into() {
-            u32::max_value()
-        } else {
-            (num_blocks as u32) - 1 // do not count the first block that
-                                    // contains the MBR
-        };
-
-        pmbr.signature = [0x55, 0xaa];
-
-        //
         // Primary GPT header
-        let mut header = GPTHeader::new(
-            block_size,
-            num_blocks,
-            Uuid::from_bytes(self.bdev.uuid().as_bytes()),
-        );
+        let mut header =
+            GptHeader::new(block_size, total_blocks, config.disk_guid);
 
-        //
         // Partition table
-        let mut entries =
-            vec![GptEntry::default(); header.num_entries as usize];
+        let partitions = Nexus::create_maya_partitions(
+            config,
+            &header,
+            block_size,
+            data_blocks,
+        )?;
 
-        entries[0] = GptEntry {
-            ent_type: GptGuid::from_str(Nexus::METADATA_PARTITION_TYPE_ID)
-                .unwrap(),
-            ent_guid: GptGuid::new_random(),
-            // 1MB aligned
-            ent_start: header.lba_start,
-            // 4MB
-            ent_end: header.lba_start + u64::from((4 << 20) / block_size) - 1,
-            ent_attr: 0,
-            ent_name: GptName {
-                name: "MayaMeta".into(),
-            },
-        };
-
-        entries[1] = GptEntry {
-            ent_type: GptGuid::from_str(Nexus::METADATA_PARTITION_TYPE_ID)
-                .unwrap(),
-            ent_guid: GptGuid::new_random(),
-            ent_start: entries[0].ent_end + 1,
-            ent_end: header.lba_end,
-            ent_attr: 0,
-            ent_name: GptName {
-                name: "MayaData".into(),
-            },
-        };
-
-        header.table_crc = GptEntry::checksum(&entries);
+        header.table_crc = GptEntry::checksum(&partitions, header.num_entries);
         header.checksum();
 
-        //
         // Secondary GPT header
         let backup = header.to_backup();
 
-        NexusLabel {
+        Ok(NexusLabel {
             status: NexusLabelStatus::Neither,
             mbr: pmbr,
             primary: header,
-            partitions: entries,
+            partitions,
             secondary: backup,
-        }
-    }
-
-    fn get_primary_data(
-        &self,
-        label: &NexusLabel,
-    ) -> Result<LabelData, LabelError> {
-        let block_size = self.bdev.block_len() as u64;
-        let blocks = Aligned::get_blocks(
-            GPTHeader::PARTITION_TABLE_SIZE as u64,
-            block_size,
-        );
-        // allocate 2 extra blocks for the MBR and GPT header respectively
-        let mut buf =
-            DmaBuf::new((blocks + 2) * block_size, self.bdev.alignment())
-                .context(WriteAlloc {
-                    name: String::from("primary"),
-                })?;
-        let mut writer = Cursor::new(buf.as_mut_slice());
-
-        // Protective MBR
-        writer.seek(SeekFrom::Start(440)).unwrap();
-        serialize_into(&mut writer, &label.mbr).context(SerializeError {})?;
-
-        // Primary GPT header
-        writer
-            .seek(SeekFrom::Start(label.primary.lba_self * block_size))
-            .unwrap();
-        serialize_into(&mut writer, &label.primary)
-            .context(SerializeError {})?;
-
-        // Primary partition table
-        writer
-            .seek(SeekFrom::Start(label.primary.lba_table * block_size))
-            .unwrap();
-        for entry in &label.partitions {
-            serialize_into(&mut writer, &entry).context(SerializeError {})?;
-        }
-
-        Ok(LabelData {
-            offset: 0,
-            buf,
         })
     }
 
-    fn get_secondary_data(
-        &self,
-        label: &NexusLabel,
-    ) -> Result<LabelData, LabelError> {
-        let block_size = self.bdev.block_len() as u64;
-        let blocks = Aligned::get_blocks(
-            GPTHeader::PARTITION_TABLE_SIZE as u64,
-            block_size,
+    /// Create partition table entries for the MayaMeta and
+    /// MayaData partitions based on the nexus configuration.
+    #[allow(clippy::vec_init_then_push)]
+    fn create_maya_partitions(
+        config: &LabelConfig,
+        header: &GptHeader,
+        block_size: u32,
+        data_blocks: u64,
+    ) -> Result<Vec<GptEntry>, LabelError> {
+        let metadata_size = Aligned::get_blocks(
+            Nexus::METADATA_PARTITION_SIZE,
+            u64::from(block_size),
         );
-        // allocate 1 extra block for the GPT header
-        let mut buf =
-            DmaBuf::new((blocks + 1) * block_size, self.bdev.alignment())
-                .context(WriteAlloc {
-                    name: String::from("secondary"),
-                })?;
-        let mut writer = Cursor::new(buf.as_mut_slice());
+        let data = header.lba_start + metadata_size;
 
-        // Secondary partition table
-        for entry in &label.partitions {
-            serialize_into(&mut writer, &entry).context(SerializeError {})?;
+        if data > header.lba_end {
+            // Device is too small to accomodate Metadata partition
+            return Err(LabelError::DeviceTooSmall {
+                blocks: header.lba_alt + 1,
+            });
         }
 
-        // Secondary GPT header
-        writer
-            .seek(SeekFrom::Start(GPTHeader::PARTITION_TABLE_SIZE))
-            .unwrap();
-        serialize_into(&mut writer, &label.secondary)
-            .context(SerializeError {})?;
+        let mut partitions: Vec<GptEntry> = Vec::with_capacity(2);
 
-        Ok(LabelData {
-            offset: label.secondary.lba_table * block_size,
-            buf,
-        })
-    }
+        partitions.push(GptEntry {
+            ent_type: GptGuid::from_str(Nexus::METADATA_PARTITION_TYPE_ID)
+                .unwrap(),
+            ent_guid: config.meta_guid,
+            ent_start: header.lba_start,
+            ent_end: data - 1,
+            ent_attr: 0,
+            ent_name: "MayaMeta".into(),
+        });
 
-    pub async fn write_labels(
-        &self,
-        target: &NexusLabel,
-        list: &[NexusChildLabel<'_>],
-    ) -> Result<(), LabelError> {
-        let primary = self.get_primary_data(target)?;
-        let secondary = self.get_secondary_data(target)?;
+        partitions.push(GptEntry {
+            ent_type: GptGuid::from_str(Nexus::METADATA_PARTITION_TYPE_ID)
+                .unwrap(),
+            ent_guid: config.data_guid,
+            ent_start: data,
+            ent_end: min(data + data_blocks - 1, header.lba_end),
+            ent_attr: 0,
+            ent_name: "MayaData".into(),
+        });
 
-        let mut futures = Vec::new();
-
-        for label in list {
-            match label.get_label_status() {
-                NexusLabelStatus::Both => {
-                    // Nothing to do as both labels are already valid.
-                }
-                NexusLabelStatus::Primary => {
-                    // Only write out secondary as primary is already valid.
-                    futures.push(
-                        label.child.write_at(secondary.offset, &secondary.buf),
-                    );
-                }
-                NexusLabelStatus::Secondary => {
-                    // Only write out primary as secondary is already valid.
-                    futures.push(
-                        label.child.write_at(primary.offset, &primary.buf),
-                    );
-                }
-                NexusLabelStatus::Neither => {
-                    futures.push(
-                        label.child.write_at(primary.offset, &primary.buf),
-                    );
-                    futures.push(
-                        label.child.write_at(secondary.offset, &secondary.buf),
-                    );
-                }
-            }
-        }
-
-        for result in join_all(futures).await {
-            if let Err(error) = result {
-                // return the first error
-                return Err(error);
-            }
-        }
-
-        // check if we can read the labels
-        for label in list {
-            if let Err(error) = label.child.probe_label().await {
-                warn!(
-                    "{}: {}: Error validating newly written disk label: {}",
-                    label.child.parent, label.child.name, error
-                );
-                return Err(LabelError::ProbeError {});
-            }
-            info!(
-                "{}: {}: Disk label written",
-                label.child.parent, label.child.name
-            );
-        }
-
-        Ok(())
-    }
-
-    pub async fn write_all_labels(
-        &self,
-        label: &NexusLabel,
-    ) -> Result<(), LabelError> {
-        let primary = self.get_primary_data(label)?;
-        let secondary = self.get_secondary_data(label)?;
-
-        let mut futures = Vec::new();
-
-        for child in &self.children {
-            futures.push(child.write_at(primary.offset, &primary.buf));
-            futures.push(child.write_at(secondary.offset, &secondary.buf));
-        }
-
-        for result in join_all(futures).await {
-            if let Err(error) = result {
-                // return the first error
-                return Err(error);
-            }
-        }
-
-        // check if we can read the labels
-        for child in &self.children {
-            if let Err(error) = child.probe_label().await {
-                warn!(
-                    "{}: {}: Error validating newly written disk label: {}",
-                    child.parent, child.name, error
-                );
-                return Err(LabelError::ReReadError {
-                    name: child.name.clone(),
-                });
-            }
-            info!("{}: {}: Disk label written", child.parent, child.name);
-        }
-
-        Ok(())
+        Ok(partitions)
     }
 }
 
-#[derive(Debug, Deserialize, PartialEq, Default, Serialize, Clone, Copy)]
 /// based on RFC4122
+#[derive(Debug, Deserialize, PartialEq, Default, Serialize, Clone, Copy)]
 pub struct GptGuid {
     pub time_low: u32,
     pub time_mid: u16,
     pub time_high: u16,
     pub node: [u8; 8],
 }
-impl std::str::FromStr for GptGuid {
-    type Err = parser::ParseError;
 
-    fn from_str(uuid: &str) -> Result<Self, Self::Err> {
-        let fields = uuid::Uuid::from_str(uuid)?;
-        let fields = fields.as_fields();
-
-        Ok(GptGuid {
-            time_low: fields.0,
-            time_mid: fields.1,
-            time_high: fields.2,
-            node: *fields.3,
-        })
-    }
-}
-
-impl std::fmt::Display for GptGuid {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            f,
-            "{}",
-            uuid::Uuid::from_fields(
-                self.time_low,
-                self.time_mid,
-                self.time_high,
-                &self.node,
-            )
-            .unwrap()
-            .to_string()
-        )
-    }
-}
-
-impl GptGuid {
-    pub(crate) fn new_random() -> Self {
-        let fields = uuid::Uuid::new_v4();
-        let fields = fields.as_fields();
+impl From<Uuid> for GptGuid {
+    fn from(uuid: Uuid) -> GptGuid {
+        let fields = uuid.as_fields();
         GptGuid {
             time_low: fields.0,
             time_mid: fields.1,
@@ -463,16 +302,47 @@ impl GptGuid {
     }
 }
 
+impl From<GptGuid> for Uuid {
+    fn from(guid: GptGuid) -> Uuid {
+        Uuid::from_fields(
+            guid.time_low,
+            guid.time_mid,
+            guid.time_high,
+            &guid.node,
+        )
+        .unwrap()
+    }
+}
+
+impl FromStr for GptGuid {
+    type Err = parser::ParseError;
+
+    fn from_str(uuid: &str) -> Result<Self, Self::Err> {
+        Ok(GptGuid::from(Uuid::from_str(uuid)?))
+    }
+}
+
+impl std::fmt::Display for GptGuid {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", Uuid::from(*self).to_string())
+    }
+}
+
+impl GptGuid {
+    pub(crate) fn new_random() -> Self {
+        GptGuid::from(Uuid::new_v4())
+    }
+}
+
 #[derive(Debug, Deserialize, PartialEq, Default, Serialize, Copy, Clone)]
-#[allow(clippy::upper_case_acronyms)]
-pub struct GPTHeader {
+pub struct GptHeader {
     /// GPT signature (must be "EFI PART").
     pub signature: [u8; 8],
     /// 00 00 01 00 up til version 2.17
     pub revision: [u8; 4],
     /// GPT header size (92 bytes)
     pub header_size: u32,
-    /// CRC32  of the header.
+    /// CRC32 of the header.
     pub self_checksum: u32,
     pub reserved: [u8; 4],
     /// primary lba where the header
@@ -495,17 +365,17 @@ pub struct GPTHeader {
     pub table_crc: u32,
 }
 
-impl GPTHeader {
+impl GptHeader {
     pub const PARTITION_TABLE_SIZE: u64 = 128 * 128;
 
     /// converts a slice into a gpt header and verifies the validity of the data
-    pub fn from_slice(slice: &[u8]) -> Result<GPTHeader, LabelError> {
+    pub fn from_slice(slice: &[u8]) -> Result<GptHeader, ProbeError> {
         let mut reader = Cursor::new(slice);
-        let mut gpt: GPTHeader =
+        let mut gpt: GptHeader =
             deserialize_from(&mut reader).context(DeserializeError {})?;
 
         if gpt.header_size != 92 {
-            return Err(LabelError::GptHeaderSize {
+            return Err(ProbeError::GptHeaderSize {
                 actual_size: gpt.header_size,
                 expected_size: 92,
             });
@@ -514,13 +384,13 @@ impl GPTHeader {
         if gpt.signature != [0x45, 0x46, 0x49, 0x20, 0x50, 0x41, 0x52, 0x54]
             || gpt.revision != [0x00, 0x00, 0x01, 0x00]
         {
-            return Err(LabelError::GptSignature {});
+            return Err(ProbeError::GptSignature {});
         }
 
         let checksum = gpt.self_checksum;
 
         if gpt.checksum() != checksum {
-            return Err(LabelError::GptChecksum {});
+            return Err(ProbeError::GptChecksum {});
         }
 
         Ok(gpt)
@@ -533,9 +403,16 @@ impl GPTHeader {
         self.self_checksum
     }
 
-    pub fn new(blk_size: u32, num_blocks: u64, guid: uuid::Uuid) -> Self {
-        let fields = guid.as_fields();
-        GPTHeader {
+    // Create a new GPT header for a device with specified size
+    pub fn new(block_size: u32, num_blocks: u64, guid: GptGuid) -> Self {
+        let partition_size = Aligned::get_blocks(
+            GptHeader::PARTITION_TABLE_SIZE,
+            u64::from(block_size),
+        );
+
+        let start = u64::from((1 << 20) / block_size);
+
+        GptHeader {
             signature: [0x45, 0x46, 0x49, 0x20, 0x50, 0x41, 0x52, 0x54],
             revision: [0x00, 0x00, 0x01, 0x00],
             header_size: 92,
@@ -543,16 +420,44 @@ impl GPTHeader {
             reserved: [0; 4],
             lba_self: 1,
             lba_alt: num_blocks - 1,
-            lba_start: u64::from((1 << 20) / blk_size),
-            lba_end: (num_blocks - 1)
-                - (GPTHeader::PARTITION_TABLE_SIZE / u64::from(blk_size))
-                - 1,
-            guid: GptGuid {
-                time_low: fields.0,
-                time_mid: fields.1,
-                time_high: fields.2,
-                node: *fields.3,
-            },
+            lba_start: start,
+            lba_end: num_blocks - partition_size - 2,
+            guid,
+            lba_table: 2,
+            num_entries: 2,
+            entry_size: 128,
+            table_crc: 0,
+        }
+    }
+
+    // Create a reference GPT header for a device of sufficient
+    // size to have the requisite number of data blocks
+    pub fn reference(block_size: u32, data_blocks: u64, guid: GptGuid) -> Self {
+        let partition_size = Aligned::get_blocks(
+            GptHeader::PARTITION_TABLE_SIZE,
+            u64::from(block_size),
+        );
+
+        let metadata_size = Aligned::get_blocks(
+            Nexus::METADATA_PARTITION_SIZE,
+            u64::from(block_size),
+        );
+
+        let start = u64::from((1 << 20) / block_size);
+        let table = start + metadata_size + data_blocks;
+        let last = table + partition_size;
+
+        GptHeader {
+            signature: [0x45, 0x46, 0x49, 0x20, 0x50, 0x41, 0x52, 0x54],
+            revision: [0x00, 0x00, 0x01, 0x00],
+            header_size: 92,
+            self_checksum: 0,
+            reserved: [0; 4],
+            lba_self: 1,
+            lba_alt: last,
+            lba_start: start,
+            lba_end: table - 1,
+            guid,
             lba_table: 2,
             num_entries: 2,
             entry_size: 128,
@@ -591,32 +496,39 @@ pub struct GptEntry {
     pub ent_end: u64,
     /// entry attributes, according to do the docs bit 0 MUST be zero
     pub ent_attr: u64,
-    /// utf16 name of the partition entry, do not confuse this fs labels!
+    /// UTF-16 name of the partition entry,
+    /// DO NOT confuse this with filesystem labels!
     pub ent_name: GptName,
 }
 
 impl GptEntry {
-    /// converts a slice into a partition array
+    /// converts a slice into a partition table
     pub fn from_slice(
         slice: &[u8],
-        parts: u32,
-    ) -> Result<Vec<GptEntry>, LabelError> {
+        count: u32,
+    ) -> Result<Vec<GptEntry>, ProbeError> {
         let mut reader = Cursor::new(slice);
-        let mut part_vec = Vec::new();
-        // TODO 128 should be passed in as a argument
-        for _ in 0 .. parts {
-            part_vec.push(
+        let mut partitions: Vec<GptEntry> = Vec::with_capacity(count as usize);
+        for _ in 0 .. count {
+            partitions.push(
                 deserialize_from(&mut reader).context(DeserializeError {})?,
             );
         }
-        Ok(part_vec)
+        Ok(partitions)
     }
 
-    /// calculate the checksum over the partitions table
-    pub fn checksum(parts: &[GptEntry]) -> u32 {
+    /// calculate the checksum over the partition table
+    pub fn checksum(partitions: &[GptEntry], size: u32) -> u32 {
         let mut digest = crc32::Digest::new(crc32::IEEE);
-        for p in parts {
-            digest.write(&serialize(p).unwrap());
+        let count = partitions.len() as u32;
+        for entry in partitions {
+            digest.write(&serialize(entry).unwrap());
+        }
+        if count < size {
+            let pad = serialize(&GptEntry::default()).unwrap();
+            for _ in count .. size {
+                digest.write(&pad);
+            }
         }
         digest.sum32()
     }
@@ -624,13 +536,13 @@ impl GptEntry {
 
 #[derive(Clone, Copy, Debug, PartialEq, Serialize)]
 pub enum NexusLabelStatus {
-    /// Both primary and secondary labels are valid
+    /// Both primary and secondary labels are synced with disk.
     Both,
-    /// Only primary label is valid
+    /// Only primary label is synced with disk.
     Primary,
-    /// Only secondary label is valid
+    /// Only secondary label is synced with disk.
     Secondary,
-    /// Neither primary or secondary labels are valid
+    /// Neither primary or secondary labels are synced with disk.
     Neither,
 }
 
@@ -646,22 +558,84 @@ pub struct NexusLabel {
     /// The protective MBR
     pub mbr: Pmbr,
     /// The main GPT header
-    pub primary: GPTHeader,
+    pub primary: GptHeader,
     /// Vector of GPT entries where the first element is considered to be ours
     pub partitions: Vec<GptEntry>,
     /// The backup GPT header
-    pub secondary: GPTHeader,
+    pub secondary: GptHeader,
 }
 
 impl NexusLabel {
-    /// returns the offset to the first data segment
-    pub(crate) fn offset(&self) -> u64 {
-        self.partitions[1].ent_start
+    /// update label with new disk guid
+    fn set_guid(&mut self, guid: GptGuid) {
+        self.primary.guid = guid;
+        self.primary.checksum();
+        self.secondary = self.primary.to_backup();
+        self.status = NexusLabelStatus::Neither;
     }
 
-    /// returns the number of total blocks in this segment
-    pub(crate) fn get_block_count(&self) -> u64 {
-        self.partitions[1].ent_end - self.partitions[1].ent_start + 1
+    /// locate a partition by name
+    fn get_partition(&self, name: &str) -> Option<&GptEntry> {
+        self.partitions
+            .iter()
+            .find(|entry| entry.ent_name.name == name)
+    }
+
+    #[allow(dead_code)]
+    /// returns the offset of the first metadata block
+    pub(crate) fn metadata_offset(&self) -> Result<u64, ProbeError> {
+        match self.get_partition("MayaMeta") {
+            Some(entry) => Ok(entry.ent_start),
+            None => Err(ProbeError::MissingPartition {
+                name: "MayaMeta".into(),
+            }),
+        }
+    }
+
+    #[allow(dead_code)]
+    /// returns the offset of the first data block
+    pub(crate) fn data_offset(&self) -> Result<u64, ProbeError> {
+        match self.get_partition("MayaData") {
+            Some(entry) => Ok(entry.ent_start),
+            None => Err(ProbeError::MissingPartition {
+                name: "MayaData".into(),
+            }),
+        }
+    }
+
+    #[allow(dead_code)]
+    /// returns the total number of metadata blocks
+    pub(crate) fn metadata_block_count(&self) -> Result<u64, ProbeError> {
+        match self.get_partition("MayaMeta") {
+            Some(entry) => Ok(entry.ent_end - entry.ent_start + 1),
+            None => Err(ProbeError::MissingPartition {
+                name: "MayaMeta".into(),
+            }),
+        }
+    }
+
+    /// returns the total number of data blocks
+    pub(crate) fn data_block_count(&self) -> Result<u64, ProbeError> {
+        match self.get_partition("MayaData") {
+            Some(entry) => Ok(entry.ent_end - entry.ent_start + 1),
+            None => Err(ProbeError::MissingPartition {
+                name: "MayaData".into(),
+            }),
+        }
+    }
+
+    /// get current label config
+    pub fn get_label_config(&self) -> Option<LabelConfig> {
+        if let Some(meta) = self.get_partition("MayaMeta") {
+            if let Some(data) = self.get_partition("MayaData") {
+                return Some(LabelConfig {
+                    disk_guid: self.primary.guid,
+                    meta_guid: meta.ent_guid,
+                    data_guid: data.ent_guid,
+                });
+            }
+        }
+        None
     }
 }
 
@@ -714,16 +688,20 @@ impl Display for NexusLabel {
     }
 }
 
-// for arrays bigger than 32 elements, things start to get unimplemented
-// in terms of derive and what not. So we create a struct with a string,
-// and tell serde how to use it during (de)serializing
+// For arrays bigger than 32 elements, things start to get unimplemented
+// in terms of derive and what not. So we create our own "newtype" struct,
+// and tell serde how to use it during serializing/deserializing.
+#[derive(Debug, PartialEq, Default, Clone)]
+pub struct GptName {
+    pub name: String,
+}
 
 struct GpEntryNameVisitor;
 
-impl<'de> Deserialize<'de> for GptName {
+impl<'a> Deserialize<'a> for GptName {
     fn deserialize<D>(deserializer: D) -> std::result::Result<Self, D::Error>
     where
-        D: Deserializer<'de>,
+        D: Deserializer<'a>,
     {
         deserializer.deserialize_tuple_struct("GptName", 36, GpEntryNameVisitor)
     }
@@ -738,7 +716,6 @@ impl Serialize for GptName {
         S: Serializer,
     {
         // we can't use serialize_type_struct here as we want exactly 72 bytes
-
         let mut s = serializer.serialize_tuple(36)?;
         let mut out: Vec<u16> = vec![0; 36];
         for (i, o) in self.name.encode_utf16().zip(out.iter_mut()) {
@@ -749,7 +726,7 @@ impl Serialize for GptName {
         s.end()
     }
 }
-impl<'de> Visitor<'de> for GpEntryNameVisitor {
+impl<'a> Visitor<'a> for GpEntryNameVisitor {
     type Value = GptName;
 
     fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
@@ -758,7 +735,7 @@ impl<'de> Visitor<'de> for GpEntryNameVisitor {
 
     fn visit_seq<A>(self, mut seq: A) -> std::result::Result<GptName, A::Error>
     where
-        A: SeqAccess<'de>,
+        A: SeqAccess<'a>,
     {
         let mut out = Vec::new();
         let mut end = false;
@@ -773,21 +750,28 @@ impl<'de> Visitor<'de> for GpEntryNameVisitor {
         }
 
         if end {
-            Ok(GptName {
-                name: String::from_utf16_lossy(&out),
-            })
+            Ok(GptName::from(String::from_utf16_lossy(&out)))
         } else {
             Err(serde::de::Error::invalid_value(Unexpected::Seq, &self))
         }
     }
 }
 
-#[derive(Debug, PartialEq, Default, Clone)]
-pub struct GptName {
-    pub name: String,
+impl From<String> for GptName {
+    fn from(name: String) -> GptName {
+        GptName {
+            name,
+        }
+    }
 }
 
-/// although we don't use it, we must have a protective MBR to avoid systems
+impl From<&str> for GptName {
+    fn from(name: &str) -> GptName {
+        GptName::from(String::from(name))
+    }
+}
+
+/// Although we don't use it, we must have a protective MBR to avoid systems
 /// to get confused about what's on the disk. Utils like sgdisk work fine
 /// without an MBR (but will warn) but as we want to be able to access the
 /// partitions with the nexus out of the data path, will create one here.
@@ -801,7 +785,7 @@ pub struct Pmbr {
     reserved: u16,
     /// number of partition entries
     entries: [MbrEntry; 4],
-    /// must be set to [0x55, 0xAA]
+    /// must be set to [0x55, 0xaa]
     signature: [u8; 2],
 }
 
@@ -823,15 +807,40 @@ struct MbrEntry {
     num_sectors: u32,
 }
 
+impl MbrEntry {
+    // Set this MBR partition entry to represent
+    // a protective MBR partition of given size.
+    fn protect(&mut self, num_blocks: u64) {
+        self.attributes = 0x00; // NOT bootable
+        self.ent_type = 0xee; // protective MBR partition
+        self.chs_start = [0x00, 0x02, 0x00]; // CHS address 0/0/2
+        self.chs_last = [0xff, 0xff, 0xff]; // CHS address 1023/255/63
+
+        // The partition starts immediately after the MBR
+        self.lba_start = 1;
+
+        // The partition size must accurately reflect
+        // the disk size where possible.
+        if num_blocks > u32::max_value().into() {
+            // If the size (in blocks) is too large to fit into 32 bits,
+            // then set the size to 0xffff_ffff
+            self.num_sectors = u32::max_value();
+        } else {
+            // Do not count the first block that contains the MBR
+            self.num_sectors = (num_blocks - 1) as u32;
+        }
+    }
+}
+
 impl Pmbr {
     /// converts a slice into a MBR and validates the signature
-    pub fn from_slice(slice: &[u8]) -> Result<Pmbr, LabelError> {
+    pub fn from_slice(slice: &[u8]) -> Result<Pmbr, ProbeError> {
         let mut reader = Cursor::new(slice);
         let mbr: Pmbr =
             deserialize_from(&mut reader).context(DeserializeError {})?;
 
         if mbr.signature != [0x55, 0xaa] {
-            return Err(LabelError::MbrSignature {});
+            return Err(ProbeError::MbrSignature {});
         }
 
         Ok(mbr)
@@ -844,74 +853,172 @@ impl Default for Pmbr {
             disk_signature: 0,
             reserved: 0,
             entries: [MbrEntry::default(); 4],
-            signature: [0x55, 0xAA],
+            signature: [0x55, 0xaa],
         }
     }
 }
 
 impl NexusLabel {
     /// construct a Pmbr from raw data
-    fn read_mbr(buf: &DmaBuf) -> Result<Pmbr, LabelError> {
+    fn read_mbr(buf: &DmaBuf) -> Result<Pmbr, ProbeError> {
         Pmbr::from_slice(&buf.as_slice()[440 .. 512])
     }
 
-    /// construct a GPTHeader from raw data
-    fn read_header(buf: &DmaBuf) -> Result<GPTHeader, LabelError> {
-        GPTHeader::from_slice(buf.as_slice())
+    /// construct a GPT header from raw data
+    fn read_header(buf: &DmaBuf) -> Result<GptHeader, ProbeError> {
+        GptHeader::from_slice(buf.as_slice())
     }
 
-    /// construct and validate primary GPTHeader
-    fn read_primary_header(buf: &DmaBuf) -> Result<GPTHeader, LabelError> {
-        let primary = NexusLabel::read_header(buf)?;
-        if primary.lba_table != primary.lba_self + 1 {
-            return Err(LabelError::PartitionTableLocation {});
-        }
-        Ok(primary)
+    /// construct and validate primary GPT header
+    fn read_primary_header(
+        buf: &DmaBuf,
+        block_size: u64,
+        num_blocks: u64,
+    ) -> Result<GptHeader, ProbeError> {
+        let header = NexusLabel::read_header(buf)?;
+        NexusLabel::validate_primary_header(&header, block_size, num_blocks)?;
+        Ok(header)
     }
 
-    /// construct and validate secondary GPTHeader
-    fn read_secondary_header(buf: &DmaBuf) -> Result<GPTHeader, LabelError> {
-        let secondary = NexusLabel::read_header(buf)?;
-        if secondary.lba_table != secondary.lba_end + 1 {
-            return Err(LabelError::PartitionTableLocation {});
-        }
-        Ok(secondary)
+    /// construct and validate secondary GPT header
+    fn read_secondary_header(
+        buf: &DmaBuf,
+        block_size: u64,
+        num_blocks: u64,
+    ) -> Result<GptHeader, ProbeError> {
+        let header = NexusLabel::read_header(buf)?;
+        NexusLabel::validate_secondary_header(&header, block_size, num_blocks)?;
+        Ok(header)
     }
 
-    /// construct partition table from raw data
+    /// construct and validate partition table
     fn read_partitions(
         buf: &DmaBuf,
-        header: &GPTHeader,
-    ) -> Result<Vec<GptEntry>, LabelError> {
+        header: &GptHeader,
+    ) -> Result<Vec<GptEntry>, ProbeError> {
         let partitions =
             GptEntry::from_slice(buf.as_slice(), header.num_entries)?;
-        if GptEntry::checksum(&partitions) != header.table_crc {
-            return Err(LabelError::PartitionTableChecksum {});
-        }
+        NexusLabel::validate_partitions(&partitions, header)?;
         Ok(partitions)
     }
 
-    /// check that primary and secondary GPTHeaders
+    /// check that primary GPT header is valid and consistent
+    fn validate_primary_header(
+        primary: &GptHeader,
+        block_size: u64,
+        num_blocks: u64,
+    ) -> Result<(), ProbeError> {
+        if primary.lba_self != 1 {
+            return Err(ProbeError::PrimaryLocation {});
+        }
+        if primary.lba_alt + 1 != num_blocks {
+            return Err(ProbeError::SecondaryLocation {});
+        }
+        if primary.lba_end >= primary.lba_alt {
+            return Err(ProbeError::LastUsableBlock {});
+        }
+        if primary.lba_table != primary.lba_self + 1 {
+            return Err(ProbeError::PartitionTableLocation {});
+        }
+        if (primary.num_entries * primary.entry_size) as u64
+            > GptHeader::PARTITION_TABLE_SIZE
+        {
+            return Err(ProbeError::PartitionTableSize {});
+        }
+        if primary.lba_table
+            + Aligned::get_blocks(GptHeader::PARTITION_TABLE_SIZE, block_size)
+            > primary.lba_start
+        {
+            return Err(ProbeError::PartitionTableSpace {});
+        }
+        Ok(())
+    }
+
+    /// check that secondary GPT header is valid and consistent
+    fn validate_secondary_header(
+        secondary: &GptHeader,
+        block_size: u64,
+        num_blocks: u64,
+    ) -> Result<(), ProbeError> {
+        if secondary.lba_alt != 1 {
+            return Err(ProbeError::PrimaryLocation {});
+        }
+        if secondary.lba_self + 1 != num_blocks {
+            return Err(ProbeError::SecondaryLocation {});
+        }
+        if secondary.lba_alt >= secondary.lba_start {
+            return Err(ProbeError::FirstUsableBlock {});
+        }
+        if secondary.lba_table != secondary.lba_end + 1 {
+            return Err(ProbeError::PartitionTableLocation {});
+        }
+        if (secondary.num_entries * secondary.entry_size) as u64
+            > GptHeader::PARTITION_TABLE_SIZE
+        {
+            return Err(ProbeError::PartitionTableSize {});
+        }
+        if secondary.lba_table
+            + Aligned::get_blocks(GptHeader::PARTITION_TABLE_SIZE, block_size)
+            > secondary.lba_self
+        {
+            return Err(ProbeError::PartitionTableSpace {});
+        }
+        Ok(())
+    }
+
+    /// check that partition table entries are valid and consistent
+    fn validate_partitions(
+        partitions: &[GptEntry],
+        header: &GptHeader,
+    ) -> Result<(), ProbeError> {
+        for entry in partitions {
+            if 0 < entry.ent_start && entry.ent_start < header.lba_start {
+                return Err(ProbeError::PartitionStart {});
+            }
+            if entry.ent_start > entry.ent_end {
+                return Err(ProbeError::NegativePartitionSize {});
+            }
+            if entry.ent_end > header.lba_end {
+                return Err(ProbeError::PartitionEnd {});
+            }
+        }
+        if GptEntry::checksum(partitions, header.num_entries)
+            != header.table_crc
+        {
+            return Err(ProbeError::PartitionTableChecksum {});
+        }
+        Ok(())
+    }
+
+    /// check that primary and secondary GPT headers
     /// are consistent with each other
-    fn check_consistency(
-        primary: &GPTHeader,
-        secondary: &GPTHeader,
-    ) -> Result<(), LabelError> {
+    fn consistency_check(
+        primary: &GptHeader,
+        secondary: &GptHeader,
+    ) -> Result<(), ProbeError> {
+        if primary.lba_self != secondary.lba_alt {
+            return Err(ProbeError::CompareHeaderLocation {});
+        }
+        if primary.lba_alt != secondary.lba_self {
+            return Err(ProbeError::CompareHeaderLocation {});
+        }
+        if primary.lba_start != secondary.lba_start {
+            return Err(ProbeError::FirstUsableBlock {});
+        }
+        if primary.lba_end != secondary.lba_end {
+            return Err(ProbeError::LastUsableBlock {});
+        }
         if primary.guid != secondary.guid {
-            return Err(LabelError::CompareDiskGuid {});
+            return Err(ProbeError::CompareDiskGuid {});
         }
-        if primary.lba_start != secondary.lba_start
-            || primary.lba_end != secondary.lba_end
-        {
-            return Err(LabelError::CompareDiskSize {});
+        if primary.num_entries != secondary.num_entries {
+            return Err(ProbeError::ComparePartitionEntryCount {});
         }
-        if primary.lba_alt != secondary.lba_self
-            || secondary.lba_alt != primary.lba_self
-        {
-            return Err(LabelError::BackupLocation {});
+        if primary.entry_size != secondary.entry_size {
+            return Err(ProbeError::ComparePartitionEntrySize {});
         }
         if primary.table_crc != secondary.table_crc {
-            return Err(LabelError::ComparePartitionTableChecksum {});
+            return Err(ProbeError::ComparePartitionTableChecksum {});
         }
         Ok(())
     }
@@ -920,157 +1027,514 @@ impl NexusLabel {
 impl NexusChild {
     /// read and validate this child's label
     pub async fn probe_label(&self) -> Result<NexusLabel, LabelError> {
-        let hndl = self.handle().context(ReadError {
+        let handle = self.handle().context(HandleError {
             name: self.name.clone(),
         })?;
-        let bdev = hndl.get_bdev();
-        let block_size = hndl.get_bdev().block_len() as u64;
+
+        let bdev = handle.get_bdev();
+        let block_size = u64::from(bdev.block_len());
+        let num_blocks = bdev.num_blocks();
 
         // Protective MBR
-        let mut buf = hndl.dma_malloc(block_size).context(ReadAlloc {
+        let mut buf = handle.dma_malloc(block_size).context(ReadAlloc {
             name: String::from("header"),
         })?;
-        hndl.read_at(0, &mut buf).await.context(ReadError {
+        handle.read_at(0, &mut buf).await.context(ReadError {
             name: String::from("MBR"),
         })?;
-        let mbr = NexusLabel::read_mbr(&buf)?;
+        let mbr = NexusLabel::read_mbr(&buf).context(InvalidLabel {})?;
+
+        // GPT headers
 
         let status: NexusLabelStatus;
-        let primary: GPTHeader;
-        let secondary: GPTHeader;
-        let active: &GPTHeader;
+        let primary: GptHeader;
+        let secondary: GptHeader;
+        let active: &GptHeader;
 
-        //
-        // GPT header(s)
-
-        // Get primary.
-        hndl.read_at(block_size, &mut buf)
+        // Get primary GPT header.
+        handle
+            .read_at(block_size, &mut buf)
             .await
             .context(ReadError {
                 name: String::from("primary GPT header"),
             })?;
-        match NexusLabel::read_primary_header(&buf) {
+        match NexusLabel::read_primary_header(&buf, block_size, num_blocks) {
             Ok(header) => {
                 primary = header;
                 active = &primary;
-                // Get secondary.
-                let offset = (bdev.num_blocks() - 1) * block_size;
-                hndl.read_at(offset, &mut buf).await.context(ReadError {
+                // Get secondary GPT header.
+                let offset = (num_blocks - 1) * block_size;
+                handle.read_at(offset, &mut buf).await.context(ReadError {
                     name: String::from("secondary GPT header"),
                 })?;
-                match NexusLabel::read_secondary_header(&buf) {
+                match NexusLabel::read_secondary_header(
+                    &buf, block_size, num_blocks,
+                ) {
                     Ok(header) => {
-                        // Both primary and secondary GPT headers are valid.
-                        // Check if they are consistent with each other.
-                        match NexusLabel::check_consistency(&primary, &header) {
-                            Ok(()) => {
-                                // All good.
-                                secondary = header;
-                                status = NexusLabelStatus::Both;
-                            }
-                            Err(error) => {
-                                warn!("{}: {}: The primary and secondary GPT headers are inconsistent: {}", self.parent, self.name, error);
-                                warn!("{}: {}: Recreating secondary GPT header from primary!", self.parent, self.name);
-                                secondary = primary.to_backup();
-                                status = NexusLabelStatus::Primary;
-                            }
-                        }
+                        NexusLabel::consistency_check(&primary, &header)
+                            .context(InvalidLabel {})?;
+                        // All good - primary and secondary GTP headers
+                        // are valid and consistent with each other.
+                        secondary = header;
+                        status = NexusLabelStatus::Both;
                     }
-                    Err(error) => {
-                        warn!(
-                            "{}: {}: The secondary GPT header is invalid: {}",
-                            self.parent, self.name, error
-                        );
-                        warn!("{}: {}: Recreating secondary GPT header from primary!", self.parent, self.name);
+                    Err(_) => {
+                        // Secondary GPT header is either not present
+                        // or invalid. Construct new secondary
+                        // GPT header from primary.
                         secondary = primary.to_backup();
                         status = NexusLabelStatus::Primary;
                     }
                 }
             }
             Err(error) => {
-                warn!(
-                    "{}: {}: The primary GPT header is invalid: {}",
-                    self.parent, self.name, error
-                );
-                // Get secondary and see if we are able to proceed.
-                let offset = (bdev.num_blocks() - 1) * block_size;
-                hndl.read_at(offset, &mut buf).await.context(ReadError {
+                // Primary GPT header is either not present or invalid.
+                // See if we can obtain a valid secondary GPT header.
+                let offset = (num_blocks - 1) * block_size;
+                handle.read_at(offset, &mut buf).await.context(ReadError {
                     name: String::from("secondary GPT header"),
                 })?;
-                match NexusLabel::read_secondary_header(&buf) {
+                match NexusLabel::read_secondary_header(
+                    &buf, block_size, num_blocks,
+                ) {
                     Ok(header) => {
                         secondary = header;
                         active = &secondary;
-                        warn!("{}: {}: Recreating primary GPT header from secondary!", self.parent, self.name);
+                        // Construct new primary GPT header from secondary.
                         primary = secondary.to_primary();
                         status = NexusLabelStatus::Secondary;
                     }
-                    Err(error) => {
-                        warn!(
-                            "{}: {}: The secondary GPT header is invalid: {}",
-                            self.parent, self.name, error
-                        );
-                        warn!("{}: {}: Both primary and secondary GPT headers are invalid!", self.parent, self.name);
-                        return Err(LabelError::LabelInvalid {});
+                    Err(_) => {
+                        // Neither primary or secondary GPT header
+                        // is present or valid.
+                        return Err(LabelError::InvalidLabel {
+                            source: error,
+                        });
                     }
                 }
             }
         }
 
+        // The disk size recorded in protective MBR
+        // must be consistent with GPT header.
         if mbr.entries[0].num_sectors != 0xffff_ffff
-            && mbr.entries[0].num_sectors as u64 != primary.lba_alt
+            && u64::from(mbr.entries[0].num_sectors) != primary.lba_alt
         {
-            warn!("{}: {}: The protective MBR disk size does not match the GPT disk size!", self.parent, self.name);
-            return Err(LabelError::LabelInvalid {});
+            return Err(LabelError::InvalidLabel {
+                source: ProbeError::MbrSize {},
+            });
         }
 
-        //
         // Partition table
         let blocks = Aligned::get_blocks(
-            (active.entry_size * active.num_entries) as u64,
+            u64::from(active.entry_size * active.num_entries),
             block_size,
         );
         let mut buf =
-            hndl.dma_malloc(blocks * block_size).context(ReadAlloc {
+            handle.dma_malloc(blocks * block_size).context(ReadAlloc {
                 name: String::from("partition table"),
             })?;
         let offset = active.lba_table * block_size;
-        hndl.read_at(offset, &mut buf).await.context(ReadError {
+        handle.read_at(offset, &mut buf).await.context(ReadError {
             name: String::from("partition table"),
         })?;
-        let mut partitions = NexusLabel::read_partitions(&buf, active)?;
+        let mut partitions = NexusLabel::read_partitions(&buf, active)
+            .context(InvalidLabel {})?;
 
-        // Some tools always write 128 partition entries, even though most
-        // are not used. In any case we are only ever interested
-        // in the first two partitions, so we drain the others.
-        let entries = partitions.drain(.. 2).collect::<Vec<GptEntry>>();
+        // There can be up to 128 partition entries stored on disk,
+        // even though most are not used. Retain only those entries
+        // that actually define partitions.
+        partitions.retain(|entry| entry.ent_start > 0 && entry.ent_end > 0);
 
         Ok(NexusLabel {
             status,
             mbr,
             primary,
-            partitions: entries,
+            partitions,
             secondary,
         })
     }
 
-    /// return this child and its label
-    pub async fn get_label(&self) -> NexusChildLabel<'_> {
-        let label = match self.probe_label().await {
-            Ok(label) => Some(label),
-            Err(error) => {
-                warn!(
-                    "{}: {}: Error probing label: {}",
-                    self.parent, self.name, error
-                );
-                None
+    // Check for the presence of "MayaMeta" and "MayaData" partitions
+    fn check_maya_partitions(
+        reference: &[GptEntry],
+        label: &NexusLabel,
+        block_size: u32,
+    ) -> bool {
+        match label.get_partition("MayaMeta") {
+            Some(entry) => {
+                if entry.ent_start != reference[0].ent_start {
+                    return false;
+                }
+                if entry.ent_end != reference[0].ent_end {
+                    return false;
+                }
+                if (entry.ent_end - entry.ent_start + 1) * u64::from(block_size)
+                    < Nexus::METADATA_PARTITION_SIZE
+                {
+                    return false;
+                }
             }
-        };
-
-        NexusChildLabel {
-            child: self,
-            label,
+            None => {
+                return false;
+            }
         }
+
+        if let Some(entry) = label.get_partition("MayaData") {
+            if entry.ent_start == reference[1].ent_start {
+                return true;
+            }
+        }
+
+        false
+    }
+
+    /// Create a new label on this child
+    async fn create_label(
+        &mut self,
+        config: &LabelConfig,
+        block_size: u32,
+        data_blocks: u64,
+        total_blocks: u64,
+    ) -> Result<NexusLabel, LabelError> {
+        info!("creating new label for child {}", self.name);
+        let label = Nexus::generate_label(
+            config,
+            block_size,
+            data_blocks,
+            total_blocks,
+        )?;
+        self.write_label(&label).await?;
+        Ok(label)
+    }
+
+    /// Create or Update label on this child as and when necessary
+    async fn update_label(
+        &mut self,
+        reference: &[GptEntry],
+        config: &LabelConfig,
+        block_size: u32,
+        data_blocks: u64,
+        total_blocks: u64,
+    ) -> Result<NexusLabel, LabelError> {
+        match self.probe_label().await {
+            Ok(mut label)
+                if NexusChild::check_maya_partitions(
+                    reference, &label, block_size,
+                ) =>
+            {
+                // Use existing label
+                if label.primary.guid != config.disk_guid {
+                    info!("updating existing label for child {}: setting guid to {}", self.name, config.disk_guid);
+                    label.set_guid(config.disk_guid);
+                }
+                self.write_label(&label).await?;
+                Ok(label)
+            }
+            Ok(_) => {
+                // Replace existing label
+                self.create_label(config, block_size, data_blocks, total_blocks)
+                    .await
+            }
+            Err(LabelError::InvalidLabel {
+                ..
+            }) => {
+                // Create new label
+                self.create_label(config, block_size, data_blocks, total_blocks)
+                    .await
+            }
+            Err(error) => Err(error),
+        }
+    }
+
+    /// Validate label on this child
+    async fn validate_label(
+        &self,
+        reference: &[GptEntry],
+        block_size: u32,
+    ) -> Result<NexusLabel, LabelError> {
+        let label = self.probe_label().await?;
+
+        if !NexusChild::check_maya_partitions(reference, &label, block_size) {
+            return Err(LabelError::InvalidLabel {
+                source: ProbeError::IncorrectPartitions {},
+            });
+        }
+
+        if label.status != NexusLabelStatus::Both {
+            return Err(LabelError::InvalidLabel {
+                source: ProbeError::LabelRedundancy {},
+            });
+        }
+
+        Ok(label)
+    }
+}
+
+impl Nexus {
+    /// Validate label on each child device
+    pub(crate) async fn validate_child_labels(
+        &mut self,
+    ) -> Result<(), LabelError> {
+        let guid = GptGuid::from(Uuid::from_bytes(self.bdev.uuid().as_bytes()));
+        let config = LabelConfig::new(guid);
+
+        let block_size = self.bdev.block_len();
+        let nexus_blocks = self.size / u64::from(block_size);
+        let mut min_blocks = nexus_blocks;
+
+        // Generate "reference" partition table entries
+        let header = GptHeader::reference(block_size, nexus_blocks, guid);
+        let reference = Nexus::create_maya_partitions(
+            &config,
+            &header,
+            block_size,
+            nexus_blocks,
+        )?;
+        let data_offset = reference[1].ent_start;
+
+        for child in self.children.iter_mut() {
+            let handle = child.handle().context(HandleError {
+                name: child.name.clone(),
+            })?;
+
+            let bdev = handle.get_bdev();
+            let label =
+                child.validate_label(&reference, bdev.block_len()).await?;
+            let data_blocks =
+                label.data_block_count().context(InvalidLabel {})?;
+
+            // Adjust size of data partition if necessary
+            if data_blocks < min_blocks {
+                min_blocks = data_blocks;
+            }
+        }
+
+        // Update the nexus size
+        self.data_ent_offset = data_offset;
+        self.bdev.set_block_count(min_blocks);
+
+        Ok(())
+    }
+
+    // Get configuration from first valid label with specified disk guid
+    async fn find_label_config(
+        &self,
+        guid: GptGuid,
+    ) -> Result<Option<LabelConfig>, LabelError> {
+        for child in self.children.iter() {
+            match child.probe_label().await {
+                Ok(label) => {
+                    if label.primary.guid != guid {
+                        continue;
+                    }
+                    if let Some(config) = label.get_label_config() {
+                        return Ok(Some(config));
+                    }
+                }
+                Err(LabelError::InvalidLabel {
+                    ..
+                }) => {
+                    // Label is most likely not present or possibly invalid.
+                    continue;
+                }
+                Err(error) => {
+                    // Any other errors are fatal.
+                    return Err(error);
+                }
+            }
+        }
+        Ok(None)
+    }
+
+    /// Create or Update label on each child device as and when necessary
+    pub(crate) async fn update_child_labels(
+        &mut self,
+    ) -> Result<(), LabelError> {
+        let guid = GptGuid::from(Uuid::from_bytes(self.bdev.uuid().as_bytes()));
+        let config = self
+            .find_label_config(guid)
+            .await?
+            .unwrap_or_else(|| LabelConfig::new(guid));
+
+        let block_size = self.bdev.block_len();
+        let nexus_blocks = self.size / u64::from(block_size);
+
+        // Generate "reference" partition table entries
+        let header = GptHeader::reference(block_size, nexus_blocks, guid);
+        let reference = Nexus::create_maya_partitions(
+            &config,
+            &header,
+            block_size,
+            nexus_blocks,
+        )?;
+
+        for child in self.children.iter_mut() {
+            let handle = child.handle().context(HandleError {
+                name: child.name.clone(),
+            })?;
+
+            let bdev = handle.get_bdev();
+            child
+                .update_label(
+                    &reference,
+                    &config,
+                    bdev.block_len(),
+                    nexus_blocks,
+                    bdev.num_blocks(),
+                )
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    /// Create a new label on each child device.
+    /// DO NOT check for existing labels and ALWAYS write a new label.
+    pub(crate) async fn create_child_labels(
+        &mut self,
+    ) -> Result<(), LabelError> {
+        let guid = GptGuid::from(Uuid::from_bytes(self.bdev.uuid().as_bytes()));
+        let config = LabelConfig::new(guid);
+
+        let block_size = self.bdev.block_len();
+        let nexus_blocks = self.size / u64::from(block_size);
+        let mut min_blocks = nexus_blocks;
+
+        // Generate "reference" partition table entries
+        let header = GptHeader::reference(block_size, nexus_blocks, guid);
+        let reference = Nexus::create_maya_partitions(
+            &config,
+            &header,
+            block_size,
+            nexus_blocks,
+        )?;
+        let data_offset = reference[1].ent_start;
+
+        for child in self.children.iter_mut() {
+            let handle = child.handle().context(HandleError {
+                name: child.name.clone(),
+            })?;
+
+            let bdev = handle.get_bdev();
+            let label = child
+                .create_label(
+                    &config,
+                    bdev.block_len(),
+                    nexus_blocks,
+                    bdev.num_blocks(),
+                )
+                .await?;
+            let data_blocks =
+                label.data_block_count().context(InvalidLabel {})?;
+
+            // Adjust size of data partition if necessary
+            if data_blocks < min_blocks {
+                min_blocks = data_blocks;
+            }
+        }
+
+        // Update the nexus size
+        self.data_ent_offset = data_offset;
+        self.bdev.set_block_count(min_blocks);
+
+        Ok(())
+    }
+}
+
+struct LabelData {
+    offset: u64,
+    buf: DmaBuf,
+}
+
+impl NexusChild {
+    /// generate raw data for (primary) label ready to be written to disk
+    fn get_primary_data(
+        &self,
+        label: &NexusLabel,
+    ) -> Result<LabelData, LabelError> {
+        let handle = self.handle().context(HandleError {
+            name: self.name.clone(),
+        })?;
+
+        let bdev = handle.get_bdev();
+        let block_size = u64::from(bdev.block_len());
+
+        let mut buf =
+            DmaBuf::new(label.primary.lba_start * block_size, bdev.alignment())
+                .context(WriteAlloc {
+                    name: String::from("primary"),
+                })?;
+
+        let mut writer = Cursor::new(buf.as_mut_slice());
+
+        // Protective MBR
+        writer.seek(SeekFrom::Start(440)).unwrap();
+        serialize_into(&mut writer, &label.mbr).context(SerializeError {})?;
+
+        // Primary GPT header
+        writer
+            .seek(SeekFrom::Start(label.primary.lba_self * block_size))
+            .unwrap();
+        serialize_into(&mut writer, &label.primary)
+            .context(SerializeError {})?;
+
+        // Primary partition table
+        writer
+            .seek(SeekFrom::Start(label.primary.lba_table * block_size))
+            .unwrap();
+        for entry in label.partitions.iter() {
+            serialize_into(&mut writer, &entry).context(SerializeError {})?;
+        }
+
+        Ok(LabelData {
+            offset: 0,
+            buf,
+        })
+    }
+
+    /// generate raw data for (secondary) label ready to be written to disk
+    fn get_secondary_data(
+        &self,
+        label: &NexusLabel,
+    ) -> Result<LabelData, LabelError> {
+        let handle = self.handle().context(HandleError {
+            name: self.name.clone(),
+        })?;
+
+        let bdev = handle.get_bdev();
+        let block_size = u64::from(bdev.block_len());
+
+        let mut buf = DmaBuf::new(
+            (label.secondary.lba_self - label.secondary.lba_table + 1)
+                * block_size,
+            bdev.alignment(),
+        )
+        .context(WriteAlloc {
+            name: String::from("secondary"),
+        })?;
+
+        let mut writer = Cursor::new(buf.as_mut_slice());
+
+        // Secondary partition table
+        for entry in label.partitions.iter() {
+            serialize_into(&mut writer, &entry).context(SerializeError {})?;
+        }
+
+        // Secondary GPT header
+        writer
+            .seek(SeekFrom::Start(
+                (label.secondary.lba_self - label.secondary.lba_table)
+                    * block_size,
+            ))
+            .unwrap();
+        serialize_into(&mut writer, &label.secondary)
+            .context(SerializeError {})?;
+
+        Ok(LabelData {
+            offset: label.secondary.lba_table * block_size,
+            buf,
+        })
     }
 
     /// write the contents of the buffer to this child
@@ -1079,76 +1543,52 @@ impl NexusChild {
         offset: u64,
         buf: &DmaBuf,
     ) -> Result<usize, LabelError> {
-        let hdl = self.handle().context(WriteError {
+        let handle = self.handle().context(HandleError {
             name: self.name.clone(),
         })?;
-        Ok(hdl.write_at(offset, buf).await.context(WriteError {
+
+        Ok(handle.write_at(offset, buf).await.context(WriteError {
             name: self.name.clone(),
         })?)
     }
-}
 
-pub struct NexusChildLabel<'a> {
-    pub child: &'a NexusChild,
-    pub label: Option<NexusLabel>,
-}
-
-impl NexusChildLabel<'_> {
-    /// Return the current status of this NexusChildLabel.
-    pub fn get_label_status(&self) -> NexusLabelStatus {
-        match &self.label {
-            Some(label) => label.status,
-            None => NexusLabelStatus::Neither,
-        }
-    }
-
-    /// Search for the first "valid" NexusLabel.
-    /// Prefer a target label where the primary and secondary GPT headers
-    /// are both valid (on disk), but a target with at least one valid
-    /// GPT header (on disk) is considered acceptable.
-    pub fn find_target_label(
-        list: &[NexusChildLabel<'_>],
-    ) -> Option<NexusLabel> {
-        for status in &[
-            NexusLabelStatus::Both,
-            NexusLabelStatus::Primary,
-            NexusLabelStatus::Secondary,
-        ] {
-            for label in list {
-                if let Some(target) = &label.label {
-                    if target.status == *status {
-                        return Some(target.clone());
-                    }
-                }
+    pub async fn write_label(
+        &self,
+        label: &NexusLabel,
+    ) -> Result<(), LabelError> {
+        match label.status {
+            NexusLabelStatus::Both => {
+                // Nothing to do as both labels on disk are valid.
+            }
+            NexusLabelStatus::Primary => {
+                // Only write out secondary as disk already has valid primary.
+                info!("writing secondary label to child {}", self.name);
+                let secondary = self.get_secondary_data(label)?;
+                self.write_at(secondary.offset, &secondary.buf).await?;
+            }
+            NexusLabelStatus::Secondary => {
+                // Only write out primary as disk already has valid secondary.
+                info!("writing primary label to child {}", self.name);
+                let primary = self.get_primary_data(label)?;
+                self.write_at(primary.offset, &primary.buf).await?;
+            }
+            NexusLabelStatus::Neither => {
+                // Write out both labels.
+                info!("writing label to child {}", self.name);
+                let primary = self.get_primary_data(label)?;
+                let secondary = self.get_secondary_data(label)?;
+                self.write_at(primary.offset, &primary.buf).await?;
+                self.write_at(secondary.offset, &secondary.buf).await?;
             }
         }
-        None
-    }
 
-    /// Compare all (existing) labels in list against the target NexusLabel.
-    /// Return true (only) if all are identical.
-    pub fn compare_labels(
-        target: &NexusLabel,
-        list: &[NexusChildLabel<'_>],
-    ) -> bool {
-        for label in list {
-            if let Some(entry) = &label.label {
-                if entry.mbr != target.mbr
-                    || entry.primary != target.primary
-                    || entry.secondary != target.secondary
-                    || entry.partitions != target.partitions
-                {
-                    return false;
-                }
-            }
-        }
-        true
+        Ok(())
     }
 }
 
 pub trait Aligned {
-    /// Return the (appropriately aligned) number of blocks representing this
-    /// size.
+    /// Return the (appropriately aligned) number of blocks
+    /// representing this size.
     fn get_blocks(size: Self, block_size: Self) -> Self;
 }
 

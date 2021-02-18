@@ -6,6 +6,7 @@
 
 use std::{
     convert::TryFrom,
+    env,
     fmt::{Display, Formatter},
     os::raw::c_void,
 };
@@ -51,7 +52,7 @@ use crate::{
             nexus_nbd::{NbdDisk, NbdError},
         },
     },
-    core::{Bdev, CoreError, DmaError, Protocol, Reactor, Share},
+    core::{Bdev, CoreError, Protocol, Reactor, Share},
     ffihelper::errno_result_from_i32,
     lvs::Lvol,
     nexus_uri::{bdev_destroy, NexusBdevError},
@@ -113,19 +114,25 @@ pub enum Error {
     ShareNvmfNexus { source: CoreError, name: String },
     #[snafu(display("Failed to unshare nexus {}", name))]
     UnshareNexus { source: CoreError, name: String },
-    #[snafu(display("Failed to allocate label of nexus {}", name))]
-    AllocLabel { source: DmaError, name: String },
-    #[snafu(display("Failed to write label of nexus {}", name))]
+    #[snafu(display(
+        "Failed to read child label of nexus {}: {}",
+        name,
+        source
+    ))]
+    ReadLabel { source: LabelError, name: String },
+    #[snafu(display(
+        "Failed to write child label of nexus {}: {}",
+        name,
+        source
+    ))]
     WriteLabel { source: LabelError, name: String },
-    #[snafu(display("Failed to read label from a child of nexus {}", name))]
-    ReadLabel { source: ChildError, name: String },
-    #[snafu(display("Labels of the nexus {} are not the same", name))]
-    CheckLabels { name: String },
-    #[snafu(display("Failed to write protective MBR of nexus {}", name))]
-    WritePmbr { source: LabelError, name: String },
-    #[snafu(display("Failed to register IO device nexus {}", name))]
+    #[snafu(display(
+        "Failed to register IO device nexus {}: {}",
+        name,
+        source
+    ))]
     RegisterNexus { source: Errno, name: String },
-    #[snafu(display("Failed to create child of nexus {}", name))]
+    #[snafu(display("Failed to create child of nexus {}: {}", name, source))]
     CreateChild {
         source: NexusBdevError,
         name: String,
@@ -481,21 +488,26 @@ impl Nexus {
     }
 
     pub async fn sync_labels(&mut self) -> Result<(), Error> {
-        let label = self.update_child_labels().await.context(WriteLabel {
+        if env::var("NEXUS_DONT_READ_LABELS").is_ok() {
+            // This is to allow for the specific case where the underlying
+            // child devices are NULL bdevs, which may be written to
+            // but cannot be read from. Just write out new labels,
+            // and don't attempt to read them back afterwards.
+            warn!("NOT reading disk labels on request");
+            return self.create_child_labels().await.context(WriteLabel {
+                name: self.name.clone(),
+            });
+        }
+
+        // update child labels as necessary
+        if let Err(error) = self.update_child_labels().await {
+            warn!("error updating child labels: {}", error);
+        }
+
+        // check if we can read the labels back
+        self.validate_child_labels().await.context(ReadLabel {
             name: self.name.clone(),
         })?;
-
-        // Now register the bdev but update its size first
-        // to ensure we adhere to the partitions.
-        self.data_ent_offset = label.offset();
-        let size_blocks = self.size / self.bdev.block_len() as u64;
-
-        self.bdev.set_block_count(std::cmp::min(
-            // nexus is allowed to be smaller than the children
-            size_blocks,
-            // label might be smaller than expected due to the on disk metadata
-            label.get_block_count(),
-        ));
 
         Ok(())
     }
@@ -1045,6 +1057,7 @@ pub async fn nexus_create(
 
     for child in children {
         if let Err(err) = ni.create_and_register(child).await {
+            error!("failed to create child {}: {}", child, err);
             ni.destroy_children().await;
             return Err(err).context(CreateChild {
                 name: ni.name.clone(),
@@ -1072,6 +1085,7 @@ pub async fn nexus_create(
         }
 
         Err(e) => {
+            error!("failed to open nexus {}: {}", ni.name, e);
             ni.destroy_children().await;
             return Err(e);
         }
