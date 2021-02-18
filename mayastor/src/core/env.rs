@@ -384,9 +384,7 @@ impl MayastorEnvironment {
 
     /// construct an array of options to be passed to EAL and start it
     fn initialize_eal(&self) {
-        let mut args: Vec<CString> = Vec::new();
-
-        args.push(CString::new(self.name.clone()).unwrap());
+        let mut args = vec![CString::new(self.name.clone()).unwrap()];
 
         if self.mem_channel > 0 {
             args.push(

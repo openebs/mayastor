@@ -232,4 +232,9 @@ impl JsonGeneric {
             inner: value,
         }
     }
+
+    /// Get inner value
+    pub fn into_inner(self) -> serde_json::Value {
+        self.inner
+    }
 }

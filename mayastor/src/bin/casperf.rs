@@ -31,10 +31,10 @@ use spdk_sys::{
 #[derive(Debug)]
 enum IoType {
     /// perform random read operations
-    READ,
+    Read,
     /// perform random write operations
     #[allow(dead_code)]
-    WRITE,
+    Write,
 }
 
 /// default queue depth
@@ -148,7 +148,7 @@ impl Job {
         (0 ..= qd).for_each(|offset| {
             queue.push(Io {
                 buf: DmaBuf::new(size, bdev.alignment()).unwrap(),
-                iot: IoType::READ,
+                iot: IoType::Read,
                 offset,
                 job: NonNull::dangling(),
             });
@@ -202,16 +202,16 @@ impl Io {
     fn run(&mut self, job: *mut Job) {
         self.job = NonNull::new(job).unwrap();
         match self.iot {
-            IoType::READ => self.read(0),
-            IoType::WRITE => self.write(0),
+            IoType::Read => self.read(0),
+            IoType::Write => self.write(0),
         };
     }
 
     /// dispatch the next IO, this is called from within the completion callback
     pub fn next(&mut self, offset: u64) {
         match self.iot {
-            IoType::READ => self.read(offset),
-            IoType::WRITE => self.write(offset),
+            IoType::Read => self.read(offset),
+            IoType::Write => self.write(offset),
         }
     }
 

@@ -1,4 +1,4 @@
-//
+//!
 //! Main file to register additional subsystems
 
 pub use config::{

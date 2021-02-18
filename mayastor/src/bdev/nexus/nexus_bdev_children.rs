@@ -39,7 +39,7 @@ use crate::{
                 NexusStatus,
                 OpenChild,
             },
-            nexus_channel::DREvent,
+            nexus_channel::DrEvent,
             nexus_child::{ChildState, NexusChild},
             nexus_child_status_config::ChildStatusConfig,
             nexus_label::{
@@ -268,7 +268,7 @@ impl Nexus {
             });
         }
 
-        self.reconfigure(DREvent::ChildOffline).await;
+        self.reconfigure(DrEvent::ChildOffline).await;
         self.start_rebuild_jobs(cancelled_rebuilding_children).await;
 
         Ok(self.status())
@@ -313,7 +313,7 @@ impl Nexus {
                     _ => {
                         child.fault(reason).await;
                         NexusChild::save_state_change();
-                        self.reconfigure(DREvent::ChildFault).await;
+                        self.reconfigure(DrEvent::ChildFault).await;
                     }
                 }
                 Ok(())

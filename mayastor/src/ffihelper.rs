@@ -118,6 +118,7 @@ pub fn errno_result_from_i32<T>(val: T, errno: i32) -> ErrnoResult<T> {
 }
 
 /// Helper routines to convert from FFI functions
+#[allow(clippy::wrong_self_convention)]
 pub(crate) trait FfiResult {
     type Ok;
     fn to_result<E: Error, F>(self, f: F) -> Result<Self::Ok, E>

@@ -121,7 +121,7 @@ pub enum LabelError {
     #[snafu(display("Incorrect GPT partition table checksum"))]
     PartitionTableChecksum {},
     #[snafu(display("Disk GUIDs differ"))]
-    CompareDiskGUID {},
+    CompareDiskGuid {},
     #[snafu(display("Disk sizes differ"))]
     CompareDiskSize {},
     #[snafu(display("GPT stored partition table checksums differ"))]
@@ -464,6 +464,7 @@ impl GptGuid {
 }
 
 #[derive(Debug, Deserialize, PartialEq, Default, Serialize, Copy, Clone)]
+#[allow(clippy::upper_case_acronyms)]
 pub struct GPTHeader {
     /// GPT signature (must be "EFI PART").
     pub signature: [u8; 8],
@@ -897,7 +898,7 @@ impl NexusLabel {
         secondary: &GPTHeader,
     ) -> Result<(), LabelError> {
         if primary.guid != secondary.guid {
-            return Err(LabelError::CompareDiskGUID {});
+            return Err(LabelError::CompareDiskGuid {});
         }
         if primary.lba_start != secondary.lba_start
             || primary.lba_end != secondary.lba_end

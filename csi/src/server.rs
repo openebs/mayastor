@@ -35,6 +35,7 @@ use crate::{identity::Identity, mount::probe_filesystems, node::Node};
 #[allow(clippy::unit_arg)]
 #[allow(clippy::redundant_closure)]
 #[allow(clippy::enum_variant_names)]
+#[allow(clippy::upper_case_acronyms)]
 pub mod csi {
     tonic::include_proto!("csi.v1");
 }
@@ -192,7 +193,7 @@ async fn main() -> Result<(), String> {
     };
 
     let _ = tokio::join!(
-        CSIServer::run(csi_socket, node_name),
+        CsiServer::run(csi_socket, node_name),
         MayastorNodePluginGrpcServer::run(
             sock_addr.parse().expect("Invalid gRPC endpoint")
         ),
@@ -201,9 +202,9 @@ async fn main() -> Result<(), String> {
     Ok(())
 }
 
-struct CSIServer {}
+struct CsiServer {}
 
-impl CSIServer {
+impl CsiServer {
     pub async fn run(csi_socket: &str, node_name: &str) -> Result<(), ()> {
         let mut uds_sock = UnixListener::bind(csi_socket).unwrap();
         info!("CSI plugin bound to {}", csi_socket);

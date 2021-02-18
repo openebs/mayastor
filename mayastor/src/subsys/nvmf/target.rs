@@ -35,7 +35,7 @@ use crate::{
             poll_groups::PollGroup,
             subsystem::NvmfSubsystem,
             transport,
-            transport::{get_ipv4_address, TransportID},
+            transport::{get_ipv4_address, TransportId},
             Error,
             NVMF_PGS,
         },
@@ -255,7 +255,7 @@ impl Target {
     /// port
     fn listen(&mut self) -> Result<()> {
         let cfg = Config::get();
-        let trid_nexus = TransportID::new(cfg.nexus_opts.nvmf_nexus_port);
+        let trid_nexus = TransportId::new(cfg.nexus_opts.nvmf_nexus_port);
         let rc = unsafe {
             spdk_nvmf_tgt_listen(self.tgt.as_ptr(), trid_nexus.as_ptr())
         };
@@ -266,7 +266,7 @@ impl Target {
             });
         }
 
-        let trid_replica = TransportID::new(cfg.nexus_opts.nvmf_replica_port);
+        let trid_replica = TransportId::new(cfg.nexus_opts.nvmf_replica_port);
         let rc = unsafe {
             spdk_nvmf_tgt_listen(self.tgt.as_ptr(), trid_replica.as_ptr())
         };
@@ -387,8 +387,8 @@ impl Target {
         unsafe { spdk_poller_unregister(&mut self.acceptor_poller.as_ptr()) };
 
         let cfg = Config::get();
-        let trid_nexus = TransportID::new(cfg.nexus_opts.nvmf_nexus_port);
-        let trid_replica = TransportID::new(cfg.nexus_opts.nvmf_replica_port);
+        let trid_nexus = TransportId::new(cfg.nexus_opts.nvmf_nexus_port);
+        let trid_replica = TransportId::new(cfg.nexus_opts.nvmf_replica_port);
 
         unsafe {
             spdk_nvmf_tgt_stop_listen(self.tgt.as_ptr(), trid_replica.as_ptr())

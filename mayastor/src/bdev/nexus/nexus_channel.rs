@@ -58,11 +58,9 @@ impl ReconfigureCtx {
 
 #[derive(Debug)]
 /// Dynamic Reconfiguration Events occur when a child is added or removed
-pub enum DREvent {
+pub enum DrEvent {
     /// Child offline reconfiguration event
     ChildOffline,
-    /// Child online reconfiguration event
-    ChildOnline,
     /// mark the child as faulted
     ChildFault,
     /// Child remove reconfiguration event
@@ -211,15 +209,14 @@ impl NexusChannel {
     pub extern "C" fn reconfigure(
         device: *mut c_void,
         ctx: Box<ReconfigureCtx>,
-        event: &DREvent,
+        event: &DrEvent,
     ) {
         match event {
-            DREvent::ChildOffline
-            | DREvent::ChildOnline
-            | DREvent::ChildRemove
-            | DREvent::ChildFault
-            | DREvent::ChildRebuild
-            | DREvent::ChildStatusSync => unsafe {
+            DrEvent::ChildOffline
+            | DrEvent::ChildRemove
+            | DrEvent::ChildFault
+            | DrEvent::ChildRebuild
+            | DrEvent::ChildStatusSync => unsafe {
                 spdk_for_each_channel(
                     device,
                     Some(NexusChannel::refresh_io_channels),

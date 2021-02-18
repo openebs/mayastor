@@ -32,6 +32,7 @@ impl From<i32> for StatusCodeType {
 }
 
 #[derive(Debug, Copy, Clone, Eq, PartialOrd, PartialEq)]
+#[allow(clippy::upper_case_acronyms)]
 pub enum GenericStatusCode {
     Success,
     InvalidOpcode,

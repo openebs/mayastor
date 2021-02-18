@@ -308,8 +308,7 @@ impl NexusMetaData {
         if checksum != entry.data_checksum {
             return Err(MetaDataError::ObjectChecksum {});
         }
-        Ok(NexusConfig::from_slice(buf.as_slice())
-            .context(DeserializeError {})?)
+        NexusConfig::from_slice(buf.as_slice()).context(DeserializeError {})
     }
 }
 
@@ -733,7 +732,7 @@ impl NexusChild {
                 == GptGuid::from_str(Nexus::METADATA_PARTITION_TYPE_ID).unwrap()
                 && partition.ent_name.name == "MayaMeta"
             {
-                return Ok(self.probe_index(partition.ent_start).await?);
+                return self.probe_index(partition.ent_start).await;
             }
         }
 

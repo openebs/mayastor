@@ -9,7 +9,8 @@
     non_snake_case,
     non_upper_case_globals,
     unknown_lints,
-    unused
+    unused,
+    clippy::upper_case_acronyms
 )]
 
 use std::os::raw::c_char;

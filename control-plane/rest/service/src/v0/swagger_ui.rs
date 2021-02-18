@@ -17,9 +17,9 @@ fn get_swagger_html(spec_uri: &str) -> Result<String, String> {
     template
         .add_template("swagger-ui", TEMPLATE)
         .map_err(|e| e.to_string())?;
-    Ok(template
+    template
         .render("swagger-ui", &context)
-        .map_err(|e| e.to_string())?)
+        .map_err(|e| e.to_string())
 }
 
 #[derive(Clone)]

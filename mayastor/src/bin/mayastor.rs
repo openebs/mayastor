@@ -57,13 +57,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let master = Reactors::master();
     master.send_future(async { info!("Mayastor started {} ...", '\u{1F680}') });
-    let mut futures = Vec::new();
-
-    futures.push(master.boxed_local());
-    futures.push(subsys::Registration::run().boxed_local());
-    futures.push(
+    let futures = vec![
+        master.boxed_local(),
+        subsys::Registration::run().boxed_local(),
         grpc::MayastorGrpcServer::run(grpc_endpoint, rpc_address).boxed_local(),
-    );
+    ];
 
     rt.block_on(futures::future::try_join_all(futures))
         .expect_err("reactor exit in abnormal state");
