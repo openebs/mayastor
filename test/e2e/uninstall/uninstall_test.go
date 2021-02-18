@@ -133,11 +133,6 @@ func teardownMayastor() {
 	if cleanup {
 		// Attempt to forcefully delete mayastor pods
 		forceDeleted := common.ForceDeleteMayastorPods()
-		// FIXME: Temporarily disable this assert CAS-651 has been fixed
-		// Expect(forceDeleted).To(BeFalse())
-		if forceDeleted {
-			logf.Log.Info("WARNING: Mayastor pods were force deleted at uninstall!!!")
-		}
 		deleteNamespace()
 		// delete the namespace prior to possibly failing the uninstall
 		// to yield a reusable cluster on fail.
@@ -145,14 +140,9 @@ func teardownMayastor() {
 		Expect(podCount).To(BeZero())
 		Expect(pvcsFound).To(BeFalse())
 		Expect(pvcsDeleted).To(BeTrue())
+		Expect(forceDeleted).To(BeFalse())
 	} else {
-		// FIXME: Temporarily disable this assert CAS-651 has been fixed
-		// and force delete lingering mayastor pods.
-		// Expect(common.MayastorUndeletedPodCount()).To(Equal(0))
-		if common.MayastorUndeletedPodCount() != 0 {
-			logf.Log.Info("WARNING: Mayastor pods not deleted at uninstall, forcing deletion.")
-			common.ForceDeleteMayastorPods()
-		}
+		Expect(common.MayastorUndeletedPodCount()).To(Equal(0))
 		// More verbose here as deleting the namespace is often where this
 		// test hangs.
 		logf.Log.Info("Deleting the mayastor namespace")

@@ -14,7 +14,7 @@ pub(super) fn configure(cfg: &mut paperclip::actix::web::ServiceConfig) {
 async fn get_pools() -> Result<Json<Vec<Pool>>, RestError> {
     RestRespond::result(MessageBus::get_pools(Filter::None).await)
 }
-#[get("/v0", "/pools/{id}", tags(Pools))]
+#[get("/v0", "/pools/{pool_id}", tags(Pools))]
 async fn get_pool(
     web::Path(pool_id): web::Path<PoolId>,
 ) -> Result<Json<Pool>, RestError> {
