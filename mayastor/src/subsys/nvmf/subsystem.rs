@@ -1,7 +1,8 @@
 use std::{
+    convert::TryFrom,
     ffi::{c_void, CString},
     fmt,
-    fmt::{Debug, Display},
+    fmt::{Debug, Display, Formatter},
     mem::size_of,
     ptr,
     ptr::NonNull,
@@ -9,7 +10,6 @@ use std::{
 
 use futures::channel::oneshot;
 use nix::errno::Errno;
-use serde::export::{Formatter, TryFrom};
 
 use spdk_sys::{
     spdk_bdev_nvme_opts,

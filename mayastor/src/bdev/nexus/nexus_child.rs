@@ -1,7 +1,11 @@
-use std::{convert::TryFrom, fmt::Display, sync::Arc};
+use std::{
+    convert::TryFrom,
+    fmt::{Display, Formatter},
+    sync::Arc,
+};
 
 use nix::errno::Errno;
-use serde::{export::Formatter, Serialize};
+use serde::Serialize;
 use snafu::{ResultExt, Snafu};
 
 use crate::{

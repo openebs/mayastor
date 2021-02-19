@@ -1,6 +1,6 @@
 use std::{
     convert::TryFrom,
-    fmt::Debug,
+    fmt::{Debug, Error, Formatter},
     mem::ManuallyDrop,
     os::raw::c_void,
     sync::Arc,
@@ -8,7 +8,6 @@ use std::{
 
 use futures::channel::oneshot;
 use nix::errno::Errno;
-use serde::export::{fmt::Error, Formatter};
 
 use spdk_sys::{
     spdk_bdev_desc,

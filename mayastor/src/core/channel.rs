@@ -1,6 +1,4 @@
-use std::fmt::Debug;
-
-use serde::export::{fmt::Error, Formatter};
+use std::fmt::{Debug, Error, Formatter};
 
 use spdk_sys::{spdk_io_channel, spdk_put_io_channel};
 
