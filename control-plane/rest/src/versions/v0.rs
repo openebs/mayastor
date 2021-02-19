@@ -1,6 +1,6 @@
 #![allow(clippy::field_reassign_with_default)]
 use super::super::ActixRestClient;
-use crate::JsonGeneric;
+use crate::{ClientError, ClientResult, JsonGeneric};
 use actix_web::{
     body::Body,
     http::StatusCode,
@@ -180,74 +180,65 @@ pub struct GetBlockDeviceQueryParams {
 #[async_trait(?Send)]
 pub trait RestClient {
     /// Get all the known nodes
-    async fn get_nodes(&self) -> anyhow::Result<Vec<Node>>;
+    async fn get_nodes(&self) -> ClientResult<Vec<Node>>;
     /// Get all the known pools
-    async fn get_pools(&self, filter: Filter) -> anyhow::Result<Vec<Pool>>;
+    async fn get_pools(&self, filter: Filter) -> ClientResult<Vec<Pool>>;
     /// Create new pool with arguments
-    async fn create_pool(&self, args: CreatePool) -> anyhow::Result<Pool>;
+    async fn create_pool(&self, args: CreatePool) -> ClientResult<Pool>;
     /// Destroy pool with arguments
-    async fn destroy_pool(&self, args: DestroyPool) -> anyhow::Result<()>;
+    async fn destroy_pool(&self, args: DestroyPool) -> ClientResult<()>;
     /// Get all the known replicas
-    async fn get_replicas(
-        &self,
-        filter: Filter,
-    ) -> anyhow::Result<Vec<Replica>>;
+    async fn get_replicas(&self, filter: Filter) -> ClientResult<Vec<Replica>>;
     /// Create new replica with arguments
     async fn create_replica(
         &self,
         args: CreateReplica,
-    ) -> anyhow::Result<Replica>;
+    ) -> ClientResult<Replica>;
     /// Destroy replica with arguments
-    async fn destroy_replica(&self, args: DestroyReplica)
-        -> anyhow::Result<()>;
+    async fn destroy_replica(&self, args: DestroyReplica) -> ClientResult<()>;
     /// Share replica with arguments
-    async fn share_replica(&self, args: ShareReplica)
-        -> anyhow::Result<String>;
+    async fn share_replica(&self, args: ShareReplica) -> ClientResult<String>;
     /// Unshare replica with arguments
-    async fn unshare_replica(&self, args: UnshareReplica)
-        -> anyhow::Result<()>;
+    async fn unshare_replica(&self, args: UnshareReplica) -> ClientResult<()>;
     /// Get all the known nexuses
-    async fn get_nexuses(&self, filter: Filter) -> anyhow::Result<Vec<Nexus>>;
+    async fn get_nexuses(&self, filter: Filter) -> ClientResult<Vec<Nexus>>;
     /// Create new nexus with arguments
-    async fn create_nexus(&self, args: CreateNexus) -> anyhow::Result<Nexus>;
+    async fn create_nexus(&self, args: CreateNexus) -> ClientResult<Nexus>;
     /// Destroy nexus with arguments
-    async fn destroy_nexus(&self, args: DestroyNexus) -> anyhow::Result<()>;
+    async fn destroy_nexus(&self, args: DestroyNexus) -> ClientResult<()>;
     /// Share nexus
-    async fn share_nexus(&self, args: ShareNexus) -> anyhow::Result<Nexus>;
+    async fn share_nexus(&self, args: ShareNexus) -> ClientResult<String>;
     /// Unshare nexus
-    async fn unshare_nexus(&self, args: UnshareNexus) -> anyhow::Result<()>;
+    async fn unshare_nexus(&self, args: UnshareNexus) -> ClientResult<()>;
     /// Remove nexus child
     async fn remove_nexus_child(
         &self,
         args: RemoveNexusChild,
-    ) -> anyhow::Result<()>;
+    ) -> ClientResult<()>;
     /// Add nexus child
-    async fn add_nexus_child(
-        &self,
-        args: AddNexusChild,
-    ) -> anyhow::Result<Child>;
+    async fn add_nexus_child(&self, args: AddNexusChild)
+        -> ClientResult<Child>;
     /// Get all children by filter
     async fn get_nexus_children(
         &self,
         filter: Filter,
-    ) -> anyhow::Result<Vec<Child>>;
+    ) -> ClientResult<Vec<Child>>;
     /// Get all volumes by filter
-    async fn get_volumes(&self, filter: Filter) -> anyhow::Result<Vec<Volume>>;
+    async fn get_volumes(&self, filter: Filter) -> ClientResult<Vec<Volume>>;
     /// Create volume
-    async fn create_volume(&self, args: CreateVolume)
-        -> anyhow::Result<Volume>;
+    async fn create_volume(&self, args: CreateVolume) -> ClientResult<Volume>;
     /// Destroy volume
-    async fn destroy_volume(&self, args: DestroyVolume) -> anyhow::Result<()>;
+    async fn destroy_volume(&self, args: DestroyVolume) -> ClientResult<()>;
     /// Generic JSON gRPC call
     async fn json_grpc(
         &self,
         args: JsonGrpcRequest,
-    ) -> anyhow::Result<JsonGeneric>;
+    ) -> ClientResult<JsonGeneric>;
     /// Get block devices
     async fn get_block_devices(
         &self,
         args: GetBlockDevices,
-    ) -> anyhow::Result<Vec<BlockDevice>>;
+    ) -> ClientResult<Vec<BlockDevice>>;
 }
 
 #[derive(Display, Debug)]
@@ -287,19 +278,19 @@ macro_rules! get_filter {
     };
 }
 
-fn get_filtered_urn(filter: Filter, r: &RestUrns) -> anyhow::Result<String> {
+fn get_filtered_urn(filter: Filter, r: &RestUrns) -> ClientResult<String> {
     let urn = match r {
         RestUrns::GetNodes(_) => match filter {
             Filter::None => "nodes".to_string(),
             Filter::Node(id) => format!("nodes/{}", id),
-            _ => return Err(anyhow::Error::msg("Invalid filter for Nodes")),
+            _ => return Err(ClientError::filter("Invalid filter for Nodes")),
         },
         RestUrns::GetPools(_) => match filter {
             Filter::None => "pools".to_string(),
             Filter::Node(id) => format!("nodes/{}/pools", id),
             Filter::Pool(id) => format!("pools/{}", id),
             Filter::NodePool(n, p) => format!("nodes/{}/pools/{}", n, p),
-            _ => return Err(anyhow::Error::msg("Invalid filter for pools")),
+            _ => return Err(ClientError::filter("Invalid filter for pools")),
         },
         RestUrns::GetReplicas(_) => match filter {
             Filter::None => "replicas".to_string(),
@@ -314,27 +305,29 @@ fn get_filtered_urn(filter: Filter, r: &RestUrns) -> anyhow::Result<String> {
                 format!("nodes/{}/pools/{}/replicas/{}", n, p, r)
             }
             Filter::PoolReplica(p, r) => format!("pools/{}/replicas/{}", p, r),
-            _ => return Err(anyhow::Error::msg("Invalid filter for replicas")),
+            _ => {
+                return Err(ClientError::filter("Invalid filter for replicas"))
+            }
         },
         RestUrns::GetNexuses(_) => match filter {
             Filter::None => "nexuses".to_string(),
             Filter::Node(n) => format!("nodes/{}/nexuses", n),
             Filter::NodeNexus(n, x) => format!("nodes/{}/nexuses/{}", n, x),
             Filter::Nexus(x) => format!("nexuses/{}", x),
-            _ => return Err(anyhow::Error::msg("Invalid filter for nexuses")),
+            _ => return Err(ClientError::filter("Invalid filter for nexuses")),
         },
         RestUrns::GetChildren(_) => match filter {
             Filter::NodeNexus(n, x) => {
                 format!("nodes/{}/nexuses/{}/children", n, x)
             }
             Filter::Nexus(x) => format!("nexuses/{}/children", x),
-            _ => return Err(anyhow::Error::msg("Invalid filter for nexuses")),
+            _ => return Err(ClientError::filter("Invalid filter for nexuses")),
         },
         RestUrns::GetVolumes(_) => match filter {
             Filter::None => "volumes".to_string(),
             Filter::Node(n) => format!("nodes/{}/volumes", n),
             Filter::Volume(x) => format!("volumes/{}", x),
-            _ => return Err(anyhow::Error::msg("Invalid filter for volumes")),
+            _ => return Err(ClientError::filter("Invalid filter for volumes")),
         },
     };
 
@@ -343,32 +336,29 @@ fn get_filtered_urn(filter: Filter, r: &RestUrns) -> anyhow::Result<String> {
 
 #[async_trait(?Send)]
 impl RestClient for ActixRestClient {
-    async fn get_nodes(&self) -> anyhow::Result<Vec<Node>> {
+    async fn get_nodes(&self) -> ClientResult<Vec<Node>> {
         let nodes = get_all!(self, GetNodes).await?;
         Ok(nodes)
     }
 
-    async fn get_pools(&self, filter: Filter) -> anyhow::Result<Vec<Pool>> {
+    async fn get_pools(&self, filter: Filter) -> ClientResult<Vec<Pool>> {
         let pools = get_filter!(self, filter, GetPools).await?;
         Ok(pools)
     }
 
-    async fn create_pool(&self, args: CreatePool) -> anyhow::Result<Pool> {
+    async fn create_pool(&self, args: CreatePool) -> ClientResult<Pool> {
         let urn = format!("/v0/nodes/{}/pools/{}", &args.node, &args.id);
         let pool = self.put(urn, CreatePoolBody::from(args)).await?;
         Ok(pool)
     }
 
-    async fn destroy_pool(&self, args: DestroyPool) -> anyhow::Result<()> {
+    async fn destroy_pool(&self, args: DestroyPool) -> ClientResult<()> {
         let urn = format!("/v0/nodes/{}/pools/{}", &args.node, &args.id);
         self.del(urn).await?;
         Ok(())
     }
 
-    async fn get_replicas(
-        &self,
-        filter: Filter,
-    ) -> anyhow::Result<Vec<Replica>> {
+    async fn get_replicas(&self, filter: Filter) -> ClientResult<Vec<Replica>> {
         let replicas = get_filter!(self, filter, GetReplicas).await?;
         Ok(replicas)
     }
@@ -376,7 +366,7 @@ impl RestClient for ActixRestClient {
     async fn create_replica(
         &self,
         args: CreateReplica,
-    ) -> anyhow::Result<Replica> {
+    ) -> ClientResult<Replica> {
         let urn = format!(
             "/v0/nodes/{}/pools/{}/replicas/{}",
             &args.node, &args.pool, &args.uuid
@@ -385,10 +375,7 @@ impl RestClient for ActixRestClient {
         Ok(replica)
     }
 
-    async fn destroy_replica(
-        &self,
-        args: DestroyReplica,
-    ) -> anyhow::Result<()> {
+    async fn destroy_replica(&self, args: DestroyReplica) -> ClientResult<()> {
         let urn = format!(
             "/v0/nodes/{}/pools/{}/replicas/{}",
             &args.node, &args.pool, &args.uuid
@@ -398,10 +385,7 @@ impl RestClient for ActixRestClient {
     }
 
     /// Share replica with arguments
-    async fn share_replica(
-        &self,
-        args: ShareReplica,
-    ) -> anyhow::Result<String> {
+    async fn share_replica(&self, args: ShareReplica) -> ClientResult<String> {
         let urn = format!(
             "/v0/nodes/{}/pools/{}/replicas/{}/share/{}",
             &args.node,
@@ -413,10 +397,7 @@ impl RestClient for ActixRestClient {
         Ok(share)
     }
     /// Unshare replica with arguments
-    async fn unshare_replica(
-        &self,
-        args: UnshareReplica,
-    ) -> anyhow::Result<()> {
+    async fn unshare_replica(&self, args: UnshareReplica) -> ClientResult<()> {
         let urn = format!(
             "/v0/nodes/{}/pools/{}/replicas/{}/share",
             &args.node, &args.pool, &args.uuid
@@ -425,25 +406,25 @@ impl RestClient for ActixRestClient {
         Ok(())
     }
 
-    async fn get_nexuses(&self, filter: Filter) -> anyhow::Result<Vec<Nexus>> {
+    async fn get_nexuses(&self, filter: Filter) -> ClientResult<Vec<Nexus>> {
         let nexuses = get_filter!(self, filter, GetNexuses).await?;
         Ok(nexuses)
     }
 
-    async fn create_nexus(&self, args: CreateNexus) -> anyhow::Result<Nexus> {
+    async fn create_nexus(&self, args: CreateNexus) -> ClientResult<Nexus> {
         let urn = format!("/v0/nodes/{}/nexuses/{}", &args.node, &args.uuid);
         let replica = self.put(urn, CreateNexusBody::from(args)).await?;
         Ok(replica)
     }
 
-    async fn destroy_nexus(&self, args: DestroyNexus) -> anyhow::Result<()> {
+    async fn destroy_nexus(&self, args: DestroyNexus) -> ClientResult<()> {
         let urn = format!("/v0/nodes/{}/nexuses/{}", &args.node, &args.uuid);
         self.del(urn).await?;
         Ok(())
     }
 
     /// Share nexus
-    async fn share_nexus(&self, args: ShareNexus) -> anyhow::Result<Nexus> {
+    async fn share_nexus(&self, args: ShareNexus) -> ClientResult<String> {
         let urn = format!(
             "/v0/nodes/{}/nexuses/{}/share/{}",
             &args.node,
@@ -455,7 +436,7 @@ impl RestClient for ActixRestClient {
     }
 
     /// Unshare nexus
-    async fn unshare_nexus(&self, args: UnshareNexus) -> anyhow::Result<()> {
+    async fn unshare_nexus(&self, args: UnshareNexus) -> ClientResult<()> {
         let urn =
             format!("/v0/nodes/{}/nexuses/{}/share", &args.node, &args.uuid);
         self.del(urn).await?;
@@ -465,7 +446,7 @@ impl RestClient for ActixRestClient {
     async fn remove_nexus_child(
         &self,
         args: RemoveNexusChild,
-    ) -> anyhow::Result<()> {
+    ) -> ClientResult<()> {
         let urn = match url::Url::parse(args.uri.as_str()) {
             Ok(uri) => {
                 // remove initial '/'
@@ -480,7 +461,7 @@ impl RestClient for ActixRestClient {
     async fn add_nexus_child(
         &self,
         args: AddNexusChild,
-    ) -> anyhow::Result<Child> {
+    ) -> ClientResult<Child> {
         let urn = format!(
             "/v0/nodes/{}/nexuses/{}/children/{}",
             &args.node, &args.nexus, &args.uri
@@ -491,26 +472,23 @@ impl RestClient for ActixRestClient {
     async fn get_nexus_children(
         &self,
         filter: Filter,
-    ) -> anyhow::Result<Vec<Child>> {
+    ) -> ClientResult<Vec<Child>> {
         let children = get_filter!(self, filter, GetChildren).await?;
         Ok(children)
     }
 
-    async fn get_volumes(&self, filter: Filter) -> anyhow::Result<Vec<Volume>> {
+    async fn get_volumes(&self, filter: Filter) -> ClientResult<Vec<Volume>> {
         let volumes = get_filter!(self, filter, GetVolumes).await?;
         Ok(volumes)
     }
 
-    async fn create_volume(
-        &self,
-        args: CreateVolume,
-    ) -> anyhow::Result<Volume> {
+    async fn create_volume(&self, args: CreateVolume) -> ClientResult<Volume> {
         let urn = format!("/v0/volumes/{}", &args.uuid);
         let volume = self.put(urn, CreateVolumeBody::from(args)).await?;
         Ok(volume)
     }
 
-    async fn destroy_volume(&self, args: DestroyVolume) -> anyhow::Result<()> {
+    async fn destroy_volume(&self, args: DestroyVolume) -> ClientResult<()> {
         let urn = format!("/v0/volumes/{}", &args.uuid);
         self.del(urn).await?;
         Ok(())
@@ -519,7 +497,7 @@ impl RestClient for ActixRestClient {
     async fn json_grpc(
         &self,
         args: JsonGrpcRequest,
-    ) -> anyhow::Result<JsonGeneric> {
+    ) -> ClientResult<JsonGeneric> {
         let urn = format!("/v0/nodes/{}/jsongrpc/{}", args.node, args.method);
         self.put(urn, Body::from(args.params.to_string())).await
     }
@@ -527,7 +505,7 @@ impl RestClient for ActixRestClient {
     async fn get_block_devices(
         &self,
         args: GetBlockDevices,
-    ) -> anyhow::Result<Vec<BlockDevice>> {
+    ) -> ClientResult<Vec<BlockDevice>> {
         let urn =
             format!("/v0/nodes/{}/block_devices?all={}", args.node, args.all);
         self.get_vec(urn).await
