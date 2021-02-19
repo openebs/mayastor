@@ -64,13 +64,6 @@ let
       mkdir -p var/tmp
     '';
   };
-  operatorImageProps = {
-    tag = version;
-    created = "now";
-    config = {
-      Env = [ "PATH=${env}" ];
-    };
-  };
   agentImageProps = {
     tag = version;
     created = "now";
@@ -88,15 +81,6 @@ let
   build-agent-image = { build, name, config ? { } }: build-control-plane-image {
     inherit build name;
     binary = "${name}-agent";
-  };
-  build-operator-image = { build, name, config ? { } }: build-control-plane-image {
-    inherit build;
-    name = "${name}-op";
-    binary = "${name}-operator";
-  };
-
-  operator-images = { build }: {
-    node = build-operator-image { inherit build; name = "node"; };
   };
   agent-images = { build }: {
     kiiss = build-agent-image { inherit build; name = "kiiss"; };
@@ -175,7 +159,4 @@ in
 
   agents = agent-images { build = "release"; };
   agents-dev = agent-images { build = "debug"; };
-
-  operators = operator-images { build = "release"; };
-  operators-dev = operator-images { build = "debug"; };
 }

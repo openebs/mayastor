@@ -18,7 +18,6 @@ members = [
 	"control-plane/mbus-api",
 	"composer",
 	"control-plane/rest",
-	"control-plane/operators",
 	"control-plane/macros",
 	"control-plane/deployer",
 	"control-plane/tests"

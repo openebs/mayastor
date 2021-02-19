@@ -20,7 +20,7 @@ actix-web = { version = "3.2.0", features = ["rustls"] }
 actix-service = "1.0.6"
 mbus_api = { path = "../mbus-api" }
 async-trait = "0.1.41"
-serde_json = "1.0"
+serde_json = { version = "1.0", features = ["preserve_order"] }
 structopt = "0.3.15"
 futures = "0.3.6"
 tracing = "0.1"
