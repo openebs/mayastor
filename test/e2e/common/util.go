@@ -500,6 +500,7 @@ type NodeLocation struct {
 	NodeName     string
 	IPAddress    string
 	MayastorNode bool
+	MasterNode   bool
 }
 
 // returns vector of populated NodeLocation structs
@@ -514,9 +515,13 @@ func GetNodeLocs() ([]NodeLocation, error) {
 		addrstr := ""
 		namestr := ""
 		mayastorNode := false
+		masterNode := false
 		for label, value := range k8snode.Labels {
 			if label == "openebs.io/engine" && value == "mayastor" {
 				mayastorNode = true
+			}
+			if label == "node-role.kubernetes.io/master" {
+				masterNode = true
 			}
 		}
 		for _, addr := range k8snode.Status.Addresses {
@@ -528,7 +533,12 @@ func GetNodeLocs() ([]NodeLocation, error) {
 			}
 		}
 		if namestr != "" && addrstr != "" {
-			NodeLocs = append(NodeLocs, NodeLocation{NodeName: namestr, IPAddress: addrstr, MayastorNode: mayastorNode})
+			NodeLocs = append(NodeLocs, NodeLocation{
+				NodeName:     namestr,
+				IPAddress:    addrstr,
+				MayastorNode: mayastorNode,
+				MasterNode:   masterNode,
+			})
 		} else {
 			return nil, errors.New("node lacks expected fields")
 		}
@@ -1084,9 +1094,38 @@ func DeletePools() {
 	}
 }
 
+func DeleteAllPoolFinalizers() {
+	poolGVR := schema.GroupVersionResource{
+		Group:    "openebs.io",
+		Version:  "v1alpha1",
+		Resource: "mayastorpools",
+	}
+
+	pools, err := gTestEnv.DynamicClient.Resource(poolGVR).Namespace("mayastor").List(context.TODO(), metav1.ListOptions{})
+	if err != nil {
+		// This function may be called by AfterSuite by uninstall test so listing MSVs may fail correctly
+		logf.Log.Info("DeleteAllPoolFinalisers: list MSPs failed.", "Error", err)
+	}
+	if err == nil && pools != nil && len(pools.Items) != 0 {
+		for _, pool := range pools.Items {
+			empty := make([]string, 0)
+			logf.Log.Info("DeleteAllPoolFinalizers", "pool", pool.GetName())
+			finalizers := pool.GetFinalizers()
+			if finalizers != nil {
+				logf.Log.Info("Removing all finalizers", "pool", pool.GetName(), "finalizer", finalizers)
+				pool.SetFinalizers(empty)
+				_, err = gTestEnv.DynamicClient.Resource(poolGVR).Namespace("mayastor").Update(context.TODO(), &pool, metav1.UpdateOptions{})
+				if err != nil {
+					logf.Log.Error(err, "Pool update finalizer")
+				}
+			}
+		}
+	}
+}
+
 func AfterSuiteCleanup() {
 	logf.Log.Info("AfterSuiteCleanup")
-	_, _ = DeleteAllVolumeResources()
+	//	_, _ = DeleteAllVolumeResources()
 }
 
 // Check that no PVs, PVCs and MSVs are still extant.
