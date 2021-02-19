@@ -1,7 +1,10 @@
-use std::{convert::TryFrom, fmt::Debug, os::raw::c_void};
+use std::{
+    convert::TryFrom,
+    fmt::{Debug, Error, Formatter},
+    os::raw::c_void,
+};
 
 use futures::channel::oneshot;
-use serde::export::{fmt::Error, Formatter};
 
 use spdk_sys::{
     bdev_lock_lba_range,

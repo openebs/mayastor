@@ -1,7 +1,7 @@
 use std::{
     env,
     ffi::CString,
-    fmt::{Debug, Display},
+    fmt::{Debug, Display, Formatter},
     net::Ipv4Addr,
     ops::{Deref, DerefMut},
     ptr::copy_nonoverlapping,
@@ -10,7 +10,6 @@ use std::{
 use futures::channel::oneshot;
 use nix::errno::Errno;
 use once_cell::sync::Lazy;
-use serde::export::Formatter;
 
 use spdk_sys::{
     spdk_nvme_transport_id,

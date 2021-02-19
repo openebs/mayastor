@@ -12,5 +12,5 @@ authors = [
 ]
 
 [build-dependencies]
-bindgen = "0.54"
+bindgen = "0.57"
 cc = "1.0"

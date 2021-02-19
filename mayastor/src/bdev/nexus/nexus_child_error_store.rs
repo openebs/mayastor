@@ -1,9 +1,7 @@
 use std::{
-    fmt::{Debug, Display},
+    fmt::{Debug, Display, Error, Formatter},
     time::{Duration, Instant},
 };
-
-use serde::export::{fmt::Error, Formatter};
 
 use spdk_sys::spdk_bdev;
 

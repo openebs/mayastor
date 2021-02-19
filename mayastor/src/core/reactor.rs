@@ -33,7 +33,7 @@ use std::{
     cell::RefCell,
     collections::VecDeque,
     fmt,
-    fmt::Display,
+    fmt::{Display, Formatter},
     os::raw::c_void,
     pin::Pin,
     slice::Iter,
@@ -46,7 +46,6 @@ use futures::{
     Future,
 };
 use once_cell::sync::OnceCell;
-use serde::export::Formatter;
 
 use spdk_sys::{
     spdk_cpuset_get_cpu,
