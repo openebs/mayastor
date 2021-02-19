@@ -202,7 +202,7 @@ pipeline {
               }
             }
             stage('run e2e') {
-              agent { label 'nixos-mayastor' }
+              agent { label 'nixos' }
               environment {
                 GIT_COMMIT_SHORT = sh(
                   // using printf to get rid of trailing newline
