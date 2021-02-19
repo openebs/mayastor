@@ -182,21 +182,20 @@ impl ActixRestClient {
             head.headers = headers.clone();
             head
         };
-        let body = rest_response.body().await.map_err(|_| {
-            ClientError::InvalidPayload {
-                head: head(),
-            }
+        let body = rest_response.body().await.context(InvalidPayload {
+            head: head(),
         })?;
         if status.is_success() {
             match serde_json::from_slice(&body) {
                 Ok(r) => Ok(r),
-                Err(_error) => match serde_json::from_slice(&body) {
-                    Ok(r) => Ok(vec![r]),
-                    Err(_error) => Err(ClientError::InvalidBody {
-                        head: head(),
-                        body,
-                    }),
-                },
+                Err(_) => {
+                    let result =
+                        serde_json::from_slice(&body).context(InvalidBody {
+                            head: head(),
+                            body,
+                        })?;
+                    Ok(vec![result])
+                }
             }
         } else if body.is_empty() {
             Err(ClientError::Header {
@@ -204,11 +203,11 @@ impl ActixRestClient {
             })
         } else {
             let error = serde_json::from_slice::<serde_json::Value>(&body)
-                .map_err(|_| ClientError::InvalidBody {
+                .context(InvalidBody {
                     head: head(),
                     body,
                 })?;
-            Err(ClientError::Valid {
+            Err(ClientError::RestServer {
                 head: head(),
                 error,
             })
@@ -229,18 +228,15 @@ impl ActixRestClient {
             head.headers = headers.clone();
             head
         };
-        let body = rest_response.body().await.map_err(|_| {
-            ClientError::InvalidPayload {
-                head: head(),
-            }
+        let body = rest_response.body().await.context(InvalidPayload {
+            head: head(),
         })?;
         if status.is_success() {
-            let result = serde_json::from_slice(&body).map_err(|_| {
-                ClientError::InvalidBody {
+            let result =
+                serde_json::from_slice(&body).context(InvalidBody {
                     head: head(),
                     body,
-                }
-            })?;
+                })?;
             Ok(result)
         } else if body.is_empty() {
             Err(ClientError::Header {
@@ -248,11 +244,11 @@ impl ActixRestClient {
             })
         } else {
             let error = serde_json::from_slice::<serde_json::Value>(&body)
-                .map_err(|_| ClientError::InvalidBody {
+                .context(InvalidBody {
                     head: head(),
                     body,
                 })?;
-            Err(ClientError::Valid {
+            Err(ClientError::RestServer {
                 head: head(),
                 error,
             })
@@ -267,7 +263,7 @@ pub type ClientResult<T> = Result<T, ClientError>;
 /// Rest Client Error
 #[derive(Debug, Snafu)]
 pub enum ClientError {
-    /// Failed to send message to the server
+    /// Failed to send message to the server (details in source)
     #[snafu(display("{}, reason: {}", details, source))]
     Send {
         /// Message
@@ -275,35 +271,48 @@ pub enum ClientError {
         /// Source Request Error
         source: SendRequestError,
     },
-    /// Invalid Resource Filter
+    /// Invalid Resource Filter so couldn't send the request
     #[snafu(display("Invalid Resource Filter: {}", details))]
     InvalidFilter {
         /// Message
         details: String,
     },
-    /// Invalid Payload
-    #[snafu(display("Invalid payload, header: {:?}", head))]
+    /// Response an error code and with an invalid payload
+    #[snafu(display(
+        "Invalid payload, header: {:?}, reason: {}",
+        head,
+        source
+    ))]
     InvalidPayload {
         /// http Header
         head: ResponseHead,
+        /// source payload error
+        source: PayloadError,
     },
-    /// Invalid Body
-    #[snafu(display("Invalid body, header: {:?}", head))]
+    /// Response an error code and also with an invalid body
+    #[snafu(display(
+        "Invalid body, header: {:?}, body: {:?}, reason: {}",
+        head,
+        body,
+        source
+    ))]
     InvalidBody {
         /// http Header
         head: ResponseHead,
         /// http Body
         body: Bytes,
+        /// source json deserialize error
+        source: serde_json::Error,
     },
-    /// No Body
+    /// Response an error code and only the header (and so no additional info)
     #[snafu(display("No body, header: {:?}", head))]
     Header {
         /// http Header
         head: ResponseHead,
     },
-    /// Body in JSON format
+    /// Error within the Body in valid JSON format, returned by the Rest Server
     #[snafu(display("Http status: {}, error: {}", head.status, error.to_string()))]
-    Valid {
+    RestServer {
         /// http Header
         head: ResponseHead,
         /// JSON error

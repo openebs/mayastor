@@ -9,6 +9,7 @@ use opentelemetry::{
 };
 
 use opentelemetry_jaeger::Uninstall;
+use rest_client::ClientError;
 pub use rest_client::{
     versions::v0::{self, RestClient},
     ActixRestClient,
@@ -55,7 +56,7 @@ impl Cluster {
     }
 
     /// replica id with index for `pool` index and `replica` index
-    pub fn replica(pool: u32, replica: u32) -> v0::ReplicaId {
+    pub fn replica(pool: usize, replica: u32) -> v0::ReplicaId {
         let mut uuid = v0::ReplicaId::default().to_string();
         let _ = uuid.drain(27 .. uuid.len());
         format!("{}{:01x}{:08x}", uuid, pool as u8, replica).into()
@@ -69,12 +70,17 @@ impl Cluster {
     /// New cluster
     async fn new(
         trace_rest: bool,
+        timeout_rest: std::time::Duration,
         components: Components,
         composer: ComposeTest,
         jaeger: (Tracer, Uninstall),
     ) -> Result<Cluster, Error> {
-        let rest_client =
-            ActixRestClient::new("https://localhost:8080", trace_rest).unwrap();
+        let rest_client = ActixRestClient::new_timeout(
+            "https://localhost:8080",
+            trace_rest,
+            timeout_rest,
+        )
+        .unwrap();
 
         components
             .start_wait(&composer, std::time::Duration::from_secs(10))
@@ -104,19 +110,26 @@ fn option_str<F: ToString>(input: Option<F>) -> String {
 /// string Eg, testing the replica share protocol:
 /// test_result(Ok(Nvmf), async move { ... })
 /// test_result(Err(NBD), async move { ... })
-pub async fn test_result<F, O, E, T, R>(
+pub async fn test_result<F, O, E, T>(
     expected: &Result<O, E>,
     future: F,
 ) -> Result<(), anyhow::Error>
 where
-    F: std::future::Future<Output = Result<T, R>>,
-    R: std::fmt::Display,
+    F: std::future::Future<Output = Result<T, rest_client::ClientError>>,
     E: std::fmt::Debug,
     O: std::fmt::Debug,
 {
     match future.await {
         Ok(_) if expected.is_ok() => Ok(()),
-        Err(_) if expected.is_err() => Ok(()),
+        Err(error) if expected.is_err() => match error {
+            ClientError::RestServer {
+                ..
+            } => Ok(()),
+            _ => {
+                // not the error we were waiting for
+                Err(anyhow::anyhow!("Invalid rest response: {}", error))
+            }
+        },
         Err(error) => Err(anyhow::anyhow!(
             "Expected '{:#?}' but failed with '{}'!",
             expected,
@@ -138,12 +151,26 @@ macro_rules! result_either {
     };
 }
 
+#[derive(Clone)]
+enum PoolDisk {
+    Malloc(u64),
+    Uri(String),
+}
+
 /// Builder for the Cluster
 pub struct ClusterBuilder {
     opts: StartOptions,
-    pools: u32,
-    replicas: (u32, u64, v0::Protocol),
+    pools: Vec<PoolDisk>,
+    replicas: Replica,
     trace: bool,
+    timeout: std::time::Duration,
+}
+
+#[derive(Default)]
+pub struct Replica {
+    count: u32,
+    size: u64,
+    share: v0::Protocol,
 }
 
 impl ClusterBuilder {
@@ -151,9 +178,10 @@ impl ClusterBuilder {
     pub fn builder() -> Self {
         ClusterBuilder {
             opts: default_options(),
-            pools: 0,
-            replicas: (0, 0, v0::Protocol::Off),
+            pools: vec![],
+            replicas: Default::default(),
             trace: true,
+            timeout: std::time::Duration::from_secs(3),
         }
     }
     /// Update the start options
@@ -169,19 +197,40 @@ impl ClusterBuilder {
         self.trace = enabled;
         self
     }
-    /// Add `count` malloc pools (100MiB size) to each node
-    pub fn with_pools(mut self, count: u32) -> Self {
-        self.pools = count;
+    /// Rest request timeout
+    pub fn with_rest_timeout(mut self, timeout: std::time::Duration) -> Self {
+        self.timeout = timeout;
         self
     }
-    /// Add `count` replicas to each node per pool
+    /// Add `count` malloc pools (100MiB size) to each node
+    pub fn with_pools(mut self, count: u32) -> Self {
+        for _ in 0 .. count {
+            self.pools.push(PoolDisk::Malloc(100 * 1024 * 1024));
+        }
+        self
+    }
+    /// Add pool with `disk` to each node
+    pub fn with_pool(mut self, disk: &str) -> Self {
+        self.pools.push(PoolDisk::Uri(disk.to_string()));
+        self
+    }
+    /// Specify `count` replicas to add to each node per pool
     pub fn with_replicas(
         mut self,
         count: u32,
         size: u64,
         share: v0::Protocol,
     ) -> Self {
-        self.replicas = (count, size, share);
+        self.replicas = Replica {
+            count,
+            size,
+            share,
+        };
+        self
+    }
+    /// Specify `count` mayastors for the cluster
+    pub fn with_mayastors(mut self, count: u32) -> Self {
+        self.opts = self.opts.with_mayastors(count);
         self
     }
     /// Build into the resulting Cluster using a composer closure, eg:
@@ -229,8 +278,14 @@ impl ClusterBuilder {
             .unwrap();
 
         let composer = compose_builder.build().await?;
-        let cluster =
-            Cluster::new(self.trace, components, composer, jaeger).await?;
+        let cluster = Cluster::new(
+            self.trace,
+            self.timeout,
+            components,
+            composer,
+            jaeger,
+        )
+        .await?;
 
         if self.opts.show_info {
             for container in cluster.composer.list_cluster_containers().await? {
@@ -272,23 +327,24 @@ impl ClusterBuilder {
     }
     fn pools(&self) -> Vec<Pool> {
         let mut pools = vec![];
-        for pool_index in 0 .. self.pools {
-            for node in 0 .. self.opts.mayastors {
+
+        for node in 0 .. self.opts.mayastors {
+            for pool_index in 0 .. self.pools.len() {
+                let pool = &self.pools[pool_index];
                 let mut pool = Pool {
                     node: Mayastor::name(node, &self.opts),
-                    kind: PoolKind::Malloc,
-                    size_mb: 100,
+                    disk: pool.clone(),
                     index: (pool_index + 1) as u32,
                     replicas: vec![],
                 };
-                for replica_index in 0 .. self.replicas.0 {
+                for replica_index in 0 .. self.replicas.count {
                     pool.replicas.push(v0::CreateReplica {
                         node: pool.node.clone().into(),
                         uuid: Cluster::replica(pool_index, replica_index),
                         pool: pool.id(),
-                        size: self.replicas.1,
+                        size: self.replicas.size,
                         thin: false,
-                        share: self.replicas.2.clone(),
+                        share: self.replicas.share.clone(),
                     });
                 }
                 pools.push(pool);
@@ -298,18 +354,9 @@ impl ClusterBuilder {
     }
 }
 
-#[allow(dead_code)]
-enum PoolKind {
-    Malloc,
-    Aio,
-    Uring,
-    Nvmf,
-}
-
 struct Pool {
     node: String,
-    kind: PoolKind,
-    size_mb: u32,
+    disk: PoolDisk,
     index: u32,
     replicas: Vec<v0::CreateReplica>,
 }
@@ -319,11 +366,12 @@ impl Pool {
         format!("{}-pool-{}", self.node, self.index).into()
     }
     fn disk(&self) -> String {
-        match self.kind {
-            PoolKind::Malloc => {
-                format!("malloc:///disk{}?size_mb={}", self.index, self.size_mb)
+        match &self.disk {
+            PoolDisk::Malloc(size) => {
+                let size = size / (1024 * 1024);
+                format!("malloc:///disk{}?size_mb={}", self.index, size)
             }
-            _ => panic!("kind not supported!"),
+            PoolDisk::Uri(uri) => uri.clone(),
         }
     }
 }
