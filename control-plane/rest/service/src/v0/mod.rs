@@ -10,7 +10,6 @@ pub mod nodes;
 pub mod pools;
 pub mod replicas;
 pub mod swagger_ui;
-pub mod volumes;
 
 use rest_client::{versions::v0::*, JsonGeneric};
 
@@ -49,7 +48,6 @@ fn configure(cfg: &mut paperclip::actix::web::ServiceConfig) {
     replicas::configure(cfg);
     nexuses::configure(cfg);
     children::configure(cfg);
-    volumes::configure(cfg);
     jsongrpc::configure(cfg);
     block_devices::configure(cfg);
 }

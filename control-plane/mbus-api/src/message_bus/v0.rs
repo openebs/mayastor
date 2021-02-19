@@ -197,50 +197,6 @@ pub trait MessageBusTrait: Sized {
         Ok(())
     }
 
-    /// Get volumes with filter
-    #[tracing::instrument(level = "debug", err)]
-    async fn get_volumes(filter: Filter) -> BusResult<Vec<Volume>> {
-        let volumes = GetVolumes {
-            filter,
-        }
-        .request()
-        .await?;
-        Ok(volumes.into_inner())
-    }
-
-    /// Get volume with filter
-    #[tracing::instrument(level = "debug", err)]
-    async fn get_volume(filter: Filter) -> BusResult<Volume> {
-        let volumes = Self::get_volumes(filter).await?;
-        only_one!(volumes)
-    }
-
-    /// create volume
-    #[tracing::instrument(level = "debug", err)]
-    async fn create_volume(request: CreateVolume) -> BusResult<Volume> {
-        Ok(request.request().await?)
-    }
-
-    /// delete volume
-    #[tracing::instrument(level = "debug", err)]
-    async fn delete_volume(request: DestroyVolume) -> BusResult<()> {
-        request.request().await?;
-        Ok(())
-    }
-
-    /// add volume nexus
-    #[tracing::instrument(level = "debug", err)]
-    async fn add_volume_nexus(request: AddVolumeNexus) -> BusResult<Nexus> {
-        Ok(request.request().await?)
-    }
-
-    /// remove volume nexus
-    #[tracing::instrument(level = "debug", err)]
-    async fn remove_volume_nexus(request: RemoveVolumeNexus) -> BusResult<()> {
-        request.request().await?;
-        Ok(())
-    }
-
     /// Generic JSON gRPC call
     #[tracing::instrument(level = "debug", err)]
     async fn json_grpc_call(

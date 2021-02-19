@@ -118,55 +118,6 @@ impl CreateNexusBody {
     }
 }
 
-/// Create Volume Body JSON
-#[derive(Serialize, Deserialize, Default, Debug, Clone, Apiv2Schema)]
-pub struct CreateVolumeBody {
-    /// size of the volume in bytes
-    pub size: u64,
-    /// number of children nexuses (ANA)
-    pub nexuses: u64,
-    /// number of replicas per nexus
-    pub replicas: u64,
-    /// only these nodes can be used for the replicas
-    #[serde(default)]
-    pub allowed_nodes: Option<Vec<NodeId>>,
-    /// preferred nodes for the replicas
-    #[serde(default)]
-    pub preferred_nodes: Option<Vec<NodeId>>,
-    /// preferred nodes for the nexuses
-    #[serde(default)]
-    pub preferred_nexus_nodes: Option<Vec<NodeId>>,
-}
-impl From<CreateVolume> for CreateVolumeBody {
-    fn from(create: CreateVolume) -> Self {
-        CreateVolumeBody {
-            size: create.size,
-            nexuses: create.nexuses,
-            replicas: create.replicas,
-            preferred_nodes: create.preferred_nodes.into(),
-            allowed_nodes: create.allowed_nodes.into(),
-            preferred_nexus_nodes: create.preferred_nexus_nodes.into(),
-        }
-    }
-}
-impl CreateVolumeBody {
-    /// convert into message bus type
-    pub fn bus_request(&self, volume_id: VolumeId) -> CreateVolume {
-        CreateVolume {
-            uuid: volume_id,
-            size: self.size,
-            nexuses: self.nexuses,
-            replicas: self.replicas,
-            allowed_nodes: self.allowed_nodes.clone().unwrap_or_default(),
-            preferred_nodes: self.preferred_nodes.clone().unwrap_or_default(),
-            preferred_nexus_nodes: self
-                .preferred_nexus_nodes
-                .clone()
-                .unwrap_or_default(),
-        }
-    }
-}
-
 /// Contains the query parameters that can be passed when calling
 /// get_block_devices
 #[derive(Deserialize, Apiv2Schema)]
@@ -231,13 +182,6 @@ pub trait RestClient {
         &self,
         filter: Filter,
     ) -> anyhow::Result<Vec<Child>>;
-    /// Get all volumes by filter
-    async fn get_volumes(&self, filter: Filter) -> anyhow::Result<Vec<Volume>>;
-    /// Create volume
-    async fn create_volume(&self, args: CreateVolume)
-        -> anyhow::Result<Volume>;
-    /// Destroy volume
-    async fn destroy_volume(&self, args: DestroyVolume) -> anyhow::Result<()>;
     /// Generic JSON gRPC call
     async fn json_grpc(
         &self,
@@ -263,8 +207,6 @@ enum RestUrns {
     GetNexuses(Nexus),
     #[strum(serialize = "children")]
     GetChildren(Child),
-    #[strum(serialize = "volumes")]
-    GetVolumes(Volume),
     /* does not work as expect as format! only takes literals...
      * #[strum(serialize = "nodes/{}/pools/{}")]
      * PutPool(Pool), */
@@ -329,12 +271,6 @@ fn get_filtered_urn(filter: Filter, r: &RestUrns) -> anyhow::Result<String> {
             }
             Filter::Nexus(x) => format!("nexuses/{}/children", x),
             _ => return Err(anyhow::Error::msg("Invalid filter for nexuses")),
-        },
-        RestUrns::GetVolumes(_) => match filter {
-            Filter::None => "volumes".to_string(),
-            Filter::Node(n) => format!("nodes/{}/volumes", n),
-            Filter::Volume(x) => format!("volumes/{}", x),
-            _ => return Err(anyhow::Error::msg("Invalid filter for volumes")),
         },
     };
 
@@ -496,26 +432,6 @@ impl RestClient for ActixRestClient {
         Ok(children)
     }
 
-    async fn get_volumes(&self, filter: Filter) -> anyhow::Result<Vec<Volume>> {
-        let volumes = get_filter!(self, filter, GetVolumes).await?;
-        Ok(volumes)
-    }
-
-    async fn create_volume(
-        &self,
-        args: CreateVolume,
-    ) -> anyhow::Result<Volume> {
-        let urn = format!("/v0/volumes/{}", &args.uuid);
-        let volume = self.put(urn, CreateVolumeBody::from(args)).await?;
-        Ok(volume)
-    }
-
-    async fn destroy_volume(&self, args: DestroyVolume) -> anyhow::Result<()> {
-        let urn = format!("/v0/volumes/{}", &args.uuid);
-        self.del(urn).await?;
-        Ok(())
-    }
-
     async fn json_grpc(
         &self,
         args: JsonGrpcRequest,
@@ -546,11 +462,6 @@ impl From<CreateReplicaBody> for Body {
 }
 impl From<CreateNexusBody> for Body {
     fn from(src: CreateNexusBody) -> Self {
-        Body::from(serde_json::to_value(src).unwrap())
-    }
-}
-impl From<CreateVolumeBody> for Body {
-    fn from(src: CreateVolumeBody) -> Self {
         Body::from(serde_json::to_value(src).unwrap())
     }
 }

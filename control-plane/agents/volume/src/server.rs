@@ -67,10 +67,6 @@ impl_service_handler!(ShareNexus, share_nexus);
 impl_service_handler!(UnshareNexus, unshare_nexus);
 impl_service_handler!(AddNexusChild, add_nexus_child);
 impl_service_handler!(RemoveNexusChild, remove_nexus_child);
-// volumes
-impl_service_handler!(GetVolumes, get_volumes);
-impl_service_handler!(CreateVolume, create_volume);
-impl_service_handler!(DestroyVolume, destroy_volume);
 
 fn init_tracing() {
     if let Ok(filter) = tracing_subscriber::EnvFilter::try_from_default_env() {
@@ -96,9 +92,6 @@ async fn server(cli_args: CliArgs) {
         .await
         .with_shared_state(VolumeSvc::new(cli_args.period.into()))
         .with_default_liveness()
-        .with_subscription(ServiceHandler::<GetVolumes>::default())
-        .with_subscription(ServiceHandler::<CreateVolume>::default())
-        .with_subscription(ServiceHandler::<DestroyVolume>::default())
         .with_channel(ChannelVs::Nexus)
         .with_subscription(ServiceHandler::<GetNexuses>::default())
         .with_subscription(ServiceHandler::<CreateNexus>::default())
@@ -179,7 +172,6 @@ mod tests {
 
         prepare_pools(mayastor, mayastor2).await;
         test_nexus(mayastor, mayastor2).await;
-        test_volume().await;
 
         assert!(GetNexuses::default().request().await.unwrap().0.is_empty());
     }
@@ -212,8 +204,9 @@ mod tests {
             node: mayastor2.into(),
             uuid: "replica".into(),
             pool: "pooloop".into(),
-            size: 12582912, /* actual size will be a multiple of 4MB so just
-                             * create it like so */
+            /* actual size will be a multiple of 4MB so just
+             * create it like so */
+            size: 12582912,
             thin: true,
             share: Protocol::Nvmf,
         }
@@ -265,34 +258,5 @@ mod tests {
         .unwrap();
 
         assert!(GetNexuses::default().request().await.unwrap().0.is_empty());
-    }
-
-    async fn test_volume() {
-        let volume = CreateVolume {
-            uuid: "359b7e1a-b724-443b-98b4-e6d97fabbb40".into(),
-            size: 5242880,
-            nexuses: 1,
-            replicas: 2,
-            allowed_nodes: vec![],
-            preferred_nodes: vec![],
-            preferred_nexus_nodes: vec![],
-        };
-
-        let volume = volume.request().await.unwrap();
-        let volumes = GetVolumes::default().request().await.unwrap().0;
-        tracing::info!("Volumes: {:?}", volumes);
-
-        assert_eq!(Some(&volume), volumes.first());
-
-        DestroyVolume {
-            uuid: "359b7e1a-b724-443b-98b4-e6d97fabbb40".into(),
-        }
-        .request()
-        .await
-        .unwrap();
-
-        assert!(GetVolumes::default().request().await.unwrap().0.is_empty());
-        assert!(GetNexuses::default().request().await.unwrap().0.is_empty());
-        assert!(GetReplicas::default().request().await.unwrap().0.is_empty());
     }
 }

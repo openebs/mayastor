@@ -95,16 +95,6 @@ pub enum MessageIdVs {
     RemoveNexusChild,
     /// Add a child to a nexus
     AddNexusChild,
-    /// Get all volumes
-    GetVolumes,
-    /// Create Volume,
-    CreateVolume,
-    /// Delete Volume
-    DestroyVolume,
-    /// Add nexus to volume
-    AddVolumeNexus,
-    /// Remove nexus from volume
-    RemoveVolumeNexus,
     /// Generic JSON gRPC message
     JsonGrpc,
     /// Get block devices
@@ -902,93 +892,6 @@ pub struct AddNexusChild {
     pub auto_rebuild: bool,
 }
 bus_impl_message_all!(AddNexusChild, AddNexusChild, Child, Nexus);
-
-/// Volumes
-///
-/// Volume information
-#[derive(
-    Serialize, Deserialize, Default, Debug, Clone, Eq, PartialEq, Apiv2Schema,
-)]
-#[serde(rename_all = "camelCase")]
-pub struct Volume {
-    /// name of the volume
-    pub uuid: VolumeId,
-    /// size of the volume in bytes
-    pub size: u64,
-    /// current state of the volume
-    pub state: VolumeState,
-    /// array of children nexuses
-    pub children: Vec<Nexus>,
-}
-
-/// Volume State information
-/// Currently it's the same as the nexus
-pub type VolumeState = NexusState;
-
-/// Get volumes
-#[derive(Serialize, Deserialize, Default, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct GetVolumes {
-    /// filter volumes
-    pub filter: Filter,
-}
-bus_impl_vector_request!(Volumes, Volume);
-bus_impl_message_all!(GetVolumes, GetVolumes, Volumes, Volume);
-
-/// Create volume
-#[derive(Serialize, Deserialize, Default, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct CreateVolume {
-    /// uuid of the volume
-    pub uuid: VolumeId,
-    /// size of the volume in bytes
-    pub size: u64,
-    /// number of children nexuses (ANA)
-    pub nexuses: u64,
-    /// number of replicas per nexus
-    pub replicas: u64,
-    /// only these nodes can be used for the replicas
-    #[serde(default)]
-    pub allowed_nodes: Vec<NodeId>,
-    /// preferred nodes for the replicas
-    #[serde(default)]
-    pub preferred_nodes: Vec<NodeId>,
-    /// preferred nodes for the nexuses
-    #[serde(default)]
-    pub preferred_nexus_nodes: Vec<NodeId>,
-}
-bus_impl_message_all!(CreateVolume, CreateVolume, Volume, Volume);
-
-/// Delete volume
-#[derive(Serialize, Deserialize, Default, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct DestroyVolume {
-    /// uuid of the volume
-    pub uuid: VolumeId,
-}
-bus_impl_message_all!(DestroyVolume, DestroyVolume, (), Volume);
-
-/// Add ANA Nexus to volume
-#[derive(Serialize, Deserialize, Default, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct AddVolumeNexus {
-    /// uuid of the volume
-    pub uuid: VolumeId,
-    /// preferred node id for the nexus
-    pub preferred_node: Option<NodeId>,
-}
-bus_impl_message_all!(AddVolumeNexus, AddVolumeNexus, Nexus, Volume);
-
-/// Add ANA Nexus to volume
-#[derive(Serialize, Deserialize, Default, Debug, Clone)]
-#[serde(rename_all = "camelCase")]
-pub struct RemoveVolumeNexus {
-    /// uuid of the volume
-    pub uuid: VolumeId,
-    /// id of the node where the nexus lives
-    pub node: Option<NodeId>,
-}
-bus_impl_message_all!(RemoveVolumeNexus, RemoveVolumeNexus, (), Volume);
 
 /// Generic JSON gRPC request
 #[derive(Serialize, Deserialize, Default, Debug, Clone)]

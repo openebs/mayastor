@@ -227,40 +227,6 @@ async fn client_test(mayastor: &NodeId, test: &ComposeTest) {
         .unwrap();
     assert!(client.get_nexuses(Filter::None).await.unwrap().is_empty());
 
-    let volume = client
-        .create_volume(CreateVolume {
-            uuid: "058a95e5-cee6-4e81-b682-fe864ca99b9c".into(),
-            size: 12582912,
-            nexuses: 1,
-            replicas: 1,
-            allowed_nodes: vec![],
-            preferred_nodes: vec![],
-            preferred_nexus_nodes: vec![],
-        })
-        .await
-        .unwrap();
-
-    tracing::info!("Volume: {:#?}", volume);
-    assert_eq!(
-        Some(&volume),
-        client
-            .get_volumes(Filter::Volume(VolumeId::from(
-                "058a95e5-cee6-4e81-b682-fe864ca99b9c"
-            )))
-            .await
-            .unwrap()
-            .first()
-    );
-
-    client
-        .destroy_volume(DestroyVolume {
-            uuid: "058a95e5-cee6-4e81-b682-fe864ca99b9c".into(),
-        })
-        .await
-        .unwrap();
-
-    assert!(client.get_volumes(Filter::None).await.unwrap().is_empty());
-
     client
         .destroy_pool(DestroyPool {
             node: pool.node.clone(),
