@@ -93,7 +93,7 @@ func teardownMayastor() {
 		pvcsDeleted, pvcsFound = common.DeleteAllVolumeResources()
 	}
 
-	common.DeletePools()
+	common.DeleteAllPools()
 
 	logf.Log.Info("Cleanup done, Uninstalling mayastor")
 	// Deletes can stall indefinitely, try to mitigate this
