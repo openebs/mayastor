@@ -1106,13 +1106,13 @@ func DeleteAllPoolFinalizers() {
 		// This function may be called by AfterSuite by uninstall test so listing MSVs may fail correctly
 		logf.Log.Info("DeleteAllPoolFinalisers: list MSPs failed.", "Error", err)
 	}
-	if err == nil && pools != nil && len(pools.Items) != 0 {
+	if err == nil && pools != nil {
 		for _, pool := range pools.Items {
-			empty := make([]string, 0)
 			logf.Log.Info("DeleteAllPoolFinalizers", "pool", pool.GetName())
 			finalizers := pool.GetFinalizers()
 			if finalizers != nil {
 				logf.Log.Info("Removing all finalizers", "pool", pool.GetName(), "finalizer", finalizers)
+				empty := make([]string, 0)
 				pool.SetFinalizers(empty)
 				_, err = gTestEnv.DynamicClient.Resource(poolGVR).Namespace("mayastor").Update(context.TODO(), &pool, metav1.UpdateOptions{})
 				if err != nil {

@@ -34,11 +34,16 @@ func TestIOSoak(t *testing.T) {
 	RunSpecsWithDefaultAndCustomReporters(t, "IO soak test, NVMe-oF TCP and iSCSI", rep.GetReporters("io-soak"))
 }
 
-func runFio(podName string, duration int, tt int, ttb int, doneC chan<-string, errC chan<-error) {
+// see https://fio.readthedocs.io/en/latest/fio_doc.html#i-o-rate
+// podName - name of the fio pod
+// duration - time in seconds to run fio
+// thinktime -  usecs, stall the job for the specified period of time after an I/O has completed before issuing the next
+// thinktime_blocks - how many blocks to issue, before waiting thinktime usecs.
+func runFio(podName string, duration int, thinktime int, thinktime_blocks int, doneC chan<-string, errC chan<-error) {
 	logf.Log.Info("Running fio", "pod", podName, "duration", duration)
 	argRuntime := fmt.Sprintf("--runtime=%d", duration)
-	argThinkTime := fmt.Sprintf("--thinktime=%d", tt)
-	argThinkTimeBlocks := fmt.Sprintf("--thinktime_blocks=%d", ttb)
+	argThinkTime := fmt.Sprintf("--thinktime=%d", thinktime)
+	argThinkTimeBlocks := fmt.Sprintf("--thinktime_blocks=%d", thinktime_blocks)
 	cmd := exec.Command(
 		"kubectl",
 		"exec",
