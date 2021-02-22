@@ -1,8 +1,12 @@
-mayastorImagesTag: develop
+mayastorImagesTag: latest
 mayastorImagePullPolicy: Always
-mayastorCpuCount: "2"
+mayastorCpuCount: "1"
 mayastorHugePagesGiB: "1"
-mayastorImagesRepo: ""
+mayastorImagesRegistry: ""
 mayastorPools:
   - node: "NODE_NAME"
     device: "DEVICE"
+# This option is intended for development yamls and motivated by the problem of
+# moac that does not update status of msp resource in some cases. Feel free to
+# remove when no longer needed.
+moacDebug: false

@@ -52,7 +52,7 @@ spec:
             - "--namespace=$(MY_POD_NAMESPACE)"
             - "--port=4000"
             - "--message-bus=nats"
-            - "-v"
+            - "-vv"
           env:
             - name: CSI_ENDPOINT
               value: /var/lib/csi/sockets/pluginproxy/csi.sock

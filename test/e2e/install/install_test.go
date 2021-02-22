@@ -137,7 +137,7 @@ func getTemplateYamlDir() string {
 }
 
 func generateYamls(imageTag string, registryAddress string) {
-	bashcmd := fmt.Sprintf("../../../scripts/generate-deploy-yamls.sh -t ../../../test-yamls %s %s", imageTag, registryAddress)
+	bashcmd := fmt.Sprintf("../../../scripts/generate-deploy-yamls.sh -o ../../../test-yamls -t %s -r %s test", imageTag, registryAddress)
 	cmd := exec.Command("bash", "-c", bashcmd)
 	out, err := cmd.CombinedOutput()
 	Expect(err).ToNot(HaveOccurred(), "%s", out)
