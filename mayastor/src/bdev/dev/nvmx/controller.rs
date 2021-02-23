@@ -639,10 +639,8 @@ impl<'a> Drop for NvmeController<'a> {
         // controller).
         assert!(
             matches!(curr_state, New | Unconfigured),
-            format!(
-                "{} dropping active controller in {:?} state",
+           "{} dropping active controller in {:?} state",
                 self.name, curr_state
-            )
         );
 
         // Inner state might not be yes available.
