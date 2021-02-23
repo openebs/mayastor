@@ -166,10 +166,10 @@ impl BlockDevice for NvmeBlockDevice {
             | IoType::Reset
             | IoType::Flush
             | IoType::NvmeAdmin
-            | IoType::NvmeIO
+            | IoType::NvmeIo
             | IoType::Abort => true,
             IoType::Compare => self.ns.supports_compare(),
-            IoType::NvmeIOMD => self.ns.md_size() > 0,
+            IoType::NvmeIoMd => self.ns.md_size() > 0,
             IoType::Unmap => false,
             IoType::WriteZeros => false,
             IoType::CompareAndWrite => false,
