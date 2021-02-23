@@ -42,7 +42,6 @@ var testEnv *envtest.Environment
 /// or any node in the cluster if the master noe does not exist
 /// TODO Refine how we workout the address of the test-registry
 func getTestClusterDetails() (string, string, int, []string, error) {
-	var master = ""
 	var nme = 0
 	nodeList := coreV1.NodeList{}
 	if (k8sClient.List(context.TODO(), &nodeList, &client.ListOptions{}) != nil) {
@@ -54,9 +53,6 @@ func getTestClusterDetails() (string, string, int, []string, error) {
 			if k8Addr.Type == coreV1.NodeInternalIP {
 				nodeIPs[ix] = k8Addr.Address
 				for label, value := range k8node.Labels {
-					if label == "node-role.kubernetes.io/master" {
-						master = k8Addr.Address
-					}
 					if label == "openebs.io/engine" && value == "mayastor" {
 						nme++
 					}
@@ -96,16 +92,7 @@ func getTestClusterDetails() (string, string, int, []string, error) {
 		tag = "ci"
 	}
 	registry := os.Getenv("e2e_docker_registry")
-	if len(registry) == 0 {
-		// a registry was not specified
-		// If there is master node, use its IP address as the registry IP address
-		if len(master) != 0 {
-			registry = master + ":30291"
-		} else {
-			/// Otherwise choose the IP address of first node in the list  as the registry IP address
-			registry = nodeIPs[0] + ":30291"
-		}
-	}
+
 	return tag, registry, nme, mayastorNodes, nil
 }
 
@@ -137,7 +124,7 @@ func getTemplateYamlDir() string {
 }
 
 func generateYamls(imageTag string, registryAddress string) {
-	bashcmd := fmt.Sprintf("../../../scripts/generate-deploy-yamls.sh -o ../../../test-yamls -t %s -r %s test", imageTag, registryAddress)
+	bashcmd := fmt.Sprintf("../../../scripts/generate-deploy-yamls.sh -o ../../../test-yamls -t '%s' -r '%s' test", imageTag, registryAddress)
 	cmd := exec.Command("bash", "-c", bashcmd)
 	out, err := cmd.CombinedOutput()
 	Expect(err).ToNot(HaveOccurred(), "%s", out)
