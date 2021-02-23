@@ -29,10 +29,10 @@ let
   buildProps = rec {
     name = "control-plane";
     #cargoSha256 = "0000000000000000000000000000000000000000000000000000";
-    cargoSha256 = "1iqmrl8qm8nw1hg219kdyxd1zk9c58p1avymjis3snxnlagafx37";
+    cargoSha256 = "1r2g0ni8cxkphazbbkvzwdlcvkgk076llp18wqnkirj5d3xhbx4x";
     inherit version;
     src = whitelistSource ../../../. (pkgs.callPackage ../mayastor { }).src_list;
-    cargoBuildFlags = [ "-p mbus_api" "-p agents" "-p rest" "-p operators" ];
+    cargoBuildFlags = [ "-p mbus_api" "-p agents" "-p rest" ];
 
     LIBCLANG_PATH = "${llvmPackages.libclang}/lib";
     PROTOC = "${protobuf}/bin/protoc";

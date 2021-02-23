@@ -15,21 +15,12 @@ let
       cp $src/bin/${name} $out/bin/${name}-agent
     '';
   };
-  operator = { name, src }: stdenv.mkDerivation {
-    inherit src;
-    name = "${name}-${version}";
-    installPhase = ''
-      mkdir -p $out/bin
-      cp $src/bin/${name}-op $out/bin/${name}-operator
-    '';
-  };
   components = { src }: {
     kiiss = agent { inherit src; name = "kiiss"; };
     node = agent { inherit src; name = "node"; };
     pool = agent { inherit src; name = "pool"; };
     volume = agent { inherit src; name = "volume"; };
     rest = agent { inherit src; name = "rest"; };
-    node-op = operator { inherit src; name = "node"; };
   };
 in
 {

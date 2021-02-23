@@ -512,10 +512,41 @@ impl Builder {
         Ok(compose)
     }
 
+    fn override_flags(flag: &mut bool, flag_name: &str) {
+        let key = format!("COMPOSE_{}", flag_name.to_ascii_uppercase());
+        if let Some(val) = std::env::var_os(&key) {
+            let clean = match val.to_str().unwrap_or_default() {
+                "true" => true,
+                "false" => false,
+                _ => return,
+            };
+            if clean != *flag {
+                tracing::warn!(
+                    "env::{} => Overriding the {} flag to {}",
+                    key,
+                    flag_name,
+                    clean
+                );
+                *flag = clean;
+            }
+        }
+    }
+    /// override clean flags with environment variable
+    /// useful for testing without having to change the code
+    fn override_clean(&mut self) {
+        Self::override_flags(&mut self.clean, "clean");
+        Self::override_flags(
+            &mut self.allow_clean_on_panic,
+            "allow_clean_on_panic",
+        );
+        Self::override_flags(&mut self.logs_on_panic, "logs_on_panic");
+    }
+
     /// build the config but don't start the containers
     async fn build_only(
-        self,
+        mut self,
     ) -> Result<ComposeTest, Box<dyn std::error::Error>> {
+        self.override_clean();
         let net: Ipv4Network = self.network.parse()?;
 
         let path = std::path::PathBuf::from(std::env!("CARGO_MANIFEST_DIR"));

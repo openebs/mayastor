@@ -65,11 +65,6 @@ pub struct StartOptions {
     )]
     pub agents: Vec<ControlPlaneAgent>,
 
-    /// Use the following Control Plane Operators
-    /// Specify one operator at a time or as a list
-    #[structopt(short, long, value_delimiter = ",")]
-    pub operators: Option<Vec<ControlPlaneOperator>>,
-
     /// Kubernetes Config file if using operators
     /// [default: "~/.kube/config"]
     #[structopt(short, long)]
@@ -127,8 +122,8 @@ impl StartOptions {
         self.build = build;
         self
     }
-    pub fn with_mayastors(mut self, mayastors: i32) -> Self {
-        self.mayastors = mayastors as u32;
+    pub fn with_mayastors(mut self, mayastors: u32) -> Self {
+        self.mayastors = mayastors;
         self
     }
     pub fn with_show_info(mut self, show_info: bool) -> Self {
