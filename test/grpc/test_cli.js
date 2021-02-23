@@ -28,7 +28,7 @@ const CLIENT_CMD = path.join(
   'debug',
   'mayastor-client'
 );
-const EGRESS_CMD = CLIENT_CMD + ' -p ' + EGRESS_PORT;
+const EGRESS_CMD = CLIENT_CMD + ' --bind 127.0.0.1:' + EGRESS_PORT;
 
 let mayastorMockServer;
 
