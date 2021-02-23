@@ -18,7 +18,7 @@ you won't need to worry about cross compiler toolchains, and all builds are repr
 
 ## Prerequisites
 
-Mayastor **only** builds on modern Linuxes. We'd adore contributions to add support for 
+Mayastor **only** builds on modern Linuxes. We'd adore contributions to add support for
 Windows, FreeBSD, OpenWRT, or other server platforms.
 
 If you do not have Linux system:
@@ -28,7 +28,7 @@ If you do not have Linux system:
 * **Mac:** We recommend you use [Docker for Mac][docker-install]
   and follow the Docker process described. Please let us know if you find a way to
   run it!
-* **FreeBSD:** We *think* this might actually work, SPDK is compatible! But, we haven't 
+* **FreeBSD:** We *think* this might actually work, SPDK is compatible! But, we haven't
   tried it yet.
 * **Others:** This is kind of a "Do-it-yourself" situation. Sorry, we can't be more help!
 
@@ -43,7 +43,7 @@ curl -L https://nixos.org/nix/install | sh
 > **Can't install Nix?**
 >
 > That's totally fine. You can use [`docker`][docker-install] just fine for one-off or occasional PRs!
-> 
+>
 > This flow will get you a pre-fetched `nix` store:
 > ```bash
 > docker run --name mayastor-nix-prefetch -it -v $(pwd):/scratch:rw --privileged --workdir /scratch nixos/nix nix-shell --run "exit 0"
@@ -75,16 +75,16 @@ First, setting the following:
 Then, updating the channel:
 
 ```bash
-$ sudo nix-channel --list 
+$ sudo nix-channel --list
 nixos https://nixos.org/channels/nixos-20.09
 $ sudo nix-channel --remove nixos
 $ sudo nix-channel --add https://nixos.org/channels/nixos-unstable nixos
 $ sudo nixos-rebuild switch --update
 ```
 
-> If you don't want, you can drop into a 
+> If you don't want, you can drop into a
 `nixUnstable` supporting shell with:
-> 
+>
 > ```bash
 > nix-shell -I nixpkgs=channel:nixpkgs-unstable -p nixUnstable --command "nix --experimental-features 'nix-command flakes' develop -f . mayastor"
 > ```
@@ -96,7 +96,7 @@ $ sudo nixos-rebuild switch --update
 
 
 You can use a tool like [`direnv`][direnv] to automate `nix shell` entry.
-
+If you are unable to use the Nix provided Rust for some reason, there are `norust` and `nospdk` arguments to Nix shell. `nix-shell --arg norust true`
 ## Iterative Builds
 
 Contributors often build Mayastor repeatedly during the development process.
@@ -119,6 +119,8 @@ cargo build --release
 
 **Want to run or hack on Mayastor?** *You need more configuration!* See
 [running][doc-running], then [testing][doc-testing].
+
+To ensure you are aware of this, we greet you with a nice cow.
 
 ## Artifacts
 
