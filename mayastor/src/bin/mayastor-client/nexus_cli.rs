@@ -155,9 +155,8 @@ async fn nexus_create(
     let size = parse_size(matches.value_of("size").unwrap())
         .map_err(|s| Status::invalid_argument(format!("Bad size '{}'", s)))?;
     let children = matches
-        .value_of("children")
-        .unwrap()
-        .split_whitespace()
+        .values_of("children")
+        .unwrap() // It's required, it'll be here.
         .map(|c| c.to_string())
         .collect::<Vec<String>>();
 
