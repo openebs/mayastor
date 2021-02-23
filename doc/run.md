@@ -5,7 +5,7 @@
 Mayastor supports the following [Instruction Set Architectures (ISA)][isa]:
 
   + x86_64 (Nehalem or later)
-  + aarch64 support (**Early access on [`aarch64`][aarch64-branch] -- Use caution**)
+  + aarch64
 
 Your system will need several [control groups][control-groups] configured.
 
