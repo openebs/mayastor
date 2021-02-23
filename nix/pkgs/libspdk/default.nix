@@ -101,30 +101,17 @@ let
 
     configurePhase = ''
       patchShebangs ./. > /dev/null
+      ./configure ${builtins.concatStringsSep
+          " "
+          (builtins.filter
+              (opt: (builtins.match "--build=.*" opt) == null)
+              configureFlags)
+      }
     '';
 
     hardeningDisable = [ "all" ];
 
-    buildPhase = (if (targetPlatform.config == "x86_64-unknown-linux-gnu") then
-      ''
-        substituteInPlace dpdk/config/defconfig_x86_64-native-linux-gcc --replace native default
-        meson build dpdk
-      ''
-    else if (targetPlatform.config == "aarch64-unknown-linux-gnu") then
-      ''
-        substituteInPlace dpdk/config/defconfig_x86_64-native-linux-gcc --replace native default
-        substituteInPlace dpdk/config/arm/arm64_armv8_linux_gcc --replace aarch64-linux-gnu- aarch64-unknown-linux-gnu-
-        meson build dpdk --cross-file dpdk/config/arm/arm64_armv8_linux_gcc
-      ''
-    else
-      ""
-    ) + ''
-      ./configure ${builtins.concatStringsSep
-            " "
-            (builtins.filter
-                (opt: (builtins.match "--build=.*" opt) == null)
-                configureFlags)
-        }
+    buildPhase = ''
       make -j`nproc`
       find . -type f -name 'libspdk_event_nvmf.a' -delete
       find . -type f -name 'libspdk_sock_uring.a' -delete
