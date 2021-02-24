@@ -123,6 +123,11 @@ impl TryFrom<Bdev> for NvmfSubsystem {
     type Error = Error;
 
     fn try_from(bdev: Bdev) -> Result<Self, Self::Error> {
+        if bdev.is_claimed() {
+            return Err(Error::CreateTarget {
+                msg: "already shared".to_string(),
+            });
+        }
         let ss = NvmfSubsystem::new(bdev.name().as_str())?;
         ss.set_ana_reporting(true)?;
         ss.allow_any(true);

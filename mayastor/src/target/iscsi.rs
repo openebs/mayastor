@@ -60,7 +60,7 @@ pub enum Error {
     #[snafu(display("Failed to create default initiator group"))]
     CreateInitiatorGroup {},
     #[snafu(display("Failed to create iscsi target"))]
-    CreateTarget {},
+    CreateTarget { msg: String },
     #[snafu(display("Failed to destroy iscsi target"))]
     DestroyTarget { source: Errno },
 }
@@ -217,7 +217,9 @@ fn share_as_iscsi_target(
     };
     if tgt.is_null() {
         error!("Failed to create iscsi target {}", bdev.name());
-        Err(Error::CreateTarget {})
+        Err(Error::CreateTarget {
+            msg: "tgt pointer is None".to_string(),
+        })
     } else {
         let _ = unsafe {
             spdk_bdev_module_claim_bdev(
@@ -233,6 +235,11 @@ fn share_as_iscsi_target(
 /// Export given bdev over iscsi. That involves creating iscsi target and
 /// adding the bdev as LUN to it.
 pub fn share(bdev_name: &str, bdev: &Bdev, side: Side) -> Result<String> {
+    if bdev.is_claimed() {
+        return Err(Error::CreateTarget {
+            msg: "already shared".to_string(),
+        });
+    }
     let iqn = match side {
         Side::Nexus => share_as_iscsi_target(
             bdev_name,

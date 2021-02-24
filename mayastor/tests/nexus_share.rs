@@ -14,7 +14,7 @@ pub mod common;
 use common::MayastorTest;
 
 #[tokio::test]
-async fn nexus_test() {
+async fn nexus_share_test() {
     let args = MayastorCliArgs {
         reactor_mask: "0x3".into(),
         ..Default::default()
