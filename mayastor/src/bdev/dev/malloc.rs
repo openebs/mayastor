@@ -4,7 +4,7 @@
 //! heap. IOW, you must ensure you do not run out of huge pages while using
 //! this.
 use crate::{
-    bdev::util::uri,
+    bdev::{dev::reject_unknown_parameters, util::uri},
     nexus_uri::{
         NexusBdevError,
         {self},
@@ -103,6 +103,8 @@ impl TryFrom<&Url> for Malloc {
                 uri: uri.to_string(),
             },
         )?;
+
+        reject_unknown_parameters(uri, parameters)?;
 
         Ok(Self {
             name: uri.path()[1 ..].into(),

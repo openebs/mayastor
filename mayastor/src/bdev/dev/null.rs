@@ -2,7 +2,7 @@
 //! returns undefined data for reads. It's useful for benchmarking the I/O stack
 //! with minimal overhead and should *NEVER* be used with *real* data.
 use crate::{
-    bdev::util::uri,
+    bdev::{dev::reject_unknown_parameters, util::uri},
     nexus_uri::{
         NexusBdevError,
         {self},
@@ -101,6 +101,8 @@ impl TryFrom<&Url> for Null {
                 uri: uri.to_string(),
             },
         )?;
+
+        reject_unknown_parameters(uri, parameters)?;
 
         Ok(Self {
             name: uri.path()[1 ..].into(),

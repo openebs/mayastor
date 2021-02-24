@@ -8,7 +8,7 @@ use url::Url;
 use spdk_sys::{bdev_aio_delete, create_aio_bdev};
 
 use crate::{
-    bdev::{util::uri, CreateDestroy, GetName},
+    bdev::{dev::reject_unknown_parameters, util::uri, CreateDestroy, GetName},
     core::Bdev,
     ffihelper::{cb_arg, done_errno_cb, errno_result_from_i32, ErrnoResult},
     nexus_uri::{self, NexusBdevError},
@@ -55,9 +55,7 @@ impl TryFrom<&Url> for Aio {
             },
         )?;
 
-        if let Some(keys) = uri::keys(parameters) {
-            warn!("ignored parameters: {}", keys);
-        }
+        reject_unknown_parameters(url, parameters)?;
 
         Ok(Aio {
             name: url.path().into(),
