@@ -1,5 +1,5 @@
 //! Multipath NVMf tests
-//! Create the same nexus on both nodes with a replica on 1 node their child.
+//! Create the same nexus on both nodes with a replica on 1 node as their child.
 use mayastor::{
     bdev::{nexus_create, nexus_lookup},
     core::MayastorCliArgs,
@@ -10,7 +10,6 @@ use rpc::mayastor::{
     CreateReplicaRequest,
     PublishNexusRequest,
     ShareProtocolNexus,
-    ShareReplicaRequest,
 };
 use std::process::Command;
 
@@ -45,7 +44,7 @@ async fn nexus_multipath() {
         .await
         .unwrap();
 
-    // create replica, not shared
+    // create replica, shared over nvmf
     hdls[0]
         .mayastor
         .create_replica(CreateReplicaRequest {
@@ -53,7 +52,7 @@ async fn nexus_multipath() {
             pool: POOL_NAME.to_string(),
             size: 32 * 1024 * 1024,
             thin: false,
-            share: 0,
+            share: 1,
         })
         .await
         .unwrap();
@@ -65,16 +64,6 @@ async fn nexus_multipath() {
             uuid: UUID.to_string(),
             size: 32 * 1024 * 1024,
             children: [format!("loopback:///{}", UUID)].to_vec(),
-        })
-        .await
-        .unwrap();
-
-    // share replica
-    hdls[0]
-        .mayastor
-        .share_replica(ShareReplicaRequest {
-            uuid: UUID.to_string(),
-            share: 1,
         })
         .await
         .unwrap();
