@@ -6,7 +6,7 @@ maya_log(int level, const char *file, const int line, const char *func,
 {
     // There is a delicate balance here! This `buf` ideally should not be resized, since a realloc is expensive.
     char buf[4096] = {0};
-    unsigned int should_have_written = vsnprintf(buf, sizeof(buf), format, args);
+    int should_have_written = vsnprintf(buf, sizeof(buf), format, args);
 
     if (should_have_written > sizeof(buf)) {
         logfn(level, file, line, func, &buf[0], sizeof(buf));

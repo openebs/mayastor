@@ -41,7 +41,7 @@ fn build_wrapper() {
 fn main() {
     #![allow(unreachable_code)]
     #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
-    panic!("spdk-sys crate is only for x86_64 (Nehelam or later) and aarch64 ISAs.");
+    panic!("spdk-sys crate is only for x86_64 (Nehalem or later) and aarch64 (with crypto) ISAs.");
     #[cfg(not(target_os = "linux"))]
     panic!("spdk-sys crate works only on linux");
 
@@ -102,7 +102,12 @@ fn main() {
         .generate_inline_functions(true)
         .parse_callbacks(Box::new(MacroCallback {
             macros,
-        }))
+        }));
+
+    #[cfg(target_arch = "x86_64")]
+    let bindings = bindings.clang_arg("-march=nehalem");
+
+    let bindings = bindings
         .generate()
         .expect("Unable to generate bindings");
 
