@@ -51,6 +51,7 @@ spec:
             - "--csi-address=$(CSI_ENDPOINT)"
             - "--namespace=$(MY_POD_NAMESPACE)"
             - "--port=4000"
+            - "--watcher-idle-timeout=600000"
             - "--message-bus=nats"
             - "-vv"
           env:
