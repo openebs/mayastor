@@ -37,8 +37,11 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
     let share = SubCommand::with_name("share")
         .about("share the given bdev")
         .arg(Arg::with_name("name").required(true).index(1))
-        .arg(Arg::from_usage("<protocol> 'the protocol to used to share the given bdev'")
+        .arg(
+            Arg::with_name("protocol")
                 .short("p")
+                .help("the protocol to used to share the given bdev")
+                .required(false)
                 .possible_values(&["nvmf", "iscsi"])
                 .default_value("nvmf"),
         );
