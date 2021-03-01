@@ -3,7 +3,6 @@ package common
 // Utility functions for Persistent Volume Claims and Persistent Volumes
 import (
 	"context"
-	"fmt"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
@@ -92,12 +91,14 @@ func GetPvStatusPhase(volname string) (phase corev1.PersistentVolumePhase) {
 	return pv.Status.Phase
 }
 
+var blockVolumeMode = corev1.PersistentVolumeBlock
+
 // Create a PVC and verify that
 //	1. The PVC status transitions to bound,
 //	2. The associated PV is created and its status transitions bound
 //	3. The associated MV is created and has a State "healthy"
-func MkPVC(volName string, scName string) string {
-	fmt.Printf("creating %s, %s\n", volName, scName)
+func mkPVC(volName string, scName string, rawBlock bool) string {
+	logf.Log.Info("creating", "volume", volName, "storageClass", scName)
 	// PVC create options
 	createOpts := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
@@ -113,6 +114,10 @@ func MkPVC(volName string, scName string) string {
 				},
 			},
 		},
+	}
+
+	if rawBlock {
+		createOpts.Spec.VolumeMode = &blockVolumeMode
 	}
 
 	// Create the PVC.
@@ -169,12 +174,28 @@ func MkPVC(volName string, scName string) string {
 	return string(pvc.ObjectMeta.UID)
 }
 
+// Create a filesystem PVC and verify that
+//	1. The PVC status transitions to bound,
+//	2. The associated PV is created and its status transitions bound
+//	3. The associated MV is created and has a State "healthy"
+func MkPVC(volName string, scName string) string {
+	return mkPVC(volName, scName, false)
+}
+
+// Create a block device PVC and verify that
+//	1. The PVC status transitions to bound,
+//	2. The associated PV is created and its status transitions bound
+//	3. The associated MV is created and has a State "healthy"
+func MkRawBlockPVC(volName string, scName string) string {
+	return mkPVC(volName, scName, true)
+}
+
 // Delete the PVC and verify that
 //	1. The PVC is deleted
 //	2. The associated PV is deleted
 //  3. The associated MV is deleted
 func RmPVC(volName string, scName string) {
-	fmt.Printf("removing %s, %s\n", volName, scName)
+	logf.Log.Info("Removing volume", "volume", volName, "storageClass", scName)
 
 	PVCApi := gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims
 

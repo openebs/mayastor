@@ -5,17 +5,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os/exec"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-
 	. "github.com/onsi/gomega"
 	corev1 "k8s.io/api/core/v1"
+	"os/exec"
+	"sigs.k8s.io/controller-runtime/pkg/client"
 )
 
 type NodeLocation struct {
 	NodeName     string
 	IPAddress    string
 	MayastorNode bool
+	MasterNode   bool
 }
 
 // returns vector of populated NodeLocation structs
@@ -30,9 +30,13 @@ func GetNodeLocs() ([]NodeLocation, error) {
 		addrstr := ""
 		namestr := ""
 		mayastorNode := false
+		masterNode := false
 		for label, value := range k8snode.Labels {
 			if label == "openebs.io/engine" && value == "mayastor" {
 				mayastorNode = true
+			}
+			if label == "node-role.kubernetes.io/master" {
+				masterNode = true
 			}
 		}
 		for _, addr := range k8snode.Status.Addresses {
@@ -44,7 +48,12 @@ func GetNodeLocs() ([]NodeLocation, error) {
 			}
 		}
 		if namestr != "" && addrstr != "" {
-			NodeLocs = append(NodeLocs, NodeLocation{NodeName: namestr, IPAddress: addrstr, MayastorNode: mayastorNode})
+			NodeLocs = append(NodeLocs, NodeLocation{
+				NodeName:     namestr,
+				IPAddress:    addrstr,
+				MayastorNode: mayastorNode,
+				MasterNode:   masterNode,
+			})
 		} else {
 			return nil, errors.New("node lacks expected fields")
 		}

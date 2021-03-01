@@ -104,7 +104,8 @@ func (env *DisconnectEnv) PodLossTest() {
 	logf.Log.Info("waiting for pod removal to affect the nexus", "timeout", disconnectionTimeoutSecs)
 	Eventually(func() string {
 		logf.Log.Info("running fio against the volume")
-		common.RunFio(env.fioPodName, 5)
+		_, err := common.RunFio(env.fioPodName, 5, common.FioFsFilename)
+		Expect(err).ToNot(HaveOccurred())
 		return common.GetMsvState(env.uuid)
 	},
 		disconnectionTimeoutSecs, // timeout
@@ -114,7 +115,8 @@ func (env *DisconnectEnv) PodLossTest() {
 	logf.Log.Info("volume condition", "state", common.GetMsvState(env.uuid))
 
 	logf.Log.Info("running fio against the degraded volume")
-	common.RunFio(env.fioPodName, 20)
+	_, err := common.RunFio(env.fioPodName, 20, common.FioFsFilename)
+	Expect(err).ToNot(HaveOccurred())
 
 	logf.Log.Info("enabling mayastor pod", "node", env.replicaToRemove)
 	env.UnsuppressMayastorPod()
@@ -122,7 +124,8 @@ func (env *DisconnectEnv) PodLossTest() {
 	logf.Log.Info("waiting for the volume to be repaired", "timeout", repairTimeoutSecs)
 	Eventually(func() string {
 		logf.Log.Info("running fio while volume is being repaired")
-		common.RunFio(env.fioPodName, 5)
+		_, err := common.RunFio(env.fioPodName, 5, common.FioFsFilename)
+		Expect(err).ToNot(HaveOccurred())
 		return common.GetMsvState(env.uuid)
 	},
 		repairTimeoutSecs, // timeout
@@ -132,7 +135,8 @@ func (env *DisconnectEnv) PodLossTest() {
 	logf.Log.Info("volume condition", "state", common.GetMsvState(env.uuid))
 
 	logf.Log.Info("running fio against the repaired volume")
-	common.RunFio(env.fioPodName, 20)
+	_, err = common.RunFio(env.fioPodName, 20, common.FioFsFilename)
+	Expect(err).ToNot(HaveOccurred())
 }
 
 // Common steps required when setting up the test.

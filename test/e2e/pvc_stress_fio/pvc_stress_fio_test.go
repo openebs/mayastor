@@ -49,7 +49,7 @@ var volNames []volSc
 //	2. The associated PV is deleted
 //  3. The associated MV is deleted
 func testPVC(volName string, scName string, runFio bool) {
-	fmt.Printf("volume: %s, storageClass:%s, run FIO:%v\n", volName, scName, runFio)
+	logf.Log.Info("testPVC", "volume", volName, "storageClass", scName, "run FIO", runFio)
 	// PVC create options
 	createOpts := &coreV1.PersistentVolumeClaim{
 		ObjectMeta: metaV1.ObjectMeta{
@@ -148,7 +148,8 @@ func testPVC(volName string, scName string, runFio bool) {
 		).Should(Equal(true))
 
 		// Run the fio test
-		Cmn.RunFio(fioPodName, 5)
+		_, err = Cmn.RunFio(fioPodName, 5, Cmn.FioFsFilename)
+		Expect(err).ToNot(HaveOccurred())
 
 		// Delete the fio pod
 		err = Cmn.DeletePod(fioPodName)
