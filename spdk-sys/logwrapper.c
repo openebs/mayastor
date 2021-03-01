@@ -1,14 +1,16 @@
 #include "logwrapper.h"
+#include <stdio.h>
+#include <stdlib.h>
 
 void
 maya_log(int level, const char *file, const int line, const char *func,
     const char *format, va_list args)
 {
-    // There is a delicate balance here! This `buf` ideally should not be resized, since a realloc is expensive.
+    // There is a delicate balance here! This `buf` ideally should not be resized, since a heap alloc is expensive.
     char buf[4096] = {0};
     int should_have_written = vsnprintf(buf, sizeof(buf), format, args);
 
-    if (should_have_written > sizeof(buf)) {
+    if (should_have_written > (int) sizeof(buf)) {
         logfn(level, file, line, func, &buf[0], sizeof(buf));
     } else {
         // If `should_have_written` is bigger than `buf`, then the message is too long.
