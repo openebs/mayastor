@@ -14,8 +14,10 @@ REPORTSDIR=$(realpath "$SCRIPTDIR/..")
 #   2. replicas_pod_remove SHOULD be the last test before uninstall
 #       this is a disruptive test.
 #TESTS="install basic_volume_io csi replica rebuild node_disconnect/replica_pod_remove uninstall"
-TESTS="install basic_volume_io csi resource_check uninstall"
-EXTENDED_TESTS=""
+ALL_TESTS="install basic_volume_io csi resource_check replica rebuild uninstall"
+ONDEMAND_TESTS="install basic_volume_io csi resource_check uninstall"
+EXTENDED_TESTS="install basic_volume_io csi resource_check uninstall"
+CONTINUOUS_TESTS="install basic_volume_io csi resource_check replica rebuild uninstall"
 
 # Global state variables
 #  test configuration state variables
@@ -24,7 +26,8 @@ registry=
 tag="ci"
 #  script state variables
 tests=""
-run_extended_tests=
+custom_tests=""
+profile="default"
 on_fail="stop"
 uninstall_cleanup="n"
 generate_logs=0
@@ -41,7 +44,8 @@ Options:
   --tests <list of tests>   Lists of tests to run, delimited by spaces (default: "$tests")
         Note: the last 2 tests should be (if they are to be run)
              node_disconnect/replica_pod_remove uninstall
-  --extended                Run long running tests also.
+  --profile <continuous|extended|ondemand>
+                            Run the tests corresponding to the profile (default: run all tests)
   --reportsdir <path>       Path to use for junit xml test reports (default: repo root)
   --logs                    Generate logs and cluster state dump at the end of successful test run,
                             prior to uninstall.
@@ -72,7 +76,7 @@ while [ "$#" -gt 0 ]; do
       ;;
     -T|--tests)
       shift
-      tests="$1"
+      custom_tests="$1"
       ;;
     -R|--reportsdir)
       shift
@@ -92,8 +96,9 @@ while [ "$#" -gt 0 ]; do
           logsdir="$PWD/$logsdir"
       fi
       ;;
-    -e|--extended)
-      run_extended_tests=1
+    --profile)
+      shift
+      profile="$1"
       ;;
     --onfail)
         shift
@@ -142,12 +147,37 @@ fi
 
 export e2e_docker_registry="$registry" # can be empty string
 
-if [ -z "$tests" ]; then
-  tests="$TESTS"
-  if [ -n "$run_extended_tests" ]; then
-    tests="$tests $EXTENDED_TESTS"
+if [ -n "$custom_tests" ]; then
+  if [ "$profile" != "default" ]; then
+    echo "cannot specify --profile with --tests"
+    help
+    exit 1
   fi
+  profile="custom"
 fi
+
+case "$profile" in
+  continuous)
+    tests="$CONTINUOUS_TESTS"
+    ;;
+  extended)
+    tests="$EXTENDED_TESTS"
+    ;;
+  ondemand)
+    tests="$ONDEMAND_TESTS"
+    ;;
+  custom)
+    tests="$custom_tests"
+    ;;
+  default)
+    tests="$ALL_TESTS"
+    ;;
+  *)
+    echo "Unknown profile: $profile"
+    help
+    exit 1
+    ;;
+esac
 
 export e2e_reports_dir="$REPORTSDIR"
 if [ ! -d "$e2e_reports_dir" ] ; then
@@ -197,7 +227,7 @@ echo "    e2e_reports_dir=$e2e_reports_dir"
 echo "    e2e_uninstall_cleanup=$e2e_uninstall_cleanup"
 echo ""
 echo "Script control settings:"
-echo "    run_extended_tests=$run_extended_tests"
+echo "    profile=$profile"
 echo "    on_fail=$on_fail"
 echo "    uninstall_cleanup=$uninstall_cleanup"
 echo "    generate_logs=$generate_logs"

@@ -85,8 +85,6 @@ if (currentBuild.getBuildCauses('jenkins.branch.BranchIndexingCause') &&
 
 // Only schedule regular builds on develop branch, so we don't need to guard against it
 String cron_schedule = BRANCH_NAME == "develop" ? "0 2 * * *" : ""
-// Some long e2e tests are not suitable to be run for each PR
-boolean run_extended_e2e_tests = (env.BRANCH_NAME != 'staging' && env.BRANCH_NAME != 'trying') ? true : false
 
 // Determine which stages to run
 if (params.e2e_continuous == true) {
@@ -95,7 +93,7 @@ if (params.e2e_continuous == true) {
   grpc_test = false
   moac_test = false
   e2e_test = true
-  e2e_test_set = 'install basic_volume_io csi resource_check uninstall'
+  e2e_test_profile = "continuous"
   // use images from dockerhub tagged with e2e_continuous_image_tag instead of building from current source
   e2e_build_images = false
   // do not push images even when running on master/develop/release branches
@@ -106,7 +104,8 @@ if (params.e2e_continuous == true) {
   grpc_test = true
   moac_test = true
   e2e_test = true
-  e2e_test_set = ''
+  // Some long e2e tests are not suitable to be run for each PR
+  e2e_test_profile = (env.BRANCH_NAME != 'staging' && env.BRANCH_NAME != 'trying') ? "extended" : "ondemand"
   e2e_build_images = true
   do_not_push_images = false
 }
@@ -291,17 +290,11 @@ pipeline {
                   } else {
                     tag = e2e_continuous_image_tag
                   }
-                  def cmd = "./scripts/e2e-test.sh --device /dev/sdb --tag \"${tag}\" --logs --logsdir \"./logs/mayastor\" "
+                  def cmd = "./scripts/e2e-test.sh --device /dev/sdb --tag \"${tag}\" --logs --logsdir \"./logs/mayastor\" --profile \"${e2e_test_profile}\" "
 
                   // building images also means using the CI registry
                   if (e2e_build_images == true) {
                     cmd = cmd + " --registry \"" + env.REGISTRY + "\""
-                  }
-                  if (run_extended_e2e_tests) {
-                    cmd = cmd + " --extended"
-                  }
-                  if (e2e_test_set != '') {
-                      cmd = cmd + " --tests \"" + e2e_test_set + "\""
                   }
                   sh "nix-shell --run '${cmd}'"
                 }
@@ -445,25 +438,27 @@ pipeline {
           // If no tests were run then we should neither be updating commit
           // status in github nor send any slack messages
           if (currentBuild.result != null) {
-            step([
-              $class: 'GitHubCommitStatusSetter',
-              errorHandlers: [[$class: "ChangingBuildStatusErrorHandler", result: "UNSTABLE"]],
-              contextSource: [
-                $class: 'ManuallyEnteredCommitContextSource',
-                context: 'continuous-integration/jenkins/branch'
-              ],
-              statusResultSource: [
-                $class: 'ConditionalStatusResultSource',
-                results: [
-                  [$class: 'AnyBuildResult', message: 'Pipeline result', state: currentBuild.getResult()]
+            // Do not update the commit status for continuous tests
+            if (params.e2e_continuous == false) {
+              step([
+                $class: 'GitHubCommitStatusSetter',
+                errorHandlers: [[$class: "ChangingBuildStatusErrorHandler", result: "UNSTABLE"]],
+                contextSource: [
+                  $class: 'ManuallyEnteredCommitContextSource',
+                  context: 'continuous-integration/jenkins/branch'
+                ],
+                statusResultSource: [
+                  $class: 'ConditionalStatusResultSource',
+                  results: [
+                    [$class: 'AnyBuildResult', message: 'Pipeline result', state: currentBuild.getResult()]
+                  ]
                 ]
-              ]
-            ])
-            if (env.BRANCH_NAME == 'develop') {
-              notifySlackUponStateChange(currentBuild)
-            }
-            if (params.e2e_continuous == true) {
-               notifySlackUponE2EFailure(currentBuild)
+              ])
+              if (env.BRANCH_NAME == 'develop') {
+                notifySlackUponStateChange(currentBuild)
+              }
+            } else {
+              notifySlackUponE2EFailure(currentBuild)
             }
           }
         }
