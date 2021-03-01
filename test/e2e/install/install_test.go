@@ -284,6 +284,8 @@ var _ = BeforeSuite(func(done Done) {
 
 	k8sManager, err = ctrl.NewManager(cfg, ctrl.Options{
 		Scheme: scheme.Scheme,
+		// We do not consume prometheus metrics.
+		MetricsBindAddress: "0",
 	})
 	Expect(err).ToNot(HaveOccurred())
 
