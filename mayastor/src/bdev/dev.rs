@@ -20,7 +20,7 @@
 //!     bdev::Uri::parse(&uri)?.create().await?;
 //! ```
 
-use std::convert::TryFrom;
+use std::{collections::HashMap, convert::TryFrom};
 
 use snafu::ResultExt;
 use url::Url;
@@ -74,5 +74,27 @@ impl Uri {
                 scheme: scheme.to_string(),
             }),
         }
+    }
+}
+
+fn reject_unknown_parameters(
+    url: &Url,
+    parameters: HashMap<String, String>,
+) -> Result<(), NexusBdevError> {
+    if !parameters.is_empty() {
+        let invalid_parameters = parameters
+            .iter()
+            .map(|(k, v)| format!("{}={}", k, v))
+            .collect::<Vec<_>>()
+            .join(", ");
+        Err(NexusBdevError::UriInvalid {
+            uri: url.to_string(),
+            message: format!(
+                "unrecognized parameters: {}.",
+                invalid_parameters
+            ),
+        })
+    } else {
+        Ok(())
     }
 }

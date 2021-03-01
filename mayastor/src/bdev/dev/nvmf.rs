@@ -21,7 +21,7 @@ use spdk_sys::{
 };
 
 use crate::{
-    bdev::{util::uri, CreateDestroy, GetName},
+    bdev::{dev::reject_unknown_parameters, util::uri, CreateDestroy, GetName},
     core::Bdev,
     ffihelper::{cb_arg, errno_result_from_i32, ErrnoResult},
     nexus_uri::{self, NexusBdevError},
@@ -108,9 +108,7 @@ impl TryFrom<&Url> for Nvmf {
             },
         )?;
 
-        if let Some(keys) = uri::keys(parameters) {
-            warn!("ignored parameters: {}", keys);
-        }
+        reject_unknown_parameters(url, parameters)?;
 
         Ok(Nvmf {
             name: url[url::Position::BeforeHost .. url::Position::AfterPath]
