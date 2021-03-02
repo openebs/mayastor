@@ -28,15 +28,17 @@ var _ = Describe("Mayastor replica pod removal test", func() {
 	AfterEach(func() {
 		logf.Log.Info("AfterEach")
 		env.Teardown() // removes fio pod and volume
-		common.RmStorageClass(gStorageClass)
+		err := common.RmStorageClass(gStorageClass)
+		Expect(err).ToNot(HaveOccurred())
 
 		// Check resource leakage.
-		err := common.AfterEachCheck()
+		err = common.AfterEachCheck()
 		Expect(err).ToNot(HaveOccurred())
 	})
 
 	It("should verify nvmf nexus behaviour when a mayastor pod is removed", func() {
-		common.MkStorageClass(gStorageClass, 2, "nvmf", "io.openebs.csi-mayastor")
+		err := common.MkStorageClass(gStorageClass, 2, "nvmf", "io.openebs.csi-mayastor")
+		Expect(err).ToNot(HaveOccurred())
 		env = disconnect_lib.Setup("loss-test-pvc-nvmf", gStorageClass, "fio-pod-remove-test")
 		env.PodLossTest()
 	})

@@ -49,15 +49,14 @@ func deleteNamespace() {
 
 // Teardown mayastor on the cluster under test.
 // We deliberately call out to kubectl, rather than constructing the client-go
-// objects, so that we can verfiy the local deploy yamls are correct.
+// objects, so that we can verify the local deploy yaml files are correct.
 func teardownMayastor() {
-	var podsDeleted bool
-	var pvcsDeleted bool
-	var podCount int
-	var pvcsFound bool
+	var cleaned bool
 
 	logf.Log.Info("Settings:", "cleanup", cleanup)
-	if !cleanup {
+	if cleanup {
+		cleaned = common.CleanUp()
+	} else {
 		found, err := common.CheckForTestPods()
 		if err != nil {
 			logf.Log.Error(err, "Failed to checking for test pods.")
@@ -83,17 +82,9 @@ func teardownMayastor() {
 		}
 		Expect(found).To(BeFalse())
 
-	} else {
-		// The correct sequence for a reusable  cluster is
-		// Delete all pods in the default namespace
-		// Delete all pvcs
-		// Delete all mayastor pools
-		// Then uninstall mayastor
-		podsDeleted, podCount = common.DeleteAllPods()
-		pvcsDeleted, pvcsFound = common.DeleteAllVolumeResources()
+		poolsDeleted := common.DeleteAllPools()
+		Expect(poolsDeleted).To(BeTrue())
 	}
-
-	common.DeleteAllPools()
 
 	logf.Log.Info("Cleanup done, Uninstalling mayastor")
 	// Deletes can stall indefinitely, try to mitigate this
@@ -132,15 +123,13 @@ func teardownMayastor() {
 
 	if cleanup {
 		// Attempt to forcefully delete mayastor pods
-		forceDeleted := common.ForceDeleteMayastorPods()
-		deleteNamespace()
-		// delete the namespace prior to possibly failing the uninstall
-		// to yield a reusable cluster on fail.
-		Expect(podsDeleted).To(BeTrue())
+		_, podCount, err := common.ForceDeleteMayastorPods()
+		Expect(cleaned).To(BeTrue())
 		Expect(podCount).To(BeZero())
-		Expect(pvcsFound).To(BeFalse())
-		Expect(pvcsDeleted).To(BeTrue())
-		Expect(forceDeleted).To(BeFalse())
+		Expect(err).ToNot(HaveOccurred())
+		// Only delete the namespace if there are no pending resources
+		// other wise this hangs.
+		deleteNamespace()
 	} else {
 		Expect(common.MayastorUndeletedPodCount()).To(Equal(0))
 		// More verbose here as deleting the namespace is often where this

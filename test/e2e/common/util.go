@@ -3,7 +3,6 @@ package common
 import (
 	"context"
 	"errors"
-	"fmt"
 	"os/exec"
 	"regexp"
 	"strconv"
@@ -21,6 +20,8 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+const NSMayastor = "mayastor"
+
 func ApplyDeployYaml(filename string) {
 	cmd := exec.Command("kubectl", "apply", "-f", filename)
 	cmd.Dir = ""
@@ -36,7 +37,7 @@ func DeleteDeployYaml(filename string) {
 }
 
 // create a storage class
-func MkStorageClass(scName string, scReplicas int, protocol string, provisioner string) {
+func MkStorageClass(scName string, scReplicas int, protocol string, provisioner string) error {
 	createOpts := &storagev1.StorageClass{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      scName,
@@ -50,14 +51,14 @@ func MkStorageClass(scName string, scReplicas int, protocol string, provisioner 
 
 	ScApi := gTestEnv.KubeInt.StorageV1().StorageClasses
 	_, createErr := ScApi().Create(context.TODO(), createOpts, metav1.CreateOptions{})
-	Expect(createErr).To(BeNil())
+	return createErr
 }
 
 // remove a storage class
-func RmStorageClass(scName string) {
+func RmStorageClass(scName string) error {
 	ScApi := gTestEnv.KubeInt.StorageV1().StorageClasses
 	deleteErr := ScApi().Delete(context.TODO(), scName, metav1.DeleteOptions{})
-	Expect(deleteErr).To(BeNil())
+	return deleteErr
 }
 
 // Add a node selector to the given pod definition
@@ -77,7 +78,7 @@ func ApplyNodeSelectorToDeployment(deploymentName string, namespace string, labe
 		deployment.Spec.Template.Spec.NodeSelector = make(map[string]string)
 	}
 	deployment.Spec.Template.Spec.NodeSelector[label] = value
-	_, err = depApi("mayastor").Update(context.TODO(), deployment, metav1.UpdateOptions{})
+	_, err = depApi(NSMayastor).Update(context.TODO(), deployment, metav1.UpdateOptions{})
 	Expect(err).ToNot(HaveOccurred())
 }
 
@@ -88,7 +89,7 @@ func RemoveAllNodeSelectorsFromDeployment(deploymentName string, namespace strin
 	Expect(err).ToNot(HaveOccurred())
 	if deployment.Spec.Template.Spec.NodeSelector != nil {
 		deployment.Spec.Template.Spec.NodeSelector = nil
-		_, err = depApi("mayastor").Update(context.TODO(), deployment, metav1.UpdateOptions{})
+		_, err = depApi(NSMayastor).Update(context.TODO(), deployment, metav1.UpdateOptions{})
 	}
 	Expect(err).ToNot(HaveOccurred())
 }
@@ -104,11 +105,11 @@ func SetDeploymentReplication(deploymentName string, namespace string, replicas 
 		deployment, err := depAPI(namespace).Get(context.TODO(), deploymentName, metav1.GetOptions{})
 		Expect(err).ToNot(HaveOccurred())
 		deployment.Spec.Replicas = replicas
-		deployment, err = depAPI("mayastor").Update(context.TODO(), deployment, metav1.UpdateOptions{})
+		deployment, err = depAPI(NSMayastor).Update(context.TODO(), deployment, metav1.UpdateOptions{})
 		if err == nil {
 			break
 		}
-		fmt.Printf("Re-trying update attempt due to error: %v\n", err)
+		logf.Log.Info("Re-trying update attempt due to error", "error", err)
 		time.Sleep(1 * time.Second)
 	}
 	Expect(err).ToNot(HaveOccurred())
@@ -204,7 +205,10 @@ func PodPresentOnNode(podNameRegexp string, namespace string, nodeName string) b
 
 func AfterSuiteCleanup() {
 	logf.Log.Info("AfterSuiteCleanup")
-	_, _ = DeleteAllVolumeResources()
+	// Place holder function,
+	// to facilitate post-mortem analysis do nothing
+	// however we may choose to cleanup based on
+	// test configuration.
 }
 
 // Check that no PVs, PVCs and MSVs are still extant.
@@ -233,7 +237,7 @@ func AfterEachCheck() error {
 		Version:  "v1alpha1",
 		Resource: "mayastorvolumes",
 	}
-	msvs, _ := gTestEnv.DynamicClient.Resource(msvGVR).Namespace("mayastor").List(context.TODO(), metav1.ListOptions{})
+	msvs, _ := gTestEnv.DynamicClient.Resource(msvGVR).Namespace(NSMayastor).List(context.TODO(), metav1.ListOptions{})
 	if len(msvs.Items) != 0 {
 		errorMsg += " found leftover MayastorVolumes"
 		logf.Log.Info("AfterEachCheck: found leftover MayastorVolumes, test fails.")

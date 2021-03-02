@@ -51,7 +51,9 @@ func basicVolumeIOTest(scName string) {
 	).Should(Equal(true))
 
 	// Run the fio test
-	common.RunFio(fioPodName, 20)
+	_, err = common.RunFio(fioPodName, 20, common.FioFsFilename)
+	Expect(err).ToNot(HaveOccurred())
+
 	podNames = podNames[:len(podNames)-1]
 
 	// Delete the fio pod
