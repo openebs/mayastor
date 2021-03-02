@@ -1,10 +1,15 @@
+use crate::{
+    context::{Context, OutputFormat},
+    parse_size,
+    Error,
+    GrpcStatus,
+};
+use ::rpc::mayastor as rpc;
 use byte_unit::Byte;
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
+use colored_json::ToColoredJson;
+use snafu::ResultExt;
 use tonic::{Code, Status};
-
-use ::rpc::mayastor as rpc;
-
-use crate::{context::Context, parse_size};
 
 pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
     let create = SubCommand::with_name("create")
@@ -82,7 +87,7 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
 pub async fn handler(
     ctx: Context,
     matches: &ArgMatches<'_>,
-) -> Result<(), Status> {
+) -> crate::Result<()> {
     match matches.subcommand() {
         ("create", Some(args)) => replica_create(ctx, &args).await,
         ("destroy", Some(args)) => replica_destroy(ctx, &args).await,
@@ -91,6 +96,7 @@ pub async fn handler(
         ("stats", Some(args)) => replica_stat(ctx, &args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {} does not exist", cmd)))
+                .context(GrpcStatus)
         }
     }
 }
@@ -98,76 +104,142 @@ pub async fn handler(
 async fn replica_create(
     mut ctx: Context,
     matches: &ArgMatches<'_>,
-) -> Result<(), Status> {
-    let pool = matches.value_of("pool").unwrap().to_owned();
-    let uuid = matches.value_of("uuid").unwrap().to_owned();
-    let size = parse_size(matches.value_of("size").unwrap())
-        .map_err(|s| Status::invalid_argument(format!("Bad size '{}'", s)))?;
+) -> crate::Result<()> {
+    let pool = matches
+        .value_of("pool")
+        .ok_or_else(|| Error::MissingValue {
+            field: "pool".to_string(),
+        })?
+        .to_owned();
+    let uuid = matches
+        .value_of("uuid")
+        .ok_or_else(|| Error::MissingValue {
+            field: "uuid".to_string(),
+        })?
+        .to_owned();
+    let size = parse_size(matches.value_of("size").ok_or_else(|| {
+        Error::MissingValue {
+            field: "size".to_string(),
+        }
+    })?)
+    .map_err(|s| Status::invalid_argument(format!("Bad size '{}'", s)))
+    .context(GrpcStatus)?;
     let thin = matches.is_present("thin");
-    let share = parse_replica_protocol(matches.value_of("protocol"))?;
+    let share = parse_replica_protocol(matches.value_of("protocol"))
+        .context(GrpcStatus)?;
 
-    ctx.v2(&format!("Creating replica {} on pool {}", uuid, pool));
     let rq = rpc::CreateReplicaRequest {
-        uuid,
+        uuid: uuid.clone(),
         pool,
         thin,
         share,
         size: size.get_bytes() as u64,
     };
-    let resp = ctx.client.create_replica(rq).await?;
-    ctx.v1(&format!("Created {}", resp.get_ref().uri));
+    let response = ctx.client.create_replica(rq).await.context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            println!("{}", &response.get_ref().uri);
+        }
+    };
+
     Ok(())
 }
 
 async fn replica_destroy(
     mut ctx: Context,
     matches: &ArgMatches<'_>,
-) -> Result<(), Status> {
-    let uuid = matches.value_of("uuid").unwrap().to_owned();
+) -> crate::Result<()> {
+    let uuid = matches
+        .value_of("uuid")
+        .ok_or_else(|| Error::MissingValue {
+            field: "uuid".to_string(),
+        })?
+        .to_owned();
 
-    ctx.v2(&format!("Destroying replica {}", uuid));
-    ctx.client
+    let response = ctx
+        .client
         .destroy_replica(rpc::DestroyReplicaRequest {
-            uuid,
+            uuid: uuid.clone(),
         })
-        .await?;
+        .await
+        .context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            println!("{}", &uuid);
+        }
+    };
+
     Ok(())
 }
 
 async fn replica_list(
     mut ctx: Context,
     _matches: &ArgMatches<'_>,
-) -> Result<(), Status> {
-    ctx.v2("Requesting a list of replicas");
+) -> crate::Result<()> {
+    let response = ctx
+        .client
+        .list_replicas(rpc::Null {})
+        .await
+        .context(GrpcStatus)?;
 
-    let resp = ctx.client.list_replicas(rpc::Null {}).await?;
-    let replicas = &resp.get_ref().replicas;
-    if replicas.is_empty() {
-        ctx.v1("No replicas found");
-        return Ok(());
-    }
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            let replicas = &response.get_ref().replicas;
+            if replicas.is_empty() {
+                ctx.v1("No replicas found");
+                return Ok(());
+            }
 
-    ctx.v2("Found following replicas:");
-
-    let table = replicas
-        .iter()
-        .map(|r| {
-            let proto = replica_protocol_to_str(r.share);
-            let size = ctx.units(Byte::from_bytes(r.size.into()));
-            vec![
-                r.pool.clone(),
-                r.uuid.clone(),
-                r.thin.to_string(),
-                proto.to_string(),
-                size,
-                r.uri.clone(),
-            ]
-        })
-        .collect();
-    ctx.print_list(
-        vec!["POOL", "NAME", ">THIN", ">SHARE", ">SIZE", "URI"],
-        table,
-    );
+            let table = replicas
+                .iter()
+                .map(|r| {
+                    let proto = replica_protocol_to_str(r.share);
+                    let size = ctx.units(Byte::from_bytes(r.size.into()));
+                    vec![
+                        r.pool.clone(),
+                        r.uuid.clone(),
+                        r.thin.to_string(),
+                        proto.to_string(),
+                        size,
+                        r.uri.clone(),
+                    ]
+                })
+                .collect();
+            ctx.print_list(
+                vec!["POOL", "NAME", ">THIN", ">SHARE", ">SIZE", "URI"],
+                table,
+            );
+        }
+    };
 
     Ok(())
 }
@@ -175,54 +247,89 @@ async fn replica_list(
 async fn replica_share(
     mut ctx: Context,
     matches: &ArgMatches<'_>,
-) -> Result<(), Status> {
+) -> crate::Result<()> {
     let uuid = matches.value_of("uuid").unwrap().to_owned();
-    let share = parse_replica_protocol(matches.value_of("protocol"))?;
+    let share = parse_replica_protocol(matches.value_of("protocol"))
+        .context(GrpcStatus)?;
 
-    ctx.v2(&format!("Sharing replica {} on {}", uuid, share));
-
-    let resp = ctx
+    let response = ctx
         .client
         .share_replica(rpc::ShareReplicaRequest {
-            uuid,
+            uuid: uuid.clone(),
             share,
         })
-        .await?;
-    ctx.v1(&format!("Shared {}", resp.get_ref().uri));
+        .await
+        .context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            println!("{}", &response.get_ref().uri);
+        }
+    };
+
     Ok(())
 }
 
 async fn replica_stat(
     mut ctx: Context,
     _matches: &ArgMatches<'_>,
-) -> Result<(), Status> {
-    ctx.v2("Requesting replicas stats");
+) -> crate::Result<()> {
+    let response = ctx
+        .client
+        .stat_replicas(rpc::Null {})
+        .await
+        .context(GrpcStatus)?;
 
-    let resp = ctx.client.stat_replicas(rpc::Null {}).await?;
-    let replicas = &resp.get_ref().replicas;
-    if replicas.is_empty() {
-        ctx.v1("No replicas have been created");
-    }
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            let replicas = &response.get_ref().replicas;
+            if replicas.is_empty() {
+                ctx.v1("No replicas have been created");
+                return Ok(());
+            }
 
-    ctx.v1(&format!(
-        "{: <20} {: <36} {: >10} {: >10} {: >10} {: >10}",
-        "POOL", "NAME", "RDCNT", "WRCNT", "RDBYTES", "WRBYTES"
-    ));
+            let header =
+                vec!["POOL", "NAME", "RDCNT", "WRCNT", "RDBYTES", "WRBYTES"];
+            let table = replicas
+                .iter()
+                .map(|replica| {
+                    let stats = replica.stats.as_ref().unwrap();
+                    let read =
+                        ctx.units(Byte::from_bytes(stats.bytes_read.into()));
+                    let written =
+                        ctx.units(Byte::from_bytes(stats.bytes_written.into()));
+                    vec![
+                        replica.pool.clone(),
+                        replica.uuid.clone(),
+                        stats.num_read_ops.to_string(),
+                        stats.num_write_ops.to_string(),
+                        read,
+                        written,
+                    ]
+                })
+                .collect();
+            ctx.print_list(header, table);
+        }
+    };
 
-    for r in replicas {
-        let stats = r.stats.as_ref().unwrap();
-        let read = ctx.units(Byte::from_bytes(stats.bytes_read.into()));
-        let written = ctx.units(Byte::from_bytes(stats.bytes_written.into()));
-        println!(
-            "{: <20} {: <36} {: >10} {: >10} {: >10} {: >10}",
-            r.pool,
-            r.uuid,
-            stats.num_read_ops,
-            stats.num_write_ops,
-            read,
-            written
-        );
-    }
     Ok(())
 }
 

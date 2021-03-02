@@ -29,6 +29,28 @@ pub enum Error {
         source: http::uri::InvalidUri,
         backtrace: Backtrace,
     },
+    #[snafu(display("Invalid output format: {}", format))]
+    OutputFormatError { format: String },
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum OutputFormat {
+    Json,
+    Default,
+}
+
+impl FromStr for OutputFormat {
+    type Err = Error;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "json" => Ok(Self::Json),
+            "default" => Ok(Self::Default),
+            s => Err(Error::OutputFormatError {
+                format: s.to_string(),
+            }),
+        }
+    }
 }
 
 pub struct Context {
@@ -37,6 +59,7 @@ pub struct Context {
     pub(crate) json: JsonClient,
     verbosity: u64,
     units: char,
+    pub(crate) output: OutputFormat,
 }
 
 impl Context {
@@ -81,6 +104,13 @@ impl Context {
             println!("Connecting to {:?}", host);
         }
 
+        let output = matches.value_of("output").ok_or_else(|| {
+            Error::OutputFormatError {
+                format: "<none>".to_string(),
+            }
+        })?;
+        let output = output.parse()?;
+
         let client = MayaClient::connect(host.clone()).await.unwrap();
         let bdev = BdevClient::connect(host.clone()).await.unwrap();
         let json = JsonClient::connect(host).await.unwrap();
@@ -91,6 +121,7 @@ impl Context {
             json,
             verbosity,
             units,
+            output,
         })
     }
     pub(crate) fn v1(&self, s: &str) {

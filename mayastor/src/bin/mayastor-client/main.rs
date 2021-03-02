@@ -38,6 +38,8 @@ pub enum Error {
         source: context::Error,
         backtrace: Backtrace,
     },
+    #[snafu(display("Missing value for {}", field))]
+    MissingValue { field: String },
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -87,6 +89,16 @@ async fn main() -> crate::Result<()> {
                 .hide_possible_values(true)
                 .next_line_help(true)
                 .help("Output with large units: i for kiB, etc. or d for kB, etc."))
+        .arg(
+            Arg::with_name("output")
+                .short("o")
+                .long("output")
+                .value_name("FORMAT")
+                .default_value("default")
+                .possible_values(&["default", "json"])
+                .global(true)
+                .help("Output format.")
+        )
         .subcommand(pool_cli::subcommands())
         .subcommand(nexus_cli::subcommands())
         .subcommand(replica_cli::subcommands())
@@ -112,5 +124,5 @@ async fn main() -> crate::Result<()> {
         ("jsonrpc", Some(args)) => jsonrpc_cli::json_rpc_call(ctx, args).await,
         _ => panic!("Command not found"),
     };
-    status.context(GrpcStatus)
+    status
 }

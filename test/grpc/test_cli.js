@@ -306,7 +306,7 @@ describe('mayastor-client', function () {
           return done(err);
         }
         assert.isEmpty(stderr);
-        assert.match(stdout, /Created pool tpool/);
+        assert.match(stdout, /tpool/);
         done();
       });
     });
@@ -373,7 +373,7 @@ describe('mayastor-client', function () {
           return done(err);
         }
         assert.isEmpty(stderr);
-        assert.match(stdout, /Destroyed pool tpool/);
+        assert.match(stdout, /tpool/);
         done();
       });
     });
@@ -394,7 +394,7 @@ describe('mayastor-client', function () {
           return done(err);
         }
         assert.isEmpty(stderr);
-        assert.match(stdout, /Nexus 753b391c-9b04-4ce3-9c74-9d949152e547 created/);
+        assert.match(stdout, /753b391c-9b04-4ce3-9c74-9d949152e547/);
         done();
       });
     });
@@ -407,7 +407,7 @@ describe('mayastor-client', function () {
           return done(err);
         }
         assert.isEmpty(stderr);
-        assert.match(stdout, /Nexus published at file:\/\/\/dev\/blah/);
+        assert.match(stdout, /file:\/\/\/dev\/blah/);
         done();
       });
     });
@@ -424,7 +424,7 @@ describe('mayastor-client', function () {
           return done(err);
         }
         assert.isEmpty(stderr);
-        assert.match(stdout, /unpublished/);
+        assert.match(stdout, /753b391c-9b04-4ce3-9c74-9d949152e547/);
         done();
       });
     });
@@ -437,7 +437,7 @@ describe('mayastor-client', function () {
           return done(err);
         }
         assert.isEmpty(stderr);
-        assert.match(stdout, /Added child_a to children of 753b391c-9b04-4ce3-9c74-9d949152e547/);
+        assert.match(stdout, /753b391c-9b04-4ce3-9c74-9d949152e547/);
         done();
       });
     });
@@ -450,7 +450,7 @@ describe('mayastor-client', function () {
           return done(err);
         }
         assert.isEmpty(stderr);
-        assert.match(stdout, /Removed child_a from children of 753b391c-9b04-4ce3-9c74-9d949152e547/);
+        assert.match(stdout, /child_a/);
         done();
       });
     });
@@ -468,10 +468,10 @@ describe('mayastor-client', function () {
           if (parts.length <= 1) { return; }
           nexus.push({
             name: parts[0],
-            path: parts[1],
-            size: parts[2],
-            state: parts[3],
-            rebuilds: parts[4],
+            size: parts[1],
+            state: parts[2],
+            rebuilds: parts[3],
+            path: parts[4],
             children: parts[5]
           });
         });
@@ -531,7 +531,7 @@ describe('mayastor-client', function () {
           return done(err);
         }
         assert.isEmpty(stderr);
-        assert.match(stdout, /destroyed/);
+        assert.match(stdout, /753b391c-9b04-4ce3-9c74-9d949152e547/);
         done();
       });
     });
@@ -692,7 +692,7 @@ describe('mayastor-client', function () {
           return done(err);
         }
         assert.isEmpty(stderr);
-        assert.isEmpty(stdout);
+        assert.match(stdout, /753b391c-9b04-4ce3-9c74-9d949152e547/);
         done();
       });
     });
