@@ -120,8 +120,11 @@ async fn receive_v3(sub: &mut nats::asynk::Subscription, count: u64) {
         message.try_into().unwrap();
     message
         // same function can receive an error
-        .reply(Err(ReplyError::WithMessage {
-            message: format!("Fake Error {}", count),
+        .reply(Err(ReplyError {
+            kind: ReplyErrorKind::WithMessage,
+            resource: ResourceKind::Unknown,
+            source: "".to_string(),
+            extra: format!("Fake Error {}", count),
         }))
         .await
         .unwrap();

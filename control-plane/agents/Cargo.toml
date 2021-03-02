@@ -5,25 +5,12 @@ authors = ["Tiago Castro <tiago.castro@mayadata.io>"]
 edition = "2018"
 
 [[bin]]
-name = "kiiss"
-path = "kiiss/src/server.rs"
-
-[[bin]]
-name = "node"
-path = "node/src/server.rs"
-
-[[bin]]
-name = "pool"
-path = "pool/src/server.rs"
-
-[[bin]]
-name = "volume"
-path = "volume/src/server.rs"
+name = "core"
+path = "core/src/server.rs"
 
 [[bin]]
 name = "jsongrpc"
 path = "jsongrpc/src/server.rs"
-
 
 [lib]
 name = "common"
@@ -50,6 +37,7 @@ tracing-futures = "0.2.4"
 rpc = { path = "../../rpc" }
 url = "2.2.0"
 http = "0.2.1"
+paste = "1.0.4"
 
 [dev-dependencies]
 composer = { path = "../../composer" }

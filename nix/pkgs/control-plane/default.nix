@@ -17,9 +17,7 @@ let
   };
   components = { src }: {
     kiiss = agent { inherit src; name = "kiiss"; };
-    node = agent { inherit src; name = "node"; };
-    pool = agent { inherit src; name = "pool"; };
-    volume = agent { inherit src; name = "volume"; };
+    core = agent { inherit src; name = "core"; };
     rest = agent { inherit src; name = "rest"; };
   };
 in

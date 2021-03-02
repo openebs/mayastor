@@ -108,7 +108,14 @@ async fn destroy_nexus(filter: Filter) -> Result<Json<()>, RestError> {
                 uuid: nexus_id,
             }
         }
-        _ => return Err(RestError::from(BusError::NotFound)),
+        _ => {
+            return Err(RestError::from(BusError {
+                kind: ReplyErrorKind::Internal,
+                resource: ResourceKind::Nexus,
+                source: "destroy_nexus".to_string(),
+                extra: "invalid filter for resource".to_string(),
+            }))
+        }
     };
 
     RestRespond::result(MessageBus::destroy_nexus(destroy).await)

@@ -75,7 +75,14 @@ async fn destroy_pool(filter: Filter) -> Result<Json<()>, RestError> {
                 id: pool_id,
             }
         }
-        _ => return Err(RestError::from(BusError::NotFound)),
+        _ => {
+            return Err(RestError::from(BusError {
+                kind: ReplyErrorKind::Internal,
+                resource: ResourceKind::Pool,
+                source: "destroy_pool".to_string(),
+                extra: "invalid filter for resource".to_string(),
+            }))
+        }
     };
 
     RestRespond::result(MessageBus::destroy_pool(destroy).await)

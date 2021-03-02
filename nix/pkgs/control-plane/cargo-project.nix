@@ -29,7 +29,7 @@ let
   buildProps = rec {
     name = "control-plane";
     #cargoSha256 = "0000000000000000000000000000000000000000000000000000";
-    cargoSha256 = "1r2g0ni8cxkphazbbkvzwdlcvkgk076llp18wqnkirj5d3xhbx4x";
+    cargoSha256 = "05j0bcvisnz4j8v2aiqsdv5lawl0i4kg9wvrnigc9l7gz45i2750";
     inherit version;
     src = whitelistSource ../../../. (pkgs.callPackage ../mayastor { }).src_list;
     cargoBuildFlags = [ "-p mbus_api" "-p agents" "-p rest" ];

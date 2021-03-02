@@ -327,12 +327,10 @@ impl_component! {
     Dns,        1,
     Jaeger,     1,
     Rest,       2,
-    Node,       3,
-    Pool,       4,
-    Volume,     4,
+    Core,       3,
     JsonGrpc,   4,
     Mayastor,   5,
 }
 
 // Message Bus Control Plane Agents
-impl_ctrlp_agents!(Node, Pool, Volume, JsonGrpc);
+impl_ctrlp_agents!(Core, JsonGrpc);

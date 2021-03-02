@@ -543,8 +543,46 @@ impl ActixRestClient {
 /// Rest Error
 #[derive(Debug)]
 pub struct RestError {
-    kind: BusError,
-    message: String,
+    inner: BusError,
+}
+
+/// Rest Json Error format
+#[derive(Serialize, Deserialize, Debug)]
+pub struct RestJsonError {
+    /// error kind
+    kind: RestJsonErrorKind,
+    /// detailed error information
+    details: String,
+}
+
+/// RestJson error kind
+#[derive(Serialize, Deserialize, Debug)]
+#[allow(missing_docs)]
+pub enum RestJsonErrorKind {
+    Deserialize,
+    Internal,
+    Timeout,
+    InvalidArgument,
+    DeadlineExceeded,
+    NotFound,
+    AlreadyExists,
+    PermissionDenied,
+    ResourceExhausted,
+    FailedPrecondition,
+    Aborted,
+    OutOfRange,
+    Unimplemented,
+    Unavailable,
+    Unauthenticated,
+}
+
+impl RestJsonError {
+    fn new(kind: RestJsonErrorKind, details: &str) -> Self {
+        Self {
+            kind,
+            details: details.to_string(),
+        }
+    }
 }
 
 #[cfg(not(feature = "nightly"))]
@@ -553,19 +591,107 @@ impl paperclip::v2::schema::Apiv2Errors for RestError {}
 impl RestError {
     // todo: response type convention
     fn get_resp_error(&self) -> HttpResponse {
-        match &self.kind {
-            BusError::NotFound => HttpResponse::NotFound().json(()),
-            BusError::NotUnique => {
-                let error = serde_json::json!({"error": self.kind.as_ref(), "message": self.message });
-                tracing::error!("Got error: {}", error);
+        let details = self.inner.extra.clone();
+        match &self.inner.kind {
+            ReplyErrorKind::WithMessage => {
+                let error =
+                    RestJsonError::new(RestJsonErrorKind::Internal, &details);
                 HttpResponse::InternalServerError().json(error)
             }
-            BusError::MessageBusError {
-                source,
-            } => {
-                let error = serde_json::json!({"error": source.as_ref(), "message": source.full_string() });
-                tracing::error!("Got error: {}", error);
+            ReplyErrorKind::DeserializeReq => {
+                let error = RestJsonError::new(
+                    RestJsonErrorKind::Deserialize,
+                    &details,
+                );
                 HttpResponse::InternalServerError().json(error)
+            }
+            ReplyErrorKind::Internal => {
+                let error =
+                    RestJsonError::new(RestJsonErrorKind::Internal, &details);
+                HttpResponse::InternalServerError().json(error)
+            }
+            ReplyErrorKind::Timeout => {
+                let error =
+                    RestJsonError::new(RestJsonErrorKind::Timeout, &details);
+                HttpResponse::RequestTimeout().json(error)
+            }
+            ReplyErrorKind::InvalidArgument => {
+                let error = RestJsonError::new(
+                    RestJsonErrorKind::InvalidArgument,
+                    &details,
+                );
+                HttpResponse::BadRequest().json(error)
+            }
+            ReplyErrorKind::DeadlineExceeded => {
+                let error = RestJsonError::new(
+                    RestJsonErrorKind::DeadlineExceeded,
+                    &details,
+                );
+                HttpResponse::GatewayTimeout().json(error)
+            }
+            ReplyErrorKind::NotFound => {
+                let error =
+                    RestJsonError::new(RestJsonErrorKind::NotFound, &details);
+                HttpResponse::NotFound().json(error)
+            }
+            ReplyErrorKind::AlreadyExists => {
+                let error = RestJsonError::new(
+                    RestJsonErrorKind::AlreadyExists,
+                    &details,
+                );
+                HttpResponse::UnprocessableEntity().json(error)
+            }
+            ReplyErrorKind::PermissionDenied => {
+                let error = RestJsonError::new(
+                    RestJsonErrorKind::PermissionDenied,
+                    &details,
+                );
+                HttpResponse::Unauthorized().json(error)
+            }
+            ReplyErrorKind::ResourceExhausted => {
+                let error = RestJsonError::new(
+                    RestJsonErrorKind::ResourceExhausted,
+                    &details,
+                );
+                HttpResponse::InsufficientStorage().json(error)
+            }
+            ReplyErrorKind::FailedPrecondition => {
+                let error = RestJsonError::new(
+                    RestJsonErrorKind::FailedPrecondition,
+                    &details,
+                );
+                HttpResponse::PreconditionFailed().json(error)
+            }
+            ReplyErrorKind::Aborted => {
+                let error =
+                    RestJsonError::new(RestJsonErrorKind::Aborted, &details);
+                HttpResponse::ServiceUnavailable().json(error)
+            }
+            ReplyErrorKind::OutOfRange => {
+                let error =
+                    RestJsonError::new(RestJsonErrorKind::OutOfRange, &details);
+                HttpResponse::RangeNotSatisfiable().json(error)
+            }
+            ReplyErrorKind::Unimplemented => {
+                let error = RestJsonError::new(
+                    RestJsonErrorKind::Unimplemented,
+                    &details,
+                );
+                HttpResponse::NotImplemented().json(error)
+            }
+            ReplyErrorKind::Unavailable => {
+                let error = RestJsonError::new(
+                    RestJsonErrorKind::Unavailable,
+                    &details,
+                );
+                HttpResponse::ServiceUnavailable().json(error)
+            }
+            ReplyErrorKind::Unauthenticated => {
+                let error = RestJsonError::new(
+                    RestJsonErrorKind::Unauthenticated,
+                    &details,
+                );
+                HttpResponse::Unauthorized().json(error)
             }
         }
     }
@@ -586,10 +712,9 @@ impl ResponseError for RestError {
     }
 }
 impl From<BusError> for RestError {
-    fn from(kind: BusError) -> Self {
+    fn from(inner: BusError) -> Self {
         Self {
-            message: kind.to_string(),
-            kind,
+            inner,
         }
     }
 }

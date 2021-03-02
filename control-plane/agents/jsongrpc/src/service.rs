@@ -2,7 +2,7 @@
 #![allow(clippy::unit_arg)]
 
 use ::rpc::mayastor::{JsonRpcReply, JsonRpcRequest};
-use common::wrapper::v0::{BusGetNode, JsonRpcDeserialise, SvcError};
+use common::errors::{BusGetNode, JsonRpcDeserialise, SvcError};
 use mbus_api::message_bus::v0::{MessageBus, *};
 use rpc::mayastor::json_rpc_client::JsonRpcClient;
 use snafu::ResultExt;

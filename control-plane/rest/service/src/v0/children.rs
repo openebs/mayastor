@@ -121,7 +121,12 @@ fn find_nexus_child(
     if let Some(child) = nexus.children.iter().find(|&c| &c.uri == child_uri) {
         Ok(child.clone())
     } else {
-        Err(BusError::NotFound)
+        Err(BusError {
+            kind: ReplyErrorKind::NotFound,
+            resource: ResourceKind::Child,
+            source: "find_nexus_child".to_string(),
+            extra: "".to_string(),
+        })
     }
 }
 

@@ -1,114 +1,30 @@
-pub mod service;
+pub(crate) mod registry;
+mod service;
 
-use async_trait::async_trait;
-use common::*;
-use mbus_api::{v0::*, *};
-use service::*;
 use std::{convert::TryInto, marker::PhantomData};
-use structopt::StructOpt;
-use tracing::info;
 
-#[derive(Debug, StructOpt)]
-struct CliArgs {
-    /// The Nats Server URL to connect to
-    /// (supports the nats schema)
-    /// Default: nats://127.0.0.1:4222
-    #[structopt(long, short, default_value = "nats://127.0.0.1:4222")]
-    nats: String,
+use super::{core::registry::Registry, handler, impl_request_handler};
+use async_trait::async_trait;
+use common::errors::SvcError;
+use mbus_api::{v0::*, *};
 
-    /// The period at which the registry updates its cache of all
-    /// resources from all nodes
-    #[structopt(long, short, default_value = "20s")]
-    period: humantime::Duration,
-}
-
-/// Needed so we can implement the ServiceSubscriber trait for
-/// the message types external to the crate
-#[derive(Clone, Default)]
-struct ServiceHandler<T> {
-    data: PhantomData<T>,
-}
-
-macro_rules! impl_service_handler {
-    // RequestType is the message bus request type
-    // ServiceFnName is the name of the service function to route the request
-    // into
-    ($RequestType:ident, $ServiceFnName:ident) => {
-        #[async_trait]
-        impl ServiceSubscriber for ServiceHandler<$RequestType> {
-            async fn handler(&self, args: Arguments<'_>) -> Result<(), Error> {
-                let request: ReceivedMessage<$RequestType> =
-                    args.request.try_into()?;
-
-                let service: &VolumeSvc = args.context.get_state()?;
-                let reply = service
-                    .$ServiceFnName(&request.inner())
-                    .await
-                    .map_err(|error| Error::ServiceError {
-                        message: error.full_string(),
-                    })?;
-                request.reply(reply).await
-            }
-            fn filter(&self) -> Vec<MessageId> {
-                vec![$RequestType::default().id()]
-            }
-        }
-    };
-}
-
-// todo:
-// a service handler can actually specify a vector of message filters so could
-// indeed do the filtering at our service specific code and have a single
-// entrypoint here nexus
-impl_service_handler!(GetNexuses, get_nexuses);
-impl_service_handler!(CreateNexus, create_nexus);
-impl_service_handler!(DestroyNexus, destroy_nexus);
-impl_service_handler!(ShareNexus, share_nexus);
-impl_service_handler!(UnshareNexus, unshare_nexus);
-impl_service_handler!(AddNexusChild, add_nexus_child);
-impl_service_handler!(RemoveNexusChild, remove_nexus_child);
-// volumes
-impl_service_handler!(GetVolumes, get_volumes);
-impl_service_handler!(CreateVolume, create_volume);
-impl_service_handler!(DestroyVolume, destroy_volume);
-
-fn init_tracing() {
-    if let Ok(filter) = tracing_subscriber::EnvFilter::try_from_default_env() {
-        tracing_subscriber::fmt().with_env_filter(filter).init();
-    } else {
-        tracing_subscriber::fmt().with_env_filter("info").init();
-    }
-}
-
-#[tokio::main]
-async fn main() {
-    init_tracing();
-
-    let cli_args = CliArgs::from_args();
-    info!("Using options: {:?}", &cli_args);
-
-    server(cli_args).await;
-}
-
-async fn server(cli_args: CliArgs) {
-    Service::builder(cli_args.nats, ChannelVs::Volume)
-        .connect()
-        .await
-        .with_shared_state(VolumeSvc::new(cli_args.period.into()))
+pub(crate) fn configure(builder: common::Service) -> common::Service {
+    let registry = builder.get_shared_state::<Registry>().clone();
+    builder
+        .with_channel(ChannelVs::Volume)
         .with_default_liveness()
-        .with_subscription(ServiceHandler::<GetVolumes>::default())
-        .with_subscription(ServiceHandler::<CreateVolume>::default())
-        .with_subscription(ServiceHandler::<DestroyVolume>::default())
+        .with_shared_state(service::Service::new(registry))
+        .with_subscription(handler!(GetVolumes))
+        .with_subscription(handler!(CreateVolume))
+        .with_subscription(handler!(DestroyVolume))
         .with_channel(ChannelVs::Nexus)
-        .with_subscription(ServiceHandler::<GetNexuses>::default())
-        .with_subscription(ServiceHandler::<CreateNexus>::default())
-        .with_subscription(ServiceHandler::<DestroyNexus>::default())
-        .with_subscription(ServiceHandler::<ShareNexus>::default())
-        .with_subscription(ServiceHandler::<UnshareNexus>::default())
-        .with_subscription(ServiceHandler::<AddNexusChild>::default())
-        .with_subscription(ServiceHandler::<RemoveNexusChild>::default())
-        .run()
-        .await;
+        .with_subscription(handler!(GetNexuses))
+        .with_subscription(handler!(CreateNexus))
+        .with_subscription(handler!(DestroyNexus))
+        .with_subscription(handler!(ShareNexus))
+        .with_subscription(handler!(UnshareNexus))
+        .with_subscription(handler!(AddNexusChild))
+        .with_subscription(handler!(RemoveNexusChild))
 }
 
 #[cfg(test)]
@@ -124,9 +40,7 @@ mod tests {
     }
     // to avoid waiting for timeouts
     async fn orderly_start(test: &ComposeTest) {
-        test.start_containers(vec!["nats", "node", "pool", "volume"])
-            .await
-            .unwrap();
+        test.start_containers(vec!["nats", "core"]).await.unwrap();
 
         test.connect_to_bus("nats").await;
         wait_for_services().await;
@@ -147,25 +61,20 @@ mod tests {
         let test = Builder::new()
             .name("volume")
             .add_container_bin("nats", Binary::from_nix("nats-server"))
-            .add_container_bin("node", Binary::from_dbg("node").with_nats("-n"))
-            .add_container_bin("pool", Binary::from_dbg("pool").with_nats("-n"))
-            .add_container_bin(
-                "volume",
-                Binary::from_dbg("volume").with_nats("-n"),
-            )
+            .add_container_bin("core", Binary::from_dbg("core").with_nats("-n"))
             .add_container_bin(
                 "mayastor",
                 Binary::from_dbg("mayastor")
                     .with_nats("-n")
                     .with_args(vec!["-N", mayastor])
-                    .with_args(vec!["-g", "10.1.0.6:10124"]),
+                    .with_args(vec!["-g", "10.1.0.4:10124"]),
             )
             .add_container_bin(
                 "mayastor2",
                 Binary::from_dbg("mayastor")
                     .with_nats("-n")
                     .with_args(vec!["-N", mayastor2])
-                    .with_args(vec!["-g", "10.1.0.7:10124"]),
+                    .with_args(vec!["-g", "10.1.0.5:10124"]),
             )
             .with_default_tracing()
             .autorun(false)
