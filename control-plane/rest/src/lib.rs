@@ -45,18 +45,31 @@ pub struct ActixRestClient {
 impl ActixRestClient {
     /// creates a new client which uses the specified `url`
     /// uses the rustls connector if the url has the https scheme
-    pub fn new(url: &str, trace: bool) -> anyhow::Result<Self> {
-        Self::new_timeout(url, trace, std::time::Duration::from_secs(5))
+    pub fn new(
+        url: &str,
+        trace: bool,
+        bearer_token: Option<String>,
+    ) -> anyhow::Result<Self> {
+        Self::new_timeout(
+            url,
+            trace,
+            bearer_token,
+            std::time::Duration::from_secs(5),
+        )
     }
     /// creates a new client which uses the specified `url`
     /// uses the rustls connector if the url has the https scheme
     pub fn new_timeout(
         url: &str,
         trace: bool,
+        bearer_token: Option<String>,
         timeout: std::time::Duration,
     ) -> anyhow::Result<Self> {
         let url: url::Url = url.parse()?;
-        let builder = Client::builder().timeout(timeout);
+        let mut builder = Client::builder().timeout(timeout);
+        if let Some(token) = bearer_token {
+            builder = builder.bearer_auth(token);
+        }
 
         match url.scheme() {
             "https" => Self::new_https(builder, &url, trace),

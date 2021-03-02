@@ -71,6 +71,7 @@ impl Cluster {
     async fn new(
         trace_rest: bool,
         timeout_rest: std::time::Duration,
+        bearer_token: Option<String>,
         components: Components,
         composer: ComposeTest,
         jaeger: (Tracer, Uninstall),
@@ -78,6 +79,7 @@ impl Cluster {
         let rest_client = ActixRestClient::new_timeout(
             "https://localhost:8080",
             trace_rest,
+            bearer_token,
             timeout_rest,
         )
         .unwrap();
@@ -163,6 +165,7 @@ pub struct ClusterBuilder {
     pools: Vec<PoolDisk>,
     replicas: Replica,
     trace: bool,
+    bearer_token: Option<String>,
     timeout: std::time::Duration,
 }
 
@@ -181,6 +184,7 @@ impl ClusterBuilder {
             pools: vec![],
             replicas: Default::default(),
             trace: true,
+            bearer_token: None,
             timeout: std::time::Duration::from_secs(3),
         }
     }
@@ -281,6 +285,7 @@ impl ClusterBuilder {
         let cluster = Cluster::new(
             self.trace,
             self.timeout,
+            self.bearer_token.clone(),
             components,
             composer,
             jaeger,

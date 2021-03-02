@@ -16,7 +16,6 @@ let
     '';
   };
   components = { src }: {
-    kiiss = agent { inherit src; name = "kiiss"; };
     core = agent { inherit src; name = "core"; };
     rest = agent { inherit src; name = "rest"; };
   };

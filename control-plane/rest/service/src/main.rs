@@ -1,3 +1,4 @@
+mod authentication;
 mod v0;
 
 use actix_service::ServiceFactory;
@@ -7,6 +8,7 @@ use actix_web::{
     App,
     HttpServer,
 };
+
 use rustls::{
     internal::pemfile::{certs, rsa_private_keys},
     NoClientAuth,
@@ -47,6 +49,14 @@ pub(crate) struct CliArgs {
     /// Trace rest requests to the Jaeger endpoint agent
     #[structopt(long, short)]
     jaeger: Option<String>,
+
+    /// Path to JSON Web KEY file used for authenticating REST requests
+    #[structopt(long, required_unless = "no-auth")]
+    jwk: Option<String>,
+
+    /// Don't authenticate REST requests
+    #[structopt(long, required_unless = "jwk")]
+    no_auth: bool,
 }
 
 fn parse_dir(src: &str) -> anyhow::Result<std::path::PathBuf> {
@@ -162,6 +172,16 @@ fn load_certificates<R: std::io::Read>(
     Ok(config)
 }
 
+fn get_jwk_path() -> Option<String> {
+    match CliArgs::from_args().jwk {
+        Some(path) => Some(path),
+        None => match CliArgs::from_args().no_auth {
+            true => None,
+            false => panic!("Cannot authenticate without a JWK file"),
+        },
+    }
+}
+
 #[actix_web::main]
 async fn main() -> anyhow::Result<()> {
     // need to keep the jaeger pipeline tracer alive, if enabled
@@ -171,6 +191,7 @@ async fn main() -> anyhow::Result<()> {
         App::new()
             .wrap(RequestTracing::new())
             .wrap(middleware::Logger::default())
+            .app_data(authentication::init(get_jwk_path()))
             .configure_api(&v0::configure_api)
     };
 

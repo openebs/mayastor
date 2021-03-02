@@ -14,17 +14,24 @@ pub mod volumes;
 
 use rest_client::{versions::v0::*, JsonGeneric};
 
+use crate::authentication::authenticate;
 use actix_service::ServiceFactory;
 use actix_web::{
     dev::{MessageBody, ServiceRequest, ServiceResponse},
     web::{self, Json},
+    Error,
+    FromRequest,
     HttpRequest,
 };
+use futures::future::Ready;
 use macros::actix::{delete, get, put};
 use paperclip::actix::OpenApiExt;
 use std::io::Write;
 use structopt::StructOpt;
 use tracing::info;
+
+use paperclip::actix::Apiv2Security;
+use serde::Deserialize;
 
 fn version() -> String {
     "v0".into()
@@ -83,4 +90,27 @@ where
         .with_json_spec_at(&spec_uri())
         .build()
         .configure(swagger_ui::configure)
+}
+
+#[derive(Apiv2Security, Deserialize)]
+#[openapi(
+    apiKey,
+    alias = "JWT",
+    in = "header",
+    name = "Authorization",
+    description = "Use format 'Bearer TOKEN'"
+)]
+pub struct BearerToken;
+
+impl FromRequest for BearerToken {
+    type Error = Error;
+    type Future = Ready<Result<Self, Self::Error>>;
+    type Config = ();
+
+    fn from_request(
+        req: &HttpRequest,
+        _payload: &mut actix_web::dev::Payload,
+    ) -> Self::Future {
+        futures::future::ready(authenticate(req).map(|_| Self {}))
+    }
 }
