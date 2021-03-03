@@ -18,6 +18,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
+const scriptsDir = "../../../scripts"
+const yamlsDir = "../../../artifacts/test-yamls"
+
 // Encapsulate the logic to find where the deploy yamls are
 func getDeployYamlDir() string {
 	_, filename, _, _ := runtime.Caller(0)
@@ -39,17 +42,31 @@ func applyDeployYaml(filename string) {
 	Expect(err).ToNot(HaveOccurred(), "%s", out)
 }
 
-// Encapsulate the logic to find where the templated yamls are
-func getTemplateYamlDir() string {
-	_, filename, _, _ := runtime.Caller(0)
-	return path.Clean(filename + "/../deploy")
+// Helper for passing yaml from the generated directory to kubectl
+func applyGeneratedYaml(filename string) {
+	cmd := exec.Command("kubectl", "apply", "-f", yamlsDir+"/"+filename)
+	out, err := cmd.CombinedOutput()
+	Expect(err).ToNot(HaveOccurred(), "%s", out)
 }
 
-func generateYamlFiles(imageTag string, registryAddress string, e2eCfg *e2e_config.E2EConfig) {
-	bashCmd := fmt.Sprintf("../../../scripts/generate-deploy-yamls.sh -o ../../../artifacts/test-yamls -t '%s' -r '%s' test", imageTag, registryAddress)
+func generateYamlFiles(imageTag string, registryAddress string, mayastorNodes []string, e2eCfg *e2e_config.E2EConfig) {
+	coresDirective := ""
 	if e2eCfg.Cores != 0 {
-		bashCmd = fmt.Sprintf("%s -c %d", bashCmd, e2eCfg.Cores)
+		coresDirective = fmt.Sprintf("%s -c %d", coresDirective, e2eCfg.Cores)
 	}
+
+	poolDirectives := ""
+	if len(e2eCfg.PoolDevice) != 0 {
+		poolDevice := e2eCfg.PoolDevice
+		for _, mayastorNode := range mayastorNodes {
+			poolDirectives += fmt.Sprintf(" -p '%s,%s'", mayastorNode, poolDevice)
+		}
+	}
+
+	bashCmd := fmt.Sprintf(
+		"%s/generate-deploy-yamls.sh -o %s -t '%s' -r '%s' %s %s test",
+		scriptsDir, yamlsDir, imageTag, registryAddress, coresDirective, poolDirectives,
+	)
 	cmd := exec.Command("bash", "-c", bashCmd)
 	out, err := cmd.CombinedOutput()
 	Expect(err).ToNot(HaveOccurred(), "%s", out)
@@ -76,16 +93,13 @@ func createPools(mayastorNodes []string, e2eCfg *e2e_config.E2EConfig) {
 			Expect(err).ToNot(HaveOccurred(), "Applying %s failed", poolYaml)
 		}
 	} else if len(poolDevice) != 0 {
-		// Use the template file to create pools as per the devices
+		// Use the generated file to create pools as per the devices
 		// NO check is made on the status of pools
-		for _, mayastorNode := range mayastorNodes {
-			fmt.Println("creating pool on:", mayastorNode, " using device:", poolDevice)
-			bashCmd := "NODE_NAME=" + mayastorNode + " POOL_DEVICE=" + poolDevice + " envsubst < " + "pool.yaml.template" + " | kubectl apply -f -"
-			cmd := exec.Command("bash", "-c", bashCmd)
-			cmd.Dir = getTemplateYamlDir()
-			out, err := cmd.CombinedOutput()
-			Expect(err).ToNot(HaveOccurred(), "%s", out)
-		}
+		poolYaml := yamlsDir + "/pool.yaml"
+		bashCmd := "kubectl apply -f " + poolYaml
+		cmd := exec.Command("bash", "-c", bashCmd)
+		_, err := cmd.CombinedOutput()
+		Expect(err).ToNot(HaveOccurred(), "Applying %s failed", poolYaml)
 	} else {
 		Expect(false).To(BeTrue(), "Neither e2e_pool_yaml_files nor e2e_pool_device specified")
 	}
@@ -127,14 +141,14 @@ func installMayastor() {
 
 	// FIXME use absolute paths, do not depend on CWD
 	createNamespace()
+	generateYamlFiles(imageTag, registry, mayastorNodes, &e2eCfg)
 	applyDeployYaml("storage-class.yaml")
-	applyDeployYaml("moac-rbac.yaml")
+	applyGeneratedYaml("moac-rbac.yaml")
 	applyDeployYaml("mayastorpoolcrd.yaml")
-	applyDeployYaml("nats-deployment.yaml")
-	generateYamlFiles(imageTag, registry, &e2eCfg)
-	applyDeployYaml("../artifacts/test-yamls/csi-daemonset.yaml")
-	applyDeployYaml("../artifacts/test-yamls/moac-deployment.yaml")
-	applyDeployYaml("../artifacts/test-yamls/mayastor-daemonset.yaml")
+	applyGeneratedYaml("nats-deployment.yaml")
+	applyGeneratedYaml("csi-daemonset.yaml")
+	applyGeneratedYaml("moac-deployment.yaml")
+	applyGeneratedYaml("mayastor-daemonset.yaml")
 
 	ready, err := common.MayastorReady(2, 540)
 	Expect(err).ToNot(HaveOccurred())

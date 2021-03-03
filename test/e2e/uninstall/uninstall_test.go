@@ -81,9 +81,10 @@ func teardownMayastor() {
 		}
 		Expect(found).To(BeFalse(), "Mayastor volume CRDs were found, none expected.")
 
-		poolsDeleted := common.DeleteAllPools()
-		Expect(poolsDeleted).To(BeTrue())
 	}
+
+	poolsDeleted := common.DeleteAllPools()
+	Expect(poolsDeleted).To(BeTrue())
 
 	logf.Log.Info("Cleanup done, Uninstalling mayastor")
 	// Deletes can stall indefinitely, try to mitigate this
