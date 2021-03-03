@@ -18,11 +18,12 @@ package e2e
 
 import (
 	"fmt"
-	"os"
 	"strings"
 
+	"e2e-basic/common/e2e_config"
 	"e2e-basic/csi/driver"
 	"e2e-basic/csi/testsuites"
+
 	"github.com/onsi/ginkgo"
 	v1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -41,16 +42,10 @@ var smallClaimSize = "50Mi"
 var largeClaimSize = "500Mi"
 
 var _ = ginkgo.Describe("Dynamic Provisioning", func() {
-	f := framework.NewDefaultFramework("mayastor")
+	f := framework.NewDefaultFramework("mayastordynprov")
 
-	tmp := os.Getenv("SMALL_CLAIM_SIZE")
-	if tmp != "" {
-		smallClaimSize = tmp
-	}
-	tmp = os.Getenv("LARGE_CLAIM_SIZE")
-	if tmp != "" {
-		largeClaimSize = tmp
-	}
+	smallClaimSize = e2e_config.GetConfig().CSI.SmallClaimSize
+	largeClaimSize = e2e_config.GetConfig().CSI.LargeClaimSize
 
 	var (
 		cs         clientset.Interface

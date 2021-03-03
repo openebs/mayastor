@@ -2,23 +2,21 @@
 package pvc_stress_fio_test
 
 import (
+	"e2e-basic/common"
+	"e2e-basic/common/e2e_config"
+	rep "e2e-basic/common/reporter"
+
 	"fmt"
-	"os"
-	"strconv"
 	"testing"
 
-	Cmn "e2e-basic/common"
-	rep "e2e-basic/common/reporter"
+	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/gomega"
 
 	coreV1 "k8s.io/api/core/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metaV1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
-
-	. "github.com/onsi/ginkgo"
-	. "github.com/onsi/gomega"
 )
 
 var defTimeoutSecs = "60s"
@@ -67,11 +65,11 @@ func testPVC(volName string, scName string, runFio bool) {
 		},
 	}
 	// Create the PVC.
-	_, createErr := Cmn.CreatePVC(createOpts)
+	_, createErr := common.CreatePVC(createOpts)
 	Expect(createErr).To(BeNil())
 
 	// Confirm the PVC has been created.
-	pvc, getPvcErr := Cmn.GetPVC(volName)
+	pvc, getPvcErr := common.GetPVC(volName)
 	Expect(getPvcErr).To(BeNil())
 	Expect(pvc).ToNot(BeNil())
 
@@ -81,20 +79,20 @@ func testPVC(volName string, scName string, runFio bool) {
 
 	// Wait for the PVC to be bound.
 	Eventually(func() coreV1.PersistentVolumeClaimPhase {
-		return Cmn.GetPvcStatusPhase(volName)
+		return common.GetPvcStatusPhase(volName)
 	},
 		defTimeoutSecs, // timeout
 		"1s",           // polling interval
 	).Should(Equal(coreV1.ClaimBound))
 
 	// Refresh the PVC contents, so that we can get the PV name.
-	pvc, getPvcErr = Cmn.GetPVC(volName)
+	pvc, getPvcErr = common.GetPVC(volName)
 	Expect(getPvcErr).To(BeNil())
 	Expect(pvc).ToNot(BeNil())
 
 	// Wait for the PV to be provisioned
 	Eventually(func() *coreV1.PersistentVolume {
-		pv, getPvErr := Cmn.GetPV(pvc.Spec.VolumeName)
+		pv, getPvErr := common.GetPV(pvc.Spec.VolumeName)
 		if getPvErr != nil {
 			return nil
 		}
@@ -107,15 +105,15 @@ func testPVC(volName string, scName string, runFio bool) {
 
 	// Wait for the PV to be bound.
 	Eventually(func() coreV1.PersistentVolumePhase {
-		return Cmn.GetPvStatusPhase(pvc.Spec.VolumeName)
+		return common.GetPvStatusPhase(pvc.Spec.VolumeName)
 	},
 		defTimeoutSecs, // timeout
 		"1s",           // polling interval
 	).Should(Equal(coreV1.VolumeBound))
 
 	// Wait for the MSV to be provisioned
-	Eventually(func() *Cmn.MayastorVolStatus {
-		return Cmn.GetMSV(string(pvc.ObjectMeta.UID))
+	Eventually(func() *common.MayastorVolStatus {
+		return common.GetMSV(string(pvc.ObjectMeta.UID))
 	},
 		defTimeoutSecs, //timeout
 		"1s",           // polling interval
@@ -123,7 +121,7 @@ func testPVC(volName string, scName string, runFio bool) {
 
 	// Wait for the MSV to be healthy
 	Eventually(func() string {
-		return Cmn.GetMsvState(string(pvc.ObjectMeta.UID))
+		return common.GetMsvState(string(pvc.ObjectMeta.UID))
 	},
 		defTimeoutSecs, // timeout
 		"1s",           // polling interval
@@ -132,7 +130,7 @@ func testPVC(volName string, scName string, runFio bool) {
 	if runFio {
 		// Create the fio Pod
 		fioPodName := "fio-" + volName
-		pod, err := Cmn.CreateFioPod(fioPodName, volName)
+		pod, err := common.CreateFioPod(fioPodName, volName)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(pod).ToNot(BeNil())
 
@@ -141,18 +139,18 @@ func testPVC(volName string, scName string, runFio bool) {
 
 		// Wait for the fio Pod to transition to running
 		Eventually(func() bool {
-			return Cmn.IsPodRunning(fioPodName)
+			return common.IsPodRunning(fioPodName)
 		},
 			defTimeoutSecs,
 			"1s",
 		).Should(Equal(true))
 
 		// Run the fio test
-		_, err = Cmn.RunFio(fioPodName, 5, Cmn.FioFsFilename)
+		_, err = common.RunFio(fioPodName, 5, common.FioFsFilename)
 		Expect(err).ToNot(HaveOccurred())
 
 		// Delete the fio pod
-		err = Cmn.DeletePod(fioPodName)
+		err = common.DeletePod(fioPodName)
 		Expect(err).ToNot(HaveOccurred())
 
 		// cleanup
@@ -160,12 +158,12 @@ func testPVC(volName string, scName string, runFio bool) {
 	}
 
 	// Delete the PVC
-	deleteErr := Cmn.DeletePVC(volName)
+	deleteErr := common.DeletePVC(volName)
 	Expect(deleteErr).To(BeNil())
 
 	// Wait for the PVC to be deleted.
 	Eventually(func() bool {
-		return Cmn.IsPVCDeleted(volName)
+		return common.IsPVCDeleted(volName)
 	},
 		"120s", // timeout
 		"1s",   // polling interval
@@ -173,7 +171,7 @@ func testPVC(volName string, scName string, runFio bool) {
 
 	// Wait for the PV to be deleted.
 	Eventually(func() bool {
-		return Cmn.IsPVDeleted(pvc.Spec.VolumeName)
+		return common.IsPVDeleted(pvc.Spec.VolumeName)
 	},
 		defTimeoutSecs, // timeout
 		"1s",           // polling interval
@@ -181,7 +179,7 @@ func testPVC(volName string, scName string, runFio bool) {
 
 	// Wait for the MSV to be deleted.
 	Eventually(func() bool {
-		return Cmn.IsMSVDeleted(string(pvc.ObjectMeta.UID))
+		return common.IsMSVDeleted(string(pvc.ObjectMeta.UID))
 	},
 		defTimeoutSecs, // timeout
 		"1s",           // polling interval
@@ -210,7 +208,7 @@ func TestPVCStress(t *testing.T) {
 var _ = Describe("Mayastor PVC Stress test", func() {
 	AfterEach(func() {
 		// Check resource leakage
-		err := Cmn.AfterEachCheck()
+		err := common.AfterEachCheck()
 		Expect(err).ToNot(HaveOccurred())
 	})
 
@@ -226,22 +224,11 @@ var _ = Describe("Mayastor PVC Stress test", func() {
 var _ = BeforeSuite(func(done Done) {
 	logf.SetLogger(zap.New(zap.UseDevMode(true), zap.WriteTo(GinkgoWriter)))
 
-	Cmn.SetupTestEnv()
-	tmp := os.Getenv("e2e_pvc_stress_cd_cycles")
-	if len(tmp) != 0 {
-		var err error
-		cdIterations, err = strconv.Atoi(tmp)
-		Expect(err).NotTo(HaveOccurred())
-		logf.Log.Info("Cycle count changed by environment ", "Create/Delete", cdIterations)
-	}
+	common.SetupTestEnv()
+	e2eCfg := e2e_config.GetConfig()
+	cdIterations = e2eCfg.PVCStress.CdCycles
+	crudIterations = e2eCfg.PVCStress.CrudCycles
 
-	tmp = os.Getenv("e2e_pvc_stress_crud_cycles")
-	if len(tmp) != 0 {
-		var err error
-		crudIterations, err = strconv.Atoi(tmp)
-		Expect(err).NotTo(HaveOccurred())
-		logf.Log.Info("Cycle count changed by environment", "Create/Read/Update/Delete", crudIterations)
-	}
 	logf.Log.Info("Number of cycles are", "Create/Delete", cdIterations, "Create/Read/Update/Delete", crudIterations)
 
 	close(done)
@@ -251,5 +238,5 @@ var _ = AfterSuite(func() {
 	// NB This only tears down the local structures for talking to the cluster,
 	// not the kubernetes cluster itself.
 	By("tearing down the test environment")
-	Cmn.TeardownTestEnv()
+	common.TeardownTestEnv()
 })

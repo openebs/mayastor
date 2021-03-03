@@ -5,6 +5,7 @@ set -eu
 SCRIPTDIR=$(dirname "$(realpath "$0")")
 TESTDIR=$(realpath "$SCRIPTDIR/../test/e2e")
 REPORTSDIR=$(realpath "$SCRIPTDIR/..")
+ARTIFACTSDIR=$(realpath "$SCRIPTDIR/../artifacts")
 
 # List and Sequence of tests.
 #tests="install basic_volume_io csi replica rebuild node_disconnect/replica_pod_remove uninstall"
@@ -31,7 +32,7 @@ profile="default"
 on_fail="stop"
 uninstall_cleanup="n"
 generate_logs=0
-logsdir=""
+logsdir="$ARTIFACTSDIR/logs"
 
 help() {
   cat <<EOF
@@ -50,9 +51,10 @@ Options:
   --logs                    Generate logs and cluster state dump at the end of successful test run,
                             prior to uninstall.
   --logsdir <path>          Location to generate logs (default: emit to stdout).
-  --onfail <stop|continue>  On fail, stop immediately or continue default($on_fail)
-                            Behaviour for "continue" only differs if uninstall is in the list of tests (the default).
+  --onfail <stop|uninstall> On fail, stop immediately or uninstall default($on_fail)
+                            Behaviour for "uninstall" only differs if uninstall is in the list of tests (the default).
   --uninstall_cleanup <y|n> On uninstall cleanup for reusable cluster. default($uninstall_cleanup)
+  --config                  config name or configuration file default(test/e2e/configurations/ci_e2e_config.yaml)
 
 Examples:
   $0 --device /dev/nvme0n1 --registry 127.0.0.1:5000 --tag a80ce0c
@@ -103,15 +105,16 @@ while [ "$#" -gt 0 ]; do
     --onfail)
         shift
         case $1 in
-            continue)
+            uninstall)
                 on_fail=$1
                 ;;
             stop)
                 on_fail=$1
                 ;;
             *)
+                echo "invalid option for --onfail"
                 help
-                exit 2
+                exit 1
         esac
       ;;
     --uninstall_cleanup)
@@ -121,10 +124,15 @@ while [ "$#" -gt 0 ]; do
                 uninstall_cleanup=$1
                 ;;
             *)
+                echo "invalid option for --uninstall_cleanup"
                 help
-                exit 2
+                exit 1
         esac
       ;;
+    --config)
+        shift
+        export e2e_config_file="$1"
+        ;;
     *)
       echo "Unknown option: $1"
       help
@@ -137,7 +145,7 @@ done
 if [ -z "$device" ]; then
   echo "Device for storage pools must be specified"
   help
-  exit 1
+  exit 2
 fi
 export e2e_pool_device=$device
 
@@ -182,7 +190,7 @@ esac
 export e2e_reports_dir="$REPORTSDIR"
 if [ ! -d "$e2e_reports_dir" ] ; then
     echo "Reports directory $e2e_reports_dir does not exist"
-    exit 1
+    exit 3
 fi
 
 if [ "$uninstall_cleanup" == 'n' ] ; then
@@ -190,6 +198,8 @@ if [ "$uninstall_cleanup" == 'n' ] ; then
 else
     export e2e_uninstall_cleanup=1
 fi
+
+mkdir -p "$ARTIFACTSDIR"
 
 test_failed=0
 
@@ -238,13 +248,13 @@ for testname in $tests; do
   # defer uninstall till after other tests have been run.
   if [ "$testname" != "uninstall" ] ;  then
       if ! runGoTest "$testname" ; then
-          echo "Test \"$testname\" Failed!!"
+          echo "Test \"$testname\" FAILED!"
           test_failed=1
           break
       fi
 
       if ! ("$SCRIPTDIR/e2e_check_pod_restarts.sh") ; then
-          echo "Test \"$testname\" Failed!! mayastor pods were restarted."
+          echo "Test \"$testname\" FAILED! mayastor pods were restarted."
           test_failed=1
           generate_logs=1
           break
@@ -268,26 +278,27 @@ if [ "$generate_logs" -ne 0 ]; then
 fi
 
 if [ "$test_failed" -ne 0 ] && [ "$on_fail" == "stop" ]; then
-    exit 3
+    echo "At least one test FAILED!"
+    exit 4
 fi
 
 # Always run uninstall test if specified
 if contains "$tests" "uninstall" ; then
     if ! runGoTest "uninstall" ; then
-        echo "Test \"uninstall\" Failed!!"
+        echo "Test \"uninstall\" FAILED!"
         test_failed=1
-        # Dump to the screen only, we do NOT want to overwrite
-        # logfiles that may have been generated.
-        if ! "$SCRIPTDIR/e2e-cluster-dump.sh" --clusteronly ; then
-            # ignore failures in the dump script
-            :
-        fi
+    elif  [ "$test_failed" -ne 0 ] ; then
+        # tests failed, but uninstall was successful
+        # so cluster is reusable
+        echo "At least one test FAILED! Cluster is usable."
+        exit 255
     fi
 fi
 
-if [ "$test_failed" -ne 0 ]; then
-    echo "At least one test has FAILED!"
-    exit 1
+
+if [ "$test_failed" -ne 0 ] ; then
+    echo "At least one test FAILED!"
+    exit 4
 fi
 
 echo "All tests have PASSED!"

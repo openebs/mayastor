@@ -1,100 +1,22 @@
 package basic_test
 
 import (
-	"context"
-	"errors"
+	"e2e-basic/common"
+	"e2e-basic/common/e2e_config"
+	rep "e2e-basic/common/reporter"
+
 	"fmt"
-	"os"
 	"os/exec"
 	"path"
 	"runtime"
-	"strings"
 	"testing"
-	"time"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	rep "e2e-basic/common/reporter"
-
-	appsV1 "k8s.io/api/apps/v1"
-	coreV1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/types"
-	"k8s.io/client-go/deprecated/scheme"
-	"k8s.io/client-go/rest"
-	ctrl "sigs.k8s.io/controller-runtime"
-	"sigs.k8s.io/controller-runtime/pkg/client"
-	"sigs.k8s.io/controller-runtime/pkg/envtest"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
-
-var cfg *rest.Config
-var k8sClient client.Client
-var k8sManager ctrl.Manager
-var testEnv *envtest.Environment
-
-/// Enumerate the nodes in the k8s cluster and return
-/// 1. the IP address of the master node (if one exists),
-/// 2. the number of nodes labelled openebs.io/engine=mayastor
-/// 3. the names of nodes labelled openebs.io/engine=mayastor
-/// The assumption is that the test-registry is accessible via the IP addr of the master,
-/// or any node in the cluster if the master noe does not exist
-/// TODO Refine how we workout the address of the test-registry
-func getTestClusterDetails() (string, string, int, []string, error) {
-	var nme = 0
-	nodeList := coreV1.NodeList{}
-	if (k8sClient.List(context.TODO(), &nodeList, &client.ListOptions{}) != nil) {
-		return "", "", 0, nil, errors.New("failed to list nodes")
-	}
-	nodeIPs := make([]string, len(nodeList.Items))
-	for ix, k8node := range nodeList.Items {
-		for _, k8Addr := range k8node.Status.Addresses {
-			if k8Addr.Type == coreV1.NodeInternalIP {
-				nodeIPs[ix] = k8Addr.Address
-				for label, value := range k8node.Labels {
-					if label == "openebs.io/engine" && value == "mayastor" {
-						nme++
-					}
-				}
-			}
-		}
-	}
-
-	// At least one node where mayastor can be deployed must exist
-	if nme == 0 {
-		return "", "", 0, nil, errors.New("no usable nodes found for the mayastor engine")
-	}
-
-	mayastorNodes := make([]string, nme)
-	ix := 0
-	for _, k8node := range nodeList.Items {
-		for _, k8Addr := range k8node.Status.Addresses {
-			if k8Addr.Type == coreV1.NodeHostName {
-				for label, value := range k8node.Labels {
-					if label == "openebs.io/engine" && value == "mayastor" {
-						mayastorNodes[ix] = k8Addr.Address
-						ix++
-					}
-				}
-			}
-		}
-	}
-
-	// Redundant check, but keep it anyway, we are writing a test after all.
-	// We should have found at least one node!
-	if len(nodeIPs) == 0 {
-		return "", "", 0, nil, errors.New("no usable nodes found")
-	}
-
-	tag := os.Getenv("e2e_image_tag")
-	if len(tag) == 0 {
-		tag = "ci"
-	}
-	registry := os.Getenv("e2e_docker_registry")
-
-	return tag, registry, nme, mayastorNodes, nil
-}
 
 // Encapsulate the logic to find where the deploy yamls are
 func getDeployYamlDir() string {
@@ -104,7 +26,7 @@ func getDeployYamlDir() string {
 
 // Create mayastor namespace
 func createNamespace() {
-	cmd := exec.Command("kubectl", "create", "namespace", "mayastor")
+	cmd := exec.Command("kubectl", "create", "namespace", common.NSMayastor)
 	out, err := cmd.CombinedOutput()
 	Expect(err).ToNot(HaveOccurred(), "%s", out)
 }
@@ -123,86 +45,43 @@ func getTemplateYamlDir() string {
 	return path.Clean(filename + "/../deploy")
 }
 
-func generateYamls(imageTag string, registryAddress string) {
-	bashcmd := fmt.Sprintf("../../../scripts/generate-deploy-yamls.sh -o ../../../test-yamls -t '%s' -r '%s' test", imageTag, registryAddress)
-	cmd := exec.Command("bash", "-c", bashcmd)
+func generateYamlFiles(imageTag string, registryAddress string, e2eCfg *e2e_config.E2EConfig) {
+	bashCmd := fmt.Sprintf("../../../scripts/generate-deploy-yamls.sh -o ../../../artifacts/test-yamls -t '%s' -r '%s' test", imageTag, registryAddress)
+	if e2eCfg.Cores != 0 {
+		bashCmd = fmt.Sprintf("%s -c %d", bashCmd, e2eCfg.Cores)
+	}
+	cmd := exec.Command("bash", "-c", bashCmd)
 	out, err := cmd.CombinedOutput()
 	Expect(err).ToNot(HaveOccurred(), "%s", out)
-}
-
-// We expect this to fail a few times before it succeeds,
-// so no throwing errors from here.
-func mayastorReadyPodCount() int {
-	var mayastorDaemonSet appsV1.DaemonSet
-	if k8sClient.Get(context.TODO(), types.NamespacedName{Name: "mayastor", Namespace: "mayastor"}, &mayastorDaemonSet) != nil {
-		fmt.Println("Failed to get mayastor DaemonSet")
-		return -1
-	}
-	return int(mayastorDaemonSet.Status.NumberAvailable)
-}
-
-func moacReady() bool {
-	var moacDeployment appsV1.Deployment
-	if k8sClient.Get(context.TODO(), types.NamespacedName{Name: "moac", Namespace: "mayastor"}, &moacDeployment) != nil {
-		logf.Log.Info("Failed to get MOAC deployment")
-		return false
-	}
-
-	// { Remove/Reduce verbosity once we have fixed install test occasional failure.
-	logf.Log.Info("moacDeployment.Status",
-		"ObservedGeneration", moacDeployment.Status.ObservedGeneration,
-		"Replicas", moacDeployment.Status.Replicas,
-		"UpdatedReplicas", moacDeployment.Status.UpdatedReplicas,
-		"ReadyReplicas", moacDeployment.Status.ReadyReplicas,
-		"AvailableReplicas", moacDeployment.Status.AvailableReplicas,
-		"UnavailableReplicas", moacDeployment.Status.UnavailableReplicas,
-		"CollisionCount", moacDeployment.Status.CollisionCount)
-	for ix, condition := range moacDeployment.Status.Conditions {
-		logf.Log.Info("Condition", "ix", ix,
-			"Status", condition.Status,
-			"Type", condition.Type,
-			"Message", condition.Message,
-			"Reason", condition.Reason)
-	}
-	// }
-
-	for _, condition := range moacDeployment.Status.Conditions {
-		if condition.Type == appsV1.DeploymentAvailable {
-			if condition.Status == coreV1.ConditionTrue {
-				logf.Log.Info("MOAC is Available")
-				return true
-			}
-		}
-	}
-	logf.Log.Info("MOAC is Not Available")
-	return false
 }
 
 // create pools for the cluster
 //
 // TODO: Ideally there should be one way how to create pools without using
 // two env variables to do a similar thing.
-func createPools(mayastorNodes []string) {
-	envPoolYamls := os.Getenv("e2e_pool_yaml_files")
-	poolDevice := os.Getenv("e2e_pool_device")
-	if len(envPoolYamls) != 0 {
+func createPools(mayastorNodes []string, e2eCfg *e2e_config.E2EConfig) {
+	// TODO: It is an error if configuration specifies both pool devices and pool definition yaml files,
+	// as this simple code does not resolve that case in an obvious or defined way.
+
+	poolYamlFiles := e2eCfg.PoolYamlFiles
+	poolDevice := e2eCfg.PoolDevice
+	if len(poolYamlFiles) != 0 {
 		// Apply the list of externally defined pool yaml files
 		// NO check is made on the status of pools
-		poolYamlFiles := strings.Split(envPoolYamls, ",")
 		for _, poolYaml := range poolYamlFiles {
 			fmt.Println("applying ", poolYaml)
-			bashcmd := "kubectl apply -f " + poolYaml
-			cmd := exec.Command("bash", "-c", bashcmd)
+			bashCmd := "kubectl apply -f " + poolYaml
+			cmd := exec.Command("bash", "-c", bashCmd)
 			_, err := cmd.CombinedOutput()
-			Expect(err).ToNot(HaveOccurred())
+			Expect(err).ToNot(HaveOccurred(), "Applying %s failed", poolYaml)
 		}
 	} else if len(poolDevice) != 0 {
 		// Use the template file to create pools as per the devices
 		// NO check is made on the status of pools
 		for _, mayastorNode := range mayastorNodes {
 			fmt.Println("creating pool on:", mayastorNode, " using device:", poolDevice)
-			bashcmd := "NODE_NAME=" + mayastorNode + " POOL_DEVICE=" + poolDevice + " envsubst < " + "pool.yaml.template" + " | kubectl apply -f -"
-			cmd := exec.Command("bash", "-c", bashcmd)
+			bashCmd := "NODE_NAME=" + mayastorNode + " POOL_DEVICE=" + poolDevice + " envsubst < " + "pool.yaml.template" + " | kubectl apply -f -"
+			cmd := exec.Command("bash", "-c", bashCmd)
 			cmd.Dir = getTemplateYamlDir()
 			out, err := cmd.CombinedOutput()
 			Expect(err).ToNot(HaveOccurred(), "%s", out)
@@ -214,13 +93,37 @@ func createPools(mayastorNodes []string) {
 
 // Install mayastor on the cluster under test.
 // We deliberately call out to kubectl, rather than constructing the client-go
-// objects, so that we can verfiy the local deploy yamls are correct.
+// objects, so that we can verify the local deploy yaml files are correct.
 func installMayastor() {
-	imageTag, registryAddress, numMayastorInstances, mayastorNodes, err := getTestClusterDetails()
+	e2eCfg := e2e_config.GetConfig()
+
+	Expect(e2eCfg.ImageTag).ToNot(BeEmpty(),
+		"mayastor image tag not defined")
+	Expect(e2eCfg.Registry).ToNot(BeEmpty(),
+		"registry not defined")
+	Expect(e2eCfg.PoolDevice != "" || len(e2eCfg.PoolYamlFiles) != 0).To(BeTrue(),
+		"configuration error pools are not defined.")
+	Expect(e2eCfg.PoolDevice == "" || len(e2eCfg.PoolYamlFiles) == 0).To(BeTrue(),
+		"Unable to resolve pool definitions if both pool device and pool yaml files are defined")
+
+	imageTag := e2eCfg.ImageTag
+	registry := e2eCfg.Registry
+
+	nodes, err := common.GetNodeLocs()
 	Expect(err).ToNot(HaveOccurred())
+
+	var mayastorNodes []string
+	numMayastorInstances := 0
+
+	for _, node := range nodes {
+		if node.MayastorNode && !node.MasterNode {
+			mayastorNodes = append(mayastorNodes, node.NodeName)
+			numMayastorInstances += 1
+		}
+	}
 	Expect(numMayastorInstances).ToNot(Equal(0))
 
-	fmt.Printf("tag %v, registry %v, # of mayastor instances=%v\n", imageTag, registryAddress, numMayastorInstances)
+	fmt.Printf("tag %v, registry %v, # of mayastor instances=%v\n", imageTag, registry, numMayastorInstances)
 
 	// FIXME use absolute paths, do not depend on CWD
 	createNamespace()
@@ -228,30 +131,17 @@ func installMayastor() {
 	applyDeployYaml("moac-rbac.yaml")
 	applyDeployYaml("mayastorpoolcrd.yaml")
 	applyDeployYaml("nats-deployment.yaml")
-	generateYamls(imageTag, registryAddress)
-	applyDeployYaml("../test-yamls/csi-daemonset.yaml")
-	applyDeployYaml("../test-yamls/moac-deployment.yaml")
-	applyDeployYaml("../test-yamls/mayastor-daemonset.yaml")
+	generateYamlFiles(imageTag, registry, &e2eCfg)
+	applyDeployYaml("../artifacts/test-yamls/csi-daemonset.yaml")
+	applyDeployYaml("../artifacts/test-yamls/moac-deployment.yaml")
+	applyDeployYaml("../artifacts/test-yamls/mayastor-daemonset.yaml")
 
-	// Given the yaml files and the environment described in the test readme,
-	// we expect mayastor to be running on exactly numMayastorInstances nodes.
-	Eventually(func() int {
-		return mayastorReadyPodCount()
-	},
-		"180s", // timeout
-		"1s",   // polling interval
-	).Should(Equal(numMayastorInstances))
-
-	// Wait for MOAC to be ready before creating the pools,
-	Eventually(func() bool {
-		return moacReady()
-	},
-		"360s", // timeout
-		"2s",   // polling interval
-	).Should(Equal(true))
+	ready, err := common.MayastorReady(2, 540)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(ready).To(BeTrue())
 
 	// Now create pools on all nodes.
-	createPools(mayastorNodes)
+	createPools(mayastorNodes, &e2eCfg)
 
 	// Mayastor has been installed and is now ready for use.
 }
@@ -262,54 +152,19 @@ func TestInstallSuite(t *testing.T) {
 }
 
 var _ = Describe("Mayastor setup", func() {
-	It("should install using yamls", func() {
+	It("should install using yaml files", func() {
 		installMayastor()
 	})
 })
 
 var _ = BeforeSuite(func(done Done) {
 	logf.SetLogger(zap.New(zap.UseDevMode(true), zap.WriteTo(GinkgoWriter)))
-
-	By("bootstrapping test environment")
-	useCluster := true
-	testEnv = &envtest.Environment{
-		UseExistingCluster:       &useCluster,
-		AttachControlPlaneOutput: true,
-	}
-
-	var err error
-	cfg, err = testEnv.Start()
-	Expect(err).ToNot(HaveOccurred())
-	Expect(cfg).ToNot(BeNil())
-
-	k8sManager, err = ctrl.NewManager(cfg, ctrl.Options{
-		Scheme: scheme.Scheme,
-		// We do not consume prometheus metrics.
-		MetricsBindAddress: "0",
-	})
-	Expect(err).ToNot(HaveOccurred())
-
-	go func() {
-		err = k8sManager.Start(ctrl.SetupSignalHandler())
-		Expect(err).ToNot(HaveOccurred())
-	}()
-
-	mgrSyncCtx, mgrSyncCtxCancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer mgrSyncCtxCancel()
-	if synced := k8sManager.GetCache().WaitForCacheSync(mgrSyncCtx); !synced {
-		fmt.Println("Failed to sync")
-	}
-
-	k8sClient = k8sManager.GetClient()
-	Expect(k8sClient).ToNot(BeNil())
+	common.SetupTestEnv()
 
 	close(done)
 }, 60)
 
 var _ = AfterSuite(func() {
-	// NB This only tears down the local structures for talking to the cluster,
-	// not the kubernetes cluster itself.
 	By("tearing down the test environment")
-	err := testEnv.Stop()
-	Expect(err).ToNot(HaveOccurred())
+	common.TeardownTestEnvNoCleanup()
 })

@@ -2,6 +2,7 @@ package io_soak
 
 import (
 	"e2e-basic/common"
+	"e2e-basic/common/e2e_config"
 
 	"fmt"
 	"io/ioutil"
@@ -9,23 +10,6 @@ import (
 
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
-
-// This table of duty cycles is guesstimates and bear no relation to real loads.
-// TODO: make configurable
-var FioDutyCycles = []struct {
-	thinkTime       int
-	thinkTimeBlocks int
-}{
-	{500000, 1000},  // 0.5 second, 1000 blocks
-	{750000, 1000},  // 0.75 second, 1000 blocks
-	{1000000, 2000}, // 1 second, 2000 blocks
-	{1250000, 2000}, // 1.25 seconds, 2000 blocks
-	{1500000, 3000}, // 1.5  seconds, 3000 blocks
-	{1750000, 3000}, // 1.75  seconds, 3000 blocks
-	{2000000, 4000}, // 2  seconds, 4000 blocks
-}
-
-const fixedDuration = 60
 
 // see https://fio.readthedocs.io/en/latest/fio_doc.html#i-o-rate
 // run fio in a loop of fixed duration to fulfill a larger duration,
@@ -57,7 +41,7 @@ func RunIoSoakFio(podName string, duration time.Duration, thinkTime int, thinkTi
 	}
 
 	for ix := 1; secs > 0; ix++ {
-		runtime := fixedDuration
+		runtime := e2e_config.GetConfig().IOSoakTest.FioFixedDuration
 		if runtime > secs {
 			runtime = secs
 		}
@@ -72,7 +56,7 @@ func RunIoSoakFio(podName string, duration time.Duration, thinkTime int, thinkTi
 			"rawBlock", rawBlock,
 			"fioFile", fioFile,
 		)
-		output, err := common.RunFio(podName, runtime, fioFile, argThinkTime, argThinkTimeBlocks )
+		output, err := common.RunFio(podName, runtime, fioFile, argThinkTime, argThinkTimeBlocks)
 
 		//TODO: for now shove the output into /tmp
 		_ = ioutil.WriteFile("/tmp/"+podName+".out", output, 0644)

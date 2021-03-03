@@ -1,0 +1,30 @@
+# configuration/parameters for CI/CD e2e test runs 
+pvcstress:
+  cdCycles: 100
+  crudCycles: 20
+ioSoakTest:
+  replicas: 1
+  duration: 10m
+  loadFactor: 10
+  protocols:
+  - nvmf
+  - iscsi
+  fioFixedDuration: 60
+  fioDutyCycles:
+  - thinkTime: 500000
+    thinkTimeBlocks: 1000
+  - thinkTime: 750000
+    thinkTimeBlocks: 1000
+  - thinkTime: 1250000
+    thinkTimeBlocks: 2000
+  - thinkTime: 1500000
+    thinkTimeBlocks: 3000
+  - thinkTime: 1750000
+    thinkTimeBlocks: 3000
+  - thinkTime: 2000000
+    thinkTimeBlocks: 4000
+csi:
+  smallClaimSize: 50Mi
+  largeClaimSize: 500Mi
+uninstall:
+  cleanup: 0

@@ -2,9 +2,9 @@ package basic_test
 
 import (
 	"e2e-basic/common"
+	"e2e-basic/common/e2e_config"
 	rep "e2e-basic/common/reporter"
 
-	"os"
 	"os/exec"
 	"path"
 	"runtime"
@@ -18,8 +18,6 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
-var cleanup = false
-
 // Encapsulate the logic to find where the deploy yamls are
 func getDeployYamlDir() string {
 	_, filename, _, _ := runtime.Caller(0)
@@ -31,7 +29,7 @@ func deleteDeployYaml(filename string) {
 	cmd := exec.Command("kubectl", "delete", "-f", filename)
 	cmd.Dir = getDeployYamlDir()
 	_, err := cmd.CombinedOutput()
-	Expect(err).ToNot(HaveOccurred())
+	Expect(err).ToNot(HaveOccurred(), "Command failed: kubectl delete -f %s", filename)
 }
 
 // Helper for deleting mayastor CRDs
@@ -42,7 +40,7 @@ func deleteCRD(crdName string) {
 
 // Create mayastor namespace
 func deleteNamespace() {
-	cmd := exec.Command("kubectl", "delete", "namespace", "mayastor")
+	cmd := exec.Command("kubectl", "delete", "namespace", common.NSMayastor)
 	out, err := cmd.CombinedOutput()
 	Expect(err).ToNot(HaveOccurred(), "%s", out)
 }
@@ -52,6 +50,7 @@ func deleteNamespace() {
 // objects, so that we can verify the local deploy yaml files are correct.
 func teardownMayastor() {
 	var cleaned bool
+	cleanup := e2e_config.GetConfig().Uninstall.Cleanup != 0
 
 	logf.Log.Info("Settings:", "cleanup", cleanup)
 	if cleanup {
@@ -59,28 +58,28 @@ func teardownMayastor() {
 	} else {
 		found, err := common.CheckForTestPods()
 		if err != nil {
-			logf.Log.Error(err, "Failed to checking for test pods.")
+			logf.Log.Info("Failed to checking for test pods.", "error", err)
 		} else {
-			Expect(found).To(BeFalse())
+			Expect(found).To(BeFalse(), "Application pods were found, none expected.")
 		}
 
 		found, err = common.CheckForPVCs()
 		if err != nil {
-			logf.Log.Error(err, "Failed to check for PVCs")
+			logf.Log.Info("Failed to check for PVCs", "error", err)
 		}
-		Expect(found).To(BeFalse())
+		Expect(found).To(BeFalse(), "PersistentVolumeClaims were found, none expected.")
 
 		found, err = common.CheckForPVs()
 		if err != nil {
-			logf.Log.Error(err, "Failed to check PVs")
+			logf.Log.Info("Failed to check PVs", "error", err)
 		}
-		Expect(found).To(BeFalse())
+		Expect(found).To(BeFalse(), "PersistentVolumes were found, none expected.")
 
 		found, err = common.CheckForMSVs()
 		if err != nil {
-			logf.Log.Error(err, "Failed to check MSVs")
+			logf.Log.Info("Failed to check MSVs", "error", err)
 		}
-		Expect(found).To(BeFalse())
+		Expect(found).To(BeFalse(), "Mayastor volume CRDs were found, none expected.")
 
 		poolsDeleted := common.DeleteAllPools()
 		Expect(poolsDeleted).To(BeTrue())
@@ -123,15 +122,16 @@ func teardownMayastor() {
 
 	if cleanup {
 		// Attempt to forcefully delete mayastor pods
-		_, podCount, err := common.ForceDeleteMayastorPods()
-		Expect(cleaned).To(BeTrue())
-		Expect(podCount).To(BeZero())
-		Expect(err).ToNot(HaveOccurred())
+		deleted, podCount, err := common.ForceDeleteMayastorPods()
+		Expect(err).ToNot(HaveOccurred(), "ForceDeleteMayastorPods failed %v", err)
+		Expect(podCount).To(BeZero(), "All Mayastor pods have not been deleted")
 		// Only delete the namespace if there are no pending resources
-		// other wise this hangs.
+		// otherwise this hangs.
 		deleteNamespace()
+		Expect(deleted).To(BeFalse(), "Mayastor pods were force deleted")
+		Expect(cleaned).To(BeTrue(), "Application pods or volume resources were deleted")
 	} else {
-		Expect(common.MayastorUndeletedPodCount()).To(Equal(0))
+		Expect(common.MayastorUndeletedPodCount()).To(Equal(0), "All Mayastor pods were not removed on uninstall")
 		// More verbose here as deleting the namespace is often where this
 		// test hangs.
 		logf.Log.Info("Deleting the mayastor namespace")
@@ -142,10 +142,6 @@ func teardownMayastor() {
 
 func TestTeardownSuite(t *testing.T) {
 	RegisterFailHandler(Fail)
-
-	if os.Getenv("e2e_uninstall_cleanup") != "0" {
-		cleanup = true
-	}
 	RunSpecsWithDefaultAndCustomReporters(t, "Basic Teardown Suite", rep.GetReporters("uninstall"))
 }
 

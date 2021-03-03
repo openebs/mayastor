@@ -8,16 +8,15 @@ import (
 	"strconv"
 	"time"
 
+	appsV1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
-	storagev1 "k8s.io/api/storage/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
-
 	v1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/types"
+	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	. "github.com/onsi/gomega"
-
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 const NSMayastor = "mayastor"
@@ -78,7 +77,7 @@ func ApplyNodeSelectorToDeployment(deploymentName string, namespace string, labe
 		deployment.Spec.Template.Spec.NodeSelector = make(map[string]string)
 	}
 	deployment.Spec.Template.Spec.NodeSelector[label] = value
-	_, err = depApi(NSMayastor).Update(context.TODO(), deployment, metav1.UpdateOptions{})
+	_, err = depApi(namespace).Update(context.TODO(), deployment, metav1.UpdateOptions{})
 	Expect(err).ToNot(HaveOccurred())
 }
 
@@ -89,7 +88,7 @@ func RemoveAllNodeSelectorsFromDeployment(deploymentName string, namespace strin
 	Expect(err).ToNot(HaveOccurred())
 	if deployment.Spec.Template.Spec.NodeSelector != nil {
 		deployment.Spec.Template.Spec.NodeSelector = nil
-		_, err = depApi(NSMayastor).Update(context.TODO(), deployment, metav1.UpdateOptions{})
+		_, err = depApi(namespace).Update(context.TODO(), deployment, metav1.UpdateOptions{})
 	}
 	Expect(err).ToNot(HaveOccurred())
 }
@@ -105,7 +104,7 @@ func SetDeploymentReplication(deploymentName string, namespace string, replicas 
 		deployment, err := depAPI(namespace).Get(context.TODO(), deploymentName, metav1.GetOptions{})
 		Expect(err).ToNot(HaveOccurred())
 		deployment.Spec.Replicas = replicas
-		deployment, err = depAPI(NSMayastor).Update(context.TODO(), deployment, metav1.UpdateOptions{})
+		deployment, err = depAPI(namespace).Update(context.TODO(), deployment, metav1.UpdateOptions{})
 		if err == nil {
 			break
 		}
@@ -203,48 +202,74 @@ func PodPresentOnNode(podNameRegexp string, namespace string, nodeName string) b
 	return false
 }
 
-func AfterSuiteCleanup() {
-	logf.Log.Info("AfterSuiteCleanup")
-	// Place holder function,
-	// to facilitate post-mortem analysis do nothing
-	// however we may choose to cleanup based on
-	// test configuration.
+func mayastorReadyPodCount() int {
+	var mayastorDaemonSet appsV1.DaemonSet
+	if gTestEnv.K8sClient.Get(context.TODO(), types.NamespacedName{Name: "mayastor", Namespace: NSMayastor}, &mayastorDaemonSet) != nil {
+		logf.Log.Info("Failed to get mayastor DaemonSet")
+		return -1
+	}
+	logf.Log.Info("mayastor daemonset", "available instances", mayastorDaemonSet.Status.NumberAvailable)
+	return int(mayastorDaemonSet.Status.NumberAvailable)
 }
 
-// Check that no PVs, PVCs and MSVs are still extant.
-// Returns an error if resources exists.
-func AfterEachCheck() error {
-	var errorMsg = ""
-
-	logf.Log.Info("AfterEachCheck")
-
-	// Phase 1 to delete dangling resources
-	pvcs, _ := gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims("default").List(context.TODO(), metav1.ListOptions{})
-	if len(pvcs.Items) != 0 {
-		errorMsg += " found leftover PersistentVolumeClaims"
-		logf.Log.Info("AfterEachCheck: found leftover PersistentVolumeClaims, test fails.")
+func moacReady() bool {
+	var moacDeployment appsV1.Deployment
+	if gTestEnv.K8sClient.Get(context.TODO(), types.NamespacedName{Name: "moac", Namespace: NSMayastor}, &moacDeployment) != nil {
+		logf.Log.Info("Failed to get MOAC deployment")
+		return false
 	}
 
-	pvs, _ := gTestEnv.KubeInt.CoreV1().PersistentVolumes().List(context.TODO(), metav1.ListOptions{})
-	if len(pvs.Items) != 0 {
-		errorMsg += " found leftover PersistentVolumes"
-		logf.Log.Info("AfterEachCheck: found leftover PersistentVolumes, test fails.")
+	logf.Log.Info("moacDeployment.Status",
+		"ObservedGeneration", moacDeployment.Status.ObservedGeneration,
+		"Replicas", moacDeployment.Status.Replicas,
+		"UpdatedReplicas", moacDeployment.Status.UpdatedReplicas,
+		"ReadyReplicas", moacDeployment.Status.ReadyReplicas,
+		"AvailableReplicas", moacDeployment.Status.AvailableReplicas,
+		"UnavailableReplicas", moacDeployment.Status.UnavailableReplicas,
+		"CollisionCount", moacDeployment.Status.CollisionCount)
+	for ix, condition := range moacDeployment.Status.Conditions {
+		logf.Log.Info("Condition", "ix", ix,
+			"Status", condition.Status,
+			"Type", condition.Type,
+			"Message", condition.Message,
+			"Reason", condition.Reason)
 	}
 
-	// Mayastor volumes
-	msvGVR := schema.GroupVersionResource{
-		Group:    "openebs.io",
-		Version:  "v1alpha1",
-		Resource: "mayastorvolumes",
+	for _, condition := range moacDeployment.Status.Conditions {
+		if condition.Type == appsV1.DeploymentAvailable {
+			if condition.Status == corev1.ConditionTrue {
+				logf.Log.Info("MOAC is Available")
+				return true
+			}
+		}
 	}
-	msvs, _ := gTestEnv.DynamicClient.Resource(msvGVR).Namespace(NSMayastor).List(context.TODO(), metav1.ListOptions{})
-	if len(msvs.Items) != 0 {
-		errorMsg += " found leftover MayastorVolumes"
-		logf.Log.Info("AfterEachCheck: found leftover MayastorVolumes, test fails.")
+	logf.Log.Info("MOAC is Not Available")
+	return false
+}
+
+// Checks if MOAC is available and if the requisite number of mayastor instances are
+// up and running.
+func MayastorReady(sleepTime int, duration int) (bool, error) {
+	nodes, err := GetNodeLocs()
+	if err != nil {
+		return false, err
 	}
 
-	if len(errorMsg) != 0 {
-		return errors.New(errorMsg)
+	var mayastorNodes []string
+	numMayastorInstances := 0
+	for _, node := range nodes {
+		if node.MayastorNode && !node.MasterNode {
+			mayastorNodes = append(mayastorNodes, node.NodeName)
+			numMayastorInstances += 1
+		}
 	}
-	return nil
+
+	count := (duration + sleepTime - 1) / sleepTime
+	ready := false
+	for ix := 0; ix < count && !ready; ix++ {
+		time.Sleep(time.Duration(sleepTime) * time.Second)
+		ready = mayastorReadyPodCount() == numMayastorInstances && moacReady()
+	}
+
+	return ready, nil
 }

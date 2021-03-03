@@ -17,26 +17,26 @@ func resourceCheck() {
 
 	found, err := common.CheckForTestPods()
 	if err != nil {
-		logf.Log.Error(err, "Failed to check for test pods.")
+		logf.Log.Info("Failed to check for test pods.", "error", err)
 	} else {
 		Expect(found).To(BeFalse())
 	}
 
 	found, err = common.CheckForPVCs()
 	if err != nil {
-		logf.Log.Error(err, "Failed to check for PVCs")
+		logf.Log.Info("Failed to check for PVCs", err)
 	}
 	Expect(found).To(BeFalse())
 
 	found, err = common.CheckForPVs()
 	if err != nil {
-		logf.Log.Error(err, "Failed to check PVs")
+		logf.Log.Info("Failed to check PVs", "error", err)
 	}
 	Expect(found).To(BeFalse())
 
 	found, err = common.CheckForMSVs()
 	if err != nil {
-		logf.Log.Error(err, "Failed to check MSVs")
+		logf.Log.Info("Failed to check MSVs", "error", err)
 	}
 	Expect(found).To(BeFalse())
 }
