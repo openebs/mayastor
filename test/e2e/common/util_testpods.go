@@ -71,11 +71,13 @@ func IsPodRunning(podName string) bool {
 
 /// Create a Pod in default namespace, no options and no context
 func CreatePod(podDef *corev1.Pod) (*corev1.Pod, error) {
+	logf.Log.Info("Creating", "pod", podDef.Name)
 	return gTestEnv.KubeInt.CoreV1().Pods("default").Create(context.TODO(), podDef, metav1.CreateOptions{})
 }
 
 /// Delete a Pod in default namespace, no options and no context
 func DeletePod(podName string) error {
+	logf.Log.Info("Deleting", "pod", podName)
 	return gTestEnv.KubeInt.CoreV1().Pods("default").Delete(context.TODO(), podName, metav1.DeleteOptions{})
 }
 
@@ -137,6 +139,7 @@ func CreateFioPodDef(podName string, volName string) *corev1.Pod {
 /// Create a test fio pod in default namespace, no options and no context
 /// mayastor volume is mounted on /volume
 func CreateFioPod(podName string, volName string) (*corev1.Pod, error) {
+	logf.Log.Info("Creating fio pod definition", "name", podName, "volume type", "filesystem")
 	podDef := createFioPodDef(podName, volName, false)
 	return CreatePod(podDef)
 }
@@ -144,6 +147,7 @@ func CreateFioPod(podName string, volName string) (*corev1.Pod, error) {
 /// Create a test fio pod in default namespace, no options and no context
 /// mayastor device is mounted on /dev/sdm
 func CreateRawBlockFioPod(podName string, volName string) (*corev1.Pod, error) {
+	logf.Log.Info("Creating fio pod definition", "name", podName, "volume type", "raw block")
 	podDef := createFioPodDef(podName, volName, true)
 	return CreatePod(podDef)
 }

@@ -98,7 +98,7 @@ var blockVolumeMode = corev1.PersistentVolumeBlock
 //	2. The associated PV is created and its status transitions bound
 //	3. The associated MV is created and has a State "healthy"
 func mkPVC(volName string, scName string, rawBlock bool) string {
-	logf.Log.Info("creating", "volume", volName, "storageClass", scName)
+	logf.Log.Info("Creating", "volume", volName, "storageClass", scName)
 	// PVC create options
 	createOpts := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{

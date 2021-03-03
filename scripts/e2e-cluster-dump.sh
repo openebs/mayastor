@@ -196,7 +196,6 @@ function getLogs {
         cluster-describe >& "$dest/cluster.describe.txt"
 
         echo "logfiles generated in $dest"
-        ls -l "$dest"
         echo ""
 
     else

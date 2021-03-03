@@ -8,7 +8,6 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
 // Check that there are no artefacts left over from
@@ -17,26 +16,26 @@ func resourceCheck() {
 
 	found, err := common.CheckForTestPods()
 	if err != nil {
-		logf.Log.Error(err, "Failed to check for test pods.")
+		logf.Log.Info("Failed to check for test pods.", "error", err)
 	} else {
 		Expect(found).To(BeFalse())
 	}
 
 	found, err = common.CheckForPVCs()
 	if err != nil {
-		logf.Log.Error(err, "Failed to check for PVCs")
+		logf.Log.Info("Failed to check for PVCs", err)
 	}
 	Expect(found).To(BeFalse())
 
 	found, err = common.CheckForPVs()
 	if err != nil {
-		logf.Log.Error(err, "Failed to check PVs")
+		logf.Log.Info("Failed to check PVs", "error", err)
 	}
 	Expect(found).To(BeFalse())
 
 	found, err = common.CheckForMSVs()
 	if err != nil {
-		logf.Log.Error(err, "Failed to check MSVs")
+		logf.Log.Info("Failed to check MSVs", "error", err)
 	}
 	Expect(found).To(BeFalse())
 }
@@ -53,7 +52,6 @@ var _ = Describe("Mayastor resource check", func() {
 })
 
 var _ = BeforeSuite(func(done Done) {
-	logf.SetLogger(zap.New(zap.UseDevMode(true), zap.WriteTo(GinkgoWriter)))
 	common.SetupTestEnv()
 
 	close(done)

@@ -37,7 +37,7 @@ func createFioOnRefugeNode(podName string, volClaimName string) {
 // prevent mayastor pod from running on the given node
 func SuppressMayastorPodOn(nodeName string) {
 	common.UnlabelNode(nodeName, engineLabel)
-	err := common.WaitForPodNotRunningOnNode(mayastorRegexp, namespace, nodeName, podUnscheduleTimeoutSecs)
+	err := common.WaitForPodNotRunningOnNode(mayastorRegexp, common.NSMayastor, nodeName, podUnscheduleTimeoutSecs)
 	Expect(err).ToNot(HaveOccurred())
 }
 
@@ -45,7 +45,7 @@ func SuppressMayastorPodOn(nodeName string) {
 func UnsuppressMayastorPodOn(nodeName string) {
 	// add the mayastor label to the node
 	common.LabelNode(nodeName, engineLabel, mayastorLabel)
-	err := common.WaitForPodRunningOnNode(mayastorRegexp, namespace, nodeName, podRescheduleTimeoutSecs)
+	err := common.WaitForPodRunningOnNode(mayastorRegexp, common.NSMayastor, nodeName, podRescheduleTimeoutSecs)
 	Expect(err).ToNot(HaveOccurred())
 }
 

@@ -1,19 +1,20 @@
 package reporter
 
 import (
-	"os"
+	"e2e-basic/common/e2e_config"
 
 	. "github.com/onsi/ginkgo"
 	"github.com/onsi/ginkgo/reporters"
 )
 
 func GetReporters(name string) []Reporter {
-	reportDir := os.Getenv("e2e_reports_dir")
-	if reportDir == "" {
+	cfg := e2e_config.GetConfig()
+
+	if cfg.ReportsDir == "" {
 		panic("reportDir not defined - define via e2e_reports_dir environment variable")
 	}
 	testGroupPrefix := "e2e."
-	xmlFileSpec := reportDir + "/" + testGroupPrefix + name + "-junit.xml"
+	xmlFileSpec := cfg.ReportsDir + "/" + testGroupPrefix + name + "-junit.xml"
 	junitReporter := reporters.NewJUnitReporter(xmlFileSpec)
 	return []Reporter{junitReporter}
 }

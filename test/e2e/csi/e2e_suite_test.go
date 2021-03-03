@@ -17,8 +17,11 @@ limitations under the License.
 package e2e
 
 import (
+	"e2e-basic/common/e2e_config"
 	rep "e2e-basic/common/reporter"
+
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
@@ -36,7 +39,7 @@ const (
 
 var (
 	defaultStorageClassParameters = map[string]string{
-		"repl":     "1",
+		"repl":     fmt.Sprintf("%d", e2e_config.GetConfig().CSI.Replicas),
 		"protocol": "nvmf",
 	}
 )
