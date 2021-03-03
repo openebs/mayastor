@@ -1,5 +1,3 @@
-#![feature(allow_fail)]
-
 pub mod common;
 use common::*;
 
@@ -19,14 +17,11 @@ async fn create_nexus_malloc() {
         .unwrap();
 }
 
-// FIXME: CAS-737
 #[actix_rt::test]
-#[allow_fail]
 async fn create_nexus_sizes() {
     let cluster = ClusterBuilder::builder()
         .with_rest_timeout(std::time::Duration::from_secs(1))
-        // don't log whilst we have the allow_fail
-        .compose_build(|c| c.with_logs(false))
+        .compose_build(|c| c.with_logs(true))
         .await
         .unwrap();
 
