@@ -3,12 +3,11 @@ package basic_test
 import (
 	"e2e-basic/common"
 	"e2e-basic/common/e2e_config"
+	ins "e2e-basic/common/install"
 	rep "e2e-basic/common/reporter"
 
 	"fmt"
 	"os/exec"
-	"path"
-	"runtime"
 	"testing"
 
 	. "github.com/onsi/ginkgo"
@@ -18,33 +17,9 @@ import (
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
-const scriptsDir = "../../../scripts"
-const yamlsDir = "../../../artifacts/test-yamls"
-
-// Encapsulate the logic to find where the deploy yamls are
-func getDeployYamlDir() string {
-	_, filename, _, _ := runtime.Caller(0)
-	return path.Clean(filename + "/../../../../deploy")
-}
-
 // Create mayastor namespace
 func createNamespace() {
 	cmd := exec.Command("kubectl", "create", "namespace", common.NSMayastor)
-	out, err := cmd.CombinedOutput()
-	Expect(err).ToNot(HaveOccurred(), "%s", out)
-}
-
-// Helper for passing yaml from the deploy directory to kubectl
-func applyDeployYaml(filename string) {
-	cmd := exec.Command("kubectl", "apply", "-f", filename)
-	cmd.Dir = getDeployYamlDir()
-	out, err := cmd.CombinedOutput()
-	Expect(err).ToNot(HaveOccurred(), "%s", out)
-}
-
-// Helper for passing yaml from the generated directory to kubectl
-func applyGeneratedYaml(filename string) {
-	cmd := exec.Command("kubectl", "apply", "-f", yamlsDir+"/"+filename)
 	out, err := cmd.CombinedOutput()
 	Expect(err).ToNot(HaveOccurred(), "%s", out)
 }
@@ -65,7 +40,9 @@ func generateYamlFiles(imageTag string, registryAddress string, mayastorNodes []
 
 	bashCmd := fmt.Sprintf(
 		"%s/generate-deploy-yamls.sh -o %s -t '%s' -r '%s' %s %s test",
-		scriptsDir, yamlsDir, imageTag, registryAddress, coresDirective, poolDirectives,
+		ins.GetPathInRepo(ins.ScriptsDir),
+		ins.GetPathInRepo(ins.YamlsDir),
+		imageTag, registryAddress, coresDirective, poolDirectives,
 	)
 	cmd := exec.Command("bash", "-c", bashCmd)
 	out, err := cmd.CombinedOutput()
@@ -76,32 +53,29 @@ func generateYamlFiles(imageTag string, registryAddress string, mayastorNodes []
 //
 // TODO: Ideally there should be one way how to create pools without using
 // two env variables to do a similar thing.
-func createPools(mayastorNodes []string, e2eCfg *e2e_config.E2EConfig) {
-	// TODO: It is an error if configuration specifies both pool devices and pool definition yaml files,
-	// as this simple code does not resolve that case in an obvious or defined way.
-
+func createPools(e2eCfg *e2e_config.E2EConfig) {
 	poolYamlFiles := e2eCfg.PoolYamlFiles
 	poolDevice := e2eCfg.PoolDevice
+	// TODO: It is an error if configuration specifies both
+	//	- pool device
+	//	- pool yaml files,
+	// this simple code does not resolve that use case.
 	if len(poolYamlFiles) != 0 {
 		// Apply the list of externally defined pool yaml files
 		// NO check is made on the status of pools
 		for _, poolYaml := range poolYamlFiles {
-			fmt.Println("applying ", poolYaml)
+			logf.Log.Info("applying ", "yaml", poolYaml)
 			bashCmd := "kubectl apply -f " + poolYaml
 			cmd := exec.Command("bash", "-c", bashCmd)
-			_, err := cmd.CombinedOutput()
-			Expect(err).ToNot(HaveOccurred(), "Applying %s failed", poolYaml)
+			out, err := cmd.CombinedOutput()
+			Expect(err).ToNot(HaveOccurred(), "%s", out)
 		}
 	} else if len(poolDevice) != 0 {
 		// Use the generated file to create pools as per the devices
 		// NO check is made on the status of pools
-		poolYaml := yamlsDir + "/pool.yaml"
-		bashCmd := "kubectl apply -f " + poolYaml
-		cmd := exec.Command("bash", "-c", bashCmd)
-		_, err := cmd.CombinedOutput()
-		Expect(err).ToNot(HaveOccurred(), "Applying %s failed", poolYaml)
+		ins.ApplyYaml("pool.yaml", ins.YamlsDir)
 	} else {
-		Expect(false).To(BeTrue(), "Neither e2e_pool_yaml_files nor e2e_pool_device specified")
+		Expect(false).To(BeTrue(), "Neither pool yaml files nor pool device specified")
 	}
 }
 
@@ -137,25 +111,25 @@ func installMayastor() {
 	}
 	Expect(numMayastorInstances).ToNot(Equal(0))
 
-	fmt.Printf("tag %v, registry %v, # of mayastor instances=%v\n", imageTag, registry, numMayastorInstances)
+	logf.Log.Info("Install", "tag", imageTag, "registry", registry,"# of mayastor instances", numMayastorInstances)
 
-	// FIXME use absolute paths, do not depend on CWD
-	createNamespace()
 	generateYamlFiles(imageTag, registry, mayastorNodes, &e2eCfg)
-	applyDeployYaml("storage-class.yaml")
-	applyGeneratedYaml("moac-rbac.yaml")
-	applyDeployYaml("mayastorpoolcrd.yaml")
-	applyGeneratedYaml("nats-deployment.yaml")
-	applyGeneratedYaml("csi-daemonset.yaml")
-	applyGeneratedYaml("moac-deployment.yaml")
-	applyGeneratedYaml("mayastor-daemonset.yaml")
+
+	createNamespace()
+	ins.ApplyYaml("storage-class.yaml", ins.DeployDir)
+	ins.ApplyYaml("moac-rbac.yaml", ins.YamlsDir)
+	ins.ApplyYaml("mayastorpoolcrd.yaml", ins.DeployDir)
+	ins.ApplyYaml("nats-deployment.yaml", ins.YamlsDir)
+	ins.ApplyYaml("csi-daemonset.yaml", ins.YamlsDir)
+	ins.ApplyYaml("moac-deployment.yaml", ins.YamlsDir)
+	ins.ApplyYaml("mayastor-daemonset.yaml", ins.YamlsDir)
 
 	ready, err := common.MayastorReady(2, 540)
 	Expect(err).ToNot(HaveOccurred())
 	Expect(ready).To(BeTrue())
 
 	// Now create pools on all nodes.
-	createPools(mayastorNodes, &e2eCfg)
+	createPools(&e2eCfg)
 
 	// Mayastor has been installed and is now ready for use.
 }

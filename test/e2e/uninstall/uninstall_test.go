@@ -3,11 +3,10 @@ package basic_test
 import (
 	"e2e-basic/common"
 	"e2e-basic/common/e2e_config"
+	ins "e2e-basic/common/install"
 	rep "e2e-basic/common/reporter"
 
 	"os/exec"
-	"path"
-	"runtime"
 	"testing"
 	"time"
 
@@ -17,20 +16,6 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
-
-// Encapsulate the logic to find where the deploy yamls are
-func getDeployYamlDir() string {
-	_, filename, _, _ := runtime.Caller(0)
-	return path.Clean(filename + "/../../../../deploy")
-}
-
-// Helper for passing yaml from the deploy directory to kubectl
-func deleteDeployYaml(filename string) {
-	cmd := exec.Command("kubectl", "delete", "-f", filename)
-	cmd.Dir = getDeployYamlDir()
-	_, err := cmd.CombinedOutput()
-	Expect(err).ToNot(HaveOccurred(), "Command failed: kubectl delete -f %s", filename)
-}
 
 // Helper for deleting mayastor CRDs
 func deleteCRD(crdName string) {
@@ -89,10 +74,10 @@ func teardownMayastor() {
 	logf.Log.Info("Cleanup done, Uninstalling mayastor")
 	// Deletes can stall indefinitely, try to mitigate this
 	// by running the deletes on different threads
-	go deleteDeployYaml("csi-daemonset.yaml")
-	go deleteDeployYaml("mayastor-daemonset.yaml")
-	go deleteDeployYaml("moac-deployment.yaml")
-	go deleteDeployYaml("nats-deployment.yaml")
+	go ins.UnapplyYaml("csi-daemonset.yaml", ins.YamlsDir)
+	go ins.UnapplyYaml("mayastor-daemonset.yaml", ins.YamlsDir)
+	go ins.UnapplyYaml("moac-deployment.yaml", ins.YamlsDir)
+	go ins.UnapplyYaml("nats-deployment.yaml", ins.YamlsDir)
 
 	{
 		const timeOutSecs = 240
@@ -113,11 +98,11 @@ func teardownMayastor() {
 		}
 	}
 
-	// The focus is on trying to make the cluster reusable, so we try to delete everything.
-	// TODO: When we start using a cluster for a single test run  move these set of deletes to after all checks.
-	deleteDeployYaml("mayastorpoolcrd.yaml")
-	deleteDeployYaml("moac-rbac.yaml")
-	deleteDeployYaml("storage-class.yaml")
+	ins.UnapplyYaml("mayastorpoolcrd.yaml", ins.DeployDir)
+	ins.UnapplyYaml("moac-rbac.yaml", ins.YamlsDir)
+	ins.UnapplyYaml("storage-class.yaml", ins.DeployDir)
+
+	// MOAC implicitly creates these CRDs, should we delete?
 	deleteCRD("mayastornodes.openebs.io")
 	deleteCRD("mayastorvolumes.openebs.io")
 
