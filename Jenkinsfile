@@ -167,7 +167,8 @@ pipeline {
       }
       parallel {
         stage('rust unit tests') {
-          when{
+          when {
+            beforeAgent true
             expression { rust_test == true }
           }
           agent { label 'nixos-mayastor' }
@@ -183,7 +184,8 @@ pipeline {
           }
         }
         stage('grpc tests') {
-          when{
+          when {
+            beforeAgent true
             expression { grpc_test == true }
           }
           agent { label 'nixos-mayastor' }
@@ -198,7 +200,8 @@ pipeline {
           }
         }
         stage('moac unit tests') {
-          when{
+          when {
+            beforeAgent true
             expression { moac_test == true }
           }
           agent { label 'nixos-mayastor' }
@@ -213,12 +216,14 @@ pipeline {
           }
         }
         stage('e2e tests') {
-          when{
+          when {
+            beforeAgent true
             expression { e2e_test == true }
           }
           stages {
             stage('e2e docker images') {
-              when{
+              when {
+                beforeAgent true
                 expression { e2e_build_images == true }
               }
               agent { label 'nixos-mayastor' }
