@@ -107,9 +107,7 @@ fn main() {
     #[cfg(target_arch = "x86_64")]
     let bindings = bindings.clang_arg("-march=nehalem");
 
-    let bindings = bindings
-        .generate()
-        .expect("Unable to generate bindings");
+    let bindings = bindings.generate().expect("Unable to generate bindings");
 
     bindings
         .write_to_file(out_path.join("libspdk.rs"))

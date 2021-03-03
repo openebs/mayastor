@@ -3,8 +3,7 @@
 //! Replica is a logical data volume exported over nvmf (in SPDK terminology
 //! an lvol). Here we define methods for easy management of replicas.
 #![allow(dead_code)]
-use std::ffi::CStr;
-use std::os::raw::c_char;
+use std::{ffi::CStr, os::raw::c_char};
 
 use ::rpc::mayastor as rpc;
 use snafu::{ResultExt, Snafu};

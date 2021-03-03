@@ -10,12 +10,9 @@ use std::{
     ffi::{c_void, CString},
     io::{Error, ErrorKind},
     iter::Iterator,
+    os::raw::{c_char, c_int},
     ptr::null_mut,
     vec::Vec,
-    os::raw::{
-        c_char,
-        c_int,
-    },
 };
 
 use mayastor::delay;
