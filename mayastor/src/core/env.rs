@@ -486,7 +486,7 @@ impl MayastorEnvironment {
         let mut cargs = args
             .iter()
             .map(|arg| arg.as_ptr())
-            .collect::<Vec<*const i8>>();
+            .collect::<Vec<*const c_char>>();
 
         cargs.push(std::ptr::null());
         debug!("EAL arguments {:?}", args);
@@ -494,7 +494,7 @@ impl MayastorEnvironment {
         if unsafe {
             rte_eal_init(
                 (cargs.len() as libc::c_int) - 1,
-                cargs.as_ptr() as *mut *mut i8,
+                cargs.as_ptr() as *mut *mut c_char,
             )
         } < 0
         {
@@ -576,7 +576,7 @@ impl MayastorEnvironment {
         } else {
             info!("RPC server listening at: {}", ctx.rpc.to_str().unwrap());
             unsafe {
-                spdk_rpc_initialize(ctx.rpc.as_ptr() as *mut i8);
+                spdk_rpc_initialize(ctx.rpc.as_ptr() as *mut c_char);
                 spdk_rpc_set_state(SPDK_RPC_RUNTIME);
             };
 

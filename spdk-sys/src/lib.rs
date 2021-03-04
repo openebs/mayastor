@@ -27,6 +27,7 @@ pub type LogProto = Option<
     ),
 >;
 
+#[cfg(target_arch = "x86_64")]
 #[link(name = "logwrapper", kind = "static")]
 extern "C" {
     pub fn maya_log(
@@ -36,6 +37,21 @@ extern "C" {
         func: *const c_char,
         format: *const c_char,
         args: *mut __va_list_tag,
+    );
+
+    pub static mut logfn: LogProto;
+}
+
+#[cfg(target_arch = "aarch64")]
+#[link(name = "logwrapper", kind = "static")]
+extern "C" {
+    pub fn maya_log(
+        level: i32,
+        file: *const c_char,
+        line: i32,
+        func: *const c_char,
+        format: *const c_char,
+        args: __va_list,
     );
 
     pub static mut logfn: LogProto;
