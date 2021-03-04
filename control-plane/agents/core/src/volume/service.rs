@@ -1,37 +1,46 @@
-#![allow(clippy::unit_arg)]
+use crate::core::{registry::Registry, wrapper::ClientOps};
+use common::errors::{NodeNotFound, NotEnough, SvcError};
+use mbus_api::{
+    v0::{
+        AddNexusChild,
+        Child,
+        CreateNexus,
+        CreateReplica,
+        CreateVolume,
+        DestroyNexus,
+        DestroyReplica,
+        DestroyVolume,
+        Filter,
+        GetNexuses,
+        GetVolumes,
+        Nexus,
+        NexusId,
+        NexusState,
+        Nexuses,
+        PoolState,
+        Protocol,
+        RemoveNexusChild,
+        ReplicaId,
+        ShareNexus,
+        UnshareNexus,
+        Volume,
+        VolumeId,
+        Volumes,
+    },
+    ErrorChain,
+};
+use snafu::OptionExt;
 
-use super::*;
-use common::wrapper::v0::*;
-
-/// Volume service implementation methods
-#[derive(Clone, Debug, Default)]
-pub(super) struct VolumeSvc {
-    registry: Registry<NodeWrapperVolume>,
+#[derive(Debug, Clone)]
+pub(super) struct Service {
+    registry: Registry,
 }
 
-impl VolumeSvc {
-    /// New Service with the update `period`
-    pub fn new(period: std::time::Duration) -> Self {
-        let obj = Self {
-            registry: Registry::new(period),
-        };
-        obj.start();
-        obj
-    }
-    /// Start registry poller
-    fn start(&self) {
-        self.registry.start();
-    }
-
-    /// Get all nexuses from node or from all nodes
-    async fn get_node_nexuses(
-        &self,
-        node_id: Option<NodeId>,
-    ) -> Result<Vec<Nexus>, SvcError> {
-        Ok(match node_id {
-            None => self.registry.list_nexuses().await,
-            Some(node_id) => self.registry.list_node_nexuses(&node_id).await,
-        })
+impl Service {
+    pub(super) fn new(registry: Registry) -> Self {
+        Self {
+            registry,
+        }
     }
 
     /// Get nexuses according to the filter
@@ -42,25 +51,18 @@ impl VolumeSvc {
     ) -> Result<Nexuses, SvcError> {
         let filter = request.filter.clone();
         let nexuses = match filter {
-            Filter::None => self.get_node_nexuses(None).await?,
+            Filter::None => self.registry.get_node_opt_nexuses(None).await?,
             Filter::Node(node_id) => {
-                self.get_node_nexuses(Some(node_id)).await?
+                self.registry.get_node_nexuses(&node_id).await?
             }
             Filter::NodeNexus(node_id, nexus_id) => {
-                let nexuses = self.get_node_nexuses(Some(node_id)).await?;
-                nexuses
-                    .iter()
-                    .filter(|&n| n.uuid == nexus_id)
-                    .cloned()
-                    .collect()
+                let nexus =
+                    self.registry.get_node_nexus(&node_id, &nexus_id).await?;
+                vec![nexus]
             }
             Filter::Nexus(nexus_id) => {
-                let nexuses = self.get_node_nexuses(None).await?;
-                nexuses
-                    .iter()
-                    .filter(|&n| n.uuid == nexus_id)
-                    .cloned()
-                    .collect()
+                let nexus = self.registry.get_nexus(&nexus_id).await?;
+                vec![nexus]
             }
             _ => {
                 return Err(SvcError::InvalidFilter {
@@ -77,7 +79,14 @@ impl VolumeSvc {
         &self,
         request: &CreateNexus,
     ) -> Result<Nexus, SvcError> {
-        self.registry.create_nexus(request).await
+        let node = self
+            .registry
+            .get_node_wrapper(&request.node)
+            .await
+            .context(NodeNotFound {
+                node_id: request.node.clone(),
+            })?;
+        node.create_nexus(request).await
     }
 
     /// Destroy nexus
@@ -86,7 +95,14 @@ impl VolumeSvc {
         &self,
         request: &DestroyNexus,
     ) -> Result<(), SvcError> {
-        self.registry.destroy_nexus(request).await
+        let node = self
+            .registry
+            .get_node_wrapper(&request.node)
+            .await
+            .context(NodeNotFound {
+                node_id: request.node.clone(),
+            })?;
+        node.destroy_nexus(request).await
     }
 
     /// Share nexus
@@ -95,7 +111,14 @@ impl VolumeSvc {
         &self,
         request: &ShareNexus,
     ) -> Result<String, SvcError> {
-        self.registry.share_nexus(request).await
+        let node = self
+            .registry
+            .get_node_wrapper(&request.node)
+            .await
+            .context(NodeNotFound {
+                node_id: request.node.clone(),
+            })?;
+        node.share_nexus(request).await
     }
 
     /// Unshare nexus
@@ -104,7 +127,14 @@ impl VolumeSvc {
         &self,
         request: &UnshareNexus,
     ) -> Result<(), SvcError> {
-        self.registry.unshare_nexus(request).await
+        let node = self
+            .registry
+            .get_node_wrapper(&request.node)
+            .await
+            .context(NodeNotFound {
+                node_id: request.node.clone(),
+            })?;
+        node.unshare_nexus(request).await
     }
 
     /// Add nexus child
@@ -113,7 +143,14 @@ impl VolumeSvc {
         &self,
         request: &AddNexusChild,
     ) -> Result<Child, SvcError> {
-        self.registry.add_nexus_child(request).await
+        let node = self
+            .registry
+            .get_node_wrapper(&request.node)
+            .await
+            .context(NodeNotFound {
+                node_id: request.node.clone(),
+            })?;
+        node.add_child(request).await
     }
 
     /// Remove nexus child
@@ -122,7 +159,14 @@ impl VolumeSvc {
         &self,
         request: &RemoveNexusChild,
     ) -> Result<(), SvcError> {
-        self.registry.remove_nexus_child(request).await
+        let node = self
+            .registry
+            .get_node_wrapper(&request.node)
+            .await
+            .context(NodeNotFound {
+                node_id: request.node.clone(),
+            })?;
+        node.remove_child(request).await
     }
 
     /// Get volumes
@@ -131,7 +175,7 @@ impl VolumeSvc {
         &self,
         request: &GetVolumes,
     ) -> Result<Volumes, SvcError> {
-        let nexus = self.registry.list_nexuses().await;
+        let nexus = self.registry.get_nexuses().await;
         Ok(Volumes(
             nexus
                 .iter()
@@ -152,7 +196,7 @@ impl VolumeSvc {
         request: &CreateVolume,
     ) -> Result<Volume, SvcError> {
         // should we just use the cache here?
-        let pools = self.registry.fetch_pools_wrapper().await;
+        let pools = self.registry.get_pools_wrapper().await?;
 
         let size = request.size;
         let replicas = request.replicas;
@@ -164,9 +208,7 @@ impl VolumeSvc {
         }
 
         if request.nexuses > 1 {
-            tracing::warn!(
-                "Multiple nexus per volume is not currently working"
-            );
+            panic!("ANA volumes is not currently supported");
         }
 
         // filter pools according to the following criteria (any order):
@@ -180,7 +222,7 @@ impl VolumeSvc {
             .iter()
             .filter(|&p| {
                 // required nodes, if any
-                allowed_nodes.is_empty() || allowed_nodes.contains(&p.node())
+                allowed_nodes.is_empty() || allowed_nodes.contains(&p.node)
             })
             .filter(|&p| {
                 // enough free space
@@ -188,8 +230,7 @@ impl VolumeSvc {
             })
             .filter(|&p| {
                 // but preferably (the sort will sort this out for us)
-                p.state() != PoolState::Faulted
-                    && p.state() != PoolState::Unknown
+                p.state != PoolState::Faulted && p.state != PoolState::Unknown
             })
             .collect::<Vec<_>>();
 
@@ -209,9 +250,9 @@ impl VolumeSvc {
         let mut replicas = vec![];
         while let Some(pool) = pools.pop() {
             let create_replica = CreateReplica {
-                node: pool.node(),
+                node: pool.node.clone(),
                 uuid: ReplicaId::from(request.uuid.as_str()),
-                pool: pool.uuid(),
+                pool: pool.id.clone(),
                 size: request.size,
                 thin: true,
                 share: if replicas.is_empty() {
@@ -224,7 +265,14 @@ impl VolumeSvc {
                     Protocol::Nvmf
                 },
             };
-            let replica = self.registry.create_replica(&create_replica).await;
+            let node = self
+                .registry
+                .get_node_wrapper(&create_replica.node)
+                .await
+                .context(NodeNotFound {
+                    node_id: create_replica.node.clone(),
+                })?;
+            let replica = node.create_replica(&create_replica).await;
             if let Ok(replica) = replica {
                 replicas.push(replica);
             } else {
@@ -257,7 +305,7 @@ impl VolumeSvc {
                         .collect(),
                 };
 
-                match self.registry.create_nexus(&create_nexus).await {
+                match self.create_nexus(&create_nexus).await {
                     Ok(nexus) => {
                         nexuses.push(nexus);
                     }
@@ -305,31 +353,37 @@ impl VolumeSvc {
         &self,
         request: &DestroyVolume,
     ) -> Result<(), SvcError> {
-        let nexuses = self.registry.list_nexuses().await;
+        let nexuses = self.registry.get_nexuses().await;
         let nexuses = nexuses
             .iter()
             .filter(|n| n.uuid.as_str() == request.uuid.as_str())
             .collect::<Vec<_>>();
+
         for nexus in nexuses {
-            self.registry
-                .destroy_nexus(&DestroyNexus {
-                    node: nexus.node.clone(),
-                    uuid: NexusId::from(request.uuid.as_str()),
-                })
-                .await?;
+            self.destroy_nexus(&DestroyNexus {
+                node: nexus.node.clone(),
+                uuid: NexusId::from(request.uuid.as_str()),
+            })
+            .await?;
             for child in &nexus.children {
-                let replicas = self.registry.list_replicas().await;
+                let replicas = self.registry.get_replicas().await?;
                 let replica = replicas
                     .iter()
                     .find(|r| r.uri.as_str() == child.uri.as_str());
                 if let Some(replica) = replica {
-                    self.registry
-                        .destroy_replica(&DestroyReplica {
-                            node: replica.node.clone(),
-                            pool: replica.pool.clone(),
-                            uuid: replica.uuid.clone(),
-                        })
-                        .await?;
+                    let node = self
+                        .registry
+                        .get_node_wrapper(&replica.node)
+                        .await
+                        .context(NodeNotFound {
+                            node_id: replica.node.clone(),
+                        })?;
+                    node.destroy_replica(&DestroyReplica {
+                        node: replica.node.clone(),
+                        pool: replica.pool.clone(),
+                        uuid: replica.uuid.clone(),
+                    })
+                    .await?;
                 }
             }
         }

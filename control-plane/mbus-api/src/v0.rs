@@ -29,6 +29,8 @@ pub enum ChannelVs {
     Kiiss,
     /// Json gRPC Service
     JsonGrpc,
+    /// Core Service combines Node, Pool and Volume services
+    Core,
 }
 impl Default for ChannelVs {
     fn default() -> Self {
@@ -258,7 +260,7 @@ bus_impl_message_all!(GetNodes, GetNodes, Nodes, Node);
 /// // Get all nexuses from the node `node_id`
 /// let nexuses =
 ///     MessageBus::get_nexuses(Filter::Node(node_id)).await.unwrap();
-#[derive(Serialize, Deserialize, Debug, Clone)]
+#[derive(Serialize, Deserialize, Debug, Clone, strum_macros::ToString)] // likely this ToString does not do the right thing...
 pub enum Filter {
     /// All objects
     None,

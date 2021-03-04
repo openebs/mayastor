@@ -23,10 +23,11 @@ pub use mbus_nats::{
 };
 pub use receive::*;
 pub use send::*;
-use serde::{Deserialize, Serialize};
+use serde::{de::StdError, Deserialize, Serialize};
 use smol::io;
 use snafu::{ResultExt, Snafu};
 use std::{fmt::Debug, marker::PhantomData, str::FromStr, time::Duration};
+use strum_macros::{AsRefStr, ToString};
 
 /// Result wrapper for send/receive
 pub type BusResult<T> = Result<T, Error>;
@@ -107,8 +108,6 @@ pub enum Error {
     Subscribe { channel: String, source: io::Error },
     #[snafu(display("Reply message came back with an error"))]
     ReplyWithError { source: ReplyError },
-    #[snafu(display("Service error whilst handling request: {}", message))]
-    ServiceError { message: String },
 }
 
 /// Report error chain
@@ -284,17 +283,113 @@ struct SendPayload<T> {
     pub(crate) data: T,
 }
 
+/// All the different variants of Resources
+#[derive(Serialize, Deserialize, Debug, Clone, AsRefStr, ToString)]
+pub enum ResourceKind {
+    /// Unknown or unspecified resource
+    Unknown,
+    /// Node resource
+    Node,
+    /// Pool resource
+    Pool,
+    /// Replica resource
+    Replica,
+    /// Nexus resource
+    Nexus,
+    /// Child resource
+    Child,
+    /// Volume resource
+    Volume,
+    /// Json Grpc methods
+    JsonGrpc,
+    /// Block devices
+    Block,
+}
+
 /// Error type which is returned over the bus
 /// for any other operation
-#[derive(Serialize, Deserialize, Debug, Snafu, strum_macros::AsRefStr)]
+#[derive(Serialize, Deserialize, Clone, Debug)]
+pub struct ReplyError {
+    /// error kind
+    pub kind: ReplyErrorKind,
+    /// resource kind
+    pub resource: ResourceKind,
+    /// last source of this error
+    pub source: String,
+    /// extra information
+    pub extra: String,
+}
+
+impl StdError for ReplyError {}
+impl ReplyError {
+    /// extend error with source
+    /// useful when another error wraps around a `ReplyError` and we want to
+    /// convert back to `ReplyError` so we can send it over the wire
+    pub fn extend(&mut self, source: &str, extra: &str) {
+        self.source = format!("{}::{}", source, self.source);
+        self.extra = format!("{}::{}", extra, self.extra);
+    }
+}
+
+impl std::fmt::Display for ReplyError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "'{}' Error on '{}' resources, from Error '{}', extra: '{}'",
+            self.kind.as_ref(),
+            self.resource.as_ref(),
+            self.source,
+            self.extra
+        )
+    }
+}
+
+/// All the different variants of `ReplyError`
+#[derive(Serialize, Deserialize, Debug, Clone, strum_macros::AsRefStr)]
 #[allow(missing_docs)]
-pub enum ReplyError {
-    #[snafu(display("Generic Failure, message={}", message))]
-    WithMessage { message: String },
-    #[snafu(display("Failed to deserialize the request: '{}'", message))]
-    DeserializeReq { message: String },
-    #[snafu(display("Failed to process the request: '{}'", message))]
-    Process { message: String },
+pub enum ReplyErrorKind {
+    WithMessage,
+    DeserializeReq,
+    Internal,
+    Timeout,
+    InvalidArgument,
+    DeadlineExceeded,
+    NotFound,
+    AlreadyExists,
+    PermissionDenied,
+    ResourceExhausted,
+    FailedPrecondition,
+    Aborted,
+    OutOfRange,
+    Unimplemented,
+    Unavailable,
+    Unauthenticated,
+}
+
+impl From<Error> for ReplyError {
+    fn from(error: Error) -> Self {
+        #[allow(deprecated)]
+        let source_name = error.description().to_string();
+        match error {
+            Error::RequestTimeout {
+                ..
+            } => Self {
+                kind: ReplyErrorKind::Timeout,
+                resource: ResourceKind::Unknown,
+                source: source_name,
+                extra: error.to_string(),
+            },
+            Error::ReplyWithError {
+                source,
+            } => source,
+            _ => Self {
+                kind: ReplyErrorKind::Internal,
+                resource: ResourceKind::Unknown,
+                extra: error.to_string(),
+                source: source_name,
+            },
+        }
+    }
 }
 
 /// Payload returned to the sender

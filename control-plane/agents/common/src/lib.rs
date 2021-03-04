@@ -1,24 +1,31 @@
 #![warn(missing_docs)]
-//! Control Plane Services library with emphasis on the message bus interaction.
+//! Control Plane Agents library with emphasis on the message bus interaction
+//! including errors.
 //!
-//! It's meant to facilitate the creation of services with a helper builder to
+//! It's meant to facilitate the creation of agents with a helper builder to
 //! subscribe handlers for different message identifiers.
 
-/// wrapper for mayastor resources
-pub mod wrapper;
-
-use async_trait::async_trait;
-use dyn_clonable::clonable;
-use futures::{future::join_all, stream::StreamExt};
-use mbus_api::{v0::Liveness, *};
-use snafu::{OptionExt, ResultExt, Snafu};
-use state::Container;
 use std::{
     collections::HashMap,
     convert::{Into, TryInto},
     ops::Deref,
 };
+
+use async_trait::async_trait;
+use dyn_clonable::clonable;
+use futures::{future::join_all, stream::StreamExt};
+use snafu::{OptionExt, ResultExt, Snafu};
+use state::Container;
 use tracing::{debug, error};
+
+use mbus_api::{v0::Liveness, *};
+
+use crate::errors::SvcError;
+
+/// Agent level errors
+pub mod errors;
+/// Version 0 of the message bus types
+pub mod v0;
 
 #[derive(Debug, Snafu)]
 #[allow(missing_docs)]
@@ -31,11 +38,11 @@ pub enum ServiceError {
     GetMessageId { channel: Channel, source: Error },
     #[snafu(display("Failed to find subscription '{}' on Channel '{}'", id.to_string(), channel.to_string()))]
     FindSubscription { channel: Channel, id: MessageId },
-    #[snafu(display("Failed to handle message id '{}' on Channel '{}'", id.to_string(), channel.to_string()))]
+    #[snafu(display("Failed to handle message id '{}' on Channel '{}', details: {}", id.to_string(), channel.to_string(), details))]
     HandleMessage {
         channel: Channel,
         id: MessageId,
-        source: Error,
+        details: String,
     },
 }
 
@@ -101,7 +108,7 @@ impl<'a> Context<'a> {
         self.bus
     }
     /// get the shared state of type `T` from the context
-    pub fn get_state<T: Send + Sync + 'static>(&self) -> Result<&T, Error> {
+    pub fn get_state<T: Send + Sync + 'static>(&self) -> Result<&T, SvcError> {
         match self.state.try_get() {
             Some(state) => Ok(state),
             None => {
@@ -111,8 +118,8 @@ impl<'a> Context<'a> {
                     type_name
                 );
                 error!("{}", error_msg);
-                Err(Error::ServiceError {
-                    message: error_msg,
+                Err(SvcError::Internal {
+                    details: error_msg,
                 })
             }
         }
@@ -128,7 +135,7 @@ pub type Request<'a> = ReceivedRawMessage<'a>;
 /// which processes the messages and a filter to match message types
 pub trait ServiceSubscriber: Clone + Send + Sync {
     /// async handler which processes the messages
-    async fn handler(&self, args: Arguments<'_>) -> Result<(), Error>;
+    async fn handler(&self, args: Arguments<'_>) -> Result<(), SvcError>;
     /// filter which identifies which messages may be routed to the handler
     fn filter(&self) -> Vec<MessageId>;
 }
@@ -147,7 +154,7 @@ impl Service {
     /// Connect to the provided message bus server immediately
     /// Useful for when dealing with async shared data which might required the
     /// message bus before the builder is complete
-    pub async fn connect(mut self) -> Self {
+    pub async fn connect_message_bus(mut self) -> Self {
         self.message_bus_init().await;
         self
     }
@@ -178,7 +185,7 @@ impl Service {
     ///         .with_subscription(ServiceHandler::<Register>::default())
     ///         .run().await;
     ///
-    /// # async fn handler(&self, args: Arguments<'_>) -> Result<(), Error> {
+    /// # async fn handler(&self, args: Arguments<'_>) -> Result<(), SvcError> {
     ///    let store: &NodeStore = args.context.get_state()?;
     ///    let more: &More = args.context.get_state()?;
     /// # Ok(())
@@ -188,14 +195,25 @@ impl Service {
         tracing::debug!("Adding shared type: {}", type_name);
         if !self.shared_state.set(state) {
             panic!(
-                "{}",
-                format!(
-                    "Shared state for type '{}' has already been set!",
-                    type_name
-                )
+                "Shared state for type '{}' has already been set!",
+                type_name
             );
         }
         self
+    }
+    /// Get the shared state of type `T` added with `with_shared_state`
+    pub fn get_shared_state<T: Send + Sync + 'static>(&self) -> &T {
+        match self.shared_state.try_get() {
+            Some(state) => state,
+            None => {
+                let type_name = std::any::type_name::<T>();
+                let error_msg = format!(
+                    "Requested data type '{}' not shared via with_shared_data",
+                    type_name
+                );
+                panic!("{}", error_msg);
+            }
+        }
     }
 
     /// Add a default liveness endpoint which can be used to probe
@@ -219,10 +237,13 @@ impl Service {
 
         #[async_trait]
         impl ServiceSubscriber for ServiceHandler<Liveness> {
-            async fn handler(&self, args: Arguments<'_>) -> Result<(), Error> {
+            async fn handler(
+                &self,
+                args: Arguments<'_>,
+            ) -> Result<(), SvcError> {
                 let request: ReceivedMessage<Liveness> =
                     args.request.try_into()?;
-                request.reply(()).await
+                Ok(request.reply(()).await?)
             }
             fn filter(&self) -> Vec<MessageId> {
                 vec![Liveness::default().id()]
@@ -230,6 +251,14 @@ impl Service {
         }
 
         self.with_subscription(ServiceHandler::<Liveness>::default())
+    }
+
+    /// Configure `self` through a configure closure
+    pub fn configure<F>(self, configure: F) -> Self
+    where
+        F: FnOnce(Service) -> Service,
+    {
+        configure(self)
     }
 
     /// Add a new subscriber on the default channel
@@ -308,42 +337,23 @@ impl Service {
                 id: id.clone(),
             })?;
 
-        let result = subscription.handler(arguments.clone()).await;
-
-        Self::assess_handler_error(&result, &arguments).await;
-
-        result.context(HandleMessage {
-            channel: channel.clone(),
-            id: id.clone(),
-        })
-    }
-
-    async fn assess_handler_error(
-        result: &Result<(), Error>,
-        arguments: &Arguments<'_>,
-    ) {
-        if let Err(error) = result.as_ref() {
-            match error {
-                Error::DeserializeSend {
-                    ..
-                } => {
-                    arguments
-                        .request
-                        .respond::<(), _>(Err(ReplyError::DeserializeReq {
-                            message: error.full_string(),
-                        }))
-                        .await
-                }
-                _ => {
-                    arguments
-                        .request
-                        .respond::<(), _>(Err(ReplyError::Process {
-                            message: error.full_string(),
-                        }))
-                        .await
-                }
+        match subscription.handler(arguments.clone()).await {
+            Ok(_) => Ok(()),
+            Err(error) => {
+                let result = ServiceError::HandleMessage {
+                    channel,
+                    id: id.clone(),
+                    details: error.to_string(),
+                };
+                // respond back to the sender with an error, ignore the outcome
+                arguments
+                    .request
+                    .respond::<(), _>(Err(error.into()))
+                    .await
+                    // ignore the outcome, since we're already in error
+                    .ok();
+                Err(result)
             }
-            .ok();
         }
     }
 

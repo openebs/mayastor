@@ -84,9 +84,7 @@ let
   };
   agent-images = { build }: {
     kiiss = build-agent-image { inherit build; name = "kiiss"; };
-    node = build-agent-image { inherit build; name = "node"; };
-    pool = build-agent-image { inherit build; name = "pool"; };
-    volume = build-agent-image { inherit build; name = "volume"; };
+    core = build-agent-image { inherit build; name = "core"; };
     rest = build-agent-image {
       inherit build; name = "rest";
       config = { ExposedPorts = { "8080/tcp" = { }; "8081/tcp" = { }; }; };

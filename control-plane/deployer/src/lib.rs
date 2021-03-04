@@ -47,7 +47,7 @@ pub struct ListOptions {
 }
 
 pub fn default_agents() -> &'static str {
-    "Node, Pool, Volume"
+    "Core"
 }
 
 #[derive(Debug, Default, Clone, StructOpt)]

@@ -1,6 +1,6 @@
 use async_trait::async_trait;
-use common::*;
-use mbus_api::*;
+use common::{errors::SvcError, *};
+use mbus_api::{v0, *};
 use serde::{Deserialize, Serialize};
 use std::{convert::TryInto, marker::PhantomData};
 use structopt::StructOpt;
@@ -35,14 +35,14 @@ bus_impl_message_all!(GetSvcName, Default, SvcName, Default);
 
 #[async_trait]
 impl ServiceSubscriber for ServiceHandler<GetSvcName> {
-    async fn handler(&self, args: Arguments<'_>) -> Result<(), Error> {
+    async fn handler(&self, args: Arguments<'_>) -> Result<(), SvcError> {
         let msg: ReceivedMessage<GetSvcName> = args.request.try_into()?;
 
         let reply = SvcName("example".into());
 
         println!("Received {:?} and replying {:?}", msg.inner(), reply);
 
-        msg.reply(reply).await
+        Ok(msg.reply(reply).await?)
     }
     fn filter(&self) -> Vec<MessageId> {
         vec![GetSvcName::default().id()]

@@ -1,7 +1,7 @@
 pub mod service;
 
 use async_trait::async_trait;
-use common::*;
+use common::{errors::SvcError, *};
 use mbus_api::{v0::*, *};
 use service::*;
 use std::{convert::TryInto, marker::PhantomData};
@@ -31,16 +31,16 @@ macro_rules! impl_service_handler {
     ($RequestType:ident, $ServiceFnName:ident) => {
         #[async_trait]
         impl ServiceSubscriber for ServiceHandler<$RequestType> {
-            async fn handler(&self, args: Arguments<'_>) -> Result<(), Error> {
+            async fn handler(
+                &self,
+                args: Arguments<'_>,
+            ) -> Result<(), SvcError> {
                 let request: ReceivedMessage<$RequestType> =
                     args.request.try_into()?;
 
-                let reply = JsonGrpcSvc::$ServiceFnName(&request.inner())
-                    .await
-                    .map_err(|error| Error::ServiceError {
-                        message: error.full_string(),
-                    })?;
-                request.reply(reply).await
+                let reply =
+                    JsonGrpcSvc::$ServiceFnName(&request.inner()).await?;
+                Ok(request.reply(reply).await?)
             }
             fn filter(&self) -> Vec<MessageId> {
                 vec![$RequestType::default().id()]
@@ -71,7 +71,7 @@ async fn main() {
 
 async fn server(cli_args: CliArgs) {
     Service::builder(cli_args.nats, ChannelVs::JsonGrpc)
-        .connect()
+        .connect_message_bus()
         .await
         .with_subscription(ServiceHandler::<JsonGrpcRequest>::default())
         .with_default_liveness()

@@ -17,11 +17,9 @@ async fn wait_for_services() {
 
 // to avoid waiting for timeouts
 async fn orderly_start(test: &ComposeTest) {
-    test.start_containers(vec![
-        "nats", "node", "pool", "volume", "jsongrpc", "rest", "jaeger",
-    ])
-    .await
-    .unwrap();
+    test.start_containers(vec!["nats", "core", "jsongrpc", "rest", "jaeger"])
+        .await
+        .unwrap();
 
     test.connect_to_bus("nats").await;
     wait_for_services().await;
@@ -50,15 +48,13 @@ async fn client() {
             )
             .with_portmap("4222", "4222"),
         )
-        .add_container_bin("node", Binary::from_dbg("node").with_nats("-n"))
-        .add_container_bin("pool", Binary::from_dbg("pool").with_nats("-n"))
-        .add_container_bin("volume", Binary::from_dbg("volume").with_nats("-n"))
+        .add_container_bin("core", Binary::from_dbg("core").with_nats("-n"))
         .add_container_spec(
             ContainerSpec::from_binary(
                 "rest",
                 Binary::from_dbg("rest").with_nats("-n").with_args(vec![
                     "-j",
-                    "10.1.0.8:6831",
+                    "10.1.0.6:6831",
                     "--dummy-certificates",
                 ]),
             )
@@ -70,7 +66,7 @@ async fn client() {
             Binary::from_dbg("mayastor")
                 .with_nats("-n")
                 .with_args(vec!["-N", mayastor])
-                .with_args(vec!["-g", "10.1.0.7:10124"]),
+                .with_args(vec!["-g", "10.1.0.5:10124"]),
         )
         .add_container_spec(
             ContainerSpec::from_image(
@@ -78,8 +74,7 @@ async fn client() {
                 "jaegertracing/all-in-one:latest",
             )
             .with_portmap("16686", "16686")
-            .with_portmap("6831/udp", "6831/udp")
-            .with_portmap("6832/udp", "6832/udp"),
+            .with_portmap("6831/udp", "6831/udp"),
         )
         .add_container_bin(
             "jsongrpc",
@@ -101,15 +96,13 @@ async fn client_test(mayastor: &NodeId, test: &ComposeTest) {
         .unwrap()
         .v0();
     let nodes = client.get_nodes().await.unwrap();
+    let mut node = Node {
+        id: mayastor.clone(),
+        grpc_endpoint: "10.1.0.5:10124".to_string(),
+        state: NodeState::Online,
+    };
     assert_eq!(nodes.len(), 1);
-    assert_eq!(
-        nodes.first().unwrap(),
-        &Node {
-            id: mayastor.clone(),
-            grpc_endpoint: "10.1.0.7:10124".to_string(),
-            state: NodeState::Online,
-        }
-    );
+    assert_eq!(nodes.first().unwrap(), &node);
     info!("Nodes: {:#?}", nodes);
     let _ = client.get_pools(Filter::None).await.unwrap();
     let pool = client.create_pool(CreatePool {
@@ -156,7 +149,7 @@ async fn client_test(mayastor: &NodeId, test: &ComposeTest) {
             thin: false,
             size: 12582912,
             share: Protocol::Nvmf,
-            uri: "nvmf://10.1.0.7:8420/nqn.2019-05.io.openebs:replica1"
+            uri: "nvmf://10.1.0.5:8420/nqn.2019-05.io.openebs:replica1"
                 .to_string(),
         }
     );
@@ -289,5 +282,6 @@ async fn client_test(mayastor: &NodeId, test: &ComposeTest) {
 
     test.stop("mayastor").await.unwrap();
     tokio::time::delay_for(std::time::Duration::from_millis(250)).await;
-    assert!(client.get_nodes().await.unwrap().is_empty());
+    node.state = NodeState::Unknown;
+    assert_eq!(client.get_nodes().await.unwrap(), vec![node]);
 }

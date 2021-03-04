@@ -180,13 +180,22 @@ async fn put_replica(
             body.bus_request(node_id, pool_id, replica_id)
         }
         Filter::PoolReplica(pool_id, replica_id) => {
-            let node_id = match MessageBus::get_replica(filter).await {
-                Ok(replica) => replica.node,
-                Err(error) => return Err(RestError::from(error)),
-            };
+            let node_id =
+                match MessageBus::get_pool(Filter::Pool(pool_id.clone())).await
+                {
+                    Ok(replica) => replica.node,
+                    Err(error) => return Err(RestError::from(error)),
+                };
             body.bus_request(node_id, pool_id, replica_id)
         }
-        _ => return Err(RestError::from(BusError::NotFound)),
+        _ => {
+            return Err(RestError::from(BusError {
+                kind: ReplyErrorKind::Internal,
+                resource: ResourceKind::Replica,
+                source: "put_replica".to_string(),
+                extra: "invalid filter for resource".to_string(),
+            }))
+        }
     };
 
     RestRespond::result(MessageBus::create_replica(create).await)
@@ -213,7 +222,14 @@ async fn destroy_replica(filter: Filter) -> Result<Json<()>, RestError> {
                 uuid: replica_id,
             }
         }
-        _ => return Err(RestError::from(BusError::NotFound)),
+        _ => {
+            return Err(RestError::from(BusError {
+                kind: ReplyErrorKind::Internal,
+                resource: ResourceKind::Replica,
+                source: "destroy_replica".to_string(),
+                extra: "invalid filter for resource".to_string(),
+            }))
+        }
     };
 
     RestRespond::result(MessageBus::destroy_replica(destroy).await)
@@ -243,7 +259,14 @@ async fn share_replica(
                 protocol,
             }
         }
-        _ => return Err(RestError::from(BusError::NotFound)),
+        _ => {
+            return Err(RestError::from(BusError {
+                kind: ReplyErrorKind::Internal,
+                resource: ResourceKind::Replica,
+                source: "share_replica".to_string(),
+                extra: "invalid filter for resource".to_string(),
+            }))
+        }
     };
 
     RestRespond::result(MessageBus::share_replica(share).await)
@@ -270,7 +293,14 @@ async fn unshare_replica(filter: Filter) -> Result<Json<()>, RestError> {
                 uuid: replica_id,
             }
         }
-        _ => return Err(RestError::from(BusError::NotFound)),
+        _ => {
+            return Err(RestError::from(BusError {
+                kind: ReplyErrorKind::Internal,
+                resource: ResourceKind::Replica,
+                source: "unshare_replica".to_string(),
+                extra: "invalid filter for resource".to_string(),
+            }))
+        }
     };
 
     RestRespond::result(MessageBus::unshare_replica(unshare).await)

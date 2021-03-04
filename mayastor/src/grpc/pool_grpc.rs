@@ -41,9 +41,15 @@ impl From<LvsError> for Status {
             Error::Create {
                 ..
             } => Status::invalid_argument(e.to_string()),
+            Error::Destroy {
+                source, ..
+            } => source.into(),
             Error::Invalid {
                 ..
             } => Status::invalid_argument(e.to_string()),
+            Error::InvalidBdev {
+                source, ..
+            } => source.into(),
             _ => Status::internal(e.to_string()),
         }
     }
