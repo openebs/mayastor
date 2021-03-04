@@ -39,6 +39,7 @@ paperclip = { version = "0.5.0", default-features = false, optional = true }
 macros = { path = "../macros" }
 http = "0.2.3"
 tinytemplate = { version = "1.2" }
+jsonwebtoken = "7.2.0"
 
 [dev-dependencies]
 composer = { path = "../../composer" }

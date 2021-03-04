@@ -57,6 +57,16 @@ impl Method {
         let handler: ItemFn = syn::parse(item)?;
         Ok(handler.sig.ident)
     }
+    /// Add authorisation to handler functions by adding a BearerToken as an
+    /// additional function argument.
+    /// The BearerToken is defined in
+    /// ../Mayastor/control-plane/rest/service/src/v0/mod.rs
+    fn handler_fn_with_auth(item: TokenStream) -> syn::Result<syn::ItemFn> {
+        let mut func: ItemFn = syn::parse(item)?;
+        let new_input = syn::parse_str("_token: BearerToken")?;
+        func.sig.inputs.push(new_input);
+        Ok(func)
+    }
     fn generate(
         &self,
         attr: TokenStream,
@@ -65,7 +75,8 @@ impl Method {
         let full_uri: TokenStream2 = Self::handler_uri(attr.clone()).into();
         let relative_uri: TokenStream2 = Self::openapi_uri(attr.clone()).into();
         let handler_name = Self::handler_name(item.clone())?;
-        let handler_fn: TokenStream2 = item.into();
+        let handler_fn: TokenStream2 =
+            Self::handler_fn_with_auth(item)?.to_token_stream();
         let method: TokenStream2 = self.method().parse()?;
         let variant: TokenStream2 = self.variant().parse()?;
         let handler_name_str = handler_name.to_string();
