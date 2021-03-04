@@ -50,8 +50,8 @@ use crate::{
         BlockDeviceIoStats,
         CoreError,
         DeviceEventType,
-        IoCompletionCallback,
-        IoCompletionCallbackArg,
+        OpCompletionCallback,
+        OpCompletionCallbackArg,
     },
     ffihelper::{cb_arg, done_cb},
     nexus_uri::NexusBdevError,
@@ -64,8 +64,8 @@ static RESET_CTX_POOL: OnceCell<MemoryPool<ResetCtx>> = OnceCell::new();
 
 struct ResetCtx {
     name: String,
-    cb: IoCompletionCallback,
-    cb_arg: IoCompletionCallbackArg,
+    cb: OpCompletionCallback,
+    cb_arg: OpCompletionCallbackArg,
     spdk_handle: *mut spdk_nvme_ctrlr,
     io_device: Arc<IoDevice>,
     shutdown_in_progress: bool,
@@ -73,8 +73,8 @@ struct ResetCtx {
 
 struct ShutdownCtx {
     name: String,
-    cb: IoCompletionCallback,
-    cb_arg: IoCompletionCallbackArg,
+    cb: OpCompletionCallback,
+    cb_arg: OpCompletionCallbackArg,
 }
 
 impl<'a> NvmeControllerInner<'a> {
@@ -232,8 +232,8 @@ impl<'a> NvmeController<'a> {
     /// are reinitialized.
     pub fn reset(
         &mut self,
-        cb: IoCompletionCallback,
-        cb_arg: IoCompletionCallbackArg,
+        cb: OpCompletionCallback,
+        cb_arg: OpCompletionCallbackArg,
         failover: bool,
     ) -> Result<(), CoreError> {
         match self.state_machine.current_state() {
@@ -427,8 +427,8 @@ impl<'a> NvmeController<'a> {
     /// unregisters the I/O device associated with the controller.
     pub fn shutdown(
         &mut self,
-        cb: IoCompletionCallback,
-        cb_arg: IoCompletionCallbackArg,
+        cb: OpCompletionCallback,
+        cb_arg: OpCompletionCallbackArg,
     ) -> Result<(), CoreError> {
         self.state_machine.transition(Unconfiguring).map_err(|_| {
             error!(
@@ -639,8 +639,9 @@ impl<'a> Drop for NvmeController<'a> {
         // controller).
         assert!(
             matches!(curr_state, New | Unconfigured),
-           "{} dropping active controller in {:?} state",
-                self.name, curr_state
+            "{} dropping active controller in {:?} state",
+            self.name,
+            curr_state
         );
 
         // Inner state might not be yes available.
