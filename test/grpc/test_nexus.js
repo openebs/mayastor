@@ -685,6 +685,32 @@ describe('nexus', function () {
       });
     });
 
+    it('should change ANA state to inaccessible', (done) => {
+      client.setNvmeAnaState(
+        {
+          uuid: UUID,
+          ana_state: enums.NVME_ANA_INACCESSIBLE_STATE
+        },
+        (err, res) => {
+          if (err) done(err);
+          done();
+        }
+      );
+    });
+
+    it('should change ANA state back to optimized', (done) => {
+      client.setNvmeAnaState(
+        {
+          uuid: UUID,
+          ana_state: enums.NVME_ANA_OPTIMIZED_STATE
+        },
+        (err, res) => {
+          if (err) done(err);
+          done();
+        }
+      );
+    });
+
     it('should write to nvmf replica', (done) => {
       common.execAsRoot(
         common.getCmdPath('initiator'),

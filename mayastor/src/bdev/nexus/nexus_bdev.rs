@@ -13,6 +13,7 @@ use std::{
 
 use futures::{channel::oneshot, future::join_all};
 use nix::errno::Errno;
+use rpc::mayastor::NvmeAnaState;
 use serde::Serialize;
 use snafu::{ResultExt, Snafu};
 use tonic::{Code, Status};
@@ -106,6 +107,8 @@ pub enum Error {
     AlreadyShared { name: String },
     #[snafu(display("The nexus {} has not been shared", name))]
     NotShared { name: String },
+    #[snafu(display("The nexus {} has not been shared over NVMf", name))]
+    NotSharedNvmf { name: String },
     #[snafu(display("Failed to share nexus over NBD {}", name))]
     ShareNbdNexus { source: NbdError, name: String },
     #[snafu(display("Failed to share iscsi nexus {}", name))]
@@ -233,6 +236,8 @@ pub enum Error {
     },
     #[snafu(display("Invalid ShareProtocol value {}", sp_value))]
     InvalidShareProtocol { sp_value: i32 },
+    #[snafu(display("Invalid NvmeAnaState value {}", ana_value))]
+    InvalidNvmeAnaState { ana_value: i32 },
     #[snafu(display("Failed to create nexus {}", name))]
     NexusCreate { name: String },
     #[snafu(display("Failed to destroy nexus {}", name))]
@@ -252,6 +257,16 @@ pub enum Error {
     FailedGetHandle,
     #[snafu(display("Failed to create snapshot on nexus {}", name))]
     FailedCreateSnapshot { name: String, source: CoreError },
+    #[snafu(display("NVMf subsystem error: {}", e))]
+    SubsysNvmfError { e: String },
+}
+
+impl From<subsys::NvmfError> for Error {
+    fn from(error: subsys::NvmfError) -> Self {
+        Error::SubsysNvmfError {
+            e: error.to_string(),
+        }
+    }
 }
 
 impl From<Error> for tonic::Status {
@@ -270,6 +285,9 @@ impl From<Error> for tonic::Status {
                 ..
             } => Status::invalid_argument(e.to_string()),
             Error::NotShared {
+                ..
+            } => Status::invalid_argument(e.to_string()),
+            Error::NotSharedNvmf {
                 ..
             } => Status::invalid_argument(e.to_string()),
             Error::CreateChild {
@@ -628,6 +646,25 @@ impl Nexus {
         }
 
         Ok(())
+    }
+
+    /// set ANA state of the NVMe subsystem
+    pub async fn set_ana_state(
+        &self,
+        ana_state: NvmeAnaState,
+    ) -> Result<(), Error> {
+        if let Some(Protocol::Nvmf) = self.shared() {
+            if let Some(subsystem) = NvmfSubsystem::nqn_lookup(&self.name) {
+                subsystem.pause().await.unwrap();
+                let res = subsystem.set_ana_state(ana_state as u32).await;
+                subsystem.resume().await.unwrap();
+                return Ok(res?);
+            }
+        }
+
+        Err(Error::NotSharedNvmf {
+            name: self.name.clone(),
+        })
     }
 
     /// register the bdev with SPDK and set the callbacks for io channel

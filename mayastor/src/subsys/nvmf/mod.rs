@@ -63,15 +63,15 @@ pub enum Error {
     PgError { msg: String },
     #[snafu(display("Failed to create transport {}", msg))]
     Transport { source: Errno, msg: String },
-    #[snafu(display("Failed to create subsystem for {} {} error: {}", source.desc(), nqn, msg))]
+    #[snafu(display("Failed nvmf subsystem operation for {} {} error: {}", source.desc(), nqn, msg))]
     Subsystem {
         source: Errno,
         nqn: String,
         msg: String,
     },
-    #[snafu(display("Failed to create share for  {} {}", bdev, msg))]
+    #[snafu(display("Failed to create share for {} {}", bdev, msg))]
     Share { bdev: String, msg: String },
-    #[snafu(display("Failed to add namespace for  {} {}", bdev, msg))]
+    #[snafu(display("Failed to add namespace for {} {}", bdev, msg))]
     Namespace { bdev: String, msg: String },
 }
 

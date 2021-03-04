@@ -54,6 +54,13 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
                 .help("uuid for the nexus"),
         );
 
+    let set_ana_state = SubCommand::with_name("set_ana_state")
+        .about("set the NVMe ANA state of the nexus")
+        .arg(Arg::with_name("uuid").required(true).index(1)
+            .help("uuid for the nexus"))
+        .arg(Arg::with_name("ana_state").required(true).index(2)
+            .help("NVMe ANA state (optimized,non_optimized,inaccessible) of the nexus"));
+
     let add = SubCommand::with_name("add")
         .about("add a child")
         .arg(
@@ -122,6 +129,7 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
         .subcommand(add)
         .subcommand(remove)
         .subcommand(unpublish)
+        .subcommand(set_ana_state)
         .subcommand(list)
         .subcommand(children)
         .subcommand(nexus_child_cli::subcommands())
@@ -138,6 +146,9 @@ pub async fn handler(
         ("children", Some(args)) => nexus_children(ctx, &args).await,
         ("publish", Some(args)) => nexus_publish(ctx, &args).await,
         ("unpublish", Some(args)) => nexus_unpublish(ctx, &args).await,
+        ("set_ana_state", Some(args)) => {
+            nexus_set_nvme_ana_state(ctx, &args).await
+        }
         ("add", Some(args)) => nexus_add(ctx, &args).await,
         ("remove", Some(args)) => nexus_remove(ctx, &args).await,
         ("child", Some(args)) => nexus_child_cli::handler(ctx, args).await,
@@ -318,6 +329,40 @@ async fn nexus_unpublish(
         })
         .await?;
     ctx.v1(&format!("Nexus {} unpublished", uuid));
+    Ok(())
+}
+
+async fn nexus_set_nvme_ana_state(
+    mut ctx: Context,
+    matches: &ArgMatches<'_>,
+) -> Result<(), Status> {
+    let uuid = matches.value_of("uuid").unwrap().to_string();
+    let ana_state = match matches.value_of("ana_state").unwrap() {
+        "optimized" => rpc::NvmeAnaState::NvmeAnaOptimizedState,
+        "non_optimized" => rpc::NvmeAnaState::NvmeAnaNonOptimizedState,
+        "inaccessible" => rpc::NvmeAnaState::NvmeAnaInaccessibleState,
+        _ => {
+            return Err(Status::new(
+                Code::Internal,
+                "Invalid value of NVMe ANA state".to_owned(),
+            ));
+        }
+    };
+
+    ctx.v2(&format!(
+        "Setting NVMe ANA state for nexus {} to {:?}",
+        uuid, ana_state
+    ));
+    ctx.client
+        .set_nvme_ana_state(rpc::SetNvmeAnaStateRequest {
+            uuid: uuid.clone(),
+            ana_state: ana_state.into(),
+        })
+        .await?;
+    ctx.v1(&format!(
+        "Set NVMe ANA state for nexus {} to {:?}",
+        uuid, ana_state
+    ));
     Ok(())
 }
 

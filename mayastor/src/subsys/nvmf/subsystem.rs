@@ -12,6 +12,7 @@ use futures::channel::oneshot;
 use nix::errno::Errno;
 
 use spdk_sys::{
+    nvmf_subsystem_set_ana_state,
     spdk_bdev_nvme_opts,
     spdk_nvmf_ns_get_bdev,
     spdk_nvmf_ns_opts,
@@ -469,6 +470,35 @@ impl NvmfSubsystem {
         } else {
             Ok(())
         }
+    }
+
+    /// set ANA state: optimized, non_optimized, inaccessible
+    /// subsystem must be in paused or inactive state
+    pub async fn set_ana_state(&self, ana_state: u32) -> Result<(), Error> {
+        extern "C" fn set_ana_state_cb(arg: *mut c_void, status: i32) {
+            let s = unsafe { Box::from_raw(arg as *mut oneshot::Sender<i32>) };
+            s.send(status).unwrap();
+        }
+        let cfg = Config::get();
+        let trid_replica = TransportId::new(cfg.nexus_opts.nvmf_replica_port);
+
+        let (s, r) = oneshot::channel::<i32>();
+
+        unsafe {
+            nvmf_subsystem_set_ana_state(
+                self.0.as_ptr(),
+                trid_replica.as_ptr(),
+                ana_state,
+                Some(set_ana_state_cb),
+                cb_arg(s),
+            );
+        }
+
+        r.await.unwrap().to_result(|e| Error::Subsystem {
+            source: Errno::from_i32(e),
+            nqn: self.get_nqn(),
+            msg: "failed to set_ana_state of the subsystem".to_string(),
+        })
     }
 
     /// destroy all subsystems associated with our target, subsystems must be in
