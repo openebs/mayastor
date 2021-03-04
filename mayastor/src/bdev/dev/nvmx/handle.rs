@@ -17,7 +17,11 @@ use crate::{
         dev::nvmx::{
             channel::NvmeControllerIoChannel,
             utils,
-            utils::{nvme_cpl_is_pi_error, nvme_cpl_succeeded},
+            utils::{
+                nvme_command_status,
+                nvme_cpl_is_pi_error,
+                nvme_cpl_succeeded,
+            },
             NvmeBlockDevice,
             NvmeIoChannel,
             NvmeNamespace,
@@ -33,6 +37,9 @@ use crate::{
         DmaError,
         IoCompletionCallback,
         IoCompletionCallbackArg,
+        IoCompletionStatus,
+        OpCompletionCallback,
+        OpCompletionCallbackArg,
     },
     ffihelper::{cb_arg, done_cb},
 };
@@ -239,7 +246,14 @@ fn complete_nvme_command(ctx: *mut NvmeIoCtx, cpl: *const spdk_nvme_cpl) {
     }
 
     // Invoke caller's callback and free I/O context.
-    (io_ctx.cb)(op_succeeded, io_ctx.cb_arg);
+    if op_succeeded {
+        (io_ctx.cb)(IoCompletionStatus::Success, io_ctx.cb_arg);
+    } else {
+        (io_ctx.cb)(
+            IoCompletionStatus::NvmeError(nvme_command_status(cpl)),
+            io_ctx.cb_arg,
+        );
+    }
     IOCTX_POOL.get().unwrap().put(ctx);
 }
 
@@ -762,8 +776,8 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
 
     fn reset(
         &self,
-        cb: IoCompletionCallback,
-        cb_arg: IoCompletionCallbackArg,
+        cb: OpCompletionCallback,
+        cb_arg: OpCompletionCallbackArg,
     ) -> Result<(), CoreError> {
         let controller = NVME_CONTROLLERS.lookup_by_name(&self.name).ok_or(
             CoreError::BdevNotFound {

@@ -5,7 +5,13 @@ use once_cell::sync::{Lazy, OnceCell};
 use common::compose::{Builder, MayastorTest};
 use mayastor::{
     bdev::{device_create, device_destroy, device_lookup, device_open},
-    core::{BlockDeviceHandle, DeviceEventType, DmaBuf, MayastorCliArgs},
+    core::{
+        BlockDeviceHandle,
+        DeviceEventType,
+        DmaBuf,
+        IoCompletionStatus,
+        MayastorCliArgs,
+    },
     subsys::{Config, NvmeBdevOpts},
 };
 use rpc::mayastor::{BdevShareRequest, BdevUri, Null};
@@ -298,8 +304,8 @@ async fn nvmf_io_stats() {
         handle: Box<dyn BlockDeviceHandle>,
     }
 
-    fn io_completion_callback(success: bool, _ctx: *mut c_void) {
-        assert!(success, "I/O operation failed");
+    fn io_completion_callback(status: IoCompletionStatus, _ctx: *mut c_void) {
+        assert_eq!(status, IoCompletionStatus::Success, "I/O operation failed");
     }
 
     let ptr = ms
@@ -521,11 +527,15 @@ async fn nvmf_device_readv_test() {
     }
 
     // Read completion callback.
-    fn read_completion_callback(success: bool, ctx: *mut c_void) {
+    fn read_completion_callback(status: IoCompletionStatus, ctx: *mut c_void) {
         // Make sure callback is invoked only once.
         flag_callback_invocation();
 
-        assert!(success, "readv_blocks() failed");
+        assert_eq!(
+            status,
+            IoCompletionStatus::Success,
+            "readv_blocks() failed"
+        );
         // Make sure we were passed the same pattern string as requested.
         let s = unsafe {
             let slice = slice::from_raw_parts(
@@ -624,11 +634,15 @@ async fn nvmf_device_writev_test() {
     let url = Arc::clone(&u);
 
     // Read completion callback.
-    fn write_completion_callback(success: bool, ctx: *mut c_void) {
+    fn write_completion_callback(status: IoCompletionStatus, ctx: *mut c_void) {
         // Make sure callback is invoked only once.
         flag_callback_invocation();
 
-        assert!(success, "writev_blocks() failed");
+        assert_eq!(
+            status,
+            IoCompletionStatus::Success,
+            "writev_blocks() failed"
+        );
         // Make sure we were passed the same pattern string as requested.
         let s = unsafe {
             let slice = slice::from_raw_parts(
@@ -775,11 +789,15 @@ async fn nvmf_device_readv_iovs_test() {
     let mut url = Arc::clone(&u);
 
     // Read completion callback.
-    fn read_completion_callback(success: bool, ctx: *mut c_void) {
+    fn read_completion_callback(status: IoCompletionStatus, ctx: *mut c_void) {
         // Make sure callback is invoked only once.
         flag_callback_invocation();
 
-        assert!(success, "readv_blocks() failed");
+        assert_eq!(
+            status,
+            IoCompletionStatus::Success,
+            "readv_blocks() failed"
+        );
         // Make sure we were passed the same pattern string as requested.
         let s = unsafe {
             let slice = slice::from_raw_parts(
@@ -915,11 +933,15 @@ async fn nvmf_device_writev_iovs_test() {
     clear_callback_invocation_flag();
 
     // Write completion callback.
-    fn write_completion_callback(success: bool, ctx: *mut c_void) {
+    fn write_completion_callback(status: IoCompletionStatus, ctx: *mut c_void) {
         // Make sure callback is invoked only once.
         flag_callback_invocation();
 
-        assert!(success, "writev_blocks() failed");
+        assert_eq!(
+            status,
+            IoCompletionStatus::Success,
+            "writev_blocks() failed"
+        );
         // Make sure we were passed the same pattern string as requested.
         let s = unsafe {
             let slice = slice::from_raw_parts(
@@ -1173,11 +1195,15 @@ async fn wipe_device_blocks(is_unmap: bool) {
     const OP_OFFSET: u64 = 12 * 1024 * 1024;
 
     // Read completion callback.
-    fn wipe_completion_callback(success: bool, ctx: *mut c_void) {
+    fn wipe_completion_callback(status: IoCompletionStatus, ctx: *mut c_void) {
         // Make sure callback is invoked only once.
         flag_callback_invocation();
 
-        assert!(success, "block deallocation failed");
+        assert_eq!(
+            status,
+            IoCompletionStatus::Success,
+            "block deallocation failed"
+        );
         // Make sure we were passed the same pattern string as requested.
         let s = unsafe {
             let slice = slice::from_raw_parts(
@@ -1337,8 +1363,12 @@ async fn nvmf_reset_abort_io() {
     }
 
     // Read I/O completion callback.
-    fn read_completion_callback(success: bool, ctx: *mut c_void) {
-        assert_eq!(success, false, "read I/O operation completed successfully");
+    fn read_completion_callback(status: IoCompletionStatus, ctx: *mut c_void) {
+        assert_ne!(
+            status,
+            IoCompletionStatus::Success,
+            "read I/O operation completed successfully"
+        );
 
         // Make sure we were passed the same pattern string as requested.
         let s = unsafe {
@@ -1354,9 +1384,10 @@ async fn nvmf_reset_abort_io() {
     }
 
     // Write I/O completion callback.
-    fn write_completion_callback(success: bool, ctx: *mut c_void) {
-        assert_eq!(
-            success, false,
+    fn write_completion_callback(status: IoCompletionStatus, ctx: *mut c_void) {
+        assert_ne!(
+            status,
+            IoCompletionStatus::Success,
             "write I/O operation completed successfully"
         );
 
