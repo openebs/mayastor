@@ -36,7 +36,6 @@ impl From<i32> for StatusCodeType {
 pub enum GenericStatusCode {
     Success,
     InvalidOpcode,
-    InvalidOPCode,
     InvalidFieldInCommand,
     CommandIDConflict,
     DataTransferError,
@@ -64,6 +63,14 @@ pub enum GenericStatusCode {
     CommandAbortPreemt,
     SanitizeFailed,
     SanitizeInProgress,
+    Reserved,
+}
+#[derive(Debug, Copy, Clone, Eq, PartialOrd, PartialEq)]
+pub enum NvmeCommandStatus {
+    CommandSpecificStatus,
+    GenericCommandStatus(GenericStatusCode),
+    MediaDataIntegrityErrors,
+    VendorSpecific,
     Reserved,
 }
 
@@ -191,6 +198,20 @@ impl From<&Bio> for NvmeStatus {
             cdw0,
             sct: StatusCodeType::from(sct),
             sc: GenericStatusCode::from(sc),
+        }
+    }
+}
+
+impl NvmeCommandStatus {
+    pub fn from_command_status(sct: i32, sc: i32) -> Self {
+        match StatusCodeType::from(sct) {
+            CommandSpecificStatus => Self::CommandSpecificStatus,
+            GenericCommandStatus => {
+                Self::GenericCommandStatus(GenericStatusCode::from(sc))
+            }
+            MediaDataIntegrityErrors => Self::MediaDataIntegrityErrors,
+            VendorSpecific => Self::VendorSpecific,
+            _ => Self::Reserved,
         }
     }
 }
