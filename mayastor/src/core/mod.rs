@@ -17,6 +17,8 @@ pub use block_device::{
     IoCompletionCallback,
     IoCompletionCallbackArg,
     LbaRangeController,
+    OpCompletionCallback,
+    OpCompletionCallbackArg,
 };
 pub use channel::IoChannel;
 pub use cpu_cores::{Core, Cores};
@@ -33,6 +35,7 @@ pub use env::{
 pub use bio::{Bio, IoStatus, IoType};
 pub use handle::BdevHandle;
 pub use nvme::{nvme_admin_opc, GenericStatusCode, NvmeStatus};
+pub use nvme::{GenericStatusCode, NvmeCommandStatus, NvmeStatus};
 pub use reactor::{Reactor, ReactorState, Reactors, REACTOR_LIST};
 pub use share::{Protocol, Share};
 pub use thread::Mthread;
@@ -164,4 +167,12 @@ pub enum CoreError {
     DeviceStatisticsError {
         source: Errno,
     },
+}
+
+// Generic I/O completion status for block devices, which supports per-protocol
+// error domains.
+#[derive(Debug, Copy, Clone, Eq, PartialOrd, PartialEq)]
+pub enum IoCompletionStatus {
+    Success,
+    NvmeError(NvmeCommandStatus),
 }
