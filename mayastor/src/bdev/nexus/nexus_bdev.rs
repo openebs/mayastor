@@ -11,7 +11,7 @@ use std::{
     os::raw::c_void,
 };
 
-use futures::channel::oneshot;
+use futures::{channel::oneshot, future::join_all};
 use nix::errno::Errno;
 use serde::Serialize;
 use snafu::{ResultExt, Snafu};
@@ -424,10 +424,7 @@ impl Nexus {
             max_io_attempts: cfg.err_store_opts.max_io_attempts,
         });
 
-        n.bdev.set_uuid(match uuid {
-            Some(uuid) => Some(uuid.to_string()),
-            None => None,
-        });
+        n.bdev.set_uuid(uuid.map(String::from));
 
         if let Some(child_bdevs) = child_bdevs {
             n.register_children(child_bdevs);
@@ -1033,11 +1030,13 @@ impl Nexus {
     }
 }
 
-/// If we fail to create one of the children we will fail the whole operation
-/// destroy any created children and return the error. Once created, and we
-/// bring the nexus online, there still might be a configuration mismatch that
-/// would prevent the nexus to come online. We can only determine this
-/// (currently) when online, so we check the errors twice for now.
+/// Create a new nexus and bring it online.
+/// If we fail to create any of the children, then we fail the whole operation.
+/// On failure, we must cleanup by destroying any children that were
+/// successfully created. Also, once the nexus is created, there still might
+/// be a configuration mismatch that would prevent us from going online.
+/// Currently, we can only determine this once we are already online,
+/// and so we check the errors twice for now.
 #[tracing::instrument(level = "debug")]
 pub async fn nexus_create(
     name: &str,
@@ -1047,61 +1046,85 @@ pub async fn nexus_create(
 ) -> Result<(), Error> {
     // global variable defined in the nexus module
     let nexus_list = instances();
+
     if nexus_list.iter().any(|n| n.name == name) {
-        // instead of error we return Ok without making sure that also the
-        // children are the same, which seems wrong
+        // FIXME: Instead of error, we return Ok without checking
+        // that the children match, which seems wrong.
         return Ok(());
     }
 
-    let mut ni = Nexus::new(name, size, uuid, None);
+    // Create a new Nexus object, and immediately add it to the global list.
+    // This is necessary to ensure proper cleanup, as the code responsible for
+    // closing a child assumes that the nexus to which it belongs will appear
+    // in the global list of nexus instances. We must also ensure that the
+    // nexus instance gets removed from the global list if an error occurs.
+    nexus_list.push(Nexus::new(name, size, uuid, None));
+
+    // Obtain a reference to the newly created Nexus object.
+    let ni =
+        nexus_list
+            .iter_mut()
+            .find(|n| n.name == name)
+            .ok_or_else(|| Error::NexusNotFound {
+                name: String::from(name),
+            })?;
 
     for child in children {
-        if let Err(err) = ni.create_and_register(child).await {
-            error!("failed to create child {}: {}", child, err);
-            ni.destroy_children().await;
-            return Err(err).context(CreateChild {
-                name: ni.name.clone(),
+        if let Err(error) = ni.create_and_register(child).await {
+            error!(
+                "failed to create nexus {}: failed to create child {}: {}",
+                name, child, error
+            );
+            ni.close_children().await;
+            nexus_list.retain(|n| n.name != name);
+            return Err(Error::CreateChild {
+                source: error,
+                name: String::from(name),
             });
         }
     }
 
     match ni.open().await {
-        // we still have code that waits for children to come online
-        // this however only works for config files so we need to clean up
-        // if we get the below error
         Err(Error::NexusIncomplete {
             ..
         }) => {
-            info!("deleting nexus due to missing children");
-            for child in children {
-                if let Err(e) = bdev_destroy(child).await {
-                    error!("failed to destroy child during cleanup {}", e);
-                }
-            }
-
-            return Err(Error::NexusCreate {
+            // We still have code that waits for children to come online,
+            // although this currently only works for config files.
+            // We need to explicitly clean up child bdevs if we get this error.
+            error!("failed to open nexus {}: missing children", name);
+            destroy_child_bdevs(name, children).await;
+            nexus_list.retain(|n| n.name != name);
+            Err(Error::NexusCreate {
                 name: String::from(name),
-            });
+            })
         }
 
-        Err(e) => {
-            error!("failed to open nexus {}: {}", ni.name, e);
-            ni.destroy_children().await;
-            return Err(e);
+        Err(error) => {
+            error!("failed to open nexus {}: {}", name, error);
+            ni.close_children().await;
+            nexus_list.retain(|n| n.name != name);
+            Err(error)
         }
 
-        Ok(_) => nexus_list.push(ni),
+        Ok(_) => Ok(()),
     }
-    Ok(())
+}
+
+/// Destroy list of child bdevs
+async fn destroy_child_bdevs(name: &str, list: &[String]) {
+    let futures = list.iter().map(String::as_str).map(bdev_destroy);
+    let results = join_all(futures).await;
+    if results.iter().any(|c| c.is_err()) {
+        error!("{}: Failed to destroy child bdevs", name);
+    }
 }
 
 /// Lookup a nexus by its name (currently used only by test functions).
 pub fn nexus_lookup(name: &str) -> Option<&mut Nexus> {
-    if let Some(nexus) = instances().iter_mut().find(|n| n.name == name) {
-        Some(nexus)
-    } else {
-        None
-    }
+    instances()
+        .iter_mut()
+        .find(|n| n.name == name)
+        .map(AsMut::as_mut)
 }
 
 impl Display for Nexus {

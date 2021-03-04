@@ -39,10 +39,11 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
         .arg(Arg::with_name("name").required(true).index(1))
         .arg(
             Arg::with_name("protocol")
+                .short("p")
                 .help("the protocol to used to share the given bdev")
                 .required(false)
-                .default_value("nvmf")
-                .value_names(&["nvmf", "iscsi"]),
+                .possible_values(&["nvmf", "iscsi"])
+                .default_value("nvmf"),
         );
 
     let unshare = SubCommand::with_name("unshare")
