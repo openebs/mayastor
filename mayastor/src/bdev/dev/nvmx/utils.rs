@@ -1,3 +1,5 @@
+use crate::core::NvmeCommandStatus;
+
 use spdk_sys::{self, spdk_nvme_cpl};
 
 #[derive(Debug, PartialEq)]
@@ -57,6 +59,23 @@ pub(crate) fn nvme_cpl_succeeded(cpl: *const spdk_nvme_cpl) -> bool {
     sct == NvmeStatusCodeType::Generic as u16
         && sc == NvmeGenericCommandStatusCode::Success as u16
 }
+
+/// Translates NVMe completion status into NvmeCommandStatus.
+pub(crate) fn nvme_command_status(
+    cpl: *const spdk_nvme_cpl,
+) -> NvmeCommandStatus {
+    let (sct, sc) = unsafe {
+        let cplr = &*cpl;
+
+        (
+            cplr.__bindgen_anon_1.status.sct().into(),
+            cplr.__bindgen_anon_1.status.sc().into(),
+        )
+    };
+
+    NvmeCommandStatus::from_command_status(sct, sc)
+}
+
 /* Bit set of attributes for DATASET MANAGEMENT commands. */
 #[allow(dead_code)]
 pub enum NvmeDsmAttribute {
