@@ -1,6 +1,6 @@
 use crate::{
     bdev::nexus::nexus_io::IoType,
-    core::{CoreError, DmaBuf, DmaError},
+    core::{CoreError, DmaBuf, DmaError, IoCompletionStatus},
 };
 use async_trait::async_trait;
 use merge::Merge;
@@ -91,7 +91,10 @@ pub trait BlockDeviceDescriptor {
 }
 
 pub type IoCompletionCallbackArg = *mut c_void;
-pub type IoCompletionCallback = fn(bool, IoCompletionCallbackArg) -> ();
+pub type IoCompletionCallback =
+    fn(IoCompletionStatus, IoCompletionCallbackArg) -> ();
+pub type OpCompletionCallbackArg = *mut c_void;
+pub type OpCompletionCallback = fn(bool, OpCompletionCallbackArg) -> ();
 
 /*
  * Core trait that represents a device I/O handle.
@@ -138,8 +141,8 @@ pub trait BlockDeviceHandle {
 
     fn reset(
         &self,
-        cb: IoCompletionCallback,
-        cb_arg: IoCompletionCallbackArg,
+        cb: OpCompletionCallback,
+        cb_arg: OpCompletionCallbackArg,
     ) -> Result<(), CoreError>;
 
     fn unmap_blocks(

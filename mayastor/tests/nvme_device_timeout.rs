@@ -3,7 +3,13 @@ use crossbeam::atomic::AtomicCell;
 use libc::c_void;
 use mayastor::{
     bdev::{device_create, device_destroy, device_open},
-    core::{BlockDeviceHandle, DeviceTimeoutAction, DmaBuf, MayastorCliArgs},
+    core::{
+        BlockDeviceHandle,
+        DeviceTimeoutAction,
+        DmaBuf,
+        IoCompletionStatus,
+        MayastorCliArgs,
+    },
     subsys::{Config, NvmeBdevOpts},
 };
 use once_cell::sync::Lazy;
@@ -112,8 +118,12 @@ async fn test_io_timeout(action_on_timeout: DeviceTimeoutAction) {
     }
 
     // Read completion callback.
-    fn read_completion_callback(success: bool, ctx: *mut c_void) {
-        assert_eq!(success, false, "I/O operation completed successfully");
+    fn read_completion_callback(status: IoCompletionStatus, ctx: *mut c_void) {
+        assert_ne!(
+            status,
+            IoCompletionStatus::Success,
+            "I/O operation completed successfully"
+        );
         assert_eq!(
             CALLBACK_FLAG.load(),
             false,
@@ -284,8 +294,12 @@ async fn io_timeout_ignore() {
     }
 
     // Read completion callback.
-    fn read_completion_callback(success: bool, ctx: *mut c_void) {
-        assert_eq!(success, false, "I/O operation completed successfully");
+    fn read_completion_callback(status: IoCompletionStatus, ctx: *mut c_void) {
+        assert_ne!(
+            status,
+            IoCompletionStatus::Success,
+            "I/O operation completed successfully"
+        );
         assert_eq!(
             CALLBACK_FLAG.load(),
             false,
