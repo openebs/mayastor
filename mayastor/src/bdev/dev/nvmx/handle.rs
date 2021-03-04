@@ -76,7 +76,7 @@ struct NvmeIoCtx {
     iov_offset: u64,
     op: IoType,
     num_blocks: u64,
-    channel: Option<*mut spdk_io_channel>,
+    channel: *mut spdk_io_channel,
 }
 
 unsafe impl Send for NvmeIoCtx {}
@@ -107,10 +107,12 @@ pub struct NvmeDeviceHandle {
     ns: Arc<NvmeNamespace>,
     prchk_flags: u32,
 
+    // Private instance of the block device backed by the NVMe namespace.
+    block_device: Box<dyn BlockDevice>,
+
     // Static values cached for performance.
-    _num_blocks: u64,
+    num_blocks: u64,
     block_len: u64,
-    _size_in_bytes: u64,
 }
 
 impl NvmeDeviceHandle {
@@ -141,9 +143,12 @@ impl NvmeDeviceHandle {
             name: name.to_string(),
             io_channel: ManuallyDrop::new(io_channel),
             ctrlr,
-            _num_blocks: ns.num_blocks(),
+            block_device: Box::new(NvmeBlockDevice::from_ns(
+                name,
+                Arc::clone(&ns),
+            )),
+            num_blocks: ns.num_blocks(),
             block_len: ns.block_len(),
-            _size_in_bytes: ns.size_in_bytes(),
             prchk_flags,
             ns,
         })
@@ -234,22 +239,20 @@ extern "C" fn nvme_queued_next_sge(
 fn complete_nvme_command(ctx: *mut NvmeIoCtx, cpl: *const spdk_nvme_cpl) {
     let io_ctx = unsafe { &mut *ctx };
     let op_succeeded = nvme_cpl_succeeded(cpl);
+    let inner = NvmeIoChannel::inner_from_channel(io_ctx.channel);
 
     // Update I/O statistics in case the operation succeeded.
     if op_succeeded {
-        if let Some(channel) = io_ctx.channel.take() {
-            let inner = NvmeIoChannel::inner_from_channel(channel);
-            let stats_controller = inner.get_io_stats_controller();
-
-            stats_controller.account_block_io(io_ctx.op, 1, io_ctx.num_blocks);
-        }
+        let stats_controller = inner.get_io_stats_controller();
+        stats_controller.account_block_io(io_ctx.op, 1, io_ctx.num_blocks);
     }
 
     // Invoke caller's callback and free I/O context.
     if op_succeeded {
-        (io_ctx.cb)(IoCompletionStatus::Success, io_ctx.cb_arg);
+        (io_ctx.cb)(&inner.device, IoCompletionStatus::Success, io_ctx.cb_arg);
     } else {
         (io_ctx.cb)(
+            &inner.device,
             IoCompletionStatus::NvmeError(nvme_command_status(cpl)),
             io_ctx.cb_arg,
         );
@@ -406,8 +409,8 @@ fn check_channel_for_io(
 
 #[async_trait(?Send)]
 impl BlockDeviceHandle for NvmeDeviceHandle {
-    fn get_device(&self) -> Box<dyn BlockDevice> {
-        Box::new(NvmeBlockDevice::from_ns(&self.name, Arc::clone(&self.ns)))
+    fn get_device(&self) -> &Box<dyn BlockDevice> {
+        &self.block_device
     }
 
     fn dma_malloc(&self, size: u64) -> Result<DmaBuf, DmaError> {
@@ -597,7 +600,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
                 iovcnt: iovcnt as u64,
                 iovpos: 0,
                 iov_offset: 0,
-                channel: Some(channel),
+                channel: channel,
                 op: IoType::Read,
                 num_blocks,
             },
@@ -673,7 +676,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
                 iovcnt: iovcnt as u64,
                 iovpos: 0,
                 iov_offset: 0,
-                channel: Some(channel),
+                channel: channel,
                 op: IoType::Write,
                 num_blocks,
             },
@@ -824,7 +827,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
                 iovcnt: 0,
                 iovpos: 0,
                 iov_offset: 0,
-                channel: Some(channel),
+                channel: channel,
                 op: IoType::Unmap,
                 num_blocks,
             },
