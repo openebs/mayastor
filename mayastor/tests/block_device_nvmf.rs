@@ -6,6 +6,7 @@ use common::compose::{Builder, MayastorTest};
 use mayastor::{
     bdev::{device_create, device_destroy, device_lookup, device_open},
     core::{
+        BlockDevice,
         BlockDeviceHandle,
         DeviceEventType,
         DmaBuf,
@@ -88,7 +89,7 @@ async fn launch_instance() -> (ComposeTest, String) {
         h.bdev.list(Null {}).await.unwrap();
         h.bdev
             .create(BdevUri {
-                uri: "malloc:///disk0?size_mb=128".into(),
+                uri: "malloc:///disk0?size_mb=64".into(),
             })
             .await
             .unwrap();
@@ -304,30 +305,50 @@ async fn nvmf_io_stats() {
         handle: Box<dyn BlockDeviceHandle>,
     }
 
-    fn io_completion_callback(status: IoCompletionStatus, _ctx: *mut c_void) {
+    static DEVICE_NAME: OnceCell<String> = OnceCell::new();
+
+    fn io_completion_callback(
+        device: &Box<dyn BlockDevice>,
+        status: IoCompletionStatus,
+        _ctx: *mut c_void,
+    ) {
         assert_eq!(status, IoCompletionStatus::Success, "I/O operation failed");
+
+        // Make sure we have the correct device.
+        assert_eq!(
+            &device.device_name(),
+            DEVICE_NAME.get().unwrap(),
+            "Device name mismatch"
+        );
     }
 
     let ptr = ms
         .spawn(async move {
             let name = device_create(&url).await.unwrap();
+
+            // Store device name for further checking from I/O callback.
+            DEVICE_NAME.set(name.clone()).unwrap();
+
             let descr = device_open(&name, false).unwrap();
             let handle = descr.into_handle().unwrap();
-            let device = handle.get_device();
+            let (block_len, alignment) = {
+                let device = handle.get_device();
+                (device.block_len(), device.alignment())
+            };
 
             // Write data buffer.
-            let data_buf =
-                create_io_buffer(device.alignment(), BUF_SIZE, IO_PATTERN);
+            let data_buf = create_io_buffer(alignment, BUF_SIZE, IO_PATTERN);
+
             let mut r = handle.write_at(OP_OFFSET, &data_buf).await.unwrap();
             assert_eq!(r, BUF_SIZE, "The amount of data written mismatches");
 
             // Read data buffer.
-            let dbuf = DmaBuf::new(2 * BUF_SIZE, device.alignment()).unwrap();
+            let dbuf = DmaBuf::new(2 * BUF_SIZE, alignment).unwrap();
             r = handle.read_at(OP_OFFSET, &dbuf).await.unwrap();
             assert_eq!(r, 2 * BUF_SIZE, "The amount of data read mismatches");
 
             // Check I/O stats for synchronous operations.
-            let stats = device.io_stats().await.unwrap();
+            let stats = handle.get_device().io_stats().await.unwrap();
             assert_eq!(
                 stats.num_read_ops, 1,
                 "Number of read operations mismatches"
@@ -349,11 +370,7 @@ async fn nvmf_io_stats() {
 
             let mut ctx = IoCtx {
                 iov: iovec::default(),
-                dma_buf: create_io_buffer(
-                    device.alignment(),
-                    6 * BUF_SIZE,
-                    IO_PATTERN,
-                ),
+                dma_buf: create_io_buffer(alignment, 6 * BUF_SIZE, IO_PATTERN),
                 handle,
             };
 
@@ -365,8 +382,8 @@ async fn nvmf_io_stats() {
                 .readv_blocks(
                     &mut ctx.iov,
                     1,
-                    (3 * 1024 * 1024) / device.block_len(),
-                    6 * BUF_SIZE / device.block_len(),
+                    (3 * 1024 * 1024) / block_len,
+                    6 * BUF_SIZE / block_len,
                     io_completion_callback,
                     MAYASTOR_CTRLR_TITLE.as_ptr() as *mut c_void,
                 )
@@ -376,8 +393,8 @@ async fn nvmf_io_stats() {
                 .writev_blocks(
                     &mut ctx.iov,
                     1,
-                    (4 * 1024 * 1024) / device.block_len(),
-                    4 * BUF_SIZE / device.block_len(),
+                    (4 * 1024 * 1024) / block_len,
+                    4 * BUF_SIZE / block_len,
                     io_completion_callback,
                     MAYASTOR_CTRLR_TITLE.as_ptr() as *mut c_void,
                 )
@@ -386,8 +403,8 @@ async fn nvmf_io_stats() {
             // Unmap blocks.
             ctx.handle
                 .unmap_blocks(
-                    OP_OFFSET / device.block_len(),
-                    (10 * BUF_SIZE) / device.block_len(),
+                    OP_OFFSET / block_len,
+                    (10 * BUF_SIZE) / block_len,
                     io_completion_callback,
                     MAYASTOR_CTRLR_TITLE.as_ptr() as *mut c_void,
                 )
@@ -526,8 +543,14 @@ async fn nvmf_device_readv_test() {
         handle: Box<dyn BlockDeviceHandle>,
     }
 
+    static DEVICE_NAME: OnceCell<String> = OnceCell::new();
+
     // Read completion callback.
-    fn read_completion_callback(status: IoCompletionStatus, ctx: *mut c_void) {
+    fn read_completion_callback(
+        device: &Box<dyn BlockDevice>,
+        status: IoCompletionStatus,
+        ctx: *mut c_void,
+    ) {
         // Make sure callback is invoked only once.
         flag_callback_invocation();
 
@@ -536,6 +559,14 @@ async fn nvmf_device_readv_test() {
             IoCompletionStatus::Success,
             "readv_blocks() failed"
         );
+
+        // Make sure we have the correct device.
+        assert_eq!(
+            &device.device_name(),
+            DEVICE_NAME.get().unwrap(),
+            "Device name mismatch"
+        );
+
         // Make sure we were passed the same pattern string as requested.
         let s = unsafe {
             let slice = slice::from_raw_parts(
@@ -556,17 +587,19 @@ async fn nvmf_device_readv_test() {
             let name = device_create(&(*url)).await.unwrap();
             let descr = device_open(&name, false).unwrap();
             let handle = descr.into_handle().unwrap();
-            let device = handle.get_device();
+            let (block_len, alignment) = {
+                let device = handle.get_device();
+                (device.block_len(), device.alignment())
+            };
+
+            // Store device name for further checking from I/O callback.
+            DEVICE_NAME.set(name.clone()).unwrap();
 
             // Create a buffer with the guard pattern.
             let mut io_ctx = IoCtx {
                 iov: iovec::default(),
                 iovcnt: 1,
-                dma_buf: create_io_buffer(
-                    device.alignment(),
-                    BUF_SIZE,
-                    GUARD_PATTERN,
-                ),
+                dma_buf: create_io_buffer(alignment, BUF_SIZE, GUARD_PATTERN),
                 handle,
             };
 
@@ -579,8 +612,8 @@ async fn nvmf_device_readv_test() {
                 .readv_blocks(
                     &mut io_ctx.iov,
                     io_ctx.iovcnt,
-                    (3 * 1024 * 1024) / device.block_len(),
-                    BUF_SIZE / device.block_len(),
+                    (3 * 1024 * 1024) / block_len,
+                    BUF_SIZE / block_len,
                     read_completion_callback,
                     // Use a predefined string to check that we receive the
                     // same context pointer as we pass upon
@@ -633,8 +666,14 @@ async fn nvmf_device_writev_test() {
     let u = Arc::new(dev_url);
     let url = Arc::clone(&u);
 
+    static DEVICE_NAME: OnceCell<String> = OnceCell::new();
+
     // Read completion callback.
-    fn write_completion_callback(status: IoCompletionStatus, ctx: *mut c_void) {
+    fn write_completion_callback(
+        device: &Box<dyn BlockDevice>,
+        status: IoCompletionStatus,
+        ctx: *mut c_void,
+    ) {
         // Make sure callback is invoked only once.
         flag_callback_invocation();
 
@@ -643,6 +682,14 @@ async fn nvmf_device_writev_test() {
             IoCompletionStatus::Success,
             "writev_blocks() failed"
         );
+
+        // Make sure we have the correct device.
+        assert_eq!(
+            &device.device_name(),
+            DEVICE_NAME.get().unwrap(),
+            "Device name mismatch"
+        );
+
         // Make sure we were passed the same pattern string as requested.
         let s = unsafe {
             let slice = slice::from_raw_parts(
@@ -670,10 +717,16 @@ async fn nvmf_device_writev_test() {
             let name = device_create(&(*url)).await.unwrap();
             let descr = device_open(&name, false).unwrap();
             let handle = descr.into_handle().unwrap();
-            let device = handle.get_device();
+            let (block_len, alignment) = {
+                let device = handle.get_device();
+                (device.block_len(), device.alignment())
+            };
+
+            // Store device name for further checking from I/O callback.
+            DEVICE_NAME.set(name.clone()).unwrap();
 
             let guard_buf =
-                create_io_buffer(device.alignment(), BUF_SIZE, GUARD_PATTERN);
+                create_io_buffer(alignment, BUF_SIZE, GUARD_PATTERN);
 
             // First, write 2 guard buffers before and after target I/O
             // location.
@@ -687,11 +740,7 @@ async fn nvmf_device_writev_test() {
 
             let mut ctx = IoCtx {
                 iov: iovec::default(),
-                dma_buf: create_io_buffer(
-                    device.alignment(),
-                    BUF_SIZE,
-                    IO_PATTERN,
-                ),
+                dma_buf: create_io_buffer(alignment, BUF_SIZE, IO_PATTERN),
                 handle,
             };
 
@@ -704,8 +753,8 @@ async fn nvmf_device_writev_test() {
                 .writev_blocks(
                     &mut ctx.iov,
                     1,
-                    (OP_OFFSET + BUF_SIZE) / device.block_len(),
-                    BUF_SIZE / device.block_len(),
+                    (OP_OFFSET + BUF_SIZE) / block_len,
+                    BUF_SIZE / block_len,
                     write_completion_callback,
                     // Use a predefined string to check that we receive the
                     // same context pointer as we pass upon
@@ -788,8 +837,14 @@ async fn nvmf_device_readv_iovs_test() {
     let u = Arc::new(dev_url);
     let mut url = Arc::clone(&u);
 
+    static DEVICE_NAME: OnceCell<String> = OnceCell::new();
+
     // Read completion callback.
-    fn read_completion_callback(status: IoCompletionStatus, ctx: *mut c_void) {
+    fn read_completion_callback(
+        device: &Box<dyn BlockDevice>,
+        status: IoCompletionStatus,
+        ctx: *mut c_void,
+    ) {
         // Make sure callback is invoked only once.
         flag_callback_invocation();
 
@@ -798,6 +853,14 @@ async fn nvmf_device_readv_iovs_test() {
             IoCompletionStatus::Success,
             "readv_blocks() failed"
         );
+
+        // Make sure we have the correct device.
+        assert_eq!(
+            &device.device_name(),
+            DEVICE_NAME.get().unwrap(),
+            "Device name mismatch"
+        );
+
         // Make sure we were passed the same pattern string as requested.
         let s = unsafe {
             let slice = slice::from_raw_parts(
@@ -825,7 +888,13 @@ async fn nvmf_device_readv_iovs_test() {
             let device_name = device_create(&(*url)).await.unwrap();
             let descr = device_open(&device_name, false).unwrap();
             let handle = descr.into_handle().unwrap();
-            let device = handle.get_device();
+            let (block_len, alignment) = {
+                let device = handle.get_device();
+                (device.block_len(), device.alignment())
+            };
+
+            // Store device name for further checking from I/O callback.
+            DEVICE_NAME.set(device_name.clone()).unwrap();
 
             let mut buffers = Vec::<DmaBuf>::with_capacity(IOVCNT);
 
@@ -835,8 +904,7 @@ async fn nvmf_device_readv_iovs_test() {
 
             for (i, s) in IOVSIZES.iter().enumerate().take(IOVCNT) {
                 let mut iov = iovec::default();
-                let buf =
-                    create_io_buffer(device.alignment(), *s, GUARD_PATTERN);
+                let buf = create_io_buffer(alignment, *s, GUARD_PATTERN);
 
                 iov.iov_base = *buf;
                 iov.iov_len = buf.len();
@@ -852,8 +920,7 @@ async fn nvmf_device_readv_iovs_test() {
             };
 
             // First, write data pattern of required size.
-            let data_buf =
-                create_io_buffer(device.alignment(), iosize, IO_PATTERN);
+            let data_buf = create_io_buffer(alignment, iosize, IO_PATTERN);
             let r = io_ctx.handle.write_at(OP_OFFSET, &data_buf).await.unwrap();
             assert_eq!(r, iosize, "The amount of data written mismatches");
 
@@ -863,8 +930,8 @@ async fn nvmf_device_readv_iovs_test() {
                 .readv_blocks(
                     io_ctx.iovs,
                     IOVCNT as i32,
-                    OP_OFFSET / device.block_len(),
-                    iosize / device.block_len(),
+                    OP_OFFSET / block_len,
+                    iosize / block_len,
                     read_completion_callback,
                     // Use a predefined string to check that we receive the
                     // same context pointer as we pass upon
@@ -932,8 +999,14 @@ async fn nvmf_device_writev_iovs_test() {
     // Clear callback invocation flag.
     clear_callback_invocation_flag();
 
+    static DEVICE_NAME: OnceCell<String> = OnceCell::new();
+
     // Write completion callback.
-    fn write_completion_callback(status: IoCompletionStatus, ctx: *mut c_void) {
+    fn write_completion_callback(
+        device: &Box<dyn BlockDevice>,
+        status: IoCompletionStatus,
+        ctx: *mut c_void,
+    ) {
         // Make sure callback is invoked only once.
         flag_callback_invocation();
 
@@ -942,6 +1015,14 @@ async fn nvmf_device_writev_iovs_test() {
             IoCompletionStatus::Success,
             "writev_blocks() failed"
         );
+
+        // Make sure we have the correct device.
+        assert_eq!(
+            &device.device_name(),
+            DEVICE_NAME.get().unwrap(),
+            "Device name mismatch"
+        );
+
         // Make sure we were passed the same pattern string as requested.
         let s = unsafe {
             let slice = slice::from_raw_parts(
@@ -966,7 +1047,13 @@ async fn nvmf_device_writev_iovs_test() {
             let device_name = device_create(&(*url)).await.unwrap();
             let descr = device_open(&device_name, false).unwrap();
             let handle = descr.into_handle().unwrap();
-            let device = handle.get_device();
+            let (block_len, alignment) = {
+                let device = handle.get_device();
+                (device.block_len(), device.alignment())
+            };
+
+            // Store device name for further checking from I/O callback.
+            DEVICE_NAME.set(device_name.clone()).unwrap();
 
             let mut buffers = Vec::<DmaBuf>::with_capacity(IOVCNT);
 
@@ -976,7 +1063,7 @@ async fn nvmf_device_writev_iovs_test() {
 
             for (i, s) in IOVSIZES.iter().enumerate().take(IOVCNT) {
                 let mut iov = iovec::default();
-                let buf = create_io_buffer(device.alignment(), *s, IO_PATTERN);
+                let buf = create_io_buffer(alignment, *s, IO_PATTERN);
 
                 iov.iov_base = *buf;
                 iov.iov_len = buf.len();
@@ -994,7 +1081,7 @@ async fn nvmf_device_writev_iovs_test() {
             // First, write 2 guard buffers before and after target I/O
             // location.
             let guard_buf =
-                create_io_buffer(device.alignment(), GUARD_SIZE, GUARD_PATTERN);
+                create_io_buffer(alignment, GUARD_SIZE, GUARD_PATTERN);
             let mut r = io_ctx
                 .handle
                 .write_at(OP_OFFSET - GUARD_SIZE, &guard_buf)
@@ -1014,8 +1101,8 @@ async fn nvmf_device_writev_iovs_test() {
                 .writev_blocks(
                     io_ctx.iovs,
                     IOVCNT as i32,
-                    OP_OFFSET / device.block_len(),
-                    iosize / device.block_len(),
+                    OP_OFFSET / block_len,
+                    iosize / block_len,
                     write_completion_callback,
                     // Use a predefined string to check that we receive the
                     // same context pointer as we pass upon
@@ -1194,8 +1281,14 @@ async fn wipe_device_blocks(is_unmap: bool) {
     const BUF_SIZE: u64 = 32768;
     const OP_OFFSET: u64 = 12 * 1024 * 1024;
 
+    static DEVICE_NAME: OnceCell<String> = OnceCell::new();
+
     // Read completion callback.
-    fn wipe_completion_callback(status: IoCompletionStatus, ctx: *mut c_void) {
+    fn wipe_completion_callback(
+        device: &Box<dyn BlockDevice>,
+        status: IoCompletionStatus,
+        ctx: *mut c_void,
+    ) {
         // Make sure callback is invoked only once.
         flag_callback_invocation();
 
@@ -1204,6 +1297,14 @@ async fn wipe_device_blocks(is_unmap: bool) {
             IoCompletionStatus::Success,
             "block deallocation failed"
         );
+
+        // Make sure we have the correct device.
+        assert_eq!(
+            &device.device_name(),
+            DEVICE_NAME.get().unwrap(),
+            "Device name mismatch"
+        );
+
         // Make sure we were passed the same pattern string as requested.
         let s = unsafe {
             let slice = slice::from_raw_parts(
@@ -1226,10 +1327,22 @@ async fn wipe_device_blocks(is_unmap: bool) {
             let name = device_create(&url).await.unwrap();
             let descr = device_open(&name, false).unwrap();
             let handle = descr.into_handle().unwrap();
-            let device = handle.get_device();
+            let (block_len, alignment) = {
+                let device = handle.get_device();
+                (device.block_len(), device.alignment())
+            };
 
             let guard_buf =
-                create_io_buffer(device.alignment(), BUF_SIZE, GUARD_PATTERN);
+                create_io_buffer(alignment, BUF_SIZE, GUARD_PATTERN);
+
+            // Store device name for further checking from I/O callback.
+            // Note that wipe_device_blocks() is called twice by different
+            // top-level tests, so we should update static variable with
+            // precautions taken, as it might have already been
+            // initialized.
+            if DEVICE_NAME.get().is_none() {
+                DEVICE_NAME.set(name.clone()).unwrap();
+            }
 
             // First, write 2 guard buffers before and after target I/O
             // location.
@@ -1242,8 +1355,7 @@ async fn wipe_device_blocks(is_unmap: bool) {
             assert_eq!(r, BUF_SIZE, "The amount of data written mismatches");
 
             // Write data buffer between guard buffers.
-            let data_buf =
-                create_io_buffer(device.alignment(), BUF_SIZE, IO_PATTERN);
+            let data_buf = create_io_buffer(alignment, BUF_SIZE, IO_PATTERN);
             r = handle
                 .write_at(OP_OFFSET + BUF_SIZE, &data_buf)
                 .await
@@ -1253,8 +1365,8 @@ async fn wipe_device_blocks(is_unmap: bool) {
             if is_unmap {
                 handle
                     .unmap_blocks(
-                        (OP_OFFSET + BUF_SIZE) / device.block_len(),
-                        BUF_SIZE / device.block_len(),
+                        (OP_OFFSET + BUF_SIZE) / block_len,
+                        BUF_SIZE / block_len,
                         wipe_completion_callback,
                         // Use a predefined string to check that we receive the
                         // same context pointer as we pass upon
@@ -1266,8 +1378,8 @@ async fn wipe_device_blocks(is_unmap: bool) {
             } else {
                 handle
                     .write_zeroes(
-                        (OP_OFFSET + BUF_SIZE) / device.block_len(),
-                        BUF_SIZE / device.block_len(),
+                        (OP_OFFSET + BUF_SIZE) / block_len,
+                        BUF_SIZE / block_len,
                         wipe_completion_callback,
                         // Use a predefined string to check that we receive the
                         // same context pointer as we pass upon
@@ -1362,12 +1474,25 @@ async fn nvmf_reset_abort_io() {
         handle: Box<dyn BlockDeviceHandle>,
     }
 
+    static DEVICE_NAME: OnceCell<String> = OnceCell::new();
+
     // Read I/O completion callback.
-    fn read_completion_callback(status: IoCompletionStatus, ctx: *mut c_void) {
+    fn read_completion_callback(
+        device: &Box<dyn BlockDevice>,
+        status: IoCompletionStatus,
+        ctx: *mut c_void,
+    ) {
         assert_ne!(
             status,
             IoCompletionStatus::Success,
             "read I/O operation completed successfully"
+        );
+
+        // Make sure we have the correct device.
+        assert_eq!(
+            &device.device_name(),
+            DEVICE_NAME.get().unwrap(),
+            "Device name mismatch"
         );
 
         // Make sure we were passed the same pattern string as requested.
@@ -1384,11 +1509,22 @@ async fn nvmf_reset_abort_io() {
     }
 
     // Write I/O completion callback.
-    fn write_completion_callback(status: IoCompletionStatus, ctx: *mut c_void) {
+    fn write_completion_callback(
+        device: &Box<dyn BlockDevice>,
+        status: IoCompletionStatus,
+        ctx: *mut c_void,
+    ) {
         assert_ne!(
             status,
             IoCompletionStatus::Success,
             "write I/O operation completed successfully"
+        );
+
+        // Make sure we have the correct device.
+        assert_eq!(
+            &device.device_name(),
+            DEVICE_NAME.get().unwrap(),
+            "Device name mismatch"
         );
 
         // Make sure we were passed the same pattern string as requested.
@@ -1429,16 +1565,18 @@ async fn nvmf_reset_abort_io() {
             let name = device_create(&(*url)).await.unwrap();
             let descr = device_open(&name, false).unwrap();
             let handle = descr.into_handle().unwrap();
-            let device = handle.get_device();
+            let (block_len, alignment) = {
+                let device = handle.get_device();
+                (device.block_len(), device.alignment())
+            };
+
+            // Store device name for further checking from I/O callback.
+            DEVICE_NAME.set(name.clone()).unwrap();
 
             let mut io_ctx = IoCtx {
                 iov: iovec::default(),
                 iovcnt: 1,
-                dma_buf: create_io_buffer(
-                    device.alignment(),
-                    BUF_SIZE,
-                    GUARD_PATTERN,
-                ),
+                dma_buf: create_io_buffer(alignment, BUF_SIZE, GUARD_PATTERN),
                 handle,
             };
 
@@ -1454,8 +1592,8 @@ async fn nvmf_reset_abort_io() {
                     .readv_blocks(
                         &mut io_ctx.iov,
                         io_ctx.iovcnt,
-                        (3 * 1024 * 1024) / device.block_len(),
-                        BUF_SIZE / device.block_len(),
+                        (3 * 1024 * 1024) / block_len,
+                        BUF_SIZE / block_len,
                         read_completion_callback,
                         // Use a predefined string to check that we receive the
                         // same context pointer as we pass upon
@@ -1470,8 +1608,8 @@ async fn nvmf_reset_abort_io() {
                     .writev_blocks(
                         &mut io_ctx.iov,
                         io_ctx.iovcnt,
-                        (3 * 1024 * 1024) / device.block_len(),
-                        BUF_SIZE / device.block_len(),
+                        (3 * 1024 * 1024) / block_len,
+                        BUF_SIZE / block_len,
                         write_completion_callback,
                         // Use a predefined string to check that we receive the
                         // same context pointer as we pass upon
