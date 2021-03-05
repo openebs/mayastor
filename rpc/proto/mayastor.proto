@@ -52,6 +52,7 @@ service Mayastor {
   rpc UnpublishNexus (UnpublishNexusRequest) returns (Null) {}
 
   // NVMe ANA state
+  rpc GetNvmeAnaState (GetNvmeAnaStateRequest) returns (GetNvmeAnaStateReply) {}
   rpc SetNvmeAnaState (SetNvmeAnaStateRequest) returns (Null) {}
 
   // Nexus child operations
@@ -283,6 +284,14 @@ enum NvmeAnaState {
   NVME_ANA_INACCESSIBLE_STATE = 0x3;
   NVME_ANA_PERSISTENT_LOSS_STATE = 0x4; // not yet supported
   NVME_ANA_CHANGE_STATE = 0xF;          // not yet supported
+}
+
+message GetNvmeAnaStateRequest {
+  string uuid = 1;   // uuid of the nexus
+}
+
+message GetNvmeAnaStateReply {
+  NvmeAnaState ana_state = 1;
 }
 
 message SetNvmeAnaStateRequest {

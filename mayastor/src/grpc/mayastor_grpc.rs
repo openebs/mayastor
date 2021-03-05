@@ -290,6 +290,25 @@ impl mayastor_server::Mayastor for MayastorSvc {
     }
 
     #[instrument(level = "debug", err)]
+    async fn get_nvme_ana_state(
+        &self,
+        request: Request<GetNvmeAnaStateRequest>,
+    ) -> GrpcResult<GetNvmeAnaStateReply> {
+        let args = request.into_inner();
+        let uuid = args.uuid.clone();
+        debug!("Getting NVMe ANA state for nexus {} ...", uuid);
+
+        let ana_state = locally! { async move {
+            nexus_lookup(&args.uuid)?.get_ana_state().await
+        }};
+
+        info!("Got nexus {} NVMe ANA state {:?}", uuid, ana_state);
+        Ok(Response::new(GetNvmeAnaStateReply {
+            ana_state: ana_state as i32,
+        }))
+    }
+
+    #[instrument(level = "debug", err)]
     async fn set_nvme_ana_state(
         &self,
         request: Request<SetNvmeAnaStateRequest>,

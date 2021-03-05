@@ -54,12 +54,23 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
                 .help("uuid for the nexus"),
         );
 
-    let set_ana_state = SubCommand::with_name("set_ana_state")
-        .about("set the NVMe ANA state of the nexus")
-        .arg(Arg::with_name("uuid").required(true).index(1)
-            .help("uuid for the nexus"))
-        .arg(Arg::with_name("ana_state").required(true).index(2)
-            .help("NVMe ANA state (optimized,non_optimized,inaccessible) of the nexus"));
+    let ana_state = SubCommand::with_name("ana_state")
+        .about("get or set the NVMe ANA state of the nexus")
+        .arg(
+            Arg::with_name("uuid")
+                .required(true)
+                .index(1)
+                .help("uuid for the nexus"),
+        )
+        .arg(
+            Arg::with_name("state")
+                .required(false)
+                .index(2)
+                .possible_value("optimized")
+                .possible_value("non_optimized")
+                .possible_value("inaccessible")
+                .help("NVMe ANA state of the nexus"),
+        );
 
     let add = SubCommand::with_name("add")
         .about("add a child")
@@ -129,7 +140,7 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
         .subcommand(add)
         .subcommand(remove)
         .subcommand(unpublish)
-        .subcommand(set_ana_state)
+        .subcommand(ana_state)
         .subcommand(list)
         .subcommand(children)
         .subcommand(nexus_child_cli::subcommands())
@@ -146,9 +157,7 @@ pub async fn handler(
         ("children", Some(args)) => nexus_children(ctx, &args).await,
         ("publish", Some(args)) => nexus_publish(ctx, &args).await,
         ("unpublish", Some(args)) => nexus_unpublish(ctx, &args).await,
-        ("set_ana_state", Some(args)) => {
-            nexus_set_nvme_ana_state(ctx, &args).await
-        }
+        ("ana_state", Some(args)) => nexus_nvme_ana_state(ctx, &args).await,
         ("add", Some(args)) => nexus_add(ctx, &args).await,
         ("remove", Some(args)) => nexus_remove(ctx, &args).await,
         ("child", Some(args)) => nexus_child_cli::handler(ctx, args).await,
@@ -332,15 +341,41 @@ async fn nexus_unpublish(
     Ok(())
 }
 
-async fn nexus_set_nvme_ana_state(
-    mut ctx: Context,
+async fn nexus_nvme_ana_state(
+    ctx: Context,
     matches: &ArgMatches<'_>,
 ) -> Result<(), Status> {
     let uuid = matches.value_of("uuid").unwrap().to_string();
-    let ana_state = match matches.value_of("ana_state").unwrap() {
-        "optimized" => rpc::NvmeAnaState::NvmeAnaOptimizedState,
-        "non_optimized" => rpc::NvmeAnaState::NvmeAnaNonOptimizedState,
-        "inaccessible" => rpc::NvmeAnaState::NvmeAnaInaccessibleState,
+    let ana_state = matches.value_of("state").unwrap_or("").to_string();
+    if ana_state.is_empty() {
+        nexus_get_nvme_ana_state(ctx, uuid).await
+    } else {
+        nexus_set_nvme_ana_state(ctx, uuid, ana_state).await
+    }
+}
+
+async fn nexus_get_nvme_ana_state(
+    mut ctx: Context,
+    uuid: String,
+) -> Result<(), Status> {
+    ctx.v2(&format!("Getting NVMe ANA state for nexus {}", uuid));
+    let resp = ctx
+        .client
+        .get_nvme_ana_state(rpc::GetNvmeAnaStateRequest {
+            uuid: uuid.clone(),
+        })
+        .await?;
+    ctx.v1(ana_state_idx_to_str(resp.get_ref().ana_state));
+    Ok(())
+}
+
+async fn nexus_set_nvme_ana_state(
+    mut ctx: Context,
+    uuid: String,
+    ana_state_str: String,
+) -> Result<(), Status> {
+    let ana_state: rpc::NvmeAnaState = match ana_state_str.parse() {
+        Ok(a) => a,
         _ => {
             return Err(Status::new(
                 Code::Internal,
@@ -406,6 +441,17 @@ async fn nexus_remove(
         .await?;
     ctx.v1(&format!("Removed {} from children of {}", uri, uuid));
     Ok(())
+}
+
+fn ana_state_idx_to_str(idx: i32) -> &'static str {
+    match rpc::NvmeAnaState::from_i32(idx).unwrap() {
+        rpc::NvmeAnaState::NvmeAnaInvalidState => "invalid",
+        rpc::NvmeAnaState::NvmeAnaOptimizedState => "optimized",
+        rpc::NvmeAnaState::NvmeAnaNonOptimizedState => "non_optimized",
+        rpc::NvmeAnaState::NvmeAnaInaccessibleState => "inaccessible",
+        rpc::NvmeAnaState::NvmeAnaPersistentLossState => "persistent_loss",
+        rpc::NvmeAnaState::NvmeAnaChangeState => "change",
+    }
 }
 
 fn nexus_state_to_str(idx: i32) -> &'static str {

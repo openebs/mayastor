@@ -12,6 +12,7 @@ use futures::channel::oneshot;
 use nix::errno::Errno;
 
 use spdk_sys::{
+    nvmf_subsystem_find_listener,
     nvmf_subsystem_set_ana_state,
     spdk_bdev_nvme_opts,
     spdk_nvmf_ns_get_bdev,
@@ -472,6 +473,23 @@ impl NvmfSubsystem {
         }
     }
 
+    /// get ANA state
+    pub async fn get_ana_state(&self) -> Result<u32, Error> {
+        let cfg = Config::get();
+        let trid_replica = TransportId::new(cfg.nexus_opts.nvmf_replica_port);
+        let listener = unsafe {
+            nvmf_subsystem_find_listener(self.0.as_ptr(), trid_replica.as_ptr())
+        };
+        if listener.is_null() {
+            Err(Error::Listener {
+                nqn: self.get_nqn(),
+                trid: trid_replica.to_string(),
+            })
+        } else {
+            Ok(unsafe { (*listener).ana_state })
+        }
+    }
+
     /// set ANA state: optimized, non_optimized, inaccessible
     /// subsystem must be in paused or inactive state
     pub async fn set_ana_state(&self, ana_state: u32) -> Result<(), Error> {
@@ -494,11 +512,13 @@ impl NvmfSubsystem {
             );
         }
 
-        r.await.unwrap().to_result(|e| Error::Subsystem {
-            source: Errno::from_i32(e),
-            nqn: self.get_nqn(),
-            msg: "failed to set_ana_state of the subsystem".to_string(),
-        })
+        r.await
+            .expect("Cancellation is not supported")
+            .to_result(|e| Error::Subsystem {
+                source: Errno::from_i32(-e),
+                nqn: self.get_nqn(),
+                msg: "failed to set_ana_state of the subsystem".to_string(),
+            })
     }
 
     /// destroy all subsystems associated with our target, subsystems must be in

@@ -691,11 +691,16 @@ describe('nexus', function () {
           uuid: UUID,
           ana_state: enums.NVME_ANA_INACCESSIBLE_STATE
         },
-        (err, res) => {
-          if (err) done(err);
-          done();
-        }
+        done
       );
+    });
+
+    it('should get ANA state as inaccessible', (done) => {
+      client.getNvmeAnaState({ uuid: UUID }, (err, res) => {
+        if (err) done(err);
+        assert.equal(res.ana_state, 'NVME_ANA_INACCESSIBLE_STATE');
+        done();
+      });
     });
 
     it('should change ANA state back to optimized', (done) => {
@@ -704,11 +709,16 @@ describe('nexus', function () {
           uuid: UUID,
           ana_state: enums.NVME_ANA_OPTIMIZED_STATE
         },
-        (err, res) => {
-          if (err) done(err);
-          done();
-        }
+        done
       );
+    });
+
+    it('should get ANA state as optimized', (done) => {
+      client.getNvmeAnaState({ uuid: UUID }, (err, res) => {
+        if (err) done(err);
+        assert.equal(res.ana_state, 'NVME_ANA_OPTIMIZED_STATE');
+        done();
+      });
     });
 
     it('should write to nvmf replica', (done) => {
@@ -720,10 +730,7 @@ describe('nexus', function () {
     });
 
     it('should un-publish the nvmf nexus device', (done) => {
-      client.unpublishNexus({ uuid: UUID }, (err, res) => {
-        if (err) done(err);
-        done();
-      });
+      client.unpublishNexus({ uuid: UUID }, done);
     });
   }); // End of describe('nvmf datapath')
 

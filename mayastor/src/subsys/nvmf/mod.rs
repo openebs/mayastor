@@ -73,6 +73,8 @@ pub enum Error {
     Share { bdev: String, msg: String },
     #[snafu(display("Failed to add namespace for {} {}", bdev, msg))]
     Namespace { bdev: String, msg: String },
+    #[snafu(display("Failed to find listener for {} {}", nqn, trid))]
+    Listener { nqn: String, trid: String },
 }
 
 thread_local! {

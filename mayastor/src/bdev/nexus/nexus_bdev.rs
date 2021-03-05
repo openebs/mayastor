@@ -648,6 +648,24 @@ impl Nexus {
         Ok(())
     }
 
+    /// get ANA state of the NVMe subsystem
+    pub async fn get_ana_state(&self) -> Result<NvmeAnaState, Error> {
+        if let Some(Protocol::Nvmf) = self.shared() {
+            if let Some(subsystem) = NvmfSubsystem::nqn_lookup(&self.name) {
+                let ana_state = subsystem.get_ana_state().await? as i32;
+                return NvmeAnaState::from_i32(ana_state).ok_or({
+                    Error::InvalidNvmeAnaState {
+                        ana_value: ana_state,
+                    }
+                });
+            }
+        }
+
+        Err(Error::NotSharedNvmf {
+            name: self.name.clone(),
+        })
+    }
+
     /// set ANA state of the NVMe subsystem
     pub async fn set_ana_state(
         &self,
@@ -655,9 +673,9 @@ impl Nexus {
     ) -> Result<(), Error> {
         if let Some(Protocol::Nvmf) = self.shared() {
             if let Some(subsystem) = NvmfSubsystem::nqn_lookup(&self.name) {
-                subsystem.pause().await.unwrap();
+                subsystem.pause().await?;
                 let res = subsystem.set_ana_state(ana_state as u32).await;
-                subsystem.resume().await.unwrap();
+                subsystem.resume().await?;
                 return Ok(res?);
             }
         }
