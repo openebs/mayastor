@@ -84,7 +84,7 @@ smol = "1.0.0"
 dns-lookup = "1.0.4"
 ipnetwork = "0.17.0"
 bollard = "0.8.0"
-mbus_api = { path = "../control-plane/mbus-api" }
+mbus_api = { path = "../mbus-api" }
 nvmeadm = {path = "../nvmeadm", version = "0.1.0"}
 
 [dependencies.rpc]

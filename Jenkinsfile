@@ -174,7 +174,6 @@ pipeline {
         sh 'nix-shell --run "cargo fmt --all -- --check"'
         sh 'nix-shell --run "cargo clippy --all-targets -- -D warnings"'
         sh 'nix-shell --run "./scripts/js-check.sh"'
-        sh 'nix-shell --run "./scripts/openapi-check.sh"'
       }
     }
     stage('test') {
