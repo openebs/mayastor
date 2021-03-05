@@ -34,8 +34,12 @@ pub use env::{
 
 pub use bio::{Bio, IoStatus, IoType};
 pub use handle::BdevHandle;
-pub use nvme::{nvme_admin_opc, GenericStatusCode, NvmeStatus};
-pub use nvme::{GenericStatusCode, NvmeCommandStatus, NvmeStatus};
+pub use nvme::{
+    nvme_admin_opc,
+    GenericStatusCode,
+    NvmeCommandStatus,
+    NvmeStatus,
+};
 pub use reactor::{Reactor, ReactorState, Reactors, REACTOR_LIST};
 pub use share::{Protocol, Share};
 pub use thread::Mthread;

@@ -135,10 +135,6 @@ impl TryFrom<&Url> for NvmfDeviceTemplate {
             },
         )?;
 
-        if let Some(keys) = uri::keys(parameters) {
-            warn!("ignored parameters: {}", keys);
-        }
-
         Ok(NvmfDeviceTemplate {
             name: url[url::Position::BeforeHost .. url::Position::AfterPath]
                 .to_string(),

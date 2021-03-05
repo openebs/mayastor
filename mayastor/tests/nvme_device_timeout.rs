@@ -4,6 +4,7 @@ use libc::c_void;
 use mayastor::{
     bdev::{device_create, device_destroy, device_open},
     core::{
+        BlockDevice,
         BlockDeviceHandle,
         DeviceTimeoutAction,
         DmaBuf,
@@ -12,7 +13,7 @@ use mayastor::{
     },
     subsys::{Config, NvmeBdevOpts},
 };
-use once_cell::sync::Lazy;
+use once_cell::sync::{Lazy, OnceCell};
 use rpc::mayastor::{BdevShareRequest, BdevUri, Null};
 use spdk_sys::iovec;
 use std::{slice, str, sync::atomic::AtomicPtr};
@@ -88,11 +89,16 @@ async fn test_io_timeout(action_on_timeout: DeviceTimeoutAction) {
         device_url: String,
     }
 
+    static DEVICE_NAME: OnceCell<String> = OnceCell::new();
+
     let cptr = MAYASTOR
         .spawn(async move {
             let device_name = device_create(&bdev_url).await.unwrap();
             let descr = device_open(&device_name, false).unwrap();
             let handle = descr.into_handle().unwrap();
+
+            // Store device name for further checking from I/O callback.
+            DEVICE_NAME.set(device_name.clone()).unwrap();
 
             // Set requested I/O timeout action.
             let device = handle.get_device();
@@ -118,7 +124,11 @@ async fn test_io_timeout(action_on_timeout: DeviceTimeoutAction) {
     }
 
     // Read completion callback.
-    fn read_completion_callback(status: IoCompletionStatus, ctx: *mut c_void) {
+    fn read_completion_callback(
+        device: &Box<dyn BlockDevice>,
+        status: IoCompletionStatus,
+        ctx: *mut c_void,
+    ) {
         assert_ne!(
             status,
             IoCompletionStatus::Success,
@@ -128,6 +138,13 @@ async fn test_io_timeout(action_on_timeout: DeviceTimeoutAction) {
             CALLBACK_FLAG.load(),
             false,
             "Callback called multiple times"
+        );
+
+        // Make sure we have the correct device.
+        assert_eq!(
+            &device.device_name(),
+            DEVICE_NAME.get().unwrap(),
+            "Device name mismatch"
         );
 
         // Make sure we were passed the same pattern string as requested.
@@ -145,12 +162,16 @@ async fn test_io_timeout(action_on_timeout: DeviceTimeoutAction) {
     let io_ctx = MAYASTOR
         .spawn(async move {
             let ctx = unsafe { Box::from_raw(cptr.into_inner()) };
-            let device = ctx.handle.get_device();
+            let (block_len, alignment) = {
+                let device = ctx.handle.get_device();
+
+                (device.block_len(), device.alignment())
+            };
 
             let mut io_ctx = IoOpCtx {
                 iov: iovec::default(),
                 device_url: ctx.device_url,
-                dma_buf: DmaBuf::new(BUF_SIZE, device.alignment()).unwrap(),
+                dma_buf: DmaBuf::new(BUF_SIZE, alignment).unwrap(),
                 handle: ctx.handle,
             };
 
@@ -164,8 +185,8 @@ async fn test_io_timeout(action_on_timeout: DeviceTimeoutAction) {
                 .readv_blocks(
                     &mut io_ctx.iov,
                     1,
-                    (3 * 1024 * 1024) / device.block_len(),
-                    BUF_SIZE / device.block_len(),
+                    (3 * 1024 * 1024) / block_len,
+                    BUF_SIZE / block_len,
                     read_completion_callback,
                     TEST_CTX_STRING.as_ptr() as *mut c_void,
                 )
@@ -264,21 +285,34 @@ async fn io_timeout_ignore() {
         device_url: String,
     }
 
+    static DEVICE_NAME: OnceCell<String> = OnceCell::new();
+
     let cptr = MAYASTOR
         .spawn(async move {
             let device_name = device_create(&bdev_url).await.unwrap();
             let descr = device_open(&device_name, false).unwrap();
             let handle = descr.into_handle().unwrap();
-            let device = handle.get_device();
 
-            let action_on_timeout = DeviceTimeoutAction::Ignore;
-            let mut io_controller = device.get_io_controller().unwrap();
-            io_controller.set_timeout_action(action_on_timeout).unwrap();
-            assert_eq!(
-                io_controller.get_timeout_action().unwrap(),
-                action_on_timeout,
-                "I/O timeout action mismatches"
-            );
+            // handle.get_device() returns a reference, so it should not
+            // interfere with the move of the handle itself, hence
+            // device is accessed with a different lifetime.
+            let (block_len, alignment) = {
+                let device = handle.get_device();
+                let action_on_timeout = DeviceTimeoutAction::Ignore;
+                let mut io_controller = device.get_io_controller().unwrap();
+
+                io_controller.set_timeout_action(action_on_timeout).unwrap();
+                assert_eq!(
+                    io_controller.get_timeout_action().unwrap(),
+                    action_on_timeout,
+                    "I/O timeout action mismatches"
+                );
+
+                (device.block_len(), device.alignment())
+            };
+
+            // Store device name for further checking from I/O callback.
+            DEVICE_NAME.set(device_name.clone()).unwrap();
 
             AtomicPtr::new(Box::into_raw(Box::new(IoCtx {
                 handle,
@@ -294,7 +328,11 @@ async fn io_timeout_ignore() {
     }
 
     // Read completion callback.
-    fn read_completion_callback(status: IoCompletionStatus, ctx: *mut c_void) {
+    fn read_completion_callback(
+        device: &Box<dyn BlockDevice>,
+        status: IoCompletionStatus,
+        ctx: *mut c_void,
+    ) {
         assert_ne!(
             status,
             IoCompletionStatus::Success,
@@ -304,6 +342,13 @@ async fn io_timeout_ignore() {
             CALLBACK_FLAG.load(),
             false,
             "Callback called multiple times"
+        );
+
+        // Make sure we have the correct device.
+        assert_eq!(
+            &device.device_name(),
+            DEVICE_NAME.get().unwrap(),
+            "Device name mismatch"
         );
 
         // Make sure we were passed the same pattern string as requested.
@@ -324,12 +369,16 @@ async fn io_timeout_ignore() {
     let io_ctx = MAYASTOR
         .spawn(async move {
             let ctx = unsafe { Box::from_raw(cptr.into_inner()) };
-            let device = ctx.handle.get_device();
+            let (block_len, alignment) = {
+                let device = ctx.handle.get_device();
+
+                (device.block_len(), device.alignment())
+            };
 
             let mut io_ctx = IoOpCtx {
                 iov: iovec::default(),
                 device_url: ctx.device_url,
-                dma_buf: DmaBuf::new(BUF_SIZE, device.alignment()).unwrap(),
+                dma_buf: DmaBuf::new(BUF_SIZE, alignment).unwrap(),
                 handle: ctx.handle,
             };
 
@@ -343,8 +392,8 @@ async fn io_timeout_ignore() {
                 .readv_blocks(
                     &mut io_ctx.iov,
                     1,
-                    (3 * 1024 * 1024) / device.block_len(),
-                    BUF_SIZE / device.block_len(),
+                    (3 * 1024 * 1024) / block_len,
+                    BUF_SIZE / block_len,
                     read_completion_callback,
                     TEST_CTX_STRING.as_ptr() as *mut c_void,
                 )
