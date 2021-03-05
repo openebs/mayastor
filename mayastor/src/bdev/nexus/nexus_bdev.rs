@@ -392,12 +392,12 @@ impl Drop for Nexus {
 impl Nexus {
     /// create a new nexus instance with optionally directly attaching
     /// children to it.
-    pub fn new(
+    pub async fn new(
         name: &str,
         size: u64,
         uuid: Option<&str>,
         child_bdevs: Option<&[String]>,
-    ) -> Box<Self> {
+    ) -> Result<Box<Self>, crate::bdev::nexus::nexus_bdev::Error> {
         let mut b = Box::new(spdk_bdev::default());
 
         b.name = c_str!(name);
@@ -410,7 +410,7 @@ impl Nexus {
 
         let cfg = Config::get();
 
-        let mut n = Box::new(Nexus {
+        let mut nexus = Box::new(Nexus {
             name: name.to_string(),
             child_count: 0,
             children: Vec::new(),
@@ -424,17 +424,30 @@ impl Nexus {
             max_io_attempts: cfg.err_store_opts.max_io_attempts,
         });
 
-        n.bdev.set_uuid(uuid.map(String::from));
+        nexus.bdev.set_uuid(uuid.map(String::from));
 
         if let Some(child_bdevs) = child_bdevs {
-            n.register_children(child_bdevs);
+            for child in child_bdevs {
+                if let Err(error) = nexus.create_and_register(child).await {
+                    error!(
+                        "failed to create nexus {}: failed to create child {}: {}",
+                        name, child, error
+                    );
+                    nexus.close_children().await;
+                    return Err(Error::CreateChild {
+                        source: error,
+                        name: String::from(name),
+                    });
+                }
+            }
         }
 
         // store a reference to the Self in the bdev structure.
         unsafe {
-            (*n.bdev.as_ptr()).ctxt = n.as_ref() as *const _ as *mut c_void;
+            (*nexus.bdev.as_ptr()).ctxt =
+                nexus.as_ref() as *const _ as *mut c_void;
         }
-        n
+        Ok(nexus)
     }
 
     /// set the state of the nexus
@@ -1058,33 +1071,9 @@ pub async fn nexus_create(
     // closing a child assumes that the nexus to which it belongs will appear
     // in the global list of nexus instances. We must also ensure that the
     // nexus instance gets removed from the global list if an error occurs.
-    nexus_list.push(Nexus::new(name, size, uuid, None));
+    let mut nexus = Nexus::new(name, size, uuid, Some(&children)).await?;
 
-    // Obtain a reference to the newly created Nexus object.
-    let ni =
-        nexus_list
-            .iter_mut()
-            .find(|n| n.name == name)
-            .ok_or_else(|| Error::NexusNotFound {
-                name: String::from(name),
-            })?;
-
-    for child in children {
-        if let Err(error) = ni.create_and_register(child).await {
-            error!(
-                "failed to create nexus {}: failed to create child {}: {}",
-                name, child, error
-            );
-            ni.close_children().await;
-            nexus_list.retain(|n| n.name != name);
-            return Err(Error::CreateChild {
-                source: error,
-                name: String::from(name),
-            });
-        }
-    }
-
-    match ni.open().await {
+    match nexus.open().await {
         Err(Error::NexusIncomplete {
             ..
         }) => {
@@ -1092,27 +1081,30 @@ pub async fn nexus_create(
             // although this currently only works for config files.
             // We need to explicitly clean up child bdevs if we get this error.
             error!("failed to open nexus {}: missing children", name);
-            destroy_child_bdevs(name, children).await;
+            destroy_child_bdevs(name, &children).await;
             nexus_list.retain(|n| n.name != name);
-            Err(Error::NexusCreate {
+            return Err(Error::NexusCreate {
                 name: String::from(name),
-            })
+            });
         }
 
         Err(error) => {
             error!("failed to open nexus {}: {}", name, error);
-            ni.close_children().await;
+            nexus.close_children().await;
             nexus_list.retain(|n| n.name != name);
-            Err(error)
+            return Err(error);
         }
 
-        Ok(_) => Ok(()),
+        Ok(_) => (),
     }
+
+    nexus_list.push(nexus);
+    Ok(())
 }
 
 /// Destroy list of child bdevs
-async fn destroy_child_bdevs(name: &str, list: &[String]) {
-    let futures = list.iter().map(String::as_str).map(bdev_destroy);
+async fn destroy_child_bdevs(name: &str, list: &[impl AsRef<str>]) {
+    let futures = list.iter().map(AsRef::as_ref).map(bdev_destroy);
     let results = join_all(futures).await;
     if results.iter().any(|c| c.is_err()) {
         error!("{}: Failed to destroy child bdevs", name);

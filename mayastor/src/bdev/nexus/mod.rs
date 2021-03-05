@@ -54,10 +54,16 @@ pub fn instances() -> &'static mut Vec<Box<Nexus>> {
     nexus_module::NexusModule::get_instances()
 }
 
-/// function used to create a new nexus when parsing a config file
-pub fn nexus_instance_new(name: String, size: u64, children: Vec<String>) {
+/// Create a nexus in the global instance pool.
+pub async fn nexus_instance_new(
+    name: String,
+    size: u64,
+    children: Vec<String>,
+) -> Result<(), nexus_bdev::Error> {
     let list = instances();
-    list.push(Nexus::new(&name, size, None, Some(&children)));
+    let nexus = Nexus::new(&name, size, None, Some(&children)).await?;
+    list.push(nexus);
+    Ok(())
 }
 
 /// called during shutdown so that all nexus children are in Destroying state
