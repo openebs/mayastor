@@ -46,7 +46,7 @@ impl Descriptor {
             );
             None
         } else {
-            IoChannel::from_null_checked(ch)
+            Some(IoChannel::from(ch))
         }
     }
 

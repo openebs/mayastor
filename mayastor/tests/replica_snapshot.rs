@@ -27,6 +27,7 @@ static NXNAME: &str = "replica_snapshot_test";
 static NXNAME_SNAP: &str = "replica_snapshot_test-snap";
 
 #[tokio::test]
+#[ignore]
 async fn replica_snapshot() {
     // Start with fresh pools
     common::delete_file(&[DISKNAME1.to_string()]);

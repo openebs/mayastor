@@ -10,9 +10,7 @@ pub use nexus::{
         VerboseError,
     },
     nexus_child::{lookup_child_from_bdev, ChildState, Reason},
-    nexus_child_error_store::{ActionType, NexusErrStore, QueryType},
     nexus_child_status_config,
-    nexus_io::Bio,
     nexus_label::{GptEntry, GptHeader},
     nexus_metadata_content::{
         NexusConfig,

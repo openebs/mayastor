@@ -127,14 +127,9 @@ impl CreateDestroy for NVMe {
             let errno = unsafe {
                 bdev_nvme_delete(self.name.clone().into_cstring().as_ptr())
             };
-            async {
-                errno_result_from_i32((), errno).context(
-                    nexus_uri::DestroyBdev {
-                        name: self.name.clone(),
-                    },
-                )
-            }
-            .await
+            errno_result_from_i32((), errno).context(nexus_uri::DestroyBdev {
+                name: self.name.clone(),
+            })
         } else {
             Err(NexusBdevError::BdevNotFound {
                 name: self.get_name(),

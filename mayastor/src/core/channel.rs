@@ -4,31 +4,31 @@ use std::{
 };
 
 use spdk_sys::{spdk_io_channel, spdk_put_io_channel};
+use std::ptr::NonNull;
 
-pub struct IoChannel(*mut spdk_io_channel);
+#[derive(Clone)]
+pub struct IoChannel(NonNull<spdk_io_channel>);
+
+impl From<*mut spdk_io_channel> for IoChannel {
+    fn from(channel: *mut spdk_io_channel) -> Self {
+        IoChannel(NonNull::new(channel).expect("channel ptr is null"))
+    }
+}
 
 impl IoChannel {
-    pub fn from_null_checked(ch: *mut spdk_io_channel) -> Option<IoChannel> {
-        if ch.is_null() {
-            None
-        } else {
-            Some(IoChannel(ch))
-        }
-    }
-
     /// return the ptr
     pub fn as_ptr(&self) -> *mut spdk_io_channel {
-        self.0
+        self.0.as_ptr()
     }
 
     /// return the name of the io channel which is used to register the device,
-    /// this can either be a string containing the pointer address (?) an
+    /// this can either be a string containing the pointer address, or an
     /// actual name
     fn name(&self) -> &str {
         unsafe {
             // struct is opaque
             std::ffi::CStr::from_ptr(
-                (*self.0)
+                (*(self.0.as_ptr()))
                     .dev
                     .add(std::mem::size_of::<*mut spdk_io_channel>())
                     as *const c_char,
@@ -40,7 +40,7 @@ impl IoChannel {
 
     fn thread_name(&self) -> &str {
         unsafe {
-            std::ffi::CStr::from_ptr(&(*(*self.0).thread).name[0])
+            std::ffi::CStr::from_ptr(&(*self.0.as_ref().thread).name[0])
                 .to_str()
                 .unwrap()
         }
@@ -49,10 +49,7 @@ impl IoChannel {
 
 impl Drop for IoChannel {
     fn drop(&mut self) {
-        // temporarily comment out the trace message as it floods the test logs
-        // (1 per rebuild IO)
-        // trace!("[D] {:?}", self);
-        unsafe { spdk_put_io_channel(self.0) }
+        unsafe { spdk_put_io_channel(self.0.as_ptr()) }
     }
 }
 
@@ -61,7 +58,7 @@ impl Debug for IoChannel {
         write!(
             f,
             "io channel {:p} on thread {} to bdev {}",
-            self.0,
+            self.0.as_ptr(),
             self.thread_name(),
             self.name()
         )

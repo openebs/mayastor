@@ -4,7 +4,7 @@ use crate::{bdev::Uri, core::Bdev};
 use futures::channel::oneshot::Canceled;
 use nix::errno::Errno;
 use snafu::Snafu;
-use tracing::instrument;
+
 use url::ParseError;
 
 // parse URI and bdev create/destroy errors common for all types of bdevs
@@ -70,14 +70,14 @@ pub enum NexusBdevError {
 
 /// Parse URI and create bdev described in the URI.
 /// Return the bdev name (which can be different from URI).
-#[instrument]
 pub async fn bdev_create(uri: &str) -> Result<String, NexusBdevError> {
+    info!(?uri, "create");
     Uri::parse(uri)?.create().await
 }
 
 /// Parse URI and destroy bdev described in the URI.
-#[instrument]
 pub async fn bdev_destroy(uri: &str) -> Result<(), NexusBdevError> {
+    info!(?uri, "destroy");
     Uri::parse(uri)?.destroy().await
 }
 

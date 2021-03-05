@@ -54,15 +54,12 @@ impl Mthread {
     pub fn new(name: String, core: u32) -> Option<Self> {
         let name = CString::new(name).unwrap();
 
-        if let Some(t) = NonNull::new(unsafe {
+        NonNull::new(unsafe {
             let mut mask = CpuMask::new();
             mask.set_cpu(core, true);
             spdk_thread_create(name.as_ptr(), mask.as_ptr())
-        }) {
-            Some(Mthread(t))
-        } else {
-            None
-        }
+        })
+        .map(Mthread)
     }
 
     pub fn id(&self) -> u64 {
@@ -91,22 +88,16 @@ impl Mthread {
 
     #[inline]
     pub fn enter(&self) {
-        debug!("setting thread {:?}", self);
         unsafe { spdk_set_thread(self.0.as_ptr()) };
     }
 
     #[inline]
     pub fn exit(&self) {
-        debug!("exit thread {:?}", self);
         unsafe { spdk_set_thread(std::ptr::null_mut()) };
     }
 
     pub fn current() -> Option<Mthread> {
-        if let Some(t) = NonNull::new(unsafe { spdk_get_thread() }) {
-            Some(Mthread(t))
-        } else {
-            None
-        }
+        NonNull::new(unsafe { spdk_get_thread() }).map(Mthread)
     }
 
     pub fn name(&self) -> &str {

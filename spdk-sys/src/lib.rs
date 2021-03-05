@@ -38,7 +38,6 @@ extern "C" {
         format: *const c_char,
         args: *mut __va_list_tag,
     );
-
     pub static mut logfn: LogProto;
 }
 

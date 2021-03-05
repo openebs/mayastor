@@ -17,11 +17,13 @@ use spdk_sys::{
     spdk_json_write_val_raw,
 };
 
-use crate::bdev::nexus::{
-    instances,
-    nexus_bdev::Nexus,
-    nexus_channel::NexusChannel,
-    nexus_io::{Bio, IoType},
+use crate::{
+    bdev::nexus::{
+        instances,
+        nexus_bdev::Nexus,
+        nexus_io::{nexus_submit_io, NexusBio},
+    },
+    core::IoType,
 };
 
 static NEXUS_FN_TBL: Lazy<NexusFnTable> = Lazy::new(NexusFnTable::new);
@@ -31,6 +33,7 @@ pub struct NexusFnTable {
 }
 
 unsafe impl Sync for NexusFnTable {}
+
 unsafe impl Send for NexusFnTable {}
 
 /// The FN table are function pointers called by SPDK when work is sent
@@ -104,64 +107,8 @@ impl NexusFnTable {
         channel: *mut spdk_io_channel,
         io: *mut spdk_bdev_io,
     ) {
-        // only set the number of IO attempts before the first attempt
-        let mut bio = Bio::from(io);
-        bio.init();
-        Self::io_submit_or_resubmit(channel, &mut bio);
-    }
-
-    /// Submit an IO to the children at the first or subsequent attempts.
-    pub(crate) fn io_submit_or_resubmit(
-        channel: *mut spdk_io_channel,
-        nio: &mut Bio,
-    ) {
-        let mut ch = NexusChannel::inner_from_channel(channel);
-
-        // set the fields that need to be (re)set per-attempt
-        if nio.io_type() == IoType::Read {
-            // set that we only need to read from one child
-            // before we complete the IO to the callee.
-            nio.reset(1);
-        } else {
-            nio.reset(ch.writers.len())
-        }
-
-        let nexus = nio.nexus_as_ref();
-        let io_type = nio.io_type();
-        match io_type {
-            IoType::Read => nexus.readv(&nio, &mut ch),
-            IoType::Write => nexus.writev(&nio, &ch),
-            IoType::Reset => {
-                trace!("{}: Dispatching RESET", nexus.bdev.name());
-                nexus.reset(&nio, &ch)
-            }
-            IoType::Unmap => {
-                if nexus.io_is_supported(io_type) {
-                    nexus.unmap(&nio, &ch)
-                } else {
-                    nio.fail();
-                }
-            }
-            IoType::Flush => {
-                // our replica's are attached to as nvme controllers
-                // who always support flush. This can be troublesome
-                // so we complete the IO directly.
-                nio.reset(0);
-                nio.ok();
-            }
-            IoType::WriteZeros => {
-                if nexus.io_is_supported(io_type) {
-                    nexus.write_zeroes(&nio, &ch)
-                } else {
-                    nio.fail()
-                }
-            }
-            IoType::NvmeAdmin => nexus.nvme_admin(&nio, &ch),
-            _ => panic!(
-                "{} Received unsupported IO! type {:#?}",
-                nexus.name, io_type
-            ),
-        };
+        let bio = unsafe { NexusBio::nexus_bio_setup(channel, io) };
+        nexus_submit_io(bio);
     }
 
     /// called per core to create IO channels per Nexus instance

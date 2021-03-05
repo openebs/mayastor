@@ -86,10 +86,11 @@ async fn unmap(
 ) -> Result<(), Error> {
     let (sender, receiver) = oneshot::channel::<bool>();
 
+    let (desc, ch) = handle.io_tuple();
     let errno = unsafe {
         spdk_bdev_unmap(
-            handle.desc.as_ptr(),
-            handle.channel.as_ptr(),
+            desc,
+            ch,
             offset,
             nbytes,
             Some(io_completion_cb),
@@ -117,11 +118,12 @@ async fn write_zeroes(
     nbytes: u64,
 ) -> Result<(), Error> {
     let (sender, receiver) = oneshot::channel::<bool>();
+    let (desc, ch) = handle.io_tuple();
 
     let errno = unsafe {
         spdk_bdev_write_zeroes(
-            handle.desc.as_ptr(),
-            handle.channel.as_ptr(),
+            desc,
+            ch,
             offset,
             nbytes,
             Some(io_completion_cb),
