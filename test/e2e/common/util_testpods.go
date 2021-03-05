@@ -137,6 +137,12 @@ func CreateFioPodDef(podName string, volName string) *corev1.Pod {
 }
 
 /// Create a test fio pod in default namespace, no options and no context
+/// mayastor volume is mounted on /dev/sdm
+func CreateRawBlockFioPodDef(podName string, volName string) *corev1.Pod {
+	return createFioPodDef(podName, volName, true)
+}
+
+/// Create a test fio pod in default namespace, no options and no context
 /// mayastor volume is mounted on /volume
 func CreateFioPod(podName string, volName string) (*corev1.Pod, error) {
 	logf.Log.Info("Creating fio pod definition", "name", podName, "volume type", "filesystem")

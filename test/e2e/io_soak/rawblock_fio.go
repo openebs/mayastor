@@ -27,8 +27,10 @@ func (job FioRawBlockSoakJob) removeVolume() {
 	common.RmPVC(job.volName, job.scName)
 }
 
-func (job FioRawBlockSoakJob) makeTestPod() (*coreV1.Pod, error) {
-	pod, err := common.CreateRawBlockFioPod(job.podName, job.volName)
+func (job FioRawBlockSoakJob) makeTestPod(selector map[string]string) (*coreV1.Pod, error) {
+	pod := common.CreateRawBlockFioPodDef(job.podName, job.volName)
+	pod.Spec.NodeSelector = selector
+	pod, err := common.CreatePod(pod)
 	return pod, err
 }
 
@@ -37,13 +39,21 @@ func (job FioRawBlockSoakJob) removeTestPod() error {
 }
 
 func (job FioRawBlockSoakJob) run(duration time.Duration, doneC chan<- string, errC chan<- error) {
+	thinkTime := 1 // 1 microsecond
+	thinkTimeBlocks := 1000
+
 	FioDutyCycles := e2e_config.GetConfig().IOSoakTest.FioDutyCycles
-	ixp := job.id % len(FioDutyCycles)
+	if len(FioDutyCycles) != 0 {
+		ixp := job.id % len(FioDutyCycles)
+		thinkTime = FioDutyCycles[ixp].ThinkTime
+		thinkTimeBlocks = FioDutyCycles[ixp].ThinkTimeBlocks
+	}
+
 	RunIoSoakFio(
 		job.podName,
 		duration,
-		FioDutyCycles[ixp].ThinkTime,
-		FioDutyCycles[ixp].ThinkTimeBlocks,
+		thinkTime,
+		thinkTimeBlocks,
 		true,
 		doneC,
 		errC,
