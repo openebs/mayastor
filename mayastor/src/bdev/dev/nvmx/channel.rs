@@ -7,9 +7,9 @@ use crate::{
             NvmeControllerState,
             NVME_CONTROLLERS,
         },
-        nexus::nexus_io::IoType,
+        device_lookup,
     },
-    core::{poller, BlockDeviceIoStats, CoreError},
+    core::{poller, BlockDevice, BlockDeviceIoStats, CoreError, IoType},
 };
 use std::{cmp::max, mem::size_of, os::raw::c_void, ptr::NonNull};
 
@@ -201,6 +201,8 @@ pub struct NvmeIoChannelInner<'a> {
     poller: poller::Poller<'a>,
     pub qpair: Option<IoQpair>,
     io_stats_controller: IoStatsController,
+    pub device: Box<dyn BlockDevice>,
+
     // Flag to indicate the shutdown state of the channel.
     // We need such a flag to differentiate between channel reset and shutdown.
     // Channel reset is a reversible operation, which is followed by
@@ -436,6 +438,18 @@ impl NvmeControllerIoChannel {
 
         let nvme_channel = NvmeIoChannel::from_raw(ctx);
 
+        // Get a block device that corresponds to the controller.
+        let device = match device_lookup(&cname) {
+            Some(device) => device,
+            None => {
+                error!(
+                    "{} no block device exists for controller, I/O channel creation not possible",
+                    cname,
+                );
+                return 1;
+            }
+        };
+
         // Allocate qpair.
         let mut qpair = match IoQpair::create(spdk_handle, &cname) {
             Ok(qpair) => qpair,
@@ -482,6 +496,7 @@ impl NvmeControllerIoChannel {
             poller,
             io_stats_controller: IoStatsController::new(block_size),
             is_shutdown: false,
+            device,
         });
 
         nvme_channel.inner = Box::into_raw(inner);

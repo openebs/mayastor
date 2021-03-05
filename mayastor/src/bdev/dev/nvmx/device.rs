@@ -10,15 +10,12 @@ use std::{
 use spdk_sys::{self, spdk_nvme_ctrlr};
 
 use crate::{
-    bdev::{
-        dev::nvmx::{
-            NvmeController,
-            NvmeControllerState,
-            NvmeDeviceHandle,
-            NvmeNamespace,
-            NVME_CONTROLLERS,
-        },
-        nexus::nexus_io::IoType,
+    bdev::dev::nvmx::{
+        NvmeController,
+        NvmeControllerState,
+        NvmeDeviceHandle,
+        NvmeNamespace,
+        NVME_CONTROLLERS,
     },
     core::{
         BlockDevice,
@@ -29,6 +26,7 @@ use crate::{
         DeviceEventType,
         DeviceIoController,
         DeviceTimeoutAction,
+        IoType,
     },
     ffihelper::{cb_arg, done_cb},
 };

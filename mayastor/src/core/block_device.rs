@@ -1,7 +1,4 @@
-use crate::{
-    bdev::nexus::nexus_io::IoType,
-    core::{CoreError, DmaBuf, DmaError, IoCompletionStatus},
-};
+use crate::core::{CoreError, DmaBuf, DmaError, IoCompletionStatus, IoType};
 use async_trait::async_trait;
 use merge::Merge;
 use std::os::raw::c_void;
@@ -91,8 +88,11 @@ pub trait BlockDeviceDescriptor {
 }
 
 pub type IoCompletionCallbackArg = *mut c_void;
-pub type IoCompletionCallback =
-    fn(IoCompletionStatus, IoCompletionCallbackArg) -> ();
+pub type IoCompletionCallback = fn(
+    &Box<dyn BlockDevice>,
+    IoCompletionStatus,
+    IoCompletionCallbackArg,
+) -> ();
 pub type OpCompletionCallbackArg = *mut c_void;
 pub type OpCompletionCallback = fn(bool, OpCompletionCallbackArg) -> ();
 
@@ -103,7 +103,7 @@ pub type OpCompletionCallback = fn(bool, OpCompletionCallbackArg) -> ();
 #[async_trait(?Send)]
 pub trait BlockDeviceHandle {
     // Generic functions.
-    fn get_device(&self) -> Box<dyn BlockDevice>;
+    fn get_device(&self) -> &Box<dyn BlockDevice>;
     fn dma_malloc(&self, size: u64) -> Result<DmaBuf, DmaError>;
 
     // Futures-based I/O functions.
