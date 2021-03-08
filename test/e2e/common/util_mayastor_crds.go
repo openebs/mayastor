@@ -29,7 +29,7 @@ func GetMSV(uuid string) *MayastorVolStatus {
 		Version:  "v1alpha1",
 		Resource: "mayastorvolumes",
 	}
-	msv, err := gTestEnv.DynamicClient.Resource(msvGVR).Namespace("mayastor").Get(context.TODO(), uuid, metav1.GetOptions{})
+	msv, err := gTestEnv.DynamicClient.Resource(msvGVR).Namespace(NSMayastor).Get(context.TODO(), uuid, metav1.GetOptions{})
 	if err != nil {
 		fmt.Println(err)
 		return nil
@@ -96,7 +96,7 @@ func IsMSVDeleted(uuid string) bool {
 		Resource: "mayastorvolumes",
 	}
 
-	msv, err := gTestEnv.DynamicClient.Resource(msvGVR).Namespace("mayastor").Get(context.TODO(), uuid, metav1.GetOptions{})
+	msv, err := gTestEnv.DynamicClient.Resource(msvGVR).Namespace(NSMayastor).Get(context.TODO(), uuid, metav1.GetOptions{})
 
 	if err != nil {
 		// Unfortunately there is no associated error code so we resort to string comparison
@@ -118,7 +118,7 @@ func DeleteMSV(uuid string) error {
 		Resource: "mayastorvolumes",
 	}
 
-	err := gTestEnv.DynamicClient.Resource(msvGVR).Namespace("mayastor").Delete(context.TODO(), uuid, metav1.DeleteOptions{})
+	err := gTestEnv.DynamicClient.Resource(msvGVR).Namespace(NSMayastor).Delete(context.TODO(), uuid, metav1.DeleteOptions{})
 	return err
 }
 
@@ -149,7 +149,7 @@ func getMsvGvr() schema.GroupVersionResource {
 // Get the k8s MSV CRD
 func getMsv(uuid string) (*unstructured.Unstructured, error) {
 	msvGVR := getMsvGvr()
-	return gTestEnv.DynamicClient.Resource(msvGVR).Namespace("mayastor").Get(context.TODO(), uuid, metav1.GetOptions{})
+	return gTestEnv.DynamicClient.Resource(msvGVR).Namespace(NSMayastor).Get(context.TODO(), uuid, metav1.GetOptions{})
 }
 
 // Get a field within the MSV.
@@ -213,7 +213,7 @@ func UpdateNumReplicas(uuid string, numReplicas int64) error {
 
 	// Update the k8s MSV object.
 	msvGVR := getMsvGvr()
-	_, err = gTestEnv.DynamicClient.Resource(msvGVR).Namespace("mayastor").Update(context.TODO(), msv, metav1.UpdateOptions{})
+	_, err = gTestEnv.DynamicClient.Resource(msvGVR).Namespace(NSMayastor).Update(context.TODO(), msv, metav1.UpdateOptions{})
 	if err != nil {
 		return fmt.Errorf("Failed to update MSV: %v", err)
 	}
@@ -313,7 +313,7 @@ func CheckForMSVs() (bool, error) {
 		Resource: "mayastorvolumes",
 	}
 
-	msvs, err := gTestEnv.DynamicClient.Resource(msvGVR).Namespace("mayastor").List(context.TODO(), metav1.ListOptions{})
+	msvs, err := gTestEnv.DynamicClient.Resource(msvGVR).Namespace(NSMayastor).List(context.TODO(), metav1.ListOptions{})
 	if err == nil && msvs != nil && len(msvs.Items) != 0 {
 		logf.Log.Info("CheckForVolumeResources: found MayastorVolumes",
 			"MayastorVolumes", msvs.Items)

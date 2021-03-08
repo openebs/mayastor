@@ -7,7 +7,6 @@ import (
 	disconnect_lib "e2e-basic/node_disconnect/lib"
 
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
 	"testing"
 
@@ -37,7 +36,7 @@ var _ = Describe("Mayastor replica pod removal test", func() {
 	})
 
 	It("should verify nvmf nexus behaviour when a mayastor pod is removed", func() {
-		err := common.MkStorageClass(gStorageClass, 2, "nvmf", "io.openebs.csi-mayastor")
+		err := common.MkStorageClass(gStorageClass, 2, common.ShareProtoNvmf)
 		Expect(err).ToNot(HaveOccurred())
 		env = disconnect_lib.Setup("loss-test-pvc-nvmf", gStorageClass, "fio-pod-remove-test")
 		env.PodLossTest()
@@ -45,7 +44,6 @@ var _ = Describe("Mayastor replica pod removal test", func() {
 })
 
 var _ = BeforeSuite(func(done Done) {
-	logf.SetLogger(zap.New(zap.UseDevMode(true), zap.WriteTo(GinkgoWriter)))
 	common.SetupTestEnv()
 	close(done)
 }, 60)

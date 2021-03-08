@@ -4,29 +4,26 @@ package io_soak
 
 import (
 	"e2e-basic/common"
+	"e2e-basic/common/e2e_config"
 	rep "e2e-basic/common/reporter"
 
 	"fmt"
-	"os"
 	"sort"
-	"strconv"
-	"strings"
 	"testing"
 	"time"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	corev1 "k8s.io/api/core/v1"
+	coreV1 "k8s.io/api/core/v1"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
 var defTimeoutSecs = "120s"
 
 type IoSoakJob interface {
 	makeVolume()
-	makeTestPod() (*corev1.Pod, error)
+	makeTestPod() (*coreV1.Pod, error)
 	removeTestPod() error
 	removeVolume()
 	run(time.Duration, chan<- string, chan<- error)
@@ -63,7 +60,7 @@ func monitor(errC chan<- error) {
 /// proto - protocol "nvmf" or "isci"
 /// replicas - number of replicas for each volume
 /// loadFactor - number of volumes for each mayastor instance
-func IOSoakTest(protocols []string, replicas int, loadFactor int, duration time.Duration) {
+func IOSoakTest(protocols []common.ShareProto, replicas int, loadFactor int, duration time.Duration) {
 	nodeList, err := common.GetNodeLocs()
 	Expect(err).ToNot(HaveOccurred())
 
@@ -84,7 +81,7 @@ func IOSoakTest(protocols []string, replicas int, loadFactor int, duration time.
 	for _, proto := range protocols {
 		scName := fmt.Sprintf("io-soak-%s", proto)
 		logf.Log.Info("Creating", "storage class", scName)
-		err = common.MkStorageClass(scName, replicas, proto, "io.openebs.csi-mayastor")
+		err = common.MkStorageClass(scName, replicas, proto)
 		Expect(err).ToNot(HaveOccurred())
 		scNames = append(scNames, scName)
 	}
@@ -151,7 +148,7 @@ func IOSoakTest(protocols []string, replicas int, loadFactor int, duration time.
 			logf.Log.Info("Completed", "pod", podName)
 		case err := <-errC:
 			close(doneC)
-			logf.Log.Error(err, "fio run")
+			logf.Log.Info("fio run error", "error", err)
 			Expect(err).To(BeNil())
 		}
 	}
@@ -184,38 +181,22 @@ var _ = Describe("Mayastor Volume IO test", func() {
 	})
 
 	It("should verify an NVMe-oF TCP volume can process IO on multiple volumes simultaneously", func() {
-		replicas := 1
-		loadFactor := 2
-		duration, _ := time.ParseDuration("30s")
-		protocols := []string{"nvmf"}
-		var err error
-		tmp := os.Getenv("e2e_io_soak_load_factor")
-		if tmp != "" {
-			loadFactor, err = strconv.Atoi(tmp)
-			Expect(err).ToNot(HaveOccurred())
+		e2eCfg := e2e_config.GetConfig()
+		loadFactor := e2eCfg.IOSoakTest.LoadFactor
+		replicas := e2eCfg.IOSoakTest.Replicas
+		strProtocols := e2eCfg.IOSoakTest.Protocols
+		var protocols []common.ShareProto
+		for _, proto := range strProtocols {
+			protocols = append(protocols, common.ShareProto(proto))
 		}
-		tmp = os.Getenv("e2e_io_soak_duration")
-		if tmp != "" {
-			duration, err = time.ParseDuration(tmp)
-			Expect(err).ToNot(HaveOccurred())
-			Expect(duration.Seconds() > 0).To(BeTrue())
-		}
-		tmp = os.Getenv("e2e_io_soak_replicas")
-		if tmp != "" {
-			replicas, err = strconv.Atoi(tmp)
-			Expect(err).ToNot(HaveOccurred())
-		}
-		tmp = os.Getenv("e2e_io_soak_protocols")
-		if tmp != "" {
-			protocols = strings.Split(tmp, ",")
-		}
+		duration, err := time.ParseDuration(e2eCfg.IOSoakTest.Duration)
+		Expect(err).ToNot(HaveOccurred(), "Duration configuration string format is invalid.")
 		logf.Log.Info("Parameters", "replicas", replicas, "loadFactor", loadFactor, "duration", duration)
 		IOSoakTest(protocols, replicas, loadFactor, duration)
 	})
 })
 
 var _ = BeforeSuite(func(done Done) {
-	logf.SetLogger(zap.New(zap.UseDevMode(true), zap.WriteTo(GinkgoWriter)))
 	common.SetupTestEnv()
 
 	close(done)

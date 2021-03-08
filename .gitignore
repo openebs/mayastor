@@ -13,3 +13,4 @@ test-yamls/*
 /package-lock.json
 /node_modules
 artifacts/
+.idea

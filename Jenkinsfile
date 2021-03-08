@@ -318,7 +318,7 @@ pipeline {
                     tag = e2e_continuous_image_tag
                   }
                   lokiInstall(tag)
-                  def cmd = "./scripts/e2e-test.sh --device /dev/sdb --tag \"${tag}\" --logs --logsdir \"./logs/mayastor\" --profile \"${e2e_test_profile}\" "
+                  def cmd = "./scripts/e2e-test.sh --device /dev/sdb --tag \"${tag}\" --logs --profile \"${e2e_test_profile}\" "
 
                   // building images also means using the CI registry
                   if (e2e_build_images == true) {
@@ -360,7 +360,7 @@ pipeline {
                   }
                 }
                 always {
-                  archiveArtifacts 'logs/**/*.*'
+                  archiveArtifacts 'artifacts/**/*.*'
                   // always send the junit results back to Xray and Jenkins
                   junit 'e2e.*.xml'
                   script {

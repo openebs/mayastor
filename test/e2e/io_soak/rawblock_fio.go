@@ -2,6 +2,7 @@ package io_soak
 
 import (
 	"e2e-basic/common"
+	"e2e-basic/common/e2e_config"
 
 	"fmt"
 	"time"
@@ -36,12 +37,13 @@ func (job FioRawBlockSoakJob) removeTestPod() error {
 }
 
 func (job FioRawBlockSoakJob) run(duration time.Duration, doneC chan<- string, errC chan<- error) {
+	FioDutyCycles := e2e_config.GetConfig().IOSoakTest.FioDutyCycles
 	ixp := job.id % len(FioDutyCycles)
 	RunIoSoakFio(
 		job.podName,
 		duration,
-		FioDutyCycles[ixp].thinkTime,
-		FioDutyCycles[ixp].thinkTimeBlocks,
+		FioDutyCycles[ixp].ThinkTime,
+		FioDutyCycles[ixp].ThinkTimeBlocks,
 		true,
 		doneC,
 		errC,
