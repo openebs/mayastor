@@ -31,6 +31,7 @@ EXITV_FAILED_CLUSTER_OK=255
 
 # Global state variables
 #  test configuration state variables
+build_number=
 device=
 registry=
 tag="ci"
@@ -48,6 +49,7 @@ help() {
 Usage: $0 [OPTIONS]
 
 Options:
+  --build_number <number>   Build number, for use when sending Loki markers
   --device <path>           Device path to use for storage pools.
   --registry <host[:port]>  Registry to pull the mayastor images from.
   --tag <name>              Docker image tag of mayastor images (default "ci")
@@ -96,6 +98,10 @@ while [ "$#" -gt 0 ]; do
     -h|--help)
       help
       exit $EXITV_OK
+      ;;
+    --build_number)
+      shift
+      build_number="$1"
       ;;
     --logs)
       generate_logs=1
@@ -150,6 +156,8 @@ while [ "$#" -gt 0 ]; do
   esac
   shift
 done
+
+export e2e_build_number="$build_number" # can be empty string
 
 if [ -z "$device" ]; then
   echo "Device for storage pools must be specified"
@@ -240,6 +248,7 @@ contains() {
 }
 
 echo "Environment:"
+echo "    e2e_build_number=$build_number"
 echo "    e2e_top_dir=$e2e_top_dir"
 echo "    e2e_pool_device=$e2e_pool_device"
 echo "    e2e_image_tag=$e2e_image_tag"

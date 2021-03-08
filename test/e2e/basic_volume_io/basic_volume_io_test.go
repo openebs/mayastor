@@ -5,6 +5,7 @@ package basic_volume_io_test
 import (
 	"e2e-basic/common"
 	"e2e-basic/common/e2e_config"
+	"e2e-basic/common/loki"
 	rep "e2e-basic/common/reporter"
 	"testing"
 
@@ -29,8 +30,11 @@ func TestBasicVolumeIO(t *testing.T) {
 }
 
 func basicVolumeIOTest(protocol common.ShareProto) {
+	err := loki.SendLokiMarker("Starting basic vol IO test")
+	Expect(err).ToNot(HaveOccurred())
+
 	scName := "basic-vol-io-test-" + string(protocol)
-	err := common.MkStorageClass(scName, e2e_config.GetConfig().BasicVolumeIO.Replicas, protocol)
+	err = common.MkStorageClass(scName, e2e_config.GetConfig().BasicVolumeIO.Replicas, protocol)
 	Expect(err).ToNot(HaveOccurred(), "Creating storage class %s", scName)
 
 	volName := "basic-vol-io-test-" + string(protocol)
