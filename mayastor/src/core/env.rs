@@ -14,10 +14,6 @@ use std::{
 
 use byte_unit::{Byte, ByteUnit};
 use futures::{channel::oneshot, future};
-use mbus_api::{
-    v0::{Config::MayastorConfig, ConfigGetCurrent, ReplyConfig},
-    Message,
-};
 use once_cell::sync::{Lazy, OnceCell};
 use snafu::Snafu;
 use structopt::StructOpt;
@@ -603,19 +599,6 @@ impl MayastorEnvironment {
             Config::get_or_init(Config::default)
         };
         cfg.apply();
-    }
-
-    #[allow(dead_code)]
-    async fn get_service_config(&self) -> Result<ReplyConfig, mbus_api::Error> {
-        if self.mbus_endpoint.is_some() {
-            Ok(ConfigGetCurrent {
-                kind: MayastorConfig,
-            }
-            .request()
-            .await?)
-        } else {
-            Ok(Default::default())
-        }
     }
 
     // load the child status file
