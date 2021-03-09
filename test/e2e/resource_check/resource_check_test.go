@@ -2,7 +2,6 @@ package basic_test
 
 import (
 	"e2e-basic/common"
-	rep "e2e-basic/common/reporter"
 	"testing"
 
 	. "github.com/onsi/ginkgo"
@@ -41,8 +40,8 @@ func resourceCheck() {
 }
 
 func TestResourceCheck(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecsWithDefaultAndCustomReporters(t, "Resource Check Suite", rep.GetReporters("resource_check"))
+	// Initialise test and set class and file names for reports
+	common.InitTesting(t, "Resource Check Suite", "resource_check")
 }
 
 var _ = Describe("Mayastor resource check", func() {

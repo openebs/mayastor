@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"e2e-basic/common"
-	rep "e2e-basic/common/reporter"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -70,8 +69,8 @@ func addUnpublishedReplicaTest() {
 }
 
 func TestReplica(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecsWithDefaultAndCustomReporters(t, "Replica Test Suite", rep.GetReporters("replica"))
+	// Initialise test and set class and file names for reports
+	common.InitTesting(t, "Replica Test Suite", "replica")
 }
 
 var _ = Describe("Mayastor replica tests", func() {

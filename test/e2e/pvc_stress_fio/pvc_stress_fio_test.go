@@ -4,7 +4,6 @@ package pvc_stress_fio_test
 import (
 	"e2e-basic/common"
 	"e2e-basic/common/e2e_config"
-	rep "e2e-basic/common/reporter"
 
 	"fmt"
 	"testing"
@@ -206,8 +205,8 @@ func stressTestPVC(iters int, runFio bool) {
 }
 
 func TestPVCStress(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecsWithDefaultAndCustomReporters(t, "PVC Stress Test Suite", rep.GetReporters("pvc-stress"))
+	// Initialise test and set class and file names for reports
+	common.InitTesting(t, "PVC Stress Test Suite", "pvc-stress")
 }
 
 var _ = Describe("Mayastor PVC Stress test", func() {

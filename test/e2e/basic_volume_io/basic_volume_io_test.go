@@ -5,7 +5,7 @@ package basic_volume_io_test
 import (
 	"e2e-basic/common"
 	"e2e-basic/common/e2e_config"
-	rep "e2e-basic/common/reporter"
+
 	"testing"
 
 	. "github.com/onsi/ginkgo"
@@ -24,8 +24,8 @@ var podNames []string
 var volNames []volSc
 
 func TestBasicVolumeIO(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecsWithDefaultAndCustomReporters(t, "Basic volume IO tests, NVMe-oF TCP and iSCSI", rep.GetReporters("basic-volume-io"))
+	// Initialise test and set class and file names for reports
+	common.InitTesting(t, "Basic volume IO tests, NVMe-oF TCP and iSCSI", "basic-volume-io")
 }
 
 func basicVolumeIOTest(protocol common.ShareProto) {

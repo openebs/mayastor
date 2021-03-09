@@ -5,7 +5,6 @@ package io_soak
 import (
 	"e2e-basic/common"
 	"e2e-basic/common/e2e_config"
-	rep "e2e-basic/common/reporter"
 
 	"fmt"
 	"sort"
@@ -41,8 +40,8 @@ var scNames []string
 var jobs []IoSoakJob
 
 func TestIOSoak(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecsWithDefaultAndCustomReporters(t, "IO soak test, NVMe-oF TCP and iSCSI", rep.GetReporters("io-soak"))
+	// Initialise test and set class and file names for reports
+	common.InitTesting(t, "IO soak test, NVMe-oF TCP and iSCSI", "io-soak")
 }
 
 func monitor(errC chan<- error) {

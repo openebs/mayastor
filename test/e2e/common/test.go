@@ -5,8 +5,10 @@ import (
 	"errors"
 	"fmt"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+	"testing"
 	"time"
 
+	"e2e-basic/common/reporter"
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
@@ -34,6 +36,12 @@ type TestEnvironment struct {
 }
 
 var gTestEnv TestEnvironment
+
+// Initialise testing and setup class name + report filename.
+func InitTesting(t *testing.T, classname string, reportname string) {
+	RegisterFailHandler(Fail)
+	RunSpecsWithDefaultAndCustomReporters(t, classname, reporter.GetReporters(reportname))
+}
 
 func SetupTestEnv() {
 	logf.SetLogger(zap.New(zap.UseDevMode(true), zap.WriteTo(GinkgoWriter)))
