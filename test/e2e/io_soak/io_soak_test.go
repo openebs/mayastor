@@ -23,11 +23,18 @@ var defTimeoutSecs = "120s"
 
 type IoSoakJob interface {
 	makeVolume()
-	makeTestPod() (*coreV1.Pod, error)
+	makeTestPod(map[string]string) (*corev1.Pod, error)
 	removeTestPod() error
 	removeVolume()
 	run(time.Duration, chan<- string, chan<- error)
 	getPodName() string
+}
+
+const NodeSelectorKey = "e2e-io-soak"
+const NodeSelectorAppValue = "e2e-app"
+
+var AppNodeSelector = map[string]string{
+	NodeSelectorKey: NodeSelectorAppValue,
 }
 
 var scNames []string
@@ -64,6 +71,8 @@ func IOSoakTest(protocols []common.ShareProto, replicas int, loadFactor int, dur
 	nodeList, err := common.GetNodeLocs()
 	Expect(err).ToNot(HaveOccurred())
 
+	var nodes []string
+
 	numMayastorNodes := 0
 	jobCount := 0
 	sort.Slice(nodeList, func(i, j int) bool { return nodeList[i].NodeName < nodeList[j].NodeName })
@@ -72,6 +81,13 @@ func IOSoakTest(protocols []common.ShareProto, replicas int, loadFactor int, dur
 			logf.Log.Info("MayastorNode", "name", node.NodeName, "index", i)
 			jobCount += loadFactor
 			numMayastorNodes += 1
+			nodes = append(nodes, node.NodeName)
+		}
+	}
+
+	for i, node := range nodes {
+		if i%2 == 0 {
+			common.LabelNode(node, NodeSelectorKey, NodeSelectorAppValue)
 		}
 	}
 
@@ -115,7 +131,7 @@ func IOSoakTest(protocols []common.ShareProto, replicas int, loadFactor int, dur
 	logf.Log.Info("Creating test pods")
 	// Create the job test pods
 	for _, job := range jobs {
-		pod, err := job.makeTestPod()
+		pod, err := job.makeTestPod(AppNodeSelector)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(pod).ToNot(BeNil())
 	}
@@ -169,9 +185,15 @@ func IOSoakTest(protocols []common.ShareProto, replicas int, loadFactor int, dur
 		err = common.RmStorageClass(scName)
 		Expect(err).ToNot(HaveOccurred())
 	}
+
+	for i, node := range nodes {
+		if i%2 == 0 {
+			common.UnlabelNode(node, NodeSelectorKey)
+		}
+	}
 }
 
-var _ = Describe("Mayastor Volume IO test", func() {
+var _ = Describe("Mayastor Volume IO soak test", func() {
 
 	AfterEach(func() {
 		logf.Log.Info("AfterEach")

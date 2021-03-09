@@ -11,7 +11,6 @@ import (
 )
 
 // IO soak filesystem fio job
-
 type FioFsSoakJob struct {
 	volName string
 	scName  string
@@ -27,8 +26,10 @@ func (job FioFsSoakJob) removeVolume() {
 	common.RmPVC(job.volName, job.scName)
 }
 
-func (job FioFsSoakJob) makeTestPod() (*coreV1.Pod, error) {
-	pod, err := common.CreateFioPod(job.podName, job.volName)
+func (job FioFsSoakJob) makeTestPod(selector map[string]string) (*coreV1.Pod, error) {
+	pod := common.CreateFioPodDef(job.podName, job.volName)
+	pod.Spec.NodeSelector = selector
+	pod, err := common.CreatePod(pod)
 	return pod, err
 }
 
@@ -37,13 +38,21 @@ func (job FioFsSoakJob) removeTestPod() error {
 }
 
 func (job FioFsSoakJob) run(duration time.Duration, doneC chan<- string, errC chan<- error) {
+	thinkTime := 1 // 1 microsecond
+	thinkTimeBlocks := 1000
+
 	FioDutyCycles := e2e_config.GetConfig().IOSoakTest.FioDutyCycles
-	ixp := job.id % len(FioDutyCycles)
+	if len(FioDutyCycles) != 0 {
+		ixp := job.id % len(FioDutyCycles)
+		thinkTime = FioDutyCycles[ixp].ThinkTime
+		thinkTimeBlocks = FioDutyCycles[ixp].ThinkTimeBlocks
+	}
+
 	RunIoSoakFio(
 		job.podName,
 		duration,
-		FioDutyCycles[ixp].ThinkTime,
-		FioDutyCycles[ixp].ThinkTimeBlocks,
+		thinkTime,
+		thinkTimeBlocks,
 		false,
 		doneC,
 		errC,

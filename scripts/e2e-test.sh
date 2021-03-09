@@ -16,10 +16,10 @@ TOPDIR=$(realpath "$SCRIPTDIR/..")
 #   2. replicas_pod_remove SHOULD be the last test before uninstall
 #       this is a disruptive test.
 #TESTS="install basic_volume_io csi replica rebuild node_disconnect/replica_pod_remove uninstall"
-ALL_TESTS="install basic_volume_io csi resource_check replica rebuild uninstall"
+DEFAULT_TESTS="install basic_volume_io csi resource_check replica rebuild uninstall"
 ONDEMAND_TESTS="install basic_volume_io csi resource_check uninstall"
-EXTENDED_TESTS="install basic_volume_io csi resource_check uninstall"
-CONTINUOUS_TESTS="install basic_volume_io csi resource_check replica rebuild uninstall"
+EXTENDED_TESTS="install basic_volume_io csi resource_check io_soak uninstall"
+CONTINUOUS_TESTS="install basic_volume_io csi resource_check replica rebuild io_soak uninstall"
 
 #exit values
 EXITV_OK=0
@@ -188,7 +188,7 @@ case "$profile" in
     tests="$custom_tests"
     ;;
   default)
-    tests="$ALL_TESTS"
+    tests="$DEFAULT_TESTS"
     ;;
   *)
     echo "Unknown profile: $profile"
