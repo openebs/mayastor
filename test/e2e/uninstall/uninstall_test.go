@@ -4,8 +4,6 @@ import (
 	"e2e-basic/common"
 	"e2e-basic/common/e2e_config"
 	"e2e-basic/common/locations"
-	rep "e2e-basic/common/reporter"
-
 	"os/exec"
 	"testing"
 	"time"
@@ -131,8 +129,8 @@ func teardownMayastor() {
 }
 
 func TestTeardownSuite(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecsWithDefaultAndCustomReporters(t, "Basic Teardown Suite", rep.GetReporters("uninstall"))
+	// Initialise test and set class and file names for reports
+	common.InitTesting(t, "Basic Teardown Suite", "uninstall")
 }
 
 var _ = Describe("Mayastor setup", func() {

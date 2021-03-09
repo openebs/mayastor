@@ -4,7 +4,6 @@ import (
 	"testing"
 
 	"e2e-basic/common"
-	rep "e2e-basic/common/reporter"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
@@ -78,8 +77,8 @@ func basicRebuildTest() {
 }
 
 func TestRebuild(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecsWithDefaultAndCustomReporters(t, "Rebuild Test Suite", rep.GetReporters("rebuild"))
+	// Initialise test and set class and file names for reports
+	common.InitTesting(t, "Rebuild Test Suite", "rebuild")
 }
 
 var _ = Describe("Mayastor rebuild test", func() {

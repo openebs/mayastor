@@ -4,7 +4,6 @@ import (
 	"e2e-basic/common"
 	"e2e-basic/common/e2e_config"
 	"e2e-basic/common/locations"
-	rep "e2e-basic/common/reporter"
 
 	"fmt"
 	"os/exec"
@@ -138,8 +137,8 @@ func installMayastor() {
 }
 
 func TestInstallSuite(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecsWithDefaultAndCustomReporters(t, "Basic Install Suite", rep.GetReporters("install"))
+	// Initialise test and set class and file names for reports
+	common.InitTesting(t, "Basic Install Suite", "install")
 }
 
 var _ = Describe("Mayastor setup", func() {

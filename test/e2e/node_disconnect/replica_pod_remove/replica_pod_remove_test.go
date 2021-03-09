@@ -2,7 +2,6 @@ package replica_pod_remove_test
 
 import (
 	"e2e-basic/common"
-	rep "e2e-basic/common/reporter"
 
 	disconnect_lib "e2e-basic/node_disconnect/lib"
 
@@ -19,8 +18,8 @@ var env disconnect_lib.DisconnectEnv
 const gStorageClass = "mayastor-nvmf-pod-remove-test-sc"
 
 func TestMayastorPodLoss(t *testing.T) {
-	RegisterFailHandler(Fail)
-	RunSpecsWithDefaultAndCustomReporters(t, "Replica pod removal tests", rep.GetReporters("replica-pod-remove"))
+	// Initialise test and set class and file names for reports
+	common.InitTesting(t, "Replica pod removal tests", "replica-pod-remove")
 }
 
 var _ = Describe("Mayastor replica pod removal test", func() {
