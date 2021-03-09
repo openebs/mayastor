@@ -918,7 +918,7 @@ impl ComposeTest {
                 "IPC_LOCK".into(),
                 "SYS_NICE".into(),
             ]),
-            security_opt: Some(vec!["seccomp:unconfined".into()]),
+            security_opt: Some(vec!["seccomp=unconfined".into()]),
             init: spec.init,
             port_bindings: spec.port_map.clone(),
             ..Default::default()
