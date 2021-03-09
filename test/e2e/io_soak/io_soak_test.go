@@ -22,7 +22,7 @@ var defTimeoutSecs = "120s"
 
 type IoSoakJob interface {
 	makeVolume()
-	makeTestPod(map[string]string) (*corev1.Pod, error)
+	makeTestPod(map[string]string) (*coreV1.Pod, error)
 	removeTestPod() error
 	removeVolume()
 	run(time.Duration, chan<- string, chan<- error)
