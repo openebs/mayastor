@@ -153,8 +153,6 @@ struct NvmeCreateContext {
     count: u32,
 }
 
-unsafe impl Send for NvmeCreateContext {}
-
 impl NvmeCreateContext {
     pub fn new(nvme: &NVMe) -> NvmeCreateContext {
         let mut trid = spdk_nvme_transport_id::default();

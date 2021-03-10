@@ -350,9 +350,6 @@ pub struct Nexus {
     pub(crate) max_io_attempts: i32,
 }
 
-unsafe impl core::marker::Sync for Nexus {}
-unsafe impl core::marker::Send for Nexus {}
-
 #[derive(Debug, Serialize, Clone, Copy, PartialEq, PartialOrd)]
 pub enum NexusStatus {
     /// The nexus cannot perform any IO operation

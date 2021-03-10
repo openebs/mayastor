@@ -30,9 +30,6 @@ pub struct NexusFnTable {
     pub(crate) f_tbl: spdk_bdev_fn_table,
 }
 
-unsafe impl Sync for NexusFnTable {}
-unsafe impl Send for NexusFnTable {}
-
 /// The FN table are function pointers called by SPDK when work is sent
 /// our way. The functions are static, and shared between all instances.
 

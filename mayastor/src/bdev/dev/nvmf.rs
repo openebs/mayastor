@@ -259,8 +259,6 @@ struct NvmeCreateContext {
     count: u32,
 }
 
-unsafe impl Send for NvmeCreateContext {}
-
 impl NvmeCreateContext {
     pub fn new(nvmf: &Nvmf) -> NvmeCreateContext {
         let port = format!("{}", nvmf.port);
