@@ -318,7 +318,8 @@ impl Bio {
     async fn child_retire(nexus: String, child: Bdev) {
         error!("{:#?}", child);
 
-        if let Some(nexus) = nexus_lookup(&nexus) {
+        if let Some(nexus) = nexus_lookup(&nexus).await {
+            let nexus = nexus.write().await;
             if let Some(child) = nexus.child_lookup(&child.name()) {
                 let current_state = child.state.compare_and_swap(
                     ChildState::Open,

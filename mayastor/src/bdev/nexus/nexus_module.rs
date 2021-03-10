@@ -21,24 +21,20 @@ use crate::{
 };
 
 use super::instances;
+use std::{sync::Arc};
+use tokio::sync::RwLock;
+use std::collections::HashSet;
 
 pub const NEXUS_NAME: &str = "NEXUS_CAS_MODULE";
 
 pub static NEXUS_MODULE: Lazy<NexusModule> = Lazy::new(NexusModule::new);
 
-#[derive(Default, Debug)]
-pub struct NexusInstances {
-    inner: UnsafeCell<Vec<Box<Nexus>>>,
-}
-
 #[derive(Debug)]
 pub struct NexusModule(*mut spdk_bdev_module);
 
 unsafe impl Sync for NexusModule {}
-unsafe impl Sync for NexusInstances {}
 
 unsafe impl Send for NexusModule {}
-unsafe impl Send for NexusInstances {}
 
 impl Default for NexusModule {
     fn default() -> Self {
@@ -86,19 +82,17 @@ impl NexusModule {
 
     /// return instances, we ensure that this can only ever be called on a
     /// properly allocated thread
-    pub fn get_instances() -> &'static mut Vec<Box<Nexus>> {
+    pub fn get_instances() -> &'static Arc<RwLock<Vec<Arc<RwLock<Nexus>>>>> {
         let thread = unsafe { spdk_get_thread() };
         if thread.is_null() {
             panic!("not called from SPDK thread")
         }
 
-        static NEXUS_INSTANCES: OnceCell<NexusInstances> = OnceCell::new();
+        static NEXUS_INSTANCES: OnceCell<Arc<RwLock<Vec<Arc<RwLock<Nexus>>>>>> = OnceCell::new();
 
-        let global_instances = NEXUS_INSTANCES.get_or_init(|| NexusInstances {
-            inner: UnsafeCell::new(Vec::new()),
-        });
-
-        unsafe { &mut *global_instances.inner.get() }
+        NEXUS_INSTANCES.get_or_init(||
+            Arc::new(RwLock::new(Vec::new()))
+        )
     }
 }
 /// Implements the bdev module call back functions to register the driver to

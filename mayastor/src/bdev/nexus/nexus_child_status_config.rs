@@ -83,7 +83,9 @@ impl ChildStatusConfig {
     pub(crate) async fn apply() {
         debug!("Applying child status");
         let store = &ChildStatusConfig::get().status;
-        for nexus in instances() {
+        let nexus_list = instances().read().await;
+        for nexus in nexus_list.iter() {
+            let mut nexus = nexus.write().await;
             nexus.children.iter_mut().for_each(|child| {
                 if let Some(status) = store.get(&child.name) {
                     info!(

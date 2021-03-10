@@ -420,32 +420,27 @@ impl Config {
     async fn start_rebuilds(&self) {
         if let Some(nexuses) = self.nexus_bdevs.as_ref() {
             for nexus in nexuses {
-                if let Some(nexus_instance) =
-                    instances().iter().find(|n| n.name == nexus.name)
-                {
-                    let degraded_children: Vec<&NexusChild> = nexus_instance
-                        .children
-                        .iter()
-                        .filter(|child| {
-                            child.state()
-                                == ChildState::Faulted(Reason::OutOfSync)
-                        })
-                        .collect::<Vec<_>>();
-
-                    // Get a mutable reference to the nexus instance. We can't
-                    // do this when we first get the nexus instance (above)
-                    // because it would cause multiple mutable borrows.
-                    // We use "expect" here because we have already checked that
-                    // the nexus exists above so we don't expect this to fail.
-                    let nexus_instance = instances()
-                        .iter_mut()
-                        .find(|n| n.name == nexus.name)
-                        .expect("Failed to find nexus");
-
-                    for child in degraded_children {
-                        dbg!("Start rebuilding child {}", &child.name);
+                let mut global_nexus_list = instances().read().await;
+                let mut target_nexus = None;
+                for potential_nexus in global_nexus_list.iter() {
+                    let potential_nexus = potential_nexus;
+                    let potential_nexus_readable = potential_nexus.read().await;
+                    if potential_nexus_readable.name == nexus.name {
+                        target_nexus = Some(potential_nexus);
+                    }
+                }
+                if let Some(mut nexus_instance) = target_nexus {
+                    let mut nexus_instance = nexus_instance.write().await;
+                    let mut to_rebuild = vec![];
+                    for child in nexus_instance.children.iter() {
+                        if child.state() == ChildState::Faulted(Reason::OutOfSync) {
+                           to_rebuild.push(child.name.clone());
+                        }
+                    }
+                    for child in to_rebuild {
+                        dbg!("Start rebuilding child {}", &child);
                         if nexus_instance
-                            .start_rebuild(&child.name)
+                            .start_rebuild(&child)
                             .await
                             .is_err()
                         {

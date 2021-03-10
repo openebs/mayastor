@@ -5,7 +5,7 @@
 //! application needs synchronous mirroring may be required.
 
 use std::{
-    convert::TryFrom,
+    convert::{TryFrom, AsRef},
     env,
     fmt::{Display, Formatter},
     os::raw::c_void,
@@ -61,6 +61,9 @@ use crate::{
     subsys::{Config, NvmfSubsystem},
 };
 use std::ptr::NonNull;
+use std::rc::Rc;
+use tokio::sync::RwLock;
+use std::sync::Arc;
 
 /// Obtain the full error chain
 pub trait VerboseError {
@@ -314,7 +317,9 @@ pub struct Nexus {
     /// number of children part of this nexus
     pub(crate) child_count: u32,
     /// vector of children
-    pub children: Vec<NexusChild>,
+    // This needs locks due to `lookup_child_from_bdev` existing and being able to turn a string into
+    // a reference to one of these. If this were removed, we could probably drop these locks.
+    pub children: Vec<Arc<RwLock<NexusChild>>>,
     /// inner bdev
     pub(crate) bdev: Bdev,
     /// raw pointer to bdev (to destruct it later using Box::from_raw())
@@ -397,7 +402,7 @@ impl Nexus {
         size: u64,
         uuid: Option<&str>,
         child_bdevs: Option<&[String]>,
-    ) -> Result<Box<Self>, crate::bdev::nexus::nexus_bdev::Error> {
+    ) -> Result<Arc<RwLock<Self>>, crate::bdev::nexus::nexus_bdev::Error> {
         let mut b = Box::new(spdk_bdev::default());
 
         b.name = c_str!(name);
@@ -410,44 +415,76 @@ impl Nexus {
 
         let cfg = Config::get();
 
-        let mut nexus = Box::new(Nexus {
-            name: name.to_string(),
-            child_count: 0,
-            children: Vec::new(),
-            bdev: Bdev::from(&*b as *const _ as *mut spdk_bdev),
-            state: std::sync::Mutex::new(NexusState::Init),
-            bdev_raw: Box::into_raw(b),
-            data_ent_offset: 0,
-            share_handle: None,
-            size,
-            nexus_target: None,
-            max_io_attempts: cfg.err_store_opts.max_io_attempts,
-        });
+        let mut nexus = Arc::new(RwLock::new({
+            let mut nexus = Nexus {
+                name: name.to_string(),
+                child_count: 0,
+                children: Vec::new(),
+                bdev: Bdev::from(&*b as *const _ as *mut spdk_bdev),
+                state: std::sync::Mutex::new(NexusState::Init),
+                bdev_raw: Box::into_raw(b),
+                data_ent_offset: 0,
+                share_handle: None,
+                size,
+                nexus_target: None,
+                max_io_attempts: cfg.err_store_opts.max_io_attempts,
+            };
+            nexus.bdev.set_uuid(uuid.map(String::from));
+            nexus
+        }));
 
-        nexus.bdev.set_uuid(uuid.map(String::from));
-
-        if let Some(child_bdevs) = child_bdevs {
-            for child in child_bdevs {
-                if let Err(error) = nexus.create_and_register(child).await {
-                    error!(
-                        "failed to create nexus {}: failed to create child {}: {}",
-                        name, child, error
-                    );
-                    nexus.close_children().await;
-                    return Err(Error::CreateChild {
-                        source: error,
-                        name: String::from(name),
-                    });
-                }
-            }
-        }
-
+        let nexus_writable = nexus.write().await;
         // store a reference to the Self in the bdev structure.
         unsafe {
-            (*nexus.bdev.as_ptr()).ctxt =
+            (*nexus_writable.bdev.as_ptr()).ctxt =
                 nexus.as_ref() as *const _ as *mut c_void;
         }
-        Ok(nexus)
+        drop(nexus_writable);
+
+        let mut nexus_list = instances().write().await;
+        for candidate in &*nexus_list {
+            // FIXME: Instead of error, we return Ok without checking
+            // that the children match, which seems wrong.
+            if name == candidate.read().await.name {
+                return Ok(Arc::clone(candidate));
+            }
+        }
+        nexus_list.push(nexus);
+
+        let len = nexus_list.len();
+        let nexus = nexus_list.get_mut(len - 1)
+            .expect("Could not get just inserted Nexus.");
+
+        if let Some(child_bdevs) = child_bdevs {
+            let mut nexus = nexus.write().await;
+            let mut materialized = Vec::with_capacity(child_bdevs.len());
+            let mut error = None;
+            for child in child_bdevs {
+                match nexus.create_and_register(child).await {
+                    Ok(()) => materialized.push(child),
+                    Err(e) => {
+                        error = Some((child, e));
+                        break;
+                    }
+                }
+            }
+            if let Some((child, error)) = error {
+                error!(
+                    "failed to create nexus {}: failed to create child {}: {}",
+                    name, child, error
+                );
+                for mut child in materialized.iter_mut() {
+                    error!(%child, "Rolling back child");
+                    nexus.remove_child(child).await.ok();
+                };
+                return Err(Error::CreateChild {
+                    source: error,
+                    name: String::from(name),
+                })
+            }
+        };
+
+        Ok(Arc::clone(nexus))
     }
 
     /// set the state of the nexus
@@ -535,7 +572,8 @@ impl Nexus {
 
         let nexus_name = self.name.clone();
         Reactor::block_on(async move {
-            let nexus = nexus_lookup(&nexus_name).expect("Nexus not found");
+            let nexus = nexus_lookup(&nexus_name).await.expect("Nexus not found");
+            let nexus = nexus.write().await;
             for child in &mut nexus.children {
                 if child.state() == ChildState::Open {
                     if let Err(e) = child.close().await {
@@ -1057,15 +1095,6 @@ pub async fn nexus_create(
     uuid: Option<&str>,
     children: &[String],
 ) -> Result<(), Error> {
-    // global variable defined in the nexus module
-    let nexus_list = instances();
-
-    if nexus_list.iter().any(|n| n.name == name) {
-        // FIXME: Instead of error, we return Ok without checking
-        // that the children match, which seems wrong.
-        return Ok(());
-    }
-
     // Create a new Nexus object, and immediately add it to the global list.
     // This is necessary to ensure proper cleanup, as the code responsible for
     // closing a child assumes that the nexus to which it belongs will appear
@@ -1073,6 +1102,7 @@ pub async fn nexus_create(
     // nexus instance gets removed from the global list if an error occurs.
     let mut nexus = Nexus::new(name, size, uuid, Some(&children)).await?;
 
+    let mut nexus = nexus.write().await;
     match nexus.open().await {
         Err(Error::NexusIncomplete {
             ..
@@ -1082,7 +1112,17 @@ pub async fn nexus_create(
             // We need to explicitly clean up child bdevs if we get this error.
             error!("failed to open nexus {}: missing children", name);
             destroy_child_bdevs(name, &children).await;
-            nexus_list.retain(|n| n.name != name);
+            let mut nexus_list = instances().write().await;
+            let mut removal = None;
+            for (idx, nexus) in nexus_list.iter_mut().enumerate() {
+                if nexus.read().await.name == name {
+                    removal = Some(idx)
+                }
+            }
+            if let Some(removal) = removal {
+                nexus_list.remove(removal);
+            }
+            drop(nexus_list);
             return Err(Error::NexusCreate {
                 name: String::from(name),
             });
@@ -1091,14 +1131,23 @@ pub async fn nexus_create(
         Err(error) => {
             error!("failed to open nexus {}: {}", name, error);
             nexus.close_children().await;
-            nexus_list.retain(|n| n.name != name);
+            let mut nexus_list = instances().write().await;
+            let mut removal = None;
+            for (idx, nexus) in nexus_list.iter_mut().enumerate() {
+                if nexus.read().await.name == name {
+                    removal = Some(idx)
+                }
+            }
+            if let Some(removal) = removal {
+                nexus_list.remove(removal);
+            }
+            drop(nexus_list);
             return Err(error);
         }
 
         Ok(_) => (),
     }
 
-    nexus_list.push(nexus);
     Ok(())
 }
 
@@ -1112,11 +1161,16 @@ async fn destroy_child_bdevs(name: &str, list: &[impl AsRef<str>]) {
 }
 
 /// Lookup a nexus by its name (currently used only by test functions).
-pub fn nexus_lookup(name: &str) -> Option<&mut Nexus> {
-    instances()
-        .iter_mut()
-        .find(|n| n.name == name)
-        .map(AsMut::as_mut)
+pub async fn nexus_lookup(name: &str) -> Option<Arc<RwLock<Nexus>>> {
+    let mut nexus_list = instances().read().await;
+    for nexus in nexus_list.iter() {
+        let nexus = nexus;
+        let nexus_readable = nexus.read().await;
+        if nexus_readable.name == name {
+            return Some(Arc::clone(nexus))
+        }
+    }
+    None
 }
 
 impl Display for Nexus {

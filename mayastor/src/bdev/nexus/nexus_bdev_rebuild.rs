@@ -331,7 +331,8 @@ impl Nexus {
     async fn notify_rebuild(nexus: String, job: String) {
         info!("nexus {} received notify_rebuild from job {}", nexus, job);
 
-        if let Some(nexus) = nexus_lookup(&nexus) {
+        if let Some(nexus) = nexus_lookup(&nexus).await {
+            let mut nexus = nexus.write().await;
             if let Err(e) = nexus.on_rebuild_update(job).await {
                 error!(
                     "Failed to complete the rebuild with error {}",

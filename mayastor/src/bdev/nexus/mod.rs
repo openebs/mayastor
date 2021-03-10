@@ -3,6 +3,9 @@
 use spdk_sys::spdk_bdev_module;
 
 use crate::bdev::nexus::{nexus_bdev::Nexus, nexus_fn_table::NexusFnTable};
+use tokio::sync::RwLock;
+use std::sync::Arc;
+use std::collections::HashSet;
 
 /// Allocate C string and return pointer to it.
 /// NOTE: The resulting string must be freed explicitly after use!
@@ -50,7 +53,7 @@ pub fn fn_table() -> Option<&'static spdk_sys::spdk_bdev_fn_table> {
 }
 
 /// get a reference to the global nexuses
-pub fn instances() -> &'static mut Vec<Box<Nexus>> {
+pub fn instances() -> &'static Arc<RwLock<Vec<Arc<RwLock<Nexus>>>>> {
     nexus_module::NexusModule::get_instances()
 }
 
@@ -59,18 +62,17 @@ pub async fn nexus_instance_new(
     name: String,
     size: u64,
     children: Vec<String>,
-) -> Result<(), nexus_bdev::Error> {
-    let list = instances();
-    let nexus = Nexus::new(&name, size, None, Some(&children)).await?;
-    list.push(nexus);
-    Ok(())
+) -> Result<Arc<RwLock<Nexus>>, nexus_bdev::Error> {
+    Nexus::new(&name, size, None, Some(&children)).await
 }
 
 /// called during shutdown so that all nexus children are in Destroying state
 /// so that a possible remove event from SPDK also results in bdev removal
 pub async fn nexus_children_to_destroying_state() {
     info!("setting all nexus children to destroying state...");
-    for nexus in instances() {
+    let nexus_list = instances().write().await;
+    for nexus in nexus_list.iter() {
+        let nexus = nexus.write().await;
         for child in nexus.children.iter() {
             child.set_state(nexus_child::ChildState::Destroying);
         }

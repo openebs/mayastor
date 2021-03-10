@@ -271,13 +271,14 @@ impl Nexus {
         io_num_blocks: u64,
         now: Instant,
     ) {
-        let nexus = match nexus_lookup(&name) {
+        let nexus = match nexus_lookup(&name).await {
             Some(nexus) => nexus,
             None => {
                 error!("Failed to find the nexus >{}<", name);
                 return;
             }
         };
+        let mut nexus = nexus.write().await;
         trace!("Adding error record {:?} bdev {:?}", io_op_type, bdev);
         for child in nexus.children.iter_mut() {
             if let Some(bdev) = child.bdev.as_ref() {

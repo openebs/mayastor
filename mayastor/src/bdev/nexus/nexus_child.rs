@@ -3,6 +3,7 @@ use std::{
     fmt::{Display, Formatter},
     sync::Arc,
 };
+use tokio::sync::RwLock;
 
 use nix::errno::Errno;
 use serde::Serialize;
@@ -429,8 +430,8 @@ impl NexusChild {
         if state != ChildState::Faulted(Reason::IoError) {
             let nexus_name = self.parent.clone();
             Reactor::block_on(async move {
-                match nexus_lookup(&nexus_name) {
-                    Some(n) => n.reconfigure(DrEvent::ChildRemove).await,
+                match nexus_lookup(&nexus_name).await {
+                    Some(n) => n.write().await.reconfigure(DrEvent::ChildRemove).await,
                     None => error!("Nexus {} not found", nexus_name),
                 }
             });
@@ -552,13 +553,16 @@ impl NexusChild {
 }
 
 /// Looks up a child based on the underlying bdev name
-pub fn lookup_child_from_bdev(bdev_name: &str) -> Option<&mut NexusChild> {
-    for nexus in instances() {
-        for child in &mut nexus.children {
-            if child.bdev.is_some()
-                && child.bdev.as_ref().unwrap().name() == bdev_name
+pub async fn lookup_child_from_bdev(bdev_name: &str) -> Option<Arc<RwLock<NexusChild>>> {
+    let nexus_list = instances().read().await;
+    for nexus in nexus_list.iter() {
+        let nexus_readable = nexus.read().await;
+        for child in nexus_readable.children.iter() {
+            let child_readable = child.read().await;
+            if child_readable.bdev.is_some()
+                && child_readable.bdev.as_ref().unwrap().name() == bdev_name
             {
-                return Some(child);
+                return Some(Arc::clone(child));
             }
         }
     }

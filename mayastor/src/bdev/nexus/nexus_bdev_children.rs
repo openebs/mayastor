@@ -25,6 +25,8 @@
 
 use futures::future::join_all;
 use snafu::ResultExt;
+use std::sync::Arc;
+use tokio::sync::RwLock;
 
 use crate::{
     bdev::{
@@ -75,11 +77,11 @@ impl Nexus {
     ) -> Result<(), NexusBdevError> {
         assert_eq!(*self.state.lock().unwrap(), NexusState::Init);
         let name = bdev_create(&uri).await?;
-        self.children.push(NexusChild::new(
+        self.children.push(Arc::new(RwLock::new(NexusChild::new(
             uri.to_string(),
             self.name.clone(),
             Bdev::lookup_by_name(&name),
-        ));
+        ))));
 
         self.child_count += 1;
         Ok(())
@@ -218,27 +220,35 @@ impl Nexus {
         let cancelled_rebuilding_children =
             self.cancel_child_rebuild_jobs(uri).await;
 
-        let idx = match self.children.iter().position(|c| c.name == uri) {
-            None => return Ok(()),
-            Some(val) => val,
-        };
-
-        if let Err(e) = self.children[idx].close().await {
-            return Err(Error::CloseChild {
-                name: self.name.clone(),
-                child: self.children[idx].name.clone(),
-                source: e,
-            });
+        let mut index = None;
+        for (idx, child) in self.children.iter_mut().enumerate() {
+            let child = child.read().await;
+            if child.name == uri {
+                index = Some(idx);
+            }
         }
+        if let Some(idx) = index {
+            let mut child = self.children[idx].write().await;
+            if let Err(e) = child.close().await {
+                return Err(Error::CloseChild {
+                    name: self.name.clone(),
+                    child: child.name.clone(),
+                    source: e,
+                });
+            }
+            drop(child);
 
-        self.children.remove(idx);
-        self.child_count -= 1;
+            self.children.remove(idx);
+            self.child_count -= 1;
 
-        // Update child status to remove this child
-        NexusChild::save_state_change();
+            // Update child status to remove this child
+            NexusChild::save_state_change();
 
-        self.start_rebuild_jobs(cancelled_rebuilding_children).await;
-        Ok(())
+            self.start_rebuild_jobs(cancelled_rebuilding_children).await;
+            Ok(())
+        } else {
+            Ok(())
+        }
     }
 
     /// offline a child device and reconfigure the IO channels
