@@ -4,11 +4,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 	"testing"
 	"time"
 
+	"sigs.k8s.io/controller-runtime/pkg/log/zap"
+
+	"e2e-basic/common/loki"
 	"e2e-basic/common/reporter"
+
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
@@ -41,6 +44,7 @@ var gTestEnv TestEnvironment
 func InitTesting(t *testing.T, classname string, reportname string) {
 	RegisterFailHandler(Fail)
 	RunSpecsWithDefaultAndCustomReporters(t, classname, reporter.GetReporters(reportname))
+	loki.SendLokiMarker("Start of test " + classname)
 }
 
 func SetupTestEnv() {

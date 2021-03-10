@@ -50,18 +50,14 @@ def lokiInstall(tag) {
   sh 'kubectl apply -f ./test/e2e/loki/promtail_namespace_e2e.yaml'
   sh 'kubectl apply -f ./test/e2e/loki/promtail_rbac_e2e.yaml'
   sh 'kubectl apply -f ./test/e2e/loki/promtail_configmap_e2e.yaml'
-  withCredentials([string(credentialsId: 'GRAFANA_API_KEY', variable: 'grafana_api_key')]) {
-    def cmd = "run=\"${env.BUILD_NUMBER}\" version=\"${tag}\" envsubst -no-unset < ./test/e2e/loki/promtail_daemonset_e2e.template.yaml | kubectl apply -f -"
-    sh "nix-shell --run '${cmd}'"
-  }
+  def cmd = "run=\"${env.BUILD_NUMBER}\" version=\"${tag}\" envsubst -no-unset < ./test/e2e/loki/promtail_daemonset_e2e.template.yaml | kubectl apply -f -"
+  sh "nix-shell --run '${cmd}'"
 }
 
 // Unnstall Loki
 def lokiUninstall(tag) {
-  withCredentials([string(credentialsId: 'GRAFANA_API_KEY', variable: 'grafana_api_key')]) {
-    def cmd = "run=\"${env.BUILD_NUMBER}\" version=\"${tag}\" envsubst -no-unset < ./test/e2e/loki/promtail_daemonset_e2e.template.yaml | kubectl delete -f -"
-    sh "nix-shell --run '${cmd}'"
-  }
+  def cmd = "run=\"${env.BUILD_NUMBER}\" version=\"${tag}\" envsubst -no-unset < ./test/e2e/loki/promtail_daemonset_e2e.template.yaml | kubectl delete -f -"
+  sh "nix-shell --run '${cmd}'"
   sh 'kubectl delete -f ./test/e2e/loki/promtail_configmap_e2e.yaml'
   sh 'kubectl delete -f ./test/e2e/loki/promtail_rbac_e2e.yaml'
   sh 'kubectl delete -f ./test/e2e/loki/promtail_namespace_e2e.yaml'
@@ -324,15 +320,19 @@ pipeline {
                   } else {
                     tag = e2e_continuous_image_tag
                   }
-                  lokiInstall(tag)
-                  def cmd = "./scripts/e2e-test.sh --device /dev/sdb --tag \"${tag}\" --logs --profile \"${e2e_test_profile}\" "
-
+                  def cmd = "./scripts/e2e-test.sh --device /dev/sdb --tag \"${tag}\" --logs --profile \"${e2e_test_profile}\" --build_number \"${env.BUILD_NUMBER}\" "
                   // building images also means using the CI registry
                   if (e2e_build_images == true) {
                     cmd = cmd + " --registry \"" + env.REGISTRY + "\""
                   }
-                  sh "nix-shell --run '${cmd}'"
-                  lokiUninstall(tag) // so that, if we keep the cluster, the next Loki instance can use different parameters
+
+                  withCredentials([
+                    usernamePassword(credentialsId: 'GRAFANA_API', usernameVariable: 'grafana_api_user', passwordVariable: 'grafana_api_pw')
+                  ]) {
+                    lokiInstall(tag)
+                    sh "nix-shell --run '${cmd}'"
+                    lokiUninstall(tag) // so that, if we keep the cluster, the next Loki instance can use different parameters
+                  }
                 }
               }
               post {

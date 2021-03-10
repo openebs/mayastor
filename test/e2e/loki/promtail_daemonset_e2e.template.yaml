@@ -15,7 +15,7 @@ spec:
     spec:
       containers:
       - args:
-        - -client.url=https://${grafana_api_key}@logs-prod-us-central1.grafana.net/api/prom/push
+        - -client.url=https://${grafana_api_user}:${grafana_api_pw}@logs-prod-us-central1.grafana.net/api/prom/push
         - -config.file=/etc/promtail/promtail.yml
         - -client.external-labels=run=${run},version=${version}
         env:
