@@ -42,12 +42,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let free_pages: u32 = sysfs::parse_value(&hugepage_path, "free_hugepages")?;
     let nr_pages: u32 = sysfs::parse_value(&hugepage_path, "nr_hugepages")?;
     let uring_supported = uring::kernel_support();
+    let nvme_core_path = Path::new("/sys/module/nvme_core/parameters");
+    let nvme_mp: String =
+        match sysfs::parse_value::<String>(&nvme_core_path, "multipath") {
+            Ok(s) => match s.as_str() {
+                "Y" => "yes".to_string(),
+                "N" => "disabled".to_string(),
+                u => format!("unknown value {}", u),
+            },
+            Err(e) => {
+                if e.kind() == std::io::ErrorKind::NotFound {
+                    if nvme_core_path.exists() {
+                        "not built".to_string()
+                    } else {
+                        "nvme not loaded".to_string()
+                    }
+                } else {
+                    format!("unknown error: {}", e)
+                }
+            }
+        };
 
     info!("Starting Mayastor ..");
     info!(
         "kernel io_uring support: {}",
         if uring_supported { "yes" } else { "no" }
     );
+    info!("kernel nvme initiator multipath support: {}", nvme_mp);
     info!("free_pages: {} nr_pages: {}", free_pages, nr_pages);
 
     let grpc_endpoint = grpc::endpoint(args.grpc_endpoint.clone());
