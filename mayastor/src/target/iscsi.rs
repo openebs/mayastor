@@ -103,19 +103,30 @@ pub fn target_name(bdev_name: &str) -> String {
     format!("iqn.2019-05.io.openebs:{}", bdev_name)
 }
 
-//
-// Internally the NVMe target will set a claim using a "fake"
-// module. We emulate this behaviour to know if the bdev is
-// is shared or not
-
+/// A wrapper around an SPDK ISCSI bdev.
+///
+/// See https://spdk.io/doc/structspdk__bdev__module.html for more information.
+///
+/// Internally the NVMe target will set a claim using a "fake"
+/// module. We emulate this behaviour to know if the bdev is
+/// is shared or not
+///
+/// # Safety
+///
+/// SPDK manages this and it is equivalent to Send/Sync. This means this type is Send/Sync.
 struct IscsiModule(spdk_bdev_module);
 impl IscsiModule {
     pub fn as_mut_ptr(&self) -> *mut spdk_bdev_module {
         &self.0 as *const _ as *mut _
     }
 }
+
+// Safety: Pointer to SPDK managed structure.
 unsafe impl Send for IscsiModule {}
+
+// Safety: Pointer to SPDK managed structure.
 unsafe impl Sync for IscsiModule {}
+
 static ISCSI_BDEV_MOD: Lazy<IscsiModule> = Lazy::new(|| {
     IscsiModule(spdk_bdev_module {
         name: b"iSCSI Target\0" as *const u8 as *mut _,

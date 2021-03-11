@@ -31,13 +31,26 @@ pub struct NexusInstances {
     inner: UnsafeCell<Vec<Box<Nexus>>>,
 }
 
+/// A wrapper around an SPDK Nexus bdev.
+///
+/// See https://spdk.io/doc/structspdk__bdev__module.html for more information.
+///
+/// # Safety
+///
+/// SPDK manages this and it is equivalent to Send/Sync. This means this type is Send/Sync.
 #[derive(Debug)]
 pub struct NexusModule(*mut spdk_bdev_module);
 
+// Safety: Pointer to SPDK managed structure.
 unsafe impl Sync for NexusModule {}
+
+// TODO: This is not safe.
 unsafe impl Sync for NexusInstances {}
 
+// Safety: Pointer to SPDK managed structure.
 unsafe impl Send for NexusModule {}
+
+// TODO: This is not safe.
 unsafe impl Send for NexusInstances {}
 
 impl Default for NexusModule {
