@@ -23,12 +23,25 @@ pub enum Error {
     InvalidThread {},
 }
 
-#[derive(Debug, PartialEq, Clone, Copy)]
-/// struct that wraps an SPDK thread. The name thread is chosen poorly and
-/// should not be confused with an actual thread. Consider it more to be
-/// analogous to a container to which you can submit work and poll it to drive
+/// A wrapper around an SPDK thread.
+///
+/// The name thread is chosen poorly and should not be confused with an actual thread. Consider it
+/// more to be analogous to a container to which you can submit work and poll it to drive
 /// the submitted work to completion.
+///
+/// # Safety
+///
+/// SPDK considers this threadsafe, so it is marked Send/Sync.
+///
+/// See: https://github.com/spdk/spdk/blob/fb27c710f2c5ee4e666d2b366237e04c08dda977/include/spdk_internal/thread.h#L95-L136
+#[derive(Debug, PartialEq, Clone, Copy)]
 pub struct Mthread(NonNull<spdk_thread>);
+
+// Safety: SPDK considers the inner `spdk_thread` threadsafe.
+unsafe impl Send for Mthread {}
+
+// Safety: SPDK considers the inner `spdk_thread` threadsafe.
+unsafe impl Sync for Mthread {}
 
 impl From<*mut spdk_thread> for Mthread {
     fn from(t: *mut spdk_thread) -> Self {
