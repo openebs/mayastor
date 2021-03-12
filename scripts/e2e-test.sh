@@ -13,13 +13,12 @@ TOPDIR=$(realpath "$SCRIPTDIR/..")
 # Restrictions:
 #   1. resource_check MUST follow csi
 #       resource_check is a follow up check for the 3rd party CSI test suite.
-#   2. replicas_pod_remove SHOULD be the last test before uninstall
-#       this is a disruptive test.
-#TESTS="install basic_volume_io csi replica rebuild node_disconnect/replica_pod_remove uninstall"
-DEFAULT_TESTS="install basic_volume_io csi resource_check replica rebuild uninstall"
+#   2. ms_pod_disruption SHOULD be the last test before uninstall
+#
+DEFAULT_TESTS="install basic_volume_io csi resource_check replica rebuild ms_pod_disruption uninstall"
 ONDEMAND_TESTS="install basic_volume_io csi resource_check uninstall"
-EXTENDED_TESTS="install basic_volume_io csi resource_check replica rebuild io_soak uninstall"
-CONTINUOUS_TESTS="install basic_volume_io csi resource_check replica rebuild io_soak uninstall"
+EXTENDED_TESTS="install basic_volume_io csi resource_check replica rebuild io_soak ms_pod_disruption uninstall"
+CONTINUOUS_TESTS="install basic_volume_io csi resource_check replica rebuild io_soak ms_pod_disruption uninstall"
 
 #exit values
 EXITV_OK=0

@@ -1,4 +1,4 @@
-package node_disconnect_lib
+package ms_pod_disruption_lib
 
 import (
 	"e2e-basic/common"
@@ -14,9 +14,13 @@ const (
 	podUnscheduleTimeoutSecs = 100
 	podRescheduleTimeoutSecs = 180
 	repairTimeoutSecs        = "180s"
+	mayastorRegexp           = "^mayastor-.....$"
+	moacRegexp               = "^moac-..........-.....$"
+	engineLabel              = "openebs.io/engine"
+	mayastorLabel            = "mayastor"
 )
 
-type DisconnectEnv struct {
+type DisruptionEnv struct {
 	replicaToRemove  string
 	allMayastorNodes []string
 	unusedNodes      []string
@@ -24,14 +28,6 @@ type DisconnectEnv struct {
 	volToDelete      string
 	storageClass     string
 	fioPodName       string
-}
-
-// Deploy an instance of fio on a node labelled as "podrefuge"
-func createFioOnRefugeNode(podName string, volClaimName string) {
-	podObj := common.CreateFioPodDef(podName, volClaimName, common.VolFileSystem, common.NSDefault)
-	common.ApplyNodeSelectorToPodObject(podObj, "openebs.io/podrefuge", "true")
-	_, err := common.CreatePod(podObj, common.NSDefault)
-	Expect(err).ToNot(HaveOccurred())
 }
 
 // prevent mayastor pod from running on the given node
@@ -50,7 +46,7 @@ func UnsuppressMayastorPodOn(nodeName string) {
 }
 
 // allow mayastor pod to run on the suppressed node
-func (env *DisconnectEnv) UnsuppressMayastorPod() {
+func (env *DisruptionEnv) UnsuppressMayastorPod() {
 	if env.replicaToRemove != "" {
 		UnsuppressMayastorPodOn(env.replicaToRemove)
 		env.replicaToRemove = ""
@@ -88,7 +84,7 @@ func getNodes(uuid string) (string, []string, []string) {
 }
 
 // Run fio against the cluster while a replica mayastor pod is unscheduled and then rescheduled
-func (env *DisconnectEnv) PodLossTest() {
+func (env *DisruptionEnv) PodLossTest() {
 	Expect(len(env.allMayastorNodes)).To(BeNumerically(">=", 2)) // must support >= 2 replicas
 
 	// disable mayastor on the spare nodes so that moac cannot assign
@@ -141,9 +137,9 @@ func (env *DisconnectEnv) PodLossTest() {
 
 // Common steps required when setting up the test.
 // Creates the PVC, deploys fio, and records variables needed for the
-// test in the DisconnectEnv structure
-func Setup(pvcName string, storageClassName string, fioPodName string) DisconnectEnv {
-	env := DisconnectEnv{}
+// test in the DisruptionEnv structure
+func Setup(pvcName string, storageClassName string, fioPodName string) DisruptionEnv {
+	env := DisruptionEnv{}
 
 	env.volToDelete = pvcName
 	env.storageClass = storageClassName
@@ -182,7 +178,7 @@ func Setup(pvcName string, storageClassName string, fioPodName string) Disconnec
 }
 
 // Common steps required when tearing down the test
-func (env *DisconnectEnv) Teardown() {
+func (env *DisruptionEnv) Teardown() {
 	var err error
 
 	env.UnsuppressMayastorPod()
