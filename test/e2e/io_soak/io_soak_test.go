@@ -201,7 +201,7 @@ var _ = Describe("Mayastor Volume IO soak test", func() {
 		Expect(err).ToNot(HaveOccurred())
 	})
 
-	It("should verify an NVMe-oF TCP volume can process IO on multiple volumes simultaneously", func() {
+	It("should verify mayastor can process IO on multiple volumes simultaneously using NVMe-oF TCP", func() {
 		e2eCfg := e2e_config.GetConfig()
 		loadFactor := e2eCfg.IOSoakTest.LoadFactor
 		replicas := e2eCfg.IOSoakTest.Replicas

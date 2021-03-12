@@ -1,4 +1,4 @@
-# configuration/parameters for CI/CD e2e test runs 
+# configuration/parameters for CI/CD e2e test runs
 pvcstress:
   replicas: 1
   cdCycles: 100
@@ -6,10 +6,10 @@ pvcstress:
 ioSoakTest:
   replicas: 1
   duration: 10m
-  loadFactor: 10
+  loadFactor: 2
   protocols:
   - nvmf
-  - iscsi
+# - iscsi
   fioFixedDuration: 60
   fioDutyCycles:
   - thinkTime: 500000
