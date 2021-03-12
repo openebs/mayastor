@@ -35,7 +35,7 @@ var _ = Describe("Mayastor replica pod removal test", func() {
 	})
 
 	It("should verify nvmf nexus behaviour when a mayastor pod is removed", func() {
-		err := common.MkStorageClass(gStorageClass, 2, common.ShareProtoNvmf)
+		err := common.MkStorageClass(gStorageClass, 2, common.ShareProtoNvmf, common.NSDefault)
 		Expect(err).ToNot(HaveOccurred())
 		env = disconnect_lib.Setup("loss-test-pvc-nvmf", gStorageClass, "fio-pod-remove-test")
 		env.PodLossTest()

@@ -11,6 +11,26 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
+func GetThinkTime(idx int) int {
+	thinkTime := 1 // 1 microsecond
+	FioDutyCycles := e2e_config.GetConfig().IOSoakTest.FioDutyCycles
+	if len(FioDutyCycles) != 0 {
+		ixp := idx % len(FioDutyCycles)
+		thinkTime = FioDutyCycles[ixp].ThinkTime
+	}
+	return thinkTime
+}
+
+func GetThinkTimeBlocks(idx int) int {
+	thinkTimeBlocks := 1000 // 1 microsecond
+	FioDutyCycles := e2e_config.GetConfig().IOSoakTest.FioDutyCycles
+	if len(FioDutyCycles) != 0 {
+		ixp := idx % len(FioDutyCycles)
+		thinkTimeBlocks = FioDutyCycles[ixp].ThinkTimeBlocks
+	}
+	return thinkTimeBlocks
+}
+
 // see https://fio.readthedocs.io/en/latest/fio_doc.html#i-o-rate
 // run fio in a loop of fixed duration to fulfill a larger duration,
 // this to facilitate a relatively timely termination when an error
@@ -20,7 +40,7 @@ import (
 // thinktime -  usecs, stall the job for the specified period of time after an I/O has completed before issuing the next
 // thinktime_blocks - how many blocks to issue, before waiting thinktime usecs.
 // rawBlock - false for filesystem volumes, true for raw block mounts.
-func RunIoSoakFio(podName string, duration time.Duration, thinkTime int, thinkTimeBlocks int, rawBlock bool, doneC chan<- string, errC chan<- error) {
+func RunIoSoakFio(podName string, duration time.Duration, thinkTime int, thinkTimeBlocks int, volType common.VolumeType, doneC chan<- string, errC chan<- error) {
 	secs := int(duration.Seconds())
 	argThinkTime := fmt.Sprintf("--thinktime=%d", thinkTime)
 	argThinkTimeBlocks := fmt.Sprintf("--thinktime_blocks=%d", thinkTimeBlocks)
@@ -30,11 +50,11 @@ func RunIoSoakFio(podName string, duration time.Duration, thinkTime int, thinkTi
 		"duration", duration,
 		"thinktime", thinkTime,
 		"thinktime_blocks", thinkTimeBlocks,
-		"rawBlock", rawBlock,
+		"volType", volType,
 	)
 
 	fioFile := ""
-	if rawBlock {
+	if volType == common.VolRawBlock {
 		fioFile = common.FioBlockFilename
 	} else {
 		fioFile = common.FioFsFilename
@@ -53,7 +73,7 @@ func RunIoSoakFio(podName string, duration time.Duration, thinkTime int, thinkTi
 			"duration", runtime,
 			"thinktime", thinkTime,
 			"thinktime_blocks", thinkTimeBlocks,
-			"rawBlock", rawBlock,
+			"volType", volType,
 			"fioFile", fioFile,
 		)
 		output, err := common.RunFio(podName, runtime, fioFile, argThinkTime, argThinkTimeBlocks)

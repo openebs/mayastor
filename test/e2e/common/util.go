@@ -19,13 +19,25 @@ import (
 	. "github.com/onsi/gomega"
 )
 
+const NSE2EPrefix = "e2e-maya"
+const NSDefault = "default"
 const NSMayastor = "mayastor"
 const CSIProvisioner = "io.openebs.csi-mayastor"
+const DefaultVolumeSizeMb = 64
+const DefaultFioSizeMb = 50
 
 type ShareProto string
-const(
+
+const (
 	ShareProtoNvmf  ShareProto = "nvmf"
-	ShareProtoIscsi = "iscsi"
+	ShareProtoIscsi ShareProto = "iscsi"
+)
+
+type VolumeType int
+
+const (
+	VolFileSystem VolumeType = iota
+	VolRawBlock   VolumeType = iota
 )
 
 // Helper for passing yaml from the specified directory to kubectl
@@ -47,12 +59,12 @@ func KubeCtlDeleteYaml(filename string, dir string) {
 }
 
 // create a storage class
-func MkStorageClass(scName string, scReplicas int, protocol ShareProto) error {
+func MkStorageClass(scName string, scReplicas int, protocol ShareProto, nameSpace string) error {
 	logf.Log.Info("Creating storage class", "name", scName, "replicas", scReplicas, "protocol", protocol)
 	createOpts := &storagev1.StorageClass{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      scName,
-			Namespace: "default",
+			Namespace: nameSpace,
 		},
 		Provisioner: CSIProvisioner,
 	}
@@ -71,6 +83,19 @@ func RmStorageClass(scName string) error {
 	ScApi := gTestEnv.KubeInt.StorageV1().StorageClasses
 	deleteErr := ScApi().Delete(context.TODO(), scName, metav1.DeleteOptions{})
 	return deleteErr
+}
+
+func MkNamespace(nameSpace string) error {
+	logf.Log.Info("Creating", "namespace", nameSpace)
+	nsSpec := corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: nameSpace}}
+	_, err := gTestEnv.KubeInt.CoreV1().Namespaces().Create(context.TODO(), &nsSpec, metav1.CreateOptions{})
+	return err
+}
+
+func RmNamespace(nameSpace string) error {
+	logf.Log.Info("Deleting", "namespace", nameSpace)
+	err := gTestEnv.KubeInt.CoreV1().Namespaces().Delete(context.TODO(), nameSpace, metav1.DeleteOptions{})
+	return err
 }
 
 // Add a node selector to the given pod definition
@@ -268,11 +293,9 @@ func MayastorReady(sleepTime int, duration int) (bool, error) {
 		return false, err
 	}
 
-	var mayastorNodes []string
 	numMayastorInstances := 0
 	for _, node := range nodes {
 		if node.MayastorNode && !node.MasterNode {
-			mayastorNodes = append(mayastorNodes, node.NodeName)
 			numMayastorInstances += 1
 		}
 	}

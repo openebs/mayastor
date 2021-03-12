@@ -6,7 +6,10 @@ pvcstress:
 ioSoakTest:
   replicas: 1
   duration: 10m
-  loadFactor: 2
+  loadFactor: 20
+  disrupt:
+    podCount: 7
+    faultAfter: 51
   protocols:
   - nvmf
 # - iscsi

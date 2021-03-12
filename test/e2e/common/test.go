@@ -128,14 +128,15 @@ func AfterEachCheck() error {
 	logf.Log.Info("AfterEachCheck")
 
 	// Phase 1 to delete dangling resources
-	pvcs, _ := gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims("default").List(context.TODO(), metaV1.ListOptions{})
-	if len(pvcs.Items) != 0 {
+	// TODO check all e2e namespaces used by a test
+	pvcs, _ := CheckForPVCs()
+	if pvcs {
 		errorMsg += " found leftover PersistentVolumeClaims"
 		logf.Log.Info("AfterEachCheck: found leftover PersistentVolumeClaims, test fails.")
 	}
 
-	pvs, _ := gTestEnv.KubeInt.CoreV1().PersistentVolumes().List(context.TODO(), metaV1.ListOptions{})
-	if len(pvs.Items) != 0 {
+	pvs, _ := CheckForPVs()
+	if pvs {
 		errorMsg += " found leftover PersistentVolumes"
 		logf.Log.Info("AfterEachCheck: found leftover PersistentVolumes, test fails.")
 	}
