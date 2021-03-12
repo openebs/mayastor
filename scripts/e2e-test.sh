@@ -18,7 +18,7 @@ TOPDIR=$(realpath "$SCRIPTDIR/..")
 #TESTS="install basic_volume_io csi replica rebuild node_disconnect/replica_pod_remove uninstall"
 DEFAULT_TESTS="install basic_volume_io csi resource_check replica rebuild uninstall"
 ONDEMAND_TESTS="install basic_volume_io csi resource_check uninstall"
-EXTENDED_TESTS="install basic_volume_io csi resource_check uninstall"
+EXTENDED_TESTS="install basic_volume_io csi resource_check replica rebuild io_soak uninstall"
 CONTINUOUS_TESTS="install basic_volume_io csi resource_check replica rebuild io_soak uninstall"
 
 #exit values
