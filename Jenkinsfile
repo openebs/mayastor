@@ -408,11 +408,6 @@ pipeline {
                     wait: true,
                     parameters: [
                       [
-                        $class: 'StringParameterValue',
-                        name: "ENVIRONMENT",
-                        value: "${e2e_environment}"
-                      ],
-                      [
                         $class: 'RunParameterValue',
                         name: "BUILD",
                         runId:"${k8s_job.getProjectName()}#${k8s_job.getNumber()}"
