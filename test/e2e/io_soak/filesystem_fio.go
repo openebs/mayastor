@@ -31,11 +31,13 @@ func (job FioFsSoakJob) makeTestPod(selector map[string]string) (*coreV1.Pod, er
 	pod := common.CreateFioPodDef(job.podName, job.volName, common.VolFileSystem, common.NSDefault)
 	pod.Spec.NodeSelector = selector
 
-	image := "" + e2e_config.GetConfig().Registry + "/mayastor/e2e-fio"
+	e2eCfg := e2e_config.GetConfig()
+	image := "" + e2eCfg.Registry + "/mayastor/e2e-fio"
 	pod.Spec.Containers[0].Image = image
 
 	args := []string{
 		"--",
+		fmt.Sprintf("--startdelay=%d",e2eCfg.IOSoakTest.FioStartDelay),
 		"--time_based",
 		fmt.Sprintf("--runtime=%d", job.duration),
 		fmt.Sprintf("--filename=%s", common.FioFsFilename),
@@ -52,28 +54,6 @@ func (job FioFsSoakJob) makeTestPod(selector map[string]string) (*coreV1.Pod, er
 
 func (job FioFsSoakJob) removeTestPod() error {
 	return common.DeletePod(job.podName, common.NSDefault)
-}
-
-func (job FioFsSoakJob) run(duration time.Duration, doneC chan<- string, errC chan<- error) {
-	thinkTime := 1 // 1 microsecond
-	thinkTimeBlocks := 1000
-
-	FioDutyCycles := e2e_config.GetConfig().IOSoakTest.FioDutyCycles
-	if len(FioDutyCycles) != 0 {
-		ixp := job.id % len(FioDutyCycles)
-		thinkTime = FioDutyCycles[ixp].ThinkTime
-		thinkTimeBlocks = FioDutyCycles[ixp].ThinkTimeBlocks
-	}
-
-	RunIoSoakFio(
-		job.podName,
-		duration,
-		thinkTime,
-		thinkTimeBlocks,
-		common.VolFileSystem,
-		doneC,
-		errC,
-	)
 }
 
 func (job FioFsSoakJob) getPodName() string {

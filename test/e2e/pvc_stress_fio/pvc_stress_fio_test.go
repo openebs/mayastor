@@ -147,7 +147,7 @@ func testPVC(volName string, protocol common.ShareProto, runFio bool) {
 		).Should(Equal(true))
 
 		// Run the fio test
-		_, err = common.RunFio(fioPodName, 5, common.FioFsFilename)
+		_, err = common.RunFio(fioPodName, 5, common.FioFsFilename, common.DefaultFioSizeMb)
 		Expect(err).ToNot(HaveOccurred())
 
 		// Delete the fio pod

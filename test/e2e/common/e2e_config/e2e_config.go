@@ -30,7 +30,7 @@ type E2EConfig struct {
 		Duration         string   `yaml:"duration" env-default:"10m"`
 		LoadFactor       int      `yaml:"loadFactor" env-default:"10"`
 		Protocols        []string `yaml:"protocols" env-default:"nvmf,iscsi"`
-		FioFixedDuration int      `yaml:"fioFixedDuration" env-default:"60"`
+		FioStartDelay    int      `yaml:"fioStartDelay" env-default:"60"`
 		Disrupt          struct {
 			PodCount   int `yaml:"podCount" env-default:"3"`
 			FaultAfter int `yaml:"faultAfter" env-default:"45"`

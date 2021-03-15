@@ -64,28 +64,6 @@ func (job FioDisruptorJob) removeTestPod() error {
 	return common.DeletePod(job.podName, NSDisrupt)
 }
 
-func (job FioDisruptorJob) run(duration time.Duration, doneC chan<- string, errC chan<- error) {
-	thinkTime := 1 // 1 microsecond
-	thinkTimeBlocks := 1000
-
-	FioDutyCycles := e2e_config.GetConfig().IOSoakTest.FioDutyCycles
-	if len(FioDutyCycles) != 0 {
-		ixp := job.id % len(FioDutyCycles)
-		thinkTime = FioDutyCycles[ixp].ThinkTime
-		thinkTimeBlocks = FioDutyCycles[ixp].ThinkTimeBlocks
-	}
-
-	RunIoSoakFio(
-		job.podName,
-		duration,
-		thinkTime,
-		thinkTimeBlocks,
-		common.VolRawBlock,
-		doneC,
-		errC,
-	)
-}
-
 func (job FioDisruptorJob) getPodName() string {
 	return job.podName
 }
@@ -172,6 +150,7 @@ func MakeDisruptors() {
 			allReady = allReady && job.ready
 		}
 	}
+	logf.Log.Info("DisruptorPods", "all ready", allReady)
 	Expect(allReady).To(BeTrue(), "Timeout waiting to disruptor jobs to be ready")
 }
 

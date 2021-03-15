@@ -160,6 +160,10 @@ func IOSoakTest(protocols []common.ShareProto, replicas int, loadFactor int, dur
 		job.makeVolume()
 	}
 
+	logf.Log.Info("Starting disruptor pods")
+	DisruptorsInit(protocols, replicas)
+	MakeDisruptors()
+
 	logf.Log.Info("Creating test pods")
 	// Create the job test pods
 	for _, job := range jobs {
@@ -184,11 +188,8 @@ func IOSoakTest(protocols []common.ShareProto, replicas int, loadFactor int, dur
 			allReady = allReady && common.IsPodRunning(job.getPodName(), common.NSDefault)
 		}
 	}
+	logf.Log.Info("Pods", "all ready", allReady)
 	Expect(allReady).To(BeTrue(), "Timeout waiting to jobs to be ready")
-
-	logf.Log.Info("Starting disruptor pods")
-	DisruptorsInit(protocols, replicas)
-	MakeDisruptors()
 
 	logf.Log.Info("Waiting for test execution to complete on all test pods")
 	err = monitor()

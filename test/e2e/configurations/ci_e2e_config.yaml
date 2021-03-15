@@ -6,14 +6,14 @@ pvcstress:
 ioSoakTest:
   replicas: 1
   duration: 10m
-  loadFactor: 20
-  disrupt:
-    podCount: 7
-    faultAfter: 51
+  loadFactor: 30
   protocols:
   - nvmf
 # - iscsi
-  fioFixedDuration: 60
+  disrupt:
+    podCount: 5
+    faultAfter: 51
+  fioStartDelay: 90
   fioDutyCycles:
   - thinkTime: 500000
     thinkTimeBlocks: 1000

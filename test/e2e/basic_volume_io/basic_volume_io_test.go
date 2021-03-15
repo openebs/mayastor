@@ -55,7 +55,7 @@ func basicVolumeIOTest(protocol common.ShareProto) {
 	).Should(Equal(true))
 
 	// Run the fio test
-	_, err = common.RunFio(fioPodName, 20, common.FioFsFilename)
+	_, err = common.RunFio(fioPodName, 20, common.FioFsFilename, common.DefaultFioSizeMb)
 	Expect(err).ToNot(HaveOccurred())
 
 	podNames = podNames[:len(podNames)-1]

@@ -22,9 +22,10 @@ var FioFsFilename = FioFsMountPoint + "/fiotestfile"
 
 
 // FIXME: this function runs fio with a bunch of parameters which are not configurable.
-func RunFio(podName string, duration int, filename string, args ...string) ([]byte, error) {
+func RunFio(podName string, duration int, filename string, sizeMb int,  args ...string) ([]byte, error) {
 	argRuntime := fmt.Sprintf("--runtime=%d", duration)
 	argFilename := fmt.Sprintf("--filename=%s", filename)
+	argSize := fmt.Sprintf("--size=%dm", sizeMb)
 
 	logf.Log.Info("RunFio",
 		"podName", podName,
@@ -39,7 +40,10 @@ func RunFio(podName string, duration int, filename string, args ...string) ([]by
 		"--",
 		"fio",
 		"--name=benchtest",
-		"--size=50m",
+		"--verify=crc32",
+		"--verify_fatal=1",
+		"--verify_async=2",
+		argSize,
 		argFilename,
 		"--direct=1",
 		"--rw=randrw",
