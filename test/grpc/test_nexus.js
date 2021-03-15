@@ -297,7 +297,8 @@ describe('nexus', function () {
           next();
         },
         (next) => {
-          common.startMayastor(configNexus, ['-r', common.SOCK, '-g', common.grpcEndpoint, '-s', 386]);
+          common.startMayastor(configNexus, ['-r', common.SOCK, '-g', common.grpcEndpoint, '-s', 384],
+            { NEXUS_NVMF_ANA_ENABLE: '1' });
 
           common.waitFor((pingDone) => {
             // use harmless method to test if the mayastor is up and running

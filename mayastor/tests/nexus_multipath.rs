@@ -23,6 +23,7 @@ static HOSTNQN: &str = "nqn.2019-05.io.openebs";
 
 #[tokio::test]
 async fn nexus_multipath() {
+    std::env::set_var("NEXUS_NVMF_ANA_ENABLE", "1");
     // create a new composeTest
     let test = Builder::new()
         .name("nexus_shared_replica_test")
@@ -119,7 +120,7 @@ async fn nexus_multipath() {
         status
     );
 
-    // The first attempt often fails with "Duplicate cntlid x with y" error from
+    // The first attempt will fail with "Duplicate cntlid x with y" error from
     // kernel
     for i in 0 .. 2 {
         let status_c0 = Command::new("nvme")
