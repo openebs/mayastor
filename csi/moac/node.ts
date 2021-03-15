@@ -3,12 +3,12 @@
 // objects and notifications about the changes.
 
 import assert from 'assert';
+import events = require('events');
 import { Pool } from './pool';
 import { Nexus } from './nexus';
 import { Replica } from './replica';
 import { Workq } from './workq';
 
-const EventEmitter = require('events');
 const log = require('./logger').Logger('node');
 const { GrpcClient, GrpcCode, GrpcError } = require('./grpc_client');
 
@@ -24,7 +24,7 @@ type GrpcCallArgs = {
 // "node": node related events with payload { eventType: "sync", object: node }
 //         when the node is sync'd after previous sync failure(s).
 // "pool", "replica", "nexus": with eventType "new", "mod", "del".
-export class Node extends EventEmitter {
+export class Node extends events.EventEmitter {
   name: string;
   syncPeriod: number;
   syncRetry: number;

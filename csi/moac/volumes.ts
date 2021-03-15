@@ -1,10 +1,10 @@
 // Volume manager implementation.
 
 import assert from 'assert';
+import events = require('events');
 import { Volume, VolumeState } from './volume';
 import { Workq } from './workq';
 
-const EventEmitter = require('events');
 const EventStream = require('./event_stream');
 const { GrpcCode, GrpcError } = require('./grpc_client');
 const log = require('./logger').Logger('volumes');
@@ -16,7 +16,7 @@ type CreateArgs = {
 }
 
 // Volume manager that emit events for new/modified/deleted volumes.
-export class Volumes extends EventEmitter {
+export class Volumes extends events.EventEmitter {
   private registry: any;
   private events: any; // stream of events from registry
   private volumes: Record<string, Volume>; // volumes indexed by uuid
@@ -128,16 +128,10 @@ export class Volumes extends EventEmitter {
     if (volume) {
       volume.update(spec);
     } else {
-      volume = new Volume(uuid, this.registry, (type: string) => {
-        assert(volume);
-        this.emit('volume', {
-          eventType: type,
-          object: volume
-        });
-      }, spec);
       // The volume starts to exist before it is created because we must receive
       // events for it and we want to show to user that it is being created.
-      this.volumes[uuid] = volume;
+      this.volumes[uuid] = new Volume(uuid, this.registry, this, spec);
+      volume = this.volumes[uuid];
       this.emit('volume', {
         eventType: 'new',
         object: volume
@@ -146,10 +140,9 @@ export class Volumes extends EventEmitter {
       try {
         await volume.create();
       } catch (err) {
-        // undo the pending state
-        delete this.volumes[uuid];
+        // try to undo the pending state
         try {
-          await volume.destroy();
+          this.destroyVolume(uuid);
         } catch (err) {
           log.error(`Failed to destroy "${volume}": ${err}`);
         }
@@ -201,16 +194,22 @@ export class Volumes extends EventEmitter {
     } else {
       // We don't support multiple nexuses yet so take the first one
       let publishedOn = (status.targetNodes || []).pop();
-      volume = new Volume(uuid, this.registry, (type: string) => {
-        assert(volume);
-        this.emit('volume', {
-          eventType: type,
-          object: volume
-        });
-      }, spec, status.state, status.size, publishedOn);
+      // If for some strange reason the status is "pending" change it to unknown
+      // because fsa would refuse to act on it otherwise.
+      if (!status.state || status.state === VolumeState.Pending) {
+        status.state = VolumeState.Unknown;
+      }
+      this.volumes[uuid] = new Volume(
+        uuid,
+        this.registry,
+        this,
+        spec,
+        status.state,
+        status.size,
+        publishedOn,
+      );
+      volume = this.volumes[uuid];
       volume.attach();
-      volume.state = VolumeState.Unknown;
-      this.volumes[uuid] = volume;
       volume.fsa();
     }
     return volume;
