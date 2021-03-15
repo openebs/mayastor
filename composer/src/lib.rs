@@ -113,11 +113,11 @@ impl Binary {
         let path = std::path::PathBuf::from(std::env!("CARGO_MANIFEST_DIR"));
         let srcdir = path.parent().unwrap().to_string_lossy();
 
-        Self::new(format!("{}/target/debug/{}", srcdir, name), vec![])
+        Self::new(&format!("{}/target/debug/{}", srcdir, name), vec![])
     }
     /// Setup nix shell binary from path and arguments
     pub fn from_nix(name: &str) -> Self {
-        Self::new(Self::which(name).expect("binary should exist"), vec![])
+        Self::new(name, vec![])
     }
     /// Add single argument
     /// Only one argument can be passed per use. So instead of:
@@ -171,11 +171,17 @@ impl Binary {
     }
     fn which(name: &str) -> std::io::Result<String> {
         let output = std::process::Command::new("which").arg(name).output()?;
+        if !output.status.success() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                name,
+            ));
+        }
         Ok(String::from_utf8_lossy(&output.stdout).trim().into())
     }
-    fn new(path: String, args: Vec<String>) -> Self {
+    fn new(path: &str, args: Vec<String>) -> Self {
         Self {
-            path,
+            path: Self::which(path).expect("Binary path should exist!"),
             arguments: args,
             ..Default::default()
         }
@@ -310,6 +316,10 @@ pub struct Builder {
     containers: Vec<ContainerSpec>,
     /// the network for the tests used
     network: String,
+    /// reuse existing containers
+    reuse: bool,
+    /// allow cleaning up on a panic (if clean is true)
+    allow_clean_on_panic: bool,
     /// delete the container and network when dropped
     clean: bool,
     /// destroy existing containers if any
@@ -343,6 +353,8 @@ impl Builder {
             name: TEST_NET_NAME.to_string(),
             containers: Default::default(),
             network: "10.1.0.0/16".to_string(),
+            reuse: false,
+            allow_clean_on_panic: true,
             clean: true,
             prune: true,
             autorun: true,
@@ -420,8 +432,7 @@ impl Builder {
     }
 
     /// add a generic container which runs a local binary
-    pub fn add_container_bin(self, name: &str, mut bin: Binary) -> Builder {
-        bin.setup_nats(&self.name);
+    pub fn add_container_bin(self, name: &str, bin: Binary) -> Builder {
         self.add_container_spec(ContainerSpec::from_binary(name, bin))
     }
 
@@ -430,9 +441,22 @@ impl Builder {
         self.add_container_spec(ContainerSpec::from_binary(name, image))
     }
 
+    /// attempt to reuse and restart containers instead of starting new ones
+    pub fn with_reuse(mut self, reuse: bool) -> Builder {
+        self.reuse = reuse;
+        self.prune = !reuse;
+        self
+    }
+
     /// clean on drop?
     pub fn with_clean(mut self, enable: bool) -> Builder {
         self.clean = enable;
+        self
+    }
+
+    /// allow clean on panic if clean is set
+    pub fn with_clean_on_panic(mut self, enable: bool) -> Builder {
+        self.allow_clean_on_panic = enable;
         self
     }
 
@@ -463,14 +487,16 @@ impl Builder {
     }
 
     /// setup tracing for the cargo test code with `filter`
+    /// ignore when called multiple times
     pub fn with_tracing(self, filter: &str) -> Self {
-        if let Ok(filter) =
+        let builder = if let Ok(filter) =
             tracing_subscriber::EnvFilter::try_from_default_env()
         {
-            tracing_subscriber::fmt().with_env_filter(filter).init();
+            tracing_subscriber::fmt().with_env_filter(filter)
         } else {
-            tracing_subscriber::fmt().with_env_filter(filter).init();
-        }
+            tracing_subscriber::fmt().with_env_filter(filter)
+        };
+        builder.try_init().ok();
         self
     }
 
@@ -486,10 +512,41 @@ impl Builder {
         Ok(compose)
     }
 
+    fn override_flags(flag: &mut bool, flag_name: &str) {
+        let key = format!("COMPOSE_{}", flag_name.to_ascii_uppercase());
+        if let Some(val) = std::env::var_os(&key) {
+            let clean = match val.to_str().unwrap_or_default() {
+                "true" => true,
+                "false" => false,
+                _ => return,
+            };
+            if clean != *flag {
+                tracing::warn!(
+                    "env::{} => Overriding the {} flag to {}",
+                    key,
+                    flag_name,
+                    clean
+                );
+                *flag = clean;
+            }
+        }
+    }
+    /// override clean flags with environment variable
+    /// useful for testing without having to change the code
+    fn override_clean(&mut self) {
+        Self::override_flags(&mut self.clean, "clean");
+        Self::override_flags(
+            &mut self.allow_clean_on_panic,
+            "allow_clean_on_panic",
+        );
+        Self::override_flags(&mut self.logs_on_panic, "logs_on_panic");
+    }
+
     /// build the config but don't start the containers
     async fn build_only(
-        self,
+        mut self,
     ) -> Result<ComposeTest, Box<dyn std::error::Error>> {
+        self.override_clean();
         let net: Ipv4Network = self.network.parse()?;
 
         let path = std::path::PathBuf::from(std::env!("CARGO_MANIFEST_DIR"));
@@ -517,6 +574,8 @@ impl Builder {
             containers: Default::default(),
             ipam,
             label_prefix: "io.mayastor.test".to_string(),
+            reuse: self.reuse,
+            allow_clean_on_panic: self.allow_clean_on_panic,
             clean: self.clean,
             prune: self.prune,
             image: self.image,
@@ -526,14 +585,37 @@ impl Builder {
         compose.network_id =
             compose.network_create().await.map_err(|e| e.to_string())?;
 
-        // containers are created where the IPs are ordinal
-        for (i, spec) in self.containers.iter().enumerate() {
-            compose
-                .create_container(
-                    spec,
-                    &net.nth((i + 2) as u32).unwrap().to_string(),
-                )
-                .await?;
+        if self.reuse {
+            let containers =
+                compose.list_network_containers(&self.name).await?;
+
+            for container in containers {
+                let networks = container
+                    .network_settings
+                    .unwrap_or_default()
+                    .networks
+                    .unwrap_or_default();
+                if let Some(n) = container.names.unwrap_or_default().first() {
+                    if let Some(endpoint) = networks.get(&self.name) {
+                        if let Some(ip) = endpoint.ip_address.clone() {
+                            compose.containers.insert(
+                                n[1 ..].into(),
+                                (container.id.unwrap_or_default(), ip.parse()?),
+                            );
+                        }
+                    }
+                }
+            }
+        } else {
+            // containers are created where the IPs are ordinal
+            for (i, spec) in self.containers.iter().enumerate() {
+                compose
+                    .create_container(
+                        spec,
+                        &net.nth((i + 2) as u32).unwrap().to_string(),
+                    )
+                    .await?;
+            }
         }
 
         Ok(compose)
@@ -569,6 +651,10 @@ pub struct ComposeTest {
     /// prefix for labels set on containers and networks
     ///   $prefix.name = $name will be created automatically
     label_prefix: String,
+    /// reuse existing containers
+    reuse: bool,
+    /// allow cleaning up on a panic (if clean is set)
+    allow_clean_on_panic: bool,
     /// automatically clean up the things we have created for this test
     clean: bool,
     /// remove existing containers upon creation
@@ -591,10 +677,10 @@ impl Drop for ComposeTest {
             });
         }
 
-        if self.clean {
+        if self.clean && (!thread::panicking() || self.allow_clean_on_panic) {
             self.containers.keys().for_each(|c| {
                 std::process::Command::new("docker")
-                    .args(&["stop", c])
+                    .args(&["kill", c])
                     .output()
                     .unwrap();
                 std::process::Command::new("docker")
@@ -690,7 +776,7 @@ impl ComposeTest {
         // attached to it are removed. To get a list of attached
         // containers, use network_list()
         if let Err(e) = self.docker.remove_network(name).await {
-            if !matches!(e, Error::DockerResponseNotFoundError{..}) {
+            if !matches!(e, Error::DockerResponseNotFoundError { .. }) {
                 return Err(e);
             }
         }
@@ -723,7 +809,7 @@ impl ComposeTest {
     }
 
     /// list containers
-    pub async fn list_containers(
+    pub async fn list_cluster_containers(
         &self,
     ) -> Result<Vec<ContainerSummaryInner>, Error> {
         self.docker
@@ -832,7 +918,7 @@ impl ComposeTest {
                 "IPC_LOCK".into(),
                 "SYS_NICE".into(),
             ]),
-            security_opt: Some(vec!["seccomp:unconfined".into()]),
+            security_opt: Some(vec!["seccomp=unconfined".into()]),
             init: spec.init,
             port_bindings: spec.port_map.clone(),
             ..Default::default()
@@ -974,9 +1060,11 @@ impl ComposeTest {
                 ),
             },
         )?;
-        self.docker
-            .start_container::<&str>(id.0.as_str(), None)
-            .await?;
+        if !self.reuse {
+            self.docker
+                .start_container::<&str>(id.0.as_str(), None)
+                .await?;
+        }
 
         Ok(())
     }
@@ -1000,7 +1088,7 @@ impl ComposeTest {
             .await
         {
             // where already stopped
-            if !matches!(e, Error::DockerResponseNotModifiedError{..}) {
+            if !matches!(e, Error::DockerResponseNotModifiedError { .. }) {
                 return Err(e);
             }
         }
@@ -1010,11 +1098,16 @@ impl ComposeTest {
 
     /// restart the container
     pub async fn restart(&self, name: &str) -> Result<(), Error> {
-        let id = self.containers.get(name).unwrap();
+        let (id, _) = self.containers.get(name).unwrap();
+        self.restart_id(id.as_str()).await
+    }
+
+    /// restart the container id
+    pub async fn restart_id(&self, id: &str) -> Result<(), Error> {
         if let Err(e) = self
             .docker
             .restart_container(
-                id.0.as_str(),
+                id,
                 Some(RestartContainerOptions {
                     t: 3,
                 }),
@@ -1022,7 +1115,7 @@ impl ComposeTest {
             .await
         {
             // where already stopped
-            if !matches!(e, Error::DockerResponseNotModifiedError{..}) {
+            if !matches!(e, Error::DockerResponseNotModifiedError { .. }) {
                 return Err(e);
             }
         }
@@ -1108,6 +1201,22 @@ impl ComposeTest {
             if let Some(id) = container.id {
                 if let Err(e) = self.stop_id(&id).await {
                     println!("Failed to stop container id {:?}", id);
+                    result = Err(e);
+                }
+            }
+        }
+        result
+    }
+
+    /// restart all the containers part of the network
+    /// returns the last error, if any or Ok
+    pub async fn restart_network_containers(&self) -> Result<(), Error> {
+        let mut result = Ok(());
+        let containers = self.list_network_containers(&self.name).await?;
+        for container in containers {
+            if let Some(id) = container.id {
+                if let Err(e) = self.restart_id(&id).await {
+                    println!("Failed to restart container id {:?}", id);
                     result = Err(e);
                 }
             }

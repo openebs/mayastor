@@ -6,7 +6,7 @@ use std::{
 use bincode::serialize_into;
 
 use mayastor::{
-    bdev::{nexus_create, nexus_lookup, GPTHeader, GptEntry},
+    bdev::{nexus_create, nexus_lookup, GptEntry, GptHeader},
     core::{
         mayastor_env_stop,
         DmaBuf,
@@ -74,7 +74,7 @@ fn test_known_label() {
     let mut hdr_buf: [u8; 512] = [0; 512];
     file.read_exact(&mut hdr_buf).unwrap();
 
-    let mut hdr: GPTHeader = GPTHeader::from_slice(&hdr_buf).unwrap();
+    let mut hdr: GptHeader = GptHeader::from_slice(&hdr_buf).unwrap();
     assert_eq!(hdr.self_checksum, CRC32);
     assert_eq!(hdr.guid.to_string(), HDR_GUID,);
 
@@ -91,7 +91,7 @@ fn test_known_label() {
 
     assert_eq!(hdr.checksum(), CRC32);
 
-    let array_checksum = GptEntry::checksum(&partitions);
+    let array_checksum = GptEntry::checksum(&partitions, hdr.num_entries);
 
     assert_eq!(array_checksum, hdr.table_crc);
 
@@ -105,9 +105,9 @@ fn test_known_label() {
     }
 
     let partitions =
-        GptEntry::from_slice(&buf.as_slice(), hdr.num_entries).unwrap();
+        GptEntry::from_slice(buf.as_slice(), hdr.num_entries).unwrap();
 
-    let array_checksum = GptEntry::checksum(&partitions);
+    let array_checksum = GptEntry::checksum(&partitions, hdr.num_entries);
     assert_eq!(array_checksum, hdr.table_crc);
 }
 

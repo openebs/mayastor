@@ -4,14 +4,13 @@ package basic_volume_io_test
 
 import (
 	"e2e-basic/common"
-	"os"
+	"e2e-basic/common/e2e_config"
+
 	"testing"
 
 	. "github.com/onsi/ginkgo"
-	"github.com/onsi/ginkgo/reporters"
 	. "github.com/onsi/gomega"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
 var defTimeoutSecs = "120s"
@@ -25,14 +24,16 @@ var podNames []string
 var volNames []volSc
 
 func TestBasicVolumeIO(t *testing.T) {
-	RegisterFailHandler(Fail)
-	reportDir := os.Getenv("e2e_reports_dir")
-	junitReporter := reporters.NewJUnitReporter(reportDir + "/basic-volume-io-junit.xml")
-	RunSpecsWithDefaultAndCustomReporters(t, "Basic volume IO tests, NVMe-oF TCP and iSCSI", []Reporter{junitReporter})
+	// Initialise test and set class and file names for reports
+	common.InitTesting(t, "Basic volume IO tests, NVMe-oF TCP and iSCSI", "basic-volume-io")
 }
 
-func basicVolumeIOTest(scName string) {
-	volName := "basic-vol-io-test-" + scName
+func basicVolumeIOTest(protocol common.ShareProto) {
+	scName := "basic-vol-io-test-" + string(protocol)
+	err := common.MkStorageClass(scName, e2e_config.GetConfig().BasicVolumeIO.Replicas, protocol)
+	Expect(err).ToNot(HaveOccurred(), "Creating storage class %s", scName)
+
+	volName := "basic-vol-io-test-" + string(protocol)
 	// Create the volume
 	common.MkPVC(volName, scName)
 	tmp := volSc{volName, scName}
@@ -54,7 +55,9 @@ func basicVolumeIOTest(scName string) {
 	).Should(Equal(true))
 
 	// Run the fio test
-	common.RunFio(fioPodName, 20)
+	_, err = common.RunFio(fioPodName, 20, common.FioFsFilename)
+	Expect(err).ToNot(HaveOccurred())
+
 	podNames = podNames[:len(podNames)-1]
 
 	// Delete the fio pod
@@ -64,6 +67,9 @@ func basicVolumeIOTest(scName string) {
 	// Delete the volume
 	common.RmPVC(volName, scName)
 	volNames = volNames[:len(volNames)-1]
+
+	err = common.RmStorageClass(scName)
+	Expect(err).ToNot(HaveOccurred(), "Deleting storage class %s", scName)
 }
 
 var _ = Describe("Mayastor Volume IO test", func() {
@@ -77,15 +83,14 @@ var _ = Describe("Mayastor Volume IO test", func() {
 	})
 
 	It("should verify an NVMe-oF TCP volume can process IO", func() {
-		basicVolumeIOTest("mayastor-nvmf")
+		basicVolumeIOTest(common.ShareProtoNvmf)
 	})
 	It("should verify an iSCSI volume can process IO", func() {
-		basicVolumeIOTest("mayastor-iscsi")
+		basicVolumeIOTest(common.ShareProtoIscsi)
 	})
 })
 
 var _ = BeforeSuite(func(done Done) {
-	logf.SetLogger(zap.New(zap.UseDevMode(true), zap.WriteTo(GinkgoWriter)))
 	common.SetupTestEnv()
 
 	close(done)

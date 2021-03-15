@@ -1,6 +1,6 @@
 //! Simple utility functions to help with parsing URIs.
 
-use std::{collections::HashMap, str::ParseBoolError};
+use std::str::ParseBoolError;
 
 use url::Url;
 
@@ -16,20 +16,6 @@ pub(crate) fn segments(url: &Url) -> Vec<&str> {
     }
 
     Vec::new()
-}
-
-/// Generate a comma separated list of all keys present in a HashMap as a String
-pub(crate) fn keys(map: HashMap<String, String>) -> Option<String> {
-    if map.is_empty() {
-        None
-    } else {
-        Some(
-            map.keys()
-                .map(|key| key.to_string())
-                .collect::<Vec<String>>()
-                .join(", "),
-        )
-    }
 }
 
 /// Parse a value that represents a boolean

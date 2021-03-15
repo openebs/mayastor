@@ -19,7 +19,7 @@ use crate::{
                 RebuildOperationError,
                 RemoveRebuildJob,
             },
-            nexus_channel::DREvent,
+            nexus_channel::DrEvent,
             nexus_child::{ChildState, NexusChild, Reason},
         },
         VerboseError,
@@ -99,7 +99,7 @@ impl Nexus {
         // rebuilt would then need to be rebuilt again.
         // Ensuring that the dst child receives all frontend Write IO keeps all
         // rebuilt ranges in sync with the other children.
-        self.reconfigure(DREvent::ChildRebuild).await;
+        self.reconfigure(DrEvent::ChildRebuild).await;
 
         job.as_client().start().context(RebuildOperationError {
             job: name.to_owned(),
@@ -301,7 +301,7 @@ impl Nexus {
             }
         }
 
-        self.reconfigure(DREvent::ChildRebuild).await;
+        self.reconfigure(DrEvent::ChildRebuild).await;
         Ok(())
     }
 

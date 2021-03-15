@@ -1,7 +1,7 @@
 {{/* Enforce trailing slash to mayastorImagesPrefix or leave empty */}}
 {{- define "mayastorImagesPrefix" -}}
-{{- if .Values.mayastorImagesRepo }}
-{{- printf "%s/" (.Values.mayastorImagesRepo | trimSuffix "/") }}
+{{- if .Values.mayastorImagesRegistry }}
+{{- printf "%s/" (.Values.mayastorImagesRegistry | trimSuffix "/") }}
 {{- else }}
 {{- "" }}
 {{- end }}
@@ -13,6 +13,6 @@
 {{- if gt $i 0 }}
 {{- printf "," }}
 {{- end }}
-{{- printf "%d" (add $i 1) }}
+{{- printf "%d" $i }}
 {{- end }}
 {{- end }}

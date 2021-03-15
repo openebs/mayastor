@@ -1,14 +1,18 @@
-use std::{convert::TryFrom, fmt::Display, sync::Arc};
+use std::{
+    convert::TryFrom,
+    fmt::{Display, Formatter},
+    sync::Arc,
+};
 
 use nix::errno::Errno;
-use serde::{export::Formatter, Serialize};
+use serde::Serialize;
 use snafu::{ResultExt, Snafu};
 
 use crate::{
     bdev::{
         nexus::{
             instances,
-            nexus_channel::DREvent,
+            nexus_channel::DrEvent,
             nexus_child::ChildState::Faulted,
             nexus_child_status_config::ChildStatusConfig,
         },
@@ -426,7 +430,7 @@ impl NexusChild {
             let nexus_name = self.parent.clone();
             Reactor::block_on(async move {
                 match nexus_lookup(&nexus_name) {
-                    Some(n) => n.reconfigure(DREvent::ChildRemove).await,
+                    Some(n) => n.reconfigure(DrEvent::ChildRemove).await,
                     None => error!("Nexus {} not found", nexus_name),
                 }
             });

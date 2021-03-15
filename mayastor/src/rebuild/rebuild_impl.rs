@@ -1,5 +1,4 @@
 #![warn(missing_docs)]
-#![allow(clippy::unknown_clippy_lints)]
 
 use std::{cell::UnsafeCell, collections::HashMap};
 
@@ -429,7 +428,7 @@ impl RebuildJob {
         claim: bool,
     ) -> Result<BdevHandle, RebuildError> {
         BdevHandle::open(
-            &bdev_get_name(uri).context(BdevInvalidURI {
+            &bdev_get_name(uri).context(BdevInvalidUri {
                 uri: uri.to_string(),
             })?,
             read_write,

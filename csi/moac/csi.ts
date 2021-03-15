@@ -481,13 +481,13 @@ class CsiServer {
     }
 
     // This was used in the old days for NBD protocol
-    const accessibleTopology: TopologyKeys[] = [];
+    const topologies: TopologyKeys[] = [];
 
     this._endRequest(request, null, {
       volume: {
         capacityBytes: volume.getSize(),
         volumeId: uuid,
-        accessibleTopology,
+        accessibleTopology: topologies,
         // parameters defined in the storage class are only presented
         // to the CSI driver createVolume method.
         // Propagate them to other CSI driver methods involved in

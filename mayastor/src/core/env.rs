@@ -14,10 +14,6 @@ use std::{
 
 use byte_unit::{Byte, ByteUnit};
 use futures::{channel::oneshot, future};
-use mbus_api::{
-    v0::{Config::MayastorConfig, ConfigGetCurrent, ReplyConfig},
-    Message,
-};
 use once_cell::sync::{Lazy, OnceCell};
 use snafu::Snafu;
 use structopt::StructOpt;
@@ -384,9 +380,7 @@ impl MayastorEnvironment {
 
     /// construct an array of options to be passed to EAL and start it
     fn initialize_eal(&self) {
-        let mut args: Vec<CString> = Vec::new();
-
-        args.push(CString::new(self.name.clone()).unwrap());
+        let mut args = vec![CString::new(self.name.clone()).unwrap()];
 
         if self.mem_channel > 0 {
             args.push(
@@ -488,7 +482,7 @@ impl MayastorEnvironment {
         let mut cargs = args
             .iter()
             .map(|arg| arg.as_ptr())
-            .collect::<Vec<*const i8>>();
+            .collect::<Vec<*const c_char>>();
 
         cargs.push(std::ptr::null());
         debug!("EAL arguments {:?}", args);
@@ -496,7 +490,7 @@ impl MayastorEnvironment {
         if unsafe {
             rte_eal_init(
                 (cargs.len() as libc::c_int) - 1,
-                cargs.as_ptr() as *mut *mut i8,
+                cargs.as_ptr() as *mut *mut c_char,
             )
         } < 0
         {
@@ -578,7 +572,7 @@ impl MayastorEnvironment {
         } else {
             info!("RPC server listening at: {}", ctx.rpc.to_str().unwrap());
             unsafe {
-                spdk_rpc_initialize(ctx.rpc.as_ptr() as *mut i8);
+                spdk_rpc_initialize(ctx.rpc.as_ptr() as *mut c_char);
                 spdk_rpc_set_state(SPDK_RPC_RUNTIME);
             };
 
@@ -605,19 +599,6 @@ impl MayastorEnvironment {
             Config::get_or_init(Config::default)
         };
         cfg.apply();
-    }
-
-    #[allow(dead_code)]
-    async fn get_service_config(&self) -> Result<ReplyConfig, mbus_api::Error> {
-        if self.mbus_endpoint.is_some() {
-            Ok(ConfigGetCurrent {
-                kind: MayastorConfig,
-            }
-            .request()
-            .await?)
-        } else {
-            Ok(Default::default())
-        }
     }
 
     // load the child status file

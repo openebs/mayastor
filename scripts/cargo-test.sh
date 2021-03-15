@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+SCRIPTDIR=$(dirname "$0")
+
 cleanup_handler() {
   for c in $(docker ps -a --filter "label=io.mayastor.test.name" --format '{{.ID}}') ; do
     docker kill "$c" || true
@@ -19,7 +21,4 @@ export PATH=$PATH:${HOME}/.cargo/bin
 # test dependencies
 cargo build --bins
 ( cd mayastor && cargo test -- --test-threads=1 )
-for test in composer agents rest; do
-    cargo test -p ${test} -- --test-threads=1
-done
 ( cd nvmeadm && cargo test )

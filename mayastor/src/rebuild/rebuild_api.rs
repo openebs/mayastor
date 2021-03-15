@@ -71,7 +71,7 @@ pub enum RebuildError {
         source: nix::errno::Errno,
     },
     #[snafu(display("Failed to get bdev name from URI {}", uri))]
-    BdevInvalidURI { source: NexusBdevError, uri: String },
+    BdevInvalidUri { source: NexusBdevError, uri: String },
 }
 
 #[derive(Debug, PartialEq, Copy, Clone)]
@@ -189,7 +189,7 @@ impl RebuildJob {
     ) -> Result<&'a mut Self, RebuildError> {
         Self::new(nexus, source, destination, range, notify_fn)?.store()?;
 
-        Ok(Self::lookup(destination)?)
+        Self::lookup(destination)
     }
 
     /// Lookup a rebuild job by its destination uri and return it

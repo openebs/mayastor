@@ -10,11 +10,10 @@ use std::{
     ffi::{c_void, CString},
     io::{Error, ErrorKind},
     iter::Iterator,
+    os::raw::{c_char, c_int},
     ptr::null_mut,
     vec::Vec,
 };
-
-use libc::{c_char, c_int};
 
 use mayastor::delay;
 use spdk_sys::{
@@ -39,11 +38,14 @@ fn main() -> Result<(), std::io::Error> {
     let mut opts: spdk_app_opts = Default::default();
 
     unsafe {
-        spdk_app_opts_init(&mut opts as *mut spdk_app_opts);
+        spdk_app_opts_init(
+            &mut opts as *mut spdk_app_opts,
+            std::mem::size_of::<spdk_app_opts>() as u64,
+        );
 
         if spdk_app_parse_args(
             (c_args.len() as c_int) - 1,
-            c_args.as_ptr() as *mut *mut i8,
+            c_args.as_ptr() as *mut *mut c_char,
             &mut opts,
             null_mut(), // extra short options i.e. "f:S:"
             null_mut(), // extra long options

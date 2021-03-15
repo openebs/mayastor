@@ -5,7 +5,7 @@
 Mayastor supports the following [Instruction Set Architectures (ISA)][isa]:
 
   + x86_64 (Nehalem or later)
-  + aarch64 support (**Early access on [`aarch64`][aarch64-branch] -- Use caution**)
+  + aarch64
 
 Your system will need several [control groups][control-groups] configured.
 
@@ -18,7 +18,7 @@ It will also need at least 512 2 MB Hugepages configured.
 
 > Learn more about hugepages: [parts 1][hugepages-lwn-one], [2][hugepages-lwn-two],
 > [3][hugepages-lwn-three], [4][hugepages-lwn-four], [5][hugepages-lwn-five].
-  
+
 In NixOS:
 
 ```nix
@@ -78,7 +78,7 @@ In order to use the full feature set of Mayastor, some or all of the following c
   + `nvme_loop`: NVMe Loop Device support
 
   To load these on NixOS:
-  
+
   ```nix
   # /etc/nixos/configuration.nix
   boot.kernelModules = [
@@ -91,7 +91,40 @@ In order to use the full feature set of Mayastor, some or all of the following c
   ```bash
   modprobe nbd nvmet nvmet_rdma nvme_fabrics nvme_tcp nvme_rdma nvme_loop
   ```
-* An NVMe device. (Typically via PCI-E through an standard slot or [M.2][m-dot-2] port)
+* For Asymmetric Namespace Access (ANA) support (early preview), the following kernel build configuration enabled:
+  + `CONFIG_NVME_MULTIPATH`: enables support for multipath access to NVMe subsystems
+
+  This is usually already enabled in distributions kernels, at least for RHEL/CentOS 8.2, Ubuntu 20.04 LTS, and SUSE Linux Enterprise 15.2.
+
+  On some distributions such as RHEL 8, the feature must be enabled manually:
+
+  ```sh
+  # /etc/modprobe.d/nvme-multipath
+  options nvme_core multipath=1
+  ```
+
+  followed by reloading the `nvme-core` module or rebooting.
+
+  To build this on NixOS:
+
+  ```nix
+  # /etc/nixos/configuration.nix
+  boot.kernelPackages = pkgs.linuxPackages;
+  boot.kernelPatches = [ {
+    name = "nvme-multipath";
+    patch = null;
+    extraConfig = ''
+      NVME_MULTIPATH y
+      '';
+  } ];
+  ```
+
+  followed by:
+
+  ```sh
+  sudo nixos-rebuild boot
+  ```
+* An NVMe device. (Typically via PCI-E through a standard slot or [M.2][m-dot-2] port)
 * A version of [`nix`][nix-install] configured as in the [build guide.][doc-build]
 
 ## Running binaries directly
@@ -158,7 +191,7 @@ Why these parameters?
 - `--privileged` to allow controlling memory policies.
 
   > **TODO:** We can use [control groups][control-groups] for this!
-- `-v /dev:/dev:rw` is needed to get access to any raw device you might want to consume as local 
+- `-v /dev:/dev:rw` is needed to get access to any raw device you might want to consume as local
   storage and huge pages
 - `-v /dev/shm:/dev/shm:rw` is needed as for a circular buffer that can trace any IO operations
   as they happen
@@ -184,7 +217,7 @@ nixpkgs.overlays = [
 ];
 
 systemd.services.mayastor = {
-  wantedBy = [ "multi-user.target" ]; 
+  wantedBy = [ "multi-user.target" ];
   after = [ "network.target" ];
   description = "A cloud native declarative data plane.";
   serviceConfig = {
@@ -273,4 +306,3 @@ production Mayastor deployment and operation instructions.
 [lxd]: https://linuxcontainers.org/
 [libvirtd]: https://libvirt.org/index.html
 [terraform-readme]: ./terraform/readme.adoc
-[aarch64-branch]: 

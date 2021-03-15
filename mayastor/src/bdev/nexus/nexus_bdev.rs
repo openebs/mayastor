@@ -6,12 +6,14 @@
 
 use std::{
     convert::TryFrom,
+    env,
     fmt::{Display, Formatter},
     os::raw::c_void,
 };
 
-use futures::channel::oneshot;
+use futures::{channel::oneshot, future::join_all};
 use nix::errno::Errno;
+use rpc::mayastor::NvmeAnaState;
 use serde::Serialize;
 use snafu::{ResultExt, Snafu};
 use tonic::{Code, Status};
@@ -40,7 +42,7 @@ use crate::{
         nexus::{
             instances,
             nexus_channel::{
-                DREvent,
+                DrEvent,
                 NexusChannel,
                 NexusChannelInner,
                 ReconfigureCtx,
@@ -51,7 +53,7 @@ use crate::{
             nexus_nbd::{NbdDisk, NbdError},
         },
     },
-    core::{Bdev, CoreError, DmaError, Protocol, Reactor, Share},
+    core::{Bdev, CoreError, Protocol, Reactor, Share},
     ffihelper::errno_result_from_i32,
     lvs::Lvol,
     nexus_uri::{bdev_destroy, NexusBdevError},
@@ -105,6 +107,8 @@ pub enum Error {
     AlreadyShared { name: String },
     #[snafu(display("The nexus {} has not been shared", name))]
     NotShared { name: String },
+    #[snafu(display("The nexus {} has not been shared over NVMf", name))]
+    NotSharedNvmf { name: String },
     #[snafu(display("Failed to share nexus over NBD {}", name))]
     ShareNbdNexus { source: NbdError, name: String },
     #[snafu(display("Failed to share iscsi nexus {}", name))]
@@ -113,19 +117,25 @@ pub enum Error {
     ShareNvmfNexus { source: CoreError, name: String },
     #[snafu(display("Failed to unshare nexus {}", name))]
     UnshareNexus { source: CoreError, name: String },
-    #[snafu(display("Failed to allocate label of nexus {}", name))]
-    AllocLabel { source: DmaError, name: String },
-    #[snafu(display("Failed to write label of nexus {}", name))]
+    #[snafu(display(
+        "Failed to read child label of nexus {}: {}",
+        name,
+        source
+    ))]
+    ReadLabel { source: LabelError, name: String },
+    #[snafu(display(
+        "Failed to write child label of nexus {}: {}",
+        name,
+        source
+    ))]
     WriteLabel { source: LabelError, name: String },
-    #[snafu(display("Failed to read label from a child of nexus {}", name))]
-    ReadLabel { source: ChildError, name: String },
-    #[snafu(display("Labels of the nexus {} are not the same", name))]
-    CheckLabels { name: String },
-    #[snafu(display("Failed to write protective MBR of nexus {}", name))]
-    WritePmbr { source: LabelError, name: String },
-    #[snafu(display("Failed to register IO device nexus {}", name))]
+    #[snafu(display(
+        "Failed to register IO device nexus {}: {}",
+        name,
+        source
+    ))]
     RegisterNexus { source: Errno, name: String },
-    #[snafu(display("Failed to create child of nexus {}", name))]
+    #[snafu(display("Failed to create child of nexus {}: {}", name, source))]
     CreateChild {
         source: NexusBdevError,
         name: String,
@@ -226,6 +236,8 @@ pub enum Error {
     },
     #[snafu(display("Invalid ShareProtocol value {}", sp_value))]
     InvalidShareProtocol { sp_value: i32 },
+    #[snafu(display("Invalid NvmeAnaState value {}", ana_value))]
+    InvalidNvmeAnaState { ana_value: i32 },
     #[snafu(display("Failed to create nexus {}", name))]
     NexusCreate { name: String },
     #[snafu(display("Failed to destroy nexus {}", name))]
@@ -245,6 +257,16 @@ pub enum Error {
     FailedGetHandle,
     #[snafu(display("Failed to create snapshot on nexus {}", name))]
     FailedCreateSnapshot { name: String, source: CoreError },
+    #[snafu(display("NVMf subsystem error: {}", e))]
+    SubsysNvmfError { e: String },
+}
+
+impl From<subsys::NvmfError> for Error {
+    fn from(error: subsys::NvmfError) -> Self {
+        Error::SubsysNvmfError {
+            e: error.to_string(),
+        }
+    }
 }
 
 impl From<Error> for tonic::Status {
@@ -263,6 +285,9 @@ impl From<Error> for tonic::Status {
                 ..
             } => Status::invalid_argument(e.to_string()),
             Error::NotShared {
+                ..
+            } => Status::invalid_argument(e.to_string()),
+            Error::NotSharedNvmf {
                 ..
             } => Status::invalid_argument(e.to_string()),
             Error::CreateChild {
@@ -417,10 +442,7 @@ impl Nexus {
             max_io_attempts: cfg.err_store_opts.max_io_attempts,
         });
 
-        n.bdev.set_uuid(match uuid {
-            Some(uuid) => Some(uuid.to_string()),
-            None => None,
-        });
+        n.bdev.set_uuid(uuid.map(String::from));
 
         if let Some(child_bdevs) = child_bdevs {
             n.register_children(child_bdevs);
@@ -448,7 +470,7 @@ impl Nexus {
     }
 
     /// reconfigure the child event handler
-    pub(crate) async fn reconfigure(&self, event: DREvent) {
+    pub(crate) async fn reconfigure(&self, event: DrEvent) {
         let (s, r) = oneshot::channel::<i32>();
 
         info!(
@@ -481,21 +503,26 @@ impl Nexus {
     }
 
     pub async fn sync_labels(&mut self) -> Result<(), Error> {
-        let label = self.update_child_labels().await.context(WriteLabel {
+        if env::var("NEXUS_DONT_READ_LABELS").is_ok() {
+            // This is to allow for the specific case where the underlying
+            // child devices are NULL bdevs, which may be written to
+            // but cannot be read from. Just write out new labels,
+            // and don't attempt to read them back afterwards.
+            warn!("NOT reading disk labels on request");
+            return self.create_child_labels().await.context(WriteLabel {
+                name: self.name.clone(),
+            });
+        }
+
+        // update child labels as necessary
+        if let Err(error) = self.update_child_labels().await {
+            warn!("error updating child labels: {}", error);
+        }
+
+        // check if we can read the labels back
+        self.validate_child_labels().await.context(ReadLabel {
             name: self.name.clone(),
         })?;
-
-        // Now register the bdev but update its size first
-        // to ensure we adhere to the partitions.
-        self.data_ent_offset = label.offset();
-        let size_blocks = self.size / self.bdev.block_len() as u64;
-
-        self.bdev.set_block_count(std::cmp::min(
-            // nexus is allowed to be smaller than the children
-            size_blocks,
-            // label might be smaller than expected due to the on disk metadata
-            label.get_block_count(),
-        ));
 
         Ok(())
     }
@@ -619,6 +646,43 @@ impl Nexus {
         }
 
         Ok(())
+    }
+
+    /// get ANA state of the NVMe subsystem
+    pub async fn get_ana_state(&self) -> Result<NvmeAnaState, Error> {
+        if let Some(Protocol::Nvmf) = self.shared() {
+            if let Some(subsystem) = NvmfSubsystem::nqn_lookup(&self.name) {
+                let ana_state = subsystem.get_ana_state().await? as i32;
+                return NvmeAnaState::from_i32(ana_state).ok_or({
+                    Error::InvalidNvmeAnaState {
+                        ana_value: ana_state,
+                    }
+                });
+            }
+        }
+
+        Err(Error::NotSharedNvmf {
+            name: self.name.clone(),
+        })
+    }
+
+    /// set ANA state of the NVMe subsystem
+    pub async fn set_ana_state(
+        &self,
+        ana_state: NvmeAnaState,
+    ) -> Result<(), Error> {
+        if let Some(Protocol::Nvmf) = self.shared() {
+            if let Some(subsystem) = NvmfSubsystem::nqn_lookup(&self.name) {
+                subsystem.pause().await?;
+                let res = subsystem.set_ana_state(ana_state as u32).await;
+                subsystem.resume().await?;
+                return Ok(res?);
+            }
+        }
+
+        Err(Error::NotSharedNvmf {
+            name: self.name.clone(),
+        })
     }
 
     /// register the bdev with SPDK and set the callbacks for io channel
@@ -1021,11 +1085,13 @@ impl Nexus {
     }
 }
 
-/// If we fail to create one of the children we will fail the whole operation
-/// destroy any created children and return the error. Once created, and we
-/// bring the nexus online, there still might be a configuration mismatch that
-/// would prevent the nexus to come online. We can only determine this
-/// (currently) when online, so we check the errors twice for now.
+/// Create a new nexus and bring it online.
+/// If we fail to create any of the children, then we fail the whole operation.
+/// On failure, we must cleanup by destroying any children that were
+/// successfully created. Also, once the nexus is created, there still might
+/// be a configuration mismatch that would prevent us from going online.
+/// Currently, we can only determine this once we are already online,
+/// and so we check the errors twice for now.
 #[tracing::instrument(level = "debug")]
 pub async fn nexus_create(
     name: &str,
@@ -1035,59 +1101,85 @@ pub async fn nexus_create(
 ) -> Result<(), Error> {
     // global variable defined in the nexus module
     let nexus_list = instances();
+
     if nexus_list.iter().any(|n| n.name == name) {
-        // instead of error we return Ok without making sure that also the
-        // children are the same, which seems wrong
+        // FIXME: Instead of error, we return Ok without checking
+        // that the children match, which seems wrong.
         return Ok(());
     }
 
-    let mut ni = Nexus::new(name, size, uuid, None);
+    // Create a new Nexus object, and immediately add it to the global list.
+    // This is necessary to ensure proper cleanup, as the code responsible for
+    // closing a child assumes that the nexus to which it belongs will appear
+    // in the global list of nexus instances. We must also ensure that the
+    // nexus instance gets removed from the global list if an error occurs.
+    nexus_list.push(Nexus::new(name, size, uuid, None));
+
+    // Obtain a reference to the newly created Nexus object.
+    let ni =
+        nexus_list
+            .iter_mut()
+            .find(|n| n.name == name)
+            .ok_or_else(|| Error::NexusNotFound {
+                name: String::from(name),
+            })?;
 
     for child in children {
-        if let Err(err) = ni.create_and_register(child).await {
-            ni.destroy_children().await;
-            return Err(err).context(CreateChild {
-                name: ni.name.clone(),
+        if let Err(error) = ni.create_and_register(child).await {
+            error!(
+                "failed to create nexus {}: failed to create child {}: {}",
+                name, child, error
+            );
+            ni.close_children().await;
+            nexus_list.retain(|n| n.name != name);
+            return Err(Error::CreateChild {
+                source: error,
+                name: String::from(name),
             });
         }
     }
 
     match ni.open().await {
-        // we still have code that waits for children to come online
-        // this however only works for config files so we need to clean up
-        // if we get the below error
         Err(Error::NexusIncomplete {
             ..
         }) => {
-            info!("deleting nexus due to missing children");
-            for child in children {
-                if let Err(e) = bdev_destroy(child).await {
-                    error!("failed to destroy child during cleanup {}", e);
-                }
-            }
-
-            return Err(Error::NexusCreate {
+            // We still have code that waits for children to come online,
+            // although this currently only works for config files.
+            // We need to explicitly clean up child bdevs if we get this error.
+            error!("failed to open nexus {}: missing children", name);
+            destroy_child_bdevs(name, children).await;
+            nexus_list.retain(|n| n.name != name);
+            Err(Error::NexusCreate {
                 name: String::from(name),
-            });
+            })
         }
 
-        Err(e) => {
-            ni.destroy_children().await;
-            return Err(e);
+        Err(error) => {
+            error!("failed to open nexus {}: {}", name, error);
+            ni.close_children().await;
+            nexus_list.retain(|n| n.name != name);
+            Err(error)
         }
 
-        Ok(_) => nexus_list.push(ni),
+        Ok(_) => Ok(()),
     }
-    Ok(())
+}
+
+/// Destroy list of child bdevs
+async fn destroy_child_bdevs(name: &str, list: &[String]) {
+    let futures = list.iter().map(String::as_str).map(bdev_destroy);
+    let results = join_all(futures).await;
+    if results.iter().any(|c| c.is_err()) {
+        error!("{}: Failed to destroy child bdevs", name);
+    }
 }
 
 /// Lookup a nexus by its name (currently used only by test functions).
 pub fn nexus_lookup(name: &str) -> Option<&mut Nexus> {
-    if let Some(nexus) = instances().iter_mut().find(|n| n.name == name) {
-        Some(nexus)
-    } else {
-        None
-    }
+    instances()
+        .iter_mut()
+        .find(|n| n.name == name)
+        .map(AsMut::as_mut)
 }
 
 impl Display for Nexus {

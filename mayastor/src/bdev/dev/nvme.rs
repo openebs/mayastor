@@ -26,6 +26,7 @@ use crate::{
 };
 
 #[derive(Debug)]
+#[allow(clippy::upper_case_acronyms)]
 pub(super) struct NVMe {
     /// name of the bdev that should be created
     name: String,

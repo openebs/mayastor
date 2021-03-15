@@ -5,42 +5,68 @@ set -eu
 SCRIPTDIR=$(dirname "$(realpath "$0")")
 TESTDIR=$(realpath "$SCRIPTDIR/../test/e2e")
 REPORTSDIR=$(realpath "$SCRIPTDIR/..")
+ARTIFACTSDIR=$(realpath "$SCRIPTDIR/../artifacts")
+TOPDIR=$(realpath "$SCRIPTDIR/..")
 
 # List and Sequence of tests.
 #tests="install basic_volume_io csi replica rebuild node_disconnect/replica_pod_remove uninstall"
 # Restrictions:
-#   1. resource_check MUST follow csi 
+#   1. resource_check MUST follow csi
 #       resource_check is a follow up check for the 3rd party CSI test suite.
 #   2. replicas_pod_remove SHOULD be the last test before uninstall
 #       this is a disruptive test.
-tests="install basic_volume_io csi resource_check uninstall"
+#TESTS="install basic_volume_io csi replica rebuild node_disconnect/replica_pod_remove uninstall"
+DEFAULT_TESTS="install basic_volume_io csi resource_check replica rebuild uninstall"
+ONDEMAND_TESTS="install basic_volume_io csi resource_check uninstall"
+EXTENDED_TESTS="install basic_volume_io csi resource_check replica rebuild io_soak uninstall"
+CONTINUOUS_TESTS="install basic_volume_io csi resource_check replica rebuild io_soak uninstall"
 
+#exit values
+EXITV_OK=0
+EXITV_INVALID_OPTION=1
+EXITV_MISSING_OPTION=2
+EXITV_REPORTS_DIR_NOT_EXIST=3
+EXITV_FAILED=4
+EXITV_FAILED_CLUSTER_OK=255
+
+# Global state variables
+#  test configuration state variables
+build_number=
 device=
 registry=
 tag="ci"
-generate_logs=0
+#  script state variables
+tests=""
+custom_tests=""
+profile="default"
 on_fail="stop"
 uninstall_cleanup="n"
-logsdir=""
+generate_logs=0
+logsdir="$ARTIFACTSDIR/logs"
 
 help() {
   cat <<EOF
 Usage: $0 [OPTIONS]
 
 Options:
+  --build_number <number>   Build number, for use when sending Loki markers
   --device <path>           Device path to use for storage pools.
   --registry <host[:port]>  Registry to pull the mayastor images from.
   --tag <name>              Docker image tag of mayastor images (default "ci")
   --tests <list of tests>   Lists of tests to run, delimited by spaces (default: "$tests")
         Note: the last 2 tests should be (if they are to be run)
              node_disconnect/replica_pod_remove uninstall
+  --profile <continuous|extended|ondemand>
+                            Run the tests corresponding to the profile (default: run all tests)
   --reportsdir <path>       Path to use for junit xml test reports (default: repo root)
   --logs                    Generate logs and cluster state dump at the end of successful test run,
                             prior to uninstall.
   --logsdir <path>          Location to generate logs (default: emit to stdout).
-  --onfail <stop|continue>  On fail, stop immediately or continue default($on_fail)
-                            Behaviour for "continue" only differs if uninstall is in the list of tests (the default).
+  --onfail <stop|uninstall> On fail, stop immediately or uninstall default($on_fail)
+                            Behaviour for "uninstall" only differs if uninstall is in the list of tests (the default).
   --uninstall_cleanup <y|n> On uninstall cleanup for reusable cluster. default($uninstall_cleanup)
+  --config                  config name or configuration file default(test/e2e/configurations/ci_e2e_config.yaml)
+
 Examples:
   $0 --device /dev/nvme0n1 --registry 127.0.0.1:5000 --tag a80ce0c
 EOF
@@ -63,7 +89,7 @@ while [ "$#" -gt 0 ]; do
       ;;
     -T|--tests)
       shift
-      tests="$1"
+      custom_tests="$1"
       ;;
     -R|--reportsdir)
       shift
@@ -71,7 +97,11 @@ while [ "$#" -gt 0 ]; do
       ;;
     -h|--help)
       help
-      exit 0
+      exit $EXITV_OK
+      ;;
+    --build_number)
+      shift
+      build_number="$1"
       ;;
     --logs)
       generate_logs=1
@@ -79,19 +109,27 @@ while [ "$#" -gt 0 ]; do
     --logsdir)
       shift
       logsdir="$1"
+      if [[ "${logsdir:0:1}" == '.' ]]; then
+          logsdir="$PWD/$logsdir"
+      fi
+      ;;
+    --profile)
+      shift
+      profile="$1"
       ;;
     --onfail)
         shift
         case $1 in
-            continue)
+            uninstall)
                 on_fail=$1
                 ;;
             stop)
                 on_fail=$1
                 ;;
             *)
+                echo "invalid option for --onfail"
                 help
-                exit 2
+                exit $EXITV_INVALID_OPTION
         esac
       ;;
     --uninstall_cleanup)
@@ -101,41 +139,76 @@ while [ "$#" -gt 0 ]; do
                 uninstall_cleanup=$1
                 ;;
             *)
+                echo "invalid option for --uninstall_cleanup"
                 help
-                exit 2
+                exit $EXITV_INVALID_OPTION
         esac
       ;;
+    --config)
+        shift
+        export e2e_config_file="$1"
+        ;;
     *)
       echo "Unknown option: $1"
       help
-      exit 1
+      exit $EXITV_INVALID_OPTION
       ;;
   esac
   shift
 done
 
+export e2e_build_number="$build_number" # can be empty string
+
 if [ -z "$device" ]; then
   echo "Device for storage pools must be specified"
   help
-  exit 1
+  exit $EXITV_MISSING_OPTION
 fi
 export e2e_pool_device=$device
-
-if [ -z "$registry" ]; then
-  echo "Registry to pull the mayastor images from, must be specified"
-  help
-  exit 1
-fi
-export e2e_docker_registry="$registry"
 
 if [ -n "$tag" ]; then
   export e2e_image_tag="$tag"
 fi
 
+export e2e_docker_registry="$registry" # can be empty string
+export e2e_top_dir="$TOPDIR"
+
+if [ -n "$custom_tests" ]; then
+  if [ "$profile" != "default" ]; then
+    echo "cannot specify --profile with --tests"
+    help
+    exit $EXITV_INVALID_OPTION
+  fi
+  profile="custom"
+fi
+
+case "$profile" in
+  continuous)
+    tests="$CONTINUOUS_TESTS"
+    ;;
+  extended)
+    tests="$EXTENDED_TESTS"
+    ;;
+  ondemand)
+    tests="$ONDEMAND_TESTS"
+    ;;
+  custom)
+    tests="$custom_tests"
+    ;;
+  default)
+    tests="$DEFAULT_TESTS"
+    ;;
+  *)
+    echo "Unknown profile: $profile"
+    help
+    exit $EXITV_INVALID_OPTION
+    ;;
+esac
+
 export e2e_reports_dir="$REPORTSDIR"
 if [ ! -d "$e2e_reports_dir" ] ; then
     echo "Reports directory $e2e_reports_dir does not exist"
-    exit 1
+    exit $EXITV_REPORTS_DIR_NOT_EXIST
 fi
 
 if [ "$uninstall_cleanup" == 'n' ] ; then
@@ -144,23 +217,28 @@ else
     export e2e_uninstall_cleanup=1
 fi
 
+mkdir -p "$ARTIFACTSDIR"
+
 test_failed=0
 
 # Run go test in directory specified as $1 (relative path)
 function runGoTest {
-    cd "$TESTDIR"
+    pushd "$TESTDIR"
     echo "Running go test in $PWD/\"$1\""
     if [ -z "$1" ] || [ ! -d "$1" ]; then
         echo "Unable to locate test directory  $PWD/\"$1\""
+        popd
         return 1
     fi
 
     cd "$1"
     if ! go test -v . -ginkgo.v -ginkgo.progress -timeout 0; then
         generate_logs=1
+        popd
         return 1
     fi
 
+    popd
     return 0
 }
 
@@ -170,25 +248,33 @@ contains() {
 }
 
 echo "Environment:"
+echo "    e2e_build_number=$build_number"
+echo "    e2e_top_dir=$e2e_top_dir"
 echo "    e2e_pool_device=$e2e_pool_device"
 echo "    e2e_image_tag=$e2e_image_tag"
 echo "    e2e_docker_registry=$e2e_docker_registry"
 echo "    e2e_reports_dir=$e2e_reports_dir"
 echo "    e2e_uninstall_cleanup=$e2e_uninstall_cleanup"
-
-
+echo ""
+echo "Script control settings:"
+echo "    profile=$profile"
+echo "    on_fail=$on_fail"
+echo "    uninstall_cleanup=$uninstall_cleanup"
+echo "    generate_logs=$generate_logs"
+echo "    logsdir=$logsdir"
+echo ""
 echo "list of tests: $tests"
 for testname in $tests; do
   # defer uninstall till after other tests have been run.
   if [ "$testname" != "uninstall" ] ;  then
       if ! runGoTest "$testname" ; then
-          echo "Test \"$testname\" Failed!!"
+          echo "Test \"$testname\" FAILED!"
           test_failed=1
           break
       fi
 
-      if ! ("$SCRIPTDIR"/e2e_check_pod_restarts.sh) ; then
-          echo "Test \"$testname\" Failed!! mayastor pods were restarted."
+      if ! ("$SCRIPTDIR/e2e_check_pod_restarts.sh") ; then
+          echo "Test \"$testname\" FAILED! mayastor pods were restarted."
           test_failed=1
           generate_logs=1
           break
@@ -199,12 +285,12 @@ done
 
 if [ "$generate_logs" -ne 0 ]; then
     if [ -n "$logsdir" ]; then
-        if ! "$SCRIPTDIR"/e2e-cluster-dump.sh --destdir "$logsdir" ; then
+        if ! "$SCRIPTDIR/e2e-cluster-dump.sh" --destdir "$logsdir" ; then
             # ignore failures in the dump script
             :
         fi
     else
-        if ! "$SCRIPTDIR"/e2e-cluster-dump.sh ; then
+        if ! "$SCRIPTDIR/e2e-cluster-dump.sh" ; then
             # ignore failures in the dump script
             :
         fi
@@ -212,27 +298,28 @@ if [ "$generate_logs" -ne 0 ]; then
 fi
 
 if [ "$test_failed" -ne 0 ] && [ "$on_fail" == "stop" ]; then
-    exit 3
+    echo "At least one test FAILED!"
+    exit $EXITV_FAILED
 fi
 
 # Always run uninstall test if specified
 if contains "$tests" "uninstall" ; then
     if ! runGoTest "uninstall" ; then
-        echo "Test \"uninstall\" Failed!!"
+        echo "Test \"uninstall\" FAILED!"
         test_failed=1
-        # Dump to the screen only, we do NOT want to overwrite
-        # logfiles that may have been generated.
-        if ! "$SCRIPTDIR"/e2e-cluster-dump.sh --clusteronly ; then
-            # ignore failures in the dump script
-            :
-        fi
+    elif  [ "$test_failed" -ne 0 ] ; then
+        # tests failed, but uninstall was successful
+        # so cluster is reusable
+        echo "At least one test FAILED! Cluster is usable."
+        exit $EXITV_FAILED_CLUSTER_OK
     fi
 fi
 
-if [ "$test_failed" -ne 0 ]; then
-    echo "At least one test has FAILED!"
-    exit 1
+
+if [ "$test_failed" -ne 0 ] ; then
+    echo "At least one test FAILED!"
+    exit $EXITV_FAILED
 fi
 
 echo "All tests have PASSED!"
-exit 0
+exit $EXITV_OK

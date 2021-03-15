@@ -1,0 +1,69 @@
+apiVersion: apps/v1
+kind: DaemonSet
+metadata:
+  name: promtail
+  namespace: loki-mayastor
+spec:
+  minReadySeconds: 10
+  selector:
+    matchLabels:
+      name: promtail
+  template:
+    metadata:
+      labels:
+        name: promtail
+    spec:
+      containers:
+      - args:
+        - -client.url=https://${grafana_api_user}:${grafana_api_pw}@logs-prod-us-central1.grafana.net/api/prom/push
+        - -config.file=/etc/promtail/promtail.yml
+        - -client.external-labels=run=${run},version=${version}
+        env:
+        - name: HOSTNAME
+          valueFrom:
+            fieldRef:
+              fieldPath: spec.nodeName
+        image: grafana/promtail:2.1.0
+        imagePullPolicy: Always
+        name: promtail
+        readinessProbe:
+          httpGet:
+            path: /ready
+            port: http-metrics
+            scheme: HTTP
+          initialDelaySeconds: 10
+        ports:
+        - containerPort: 80
+          name: http-metrics
+        securityContext:
+          privileged: true
+          runAsUser: 0
+        volumeMounts:
+        - mountPath: /etc/promtail
+          name: promtail
+        - mountPath: /var/log
+          name: varlog
+        - mountPath: /var/lib/docker/containers
+          name: varlibdockercontainers
+          readOnly: true
+        - mountPath: /etc/machine-id
+          name: machineid
+      serviceAccount: promtail
+      tolerations:
+      - effect: NoSchedule
+        operator: Exists
+      volumes:
+      - configMap:
+          name: promtail
+        name: promtail
+      - hostPath:
+          path: /var/log
+        name: varlog
+      - hostPath:
+          path: /var/lib/docker/containers
+        name: varlibdockercontainers
+      - hostPath:
+          path: /etc/machine-id
+        name: machineid
+  updateStrategy:
+    type: RollingUpdate

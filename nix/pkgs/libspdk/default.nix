@@ -1,31 +1,46 @@
 { binutils
 , cunit
 , fetchFromGitHub
-, pkgconfig
+, pkg-config
 , lcov
 , libaio
 , libiscsi
+, libbpf
+, libelf
 , liburing
 , libuuid
+, libpcap
+, libbsd
+, libexecinfo
 , nasm
+, cmake
 , ninja
+, jansson
 , meson
 , ncurses
 , numactl
 , openssl
 , python3
 , stdenv
+, libtool
+, yasm
+, targetPlatform
+, buildPlatform
+, buildPackages
+, llvmPackages_11
+, gcc
+, zlib
 }:
 let
   # Derivation attributes for production version of libspdk
   drvAttrs = rec {
-    version = "21.01-pre";
+    version = "21.01";
 
     src = fetchFromGitHub {
       owner = "openebs";
       repo = "spdk";
-      rev = "285a96fb4bd5fb53876635ec86ebe55089b1ffde";
-      sha256 = "0bn40y28iafma19q7fh15ga651d7bcpx85ih5lyi4azvb0l0zjqv";
+      rev = "f180b1d0a5fbac77c3e7caf2047ea51683ec7795";
+      sha256 = "14k816074hh0r1gkqkfyipfcqvl49d2qz7qqwcpsk399f0s3dds0";
       #sha256 = stdenv.lib.fakeSha256;
       fetchSubmodules = true;
     };
@@ -33,12 +48,16 @@ let
     nativeBuildInputs = [
       meson
       ninja
-      pkgconfig
+      pkg-config
       python3
+      llvmPackages_11.clang
+      gcc
+      cmake
     ];
 
     buildInputs = [
       binutils
+      libtool
       libaio
       libiscsi.dev
       liburing
@@ -47,26 +66,47 @@ let
       ncurses
       numactl
       openssl
+      libpcap
+      libbsd
+      jansson
+      libbpf
+      libelf
+      libexecinfo
+      zlib
     ];
 
-    configureFlags = [
-      "--target-arch=nehalem"
+    configureFlags = (if (targetPlatform.config == "x86_64-unknown-linux-gnu") then
+      [
+        "--target-arch=nehalem"
+        "--with-crypto"
+      ]
+    else if (targetPlatform.config == "aarch64-unknown-linux-gnu") then
+      [
+        "--target-arch=armv8-a+crypto"
+      ]
+    else
+      []
+    ) ++
+    (if (targetPlatform.config != buildPlatform.config) then [ "--cross-prefix=${targetPlatform.config}" ] else []) ++
+    [
       "--without-isal"
       "--with-iscsi-initiator"
-      "--with-crypto"
       "--with-uring"
+      "--disable-examples"
+      "--disable-unit-tests"
+      "--disable-tests"
     ];
-
 
     enableParallelBuilding = true;
 
-    preConfigure = ''
-      substituteInPlace dpdk/config/defconfig_x86_64-native-linux-gcc --replace native default
-    '';
-
     configurePhase = ''
-      patchShebangs ./.
-      ./configure $configureFlags
+      patchShebangs ./. > /dev/null
+      ./configure ${builtins.concatStringsSep
+          " "
+          (builtins.filter
+              (opt: (builtins.match "--build=.*" opt) == null)
+              configureFlags)
+      }
     '';
 
     hardeningDisable = [ "all" ];
@@ -78,13 +118,13 @@ let
       find . -type f -name 'libspdk_ut_mock.a' -delete
 
       $CC -shared -o libspdk.so \
-      -lc  -laio -liscsi -lnuma -ldl -lrt -luuid -lpthread -lcrypto \
-      -luring \
-      -Wl,--whole-archive \
-      $(find build/lib -type f -name 'libspdk_*.a*' -o -name 'librte_*.a*') \
-      $(find dpdk/build/lib -type f -name 'librte_*.a*') \
-      $(find intel-ipsec-mb -type f -name 'libIPSec_*.a*') \
-      -Wl,--no-whole-archive
+        -lc  -laio -liscsi -lnuma -ldl -lrt -luuid -lpthread -lcrypto \
+        -luring \
+        -Wl,--whole-archive \
+        $(find build/lib -type f -name 'libspdk_*.a*' -o -name 'librte_*.a*') \
+        $(find dpdk/build/lib -type f -name 'librte_*.a*') \
+        $(find intel-ipsec-mb -type f -name 'libIPSec_*.a*') \
+        -Wl,--no-whole-archive
     '';
 
     installPhase = ''
@@ -113,7 +153,7 @@ let
   };
 in
 {
-  release = stdenv.mkDerivation (drvAttrs // {
+  release = llvmPackages_11.stdenv.mkDerivation (drvAttrs // {
     pname = "libspdk";
     separateDebugInfo = true;
     dontStrip = false;
@@ -122,7 +162,7 @@ in
       "--disable-unit-tests"
     ];
   });
-  debug = stdenv.mkDerivation (drvAttrs // {
+  debug = llvmPackages_11.stdenv.mkDerivation (drvAttrs // {
     pname = "libspdk-dev";
     separateDebugInfo = false;
     dontStrip = true;

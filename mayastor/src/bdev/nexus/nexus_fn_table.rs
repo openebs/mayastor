@@ -1,4 +1,7 @@
-use std::ffi::{c_void, CString};
+use std::{
+    ffi::{c_void, CString},
+    os::raw::c_char,
+};
 
 use once_cell::sync::Lazy;
 
@@ -189,7 +192,7 @@ impl NexusFnTable {
         unsafe {
             spdk_json_write_named_array_begin(
                 w,
-                "children\0".as_ptr() as *mut i8,
+                "children\0".as_ptr() as *const c_char,
             );
         };
 

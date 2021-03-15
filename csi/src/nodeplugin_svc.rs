@@ -25,7 +25,7 @@ pub enum ServiceError {
     #[snafu(display("Internal failure: volume ID: {}, {}", volid, source))]
     InternalFailure { source: DeviceError, volid: String },
     #[snafu(display("IO error: volume ID: {}, {}", volid, source))]
-    IOError {
+    IoError {
         source: std::io::Error,
         volid: String,
     },
@@ -60,7 +60,7 @@ async fn fsfreeze(
             let args = [freeze_op, &mnt.dest];
             let output =
                 Command::new(FSFREEZE).args(&args).output().await.context(
-                    IOError {
+                    IoError {
                         volid: volume_id.to_string(),
                     },
                 )?;

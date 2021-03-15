@@ -58,11 +58,11 @@ impl fmt::Display for TrType {
 /// AddressFamily, in case of TCP and RDMA we use IPv6 or IPc4 only
 #[derive(Debug, Primitive)]
 pub enum AddressFamily {
-    PCI = 0,
-    IPv4 = 1,
-    IPv6 = 2,
-    IB = 3,
-    FC = 4,
+    Pci = 0,
+    Ipv4 = 1,
+    Ipv6 = 2,
+    Ib = 3,
+    Fc = 4,
 }
 
 impl fmt::Display for AddressFamily {
@@ -76,8 +76,8 @@ impl fmt::Display for AddressFamily {
 /// even when we are not actively serving out any devices
 #[derive(Debug, Primitive)]
 pub enum SubType {
-    DISCOVERY = 1,
-    NVME = 2,
+    Discovery = 1,
+    Nvme = 2,
 }
 
 #[derive(Debug)]

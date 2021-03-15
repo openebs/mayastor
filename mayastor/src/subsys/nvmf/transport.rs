@@ -1,7 +1,7 @@
 use std::{
     env,
     ffi::CString,
-    fmt::{Debug, Display},
+    fmt::{Debug, Display, Formatter},
     net::Ipv4Addr,
     ops::{Deref, DerefMut},
     ptr::copy_nonoverlapping,
@@ -10,7 +10,6 @@ use std::{
 use futures::channel::oneshot;
 use nix::errno::Errno;
 use once_cell::sync::Lazy;
-use serde::export::Formatter;
 
 use spdk_sys::{
     spdk_nvme_transport_id,
@@ -69,8 +68,8 @@ pub async fn add_tcp_transport() -> Result<(), Error> {
     Ok(())
 }
 
-pub struct TransportID(pub(crate) spdk_nvme_transport_id);
-impl Deref for TransportID {
+pub struct TransportId(pub(crate) spdk_nvme_transport_id);
+impl Deref for TransportId {
     type Target = spdk_nvme_transport_id;
 
     fn deref(&self) -> &Self::Target {
@@ -78,13 +77,13 @@ impl Deref for TransportID {
     }
 }
 
-impl DerefMut for TransportID {
+impl DerefMut for TransportId {
     fn deref_mut(&mut self) -> &mut Self::Target {
         &mut self.0
     }
 }
 
-impl TransportID {
+impl TransportId {
     pub fn new(port: u16) -> Self {
         let address = get_ipv4_address().unwrap();
 
@@ -125,7 +124,7 @@ impl TransportID {
     }
 }
 
-impl Display for TransportID {
+impl Display for TransportId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         write!(
             f,
@@ -136,7 +135,7 @@ impl Display for TransportID {
     }
 }
 
-impl Debug for TransportID {
+impl Debug for TransportId {
     fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Transport ID")
             .field("trtype", &self.0.trtype)

@@ -17,6 +17,8 @@ limitations under the License.
 package testsuites
 
 import (
+	"e2e-basic/common/e2e_config"
+
 	"context"
 	"encoding/json"
 	"fmt"
@@ -426,7 +428,7 @@ type TestDeployment struct {
 func NewTestDeployment(c clientset.Interface, ns *v1.Namespace, command string, pvc *v1.PersistentVolumeClaim, volumeName, mountPath string, readOnly bool) *TestDeployment {
 	generateName := "mayastor-volume-tester-"
 	selectorValue := fmt.Sprintf("%s%d", generateName, rand.Int())
-	replicas := int32(1)
+	replicas := int32(e2e_config.GetConfig().CSI.Replicas)
 	testDeployment := &TestDeployment{
 		client:    c,
 		namespace: ns,
@@ -557,4 +559,3 @@ func (t *TestPersistentVolumeClaim) DeleteBoundPersistentVolume() {
 	err = e2epv.WaitForPersistentVolumeDeleted(t.client, t.persistentVolume.Name, 5*time.Second, 10*time.Minute)
 	framework.ExpectNoError(err)
 }
-

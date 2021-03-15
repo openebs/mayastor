@@ -30,8 +30,8 @@ spec:
       # the same.
       containers:
       - name: mayastor-csi
-        image: mayadata/mayastor-csi:v0.7.1
-        imagePullPolicy: Always
+        image: mayadata/mayastor-csi:v0.8.0
+        imagePullPolicy: IfNotPresent
         # we need privileged because we mount filesystems and use mknod
         securityContext:
           privileged: true

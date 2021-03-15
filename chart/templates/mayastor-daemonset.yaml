@@ -45,16 +45,10 @@ spec:
         - name: IMPORT_NEXUSES
           value: "false"
         args:
-        # In order to select what cores mayastor should be running on, a mask or a list can be specified.
-        # For example: -m 0x1 will tell mayastor to only use one core which is equivalent to -l 1
-        # Using a mask of 0x3 will use the first 2 cores, which is equivalent to -l 1-2
-        #
-        # The -l argument supports ranges to be able to do the same as passing a mask for example:
-        # -l 1,2,10-20 means use core 1, 2, 10 to 20
-        #
-        # Note:
-        # 1. When both -m and -l are specified the -l argument is takes precedence.
-        # 2. Ensure that the CPU resources are updated accordingly. If you use 2 CPUs, the CPU: field should also read 2.
+        # The -l argument accepts cpu-list. Indexing starts at zero.
+        # For example -l 1,2,10-20 means use core 1, 2, 10 to 20.
+        # Note: Ensure that the CPU resources are updated accordingly.
+        #       If you use 2 CPUs, the CPU: field should also read 2.
         - "-N$(MY_NODE_NAME)"
         - "-g$(MY_POD_IP)"
         - "-nnats"

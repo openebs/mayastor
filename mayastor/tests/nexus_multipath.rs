@@ -1,5 +1,5 @@
 //! Multipath NVMf tests
-//! Create the same nexus on both nodes with a replica on 1 node their child.
+//! Create the same nexus on both nodes with a replica on 1 node as their child.
 use mayastor::{
     bdev::{nexus_create, nexus_lookup},
     core::MayastorCliArgs,
@@ -8,9 +8,9 @@ use rpc::mayastor::{
     CreateNexusRequest,
     CreatePoolRequest,
     CreateReplicaRequest,
+    NvmeAnaState,
     PublishNexusRequest,
     ShareProtocolNexus,
-    ShareReplicaRequest,
 };
 use std::process::Command;
 
@@ -45,7 +45,7 @@ async fn nexus_multipath() {
         .await
         .unwrap();
 
-    // create replica, not shared
+    // create replica, shared over nvmf
     hdls[0]
         .mayastor
         .create_replica(CreateReplicaRequest {
@@ -53,7 +53,7 @@ async fn nexus_multipath() {
             pool: POOL_NAME.to_string(),
             size: 32 * 1024 * 1024,
             thin: false,
-            share: 0,
+            share: 1,
         })
         .await
         .unwrap();
@@ -69,24 +69,15 @@ async fn nexus_multipath() {
         .await
         .unwrap();
 
-    // share replica
-    hdls[0]
-        .mayastor
-        .share_replica(ShareReplicaRequest {
-            uuid: UUID.to_string(),
-            share: 1,
-        })
-        .await
-        .unwrap();
-
     let mayastor = MayastorTest::new(MayastorCliArgs::default());
     let ip0 = hdls[0].endpoint.ip();
     let nexus_name = format!("nexus-{}", UUID);
+    let name = nexus_name.clone();
     mayastor
         .spawn(async move {
             // create nexus on local node with remote replica as child
             nexus_create(
-                &nexus_name,
+                &name,
                 32 * 1024 * 1024,
                 Some(UUID),
                 &[format!("nvmf://{}:8420/{}:{}", ip0, HOSTNQN, UUID)],
@@ -94,7 +85,7 @@ async fn nexus_multipath() {
             .await
             .unwrap();
             // publish nexus on local node over nvmf
-            nexus_lookup(&nexus_name)
+            nexus_lookup(&name)
                 .unwrap()
                 .share(ShareProtocolNexus::NexusNvmf, None)
                 .await
@@ -149,6 +140,51 @@ async fn nexus_multipath() {
         );
     }
 
+    let output_list = Command::new("nvme").args(&["list"]).output().unwrap();
+    assert!(
+        output_list.status.success(),
+        "failed to list nvme devices, {}",
+        output_list.status
+    );
+    let sl = String::from_utf8(output_list.stdout).unwrap();
+    let nvmems: Vec<&str> = sl
+        .lines()
+        .filter(|line| line.contains("Mayastor NVMe controller"))
+        .collect();
+    assert_eq!(nvmems.len(), 1);
+    let ns = nvmems[0].split(' ').collect::<Vec<_>>()[0];
+
+    mayastor
+        .spawn(async move {
+            // set nexus on local node ANA state to non-optimized
+            nexus_lookup(&nexus_name)
+                .unwrap()
+                .set_ana_state(NvmeAnaState::NvmeAnaNonOptimizedState)
+                .await
+                .unwrap();
+        })
+        .await;
+
+    //  +- nvme0 tcp traddr=127.0.0.1 trsvcid=8420 live <ana_state>
+    let output_subsys = Command::new("nvme")
+        .args(&["list-subsys"])
+        .args(&[ns])
+        .output()
+        .unwrap();
+    assert!(
+        output_subsys.status.success(),
+        "failed to list nvme subsystem, {}",
+        output_subsys.status
+    );
+    let subsys = String::from_utf8(output_subsys.stdout).unwrap();
+    let nvmec: Vec<&str> = subsys
+        .lines()
+        .filter(|line| line.contains("traddr=127.0.0.1"))
+        .collect();
+    assert_eq!(nvmec.len(), 1);
+    let nv: Vec<&str> = nvmec[0].split(' ').collect();
+    assert_eq!(nv[7], "non-optimized", "incorrect ANA state");
+
     // NQN:<nqn> disconnected 2 controller(s)
     let output_dis = Command::new("nvme")
         .args(&["disconnect"])
@@ -163,11 +199,8 @@ async fn nexus_multipath() {
     let s = String::from_utf8(output_dis.stdout).unwrap();
     let v: Vec<&str> = s.split(' ').collect();
     tracing::info!("nvme disconnected: {:?}", v);
-    assert!(v.len() == 4);
-    assert!(v[1] == "disconnected");
-    assert!(
-        v[0] == format!("NQN:{}", &nqn),
-        "mismatched NQN disconnected"
-    );
-    assert!(v[2] == "2", "mismatched number of controllers disconnected");
+    assert_eq!(v.len(), 4);
+    assert_eq!(v[1], "disconnected");
+    assert_eq!(v[0], format!("NQN:{}", &nqn), "mismatched NQN disconnected");
+    assert_eq!(v[2], "2", "mismatched number of controllers disconnected");
 }

@@ -1,26 +1,24 @@
 package basic_rebuild_test
 
 import (
-	"os"
 	"testing"
 
 	"e2e-basic/common"
 
 	. "github.com/onsi/ginkgo"
-	"github.com/onsi/ginkgo/reporters"
 	. "github.com/onsi/gomega"
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
-	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 )
 
 var (
+	podName      = "rebuild-test-fio"
 	pvcName      = "rebuild-test-pvc"
-	storageClass = "mayastor-nvmf"
+	storageClass = "rebuild-test-nvmf"
 )
 
-const ApplicationPod = "fio.yaml"
-
 func basicRebuildTest() {
+	err := common.MkStorageClass(storageClass, 1, common.ShareProtoNvmf)
+	Expect(err).ToNot(HaveOccurred(), "Creating storage class %s", storageClass)
+
 	// Create a PVC
 	common.MkPVC(pvcName, storageClass)
 	pvc, err := common.GetPVC(pvcName)
@@ -31,7 +29,8 @@ func basicRebuildTest() {
 	pollPeriod := "1s"
 
 	// Create an application pod and wait for the PVC to be bound to it.
-	common.ApplyDeployYaml(ApplicationPod)
+	_, err = common.CreateFioPod(podName, pvcName)
+	Expect(err).ToNot(HaveOccurred(), "Failed to create rebuild test fio pod")
 	Eventually(func() bool { return common.IsPvcBound(pvcName) }, timeout, pollPeriod).Should(Equal(true))
 
 	uuid := string(pvc.ObjectMeta.UID)
@@ -44,7 +43,8 @@ func basicRebuildTest() {
 	Eventually(func() bool { return common.IsVolumePublished(uuid) }, timeout, pollPeriod).Should(Equal(true))
 
 	// Add another child which should kick off a rebuild.
-	common.UpdateNumReplicas(uuid, 2)
+	err = common.UpdateNumReplicas(uuid, 2)
+	Expect(err).ToNot(HaveOccurred(), "Update the number of replicas")
 	repl, err = common.GetNumReplicas(uuid)
 	Expect(err).To(BeNil())
 	Expect(repl).Should(Equal(int64(2)))
@@ -69,14 +69,16 @@ func basicRebuildTest() {
 	Eventually(func() string { return getChildrenFunc(uuid)[0].State }, timeout, pollPeriod).Should(BeEquivalentTo("CHILD_ONLINE"))
 	Eventually(func() string { return getChildrenFunc(uuid)[1].State }, timeout, pollPeriod).Should(BeEquivalentTo("CHILD_ONLINE"))
 	Eventually(func() (string, error) { return common.GetNexusState(uuid) }, timeout, pollPeriod).Should(BeEquivalentTo("NEXUS_ONLINE"))
+	err = common.DeletePod(podName)
+	Expect(err).ToNot(HaveOccurred(), "Deleting rebuild test fio pod")
+	common.RmPVC(pvcName, storageClass)
+	err = common.RmStorageClass(storageClass)
+	Expect(err).ToNot(HaveOccurred(), "Deleting storage class %s", storageClass)
 }
 
 func TestRebuild(t *testing.T) {
-	RegisterFailHandler(Fail)
-	reportDir := os.Getenv("e2e_reports_dir")
-	junitReporter := reporters.NewJUnitReporter(reportDir + "/rebuild-junit.xml")
-	RunSpecsWithDefaultAndCustomReporters(t, "Rebuild Test Suite",
-		[]Reporter{junitReporter})
+	// Initialise test and set class and file names for reports
+	common.InitTesting(t, "Rebuild Test Suite", "rebuild")
 }
 
 var _ = Describe("Mayastor rebuild test", func() {
@@ -86,14 +88,11 @@ var _ = Describe("Mayastor rebuild test", func() {
 })
 
 var _ = BeforeSuite(func(done Done) {
-	logf.SetLogger(zap.New(zap.UseDevMode(true), zap.WriteTo(GinkgoWriter)))
 	common.SetupTestEnv()
 	close(done)
 }, 60)
 
 var _ = AfterSuite(func() {
 	By("tearing down the test environment")
-	common.DeleteDeployYaml(ApplicationPod)
-	common.RmPVC(pvcName, storageClass)
 	common.TeardownTestEnv()
 })

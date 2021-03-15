@@ -17,13 +17,16 @@ limitations under the License.
 package e2e
 
 import (
+	"e2e-basic/common/e2e_config"
+	rep "e2e-basic/common/reporter"
+
 	"flag"
+	"fmt"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/onsi/ginkgo"
-	"github.com/onsi/ginkgo/reporters"
 	"github.com/onsi/gomega"
 
 	"k8s.io/kubernetes/test/e2e/framework"
@@ -36,7 +39,7 @@ const (
 
 var (
 	defaultStorageClassParameters = map[string]string{
-		"repl":     "1",
+		"repl":     fmt.Sprintf("%d", e2e_config.GetConfig().CSI.Replicas),
 		"protocol": "nvmf",
 	}
 )
@@ -100,7 +103,5 @@ func execTestCmd(cmds []testCmd) {
 
 func TestE2E(t *testing.T) {
 	gomega.RegisterFailHandler(ginkgo.Fail)
-	reportDir := os.Getenv("e2e_reports_dir")
-	junitReporter := reporters.NewJUnitReporter(reportDir + "/csi-junit.xml")
-	ginkgo.RunSpecsWithDefaultAndCustomReporters(t, "CSI E2E Suite", []ginkgo.Reporter{junitReporter})
+	ginkgo.RunSpecsWithDefaultAndCustomReporters(t, "CSI E2E Suite", rep.GetReporters("csi"))
 }

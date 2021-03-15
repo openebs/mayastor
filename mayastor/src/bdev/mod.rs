@@ -13,7 +13,7 @@ pub use nexus::{
     nexus_child_error_store::{ActionType, NexusErrStore, QueryType},
     nexus_child_status_config,
     nexus_io::Bio,
-    nexus_label::{GPTHeader, GptEntry},
+    nexus_label::{GptEntry, GptHeader},
     nexus_metadata_content::{
         NexusConfig,
         NexusConfigVersion1,

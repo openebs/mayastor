@@ -194,7 +194,10 @@ function getLogs {
     then
         cluster-get >& "$dest/cluster.get.txt"
         cluster-describe >& "$dest/cluster.describe.txt"
+
         echo "logfiles generated in $dest"
+        echo ""
+
     else
         cluster-get
         cluster-describe

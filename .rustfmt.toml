@@ -7,8 +7,8 @@ comment_width = 80
 struct_lit_single_line = false
 #changed from Mixed
 imports_layout = "HorizontalVertical"
-# changed from false
-merge_imports = true
+# changed from Preserve (merge_imports = false)
+imports_granularity="Crate"
 #default false
 spaces_around_ranges = true
 # was 2015

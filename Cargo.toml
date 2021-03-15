@@ -11,14 +11,9 @@ members = [
 	"devinfo",
 	"jsonrpc",
 	"mayastor",
+	"mbus-api",
 	"nvmeadm",
 	"rpc",
 	"sysfs",
-	"control-plane/agents",
-	"control-plane/mbus-api",
 	"composer",
-	"control-plane/rest",
-	"control-plane/operators",
-	"control-plane/macros",
-	"control-plane/deployer"
 ]

@@ -1,7 +1,8 @@
 use std::{
+    convert::TryFrom,
     ffi::{c_void, CString},
     fmt,
-    fmt::{Debug, Display},
+    fmt::{Debug, Display, Formatter},
     mem::size_of,
     ptr,
     ptr::NonNull,
@@ -9,9 +10,10 @@ use std::{
 
 use futures::channel::oneshot;
 use nix::errno::Errno;
-use serde::export::{Formatter, TryFrom};
 
 use spdk_sys::{
+    nvmf_subsystem_find_listener,
+    nvmf_subsystem_set_ana_state,
     spdk_bdev_nvme_opts,
     spdk_nvmf_ns_get_bdev,
     spdk_nvmf_ns_opts,
@@ -44,7 +46,7 @@ use crate::{
     core::{Bdev, Reactors},
     ffihelper::{cb_arg, AsStr, FfiResult, IntoCString},
     subsys::{
-        nvmf::{transport::TransportID, Error, NVMF_TGT},
+        nvmf::{transport::TransportId, Error, NVMF_TGT},
         Config,
     },
 };
@@ -123,6 +125,11 @@ impl TryFrom<Bdev> for NvmfSubsystem {
     type Error = Error;
 
     fn try_from(bdev: Bdev) -> Result<Self, Self::Error> {
+        if bdev.is_claimed() {
+            return Err(Error::CreateTarget {
+                msg: "already shared".to_string(),
+            });
+        }
         let ss = NvmfSubsystem::new(bdev.name().as_str())?;
         ss.set_ana_reporting(true)?;
         ss.allow_any(true);
@@ -262,7 +269,7 @@ impl NvmfSubsystem {
 
         // dont yet enable both ports, IOW just add one transportID now
 
-        let trid_replica = TransportID::new(cfg.nexus_opts.nvmf_replica_port);
+        let trid_replica = TransportId::new(cfg.nexus_opts.nvmf_replica_port);
 
         let (s, r) = oneshot::channel::<i32>();
         unsafe {
@@ -398,6 +405,7 @@ impl NvmfSubsystem {
         unsafe {
             spdk_nvmf_subsystem_pause(
                 self.0.as_ptr(),
+                1,
                 Some(pause_cb),
                 cb_arg(s),
             )
@@ -465,6 +473,54 @@ impl NvmfSubsystem {
         }
     }
 
+    /// get ANA state
+    pub async fn get_ana_state(&self) -> Result<u32, Error> {
+        let cfg = Config::get();
+        let trid_replica = TransportId::new(cfg.nexus_opts.nvmf_replica_port);
+        let listener = unsafe {
+            nvmf_subsystem_find_listener(self.0.as_ptr(), trid_replica.as_ptr())
+        };
+        if listener.is_null() {
+            Err(Error::Listener {
+                nqn: self.get_nqn(),
+                trid: trid_replica.to_string(),
+            })
+        } else {
+            Ok(unsafe { (*listener).ana_state })
+        }
+    }
+
+    /// set ANA state: optimized, non_optimized, inaccessible
+    /// subsystem must be in paused or inactive state
+    pub async fn set_ana_state(&self, ana_state: u32) -> Result<(), Error> {
+        extern "C" fn set_ana_state_cb(arg: *mut c_void, status: i32) {
+            let s = unsafe { Box::from_raw(arg as *mut oneshot::Sender<i32>) };
+            s.send(status).unwrap();
+        }
+        let cfg = Config::get();
+        let trid_replica = TransportId::new(cfg.nexus_opts.nvmf_replica_port);
+
+        let (s, r) = oneshot::channel::<i32>();
+
+        unsafe {
+            nvmf_subsystem_set_ana_state(
+                self.0.as_ptr(),
+                trid_replica.as_ptr(),
+                ana_state,
+                Some(set_ana_state_cb),
+                cb_arg(s),
+            );
+        }
+
+        r.await
+            .expect("Cancellation is not supported")
+            .to_result(|e| Error::Subsystem {
+                source: Errno::from_i32(-e),
+                nqn: self.get_nqn(),
+                msg: "failed to set_ana_state of the subsystem".to_string(),
+            })
+    }
+
     /// destroy all subsystems associated with our target, subsystems must be in
     /// stopped state
     pub fn destroy_all() {
@@ -525,7 +581,7 @@ impl NvmfSubsystem {
         Bdev::from_ptr(unsafe { spdk_nvmf_ns_get_bdev(ns) })
     }
 
-    fn listeners_to_vec(&self) -> Option<Vec<TransportID>> {
+    fn listeners_to_vec(&self) -> Option<Vec<TransportId>> {
         unsafe {
             let mut listener =
                 spdk_nvmf_subsystem_get_first_listener(self.0.as_ptr());
@@ -534,7 +590,7 @@ impl NvmfSubsystem {
                 return None;
             }
 
-            let mut ids = vec![TransportID(
+            let mut ids = vec![TransportId(
                 *spdk_nvmf_subsystem_listener_get_trid(listener),
             )];
 
@@ -544,7 +600,7 @@ impl NvmfSubsystem {
                     listener,
                 );
                 if !listener.is_null() {
-                    ids.push(TransportID(
+                    ids.push(TransportId(
                         *spdk_nvmf_subsystem_listener_get_trid(listener),
                     ));
                     continue;

@@ -14,7 +14,7 @@ use uuid::Uuid;
 use spdk_sys::{create_iscsi_disk, delete_iscsi_disk, spdk_bdev};
 
 use crate::{
-    bdev::{util::uri, CreateDestroy, GetName},
+    bdev::{dev::reject_unknown_parameters, util::uri, CreateDestroy, GetName},
     core::Bdev,
     ffihelper::{cb_arg, done_errno_cb, errno_result_from_i32, ErrnoResult},
     nexus_uri::{self, NexusBdevError},
@@ -70,9 +70,7 @@ impl TryFrom<&Url> for Iscsi {
             },
         )?;
 
-        if let Some(keys) = uri::keys(parameters) {
-            warn!("ignored parameters: {}", keys);
-        }
+        reject_unknown_parameters(url, parameters)?;
 
         Ok(Iscsi {
             name: url[url::Position::BeforeHost .. url::Position::AfterPath]

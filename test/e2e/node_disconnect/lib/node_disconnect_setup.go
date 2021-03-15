@@ -10,7 +10,6 @@ import (
 
 const mayastorRegexp = "^mayastor-.....$"
 const moacRegexp = "^moac-..........-.....$"
-const namespace = "mayastor"
 const engineLabel = "openebs.io/engine"
 const mayastorLabel = "mayastor"
 const refugeLabel = "openebs.io/podrefuge"
@@ -40,11 +39,11 @@ func DisconnectSetup() {
 	}
 	Expect(refugeNode).NotTo(Equal(""))
 
-	moacOnRefugeNode := common.PodPresentOnNode(moacRegexp, namespace, refugeNode)
+	moacOnRefugeNode := common.PodPresentOnNode(moacRegexp, common.NSMayastor, refugeNode)
 
 	// Update moac to ensure it stays on the refuge node (even if it currently is)
 	fmt.Printf("apply moac node selector for node \"%s\"\n", refugeNode)
-	common.ApplyNodeSelectorToDeployment("moac", namespace, refugeLabel, refugeLabelValue)
+	common.ApplyNodeSelectorToDeployment("moac", common.NSMayastor, refugeLabel, refugeLabelValue)
 
 	// if not already on the refuge node
 	if moacOnRefugeNode == false {
@@ -52,34 +51,34 @@ func DisconnectSetup() {
 		// reduce the number of moac instances to be zero
 		// this seems to be needed to guarantee that moac moves to the refuge node
 		var repl int32 = 0
-		common.SetDeploymentReplication("moac", namespace, &repl)
+		common.SetDeploymentReplication("moac", common.NSMayastor, &repl)
 
 		// wait for moac to disappear from the cluster
 		for _, node := range nodeList {
 			fmt.Printf("waiting for moac absence from %s\n", node.NodeName)
-			err = common.WaitForPodAbsentFromNode(moacRegexp, namespace, node.NodeName, timeoutSeconds)
+			err = common.WaitForPodAbsentFromNode(moacRegexp, common.NSMayastor, node.NodeName, timeoutSeconds)
 			Expect(err).ToNot(HaveOccurred())
 		}
 
 		// bring the number of moac instances back to 1
 		repl = 1
-		common.SetDeploymentReplication("moac", namespace, &repl)
+		common.SetDeploymentReplication("moac", common.NSMayastor, &repl)
 
 		// wait for moac to be running on the refuge node
 		fmt.Printf("waiting for moac presence on %s\n", refugeNode)
-		err = common.WaitForPodRunningOnNode(moacRegexp, namespace, refugeNode, timeoutSeconds)
+		err = common.WaitForPodRunningOnNode(moacRegexp, common.NSMayastor, refugeNode, timeoutSeconds)
 		Expect(err).ToNot(HaveOccurred())
 	}
 
 	// wait until all mayastor pods are in state "Running" and only on the non-refuge nodes
 	fmt.Printf("waiting for mayastor absence from %s\n", refugeNode)
-	err = common.WaitForPodAbsentFromNode(mayastorRegexp, namespace, refugeNode, timeoutSeconds)
+	err = common.WaitForPodAbsentFromNode(mayastorRegexp, common.NSMayastor, refugeNode, timeoutSeconds)
 	Expect(err).ToNot(HaveOccurred())
 
 	for _, node := range nodeList {
 		if node.NodeName != refugeNode {
 			fmt.Printf("waiting for mayastor presence on %s\n", node.NodeName)
-			err = common.WaitForPodRunningOnNode(mayastorRegexp, namespace, node.NodeName, timeoutSeconds)
+			err = common.WaitForPodRunningOnNode(mayastorRegexp, common.NSMayastor, node.NodeName, timeoutSeconds)
 			Expect(err).ToNot(HaveOccurred())
 		}
 	}
@@ -100,12 +99,12 @@ func DisconnectTeardown() {
 	}
 
 	fmt.Printf("remove moac node affinity\n")
-	common.RemoveAllNodeSelectorsFromDeployment("moac", namespace)
+	common.RemoveAllNodeSelectorsFromDeployment("moac", common.NSMayastor)
 
 	// wait until all nodes have mayastor pods in state "Running"
 	for _, node := range nodeList {
 		fmt.Printf("waiting for mayastor presence on %s\n", node.NodeName)
-		err = common.WaitForPodRunningOnNode(mayastorRegexp, namespace, node.NodeName, timeoutSeconds)
+		err = common.WaitForPodRunningOnNode(mayastorRegexp, common.NSMayastor, node.NodeName, timeoutSeconds)
 		Expect(err).ToNot(HaveOccurred())
 	}
 }

@@ -23,8 +23,6 @@
 //! When reconfiguring the nexus, we traverse all our children, create new IO
 //! channels for all children that are in the open state.
 
-use std::env;
-
 use futures::future::join_all;
 use snafu::ResultExt;
 
@@ -39,15 +37,9 @@ use crate::{
                 NexusStatus,
                 OpenChild,
             },
-            nexus_channel::DREvent,
+            nexus_channel::DrEvent,
             nexus_child::{ChildState, NexusChild},
             nexus_child_status_config::ChildStatusConfig,
-            nexus_label::{
-                LabelError,
-                NexusChildLabel,
-                NexusLabel,
-                NexusLabelStatus,
-            },
         },
         Reason,
         VerboseError,
@@ -268,7 +260,7 @@ impl Nexus {
             });
         }
 
-        self.reconfigure(DREvent::ChildOffline).await;
+        self.reconfigure(DrEvent::ChildOffline).await;
         self.start_rebuild_jobs(cancelled_rebuilding_children).await;
 
         Ok(self.status())
@@ -313,7 +305,7 @@ impl Nexus {
                     _ => {
                         child.fault(reason).await;
                         NexusChild::save_state_change();
-                        self.reconfigure(DREvent::ChildFault).await;
+                        self.reconfigure(DrEvent::ChildFault).await;
                     }
                 }
                 Ok(())
@@ -353,13 +345,13 @@ impl Nexus {
             })
         }
     }
-    /// destroy all children that are part of this nexus closes any child
-    /// that might be open first
-    pub(crate) async fn destroy_children(&mut self) {
+
+    /// Close each child that belongs to this nexus.
+    pub(crate) async fn close_children(&mut self) {
         let futures = self.children.iter_mut().map(|c| c.close());
         let results = join_all(futures).await;
         if results.iter().any(|c| c.is_err()) {
-            error!("{}: Failed to destroy child", self.name);
+            error!("{}: Failed to close children", self.name);
         }
     }
 
@@ -455,94 +447,6 @@ impl Nexus {
             })
             .for_each(drop);
         Ok(())
-    }
-
-    /// Read labels from all child devices
-    async fn get_child_labels(&self) -> Vec<NexusChildLabel<'_>> {
-        let mut futures = Vec::new();
-        self.children
-            .iter()
-            .map(|child| futures.push(child.get_label()))
-            .for_each(drop);
-        join_all(futures).await
-    }
-
-    /// Update labels of child devices as required:
-    /// (1) Update any child that does not have valid label.
-    /// (2) Upate all children with a new label if existing (valid) labels
-    ///     are not all identical.
-    ///
-    /// Return the resulting label.
-    pub async fn update_child_labels(
-        &mut self,
-    ) -> Result<NexusLabel, LabelError> {
-        // Get a list of all children and their labels
-        let list = self.get_child_labels().await;
-
-        // Search for first "valid" label
-        if let Some(target) = NexusChildLabel::find_target_label(&list) {
-            // Check that all "valid" labels are equal
-            if NexusChildLabel::compare_labels(&target, &list) {
-                let (_valid, invalid): (
-                    Vec<NexusChildLabel>,
-                    Vec<NexusChildLabel>,
-                ) = list.into_iter().partition(|label| {
-                    label.get_label_status() == NexusLabelStatus::Both
-                });
-
-                if invalid.is_empty() {
-                    info!(
-                        "{}: All child disk labels are valid and consistent",
-                        self.name
-                    );
-                } else {
-                    // Write out (only) those labels that require updating
-                    info!(
-                        "{}: Replacing missing/invalid child disk labels",
-                        self.name
-                    );
-                    self.write_labels(&target, &invalid).await?
-                }
-
-                // TODO: When the GUID does not match the given UUID.
-                // it means that the PVC has been recreated.
-                // We should consider also updating the labels in such a case.
-
-                info!("{}: existing label: {}", self.name, target.primary.guid);
-                trace!("{}: existing label:\n {}", self.name, target);
-
-                return Ok(target);
-            }
-
-            info!("{}: Child disk labels do not match, writing new label to all children", self.name);
-        } else {
-            info!("{}: Child disk labels invalid or absent, writing new label to all children", self.name);
-        }
-
-        // Either there are no valid labels or there
-        // are some valid labels that do not agree.
-        // Generate a new label ...
-        let label = self.generate_label();
-
-        // ... and write it out to ALL children.
-        let label = match self.write_all_labels(&label).await {
-            Ok(_) => Ok(label),
-            Err(LabelError::ReReadError {
-                ..
-            }) => {
-                if env::var("NEXUS_LABEL_IGNORE_ERRORS").is_ok() {
-                    warn!("ignoring label error on request");
-                    Ok(label)
-                } else {
-                    Err(LabelError::ProbeError {})
-                }
-            }
-            Err(e) => Err(e),
-        }?;
-
-        info!("{}: new label: {}", self.name, label.primary.guid);
-        trace!("{}: new label:\n{}", self.name, label);
-        Ok(label)
     }
 
     /// The nexus is allowed to be smaller then the underlying child devices

@@ -40,8 +40,8 @@ fn build_wrapper() {
 
 fn main() {
     #![allow(unreachable_code)]
-    #[cfg(not(target_arch = "x86_64"))]
-    panic!("spdk-sys crate is only for x86_64 cpu architecture");
+    #[cfg(not(any(target_arch = "x86_64", target_arch = "aarch64")))]
+    panic!("spdk-sys crate is only for x86_64 (Nehalem or later) and aarch64 (with crypto) ISAs.");
     #[cfg(not(target_os = "linux"))]
     panic!("spdk-sys crate works only on linux");
 
@@ -84,6 +84,8 @@ fn main() {
         .whitelist_function("^vbdev_.*")
         .whitelist_function("^nvme_cmd_.*")
         .whitelist_function("^nvme_status_.*")
+        .whitelist_function("^nvmf_subsystem_find_listener")
+        .whitelist_function("^nvmf_subsystem_set_ana_state")
         .whitelist_function("^nvmf_tgt_accept")
         .blacklist_type("^longfunc")
         .whitelist_var("^NVMF.*")
@@ -98,14 +100,16 @@ fn main() {
         .derive_default(true)
         .derive_debug(true)
         .derive_copy(true)
-        .clang_arg("-march=nehalem")
         .prepend_enum_name(false)
         .generate_inline_functions(true)
         .parse_callbacks(Box::new(MacroCallback {
             macros,
-        }))
-        .generate()
-        .expect("Unable to generate bindings");
+        }));
+
+    #[cfg(target_arch = "x86_64")]
+    let bindings = bindings.clang_arg("-march=nehalem");
+
+    let bindings = bindings.generate().expect("Unable to generate bindings");
 
     bindings
         .write_to_file(out_path.join("libspdk.rs"))

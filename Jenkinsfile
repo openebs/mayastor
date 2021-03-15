@@ -10,6 +10,15 @@ def e2e_environment="hcloud-kubeadm"
 // Global variable to pass current k8s job between stages
 def k8s_job=""
 
+xray_projectkey='MQ'
+xray_on_demand_testplan='MQ-1'
+xray_nightly_testplan='MQ-17'
+xray_continuous_testplan='MQ-33'
+xray_test_execution_type='10059'
+
+// if e2e run does not build its own images, which tag to use when pulling
+e2e_continuous_image_tag='v0.7.1'
+
 // Searches previous builds to find first non aborted one
 def getLastNonAbortedBuild(build) {
   if (build == null) {
@@ -21,6 +30,37 @@ def getLastNonAbortedBuild(build) {
   } else {
     return build;
   }
+}
+
+def getTestPlan() {
+  if (params.e2e_continuous == true)  {
+    return xray_continuous_testplan
+  }
+  def causes = currentBuild.getBuildCauses()
+  for(cause in causes) {
+    if ("${cause}".contains("hudson.triggers.TimerTrigger\$TimerTriggerCause")) {
+      return xray_nightly_testplan
+    }
+  }
+  return xray_on_demand_testplan
+}
+
+// Install Loki on the cluster
+def lokiInstall(tag) {
+  sh 'kubectl apply -f ./test/e2e/loki/promtail_namespace_e2e.yaml'
+  sh 'kubectl apply -f ./test/e2e/loki/promtail_rbac_e2e.yaml'
+  sh 'kubectl apply -f ./test/e2e/loki/promtail_configmap_e2e.yaml'
+  def cmd = "run=\"${env.BUILD_NUMBER}\" version=\"${tag}\" envsubst -no-unset < ./test/e2e/loki/promtail_daemonset_e2e.template.yaml | kubectl apply -f -"
+  sh "nix-shell --run '${cmd}'"
+}
+
+// Unnstall Loki
+def lokiUninstall(tag) {
+  def cmd = "run=\"${env.BUILD_NUMBER}\" version=\"${tag}\" envsubst -no-unset < ./test/e2e/loki/promtail_daemonset_e2e.template.yaml | kubectl delete -f -"
+  sh "nix-shell --run '${cmd}'"
+  sh 'kubectl delete -f ./test/e2e/loki/promtail_configmap_e2e.yaml'
+  sh 'kubectl delete -f ./test/e2e/loki/promtail_rbac_e2e.yaml'
+  sh 'kubectl delete -f ./test/e2e/loki/promtail_namespace_e2e.yaml'
 }
 
 // Send out a slack message if branch got broken or has recovered
@@ -43,6 +83,15 @@ def notifySlackUponStateChange(build) {
     }
   }
 }
+def notifySlackUponE2EFailure(build) {
+  if (build.getResult() != 'SUCCESS') {
+    slackSend(
+      channel: '#mayastor-backend',
+      color: 'danger',
+      message: "E2E continuous testing has failed (<${env.BUILD_URL}|Open>)"
+    )
+  }
+}
 
 // Will ABORT current job for cases when we don't want to build
 if (currentBuild.getBuildCauses('jenkins.branch.BranchIndexingCause') &&
@@ -55,10 +104,37 @@ if (currentBuild.getBuildCauses('jenkins.branch.BranchIndexingCause') &&
 // Only schedule regular builds on develop branch, so we don't need to guard against it
 String cron_schedule = BRANCH_NAME == "develop" ? "0 2 * * *" : ""
 
+// Determine which stages to run
+if (params.e2e_continuous == true) {
+  run_linter = false
+  rust_test = false
+  grpc_test = false
+  moac_test = false
+  e2e_test = true
+  e2e_test_profile = "continuous"
+  // use images from dockerhub tagged with e2e_continuous_image_tag instead of building from current source
+  e2e_build_images = false
+  // do not push images even when running on master/develop/release branches
+  do_not_push_images = true
+} else {
+  run_linter = true
+  rust_test = true
+  grpc_test = true
+  moac_test = true
+  e2e_test = true
+  // Some long e2e tests are not suitable to be run for each PR
+  e2e_test_profile = (env.BRANCH_NAME != 'staging' && env.BRANCH_NAME != 'trying') ? "extended" : "ondemand"
+  e2e_build_images = true
+  do_not_push_images = false
+}
+
 pipeline {
   agent none
   options {
     timeout(time: 2, unit: 'HOURS')
+  }
+  parameters {
+    booleanParam(defaultValue: false, name: 'e2e_continuous')
   }
   triggers {
     cron(cron_schedule)
@@ -86,6 +162,7 @@ pipeline {
           anyOf {
             branch 'master'
             branch 'release/*'
+            expression { run_linter == false }
           }
         }
       }
@@ -107,7 +184,14 @@ pipeline {
       }
       parallel {
         stage('rust unit tests') {
+          when {
+            beforeAgent true
+            expression { rust_test == true }
+          }
           agent { label 'nixos-mayastor' }
+          environment {
+            START_DATE = new Date().format("yyyy-MM-dd HH:mm:ss", TimeZone.getTimeZone('UTC'))
+          }
           steps {
             sh 'printenv'
             sh 'nix-shell --run "./scripts/cargo-test.sh"'
@@ -116,11 +200,19 @@ pipeline {
             always {
               // in case of abnormal termination of any nvmf test
               sh 'sudo nvme disconnect-all'
+              sh './scripts/check-coredumps.sh --since "${START_DATE}"'
             }
           }
         }
         stage('grpc tests') {
+          when {
+            beforeAgent true
+            expression { grpc_test == true }
+          }
           agent { label 'nixos-mayastor' }
+          environment {
+            START_DATE = new Date().format("yyyy-MM-dd HH:mm:ss", TimeZone.getTimeZone('UTC'))
+          }
           steps {
             sh 'printenv'
             sh 'nix-shell --run "./scripts/grpc-test.sh"'
@@ -128,10 +220,15 @@ pipeline {
           post {
             always {
               junit '*-xunit-report.xml'
+              sh './scripts/check-coredumps.sh --since "${START_DATE}"'
             }
           }
         }
         stage('moac unit tests') {
+          when {
+            beforeAgent true
+            expression { moac_test == true }
+          }
           agent { label 'nixos-mayastor' }
           steps {
             sh 'printenv'
@@ -144,23 +241,32 @@ pipeline {
           }
         }
         stage('e2e tests') {
+          when {
+            beforeAgent true
+            expression { e2e_test == true }
+          }
           stages {
             stage('e2e docker images') {
+              when {
+                beforeAgent true
+                expression { e2e_build_images == true }
+              }
               agent { label 'nixos-mayastor' }
               steps {
                 // e2e tests are the most demanding step for space on the disk so we
                 // test the free space here rather than repeating the same code in all
                 // stages.
                 sh "./scripts/reclaim-space.sh 10"
+
                 // Build images (REGISTRY is set in jenkin's global configuration).
                 // Note: We might want to build and test dev images that have more
                 // assertions instead but that complicates e2e tests a bit.
                 sh "./scripts/release.sh --alias-tag ci --registry \"${env.REGISTRY}\""
+              }
+              post {
                 // Always remove all docker images because they are usually used just once
                 // and underlaying pkgs are already cached by nix so they can be easily
                 // recreated.
-              }
-              post {
                 always {
                   sh 'docker image prune --all --force'
                 }
@@ -184,7 +290,7 @@ pipeline {
               }
             }
             stage('run e2e') {
-              agent { label 'nixos-mayastor' }
+              agent { label 'nixos' }
               environment {
                 GIT_COMMIT_SHORT = sh(
                   // using printf to get rid of trailing newline
@@ -206,7 +312,28 @@ pipeline {
                     fingerprintArtifacts: true
                 )
                 sh 'kubectl get nodes -o wide'
-                sh "nix-shell --run './scripts/e2e-test.sh --device /dev/sdb --tag \"${env.GIT_COMMIT_SHORT}\" --registry \"${env.REGISTRY}\"'"
+
+                script {
+                  def tag = ''
+                  if (e2e_build_images == true) {
+                    tag = env.GIT_COMMIT_SHORT
+                  } else {
+                    tag = e2e_continuous_image_tag
+                  }
+                  def cmd = "./scripts/e2e-test.sh --device /dev/sdb --tag \"${tag}\" --logs --profile \"${e2e_test_profile}\" --build_number \"${env.BUILD_NUMBER}\" "
+                  // building images also means using the CI registry
+                  if (e2e_build_images == true) {
+                    cmd = cmd + " --registry \"" + env.REGISTRY + "\""
+                  }
+
+                  withCredentials([
+                    usernamePassword(credentialsId: 'GRAFANA_API', usernameVariable: 'grafana_api_user', passwordVariable: 'grafana_api_pw')
+                  ]) {
+                    lokiInstall(tag)
+                    sh "nix-shell --run '${cmd}'"
+                    lokiUninstall(tag) // so that, if we keep the cluster, the next Loki instance can use different parameters
+                  }
+                }
               }
               post {
                 failure {
@@ -239,6 +366,36 @@ pipeline {
                     )
                   }
                 }
+                always {
+                  archiveArtifacts 'artifacts/**/*.*'
+                  // always send the junit results back to Xray and Jenkins
+                  junit 'e2e.*.xml'
+                  script {
+                    def xray_testplan = getTestPlan()
+                    step([
+                      $class: 'XrayImportBuilder',
+                      endpointName: '/junit/multipart',
+                      importFilePath: 'e2e.*.xml',
+                      importToSameExecution: 'true',
+                      projectKey: "${xray_projectkey}",
+                      testPlanKey: "${xray_testplan}",
+                      serverInstance: "${env.JIRASERVERUUID}",
+                      inputInfoSwitcher: 'fileContent',
+                      importInfo: """{
+                        "fields": {
+                          "summary": "Build #${env.BUILD_NUMBER}, branch: ${env.BRANCH_name}",
+                          "project": {
+                            "key": "${xray_projectkey}"
+                          },
+                          "issuetype": {
+                            "id": "${xray_test_execution_type}"
+                          },
+                          "description": "Results for build #${env.BUILD_NUMBER} at ${env.BUILD_URL}"
+                        }
+                      }"""
+                    ])
+                  }
+                }
               }
             }
             stage('destroy e2e cluster') {
@@ -251,11 +408,6 @@ pipeline {
                     wait: true,
                     parameters: [
                       [
-                        $class: 'StringParameterValue',
-                        name: "ENVIRONMENT",
-                        value: "${e2e_environment}"
-                      ],
-                      [
                         $class: 'RunParameterValue',
                         name: "BUILD",
                         runId:"${k8s_job.getProjectName()}#${k8s_job.getNumber()}"
@@ -266,17 +418,29 @@ pipeline {
               }
             }
           }
-        }
-      }
-    }
+          post {
+            success {
+              script {
+                if (params.e2e_continuous == true && env.E2E_CONTINUOUS_ENABLE == "true") {
+                  build job: env.BRANCH_NAME, wait: false, parameters: [[$class: 'BooleanParameterValue', name: 'e2e_continuous', value: true]]
+                }
+              }
+            }
+          }
+        }// end of "e2e tests" stage
+      }// parallel stages block
+    }// end of test stage
     stage('push images') {
       agent { label 'nixos-mayastor' }
       when {
         beforeAgent true
-        anyOf {
-          branch 'master'
-          branch 'release/*'
-          branch 'develop'
+        allOf {
+          expression { do_not_push_images == false }
+          anyOf {
+            branch 'master'
+            branch 'release/*'
+            branch 'develop'
+          }
         }
       }
       steps {
@@ -305,22 +469,27 @@ pipeline {
           // If no tests were run then we should neither be updating commit
           // status in github nor send any slack messages
           if (currentBuild.result != null) {
-            step([
-              $class: 'GitHubCommitStatusSetter',
-              errorHandlers: [[$class: "ChangingBuildStatusErrorHandler", result: "UNSTABLE"]],
-              contextSource: [
-                $class: 'ManuallyEnteredCommitContextSource',
-                context: 'continuous-integration/jenkins/branch'
-              ],
-              statusResultSource: [
-                $class: 'ConditionalStatusResultSource',
-                results: [
-                  [$class: 'AnyBuildResult', message: 'Pipeline result', state: currentBuild.getResult()]
+            // Do not update the commit status for continuous tests
+            if (params.e2e_continuous == false) {
+              step([
+                $class: 'GitHubCommitStatusSetter',
+                errorHandlers: [[$class: "ChangingBuildStatusErrorHandler", result: "UNSTABLE"]],
+                contextSource: [
+                  $class: 'ManuallyEnteredCommitContextSource',
+                  context: 'continuous-integration/jenkins/branch'
+                ],
+                statusResultSource: [
+                  $class: 'ConditionalStatusResultSource',
+                  results: [
+                    [$class: 'AnyBuildResult', message: 'Pipeline result', state: currentBuild.getResult()]
+                  ]
                 ]
-              ]
-            ])
-            if (env.BRANCH_NAME == 'develop') {
-              notifySlackUponStateChange(currentBuild)
+              ])
+              if (env.BRANCH_NAME == 'develop') {
+                notifySlackUponStateChange(currentBuild)
+              }
+            } else {
+              notifySlackUponE2EFailure(currentBuild)
             }
           }
         }

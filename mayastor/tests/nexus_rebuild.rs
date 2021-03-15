@@ -1,4 +1,4 @@
-use std::sync::Mutex;
+use std::{sync::Mutex, time::Duration};
 
 use crossbeam::channel::unbounded;
 use once_cell::sync::Lazy;
@@ -7,11 +7,12 @@ use tracing::error;
 use mayastor::{
     bdev::nexus_lookup,
     core::{MayastorCliArgs, MayastorEnvironment, Mthread, Reactor},
-    rebuild::RebuildJob,
+    rebuild::{RebuildJob, RebuildState},
 };
 use rpc::mayastor::ShareProtocolNexus;
 
 pub mod common;
+use common::wait_for_rebuild;
 
 // each test `should` use a different nexus name to prevent clashing with
 // one another. This allows the failed tests to `panic gracefully` improving
@@ -165,6 +166,16 @@ fn rebuild_lookup() {
                 .count(),
             1
         );
+
+        // wait for the rebuild to start - and then pause it
+        wait_for_rebuild(
+            get_dev(children),
+            RebuildState::Running,
+            Duration::from_secs(1),
+        );
+        nexus.pause_rebuild(&get_dev(children)).await.unwrap();
+        assert_eq!(RebuildJob::lookup_src(&src).len(), 1);
+
         nexus.add_child(&get_dev(children + 1), true).await.unwrap();
         let _ = nexus.start_rebuild(&get_dev(children + 1)).await.unwrap();
         assert_eq!(RebuildJob::lookup_src(&src).len(), 2);

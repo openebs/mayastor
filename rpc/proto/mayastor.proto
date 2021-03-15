@@ -51,6 +51,10 @@ service Mayastor {
   rpc PublishNexus (PublishNexusRequest) returns (PublishNexusReply) {}
   rpc UnpublishNexus (UnpublishNexusRequest) returns (Null) {}
 
+  // NVMe ANA state
+  rpc GetNvmeAnaState (GetNvmeAnaStateRequest) returns (GetNvmeAnaStateReply) {}
+  rpc SetNvmeAnaState (SetNvmeAnaStateRequest) returns (Null) {}
+
   // Nexus child operations
   rpc ChildOperation(ChildNexusRequest) returns (Null) {}
 
@@ -271,6 +275,28 @@ message PublishNexusReply {
 
 message UnpublishNexusRequest {
   string uuid = 1;   // uuid of the nexus which to destroy
+}
+
+enum NvmeAnaState {
+  NVME_ANA_INVALID_STATE = 0;           // invalid, do not use
+  NVME_ANA_OPTIMIZED_STATE = 0x1;
+  NVME_ANA_NON_OPTIMIZED_STATE = 0x2;
+  NVME_ANA_INACCESSIBLE_STATE = 0x3;
+  NVME_ANA_PERSISTENT_LOSS_STATE = 0x4; // not yet supported
+  NVME_ANA_CHANGE_STATE = 0xF;          // not yet supported
+}
+
+message GetNvmeAnaStateRequest {
+  string uuid = 1;   // uuid of the nexus
+}
+
+message GetNvmeAnaStateReply {
+  NvmeAnaState ana_state = 1;
+}
+
+message SetNvmeAnaStateRequest {
+  string uuid = 1;   // uuid of the nexus
+  NvmeAnaState ana_state = 2;
 }
 
 enum ChildAction {
