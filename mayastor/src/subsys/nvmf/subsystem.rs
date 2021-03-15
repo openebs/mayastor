@@ -247,6 +247,16 @@ impl NvmfSubsystem {
 
     /// enable Asymmetric Namespace Access (ANA) reporting
     pub fn set_ana_reporting(&self, enable: bool) -> Result<(), Error> {
+        match std::env::var("NEXUS_NVMF_ANA_ENABLE") {
+            Ok(s) => {
+                if s != "1" {
+                    return Ok(());
+                }
+            }
+            Err(_) => {
+                return Ok(());
+            }
+        }
         unsafe {
             spdk_nvmf_subsystem_set_ana_reporting(self.0.as_ptr(), enable)
         }
