@@ -19,7 +19,7 @@ use spdk_sys::{
     spdk_nvmf_ns_opts,
     spdk_nvmf_subsystem,
     spdk_nvmf_subsystem_add_listener,
-    spdk_nvmf_subsystem_add_ns,
+    spdk_nvmf_subsystem_add_ns_ext,
     spdk_nvmf_subsystem_create,
     spdk_nvmf_subsystem_destroy,
     spdk_nvmf_subsystem_get_first,
@@ -200,10 +200,11 @@ impl NvmfSubsystem {
             nguid: bdev.uuid().as_bytes(),
             ..Default::default()
         };
+        let bdev_cname = CString::new(bdev.name()).unwrap();
         let ns_id = unsafe {
-            spdk_nvmf_subsystem_add_ns(
+            spdk_nvmf_subsystem_add_ns_ext(
                 self.0.as_ptr(),
-                bdev.as_ptr(),
+                bdev_cname.as_ptr(),
                 &opts as *const _,
                 size_of::<spdk_bdev_nvme_opts>() as u64,
                 ptr::null_mut(),

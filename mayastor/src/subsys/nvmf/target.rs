@@ -9,6 +9,8 @@ use nix::errno::Errno;
 use spdk_sys::{
     nvmf_tgt_accept,
     spdk_env_get_core_count,
+    spdk_nvmf_listen_opts,
+    spdk_nvmf_listen_opts_init,
     spdk_nvmf_poll_group_destroy,
     spdk_nvmf_subsystem_create,
     spdk_nvmf_subsystem_set_mn,
@@ -16,7 +18,7 @@ use spdk_sys::{
     spdk_nvmf_tgt,
     spdk_nvmf_tgt_create,
     spdk_nvmf_tgt_destroy,
-    spdk_nvmf_tgt_listen,
+    spdk_nvmf_tgt_listen_ext,
     spdk_nvmf_tgt_stop_listen,
     spdk_poller,
     spdk_poller_register_named,
@@ -256,8 +258,19 @@ impl Target {
     fn listen(&mut self) -> Result<()> {
         let cfg = Config::get();
         let trid_nexus = TransportId::new(cfg.nexus_opts.nvmf_nexus_port);
+        let mut opts = spdk_nvmf_listen_opts::default();
+        unsafe {
+            spdk_nvmf_listen_opts_init(
+                &mut opts,
+                std::mem::size_of::<spdk_nvmf_listen_opts>() as u64,
+            );
+        }
         let rc = unsafe {
-            spdk_nvmf_tgt_listen(self.tgt.as_ptr(), trid_nexus.as_ptr())
+            spdk_nvmf_tgt_listen_ext(
+                self.tgt.as_ptr(),
+                trid_nexus.as_ptr(),
+                &mut opts,
+            )
         };
 
         if rc != 0 {
@@ -268,7 +281,11 @@ impl Target {
 
         let trid_replica = TransportId::new(cfg.nexus_opts.nvmf_replica_port);
         let rc = unsafe {
-            spdk_nvmf_tgt_listen(self.tgt.as_ptr(), trid_replica.as_ptr())
+            spdk_nvmf_tgt_listen_ext(
+                self.tgt.as_ptr(),
+                trid_replica.as_ptr(),
+                &mut opts,
+            )
         };
 
         if rc != 0 {
