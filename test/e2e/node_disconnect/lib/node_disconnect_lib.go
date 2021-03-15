@@ -28,9 +28,9 @@ type DisconnectEnv struct {
 
 // Deploy an instance of fio on a node labelled as "podrefuge"
 func createFioOnRefugeNode(podName string, volClaimName string) {
-	podObj := common.CreateFioPodDef(podName, volClaimName)
+	podObj := common.CreateFioPodDef(podName, volClaimName, common.VolFileSystem, common.NSDefault)
 	common.ApplyNodeSelectorToPodObject(podObj, "openebs.io/podrefuge", "true")
-	_, err := common.CreatePod(podObj)
+	_, err := common.CreatePod(podObj, common.NSDefault)
 	Expect(err).ToNot(HaveOccurred())
 }
 
@@ -147,16 +147,16 @@ func Setup(pvcName string, storageClassName string, fioPodName string) Disconnec
 
 	env.volToDelete = pvcName
 	env.storageClass = storageClassName
-	env.uuid = common.MkPVC(pvcName, storageClassName)
+	env.uuid = common.MkPVC(common.DefaultVolumeSize, pvcName, storageClassName, common.VolFileSystem, common.NSDefault)
 
-	podObj := common.CreateFioPodDef(fioPodName, pvcName)
-	_, err := common.CreatePod(podObj)
+	podObj := common.CreateFioPodDef(fioPodName, pvcName, common.VolFileSystem, common.NSDefault)
+	_, err := common.CreatePod(podObj, common.NSDefault)
 	Expect(err).ToNot(HaveOccurred())
 
 	env.fioPodName = fioPodName
 	logf.Log.Info("waiting for pod", "name", env.fioPodName)
 	Eventually(func() bool {
-		return common.IsPodRunning(env.fioPodName)
+		return common.IsPodRunning(env.fioPodName, common.NSDefault)
 	},
 		defTimeoutSecs, // timeout
 		"1s",           // polling interval
@@ -191,11 +191,11 @@ func (env *DisconnectEnv) Teardown() {
 		UnsuppressMayastorPodOn(node)
 	}
 	if env.fioPodName != "" {
-		err = common.DeletePod(env.fioPodName)
+		err = common.DeletePod(env.fioPodName, common.NSDefault)
 		env.fioPodName = ""
 	}
 	if env.volToDelete != "" {
-		common.RmPVC(env.volToDelete, env.storageClass)
+		common.RmPVC(env.volToDelete, env.storageClass, common.NSDefault)
 		env.volToDelete = ""
 	}
 	Expect(err).ToNot(HaveOccurred())

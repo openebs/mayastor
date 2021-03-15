@@ -61,28 +61,30 @@ func RunFio(podName string, duration int, filename string, args ...string) ([]by
 	return output, err
 }
 
-func IsPodRunning(podName string) bool {
+func IsPodRunning(podName string, nameSpace string) bool {
 	var pod corev1.Pod
-	if gTestEnv.K8sClient.Get(context.TODO(), types.NamespacedName{Name: podName, Namespace: "default"}, &pod) != nil {
+	if gTestEnv.K8sClient.Get(context.TODO(), types.NamespacedName{Name: podName, Namespace: nameSpace}, &pod) != nil {
 		return false
 	}
 	return pod.Status.Phase == v1.PodRunning
 }
 
 /// Create a Pod in default namespace, no options and no context
-func CreatePod(podDef *corev1.Pod) (*corev1.Pod, error) {
+func CreatePod(podDef *corev1.Pod, nameSpace string) (*corev1.Pod, error) {
 	logf.Log.Info("Creating", "pod", podDef.Name)
-	return gTestEnv.KubeInt.CoreV1().Pods("default").Create(context.TODO(), podDef, metav1.CreateOptions{})
+	return gTestEnv.KubeInt.CoreV1().Pods(nameSpace).Create(context.TODO(), podDef, metav1.CreateOptions{})
 }
 
 /// Delete a Pod in default namespace, no options and no context
-func DeletePod(podName string) error {
+func DeletePod(podName string, nameSpace string) error {
 	logf.Log.Info("Deleting", "pod", podName)
-	return gTestEnv.KubeInt.CoreV1().Pods("default").Delete(context.TODO(), podName, metav1.DeleteOptions{})
+	return gTestEnv.KubeInt.CoreV1().Pods(nameSpace).Delete(context.TODO(), podName, metav1.DeleteOptions{})
 }
 
 /// Create a test fio pod in default namespace, no options and no context
-func createFioPodDef(podName string, volName string, rawBlock bool) *corev1.Pod {
+/// for filesystem,  mayastor volume is mounted on /volume
+/// for rawblock, mayastor volume is mounted on /dev/sdm
+func CreateFioPodDef(podName string, volName string, volType VolumeType, nameSpace string) *corev1.Pod {
 	volMounts := []corev1.VolumeMount{
 		{
 			Name:      "ms-volume",
@@ -99,7 +101,7 @@ func createFioPodDef(podName string, volName string, rawBlock bool) *corev1.Pod 
 	podDef := corev1.Pod{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      podName,
-			Namespace: "default",
+			Namespace: nameSpace,
 		},
 		Spec: corev1.PodSpec{
 			RestartPolicy: corev1.RestartPolicyNever,
@@ -122,7 +124,7 @@ func createFioPodDef(podName string, volName string, rawBlock bool) *corev1.Pod 
 			},
 		},
 	}
-	if rawBlock {
+	if volType == VolRawBlock {
 		podDef.Spec.Containers[0].VolumeDevices = volDevices
 	} else {
 		podDef.Spec.Containers[0].VolumeMounts = volMounts
@@ -132,47 +134,36 @@ func createFioPodDef(podName string, volName string, rawBlock bool) *corev1.Pod 
 
 /// Create a test fio pod in default namespace, no options and no context
 /// mayastor volume is mounted on /volume
-func CreateFioPodDef(podName string, volName string) *corev1.Pod {
-	return createFioPodDef(podName, volName, false)
-}
-
-/// Create a test fio pod in default namespace, no options and no context
-/// mayastor volume is mounted on /dev/sdm
-func CreateRawBlockFioPodDef(podName string, volName string) *corev1.Pod {
-	return createFioPodDef(podName, volName, true)
-}
-
-/// Create a test fio pod in default namespace, no options and no context
-/// mayastor volume is mounted on /volume
-func CreateFioPod(podName string, volName string) (*corev1.Pod, error) {
+func CreateFioPod(podName string, volName string, volType VolumeType, nameSpace string) (*corev1.Pod, error) {
 	logf.Log.Info("Creating fio pod definition", "name", podName, "volume type", "filesystem")
-	podDef := createFioPodDef(podName, volName, false)
-	return CreatePod(podDef)
+	podDef := CreateFioPodDef(podName, volName, volType, nameSpace)
+	return CreatePod(podDef, NSDefault)
 }
 
-/// Create a test fio pod in default namespace, no options and no context
-/// mayastor device is mounted on /dev/sdm
-func CreateRawBlockFioPod(podName string, volName string) (*corev1.Pod, error) {
-	logf.Log.Info("Creating fio pod definition", "name", podName, "volume type", "raw block")
-	podDef := createFioPodDef(podName, volName, true)
-	return CreatePod(podDef)
-}
-
+// Check if any test pods exist in the default and e2e related namespaces .
 func CheckForTestPods() (bool, error) {
 	logf.Log.Info("CheckForTestPods")
 	foundPods := false
 
-	pods, err := gTestEnv.KubeInt.CoreV1().Pods("default").List(context.TODO(), metav1.ListOptions{})
-	if err == nil && pods != nil && len(pods.Items) != 0 {
-		logf.Log.Info("CheckForTestPods",
-			"Pods", pods.Items)
-		foundPods = true
+	nameSpaces, err := gTestEnv.KubeInt.CoreV1().Namespaces().List(context.TODO(), metav1.ListOptions{})
+	if err == nil {
+		for _, ns := range nameSpaces.Items {
+			if strings.HasPrefix(ns.Name, NSE2EPrefix) || ns.Name == NSDefault {
+				pods, err := gTestEnv.KubeInt.CoreV1().Pods(ns.Name).List(context.TODO(), metav1.ListOptions{})
+				if err == nil && pods != nil && len(pods.Items) != 0 {
+					logf.Log.Info("CheckForTestPods",
+						"Pods", pods.Items)
+					foundPods = true
+				}
+			}
+		}
 	}
+
 	return foundPods, err
 }
 
 // Check test pods in a namespace for restarts and failed/unknown state
-func CheckPods(namespace string) error {
+func CheckTestPodsHealth(namespace string) error {
 	podApi := gTestEnv.KubeInt.CoreV1().Pods
 	var errorStrings []string
 	podList, err := podApi(namespace).List(context.TODO(), metav1.ListOptions{})

@@ -24,14 +24,18 @@ type E2EConfig struct {
 		Replicas   int `yaml:"replicas" env-default:"1"`
 		CdCycles   int `yaml:"cdCycles" env-default:"100"`
 		CrudCycles int `yaml:"crudCycles" env-default:"20"`
-	}
+	} `yaml:"pvcStress"`
 	IOSoakTest struct {
 		Replicas         int      `yaml:"replicas" env-default:"2"`
-		Duration         string   `yaml:"duration" env-default:"30m"`
+		Duration         string   `yaml:"duration" env-default:"10m"`
 		LoadFactor       int      `yaml:"loadFactor" env-default:"10"`
 		Protocols        []string `yaml:"protocols" env-default:"nvmf,iscsi"`
 		FioFixedDuration int      `yaml:"fioFixedDuration" env-default:"60"`
-		FioDutyCycles    []struct {
+		Disrupt          struct {
+			PodCount   int `yaml:"podCount" env-default:"3"`
+			FaultAfter int `yaml:"faultAfter" env-default:"45"`
+		} `yaml:"disrupt"`
+		FioDutyCycles []struct {
 			ThinkTime       int `yaml:"thinkTime"`
 			ThinkTimeBlocks int `yaml:"thinkTimeBlocks"`
 		} `yaml:"fioDutyCycles"`

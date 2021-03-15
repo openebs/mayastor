@@ -38,6 +38,7 @@ func teardownMayastor() {
 	if cleanup {
 		cleaned = common.CleanUp()
 	} else {
+		//TODO: check test pods in all e2e test namespaces.
 		found, err := common.CheckForTestPods()
 		if err != nil {
 			logf.Log.Info("Failed to checking for test pods.", "error", err)

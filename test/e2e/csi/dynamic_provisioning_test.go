@@ -42,7 +42,7 @@ var smallClaimSize = "50Mi"
 var largeClaimSize = "500Mi"
 
 var _ = ginkgo.Describe("Dynamic Provisioning", func() {
-	f := framework.NewDefaultFramework("mayastordynprov")
+	f := framework.NewDefaultFramework("e2e-maya")
 
 	smallClaimSize = e2e_config.GetConfig().CSI.SmallClaimSize
 	largeClaimSize = e2e_config.GetConfig().CSI.LargeClaimSize

@@ -19,22 +19,22 @@ type FioFsSoakJob struct {
 }
 
 func (job FioFsSoakJob) makeVolume() {
-	common.MkPVC(job.volName, job.scName)
+	common.MkPVC(common.DefaultVolumeSize, job.volName, job.scName, common.VolFileSystem, common.NSDefault)
 }
 
 func (job FioFsSoakJob) removeVolume() {
-	common.RmPVC(job.volName, job.scName)
+	common.RmPVC(job.volName, job.scName, common.NSDefault)
 }
 
 func (job FioFsSoakJob) makeTestPod(selector map[string]string) (*coreV1.Pod, error) {
-	pod := common.CreateFioPodDef(job.podName, job.volName)
+	pod := common.CreateFioPodDef(job.podName, job.volName, common.VolFileSystem, common.NSDefault)
 	pod.Spec.NodeSelector = selector
-	pod, err := common.CreatePod(pod)
+	pod, err := common.CreatePod(pod, common.NSDefault)
 	return pod, err
 }
 
 func (job FioFsSoakJob) removeTestPod() error {
-	return common.DeletePod(job.podName)
+	return common.DeletePod(job.podName, common.NSDefault)
 }
 
 func (job FioFsSoakJob) run(duration time.Duration, doneC chan<- string, errC chan<- error) {

@@ -48,15 +48,15 @@ func monitor(errC chan<- error) {
 	logf.Log.Info("IOSoakTest monitor, checking mayastor and test pods")
 	for {
 		time.Sleep(30 * time.Second)
-		err := common.CheckPods(common.NSMayastor)
+		err := common.CheckTestPodsHealth(common.NSMayastor)
 		if err != nil {
 			logf.Log.Info("IOSoakTest monitor", "namespace", common.NSMayastor, "error", err)
 			errC <- err
 			break
 		}
-		err = common.CheckPods("default")
+		err = common.CheckTestPodsHealth(common.NSDefault)
 		if err != nil {
-			logf.Log.Info("IOSoakTest monitor", "namespace", "default", "error", err)
+			logf.Log.Info("IOSoakTest monitor", "namespace", common.NSDefault, "error", err)
 			errC <- err
 			break
 		}
@@ -96,7 +96,7 @@ func IOSoakTest(protocols []common.ShareProto, replicas int, loadFactor int, dur
 	for _, proto := range protocols {
 		scName := fmt.Sprintf("io-soak-%s", proto)
 		logf.Log.Info("Creating", "storage class", scName)
-		err = common.MkStorageClass(scName, replicas, proto)
+		err = common.MkStorageClass(scName, replicas, proto, common.NSDefault)
 		Expect(err).ToNot(HaveOccurred())
 		scNames = append(scNames, scName)
 	}
@@ -140,7 +140,7 @@ func IOSoakTest(protocols []common.ShareProto, replicas int, loadFactor int, dur
 	for _, job := range jobs {
 		// Wait for the test Pod to transition to running
 		Eventually(func() bool {
-			return common.IsPodRunning(job.getPodName())
+			return common.IsPodRunning(job.getPodName(), common.NSDefault)
 		},
 			defTimeoutSecs,
 			"1s",
