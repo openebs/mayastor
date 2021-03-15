@@ -29,13 +29,17 @@ func TestIOSoak(t *testing.T) {
 func monitor() error {
 	var err error
 	var failedJobs []string
-	jobMap := make(map[string]IoSoakJob)
+	activeJobMap := make(map[string]IoSoakJob)
 	for _, job := range jobs {
-		jobMap[job.getPodName()] = job
+		activeJobMap[job.getPodName()] = job
 	}
 
-	logf.Log.Info("IOSoakTest monitor, checking mayastor and test pods", "jobCount", len(jobMap))
-	for ; len(jobMap) !=0 && len(failedJobs) == 0; {
+	podsRunning := 0
+	podsSucceeded := 0
+	podsFailed := 0
+
+	logf.Log.Info("IOSoakTest monitor, checking mayastor and test pods", "jobCount", len(activeJobMap))
+	for ; len(activeJobMap) !=0 && len(failedJobs) == 0; {
 		time.Sleep(29 * time.Second)
 		err = common.CheckPods(common.NSMayastor)
 		if err != nil {
@@ -48,18 +52,15 @@ func monitor() error {
 			break
 		}
 
-		podNames := make([]string, len(jobMap))
+		podNames := make([]string, len(activeJobMap))
 		{
 			ix := 0
-			for k := range jobMap {
+			for k := range activeJobMap {
 				podNames[ix] = k
 				ix += 1
 			}
 		}
 
-		podsRunning := 0
-		podsSucceeded := 0
-		podsFailed := 0
 		for _, podName := range podNames {
 			res,err := common.CheckPodCompleted(podName, common.NSDefault)
 			if err != nil {
@@ -73,11 +74,11 @@ func monitor() error {
 					podsRunning += 1
 				case corev1.PodSucceeded:
 					logf.Log.Info("Pod completed successfully", "podName", podName)
-					delete(jobMap, podName)
+					delete(activeJobMap, podName)
 					podsSucceeded += 1
 				case corev1.PodFailed:
 					logf.Log.Info("Pod completed with failures", "podName", podName)
-					delete(jobMap, podName)
+					delete(activeJobMap, podName)
 					failedJobs = append(failedJobs, podName)
 					podsFailed += 1
 				case corev1.PodUnknown:
