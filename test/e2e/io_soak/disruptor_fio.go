@@ -44,11 +44,11 @@ func (job FioDisruptorJob) makeTestPod(selector map[string]string) (*coreV1.Pod,
 	pod.Spec.Containers[0].Image = image
 
 	args := []string{
-		"segfault-after",
-		fmt.Sprintf("%d", job.faultDelay),
+		"exitv",
+		"255",
 		"--",
 		"--time_based",
-		fmt.Sprintf("--runtime=%d", job.faultDelay+100),
+		fmt.Sprintf("--runtime=%d", job.faultDelay),
 		fmt.Sprintf("--filename=%s", common.FioBlockFilename),
 		fmt.Sprintf("--thinktime=%d", GetThinkTime(job.id)),
 		fmt.Sprintf("--thinktime_blocks=%d", GetThinkTimeBlocks(job.id)),
