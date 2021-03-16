@@ -104,7 +104,7 @@ func (env *DisconnectEnv) PodLossTest() {
 	logf.Log.Info("waiting for pod removal to affect the nexus", "timeout", disconnectionTimeoutSecs)
 	Eventually(func() string {
 		logf.Log.Info("running fio against the volume")
-		_, err := common.RunFio(env.fioPodName, 5, common.FioFsFilename)
+		_, err := common.RunFio(env.fioPodName, 5, common.FioFsFilename, common.DefaultFioSizeMb)
 		Expect(err).ToNot(HaveOccurred())
 		return common.GetMsvState(env.uuid)
 	},
@@ -115,7 +115,7 @@ func (env *DisconnectEnv) PodLossTest() {
 	logf.Log.Info("volume condition", "state", common.GetMsvState(env.uuid))
 
 	logf.Log.Info("running fio against the degraded volume")
-	_, err := common.RunFio(env.fioPodName, 20, common.FioFsFilename)
+	_, err := common.RunFio(env.fioPodName, 20, common.FioFsFilename, common.DefaultFioSizeMb)
 	Expect(err).ToNot(HaveOccurred())
 
 	logf.Log.Info("enabling mayastor pod", "node", env.replicaToRemove)
@@ -124,7 +124,7 @@ func (env *DisconnectEnv) PodLossTest() {
 	logf.Log.Info("waiting for the volume to be repaired", "timeout", repairTimeoutSecs)
 	Eventually(func() string {
 		logf.Log.Info("running fio while volume is being repaired")
-		_, err := common.RunFio(env.fioPodName, 5, common.FioFsFilename)
+		_, err := common.RunFio(env.fioPodName, 5, common.FioFsFilename, common.DefaultFioSizeMb)
 		Expect(err).ToNot(HaveOccurred())
 		return common.GetMsvState(env.uuid)
 	},
@@ -135,7 +135,7 @@ func (env *DisconnectEnv) PodLossTest() {
 	logf.Log.Info("volume condition", "state", common.GetMsvState(env.uuid))
 
 	logf.Log.Info("running fio against the repaired volume")
-	_, err = common.RunFio(env.fioPodName, 20, common.FioFsFilename)
+	_, err = common.RunFio(env.fioPodName, 20, common.FioFsFilename, common.DefaultFioSizeMb)
 	Expect(err).ToNot(HaveOccurred())
 }
 
@@ -147,7 +147,7 @@ func Setup(pvcName string, storageClassName string, fioPodName string) Disconnec
 
 	env.volToDelete = pvcName
 	env.storageClass = storageClassName
-	env.uuid = common.MkPVC(common.DefaultVolumeSize, pvcName, storageClassName, common.VolFileSystem, common.NSDefault)
+	env.uuid = common.MkPVC(common.DefaultVolumeSizeMb, pvcName, storageClassName, common.VolFileSystem, common.NSDefault)
 
 	podObj := common.CreateFioPodDef(fioPodName, pvcName, common.VolFileSystem, common.NSDefault)
 	_, err := common.CreatePod(podObj, common.NSDefault)

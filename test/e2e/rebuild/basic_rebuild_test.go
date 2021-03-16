@@ -20,7 +20,7 @@ func basicRebuildTest() {
 	Expect(err).ToNot(HaveOccurred(), "Creating storage class %s", storageClass)
 
 	// Create a PVC
-	common.MkPVC(common.DefaultVolumeSize, pvcName, storageClass, common.VolFileSystem, common.NSDefault)
+	common.MkPVC(common.DefaultVolumeSizeMb, pvcName, storageClass, common.VolFileSystem, common.NSDefault)
 	pvc, err := common.GetPVC(pvcName, common.NSDefault)
 	Expect(err).To(BeNil())
 	Expect(pvc).ToNot(BeNil())

@@ -35,7 +35,7 @@ func basicVolumeIOTest(protocol common.ShareProto) {
 
 	volName := "basic-vol-io-test-" + string(protocol)
 	// Create the volume
-	common.MkPVC(common.DefaultVolumeSize, volName, scName, common.VolFileSystem, common.NSDefault)
+	common.MkPVC(common.DefaultVolumeSizeMb, volName, scName, common.VolFileSystem, common.NSDefault)
 	tmp := volSc{volName, scName}
 	volNames = append(volNames, tmp)
 
@@ -55,7 +55,7 @@ func basicVolumeIOTest(protocol common.ShareProto) {
 	).Should(Equal(true))
 
 	// Run the fio test
-	_, err = common.RunFio(fioPodName, 20, common.FioFsFilename)
+	_, err = common.RunFio(fioPodName, 20, common.FioFsFilename, common.DefaultFioSizeMb)
 	Expect(err).ToNot(HaveOccurred())
 
 	podNames = podNames[:len(podNames)-1]

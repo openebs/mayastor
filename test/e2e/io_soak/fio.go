@@ -56,7 +56,7 @@ func RunIoSoakFio(podName string, duration time.Duration, thinkTime int, thinkTi
 			"rawBlock", rawBlock,
 			"fioFile", fioFile,
 		)
-		output, err := common.RunFio(podName, runtime, fioFile, argThinkTime, argThinkTimeBlocks)
+		output, err := common.RunFio(podName, runtime, fioFile, common.DefaultFioSizeMb, argThinkTime, argThinkTimeBlocks)
 
 		//TODO: for now shove the output into /tmp
 		_ = ioutil.WriteFile("/tmp/"+podName+".out", output, 0644)

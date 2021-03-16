@@ -321,6 +321,8 @@ func ForceDeleteMayastorPods() (bool, int, error) {
 
 // "Big" sweep, attempts to remove artefacts left over in the cluster
 // that would prevent future successful test runs.
+// returns true if cleanup was successful i.e. all resources were deleted
+// and no errors were encountered.
 func CleanUp() bool {
 	var errs []error
 	podCount := 0

@@ -21,7 +21,8 @@ var FioBlockFilename = "/dev/sdm"
 var FioFsFilename = FioFsMountPoint + "/fiotestfile"
 
 // FIXME: this function runs fio with a bunch of parameters which are not configurable.
-func RunFio(podName string, duration int, filename string, args ...string) ([]byte, error) {
+// sizeMb should be 0 for fio to use the entire block device
+func RunFio(podName string, duration int, filename string, sizeMb int, args ...string) ([]byte, error) {
 	argRuntime := fmt.Sprintf("--runtime=%d", duration)
 	argFilename := fmt.Sprintf("--filename=%s", filename)
 
@@ -38,7 +39,9 @@ func RunFio(podName string, duration int, filename string, args ...string) ([]by
 		"--",
 		"fio",
 		"--name=benchtest",
-		"--size=50m",
+		"--verify=crc32",
+		"--verify_fatal=1",
+		"--verify_async=2",
 		argFilename,
 		"--direct=1",
 		"--rw=randrw",
@@ -49,9 +52,16 @@ func RunFio(podName string, duration int, filename string, args ...string) ([]by
 		"--time_based",
 		argRuntime,
 	}
+
+	if sizeMb != 0 {
+		sizeArgs := []string{fmt.Sprintf("--size=%dm", sizeMb)}
+		cmdArgs = append(cmdArgs, sizeArgs...)
+	}
+
 	if args != nil {
 		cmdArgs = append(cmdArgs, args...)
 	}
+
 	cmd := exec.Command(
 		"kubectl",
 		cmdArgs...,

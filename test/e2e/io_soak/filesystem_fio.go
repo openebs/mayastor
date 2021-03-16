@@ -19,7 +19,7 @@ type FioFsSoakJob struct {
 }
 
 func (job FioFsSoakJob) makeVolume() {
-	common.MkPVC(common.DefaultVolumeSize, job.volName, job.scName, common.VolFileSystem, common.NSDefault)
+	common.MkPVC(common.DefaultVolumeSizeMb, job.volName, job.scName, common.VolFileSystem, common.NSDefault)
 }
 
 func (job FioFsSoakJob) removeVolume() {

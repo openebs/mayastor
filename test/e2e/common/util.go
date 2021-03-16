@@ -23,7 +23,8 @@ const NSE2EPrefix = "e2e-maya"
 const NSDefault = "default"
 const NSMayastor = "mayastor"
 const CSIProvisioner = "io.openebs.csi-mayastor"
-const DefaultVolumeSize = 64
+const DefaultVolumeSizeMb = 64
+const DefaultFioSizeMb = 50
 
 type ShareProto string
 
