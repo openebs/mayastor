@@ -54,11 +54,12 @@ void run_fio_sh(char** argv) {
  */
 int main(int argc, char **argv_in)
 {
-    unsigned sleep_time=0;
-    unsigned segfault_time=0;
+    unsigned sleep_time = 0;
+    unsigned segfault_time = 0;
     char** argv = argv_in;
-    pid_t   fio_pid=0;
-    int     exitv=0;
+    pid_t   fio_pid = 0;
+    int     running_fio = 0;
+    int     exitv = 0;
 
     /* skip over this programs name */
     argv += 1;
@@ -110,6 +111,8 @@ int main(int argc, char **argv_in)
         if ( 0 == fio_pid ) {
             run_fio_sh(argv);
             exit(0);
+        } else {
+            running_fio = 1;
         }
     }
 
@@ -132,7 +135,7 @@ int main(int argc, char **argv_in)
     }
 
     /* if fio was launched wait for it to complete */
-    if (0 != fio_pid) {
+    if (0 != running_fio) {
         int status;
         waitpid(fio_pid, &status, 0);
         if (exitv == 0) {
