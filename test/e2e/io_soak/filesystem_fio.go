@@ -32,7 +32,7 @@ func (job FioFsSoakJob) makeTestPod(selector map[string]string) (*coreV1.Pod, er
 	pod.Spec.NodeSelector = selector
 
 	e2eCfg := e2e_config.GetConfig()
-	image := "" + e2eCfg.CIRegistry + "/mayadata/e2e-fio"
+	image := "mayadata/e2e-fio"
 	pod.Spec.Containers[0].Image = image
 
 	args := []string{

@@ -40,7 +40,7 @@ func (job FioDisruptorJob) makeTestPod(selector map[string]string) (*coreV1.Pod,
 	pod.Spec.NodeSelector = selector
 	pod.Spec.RestartPolicy = coreV1.RestartPolicyAlways
 
-	image := "" + e2e_config.GetConfig().CIRegistry + "/mayadata/e2e-fio"
+	image := "mayadata/e2e-fio"
 	pod.Spec.Containers[0].Image = image
 
 	args := []string{
