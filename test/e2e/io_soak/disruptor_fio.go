@@ -24,7 +24,7 @@ type FioDisruptorJob struct {
 	podName    string
 	id         int
 	faultDelay int
-	ready 	   bool
+	ready      bool
 }
 
 func (job FioDisruptorJob) makeVolume() {
@@ -40,7 +40,7 @@ func (job FioDisruptorJob) makeTestPod(selector map[string]string) (*coreV1.Pod,
 	pod.Spec.NodeSelector = selector
 	pod.Spec.RestartPolicy = coreV1.RestartPolicyAlways
 
-	image := "" + e2e_config.GetConfig().CIRegistry + "/mayastor/e2e-fio"
+	image := "" + e2e_config.GetConfig().CIRegistry + "/mayadata/e2e-fio"
 	pod.Spec.Containers[0].Image = image
 
 	args := []string{
@@ -76,7 +76,7 @@ func MakeFioDisruptorJob(scName string, id int, segfaultDelay int) FioDisruptorJ
 		podName:    nm,
 		id:         id,
 		faultDelay: segfaultDelay,
-		ready: false,
+		ready:      false,
 	}
 }
 
@@ -140,8 +140,8 @@ func MakeDisruptors() {
 	// We try to detect the edge when disruptor pods transition
 	// to ready and latch that as the disruptor pod is "ready"
 	allReady := false
-	for to:=0; to< timeoutSecs && !allReady; to+=1 {
-		time.Sleep(1* time.Second)
+	for to := 0; to < timeoutSecs && !allReady; to += 1 {
+		time.Sleep(1 * time.Second)
 		allReady = true
 		for _, job := range disruptorJobs {
 			if !job.ready {

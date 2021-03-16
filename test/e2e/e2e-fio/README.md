@@ -17,6 +17,6 @@ Arguments
 ## building
 Run `./build.sh`
 
-This builds the image `mayastor/e2e-fio` 
+This builds the image `mayadata/e2e-fio` 
 
 

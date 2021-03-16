@@ -13,10 +13,10 @@ import (
 // IO soak raw block fio  job
 
 type FioRawBlockSoakJob struct {
-	volName string
-	scName  string
-	podName string
-	id      int
+	volName  string
+	scName   string
+	podName  string
+	id       int
 	duration int
 }
 
@@ -33,12 +33,12 @@ func (job FioRawBlockSoakJob) makeTestPod(selector map[string]string) (*coreV1.P
 	pod.Spec.NodeSelector = selector
 
 	e2eCfg := e2e_config.GetConfig()
-	image := "" + e2eCfg.CIRegistry + "/mayastor/e2e-fio"
+	image := "" + e2eCfg.CIRegistry + "/mayadata/e2e-fio"
 	pod.Spec.Containers[0].Image = image
 
 	args := []string{
 		"--",
-		fmt.Sprintf("--startdelay=%d",e2eCfg.IOSoakTest.FioStartDelay),
+		fmt.Sprintf("--startdelay=%d", e2eCfg.IOSoakTest.FioStartDelay),
 		"--time_based",
 		fmt.Sprintf("--runtime=%d", job.duration),
 		fmt.Sprintf("--filename=%s", common.FioBlockFilename),
@@ -60,13 +60,13 @@ func (job FioRawBlockSoakJob) getPodName() string {
 	return job.podName
 }
 
-func MakeFioRawBlockJob(scName string, id int, duration time.Duration ) FioRawBlockSoakJob {
+func MakeFioRawBlockJob(scName string, id int, duration time.Duration) FioRawBlockSoakJob {
 	nm := fmt.Sprintf("fio-rawblock-%s-%d", scName, id)
 	return FioRawBlockSoakJob{
-		volName: nm,
-		scName:  scName,
-		podName: nm,
-		id:      id,
+		volName:  nm,
+		scName:   scName,
+		podName:  nm,
+		id:       id,
 		duration: int(duration.Seconds()),
 	}
 }
