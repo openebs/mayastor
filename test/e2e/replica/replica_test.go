@@ -17,12 +17,12 @@ var (
 const fioPodName = "fio"
 
 func addUnpublishedReplicaTest() {
-	err := common.MkStorageClass(storageClass, 1, common.ShareProtoNvmf)
+	err := common.MkStorageClass(storageClass, 1, common.ShareProtoNvmf, common.NSDefault)
 	Expect(err).ToNot(HaveOccurred(), "Creating storage class %s", storageClass)
 
 	// Create a PVC
-	common.MkPVC(pvcName, storageClass)
-	pvc, err := common.GetPVC(pvcName)
+	common.MkPVC(common.DefaultVolumeSizeMb, pvcName, storageClass, common.VolFileSystem, common.NSDefault)
+	pvc, err := common.GetPVC(pvcName, common.NSDefault)
 	Expect(err).To(BeNil())
 	Expect(pvc).ToNot(BeNil())
 
@@ -38,7 +38,7 @@ func addUnpublishedReplicaTest() {
 	Expect(repl).Should(Equal(int64(2)))
 
 	// Use the PVC and wait for the volume to be published
-	_, err = common.CreateFioPod(fioPodName, pvcName)
+	_, err = common.CreateFioPod(fioPodName, pvcName, common.VolFileSystem, common.NSDefault)
 	Expect(err).ToNot(HaveOccurred(), "Create fio pod")
 	Eventually(func() bool { return common.IsVolumePublished(uuid) }, timeout, pollPeriod).Should(Equal(true))
 
@@ -60,9 +60,9 @@ func addUnpublishedReplicaTest() {
 	Eventually(func() string { return getChildrenFunc(uuid)[1].State }, timeout, pollPeriod).Should(BeEquivalentTo("CHILD_ONLINE"))
 	Eventually(func() (string, error) { return common.GetNexusState(uuid) }, timeout, pollPeriod).Should(BeEquivalentTo("NEXUS_ONLINE"))
 
-	err = common.DeletePod(fioPodName)
+	err = common.DeletePod(fioPodName, common.NSDefault)
 	Expect(err).ToNot(HaveOccurred(), "Delete fio test pod")
-	common.RmPVC(pvcName, storageClass)
+	common.RmPVC(pvcName, storageClass, common.NSDefault)
 
 	err = common.RmStorageClass(storageClass)
 	Expect(err).ToNot(HaveOccurred(), "Deleting storage class %s", storageClass)

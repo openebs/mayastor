@@ -3,14 +3,15 @@ package common
 // Utility functions for Persistent Volume Claims and Persistent Volumes
 import (
 	"context"
-	corev1 "k8s.io/api/core/v1"
-	v1 "k8s.io/api/core/v1"
-	"k8s.io/apimachinery/pkg/api/resource"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"fmt"
 	"strings"
 
 	. "github.com/onsi/gomega"
 
+	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/api/core/v1"
+	"k8s.io/apimachinery/pkg/api/resource"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
@@ -19,8 +20,8 @@ var defTimeoutSecs = "90s"
 // Check for a deleted Persistent Volume Claim,
 // either the object does not exist
 // or the status phase is invalid.
-func IsPVCDeleted(volName string) bool {
-	pvc, err := gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims("default").Get(context.TODO(), volName, metav1.GetOptions{})
+func IsPVCDeleted(volName string, nameSpace string) bool {
+	pvc, err := gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims(nameSpace).Get(context.TODO(), volName, metav1.GetOptions{})
 	if err != nil {
 		// Unfortunately there is no associated error code so we resort to string comparison
 		if strings.HasPrefix(err.Error(), "persistentvolumeclaims") &&
@@ -71,13 +72,13 @@ func IsPVDeleted(volName string) bool {
 }
 
 // IsPvcBound returns true if a PVC with the given name is bound otherwise false is returned.
-func IsPvcBound(pvcName string) bool {
-	return GetPvcStatusPhase(pvcName) == corev1.ClaimBound
+func IsPvcBound(pvcName string, nameSpace string) bool {
+	return GetPvcStatusPhase(pvcName, nameSpace) == corev1.ClaimBound
 }
 
 // Retrieve status phase of a Persistent Volume Claim
-func GetPvcStatusPhase(volname string) (phase corev1.PersistentVolumeClaimPhase) {
-	pvc, getPvcErr := gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims("default").Get(context.TODO(), volname, metav1.GetOptions{})
+func GetPvcStatusPhase(volname string, nameSpace string) (phase corev1.PersistentVolumeClaimPhase) {
+	pvc, getPvcErr := gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims(nameSpace).Get(context.TODO(), volname, metav1.GetOptions{})
 	Expect(getPvcErr).To(BeNil())
 	Expect(pvc).ToNot(BeNil())
 	return pvc.Status.Phase
@@ -91,55 +92,55 @@ func GetPvStatusPhase(volname string) (phase corev1.PersistentVolumePhase) {
 	return pv.Status.Phase
 }
 
-var blockVolumeMode = corev1.PersistentVolumeBlock
-
 // Create a PVC and verify that
 //	1. The PVC status transitions to bound,
 //	2. The associated PV is created and its status transitions bound
 //	3. The associated MV is created and has a State "healthy"
-func mkPVC(volName string, scName string, rawBlock bool) string {
+func MkPVC(volSizeMb int, volName string, scName string, volType VolumeType, nameSpace string) string {
 	logf.Log.Info("Creating", "volume", volName, "storageClass", scName)
+	volSizeMbStr := fmt.Sprintf("%dMi", volSizeMb)
 	// PVC create options
 	createOpts := &corev1.PersistentVolumeClaim{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      volName,
-			Namespace: "default",
+			Namespace: nameSpace,
 		},
 		Spec: corev1.PersistentVolumeClaimSpec{
 			StorageClassName: &scName,
 			AccessModes:      []corev1.PersistentVolumeAccessMode{corev1.ReadWriteOnce},
 			Resources: corev1.ResourceRequirements{
 				Requests: corev1.ResourceList{
-					corev1.ResourceStorage: resource.MustParse("64Mi"),
+					corev1.ResourceStorage: resource.MustParse(volSizeMbStr),
 				},
 			},
 		},
 	}
 
-	if rawBlock {
+	if volType == VolRawBlock {
+		var blockVolumeMode = corev1.PersistentVolumeBlock
 		createOpts.Spec.VolumeMode = &blockVolumeMode
 	}
 
 	// Create the PVC.
 	PVCApi := gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims
-	_, createErr := PVCApi("default").Create(context.TODO(), createOpts, metav1.CreateOptions{})
+	_, createErr := PVCApi(nameSpace).Create(context.TODO(), createOpts, metav1.CreateOptions{})
 	Expect(createErr).To(BeNil())
 
 	// Confirm the PVC has been created.
-	pvc, getPvcErr := PVCApi("default").Get(context.TODO(), volName, metav1.GetOptions{})
+	pvc, getPvcErr := PVCApi(nameSpace).Get(context.TODO(), volName, metav1.GetOptions{})
 	Expect(getPvcErr).To(BeNil())
 	Expect(pvc).ToNot(BeNil())
 
 	// Wait for the PVC to be bound.
 	Eventually(func() corev1.PersistentVolumeClaimPhase {
-		return GetPvcStatusPhase(volName)
+		return GetPvcStatusPhase(volName, nameSpace)
 	},
 		defTimeoutSecs, // timeout
 		"1s",           // polling interval
 	).Should(Equal(corev1.ClaimBound))
 
 	// Refresh the PVC contents, so that we can get the PV name.
-	pvc, getPvcErr = PVCApi("default").Get(context.TODO(), volName, metav1.GetOptions{})
+	pvc, getPvcErr = PVCApi(nameSpace).Get(context.TODO(), volName, metav1.GetOptions{})
 	Expect(getPvcErr).To(BeNil())
 	Expect(pvc).ToNot(BeNil())
 
@@ -174,43 +175,27 @@ func mkPVC(volName string, scName string, rawBlock bool) string {
 	return string(pvc.ObjectMeta.UID)
 }
 
-// Create a filesystem PVC and verify that
-//	1. The PVC status transitions to bound,
-//	2. The associated PV is created and its status transitions bound
-//	3. The associated MV is created and has a State "healthy"
-func MkPVC(volName string, scName string) string {
-	return mkPVC(volName, scName, false)
-}
-
-// Create a block device PVC and verify that
-//	1. The PVC status transitions to bound,
-//	2. The associated PV is created and its status transitions bound
-//	3. The associated MV is created and has a State "healthy"
-func MkRawBlockPVC(volName string, scName string) string {
-	return mkPVC(volName, scName, true)
-}
-
-// Delete the PVC and verify that
+// Delete a PVC in the default namespace and verify that
 //	1. The PVC is deleted
 //	2. The associated PV is deleted
 //  3. The associated MV is deleted
-func RmPVC(volName string, scName string) {
+func RmPVC(volName string, scName string, nameSpace string) {
 	logf.Log.Info("Removing volume", "volume", volName, "storageClass", scName)
 
 	PVCApi := gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims
 
 	// Confirm the PVC has been created.
-	pvc, getPvcErr := PVCApi("default").Get(context.TODO(), volName, metav1.GetOptions{})
+	pvc, getPvcErr := PVCApi(nameSpace).Get(context.TODO(), volName, metav1.GetOptions{})
 	Expect(getPvcErr).To(BeNil())
 	Expect(pvc).ToNot(BeNil())
 
 	// Delete the PVC
-	deleteErr := PVCApi("default").Delete(context.TODO(), volName, metav1.DeleteOptions{})
+	deleteErr := PVCApi(nameSpace).Delete(context.TODO(), volName, metav1.DeleteOptions{})
 	Expect(deleteErr).To(BeNil())
 
 	// Wait for the PVC to be deleted.
 	Eventually(func() bool {
-		return IsPVCDeleted(volName)
+		return IsPVCDeleted(volName, nameSpace)
 	},
 		defTimeoutSecs, // timeout
 		"1s",           // polling interval
@@ -234,18 +219,18 @@ func RmPVC(volName string, scName string) {
 }
 
 /// Create a PVC in default namespace, no options and no context
-func CreatePVC(pvc *v1.PersistentVolumeClaim) (*v1.PersistentVolumeClaim, error) {
-	return gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims("default").Create(context.TODO(), pvc, metav1.CreateOptions{})
+func CreatePVC(pvc *v1.PersistentVolumeClaim, nameSpace string) (*v1.PersistentVolumeClaim, error) {
+	return gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims(nameSpace).Create(context.TODO(), pvc, metav1.CreateOptions{})
 }
 
 /// Retrieve a PVC in default namespace, no options and no context
-func GetPVC(volName string) (*v1.PersistentVolumeClaim, error) {
-	return gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims("default").Get(context.TODO(), volName, metav1.GetOptions{})
+func GetPVC(volName string, nameSpace string) (*v1.PersistentVolumeClaim, error) {
+	return gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims(nameSpace).Get(context.TODO(), volName, metav1.GetOptions{})
 }
 
 /// Delete a PVC in default namespace, no options and no context
-func DeletePVC(volName string) error {
-	return gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims("default").Delete(context.TODO(), volName, metav1.DeleteOptions{})
+func DeletePVC(volName string, nameSpace string) error {
+	return gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims(nameSpace).Delete(context.TODO(), volName, metav1.DeleteOptions{})
 }
 
 /// Retrieve a PV in default namespace, no options and no context
@@ -257,12 +242,20 @@ func CheckForPVCs() (bool, error) {
 	logf.Log.Info("CheckForPVCs")
 	foundResources := false
 
-	pvcs, err := gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims("default").List(context.TODO(), metav1.ListOptions{})
-	if err == nil && pvcs != nil && len(pvcs.Items) != 0 {
-		logf.Log.Info("CheckForVolumeResources: found PersistentVolumeClaims",
-			"PersistentVolumeClaims", pvcs.Items)
-		foundResources = true
+	nameSpaces, err := gTestEnv.KubeInt.CoreV1().Namespaces().List(context.TODO(), metav1.ListOptions{})
+	if err == nil {
+		for _, ns := range nameSpaces.Items {
+			if strings.HasPrefix(ns.Name, NSE2EPrefix) || ns.Name == NSDefault {
+				pvcs, err := gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims(ns.Name).List(context.TODO(), metav1.ListOptions{})
+				if err == nil && pvcs != nil && len(pvcs.Items) != 0 {
+					logf.Log.Info("CheckForVolumeResources: found PersistentVolumeClaims",
+						"PersistentVolumeClaims", pvcs.Items)
+					foundResources = true
+				}
+			}
+		}
 	}
+
 	return foundResources, err
 }
 

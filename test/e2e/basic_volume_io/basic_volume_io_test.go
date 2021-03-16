@@ -30,42 +30,42 @@ func TestBasicVolumeIO(t *testing.T) {
 
 func basicVolumeIOTest(protocol common.ShareProto) {
 	scName := "basic-vol-io-test-" + string(protocol)
-	err := common.MkStorageClass(scName, e2e_config.GetConfig().BasicVolumeIO.Replicas, protocol)
+	err := common.MkStorageClass(scName, e2e_config.GetConfig().BasicVolumeIO.Replicas, protocol, common.NSDefault)
 	Expect(err).ToNot(HaveOccurred(), "Creating storage class %s", scName)
 
 	volName := "basic-vol-io-test-" + string(protocol)
 	// Create the volume
-	common.MkPVC(volName, scName)
+	common.MkPVC(common.DefaultVolumeSizeMb, volName, scName, common.VolFileSystem, common.NSDefault)
 	tmp := volSc{volName, scName}
 	volNames = append(volNames, tmp)
 
 	// Create the fio Pod
 	fioPodName := "fio-" + volName
-	pod, err := common.CreateFioPod(fioPodName, volName)
+	pod, err := common.CreateFioPod(fioPodName, volName, common.VolFileSystem, common.NSDefault)
 	Expect(err).ToNot(HaveOccurred())
 	Expect(pod).ToNot(BeNil())
 	podNames = append(podNames, fioPodName)
 
 	// Wait for the fio Pod to transition to running
 	Eventually(func() bool {
-		return common.IsPodRunning(fioPodName)
+		return common.IsPodRunning(fioPodName, common.NSDefault)
 	},
 		defTimeoutSecs,
 		"1s",
 	).Should(Equal(true))
 
 	// Run the fio test
-	_, err = common.RunFio(fioPodName, 20, common.FioFsFilename)
+	_, err = common.RunFio(fioPodName, 20, common.FioFsFilename, common.DefaultFioSizeMb)
 	Expect(err).ToNot(HaveOccurred())
 
 	podNames = podNames[:len(podNames)-1]
 
 	// Delete the fio pod
-	err = common.DeletePod(fioPodName)
+	err = common.DeletePod(fioPodName, common.NSDefault)
 	Expect(err).ToNot(HaveOccurred())
 
 	// Delete the volume
-	common.RmPVC(volName, scName)
+	common.RmPVC(volName, scName, common.NSDefault)
 	volNames = volNames[:len(volNames)-1]
 
 	err = common.RmStorageClass(scName)

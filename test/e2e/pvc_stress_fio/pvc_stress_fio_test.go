@@ -47,13 +47,13 @@ var volNames []volSc
 func testPVC(volName string, protocol common.ShareProto, runFio bool) {
 	logf.Log.Info("testPVC", "volume", volName, "protocol", protocol, "run FIO", runFio)
 	scName := "pvc-stress-test-" + string(protocol)
-	err := common.MkStorageClass(scName, e2e_config.GetConfig().BasicVolumeIO.Replicas, protocol)
+	err := common.MkStorageClass(scName, e2e_config.GetConfig().BasicVolumeIO.Replicas, protocol, common.NSDefault)
 	Expect(err).ToNot(HaveOccurred(), "Creating storage class %s", scName)
 	// PVC create options
 	createOpts := &coreV1.PersistentVolumeClaim{
 		ObjectMeta: metaV1.ObjectMeta{
 			Name:      volName,
-			Namespace: "default",
+			Namespace: common.NSDefault,
 		},
 		Spec: coreV1.PersistentVolumeClaimSpec{
 			StorageClassName: &scName,
@@ -66,11 +66,11 @@ func testPVC(volName string, protocol common.ShareProto, runFio bool) {
 		},
 	}
 	// Create the PVC.
-	_, createErr := common.CreatePVC(createOpts)
+	_, createErr := common.CreatePVC(createOpts, common.NSDefault)
 	Expect(createErr).To(BeNil())
 
 	// Confirm the PVC has been created.
-	pvc, getPvcErr := common.GetPVC(volName)
+	pvc, getPvcErr := common.GetPVC(volName, common.NSDefault)
 	Expect(getPvcErr).To(BeNil())
 	Expect(pvc).ToNot(BeNil())
 
@@ -80,14 +80,14 @@ func testPVC(volName string, protocol common.ShareProto, runFio bool) {
 
 	// Wait for the PVC to be bound.
 	Eventually(func() coreV1.PersistentVolumeClaimPhase {
-		return common.GetPvcStatusPhase(volName)
+		return common.GetPvcStatusPhase(volName, common.NSDefault)
 	},
 		defTimeoutSecs, // timeout
 		"1s",           // polling interval
 	).Should(Equal(coreV1.ClaimBound))
 
 	// Refresh the PVC contents, so that we can get the PV name.
-	pvc, getPvcErr = common.GetPVC(volName)
+	pvc, getPvcErr = common.GetPVC(volName, common.NSDefault)
 	Expect(getPvcErr).To(BeNil())
 	Expect(pvc).ToNot(BeNil())
 
@@ -131,7 +131,7 @@ func testPVC(volName string, protocol common.ShareProto, runFio bool) {
 	if runFio {
 		// Create the fio Pod
 		fioPodName := "fio-" + volName
-		pod, err := common.CreateFioPod(fioPodName, volName)
+		pod, err := common.CreateFioPod(fioPodName, volName, common.VolFileSystem, common.NSDefault)
 		Expect(err).ToNot(HaveOccurred())
 		Expect(pod).ToNot(BeNil())
 
@@ -140,18 +140,18 @@ func testPVC(volName string, protocol common.ShareProto, runFio bool) {
 
 		// Wait for the fio Pod to transition to running
 		Eventually(func() bool {
-			return common.IsPodRunning(fioPodName)
+			return common.IsPodRunning(fioPodName, common.NSDefault)
 		},
 			defTimeoutSecs,
 			"1s",
 		).Should(Equal(true))
 
 		// Run the fio test
-		_, err = common.RunFio(fioPodName, 5, common.FioFsFilename)
+		_, err = common.RunFio(fioPodName, 5, common.FioFsFilename, common.DefaultFioSizeMb)
 		Expect(err).ToNot(HaveOccurred())
 
 		// Delete the fio pod
-		err = common.DeletePod(fioPodName)
+		err = common.DeletePod(fioPodName, common.NSDefault)
 		Expect(err).ToNot(HaveOccurred())
 
 		// cleanup
@@ -159,12 +159,12 @@ func testPVC(volName string, protocol common.ShareProto, runFio bool) {
 	}
 
 	// Delete the PVC
-	deleteErr := common.DeletePVC(volName)
+	deleteErr := common.DeletePVC(volName, common.NSDefault)
 	Expect(deleteErr).To(BeNil())
 
 	// Wait for the PVC to be deleted.
 	Eventually(func() bool {
-		return common.IsPVCDeleted(volName)
+		return common.IsPVCDeleted(volName, common.NSDefault)
 	},
 		"120s", // timeout
 		"1s",   // polling interval

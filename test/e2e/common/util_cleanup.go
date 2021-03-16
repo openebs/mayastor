@@ -4,6 +4,7 @@ package common
 import (
 	"context"
 	"os/exec"
+	"strings"
 	"time"
 
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -15,11 +16,11 @@ import (
 var ZeroInt64 = int64(0)
 
 /// Delete all pods in the default namespace
-func DeleteAllPods() (int, error) {
+func DeleteAllPods(nameSpace string) (int, error) {
 	logf.Log.Info("DeleteAllPods")
 	numPods := 0
 
-	pods, err := gTestEnv.KubeInt.CoreV1().Pods("default").List(context.TODO(), metav1.ListOptions{})
+	pods, err := gTestEnv.KubeInt.CoreV1().Pods(nameSpace).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		logf.Log.Info("DeleteAllPods: list pods failed.", "error", err)
 	} else {
@@ -27,7 +28,7 @@ func DeleteAllPods() (int, error) {
 		logf.Log.Info("DeleteAllPods: found", "pods", numPods)
 		for _, pod := range pods.Items {
 			logf.Log.Info("DeleteAllPods: Deleting", "pod", pod.Name)
-			delErr := gTestEnv.KubeInt.CoreV1().Pods("default").Delete(context.TODO(), pod.Name, metav1.DeleteOptions{GracePeriodSeconds: &ZeroInt64})
+			delErr := gTestEnv.KubeInt.CoreV1().Pods(nameSpace).Delete(context.TODO(), pod.Name, metav1.DeleteOptions{GracePeriodSeconds: &ZeroInt64})
 			if delErr != nil {
 				logf.Log.Info("DeleteAllPods: failed to delete the pod", "podName", pod.Name, "error", delErr)
 			}
@@ -38,17 +39,17 @@ func DeleteAllPods() (int, error) {
 
 // Make best attempt to delete PersistentVolumeClaims
 // returns ok -> operations succeeded, resources undeleted, delete resources failed
-func DeleteAllPvcs() (int, error) {
+func DeleteAllPvcs(nameSpace string) (int, error) {
 	logf.Log.Info("DeleteAllPvcs")
 
 	// Delete all PVCs found
-	pvcs, err := gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims("default").List(context.TODO(), metav1.ListOptions{})
+	pvcs, err := gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims(nameSpace).List(context.TODO(), metav1.ListOptions{})
 	if err != nil {
 		logf.Log.Info("DeleteAllPvcs: list PersistentVolumeClaims failed.", "error", err)
 	} else if len(pvcs.Items) != 0 {
 		for _, pvc := range pvcs.Items {
 			logf.Log.Info("DeleteAllPvcs: deleting", "PersistentVolumeClaim", pvc.Name)
-			delErr := gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims("default").Delete(context.TODO(), pvc.Name, metav1.DeleteOptions{GracePeriodSeconds: &ZeroInt64})
+			delErr := gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims(nameSpace).Delete(context.TODO(), pvc.Name, metav1.DeleteOptions{GracePeriodSeconds: &ZeroInt64})
 			if delErr != nil {
 				logf.Log.Info("DeleteAllPvcs: failed to delete", "PersistentVolumeClaim", pvc.Name, "error", delErr)
 			}
@@ -58,7 +59,7 @@ func DeleteAllPvcs() (int, error) {
 	// Wait 2 minutes for PVCS to be deleted
 	numPvcs := 0
 	for attempts := 0; attempts < 120; attempts++ {
-		pvcs, err := gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims("default").List(context.TODO(), metav1.ListOptions{})
+		pvcs, err := gTestEnv.KubeInt.CoreV1().PersistentVolumeClaims(nameSpace).List(context.TODO(), metav1.ListOptions{})
 		if err == nil {
 			numPvcs = len(pvcs.Items)
 			if numPvcs == 0 {
@@ -320,11 +321,41 @@ func ForceDeleteMayastorPods() (bool, int, error) {
 
 // "Big" sweep, attempts to remove artefacts left over in the cluster
 // that would prevent future successful test runs.
+// returns true if cleanup was successful i.e. all resources were deleted
+// and no errors were encountered.
 func CleanUp() bool {
-	podCount, delPodsErr := DeleteAllPods()
-	pvcCount, delPvcErr := DeleteAllPvcs()
-	pvCount, delPvErr := DeleteAllPvs()
-	msvCount, delMsvErr := DeleteAllMsvs()
+	var errs []error
+	podCount := 0
+	pvcCount := 0
+
+	nameSpaces, err := gTestEnv.KubeInt.CoreV1().Namespaces().List(context.TODO(), metav1.ListOptions{})
+	if err == nil {
+		for _, ns := range nameSpaces.Items {
+			if strings.HasPrefix(ns.Name, NSE2EPrefix) || ns.Name == NSDefault {
+				tmp, err := DeleteAllPods(ns.Name)
+				if err != nil {
+					errs = append(errs, err)
+				}
+				podCount += tmp
+				tmp, err = DeleteAllPvcs(ns.Name)
+				if err != nil {
+					errs = append(errs, err)
+				}
+				pvcCount += tmp
+			}
+		}
+	} else {
+		errs = append(errs, err)
+	}
+
+	pvCount, err := DeleteAllPvs()
+	if err != nil {
+		errs = append(errs, err)
+	}
+	msvCount, err := DeleteAllMsvs()
+	if err != nil {
+		errs = append(errs, err)
+	}
 	// Pools should not have finalizers if there are no associated volume resources.
 	poolFinalizerDeleted, delPoolFinalizeErr := DeleteAllPoolFinalizers()
 
@@ -333,16 +364,13 @@ func CleanUp() bool {
 		"pvcCount", pvcCount,
 		"pvCount", pvCount,
 		"msvCount", msvCount,
-		"delPodsErr", delPodsErr,
-		"delPvcErr", delPvcErr,
-		"delPvErr", delPvErr,
-		"delMsvErr", delMsvErr,
+		"err", errs,
 		"poolFinalizerDeleted", poolFinalizerDeleted,
 		"delPoolFinalizeErr", delPoolFinalizeErr,
 	)
 
-	scList, delScErr := gTestEnv.KubeInt.StorageV1().StorageClasses().List(context.TODO(), metav1.ListOptions{})
-	if delScErr == nil {
+	scList, err := gTestEnv.KubeInt.StorageV1().StorageClasses().List(context.TODO(), metav1.ListOptions{})
+	if err == nil {
 		for _, sc := range scList.Items {
 			if sc.Provisioner == "io.openebs.csi-mayastor" && sc.Name != "mayastor-iscsi" && sc.Name != "mayastor-nvmf" {
 				logf.Log.Info("Deleting", "storageClass", sc.Name)
@@ -350,11 +378,23 @@ func CleanUp() bool {
 			}
 		}
 	} else {
-		logf.Log.Info("Error listing storage classes", "error", delScErr)
+		errs = append(errs, err)
 	}
 
-	//TODO: tidy up namespaces?
+	for _, ns := range nameSpaces.Items {
+		if strings.HasPrefix(ns.Name, NSE2EPrefix) {
+			err = RmNamespace(ns.Name)
+			if err != nil {
+				errs = append(errs, err)
+			}
+		}
+	}
+
+	// log all the errors
+	for _, err := range errs {
+		logf.Log.Info("", "error", err)
+	}
 
 	// For now ignore delMsvErr, until we figure out how to ignore "no resource of this type" errors
-	return (podCount+pvcCount+pvCount+msvCount) == 0 && delPodsErr == nil && delPvcErr == nil && delPvErr == nil && delPoolFinalizeErr == nil
+	return (podCount+pvcCount+pvCount+msvCount) == 0 && len(errs) == 0
 }
