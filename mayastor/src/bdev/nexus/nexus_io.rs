@@ -27,7 +27,6 @@ use crate::{
         Reason,
     },
     core::{Bdev, Cores, GenericStatusCode, Mthread, NvmeStatus, Reactors},
-    nexus_uri::bdev_destroy,
 };
 
 /// NioCtx provides context on a per IO basis
@@ -333,18 +332,16 @@ impl Bio {
                         child,
                     );
 
-                    let uri = child.name.clone();
                     nexus.pause().await.unwrap();
                     nexus.reconfigure(DrEvent::ChildFault).await;
-                    //nexus.remove_child(&uri).await.unwrap();
 
                     // Note, an error can occur here if a separate task,
                     // e.g. grpc request is also deleting the child,
                     // in which case the bdev may no longer exist at
                     // this point. To be addressed by CAS-632 to
                     // improve synchronization.
-                    if let Err(err) = bdev_destroy(&uri).await {
-                        error!("{} destroying bdev {}", err, uri)
+                    if let Err(err) = child.destroy().await {
+                        error!("{} destroying child {}", err, child);
                     }
 
                     nexus.resume().await.unwrap();
