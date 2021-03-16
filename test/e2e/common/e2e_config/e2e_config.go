@@ -14,9 +14,9 @@ import (
 // E2EConfig is a application configuration structure
 type E2EConfig struct {
 	// Operational parameters
-	Cores         int      `yaml:"cores,omitempty"`
+	Cores int `yaml:"cores,omitempty"`
 	// Registry from where mayastor images are retrieved
-	Registry      string   `yaml:"registry" env:"e2e_docker_registry" env-default:"ci-registry.mayastor-ci.mayadata.io"`
+	Registry string `yaml:"registry" env:"e2e_docker_registry" env-default:"ci-registry.mayastor-ci.mayadata.io"`
 	// Registry from where CI testing images are retrieved
 	CIRegistry    string   `yaml:"ciRegistry" env:"e2e_ci_docker_registry" env-default:"ci-registry.mayastor-ci.mayadata.io"`
 	ImageTag      string   `yaml:"imageTag" env:"e2e_image_tag" env-default:"ci"`
@@ -29,16 +29,22 @@ type E2EConfig struct {
 		CrudCycles int `yaml:"crudCycles" env-default:"20"`
 	} `yaml:"pvcStress"`
 	IOSoakTest struct {
-		Replicas         int      `yaml:"replicas" env-default:"2"`
-		Duration         string   `yaml:"duration" env-default:"10m"`
-		LoadFactor       int      `yaml:"loadFactor" env-default:"10"`
-		Protocols        []string `yaml:"protocols" env-default:"nvmf,iscsi"`
-		FioStartDelay    int      `yaml:"fioStartDelay" env-default:"60"`
-		Disrupt          struct {
-			PodCount   int `yaml:"podCount" env-default:"3"`
+		Replicas int    `yaml:"replicas" env-default:"2"`
+		Duration string `yaml:"duration" env-default:"10m"`
+		// Number of volumes for each mayastor instance
+		// volumes for disruptor pods are allocated from within this "pool"
+		LoadFactor int      `yaml:"loadFactor" env-default:"20"`
+		Protocols  []string `yaml:"protocols" env-default:"nvmf"`
+		// FioStartDelay units are seconds
+		FioStartDelay int `yaml:"fioStartDelay" env-default:"60"`
+		Disrupt       struct {
+			// Number of disruptor pods.
+			PodCount int `yaml:"podCount" env-default:"3"`
+			// FaultAfter units are seconds
 			FaultAfter int `yaml:"faultAfter" env-default:"45"`
 		} `yaml:"disrupt"`
 		FioDutyCycles []struct {
+			// ThinkTime units are microseconds
 			ThinkTime       int `yaml:"thinkTime"`
 			ThinkTimeBlocks int `yaml:"thinkTimeBlocks"`
 		} `yaml:"fioDutyCycles"`

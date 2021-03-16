@@ -6,14 +6,19 @@ pvcstress:
 ioSoakTest:
   replicas: 1
   duration: 10m
+  # loadFactor is number of volumes for each mayastor instance
+  # volumes for disruptor pods are allocated from within this "pool"
   loadFactor: 21
   protocols:
   - nvmf
-# - iscsi
   disrupt:
+    # Number of disruptor pods
     podCount: 5
+    # faultAfter units are seconds
     faultAfter: 51
+  # fioStartDelay units are seconds
   fioStartDelay: 90
+  # thinkTime units are microseconds
   fioDutyCycles:
   - thinkTime: 500000
     thinkTimeBlocks: 1000
