@@ -379,7 +379,6 @@ func CleanUp() bool {
 		errs = append(errs, err)
 	}
 
-	//tidy up namespaces?
 	for _, ns := range nameSpaces.Items {
 		if strings.HasPrefix(ns.Name, NSE2EPrefix) {
 			err = RmNamespace(ns.Name)

@@ -297,7 +297,7 @@ func GetNexusState(uuid string) (string, error) {
 // A volume is published if the "targetNodes" field exists in the MSV.
 func IsVolumePublished(uuid string) bool {
 	_, err := getMsvFieldValue(uuid, "status", "targetNodes")
-	return err != nil
+	return err == nil
 }
 
 func CheckForMSVs() (bool, error) {
