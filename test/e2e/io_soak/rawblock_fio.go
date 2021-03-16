@@ -17,6 +17,7 @@ type FioRawBlockSoakJob struct {
 	scName  string
 	podName string
 	id      int
+	duration int
 }
 
 func (job FioRawBlockSoakJob) makeVolume() {
@@ -30,6 +31,23 @@ func (job FioRawBlockSoakJob) removeVolume() {
 func (job FioRawBlockSoakJob) makeTestPod(selector map[string]string) (*coreV1.Pod, error) {
 	pod := common.CreateFioPodDef(job.podName, job.volName, common.VolRawBlock, common.NSDefault)
 	pod.Spec.NodeSelector = selector
+
+	e2eCfg := e2e_config.GetConfig()
+	image := "" + e2eCfg.CIRegistry + "/mayastor/e2e-fio"
+	pod.Spec.Containers[0].Image = image
+
+	args := []string{
+		"--",
+		fmt.Sprintf("--startdelay=%d",e2eCfg.IOSoakTest.FioStartDelay),
+		"--time_based",
+		fmt.Sprintf("--runtime=%d", job.duration),
+		fmt.Sprintf("--filename=%s", common.FioBlockFilename),
+		fmt.Sprintf("--thinktime=%d", GetThinkTime(job.id)),
+		fmt.Sprintf("--thinktime_blocks=%d", GetThinkTimeBlocks(job.id)),
+	}
+	args = append(args, FioArgs...)
+	pod.Spec.Containers[0].Args = args
+
 	pod, err := common.CreatePod(pod, common.NSDefault)
 	return pod, err
 }
@@ -38,42 +56,17 @@ func (job FioRawBlockSoakJob) removeTestPod() error {
 	return common.DeletePod(job.podName, common.NSDefault)
 }
 
-func (job FioRawBlockSoakJob) run(duration time.Duration, doneC chan<- string, errC chan<- error) {
-	thinkTime := 1 // 1 microsecond
-	thinkTimeBlocks := 1000
-
-	FioDutyCycles := e2e_config.GetConfig().IOSoakTest.FioDutyCycles
-	if len(FioDutyCycles) != 0 {
-		ixp := job.id % len(FioDutyCycles)
-		thinkTime = FioDutyCycles[ixp].ThinkTime
-		thinkTimeBlocks = FioDutyCycles[ixp].ThinkTimeBlocks
-	}
-
-	RunIoSoakFio(
-		job.podName,
-		duration,
-		thinkTime,
-		thinkTimeBlocks,
-		true,
-		doneC,
-		errC,
-	)
-}
-
 func (job FioRawBlockSoakJob) getPodName() string {
 	return job.podName
 }
 
-func (job FioRawBlockSoakJob) getId() int {
-	return job.id
-}
-
-func MakeFioRawBlockJob(scName string, id int) FioRawBlockSoakJob {
+func MakeFioRawBlockJob(scName string, id int, duration time.Duration ) FioRawBlockSoakJob {
 	nm := fmt.Sprintf("fio-rawblock-%s-%d", scName, id)
 	return FioRawBlockSoakJob{
 		volName: nm,
 		scName:  scName,
 		podName: nm,
 		id:      id,
+		duration: int(duration.Seconds()),
 	}
 }

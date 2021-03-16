@@ -15,7 +15,10 @@ import (
 type E2EConfig struct {
 	// Operational parameters
 	Cores         int      `yaml:"cores,omitempty"`
+	// Registry from where mayastor images are retrieved
 	Registry      string   `yaml:"registry" env:"e2e_docker_registry" env-default:"ci-registry.mayastor-ci.mayadata.io"`
+	// Registry from where CI testing images are retrieved
+	CIRegistry    string   `yaml:"ciRegistry" env:"e2e_ci_docker_registry" env-default:"ci-registry.mayastor-ci.mayadata.io"`
 	ImageTag      string   `yaml:"imageTag" env:"e2e_image_tag" env-default:"ci"`
 	PoolDevice    string   `yaml:"poolDevice" env:"e2e_pool_device"`
 	PoolYamlFiles []string `yaml:"poolYamlFiles" env:"e2e_pool_yaml_files"`
@@ -30,7 +33,7 @@ type E2EConfig struct {
 		Duration         string   `yaml:"duration" env-default:"10m"`
 		LoadFactor       int      `yaml:"loadFactor" env-default:"10"`
 		Protocols        []string `yaml:"protocols" env-default:"nvmf,iscsi"`
-		FioFixedDuration int      `yaml:"fioFixedDuration" env-default:"60"`
+		FioStartDelay    int      `yaml:"fioStartDelay" env-default:"60"`
 		Disrupt          struct {
 			PodCount   int `yaml:"podCount" env-default:"3"`
 			FaultAfter int `yaml:"faultAfter" env-default:"45"`
