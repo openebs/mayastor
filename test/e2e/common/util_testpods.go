@@ -200,3 +200,12 @@ func CheckTestPodsHealth(namespace string) error {
 	}
 	return nil
 }
+
+func CheckPodCompleted(podName string, nameSpace string) (corev1.PodPhase, error) {
+	podApi := gTestEnv.KubeInt.CoreV1().Pods
+	pod, err := podApi(nameSpace).Get(context.TODO(), podName, metav1.GetOptions{})
+	if err != nil {
+		return corev1.PodUnknown, err
+	}
+	return pod.Status.Phase, err
+}

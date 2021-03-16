@@ -5,6 +5,7 @@ package io_soak
 import (
 	"e2e-basic/common"
 	"e2e-basic/common/e2e_config"
+	corev1 "k8s.io/api/core/v1"
 
 	"fmt"
 	"sort"
@@ -14,27 +15,8 @@ import (
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	coreV1 "k8s.io/api/core/v1"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
-
-var defTimeoutSecs = "120s"
-
-type IoSoakJob interface {
-	makeVolume()
-	makeTestPod(map[string]string) (*coreV1.Pod, error)
-	removeTestPod() error
-	removeVolume()
-	run(time.Duration, chan<- string, chan<- error)
-	getPodName() string
-}
-
-const NodeSelectorKey = "e2e-io-soak"
-const NodeSelectorAppValue = "e2e-app"
-
-var AppNodeSelector = map[string]string{
-	NodeSelectorKey: NodeSelectorAppValue,
-}
 
 var scNames []string
 var jobs []IoSoakJob
@@ -44,29 +26,82 @@ func TestIOSoak(t *testing.T) {
 	common.InitTesting(t, "IO soak test, NVMe-oF TCP and iSCSI", "io-soak")
 }
 
-func monitor(errC chan<- error) {
-	logf.Log.Info("IOSoakTest monitor, checking mayastor and test pods")
-	for {
-		time.Sleep(30 * time.Second)
-		err := common.CheckTestPodsHealth(common.NSMayastor)
+func monitor() error {
+	var err error
+	var failedJobs []string
+	activeJobMap := make(map[string]IoSoakJob)
+	for _, job := range jobs {
+		activeJobMap[job.getPodName()] = job
+	}
+
+	podsSucceeded := 0
+	podsFailed := 0
+
+	logf.Log.Info("IOSoakTest monitor, checking mayastor and test pods", "jobCount", len(activeJobMap))
+	for ; len(activeJobMap) !=0 && len(failedJobs) == 0; {
+		time.Sleep(29 * time.Second)
+		err = common.CheckTestPodsHealth(common.NSMayastor)
 		if err != nil {
 			logf.Log.Info("IOSoakTest monitor", "namespace", common.NSMayastor, "error", err)
-			errC <- err
 			break
 		}
 		err = common.CheckTestPodsHealth(common.NSDefault)
 		if err != nil {
 			logf.Log.Info("IOSoakTest monitor", "namespace", common.NSDefault, "error", err)
-			errC <- err
 			break
 		}
+
+		podNames := make([]string, len(activeJobMap))
+		{
+			ix := 0
+			for k := range activeJobMap {
+				podNames[ix] = k
+				ix += 1
+			}
+		}
+
+		podsRunning := 0
+
+		for _, podName := range podNames {
+			res,err := common.CheckPodCompleted(podName, common.NSDefault)
+			if err != nil {
+				logf.Log.Info("Failed to access pod status", "podName", podName, "error", err)
+				break
+			} else {
+				switch res  {
+				case corev1.PodPending:
+					logf.Log.Info("Unexpected! pod status pending", "podName", podName)
+				case corev1.PodRunning:
+					podsRunning += 1
+				case corev1.PodSucceeded:
+					logf.Log.Info("Pod completed successfully", "podName", podName)
+					delete(activeJobMap, podName)
+					podsSucceeded += 1
+				case corev1.PodFailed:
+					logf.Log.Info("Pod completed with failures", "podName", podName)
+					delete(activeJobMap, podName)
+					failedJobs = append(failedJobs, podName)
+					podsFailed += 1
+				case corev1.PodUnknown:
+					logf.Log.Info("Unexpected! pod status is unknown", "podName", podName)
+				}
+			}
+		}
+		logf.Log.Info("IO Soak test pods",
+			"Running", podsRunning, "Succeeded", podsSucceeded, "Failed", podsFailed,
+			)
 	}
+
+	if err == nil && len(failedJobs) != 0 {
+		err = fmt.Errorf("failed jobs %v", failedJobs)
+	}
+	return err
 }
 
 /// proto - protocol "nvmf" or "isci"
 /// replicas - number of replicas for each volume
 /// loadFactor - number of volumes for each mayastor instance
-func IOSoakTest(protocols []common.ShareProto, replicas int, loadFactor int, duration time.Duration) {
+func IOSoakTest(protocols []common.ShareProto, replicas int, loadFactor int, duration time.Duration, disruptorCount int) {
 	nodeList, err := common.GetNodeLocs()
 	Expect(err).ToNot(HaveOccurred())
 
@@ -83,6 +118,8 @@ func IOSoakTest(protocols []common.ShareProto, replicas int, loadFactor int, dur
 			nodes = append(nodes, node.NodeName)
 		}
 	}
+
+	jobCount -= disruptorCount
 
 	for i, node := range nodes {
 		if i%2 == 0 {
@@ -109,14 +146,14 @@ func IOSoakTest(protocols []common.ShareProto, replicas int, loadFactor int, dur
 				break
 			}
 			logf.Log.Info("Creating", "job", "fio filesystem job", "id", idx)
-			jobs = append(jobs, MakeFioFsJob(scName, idx))
+			jobs = append(jobs, MakeFioFsJob(scName, idx, duration))
 			idx++
 
 			if idx > jobCount {
 				break
 			}
 			logf.Log.Info("Creating", "job", "fio raw block job", "id", idx)
-			jobs = append(jobs, MakeFioRawBlockJob(scName, idx))
+			jobs = append(jobs, MakeFioRawBlockJob(scName, idx, duration))
 			idx++
 		}
 	}
@@ -127,6 +164,10 @@ func IOSoakTest(protocols []common.ShareProto, replicas int, loadFactor int, dur
 		job.makeVolume()
 	}
 
+	logf.Log.Info("Starting disruptor pods")
+	DisruptorsInit(protocols, replicas)
+	MakeDisruptors()
+
 	logf.Log.Info("Creating test pods")
 	// Create the job test pods
 	for _, job := range jobs {
@@ -135,40 +176,41 @@ func IOSoakTest(protocols []common.ShareProto, replicas int, loadFactor int, dur
 		Expect(pod).ToNot(BeNil())
 	}
 
-	logf.Log.Info("Waiting for test pods to be ready")
+	// Empirically allocated PodReadyTime seconds for each pod to transition to ready
+	timeoutSecs := PodReadyTime * len(jobs)
+	if timeoutSecs < 60 {
+		timeoutSecs = 60
+	}
+	logf.Log.Info("Waiting for test pods to be ready", "timeout seconds", timeoutSecs, "jobCount", len(jobs))
+
 	// Wait for the test pods to be ready
-	for _, job := range jobs {
-		// Wait for the test Pod to transition to running
-		Eventually(func() bool {
-			return common.IsPodRunning(job.getPodName(), common.NSDefault)
-		},
-			defTimeoutSecs,
-			"1s",
-		).Should(Equal(true))
-	}
-
-	logf.Log.Info("Starting test execution in all test pods")
-	// Run the test jobs
-	doneC, errC := make(chan string), make(chan error)
-	go monitor(errC)
-	for _, job := range jobs {
-		go job.run(duration, doneC, errC)
-	}
-
-	logf.Log.Info("Waiting for test execution to complete on all test pods")
-	// Wait and check that all test pods have executed successfully
-	for range jobs {
-		select {
-		case podName := <-doneC:
-			logf.Log.Info("Completed", "pod", podName)
-		case err := <-errC:
-			close(doneC)
-			logf.Log.Info("fio run error", "error", err)
-			Expect(err).To(BeNil())
+	allReady := false
+	for to:=0; to< timeoutSecs && !allReady; to+=1 {
+		time.Sleep(1* time.Second)
+		allReady = true
+		readyCount := 0
+		for _, job := range jobs {
+			ready := common.IsPodRunning(job.getPodName(), common.NSDefault); if ready {
+				readyCount += 1
+			}
+			allReady = allReady && ready
+		}
+		if to % 10 == 0 {
+			logf.Log.Info("Test pods", "ready", readyCount, "expected", len(jobs))
 		}
 	}
 
+	logf.Log.Info("Test pods", "all ready", allReady)
+	Expect(allReady).To(BeTrue(), "Timeout waiting to jobs to be ready")
+
+	logf.Log.Info("Waiting for test execution to complete on all test pods")
+	err = monitor()
+	Expect(err).To(BeNil(), "Failed runs")
+
 	logf.Log.Info("All runs complete, deleting test pods")
+	DestroyDisruptors()
+	DisruptorsDeinit()
+
 	for _, job := range jobs {
 		err := job.removeTestPod()
 		Expect(err).ToNot(HaveOccurred())
@@ -203,17 +245,22 @@ var _ = Describe("Mayastor Volume IO soak test", func() {
 
 	It("should verify mayastor can process IO on multiple volumes simultaneously using NVMe-oF TCP", func() {
 		e2eCfg := e2e_config.GetConfig()
+		logf.Log.Info("IO soak test", "parameters", e2eCfg.IOSoakTest)
 		loadFactor := e2eCfg.IOSoakTest.LoadFactor
 		replicas := e2eCfg.IOSoakTest.Replicas
 		strProtocols := e2eCfg.IOSoakTest.Protocols
+		disruptorCount := e2eCfg.IOSoakTest.Disrupt.PodCount
 		var protocols []common.ShareProto
 		for _, proto := range strProtocols {
 			protocols = append(protocols, common.ShareProto(proto))
 		}
 		duration, err := time.ParseDuration(e2eCfg.IOSoakTest.Duration)
 		Expect(err).ToNot(HaveOccurred(), "Duration configuration string format is invalid.")
-		logf.Log.Info("Parameters", "replicas", replicas, "loadFactor", loadFactor, "duration", duration)
-		IOSoakTest(protocols, replicas, loadFactor, duration)
+		logf.Log.Info("Parameters",
+			"replicas", replicas, "loadFactor", loadFactor,
+			"duration", duration,
+			"disrupt", e2eCfg.IOSoakTest.Disrupt)
+		IOSoakTest(protocols, replicas, loadFactor, duration, disruptorCount)
 	})
 })
 
