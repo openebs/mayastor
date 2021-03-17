@@ -1,4 +1,4 @@
-package ms_pod_disruption_lib
+package ms_pod_disruption
 
 import (
 	"e2e-basic/common"
@@ -21,13 +21,12 @@ const (
 )
 
 type DisruptionEnv struct {
-	replicaToRemove  string
-	allMayastorNodes []string
-	unusedNodes      []string
-	uuid             string
-	volToDelete      string
-	storageClass     string
-	fioPodName       string
+	replicaToRemove string
+	unusedNodes     []string
+	uuid            string
+	volToDelete     string
+	storageClass    string
+	fioPodName      string
 }
 
 // prevent mayastor pod from running on the given node
@@ -53,43 +52,54 @@ func (env *DisruptionEnv) UnsuppressMayastorPod() {
 	}
 }
 
-// return the node of the replica to remove, the nodes in the
-// volume and a vector of the mayastor-hosting nodes in the cluster
-func getNodes(uuid string) (string, []string, []string) {
+// return the node of the replica to remove,
+// and a vector of the mayastor nodes not in the volume
+func getNodes(uuid string) (string, []string) {
 	nodeList, err := common.GetNodeLocs()
 	Expect(err).ToNot(HaveOccurred())
 
-	var replicaToRemove = ""
-	nexusNode, replicaNodes := common.GetMsvNodes(uuid)
-	Expect(nexusNode).NotTo(Equal(""))
+	nexus, replicaNodes := common.GetMsvNodes(uuid)
+	Expect(nexus).NotTo(Equal(""))
 
+	toRemove := ""
 	// find a node which is not the nexus and is a replica
 	for _, node := range replicaNodes {
-		if node != nexusNode {
-			replicaToRemove = node
+		if node != nexus {
+			toRemove = node
 			break
 		}
 	}
-	Expect(replicaToRemove).NotTo(Equal(""))
+	Expect(toRemove).NotTo(Equal(""))
 
-	// get a list of all of the mayastor nodes in the cluster
-	var allMayastorNodes []string
+	// get a list of all of the unused mayastor nodes in the cluster
+	var unusedNodes []string
 	for _, node := range nodeList {
 		if node.MayastorNode {
-			allMayastorNodes = append(allMayastorNodes, node.NodeName)
+			found := false
+			for _, repnode := range replicaNodes {
+				if repnode == node.NodeName {
+					found = true
+					break
+				}
+			}
+			if !found {
+				unusedNodes = append(unusedNodes, node.NodeName)
+			}
 		}
 	}
-	logf.Log.Info("identified nodes", "nexus", nexusNode, "node of replica to remove", replicaToRemove)
-	return replicaToRemove, replicaNodes, allMayastorNodes
+	// we need at least 1 spare node to re-enable to allow the volume to become healthy again
+	Expect(len(unusedNodes)).NotTo(Equal(0))
+	logf.Log.Info("identified nodes", "nexus", nexus, "node of replica to remove", toRemove)
+	return toRemove, unusedNodes
 }
 
 // Run fio against the cluster while a replica mayastor pod is unscheduled and then rescheduled
+// TODO - run fio without a break
+// TODO - disable the replica on the nexus node
 func (env *DisruptionEnv) PodLossTest() {
-	Expect(len(env.allMayastorNodes)).To(BeNumerically(">=", 2)) // must support >= 2 replicas
-
-	// disable mayastor on the spare nodes so that moac cannot assign
-	// them to the volume to replace the faulted one. We want to keep
-	// the volume degraded before restoring the suppressed node.
+	// Disable mayastor on the spare nodes so that moac initially cannot
+	// assign one to the volume to replace the faulted one. We want to make
+	// the volume degraded long enough for the test to detect it.
 	for _, node := range env.unusedNodes {
 		logf.Log.Info("suppressing mayastor on unused node", "node", node)
 		SuppressMayastorPodOn(node)
@@ -114,9 +124,11 @@ func (env *DisruptionEnv) PodLossTest() {
 	_, err := common.RunFio(env.fioPodName, 20, common.FioFsFilename, common.DefaultFioSizeMb)
 	Expect(err).ToNot(HaveOccurred())
 
-	logf.Log.Info("enabling mayastor pod", "node", env.replicaToRemove)
-	env.UnsuppressMayastorPod()
-
+	// re-enable mayastor on all unused nodes
+	for _, node := range env.unusedNodes {
+		logf.Log.Info("suppressing mayastor on unused node", "node", node)
+		UnsuppressMayastorPodOn(node)
+	}
 	logf.Log.Info("waiting for the volume to be repaired", "timeout", repairTimeoutSecs)
 	Eventually(func() string {
 		logf.Log.Info("running fio while volume is being repaired")
@@ -133,6 +145,9 @@ func (env *DisruptionEnv) PodLossTest() {
 	logf.Log.Info("running fio against the repaired volume")
 	_, err = common.RunFio(env.fioPodName, 20, common.FioFsFilename, common.DefaultFioSizeMb)
 	Expect(err).ToNot(HaveOccurred())
+
+	logf.Log.Info("enabling mayastor pod", "node", env.replicaToRemove)
+	UnsuppressMayastorPodOn(env.replicaToRemove)
 }
 
 // Common steps required when setting up the test.
@@ -158,22 +173,7 @@ func Setup(pvcName string, storageClassName string, fioPodName string) Disruptio
 		"1s",           // polling interval
 	).Should(Equal(true))
 
-	var replicaNodes []string
-	env.replicaToRemove, replicaNodes, env.allMayastorNodes = getNodes(env.uuid)
-
-	// Identify mayastor nodes not currently part of the volume
-	for _, node := range env.allMayastorNodes {
-		unused := true
-		for _, replica := range replicaNodes {
-			if node == replica { // part of the current volume
-				unused = false
-				break
-			}
-		}
-		if unused {
-			env.unusedNodes = append(env.unusedNodes, node)
-		}
-	}
+	env.replicaToRemove, env.unusedNodes = getNodes(env.uuid)
 	return env
 }
 
