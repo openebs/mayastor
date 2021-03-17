@@ -3,7 +3,7 @@ package replica_pod_remove_test
 import (
 	"e2e-basic/common"
 
-	disconnect_lib "e2e-basic/node_disconnect/lib"
+	disruption_lib "e2e-basic/ms_pod_disruption/lib"
 
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
@@ -13,7 +13,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var env disconnect_lib.DisconnectEnv
+var env disruption_lib.DisruptionEnv
 
 const gStorageClass = "mayastor-nvmf-pod-remove-test-sc"
 
@@ -25,7 +25,6 @@ func TestMayastorPodLoss(t *testing.T) {
 var _ = Describe("Mayastor replica pod removal test", func() {
 	AfterEach(func() {
 		logf.Log.Info("AfterEach")
-		env.Teardown() // removes fio pod and volume
 		err := common.RmStorageClass(gStorageClass)
 		Expect(err).ToNot(HaveOccurred())
 
@@ -37,8 +36,9 @@ var _ = Describe("Mayastor replica pod removal test", func() {
 	It("should verify nvmf nexus behaviour when a mayastor pod is removed", func() {
 		err := common.MkStorageClass(gStorageClass, 2, common.ShareProtoNvmf, common.NSDefault)
 		Expect(err).ToNot(HaveOccurred())
-		env = disconnect_lib.Setup("loss-test-pvc-nvmf", gStorageClass, "fio-pod-remove-test")
+		env = disruption_lib.Setup("loss-test-pvc-nvmf", gStorageClass, "fio-pod-remove-test")
 		env.PodLossTest()
+		env.Teardown() // removes fio pod and volume
 	})
 })
 

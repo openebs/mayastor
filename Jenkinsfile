@@ -17,7 +17,7 @@ xray_continuous_testplan='MQ-33'
 xray_test_execution_type='10059'
 
 // if e2e run does not build its own images, which tag to use when pulling
-e2e_continuous_image_tag='v0.7.1'
+e2e_continuous_image_tag='v0.8.0'
 
 // Searches previous builds to find first non aborted one
 def getLastNonAbortedBuild(build) {
@@ -84,7 +84,7 @@ def notifySlackUponStateChange(build) {
   }
 }
 def notifySlackUponE2EFailure(build) {
-  if (build.getResult() != 'SUCCESS') {
+  if (build.getResult() != 'SUCCESS' && env.BRANCH_NAME == 'develop') {
     slackSend(
       channel: '#mayastor-backend',
       color: 'danger',
