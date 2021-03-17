@@ -16,9 +16,9 @@ import (
 )
 
 //  These variables match the settings used in createFioPodDef
-var FioFsMountPoint = "/volume"
-var FioBlockFilename = "/dev/sdm"
-var FioFsFilename = FioFsMountPoint + "/fiotestfile"
+const FioFsMountPoint = "/volume"
+const FioBlockFilename = "/dev/sdm"
+const FioFsFilename = FioFsMountPoint + "/fiotestfile"
 
 // FIXME: this function runs fio with a bunch of parameters which are not configurable.
 // sizeMb should be 0 for fio to use the entire block device
@@ -118,7 +118,7 @@ func CreateFioPodDef(podName string, volName string, volType VolumeType, nameSpa
 			Containers: []corev1.Container{
 				{
 					Name:  podName,
-					Image: "dmonakhov/alpine-fio",
+					Image: "mayadata/e2e-fio",
 					Args:  []string{"sleep", "1000000"},
 				},
 			},
@@ -145,7 +145,7 @@ func CreateFioPodDef(podName string, volName string, volType VolumeType, nameSpa
 /// Create a test fio pod in default namespace, no options and no context
 /// mayastor volume is mounted on /volume
 func CreateFioPod(podName string, volName string, volType VolumeType, nameSpace string) (*corev1.Pod, error) {
-	logf.Log.Info("Creating fio pod definition", "name", podName, "volume type", "filesystem")
+	logf.Log.Info("Creating fio pod definition", "name", podName, "volume type", volType)
 	podDef := CreateFioPodDef(podName, volName, volType, nameSpace)
 	return CreatePod(podDef, NSDefault)
 }

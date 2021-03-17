@@ -39,5 +39,6 @@ var FioArgs = []string{
 	"--verify=crc32",
 	"--verify_fatal=1",
 	"--verify_async=2",
-	"--status-interval=51",
+	"--status-interval=120",
+	"--output-format=terse",
 }

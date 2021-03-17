@@ -38,16 +38,30 @@ func monitor() error {
 	podsFailed := 0
 
 	logf.Log.Info("IOSoakTest monitor, checking mayastor and test pods", "jobCount", len(activeJobMap))
-	for ; len(activeJobMap) !=0 && len(failedJobs) == 0; {
-		time.Sleep(29 * time.Second)
+	for ix := 0; len(activeJobMap) != 0 && len(failedJobs) == 0; ix += 1 {
+		time.Sleep(1 * time.Second)
+
 		err = common.CheckTestPodsHealth(common.NSMayastor)
 		if err != nil {
 			logf.Log.Info("IOSoakTest monitor", "namespace", common.NSMayastor, "error", err)
 			break
 		}
+
 		err = common.CheckTestPodsHealth(common.NSDefault)
 		if err != nil {
 			logf.Log.Info("IOSoakTest monitor", "namespace", common.NSDefault, "error", err)
+			break
+		}
+
+		err = common.CheckAllMsvsAreHealthy()
+		if err != nil {
+			logf.Log.Info("IOSoakTest monitor Mayastor volumes check", "error", err)
+			break
+		}
+
+		err = common.CheckAllPoolsAreOnline()
+		if err != nil {
+			logf.Log.Info("IOSoakTest monitor Mayastor pools check", "error", err)
 			break
 		}
 
@@ -63,12 +77,12 @@ func monitor() error {
 		podsRunning := 0
 
 		for _, podName := range podNames {
-			res,err := common.CheckPodCompleted(podName, common.NSDefault)
+			res, err := common.CheckPodCompleted(podName, common.NSDefault)
 			if err != nil {
 				logf.Log.Info("Failed to access pod status", "podName", podName, "error", err)
 				break
 			} else {
-				switch res  {
+				switch res {
 				case corev1.PodPending:
 					logf.Log.Info("Unexpected! pod status pending", "podName", podName)
 				case corev1.PodRunning:
@@ -87,9 +101,12 @@ func monitor() error {
 				}
 			}
 		}
-		logf.Log.Info("IO Soak test pods",
-			"Running", podsRunning, "Succeeded", podsSucceeded, "Failed", podsFailed,
+
+		if ix%30 == 0 {
+			logf.Log.Info("IO Soak test pods",
+				"Running", podsRunning, "Succeeded", podsSucceeded, "Failed", podsFailed,
 			)
+		}
 	}
 
 	if err == nil && len(failedJobs) != 0 {
@@ -103,6 +120,9 @@ func monitor() error {
 /// loadFactor - number of volumes for each mayastor instance
 func IOSoakTest(protocols []common.ShareProto, replicas int, loadFactor int, duration time.Duration, disruptorCount int) {
 	nodeList, err := common.GetNodeLocs()
+	Expect(err).ToNot(HaveOccurred())
+
+	err = common.CheckAllPoolsAreOnline()
 	Expect(err).ToNot(HaveOccurred())
 
 	var nodes []string
@@ -185,17 +205,18 @@ func IOSoakTest(protocols []common.ShareProto, replicas int, loadFactor int, dur
 
 	// Wait for the test pods to be ready
 	allReady := false
-	for to:=0; to< timeoutSecs && !allReady; to+=1 {
-		time.Sleep(1* time.Second)
+	for to := 0; to < timeoutSecs && !allReady; to += 1 {
+		time.Sleep(1 * time.Second)
 		allReady = true
 		readyCount := 0
 		for _, job := range jobs {
-			ready := common.IsPodRunning(job.getPodName(), common.NSDefault); if ready {
+			ready := common.IsPodRunning(job.getPodName(), common.NSDefault)
+			if ready {
 				readyCount += 1
 			}
 			allReady = allReady && ready
 		}
-		if to % 10 == 0 {
+		if to%10 == 0 {
 			logf.Log.Info("Test pods", "ready", readyCount, "expected", len(jobs))
 		}
 	}

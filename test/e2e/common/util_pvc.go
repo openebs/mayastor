@@ -10,6 +10,7 @@ import (
 
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
+	storagev1 "k8s.io/api/storage/v1"
 	"k8s.io/apimachinery/pkg/api/resource"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
@@ -97,7 +98,7 @@ func GetPvStatusPhase(volname string) (phase corev1.PersistentVolumePhase) {
 //	2. The associated PV is created and its status transitions bound
 //	3. The associated MV is created and has a State "healthy"
 func MkPVC(volSizeMb int, volName string, scName string, volType VolumeType, nameSpace string) string {
-	logf.Log.Info("Creating", "volume", volName, "storageClass", scName)
+	logf.Log.Info("Creating", "volume", volName, "storageClass", scName, "volume type", volType)
 	volSizeMbStr := fmt.Sprintf("%dMi", volSizeMb)
 	// PVC create options
 	createOpts := &corev1.PersistentVolumeClaim{
@@ -130,6 +131,13 @@ func MkPVC(volSizeMb int, volName string, scName string, volType VolumeType, nam
 	pvc, getPvcErr := PVCApi(nameSpace).Get(context.TODO(), volName, metav1.GetOptions{})
 	Expect(getPvcErr).To(BeNil())
 	Expect(pvc).ToNot(BeNil())
+
+	ScApi := gTestEnv.KubeInt.StorageV1().StorageClasses
+	sc, getScErr := ScApi().Get(context.TODO(), scName, metav1.GetOptions{})
+	Expect(getScErr).To(BeNil())
+	if *sc.VolumeBindingMode == storagev1.VolumeBindingWaitForFirstConsumer {
+		return string(pvc.ObjectMeta.UID)
+	}
 
 	// Wait for the PVC to be bound.
 	Eventually(func() corev1.PersistentVolumeClaimPhase {
