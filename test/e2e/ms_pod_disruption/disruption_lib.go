@@ -2,7 +2,11 @@ package ms_pod_disruption
 
 import (
 	"e2e-basic/common"
+	"fmt"
+	"os/exec"
+	"time"
 
+	corev1 "k8s.io/api/core/v1"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 
 	. "github.com/onsi/gomega"
@@ -93,8 +97,33 @@ func getNodes(uuid string) (string, []string) {
 	return toRemove, unusedNodes
 }
 
+// Deploy fio pod, configured to finish and verify, when the trigger-file is created
+func deployHaltableFio(fioPodName string, pvcName string) {
+	podObj := common.CreateFioPodDef(fioPodName, pvcName, common.VolFileSystem, common.NSDefault)
+
+	args := []string{
+		"--",
+		"--time_based",
+		fmt.Sprintf("--runtime=%d", 6000),
+		fmt.Sprintf("--filename=%s", common.FioFsFilename),
+		fmt.Sprintf("--size=%dm", common.DefaultFioSizeMb),
+		"--trigger-file=/fiostop",
+	}
+	args = append(args, common.GetFioArgs()...)
+	podObj.Spec.Containers[0].Args = args
+
+	_, err := common.CreatePod(podObj, common.NSDefault)
+	Expect(err).ToNot(HaveOccurred())
+}
+
+func haltFio(fioPodName string) {
+	cmd := exec.Command("kubectl", "exec", "-it", fioPodName, "--", "touch", "/fiostop")
+	cmd.Dir = ""
+	out, err := cmd.CombinedOutput()
+	Expect(err).ToNot(HaveOccurred(), "%s", out)
+}
+
 // Run fio against the cluster while a replica mayastor pod is unscheduled and then rescheduled
-// TODO - run fio without a break
 // TODO - disable the replica on the nexus node
 func (env *DisruptionEnv) PodLossTest() {
 	// Disable mayastor on the spare nodes so that moac initially cannot
@@ -109,45 +138,61 @@ func (env *DisruptionEnv) PodLossTest() {
 
 	logf.Log.Info("waiting for pod removal to affect the nexus", "timeout", disconnectionTimeoutSecs)
 	Eventually(func() string {
-		logf.Log.Info("running fio against the volume")
-		_, err := common.RunFio(env.fioPodName, 5, common.FioFsFilename, common.DefaultFioSizeMb)
-		Expect(err).ToNot(HaveOccurred())
-		return common.GetMsvState(env.uuid)
+		volState := common.GetMsvState(env.uuid)
+		logf.Log.Info("checking volume state", "state", volState)
+		return volState
 	},
 		disconnectionTimeoutSecs, // timeout
-		"1s",                     // polling interval
+		"5s",                     // polling interval
 	).Should(Equal("degraded"))
 
 	logf.Log.Info("volume condition", "state", common.GetMsvState(env.uuid))
 
-	logf.Log.Info("running fio against the degraded volume")
-	_, err := common.RunFio(env.fioPodName, 20, common.FioFsFilename, common.DefaultFioSizeMb)
-	Expect(err).ToNot(HaveOccurred())
+	logf.Log.Info("allow fio time to run against the degraded volume")
+	time.Sleep(20 * time.Second)
 
 	// re-enable mayastor on all unused nodes
 	for _, node := range env.unusedNodes {
-		logf.Log.Info("suppressing mayastor on unused node", "node", node)
+		logf.Log.Info("unsuppressing mayastor on unused node", "node", node)
 		UnsuppressMayastorPodOn(node)
 	}
 	logf.Log.Info("waiting for the volume to be repaired", "timeout", repairTimeoutSecs)
 	Eventually(func() string {
-		logf.Log.Info("running fio while volume is being repaired")
-		_, err := common.RunFio(env.fioPodName, 5, common.FioFsFilename, common.DefaultFioSizeMb)
-		Expect(err).ToNot(HaveOccurred())
-		return common.GetMsvState(env.uuid)
+		volState := common.GetMsvState(env.uuid)
+		logf.Log.Info("checking volume state", "state", volState)
+		return volState
 	},
 		repairTimeoutSecs, // timeout
-		"1s",              // polling interval
+		"5s",              // polling interval
 	).Should(Equal("healthy"))
 
-	logf.Log.Info("volume condition", "state", common.GetMsvState(env.uuid))
-
-	logf.Log.Info("running fio against the repaired volume")
-	_, err = common.RunFio(env.fioPodName, 20, common.FioFsFilename, common.DefaultFioSizeMb)
-	Expect(err).ToNot(HaveOccurred())
+	logf.Log.Info("allow fio time to continue running against the repaired volume")
+	time.Sleep(20 * time.Second)
 
 	logf.Log.Info("enabling mayastor pod", "node", env.replicaToRemove)
 	UnsuppressMayastorPodOn(env.replicaToRemove)
+
+	logf.Log.Info("allow fio time to continue running with the restored cluster")
+	time.Sleep(20 * time.Second)
+
+	// the pod should still be running if no errors have occurred
+	res, err := common.CheckPodCompleted(env.fioPodName, common.NSDefault)
+	Expect(err).ToNot(HaveOccurred())
+	Expect(res).To(Equal(corev1.PodRunning))
+
+	logf.Log.Info("halting fio")
+	haltFio(env.fioPodName)
+
+	for i := 0; i < 20; i++ {
+		time.Sleep(1 * time.Second)
+		res, err = common.CheckPodCompleted(env.fioPodName, common.NSDefault)
+		Expect(err).ToNot(HaveOccurred())
+
+		if res != corev1.PodRunning {
+			break
+		}
+	}
+	Expect(res).To(Equal(corev1.PodSucceeded))
 }
 
 // Common steps required when setting up the test.
@@ -160,9 +205,7 @@ func Setup(pvcName string, storageClassName string, fioPodName string) Disruptio
 	env.storageClass = storageClassName
 	env.uuid = common.MkPVC(common.DefaultVolumeSizeMb, pvcName, storageClassName, common.VolFileSystem, common.NSDefault)
 
-	podObj := common.CreateFioPodDef(fioPodName, pvcName, common.VolFileSystem, common.NSDefault)
-	_, err := common.CreatePod(podObj, common.NSDefault)
-	Expect(err).ToNot(HaveOccurred())
+	deployHaltableFio(fioPodName, pvcName)
 
 	env.fioPodName = fioPodName
 	logf.Log.Info("waiting for pod", "name", env.fioPodName)
