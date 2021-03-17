@@ -2,6 +2,7 @@
 // replicas and implements algorithms for volume recovery.
 
 import assert from 'assert';
+import events = require('events');
 import * as _ from 'lodash';
 import { Replica } from './replica';
 import { Child, Nexus, Protocol } from './nexus';
@@ -60,7 +61,8 @@ export class Volume {
   public state: VolumeState;
   private publishedOn: string | undefined;
   // internal properties
-  private emitEvent: (type: string) => void;
+  private emitter: events.EventEmitter;
+  private changeCallbacks: (() => void)[];
   private registry: any;
   private runFsa: number; // number of requests to run FSA
   private nodeBlackList: Record<string, boolean>; // replicas on these nodes should be avoided
@@ -83,7 +85,7 @@ export class Volume {
   constructor(
     uuid: string,
     registry: any,
-    emitEvent: (type: string) => void,
+    emitter: events.EventEmitter,
     spec: any,
     state?: VolumeState,
     size?: number,
@@ -108,7 +110,8 @@ export class Volume {
     // other properties
     this.runFsa = 0;
     this.nodeBlackList = {};
-    this.emitEvent = emitEvent;
+    this.emitter = emitter;
+    this.changeCallbacks = [];
   }
 
   // Stringify volume
@@ -129,11 +132,6 @@ export class Volume {
 
   // Publish the volume. That means, make it accessible through a block device.
   //
-  // NOTE: The function has a couple of async steps that can interfere with
-  // what happens in fsa(). Alternative implementation could be to just call
-  // fsa() and let it do all the work. But then we would need a mechanism to
-  // notify us when the operation is done.
-  //
   // @params protocol      The nexus share protocol.
   // @return uri           The URI to access the nexus.
   async publish(protocol: Protocol): Promise<string> {
@@ -143,57 +141,78 @@ export class Volume {
         'Cannot publish a volume that is neither healthy nor degraded'
       );
     }
-    let nexus = this.nexus;
-    if (!nexus) {
-      // Ensure replicas can be accessed from nexus. Set share protocols.
-      const [nexusNode, replicaSet] = await this._ensureReplicaShareProtocols();
-      nexus = await this._createNexus(nexusNode, replicaSet);
-    } else {
-      log.debug(`Publishing volume ${this} that already has a nexus`)
+
+    // FSA will take care of publishing the nexus
+    this.publishedOn = this._desiredNexusNode(this._activeReplicas()).name;
+    this.fsa();
+
+    let self = this;
+    function waitForPublish(resolve: (val: string) => void, reject: (err: any) => void) {
+      if (!self.publishedOn) {
+        // Before the operation could complete the nexus was unpublished.
+        return reject(new GrpcError(
+          GrpcCode.INTERNAL,
+          'The publish operation was cancelled'
+        ));
+      }
+      if (self.nexus) {
+        let uri = self.nexus.getUri();
+        if (uri) {
+          log.info(`Published "${self}" at ${uri}`);
+          return resolve(uri);
+        }
+      }
+      self._onStateChange(waitForPublish.bind(self, resolve, reject));
     }
-    let uri = nexus.getUri();
-    if (!uri) {
-      uri = await nexus.publish(protocol);
-    } else {
-      log.debug(`Publishing volume ${this} that has been already published`)
-    }
-    this.publishedOn = nexus.node.name;
-    log.info(`Published "${this}" at ${uri}`);
-    this.emitEvent('mod');
-    return uri;
+    return new Promise((resolve, reject) => {
+      waitForPublish(resolve, reject);
+    });
   }
 
   // Undo publish operation on the volume.
   async unpublish() {
-    if (this.publishedOn) {
-      this.publishedOn = undefined;
-      if (this.nexus) {
-        if (this.nexus.getUri()) {
-          try {
-            await this.nexus.unpublish();
-          } catch (err) {
-            log.error(`Defering nexus unpublish for ${this}: ${err}`)
-          }
-        }
-        // it will be destroyed asynchronously by fsa()
+    // FSA will take care of unpublishing the nexus
+    this.publishedOn = undefined;
+    this.fsa();
+
+    let self = this;
+    function waitForUnpublish(resolve: (val: unknown) => void, reject: (err: any) => void) {
+      if (self.publishedOn) {
+        // Before the operation could complete the nexus was published again.
+        return reject(new GrpcError(
+          GrpcCode.INTERNAL,
+          'The unpublish operation was cancelled'
+        ));
       }
-      this.emitEvent('mod');
-      this.fsa();
+      if (!self.nexus || !self.nexus.getUri()) {
+        log.info(`Unpublished "${self}"`);
+        return resolve(undefined);
+      }
+      self._onStateChange(waitForUnpublish.bind(self, resolve, reject));
     }
+    return new Promise((resolve, reject) => {
+      waitForUnpublish(resolve, reject);
+    });
   }
 
   // Delete nexus and destroy all replicas of the volume.
   async destroy() {
+    // FSA will take care of destroying the nexus
     this.publishedOn = undefined;
     this._setState(VolumeState.Destroyed);
-    if (this.nexus) {
-      await this.nexus.destroy();
+    this.fsa();
+
+    let self = this;
+    function waitForDestroy(resolve: (val: unknown) => void, reject: (err: any) => void) {
+      if (!self.nexus && Object.keys(self.replicas).length === 0) {
+        log.info(`Destroyed "${self}"`);
+        return resolve(undefined);
+      }
+      self._onStateChange(waitForDestroy.bind(self, resolve, reject));
     }
-    const promises = Object.values(this.replicas).map((replica) =>
-      replica.destroy()
-    );
-    await Promise.all(promises);
-    this.emitEvent('del');
+    return new Promise((resolve, reject) => {
+      waitForDestroy(resolve, reject);
+    });
   }
 
   // Trigger the run of FSA. It will always run asynchronously to give caller
@@ -223,10 +242,22 @@ export class Volume {
   // data on volume "no matter what".
   async _fsa() {
     // If the volume is being created, FSA should not interfere.
-    if (this.state === VolumeState.Pending || this.state === VolumeState.Destroyed) {
+    if (this.state === VolumeState.Pending) {
       return;
     }
     log.debug(`Volume "${this}" enters FSA in ${this.state} state`);
+
+    if (this.state === VolumeState.Destroyed) {
+      if (this.nexus) {
+        await this.nexus.destroy();
+      }
+      const promises = Object.values(this.replicas).map((replica) =>
+        replica.destroy()
+      );
+      await Promise.all(promises);
+      this._changed('del');
+      return;
+    }
 
     if (!this.nexus) {
       // if none of the replicas is usable then there is nothing we can do
@@ -236,14 +267,18 @@ export class Volume {
       }
     }
 
-    // check that replicas are shared in the way they should be
-    let nexusNode, replicaSet;
-    try {
-      [nexusNode, replicaSet] = await this._ensureReplicaShareProtocols();
-    } catch (err) {
-      log.warn(err.toString());
+    // Unpublish the nexus if it should not be published
+    if (!this.publishedOn && this.nexus && this.nexus.getUri()) {
+      try {
+        await this.nexus.unpublish();
+      } catch (err) {
+        log.error(`Nexus unpublish for ${this} failed: ${err}`);
+      }
       return;
     }
+
+    let replicaSet = this._activeReplicas();
+    let nexusNode = this._desiredNexusNode(replicaSet);
 
     // If we don't have a nexus and we should have one then create it
     if (!this.nexus) {
@@ -252,6 +287,12 @@ export class Volume {
         replicaSet.length !== this.replicaCount
       ) {
         if (nexusNode && nexusNode.isSynced()) {
+          try {
+            await this._ensureReplicaShareProtocols(nexusNode, replicaSet);
+          } catch (err) {
+            log.warn(err.toString());
+            return;
+          }
           try {
             await this._createNexus(nexusNode, replicaSet);
           } catch (err) {
@@ -267,6 +308,14 @@ export class Volume {
         this._setState(VolumeState.Healthy);
       }
       // fsa will get called again when event about created nexus arrives
+      return;
+    }
+
+    // Check that the replicas are shared as they should be
+    try {
+      await this._ensureReplicaShareProtocols(nexusNode, replicaSet);
+    } catch (err) {
+      log.warn(err.toString());
       return;
     }
 
@@ -440,7 +489,7 @@ export class Volume {
         log.warn(`Volume state of "${this}" is ${newState}`);
       }
       this.state = newState;
-      this.emitEvent('mod');
+      this._changed();
     }
   }
 
@@ -462,7 +511,9 @@ export class Volume {
       // create more replicas if higher replication factor is desired
       await this._createReplicas(newReplicaCount);
     }
-    const [nexusNode, replicaSet] = await this._ensureReplicaShareProtocols();
+    let replicaSet = this._activeReplicas();
+    let nexusNode = this._desiredNexusNode(replicaSet);
+    await this._ensureReplicaShareProtocols(nexusNode, replicaSet);
     if (!this.nexus) {
       await this._createNexus(nexusNode, replicaSet);
     }
@@ -613,13 +664,8 @@ export class Volume {
     return score;
   }
 
-  // Share replicas as appropriate to allow access from the nexus.
-  //
-  // @returns Node where nexus should be and list of replicas that should be
-  //          used for the nexus sorted by preference.
-  //
-  async _ensureReplicaShareProtocols(): Promise<[Node, Replica[]]> {
-    // sort replicas and remove replicas that aren't online
+  // Sort replicas according to their value and remove those that aren't online.
+  _activeReplicas(): Replica[] {
     const replicaSet = this
       ._prioritizeReplicas(Object.values(this.replicas))
       .filter((r) => !r.isOffline())
@@ -630,8 +676,13 @@ export class Volume {
         `There are no good replicas for volume "${this}"`
       );
     }
+    return replicaSet;
+  }
 
-    let nexusNode;
+  // Return the node where the nexus for volume is located or where it should
+  // be located if it hasn't been created so far.
+  _desiredNexusNode(replicaSet: Replica[]): Node {
+    let nexusNode: Node | undefined;
     if (this.nexus) {
       nexusNode = this.nexus.node;
     } else if (this.publishedOn) {
@@ -644,7 +695,17 @@ export class Volume {
         .map((r: Replica) => r.pool!.node)
         .sort((a: Node, b: Node) => a.nexus.length - b.nexus.length)[0];
     }
+    if (!nexusNode) {
+      throw new GrpcError(
+        GrpcCode.INTERNAL,
+        `Nexus node for the volume "${this}" cannot be determined`
+      );
+    }
+    return nexusNode;
+  }
 
+  // Share replicas as appropriate to allow access from the nexus.
+  async _ensureReplicaShareProtocols(nexusNode: Node, replicaSet: Replica[]) {
     for (let i = 0; i < replicaSet.length; i++) {
       const replica: Replica = replicaSet[i];
       const replicaNode: Node = replica.pool!.node;
@@ -669,7 +730,6 @@ export class Volume {
         }
       }
     }
-    return [nexusNode, replicaSet];
   }
 
   // Update parameters of the volume.
@@ -730,9 +790,29 @@ export class Volume {
       changed = true;
     }
     if (changed) {
-      this.emitEvent('mod');
+      this._changed();
       this.fsa();
     }
+  }
+
+  // Should be called whenever the state of the volume changes.
+  //
+  // @param [eventType] The eventType is either new, mod or del and be default
+  //                    we assume "mod" which is the most common emitted event.
+  _changed(eventType?: string) {
+    let callbacks = this.changeCallbacks;
+    this.changeCallbacks = [];
+    callbacks.forEach((cb) => cb());
+
+    this.emitter.emit('volume', {
+      eventType: eventType || 'mod',
+      object: this
+    });
+  }
+
+  // Register a callback executed whenever a state of the volume has changed.
+  _onStateChange(cb: () => void) {
+    this.changeCallbacks.push(cb);
   }
 
   //
@@ -741,7 +821,7 @@ export class Volume {
 
   // Add new replica to the volume.
   //
-  // @param {object} replica   New replica object.
+  // @param replica   New replica object.
   newReplica(replica: Replica) {
     assert.strictEqual(replica.uuid, this.uuid);
     const nodeName = replica.pool!.node.name;
@@ -752,14 +832,14 @@ export class Volume {
     } else {
       log.debug(`Replica "${replica}" attached to the volume`);
       this.replicas[nodeName] = replica;
-      this.emitEvent('mod');
+      this._changed();
       this.fsa();
     }
   }
 
   // Modify replica in the volume.
   //
-  // @param {object} replica   Modified replica object.
+  // @param replica   Modified replica object.
   modReplica(replica: Replica) {
     assert.strictEqual(replica.uuid, this.uuid);
     const nodeName = replica.pool!.node.name;
@@ -767,7 +847,7 @@ export class Volume {
       log.warn(`Modified replica "${replica}" does not belong to the volume`);
     } else {
       assert(this.replicas[nodeName] === replica);
-      this.emitEvent('mod');
+      this._changed();
       // the share protocol or uri could have changed
       this.fsa();
     }
@@ -775,7 +855,7 @@ export class Volume {
 
   // Delete replica in the volume.
   //
-  // @param {object} replica   Deleted replica object.
+  // @param replica   Deleted replica object.
   delReplica(replica: Replica) {
     assert.strictEqual(replica.uuid, this.uuid);
     const nodeName = replica.pool!.node.name;
@@ -785,14 +865,14 @@ export class Volume {
       log.debug(`Replica "${replica}" detached from the volume`);
       assert(this.replicas[nodeName] === replica);
       delete this.replicas[nodeName];
-      this.emitEvent('mod');
+      this._changed();
       this.fsa();
     }
   }
 
   // Assign nexus to the volume.
   //
-  // @param {object} nexus   New nexus object.
+  // @param nexus   New nexus object.
   newNexus(nexus: Nexus) {
     assert.strictEqual(nexus.uuid, this.uuid);
     if (!this.nexus) {
@@ -801,7 +881,7 @@ export class Volume {
       log.debug(`Nexus "${nexus}" attached to the volume`);
       this.nexus = nexus;
       if (!this.size) this.size = nexus.size;
-      this.emitEvent('mod');
+      this._changed();
       this.fsa();
     } else if (this.nexus === nexus) {
       log.warn(`Trying to add the same nexus "${nexus}" to the volume twice`);
@@ -827,20 +907,20 @@ export class Volume {
 
   // Nexus has been modified.
   //
-  // @param {object} nexus   Modified nexus object.
+  // @param nexus   Modified nexus object.
   modNexus(nexus: Nexus) {
     assert.strictEqual(nexus.uuid, this.uuid);
     if (!this.nexus) {
       log.warn(`Modified nexus "${nexus}" does not belong to the volume`);
     } else if (this.nexus === nexus) {
-      this.emitEvent('mod');
+      this._changed();
       this.fsa();
     }
   }
 
   // Delete nexus in the volume.
   //
-  // @param {object} nexus   Deleted nexus object.
+  // @param nexus   Deleted nexus object.
   delNexus(nexus: Nexus) {
     assert.strictEqual(nexus.uuid, this.uuid);
     if (!this.nexus) {
@@ -848,8 +928,8 @@ export class Volume {
     } else if (this.nexus === nexus) {
       log.debug(`Nexus "${nexus}" detached from the volume`);
       assert.strictEqual(this.nexus, nexus);
-      this.emitEvent('mod');
       this.nexus = null;
+      this._changed();
       this.fsa();
     } else {
       // if this is a different nexus than ours, ignore it

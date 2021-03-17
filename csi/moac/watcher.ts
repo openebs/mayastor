@@ -2,6 +2,7 @@
 // api with v1alpha1 version.
 
 import * as _ from 'lodash';
+import events = require('events');
 import {
   CustomObjectsApi,
   HttpError,
@@ -13,7 +14,6 @@ import {
   Watch,
 } from 'client-node-fixed-watcher';
 
-const EventEmitter = require('events');
 const log = require('./logger').Logger('watcher');
 
 // If listWatch errors out then we restart it after this many msecs.
@@ -143,7 +143,7 @@ class ConfirmOp {
 // It is a general implementation of watcher which can be used for any resource
 // operator. The operator should subscribe to "new", "mod" and "del" events that
 // are triggered when a resource is added, modified or deleted.
-export class CustomResourceCache<T> extends EventEmitter {
+export class CustomResourceCache<T> extends events.EventEmitter {
   name: string;
   plural: string;
   namespace: string;
@@ -493,7 +493,7 @@ export class CustomResourceCache<T> extends EventEmitter {
     let orig = this.get(name);
     if (orig === undefined) {
       log.warn(`Tried to delete ${this.name} "${name}" that does not exist`);
-      return new Promise((resolve) => resolve());
+      return new Promise((resolve) => resolve(undefined));
     }
     log.trace(`Deleting ${this.name} "${name}"`);
     await this._waitForEvent(

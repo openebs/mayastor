@@ -8,6 +8,7 @@ const grpc = require('grpc-uds');
 const grpcPromise = require('grpc-promise');
 const sinon = require('sinon');
 const sleep = require('sleep-promise');
+const EventEmitter = require('events');
 const { CsiServer, csi } = require('../csi');
 const { GrpcError, GrpcCode } = require('../grpc_client');
 const Registry = require('../registry');
@@ -197,7 +198,7 @@ module.exports = function () {
       let server;
       // place-holder for return value from createVolume when we don't care
       // about the data (i.e. when testing error cases).
-      const returnedVolume = new Volume(UUID, registry, () => {}, {
+      const returnedVolume = new Volume(UUID, registry, new EventEmitter(), {
         replicaCount: 1,
         preferredNodes: [],
         requiredNodes: [],
@@ -572,7 +573,7 @@ module.exports = function () {
         const vols = [];
         for (let i = 0; i < 10; i++) {
           for (let j = 0; j < 10; j++) {
-            const vol = new Volume(uuidBase + i + j, registry, () => {}, {
+            const vol = new Volume(uuidBase + i + j, registry, new EventEmitter(), {
               replicaCount: 3,
               requiredBytes: 100,
               protocol: 'nvmf'
@@ -662,7 +663,7 @@ module.exports = function () {
 
       it('should publish volume', async () => {
         const nvmfUri = `nvmf://host/nqn-${UUID}`;
-        const volume = new Volume(UUID, registry, () => {}, {});
+        const volume = new Volume(UUID, registry, new EventEmitter(), {});
         const publishStub = sinon.stub(volume, 'publish');
         publishStub.resolves(nvmfUri);
         const getNodeNameStub = sinon.stub(volume, 'getNodeName');
@@ -704,7 +705,7 @@ module.exports = function () {
           },
           volumeContext: { protocol: 'iscsi' }
         };
-        const volume = new Volume(UUID, registry, () => {}, {});
+        const volume = new Volume(UUID, registry, new EventEmitter(), {});
         const publishStub = sinon.stub(volume, 'publish');
         // We must sleep in the stub. Otherwise reply is sent before the second
         // request comes in.
@@ -750,7 +751,7 @@ module.exports = function () {
       });
 
       it('should not publish readonly volume', async () => {
-        const volume = new Volume(UUID, registry, () => {}, {});
+        const volume = new Volume(UUID, registry, new EventEmitter(), {});
         const publishStub = sinon.stub(volume, 'publish');
         publishStub.resolves();
         const getNodeNameStub = sinon.stub(volume, 'getNodeName');
@@ -775,7 +776,7 @@ module.exports = function () {
       });
 
       it('should not publish volume with unsupported capability', async () => {
-        const volume = new Volume(UUID, registry, () => {}, {});
+        const volume = new Volume(UUID, registry, new EventEmitter(), {});
         const publishStub = sinon.stub(volume, 'publish');
         publishStub.resolves();
         const getNodeNameStub = sinon.stub(volume, 'getNodeName');
@@ -800,7 +801,7 @@ module.exports = function () {
       });
 
       it('should not publish volume on node with invalid ID', async () => {
-        const volume = new Volume(UUID, registry, () => {}, {});
+        const volume = new Volume(UUID, registry, new EventEmitter(), {});
         const publishStub = sinon.stub(volume, 'publish');
         publishStub.resolves();
         const getNodeNameStub = sinon.stub(volume, 'getNodeName');
@@ -825,7 +826,7 @@ module.exports = function () {
       });
 
       it('should not publish volume if share protocol is not specified', async () => {
-        const volume = new Volume(UUID, registry, () => {}, {});
+        const volume = new Volume(UUID, registry, new EventEmitter(), {});
         const publishStub = sinon.stub(volume, 'publish');
         publishStub.resolves();
         const getNodeNameStub = sinon.stub(volume, 'getNodeName');
@@ -879,7 +880,7 @@ module.exports = function () {
       });
 
       it('should not unpublish volume on pool with invalid ID', async () => {
-        const volume = new Volume(UUID, registry, () => {}, {});
+        const volume = new Volume(UUID, registry, new EventEmitter(), {});
         const unpublishStub = sinon.stub(volume, 'unpublish');
         unpublishStub.resolves();
         const getNodeNameStub = sinon.stub(volume, 'getNodeName');
@@ -895,7 +896,7 @@ module.exports = function () {
       });
 
       it('should unpublish volume', async () => {
-        const volume = new Volume(UUID, registry, () => {}, {});
+        const volume = new Volume(UUID, registry, new EventEmitter(), {});
         const unpublishStub = sinon.stub(volume, 'unpublish');
         unpublishStub.resolves();
         const getNodeNameStub = sinon.stub(volume, 'getNodeName');
@@ -913,7 +914,7 @@ module.exports = function () {
       });
 
       it('should unpublish volume even if on a different node', async () => {
-        const volume = new Volume(UUID, registry, () => {}, {});
+        const volume = new Volume(UUID, registry, new EventEmitter(), {});
         const unpublishStub = sinon.stub(volume, 'unpublish');
         unpublishStub.resolves();
         const getNodeNameStub = sinon.stub(volume, 'getNodeName');
@@ -935,7 +936,7 @@ module.exports = function () {
           volumeId: UUID,
           nodeId: 'mayastor://another-node'
         };
-        const volume = new Volume(UUID, registry, () => {}, {});
+        const volume = new Volume(UUID, registry, new EventEmitter(), {});
         const unpublishStub = sinon.stub(volume, 'unpublish');
         // We must sleep in the stub. Otherwise reply is sent before the second
         // request comes in.
@@ -971,7 +972,7 @@ module.exports = function () {
       });
 
       it('should report SINGLE_NODE_WRITER cap as valid', async () => {
-        const volume = new Volume(UUID, registry, () => {}, {});
+        const volume = new Volume(UUID, registry, new EventEmitter(), {});
         getVolumesStub.returns(volume);
         const caps = [
           'SINGLE_NODE_WRITER',
@@ -997,7 +998,7 @@ module.exports = function () {
       });
 
       it('should report other caps than SINGLE_NODE_WRITER as invalid', async () => {
-        const volume = new Volume(UUID, registry, () => {}, {});
+        const volume = new Volume(UUID, registry, new EventEmitter(), {});
         getVolumesStub.returns(volume);
         const caps = [
           'SINGLE_NODE_READER_ONLY',

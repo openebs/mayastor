@@ -66,8 +66,8 @@ module.exports = function () {
       )
     ]);
     getVolumeStub.returns([
-      new Volume('volume1', registry, () => {}, {}),
-      new Volume('volume2', registry, () => {}, {})
+      new Volume('volume1', registry, new EventEmitter(), {}),
+      new Volume('volume2', registry, new EventEmitter(), {})
     ]);
 
     // set low high water mark to test buffered reads

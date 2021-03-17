@@ -3,6 +3,7 @@
 'use strict';
 
 const _ = require('lodash');
+const EventEmitter = require('events');
 const expect = require('chai').expect;
 const sinon = require('sinon');
 const sleep = require('sleep-promise');
@@ -430,7 +431,7 @@ module.exports = function () {
       let stubs;
       const registry = new Registry();
       const volumes = new Volumes(registry);
-      const volume = new Volume(UUID, registry, () => {}, defaultSpec);
+      const volume = new Volume(UUID, registry, new EventEmitter(), defaultSpec);
       volume.size = 110;
       const fsaStub = sinon.stub(volume, 'fsa');
       fsaStub.returns();
@@ -478,7 +479,7 @@ module.exports = function () {
       let stubs;
       const registry = new Registry();
       const volumes = new Volumes(registry);
-      const volume = new Volume(UUID, registry, () => {}, defaultSpec);
+      const volume = new Volume(UUID, registry, new EventEmitter(), defaultSpec);
       volume.size = 110;
       const fsaStub = sinon.stub(volume, 'fsa');
       fsaStub.resolves();
@@ -524,7 +525,7 @@ module.exports = function () {
       let stubs;
       const registry = new Registry();
       const volumes = new Volumes(registry);
-      const volume = new Volume(UUID, registry, () => {}, defaultSpec);
+      const volume = new Volume(UUID, registry, new EventEmitter(), defaultSpec);
       volume.size = 110;
       const fsaStub = sinon.stub(volume, 'fsa');
       fsaStub.returns();
@@ -566,7 +567,7 @@ module.exports = function () {
     it('should create a resource upon "new" volume event', async () => {
       let stubs;
       const registry = new Registry();
-      const volume = new Volume(UUID, registry, () => {}, defaultSpec);
+      const volume = new Volume(UUID, registry, new EventEmitter(), defaultSpec);
       const volumes = new Volumes(registry);
       sinon
         .stub(volumes, 'get')
@@ -603,7 +604,7 @@ module.exports = function () {
       let stubs;
       const registry = new Registry();
       const volumes = new Volumes(registry);
-      const volume = new Volume(UUID, registry, () => {}, defaultSpec);
+      const volume = new Volume(UUID, registry, new EventEmitter(), defaultSpec);
       sinon.stub(volumes, 'get').returns([]);
 
       const volumeResource = createVolumeResource(UUID, defaultSpec);
@@ -630,7 +631,7 @@ module.exports = function () {
       const volumes = new Volumes(registry);
       const newSpec = _.cloneDeep(defaultSpec);
       newSpec.replicaCount += 1;
-      const volume = new Volume(UUID, registry, () => {}, newSpec);
+      const volume = new Volume(UUID, registry, new EventEmitter(), newSpec);
       sinon
         .stub(volumes, 'get')
         .withArgs(UUID)
@@ -658,7 +659,7 @@ module.exports = function () {
       let stubs;
       const registry = new Registry();
       const volumes = new Volumes(registry);
-      const volume = new Volume(UUID, registry, () => {}, defaultSpec, 'pending', 100, 'node2');
+      const volume = new Volume(UUID, registry, new EventEmitter(), defaultSpec, 'pending', 100, 'node2');
       sinon
         .stub(volumes, 'get')
         .withArgs(UUID)
@@ -708,7 +709,7 @@ module.exports = function () {
         limitBytes: 130,
         protocol: 'nvmf'
       };
-      const volume = new Volume(UUID, registry, () => {}, newSpec);
+      const volume = new Volume(UUID, registry, new EventEmitter(), newSpec);
       volumes.emit('volume', {
         eventType: 'mod',
         object: volume
@@ -734,7 +735,7 @@ module.exports = function () {
         stubs.updateStatus.resolves();
       });
 
-      const volume = new Volume(UUID, registry, () => {}, defaultSpec);
+      const volume = new Volume(UUID, registry, new EventEmitter(), defaultSpec);
       volumes.emit('volume', {
         eventType: 'mod',
         object: volume
@@ -767,7 +768,7 @@ module.exports = function () {
         limitBytes: 130,
         protocol: 'nvmf'
       };
-      const volume = new Volume(UUID, registry, () => {}, newSpec);
+      const volume = new Volume(UUID, registry, new EventEmitter(), newSpec);
       volumes.emit('volume', {
         eventType: 'mod',
         object: volume
@@ -797,7 +798,7 @@ module.exports = function () {
         limitBytes: 130,
         protocol: 'nvmf'
       };
-      const volume = new Volume(UUID, registry, () => {}, newSpec);
+      const volume = new Volume(UUID, registry, new EventEmitter(), newSpec);
       volumes.emit('volume', {
         eventType: 'mod',
         object: volume
@@ -822,7 +823,7 @@ module.exports = function () {
         stubs.delete.resolves();
       });
 
-      const volume = new Volume(UUID, registry, () => {}, defaultSpec);
+      const volume = new Volume(UUID, registry, new EventEmitter(), defaultSpec);
       volumes.emit('volume', {
         eventType: 'del',
         object: volume
@@ -845,7 +846,7 @@ module.exports = function () {
         stubs.delete.rejects(new Error('delete failed'));
       });
 
-      const volume = new Volume(UUID, registry, () => {}, defaultSpec);
+      const volume = new Volume(UUID, registry, new EventEmitter(), defaultSpec);
       volumes.emit('volume', {
         eventType: 'del',
         object: volume
@@ -867,7 +868,7 @@ module.exports = function () {
         stubs.delete.resolves();
       });
 
-      const volume = new Volume(UUID, registry, () => {}, defaultSpec);
+      const volume = new Volume(UUID, registry, new EventEmitter(), defaultSpec);
       volumes.emit('volume', {
         eventType: 'del',
         object: volume
