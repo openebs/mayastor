@@ -40,3 +40,6 @@ uninstall:
   cleanup: 0
 basicVolumeIO:
   replicas: 1
+multiVolumesPodIO:
+  volumeCount: 6
+  replicas: 2

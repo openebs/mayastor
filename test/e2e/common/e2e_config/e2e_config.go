@@ -60,6 +60,10 @@ type E2EConfig struct {
 	BasicVolumeIO struct {
 		Replicas int `yaml:"replicas" env-default:"1"`
 	} `yaml:"basicVolumeIO"`
+	MultipleVolumesPodIO struct {
+		VolumeCount          int `yaml:"volumeCount" env-default:"2"`
+		MultipleReplicaCount int `yaml:"replicas" env-default:"2"`
+	} `yaml:"multiVolumesPodIO"`
 	// Run configuration
 	ReportsDir string `yaml:"reportsDir" env:"e2e_reports_dir"`
 }
