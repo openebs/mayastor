@@ -13,6 +13,7 @@ pub mod common;
 static NXNAME: &str = "nexus";
 
 #[tokio::test]
+#[ignore]
 async fn replica_stop_cont() {
     // Use shorter timeouts than the defaults to reduce test runtime
     Config::get_or_init(|| Config {
