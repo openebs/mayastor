@@ -40,6 +40,17 @@ const (
 	VolRawBlock   VolumeType = iota
 )
 
+func (volType VolumeType) String() string {
+	switch volType {
+	case VolFileSystem:
+		return "FileSystem"
+	case VolRawBlock:
+		return "RawBlock"
+	default:
+		return "Unknown"
+	}
+}
+
 // Helper for passing yaml from the specified directory to kubectl
 func KubeCtlApplyYaml(filename string, dir string) {
 	cmd := exec.Command("kubectl", "apply", "-f", filename)
@@ -59,8 +70,8 @@ func KubeCtlDeleteYaml(filename string, dir string) {
 }
 
 // create a storage class
-func MkStorageClass(scName string, scReplicas int, protocol ShareProto, nameSpace string) error {
-	logf.Log.Info("Creating storage class", "name", scName, "replicas", scReplicas, "protocol", protocol)
+func MakeStorageClass(scName string, scReplicas int, protocol ShareProto, nameSpace string, bindingMode *storagev1.VolumeBindingMode) error {
+	logf.Log.Info("Creating storage class", "name", scName, "replicas", scReplicas, "protocol", protocol, "bindingMode", bindingMode)
 	createOpts := &storagev1.StorageClass{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      scName,
@@ -72,9 +83,18 @@ func MkStorageClass(scName string, scReplicas int, protocol ShareProto, nameSpac
 	createOpts.Parameters["protocol"] = string(protocol)
 	createOpts.Parameters["repl"] = strconv.Itoa(scReplicas)
 
+	if bindingMode != nil {
+		createOpts.VolumeBindingMode = bindingMode
+	}
+
 	ScApi := gTestEnv.KubeInt.StorageV1().StorageClasses
 	_, createErr := ScApi().Create(context.TODO(), createOpts, metav1.CreateOptions{})
 	return createErr
+}
+
+// create a storage class with default volume binding mode i.e. not specified
+func MkStorageClass(scName string, scReplicas int, protocol ShareProto, nameSpace string) error {
+	return MakeStorageClass(scName, scReplicas, protocol, nameSpace, nil)
 }
 
 // remove a storage class

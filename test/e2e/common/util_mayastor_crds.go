@@ -152,6 +152,29 @@ func getMsv(uuid string) (*unstructured.Unstructured, error) {
 	return gTestEnv.DynamicClient.Resource(msvGVR).Namespace(NSMayastor).Get(context.TODO(), uuid, metav1.GetOptions{})
 }
 
+func retrieveFieldValue(uns *unstructured.Unstructured, fields ...string) (interface{}, error) {
+	field, found, err := unstructured.NestedFieldCopy(uns.Object, fields...)
+	if err != nil {
+		// The last field is the one that we were looking for.
+		lastFieldIndex := len(fields) - 1
+		return nil, fmt.Errorf("failed to get field %s with error %v", fields[lastFieldIndex], err)
+	}
+	if !found {
+		// The last field is the one that we were looking for.
+		lastFieldIndex := len(fields) - 1
+		return nil, fmt.Errorf("failed to find field %s", fields[lastFieldIndex])
+	}
+	return field, nil
+}
+
+func retrieveFieldStringValue(uns *unstructured.Unstructured, fields ...string) (string, error) {
+	repl, err := retrieveFieldValue(uns, fields...)
+	if err == nil {
+		return reflect.ValueOf(repl).Interface().(string), nil
+	}
+	return "?", err
+}
+
 // Get a field within the MSV.
 // The "fields" argument specifies the path within the MSV where the field should be found.
 // E.g. for the replicaCount field which is nested under the MSV spec the function should be called like:
@@ -165,18 +188,7 @@ func getMsvFieldValue(uuid string, fields ...string) (interface{}, error) {
 		return nil, fmt.Errorf("MSV with uuid %s does not exist", uuid)
 	}
 
-	field, found, err := unstructured.NestedFieldCopy(msv.Object, fields...)
-	if err != nil {
-		// The last field is the one that we were looking for.
-		lastFieldIndex := len(fields) - 1
-		return nil, fmt.Errorf("Failed to get field %s with error %v", fields[lastFieldIndex], err)
-	}
-	if !found {
-		// The last field is the one that we were looking for.
-		lastFieldIndex := len(fields) - 1
-		return nil, fmt.Errorf("Failed to find field %s", fields[lastFieldIndex])
-	}
-	return field, nil
+	return retrieveFieldValue(msv, fields...)
 }
 
 // GetNumReplicas returns the number of replicas in the MSV.
@@ -317,4 +329,74 @@ func CheckForMSVs() (bool, error) {
 		foundResources = true
 	}
 	return foundResources, err
+}
+
+func CheckAllMsvsAreHealthy() error {
+	msvGVR := schema.GroupVersionResource{
+		Group:    "openebs.io",
+		Version:  "v1alpha1",
+		Resource: "mayastorvolumes",
+	}
+
+	allHealthy := true
+	retrieveErrors := false
+	msvs, err := gTestEnv.DynamicClient.Resource(msvGVR).Namespace(NSMayastor).List(context.TODO(), metav1.ListOptions{})
+	if err == nil && msvs != nil && len(msvs.Items) != 0 {
+		for _, msv := range msvs.Items {
+			msvName, _ := retrieveFieldStringValue(&msv, "metadata", "name")
+			state, err := retrieveFieldStringValue(&msv, "status", "state")
+			if err == nil {
+				if state != "healthy" {
+					logf.Log.Info("CheckAllMsvsAreHealthy", "msvName", msvName, "state", state)
+					allHealthy = false
+				}
+			} else {
+				logf.Log.Info("CheckAllMsvsAreHealthy failed to access status.state", "msvName", msvName)
+				retrieveErrors = true
+			}
+		}
+	}
+
+	if retrieveErrors {
+		return fmt.Errorf("error accessing MSV status.state")
+	}
+	if !allHealthy {
+		return fmt.Errorf("all MSVs were not healthy")
+	}
+	return err
+}
+
+func CheckAllPoolsAreOnline() error {
+	msvGVR := schema.GroupVersionResource{
+		Group:    "openebs.io",
+		Version:  "v1alpha1",
+		Resource: "mayastorpools",
+	}
+
+	allHealthy := true
+	retrieveErrors := false
+	pools, err := gTestEnv.DynamicClient.Resource(msvGVR).Namespace(NSMayastor).List(context.TODO(), metav1.ListOptions{})
+	if err == nil && pools != nil && len(pools.Items) != 0 {
+		for _, pool := range pools.Items {
+			poolName, _ := retrieveFieldStringValue(&pool, "metadata", "name")
+			state, err := retrieveFieldStringValue(&pool, "status", "state")
+			if err == nil {
+				if state != "online" {
+					logf.Log.Info("CheckAllPoolsAreOnline", "pool", poolName, "state", state)
+					allHealthy = false
+				}
+			} else {
+				logf.Log.Info("CheckAllPoolsAreOnline failed to access status.state", "pool", poolName)
+				retrieveErrors = true
+			}
+		}
+	}
+
+	if retrieveErrors {
+		return fmt.Errorf("error accessing pools status.state")
+	}
+	if !allHealthy {
+		return fmt.Errorf("all pools were not healthy")
+	}
+	return err
 }

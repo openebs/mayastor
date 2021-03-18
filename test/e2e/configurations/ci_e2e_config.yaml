@@ -5,7 +5,7 @@ pvcstress:
   crudCycles: 10
 ioSoakTest:
   replicas: 1
-  duration: 10m
+  duration: 60m
   # loadFactor is number of volumes for each mayastor instance
   # volumes for disruptor pods are allocated from within this "pool"
   loadFactor: 21
