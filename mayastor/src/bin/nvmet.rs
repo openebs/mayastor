@@ -41,8 +41,6 @@ async fn create_nexus(args: &ArgMatches<'_>) {
 }
 
 fn main() {
-    std::env::set_var("NEXUS_LABEL_IGNORE_ERRORS", "1");
-
     let matches = App::new("NVMeT CLI")
         .version("0.1")
         .settings(&[
@@ -70,7 +68,7 @@ fn main() {
         ..Default::default()
     };
 
-    logger::init("INFO");
+    logger::init("mayastor=trace");
 
     let mut rt = tokio::runtime::Builder::new()
         .basic_scheduler()

@@ -18,7 +18,6 @@ pub mod nexus_bdev_rebuild;
 pub mod nexus_bdev_snapshot;
 mod nexus_channel;
 pub(crate) mod nexus_child;
-pub(crate) mod nexus_child_error_store;
 pub mod nexus_child_status_config;
 mod nexus_config;
 pub mod nexus_fn_table;
@@ -37,11 +36,7 @@ pub fn register_module() {
 
 /// get a reference to the module
 pub fn module() -> Option<*mut spdk_bdev_module> {
-    if let Some(m) = nexus_module::NexusModule::current() {
-        Some(m.as_ptr())
-    } else {
-        None
-    }
+    nexus_module::NexusModule::current().map(|m| m.as_ptr())
 }
 
 /// get a static ref to the fn table of the nexus module

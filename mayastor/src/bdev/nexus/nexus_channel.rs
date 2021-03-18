@@ -264,6 +264,8 @@ impl NexusChannel {
     }
 
     /// helper function to get a mutable reference to the inner channel
+    /// FIXME; we can have several types of inner channels and so
+    /// it would be nice to have that abstracted properly
     pub(crate) fn inner_from_channel<'a>(
         channel: *mut spdk_io_channel,
     ) -> &'a mut NexusChannelInner {

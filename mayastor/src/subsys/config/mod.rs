@@ -47,7 +47,6 @@ use crate::{
     subsys::{
         config::opts::{
             BdevOpts,
-            ErrStoreOpts,
             GetOpts,
             IscsiTgtOpts,
             NexusOpts,
@@ -155,8 +154,6 @@ pub struct Config {
     pub bdev_opts: BdevOpts,
     /// nexus specific options
     pub nexus_opts: NexusOpts,
-    /// error store opts
-    pub err_store_opts: ErrStoreOpts,
     /// list of pools to create on load
     pub pools: Option<Vec<Pool>>,
     ///
@@ -182,7 +179,6 @@ impl Default for Config {
             nvme_bdev_opts: Default::default(),
             bdev_opts: Default::default(),
             nexus_opts: Default::default(),
-            err_store_opts: Default::default(),
             base_bdevs: None,
             nexus_bdevs: None,
             pools: None,
@@ -259,7 +255,6 @@ impl Config {
             nexus_bdevs: None,
             pools: None,
             implicit_share_base: self.implicit_share_base,
-            err_store_opts: self.err_store_opts.get(),
             sync_disable: self.sync_disable,
             socket_opts: self.socket_opts.get(),
         };

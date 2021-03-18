@@ -18,13 +18,15 @@ pub use env::{
     SIG_RECEIVED,
 };
 
+pub use bio::{Bio, IoStatus, IoType};
 pub use handle::BdevHandle;
-pub use nvme::{GenericStatusCode, NvmeStatus};
+pub use nvme::{nvme_admin_opc, GenericStatusCode, NvmeStatus};
 pub use reactor::{Reactor, ReactorState, Reactors, REACTOR_LIST};
 pub use share::{Protocol, Share};
 pub use thread::Mthread;
 
 mod bdev;
+mod bio;
 mod channel;
 mod cpu_cores;
 mod descriptor;

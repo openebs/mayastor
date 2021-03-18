@@ -22,7 +22,6 @@ use spdk_sys::{
     SPDK_BDEV_NVME_TIMEOUT_ACTION_ABORT,
 };
 
-use crate::bdev::ActionType;
 use std::{
     fmt::{Debug, Display},
     str::FromStr,
@@ -596,46 +595,5 @@ impl GetOpts for PosixSocketOpts {
             );
             rc == 0
         }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct ErrStoreOpts {
-    /// ring buffer size
-    pub err_store_size: usize,
-
-    /// NexusErrStore enabled
-    pub enable_err_store: bool,
-
-    /// whether to fault the child due to the total number of failed IOs
-    pub action: ActionType,
-
-    /// the maximum number of errors in total
-    pub max_errors: u32,
-
-    /// errors older than this are ignored
-    pub retention_ns: u64,
-
-    /// the maximum number of IO attempts per IO
-    pub max_io_attempts: i32,
-}
-
-impl Default for ErrStoreOpts {
-    fn default() -> Self {
-        Self {
-            err_store_size: 256,
-            enable_err_store: true,
-            action: ActionType::Fault,
-            max_errors: 64,
-            retention_ns: 10_000_000_000,
-            max_io_attempts: 1,
-        }
-    }
-}
-
-impl GetOpts for ErrStoreOpts {
-    fn get(&self) -> Self {
-        self.clone()
     }
 }

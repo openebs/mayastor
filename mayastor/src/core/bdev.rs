@@ -32,12 +32,13 @@ use spdk_sys::{
 };
 
 use crate::{
-    bdev::{lookup_child_from_bdev, nexus::nexus_io::IoType},
+    bdev::lookup_child_from_bdev,
     core::{
         share::{Protocol, Share},
         uuid::Uuid,
         CoreError,
         Descriptor,
+        IoType,
         ShareIscsi,
         ShareNvmf,
         UnshareIscsi,
@@ -344,6 +345,7 @@ impl Bdev {
     }
 
     /// returns the bdev as a ptr
+    /// dont use please
     pub fn as_ptr(&self) -> *mut spdk_bdev {
         self.0.as_ptr()
     }
@@ -408,6 +410,7 @@ impl Bdev {
             })
         }
     }
+
     /// returns the first bdev in the list
     pub fn bdev_first() -> Option<Bdev> {
         Self::from_ptr(unsafe { spdk_bdev_first() })

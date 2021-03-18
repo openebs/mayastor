@@ -5,33 +5,23 @@
 //! application needs synchronous mirroring may be required.
 
 use std::{
-    convert::TryFrom,
     env,
     fmt::{Display, Formatter},
     os::raw::c_void,
+    ptr::NonNull,
 };
 
 use futures::{channel::oneshot, future::join_all};
 use nix::errno::Errno;
-use rpc::mayastor::NvmeAnaState;
 use serde::Serialize;
 use snafu::{ResultExt, Snafu};
 use tonic::{Code, Status};
 
+use rpc::mayastor::NvmeAnaState;
 use spdk_sys::{
     spdk_bdev,
-    spdk_bdev_desc,
-    spdk_bdev_io,
-    spdk_bdev_io_get_buf,
-    spdk_bdev_nvme_admin_passthru,
-    spdk_bdev_readv_blocks,
     spdk_bdev_register,
-    spdk_bdev_reset,
-    spdk_bdev_unmap_blocks,
     spdk_bdev_unregister,
-    spdk_bdev_write_zeroes_blocks,
-    spdk_bdev_writev_blocks,
-    spdk_io_channel,
     spdk_io_device_register,
     spdk_io_device_unregister,
 };
@@ -41,27 +31,18 @@ use crate::{
         nexus,
         nexus::{
             instances,
-            nexus_channel::{
-                DrEvent,
-                NexusChannel,
-                NexusChannelInner,
-                ReconfigureCtx,
-            },
+            nexus_channel::{DrEvent, NexusChannel, ReconfigureCtx},
             nexus_child::{ChildError, ChildState, NexusChild},
-            nexus_io::{nvme_admin_opc, Bio, IoStatus, IoType},
             nexus_label::LabelError,
             nexus_nbd::{NbdDisk, NbdError},
         },
     },
-    core::{Bdev, CoreError, Protocol, Reactor, Share},
+    core::{Bdev, CoreError, IoType, Protocol, Reactor, Share},
     ffihelper::errno_result_from_i32,
-    lvs::Lvol,
     nexus_uri::{bdev_destroy, NexusBdevError},
     rebuild::RebuildError,
-    subsys,
-    subsys::{Config, NvmfSubsystem},
+    subsys::{NvmfError, NvmfSubsystem},
 };
-use std::ptr::NonNull;
 
 /// Obtain the full error chain
 pub trait VerboseError {
@@ -261,8 +242,8 @@ pub enum Error {
     SubsysNvmfError { e: String },
 }
 
-impl From<subsys::NvmfError> for Error {
-    fn from(error: subsys::NvmfError) -> Self {
+impl From<NvmfError> for Error {
+    fn from(error: NvmfError) -> Self {
         Error::SubsysNvmfError {
             e: error.to_string(),
         }
@@ -346,8 +327,6 @@ pub struct Nexus {
     pub(crate) share_handle: Option<String>,
     /// enum containing the protocol-specific target used to publish the nexus
     pub nexus_target: Option<NexusTarget>,
-    /// the maximum number of times to attempt to send an IO
-    pub(crate) max_io_attempts: i32,
 }
 
 unsafe impl core::marker::Sync for Nexus {}
@@ -426,8 +405,6 @@ impl Nexus {
         b.blockcnt = 0;
         b.required_alignment = 9;
 
-        let cfg = Config::get();
-
         let mut n = Box::new(Nexus {
             name: name.to_string(),
             child_count: 0,
@@ -439,7 +416,6 @@ impl Nexus {
             share_handle: None,
             size,
             nexus_target: None,
-            max_io_attempts: cfg.err_store_opts.max_io_attempts,
         });
 
         n.bdev.set_uuid(uuid.map(String::from));
@@ -752,299 +728,9 @@ impl Nexus {
             .any(|b| b.io_type_supported(io_type))
     }
 
-    /// main IO completion routine
-    unsafe extern "C" fn io_completion(
-        child_io: *mut spdk_bdev_io,
-        success: bool,
-        parent_io: *mut c_void,
-    ) {
-        let mut pio = Bio::from(parent_io);
-        let mut chio = Bio::from(child_io);
-
-        // if any child IO has failed record this within the io context
-        if !success {
-            trace!(
-                "child IO {:?} ({:#?}) of parent {:?} failed",
-                chio,
-                chio.io_type(),
-                pio
-            );
-
-            pio.ctx_as_mut_ref().status = IoStatus::Failed;
-        }
-        pio.assess(&mut chio, success);
-        // always free the child IO
-        chio.free();
-    }
-
     /// IO completion for local replica
-    pub fn io_completion_local(success: bool, parent_io: *mut c_void) {
-        let mut pio = Bio::from(parent_io);
-        let pio_ctx = pio.ctx_as_mut_ref();
-
-        if !success {
-            pio_ctx.status = IoStatus::Failed;
-        }
-
-        // As there is no child IO, perform the IO accounting that Bio::assess
-        // does here, without error recording or retries.
-        pio_ctx.in_flight -= 1;
-        debug_assert!(pio_ctx.in_flight >= 0);
-
-        if pio_ctx.in_flight == 0 {
-            if pio_ctx.status == IoStatus::Failed {
-                pio_ctx.io_attempts -= 1;
-                if pio_ctx.io_attempts == 0 {
-                    pio.fail();
-                }
-            } else {
-                pio.ok();
-            }
-        }
-    }
-
-    /// callback when the IO has buffer associated with itself
-    extern "C" fn nexus_get_buf_cb(
-        ch: *mut spdk_io_channel,
-        io: *mut spdk_bdev_io,
-        success: bool,
-    ) {
-        if !success {
-            let bio = Bio::from(io);
-            let nexus = bio.nexus_as_ref();
-            warn!("{}: Failed to get io buffer for io {:?}", nexus.name, bio);
-        }
-
-        let ch = NexusChannel::inner_from_channel(ch);
-        let (desc, ch) = ch.readers[ch.previous].io_tuple();
-        let ret = Self::readv_impl(io, desc, ch);
-        if ret != 0 {
-            let bio = Bio::from(io);
-            let nexus = bio.nexus_as_ref();
-            error!("{}: Failed to submit IO {:?}", nexus.name, bio);
-        }
-    }
-
-    /// read vectored io from the underlying children.
-    pub(crate) fn readv(&self, io: &Bio, channels: &mut NexusChannelInner) {
-        // we use RR to read from the children.
-        let child = channels.child_select();
-        if child.is_none() {
-            error!(
-                "{}: No child available to read from {:p}",
-                io.nexus_as_ref().name,
-                io.as_ptr(),
-            );
-            io.fail();
-            return;
-        }
-
-        // if there is no buffer space for us allocated within the request
-        // allocate it now, taking care of proper alignment
-        if io.need_buf() {
-            unsafe {
-                spdk_bdev_io_get_buf(
-                    io.as_ptr(),
-                    Some(Self::nexus_get_buf_cb),
-                    io.num_blocks() * io.block_len(),
-                )
-            }
-            return;
-        }
-
-        let (desc, ch) = channels.readers[child.unwrap()].io_tuple();
-
-        let ret = Self::readv_impl(io.as_ptr(), desc, ch);
-
-        if ret != 0 {
-            error!(
-                "{}: Failed to submit dispatched IO {:p}",
-                io.nexus_as_ref().name,
-                io.as_ptr()
-            );
-
-            io.fail();
-        }
-    }
-
-    /// do the actual read
-    #[inline]
-    pub(crate) fn readv_impl(
-        pio: *mut spdk_bdev_io,
-        desc: *mut spdk_bdev_desc,
-        ch: *mut spdk_io_channel,
-    ) -> i32 {
-        let io = Bio::from(pio);
-        let nexus = io.nexus_as_ref();
-        unsafe {
-            spdk_bdev_readv_blocks(
-                desc,
-                ch,
-                io.iovs(),
-                io.iov_count(),
-                io.offset() + nexus.data_ent_offset,
-                io.num_blocks(),
-                Some(Self::io_completion),
-                io.as_ptr() as *mut _,
-            )
-        }
-    }
-
-    /// check results after submitting IO, failing if all failed to submit
-    #[inline(always)]
-    fn check_io_submission(&self, results: &[i32], io: &Bio) {
-        // if any of the children failed to dispatch
-        if results.iter().any(|r| *r != 0) {
-            error!(
-                "{}: Failed to submit dispatched IO {:?}",
-                io.nexus_as_ref().name,
-                io.as_ptr(),
-            );
-        }
-
-        if results.iter().all(|r| *r != 0) {
-            io.fail();
-        }
-    }
-
-    /// send reset IO to the underlying children.
-    pub(crate) fn reset(&self, io: &Bio, channels: &NexusChannelInner) {
-        // in case of resets, we want to reset all underlying children
-        let results = channels
-            .writers
-            .iter()
-            .map(|c| unsafe {
-                let (bdev, chan) = c.io_tuple();
-                trace!("Dispatched RESET");
-                spdk_bdev_reset(
-                    bdev,
-                    chan,
-                    Some(Self::io_completion),
-                    io.as_ptr() as *mut _,
-                )
-            })
-            .collect::<Vec<_>>();
-
-        self.check_io_submission(&results, &io);
-    }
-
-    /// write vectored IO to the underlying children.
-    pub(crate) fn writev(&self, io: &Bio, channels: &NexusChannelInner) {
-        // in case of writes, we want to write to all underlying children
-        let results = channels
-            .writers
-            .iter()
-            .map(|c| unsafe {
-                let (desc, chan) = c.io_tuple();
-                spdk_bdev_writev_blocks(
-                    desc,
-                    chan,
-                    io.iovs(),
-                    io.iov_count(),
-                    io.offset() + io.nexus_as_ref().data_ent_offset,
-                    io.num_blocks(),
-                    Some(Self::io_completion),
-                    io.as_ptr() as *mut _,
-                )
-            })
-            .collect::<Vec<_>>();
-
-        self.check_io_submission(&results, &io);
-    }
-
-    pub(crate) fn unmap(&self, io: &Bio, channels: &NexusChannelInner) {
-        let results = channels
-            .writers
-            .iter()
-            .map(|c| unsafe {
-                let (desc, chan) = c.io_tuple();
-                spdk_bdev_unmap_blocks(
-                    desc,
-                    chan,
-                    io.offset() + io.nexus_as_ref().data_ent_offset,
-                    io.num_blocks(),
-                    Some(Self::io_completion),
-                    io.as_ptr() as *mut _,
-                )
-            })
-            .collect::<Vec<_>>();
-
-        self.check_io_submission(&results, &io);
-    }
-
-    pub(crate) fn write_zeroes(&self, io: &Bio, channels: &NexusChannelInner) {
-        let results = channels
-            .writers
-            .iter()
-            .map(|c| unsafe {
-                let (b, c) = c.io_tuple();
-                spdk_bdev_write_zeroes_blocks(
-                    b,
-                    c,
-                    io.offset() + io.nexus_as_ref().data_ent_offset,
-                    io.num_blocks(),
-                    Some(Self::io_completion),
-                    io.as_ptr() as *mut _,
-                )
-            })
-            .collect::<Vec<_>>();
-
-        self.check_io_submission(&results, &io);
-    }
-
-    pub(crate) fn nvme_admin(&self, io: &Bio, channels: &NexusChannelInner) {
-        if io.nvme_cmd().opc() == nvme_admin_opc::CREATE_SNAPSHOT as u16 {
-            // FIXME: pause IO before dispatching
-            debug!("Passing thru create snapshot as NVMe Admin command");
-        }
-        // for replicas, passthru only works with our vendor commands as the
-        // underlying bdev is not nvmf
-        let results = channels
-            .writers
-            .iter()
-            .map(|c| unsafe {
-                debug!("nvme_admin on {}", c.get_bdev().driver());
-                if c.get_bdev().driver() == "lvol" {
-                    // Local replica, vbdev_lvol does not support NVMe Admin
-                    // so call function directly
-                    let lvol = Lvol::try_from(c.get_bdev()).unwrap();
-                    match io.nvme_cmd().opc() as u8 {
-                        nvme_admin_opc::CREATE_SNAPSHOT => {
-                            subsys::create_snapshot(
-                                lvol,
-                                &io.nvme_cmd(),
-                                io.as_ptr(),
-                            );
-                        }
-                        _ => {
-                            error!(
-                                "{}: Unsupported NVMe Admin command {:x}h from IO {:?}",
-                                io.nexus_as_ref().name,
-                                io.nvme_cmd().opc(),
-                                io.as_ptr()
-                            );
-                            Self::io_completion_local(
-                                false,
-                                io.as_ptr().cast(),
-                            );
-                        }
-                    }
-                    return 0;
-                }
-                let (desc, chan) = c.io_tuple();
-                spdk_bdev_nvme_admin_passthru(
-                    desc,
-                    chan,
-                    &io.nvme_cmd(),
-                    io.nvme_buf(),
-                    io.nvme_nbytes(),
-                    Some(Self::io_completion),
-                    io.as_ptr() as *mut _,
-                )
-            })
-            .collect::<Vec<_>>();
-
-        self.check_io_submission(&results, &io);
+    pub fn io_completion_local(_success: bool, _parent_io: *mut c_void) {
+        unimplemented!();
     }
 
     /// Status of the nexus
@@ -1092,7 +778,6 @@ impl Nexus {
 /// be a configuration mismatch that would prevent us from going online.
 /// Currently, we can only determine this once we are already online,
 /// and so we check the errors twice for now.
-#[tracing::instrument(level = "debug")]
 pub async fn nexus_create(
     name: &str,
     size: u64,

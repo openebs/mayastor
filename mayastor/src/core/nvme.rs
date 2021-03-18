@@ -1,12 +1,12 @@
-use crate::{
-    bdev::Bio,
-    core::nvme::StatusCodeType::{
+use crate::core::{
+    nvme::StatusCodeType::{
         CommandSpecificStatus,
         GenericCommandStatus,
         MediaDataIntegrityErrors,
         Reserved,
         VendorSpecific,
     },
+    Bio,
 };
 use spdk_sys::spdk_bdev_io_get_nvme_status;
 
@@ -193,4 +193,15 @@ impl From<&Bio> for NvmeStatus {
             sc: GenericStatusCode::from(sc),
         }
     }
+}
+
+/// NVMe Admin opcode, from nvme_spec.h
+pub mod nvme_admin_opc {
+    // pub const GET_LOG_PAGE: u8 = 0x02;
+    pub const IDENTIFY: u8 = 0x06;
+    // pub const ABORT: u8 = 0x08;
+    // pub const SET_FEATURES: u8 = 0x09;
+    // pub const GET_FEATURES: u8 = 0x0a;
+    // Vendor-specific
+    pub const CREATE_SNAPSHOT: u8 = 0xc0;
 }

@@ -1,12 +1,11 @@
 use std::{
     convert::TryFrom,
     fmt::{Debug, Error, Formatter},
-    mem::ManuallyDrop,
-    os::raw::c_void,
     sync::Arc,
 };
 
 use futures::channel::oneshot;
+use libc::c_void;
 use nix::errno::Errno;
 
 use spdk_sys::{
@@ -21,8 +20,15 @@ use spdk_sys::{
 };
 
 use crate::{
-    bdev::nexus::nexus_io::nvme_admin_opc,
-    core::{Bdev, CoreError, Descriptor, DmaBuf, DmaError, IoChannel},
+    core::{
+        nvme_admin_opc,
+        Bdev,
+        CoreError,
+        Descriptor,
+        DmaBuf,
+        DmaError,
+        IoChannel,
+    },
     ffihelper::cb_arg,
     subsys,
 };
@@ -31,8 +37,10 @@ use crate::{
 /// shared between cores freely. The ['IoChannel'] however, must be allocated on
 /// the core where the IO is submitted from.
 pub struct BdevHandle {
-    pub desc: ManuallyDrop<Arc<Descriptor>>,
-    pub channel: ManuallyDrop<IoChannel>,
+    /// Rust guarantees proper ordering of dropping. The channel MUST be
+    /// dropped before we close the descriptor
+    channel: IoChannel,
+    desc: Arc<Descriptor>,
 }
 
 impl BdevHandle {
@@ -128,7 +136,7 @@ impl BdevHandle {
 
         if errno != 0 {
             return Err(CoreError::WriteDispatch {
-                source: Errno::from_i32(errno),
+                source: Errno::from_i32(errno.abs()),
                 offset,
                 len: buffer.len(),
             });
@@ -165,7 +173,7 @@ impl BdevHandle {
 
         if errno != 0 {
             return Err(CoreError::ReadDispatch {
-                source: Errno::from_i32(errno),
+                source: Errno::from_i32(errno.abs()),
                 offset,
                 len: buffer.len(),
             });
@@ -194,7 +202,7 @@ impl BdevHandle {
 
         if errno != 0 {
             return Err(CoreError::ResetDispatch {
-                source: Errno::from_i32(errno),
+                source: Errno::from_i32(errno.abs()),
             });
         }
 
@@ -267,7 +275,7 @@ impl BdevHandle {
 
         if errno != 0 {
             return Err(CoreError::NvmeAdminDispatch {
-                source: Errno::from_i32(errno),
+                source: Errno::from_i32(errno.abs()),
                 opcode: (*nvme_cmd).opc(),
             });
         }
@@ -278,17 +286,6 @@ impl BdevHandle {
             Err(CoreError::NvmeAdminFailed {
                 opcode: (*nvme_cmd).opc(),
             })
-        }
-    }
-}
-
-impl Drop for BdevHandle {
-    fn drop(&mut self) {
-        unsafe {
-            trace!("{:?}", self);
-            // the order of dropping has to be deterministic
-            ManuallyDrop::drop(&mut self.channel);
-            ManuallyDrop::drop(&mut self.desc);
         }
     }
 }
@@ -306,8 +303,8 @@ impl TryFrom<Descriptor> for BdevHandle {
     fn try_from(desc: Descriptor) -> Result<Self, Self::Error> {
         if let Some(channel) = desc.get_channel() {
             return Ok(Self {
-                desc: ManuallyDrop::new(Arc::new(desc)),
-                channel: ManuallyDrop::new(channel),
+                desc: Arc::new(desc),
+                channel,
             });
         }
 
@@ -323,8 +320,8 @@ impl TryFrom<Arc<Descriptor>> for BdevHandle {
     fn try_from(desc: Arc<Descriptor>) -> Result<Self, Self::Error> {
         if let Some(channel) = desc.get_channel() {
             return Ok(Self {
-                desc: ManuallyDrop::new(desc),
-                channel: ManuallyDrop::new(channel),
+                desc,
+                channel,
             });
         }
 
