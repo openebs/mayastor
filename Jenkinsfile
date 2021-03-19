@@ -131,7 +131,7 @@ if (params.e2e_continuous == true) {
 pipeline {
   agent none
   options {
-    timeout(time: 2, unit: 'HOURS')
+    timeout(time: 3, unit: 'HOURS')
   }
   parameters {
     booleanParam(defaultValue: false, name: 'e2e_continuous')

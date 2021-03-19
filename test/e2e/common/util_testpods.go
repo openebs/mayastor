@@ -5,12 +5,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os/exec"
+	"strings"
+
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/types"
-	"os/exec"
-	"strings"
 
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
@@ -112,6 +113,7 @@ func CreateFioPodDef(podName string, volName string, volType VolumeType, nameSpa
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      podName,
 			Namespace: nameSpace,
+			Labels:    map[string]string{"app": "fio"},
 		},
 		Spec: corev1.PodSpec{
 			RestartPolicy: corev1.RestartPolicyNever,
