@@ -69,6 +69,9 @@ func RunFio(podName string, duration int, filename string, sizeMb int, args ...s
 	)
 	cmd.Dir = ""
 	output, err := cmd.CombinedOutput()
+	if err != nil {
+		logf.Log.Info("Running fio failed", "error", err)
+	}
 	return output, err
 }
 
