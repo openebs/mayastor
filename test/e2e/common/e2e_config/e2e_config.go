@@ -59,6 +59,12 @@ type E2EConfig struct {
 	} `yaml:"uninstall"`
 	BasicVolumeIO struct {
 		Replicas int `yaml:"replicas" env-default:"1"`
+		// FioTimeout is in seconds
+		FioTimeout int `yaml:"fioTimeout" env-default:"120"`
+		// VolSizeMb Units are MiB
+		VolSizeMb int `yaml:"volSizeMb" env-default:"1024"`
+		// FsVolSizeMb Units are MiB
+		FsVolSizeMb int `yaml:"fsVolSizeMb" env-default:"900"`
 	} `yaml:"basicVolumeIO"`
 	MultipleVolumesPodIO struct {
 		VolumeCount          int `yaml:"volumeCount" env-default:"2"`

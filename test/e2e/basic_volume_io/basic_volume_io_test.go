@@ -5,48 +5,61 @@ package basic_volume_io_test
 import (
 	"e2e-basic/common"
 	"e2e-basic/common/e2e_config"
+	"fmt"
+	"strings"
 	"testing"
+	"time"
 
 	. "github.com/onsi/ginkgo"
 	. "github.com/onsi/gomega"
 
-	storagev1 "k8s.io/api/storage/v1"
+	coreV1 "k8s.io/api/core/v1"
+	storageV1 "k8s.io/api/storage/v1"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
 var defTimeoutSecs = "120s"
-
-type volSc struct {
-	volName string
-	scName  string
-}
-
-var podNames []string
-var volNames []volSc
 
 func TestBasicVolumeIO(t *testing.T) {
 	// Initialise test and set class and file names for reports
 	common.InitTesting(t, "Basic volume IO tests, NVMe-oF TCP and iSCSI", "basic-volume-io")
 }
 
-func basicVolumeIOTest(protocol common.ShareProto, volumeType common.VolumeType, mode storagev1.VolumeBindingMode) {
-	scName := "basic-vol-io-test-" + string(protocol)
-	err := common.MakeStorageClass(scName, e2e_config.GetConfig().BasicVolumeIO.Replicas, protocol, common.NSDefault, &mode)
+func basicVolumeIOTest(protocol common.ShareProto, volumeType common.VolumeType, mode storageV1.VolumeBindingMode) {
+	params := e2e_config.GetConfig().BasicVolumeIO
+	logf.Log.Info("Test", "parameters", params)
+	scName := strings.ToLower(fmt.Sprintf("basic-vol-io-repl-%d-%s-%s-%s", params.Replicas, string(protocol), volumeType, mode))
+	err := common.MakeStorageClass(scName, params.Replicas, protocol, common.NSDefault, &mode)
 	Expect(err).ToNot(HaveOccurred(), "Creating storage class %s", scName)
 
-	volName := "basic-vol-io-test-" + string(protocol)
+	volName := strings.ToLower(fmt.Sprintf("basic-vol-io-repl-%d-%s-%s-%s", params.Replicas, string(protocol), volumeType, mode))
+
 	// Create the volume
-	uid := common.MkPVC(common.DefaultVolumeSizeMb, volName, scName, volumeType, common.NSDefault)
+	uid := common.MkPVC(params.VolSizeMb, volName, scName, volumeType, common.NSDefault)
 	logf.Log.Info("Volume", "uid", uid)
-	tmp := volSc{volName, scName}
-	volNames = append(volNames, tmp)
 
 	// Create the fio Pod
 	fioPodName := "fio-" + volName
-	pod, err := common.CreateFioPod(fioPodName, volName, volumeType, common.NSDefault)
+	pod := common.CreateFioPodDef(fioPodName, volName, volumeType, common.NSDefault)
+	Expect(pod).ToNot(BeNil())
+
+	var args = []string{
+		"--",
+	}
+	switch volumeType {
+	case common.VolFileSystem:
+		args = append(args, fmt.Sprintf("--filename=%s", common.FioFsFilename))
+		args = append(args, fmt.Sprintf("--size=%dm", params.FsVolSizeMb))
+	case common.VolRawBlock:
+		args = append(args, fmt.Sprintf("--filename=%s", common.FioBlockFilename))
+	}
+	args = append(args, common.GetFioArgs()...)
+	logf.Log.Info("fio", "arguments", args)
+	pod.Spec.Containers[0].Args = args
+
+	pod, err = common.CreatePod(pod, common.NSDefault)
 	Expect(err).ToNot(HaveOccurred())
 	Expect(pod).ToNot(BeNil())
-	podNames = append(podNames, fioPodName)
 
 	// Wait for the fio Pod to transition to running
 	Eventually(func() bool {
@@ -55,23 +68,25 @@ func basicVolumeIOTest(protocol common.ShareProto, volumeType common.VolumeType,
 		defTimeoutSecs,
 		"1s",
 	).Should(Equal(true))
+	logf.Log.Info("fio test pod is running.")
 
-	fioFilename := ""
-	fioSize := 0
-	// Run the fio test
-	switch volumeType {
-	case common.VolFileSystem:
-		fioFilename = common.FioFsFilename
-		fioSize = common.DefaultFioSizeMb
-	case common.VolRawBlock:
-		fioFilename = common.FioBlockFilename
-		fioSize = 0
+	logf.Log.Info("Waiting for run to complete", "timeout", params.FioTimeout)
+	tSecs := 0
+	var phase coreV1.PodPhase
+	for {
+		if tSecs > params.FioTimeout {
+			break
+		}
+		time.Sleep(1 * time.Second)
+		tSecs += 1
+		phase, err = common.CheckPodCompleted(fioPodName, common.NSDefault)
+		Expect(err).To(BeNil(), "CheckPodComplete got error %s", err)
+		if phase != coreV1.PodRunning {
+			break
+		}
 	}
-
-	_, err = common.RunFio(fioPodName, 20, fioFilename, fioSize)
-	Expect(err).ToNot(HaveOccurred())
-
-	podNames = podNames[:len(podNames)-1]
+	Expect(phase == coreV1.PodSucceeded).To(BeTrue(), "fio pod phase is %s", phase)
+	logf.Log.Info("fio completed", "duration", tSecs)
 
 	// Delete the fio pod
 	err = common.DeletePod(fioPodName, common.NSDefault)
@@ -79,7 +94,6 @@ func basicVolumeIOTest(protocol common.ShareProto, volumeType common.VolumeType,
 
 	// Delete the volume
 	common.RmPVC(volName, scName, common.NSDefault)
-	volNames = volNames[:len(volNames)-1]
 
 	err = common.RmStorageClass(scName)
 	Expect(err).ToNot(HaveOccurred(), "Deleting storage class %s", scName)
@@ -96,23 +110,23 @@ var _ = Describe("Mayastor Volume IO test", func() {
 	})
 
 	It("should verify an NVMe-oF TCP volume can process IO on a Filesystem volume with immediate binding", func() {
-		basicVolumeIOTest(common.ShareProtoNvmf, common.VolFileSystem, storagev1.VolumeBindingImmediate)
+		basicVolumeIOTest(common.ShareProtoNvmf, common.VolFileSystem, storageV1.VolumeBindingImmediate)
 	})
 
 	It("should verify an NVMe-oF TCP volume can process IO on a Raw Block volume with immediate binding", func() {
-		basicVolumeIOTest(common.ShareProtoNvmf, common.VolRawBlock, storagev1.VolumeBindingImmediate)
+		basicVolumeIOTest(common.ShareProtoNvmf, common.VolRawBlock, storageV1.VolumeBindingImmediate)
 	})
 
 	It("should verify an NVMe-oF TCP volume can process IO on a Filesystem volume with delayed binding", func() {
-		basicVolumeIOTest(common.ShareProtoNvmf, common.VolFileSystem, storagev1.VolumeBindingWaitForFirstConsumer)
+		basicVolumeIOTest(common.ShareProtoNvmf, common.VolFileSystem, storageV1.VolumeBindingWaitForFirstConsumer)
 	})
 
 	It("should verify an NVMe-oF TCP volume can process IO on a Raw Block volume with delayed binding", func() {
-		basicVolumeIOTest(common.ShareProtoNvmf, common.VolRawBlock, storagev1.VolumeBindingWaitForFirstConsumer)
+		basicVolumeIOTest(common.ShareProtoNvmf, common.VolRawBlock, storageV1.VolumeBindingWaitForFirstConsumer)
 	})
 
 	It("should verify an iSCSI volume can process IO on a Filesystem volume with immediate binding", func() {
-		basicVolumeIOTest(common.ShareProtoIscsi, common.VolFileSystem, storagev1.VolumeBindingImmediate)
+		basicVolumeIOTest(common.ShareProtoIscsi, common.VolFileSystem, storageV1.VolumeBindingImmediate)
 	})
 
 })

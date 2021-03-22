@@ -40,6 +40,12 @@ uninstall:
   cleanup: 0
 basicVolumeIO:
   replicas: 1
+  # timeout units are seconds
+  fioTimeout: 60
+  # volSizeMb units are MiB
+  volSizeMb: 500
+  # fsVolSizeMb units are MiB
+  fsVolSizeMb: 450
 multiVolumesPodIO:
   volumeCount: 6
   replicas: 2

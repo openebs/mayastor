@@ -40,9 +40,6 @@ func (job FioDisruptorJob) makeTestPod(selector map[string]string) (*coreV1.Pod,
 	pod.Spec.NodeSelector = selector
 	pod.Spec.RestartPolicy = coreV1.RestartPolicyAlways
 
-	image := "mayadata/e2e-fio"
-	pod.Spec.Containers[0].Image = image
-
 	args := []string{
 		"exitv",
 		"255",
@@ -53,7 +50,7 @@ func (job FioDisruptorJob) makeTestPod(selector map[string]string) (*coreV1.Pod,
 		fmt.Sprintf("--thinktime=%d", GetThinkTime(job.id)),
 		fmt.Sprintf("--thinktime_blocks=%d", GetThinkTimeBlocks(job.id)),
 	}
-	args = append(args, FioArgs...)
+	args = append(args, GetIOSoakFioArgs()...)
 	pod.Spec.Containers[0].Args = args
 
 	pod, err := common.CreatePod(pod, NSDisrupt)

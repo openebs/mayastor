@@ -32,8 +32,6 @@ func (job FioFsSoakJob) makeTestPod(selector map[string]string) (*coreV1.Pod, er
 	pod.Spec.NodeSelector = selector
 
 	e2eCfg := e2e_config.GetConfig()
-	image := "mayadata/e2e-fio"
-	pod.Spec.Containers[0].Image = image
 
 	args := []string{
 		"--",
@@ -45,7 +43,7 @@ func (job FioFsSoakJob) makeTestPod(selector map[string]string) (*coreV1.Pod, er
 		fmt.Sprintf("--thinktime_blocks=%d", GetThinkTimeBlocks(job.id)),
 		fmt.Sprintf("--size=%dm", common.DefaultFioSizeMb),
 	}
-	args = append(args, FioArgs...)
+	args = append(args, GetIOSoakFioArgs()...)
 	pod.Spec.Containers[0].Args = args
 
 	pod, err := common.CreatePod(pod, common.NSDefault)
