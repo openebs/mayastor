@@ -86,7 +86,7 @@ def notifySlackUponStateChange(build) {
 def notifySlackUponE2EFailure(build) {
   if (build.getResult() != 'SUCCESS' && env.BRANCH_NAME == 'develop') {
     slackSend(
-      channel: '#mayastor-backend',
+      channel: '#mayastor-e2e',
       color: 'danger',
       message: "E2E continuous testing has failed (<${env.BUILD_URL}|Open>)"
     )
@@ -355,7 +355,7 @@ pipeline {
                     build_cluster_destroy_url="${JENKINS_URL}job/${e2e_destroy_cluster_job}/buildWithParameters?BUILD=${k8s_job.getProjectName()}%23${k8s_job.getNumber()}"
                     kubeconfig_url="${JENKINS_URL}job/${k8s_job.getProjectName()}/${k8s_job.getNumber()}/artifact/hcloud-kubeadm/modules/k8s/secrets/admin.conf"
                     slackSend(
-                      channel: '#mayastor-backend',
+                      channel: '#mayastor-e2e',
                       color: 'danger',
                       message: "E2E k8s cluster <$build_cluster_run_url|#${k8s_job.getNumber()}> left running due to failure of " +
                         "<$self_url|$self_name>. Investigate using <$kubeconfig_url|kubeconfig>, or ssh as root to:\n" +
