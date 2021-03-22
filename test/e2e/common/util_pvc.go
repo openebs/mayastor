@@ -180,6 +180,7 @@ func MkPVC(volSizeMb int, volName string, scName string, volType VolumeType, nam
 		"1s",
 	).Should(Not(BeNil()))
 
+	logf.Log.Info("Created", "volume", volName, "uuid", pvc.ObjectMeta.UID, "storageClass", scName, "volume type", volType)
 	return string(pvc.ObjectMeta.UID)
 }
 

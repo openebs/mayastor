@@ -23,12 +23,13 @@ type FioDisruptorJob struct {
 	scName     string
 	podName    string
 	id         int
+	volUUID    string
 	faultDelay int
 	ready      bool
 }
 
 func (job FioDisruptorJob) makeVolume() {
-	common.MkPVC(common.DefaultVolumeSizeMb, job.volName, job.scName, common.VolRawBlock, NSDisrupt)
+	job.volUUID = common.MkPVC(common.DefaultVolumeSizeMb, job.volName, job.scName, common.VolRawBlock, NSDisrupt)
 }
 
 func (job FioDisruptorJob) removeVolume() {
@@ -63,6 +64,10 @@ func (job FioDisruptorJob) removeTestPod() error {
 
 func (job FioDisruptorJob) getPodName() string {
 	return job.podName
+}
+
+func (job FioDisruptorJob) describe() string {
+	return fmt.Sprintf("pod: %s, vol: %s, volUUID: %s", job.podName, job.podName, job.volUUID)
 }
 
 func MakeFioDisruptorJob(scName string, id int, segfaultDelay int) FioDisruptorJob {

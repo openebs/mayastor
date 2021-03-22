@@ -18,10 +18,11 @@ type FioRawBlockSoakJob struct {
 	podName  string
 	id       int
 	duration int
+	volUUID  string
 }
 
 func (job FioRawBlockSoakJob) makeVolume() {
-	common.MkPVC(common.DefaultVolumeSizeMb, job.volName, job.scName, common.VolRawBlock, common.NSDefault)
+	job.volUUID = common.MkPVC(common.DefaultVolumeSizeMb, job.volName, job.scName, common.VolRawBlock, common.NSDefault)
 }
 
 func (job FioRawBlockSoakJob) removeVolume() {
@@ -56,6 +57,10 @@ func (job FioRawBlockSoakJob) removeTestPod() error {
 
 func (job FioRawBlockSoakJob) getPodName() string {
 	return job.podName
+}
+
+func (job FioRawBlockSoakJob) describe() string {
+	return fmt.Sprintf("pod: %s, vol: %s, volUUID: %s", job.podName, job.podName, job.volUUID)
 }
 
 func MakeFioRawBlockJob(scName string, id int, duration time.Duration) FioRawBlockSoakJob {

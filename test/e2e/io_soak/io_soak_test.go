@@ -92,7 +92,9 @@ func monitor() error {
 					delete(activeJobMap, podName)
 					podsSucceeded += 1
 				case corev1.PodFailed:
-					logf.Log.Info("Pod completed with failures", "podName", podName)
+
+					logf.Log.Info("Pod completed with failures",
+						"Job", activeJobMap[podName].describe())
 					delete(activeJobMap, podName)
 					failedJobs = append(failedJobs, podName)
 					podsFailed += 1
@@ -221,6 +223,15 @@ func IOSoakTest(protocols []common.ShareProto, replicas int, loadFactor int, dur
 		}
 	}
 
+	if !allReady {
+		for _, job := range jobs {
+			if !common.IsPodRunning(job.getPodName(), common.NSDefault) {
+				logf.Log.Info("Not ready",
+					"Job", job.describe(),
+				)
+			}
+		}
+	}
 	logf.Log.Info("Test pods", "all ready", allReady)
 	Expect(allReady).To(BeTrue(), "Timeout waiting to jobs to be ready")
 
