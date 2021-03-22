@@ -21,6 +21,24 @@ const FioFsMountPoint = "/volume"
 const FioBlockFilename = "/dev/sdm"
 const FioFsFilename = FioFsMountPoint + "/fiotestfile"
 
+// default fio arguments for E2E fio runs
+var fioArgs = []string{
+	"--name=benchtest",
+	"--direct=1",
+	"--rw=randrw",
+	"--ioengine=libaio",
+	"--bs=4k",
+	"--iodepth=16",
+	"--numjobs=1",
+	"--verify=crc32",
+	"--verify_fatal=1",
+	"--verify_async=2",
+}
+
+func GetFioArgs() []string {
+	return fioArgs
+}
+
 // FIXME: this function runs fio with a bunch of parameters which are not configurable.
 // sizeMb should be 0 for fio to use the entire block device
 func RunFio(podName string, duration int, filename string, sizeMb int, args ...string) ([]byte, error) {

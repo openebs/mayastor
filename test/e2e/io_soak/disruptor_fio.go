@@ -23,12 +23,13 @@ type FioDisruptorJob struct {
 	scName     string
 	podName    string
 	id         int
+	volUUID    string
 	faultDelay int
 	ready      bool
 }
 
 func (job FioDisruptorJob) makeVolume() {
-	common.MkPVC(common.DefaultVolumeSizeMb, job.volName, job.scName, common.VolRawBlock, NSDisrupt)
+	job.volUUID = common.MkPVC(common.DefaultVolumeSizeMb, job.volName, job.scName, common.VolRawBlock, NSDisrupt)
 }
 
 func (job FioDisruptorJob) removeVolume() {
@@ -40,9 +41,6 @@ func (job FioDisruptorJob) makeTestPod(selector map[string]string) (*coreV1.Pod,
 	pod.Spec.NodeSelector = selector
 	pod.Spec.RestartPolicy = coreV1.RestartPolicyAlways
 
-	image := "mayadata/e2e-fio"
-	pod.Spec.Containers[0].Image = image
-
 	args := []string{
 		"exitv",
 		"255",
@@ -53,7 +51,7 @@ func (job FioDisruptorJob) makeTestPod(selector map[string]string) (*coreV1.Pod,
 		fmt.Sprintf("--thinktime=%d", GetThinkTime(job.id)),
 		fmt.Sprintf("--thinktime_blocks=%d", GetThinkTimeBlocks(job.id)),
 	}
-	args = append(args, FioArgs...)
+	args = append(args, GetIOSoakFioArgs()...)
 	pod.Spec.Containers[0].Args = args
 
 	pod, err := common.CreatePod(pod, NSDisrupt)
@@ -66,6 +64,10 @@ func (job FioDisruptorJob) removeTestPod() error {
 
 func (job FioDisruptorJob) getPodName() string {
 	return job.podName
+}
+
+func (job FioDisruptorJob) describe() string {
+	return fmt.Sprintf("pod: %s, vol: %s, volUUID: %s", job.podName, job.podName, job.volUUID)
 }
 
 func MakeFioDisruptorJob(scName string, id int, segfaultDelay int) FioDisruptorJob {

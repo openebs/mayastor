@@ -17,10 +17,11 @@ type FioFsSoakJob struct {
 	podName  string
 	id       int
 	duration int
+	volUUID  string
 }
 
 func (job FioFsSoakJob) makeVolume() {
-	common.MkPVC(common.DefaultVolumeSizeMb, job.volName, job.scName, common.VolFileSystem, common.NSDefault)
+	job.volUUID = common.MkPVC(common.DefaultVolumeSizeMb, job.volName, job.scName, common.VolFileSystem, common.NSDefault)
 }
 
 func (job FioFsSoakJob) removeVolume() {
@@ -32,8 +33,6 @@ func (job FioFsSoakJob) makeTestPod(selector map[string]string) (*coreV1.Pod, er
 	pod.Spec.NodeSelector = selector
 
 	e2eCfg := e2e_config.GetConfig()
-	image := "mayadata/e2e-fio"
-	pod.Spec.Containers[0].Image = image
 
 	args := []string{
 		"--",
@@ -45,7 +44,7 @@ func (job FioFsSoakJob) makeTestPod(selector map[string]string) (*coreV1.Pod, er
 		fmt.Sprintf("--thinktime_blocks=%d", GetThinkTimeBlocks(job.id)),
 		fmt.Sprintf("--size=%dm", common.DefaultFioSizeMb),
 	}
-	args = append(args, FioArgs...)
+	args = append(args, GetIOSoakFioArgs()...)
 	pod.Spec.Containers[0].Args = args
 
 	pod, err := common.CreatePod(pod, common.NSDefault)
@@ -58,6 +57,10 @@ func (job FioFsSoakJob) removeTestPod() error {
 
 func (job FioFsSoakJob) getPodName() string {
 	return job.podName
+}
+
+func (job FioFsSoakJob) describe() string {
+	return fmt.Sprintf("pod: %s, vol: %s, volUUID: %s", job.podName, job.podName, job.volUUID)
 }
 
 func MakeFioFsJob(scName string, id int, duration time.Duration) FioFsSoakJob {

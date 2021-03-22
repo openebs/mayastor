@@ -21,5 +21,5 @@ type IoSoakJob interface {
 	removeTestPod() error
 	removeVolume()
 	getPodName() string
+	describe() string
 }
-

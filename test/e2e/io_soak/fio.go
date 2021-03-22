@@ -1,6 +1,7 @@
 package io_soak
 
 import (
+	"e2e-basic/common"
 	"e2e-basic/common/e2e_config"
 )
 
@@ -28,17 +29,8 @@ func GetThinkTimeBlocks(idx int) int {
 	return thinkTimeBlocks
 }
 
-var FioArgs = []string{
-	"--name=benchtest",
-	"--direct=1",
-	"--rw=randrw",
-	"--ioengine=libaio",
-	"--bs=4k",
-	"--iodepth=16",
-	"--numjobs=1",
-	"--verify=crc32",
-	"--verify_fatal=1",
-	"--verify_async=2",
-	"--status-interval=120",
-	"--output-format=terse",
+func GetIOSoakFioArgs() []string {
+	args := common.GetFioArgs()
+	args = append(args, []string{"--status-interval=120", "--output-format=terse"}...)
+	return args
 }
