@@ -153,6 +153,6 @@ if [ -n "$pools" ]; then
   done
 fi
 
-helm template --set "$template_params" mayastor "$SCRIPTDIR/../chart" --output-dir="$tmpd" --namespace mayastor
+helm template --set "$template_params" mayastor "$SCRIPTDIR/../chart" --output-dir="$tmpd" --namespace mayastor -f "$SCRIPTDIR/../chart/$profile/values.yaml"
 
 mv "$tmpd"/mayastor/templates/*.yaml "$output_dir/"

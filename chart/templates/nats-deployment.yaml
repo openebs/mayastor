@@ -1,37 +1,204 @@
 ---
-kind: Deployment
-apiVersion: apps/v1
-metadata:
-  name: nats
-  namespace: {{ .Release.Namespace }}
-spec:
-  replicas: 1
-  selector:
-    matchLabels:
-      app: nats
-  template:
-    metadata:
-      labels:
-        app: nats
-    spec:
-      containers:
-        - name: nats
-          image: nats:2.1-alpine3.11
-          imagePullPolicy: "IfNotPresent"
-          ports:
-            - containerPort: 4222
-              protocol: TCP
-              name: "nats"
----
-kind: Service
 apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nats-config
+  namespace: {{ .Release.Namespace }}
+data:
+  nats.conf: |
+    pid_file: "/var/run/nats/nats.pid"
+
+    {{- with .Values.nats.logging.debug }}
+    debug: {{ . }}
+    {{- end }}
+    {{- with .Values.nats.logging.trace }}
+    trace:  {{ . }}
+    {{- end }}
+
+    http: 8222
+
+    {{- if .Values.nats.cluster.enabled }}
+    cluster {
+      port: 6222
+
+      routes [
+        {{- range untilStep 0 (int .Values.nats.cluster.replicas) 1 }}
+        nats://nats-{{ . }}.nats.default.svc:6222
+        {{- end }}
+      ]
+
+      cluster_advertise: $CLUSTER_ADVERTISE
+      connect_retries: 30
+    }
+    {{ end }}
+---
+apiVersion: v1
+kind: Service
 metadata:
   name: nats
   namespace: {{ .Release.Namespace }}
+  labels:
+    app: nats
 spec:
   selector:
     app: nats
+  clusterIP: None
   ports:
-  - protocol: TCP
+  - name: client
     port: 4222
-    targetPort: 4222
+  - name: cluster
+    port: 6222
+  - name: monitor
+    port: 8222
+  - name: metrics
+    port: 7777
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata:
+  name: nats
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: nats
+spec:
+  selector:
+    matchLabels:
+      app: nats
+  {{- if .Values.nats.cluster.enabled }}
+  replicas: {{ .Values.nats.cluster.replicas }}
+  {{- else }}
+  replicas: 1
+  {{- end }}
+  serviceName: "nats"
+  template:
+    metadata:
+      annotations:
+      {{- if .Values.nats.exporter.enabled }}
+        prometheus.io/path: /metrics
+        prometheus.io/port: "7777"
+        prometheus.io/scrape: "true"
+      {{- end }}
+      labels:
+        app: nats
+    spec:
+      # Common volumes for the containers
+      volumes:
+      - name: config-volume
+        configMap:
+          name: nats-config
+      - name: pid
+        emptyDir: {}
+
+      # Required to be able to HUP signal and apply config reload
+      # to the server without restarting the pod.
+      shareProcessNamespace: true
+
+      #################
+      #               #
+      #  NATS Server  #
+      #               #
+      #################
+      terminationGracePeriodSeconds: 60
+      containers:
+      - name: nats
+        image: nats:2.1.7-alpine3.11
+        ports:
+        - containerPort: 4222
+          name: client
+          hostPort: 4222
+        - containerPort: 6222
+          name: cluster
+        - containerPort: 8222
+          name: monitor
+        - containerPort: 7777
+          name: metrics
+        command:
+         - "nats-server"
+         - "--config"
+         - "/etc/nats-config/nats.conf"
+
+        # Required to be able to define an environment variable
+        # that refers to other environment variables.  This env var
+        # is later used as part of the configuration file.
+        env:
+        - name: POD_NAME
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.name
+        - name: POD_NAMESPACE
+          valueFrom:
+            fieldRef:
+              fieldPath: metadata.namespace
+        - name: CLUSTER_ADVERTISE
+          value: $(POD_NAME).nats.$(POD_NAMESPACE).svc
+        volumeMounts:
+          - name: config-volume
+            mountPath: /etc/nats-config
+          - name: pid
+            mountPath: /var/run/nats
+
+        # Liveness/Readiness probes against the monitoring
+        #
+        livenessProbe:
+          httpGet:
+            path: /
+            port: 8222
+          initialDelaySeconds: 10
+          timeoutSeconds: 5
+        readinessProbe:
+          httpGet:
+            path: /
+            port: 8222
+          initialDelaySeconds: 10
+          timeoutSeconds: 5
+
+        # Gracefully stop NATS Server on pod deletion or image upgrade.
+        #
+        lifecycle:
+          preStop:
+            exec:
+              # Using the alpine based NATS image, we add an extra sleep that is
+              # the same amount as the terminationGracePeriodSeconds to allow
+              # the NATS Server to gracefully terminate the client connections.
+              #
+              command: ["/bin/sh", "-c", "/nats-server -sl=ldm=/var/run/nats/nats.pid && /bin/sleep 60"]
+
+      #################################
+      #                               #
+      #  NATS Configuration Reloader  #
+      #                               #
+      #################################
+      - name: reloader
+        image: connecteverything/nats-server-config-reloader:0.6.0
+        command:
+         - "nats-server-config-reloader"
+         - "-pid"
+         - "/var/run/nats/nats.pid"
+         - "-config"
+         - "/etc/nats-config/nats.conf"
+        volumeMounts:
+          - name: config-volume
+            mountPath: /etc/nats-config
+          - name: pid
+            mountPath: /var/run/nats
+      {{ if .Values.nats.exporter.enabled }}
+      ##############################
+      #                            #
+      #  NATS Prometheus Exporter  #
+      #                            #
+      ##############################
+      - name: metrics
+        image: synadia/prometheus-nats-exporter:0.5.0
+        args:
+        - -connz
+        - -routez
+        - -subz
+        - -varz
+        - -prefix=nats
+        - -use_internal_server_id
+        - -DV
+        - http://localhost:8222/
+        ports:
+        - containerPort: 7777
+          name: metrics
+      {{ end }}
