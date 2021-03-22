@@ -32,6 +32,19 @@ def getLastNonAbortedBuild(build) {
   }
 }
 
+def getTag() {
+  if (e2e_build_images == true) {
+    def tag = sh(
+      // using printf to get rid of trailing newline
+      script: "printf \$(git rev-parse --short ${env.GIT_COMMIT})",
+      returnStdout: true
+    )
+    return tag
+  } else {
+    return e2e_continuous_image_tag
+  }
+}
+
 def getTestPlan() {
   if (params.e2e_continuous == true)  {
     return xray_continuous_testplan
@@ -102,7 +115,8 @@ if (currentBuild.getBuildCauses('jenkins.branch.BranchIndexingCause') &&
 }
 
 // Only schedule regular builds on develop branch, so we don't need to guard against it
-String cron_schedule = BRANCH_NAME == "develop" ? "0 2 * * *" : ""
+// Run only on one Mayastor pipeline
+String cron_schedule = BRANCH_NAME == "develop" && JOB_BASE_NAME == "Mayastor" ? "0 2 * * *" : ""
 
 // Determine which stages to run
 if (params.e2e_continuous == true) {
@@ -292,11 +306,6 @@ pipeline {
             stage('run e2e') {
               agent { label 'nixos' }
               environment {
-                GIT_COMMIT_SHORT = sh(
-                  // using printf to get rid of trailing newline
-                  script: "printf \$(git rev-parse --short ${GIT_COMMIT})",
-                  returnStdout: true
-                )
                 KUBECONFIG = "${env.WORKSPACE}/${e2e_environment}/modules/k8s/secrets/admin.conf"
               }
               steps {
@@ -314,12 +323,7 @@ pipeline {
                 sh 'kubectl get nodes -o wide'
 
                 script {
-                  def tag = ''
-                  if (e2e_build_images == true) {
-                    tag = env.GIT_COMMIT_SHORT
-                  } else {
-                    tag = e2e_continuous_image_tag
-                  }
+                  def tag = getTag()
                   def cmd = "./scripts/e2e-test.sh --device /dev/sdb --tag \"${tag}\" --logs --profile \"${e2e_test_profile}\" --build_number \"${env.BUILD_NUMBER}\" "
                   // building images also means using the CI registry
                   if (e2e_build_images == true) {
@@ -372,6 +376,7 @@ pipeline {
                   junit 'e2e.*.xml'
                   script {
                     def xray_testplan = getTestPlan()
+                    def tag = getTag()
                     step([
                       $class: 'XrayImportBuilder',
                       endpointName: '/junit/multipart',
@@ -383,7 +388,7 @@ pipeline {
                       inputInfoSwitcher: 'fileContent',
                       importInfo: """{
                         "fields": {
-                          "summary": "Build #${env.BUILD_NUMBER}, branch: ${env.BRANCH_name}",
+                          "summary": "Build #${env.BUILD_NUMBER}, branch: ${env.BRANCH_name}, tag: ${tag}",
                           "project": {
                             "key": "${xray_projectkey}"
                           },
