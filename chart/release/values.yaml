@@ -1,0 +1,9 @@
+nats:
+  cluster:
+    enabled: true
+    replicas: 3
+  exporter:
+    enabled: false
+  logging:
+    debug: false
+    trace: false
