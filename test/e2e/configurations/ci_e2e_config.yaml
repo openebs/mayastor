@@ -8,12 +8,12 @@ ioSoakTest:
   duration: 60m
   # loadFactor is number of volumes for each mayastor instance
   # volumes for disruptor pods are allocated from within this "pool"
-  loadFactor: 21
+  loadFactor: 10
   protocols:
   - nvmf
   disrupt:
     # Number of disruptor pods
-    podCount: 5
+    podCount: 3
     # faultAfter units are seconds
     faultAfter: 51
   # fioStartDelay units are seconds
