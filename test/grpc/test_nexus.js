@@ -680,6 +680,9 @@ describe('nexus', function () {
             assert.equal(data.slice(24, 32).toString(), 'Mayastor');
             // cmic, bit 3 ana_reporting
             assert.equal((data[76] & 0x8), 0x8, 'ANA reporting should be enabled');
+            // cntlid
+            const cntlid = data[79] << 8 | data[78];
+            assert.equal(cntlid, 1, 'should match expected cntlid');
           });
           done();
         }
@@ -732,6 +735,35 @@ describe('nexus', function () {
 
     it('should un-publish the nvmf nexus device', (done) => {
       client.unpublishNexus({ uuid: UUID }, done);
+    });
+
+    it('should share the nexus bdev over nvmf with controller ID range', (done) => {
+      const args = {
+        name: `nexus-${UUID}`,
+        protocol: 'nvmf',
+        cntlid_min: 1234,
+        cntlid_max: 1250
+      };
+      common.jsonrpcCommand(null, 'nexus_share', args, done);
+    });
+
+    it('nvmf controller should have expected controller ID', (done) => {
+      common.execAsRoot(common.getCmdPath('initiator'), [uri, 'id-ctrlr', idCtrlrFile], (err, stdout) => {
+        if (err) {
+          done(err);
+        } else {
+          fs.readFile(idCtrlrFile, (err, data) => {
+            if (err) throw err;
+            // Identify Controller Data Structure
+            // nvme_id_ctrl or spdk_nvme_ctrlr_data
+            assert.equal(data.length, 4096);
+            // cntlid
+            const cntlid = data[79] << 8 | data[78];
+            assert.equal(cntlid, 1234, 'should match expected cntlid');
+          });
+          done();
+        }
+      });
     });
   }); // End of describe('nvmf datapath')
 

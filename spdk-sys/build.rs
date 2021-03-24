@@ -86,6 +86,7 @@ fn main() {
         .whitelist_function("^nvme_status_.*")
         .whitelist_function("^nvmf_subsystem_find_listener")
         .whitelist_function("^nvmf_subsystem_set_ana_state")
+        .whitelist_function("^nvmf_subsystem_set_cntlid_range")
         .whitelist_function("^nvmf_tgt_accept")
         .blacklist_type("^longfunc")
         .whitelist_var("^NVMF.*")

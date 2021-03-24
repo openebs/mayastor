@@ -204,7 +204,7 @@ async fn lvs_pool_test() {
     ms.spawn(async {
         let pool2 = Lvs::lookup("tpool2").unwrap();
         for l in pool2.lvols().unwrap() {
-            l.share_nvmf().await.unwrap();
+            l.share_nvmf(None).await.unwrap();
         }
     })
     .await;
@@ -239,7 +239,7 @@ async fn lvs_pool_test() {
 
         // sharing should set the property on disk
 
-        lvol.share_nvmf().await.unwrap();
+        lvol.share_nvmf(None).await.unwrap();
 
         assert_eq!(
             lvol.get(PropName::Shared).await.unwrap(),
@@ -268,7 +268,7 @@ async fn lvs_pool_test() {
         }
 
         for l in pool.lvols().unwrap() {
-            l.share_nvmf().await.unwrap();
+            l.share_nvmf(None).await.unwrap();
         }
 
         pool.create_lvol("notshared", 4 * 1024, true).await.unwrap();

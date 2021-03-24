@@ -14,6 +14,7 @@ use nix::errno::Errno;
 use spdk_sys::{
     nvmf_subsystem_find_listener,
     nvmf_subsystem_set_ana_state,
+    nvmf_subsystem_set_cntlid_range,
     spdk_bdev_nvme_opts,
     spdk_nvmf_ns_get_bdev,
     spdk_nvmf_ns_opts,
@@ -265,6 +266,30 @@ impl NvmfSubsystem {
             source: Errno::from_i32(e),
             nqn: self.get_nqn(),
             msg: format!("failed to set ANA reporting, enable {}", enable),
+        })?;
+        Ok(())
+    }
+
+    /// set controller ID range
+    pub fn set_cntlid_range(
+        &self,
+        cntlid_min: u16,
+        cntlid_max: u16,
+    ) -> Result<(), Error> {
+        unsafe {
+            nvmf_subsystem_set_cntlid_range(
+                self.0.as_ptr(),
+                cntlid_min,
+                cntlid_max,
+            )
+        }
+        .to_result(|e| Error::Subsystem {
+            source: Errno::from_i32(e),
+            nqn: self.get_nqn(),
+            msg: format!(
+                "failed to set controller ID range [{}, {}]",
+                cntlid_min, cntlid_max
+            ),
         })?;
         Ok(())
     }

@@ -476,6 +476,7 @@ impl Config {
                 }
 
                 if let Ok(ss) = NvmfSubsystem::new_with_uuid(&uuid, &my_bdev) {
+                    // TODO: ss.set_cntlid_range(min, max);
                     ss.start()
                         .await
                         .map_err(|_| {

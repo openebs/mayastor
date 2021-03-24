@@ -480,7 +480,7 @@ async fn unmap_share_test() {
             let mut targets: Vec<NvmeTarget> = Vec::new();
 
             for vol in pool.lvols().unwrap() {
-                vol.share_nvmf().await.unwrap();
+                vol.share_nvmf(None).await.unwrap();
                 let uri = vol.share_uri().unwrap();
                 info!("lvol {} shared as: {}", vol.name(), uri);
                 targets.push(NvmeTarget::try_from(uri).unwrap());

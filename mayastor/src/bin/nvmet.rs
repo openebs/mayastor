@@ -37,7 +37,7 @@ async fn create_nexus(args: &ArgMatches<'_>) {
         .unwrap();
 
     let nexus = nexus_lookup(NEXUS).unwrap();
-    nexus.share_nvmf().await.unwrap();
+    nexus.share_nvmf(None).await.unwrap();
 }
 
 fn main() {
@@ -51,7 +51,7 @@ fn main() {
             .required(true)
             .default_value("64")
             .short("s")
-            .long("size") 
+            .long("size")
             .help("Size of the nexus to create in MB")
         )
         .arg(

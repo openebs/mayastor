@@ -122,13 +122,17 @@ impl Share for Lvol {
 
     /// share the lvol as a nvmf target
     #[instrument(level = "debug", err)]
-    async fn share_nvmf(&self) -> Result<Self::Output, Self::Error> {
-        let share = self.as_bdev().share_nvmf().await.map_err(|e| {
-            Error::LvolShare {
-                source: e,
-                name: self.name(),
-            }
-        })?;
+    async fn share_nvmf(
+        &self,
+        cntlid_range: Option<(u16, u16)>,
+    ) -> Result<Self::Output, Self::Error> {
+        let share =
+            self.as_bdev().share_nvmf(cntlid_range).await.map_err(|e| {
+                Error::LvolShare {
+                    source: e,
+                    name: self.name(),
+                }
+            })?;
 
         self.set(PropValue::Shared(true)).await?;
         info!("shared {}", self);
