@@ -15,10 +15,10 @@ TOPDIR=$(realpath "$SCRIPTDIR/..")
 #       resource_check is a follow up check for the 3rd party CSI test suite.
 #   2. ms_pod_disruption SHOULD be the last test before uninstall
 #
-DEFAULT_TESTS="install basic_volume_io csi resource_check replica rebuild ms_pod_disruption uninstall"
+DEFAULT_TESTS="install basic_volume_io csi resource_check replica rebuild uninstall"
 ONDEMAND_TESTS="install basic_volume_io csi resource_check uninstall"
-EXTENDED_TESTS="install basic_volume_io csi resource_check replica rebuild io_soak ms_pod_disruption uninstall"
-CONTINUOUS_TESTS="install basic_volume_io csi resource_check replica rebuild io_soak ms_pod_disruption uninstall"
+EXTENDED_TESTS="install basic_volume_io csi resource_check replica rebuild io_soak uninstall"
+CONTINUOUS_TESTS="install basic_volume_io csi resource_check replica rebuild io_soak uninstall"
 
 #exit values
 EXITV_OK=0
