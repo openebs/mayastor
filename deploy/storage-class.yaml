@@ -14,4 +14,5 @@ metadata:
 parameters:
   repl: '1'
   protocol: 'nvmf'
+  ioTimeout: 32
 provisioner: io.openebs.csi-mayastor

@@ -753,6 +753,7 @@ dependencies = [
  "serde_json",
  "snafu",
  "sys-mount",
+ "sysfs",
  "tokio",
  "tonic",
  "tonic-build",

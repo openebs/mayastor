@@ -1,4 +1,4 @@
-use std::convert::TryFrom;
+use std::{collections::HashMap, convert::TryFrom};
 
 use url::Url;
 
@@ -43,5 +43,12 @@ impl Attach for Nbd {
 
     async fn find(&self) -> Result<Option<DeviceName>, DeviceError> {
         Ok(Some(DeviceName::from(&self.path)))
+    }
+
+    async fn fixup(
+        &self,
+        _context: &HashMap<String, String>,
+    ) -> Result<(), DeviceError> {
+        Ok(())
     }
 }

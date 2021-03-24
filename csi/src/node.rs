@@ -458,8 +458,8 @@ impl node_server::Node for Node {
                     ));
                 }
 
-                Device::wait_for_device(
-                    device,
+                let devpath = Device::wait_for_device(
+                    &*device,
                     ATTACH_TIMEOUT_INTERVAL,
                     ATTACH_RETRIES,
                 )
@@ -471,7 +471,18 @@ impl node_server::Node for Node {
                         &msg.volume_id,
                         error
                     )
-                })?
+                })?;
+
+                device.fixup(&msg.publish_context).await.map_err(|error| {
+                    failure!(
+                        Code::Internal,
+                        "Could not set parameters on staged device {}: {}",
+                        &msg.volume_id,
+                        error
+                    )
+                })?;
+
+                devpath
             }
         };
 

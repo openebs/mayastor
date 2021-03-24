@@ -27,7 +27,7 @@
 //!     }
 //! ```
 
-use std::{convert::TryFrom, time::Duration};
+use std::{collections::HashMap, convert::TryFrom, time::Duration};
 
 use tokio::time::delay_for;
 use udev::Enumerator;
@@ -50,6 +50,10 @@ pub type DeviceName = String;
 pub trait Attach: Sync + Send {
     async fn attach(&self) -> Result<(), DeviceError>;
     async fn find(&self) -> Result<Option<DeviceName>, DeviceError>;
+    async fn fixup(
+        &self,
+        context: &HashMap<String, String>,
+    ) -> Result<(), DeviceError>;
 }
 
 #[tonic::async_trait]
@@ -119,7 +123,7 @@ impl Device {
     /// Wait for a device to show up in udev
     /// once attach() has been called.
     pub async fn wait_for_device(
-        device: Box<dyn Attach>,
+        device: &dyn Attach,
         timeout: Duration,
         retries: u32,
     ) -> Result<DeviceName, DeviceError> {

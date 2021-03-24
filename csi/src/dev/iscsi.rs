@@ -1,4 +1,4 @@
-use std::convert::TryFrom;
+use std::{collections::HashMap, convert::TryFrom};
 
 use regex::Regex;
 use udev::Enumerator;
@@ -167,6 +167,13 @@ impl Attach for IscsiAttach {
         }
 
         Ok(None)
+    }
+
+    async fn fixup(
+        &self,
+        _context: &HashMap<String, String>,
+    ) -> Result<(), DeviceError> {
+        Ok(())
     }
 }
 
