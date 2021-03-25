@@ -77,6 +77,7 @@ use crate::{
     },
     core::{CoreError, DmaBuf, DmaError},
 };
+use std::convert::TryInto;
 
 #[derive(Debug, Snafu)]
 pub enum LabelError {
@@ -996,11 +997,11 @@ impl NexusLabel {
 impl NexusChild {
     /// read and validate this child's label
     pub async fn probe_label(&self) -> Result<NexusLabel, LabelError> {
-        let handle = self.handle().context(HandleError {
+        let handle = self.get_io_handle().context(HandleError {
             name: self.name.clone(),
         })?;
 
-        let bdev = handle.get_bdev();
+        let bdev = handle.get_device();
         let block_size = u64::from(bdev.block_len());
         let num_blocks = bdev.num_blocks();
 
@@ -1183,14 +1184,14 @@ impl NexusChild {
 
     /// Helper method to generate a new label for this child
     fn new_label(&self, size: u64) -> Result<NexusLabel, LabelError> {
-        let handle = self.handle().context(HandleError {
+        let handle = self.get_io_handle().context(HandleError {
             name: self.name.clone(),
         })?;
 
-        let bdev = handle.get_bdev();
-        let guid = GptGuid::from(Uuid::from(bdev.uuid()));
+        let bdev = handle.get_device();
+        let guid = GptGuid::from(Uuid::parse_str(&bdev.uuid()).unwrap());
 
-        Nexus::generate_label(guid, bdev.block_len(), bdev.num_blocks(), size)
+        Nexus::generate_label(guid, bdev.block_len().try_into().unwrap(), bdev.num_blocks(), size)
     }
 
     /// Create new label and index on this child
@@ -1421,11 +1422,11 @@ impl NexusChild {
         &self,
         label: &NexusLabel,
     ) -> Result<LabelData, LabelError> {
-        let handle = self.handle().context(HandleError {
+        let handle = self.get_io_handle().context(HandleError {
             name: self.name.clone(),
         })?;
 
-        let bdev = handle.get_bdev();
+        let bdev = handle.get_device();
         let block_size = u64::from(bdev.block_len());
 
         let mut buf =
@@ -1466,11 +1467,11 @@ impl NexusChild {
         &self,
         label: &NexusLabel,
     ) -> Result<LabelData, LabelError> {
-        let handle = self.handle().context(HandleError {
+        let handle = self.get_io_handle().context(HandleError {
             name: self.name.clone(),
         })?;
 
-        let bdev = handle.get_bdev();
+        let bdev = handle.get_device();
         let block_size = u64::from(bdev.block_len());
 
         let mut buf = DmaBuf::new(
@@ -1511,13 +1512,13 @@ impl NexusChild {
         offset: u64,
         buf: &DmaBuf,
     ) -> Result<usize, LabelError> {
-        let handle = self.handle().context(HandleError {
+        let handle = self.get_io_handle().context(HandleError {
             name: self.name.clone(),
         })?;
 
         Ok(handle.write_at(offset, buf).await.context(WriteError {
             name: self.name.clone(),
-        })?)
+        })?.try_into().unwrap())
     }
 
     pub async fn write_label(

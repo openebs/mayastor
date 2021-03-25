@@ -437,11 +437,11 @@ impl NexusMetaData {
     ) -> Result<(), MetaDataError> {
         let index_lba = NexusMetaData::get_index_lba(label)?;
 
-        let handle = child.handle().context(HandleError {
+        let handle = child.get_io_handle().context(HandleError {
             name: child.name.clone(),
         })?;
 
-        let bdev = handle.get_bdev();
+        let bdev = handle.get_device();
         let block_size = u64::from(bdev.block_len());
 
         let mut buf = handle.dma_malloc(block_size).context(ReadAlloc {
@@ -472,7 +472,7 @@ impl NexusMetaData {
             return Ok(());
         }
 
-        let guid = Guid::from(Uuid::from(bdev.uuid()));
+        let guid = Guid::from(Uuid::parse_str(&bdev.uuid()).unwrap());
         let mut index =
             MetaDataIndex::new(parent, guid, index_lba, total_entries);
 
@@ -508,18 +508,18 @@ impl NexusMetaData {
     ) -> Result<(), MetaDataError> {
         let index_lba = NexusMetaData::get_index_lba(label)?;
 
-        let handle = child.handle().context(HandleError {
+        let handle = child.get_io_handle().context(HandleError {
             name: child.name.clone(),
         })?;
 
-        let bdev = handle.get_bdev();
+        let bdev = handle.get_device();
         let block_size = u64::from(bdev.block_len());
 
         let mut buf = handle.dma_malloc(block_size).context(WriteAlloc {
             name: String::from("index"),
         })?;
 
-        let guid = Guid::from(Uuid::from(bdev.uuid()));
+        let guid = Guid::from(Uuid::parse_str(&bdev.uuid()).unwrap());
         let mut index =
             MetaDataIndex::new(parent, guid, index_lba, total_entries);
 
@@ -567,11 +567,11 @@ impl NexusMetaData {
         index: &mut MetaDataIndex,
         now: &SystemTime,
     ) -> Result<(), MetaDataError> {
-        let handle = child.handle().context(HandleError {
+        let handle = child.get_io_handle().context(HandleError {
             name: child.name.clone(),
         })?;
 
-        let bdev = handle.get_bdev();
+        let bdev = handle.get_device();
         let block_size = u64::from(bdev.block_len());
 
         let mut buf = handle.dma_malloc(block_size).context(WriteAlloc {
@@ -601,11 +601,11 @@ impl NexusMetaData {
             });
         }
 
-        let handle = child.handle().context(HandleError {
+        let handle = child.get_io_handle().context(HandleError {
             name: child.name.clone(),
         })?;
 
-        let bdev = handle.get_bdev();
+        let bdev = handle.get_device();
         let block_size = u64::from(bdev.block_len());
 
         let mut buf = handle.dma_malloc(block_size).context(ReadAlloc {
@@ -643,11 +643,11 @@ impl NexusMetaData {
 
         object.validate()?;
 
-        let handle = child.handle().context(HandleError {
+        let handle = child.get_io_handle().context(HandleError {
             name: child.name.clone(),
         })?;
 
-        let bdev = handle.get_bdev();
+        let bdev = handle.get_device();
         let block_size = u64::from(bdev.block_len());
 
         let mut buf = handle.dma_malloc(block_size).context(ReadAlloc {
@@ -715,11 +715,11 @@ impl NexusMetaData {
 
         object.validate()?;
 
-        let handle = child.handle().context(HandleError {
+        let handle = child.get_io_handle().context(HandleError {
             name: child.name.clone(),
         })?;
 
-        let bdev = handle.get_bdev();
+        let bdev = handle.get_device();
         let block_size = u64::from(bdev.block_len());
 
         let mut buf = handle.dma_malloc(block_size).context(ReadAlloc {
@@ -774,11 +774,11 @@ impl NexusMetaData {
             });
         }
 
-        let handle = child.handle().context(HandleError {
+        let handle = child.get_io_handle().context(HandleError {
             name: child.name.clone(),
         })?;
 
-        let bdev = handle.get_bdev();
+        let bdev = handle.get_device();
         let block_size = u64::from(bdev.block_len());
 
         let mut buf = handle.dma_malloc(block_size).context(ReadAlloc {
@@ -839,11 +839,11 @@ impl NexusMetaData {
             });
         }
 
-        let handle = child.handle().context(HandleError {
+        let handle = child.get_io_handle().context(HandleError {
             name: child.name.clone(),
         })?;
 
-        let bdev = handle.get_bdev();
+        let bdev = handle.get_device();
         let block_size = u64::from(bdev.block_len());
 
         let mut buf = handle.dma_malloc(block_size).context(ReadAlloc {
@@ -888,11 +888,11 @@ impl NexusMetaData {
             });
         }
 
-        let handle = child.handle().context(HandleError {
+        let handle = child.get_io_handle().context(HandleError {
             name: child.name.clone(),
         })?;
 
-        let bdev = handle.get_bdev();
+        let bdev = handle.get_device();
         let block_size = u64::from(bdev.block_len());
 
         let mut buf = handle.dma_malloc(block_size).context(ReadAlloc {
@@ -969,11 +969,11 @@ impl NexusMetaData {
             });
         }
 
-        let handle = child.handle().context(HandleError {
+        let handle = child.get_io_handle().context(HandleError {
             name: child.name.clone(),
         })?;
 
-        let bdev = handle.get_bdev();
+        let bdev = handle.get_device();
         let block_size = u64::from(bdev.block_len());
 
         let mut buf = handle.dma_malloc(block_size).context(ReadAlloc {

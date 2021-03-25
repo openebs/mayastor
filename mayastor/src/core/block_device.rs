@@ -85,6 +85,8 @@ pub trait BlockDeviceDescriptor {
     fn into_handle(
         self: Box<Self>,
     ) -> Result<Box<dyn BlockDeviceHandle>, CoreError>;
+    fn get_io_handle(&self) -> Result<Box<dyn BlockDeviceHandle>, CoreError>;
+    fn unclaim(&self);
 }
 
 pub type IoCompletionCallbackArg = *mut c_void;
@@ -141,8 +143,8 @@ pub trait BlockDeviceHandle {
 
     fn reset(
         &self,
-        cb: OpCompletionCallback,
-        cb_arg: OpCompletionCallbackArg,
+        cb: IoCompletionCallback,
+        cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError>;
 
     fn unmap_blocks(
