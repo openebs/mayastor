@@ -330,6 +330,7 @@ impl<'a> NvmeController<'a> {
 
         // Reset the controller to complete all remaining I/O requests after all
         // I/O channels are closed.
+        // TODO: fail the controller via spdk_nvme_ctrlr_fail() upon shutdown ?
         debug!("{} resetting NVMe controller", ctx.name);
         let rc = unsafe { spdk_nvme_ctrlr_reset(controller.ctrlr_as_ptr()) };
         if rc != 0 {

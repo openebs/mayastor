@@ -47,7 +47,7 @@ impl NexusChild {
     /// All we have is a reference to a child.
     pub fn to_grpc(&self) -> rpc::Child {
         rpc::Child {
-            uri: self.name.clone(),
+            uri: self.get_name().to_string(),
             state: rpc::ChildState::from(self.state()) as i32,
             rebuild_progress: self.get_rebuild_progress(),
         }
