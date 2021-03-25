@@ -708,7 +708,10 @@ impl NexusChild {
                 && partition.ent_name.name == "MayaMeta"
             {
                 let mut metadata = NexusMetaData {
-                    header: MetaDataHeader::new(bdev.block_len(), &partition),
+                    header: MetaDataHeader::new(
+                        bdev.block_len() as u32,
+                        &partition,
+                    ),
                     index: Vec::new(),
                 };
                 self.sync_metadata(&mut metadata).await?;

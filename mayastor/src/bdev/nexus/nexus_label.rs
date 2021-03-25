@@ -1027,11 +1027,11 @@ impl NexusLabel {
 impl NexusChild {
     /// read and validate this child's label
     pub async fn probe_label(&self) -> Result<NexusLabel, LabelError> {
-        let handle = self.handle().context(HandleError {
-            name: self.name.clone(),
+        let handle = self.get_io_handle().context(HandleError {
+            name: self.get_name().clone(),
         })?;
 
-        let bdev = handle.get_bdev();
+        let bdev = handle.get_device();
         let block_size = u64::from(bdev.block_len());
         let num_blocks = bdev.num_blocks();
 
@@ -1197,7 +1197,7 @@ impl NexusChild {
         data_blocks: u64,
         total_blocks: u64,
     ) -> Result<NexusLabel, LabelError> {
-        info!("creating new label for child {}", self.name);
+        info!("creating new label for child {}", self.get_name());
         let label = Nexus::generate_label(
             config,
             block_size,
@@ -1225,7 +1225,7 @@ impl NexusChild {
             {
                 // Use existing label
                 if label.primary.guid != config.disk_guid {
-                    info!("updating existing label for child {}: setting guid to {}", self.name, config.disk_guid);
+                    info!("updating existing label for child {}: setting guid to {}", self.get_name(), config.disk_guid);
                     label.set_guid(config.disk_guid);
                 }
                 self.write_label(&label).await?;
@@ -1294,13 +1294,14 @@ impl Nexus {
         let data_offset = reference[1].ent_start;
 
         for child in self.children.iter_mut() {
-            let handle = child.handle().context(HandleError {
-                name: child.name.clone(),
+            let handle = child.get_io_handle().context(HandleError {
+                name: child.get_name().clone(),
             })?;
 
-            let bdev = handle.get_bdev();
-            let label =
-                child.validate_label(&reference, bdev.block_len()).await?;
+            let bdev = handle.get_device();
+            let label = child
+                .validate_label(&reference, bdev.block_len() as u32)
+                .await?;
             let data_blocks =
                 label.data_block_count().context(InvalidLabel {})?;
 
@@ -1370,16 +1371,16 @@ impl Nexus {
         )?;
 
         for child in self.children.iter_mut() {
-            let handle = child.handle().context(HandleError {
-                name: child.name.clone(),
+            let handle = child.get_io_handle().context(HandleError {
+                name: child.get_name().clone(),
             })?;
 
-            let bdev = handle.get_bdev();
+            let bdev = handle.get_device();
             child
                 .update_label(
                     &reference,
                     &config,
-                    bdev.block_len(),
+                    bdev.block_len() as u32,
                     nexus_blocks,
                     bdev.num_blocks(),
                 )
@@ -1412,15 +1413,15 @@ impl Nexus {
         let data_offset = reference[1].ent_start;
 
         for child in self.children.iter_mut() {
-            let handle = child.handle().context(HandleError {
-                name: child.name.clone(),
+            let handle = child.get_io_handle().context(HandleError {
+                name: child.get_name().clone(),
             })?;
 
-            let bdev = handle.get_bdev();
+            let bdev = handle.get_device();
             let label = child
                 .create_label(
                     &config,
-                    bdev.block_len(),
+                    bdev.block_len() as u32,
                     nexus_blocks,
                     bdev.num_blocks(),
                 )
@@ -1453,11 +1454,11 @@ impl NexusChild {
         &self,
         label: &NexusLabel,
     ) -> Result<LabelData, LabelError> {
-        let handle = self.handle().context(HandleError {
-            name: self.name.clone(),
+        let handle = self.get_io_handle().context(HandleError {
+            name: self.get_name().clone(),
         })?;
 
-        let bdev = handle.get_bdev();
+        let bdev = handle.get_device();
         let block_size = u64::from(bdev.block_len());
 
         let mut buf =
@@ -1498,11 +1499,11 @@ impl NexusChild {
         &self,
         label: &NexusLabel,
     ) -> Result<LabelData, LabelError> {
-        let handle = self.handle().context(HandleError {
-            name: self.name.clone(),
+        let handle = self.get_io_handle().context(HandleError {
+            name: self.get_name().clone(),
         })?;
 
-        let bdev = handle.get_bdev();
+        let bdev = handle.get_device();
         let block_size = u64::from(bdev.block_len());
 
         let mut buf = DmaBuf::new(
@@ -1542,13 +1543,13 @@ impl NexusChild {
         &self,
         offset: u64,
         buf: &DmaBuf,
-    ) -> Result<usize, LabelError> {
-        let handle = self.handle().context(HandleError {
-            name: self.name.clone(),
+    ) -> Result<u64, LabelError> {
+        let handle = self.get_io_handle().context(HandleError {
+            name: self.get_name().clone(),
         })?;
 
         Ok(handle.write_at(offset, buf).await.context(WriteError {
-            name: self.name.clone(),
+            name: self.get_name().clone(),
         })?)
     }
 
@@ -1562,19 +1563,19 @@ impl NexusChild {
             }
             NexusLabelStatus::Primary => {
                 // Only write out secondary as disk already has valid primary.
-                info!("writing secondary label to child {}", self.name);
+                info!("writing secondary label to child {}", self.get_name());
                 let secondary = self.get_secondary_data(label)?;
                 self.write_at(secondary.offset, &secondary.buf).await?;
             }
             NexusLabelStatus::Secondary => {
                 // Only write out primary as disk already has valid secondary.
-                info!("writing primary label to child {}", self.name);
+                info!("writing primary label to child {}", self.get_name());
                 let primary = self.get_primary_data(label)?;
                 self.write_at(primary.offset, &primary.buf).await?;
             }
             NexusLabelStatus::Neither => {
                 // Write out both labels.
-                info!("writing label to child {}", self.name);
+                info!("writing label to child {}", self.get_name());
                 let primary = self.get_primary_data(label)?;
                 let secondary = self.get_secondary_data(label)?;
                 self.write_at(primary.offset, &primary.buf).await?;

@@ -7,15 +7,7 @@ use std::{
 use libc::c_void;
 use nix::errno::Errno;
 
-use spdk_sys::{
-    spdk_bdev_io,
-    spdk_bdev_readv_blocks,
-    spdk_bdev_reset,
-    spdk_bdev_unmap_blocks,
-    spdk_bdev_write_zeroes_blocks,
-    spdk_bdev_writev_blocks,
-    spdk_io_channel,
-};
+use spdk_sys::{spdk_bdev_io, spdk_io_channel};
 
 use crate::{
     bdev::{
@@ -30,17 +22,19 @@ use crate::{
         Reason,
     },
     core::{
-        Bdev,
-        BdevHandle,
         Bio,
+        BlockDevice,
+        BlockDeviceHandle,
+        CoreError,
         Cores,
         GenericStatusCode,
+        IoCompletionStatus,
         IoStatus,
         IoType,
         Mthread,
+        NvmeCommandStatus,
         Reactors,
     },
-    ffihelper::FfiResult,
 };
 
 #[allow(unused_macros)]
@@ -122,16 +116,24 @@ pub(crate) fn nexus_submit_io(mut io: NexusBio) {
         }
         IoType::NvmeAdmin => {
             io.fail();
-            Err(Errno::EINVAL)
+            Err(CoreError::NotSupported {
+                source: Errno::EINVAL,
+            })
         }
-
         _ => {
             trace!(?io, "not supported");
             io.fail();
-            Err(Errno::EOPNOTSUPP)
+            Err(CoreError::NotSupported {
+                source: Errno::EOPNOTSUPP,
+            })
         }
     } {
-        error!(?e, ?io, "Error during IO submission");
+        // TODO: Displaying a message in response to every
+        // submission error might result in log files flooded with
+        // zillions of similar error messages for faulted nexuses.
+        // Need to rethink the approach for error notifications here.
+
+        // error!(?e, ?io, "Error during IO submission");
     }
 }
 
@@ -154,14 +156,13 @@ impl NexusBio {
     }
 
     /// invoked when a nexus Io completes
-    unsafe extern "C" fn child_completion(
-        child_io: *mut spdk_bdev_io,
-        success: bool,
-        nexus_io: *mut c_void,
+    fn child_completion(
+        device: &Box<dyn BlockDevice>,
+        status: IoCompletionStatus,
+        ctx: *mut c_void,
     ) {
-        let mut nexus_io = NexusBio::from(nexus_io);
-        let child_io = Bio::from(child_io);
-        nexus_io.complete(child_io, success);
+        let mut nexus_io = NexusBio::from(ctx as *mut spdk_bdev_io);
+        nexus_io.complete(device, status);
     }
 
     #[inline(always)]
@@ -228,17 +229,23 @@ impl NexusBio {
     }
 
     /// completion handler for the nexus when a child IO completes
-    pub fn complete(&mut self, child_io: Bio, success: bool) {
+    pub fn complete(
+        &mut self,
+        child: &Box<dyn BlockDevice>,
+        status: IoCompletionStatus,
+    ) {
         assert_eq!(self.ctx().core, Cores::current());
+        let success = status == IoCompletionStatus::Success;
+        let device_name = child.device_name();
 
         // decrement the counter of in flight IO
         self.ctx_as_mut().in_flight -= 1;
 
         // record the state of at least one of the IO's.
-        if !success {
-            self.ctx_as_mut().status = IoStatus::Failed;
-        } else {
+        if success {
             self.ctx_as_mut().num_ok += 1;
+        } else {
+            self.ctx_as_mut().status = IoStatus::Failed;
         }
 
         match self.disposition() {
@@ -261,12 +268,13 @@ impl NexusBio {
                 assert_eq!(success, false);
                 error!(
                     ?self,
-                    ?child_io,
+                    ?device_name,
                     "{}:{}",
                     Cores::current(),
                     "last child IO failed completion"
                 );
-                self.try_retire(child_io.clone());
+
+                self.try_retire(child, status);
                 self.ok();
             }
 
@@ -277,13 +285,12 @@ impl NexusBio {
                 assert_eq!(success, false);
                 error!(
                     ?self,
-                    ?child_io,
+                    ?device_name,
                     "{}:{}",
                     Cores::current(),
-                    "some child IO completion failed"
+                    "child IO completion failed"
                 );
-
-                self.try_retire(child_io.clone());
+                self.try_retire(child, status);
                 // more IO is pending ensure we set the proper context state
                 self.ctx_as_mut().status = IoStatus::Pending;
             }
@@ -293,10 +300,6 @@ impl NexusBio {
             // },
             _ => {}
         }
-
-        // always free the child IO. The status of the child IO has been set by
-        // the underlying device before invocation of the callback.
-        child_io.free();
     }
 
     /// reference to the inner channels. The inner channel contains the specific
@@ -314,31 +317,28 @@ impl NexusBio {
     }
 
     /// helper routine to get a channel to read from
-    fn read_channel_at_index(&self, i: usize) -> &BdevHandle {
+    fn read_channel_at_index(&self, i: usize) -> &Box<dyn BlockDeviceHandle> {
         &self.inner_channel().readers[i]
     }
 
     /// submit a read operation to one of the children of this nexus
     #[inline(always)]
-    fn submit_read(&self, hdl: &BdevHandle) -> Result<(), Errno> {
-        let (desc, chan) = hdl.io_tuple();
-        unsafe {
-            spdk_bdev_readv_blocks(
-                desc,
-                chan,
-                self.iovs(),
-                self.iov_count(),
-                self.offset() + self.data_ent_offset(),
-                self.num_blocks(),
-                Some(Self::child_completion),
-                self.as_ptr().cast(),
-            )
-        }
-        .to_result(Errno::from_i32)
+    fn submit_read(
+        &self,
+        hdl: &Box<dyn BlockDeviceHandle>,
+    ) -> Result<(), CoreError> {
+        hdl.readv_blocks(
+            self.iovs(),
+            self.iov_count(),
+            self.offset() + self.data_ent_offset(),
+            self.num_blocks(),
+            Self::child_completion,
+            self.as_ptr().cast(),
+        )
     }
 
     /// submit read IO to some child
-    fn readv(&mut self) -> Result<(), Errno> {
+    fn readv(&mut self) -> Result<(), CoreError> {
         if let Some(i) = self.inner_channel().child_select() {
             let hdl = self.read_channel_at_index(i);
             self.submit_read(hdl).map(|_| {
@@ -346,79 +346,65 @@ impl NexusBio {
             })
         } else {
             self.fail();
-            Err(Errno::ENODEV)
+            Err(CoreError::NoDevicesAvailable {})
         }
     }
 
     #[inline(always)]
-    fn submit_write(&self, hdl: &BdevHandle) -> Result<(), Errno> {
-        let (desc, chan) = hdl.io_tuple();
-        unsafe {
-            spdk_bdev_writev_blocks(
-                desc,
-                chan,
-                self.iovs(),
-                self.iov_count(),
-                self.offset() + self.data_ent_offset(),
-                self.num_blocks(),
-                Some(Self::child_completion),
-                self.as_ptr().cast(),
-            )
-        }
-        .to_result(Errno::from_i32)
+    fn submit_write(
+        &self,
+        hdl: &Box<dyn BlockDeviceHandle>,
+    ) -> Result<(), CoreError> {
+        hdl.writev_blocks(
+            self.iovs(),
+            self.iov_count(),
+            self.offset() + self.data_ent_offset(),
+            self.num_blocks(),
+            Self::child_completion,
+            self.as_ptr().cast(),
+        )
     }
 
     #[inline(always)]
-    fn submit_unmap(&self, hdl: &BdevHandle) -> Result<(), Errno> {
-        let (desc, chan) = hdl.io_tuple();
-        unsafe {
-            spdk_bdev_unmap_blocks(
-                desc,
-                chan,
-                self.offset() + self.data_ent_offset(),
-                self.num_blocks(),
-                Some(Self::child_completion),
-                self.as_ptr().cast(),
-            )
-        }
-        .to_result(Errno::from_i32)
+    fn submit_unmap(
+        &self,
+        hdl: &Box<dyn BlockDeviceHandle>,
+    ) -> Result<(), CoreError> {
+        hdl.unmap_blocks(
+            self.offset() + self.data_ent_offset(),
+            self.num_blocks(),
+            Self::child_completion,
+            self.as_ptr().cast(),
+        )
     }
 
     #[inline(always)]
-    fn submit_write_zeroes(&self, hdl: &BdevHandle) -> Result<(), Errno> {
-        let (desc, chan) = hdl.io_tuple();
-        unsafe {
-            spdk_bdev_write_zeroes_blocks(
-                desc,
-                chan,
-                self.offset() + self.data_ent_offset(),
-                self.num_blocks(),
-                Some(Self::child_completion),
-                self.as_ptr().cast(),
-            )
-        }
-        .to_result(Errno::from_i32)
+    fn submit_write_zeroes(
+        &self,
+        hdl: &Box<dyn BlockDeviceHandle>,
+    ) -> Result<(), CoreError> {
+        hdl.write_zeroes(
+            self.offset() + self.data_ent_offset(),
+            self.num_blocks(),
+            Self::child_completion,
+            self.as_ptr().cast(),
+        )
     }
 
     #[inline(always)]
-    fn submit_reset(&self, hdl: &BdevHandle) -> Result<(), Errno> {
-        let (desc, chan) = hdl.io_tuple();
-        unsafe {
-            spdk_bdev_reset(
-                desc,
-                chan,
-                Some(Self::child_completion),
-                self.as_ptr().cast(),
-            )
-        }
-        .to_result(Errno::from_i32)
+    fn submit_reset(
+        &self,
+        hdl: &Box<dyn BlockDeviceHandle>,
+    ) -> Result<(), CoreError> {
+        hdl.reset(Self::child_completion, self.as_ptr().cast())
     }
+
     /// Submit the IO to all underlying children, failing on the first error we
     /// find. When an IO is partially submitted -- we must wait until all
     /// the child IOs have completed before we mark the whole IO failed to
     /// avoid double frees. This function handles IO for a subset that must
     /// be submitted to all the underlying children.
-    fn submit_all(&mut self) -> Result<(), Errno> {
+    fn submit_all(&mut self) -> Result<(), CoreError> {
         let mut inflight = 0;
         let mut status = IoStatus::Pending;
 
@@ -455,10 +441,8 @@ impl NexusBio {
             _ => unreachable!(),
         }
         .map_err(|se| {
-            match se {
-                Errno::ENOMEM => status = IoStatus::NoMemory,
-                _ => status = IoStatus::Failed,
-            }
+            // TODO: Support of IoStatus::NoMemory in ENOMEM-related errors.
+            status = IoStatus::Failed;
             debug!(
                 "IO submission failed with {} already submitted IOs {}",
                 se, inflight
@@ -471,35 +455,50 @@ impl NexusBio {
             self.ctx_as_mut().status = status;
         } else {
             // if no IO was submitted at all, we can fail the IO now.
-            if matches!(result, Err(Errno::ENOMEM)) {
-                self.no_mem();
-            } else {
-                // right now this could only be EINVAL, make sure to verify this
-                // during debug builds
-                debug_assert_eq!(result.err(), Some(Errno::EINVAL));
-                self.fail();
-            }
+            // TODO: Support of IoStatus::NoMemory in ENOMEM-related errors.
+            self.fail();
         }
         result
     }
 
-    fn try_retire(&mut self, child_io: Bio) {
-        let nvme_status = child_io.nvme_status();
-        trace!(?nvme_status);
+    fn try_retire(
+        &mut self,
+        child: &Box<dyn BlockDevice>,
+        status: IoCompletionStatus,
+    ) {
+        trace!(?status);
 
-        if nvme_status.status_code() != GenericStatusCode::InvalidOpcode {
-            Reactors::master().send_future(Self::child_retire(
-                self.nexus_as_ref().name.clone(),
-                child_io.bdev(),
-            ));
+        match status {
+            // For NVMe devices, don't retire the device in response to invalid
+            // opcodes.
+            IoCompletionStatus::NvmeError(nvme_status) => {
+                if nvme_status
+                    == NvmeCommandStatus::GenericCommandStatus(
+                        GenericStatusCode::InvalidOpcode,
+                    )
+                {
+                    info!(
+                            "Device {} experienced invalid opcode error: retiring skipped",
+                            child.device_name()
+                        );
+                    return;
+                }
+            }
+            // Retire the device in response to all non-NVMe errors.
+            _ => {}
         }
+
+        Reactors::master().send_future(Self::child_retire(
+            self.nexus_as_ref().name.clone(),
+            child.device_name(),
+        ));
     }
 
     /// Retire a child for this nexus.
-    async fn child_retire(nexus: String, child: Bdev) {
+    async fn child_retire(nexus: String, device: String) {
         match nexus_lookup(&nexus) {
             Some(nexus) => {
-                if let Some(child) = nexus.child_lookup(&child.name()) {
+                if let Some(child) = nexus.child_lookup(&device) {
                     let current_state = child.state.compare_and_swap(
                         ChildState::Open,
                         ChildState::Faulted(Reason::IoError),
@@ -534,7 +533,7 @@ impl NexusBio {
             None => {
                 debug!(
                     "{} does not belong (anymore) to nexus {}",
-                    child, nexus
+                    device, nexus
                 );
             }
         }
