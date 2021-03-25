@@ -32,7 +32,7 @@ use spdk_sys::{
 };
 
 use crate::{
-    bdev::lookup_child_from_bdev,
+    bdev::lookup_nexus_child,
     core::{
         share::{Protocol, Share},
         uuid::Uuid,
@@ -175,7 +175,7 @@ impl Bdev {
         match event {
             spdk_sys::SPDK_BDEV_EVENT_REMOVE => {
                 info!("Received remove event for bdev {}", bdev.name());
-                if let Some(child) = lookup_child_from_bdev(&bdev.name()) {
+                if let Some(child) = lookup_nexus_child(&bdev.name()) {
                     child.remove();
                 }
             }

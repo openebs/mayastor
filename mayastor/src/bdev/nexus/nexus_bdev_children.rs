@@ -31,6 +31,7 @@ use crate::{
         device_create,
         device_destroy,
         device_lookup,
+        lookup_nexus_child,
         nexus::{
             nexus_bdev::{
                 CreateChild,
@@ -47,6 +48,7 @@ use crate::{
         Reason,
         VerboseError,
     },
+    core::DeviceEventType,
     nexus_uri::NexusBdevError,
 };
 
@@ -363,6 +365,33 @@ impl Nexus {
         }
     }
 
+    /// Listener for nexus child events.
+    fn child_event_listener(event: DeviceEventType, device: &str) {
+        match event {
+            DeviceEventType::DeviceRemoved => {
+                match lookup_nexus_child(device) {
+                    Some(child) => {
+                        info!(
+                            "{}: removing child {} in response to device removal event",
+                            child.get_nexus_name(),
+                            child.get_name(),
+                        );
+                        child.remove();
+                    }
+                    None => {
+                        warn!(
+                            "No nexus child exists for device {}, ignoring device removal event",
+                            device
+                        );
+                    }
+                }
+            }
+            _ => {
+                info!("Ignoring {:?} event for device {}", event, device);
+            }
+        }
+    }
+
     /// try to open all the child devices
     pub(crate) async fn try_open_children(&mut self) -> Result<(), Error> {
         if self.children.is_empty()
@@ -438,6 +467,24 @@ impl Nexus {
                 }
             })
             .for_each(drop);
+
+        // Register event listeners for child devices.
+        self.children.iter().for_each(|ch| {
+            ch.get_device()
+                .unwrap()
+                .add_event_listener(Nexus::child_event_listener)
+                .map_err(|err| {
+                    error!(
+                        ?err,
+                        "{}: failed to register event listener for child {}",
+                        self.name,
+                        ch.get_name(),
+                    );
+                    err
+                })
+                .unwrap();
+        });
+
         Ok(())
     }
 
