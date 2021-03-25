@@ -85,10 +85,11 @@ impl ChildStatusConfig {
         let store = &ChildStatusConfig::get().status;
         for nexus in instances() {
             nexus.children.iter_mut().for_each(|child| {
-                if let Some(status) = store.get(&child.name) {
+                if let Some(status) = store.get(child.get_name()) {
                     info!(
                         "Apply state to child {}, reasons {:?}",
-                        child.name, status
+                        child.get_name(),
+                        status
                     );
                     child.set_state(*status);
                 }
@@ -126,7 +127,9 @@ impl ChildStatusConfig {
 
         instances().iter().for_each(|nexus| {
             nexus.children.iter().for_each(|child| {
-                status_cfg.status.insert(child.name.clone(), child.state());
+                status_cfg
+                    .status
+                    .insert(child.get_name().to_string(), child.state());
             });
         });
 
@@ -152,7 +155,8 @@ impl ChildStatusConfig {
         let mut cfg = ChildStatusConfig {
             status: HashMap::new(),
         };
-        cfg.status.insert(child.name.clone(), child.state());
+        cfg.status
+            .insert(child.get_name().to_string(), child.state());
         ChildStatusConfig::do_save(Some(cfg))
     }
 

@@ -46,20 +46,20 @@ impl Nexus {
         let src_child_name = match self
             .children
             .iter()
-            .find(|c| c.state() == ChildState::Open && c.name != name)
+            .find(|c| c.state() == ChildState::Open && c.get_name() != name)
         {
-            Some(child) => Ok(child.name.clone()),
+            Some(child) => Ok(child.get_name().clone()),
             None => Err(Error::NoRebuildSource {
                 name: self.name.clone(),
             }),
         }?;
 
         let dst_child_name =
-            match self.children.iter_mut().find(|c| c.name == name) {
+            match self.children.iter().find(|c| c.get_name() == name) {
                 Some(c)
                     if c.state() == ChildState::Faulted(Reason::OutOfSync) =>
                 {
-                    Ok(c.name.clone())
+                    Ok(c.get_name().clone())
                 }
                 Some(c) => Err(Error::ChildNotDegraded {
                     child: name.to_owned(),
@@ -264,7 +264,7 @@ impl Nexus {
                 NexusChild::save_state_change();
                 info!(
                     "Child {} has been rebuilt successfully",
-                    recovering_child.name
+                    recovering_child.get_name()
                 );
             }
             RebuildState::Stopped => {

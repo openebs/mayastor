@@ -72,6 +72,20 @@ impl BlockDeviceDescriptor for NvmeDeviceDescriptor {
         Box::new(NvmeBlockDevice::from_ns(&self.name, Arc::clone(&self.ns)))
     }
 
+    fn get_io_handle(&self) -> Result<Box<dyn BlockDeviceHandle>, CoreError> {
+        Ok(Box::new(NvmeDeviceHandle::create(
+            &self.name,
+            self.io_device_id,
+            self.ctrlr.clone(),
+            Arc::clone(&self.ns),
+            self.prchk_flags,
+        )?))
+    }
+
+    fn unclaim(&self) {
+        warn!("unclaim() is not implemented for NvmeDeviceDescriptor yet");
+    }
+
     fn into_handle(
         self: Box<Self>,
     ) -> Result<Box<dyn BlockDeviceHandle>, CoreError> {
