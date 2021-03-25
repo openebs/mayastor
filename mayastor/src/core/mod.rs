@@ -171,6 +171,8 @@ pub enum CoreError {
     DeviceStatisticsError {
         source: Errno,
     },
+    #[snafu(display("No devices available for I/O"))]
+    NoDevicesAvailable {},
 }
 
 // Generic I/O completion status for block devices, which supports per-protocol
