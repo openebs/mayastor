@@ -22,8 +22,8 @@ data:
       port: 6222
 
       routes [
-        {{- range untilStep 0 (int .Values.nats.cluster.replicas) 1 }}
-        nats://nats-{{ . }}.nats.default.svc:6222
+        {{- range $index, $end := until (.Values.nats.cluster.replicas | int) }}
+        {{ printf "nats://nats-%d.nats.%s.svc:6222" $index $.Release.Namespace }}
         {{- end }}
       ]
 
