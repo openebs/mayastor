@@ -202,6 +202,7 @@ pub struct NvmeIoChannelInner<'a> {
     pub qpair: Option<IoQpair>,
     io_stats_controller: IoStatsController,
     pub device: Box<dyn BlockDevice>,
+    num_pending_ios: u64,
 
     // Flag to indicate the shutdown state of the channel.
     // We need such a flag to differentiate between channel reset and shutdown.
@@ -222,7 +223,12 @@ impl NvmeIoChannelInner<'_> {
     pub fn reset(&mut self) -> i32 {
         if self.qpair.is_some() {
             // Remove qpair and trigger its deallocation via drop().
-            self.qpair.take();
+            let qpair = self.qpair.take().unwrap();
+            info!(
+                "dropping qpair {:p} ({} I/O requests pending)",
+                qpair.as_ptr(),
+                self.num_pending_ios
+            );
         }
         0
     }
@@ -243,6 +249,22 @@ impl NvmeIoChannelInner<'_> {
             self.is_shutdown = true;
         }
         rc
+    }
+
+    /// Account active I/O for channel.
+    #[inline]
+    pub fn account_io(&mut self) {
+        self.num_pending_ios += 1;
+    }
+
+    /// Discard active I/O operation for channel.
+    #[inline]
+    pub fn discard_io(&mut self) {
+        if self.num_pending_ios == 0 {
+            warn!("Discarding I/O operation without any active I/O operations")
+        } else {
+            self.num_pending_ios -= 1;
+        }
     }
 
     /// Reinitializes channel after reset unless the channel is shutdown.
@@ -497,6 +519,7 @@ impl NvmeControllerIoChannel {
             io_stats_controller: IoStatsController::new(block_size),
             is_shutdown: false,
             device,
+            num_pending_ios: 0,
         });
 
         nvme_channel.inner = Box::into_raw(inner);

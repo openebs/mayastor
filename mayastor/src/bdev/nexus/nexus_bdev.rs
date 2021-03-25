@@ -523,7 +523,7 @@ impl Nexus {
                         error!(
                             "{}: child {} failed to close with error {}",
                             nexus.name,
-                            child.name,
+                            child.get_name(),
                             e.verbose()
                         );
                     }
@@ -564,16 +564,16 @@ impl Nexus {
         // wait for all rebuild jobs to be cancelled before proceeding with the
         // destruction of the nexus
         for child in self.children.iter() {
-            self.cancel_child_rebuild_jobs(&child.name).await;
+            self.cancel_child_rebuild_jobs(child.get_name()).await;
         }
 
         for child in self.children.iter_mut() {
-            info!("Destroying child bdev {}", child.name);
+            info!("Destroying child bdev {}", child.get_name());
             if let Err(e) = child.close().await {
                 // TODO: should an error be returned here?
                 error!(
                     "Failed to close child {} with error {}",
-                    child.name,
+                    child.get_name(),
                     e.verbose()
                 );
             }
@@ -695,7 +695,7 @@ impl Nexus {
                         error!(
                             "{}: child {} failed to close with error {}",
                             self.name,
-                            child.name,
+                            child.get_name(),
                             e.verbose()
                         );
                     }
@@ -724,7 +724,7 @@ impl Nexus {
     pub fn io_is_supported(&self, io_type: IoType) -> bool {
         self.children
             .iter()
-            .filter_map(|e| e.bdev.as_ref())
+            .filter_map(|e| e.get_device().ok())
             .any(|b| b.io_type_supported(io_type))
     }
 
