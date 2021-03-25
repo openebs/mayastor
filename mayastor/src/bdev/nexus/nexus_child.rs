@@ -136,7 +136,7 @@ impl Display for ChildState {
 #[derive(Serialize)]
 pub struct NexusChild {
     /// name of the parent this child belongs too
-    pub(crate) parent: String,
+    parent: String,
 
     /// current state of the child
     #[serde(skip_serializing)]
@@ -303,6 +303,11 @@ impl NexusChild {
     /// Get full name of this Nexus child.
     pub(crate) fn get_name(&self) -> &str {
         &self.name
+    }
+
+    /// Get name of the nexus this child belongs to.
+    pub fn get_nexus_name(&self) -> &str {
+        &self.parent
     }
 
     /// Online a previously offlined child.
@@ -489,7 +494,13 @@ impl NexusChild {
     pub(crate) async fn destroy(&self) -> Result<(), NexusBdevError> {
         if self.device.is_some() {
             self.set_state(ChildState::Destroying);
-            device_destroy(&self.name).await
+            info!("{} destroying underlying block device", self.name);
+            let rc = device_destroy(&self.name).await;
+            info!(
+                "{} underlying block device destroyed, rc = {:?}",
+                self.name, rc
+            );
+            rc
         } else {
             warn!(
                 "{}: destroying nexus child without associated block device",
@@ -578,7 +589,7 @@ impl NexusChild {
 }
 
 /// Looks up a child based on the underlying block device name.
-pub fn lookup_child_from_bdev(bdev_name: &str) -> Option<&mut NexusChild> {
+pub fn lookup_nexus_child(bdev_name: &str) -> Option<&mut NexusChild> {
     for nexus in instances() {
         for child in &mut nexus.children {
             if child.device.is_some()
