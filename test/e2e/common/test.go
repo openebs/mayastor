@@ -120,25 +120,39 @@ func AfterSuiteCleanup() {
 	logf.Log.Info("AfterSuiteCleanup")
 }
 
-// Check that no PVs, PVCs and MSVs are still extant.
-// Returns an error if resources exists.
-func AfterEachCheck() error {
+// Fit for purpose checks
+// - No pods
+// - No PVCs
+// - No PVs
+// - No MSVs
+// - Mayastor pods are all healthy
+// - All mayastor pools are online
+// - TODO: mayastor pools usage is 0
+func ResourceCheck() error {
 	var errorMsg = ""
 
-	logf.Log.Info("AfterEachCheck")
-
-	// Phase 1 to delete dangling resources
-	// TODO check all e2e namespaces used by a test
-	pvcs, _ := CheckForPVCs()
-	if pvcs {
-		errorMsg += " found leftover PersistentVolumeClaims"
-		logf.Log.Info("AfterEachCheck: found leftover PersistentVolumeClaims, test fails.")
+	pods, err := CheckForTestPods()
+	if err != nil {
+		errorMsg += fmt.Sprintf("%s %v", errorMsg, err)
+	}
+	if pods {
+		errorMsg += " found Pods"
 	}
 
-	pvs, _ := CheckForPVs()
+	pvcs, err := CheckForPVCs()
+	if err != nil {
+		errorMsg += fmt.Sprintf("%s %v", errorMsg, err)
+	}
+	if pvcs {
+		errorMsg += " found PersistentVolumeClaims"
+	}
+
+	pvs, err := CheckForPVs()
+	if err != nil {
+		errorMsg += fmt.Sprintf("%s %v", errorMsg, err)
+	}
 	if pvs {
-		errorMsg += " found leftover PersistentVolumes"
-		logf.Log.Info("AfterEachCheck: found leftover PersistentVolumes, test fails.")
+		errorMsg += " found PersistentVolumes"
 	}
 
 	// Mayastor volumes
@@ -147,20 +161,59 @@ func AfterEachCheck() error {
 		Version:  "v1alpha1",
 		Resource: "mayastorvolumes",
 	}
-	msvs, _ := gTestEnv.DynamicClient.Resource(msvGVR).Namespace(NSMayastor).List(context.TODO(), metaV1.ListOptions{})
+	msvs, err := gTestEnv.DynamicClient.Resource(msvGVR).Namespace(NSMayastor).List(context.TODO(), metaV1.ListOptions{})
+	if err != nil {
+		errorMsg += fmt.Sprintf("%s %v", errorMsg, err)
+	}
 	if len(msvs.Items) != 0 {
-		errorMsg += " found leftover MayastorVolumes"
-		logf.Log.Info("AfterEachCheck: found leftover MayastorVolumes, test fails.")
+		errorMsg += " found MayastorVolumes"
 	}
 
 	// Check that Mayastor pods are healthy no restarts or fails.
-	err := CheckTestPodsHealth(NSMayastor)
+	err = CheckTestPodsHealth(NSMayastor)
 	if err != nil {
-		errorMsg = fmt.Sprintf("%s %v", errorMsg, err)
+		errorMsg += fmt.Sprintf("%s %v", errorMsg, err)
 	}
+
+	scs, err := CheckForStorageClasses()
+	if err != nil {
+		errorMsg += fmt.Sprintf("%s %v", errorMsg, err)
+	}
+	if scs {
+		errorMsg += " found storage classes using mayastor "
+	}
+
+	err = CheckAllPoolsAreOnline()
+	if err != nil {
+		errorMsg += fmt.Sprintf("%s %v", errorMsg, err)
+		logf.Log.Info("BeforeEachCheck: not all pools are online")
+	}
+
+	// TODO Check pools usage is 0
 
 	if len(errorMsg) != 0 {
 		return errors.New(errorMsg)
 	}
 	return nil
+}
+
+// The before and after each check are very similar, however functionally
+//	BeforeEachCheck asserts that the state of mayastor resources is fit for the test to run
+//  AfterEachCheck asserts that the state of mayastor resources has been restored.
+func BeforeEachCheck() error {
+	logf.Log.Info("BeforeEachCheck")
+	err := ResourceCheck()
+	if err != nil {
+		logf.Log.Info("BeforeEachCheck failed", "error", err)
+	}
+	return err
+}
+
+func AfterEachCheck() error {
+	logf.Log.Info("AfterEachCheck")
+	err := ResourceCheck()
+	if err != nil {
+		logf.Log.Info("AfterEachCheck failed", "error", err)
+	}
+	return err
 }

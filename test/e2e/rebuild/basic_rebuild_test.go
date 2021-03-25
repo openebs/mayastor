@@ -82,6 +82,19 @@ func TestRebuild(t *testing.T) {
 }
 
 var _ = Describe("Mayastor rebuild test", func() {
+
+	BeforeEach(func() {
+		// Check ready to run
+		err := common.BeforeEachCheck()
+		Expect(err).ToNot(HaveOccurred())
+	})
+
+	AfterEach(func() {
+		// Check resource leakage.
+		err := common.AfterEachCheck()
+		Expect(err).ToNot(HaveOccurred())
+	})
+
 	It("should run a rebuild job to completion", func() {
 		basicRebuildTest()
 	})

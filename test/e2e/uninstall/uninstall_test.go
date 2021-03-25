@@ -38,7 +38,7 @@ func teardownMayastor() {
 	if cleanup {
 		cleaned = common.CleanUp()
 	} else {
-		//TODO: check test pods in all e2e test namespaces.
+
 		found, err := common.CheckForTestPods()
 		if err != nil {
 			logf.Log.Info("Failed to checking for test pods.", "error", err)
@@ -63,6 +63,9 @@ func teardownMayastor() {
 			logf.Log.Info("Failed to check MSVs", "error", err)
 		}
 		Expect(found).To(BeFalse(), "Mayastor volume CRDs were found, none expected.")
+
+		err = common.CheckAllPoolsAreOnline()
+		Expect(err).ToNot(HaveOccurred())
 
 	}
 

@@ -10,33 +10,15 @@ import (
 )
 
 // Check that there are no artefacts left over from
-// the previous 3rd party test.
+// running a 3rd party test.
 func resourceCheck() {
 
-	found, err := common.CheckForTestPods()
+	err := common.ResourceCheck()
 	if err != nil {
-		logf.Log.Info("Failed to check for test pods.", "error", err)
-	} else {
-		Expect(found).To(BeFalse())
+		logf.Log.Info("Failed resource check.", "error", err)
 	}
 
-	found, err = common.CheckForPVCs()
-	if err != nil {
-		logf.Log.Info("Failed to check for PVCs", err)
-	}
-	Expect(found).To(BeFalse())
-
-	found, err = common.CheckForPVs()
-	if err != nil {
-		logf.Log.Info("Failed to check PVs", "error", err)
-	}
-	Expect(found).To(BeFalse())
-
-	found, err = common.CheckForMSVs()
-	if err != nil {
-		logf.Log.Info("Failed to check MSVs", "error", err)
-	}
-	Expect(found).To(BeFalse())
+	Expect(err).ToNot(HaveOccurred())
 }
 
 func TestResourceCheck(t *testing.T) {

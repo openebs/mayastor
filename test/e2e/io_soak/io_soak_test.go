@@ -124,9 +124,6 @@ func IOSoakTest(protocols []common.ShareProto, replicas int, loadFactor int, dur
 	nodeList, err := common.GetNodeLocs()
 	Expect(err).ToNot(HaveOccurred())
 
-	err = common.CheckAllPoolsAreOnline()
-	Expect(err).ToNot(HaveOccurred())
-
 	var nodes []string
 
 	numMayastorNodes := 0
@@ -268,8 +265,13 @@ func IOSoakTest(protocols []common.ShareProto, replicas int, loadFactor int, dur
 
 var _ = Describe("Mayastor Volume IO soak test", func() {
 
+	BeforeEach(func() {
+		// Check ready to run
+		err := common.BeforeEachCheck()
+		Expect(err).ToNot(HaveOccurred())
+	})
+
 	AfterEach(func() {
-		logf.Log.Info("AfterEach")
 		// Check resource leakage.
 		err := common.AfterEachCheck()
 		Expect(err).ToNot(HaveOccurred())
