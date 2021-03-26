@@ -81,7 +81,7 @@ impl<'a> NvmeControllerInner<'a> {
     fn new(
         ctrlr: NonNull<spdk_nvme_ctrlr>,
         name: String,
-        cfg: *mut TimeoutConfig,
+        cfg: NonNull<TimeoutConfig>,
     ) -> Self {
         let io_device = Arc::new(IoDevice::create(ctrlr.as_ptr().cast(), name));
 
@@ -90,7 +90,7 @@ impl<'a> NvmeControllerInner<'a> {
             .with_interval(
                 nvme_bdev_running_config().nvme_adminq_poll_period_us,
             )
-            .with_poll_fn(move || nvme_poll_adminq(cfg as *mut c_void))
+            .with_poll_fn(move || nvme_poll_adminq(cfg.as_ptr().cast()))
             .build();
 
         Self {
@@ -124,7 +124,7 @@ pub struct NvmeController<'a> {
     /// Timeout config is accessed by SPDK-driven timeout callback handlers,
     /// so it needs to be a raw pointer. Mutable members are made atomic to
     /// eliminate lock contention between API path and callback path.
-    pub(crate) timeout_config: *mut TimeoutConfig,
+    pub(crate) timeout_config: NonNull<TimeoutConfig>,
 }
 
 impl<'a> fmt::Debug for NvmeController<'a> {
@@ -150,7 +150,10 @@ impl<'a> NvmeController<'a> {
             state_machine: ControllerStateMachine::new(name),
             inner: None,
             event_listeners: Mutex::new(Vec::<fn(DeviceEventType, &str)>::new()),
-            timeout_config: Box::into_raw(Box::new(TimeoutConfig::new(name))),
+            timeout_config: NonNull::new(Box::into_raw(Box::new(
+                TimeoutConfig::new(name),
+            )))
+            .expect("failed to box timeout context"),
         };
 
         debug!("{}: new NVMe controller created", l.name);
@@ -669,7 +672,7 @@ impl<'a> Drop for NvmeController<'a> {
         }
 
         unsafe {
-            std::ptr::drop_in_place(self.timeout_config);
+            Box::from_raw(self.timeout_config.as_ptr());
         }
     }
 }
@@ -677,14 +680,14 @@ impl<'a> Drop for NvmeController<'a> {
 /// return number of completions processed (maybe 0) or negated on error. -ENXIO
 /// in the special case that the qpair is failed at the transport layer.
 pub extern "C" fn nvme_poll_adminq(ctx: *mut c_void) -> i32 {
-    let timeout_cfg = TimeoutConfig::from_ptr(ctx as *mut TimeoutConfig);
+    let mut context = NonNull::<TimeoutConfig>::new(ctx.cast())
+        .expect("ctx pointer may never be null");
+    let context = unsafe { context.as_mut() };
 
     let rc =
-        unsafe { spdk_nvme_ctrlr_process_admin_completions(timeout_cfg.ctrlr) };
-
-    // Reset controller upon failure.
+        unsafe { spdk_nvme_ctrlr_process_admin_completions(context.ctrlr) };
     if rc < 0 {
-        timeout_cfg.reset_controller();
+        context.reset_controller();
     }
 
     if rc == 0 {
@@ -774,10 +777,8 @@ pub(crate) fn connected_attached_cb(
         .transition(Initializing)
         .expect("Failed to transition controller into Initialized state");
 
-    unsafe {
-        (*controller.timeout_config).ctrlr = ctrlr.as_ptr();
-    }
-
+    // set the controller as a pointer within the context of the time out config
+    unsafe { controller.timeout_config.as_mut().ctrlr = ctrlr.as_ptr() };
     controller.set_id(cid);
     controller.inner = Some(NvmeControllerInner::new(
         ctrlr,
