@@ -815,10 +815,12 @@ pub(crate) fn connected_attached_cb(
 pub(crate) mod options {
     use std::mem::size_of;
 
+    use crate::ffihelper::IntoCString;
     use spdk_sys::{
         spdk_nvme_ctrlr_get_default_ctrlr_opts,
         spdk_nvme_ctrlr_opts,
     };
+    use std::ptr::copy_nonoverlapping;
 
     /// structure that holds the default NVMe controller options. This is
     /// different from ['NvmeBdevOpts'] as it exposes more control over
@@ -851,8 +853,9 @@ pub(crate) mod options {
         admin_timeout_ms: Option<u32>,
         disable_error_logging: Option<bool>,
         fabrics_connect_timeout_us: Option<u64>,
-        transport_retry_count: Option<u8>,
+        host_nqn: Option<String>,
         keep_alive_timeout_ms: Option<u32>,
+        transport_retry_count: Option<u8>,
     }
 
     #[allow(dead_code)]
@@ -885,6 +888,11 @@ pub(crate) mod options {
             self
         }
 
+        pub fn with_hostnqn<T: Into<String>>(mut self, host_nqn: T) -> Self {
+            self.host_nqn = Some(host_nqn.into());
+            self
+        }
+
         /// Builder to override default values
         pub fn build(self) -> NvmeControllerOpts {
             let mut opts = NvmeControllerOpts::default();
@@ -902,6 +910,16 @@ pub(crate) mod options {
 
             if let Some(timeout_ms) = self.keep_alive_timeout_ms {
                 opts.0.keep_alive_timeout_ms = timeout_ms;
+            }
+
+            if let Some(host_nqn) = self.host_nqn {
+                unsafe {
+                    copy_nonoverlapping(
+                        host_nqn.into_cstring().as_ptr(),
+                        &mut opts.0.hostnqn[0],
+                        opts.0.hostnqn.len(),
+                    )
+                };
             }
 
             opts

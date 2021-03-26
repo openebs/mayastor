@@ -44,6 +44,8 @@ use crate::{
 };
 
 use super::controller::transport::NvmeTransportId;
+use uuid::Uuid;
+
 const DEFAULT_NVMF_PORT: u16 = 8420;
 // Callback to be called once NVMe controller is successfully created.
 extern "C" fn connect_attach_cb(
@@ -172,13 +174,21 @@ impl<'probe> NvmeControllerContext<'probe> {
             .with_traddr(&template.host)
             .build();
 
+        // setting the HOSTNQN allows tracking who is connected to what. These
+        // makes debugging connections easier in certain cases. If no
+        // HOSTNQN is provided.
+
         let device_defaults = NvmeBdevOpts::default();
-        let opts = controller::options::Builder::new()
+        let mut opts = controller::options::Builder::new()
             .with_keep_alive_timeout_ms(device_defaults.keep_alive_timeout_ms)
-            .with_transport_retry_count(device_defaults.retry_count as u8)
-            .build();
+            .with_transport_retry_count(device_defaults.retry_count as u8);
+
+        if let Ok(host_nqn) = std::env::var("HOSTNQN") {
+            opts = opts.with_hostnqn(host_nqn);
+        }
 
         let (sender, receiver) = oneshot::channel::<ErrnoResult<()>>();
+        let opts = opts.build();
 
         NvmeControllerContext {
             opts,
