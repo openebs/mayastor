@@ -282,7 +282,6 @@ impl NexusBio {
             // the parent status back to pending for example [ok,
             // fail, pending]
             Disposition::Retire(IoStatus::Pending) => {
-                assert_eq!(success, false);
                 error!(
                     ?self,
                     ?device_name,
