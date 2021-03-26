@@ -69,6 +69,7 @@ pub(crate) struct TimeoutConfig {
     pub ctrlr: *mut spdk_nvme_ctrlr,
     reset_attempts: u32,
     next_reset_time: Instant,
+
 }
 
 impl Drop for TimeoutConfig {
@@ -90,6 +91,7 @@ impl TimeoutConfig {
             next_reset_time: Instant::now(),
         }
     }
+
 
     fn reset_cb(success: bool, ctx: *mut c_void) {
         let timeout_ctx = TimeoutConfig::from_ptr(ctx as *mut TimeoutConfig);
@@ -137,14 +139,12 @@ impl TimeoutConfig {
 
         // Check if the maximum number of resets exceeded and we need
         // to adjust the number of attempts based on time reset cooldown period.
-        if self.reset_attempts == 0 {
-            if Instant::now() >= self.next_reset_time {
-                self.reset_attempts = MAX_RESET_ATTEMPTS;
-                info!(
-                    "{} reset cooldown period elapsed, reset enabled.",
-                    self.name,
-                );
-            }
+        if self.reset_attempts == 0 && Instant::now() >= self.next_reset_time {
+            self.reset_attempts = MAX_RESET_ATTEMPTS;
+            info!(
+                "{} reset cooldown period elapsed, reset enabled.",
+                self.name,
+            );
         }
 
         if self.reset_attempts > 0 {
@@ -152,7 +152,7 @@ impl TimeoutConfig {
             self.reset_attempts -= 1;
 
             if let Some(c) =
-                NVME_CONTROLLERS.lookup_by_name(self.name.to_string())
+                NVME_CONTROLLERS.lookup_by_name(&self.name)
             {
                 let mut c = c.lock().expect("controller lock poisoned");
                 if let Err(e) = c.reset(
@@ -196,7 +196,7 @@ impl TimeoutConfig {
         self.timeout_action.load()
     }
 
-    pub fn from_ptr(ptr: *mut TimeoutConfig) -> &'static mut TimeoutConfig {
+        pub fn from_ptr(ptr: *mut TimeoutConfig) -> &'static mut TimeoutConfig {
         unsafe { &mut *(ptr as *mut TimeoutConfig) }
     }
 }
@@ -243,7 +243,7 @@ impl From<*mut spdk_nvme_ctrlr> for SpdkNvmeController {
 impl<'a> DeviceIoController for NvmeController<'a> {
     /// Get current I/O timeout action.
     fn get_timeout_action(&self) -> Result<DeviceTimeoutAction, CoreError> {
-        Ok(TimeoutConfig::from_ptr(self.timeout_config).get_timeout_action())
+        Ok(unsafe { self.timeout_config.as_ref().get_timeout_action() } )
     }
 
     /// Set current I/O timeout action.
@@ -251,7 +251,9 @@ impl<'a> DeviceIoController for NvmeController<'a> {
         &mut self,
         action: DeviceTimeoutAction,
     ) -> Result<(), CoreError> {
-        TimeoutConfig::from_ptr(self.timeout_config).set_timeout_action(action);
+        unsafe {
+            self.timeout_config.as_mut().set_timeout_action(action);
+        };
         info!("{} timeout action set to {:?}", self.name, action);
         Ok(())
     }
@@ -383,7 +385,7 @@ impl<'a> NvmeController<'a> {
                 self.ctrlr_as_ptr(),
                 device_defaults.timeout_us,
                 Some(NvmeController::io_timeout_handler),
-                self.timeout_config as *mut c_void,
+                self.timeout_config.as_ptr().cast(),
             );
         }
         info!(
