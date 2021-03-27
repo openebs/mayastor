@@ -48,6 +48,8 @@ pub enum NvmeError {
     UrlError { source: url::ParseError },
     #[snafu(display("Transport type {} not supported", trtype))]
     TransportError { trtype: String },
+    #[snafu(display("Invalid parameter: {}", text))]
+    InvalidParam { text: String },
 }
 
 impl From<std::io::Error> for NvmeError {

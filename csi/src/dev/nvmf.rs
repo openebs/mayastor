@@ -1,5 +1,9 @@
 use std::convert::TryFrom;
 
+use nvmeadm::{
+    error::NvmeError,
+    nvmf_discovery::{disconnect, ConnectArgsBuilder},
+};
 use udev::Enumerator;
 use url::Url;
 use uuid::Uuid;
@@ -73,18 +77,16 @@ impl TryFrom<&Url> for NvmfAttach {
 #[tonic::async_trait]
 impl Attach for NvmfAttach {
     async fn attach(&self) -> Result<(), DeviceError> {
-        if let Err(error) =
-            nvmeadm::nvmf_discovery::connect(&self.host, self.port, &self.nqn)
-        {
-            return match error {
-                nvmeadm::error::NvmeError::ConnectInProgress => Ok(()),
-                _ => {
-                    Err(DeviceError::from(format!("connect failed: {}", error)))
-                }
-            };
+        let ca = ConnectArgsBuilder::default()
+            .traddr(&self.host)
+            .trsvcid(self.port.to_string())
+            .nqn(&self.nqn)
+            .build()?;
+        match ca.connect() {
+            Err(NvmeError::ConnectInProgress) => Ok(()),
+            Err(err) => Err(format!("connect failed: {}", err).into()),
+            Ok(_) => Ok(()),
         }
-
-        Ok(())
     }
 
     async fn find(&self) -> Result<Option<DeviceName>, DeviceError> {
@@ -122,7 +124,7 @@ impl NvmfDetach {
 #[tonic::async_trait]
 impl Detach for NvmfDetach {
     async fn detach(&self) -> Result<(), DeviceError> {
-        if nvmeadm::nvmf_discovery::disconnect(&self.nqn)? == 0 {
+        if disconnect(&self.nqn)? == 0 {
             return Err(DeviceError::from(format!(
                 "nvmf disconnect {} failed: no device found",
                 self.nqn

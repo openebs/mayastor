@@ -1,4 +1,5 @@
 use std::{
+    convert::TryFrom,
     fmt,
     fs::OpenOptions,
     io::{ErrorKind, Read, Write},
@@ -41,12 +42,18 @@ static HOST_ID: once_cell::sync::Lazy<String> =
     });
 
 /// The TrType struct for all known transports types note: we are missing loop
-#[derive(Debug, Primitive)]
+#[derive(Clone, Debug, Primitive)]
 #[allow(non_camel_case_types)]
 pub enum TrType {
     rdma = 1,
     fc = 2,
     tcp = 3,
+}
+
+impl Default for TrType {
+    fn default() -> Self {
+        Self::tcp
+    }
 }
 
 impl fmt::Display for TrType {
@@ -56,7 +63,7 @@ impl fmt::Display for TrType {
 }
 
 /// AddressFamily, in case of TCP and RDMA we use IPv6 or IPc4 only
-#[derive(Debug, Primitive)]
+#[derive(Clone, Debug, Primitive)]
 pub enum AddressFamily {
     Pci = 0,
     Ipv4 = 1,
@@ -74,13 +81,29 @@ impl fmt::Display for AddressFamily {
 /// There are two built in subsystems available normal, i.e an NVMe device
 /// or a discovery controller. We are always exporting a discovery controller
 /// even when we are not actively serving out any devices
-#[derive(Debug, Primitive)]
+#[derive(Clone, Debug, Primitive)]
 pub enum SubType {
     Discovery = 1,
     Nvme = 2,
 }
 
-#[derive(Debug)]
+/// Check if the string contains a valid tcp port number.
+fn is_valid_port(value: &str) -> Result<(), String> {
+    match value.parse::<u16>() {
+        Err(_) => Err(format!("port should be a number: {}", value)),
+        Ok(_) => Ok(()),
+    }
+}
+
+/// Check if the string contains a valid IP address.
+fn is_valid_ip(value: &str) -> Result<(), String> {
+    match IpAddr::from_str(value) {
+        Err(_) => Err(format!("invalid IP address: {}", value)),
+        Ok(_) => Ok(()),
+    }
+}
+
+#[derive(Clone, Debug)]
 pub struct DiscoveryLogEntry {
     pub tr_type: TrType,
     pub adr_fam: AddressFamily,
@@ -125,6 +148,19 @@ pub struct Discovery {
 impl fmt::Display for Discovery {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{:?}", self)
+    }
+}
+
+impl TryFrom<DiscoveryLogEntry> for ConnectArgs {
+    type Error = String;
+
+    fn try_from(ent: DiscoveryLogEntry) -> Result<Self, Self::Error> {
+        ConnectArgsBuilder::default()
+            .transport(ent.tr_type)
+            .trsvcid(ent.trsvcid)
+            .traddr(ent.traddr)
+            .nqn(ent.subnqn)
+            .build()
     }
 }
 
@@ -338,35 +374,23 @@ impl Discovery {
         if self.entries.is_empty() {
             return Err(NvmeError::NoSubsystems {});
         }
-        let p = Path::new(NVME_FABRICS_PATH);
-
-        let mut file =
-            OpenOptions::new().write(true).read(true).open(&p).context(
-                ConnectError {
-                    filename: NVME_FABRICS_PATH,
-                },
-            )?;
         // we are ignoring errors here, and connect to all possible devices
         if let Err(connections) = self
             .entries
             .iter_mut()
-            .map(|e| {
-                file.write_all(e.build_connect_args().unwrap().as_bytes())
-                    .and_then(|_e| {
-                        let mut buf = String::new();
-                        file.read_to_string(&mut buf)?;
-                        Ok(buf)
-                    })
+            .map(|e| match ConnectArgs::try_from(e.clone()) {
+                Ok(c) => c.connect(),
+                Err(err) => Err(NvmeError::InvalidParam {
+                    text: err,
+                }),
             })
             .collect::<Result<Vec<_>, _>>()
         {
-            return Err(connections.into());
+            return Err(connections);
         }
-
         Ok(())
     }
 
-    ///
     /// This method the actual thing we care about. We want to connect to
     /// something and all we have is the name of the node we are supposed to
     /// connect to a port this port in our case may vary depending on which
@@ -391,26 +415,14 @@ impl Discovery {
     ///  let result = discovered_targets.connect("mynqn");
     /// ```
     ///
-
     pub fn connect(&mut self, nqn: &str) -> Result<String, NvmeError> {
-        let p = Path::new(NVME_FABRICS_PATH);
-
         if let Some(ss) = self.entries.iter_mut().find(|p| p.subnqn == nqn) {
-            let mut file =
-                OpenOptions::new().write(true).read(true).open(&p).context(
-                    ConnectError {
-                        filename: NVME_FABRICS_PATH,
-                    },
-                )?;
-            file.write_all(ss.build_connect_args().unwrap().as_bytes())
-                .context(ConnectError {
-                    filename: NVME_FABRICS_PATH,
-                })?;
-            let mut buf = String::new();
-            file.read_to_string(&mut buf).context(ConnectError {
-                filename: NVME_FABRICS_PATH,
-            })?;
-            Ok(buf)
+            match ConnectArgs::try_from(ss.clone()) {
+                Ok(c) => c.connect(),
+                Err(err) => Err(NvmeError::InvalidParam {
+                    text: err,
+                }),
+            }
         } else {
             Err(NvmeError::NqnNotFound {
                 text: nqn.into(),
@@ -426,91 +438,129 @@ impl DiscoveryBuilder {
                 return Err("invalid transport specified".into());
             }
         }
-
         if let Some(traddr) = &self.traddr {
-            if let Err(ip) = IpAddr::from_str(&traddr) {
-                return Err(format!("Invalid IP address: {}", ip.to_string()));
-            }
+            is_valid_ip(&traddr)?;
         }
 
         Ok(())
     }
 }
 
-impl DiscoveryLogEntry {
-    pub fn build_connect_args(&mut self) -> Result<String, NvmeError> {
-        let mut connect_args = String::new();
-        let host_id = HOST_ID.as_str();
+#[derive(Default, Debug, Builder)]
+#[builder(setter(into))]
+#[builder(build_fn(validate = "Self::validate"))]
+pub struct ConnectArgs {
+    /// IP address of the target
+    traddr: String,
+    /// Port number of the target
+    trsvcid: String,
+    /// NQN of the target
+    nqn: String,
+    /// Transport type
+    #[builder(default = "TrType::tcp")]
+    transport: TrType,
+    /// controller loss timeout period in seconds
+    #[builder(default = "None")]
+    ctrl_loss_tmo: Option<u32>,
+    /// reconnect timeout period in seconds
+    #[builder(default = "None")]
+    reconnect_delay: Option<u32>,
+    /// keep alive timeout period in seconds
+    #[builder(default = "None")]
+    keep_alive_tmo: Option<u32>,
+}
 
-        connect_args.push_str(&format!("nqn={},", self.subnqn));
-        connect_args.push_str(&format!(
-            "hostnqn={},",
-            format!("nqn.2019-05.io.openebs.mayastor:{}", host_id)
-        ));
-        connect_args.push_str(&format!("hostid={},", host_id));
-
-        connect_args.push_str(&format!("transport={},", self.tr_type));
-        connect_args.push_str(&format!("traddr={},", self.traddr));
-        connect_args.push_str(&format!("trsvcid={}", self.trsvcid));
-
-        Ok(connect_args)
+impl ConnectArgsBuilder {
+    fn validate(&self) -> Result<(), String> {
+        match &self.transport {
+            Some(TrType::tcp) => {
+                match &self.trsvcid {
+                    Some(trsvcid) => is_valid_port(&trsvcid),
+                    None => Err("missing svcid".into()),
+                }?;
+                match &self.traddr {
+                    Some(traddr) => is_valid_ip(&traddr),
+                    None => Err("missing traddr".into()),
+                }
+            }
+            Some(TrType::rdma) => Ok(()),
+            Some(val) => Err(format!("invalid transport type: {}", val)),
+            None => Ok(()), // using the default transport type
+        }
     }
 }
 
-///
-/// This method connects to a specific NVMf device available over tcp,
-/// identified by its ip address, port and nqn.
-///
-/// When we are already connected to the same host we will get back
-/// connection in progress. These errors are propagated back to us as
-/// we use the ? marker
-///
-///  # Example
-///  ```rust
-///  use nvmeadm::nvmf_discovery::connect;
-///
-///  let result = connect("192.168.122.99", 8420, "mynqn");
-/// ```
-///
-
-pub fn connect(
-    ip_addr: &str,
-    port: u16,
-    nqn: &str,
-) -> Result<String, NvmeError> {
-    let mut connect_args = String::new();
-    let host_id = HOST_ID.as_str();
-
-    connect_args.push_str(&format!("nqn={},", nqn));
-    connect_args.push_str(&format!(
-        "hostnqn={},",
-        format!("nqn.2019-05.io.openebs.mayastor:{}", host_id)
-    ));
-    connect_args.push_str(&format!("hostid={},", host_id));
-
-    connect_args.push_str(&format!("transport={},", "tcp"));
-    connect_args.push_str(&format!("traddr={},", ip_addr));
-    connect_args.push_str(&format!("trsvcid={}", port));
-    let p = Path::new(NVME_FABRICS_PATH);
-
-    let mut file = OpenOptions::new().write(true).read(true).open(&p).context(
-        ConnectError {
-            filename: NVME_FABRICS_PATH,
-        },
-    )?;
-    if let Err(e) = file.write_all(connect_args.as_bytes()) {
-        return match e.kind() {
-            ErrorKind::AlreadyExists => Err(NvmeError::ConnectInProgress),
-            _ => Err(NvmeError::IoError {
-                source: e,
-            }),
-        };
+impl fmt::Display for ConnectArgs {
+    /// The output is used for writing to nvme-fabrics file so be careful
+    /// when making changes.
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let host_id = HOST_ID.as_str();
+        write!(f, "nqn={},", self.nqn)?;
+        write!(f, "hostnqn=nqn.2019-05.io.openebs.mayastor:{},", host_id)?;
+        write!(f, "hostid={},", host_id)?;
+        write!(f, "transport={},", self.transport)?;
+        write!(f, "traddr={},", self.traddr)?;
+        write!(f, "trsvcid={}", self.trsvcid)?;
+        if let Some(val) = self.keep_alive_tmo {
+            write!(f, ",keep_alive_tmo={}", val)?;
+        }
+        if let Some(val) = self.reconnect_delay {
+            write!(f, ",reconnect_delay={}", val)?;
+        }
+        if let Some(val) = self.ctrl_loss_tmo {
+            write!(f, ",ctrl_loss_tmo={}", val)?;
+        }
+        Ok(())
     }
-    let mut buf = String::new();
-    file.read_to_string(&mut buf).context(ConnectError {
-        filename: NVME_FABRICS_PATH,
-    })?;
-    Ok(buf)
+}
+
+impl ConnectArgs {
+    /// This method connects to a specific NVMf device available over tcp,
+    /// identified by its ip address, port and nqn.
+    ///
+    /// When we are already connected to the same host we will get back
+    /// connection in progress. These errors are propagated back to us as
+    /// we use the ? marker
+    ///
+    ///  # Example
+    ///  ```rust
+    ///  use nvmeadm::nvmf_discovery::ConnectArgsBuilder;
+    ///
+    ///  let result = ConnectArgsBuilder::default()
+    ///      .traddr("192.168.122.99")
+    ///      .trsvcid("8420")
+    ///      .nqn("mynqn")
+    ///      .ctrl_loss_tmo(60)
+    ///      .reconnect_delay(10)
+    ///      .keep_alive_tmo(5)
+    ///      .build()
+    ///      .unwrap()
+    ///      .connect();
+    /// ```
+    ///
+    pub fn connect(&self) -> Result<String, NvmeError> {
+        let p = Path::new(NVME_FABRICS_PATH);
+
+        let mut file =
+            OpenOptions::new().write(true).read(true).open(&p).context(
+                ConnectError {
+                    filename: NVME_FABRICS_PATH,
+                },
+            )?;
+        if let Err(e) = file.write_all(format!("{}", self).as_bytes()) {
+            return match e.kind() {
+                ErrorKind::AlreadyExists => Err(NvmeError::ConnectInProgress),
+                _ => Err(NvmeError::IoError {
+                    source: e,
+                }),
+            };
+        }
+        let mut buf = String::new();
+        file.read_to_string(&mut buf).context(ConnectError {
+            filename: NVME_FABRICS_PATH,
+        })?;
+        Ok(buf)
+    }
 }
 
 /// This method disconnects a specific NVMf device, identified by its nqn.
