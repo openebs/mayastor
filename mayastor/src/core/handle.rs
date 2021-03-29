@@ -120,7 +120,7 @@ impl BdevHandle {
         &self,
         offset: u64,
         buffer: &DmaBuf,
-    ) -> Result<usize, CoreError> {
+    ) -> Result<u64, CoreError> {
         let (s, r) = oneshot::channel::<bool>();
         let errno = unsafe {
             spdk_bdev_write(
@@ -143,7 +143,7 @@ impl BdevHandle {
         }
 
         if r.await.expect("Failed awaiting write IO") {
-            Ok(buffer.len() as usize)
+            Ok(buffer.len())
         } else {
             Err(CoreError::WriteFailed {
                 offset,
@@ -189,7 +189,7 @@ impl BdevHandle {
         }
     }
 
-    pub async fn reset(&self) -> Result<usize, CoreError> {
+    pub async fn reset(&self) -> Result<(), CoreError> {
         let (s, r) = oneshot::channel::<bool>();
         let errno = unsafe {
             spdk_bdev_reset(
@@ -207,7 +207,7 @@ impl BdevHandle {
         }
 
         if r.await.expect("Failed awaiting reset IO") {
-            Ok(0)
+            Ok(())
         } else {
             Err(CoreError::ResetFailed {})
         }
