@@ -31,8 +31,17 @@ use crate::{
     nexus_uri::{self, NexusBdevError},
 };
 
+mod aio;
+mod device;
+mod loopback;
 mod malloc;
 mod nvmx;
+mod null;
+mod iscsi;
+mod nvme;
+mod uring;
+
+pub(crate) use device::SpdkBlockDevice;
 
 impl Uri {
     pub fn parse(
@@ -49,6 +58,15 @@ impl Uri {
             // backend NVMF target - fairly unstable (as of Linux 5.2)
             "nvmf" => Ok(Box::new(nvmx::NvmfDeviceTemplate::try_from(&url)?)),
             "malloc" => Ok(Box::new(malloc::Malloc::try_from(&url)?)),
+            "aio" => Ok(Box::new(aio::Aio::try_from(&url)?)),
+            "bdev" => Ok(Box::new(loopback::Loopback::try_from(&url)?)),
+            "null" => Ok(Box::new(null::Null::try_from(&url)?)),
+            "loopback" => Ok(Box::new(loopback::Loopback::try_from(&url)?)),
+            "iscsi" => Ok(Box::new(iscsi::Iscsi::try_from(&url)?)),
+            "pcie" => Ok(Box::new(nvme::NVMe::try_from(&url)?)),
+
+            // also for testing - requires Linux 5.1 or higher
+            "uring" => Ok(Box::new(uring::Uring::try_from(&url)?)),
 
             scheme => Err(NexusBdevError::UriSchemeUnsupported {
                 scheme: scheme.to_string(),
@@ -82,10 +100,8 @@ fn reject_unknown_parameters(
 // Lookup up a block device via its symbolic name.
 pub fn device_lookup(name: &str) -> Option<Box<dyn BlockDevice>> {
     debug!("Looking up device by name: {}", name);
-
-    // First, try to lookup NVMF devices bypassing SPDK device namespace,
-    // and lookup bdev afterwards.
-    nvmx::lookup_by_name(name)
+    // First try to lookup NVMF devices, then try to lookup SPDK native devices.
+    nvmx::lookup_by_name(name).or_else(|| SpdkBlockDevice::lookup_by_name(name))
 }
 
 #[instrument]
@@ -103,5 +119,7 @@ pub fn device_open(
     name: &str,
     read_write: bool,
 ) -> Result<Box<dyn BlockDeviceDescriptor>, CoreError> {
+    // First try to open NVMF devices, then try to lookup SPDK native devices.
     nvmx::open_by_name(name, read_write)
+        .or_else(|_| SpdkBlockDevice::open_by_name(name, read_write))
 }

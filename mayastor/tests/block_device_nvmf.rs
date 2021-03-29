@@ -343,8 +343,8 @@ async fn nvmf_io_stats() {
             assert_eq!(r, BUF_SIZE, "The amount of data written mismatches");
 
             // Read data buffer.
-            let dbuf = DmaBuf::new(2 * BUF_SIZE, alignment).unwrap();
-            r = handle.read_at(OP_OFFSET, &dbuf).await.unwrap();
+            let mut dbuf = DmaBuf::new(2 * BUF_SIZE, alignment).unwrap();
+            r = handle.read_at(OP_OFFSET, &mut dbuf).await.unwrap();
             assert_eq!(r, 2 * BUF_SIZE, "The amount of data read mismatches");
 
             // Check I/O stats for synchronous operations.
@@ -500,20 +500,26 @@ async fn nvmf_device_read_write_at() {
         assert_eq!(r, BUF_SIZE, "The amount of data written mismatches");
 
         // Check the first guard buffer.
-        let g1 = DmaBuf::new(BUF_SIZE, device.alignment()).unwrap();
-        r = handle.read_at(OP_OFFSET, &g1).await.unwrap();
+        let mut g1 = DmaBuf::new(BUF_SIZE, device.alignment()).unwrap();
+        r = handle.read_at(OP_OFFSET, &mut g1).await.unwrap();
         assert_eq!(r, BUF_SIZE, "The amount of data read mismatches");
         check_buf_pattern(&g1, GUARD_PATTERN);
 
         // Check the second guard buffer.
-        let g2 = DmaBuf::new(BUF_SIZE, device.alignment()).unwrap();
-        r = handle.read_at(OP_OFFSET + 2 * BUF_SIZE, &g2).await.unwrap();
+        let mut g2 = DmaBuf::new(BUF_SIZE, device.alignment()).unwrap();
+        r = handle
+            .read_at(OP_OFFSET + 2 * BUF_SIZE, &mut g2)
+            .await
+            .unwrap();
         assert_eq!(r, BUF_SIZE, "The amount of data read mismatches");
         check_buf_pattern(&g2, GUARD_PATTERN);
 
         // Check the data region.
-        let dbuf = DmaBuf::new(BUF_SIZE, device.alignment()).unwrap();
-        r = handle.read_at(OP_OFFSET + BUF_SIZE, &dbuf).await.unwrap();
+        let mut dbuf = DmaBuf::new(BUF_SIZE, device.alignment()).unwrap();
+        r = handle
+            .read_at(OP_OFFSET + BUF_SIZE, &mut dbuf)
+            .await
+            .unwrap();
         assert_eq!(r, BUF_SIZE, "The amount of data read mismatches");
         check_buf_pattern(&dbuf, IO_PATTERN);
     })
@@ -782,26 +788,26 @@ async fn nvmf_device_writev_test() {
         let device = ctx.handle.get_device();
 
         // Check the first guard buffer.
-        let g1 = DmaBuf::new(BUF_SIZE, device.alignment()).unwrap();
-        let mut r = ctx.handle.read_at(OP_OFFSET, &g1).await.unwrap();
+        let mut g1 = DmaBuf::new(BUF_SIZE, device.alignment()).unwrap();
+        let mut r = ctx.handle.read_at(OP_OFFSET, &mut g1).await.unwrap();
         assert_eq!(r, BUF_SIZE, "The amount of data read mismatches");
         check_buf_pattern(&g1, GUARD_PATTERN);
 
         // Check the second guard buffer.
-        let g2 = DmaBuf::new(BUF_SIZE, device.alignment()).unwrap();
+        let mut g2 = DmaBuf::new(BUF_SIZE, device.alignment()).unwrap();
         r = ctx
             .handle
-            .read_at(OP_OFFSET + 2 * BUF_SIZE, &g2)
+            .read_at(OP_OFFSET + 2 * BUF_SIZE, &mut g2)
             .await
             .unwrap();
         assert_eq!(r, BUF_SIZE, "The amount of data read mismatches");
         check_buf_pattern(&g2, GUARD_PATTERN);
 
         // Check the data region between guard buffers.
-        let dbuf = DmaBuf::new(BUF_SIZE, device.alignment()).unwrap();
+        let mut dbuf = DmaBuf::new(BUF_SIZE, device.alignment()).unwrap();
         r = ctx
             .handle
-            .read_at(OP_OFFSET + BUF_SIZE, &dbuf)
+            .read_at(OP_OFFSET + BUF_SIZE, &mut dbuf)
             .await
             .unwrap();
         assert_eq!(r, BUF_SIZE, "The amount of data read mismatches");
@@ -1134,24 +1140,28 @@ async fn nvmf_device_writev_iovs_test() {
         }
 
         // Check the first guard buffer.
-        let g1 = DmaBuf::new(GUARD_SIZE, device.alignment()).unwrap();
+        let mut g1 = DmaBuf::new(GUARD_SIZE, device.alignment()).unwrap();
         let mut r = ctx
             .handle
-            .read_at(OP_OFFSET - GUARD_SIZE, &g1)
+            .read_at(OP_OFFSET - GUARD_SIZE, &mut g1)
             .await
             .unwrap();
         assert_eq!(r, GUARD_SIZE, "The amount of data read mismatches");
         check_buf_pattern(&g1, GUARD_PATTERN);
 
         // Check the second guard buffer.
-        let g2 = DmaBuf::new(GUARD_SIZE, device.alignment()).unwrap();
-        r = ctx.handle.read_at(OP_OFFSET + iosize, &g2).await.unwrap();
+        let mut g2 = DmaBuf::new(GUARD_SIZE, device.alignment()).unwrap();
+        r = ctx
+            .handle
+            .read_at(OP_OFFSET + iosize, &mut g2)
+            .await
+            .unwrap();
         assert_eq!(r, GUARD_SIZE, "The amount of data read mismatches");
         check_buf_pattern(&g2, GUARD_PATTERN);
 
         // Check the data region between guard buffers.
-        let dbuf = DmaBuf::new(iosize, device.alignment()).unwrap();
-        r = ctx.handle.read_at(OP_OFFSET, &dbuf).await.unwrap();
+        let mut dbuf = DmaBuf::new(iosize, device.alignment()).unwrap();
+        r = ctx.handle.read_at(OP_OFFSET, &mut dbuf).await.unwrap();
         assert_eq!(r, iosize, "The amount of data read mismatches");
         check_buf_pattern(&dbuf, IO_PATTERN);
         // Device handle will be dropped once the box is dropped, which triggers
@@ -1203,12 +1213,26 @@ async fn nvmf_device_reset() {
         handle: Box<dyn BlockDeviceHandle>,
     }
 
+    static DEVICE_NAME: OnceCell<String> = OnceCell::new();
+
     // Read completion callback.
-    fn reset_completion_callback(success: bool, ctx: *mut c_void) {
+    fn reset_completion_callback(
+        device: &Box<dyn BlockDevice>,
+        status: IoCompletionStatus,
+        ctx: *mut c_void,
+    ) {
         // Make sure callback is invoked only once.
         flag_callback_invocation();
 
-        assert!(success, "reset() failed");
+        assert_eq!(status, IoCompletionStatus::Success, "reset() failed");
+
+        // Make sure we have the correct device.
+        assert_eq!(
+            &device.device_name(),
+            DEVICE_NAME.get().unwrap(),
+            "Device name mismatch"
+        );
+
         // Make sure we were passed the same pattern string as requested.
         let s = unsafe {
             let slice = slice::from_raw_parts(
@@ -1224,6 +1248,10 @@ async fn nvmf_device_reset() {
     let op_ctx = ms
         .spawn(async move {
             let name = device_create(&url).await.unwrap();
+
+            // Store device name for further checking from I/O callback.
+            DEVICE_NAME.set(name.clone()).unwrap();
+
             let descr = device_open(&name, false).unwrap();
             let handle = descr.into_handle().unwrap();
 
@@ -1406,16 +1434,16 @@ async fn wipe_device_blocks(is_unmap: bool) {
         let device = io_ctx.handle.get_device();
 
         // Check the first guard buffer.
-        let g1 = DmaBuf::new(BUF_SIZE, device.alignment()).unwrap();
-        let mut r = io_ctx.handle.read_at(OP_OFFSET, &g1).await.unwrap();
+        let mut g1 = DmaBuf::new(BUF_SIZE, device.alignment()).unwrap();
+        let mut r = io_ctx.handle.read_at(OP_OFFSET, &mut g1).await.unwrap();
         assert_eq!(r, BUF_SIZE, "The amount of data read mismatches");
         check_buf_pattern(&g1, GUARD_PATTERN);
 
         // Check the second guard buffer.
-        let g2 = DmaBuf::new(BUF_SIZE, device.alignment()).unwrap();
+        let mut g2 = DmaBuf::new(BUF_SIZE, device.alignment()).unwrap();
         r = io_ctx
             .handle
-            .read_at(OP_OFFSET + 2 * BUF_SIZE, &g2)
+            .read_at(OP_OFFSET + 2 * BUF_SIZE, &mut g2)
             .await
             .unwrap();
         assert_eq!(r, BUF_SIZE, "The amount of data read mismatches");
@@ -1424,10 +1452,10 @@ async fn wipe_device_blocks(is_unmap: bool) {
         // Check that data buffer has been unmapped.
         // Note that we allocate a buffer with non-zero content to make sure we
         // read zeroes afterwards.
-        let dbuf = create_io_buffer(device.alignment(), BUF_SIZE, 0x1);
+        let mut dbuf = create_io_buffer(device.alignment(), BUF_SIZE, 0x1);
         r = io_ctx
             .handle
-            .read_at(OP_OFFSET + BUF_SIZE, &dbuf)
+            .read_at(OP_OFFSET + BUF_SIZE, &mut dbuf)
             .await
             .unwrap();
         assert_eq!(r, BUF_SIZE, "The amount of data read mismatches");
@@ -1541,9 +1569,21 @@ async fn nvmf_reset_abort_io() {
     }
 
     // Reset completion calback.
-    fn reset_completion_callback(success: bool, ctx: *mut c_void) {
+    fn reset_completion_callback(
+        device: &Box<dyn BlockDevice>,
+        status: IoCompletionStatus,
+        ctx: *mut c_void,
+    ) {
         flag_callback_invocation();
-        assert!(success, "Reset failed");
+
+        assert_eq!(status, IoCompletionStatus::Success, "reset() failed");
+
+        // Make sure we have the correct device.
+        assert_eq!(
+            &device.device_name(),
+            DEVICE_NAME.get().unwrap(),
+            "Device name mismatch"
+        );
 
         // Make sure we were passed the same pattern string as requested.
         let s = unsafe {
@@ -1690,8 +1730,8 @@ async fn nvmf_device_io_handle_cleanup() {
             handle.nvme_identify_ctrlr().await.unwrap();
 
             // I/O command must succeed.
-            let buf = DmaBuf::new(BUF_SIZE, alignment).unwrap();
-            let r = handle.read_at(OP_OFFSET, &buf).await.unwrap();
+            let mut buf = DmaBuf::new(BUF_SIZE, alignment).unwrap();
+            let r = handle.read_at(OP_OFFSET, &mut buf).await.unwrap();
             assert_eq!(r, BUF_SIZE, "The amount of data read mismatches");
 
             // Make sure device can still be looked up by its name before
@@ -1733,10 +1773,10 @@ async fn nvmf_device_io_handle_cleanup() {
             .expect_err("Controller successfully identified");
 
         // Make sure the same I/O command now fail.
-        let buf = DmaBuf::new(BUF_SIZE, io_ctx.alignment).unwrap();
+        let mut buf = DmaBuf::new(BUF_SIZE, io_ctx.alignment).unwrap();
         io_ctx
             .handle
-            .read_at(OP_OFFSET, &buf)
+            .read_at(OP_OFFSET, &mut buf)
             .await
             .expect_err("Data successfully read");
     })
