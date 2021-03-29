@@ -155,7 +155,7 @@ pub async fn create_replica(args: CreateReplicaRequest) -> GrpcResult<Replica> {
         let p = Lvs::lookup(&args.pool).unwrap();
         match p.create_lvol(&args.uuid, args.size, false).await {
             Ok(lvol) if Protocol::try_from(args.share)? == Protocol::Nvmf => {
-                match lvol.share_nvmf().await {
+                match lvol.share_nvmf(None).await {
                     Ok(s) => {
                         debug!("created and shared {} as {}", lvol, s);
                         Ok(lvol)
@@ -238,7 +238,7 @@ pub async fn share_replica(
                 }
 
                 Protocol::Nvmf => {
-                    lvol.share_nvmf().await.map(|_| ShareReplicaReply {
+                    lvol.share_nvmf(None).await.map(|_| ShareReplicaReply {
                         uri: lvol.share_uri().unwrap(),
                     })
                 }

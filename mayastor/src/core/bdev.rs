@@ -77,9 +77,17 @@ impl Share for Bdev {
     }
 
     /// share the bdev over NVMe-OF TCP
-    async fn share_nvmf(&self) -> Result<Self::Output, Self::Error> {
+    async fn share_nvmf(
+        &self,
+        cntlid_range: Option<(u16, u16)>,
+    ) -> Result<Self::Output, Self::Error> {
         let subsystem =
             NvmfSubsystem::try_from(self.clone()).context(ShareNvmf {})?;
+        if let Some((cntlid_min, cntlid_max)) = cntlid_range {
+            subsystem
+                .set_cntlid_range(cntlid_min, cntlid_max)
+                .context(ShareNvmf {})?;
+        }
         subsystem.start().await.context(ShareNvmf {})
     }
 

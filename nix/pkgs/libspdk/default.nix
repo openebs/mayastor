@@ -39,8 +39,8 @@ let
     src = fetchFromGitHub {
       owner = "openebs";
       repo = "spdk";
-      rev = "f180b1d0a5fbac77c3e7caf2047ea51683ec7795";
-      sha256 = "14k816074hh0r1gkqkfyipfcqvl49d2qz7qqwcpsk399f0s3dds0";
+      rev = "3f85fb587d7a1013f3fab9304805dd943d95c0a2";
+      sha256 = "0z7iw5xa2l4xrbl3zd4139mdyfd236gkswmysnkswmpmw7s6krsc";
       #sha256 = stdenv.lib.fakeSha256;
       fetchSubmodules = true;
     };
@@ -85,9 +85,9 @@ let
         "--target-arch=armv8-a+crypto"
       ]
     else
-      []
+      [ ]
     ) ++
-    (if (targetPlatform.config != buildPlatform.config) then [ "--cross-prefix=${targetPlatform.config}" ] else []) ++
+    (if (targetPlatform.config != buildPlatform.config) then [ "--cross-prefix=${targetPlatform.config}" ] else [ ]) ++
     [
       "--without-isal"
       "--with-iscsi-initiator"

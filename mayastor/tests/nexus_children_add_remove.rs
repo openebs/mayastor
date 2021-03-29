@@ -64,7 +64,7 @@ async fn remove_children_from_nexus() {
     ms.spawn(async {
         let nexus =
             nexus_lookup("remove_from_nexus").expect("nexus is not found!");
-        nexus.share_nvmf().await
+        nexus.share_nvmf(None).await
     })
     .await
     .expect("failed to share nexus over nvmf");
@@ -117,7 +117,7 @@ async fn nexus_add_child() {
         let nexus =
             nexus_lookup("nexus_add_child").expect("nexus is not found!");
         nexus
-            .share_nvmf()
+            .share_nvmf(None)
             .await
             .expect("failed to share nexus over nvmf");
     })

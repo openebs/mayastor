@@ -436,7 +436,7 @@ impl Lvs {
                 if let Ok(prop) = l.get(PropName::Shared).await {
                     match prop {
                         PropValue::Shared(true) => {
-                            if let Err(e) = l.share_nvmf().await {
+                            if let Err(e) = l.share_nvmf(None).await {
                                 error!(
                                     "failed to share {} {}",
                                     l.name(),

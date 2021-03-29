@@ -120,7 +120,7 @@ impl BdevRpc for BdevSvc {
             match proto.as_str() {
                 "nvmf" => Reactors::master().spawn_local(async move {
                     let bdev = Bdev::lookup_by_name(&bdev_name).unwrap();
-                    bdev.share_nvmf()
+                    bdev.share_nvmf(None)
                         .await
                         .map_err(|e| Status::internal(e.to_string()))
                 }),
