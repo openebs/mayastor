@@ -124,7 +124,7 @@ async fn make_nexus() {
 async fn label_child() {
     let nexus = nexus_lookup("gpt_nexus").unwrap();
     let child = &mut nexus.children[0];
-    let hdl = child.handle().unwrap();
+    let hdl = child.get_io_handle().unwrap();
 
     let mut file = std::fs::File::open("./gpt_primary_test_data.bin").unwrap();
     let mut buffer = hdl.dma_malloc(34 * 512).unwrap();

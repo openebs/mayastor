@@ -72,7 +72,7 @@ pub trait BlockDevice {
     /// Register device event listener.
     fn add_event_listener(
         &self,
-        listener: fn(DeviceEventType, &str),
+        listener: DeviceEventListener,
     ) -> Result<(), CoreError>;
 }
 
@@ -89,6 +89,7 @@ pub trait BlockDeviceDescriptor {
     fn unclaim(&self);
 }
 
+pub type DeviceEventListener = fn(DeviceEventType, &str);
 pub type IoCompletionCallbackArg = *mut c_void;
 pub type IoCompletionCallback = fn(
     &Box<dyn BlockDevice>,
@@ -112,8 +113,9 @@ pub trait BlockDeviceHandle {
     async fn read_at(
         &self,
         offset: u64,
-        buffer: &DmaBuf,
+        buffer: &mut DmaBuf,
     ) -> Result<u64, CoreError>;
+
     async fn write_at(
         &self,
         offset: u64,
@@ -207,4 +209,6 @@ pub trait DeviceIoController {
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum DeviceEventType {
     DeviceRemoved,
+    DeviceResized,
+    MediaManagement,
 }

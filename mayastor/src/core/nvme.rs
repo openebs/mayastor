@@ -214,12 +214,24 @@ pub mod nvme_admin_opc {
 }
 
 impl NvmeCommandStatus {
-    pub fn from_command_status(sct: i32, sc: i32) -> Self {
+    pub fn from_command_status_raw(sct: i32, sc: i32) -> Self {
         match StatusCodeType::from(sct) {
             CommandSpecificStatus => Self::CommandSpecificStatus,
             GenericCommandStatus => {
                 Self::GenericCommandStatus(GenericStatusCode::from(sc))
             }
+            MediaDataIntegrityErrors => Self::MediaDataIntegrityErrors,
+            VendorSpecific => Self::VendorSpecific,
+            _ => Self::Reserved,
+        }
+    }
+    pub fn from_command_status(
+        sct: StatusCodeType,
+        sc: GenericStatusCode,
+    ) -> Self {
+        match sct {
+            CommandSpecificStatus => Self::CommandSpecificStatus,
+            GenericCommandStatus => Self::GenericCommandStatus(sc),
             MediaDataIntegrityErrors => Self::MediaDataIntegrityErrors,
             VendorSpecific => Self::VendorSpecific,
             _ => Self::Reserved,

@@ -104,7 +104,7 @@ enum Disposition {
 }
 
 pub(crate) fn nexus_submit_io(mut io: NexusBio) {
-    if let Err(e) = match io.cmd() {
+    if let Err(_e) = match io.cmd() {
         IoType::Read => io.readv(),
         // these IOs are submitted to all the underlying children
         IoType::Write | IoType::WriteZeros | IoType::Reset | IoType::Unmap => {
