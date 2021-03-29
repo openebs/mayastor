@@ -1,9 +1,7 @@
-package replica_pod_remove_test
+package ms_pod_disruption
 
 import (
 	"e2e-basic/common"
-
-	disruption_lib "e2e-basic/ms_pod_disruption/lib"
 
 	"testing"
 
@@ -11,7 +9,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-var env disruption_lib.DisruptionEnv
+var env DisruptionEnv
 
 const gStorageClass = "mayastor-nvmf-pod-remove-test-sc"
 
@@ -40,7 +38,7 @@ var _ = Describe("Mayastor replica pod removal test", func() {
 	It("should verify nvmf nexus behaviour when a mayastor pod is removed", func() {
 		err := common.MkStorageClass(gStorageClass, 2, common.ShareProtoNvmf, common.NSDefault)
 		Expect(err).ToNot(HaveOccurred())
-		env = disruption_lib.Setup("loss-test-pvc-nvmf", gStorageClass, "fio-pod-remove-test")
+		env = Setup("loss-test-pvc-nvmf", gStorageClass, "fio-pod-remove-test")
 		env.PodLossTest()
 		env.Teardown() // removes fio pod and volume
 	})
