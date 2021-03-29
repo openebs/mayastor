@@ -49,6 +49,7 @@ use crate::{
         poller,
         BlockDeviceIoStats,
         CoreError,
+        DeviceEventListener,
         DeviceEventType,
         OpCompletionCallback,
         OpCompletionCallbackArg,
@@ -109,7 +110,7 @@ pub struct NvmeControllerInner<'a> {
     io_device: Arc<IoDevice>,
 }
 
-type EventCallbackList = Vec<fn(DeviceEventType, &str)>;
+type EventCallbackList = Vec<DeviceEventListener>;
 
 /*
  * NVME controller implementation.

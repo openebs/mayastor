@@ -11,10 +11,7 @@ use spdk_sys::{
     spdk_json_write_val_raw,
 };
 
-use crate::{
-    bdev::nexus::{nexus_bdev::Nexus, nexus_io::NioCtx},
-    core::{Bdev, Reactor},
-};
+use crate::bdev::nexus::{nexus_bdev::Nexus, nexus_io::NioCtx};
 
 use super::instances;
 

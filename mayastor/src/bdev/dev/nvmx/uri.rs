@@ -44,7 +44,6 @@ use crate::{
 };
 
 use super::controller::transport::NvmeTransportId;
-use uuid::Uuid;
 
 const DEFAULT_NVMF_PORT: u16 = 8420;
 // Callback to be called once NVMe controller is successfully created.

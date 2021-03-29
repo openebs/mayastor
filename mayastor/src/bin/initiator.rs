@@ -92,8 +92,8 @@ async fn create_bdev(uri: &str) -> Result<Bdev> {
 async fn read(uri: &str, offset: u64, file: &str) -> Result<()> {
     let bdev = device_create(uri).await?;
     let h = device_open(&bdev, false).unwrap().into_handle().unwrap();
-    let buf = h.dma_malloc(h.get_device().block_len() as u64).unwrap();
-    let n = h.read_at(offset, &buf).await?;
+    let mut buf = h.dma_malloc(h.get_device().block_len() as u64).unwrap();
+    let n = h.read_at(offset, &mut buf).await?;
     fs::write(file, buf.as_slice())?;
     info!("{} bytes read", n);
     Ok(())

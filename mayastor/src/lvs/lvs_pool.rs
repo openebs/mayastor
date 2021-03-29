@@ -164,6 +164,11 @@ impl Lvs {
 
     /// returns the used capacity
     pub fn used(&self) -> u64 {
+        info!(
+            "** CAPACITY: {}, AVAILABLE: {}",
+            self.capacity(),
+            self.available()
+        );
         self.capacity() - self.available()
     }
 

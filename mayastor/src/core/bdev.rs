@@ -32,12 +32,14 @@ use spdk_sys::{
 };
 
 use crate::{
-    bdev::lookup_nexus_child,
+    bdev::dev::SpdkBlockDevice,
     core::{
         share::{Protocol, Share},
         uuid::Uuid,
+        BlockDeviceIoStats,
         CoreError,
         Descriptor,
+        DeviceEventType,
         IoType,
         ShareIscsi,
         ShareNvmf,
@@ -48,14 +50,6 @@ use crate::{
     subsys::NvmfSubsystem,
     target::{iscsi, nvmf, Side},
 };
-
-#[derive(Debug)]
-pub struct BdevStats {
-    pub num_read_ops: u64,
-    pub num_write_ops: u64,
-    pub bytes_read: u64,
-    pub bytes_written: u64,
-}
 
 /// Newtype structure that represents a block device. The soundness of the API
 /// is based on the fact that opening and finding of a bdev, returns a valid
@@ -171,27 +165,30 @@ impl Bdev {
         _ctx: *mut c_void,
     ) {
         let bdev = Bdev::from_ptr(bdev).unwrap();
-        // Take the appropriate action for the given event type
-        match event {
+        let name = bdev.name();
+
+        // Translate SPDK events into common device events.
+        let event = match event {
             spdk_sys::SPDK_BDEV_EVENT_REMOVE => {
-                info!("Received remove event for bdev {}", bdev.name());
-                if let Some(child) = lookup_nexus_child(&bdev.name()) {
-                    child.remove();
-                }
+                info!("Received remove event for bdev {}", name);
+                DeviceEventType::DeviceRemoved
             }
             spdk_sys::SPDK_BDEV_EVENT_RESIZE => {
-                warn!("Received resize event for bdev {}", bdev.name())
+                warn!("Received resize event for bdev {}", name);
+                DeviceEventType::DeviceResized
             }
-            spdk_sys::SPDK_BDEV_EVENT_MEDIA_MANAGEMENT => warn!(
-                "Received media management event for bdev {}",
-                bdev.name()
-            ),
-            _ => error!(
-                "Received unknown event {} for bdev {}",
-                event,
-                bdev.name()
-            ),
-        }
+            spdk_sys::SPDK_BDEV_EVENT_MEDIA_MANAGEMENT => {
+                warn!("Received media management event for bdev {}", name,);
+                DeviceEventType::MediaManagement
+            }
+            _ => {
+                error!("Received unknown event {} for bdev {}", event, name,);
+                return;
+            }
+        };
+
+        // Forward event to high-level handler.
+        SpdkBlockDevice::process_device_event(event, &name);
     }
 
     /// open the current bdev, the bdev can be opened multiple times resulting
@@ -390,8 +387,8 @@ impl Bdev {
         sender.send(errno).expect("stat_cb receiver is gone");
     }
 
-    /// Get bdev stats or errno value in case of an error.
-    pub async fn stats(&self) -> Result<BdevStats, i32> {
+    /// Get bdev § or errno value in case of an error.
+    pub async fn stats(&self) -> Result<BlockDeviceIoStats, CoreError> {
         let mut stat: spdk_bdev_io_stat = Default::default();
         let (sender, receiver) = oneshot::channel::<i32>();
 
@@ -407,14 +404,18 @@ impl Bdev {
 
         let errno = receiver.await.expect("Cancellation is not supported");
         if errno != 0 {
-            Err(errno)
+            Err(CoreError::DeviceStatisticsError {
+                source: Errno::from_i32(errno),
+            })
         } else {
             // stat is populated with the stats by now
-            Ok(BdevStats {
+            Ok(BlockDeviceIoStats {
                 num_read_ops: stat.num_read_ops,
                 num_write_ops: stat.num_write_ops,
                 bytes_read: stat.bytes_read,
                 bytes_written: stat.bytes_written,
+                num_unmap_ops: stat.num_unmap_ops,
+                bytes_unmapped: stat.bytes_unmapped,
             })
         }
     }

@@ -26,7 +26,7 @@ use rpc::mayastor::{
 };
 
 use crate::{
-    core::{Bdev, BdevStats, CoreError, Protocol, Share},
+    core::{Bdev, BlockDeviceIoStats, CoreError, Protocol, Share},
     grpc::{rpc_call, GrpcResult},
     lvs::{Error as LvsError, Error, Lvol, Lvs},
     nexus_uri::NexusBdevError,
@@ -77,8 +77,8 @@ impl From<Lvs> for Pool {
     }
 }
 
-impl From<BdevStats> for Stats {
-    fn from(b: BdevStats) -> Self {
+impl From<BlockDeviceIoStats> for Stats {
+    fn from(b: BlockDeviceIoStats) -> Self {
         Self {
             num_read_ops: b.num_read_ops,
             num_write_ops: b.num_write_ops,
