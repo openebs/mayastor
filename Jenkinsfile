@@ -15,6 +15,8 @@ xray_on_demand_testplan='MQ-1'
 xray_nightly_testplan='MQ-17'
 xray_continuous_testplan='MQ-33'
 xray_test_execution_type='10059'
+// do not send xray reports as a result of "bors try"
+xray_send_report = (env.BRANCH_NAME == 'trying') ? false : true
 
 // if e2e run does not build its own images, which tag to use when pulling
 e2e_continuous_image_tag='v0.8.0'
@@ -372,33 +374,35 @@ pipeline {
                 }
                 always {
                   archiveArtifacts 'artifacts/**/*.*'
-                  // always send the junit results back to Xray and Jenkins
+                  // handle junit results on success or failure
                   junit 'e2e.*.xml'
                   script {
-                    def xray_testplan = getTestPlan()
-                    def tag = getTag()
-                    step([
-                      $class: 'XrayImportBuilder',
-                      endpointName: '/junit/multipart',
-                      importFilePath: 'e2e.*.xml',
-                      importToSameExecution: 'true',
-                      projectKey: "${xray_projectkey}",
-                      testPlanKey: "${xray_testplan}",
-                      serverInstance: "${env.JIRASERVERUUID}",
-                      inputInfoSwitcher: 'fileContent',
-                      importInfo: """{
-                        "fields": {
-                          "summary": "Build #${env.BUILD_NUMBER}, branch: ${env.BRANCH_name}, tag: ${tag}",
-                          "project": {
-                            "key": "${xray_projectkey}"
-                          },
-                          "issuetype": {
-                            "id": "${xray_test_execution_type}"
-                          },
-                          "description": "Results for build #${env.BUILD_NUMBER} at ${env.BUILD_URL}"
-                        }
-                      }"""
-                    ])
+                    if (xray_send_report == true) {
+                      def xray_testplan = getTestPlan()
+                      def tag = getTag()
+                      step([
+                        $class: 'XrayImportBuilder',
+                        endpointName: '/junit/multipart',
+                        importFilePath: 'e2e.*.xml',
+                        importToSameExecution: 'true',
+                        projectKey: "${xray_projectkey}",
+                        testPlanKey: "${xray_testplan}",
+                        serverInstance: "${env.JIRASERVERUUID}",
+                        inputInfoSwitcher: 'fileContent',
+                        importInfo: """{
+                          "fields": {
+                            "summary": "Build #${env.BUILD_NUMBER}, branch: ${env.BRANCH_name}, tag: ${tag}",
+                            "project": {
+                              "key": "${xray_projectkey}"
+                            },
+                            "issuetype": {
+                              "id": "${xray_test_execution_type}"
+                            },
+                            "description": "Results for build #${env.BUILD_NUMBER} at ${env.BUILD_URL}"
+                          }
+                        }"""
+                      ])
+                    }
                   }
                 }
               }
