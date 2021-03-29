@@ -74,6 +74,19 @@ func TestReplica(t *testing.T) {
 }
 
 var _ = Describe("Mayastor replica tests", func() {
+
+	BeforeEach(func() {
+		// Check ready to run
+		err := common.BeforeEachCheck()
+		Expect(err).ToNot(HaveOccurred())
+	})
+
+	AfterEach(func() {
+		// Check resource leakage.
+		err := common.AfterEachCheck()
+		Expect(err).ToNot(HaveOccurred())
+	})
+
 	It("should test the addition of a replica to an unpublished volume", func() {
 		addUnpublishedReplicaTest()
 	})

@@ -105,6 +105,18 @@ func RmStorageClass(scName string) error {
 	return deleteErr
 }
 
+func CheckForStorageClasses() (bool, error) {
+	found := false
+	ScApi := gTestEnv.KubeInt.StorageV1().StorageClasses
+	scs, err := ScApi().List(context.TODO(), metav1.ListOptions{})
+	for _,sc := range scs.Items {
+		if sc.Provisioner == CSIProvisioner {
+			found = true
+		}
+	}
+	return found, err
+}
+
 func MkNamespace(nameSpace string) error {
 	logf.Log.Info("Creating", "namespace", nameSpace)
 	nsSpec := corev1.Namespace{ObjectMeta: metav1.ObjectMeta{Name: nameSpace}}

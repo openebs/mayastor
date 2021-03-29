@@ -372,7 +372,7 @@ func CleanUp() bool {
 	scList, err := gTestEnv.KubeInt.StorageV1().StorageClasses().List(context.TODO(), metav1.ListOptions{})
 	if err == nil {
 		for _, sc := range scList.Items {
-			if sc.Provisioner == "io.openebs.csi-mayastor" && sc.Name != "mayastor-iscsi" && sc.Name != "mayastor-nvmf" {
+			if sc.Provisioner == "io.openebs.csi-mayastor" {
 				logf.Log.Info("Deleting", "storageClass", sc.Name)
 				_ = gTestEnv.KubeInt.StorageV1().StorageClasses().Delete(context.TODO(), sc.Name, metav1.DeleteOptions{GracePeriodSeconds: &ZeroInt64})
 			}

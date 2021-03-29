@@ -5,8 +5,6 @@ import (
 
 	disruption_lib "e2e-basic/ms_pod_disruption/lib"
 
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
-
 	"testing"
 
 	. "github.com/onsi/ginkgo"
@@ -23,8 +21,14 @@ func TestMayastorPodLoss(t *testing.T) {
 }
 
 var _ = Describe("Mayastor replica pod removal test", func() {
+
+	BeforeEach(func() {
+		// Check ready to run
+		err := common.BeforeEachCheck()
+		Expect(err).ToNot(HaveOccurred())
+	})
+
 	AfterEach(func() {
-		logf.Log.Info("AfterEach")
 		err := common.RmStorageClass(gStorageClass)
 		Expect(err).ToNot(HaveOccurred())
 

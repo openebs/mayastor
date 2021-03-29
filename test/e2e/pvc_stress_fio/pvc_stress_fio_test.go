@@ -210,6 +210,13 @@ func TestPVCStress(t *testing.T) {
 }
 
 var _ = Describe("Mayastor PVC Stress test", func() {
+
+	BeforeEach(func() {
+		// Check ready to run
+		err := common.BeforeEachCheck()
+		Expect(err).ToNot(HaveOccurred())
+	})
+
 	AfterEach(func() {
 		// Check resource leakage
 		err := common.AfterEachCheck()

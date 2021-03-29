@@ -101,9 +101,13 @@ func basicVolumeIOTest(protocol common.ShareProto, volumeType common.VolumeType,
 
 var _ = Describe("Mayastor Volume IO test", func() {
 
-	AfterEach(func() {
-		logf.Log.Info("AfterEach")
+	BeforeEach(func() {
+		// Check ready to run
+		err := common.BeforeEachCheck()
+		Expect(err).ToNot(HaveOccurred())
+	})
 
+	AfterEach(func() {
 		// Check resource leakage.
 		err := common.AfterEachCheck()
 		Expect(err).ToNot(HaveOccurred())

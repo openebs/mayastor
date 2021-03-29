@@ -15,14 +15,7 @@ import (
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
 
-// Create mayastor namespace
-func createNamespace() {
-	cmd := exec.Command("kubectl", "create", "namespace", common.NSMayastor)
-	out, err := cmd.CombinedOutput()
-	Expect(err).ToNot(HaveOccurred(), "%s", out)
-}
-
-func generateYamlFiles(imageTag string, registryAddress string, mayastorNodes []string, e2eCfg *e2e_config.E2EConfig) {
+func generateYamlFiles(imageTag string, mayastorNodes []string, e2eCfg *e2e_config.E2EConfig) {
 	coresDirective := ""
 	if e2eCfg.Cores != 0 {
 		coresDirective = fmt.Sprintf("%s -c %d", coresDirective, e2eCfg.Cores)
@@ -114,11 +107,12 @@ func installMayastor() {
 
 	logf.Log.Info("Install", "tag", imageTag, "registry", registry, "# of mayastor instances", numMayastorInstances)
 
-	generateYamlFiles(imageTag, registry, mayastorNodes, &e2eCfg)
+	generateYamlFiles(imageTag, mayastorNodes, &e2eCfg)
 	deployDir := locations.GetDeployDir()
 	yamlsDir := locations.GetGeneratedYamlsDir()
 
-	createNamespace()
+	err = common.MkNamespace(common.NSMayastor)
+	Expect(err).ToNot(HaveOccurred())
 	common.KubeCtlApplyYaml("moac-rbac.yaml", yamlsDir)
 	common.KubeCtlApplyYaml("mayastorpoolcrd.yaml", deployDir)
 	common.KubeCtlApplyYaml("nats-deployment.yaml", yamlsDir)
@@ -132,6 +126,12 @@ func installMayastor() {
 
 	// Now create pools on all nodes.
 	createPools(&e2eCfg)
+
+	// Wait for pools to be online
+	Eventually(func() error {
+		return common.CheckAllPoolsAreOnline()
+	}, 120, 10,
+	).Should(BeNil())
 
 	// Mayastor has been installed and is now ready for use.
 }
