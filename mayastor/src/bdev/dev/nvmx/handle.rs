@@ -368,7 +368,7 @@ fn io_type_to_err(
             offset: offset_blocks,
             len: num_blocks,
         },
-        IoType::Unmap => CoreError::NvmeUnmapDispatch {
+        IoType::Unmap => CoreError::UnmapDispatch {
             source,
             offset: offset_blocks,
             len: num_blocks,
@@ -467,7 +467,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
     async fn read_at(
         &self,
         offset: u64,
-        buffer: &DmaBuf,
+        buffer: &mut DmaBuf,
     ) -> Result<u64, CoreError> {
         let (valid, offset_blocks, num_blocks) =
             self.bytes_to_blocks(offset, buffer.len());
@@ -857,7 +857,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
                 / SPDK_NVME_DATASET_MANAGEMENT_RANGE_MAX_BLOCKS;
 
         if num_ranges > SPDK_NVME_DATASET_MANAGEMENT_MAX_RANGES {
-            return Err(CoreError::NvmeUnmapDispatch {
+            return Err(CoreError::UnmapDispatch {
                 source: Errno::EINVAL,
                 offset: offset_blocks,
                 len: num_blocks,
@@ -938,7 +938,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         };
 
         if rc < 0 {
-            Err(CoreError::NvmeUnmapDispatch {
+            Err(CoreError::UnmapDispatch {
                 source: Errno::from_i32(-rc),
                 offset: offset_blocks,
                 len: num_blocks,

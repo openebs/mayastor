@@ -73,7 +73,7 @@ pub(crate) fn nvme_command_status(
         )
     };
 
-    NvmeCommandStatus::from_command_status(sct, sc)
+    NvmeCommandStatus::from_command_status_raw(sct, sc)
 }
 
 /* Bit set of attributes for DATASET MANAGEMENT commands. */

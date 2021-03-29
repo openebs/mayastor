@@ -5,12 +5,13 @@ use nix::errno::Errno;
 use snafu::Snafu;
 
 use crate::{subsys::NvmfError, target::iscsi};
-pub use bdev::{Bdev, BdevIter, BdevStats};
+pub use bdev::{Bdev, BdevIter};
 pub use block_device::{
     BlockDevice,
     BlockDeviceDescriptor,
     BlockDeviceHandle,
     BlockDeviceIoStats,
+    DeviceEventListener,
     DeviceEventType,
     DeviceIoController,
     DeviceTimeoutAction,
@@ -118,7 +119,7 @@ pub enum CoreError {
         offset,
         len
     ))]
-    NvmeUnmapDispatch {
+    UnmapDispatch {
         source: Errno,
         offset: u64,
         len: u64,
