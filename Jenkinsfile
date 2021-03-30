@@ -15,9 +15,23 @@ xray_on_demand_testplan='MQ-1'
 xray_nightly_testplan='MQ-17'
 xray_continuous_testplan='MQ-33'
 xray_test_execution_type='10059'
+// do not send xray reports as a result of "bors try"
+xray_send_report = (env.BRANCH_NAME == 'trying') ? false : true
 
 // if e2e run does not build its own images, which tag to use when pulling
 e2e_continuous_image_tag='v0.8.0'
+
+// In the case of multi-branch pipelines, the pipeline
+// name a.k.a. job base name, will be the
+// 2nd-to-last item of env.JOB_NAME which
+// consists of identifiers separated by '/' e.g.
+//     first/second/pipeline/branch
+// In the case of a non-multibranch pipeline, the pipeline
+// name is env.JOB_NAME. This caters for all eventualities.
+def getJobBaseName() {
+  def jobSections = env.JOB_NAME.tokenize('/') as String[]
+  return jobSections.length < 2 ? env.JOB_NAME : jobSections[ jobSections.length - 2 ]
+}
 
 // Searches previous builds to find first non aborted one
 def getLastNonAbortedBuild(build) {
@@ -116,7 +130,7 @@ if (currentBuild.getBuildCauses('jenkins.branch.BranchIndexingCause') &&
 
 // Only schedule regular builds on develop branch, so we don't need to guard against it
 // Run only on one Mayastor pipeline
-String cron_schedule = BRANCH_NAME == "develop" && JOB_BASE_NAME == "Mayastor" ? "0 2 * * *" : ""
+String cron_schedule = BRANCH_NAME == "develop" && getJobBaseName() == "Mayastor" ? "0 2 * * *" : ""
 
 // Determine which stages to run
 if (params.e2e_continuous == true) {
@@ -372,33 +386,35 @@ pipeline {
                 }
                 always {
                   archiveArtifacts 'artifacts/**/*.*'
-                  // always send the junit results back to Xray and Jenkins
+                  // handle junit results on success or failure
                   junit 'e2e.*.xml'
                   script {
-                    def xray_testplan = getTestPlan()
-                    def tag = getTag()
-                    step([
-                      $class: 'XrayImportBuilder',
-                      endpointName: '/junit/multipart',
-                      importFilePath: 'e2e.*.xml',
-                      importToSameExecution: 'true',
-                      projectKey: "${xray_projectkey}",
-                      testPlanKey: "${xray_testplan}",
-                      serverInstance: "${env.JIRASERVERUUID}",
-                      inputInfoSwitcher: 'fileContent',
-                      importInfo: """{
-                        "fields": {
-                          "summary": "Build #${env.BUILD_NUMBER}, branch: ${env.BRANCH_name}, tag: ${tag}",
-                          "project": {
-                            "key": "${xray_projectkey}"
-                          },
-                          "issuetype": {
-                            "id": "${xray_test_execution_type}"
-                          },
-                          "description": "Results for build #${env.BUILD_NUMBER} at ${env.BUILD_URL}"
-                        }
-                      }"""
-                    ])
+                    if (xray_send_report == true) {
+                      def xray_testplan = getTestPlan()
+                      def tag = getTag()
+                      step([
+                        $class: 'XrayImportBuilder',
+                        endpointName: '/junit/multipart',
+                        importFilePath: 'e2e.*.xml',
+                        importToSameExecution: 'true',
+                        projectKey: "${xray_projectkey}",
+                        testPlanKey: "${xray_testplan}",
+                        serverInstance: "${env.JIRASERVERUUID}",
+                        inputInfoSwitcher: 'fileContent',
+                        importInfo: """{
+                          "fields": {
+                            "summary": "Build #${env.BUILD_NUMBER}, branch: ${env.BRANCH_name}, tag: ${tag}",
+                            "project": {
+                              "key": "${xray_projectkey}"
+                            },
+                            "issuetype": {
+                              "id": "${xray_test_execution_type}"
+                            },
+                            "description": "Results for build #${env.BUILD_NUMBER} at ${env.BUILD_URL}"
+                          }
+                        }"""
+                      ])
+                    }
                   }
                 }
               }
