@@ -65,6 +65,9 @@ Options:
                             Behaviour for "uninstall" only differs if uninstall is in the list of tests (the default).
   --uninstall_cleanup <y|n> On uninstall cleanup for reusable cluster. default($uninstall_cleanup)
   --config                  config name or configuration file default(test/e2e/configurations/ci_e2e_config.yaml)
+  --mayastor                path to the mayastor source tree to use for testing.
+                            This is required so that the install test uses the yaml files as defined for that 
+                            revision of mayastor under test.
 
 Examples:
   $0 --device /dev/nvme0n1 --registry 127.0.0.1:5000 --tag a80ce0c

@@ -53,7 +53,7 @@ can be run to do that.
 # Configuration
 The e2e test suite support runtime configuration to set parameters and variables,
 to suit the cluster under test. The configuration file can be specified using the `--config`
-option of `../../scripts/e2e-test/sh`
+option of `../../scripts/e2e-test.sh`
 
 The go package used to read (and write) configuration files supports the following formats
 1. `yaml`
