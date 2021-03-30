@@ -1,31 +1,15 @@
 package locations
 
+// For now the relative paths are hardcoded, there may be a case to make this
+// more generic and data driven.
+
 import (
+	"e2e-basic/common/e2e_config"
 	"os"
 	"path"
-	"runtime"
-	"sync"
 
 	. "github.com/onsi/gomega"
-
-	logf "sigs.k8s.io/controller-runtime/pkg/log"
 )
-
-var once sync.Once
-var topDir string
-
-func init() {
-	once.Do(func() {
-		value, ok := os.LookupEnv("e2e_top_dir")
-		if !ok {
-			_, filename, _, _ := runtime.Caller(0)
-			topDir = path.Clean(filename + "/../../../../")
-		} else {
-			topDir = value
-		}
-		logf.Log.Info("Repo", "top directory", topDir)
-	})
-}
 
 func locationExists(path string) string {
 	_, err := os.Stat(path)
@@ -33,19 +17,15 @@ func locationExists(path string) string {
 	return path
 }
 
-func GetDeployDir() string {
-	return locationExists(path.Clean(topDir + "/deploy"))
+func GetMayastorDeployDir() string {
+	return locationExists(path.Clean(e2e_config.GetConfig().MayastorRootDir + "/deploy"))
 }
 
-func GetScriptsDir() string {
-	return locationExists(path.Clean(topDir + "/scripts"))
-}
-
-func GetArtifactsDir() string {
-	return path.Clean(topDir + "/artifacts")
+func GetMayastorScriptsDir() string {
+	return locationExists(path.Clean(e2e_config.GetConfig().MayastorRootDir + "/scripts"))
 }
 
 // This is a generate directory, so may not exist yet.
 func GetGeneratedYamlsDir() string {
-	return path.Clean(topDir + "/artifacts/install/yamls")
+	return path.Clean(e2e_config.GetConfig().E2eRootDir + "/artifacts/install/yamls")
 }

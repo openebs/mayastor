@@ -338,7 +338,7 @@ pipeline {
 
                 script {
                   def tag = getTag()
-                  def cmd = "./scripts/e2e-test.sh --device /dev/sdb --tag \"${tag}\" --logs --profile \"${e2e_test_profile}\" --build_number \"${env.BUILD_NUMBER}\" "
+                  def cmd = "./scripts/e2e-test.sh --device /dev/sdb --tag \"${tag}\" --logs --profile \"${e2e_test_profile}\" --build_number \"${env.BUILD_NUMBER}\" --mayastor \"${env.WORKSPACE}\" "
                   // building images also means using the CI registry
                   if (e2e_build_images == true) {
                     cmd = cmd + " --registry \"" + env.REGISTRY + "\""

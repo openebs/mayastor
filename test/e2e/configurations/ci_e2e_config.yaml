@@ -1,11 +1,12 @@
 # configuration/parameters for CI/CD e2e test runs
+configName: CI
 pvcstress:
   replicas: 1
   cdCycles: 100
   crudCycles: 10
 ioSoakTest:
   replicas: 1
-  duration: 60m
+  duration: 6m
   # loadFactor is number of volumes for each mayastor instance
   # volumes for disruptor pods are allocated from within this "pool"
   loadFactor: 10

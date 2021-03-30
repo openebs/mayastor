@@ -36,7 +36,7 @@ func generateYamlFiles(imageTag string, mayastorNodes []string, e2eCfg *e2e_conf
 
 	bashCmd := fmt.Sprintf(
 		"%s/generate-deploy-yamls.sh -o %s -t '%s' %s %s %s test",
-		locations.GetScriptsDir(),
+		locations.GetMayastorScriptsDir(),
 		locations.GetGeneratedYamlsDir(),
 		imageTag, registryDirective, coresDirective, poolDirectives,
 	)
@@ -108,7 +108,7 @@ func installMayastor() {
 	logf.Log.Info("Install", "tag", imageTag, "registry", registry, "# of mayastor instances", numMayastorInstances)
 
 	generateYamlFiles(imageTag, mayastorNodes, &e2eCfg)
-	deployDir := locations.GetDeployDir()
+	deployDir := locations.GetMayastorDeployDir()
 	yamlsDir := locations.GetGeneratedYamlsDir()
 
 	err = common.MkNamespace(common.NSMayastor)
