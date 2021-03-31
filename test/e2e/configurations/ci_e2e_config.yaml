@@ -41,7 +41,7 @@ uninstall:
 basicVolumeIO:
   replicas: 1
   # timeout units are seconds
-  fioTimeout: 60
+  fioTimeout: 90
   # volSizeMb units are MiB
   volSizeMb: 500
   # fsVolSizeMb units are MiB
