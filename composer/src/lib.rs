@@ -43,6 +43,7 @@ use bollard::{
 use mbus_api::TimeoutOptions;
 use rpc::mayastor::{
     bdev_rpc_client::BdevRpcClient,
+    json_rpc_client::JsonRpcClient,
     mayastor_client::MayastorClient,
 };
 
@@ -54,6 +55,7 @@ pub struct RpcHandle {
     pub endpoint: SocketAddr,
     pub mayastor: MayastorClient<Channel>,
     pub bdev: BdevRpcClient<Channel>,
+    pub jsonrpc: JsonRpcClient<Channel>,
 }
 
 impl RpcHandle {
@@ -88,11 +90,16 @@ impl RpcHandle {
             BdevRpcClient::connect(format!("http://{}", endpoint.to_string()))
                 .await
                 .unwrap();
+        let jsonrpc =
+            JsonRpcClient::connect(format!("http://{}", endpoint.to_string()))
+                .await
+                .unwrap();
 
         Ok(Self {
             name,
             mayastor,
             bdev,
+            jsonrpc,
             endpoint,
         })
     }

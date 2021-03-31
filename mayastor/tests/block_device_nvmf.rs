@@ -15,7 +15,7 @@ use mayastor::{
     },
     subsys::{Config, NvmeBdevOpts},
 };
-use rpc::mayastor::{BdevShareRequest, BdevUri, Null};
+use rpc::mayastor::{BdevShareRequest, BdevUri, JsonRpcRequest, Null};
 
 use std::{
     alloc::Layout,
@@ -82,7 +82,22 @@ async fn launch_instance() -> (ComposeTest, String) {
         .unwrap();
 
     // get the handles if needed, to invoke methods to the containers
-    let mut hdls = test.grpc_handles().await.unwrap();
+    let mut hdls = {
+        let mut c = 5;
+        loop {
+            let h = test.grpc_handles().await;
+            if h.is_ok() {
+                break h.unwrap();
+            }
+            c -= 1;
+            if c > 0 {
+                println!("... waiting for Mayastor RPC server be available");
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            } else {
+                h.unwrap();
+            }
+        }
+    };
 
     // create and share a bdev on each container
     for h in &mut hdls {
@@ -416,7 +431,7 @@ async fn nvmf_io_stats() {
 
     // Sleep for a few seconds to let I/O operation complete.
     println!("Sleeping for 2 secs to let I/O operation complete");
-    tokio::time::delay_for(std::time::Duration::from_secs(2)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     println!("Awakened.");
 
     // Check I/O stats and destroy the device.
@@ -635,7 +650,7 @@ async fn nvmf_device_readv_test() {
 
     // Sleep for a few seconds to let I/O operation complete.
     println!("Sleeping for 2 secs to let I/O operation complete");
-    tokio::time::delay_for(std::time::Duration::from_secs(2)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     println!("Awakened.");
 
     // Check that the callback has been called.
@@ -776,7 +791,7 @@ async fn nvmf_device_writev_test() {
 
     // Sleep for a few seconds to let I/O operation complete.
     println!("Sleeping for 2 secs to let I/O operation complete");
-    tokio::time::delay_for(std::time::Duration::from_secs(2)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     println!("Awakened.");
 
     // Check that the callback has been called.
@@ -953,7 +968,7 @@ async fn nvmf_device_readv_iovs_test() {
 
     // Sleep for a few seconds to let I/O operation complete.
     println!("Sleeping for 2 secs to let I/O operation complete");
-    tokio::time::delay_for(std::time::Duration::from_secs(2)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     println!("Awakened.");
 
     // Check that the callback has been called.
@@ -971,7 +986,7 @@ async fn nvmf_device_readv_iovs_test() {
     })
     .await;
 
-    tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     println!("Awakened.");
 
     // Safely destroy the device once all handles are freed.
@@ -1124,7 +1139,7 @@ async fn nvmf_device_writev_iovs_test() {
 
     // Sleep for a few seconds to let I/O operation complete.
     println!("Sleeping for 2 secs to let I/O operation complete");
-    tokio::time::delay_for(std::time::Duration::from_secs(2)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     println!("Awakened.");
 
     // Check that the callback has been called.
@@ -1274,7 +1289,7 @@ async fn nvmf_device_reset() {
 
     // Sleep for a few seconds to let reset operation complete.
     println!("Sleeping for 2 secs to let reset operation complete");
-    tokio::time::delay_for(std::time::Duration::from_secs(2)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     println!("Awakened.");
 
     // Check that the callback has been called.
@@ -1426,7 +1441,7 @@ async fn wipe_device_blocks(is_unmap: bool) {
 
     // Sleep for a few seconds to let unmap operation complete.
     println!("Sleeping for 2 secs to let operation complete");
-    tokio::time::delay_for(std::time::Duration::from_secs(2)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     println!("Awakened.");
 
     ms.spawn(async move {
@@ -1679,7 +1694,7 @@ async fn nvmf_reset_abort_io() {
 
     // Sleep for a few seconds to let all I/O operations be aborted.
     println!("Sleeping for 1 sec to let reset hit I/O operations");
-    tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     println!("Awakened.");
 
     // Check that the reset callback has been called and
@@ -1754,7 +1769,7 @@ async fn nvmf_device_io_handle_cleanup() {
         .await;
 
     println!("Sleeping for 1 sec to let device cleanup operations complete");
-    tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     println!("Awakened.");
 
     // 2. Try to repeat the same I/O operations: expecting
@@ -1779,6 +1794,71 @@ async fn nvmf_device_io_handle_cleanup() {
             .read_at(OP_OFFSET, &mut buf)
             .await
             .expect_err("Data successfully read");
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn nvmf_device_hot_remove() {
+    let ms = get_ms();
+    let (test, url) = launch_instance().await;
+    let url2 = url.to_string();
+    let mut grpc_hdl = test.grpc_handle("ms1").await.unwrap();
+
+    static DEVICE_NAME: OnceCell<String> = OnceCell::new();
+
+    fn device_event_cb(event: DeviceEventType, device: &str) {
+        // Check event type and device name.
+        assert_eq!(event, DeviceEventType::DeviceRemoved);
+        assert_eq!(
+            device,
+            DEVICE_NAME.get().unwrap(),
+            "device name provided with event mismatches"
+        );
+        flag_callback_invocation();
+    }
+
+    // Create device and register a listener.
+    ms.spawn(async move {
+        let name = device_create(&url).await.unwrap();
+        let descr = device_open(&name, false).unwrap();
+        let device = descr.get_device();
+
+        clear_callback_invocation_flag();
+
+        DEVICE_NAME.set(name.clone()).unwrap();
+
+        device.add_event_listener(device_event_cb).unwrap();
+    })
+    .await;
+
+    // Remove the remote namespace.
+    grpc_hdl
+        .jsonrpc
+        .json_rpc_call(JsonRpcRequest {
+            method: "nvmf_subsystem_remove_ns".to_string(),
+            params: "{\"nqn\": \"nqn.2019-05.io.openebs:disk0\", \"nsid\": 1}"
+                .to_string(),
+        })
+        .await
+        .unwrap();
+
+    // Wait for AER event to arrive.
+    println!("Sleeping for 1 sec to let AER event be processed");
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    println!("Awakened.");
+
+    check_callback_invocation();
+
+    // Remove the device to make sure it can be smoothly removed after namespace
+    // cleanup.
+    // Also make sure that no device can be created for controllers without
+    // namespaces.
+    ms.spawn(async move {
+        device_destroy(&url2).await.unwrap();
+        device_create(&url2)
+            .await
+            .expect_err("Device has been successfully created for controller without namespaces");
     })
     .await;
 }

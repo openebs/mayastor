@@ -173,6 +173,7 @@ pub trait BlockDeviceHandle {
         buffer: Option<&mut DmaBuf>,
     ) -> Result<(), CoreError>;
     async fn nvme_identify_ctrlr(&self) -> Result<DmaBuf, CoreError>;
+    async fn create_snapshot(&self) -> Result<u64, CoreError>;
 }
 
 pub trait LbaRangeController {}

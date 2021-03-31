@@ -13,8 +13,16 @@ use snafu::ResultExt;
 use spdk_sys::{spdk_get_thread, SPDK_BDEV_LARGE_BUF_MAX_SIZE};
 
 use crate::{
-    bdev::VerboseError,
-    core::{Bdev, BdevHandle, DmaBuf, RangeContext, Reactors},
+    bdev::{device_open, VerboseError},
+    core::{
+        Bdev,
+        BlockDevice,
+        BlockDeviceDescriptor,
+        BlockDeviceHandle,
+        DmaBuf,
+        RangeContext,
+        Reactors,
+    },
     nexus_uri::bdev_get_name,
 };
 
@@ -110,21 +118,42 @@ impl RebuildJob {
         range: std::ops::Range<u64>,
         notify_fn: fn(String, String) -> (),
     ) -> Result<Self, RebuildError> {
-        let source_hdl = RebuildJob::open_handle(source, false, false)?;
-        let destination_hdl =
-            RebuildJob::open_handle(destination, true, false)?;
+        let src_descriptor = device_open(
+            &bdev_get_name(source).context(BdevInvalidUri {
+                uri: source.to_string(),
+            })?,
+            false,
+        )
+        .map_err(|e| RebuildError::BdevNotFound {
+            source: e,
+            bdev: source.to_string(),
+        })?;
+
+        let dst_descriptor = device_open(
+            &bdev_get_name(destination).context(BdevInvalidUri {
+                uri: destination.to_string(),
+            })?,
+            true,
+        )
+        .map_err(|e| RebuildError::BdevNotFound {
+            source: e,
+            bdev: destination.to_string(),
+        })?;
+
+        let source_hdl = Self::get_io_handle(&src_descriptor)?;
+        let destination_hdl = Self::get_io_handle(&dst_descriptor)?;
 
         if !Self::validate(
-            &source_hdl.get_bdev(),
-            &destination_hdl.get_bdev(),
+            source_hdl.get_device(),
+            destination_hdl.get_device(),
             &range,
         ) {
             return Err(RebuildError::InvalidParameters {});
         };
 
         // validation passed, block size is the same for both
-        let block_size = destination_hdl.get_bdev().block_len() as u64;
-        let segment_size_blks = (SEGMENT_SIZE / block_size) as u64;
+        let block_size = destination_hdl.get_device().block_len();
+        let segment_size_blks = SEGMENT_SIZE / block_size;
 
         let mut tasks = RebuildTasks {
             tasks: Vec::new(),
@@ -173,6 +202,8 @@ impl RebuildJob {
             states: Default::default(),
             complete_chan: Vec::new(),
             error: None,
+            src_descriptor,
+            dst_descriptor,
         })
     }
 
@@ -288,9 +319,9 @@ impl RebuildJob {
         blk: u64,
     ) -> Result<(), RebuildError> {
         let mut copy_buffer: DmaBuf;
-        let source_hdl = RebuildJob::open_handle(&self.source, false, false)?;
-        let destination_hdl =
-            RebuildJob::open_handle(&self.destination, true, false)?;
+
+        let source_hdl = Self::get_io_handle(&self.src_descriptor)?;
+        let destination_hdl = Self::get_io_handle(&self.dst_descriptor)?;
 
         let copy_buffer = if self.get_segment_size_blks(blk)
             == self.segment_size_blks
@@ -328,6 +359,17 @@ impl RebuildJob {
         Ok(())
     }
 
+    fn get_io_handle(
+        descriptor: &Box<dyn BlockDeviceDescriptor>,
+    ) -> Result<Box<dyn BlockDeviceHandle>, RebuildError> {
+        descriptor
+            .get_io_handle()
+            .map_err(|e| RebuildError::NoBdevHandle {
+                source: e,
+                bdev: descriptor.get_device().device_name(),
+            })
+    }
+
     fn notify(&mut self) {
         self.stats();
         self.send_notify();
@@ -345,8 +387,8 @@ impl RebuildJob {
     /// Check if the source and destination block devices are compatible for
     /// rebuild
     fn validate(
-        source: &Bdev,
-        destination: &Bdev,
+        source: &Box<dyn BlockDevice>,
+        destination: &Box<dyn BlockDevice>,
         range: &std::ops::Range<u64>,
     ) -> bool {
         // todo: make sure we don't overwrite the labels
@@ -419,24 +461,6 @@ impl RebuildJob {
             });
 
         unsafe { &mut *global_instances.inner.get() }
-    }
-
-    /// Open a bdev handle for the given uri
-    fn open_handle(
-        uri: &str,
-        read_write: bool,
-        claim: bool,
-    ) -> Result<BdevHandle, RebuildError> {
-        BdevHandle::open(
-            &bdev_get_name(uri).context(BdevInvalidUri {
-                uri: uri.to_string(),
-            })?,
-            read_write,
-            claim,
-        )
-        .context(NoBdevHandle {
-            bdev: uri,
-        })
     }
 }
 

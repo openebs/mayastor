@@ -229,7 +229,7 @@ impl Bio {
     }
 
     /// free the IO
-    pub(crate) fn free(&self) {
+    fn _free(&self) {
         unsafe { spdk_bdev_free_io(self.0.as_ptr()) }
     }
 

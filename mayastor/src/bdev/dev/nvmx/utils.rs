@@ -8,7 +8,7 @@ enum NvmeStatusCodeType {
     MediaError = 0x2,
 }
 #[derive(Debug, PartialEq)]
-enum NvmeMediaErrorStatusCode {
+pub enum NvmeMediaErrorStatusCode {
     Guard = 0x82,
     ApplicationTag = 0x83,
     ReferenceTag = 0x84,
@@ -16,6 +16,15 @@ enum NvmeMediaErrorStatusCode {
 #[derive(Debug, PartialEq)]
 enum NvmeGenericCommandStatusCode {
     Success = 0x0,
+}
+#[derive(Debug, PartialEq)]
+pub enum NvmeAerType {
+    Notice = 0x2,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum NvmeAerInfoNotice {
+    AttrChanged = 0x0,
 }
 
 /// Check if the Completion Queue Entry indicates abnormal termination of

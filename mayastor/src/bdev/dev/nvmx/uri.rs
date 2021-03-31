@@ -265,30 +265,41 @@ impl CreateDestroy for NvmfDeviceTemplate {
 
         context.poller = Some(poller);
 
-        context
-            .receiver
-            .await
-            .context(nexus_uri::CancelBdev {
-                name: self.name.clone(),
-            })?
-            .context(nexus_uri::CreateBdev {
-                name: self.name.clone(),
-            })?;
+        let attach_status = context.receiver.await.unwrap();
 
-        let controller = NVME_CONTROLLERS
-            .lookup_by_name(&cname)
-            .expect("no controller in the list");
+        match attach_status {
+            Err(e) => {
+                // Remove controller from the list in case of attach failures.
+                controller::destroy_device(self.get_name())
+                    .await
+                    // Propagate initial error once controller has been
+                    // deinitialized.
+                    .and_then(|_| {
+                        Err(NexusBdevError::CreateBdev {
+                            source: e,
+                            name: self.name.clone(),
+                        })
+                    })
+            }
+            Ok(_) => {
+                let controller = NVME_CONTROLLERS
+                    .lookup_by_name(&cname)
+                    .expect("no controller in the list");
 
-        let controller = controller.lock().expect("failed to lock controller");
+                let controller =
+                    controller.lock().expect("failed to lock controller");
 
-        assert_eq!(
-            controller.get_state(),
-            NvmeControllerState::Running,
-            "NVMe controller is not fully initialized"
-        );
+                // Successfully attached controllers must be in Running state.
+                assert_eq!(
+                    controller.get_state(),
+                    NvmeControllerState::Running,
+                    "NVMe controller is not fully initialized"
+                );
 
-        info!("{} NVMe controller successfully initialized", cname);
-        Ok(cname)
+                info!("{} NVMe controller successfully initialized", cname);
+                Ok(cname)
+            }
+        }
     }
 
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {

@@ -18,4 +18,3 @@ jobs:
       - run: sudo apt-get install crda wireless-crda nvme-cli linux-modules-extra-$(uname -r) -y
       - run: (echo 2048 | sudo tee /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages )
       - run: sudo ./scripts/block_devs.sh
-      - run: nix-shell --run "./scripts/nvmx-test.sh"

@@ -14,6 +14,7 @@ pub enum NvmeControllerState {
 pub enum ControllerFailureReason {
     ResetFailed,
     ShutdownFailed,
+    NamespaceInitFailed,
 }
 
 impl ToString for NvmeControllerState {
@@ -103,7 +104,7 @@ fn check_transition(
         Initializing => matches!(to, Running | Faulted(_)),
         Running => matches!(to, Unconfiguring | Faulted(_)),
         Unconfiguring => matches!(to, Unconfigured | Faulted(_)),
-        Faulted(_) => matches!(to, Running | Unconfiguring),
+        Faulted(_) => matches!(to, Running | Unconfiguring | Faulted(_)),
         // Final state, no further transitions possible.
         Unconfigured => false,
     }

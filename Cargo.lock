@@ -176,7 +176,7 @@ version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a3548b8efc9f8e8a5a0a2808c5bd8451a9031b9e5b879a79590304ae928b0a70"
 dependencies = [
- "proc-macro2",
+ "proc-macro2 1.0.24",
  "quote 1.0.9",
  "syn 1.0.60",
 ]
@@ -1564,6 +1564,7 @@ dependencies = [
  "libc",
  "log",
  "mbus_api",
+ "md5",
  "merge",
  "nats",
  "nix 0.16.1",
@@ -1632,6 +1633,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "md5"
+version = "0.7.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "490cc448043f947bae3cbee9c203358d62dbee0db12107a74be5c30ccfd09771"
+
+[[package]]
 name = "memchr"
 version = "2.3.4"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1663,7 +1670,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "209d075476da2e63b4b29e72a2ef627b840589588e71400a25e3565c4f849d07"
 dependencies = [
  "proc-macro-error",
- "proc-macro2 1.0.24",
+ "proc-macro2",
  "quote 1.0.9",
  "syn 1.0.60",
 ]

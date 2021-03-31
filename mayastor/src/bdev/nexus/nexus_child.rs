@@ -301,7 +301,7 @@ impl NexusChild {
     }
 
     /// Get full name of this Nexus child.
-    pub(crate) fn get_name(&self) -> &str {
+    pub fn get_name(&self) -> &str {
         &self.name
     }
 
@@ -532,9 +532,7 @@ impl NexusChild {
     }
 
     /// Return reference to child's block device.
-    pub(crate) fn get_device(
-        &self,
-    ) -> Result<&Box<dyn BlockDevice>, ChildError> {
+    pub fn get_device(&self) -> Result<&Box<dyn BlockDevice>, ChildError> {
         self.device.as_ref().ok_or(ChildError::ChildInaccessible {})
     }
 

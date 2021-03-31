@@ -166,7 +166,7 @@ if (params.e2e_continuous == true) {
   // do not push images even when running on master/develop/release branches
   do_not_push_images = true
 } else {
-  run_linter = true
+  run_linter = false
   rust_test = true
   grpc_test = true
   moac_test = true

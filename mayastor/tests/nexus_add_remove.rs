@@ -193,7 +193,7 @@ async fn create_targets() {
         // create the bdev
         h.bdev
             .create(BdevUri {
-                uri: "malloc:///disk0?size_mb=100".into(),
+                uri: "malloc:///disk0?size_mb=128".into(),
             })
             .await
             .unwrap();
@@ -235,6 +235,8 @@ async fn nexus_add_remove() {
     DOCKER_COMPOSE.set(compose).unwrap();
 
     let ms = MAYASTOR.get_or_init(|| ms);
+
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
     create_targets().await;
     nexus_3_way_create().await;

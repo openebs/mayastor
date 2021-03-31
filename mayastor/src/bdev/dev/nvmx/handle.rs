@@ -41,6 +41,7 @@ use crate::{
         NvmeCommandStatus,
     },
     ffihelper::{cb_arg, done_cb},
+    subsys,
 };
 
 use spdk_sys::{
@@ -958,6 +959,15 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
     ) -> Result<(), CoreError> {
         // Write zeroes are done through unmap.
         self.unmap_blocks(offset_blocks, num_blocks, cb, cb_arg)
+    }
+
+    async fn create_snapshot(&self) -> Result<u64, CoreError> {
+        let mut cmd = spdk_sys::spdk_nvme_cmd::default();
+        cmd.set_opc(nvme_admin_opc::CREATE_SNAPSHOT.into());
+        let now = subsys::set_snapshot_time(&mut cmd);
+        debug!("Creating snapshot at {}", now);
+        self.nvme_admin(&cmd, None).await?;
+        Ok(now as u64)
     }
 }
 
