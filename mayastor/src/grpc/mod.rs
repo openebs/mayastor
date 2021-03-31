@@ -11,6 +11,9 @@ use crate::{
     core::{Cores, Reactor},
     subsys::Config,
 };
+use once_cell::sync::Lazy;
+use std::sync::Arc;
+use tokio::sync::Mutex;
 
 fn print_error_chain(err: &dyn std::error::Error) -> String {
     let mut msg = format!("{}", err);
@@ -67,6 +70,11 @@ where
         .map_err(|e| e.into())
 }
 
+/// A global gRPC lock to ensure we only service one reconfiguration/config sync
+/// request at a time.
+static RECONFIGURING: Lazy<Arc<Mutex<()>>> =
+    Lazy::new(|| Arc::new(Mutex::new(())));
+
 /// Used by the gRPC method implementations to sync the current configuration by
 /// exporting it to a config file
 /// If `sync_config` fails then the method should return a failure
@@ -75,13 +83,15 @@ pub async fn sync_config<F, T>(future: F) -> GrpcResult<T>
 where
     F: Future<Output = GrpcResult<T>>,
 {
+    let guard = RECONFIGURING.lock().await;
     let result = future.await;
     if result.is_ok() {
         if let Err(e) = Config::export_config() {
             error!("Failed to export config file: {}", e);
             return Err(Status::data_loss("Failed to export config"));
         }
-    }
+    };
+    drop(guard);
     result
 }
 
