@@ -1,7 +1,15 @@
-use crate::{context::Context, nexus_child_cli, parse_size};
+use crate::{
+    context::{Context, OutputFormat},
+    nexus_child_cli,
+    parse_size,
+    Error,
+    GrpcStatus,
+};
 use ::rpc::mayastor as rpc;
 use byte_unit::Byte;
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
+use colored_json::ToColoredJson;
+use snafu::ResultExt;
 use tonic::{Code, Status};
 
 pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
@@ -149,7 +157,7 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
 pub async fn handler(
     ctx: Context,
     matches: &ArgMatches<'_>,
-) -> Result<(), Status> {
+) -> crate::Result<()> {
     match matches.subcommand() {
         ("create", Some(args)) => nexus_create(ctx, &args).await,
         ("destroy", Some(args)) => nexus_destroy(ctx, &args).await,
@@ -163,6 +171,7 @@ pub async fn handler(
         ("child", Some(args)) => nexus_child_cli::handler(ctx, args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {} does not exist", cmd)))
+                .context(GrpcStatus)
         }
     }
 }
@@ -170,93 +179,145 @@ pub async fn handler(
 async fn nexus_create(
     mut ctx: Context,
     matches: &ArgMatches<'_>,
-) -> Result<(), Status> {
+) -> crate::Result<()> {
     let uuid = matches.value_of("uuid").unwrap().to_string();
-    let size = parse_size(matches.value_of("size").unwrap())
-        .map_err(|s| Status::invalid_argument(format!("Bad size '{}'", s)))?;
+    let size = parse_size(matches.value_of("size").ok_or_else(|| {
+        Error::MissingValue {
+            field: "size".to_string(),
+        }
+    })?)
+    .map_err(|s| Status::invalid_argument(format!("Bad size '{}'", s)))
+    .context(GrpcStatus)?;
     let children = matches
         .values_of("children")
-        .unwrap() // It's required, it'll be here.
+        .ok_or_else(|| Error::MissingValue {
+            field: "children".to_string(),
+        })?
         .map(|c| c.to_string())
         .collect::<Vec<String>>();
-
-    ctx.v2(&format!(
-        "Creating nexus {} of size {} ",
-        uuid,
-        ctx.units(size)
-    ));
-    ctx.v2(&format!(" with children {:?}", children));
     let size = size.get_bytes() as u64;
-    ctx.client
+
+    let response = ctx
+        .client
         .create_nexus(rpc::CreateNexusRequest {
             uuid: uuid.clone(),
             size,
             children,
         })
-        .await?;
-    ctx.v1(&format!("Nexus {} created", uuid));
+        .await
+        .context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            println!("{}", &response.get_ref().uuid);
+        }
+    };
+
     Ok(())
 }
 
 async fn nexus_destroy(
     mut ctx: Context,
     matches: &ArgMatches<'_>,
-) -> Result<(), Status> {
+) -> crate::Result<()> {
     let uuid = matches.value_of("uuid").unwrap().to_string();
 
-    ctx.v2(&format!("Destroying nexus {}", uuid));
-    ctx.client
+    let response = ctx
+        .client
         .destroy_nexus(rpc::DestroyNexusRequest {
             uuid: uuid.clone(),
         })
-        .await?;
-    ctx.v1(&format!("Nexus {} destroyed", uuid));
+        .await
+        .context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            println!("{}", &uuid,);
+        }
+    };
+
     Ok(())
 }
 
 async fn nexus_list(
     mut ctx: Context,
     matches: &ArgMatches<'_>,
-) -> Result<(), Status> {
-    let resp = ctx.client.list_nexus(rpc::Null {}).await?;
-    let nexus = &resp.get_ref().nexus_list;
-    if nexus.is_empty() {
-        ctx.v1("No nexus found");
-        return Ok(());
-    }
+) -> crate::Result<()> {
+    let response = ctx
+        .client
+        .list_nexus(rpc::Null {})
+        .await
+        .context(GrpcStatus)?;
 
-    ctx.v2("Found following nexus:");
-    let show_child = matches.is_present("children");
-
-    let table = nexus
-        .iter()
-        .map(|n| {
-            let size = ctx.units(Byte::from_bytes(n.size.into()));
-            let state = nexus_state_to_str(n.state);
-            let mut row = vec![
-                n.uuid.clone(),
-                n.device_uri.clone(),
-                size,
-                state.to_string(),
-                n.rebuilds.to_string(),
-            ];
-            if show_child {
-                row.push(
-                    n.children
-                        .iter()
-                        .map(|c| c.uri.clone())
-                        .collect::<Vec<String>>()
-                        .join(","),
-                )
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            let nexus = &response.get_ref().nexus_list;
+            if nexus.is_empty() {
+                ctx.v1("No nexus found");
+                return Ok(());
             }
-            row
-        })
-        .collect();
-    let mut hdr = vec!["NAME", "PATH", ">SIZE", "STATE", ">REBUILDS"];
-    if show_child {
-        hdr.push("CHILDREN");
-    }
-    ctx.print_list(hdr, table);
+
+            ctx.v2("Found following nexus:");
+            let show_child = matches.is_present("children");
+
+            let table = nexus
+                .iter()
+                .map(|n| {
+                    let size = ctx.units(Byte::from_bytes(n.size.into()));
+                    let state = nexus_state_to_str(n.state);
+                    let mut row = vec![
+                        n.uuid.clone(),
+                        size,
+                        state.to_string(),
+                        n.rebuilds.to_string(),
+                        n.device_uri.clone(),
+                    ];
+                    if show_child {
+                        row.push(
+                            n.children
+                                .iter()
+                                .map(|c| c.uri.clone())
+                                .collect::<Vec<String>>()
+                                .join(","),
+                        )
+                    }
+                    row
+                })
+                .collect();
+            let mut hdr = vec!["NAME", ">SIZE", "STATE", ">REBUILDS", "PATH"];
+            if show_child {
+                hdr.push("CHILDREN");
+            }
+            ctx.print_list(hdr, table);
+        }
+    };
 
     Ok(())
 }
@@ -264,11 +325,21 @@ async fn nexus_list(
 async fn nexus_children(
     mut ctx: Context,
     matches: &ArgMatches<'_>,
-) -> Result<(), Status> {
-    let uuid = matches.value_of("uuid").unwrap().to_string();
+) -> crate::Result<()> {
+    let uuid = matches
+        .value_of("uuid")
+        .ok_or_else(|| Error::MissingValue {
+            field: "uuid".to_string(),
+        })?
+        .to_string();
 
-    let resp = ctx.client.list_nexus(rpc::Null {}).await?;
-    let nexus = resp
+    let response = ctx
+        .client
+        .list_nexus(rpc::Null {})
+        .await
+        .context(GrpcStatus)?;
+
+    let nexus = response
         .get_ref()
         .nexus_list
         .iter()
@@ -278,29 +349,47 @@ async fn nexus_children(
                 Code::InvalidArgument,
                 "Specified nexus not found".to_owned(),
             )
-        })?;
-
-    ctx.v2(&format!("Children of nexus {}:", uuid));
-
-    let table = nexus
-        .children
-        .iter()
-        .map(|c| {
-            let state = child_state_to_str(c.state);
-            vec![c.uri.clone(), state.to_string()]
         })
-        .collect();
-    ctx.print_list(vec!["NAME", "STATE"], table);
+        .context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&nexus.children)
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            let table = nexus
+                .children
+                .iter()
+                .map(|c| {
+                    let state = child_state_to_str(c.state);
+                    vec![c.uri.clone(), state.to_string()]
+                })
+                .collect();
+            ctx.print_list(vec!["NAME", "STATE"], table);
+        }
+    };
+
     Ok(())
 }
 
 async fn nexus_publish(
     mut ctx: Context,
     matches: &ArgMatches<'_>,
-) -> Result<(), Status> {
-    let uuid = matches.value_of("uuid").unwrap().to_string();
+) -> crate::Result<()> {
+    let uuid = matches
+        .value_of("uuid")
+        .ok_or_else(|| Error::MissingValue {
+            field: "uuid".to_string(),
+        })?
+        .to_string();
     let key = matches.value_of("key").unwrap_or("").to_string();
-    let prot = match matches.value_of("protocol") {
+    let protocol = match matches.value_of("protocol") {
         None => rpc::ShareProtocolNexus::NexusNbd,
         Some("nvmf") => rpc::ShareProtocolNexus::NexusNvmf,
         Some("iscsi") => rpc::ShareProtocolNexus::NexusIscsi,
@@ -308,43 +397,80 @@ async fn nexus_publish(
             return Err(Status::new(
                 Code::Internal,
                 "Invalid value of share protocol".to_owned(),
-            ));
+            ))
+            .context(GrpcStatus);
         }
     };
 
-    ctx.v2(&format!("Publishing nexus {} over {:?}", uuid, prot));
-    let resp = ctx
+    let response = ctx
         .client
         .publish_nexus(rpc::PublishNexusRequest {
             uuid,
             key,
-            share: prot.into(),
+            share: protocol.into(),
         })
-        .await?;
-    ctx.v1(&format!("Nexus published at {}", resp.get_ref().device_uri));
+        .await
+        .context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            println!("{}", response.get_ref().device_uri,)
+        }
+    };
+
     Ok(())
 }
 
 async fn nexus_unpublish(
     mut ctx: Context,
     matches: &ArgMatches<'_>,
-) -> Result<(), Status> {
-    let uuid = matches.value_of("uuid").unwrap().to_string();
+) -> crate::Result<()> {
+    let uuid = matches
+        .value_of("uuid")
+        .ok_or_else(|| Error::MissingValue {
+            field: "uuid".to_string(),
+        })?
+        .to_string();
 
-    ctx.v2(&format!("Unpublishing nexus {}", uuid));
-    ctx.client
+    let response = ctx
+        .client
         .unpublish_nexus(rpc::UnpublishNexusRequest {
             uuid: uuid.clone(),
         })
-        .await?;
-    ctx.v1(&format!("Nexus {} unpublished", uuid));
+        .await
+        .context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            println!("{}", &uuid,)
+        }
+    };
+
     Ok(())
 }
 
 async fn nexus_nvme_ana_state(
     ctx: Context,
     matches: &ArgMatches<'_>,
-) -> Result<(), Status> {
+) -> crate::Result<()> {
     let uuid = matches.value_of("uuid").unwrap().to_string();
     let ana_state = matches.value_of("state").unwrap_or("").to_string();
     if ana_state.is_empty() {
@@ -357,14 +483,14 @@ async fn nexus_nvme_ana_state(
 async fn nexus_get_nvme_ana_state(
     mut ctx: Context,
     uuid: String,
-) -> Result<(), Status> {
-    ctx.v2(&format!("Getting NVMe ANA state for nexus {}", uuid));
+) -> crate::Result<()> {
     let resp = ctx
         .client
         .get_nvme_ana_state(rpc::GetNvmeAnaStateRequest {
             uuid: uuid.clone(),
         })
-        .await?;
+        .await
+        .context(GrpcStatus)?;
     ctx.v1(ana_state_idx_to_str(resp.get_ref().ana_state));
     Ok(())
 }
@@ -373,73 +499,120 @@ async fn nexus_set_nvme_ana_state(
     mut ctx: Context,
     uuid: String,
     ana_state_str: String,
-) -> Result<(), Status> {
+) -> crate::Result<()> {
     let ana_state: rpc::NvmeAnaState = match ana_state_str.parse() {
         Ok(a) => a,
         _ => {
             return Err(Status::new(
                 Code::Internal,
                 "Invalid value of NVMe ANA state".to_owned(),
-            ));
+            ))
+            .context(GrpcStatus);
         }
     };
 
-    ctx.v2(&format!(
-        "Setting NVMe ANA state for nexus {} to {:?}",
-        uuid, ana_state
-    ));
     ctx.client
         .set_nvme_ana_state(rpc::SetNvmeAnaStateRequest {
             uuid: uuid.clone(),
             ana_state: ana_state.into(),
         })
-        .await?;
-    ctx.v1(&format!(
-        "Set NVMe ANA state for nexus {} to {:?}",
-        uuid, ana_state
-    ));
+        .await
+        .context(GrpcStatus)?;
+    ctx.v1(&uuid);
     Ok(())
 }
 
 async fn nexus_add(
     mut ctx: Context,
     matches: &ArgMatches<'_>,
-) -> Result<(), Status> {
-    let uuid = matches.value_of("uuid").unwrap().to_string();
-    let uri = matches.value_of("uri").unwrap().to_string();
+) -> crate::Result<()> {
+    let uuid = matches
+        .value_of("uuid")
+        .ok_or_else(|| Error::MissingValue {
+            field: "uuid".to_string(),
+        })?
+        .to_string();
+    let uri = matches
+        .value_of("uri")
+        .ok_or_else(|| Error::MissingValue {
+            field: "uri".to_string(),
+        })?
+        .to_string();
     let norebuild = matches
         .value_of("norebuild")
         .unwrap_or("false")
         .parse::<bool>()
         .unwrap_or(false);
 
-    ctx.v2(&format!("Adding {} to children of {}", uri, uuid));
-    ctx.client
+    let response = ctx
+        .client
         .add_child_nexus(rpc::AddChildNexusRequest {
             uuid: uuid.clone(),
             uri: uri.clone(),
             norebuild,
         })
-        .await?;
-    ctx.v1(&format!("Added {} to children of {}", uri, uuid));
+        .await
+        .context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            println!("{}", &uuid,)
+        }
+    };
+
     Ok(())
 }
 
 async fn nexus_remove(
     mut ctx: Context,
     matches: &ArgMatches<'_>,
-) -> Result<(), Status> {
-    let uuid = matches.value_of("uuid").unwrap().to_string();
-    let uri = matches.value_of("uri").unwrap().to_string();
+) -> crate::Result<()> {
+    let uuid = matches
+        .value_of("uuid")
+        .ok_or_else(|| Error::MissingValue {
+            field: "uuid".to_string(),
+        })?
+        .to_string();
+    let uri = matches
+        .value_of("uri")
+        .ok_or_else(|| Error::MissingValue {
+            field: "uri".to_string(),
+        })?
+        .to_string();
 
-    ctx.v2(&format!("Removing {} from children of {}", uri, uuid));
-    ctx.client
+    let response = ctx
+        .client
         .remove_child_nexus(rpc::RemoveChildNexusRequest {
             uuid: uuid.clone(),
             uri: uri.clone(),
         })
-        .await?;
-    ctx.v1(&format!("Removed {} from children of {}", uri, uuid));
+        .await
+        .context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            println!("{}", &uri,)
+        }
+    };
+
     Ok(())
 }
 

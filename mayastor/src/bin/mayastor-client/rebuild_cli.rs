@@ -1,15 +1,21 @@
 //!
 //! methods to interact with the rebuild process
 
-use crate::context::Context;
+use crate::{
+    context::{Context, OutputFormat},
+    Error,
+    GrpcStatus,
+};
 use ::rpc::mayastor as rpc;
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
+use colored_json::ToColoredJson;
+use snafu::ResultExt;
 use tonic::Status;
 
 pub async fn handler(
     ctx: Context,
     matches: &ArgMatches<'_>,
-) -> Result<(), Status> {
+) -> crate::Result<()> {
     match matches.subcommand() {
         ("start", Some(args)) => start(ctx, &args).await,
         ("stop", Some(args)) => stop(ctx, &args).await,
@@ -20,6 +26,7 @@ pub async fn handler(
         ("progress", Some(args)) => progress(ctx, &args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {} does not exist", cmd)))
+                .context(GrpcStatus)
         }
     }
 }
@@ -149,112 +156,239 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
 async fn start(
     mut ctx: Context,
     matches: &ArgMatches<'_>,
-) -> Result<(), Status> {
-    let uuid = matches.value_of("uuid").unwrap().to_string();
-    let uri = matches.value_of("uri").unwrap().to_string();
+) -> crate::Result<()> {
+    let uuid = matches
+        .value_of("uuid")
+        .ok_or_else(|| Error::MissingValue {
+            field: "uuid".to_string(),
+        })?
+        .to_string();
+    let uri = matches
+        .value_of("uri")
+        .ok_or_else(|| Error::MissingValue {
+            field: "uri".to_string(),
+        })?
+        .to_string();
 
-    ctx.client
+    let response = ctx
+        .client
         .start_rebuild(rpc::StartRebuildRequest {
             uuid: uuid.clone(),
             uri: uri.clone(),
         })
-        .await?;
-    ctx.v1(&format!(
-        "Starting rebuild of child {} on nexus {}",
-        uri, uuid
-    ));
+        .await
+        .context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            println!("{}", &uri);
+        }
+    };
+
     Ok(())
 }
 
-async fn stop(
-    mut ctx: Context,
-    matches: &ArgMatches<'_>,
-) -> Result<(), Status> {
-    let uuid = matches.value_of("uuid").unwrap().to_string();
-    let uri = matches.value_of("uri").unwrap().to_string();
+async fn stop(mut ctx: Context, matches: &ArgMatches<'_>) -> crate::Result<()> {
+    let uuid = matches
+        .value_of("uuid")
+        .ok_or_else(|| Error::MissingValue {
+            field: "uuid".to_string(),
+        })?
+        .to_string();
+    let uri = matches
+        .value_of("uri")
+        .ok_or_else(|| Error::MissingValue {
+            field: "uri".to_string(),
+        })?
+        .to_string();
 
-    ctx.client
+    let response = ctx
+        .client
         .stop_rebuild(rpc::StopRebuildRequest {
             uuid: uuid.clone(),
             uri: uri.clone(),
         })
-        .await?;
-    ctx.v1(&format!(
-        "Stopping rebuild of child {} on nexus {}",
-        uri, uuid
-    ));
+        .await
+        .context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            println!("{}", &uri);
+        }
+    };
+
     Ok(())
 }
 
 async fn pause(
     mut ctx: Context,
     matches: &ArgMatches<'_>,
-) -> Result<(), Status> {
-    let uuid = matches.value_of("uuid").unwrap().to_string();
-    let uri = matches.value_of("uri").unwrap().to_string();
+) -> crate::Result<()> {
+    let uuid = matches
+        .value_of("uuid")
+        .ok_or_else(|| Error::MissingValue {
+            field: "uuid".to_string(),
+        })?
+        .to_string();
+    let uri = matches
+        .value_of("uri")
+        .ok_or_else(|| Error::MissingValue {
+            field: "uri".to_string(),
+        })?
+        .to_string();
 
-    ctx.client
+    let response = ctx
+        .client
         .pause_rebuild(rpc::PauseRebuildRequest {
             uuid: uuid.clone(),
             uri: uri.clone(),
         })
-        .await?;
-    ctx.v1(&format!(
-        "Pausing rebuild of child {} on nexus {}",
-        uri, uuid
-    ));
+        .await
+        .context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            println!("{}", &uri);
+        }
+    };
+
     Ok(())
 }
 
 async fn resume(
     mut ctx: Context,
     matches: &ArgMatches<'_>,
-) -> Result<(), Status> {
-    let uuid = matches.value_of("uuid").unwrap().to_string();
-    let uri = matches.value_of("uri").unwrap().to_string();
+) -> crate::Result<()> {
+    let uuid = matches
+        .value_of("uuid")
+        .ok_or_else(|| Error::MissingValue {
+            field: "uuid".to_string(),
+        })?
+        .to_string();
+    let uri = matches
+        .value_of("uri")
+        .ok_or_else(|| Error::MissingValue {
+            field: "uri".to_string(),
+        })?
+        .to_string();
 
-    ctx.client
+    let response = ctx
+        .client
         .resume_rebuild(rpc::ResumeRebuildRequest {
             uuid: uuid.clone(),
             uri: uri.clone(),
         })
-        .await?;
-    ctx.v1(&format!(
-        "Resuming rebuild of child {} on nexus {}",
-        uri, uuid
-    ));
+        .await
+        .context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            println!("{}", &uri);
+        }
+    };
+
     Ok(())
 }
 
 async fn state(
     mut ctx: Context,
     matches: &ArgMatches<'_>,
-) -> Result<(), Status> {
-    let uuid = matches.value_of("uuid").unwrap().to_string();
-    let uri = matches.value_of("uri").unwrap().to_string();
+) -> crate::Result<()> {
+    let uuid = matches
+        .value_of("uuid")
+        .ok_or_else(|| Error::MissingValue {
+            field: "uuid".to_string(),
+        })?
+        .to_string();
+    let uri = matches
+        .value_of("uri")
+        .ok_or_else(|| Error::MissingValue {
+            field: "uri".to_string(),
+        })?
+        .to_string();
 
-    ctx.v2(&format!(
-        "Getting the rebuild state of child {} on nexus {}",
-        uri, uuid
-    ));
     let response = ctx
         .client
         .get_rebuild_state(rpc::RebuildStateRequest {
             uuid: uuid.clone(),
             uri: uri.clone(),
         })
-        .await?
-        .into_inner();
-    ctx.print_list(vec!["state"], vec![vec![response.state]]);
+        .await
+        .context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            ctx.print_list(
+                vec!["state"],
+                vec![vec![response.get_ref().state.clone()]],
+            );
+        }
+    };
+
     Ok(())
 }
 
 async fn stats(
     mut ctx: Context,
     matches: &ArgMatches<'_>,
-) -> Result<(), Status> {
-    let uuid = matches.value_of("uuid").unwrap().to_string();
-    let uri = matches.value_of("uri").unwrap().to_string();
+) -> crate::Result<()> {
+    let uuid = matches
+        .value_of("uuid")
+        .ok_or_else(|| Error::MissingValue {
+            field: "uuid".to_string(),
+        })?
+        .to_string();
+    let uri = matches
+        .value_of("uri")
+        .ok_or_else(|| Error::MissingValue {
+            field: "uri".to_string(),
+        })?
+        .to_string();
 
     ctx.v2(&format!(
         "Getting the rebuild stats of child {} on nexus {}",
@@ -266,57 +400,92 @@ async fn stats(
             uuid: uuid.clone(),
             uri: uri.clone(),
         })
-        .await?
-        .into_inner();
+        .await
+        .context(GrpcStatus)?;
 
-    ctx.print_list(
-        vec![
-            "blocks_total",
-            "blocks_recovered",
-            "progress (%)",
-            "segment_size_blks",
-            "block_size",
-            "tasks_total",
-            "tasks_active",
-        ],
-        vec![vec![
-            response.blocks_total,
-            response.blocks_recovered,
-            response.progress,
-            response.segment_size_blks,
-            response.block_size,
-            response.tasks_total,
-            response.tasks_active,
-        ]
-        .iter()
-        .map(|s| s.to_string())
-        .collect()],
-    );
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            let response = &response.get_ref();
+            ctx.print_list(
+                vec![
+                    "blocks_total",
+                    "blocks_recovered",
+                    "progress (%)",
+                    "segment_size_blks",
+                    "block_size",
+                    "tasks_total",
+                    "tasks_active",
+                ],
+                vec![vec![
+                    response.blocks_total,
+                    response.blocks_recovered,
+                    response.progress,
+                    response.segment_size_blks,
+                    response.block_size,
+                    response.tasks_total,
+                    response.tasks_active,
+                ]
+                .iter()
+                .map(|s| s.to_string())
+                .collect()],
+            );
+        }
+    };
+
     Ok(())
 }
 
 async fn progress(
     mut ctx: Context,
     matches: &ArgMatches<'_>,
-) -> Result<(), Status> {
-    let uuid = matches.value_of("uuid").unwrap().to_string();
-    let uri = matches.value_of("uri").unwrap().to_string();
+) -> crate::Result<()> {
+    let uuid = matches
+        .value_of("uuid")
+        .ok_or_else(|| Error::MissingValue {
+            field: "uuid".to_string(),
+        })?
+        .to_string();
+    let uri = matches
+        .value_of("uri")
+        .ok_or_else(|| Error::MissingValue {
+            field: "uri".to_string(),
+        })?
+        .to_string();
 
-    ctx.v2(&format!(
-        "Getting the rebuild progress of child {} on nexus {}",
-        uri, uuid
-    ));
     let response = ctx
         .client
         .get_rebuild_progress(rpc::RebuildProgressRequest {
             uuid: uuid.clone(),
             uri: uri.clone(),
         })
-        .await?
-        .into_inner();
-    ctx.print_list(
-        vec!["progress (%)"],
-        vec![vec![response.progress.to_string()]],
-    );
+        .await
+        .context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            ctx.print_list(
+                vec!["progress (%)"],
+                vec![vec![response.get_ref().progress.to_string()]],
+            );
+        }
+    };
     Ok(())
 }

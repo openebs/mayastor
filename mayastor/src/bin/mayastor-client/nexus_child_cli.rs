@@ -1,19 +1,26 @@
 //!
 //! methods to interact with the nexus child
 
-use crate::context::Context;
+use crate::{
+    context::{Context, OutputFormat},
+    Error,
+    GrpcStatus,
+};
 use ::rpc::mayastor as rpc;
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
+use colored_json::ToColoredJson;
+use snafu::ResultExt;
 use tonic::Status;
 
 pub async fn handler(
     ctx: Context,
     matches: &ArgMatches<'_>,
-) -> Result<(), Status> {
+) -> crate::Result<()> {
     match matches.subcommand() {
         ("fault", Some(args)) => fault(ctx, &args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {} does not exist", cmd)))
+                .context(GrpcStatus)
         }
     }
 }
@@ -47,17 +54,43 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
 async fn fault(
     mut ctx: Context,
     matches: &ArgMatches<'_>,
-) -> Result<(), Status> {
-    let uuid = matches.value_of("uuid").unwrap().to_string();
-    let uri = matches.value_of("uri").unwrap().to_string();
+) -> crate::Result<()> {
+    let uuid = matches
+        .value_of("uuid")
+        .ok_or_else(|| Error::MissingValue {
+            field: "uuid".to_string(),
+        })?
+        .to_string();
+    let uri = matches
+        .value_of("uri")
+        .ok_or_else(|| Error::MissingValue {
+            field: "uri".to_string(),
+        })?
+        .to_string();
 
-    ctx.v2(&format!("Faulting child {} on nexus {}", uri, uuid));
-    ctx.client
+    let response = ctx
+        .client
         .fault_nexus_child(rpc::FaultNexusChildRequest {
             uuid: uuid.clone(),
             uri: uri.clone(),
         })
-        .await?;
-    ctx.v1(&format!("Faulted child {} on nexus {}", uri, uuid));
+        .await
+        .context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            println!("{}", uri);
+        }
+    };
+
     Ok(())
 }
