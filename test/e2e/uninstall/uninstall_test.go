@@ -100,7 +100,7 @@ func teardownMayastor() {
 		}
 	}
 
-	deployDir := locations.GetDeployDir()
+	deployDir := locations.GetMayastorDeployDir()
 	common.KubeCtlDeleteYaml("mayastorpoolcrd.yaml", deployDir)
 	common.KubeCtlDeleteYaml("moac-rbac.yaml", yamlsDir)
 

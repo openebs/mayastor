@@ -1,7 +1,6 @@
 package e2e_config
 
 import (
-	"e2e-basic/common/locations"
 	"fmt"
 	"github.com/ilyakaznacheev/cleanenv"
 	"gopkg.in/yaml.v2"
@@ -13,6 +12,10 @@ import (
 
 // E2EConfig is a application configuration structure
 type E2EConfig struct {
+	ConfigName string `yaml:"configName"`
+	// Generic configuration files used for CI and automation should not define MayastorRootDir and E2eRootDir
+	MayastorRootDir string `yaml:"mayastorRootDir" env:"e2e_mayastor_root_dir"`
+	E2eRootDir      string `yaml:"e2eRootDir" env:"e2e_root_dir"`
 	// Operational parameters
 	Cores int `yaml:"cores,omitempty"`
 	// Registry from where mayastor images are retrieved
@@ -77,8 +80,9 @@ type E2EConfig struct {
 var once sync.Once
 var e2eConfig E2EConfig
 
-// This works because *ALL* tests source directories are 1 level deep.
-const configDir = "../configurations"
+// Relative path to the configuration directory WRT e2e root
+const configDir = "/configurations"
+const defaultConfigFileRelPath = configDir + "/ci_e2e_config.yaml"
 
 func configFileExists(path string) bool {
 	if _, err := os.Stat(path); err == nil {
@@ -95,22 +99,34 @@ func configFileExists(path string) bool {
 // so we cannot use logf or Expect instead we use fmt.Print... and panic.
 func GetConfig() E2EConfig {
 	var err error
+	e2eRootDir, okE2eRootDir := os.LookupEnv("e2e_root_dir")
+	// The configuration overrides the e2eRootDir setting,
+	// this makes it possible to use a configuration file written out
+	// previously to replicate a test run configuration.
 	once.Do(func() {
+		var configFile string
 		// We absorb the complexity of locating the configuration file here
 		// so that scripts invoking the tests can be simpler
-		// - if OS envvar e2e_config is not defined the config file is defaulted to ci_e2e_config
 		// - if OS envvar e2e_config is defined
 		//		- if it is a path to a file then that file is used as the config file
 		//		- else try to use a file of the same name in the configuration directory
-		configFile := fmt.Sprintf("%s/ci_e2e_config.yaml", configDir)
-		// A configuration file *MUST* be provided.
+		// - Otherwise the config file is defaulted to ci_e2e_config
+		// A configuration file *MUST* be specified.
 		value, ok := os.LookupEnv("e2e_config_file")
 		if ok {
 			if configFileExists(value) {
 				configFile = value
 			} else {
-				configFile = fmt.Sprintf("%s/%s", configDir, value)
+				if !okE2eRootDir {
+					panic("E2E root directory not defined - define via e2e_root_dir environment variable")
+				}
+				configFile = path.Clean(e2eRootDir + configDir + "/" + value)
 			}
+		} else {
+			if !okE2eRootDir {
+				panic("E2E root directory not defined - define via e2e_root_dir environment variable")
+			}
+			configFile = path.Clean(e2eRootDir + defaultConfigFileRelPath)
 		}
 		fmt.Printf("Using configuration file %s\n", configFile)
 		err = cleanenv.ReadConfig(configFile, &e2eConfig)
@@ -118,8 +134,33 @@ func GetConfig() E2EConfig {
 			panic(fmt.Sprintf("%v", err))
 		}
 
+		// There are complications because there are 2 possible sources for truth for the e2e root directory
+		// 1. the environment variable
+		// 2. the configuration file
+		// If only one is defined, we use the defined value,
+		// We need to resolve in a well defined manner when
+		// a. neither are defined (panic)
+		// b. both are defined, (environment variable overrides configuration setting)
+		if !okE2eRootDir {
+			if e2eConfig.E2eRootDir == "" {
+				panic("E2E root directory is not specified.")
+			}
+		} else {
+			if e2eRootDir != e2eConfig.E2eRootDir {
+				fmt.Printf("overriding configuration e2e root dir from %s to %s", e2eConfig.E2eRootDir, e2eRootDir)
+			}
+			e2eConfig.E2eRootDir = e2eRootDir
+		}
+
+		// MayastorRootDir is either set from the environment var mayastor_root_dir
+		// or is pre-configured in the configuration file.
+		// It *cannot* be empty
+		if e2eConfig.MayastorRootDir == "" {
+			panic("Configuration error unspecified mayastor directory")
+		}
+
 		cfgBytes, _ := yaml.Marshal(e2eConfig)
-		cfgUsedFile := path.Clean(locations.GetArtifactsDir() + "/e2e_config.used.yaml")
+		cfgUsedFile := path.Clean(e2eConfig.MayastorRootDir + "/artifacts/e2e_config-" + e2eConfig.ConfigName + "-used.yaml")
 		_ = ioutil.WriteFile(cfgUsedFile, cfgBytes, 0644)
 	})
 

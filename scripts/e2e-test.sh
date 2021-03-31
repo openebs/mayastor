@@ -6,7 +6,6 @@ SCRIPTDIR=$(dirname "$(realpath "$0")")
 TESTDIR=$(realpath "$SCRIPTDIR/../test/e2e")
 REPORTSDIR=$(realpath "$SCRIPTDIR/..")
 ARTIFACTSDIR=$(realpath "$SCRIPTDIR/../artifacts")
-TOPDIR=$(realpath "$SCRIPTDIR/..")
 
 # List and Sequence of tests.
 #tests="install basic_volume_io csi replica rebuild node_disconnect/replica_pod_remove uninstall"
@@ -42,6 +41,7 @@ on_fail="stop"
 uninstall_cleanup="n"
 generate_logs=0
 logsdir="$ARTIFACTSDIR/logs"
+mayastor_root_dir=""
 
 help() {
   cat <<EOF
@@ -65,6 +65,9 @@ Options:
                             Behaviour for "uninstall" only differs if uninstall is in the list of tests (the default).
   --uninstall_cleanup <y|n> On uninstall cleanup for reusable cluster. default($uninstall_cleanup)
   --config                  config name or configuration file default(test/e2e/configurations/ci_e2e_config.yaml)
+  --mayastor                path to the mayastor source tree to use for testing.
+                            This is required so that the install test uses the yaml files as defined for that 
+                            revision of mayastor under test.
 
 Examples:
   $0 --device /dev/nvme0n1 --registry 127.0.0.1:5000 --tag a80ce0c
@@ -74,6 +77,10 @@ EOF
 # Parse arguments
 while [ "$#" -gt 0 ]; do
   case "$1" in
+    -m|--mayastor)
+      shift
+      mayastor_root_dir=$1
+      ;;
     -d|--device)
       shift
       device=$1
@@ -158,6 +165,12 @@ done
 
 export e2e_build_number="$build_number" # can be empty string
 
+if [ -z "$mayastor_root_dir" ]; then
+    echo "Root directory for mayastor is required"
+    exit $EXITV_MISSING_OPTION
+fi
+export e2e_mayastor_root_dir=$mayastor_root_dir 
+
 if [ -z "$device" ]; then
   echo "Device for storage pools must be specified"
   help
@@ -170,7 +183,7 @@ if [ -n "$tag" ]; then
 fi
 
 export e2e_docker_registry="$registry" # can be empty string
-export e2e_top_dir="$TOPDIR"
+export e2e_root_dir="$TESTDIR"
 
 if [ -n "$custom_tests" ]; then
   if [ "$profile" != "default" ]; then
@@ -247,8 +260,9 @@ contains() {
 }
 
 echo "Environment:"
-echo "    e2e_build_number=$build_number"
-echo "    e2e_top_dir=$e2e_top_dir"
+echo "    e2e_mayastor_root_dir=$e2e_mayastor_root_dir"
+echo "    e2e_build_number=$e2e_build_number"
+echo "    e2e_root_dir=$e2e_root_dir"
 echo "    e2e_pool_device=$e2e_pool_device"
 echo "    e2e_image_tag=$e2e_image_tag"
 echo "    e2e_docker_registry=$e2e_docker_registry"

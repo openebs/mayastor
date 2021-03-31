@@ -1,4 +1,5 @@
 # configuration/parameters for CI/CD e2e test runs
+configName: CI
 pvcstress:
   replicas: 1
   cdCycles: 100
