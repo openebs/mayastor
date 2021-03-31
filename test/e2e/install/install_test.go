@@ -4,6 +4,7 @@ import (
 	"e2e-basic/common"
 	"e2e-basic/common/e2e_config"
 	"e2e-basic/common/locations"
+	"time"
 
 	"fmt"
 	"os/exec"
@@ -128,11 +129,15 @@ func installMayastor() {
 	createPools(&e2eCfg)
 
 	// Wait for pools to be online
-	Eventually(func() error {
-		return common.CheckAllPoolsAreOnline()
-	}, 120, 10,
-	).Should(BeNil())
-
+	const timoSecs = 120
+	const timoSleepSecs = 10
+	for ix := 0; ix < timoSecs/timoSleepSecs; ix++ {
+		time.Sleep(timoSleepSecs * time.Second)
+		err = common.CheckAllPoolsAreOnline(); if err == nil {
+			break
+		}
+	}
+	Expect(err).To(BeNil(), "One or more pools are offline")
 	// Mayastor has been installed and is now ready for use.
 }
 
