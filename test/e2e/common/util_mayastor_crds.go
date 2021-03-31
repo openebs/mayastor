@@ -386,7 +386,7 @@ func CheckAllPoolsAreOnline() error {
 					allHealthy = false
 				}
 			} else {
-				logf.Log.Info("CheckAllPoolsAreOnline failed to access status.state", "pool", poolName)
+				logf.Log.Info("CheckAllPoolsAreOnline failed to access status.state", "pool", poolName, "error", err)
 				retrieveErrors = true
 			}
 		}
