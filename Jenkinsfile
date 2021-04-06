@@ -47,8 +47,28 @@ def getLastNonAbortedBuild(build) {
   }
 }
 
+def isTimed() {
+    def causes = currentBuild.getBuildCauses()
+    for(cause in causes) {
+      if ("${cause}".contains("hudson.triggers.TimerTrigger\$TimerTriggerCause")) {
+        return true
+      }
+    }
+    return false
+}
+
+def getAliasTag() {
+    if (isTimed() == true) {
+        return 'nightly'
+    }
+    return 'ci'
+}
+
 def getTag() {
   if (e2e_build_images == true) {
+    if (isTimed() == true) {
+        return 'nightly'
+    }
     def tag = sh(
       // using printf to get rid of trailing newline
       script: "printf \$(git rev-parse --short ${env.GIT_COMMIT})",
@@ -156,6 +176,7 @@ if (params.e2e_continuous == true) {
   e2e_build_images = true
   do_not_push_images = false
 }
+e2e_alias_tag = getAliasTag()
 
 pipeline {
   agent none
@@ -290,7 +311,7 @@ pipeline {
                 // Build images (REGISTRY is set in jenkin's global configuration).
                 // Note: We might want to build and test dev images that have more
                 // assertions instead but that complicates e2e tests a bit.
-                sh "./scripts/release.sh --alias-tag ci --registry \"${env.REGISTRY}\""
+                sh "./scripts/release.sh --alias-tag \"${e2e_alias_tag}\" --registry \"${env.REGISTRY}\""
               }
               post {
                 // Always remove all docker images because they are usually used just once
