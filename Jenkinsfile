@@ -20,6 +20,7 @@ xray_send_report = (env.BRANCH_NAME == 'trying') ? false : true
 
 // if e2e run does not build its own images, which tag to use when pulling
 e2e_continuous_image_tag='v0.8.0'
+e2e_reports_dir='artifacts/reports/'
 
 // In the case of multi-branch pipelines, the pipeline
 // name a.k.a. job base name, will be the
@@ -74,20 +75,20 @@ def getTestPlan() {
 
 // Install Loki on the cluster
 def lokiInstall(tag) {
-  sh 'kubectl apply -f ./test/e2e/loki/promtail_namespace_e2e.yaml'
-  sh 'kubectl apply -f ./test/e2e/loki/promtail_rbac_e2e.yaml'
-  sh 'kubectl apply -f ./test/e2e/loki/promtail_configmap_e2e.yaml'
-  def cmd = "run=\"${env.BUILD_NUMBER}\" version=\"${tag}\" envsubst -no-unset < ./test/e2e/loki/promtail_daemonset_e2e.template.yaml | kubectl apply -f -"
+  sh 'kubectl apply -f ./mayastor-e2e/loki/promtail_namespace_e2e.yaml'
+  sh 'kubectl apply -f ./mayastor-e2e/loki/promtail_rbac_e2e.yaml'
+  sh 'kubectl apply -f ./mayastor-e2e/loki/promtail_configmap_e2e.yaml'
+  def cmd = "run=\"${env.BUILD_NUMBER}\" version=\"${tag}\" envsubst -no-unset < ./mayastor-e2e/loki/promtail_daemonset_e2e.template.yaml | kubectl apply -f -"
   sh "nix-shell --run '${cmd}'"
 }
 
 // Unnstall Loki
 def lokiUninstall(tag) {
-  def cmd = "run=\"${env.BUILD_NUMBER}\" version=\"${tag}\" envsubst -no-unset < ./test/e2e/loki/promtail_daemonset_e2e.template.yaml | kubectl delete -f -"
+  def cmd = "run=\"${env.BUILD_NUMBER}\" version=\"${tag}\" envsubst -no-unset < ./mayastor-e2e/loki/promtail_daemonset_e2e.template.yaml | kubectl delete -f -"
   sh "nix-shell --run '${cmd}'"
-  sh 'kubectl delete -f ./test/e2e/loki/promtail_configmap_e2e.yaml'
-  sh 'kubectl delete -f ./test/e2e/loki/promtail_rbac_e2e.yaml'
-  sh 'kubectl delete -f ./test/e2e/loki/promtail_namespace_e2e.yaml'
+  sh 'kubectl delete -f ./mayastor-e2e/loki/promtail_configmap_e2e.yaml'
+  sh 'kubectl delete -f ./mayastor-e2e/loki/promtail_rbac_e2e.yaml'
+  sh 'kubectl delete -f ./mayastor-e2e/loki/promtail_namespace_e2e.yaml'
 }
 
 // Send out a slack message if branch got broken or has recovered
@@ -337,8 +338,17 @@ pipeline {
                 sh 'kubectl get nodes -o wide'
 
                 script {
+                  // get copy of latest mayastor-e2e test files
+                  sh 'rm -Rf mayastor-e2e'
+                  withCredentials([
+                    usernamePassword(credentialsId: 'github-checkout', usernameVariable: 'ghuser', passwordVariable: 'ghpw')
+                  ]) {
+                    sh "git clone https://${ghuser}:${ghpw}@github.com/mayadata-io/mayastor-e2e.git"
+                    sh 'cd mayastor-e2e && git checkout develop'
+                  }
+                  sh "mkdir -p ./${e2e_reports_dir}"
                   def tag = getTag()
-                  def cmd = "./scripts/e2e-test.sh --device /dev/sdb --tag \"${tag}\" --logs --profile \"${e2e_test_profile}\" --build_number \"${env.BUILD_NUMBER}\" --mayastor \"${env.WORKSPACE}\" "
+                  def cmd = "./scripts/e2e-test.sh --device /dev/sdb --tag \"${tag}\" --logs --profile \"${e2e_test_profile}\" --build_number \"${env.BUILD_NUMBER}\" --mayastor \"${env.WORKSPACE}\" --reportsdir \"${env.WORKSPACE}/${e2e_reports_dir}\" "
                   // building images also means using the CI registry
                   if (e2e_build_images == true) {
                     cmd = cmd + " --registry \"" + env.REGISTRY + "\""
@@ -348,7 +358,7 @@ pipeline {
                     usernamePassword(credentialsId: 'GRAFANA_API', usernameVariable: 'grafana_api_user', passwordVariable: 'grafana_api_pw')
                   ]) {
                     lokiInstall(tag)
-                    sh "nix-shell --run '${cmd}'"
+                    sh "nix-shell --run 'cd mayastor-e2e && ${cmd}'"
                     lokiUninstall(tag) // so that, if we keep the cluster, the next Loki instance can use different parameters
                   }
                 }
@@ -386,8 +396,10 @@ pipeline {
                 }
                 always {
                   archiveArtifacts 'artifacts/**/*.*'
+                  // TODO get e2e-test.sh to take a configurable dir for artifacts
+                  archiveArtifacts 'mayastor-e2e/artifacts/**/*.*'
                   // handle junit results on success or failure
-                  junit 'e2e.*.xml'
+                  junit "${e2e_reports_dir}/*.xml"
                   script {
                     if (xray_send_report == true) {
                       def xray_testplan = getTestPlan()
@@ -395,7 +407,7 @@ pipeline {
                       step([
                         $class: 'XrayImportBuilder',
                         endpointName: '/junit/multipart',
-                        importFilePath: 'e2e.*.xml',
+                        importFilePath: "${e2e_reports_dir}/*.xml",
                         importToSameExecution: 'true',
                         projectKey: "${xray_projectkey}",
                         testPlanKey: "${xray_testplan}",
