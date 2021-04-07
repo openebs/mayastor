@@ -77,7 +77,7 @@ type VolumeSpec = {
 };
 
 // Optional status part in volume resource
-type VolumeStatus = {
+export type VolumeStatus = {
   size: number,
   state: VolumeState,
   reason?: string,

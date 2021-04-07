@@ -784,6 +784,13 @@ module.exports = function () {
       expect(volume.state).to.equal('healthy');
       expect(volEvents).to.have.lengthOf(4);
     });
+
+    it('should import a volume without status', async () => {
+      volumes.start();
+      volume = volumes.importVolume(UUID, volumeSpec);
+      expect(volume.state).to.equal('unknown');
+      expect(volume.size).to.equal(0);
+    });
   });
 
   describe('publish volume', function () {
