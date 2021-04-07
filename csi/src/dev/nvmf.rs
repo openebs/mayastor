@@ -1,16 +1,26 @@
-use std::convert::TryFrom;
+use std::{
+    collections::HashMap,
+    convert::{From, TryFrom},
+};
 
 use nvmeadm::{
     error::NvmeError,
     nvmf_discovery::{disconnect, ConnectArgsBuilder},
 };
-use udev::Enumerator;
+
+use glob::glob;
+use regex::Regex;
+use udev::{Device, Enumerator};
 use url::Url;
 use uuid::Uuid;
 
 use crate::{dev::util::extract_uuid, match_dev::match_nvmf_device};
 
 use super::{Attach, Detach, DeviceError, DeviceName};
+
+lazy_static! {
+    static ref DEVICE_REGEX: Regex = Regex::new(r"nvme(\d{1,3})n1").unwrap();
+}
 
 pub(super) struct NvmfAttach {
     host: String,
@@ -27,6 +37,22 @@ impl NvmfAttach {
             uuid,
             nqn,
         }
+    }
+
+    fn get_device(&self) -> Result<Option<Device>, DeviceError> {
+        let key: String = format!("uuid.{}", self.uuid.to_string());
+        let mut enumerator = Enumerator::new()?;
+
+        enumerator.match_subsystem("block")?;
+        enumerator.match_property("DEVTYPE", "disk")?;
+
+        for device in enumerator.scan_devices()? {
+            if match_nvmf_device(&device, &key).is_some() {
+                return Ok(Some(device));
+            }
+        }
+
+        Ok(None)
     }
 }
 
@@ -90,20 +116,68 @@ impl Attach for NvmfAttach {
     }
 
     async fn find(&self) -> Result<Option<DeviceName>, DeviceError> {
-        let key: String = format!("uuid.{}", self.uuid.to_string());
+        self.get_device().map(|device_maybe| match device_maybe {
+            Some(device) => device
+                .property_value("DEVNAME")
+                .map(|path| path.to_str().unwrap().into()),
+            None => None,
+        })
+    }
 
-        let mut enumerator = Enumerator::new()?;
-
-        enumerator.match_subsystem("block")?;
-        enumerator.match_property("DEVTYPE", "disk")?;
-
-        for device in enumerator.scan_devices()? {
-            if let Some(devname) = match_nvmf_device(&device, &key) {
-                return Ok(Some(devname.to_string()));
-            }
+    async fn fixup(
+        &self,
+        context: &HashMap<String, String>,
+    ) -> Result<(), DeviceError> {
+        if let Some(val) = context.get("ioTimeout") {
+            let device = self
+                .get_device()?
+                .ok_or_else(|| DeviceError::new("NVMe device not found"))?;
+            let dev_name = device.sysname().to_str().unwrap();
+            let major = DEVICE_REGEX
+                .captures(dev_name)
+                .ok_or_else(|| {
+                    DeviceError::new(&format!(
+                        "NVMe device \"{}\" does not match \"{}\"",
+                        dev_name, *DEVICE_REGEX,
+                    ))
+                })?
+                .get(1)
+                .unwrap()
+                .as_str();
+            let pattern =
+                format!("/sys/class/nvme/nvme{}/nvme*n1/queue", major);
+            let path = glob(&pattern)
+                .unwrap()
+                .next()
+                .ok_or_else(|| {
+                    DeviceError::new(&format!(
+                        "failed to look up sysfs device directory \"{}\"",
+                        pattern,
+                    ))
+                })?
+                .map_err(|_| {
+                    DeviceError::new(&format!(
+                        "IO error when reading device directory \"{}\"",
+                        pattern
+                    ))
+                })?;
+            let io_timeout = val.parse::<i32>().map_err(|_| {
+                DeviceError::new(&format!(
+                    "Invalid io_timeout value: \"{}\"",
+                    val
+                ))
+            })?;
+            // If the timeout was higher than nexus's timeout then IOs could
+            // error out earlier than they should. Therefore we should make sure
+            // that timeouts in the nexus are set to a very high value.
+            debug!(
+                "Setting IO timeout on \"{}\" to {}s",
+                path.to_string_lossy(),
+                io_timeout
+            );
+            sysfs::write_value(&path, "io_timeout", 1000 * io_timeout)?;
         }
-
-        Ok(None)
+        Ok(())
     }
 }
 

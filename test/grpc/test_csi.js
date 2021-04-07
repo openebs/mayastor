@@ -17,6 +17,7 @@ const URL = require('url').URL;
 const assert = require('chai').assert;
 const async = require('async');
 const fs = require('fs');
+const glob = require('glob');
 const path = require('path');
 const { execSync } = require('child_process');
 const protoLoader = require('@grpc/proto-loader');
@@ -138,6 +139,20 @@ function getFsType (mp) {
     const cols = lines[i].split(' ');
     if (mp === cols[2]) {
       return cols[4];
+    }
+  }
+}
+
+// Get device for given mount point.
+function getFsDevice (mp) {
+  const lines = execSync('mount')
+    .toString()
+    .trim()
+    .split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const cols = lines[i].split(' ');
+    if (mp === cols[2]) {
+      return cols[0];
     }
   }
 }
@@ -327,8 +342,8 @@ describe('csi', function () {
   csiProtocolTest('NVMF', enums.NEXUS_NVMF, 120000);
 });
 
-function csiProtocolTest (protoname, shareType, timeoutMillis) {
-  describe(protoname, function () {
+function csiProtocolTest (protoName, shareType, timeoutMillis) {
+  describe(protoName, function () {
     this.timeout(timeoutMillis); // for network tests we need long timeouts
     const publishedUris = {};
 
@@ -392,7 +407,10 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
       function getDefaultArgs () {
         return {
           volume_id: UUID1,
-          publish_context: publishedUris[UUID1],
+          publish_context: {
+            uri: publishedUris[UUID1].uri,
+            ioTimeout: '33',
+          },
           staging_target_path: mountTarget,
           volume_capability: {
             access_mode: {
@@ -427,7 +445,19 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
         client.nodeStageVolume(getDefaultArgs(), (err) => {
           if (err) return done(err);
           assert.equal(getFsType(mountTarget), 'xfs');
-          done();
+          // Other protocols than NVMF do not honor ioTimeout setting
+          if (protoName !== 'NVMF') return done();
+          let major = getFsDevice(mountTarget).match(/nvme(\d+)n1/)[1];
+          glob(`/sys/class/nvme/nvme${major}/nvme*n1/queue/io_timeout`, (err, paths) => {
+            if (err) return done(err);
+            let path = paths[0];
+            assert(path, `Path "${path}" not found`);
+            fs.readFile(path, (err, data) => {
+              if (err) return done(err);
+              assert.equal(data.toString().trim(), '33000');
+              done();
+            });
+          });
         });
       });
 

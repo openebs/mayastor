@@ -568,6 +568,7 @@ class CsiServer {
   async controllerPublishVolume (call: any, cb: CsiDoneCb) {
     assert(this.volumes);
     const args = call.request;
+    const publishContext: any = {};
 
     log.debug(
       `Request to publish volume "${args.volumeId}" on "${args.nodeId}"`
@@ -589,11 +590,30 @@ class CsiServer {
       return cb(err);
     }
     // Storage protocol for accessing nexus is a required parameter
-    const protocol = args.volumeContext && args.volumeContext.protocol;
+    let protocol, ioTimeout;
+    if (args.volumeContext) {
+      protocol = args.volumeContext.protocol;
+      ioTimeout = args.volumeContext.ioTimeout;
+    }
     if (!protocol) {
       return cb(
         new GrpcError(grpc.status.INVALID_ARGUMENT, 'missing storage protocol')
       );
+    }
+    if (ioTimeout !== undefined) {
+      if (protocol !== 'nvmf') {
+        return cb(new GrpcError(
+          grpc.status.INVALID_ARGUMENT,
+          'ioTimeout is valid only for nvmf protocol'
+        ));
+      }
+      if (Object.is(parseInt(ioTimeout), NaN)) {
+        return cb(new GrpcError(
+          grpc.status.INVALID_ARGUMENT,
+          'ioTimeout must be an integer'
+        ));
+      }
+      publishContext.ioTimeout = ioTimeout;
     }
     if (args.readonly) {
       return cb(
@@ -620,7 +640,6 @@ class CsiServer {
       return;
     }
 
-    const publishContext: any = {};
     try {
       publishContext.uri = await volume.publish(protocol);
       log.debug(
