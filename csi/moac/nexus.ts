@@ -6,6 +6,7 @@ import * as _ from 'lodash';
 const { GrpcCode, GrpcError, mayastor } = require('./grpc_client');
 const log = require('./logger').Logger('nexus');
 
+import { Node } from './node';
 import { Replica } from './replica';
 
 // Protocol used to export nexus (volume)
@@ -43,7 +44,7 @@ function compareChildren(a: Child, b: Child) {
 }
 
 export class Nexus {
-  node?: any;
+  node?: Node;
   uuid: string;
   size: number;
   deviceUri: string;
@@ -60,7 +61,7 @@ export class Nexus {
   // @param {object[]} props.children   Replicas comprising the nexus (uri and state).
   //
   constructor(props: any) {
-    this.node = null; // set by registerNexus method on node
+    this.node = undefined; // set by registerNexus method on node
     this.uuid = props.uuid;
     this.size = props.size;
     this.deviceUri = props.deviceUri;
@@ -126,7 +127,7 @@ export class Nexus {
   // When anything in nexus changes, this can be called to emit mod event
   // (a shortcut for frequently used code).
   _emitMod() {
-    this.node.emit('nexus', {
+    this.node!.emit('nexus', {
       eventType: 'mod',
       object: this
     });
@@ -139,7 +140,7 @@ export class Nexus {
   bind(node: any) {
     this.node = node;
     log.debug(`Adding "${this.uuid}" to the nexus list of node "${node}"`);
-    this.node.emit('nexus', {
+    this.node!.emit('nexus', {
       eventType: 'new',
       object: this
     });
@@ -148,12 +149,12 @@ export class Nexus {
   // Unbind the previously bound nexus from the node.
   unbind() {
     log.debug(`Removing "${this}" from the nexus list`);
-    this.node.unregisterNexus(this);
-    this.node.emit('nexus', {
+    this.node!.unregisterNexus(this);
+    this.node!.emit('nexus', {
       eventType: 'del',
       object: this
     });
-    this.node = null;
+    this.node = undefined;
   }
 
   // Set state of the nexus to offline.
@@ -163,6 +164,11 @@ export class Nexus {
     log.warn(`Nexus "${this}" got offline`);
     this.state = 'NEXUS_OFFLINE';
     this._emitMod();
+  }
+
+  // Return true if the nexus is down (unreachable).
+  isOffline() {
+    return !(this.node && this.node.isSynced());
   }
 
   // Publish the nexus to make accessible for IO.
@@ -191,7 +197,7 @@ export class Nexus {
     }
     log.info(`Publishing nexus "${this}" with protocol=${protocol} ...`);
     try {
-      res = await this.node.call('publishNexus', {
+      res = await this.node!.call('publishNexus', {
         uuid: this.uuid,
         key: '',
         share: share.number
@@ -212,15 +218,21 @@ export class Nexus {
   async unpublish() {
     log.debug(`Unpublishing nexus "${this}" ...`);
 
-    try {
-      await this.node.call('unpublishNexus', { uuid: this.uuid });
-    } catch (err) {
-      throw new GrpcError(
-        GrpcCode.INTERNAL,
-        `Failed to unpublish nexus "${this}": ${err}`
-      );
+    if (!this.node!.isSynced()) {
+      // We don't want to block the volume life-cycle in case that the node
+      // is down - it may never come back online.
+      log.warn(`Faking the unpublish of "${this}" because it is unreachable`);
+    } else {
+      try {
+        await this.node!.call('unpublishNexus', { uuid: this.uuid });
+      } catch (err) {
+        throw new GrpcError(
+          GrpcCode.INTERNAL,
+          `Failed to unpublish nexus "${this}": ${err}`
+        );
+      }
+      log.info(`Nexus "${this}" was unpublished`);
     }
-    log.info(`Nexus "${this}" was unpublished`);
     this.deviceUri = '';
     this._emitMod();
   }
@@ -245,7 +257,7 @@ export class Nexus {
     var childInfo;
     try {
       // TODO: validate the output
-      childInfo = await this.node.call('addChildNexus', {
+      childInfo = await this.node!.call('addChildNexus', {
         uuid: this.uuid,
         uri: uri,
         norebuild: false
@@ -277,7 +289,7 @@ export class Nexus {
     log.debug(`Removing uri "${uri}" from nexus "${this}" ...`);
 
     try {
-      await this.node.call('removeChildNexus', {
+      await this.node!.call('removeChildNexus', {
         uuid: this.uuid,
         uri: uri
       });
@@ -299,8 +311,14 @@ export class Nexus {
   // Destroy nexus on storage node.
   async destroy() {
     log.debug(`Destroying nexus "${this}" ...`);
-    await this.node.call('destroyNexus', { uuid: this.uuid });
-    log.info(`Destroyed nexus "${this}"`);
+    if (!this.node!.isSynced()) {
+      // We don't want to block the volume life-cycle in case that the node
+      // is down - it may never come back online.
+      log.warn(`Faking the destroy of "${this}" because it is unreachable`);
+    } else {
+      await this.node!.call('destroyNexus', { uuid: this.uuid });
+      log.info(`Destroyed nexus "${this}"`);
+    }
     this.unbind();
   }
 }

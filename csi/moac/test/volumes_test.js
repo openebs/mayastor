@@ -873,11 +873,20 @@ module.exports = function () {
         key: ''
       });
     });
+
+    it('should fail to publish a volume that is supposed to be published on a node that does not exist', async () => {
+      volume.publishedOn = 'nodeX';
+      await shouldFailWith(GrpcCode.INTERNAL, () =>
+        volume.publish('nvmf')
+      );
+      expect(volume.publishedOn).to.equal('nodeX');
+      expect(volume.nexus).to.be.null();
+    });
   });
 
   describe('unpublish volume', function () {
     // We create an artificial volume at the beginning of each test.
-    this.beforeEach(() => {
+    this.beforeEach(async () => {
       createTestEnv();
 
       const replica = new Replica({
@@ -904,7 +913,8 @@ module.exports = function () {
           }
         ]
       });
-      nexus.node = node1;
+      node1.nexus.push(nexus);
+      nexus.bind(node1);
       const getNexusStub = sinon.stub(registry, 'getNexus');
       getNexusStub.returns(nexus);
 
@@ -922,6 +932,8 @@ module.exports = function () {
 
       volumes.volumes[UUID] = volume;
       volumes.start();
+      // let new/mod/del events to happen before we start testing
+      await sleep(EYE_BLINK_MS);
     });
 
     this.afterEach(() => {
@@ -941,6 +953,24 @@ module.exports = function () {
       sinon.assert.calledWithMatch(stub1, 'destroyNexus', {
         uuid: UUID
       });
+    });
+
+    it('should unpublish a volume with unreachable nexus', async () => {
+      isSynced1.returns(false);
+      node1._offline();
+      await waitUntil(
+        () => volume.state === 'offline' && volume.nexus.isOffline(),
+        'offline volume',
+      );
+      // The state of the vol should be as if the nexus was really unpublished
+      // and destroyed even though that it's not possible because the node is
+      // offline.
+      await volume.unpublish();
+      expect(volume.getNodeName()).to.be.undefined();
+      sinon.assert.notCalled(stub1);
+      await sleep(EYE_BLINK_MS);
+      expect(volume.nexus).to.be.null();
+      sinon.assert.notCalled(stub1);
     });
   });
 
@@ -1537,13 +1567,10 @@ module.exports = function () {
       await waitUntil(() => volume.state === 'healthy', 'healthy volume');
     });
 
-    it('should move to "faulted" state when nexus goes offline', async () => {
-      nexus.state = 'NEXUS_OFFLINE';
-      registry.emit('nexus', {
-        eventType: 'mod',
-        object: nexus
-      });
-      await waitUntil(() => volume.state === 'faulted', 'offline volume');
+    it('should move to "offline" state when nexus goes offline', async () => {
+      isSynced1.returns(false);
+      nexus.offline();
+      await waitUntil(() => volume.state === 'offline', 'offline volume');
     });
 
     it('should remain what it was when volume is unpublished', async () => {
@@ -1608,7 +1635,7 @@ module.exports = function () {
       isSynced1.returns(false);
       // we unbind the nexus - that happens when node goes down
       nexus.unbind();
-      await waitUntil(() => volume.state === 'faulted', 'volume faulted');
+      await waitUntil(() => volume.state === 'offline', 'volume offline');
       expect(volume.nexus).to.be.null();
       expect(volume.publishedOn).to.equal('node1');
 
@@ -1624,9 +1651,11 @@ module.exports = function () {
     });
 
     it('should set state to healthy again when nexus comes online', async () => {
+      isSynced1.returns(false);
       nexus.offline();
-      await waitUntil(() => volume.state === 'faulted', 'volume faulted');
+      await waitUntil(() => volume.state === 'offline', 'volume offline');
 
+      isSynced1.returns(true);
       nexus.state = 'NEXUS_ONLINE';
       registry.emit('nexus', {
         eventType: 'mod',

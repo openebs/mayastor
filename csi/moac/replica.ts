@@ -136,10 +136,16 @@ export class Replica {
   async destroy() {
     log.debug(`Destroying replica "${this}" ...`);
     if (!this.pool) {
-      throw new Error('Cannot offline a replica that has not been bound');
+      throw new Error('Cannot destroy a replica that has not been bound');
     }
-    await this.pool.node.call('destroyReplica', { uuid: this.uuid });
-    log.info(`Destroyed replica "${this}"`);
+    if (!this.pool.node.isSynced()) {
+      // We don't want to block the volume life-cycle in case that the node
+      // is down - it may never come back online.
+      log.warn(`Faking the destroy of "${this}" because it is unreachable`);
+    } else {
+      await this.pool.node.call('destroyReplica', { uuid: this.uuid });
+      log.info(`Destroyed replica "${this}"`);
+    }
     this.unbind();
   }
 

@@ -167,8 +167,10 @@ module.exports = function () {
 
   it('should destroy the replica', (done) => {
     const node = new Node('node');
-    const stub = sinon.stub(node, 'call');
-    stub.resolves({});
+    const callStub = sinon.stub(node, 'call');
+    callStub.resolves({});
+    const isSyncedStub = sinon.stub(node, 'isSynced');
+    isSyncedStub.returns(true);
     const pool = new Pool(poolProps);
     node._registerPool(pool);
     const replica = new Replica(props);
@@ -177,8 +179,8 @@ module.exports = function () {
     node.once('replica', (ev) => {
       expect(ev.eventType).to.equal('del');
       expect(ev.object).to.equal(replica);
-      sinon.assert.calledOnce(stub);
-      sinon.assert.calledWith(stub, 'destroyReplica', { uuid: UUID });
+      sinon.assert.calledOnce(callStub);
+      sinon.assert.calledWith(callStub, 'destroyReplica', { uuid: UUID });
       setTimeout(() => {
         expect(replica.pool).to.be.undefined();
         expect(pool.replicas).to.have.lengthOf(0);
@@ -190,9 +192,11 @@ module.exports = function () {
 
   it('should not remove the replica if grpc fails', async () => {
     const node = new Node('node');
+    const callStub = sinon.stub(node, 'call');
+    callStub.rejects(new GrpcError(GrpcCode.INTERNAL, 'Test failure'));
+    const isSyncedStub = sinon.stub(node, 'isSynced');
+    isSyncedStub.returns(true);
     const eventSpy = sinon.spy(node, 'emit');
-    const stub = sinon.stub(node, 'call');
-    stub.rejects(new GrpcError(GrpcCode.INTERNAL, 'Test failure'));
     const pool = new Pool(poolProps);
     node._registerPool(pool);
     const replica = new Replica(props);
@@ -202,8 +206,8 @@ module.exports = function () {
       await replica.destroy();
     });
 
-    sinon.assert.calledOnce(stub);
-    sinon.assert.calledWith(stub, 'destroyReplica', { uuid: UUID });
+    sinon.assert.calledOnce(callStub);
+    sinon.assert.calledWith(callStub, 'destroyReplica', { uuid: UUID });
     // it is called when creating the pool and replica
     sinon.assert.calledTwice(eventSpy);
     sinon.assert.calledWith(eventSpy.firstCall, 'pool', {
@@ -216,5 +220,29 @@ module.exports = function () {
     });
     expect(replica.pool).to.equal(pool);
     expect(pool.replicas).to.have.lengthOf(1);
+  });
+
+  it('should fake the destroy of the replica if the node is offline', (done) => {
+    const node = new Node('node');
+    const callStub = sinon.stub(node, 'call');
+    callStub.rejects(new GrpcError(GrpcCode.INTERNAL, 'Node is offline'));
+    const isSyncedStub = sinon.stub(node, 'isSynced');
+    isSyncedStub.returns(false);
+    const pool = new Pool(poolProps);
+    node._registerPool(pool);
+    const replica = new Replica(props);
+    pool.registerReplica(replica);
+
+    node.once('replica', (ev) => {
+      expect(ev.eventType).to.equal('del');
+      expect(ev.object).to.equal(replica);
+      sinon.assert.notCalled(callStub);
+      setTimeout(() => {
+        expect(replica.pool).to.be.undefined();
+        expect(pool.replicas).to.have.lengthOf(0);
+        done();
+      }, 0);
+    });
+    replica.destroy();
   });
 };
