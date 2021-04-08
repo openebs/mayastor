@@ -33,12 +33,12 @@ use crate::{
 
 mod aio;
 mod device;
+mod iscsi;
 mod loopback;
 mod malloc;
-mod nvmx;
 mod null;
-mod iscsi;
 mod nvme;
+mod nvmx;
 mod uring;
 
 pub(crate) use device::SpdkBlockDevice;

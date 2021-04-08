@@ -6,7 +6,7 @@ mod device;
 mod handle;
 mod namespace;
 mod uri;
-mod utils;
+pub mod utils;
 
 pub use channel::{NvmeControllerIoChannel, NvmeIoChannel, NvmeIoChannelInner};
 pub use controller::NvmeController;
