@@ -43,7 +43,7 @@ where
         let _ = fs::remove_file(&sock_path);
     };
 
-    let mut server = match UnixListener::bind(&sock_path) {
+    let server = match UnixListener::bind(&sock_path) {
         Ok(server) => server,
         Err(_) => {
             // most likely the socket file exists, remove it and retry
@@ -60,7 +60,6 @@ where
         let req: Request = serde_json::from_slice(&buf).unwrap();
         let resp = handler(req);
         socket.write_all(&resp).await.unwrap();
-        socket.shutdown(Shutdown::Both).unwrap();
     });
 
     // write to the server using our jsonrpc client
@@ -151,7 +150,7 @@ async fn invalid_json() {
 #[test]
 fn connect_error() {
     // create tokio futures runtime
-    let mut rt = Runtime::new().unwrap();
+    let rt = Runtime::new().unwrap();
     // try to connect to server which does not exist
     let call_res: Result<(), Error> =
         rt.block_on(call("/crazy/path/look", "method", Some(())));

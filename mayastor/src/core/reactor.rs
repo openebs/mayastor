@@ -32,8 +32,7 @@
 use std::{
     cell::RefCell,
     collections::VecDeque,
-    fmt,
-    fmt::{Display, Formatter},
+    fmt::{self, Display, Formatter},
     os::raw::c_void,
     pin::Pin,
     slice::Iter,

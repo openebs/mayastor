@@ -70,8 +70,7 @@ fn main() {
 
     logger::init("mayastor=trace");
 
-    let mut rt = tokio::runtime::Builder::new()
-        .basic_scheduler()
+    let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .unwrap();
@@ -79,7 +78,10 @@ fn main() {
     let grpc_endpoint = grpc::endpoint(margs.grpc_endpoint.clone());
     let rpc_address = margs.rpc_address.clone();
 
-    let ms = rt.enter(|| MayastorEnvironment::new(margs).init());
+    let guard = rt.enter();
+    let ms = MayastorEnvironment::new(margs).init();
+    drop(guard);
+
     let master = Reactors::master();
 
     master.send_future(async { info!("NVMeT started {} ...", '\u{1F680}') });

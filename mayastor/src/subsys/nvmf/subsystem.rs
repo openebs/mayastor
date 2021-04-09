@@ -1,11 +1,9 @@
 use std::{
     convert::TryFrom,
     ffi::{c_void, CString},
-    fmt,
-    fmt::{Debug, Display, Formatter},
+    fmt::{self, Debug, Display, Formatter},
     mem::size_of,
-    ptr,
-    ptr::NonNull,
+    ptr::{self, NonNull},
 };
 
 use futures::channel::oneshot;

@@ -9,9 +9,9 @@ use tonic::transport::Endpoint;
 
 #[derive(Debug, Snafu)]
 pub enum Error {
-    #[snafu(display("Invalid URI bytes"))]
+    #[snafu(display("Invalid URI"))]
     InvalidUriBytes {
-        source: http::uri::InvalidUriBytes,
+        source: http::uri::InvalidUri,
         backtrace: Backtrace,
     },
     #[snafu(display("Invalid URI parts"))]
@@ -74,18 +74,15 @@ impl Context {
             .and_then(|u| u.chars().next())
             .unwrap_or('b');
         // Ensure the provided host is defaulted & normalized to what we expect.
-        // TODO: This can be significantly cleaned up when we update tonic 0.1
-        // and its deps.
         let host = if let Some(host) = matches.value_of("bind") {
-            let uri =
-                Uri::from_shared(Bytes::from(host)).context(InvalidUriBytes)?;
+            let uri = host.parse::<Uri>().context(InvalidUri)?;
             let mut parts = uri.into_parts();
             if parts.scheme.is_none() {
                 parts.scheme = Scheme::from_str("http").ok();
             }
             if let Some(ref mut authority) = parts.authority {
-                if authority.port_part().is_none() {
-                    parts.authority = Authority::from_shared(Bytes::from(
+                if authority.port().is_none() {
+                    parts.authority = Authority::from_maybe_shared(Bytes::from(
                         format!("{}:{}", authority.host(), 10124),
                     ))
                     .ok()
@@ -95,7 +92,7 @@ impl Context {
                 parts.path_and_query = PathAndQuery::from_str("/").ok();
             }
             let uri = Uri::from_parts(parts).context(InvalidUriParts)?;
-            Endpoint::from_shared(uri.to_string()).context(TonicInvalidUri)?
+            Endpoint::from(uri)
         } else {
             Endpoint::from_static("http://127.0.0.1:10124")
         };

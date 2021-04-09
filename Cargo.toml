@@ -1,6 +1,6 @@
 [patch.crates-io]
-h2 = { git = "https://github.com/gila/h2", branch = "v0.2.7"}
 partition-identity = { git = "https://github.com/openebs/partition-identity.git" }
+h2 = { git = "https://github.com/openebs/h2", branch = "bump-authority-workaround"}
 
 [profile.dev]
 panic = "abort"

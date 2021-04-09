@@ -123,7 +123,7 @@ impl Registration {
             };
 
             select! {
-                _ = tokio::time::delay_for(self.config.hb_interval).fuse() => continue,
+                _ = tokio::time::sleep(self.config.hb_interval).fuse() => continue,
                 msg = self.rcv_chan.next().fuse() => {
                     match msg {
                         Some(_) => log::info!("Messages have not been implemented yet"),

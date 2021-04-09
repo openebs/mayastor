@@ -9,14 +9,18 @@ static NATS_MSG_BUS: OnceCell<NatsMessageBus> = OnceCell::new();
 pub fn message_bus_init_tokio(server: String) {
     NATS_MSG_BUS.get_or_init(|| {
         // Waits for the message bus to become ready
-        tokio::runtime::Handle::current().block_on(async {
+        let handle = tokio::runtime::Handle::current();
+        let guard = handle.enter();
+        let bus = futures::executor::block_on(async {
             NatsMessageBus::new(
                 &server,
                 BusOptions::new(),
                 TimeoutOptions::new(),
             )
             .await
-        })
+        });
+        drop(guard);
+        bus
     });
 }
 /// Initialise the Nats Message Bus

@@ -48,7 +48,7 @@ pub(crate) fn parse_size(src: &str) -> Result<Byte, String> {
     Byte::from_str(src).map_err(|_| src.to_string())
 }
 
-#[tokio::main(max_threads = 2)]
+#[tokio::main(worker_threads = 2)]
 async fn main() -> crate::Result<()> {
     env_logger::init();
 
