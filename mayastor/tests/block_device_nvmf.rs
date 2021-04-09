@@ -15,7 +15,7 @@ use mayastor::{
     },
     subsys::{Config, NvmeBdevOpts},
 };
-use rpc::mayastor::{BdevShareRequest, BdevUri, Null};
+use rpc::mayastor::{BdevShareRequest, BdevUri, JsonRpcRequest, Null};
 
 use std::{
     alloc::Layout,
@@ -1779,6 +1779,71 @@ async fn nvmf_device_io_handle_cleanup() {
             .read_at(OP_OFFSET, &mut buf)
             .await
             .expect_err("Data successfully read");
+    })
+    .await;
+}
+
+#[tokio::test]
+async fn nvmf_device_hot_remove() {
+    let ms = get_ms();
+    let (test, url) = launch_instance().await;
+    let url2 = url.to_string();
+    let mut grpc_hdl = test.grpc_handle("ms1").await.unwrap();
+
+    static DEVICE_NAME: OnceCell<String> = OnceCell::new();
+
+    fn device_event_cb(event: DeviceEventType, device: &str) {
+        // Check event type and device name.
+        assert_eq!(event, DeviceEventType::DeviceRemoved);
+        assert_eq!(
+            device,
+            DEVICE_NAME.get().unwrap(),
+            "device name provided with event mismatches"
+        );
+        flag_callback_invocation();
+    }
+
+    // Create device and register a listener.
+    ms.spawn(async move {
+        let name = device_create(&url).await.unwrap();
+        let descr = device_open(&name, false).unwrap();
+        let device = descr.get_device();
+
+        clear_callback_invocation_flag();
+
+        DEVICE_NAME.set(name.clone()).unwrap();
+
+        device.add_event_listener(device_event_cb).unwrap();
+    })
+    .await;
+
+    // Remove the remote namespace.
+    grpc_hdl
+        .jsonrpc
+        .json_rpc_call(JsonRpcRequest {
+            method: "nvmf_subsystem_remove_ns".to_string(),
+            params: "{\"nqn\": \"nqn.2019-05.io.openebs:disk0\", \"nsid\": 1}"
+                .to_string(),
+        })
+        .await
+        .unwrap();
+
+    // Wait for AER event to arrive.
+    println!("Sleeping for 1 sec to let AER event be processed");
+    tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
+    println!("Awakened.");
+
+    check_callback_invocation();
+
+    // Remove the device to make sure it can be smoothly removed after namespace
+    // cleanup.
+    // Also make sure that no device can be created for controllers without
+    // namespaces.
+    ms.spawn(async move {
+        device_destroy(&url2).await.unwrap();
+        device_create(&url2)
+            .await
+            .expect_err("Device has been successfully created for controller without namespaces");
     })
     .await;
 }
