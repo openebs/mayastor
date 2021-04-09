@@ -21,9 +21,13 @@ use spdk_sys::{
     spdk_io_channel_iter_get_ctx,
     spdk_io_device_register,
     spdk_io_device_unregister,
+    spdk_nvme_async_event_completion,
+    spdk_nvme_cpl,
     spdk_nvme_ctrlr,
     spdk_nvme_ctrlr_get_ns,
+    spdk_nvme_ctrlr_is_active_ns,
     spdk_nvme_ctrlr_process_admin_completions,
+    spdk_nvme_ctrlr_register_aer_callback,
     spdk_nvme_ctrlr_reset,
     spdk_nvme_detach,
 };
@@ -39,6 +43,7 @@ use crate::{
         },
         nvme_bdev_running_config,
         uri::NvmeControllerContext,
+        utils::{nvme_cpl_succeeded, NvmeAerInfoNotice, NvmeAerType},
         NvmeControllerState,
         NvmeControllerState::*,
         NvmeNamespace,
@@ -211,19 +216,60 @@ impl<'a> NvmeController<'a> {
         })
     }
 
-    /// populate name spaces, current we only populate the first namespace
-    fn populate_namespaces(&mut self) {
-        let ns = unsafe { spdk_nvme_ctrlr_get_ns(self.ctrlr_as_ptr(), 1) };
+    /// Register callbacks.
+    fn register_callbacks(&mut self) {
+        let ctrlr = self.ctrlr_as_ptr();
 
-        if ns.is_null() {
-            warn!(
-                "{} no namespaces reported by the NVMe controller",
-                self.name
+        unsafe {
+            spdk_nvme_ctrlr_register_aer_callback(
+                ctrlr,
+                Some(aer_cb),
+                ctrlr as *mut c_void,
             );
+        };
+    }
+
+    /// populate name spaces, current we only populate the first namespace
+    fn populate_namespaces(&mut self) -> bool {
+        let ctrlr = self.ctrlr_as_ptr();
+        let mut ctrlr_inner = self.inner.as_mut().unwrap();
+        let ns = unsafe { spdk_nvme_ctrlr_get_ns(ctrlr, 1) };
+        let ns_active = unsafe { spdk_nvme_ctrlr_is_active_ns(ctrlr, 1) };
+        let mut notify_listeners = false;
+
+        // Deactivate existing namespace in case it is no longer active.
+        if !ns_active && ctrlr_inner.namespaces.len() != 0 {
+            info!("{}: deactivating existing namespace", self.name);
+            notify_listeners = true;
         }
 
-        self.inner.as_mut().unwrap().namespaces =
+        let namespaces = if ns.is_null() || !ns_active {
+            warn!(
+                "{}: no active namespaces reported by the NVMe controller",
+                self.name
+            );
+            vec![]
+        } else {
+            info!("{}: namespace successfully populated", self.name);
             vec![Arc::new(NvmeNamespace::from_ptr(ns))]
+        };
+
+        ctrlr_inner.namespaces = namespaces;
+
+        // Fault the controller in case of inactive namespace.
+        if !ns_active {
+            self
+                .state_machine
+                .transition(Faulted(ControllerFailureReason::NamespaceInitFailed))
+                .expect("failed to fault controller in response to ns enumeration failure");
+        }
+
+        // Notify listeners in case of namespace removal.
+        if notify_listeners {
+            self.notify_event(DeviceEventType::DeviceRemoved);
+        }
+
+        ns_active
     }
 
     /// Get controller state.
@@ -678,6 +724,50 @@ impl<'a> Drop for NvmeController<'a> {
     }
 }
 
+extern "C" fn aer_cb(ctx: *mut c_void, cpl: *const spdk_nvme_cpl) {
+    let mut event = spdk_nvme_async_event_completion::default();
+
+    if !nvme_cpl_succeeded(cpl) {
+        warn!("AER request execute failed");
+        return;
+    }
+
+    event.raw = unsafe { (*cpl).cdw0 };
+
+    let (event_type, event_info) = unsafe {
+        (event.bits.async_event_type(), event.bits.async_event_info())
+    };
+
+    info!(
+        "Received AER event: event_type={:?}, event_info={:?}",
+        event_type, event_info
+    );
+
+    // Populate namespaces in response to AER.
+    if event_type == NvmeAerType::Notice as u32
+        && event_info == NvmeAerInfoNotice::AttrChanged as u32
+    {
+        let cid = ctx as u64;
+
+        match NVME_CONTROLLERS.lookup_by_name(cid.to_string()) {
+            Some(c) => {
+                let mut ctrlr = c.lock().expect("lock poisoned");
+                info!(
+                    "{}: populating namespaces in response to AER",
+                    ctrlr.get_name()
+                );
+                ctrlr.populate_namespaces();
+            }
+            None => {
+                warn!(
+                    "No NVMe controller exists with ID 0x{:x}, no namespaces rescanned",
+                    cid,
+                );
+            }
+        }
+    }
+}
+
 /// return number of completions processed (maybe 0) or negated on error. -ENXIO
 /// in the special case that the qpair is failed at the transport layer.
 pub extern "C" fn nvme_poll_adminq(ctx: *mut c_void) -> i32 {
@@ -788,7 +878,14 @@ pub(crate) fn connected_attached_cb(
     ));
 
     controller.configure_timeout();
-    controller.populate_namespaces();
+
+    if !controller.populate_namespaces() {
+        error!("{}: failed to populate namespaces", ctx.name());
+        ctx.sender()
+            .send(Err(Errno::ENXIO))
+            .expect("done callback receiver side disappeared");
+        return;
+    }
 
     // Proactively initialize cache for controller operations.
     RESET_CTX_POOL.get_or_init(|| {
@@ -800,6 +897,9 @@ pub(crate) fn connected_attached_cb(
             "Failed to create memory pool for NVMe controller reset contexts",
         )
     });
+
+    // Register callbacks.
+    controller.register_callbacks();
 
     NVME_CONTROLLERS.insert_controller(cid.to_string(), ctl);
 
