@@ -58,10 +58,7 @@ pub async fn json_rpc_call(
 
     println!(
         "{}",
-        serde_json::to_string_pretty(&response.get_ref())
-            .unwrap()
-            .to_colored_json_auto()
-            .unwrap()
+        response.get_ref().result.to_colored_json_auto().unwrap()
     );
 
     Ok(())
