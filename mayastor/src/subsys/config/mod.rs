@@ -356,9 +356,9 @@ impl Config {
     /// it does not consult a global (mutable) data structure
     pub fn apply(&self) {
         info!("Applying Mayastor configuration settings");
-        assert_eq!(self.socket_opts.set(), true);
-        assert_eq!(self.nvme_bdev_opts.set(), true);
-        assert_eq!(self.bdev_opts.set(), true);
+        assert!(self.socket_opts.set());
+        assert!(self.nvme_bdev_opts.set());
+        assert!(self.bdev_opts.set());
 
         // no way to validate this
         self.iscsi_tgt_conf.set();

@@ -265,7 +265,7 @@ impl NexusBio {
             // this child. This typically would only match when the last IO
             // has failed i.e [ok,ok,fail]
             Disposition::Retire(IoStatus::Success) => {
-                assert_eq!(success, false);
+                assert!(!success);
                 error!(
                     ?self,
                     ?device_name,

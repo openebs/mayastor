@@ -35,14 +35,14 @@ fn read_label() {
         .args(&["-s", "64m", DISKNAME1])
         .output()
         .expect("failed exec truncate");
-    assert_eq!(output.status.success(), true);
+    assert!(output.status.success());
 
     let output = Command::new("truncate")
         .args(&["-s", "64m", DISKNAME2])
         .output()
         .expect("failed exec truncate");
 
-    assert_eq!(output.status.success(), true);
+    assert!(output.status.success());
 
     let rc = MayastorEnvironment::new(MayastorCliArgs::default())
         .start(|| Reactor::block_on(start()).unwrap())
@@ -54,7 +54,7 @@ fn read_label() {
         .output()
         .expect("failed delete test file");
 
-    assert_eq!(output.status.success(), true);
+    assert!(output.status.success());
 }
 
 async fn start() {

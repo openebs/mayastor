@@ -23,10 +23,7 @@ async fn lvs_pool_test() {
 
     // should fail to import a pool that does not exist on disk
     ms.spawn(async {
-        assert_eq!(
-            Lvs::import("tpool", "aio:///tmp/disk1.img").await.is_err(),
-            true
-        )
+        assert!(Lvs::import("tpool", "aio:///tmp/disk1.img").await.is_err())
     })
     .await;
 
@@ -44,15 +41,12 @@ async fn lvs_pool_test() {
     // returns OK when the pool is already there and we create
     // it again
     ms.spawn(async {
-        assert_eq!(
-            Lvs::create_or_import(CreatePoolRequest {
-                name: "tpool".into(),
-                disks: vec!["aio:///tmp/disk1.img".into()],
-            })
-            .await
-            .is_ok(),
-            true
-        )
+        assert!(Lvs::create_or_import(CreatePoolRequest {
+            name: "tpool".into(),
+            disks: vec!["aio:///tmp/disk1.img".into()],
+        })
+        .await
+        .is_ok())
     })
     .await;
 
@@ -61,20 +55,14 @@ async fn lvs_pool_test() {
     // have an idempotent snafu, we dont crash and
     // burn
     ms.spawn(async {
-        assert_eq!(
-            Lvs::create("tpool", "aio:///tmp/disk1.img").await.is_err(),
-            true
-        )
+        assert!(Lvs::create("tpool", "aio:///tmp/disk1.img").await.is_err())
     })
     .await;
 
     // should fail to import the pool that is already imported
     // similar to above, we use the import directly
     ms.spawn(async {
-        assert_eq!(
-            Lvs::import("tpool", "aio:///tmp/disk1.img").await.is_err(),
-            true
-        )
+        assert!(Lvs::import("tpool", "aio:///tmp/disk1.img").await.is_err())
     })
     .await;
 
@@ -102,10 +90,7 @@ async fn lvs_pool_test() {
         // sometimes create the base_bdev manually
         bdev_create("aio:///tmp/disk1.img").await.unwrap();
 
-        assert_eq!(
-            Lvs::import("tpool", "aio:///tmp/disk1.img").await.is_ok(),
-            true
-        );
+        assert!(Lvs::import("tpool", "aio:///tmp/disk1.img").await.is_ok());
 
         let pool = Lvs::lookup("tpool").unwrap();
         assert_eq!(pool.uuid(), uuid);
@@ -121,16 +106,10 @@ async fn lvs_pool_test() {
         pool.destroy().await.unwrap();
 
         bdev_create("aio:///tmp/disk1.img").await.unwrap();
-        assert_eq!(
-            Lvs::import("tpool", "aio:///tmp/disk1.img").await.is_err(),
-            true
-        );
+        assert!(Lvs::import("tpool", "aio:///tmp/disk1.img").await.is_err());
 
         assert_eq!(Lvs::iter().count(), 0);
-        assert_eq!(
-            Lvs::create("tpool", "aio:///tmp/disk1.img").await.is_ok(),
-            true
-        );
+        assert!(Lvs::create("tpool", "aio:///tmp/disk1.img").await.is_ok());
 
         let pool = Lvs::lookup("tpool").unwrap();
         assert_ne!(uuid, pool.uuid());

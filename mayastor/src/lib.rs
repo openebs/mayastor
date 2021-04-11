@@ -24,7 +24,6 @@ pub mod rebuild;
 pub mod replica;
 pub mod subsys;
 pub mod target;
-
 #[macro_export]
 macro_rules! CPS_INIT {
     () => {

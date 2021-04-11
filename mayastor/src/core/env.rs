@@ -68,7 +68,7 @@ fn parse_mb(src: &str) -> Result<i32, String> {
     }
 }
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, Clone, StructOpt)]
 #[structopt(
     name = "Mayastor",
     about = "Containerized Attached Storage (CAS) for k8s",
@@ -676,7 +676,7 @@ impl MayastorEnvironment {
                 );
             }
 
-            assert_eq!(receiver.await.unwrap(), true);
+            assert!(receiver.await.unwrap());
         });
 
         // load any bdevs that need to be created

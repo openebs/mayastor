@@ -51,7 +51,7 @@ impl Default for IoStats {
 
 static IO_STATS: Lazy<IoStats> = Lazy::new(IoStats::default);
 
-const MAYASTOR_CTRLR_TITLE: &str = "Mayastor NVMe controler";
+const MAYASTOR_CTRLR_TITLE: &str = "Mayastor NVMe controller";
 //const MAYASTOR_NQN_PREFIX: &str = "nqn.2019-05.io.openebs:";
 
 fn get_ms() -> &'static MayastorTest<'static> {
@@ -1678,8 +1678,8 @@ async fn nvmf_reset_abort_io() {
         .await;
 
     // Sleep for a few seconds to let all I/O operations be aborted.
-    println!("Sleeping for 1 sec to let reset hit I/O operations");
-    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    println!("Sleeping for 2 sec to let reset hit I/O operations");
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     println!("Awakened.");
 
     // Check that the reset callback has been called and
