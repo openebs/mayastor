@@ -8,9 +8,11 @@ use tonic::{Response, Status};
 pub use server::MayastorGrpcServer;
 
 use crate::{
-    core::{Cores, Reactor},
+    core::{CoreError, Cores, Mthread, Reactor},
     subsys::Config,
 };
+use futures::channel::oneshot::Receiver;
+use std::fmt::{Debug, Display};
 
 fn print_error_chain(err: &dyn std::error::Error) -> String {
     let mut msg = format!("{}", err);
@@ -60,7 +62,6 @@ where
     L: Into<Status> + Error + 'static,
     A: 'static + From<I>,
 {
-    assert_eq!(Cores::current(), Cores::first());
     Reactor::block_on(future)
         .unwrap()
         .map(|r| Response::new(A::from(r)))

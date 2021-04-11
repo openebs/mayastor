@@ -16,7 +16,7 @@ use rpc::mayastor::{
 };
 
 use crate::{
-    core::{Bdev, Reactors, Share},
+    core::{Bdev, Mthread, Reactors, Share},
     grpc::{sync_config, GrpcResult},
     nexus_uri::{bdev_create, bdev_destroy, NexusBdevError},
 };
@@ -77,26 +77,34 @@ impl BdevRpc for BdevSvc {
         &self,
         request: Request<BdevUri>,
     ) -> Result<Response<CreateReply>, Status> {
-        sync_config(async {
-            let uri = request.into_inner().uri;
-            let bdev = locally! { async move { bdev_create(&uri).await } };
+        let uri = request.into_inner().uri;
 
-            Ok(Response::new(CreateReply {
-                name: bdev,
-            }))
-        })
-        .await
+        let rx = Mthread::get_init()
+            .spawn_local(async move { bdev_create(&uri).await })
+            .map_err(|_| Status::resource_exhausted("ENOMEM"))?;
+
+        rx.await
+            .map_err(|_| Status::cancelled("cancelled"))?
+            .map_err(|e| Status::from(e))
+            .map(|name| {
+                Ok(Response::new(CreateReply {
+                    name,
+                }))
+            })?
     }
 
     #[instrument(level = "debug", err)]
     async fn destroy(&self, request: Request<BdevUri>) -> GrpcResult<Null> {
-        sync_config(async {
-            let uri = request.into_inner().uri;
-            let _bdev = locally! { async move { bdev_destroy(&uri).await } };
+        let uri = request.into_inner().uri;
 
-            Ok(Response::new(Null {}))
-        })
-        .await
+        let rx = Mthread::get_init()
+            .spawn_local(async move { bdev_destroy(&uri).await })
+            .map_err(|_| Status::resource_exhausted("ENOMEM"))?;
+
+        rx.await
+            .map_err(|_| Status::cancelled("cancelled"))?
+            .map_err(|e| Status::from(e))
+            .map(|_| Ok(Response::new(Null {})))?
     }
 
     #[instrument(level = "debug", err)]

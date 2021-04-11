@@ -4,7 +4,7 @@ extern crate tracing;
 use futures::FutureExt;
 use mayastor::{
     bdev::util::uring,
-    core::{MayastorCliArgs, MayastorEnvironment, Reactors},
+    core::{MayastorCliArgs, MayastorEnvironment, Mthread, Reactors},
     grpc,
     logger,
     subsys,
@@ -14,11 +14,6 @@ use structopt::StructOpt;
 mayastor::CPS_INIT!();
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = MayastorCliArgs::from_args();
-
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
 
     // setup our logger first if -L is passed, raise the log level
     // automatically. trace maps to debug at FFI level. If RUST_LOG is
@@ -73,20 +68,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let grpc_endpoint = grpc::endpoint(args.grpc_endpoint.clone());
     let rpc_address = args.rpc_address.clone();
 
-    let guard = rt.enter();
     let ms = MayastorEnvironment::new(args).init();
-    drop(guard);
 
-    let master = Reactors::master();
-    master.send_future(async { info!("Mayastor started {} ...", '\u{1F680}') });
-    let futures = vec![
-        master.boxed_local(),
-        subsys::Registration::run().boxed_local(),
-        grpc::MayastorGrpcServer::run(grpc_endpoint, rpc_address).boxed_local(),
-    ];
+    Mthread::spawn_unaffinitized(move || {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(4)
+            .max_blocking_threads(4)
+            .on_thread_start(|| Mthread::unaffinitize())
+            .enable_all()
+            .build()
+            .unwrap();
 
-    rt.block_on(futures::future::try_join_all(futures))
-        .expect_err("reactor exit in abnormal state");
+        let futures = vec![
+            subsys::Registration::run().boxed_local(),
+            grpc::MayastorGrpcServer::run(grpc_endpoint, rpc_address)
+                .boxed_local(),
+        ];
+
+        rt.block_on(futures::future::try_join_all(futures))
+            .expect_err("reactor exit in abnormal state");
+    });
+
+    Reactors::current().developer_delayed();
+    Reactors::current().poll_reactor();
 
     ms.fini();
     Ok(())
