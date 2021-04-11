@@ -89,7 +89,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .expect_err("reactor exit in abnormal state");
     });
 
-    Reactors::current().developer_delayed();
+    Reactors::current().running();
     Reactors::current().poll_reactor();
 
     ms.fini();

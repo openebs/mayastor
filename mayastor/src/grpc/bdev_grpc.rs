@@ -17,7 +17,7 @@ use rpc::mayastor::{
 
 use crate::{
     core::{Bdev, Mthread, Reactors, Share},
-    grpc::{sync_config, GrpcResult},
+    grpc::{rpc_submit, sync_config, GrpcResult},
     nexus_uri::{bdev_create, bdev_destroy, NexusBdevError},
 };
 
@@ -79,9 +79,7 @@ impl BdevRpc for BdevSvc {
     ) -> Result<Response<CreateReply>, Status> {
         let uri = request.into_inner().uri;
 
-        let rx = Mthread::get_init()
-            .spawn_local(async move { bdev_create(&uri).await })
-            .map_err(|_| Status::resource_exhausted("ENOMEM"))?;
+        let rx = rpc_submit(async move { bdev_create(&uri).await })?;
 
         rx.await
             .map_err(|_| Status::cancelled("cancelled"))?
@@ -97,9 +95,7 @@ impl BdevRpc for BdevSvc {
     async fn destroy(&self, request: Request<BdevUri>) -> GrpcResult<Null> {
         let uri = request.into_inner().uri;
 
-        let rx = Mthread::get_init()
-            .spawn_local(async move { bdev_destroy(&uri).await })
-            .map_err(|_| Status::resource_exhausted("ENOMEM"))?;
+        let rx = rpc_submit(async move { bdev_destroy(&uri).await })?;
 
         rx.await
             .map_err(|_| Status::cancelled("cancelled"))?
@@ -111,46 +107,45 @@ impl BdevRpc for BdevSvc {
     async fn share(
         &self,
         request: Request<BdevShareRequest>,
-    ) -> GrpcResult<BdevShareReply> {
-        sync_config(async {
-            let r = request.into_inner();
-            let name = r.name;
-            let proto = r.proto;
+    ) -> Result<Response<BdevShareReply>, Status> {
+        let r = request.into_inner();
+        let name = r.name;
+        let proto = r.proto;
 
-            if Bdev::lookup_by_name(&name).is_none() {
-                return Err(Status::not_found(name));
-            }
+        if Bdev::lookup_by_name(&name).is_none() {
+            return Err(Status::not_found(name));
+        }
 
-            if proto != "iscsi" && proto != "nvmf" {
-                return Err(Status::invalid_argument(proto));
-            }
-            let bdev_name = name.clone();
-            match proto.as_str() {
-                "nvmf" => Reactors::master().spawn_local(async move {
-                    let bdev = Bdev::lookup_by_name(&bdev_name).unwrap();
-                    bdev.share_nvmf(None)
-                        .await
-                        .map_err(|e| Status::internal(e.to_string()))
-                }),
+        if proto != "iscsi" && proto != "nvmf" {
+            return Err(Status::invalid_argument(proto));
+        }
+        let bdev_name = name.clone();
+        let rx = match proto.as_str() {
+            "nvmf" => rpc_submit(async move {
+                let bdev = Bdev::lookup_by_name(&bdev_name).unwrap();
+                bdev.share_nvmf(None)
+                    .await
+                    .map_err(|e| Status::internal(e.to_string()))
+            })?,
 
-                "iscsi" => Reactors::master().spawn_local(async move {
-                    let bdev = Bdev::lookup_by_name(&bdev_name).unwrap();
-                    bdev.share_iscsi()
-                        .await
-                        .map_err(|e| Status::internal(e.to_string()))
-                }),
+            "iscsi" => rpc_submit(async move {
+                let bdev = Bdev::lookup_by_name(&bdev_name).unwrap();
+                bdev.share_iscsi()
+                    .await
+                    .map_err(|e| Status::internal(e.to_string()))
+            })?,
 
-                _ => unreachable!(),
-            }
-            .await
+            _ => unreachable!(),
+        };
+
+        rx.await
+            .map_err(|_| Status::cancelled("cancelled"))?
             .map(|share| {
                 let bdev = Bdev::lookup_by_name(&name).unwrap();
-                Response::new(BdevShareReply {
+                Ok(Response::new(BdevShareReply {
                     uri: bdev.share_uri().unwrap_or(share),
-                })
-            })
-        })
-        .await
+                }))
+            })?
     }
 
     #[instrument(level = "debug", err)]

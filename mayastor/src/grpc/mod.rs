@@ -11,8 +11,12 @@ use crate::{
     core::{CoreError, Cores, Mthread, Reactor},
     subsys::Config,
 };
-use futures::channel::oneshot::Receiver;
-use std::fmt::{Debug, Display};
+use futures::channel::oneshot::{Canceled, Receiver};
+use std::{
+    fmt::{Debug, Display},
+    pin::Pin,
+    task::{Context, Poll},
+};
 
 fn print_error_chain(err: &dyn std::error::Error) -> String {
     let mut msg = format!("{}", err);
@@ -66,6 +70,19 @@ where
         .unwrap()
         .map(|r| Response::new(A::from(r)))
         .map_err(|e| e.into())
+}
+
+pub fn rpc_submit<E, F, R>(
+    future: F,
+) -> Result<Receiver<Result<R, E>>, tonic::Status>
+where
+    E: Send + Debug + Display + 'static,
+    F: Future<Output = Result<R, E>> + 'static,
+    R: Send + Debug + 'static,
+{
+    Mthread::get_init()
+        .spawn_local(future)
+        .map_err(|_| Status::resource_exhausted("ENOMEM"))
 }
 
 /// Used by the gRPC method implementations to sync the current configuration by

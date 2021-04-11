@@ -211,7 +211,7 @@ impl Mthread {
             E: Send + Debug,
         {
             let mut ctx = unsafe { Box::from_raw(arg as *mut Ctx<F, R, E>) };
-            Reactors::current()
+            Reactors::master()
                 .spawn_local(async move {
                     let result = ctx.future.await;
                     ctx.sender
