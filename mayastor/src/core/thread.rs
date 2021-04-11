@@ -14,8 +14,14 @@ use spdk_sys::{
     spdk_thread_send_msg,
 };
 
-use crate::core::{cpu_cores::CpuMask, Cores};
-use std::ptr::NonNull;
+use crate::core::{cpu_cores::CpuMask, CoreError, Cores, Reactor, Reactors};
+use futures::channel::oneshot::{channel, Receiver, Sender};
+use nix::errno::Errno;
+use std::{
+    fmt::{Debug, Display},
+    future::Future,
+    ptr::NonNull,
+};
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -176,6 +182,68 @@ impl Mthread {
             )
         };
         assert_eq!(rc, 0);
+    }
+
+    /// spawn a future on a core the current thread is running on returning a
+    /// channel which can be awaited. This decouples the SPDK runtime from the
+    /// future runtimes within rust.
+    pub fn spawn_local<F: 'static, R: 'static, E: 'static>(
+        &self,
+        f: F,
+    ) -> Result<Receiver<Result<R, E>>, CoreError>
+    where
+        F: Future<Output = Result<R, E>>,
+        R: Send + Debug,
+        E: Send + Display + Debug,
+    {
+        // context structure which is passed to the callback as argument
+        struct Ctx<F, R, E> {
+            future: F,
+            sender: Option<Sender<Result<R, E>>>,
+        }
+
+        // helper routine to unpack the closure and its arguments
+        extern "C" fn trampoline<F: 'static, R: 'static, E: 'static>(
+            arg: *mut c_void,
+        ) where
+            F: Future<Output = Result<R, E>>,
+            R: Send + Debug,
+            E: Send + Debug,
+        {
+            let mut ctx = unsafe { Box::from_raw(arg as *mut Ctx<F, R, E>) };
+            Reactors::current()
+                .spawn_local(async move {
+                    let result = ctx.future.await;
+                    ctx.sender
+                        .take()
+                        .expect("sender already taken")
+                        .send(result)
+                        .unwrap();
+                })
+                .detach();
+        }
+
+        let (s, r) = channel::<Result<R, E>>();
+
+        let ctx = Box::new(Ctx {
+            future: f,
+            sender: Some(s),
+        });
+
+        let rc = unsafe {
+            spdk_thread_send_msg(
+                self.0.as_ptr(),
+                Some(trampoline::<F, R, E>),
+                Box::into_raw(ctx).cast(),
+            )
+        };
+        if rc != 0 {
+            Err(CoreError::NotSupported {
+                source: Errno::UnknownErrno,
+            })
+        } else {
+            Ok(r)
+        }
     }
 
     /// spawns a thread and setting its affinity to the inverse cpu set of
