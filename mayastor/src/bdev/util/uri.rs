@@ -43,6 +43,6 @@ pub(crate) fn boolean(
 
 pub(crate) fn uuid(
     value: Option<String>,
-) -> Result<Option<uuid::Uuid>, uuid::parser::ParseError> {
+) -> Result<Option<uuid::Uuid>, uuid::Error> {
     value.map(|uuid| uuid::Uuid::parse_str(&uuid)).transpose()
 }

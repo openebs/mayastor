@@ -57,7 +57,7 @@ let
   buildProps = rec {
     name = "mayastor";
     #cargoSha256 = "0000000000000000000000000000000000000000000000000000";
-    cargoSha256 = "rZLytbhH4CI5MjzSJHBe1BHv6wDkLmrn/Rf7ILngQDI=";
+    cargoSha256 = "1clkbqidznjgxrvzn56qp560w4h7izgsjyzanqb37xk6cbywggga";
     inherit version cargoBuildFlags;
     src = whitelistSource ../../../. src_list;
     LIBCLANG_PATH = "${llvmPackages.libclang}/lib";
