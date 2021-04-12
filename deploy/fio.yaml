@@ -9,8 +9,7 @@ spec:
        claimName: ms-volume-claim
   containers:
     - name: fio
-      image: nixery.dev/shell/fio/tini
-      command: [ "tini", "--" ]
+      image: mayadata/fio
       args:
         - sleep
         - "1000000"
