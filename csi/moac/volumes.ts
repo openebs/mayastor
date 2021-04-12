@@ -4,6 +4,7 @@ import assert from 'assert';
 import events = require('events');
 import { Volume, VolumeState } from './volume';
 import { Workq } from './workq';
+import { VolumeStatus } from './volume_operator';
 
 const EventStream = require('./event_stream');
 const { GrpcCode, GrpcError } = require('./grpc_client');
@@ -186,26 +187,28 @@ export class Volumes extends events.EventEmitter {
   // @params  {string}    status.targetNodes   Node(s) where the volume is published.
   // @returns {object} New volume object.
   //
-  importVolume(uuid: string, spec: any, status: any): Volume {
+  importVolume(uuid: string, spec: any, status?: VolumeStatus): Volume {
     let volume = this.volumes[uuid];
 
     if (volume) {
       volume.update(spec);
     } else {
+      let state = status?.state;
+      let size = status?.size;
       // We don't support multiple nexuses yet so take the first one
-      let publishedOn = (status.targetNodes || []).pop();
+      let publishedOn = (status?.targetNodes || []).pop();
       // If for some strange reason the status is "pending" change it to unknown
       // because fsa would refuse to act on it otherwise.
-      if (!status.state || status.state === VolumeState.Pending) {
-        status.state = VolumeState.Unknown;
+      if (!state || state === VolumeState.Pending) {
+        state = VolumeState.Unknown;
       }
       this.volumes[uuid] = new Volume(
         uuid,
         this.registry,
         this,
         spec,
-        status.state,
-        status.size,
+        state,
+        size,
         publishedOn,
       );
       volume = this.volumes[uuid];
