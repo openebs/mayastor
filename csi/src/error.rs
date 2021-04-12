@@ -1,4 +1,5 @@
 //! Definition of DeviceError used by the attach and detach code.
+use nvmeadm::nvmf_discovery;
 use std::string::FromUtf8Error;
 
 pub struct DeviceError {
@@ -55,8 +56,16 @@ impl From<std::num::ParseIntError> for DeviceError {
     }
 }
 
-impl From<uuid::parser::ParseError> for DeviceError {
-    fn from(error: uuid::parser::ParseError) -> DeviceError {
+impl From<uuid::Error> for DeviceError {
+    fn from(error: uuid::Error) -> DeviceError {
+        DeviceError {
+            message: format!("{}", error),
+        }
+    }
+}
+
+impl From<nvmf_discovery::ConnectArgsBuilderError> for DeviceError {
+    fn from(error: nvmf_discovery::ConnectArgsBuilderError) -> DeviceError {
         DeviceError {
             message: format!("{}", error),
         }

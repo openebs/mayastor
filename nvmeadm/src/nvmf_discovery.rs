@@ -152,7 +152,7 @@ impl fmt::Display for Discovery {
 }
 
 impl TryFrom<DiscoveryLogEntry> for ConnectArgs {
-    type Error = String;
+    type Error = ConnectArgsBuilderError;
 
     fn try_from(ent: DiscoveryLogEntry) -> Result<Self, Self::Error> {
         ConnectArgsBuilder::default()
@@ -381,7 +381,7 @@ impl Discovery {
             .map(|e| match ConnectArgs::try_from(e.clone()) {
                 Ok(c) => c.connect(),
                 Err(err) => Err(NvmeError::InvalidParam {
-                    text: err,
+                    text: err.to_string(),
                 }),
             })
             .collect::<Result<Vec<_>, _>>()
@@ -420,7 +420,7 @@ impl Discovery {
             match ConnectArgs::try_from(ss.clone()) {
                 Ok(c) => c.connect(),
                 Err(err) => Err(NvmeError::InvalidParam {
-                    text: err,
+                    text: err.to_string(),
                 }),
             }
         } else {

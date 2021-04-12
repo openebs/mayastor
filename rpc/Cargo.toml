@@ -10,7 +10,7 @@ prost-build = "0.7"
 
 [dependencies]
 tonic = "0.4"
-bytes = "0.5"
+bytes = "1.0"
 prost = "0.7"
 prost-derive = "0.7"
 serde = { version = "1.0.98", features = ["derive"] }

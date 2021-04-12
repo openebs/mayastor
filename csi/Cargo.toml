@@ -9,24 +9,24 @@ name = "mayastor-csi"
 path = "src/server.rs"
 
 [build-dependencies]
-bytes = "0.5"
+bytes = "1.0"
 tonic-build = "0.4"
 prost-build = "0.7"
 
 [dependencies]
 async-trait = "0.1.36"
 async-stream = "0.3.0"
-bytes = "0.5"
+bytes = "1.0"
 bytesize = "1.0.0"
 chrono = "0.4.9"
 clap = "2.33.0"
-env_logger = "0.7"
+env_logger = "0.8"
 failure = "0.1"
 futures = { version = "0.3", default-features = false }
 git-version = "0.3.1"
 glob = "*"
 http = "0.2"
-http-body = "0.2"
+http-body = "0.4"
 itertools = "0.9"
 lazy_static = "1.4.0"
 libc = "0.2"
@@ -51,9 +51,9 @@ tower = "0.4.5"
 tracing = "0.1"
 tracing-futures = "0.2.4"
 tracing-subscriber = "0.2.0"
-udev = "0.4"
+udev = "0.6"
 url = "2.1.1"
-uuid = { version = "0.7", features = ["v4"] }
+uuid = { version = "0.8", features = ["v4"] }
 which = "3.1.1"
 
 [dependencies.blkid]

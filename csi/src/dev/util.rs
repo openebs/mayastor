@@ -1,7 +1,7 @@
 use regex::Regex;
-use uuid::{parser::ParseError, Uuid};
+use uuid::{Error, Uuid};
 
-pub(super) fn extract_uuid(value: &str) -> Result<Uuid, ParseError> {
+pub(super) fn extract_uuid(value: &str) -> Result<Uuid, Error> {
     lazy_static! {
         static ref PATTERN: Regex = Regex::new(r"^[[:xdigit:]]+-").unwrap();
     }

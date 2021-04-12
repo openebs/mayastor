@@ -66,7 +66,7 @@ use std::{
     io::{Cursor, Seek, SeekFrom},
     str::FromStr,
 };
-use uuid::{self, parser, Uuid};
+use uuid::{self, Uuid};
 
 use crate::{
     bdev::nexus::{nexus_bdev::Nexus, nexus_child::NexusChild},
@@ -315,7 +315,7 @@ impl From<GptGuid> for Uuid {
 }
 
 impl FromStr for GptGuid {
-    type Err = parser::ParseError;
+    type Err = uuid::Error;
 
     fn from_str(uuid: &str) -> Result<Self, Self::Err> {
         Ok(GptGuid::from(Uuid::from_str(uuid)?))
