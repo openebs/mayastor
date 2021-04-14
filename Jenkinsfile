@@ -311,7 +311,7 @@ pipeline {
                 // Build images (REGISTRY is set in jenkin's global configuration).
                 // Note: We might want to build and test dev images that have more
                 // assertions instead but that complicates e2e tests a bit.
-                sh "./scripts/release.sh --alias-tag \"${e2e_alias_tag}\" --registry \"${env.REGISTRY}\""
+                sh "./scripts/release.sh --registry \"${env.REGISTRY}\""
               }
               post {
                 // Always remove all docker images because they are usually used just once
@@ -484,6 +484,29 @@ pipeline {
         }// end of "e2e tests" stage
       }// parallel stages block
     }// end of test stage
+
+    // On develop, push tagged images to the CI repo if all tests have passed.
+    // Tag as 'nightly' if it was a nightly run, otherwise 'ci'.
+    stage('e2e push tagged images to CI repo') {
+      agent { label 'nixos-mayastor' }
+      when {
+        beforeAgent true
+        allOf {
+          expression { e2e_build_images == true }
+          branch 'develop'
+        }
+      }
+      steps {
+        // Build, tag and push the built images to the CI registry, but only after the test has succeeded
+        sh "./scripts/release.sh --alias-tag \"${e2e_alias_tag}\" --registry \"${env.REGISTRY}\" "
+      }
+      post {
+        always {
+          sh 'docker image prune --all --force'
+        }
+      }
+    }
+
     stage('push images') {
       agent { label 'nixos-mayastor' }
       when {
