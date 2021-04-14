@@ -455,10 +455,10 @@ module.exports = function () {
           expect(ev.object.state).to.equal('POOL_OFFLINE');
           expect(node.isSynced()).to.be.false();
           expect(Date.now() - firstSync).to.be.above(
-            syncPeriod + syncRetry * 2
+            syncPeriod + syncRetry * 2 - 1
           );
           expect(Date.now() - firstSync).to.be.below(
-            syncPeriod + syncRetry * 4
+            syncPeriod + syncRetry * 4 + 1
           );
           done();
         });

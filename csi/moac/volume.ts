@@ -18,9 +18,10 @@ export enum VolumeState {
   Pending = 'pending',
   Healthy = 'healthy',
   Degraded = 'degraded',
-  Faulted = 'faulted',
-  Destroyed = 'destroyed',
-  Error = 'error',  // used by the volume operator
+  Offline = 'offline', // target (nexus) is down
+  Faulted = 'faulted', // data cannot be recovered
+  Destroyed = 'destroyed', // destroy in progress
+  Error = 'error', // used by the volume operator
 }
 
 export function volumeStateFromString(val: string): VolumeState {
@@ -30,6 +31,8 @@ export function volumeStateFromString(val: string): VolumeState {
     return VolumeState.Degraded;
   } else if (val == VolumeState.Faulted) {
     return VolumeState.Faulted;
+  } else if (val == VolumeState.Offline) {
+    return VolumeState.Offline;
   } else if (val == VolumeState.Destroyed) {
     return VolumeState.Destroyed;
   } else if (val == VolumeState.Error) {
@@ -135,15 +138,32 @@ export class Volume {
   // @params protocol      The nexus share protocol.
   // @return uri           The URI to access the nexus.
   async publish(protocol: Protocol): Promise<string> {
-    if (this.state !== VolumeState.Degraded && this.state !== VolumeState.Healthy) {
+    if ([
+      VolumeState.Degraded,
+      VolumeState.Healthy,
+      VolumeState.Offline,
+    ].indexOf(this.state) < 0) {
       throw new GrpcError(
         GrpcCode.INTERNAL,
-        'Cannot publish a volume that is neither healthy nor degraded'
+        `Cannot publish "${this}" that isn\'t healthy, degraded or offline`
       );
     }
 
     // FSA will take care of publishing the nexus
-    this.publishedOn = this._desiredNexusNode(this._activeReplicas()).name;
+    let nexusNode = this._desiredNexusNode(this._activeReplicas());
+    if (!nexusNode) {
+      // If we get here it means that nexus is supposed to be already published
+      // but on a node that is not part of the cluster (has been deregistered).
+      let uri =  this.nexus && this.nexus.getUri();
+      if (!uri) {
+        throw new GrpcError(
+          GrpcCode.INTERNAL,
+          `Cannot publish "${this}" because the node does not exist`
+        );
+      }
+      return uri;
+    }
+    this.publishedOn = nexusNode.name;
     this.fsa();
 
     let self = this;
@@ -267,16 +287,6 @@ export class Volume {
       }
     }
 
-    // Unpublish the nexus if it should not be published
-    if (!this.publishedOn && this.nexus && this.nexus.getUri()) {
-      try {
-        await this.nexus.unpublish();
-      } catch (err) {
-        log.error(`Nexus unpublish for ${this} failed: ${err}`);
-      }
-      return;
-    }
-
     let replicaSet = this._activeReplicas();
     let nexusNode = this._desiredNexusNode(replicaSet);
 
@@ -297,11 +307,11 @@ export class Volume {
             await this._createNexus(nexusNode, replicaSet);
           } catch (err) {
             log.error(`Failed to create nexus for ${this} on "${this.publishedOn}": ${err}`);
-            this._setState(VolumeState.Faulted);
+            this._setState(VolumeState.Offline);
           }
         } else {
           log.warn(`Cannot create nexus for ${this} because "${this.publishedOn}" is down`);
-          this._setState(VolumeState.Faulted);
+          this._setState(VolumeState.Offline);
         }
       } else {
         // we have just right # of replicas and we don't need a nexus - ok
@@ -310,6 +320,30 @@ export class Volume {
       // fsa will get called again when event about created nexus arrives
       return;
     }
+    assert(nexusNode);
+
+    if (!this.publishedOn) {
+      if (this.nexus.getUri()) {
+        // The nexus is not used but it is published, so unpublish it.
+        try {
+          await this.nexus.unpublish();
+        } catch (err) {
+          log.error(`Nexus unpublish for ${this} failed: ${err}`);
+        }
+        return;
+      } else if (this.nexus.isOffline()) {
+        // The nexus is not used and it is offline so destroy it (or better
+        // term is "forget it").
+        try {
+          await this.nexus.destroy();
+        } catch (err) {
+          log.error(`Failed to destroy nexus for ${this}: ${err}`)
+        }
+        return;
+      }
+    }
+
+    // From now on the assumption is that the nexus exists and is reachable
 
     // Check that the replicas are shared as they should be
     try {
@@ -350,8 +384,8 @@ export class Volume {
       this._setState(VolumeState.Faulted);
       return;
     }
-    if (this.nexus.state === 'NEXUS_OFFLINE') {
-      this._setState(VolumeState.Faulted);
+    if (this.nexus.isOffline()) {
+      this._setState(VolumeState.Offline);
       return;
     }
 
@@ -513,6 +547,12 @@ export class Volume {
     }
     let replicaSet = this._activeReplicas();
     let nexusNode = this._desiredNexusNode(replicaSet);
+    if (!nexusNode) {
+      throw new GrpcError(
+        GrpcCode.INTERNAL,
+        `Cannot create nexus for ${this} because "${this.publishedOn}" is down`
+      );
+    }
     await this._ensureReplicaShareProtocols(nexusNode, replicaSet);
     if (!this.nexus) {
       await this._createNexus(nexusNode, replicaSet);
@@ -680,13 +720,14 @@ export class Volume {
   }
 
   // Return the node where the nexus for volume is located or where it should
-  // be located if it hasn't been created so far.
-  _desiredNexusNode(replicaSet: Replica[]): Node {
+  // be located if it hasn't been created so far. If the nexus should be
+  // located on a node that does not exist then return undefined.
+  _desiredNexusNode(replicaSet: Replica[]): Node | undefined {
     let nexusNode: Node | undefined;
     if (this.nexus) {
       nexusNode = this.nexus.node;
     } else if (this.publishedOn) {
-      nexusNode = this.registry.getNode(this.publishedOn);
+      return this.registry.getNode(this.publishedOn);
     }
     // If nexus does not exist it will be created on one of the replica nodes
     // with the least # of nexuses.

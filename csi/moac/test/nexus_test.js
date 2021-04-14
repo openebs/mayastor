@@ -43,7 +43,7 @@ module.exports = function () {
         expect(ev.eventType).to.equal('del');
         expect(ev.object).to.equal(nexus);
         setTimeout(() => {
-          expect(nexus.node).to.be.null();
+          expect(nexus.node).to.be.undefined();
           done();
         }, 0);
       });
@@ -162,7 +162,7 @@ module.exports = function () {
   });
 
   describe('grpc', () => {
-    let node, nexus, eventSpy, callStub;
+    let node, nexus, eventSpy, callStub, isSyncedStub;
 
     // Create a sample nexus bound to a node
     beforeEach((done) => {
@@ -172,6 +172,8 @@ module.exports = function () {
         expect(ev.eventType).to.equal('new');
         eventSpy = sinon.spy(node, 'emit');
         callStub = sinon.stub(node, 'call');
+        isSyncedStub = sinon.stub(node, 'isSynced');
+        isSyncedStub.returns(true);
         done();
       });
       node._registerNexus(nexus);
@@ -180,6 +182,7 @@ module.exports = function () {
     afterEach(() => {
       eventSpy.resetHistory();
       callStub.reset();
+      isSyncedStub.reset();
     });
 
     it('should not publish the nexus with whatever protocol', async () => {
@@ -257,6 +260,21 @@ module.exports = function () {
 
       sinon.assert.calledOnce(callStub);
       sinon.assert.calledWith(callStub, 'unpublishNexus', { uuid: UUID });
+      expect(nexus.deviceUri).to.equal('');
+      sinon.assert.calledOnce(eventSpy);
+      sinon.assert.calledWith(eventSpy, 'nexus', {
+        eventType: 'mod',
+        object: nexus
+      });
+    });
+
+    it('should fake the unpublish if the node is offline', async () => {
+      callStub.resolves({});
+      isSyncedStub.returns(false);
+
+      await nexus.unpublish();
+
+      sinon.assert.notCalled(callStub);
       expect(nexus.deviceUri).to.equal('');
       sinon.assert.calledOnce(eventSpy);
       sinon.assert.calledWith(eventSpy, 'nexus', {
@@ -377,7 +395,7 @@ module.exports = function () {
       });
       sinon.assert.calledOnce(callStub);
       sinon.assert.calledWith(callStub, 'destroyNexus', { uuid: UUID });
-      expect(nexus.node).to.be.null();
+      expect(nexus.node).to.be.undefined();
       expect(node.nexus).to.have.lengthOf(0);
     });
 
@@ -395,8 +413,9 @@ module.exports = function () {
       expect(node.nexus).to.have.lengthOf(1);
     });
 
-    it('should ignore NOT_FOUND error when destroying the nexus', async () => {
-      callStub.resolves({});
+    it('should fake the destroy if the node is offline', async () => {
+      callStub.rejects(new GrpcError(GrpcCode.INTERNAL, 'Not connected'));
+      isSyncedStub.returns(false);
 
       await nexus.destroy();
 
@@ -405,9 +424,8 @@ module.exports = function () {
         eventType: 'del',
         object: nexus
       });
-      sinon.assert.calledOnce(callStub);
-      sinon.assert.calledWith(callStub, 'destroyNexus', { uuid: UUID });
-      expect(nexus.node).to.be.null();
+      sinon.assert.notCalled(callStub);
+      expect(nexus.node).to.be.undefined();
       expect(node.nexus).to.have.lengthOf(0);
     });
   });
