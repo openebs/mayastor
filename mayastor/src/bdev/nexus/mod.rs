@@ -30,7 +30,6 @@ pub mod nexus_fn_table;
 pub mod nexus_io;
 pub mod nexus_label;
 pub mod nexus_metadata;
-pub mod nexus_metadata_content;
 pub mod nexus_module;
 pub mod nexus_nbd;
 pub mod nexus_share;

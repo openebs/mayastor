@@ -89,9 +89,10 @@ fn test_known_label() {
     assert_eq!(partitions[0].ent_name.name, "nexus_meta");
     assert_eq!(partitions[1].ent_name.name, "zfs_data");
 
-    assert_eq!(hdr.checksum(), CRC32);
+    assert_eq!(hdr.checksum().unwrap(), CRC32);
 
-    let array_checksum = GptEntry::checksum(&partitions, hdr.num_entries);
+    let array_checksum =
+        GptEntry::checksum(&partitions, hdr.num_entries).unwrap();
 
     assert_eq!(array_checksum, hdr.table_crc);
 
@@ -107,7 +108,8 @@ fn test_known_label() {
     let partitions =
         GptEntry::from_slice(buf.as_slice(), hdr.num_entries).unwrap();
 
-    let array_checksum = GptEntry::checksum(&partitions, hdr.num_entries);
+    let array_checksum =
+        GptEntry::checksum(&partitions, hdr.num_entries).unwrap();
     assert_eq!(array_checksum, hdr.table_crc);
 }
 

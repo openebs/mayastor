@@ -15,6 +15,7 @@ use crate::{
             nexus_channel::DrEvent,
             nexus_child::ChildState::Faulted,
             nexus_child_status_config::ChildStatusConfig,
+            nexus_label::GptGuid as Guid,
         },
         nexus_lookup,
         VerboseError,
@@ -144,6 +145,8 @@ pub struct NexusChild {
     pub prev_state: AtomicCell<ChildState>,
     #[serde(skip_serializing)]
     remove_channel: (mpsc::Sender<()>, mpsc::Receiver<()>),
+    pub guid: Guid,
+    pub metadata_index_lba: u64,
 }
 
 impl Display for NexusChild {
@@ -459,6 +462,8 @@ impl NexusChild {
             state: AtomicCell::new(ChildState::Init),
             prev_state: AtomicCell::new(ChildState::Init),
             remove_channel: mpsc::channel(0),
+            guid: Guid::from(uuid::Uuid::nil()),
+            metadata_index_lba: 0,
         }
     }
 
@@ -487,6 +492,7 @@ impl NexusChild {
 
     /// return reference to child's bdev and a new BdevHandle
     /// both must be present - otherwise it is considered an error
+    #[allow(dead_code)]
     pub(crate) fn get_dev(&self) -> Result<(Bdev, BdevHandle), ChildError> {
         if !self.is_accessible() {
             info!("{}: Child is inaccessible: {}", self.parent, self.name);

@@ -151,7 +151,7 @@ impl CreateDestroy for Iscsi {
             })?;
 
         if let Some(u) = self.uuid {
-            bdev.set_uuid(Some(u.to_string()));
+            bdev.set_uuid(u);
         }
         if !bdev.add_alias(&self.alias) {
             error!(

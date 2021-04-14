@@ -86,29 +86,27 @@ impl CreateDestroy for Uring {
 
         let cname = CString::new(self.get_name()).unwrap();
 
-        let name = Bdev::from_ptr(unsafe {
+        if let Some(mut bdev) = Bdev::from_ptr(unsafe {
             create_uring_bdev(cname.as_ptr(), cname.as_ptr(), self.blk_size)
-        })
-        .map(|mut bdev| {
-            if let Some(u) = self.uuid {
-                bdev.set_uuid(Some(u.to_string()))
+        }) {
+            if let Some(uuid) = self.uuid {
+                bdev.set_uuid(uuid);
             }
+
             if !bdev.add_alias(&self.alias) {
                 error!(
-                    "Failed to add alias {} to device {}",
+                    "failed to add alias {} to device {}",
                     self.alias,
                     self.get_name()
                 );
             }
-            bdev.name()
-        });
 
-        async {
-            name.ok_or_else(|| NexusBdevError::BdevNotFound {
-                name: self.get_name(),
-            })
+            return Ok(bdev.name());
         }
-        .await
+
+        Err(NexusBdevError::BdevNotFound {
+            name: self.get_name(),
+        })
     }
 
     /// Destroy the given uring bdev

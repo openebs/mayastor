@@ -68,17 +68,23 @@ impl CreateDestroy for Loopback {
     async fn create(&self) -> Result<String, Self::Error> {
         if let Some(mut bdev) = Bdev::lookup_by_name(&self.name) {
             if let Some(uuid) = self.uuid {
-                bdev.set_uuid(Some(uuid.to_string()));
+                bdev.set_uuid(uuid);
             }
+
             if !bdev.add_alias(&self.alias) {
                 error!(
-                    "Failed to add alias {} to device {}",
+                    "failed to add alias {} to device {}",
                     self.alias,
                     self.get_name()
                 );
             }
-        };
-        Ok(self.get_name())
+
+            return Ok(self.get_name());
+        }
+
+        Err(NexusBdevError::BdevNotFound {
+            name: self.get_name(),
+        })
     }
 
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {

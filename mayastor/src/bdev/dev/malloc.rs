@@ -5,15 +5,13 @@
 //! this.
 use crate::{
     bdev::{dev::reject_unknown_parameters, util::uri},
-    nexus_uri::{
-        NexusBdevError,
-        {self},
-    },
+    nexus_uri::{self, NexusBdevError},
 };
+
 use async_trait::async_trait;
 use std::{collections::HashMap, convert::TryFrom};
 use url::Url;
-use uuid::Uuid;
+
 #[derive(Debug)]
 pub struct Malloc {
     /// the name of the bdev we created, this is equal to the URI path minus
@@ -28,15 +26,17 @@ pub struct Malloc {
     /// uuid of the spdk bdev
     uuid: Option<uuid::Uuid>,
 }
+
 use crate::{
     bdev::{CreateDestroy, GetName},
     core::Bdev,
     ffihelper::{cb_arg, done_errno_cb, ErrnoResult, IntoCString},
 };
+
 use futures::channel::oneshot;
 use nix::errno::Errno;
 use snafu::ResultExt;
-use spdk_sys::delete_malloc_disk;
+use spdk_sys::{create_malloc_disk, delete_malloc_disk};
 
 impl TryFrom<&Url> for Malloc {
     type Error = NexusBdevError;
@@ -115,7 +115,7 @@ impl TryFrom<&Url> for Malloc {
                 (size << 20) / blk_size
             } as u64,
             blk_size,
-            uuid: uuid.or_else(|| Some(Uuid::new_v4())),
+            uuid,
         })
     }
 }
@@ -138,9 +138,10 @@ impl CreateDestroy for Malloc {
         }
 
         let cname = self.name.clone().into_cstring();
-        let ret = unsafe {
+
+        let errno = unsafe {
             let mut bdev: *mut spdk_sys::spdk_bdev = std::ptr::null_mut();
-            spdk_sys::create_malloc_disk(
+            create_malloc_disk(
                 &mut bdev,
                 cname.as_ptr(),
                 std::ptr::null_mut(),
@@ -149,38 +150,45 @@ impl CreateDestroy for Malloc {
             )
         };
 
-        if ret != 0 {
-            Err(NexusBdevError::CreateBdev {
-                source: Errno::from_i32(ret),
+        if errno != 0 {
+            return Err(NexusBdevError::CreateBdev {
+                source: Errno::from_i32(errno.abs()),
                 name: self.name.clone(),
-            })
-        } else {
-            self.uuid.map(|u| {
-                Bdev::lookup_by_name(&self.name).map(|mut b| {
-                    b.set_uuid(Some(u.to_string()));
-                    if !b.add_alias(&self.alias) {
-                        error!(
-                            "Failed to add alias {} to device {}",
-                            self.alias,
-                            self.get_name()
-                        );
-                    }
-                })
             });
-            Ok(self.name.clone())
         }
+
+        if let Some(mut bdev) = Bdev::lookup_by_name(&self.name) {
+            if let Some(uuid) = self.uuid {
+                bdev.set_uuid(uuid);
+            }
+
+            if !bdev.add_alias(&self.alias) {
+                error!(
+                    "failed to add alias {} to device {}",
+                    self.alias,
+                    self.get_name()
+                );
+            }
+
+            return Ok(self.name.clone());
+        }
+
+        Err(NexusBdevError::BdevNotFound {
+            name: self.name.clone(),
+        })
     }
 
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
         if let Some(bdev) = Bdev::lookup_by_name(&self.name) {
             let (s, r) = oneshot::channel::<ErrnoResult<()>>();
+
             unsafe {
                 delete_malloc_disk(
                     bdev.as_ptr(),
                     Some(done_errno_cb),
                     cb_arg(s),
-                )
-            };
+                );
+            }
 
             r.await
                 .context(nexus_uri::CancelBdev {

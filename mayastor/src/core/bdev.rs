@@ -28,6 +28,8 @@ use spdk_sys::{
     spdk_bdev_io_type_supported,
     spdk_bdev_next,
     spdk_bdev_open_ext,
+    spdk_uuid,
+    spdk_uuid_copy,
     spdk_uuid_generate,
 };
 
@@ -302,16 +304,14 @@ impl Bdev {
             .to_string()
     }
 
-    /// the UUID that is set for this bdev, all bdevs should have a UUID set
+    /// return the UUID of this bdev
     pub fn uuid(&self) -> Uuid {
         Uuid(unsafe { spdk_bdev_get_uuid(self.0.as_ptr()) })
     }
 
-    /// converts the UUID to a string
+    /// return the UUID of this bdev as a string
     pub fn uuid_as_string(&self) -> String {
-        let u = Uuid(unsafe { spdk_bdev_get_uuid(self.0.as_ptr()) });
-        let uuid = uuid::Uuid::from_bytes(u.as_bytes());
-        uuid.to_hyphenated().to_string()
+        uuid::Uuid::from(self.uuid()).to_hyphenated().to_string()
     }
 
     /// Set a list of aliases on the bdev, used to find the bdev later
@@ -358,25 +358,21 @@ impl Bdev {
         self.0.as_ptr()
     }
 
-    /// convert a given UUID into a spdk_bdev_uuid or otherwise, auto generate
-    /// one when uuid is None
-    pub fn set_uuid(&mut self, uuid: Option<String>) {
-        if let Some(uuid) = uuid {
-            if let Ok(this_uuid) = uuid::Uuid::parse_str(&uuid) {
-                unsafe {
-                    std::ptr::copy_nonoverlapping(
-                        this_uuid.as_bytes().as_ptr() as *const _
-                            as *mut c_void,
-                        &mut self.0.as_mut().uuid.u.raw[0] as *const _
-                            as *mut c_void,
-                        self.0.as_ref().uuid.u.raw.len(),
-                    );
-                }
-                return;
-            }
+    /// set the UUID for this bdev
+    pub fn set_uuid(&mut self, uuid: uuid::Uuid) {
+        unsafe {
+            spdk_uuid_copy(
+                &mut (*self.0.as_ptr()).uuid,
+                uuid.as_bytes().as_ptr() as *const spdk_uuid,
+            );
         }
-        unsafe { spdk_uuid_generate(&mut (*self.0.as_ptr()).uuid) };
-        info!("No or invalid v4 UUID specified, using self generated one");
+    }
+
+    /// generate a new random UUID for this bdev
+    pub fn generate_uuid(&mut self) {
+        unsafe {
+            spdk_uuid_generate(&mut (*self.0.as_ptr()).uuid);
+        }
     }
 
     extern "C" fn stat_cb(
