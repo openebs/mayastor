@@ -20,7 +20,7 @@ spec:
           args:
             - "--v=2"
             - "--csi-address=$(ADDRESS)"
-            - "--feature-gates=Topology=false"
+            - "--feature-gates=Topology=true"
           env:
             - name: ADDRESS
               value: /var/lib/csi/sockets/pluginproxy/csi.sock

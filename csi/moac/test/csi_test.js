@@ -19,6 +19,11 @@ const { shouldFailWith } = require('./utils');
 const SOCKPATH = '/tmp/csi_controller_test.sock';
 // uuid used whenever we need some uuid and don't care about which one
 const UUID = 'd01b8bfb-0116-47b0-a03a-447fcbdc0e99';
+const YAML_TRUE_VALUE = [
+  'y', 'Y', 'yes', 'Yes', 'YES',
+  'true', 'True', 'TRUE',
+  'on', 'On', 'ON'
+];
 
 // Return gRPC CSI client for given csi service
 function getCsiClient (svc) {
@@ -100,6 +105,15 @@ module.exports = function () {
     let client;
     let registry, volumes;
     let getCapacityStub, createVolumeStub, listVolumesStub, getVolumesStub, destroyVolumeStub;
+    const volumeArgs = {
+      replicaCount: 1,
+      local: false,
+      preferredNodes: [],
+      requiredNodes: [],
+      requiredBytes: 100,
+      limitBytes: 20,
+      protocol: 'nvmf'
+    };
 
     async function mockedServer (pools, replicas, nexus) {
       const server = new CsiServer(SOCKPATH);
@@ -156,7 +170,7 @@ module.exports = function () {
         );
       });
 
-      it('should return unimlemented error for CreateSnapshot', async () => {
+      it('should return unimplemented error for CreateSnapshot', async () => {
         server = await mockedServer();
         await shouldFailWith(GrpcCode.UNIMPLEMENTED, () =>
           client.createSnapshot().sendMessage({
@@ -166,21 +180,21 @@ module.exports = function () {
         );
       });
 
-      it('should return unimlemented error for DeleteSnapshot', async () => {
+      it('should return unimplemented error for DeleteSnapshot', async () => {
         server = await mockedServer();
         await shouldFailWith(GrpcCode.UNIMPLEMENTED, () =>
           client.deleteSnapshot().sendMessage({ snapshotId: 'blabla' })
         );
       });
 
-      it('should return unimlemented error for ListSnapshots', async () => {
+      it('should return unimplemented error for ListSnapshots', async () => {
         server = await mockedServer();
         await shouldFailWith(GrpcCode.UNIMPLEMENTED, () =>
           client.listSnapshots().sendMessage({})
         );
       });
 
-      it('should return unimlemented error for ControllerExpandVolume', async () => {
+      it('should return unimplemented error for ControllerExpandVolume', async () => {
         server = await mockedServer();
         await shouldFailWith(GrpcCode.UNIMPLEMENTED, () =>
           client.controllerExpandVolume().sendMessage({
@@ -196,18 +210,34 @@ module.exports = function () {
 
     describe('CreateVolume', function () {
       let server;
+      const defaultParams = { protocol: 'nvmf', repl: '1' };
+
       // place-holder for return value from createVolume when we don't care
-      // about the data (i.e. when testing error cases).
-      const returnedVolume = new Volume(UUID, registry, new EventEmitter(), {
-        replicaCount: 1,
-        preferredNodes: [],
-        requiredNodes: [],
-        requiredBytes: 10,
-        limitBytes: 20,
-        protocol: 'nvmf'
-      });
-      sinon.stub(returnedVolume, 'getSize').returns(20);
-      sinon.stub(returnedVolume, 'getNodeName').returns('some-node');
+      // if the input matches the output data (i.e. when testing error cases).
+      function returnedVolume (params) {
+        const vol = new Volume(UUID, registry, new EventEmitter(), {
+          replicaCount: parseInt(params.repl) || 1,
+          local: YAML_TRUE_VALUE.indexOf(params.local) >= 0,
+          preferredNodes: [],
+          requiredNodes: [],
+          requiredBytes: 10,
+          limitBytes: 20,
+          protocol: params.protocol
+        });
+        sinon.stub(vol, 'getSize').returns(20);
+        sinon.stub(vol, 'getNodeName').returns('some-node');
+        sinon.stub(vol, 'getReplicas').callsFake(() => {
+          const replicas = [];
+          for (let i = 1; i <= vol.spec.replicaCount; i++) {
+            // poor approximation of replica object, but it works
+            replicas.push({
+              pool: { node: { name: `node${i}` } }
+            });
+          }
+          return replicas;
+        });
+        return vol;
+      }
 
       beforeEach(async () => {
         server = await mockedServer();
@@ -221,8 +251,8 @@ module.exports = function () {
       });
 
       it('should create a volume and return parameters in volume context', async () => {
-        createVolumeStub.resolves(returnedVolume);
-        const parameters = { protocol: 'iscsi', repl: 3, blah: 'again' };
+        const parameters = { protocol: 'iscsi', repl: 3, local: 'true', blah: 'again' };
+        createVolumeStub.resolves(returnedVolume(parameters));
         const result = await client.createVolume().sendMessage({
           name: 'pvc-' + UUID,
           capacityRange: {
@@ -235,7 +265,7 @@ module.exports = function () {
               block: {}
             }
           ],
-          parameters: parameters
+          parameters
         });
         // volume context is a of type map<string><string>
         const expected = {};
@@ -245,11 +275,20 @@ module.exports = function () {
         expect(result.volume.volumeId).to.equal(UUID);
         expect(result.volume.capacityBytes).to.equal(20);
         expect(result.volume.volumeContext).to.eql(expected);
-        expect(result.volume.accessibleTopology).to.have.lengthOf(0);
+        expect(result.volume.accessibleTopology).to.have.lengthOf(3);
+        sinon.assert.calledWith(createVolumeStub, UUID, {
+          replicaCount: 3,
+          local: true,
+          preferredNodes: [],
+          requiredNodes: [],
+          requiredBytes: 10,
+          limitBytes: 20,
+          protocol: 'iscsi'
+        });
       });
 
       it('should fail if topology requirement other than hostname', async () => {
-        createVolumeStub.resolves(returnedVolume);
+        createVolumeStub.resolves(returnedVolume(defaultParams));
         await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
           client.createVolume().sendMessage({
             name: 'pvc-' + UUID,
@@ -273,7 +312,7 @@ module.exports = function () {
       });
 
       it('should fail if volume source', async () => {
-        createVolumeStub.resolves(returnedVolume);
+        createVolumeStub.resolves(returnedVolume(defaultParams));
         await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
           client.createVolume().sendMessage({
             name: 'pvc-' + UUID,
@@ -294,7 +333,7 @@ module.exports = function () {
       });
 
       it('should fail if capability other than SINGLE_NODE_WRITER', async () => {
-        createVolumeStub.resolves(returnedVolume);
+        createVolumeStub.resolves(returnedVolume(defaultParams));
         await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
           client.createVolume().sendMessage({
             name: 'pvc-' + UUID,
@@ -336,7 +375,7 @@ module.exports = function () {
       });
 
       it('should fail if volume name is not in expected form', async () => {
-        createVolumeStub.resolves(returnedVolume);
+        createVolumeStub.resolves(returnedVolume(defaultParams));
         await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
           client.createVolume().sendMessage({
             name: UUID, // missing pvc- prefix
@@ -356,7 +395,8 @@ module.exports = function () {
       });
 
       it('should fail if ioTimeout is used with protocol other than nvmf', async () => {
-        createVolumeStub.resolves(returnedVolume);
+        const parameters = { protocol: 'iscsi', ioTimeout: '30' };
+        createVolumeStub.resolves(returnedVolume(parameters));
         await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
           client.createVolume().sendMessage({
             name: 'pvc-' + UUID,
@@ -379,7 +419,8 @@ module.exports = function () {
       });
 
       it('should fail if ioTimeout has invalid value', async () => {
-        createVolumeStub.resolves(returnedVolume);
+        const parameters = { protocol: 'nvmf', ioTimeout: 'bla' };
+        createVolumeStub.resolves(returnedVolume(parameters));
         await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
           client.createVolume().sendMessage({
             name: 'pvc-' + UUID,
@@ -402,7 +443,8 @@ module.exports = function () {
       });
 
       it('should fail if share protocol is not specified', async () => {
-        createVolumeStub.resolves(returnedVolume);
+        const params = { ioTimeout: '30', local: 'On' };
+        createVolumeStub.resolves(returnedVolume(params));
         await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
           client.createVolume().sendMessage({
             name: 'pvc-' + UUID,
@@ -422,8 +464,9 @@ module.exports = function () {
       });
 
       it('should create volume on specified node', async () => {
-        createVolumeStub.resolves(returnedVolume);
-        await client.createVolume().sendMessage({
+        const params = { protocol: 'nvmf', local: 'Y' };
+        createVolumeStub.resolves(returnedVolume(params));
+        const result = await client.createVolume().sendMessage({
           name: 'pvc-' + UUID,
           capacityRange: {
             requiredBytes: 50,
@@ -438,10 +481,14 @@ module.exports = function () {
           accessibilityRequirements: {
             requisite: [{ segments: { 'kubernetes.io/hostname': 'node' } }]
           },
-          parameters: { protocol: 'nvmf' }
+          parameters: params
         });
+        expect(result.volume.volumeId).to.equal(UUID);
+        expect(result.volume.accessibleTopology).to.have.lengthOf(1);
+        expect(result.volume.accessibleTopology[0].segments['kubernetes.io/hostname']).to.equal('node1');
         sinon.assert.calledWith(createVolumeStub, UUID, {
           replicaCount: 1,
+          local: true,
           preferredNodes: [],
           requiredNodes: ['node'],
           requiredBytes: 50,
@@ -451,7 +498,8 @@ module.exports = function () {
       });
 
       it('should create volume on preferred node', async () => {
-        createVolumeStub.resolves(returnedVolume);
+        const params = { protocol: 'nvmf', local: 'No' };
+        createVolumeStub.resolves(returnedVolume(params));
         await client.createVolume().sendMessage({
           name: 'pvc-' + UUID,
           capacityRange: {
@@ -475,10 +523,11 @@ module.exports = function () {
               }
             ]
           },
-          parameters: { protocol: 'nvmf' }
+          parameters: params
         });
         sinon.assert.calledWith(createVolumeStub, UUID, {
           replicaCount: 1,
+          local: false,
           preferredNodes: ['node'],
           requiredNodes: [],
           requiredBytes: 50,
@@ -488,7 +537,8 @@ module.exports = function () {
       });
 
       it('should create volume with specified number of replicas', async () => {
-        createVolumeStub.resolves(returnedVolume);
+        const params = { repl: '3', protocol: 'nvmf' };
+        createVolumeStub.resolves(returnedVolume(params));
         await client.createVolume().sendMessage({
           name: 'pvc-' + UUID,
           capacityRange: {
@@ -501,10 +551,11 @@ module.exports = function () {
               block: {}
             }
           ],
-          parameters: { repl: '3', protocol: 'nvmf' }
+          parameters: params
         });
         sinon.assert.calledWith(createVolumeStub, UUID, {
           replicaCount: 3,
+          local: false,
           preferredNodes: [],
           requiredNodes: [],
           requiredBytes: 50,
@@ -514,7 +565,7 @@ module.exports = function () {
       });
 
       it('should fail if number of replicas is not a number', async () => {
-        createVolumeStub.resolves(returnedVolume);
+        createVolumeStub.resolves(returnedVolume(defaultParams));
         await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
           client.createVolume().sendMessage({
             name: 'pvc-' + UUID,
@@ -538,7 +589,7 @@ module.exports = function () {
         // request comes in.
         createVolumeStub.callsFake(async () => {
           await sleep(10);
-          return returnedVolume;
+          return returnedVolume(defaultParams);
         });
         const create1 = client.createVolume().sendMessage({
           name: 'pvc-' + UUID,
@@ -641,7 +692,11 @@ module.exports = function () {
           for (let j = 0; j < 10; j++) {
             const vol = new Volume(uuidBase + i + j, registry, new EventEmitter(), {
               replicaCount: 3,
+              local: false,
+              preferredNodes: [],
+              requiredNodes: [],
               requiredBytes: 100,
+              limitBytes: 20,
               protocol: 'nvmf'
             });
             const getSizeStub = sinon.stub(vol, 'getSize');
@@ -729,7 +784,7 @@ module.exports = function () {
 
       it('should publish volume', async () => {
         const nvmfUri = `nvmf://host/nqn-${UUID}`;
-        const volume = new Volume(UUID, registry, new EventEmitter(), {});
+        const volume = new Volume(UUID, registry, new EventEmitter(), volumeArgs);
         const publishStub = sinon.stub(volume, 'publish');
         publishStub.resolves(nvmfUri);
         const getNodeNameStub = sinon.stub(volume, 'getNodeName');
@@ -775,7 +830,7 @@ module.exports = function () {
           },
           volumeContext: { protocol: 'iscsi' }
         };
-        const volume = new Volume(UUID, registry, new EventEmitter(), {});
+        const volume = new Volume(UUID, registry, new EventEmitter(), volumeArgs);
         const publishStub = sinon.stub(volume, 'publish');
         // We must sleep in the stub. Otherwise reply is sent before the second
         // request comes in.
@@ -821,7 +876,7 @@ module.exports = function () {
       });
 
       it('should not publish readonly volume', async () => {
-        const volume = new Volume(UUID, registry, new EventEmitter(), {});
+        const volume = new Volume(UUID, registry, new EventEmitter(), volumeArgs);
         const publishStub = sinon.stub(volume, 'publish');
         publishStub.resolves();
         const getNodeNameStub = sinon.stub(volume, 'getNodeName');
@@ -846,7 +901,7 @@ module.exports = function () {
       });
 
       it('should not publish volume with unsupported capability', async () => {
-        const volume = new Volume(UUID, registry, new EventEmitter(), {});
+        const volume = new Volume(UUID, registry, new EventEmitter(), volumeArgs);
         const publishStub = sinon.stub(volume, 'publish');
         publishStub.resolves();
         const getNodeNameStub = sinon.stub(volume, 'getNodeName');
@@ -871,7 +926,7 @@ module.exports = function () {
       });
 
       it('should not publish volume on node with invalid ID', async () => {
-        const volume = new Volume(UUID, registry, new EventEmitter(), {});
+        const volume = new Volume(UUID, registry, new EventEmitter(), volumeArgs);
         const publishStub = sinon.stub(volume, 'publish');
         publishStub.resolves();
         const getNodeNameStub = sinon.stub(volume, 'getNodeName');
@@ -926,7 +981,7 @@ module.exports = function () {
       });
 
       it('should not unpublish volume on pool with invalid ID', async () => {
-        const volume = new Volume(UUID, registry, new EventEmitter(), {});
+        const volume = new Volume(UUID, registry, new EventEmitter(), volumeArgs);
         const unpublishStub = sinon.stub(volume, 'unpublish');
         unpublishStub.resolves();
         const getNodeNameStub = sinon.stub(volume, 'getNodeName');
@@ -942,7 +997,7 @@ module.exports = function () {
       });
 
       it('should unpublish volume', async () => {
-        const volume = new Volume(UUID, registry, new EventEmitter(), {});
+        const volume = new Volume(UUID, registry, new EventEmitter(), volumeArgs);
         const unpublishStub = sinon.stub(volume, 'unpublish');
         unpublishStub.resolves();
         const getNodeNameStub = sinon.stub(volume, 'getNodeName');
@@ -960,7 +1015,7 @@ module.exports = function () {
       });
 
       it('should unpublish volume even if on a different node', async () => {
-        const volume = new Volume(UUID, registry, new EventEmitter(), {});
+        const volume = new Volume(UUID, registry, new EventEmitter(), volumeArgs);
         const unpublishStub = sinon.stub(volume, 'unpublish');
         unpublishStub.resolves();
         const getNodeNameStub = sinon.stub(volume, 'getNodeName');
@@ -982,7 +1037,7 @@ module.exports = function () {
           volumeId: UUID,
           nodeId: 'mayastor://another-node'
         };
-        const volume = new Volume(UUID, registry, new EventEmitter(), {});
+        const volume = new Volume(UUID, registry, new EventEmitter(), volumeArgs);
         const unpublishStub = sinon.stub(volume, 'unpublish');
         // We must sleep in the stub. Otherwise reply is sent before the second
         // request comes in.
@@ -1018,7 +1073,7 @@ module.exports = function () {
       });
 
       it('should report SINGLE_NODE_WRITER cap as valid', async () => {
-        const volume = new Volume(UUID, registry, new EventEmitter(), {});
+        const volume = new Volume(UUID, registry, new EventEmitter(), volumeArgs);
         getVolumesStub.returns(volume);
         const caps = [
           'SINGLE_NODE_WRITER',
@@ -1044,7 +1099,7 @@ module.exports = function () {
       });
 
       it('should report other caps than SINGLE_NODE_WRITER as invalid', async () => {
-        const volume = new Volume(UUID, registry, new EventEmitter(), {});
+        const volume = new Volume(UUID, registry, new EventEmitter(), volumeArgs);
         getVolumesStub.returns(volume);
         const caps = [
           'SINGLE_NODE_READER_ONLY',

@@ -20,6 +20,11 @@ const PROTO_PATH = path.join(__dirname, '/proto/csi.proto');
 // TODO: can we generate version with commit SHA dynamically?
 const VERSION = '0.1';
 const PVC_RE = /pvc-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/;
+const YAML_TRUE_VALUE = [
+  'y', 'Y', 'yes', 'Yes', 'YES',
+  'true', 'True', 'TRUE',
+  'on', 'On', 'ON',
+];
 
 // Load csi proto file with controller and identity services
 const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
@@ -101,6 +106,23 @@ function checkCapabilities (caps: any[]) {
   }
 }
 
+// Generate CSI access constraits for the volume.
+function getAccessibleTopology (volume: Volume): TopologyKeys[] {
+  if (volume.spec.local) {
+    // We impose a hard requirement on k8s to schedule the app to one of the
+    // nodes with replica to make use of the locality. The nexus will follow
+    // the app during the publish.
+    return volume.getReplicas().map((r) => {
+      return {
+        segments: { 'kubernetes.io/hostname': r.pool!.node!.name }
+      };
+    });
+  } else {
+    // access from anywhere
+    return [];
+  }
+}
+
 // Create k8s volume object as returned by CSI list volumes method.
 //
 // @param   {object} volume   Volume object.
@@ -109,7 +131,7 @@ function createK8sVolumeObject (volume: Volume): K8sVolume {
   const obj: K8sVolume = {
     volumeId: volume.uuid,
     capacityBytes: volume.getSize(),
-    accessibleTopology: []
+    accessibleTopology: getAccessibleTopology(volume),
   };
   return obj;
 }
@@ -149,7 +171,7 @@ class Request {
 // It implements Identity and Controller grpc services from csi proto file.
 // It relies on volume manager, when serving incoming CSI requests, that holds
 // information about volumes and provides methods to manipulate them.
-class CsiServer {
+export class CsiServer {
   private server: any;
   private ready: boolean;
   private registry: any;
@@ -421,6 +443,17 @@ class CsiServer {
       }
     }
 
+    // For exaplanation of accessibilityRequirements refer to a table at
+    // https://github.com/kubernetes-csi/external-provisioner.
+    // Our case is WaitForFirstConsumer = true, strict-topology = false.
+    //
+    // The first node in preferred array the node that was chosen for running
+    // the app by the k8s scheduler. The rest of the entries are in random
+    // order and perhaps don't even run mayastor csi node plugin.
+    //
+    // The requisite array contains all nodes in the cluster irrespective
+    // of what node was chosen for running the app.
+    //
     const mustNodes = [];
     const shouldNodes = [];
 
@@ -484,6 +517,7 @@ class CsiServer {
     try {
       volume = await this.volumes.createVolume(uuid, {
         replicaCount: count,
+        local: YAML_TRUE_VALUE.indexOf(args.parameters.local) >= 0,
         preferredNodes: shouldNodes,
         requiredNodes: mustNodes,
         requiredBytes: args.capacityRange.requiredBytes,
@@ -495,14 +529,11 @@ class CsiServer {
       return;
     }
 
-    // This was used in the old days for NBD protocol
-    const topologies: TopologyKeys[] = [];
-
     this._endRequest(request, null, {
       volume: {
         capacityBytes: volume.getSize(),
         volumeId: uuid,
-        accessibleTopology: topologies,
+        accessibleTopology: getAccessibleTopology(volume),
         // parameters defined in the storage class are only presented
         // to the CSI driver createVolume method.
         // Propagate them to other CSI driver methods involved in

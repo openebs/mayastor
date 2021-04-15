@@ -62,6 +62,7 @@
   },
   "files": [
     "csi.ts",
+    "index.ts",
     "nexus.ts",
     "node.ts",
     "node_operator.ts",

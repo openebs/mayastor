@@ -35,6 +35,9 @@ spec:
                   description: The number of replicas used for the volume.
                   type: integer
                   minimum: 1
+                local:
+                  description: The app should run on the same node as the nexus.
+                  type: boolean
                 preferredNodes:
                   description: A list of preferred cluster nodes for the volume.
                   type: array

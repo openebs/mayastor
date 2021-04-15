@@ -44,6 +44,27 @@ export function volumeStateFromString(val: string): VolumeState {
   }
 }
 
+// Specification describing the desired state of the volume.
+export type VolumeSpec = {
+  // Number of desired replicas.
+  replicaCount: number,
+  // If the application should run on the same node as the nexus.
+  local: boolean,
+  // Nodes to prefer for scheduling replicas.
+  // There is one quirk following from k8s implementation of CSI. The first
+  // node in the list is the node that k8s wants to schedule the app for.
+  // The ordering of the rest does not have any significance.
+  preferredNodes: string[],
+  // Replicas must be on a subset of these nodes.
+  requiredNodes: string[],
+  // The volume must have at least this size.
+  requiredBytes: number,
+  // The volume should not be bigger than this.
+  limitBytes: number,
+  // The share protocol for the nexus.
+  protocol: Protocol,
+};
+
 // Abstraction of the volume. It is an abstract object which consists of
 // physical entities nexus and replicas. It provides high level methods
 // for doing operations on the volume as well as recovery algorithms for
@@ -51,12 +72,7 @@ export function volumeStateFromString(val: string): VolumeState {
 export class Volume {
   // volume spec properties
   uuid: string;
-  replicaCount: number;
-  preferredNodes: string[];
-  requiredNodes: string[];
-  requiredBytes: number;
-  limitBytes: number;
-  protocol: Protocol;
+  spec: VolumeSpec;
   // volume status properties
   private size: number;
   private nexus: Nexus | null;
@@ -76,12 +92,6 @@ export class Volume {
   // @params registry             Registry object.
   // @params emitEvent            Callback that should be called anytime volume state changes.
   // @params spec                 Volume parameters.
-  // @params spec.replicaCount    Number of desired replicas.
-  // @params spec.preferredNodes  Nodes to prefer for scheduling replicas.
-  // @params spec.requiredNodes   Replicas must be on these nodes.
-  // @params spec.requiredBytes   The volume must have at least this size.
-  // @params spec.limitBytes      The volume should not be bigger than this.
-  // @params spec.protocol        The share protocol for the nexus.
   // @params [size]               Current properties of the volume.
   // @params [publishedOn]        Node name where this volume is published.
   //
@@ -89,21 +99,15 @@ export class Volume {
     uuid: string,
     registry: any,
     emitter: events.EventEmitter,
-    spec: any,
+    spec: VolumeSpec,
     state?: VolumeState,
     size?: number,
     publishedOn?: string,
   ) {
-    assert(spec);
     // specification of the volume
     this.uuid = uuid;
+    this.spec = _.clone(spec);
     this.registry = registry;
-    this.replicaCount = spec.replicaCount || 1;
-    this.preferredNodes = _.clone(spec.preferredNodes || []).sort();
-    this.requiredNodes = _.clone(spec.requiredNodes || []).sort();
-    this.requiredBytes = spec.requiredBytes;
-    this.limitBytes = spec.limitBytes;
-    this.protocol = spec.protocol;
     // state variables of the volume
     this.size = size || 0;
     this.publishedOn = publishedOn;
@@ -133,6 +137,10 @@ export class Volume {
     return this.publishedOn;
   }
 
+  // Return volume replicas.
+  getReplicas(): Replica[] {
+    return Object.values(this.replicas);
+  }
   // Publish the volume. That means, make it accessible through a block device.
   //
   // @params nodeId        ID of the node where the volume will be mounted.
@@ -294,7 +302,7 @@ export class Volume {
     if (!this.nexus) {
       if (
         this.publishedOn ||
-        replicaSet.length !== this.replicaCount
+        replicaSet.length !== this.spec.replicaCount
       ) {
         if (nexusNode && nexusNode.isSynced()) {
           try {
@@ -404,7 +412,7 @@ export class Volume {
     let uri = this.nexus.getUri();
     if (!uri && this.publishedOn) {
       try {
-        uri = await this.nexus.publish(this.protocol);
+        uri = await this.nexus.publish(this.spec.protocol);
       } catch (err) {
         logError(err);
         return;
@@ -416,11 +424,11 @@ export class Volume {
     var soundCount = childReplicaPairs.filter((pair) => {
       return ['CHILD_ONLINE', 'CHILD_DEGRADED'].indexOf(pair.ch.state) >= 0;
     }).length;
-    if (this.replicaCount > soundCount) {
+    if (this.spec.replicaCount > soundCount) {
       this._setState(VolumeState.Degraded);
       // add new replica
       try {
-        await this._createReplicas(this.replicaCount - soundCount);
+        await this._createReplicas(this.spec.replicaCount - soundCount);
       } catch (err) {
         logError(err);
       }
@@ -439,7 +447,7 @@ export class Volume {
       return;
     }
 
-    assert(onlineCount >= this.replicaCount);
+    assert(onlineCount >= this.spec.replicaCount);
     this._setState(VolumeState.Healthy);
 
     // If we have more online replicas than we need to, then remove one.
@@ -454,7 +462,7 @@ export class Volume {
         rmPair = childReplicaPairs.find((pair) => !pair.r);
         // If all replicas are online, then continue searching for a candidate
         // only if there are more online replicas than it needs to be.
-        if (!rmPair && onlineCount > this.replicaCount) {
+        if (!rmPair && onlineCount > this.spec.replicaCount) {
           // The replica with the lowest score must go away
           const rmReplica = this._prioritizeReplicas(
             <Replica[]>childReplicaPairs
@@ -489,10 +497,10 @@ export class Volume {
       if (
         pair.r &&
         pair.ch.state === 'CHILD_ONLINE' &&
-        this.requiredNodes.length > 0 &&
-        this.requiredNodes.indexOf(pair.r.pool!.node.name) < 0
+        this.spec.requiredNodes.length > 0 &&
+        this.spec.requiredNodes.indexOf(pair.r.pool!.node.name) < 0
       ) {
-        if (this.requiredNodes.indexOf(pair.r.pool!.node.name) < 0) {
+        if (this.spec.requiredNodes.indexOf(pair.r.pool!.node.name) < 0) {
           return true;
         }
       }
@@ -551,13 +559,13 @@ export class Volume {
     this.attach();
 
     // Ensure there is sufficient number of replicas for the volume.
-    const newReplicaCount = this.replicaCount - Object.keys(this.replicas).length;
+    const newReplicaCount = this.spec.replicaCount - Object.keys(this.replicas).length;
     if (newReplicaCount > 0) {
       // create more replicas if higher replication factor is desired
       await this._createReplicas(newReplicaCount);
     }
     let replicaSet = this._activeReplicas();
-    let nexusNode = this._desiredNexusNode(replicaSet);
+    let nexusNode = this._desiredNexusNode(replicaSet, replicaSet[0]?.pool?.node?.name);
     if (!nexusNode) {
       throw new GrpcError(
         GrpcCode.INTERNAL,
@@ -569,7 +577,7 @@ export class Volume {
       await this._createNexus(nexusNode, replicaSet);
     }
     this.state = VolumeState.Unknown;
-    log.info(`Volume "${this}" with ${this.replicaCount} replica(s) and size ${this.size} was created`);
+    log.info(`Volume "${this}" with ${this.spec.replicaCount} replica(s) and size ${this.size} was created`);
     this.fsa();
     // TODO: should we wait for the temporary nexus (created just for labeling
     // replicas) to go away before we return back OK? IMHO we should.
@@ -612,9 +620,9 @@ export class Volume {
   //
   async _createReplicas(count: number) {
     let pools: Pool[] = this.registry.choosePools(
-      this.requiredBytes,
-      this.requiredNodes,
-      this.preferredNodes
+      this.spec.requiredBytes,
+      this.spec.requiredNodes,
+      this.spec.preferredNodes
     );
     // remove pools that are already used by existing replicas
     const usedNodes = Object.keys(this.replicas);
@@ -622,7 +630,7 @@ export class Volume {
     if (pools.length < count) {
       log.error(
         `No suitable pool(s) for volume "${this}" with capacity ` +
-        `${this.requiredBytes} and replica count ${this.replicaCount}`
+        `${this.spec.requiredBytes} and replica count ${this.spec.replicaCount}`
       );
       throw new GrpcError(
         GrpcCode.RESOURCE_EXHAUSTED,
@@ -639,8 +647,17 @@ export class Volume {
           (acc, pool) => Math.min(acc, pool.freeBytes()),
           Number.MAX_SAFE_INTEGER
         ),
-        this.limitBytes || this.requiredBytes
+        this.spec.limitBytes || this.spec.requiredBytes
       );
+    }
+
+    // For local volumes, local pool should have the max priority.
+    if (this.spec.local && this.spec.preferredNodes[0]) {
+      let idx = pools.findIndex((p) => p.node.name === this.spec.preferredNodes[0]);
+      if (idx >= 0) {
+        let localPool = pools.splice(idx, 1)[0];
+        pools.unshift(localPool);
+      }
     }
 
     // We record all failures as we try to create the replica on available
@@ -689,25 +706,36 @@ export class Volume {
     let score = 0;
     const node = replica.pool!.node;
 
+    // The idea is that the sum of less important scores should never overrule
+    // the more important criteria.
+
     // criteria #1: must be on the required nodes if set
     if (
-      this.requiredNodes.length > 0 &&
-      this.requiredNodes.indexOf(node.name) >= 0
+      this.spec.requiredNodes.length > 0 &&
+      this.spec.requiredNodes.indexOf(node.name) >= 0
     ) {
-      score += 10;
+      score += 100;
     }
     // criteria #2: replica should be online
     if (!replica.isOffline()) {
-      score += 5;
+      score += 50;
     }
-    // criteria #2: would be nice to run on preferred node
+    // criteria #3: would be nice to run on preferred node
     if (
-      this.preferredNodes.length > 0 &&
-      this.preferredNodes.indexOf(node.name) >= 0
+      this.spec.preferredNodes.length > 0 &&
+      this.spec.preferredNodes.indexOf(node.name) >= 0
     ) {
-      score += 2;
+      score += 20;
     }
-    // criteria #3: local IO from nexus is certainly an advantage
+    // criteria #4: if "local" is set then running on the same node as app is desired
+    if (
+      this.spec.local &&
+      this.spec.preferredNodes.length > 0 &&
+      this.spec.preferredNodes[0] === node.name
+    ) {
+      score += 9;
+    }
+    // criteria #4: local IO from nexus is certainly an advantage
     if (this.nexus && node === this.nexus.node) {
       score += 1;
     }
@@ -818,33 +846,35 @@ export class Volume {
         `Shrinking the volume "${this}" is not supported`
       );
     }
-    if (this.protocol !== spec.protocol) {
+    if (this.spec.protocol !== spec.protocol) {
       throw new GrpcError(
         GrpcCode.INVALID_ARGUMENT,
         `Changing the protocol for volume "${this}" is not supported`
       );
     }
 
-    if (this.replicaCount !== spec.replicaCount) {
-      this.replicaCount = spec.replicaCount;
+    if (this.spec.replicaCount !== spec.replicaCount) {
+      this.spec.replicaCount = spec.replicaCount;
       changed = true;
     }
-    const preferredNodes = _.clone(spec.preferredNodes || []).sort();
-    if (!_.isEqual(this.preferredNodes, preferredNodes)) {
-      this.preferredNodes = preferredNodes;
+    if (this.spec.local !== spec.local) {
+      this.spec.local = spec.local;
       changed = true;
     }
-    const requiredNodes = _.clone(spec.requiredNodes || []).sort();
-    if (!_.isEqual(this.requiredNodes, requiredNodes)) {
-      this.requiredNodes = requiredNodes;
+    if (!_.isEqual(this.spec.preferredNodes, spec.preferredNodes)) {
+      this.spec.preferredNodes = spec.preferredNodes;
       changed = true;
     }
-    if (this.requiredBytes !== spec.requiredBytes) {
-      this.requiredBytes = spec.requiredBytes;
+    if (!_.isEqual(this.spec.requiredNodes, spec.requiredNodes)) {
+      this.spec.requiredNodes = spec.requiredNodes;
       changed = true;
     }
-    if (this.limitBytes !== spec.limitBytes) {
-      this.limitBytes = spec.limitBytes;
+    if (this.spec.requiredBytes !== spec.requiredBytes) {
+      this.spec.requiredBytes = spec.requiredBytes;
+      changed = true;
+    }
+    if (this.spec.limitBytes !== spec.limitBytes) {
+      this.spec.limitBytes = spec.limitBytes;
       changed = true;
     }
     if (changed) {

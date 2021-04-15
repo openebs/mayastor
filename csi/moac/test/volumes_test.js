@@ -143,6 +143,7 @@ module.exports = function () {
     // Fake the volume
     volume = new Volume(UUID, registry, volumes, {
       replicaCount: 2,
+      local: false,
       preferredNodes: [],
       requiredNodes: [],
       requiredBytes: 90,
@@ -175,6 +176,7 @@ module.exports = function () {
         // node2 and node3 are too small
         volumes.createVolume(UUID, {
           replicaCount: 3,
+          local: false,
           preferredNodes: [],
           requiredNodes: ['node2', 'node3'],
           requiredBytes: 100,
@@ -185,10 +187,100 @@ module.exports = function () {
       expect(volEvents).to.have.lengthOf(2);
       expect(volEvents[0].eventType).to.equal('new');
       expect(volEvents[1].eventType).to.equal('mod');
-      // 'del' event as well, but it is emitted just after running this
-      //expect(volEvents[2].eventType).to.equal('del');
-      //expect(volEvents[2].object.uuid).to.equal(UUID);
-      //expect(volEvents[2].object.state).to.equal('destroyed');
+      // 'del' event as well, but it is emitted just after running the test
+      // expect(volEvents[2].eventType).to.equal('del');
+      // expect(volEvents[2].object.uuid).to.equal(UUID);
+      // expect(volEvents[2].object.state).to.equal('destroyed');
+    });
+
+    it('should create local volume', async () => {
+      stub2.onCall(0).resolves({
+        uuid: UUID,
+        pool: 'pool2',
+        size: 90,
+        thin: false,
+        share: 'REPLICA_NONE',
+        uri: 'bdev:///' + UUID
+      });
+      stub2.onCall(1).resolves({
+        uuid: UUID,
+        size: 90,
+        state: 'NEXUS_ONLINE',
+        children: [
+          {
+            uri: 'bdev:///' + UUID,
+            state: 'CHILD_ONLINE',
+            rebuildProgress: 0
+          }
+        ]
+      });
+
+      volumes.start();
+      volume = await volumes.createVolume(UUID, {
+        replicaCount: 1,
+        local: true,
+        preferredNodes: ['node2', 'node1', 'node3'],
+        requiredNodes: ['node1', 'node2', 'node3'],
+        requiredBytes: 90,
+        limitBytes: 0,
+        protocol: 'nvmf'
+      });
+      await waitUntil(() => volume.state === 'healthy', 'healthy volume');
+      expect(volume.spec.local).to.be.true();
+      sinon.assert.calledWithMatch(stub2.firstCall, 'createReplica', {
+        uuid: UUID,
+        pool: 'pool2',
+        size: 90,
+        thin: false,
+        share: 'REPLICA_NONE'
+      });
+      sinon.assert.notCalled(stub1);
+      sinon.assert.notCalled(stub3);
+    });
+
+    it('should create non-local volume', async () => {
+      stub1.onCall(0).resolves({
+        uuid: UUID,
+        pool: 'pool1',
+        size: 90,
+        thin: false,
+        share: 'REPLICA_NONE',
+        uri: 'bdev:///' + UUID
+      });
+      stub1.onCall(1).resolves({
+        uuid: UUID,
+        size: 90,
+        state: 'NEXUS_ONLINE',
+        children: [
+          {
+            uri: 'bdev:///' + UUID,
+            state: 'CHILD_ONLINE',
+            rebuildProgress: 0
+          }
+        ]
+      });
+
+      volumes.start();
+      volume = await volumes.createVolume(UUID, {
+        replicaCount: 1,
+        local: false,
+        preferredNodes: ['node2', 'node1', 'node3'],
+        requiredNodes: ['node2', 'node1', 'node3'],
+        requiredBytes: 90,
+        limitBytes: 0,
+        protocol: 'nvmf'
+      });
+      await waitUntil(() => volume.state === 'healthy', 'healthy volume');
+      expect(volume.spec.local).to.be.false();
+      sinon.assert.calledWithMatch(stub1.firstCall, 'createReplica', {
+        uuid: UUID,
+        pool: 'pool1',
+        size: 90,
+        thin: false,
+        share: 'REPLICA_NONE'
+      });
+      sinon.assert.notCalled(stub2);
+      sinon.assert.notCalled(stub3);
     });
 
     it('should set the size of the volume to required minimum if limit is not set', async () => {
@@ -217,6 +309,7 @@ module.exports = function () {
       volumes.start();
       volume = await volumes.createVolume(UUID, {
         replicaCount: 1,
+        local: false,
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 90,
@@ -261,6 +354,7 @@ module.exports = function () {
       volumes.start();
       volume = await volumes.createVolume(UUID, {
         replicaCount: 1,
+        local: false,
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 10,
@@ -284,6 +378,7 @@ module.exports = function () {
       await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
         volumes.createVolume(UUID, {
           replicaCount: 1,
+          local: false,
           preferredNodes: [],
           requiredNodes: [],
           requiredBytes: 0,
@@ -323,6 +418,7 @@ module.exports = function () {
       volumes.start();
       volume = await volumes.createVolume(UUID, {
         replicaCount: 1,
+        local: false,
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 10,
@@ -382,6 +478,7 @@ module.exports = function () {
       volumes.start();
       volume = await volumes.createVolume(UUID, {
         replicaCount: 1,
+        local: false,
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 10,
@@ -461,6 +558,7 @@ module.exports = function () {
       // Fake the volume
       volume = new Volume(UUID, registry, new EventEmitter(), {
         replicaCount: 3,
+        local: false,
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 90,
@@ -473,6 +571,7 @@ module.exports = function () {
 
       const volume2 = new Volume(UUID2, registry, new EventEmitter(), {
         replicaCount: 3,
+        local: false,
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 90,
@@ -602,6 +701,7 @@ module.exports = function () {
       // Create both volumes at once
       const create1 = volumes.createVolume(UUID, {
         replicaCount: 1,
+        local: false,
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 10,
@@ -610,6 +710,7 @@ module.exports = function () {
       });
       const create2 = volumes.createVolume(UUID2, {
         replicaCount: 1,
+        local: false,
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 10,
@@ -639,6 +740,7 @@ module.exports = function () {
 
     const volumeSpec = {
       replicaCount: 1,
+      local: false,
       preferredNodes: [],
       requiredNodes: [],
       requiredBytes: 10,
@@ -659,6 +761,7 @@ module.exports = function () {
       // we use two replicas in this test because it uncovers some corner cases
       const customVolumeSpec = {
         replicaCount: 2,
+        local: true,
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 10,
@@ -788,6 +891,84 @@ module.exports = function () {
       expect(volEvents).to.have.lengthOf(4);
     });
 
+    it('should import local volume and create missing local replica', async () => {
+      const volumeSpec = {
+        replicaCount: 2,
+        local: true,
+        preferredNodes: ['node3', 'node2', 'node1'],
+        requiredNodes: ['node1', 'node2', 'node3'],
+        requiredBytes: 10,
+        limitBytes: 50,
+        protocol: 'nvmf'
+      };
+      const replica = new Replica({
+        uuid: UUID,
+        size: 40,
+        share: 'REPLICA_NVMF',
+        uri: `nvmf://node2/${UUID}`
+      });
+      replica.pool = pool2;
+      const nexus = new Nexus({
+        uuid: UUID,
+        size: 40,
+        deviceUri: '',
+        state: 'NEXUS_ONLINE',
+        children: [
+          {
+            uri: `nvmf://node2/${UUID}`,
+            state: 'CHILD_ONLINE'
+          }
+        ]
+      });
+      nexus.node = node3;
+
+      const getReplicaSetStub = sinon.stub(registry, 'getReplicaSet');
+      getReplicaSetStub.returns([replica]);
+      const getNexusStub = sinon.stub(registry, 'getNexus');
+      getNexusStub.returns(nexus);
+
+      stub3.onCall(0).resolves({
+        uuid: UUID,
+        pool: 'pool3',
+        size: 40,
+        thin: false,
+        share: 'REPLICA_NONE',
+        uri: 'bdev:///' + UUID
+      });
+      stub3.onCall(1).resolves({
+        uri: `bdev:///${UUID}`,
+        state: 'CHILD_DEGRADED',
+        rebuildProgress: 10
+      });
+
+      volumes.start();
+      volume = volumes.importVolume(UUID, volumeSpec, { size: 40 });
+      await waitUntil(
+        () => volume.state === 'degraded' && volume.nexus.children.length === 2,
+        'degraded volume with two replicas'
+      );
+      expect(Object.keys(volume.replicas)).to.have.lengthOf(2);
+      // expect the new replica on the "local" node
+      expect(Object.values(volume.replicas)[0]).to.equal(replica);
+      expect(Object.values(volume.replicas)[1].pool.name).to.equal('pool3');
+
+      sinon.assert.notCalled(stub1);
+      sinon.assert.notCalled(stub2);
+      sinon.assert.calledTwice(stub3);
+      sinon.assert.calledWithMatch(stub3.firstCall, 'createReplica', {
+        uuid: UUID,
+        pool: 'pool3',
+        size: 40,
+        thin: false,
+        share: 'REPLICA_NONE'
+      });
+      sinon.assert.calledWithMatch(stub3.secondCall, 'addChildNexus', {
+        uuid: UUID,
+        uri: `bdev:///${UUID}`,
+        norebuild: false
+      });
+    });
+
     it('should import a volume without status', async () => {
       volumes.start();
       volume = volumes.importVolume(UUID, volumeSpec);
@@ -814,6 +995,7 @@ module.exports = function () {
       // Fake the volume
       volume = new Volume(UUID, registry, new EventEmitter(), {
         replicaCount: 1,
+        local: false,
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 90,
@@ -924,7 +1106,6 @@ module.exports = function () {
       const nexus = new Nexus({
         uuid: UUID,
         size: 95,
-        deviceUri: '',
         state: 'NEXUS_ONLINE',
         deviceUri: 'nvmf://node1/nqn',
         children: [
@@ -943,6 +1124,7 @@ module.exports = function () {
       // Fake the volume
       volume = new Volume(UUID, registry, new EventEmitter(), {
         replicaCount: 1,
+        local: false,
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 90,
@@ -982,7 +1164,7 @@ module.exports = function () {
       node1._offline();
       await waitUntil(
         () => volume.state === 'offline' && volume.nexus.isOffline(),
-        'offline volume',
+        'offline volume'
       );
       // The state of the vol should be as if the nexus was really unpublished
       // and destroyed even though that it's not possible because the node is
@@ -1031,9 +1213,10 @@ module.exports = function () {
 
       // Fake the volume
       const emitter = new EventEmitter();
-      emitter.on('mod', () => modCount += 1);
+      emitter.on('mod', () => { modCount += 1; });
       volume = new Volume(UUID, registry, emitter, {
         replicaCount: 1,
+        local: false,
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 90,
@@ -1059,6 +1242,7 @@ module.exports = function () {
       // scaling up and down, that is tested by different tests.
       const returnedVolume = await volumes.createVolume(UUID, {
         replicaCount: 1,
+        local: true,
         preferredNodes: [node2.name],
         requiredNodes: [node1.name],
         requiredBytes: 89,
@@ -1069,12 +1253,13 @@ module.exports = function () {
       sinon.assert.notCalled(stub2);
       sinon.assert.notCalled(stub3);
       expect(returnedVolume).to.equal(volume);
-      expect(volume.replicaCount).to.equal(1);
+      expect(volume.spec.replicaCount).to.equal(1);
       expect(volume.size).to.equal(95);
-      expect(volume.preferredNodes[0]).to.equal(node2.name);
-      expect(volume.requiredNodes[0]).to.equal(node1.name);
-      expect(volume.requiredBytes).to.equal(89);
-      expect(volume.limitBytes).to.equal(111);
+      expect(volume.spec.local).to.be.true();
+      expect(volume.spec.preferredNodes[0]).to.equal(node2.name);
+      expect(volume.spec.requiredNodes[0]).to.equal(node1.name);
+      expect(volume.spec.requiredBytes).to.equal(89);
+      expect(volume.spec.limitBytes).to.equal(111);
       expect(volume.state).to.equal('healthy');
       expect(modCount).to.equal(0);
     });
@@ -1082,6 +1267,7 @@ module.exports = function () {
     it('should not do anything if creating a volume that exists and has the same parameters', async () => {
       const returnedVolume = await volumes.createVolume(UUID, {
         replicaCount: 1,
+        local: false,
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 90,
@@ -1099,6 +1285,7 @@ module.exports = function () {
       await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
         volumes.createVolume(UUID, {
           replicaCount: 1,
+          local: false,
           preferredNodes: [],
           requiredNodes: [],
           requiredBytes: 90,
@@ -1112,6 +1299,7 @@ module.exports = function () {
       await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
         volumes.createVolume(UUID, {
           replicaCount: 1,
+          local: false,
           preferredNodes: [],
           requiredNodes: [],
           requiredBytes: 96,
@@ -1124,6 +1312,7 @@ module.exports = function () {
     it('should fail to change the protocol', async () => {
       await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () => volumes.createVolume(UUID, {
         replicaCount: 1,
+        local: true,
         preferredNodes: [node2.name],
         requiredNodes: [node1.name],
         requiredBytes: 89,
@@ -1281,6 +1470,7 @@ module.exports = function () {
         // update the spec
         await volumes.createVolume(UUID, {
           replicaCount: 1,
+          local: false,
           preferredNodes: [],
           requiredNodes: [],
           requiredBytes: 90,
@@ -1323,6 +1513,7 @@ module.exports = function () {
         // from node1 to node3
         volume = await volumes.createVolume(UUID, {
           replicaCount: 2,
+          local: false,
           preferredNodes: [],
           requiredNodes: ['node2', 'node3'],
           requiredBytes: 90,
@@ -1375,6 +1566,7 @@ module.exports = function () {
         // now we cannot create the new replica (this is the update op in fact)
         await volumes.createVolume(UUID, {
           replicaCount: 3,
+          local: false,
           preferredNodes: [],
           requiredNodes: [],
           requiredBytes: 90,
@@ -1460,6 +1652,7 @@ module.exports = function () {
         // update the spec
         volume = await volumes.createVolume(UUID, {
           replicaCount: 3,
+          local: false,
           preferredNodes: [],
           requiredNodes: [],
           requiredBytes: 90,
@@ -1523,6 +1716,7 @@ module.exports = function () {
         // update the spec
         await volumes.createVolume(UUID, {
           replicaCount: 1,
+          local: false,
           preferredNodes: [],
           requiredNodes: [],
           requiredBytes: 90,
@@ -1827,6 +2021,7 @@ module.exports = function () {
       volumes.start();
       volume = await volumes.createVolume(UUID, {
         replicaCount: 3,
+        local: false,
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 90,
@@ -1885,11 +2080,12 @@ module.exports = function () {
       expect(volume.uuid).to.equal(UUID);
       expect(volume.getSize()).to.equal(96);
       expect(volume.getNodeName()).to.be.undefined();
-      expect(volume.replicaCount).to.equal(3);
-      expect(volume.preferredNodes).to.have.lengthOf(0);
-      expect(volume.requiredNodes).to.have.lengthOf(0);
-      expect(volume.requiredBytes).to.equal(90);
-      expect(volume.limitBytes).to.equal(110);
+      expect(volume.spec.local).to.be.false();
+      expect(volume.spec.replicaCount).to.equal(3);
+      expect(volume.spec.preferredNodes).to.have.lengthOf(0);
+      expect(volume.spec.requiredNodes).to.have.lengthOf(0);
+      expect(volume.spec.requiredBytes).to.equal(90);
+      expect(volume.spec.limitBytes).to.equal(110);
       expect(volume.nexus).to.be.null();
       expect(Object.keys(volume.replicas)).to.have.lengthOf(3);
       expect(volume.replicas.node1.uuid).to.equal(UUID);
@@ -1946,7 +2142,7 @@ module.exports = function () {
 
       expect(volume.getNodeName()).to.equal('node1');
       expect(volume.getSize()).to.equal(96);
-      expect(volume.replicaCount).to.equal(3);
+      expect(volume.spec.replicaCount).to.equal(3);
       expect(volume.nexus.uuid).to.equal(UUID);
       expect(Object.keys(volume.replicas)).to.have.lengthOf(3);
       expect(volume.state).to.equal('healthy');
