@@ -1,3 +1,7 @@
+//!
+//! Trait implementation for native bdev
+//!
+
 use std::{
     collections::HashMap,
     convert::TryFrom,
@@ -5,9 +9,22 @@ use std::{
     sync::{Arc, RwLock},
 };
 
+use async_trait::async_trait;
+use nix::errno::Errno;
+use once_cell::sync::Lazy;
+
+use spdk_sys::{
+    iovec,
+    spdk_bdev_free_io,
+    spdk_bdev_io,
+    spdk_bdev_readv_blocks,
+    spdk_bdev_reset,
+    spdk_bdev_unmap_blocks,
+    spdk_bdev_write_zeroes_blocks,
+    spdk_bdev_writev_blocks,
+};
+
 use crate::core::{
-    mempool::MemoryPool,
-    nvme_admin_opc,
     Bdev,
     BdevHandle,
     Bio,
@@ -26,21 +43,9 @@ use crate::core::{
     IoCompletionCallbackArg,
     IoCompletionStatus,
     IoType,
+    mempool::MemoryPool,
+    nvme_admin_opc,
     NvmeCommandStatus,
-};
-
-use async_trait::async_trait;
-use nix::errno::Errno;
-use once_cell::sync::Lazy;
-use spdk_sys::{
-    iovec,
-    spdk_bdev_free_io,
-    spdk_bdev_io,
-    spdk_bdev_readv_blocks,
-    spdk_bdev_reset,
-    spdk_bdev_unmap_blocks,
-    spdk_bdev_write_zeroes_blocks,
-    spdk_bdev_writev_blocks,
 };
 
 static BDEV_LISTENERS: Lazy<RwLock<HashMap<String, Vec<DeviceEventListener>>>> =
@@ -52,6 +57,7 @@ static IOCTX_POOL: Lazy<MemoryPool<IoCtx>> = Lazy::new(|| {
     MemoryPool::<IoCtx>::create("bdev_io_ctx", IOCTX_POOL_SIZE)
         .expect("Failed to create memory pool for bdev I/O context")
 });
+
 /// Wrapper around native SPDK block devices, which mimics target SPDK block
 /// device as an abstract BlockDevice instance.
 pub(crate) struct SpdkBlockDevice {
@@ -122,7 +128,7 @@ impl SpdkBlockDevice {
         Some(Box::new(SpdkBlockDevice::new(bdev)))
     }
 
-    /// Open SPDK bdev by its name and get a block device desriptor.
+    /// Open SPDK bdev by its name and get a block device descriptor.
     pub fn open_by_name(
         name: &str,
         read_write: bool,
@@ -151,50 +157,51 @@ impl SpdkBlockDevice {
 
 #[async_trait(?Send)]
 impl BlockDevice for SpdkBlockDevice {
+    /// return the size in bytes
     fn size_in_bytes(&self) -> u64 {
         self.bdev.size_in_bytes()
     }
-
+    /// returns the length of the block size in bytes
     fn block_len(&self) -> u64 {
         self.bdev.block_len() as u64
     }
-
+    /// number of blocks the device has
     fn num_blocks(&self) -> u64 {
         self.bdev.num_blocks()
     }
-
+    /// the UUID of the device
     fn uuid(&self) -> String {
         self.bdev.uuid_as_string()
     }
-
+    //// returns the product name
     fn product_name(&self) -> String {
         self.bdev.product_name()
     }
-
+    //// returns the driver name of the block device
     fn driver_name(&self) -> String {
         self.bdev.driver()
     }
-
+    /// returns the name of the device
     fn device_name(&self) -> String {
         self.bdev.name()
     }
-
+    //// returns the alignment of the device
     fn alignment(&self) -> u64 {
         self.bdev.alignment()
     }
-
+    /// returns true if the IO type is supported
     fn io_type_supported(&self, io_type: IoType) -> bool {
         self.bdev.io_type_supported(io_type)
     }
-
+    /// returns the IO statistics
     async fn io_stats(&self) -> Result<BlockDeviceIoStats, CoreError> {
         self.bdev.stats().await
     }
-
+    /// returns which module has returned driver
     fn claimed_by(&self) -> Option<String> {
         self.bdev.claimed_by()
     }
-
+    /// open the device returning descriptor to the device
     fn open(
         &self,
         read_write: bool,
@@ -203,10 +210,11 @@ impl BlockDevice for SpdkBlockDevice {
         Ok(Box::new(SpdkBlockDeviceDescriptor::from(descr)))
     }
 
+    /// returns the IO controller
     fn get_io_controller(&self) -> Option<Box<dyn DeviceIoController>> {
         None
     }
-
+    /// add a callback to be called when a particular event is received
     fn add_event_listener(
         &self,
         listener: DeviceEventListener,
@@ -236,6 +244,7 @@ impl From<BdevHandle> for SpdkBlockDeviceHandle {
     }
 }
 
+#[inline]
 fn io_type_to_err(
     op: IoType,
     source: Errno,
@@ -270,6 +279,7 @@ fn io_type_to_err(
     }
 }
 
+#[inline]
 fn alloc_io_ctx(
     op: IoType,
     ctx: IoCtx,
@@ -541,7 +551,7 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
         }
     }
 
-    // NVMe commands are not applicable for non-NVMe devices.
+    /// NVMe commands are not applicable for non-NVMe devices.
     async fn nvme_admin_custom(&self, opcode: u8) -> Result<(), CoreError> {
         Err(CoreError::NvmeAdminDispatch {
             source: Errno::ENXIO,
@@ -549,7 +559,7 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
         })
     }
 
-    // NVMe commands are not applicable for non-NVMe devices.
+    /// NVMe commands are not applicable for non-NVMe devices.
     async fn nvme_admin(
         &self,
         nvme_cmd: &spdk_sys::spdk_nvme_cmd,
@@ -561,7 +571,7 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
         })
     }
 
-    // NVMe commands are not applicable for non-NVMe devices.
+    /// NVMe commands are not applicable for non-NVMe devices.
     async fn nvme_identify_ctrlr(&self) -> Result<DmaBuf, CoreError> {
         Err(CoreError::NvmeAdminDispatch {
             source: Errno::ENXIO,
