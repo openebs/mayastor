@@ -51,7 +51,7 @@ impl TryFrom<u32> for DeviceTimeoutAction {
 
 /// Maximum number of controller reset attempts to be taken in case
 /// controller reset fails. Once this limit is reached, the next possible
-/// controller reset will be allowed only when reset cooldown interval
+/// controller reset will be allowed only when reset cool down interval
 /// elapses.
 /// This is done to prevent the storm of reset requests in response to
 /// frequent I/O errors in a controller (including errors while processing
@@ -60,7 +60,7 @@ const MAX_RESET_ATTEMPTS: u32 = 5;
 
 /// Time to wait till reset attempts can be recharged to maximum
 /// after all current reset attempts have been used.
-const RESET_COOLDOWN_INTERVAL: u64 = 30;
+const RESET_COOLDOWN_INTERVAL: Duration = Duration::from_secs(30);
 
 pub(crate) struct TimeoutConfig {
     pub name: String,
@@ -111,11 +111,10 @@ impl TimeoutConfig {
             // Setup the reset cooldown interval in case of the last
             // failed reset attempt.
             if timeout_ctx.reset_attempts == 0 {
-                timeout_ctx.next_reset_time = Instant::now()
-                    + Duration::from_secs(RESET_COOLDOWN_INTERVAL);
+                timeout_ctx.next_reset_time = Instant::now() + RESET_COOLDOWN_INTERVAL;
                 info!(
-                    "{} reset cooldown interval activated ({} secs)",
-                    timeout_ctx.name, RESET_COOLDOWN_INTERVAL,
+                    "{} reset cool down interval activated ({} secs)",
+                    timeout_ctx.name, RESET_COOLDOWN_INTERVAL.as_secs(),
                 );
             }
         }
@@ -135,12 +134,12 @@ impl TimeoutConfig {
             return;
         }
 
-        // Check if the maximum number of resets exceeded and we need
-        // to adjust the number of attempts based on time reset cooldown period.
+        // Check if the maximum number of resets exceeded, and we need
+        // to adjust the number of attempts based on time reset cool down period.
         if self.reset_attempts == 0 && Instant::now() >= self.next_reset_time {
             self.reset_attempts = MAX_RESET_ATTEMPTS;
             info!(
-                "{} reset cooldown period elapsed, reset enabled.",
+                "{} reset cool down period elapsed, reset enabled.",
                 self.name,
             );
         }

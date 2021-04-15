@@ -238,7 +238,7 @@ impl<'a> NvmeController<'a> {
         let mut notify_listeners = false;
 
         // Deactivate existing namespace in case it is no longer active.
-        if !ns_active && ctrlr_inner.namespaces.len() != 0 {
+        if !ns_active && !ctrlr_inner.namespaces.is_empty() {
             info!("{}: deactivating existing namespace", self.name);
             notify_listeners = true;
         }
@@ -333,7 +333,7 @@ impl<'a> NvmeController<'a> {
 
         info!("{}: starting reset", self.name);
         let inner = self.inner.as_mut().unwrap();
-        // Iterate over all I/O channels and rrest/econfigure them one by one.
+        // Iterate over all I/O channels and reset/configure them one by one.
         inner.io_device.traverse_io_channels(
             NvmeController::_reset_destroy_channels,
             NvmeController::_reset_destroy_channels_done,
@@ -621,7 +621,7 @@ impl<'a> NvmeController<'a> {
         channel: &mut NvmeIoChannelInner,
         reset_ctx: &mut ResetCtx,
     ) -> i32 {
-        // Make sure no cuncurrent shutdown takes place.
+        // Make sure no concurrent shutdown takes place.
         if channel.is_shutdown() {
             return 0;
         }
@@ -1090,7 +1090,7 @@ impl IoDevice {
         }));
         assert!(
             !traverse_ctx.is_null(),
-            "Failed to allocate contex for I/O channels iteration"
+            "Failed to allocate context for I/O channels iteration"
         );
 
         /// Low-level per-channel visitor to be invoked by SPDK I/O channel
