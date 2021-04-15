@@ -1,3 +1,24 @@
+use std::{
+    collections::HashMap,
+    fmt::Display,
+    sync::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard},
+};
+
+use once_cell::sync::Lazy;
+
+pub use channel::{NvmeControllerIoChannel, NvmeIoChannel, NvmeIoChannelInner};
+pub use controller::NvmeController;
+pub use controller_state::NvmeControllerState;
+pub use device::{lookup_by_name, NvmeBlockDevice, open_by_name};
+pub use handle::NvmeDeviceHandle;
+pub use namespace::NvmeNamespace;
+pub(crate) use uri::NvmfDeviceTemplate;
+
+use crate::{
+    core::CoreError,
+    subsys::{Config, NvmeBdevOpts},
+};
+
 mod channel;
 mod controller;
 mod controller_inner;
@@ -7,26 +28,6 @@ mod handle;
 mod namespace;
 mod uri;
 pub mod utils;
-
-pub use channel::{NvmeControllerIoChannel, NvmeIoChannel, NvmeIoChannelInner};
-pub use controller::NvmeController;
-pub use controller_state::NvmeControllerState;
-pub use device::{lookup_by_name, open_by_name, NvmeBlockDevice};
-pub use handle::NvmeDeviceHandle;
-pub use namespace::NvmeNamespace;
-pub(crate) use uri::NvmfDeviceTemplate;
-
-use crate::{
-    core::CoreError,
-    subsys::{Config, NvmeBdevOpts},
-};
-use std::{
-    collections::HashMap,
-    fmt::Display,
-    sync::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard},
-};
-
-use once_cell::sync::Lazy;
 
 #[derive(Debug)]
 pub(crate) struct NVMeCtlrList<'a> {
@@ -57,7 +58,6 @@ impl<'a> NVMeCtlrList<'a> {
 
     /// remove a NVMe controller from the list, when the last reference to the
     /// controller is dropped, the controller will be freed.
-
     pub fn remove_by_name<T: Into<String> + Display>(
         &self,
         name: T,

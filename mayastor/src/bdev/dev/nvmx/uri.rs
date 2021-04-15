@@ -257,7 +257,7 @@ impl CreateDestroy for NvmfDeviceTemplate {
 
         let poller = poller::Builder::new()
             .with_name("nvme_async_probe_poller")
-            .with_interval(1000)
+            .with_interval(1000)// poll every 1 second
             .with_poll_fn(move || unsafe {
                 spdk_nvme_probe_poll_async(probe_ctx.unwrap().as_ptr())
             })
