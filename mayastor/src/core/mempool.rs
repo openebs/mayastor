@@ -1,5 +1,10 @@
+//!
+//! Thread safe memory pool implemented by using DPDKs rte_ring constructs.
+//! This is avoids doing memory allocations in the hot path.
+//!
+//! Borrowed buffers are accounted for and validated upon freeing.
+
 use std::{
-    ffi::CString,
     marker::PhantomData,
     mem::size_of,
     os::raw::c_void,
@@ -16,6 +21,8 @@ use spdk_sys::{
     spdk_mempool_put,
 };
 
+use crate::ffihelper::IntoCString;
+
 pub struct MemoryPool<T: Sized> {
     pool: NonNull<spdk_mempool>,
     name: String,
@@ -26,15 +33,10 @@ pub struct MemoryPool<T: Sized> {
 unsafe impl<T: Sized> Send for MemoryPool<T> {}
 unsafe impl<T: Sized> Sync for MemoryPool<T> {}
 
-/*
- * Thread-safe memory pool with preallocated number of objects of the same
- * size. Uses xPDK to manage all memory allocations.
- */
 impl<T: Sized> MemoryPool<T> {
-    // Create memory pool with given name and size.
+    /// Create memory pool with given name and size.
     pub fn create(name: &str, size: u64) -> Option<Self> {
-        let cname =
-            CString::new(name).expect("Failed to translate memory pool name");
+        let cname = name.into_cstring();
 
         let pool: *mut spdk_mempool = unsafe {
             spdk_mempool_create(
@@ -63,8 +65,8 @@ impl<T: Sized> MemoryPool<T> {
         })
     }
 
-    // Get free element from memory pool and initialize memory with target
-    // object.
+    /// Get free element from memory pool and initialize memory with target
+    /// object.
     pub fn get(&self, val: T) -> Option<*mut T> {
         let ptr: *mut T =
             unsafe { spdk_mempool_get(self.pool.as_ptr()) } as *mut T;
@@ -80,7 +82,7 @@ impl<T: Sized> MemoryPool<T> {
         Some(ptr)
     }
 
-    // Return allocated element to memory pool.
+    /// Return allocated element to memory pool.
     pub fn put(&self, ptr: *mut T) {
         unsafe {
             spdk_mempool_put(self.pool.as_ptr(), ptr as *mut c_void);
