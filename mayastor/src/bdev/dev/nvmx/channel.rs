@@ -267,7 +267,7 @@ impl NvmeIoChannelInner<'_> {
         }
     }
 
-    /// Reinitializes channel after reset unless the channel is shutdown.
+    /// Reinitialize channel after reset unless the channel is shutdown.
     pub fn reinitialize(
         &mut self,
         ctrlr_name: &str,
