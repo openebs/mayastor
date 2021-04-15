@@ -153,7 +153,7 @@ pub struct NexusChild {
     /// Note that block device name can differ from it!
     pub name: String,
     #[serde(skip_serializing)]
-    /// Underlaying block device.
+    /// Underlying block device.
     device: Option<Box<dyn BlockDevice>>,
     #[serde(skip_serializing)]
     device_descriptor: Option<Box<dyn BlockDeviceDescriptor>>,
