@@ -1,10 +1,11 @@
-use once_cell::sync::OnceCell;
 use std::{collections::HashMap, ffi::CString, ptr::null_mut};
 
+use once_cell::sync::OnceCell;
+
+use common::compose::MayastorTest;
 use mayastor::core::{mempool::MemoryPool, MayastorCliArgs};
 
 pub mod common;
-use common::compose::MayastorTest;
 
 static MAYASTOR: OnceCell<MayastorTest> = OnceCell::new();
 

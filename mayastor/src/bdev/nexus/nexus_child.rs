@@ -1,5 +1,7 @@
 use std::fmt::{Debug, Display, Formatter};
 
+use crossbeam::atomic::AtomicCell;
+use futures::{channel::mpsc, SinkExt, StreamExt};
 use nix::errno::Errno;
 use serde::Serialize;
 use snafu::{ResultExt, Snafu};
@@ -16,6 +18,7 @@ use crate::{
             nexus_child_status_config::ChildStatusConfig,
         },
         nexus_lookup,
+        Guid,
         VerboseError,
     },
     core::{
@@ -29,9 +32,6 @@ use crate::{
     nexus_uri::NexusBdevError,
     rebuild::{ClientOperations, RebuildJob},
 };
-use crossbeam::atomic::AtomicCell;
-use futures::{channel::mpsc, SinkExt, StreamExt};
-use crate::bdev::Guid;
 
 #[derive(Debug, Snafu)]
 pub enum ChildError {
@@ -513,41 +513,13 @@ impl NexusChild {
             Ok(())
         }
     }
-
-    /// Check if the child is in a state that can service I/O.
-    /// When out-of-sync, the child is still accessible (can accept I/O)
-    /// because:
-    /// 1. An added child starts in the out-of-sync state and may require its
-    ///    label and metadata to be updated
-    /// 2. It needs to be rebuilt
-    fn check_accessible(&self) -> Result<(), ChildError> {
-        if self.state() == ChildState::Open
-            || self.state() == ChildState::Faulted(Reason::OutOfSync)
-        {
-            Ok(())
+    /// Return reference to child's block device.
+    pub(crate) fn get_device(&self) -> Result<&dyn BlockDevice, ChildError> {
+        if let Some(ref device) = self.device {
+            Ok(&**device)
         } else {
-            error!(
-                "{}: nexus child is inaccessible (state={})",
-                self.name,
-                self.state()
-            );
             Err(ChildError::ChildInaccessible {})
         }
-    }
-
-    /// Return reference to child's block device.
-    pub(crate) fn get_device(
-        &self,
-    ) -> Result<&Box<dyn BlockDevice>, ChildError> {
-        self.device.as_ref().ok_or(ChildError::ChildInaccessible {})
-    }
-
-    pub(crate) fn get_dev(
-        &self,
-    ) -> Result<(&Box<dyn BlockDevice>, Box<dyn BlockDeviceHandle>), ChildError>
-    {
-        self.check_accessible()?;
-        Ok((self.get_device().unwrap(), self.get_io_handle().unwrap()))
     }
 
     /// Return the rebuild job which is rebuilding this child, if rebuilding.

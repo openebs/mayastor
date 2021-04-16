@@ -1,6 +1,10 @@
-use common::compose::{Builder, MayastorTest};
+use std::{slice, str, sync::atomic::AtomicPtr};
+
 use crossbeam::atomic::AtomicCell;
 use libc::c_void;
+use once_cell::sync::{Lazy, OnceCell};
+
+use common::compose::{Builder, MayastorTest};
 use mayastor::{
     bdev::{device_create, device_destroy, device_open},
     core::{
@@ -13,10 +17,8 @@ use mayastor::{
     },
     subsys::{Config, NvmeBdevOpts},
 };
-use once_cell::sync::{Lazy, OnceCell};
 use rpc::mayastor::{BdevShareRequest, BdevUri, Null};
 use spdk_sys::iovec;
-use std::{slice, str, sync::atomic::AtomicPtr};
 
 pub mod common;
 
@@ -119,13 +121,13 @@ async fn test_io_timeout(action_on_timeout: DeviceTimeoutAction) {
 
     test.pause("ms1").await.unwrap();
     for i in 1 .. 6 {
-        tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         println!("waiting for the container to be fully suspended... {}/5", i);
     }
 
     // Read completion callback.
     fn read_completion_callback(
-        device: &Box<dyn BlockDevice>,
+        device: &dyn BlockDevice,
         status: IoCompletionStatus,
         ctx: *mut c_void,
     ) {
@@ -201,7 +203,7 @@ async fn test_io_timeout(action_on_timeout: DeviceTimeoutAction) {
     // Wait up to 120 seconds till I/O times out.
     for i in 1 .. 25 {
         println!("waiting for I/O to be timed out... {}/24", i);
-        tokio::time::delay_for(std::time::Duration::from_secs(5)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         // Break the loop if the callback has been called in response to I/O
         // cancelling.
         if CALLBACK_FLAG.load() {
@@ -296,20 +298,16 @@ async fn io_timeout_ignore() {
             // handle.get_device() returns a reference, so it should not
             // interfere with the move of the handle itself, hence
             // device is accessed with a different lifetime.
-            let (block_len, alignment) = {
-                let device = handle.get_device();
-                let action_on_timeout = DeviceTimeoutAction::Ignore;
-                let mut io_controller = device.get_io_controller().unwrap();
+            let device = handle.get_device();
+            let action_on_timeout = DeviceTimeoutAction::Ignore;
+            let mut io_controller = device.get_io_controller().unwrap();
 
-                io_controller.set_timeout_action(action_on_timeout).unwrap();
-                assert_eq!(
-                    io_controller.get_timeout_action().unwrap(),
-                    action_on_timeout,
-                    "I/O timeout action mismatches"
-                );
-
-                (device.block_len(), device.alignment())
-            };
+            io_controller.set_timeout_action(action_on_timeout).unwrap();
+            assert_eq!(
+                io_controller.get_timeout_action().unwrap(),
+                action_on_timeout,
+                "I/O timeout action mismatches"
+            );
 
             // Store device name for further checking from I/O callback.
             DEVICE_NAME.set(device_name.clone()).unwrap();
@@ -323,13 +321,13 @@ async fn io_timeout_ignore() {
 
     test.pause("ms1").await.unwrap();
     for i in 1 .. 6 {
-        tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         println!("waiting for the container to be fully suspended... {}/5", i);
     }
 
     // Read completion callback.
     fn read_completion_callback(
-        device: &Box<dyn BlockDevice>,
+        device: &dyn BlockDevice,
         status: IoCompletionStatus,
         ctx: *mut c_void,
     ) {
@@ -407,7 +405,7 @@ async fn io_timeout_ignore() {
     // interrupted.
     for i in 1 .. 6 {
         println!("waiting for I/O timeout to happen... {}/5", i);
-        tokio::time::delay_for(std::time::Duration::from_secs(5)).await;
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         assert_eq!(CALLBACK_FLAG.load(), false, "I/O operation interrupted");
     }
 

@@ -97,10 +97,10 @@ impl RpcHandle {
 
         Ok(Self {
             name,
+            endpoint,
             mayastor,
             bdev,
             jsonrpc,
-            endpoint,
         })
     }
 }

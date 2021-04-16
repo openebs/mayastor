@@ -1,20 +1,12 @@
-use crossbeam::atomic::AtomicCell;
 use std::{
     convert::TryFrom,
+    ops::{Deref, DerefMut},
     os::raw::c_void,
     ptr::NonNull,
     time::{Duration, Instant},
 };
 
-use crate::{
-    bdev::dev::nvmx::{
-        nvme_bdev_running_config,
-        utils::nvme_cpl_succeeded,
-        NvmeController,
-        NVME_CONTROLLERS,
-    },
-    core::{CoreError, DeviceIoController, DeviceTimeoutAction},
-};
+use crossbeam::atomic::AtomicCell;
 
 use spdk_sys::{
     spdk_nvme_cmd_cb,
@@ -27,6 +19,16 @@ use spdk_sys::{
     SPDK_BDEV_NVME_TIMEOUT_ACTION_ABORT,
     SPDK_BDEV_NVME_TIMEOUT_ACTION_NONE,
     SPDK_BDEV_NVME_TIMEOUT_ACTION_RESET,
+};
+
+use crate::{
+    bdev::dev::nvmx::{
+        nvme_bdev_running_config,
+        utils::nvme_cpl_succeeded,
+        NvmeController,
+        NVME_CONTROLLERS,
+    },
+    core::{CoreError, DeviceIoController, DeviceTimeoutAction},
 };
 
 impl TryFrom<u32> for DeviceTimeoutAction {
@@ -111,10 +113,12 @@ impl TimeoutConfig {
             // Setup the reset cooldown interval in case of the last
             // failed reset attempt.
             if timeout_ctx.reset_attempts == 0 {
-                timeout_ctx.next_reset_time = Instant::now() + RESET_COOLDOWN_INTERVAL;
+                timeout_ctx.next_reset_time =
+                    Instant::now() + RESET_COOLDOWN_INTERVAL;
                 info!(
                     "{} reset cool down interval activated ({} secs)",
-                    timeout_ctx.name, RESET_COOLDOWN_INTERVAL.as_secs(),
+                    timeout_ctx.name,
+                    RESET_COOLDOWN_INTERVAL.as_secs(),
                 );
             }
         }
@@ -135,7 +139,8 @@ impl TimeoutConfig {
         }
 
         // Check if the maximum number of resets exceeded, and we need
-        // to adjust the number of attempts based on time reset cool down period.
+        // to adjust the number of attempts based on time reset cool down
+        // period.
         if self.reset_attempts == 0 && Instant::now() >= self.next_reset_time {
             self.reset_attempts = MAX_RESET_ATTEMPTS;
             info!(
@@ -196,8 +201,22 @@ impl TimeoutConfig {
     }
 }
 
-pub(crate) struct SpdkNvmeController(NonNull<spdk_nvme_ctrlr>);
+#[derive(Copy, Clone, Debug)]
+pub struct SpdkNvmeController(NonNull<spdk_nvme_ctrlr>);
 
+impl Deref for SpdkNvmeController {
+    type Target = spdk_sys::spdk_nvme_ctrlr;
+
+    fn deref(&self) -> &Self::Target {
+        unsafe { self.0.as_ref() }
+    }
+}
+
+impl DerefMut for SpdkNvmeController {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        unsafe { self.0.as_mut() }
+    }
+}
 /// Wrapper around SPDK controller object to abstract low-level library API.
 impl SpdkNvmeController {
     /// Transform SPDK NVMe controller object into a wrapper instance.
@@ -224,6 +243,10 @@ impl SpdkNvmeController {
         unsafe {
             spdk_nvme_ctrlr_cmd_abort(self.0.as_ptr(), qpair, cid, cb, cb_arg)
         }
+    }
+
+    pub fn as_ptr(&self) -> *mut spdk_nvme_ctrlr {
+        self.0.as_ptr()
     }
 }
 

@@ -308,7 +308,7 @@ async fn nvmf_io_stats() {
     static DEVICE_NAME: OnceCell<String> = OnceCell::new();
 
     fn io_completion_callback(
-        device: &Box<dyn BlockDevice>,
+        device: &dyn BlockDevice,
         status: IoCompletionStatus,
         _ctx: *mut c_void,
     ) {
@@ -416,7 +416,7 @@ async fn nvmf_io_stats() {
 
     // Sleep for a few seconds to let I/O operation complete.
     println!("Sleeping for 2 secs to let I/O operation complete");
-    tokio::time::delay_for(std::time::Duration::from_secs(2)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     println!("Awakened.");
 
     // Check I/O stats and destroy the device.
@@ -553,7 +553,7 @@ async fn nvmf_device_readv_test() {
 
     // Read completion callback.
     fn read_completion_callback(
-        device: &Box<dyn BlockDevice>,
+        device: &dyn BlockDevice,
         status: IoCompletionStatus,
         ctx: *mut c_void,
     ) {
@@ -635,7 +635,7 @@ async fn nvmf_device_readv_test() {
 
     // Sleep for a few seconds to let I/O operation complete.
     println!("Sleeping for 2 secs to let I/O operation complete");
-    tokio::time::delay_for(std::time::Duration::from_secs(2)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     println!("Awakened.");
 
     // Check that the callback has been called.
@@ -676,7 +676,7 @@ async fn nvmf_device_writev_test() {
 
     // Read completion callback.
     fn write_completion_callback(
-        device: &Box<dyn BlockDevice>,
+        device: &dyn BlockDevice,
         status: IoCompletionStatus,
         ctx: *mut c_void,
     ) {
@@ -776,7 +776,7 @@ async fn nvmf_device_writev_test() {
 
     // Sleep for a few seconds to let I/O operation complete.
     println!("Sleeping for 2 secs to let I/O operation complete");
-    tokio::time::delay_for(std::time::Duration::from_secs(2)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     println!("Awakened.");
 
     // Check that the callback has been called.
@@ -847,7 +847,7 @@ async fn nvmf_device_readv_iovs_test() {
 
     // Read completion callback.
     fn read_completion_callback(
-        device: &Box<dyn BlockDevice>,
+        device: &dyn BlockDevice,
         status: IoCompletionStatus,
         ctx: *mut c_void,
     ) {
@@ -953,7 +953,7 @@ async fn nvmf_device_readv_iovs_test() {
 
     // Sleep for a few seconds to let I/O operation complete.
     println!("Sleeping for 2 secs to let I/O operation complete");
-    tokio::time::delay_for(std::time::Duration::from_secs(2)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     println!("Awakened.");
 
     // Check that the callback has been called.
@@ -971,7 +971,7 @@ async fn nvmf_device_readv_iovs_test() {
     })
     .await;
 
-    tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     println!("Awakened.");
 
     // Safely destroy the device once all handles are freed.
@@ -1009,7 +1009,7 @@ async fn nvmf_device_writev_iovs_test() {
 
     // Write completion callback.
     fn write_completion_callback(
-        device: &Box<dyn BlockDevice>,
+        device: &dyn BlockDevice,
         status: IoCompletionStatus,
         ctx: *mut c_void,
     ) {
@@ -1124,7 +1124,7 @@ async fn nvmf_device_writev_iovs_test() {
 
     // Sleep for a few seconds to let I/O operation complete.
     println!("Sleeping for 2 secs to let I/O operation complete");
-    tokio::time::delay_for(std::time::Duration::from_secs(2)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     println!("Awakened.");
 
     // Check that the callback has been called.
@@ -1217,7 +1217,7 @@ async fn nvmf_device_reset() {
 
     // Read completion callback.
     fn reset_completion_callback(
-        device: &Box<dyn BlockDevice>,
+        device: &dyn BlockDevice,
         status: IoCompletionStatus,
         ctx: *mut c_void,
     ) {
@@ -1274,7 +1274,7 @@ async fn nvmf_device_reset() {
 
     // Sleep for a few seconds to let reset operation complete.
     println!("Sleeping for 2 secs to let reset operation complete");
-    tokio::time::delay_for(std::time::Duration::from_secs(2)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     println!("Awakened.");
 
     // Check that the callback has been called.
@@ -1313,7 +1313,7 @@ async fn wipe_device_blocks(is_unmap: bool) {
 
     // Read completion callback.
     fn wipe_completion_callback(
-        device: &Box<dyn BlockDevice>,
+        device: &dyn BlockDevice,
         status: IoCompletionStatus,
         ctx: *mut c_void,
     ) {
@@ -1426,7 +1426,7 @@ async fn wipe_device_blocks(is_unmap: bool) {
 
     // Sleep for a few seconds to let unmap operation complete.
     println!("Sleeping for 2 secs to let operation complete");
-    tokio::time::delay_for(std::time::Duration::from_secs(2)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(2)).await;
     println!("Awakened.");
 
     ms.spawn(async move {
@@ -1506,7 +1506,7 @@ async fn nvmf_reset_abort_io() {
 
     // Read I/O completion callback.
     fn read_completion_callback(
-        device: &Box<dyn BlockDevice>,
+        device: &dyn BlockDevice,
         status: IoCompletionStatus,
         ctx: *mut c_void,
     ) {
@@ -1518,7 +1518,7 @@ async fn nvmf_reset_abort_io() {
 
         // Make sure we have the correct device.
         assert_eq!(
-            &device.device_name(),
+            &*device.device_name(),
             DEVICE_NAME.get().unwrap(),
             "Device name mismatch"
         );
@@ -1538,7 +1538,7 @@ async fn nvmf_reset_abort_io() {
 
     // Write I/O completion callback.
     fn write_completion_callback(
-        device: &Box<dyn BlockDevice>,
+        device: &dyn BlockDevice,
         status: IoCompletionStatus,
         ctx: *mut c_void,
     ) {
@@ -1570,7 +1570,7 @@ async fn nvmf_reset_abort_io() {
 
     // Reset completion calback.
     fn reset_completion_callback(
-        device: &Box<dyn BlockDevice>,
+        device: &dyn BlockDevice,
         status: IoCompletionStatus,
         ctx: *mut c_void,
     ) {
@@ -1679,7 +1679,7 @@ async fn nvmf_reset_abort_io() {
 
     // Sleep for a few seconds to let all I/O operations be aborted.
     println!("Sleeping for 1 sec to let reset hit I/O operations");
-    tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     println!("Awakened.");
 
     // Check that the reset callback has been called and
@@ -1754,7 +1754,7 @@ async fn nvmf_device_io_handle_cleanup() {
         .await;
 
     println!("Sleeping for 1 sec to let device cleanup operations complete");
-    tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     println!("Awakened.");
 
     // 2. Try to repeat the same I/O operations: expecting
@@ -1830,7 +1830,7 @@ async fn nvmf_device_hot_remove() {
 
     // Wait for AER event to arrive.
     println!("Sleeping for 1 sec to let AER event be processed");
-    tokio::time::delay_for(std::time::Duration::from_secs(1)).await;
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
     println!("Awakened.");
 
     check_callback_invocation();

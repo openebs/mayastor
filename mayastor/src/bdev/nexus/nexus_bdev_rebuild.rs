@@ -48,7 +48,7 @@ impl Nexus {
             .iter()
             .find(|c| c.state() == ChildState::Open && c.get_name() != name)
         {
-            Some(child) => Ok(child.get_name().clone()),
+            Some(child) => Ok(child.name.clone()),
             None => Err(Error::NoRebuildSource {
                 name: self.name.clone(),
             }),
@@ -59,7 +59,7 @@ impl Nexus {
                 Some(c)
                     if c.state() == ChildState::Faulted(Reason::OutOfSync) =>
                 {
-                    Ok(c.get_name().clone())
+                    Ok(c.name.clone())
                 }
                 Some(c) => Err(Error::ChildNotDegraded {
                     child: name.to_owned(),

@@ -1,22 +1,10 @@
 /* I/O channel for NVMe controller, one per core. */
 
-use crate::{
-    bdev::{
-        dev::nvmx::{
-            nvme_bdev_running_config,
-            NvmeControllerState,
-            NVME_CONTROLLERS,
-        },
-        device_lookup,
-    },
-    core::{poller, BlockDevice, BlockDeviceIoStats, CoreError, IoType},
-};
 use std::{cmp::max, mem::size_of, os::raw::c_void, ptr::NonNull};
 
 use spdk_sys::{
     nvme_qpair_abort_reqs,
     spdk_io_channel,
-    spdk_nvme_ctrlr,
     spdk_nvme_ctrlr_alloc_io_qpair,
     spdk_nvme_ctrlr_connect_io_qpair,
     spdk_nvme_ctrlr_disconnect_io_qpair,
@@ -32,6 +20,19 @@ use spdk_sys::{
     spdk_nvme_poll_group_remove,
     spdk_nvme_qpair,
     spdk_put_io_channel,
+};
+
+use crate::{
+    bdev::{
+        dev::nvmx::{
+            controller_inner::SpdkNvmeController,
+            nvme_bdev_running_config,
+            NvmeControllerState,
+            NVME_CONTROLLERS,
+        },
+        device_lookup,
+    },
+    core::{poller, BlockDevice, BlockDeviceIoStats, CoreError, IoType},
 };
 
 #[repr(C)]
@@ -66,19 +67,19 @@ impl<'a> NvmeIoChannel<'a> {
 }
 pub struct IoQpair {
     qpair: NonNull<spdk_nvme_qpair>,
-    ctrlr_handle: NonNull<spdk_nvme_ctrlr>,
+    ctrlr_handle: SpdkNvmeController,
 }
 
 impl IoQpair {
     fn get_default_options(
-        ctrlr_handle: *mut spdk_nvme_ctrlr,
+        ctrlr_handle: SpdkNvmeController,
     ) -> spdk_nvme_io_qpair_opts {
         let mut opts = spdk_nvme_io_qpair_opts::default();
         let default_opts = nvme_bdev_running_config();
 
         unsafe {
             spdk_nvme_ctrlr_get_default_io_qpair_opts(
-                ctrlr_handle,
+                ctrlr_handle.as_ptr(),
                 &mut opts,
                 size_of::<spdk_nvme_io_qpair_opts>() as u64,
             )
@@ -93,16 +94,16 @@ impl IoQpair {
 
     /// Create a qpair with default options for target NVMe controller.
     fn create(
-        ctrlr_handle: *mut spdk_nvme_ctrlr,
+        ctrlr_handle: SpdkNvmeController,
         ctrlr_name: &str,
     ) -> Result<Self, CoreError> {
-        assert!(!ctrlr_handle.is_null(), "controller handle is null");
+        //assert!(!ctrlr_handle.is_null(), "controller handle is null");
 
         let qpair_opts = IoQpair::get_default_options(ctrlr_handle);
 
         let qpair: *mut spdk_nvme_qpair = unsafe {
             spdk_nvme_ctrlr_alloc_io_qpair(
-                ctrlr_handle,
+                ctrlr_handle.as_ptr(),
                 &qpair_opts,
                 size_of::<spdk_nvme_io_qpair_opts>() as u64,
             )
@@ -112,7 +113,7 @@ impl IoQpair {
             debug!(?qpair, ?ctrlr_name, "qpair created for controller");
             Ok(Self {
                 qpair: q,
-                ctrlr_handle: NonNull::new(ctrlr_handle).unwrap(),
+                ctrlr_handle,
             })
         } else {
             error!(?ctrlr_name, "Failed to allocate I/O qpair for controller",);
@@ -271,7 +272,7 @@ impl NvmeIoChannelInner<'_> {
     pub fn reinitialize(
         &mut self,
         ctrlr_name: &str,
-        ctrlr_handle: *mut spdk_nvme_ctrlr,
+        ctrlr_handle: SpdkNvmeController,
     ) -> i32 {
         if self.is_shutdown {
             error!(
@@ -392,11 +393,10 @@ extern "C" fn disconnected_qpair_cb(
     _ctx: *mut c_void,
 ) {
     warn!(?qpair, "NVMe qpair disconnected");
-    /*
-     * Currently, just try to reconnect indefinitely. If we are doing a
-     * reset, the reset will reconnect a qpair and we will stop getting a
-     * callback for this one.
-     */
+
+    // Currently, just try to reconnect indefinitely. If we are doing a
+    // reset, the reset will reconnect a qpair, and we will stop getting a
+    // callback for this one.
     unsafe {
         spdk_nvme_ctrlr_reconnect_io_qpair(qpair);
     }
@@ -434,7 +434,7 @@ impl NvmeControllerIoChannel {
             Some(c) => c,
         };
 
-        let (cname, spdk_handle, block_size) = {
+        let (cname, controller, block_size) = {
             let controller = carc.lock().expect("lock error");
             // Make sure controller is available.
             if controller.get_state() != NvmeControllerState::Running {
@@ -455,7 +455,11 @@ impl NvmeControllerIoChannel {
                 .namespace()
                 .expect("No namespaces in active controller")
                 .block_len();
-            (controller.get_name(), controller.ctrlr_as_ptr(), block_size)
+            (
+                controller.get_name(),
+                controller.controller().unwrap(),
+                block_size,
+            )
         };
 
         let nvme_channel = NvmeIoChannel::from_raw(ctx);
@@ -473,7 +477,7 @@ impl NvmeControllerIoChannel {
         };
 
         // Allocate qpair.
-        let mut qpair = match IoQpair::create(spdk_handle, &cname) {
+        let mut qpair = match IoQpair::create(controller, &cname) {
             Ok(qpair) => qpair,
             Err(e) => {
                 error!(?cname, ?e, "Failed to allocate qpair");

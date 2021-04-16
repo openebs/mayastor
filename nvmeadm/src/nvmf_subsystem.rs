@@ -140,10 +140,8 @@ impl NvmeSubsystems {
             path_prefix,
         })?;
         let mut entries = Vec::new();
-        for entry in path_entries {
-            if let Ok(path) = entry {
-                entries.push(path.display().to_string())
-            }
+        for path in path_entries.flatten() {
+            entries.push(path.display().to_string())
         }
         Ok(NvmeSubsystems {
             entries,

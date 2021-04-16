@@ -9,7 +9,7 @@ use once_cell::sync::Lazy;
 pub use channel::{NvmeControllerIoChannel, NvmeIoChannel, NvmeIoChannelInner};
 pub use controller::NvmeController;
 pub use controller_state::NvmeControllerState;
-pub use device::{lookup_by_name, NvmeBlockDevice, open_by_name};
+pub use device::{lookup_by_name, open_by_name, NvmeBlockDevice};
 pub use handle::NvmeDeviceHandle;
 pub use namespace::NvmeNamespace;
 pub(crate) use uri::NvmfDeviceTemplate;
@@ -30,6 +30,7 @@ mod uri;
 pub mod utils;
 
 #[derive(Debug)]
+#[allow(clippy::upper_case_acronyms)]
 pub(crate) struct NVMeCtlrList<'a> {
     entries: RwLock<HashMap<String, Arc<Mutex<NvmeController<'a>>>>>,
 }

@@ -4,12 +4,7 @@
 //!
 //! Borrowed buffers are accounted for and validated upon freeing.
 
-use std::{
-    marker::PhantomData,
-    mem::size_of,
-    os::raw::c_void,
-    ptr::NonNull,
-};
+use std::{marker::PhantomData, mem::size_of, os::raw::c_void, ptr::NonNull};
 
 use spdk_sys::{
     self,

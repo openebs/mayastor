@@ -320,8 +320,8 @@ impl TryFrom<Arc<Descriptor>> for BdevHandle {
     fn try_from(desc: Arc<Descriptor>) -> Result<Self, Self::Error> {
         if let Some(channel) = desc.get_channel() {
             return Ok(Self {
-                desc,
                 channel,
+                desc,
             });
         }
 

@@ -12,11 +12,14 @@ use std::{
 };
 
 use async_trait::async_trait;
-use controller::options::NvmeControllerOpts;
 use futures::channel::{oneshot, oneshot::Sender};
 use nix::errno::Errno;
-use poller::Poller;
 use snafu::ResultExt;
+use tracing::instrument;
+use url::Url;
+
+use controller::options::NvmeControllerOpts;
+use poller::Poller;
 use spdk_sys::{
     spdk_nvme_connect_async,
     spdk_nvme_ctrlr,
@@ -24,12 +27,15 @@ use spdk_sys::{
     spdk_nvme_probe_poll_async,
     spdk_nvme_transport_id,
 };
-use tracing::instrument;
-use url::Url;
 
 use crate::{
     bdev::{
-        dev::nvmx::{controller, NvmeControllerState, NVME_CONTROLLERS},
+        dev::nvmx::{
+            controller,
+            controller_inner::SpdkNvmeController,
+            NvmeControllerState,
+            NVME_CONTROLLERS,
+        },
         util::uri,
         CreateDestroy,
         GetName,
@@ -55,7 +61,11 @@ extern "C" fn connect_attach_cb(
 ) {
     let context =
         unsafe { &mut *(_cb_ctx as *const _ as *mut NvmeControllerContext) };
-    controller::connected_attached_cb(context, NonNull::new(ctrlr).unwrap());
+    controller::connected_attached_cb(
+        context,
+        SpdkNvmeController::from_ptr(ctrlr)
+            .expect("probe callback with NULL ptr"),
+    );
 }
 
 #[derive(Debug)]
@@ -257,7 +267,7 @@ impl CreateDestroy for NvmfDeviceTemplate {
 
         let poller = poller::Builder::new()
             .with_name("nvme_async_probe_poller")
-            .with_interval(1000)// poll every 1 second
+            .with_interval(1000) // poll every 1 second
             .with_poll_fn(move || unsafe {
                 spdk_nvme_probe_poll_async(probe_ctx.unwrap().as_ptr())
             })
