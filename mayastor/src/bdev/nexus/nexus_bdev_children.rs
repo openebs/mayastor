@@ -184,6 +184,9 @@ impl Nexus {
                     error!("Failed to add child status information");
                 }
 
+                // Register event listener for newly added child.
+                self.register_child_event_listener(&child);
+
                 self.children.push(child);
                 self.child_count += 1;
 
@@ -207,6 +210,24 @@ impl Nexus {
                 })
             }
         }
+    }
+
+    fn register_child_event_listener(&self, child: &NexusChild) {
+        let dev = child
+            .get_device()
+            .expect("No block device associated with nexus child");
+
+        dev.add_event_listener(Nexus::child_event_listener)
+            .map_err(|err| {
+                error!(
+                    ?err,
+                    "{}: failed to register event listener for child {}",
+                    self.name,
+                    child.get_name(),
+                );
+                err
+            })
+            .unwrap();
     }
 
     /// Destroy child with given uri.
@@ -470,19 +491,7 @@ impl Nexus {
 
         // Register event listeners for child devices.
         self.children.iter().for_each(|ch| {
-            ch.get_device()
-                .unwrap()
-                .add_event_listener(Nexus::child_event_listener)
-                .map_err(|err| {
-                    error!(
-                        ?err,
-                        "{}: failed to register event listener for child {}",
-                        self.name,
-                        ch.get_name(),
-                    );
-                    err
-                })
-                .unwrap();
+            self.register_child_event_listener(ch);
         });
 
         Ok(())

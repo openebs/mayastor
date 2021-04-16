@@ -133,8 +133,8 @@ async fn identify_ctrlr(uri: &str, file: &str) -> Result<()> {
 
 /// Create a snapshot.
 async fn create_snapshot(uri: &str) -> Result<()> {
-    let bdev = create_bdev(uri).await?;
-    let h = Bdev::open(&bdev, true).unwrap().into_handle().unwrap();
+    let bdev = device_create(uri).await?;
+    let h = device_open(&bdev, true).unwrap().into_handle().unwrap();
     let t = h.create_snapshot().await?;
     info!("snapshot taken at {}", t);
     Ok(())
