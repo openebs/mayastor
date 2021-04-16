@@ -311,6 +311,9 @@ extern "C" fn bdev_io_completion(
 
     (bio.cb)(&*bio.handle.device, status, bio.cb_arg);
 
+    // Free ctx,
+    IOCTX_POOL.put(&mut *bio);
+
     // Free replica's bio.
     unsafe {
         spdk_bdev_free_io(child_bio);
@@ -575,6 +578,13 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
         Err(CoreError::NvmeAdminDispatch {
             source: Errno::ENXIO,
             opcode: nvme_admin_opc::IDENTIFY.into(),
+        })
+    }
+
+    // NVMe commands are not applicable for non-NVMe devices.
+    async fn create_snapshot(&self) -> Result<u64, CoreError> {
+        Err(CoreError::NotSupported {
+            source: Errno::ENXIO,
         })
     }
 }
