@@ -316,7 +316,7 @@ module.exports = function () {
         share: 'REPLICA_NONE',
         uri: `bdev:///${UUID}`
       });
-      replica.pool = { node: node1 };
+      replica.pool = pool1;
       const getReplicaSetStub = sinon.stub(registry, 'getReplicaSet');
       getReplicaSetStub.returns([replica]);
 
@@ -514,8 +514,10 @@ module.exports = function () {
         deviceUri: `nvmf://node1/${UUID}`
       });
 
-      // publish the first volume
-      let uri = await volume.publish('nvmf');
+      // publish the first volume (with app scheduled to a node that does
+      // not run mayastor so other criteria will kick in than simply assigning
+      // the nexus to given application node).
+      let uri = await volume.publish('node4');
       expect(uri).to.equal(`nvmf://node1/${UUID}`);
       expect(volume.publishedOn).to.equal('node1');
 
@@ -544,8 +546,9 @@ module.exports = function () {
         deviceUri: `nvmf://node2/${UUID2}`
       });
 
-      // publish the second volume - should be on a different node
-      uri = await volume2.publish('nvmf');
+      // Publish the second volume - should be on a different node than the
+      // first one. The same note about non-existing mayastor node applies here
+      uri = await volume2.publish('node5');
       expect(uri).to.equal(`nvmf://node2/${UUID2}`);
       expect(volume2.publishedOn).to.equal('node2');
     });
@@ -668,14 +671,14 @@ module.exports = function () {
         share: 'REPLICA_NONE',
         uri: `bdev:///${UUID}`
       });
-      replica1.pool = { node: node1 };
+      replica1.pool = pool1;
       const replica2 = new Replica({
         uuid: UUID,
         size: 40,
         share: 'REPLICA_NVMF',
         uri: `nvmf://node2/${UUID}`
       });
-      replica2.pool = { node: node2 };
+      replica2.pool = pool2;
       const getReplicaSetStub = sinon.stub(registry, 'getReplicaSet');
       getReplicaSetStub.returns([replica1, replica2]);
 
@@ -715,7 +718,7 @@ module.exports = function () {
         share: 'REPLICA_NONE',
         uri: `bdev:///${UUID}`
       });
-      replica.pool = { node: node1 };
+      replica.pool = pool1;
       const nexus = new Nexus({
         uuid: UUID,
         size: 20,
@@ -753,7 +756,7 @@ module.exports = function () {
         share: 'REPLICA_NONE',
         uri: `bdev:///${UUID}`
       });
-      replica.pool = { node: node1 };
+      replica.pool = pool1;
       const nexus = new Nexus({
         uuid: UUID,
         size: 20,
@@ -804,7 +807,7 @@ module.exports = function () {
         share: 'REPLICA_NONE',
         uri: `bdev:///${UUID}`
       });
-      replica.pool = { node: node1 };
+      replica.pool = pool1;
       const getReplicaSetStub = sinon.stub(registry, 'getReplicaSet');
       getReplicaSetStub.returns([replica]);
 
@@ -827,24 +830,30 @@ module.exports = function () {
     });
 
     it('should publish the volume', async () => {
-      stub1.onCall(0).resolves({ uuid: UUID, size: 100, state: 'NEXUS_ONLINE', children: [{ uri: `bdev:///${UUID}`, state: 'CHILD_ONLINE' }] });
-      stub1.onCall(1).resolves({ deviceUri: 'nvmf://node1/nqn' });
+      stub1.onCall(0).resolves({ uri: `nvmf://node1/${UUID}` });
+      stub2.onCall(0).resolves({ uuid: UUID, size: 100, state: 'NEXUS_ONLINE', children: [{ uri: `nvmf://node1/${UUID}`, state: 'CHILD_ONLINE' }] });
+      stub2.onCall(1).resolves({ deviceUri: 'nvmf://node2/nqn' });
 
-      const uri = await volume.publish('nvmf');
-      expect(uri).to.equal('nvmf://node1/nqn');
-      sinon.assert.calledTwice(stub1);
-      sinon.assert.calledWithMatch(stub1.firstCall, 'createNexus', {
+      const uri = await volume.publish('node2');
+      expect(uri).to.equal('nvmf://node2/nqn');
+      sinon.assert.calledOnce(stub1);
+      sinon.assert.calledWithMatch(stub1.firstCall, 'shareReplica', {
+        uuid: UUID,
+        share: 'REPLICA_NVMF'
+      });
+      sinon.assert.calledTwice(stub2);
+      sinon.assert.calledWithMatch(stub2.firstCall, 'createNexus', {
         uuid: UUID,
         size: 95,
-        children: [`bdev:///${UUID}`]
+        children: [`nvmf://node1/${UUID}`]
       });
-      sinon.assert.calledWithMatch(stub1.secondCall, 'publishNexus', {
+      sinon.assert.calledWithMatch(stub2.secondCall, 'publishNexus', {
         uuid: UUID,
         key: ''
       });
     });
 
-    it('should publish the volume that already has a nexus', async () => {
+    it('should publish the volume that already has a nexus on a different node', async () => {
       const nexus = new Nexus({
         uuid: UUID,
         size: 95,
@@ -863,12 +872,25 @@ module.exports = function () {
       getNexusStub.returns(nexus);
       volume.newNexus(nexus);
 
-      stub1.resolves({ deviceUri: 'nvmf://node1/nqn' });
-      const uri = await volume.publish('nvmf');
-      expect(uri).to.equal('nvmf://node1/nqn');
-      expect(nexus.deviceUri).to.equal('nvmf://node1/nqn');
-      sinon.assert.calledOnce(stub1);
-      sinon.assert.calledWithMatch(stub1, 'publishNexus', {
+      stub1.onCall(0).resolves({});
+      stub1.onCall(1).resolves({ uri: `nvmf://node1/${UUID}` });
+      stub2.onCall(0).resolves({ uuid: UUID, size: 100, state: 'NEXUS_ONLINE', children: [{ uri: `nvmf://node1/${UUID}`, state: 'CHILD_ONLINE' }] });
+      stub2.onCall(1).resolves({ deviceUri: 'nvmf://node2/nqn' });
+      const uri = await volume.publish('node2');
+      expect(uri).to.equal('nvmf://node2/nqn');
+      sinon.assert.calledTwice(stub1);
+      sinon.assert.calledWithMatch(stub1.firstCall, 'destroyNexus', { uuid: UUID });
+      sinon.assert.calledWithMatch(stub1.secondCall, 'shareReplica', {
+        uuid: UUID,
+        share: 'REPLICA_NVMF'
+      });
+      sinon.assert.calledTwice(stub2);
+      sinon.assert.calledWithMatch(stub2.firstCall, 'createNexus', {
+        uuid: UUID,
+        size: 95,
+        children: [`nvmf://node1/${UUID}`]
+      });
+      sinon.assert.calledWithMatch(stub2.secondCall, 'publishNexus', {
         uuid: UUID,
         key: ''
       });
@@ -895,7 +917,7 @@ module.exports = function () {
         share: 'REPLICA_NONE',
         uri: `bdev:///${UUID}`
       });
-      replica.pool = { node: node1 };
+      replica.pool = pool1;
       const getReplicaSetStub = sinon.stub(registry, 'getReplicaSet');
       getReplicaSetStub.returns([replica]);
 
@@ -1001,7 +1023,7 @@ module.exports = function () {
         share: 'REPLICA_NONE',
         uri: `bdev:///${UUID}`
       });
-      replica.pool = { node: node1 };
+      replica.pool = pool1;
       const getReplicaSetStub = sinon.stub(registry, 'getReplicaSet');
       getReplicaSetStub.returns([replica]);
       const getNexusStub = sinon.stub(registry, 'getNexus');
@@ -1898,7 +1920,7 @@ module.exports = function () {
       });
       stub1.onCall(1).resolves({ deviceUri });
 
-      const uri = await volume.publish('nvmf');
+      const uri = await volume.publish('node1');
       expect(uri).to.equal(deviceUri);
 
       sinon.assert.calledTwice(stub1);
@@ -1928,7 +1950,7 @@ module.exports = function () {
     });
 
     it('should publish the volume that has been already published', async () => {
-      const uri = await volume.publish('nvmf');
+      const uri = await volume.publish('node1');
       expect(uri).to.equal(deviceUri);
       sinon.assert.notCalled(stub1);
     });

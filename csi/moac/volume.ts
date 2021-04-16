@@ -135,9 +135,9 @@ export class Volume {
 
   // Publish the volume. That means, make it accessible through a block device.
   //
-  // @params protocol      The nexus share protocol.
+  // @params nodeId        ID of the node where the volume will be mounted.
   // @return uri           The URI to access the nexus.
-  async publish(protocol: Protocol): Promise<string> {
+  async publish(nodeId: String): Promise<string> {
     if ([
       VolumeState.Degraded,
       VolumeState.Healthy,
@@ -150,11 +150,11 @@ export class Volume {
     }
 
     // FSA will take care of publishing the nexus
-    let nexusNode = this._desiredNexusNode(this._activeReplicas());
+    let nexusNode = this._desiredNexusNode(this._activeReplicas(), nodeId);
     if (!nexusNode) {
       // If we get here it means that nexus is supposed to be already published
       // but on a node that is not part of the cluster (has been deregistered).
-      let uri =  this.nexus && this.nexus.getUri();
+      let uri = this.nexus && this.nexus.getUri();
       if (!uri) {
         throw new GrpcError(
           GrpcCode.INTERNAL,
@@ -175,7 +175,7 @@ export class Volume {
           'The publish operation was cancelled'
         ));
       }
-      if (self.nexus) {
+      if (self.nexus?.node?.name === self.publishedOn) {
         let uri = self.nexus.getUri();
         if (uri) {
           log.info(`Published "${self}" at ${uri}`);
@@ -340,6 +340,19 @@ export class Volume {
           log.error(`Failed to destroy nexus for ${this}: ${err}`)
         }
         return;
+      }
+    } else {
+      if (this.nexus) {
+        if (this.nexus.node?.name !== this.publishedOn) {
+          // Respawn the nexus on the desired node.
+          log.info(`Recreating the nexus "${this.nexus}" on the desired node "${this.publishedOn}"`);
+          try {
+            await this.nexus.destroy();
+          } catch (err) {
+            log.error(`Failed to destroy nexus for ${this}: ${err}`)
+          }
+          return;
+        }
       }
     }
 
@@ -722,12 +735,21 @@ export class Volume {
   // Return the node where the nexus for volume is located or where it should
   // be located if it hasn't been created so far. If the nexus should be
   // located on a node that does not exist then return undefined.
-  _desiredNexusNode(replicaSet: Replica[]): Node | undefined {
-    let nexusNode: Node | undefined;
-    if (this.nexus) {
-      nexusNode = this.nexus.node;
-    } else if (this.publishedOn) {
+  //
+  // @param replicaSet List of replicas sorted by preferrence.
+  // @param appNode    Name of the node where the volume will be mounted if known.
+  // @returns Node object or undefined if not schedulable.
+  //
+  _desiredNexusNode(replicaSet: Replica[], appNode?: String): Node | undefined {
+    if (this.publishedOn) {
       return this.registry.getNode(this.publishedOn);
+    }
+    let nexusNode: Node | undefined;
+    if (appNode) {
+      nexusNode = this.registry.getNode(appNode);
+    }
+    if (!nexusNode && this.nexus) {
+      nexusNode = this.nexus.node;
     }
     // If nexus does not exist it will be created on one of the replica nodes
     // with the least # of nexuses.
@@ -735,12 +757,6 @@ export class Volume {
       nexusNode = replicaSet
         .map((r: Replica) => r.pool!.node)
         .sort((a: Node, b: Node) => a.nexus.length - b.nexus.length)[0];
-    }
-    if (!nexusNode) {
-      throw new GrpcError(
-        GrpcCode.INTERNAL,
-        `Nexus node for the volume "${this}" cannot be determined`
-      );
     }
     return nexusNode;
   }

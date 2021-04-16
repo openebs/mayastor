@@ -120,7 +120,7 @@ export class Replica {
         `Failed to set share pcol for replica "${this}": ` + err
       );
     }
-    log.info(`Share pcol for replica "${this}" set to ${share} (${res.uri})`);
+    log.info(`Share pcol for replica "${this}" was set: ${res.uri}`);
     this.share = share;
     this.uri = res.uri;
     this.pool.node.emit('replica', {

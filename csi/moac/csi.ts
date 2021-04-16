@@ -405,6 +405,21 @@ class CsiServer {
         new GrpcError(grpc.status.INVALID_ARGUMENT, 'missing storage protocol')
       );
     }
+    const ioTimeout = args.parameters.ioTimeout;
+    if (ioTimeout !== undefined) {
+      if (protocol !== 'nvmf') {
+        return cb(new GrpcError(
+          grpc.status.INVALID_ARGUMENT,
+          'ioTimeout is valid only for nvmf protocol'
+        ));
+      }
+      if (Object.is(parseInt(ioTimeout), NaN)) {
+        return cb(new GrpcError(
+          grpc.status.INVALID_ARGUMENT,
+          'ioTimeout must be an integer'
+        ));
+      }
+    }
 
     const mustNodes = [];
     const shouldNodes = [];
@@ -571,7 +586,7 @@ class CsiServer {
     const publishContext: any = {};
 
     log.debug(
-      `Request to publish volume "${args.volumeId}" on "${args.nodeId}"`
+      `Request to publish volume "${args.volumeId}" for "${args.nodeId}"`
     );
 
     const volume = this.volumes.get(args.volumeId);
@@ -589,30 +604,9 @@ class CsiServer {
     } catch (err) {
       return cb(err);
     }
-    // Storage protocol for accessing nexus is a required parameter
-    let protocol, ioTimeout;
-    if (args.volumeContext) {
-      protocol = args.volumeContext.protocol;
-      ioTimeout = args.volumeContext.ioTimeout;
-    }
-    if (!protocol) {
-      return cb(
-        new GrpcError(grpc.status.INVALID_ARGUMENT, 'missing storage protocol')
-      );
-    }
+    const ioTimeout = args.volumeContext?.ioTimeout;
     if (ioTimeout !== undefined) {
-      if (protocol !== 'nvmf') {
-        return cb(new GrpcError(
-          grpc.status.INVALID_ARGUMENT,
-          'ioTimeout is valid only for nvmf protocol'
-        ));
-      }
-      if (Object.is(parseInt(ioTimeout), NaN)) {
-        return cb(new GrpcError(
-          grpc.status.INVALID_ARGUMENT,
-          'ioTimeout must be an integer'
-        ));
-      }
+      // The value has been checked during the createVolume
       publishContext.ioTimeout = ioTimeout;
     }
     if (args.readonly) {
@@ -641,10 +635,7 @@ class CsiServer {
     }
 
     try {
-      publishContext.uri = await volume.publish(protocol);
-      log.debug(
-        `"${args.volumeId}" published, got uri ${publishContext.uri} `
-      );
+      publishContext.uri = await volume.publish(nodeId);
     } catch (err) {
       if (err.code === grpc.status.ALREADY_EXISTS) {
         log.debug(`Volume "${args.volumeId}" already published on this node`);
@@ -656,7 +647,7 @@ class CsiServer {
       return;
     }
 
-    log.info(`Published volume "${args.volumeId}" over ${protocol}`);
+    log.info(`Published "${args.volumeId}" at ${publishContext.uri}`);
     this._endRequest(request, null, { publishContext });
   }
 

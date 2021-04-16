@@ -355,6 +355,72 @@ module.exports = function () {
         );
       });
 
+      it('should fail if ioTimeout is used with protocol other than nvmf', async () => {
+        createVolumeStub.resolves(returnedVolume);
+        await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
+          client.createVolume().sendMessage({
+            name: 'pvc-' + UUID,
+            capacityRange: {
+              requiredBytes: 10,
+              limitBytes: 20
+            },
+            volumeCapabilities: [
+              {
+                accessMode: { mode: 'SINGLE_NODE_WRITER' },
+                filesystem: {}
+              }
+            ],
+            parameters: {
+              protocol: 'iscsi',
+              ioTimeout: 30
+            }
+          })
+        );
+      });
+
+      it('should fail if ioTimeout has invalid value', async () => {
+        createVolumeStub.resolves(returnedVolume);
+        await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
+          client.createVolume().sendMessage({
+            name: 'pvc-' + UUID,
+            capacityRange: {
+              requiredBytes: 10,
+              limitBytes: 20
+            },
+            volumeCapabilities: [
+              {
+                accessMode: { mode: 'SINGLE_NODE_WRITER' },
+                filesystem: {}
+              }
+            ],
+            parameters: {
+              protocol: 'nvmf',
+              ioTimeout: 'non-sense'
+            }
+          })
+        );
+      });
+
+      it('should fail if share protocol is not specified', async () => {
+        createVolumeStub.resolves(returnedVolume);
+        await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
+          client.createVolume().sendMessage({
+            name: 'pvc-' + UUID,
+            capacityRange: {
+              requiredBytes: 10,
+              limitBytes: 20
+            },
+            volumeCapabilities: [
+              {
+                accessMode: { mode: 'SINGLE_NODE_WRITER' },
+                filesystem: {}
+              }
+            ],
+            parameters: { ioTimeout: '60' }
+          })
+        );
+      });
+
       it('should create volume on specified node', async () => {
         createVolumeStub.resolves(returnedVolume);
         await client.createVolume().sendMessage({
@@ -691,7 +757,7 @@ module.exports = function () {
         sinon.assert.calledOnce(getVolumesStub);
         sinon.assert.calledWith(getVolumesStub, UUID);
         sinon.assert.calledOnce(publishStub);
-        sinon.assert.calledWith(publishStub, 'nvmf');
+        sinon.assert.calledWith(publishStub, 'node2');
       });
 
       it('should detect duplicate publish volume request', (done) => {
@@ -825,86 +891,6 @@ module.exports = function () {
               }
             },
             volumeContext: { protocol: 'nvmf' }
-          })
-        );
-      });
-
-      it('should not publish volume if share protocol is not specified', async () => {
-        const volume = new Volume(UUID, registry, new EventEmitter(), {});
-        const publishStub = sinon.stub(volume, 'publish');
-        publishStub.resolves();
-        const getNodeNameStub = sinon.stub(volume, 'getNodeName');
-        getNodeNameStub.returns('node');
-        getVolumesStub.returns(volume);
-
-        await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
-          client.controllerPublishVolume().sendMessage({
-            volumeId: UUID,
-            nodeId: 'mayastor://node',
-            readonly: false,
-            volumeCapability: {
-              accessMode: { mode: 'SINGLE_NODE_WRITER' },
-              mount: {
-                fsType: 'xfs',
-                mount_flags: 'ro'
-              }
-            }
-          })
-        );
-      });
-
-      it('should not publish volume with ioTimeout and other protocol than nvmf', async () => {
-        const volume = new Volume(UUID, registry, new EventEmitter(), {});
-        const publishStub = sinon.stub(volume, 'publish');
-        publishStub.resolves();
-        const getNodeNameStub = sinon.stub(volume, 'getNodeName');
-        getNodeNameStub.returns('node');
-        getVolumesStub.returns(volume);
-
-        await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
-          client.controllerPublishVolume().sendMessage({
-            volumeId: UUID,
-            nodeId: 'mayastor://node',
-            readonly: false,
-            volumeCapability: {
-              accessMode: { mode: 'SINGLE_NODE_WRITER' },
-              mount: {
-                fsType: 'xfs',
-                mount_flags: 'ro'
-              }
-            },
-            volumeContext: {
-              protocol: 'iscsi',
-              ioTimeout: 30
-            }
-          })
-        );
-      });
-
-      it('should not publish volume with invalid ioTimeout value', async () => {
-        const volume = new Volume(UUID, registry, new EventEmitter(), {});
-        const publishStub = sinon.stub(volume, 'publish');
-        publishStub.resolves();
-        const getNodeNameStub = sinon.stub(volume, 'getNodeName');
-        getNodeNameStub.returns('node');
-        getVolumesStub.returns(volume);
-
-        await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
-          client.controllerPublishVolume().sendMessage({
-            volumeId: UUID,
-            nodeId: 'mayastor://node',
-            readonly: false,
-            volumeCapability: {
-              accessMode: { mode: 'SINGLE_NODE_WRITER' },
-              mount: {
-                fsType: 'xfs',
-                mount_flags: 'ro'
-              }
-            },
-            volumeContext: {
-              protocol: 'nvmf',
-              ioTimeout: 'non-sense'
-            }
           })
         );
       });
