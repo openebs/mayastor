@@ -1,10 +1,6 @@
 //!
 //!
 //! This file contains the main structures for a NVMe controller
-use futures::channel::oneshot;
-use merge::Merge;
-use nix::errno::Errno;
-use once_cell::sync::OnceCell;
 use std::{
     convert::From,
     fmt,
@@ -12,6 +8,11 @@ use std::{
     ptr::NonNull,
     sync::{Arc, Mutex},
 };
+
+use futures::channel::oneshot;
+use merge::Merge;
+use nix::errno::Errno;
+use once_cell::sync::OnceCell;
 
 use spdk_sys::{
     spdk_for_each_channel,
@@ -35,7 +36,7 @@ use spdk_sys::{
 use crate::{
     bdev::dev::nvmx::{
         channel::{NvmeControllerIoChannel, NvmeIoChannel, NvmeIoChannelInner},
-        controller_inner::TimeoutConfig,
+        controller_inner::{SpdkNvmeController, TimeoutConfig},
         controller_state::{
             ControllerFailureReason,
             ControllerFlag,
@@ -72,7 +73,7 @@ struct ResetCtx {
     name: String,
     cb: OpCompletionCallback,
     cb_arg: OpCompletionCallbackArg,
-    spdk_handle: *mut spdk_nvme_ctrlr,
+    spdk_handle: SpdkNvmeController,
     io_device: Arc<IoDevice>,
     shutdown_in_progress: bool,
 }
@@ -85,7 +86,7 @@ struct ShutdownCtx {
 
 impl<'a> NvmeControllerInner<'a> {
     fn new(
-        ctrlr: NonNull<spdk_nvme_ctrlr>,
+        ctrlr: SpdkNvmeController,
         name: String,
         cfg: NonNull<TimeoutConfig>,
     ) -> Self {
@@ -110,7 +111,7 @@ impl<'a> NvmeControllerInner<'a> {
 #[derive(Debug)]
 pub struct NvmeControllerInner<'a> {
     namespaces: Vec<Arc<NvmeNamespace>>,
-    ctrlr: NonNull<spdk_nvme_ctrlr>,
+    ctrlr: SpdkNvmeController,
     adminq_poller: poller::Poller<'a>,
     io_device: Arc<IoDevice>,
 }
@@ -205,6 +206,10 @@ impl<'a> NvmeController<'a> {
             debug!("no namespaces associated with the current controller");
             None
         }
+    }
+
+    pub fn controller(&self) -> Option<SpdkNvmeController> {
+        self.inner.as_ref().map(|c| c.ctrlr)
     }
 
     /// we should try to avoid this
@@ -326,7 +331,9 @@ impl<'a> NvmeController<'a> {
             name: self.name.clone(),
             cb,
             cb_arg,
-            spdk_handle: self.ctrlr_as_ptr(),
+            spdk_handle: self
+                .controller()
+                .expect("controller is may not be NULL"),
             io_device,
             shutdown_in_progress: false,
         };
@@ -591,7 +598,8 @@ impl<'a> NvmeController<'a> {
             return;
         }
 
-        let rc = unsafe { spdk_nvme_ctrlr_reset(reset_ctx.spdk_handle) };
+        let rc =
+            unsafe { spdk_nvme_ctrlr_reset(reset_ctx.spdk_handle.as_ptr()) };
         if rc != 0 {
             error!(
                 "{} failed to reset controller, rc = {}",
@@ -848,7 +856,7 @@ pub(crate) async fn destroy_device(name: String) -> Result<(), NexusBdevError> {
 
 pub(crate) fn connected_attached_cb(
     ctx: &mut NvmeControllerContext,
-    ctrlr: NonNull<spdk_nvme_ctrlr>,
+    ctrlr: SpdkNvmeController,
 ) {
     ctx.unregister_poller();
     // we use the ctrlr address as the controller id in the global table
@@ -915,14 +923,14 @@ pub(crate) fn connected_attached_cb(
 }
 
 pub(crate) mod options {
-    use std::mem::size_of;
+    use std::{mem::size_of, ptr::copy_nonoverlapping};
 
-    use crate::ffihelper::IntoCString;
     use spdk_sys::{
         spdk_nvme_ctrlr_get_default_ctrlr_opts,
         spdk_nvme_ctrlr_opts,
     };
-    use std::ptr::copy_nonoverlapping;
+
+    use crate::ffihelper::IntoCString;
 
     /// structure that holds the default NVMe controller options. This is
     /// different from ['NvmeBdevOpts'] as it exposes more control over
@@ -1153,9 +1161,11 @@ impl Drop for IoDevice {
 }
 
 pub(crate) mod transport {
-    use libc::c_void;
-    use spdk_sys::spdk_nvme_transport_id;
     use std::{ffi::CStr, fmt::Debug, ptr::copy_nonoverlapping};
+
+    use libc::c_void;
+
+    use spdk_sys::spdk_nvme_transport_id;
 
     pub struct NvmeTransportId(spdk_nvme_transport_id);
 
@@ -1210,6 +1220,7 @@ pub(crate) mod transport {
     }
 
     #[derive(Debug)]
+    #[allow(clippy::upper_case_acronyms)]
     enum TransportId {
         TCP = 0x3,
     }

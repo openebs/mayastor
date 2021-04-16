@@ -52,6 +52,15 @@
 //! The nbd0 zero device does not show the partitions when mounting
 //! it without the nexus in the data path, there would be two paritions
 //! ```
+use std::{
+    cmp::min,
+    convert::{From, TryInto},
+    fmt::{self, Display},
+    io::{Cursor, Seek, SeekFrom},
+    str::FromStr,
+    time::SystemTime,
+};
+
 use bincode::{deserialize_from, serialize, serialize_into, Error};
 use crc::{crc32, Hasher32};
 use serde::{
@@ -59,14 +68,6 @@ use serde::{
     ser::{Serialize, SerializeTuple, Serializer},
 };
 use snafu::{ResultExt, Snafu};
-use std::{
-    cmp::min,
-    convert::From,
-    fmt::{self, Display},
-    io::{Cursor, Seek, SeekFrom},
-    str::FromStr,
-    time::SystemTime,
-};
 use uuid::{self, Uuid};
 
 use crate::{
@@ -77,7 +78,6 @@ use crate::{
     },
     core::{CoreError, DmaBuf, DmaError},
 };
-use std::convert::TryInto;
 
 #[derive(Debug, Snafu)]
 pub enum LabelError {
@@ -1002,7 +1002,7 @@ impl NexusChild {
         })?;
 
         let bdev = handle.get_device();
-        let block_size = u64::from(bdev.block_len());
+        let block_size = bdev.block_len();
         let num_blocks = bdev.num_blocks();
 
         // Protective MBR
@@ -1191,7 +1191,12 @@ impl NexusChild {
         let bdev = handle.get_device();
         let guid = GptGuid::from(Uuid::parse_str(&bdev.uuid()).unwrap());
 
-        Nexus::generate_label(guid, bdev.block_len().try_into().unwrap(), bdev.num_blocks(), size)
+        Nexus::generate_label(
+            guid,
+            bdev.block_len().try_into().unwrap(),
+            bdev.num_blocks(),
+            size,
+        )
     }
 
     /// Create new label and index on this child
@@ -1427,7 +1432,7 @@ impl NexusChild {
         })?;
 
         let bdev = handle.get_device();
-        let block_size = u64::from(bdev.block_len());
+        let block_size = bdev.block_len();
 
         let mut buf =
             DmaBuf::new(label.primary.lba_start * block_size, bdev.alignment())
@@ -1472,7 +1477,7 @@ impl NexusChild {
         })?;
 
         let bdev = handle.get_device();
-        let block_size = u64::from(bdev.block_len());
+        let block_size = bdev.block_len();
 
         let mut buf = DmaBuf::new(
             (label.secondary.lba_self - label.secondary.lba_table + 1)
@@ -1516,9 +1521,14 @@ impl NexusChild {
             name: self.name.clone(),
         })?;
 
-        Ok(handle.write_at(offset, buf).await.context(WriteError {
-            name: self.name.clone(),
-        })?.try_into().unwrap())
+        Ok(handle
+            .write_at(offset, buf)
+            .await
+            .context(WriteError {
+                name: self.name.clone(),
+            })?
+            .try_into()
+            .unwrap())
     }
 
     pub async fn write_label(

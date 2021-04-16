@@ -1,6 +1,5 @@
 //!
 //! Trait implementation for native bdev
-//!
 
 use std::{
     collections::HashMap,
@@ -25,6 +24,8 @@ use spdk_sys::{
 };
 
 use crate::core::{
+    mempool::MemoryPool,
+    nvme_admin_opc,
     Bdev,
     BdevHandle,
     Bio,
@@ -43,8 +44,6 @@ use crate::core::{
     IoCompletionCallbackArg,
     IoCompletionStatus,
     IoType,
-    mempool::MemoryPool,
-    nvme_admin_opc,
     NvmeCommandStatus,
 };
 
@@ -310,7 +309,7 @@ extern "C" fn bdev_io_completion(
         IoCompletionStatus::NvmeError(nvme_cmd_status)
     };
 
-    (bio.cb)(&bio.handle.device, status, bio.cb_arg);
+    (bio.cb)(&*bio.handle.device, status, bio.cb_arg);
 
     // Free replica's bio.
     unsafe {
@@ -320,8 +319,8 @@ extern "C" fn bdev_io_completion(
 
 #[async_trait(?Send)]
 impl BlockDeviceHandle for SpdkBlockDeviceHandle {
-    fn get_device(&self) -> &Box<dyn BlockDevice> {
-        &self.device
+    fn get_device(&self) -> &dyn BlockDevice {
+        &*self.device
     }
 
     fn dma_malloc(&self, size: u64) -> Result<DmaBuf, DmaError> {

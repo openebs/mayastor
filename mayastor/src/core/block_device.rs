@@ -91,11 +91,8 @@ pub trait BlockDeviceDescriptor {
 
 pub type DeviceEventListener = fn(DeviceEventType, &str);
 pub type IoCompletionCallbackArg = *mut c_void;
-pub type IoCompletionCallback = fn(
-    &Box<dyn BlockDevice>,
-    IoCompletionStatus,
-    IoCompletionCallbackArg,
-) -> ();
+pub type IoCompletionCallback =
+    fn(&dyn BlockDevice, IoCompletionStatus, IoCompletionCallbackArg) -> ();
 pub type OpCompletionCallbackArg = *mut c_void;
 pub type OpCompletionCallback = fn(bool, OpCompletionCallbackArg) -> ();
 
@@ -106,7 +103,7 @@ pub type OpCompletionCallback = fn(bool, OpCompletionCallbackArg) -> ();
 #[async_trait(?Send)]
 pub trait BlockDeviceHandle {
     // Generic functions.
-    fn get_device(&self) -> &Box<dyn BlockDevice>;
+    fn get_device(&self) -> &dyn BlockDevice;
     fn dma_malloc(&self, size: u64) -> Result<DmaBuf, DmaError>;
 
     // Futures-based I/O functions.

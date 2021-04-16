@@ -157,7 +157,7 @@ impl NexusBio {
 
     /// invoked when a nexus Io completes
     fn child_completion(
-        device: &Box<dyn BlockDevice>,
+        device: &dyn BlockDevice,
         status: IoCompletionStatus,
         ctx: *mut c_void,
     ) {
@@ -231,7 +231,7 @@ impl NexusBio {
     /// completion handler for the nexus when a child IO completes
     pub fn complete(
         &mut self,
-        child: &Box<dyn BlockDevice>,
+        child: &dyn BlockDevice,
         status: IoCompletionStatus,
     ) {
         assert_eq!(self.ctx().core, Cores::current());
@@ -316,15 +316,15 @@ impl NexusBio {
     }
 
     /// helper routine to get a channel to read from
-    fn read_channel_at_index(&self, i: usize) -> &Box<dyn BlockDeviceHandle> {
-        &self.inner_channel().readers[i]
+    fn read_channel_at_index(&self, i: usize) -> &dyn BlockDeviceHandle {
+        &*self.inner_channel().readers[i]
     }
 
     /// submit a read operation to one of the children of this nexus
     #[inline(always)]
     fn submit_read(
         &self,
-        hdl: &Box<dyn BlockDeviceHandle>,
+        hdl: &dyn BlockDeviceHandle,
     ) -> Result<(), CoreError> {
         hdl.readv_blocks(
             self.iovs(),
@@ -352,7 +352,7 @@ impl NexusBio {
     #[inline(always)]
     fn submit_write(
         &self,
-        hdl: &Box<dyn BlockDeviceHandle>,
+        hdl: &dyn BlockDeviceHandle,
     ) -> Result<(), CoreError> {
         hdl.writev_blocks(
             self.iovs(),
@@ -367,7 +367,7 @@ impl NexusBio {
     #[inline(always)]
     fn submit_unmap(
         &self,
-        hdl: &Box<dyn BlockDeviceHandle>,
+        hdl: &dyn BlockDeviceHandle,
     ) -> Result<(), CoreError> {
         hdl.unmap_blocks(
             self.offset() + self.data_ent_offset(),
@@ -380,7 +380,7 @@ impl NexusBio {
     #[inline(always)]
     fn submit_write_zeroes(
         &self,
-        hdl: &Box<dyn BlockDeviceHandle>,
+        hdl: &dyn BlockDeviceHandle,
     ) -> Result<(), CoreError> {
         hdl.write_zeroes(
             self.offset() + self.data_ent_offset(),
@@ -393,7 +393,7 @@ impl NexusBio {
     #[inline(always)]
     fn submit_reset(
         &self,
-        hdl: &Box<dyn BlockDeviceHandle>,
+        hdl: &dyn BlockDeviceHandle,
     ) -> Result<(), CoreError> {
         hdl.reset(Self::child_completion, self.as_ptr().cast())
     }
@@ -410,28 +410,28 @@ impl NexusBio {
         let result = match self.cmd() {
             IoType::Write => {
                 self.inner_channel().writers.iter().try_for_each(|h| {
-                    self.submit_write(h).map(|_| {
+                    self.submit_write(&**h).map(|_| {
                         inflight += 1;
                     })
                 })
             }
             IoType::Unmap => {
                 self.inner_channel().writers.iter().try_for_each(|h| {
-                    self.submit_unmap(h).map(|_| {
+                    self.submit_unmap(&**h).map(|_| {
                         inflight += 1;
                     })
                 })
             }
             IoType::WriteZeros => {
                 self.inner_channel().writers.iter().try_for_each(|h| {
-                    self.submit_write_zeroes(h).map(|_| {
+                    self.submit_write_zeroes(&**h).map(|_| {
                         inflight += 1;
                     })
                 })
             }
             IoType::Reset => {
                 self.inner_channel().writers.iter().try_for_each(|h| {
-                    self.submit_reset(h).map(|_| {
+                    self.submit_reset(&**h).map(|_| {
                         inflight += 1;
                     })
                 })
@@ -462,29 +462,23 @@ impl NexusBio {
 
     fn try_retire(
         &mut self,
-        child: &Box<dyn BlockDevice>,
+        child: &dyn BlockDevice,
         status: IoCompletionStatus,
     ) {
         trace!(?status);
 
-        match status {
-            // For NVMe devices, don't retire the device in response to invalid
-            // opcodes.
-            IoCompletionStatus::NvmeError(nvme_status) => {
-                if nvme_status
-                    == NvmeCommandStatus::GenericCommandStatus(
-                        GenericStatusCode::InvalidOpcode,
-                    )
-                {
-                    info!(
-                            "Device {} experienced invalid opcode error: retiring skipped",
-                            child.device_name()
-                        );
-                    return;
-                }
+        if let IoCompletionStatus::NvmeError(nvme_status) = status {
+            if nvme_status
+                == NvmeCommandStatus::GenericCommandStatus(
+                    GenericStatusCode::InvalidOpcode,
+                )
+            {
+                info!(
+                        "Device {} experienced invalid opcode error: retiring skipped",
+                        child.device_name()
+                    );
+                return;
             }
-            // Retire the device in response to all non-NVMe errors.
-            _ => {}
         }
 
         Reactors::master().send_future(Self::child_retire(

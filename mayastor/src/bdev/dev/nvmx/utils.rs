@@ -1,6 +1,6 @@
-use crate::core::NvmeCommandStatus;
-
 use spdk_sys::{self, spdk_nvme_cpl};
+
+use crate::core::NvmeCommandStatus;
 
 #[derive(Debug, PartialEq)]
 enum NvmeStatusCodeType {
@@ -18,6 +18,7 @@ enum NvmeGenericCommandStatusCode {
     Success = 0x0,
 }
 #[derive(Debug, PartialEq)]
+#[allow(dead_code)]
 pub enum NvmeAerType {
     Error = 0x0,
     Smart = 0x1,

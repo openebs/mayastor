@@ -1,6 +1,8 @@
 use crossbeam::atomic::AtomicCell;
 use snafu::Snafu;
 
+use NvmeControllerState::*;
+
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum NvmeControllerState {
     New,
@@ -90,8 +92,6 @@ pub enum ControllerStateMachineError {
         new_value: bool,
     },
 }
-
-use NvmeControllerState::*;
 
 /// Check if a transition exists between two given states.
 /// Initial state: New, final state: Unconfigured.

@@ -1,16 +1,15 @@
-use async_trait::async_trait;
-use futures::channel::oneshot;
-use nix::errno::Errno;
 use std::{
     convert::From,
-    ptr::NonNull,
     sync::{Arc, Mutex},
 };
 
-use spdk_sys::{self, spdk_nvme_ctrlr};
+use async_trait::async_trait;
+use futures::channel::oneshot;
+use nix::errno::Errno;
 
 use crate::{
     bdev::dev::nvmx::{
+        controller_inner::SpdkNvmeController,
         NvmeController,
         NvmeControllerState,
         NvmeDeviceHandle,
@@ -35,13 +34,12 @@ pub struct NvmeBlockDevice {
     ns: Arc<NvmeNamespace>,
     name: String,
 }
-/*
- * Descriptor for an opened NVMe device that represents a namespace for
- * an NVMe controller.
- */
+
+/// Descriptor for an opened NVMe device that represents a namespace for
+/// an NVMe controller.
 pub struct NvmeDeviceDescriptor {
     ns: Arc<NvmeNamespace>,
-    ctrlr: NonNull<spdk_nvme_ctrlr>,
+    ctrlr: SpdkNvmeController,
     io_device_id: u64,
     name: String,
     prchk_flags: u32,
@@ -56,7 +54,7 @@ impl NvmeDeviceDescriptor {
                 ns,
                 io_device_id: controller.id(),
                 name: controller.get_name(),
-                ctrlr: NonNull::new(controller.ctrlr_as_ptr()).unwrap(),
+                ctrlr: controller.controller().unwrap(),
                 prchk_flags: controller.flags(),
             }))
         } else {
@@ -72,20 +70,6 @@ impl BlockDeviceDescriptor for NvmeDeviceDescriptor {
         Box::new(NvmeBlockDevice::from_ns(&self.name, Arc::clone(&self.ns)))
     }
 
-    fn get_io_handle(&self) -> Result<Box<dyn BlockDeviceHandle>, CoreError> {
-        Ok(Box::new(NvmeDeviceHandle::create(
-            &self.name,
-            self.io_device_id,
-            self.ctrlr.clone(),
-            Arc::clone(&self.ns),
-            self.prchk_flags,
-        )?))
-    }
-
-    fn unclaim(&self) {
-        warn!("unclaim() is not implemented for NvmeDeviceDescriptor yet");
-    }
-
     fn into_handle(
         self: Box<Self>,
     ) -> Result<Box<dyn BlockDeviceHandle>, CoreError> {
@@ -96,6 +80,20 @@ impl BlockDeviceDescriptor for NvmeDeviceDescriptor {
             self.ns,
             self.prchk_flags,
         )?))
+    }
+
+    fn get_io_handle(&self) -> Result<Box<dyn BlockDeviceHandle>, CoreError> {
+        Ok(Box::new(NvmeDeviceHandle::create(
+            &self.name,
+            self.io_device_id,
+            self.ctrlr,
+            Arc::clone(&self.ns),
+            self.prchk_flags,
+        )?))
+    }
+
+    fn unclaim(&self) {
+        warn!("unclaim() is not implemented for NvmeDeviceDescriptor yet");
     }
 }
 

@@ -1,20 +1,29 @@
+use std::{alloc::Layout, mem::ManuallyDrop, os::raw::c_void, sync::Arc};
+
 use async_trait::async_trait;
 use futures::channel::oneshot;
 use nix::errno::Errno;
 use once_cell::sync::OnceCell;
-use std::{
-    alloc::Layout,
-    mem::ManuallyDrop,
-    os::raw::c_void,
-    ptr::NonNull,
-    sync::Arc,
-};
 
-use crate::core::mempool::MemoryPool;
+use spdk_sys::{
+    self,
+    iovec,
+    spdk_get_io_channel,
+    spdk_io_channel,
+    spdk_nvme_cpl,
+    spdk_nvme_ctrlr_cmd_admin_raw,
+    spdk_nvme_dsm_range,
+    spdk_nvme_ns_cmd_dataset_management,
+    spdk_nvme_ns_cmd_read,
+    spdk_nvme_ns_cmd_readv,
+    spdk_nvme_ns_cmd_write,
+    spdk_nvme_ns_cmd_writev,
+};
 
 use crate::{
     bdev::dev::nvmx::{
         channel::NvmeControllerIoChannel,
+        controller_inner::SpdkNvmeController,
         utils,
         utils::{
             nvme_command_status,
@@ -27,6 +36,7 @@ use crate::{
         NVME_CONTROLLERS,
     },
     core::{
+        mempool::MemoryPool,
         nvme_admin_opc,
         BlockDevice,
         BlockDeviceHandle,
@@ -41,22 +51,6 @@ use crate::{
         NvmeCommandStatus,
     },
     ffihelper::{cb_arg, done_cb},
-};
-
-use spdk_sys::{
-    self,
-    iovec,
-    spdk_get_io_channel,
-    spdk_io_channel,
-    spdk_nvme_cpl,
-    spdk_nvme_ctrlr,
-    spdk_nvme_ctrlr_cmd_admin_raw,
-    spdk_nvme_dsm_range,
-    spdk_nvme_ns_cmd_dataset_management,
-    spdk_nvme_ns_cmd_read,
-    spdk_nvme_ns_cmd_readv,
-    spdk_nvme_ns_cmd_write,
-    spdk_nvme_ns_cmd_writev,
 };
 
 use super::NvmeIoChannelInner;
@@ -96,21 +90,20 @@ const SPDK_NVME_DATASET_MANAGEMENT_MAX_RANGES: u64 = 256;
 // range.
 const SPDK_NVME_DATASET_MANAGEMENT_RANGE_MAX_BLOCKS: u64 = 0xFFFFFFFF;
 
-/*
- * I/O handle for NVMe block device.
- */
+/// I/O handle for NVMe block device.
 pub struct NvmeDeviceHandle {
+    /// io channel for the current thread
     io_channel: ManuallyDrop<NvmeControllerIoChannel>,
-    ctrlr: NonNull<spdk_nvme_ctrlr>,
+    /// NVMe controller
+    ctrlr: SpdkNvmeController,
+    /// name of the controller
     name: String,
+    /// namespaces associated with this controller
     ns: Arc<NvmeNamespace>,
     prchk_flags: u32,
 
     // Private instance of the block device backed by the NVMe namespace.
     block_device: Box<dyn BlockDevice>,
-
-    // Static values cached for performance.
-    num_blocks: u64,
     block_len: u64,
 }
 /// Context for reset operation.
@@ -124,13 +117,13 @@ impl NvmeDeviceHandle {
     pub fn create(
         name: &str,
         id: u64,
-        ctrlr: NonNull<spdk_nvme_ctrlr>,
+        ctrlr: SpdkNvmeController,
         ns: Arc<NvmeNamespace>,
         prchk_flags: u32,
     ) -> Result<NvmeDeviceHandle, CoreError> {
         // Initialize memory pool for holding I/O context now, during the slow
         // path, to make sure it's available before the first I/O
-        // oepration takes place.
+        // operations take place.
         IOCTX_POOL.get_or_init(|| MemoryPool::<NvmeIoCtx>::create(
             "nvme_ctrl_io_ctx",
             IOCTX_POOL_SIZE
@@ -149,7 +142,6 @@ impl NvmeDeviceHandle {
             io_channel: ManuallyDrop::new(io_channel),
             ctrlr,
             block_device: Self::get_nvme_device(name, &ns),
-            num_blocks: ns.num_blocks(),
             block_len: ns.block_len(),
             prchk_flags,
             ns,
@@ -261,10 +253,10 @@ fn complete_nvme_command(ctx: *mut NvmeIoCtx, cpl: *const spdk_nvme_cpl) {
 
     // Invoke caller's callback and free I/O context.
     if op_succeeded {
-        (io_ctx.cb)(&inner.device, IoCompletionStatus::Success, io_ctx.cb_arg);
+        (io_ctx.cb)(&*inner.device, IoCompletionStatus::Success, io_ctx.cb_arg);
     } else {
         (io_ctx.cb)(
-            &inner.device,
+            &*inner.device,
             IoCompletionStatus::NvmeError(nvme_command_status(cpl)),
             io_ctx.cb_arg,
         );
@@ -435,33 +427,17 @@ fn reset_callback(success: bool, arg: *mut c_void) {
         ))
     };
 
-    (ctx.cb)(&ctx.device, status, ctx.cb_arg);
+    (ctx.cb)(&*ctx.device, status, ctx.cb_arg);
 }
 
 #[async_trait(?Send)]
 impl BlockDeviceHandle for NvmeDeviceHandle {
-    fn get_device(&self) -> &Box<dyn BlockDevice> {
-        &self.block_device
+    fn get_device(&self) -> &dyn BlockDevice {
+        &*self.block_device
     }
 
     fn dma_malloc(&self, size: u64) -> Result<DmaBuf, DmaError> {
         DmaBuf::new(size, self.ns.alignment())
-    }
-
-    async fn nvme_identify_ctrlr(&self) -> Result<DmaBuf, CoreError> {
-        let mut buf = DmaBuf::new(4096, 8).map_err(|_e| {
-            CoreError::DmaAllocationError {
-                size: 4096,
-            }
-        })?;
-
-        let mut cmd = spdk_sys::spdk_nvme_cmd::default();
-        cmd.set_opc(nvme_admin_opc::IDENTIFY.into());
-        cmd.nsid = 0xffffffff;
-        // Controller Identifier
-        unsafe { *spdk_sys::nvme_cmd_cdw10_get(&mut cmd) = 1 };
-        self.nvme_admin(&cmd, Some(&mut buf)).await?;
-        Ok(buf)
     }
 
     async fn read_at(
@@ -637,7 +613,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
                 iovcnt: iovcnt as u64,
                 iovpos: 0,
                 iov_offset: 0,
-                channel: channel,
+                channel,
                 op: IoType::Read,
                 num_blocks,
             },
@@ -714,7 +690,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
                 iovcnt: iovcnt as u64,
                 iovpos: 0,
                 iov_offset: 0,
-                channel: channel,
+                channel,
                 op: IoType::Write,
                 num_blocks,
             },
@@ -763,60 +739,6 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
             inner.account_io();
             Ok(())
         }
-    }
-
-    async fn nvme_admin_custom(&self, opcode: u8) -> Result<(), CoreError> {
-        let mut cmd = spdk_sys::spdk_nvme_cmd::default();
-        cmd.set_opc(opcode.into());
-        self.nvme_admin(&cmd, None).await
-    }
-
-    async fn nvme_admin(
-        &self,
-        cmd: &spdk_sys::spdk_nvme_cmd,
-        buffer: Option<&mut DmaBuf>,
-    ) -> Result<(), CoreError> {
-        let mut pcmd = *cmd; // Make a private mutable copy of the command.
-
-        let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
-
-        // Make sure channel allows I/O.
-        if inner.qpair.is_none() {
-            return Err(CoreError::NvmeAdminDispatch {
-                source: Errno::ENODEV,
-                opcode: cmd.opc(),
-            });
-        }
-
-        let (ptr, size) = match buffer {
-            Some(buf) => (**buf, buf.len()),
-            None => (std::ptr::null_mut(), 0),
-        };
-
-        let (s, r) = oneshot::channel::<bool>();
-
-        let _rc = unsafe {
-            spdk_nvme_ctrlr_cmd_admin_raw(
-                self.ctrlr.as_ptr(),
-                &mut pcmd,
-                ptr,
-                size as u32,
-                Some(nvme_admin_passthru_done),
-                cb_arg(s),
-            )
-        };
-
-        inner.account_io();
-        let ret = if r.await.expect("Failed awaiting NVMe Admin command I/O") {
-            debug!("nvme_admin() done");
-            Ok(())
-        } else {
-            Err(CoreError::NvmeAdminFailed {
-                opcode: (*cmd).opc(),
-            })
-        };
-        inner.discard_io();
-        ret
     }
 
     fn reset(
@@ -879,7 +801,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
                 iovcnt: 0,
                 iovpos: 0,
                 iov_offset: 0,
-                channel: channel,
+                channel,
                 op: IoType::Unmap,
                 num_blocks,
             },
@@ -958,6 +880,76 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
     ) -> Result<(), CoreError> {
         // Write zeroes are done through unmap.
         self.unmap_blocks(offset_blocks, num_blocks, cb, cb_arg)
+    }
+
+    async fn nvme_admin_custom(&self, opcode: u8) -> Result<(), CoreError> {
+        let mut cmd = spdk_sys::spdk_nvme_cmd::default();
+        cmd.set_opc(opcode.into());
+        self.nvme_admin(&cmd, None).await
+    }
+
+    async fn nvme_admin(
+        &self,
+        cmd: &spdk_sys::spdk_nvme_cmd,
+        buffer: Option<&mut DmaBuf>,
+    ) -> Result<(), CoreError> {
+        let mut pcmd = *cmd; // Make a private mutable copy of the command.
+
+        let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
+
+        // Make sure channel allows I/O.
+        if inner.qpair.is_none() {
+            return Err(CoreError::NvmeAdminDispatch {
+                source: Errno::ENODEV,
+                opcode: cmd.opc(),
+            });
+        }
+
+        let (ptr, size) = match buffer {
+            Some(buf) => (**buf, buf.len()),
+            None => (std::ptr::null_mut(), 0),
+        };
+
+        let (s, r) = oneshot::channel::<bool>();
+
+        let _rc = unsafe {
+            spdk_nvme_ctrlr_cmd_admin_raw(
+                self.ctrlr.as_ptr(),
+                &mut pcmd,
+                ptr,
+                size as u32,
+                Some(nvme_admin_passthru_done),
+                cb_arg(s),
+            )
+        };
+
+        inner.account_io();
+        let ret = if r.await.expect("Failed awaiting NVMe Admin command I/O") {
+            debug!("nvme_admin() done");
+            Ok(())
+        } else {
+            Err(CoreError::NvmeAdminFailed {
+                opcode: (*cmd).opc(),
+            })
+        };
+        inner.discard_io();
+        ret
+    }
+
+    async fn nvme_identify_ctrlr(&self) -> Result<DmaBuf, CoreError> {
+        let mut buf = DmaBuf::new(4096, 8).map_err(|_e| {
+            CoreError::DmaAllocationError {
+                size: 4096,
+            }
+        })?;
+
+        let mut cmd = spdk_sys::spdk_nvme_cmd::default();
+        cmd.set_opc(nvme_admin_opc::IDENTIFY.into());
+        cmd.nsid = 0xffffffff;
+        // Controller Identifier
+        unsafe { *spdk_sys::nvme_cmd_cdw10_get(&mut cmd) = 1 };
+        self.nvme_admin(&cmd, Some(&mut buf)).await?;
+        Ok(buf)
     }
 }
 
