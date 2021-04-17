@@ -514,7 +514,7 @@ impl NexusChild {
         }
     }
     /// Return reference to child's block device.
-    pub(crate) fn get_device(&self) -> Result<&dyn BlockDevice, ChildError> {
+    pub fn get_device(&self) -> Result<&dyn BlockDevice, ChildError> {
         if let Some(ref device) = self.device {
             Ok(&**device)
         } else {
