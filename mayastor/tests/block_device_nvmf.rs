@@ -130,7 +130,7 @@ async fn nvmf_device_create_destroy() {
         assert_ne!(bdev.size_in_bytes(), 0);
         assert_eq!(bdev.block_len() * bdev.num_blocks(), bdev.size_in_bytes());
 
-        Uuid::parse_str(&bdev.uuid()).unwrap();
+        Uuid::parse_str(&bdev.uuid().to_string()).unwrap();
 
         // Destroy the device the first time - should succeed.
         device_destroy(&url).await.unwrap();

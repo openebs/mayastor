@@ -169,8 +169,8 @@ impl BlockDevice for SpdkBlockDevice {
         self.bdev.num_blocks()
     }
     /// the UUID of the device
-    fn uuid(&self) -> String {
-        self.bdev.uuid_as_string()
+    fn uuid(&self) -> uuid::Uuid {
+        self.bdev.uuid()
     }
     //// returns the product name
     fn product_name(&self) -> String {

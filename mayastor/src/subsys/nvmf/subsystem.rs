@@ -196,7 +196,7 @@ impl NvmfSubsystem {
     /// add the given bdev to this namespace
     pub fn add_namespace(&self, bdev: &Bdev) -> Result<(), Error> {
         let opts = spdk_nvmf_ns_opts {
-            nguid: bdev.uuid().as_bytes(),
+            nguid: *bdev.uuid().as_bytes(),
             ..Default::default()
         };
         let bdev_cname = CString::new(bdev.name()).unwrap();

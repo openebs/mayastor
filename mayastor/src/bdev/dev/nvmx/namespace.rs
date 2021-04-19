@@ -11,8 +11,6 @@ use spdk_sys::{
     spdk_nvme_ns_supports_compare,
 };
 
-use crate::core::uuid::Uuid;
-
 #[derive(Debug)]
 pub struct NvmeNamespace(NonNull<spdk_nvme_ns>);
 
@@ -29,11 +27,11 @@ impl NvmeNamespace {
         unsafe { spdk_nvme_ns_get_num_sectors(self.0.as_ptr()) }
     }
 
-    pub fn uuid(&self) -> String {
-        let u = Uuid(unsafe { spdk_nvme_ns_get_uuid(self.0.as_ptr()) });
-        uuid::Uuid::from_bytes(u.as_bytes())
-            .to_hyphenated()
-            .to_string()
+    pub fn uuid(&self) -> uuid::Uuid {
+        unsafe {
+            crate::core::uuid::Uuid(spdk_nvme_ns_get_uuid(self.0.as_ptr()))
+        }
+        .into()
     }
 
     pub fn supports_compare(&self) -> bool {

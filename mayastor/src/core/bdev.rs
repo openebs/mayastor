@@ -302,13 +302,13 @@ impl Bdev {
     }
 
     /// return the UUID of this bdev
-    pub fn uuid(&self) -> Uuid {
-        Uuid(unsafe { spdk_bdev_get_uuid(self.0.as_ptr()) })
+    pub fn uuid(&self) -> uuid::Uuid {
+        Uuid(unsafe { spdk_bdev_get_uuid(self.0.as_ptr()) }).into()
     }
 
     /// return the UUID of this bdev as a string
     pub fn uuid_as_string(&self) -> String {
-        uuid::Uuid::from(self.uuid()).to_hyphenated().to_string()
+        self.uuid().to_hyphenated().to_string()
     }
 
     /// Set a list of aliases on the bdev, used to find the bdev later

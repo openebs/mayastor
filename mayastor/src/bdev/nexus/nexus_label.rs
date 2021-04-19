@@ -1189,7 +1189,7 @@ impl NexusChild {
         })?;
 
         let bdev = handle.get_device();
-        let guid = GptGuid::from(Uuid::parse_str(&bdev.uuid()).unwrap());
+        let guid = GptGuid::from(bdev.uuid());
 
         Nexus::generate_label(
             guid,
@@ -1358,7 +1358,7 @@ impl Nexus {
         &mut self,
     ) -> Result<(), LabelError> {
         let now = SystemTime::now();
-        let guid = GptGuid::from(Uuid::from(self.bdev.uuid()));
+        let guid = GptGuid::from(self.bdev.uuid());
 
         for child in self.children.iter_mut() {
             child.update_label(guid, self.size, &now).await?;
@@ -1373,7 +1373,7 @@ impl Nexus {
         &mut self,
     ) -> Result<(), LabelError> {
         let now = SystemTime::now();
-        let guid = GptGuid::from(Uuid::from(self.bdev.uuid()));
+        let guid = GptGuid::from(self.bdev.uuid());
 
         let block_size = u64::from(self.bdev.block_len());
         let mut offsets: Vec<u64> = Vec::new();

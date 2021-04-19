@@ -2,7 +2,7 @@ use crate::core::{CoreError, DmaBuf, DmaError, IoCompletionStatus, IoType};
 use async_trait::async_trait;
 use merge::Merge;
 use std::os::raw::c_void;
-
+use uuid::Uuid;
 #[derive(Debug, Default, Clone, Copy, Merge)]
 pub struct BlockDeviceIoStats {
     #[merge(strategy = merge::num::saturating_add)]
@@ -37,7 +37,7 @@ pub trait BlockDevice {
     fn num_blocks(&self) -> u64;
 
     /// Returns the UUID of the device.
-    fn uuid(&self) -> String;
+    fn uuid(&self) -> Uuid;
 
     /// Returns configured product name for the device.
     fn product_name(&self) -> String;

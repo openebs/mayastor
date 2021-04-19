@@ -458,7 +458,7 @@ impl Nexus {
         self.bdev.generate_uuid();
         info!(
             "using generated UUID {} for nexus {}",
-            uuid::Uuid::from(self.bdev.uuid()),
+            self.bdev.uuid(),
             self.name
         );
     }

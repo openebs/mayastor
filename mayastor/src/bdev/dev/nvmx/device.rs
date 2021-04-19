@@ -29,6 +29,7 @@ use crate::{
     },
     ffihelper::{cb_arg, done_cb},
 };
+use uuid::Uuid;
 
 pub struct NvmeBlockDevice {
     ns: Arc<NvmeNamespace>,
@@ -148,7 +149,7 @@ impl BlockDevice for NvmeBlockDevice {
         self.ns.num_blocks()
     }
 
-    fn uuid(&self) -> String {
+    fn uuid(&self) -> Uuid {
         self.ns.uuid()
     }
 

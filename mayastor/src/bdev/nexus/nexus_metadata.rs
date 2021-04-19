@@ -57,7 +57,6 @@ use bincode::{deserialize_from, serialize, serialize_into, Error};
 use crc::{crc32, Hasher32};
 use serde::{Deserialize, Serialize};
 use snafu::{ResultExt, Snafu};
-use uuid::Uuid;
 
 use crate::{
     bdev::nexus::{
@@ -472,7 +471,7 @@ impl NexusMetaData {
             return Ok(());
         }
 
-        let guid = Guid::from(Uuid::parse_str(&bdev.uuid()).unwrap());
+        let guid = Guid::from(bdev.uuid());
         let mut index =
             MetaDataIndex::new(parent, guid, index_lba, total_entries);
 
@@ -519,7 +518,7 @@ impl NexusMetaData {
             name: String::from("index"),
         })?;
 
-        let guid = Guid::from(Uuid::parse_str(&bdev.uuid()).unwrap());
+        let guid = Guid::from(bdev.uuid());
         let mut index =
             MetaDataIndex::new(parent, guid, index_lba, total_entries);
 
