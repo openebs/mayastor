@@ -71,7 +71,7 @@ def getTag() {
     }
     def tag = sh(
       // using printf to get rid of trailing newline
-      script: "printf \$(git rev-parse --short ${env.GIT_COMMIT})",
+      script: "printf \$(git rev-parse --short=12 ${env.GIT_COMMIT})",
       returnStdout: true
     )
     return tag
