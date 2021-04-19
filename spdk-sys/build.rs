@@ -95,6 +95,7 @@ fn main() {
         .trust_clang_mangling(false)
         .opaque_type("^spdk_nvme_sgl_descriptor")
         .opaque_type("^spdk_nvme_ctrlr_data")
+        .opaque_type("^spdk_nvme_feat_async_event_configuration.*")
         .opaque_type("^spdk_nvmf_fabric_connect.*")
         .opaque_type("^spdk_nvmf_fabric_prop.*")
         .layout_tests(false)
