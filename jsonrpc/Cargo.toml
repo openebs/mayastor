@@ -5,13 +5,11 @@ name = "jsonrpc"
 version = "0.1.0"
 
 [dependencies]
-nix = "0.14.1"
+nix = "0.20"
 serde = "1.0.84"
 serde_derive = "1.0.84"
 serde_json = "1.0.36"
 tonic = "0.4"
 tokio = { version = "1", features =  ["full"]  }
 tracing = "0.1"
-tracing-futures = "0.2.4"
-tracing-subscriber = "0.2.0"
 
