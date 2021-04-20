@@ -49,7 +49,6 @@ crossbeam = "0.7.3"
 crossbeam-sync = "0.0.0"
 env_logger = "0.8"
 futures = "0.3"
-futures-timer = "2.0"
 git-version = "0.3"
 http = "0.2"
 io-uring = "0.4.0"
@@ -57,7 +56,7 @@ ioctl-gen = "0.1.1"
 jsonrpc = { path = "../jsonrpc"}
 libc = "0.2"
 log = "0.4"
-nix = "0.16"
+nix = "0.20"
 once_cell = "1.3.1"
 pin-utils = "0.1"
 proc-mounts = "0.2"
@@ -83,7 +82,6 @@ url = "2.1"
 smol = "1.0.0"
 dns-lookup = "1.0.4"
 mbus_api = { path = "../mbus-api" }
-nvmeadm = {path = "../nvmeadm", version = "0.1.0"}
 
 [dependencies.rpc]
 path = "../rpc"
@@ -108,5 +106,6 @@ version = "0.8"
 
 [dev-dependencies]
 assert_matches = "1.2"
-run_script = "*"
 composer = { path = "../composer" }
+nvmeadm = {path = "../nvmeadm", version = "0.1.0"}
+run_script = "*"
