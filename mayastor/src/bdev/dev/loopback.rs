@@ -7,7 +7,7 @@ use url::Url;
 use crate::{
     bdev::{
         dev::reject_unknown_parameters,
-        lookup_child_from_bdev,
+        lookup_nexus_child,
         util::uri,
         CreateDestroy,
         GetName,
@@ -88,7 +88,7 @@ impl CreateDestroy for Loopback {
     }
 
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
-        if let Some(child) = lookup_child_from_bdev(&self.name) {
+        if let Some(child) = lookup_nexus_child(&self.name) {
             child.remove();
         }
         Ok(())

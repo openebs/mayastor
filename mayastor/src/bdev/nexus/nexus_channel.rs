@@ -1,6 +1,6 @@
 //!
 //! IO is driven by means of so called channels.
-use std::{ffi::c_void, ptr::NonNull};
+use std::{ffi::c_void, fmt::Debug, ptr::NonNull};
 
 use futures::channel::oneshot;
 
@@ -16,7 +16,7 @@ use spdk_sys::{
 
 use crate::{
     bdev::{nexus::nexus_child::ChildState, Nexus, Reason},
-    core::{BdevHandle, Mthread},
+    core::{BlockDeviceHandle, Mthread},
 };
 
 /// io channel, per core
@@ -27,12 +27,22 @@ pub(crate) struct NexusChannel {
 }
 
 #[repr(C)]
-#[derive(Debug)]
 pub(crate) struct NexusChannelInner {
-    pub(crate) writers: Vec<BdevHandle>,
-    pub(crate) readers: Vec<BdevHandle>,
+    pub(crate) writers: Vec<Box<dyn BlockDeviceHandle>>,
+    pub(crate) readers: Vec<Box<dyn BlockDeviceHandle>>,
     pub(crate) previous: usize,
     device: *mut c_void,
+}
+
+impl Debug for NexusChannelInner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "readers = {}, writers = {}",
+            self.readers.len(),
+            self.writers.len()
+        )
+    }
 }
 
 #[derive(Debug)]
@@ -122,14 +132,14 @@ impl NexusChannelInner {
             .children
             .iter_mut()
             .filter(|c| c.state() == ChildState::Open)
-            .for_each(|c| match (c.handle(), c.handle()) {
+            .for_each(|c| match (c.get_io_handle(), c.get_io_handle()) {
                 (Ok(w), Ok(r)) => {
                     self.writers.push(w);
                     self.readers.push(r);
                 }
                 _ => {
                     c.set_state(ChildState::Faulted(Reason::CantOpen));
-                    error!("failed to create handle for {}", c);
+                    error!("failed to get I/O handle for {}", c.get_name());
                 }
             });
 
@@ -140,11 +150,11 @@ impl NexusChannelInner {
                 .iter_mut()
                 .filter(|c| c.rebuilding())
                 .for_each(|c| {
-                    if let Ok(hdl) = c.handle() {
+                    if let Ok(hdl) = c.get_io_handle() {
                         self.writers.push(hdl);
                     } else {
                         c.set_state(ChildState::Faulted(Reason::CantOpen));
-                        error!("failed to create handle for {}", c);
+                        error!("failed to get I/O handle for {}", c.get_name());
                     }
                 });
         }
@@ -182,14 +192,14 @@ impl NexusChannel {
             .children
             .iter_mut()
             .filter(|c| c.state() == ChildState::Open)
-            .for_each(|c| match (c.handle(), c.handle()) {
+            .for_each(|c| match (c.get_io_handle(), c.get_io_handle()) {
                 (Ok(w), Ok(r)) => {
                     channels.writers.push(w);
                     channels.readers.push(r);
                 }
                 _ => {
                     c.set_state(ChildState::Faulted(Reason::CantOpen));
-                    error!("Failed to get handle for {}, skipping bdev", c)
+                    error!("Failed to get I/O handle for {}, skipping block device", c.get_name())
                 }
             });
         ch.inner = Box::into_raw(channels);

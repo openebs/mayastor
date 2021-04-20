@@ -80,12 +80,10 @@ impl NvmeDeviceList {
     pub fn new() -> Self {
         let mut list = NvmeDeviceList::default();
         let path_entries = glob("/dev/nvme*").unwrap();
-        for entry in path_entries {
-            if let Ok(path) = entry {
-                if let Ok(meta) = std::fs::metadata(&path) {
-                    if meta.file_type().is_block_device() {
-                        list.devices.push(path.display().to_string());
-                    }
+        for path in path_entries.flatten() {
+            if let Ok(meta) = std::fs::metadata(&path) {
+                if meta.file_type().is_block_device() {
+                    list.devices.push(path.display().to_string());
                 }
             }
         }

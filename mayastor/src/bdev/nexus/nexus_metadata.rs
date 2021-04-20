@@ -57,7 +57,6 @@ use bincode::{deserialize_from, serialize, serialize_into, Error};
 use crc::{crc32, Hasher32};
 use serde::{Deserialize, Serialize};
 use snafu::{ResultExt, Snafu};
-use uuid::Uuid;
 
 use crate::{
     bdev::nexus::{
@@ -437,12 +436,12 @@ impl NexusMetaData {
     ) -> Result<(), MetaDataError> {
         let index_lba = NexusMetaData::get_index_lba(label)?;
 
-        let handle = child.handle().context(HandleError {
+        let handle = child.get_io_handle().context(HandleError {
             name: child.name.clone(),
         })?;
 
-        let bdev = handle.get_bdev();
-        let block_size = u64::from(bdev.block_len());
+        let bdev = handle.get_device();
+        let block_size = bdev.block_len();
 
         let mut buf = handle.dma_malloc(block_size).context(ReadAlloc {
             name: String::from("index"),
@@ -472,7 +471,7 @@ impl NexusMetaData {
             return Ok(());
         }
 
-        let guid = Guid::from(Uuid::from(bdev.uuid()));
+        let guid = Guid::from(bdev.uuid());
         let mut index =
             MetaDataIndex::new(parent, guid, index_lba, total_entries);
 
@@ -508,18 +507,18 @@ impl NexusMetaData {
     ) -> Result<(), MetaDataError> {
         let index_lba = NexusMetaData::get_index_lba(label)?;
 
-        let handle = child.handle().context(HandleError {
+        let handle = child.get_io_handle().context(HandleError {
             name: child.name.clone(),
         })?;
 
-        let bdev = handle.get_bdev();
-        let block_size = u64::from(bdev.block_len());
+        let bdev = handle.get_device();
+        let block_size = bdev.block_len();
 
         let mut buf = handle.dma_malloc(block_size).context(WriteAlloc {
             name: String::from("index"),
         })?;
 
-        let guid = Guid::from(Uuid::from(bdev.uuid()));
+        let guid = Guid::from(bdev.uuid());
         let mut index =
             MetaDataIndex::new(parent, guid, index_lba, total_entries);
 
@@ -567,12 +566,12 @@ impl NexusMetaData {
         index: &mut MetaDataIndex,
         now: &SystemTime,
     ) -> Result<(), MetaDataError> {
-        let handle = child.handle().context(HandleError {
+        let handle = child.get_io_handle().context(HandleError {
             name: child.name.clone(),
         })?;
 
-        let bdev = handle.get_bdev();
-        let block_size = u64::from(bdev.block_len());
+        let bdev = handle.get_device();
+        let block_size = bdev.block_len();
 
         let mut buf = handle.dma_malloc(block_size).context(WriteAlloc {
             name: String::from("index"),
@@ -601,12 +600,12 @@ impl NexusMetaData {
             });
         }
 
-        let handle = child.handle().context(HandleError {
+        let handle = child.get_io_handle().context(HandleError {
             name: child.name.clone(),
         })?;
 
-        let bdev = handle.get_bdev();
-        let block_size = u64::from(bdev.block_len());
+        let bdev = handle.get_device();
+        let block_size = bdev.block_len();
 
         let mut buf = handle.dma_malloc(block_size).context(ReadAlloc {
             name: String::from("index"),
@@ -643,12 +642,12 @@ impl NexusMetaData {
 
         object.validate()?;
 
-        let handle = child.handle().context(HandleError {
+        let handle = child.get_io_handle().context(HandleError {
             name: child.name.clone(),
         })?;
 
-        let bdev = handle.get_bdev();
-        let block_size = u64::from(bdev.block_len());
+        let bdev = handle.get_device();
+        let block_size = bdev.block_len();
 
         let mut buf = handle.dma_malloc(block_size).context(ReadAlloc {
             name: String::from("index"),
@@ -715,12 +714,12 @@ impl NexusMetaData {
 
         object.validate()?;
 
-        let handle = child.handle().context(HandleError {
+        let handle = child.get_io_handle().context(HandleError {
             name: child.name.clone(),
         })?;
 
-        let bdev = handle.get_bdev();
-        let block_size = u64::from(bdev.block_len());
+        let bdev = handle.get_device();
+        let block_size = bdev.block_len();
 
         let mut buf = handle.dma_malloc(block_size).context(ReadAlloc {
             name: String::from("index"),
@@ -774,12 +773,12 @@ impl NexusMetaData {
             });
         }
 
-        let handle = child.handle().context(HandleError {
+        let handle = child.get_io_handle().context(HandleError {
             name: child.name.clone(),
         })?;
 
-        let bdev = handle.get_bdev();
-        let block_size = u64::from(bdev.block_len());
+        let bdev = handle.get_device();
+        let block_size = bdev.block_len();
 
         let mut buf = handle.dma_malloc(block_size).context(ReadAlloc {
             name: String::from("index"),
@@ -839,12 +838,12 @@ impl NexusMetaData {
             });
         }
 
-        let handle = child.handle().context(HandleError {
+        let handle = child.get_io_handle().context(HandleError {
             name: child.name.clone(),
         })?;
 
-        let bdev = handle.get_bdev();
-        let block_size = u64::from(bdev.block_len());
+        let bdev = handle.get_device();
+        let block_size = bdev.block_len();
 
         let mut buf = handle.dma_malloc(block_size).context(ReadAlloc {
             name: String::from("index"),
@@ -888,12 +887,12 @@ impl NexusMetaData {
             });
         }
 
-        let handle = child.handle().context(HandleError {
+        let handle = child.get_io_handle().context(HandleError {
             name: child.name.clone(),
         })?;
 
-        let bdev = handle.get_bdev();
-        let block_size = u64::from(bdev.block_len());
+        let bdev = handle.get_device();
+        let block_size = bdev.block_len();
 
         let mut buf = handle.dma_malloc(block_size).context(ReadAlloc {
             name: String::from("index"),
@@ -969,12 +968,12 @@ impl NexusMetaData {
             });
         }
 
-        let handle = child.handle().context(HandleError {
+        let handle = child.get_io_handle().context(HandleError {
             name: child.name.clone(),
         })?;
 
-        let bdev = handle.get_bdev();
-        let block_size = u64::from(bdev.block_len());
+        let bdev = handle.get_device();
+        let block_size = bdev.block_len();
 
         let mut buf = handle.dma_malloc(block_size).context(ReadAlloc {
             name: String::from("index"),

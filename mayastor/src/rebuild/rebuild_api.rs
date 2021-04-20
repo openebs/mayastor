@@ -8,7 +8,7 @@ use snafu::Snafu;
 
 use crate::{
     bdev::VerboseError,
-    core::{CoreError, Descriptor, DmaError},
+    core::{BlockDeviceDescriptor, CoreError, Descriptor, DmaError},
     nexus_uri::NexusBdevError,
 };
 
@@ -108,7 +108,6 @@ impl fmt::Display for RebuildState {
 
 /// A rebuild job is responsible for managing a rebuild (copy) which reads
 /// from source_hdl and writes into destination_hdl from specified start to end
-#[derive(Debug)]
 pub struct RebuildJob {
     /// name of the nexus associated with the rebuild job
     pub nexus: String,
@@ -132,6 +131,20 @@ pub struct RebuildJob {
     pub(super) complete_chan: Vec<oneshot::Sender<RebuildState>>,
     /// rebuild copy error, if any
     pub error: Option<RebuildError>,
+
+    // Pre-opened descriptors for source/destination block device.
+    pub(super) src_descriptor: Box<dyn BlockDeviceDescriptor>,
+    pub(super) dst_descriptor: Box<dyn BlockDeviceDescriptor>,
+}
+
+impl fmt::Debug for RebuildJob {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("RebuildJob")
+            .field("nexus", &self.nexus)
+            .field("source", &self.source)
+            .field("destination", &self.destination)
+            .finish()
+    }
 }
 
 /// rebuild statistics

@@ -269,7 +269,7 @@ impl Config {
                 children: nexus
                     .children
                     .iter()
-                    .map(|child| child.name.clone())
+                    .map(|child| child.get_name().to_string())
                     .collect::<Vec<_>>(),
             })
             .collect::<Vec<_>>();
@@ -438,9 +438,9 @@ impl Config {
                         .expect("Failed to find nexus");
 
                     for child in degraded_children {
-                        dbg!("Start rebuilding child {}", &child.name);
+                        dbg!("Start rebuilding child {}", child.get_name());
                         if nexus_instance
-                            .start_rebuild(&child.name)
+                            .start_rebuild(child.get_name())
                             .await
                             .is_err()
                         {

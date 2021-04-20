@@ -6,7 +6,7 @@ use std::{
 
 use libc::c_void;
 
-use spdk_sys::{spdk_bdev_free_io, spdk_bdev_io, spdk_bdev_io_complete};
+use spdk_sys::{spdk_bdev_io, spdk_bdev_io_complete};
 
 use crate::{
     bdev::nexus::nexus_bdev::{Nexus, NEXUS_PRODUCT_ID},
@@ -226,11 +226,6 @@ impl Bio {
     #[inline]
     pub(crate) fn num_blocks(&self) -> u64 {
         unsafe { self.0.as_ref().u.bdev.num_blocks }
-    }
-
-    /// free the IO
-    pub(crate) fn free(&self) {
-        unsafe { spdk_bdev_free_io(self.0.as_ptr()) }
     }
 
     /// determine the type of this IO

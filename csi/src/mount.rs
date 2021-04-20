@@ -51,24 +51,22 @@ pub fn find_mount(
 ) -> Option<MountInfo> {
     let mut found: Option<proc_mounts::MountInfo> = None;
 
-    for entry in MountIter::new().unwrap() {
-        if let Ok(mount) = entry {
-            if let Some(value) = source {
-                if mount.source.to_string_lossy() == value {
-                    if let Some(value) = target {
-                        if mount.dest.to_string_lossy() == value {
-                            found = Some(mount);
-                        }
-                        continue;
+    for mount in MountIter::new().unwrap().flatten() {
+        if let Some(value) = source {
+            if mount.source.to_string_lossy() == value {
+                if let Some(value) = target {
+                    if mount.dest.to_string_lossy() == value {
+                        found = Some(mount);
                     }
-                    found = Some(mount);
+                    continue;
                 }
-                continue;
+                found = Some(mount);
             }
-            if let Some(value) = target {
-                if mount.dest.to_string_lossy() == value {
-                    found = Some(mount);
-                }
+            continue;
+        }
+        if let Some(value) = target {
+            if mount.dest.to_string_lossy() == value {
+                found = Some(mount);
             }
         }
     }

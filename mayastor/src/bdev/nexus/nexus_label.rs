@@ -52,6 +52,15 @@
 //! The nbd0 zero device does not show the partitions when mounting
 //! it without the nexus in the data path, there would be two paritions
 //! ```
+use std::{
+    cmp::min,
+    convert::{From, TryInto},
+    fmt::{self, Display},
+    io::{Cursor, Seek, SeekFrom},
+    str::FromStr,
+    time::SystemTime,
+};
+
 use bincode::{deserialize_from, serialize, serialize_into, Error};
 use crc::{crc32, Hasher32};
 use serde::{
@@ -59,14 +68,6 @@ use serde::{
     ser::{Serialize, SerializeTuple, Serializer},
 };
 use snafu::{ResultExt, Snafu};
-use std::{
-    cmp::min,
-    convert::From,
-    fmt::{self, Display},
-    io::{Cursor, Seek, SeekFrom},
-    str::FromStr,
-    time::SystemTime,
-};
 use uuid::{self, Uuid};
 
 use crate::{
@@ -996,12 +997,12 @@ impl NexusLabel {
 impl NexusChild {
     /// read and validate this child's label
     pub async fn probe_label(&self) -> Result<NexusLabel, LabelError> {
-        let handle = self.handle().context(HandleError {
+        let handle = self.get_io_handle().context(HandleError {
             name: self.name.clone(),
         })?;
 
-        let bdev = handle.get_bdev();
-        let block_size = u64::from(bdev.block_len());
+        let bdev = handle.get_device();
+        let block_size = bdev.block_len();
         let num_blocks = bdev.num_blocks();
 
         // Protective MBR
@@ -1183,14 +1184,19 @@ impl NexusChild {
 
     /// Helper method to generate a new label for this child
     fn new_label(&self, size: u64) -> Result<NexusLabel, LabelError> {
-        let handle = self.handle().context(HandleError {
+        let handle = self.get_io_handle().context(HandleError {
             name: self.name.clone(),
         })?;
 
-        let bdev = handle.get_bdev();
-        let guid = GptGuid::from(Uuid::from(bdev.uuid()));
+        let bdev = handle.get_device();
+        let guid = GptGuid::from(bdev.uuid());
 
-        Nexus::generate_label(guid, bdev.block_len(), bdev.num_blocks(), size)
+        Nexus::generate_label(
+            guid,
+            bdev.block_len().try_into().unwrap(),
+            bdev.num_blocks(),
+            size,
+        )
     }
 
     /// Create new label and index on this child
@@ -1352,7 +1358,7 @@ impl Nexus {
         &mut self,
     ) -> Result<(), LabelError> {
         let now = SystemTime::now();
-        let guid = GptGuid::from(Uuid::from(self.bdev.uuid()));
+        let guid = GptGuid::from(self.bdev.uuid());
 
         for child in self.children.iter_mut() {
             child.update_label(guid, self.size, &now).await?;
@@ -1367,7 +1373,7 @@ impl Nexus {
         &mut self,
     ) -> Result<(), LabelError> {
         let now = SystemTime::now();
-        let guid = GptGuid::from(Uuid::from(self.bdev.uuid()));
+        let guid = GptGuid::from(self.bdev.uuid());
 
         let block_size = u64::from(self.bdev.block_len());
         let mut offsets: Vec<u64> = Vec::new();
@@ -1421,12 +1427,12 @@ impl NexusChild {
         &self,
         label: &NexusLabel,
     ) -> Result<LabelData, LabelError> {
-        let handle = self.handle().context(HandleError {
+        let handle = self.get_io_handle().context(HandleError {
             name: self.name.clone(),
         })?;
 
-        let bdev = handle.get_bdev();
-        let block_size = u64::from(bdev.block_len());
+        let bdev = handle.get_device();
+        let block_size = bdev.block_len();
 
         let mut buf =
             DmaBuf::new(label.primary.lba_start * block_size, bdev.alignment())
@@ -1466,12 +1472,12 @@ impl NexusChild {
         &self,
         label: &NexusLabel,
     ) -> Result<LabelData, LabelError> {
-        let handle = self.handle().context(HandleError {
+        let handle = self.get_io_handle().context(HandleError {
             name: self.name.clone(),
         })?;
 
-        let bdev = handle.get_bdev();
-        let block_size = u64::from(bdev.block_len());
+        let bdev = handle.get_device();
+        let block_size = bdev.block_len();
 
         let mut buf = DmaBuf::new(
             (label.secondary.lba_self - label.secondary.lba_table + 1)
@@ -1511,13 +1517,18 @@ impl NexusChild {
         offset: u64,
         buf: &DmaBuf,
     ) -> Result<usize, LabelError> {
-        let handle = self.handle().context(HandleError {
+        let handle = self.get_io_handle().context(HandleError {
             name: self.name.clone(),
         })?;
 
-        Ok(handle.write_at(offset, buf).await.context(WriteError {
-            name: self.name.clone(),
-        })?)
+        Ok(handle
+            .write_at(offset, buf)
+            .await
+            .context(WriteError {
+                name: self.name.clone(),
+            })?
+            .try_into()
+            .unwrap())
     }
 
     pub async fn write_label(

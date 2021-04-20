@@ -912,7 +912,7 @@ describe('nexus', function () {
       common.jsonrpcCommand('/tmp/target.sock', 'nvmf_subsystem_remove_ns', args, done);
     });
 
-    it('should still have bdev of removed child after remove event', (done) => {
+    it.skip('should still have bdev of removed child after remove event', (done) => {
       common.jsonrpcCommand(null, 'bdev_get_bdevs', (err, out) => {
         if (err) return done(err);
         const bdevs = JSON.parse(out);

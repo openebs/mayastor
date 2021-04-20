@@ -9,7 +9,7 @@ pub use nexus::{
         NexusStatus,
         VerboseError,
     },
-    nexus_child::{lookup_child_from_bdev, ChildState, Reason},
+    nexus_child::{lookup_nexus_child, ChildState, Reason},
     nexus_child_status_config,
     nexus_label::{GptEntry, GptGuid as Guid, GptHeader},
     nexus_metadata::{
@@ -44,3 +44,5 @@ pub struct Uri;
 pub(crate) mod dev;
 pub(crate) mod nexus;
 pub mod util;
+
+pub use dev::{device_create, device_destroy, device_lookup, device_open};

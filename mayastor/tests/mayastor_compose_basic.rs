@@ -1,5 +1,5 @@
 use mayastor::{
-    bdev::nexus_create,
+    bdev::{device_lookup, nexus_create, nexus_lookup},
     core::{Bdev, MayastorCliArgs},
     nexus_uri::bdev_create,
 };
@@ -49,37 +49,46 @@ async fn compose_up_down() {
     let mayastor = MayastorTest::new(MayastorCliArgs::default());
 
     // create a nexus over the bdevs
-    mayastor
+    let nvmf_devs = mayastor
         .spawn(async move {
-            nexus_create(
-                "foo",
-                1024 * 1024 * 50,
-                None,
-                &[
-                    format!(
-                        "nvmf://{}:8420/nqn.2019-05.io.openebs:disk0",
-                        hdls[0].endpoint.ip()
-                    ),
-                    format!(
-                        "nvmf://{}:8420/nqn.2019-05.io.openebs:disk0",
-                        hdls[1].endpoint.ip()
-                    ),
-                ],
-            )
-            .await
+            let children = [
+                format!(
+                    "nvmf://{}:8420/nqn.2019-05.io.openebs:disk0",
+                    hdls[0].endpoint.ip()
+                ),
+                format!(
+                    "nvmf://{}:8420/nqn.2019-05.io.openebs:disk0",
+                    hdls[1].endpoint.ip()
+                ),
+            ];
+
+            nexus_create("foo", 1024 * 1024 * 50, None, &children)
+                .await
+                .unwrap();
+
+            let nexus = nexus_lookup("foo").unwrap();
+
+            // Get NVMf device names for all nexus children for further lookup.
+            children
+                .iter()
+                .map(|n| {
+                    nexus
+                        .get_child_by_name(n)
+                        .unwrap()
+                        .get_device()
+                        .unwrap()
+                        .device_name()
+                })
+                .collect::<Vec<String>>()
         })
-        .await
-        .unwrap();
+        .await;
 
     // why not
     mayastor
         .spawn(async {
-            bdev_create("malloc:///malloc0?size_mb=100").await.unwrap();
+            bdev_create("malloc:///malloc0?size_mb=64").await.unwrap();
         })
         .await;
-
-    // this will not compile: -- as it should not compile as bdev is not !Send
-    // let bdev = mayastor.spawn(async { Bdev::lookup_by_name("foo") }).await;
 
     let bdevs = mayastor
         .spawn(async {
@@ -91,6 +100,13 @@ async fn compose_up_down() {
         })
         .await;
 
-    // should return 4 bdevs
-    assert_eq!(bdevs.len(), 4);
+    // In total there should be 4 devices: 2 BDEV-based and 2 NVMF based.
+    // However, since NVMF devices can't be enumerated by libspdk, we see only 2
+    // such devices here.
+    assert_eq!(bdevs.len(), 2);
+
+    // In addition, we should locate 2 NVMF devices.
+    for d in nvmf_devs.iter() {
+        device_lookup(d).expect("Can't lookup NVMf device");
+    }
 }

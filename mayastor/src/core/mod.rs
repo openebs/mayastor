@@ -5,7 +5,22 @@ use nix::errno::Errno;
 use snafu::Snafu;
 
 use crate::{subsys::NvmfError, target::iscsi};
-pub use bdev::{Bdev, BdevIter, BdevStats};
+pub use bdev::{Bdev, BdevIter};
+pub use block_device::{
+    BlockDevice,
+    BlockDeviceDescriptor,
+    BlockDeviceHandle,
+    BlockDeviceIoStats,
+    DeviceEventListener,
+    DeviceEventType,
+    DeviceIoController,
+    DeviceTimeoutAction,
+    IoCompletionCallback,
+    IoCompletionCallbackArg,
+    LbaRangeController,
+    OpCompletionCallback,
+    OpCompletionCallbackArg,
+};
 pub use channel::IoChannel;
 pub use cpu_cores::{Core, Cores};
 pub use descriptor::{Descriptor, RangeContext};
@@ -20,13 +35,19 @@ pub use env::{
 
 pub use bio::{Bio, IoStatus, IoType};
 pub use handle::BdevHandle;
-pub use nvme::{nvme_admin_opc, GenericStatusCode, NvmeStatus};
+pub use nvme::{
+    nvme_admin_opc,
+    GenericStatusCode,
+    NvmeCommandStatus,
+    NvmeStatus,
+};
 pub use reactor::{Reactor, ReactorState, Reactors, REACTOR_LIST};
 pub use share::{Protocol, Share};
 pub use thread::Mthread;
 
 mod bdev;
 mod bio;
+mod block_device;
 mod channel;
 mod cpu_cores;
 mod descriptor;
@@ -34,12 +55,13 @@ mod dma;
 mod env;
 mod handle;
 pub mod io_driver;
+pub mod mempool;
 mod nvme;
 pub mod poller;
 mod reactor;
 mod share;
 pub(crate) mod thread;
-mod uuid;
+pub mod uuid;
 
 #[derive(Debug, Snafu, Clone)]
 #[snafu(visibility = "pub")]
@@ -92,6 +114,16 @@ pub enum CoreError {
         source: Errno,
         opcode: u16,
     },
+    #[snafu(display(
+        "Failed to dispatch unmap at offset {} length {}",
+        offset,
+        len
+    ))]
+    UnmapDispatch {
+        source: Errno,
+        offset: u64,
+        len: u64,
+    },
     #[snafu(display("Write failed at offset {} length {}", offset, len))]
     WriteFailed {
         offset: u64,
@@ -132,4 +164,22 @@ pub enum CoreError {
     ReactorError {
         source: Errno,
     },
+    #[snafu(display("Failed to allocate DMA buffer of {} bytes", size))]
+    DmaAllocationError {
+        size: u64,
+    },
+    #[snafu(display("Failed to get I/O satistics for device: {}", source))]
+    DeviceStatisticsError {
+        source: Errno,
+    },
+    #[snafu(display("No devices available for I/O"))]
+    NoDevicesAvailable {},
+}
+
+// Generic I/O completion status for block devices, which supports per-protocol
+// error domains.
+#[derive(Debug, Copy, Clone, Eq, PartialOrd, PartialEq)]
+pub enum IoCompletionStatus {
+    Success,
+    NvmeError(NvmeCommandStatus),
 }
