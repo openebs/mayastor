@@ -7,7 +7,7 @@ use std::{
 use libc::c_void;
 use nix::errno::Errno;
 
-use spdk_sys::{spdk_bdev_io, spdk_io_channel};
+use spdk_sys::{spdk_bdev_io, spdk_bdev_io_get_buf, spdk_io_channel};
 
 use crate::{
     bdev::{
@@ -336,8 +336,7 @@ impl NexusBio {
         )
     }
 
-    /// submit read IO to some child
-    fn readv(&mut self) -> Result<(), CoreError> {
+    fn do_readv(&mut self) -> Result<(), CoreError> {
         if let Some(i) = self.inner_channel().child_select() {
             let hdl = self.read_channel_at_index(i);
             self.submit_read(hdl).map(|_| {
@@ -346,6 +345,38 @@ impl NexusBio {
         } else {
             self.fail();
             Err(CoreError::NoDevicesAvailable {})
+        }
+    }
+
+    extern "C" fn nexus_get_buf_cb(
+        _ch: *mut spdk_io_channel,
+        io: *mut spdk_bdev_io,
+        success: bool,
+    ) {
+        let mut bio = NexusBio::from(io);
+
+        if !success {
+            error!("Failed to get io buffer for io");
+            bio.no_mem();
+        } else if let Err(e) = bio.do_readv() {
+            error!("Failed to submit I/O after iovec allocation: {:?}", e,);
+        }
+    }
+
+    /// submit read IO to some child
+    fn readv(&mut self) -> Result<(), CoreError> {
+        if self.0.need_buf() {
+            info!("Allocating buffer for Nexus I/O");
+            unsafe {
+                spdk_bdev_io_get_buf(
+                    self.0.as_ptr(),
+                    Some(Self::nexus_get_buf_cb),
+                    self.0.num_blocks() * self.0.block_len(),
+                )
+            }
+            Ok(())
+        } else {
+            self.do_readv()
         }
     }
 

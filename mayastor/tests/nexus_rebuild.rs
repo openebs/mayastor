@@ -14,8 +14,6 @@ use rpc::mayastor::ShareProtocolNexus;
 pub mod common;
 use common::{compose::MayastorTest, wait_for_rebuild};
 
-extern crate md5;
-
 // each test `should` use a different nexus name to prevent clashing with
 // one another. This allows the failed tests to `panic gracefully` improving
 // the output log and allowing the CI to fail gracefully as well

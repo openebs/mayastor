@@ -88,6 +88,8 @@ fn main() {
         .allowlist_function("^nvmf_subsystem_set_ana_state")
         .allowlist_function("^nvmf_subsystem_set_cntlid_range")
         .allowlist_function("^nvmf_tgt_accept")
+        .allowlist_function("^nvme_qpair_.*")
+        .allowlist_function("^nvme_ctrlr_.*")
         .blocklist_type("^longfunc")
         .allowlist_var("^NVMF.*")
         .allowlist_var("^SPDK.*")
