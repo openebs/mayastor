@@ -241,7 +241,7 @@ impl Nexus {
         header.checksum().context(SerializeError {})?;
 
         // Secondary GPT header
-        let secondary = header.to_secondary().context(SerializeError {})?;
+        let secondary = header.as_secondary().context(SerializeError {})?;
 
         Ok(NexusLabel {
             status: NexusLabelStatus::Neither,
@@ -462,7 +462,7 @@ impl GptHeader {
         }
     }
 
-    pub fn to_secondary(&self) -> Result<GptHeader, Error> {
+    pub fn as_secondary(&self) -> Result<GptHeader, Error> {
         let mut secondary = *self;
         secondary.lba_self = self.lba_alt;
         secondary.lba_alt = self.lba_self;
@@ -471,7 +471,7 @@ impl GptHeader {
         Ok(secondary)
     }
 
-    pub fn to_primary(&self) -> Result<GptHeader, Error> {
+    pub fn as_primary(&self) -> Result<GptHeader, Error> {
         let mut primary = *self;
         primary.lba_self = self.lba_alt;
         primary.lba_alt = self.lba_self;
@@ -570,7 +570,7 @@ impl NexusLabel {
     fn set_guid(&mut self, guid: GptGuid) -> Result<(), Error> {
         self.primary.guid = guid;
         self.primary.checksum()?;
-        self.secondary = self.primary.to_secondary()?;
+        self.secondary = self.primary.as_secondary()?;
         self.status = NexusLabelStatus::Neither;
         Ok(())
     }
@@ -1053,7 +1053,7 @@ impl NexusChild {
                         // or invalid. Construct new secondary
                         // GPT header from primary.
                         secondary = primary
-                            .to_secondary()
+                            .as_secondary()
                             .context(SerializeError {})?;
                         status = NexusLabelStatus::Primary;
                     }
@@ -1074,7 +1074,7 @@ impl NexusChild {
                         active = &secondary;
                         // Construct new primary GPT header from secondary.
                         primary = secondary
-                            .to_primary()
+                            .as_primary()
                             .context(SerializeError {})?;
                         status = NexusLabelStatus::Secondary;
                     }

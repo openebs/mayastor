@@ -133,7 +133,7 @@ impl Share for Bdev {
         for alias in self.aliases().iter() {
             if let Ok(mut uri) = url::Url::parse(alias) {
                 if self == uri {
-                    if uri.query_pairs().find(|e| e.0 == "uuid").is_none() {
+                    if !uri.query_pairs().any(|e| e.0 == "uuid") {
                         uri.query_pairs_mut()
                             .append_pair("uuid", &self.uuid_as_string());
                     }

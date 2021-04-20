@@ -185,11 +185,7 @@ pub fn publish_fs_volume(
             ));
     }
 
-    if filesystems
-        .iter()
-        .find(|&entry| entry == &staged.fstype)
-        .is_none()
-    {
+    if !filesystems.iter().any(|entry| entry == &staged.fstype) {
         return Err(failure!(
             Code::InvalidArgument,
             "Failed to publish volume {}: unsupported filesystem type: {}",
