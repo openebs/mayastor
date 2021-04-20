@@ -34,7 +34,7 @@ use spdk_sys::{
 };
 
 use crate::{
-    bdev::dev::nvmx::{
+    bdev::nvmx::{
         channel::{NvmeControllerIoChannel, NvmeIoChannel, NvmeIoChannelInner},
         controller_inner::{SpdkNvmeController, TimeoutConfig},
         controller_state::{
@@ -1037,7 +1037,7 @@ pub(crate) mod options {
     }
     #[cfg(test)]
     mod test {
-        use crate::bdev::dev::nvmx::controller::options;
+        use crate::bdev::nvmx::controller::options;
 
         #[test]
         fn nvme_default_controller_options() {
@@ -1328,7 +1328,7 @@ pub(crate) mod transport {
 
     #[cfg(test)]
     mod test {
-        use crate::bdev::dev::nvmx::controller::transport;
+        use crate::bdev::nvmx::controller::transport;
 
         #[test]
         fn test_transport_id() {

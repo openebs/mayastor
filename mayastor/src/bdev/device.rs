@@ -59,7 +59,7 @@ static IOCTX_POOL: Lazy<MemoryPool<IoCtx>> = Lazy::new(|| {
 
 /// Wrapper around native SPDK block devices, which mimics target SPDK block
 /// device as an abstract BlockDevice instance.
-pub(crate) struct SpdkBlockDevice {
+pub struct SpdkBlockDevice {
     bdev: Bdev,
 }
 /// Wrapper around native SPDK block device descriptor, which mimics target SPDK

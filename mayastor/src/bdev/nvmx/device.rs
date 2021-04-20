@@ -6,9 +6,10 @@ use std::{
 use async_trait::async_trait;
 use futures::channel::oneshot;
 use nix::errno::Errno;
+use uuid::Uuid;
 
 use crate::{
-    bdev::dev::nvmx::{
+    bdev::nvmx::{
         controller_inner::SpdkNvmeController,
         NvmeController,
         NvmeControllerState,
@@ -29,7 +30,6 @@ use crate::{
     },
     ffihelper::{cb_arg, done_cb},
 };
-use uuid::Uuid;
 
 pub struct NvmeBlockDevice {
     ns: Arc<NvmeNamespace>,

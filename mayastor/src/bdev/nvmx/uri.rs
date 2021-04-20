@@ -30,7 +30,7 @@ use spdk_sys::{
 
 use crate::{
     bdev::{
-        dev::nvmx::{
+        nvmx::{
             controller,
             controller_inner::SpdkNvmeController,
             NvmeControllerState,

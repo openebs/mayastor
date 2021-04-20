@@ -22,7 +22,7 @@ use spdk_sys::{
 };
 
 use crate::{
-    bdev::dev::nvmx::{
+    bdev::nvmx::{
         nvme_bdev_running_config,
         utils::nvme_cpl_succeeded,
         NvmeController,

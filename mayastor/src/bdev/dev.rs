@@ -26,22 +26,12 @@ use snafu::ResultExt;
 use url::Url;
 
 use crate::{
-    bdev::{BdevCreateDestroy, Uri},
+    bdev::{BdevCreateDestroy, SpdkBlockDevice, Uri},
     core::{BlockDevice, BlockDeviceDescriptor, CoreError},
     nexus_uri::{self, NexusBdevError},
 };
 
-mod aio;
-mod device;
-mod iscsi;
-mod loopback;
-mod malloc;
-mod null;
-mod nvme;
-mod nvmx;
-mod uring;
-
-pub(crate) use device::SpdkBlockDevice;
+use super::{aio, iscsi, loopback, malloc, null, nvme, nvmx, uring};
 
 impl Uri {
     pub fn parse(
@@ -75,7 +65,7 @@ impl Uri {
     }
 }
 
-fn reject_unknown_parameters(
+pub(crate) fn reject_unknown_parameters(
     url: &Url,
     parameters: HashMap<String, String>,
 ) -> Result<(), NexusBdevError> {

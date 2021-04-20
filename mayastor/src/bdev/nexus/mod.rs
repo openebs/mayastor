@@ -1,5 +1,9 @@
 #![allow(clippy::vec_box)]
 
+use std::pin::Pin;
+
+use futures::{future::Future, FutureExt};
+
 use spdk_sys::spdk_bdev_module;
 
 use crate::{
@@ -7,8 +11,6 @@ use crate::{
     core::{Bdev, Share},
     jsonrpc::{jsonrpc_register, Code, JsonRpcError, Result},
 };
-use futures::{future::Future, FutureExt};
-use std::pin::Pin;
 
 /// Allocate C string and return pointer to it.
 /// NOTE: The resulting string must be freed explicitly after use!

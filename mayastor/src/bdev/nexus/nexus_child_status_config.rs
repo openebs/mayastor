@@ -12,14 +12,16 @@
 //! ChildStatusConfig structure as this is only required on startup and not
 //! during runtime.
 
+use std::{collections::HashMap, fs, fs::File, io::Write, sync::Once};
+
+use once_cell::sync::OnceCell;
+use serde::{Deserialize, Serialize};
+
 use crate::bdev::nexus::{
     instances,
     nexus_channel::DrEvent,
     nexus_child::{ChildState, NexusChild},
 };
-use once_cell::sync::OnceCell;
-use serde::{Deserialize, Serialize};
-use std::{collections::HashMap, fs, fs::File, io::Write, sync::Once};
 
 type ChildName = String;
 static mut CONFIG_FILE: Option<String> = None;
