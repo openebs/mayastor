@@ -119,7 +119,7 @@ impl TryFrom<Bdev> for url::Url {
         for alias in bdev.aliases().iter() {
             if let Ok(mut uri) = url::Url::parse(alias) {
                 if bdev == uri {
-                    if uri.query_pairs().find(|e| e.0 == "uuid").is_none() {
+                    if !uri.query_pairs().any(|e| e.0 == "uuid") {
                         uri.query_pairs_mut()
                             .append_pair("uuid", &bdev.uuid_as_string());
                     }
