@@ -9,7 +9,6 @@ use std::{
 use async_trait::async_trait;
 use futures::channel::oneshot;
 use snafu::ResultExt;
-
 use url::Url;
 
 use spdk_sys::{

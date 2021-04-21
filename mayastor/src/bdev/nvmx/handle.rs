@@ -21,7 +21,7 @@ use spdk_sys::{
 };
 
 use crate::{
-    bdev::dev::nvmx::{
+    bdev::nvmx::{
         channel::NvmeControllerIoChannel,
         controller_inner::SpdkNvmeController,
         utils,

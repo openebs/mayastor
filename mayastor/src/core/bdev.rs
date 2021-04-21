@@ -34,7 +34,7 @@ use spdk_sys::{
 };
 
 use crate::{
-    bdev::dev::SpdkBlockDevice,
+    bdev::SpdkBlockDevice,
     core::{
         share::{Protocol, Share},
         uuid::Uuid,

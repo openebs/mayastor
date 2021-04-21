@@ -1,5 +1,7 @@
 use async_trait::async_trait;
 
+pub use dev::{device_create, device_destroy, device_lookup, device_open};
+pub use device::SpdkBlockDevice;
 pub use nexus::{
     nexus_bdev::{
         nexus_create,
@@ -19,6 +21,20 @@ pub use nexus::{
         NexusMetaData,
     },
 };
+
+mod aio;
+pub(crate) mod dev;
+pub(crate) mod device;
+mod iscsi;
+mod loopback;
+mod malloc;
+pub(crate) mod nexus;
+mod null;
+mod nvme;
+mod nvmf;
+mod nvmx;
+mod uring;
+pub mod util;
 
 pub trait BdevCreateDestroy: CreateDestroy + GetName + std::fmt::Debug {}
 
@@ -40,9 +56,3 @@ pub trait GetName {
 }
 
 pub struct Uri;
-
-pub(crate) mod dev;
-pub(crate) mod nexus;
-pub mod util;
-
-pub use dev::{device_create, device_destroy, device_lookup, device_open};

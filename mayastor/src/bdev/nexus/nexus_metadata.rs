@@ -53,7 +53,6 @@ use std::{
 };
 
 use bincode::{deserialize_from, serialize, serialize_into, Error};
-
 use crc::{crc32, Hasher32};
 use serde::{Deserialize, Serialize};
 use snafu::{ResultExt, Snafu};

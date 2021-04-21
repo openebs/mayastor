@@ -24,13 +24,13 @@ use spdk_sys::{
 
 use crate::{
     bdev::{
-        dev::nvmx::{
+        device_lookup,
+        nvmx::{
             controller_inner::SpdkNvmeController,
             nvme_bdev_running_config,
             NvmeControllerState,
             NVME_CONTROLLERS,
         },
-        device_lookup,
     },
     core::{poller, BlockDevice, BlockDeviceIoStats, CoreError, IoType},
 };

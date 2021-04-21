@@ -1,19 +1,27 @@
-//!
-//! The malloc bdev as the name implies, creates an in memory disk. Note
-//! that the backing memory is allocated from huge pages and not from the
-//! heap. IOW, you must ensure you do not run out of huge pages while using
-//! this.
-use crate::{
-    bdev::{dev::reject_unknown_parameters, util::uri},
-    nexus_uri::{self, NexusBdevError},
-};
+//! As the name implies, this is a dummy driver that discards all writes and
+//! returns undefined data for reads. It's useful for benchmarking the I/O stack
+//! with minimal overhead and should *NEVER* be used with *real* data.
+use std::{collections::HashMap, convert::TryFrom};
 
 use async_trait::async_trait;
-use std::{collections::HashMap, convert::TryFrom};
+use futures::channel::oneshot;
+use nix::errno::Errno;
+use snafu::ResultExt;
 use url::Url;
+use uuid::Uuid;
+
+use crate::{
+    bdev::{dev::reject_unknown_parameters, util::uri, CreateDestroy, GetName},
+    core::Bdev,
+    ffihelper::{cb_arg, done_errno_cb, ErrnoResult, IntoCString},
+    nexus_uri::{
+        NexusBdevError,
+        {self},
+    },
+};
 
 #[derive(Debug)]
-pub struct Malloc {
+pub struct Null {
     /// the name of the bdev we created, this is equal to the URI path minus
     /// the leading '/'
     name: String,
@@ -27,18 +35,7 @@ pub struct Malloc {
     uuid: Option<uuid::Uuid>,
 }
 
-use crate::{
-    bdev::{CreateDestroy, GetName},
-    core::Bdev,
-    ffihelper::{cb_arg, done_errno_cb, ErrnoResult, IntoCString},
-};
-
-use futures::channel::oneshot;
-use nix::errno::Errno;
-use snafu::ResultExt;
-use spdk_sys::{create_malloc_disk, delete_malloc_disk};
-
-impl TryFrom<&Url> for Malloc {
+impl TryFrom<&Url> for Null {
     type Error = NexusBdevError;
 
     fn try_from(uri: &Url) -> Result<Self, Self::Error> {
@@ -115,19 +112,19 @@ impl TryFrom<&Url> for Malloc {
                 (size << 20) / blk_size
             } as u64,
             blk_size,
-            uuid,
+            uuid: uuid.or_else(|| Some(Uuid::new_v4())),
         })
     }
 }
 
-impl GetName for Malloc {
+impl GetName for Null {
     fn get_name(&self) -> String {
         self.name.clone()
     }
 }
 
 #[async_trait(?Send)]
-impl CreateDestroy for Malloc {
+impl CreateDestroy for Null {
     type Error = NexusBdevError;
 
     async fn create(&self) -> Result<String, Self::Error> {
@@ -139,15 +136,20 @@ impl CreateDestroy for Malloc {
 
         let cname = self.name.clone().into_cstring();
 
+        let opts = spdk_sys::spdk_null_bdev_opts {
+            name: cname.as_ptr(),
+            uuid: std::ptr::null(),
+            num_blocks: self.num_blocks,
+            block_size: self.blk_size,
+            md_size: 0,
+            md_interleave: false,
+            dif_type: spdk_sys::SPDK_DIF_DISABLE,
+            dif_is_head_of_md: false,
+        };
+
         let errno = unsafe {
             let mut bdev: *mut spdk_sys::spdk_bdev = std::ptr::null_mut();
-            create_malloc_disk(
-                &mut bdev,
-                cname.as_ptr(),
-                std::ptr::null_mut(),
-                self.num_blocks,
-                self.blk_size,
-            )
+            spdk_sys::bdev_null_create(&mut bdev, &opts)
         };
 
         if errno != 0 {
@@ -181,14 +183,13 @@ impl CreateDestroy for Malloc {
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
         if let Some(bdev) = Bdev::lookup_by_name(&self.name) {
             let (s, r) = oneshot::channel::<ErrnoResult<()>>();
-
             unsafe {
-                delete_malloc_disk(
+                spdk_sys::bdev_null_delete(
                     bdev.as_ptr(),
                     Some(done_errno_cb),
                     cb_arg(s),
-                );
-            }
+                )
+            };
 
             r.await
                 .context(nexus_uri::CancelBdev {
