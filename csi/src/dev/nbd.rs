@@ -37,6 +37,13 @@ impl TryFrom<&Url> for Nbd {
 
 #[tonic::async_trait]
 impl Attach for Nbd {
+    async fn parse_parameters(
+        &mut self,
+        _context: &HashMap<String, String>,
+    ) -> Result<(), DeviceError> {
+        Ok(())
+    }
+
     async fn attach(&self) -> Result<(), DeviceError> {
         Ok(())
     }
@@ -45,10 +52,7 @@ impl Attach for Nbd {
         Ok(Some(DeviceName::from(&self.path)))
     }
 
-    async fn fixup(
-        &self,
-        _context: &HashMap<String, String>,
-    ) -> Result<(), DeviceError> {
+    async fn fixup(&self) -> Result<(), DeviceError> {
         Ok(())
     }
 }
