@@ -163,6 +163,8 @@ if (params.e2e_continuous == true) {
   e2e_test_profile = "continuous"
   // use images from dockerhub tagged with e2e_continuous_image_tag instead of building from current source
   e2e_build_images = false
+  // here 'dockerhub' is a keyword the e2e-test.sh script recognizes as meaning "pull from DockerHub"
+  e2e_test_image_registry = 'dockerhub'
   // do not push images even when running on master/develop/release branches
   do_not_push_images = true
 } else {
@@ -174,6 +176,7 @@ if (params.e2e_continuous == true) {
   // Some long e2e tests are not suitable to be run for each PR
   e2e_test_profile = (env.BRANCH_NAME != 'staging' && env.BRANCH_NAME != 'trying') ? "extended" : "ondemand"
   e2e_build_images = true
+  e2e_test_image_registry = env.REGISTRY
   do_not_push_images = false
 }
 e2e_alias_tag = getAliasTag()
@@ -369,11 +372,7 @@ pipeline {
                   }
                   sh "mkdir -p ./${e2e_reports_dir}"
                   def tag = getTag()
-                  def cmd = "./scripts/e2e-test.sh --device /dev/sdb --tag \"${tag}\" --logs --profile \"${e2e_test_profile}\" --build_number \"${env.BUILD_NUMBER}\" --mayastor \"${env.WORKSPACE}\" --reportsdir \"${env.WORKSPACE}/${e2e_reports_dir}\" "
-                  // building images also means using the CI registry
-                  if (e2e_build_images == true) {
-                    cmd = cmd + " --registry \"" + env.REGISTRY + "\""
-                  }
+                  def cmd = "./scripts/e2e-test.sh --device /dev/sdb --tag \"${tag}\" --logs --profile \"${e2e_test_profile}\" --build_number \"${env.BUILD_NUMBER}\" --mayastor \"${env.WORKSPACE}\" --reportsdir \"${env.WORKSPACE}/${e2e_reports_dir}\" --registry \"${e2e_test_image_registry}\" "
 
                   withCredentials([
                     usernamePassword(credentialsId: 'GRAFANA_API', usernameVariable: 'grafana_api_user', passwordVariable: 'grafana_api_pw')
