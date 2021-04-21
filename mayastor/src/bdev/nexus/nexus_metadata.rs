@@ -360,6 +360,9 @@ impl MetaDataIndex {
 pub struct NexusMetaData;
 
 impl NexusMetaData {
+    /// Total number of entries that the index can hold.
+    pub const METADATA_INDEX_CAPACITY: u64 = 64;
+
     fn timestamp(time: &SystemTime) -> u128 {
         time.duration_since(UNIX_EPOCH).unwrap().as_micros()
     }
@@ -381,33 +384,33 @@ impl NexusMetaData {
         MetaDataObject::from_slice(buf.as_slice())
     }
 
-    fn write_index(
+    pub(super) fn write_index(
         buf: &mut DmaBuf,
         index: &mut MetaDataIndex,
         now: &SystemTime,
-    ) -> Result<(), MetaDataError> {
+    ) -> Result<(), Error> {
         buf.fill(0);
         let mut writer = Cursor::new(buf.as_mut_slice());
 
         index.generation += 1;
         index.timestamp = NexusMetaData::timestamp(now);
-        index.checksum().context(SerializeError {})?;
+        index.checksum()?;
 
-        serialize_into(&mut writer, index).context(SerializeError {})
+        serialize_into(&mut writer, index)
     }
 
     fn write_object(
         buf: &mut DmaBuf,
         object: &MetaDataObject,
-    ) -> Result<(), MetaDataError> {
+    ) -> Result<(), Error> {
         buf.fill(0);
         let mut writer = Cursor::new(buf.as_mut_slice());
 
         let header = MetaDataHeader::from(object);
-        serialize_into(&mut writer, &header).context(SerializeError {})?;
+        serialize_into(&mut writer, &header)?;
 
         for child in object.children.iter() {
-            serialize_into(&mut writer, child).context(SerializeError {})?;
+            serialize_into(&mut writer, child)?;
         }
 
         Ok(())
@@ -423,124 +426,6 @@ impl NexusMetaData {
                 name: String::from("MayaMeta"),
             }),
         }
-    }
-
-    /// Check for a valid index and create a new one if none exists
-    pub(crate) async fn check_or_initialise_index(
-        child: &mut NexusChild,
-        parent: Guid,
-        label: &NexusLabel,
-        total_entries: u64,
-        now: &SystemTime,
-    ) -> Result<(), MetaDataError> {
-        let index_lba = NexusMetaData::get_index_lba(label)?;
-
-        let handle = child.get_io_handle().context(HandleError {
-            name: child.name.clone(),
-        })?;
-
-        let bdev = handle.get_device();
-        let block_size = bdev.block_len();
-
-        let mut buf = handle.dma_malloc(block_size).context(ReadAlloc {
-            name: String::from("index"),
-        })?;
-
-        handle
-            .read_at(index_lba * block_size, &mut buf)
-            .await
-            .context(ReadError {
-                name: String::from("index"),
-            })?;
-
-        if let Ok(index) = MetaDataIndex::from_slice(buf.as_slice()) {
-            if index.self_lba != index_lba {
-                return Err(MetaDataError::IndexSelfAddress {});
-            }
-
-            if child.guid != index.guid {
-                // Set GUID for this child to match that stored in the index
-                child.guid = index.guid;
-                info!(
-                    "setting GUID to {} for child {} to match index",
-                    child.guid, child.name
-                );
-            }
-
-            return Ok(());
-        }
-
-        let guid = Guid::from(bdev.uuid());
-        let mut index =
-            MetaDataIndex::new(parent, guid, index_lba, total_entries);
-
-        info!("writing new index to child {}", child.name);
-
-        NexusMetaData::write_index(&mut buf, &mut index, now)?;
-        handle
-            .write_at(index.self_lba * block_size, &buf)
-            .await
-            .context(WriteError {
-                name: child.name.clone(),
-            })?;
-
-        if child.guid != guid {
-            // Set GUID for this child to match that of the associated bdev
-            child.guid = guid;
-            info!(
-                "setting GUID to {} for child {} to match bdev",
-                child.guid, child.name
-            );
-        }
-
-        Ok(())
-    }
-
-    /// Create a new index (overwriting any existing one)
-    pub async fn initialise_index(
-        child: &mut NexusChild,
-        parent: Guid,
-        label: &NexusLabel,
-        total_entries: u64,
-        now: &SystemTime,
-    ) -> Result<(), MetaDataError> {
-        let index_lba = NexusMetaData::get_index_lba(label)?;
-
-        let handle = child.get_io_handle().context(HandleError {
-            name: child.name.clone(),
-        })?;
-
-        let bdev = handle.get_device();
-        let block_size = bdev.block_len();
-
-        let mut buf = handle.dma_malloc(block_size).context(WriteAlloc {
-            name: String::from("index"),
-        })?;
-
-        let guid = Guid::from(bdev.uuid());
-        let mut index =
-            MetaDataIndex::new(parent, guid, index_lba, total_entries);
-
-        info!("writing new index to child {}", child.name);
-
-        NexusMetaData::write_index(&mut buf, &mut index, now)?;
-        handle
-            .write_at(index.self_lba * block_size, &buf)
-            .await
-            .context(WriteError {
-                name: child.name.clone(),
-            })?;
-
-        if child.guid != guid {
-            // Set GUID for this child to match that of the associated bdev
-            child.guid = guid;
-            info!(
-                "setting GUID to {} for child {} to match bdev",
-                child.guid, child.name
-            );
-        }
-
-        Ok(())
     }
 
     /// Check that a valid MetaDataIndex exists on the MayaMeta partition,
@@ -578,7 +463,8 @@ impl NexusMetaData {
 
         info!("writing new index to child {}", child.name);
 
-        NexusMetaData::write_index(&mut buf, index, now)?;
+        NexusMetaData::write_index(&mut buf, index, now)
+            .context(SerializeError {})?;
         handle
             .write_at(index.self_lba * block_size, &buf)
             .await
@@ -677,7 +563,8 @@ impl NexusMetaData {
             }
         }
 
-        NexusMetaData::write_object(&mut buf, object)?;
+        NexusMetaData::write_object(&mut buf, object)
+            .context(SerializeError {})?;
         handle
             .write_at(
                 (index.start_lba + index.current_entry) * block_size,
@@ -688,7 +575,8 @@ impl NexusMetaData {
                 name: child.name.clone(),
             })?;
 
-        NexusMetaData::write_index(&mut buf, &mut index, now)?;
+        NexusMetaData::write_index(&mut buf, &mut index, now)
+            .context(SerializeError {})?;
         handle
             .write_at(index.self_lba * block_size, &buf)
             .await
@@ -739,7 +627,8 @@ impl NexusMetaData {
             index.used_entries = 1;
         }
 
-        NexusMetaData::write_object(&mut buf, object)?;
+        NexusMetaData::write_object(&mut buf, object)
+            .context(SerializeError {})?;
         handle
             .write_at(
                 (index.start_lba + index.current_entry) * block_size,
@@ -750,7 +639,8 @@ impl NexusMetaData {
                 name: child.name.clone(),
             })?;
 
-        NexusMetaData::write_index(&mut buf, &mut index, now)?;
+        NexusMetaData::write_index(&mut buf, &mut index, now)
+            .context(SerializeError {})?;
         handle
             .write_at(index.self_lba * block_size, &buf)
             .await
@@ -816,7 +706,8 @@ impl NexusMetaData {
             index.current_entry = index.total_entries - 1;
         }
 
-        NexusMetaData::write_index(&mut buf, &mut index, now)?;
+        NexusMetaData::write_index(&mut buf, &mut index, now)
+            .context(SerializeError {})?;
         handle
             .write_at(index.self_lba * block_size, &buf)
             .await
@@ -992,7 +883,8 @@ impl NexusMetaData {
             let removed = index.used_entries - retain;
             index.used_entries = retain;
 
-            NexusMetaData::write_index(&mut buf, &mut index, now)?;
+            NexusMetaData::write_index(&mut buf, &mut index, now)
+                .context(SerializeError {})?;
             handle
                 .write_at(index.self_lba * block_size, &buf)
                 .await
