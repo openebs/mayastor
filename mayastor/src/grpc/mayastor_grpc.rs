@@ -8,10 +8,8 @@
 //! grpc perspective we provide. Also, by doing his, we can test the methods
 //! without the need for setting up a grpc client.
 
-use tonic::{Request, Response, Status};
-use tracing::instrument;
-
 use ::rpc::mayastor::*;
+use tonic::{Request, Response, Status};
 
 use crate::{
     bdev::{
@@ -41,8 +39,6 @@ pub struct MayastorSvc;
 
 #[tonic::async_trait]
 impl mayastor_server::Mayastor for MayastorSvc {
-    #[instrument(level = "debug", err)]
-
     async fn create_pool(
         &self,
         request: Request<CreatePoolRequest>,
@@ -56,7 +52,6 @@ impl mayastor_server::Mayastor for MayastorSvc {
         sync_config(pool_grpc::create(args)).await
     }
 
-    #[instrument(level = "debug", err)]
     async fn destroy_pool(
         &self,
         request: Request<DestroyPoolRequest>,
@@ -65,7 +60,6 @@ impl mayastor_server::Mayastor for MayastorSvc {
         sync_config(pool_grpc::destroy(args)).await
     }
 
-    #[instrument(level = "debug", err)]
     async fn list_pools(
         &self,
         _request: Request<Null>,
@@ -73,7 +67,6 @@ impl mayastor_server::Mayastor for MayastorSvc {
         pool_grpc::list()
     }
 
-    #[instrument(level = "debug", err)]
     async fn create_replica(
         &self,
         request: Request<CreateReplicaRequest>,
@@ -82,7 +75,6 @@ impl mayastor_server::Mayastor for MayastorSvc {
         sync_config(pool_grpc::create_replica(args)).await
     }
 
-    #[instrument(level = "debug", err)]
     async fn destroy_replica(
         &self,
         request: Request<DestroyReplicaRequest>,
@@ -91,7 +83,6 @@ impl mayastor_server::Mayastor for MayastorSvc {
         sync_config(pool_grpc::destroy_replica(args)).await
     }
 
-    #[instrument(level = "debug", err)]
     async fn list_replicas(
         &self,
         _request: Request<Null>,
@@ -99,7 +90,6 @@ impl mayastor_server::Mayastor for MayastorSvc {
         pool_grpc::list_replicas()
     }
 
-    #[instrument(level = "debug", err)]
     // TODO; lost track of what this is supposed to do
     async fn stat_replicas(
         &self,
@@ -108,7 +98,6 @@ impl mayastor_server::Mayastor for MayastorSvc {
         pool_grpc::stat_replica().await
     }
 
-    #[instrument(level = "debug", err)]
     async fn share_replica(
         &self,
         request: Request<ShareReplicaRequest>,
@@ -117,7 +106,6 @@ impl mayastor_server::Mayastor for MayastorSvc {
         sync_config(pool_grpc::share_replica(args)).await
     }
 
-    #[instrument(level = "info", err)]
     async fn create_nexus(
         &self,
         request: Request<CreateNexusRequest>,
@@ -135,7 +123,6 @@ impl mayastor_server::Mayastor for MayastorSvc {
         }).await
     }
 
-    #[instrument(level = "debug", err)]
     async fn destroy_nexus(
         &self,
         request: Request<DestroyNexusRequest>,
@@ -151,7 +138,6 @@ impl mayastor_server::Mayastor for MayastorSvc {
         .await
     }
 
-    #[instrument(level = "debug", err)]
     async fn list_nexus(
         &self,
         request: Request<Null>,
@@ -168,7 +154,6 @@ impl mayastor_server::Mayastor for MayastorSvc {
         Ok(Response::new(reply))
     }
 
-    #[instrument(level = "debug", err)]
     async fn add_child_nexus(
         &self,
         request: Request<AddChildNexusRequest>,
@@ -187,7 +172,6 @@ impl mayastor_server::Mayastor for MayastorSvc {
         .await
     }
 
-    #[instrument(level = "debug", err)]
     async fn remove_child_nexus(
         &self,
         request: Request<RemoveChildNexusRequest>,
@@ -206,7 +190,6 @@ impl mayastor_server::Mayastor for MayastorSvc {
         .await
     }
 
-    #[instrument(level = "debug", err)]
     async fn fault_nexus_child(
         &self,
         request: Request<FaultNexusChildRequest>,
@@ -226,7 +209,6 @@ impl mayastor_server::Mayastor for MayastorSvc {
         .await
     }
 
-    #[instrument(level = "debug", err)]
     async fn publish_nexus(
         &self,
         request: Request<PublishNexusRequest>,
@@ -270,7 +252,6 @@ impl mayastor_server::Mayastor for MayastorSvc {
         .await
     }
 
-    #[instrument(level = "debug", err)]
     async fn unpublish_nexus(
         &self,
         request: Request<UnpublishNexusRequest>,
@@ -289,7 +270,6 @@ impl mayastor_server::Mayastor for MayastorSvc {
         .await
     }
 
-    #[instrument(level = "debug", err)]
     async fn get_nvme_ana_state(
         &self,
         request: Request<GetNvmeAnaStateRequest>,
@@ -308,7 +288,6 @@ impl mayastor_server::Mayastor for MayastorSvc {
         }))
     }
 
-    #[instrument(level = "debug", err)]
     async fn set_nvme_ana_state(
         &self,
         request: Request<SetNvmeAnaStateRequest>,
@@ -335,7 +314,6 @@ impl mayastor_server::Mayastor for MayastorSvc {
         Ok(Response::new(Null {}))
     }
 
-    #[instrument(level = "debug", err)]
     async fn child_operation(
         &self,
         request: Request<ChildNexusRequest>,
@@ -364,7 +342,6 @@ impl mayastor_server::Mayastor for MayastorSvc {
         .await
     }
 
-    #[instrument(level = "debug", err)]
     async fn start_rebuild(
         &self,
         request: Request<StartRebuildRequest>,
@@ -378,7 +355,6 @@ impl mayastor_server::Mayastor for MayastorSvc {
         Ok(Response::new(Null {}))
     }
 
-    #[instrument(level = "debug", err)]
     async fn stop_rebuild(
         &self,
         request: Request<StopRebuildRequest>,
@@ -392,7 +368,6 @@ impl mayastor_server::Mayastor for MayastorSvc {
         Ok(Response::new(Null {}))
     }
 
-    #[instrument(level = "debug", err)]
     async fn pause_rebuild(
         &self,
         request: Request<PauseRebuildRequest>,
@@ -405,7 +380,6 @@ impl mayastor_server::Mayastor for MayastorSvc {
         Ok(Response::new(Null {}))
     }
 
-    #[instrument(level = "debug", err)]
     async fn resume_rebuild(
         &self,
         request: Request<ResumeRebuildRequest>,
@@ -418,7 +392,6 @@ impl mayastor_server::Mayastor for MayastorSvc {
         Ok(Response::new(Null {}))
     }
 
-    #[instrument(level = "debug", err)]
     async fn get_rebuild_state(
         &self,
         request: Request<RebuildStateRequest>,
@@ -430,7 +403,6 @@ impl mayastor_server::Mayastor for MayastorSvc {
         }}))
     }
 
-    #[instrument(level = "debug", err)]
     async fn get_rebuild_stats(
         &self,
         request: Request<RebuildStatsRequest>,
@@ -442,7 +414,6 @@ impl mayastor_server::Mayastor for MayastorSvc {
         }}))
     }
 
-    #[instrument(level = "debug", err)]
     async fn get_rebuild_progress(
         &self,
         request: Request<RebuildProgressRequest>,
@@ -454,7 +425,6 @@ impl mayastor_server::Mayastor for MayastorSvc {
         }}))
     }
 
-    #[instrument(level = "debug", err)]
     async fn create_snapshot(
         &self,
         request: Request<CreateSnapshotRequest>,
@@ -473,7 +443,6 @@ impl mayastor_server::Mayastor for MayastorSvc {
         .await
     }
 
-    #[instrument(level = "debug", err)]
     async fn list_block_devices(
         &self,
         request: Request<ListBlockDevicesRequest>,
@@ -486,7 +455,6 @@ impl mayastor_server::Mayastor for MayastorSvc {
         Ok(Response::new(reply))
     }
 
-    #[instrument(level = "debug", err)]
     async fn get_resource_usage(
         &self,
         _request: Request<Null>,

@@ -91,6 +91,9 @@ impl CreateDestroy for Loopback {
         if let Some(child) = lookup_nexus_child(&self.name) {
             child.remove();
         }
+        if let Some(bdev) = Bdev::lookup_by_name(&self.name) {
+            bdev.remove_alias(&self.alias);
+        }
         Ok(())
     }
 }

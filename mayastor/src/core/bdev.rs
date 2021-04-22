@@ -48,7 +48,7 @@ use crate::{
         UnshareIscsi,
         UnshareNvmf,
     },
-    ffihelper::{cb_arg, AsStr},
+    ffihelper::{cb_arg, AsStr, FfiResult, IntoCString},
     subsys::NvmfSubsystem,
     target::{iscsi, nvmf, Side},
 };
@@ -320,14 +320,24 @@ impl Bdev {
             == 0
     }
 
-    /// Set an alias on the bdev, this alias can be used to find the bdev later
+    /// Set an alias on the bdev, this alias can be used to find the bdev later.
+    /// If the alias is already present we return true
     pub fn add_alias(&self, alias: &str) -> bool {
-        let alias = CString::new(alias).unwrap();
+        let alias = alias.into_cstring();
         let ret = unsafe {
             spdk_sys::spdk_bdev_alias_add(self.0.as_ptr(), alias.as_ptr())
-        };
+        }
+        .to_result(Errno::from_i32);
 
-        ret == 0
+        matches!(ret, Err(Errno::EEXIST) | Ok(_))
+    }
+
+    /// removes the given alias from the bdev
+    pub fn remove_alias(&self, alias: &str) {
+        let alias = alias.into_cstring();
+        unsafe {
+            spdk_sys::spdk_bdev_alias_del(self.0.as_ptr(), alias.as_ptr())
+        };
     }
 
     /// Get list of bdev aliases

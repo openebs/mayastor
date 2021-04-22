@@ -5,7 +5,6 @@ use std::convert::TryFrom;
 
 use nix::errno::Errno;
 use tonic::{Response, Status};
-use tracing::instrument;
 
 use rpc::mayastor::{
     CreatePoolRequest,
@@ -104,14 +103,12 @@ impl From<Lvol> for Replica {
 ///
 /// This method should be idempotent if the pool exists. To validate
 /// this we check the name of the pool and base_bdevs
-#[instrument(level = "debug", err)]
 pub async fn create(args: CreatePoolRequest) -> GrpcResult<Pool> {
     rpc_call(Lvs::create_or_import(args))
 }
 
 /// Destroy a pool; and deletes all lvols
 /// If the pool does not exist; it returns OK.
-#[instrument(level = "debug", err)]
 pub async fn destroy(args: DestroyPoolRequest) -> GrpcResult<Null> {
     if let Some(pool) = Lvs::lookup(&args.name) {
         rpc_call(pool.destroy())
@@ -130,7 +127,6 @@ pub fn list() -> GrpcResult<ListPoolsReply> {
 /// create a replica on the given pool returns an OK if the lvol already
 /// exist. If replica fails to share, it will be destroyed prior to returning
 /// an error.
-#[instrument(level = "debug", err)]
 pub async fn create_replica(args: CreateReplicaRequest) -> GrpcResult<Replica> {
     if Lvs::lookup(&args.pool).is_none() {
         return Err(Status::not_found(args.pool));
@@ -182,7 +178,6 @@ pub async fn create_replica(args: CreateReplicaRequest) -> GrpcResult<Replica> {
 
 /// destroy the replica on the given pool, returning OK if the replica was
 /// not found
-#[instrument(level = "debug", err)]
 pub async fn destroy_replica(args: DestroyReplicaRequest) -> GrpcResult<Null> {
     rpc_call(async move {
         match Bdev::lookup_by_name(&args.uuid) {
@@ -196,7 +191,6 @@ pub async fn destroy_replica(args: DestroyReplicaRequest) -> GrpcResult<Null> {
 }
 
 /// list all the replicas
-#[instrument(level = "debug", err)]
 pub fn list_replicas() -> GrpcResult<ListReplicasReply> {
     let mut replicas = Vec::new();
     if let Some(bdev) = Bdev::bdev_first() {
@@ -216,7 +210,6 @@ pub fn list_replicas() -> GrpcResult<ListReplicasReply> {
 /// already shared returns OK.
 ///
 /// There is no unshare RPC in mayastor_svc
-#[instrument(level = "debug", err)]
 pub async fn share_replica(
     args: ShareReplicaRequest,
 ) -> GrpcResult<ShareReplicaReply> {
@@ -261,7 +254,6 @@ pub async fn share_replica(
 }
 
 /// get the stats of replica's (lvol's only)
-#[instrument(level = "debug", err)]
 pub async fn stat_replica() -> GrpcResult<StatReplicasReply> {
     rpc_call::<_, _, LvsError, _>(async {
         let mut lvols = Vec::new();
