@@ -288,7 +288,7 @@ impl Reactor {
             warn!("calling poll on a reactor who is not in the INIT state");
         }
 
-        if cfg!(debug_assertions) {
+        if std::env::var("MAYASTOR_DELAY").is_ok() {
             reactor.developer_delayed();
         } else {
             reactor.running();
@@ -517,7 +517,7 @@ impl Future for &'static Reactor {
                 Poll::Pending
             }
             ReactorState::Init => {
-                if cfg!(debug_assertions) {
+                if std::env::var("MAYASTOR_DELAY").is_ok() {
                     self.developer_delayed();
                 } else {
                     self.running();

@@ -29,7 +29,13 @@ fn reactor_start_stop() {
 
     ms.start(|| {
         Reactors::iter().for_each(|r| {
-            assert_eq!(r.get_state(), ReactorState::Delayed);
+            assert_eq!(
+                matches!(
+                    r.get_state(),
+                    ReactorState::Delayed | ReactorState::Running
+                ),
+                true
+            )
         });
 
         // verify that each core is running/pinned on the right CPU
