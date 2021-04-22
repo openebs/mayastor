@@ -320,7 +320,6 @@ export class Volume {
       // fsa will get called again when event about created nexus arrives
       return;
     }
-    assert(nexusNode);
 
     if (!this.publishedOn) {
       if (this.nexus.getUri()) {
@@ -342,21 +341,24 @@ export class Volume {
         return;
       }
     } else {
-      if (this.nexus) {
-        if (this.nexus.node?.name !== this.publishedOn) {
-          // Respawn the nexus on the desired node.
-          log.info(`Recreating the nexus "${this.nexus}" on the desired node "${this.publishedOn}"`);
-          try {
-            await this.nexus.destroy();
-          } catch (err) {
-            log.error(`Failed to destroy nexus for ${this}: ${err}`)
-          }
-          return;
+      if (this.nexus && this.nexus.node?.name !== this.publishedOn) {
+        // Respawn the nexus on the desired node.
+        log.info(`Recreating the nexus "${this.nexus}" on the desired node "${this.publishedOn}"`);
+        try {
+          await this.nexus.destroy();
+        } catch (err) {
+          log.error(`Failed to destroy nexus for ${this}: ${err}`)
         }
+        return;
       }
+    }
+    if (this.nexus.isOffline()) {
+      this._setState(VolumeState.Offline);
+      return;
     }
 
     // From now on the assumption is that the nexus exists and is reachable
+    assert(nexusNode);
 
     // Check that the replicas are shared as they should be
     try {
@@ -395,10 +397,6 @@ export class Volume {
       .length;
     if (onlineCount === 0) {
       this._setState(VolumeState.Faulted);
-      return;
-    }
-    if (this.nexus.isOffline()) {
-      this._setState(VolumeState.Offline);
       return;
     }
 
@@ -573,6 +571,8 @@ export class Volume {
     this.state = VolumeState.Unknown;
     log.info(`Volume "${this}" with ${this.replicaCount} replica(s) and size ${this.size} was created`);
     this.fsa();
+    // TODO: should we wait for the temporary nexus (created just for labeling
+    // replicas) to go away before we return back OK? IMHO we should.
   }
 
   // Attach whatever objects belong to the volume and can be found in the
@@ -758,6 +758,7 @@ export class Volume {
         .map((r: Replica) => r.pool!.node)
         .sort((a: Node, b: Node) => a.nexus.length - b.nexus.length)[0];
     }
+    assert(nexusNode);
     return nexusNode;
   }
 

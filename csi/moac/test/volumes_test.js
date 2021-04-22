@@ -1556,6 +1556,12 @@ module.exports = function () {
       replica2.offline();
       await waitUntil(() => volume.state === 'faulted', 'faulted volume');
     });
+
+    it('should move to "offline" when volume is published on unknown node', async () => {
+      volume.publishedOn = 'nodeX';
+      volume.fsa();
+      await waitUntil(() => volume.state === 'offline', 'offline volume');
+    });
   });
 
   describe('state transitions on a volume with nexus', function () {
