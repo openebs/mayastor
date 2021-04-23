@@ -294,18 +294,20 @@ impl Config {
         let pools = PoolsIter::new()
             .map(|p| {
                 let base = p.get_base_bdev();
+                let name = p.get_name();
                 Pool {
-                    name: p.get_name().into(),
+                    name: name.to_string(),
                     disks: vec![base.bdev_uri().unwrap_or_else(|| base.name())],
                     replicas: ReplicaIter::new()
-                        .map(|p| Replica {
-                            name: p.get_uuid().to_string(),
-                            share: p.get_share_type(),
+                        .filter(|r| r.get_pool_name() == name)
+                        .map(|r| Replica {
+                            name: r.get_uuid().to_string(),
+                            share: r.get_share_type(),
                         })
-                        .collect::<Vec<_>>(),
+                        .collect(),
                 }
             })
-            .collect::<Vec<_>>();
+            .collect();
 
         current.pools = Some(pools);
 
