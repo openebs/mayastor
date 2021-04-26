@@ -138,7 +138,7 @@ export class Replica {
     if (!this.pool) {
       throw new Error('Cannot destroy a replica that has not been bound');
     }
-    if (!this.pool.node.isSynced()) {
+    if (!this.pool?.node?.isSynced()) {
       // We don't want to block the volume life-cycle in case that the node
       // is down - it may never come back online.
       log.warn(`Faking the destroy of "${this}" because it is unreachable`);
