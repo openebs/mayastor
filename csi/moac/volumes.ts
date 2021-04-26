@@ -80,6 +80,10 @@ export class Volumes extends events.EventEmitter {
     this.events.destroy();
     this.events.removeAllListeners();
     this.events = null;
+    Object.values(this.volumes).forEach((vol) => {
+      vol.deactivate();
+    })
+    this.volumes = {};
   }
 
   // Return a volume with specified uuid.
@@ -166,6 +170,7 @@ export class Volumes extends events.EventEmitter {
     if (!volume) return;
 
     await volume.destroy();
+    volume.deactivate();
     delete this.volumes[uuid];
   }
 

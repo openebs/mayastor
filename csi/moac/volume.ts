@@ -12,6 +12,20 @@ import { Node } from './node';
 const log = require('./logger').Logger('volume');
 const { GrpcCode, GrpcError } = require('./grpc_client');
 
+// If state transition in FSA fails due to an error and there is no consumer
+// for the error, we set a retry timer to retry the state transition.
+const RETRY_TIMEOUT_MS = 30000;
+
+type DoneCallback = (err?: Error, res?: unknown) => void;
+
+// ID of the operation delegated to fsa() to perform.
+enum DelegatedOp {
+  Create,
+  Publish,
+  Unpublish,
+  Destroy,
+}
+
 // State of the volume
 export enum VolumeState {
   Unknown = 'unknown',
@@ -81,10 +95,10 @@ export class Volume {
   private publishedOn: string | undefined;
   // internal properties
   private emitter: events.EventEmitter;
-  private changeCallbacks: (() => void)[];
   private registry: any;
   private runFsa: number; // number of requests to run FSA
-  private nodeBlackList: Record<string, boolean>; // replicas on these nodes should be avoided
+  private waiting: Record<DelegatedOp, DoneCallback>; // ops waiting for completion
+  private retry_fsa: NodeJS.Timeout | undefined;
 
   // Construct a volume object with given uuid.
   //
@@ -116,9 +130,17 @@ export class Volume {
     this.state = state || VolumeState.Pending;
     // other properties
     this.runFsa = 0;
-    this.nodeBlackList = {};
     this.emitter = emitter;
-    this.changeCallbacks = [];
+    this.waiting = <Record<DelegatedOp, DoneCallback>> {};
+  }
+
+  // Clear the timer on the volume to prevent it from keeping nodejs loop alive.
+  deactivate() {
+    this.runFsa = 0;
+    if (this.retry_fsa) {
+      clearTimeout(this.retry_fsa);
+      this.retry_fsa = undefined;
+    }
   }
 
   // Stringify volume
@@ -141,7 +163,8 @@ export class Volume {
   getReplicas(): Replica[] {
     return Object.values(this.replicas);
   }
-  // Publish the volume. That means, make it accessible through a block device.
+
+  // Publish the volume. That means, make it accessible through a target.
   //
   // @params nodeId        ID of the node where the volume will be mounted.
   // @return uri           The URI to access the nexus.
@@ -153,16 +176,16 @@ export class Volume {
     ].indexOf(this.state) < 0) {
       throw new GrpcError(
         GrpcCode.INTERNAL,
-        `Cannot publish "${this}" that isn\'t healthy, degraded or offline`
+        `Cannot publish "${this}" that is neither healthy, degraded nor offline`
       );
     }
 
-    // FSA will take care of publishing the nexus
+    let uri = this.nexus && this.nexus.getUri();
+
     let nexusNode = this._desiredNexusNode(this._activeReplicas(), nodeId);
     if (!nexusNode) {
       // If we get here it means that nexus is supposed to be already published
       // but on a node that is not part of the cluster (has been deregistered).
-      let uri = this.nexus && this.nexus.getUri();
       if (!uri) {
         throw new GrpcError(
           GrpcCode.INTERNAL,
@@ -170,77 +193,66 @@ export class Volume {
         );
       }
       return uri;
+    // If the publish has been already done on the desired node then return.
+    } else if (uri && this.nexus?.node?.name === nexusNode.name) {
+      return uri;
     }
-    this.publishedOn = nexusNode.name;
-    this.fsa();
 
-    let self = this;
-    function waitForPublish(resolve: (val: string) => void, reject: (err: any) => void) {
-      if (!self.publishedOn) {
-        // Before the operation could complete the nexus was unpublished.
-        return reject(new GrpcError(
-          GrpcCode.INTERNAL,
-          'The publish operation was cancelled'
-        ));
-      }
-      if (self.nexus?.node?.name === self.publishedOn) {
-        let uri = self.nexus.getUri();
-        if (uri) {
-          log.info(`Published "${self}" at ${uri}`);
-          return resolve(uri);
-        }
-      }
-      self._onStateChange(waitForPublish.bind(self, resolve, reject));
-    }
-    return new Promise((resolve, reject) => {
-      waitForPublish(resolve, reject);
-    });
+    // Set the new desired state
+    this.publishedOn = nexusNode.name;
+
+    // Cancel any unpublish that might be in progress
+    this._delegatedOpCancel([DelegatedOp.Unpublish], new GrpcError(
+      GrpcCode.INTERNAL,
+      `Volume ${this} has been re-published`,
+    ));
+
+    let res = await this._delegate(DelegatedOp.Publish);
+    assert(typeof res === 'string');
+    return res;
   }
 
   // Undo publish operation on the volume.
   async unpublish() {
-    // FSA will take care of unpublishing the nexus
+    // Set the new desired state
     this.publishedOn = undefined;
-    this.fsa();
 
-    let self = this;
-    function waitForUnpublish(resolve: (val: unknown) => void, reject: (err: any) => void) {
-      if (self.publishedOn) {
-        // Before the operation could complete the nexus was published again.
-        return reject(new GrpcError(
-          GrpcCode.INTERNAL,
-          'The unpublish operation was cancelled'
-        ));
-      }
-      if (!self.nexus || !self.nexus.getUri()) {
-        log.info(`Unpublished "${self}"`);
-        return resolve(undefined);
-      }
-      self._onStateChange(waitForUnpublish.bind(self, resolve, reject));
+    // If the volume has been already unpublished then return
+    if (!this.nexus || !this.nexus.getUri()) {
+      return;
     }
-    return new Promise((resolve, reject) => {
-      waitForUnpublish(resolve, reject);
-    });
+
+    // Cancel any publish that might be in progress
+    this._delegatedOpCancel([DelegatedOp.Publish], new GrpcError(
+      GrpcCode.INTERNAL,
+      `Volume ${this} has been unpublished`,
+    ));
+
+    await this._delegate(DelegatedOp.Unpublish);
   }
 
   // Delete nexus and destroy all replicas of the volume.
   async destroy() {
-    // FSA will take care of destroying the nexus
+    // Set the new desired state
     this.publishedOn = undefined;
     this._setState(VolumeState.Destroyed);
-    this.fsa();
 
-    let self = this;
-    function waitForDestroy(resolve: (val: unknown) => void, reject: (err: any) => void) {
-      if (!self.nexus && Object.keys(self.replicas).length === 0) {
-        log.info(`Destroyed "${self}"`);
-        return resolve(undefined);
-      }
-      self._onStateChange(waitForDestroy.bind(self, resolve, reject));
+    // Cancel all other types of operations that might be in progress
+    this._delegatedOpCancel([
+      DelegatedOp.Create,
+      DelegatedOp.Publish,
+      DelegatedOp.Unpublish,
+    ], new GrpcError(
+      GrpcCode.INTERNAL,
+      `Volume ${this} has been destroyed`,
+    ));
+
+    // If the volume has been already destroyed then return
+    if (!this.nexus && Object.keys(this.replicas).length === 0) {
+      return;
     }
-    return new Promise((resolve, reject) => {
-      waitForDestroy(resolve, reject);
-    });
+
+    await this._delegate(DelegatedOp.Destroy);
   }
 
   // Trigger the run of FSA. It will always run asynchronously to give caller
@@ -249,13 +261,16 @@ export class Volume {
   // current run finishes.
   //
   // Why critical section on fsa? Certain operations done by fsa are async. If
-  // we allow another process to enter fsa before the async operation is done
-  // and the state of volume updated we risk that the second process repeats
-  // exactly the same action (because from its point of view it hasn't been
-  // done yet).
+  // we allow another process to enter fsa before the async operation is done,
+  // we risk that the second process repeats exactly the same actions (because
+  // the state hasn't been fully updated).
   fsa() {
     if (this.runFsa++ === 0) {
       setImmediate(() => {
+        if (this.retry_fsa) {
+          clearTimeout(this.retry_fsa);
+          this.retry_fsa = undefined;
+        }
         this._fsa().finally(() => {
           const runAgain = this.runFsa > 1;
           this.runFsa = 0;
@@ -265,37 +280,105 @@ export class Volume {
     }
   }
 
-  // Implementation of finite state automaton (FSA) that moves the volume
-  // through the states: degraded, faulted, healthy, ... - trying to preserve
-  // data on volume "no matter what".
+  // Implementation of the Finite State Automaton (FSA) that moves the volume
+  // through the states: degraded, faulted, healthy, ... It tries to reflect
+  // the desired state as recorded in spec properties and some other internal
+  // properties that change in response to create, publish, unpublish and
+  // destroy volume operations. Since these operations delegate their tasks
+  // onto FSA (not to interfere with other state transitions happening in FSA),
+  // it is also responsible for notifying delegators when certain state
+  // transitions complete or fail.
   async _fsa() {
-    // If the volume is being created, FSA should not interfere.
+    // If the volume is being created, FSA should not interfere with the
+    // creation process.
     if (this.state === VolumeState.Pending) {
       return;
     }
-    log.debug(`Volume "${this}" enters FSA in ${this.state} state`);
+    log.debug(`Volume ${this} enters FSA in ${this.state} state`);
 
+    // Destroy all components of the volume if it should be destroyed
     if (this.state === VolumeState.Destroyed) {
       if (this.nexus) {
-        await this.nexus.destroy();
+        try {
+          await this.nexus.destroy();
+        } catch (err) {
+          this._delegatedOpFailed([
+            DelegatedOp.Unpublish,
+            DelegatedOp.Destroy,
+          ], new GrpcError(
+            GrpcCode.INTERNAL,
+            `Failed to destroy nexus ${this.nexus}: ${err}`,
+          ));
+          return;
+        }
       }
       const promises = Object.values(this.replicas).map((replica) =>
         replica.destroy()
       );
-      await Promise.all(promises);
+      try {
+        await Promise.all(promises);
+      } catch (err) {
+        this._delegatedOpFailed([DelegatedOp.Destroy], new GrpcError(
+          GrpcCode.INTERNAL,
+          `Failed to destroy a replica of ${this}: ${err}`,
+        ));
+      }
+      this._delegatedOpSuccess(DelegatedOp.Destroy);
+      if (this.retry_fsa) {
+        clearTimeout(this.retry_fsa);
+        this.retry_fsa = undefined;
+      }
       this._changed('del');
       return;
     }
 
-    if (!this.nexus) {
-      // if none of the replicas is usable then there is nothing we can do
-      if (Object.values(this.replicas).filter((r) => !r.isOffline()).length == 0) {
-        this._setState(VolumeState.Faulted);
+    if (this.nexus && !this.publishedOn) {
+      // Try to unpublish the nexus if it should not be published.
+      if (this.nexus.getUri()) {
+        try {
+          await this.nexus.unpublish();
+        } catch (err) {
+          this._delegatedOpFailed([DelegatedOp.Unpublish], new GrpcError(
+            GrpcCode.INTERNAL,
+            `Cannot unpublish ${this.nexus}: ${err}`,
+          ));
+          return;
+        }
+        this._delegatedOpSuccess(DelegatedOp.Unpublish);
+        return;
+      } else if (this.nexus.isOffline()) {
+        // The nexus is not used and it is offline so "forget it".
+        try {
+          await this.nexus.destroy();
+        } catch (err) {
+          this._delegatedOpFailed([DelegatedOp.Unpublish], new GrpcError(
+            GrpcCode.INTERNAL,
+            `Failed to forget nexus ${this.nexus}: ${err}`,
+          ));
+          return;
+        }
+        this._delegatedOpSuccess(DelegatedOp.Unpublish);
         return;
       }
     }
 
-    let replicaSet = this._activeReplicas();
+    let replicaSet: Replica[] = [];
+    try {
+      replicaSet = this._activeReplicas();
+    } catch (err) {
+      this._setState(VolumeState.Faulted);
+      this._delegatedOpFailed([
+        DelegatedOp.Create,
+        DelegatedOp.Publish,
+      ], new GrpcError(
+        GrpcCode.INTERNAL,
+        err.toString(),
+      ));
+      // No point in continuing if there isn't a single usable replica.
+      // We might need to revisit this decision in the future, because nexus
+      // might have children that we are not aware of.
+      if (!this.nexus) return;
+    }
     let nexusNode = this._desiredNexusNode(replicaSet);
 
     // If we don't have a nexus and we should have one then create it
@@ -306,59 +389,61 @@ export class Volume {
       ) {
         if (nexusNode && nexusNode.isSynced()) {
           try {
-            await this._ensureReplicaShareProtocols(nexusNode, replicaSet);
+            replicaSet = await this._ensureReplicaShareProtocols(nexusNode, replicaSet);
           } catch (err) {
-            log.warn(err.toString());
+            this._setState(VolumeState.Offline);
+            this._delegatedOpFailed([
+              DelegatedOp.Create,
+              DelegatedOp.Publish,
+            ], new GrpcError(
+              GrpcCode.INTERNAL,
+              err.toString(),
+            ));
             return;
           }
           try {
             await this._createNexus(nexusNode, replicaSet);
           } catch (err) {
-            log.error(`Failed to create nexus for ${this} on "${this.publishedOn}": ${err}`);
             this._setState(VolumeState.Offline);
+            this._delegatedOpFailed([
+              DelegatedOp.Create,
+              DelegatedOp.Publish,
+            ], new GrpcError(
+              GrpcCode.INTERNAL,
+              `Failed to create nexus for ${this} on "${this.publishedOn}": ${err}`,
+            ));
           }
         } else {
-          log.warn(`Cannot create nexus for ${this} because "${this.publishedOn}" is down`);
           this._setState(VolumeState.Offline);
+          this._delegatedOpFailed([
+            DelegatedOp.Create,
+            DelegatedOp.Publish,
+          ], new GrpcError(
+            GrpcCode.INTERNAL,
+            `Cannot create nexus for ${this} because "${this.publishedOn}" is down`,
+          ));
         }
       } else {
-        // we have just right # of replicas and we don't need a nexus - ok
+        // we have just the right # of replicas and we don't need a nexus
+        this._delegatedOpSuccess(DelegatedOp.Create);
         this._setState(VolumeState.Healthy);
       }
       // fsa will get called again when event about created nexus arrives
       return;
     }
 
-    if (!this.publishedOn) {
-      if (this.nexus.getUri()) {
-        // The nexus is not used but it is published, so unpublish it.
-        try {
-          await this.nexus.unpublish();
-        } catch (err) {
-          log.error(`Nexus unpublish for ${this} failed: ${err}`);
-        }
-        return;
-      } else if (this.nexus.isOffline()) {
-        // The nexus is not used and it is offline so destroy it (or better
-        // term is "forget it").
-        try {
-          await this.nexus.destroy();
-        } catch (err) {
-          log.error(`Failed to destroy nexus for ${this}: ${err}`)
-        }
-        return;
+    if (this.publishedOn && this.nexus.node?.name !== this.publishedOn) {
+      // Respawn the nexus on the desired node.
+      log.info(`Recreating the nexus "${this.nexus}" on the desired node "${this.publishedOn}"`);
+      try {
+        await this.nexus.destroy();
+      } catch (err) {
+        this._delegatedOpFailed([DelegatedOp.Publish], new GrpcError(
+          GrpcCode.INTERNAL,
+          `Failed to destroy nexus for ${this}: ${err}`,
+        ));
       }
-    } else {
-      if (this.nexus && this.nexus.node?.name !== this.publishedOn) {
-        // Respawn the nexus on the desired node.
-        log.info(`Recreating the nexus "${this.nexus}" on the desired node "${this.publishedOn}"`);
-        try {
-          await this.nexus.destroy();
-        } catch (err) {
-          log.error(`Failed to destroy nexus for ${this}: ${err}`)
-        }
-        return;
-      }
+      return;
     }
     if (this.nexus.isOffline()) {
       this._setState(VolumeState.Offline);
@@ -370,9 +455,15 @@ export class Volume {
 
     // Check that the replicas are shared as they should be
     try {
-      await this._ensureReplicaShareProtocols(nexusNode, replicaSet);
+      replicaSet = await this._ensureReplicaShareProtocols(nexusNode, replicaSet);
     } catch (err) {
-      log.warn(err.toString());
+      this._delegatedOpFailed([
+        DelegatedOp.Create,
+        DelegatedOp.Publish,
+      ], new GrpcError(
+        GrpcCode.INTERNAL,
+        err.toString(),
+      ));
       return;
     }
 
@@ -383,18 +474,16 @@ export class Volume {
     });
     // add newly found replicas to the nexus (one by one)
     const newReplicas = Object.values(this.replicas).filter((r) => {
-      return (!r.isOffline() &&
-        !childReplicaPairs.find((pair) => pair.r === r) &&
-        !this.nodeBlackList[r.pool!.node!.name]);
+      return (!r.isOffline() && !childReplicaPairs.find((pair) => pair.r === r));
     });
     for (let i = 0; i < newReplicas.length; i++) {
       try {
-        await this.nexus.addReplica(newReplicas[i]);
-        return;
+        childReplicaPairs.push({
+          ch: await this.nexus.addReplica(newReplicas[i]),
+          r: newReplicas[i],
+        })
       } catch (err) {
-        // XXX what should we do with the replica? Destroy it?
-        this.nodeBlackList[newReplicas[i].pool!.node!.name] = true;
-        logError(err);
+        log.error(err.toString());
       }
     }
 
@@ -405,6 +494,13 @@ export class Volume {
       .length;
     if (onlineCount === 0) {
       this._setState(VolumeState.Faulted);
+      this._delegatedOpFailed([
+        DelegatedOp.Create,
+        DelegatedOp.Publish,
+      ], new GrpcError(
+        GrpcCode.INTERNAL,
+        `The volume ${this} has no healthy replicas`
+      ));
       return;
     }
 
@@ -414,9 +510,13 @@ export class Volume {
       try {
         uri = await this.nexus.publish(this.spec.protocol);
       } catch (err) {
-        logError(err);
+        this._delegatedOpFailed([DelegatedOp.Publish], new GrpcError(
+          GrpcCode.INTERNAL,
+          err.toString(),
+        ));
         return;
       }
+      this._delegatedOpSuccess(DelegatedOp.Publish, uri);
     }
 
     // If we don't have sufficient number of sound replicas (sound means online
@@ -430,7 +530,10 @@ export class Volume {
       try {
         await this._createReplicas(this.spec.replicaCount - soundCount);
       } catch (err) {
-        logError(err);
+        this._delegatedOpFailed([DelegatedOp.Create], new GrpcError(
+          GrpcCode.INTERNAL,
+          err.toString(),
+        ));
       }
       // The replicas will be added to nexus when the fsa is run next time
       // which happens immediately after we exit.
@@ -443,6 +546,7 @@ export class Volume {
       .filter((pair) => pair.ch.state === 'CHILD_DEGRADED')
       .length;
     if (rebuildCount > 0) {
+      log.info(`The volume ${this} is rebuilding`);
       this._setState(VolumeState.Degraded);
       return;
     }
@@ -457,12 +561,12 @@ export class Volume {
     );
     if (!rmPair) {
       rmPair = childReplicaPairs.find((pair) => pair.ch.state === 'CHILD_FAULTED');
-      if (!rmPair) {
+      // Continue searching for a candidate for removal only if there are more
+      // online replicas than required.
+      if (!rmPair && onlineCount > this.spec.replicaCount) {
         // A child that is unknown to us (without replica object)
         rmPair = childReplicaPairs.find((pair) => !pair.r);
-        // If all replicas are online, then continue searching for a candidate
-        // only if there are more online replicas than it needs to be.
-        if (!rmPair && onlineCount > this.spec.replicaCount) {
+        if (!rmPair) {
           // The replica with the lowest score must go away
           const rmReplica = this._prioritizeReplicas(
             <Replica[]>childReplicaPairs
@@ -479,14 +583,14 @@ export class Volume {
       try {
         await this.nexus.removeReplica(rmPair.ch.uri);
       } catch (err) {
-        logError(err);
+        log.error(`Failed to remove excessive replica "${rmPair.ch.uri}" from nexus: ${err}`);
         return;
       }
       if (rmPair.r) {
         try {
           await rmPair.r.destroy();
         } catch (err) {
-          logError(err);
+          log.error(`Failed to destroy excessive replica "${rmPair.r}": ${err}`);
         }
       }
       return;
@@ -513,7 +617,7 @@ export class Volume {
       try {
         await this._createReplicas(1);
       } catch (err) {
-        logError(err);
+        log.error(`Failed to move replica of the volume ${this}: ${err}`);
       }
       return;
     }
@@ -525,9 +629,78 @@ export class Volume {
       try {
         await this.nexus.destroy();
       } catch (err) {
-        log.error(`Defering nexus destroy for ${this}: ${err}`)
+        this._delegatedOpFailed([DelegatedOp.Destroy], new GrpcError(
+          GrpcCode.INTERNAL,
+          `Failed to destroy nexus ${this.nexus}: ${err}`,
+        ));
       }
     }
+  }
+
+  // Wait for the operation that was delegated to FSA to complete (either
+  // with success or failure).
+  async _delegate(op: DelegatedOp): Promise<unknown> {
+    return new Promise((resolve: (res: unknown) => void, reject: (err: any) => void) => {
+      assert(!this.waiting[op]);
+      this.waiting[op] = (err: any, res: unknown) => {
+        if (err) {
+          reject(err);
+        } else {
+          resolve(res);
+        }
+      };
+      this.fsa();
+    });
+  }
+
+  // A state transition corresponding to certain finished operation on the
+  // volume has been done. Inform registered consumer about it.
+  _delegatedOpSuccess(op: DelegatedOp, result?: unknown) {
+    let cb = this.waiting[op];
+    if (cb) {
+      delete this.waiting[op];
+      cb(undefined, result);
+    }
+  }
+
+  // An error has been encountered while making a state transition to desired
+  // state. Inform registered consumer otherwise it could be waiting for ever
+  // for the state transition to happen.
+  // If there is no consumer for the information then log the error and
+  // schedule a retry for the state transition.
+  _delegatedOpFailed(ops: DelegatedOp[], err: Error) {
+    let reported = false;
+    ops.forEach((op) => {
+      let cb = this.waiting[op];
+      if (cb) {
+        reported = true;
+        delete this.waiting[op];
+        cb(err);
+      }
+    });
+    if (!reported) {
+      let msg;
+      if (err instanceof GrpcError) {
+        msg = err.message;
+      } else {
+        // These are sort of unexpected errors so print a stack trace as well
+        msg = err.stack;
+      }
+      log.error(msg);
+      this.retry_fsa = setTimeout(this.fsa.bind(this), RETRY_TIMEOUT_MS);
+    }
+  }
+
+  // Cancel given operation that is in progress (if any) by unblocking it and
+  // returning specified error.
+  _delegatedOpCancel(ops: DelegatedOp[], err: Error) {
+    ops.forEach((op) => {
+      let cb = this.waiting[op];
+      if (cb) {
+        delete this.waiting[op];
+        cb(err);
+      }
+    });
   }
 
   // Change the volume state to given state. If the state is not the same as
@@ -572,15 +745,23 @@ export class Volume {
         `Cannot create nexus for ${this} because "${this.publishedOn}" is down`
       );
     }
-    await this._ensureReplicaShareProtocols(nexusNode, replicaSet);
+    let newReplicaSet = await this._ensureReplicaShareProtocols(nexusNode, replicaSet);
+    // We are strict when creating a new volume - all replicas must be usable.
+    if (newReplicaSet.length !== replicaSet.length) {
+      throw new GrpcError(
+        GrpcCode.INTERNAL,
+        `Some of the replicas for ${this} are not accessible from nexus`,
+      );
+    }
     if (!this.nexus) {
       await this._createNexus(nexusNode, replicaSet);
     }
     this.state = VolumeState.Unknown;
+
+    // Wait for the temporary nexus (created just for labeling replicas) to do
+    // its work and go away before we return.
+    await this._delegate(DelegatedOp.Create);
     log.info(`Volume "${this}" with ${this.spec.replicaCount} replica(s) and size ${this.size} was created`);
-    this.fsa();
-    // TODO: should we wait for the temporary nexus (created just for labeling
-    // replicas) to go away before we return back OK? IMHO we should.
   }
 
   // Attach whatever objects belong to the volume and can be found in the
@@ -749,8 +930,7 @@ export class Volume {
   _activeReplicas(): Replica[] {
     const replicaSet = this
       ._prioritizeReplicas(Object.values(this.replicas))
-      .filter((r) => !r.isOffline())
-      .filter((r) => !this.nodeBlackList[r.pool!.node.name]);
+      .filter((r) => !r.isOffline());
     if (replicaSet.length === 0) {
       throw new GrpcError(
         GrpcCode.INTERNAL,
@@ -791,7 +971,11 @@ export class Volume {
   }
 
   // Share replicas as appropriate to allow access from the nexus.
-  async _ensureReplicaShareProtocols(nexusNode: Node, replicaSet: Replica[]) {
+  // It does not throw unless none of the replicas can be shared.
+  // Returns list of replicas that can be accessed by the nexus.
+  async _ensureReplicaShareProtocols(nexusNode: Node, replicaSet: Replica[]): Promise<Replica[]> {
+    let accessibleReplicas: Replica[] = [];
+
     for (let i = 0; i < replicaSet.length; i++) {
       const replica: Replica = replicaSet[i];
       const replicaNode: Node = replica.pool!.node;
@@ -807,15 +991,21 @@ export class Volume {
       if (share) {
         try {
           await replica.setShare(share);
-          delete this.nodeBlackList[replicaNode.name];
+          accessibleReplicas.push(replica);
         } catch (err) {
-          this.nodeBlackList[replicaNode.name] = true;
-          log.error(
-            `Failed to set share protocol to ${share} for replica "${replica}": ${err}`
-          );
+          log.error(err.toString());
         }
+      } else {
+        accessibleReplicas.push(replica);
       }
     }
+    if (accessibleReplicas.length === 0) {
+      throw new GrpcError(
+        GrpcCode.INTERNAL,
+        `None of the replicas of ${this} can be accessed by nexus`,
+      );
+    }
+    return accessibleReplicas;
   }
 
   // Update parameters of the volume.
@@ -883,24 +1073,15 @@ export class Volume {
     }
   }
 
-  // Should be called whenever the state of the volume changes.
+  // Should be called whenever the volume changes.
   //
   // @param [eventType] The eventType is either new, mod or del and be default
   //                    we assume "mod" which is the most common emitted event.
   _changed(eventType?: string) {
-    let callbacks = this.changeCallbacks;
-    this.changeCallbacks = [];
-    callbacks.forEach((cb) => cb());
-
     this.emitter.emit('volume', {
       eventType: eventType || 'mod',
       object: this
     });
-  }
-
-  // Register a callback executed whenever a state of the volume has changed.
-  _onStateChange(cb: () => void) {
-    this.changeCallbacks.push(cb);
   }
 
   //
@@ -1023,10 +1204,4 @@ export class Volume {
       // if this is a different nexus than ours, ignore it
     }
   }
-}
-
-// When debugging unexpected errors in try-catch it is easy to modify
-// this function to print a stack as well, which is handy.
-function logError(err: any) {
-  log.error(err.toString());
 }

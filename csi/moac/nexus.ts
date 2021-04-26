@@ -226,10 +226,14 @@ export class Nexus {
       try {
         await this.node!.call('unpublishNexus', { uuid: this.uuid });
       } catch (err) {
-        throw new GrpcError(
-          GrpcCode.INTERNAL,
-          `Failed to unpublish nexus "${this}": ${err}`
-        );
+        if (err.code === GrpcCode.NOT_FOUND) {
+          log.warn(`The nexus "${this}" does not exist`);
+        } else {
+          throw new GrpcError(
+            GrpcCode.INTERNAL,
+            `Failed to unpublish nexus "${this}": ${err}`
+          );
+        }
       }
       log.info(`Nexus "${this}" was unpublished`);
     }
@@ -247,10 +251,11 @@ export class Nexus {
   //
   // @param {object} replica   Replica object to add to the nexus.
   //
-  async addReplica(replica: Replica) {
+  async addReplica(replica: Replica): Promise<Child> {
     const uri = replica.uri;
-    if (this.children.find((ch) => ch.uri === uri)) {
-      return;
+    let ch = this.children.find((ch) => ch.uri === uri);
+    if (ch) {
+      return ch;
     }
     log.debug(`Adding uri "${uri}" to nexus "${this}" ...`);
 
@@ -270,11 +275,13 @@ export class Nexus {
     }
     // The child will need to be rebuilt when added, but until we get
     // confirmation back from the nexus, set it as pending
-    this.children.push(new Child(childInfo.uri, childInfo.state));
+    ch = new Child(childInfo.uri, childInfo.state);
+    this.children.push(ch);
     this.children.sort(compareChildren);
     this.state = "NEXUS_DEGRADED"
     log.info(`Replica uri "${uri}" added to the nexus "${this}"`);
     this._emitMod();
+    return ch;
   }
 
   // Remove replica from nexus.
