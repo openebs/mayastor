@@ -16,7 +16,7 @@ async fn io_test() {
         .output()
         .expect("failed exec truncate");
 
-    assert_eq!(output.status.success(), true);
+    assert!(output.status.success());
     ms.spawn(async { start().await }).await;
 
     let output = Command::new("rm")
@@ -24,7 +24,7 @@ async fn io_test() {
         .output()
         .expect("failed delete test file");
 
-    assert_eq!(output.status.success(), true);
+    assert!(output.status.success());
 }
 
 // The actual work here is completely driven by the futures. We

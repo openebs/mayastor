@@ -221,8 +221,8 @@ impl NexusChild {
             }
             ChildState::Open => {
                 // the child (should) already be open
-                assert_eq!(self.device.is_some(), true);
-                assert_eq!(self.device_descriptor.is_some(), true);
+                assert!(self.device.is_some());
+                assert!(self.device_descriptor.is_some());
                 info!("called open on an already opened child");
                 return Ok(self.name.clone());
             }

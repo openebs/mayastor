@@ -50,7 +50,7 @@ async fn nexus_share_test() {
             // sharing the nexus over nvmf should fail
             Reactor::block_on(async {
                 let nexus = nexus_lookup("nexus0").unwrap();
-                assert_eq!(nexus.share_nvmf(None).await.is_err(), true);
+                assert!(nexus.share_nvmf(None).await.is_err());
                 assert_eq!(nexus.shared(), Some(Protocol::Iscsi));
             });
 
@@ -72,8 +72,8 @@ async fn nexus_share_test() {
             // in an error
             Reactor::block_on(async {
                 let bdev = Bdev::lookup_by_name("nexus0").unwrap();
-                assert_eq!(bdev.share_iscsi().await.is_err(), true);
-                assert_eq!(bdev.share_nvmf(None).await.is_err(), true);
+                assert!(bdev.share_iscsi().await.is_err());
+                assert!(bdev.share_nvmf(None).await.is_err());
             });
 
             // unshare the nexus

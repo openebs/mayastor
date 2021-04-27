@@ -677,10 +677,17 @@ impl Drop for ComposeTest {
     fn drop(&mut self) {
         if thread::panicking() && self.logs_on_panic {
             self.containers.keys().for_each(|name| {
-                tracing::error!("Logs from container '{}':", name);
+                tracing::error!(
+                    "========== Logs from container '{}' start:",
+                    &name
+                );
                 let _ = std::process::Command::new("docker")
                     .args(&["logs", name])
                     .status();
+                tracing::error!(
+                    "========== Logs from container '{} end':",
+                    name
+                );
             });
         }
 

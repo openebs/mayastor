@@ -136,11 +136,7 @@ async fn test_io_timeout(action_on_timeout: DeviceTimeoutAction) {
             IoCompletionStatus::Success,
             "I/O operation completed successfully"
         );
-        assert_eq!(
-            CALLBACK_FLAG.load(),
-            false,
-            "Callback called multiple times"
-        );
+        assert!(!CALLBACK_FLAG.load(), "Callback called multiple times");
 
         // Make sure we have the correct device.
         assert_eq!(
@@ -336,11 +332,7 @@ async fn io_timeout_ignore() {
             IoCompletionStatus::Success,
             "I/O operation completed successfully"
         );
-        assert_eq!(
-            CALLBACK_FLAG.load(),
-            false,
-            "Callback called multiple times"
-        );
+        assert!(!CALLBACK_FLAG.load(), "Callback called multiple times");
 
         // Make sure we have the correct device.
         assert_eq!(
@@ -406,7 +398,7 @@ async fn io_timeout_ignore() {
     for i in 1 .. 6 {
         println!("waiting for I/O timeout to happen... {}/5", i);
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-        assert_eq!(CALLBACK_FLAG.load(), false, "I/O operation interrupted");
+        assert!(!CALLBACK_FLAG.load(), "I/O operation interrupted");
     }
 
     // Destroy device.

@@ -70,7 +70,7 @@ async fn core() {
 }
 
 async fn works() {
-    assert_eq!(Bdev::lookup_by_name("core_nexus").is_none(), true);
+    assert!(Bdev::lookup_by_name("core_nexus").is_none());
     create_nexus().await;
     let b = Bdev::lookup_by_name("core_nexus").unwrap();
     assert_eq!(b.name(), "core_nexus");
@@ -117,7 +117,7 @@ async fn core_3() {
             let hdl2 = BdevHandle::open(BDEVNAME1, true, true)
                 .expect("failed to create the handle!");
             let hdl3 = BdevHandle::open(BDEVNAME1, true, true);
-            assert_eq!(hdl3.is_err(), true);
+            assert!(hdl3.is_err());
 
             // we must drop the descriptors before we destroy the nexus
             drop(hdl2);

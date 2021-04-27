@@ -1,10 +1,9 @@
 #[macro_use]
 extern crate tracing;
-
-use futures::FutureExt;
+use futures::future::FutureExt;
 use mayastor::{
     bdev::util::uring,
-    core::{MayastorCliArgs, MayastorEnvironment, Reactors},
+    core::{MayastorCliArgs, MayastorEnvironment, Mthread, Reactors},
     grpc,
     logger,
     subsys,
@@ -12,13 +11,47 @@ use mayastor::{
 use std::path::Path;
 use structopt::StructOpt;
 mayastor::CPS_INIT!();
+use mayastor::subsys::{message_bus_init, Registration};
+
+fn start_tokio_runtime(args: &MayastorCliArgs) {
+    let grpc_address = grpc::endpoint(args.grpc_endpoint.clone());
+    let rpc_address = args.rpc_address.clone();
+    let node_name = args
+        .node_name
+        .clone()
+        .unwrap_or_else(|| "mayastor-node".into());
+
+    let endpoint = args.mbus_endpoint.clone();
+
+    Mthread::spawn_unaffinitized(move || {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(4)
+            .max_blocking_threads(4)
+            .on_thread_start(Mthread::unaffinitize)
+            .enable_all()
+            .build()
+            .unwrap();
+        let _r = rt.enter();
+        if let Some(endpoint) = endpoint {
+            debug!("mayastor mbus subsystem init");
+            message_bus_init();
+            mbus_api::message_bus_init_tokio(endpoint);
+            Registration::init(&node_name, &grpc_address.to_string());
+        }
+
+        let futures = vec![
+            subsys::Registration::run().boxed_local(),
+            grpc::MayastorGrpcServer::run(grpc_address, rpc_address)
+                .boxed_local(),
+        ];
+
+        rt.block_on(futures::future::try_join_all(futures))
+            .expect_err("reactor exit in abnormal state");
+    });
+}
+
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = MayastorCliArgs::from_args();
-
-    let rt = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .unwrap();
 
     // setup our logger first if -L is passed, raise the log level
     // automatically. trace maps to debug at FFI level. If RUST_LOG is
@@ -70,23 +103,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     info!("kernel nvme initiator multipath support: {}", nvme_mp);
     info!("free_pages: {} nr_pages: {}", free_pages, nr_pages);
 
-    let grpc_endpoint = grpc::endpoint(args.grpc_endpoint.clone());
-    let rpc_address = args.rpc_address.clone();
+    let ms = MayastorEnvironment::new(args.clone()).init();
+    start_tokio_runtime(&args);
 
-    let guard = rt.enter();
-    let ms = MayastorEnvironment::new(args).init();
-    drop(guard);
-
-    let master = Reactors::master();
-    master.send_future(async { info!("Mayastor started {} ...", '\u{1F680}') });
-    let futures = vec![
-        master.boxed_local(),
-        subsys::Registration::run().boxed_local(),
-        grpc::MayastorGrpcServer::run(grpc_endpoint, rpc_address).boxed_local(),
-    ];
-
-    rt.block_on(futures::future::try_join_all(futures))
-        .expect_err("reactor exit in abnormal state");
+    Reactors::current().running();
+    Reactors::current().poll_reactor();
 
     ms.fini();
     Ok(())

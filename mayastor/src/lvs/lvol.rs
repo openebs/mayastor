@@ -276,7 +276,7 @@ impl Lvol {
     #[instrument(level = "debug", err)]
     pub async fn set(&self, prop: PropValue) -> Result<(), Error> {
         let blob = unsafe { self.0.as_ref().blob };
-        assert_ne!(blob.is_null(), true);
+        assert!(!blob.is_null());
 
         if self.is_snapshot() {
             warn!("ignoring set property on snapshot {}", self.name());
@@ -324,7 +324,7 @@ impl Lvol {
     #[instrument(level = "debug", err)]
     pub async fn get(&self, prop: PropName) -> Result<PropValue, Error> {
         let blob = unsafe { self.0.as_ref().blob };
-        assert_ne!(blob.is_null(), true);
+        assert!(!blob.is_null());
 
         match prop {
             PropName::Shared => {
