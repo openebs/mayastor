@@ -374,6 +374,9 @@ pipeline {
                   def tag = getTag()
                   def cmd = "./scripts/e2e-test.sh --device /dev/sdb --tag \"${tag}\" --logs --profile \"${e2e_test_profile}\" --build_number \"${env.BUILD_NUMBER}\" --mayastor \"${env.WORKSPACE}\" --reportsdir \"${env.WORKSPACE}/${e2e_reports_dir}\" --registry \"${e2e_test_image_registry}\" "
 
+                  if (e2e_test_profile == "extended") {
+                        cmd = cmd + " --onfail continue "
+                  }
                   withCredentials([
                     usernamePassword(credentialsId: 'GRAFANA_API', usernameVariable: 'grafana_api_user', passwordVariable: 'grafana_api_pw')
                   ]) {
