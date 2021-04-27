@@ -1,7 +1,6 @@
 #[macro_use]
 extern crate tracing;
-
-use futures::FutureExt;
+use futures::future::FutureExt;
 use mayastor::{
     bdev::util::uring,
     core::{MayastorCliArgs, MayastorEnvironment, Mthread, Reactors},
@@ -12,10 +11,17 @@ use mayastor::{
 use std::path::Path;
 use structopt::StructOpt;
 mayastor::CPS_INIT!();
+use mayastor::subsys::{message_bus_init, Registration};
 
 fn start_tokio_runtime(args: &MayastorCliArgs) {
-    let grpc_endpoint = grpc::endpoint(args.grpc_endpoint.clone());
+    let grpc_address = grpc::endpoint(args.grpc_endpoint.clone());
     let rpc_address = args.rpc_address.clone();
+    let node_name = args
+        .node_name
+        .clone()
+        .unwrap_or_else(|| "mayastor-node".into());
+
+    let endpoint = args.mbus_endpoint.clone();
 
     Mthread::spawn_unaffinitized(move || {
         let rt = tokio::runtime::Builder::new_multi_thread()
@@ -25,10 +31,17 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
             .enable_all()
             .build()
             .unwrap();
+        let _r = rt.enter();
+        if let Some(endpoint) = endpoint {
+            debug!("mayastor mbus subsystem init");
+            message_bus_init();
+            mbus_api::message_bus_init_tokio(endpoint);
+            Registration::init(&node_name, &grpc_address.to_string());
+        }
 
         let futures = vec![
             subsys::Registration::run().boxed_local(),
-            grpc::MayastorGrpcServer::run(grpc_endpoint, rpc_address)
+            grpc::MayastorGrpcServer::run(grpc_address, rpc_address)
                 .boxed_local(),
         ];
 

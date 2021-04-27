@@ -61,12 +61,6 @@ impl MessageBusSubsystem {
     /// initialise a new subsystem that handles the control plane
     /// message bus registration process
     extern "C" fn init() {
-        debug!("mayastor mbus subsystem init");
-        let args = MayastorEnvironment::global_or_default();
-        if let (Some(_), Some(grpc)) = (args.mbus_endpoint, args.grpc_endpoint)
-        {
-            Registration::init(&args.node_name, &grpc.to_string());
-        }
         unsafe { spdk_subsystem_init_next(0) }
     }
 

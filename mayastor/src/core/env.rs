@@ -616,9 +616,6 @@ impl MayastorEnvironment {
 
     /// initialize the core, call this before all else
     pub fn init(mut self) -> Self {
-        // initialise the message bus
-        subsys::message_bus_init();
-
         // setup the logger as soon as possible
         self.init_logger().unwrap();
 

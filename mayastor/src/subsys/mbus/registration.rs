@@ -66,7 +66,7 @@ pub struct Registration {
 static MESSAGE_BUS_REG: OnceCell<Registration> = OnceCell::new();
 impl Registration {
     /// initialise the global registration instance
-    pub(super) fn init(node: &str, grpc_endpoint: &str) {
+    pub fn init(node: &str, grpc_endpoint: &str) {
         MESSAGE_BUS_REG.get_or_init(|| {
             Registration::new(&NodeId::from(node), grpc_endpoint)
         });
