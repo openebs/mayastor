@@ -44,7 +44,12 @@ use crate::{
         },
         nvme_bdev_running_config,
         uri::NvmeControllerContext,
-        utils::{nvme_cpl_succeeded, NvmeAerInfoNotice, NvmeAerType},
+        utils::{
+            nvme_cpl_succeeded,
+            NvmeAerInfoNotice,
+            NvmeAerInfoNvmCommandSet,
+            NvmeAerType,
+        },
         NvmeControllerState,
         NvmeControllerState::*,
         NvmeNamespace,
@@ -773,6 +778,10 @@ extern "C" fn aer_cb(ctx: *mut c_void, cpl: *const spdk_nvme_cpl) {
                 );
             }
         }
+    } else if event_type == NvmeAerType::Io as u32
+        && event_info == NvmeAerInfoNvmCommandSet::ReservationLogAvail as u32
+    {
+        info!("Reservation log available");
     }
 }
 

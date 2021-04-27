@@ -63,6 +63,13 @@ pub enum GenericStatusCode {
     CommandAbortPreemt,
     SanitizeFailed,
     SanitizeInProgress,
+    SGLDataBlockGranularityInvalid,
+    CommandInvalidInCMB,
+    LBAOutOfRange,
+    CapacityExceeded,
+    NamespaceNotReady,
+    ReservationConflict,
+    FormatInProgress,
     Reserved,
 }
 #[derive(Debug, Copy, Clone, Eq, PartialOrd, PartialEq)]
@@ -107,8 +114,15 @@ impl From<i32> for GenericStatusCode {
             0x1B => Self::CommandAbortPreemt,
             0x1C => Self::SanitizeFailed,
             0x1D => Self::SanitizeInProgress,
+            0x1E => Self::SGLDataBlockGranularityInvalid,
+            0x1F => Self::CommandInvalidInCMB,
+            0x80 => Self::LBAOutOfRange,
+            0x81 => Self::CapacityExceeded,
+            0x82 => Self::NamespaceNotReady,
+            0x83 => Self::ReservationConflict,
+            0x84 => Self::FormatInProgress,
             _ => {
-                error!("unknown code {}", i);
+                error!("unknown code {:x}", i);
                 Self::Reserved
             }
         }
@@ -211,6 +225,21 @@ pub mod nvme_admin_opc {
     // pub const GET_FEATURES: u8 = 0x0a;
     // Vendor-specific
     pub const CREATE_SNAPSHOT: u8 = 0xc0;
+}
+
+/// NVM command set opcodes, from nvme_spec.h
+pub mod nvme_nvm_opcode {
+    // pub const FLUSH: u8 = 0x00;
+    // pub const WRITE: u8 = 0x01;
+    // pub const READ: u8 = 0x02;
+    // pub const WRITE_UNCORRECTABLE: u8 = 0x04;
+    // pub const COMPARE: u8 = 0x05;
+    // pub const WRITE_ZEROES: u8 = 0x08;
+    // pub const DATASET_MANAGEMENT: u8 = 0x09;
+    pub const RESERVATION_REGISTER: u8 = 0x0d;
+    // pub const RESERVATION_REPORT: u8 = 0x0e;
+    // pub const RESERVATION_ACQUIRE: u8 = 0x11;
+    // pub const RESERVATION_RELEASE: u8 = 0x15;
 }
 
 impl NvmeCommandStatus {

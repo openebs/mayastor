@@ -61,6 +61,10 @@ pub enum ChildError {
     OpenWithoutBdev {},
     #[snafu(display("Failed to create a BlockDeviceHandle for child"))]
     HandleCreate { source: CoreError },
+    #[snafu(display("Failed to open a BlockDeviceHandle for child"))]
+    HandleOpen { source: CoreError },
+    #[snafu(display("Failed to register key for child"))]
+    ResvRegisterKey { source: CoreError },
     #[snafu(display("Failed to create a BlockDevice for child {}", child))]
     ChildBdevCreate {
         child: String,
@@ -264,6 +268,26 @@ impl NexusChild {
 
         debug!("{}: child {} opened successfully", self.parent, self.name);
         Ok(self.name.clone())
+    }
+
+    /// Register a key
+    pub(crate) async fn resv_register(
+        &self,
+        new_key: u64,
+    ) -> Result<(), ChildError> {
+        let hdl = self.get_io_handle().context(HandleOpen {})?;
+        if hdl.get_device().driver_name() == "nvme" {
+            info!(
+                "{}: registering key {:x}h on child {}...",
+                self.parent, new_key, self.name
+            );
+            if let Err(e) = hdl.nvme_resv_register(0, new_key, 0, 0).await {
+                return Err(ChildError::ResvRegisterKey {
+                    source: e,
+                });
+            }
+        }
+        Ok(())
     }
 
     /// Fault the child with a specific reason.

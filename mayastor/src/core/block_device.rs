@@ -1,6 +1,7 @@
 use crate::core::{CoreError, DmaBuf, DmaError, IoCompletionStatus, IoType};
 use async_trait::async_trait;
 use merge::Merge;
+use nix::errno::Errno;
 use std::os::raw::c_void;
 use uuid::Uuid;
 #[derive(Debug, Default, Clone, Copy, Merge)]
@@ -171,6 +172,30 @@ pub trait BlockDeviceHandle {
     ) -> Result<(), CoreError>;
     async fn nvme_identify_ctrlr(&self) -> Result<DmaBuf, CoreError>;
     async fn create_snapshot(&self) -> Result<u64, CoreError>;
+
+    async fn nvme_resv_register(
+        &self,
+        _current_key: u64,
+        _new_key: u64,
+        _register_action: u8,
+        _cptpl: u8,
+    ) -> Result<(), CoreError> {
+        Err(CoreError::NvmeIoPassthruDispatch {
+            source: Errno::EOPNOTSUPP,
+            opcode: 0, // FIXME
+        })
+    }
+
+    async fn io_passthru(
+        &self,
+        nvme_cmd: &spdk_sys::spdk_nvme_cmd,
+        _buffer: Option<&mut DmaBuf>,
+    ) -> Result<(), CoreError> {
+        Err(CoreError::NvmeIoPassthruDispatch {
+            source: Errno::EOPNOTSUPP,
+            opcode: nvme_cmd.opc(),
+        })
+    }
 }
 
 pub trait LbaRangeController {}
