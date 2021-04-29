@@ -12,6 +12,7 @@ use spdk_sys::{
     spdk_io_channel,
     spdk_nvme_cpl,
     spdk_nvme_ctrlr_cmd_admin_raw,
+    spdk_nvme_ctrlr_cmd_io_raw,
     spdk_nvme_dsm_range,
     spdk_nvme_ns_cmd_dataset_management,
     spdk_nvme_ns_cmd_read,
@@ -38,6 +39,7 @@ use crate::{
     core::{
         mempool::MemoryPool,
         nvme_admin_opc,
+        nvme_nvm_opcode,
         BlockDevice,
         BlockDeviceHandle,
         CoreError,
@@ -365,6 +367,10 @@ fn io_type_to_err(
             source,
             offset: offset_blocks,
             len: num_blocks,
+        },
+        IoType::NvmeIo => CoreError::NvmeIoPassthruDispatch {
+            source,
+            opcode: 0xff,
         },
         _ => {
             warn!("Unsupported I/O operation: {:?}", op);
@@ -960,6 +966,97 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         unsafe { *spdk_sys::nvme_cmd_cdw10_get(&mut cmd) = 1 };
         self.nvme_admin(&cmd, Some(&mut buf)).await?;
         Ok(buf)
+    }
+
+    /// NVMe Reservation Register
+    /// cptpl: Change Persist Through Power Loss state
+    async fn nvme_resv_register(
+        &self,
+        current_key: u64,
+        new_key: u64,
+        register_action: u8,
+        cptpl: u8,
+    ) -> Result<(), CoreError> {
+        let mut cmd = spdk_sys::spdk_nvme_cmd::default();
+        cmd.set_opc(nvme_nvm_opcode::RESERVATION_REGISTER.into());
+        cmd.nsid = 0x1;
+        unsafe {
+            cmd.__bindgen_anon_1
+                .cdw10_bits
+                .resv_register
+                .set_rrega(register_action.into());
+            cmd.__bindgen_anon_1
+                .cdw10_bits
+                .resv_register
+                .set_cptpl(cptpl.into());
+        }
+        let mut buffer = self.dma_malloc(16).unwrap();
+        let (ck, nk) = buffer.as_mut_slice().split_at_mut(8);
+        ck.copy_from_slice(&current_key.to_le_bytes());
+        nk.copy_from_slice(&new_key.to_le_bytes());
+        self.io_passthru(&cmd, Some(&mut buffer)).await
+    }
+
+    /// sends the specified NVMe IO Passthru command
+    async fn io_passthru(
+        &self,
+        nvme_cmd: &spdk_sys::spdk_nvme_cmd,
+        buffer: Option<&mut DmaBuf>,
+    ) -> Result<(), CoreError> {
+        extern "C" fn nvme_io_passthru_done(
+            ctx: *mut c_void,
+            cpl: *const spdk_nvme_cpl,
+        ) {
+            debug!(
+                "IO passthrough completed, succeeded={}",
+                nvme_cpl_succeeded(cpl)
+            );
+            done_cb(ctx, nvme_cpl_succeeded(cpl));
+        }
+
+        let mut pcmd = *nvme_cmd; // Make a private mutable copy of the command.
+
+        let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
+
+        // Make sure channel allows I/O.
+        if inner.qpair.is_none() {
+            return Err(CoreError::NvmeIoPassthruDispatch {
+                source: Errno::ENODEV,
+                opcode: nvme_cmd.opc(),
+            });
+        }
+
+        let (ptr, size) = match buffer {
+            Some(buf) => (**buf, buf.len()),
+            None => (std::ptr::null_mut(), 0),
+        };
+
+        let (s, r) = oneshot::channel::<bool>();
+
+        let _rc = unsafe {
+            spdk_nvme_ctrlr_cmd_io_raw(
+                self.ctrlr.as_ptr(),
+                inner.qpair.as_mut().unwrap().as_ptr(),
+                &mut pcmd,
+                ptr,
+                size as u32,
+                Some(nvme_io_passthru_done),
+                cb_arg(s),
+            )
+        };
+
+        inner.account_io();
+        let ret = if r.await.expect("Failed awaiting NVMe IO passthru command")
+        {
+            debug!("io_passthru() done");
+            Ok(())
+        } else {
+            Err(CoreError::NvmeIoPassthruFailed {
+                opcode: nvme_cmd.opc(),
+            })
+        };
+        inner.discard_io();
+        ret
     }
 }
 

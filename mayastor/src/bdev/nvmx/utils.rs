@@ -23,11 +23,18 @@ pub enum NvmeAerType {
     Error = 0x0,
     Smart = 0x1,
     Notice = 0x2,
+    Io = 0x6,
+    Vendor = 0x7,
 }
 
 #[derive(Debug, PartialEq)]
 pub enum NvmeAerInfoNotice {
     AttrChanged = 0x0,
+}
+
+#[derive(Debug, PartialEq)]
+pub enum NvmeAerInfoNvmCommandSet {
+    ReservationLogAvail = 0x0,
 }
 
 /// Check if the Completion Queue Entry indicates abnormal termination of

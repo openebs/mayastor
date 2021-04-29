@@ -177,6 +177,11 @@ impl Nexus {
                 // completed the device can transition to online
                 info!("{}: child opened successfully {}", self.name, name);
 
+                // FIXME: use dummy key for now
+                if let Err(e) = child.resv_register(0x12345678).await {
+                    error!("Failed to register key with child: {}", e);
+                }
+
                 // it can never take part in the IO path
                 // of the nexus until it's rebuilt from a healthy child.
                 child.fault(Reason::OutOfSync).await;
@@ -469,6 +474,16 @@ impl Nexus {
             return Err(Error::NexusIncomplete {
                 name: self.name.clone(),
             });
+        }
+
+        // FIXME: use dummy key for now
+        for c in &self.children {
+            if let Err(e) = c.resv_register(0x12345678).await {
+                error!(
+                    "{}: child {} failed to register key {}",
+                    self.name, c.name, e
+                );
+            }
         }
 
         self.children

@@ -37,6 +37,7 @@ pub use bio::{Bio, IoStatus, IoType};
 pub use handle::BdevHandle;
 pub use nvme::{
     nvme_admin_opc,
+    nvme_nvm_opcode,
     GenericStatusCode,
     NvmeCommandStatus,
     NvmeStatus,
@@ -105,11 +106,15 @@ pub enum CoreError {
         offset: u64,
         len: u64,
     },
-    #[snafu(display("Failed to dispatch reset",))]
+    #[snafu(display("Failed to dispatch reset: {}", source))]
     ResetDispatch {
         source: Errno,
     },
-    #[snafu(display("Failed to dispatch NVMe Admin command {:x}h", opcode))]
+    #[snafu(display(
+        "Failed to dispatch NVMe Admin command {:x}h: {}",
+        opcode,
+        source
+    ))]
     NvmeAdminDispatch {
         source: Errno,
         opcode: u16,
@@ -123,6 +128,15 @@ pub enum CoreError {
         source: Errno,
         offset: u64,
         len: u64,
+    },
+    #[snafu(display(
+        "Failed to dispatch NVMe IO passthru command {:x}h: {}",
+        opcode,
+        source
+    ))]
+    NvmeIoPassthruDispatch {
+        source: Errno,
+        opcode: u16,
     },
     #[snafu(display("Write failed at offset {} length {}", offset, len))]
     WriteFailed {
@@ -138,6 +152,10 @@ pub enum CoreError {
     ResetFailed {},
     #[snafu(display("NVMe Admin command {:x}h failed", opcode))]
     NvmeAdminFailed {
+        opcode: u16,
+    },
+    #[snafu(display("NVMe IO Passthru command {:x}h failed", opcode))]
+    NvmeIoPassthruFailed {
         opcode: u16,
     },
     #[snafu(display("failed to share {}", source))]
