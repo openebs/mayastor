@@ -94,17 +94,17 @@ def getTestPlan() {
 }
 
 // Install Loki on the cluster
-def lokiInstall(tag) {
+def lokiInstall(tag, loki_run_id) {
   sh 'kubectl apply -f ./mayastor-e2e/loki/promtail_namespace_e2e.yaml'
   sh 'kubectl apply -f ./mayastor-e2e/loki/promtail_rbac_e2e.yaml'
   sh 'kubectl apply -f ./mayastor-e2e/loki/promtail_configmap_e2e.yaml'
-  def cmd = "run=\"${env.BUILD_NUMBER}\" version=\"${tag}\" envsubst -no-unset < ./mayastor-e2e/loki/promtail_daemonset_e2e.template.yaml | kubectl apply -f -"
+  def cmd = "run=\"${loki_run_id}\" version=\"${tag}\" envsubst -no-unset < ./mayastor-e2e/loki/promtail_daemonset_e2e.template.yaml | kubectl apply -f -"
   sh "nix-shell --run '${cmd}'"
 }
 
 // Unnstall Loki
-def lokiUninstall(tag) {
-  def cmd = "run=\"${env.BUILD_NUMBER}\" version=\"${tag}\" envsubst -no-unset < ./mayastor-e2e/loki/promtail_daemonset_e2e.template.yaml | kubectl delete -f -"
+def lokiUninstall(tag, loki_run_id) {
+  def cmd = "run=\"${loki_run_id}\" version=\"${tag}\" envsubst -no-unset < ./mayastor-e2e/loki/promtail_daemonset_e2e.template.yaml | kubectl delete -f -"
   sh "nix-shell --run '${cmd}'"
   sh 'kubectl delete -f ./mayastor-e2e/loki/promtail_configmap_e2e.yaml'
   sh 'kubectl delete -f ./mayastor-e2e/loki/promtail_rbac_e2e.yaml'
@@ -151,7 +151,9 @@ if (currentBuild.getBuildCauses('jenkins.branch.BranchIndexingCause') &&
 
 // Only schedule regular builds on develop branch, so we don't need to guard against it
 // Run only on one Mayastor pipeline
-String cron_schedule = BRANCH_NAME == "develop" && getJobBaseName() == "Mayastor" ? "0 2 * * *" : ""
+String job_base_name = getJobBaseName()
+String cron_schedule = BRANCH_NAME == "develop" && job_base_name == "Mayastor" ? "0 2 * * *" : ""
+String loki_run_id = job_base_name + "-" + env.BRANCH_NAME + "-" + env.BUILD_NUMBER
 
 // Determine which stages to run
 if (params.e2e_continuous == true) {
@@ -372,7 +374,7 @@ pipeline {
                   }
                   sh "mkdir -p ./${e2e_reports_dir}"
                   def tag = getTag()
-                  def cmd = "./scripts/e2e-test.sh --device /dev/sdb --tag \"${tag}\" --logs --profile \"${e2e_test_profile}\" --build_number \"${env.BUILD_NUMBER}\" --mayastor \"${env.WORKSPACE}\" --reportsdir \"${env.WORKSPACE}/${e2e_reports_dir}\" --registry \"${e2e_test_image_registry}\" "
+                  def cmd = "./scripts/e2e-test.sh --device /dev/sdb --tag \"${tag}\" --logs --profile \"${e2e_test_profile}\" --loki_run_id \"${loki_run_id}\" --mayastor \"${env.WORKSPACE}\" --reportsdir \"${env.WORKSPACE}/${e2e_reports_dir}\" --registry \"${e2e_test_image_registry}\" "
 
                   if (e2e_test_profile == "extended") {
                         cmd = cmd + " --onfail continue "
@@ -380,9 +382,9 @@ pipeline {
                   withCredentials([
                     usernamePassword(credentialsId: 'GRAFANA_API', usernameVariable: 'grafana_api_user', passwordVariable: 'grafana_api_pw')
                   ]) {
-                    lokiInstall(tag)
+                    lokiInstall(tag, loki_run_id)
                     sh "nix-shell --run 'cd mayastor-e2e && ${cmd}'"
-                    lokiUninstall(tag) // so that, if we keep the cluster, the next Loki instance can use different parameters
+                    lokiUninstall(tag, loki_run_id) // so that, if we keep the cluster, the next Loki instance can use different parameters
                   }
                 }
               }
