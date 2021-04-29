@@ -2,6 +2,7 @@
 /proto/
 /result
 /csi.js
+/grpc_client.js
 /index.js
 /nexus.js
 /node.js

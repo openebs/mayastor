@@ -1,13 +1,12 @@
 // Volume manager implementation.
 
-import assert from 'assert';
 import events = require('events');
+import { grpcCode, GrpcError } from './grpc_client';
 import { Volume, VolumeSpec, VolumeState } from './volume';
 import { Workq } from './workq';
 import { VolumeStatus } from './volume_operator';
 
 const EventStream = require('./event_stream');
-const { GrpcCode, GrpcError } = require('./grpc_client');
 const log = require('./logger').Logger('volumes');
 
 // Type used in "create volume" workq
@@ -125,7 +124,7 @@ export class Volumes extends events.EventEmitter {
   async _createVolume(uuid: string, spec: VolumeSpec): Promise<Volume> {
     if (!spec.requiredBytes || spec.requiredBytes < 0) {
       throw new GrpcError(
-        GrpcCode.INVALID_ARGUMENT,
+        grpcCode.INVALID_ARGUMENT,
         'Required bytes must be greater than zero'
       );
     }

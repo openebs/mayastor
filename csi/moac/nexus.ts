@@ -2,8 +2,8 @@
 
 import assert from 'assert';
 import * as _ from 'lodash';
+import { grpcCode, GrpcError, mayastor } from './grpc_client';
 
-const { GrpcCode, GrpcError, mayastor } = require('./grpc_client');
 const log = require('./logger').Logger('nexus');
 
 import { Node } from './node';
@@ -180,7 +180,7 @@ export class Nexus {
 
     if (this.deviceUri) {
       throw new GrpcError(
-        GrpcCode.ALREADY_EXISTS,
+        grpcCode.ALREADY_EXISTS,
         `Nexus ${this} has been already published`
       );
     }
@@ -191,7 +191,7 @@ export class Nexus {
     );
     if (!share) {
       throw new GrpcError(
-        GrpcCode.NOT_FOUND,
+        grpcCode.NOT_FOUND,
         `Cannot find protocol "${protocol}" for Nexus ${this}`
       );
     }
@@ -204,7 +204,7 @@ export class Nexus {
       });
     } catch (err) {
       throw new GrpcError(
-        GrpcCode.INTERNAL,
+        grpcCode.INTERNAL,
         `Failed to publish nexus "${this}": ${err}`
       );
     }
@@ -226,11 +226,11 @@ export class Nexus {
       try {
         await this.node!.call('unpublishNexus', { uuid: this.uuid });
       } catch (err) {
-        if (err.code === GrpcCode.NOT_FOUND) {
+        if (err.code === grpcCode.NOT_FOUND) {
           log.warn(`The nexus "${this}" does not exist`);
         } else {
           throw new GrpcError(
-            GrpcCode.INTERNAL,
+            grpcCode.INTERNAL,
             `Failed to unpublish nexus "${this}": ${err}`
           );
         }
@@ -269,7 +269,7 @@ export class Nexus {
       });
     } catch (err) {
       throw new GrpcError(
-        GrpcCode.INTERNAL,
+        grpcCode.INTERNAL,
         `Failed to add uri "${uri}" to nexus "${this}": ${err}`
       );
     }
@@ -302,7 +302,7 @@ export class Nexus {
       });
     } catch (err) {
       throw new GrpcError(
-        GrpcCode.INTERNAL,
+        grpcCode.INTERNAL,
         `Failed to remove uri "${uri}" from nexus "${this}": ${err}`
       );
     }

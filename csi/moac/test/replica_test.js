@@ -9,7 +9,7 @@ const { Node } = require('../node');
 const { Pool } = require('../pool');
 const { Replica } = require('../replica');
 const { shouldFailWith } = require('./utils');
-const { GrpcCode, GrpcError } = require('../grpc_client');
+const { grpcCode, GrpcError } = require('../grpc_client');
 
 const UUID = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cbb';
 
@@ -153,13 +153,13 @@ module.exports = function () {
   it('should throw if grpc fails during sharing', async () => {
     const node = new Node('node');
     const stub = sinon.stub(node, 'call');
-    stub.rejects(new GrpcError(GrpcCode.INTERNAL, 'Test failure'));
+    stub.rejects(new GrpcError(grpcCode.INTERNAL, 'Test failure'));
     const pool = new Pool(poolProps);
     node._registerPool(pool);
     const replica = new Replica(props);
     pool.registerReplica(replica);
 
-    await shouldFailWith(GrpcCode.INTERNAL, async () => {
+    await shouldFailWith(grpcCode.INTERNAL, async () => {
       await replica.setShare('REPLICA_NVMF');
     });
     expect(replica.share).to.equal('REPLICA_NONE');
@@ -193,7 +193,7 @@ module.exports = function () {
   it('should not remove the replica if grpc fails', async () => {
     const node = new Node('node');
     const callStub = sinon.stub(node, 'call');
-    callStub.rejects(new GrpcError(GrpcCode.INTERNAL, 'Test failure'));
+    callStub.rejects(new GrpcError(grpcCode.INTERNAL, 'Test failure'));
     const isSyncedStub = sinon.stub(node, 'isSynced');
     isSyncedStub.returns(true);
     const eventSpy = sinon.spy(node, 'emit');
@@ -202,7 +202,7 @@ module.exports = function () {
     const replica = new Replica(props);
     pool.registerReplica(replica);
 
-    await shouldFailWith(GrpcCode.INTERNAL, async () => {
+    await shouldFailWith(grpcCode.INTERNAL, async () => {
       await replica.destroy();
     });
 
@@ -225,7 +225,7 @@ module.exports = function () {
   it('should fake the destroy of the replica if the node is offline', (done) => {
     const node = new Node('node');
     const callStub = sinon.stub(node, 'call');
-    callStub.rejects(new GrpcError(GrpcCode.INTERNAL, 'Node is offline'));
+    callStub.rejects(new GrpcError(grpcCode.INTERNAL, 'Node is offline'));
     const isSyncedStub = sinon.stub(node, 'isSynced');
     isSyncedStub.returns(false);
     const pool = new Pool(poolProps);

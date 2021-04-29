@@ -62,6 +62,7 @@
   },
   "files": [
     "csi.ts",
+    "grpc_client.ts",
     "index.ts",
     "nexus.ts",
     "node.ts",

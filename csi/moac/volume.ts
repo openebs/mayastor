@@ -4,13 +4,13 @@
 import assert from 'assert';
 import events = require('events');
 import * as _ from 'lodash';
+import { grpcCode, GrpcError } from './grpc_client';
 import { Replica } from './replica';
 import { Child, Nexus, Protocol } from './nexus';
 import { Pool } from './pool';
 import { Node } from './node';
 
 const log = require('./logger').Logger('volume');
-const { GrpcCode, GrpcError } = require('./grpc_client');
 
 // If state transition in FSA fails due to an error and there is no consumer
 // for the error, we set a retry timer to retry the state transition.
@@ -175,7 +175,7 @@ export class Volume {
       VolumeState.Offline,
     ].indexOf(this.state) < 0) {
       throw new GrpcError(
-        GrpcCode.INTERNAL,
+        grpcCode.INTERNAL,
         `Cannot publish "${this}" that is neither healthy, degraded nor offline`
       );
     }
@@ -188,7 +188,7 @@ export class Volume {
       // but on a node that is not part of the cluster (has been deregistered).
       if (!uri) {
         throw new GrpcError(
-          GrpcCode.INTERNAL,
+          grpcCode.INTERNAL,
           `Cannot publish "${this}" because the node does not exist`
         );
       }
@@ -203,7 +203,7 @@ export class Volume {
 
     // Cancel any unpublish that might be in progress
     this._delegatedOpCancel([DelegatedOp.Unpublish], new GrpcError(
-      GrpcCode.INTERNAL,
+      grpcCode.INTERNAL,
       `Volume ${this} has been re-published`,
     ));
 
@@ -224,7 +224,7 @@ export class Volume {
 
     // Cancel any publish that might be in progress
     this._delegatedOpCancel([DelegatedOp.Publish], new GrpcError(
-      GrpcCode.INTERNAL,
+      grpcCode.INTERNAL,
       `Volume ${this} has been unpublished`,
     ));
 
@@ -243,7 +243,7 @@ export class Volume {
       DelegatedOp.Publish,
       DelegatedOp.Unpublish,
     ], new GrpcError(
-      GrpcCode.INTERNAL,
+      grpcCode.INTERNAL,
       `Volume ${this} has been destroyed`,
     ));
 
@@ -306,7 +306,7 @@ export class Volume {
             DelegatedOp.Unpublish,
             DelegatedOp.Destroy,
           ], new GrpcError(
-            GrpcCode.INTERNAL,
+            grpcCode.INTERNAL,
             `Failed to destroy nexus ${this.nexus}: ${err}`,
           ));
           return;
@@ -319,7 +319,7 @@ export class Volume {
         await Promise.all(promises);
       } catch (err) {
         this._delegatedOpFailed([DelegatedOp.Destroy], new GrpcError(
-          GrpcCode.INTERNAL,
+          grpcCode.INTERNAL,
           `Failed to destroy a replica of ${this}: ${err}`,
         ));
       }
@@ -339,7 +339,7 @@ export class Volume {
           await this.nexus.unpublish();
         } catch (err) {
           this._delegatedOpFailed([DelegatedOp.Unpublish], new GrpcError(
-            GrpcCode.INTERNAL,
+            grpcCode.INTERNAL,
             `Cannot unpublish ${this.nexus}: ${err}`,
           ));
           return;
@@ -352,7 +352,7 @@ export class Volume {
           await this.nexus.destroy();
         } catch (err) {
           this._delegatedOpFailed([DelegatedOp.Unpublish], new GrpcError(
-            GrpcCode.INTERNAL,
+            grpcCode.INTERNAL,
             `Failed to forget nexus ${this.nexus}: ${err}`,
           ));
           return;
@@ -371,7 +371,7 @@ export class Volume {
         DelegatedOp.Create,
         DelegatedOp.Publish,
       ], new GrpcError(
-        GrpcCode.INTERNAL,
+        grpcCode.INTERNAL,
         err.toString(),
       ));
       // No point in continuing if there isn't a single usable replica.
@@ -396,7 +396,7 @@ export class Volume {
               DelegatedOp.Create,
               DelegatedOp.Publish,
             ], new GrpcError(
-              GrpcCode.INTERNAL,
+              grpcCode.INTERNAL,
               err.toString(),
             ));
             return;
@@ -409,7 +409,7 @@ export class Volume {
               DelegatedOp.Create,
               DelegatedOp.Publish,
             ], new GrpcError(
-              GrpcCode.INTERNAL,
+              grpcCode.INTERNAL,
               `Failed to create nexus for ${this} on "${this.publishedOn}": ${err}`,
             ));
           }
@@ -419,7 +419,7 @@ export class Volume {
             DelegatedOp.Create,
             DelegatedOp.Publish,
           ], new GrpcError(
-            GrpcCode.INTERNAL,
+            grpcCode.INTERNAL,
             `Cannot create nexus for ${this} because "${this.publishedOn}" is down`,
           ));
         }
@@ -439,7 +439,7 @@ export class Volume {
         await this.nexus.destroy();
       } catch (err) {
         this._delegatedOpFailed([DelegatedOp.Publish], new GrpcError(
-          GrpcCode.INTERNAL,
+          grpcCode.INTERNAL,
           `Failed to destroy nexus for ${this}: ${err}`,
         ));
       }
@@ -461,7 +461,7 @@ export class Volume {
         DelegatedOp.Create,
         DelegatedOp.Publish,
       ], new GrpcError(
-        GrpcCode.INTERNAL,
+        grpcCode.INTERNAL,
         err.toString(),
       ));
       return;
@@ -498,7 +498,7 @@ export class Volume {
         DelegatedOp.Create,
         DelegatedOp.Publish,
       ], new GrpcError(
-        GrpcCode.INTERNAL,
+        grpcCode.INTERNAL,
         `The volume ${this} has no healthy replicas`
       ));
       return;
@@ -511,7 +511,7 @@ export class Volume {
         uri = await this.nexus.publish(this.spec.protocol);
       } catch (err) {
         this._delegatedOpFailed([DelegatedOp.Publish], new GrpcError(
-          GrpcCode.INTERNAL,
+          grpcCode.INTERNAL,
           err.toString(),
         ));
         return;
@@ -531,7 +531,7 @@ export class Volume {
         await this._createReplicas(this.spec.replicaCount - soundCount);
       } catch (err) {
         this._delegatedOpFailed([DelegatedOp.Create], new GrpcError(
-          GrpcCode.INTERNAL,
+          grpcCode.INTERNAL,
           err.toString(),
         ));
       }
@@ -630,7 +630,7 @@ export class Volume {
         await this.nexus.destroy();
       } catch (err) {
         this._delegatedOpFailed([DelegatedOp.Destroy], new GrpcError(
-          GrpcCode.INTERNAL,
+          grpcCode.INTERNAL,
           `Failed to destroy nexus ${this.nexus}: ${err}`,
         ));
       }
@@ -741,7 +741,7 @@ export class Volume {
     let nexusNode = this._desiredNexusNode(replicaSet, replicaSet[0]?.pool?.node?.name);
     if (!nexusNode) {
       throw new GrpcError(
-        GrpcCode.INTERNAL,
+        grpcCode.INTERNAL,
         `Cannot create nexus for ${this} because "${this.publishedOn}" is down`
       );
     }
@@ -749,7 +749,7 @@ export class Volume {
     // We are strict when creating a new volume - all replicas must be usable.
     if (newReplicaSet.length !== replicaSet.length) {
       throw new GrpcError(
-        GrpcCode.INTERNAL,
+        grpcCode.INTERNAL,
         `Some of the replicas for ${this} are not accessible from nexus`,
       );
     }
@@ -814,7 +814,7 @@ export class Volume {
         `${this.spec.requiredBytes} and replica count ${this.spec.replicaCount}`
       );
       throw new GrpcError(
-        GrpcCode.RESOURCE_EXHAUSTED,
+        grpcCode.RESOURCE_EXHAUSTED,
         'Cannot find suitable storage pool(s) for the volume'
       );
     }
@@ -862,7 +862,7 @@ export class Volume {
     if (count > 0) {
       let msg = `Failed to create required number of replicas for volume "${this}": `;
       msg += errors.join('. ');
-      throw new GrpcError(GrpcCode.INTERNAL, msg);
+      throw new GrpcError(grpcCode.INTERNAL, msg);
     }
   }
 
@@ -933,7 +933,7 @@ export class Volume {
       .filter((r) => !r.isOffline());
     if (replicaSet.length === 0) {
       throw new GrpcError(
-        GrpcCode.INTERNAL,
+        grpcCode.INTERNAL,
         `There are no good replicas for volume "${this}"`
       );
     }
@@ -1001,7 +1001,7 @@ export class Volume {
     }
     if (accessibleReplicas.length === 0) {
       throw new GrpcError(
-        GrpcCode.INTERNAL,
+        grpcCode.INTERNAL,
         `None of the replicas of ${this} can be accessed by nexus`,
       );
     }
@@ -1026,19 +1026,19 @@ export class Volume {
 
     if (this.size < spec.requiredBytes) {
       throw new GrpcError(
-        GrpcCode.INVALID_ARGUMENT,
+        grpcCode.INVALID_ARGUMENT,
         `Extending the volume "${this}" is not supported`
       );
     }
     if (spec.limitBytes && this.size > spec.limitBytes) {
       throw new GrpcError(
-        GrpcCode.INVALID_ARGUMENT,
+        grpcCode.INVALID_ARGUMENT,
         `Shrinking the volume "${this}" is not supported`
       );
     }
     if (this.spec.protocol !== spec.protocol) {
       throw new GrpcError(
-        GrpcCode.INVALID_ARGUMENT,
+        grpcCode.INVALID_ARGUMENT,
         `Changing the protocol for volume "${this}" is not supported`
       );
     }

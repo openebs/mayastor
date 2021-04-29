@@ -12,7 +12,7 @@ const Registry = require('../registry');
 const { Volume } = require('../volume');
 const { Volumes } = require('../volumes');
 const { VolumeOperator, VolumeResource } = require('../volume_operator');
-const { GrpcError, GrpcCode } = require('../grpc_client');
+const { GrpcError, grpcCode } = require('../grpc_client');
 const { mockCache } = require('./watcher_stub');
 
 const UUID = 'd01b8bfb-0116-47b0-a03a-447fcbdc0e99';
@@ -369,7 +369,7 @@ module.exports = function () {
       const volumes = new Volumes(registry);
       const importVolumeStub = sinon.stub(volumes, 'importVolume');
       importVolumeStub.throws(
-        new GrpcError(GrpcCode.INTERNAL, 'create failed')
+        new GrpcError(grpcCode.INTERNAL, 'create failed')
       );
 
       const volumeResource = createVolumeResource(UUID, defaultSpec, defaultStatus);
@@ -417,7 +417,7 @@ module.exports = function () {
       const volumes = new Volumes(registry);
       const destroyVolumeStub = sinon.stub(volumes, 'destroyVolume');
       destroyVolumeStub.rejects(
-        new GrpcError(GrpcCode.INTERNAL, 'destroy failed')
+        new GrpcError(grpcCode.INTERNAL, 'destroy failed')
       );
       const volumeResource = createVolumeResource(UUID, defaultSpec, defaultStatus);
 

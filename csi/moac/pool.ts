@@ -2,11 +2,9 @@
 
 import assert from 'assert';
 import * as _ from 'lodash';
-
-const { GrpcCode, GrpcError } = require('./grpc_client');
-const log = require('./logger').Logger('pool');
-
 import { Replica } from './replica';
+
+const log = require('./logger').Logger('pool');
 
 const URI_REGEX = /^([^:]+):\/\/(.+)$/;
 

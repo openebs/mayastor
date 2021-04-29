@@ -9,7 +9,7 @@ const { Node } = require('../node');
 const { Replica } = require('../replica');
 const { Nexus } = require('../nexus');
 const { shouldFailWith } = require('./utils');
-const { GrpcCode, GrpcError } = require('../grpc_client');
+const { grpcCode, GrpcError } = require('../grpc_client');
 
 const UUID = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cbb';
 
@@ -187,9 +187,9 @@ module.exports = function () {
 
     it('should not publish the nexus with whatever protocol', async () => {
       callStub.resolves({ deviceUri: 'file:///dev/whatever0' });
-      callStub.rejects(new GrpcError(GrpcCode.NOT_FOUND, 'Test failure'));
+      callStub.rejects(new GrpcError(grpcCode.NOT_FOUND, 'Test failure'));
 
-      await shouldFailWith(GrpcCode.NOT_FOUND, async () => {
+      await shouldFailWith(grpcCode.NOT_FOUND, async () => {
         await nexus.publish('whatever');
       });
 
@@ -269,7 +269,7 @@ module.exports = function () {
     });
 
     it('should not fail to unpublish the nexus if it does not exist', async () => {
-      callStub.rejects(new GrpcError(GrpcCode.NOT_FOUND, 'test not found'));
+      callStub.rejects(new GrpcError(grpcCode.NOT_FOUND, 'test not found'));
 
       await nexus.unpublish();
 
@@ -337,9 +337,9 @@ module.exports = function () {
         uuid: UUID,
         uri: 'iscsi://' + UUID
       });
-      callStub.rejects(new GrpcError(GrpcCode.INTERNAL, 'Test failure'));
+      callStub.rejects(new GrpcError(grpcCode.INTERNAL, 'Test failure'));
 
-      await shouldFailWith(GrpcCode.INTERNAL, async () => {
+      await shouldFailWith(grpcCode.INTERNAL, async () => {
         await nexus.addReplica(replica);
       });
 
@@ -383,9 +383,9 @@ module.exports = function () {
         uuid: UUID,
         uri: 'nvmf://' + UUID
       });
-      callStub.rejects(new GrpcError(GrpcCode.INTERNAL, 'Test failure'));
+      callStub.rejects(new GrpcError(grpcCode.INTERNAL, 'Test failure'));
 
-      await shouldFailWith(GrpcCode.INTERNAL, async () => {
+      await shouldFailWith(grpcCode.INTERNAL, async () => {
         await nexus.removeReplica(replica.uri);
       });
 
@@ -417,9 +417,9 @@ module.exports = function () {
     });
 
     it('should not remove the nexus if grpc fails', async () => {
-      callStub.rejects(new GrpcError(GrpcCode.INTERNAL, 'Test failure'));
+      callStub.rejects(new GrpcError(grpcCode.INTERNAL, 'Test failure'));
 
-      await shouldFailWith(GrpcCode.INTERNAL, async () => {
+      await shouldFailWith(grpcCode.INTERNAL, async () => {
         await nexus.destroy();
       });
 
@@ -431,7 +431,7 @@ module.exports = function () {
     });
 
     it('should fake the destroy if the node is offline', async () => {
-      callStub.rejects(new GrpcError(GrpcCode.INTERNAL, 'Not connected'));
+      callStub.rejects(new GrpcError(grpcCode.INTERNAL, 'Not connected'));
       isSyncedStub.returns(false);
 
       await nexus.destroy();
