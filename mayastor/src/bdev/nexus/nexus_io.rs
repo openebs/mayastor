@@ -339,9 +339,14 @@ impl NexusBio {
     fn do_readv(&mut self) -> Result<(), CoreError> {
         if let Some(i) = self.inner_channel().child_select() {
             let hdl = self.read_channel_at_index(i);
-            self.submit_read(hdl).map(|_| {
-                self.ctx_as_mut().in_flight += 1;
-            })
+            self.submit_read(hdl)
+                .map(|_| {
+                    self.ctx_as_mut().in_flight += 1;
+                })
+                .map_err(|e| {
+                    self.fail();
+                    e
+                })
         } else {
             self.fail();
             Err(CoreError::NoDevicesAvailable {})
