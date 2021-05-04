@@ -55,7 +55,7 @@ describe('moac', function () {
     // time when running in docker with FS mounted from non-linux host.
     this.timeout(5000);
 
-    const child = spawn(path.join(__dirname, '..', 'index.js'), [
+    const child = spawn(path.join(__dirname, '..', 'moac'), [
       '-s',
       // NATS does not run but just to verify that the option works
       '--message-bus=127.0.0.1',

@@ -54,9 +54,9 @@ import {
   CustomResourceCache,
   CustomResourceMeta,
 } from './watcher';
-import { Protocol, protocolFromString } from './nexus';
+import { protocolFromString } from './nexus';
 import { Volumes } from './volumes';
-import { VolumeState, volumeStateFromString } from './volume';
+import { VolumeSpec, VolumeState, volumeStateFromString } from './volume';
 import { Workq } from './workq';
 
 const RESOURCE_NAME: string = 'mayastorvolume';
@@ -65,16 +65,6 @@ const crdVolume = yaml.safeLoad(
 );
 // lower-case letters uuid pattern
 const uuidRegexp = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[089ab][0-9a-f]{3}-[0-9a-f]{12}$/;
-
-// Spec part in volume resource
-type VolumeSpec = {
-  replicaCount: number,
-  preferredNodes: string[],
-  requiredNodes: string[],
-  requiredBytes: number,
-  limitBytes: number,
-  protocol: Protocol,
-};
 
 // Optional status part in volume resource
 export type VolumeStatus = {
@@ -127,8 +117,9 @@ export class VolumeResource extends CustomResource {
     }
     this.spec = <VolumeSpec> {
       replicaCount: spec.replicaCount || 1,
-      preferredNodes: [].concat(spec.preferredNodes || []).sort(),
-      requiredNodes: [].concat(spec.requiredNodes || []).sort(),
+      local: spec.local || false,
+      preferredNodes: [].concat(spec.preferredNodes || []),
+      requiredNodes: [].concat(spec.requiredNodes || []),
       requiredBytes: spec.requiredBytes,
       limitBytes: spec.limitBytes || 0,
       protocol: protocolFromString(spec.protocol)
@@ -239,14 +230,7 @@ export class VolumeOperator {
 
     if (ev.eventType === 'new' || ev.eventType === 'mod') {
       const origObj = this.watcher.get(uuid);
-      const spec = <VolumeSpec> {
-        replicaCount: ev.object.replicaCount,
-        preferredNodes: _.clone(ev.object.preferredNodes),
-        requiredNodes: _.clone(ev.object.requiredNodes),
-        requiredBytes: ev.object.requiredBytes,
-        limitBytes: ev.object.limitBytes,
-        protocol: protocolFromString(ev.object.protocol)
-      };
+      const spec = <VolumeSpec> ev.object.spec;
       const status = this._volumeToStatus(ev.object);
 
       if (origObj !== undefined) {

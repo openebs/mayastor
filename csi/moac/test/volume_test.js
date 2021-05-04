@@ -9,11 +9,8 @@
 const EventEmitter = require('events');
 const expect = require('chai').expect;
 const sinon = require('sinon');
-const { Nexus } = require('../nexus');
 const { Node } = require('../node');
-const { Pool } = require('../pool');
 const Registry = require('../registry');
-const { Replica } = require('../replica');
 const { Volume } = require('../volume');
 const { shouldFailWith } = require('./utils');
 const { GrpcCode } = require('../grpc_client');
@@ -22,26 +19,12 @@ const UUID = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cbb';
 
 const defaultOpts = {
   replicaCount: 1,
+  local: true,
   preferredNodes: [],
   requiredNodes: [],
   requiredBytes: 100,
   limitBytes: 100
 };
-
-// Repeating code that is extracted to a function.
-function createFakeVolume (state) {
-  const registry = new Registry();
-  const volume = new Volume(UUID, registry, new EventEmitter(), defaultOpts, state, 100);
-  const fsaStub = sinon.stub(volume, '_fsa');
-  fsaStub.resolves();
-  const node = new Node('node');
-  const replica = new Replica({ uuid: UUID, size: 100, share: 'REPLICA_NONE', uri: `bdev:///${UUID}` });
-  const pool = new Pool({ name: 'pool', disks: [] });
-  pool.bind(node);
-  replica.bind(pool);
-  volume.newReplica(replica);
-  return [volume, node];
-}
 
 module.exports = function () {
   it('should stringify volume name', () => {
@@ -80,10 +63,10 @@ module.exports = function () {
       }
     });
     const volume = new Volume(UUID, registry, emitter, defaultOpts);
-    expect(volume.preferredNodes).to.have.lengthOf(0);
+    expect(volume.spec.preferredNodes).to.have.lengthOf(0);
     volume.update({ preferredNodes: ['node1', 'node2'] });
     expect(modified).to.equal(true);
-    expect(volume.preferredNodes).to.have.lengthOf(2);
+    expect(volume.spec.preferredNodes).to.have.lengthOf(2);
   });
 
   it('should not publish volume that is known to be broken', async () => {

@@ -66,8 +66,24 @@ module.exports = function () {
       )
     ]);
     getVolumeStub.returns([
-      new Volume('volume1', registry, new EventEmitter(), {}),
-      new Volume('volume2', registry, new EventEmitter(), {})
+      new Volume('volume1', registry, new EventEmitter(), {
+        replicaCount: 1,
+        local: true,
+        preferredNodes: [],
+        requiredNodes: [],
+        requiredBytes: 100,
+        limitBytes: 0,
+        protocol: 'nvmf'
+      }),
+      new Volume('volume2', registry, new EventEmitter(), {
+        replicaCount: 1,
+        local: true,
+        preferredNodes: [],
+        requiredNodes: [],
+        requiredBytes: 100,
+        limitBytes: 0,
+        protocol: 'nvmf'
+      })
     ]);
 
     // set low high water mark to test buffered reads

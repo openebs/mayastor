@@ -1,21 +1,19 @@
-#!/usr/bin/env node
-
 // Main file of our control plane for mayastor.
 // It binds all components together to create a meaningful whole.
 
-'use strict';
-
 const { KubeConfig } = require('client-node-fixed-watcher');
 const yargs = require('yargs');
+
 const logger = require('./logger');
 const Registry = require('./registry');
-const { NodeOperator } = require('./node_operator');
-const { PoolOperator } = require('./pool_operator');
-const { Volumes } = require('./volumes');
-const { VolumeOperator } = require('./volume_operator');
 const ApiServer = require('./rest_api');
-const CsiServer = require('./csi').CsiServer;
 const { MessageBus } = require('./nats');
+
+import { NodeOperator } from './node_operator';
+import { PoolOperator } from './pool_operator';
+import { Volumes } from './volumes';
+import { VolumeOperator } from './volume_operator';
+import { CsiServer } from './csi';
 
 const log = new logger.Logger();
 
@@ -23,7 +21,7 @@ const log = new logger.Logger();
 //
 // @param   {string} [kubefile]    Kube config file.
 // @returns {object}  k8s client object.
-function createKubeConfig (kubefile) {
+function createKubeConfig (kubefile: string): any {
   const kubeConfig = new KubeConfig();
   try {
     if (kubefile) {
@@ -39,14 +37,13 @@ function createKubeConfig (kubefile) {
   return kubeConfig;
 }
 
-async function main () {
-  let apiServer;
-  let poolOper;
-  let volumeOper;
-  let csiNodeOper;
-  let nodeOper;
-  let kubeConfig;
-  let warmupTimer;
+export async function main () {
+  let apiServer: any;
+  let poolOper: PoolOperator;
+  let volumeOper: VolumeOperator;
+  let nodeOper: NodeOperator;
+  let kubeConfig: any;
+  let warmupTimer: NodeJS.Timeout | undefined;
 
   const opts = yargs
     .options({
@@ -130,7 +127,6 @@ async function main () {
     if (volumes) volumes.stop();
     if (!opts.s) {
       if (poolOper) poolOper.stop();
-      if (csiNodeOper) await csiNodeOper.stop();
       if (nodeOper) nodeOper.stop();
     }
     if (messageBus) messageBus.stop();
@@ -206,5 +202,3 @@ async function main () {
     log.info('MOAC is warmed up and ready to 🚀');
   }, warmupSecs * 1000);
 }
-
-main();

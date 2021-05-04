@@ -1,4 +1,10 @@
-use std::{boxed::Box, path::Path, time::Duration, vec::Vec};
+use std::{
+    boxed::Box,
+    collections::HashMap,
+    path::Path,
+    time::Duration,
+    vec::Vec,
+};
 
 use tonic::{Code, Request, Response, Status};
 
@@ -7,7 +13,6 @@ macro_rules! failure {
     (Code::$code:ident, $fmt:literal $(,$args:expr)+) => {{ let message = format!($fmt $(,$args)+); error!("{}", message); Status::new(Code::$code, message) }};
 }
 
-use glob::glob;
 use uuid::Uuid;
 
 use crate::{
@@ -130,18 +135,20 @@ impl node_server::Node for Node {
         _request: Request<NodeGetInfoRequest>,
     ) -> Result<Response<NodeGetInfoResponse>, Status> {
         let node_id = format!("mayastor://{}", &self.node_name);
-        let max_volumes_per_node =
-            glob("/dev/nbd*").expect("Invalid glob pattern").count() as i64;
-
-        debug!(
-            "NodeGetInfo request: ID={}, max volumes={}",
-            node_id, max_volumes_per_node,
+        let mut segments = HashMap::new();
+        segments.insert(
+            "kubernetes.io/hostname".to_owned(),
+            self.node_name.clone(),
         );
+
+        debug!("NodeGetInfo request: ID={}", node_id);
 
         Ok(Response::new(NodeGetInfoResponse {
             node_id,
-            max_volumes_per_node,
-            accessible_topology: None,
+            max_volumes_per_node: 0,
+            accessible_topology: Some(Topology {
+                segments,
+            }),
         }))
     }
 

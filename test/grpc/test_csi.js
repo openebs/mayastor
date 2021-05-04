@@ -317,10 +317,11 @@ describe('csi', function () {
           'mayastor://' + common.CSI_ID
         );
 
-        assert.isAbove(
+        // until we decide otherwise
+        assert.equal(
           parseInt(res.max_volumes_per_node, 10),
-          1,
-          'number of nbd devices should be above 1'
+          0,
+          'unlimited number of devices on the node'
         );
         done();
       });
@@ -409,7 +410,7 @@ function csiProtocolTest (protoName, shareType, timeoutMillis) {
           volume_id: UUID1,
           publish_context: {
             uri: publishedUris[UUID1].uri,
-            ioTimeout: '33',
+            ioTimeout: '33'
           },
           staging_target_path: mountTarget,
           volume_capability: {
@@ -447,10 +448,10 @@ function csiProtocolTest (protoName, shareType, timeoutMillis) {
           assert.equal(getFsType(mountTarget), 'xfs');
           // Other protocols than NVMF do not honor ioTimeout setting
           if (protoName !== 'NVMF') return done();
-          let major = getFsDevice(mountTarget).match(/nvme(\d+)n1/)[1];
+          const major = getFsDevice(mountTarget).match(/nvme(\d+)n1/)[1];
           glob(`/sys/class/nvme/nvme${major}/nvme*n1/queue/io_timeout`, (err, paths) => {
             if (err) return done(err);
-            let path = paths[0];
+            const path = paths[0];
             assert(path, `Path "${path}" not found`);
             fs.readFile(path, (err, data) => {
               if (err) return done(err);

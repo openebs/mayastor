@@ -49,6 +49,7 @@ function defaultMeta (uuid) {
 
 const defaultSpec = {
   replicaCount: 1,
+  local: true,
   preferredNodes: ['node1', 'node2'],
   requiredNodes: ['node2'],
   requiredBytes: 100,
@@ -120,6 +121,7 @@ module.exports = function () {
         UUID,
         {
           replicaCount: 3,
+          local: true,
           preferredNodes: ['node1', 'node2'],
           requiredNodes: ['node2'],
           requiredBytes: 100,
@@ -152,6 +154,7 @@ module.exports = function () {
       );
       expect(res.metadata.name).to.equal(UUID);
       expect(res.spec.replicaCount).to.equal(3);
+      expect(res.spec.local).to.be.true();
       expect(res.spec.preferredNodes).to.have.lengthOf(2);
       expect(res.spec.preferredNodes[0]).to.equal('node1');
       expect(res.spec.preferredNodes[1]).to.equal('node2');
@@ -199,6 +202,7 @@ module.exports = function () {
         UUID,
         {
           replicaCount: 3,
+          local: false,
           preferredNodes: ['node1', 'node2'],
           requiredNodes: ['node2'],
           requiredBytes: 100,
@@ -214,6 +218,7 @@ module.exports = function () {
 
       expect(res.metadata.name).to.equal(UUID);
       expect(res.spec.replicaCount).to.equal(3);
+      expect(res.spec.local).to.be.false();
       expect(res.spec.preferredNodes).to.have.lengthOf(2);
       expect(res.spec.preferredNodes[0]).to.equal('node1');
       expect(res.spec.preferredNodes[1]).to.equal('node2');
@@ -231,6 +236,7 @@ module.exports = function () {
     it('should create mayastor volume without status', () => {
       const res = createVolumeResource(UUID, {
         replicaCount: 3,
+        local: true,
         preferredNodes: ['node1', 'node2'],
         requiredNodes: ['node2'],
         requiredBytes: 100,
@@ -247,6 +253,7 @@ module.exports = function () {
       });
       expect(res.metadata.name).to.equal(UUID);
       expect(res.spec.replicaCount).to.equal(1);
+      expect(res.spec.local).to.be.false();
       expect(res.spec.preferredNodes).to.have.lengthOf(0);
       expect(res.spec.requiredNodes).to.have.lengthOf(0);
       expect(res.spec.requiredBytes).to.equal(100);
@@ -257,6 +264,7 @@ module.exports = function () {
     it('should throw if requiredSize is missing', () => {
       expect(() => createVolumeResource(UUID, {
         replicaCount: 3,
+        local: true,
         preferredNodes: ['node1', 'node2'],
         requiredNodes: ['node2'],
         limitBytes: 120
@@ -266,6 +274,7 @@ module.exports = function () {
     it('should throw if UUID is invalid', () => {
       expect(() => createVolumeResource('blabla', {
         replicaCount: 3,
+        local: true,
         preferredNodes: ['node1', 'node2'],
         requiredNodes: ['node2'],
         requiredBytes: 100,
@@ -449,6 +458,7 @@ module.exports = function () {
         UUID,
         {
           replicaCount: 3,
+          local: true,
           preferredNodes: ['node1'],
           requiredNodes: [],
           requiredBytes: 90,
@@ -468,11 +478,12 @@ module.exports = function () {
       await sleep(EVENT_PROPAGATION_DELAY);
 
       sinon.assert.calledOnce(fsaStub);
-      expect(volume.replicaCount).to.equal(3);
-      expect(volume.preferredNodes).to.have.lengthOf(1);
-      expect(volume.requiredNodes).to.have.lengthOf(0);
-      expect(volume.requiredBytes).to.equal(90);
-      expect(volume.limitBytes).to.equal(130);
+      expect(volume.spec.replicaCount).to.equal(3);
+      expect(volume.spec.local).to.be.true();
+      expect(volume.spec.preferredNodes).to.have.lengthOf(1);
+      expect(volume.spec.requiredNodes).to.have.lengthOf(0);
+      expect(volume.spec.requiredBytes).to.equal(90);
+      expect(volume.spec.limitBytes).to.equal(130);
     });
 
     it('should not crash if update volume fails upon "mod" event', async () => {
@@ -497,6 +508,7 @@ module.exports = function () {
         UUID,
         {
           replicaCount: 3,
+          local: true,
           preferredNodes: ['node1'],
           requiredNodes: [],
           requiredBytes: 111,
@@ -516,9 +528,9 @@ module.exports = function () {
       await sleep(EVENT_PROPAGATION_DELAY);
 
       sinon.assert.notCalled(fsaStub);
-      expect(volume.replicaCount).to.equal(1);
-      expect(volume.requiredBytes).to.equal(100);
-      expect(volume.limitBytes).to.equal(120);
+      expect(volume.spec.replicaCount).to.equal(1);
+      expect(volume.spec.requiredBytes).to.equal(100);
+      expect(volume.spec.limitBytes).to.equal(120);
     });
 
     it('should not do anything if volume params stay the same upon "mod" event', async () => {
@@ -703,6 +715,7 @@ module.exports = function () {
 
       const newSpec = {
         replicaCount: 3,
+        local: true,
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 90,
@@ -762,6 +775,7 @@ module.exports = function () {
 
       const newSpec = {
         replicaCount: 3,
+        local: true,
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 90,
@@ -792,6 +806,7 @@ module.exports = function () {
 
       const newSpec = {
         replicaCount: 3,
+        local: true,
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 90,

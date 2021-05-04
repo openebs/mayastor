@@ -2,7 +2,7 @@
 
 import assert from 'assert';
 import events = require('events');
-import { Volume, VolumeState } from './volume';
+import { Volume, VolumeSpec, VolumeState } from './volume';
 import { Workq } from './workq';
 import { VolumeStatus } from './volume_operator';
 
@@ -13,7 +13,7 @@ const log = require('./logger').Logger('volumes');
 // Type used in "create volume" workq
 type CreateArgs = {
   uuid: string;
-  spec: any;
+  spec: VolumeSpec;
 }
 
 // Volume manager that emit events for new/modified/deleted volumes.
@@ -108,7 +108,7 @@ export class Volumes extends events.EventEmitter {
   // @params  {number}   spec.limitBytes      The volume should not be bigger than this.
   // @params  {string}   spec.protocol        The share protocol for the nexus.
   // @returns {object}   New volume object.
-  async createVolume(uuid: string, spec: any): Promise<Volume> {
+  async createVolume(uuid: string, spec: VolumeSpec): Promise<Volume> {
     return await this.createWorkq.push({uuid, spec}, (args: CreateArgs) => {
       return this._createVolume(args.uuid, args.spec);
     });
@@ -118,7 +118,7 @@ export class Volumes extends events.EventEmitter {
   // of volumes. The method is idempotent. If a volume with the same uuid
   // already exists, then update its parameters.
   //
-  async _createVolume(uuid: string, spec: any): Promise<Volume> {
+  async _createVolume(uuid: string, spec: VolumeSpec): Promise<Volume> {
     if (!spec.requiredBytes || spec.requiredBytes < 0) {
       throw new GrpcError(
         GrpcCode.INVALID_ARGUMENT,
@@ -187,7 +187,7 @@ export class Volumes extends events.EventEmitter {
   // @params  {string}    status.targetNodes   Node(s) where the volume is published.
   // @returns {object} New volume object.
   //
-  importVolume(uuid: string, spec: any, status?: VolumeStatus): Volume {
+  importVolume(uuid: string, spec: VolumeSpec, status?: VolumeStatus): Volume {
     let volume = this.volumes[uuid];
 
     if (volume) {

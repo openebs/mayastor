@@ -2,9 +2,9 @@
   "name": "moac",
   "version": "0.1.0",
   "description": "Mayastor's control plane",
-  "main": "index.js",
+  "main": "moac",
   "bin": {
-    "moac": "./index.js",
+    "moac": "./moac",
     "mbus": "./mbus.js"
   },
   "repository": {
@@ -14,10 +14,10 @@
   },
   "scripts": {
     "prepare": "./bundle_protos.sh",
-    "clean": "rm -f csi.js node.js replica.js pool.js nexus.js watcher.js node_operator.js pool_operator.js volume.js volumes.js volume_operator.js workq.js *.js.map",
-    "purge": "rm -rf node_modules proto csi.js node.js replica.js pool.js nexus.js watcher.js node_operator.js pool_operator.js volume.js volumes.js volume_operator.js workq.js *.js.map",
+    "clean": "rm -f csi.js index.js node.js replica.js pool.js nexus.js watcher.js node_operator.js pool_operator.js volume.js volumes.js volume_operator.js workq.js *.js.map",
+    "purge": "rm -rf node_modules proto csi.js index.js node.js replica.js pool.js nexus.js watcher.js node_operator.js pool_operator.js volume.js volumes.js volume_operator.js workq.js *.js.map",
     "compile": "tsc --pretty",
-    "start": "./index.js",
+    "start": "./moac",
     "test": "mocha test/index.js",
     "check": "semistandard --verbose",
     "fix": "semistandard --fix"
