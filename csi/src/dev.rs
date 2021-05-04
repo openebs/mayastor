@@ -48,12 +48,13 @@ pub type DeviceName = String;
 
 #[tonic::async_trait]
 pub trait Attach: Sync + Send {
-    async fn attach(&self) -> Result<(), DeviceError>;
-    async fn find(&self) -> Result<Option<DeviceName>, DeviceError>;
-    async fn fixup(
-        &self,
+    async fn parse_parameters(
+        &mut self,
         context: &HashMap<String, String>,
     ) -> Result<(), DeviceError>;
+    async fn attach(&self) -> Result<(), DeviceError>;
+    async fn find(&self) -> Result<Option<DeviceName>, DeviceError>;
+    async fn fixup(&self) -> Result<(), DeviceError>;
 }
 
 #[tonic::async_trait]

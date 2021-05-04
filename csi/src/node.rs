@@ -425,7 +425,7 @@ impl node_server::Node for Node {
         // All checks complete, now attach, if not attached already.
         debug!("Volume {} has URI {}", &msg.volume_id, uri);
 
-        let device = Device::parse(&uri).map_err(|error| {
+        let mut device = Device::parse(&uri).map_err(|error| {
             failure!(
                 Code::Internal,
                 "Failed to stage volume {}: error parsing URI {}: {}",
@@ -434,6 +434,17 @@ impl node_server::Node for Node {
                 error
             )
         })?;
+        device
+            .parse_parameters(&msg.publish_context)
+            .await
+            .map_err(|error| {
+                failure!(
+            Code::InvalidArgument,
+            "Failed to parse storage class parameters for volume {}: {}",
+            &msg.volume_id,
+            error
+        )
+            })?;
 
         let device_path = match device.find().await.map_err(|error| {
             failure!(
@@ -473,7 +484,7 @@ impl node_server::Node for Node {
                     )
                 })?;
 
-                device.fixup(&msg.publish_context).await.map_err(|error| {
+                device.fixup().await.map_err(|error| {
                     failure!(
                         Code::Internal,
                         "Could not set parameters on staged device {}: {}",

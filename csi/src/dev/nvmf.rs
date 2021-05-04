@@ -27,6 +27,7 @@ pub(super) struct NvmfAttach {
     port: u16,
     uuid: Uuid,
     nqn: String,
+    io_timeout: Option<u32>,
 }
 
 impl NvmfAttach {
@@ -36,6 +37,7 @@ impl NvmfAttach {
             port,
             uuid,
             nqn,
+            io_timeout: None,
         }
     }
 
@@ -102,11 +104,40 @@ impl TryFrom<&Url> for NvmfAttach {
 
 #[tonic::async_trait]
 impl Attach for NvmfAttach {
+    async fn parse_parameters(
+        &mut self,
+        context: &HashMap<String, String>,
+    ) -> Result<(), DeviceError> {
+        if let Some(val) = context.get("ioTimeout") {
+            self.io_timeout = Some(val.parse::<u32>().map_err(|_| {
+                DeviceError::new(&format!(
+                    "Invalid io_timeout value: \"{}\"",
+                    val
+                ))
+            })?);
+        };
+        Ok(())
+    }
+
     async fn attach(&self) -> Result<(), DeviceError> {
+        // The default reconnect delay in linux kernel is set to 10s. Use the
+        // same default value unless the timeout is less or equal to 10.
+        let reconnect_delay = match self.io_timeout {
+            Some(io_timeout) => {
+                if io_timeout <= 10 {
+                    Some(1)
+                } else {
+                    Some(10)
+                }
+            }
+            None => None,
+        };
         let ca = ConnectArgsBuilder::default()
             .traddr(&self.host)
             .trsvcid(self.port.to_string())
             .nqn(&self.nqn)
+            .ctrl_loss_tmo(self.io_timeout)
+            .reconnect_delay(reconnect_delay)
             .build()?;
         match ca.connect() {
             Err(NvmeError::ConnectInProgress) => Ok(()),
@@ -124,11 +155,8 @@ impl Attach for NvmfAttach {
         })
     }
 
-    async fn fixup(
-        &self,
-        context: &HashMap<String, String>,
-    ) -> Result<(), DeviceError> {
-        if let Some(val) = context.get("ioTimeout") {
+    async fn fixup(&self) -> Result<(), DeviceError> {
+        if let Some(io_timeout) = self.io_timeout {
             let device = self
                 .get_device()?
                 .ok_or_else(|| DeviceError::new("NVMe device not found"))?;
@@ -161,12 +189,6 @@ impl Attach for NvmfAttach {
                         pattern
                     ))
                 })?;
-            let io_timeout = val.parse::<i32>().map_err(|_| {
-                DeviceError::new(&format!(
-                    "Invalid io_timeout value: \"{}\"",
-                    val
-                ))
-            })?;
             // If the timeout was higher than nexus's timeout then IOs could
             // error out earlier than they should. Therefore we should make sure
             // that timeouts in the nexus are set to a very high value.
