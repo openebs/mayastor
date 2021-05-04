@@ -7,6 +7,8 @@ parameters:
   repl: '1'
   protocol: 'iscsi'
   local: 'yes'
+  # It is recommended to use xfs for Mayastor
+  # fsType: 'xfs'
 provisioner: io.openebs.csi-mayastor
 volumeBindingMode: WaitForFirstConsumer
 ---
@@ -19,6 +21,8 @@ parameters:
   protocol: 'nvmf'
   ioTimeout: '30'
   local: 'yes'
+  # It is recommended to use xfs for Mayastor
+  # fsType: 'xfs'
 provisioner: io.openebs.csi-mayastor
 volumeBindingMode: WaitForFirstConsumer
 ---
@@ -30,5 +34,7 @@ parameters:
   repl: '3'
   protocol: 'nvmf'
   ioTimeout: '30'
+  # It is recommended to use xfs for Mayastor
+  # fsType: 'xfs'
 provisioner: io.openebs.csi-mayastor
 volumeBindingMode: WaitForFirstConsumer
