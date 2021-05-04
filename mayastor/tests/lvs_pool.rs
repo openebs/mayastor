@@ -10,11 +10,13 @@ use rpc::mayastor::CreatePoolRequest;
 pub mod common;
 
 static DISKNAME1: &str = "/tmp/disk1.img";
+static DISKNAME2: &str = "/tmp/disk2.img";
 
 #[tokio::test]
 async fn lvs_pool_test() {
-    common::delete_file(&[DISKNAME1.into()]);
+    common::delete_file(&[DISKNAME1.into(), DISKNAME2.into()]);
     common::truncate_file(DISKNAME1, 64 * 1024);
+    common::truncate_file(DISKNAME2, 64 * 1024);
     let args = MayastorCliArgs {
         reactor_mask: "0x3".into(),
         ..Default::default()
@@ -320,4 +322,18 @@ async fn lvs_pool_test() {
     .await;
 
     common::delete_file(&[DISKNAME1.into()]);
+
+    // if not specified, default driver scheme should be AIO
+    ms.spawn(async {
+        let pool = Lvs::create_or_import(CreatePoolRequest {
+            name: "tpool2".into(),
+            disks: vec!["/tmp/disk2.img".into()],
+        })
+        .await
+        .unwrap();
+        assert_eq!(pool.base_bdev().driver(), "aio");
+    })
+    .await;
+
+    common::delete_file(&[DISKNAME2.into()]);
 }
