@@ -21,6 +21,7 @@ spec:
             - "--v=2"
             - "--csi-address=$(ADDRESS)"
             - "--feature-gates=Topology=true"
+            - "--default-fstype=ext4"
           env:
             - name: ADDRESS
               value: /var/lib/csi/sockets/pluginproxy/csi.sock
