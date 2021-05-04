@@ -68,6 +68,7 @@
     "node.ts",
     "node_operator.ts",
     "replica.ts",
+    "registry.ts",
     "pool.ts",
     "pool_operator.ts",
     "volume.ts",

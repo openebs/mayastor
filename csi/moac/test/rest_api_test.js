@@ -5,7 +5,7 @@
 const expect = require('chai').expect;
 const http = require('http');
 const sinon = require('sinon');
-const Registry = require('../registry');
+const { Registry } = require('../registry');
 const { Node } = require('../node');
 const { GrpcError, grpcCode } = require('../grpc_client');
 const ApiServer = require('../rest_api');
@@ -25,7 +25,7 @@ module.exports = function () {
     const node2 = new Node('node2');
     const node3 = new Node('node3');
     const node4 = new Node('node4');
-    const registry = new Registry();
+    const registry = new Registry({});
     registry.nodes = {
       node1,
       node2,

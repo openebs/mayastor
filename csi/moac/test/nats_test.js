@@ -6,7 +6,7 @@ const expect = require('chai').expect;
 const { spawn } = require('child_process');
 const nats = require('nats');
 const sleep = require('sleep-promise');
-const Registry = require('../registry');
+const { Registry } = require('../registry');
 const { MessageBus } = require('../nats');
 const { waitUntil } = require('./utils');
 const NodeStub = require('./node_stub');
@@ -78,7 +78,7 @@ module.exports = function () {
 
   // Create registry, event bus object, nats client and start nat server
   before((done) => {
-    registry = new Registry();
+    registry = new Registry({});
     registry.Node = NodeStub;
     eventBus = new MessageBus(registry, RECONNECT_DELAY);
     startNats(err => {

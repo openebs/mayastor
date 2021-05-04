@@ -85,7 +85,7 @@ class EventStream extends Readable {
     // they appear as new.
     const self = this;
     if (self.registry) {
-      self.registry.getNode().forEach((node) => {
+      self.registry.getNodes().forEach((node) => {
         self.events.push({
           kind: 'node',
           eventType: 'new',

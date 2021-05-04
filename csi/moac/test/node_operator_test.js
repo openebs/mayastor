@@ -6,7 +6,7 @@ const expect = require('chai').expect;
 const sinon = require('sinon');
 const sleep = require('sleep-promise');
 const { KubeConfig } = require('client-node-fixed-watcher');
-const Registry = require('../registry');
+const { Registry } = require('../registry');
 const { NodeOperator, NodeResource } = require('../node_operator');
 const { mockCache } = require('./watcher_stub');
 const Node = require('./node_stub');
@@ -97,7 +97,7 @@ module.exports = function () {
     let kc, oper, fakeApiStub;
 
     beforeEach(() => {
-      const registry = new Registry();
+      const registry = new Registry({});
       kc = new KubeConfig();
       Object.assign(kc, fakeConfig);
       oper = new NodeOperator(NAMESPACE, kc, registry);
@@ -146,7 +146,7 @@ module.exports = function () {
     let stubs, registry, nodeResource;
 
     beforeEach(async () => {
-      registry = new Registry();
+      registry = new Registry({});
       registry.Node = Node;
 
       oper = createNodeOperator(registry);
@@ -210,7 +210,7 @@ module.exports = function () {
     let registry, oper;
 
     beforeEach(async () => {
-      registry = new Registry();
+      registry = new Registry({});
       registry.Node = Node;
       oper = createNodeOperator(registry);
     });

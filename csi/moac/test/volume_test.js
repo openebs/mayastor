@@ -10,7 +10,7 @@ const EventEmitter = require('events');
 const expect = require('chai').expect;
 const sinon = require('sinon');
 const { Node } = require('../node');
-const Registry = require('../registry');
+const { Registry } = require('../registry');
 const { Volume } = require('../volume');
 const { shouldFailWith } = require('./utils');
 const { grpcCode } = require('../grpc_client');
@@ -28,26 +28,26 @@ const defaultOpts = {
 
 module.exports = function () {
   it('should stringify volume name', () => {
-    const registry = new Registry();
+    const registry = new Registry({});
     const volume = new Volume(UUID, registry, new EventEmitter(), defaultOpts);
     expect(volume.toString()).to.equal(UUID);
   });
 
   it('should get name of the node where the volume has been published', () => {
-    const registry = new Registry();
+    const registry = new Registry({});
     const volume = new Volume(UUID, registry, new EventEmitter(), defaultOpts, 'degraded', 100, 'node');
     expect(volume.getNodeName()).to.equal('node');
     expect(volume.state).to.equal('degraded');
   });
 
   it('should get zero size of a volume that has not been created yet', () => {
-    const registry = new Registry();
+    const registry = new Registry({});
     const volume = new Volume(UUID, registry, new EventEmitter(), defaultOpts);
     expect(volume.getSize()).to.equal(0);
   });
 
   it('should get the right size of a volume that has been imported', () => {
-    const registry = new Registry();
+    const registry = new Registry({});
     const volume = new Volume(UUID, registry, new EventEmitter(), defaultOpts, 'healthy', 100);
     expect(volume.getSize()).to.equal(100);
     expect(volume.state).to.equal('healthy');
@@ -55,7 +55,7 @@ module.exports = function () {
 
   it('should set the preferred nodes for the volume', () => {
     let modified = false;
-    const registry = new Registry();
+    const registry = new Registry({});
     const emitter = new EventEmitter();
     emitter.on('volume', (ev) => {
       if (ev.eventType === 'mod') {
@@ -70,7 +70,7 @@ module.exports = function () {
   });
 
   it('should not publish volume that is known to be broken', async () => {
-    const registry = new Registry();
+    const registry = new Registry({});
     const volume = new Volume(UUID, registry, new EventEmitter(), defaultOpts, 'faulted', 100);
     const node = new Node('node');
     const stub = sinon.stub(node, 'call');

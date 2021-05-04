@@ -18,6 +18,16 @@ type GrpcCallArgs = {
   args: any;
 }
 
+// Node options when created.
+export type NodeOpts = {
+  // How often to sync healthy node (in ms).
+  syncPeriod?: number;
+  // How often to retry sync if it failed (in ms).
+  syncRetry?: number;
+  // Flip the node to offline state after this many retries have failed.
+  syncBadLimit?: number;
+}
+
 // Object represents mayastor storage node.
 //
 // Node emits following events:
@@ -41,10 +51,7 @@ export class Node extends events.EventEmitter {
   //
   // @param {string} name              Node name.
   // @param {Object} [opts]            Options
-  // @param {number} opts.syncPeriod   How often to sync healthy node (in ms).
-  // @param {number} opts.syncRetry    How often to retry sync if it failed (in ms).
-  // @param {number} opts.syncBadLimit Flip the node to offline state after this many retries have failed.
-  constructor (name: string, opts: any) {
+  constructor (name: string, opts?: NodeOpts) {
     opts = opts || {};
 
     super();

@@ -8,7 +8,7 @@ const expect = require('chai').expect;
 const sinon = require('sinon');
 const sleep = require('sleep-promise');
 const { KubeConfig } = require('client-node-fixed-watcher');
-const Registry = require('../registry');
+const { Registry } = require('../registry');
 const { Volume } = require('../volume');
 const { Volumes } = require('../volumes');
 const { VolumeOperator, VolumeResource } = require('../volume_operator');
@@ -287,7 +287,7 @@ module.exports = function () {
     let kc, oper, fakeApiStub;
 
     beforeEach(() => {
-      const registry = new Registry();
+      const registry = new Registry({});
       kc = new KubeConfig();
       Object.assign(kc, fakeConfig);
       oper = new VolumeOperator(NAMESPACE, kc, registry);
@@ -343,7 +343,7 @@ module.exports = function () {
 
     it('should call import volume for existing resources when starting the operator', async () => {
       let stubs;
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
       const importVolumeStub = sinon.stub(volumes, 'importVolume');
       // return value is not used so just return something
@@ -365,7 +365,7 @@ module.exports = function () {
 
     it('should set reason in resource if volume import fails upon "new" event', async () => {
       let stubs;
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
       const importVolumeStub = sinon.stub(volumes, 'importVolume');
       importVolumeStub.throws(
@@ -390,7 +390,7 @@ module.exports = function () {
 
     it('should destroy the volume upon "del" event', async () => {
       let stubs;
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
       const destroyVolumeStub = sinon.stub(volumes, 'destroyVolume');
       destroyVolumeStub.resolves();
@@ -413,7 +413,7 @@ module.exports = function () {
 
     it('should handle gracefully if destroy of a volume fails upon "del" event', async () => {
       let stubs;
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
       const destroyVolumeStub = sinon.stub(volumes, 'destroyVolume');
       destroyVolumeStub.rejects(
@@ -438,7 +438,7 @@ module.exports = function () {
 
     it('should modify the volume upon "mod" event', async () => {
       let stubs;
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
       const volume = new Volume(UUID, registry, new EventEmitter(), defaultSpec);
       volume.size = 110;
@@ -488,7 +488,7 @@ module.exports = function () {
 
     it('should not crash if update volume fails upon "mod" event', async () => {
       let stubs;
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
       const volume = new Volume(UUID, registry, new EventEmitter(), defaultSpec);
       volume.size = 110;
@@ -535,7 +535,7 @@ module.exports = function () {
 
     it('should not do anything if volume params stay the same upon "mod" event', async () => {
       let stubs;
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
       const volume = new Volume(UUID, registry, new EventEmitter(), defaultSpec);
       volume.size = 110;
@@ -578,7 +578,7 @@ module.exports = function () {
 
     it('should create a resource upon "new" volume event', async () => {
       let stubs;
-      const registry = new Registry();
+      const registry = new Registry({});
       const volume = new Volume(UUID, registry, new EventEmitter(), defaultSpec);
       const volumes = new Volumes(registry);
       sinon
@@ -614,7 +614,7 @@ module.exports = function () {
 
     it('should not crash if POST fails upon "new" volume event', async () => {
       let stubs;
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
       const volume = new Volume(UUID, registry, new EventEmitter(), defaultSpec);
       sinon.stub(volumes, 'get').returns([]);
@@ -639,7 +639,7 @@ module.exports = function () {
 
     it('should update the resource upon "new" volume event if it exists', async () => {
       let stubs;
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
       const newSpec = _.cloneDeep(defaultSpec);
       newSpec.replicaCount += 1;
@@ -669,7 +669,7 @@ module.exports = function () {
 
     it('should not update the resource upon "new" volume event if it is the same', async () => {
       let stubs;
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
       const volume = new Volume(UUID, registry, new EventEmitter(), defaultSpec, 'pending', 100, 'node2');
       sinon
@@ -701,7 +701,7 @@ module.exports = function () {
 
     it('should update the resource upon "mod" volume event', async () => {
       let stubs;
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
       sinon.stub(volumes, 'get').returns([]);
 
@@ -736,7 +736,7 @@ module.exports = function () {
 
     it('should update just the status if spec has not changed upon "mod" volume event', async () => {
       let stubs;
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
       sinon.stub(volumes, 'get').returns([]);
 
@@ -761,7 +761,7 @@ module.exports = function () {
 
     it('should not crash if PUT fails upon "mod" volume event', async () => {
       let stubs;
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
       sinon.stub(volumes, 'get').returns([]);
 
@@ -795,7 +795,7 @@ module.exports = function () {
 
     it('should not crash if the resource does not exist upon "mod" volume event', async () => {
       let stubs;
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
       sinon.stub(volumes, 'get').returns([]);
 
@@ -828,7 +828,7 @@ module.exports = function () {
     it('should delete the resource upon "del" volume event', async () => {
       let stubs;
       const volumeResource = createVolumeResource(UUID, defaultSpec);
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
       sinon.stub(volumes, 'get').returns([]);
 
@@ -851,7 +851,7 @@ module.exports = function () {
     it('should not crash if DELETE fails upon "del" volume event', async () => {
       let stubs;
       const volumeResource = createVolumeResource(UUID, defaultSpec);
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
       sinon.stub(volumes, 'get').returns([]);
 
@@ -873,7 +873,7 @@ module.exports = function () {
 
     it('should not crash if the resource does not exist upon "del" volume event', async () => {
       let stubs;
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
       sinon.stub(volumes, 'get').returns([]);
 

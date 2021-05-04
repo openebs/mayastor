@@ -11,7 +11,7 @@ const sleep = require('sleep-promise');
 const EventEmitter = require('events');
 const { CsiServer, csi } = require('../csi');
 const { GrpcError, grpcCode } = require('../grpc_client');
-const Registry = require('../registry');
+const { Registry } = require('../registry');
 const { Volume } = require('../volume');
 const { Volumes } = require('../volumes');
 const { shouldFailWith } = require('./utils');
@@ -118,7 +118,7 @@ module.exports = function () {
     async function mockedServer (pools, replicas, nexus) {
       const server = new CsiServer(SOCKPATH);
       await server.start();
-      registry = new Registry();
+      registry = new Registry({});
       volumes = new Volumes(registry);
       server.makeReady(registry, volumes);
       getCapacityStub = sinon.stub(registry, 'getCapacity');

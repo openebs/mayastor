@@ -16,7 +16,7 @@ const log = require('./logger').Logger('api');
 
 class ApiServer {
   constructor (registry) {
-    var self = this;
+    const self = this;
     this.registry = registry;
     this.app = express();
     this.app.get('/stats', (req, res) => {
@@ -42,9 +42,9 @@ class ApiServer {
 
   // TODO: should return stats for nexus rather than for replica
   async getStats () {
-    var self = this;
-    var vols = [];
-    var nodes = self.registry.getNode();
+    const self = this;
+    let vols = [];
+    const nodes = self.registry.getNodes();
 
     // TODO: stats can be retrieved in parallel
     for (let i = 0; i < nodes.length; i++) {

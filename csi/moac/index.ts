@@ -5,12 +5,12 @@ const { KubeConfig } = require('client-node-fixed-watcher');
 const yargs = require('yargs');
 
 const logger = require('./logger');
-const Registry = require('./registry');
 const ApiServer = require('./rest_api');
 const { MessageBus } = require('./nats');
 
 import { NodeOperator } from './node_operator';
 import { PoolOperator } from './pool_operator';
+import { Registry } from './registry';
 import { Volumes } from './volumes';
 import { VolumeOperator } from './volume_operator';
 import { CsiServer } from './csi';
@@ -89,6 +89,21 @@ export async function main () {
         default: false,
         boolean: true
       },
+      'sync-period': {
+        describe: 'Sync period for a storage node that is known to be healthy (in seconds)',
+        default: 60,
+        number: true
+      },
+      'sync-retry': {
+        describe: 'Sync period for a storage nodes that is known to be bad (in seconds)',
+        default: 10,
+        number: true
+      },
+      'sync-bad-limit': {
+        describe: 'Storage node moves to offline state after this many retries (0 means immediately when it fails)',
+        default: 0,
+        number: true
+      },
       v: {
         alias: 'verbose',
         describe: 'Print debug log messages',
@@ -147,7 +162,11 @@ export async function main () {
   // serve csi.identity() calls while getting ready.
   const csiServer = new CsiServer(opts.csiAddress);
   await csiServer.start();
-  const registry = new Registry();
+  const registry = new Registry({
+    syncPeriod: opts.syncPeriod * 1000,
+    syncRetry: opts.syncRetry * 1000,
+    syncBadLimit: opts.syncBadLimit,
+  });
 
   // Listen to register and deregister messages from mayastor nodes
   const messageBus = new MessageBus(registry);

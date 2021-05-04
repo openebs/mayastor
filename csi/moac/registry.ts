@@ -3,12 +3,14 @@
 // a database (other components can query it to get a list of objects) and also
 // as a message bus (other components can subscribe to events).
 
-'use strict';
-
-const assert = require('assert');
-const EventEmitter = require('events');
 const log = require('./logger').Logger('registry');
-const { Node } = require('./node');
+
+import assert from 'assert';
+import events = require('events');
+import { Node, NodeOpts } from './node';
+import { Pool } from './pool';
+import { Nexus } from './nexus';
+import { Replica } from './replica';
 
 // List of events emitted by the registry.
 //
@@ -21,10 +23,19 @@ const { Node } = require('./node');
 // ```
 const eventObjects = ['node', 'nexus', 'pool', 'replica'];
 
-class Registry extends EventEmitter {
-  constructor () {
+interface NodeConstructor {
+  new (name: string, opts: any): Node;
+}
+
+export class Registry extends events.EventEmitter {
+  private nodes: Record<string, Node>;
+  private Node: NodeConstructor;
+  private nodeOpts: NodeOpts;
+
+  constructor (nodeOpts: NodeOpts) {
     super();
     this.nodes = {}; // node objects indexed by name
+    this.nodeOpts = nodeOpts;
     // This gives a chance to override Node class used for creating new
     // node objects, which is useful for testing of the registry.
     this.Node = Node;
@@ -42,9 +53,9 @@ class Registry extends EventEmitter {
   // emitted by the node to relay them further. It can be called also for
   // existing nodes to update their grpc endpoint.
   //
-  // @param {string} name      Name of the node.
-  // @param {string} endpoint  Endpoint for gRPC communication.
-  addNode (name, endpoint) {
+  // @param name      Name of the node.
+  // @param endpoint  Endpoint for gRPC communication.
+  addNode (name: string, endpoint: string) {
     let node = this.nodes[name];
     if (node) {
       // if grpc endpoint has not changed, then this will not do anything
@@ -56,7 +67,7 @@ class Registry extends EventEmitter {
         });
       }
     } else {
-      node = new this.Node(name);
+      node = new this.Node(name, this.nodeOpts);
       node.connect(endpoint);
       this.emit('node', {
         eventType: 'new',
@@ -73,7 +84,7 @@ class Registry extends EventEmitter {
   // nodes.
   //
   // @param {object} node    Node object to register.
-  _registerNode (node) {
+  _registerNode (node: Node) {
     assert(!this.nodes[node.name]);
     this.nodes[node.name] = node;
 
@@ -89,7 +100,7 @@ class Registry extends EventEmitter {
   // Remove mayastor node from the list of nodes and unsubscribe events.
   //
   // @param {string} name   Name of the node to remove.
-  removeNode (name) {
+  removeNode (name: string) {
     const node = this.nodes[name];
     if (!node) return;
     delete this.nodes[name];
@@ -110,84 +121,73 @@ class Registry extends EventEmitter {
   // Get specified mayastor node or list of all mayastor nodes if called
   // without argument.
   //
-  // @param   {string} name    Name of the node to return.
-  // @returns {(object|Array)} Node object or null if not found or list of all objects.
-  getNode (name) {
-    if (name) {
-      return this.nodes[name] || null;
-    } else {
-      return Object.values(this.nodes);
-    }
+  // @param   name    Name of the node to return.
+  // @returns Node object if found or undefined if not found.
+  getNode (name: string): Node | undefined {
+    return this.nodes[name];
   }
 
-  // Get specified storage pool or list of all storage pools if called
-  // without argument.
-  //
-  // @param   {string} [name]     Name of the storage pool.
-  // @returns {(object|object[])} Pool object (null if not found) or list of all objects.
-  getPool (name) {
-    const pools = Object.values(this.nodes).reduce(
-      (acc, node) => acc.concat(node.pools),
-      []
-    );
-    if (name) {
-      return pools.find((p) => p.name === name) || null;
-    } else {
-      return pools;
-    }
+  // Get list of all mayastor nodes.
+  getNodes (): Node[] {
+    return Object.values(this.nodes);
   }
 
-  // Get specified nexus object or list of nexus objects if called without
-  // argument.
-  //
-  // @param   {string} [uuid]     ID of the nexus.
-  // @returns {(object|object[])} Nexus object (null if not found) or list of all objects.
-  getNexus (uuid) {
-    const nexus = Object.values(this.nodes).reduce(
-      (acc, node) => acc.concat(node.nexus),
-      []
-    );
-    if (uuid) {
-      return nexus.find((n) => n.uuid === uuid) || null;
-    } else {
-      return nexus;
-    }
+  // Get specified storage pool or undefined if not found.
+  getPool (name: string): Pool | undefined {
+    return this.getPools().find((p) => p.name === name);
   }
 
-  // Get replica objects with specified uuid or all replicas if called without
-  // argument.
-  //
-  // @param   {string}    [uuid]  Replica ID.
-  // @returns {object[]}  Array of matching replicas.
-  getReplicaSet (uuid) {
-    const replicas = Object.values(this.nodes).reduce(
-      (acc, node) => acc.concat(node.getReplicas()),
+  // Get list of all storage pools.
+  getPools (): Pool[] {
+    return Object.values(this.nodes).reduce(
+      (acc: Pool[], node: Node) => acc.concat(node.pools),
       []
     );
-    if (uuid) {
-      return replicas.filter((r) => r.uuid === uuid);
-    } else {
-      return replicas;
-    }
+  }
+
+  // Get specified nexus object.
+  getNexus (uuid: string): Nexus | undefined {
+    return this.getNexuses().find((n) => n.uuid === uuid);
+  }
+
+  // Get list of nexus objects.
+  getNexuses (): Nexus[] {
+    return Object.values(this.nodes).reduce(
+      (acc: Nexus[], node: Node) => acc.concat(node.nexus),
+      []
+    );
+  }
+
+  // Get replica objects with specified uuid.
+  getReplicaSet (uuid: string): Replica[] {
+    return this.getReplicas().filter((r: Replica) => r.uuid === uuid);
+  }
+
+  // Get all replicas.
+  getReplicas (): Replica[] {
+    return Object.values(this.nodes).reduce(
+      (acc: Replica[], node: Node) => acc.concat(node.getReplicas()),
+      []
+    );
   }
 
   // Return total capacity of all pools summed together or capacity of pools on
   // a single node if node name is specified.
   //
-  // @param {string}   [nodeName]  Name of the node to get the capacity for.
-  // @returns {number} Total capacity in bytes.
+  // @param [nodeName]  Name of the node to get the capacity for.
+  // @returns Total capacity in bytes.
   //
-  getCapacity (nodeName) {
+  getCapacity (nodeName?: string) {
     let pools;
 
     if (nodeName) {
-      pools = this.getPool().filter((p) => p.node.name === nodeName);
+      pools = this.getPools().filter((p) => p.node.name === nodeName);
     } else {
-      pools = this.getPool();
+      pools = this.getPools();
     }
     return pools
-      .filter((p) => p.isAccessible())
-      .reduce((acc, p) => acc + (p.capacity - p.used), 0);
+      .filter((p: Pool) => p.isAccessible())
+      .reduce((acc: number, p: Pool) => acc + (p.capacity - p.used), 0);
   }
 
   // Return ordered list of storage pools suitable for new volume creation
@@ -198,8 +198,8 @@ class Registry extends EventEmitter {
   //  2) must have sufficient space
   //  3) the least busy pools first
   //
-  choosePools (requiredBytes, mustNodes, shouldNodes) {
-    let pools = this.getPool().filter((p) => {
+  choosePools (requiredBytes: number, mustNodes: string[], shouldNodes: string[]): Pool[] {
+    let pools = this.getPools().filter((p) => {
       return (
         p.isAccessible() &&
         p.capacity - p.used >= requiredBytes &&
@@ -244,7 +244,7 @@ class Registry extends EventEmitter {
     });
 
     // only one pool from each node
-    const nodes = [];
+    const nodes: Node[] = [];
     pools = pools.filter((p) => {
       if (nodes.indexOf(p.node) < 0) {
         nodes.push(p.node);
@@ -257,5 +257,3 @@ class Registry extends EventEmitter {
     return pools;
   }
 }
-
-module.exports = Registry;
