@@ -29,7 +29,7 @@ use spdk_sys::{
 use url::Url;
 
 use crate::{
-    bdev::{util::uring, Uri},
+    bdev::Uri,
     core::{Bdev, IoType, Share, Uuid},
     ffihelper::{cb_arg, pair, AsStr, ErrnoResult, FfiResult, IntoCString},
     lvs::{Error, Lvol, PropName, PropValue},
@@ -300,21 +300,13 @@ impl Lvs {
             });
         }
 
-        // default to uring if kernel supports it
+        // default to aio if no specific driver scheme is specified
         let disks = args
             .disks
             .iter()
             .map(|d| {
                 if Url::parse(d).is_err() {
-                    format!(
-                        "{}://{}",
-                        if uring::kernel_support() {
-                            "uring"
-                        } else {
-                            "aio"
-                        },
-                        d,
-                    )
+                    format!("aio://{}", d)
                 } else {
                     d.clone()
                 }
