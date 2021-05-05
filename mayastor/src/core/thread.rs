@@ -17,11 +17,7 @@ use spdk_sys::{
 use crate::core::{cpu_cores::CpuMask, CoreError, Cores, Reactors};
 use futures::channel::oneshot::{channel, Receiver, Sender};
 use nix::errno::Errno;
-use std::{
-    fmt::{Debug, Display},
-    future::Future,
-    ptr::NonNull,
-};
+use std::{fmt::Debug, future::Future, ptr::NonNull};
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -187,30 +183,28 @@ impl Mthread {
     /// spawn a future on a core the current thread is running on returning a
     /// channel which can be awaited. This decouples the SPDK runtime from the
     /// future runtimes within rust.
-    pub fn spawn_local<F: 'static, R: 'static, E: 'static>(
-        &self,
-        f: F,
-    ) -> Result<Receiver<Result<R, E>>, CoreError>
+    pub fn spawn_local<F>(&self, f: F) -> Result<Receiver<F::Output>, CoreError>
     where
-        F: Future<Output = Result<R, E>>,
-        R: Send + Debug,
-        E: Send + Display + Debug,
+        F: Future + 'static,
+        F::Output: Send + Debug,
     {
         // context structure which is passed to the callback as argument
-        struct Ctx<F, R, E> {
+        struct Ctx<F>
+        where
+            F: Future,
+            F::Output: Send + Debug,
+        {
             future: F,
-            sender: Option<Sender<Result<R, E>>>,
+            sender: Option<Sender<F::Output>>,
         }
 
         // helper routine to unpack the closure and its arguments
-        extern "C" fn trampoline<F: 'static, R: 'static, E: 'static>(
-            arg: *mut c_void,
-        ) where
-            F: Future<Output = Result<R, E>>,
-            R: Send + Debug,
-            E: Send + Debug,
+        extern "C" fn trampoline<F>(arg: *mut c_void)
+        where
+            F: Future + 'static,
+            F::Output: Send + Debug,
         {
-            let mut ctx = unsafe { Box::from_raw(arg as *mut Ctx<F, R, E>) };
+            let mut ctx = unsafe { Box::from_raw(arg as *mut Ctx<F>) };
             Reactors::master()
                 .spawn_local(async move {
                     let result = ctx.future.await;
@@ -223,7 +217,7 @@ impl Mthread {
                 .detach();
         }
 
-        let (s, r) = channel::<Result<R, E>>();
+        let (s, r) = channel::<F::Output>();
 
         let ctx = Box::new(Ctx {
             future: f,
@@ -233,7 +227,7 @@ impl Mthread {
         let rc = unsafe {
             spdk_thread_send_msg(
                 self.0.as_ptr(),
-                Some(trampoline::<F, R, E>),
+                Some(trampoline::<F>),
                 Box::into_raw(ctx).cast(),
             )
         };
