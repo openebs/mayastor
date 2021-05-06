@@ -57,17 +57,27 @@ function poolStateFromString(val: string): PoolState {
   }
 }
 
+// Object defines spec properties of a pool resource.
+export class PoolSpec {
+  node: string;
+  disks: string[];
+
+  // Create and validate pool custom resource.
+  constructor(node: string, disks: string[]) {
+    this.node = node;
+    this.disks = disks;
+  }
+}
+
 // Object defines properties of pool resource.
 export class PoolResource extends CustomResource {
   apiVersion?: string;
   kind?: string;
   metadata: CustomResourceMeta;
-  spec: {
-    node: string,
-    disks: string[],
-  };
+  spec: PoolSpec;
   status: {
-    state: string,
+    spec?: PoolSpec,
+    state: PoolState,
     reason?: string,
     disks?: string[],
     capacity?: number,
@@ -101,6 +111,7 @@ export class PoolResource extends CustomResource {
     }
     this.status = {
       state: poolStateFromString(cr.status?.state),
+      spec: cr.status?.spec,
       reason: cr.status?.reason,
       disks: cr.status?.disks,
       capacity: cr.status?.capacity,
@@ -114,6 +125,28 @@ export class PoolResource extends CustomResource {
       throw Error("Resource object does not have a name")
     } else {
       return this.metadata.name;
+    }
+  }
+
+  // Get the pool spec
+  // If the pool has not been created yet, the user spec is returned
+  // If the pool has already been created, then the initial spec (cached in the status) is returned
+  getSpec(): PoolSpec {
+    if (this.status.spec !== undefined) {
+      return this.status.spec
+    } else {
+      return this.spec
+    }
+  }
+
+  // Get the pool disk device
+  // If the pool has been created once already, then it's the initial URI returned by mayastor
+  // Otherwise, it's the disk device from the SPEC
+  getDisks(): string[] {
+    if (this.status.disks !== undefined) {
+      return this.status.disks
+    } else {
+      return this.getSpec().disks
     }
   }
 }
@@ -289,7 +322,23 @@ export class PoolOperator {
   //
   async _createPool (resource: PoolResource) {
     const name: string = resource.getName();
-    const nodeName = resource.spec.node;
+    const nodeName = resource.getSpec().node;
+
+    // Nothing prevents the user from modifying the spec part of the CRD, which could trick MOAC into recreating
+    // the pool on a different node, for example.
+    // So, store the initial spec in the status section of the CRD so that we may ignore any CRD edits from the user.
+    if (resource.status.spec === undefined) {
+      resource.status.spec = resource.spec;
+      await this._updateResourceProps(
+        name,
+        resource.status.state,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        resource.status.spec
+      );
+    }
 
     let pool = this.registry.getPool(name);
     if (pool) {
@@ -315,10 +364,9 @@ export class PoolOperator {
     // We will update the pool status once the pool is created, but
     // that can take a time, so set reasonable default now.
     await this._updateResourceProps(name, PoolState.Pending, 'Creating the pool');
-
     try {
       // pool resource props will be updated when "new" pool event is emitted
-      pool = await node.createPool(name, resource.spec.disks);
+      pool = await node.createPool(name, resource.getDisks());
     } catch (err) {
       log.error(`Failed to create pool "${name}": ${err}`);
       await this._updateResourceProps(name, PoolState.Error, err.toString());
@@ -350,20 +398,26 @@ export class PoolOperator {
   //
   async _modifyPool (resource: PoolResource) {
     const name = resource.getName();
-    const pool = this.registry.getPool(name);
-    if (!pool) {
-      log.warn(`Ignoring modification to pool "${name}" that does not exist`);
-      return;
-    }
-    // Just now we don't even try to compare that the disks are the same as in
-    // the spec because mayastor returns disks prefixed by aio/iouring protocol
-    // and with uuid query parameter.
-    // TODO: Growing pools, mirrors, etc. is currently unsupported.
+    const ignoreMessage = "SPEC Modification ignored since that is not currently supported. ";
+    let reason = resource.status.reason;
 
-    // Changing node implies destroying the pool on the old node and recreating
-    // it on the new node that is destructive action -> unsupported.
-    if (pool.node.name !== resource.spec.node) {
-      log.error(`Moving pool "${name}" between nodes is not supported`);
+    // Pool SPEC modifications are ignored, add a reason to the CRD to make the user aware of this
+    if (!_.isEqual(resource.spec, resource.getSpec())) {
+      log.error(`Ignoring modification to pool "${name}" since that is not currently supported.`);
+
+      if (!reason?.includes(ignoreMessage) || reason === undefined) {
+        await this._updateResourceProps(
+          name,
+          resource.status.state,
+          ignoreMessage + reason,
+        );
+      }
+    } else if (reason?.includes(ignoreMessage)) {
+      await this._updateResourceProps(
+        name,
+        resource.status.state,
+        reason.replace(ignoreMessage, "") || "",
+      );
     }
   }
 
@@ -399,6 +453,7 @@ export class PoolOperator {
       pool.disks,
       pool.capacity,
       pool.used,
+      resource.status.spec || resource.spec
     );
   }
 
@@ -422,6 +477,7 @@ export class PoolOperator {
     disks?: string[],
     capacity?: number,
     used?: number,
+    specInStatus?: PoolSpec,
   ) {
     try {
       await this.watcher.updateStatus(name, (orig: PoolResource) => {
@@ -431,7 +487,8 @@ export class PoolOperator {
           (reason === orig.status.reason || (!reason && !orig.status.reason)) &&
           (capacity === undefined || capacity === orig.status.capacity) &&
           (used === undefined || used === orig.status.used) &&
-          (disks === undefined || _.isEqual(disks, orig.status.disks))
+          (disks === undefined || _.isEqual(disks, orig.status.disks)) &&
+          (specInStatus === undefined || specInStatus === orig.status.spec)
         ) {
           return;
         }
@@ -440,7 +497,9 @@ export class PoolOperator {
         let resource: PoolResource = _.cloneDeep(orig);
         resource.status = {
           state: state,
-          reason: reason || ''
+          reason: reason || '',
+          spec: specInStatus || resource.status.spec,
+          disks: resource.status.disks
         };
         if (disks != null) {
           resource.status.disks = disks;

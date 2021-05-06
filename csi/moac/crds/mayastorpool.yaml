@@ -39,6 +39,17 @@ spec:
               description: Status part updated by the pool controller.
               type: object
               properties:
+                spec:
+                  type: object
+                  properties:
+                    node:
+                      description: Name of the k8s node where the storage pool is located. (set on creation)
+                      type: string
+                    disks:
+                      description: Disk devices (paths or URIs) that should be used for the pool. (set on creation)
+                      type: array
+                      items:
+                        type: string
                 state:
                   description: Pool state.
                   type: string
