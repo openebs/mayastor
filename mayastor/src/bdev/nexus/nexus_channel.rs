@@ -31,6 +31,7 @@ pub(crate) struct NexusChannelInner {
     pub(crate) writers: Vec<Box<dyn BlockDeviceHandle>>,
     pub(crate) readers: Vec<Box<dyn BlockDeviceHandle>>,
     pub(crate) previous: usize,
+    pub(crate) fail_fast: u32,
     device: *mut c_void,
 }
 
@@ -104,7 +105,6 @@ impl NexusChannelInner {
     /// online or offline. We don't know which child has gone, or was added, so
     /// we simply put back all the channels, and reopen the bdevs that are in
     /// the online state.
-
     pub(crate) fn refresh(&mut self) {
         let nexus = unsafe { Nexus::from_raw(self.device) };
         info!(
@@ -186,6 +186,7 @@ impl NexusChannel {
             readers: Vec::new(),
             previous: 0,
             device,
+            fail_fast: 0,
         });
 
         nexus

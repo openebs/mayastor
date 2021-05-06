@@ -35,6 +35,7 @@ pub use env::{
 
 pub use bio::{Bio, IoStatus, IoType};
 pub use handle::BdevHandle;
+pub use io_device::IoDevice;
 pub use nvme::{
     nvme_admin_opc,
     nvme_nvm_opcode,
@@ -56,6 +57,7 @@ mod descriptor;
 mod dma;
 mod env;
 mod handle;
+mod io_device;
 pub mod io_driver;
 pub mod mempool;
 mod nvme;

@@ -532,7 +532,7 @@ impl Nexus {
         blockcnt
     }
 
-    /// lookup a child by its name
+    /// Lookup a child by its device name.
     pub fn child_lookup(&self, name: &str) -> Option<&NexusChild> {
         self.children
             .iter()
@@ -540,6 +540,7 @@ impl Nexus {
             .find(|c| c.get_device().unwrap().device_name() == name)
     }
 
+    // Lookup a child by its URL.
     pub fn get_child_by_name(
         &mut self,
         name: &str,

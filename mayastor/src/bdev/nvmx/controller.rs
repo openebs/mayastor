@@ -15,13 +15,6 @@ use nix::errno::Errno;
 use once_cell::sync::OnceCell;
 
 use spdk_sys::{
-    spdk_for_each_channel,
-    spdk_for_each_channel_continue,
-    spdk_io_channel_iter,
-    spdk_io_channel_iter_get_channel,
-    spdk_io_channel_iter_get_ctx,
-    spdk_io_device_register,
-    spdk_io_device_unregister,
     spdk_nvme_async_event_completion,
     spdk_nvme_cpl,
     spdk_nvme_ctrlr,
@@ -62,6 +55,7 @@ use crate::{
         CoreError,
         DeviceEventListener,
         DeviceEventType,
+        IoDevice,
         OpCompletionCallback,
         OpCompletionCallbackArg,
     },
@@ -95,7 +89,12 @@ impl<'a> NvmeControllerInner<'a> {
         name: String,
         cfg: NonNull<TimeoutConfig>,
     ) -> Self {
-        let io_device = Arc::new(IoDevice::create(ctrlr.as_ptr().cast(), name));
+        let io_device = Arc::new(IoDevice::new::<NvmeIoChannel>(
+            NonNull::new(ctrlr.as_ptr().cast()).unwrap(),
+            &name,
+            Some(NvmeControllerIoChannel::create),
+            Some(NvmeControllerIoChannel::destroy),
+        ));
 
         let adminq_poller = poller::Builder::new()
             .with_name("nvme_poll_adminq")
@@ -349,6 +348,7 @@ impl<'a> NvmeController<'a> {
         inner.io_device.traverse_io_channels(
             NvmeController::_reset_destroy_channels,
             NvmeController::_reset_destroy_channels_done,
+            NvmeIoChannel::inner_from_channel,
             reset_ctx,
         );
         Ok(())
@@ -478,6 +478,7 @@ impl<'a> NvmeController<'a> {
         self.inner.as_ref().unwrap().io_device.traverse_io_channels(
             account_channel_stats::<T>,
             account_channel_stats_done::<T>,
+            NvmeIoChannel::inner_from_channel,
             ctx,
         );
 
@@ -516,6 +517,7 @@ impl<'a> NvmeController<'a> {
         self.inner.as_ref().unwrap().io_device.traverse_io_channels(
             NvmeController::_shutdown_channels,
             NvmeController::_shutdown_channels_done,
+            NvmeIoChannel::inner_from_channel,
             ctx,
         );
 
@@ -625,6 +627,7 @@ impl<'a> NvmeController<'a> {
             io_device.traverse_io_channels(
                 NvmeController::_reset_create_channels,
                 NvmeController::_reset_create_channels_done,
+                NvmeIoChannel::inner_from_channel,
                 reset_ctx,
             );
         }
@@ -1059,112 +1062,6 @@ pub(crate) mod options {
             assert_eq!(opts.0.admin_timeout_ms, 1);
             assert_eq!(opts.0.fabrics_connect_timeout_us, 1);
             assert_eq!(opts.0.transport_retry_count, 1);
-        }
-    }
-}
-
-#[derive(Debug)]
-struct IoDevice(NonNull<c_void>);
-
-/// Wrapper around SPDK I/O device.
-impl IoDevice {
-    /// Register the controller as an I/O device.
-    fn create(devptr: *mut c_void, name: String) -> Self {
-        unsafe {
-            spdk_io_device_register(
-                devptr,
-                Some(NvmeControllerIoChannel::create),
-                Some(NvmeControllerIoChannel::destroy),
-                std::mem::size_of::<NvmeIoChannel>() as u32,
-                name.as_ptr() as *const i8,
-            )
-        }
-
-        debug!("{} I/O device registered at {:p}", name, devptr);
-
-        Self(NonNull::new(devptr).unwrap())
-    }
-
-    /// Iterate over all I/O channels associated with this I/O device.
-    fn traverse_io_channels<T>(
-        &self,
-        channel_cb: impl FnMut(&mut NvmeIoChannelInner, &mut T) -> i32 + 'static,
-        done_cb: impl FnMut(i32, T) + 'static,
-        caller_ctx: T,
-    ) {
-        struct TraverseCtx<N> {
-            channel_cb: Box<
-                dyn FnMut(&mut NvmeIoChannelInner, &mut N) -> i32 + 'static,
-            >,
-            done_cb: Box<dyn FnMut(i32, N) + 'static>,
-            ctx: N,
-        }
-
-        let traverse_ctx = Box::into_raw(Box::new(TraverseCtx {
-            channel_cb: Box::new(channel_cb),
-            done_cb: Box::new(done_cb),
-            ctx: caller_ctx,
-        }));
-        assert!(
-            !traverse_ctx.is_null(),
-            "Failed to allocate context for I/O channels iteration"
-        );
-
-        /// Low-level per-channel visitor to be invoked by SPDK I/O channel
-        /// enumeration logic.
-        extern "C" fn _visit_channel<V>(i: *mut spdk_io_channel_iter) {
-            let traverse_ctx = unsafe {
-                let p = spdk_io_channel_iter_get_ctx(i) as *mut TraverseCtx<V>;
-                &mut *p
-            };
-            let io_channel = unsafe {
-                let ch = spdk_io_channel_iter_get_channel(i);
-                NvmeIoChannel::inner_from_channel(ch)
-            };
-
-            let rc =
-                (traverse_ctx.channel_cb)(io_channel, &mut traverse_ctx.ctx);
-
-            unsafe {
-                spdk_for_each_channel_continue(i, rc);
-            }
-        }
-
-        /// Low-level completion callback for SPDK I/O channel enumeration
-        /// logic.
-        extern "C" fn _visit_channel_done<V>(
-            i: *mut spdk_io_channel_iter,
-            status: i32,
-        ) {
-            // Reconstruct the context box to let all the resources be properly
-            // dropped.
-            let mut traverse_ctx = unsafe {
-                Box::<TraverseCtx<V>>::from_raw(
-                    spdk_io_channel_iter_get_ctx(i) as *mut TraverseCtx<V>
-                )
-            };
-
-            (traverse_ctx.done_cb)(status, traverse_ctx.ctx);
-        }
-
-        // Start I/O channel iteration via SPDK.
-        unsafe {
-            spdk_for_each_channel(
-                self.0.as_ptr(),
-                Some(_visit_channel::<T>),
-                traverse_ctx as *mut c_void,
-                Some(_visit_channel_done::<T>),
-            );
-        }
-    }
-}
-
-impl Drop for IoDevice {
-    fn drop(&mut self) {
-        debug!("unregistering I/O device at {:p}", self.0.as_ptr());
-
-        unsafe {
-            spdk_io_device_unregister(self.0.as_ptr(), None);
         }
     }
 }

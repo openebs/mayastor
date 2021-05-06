@@ -298,7 +298,6 @@ extern "C" fn nvme_async_io_completion(
     ctx: *mut c_void,
     cpl: *const spdk_nvme_cpl,
 ) {
-    debug!("Async NVMe I/O completed !");
     done_cb(ctx, nvme_cpl_succeeded(cpl));
 }
 
