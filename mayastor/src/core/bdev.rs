@@ -120,12 +120,16 @@ impl Share for Bdev {
 
     /// return share URI for nvmf and iscsi (does "share path" not sound
     /// better?)
+    /// this URI includes a UUID as a query parameter which can be used to
+    /// uniquely identify a replica as the replica UUID is currently set to its
+    /// name, which is *NOT* unique and in MOAC's use case, is the volume UUID
     fn share_uri(&self) -> Option<String> {
-        match self.shared() {
+        let uri_no_uuid = match self.shared() {
             Some(Protocol::Nvmf) => nvmf::get_uri(&self.name()),
             Some(Protocol::Iscsi) => iscsi::get_uri(Side::Nexus, &self.name()),
             _ => Some(format!("bdev:///{}", self.name())),
-        }
+        };
+        uri_no_uuid.map(|uri| format!("{}?uuid={}", uri, self.uuid()))
     }
 
     /// return the URI that was used to construct the bdev

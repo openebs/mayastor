@@ -301,7 +301,7 @@ impl Config {
                     replicas: ReplicaIter::new()
                         .filter(|r| r.get_pool_name() == name)
                         .map(|r| Replica {
-                            name: r.get_uuid().to_string(),
+                            name: r.get_name().to_string(),
                             share: r.get_share_type(),
                         })
                         .collect(),

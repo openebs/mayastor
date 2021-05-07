@@ -329,7 +329,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                 match Protocol::try_from(args.share)? {
                     Protocol::Off => {
                         lvol.unshare().await.map(|_| ShareReplicaReply {
-                            uri: format!("bdev:///{}", lvol.name()),
+                            uri: lvol.share_uri().unwrap(),
                         })
                     }
 
