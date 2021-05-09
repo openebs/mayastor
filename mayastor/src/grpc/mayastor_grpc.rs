@@ -47,8 +47,18 @@ impl From<LvsError> for Status {
                 ..
             } => Status::invalid_argument(e.to_string()),
             LvsError::Create {
+                source, ..
+            } => {
+                if source == Errno::ENOSPC {
+                    Status::resource_exhausted(e.to_string())
+                } else {
+                    Status::invalid_argument(e.to_string())
+                }
+            }
+            LvsError::ReplicaShareProtocol {
                 ..
             } => Status::invalid_argument(e.to_string()),
+
             LvsError::Destroy {
                 source, ..
             } => source.into(),
@@ -171,27 +181,29 @@ impl mayastor_server::Mayastor for MayastorSvc {
         &self,
         request: Request<CreateReplicaRequest>,
     ) -> GrpcResult<Replica> {
-        let args = request.into_inner();
-        if Lvs::lookup(&args.pool).is_none() {
-            return Err(Status::not_found(args.pool));
-        }
-
-        if let Some(b) = Bdev::lookup_by_name(&args.uuid) {
-            let lvol = Lvol::try_from(b)?;
-            return Ok(Response::new(Replica::from(lvol)));
-        }
-
-        if !matches!(
-            Protocol::try_from(args.share)?,
-            Protocol::Off | Protocol::Nvmf
-        ) {
-            return Err(Status::invalid_argument(format!(
-                "invalid protocol {}",
-                args.share
-            )));
-        }
-
         let rx = rpc_submit(async move {
+            let args = request.into_inner();
+            if Lvs::lookup(&args.pool).is_none() {
+                return Err(LvsError::Invalid {
+                    source: Errno::ENOSYS,
+                    msg: format!("Pool {} not found", args.pool),
+                });
+            }
+
+            if let Some(b) = Bdev::lookup_by_name(&args.uuid) {
+                let lvol = Lvol::try_from(b)?;
+                return Ok(Replica::from(lvol));
+            }
+
+            if !matches!(
+                Protocol::try_from(args.share)?,
+                Protocol::Off | Protocol::Nvmf
+            ) {
+                return Err(LvsError::ReplicaShareProtocol {
+                    value: args.share,
+                });
+            }
+
             let p = Lvs::lookup(&args.pool).unwrap();
             match p.create_lvol(&args.uuid, args.size, false).await {
                 Ok(lvol)

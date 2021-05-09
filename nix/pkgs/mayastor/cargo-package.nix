@@ -73,7 +73,7 @@ let
       llvmPackages_11.libclang
       protobuf
       libaio
-      libiscsi.lib
+      libiscsi
       libudev
       liburing
       numactl

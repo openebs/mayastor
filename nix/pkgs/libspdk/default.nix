@@ -59,7 +59,7 @@ let
       binutils
       libtool
       libaio
-      libiscsi.dev
+      libiscsi
       liburing
       libuuid
       nasm
