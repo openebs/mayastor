@@ -196,7 +196,7 @@ impl Binary {
 }
 
 const RUST_LOG_DEFAULT: &str =
-    "debug,actix_web=debug,actix=debug,h2=info,hyper=info,tower_buffer=info,bollard=info,rustls=info";
+    "debug,actix_web=debug,actix=debug,h2=info,hyper=info,tower=info,bollard=info,rustls=info";
 
 /// Specs of the allowed containers include only the binary path
 /// (relative to src) and the required arguments
