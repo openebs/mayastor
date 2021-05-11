@@ -11,6 +11,7 @@
 /pool_operator.js
 /registry.js
 /replica.js
+/rest_api.js
 /volume.js
 /volumes.js
 /volume_operator.js

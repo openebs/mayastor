@@ -12,6 +12,19 @@ import { Workq } from './workq';
 
 const log = require('./logger').Logger('node');
 
+// Type returned by stats grpc call
+export type ReplicaStat = {
+  timestamp: number,
+  // tags
+  uuid: string,
+  pool: string,
+  // counters
+  num_read_ops: number,
+  num_write_ops: number,
+  bytes_read: number,
+  bytes_written: number,
+}
+
 // Type used in workq for calling grpc
 type GrpcCallArgs = {
   method: string;
@@ -389,10 +402,24 @@ export class Node extends events.EventEmitter {
 
   // Get IO statistics for all replicas on the node.
   //
-  // @returns Array of stats where each object is for a different replica and keys are stats names and values stats values.
-  async getStats(): Promise<any[]> {
-    log.debug(`Retrieving volume stats from node "${this}"`);
+  // @returns Array of stats - one entry for each replica on the node.
+  async getStats(): Promise<ReplicaStat[]> {
+    log.debug(`Retrieving replica stats from node "${this}"`);
     const reply = await this.call('statReplicas', {});
-    return reply.replicas;
+    const timestamp = new Date().toISOString();
+    return reply.replicas.map((r: any) => {
+      return {
+        timestamp,
+        // tags
+        uuid: r.uuid,
+        node: this.name,
+        pool: r.pool,
+        // counters
+        num_read_ops: r.stats.numReadOps,
+        num_write_ops: r.stats.numWriteOps,
+        bytes_read: r.stats.bytesRead,
+        bytes_written: r.stats.bytesWritten
+      };
+    });
   }
 }

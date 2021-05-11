@@ -14,8 +14,8 @@
   },
   "scripts": {
     "prepare": "./bundle_protos.sh",
-    "clean": "rm -f csi.js grpc_client.js index.js node.js registry.js replica.js pool.js nexus.js watcher.js node_operator.js pool_operator.js volume.js volumes.js volume_operator.js workq.js *.js.map",
-    "purge": "rm -rf node_modules proto csi.js grpc_client.js index.js node.js registry.js replica.js pool.js nexus.js watcher.js node_operator.js pool_operator.js volume.js volumes.js volume_operator.js workq.js *.js.map",
+    "clean": "rm -f csi.js grpc_client.js index.js node.js registry.js replica.js rest_api.js pool.js nexus.js watcher.js node_operator.js pool_operator.js volume.js volumes.js volume_operator.js workq.js *.js.map",
+    "purge": "rm -rf node_modules proto csi.js grpc_client.js index.js node.js registry.js replica.js rest_api.js pool.js nexus.js watcher.js node_operator.js pool_operator.js volume.js volumes.js volume_operator.js workq.js *.js.map",
     "compile": "tsc --pretty",
     "start": "./moac",
     "test": "mocha test/index.js",
@@ -25,6 +25,7 @@
   "license": "ISC",
   "dependencies": {
     "@grpc/proto-loader": "^0.5.5",
+    "@types/express": "^4.17.11",
     "@types/lodash": "^4.14.161",
     "client-node-fixed-watcher": "^0.13.6",
     "express": "^4.17.1",

@@ -69,6 +69,7 @@
     "node_operator.ts",
     "replica.ts",
     "registry.ts",
+    "rest_api.ts",
     "pool.ts",
     "pool_operator.ts",
     "volume.ts",
