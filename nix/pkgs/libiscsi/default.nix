@@ -6,7 +6,6 @@ stdenv.mkDerivation rec {
 
   src = sources.libiscsi;
 
-  outputs = [ "out" "bin" "lib" "dev" ];
   nativeBuildInputs = [ autoreconfHook ];
   meta = {
     description = "User space iscsi library";

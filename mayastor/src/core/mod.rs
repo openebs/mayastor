@@ -43,6 +43,7 @@ pub use nvme::{
     NvmeStatus,
 };
 pub use reactor::{Reactor, ReactorState, Reactors, REACTOR_LIST};
+pub use runtime::spawn;
 pub use share::{Protocol, Share};
 pub use thread::Mthread;
 
@@ -60,6 +61,7 @@ pub mod mempool;
 mod nvme;
 pub mod poller;
 mod reactor;
+pub mod runtime;
 mod share;
 pub(crate) mod thread;
 pub mod uuid;

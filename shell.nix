@@ -37,7 +37,7 @@ mkShell {
     kubernetes-helm
     libaio
     libiscsi
-    libiscsi.bin
+    libiscsi
     libudev
     liburing
     llvmPackages.libclang

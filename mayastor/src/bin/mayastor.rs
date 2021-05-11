@@ -3,7 +3,7 @@ extern crate tracing;
 use futures::future::FutureExt;
 use mayastor::{
     bdev::util::uring,
-    core::{MayastorCliArgs, MayastorEnvironment, Mthread, Reactors},
+    core::{runtime, MayastorCliArgs, MayastorEnvironment, Mthread, Reactors},
     grpc,
     logger,
     subsys,
@@ -11,7 +11,7 @@ use mayastor::{
 use std::path::Path;
 use structopt::StructOpt;
 mayastor::CPS_INIT!();
-use mayastor::subsys::{message_bus_init, Registration};
+use mayastor::subsys::Registration;
 
 fn start_tokio_runtime(args: &MayastorCliArgs) {
     let grpc_address = grpc::endpoint(args.grpc_endpoint.clone());
@@ -24,29 +24,24 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
     let endpoint = args.mbus_endpoint.clone();
 
     Mthread::spawn_unaffinitized(move || {
-        let rt = tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(4)
-            .max_blocking_threads(4)
-            .on_thread_start(Mthread::unaffinitize)
-            .enable_all()
-            .build()
-            .unwrap();
-        let _r = rt.enter();
-        if let Some(endpoint) = endpoint {
-            debug!("mayastor mbus subsystem init");
-            message_bus_init();
-            mbus_api::message_bus_init_tokio(endpoint);
-            Registration::init(&node_name, &grpc_address.to_string());
-        }
+        runtime::block_on(async move {
+            let mut futures = Vec::new();
+            if let Some(endpoint) = endpoint {
+                debug!("mayastor mbus subsystem init");
+                mbus_api::message_bus_init_tokio(endpoint);
+                Registration::init(&node_name, &grpc_address.to_string());
+                futures.push(subsys::Registration::run().boxed());
+            }
 
-        let futures = vec![
-            subsys::Registration::run().boxed_local(),
-            grpc::MayastorGrpcServer::run(grpc_address, rpc_address)
-                .boxed_local(),
-        ];
+            futures.push(
+                grpc::MayastorGrpcServer::run(grpc_address, rpc_address)
+                    .boxed(),
+            );
 
-        rt.block_on(futures::future::try_join_all(futures))
-            .expect_err("reactor exit in abnormal state");
+            futures::future::try_join_all(futures)
+                .await
+                .expect_err("runtime exited in the abnormal state");
+        });
     });
 }
 

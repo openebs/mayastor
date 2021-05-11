@@ -31,7 +31,7 @@ pub enum Error {
 /// analogous to a container to which you can submit work and poll it to drive
 /// the submitted work to completion.
 pub struct Mthread(NonNull<spdk_thread>);
-
+unsafe impl Send for Mthread {}
 impl From<*mut spdk_thread> for Mthread {
     fn from(t: *mut spdk_thread) -> Self {
         let t = NonNull::new(t).expect("thread may not be NULL");
