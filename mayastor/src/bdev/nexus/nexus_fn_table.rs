@@ -124,7 +124,8 @@ impl NexusFnTable {
         nexus.destruct();
         let instances = instances();
         // removing the nexus from the list should cause a drop
-        instances.retain(|x| x.name != nexus.name);
+        let nexus_name = nexus.name.clone();
+        instances.retain(|x| x.name != nexus_name);
 
         0
     }
