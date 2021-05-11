@@ -268,6 +268,21 @@ module.exports = function () {
       });
     });
 
+    it('should not fail to unpublish the nexus if it does not exist', async () => {
+      callStub.rejects(new GrpcError(GrpcCode.NOT_FOUND, 'test not found'));
+
+      await nexus.unpublish();
+
+      sinon.assert.calledOnce(callStub);
+      sinon.assert.calledWith(callStub, 'unpublishNexus', { uuid: UUID });
+      expect(nexus.deviceUri).to.equal('');
+      sinon.assert.calledOnce(eventSpy);
+      sinon.assert.calledWith(eventSpy, 'nexus', {
+        eventType: 'mod',
+        object: nexus
+      });
+    });
+
     it('should fake the unpublish if the node is offline', async () => {
       callStub.resolves({});
       isSyncedStub.returns(false);
@@ -295,8 +310,10 @@ module.exports = function () {
         rebuildProgress: 0
       });
 
-      await nexus.addReplica(replica);
+      const res = await nexus.addReplica(replica);
 
+      expect(res.uri).to.equal(uri);
+      expect(res.state).to.equal('CHILD_DEGRADED');
       sinon.assert.calledOnce(callStub);
       sinon.assert.calledWith(callStub, 'addChildNexus', {
         uuid: UUID,
