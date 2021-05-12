@@ -14,6 +14,7 @@
 , libexecinfo
 , nasm
 , cmake
+, fio
 , ninja
 , jansson
 , meson
@@ -28,13 +29,14 @@
 , buildPlatform
 , buildPackages
 , llvmPackages_11
+, pkgs
 , gcc
 , zlib
 }:
 let
   # Derivation attributes for production version of libspdk
   drvAttrs = rec {
-    version = "21.01";
+    version = "21.01-3f85fb5";
 
     src = fetchFromGitHub {
       owner = "openebs";
@@ -57,6 +59,7 @@ let
 
     buildInputs = [
       binutils
+      fio
       libtool
       libaio
       libiscsi
@@ -92,9 +95,9 @@ let
       "--without-isal"
       "--with-iscsi-initiator"
       "--with-uring"
-      "--disable-examples"
       "--disable-unit-tests"
       "--disable-tests"
+      "--with-fio=${pkgs.fio}/include"
     ];
 
     enableParallelBuilding = true;
@@ -130,6 +133,7 @@ let
     installPhase = ''
       mkdir -p $out/lib
       mkdir $out/bin
+      mkdir $out/fio
 
       pushd include
       find . -type f -name "*.h" -exec install -D "{}" $out/include/{} \;
@@ -149,6 +153,8 @@ let
 
       echo $(find $out -type f -name '*.a*' -delete)
       find . -executable -type f -name 'bdevperf' -exec install -D "{}" $out/bin \;
+
+      cp build/fio/spdk_* $out/fio
     '';
   };
 in
