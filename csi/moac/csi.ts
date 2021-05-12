@@ -1,11 +1,10 @@
 // Implementation of K8S CSI controller interface which is mostly
 // about volume creation and destruction and few other methods.
 
-'use strict';
-
 import assert from 'assert';
 import * as _ from 'lodash';
 import * as path from 'path';
+import { grpcCode, GrpcError } from './grpc_client';
 import { Volume } from './volume';
 import { Volumes } from './volumes';
 
@@ -13,7 +12,6 @@ const fs = require('fs').promises;
 const protoLoader = require('@grpc/proto-loader');
 const grpc = require('grpc-uds');
 const log = require('./logger').Logger('csi');
-const { GrpcError } = require('./grpc_client');
 
 const PLUGIN_NAME = 'io.openebs.csi-mayastor';
 const PROTO_PATH = path.join(__dirname, '/proto/csi.proto');
@@ -75,7 +73,7 @@ function parseMayastorNodeId (nodeId: string) {
     !parts[2]
   ) {
     throw new GrpcError(
-      grpc.status.INVALID_ARGUMENT,
+      grpcCode.INVALID_ARGUMENT,
       'Invalid mayastor node ID: ' + nodeId
     );
   }
@@ -89,7 +87,7 @@ function parseMayastorNodeId (nodeId: string) {
 function checkCapabilities (caps: any[]) {
   if (!caps) {
     throw new GrpcError(
-      grpc.status.INVALID_ARGUMENT,
+      grpcCode.INVALID_ARGUMENT,
       'Missing volume capabilities'
     );
   }
@@ -99,7 +97,7 @@ function checkCapabilities (caps: any[]) {
     // TODO: Check that FS type is supported and mount options?
     if (cap.accessMode.mode !== 'SINGLE_NODE_WRITER') {
       throw new GrpcError(
-        grpc.status.INVALID_ARGUMENT,
+        grpcCode.INVALID_ARGUMENT,
         `Access mode ${cap.accessMode.mode} not supported`
       );
     }
@@ -224,7 +222,7 @@ export class CsiServer {
         if (!this.ready) {
           return cb(
             new GrpcError(
-              grpc.status.UNAVAILABLE,
+              grpcCode.UNAVAILABLE,
               'Not ready for serving requests'
             )
           );
@@ -234,7 +232,7 @@ export class CsiServer {
           if (err) {
             if (!(err instanceof GrpcError)) {
               err = new GrpcError(
-                grpc.status.UNKNOWN,
+                grpcCode.UNKNOWN,
                 `Unexpected error in ${name} method: ` + err.stack
               );
             }
@@ -257,7 +255,7 @@ export class CsiServer {
       controllerMethods[name] = function notImplemented (_, cb) {
         const msg = `CSI method ${name} not implemented`;
         log.error(msg);
-        cb(new GrpcError(grpc.status.UNIMPLEMENTED, msg));
+        cb(new GrpcError(grpcCode.UNIMPLEMENTED, msg));
       };
     });
     this.server.addService(csi.Controller.service, controllerMethods);
@@ -397,7 +395,7 @@ export class CsiServer {
     if (args.volumeContentSource) {
       return cb(
         new GrpcError(
-          grpc.status.INVALID_ARGUMENT,
+          grpcCode.INVALID_ARGUMENT,
           'Source for create volume is not supported'
         )
       );
@@ -408,7 +406,7 @@ export class CsiServer {
     if (!m) {
       return cb(
         new GrpcError(
-          grpc.status.INVALID_ARGUMENT,
+          grpcCode.INVALID_ARGUMENT,
           `Expected the volume name in pvc-{uuid} format: ${args.name}`
         )
       );
@@ -424,20 +422,20 @@ export class CsiServer {
     const protocol = args.parameters && args.parameters.protocol;
     if (!protocol) {
       return cb(
-        new GrpcError(grpc.status.INVALID_ARGUMENT, 'missing storage protocol')
+        new GrpcError(grpcCode.INVALID_ARGUMENT, 'missing storage protocol')
       );
     }
     const ioTimeout = args.parameters.ioTimeout;
     if (ioTimeout !== undefined) {
       if (protocol !== 'nvmf') {
         return cb(new GrpcError(
-          grpc.status.INVALID_ARGUMENT,
+          grpcCode.INVALID_ARGUMENT,
           'ioTimeout is valid only for nvmf protocol'
         ));
       }
       if (Object.is(parseInt(ioTimeout), NaN)) {
         return cb(new GrpcError(
-          grpc.status.INVALID_ARGUMENT,
+          grpcCode.INVALID_ARGUMENT,
           'ioTimeout must be an integer'
         ));
       }
@@ -470,7 +468,7 @@ export class CsiServer {
           if (key !== 'kubernetes.io/hostname') {
             return cb(
               new GrpcError(
-                grpc.status.INVALID_ARGUMENT,
+                grpcCode.INVALID_ARGUMENT,
                 'Volume topology other than hostname not supported'
               )
             );
@@ -499,7 +497,7 @@ export class CsiServer {
       count = parseInt(count);
       if (isNaN(count) || count <= 0) {
         return cb(
-          new GrpcError(grpc.status.INVALID_ARGUMENT, 'Invalid replica count')
+          new GrpcError(grpcCode.INVALID_ARGUMENT, 'Invalid replica count')
         );
       }
     } else {
@@ -575,7 +573,7 @@ export class CsiServer {
       if (!ctx) {
         return cb(
           new GrpcError(
-            grpc.status.INVALID_ARGUMENT,
+            grpcCode.INVALID_ARGUMENT,
             'Paging context for list volumes is gone'
           )
         );
@@ -624,7 +622,7 @@ export class CsiServer {
     if (!volume) {
       return cb(
         new GrpcError(
-          grpc.status.NOT_FOUND,
+          grpcCode.NOT_FOUND,
           `Volume "${args.volumeId}" does not exist`
         )
       );
@@ -643,14 +641,14 @@ export class CsiServer {
     if (args.readonly) {
       return cb(
         new GrpcError(
-          grpc.status.INVALID_ARGUMENT,
+          grpcCode.INVALID_ARGUMENT,
           'readonly volumes are unsupported'
         )
       );
     }
     if (!args.volumeCapability) {
       return cb(
-        new GrpcError(grpc.status.INVALID_ARGUMENT, 'missing volume capability')
+        new GrpcError(grpcCode.INVALID_ARGUMENT, 'missing volume capability')
       );
     }
     try {
@@ -668,11 +666,10 @@ export class CsiServer {
     try {
       publishContext.uri = await volume.publish(nodeId);
     } catch (err) {
-      if (err.code === grpc.status.ALREADY_EXISTS) {
+      if (err.code === grpcCode.ALREADY_EXISTS) {
         log.debug(`Volume "${args.volumeId}" already published on this node`);
         this._endRequest(request, null, { publishContext });
       } else {
-        cb(err);
         this._endRequest(request, err);
       }
       return;
@@ -725,7 +722,7 @@ export class CsiServer {
     if (!this.volumes.get(args.volumeId)) {
       return cb(
         new GrpcError(
-          grpc.status.NOT_FOUND,
+          grpcCode.NOT_FOUND,
           `Volume "${args.volumeId}" does not exist`
         )
       );

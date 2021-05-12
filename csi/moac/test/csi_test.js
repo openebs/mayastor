@@ -10,7 +10,7 @@ const sinon = require('sinon');
 const sleep = require('sleep-promise');
 const EventEmitter = require('events');
 const { CsiServer, csi } = require('../csi');
-const { GrpcError, GrpcCode } = require('../grpc_client');
+const { GrpcError, grpcCode } = require('../grpc_client');
 const Registry = require('../registry');
 const { Volume } = require('../volume');
 const { Volumes } = require('../volumes');
@@ -165,14 +165,14 @@ module.exports = function () {
       it('should not get controller capabilities if not ready', async () => {
         server = await mockedServer();
         server.undoReady();
-        await shouldFailWith(GrpcCode.UNAVAILABLE, () =>
+        await shouldFailWith(grpcCode.UNAVAILABLE, () =>
           client.controllerGetCapabilities().sendMessage({})
         );
       });
 
       it('should return unimplemented error for CreateSnapshot', async () => {
         server = await mockedServer();
-        await shouldFailWith(GrpcCode.UNIMPLEMENTED, () =>
+        await shouldFailWith(grpcCode.UNIMPLEMENTED, () =>
           client.createSnapshot().sendMessage({
             sourceVolumeId: 'd01b8bfb-0116-47b0-a03a-447fcbdc0e99',
             name: 'blabla2'
@@ -182,21 +182,21 @@ module.exports = function () {
 
       it('should return unimplemented error for DeleteSnapshot', async () => {
         server = await mockedServer();
-        await shouldFailWith(GrpcCode.UNIMPLEMENTED, () =>
+        await shouldFailWith(grpcCode.UNIMPLEMENTED, () =>
           client.deleteSnapshot().sendMessage({ snapshotId: 'blabla' })
         );
       });
 
       it('should return unimplemented error for ListSnapshots', async () => {
         server = await mockedServer();
-        await shouldFailWith(GrpcCode.UNIMPLEMENTED, () =>
+        await shouldFailWith(grpcCode.UNIMPLEMENTED, () =>
           client.listSnapshots().sendMessage({})
         );
       });
 
       it('should return unimplemented error for ControllerExpandVolume', async () => {
         server = await mockedServer();
-        await shouldFailWith(GrpcCode.UNIMPLEMENTED, () =>
+        await shouldFailWith(grpcCode.UNIMPLEMENTED, () =>
           client.controllerExpandVolume().sendMessage({
             volumeId: UUID,
             capacityRange: {
@@ -289,7 +289,7 @@ module.exports = function () {
 
       it('should fail if topology requirement other than hostname', async () => {
         createVolumeStub.resolves(returnedVolume(defaultParams));
-        await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
+        await shouldFailWith(grpcCode.INVALID_ARGUMENT, () =>
           client.createVolume().sendMessage({
             name: 'pvc-' + UUID,
             capacityRange: {
@@ -313,7 +313,7 @@ module.exports = function () {
 
       it('should fail if volume source', async () => {
         createVolumeStub.resolves(returnedVolume(defaultParams));
-        await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
+        await shouldFailWith(grpcCode.INVALID_ARGUMENT, () =>
           client.createVolume().sendMessage({
             name: 'pvc-' + UUID,
             volumeContentSource: { volume: { volumeId: UUID } },
@@ -334,7 +334,7 @@ module.exports = function () {
 
       it('should fail if capability other than SINGLE_NODE_WRITER', async () => {
         createVolumeStub.resolves(returnedVolume(defaultParams));
-        await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
+        await shouldFailWith(grpcCode.INVALID_ARGUMENT, () =>
           client.createVolume().sendMessage({
             name: 'pvc-' + UUID,
             capacityRange: {
@@ -354,9 +354,9 @@ module.exports = function () {
 
       it('should fail if grpc exception is thrown', async () => {
         createVolumeStub.rejects(
-          new GrpcError(GrpcCode.INTERNAL, 'Something went wrong')
+          new GrpcError(grpcCode.INTERNAL, 'Something went wrong')
         );
-        await shouldFailWith(GrpcCode.INTERNAL, () =>
+        await shouldFailWith(grpcCode.INTERNAL, () =>
           client.createVolume().sendMessage({
             name: 'pvc-' + UUID,
             capacityRange: {
@@ -376,7 +376,7 @@ module.exports = function () {
 
       it('should fail if volume name is not in expected form', async () => {
         createVolumeStub.resolves(returnedVolume(defaultParams));
-        await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
+        await shouldFailWith(grpcCode.INVALID_ARGUMENT, () =>
           client.createVolume().sendMessage({
             name: UUID, // missing pvc- prefix
             capacityRange: {
@@ -397,7 +397,7 @@ module.exports = function () {
       it('should fail if ioTimeout is used with protocol other than nvmf', async () => {
         const parameters = { protocol: 'iscsi', ioTimeout: '30' };
         createVolumeStub.resolves(returnedVolume(parameters));
-        await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
+        await shouldFailWith(grpcCode.INVALID_ARGUMENT, () =>
           client.createVolume().sendMessage({
             name: 'pvc-' + UUID,
             capacityRange: {
@@ -421,7 +421,7 @@ module.exports = function () {
       it('should fail if ioTimeout has invalid value', async () => {
         const parameters = { protocol: 'nvmf', ioTimeout: 'bla' };
         createVolumeStub.resolves(returnedVolume(parameters));
-        await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
+        await shouldFailWith(grpcCode.INVALID_ARGUMENT, () =>
           client.createVolume().sendMessage({
             name: 'pvc-' + UUID,
             capacityRange: {
@@ -445,7 +445,7 @@ module.exports = function () {
       it('should fail if share protocol is not specified', async () => {
         const params = { ioTimeout: '30', local: 'On' };
         createVolumeStub.resolves(returnedVolume(params));
-        await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
+        await shouldFailWith(grpcCode.INVALID_ARGUMENT, () =>
           client.createVolume().sendMessage({
             name: 'pvc-' + UUID,
             capacityRange: {
@@ -566,7 +566,7 @@ module.exports = function () {
 
       it('should fail if number of replicas is not a number', async () => {
         createVolumeStub.resolves(returnedVolume(defaultParams));
-        await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
+        await shouldFailWith(grpcCode.INVALID_ARGUMENT, () =>
           client.createVolume().sendMessage({
             name: 'pvc-' + UUID,
             capacityRange: {
@@ -654,10 +654,10 @@ module.exports = function () {
 
       it('should fail if backend grpc call fails', async () => {
         destroyVolumeStub.rejects(
-          new GrpcError(GrpcCode.INTERNAL, 'Something went wrong')
+          new GrpcError(grpcCode.INTERNAL, 'Something went wrong')
         );
 
-        await shouldFailWith(GrpcCode.INTERNAL, () =>
+        await shouldFailWith(grpcCode.INTERNAL, () =>
           client.deleteVolume().sendMessage({ volumeId: UUID })
         );
 
@@ -758,7 +758,7 @@ module.exports = function () {
       });
 
       it('should fail if starting token is unknown', async () => {
-        await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
+        await shouldFailWith(grpcCode.INVALID_ARGUMENT, () =>
           client.listVolumes().sendMessage({ startingToken: 'asdfquwer' })
         );
       });
@@ -856,7 +856,7 @@ module.exports = function () {
       it('should not publish volume if it does not exist', async () => {
         getVolumesStub.returns();
 
-        await shouldFailWith(GrpcCode.NOT_FOUND, () =>
+        await shouldFailWith(grpcCode.NOT_FOUND, () =>
           client.controllerPublishVolume().sendMessage({
             volumeId: UUID,
             nodeId: 'mayastor://node',
@@ -883,7 +883,7 @@ module.exports = function () {
         getNodeNameStub.returns('node');
         getVolumesStub.returns(volume);
 
-        await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
+        await shouldFailWith(grpcCode.INVALID_ARGUMENT, () =>
           client.controllerPublishVolume().sendMessage({
             volumeId: UUID,
             nodeId: 'mayastor://node',
@@ -908,7 +908,7 @@ module.exports = function () {
         getNodeNameStub.returns('node');
         getVolumesStub.returns(volume);
 
-        await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
+        await shouldFailWith(grpcCode.INVALID_ARGUMENT, () =>
           client.controllerPublishVolume().sendMessage({
             volumeId: UUID,
             nodeId: 'mayastor://node',
@@ -933,7 +933,7 @@ module.exports = function () {
         getNodeNameStub.returns('node');
         getVolumesStub.returns(volume);
 
-        await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
+        await shouldFailWith(grpcCode.INVALID_ARGUMENT, () =>
           client.controllerPublishVolume().sendMessage({
             volumeId: UUID,
             nodeId: 'mayastor2://node/10.244.2.15:10124',
@@ -988,7 +988,7 @@ module.exports = function () {
         getNodeNameStub.returns('node');
         getVolumesStub.returns(volume);
 
-        await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
+        await shouldFailWith(grpcCode.INVALID_ARGUMENT, () =>
           client.controllerUnpublishVolume().sendMessage({
             volumeId: UUID,
             nodeId: 'mayastor2://node/10.244.2.15:10124'
@@ -1122,7 +1122,7 @@ module.exports = function () {
 
       it('should return error if volume does not exist', async () => {
         getVolumesStub.returns(null);
-        await shouldFailWith(GrpcCode.NOT_FOUND, () =>
+        await shouldFailWith(grpcCode.NOT_FOUND, () =>
           client.validateVolumeCapabilities().sendMessage({
             volumeId: UUID,
             volumeCapabilities: [

@@ -16,7 +16,7 @@ const sinon = require('sinon');
 const sleep = require('sleep-promise');
 const { KubeConfig } = require('client-node-fixed-watcher');
 const Registry = require('../registry');
-const { GrpcError, GrpcCode } = require('../grpc_client');
+const { GrpcError, grpcCode } = require('../grpc_client');
 const { PoolOperator, PoolResource } = require('../pool_operator');
 const { Pool } = require('../pool');
 const { Replica } = require('../replica');
@@ -430,7 +430,7 @@ module.exports = function () {
         const node = new Node('node');
         const createPoolStub = sinon.stub(node, 'createPool');
         createPoolStub.rejects(
-          new GrpcError(GrpcCode.INTERNAL, 'create failed')
+          new GrpcError(grpcCode.INTERNAL, 'create failed')
         );
         oper = createPoolOperator([node]);
         const poolResource = createPoolResource('pool', 'node', ['/dev/sdb']);
@@ -471,7 +471,7 @@ module.exports = function () {
         const node = new Node('node');
         const createPoolStub = sinon.stub(node, 'createPool');
         createPoolStub.rejects(
-          new GrpcError(GrpcCode.INTERNAL, 'create failed')
+          new GrpcError(grpcCode.INTERNAL, 'create failed')
         );
         oper = createPoolOperator([node]);
         const poolResource = createPoolResource('pool', 'node', ['/dev/sdb']);
@@ -743,7 +743,7 @@ module.exports = function () {
           used: 10
         });
         const destroyStub = sinon.stub(pool, 'destroy');
-        destroyStub.rejects(new GrpcError(GrpcCode.INTERNAL, 'destroy failed'));
+        destroyStub.rejects(new GrpcError(grpcCode.INTERNAL, 'destroy failed'));
         const node = new Node('node', {}, [pool]);
         oper = createPoolOperator([node]);
         const poolResource = createPoolResource(
@@ -1173,12 +1173,12 @@ module.exports = function () {
       const node = new Node('node');
       const createPoolStub = sinon.stub(node, 'createPool');
       createPoolStub.rejects(
-        new GrpcError(GrpcCode.INTERNAL, 'create failed')
+        new GrpcError(grpcCode.INTERNAL, 'create failed')
       );
       const nodeNew = new Node('node_new');
       const createPoolStubNew = sinon.stub(nodeNew, 'createPool');
       createPoolStubNew.rejects(
-        new GrpcError(GrpcCode.INTERNAL, 'create failed')
+        new GrpcError(grpcCode.INTERNAL, 'create failed')
       );
 
       oper = createPoolOperator([node]);
@@ -1216,7 +1216,7 @@ module.exports = function () {
       const node = new Node('node');
       const createPoolStub = sinon.stub(node, 'createPool');
       createPoolStub.rejects(
-        new GrpcError(GrpcCode.INTERNAL, 'create failed')
+        new GrpcError(grpcCode.INTERNAL, 'create failed')
       );
 
       oper = createPoolOperator([node]);

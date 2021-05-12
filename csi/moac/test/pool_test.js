@@ -9,7 +9,7 @@ const { Node } = require('../node');
 const { Pool } = require('../pool');
 const { Replica } = require('../replica');
 const { shouldFailWith } = require('./utils');
-const { GrpcCode, GrpcError } = require('../grpc_client');
+const { grpcCode, GrpcError } = require('../grpc_client');
 
 module.exports = function () {
   const props = {
@@ -273,11 +273,11 @@ module.exports = function () {
   it('should throw internal error if createReplica grpc fails', async () => {
     const node = new Node('node');
     const stub = sinon.stub(node, 'call');
-    stub.rejects(new GrpcError(GrpcCode.INTERNAL, 'Test failure'));
+    stub.rejects(new GrpcError(grpcCode.INTERNAL, 'Test failure'));
     const pool = new Pool(props);
     node._registerPool(pool);
 
-    await shouldFailWith(GrpcCode.INTERNAL, async () => {
+    await shouldFailWith(grpcCode.INTERNAL, async () => {
       await pool.createReplica('uuid', 100);
     });
 

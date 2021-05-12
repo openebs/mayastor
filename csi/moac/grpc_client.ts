@@ -1,14 +1,14 @@
 // gRPC client related utilities
 
-'use strict';
+import assert from 'assert';
+import * as path from 'path';
 
-const path = require('path');
 const grpc = require('grpc-uds');
 const grpcPromise = require('grpc-promise');
 const protoLoader = require('@grpc/proto-loader');
 const log = require('./logger').Logger('grpc');
 
-const MAYASTOR_PROTO_PATH = path.join(__dirname, '/proto/mayastor.proto');
+const MAYASTOR_PROTO_PATH: string = path.join(__dirname, '/proto/mayastor.proto');
 
 // Load mayastor proto file
 const packageDefinition = protoLoader.loadSync(MAYASTOR_PROTO_PATH, {
@@ -20,7 +20,8 @@ const packageDefinition = protoLoader.loadSync(MAYASTOR_PROTO_PATH, {
   defaults: true,
   oneofs: true
 });
-const mayastor = grpc.loadPackageDefinition(packageDefinition).mayastor;
+export const mayastor = grpc.loadPackageDefinition(packageDefinition).mayastor;
+export const grpcCode: Record<string, number> = grpc.status;
 
 // Grpc error object.
 //
@@ -43,12 +44,11 @@ const mayastor = grpc.loadPackageDefinition(packageDefinition).mayastor;
 //   DATA_LOSS: 15,
 //   UNAUTHENTICATED: 16
 //
-class GrpcError extends Error {
-  constructor (code, msg) {
-    if (msg === undefined) {
-      msg = code;
-      code = grpc.status.UNKNOWN;
-    }
+export class GrpcError extends Error {
+  code: number;
+
+  constructor (code: number, msg: string) {
+    assert(Object.values(grpcCode).indexOf(code) >= 0);
     super(msg);
     this.code = code;
   }
@@ -56,11 +56,13 @@ class GrpcError extends Error {
 
 // Implementation of gRPC client encapsulating common code for calling a grpc
 // method on a storage node (the node running mayastor).
-class GrpcClient {
+export class GrpcClient {
+  handle: any;
+
   // Create promise-friendly grpc client handle.
   //
-  // @param {string} endpoint   Host and port that mayastor server listens on.
-  constructor (endpoint) {
+  // @param endpoint   Host and port that mayastor server listens on.
+  constructor (endpoint: string) {
     const handle = new mayastor.Mayastor(
       endpoint,
       grpc.credentials.createInsecure()
@@ -71,10 +73,10 @@ class GrpcClient {
 
   // Call a grpc method with arguments.
   //
-  // @param {string} method   Name of the grpc method.
-  // @param {object} args     Arguments of the grpc method.
-  // @returns {*} Return value of the grpc method.
-  async call (method, args) {
+  // @param method   Name of the grpc method.
+  // @param args     Arguments of the grpc method.
+  // @returns Return value of the grpc method.
+  async call (method: string, args: any) {
     log.trace(
       `Calling grpc method ${method} with arguments: ${JSON.stringify(args)}`
     );
@@ -88,11 +90,3 @@ class GrpcClient {
     this.handle.close();
   }
 }
-
-module.exports = {
-  GrpcClient,
-  // for easy access to grpc codes
-  GrpcCode: grpc.status,
-  GrpcError,
-  mayastor
-};

@@ -2,8 +2,8 @@
 
 import assert from 'assert';
 import * as _ from 'lodash';
+import { grpcCode, GrpcError } from './grpc_client';
 
-const { GrpcCode, GrpcError } = require('./grpc_client');
 const log = require('./logger').Logger('replica');
 
 import { Pool } from './pool';
@@ -116,7 +116,7 @@ export class Replica {
       });
     } catch (err) {
       throw new GrpcError(
-        GrpcCode.INTERNAL,
+        grpcCode.INTERNAL,
         `Failed to set share pcol for replica "${this}": ` + err
       );
     }

@@ -13,7 +13,7 @@ const { Node } = require('../node');
 const Registry = require('../registry');
 const { Volume } = require('../volume');
 const { shouldFailWith } = require('./utils');
-const { GrpcCode } = require('../grpc_client');
+const { grpcCode } = require('../grpc_client');
 
 const UUID = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cbb';
 
@@ -77,7 +77,7 @@ module.exports = function () {
     stub.onCall(0).resolves({});
     stub.onCall(1).resolves({ deviceUri: 'nvmf://host/nqn' });
 
-    shouldFailWith(GrpcCode.INTERNAL, async () => {
+    shouldFailWith(grpcCode.INTERNAL, async () => {
       await volume.publish('nvmf');
     });
     sinon.assert.notCalled(stub);

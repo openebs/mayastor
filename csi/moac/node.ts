@@ -4,13 +4,13 @@
 
 import assert from 'assert';
 import events = require('events');
+import { grpcCode, GrpcError, GrpcClient } from './grpc_client';
 import { Pool } from './pool';
 import { Nexus } from './nexus';
 import { Replica } from './replica';
 import { Workq } from './workq';
 
 const log = require('./logger').Logger('node');
-const { GrpcClient, GrpcCode, GrpcError } = require('./grpc_client');
 
 // Type used in workq for calling grpc
 type GrpcCallArgs = {
@@ -143,7 +143,7 @@ export class Node extends events.EventEmitter {
   async _call(method: string, args: any): Promise<any> {
     if (!this.client) {
       throw new GrpcError(
-        GrpcCode.INTERNAL,
+        grpcCode.INTERNAL,
         `Broken connection to mayastor on node "${this.name}"`
       );
     }

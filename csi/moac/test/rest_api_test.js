@@ -7,7 +7,7 @@ const http = require('http');
 const sinon = require('sinon');
 const Registry = require('../registry');
 const { Node } = require('../node');
-const { GrpcError, GrpcCode } = require('../grpc_client');
+const { GrpcError, grpcCode } = require('../grpc_client');
 const ApiServer = require('../rest_api');
 
 const PORT = 12312;
@@ -60,7 +60,7 @@ module.exports = function () {
         }
       ]
     });
-    call2.rejects(new GrpcError(GrpcCode.INTERNAL, 'test failure'));
+    call2.rejects(new GrpcError(grpcCode.INTERNAL, 'test failure'));
     call3.resolves({
       replicas: [
         {

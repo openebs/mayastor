@@ -17,7 +17,7 @@ const Registry = require('../registry');
 const { Replica } = require('../replica');
 const { Volume } = require('../volume');
 const { Volumes } = require('../volumes');
-const { GrpcCode, GrpcError } = require('../grpc_client');
+const { grpcCode, GrpcError } = require('../grpc_client');
 const { shouldFailWith, waitUntil } = require('./utils');
 const enums = require('./grpc_enums');
 const sleep = require('sleep-promise');
@@ -174,7 +174,7 @@ module.exports = function () {
 
     it('should return error when there is no suitable pool', async () => {
       volumes.start();
-      await shouldFailWith(GrpcCode.RESOURCE_EXHAUSTED, () =>
+      await shouldFailWith(grpcCode.RESOURCE_EXHAUSTED, () =>
         // node2 and node3 are too small
         volumes.createVolume(UUID, {
           replicaCount: 3,
@@ -381,7 +381,7 @@ module.exports = function () {
 
     it('should fail if the size is zero', async () => {
       volumes.start();
-      await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
+      await shouldFailWith(grpcCode.INVALID_ARGUMENT, () =>
         volumes.createVolume(UUID, {
           replicaCount: 1,
           local: false,
@@ -421,7 +421,7 @@ module.exports = function () {
       });
 
       volumes.start();
-      await shouldFailWith(GrpcCode.INTERNAL, () =>
+      await shouldFailWith(grpcCode.INTERNAL, () =>
         volumes.createVolume(UUID, {
           replicaCount: 1,
           local: false,
@@ -1139,15 +1139,15 @@ module.exports = function () {
 
     it('should fail to publish a volume that is supposed to be published on a node that does not exist', async () => {
       volume.publishedOn = 'nodeX';
-      await shouldFailWith(GrpcCode.INTERNAL, () => volume.publish('nvmf'));
+      await shouldFailWith(grpcCode.INTERNAL, () => volume.publish('nvmf'));
       expect(volume.publishedOn).to.equal('nodeX');
       expect(volume.nexus).to.be.null();
     });
 
     it('should fail to publish if setting share protocol on replica fails', async () => {
-      stub1.rejects(new GrpcError(GrpcCode.INTERNAL, 'Test failure'));
+      stub1.rejects(new GrpcError(grpcCode.INTERNAL, 'Test failure'));
 
-      await shouldFailWith(GrpcCode.INTERNAL, () => volume.publish('node2'));
+      await shouldFailWith(grpcCode.INTERNAL, () => volume.publish('node2'));
       sinon.assert.calledOnce(stub1);
       sinon.assert.calledWithMatch(stub1.firstCall, 'shareReplica', {
         uuid: UUID,
@@ -1158,9 +1158,9 @@ module.exports = function () {
     });
 
     it('should fail to publish if create nexus grpc fails', async () => {
-      stub1.rejects(new GrpcError(GrpcCode.INTERNAL, 'Test failure'));
+      stub1.rejects(new GrpcError(grpcCode.INTERNAL, 'Test failure'));
 
-      await shouldFailWith(GrpcCode.INTERNAL, () => volume.publish('node1'));
+      await shouldFailWith(grpcCode.INTERNAL, () => volume.publish('node1'));
       sinon.assert.calledOnce(stub1);
       sinon.assert.calledWithMatch(stub1.firstCall, 'createNexus', {
         uuid: UUID,
@@ -1366,7 +1366,7 @@ module.exports = function () {
     });
 
     it('should fail to shrink the volume', async () => {
-      await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
+      await shouldFailWith(grpcCode.INVALID_ARGUMENT, () =>
         volumes.createVolume(UUID, {
           replicaCount: 1,
           local: false,
@@ -1380,7 +1380,7 @@ module.exports = function () {
     });
 
     it('should fail to extend the volume', async () => {
-      await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () =>
+      await shouldFailWith(grpcCode.INVALID_ARGUMENT, () =>
         volumes.createVolume(UUID, {
           replicaCount: 1,
           local: false,
@@ -1394,7 +1394,7 @@ module.exports = function () {
     });
 
     it('should fail to change the protocol', async () => {
-      await shouldFailWith(GrpcCode.INVALID_ARGUMENT, () => volumes.createVolume(UUID, {
+      await shouldFailWith(grpcCode.INVALID_ARGUMENT, () => volumes.createVolume(UUID, {
         replicaCount: 1,
         local: true,
         preferredNodes: [node2.name],
