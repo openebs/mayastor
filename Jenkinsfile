@@ -186,7 +186,7 @@ e2e_alias_tag = getAliasTag()
 pipeline {
   agent none
   options {
-    timeout(time: 3, unit: 'HOURS')
+    timeout(time: 5, unit: 'HOURS')
   }
   parameters {
     booleanParam(defaultValue: false, name: 'e2e_continuous')
