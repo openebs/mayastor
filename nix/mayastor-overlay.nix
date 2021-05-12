@@ -1,4 +1,5 @@
 self: super: {
+  fio = super.callPackage ./pkgs/fio { };
   libiscsi = super.callPackage ./pkgs/libiscsi { };
   nvmet-cli = super.callPackage ./pkgs/nvmet-cli { };
   libspdk = (super.callPackage ./pkgs/libspdk { }).release;

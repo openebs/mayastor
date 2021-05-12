@@ -15,7 +15,8 @@ rm libspdk.so
 	--with-iscsi-initiator \
 	--with-crypto \
 	--with-uring \
-	--enable-unit-tests
+	--enable-unit-tests \
+	--with-fio=$(which fio | sed s';bin/fio;include;')
 
 make -j $(nproc)
 
