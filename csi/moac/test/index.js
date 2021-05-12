@@ -57,6 +57,7 @@ describe('moac', function () {
 
     const child = spawn(path.join(__dirname, '..', 'moac'), [
       '-s',
+      '--namespace=default',
       // NATS does not run but just to verify that the option works
       '--message-bus=127.0.0.1',
       // shorten the warm up to make the test faster
