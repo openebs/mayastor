@@ -10,11 +10,13 @@
 use futures::{select, FutureExt, StreamExt};
 use mbus_api::{v0::*, *};
 use once_cell::sync::OnceCell;
-use snafu::Snafu;
+use snafu::{ResultExt, Snafu};
 use std::{env, time::Duration};
 
 /// Mayastor sends registration messages in this interval (kind of heart-beat)
-const HB_INTERVAL: Duration = Duration::from_secs(5);
+const HB_INTERVAL_SEC: Duration = Duration::from_secs(5);
+/// How long we wait to send a registration message before timing out
+const HB_TIMEOUT_SEC: Duration = Duration::from_secs(5);
 
 /// Errors for pool operations.
 ///
@@ -37,10 +39,10 @@ pub enum Error {
         "Cannot issue requests if message bus hasn't been started"
     ))]
     NotStarted {},
-    #[snafu(display("Failed to queue register request: {:?}", cause))]
-    QueueRegister { cause: mbus_api::Error },
-    #[snafu(display("Failed to queue deregister request: {:?}", cause))]
-    QueueDeregister { cause: mbus_api::Error },
+    #[snafu(display("Failed to queue register request: {:?}", source))]
+    QueueRegister { source: mbus_api::Error },
+    #[snafu(display("Failed to queue deregister request: {:?}", source))]
+    QueueDeregister { source: mbus_api::Error },
 }
 
 #[derive(Clone)]
@@ -50,7 +52,9 @@ struct Configuration {
     /// gRPC endpoint of the server provided by mayastor
     grpc_endpoint: String,
     /// heartbeat interval (how often the register message is sent)
-    hb_interval: Duration,
+    hb_interval_sec: Duration,
+    /// how long we wait to send a registration message before timing out
+    hb_timeout_sec: Duration,
 }
 
 #[derive(Clone)]
@@ -77,8 +81,8 @@ impl Registration {
         self.fini_chan.close();
     }
 
-    pub(super) fn get() -> &'static Registration {
-        MESSAGE_BUS_REG.get().unwrap()
+    pub(super) fn get() -> Option<&'static Registration> {
+        MESSAGE_BUS_REG.get()
     }
 
     /// runner responsible for registering and
@@ -95,11 +99,17 @@ impl Registration {
         let config = Configuration {
             node: node.to_owned(),
             grpc_endpoint: grpc_endpoint.to_owned(),
-            hb_interval: match env::var("MAYASTOR_HB_INTERVAL")
+            hb_interval_sec: match env::var("MAYASTOR_HB_INTERVAL_SEC")
                 .map(|v| v.parse::<u64>())
             {
                 Ok(Ok(num)) => Duration::from_secs(num),
-                _ => HB_INTERVAL,
+                _ => HB_INTERVAL_SEC,
+            },
+            hb_timeout_sec: match env::var("MAYASTOR_HB_TIMEOUT_SEC")
+                .map(|v| v.parse::<u64>())
+            {
+                Ok(Ok(num)) => Duration::from_secs(num),
+                _ => HB_TIMEOUT_SEC,
             },
         };
         Self {
@@ -111,7 +121,7 @@ impl Registration {
 
     /// Connect to the server and start emitting periodic register
     /// messages.
-    /// Runs until the sender side of the message channel is closed
+    /// Runs until the sender side of the message channel is closed.
     pub async fn run_loop(&mut self) {
         info!(
             "Registering '{}' and grpc server {} ...",
@@ -123,12 +133,12 @@ impl Registration {
             };
 
             select! {
-                _ = tokio::time::sleep(self.config.hb_interval).fuse() => continue,
+                _ = tokio::time::sleep(self.config.hb_interval_sec).fuse() => continue,
                 msg = self.rcv_chan.next().fuse() => {
                     match msg {
-                        Some(_) => log::info!("Messages have not been implemented yet"),
+                        Some(_) => info!("Messages have not been implemented yet"),
                         _ => {
-                            log::info!("Terminating the registration handler");
+                            info!("Terminating the registration handler");
                             break;
                         }
                     }
@@ -147,17 +157,15 @@ impl Registration {
             grpc_endpoint: self.config.grpc_endpoint.clone(),
         };
 
-        payload
-            .publish()
+        payload.publish().await.context(QueueRegister)?;
+        bus()
+            .flush_timeout(self.config.hb_timeout_sec)
             .await
-            .map_err(|cause| Error::QueueRegister {
-                cause,
-            })?;
+            .context(QueueRegister)?;
 
-        // Note that the message was only queued and we don't know if it was
-        // really sent to the message server
-        // We could explicitly flush to make sure it reaches the server or
-        // use request/reply to guarantee that it was delivered
+        // the message has been sent to the nats server, but we don't know
+        // whether the control plane has received it or not
+        // we could use request/reply to guarantee that it was delivered
         debug!(
             "Registered '{}' and grpc server {}",
             self.config.node, self.config.grpc_endpoint
@@ -171,16 +179,11 @@ impl Registration {
             id: self.config.node.clone(),
         };
 
-        payload
-            .publish()
+        payload.publish().await.context(QueueDeregister)?;
+        bus()
+            .flush_timeout(self.config.hb_timeout_sec)
             .await
-            .map_err(|cause| Error::QueueRegister {
-                cause,
-            })?;
-
-        if let Err(e) = bus().flush().await {
-            error!("Failed to explicitly flush: {}", e);
-        }
+            .context(QueueDeregister)?;
 
         info!(
             "Deregistered '{}' and grpc server {}",

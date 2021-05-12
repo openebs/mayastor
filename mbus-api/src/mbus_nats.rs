@@ -73,6 +73,14 @@ impl NatsMessageBus {
         loop {
             match BusOptions::new()
                 .max_reconnects(None)
+                .disconnect_callback(|| {
+                    warn!("Connection to the NATS server has been lost.");
+                })
+                .reconnect_callback(|| {
+                    info!(
+                        "Connection to the NATS server has been reestablished."
+                    )
+                })
                 .connect_async(server)
                 .await
             {
@@ -91,7 +99,7 @@ impl NatsMessageBus {
                         );
                         log_error = false;
                     }
-                    smol::Timer::after(interval).await;
+                    tokio::time::sleep(interval).await;
                     continue;
                 }
             }
@@ -182,6 +190,13 @@ impl Bus for NatsMessageBus {
 
     async fn flush(&self) -> BusResult<()> {
         self.connection.flush().await.context(Flush {})
+    }
+
+    async fn flush_timeout(&self, timeout: Duration) -> BusResult<()> {
+        self.connection
+            .flush_timeout(timeout)
+            .await
+            .context(Flush {})
     }
 
     async fn subscribe(&self, channel: Channel) -> BusResult<BusSubscription> {

@@ -87,7 +87,8 @@ describe('nats', function () {
         '-n', NATS_ENDPOINT,
         '-N', NODE_NAME
       ], {
-        MAYASTOR_HB_INTERVAL: HB_INTERVAL
+        MAYASTOR_HB_INTERVAL_SEC: HB_INTERVAL,
+        MAYASTOR_HB_TIMEOUT_SEC: HB_INTERVAL
       });
       // wait for the register message
       const sid = client.subscribe('v0/registry', (msg) => {
