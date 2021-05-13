@@ -66,9 +66,6 @@ def getAliasTag() {
 
 def getTag() {
   if (e2e_build_images == true) {
-    if (isTimed() == true) {
-        return 'nightly'
-    }
     def tag = sh(
       // using printf to get rid of trailing newline
       script: "printf \$(git rev-parse --short=12 ${env.GIT_COMMIT})",
