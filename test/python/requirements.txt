@@ -1,0 +1,6 @@
+asyncio
+paramiko
+pytest
+pytest-timeout
+pytest-docker-compose
+pytest-order
