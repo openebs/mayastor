@@ -57,7 +57,7 @@ def isTimed() {
     return false
 }
 
-def getAliasTag() {
+def getAliasTag() { // alternative tag for CI pushed images
     if (isTimed() == true) {
         return 'nightly'
     }
@@ -66,9 +66,6 @@ def getAliasTag() {
 
 def getTag() {
   if (e2e_build_images == true) {
-    if (isTimed() == true) {
-        return 'nightly'
-    }
     def tag = sh(
       // using printf to get rid of trailing newline
       script: "printf \$(git rev-parse --short=12 ${env.GIT_COMMIT})",
@@ -176,7 +173,7 @@ if (params.e2e_continuous == true) {
   moac_test = true
   e2e_test = true
   // Some long e2e tests are not suitable to be run for each PR
-  e2e_test_profile = (env.BRANCH_NAME != 'staging' && env.BRANCH_NAME != 'trying') ? "extended" : "ondemand"
+  e2e_test_profile = (env.BRANCH_NAME != 'staging' && env.BRANCH_NAME != 'trying') ? "nightly" : "ondemand"
   e2e_build_images = true
   e2e_test_image_registry = env.REGISTRY
   do_not_push_images = false
@@ -376,7 +373,7 @@ pipeline {
                   def tag = getTag()
                   def cmd = "./scripts/e2e-test.sh --device /dev/sdb --tag \"${tag}\" --logs --profile \"${e2e_test_profile}\" --loki_run_id \"${loki_run_id}\" --mayastor \"${env.WORKSPACE}\" --reportsdir \"${env.WORKSPACE}/${e2e_reports_dir}\" --registry \"${e2e_test_image_registry}\" "
 
-                  if (e2e_test_profile == "extended") {
+                  if (e2e_test_profile == "nightly") {
                         cmd = cmd + " --onfail continue "
                   }
                   withCredentials([
