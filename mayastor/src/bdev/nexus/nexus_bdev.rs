@@ -687,8 +687,6 @@ impl Nexus {
         }
 
         if r.await.unwrap() {
-            // Update the child states to remove them from the config file.
-            NexusChild::save_state_change();
             Ok(())
         } else {
             Err(Error::NexusDestroy {

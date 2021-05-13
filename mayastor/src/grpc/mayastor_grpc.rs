@@ -28,6 +28,7 @@ use crate::{
     host::{blk_device, resource},
     lvs::{Error as LvsError, Lvol, Lvs},
     nexus_uri::NexusBdevError,
+    subsys::PoolConfig,
 };
 use nix::errno::Errno;
 use rpc::mayastor::*;
@@ -132,7 +133,8 @@ impl mayastor_server::Mayastor for MayastorSvc {
 
         let rx = rpc_submit::<_, _, LvsError>(async move {
             let pool = Lvs::create_or_import(args).await?;
-
+            // Capture current pool config and export to file.
+            PoolConfig::capture().export().await;
             Ok(Pool::from(pool))
         })?;
 
@@ -149,9 +151,14 @@ impl mayastor_server::Mayastor for MayastorSvc {
         let args = request.into_inner();
         let rx = rpc_submit::<_, _, LvsError>(async move {
             if let Some(pool) = Lvs::lookup(&args.name) {
-                let _e = pool.destroy().await?;
-            }
+                // Remove pool from current config and export to file.
+                // Do this BEFORE we actually destroy the pool.
+                let mut config = PoolConfig::capture();
+                config.delete(&args.name);
+                config.export().await;
 
+                pool.destroy().await?;
+            }
             Ok(Null {})
         })?;
 
@@ -216,7 +223,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                         }
                         Err(e) => {
                             debug!(
-                                "failed to share created lvol {}: {} .. destroying",
+                                "failed to share created lvol {}: {} (destroying)",
                                 lvol,
                                 e.to_string()
                             );
@@ -244,14 +251,12 @@ impl mayastor_server::Mayastor for MayastorSvc {
         request: Request<DestroyReplicaRequest>,
     ) -> GrpcResult<Null> {
         let args = request.into_inner();
-        let rx = rpc_submit(async move {
-            match Bdev::lookup_by_name(&args.uuid) {
-                Some(b) => {
-                    let lvol = Lvol::try_from(b)?;
-                    lvol.destroy().await.map(|_r| Null {})
-                }
-                None => Ok(Null {}),
+        let rx = rpc_submit::<_, _, LvsError>(async move {
+            if let Some(bdev) = Bdev::lookup_by_name(&args.uuid) {
+                let lvol = Lvol::try_from(bdev)?;
+                lvol.destroy().await?;
             }
+            Ok(Null {})
         })?;
 
         rx.await
@@ -271,7 +276,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                     .into_iter()
                     .filter(|b| b.driver() == "lvol")
                     .map(|b| Replica::from(Lvol::try_from(b).unwrap()))
-                    .collect::<Vec<_>>();
+                    .collect();
             }
 
             Ok(ListReplicasReply {
@@ -329,41 +334,45 @@ impl mayastor_server::Mayastor for MayastorSvc {
     ) -> GrpcResult<ShareReplicaReply> {
         let args = request.into_inner();
         let rx = rpc_submit(async move {
-            if let Some(b) = Bdev::lookup_by_name(&args.uuid) {
-                let lvol = Lvol::try_from(b)?;
+            match Bdev::lookup_by_name(&args.uuid) {
+                Some(bdev) => {
+                    let lvol = Lvol::try_from(bdev)?;
 
-                // if we are already shared return OK
-                if lvol.shared() == Some(Protocol::try_from(args.share)?) {
-                    return Ok(ShareReplicaReply {
+                    // if we are already shared ...
+                    if lvol.shared() == Some(Protocol::try_from(args.share)?) {
+                        return Ok(ShareReplicaReply {
+                            uri: lvol.share_uri().unwrap(),
+                        });
+                    }
+
+                    match Protocol::try_from(args.share)? {
+                        Protocol::Off => {
+                            lvol.unshare().await?;
+                        }
+                        Protocol::Nvmf => {
+                            lvol.share_nvmf(None).await?;
+                        }
+                        Protocol::Iscsi => {
+                            return Err(LvsError::LvolShare {
+                                source: CoreError::NotSupported {
+                                    source: Errno::ENOSYS,
+                                },
+                                name: args.uuid,
+                            });
+                        }
+                    }
+
+                    Ok(ShareReplicaReply {
                         uri: lvol.share_uri().unwrap(),
-                    });
+                    })
                 }
-                match Protocol::try_from(args.share)? {
-                    Protocol::Off => {
-                        lvol.unshare().await.map(|_| ShareReplicaReply {
-                            uri: lvol.share_uri().unwrap(),
-                        })
-                    }
 
-                    Protocol::Nvmf => {
-                        lvol.share_nvmf(None).await.map(|_| ShareReplicaReply {
-                            uri: lvol.share_uri().unwrap(),
-                        })
-                    }
-                    Protocol::Iscsi => Err(LvsError::LvolShare {
-                        source: CoreError::NotSupported {
-                            source: Errno::ENOSYS,
-                        },
-                        name: args.uuid,
-                    }),
-                }
-            } else {
-                Err(LvsError::InvalidBdev {
+                None => Err(LvsError::InvalidBdev {
                     source: NexusBdevError::BdevNotFound {
                         name: args.uuid.clone(),
                     },
                     name: args.uuid,
-                })
+                }),
             }
         })?;
 

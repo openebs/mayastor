@@ -11,7 +11,6 @@ pub use server::MayastorGrpcServer;
 use crate::{
     core::{CoreError, Mthread, Reactor},
     nexus_uri::NexusBdevError,
-    subsys::Config,
 };
 
 impl From<NexusBdevError> for tonic::Status {
@@ -71,24 +70,6 @@ where
     Mthread::get_init()
         .spawn_local(future)
         .map_err(|_| Status::resource_exhausted("ENOMEM"))
-}
-
-/// Used by the gRPC method implementations to sync the current configuration by
-/// exporting it to a config file
-/// If `sync_config` fails then the method should return a failure
-/// requiring the gRPC caller to retry the method, which should be idempotent
-pub async fn sync_config<F, T>(future: F) -> GrpcResult<T>
-where
-    F: Future<Output = GrpcResult<T>>,
-{
-    let result = future.await;
-    if result.is_ok() {
-        if let Err(e) = Config::export_config() {
-            error!("Failed to export config file: {}", e);
-            return Err(Status::data_loss("Failed to export config"));
-        }
-    }
-    result
 }
 
 macro_rules! default_ip {

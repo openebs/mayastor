@@ -36,7 +36,7 @@ use spdk_sys::{
 };
 
 use crate::{
-    bdev::{nexus, nexus::nexus_child_status_config::ChildStatusConfig},
+    bdev::nexus,
     core::{
         reactor::{Reactor, ReactorState, Reactors},
         Cores,
@@ -45,7 +45,7 @@ use crate::{
     grpc,
     logger,
     persistent_store::PersistentStore,
-    subsys::{self, Config},
+    subsys::{self, Config, PoolConfig},
     target::iscsi,
 };
 
@@ -107,18 +107,18 @@ pub struct MayastorCliArgs {
     /// Path to create the rpc socket.
     pub rpc_address: String,
     #[structopt(short = "y")]
-    /// Path to mayastor YAML config file.
+    /// Path to mayastor config YAML file.
     pub mayastor_config: Option<String>,
-    #[structopt(short = "C")]
-    /// Path to child status config file.
-    pub child_status_config: Option<String>,
+    #[structopt(short = "P")]
+    /// Path to pool config file.
+    pub pool_config: Option<String>,
     #[structopt(long = "huge-dir")]
     /// Path to hugedir.
     pub hugedir: Option<String>,
     #[structopt(long = "env-context")]
     /// Pass additional arguments to the EAL environment.
     pub env_context: Option<String>,
-    #[structopt(short = "-l")]
+    #[structopt(short = "l")]
     /// List of cores to run on instead of using the core mask. When specified
     /// it supersedes the core mask (-m) argument.
     pub core_list: Option<String>,
@@ -142,7 +142,7 @@ impl Default for MayastorCliArgs {
             no_pci: true,
             log_components: vec![],
             mayastor_config: None,
-            child_status_config: None,
+            pool_config: None,
             hugedir: None,
             core_list: None,
         }
@@ -198,7 +198,7 @@ pub struct MayastorEnvironment {
     pub grpc_endpoint: Option<std::net::SocketAddr>,
     persistent_store_endpoint: Option<String>,
     mayastor_config: Option<String>,
-    child_status_config: Option<String>,
+    pool_config: Option<String>,
     delay_subsystem_init: bool,
     enable_coredump: bool,
     env_context: Option<String>,
@@ -234,7 +234,7 @@ impl Default for MayastorEnvironment {
             grpc_endpoint: None,
             persistent_store_endpoint: None,
             mayastor_config: None,
-            child_status_config: None,
+            pool_config: None,
             delay_subsystem_init: false,
             enable_coredump: true,
             env_context: None,
@@ -341,7 +341,7 @@ impl MayastorEnvironment {
             persistent_store_endpoint: args.persistent_store_endpoint,
             node_name: args.node_name.unwrap_or_else(|| "mayastor-node".into()),
             mayastor_config: args.mayastor_config,
-            child_status_config: args.child_status_config,
+            pool_config: args.pool_config,
             log_component: args.log_components,
             mem_size: args.mem_size,
             no_pci: args.no_pci,
@@ -594,7 +594,7 @@ impl MayastorEnvironment {
     /// there is currently no run time check that enforces this.
     fn load_yaml_config(&self) {
         let cfg = if let Some(yaml) = &self.mayastor_config {
-            info!("loading YAML config file {}", yaml);
+            info!("loading mayastor config YAML file {}", yaml);
             Config::get_or_init(|| {
                 if let Ok(cfg) = Config::read(yaml) {
                     cfg
@@ -609,17 +609,20 @@ impl MayastorEnvironment {
         cfg.apply();
     }
 
-    // load the child status file
-    fn load_child_status(&self) {
-        ChildStatusConfig::get_or_init(|| {
-            if let Ok(cfg) = ChildStatusConfig::load(&self.child_status_config)
-            {
-                cfg
-            } else {
-                // if the configuration is invalid exit early
-                panic!("Failed to load the child status configuration")
+    /// load the pool config file.
+    fn load_pool_config(&self) -> Option<PoolConfig> {
+        if let Some(file) = &self.pool_config {
+            info!("loading pool config file {}", file);
+            match PoolConfig::load(file) {
+                Ok(config) => {
+                    return Some(config);
+                }
+                Err(error) => {
+                    warn!("failed to load pool configuration: {}", error);
+                }
             }
-        });
+        }
+        None
     }
 
     /// initialize the core, call this before all else
@@ -629,7 +632,7 @@ impl MayastorEnvironment {
 
         self.load_yaml_config();
 
-        self.load_child_status();
+        let pool_config = self.load_pool_config();
 
         // bootstrap DPDK and its magic
         self.initialize_eal();
@@ -684,8 +687,10 @@ impl MayastorEnvironment {
             assert!(receiver.await.unwrap());
         });
 
-        // load any bdevs that need to be created
-        Config::get().import_bdevs();
+        // load any pools that need to be created
+        if let Some(config) = pool_config {
+            config.import_pools();
+        }
 
         self
     }

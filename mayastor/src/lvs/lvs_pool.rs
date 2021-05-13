@@ -181,7 +181,7 @@ impl Lvs {
     }
 
     /// imports a pool based on its name and base bdev name
-    #[instrument(level = "debug", err)]
+    #[instrument(level = "debug")]
     pub async fn import(name: &str, bdev: &str) -> Result<Lvs, Error> {
         let (sender, receiver) = pair::<ErrnoResult<Lvs>>();
 

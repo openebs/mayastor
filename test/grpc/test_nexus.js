@@ -20,6 +20,7 @@ const url = require('url');
 const UUID = 'dbe4d7eb-118a-4d15-b789-a18d9af6ff21';
 const UUID2 = 'dbe4d7eb-118a-4d15-b789-a18d9af6ff22';
 const TGTUUID = 'dbe4d7eb-118a-4d15-b789-a18d9af6ff29';
+const BASEDEV = 'Malloc0';
 
 // backend file for aio bdev
 const aioFile = '/tmp/aio-backend';
@@ -36,23 +37,9 @@ const iscsiReplicaPort = '3261';
 // so temporarily disable these tests.
 const doIscsiReplica = false;
 
-// Instead of using mayastor grpc methods to create replicas we use a config
-// file to create them. Advantage is that we don't depend on bugs in replica
-// code (the nexus tests are more independent). Disadvantage is that we don't
-// test the nexus with implementation of replicas which are used in the
-// production.
-const configNexus = `
-sync_disable: true
-base_bdevs:
-  - uri: "malloc:///Malloc0?size_mb=64&blk_size=4096"
-`;
-
 // The config just for nvmf target which cannot run in the same process as
 // the nvmf initiator (SPDK limitation).
 const configNvmfTarget = `
-sync_disable: true
-base_bdevs:
-  - uri: "malloc:///Malloc0?size_mb=64&blk_size=4096&uuid=${TGTUUID}"
 nexus_opts:
   nvmf_nexus_port: 4422
   nvmf_replica_port: 8420
@@ -63,7 +50,6 @@ nvmf_tcp_tgt_conf:
 iscsi_tgt_conf:
   max_sessions: 1
   max_connections_per_session: 1
-implicit_share_base: true
 `;
 
 let client;
@@ -241,7 +227,7 @@ describe('nexus', function () {
     uuid: UUID,
     size: 131072,
     children: [
-      `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${TGTUUID}`,
+      `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${BASEDEV}`,
       `aio://${aioFile}?blk_size=4096`
     ]
   };
@@ -281,6 +267,9 @@ describe('nexus', function () {
           }, next);
         },
         (next) => {
+            common.createBdevs([`malloc:///Malloc0?size_mb=64&blk_size=4096&uuid=${TGTUUID}`], 'nvmf', '127.0.0.1:10125', next);
+        },
+        (next) => {
           fs.writeFile(aioFile, '', next);
         },
         (next) => {
@@ -297,13 +286,16 @@ describe('nexus', function () {
           next();
         },
         (next) => {
-          common.startMayastor(configNexus, ['-r', common.SOCK, '-g', common.grpcEndpoint, '-s', 384],
+          common.startMayastor(null, ['-r', common.SOCK, '-g', common.grpcEndpoint, '-s', 384],
             { NEXUS_NVMF_ANA_ENABLE: '1' });
 
           common.waitFor((pingDone) => {
             // use harmless method to test if the mayastor is up and running
             client.listPools({}, pingDone);
           }, next);
+        },
+        (next) => {
+            common.createBdevs(['malloc:///Malloc0?size_mb=64&blk_size=4096'], 'nvmf', common.grpcEndpoint, next);
         }
       ],
       done
@@ -346,7 +338,7 @@ describe('nexus', function () {
       children: [
         'bdev:///Malloc0',
         `aio://${aioFile}?blk_size=4096`,
-        `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${TGTUUID}`
+        `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${BASEDEV}`
       ]
     };
     if (doIscsiReplica) args.children.push(`iscsi://iscsi://${externIp}:${iscsiReplicaPort}/iqn.2019-05.io.openebs:disk1`);
@@ -369,7 +361,7 @@ describe('nexus', function () {
 
       assert.equal(
         nexus.children[2].uri,
-        `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${TGTUUID}`
+        `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${BASEDEV}`
       );
       assert.equal(nexus.children[2].state, 'CHILD_ONLINE');
       if (doIscsiReplica) {
@@ -419,7 +411,7 @@ describe('nexus', function () {
 
       assert.equal(
         nexus.children[2].uri,
-        `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${TGTUUID}`
+        `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${BASEDEV}`
       );
       assert.equal(nexus.children[2].state, 'CHILD_ONLINE');
       if (doIscsiReplica) {
@@ -445,7 +437,7 @@ describe('nexus', function () {
   it('should be able to remove one of its children', (done) => {
     const args = {
       uuid: UUID,
-      uri: `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${TGTUUID}`
+      uri: `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${BASEDEV}`
     };
 
     client.removeChildNexus(args, (err) => {
@@ -463,7 +455,7 @@ describe('nexus', function () {
   });
 
   it('should be able to add the child back', (done) => {
-    const uri = `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${TGTUUID}`;
+    const uri = `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${BASEDEV}`;
     const args = {
       uuid: UUID,
       uri: uri,
@@ -490,7 +482,7 @@ describe('nexus', function () {
     const args = {
       uuid: UUID2,
       size: 131072,
-      children: [`nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${TGTUUID}`]
+      children: [`nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${BASEDEV}`]
     };
 
     client.createNexus(args, (err) => {
@@ -802,7 +794,7 @@ describe('nexus', function () {
         size: 2 * diskSize,
         children: [
         `aio://${aioFile}?blk_size=4096`,
-        `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${TGTUUID}`
+        `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${BASEDEV}`
         ]
       };
 
@@ -898,7 +890,7 @@ describe('nexus', function () {
         uuid: UUID,
         size: diskSize,
         children: [
-        `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${TGTUUID}`
+        `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${BASEDEV}`
         ]
       };
       await createNexus(args);
@@ -906,7 +898,7 @@ describe('nexus', function () {
 
     it('should remove namespace from nvmf subsystem', (done) => {
       const args = {
-        nqn: `nqn.2019-05.io.openebs:${TGTUUID}`,
+        nqn: `nqn.2019-05.io.openebs:${BASEDEV}`,
         nsid: 1
       };
       common.jsonrpcCommand('/tmp/target.sock', 'nvmf_subsystem_remove_ns', args, done);
@@ -916,7 +908,7 @@ describe('nexus', function () {
       common.jsonrpcCommand(null, 'bdev_get_bdevs', (err, out) => {
         if (err) return done(err);
         const bdevs = JSON.parse(out);
-        const match = `127.0.0.1:8420/nqn.2019-05.io.openebs:${TGTUUID}n1`;
+        const match = `127.0.0.1:8420/nqn.2019-05.io.openebs:${BASEDEV}n1`;
         var i;
         for (i in bdevs) {
           if (bdevs[i].name === match) {
@@ -950,7 +942,7 @@ describe('nexus', function () {
         uuid: UUID,
         size: diskSize,
         children: [
-        `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${TGTUUID}`
+        `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${BASEDEV}`
         ]
       };
 
@@ -963,7 +955,7 @@ describe('nexus', function () {
 
     it('should add namespace back to nvmf subsystem', (done) => {
       const args = {
-        nqn: `nqn.2019-05.io.openebs:${TGTUUID}`,
+        nqn: `nqn.2019-05.io.openebs:${BASEDEV}`,
         namespace: {
           bdev_name: 'Malloc0'
         }
@@ -976,7 +968,7 @@ describe('nexus', function () {
         uuid: UUID,
         size: diskSize,
         children: [
-        `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${TGTUUID}`
+        `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${BASEDEV}`
         ]
       };
       await createNexus(args);

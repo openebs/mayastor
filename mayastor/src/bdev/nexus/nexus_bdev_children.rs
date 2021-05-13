@@ -45,7 +45,6 @@ use crate::{
             },
             nexus_channel::DrEvent,
             nexus_child::{ChildState, NexusChild},
-            nexus_child_status_config::ChildStatusConfig,
         },
         Reason,
         VerboseError,
@@ -196,9 +195,6 @@ impl Nexus {
                 // it can never take part in the IO path
                 // of the nexus until it's rebuilt from a healthy child.
                 child.fault(Reason::OutOfSync).await;
-                if ChildStatusConfig::add(&child).is_err() {
-                    error!("Failed to add child status information");
-                }
 
                 // Register event listener for newly added child.
                 self.register_child_event_listener(&child);
@@ -275,9 +271,6 @@ impl Nexus {
         self.children.remove(idx);
         self.child_count -= 1;
 
-        // Update child status to remove this child
-        NexusChild::save_state_change();
-
         self.start_rebuild_jobs(cancelled_rebuilding_children).await;
         Ok(())
     }
@@ -349,7 +342,6 @@ impl Nexus {
                         ChildState::Faulted(_) => {}
                         _ => {
                             child.fault(reason).await;
-                            NexusChild::save_state_change();
                             self.reconfigure(DrEvent::ChildFault).await;
                         }
                     }
