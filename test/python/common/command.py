@@ -1,10 +1,11 @@
 import asyncio
 from collections import namedtuple
-
+import asyncssh
 CommandReturn = namedtuple("CommandReturn", "returncode stdout stderr")
 
 
 async def run_cmd_async(cmd):
+    """Runs a command on the current machine."""
     proc = await asyncio.create_subprocess_shell(
         cmd,
         stdout=asyncio.subprocess.PIPE,
@@ -32,3 +33,31 @@ async def run_cmd_async(cmd):
         proc.returncode,
         stdout.decode(),
         stderr.decode())
+
+
+async def run_cmd_async_at(host, cmd):
+    """Runs the command async at the given host."""
+    async with asyncssh.connect(host) as conn:
+        result = await conn.run(cmd, check=False)
+
+        output_message = f"Command:\n {host}:{cmd}"
+        # Append stdout/stderr to the output message
+        if result.stdout != "":
+            output_message += f"\nstdout:\n{result.stdout}"
+        if result.stderr != "":
+            output_message += f"\nstderr:\n{result.stderr}"
+
+        if result.exit_status != 0:
+
+            output_message += \
+                f"\nReturned error code: {result.exit_status}"
+
+            if result.stderr != "":
+                output_message += \
+                    f"\nstderr:\n{result.stderr}"
+            raise ChildProcessError(output_message)
+
+        return CommandReturn(
+            result.exit_status,
+            result.stdout,
+            result.stderr)

@@ -1,12 +1,18 @@
+from common.command import run_cmd_async_at, run_cmd_async
+from common.fio import Fio
+from common.volume import Volume
 import logging
 import pytest
-import mayastor_pb2 as pb
 import uuid as guid
 import grpc
 import asyncio
-from common.nvme import nvme_discover, nvme_connect, nvme_disconnect
-from common.volume import Volume
-from common.fio import Fio
+from common.nvme import (
+    nvme_discover,
+    nvme_connect,
+    nvme_disconnect,
+    nvme_remote_connect,
+    nvme_remote_disconnect)
+
 UUID = "0000000-0000-0000-0000-000000000001"
 NEXUS_UUID = "3ae73410-6136-4430-a7b5-cbec9fe2d273"
 
@@ -61,7 +67,7 @@ def test_multi_volume_local(wait_for_mayastor, create_aio_pools):
 def test_create_nexus_with_two_replica(times, create_nexus):
     nexus, uri, hdls = create_nexus
     nvme_discover(uri.device_uri)
-    device = nvme_connect(uri.device_uri)
+    nvme_connect(uri.device_uri)
     nvme_disconnect(uri.device_uri)
     destroy_all
 
@@ -83,32 +89,50 @@ def test_enospace_on_volume(wait_for_mayastor, create_pools):
     print("expected failed")
 
 
-@pytest.mark.timeout(60)
-def test_nexus_2_mirror_kill_one(container_ref, create_nexus):
+async def kill_after(container, sec):
     """Kill the given container after sec seconds."""
-    async def kill_after(container, sec):
-        await asyncio.sleep(sec)
-        logging.info(f"killing container {container}")
-        containers.get(container).kill()
+    await asyncio.sleep(sec)
+    logging.info(f"killing container {container}")
+    container.kill()
+
+
+@pytest.mark.skip
+@pytest.mark.asyncio
+@pytest.mark.timeout(60)
+async def test_nexus_2_mirror_kill_one(container_ref, create_nexus):
+
+    to_kill = container_ref.get("ms2")
+    uri = create_nexus
+
+    nvme_discover(uri)
+    dev = nvme_connect(uri)
+    job = Fio("job1", "rw", dev).build()
+
+    await asyncio.gather(run_cmd_async(job), kill_after(to_kill, 5))
+
+    nvme_disconnect(uri)
+
+
+# @pytest.mark.skip
+@pytest.mark.asyncio
+@pytest.mark.timeout(60)
+async def test_nexus_2_remote_mirror_kill_one(
+        container_ref, create_nexus):
 
     containers = container_ref
     uri = create_nexus
-    print(uri)
 
-    # XXX this needs to go to VMs
-    nvme_discover(uri)
-    dev = nvme_connect(uri)
+    dev = await nvme_remote_connect("vixos1", uri)
 
-    job = Fio("job1", "rw", dev).run()
-
-    kill_ms1 = kill_after("ms1", 5)
-
+    job = Fio("job1", "rw", dev).build()
     try:
-        loop = asyncio.get_event_loop()
-    except RuntimeError:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-
-    loop.run_until_complete(asyncio.gather(job, kill_ms1))
-
-    nvme_disconnect(uri)
+        await asyncio.gather(
+            run_cmd_async_at("vixos1", job),
+            kill_after(containers.get("ms1"), 5),
+            kill_after(containers.get("ms2"), 4)
+        )
+    except Exception:
+        # expect failure
+        pass
+    finally:
+        await nvme_remote_disconnect("vixos1", uri)
