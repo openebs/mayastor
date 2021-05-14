@@ -21,6 +21,7 @@ spec:
             - "--v=2"
             - "--csi-address=$(ADDRESS)"
             - "--feature-gates=Topology=true"
+            - "--strict-topology=false"
             - "--default-fstype=ext4"
           env:
             - name: ADDRESS
