@@ -22,39 +22,11 @@ This allows me to see the logs in real-time, and on failure, figure out why it
 failed and so forth.
 
 Without the extra arguments however, the test suite will create and destroy
-the containers
+the containers automatically. This is done by making use of the pytest fixtures
 
 # Setup
 
-Depending on the used OS/distro of choice you will need to install some
-python packages. To make it easier. You can also use virtual environments.
-
-```bash
-python3 -m venv .venv
-source .venv/bin/activate
-```
-
-Install python packages:
-
-
-```bash
-pip install -r requirements.txt
-```
-
-# Protobuf
-
-`shell.nix` contains a few python3 packages in particular for proto generation.
-From within the `rpc/proto` run:
-
-```bash
-python -m grpc_tools.protoc -I . --proto_path=. --python_out=. --grpc_python_out=. mayastor.proto
-```
-
-And copy them (yes -- on the TODO list) over when they where updated, such that:
-
-```bash
-docker-compose.yml  mayastor_pb2_grpc.py  mayastor_pb2.py  nexus.py  README.md  requirements.txt
-```
+`nix-shell` and have fun.
 
 # TODO:
  [ ] fix proto generation

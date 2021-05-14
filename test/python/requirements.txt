@@ -1,6 +1,7 @@
 asyncio
-paramiko
+asyncssh
 pytest
 pytest-timeout
 pytest-docker-compose
 pytest-order
+pytest-asyncio
