@@ -259,7 +259,7 @@ impl Lvs {
                 cb_arg(sender),
             )
         }
-        .to_result(|e| Error::Create {
+        .to_result(|e| Error::PoolCreate {
             source: Errno::from_i32(e),
             name: name.to_string(),
         })?;
@@ -267,7 +267,7 @@ impl Lvs {
         receiver
             .await
             .expect("Cancellation is not supported")
-            .map_err(|err| Error::Create {
+            .map_err(|err| Error::PoolCreate {
                 source: err,
                 name: name.to_string(),
             })?;
@@ -277,7 +277,7 @@ impl Lvs {
                 info!("The pool '{}' has been created on {}", name, bdev);
                 Ok(pool)
             }
-            None => Err(Error::Create {
+            None => Err(Error::PoolCreate {
                 source: Errno::ENOENT,
                 name: name.to_string(),
             }),
@@ -322,7 +322,7 @@ impl Lvs {
             return if pool.base_bdev().name() == parsed.get_name() {
                 Ok(pool)
             } else {
-                Err(Error::Create {
+                Err(Error::PoolCreate {
                     source: Errno::EEXIST,
                     name: args.name.clone(),
                 })

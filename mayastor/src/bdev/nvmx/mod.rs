@@ -1,10 +1,7 @@
-use std::{
-    collections::HashMap,
-    fmt::Display,
-    sync::{Arc, Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard},
-};
+use std::{collections::HashMap, fmt::Display, sync::Arc};
 
 use once_cell::sync::Lazy;
+use parking_lot::{Mutex, RwLock, RwLockReadGuard, RwLockWriteGuard};
 
 pub use channel::{NvmeControllerIoChannel, NvmeIoChannel, NvmeIoChannelInner};
 pub use controller::NvmeController;
@@ -39,13 +36,13 @@ impl<'a> NVMeCtlrList<'a> {
     fn write_lock(
         &self,
     ) -> RwLockWriteGuard<HashMap<String, Arc<Mutex<NvmeController<'a>>>>> {
-        self.entries.write().expect("rwlock poisoned")
+        self.entries.write()
     }
 
     fn read_lock(
         &self,
     ) -> RwLockReadGuard<HashMap<String, Arc<Mutex<NvmeController<'a>>>>> {
-        self.entries.read().expect("rwlock poisoned")
+        self.entries.read()
     }
 
     /// lookup a NVMe controller
@@ -73,7 +70,7 @@ impl<'a> NVMeCtlrList<'a> {
 
         // Remove 'controller name -> controller' mapping.
         let e = entries.remove(&name.to_string()).unwrap();
-        let controller = e.lock().unwrap();
+        let controller = e.lock();
 
         // Remove 'controller id->controller' mapping. This will remove the last
         // reference as causes the controller to be dropped.

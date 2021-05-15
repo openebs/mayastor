@@ -18,6 +18,13 @@ class MayastorHandle(object):
         self.bdev_list()
         self.pool_list()
 
+    def reconnect(self):
+        self.channel = grpc.insecure_channel(("%s:10124") % self.ip_v4)
+        self.bdev = rpc.BdevRpcStub(self.channel)
+        self.ms = rpc.MayastorStub(self.channel)
+        self.bdev_list()
+        self.pool_list()
+
     def __del__(self):
         del self.channel
 
@@ -43,7 +50,23 @@ class MayastorHandle(object):
         mayastor as this is for testing, we do not want to prevent parsing
         invalid schemes."""
 
-        return self.bdev.Create(pb.BdevUri(uri=uri)).uri
+        return self.bdev.Create(pb.BdevUri(uri=uri))
+
+    def bdev_share(self, name):
+        return self.bdev.Share(
+            pb.BdevShareRequest(
+                name=str(name),
+                proto="nvmf")).uri
+
+    def bdev_unshare(self, name):
+        return self.bdev.Unshare(
+            pb.CreateReply(
+                name=str(name)))
+
+    def bdev_destroy(self, uri):
+        return self.bdev.Destroy(
+            pb.BdevUri(
+                uri=str(uri)))
 
     def pool_create(self, name, bdev):
         """Create a pool with given name on this node using the bdev as the
@@ -70,6 +93,9 @@ class MayastorHandle(object):
         mayastor."""
         return self.ms.DestroyReplica(pb.DestroyReplicaRequest(uuid=uuid))
 
+    def replica_list(self):
+        return self.ms.ListReplicas(pb.Null())
+
     def nexus_create(self, uuid, size, children):
         """Create a nexus with the given uuid and size. The children are
         should be an array of nvmf URIs."""
@@ -86,15 +112,19 @@ class MayastorHandle(object):
         by the control plane."""
         return self.ms.PublishNexus(
             pb.PublishNexusRequest(
-                uuid=uuid, key="", share=1)).device_uri
+                uuid=str(uuid), key="", share=1)).device_uri
 
     def nexus_unpublish(self, uuid):
         """Unpublish the nexus."""
-        return self.ms.UnpublishNexus(pb.UnpublishNexusRequest(uuid=uuid))
+        return self.ms.UnpublishNexus(pb.UnpublishNexusRequest(uuid=str(uuid)))
+
+    def nexus_list(self):
+        """List all the  the nexus devices."""
+        return self.ms.ListNexus(pb.Null()).nexus_list
 
     def bdev_list(self):
         """"List all bdevs found within the system."""
-        return self.bdev.List(pb.Null(), wait_for_ready=True)
+        return self.bdev.List(pb.Null(), wait_for_ready=True).bdevs
 
     def pool_list(self):
         """Only list pools"""

@@ -1,18 +1,22 @@
 #[macro_use]
 extern crate tracing;
+
+use std::path::Path;
+
 use futures::future::FutureExt;
+use structopt::StructOpt;
+
 use mayastor::{
     bdev::util::uring,
     core::{runtime, MayastorCliArgs, MayastorEnvironment, Mthread, Reactors},
     grpc,
     logger,
+    persistent_store::PersistentStore,
     subsys,
+    subsys::Registration,
 };
-use std::path::Path;
-use structopt::StructOpt;
-mayastor::CPS_INIT!();
-use mayastor::{persistent_store::PersistentStore, subsys::Registration};
 
+mayastor::CPS_INIT!();
 fn start_tokio_runtime(args: &MayastorCliArgs) {
     let grpc_address = grpc::endpoint(args.grpc_endpoint.clone());
     let rpc_address = args.rpc_address.clone();

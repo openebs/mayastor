@@ -1,7 +1,12 @@
 import asyncio
 from collections import namedtuple
 import asyncssh
+import subprocess
 CommandReturn = namedtuple("CommandReturn", "returncode stdout stderr")
+
+
+def run_cmd(cmd, check=True):
+    subprocess.run(cmd, shell=True, check=check)
 
 
 async def run_cmd_async(cmd):
@@ -40,7 +45,7 @@ async def run_cmd_async_at(host, cmd):
     async with asyncssh.connect(host) as conn:
         result = await conn.run(cmd, check=False)
 
-        output_message = f"Command:\n {host}:{cmd}"
+        output_message = f"Command: {host}:{cmd}\n"
         # Append stdout/stderr to the output message
         if result.stdout != "":
             output_message += f"\nstdout:\n{result.stdout}"
