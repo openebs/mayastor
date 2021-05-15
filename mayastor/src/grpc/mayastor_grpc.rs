@@ -46,7 +46,7 @@ impl From<LvsError> for Status {
             LvsError::Import {
                 ..
             } => Status::invalid_argument(e.to_string()),
-            LvsError::Create {
+            LvsError::RepCreate {
                 source, ..
             } => {
                 if source == Errno::ENOSPC {
