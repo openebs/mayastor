@@ -23,6 +23,8 @@
 //! When reconfiguring the nexus, we traverse all our children, create new IO
 //! channels for all children that are in the open state.
 
+use std::cmp::min;
+
 use futures::future::join_all;
 use snafu::ResultExt;
 
@@ -138,7 +140,9 @@ impl Nexus {
         let child_bdev = match device_lookup(&name) {
             Some(child) => {
                 if child.block_len() as u32 != self.bdev.block_len()
-                    || self.min_num_blocks() > child.num_blocks()
+                    || self
+                        .min_num_blocks()
+                        .map_or(true, |n| n > child.num_blocks())
                 {
                     if let Err(err) = device_destroy(uri).await {
                         error!(
@@ -444,31 +448,39 @@ impl Nexus {
 
         let size = self.size;
 
-        let (open, error): (Vec<_>, Vec<_>) = self
+        let (opened, failed): (Vec<usize>, Vec<usize>) = (0 .. self
             .children
-            .iter_mut()
-            .map(|c| c.open(size))
-            .partition(Result::is_ok);
+            .len())
+            .partition(|&i| match self.children[i].open(size) {
+                Ok(name) => {
+                    info!("{}: opened child {}", self.name, name);
+                    self.register_child_event_listener(&self.children[i]);
+                    true
+                }
+                Err(error) => {
+                    error!(
+                        "{}: failed to open child {}: {}",
+                        self.name,
+                        self.children[i].name,
+                        error.verbose()
+                    );
+                    false
+                }
+            });
 
-        // depending on IO consistency policies, we might be able to go online
-        // even if one of the children failed to open. This is work is not
+        // Depending on IO consistency policies, we might be able to go online
+        // even if some of the children failed to open. This is work is not
         // completed yet so we fail the registration all together for now.
-        if !error.is_empty() {
-            for open_child in open {
-                let name = open_child.unwrap();
-                if let Some(child) =
-                    self.children.iter_mut().find(|c| c.get_name() == name)
-                {
-                    if let Err(e) = child.close().await {
-                        error!(
-                            "{}: child {} failed to close with error {}",
-                            self.name,
-                            name,
-                            e.verbose()
-                        );
-                    }
-                } else {
-                    error!("{}: child {} failed to open", self.name, name);
+        if !failed.is_empty() {
+            // Close any children that WERE succesfully opened.
+            for i in opened {
+                if let Err(error) = self.children[i].close().await {
+                    error!(
+                        "{}: failed to close child {}: {}",
+                        self.name,
+                        self.children[i].name,
+                        error.verbose()
+                    );
                 }
             }
             return Err(Error::NexusIncomplete {
@@ -477,37 +489,24 @@ impl Nexus {
         }
 
         // FIXME: use dummy key for now
-        for c in &self.children {
-            if let Err(e) = c.resv_register(0x12345678).await {
+        for child in self.children.iter() {
+            if let Err(error) = child.resv_register(0x12345678).await {
                 error!(
-                    "{}: child {} failed to register key {}",
-                    self.name, c.name, e
+                    "{}: failed to register key {} for child {}",
+                    self.name, child.name, error
                 );
             }
         }
 
-        self.children
-            .iter()
-            .map(|c| c.get_device().as_ref().unwrap().alignment())
-            .collect::<Vec<_>>()
-            .iter()
-            .map(|s| {
-                if self.bdev.alignment() < *s {
-                    trace!(
-                        "{}: child has alignment {}, updating required_alignment from {}",
-                        self.name, *s, self.bdev.alignment()
-                    );
-                    unsafe {
-                        (*self.bdev.as_ptr()).required_alignment = *s as u8;
-                    }
+        for child in self.children.iter() {
+            let alignment = child.get_device().as_ref().unwrap().alignment();
+            if self.bdev.alignment() < alignment {
+                info!("{}: child {} has alignment {}, updating required_alignment from {}", self.name, child.name, alignment, self.bdev.alignment());
+                unsafe {
+                    (*self.bdev.as_ptr()).required_alignment = alignment as u8;
                 }
-            })
-            .for_each(drop);
-
-        // Register event listeners for child devices.
-        self.children.iter().for_each(|ch| {
-            self.register_child_event_listener(ch);
-        });
+            }
+        }
 
         Ok(())
     }
@@ -515,21 +514,12 @@ impl Nexus {
     /// The nexus is allowed to be smaller then the underlying child devices
     /// this function returns the smallest blockcnt of all online children as
     /// they MAY vary in size.
-    pub(crate) fn min_num_blocks(&self) -> u64 {
-        let mut blockcnt = std::u64::MAX;
+    pub(crate) fn min_num_blocks(&self) -> Option<u64> {
         self.children
             .iter()
             .filter(|c| c.state() == ChildState::Open)
             .map(|c| c.get_device().unwrap().num_blocks())
-            .collect::<Vec<_>>()
-            .iter()
-            .map(|s| {
-                if *s < blockcnt {
-                    blockcnt = *s;
-                }
-            })
-            .for_each(drop);
-        blockcnt
+            .reduce(min)
     }
 
     /// Lookup a child by its device name.

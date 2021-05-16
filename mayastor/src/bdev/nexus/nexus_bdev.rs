@@ -24,8 +24,10 @@ use spdk_sys::{spdk_bdev, spdk_bdev_register, spdk_bdev_unregister};
 
 use crate::{
     bdev::{
-        nexus,
+        device_destroy,
+        device_lookup,
         nexus::{
+            self,
             instances,
             nexus_channel::{
                 DrEvent,
@@ -40,7 +42,7 @@ use crate::{
     },
     core::{Bdev, CoreError, Cores, IoType, Protocol, Reactor, Share},
     ffihelper::errno_result_from_i32,
-    nexus_uri::{bdev_destroy, NexusBdevError},
+    nexus_uri::NexusBdevError,
     rebuild::RebuildError,
     subsys::{NvmfError, NvmfSubsystem},
 };
@@ -1023,9 +1025,13 @@ pub async fn nexus_create(
         }) => {
             // We still have code that waits for children to come online,
             // although this currently only works for config files.
-            // We need to explicitly clean up child bdevs if we get this error.
-            error!("failed to open nexus {}: missing children", name);
-            destroy_child_bdevs(name, children).await;
+            // We need to explicitly clean up child devices
+            // if we get this error.
+            error!(
+                "failed to open nexus {}: not all children are available",
+                name
+            );
+            destroy_child_devices(name, children).await;
             nexus_list.retain(|n| n.name != name);
             Err(Error::NexusCreate {
                 name: String::from(name),
@@ -1044,11 +1050,17 @@ pub async fn nexus_create(
 }
 
 /// Destroy list of child bdevs
-async fn destroy_child_bdevs(name: &str, list: &[String]) {
-    let futures = list.iter().map(String::as_str).map(bdev_destroy);
+async fn destroy_child_devices(nexus: &str, list: &[String]) {
+    let futures = list
+        .iter()
+        .map(String::as_str)
+        .filter(|name| device_lookup(name).is_some())
+        .map(device_destroy);
+
     let results = join_all(futures).await;
+
     if results.iter().any(|c| c.is_err()) {
-        error!("{}: Failed to destroy child bdevs", name);
+        error!("{}: Failed to destroy all child bdevs", nexus);
     }
 }
 
