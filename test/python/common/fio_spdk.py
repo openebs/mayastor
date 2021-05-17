@@ -4,6 +4,7 @@ import shutil
 from common.command import run_cmd_async
 from urllib.parse import urlparse
 
+
 class FioSpdk(object):
 
     def __init__(self, name, rw, uri, runtime=15):
@@ -18,7 +19,7 @@ class FioSpdk(object):
 
     async def run(self):
         spdk_path = os.environ.get('SPDK_PATH')
-        if spdk_path == None:
+        if spdk_path is None:
             spdk_path = os.getcwd() + '/../../spdk-sys/spdk/build'
         command = ("sudo LD_PRELOAD={}/fio/spdk_nvme fio --ioengine=spdk "
                    "--direct=1 --bs=4k --time_based=1 --runtime=15 "

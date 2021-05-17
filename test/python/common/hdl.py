@@ -92,6 +92,10 @@ class MayastorHandle(object):
         """Unpublish the nexus."""
         return self.ms.UnpublishNexus(pb.UnpublishNexusRequest(uuid=uuid))
 
+    def nexus_list(self):
+        """List all the  the nexus devices."""
+        return self.ms.ListNexus(pb.Null()).nexus_list
+
     def bdev_list(self):
         """"List all bdevs found within the system."""
         return self.bdev.List(pb.Null(), wait_for_ready=True)

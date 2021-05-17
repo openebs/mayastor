@@ -6,6 +6,7 @@ import pytest
 import uuid as guid
 import grpc
 import asyncio
+import mayastor_pb2 as pb
 from common.nvme import (
     nvme_discover,
     nvme_connect,
@@ -96,6 +97,9 @@ async def kill_after(container, sec):
     container.kill()
 
 
+pytest.mark.skip
+
+
 @pytest.mark.skip
 @pytest.mark.asyncio
 @pytest.mark.timeout(60)
@@ -113,11 +117,34 @@ async def test_nexus_2_mirror_kill_one(container_ref, create_nexus):
     nvme_disconnect(uri)
 
 
-# @pytest.mark.skip
 @pytest.mark.asyncio
 @pytest.mark.timeout(60)
 async def test_nexus_2_remote_mirror_kill_one(
-        container_ref, create_nexus):
+        container_ref, wait_for_mayastor, create_nexus):
+
+    """
+
+    This test does the following steps:
+
+        - creates mayastor instances
+        - creates pools on mayastor 1 and 2
+        - creates replicas on those pools
+        - creates a nexus on mayastor 3
+        - starts fio on a remote VM (vixos1) for 15 secondsj
+        - kills mayastor 2 after 4 seconds
+        - assume the test to succeed
+        - disconnect the VM from mayastor 3 when FIO completes
+        - removes the nexus from mayastor 3
+        - removes the replicas but as mayastor 2 is down, will swallow errors
+        - removes the pool
+
+    The bulk of this is done by reusing fixtures those fitures are not as
+    generic as one might like at this point so look/determine if you need them
+    to begin with.
+
+    By yielding from fixtures, after the tests the function is resumed where
+    yield is called.
+    """
 
     containers = container_ref
     uri = create_nexus
@@ -125,14 +152,16 @@ async def test_nexus_2_remote_mirror_kill_one(
     dev = await nvme_remote_connect("vixos1", uri)
 
     job = Fio("job1", "rw", dev).build()
-    try:
-        await asyncio.gather(
-            run_cmd_async_at("vixos1", job),
-            kill_after(containers.get("ms1"), 5),
-            kill_after(containers.get("ms2"), 4)
-        )
-    except Exception:
-        # expect failure
-        pass
-    finally:
-        await nvme_remote_disconnect("vixos1", uri)
+
+    # create an event loop polling the async processes for completion
+    await asyncio.gather(
+        run_cmd_async_at("vixos1", job),
+        kill_after(containers.get("ms2"), 4))
+
+    list = wait_for_mayastor.get("ms3").nexus_list()
+    nexus = next(n for n in list if n.uuid == NEXUS_UUID)
+    assert nexus.state == pb.NEXUS_DEGRADED
+    nexus.children[1].state == pb.CHILD_FAULTED
+
+    # disconnect the VM from our target before we shutdown
+    await nvme_remote_disconnect("vixos1", uri)
