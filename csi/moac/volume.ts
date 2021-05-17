@@ -164,6 +164,11 @@ export class Volume {
     return Object.values(this.replicas);
   }
 
+  // Return volume nexus.
+  getNexus(): Nexus | undefined {
+    return this.nexus || undefined;
+  }
+
   // Publish the volume. That means, make it accessible through a target.
   //
   // @params nodeId        ID of the node where the volume will be mounted.
@@ -602,9 +607,10 @@ export class Volume {
         pair.r &&
         pair.ch.state === 'CHILD_ONLINE' &&
         this.spec.requiredNodes.length > 0 &&
-        this.spec.requiredNodes.indexOf(pair.r.pool!.node.name) < 0
+        pair.r.pool?.node &&
+        this.spec.requiredNodes.indexOf(pair.r.pool.node.name) < 0
       ) {
-        if (this.spec.requiredNodes.indexOf(pair.r.pool!.node.name) < 0) {
+        if (this.spec.requiredNodes.indexOf(pair.r.pool.node.name) < 0) {
           return true;
         }
       }
@@ -807,7 +813,7 @@ export class Volume {
     );
     // remove pools that are already used by existing replicas
     const usedNodes = Object.keys(this.replicas);
-    pools = pools.filter((p) => usedNodes.indexOf(p.node.name) < 0);
+    pools = pools.filter((p) => p.node && usedNodes.indexOf(p.node.name) < 0);
     if (pools.length < count) {
       log.error(
         `No suitable pool(s) for volume "${this}" with capacity ` +
@@ -834,7 +840,7 @@ export class Volume {
 
     // For local volumes, local pool should have the max priority.
     if (this.spec.local && this.spec.preferredNodes[0]) {
-      let idx = pools.findIndex((p) => p.node.name === this.spec.preferredNodes[0]);
+      let idx = pools.findIndex((p) => p.node && p.node.name === this.spec.preferredNodes[0]);
       if (idx >= 0) {
         let localPool = pools.splice(idx, 1)[0];
         pools.unshift(localPool);
@@ -885,7 +891,10 @@ export class Volume {
   //
   _scoreReplica(replica: Replica) {
     let score = 0;
-    const node = replica.pool!.node;
+    const node = replica.pool?.node;
+    if (!node) {
+      return 0;
+    }
 
     // The idea is that the sum of less important scores should never overrule
     // the more important criteria.
@@ -1093,7 +1102,12 @@ export class Volume {
   // @param replica   New replica object.
   newReplica(replica: Replica) {
     assert.strictEqual(replica.uuid, this.uuid);
-    const nodeName = replica.pool!.node.name;
+    const nodeName = replica.pool?.node?.name;
+    if (!nodeName) {
+      log.warn(
+        `Cannot add replica "${replica}" without a node to the volume`
+      );
+    }
     if (this.replicas[nodeName]) {
       log.warn(
         `Trying to add the same replica "${replica}" to the volume twice`
@@ -1111,7 +1125,12 @@ export class Volume {
   // @param replica   Modified replica object.
   modReplica(replica: Replica) {
     assert.strictEqual(replica.uuid, this.uuid);
-    const nodeName = replica.pool!.node.name;
+    const nodeName = replica.pool?.node?.name;
+    if (!nodeName) {
+      log.warn(
+        `Cannot update volume by replica "${replica}" without a node`
+      );
+    }
     if (!this.replicas[nodeName]) {
       log.warn(`Modified replica "${replica}" does not belong to the volume`);
     } else {
@@ -1127,7 +1146,12 @@ export class Volume {
   // @param replica   Deleted replica object.
   delReplica(replica: Replica) {
     assert.strictEqual(replica.uuid, this.uuid);
-    const nodeName = replica.pool!.node.name;
+    const nodeName = replica.pool?.node?.name;
+    if (!nodeName) {
+      log.warn(
+        `Cannot delete replica "${replica}" without a node from the volume`
+      );
+    }
     if (!this.replicas[nodeName]) {
       log.warn(`Deleted replica "${replica}" does not belong to the volume`);
     } else {
