@@ -15,7 +15,7 @@ const expect = require('chai').expect;
 const sinon = require('sinon');
 const sleep = require('sleep-promise');
 const { KubeConfig } = require('client-node-fixed-watcher');
-const Registry = require('../registry');
+const { Registry } = require('../registry');
 const { GrpcError, grpcCode } = require('../grpc_client');
 const { PoolOperator, PoolResource } = require('../pool_operator');
 const { Pool } = require('../pool');
@@ -114,7 +114,7 @@ function createPoolResource (
 
 // Create a pool operator object suitable for testing - with mocked watcher etc.
 function createPoolOperator (nodes) {
-  const registry = new Registry();
+  const registry = new Registry({});
   registry.Node = Node;
   nodes = nodes || [];
   nodes.forEach((n) => (registry.nodes[n.name] = n));
@@ -167,7 +167,7 @@ module.exports = function () {
     let kc, oper, fakeApiStub;
 
     beforeEach(() => {
-      const registry = new Registry();
+      const registry = new Registry({});
       kc = new KubeConfig();
       Object.assign(kc, fakeConfig);
       oper = new PoolOperator(NAMESPACE, kc, registry);

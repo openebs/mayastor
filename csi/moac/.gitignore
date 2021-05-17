@@ -9,6 +9,7 @@
 /node_operator.js
 /pool.js
 /pool_operator.js
+/registry.js
 /replica.js
 /volume.js
 /volumes.js

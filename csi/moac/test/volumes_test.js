@@ -13,7 +13,7 @@ const sinon = require('sinon');
 const { Nexus } = require('../nexus');
 const { Node } = require('../node');
 const { Pool } = require('../pool');
-const Registry = require('../registry');
+const { Registry } = require('../registry');
 const { Replica } = require('../replica');
 const { Volume } = require('../volume');
 const { Volumes } = require('../volumes');
@@ -38,7 +38,7 @@ module.exports = function () {
 
   // Create pristine test env with 3 pools on 3 nodes
   function createTestEnv () {
-    registry = new Registry();
+    registry = new Registry({});
     volumes = new Volumes(registry);
     node1 = new Node('node1');
     node2 = new Node('node2');

@@ -60,7 +60,11 @@ describe('moac', function () {
       // NATS does not run but just to verify that the option works
       '--message-bus=127.0.0.1',
       // shorten the warm up to make the test faster
-      '--heartbeat-interval=1'
+      '--heartbeat-interval=1',
+      // test various sync options
+      '--sync-period=10',
+      '--sync-retry=1',
+      '--sync-bad-limit=3'
     ]);
     let stderr = '';
 
