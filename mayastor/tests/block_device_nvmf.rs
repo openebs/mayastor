@@ -1485,6 +1485,180 @@ async fn nvmf_device_write_zeroes() {
 }
 
 #[tokio::test]
+async fn nvmf_close_device_handle() {
+    const BUF_SIZE: u64 = 32768;
+    const NUM_IOS: u64 = 5;
+
+    let ms = get_ms();
+    let (_test, dev_url) = launch_instance().await;
+    let u = Arc::new(dev_url);
+    let mut url = Arc::clone(&u);
+
+    // Placeholder structure to let all the fields outlive API invocations.
+    struct IoCtx {
+        iov: iovec,
+        iovcnt: i32,
+        dma_buf: DmaBuf,
+        handle: Box<dyn BlockDeviceHandle>,
+    }
+
+    static DEVICE_NAME: OnceCell<String> = OnceCell::new();
+
+    // Write I/O completion callback.
+    fn io_completion_callback(
+        device: &dyn BlockDevice,
+        status: IoCompletionStatus,
+        ctx: *mut c_void,
+        read: bool,
+    ) {
+        // Make sure I/O operation has failed.
+        assert_ne!(
+            status,
+            IoCompletionStatus::Success,
+            "{} I/O operation completed successfully",
+            if read { "read" } else { "write" }
+        );
+
+        // Make sure we have the correct device.
+        assert_eq!(
+            &device.device_name(),
+            DEVICE_NAME.get().unwrap(),
+            "Device name mismatch"
+        );
+
+        // Make sure we were passed the same pattern string as requested.
+        let s = unsafe {
+            let slice = slice::from_raw_parts(
+                ctx as *const u8,
+                MAYASTOR_CTRLR_TITLE.len(),
+            );
+            str::from_utf8(slice).unwrap()
+        };
+
+        assert_eq!(s, MAYASTOR_CTRLR_TITLE);
+
+        if read {
+            io_stat_account_read();
+        } else {
+            io_stat_account_write();
+        }
+    }
+
+    // Read I/O completion callback.
+    fn read_completion_callback(
+        device: &dyn BlockDevice,
+        status: IoCompletionStatus,
+        ctx: *mut c_void,
+    ) {
+        io_completion_callback(device, status, ctx, true);
+    }
+
+    // Write I/O completion callback.
+    fn write_completion_callback(
+        device: &dyn BlockDevice,
+        status: IoCompletionStatus,
+        ctx: *mut c_void,
+    ) {
+        io_completion_callback(device, status, ctx, false);
+    }
+
+    // Clear callback invocation flag and I/O stats.
+    reset_io_stats();
+
+    let buf_ptr = ms
+        .spawn(async move {
+            let name = device_create(&(*url)).await.unwrap();
+            let descr = device_open(&name, false).unwrap();
+            let handle = descr.into_handle().unwrap();
+            let (block_len, alignment) = {
+                let device = handle.get_device();
+                (device.block_len(), device.alignment())
+            };
+
+            // Store device name for further checking from I/O callback.
+            DEVICE_NAME.set(name.clone()).unwrap();
+
+            let mut io_ctx = IoCtx {
+                iov: iovec::default(),
+                iovcnt: 1,
+                dma_buf: create_io_buffer(alignment, BUF_SIZE, GUARD_PATTERN),
+                handle,
+            };
+
+            io_ctx.iov.iov_base = *io_ctx.dma_buf;
+            io_ctx.iov.iov_len = BUF_SIZE;
+
+            // Initiate a 3 read and 3 write operations into the buffer.
+            // We use the same IOVs as we don't care about the I/O result and
+            // care only about failures which we're gonna trigger.
+            for _ in 0 .. NUM_IOS {
+                io_ctx
+                    .handle
+                    .readv_blocks(
+                        &mut io_ctx.iov,
+                        io_ctx.iovcnt,
+                        (3 * 1024 * 1024) / block_len,
+                        BUF_SIZE / block_len,
+                        read_completion_callback,
+                        // Use a predefined string to check that we receive the
+                        // same context pointer as we pass upon
+                        // invocation. For this call we don't need any
+                        // specific, operation-related context.
+                        MAYASTOR_CTRLR_TITLE.as_ptr() as *mut c_void,
+                    )
+                    .unwrap();
+
+                io_ctx
+                    .handle
+                    .writev_blocks(
+                        &mut io_ctx.iov,
+                        io_ctx.iovcnt,
+                        (3 * 1024 * 1024) / block_len,
+                        BUF_SIZE / block_len,
+                        write_completion_callback,
+                        // Use a predefined string to check that we receive the
+                        // same context pointer as we pass upon
+                        // invocation. For this call we don't need any
+                        // specific, operation-related context.
+                        MAYASTOR_CTRLR_TITLE.as_ptr() as *mut c_void,
+                    )
+                    .unwrap();
+            }
+
+            // Close the handle with active I/O requests.
+            io_ctx.handle.close().expect("Failed to close I/O handle");
+
+            AtomicPtr::new(Box::into_raw(Box::new(io_ctx)))
+        })
+        .await;
+
+    // Sleep for a few seconds to let all I/O operations be aborted.
+    println!("Sleeping for 1 sec to let I/O operations complete");
+    tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+    println!("Awakened.");
+
+    // Check that the reset callback has been called and
+    // all I/O related callbacks have also been called.
+    check_io_stats(NUM_IOS, NUM_IOS);
+
+    let b = buf_ptr.into_inner();
+
+    // Turn placeholder structure into a box to trigger drop() action
+    // on handle's resources once the box is dropped.
+    ms.spawn(async move {
+        let _ph = unsafe { Box::from_raw(b) };
+    })
+    .await;
+
+    // Once all handles are closed, destroy the device.
+    url = Arc::clone(&u);
+    ms.spawn(async move {
+        device_destroy(&(*url)).await.unwrap();
+    })
+    .await;
+}
+
+#[tokio::test]
 async fn nvmf_reset_abort_io() {
     const BUF_SIZE: u64 = 32768;
     const NUM_IOS: u64 = 4;

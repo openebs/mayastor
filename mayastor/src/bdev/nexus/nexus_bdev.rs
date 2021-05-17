@@ -405,6 +405,8 @@ struct UpdateFailFastCtx {
     increment: bool,
     sender: oneshot::Sender<bool>,
     nexus: String,
+    /// Device that has failed.
+    failed_device: Option<String>,
 }
 
 fn update_failfast_cb(
@@ -413,11 +415,40 @@ fn update_failfast_cb(
 ) -> i32 {
     let old_value = channel.fail_fast;
 
+    // Increment fail-fast counter and close I/O handles for target device.
     if ctx.increment {
+        let target_device = ctx.failed_device.as_ref().expect(
+            "Device name must be provided when incrementing fail-fast counter",
+        );
+
         channel.fail_fast = channel
             .fail_fast
             .checked_add(1)
             .expect("Fail-fast counter overflow");
+
+        // Close I/O handle to cancel all active I/O for target device.
+        [&mut channel.readers, &mut channel.writers]
+            .iter_mut()
+            .for_each(|c| {
+                c.iter_mut().for_each(|h| {
+                    if h.get_device().device_name().eq(target_device) {
+                        match h.close() {
+                            Err(e) => {
+                                error!(
+                                    "{} failed to close device handle handle: {:?}",
+                                    target_device, e
+                                );
+                            },
+                            _ => {
+                                info!(
+                                    "{} device handle successfully closed",
+                                    target_device
+                                );
+                            }
+                        }
+                    }
+                });
+            });
     } else {
         channel.fail_fast = channel
             .fail_fast
@@ -790,13 +821,18 @@ impl Nexus {
 
     // Abort all active I/O for target child and set I/O fail-fast flag
     // for the child.
-    async fn update_failfast(&self, increment: bool) -> Result<(), Error> {
+    async fn update_failfast(
+        &self,
+        increment: bool,
+        failed_device: Option<String>,
+    ) -> Result<(), Error> {
         let (sender, r) = oneshot::channel::<bool>();
 
         let ctx = UpdateFailFastCtx {
             sender,
             increment,
             nexus: self.name.clone(),
+            failed_device,
         };
 
         let io_device = self.io_device.as_ref().expect("Nexus not opened");
@@ -814,12 +850,15 @@ impl Nexus {
         Ok(())
     }
 
-    pub(crate) async fn set_failfast(&self) -> Result<(), Error> {
-        self.update_failfast(true).await
+    pub(crate) async fn set_failfast(
+        &self,
+        failed_device: String,
+    ) -> Result<(), Error> {
+        self.update_failfast(true, Some(failed_device)).await
     }
 
     pub(crate) async fn clear_failfast(&self) -> Result<(), Error> {
-        self.update_failfast(false).await
+        self.update_failfast(false, None).await
     }
 
     /// get ANA state of the NVMe subsystem

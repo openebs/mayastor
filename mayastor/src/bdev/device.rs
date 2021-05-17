@@ -436,6 +436,16 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
         }
     }
 
+    fn close(&mut self) -> Result<(), CoreError> {
+        warn!(
+            "{} close() method is not implemented for native bdev I/O handles",
+            self.device.device_name(),
+        );
+        Err(CoreError::NotSupported {
+            source: Errno::ENXIO,
+        })
+    }
+
     fn reset(
         &self,
         cb: IoCompletionCallback,

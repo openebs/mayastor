@@ -640,7 +640,7 @@ impl NexusBio {
                             // inconsistency in reading/updating nexus
                             // configuration.
                             nexus.pause().await.unwrap();
-                            nexus.set_failfast().await.unwrap();
+                            nexus.set_failfast(device.clone()).await.unwrap();
                             nexus.reconfigure(DrEvent::ChildFault).await;
 
                             // Lookup child once more and finally remove it.

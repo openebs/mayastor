@@ -747,6 +747,15 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         }
     }
 
+    fn close(&mut self) -> Result<(), CoreError> {
+        let channel = self.io_channel.as_ptr();
+        let inner = NvmeIoChannel::inner_from_channel(channel);
+
+        let rc = inner.shutdown();
+        info!("{} device handle closed, rc={}", self.name, rc);
+        Ok(())
+    }
+
     fn reset(
         &self,
         cb: IoCompletionCallback,

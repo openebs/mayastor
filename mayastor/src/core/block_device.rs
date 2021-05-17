@@ -163,6 +163,12 @@ pub trait BlockDeviceHandle {
         cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError>;
 
+    /// Cancel all outstanding I/O operations associated with this handle and
+    /// release all its resources, making the handle unusable for further
+    /// I/O submissions. This function must be called only by the thread
+    /// that initially opened the handle: otherwise it might panic.
+    fn close(&mut self) -> Result<(), CoreError>;
+
     // NVMe only.
     async fn nvme_admin_custom(&self, opcode: u8) -> Result<(), CoreError>;
     async fn nvme_admin(
