@@ -18,6 +18,13 @@ class MayastorHandle(object):
         self.bdev_list()
         self.pool_list()
 
+    def reconnect(self):
+        self.channel = grpc.insecure_channel(("%s:10124") % self.ip_v4)
+        self.bdev = rpc.BdevRpcStub(self.channel)
+        self.ms = rpc.MayastorStub(self.channel)
+        self.bdev_list()
+        self.pool_list()
+
     def __del__(self):
         del self.channel
 
@@ -69,6 +76,9 @@ class MayastorHandle(object):
         """Destroy the replica by the UUID, the pool is resolved within
         mayastor."""
         return self.ms.DestroyReplica(pb.DestroyReplicaRequest(uuid=uuid))
+
+    def replica_list(self):
+        return self.ms.ListReplicas(pb.Null())
 
     def nexus_create(self, uuid, size, children):
         """Create a nexus with the given uuid and size. The children are

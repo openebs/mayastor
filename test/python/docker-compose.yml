@@ -9,7 +9,6 @@ services:
     image: rust:latest
     environment:
         - MY_POD_IP=10.0.0.2
-        - RUST_LOG=mayastor=trace
     command: ${SRCDIR}/target/debug/mayastor -g 0.0.0.0 -l 1,2 -r /tmp/ms1.sock
     networks:
       mayastor_net:
@@ -33,7 +32,6 @@ services:
     image: rust:latest
     environment:
         - MY_POD_IP=10.0.0.3
-        - RUST_LOG=mayastor=trace
     command: ${SRCDIR}/target/debug/mayastor -g 0.0.0.0 -l 3,4 -r /tmp/ms2.sock
     networks:
       mayastor_net:
@@ -53,10 +51,8 @@ services:
     container_name: "ms3"
     image: rust:latest
     environment:
-        - NVME_ADMINQ_POLL_PERIOD_US=10000
         - MY_POD_IP=10.0.0.4
         - RUST_BACKTRACE=full
-        - RUST_LOG=mayastor=trace
     command: ${SRCDIR}/target/debug/mayastor -g 0.0.0.0 -l 5,6 -r /tmp/ms3.sock
     networks:
       mayastor_net:

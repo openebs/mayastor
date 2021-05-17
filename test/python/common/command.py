@@ -1,7 +1,12 @@
 import asyncio
 from collections import namedtuple
 import asyncssh
+import subprocess
 CommandReturn = namedtuple("CommandReturn", "returncode stdout stderr")
+
+
+def run_cmd(cmd, check=True):
+    subprocess.run(cmd, shell=True, check=check)
 
 
 async def run_cmd_async(cmd):
