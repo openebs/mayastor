@@ -104,6 +104,13 @@ enum Disposition {
 }
 
 pub(crate) fn nexus_submit_io(mut io: NexusBio) {
+    // Fail-fast all incoming I/O if the flag is set.
+    let inner = io.inner_channel();
+    if inner.fail_fast > 0 {
+        io.fail();
+        return;
+    }
+
     if let Err(_e) = match io.cmd() {
         IoType::Read => io.readv(),
         // these IOs are submitted to all the underlying children
@@ -182,7 +189,7 @@ impl NexusBio {
     /// disposition. The general approach is if we return Disposition::
     /// Retire(IoStatus::Success) it means that we retire the current child and
     /// then, return mark the IO successful.
-    fn disposition(&mut self) -> Disposition {
+    fn disposition(&mut self, success: bool) -> Disposition {
         let ctx = self.ctx_as_mut();
         match ctx.status {
             // all child IO's completed, complete the parent IO
@@ -193,8 +200,9 @@ impl NexusBio {
             IoStatus::Pending if ctx.in_flight != 0 => {
                 Disposition::Flying(IoStatus::Success)
             }
+
             // Other IO are still inflight we encountered an error, retire this
-            // child
+            // child.
             IoStatus::Failed if ctx.in_flight != 0 => {
                 Disposition::Retire(IoStatus::Pending)
             }
@@ -202,12 +210,18 @@ impl NexusBio {
             // this IO failed, but we have seen successfully IO's for the parent
             // already retire it
             IoStatus::Failed if ctx.num_ok != 0 && ctx.in_flight == 0 => {
-                Disposition::Retire(IoStatus::Success)
+                // Do not retire the current device if the error was triggered
+                // by I/Os on other replicas.
+                if success {
+                    Disposition::Complete(IoStatus::Failed)
+                } else {
+                    Disposition::Retire(IoStatus::Failed)
+                }
             }
 
             // ALL io's have failed
             IoStatus::Failed if ctx.num_ok == 0 && ctx.in_flight == 0 => {
-                Disposition::Complete(IoStatus::Failed)
+                Disposition::Retire(IoStatus::Failed)
             }
             // all IOs that where partially submitted completed, no bubble up
             // the ENOMEM to the upper layer we do not care if the
@@ -236,7 +250,6 @@ impl NexusBio {
     ) {
         assert_eq!(self.ctx().core, Cores::current());
         let success = status == IoCompletionStatus::Success;
-        let device_name = child.device_name();
 
         // decrement the counter of in flight IO
         self.ctx_as_mut().in_flight -= 1;
@@ -248,9 +261,21 @@ impl NexusBio {
             self.ctx_as_mut().status = IoStatus::Failed;
         }
 
-        match self.disposition() {
+        match self.disposition(success) {
             // the happy path, all is good
-            Disposition::Complete(IoStatus::Success) => self.ok(),
+            Disposition::Complete(IoStatus::Success) => {
+                // Check if the operation has to be explicitly failed still.
+                if self.inner_channel().fail_fast > 0 {
+                    error!(
+                        "{} failing the {:?} operation due to fail-fast request",
+                        child.device_name(),
+                        self.cmd(),
+                    );
+                    self.fail()
+                } else {
+                    self.ok()
+                }
+            }
             // All of IO's have failed but all remaining in flights completed
             // now as well depending on the error we can attempt to
             // do a retry.
@@ -265,7 +290,8 @@ impl NexusBio {
             // this child. This typically would only match when the last IO
             // has failed i.e [ok,ok,fail]
             Disposition::Retire(IoStatus::Success) => {
-                assert!(!success);
+                let device_name = child.device_name();
+                //assert!(!success);
                 error!(
                     ?self,
                     ?device_name,
@@ -282,6 +308,8 @@ impl NexusBio {
             // the parent status back to pending for example [ok,
             // fail, pending]
             Disposition::Retire(IoStatus::Pending) => {
+                let device_name = child.device_name();
+
                 error!(
                     ?self,
                     ?device_name,
@@ -293,10 +321,18 @@ impl NexusBio {
                 // more IO is pending ensure we set the proper context state
                 self.ctx_as_mut().status = IoStatus::Pending;
             }
-            // Disposition::Flying(_) => {
-            //     assert_eq!(self.ctx().status, IoStatus::Pending);
-            //     assert_ne!(self.ctx().in_flight, 0);
-            // },
+
+            Disposition::Retire(IoStatus::Failed) => {
+                //assert_eq!(success, false);
+                error!(
+                    ?self,
+                    "{}:{}",
+                    Cores::current(),
+                    "last child IO failed completion"
+                );
+                self.try_retire(child, status);
+                self.fail();
+            }
             _ => {}
         }
     }
@@ -337,16 +373,45 @@ impl NexusBio {
     }
 
     fn do_readv(&mut self) -> Result<(), CoreError> {
-        if let Some(i) = self.inner_channel().child_select() {
+        let inner = self.inner_channel();
+
+        // Upon buffer allocation we might have been rescheduled, so check
+        // the fail-fast flag once more.
+        if inner.fail_fast > 0 {
+            self.fail();
+            return Err(CoreError::ReadDispatch {
+                source: Errno::ENXIO,
+                offset: self.offset(),
+                len: self.num_blocks(),
+            });
+        }
+
+        if let Some(i) = inner.child_select() {
             let hdl = self.read_channel_at_index(i);
-            self.submit_read(hdl)
-                .map(|_| {
-                    self.ctx_as_mut().in_flight += 1;
-                })
-                .map_err(|e| {
-                    self.fail();
-                    e
-                })
+            let r = self.submit_read(hdl).map_err(|e| {
+                self.fail();
+                e
+            });
+
+            if r.is_err() {
+                // Such a situation can happen when there is no active I/O in
+                // the queues, but error on qpair is observed
+                // due to network timeout, which initiates
+                // controller reset. During controller reset all
+                // I/O channels are deinitialized, so no I/O
+                // submission is possible (spdk returns -6/ENXIO), so we have to
+                // start device retire.
+                // TODO: ENOMEM and ENXIO should be handled differently and
+                // device should not be retired in case of ENOMEM.
+                info!(
+                    "{} initiating retire in response to READ submission error",
+                    hdl.get_device().device_name(),
+                );
+                self.do_retire(hdl.get_device().device_name());
+            } else {
+                self.ctx_as_mut().in_flight += 1;
+            }
+            r
         } else {
             self.fail();
             Err(CoreError::NoDevicesAvailable {})
@@ -371,7 +436,6 @@ impl NexusBio {
     /// submit read IO to some child
     fn readv(&mut self) -> Result<(), CoreError> {
         if self.0.need_buf() {
-            info!("Allocating buffer for Nexus I/O");
             unsafe {
                 spdk_bdev_io_get_buf(
                     self.0.as_ptr(),
@@ -442,48 +506,52 @@ impl NexusBio {
     fn submit_all(&mut self) -> Result<(), CoreError> {
         let mut inflight = 0;
         let mut status = IoStatus::Pending;
+        // Name of the device which experiences I/O submission failures.
+        let mut failed_device = None;
 
-        let result = match self.cmd() {
-            IoType::Write => {
-                self.inner_channel().writers.iter().try_for_each(|h| {
-                    self.submit_write(&**h).map(|_| {
-                        inflight += 1;
-                    })
-                })
+        let cmd = self.cmd();
+        let result = self.inner_channel().writers.iter().try_for_each(|h| {
+            match cmd {
+                IoType::Write => self.submit_write(&**h),
+                IoType::Unmap => self.submit_unmap(&**h),
+                IoType::WriteZeros => self.submit_write_zeroes(&**h),
+                IoType::Reset => self.submit_reset(&**h),
+                // we should never reach here, if we do it is a bug.
+                _ => unreachable!(),
             }
-            IoType::Unmap => {
-                self.inner_channel().writers.iter().try_for_each(|h| {
-                    self.submit_unmap(&**h).map(|_| {
-                        inflight += 1;
-                    })
-                })
-            }
-            IoType::WriteZeros => {
-                self.inner_channel().writers.iter().try_for_each(|h| {
-                    self.submit_write_zeroes(&**h).map(|_| {
-                        inflight += 1;
-                    })
-                })
-            }
-            IoType::Reset => {
-                self.inner_channel().writers.iter().try_for_each(|h| {
-                    self.submit_reset(&**h).map(|_| {
-                        inflight += 1;
-                    })
-                })
-            }
-            // we should never reach here, if we do it is a bug.
-            _ => unreachable!(),
-        }
-        .map_err(|se| {
-            // TODO: Support of IoStatus::NoMemory in ENOMEM-related errors.
-            status = IoStatus::Failed;
-            debug!(
-                "IO submission failed with {} already submitted IOs {}",
-                se, inflight
-            );
-            se
+            .map(|_| {
+                inflight += 1;
+            })
+            .map_err(|se| {
+                status = IoStatus::Failed;
+                error!(
+                    "IO submission failed with error {:?}, I/Os submitted: {}",
+                    se, inflight
+                );
+
+                // Record the name of the device for immediat retire.
+                failed_device = Some(h.get_device().device_name());
+                se
+            })
         });
+
+        // Submission errors can also trigger device retire.
+        // Such a situation can happen when there is no active I/O in the
+        // queues, but error on qpair is observed due to network
+        // timeout, which initiates controller reset. During controller
+        // reset all I/O channels are deinitialized, so no I/O
+        // submission is possible (spdk returns -6/ENXIO), so we have to
+        // start device retire.
+        // TODO: ENOMEM and ENXIO should be handled differently and
+        // device should not be retired in case of ENOMEM.
+        if result.is_err() {
+            let device = failed_device.unwrap();
+            info!(
+                "{}: retiring device in response to submission error={:?}",
+                device, result,
+            );
+            self.do_retire(device);
+        }
 
         if inflight != 0 {
             self.ctx_as_mut().in_flight = inflight;
@@ -494,6 +562,13 @@ impl NexusBio {
             self.fail();
         }
         result
+    }
+
+    fn do_retire(&self, child: String) {
+        Reactors::master().send_future(Self::child_retire(
+            self.nexus_as_ref().name.clone(),
+            child,
+        ));
     }
 
     fn try_retire(
@@ -516,54 +591,88 @@ impl NexusBio {
                 return;
             }
         }
-
-        Reactors::master().send_future(Self::child_retire(
-            self.nexus_as_ref().name.clone(),
-            child.device_name(),
-        ));
+        info!("{} try_retire() called", child.device_name());
+        self.do_retire(child.device_name());
     }
 
     /// Retire a child for this nexus.
     async fn child_retire(nexus: String, device: String) {
         match nexus_lookup(&nexus) {
             Some(nexus) => {
-                if let Some(child) = nexus.child_lookup(&device) {
-                    let current_state = child.state.compare_and_swap(
-                        ChildState::Open,
-                        ChildState::Faulted(Reason::IoError),
-                    );
-
-                    if current_state == ChildState::Open {
-                        warn!(
-                            "core {} thread {:?}, faulting child {}",
-                            Cores::current(),
-                            Mthread::current(),
-                            child,
+                // Narrow nexus child scope to not interfere with mutually
+                // borrowed nexus object.
+                let child_state = {
+                    if let Some(child) = nexus.child_lookup(&device) {
+                        let current_state = child.state.compare_and_swap(
+                            ChildState::Open,
+                            ChildState::Faulted(Reason::IoError),
                         );
+                        Some(current_state)
+                    } else {
+                        None
+                    }
+                };
 
-                        nexus.pause().await.unwrap();
-                        nexus.reconfigure(DrEvent::ChildFault).await;
-                        // TODO: an error can occur here if a separate task,
-                        // e.g. grpc request is also deleting the child.
-                        if let Err(err) = child.destroy().await {
-                            error!(
-                                "{}: destroying child {} failed {}",
-                                nexus, child, err
+                match child_state {
+                    None => {
+                        debug!(
+                            "{} does not belong (anymore) to nexus {}",
+                            device, nexus
+                        );
+                    }
+                    Some(current_state) => {
+                        if current_state == ChildState::Open {
+                            warn!(
+                                "core {} thread {:?}, faulting child {}",
+                                Cores::current(),
+                                Mthread::current(),
+                                device,
                             );
-                        }
 
-                        nexus.resume().await.unwrap();
-                        if nexus.status() == NexusStatus::Faulted {
-                            error!(":{} has no children left... ", nexus);
+                            // Pausing a nexus acts like entering a critical
+                            // section,
+                            // allowing only one retire request to run at a
+                            // time, which prevents
+                            // inconsistency in reading/updating nexus
+                            // configuration.
+                            nexus.pause().await.unwrap();
+                            nexus.set_failfast().await.unwrap();
+                            nexus.reconfigure(DrEvent::ChildFault).await;
+
+                            // Lookup child once more and finally remove it.
+                            match nexus.child_lookup(&device) {
+                                Some(child) => {
+                                    // TODO: an error can occur here if a
+                                    // separate task,
+                                    // e.g. grpc request is also deleting the
+                                    // child.
+                                    if let Err(err) = child.destroy().await {
+                                        error!(
+                                            "{}: destroying child {} failed {}",
+                                            nexus, child, err
+                                        );
+                                    }
+                                }
+                                None => {
+                                    warn!(
+                                        "{} no longer belongs to nexus {}, skipping child removal",
+                                        device, nexus
+                                    );
+                                }
+                            }
+
+                            nexus.clear_failfast().await.unwrap();
+                            nexus.resume().await.unwrap();
+
+                            if nexus.status() == NexusStatus::Faulted {
+                                error!(":{} has no children left... ", nexus);
+                            }
                         }
                     }
                 }
             }
             None => {
-                debug!(
-                    "{} does not belong (anymore) to nexus {}",
-                    device, nexus
-                );
+                debug!("{} Nexus does not exist anymore", nexus);
             }
         }
     }
