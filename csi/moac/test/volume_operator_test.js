@@ -2,12 +2,14 @@
 
 'use strict';
 
+/* eslint-disable no-unused-expressions */
+
 const _ = require('lodash');
 const EventEmitter = require('events');
 const expect = require('chai').expect;
 const sinon = require('sinon');
 const sleep = require('sleep-promise');
-const { KubeConfig } = require('client-node-fixed-watcher');
+const { KubeConfig } = require('@kubernetes/client-node');
 const { Registry } = require('../registry');
 const { Volume } = require('../volume');
 const { Volumes } = require('../volumes');
@@ -154,7 +156,7 @@ module.exports = function () {
       );
       expect(res.metadata.name).to.equal(UUID);
       expect(res.spec.replicaCount).to.equal(3);
-      expect(res.spec.local).to.be.true();
+      expect(res.spec.local).to.be.true;
       expect(res.spec.preferredNodes).to.have.lengthOf(2);
       expect(res.spec.preferredNodes[0]).to.equal('node1');
       expect(res.spec.preferredNodes[1]).to.equal('node2');
@@ -218,7 +220,7 @@ module.exports = function () {
 
       expect(res.metadata.name).to.equal(UUID);
       expect(res.spec.replicaCount).to.equal(3);
-      expect(res.spec.local).to.be.false();
+      expect(res.spec.local).to.be.false;
       expect(res.spec.preferredNodes).to.have.lengthOf(2);
       expect(res.spec.preferredNodes[0]).to.equal('node1');
       expect(res.spec.preferredNodes[1]).to.equal('node2');
@@ -229,7 +231,7 @@ module.exports = function () {
       expect(res.status.size).to.equal(110);
       expect(res.status.targetNodes).to.deep.equal(['node2']);
       expect(res.status.state).to.equal('healthy');
-      expect(res.status.nexus).is.undefined();
+      expect(res.status.nexus).is.undefined;
       expect(res.status.replicas).to.have.lengthOf(0);
     });
 
@@ -244,7 +246,7 @@ module.exports = function () {
       });
       expect(res.metadata.name).to.equal(UUID);
       expect(res.spec.replicaCount).to.equal(3);
-      expect(res.status).to.be.undefined();
+      expect(res.status).to.be.undefined;
     });
 
     it('should create mayastor volume without optional parameters', () => {
@@ -253,12 +255,12 @@ module.exports = function () {
       });
       expect(res.metadata.name).to.equal(UUID);
       expect(res.spec.replicaCount).to.equal(1);
-      expect(res.spec.local).to.be.false();
+      expect(res.spec.local).to.be.false;
       expect(res.spec.preferredNodes).to.have.lengthOf(0);
       expect(res.spec.requiredNodes).to.have.lengthOf(0);
       expect(res.spec.requiredBytes).to.equal(100);
       expect(res.spec.limitBytes).to.equal(0);
-      expect(res.status).to.be.undefined();
+      expect(res.status).to.be.undefined;
     });
 
     it('should throw if requiredSize is missing', () => {
@@ -479,7 +481,7 @@ module.exports = function () {
 
       sinon.assert.calledOnce(fsaStub);
       expect(volume.spec.replicaCount).to.equal(3);
-      expect(volume.spec.local).to.be.true();
+      expect(volume.spec.local).to.be.true;
       expect(volume.spec.preferredNodes).to.have.lengthOf(1);
       expect(volume.spec.requiredNodes).to.have.lengthOf(0);
       expect(volume.spec.requiredBytes).to.equal(90);
@@ -609,7 +611,7 @@ module.exports = function () {
         size: 0,
         state: 'pending'
       });
-      expect(stubs.updateStatus.args[0][5].status.targetNodes).to.be.undefined();
+      expect(stubs.updateStatus.args[0][5].status.targetNodes).to.be.undefined;
     });
 
     it('should not crash if POST fails upon "new" volume event', async () => {

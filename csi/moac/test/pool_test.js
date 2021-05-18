@@ -2,6 +2,8 @@
 
 'use strict';
 
+/* eslint-disable no-unused-expressions */
+
 const _ = require('lodash');
 const expect = require('chai').expect;
 const sinon = require('sinon');
@@ -170,7 +172,7 @@ module.exports = function () {
         expect(ev.eventType).to.equal('del');
         expect(ev.object).to.equal(pool);
         setTimeout(() => {
-          expect(pool.node).to.be.null();
+          expect(pool.node).to.be.null;
           done();
         }, 0);
       });
@@ -204,7 +206,7 @@ module.exports = function () {
 
     sinon.assert.calledOnce(stub);
     sinon.assert.calledWithMatch(stub, 'destroyPool', { name: 'pool' });
-    expect(node.pools).to.be.empty();
+    expect(node.pools).to.be.empty;
     // first two events are for the new pool and new replica
     expect(eventSpy.callCount).to.equal(4);
     sinon.assert.calledWith(eventSpy.getCall(2), 'replica', {
@@ -228,7 +230,7 @@ module.exports = function () {
     pool.offline();
 
     expect(pool.state).to.equal('POOL_OFFLINE');
-    expect(replica.isOffline()).to.be.true();
+    expect(replica.isOffline()).to.be.true;
 
     // first two events are for the new pool and new replica
     expect(eventSpy.callCount).to.equal(4);
@@ -296,15 +298,15 @@ module.exports = function () {
     const poolProps = _.clone(props);
     poolProps.state = 'POOL_ONLINE';
     let pool = new Pool(poolProps);
-    expect(pool.isAccessible()).to.be.true();
+    expect(pool.isAccessible()).to.be.true;
 
     poolProps.state = 'POOL_FAULTED';
     pool = new Pool(poolProps);
-    expect(pool.isAccessible()).to.be.false();
+    expect(pool.isAccessible()).to.be.false;
 
     poolProps.state = 'POOL_DEGRADED';
     pool = new Pool(poolProps);
-    expect(pool.isAccessible()).to.be.true();
+    expect(pool.isAccessible()).to.be.true;
   });
 
   it('should return free space in the pool', () => {

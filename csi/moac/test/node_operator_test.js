@@ -5,7 +5,7 @@
 const expect = require('chai').expect;
 const sinon = require('sinon');
 const sleep = require('sleep-promise');
-const { KubeConfig } = require('client-node-fixed-watcher');
+const { KubeConfig } = require('@kubernetes/client-node');
 const { Registry } = require('../registry');
 const { NodeOperator, NodeResource } = require('../node_operator');
 const { mockCache } = require('./watcher_stub');

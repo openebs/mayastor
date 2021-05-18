@@ -1,10 +1,14 @@
 // Tests for the object cache (watcher).
 
+'use strict';
+
+/* eslint-disable no-unused-expressions */
+
 const _ = require('lodash');
 const expect = require('chai').expect;
 const sinon = require('sinon');
 const sleep = require('sleep-promise');
-const { KubeConfig } = require('client-node-fixed-watcher');
+const { KubeConfig } = require('@kubernetes/client-node');
 const { CustomResourceCache } = require('../watcher');
 
 // slightly modified cache tunings not to wait too long when testing things
@@ -121,7 +125,7 @@ module.exports = function () {
     await watcher.start();
     const delta = new Date() - startTime;
     sinon.assert.calledThrice(startStub);
-    expect(watcher.isConnected()).to.be.true();
+    expect(watcher.isConnected()).to.be.true;
     expect(delta).to.be.within(2 * RESTART_DELAY_MS, 3 * RESTART_DELAY_MS);
     watcher.stop();
   });
@@ -130,16 +134,16 @@ module.exports = function () {
     const [watcher, startStub] = createMockedCache();
     await watcher.start();
     sinon.assert.calledOnce(startStub);
-    expect(watcher.isConnected()).to.be.true();
+    expect(watcher.isConnected()).to.be.true;
     startStub.onCall(1).rejects(new Error('start failed'));
     startStub.onCall(2).resolves();
     watcher.emitKubeEvent('error', new Error('got disconnected'));
     await sleep(RESTART_DELAY_MS * 1.5);
     sinon.assert.calledTwice(startStub);
-    expect(watcher.isConnected()).to.be.false();
+    expect(watcher.isConnected()).to.be.false;
     await sleep(RESTART_DELAY_MS);
     sinon.assert.calledThrice(startStub);
-    expect(watcher.isConnected()).to.be.true();
+    expect(watcher.isConnected()).to.be.true;
     watcher.stop();
   });
 
@@ -147,11 +151,11 @@ module.exports = function () {
     const [watcher, startStub] = createMockedCache();
     await watcher.start();
     sinon.assert.calledOnce(startStub);
-    expect(watcher.isConnected()).to.be.true();
+    expect(watcher.isConnected()).to.be.true;
     startStub.onCall(1).resolves();
     await sleep(IDLE_TIMEOUT_MS * 1.5);
     sinon.assert.calledTwice(startStub);
-    expect(watcher.isConnected()).to.be.true();
+    expect(watcher.isConnected()).to.be.true;
     watcher.stop();
   });
 
@@ -211,7 +215,7 @@ module.exports = function () {
       const getStub = sinon.stub(watcher.listWatch, 'get');
       getStub.returns(undefined);
       const obj = watcher.get('name1');
-      expect(obj).to.be.undefined();
+      expect(obj).to.be.undefined;
       sinon.assert.calledWith(getStub, 'name1');
     });
 

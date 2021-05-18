@@ -6,6 +6,8 @@
 
 'use strict';
 
+/* eslint-disable no-unused-expressions */
+
 const _ = require('lodash');
 const EventEmitter = require('events');
 const expect = require('chai').expect;
@@ -229,8 +231,8 @@ module.exports = function () {
         protocol: 'nvmf'
       });
       expect(volume.state).to.equal('healthy');
-      expect(volume.nexus).to.be.null();
-      expect(volume.spec.local).to.be.true();
+      expect(volume.nexus).to.be.null;
+      expect(volume.spec.local).to.be.true;
       sinon.assert.calledWithMatch(stub2.firstCall, 'createReplica', {
         uuid: UUID,
         pool: 'pool2',
@@ -276,8 +278,8 @@ module.exports = function () {
         protocol: 'nvmf'
       });
       expect(volume.state).to.equal('healthy');
-      expect(volume.nexus).to.be.null();
-      expect(volume.spec.local).to.be.false();
+      expect(volume.nexus).to.be.null;
+      expect(volume.spec.local).to.be.false;
       sinon.assert.calledWithMatch(stub1.firstCall, 'createReplica', {
         uuid: UUID,
         pool: 'pool1',
@@ -549,7 +551,7 @@ module.exports = function () {
 
       expect(volume.state).to.equal('healthy');
       expect(Object.keys(volume.replicas)).to.have.lengthOf(1);
-      expect(volume.nexus).to.be.null();
+      expect(volume.nexus).to.be.null;
 
       sinon.assert.notCalled(stub2);
       sinon.assert.notCalled(stub3);
@@ -783,7 +785,7 @@ module.exports = function () {
         // the first volume should precede the second volume's requests.
         sinon.assert.calledThrice(stub1);
         sinon.assert.calledThrice(stub2);
-        expect(stub1.thirdCall.calledBefore(stub2.firstCall)).to.be.true();
+        expect(stub1.thirdCall.calledBefore(stub2.firstCall)).to.be.true;
         done();
       });
     });
@@ -867,7 +869,7 @@ module.exports = function () {
       expect(Object.keys(volume.replicas)).to.have.lengthOf(2);
       // give FSA a chance to run
       await sleep(EYE_BLINK_MS);
-      expect(volume.nexus).to.be.null();
+      expect(volume.nexus).to.be.null;
       expect(volume.state).to.equal('healthy');
       expect(volume.size).to.equal(40);
       expect(volEvents).to.have.lengthOf(3);
@@ -903,7 +905,7 @@ module.exports = function () {
       volume = volumes.importVolume(UUID, volumeSpec, { size: 40 });
       // give FSA a chance to run
       await sleep(EYE_BLINK_MS);
-      expect(volume.nexus).to.be.null();
+      expect(volume.nexus).to.be.null;
       expect(Object.keys(volume.replicas)).to.have.lengthOf(1);
       expect(Object.values(volume.replicas)[0]).to.equal(replica);
       expect(volume.state).to.equal('healthy');
@@ -1141,7 +1143,7 @@ module.exports = function () {
       volume.publishedOn = 'nodeX';
       await shouldFailWith(grpcCode.INTERNAL, () => volume.publish('nvmf'));
       expect(volume.publishedOn).to.equal('nodeX');
-      expect(volume.nexus).to.be.null();
+      expect(volume.nexus).to.be.null;
     });
 
     it('should fail to publish if setting share protocol on replica fails', async () => {
@@ -1230,7 +1232,7 @@ module.exports = function () {
 
     it('should unpublish a volume', async () => {
       await volume.unpublish();
-      expect(volume.getNodeName()).to.be.undefined();
+      expect(volume.getNodeName()).to.be.undefined;
       sinon.assert.calledOnce(stub1);
       sinon.assert.calledWithMatch(stub1, 'unpublishNexus', {
         uuid: UUID
@@ -1254,10 +1256,10 @@ module.exports = function () {
       // and destroyed even though that it's not possible because the node is
       // offline.
       await volume.unpublish();
-      expect(volume.getNodeName()).to.be.undefined();
+      expect(volume.getNodeName()).to.be.undefined;
       sinon.assert.notCalled(stub1);
       await sleep(EYE_BLINK_MS);
-      expect(volume.nexus).to.be.null();
+      expect(volume.nexus).to.be.null;
       sinon.assert.notCalled(stub1);
     });
   });
@@ -1339,7 +1341,7 @@ module.exports = function () {
       expect(returnedVolume).to.equal(volume);
       expect(volume.spec.replicaCount).to.equal(1);
       expect(volume.size).to.equal(95);
-      expect(volume.spec.local).to.be.true();
+      expect(volume.spec.local).to.be.true;
       expect(volume.spec.preferredNodes[0]).to.equal(node2.name);
       expect(volume.spec.requiredNodes[0]).to.equal(node1.name);
       expect(volume.spec.requiredBytes).to.equal(89);
@@ -1754,7 +1756,7 @@ module.exports = function () {
         const newReplica = Object.values(volume.replicas).find((r) => r.uri === `nvmf://node3/${UUID}`);
         const nexus = volume.nexus;
         const child = nexus.children[2];
-        expect(nexus).not.to.be.null();
+        expect(nexus).not.to.be.null;
         expect(newReplica.pool.name).to.equal('pool3');
         expect(child.state).to.equal('CHILD_DEGRADED');
 
@@ -1819,7 +1821,7 @@ module.exports = function () {
         );
         expect(volume.state).to.equal('healthy');
         const oldReplica = Object.values(volume.replicas).find((r) => r.uri === `nvmf://node2/${UUID}`);
-        expect(oldReplica).to.be.undefined();
+        expect(oldReplica).to.be.undefined;
       });
     });
   });
@@ -1942,7 +1944,7 @@ module.exports = function () {
       // we unbind the nexus - that happens when node goes down
       nexus.unbind();
       await waitUntil(() => volume.state === 'offline', 'volume offline');
-      expect(volume.nexus).to.be.null();
+      expect(volume.nexus).to.be.null;
       expect(volume.publishedOn).to.equal('node1');
 
       // this simulates node that has been just successfully sync'd
@@ -2167,14 +2169,14 @@ module.exports = function () {
       expect(volumes.get(UUID)).to.equal(volume);
       expect(volume.uuid).to.equal(UUID);
       expect(volume.getSize()).to.equal(96);
-      expect(volume.getNodeName()).to.be.undefined();
-      expect(volume.spec.local).to.be.false();
+      expect(volume.getNodeName()).to.be.undefined;
+      expect(volume.spec.local).to.be.false;
       expect(volume.spec.replicaCount).to.equal(3);
       expect(volume.spec.preferredNodes).to.have.lengthOf(0);
       expect(volume.spec.requiredNodes).to.have.lengthOf(0);
       expect(volume.spec.requiredBytes).to.equal(90);
       expect(volume.spec.limitBytes).to.equal(110);
-      expect(volume.nexus).to.be.null();
+      expect(volume.nexus).to.be.null;
       expect(Object.keys(volume.replicas)).to.have.lengthOf(3);
       expect(volume.replicas.node1.uuid).to.equal(UUID);
       expect(volume.replicas.node2.uuid).to.equal(UUID);
@@ -2258,9 +2260,9 @@ module.exports = function () {
       sinon.assert.calledWithMatch(stub1.secondCall, 'destroyNexus', {
         uuid: UUID
       });
-      expect(volume.getNodeName()).to.be.undefined();
+      expect(volume.getNodeName()).to.be.undefined;
       expect(volume.uuid).to.equal(UUID);
-      expect(volume.nexus).is.null();
+      expect(volume.nexus).is.null;
       expect(volume.state).to.equal('healthy');
       expect(Object.keys(volume.replicas)).to.have.length(3);
       expect(volEvents).to.have.lengthOf(2);
@@ -2268,7 +2270,7 @@ module.exports = function () {
 
     it('should unpublish volume that has not been published', async () => {
       await volume.unpublish();
-      expect(volume.getNodeName()).to.be.undefined();
+      expect(volume.getNodeName()).to.be.undefined;
       sinon.assert.notCalled(stub1);
     });
 
@@ -2286,9 +2288,9 @@ module.exports = function () {
       sinon.assert.calledOnce(stub3);
       sinon.assert.calledWithMatch(stub3, 'destroyReplica', { uuid: UUID });
 
-      expect(volumes.get(UUID)).is.undefined();
-      expect(volume.getNodeName()).to.be.undefined();
-      expect(volume.nexus).is.null();
+      expect(volumes.get(UUID)).is.undefined;
+      expect(volume.getNodeName()).to.be.undefined;
+      expect(volume.nexus).is.null;
       expect(volume.state).to.equal('destroyed');
       expect(Object.keys(volume.replicas)).to.have.length(0);
       // 3 replicas and 1 del volume event
@@ -2299,7 +2301,7 @@ module.exports = function () {
       stub1.onCall(0).resolves({});
       stub2.onCall(0).resolves({});
       stub3.onCall(0).resolves({});
-      expect(volumes.get(UUID)).is.undefined();
+      expect(volumes.get(UUID)).is.undefined;
 
       await volumes.destroyVolume(UUID);
 

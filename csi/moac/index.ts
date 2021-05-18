@@ -1,13 +1,13 @@
 // Main file of our control plane for mayastor.
 // It binds all components together to create a meaningful whole.
 
-const { KubeConfig } = require('client-node-fixed-watcher');
+const { KubeConfig } = require('@kubernetes/client-node');
 const yargs = require('yargs');
-const fs = require('fs');
 
 const logger = require('./logger');
 const { MessageBus } = require('./nats');
 
+import * as fs from 'fs';
 import { NodeOperator } from './node_operator';
 import { PoolOperator } from './pool_operator';
 import { Registry } from './registry';

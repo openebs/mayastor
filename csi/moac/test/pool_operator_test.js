@@ -11,10 +11,12 @@
 
 'use strict';
 
+/* eslint-disable no-unused-expressions */
+
 const expect = require('chai').expect;
 const sinon = require('sinon');
 const sleep = require('sleep-promise');
-const { KubeConfig } = require('client-node-fixed-watcher');
+const { KubeConfig } = require('@kubernetes/client-node');
 const { Registry } = require('../registry');
 const { GrpcError, grpcCode } = require('../grpc_client');
 const { PoolOperator, PoolResource } = require('../pool_operator');
@@ -143,8 +145,8 @@ module.exports = function () {
       expect(obj.status.state).to.equal('offline');
       expect(obj.status.reason).to.equal('The node is down');
       expect(obj.status.disks).to.deep.equal(['aio:///dev/sdc', 'aio:///dev/sdb']);
-      expect(obj.status.capacity).to.be.undefined();
-      expect(obj.status.used).to.be.undefined();
+      expect(obj.status.capacity).to.be.undefined;
+      expect(obj.status.used).to.be.undefined;
     });
 
     it('should create valid mayastor pool without status', () => {

@@ -7,7 +7,7 @@ import * as path from 'path';
 import {
   ApiextensionsV1Api,
   KubeConfig,
-} from 'client-node-fixed-watcher';
+} from '@kubernetes/client-node';
 import {
   CustomResource,
   CustomResourceCache,
@@ -23,7 +23,7 @@ const RESOURCE_NAME: string = 'mayastorpool';
 const POOL_FINALIZER = 'finalizer.mayastor.openebs.io';
 
 // Load custom resource definition
-const crdPool = yaml.safeLoad(
+const crdPool = yaml.load(
   fs.readFileSync(path.join(__dirname, '/crds/mayastorpool.yaml'), 'utf8')
 );
 

@@ -2,6 +2,8 @@
 
 'use strict';
 
+/* eslint-disable no-unused-expressions */
+
 const expect = require('chai').expect;
 const { spawn } = require('child_process');
 const nats = require('nats');
@@ -153,7 +155,7 @@ module.exports = function () {
 
   it('should disconnect from the nats server', () => {
     eventBus.stop();
-    expect(eventBus.isConnected()).to.be.false();
+    expect(eventBus.isConnected()).to.be.false;
   });
 
   it('should retry connect until successfull', async () => {

@@ -11,7 +11,7 @@ import * as path from 'path';
 import {
   ApiextensionsV1Api,
   KubeConfig,
-} from 'client-node-fixed-watcher';
+} from '@kubernetes/client-node';
 import {
   CustomResource,
   CustomResourceCache,
@@ -24,7 +24,7 @@ const EventStream = require('./event_stream');
 const log = require('./logger').Logger('node-operator');
 
 const RESOURCE_NAME: string = 'mayastornode';
-const crdNode = yaml.safeLoad(
+const crdNode = yaml.load(
   fs.readFileSync(path.join(__dirname, '/crds/mayastornode.yaml'), 'utf8')
 );
 

@@ -2,8 +2,6 @@
 
 const path = require('path');
 const { spawn } = require('child_process');
-const chai = require('chai');
-const dirtyChai = require('dirty-chai');
 
 const logger = require('../logger');
 const workqTest = require('./workq_test.js');
@@ -26,9 +24,6 @@ const csiTest = require('./csi_test.js');
 
 require('source-map-support').install();
 logger.setLevel('silly');
-
-// Function form for terminating assertion properties to make JS linter happy
-chai.use(dirtyChai);
 
 describe('moac', function () {
   describe('workq', workqTest);

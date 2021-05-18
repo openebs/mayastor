@@ -2,6 +2,8 @@
 
 'use strict';
 
+/* eslint-disable no-unused-expressions */
+
 const expect = require('chai').expect;
 const fs = require('fs').promises;
 const grpc = require('grpc-uds');
@@ -719,7 +721,7 @@ module.exports = function () {
 
       it('should list all volumes', async () => {
         const resp = await client.listVolumes().sendMessage({});
-        expect(resp.nextToken).to.be.empty();
+        expect(resp.nextToken).to.be.empty;
         const vols = resp.entries.map((ent) => ent.volume);
         expect(vols).to.have.lengthOf(100);
         for (let i = 0; i < 10; i++) {
@@ -977,7 +979,7 @@ module.exports = function () {
           nodeId: 'mayastor://node'
         });
 
-        expect(error).is.empty();
+        expect(error).is.empty;
       });
 
       it('should not unpublish volume on pool with invalid ID', async () => {
@@ -1116,7 +1118,7 @@ module.exports = function () {
             };
           })
         });
-        expect(resp.confirmed).to.be.null();
+        expect(resp.confirmed).to.be.null;
         expect(resp.message).to.match(/SINGLE_NODE_WRITER/);
       });
 
