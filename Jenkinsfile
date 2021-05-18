@@ -16,7 +16,7 @@ xray_nightly_testplan='MQ-17'
 xray_continuous_testplan='MQ-33'
 xray_test_execution_type='10059'
 // do not send xray reports as a result of "bors try"
-xray_send_report = false
+xray_send_report = (env.BRANCH_NAME == 'trying') ? false : true
 
 // if e2e run does not build its own images, which tag to use when pulling
 e2e_continuous_image_tag='v0.8.0'
