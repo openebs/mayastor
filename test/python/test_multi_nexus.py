@@ -1,6 +1,9 @@
 from common.hdl import MayastorHandle
-from common.command import run_cmd
+from common.command import run_cmd, run_cmd_async_at
+from common.nvme import nvme_remote_connect, nvme_remote_disconnect
+from common.fio import Fio
 import pytest
+import asyncio
 import uuid as guid
 
 UUID = "0000000-0000-0000-0000-000000000001"
@@ -71,6 +74,7 @@ def create_pool_on_all_nodes(create_temp_files, containers, mayastors):
     return uuids
 
 
+@pytest.mark.skip
 @pytest.mark.parametrize("times", range(2))
 def test_restart(
         times,
@@ -111,3 +115,42 @@ def test_restart(
     replicas = ms1.replica_list().replicas
 
     assert 8 == len(replicas)
+
+
+async def kill_after(container, sec):
+    """Kill the given container after sec seconds."""
+    await asyncio.sleep(sec)
+    container.kill()
+
+
+@pytest.mark.asyncio
+async def test_multiple(create_pool_on_all_nodes,
+                        containers,
+                        mayastors,
+                        target_vm):
+
+    ms1 = mayastors.get('ms1')
+    rlist_m2 = mayastors.get('ms2').replica_list().replicas
+    rlist_m3 = mayastors.get('ms3').replica_list().replicas
+    nexus_list = []
+    to_kill = containers.get("ms3")
+
+    devs = []
+
+    for i in range(5):
+        uuid = guid.uuid4()
+        ms1.nexus_create(uuid, 60 * 1024 * 1024,
+                         [rlist_m2.pop().uri, rlist_m3.pop().uri])
+        nexus_list.append(ms1.nexus_publish(uuid))
+
+    for nexus in nexus_list:
+        dev = await nvme_remote_connect(target_vm, nexus)
+        devs.append(dev)
+
+    fio_cmd = Fio(f"job-{dev}", "rw", devs).build()
+
+    await asyncio.gather(run_cmd_async_at(target_vm, fio_cmd),
+                         kill_after(to_kill, 5))
+
+    for nexus in nexus_list:
+        dev = await nvme_remote_disconnect(target_vm, nexus)

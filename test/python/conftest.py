@@ -5,8 +5,19 @@ import logging
 import pytest
 from common.hdl import MayastorHandle
 import mayastor_pb2 as pb
+import os
 
 pytest_plugins = ["docker_compose"]
+
+
+@pytest.fixture
+def target_vm():
+    try:
+        return os.environ.get("TARGET_VM")
+    except Exception as e:
+        print("to use this fixture the environ TARGET_VM variable must be set")
+        raise(e)
+
 
 
 @pytest.fixture(scope="module")

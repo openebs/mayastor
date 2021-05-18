@@ -5,3 +5,4 @@ pytest-timeout
 pytest-docker-compose
 pytest-order
 pytest-asyncio
+pytest-variables

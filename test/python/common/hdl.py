@@ -96,11 +96,11 @@ class MayastorHandle(object):
         by the control plane."""
         return self.ms.PublishNexus(
             pb.PublishNexusRequest(
-                uuid=uuid, key="", share=1)).device_uri
+                uuid=str(uuid), key="", share=1)).device_uri
 
     def nexus_unpublish(self, uuid):
         """Unpublish the nexus."""
-        return self.ms.UnpublishNexus(pb.UnpublishNexusRequest(uuid=uuid))
+        return self.ms.UnpublishNexus(pb.UnpublishNexusRequest(uuid=str(uuid)))
 
     def nexus_list(self):
         """List all the  the nexus devices."""
