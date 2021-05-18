@@ -3,6 +3,7 @@
 
 const { KubeConfig } = require('client-node-fixed-watcher');
 const yargs = require('yargs');
+const fs = require('fs');
 
 const logger = require('./logger');
 const ApiServer = require('./rest_api');
@@ -16,6 +17,8 @@ import { VolumeOperator } from './volume_operator';
 import { CsiServer } from './csi';
 
 const log = new logger.Logger();
+
+const NAMESPACE_FILE = '/var/run/secrets/kubernetes.io/serviceaccount/namespace';
 
 // Load k8s config file.
 //
@@ -66,8 +69,7 @@ export async function main () {
       },
       n: {
         alias: 'namespace',
-        describe: 'Namespace of mayastor custom resources',
-        default: 'default',
+        describe: 'Override default namespace of mayastor custom resources',
         string: true
       },
       m: {
@@ -131,6 +133,21 @@ export async function main () {
       break;
   }
 
+  // Determine the namespace that should be used for CRDs
+  let namespace: string = 'default';
+  if (opts.namespace) {
+    namespace = opts.namespace;
+  } else if (!opts.s) {
+    try {
+      namespace = fs.readFileSync(NAMESPACE_FILE).toString();
+    } catch (err) {
+      log.error(`Cannot read pod namespace from ${NAMESPACE_FILE}: ${err}`);
+      process.exit(1);
+    }
+  }
+  log.debug(`Operating in namespace "${namespace}"`);
+
+
   // We must install signal handlers before grpc lib does it.
   async function cleanUp () {
     if (warmupTimer) clearTimeout(warmupTimer);
@@ -178,7 +195,7 @@ export async function main () {
 
     // Start k8s operators
     nodeOper = new NodeOperator(
-      opts.namespace,
+      namespace,
       kubeConfig,
       registry,
       opts.watcherIdleTimeout
@@ -187,7 +204,7 @@ export async function main () {
     await nodeOper.start();
 
     poolOper = new PoolOperator(
-      opts.namespace,
+      namespace,
       kubeConfig,
       registry,
       opts.watcherIdleTimeout
@@ -205,7 +222,7 @@ export async function main () {
     warmupTimer = undefined;
     if (!opts.s) {
       volumeOper = new VolumeOperator(
-        opts.namespace,
+        namespace,
         kubeConfig,
         volumes,
         opts.watcherIdleTimeout
