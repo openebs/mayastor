@@ -1,0 +1,28 @@
+---
+# Source: mayastor/charts/etcd/templates/svc-headless.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: mayastor-etcd-headless
+  namespace: mayastor
+  labels:
+    app.kubernetes.io/name: etcd
+    helm.sh/chart: etcd-6.2.3
+    app.kubernetes.io/instance: mayastor
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+    service.alpha.kubernetes.io/tolerate-unready-endpoints: "true"
+spec:
+  type: ClusterIP
+  clusterIP: None
+  publishNotReadyAddresses: true
+  ports:
+    - name: "client"
+      port: 2379
+      targetPort: client
+    - name: "peer"
+      port: 2380
+      targetPort: peer
+  selector:
+    app.kubernetes.io/name: etcd
+    app.kubernetes.io/instance: mayastor

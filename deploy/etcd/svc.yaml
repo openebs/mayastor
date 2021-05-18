@@ -1,0 +1,27 @@
+---
+# Source: mayastor/charts/etcd/templates/svc.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: mayastor-etcd
+  namespace: mayastor
+  labels:
+    app.kubernetes.io/name: etcd
+    helm.sh/chart: etcd-6.2.3
+    app.kubernetes.io/instance: mayastor
+    app.kubernetes.io/managed-by: Helm
+  annotations:
+spec:
+  type: ClusterIP
+  ports:
+    - name: "client"
+      port: 2379
+      targetPort: client
+      nodePort: null
+    - name: "peer"
+      port: 2380
+      targetPort: peer
+      nodePort: null
+  selector:
+    app.kubernetes.io/name: etcd
+    app.kubernetes.io/instance: mayastor
