@@ -248,8 +248,12 @@ impl NexusBio {
         child: &dyn BlockDevice,
         status: IoCompletionStatus,
     ) {
-        assert_eq!(self.ctx().core, Cores::current());
         let success = status == IoCompletionStatus::Success;
+        // If the IO failed it is possible that completion callback is
+        // called from a different core.
+        if success {
+            assert_eq!(self.ctx().core, Cores::current());
+        }
 
         // decrement the counter of in flight IO
         self.ctx_as_mut().in_flight -= 1;
