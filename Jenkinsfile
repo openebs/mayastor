@@ -63,8 +63,8 @@ def isTimed() {
 }
 
 def getAliasTag() { // alternative tag for CI pushed images
-    if (isTimed() == true) {
-        return 'nightly'
+    if (isTimed() == true || params.run_as_nightly == true) {
+      return 'nightly'
     }
     return 'ci'
 }
@@ -86,11 +86,8 @@ def getTestPlan() {
   if (params.e2e_continuous == true)  {
     return xray_continuous_testplan
   }
-  def causes = currentBuild.getBuildCauses()
-  for(cause in causes) {
-    if ("${cause}".contains("hudson.triggers.TimerTrigger\$TimerTriggerCause")) {
-      return xray_nightly_testplan
-    }
+  if (isTimed() == true) {
+    return xray_nightly_testplan
   }
   return xray_on_demand_testplan
 }
@@ -163,7 +160,6 @@ if (params.e2e_continuous == true) {
   rust_test = false
   grpc_test = false
   moac_test = false
-  e2e_test = true
   e2e_test_profile = "continuous"
   // use images from dockerhub tagged with e2e_continuous_image_tag instead of building from current source
   e2e_build_images = false
@@ -176,7 +172,6 @@ if (params.e2e_continuous == true) {
   rust_test = true
   grpc_test = true
   moac_test = true
-  e2e_test = true
   // Some long e2e tests are not suitable to be run for each PR
   e2e_test_profile = (env.BRANCH_NAME != 'staging' && env.BRANCH_NAME != 'trying') ? "nightly" : "ondemand"
   e2e_build_images = true
@@ -193,6 +188,8 @@ pipeline {
   }
   parameters {
     booleanParam(defaultValue: false, name: 'e2e_continuous')
+    booleanParam(defaultValue: false, name: 'run_as_nightly')
+    booleanParam(defaultValue: true, name: 'run_e2e_test')
   }
   triggers {
     cron(cron_schedule)
@@ -312,7 +309,7 @@ pipeline {
         stage('e2e tests') {
           when {
             beforeAgent true
-            expression { e2e_test == true }
+            expression { params.run_e2e_test == true }
           }
           stages {
             stage('e2e docker images') {
@@ -394,7 +391,7 @@ pipeline {
                   def cmd = "./scripts/e2e-test.sh --device /dev/sdb --tag \"${tag}\" --logs --profile \"${e2e_test_profile}\" --loki_run_id \"${loki_run_id}\" --mayastor \"${env.WORKSPACE}\" --reportsdir \"${env.WORKSPACE}/${e2e_reports_dir}\" --registry \"${e2e_test_image_registry}\" "
 
                   if (e2e_test_profile == "nightly") {
-                        cmd = cmd + " --onfail continue "
+                        cmd = cmd + " --onfail reinstall "
                   }
                   withCredentials([
                     usernamePassword(credentialsId: 'GRAFANA_API', usernameVariable: 'grafana_api_user', passwordVariable: 'grafana_api_pw')
