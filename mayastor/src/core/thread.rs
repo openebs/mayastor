@@ -146,7 +146,7 @@ impl Mthread {
     /// send the given thread 'msg' in xPDK speak.
     pub fn msg<F, T>(&self, t: T, f: F)
     where
-        F: FnMut(T),
+        F: FnOnce(T),
         T: std::fmt::Debug + 'static,
     {
         // context structure which is passed to the callback as argument
@@ -158,10 +158,10 @@ impl Mthread {
         // helper routine to unpack the closure and its arguments
         extern "C" fn trampoline<F, T>(arg: *mut c_void)
         where
-            F: FnMut(T),
+            F: FnOnce(T),
             T: 'static + std::fmt::Debug,
         {
-            let mut ctx = unsafe { Box::from_raw(arg as *mut Ctx<F, T>) };
+            let ctx = unsafe { Box::from_raw(arg as *mut Ctx<F, T>) };
             (ctx.closure)(ctx.args);
         }
 
@@ -208,11 +208,11 @@ impl Mthread {
             Reactors::master()
                 .spawn_local(async move {
                     let result = ctx.future.await;
-                    ctx.sender
+                    let _ = ctx
+                        .sender
                         .take()
                         .expect("sender already taken")
-                        .send(result)
-                        .unwrap();
+                        .send(result);
                 })
                 .detach();
         }

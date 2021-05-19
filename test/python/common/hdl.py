@@ -50,7 +50,13 @@ class MayastorHandle(object):
         mayastor as this is for testing, we do not want to prevent parsing
         invalid schemes."""
 
-        return self.bdev.Create(pb.BdevUri(uri=uri)).uri
+        return self.bdev.Create(pb.BdevUri(uri=uri))
+
+    def bdev_share(self, name):
+        return self.bdev.Share(
+            pb.BdevShareRequest(
+                name=str(name),
+                proto="nvmf")).uri
 
     def pool_create(self, name, bdev):
         """Create a pool with given name on this node using the bdev as the
@@ -108,7 +114,7 @@ class MayastorHandle(object):
 
     def bdev_list(self):
         """"List all bdevs found within the system."""
-        return self.bdev.List(pb.Null(), wait_for_ready=True)
+        return self.bdev.List(pb.Null(), wait_for_ready=True).bdevs
 
     def pool_list(self):
         """Only list pools"""

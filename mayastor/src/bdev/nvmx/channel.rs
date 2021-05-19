@@ -10,7 +10,6 @@ use spdk_sys::{
     spdk_nvme_ctrlr_disconnect_io_qpair,
     spdk_nvme_ctrlr_free_io_qpair,
     spdk_nvme_ctrlr_get_default_io_qpair_opts,
-    spdk_nvme_ctrlr_reconnect_io_qpair,
     spdk_nvme_io_qpair_opts,
     spdk_nvme_poll_group,
     spdk_nvme_poll_group_add,
@@ -225,7 +224,7 @@ impl NvmeIoChannelInner<'_> {
         if self.qpair.is_some() {
             // Remove qpair and trigger its deallocation via drop().
             let qpair = self.qpair.take().unwrap();
-            info!(
+            debug!(
                 "dropping qpair {:p} ({} I/O requests pending)",
                 qpair.as_ptr(),
                 self.num_pending_ios
@@ -390,16 +389,13 @@ pub struct NvmeControllerIoChannel(NonNull<spdk_io_channel>);
 
 extern "C" fn disconnected_qpair_cb(
     qpair: *mut spdk_nvme_qpair,
-    _ctx: *mut c_void,
+    ctx: *mut c_void,
 ) {
-    warn!(?qpair, "NVMe qpair disconnected");
+    let inner = NvmeIoChannel::from_raw(ctx).inner_mut();
 
-    // Currently, just try to reconnect indefinitely. If we are doing a
-    // reset, the reset will reconnect a qpair, and we will stop getting a
-    // callback for this one.
-    unsafe {
-        spdk_nvme_ctrlr_reconnect_io_qpair(qpair);
-    }
+    warn!(?qpair, "NVMe qpair disconnected");
+    // shutdown the channel such that pending IO if any, gets aborted.
+    inner.shutdown();
 }
 
 extern "C" fn nvme_poll(ctx: *mut c_void) -> i32 {
@@ -435,7 +431,7 @@ impl NvmeControllerIoChannel {
         };
 
         let (cname, controller, block_size) = {
-            let controller = carc.lock().expect("lock error");
+            let controller = carc.lock();
             // Make sure controller is available.
             if controller.get_state() != NvmeControllerState::Running {
                 error!(
@@ -527,7 +523,7 @@ impl NvmeControllerIoChannel {
         });
 
         nvme_channel.inner = Box::into_raw(inner);
-        info!(?cname, ?ctx, "I/O channel successfully initialized");
+        debug!(?cname, ?ctx, "I/O channel successfully initialized");
         0
     }
 

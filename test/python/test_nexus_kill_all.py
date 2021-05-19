@@ -44,7 +44,7 @@ async def test_nexus_2_remote_mirror_kill_all(
 
     dev = await nvme_remote_connect("vixos1", uri)
 
-    job = Fio("job1", "rw", dev).build()
+    job = Fio("job1", "randwrite", dev).build()
 
     try:
         # create an event loop polling the async processes for completion
