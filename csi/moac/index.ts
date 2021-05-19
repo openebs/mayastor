@@ -6,12 +6,12 @@ const yargs = require('yargs');
 const fs = require('fs');
 
 const logger = require('./logger');
-const ApiServer = require('./rest_api');
 const { MessageBus } = require('./nats');
 
 import { NodeOperator } from './node_operator';
 import { PoolOperator } from './pool_operator';
 import { Registry } from './registry';
+import { ApiServer } from './rest_api';
 import { Volumes } from './volumes';
 import { VolumeOperator } from './volume_operator';
 import { CsiServer } from './csi';

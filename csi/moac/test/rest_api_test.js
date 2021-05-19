@@ -8,7 +8,7 @@ const sinon = require('sinon');
 const { Registry } = require('../registry');
 const { Node } = require('../node');
 const { GrpcError, grpcCode } = require('../grpc_client');
-const ApiServer = require('../rest_api');
+const { ApiServer } = require('../rest_api');
 
 const PORT = 12312;
 const STAT_COUNTER = 1000000; // feels good!
@@ -87,8 +87,26 @@ module.exports = function () {
     apiServer.stop();
   });
 
-  it('should get volume stats', (done) => {
+  it('should get ok for root url', (done) => {
     // TODO: Use user-friendly "request" lib when we have more tests
+    http
+      .get('http://127.0.0.1:' + PORT + '/', (resp) => {
+        expect(resp.statusCode).to.equal(200);
+
+        let data = '';
+        resp.on('data', (chunk) => {
+          data += chunk;
+        });
+        resp.on('end', () => {
+          const obj = JSON.parse(data);
+          expect(obj).to.deep.equal({});
+          done();
+        });
+      })
+      .on('error', done);
+  });
+
+  it('should get volume stats', (done) => {
     http
       .get('http://127.0.0.1:' + PORT + '/stats', (resp) => {
         expect(resp.statusCode).to.equal(200);
