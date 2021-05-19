@@ -12,6 +12,7 @@ use std::path::Path;
 use structopt::StructOpt;
 mayastor::CPS_INIT!();
 use mayastor::subsys::Registration;
+use parking_lot::deadlock;
 
 fn start_tokio_runtime(args: &MayastorCliArgs) {
     let grpc_address = grpc::endpoint(args.grpc_endpoint.clone());
@@ -100,6 +101,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let ms = MayastorEnvironment::new(args.clone()).init();
     start_tokio_runtime(&args);
+
+    Mthread::spawn_unaffinitized(|| loop {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        let deadlocks = deadlock::check_deadlock();
+        if deadlocks.is_empty() {
+            continue;
+        }
+
+        println!("{} deadlocks detected", deadlocks.len());
+        for (i, threads) in deadlocks.iter().enumerate() {
+            println!("Deadlock #{}", i);
+            for t in threads {
+                println!("Thread Id {:#?}", t.thread_id());
+                println!("{:#?}", t.backtrace());
+            }
+        }
+    });
 
     Reactors::current().running();
     Reactors::current().poll_reactor();

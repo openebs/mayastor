@@ -21,7 +21,7 @@ impl MayastorGrpcServer {
         info!("gRPC server configured at address {}", endpoint);
         let svc = Server::builder()
             .add_service(MayastorRpcServer::new(MayastorSvc))
-            .add_service(BdevRpcServer::new(BdevSvc))
+            .add_service(BdevRpcServer::new(BdevSvc::new()))
             .add_service(JsonRpcServer::new(JsonRpcSvc {
                 rpc_addr,
             }))

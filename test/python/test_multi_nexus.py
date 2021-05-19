@@ -16,7 +16,7 @@ def create_temp_files(containers):
     for name in containers:
         run_cmd(f"rm -rf /tmp/{name}.img", True)
     for name in containers:
-        run_cmd(f"truncate -s 1G /tmp/{name}.img", True)
+        run_cmd(f"truncate -s 2G /tmp/{name}.img", True)
 
 
 def check_size(prev, current, delta):
@@ -60,7 +60,7 @@ def create_pool_on_all_nodes(create_temp_files, containers, mayastors):
         # validate we have zero replicas
         assert len(h.replica_list().replicas) == 0
 
-    for i in range(15):
+    for i in range(30):
         uuid = guid.uuid4()
         for name, h in mayastors.items():
             before = h.pool_list()
@@ -137,7 +137,7 @@ async def test_multiple(create_pool_on_all_nodes,
 
     devs = []
 
-    for i in range(5):
+    for i in range(30):
         uuid = guid.uuid4()
         ms1.nexus_create(uuid, 60 * 1024 * 1024,
                          [rlist_m2.pop().uri, rlist_m3.pop().uri])
@@ -147,10 +147,11 @@ async def test_multiple(create_pool_on_all_nodes,
         dev = await nvme_remote_connect(target_vm, nexus)
         devs.append(dev)
 
-    fio_cmd = Fio(f"job-{dev}", "rw", devs).build()
+    fio_cmd = Fio(f"job-{dev}", "randwrite", devs).build()
 
     await asyncio.gather(run_cmd_async_at(target_vm, fio_cmd),
-                         kill_after(to_kill, 5))
+                         kill_after(to_kill, 3),
+                         )
 
     for nexus in nexus_list:
         dev = await nvme_remote_disconnect(target_vm, nexus)

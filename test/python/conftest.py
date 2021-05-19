@@ -133,10 +133,9 @@ def create_nexus(wait_for_mayastor, container_ref, nexus_uuid, create_replica):
 
     hdls['ms3'].nexus_create(NEXUS_UUID, 64 * 1024 * 1024, replicas)
     uri = hdls['ms3'].nexus_publish(NEXUS_UUID)
-
-    assert len(hdls['ms1'].bdev_list().bdevs) == 2
-    assert len(hdls['ms2'].bdev_list().bdevs) == 2
-    assert len(hdls['ms3'].bdev_list().bdevs) == 1
+    assert len(hdls['ms1'].bdev_list()) == 2
+    assert len(hdls['ms2'].bdev_list()) == 2
+    assert len(hdls['ms3'].bdev_list()) == 1
 
     assert len(hdls['ms1'].pool_list().pools) == 1
     assert len(hdls['ms2'].pool_list().pools) == 1

@@ -58,7 +58,7 @@ impl TryFrom<u32> for DeviceTimeoutAction {
 /// This is done to prevent the storm of reset requests in response to
 /// frequent I/O errors in a controller (including errors while processing
 /// admin queue completions).
-const MAX_RESET_ATTEMPTS: u32 = 5;
+const MAX_RESET_ATTEMPTS: u32 = 1;
 
 /// Time to wait till reset attempts can be recharged to maximum
 /// after all current reset attempts have been used.
@@ -154,7 +154,7 @@ impl TimeoutConfig {
             self.reset_attempts -= 1;
 
             if let Some(c) = NVME_CONTROLLERS.lookup_by_name(&self.name) {
-                let mut c = c.lock().expect("controller lock poisoned");
+                let mut c = c.lock();
                 if let Err(e) = c.reset(
                     TimeoutConfig::reset_cb,
                     self as *mut TimeoutConfig as *mut c_void,

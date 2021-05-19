@@ -60,6 +60,7 @@ async def run_cmd_async_at(host, cmd):
             if result.stderr != "":
                 output_message += \
                     f"\nstderr:\n{result.stderr}"
+            print(output_message)
             raise ChildProcessError(output_message)
 
         return CommandReturn(

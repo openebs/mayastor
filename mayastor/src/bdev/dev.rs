@@ -45,17 +45,14 @@ impl Uri {
         })?;
 
         match url.scheme() {
-            // backend NVMF target - fairly unstable (as of Linux 5.2)
-            "nvmf" => Ok(Box::new(nvmx::NvmfDeviceTemplate::try_from(&url)?)),
-            "malloc" => Ok(Box::new(malloc::Malloc::try_from(&url)?)),
             "aio" => Ok(Box::new(aio::Aio::try_from(&url)?)),
             "bdev" => Ok(Box::new(loopback::Loopback::try_from(&url)?)),
-            "null" => Ok(Box::new(null::Null::try_from(&url)?)),
-            "loopback" => Ok(Box::new(loopback::Loopback::try_from(&url)?)),
             "iscsi" => Ok(Box::new(iscsi::Iscsi::try_from(&url)?)),
+            "loopback" => Ok(Box::new(loopback::Loopback::try_from(&url)?)),
+            "malloc" => Ok(Box::new(malloc::Malloc::try_from(&url)?)),
+            "null" => Ok(Box::new(null::Null::try_from(&url)?)),
+            "nvmf" => Ok(Box::new(nvmx::NvmfDeviceTemplate::try_from(&url)?)),
             "pcie" => Ok(Box::new(nvme::NVMe::try_from(&url)?)),
-
-            // also for testing - requires Linux 5.1 or higher
             "uring" => Ok(Box::new(uring::Uring::try_from(&url)?)),
 
             scheme => Err(NexusBdevError::UriSchemeUnsupported {
@@ -94,17 +91,14 @@ pub fn device_lookup(name: &str) -> Option<Box<dyn BlockDevice>> {
     nvmx::lookup_by_name(name).or_else(|| SpdkBlockDevice::lookup_by_name(name))
 }
 
-#[instrument]
 pub async fn device_create(uri: &str) -> Result<String, NexusBdevError> {
     Uri::parse(uri)?.create().await
 }
 
-#[instrument]
 pub async fn device_destroy(uri: &str) -> Result<(), NexusBdevError> {
     Uri::parse(uri)?.destroy().await
 }
 
-#[instrument]
 pub fn device_open(
     name: &str,
     read_write: bool,
