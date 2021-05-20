@@ -428,8 +428,13 @@ export class VolumeOperator {
       // most likely it was not user but us (the operator) who deleted
       // the resource. So check if it really exists first.
       const name = obj.metadata.name!;
-      if (this.volumes.get(name)) {
-        this.workq.push(name, this._destroyVolume.bind(this));
+      const volume = this.volumes.get(name);
+      if (volume) {
+        if (volume.state !== VolumeState.Destroyed) {
+          this.workq.push(name, this._destroyVolume.bind(this));
+        } else {
+          log.warn(`Destruction of volume "${name}" is already in progress`);
+        }
       }
     });
   }
