@@ -811,6 +811,47 @@ module.exports = function () {
         done();
       });
     });
+
+    it('should return error if the volume is destroyed before it is created', (done) => {
+      // on node 1 is created a replica then it is interrupted by the destroy
+      stub1.onCall(0).resolves({
+        uuid: UUID,
+        pool: 'pool1',
+        size: 10,
+        thin: false,
+        share: 'REPLICA_NONE',
+        uri: `bdev:///${UUID}`
+      });
+      // now comes the destroy interrupting the create
+      stub1.onCall(2).resolves({});
+
+      volumes.start();
+
+      // Create & dispatch promises for both
+      const create = volumes.createVolume(UUID, {
+        replicaCount: 1,
+        local: false,
+        preferredNodes: [],
+        requiredNodes: [],
+        requiredBytes: 10,
+        limitBytes: 50,
+        protocol: 'nvmf'
+      });
+      const destroy = volumes.destroyVolume(UUID);
+
+      // the create should have failed because it was interrupted
+      create
+        .then(() => {
+          done(new Error('Expected an error from create'));
+        })
+        .catch((err) => {
+          expect(err.code).to.equal(grpcCode.INTERNAL);
+        });
+      // the destroy should pass
+      destroy
+        .then(done)
+        .catch(done);
+    });
   });
 
   describe('import volume', function () {

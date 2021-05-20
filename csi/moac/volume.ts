@@ -98,8 +98,9 @@ export class Volume {
   private emitter: events.EventEmitter;
   private registry: Registry;
   private runFsa: number; // number of requests to run FSA
-  private waiting: Record<DelegatedOp, DoneCallback>; // ops waiting for completion
+  private waiting: Record<DelegatedOp, DoneCallback[]>; // ops waiting for completion
   private retry_fsa: NodeJS.Timeout | undefined;
+  private pendingDestroy: boolean;
 
   // Construct a volume object with given uuid.
   //
@@ -129,10 +130,15 @@ export class Volume {
     this.nexus = null;
     this.replicas = {};
     this.state = state || VolumeState.Pending;
+    this.pendingDestroy = false;
     // other properties
     this.runFsa = 0;
     this.emitter = emitter;
-    this.waiting = <Record<DelegatedOp, DoneCallback>> {};
+    this.waiting = <Record<DelegatedOp, DoneCallback[]>> {};
+    this.waiting[DelegatedOp.Create] = [];
+    this.waiting[DelegatedOp.Publish] = [];
+    this.waiting[DelegatedOp.Unpublish] = [];
+    this.waiting[DelegatedOp.Destroy] = [];
   }
 
   // Clear the timer on the volume to prevent it from keeping nodejs loop alive.
@@ -239,6 +245,13 @@ export class Volume {
 
   // Delete nexus and destroy all replicas of the volume.
   async destroy() {
+    // If the volume is still being created then we cannot change the state
+    // because fsa would immediately start to act on it.
+    if (this.state === VolumeState.Pending) {
+      this.pendingDestroy = true;
+      await this._delegate(DelegatedOp.Destroy);
+      return;
+    }
     // Set the new desired state
     this.publishedOn = undefined;
     this._setState(VolumeState.Destroyed);
@@ -657,14 +670,13 @@ export class Volume {
   // with success or failure).
   async _delegate(op: DelegatedOp): Promise<unknown> {
     return new Promise((resolve: (res: unknown) => void, reject: (err: any) => void) => {
-      assert(!this.waiting[op]);
-      this.waiting[op] = (err: any, res: unknown) => {
+      this.waiting[op].push((err: any, res: unknown) => {
         if (err) {
           reject(err);
         } else {
           resolve(res);
         }
-      };
+      });
       this.fsa();
     });
   }
@@ -672,11 +684,9 @@ export class Volume {
   // A state transition corresponding to certain finished operation on the
   // volume has been done. Inform registered consumer about it.
   _delegatedOpSuccess(op: DelegatedOp, result?: unknown) {
-    let cb = this.waiting[op];
-    if (cb) {
-      delete this.waiting[op];
-      cb(undefined, result);
-    }
+    this.waiting[op]
+      .splice(0, this.waiting[op].length)
+      .forEach((cb) => cb(undefined, result));
   }
 
   // An error has been encountered while making a state transition to desired
@@ -687,12 +697,12 @@ export class Volume {
   _delegatedOpFailed(ops: DelegatedOp[], err: Error) {
     let reported = false;
     ops.forEach((op) => {
-      let cb = this.waiting[op];
-      if (cb) {
-        reported = true;
-        delete this.waiting[op];
-        cb(err);
-      }
+      this.waiting[op]
+        .splice(0, this.waiting[op].length)
+        .forEach((cb) => {
+          reported = true;
+          cb(err);
+        });
     });
     if (!reported) {
       let msg;
@@ -711,11 +721,9 @@ export class Volume {
   // returning specified error.
   _delegatedOpCancel(ops: DelegatedOp[], err: Error) {
     ops.forEach((op) => {
-      let cb = this.waiting[op];
-      if (cb) {
-        delete this.waiting[op];
-        cb(err);
-      }
+      this.waiting[op]
+        .splice(0, this.waiting[op].length)
+        .forEach((cb) => cb(err));
     });
   }
 
@@ -742,6 +750,9 @@ export class Volume {
   // NOTE: Until we switch state from "pending" at the end, the volume is not
   // acted upon by FSA. That's exactly what we want, because the async events
   // produced by this function do not interfere with execution of the "create".
+  //
+  // We have to check pending destroy flag after each async step in case that
+  // someone destroyed the volume before it was fully created.
   async create() {
     log.debug(`Creating the volume "${this}"`);
 
@@ -752,6 +763,12 @@ export class Volume {
     if (newReplicaCount > 0) {
       // create more replicas if higher replication factor is desired
       await this._createReplicas(newReplicaCount);
+      if (this.pendingDestroy) {
+        throw new GrpcError(
+          grpcCode.INTERNAL,
+          `The volume ${this} was destroyed before it was created`,
+        );
+      }
     }
     let replicaSet = this._activeReplicas();
     let nexusNode = this._desiredNexusNode(replicaSet, replicaSet[0]?.pool?.node?.name);
@@ -769,8 +786,20 @@ export class Volume {
         `Some of the replicas for ${this} are not accessible from nexus`,
       );
     }
+    if (this.pendingDestroy) {
+      throw new GrpcError(
+        grpcCode.INTERNAL,
+        `The volume ${this} was destroyed before it was created`,
+      );
+    }
     if (!this.nexus) {
       await this._createNexus(nexusNode, replicaSet);
+      if (this.pendingDestroy) {
+        throw new GrpcError(
+          grpcCode.INTERNAL,
+          `The volume ${this} was destroyed before it was created`,
+        );
+      }
     }
     this.state = VolumeState.Unknown;
 

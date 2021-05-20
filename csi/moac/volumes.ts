@@ -144,7 +144,8 @@ export class Volumes extends events.EventEmitter {
       try {
         await volume.create();
       } catch (err) {
-        // try to undo the pending state
+        // Undo the pending state and whatever has been created
+        volume.state = VolumeState.Unknown;
         try {
           this.destroyVolume(uuid);
         } catch (err) {
