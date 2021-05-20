@@ -12,7 +12,7 @@ import {
   ListWatch,
   V1ListMeta,
   Watch,
-} from 'client-node-fixed-watcher';
+} from '@kubernetes/client-node';
 
 const log = require('./logger').Logger('watcher');
 

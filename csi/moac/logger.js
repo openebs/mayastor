@@ -23,11 +23,11 @@ const monthShortNames = [
 // This will convert ISO timestamp string to following format:
 // Oct 10 19:49:29.027
 function toLocalTime (isoTs) {
-  var dt = new Date(Date.parse(isoTs));
-  var pad = function (num) {
+  const dt = new Date(Date.parse(isoTs));
+  const pad = function (num) {
     return (num < 10 ? '0' : '') + num;
   };
-  var pad2 = function (num) {
+  const pad2 = function (num) {
     if (num < 10) {
       return '00' + num;
     } else if (num < 100) {
@@ -53,7 +53,7 @@ function toLocalTime (isoTs) {
 
 const myFormat = winston.format.printf(
   ({ level, message, label, timestamp }) => {
-    var result = [toLocalTime(timestamp)];
+    const result = [toLocalTime(timestamp)];
 
     // silly -> trace
     if (level.match(/silly/)) {
@@ -71,11 +71,11 @@ const myFormat = winston.format.printf(
   }
 );
 
-var formats = [winston.format.timestamp(), myFormat];
+const formats = [winston.format.timestamp(), myFormat];
 if (process.stdout.isTTY) {
   formats.unshift(winston.format.colorize());
 }
-var logger = winston.createLogger({
+const logger = winston.createLogger({
   level: 'info',
   format: winston.format.combine(...formats),
   transports: [new winston.transports.Console()]
@@ -87,13 +87,13 @@ function setLevel (level) {
 
 // Purpose of the wrapper is to add component prefix to each log message
 function Logger (component) {
-  var obj = Object.create(Logger.prototype);
+  const obj = Object.create(Logger.prototype);
   obj.component = component;
   obj.logger = logger;
   return obj;
 }
 
-var levels = ['debug', 'info', 'warn', 'error'];
+const levels = ['debug', 'info', 'warn', 'error'];
 levels.forEach((lvl) => {
   Logger.prototype[lvl] = function (msg) {
     logger[lvl].call(this.logger, {

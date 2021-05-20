@@ -1,5 +1,9 @@
 // Unit tests for the registry class.
 
+'use strict';
+
+/* eslint-disable no-unused-expressions */
+
 const _ = require('lodash');
 const expect = require('chai').expect;
 const sinon = require('sinon');
@@ -37,7 +41,7 @@ module.exports = function () {
       });
     });
     _.clone(events).forEach((ev) => node.emit(ev, {}));
-    expect(events).to.be.empty();
+    expect(events).to.be.empty;
   });
 
   it('should not do anything if the same node already exists in the registry', () => {
@@ -55,7 +59,7 @@ module.exports = function () {
 
     registry.addNode('node', '127.0.0.1:123');
     sinon.assert.notCalled(connectStub);
-    expect(nodeEvent).to.be.undefined();
+    expect(nodeEvent).to.be.undefined;
   });
 
   it('should reconnect node if it exists but grpc endpoint has changed', () => {
@@ -117,7 +121,7 @@ module.exports = function () {
       nodeEvent = ev;
     });
     registry.removeNode('node');
-    expect(nodeEvent).to.be.undefined();
+    expect(nodeEvent).to.be.undefined;
   });
 
   it('should get a list of pools from registry', () => {

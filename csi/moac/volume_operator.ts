@@ -48,7 +48,7 @@ import * as path from 'path';
 import {
   ApiextensionsV1Api,
   KubeConfig,
-} from 'client-node-fixed-watcher';
+} from '@kubernetes/client-node';
 import {
   CustomResource,
   CustomResourceCache,
@@ -62,7 +62,7 @@ import { VolumeSpec, VolumeState, volumeStateFromString } from './volume';
 import { Workq } from './workq';
 
 const RESOURCE_NAME: string = 'mayastorvolume';
-const crdVolume = yaml.safeLoad(
+const crdVolume = yaml.load(
   fs.readFileSync(path.join(__dirname, '/crds/mayastorvolume.yaml'), 'utf8')
 );
 // lower-case letters uuid pattern

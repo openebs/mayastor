@@ -2,6 +2,8 @@
 
 'use strict';
 
+/* eslint-disable no-unused-expressions */
+
 const _ = require('lodash');
 const expect = require('chai').expect;
 const sinon = require('sinon');
@@ -43,7 +45,7 @@ module.exports = function () {
         expect(ev.eventType).to.equal('del');
         expect(ev.object).to.equal(nexus);
         setTimeout(() => {
-          expect(nexus.node).to.be.undefined();
+          expect(nexus.node).to.be.undefined;
           done();
         }, 0);
       });
@@ -412,7 +414,7 @@ module.exports = function () {
       });
       sinon.assert.calledOnce(callStub);
       sinon.assert.calledWith(callStub, 'destroyNexus', { uuid: UUID });
-      expect(nexus.node).to.be.undefined();
+      expect(nexus.node).to.be.undefined;
       expect(node.nexus).to.have.lengthOf(0);
     });
 
@@ -442,7 +444,7 @@ module.exports = function () {
         object: nexus
       });
       sinon.assert.notCalled(callStub);
-      expect(nexus.node).to.be.undefined();
+      expect(nexus.node).to.be.undefined;
       expect(node.nexus).to.have.lengthOf(0);
     });
   });
