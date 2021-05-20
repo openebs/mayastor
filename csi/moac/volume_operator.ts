@@ -55,6 +55,8 @@ import {
   CustomResourceMeta,
 } from './watcher';
 import { protocolFromString } from './nexus';
+import { Replica } from './replica';
+import { Volume } from './volume';
 import { Volumes } from './volumes';
 import { VolumeSpec, VolumeState, volumeStateFromString } from './volume';
 import { Workq } from './workq';
@@ -256,28 +258,33 @@ export class VolumeOperator {
   // @param   volume   Volume object.
   // @returns Status properties.
   //
-  _volumeToStatus (volume: any): VolumeStatus {
+  _volumeToStatus (volume: Volume): VolumeStatus {
     const st: VolumeStatus = {
       size: volume.getSize(),
       state: volumeStateFromString(volume.state),
-      replicas: Object.values(volume.replicas).map((r: any) => {
-        return {
-          node: r.pool.node.name,
-          pool: r.pool.name,
-          uri: r.uri,
-          offline: r.isOffline()
-        };
-      })
+      replicas: volume.getReplicas()
+        // ignore replicas that are being removed (disassociated from node)
+        .filter((r: Replica) => !!r.pool?.node)
+        .map((r: Replica) => {
+          return {
+            node: r.pool!.node!.name,
+            pool: r.pool!.name,
+            uri: r.uri,
+            offline: r.isOffline()
+          };
+        })
     };
-    if (volume.getNodeName()) {
-      st.targetNodes = [ volume.getNodeName() ];
+    const nodeName = volume.getNodeName();
+    if (nodeName) {
+      st.targetNodes = [ nodeName ];
     }
-    if (volume.nexus) {
+    const nexus = volume.getNexus();
+    if (nexus && nexus.node) {
       st.nexus = {
-        node: volume.nexus.node.name,
-        deviceUri: volume.nexus.deviceUri || '',
-        state: volume.nexus.state,
-        children: volume.nexus.children.map((ch: any) => {
+        node: nexus.node.name,
+        deviceUri: nexus.deviceUri || '',
+        state: nexus.state,
+        children: nexus.children.map((ch: any) => {
           return {
             uri: ch.uri,
             state: ch.state
