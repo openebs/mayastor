@@ -19,7 +19,7 @@ use tonic::{Code, Status};
 
 use crate::core::IoDevice;
 
-use rpc::mayastor::NvmeAnaState;
+use rpc::{mayastor::NvmeAnaState, persistence::NexusInfo};
 use spdk_sys::{spdk_bdev, spdk_bdev_register, spdk_bdev_unregister};
 
 use crate::{
@@ -36,6 +36,7 @@ use crate::{
             nexus_child::{ChildError, ChildState, NexusChild},
             nexus_label::LabelError,
             nexus_nbd::{NbdDisk, NbdError},
+            nexus_persistence::PersistOp,
         },
     },
     core::{Bdev, CoreError, Cores, IoType, Protocol, Reactor, Share},
@@ -329,7 +330,7 @@ pub struct Nexus {
     /// raw pointer to bdev (to destruct it later using Box::from_raw())
     bdev_raw: *mut spdk_bdev,
     /// represents the current state of the Nexus
-    pub(super) state: std::sync::Mutex<NexusState>,
+    pub(crate) state: std::sync::Mutex<NexusState>,
     /// the offset in num blocks where the data partition starts
     pub data_ent_offset: u64,
     /// the handle to be used when sharing the nexus, this allows for the bdev
@@ -342,6 +343,8 @@ pub struct Nexus {
     /// Nexus pause counter to allow concurrent pause/resume.
     pause_state: NexusPauseState,
     pause_waiters: Vec<oneshot::Sender<i32>>,
+    /// information saved to a persistent store
+    pub nexus_info: futures::lock::Mutex<NexusInfo>,
 }
 
 unsafe impl core::marker::Sync for Nexus {}
@@ -473,6 +476,7 @@ impl Nexus {
             io_device: None,
             pause_state: NexusPauseState::Unpaused,
             pause_waiters: Vec::new(),
+            nexus_info: futures::lock::Mutex::new(Default::default()),
         });
 
         // set the UUID of the underlying bdev
@@ -665,6 +669,8 @@ impl Nexus {
                 );
             }
         }
+        // Persist the fact that the nexus destruction has completed.
+        self.persist(PersistOp::Shutdown).await;
 
         let (s, r) = oneshot::channel::<bool>();
 
@@ -878,6 +884,10 @@ impl Nexus {
 
         match errno_result_from_i32((), errno) {
             Ok(_) => {
+                // Persist the fact that the nexus is now successfully open.
+                // We have to do this before setting the nexus to open so that
+                // nexus list does not return this nexus until it is persisted.
+                self.persist(PersistOp::Create).await;
                 self.set_state(NexusState::Open);
                 self.io_device = Some(io_device);
                 Ok(())

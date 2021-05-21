@@ -38,3 +38,7 @@ pub mod mayastor {
 
     include!(concat!(env!("OUT_DIR"), "/mayastor.rs"));
 }
+
+pub mod persistence {
+    include!(concat!(env!("OUT_DIR"), "/persistence.rs"));
+}

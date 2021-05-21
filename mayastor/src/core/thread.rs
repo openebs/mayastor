@@ -208,11 +208,14 @@ impl Mthread {
             Reactors::master()
                 .spawn_local(async move {
                     let result = ctx.future.await;
-                    ctx.sender
+                    if let Err(e) = ctx
+                        .sender
                         .take()
                         .expect("sender already taken")
                         .send(result)
-                        .unwrap();
+                    {
+                        error!("Failed to send with error {:?}", e);
+                    }
                 })
                 .detach();
         }

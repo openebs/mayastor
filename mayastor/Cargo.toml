@@ -85,6 +85,7 @@ url = "2.1"
 smol = "1.0.0"
 dns-lookup = "1.0.4"
 mbus_api = { path = "../mbus-api" }
+etcd-client = "0.6.3"
 
 [dependencies.rpc]
 path = "../rpc"

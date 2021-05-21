@@ -14,6 +14,8 @@ use crate::{
         nexus::{
             nexus_bdev::NEXUS_PRODUCT_ID,
             nexus_channel::{DrEvent, NexusChannel, NexusChannelInner},
+            nexus_child::NexusChild,
+            nexus_persistence::PersistOp,
         },
         nexus_lookup,
         ChildState,
@@ -646,6 +648,15 @@ impl NexusBio {
                             // Lookup child once more and finally remove it.
                             match nexus.child_lookup(&device) {
                                 Some(child) => {
+                                    nexus
+                                        .persist(PersistOp::Update((
+                                            NexusChild::uuid(&child.name)
+                                                .expect(
+                                                    "Failed to get child UUID.",
+                                                ),
+                                            child.state(),
+                                        )))
+                                        .await;
                                     // TODO: an error can occur here if a
                                     // separate task,
                                     // e.g. grpc request is also deleting the
