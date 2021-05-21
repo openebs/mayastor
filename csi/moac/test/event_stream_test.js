@@ -12,6 +12,7 @@ const { Registry } = require('../registry');
 const { Volume } = require('../volume');
 const { Volumes } = require('../volumes');
 const EventStream = require('../event_stream');
+var parse = require('url-parse');
 
 module.exports = function () {
   // Easy generator of a test node with fake pools, replicas and nexus
@@ -100,6 +101,7 @@ module.exports = function () {
       }
     );
     const events = [];
+    let realUuid = 1;
 
     stream.on('data', (ev) => {
       events.push(ev);
@@ -130,15 +132,15 @@ module.exports = function () {
 
         registry.emit('replica', {
           eventType: 'new',
-          object: { uuid: 'replica1', uri: 'bdev:///replica1?uuid=1' }
+          object: { uuid: 'replica1', uri: `bdev:///replica1?uuid=${realUuid++}` }
         });
         registry.emit('replica', {
           eventType: 'mod',
-          object: { uuid: 'replica2', uri: 'bdev:///replica2?uuid=2' }
+          object: { uuid: 'replica2', uri: `bdev:///replica2?uuid=${realUuid++}` }
         });
         registry.emit('replica', {
           eventType: 'del',
-          object: { uuid: 'replica3', uri: 'bdev:///replica3?uuid=3' }
+          object: { uuid: 'replica3', uri: `bdev:///replica3?uuid=${realUuid++}` }
         });
 
         registry.emit('nexus', {
@@ -278,6 +280,12 @@ module.exports = function () {
       expect(events[i].eventType).to.equal('del');
       expect(events[i++].object.uuid).to.equal('volume5');
       expect(events).to.have.lengthOf(i);
+      events.forEach(element => {
+        if (element.kind === 'replica') {
+          const realUuid = parse(element.object.uri, true).query['uuid'];
+          expect(realUuid).not.to.be.undefined;
+        }
+      });
       done();
     });
   });

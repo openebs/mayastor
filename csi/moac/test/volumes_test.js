@@ -23,12 +23,29 @@ const { grpcCode, GrpcError } = require('../grpc_client');
 const { shouldFailWith, waitUntil } = require('./utils');
 const enums = require('./grpc_enums');
 const sleep = require('sleep-promise');
+const Etcd3 = require('etcd3');
+const { PersistentStore } = require('../persistent_store');
 
 const UUID = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cbb';
 const UUID2 = 'aa5e39e9-0c0e-4973-8a3a-0dccada09cbc';
 const EYE_BLINK_MS = 30;
 
 module.exports = function () {
+  let client;
+  let mock;
+
+  before(() => {
+    client = new Etcd3.Etcd3();
+    mock = client.mock({ exec: sinon.stub() });
+    mock.exec.resolves({
+      kvs: []
+    });
+  });
+
+  after(() => {
+    client.unmock();
+  });
+
   let registry, volumes;
   let pool1, pool2, pool3;
   let node1, node2, node3;
@@ -37,10 +54,13 @@ module.exports = function () {
   let volume;
   let volEvents;
   let isSynced1, isSynced2, isSynced3;
+  let persistentStore;
 
   // Create pristine test env with 3 pools on 3 nodes
   function createTestEnv () {
-    registry = new Registry({});
+    persistentStore = new PersistentStore([], 1000, () => client);
+    registry = new Registry({}, persistentStore);
+
     volumes = new Volumes(registry);
     node1 = new Node('node1');
     node2 = new Node('node2');
@@ -103,6 +123,8 @@ module.exports = function () {
   // volume should be created in published state.
   async function setUpReferenceEnv (published) {
     createTestEnv();
+    // set up clean etcd by deleting all entries
+    await client.delete().all();
 
     replica1 = new Replica({
       uuid: UUID,
@@ -1158,6 +1180,7 @@ module.exports = function () {
       });
       sinon.assert.notCalled(stub2);
       sinon.assert.notCalled(stub3);
+      // await sleep(1700);
     });
 
     it('should fail to publish if create nexus grpc fails', async () => {
@@ -1443,12 +1466,16 @@ module.exports = function () {
           object: nexus
         });
 
+        console.log('B');
+
         await waitUntil(
           () =>
             nexus.children.length === 3 &&
             nexus.children.find((ch) => ch.uri === `nvmf://node3/${UUID}?uuid=3`),
           'new replica'
         );
+
+        console.log('A');
 
         expect(volume.state).to.equal('degraded');
         const child = nexus.children.find((ch) => ch.uri === `nvmf://node3/${UUID}?uuid=3`);
