@@ -15,6 +15,7 @@ import { ApiServer } from './rest_api';
 import { Volumes } from './volumes';
 import { VolumeOperator } from './volume_operator';
 import { CsiServer } from './csi';
+import { PersistentStore } from './persistent_store';
 
 const log = new logger.Logger();
 
@@ -54,6 +55,12 @@ export async function main () {
         alias: 'csi-address',
         describe: 'Socket path where to listen for incoming CSI requests',
         default: '/var/tmp/csi.sock',
+        string: true
+      },
+      e: {
+        alias: 'etcd-endpoint',
+        describe: 'ETCD endpoint in host[:port] form',
+        default: '127.0.0.1:2379',
         string: true
       },
       i: {
@@ -178,12 +185,14 @@ export async function main () {
   // Create csi server before starting lengthy initialization so that we can
   // serve csi.identity() calls while getting ready.
   const csiServer = new CsiServer(opts.csiAddress);
+  const persistentStore = new PersistentStore([opts.e]);
+
   await csiServer.start();
-  const registry = new Registry({
+  let registry = new Registry({
     syncPeriod: opts.syncPeriod * 1000,
     syncRetry: opts.syncRetry * 1000,
     syncBadLimit: opts.syncBadLimit,
-  });
+  }, persistentStore);
 
   // Listen to register and deregister messages from mayastor nodes
   const messageBus = new MessageBus(registry);
