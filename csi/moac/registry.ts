@@ -11,6 +11,7 @@ import { Node, NodeOpts } from './node';
 import { Pool } from './pool';
 import { Nexus } from './nexus';
 import { Replica } from './replica';
+import { PersistentStore, NexusCreateInfo } from './persistent_store';
 
 // List of events emitted by the registry.
 //
@@ -31,14 +32,16 @@ export class Registry extends events.EventEmitter {
   private nodes: Record<string, Node>;
   private Node: NodeConstructor;
   private nodeOpts: NodeOpts;
+  private persistent_store: PersistentStore;
 
-  constructor (nodeOpts: NodeOpts) {
+  constructor (nodeOpts: NodeOpts, persistent_store: PersistentStore) {
     super();
     this.nodes = {}; // node objects indexed by name
     this.nodeOpts = nodeOpts;
     // This gives a chance to override Node class used for creating new
     // node objects, which is useful for testing of the registry.
     this.Node = Node;
+    this.persistent_store = persistent_store;
   }
 
   // Disconnect all nodes.
@@ -255,5 +258,10 @@ export class Registry extends events.EventEmitter {
     });
 
     return pools;
+  }
+
+  // Returns the persistent store which is kept within the registry
+  getPersistentStore(): PersistentStore {
+    return this.persistent_store;
   }
 }
