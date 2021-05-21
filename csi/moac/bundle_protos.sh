@@ -7,9 +7,11 @@
 
 [ -n "$csiProto" ] || csiProto=../proto/csi.proto
 [ -n "$mayastorProto" ] || mayastorProto=../../rpc/proto/mayastor.proto
+[ -n "$persistenceProto" ] || persistenceProto=../../rpc/proto/persistence.proto
 
 echo "Adding RPC proto files to the bundle ..."
 mkdir -p proto || exit 1
 cp -f "$csiProto" proto/csi.proto || exit 1
 cp -f "$mayastorProto" proto/mayastor.proto || exit 1
+cp -f "$persistenceProto" proto/persistence.proto || exit 1
 echo "Done"

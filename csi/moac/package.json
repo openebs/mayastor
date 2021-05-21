@@ -36,7 +36,8 @@
     "nats": "^2.0.4",
     "sleep-promise": "^9.1.0",
     "winston": "^3.3.3",
-    "yargs": "^17.0.1"
+    "yargs": "^17.0.1",
+    "protobufjs": "^6.11.2"
   },
   "devDependencies": {
     "chai": "^4.3.4",
@@ -50,7 +51,8 @@
   "files": [
     "*.js",
     "crds/*.yaml",
-    "bundle_protos.sh"
+    "bundle_protos.sh",
+    "gen_protos_ts.sh"
   ],
   "semistandard": {
     "env": [
