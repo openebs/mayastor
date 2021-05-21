@@ -113,13 +113,13 @@ module.exports = function () {
     const node = new Node('node');
     const spy = sinon.spy(node, 'emit');
     const pool = new Pool(props);
-    const modReplica = new Replica({ uuid: 'to-modify' });
-    const delReplica = new Replica({ uuid: 'to-delete' });
+    const modReplica = new Replica({ uuid: 'to-modify', uri: 'bdev:///to-modify?uuid=1' });
+    const delReplica = new Replica({ uuid: 'to-delete', uri: 'bdev:///to-delete?uuid=2' });
     node._registerPool(pool);
     pool.registerReplica(modReplica);
     pool.registerReplica(delReplica);
 
-    pool.merge(props, [{ uuid: 'to-create' }, { uuid: 'to-modify', size: 10 }]);
+    pool.merge(props, [{ uuid: 'to-create', uri: 'bdev:///to-create?uuid=3' }, { uuid: 'to-modify', uri: 'bdev:///to-modify?uuid=1', size: 10 }]);
 
     expect(pool.replicas).to.have.lengthOf(2);
     // first 3 events are for pool create and initial two replicas
@@ -184,7 +184,7 @@ module.exports = function () {
   it('should unregister replica from the pool', () => {
     const node = new Node('node');
     const pool = new Pool(props);
-    const replica = new Replica({ uuid: 'uuid' });
+    const replica = new Replica({ uuid: 'uuid', uri: 'bdev:///uuid?uuid=1' });
     node._registerPool(pool);
     pool.registerReplica(replica);
     expect(pool.replicas).to.have.lengthOf(1);
@@ -199,7 +199,7 @@ module.exports = function () {
     stub.resolves({});
     const pool = new Pool(props);
     node._registerPool(pool);
-    const replica = new Replica({ uuid: 'uuid' });
+    const replica = new Replica({ uuid: 'uuid', uri: 'bdev:///uuid?uuid=1' });
     pool.registerReplica(replica);
 
     await pool.destroy();
@@ -224,7 +224,7 @@ module.exports = function () {
     const eventSpy = sinon.spy(node, 'emit');
     const pool = new Pool(props);
     node._registerPool(pool);
-    const replica = new Replica({ uuid: 'uuid' });
+    const replica = new Replica({ uuid: 'uuid', uri: 'bdev:///uuid?uuid=1' });
     pool.registerReplica(replica);
 
     pool.offline();
@@ -253,7 +253,7 @@ module.exports = function () {
       size: 100,
       thin: false,
       share: 'REPLICA_NONE',
-      uri: 'bdev://blabla'
+      uri: 'bdev://blabla?uuid=blabla'
     });
     const pool = new Pool(props);
     node._registerPool(pool);

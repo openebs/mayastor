@@ -22,9 +22,11 @@ module.exports = function () {
       this.pools = pools.map((obj) => {
         const p = new Pool({ name: obj.name, disks: ['/dev/sda'] });
         p.node = new EventEmitter();
-        obj.replicas.forEach((uuid) =>
-          p.registerReplica(new Replica({ uuid }))
-        );
+        let index = 0;
+        obj.replicas.forEach((uuid) => {
+          index++;
+          p.registerReplica(new Replica({ uuid, uri: `bdev:///${uuid}?uuid=${index}` }));
+        });
         return p;
       });
       this.nexus = nexus.map((uuid) => new Nexus({ uuid, children: [] }));
@@ -128,15 +130,15 @@ module.exports = function () {
 
         registry.emit('replica', {
           eventType: 'new',
-          object: { uuid: 'replica1' }
+          object: { uuid: 'replica1', uri: 'bdev:///replica1?uuid=1' }
         });
         registry.emit('replica', {
           eventType: 'mod',
-          object: { uuid: 'replica2' }
+          object: { uuid: 'replica2', uri: 'bdev:///replica2?uuid=2' }
         });
         registry.emit('replica', {
           eventType: 'del',
-          object: { uuid: 'replica3' }
+          object: { uuid: 'replica3', uri: 'bdev:///replica3?uuid=3' }
         });
 
         registry.emit('nexus', {

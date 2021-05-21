@@ -3,6 +3,7 @@
 import assert from 'assert';
 import * as _ from 'lodash';
 import { grpcCode, GrpcError } from './grpc_client';
+var parse = require('url-parse');
 
 const log = require('./logger').Logger('replica');
 
@@ -16,6 +17,7 @@ export class Replica {
   share: string;
   uri: string;
   isDown: boolean;
+  realUuid?: string;
 
   // Create replica object.
   //
@@ -27,6 +29,7 @@ export class Replica {
     this.share = props.share;
     this.uri = props.uri;
     this.isDown = false;
+    this.realUuid = parse(this.uri, true).query['uuid'];
   }
 
   // Stringify replica.
@@ -107,7 +110,7 @@ export class Replica {
     if (!this.pool) {
       throw new Error('Cannot offline a replica that has not been bound');
     }
-    log.debug(`Setting share protocol for replica "${this}" ...`);
+    log.debug(`Setting share protocol "${share}" for replica "${this}" ...`);
 
     try {
       res = await this.pool.node.call('shareReplica', {

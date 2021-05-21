@@ -35,7 +35,7 @@ module.exports = function () {
       size: 10,
       thin: false,
       share: 'REPLICA_NONE',
-      uri: 'bdev:///' + UUID
+      uri: `bdev:///${UUID}?uuid=1`
     }
   ];
   const nexus = [
@@ -46,7 +46,7 @@ module.exports = function () {
       state: 'NEXUS_ONLINE',
       children: [
         {
-          uri: 'bdev:///' + UUID,
+          uri: `bdev:///${UUID}?uuid=1`,
           state: 'CHILD_ONLINE'
         }
       ]
@@ -132,14 +132,14 @@ module.exports = function () {
           expect(replicaObjects[0].pool.name).to.equal('pool');
           expect(replicaObjects[0].size).to.equal(10);
           expect(replicaObjects[0].share).to.equal('REPLICA_NONE');
-          expect(replicaObjects[0].uri).to.equal('bdev:///' + UUID);
+          expect(replicaObjects[0].uri).to.equal(`bdev:///${UUID}?uuid=1`);
 
           expect(nexusObjects).to.have.lengthOf(1);
           expect(nexusObjects[0].uuid).to.equal(UUID);
           expect(nexusObjects[0].size).to.equal(10);
           expect(nexusObjects[0].state).to.equal('NEXUS_ONLINE');
           expect(nexusObjects[0].children).to.have.lengthOf(1);
-          expect(nexusObjects[0].children[0].uri).to.equal('bdev:///' + UUID);
+          expect(nexusObjects[0].children[0].uri).to.equal(`bdev:///${UUID}?uuid=1`);
           expect(nexusObjects[0].children[0].state).to.equal('CHILD_ONLINE');
 
           done();
@@ -224,7 +224,7 @@ module.exports = function () {
           size: 20,
           thin: false,
           share: 'REPLICA_NONE',
-          uri: 'bdev:///' + newUuid
+          uri: `bdev:///${newUuid}?uuid=1234`
         });
       });
 
@@ -246,7 +246,7 @@ module.exports = function () {
           size: 20,
           thin: false,
           share: 'REPLICA_NONE',
-          uri: 'bdev:///' + newUuid
+          uri: `bdev:///${newUuid}?uuid=1234`
         });
       });
 
@@ -314,7 +314,7 @@ module.exports = function () {
           size: 10,
           thin: false,
           share: 'REPLICA_NONE',
-          uri: 'bdev:///' + newUuid
+          uri: `bdev:///${newUuid}?uuid=1234`
         });
       });
 
@@ -330,7 +330,7 @@ module.exports = function () {
         const newNexus = _.cloneDeep(nexus);
         newNexus[0].children = [
           {
-            uri: 'bdev:///' + UUID,
+            uri: `bdev:///${UUID}?uuid=1`,
             state: 'CHILD_ONLINE'
           },
           {
@@ -631,7 +631,7 @@ module.exports = function () {
           size: 10,
           thin: false,
           share: 'REPLICA_NONE',
-          uri: 'bdev:///' + UUID
+          uri: `bdev:///${UUID1}?uuid=1`
         },
         {
           uuid: UUID2,
@@ -639,7 +639,7 @@ module.exports = function () {
           size: 10,
           thin: false,
           share: 'REPLICA_NONE',
-          uri: 'bdev:///' + UUID
+          uri: `bdev:///${UUID2}?uuid=2`
         },
         {
           uuid: UUID3,
@@ -647,7 +647,7 @@ module.exports = function () {
           size: 10,
           thin: false,
           share: 'REPLICA_NONE',
-          uri: 'bdev:///' + UUID
+          uri: `bdev:///${UUID3}?uuid=3`
         },
         // this replica does not belong to any pool so should be ignored
         {
@@ -656,7 +656,7 @@ module.exports = function () {
           size: 10,
           thin: false,
           share: 'REPLICA_NONE',
-          uri: 'bdev:///' + UUID
+          uri: `bdev:///${UUID4}?uuid=4`
         }
       ];
       srv = new MayastorServer(MS_ENDPOINT, pools, replicas, []).start();

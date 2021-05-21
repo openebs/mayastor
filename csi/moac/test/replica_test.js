@@ -28,7 +28,7 @@ module.exports = function () {
     pool: 'pool',
     size: 100,
     share: 'REPLICA_NONE',
-    uri: 'bdev:///' + UUID
+    uri: 'bdev:///' + UUID + '?uuid=1'
   };
 
   describe('mod event', () => {
