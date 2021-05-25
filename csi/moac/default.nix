@@ -14,7 +14,6 @@ result // rec {
   package = result.package.override {
     csiProto = ../proto/csi.proto;
     mayastorProto = ../../rpc/proto/mayastor.proto;
-    persistenceProto = ../../rpc/proto/persistence.proto;
     # Prepare script is executed only if npm install is run without any
     # arguments. node2path runs it with a number of args so we must run
     # in manually in postInstall hook :-/

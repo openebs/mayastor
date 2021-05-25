@@ -330,7 +330,7 @@ export class Volume {
         ));
       }
       try {
-        await this.registry.getPersistentStore().destroy_nexus(this.uuid);
+        await this.registry.getPersistentStore().destroyNexus(this.uuid);
       } catch (err) {
         this._delegatedOpFailed([DelegatedOp.Destroy], new GrpcError(
           grpcCode.INTERNAL,
@@ -806,7 +806,7 @@ export class Volume {
     }
 
     // filter out unhealthy replicas (they don't have the latest data) from the create call
-    replicas = await this.registry.getPersistentStore().filter_replicas(this.uuid, replicas);
+    replicas = await this.registry.getPersistentStore().filterReplicas(this.uuid, replicas);
 
     if (replicas.length == 0) {
       // what could we really do in this case?

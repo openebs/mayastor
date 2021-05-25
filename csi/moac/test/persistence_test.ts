@@ -5,13 +5,11 @@ import { defaults } from 'lodash';
 import { Done } from 'mocha';
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import { expect } from 'chai';
-import { persistence } from '../proto/generated/persistence'
 import { rmdirSync } from 'fs';
 import { Replica } from '../replica';
-const util = require('util');
 import { Policy, ConsecutiveBreaker } from 'cockatiel';
 import * as sinon from 'ts-sinon';
-import { PersistentStore } from '../persistent_store';
+import { PersistentStore, NexusInfo, ChildInfo } from '../persistent_store';
 
 const ETCD_STORE = "/tmp/moac-etcd-test";
 const ETCD_PORT = '2379';
@@ -61,30 +59,31 @@ function stopEtcd () {
 }
 
 module.exports = function () {
-  // adds all possible combinations of child state and reason to the NexusInfo
-  function add_children_combinations(nexusInfo: persistence.NexusInfo) {
-    for (const state in Object.values(persistence.ChildState)) {
-      for (const reason in Object.values(persistence.Reason)) {
-        var child = new persistence.ChildInfo({
-          state: Object.values(persistence.ChildState)[state] as persistence.ChildState,
-          reason: Object.values(persistence.Reason)[reason] as persistence.Reason,
-          uuid: nexusInfo.children.length.toString(),
-        });
-        nexusInfo.children.push(child);
-      }
-    }
+  // adds all possible combinations of child info to the NexusInfo
+  // currently only healthy or otherwise
+  function addChildrenCombinations(nexusInfo: NexusInfo) {
+    const healthyChild = new ChildInfo({
+      uuid: nexusInfo.children.length.toString(),
+      healthy: true,
+    });
+    nexusInfo.children.push(healthyChild);
+    const unhealthyChild = new ChildInfo({
+      uuid: nexusInfo.children.length.toString(),
+      healthy: false,
+    });
+    nexusInfo.children.push(unhealthyChild);
   }
 
   // returns a NexusInfo with the given clean_shutdown flag and twice all possible children combinations
-  function get_nexus_info(clean_shutdown: boolean): persistence.NexusInfo {
-    let nexusInfo = new persistence.NexusInfo({
-      clean_shutdown: clean_shutdown,
+  function getNexusInfo(cleanShutdown: boolean): NexusInfo {
+    let nexusInfo = new NexusInfo({
+      clean_shutdown: cleanShutdown,
       children: []
     });
 
     // add 2 of each
-    add_children_combinations(nexusInfo);
-    add_children_combinations(nexusInfo);
+    addChildrenCombinations(nexusInfo);
+    addChildrenCombinations(nexusInfo);
 
     return nexusInfo;
   }
@@ -121,31 +120,31 @@ module.exports = function () {
     it('should read NexusInfo from the persistent store', async () => {
       let uuid = "1";
 
-      let nexus_not_there = await client.get(uuid);
-      expect(nexus_not_there).to.be.null;
+      let nexusNotThere = await client.get(uuid);
+      expect(nexusNotThere).to.be.null;
 
       // now put it there
       // todo: use number format for the enums
-      await client.put(uuid).value(JSON.stringify(get_nexus_info(true)));
+      await client.put(uuid).value(JSON.stringify(getNexusInfo(true)));
       // and read it back
-      let nexus = await client.get(uuid).json() as persistence.NexusInfo;
+      let nexus = await client.get(uuid).json() as NexusInfo;
 
       expect(nexus).not.to.be.null;
       // inner values should match up
-      expect(nexus.children.values).equals(get_nexus_info(true).children.values);
+      expect(nexus.children.values).equals(getNexusInfo(true).children.values);
     });
 
     it('should throw if etcd is not reachable', async () => {
-      const persistent_store = new PersistentStore([], 1000, () => client);
+      const persistentStore = new PersistentStore([], 1000, () => client);
 
       stopEtcd();
-      let has_thrown = false;
+      let hasThrown = false;
       try {
-        await persistent_store.filter_replicas("1", []);
+        await persistentStore.filterReplicas("1", []);
       } catch (error: any) {
-        has_thrown = true;
+        hasThrown = true;
       }
-      expect(has_thrown).to.be.true;
+      expect(hasThrown).to.be.true;
 
       // start etcd again
       await new Promise((resolve: (res: void) => void) => {
@@ -154,42 +153,42 @@ module.exports = function () {
         });
       });
 
-      has_thrown = false;
+      hasThrown = false;
       try {
-        await persistent_store.filter_replicas("1", []);
+        await persistentStore.filterReplicas("1", []);
       } catch (error: any) {
         console.log(`Caught unexpected exception, error: ${error}`);
-        has_thrown = true;
+        hasThrown = true;
       }
-      expect(has_thrown).to.be.false;
+      expect(hasThrown).to.be.false;
     });
 
     it('should delete NexusInfo from the persistent store', async () => {
       let uuid = "1";
 
-      let nexus_not_there = await client.get(uuid);
-      expect(nexus_not_there).to.be.null;
+      let nexusNotThere = await client.get(uuid);
+      expect(nexusNotThere).to.be.null;
 
       // now put it there
-      await client.put(uuid).value(JSON.stringify(get_nexus_info(true)));
+      await client.put(uuid).value(JSON.stringify(getNexusInfo(true)));
       // and read it back
-      let nexus = await client.get(uuid).json() as persistence.NexusInfo;
+      let nexus = await client.get(uuid).json() as NexusInfo;
       expect(nexus).not.to.be.null;
 
-      const persistent_store = new PersistentStore([], 1000, () => client);
-      await persistent_store.destroy_nexus(uuid);
+      const persistentStore = new PersistentStore([], 1000, () => client);
+      await persistentStore.destroyNexus(uuid);
 
-      nexus_not_there = await client.get(uuid);
-      expect(nexus_not_there).to.be.null;
+      nexusNotThere = await client.get(uuid);
+      expect(nexusNotThere).to.be.null;
     });
   });
 
   describe('with mock etcd client', () => {
     const client = new Etcd3();
-    const persistent_store = new PersistentStore([], 1000, () => client);
+    const persistentStore = new PersistentStore([], 1000, () => client);
 
     it('should mock the persistent store', async () => {
-      // hint: remove any cast to figure out which calls exec
+      // hint: remove 'as any' cast to figure out which calls exec
       const mock = client.mock({ exec: sinon.default.stub() as any});
       mock.exec.callsFake((_serviceName:any, method:string, payload:any) => {
         if (method === 'range' && payload.key == 'foo')  {
@@ -214,42 +213,42 @@ module.exports = function () {
 
       // not a valid json
       mock.exec.resolves({ kvs: [{ value: 'not json' }] });
-      let has_thrown = false;
+      let hasThrown = false;
       try {
-        await persistent_store.filter_replicas("1", replicas);
+        await persistentStore.filterReplicas("1", replicas);
       } catch (error: any) {
-        has_thrown = true;
+        hasThrown = true;
       }
-      expect(has_thrown).to.be.true;
+      expect(hasThrown).to.be.true;
 
       // valid json but not in the right format
       mock.exec.resolves({ kvs: [{ value: '{ "clean_shutdowns": true, "children": [] }' }] });
-      has_thrown = false;
+      hasThrown = false;
       try {
-        await persistent_store.filter_replicas("1", replicas);
+        await persistentStore.filterReplicas("1", replicas);
       } catch (error: any) {
-        has_thrown = true;
+        hasThrown = true;
       }
-      expect(has_thrown).to.be.true;
+      expect(hasThrown).to.be.true;
       mock.exec.resolves({ kvs: [{ value: '{ "clean_shutdown": true, "childrens": [] }' }] });
-      has_thrown = false;
+      hasThrown = false;
       try {
-        await persistent_store.filter_replicas("1", replicas);
+        await persistentStore.filterReplicas("1", replicas);
       } catch (error: any) {
-        has_thrown = true;
+        hasThrown = true;
       }
-      expect(has_thrown).to.be.true;
+      expect(hasThrown).to.be.true;
 
       // valid json and in the right format, so we should not throw now
       mock.exec.resolves({ kvs: [{ value: '{ "clean_shutdown": true, "children": [] }' }] });
-      await persistent_store.filter_replicas("1", replicas);
+      await persistentStore.filterReplicas("1", replicas);
     });
 
     it('should not filter out replicas on the first nexus creation', async () => {
       const mock = client.mock({ exec: sinon.default.stub() as any});
       mock.exec.resolves({ kvs: [] });
       let replicas = [new Replica({ uri: 'bdev:///1?uuid=1' }), new Replica({ uri: 'bdev:///1?uuid=2' })];
-      let replicas_filtered = await persistent_store.filter_replicas("1", replicas);
+      let replicas_filtered = await persistentStore.filterReplicas("1", replicas);
       expect(replicas_filtered).equals(replicas);
     });
 
@@ -259,47 +258,47 @@ module.exports = function () {
 
       // no children at all in the nexus, which is strange, but nonetheless, means we cannot create the nexus
       mock.exec.resolves({ kvs: [{ value: '{ "clean_shutdown": false, "children": [] }' }] });
-      let replicas_filtered = await persistent_store.filter_replicas("1", replicas);
-      expect(replicas_filtered.length).equals(0);
+      let replicasFiltered = await persistentStore.filterReplicas("1", replicas);
+      expect(replicasFiltered.length).equals(0);
 
-      let nexus = get_nexus_info(false);
+      let nexus = getNexusInfo(false);
       mock.exec.resolves({ kvs: [{ value: JSON.stringify(nexus) }] });
-      let open_children = nexus.children.filter((c) => {
-        return c.state === persistence.ChildState.Open;
+      let openChildren = nexus.children.filter((c) => {
+        return c.healthy === true;
       });
 
-      replicas = open_children.map((c) => {
+      replicas = openChildren.map((c) => {
         return new Replica({ uri: `bdev:///1?uuid=${c.uuid}` });
       });
       expect(replicas.length).greaterThan(1);
 
-      replicas_filtered = await persistent_store.filter_replicas("1", replicas);
-      expect(replicas_filtered.length).equals(1);
-      let child = open_children.find((c) => replicas_filtered[0].realUuid === c.uuid);
+      replicasFiltered = await persistentStore.filterReplicas("1", replicas);
+      expect(replicasFiltered.length).equals(1);
+      let child = openChildren.find((c) => replicasFiltered[0].realUuid === c.uuid);
       expect(child).not.to.be.undefined;
-      expect(child?.state).equals(persistence.ChildState.Open);
+      expect(child?.healthy).to.be.true;
     });
 
     it('should return only healthy children on a clean shutdown of the nexus', async () => {
       const mock = client.mock({ exec: sinon.default.stub() as any});
 
-      let nexus = get_nexus_info(true);
+      let nexus = getNexusInfo(true);
       mock.exec.resolves({ kvs: [{ value: JSON.stringify(nexus) }] });
-      let open_children = nexus.children.filter((c) => {
-        return c.state === persistence.ChildState.Open;
+      let openChildren = nexus.children.filter((c) => {
+        return c.healthy === true;
       });
-      let replicas = open_children.map((c) => {
+      let replicas = openChildren.map((c) => {
         return new Replica({ uri: `bdev:///1?uuid=${c.uuid}` });
       });
       expect(replicas.length).greaterThan(1);
 
-      let replicas_filtered = await persistent_store.filter_replicas("1", replicas);
-      expect(replicas_filtered.length).equals(replicas.length);
+      let replicasFiltered = await persistentStore.filterReplicas("1", replicas);
+      expect(replicasFiltered.length).equals(replicas.length);
 
-      replicas_filtered.forEach((r) => {
-        let child = open_children.find((c) => c.uuid === r.realUuid);
+      replicasFiltered.forEach((r) => {
+        let child = openChildren.find((c) => c.uuid === r.realUuid);
         expect(child).not.to.be.undefined;
-        expect(child?.state).equals(persistence.ChildState.Open);
+        expect(child?.healthy).to.be.true;
       });
     });
   });

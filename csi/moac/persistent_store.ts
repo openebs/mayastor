@@ -4,15 +4,40 @@
 
 import assert from "assert";
 import { Etcd3, IOptions } from "etcd3";
-import { defaults, forEach } from 'lodash';
-import { persistence } from './proto/generated/persistence';
+import { defaults } from 'lodash';
 import { Replica } from './replica';
 const log = require('./logger').Logger('persistent_store');
+
+// Definition of the nexus information that gets saved in the persistent store.
+export class NexusInfo {
+  // Nexus destroyed successfully.
+  cleanShutdown: boolean;
+  // Information about children.
+  children: ChildInfo[];
+
+  constructor (object: { [k: string]: any }) {
+    this.cleanShutdown = 'clean_shutdown' in object ? object['clean_shutdown'] : object['cleanShutdown'];
+    this.children = object['children'];
+  }
+}
+
+// Definition of the child information that gets saved in the persistent store.
+export class ChildInfo {
+  // UUID of the child.
+  uuid: string;
+  // Child's state of health.
+  healthy: boolean;
+
+  constructor (object: { [k: string]: any }) {
+    this.uuid = object['uuid'];
+    this.healthy = object['healthy'];
+  }
+}
 
 export class PersistentStore implements NexusCreateInfo {
   private client: Etcd3;
   private endpoints: string[];
-  private extern_client?: () => Etcd3;
+  private externClient?: () => Etcd3;
   // 1 minute timeout by default
   private timeoutMs: number = 60000;
   // In some conditions, the grpc call to etcd may take up to 15 minutes to fail, even when the etcd
@@ -39,11 +64,11 @@ export class PersistentStore implements NexusCreateInfo {
   // Returns a new etcd client
   // @param   {Etcd3}   client    New etcd client object
   //
-  private new_client (): Etcd3 {
+  private newClient (): Etcd3 {
     log.debug("Creating a new etcd client...");
 
-    if (this.extern_client !== undefined)
-      return this.extern_client();
+    if (this.externClient !== undefined)
+      return this.externClient();
     else
       return new Etcd3(this.getOptions(this.endpoints));
   }
@@ -56,8 +81,8 @@ export class PersistentStore implements NexusCreateInfo {
   constructor (endpoints: string[], timeoutMs?: number, client?: () => Etcd3) {
     this.endpoints = endpoints.map((e) => e.includes(':') ? e : `${e}:2379`);
 
-    this.extern_client = client;
-    this.client = this.new_client();
+    this.externClient = client;
+    this.client = this.newClient();
 
     if (timeoutMs !== undefined) {
       this.timeoutMs = timeoutMs;
@@ -68,36 +93,37 @@ export class PersistentStore implements NexusCreateInfo {
   // @param   {INexusInfo | null} info   Nexus info returned by etcd. A null value indicates it does not exist
   // @returns { NexusInfo | null}        Validated Nexus info object with valid parameters, if it exists
   //
-  private validate_nexus_info (info: persistence.INexusInfo | null): persistence.NexusInfo | null {
+  private validateNexusInfo (info: NexusInfo | null): NexusInfo | null {
     // it doesn't exist, just signal that back
-    if (info == null)
+    if (!info)
       return info;
 
     // verify if the inner fields exist
-    // todo: does this assert in release? it needs to...
-    assert(info.clean_shutdown != null);
+    assert(info.cleanShutdown != null);
     assert(info.children != null);
 
-    // validation passed, now return a proper object which also converts the enum's properly
-    return persistence.NexusInfo.fromObject(info);
+    // validation passed
+    // (no protobuf now, means we can just return the validated object as is)
+    return info;
   }
 
   // Get nexus information from the persistent store
-  // @param   {string}            nexus_uuid   The uuid of the nexus
+  // @param   {string}            nexusUuid    The uuid of the nexus
   // @returns {NexusInfo | null}               Validated Nexus info object with valid parameters, if it exists
   //                                            or throws an error in case of failure of time out
   //
-  private async get_nexus_info (nexus_uuid: string): Promise<persistence.NexusInfo | null> {
-    const promise = this.client.get(nexus_uuid).json();
-    const timeoutMsg = `Timed out after ${this.timeoutMs}ms while getting the persistent nexus "${nexus_uuid}" information from etcd`;
+  private async get_nexus_info (nexusUuid: string): Promise<NexusInfo | null> {
+    // get the nexus info as a JSON object
+    const promise = this.client.get(nexusUuid).json();
+    const timeoutMsg = `Timed out after ${this.timeoutMs}ms while getting the persistent nexus "${nexusUuid}" information from etcd`;
     const timeoutError = Symbol(timeoutMsg);
     try {
-      log.debug(`Getting the persistent nexus "${nexus_uuid}" information from etcd`);
-      const nexus_raw = await this.promiseWithTimeout(promise, this.timeoutMs, timeoutError) as persistence.INexusInfo | null;
-      return this.validate_nexus_info(nexus_raw);
+      log.debug(`Getting the persistent nexus "${nexusUuid}" information from etcd`);
+      const nexusRaw = await this.promiseWithTimeout(promise, this.timeoutMs, timeoutError);
+      return this.validateNexusInfo(nexusRaw ? new NexusInfo(nexusRaw) : null);
     } catch (error: any) {
       if (error === timeoutError) {
-        this.client = this.new_client();
+        this.client = this.newClient();
         throw timeoutMsg;
       }
       throw error;
@@ -105,19 +131,19 @@ export class PersistentStore implements NexusCreateInfo {
   }
 
   // Delete the nexus from the persistent store
-  // @param   {string}   nexus_uuid   The uuid of the nexus
+  // @param   {string}   nexusUuid    The uuid of the nexus
   // @returns {Promise}               Returns on success or throws an error if it failed|timed out
   //
-  private async delete_nexus_info (nexus_uuid: string): Promise<boolean> {
-    const timeoutMsg = `Timed out after ${this.timeoutMs}ms while deleting the persistent nexus "${nexus_uuid}" information from etcd`;
+  private async deleteNexusInfo (nexusUuid: string): Promise<boolean> {
+    const timeoutMsg = `Timed out after ${this.timeoutMs}ms while deleting the persistent nexus "${nexusUuid}" information from etcd`;
     const timeoutError = Symbol(timeoutMsg);
-    const promise = this.client.delete().key(nexus_uuid).exec();
+    const promise = this.client.delete().key(nexusUuid).exec();
     try {
-      log.debug(`Deleting the persistent nexus "${nexus_uuid}" information from etcd`);
+      log.debug(`Deleting the persistent nexus "${nexusUuid}" information from etcd`);
       const _deleted = await this.promiseWithTimeout(promise, this.timeoutMs, timeoutError);
     } catch (error: any) {
       if (error === timeoutError) {
-        this.client = this.new_client();
+        this.client = this.newClient();
         throw timeoutMsg;
       }
       throw error;
@@ -125,31 +151,31 @@ export class PersistentStore implements NexusCreateInfo {
     return true;
   }
 
-  async filter_replicas (nexus_uuid: string, replicas: Replica[]): Promise<Replica[]> {
-    const nexus = await this.get_nexus_info(nexus_uuid);
+  async filterReplicas (nexusUuid: string, replicas: Replica[]): Promise<Replica[]> {
+    const nexus = await this.get_nexus_info(nexusUuid);
 
     // we have a client AND a nexus does exist for the given uuid
     if (nexus !== null) {
-      let filtered_replicas = replicas.filter((r) => {
+      let filteredReplicas = replicas.filter((r) => {
 
         let childInfo = nexus.children.find((c) => {
           return c.uuid === r.realUuid;
         });
 
-        // Add only healthy children.
-        return childInfo?.state === persistence.ChildState.Open;
+        // Add only healthy children
+        return childInfo?.healthy === true;
       });
 
       // If the shutdown was not clean then only add 1 healthy child to the create call.
       // This is because children might have inconsistent data.
-      if (!nexus.clean_shutdown && filtered_replicas.length > 1) {
+      if (!nexus.cleanShutdown && filteredReplicas.length > 1) {
         // prefer to keep a local replica, if it exists
-        const local_replica = filtered_replicas.findIndex((r) => r.share === 'REPLICA_NONE');
-        const single_replica_index = local_replica != -1 ? local_replica : 0;
-        filtered_replicas = filtered_replicas.slice(single_replica_index, single_replica_index+1);
+        const localReplica = filteredReplicas.findIndex((r) => r.share === 'REPLICA_NONE');
+        const singleReplicaIndex = localReplica != -1 ? localReplica : 0;
+        filteredReplicas = filteredReplicas.slice(singleReplicaIndex, singleReplicaIndex+1);
       }
 
-      return filtered_replicas;
+      return filteredReplicas;
     } else {
       // If the nexus has never been created then it does not exist in etcd and so we can create
       // it with all the available children as there is no preexisting data.
@@ -157,8 +183,8 @@ export class PersistentStore implements NexusCreateInfo {
     }
   }
 
-  async destroy_nexus (nexus_uuid: string): Promise<boolean> {
-    return this.delete_nexus_info(nexus_uuid);
+  async destroyNexus (nexusUuid: string): Promise<boolean> {
+    return this.deleteNexusInfo(nexusUuid);
   }
 }
 
@@ -170,14 +196,14 @@ export interface NexusCreateInfo {
   // 1. when it cannot connect to the backing store within a construction timeout.
   // 2. when the client library gives up trying to connect/waiting for the data.
   // 3. when the data retrived from the backing store is invalid.
-  // @param   {string}               nexus_uuid   The uuid of the nexus
+  // @param   {string}               nexusUuid    The uuid of the nexus
   // @param   {Replica[]}            replicas     Array of replicas to filter on
   // @returns {Promise<Replica[]>}                Returns filtered replicas or throws an error if it failed|timed out
   //
-  filter_replicas (nexus_uuid: string, replicas: Replica[]): Promise<Replica[]>;
-  // Destroy the nexus information from the backing store when it is no long required
-  // @param   {string}    nexus_uuid   The uuid of the nexus
+  filterReplicas (nexusUuid: string, replicas: Replica[]): Promise<Replica[]>;
+  // Destroy the nexus information from the backing store when it is no long required.
+  // @param   {string}    nexusUuid    The uuid of the nexus
   // @returns {Promise}                Returns on success or throws an error if it failed|timed out
   //
-  destroy_nexus (nexus_uuid: string): Promise<boolean>;
+  destroyNexus (nexusUuid: string): Promise<boolean>;
 }
