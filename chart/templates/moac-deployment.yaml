@@ -51,6 +51,7 @@ spec:
             - "--csi-address=$(CSI_ENDPOINT)"
             - "--port=3000"
             - "--watcher-idle-timeout=600000"
+            - "--etcd-endpoint=mayastor-etcd"
             - "--message-bus=nats"{{ if .Values.moacDebug }}
             - "-vv"{{ end }}
           env:

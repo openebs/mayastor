@@ -23,12 +23,29 @@ const { grpcCode, GrpcError } = require('../grpc_client');
 const { shouldFailWith, waitUntil } = require('./utils');
 const enums = require('./grpc_enums');
 const sleep = require('sleep-promise');
+const Etcd3 = require('etcd3');
+const { PersistentStore } = require('../persistent_store');
 
 const UUID = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cbb';
 const UUID2 = 'aa5e39e9-0c0e-4973-8a3a-0dccada09cbc';
 const EYE_BLINK_MS = 30;
 
 module.exports = function () {
+  let client;
+  let mock;
+
+  before(() => {
+    client = new Etcd3.Etcd3();
+    mock = client.mock({ exec: sinon.stub() });
+    mock.exec.resolves({
+      kvs: []
+    });
+  });
+
+  after(() => {
+    client.unmock();
+  });
+
   let registry, volumes;
   let pool1, pool2, pool3;
   let node1, node2, node3;
@@ -37,10 +54,13 @@ module.exports = function () {
   let volume;
   let volEvents;
   let isSynced1, isSynced2, isSynced3;
+  let persistentStore;
 
   // Create pristine test env with 3 pools on 3 nodes
   function createTestEnv () {
-    registry = new Registry({});
+    persistentStore = new PersistentStore([], 1000, () => client);
+    registry = new Registry({}, persistentStore);
+
     volumes = new Volumes(registry);
     node1 = new Node('node1');
     node2 = new Node('node2');
@@ -103,12 +123,14 @@ module.exports = function () {
   // volume should be created in published state.
   async function setUpReferenceEnv (published) {
     createTestEnv();
+    // set up clean etcd by deleting all entries
+    await client.delete().all();
 
     replica1 = new Replica({
       uuid: UUID,
       size: 95,
       share: 'REPLICA_NONE',
-      uri: `bdev:///${UUID}`
+      uri: `bdev:///${UUID}?uuid=1`
     });
     pool1.registerReplica(replica1);
 
@@ -116,7 +138,7 @@ module.exports = function () {
       uuid: UUID,
       size: 95,
       share: 'REPLICA_NVMF',
-      uri: `nvmf://node2/${UUID}`
+      uri: `nvmf://node2/${UUID}?uuid=2`
     });
     pool2.registerReplica(replica2);
 
@@ -128,12 +150,12 @@ module.exports = function () {
         state: 'NEXUS_ONLINE',
         children: [
           {
-            uri: `bdev:///${UUID}`,
+            uri: `bdev:///${UUID}?uuid=1`,
             state: 'CHILD_ONLINE',
             rebuildProgress: 0
           },
           {
-            uri: `nvmf://node2/${UUID}`,
+            uri: `nvmf://node2/${UUID}?uuid=2`,
             state: 'CHILD_ONLINE',
             rebuildProgress: 0
           }
@@ -204,7 +226,7 @@ module.exports = function () {
         size: 90,
         thin: false,
         share: 'REPLICA_NONE',
-        uri: 'bdev:///' + UUID
+        uri: 'bdev:///' + UUID + '?uuid=2'
       });
       stub2.onCall(1).resolves({
         uuid: UUID,
@@ -212,7 +234,7 @@ module.exports = function () {
         state: 'NEXUS_ONLINE',
         children: [
           {
-            uri: 'bdev:///' + UUID,
+            uri: 'bdev:///' + UUID + '?uuid=2',
             state: 'CHILD_ONLINE',
             rebuildProgress: 0
           }
@@ -251,7 +273,7 @@ module.exports = function () {
         size: 90,
         thin: false,
         share: 'REPLICA_NONE',
-        uri: 'bdev:///' + UUID
+        uri: 'bdev:///' + UUID + '?uuid=1'
       });
       stub1.onCall(1).resolves({
         uuid: UUID,
@@ -259,7 +281,7 @@ module.exports = function () {
         state: 'NEXUS_ONLINE',
         children: [
           {
-            uri: 'bdev:///' + UUID,
+            uri: 'bdev:///' + UUID + '?uuid=1',
             state: 'CHILD_ONLINE',
             rebuildProgress: 0
           }
@@ -299,7 +321,7 @@ module.exports = function () {
         size: 90,
         thin: false,
         share: 'REPLICA_NONE',
-        uri: 'bdev:///' + UUID
+        uri: 'bdev:///' + UUID + '?uuid=1'
       });
       stub1.onCall(1).resolves({
         uuid: UUID,
@@ -307,7 +329,7 @@ module.exports = function () {
         state: 'NEXUS_ONLINE',
         children: [
           {
-            uri: 'bdev:///' + UUID,
+            uri: 'bdev:///' + UUID + '?uuid=1',
             state: 'CHILD_ONLINE',
             rebuildProgress: 0
           }
@@ -344,7 +366,7 @@ module.exports = function () {
         size: 50,
         thin: false,
         share: 'REPLICA_NONE',
-        uri: 'bdev:///' + UUID
+        uri: 'bdev:///' + UUID + '?uuid=1'
       });
       stub1.onCall(1).resolves({
         uuid: UUID,
@@ -352,7 +374,7 @@ module.exports = function () {
         state: 'NEXUS_ONLINE',
         children: [
           {
-            uri: 'bdev:///' + UUID,
+            uri: 'bdev:///' + UUID + '?uuid=1',
             state: 'CHILD_ONLINE',
             rebuildProgress: 0
           }
@@ -407,7 +429,7 @@ module.exports = function () {
         size: 90,
         thin: false,
         share: 'REPLICA_NONE',
-        uri: 'bdev:///' + UUID
+        uri: 'bdev:///' + UUID + '?uuid=1'
       });
       stub1.onCall(1).resolves({
         uuid: UUID,
@@ -415,7 +437,7 @@ module.exports = function () {
         state: 'NEXUS_ONLINE',
         children: [
           {
-            uri: 'bdev:///' + UUID,
+            uri: 'bdev:///' + UUID + '?uuid=1',
             state: 'CHILD_FAULTED',
             rebuildProgress: 0
           }
@@ -443,7 +465,7 @@ module.exports = function () {
         state: 'NEXUS_ONLINE',
         children: [
           {
-            uri: `bdev:///${UUID}`,
+            uri: `bdev:///${UUID}?uuid=1`,
             state: 'CHILD_ONLINE',
             rebuildProgress: 0
           }
@@ -453,7 +475,7 @@ module.exports = function () {
         uuid: UUID,
         size: 10,
         share: 'REPLICA_NONE',
-        uri: `bdev:///${UUID}`
+        uri: `bdev:///${UUID}?uuid=1`
       });
       replica.pool = pool1;
       const getReplicaSetStub = sinon.stub(registry, 'getReplicaSet');
@@ -476,7 +498,7 @@ module.exports = function () {
       sinon.assert.calledWithMatch(stub1.firstCall, 'createNexus', {
         uuid: UUID,
         size: 10,
-        children: [`bdev:///${UUID}`]
+        children: [`bdev:///${UUID}?uuid=1`]
       });
       sinon.assert.calledWithMatch(stub1.secondCall, 'destroyNexus', {
         uuid: UUID
@@ -501,10 +523,10 @@ module.exports = function () {
         size: 10,
         thin: false,
         share: 'REPLICA_NONE',
-        uri: `bdev:///${UUID}`
+        uri: `bdev:///${UUID}?uuid=1`
       });
       stub1.onCall(1).resolves({
-        uri: `bdev:///${UUID}`,
+        uri: `bdev:///${UUID}?uuid=1`,
         state: 'CHILD_DEGRADED',
         rebuildProgress: 10
       });
@@ -565,7 +587,7 @@ module.exports = function () {
       });
       sinon.assert.calledWithMatch(stub1.secondCall, 'addChildNexus', {
         uuid: UUID,
-        uri: `bdev:///${UUID}`,
+        uri: `bdev:///${UUID}?uuid=1`,
         norebuild: false
       });
     });
@@ -575,37 +597,37 @@ module.exports = function () {
         uuid: UUID,
         size: 95,
         share: 'REPLICA_NONE',
-        uri: `bdev:///${UUID}`
+        uri: `bdev:///${UUID}?uuid=1`
       });
       const replica2 = new Replica({
         uuid: UUID,
         size: 95,
         share: 'REPLICA_NONE',
-        uri: `bdev:///${UUID}`
+        uri: `bdev:///${UUID}?uuid=2`
       });
       const replica3 = new Replica({
         uuid: UUID,
         size: 95,
         share: 'REPLICA_NONE',
-        uri: `bdev:///${UUID}`
+        uri: `bdev:///${UUID}?uuid=3`
       });
       const replica4 = new Replica({
         uuid: UUID2,
         size: 95,
         share: 'REPLICA_NONE',
-        uri: `bdev:///${UUID2}`
+        uri: `bdev:///${UUID2}?uuid=4`
       });
       const replica5 = new Replica({
         uuid: UUID2,
         size: 95,
         share: 'REPLICA_NONE',
-        uri: `bdev:///${UUID2}`
+        uri: `bdev:///${UUID2}?uuid=5`
       });
       const replica6 = new Replica({
         uuid: UUID2,
         size: 95,
         share: 'REPLICA_NONE',
-        uri: `bdev:///${UUID2}`
+        uri: `bdev:///${UUID2}?uuid=6`
       });
       replica1.pool = pool1;
       replica2.pool = pool2;
@@ -648,8 +670,8 @@ module.exports = function () {
       volumes.start();
 
       // set share pcols for replicas of the first volume
-      stub2.onCall(0).resolves({ uri: `nvmf://node2/${UUID}` });
-      stub3.onCall(0).resolves({ uri: `nvmf://node3/${UUID}` });
+      stub2.onCall(0).resolves({ uri: `nvmf://node2/${UUID}?uuid=2` });
+      stub3.onCall(0).resolves({ uri: `nvmf://node3/${UUID}?uuid=3` });
       // create first nexus reply
       stub1.onCall(0).resolves({
         uuid: UUID,
@@ -657,13 +679,13 @@ module.exports = function () {
         size: 95,
         state: 'NEXUS_ONLINE',
         children: [{
-          uri: `bdev:///${UUID}`,
+          uri: `bdev:///${UUID}?uuid=1`,
           state: 'CHILD_ONLINE'
         }, {
-          uri: `nvmf://node2/${UUID}`,
+          uri: `nvmf://node2/${UUID}?uuid=2`,
           state: 'CHILD_ONLINE'
         }, {
-          uri: `nvmf://node3/${UUID}`,
+          uri: `nvmf://node3/${UUID}?uuid=3`,
           state: 'CHILD_ONLINE'
         }]
       });
@@ -680,8 +702,8 @@ module.exports = function () {
       expect(volume.publishedOn).to.equal('node1');
 
       // set share pcols for replicas of the second volume
-      stub1.onCall(2).resolves({ uri: `nvmf://node1/${UUID2}` });
-      stub3.onCall(1).resolves({ uri: `nvmf://node3/${UUID2}` });
+      stub1.onCall(2).resolves({ uri: `nvmf://node1/${UUID2}?uuid=4` });
+      stub3.onCall(1).resolves({ uri: `nvmf://node3/${UUID2}?uuid=6` });
       // create second nexus reply
       stub2.onCall(1).resolves({
         uuid: UUID2,
@@ -689,13 +711,13 @@ module.exports = function () {
         size: 95,
         state: 'NEXUS_ONLINE',
         children: [{
-          uri: `bdev:///${UUID2}`,
+          uri: `bdev:///${UUID2}?uuid=5`,
           state: 'CHILD_ONLINE'
         }, {
-          uri: `nvmf://node1/${UUID2}`,
+          uri: `nvmf://node1/${UUID2}?uuid=4`,
           state: 'CHILD_ONLINE'
         }, {
-          uri: `nvmf://node3/${UUID2}`,
+          uri: `nvmf://node3/${UUID2}?uuid=6`,
           state: 'CHILD_ONLINE'
         }]
       });
@@ -719,7 +741,7 @@ module.exports = function () {
         size: 10,
         thin: false,
         share: 'REPLICA_NONE',
-        uri: `bdev:///${UUID}`
+        uri: `bdev:///${UUID}?uuid=1`
       });
       stub1.onCall(1).resolves({
         uuid: UUID,
@@ -727,7 +749,7 @@ module.exports = function () {
         state: 'NEXUS_ONLINE',
         children: [
           {
-            uri: `bdev:///${UUID}`,
+            uri: `bdev:///${UUID}?uuid=1`,
             state: 'CHILD_ONLINE',
             rebuildProgress: 0
           }
@@ -741,7 +763,7 @@ module.exports = function () {
         size: 10,
         thin: false,
         share: 'REPLICA_NONE',
-        uri: `bdev:///${UUID2}`
+        uri: `bdev:///${UUID2}?uuid=2`
       });
       stub2.onCall(1).resolves({
         uuid: UUID2,
@@ -749,7 +771,7 @@ module.exports = function () {
         state: 'NEXUS_ONLINE',
         children: [
           {
-            uri: `bdev:///${UUID2}`,
+            uri: `bdev:///${UUID2}?uuid=2`,
             state: 'CHILD_ONLINE',
             rebuildProgress: 0
           }
@@ -833,7 +855,7 @@ module.exports = function () {
         uuid: UUID,
         size: 40,
         share: 'REPLICA_NONE',
-        uri: `bdev:///${UUID}`
+        uri: `bdev:///${UUID}?uuid=1`
       });
       replica1.pool = pool1;
       const replica2 = new Replica({
@@ -853,7 +875,7 @@ module.exports = function () {
         size: 95,
         state: 'NEXUS_ONLINE',
         children: [{
-          uri: `bdev:///${UUID}`,
+          uri: `bdev:///${UUID}?uuid=1`,
           state: 'CHILD_ONLINE'
         }, {
           uri: `nvmf://node2/${UUID}`,
@@ -880,7 +902,7 @@ module.exports = function () {
         uuid: UUID,
         size: 40,
         share: 'REPLICA_NONE',
-        uri: `bdev:///${UUID}`
+        uri: `bdev:///${UUID}?uuid=1`
       });
       replica.pool = pool1;
       const nexus = new Nexus({
@@ -890,7 +912,7 @@ module.exports = function () {
         state: 'NEXUS_ONLINE',
         children: [
           {
-            uri: `bdev:///${UUID}`,
+            uri: `bdev:///${UUID}?uuid=1`,
             state: 'CHILD_ONLINE'
           }
         ]
@@ -918,7 +940,7 @@ module.exports = function () {
         uuid: UUID,
         size: 40,
         share: 'REPLICA_NONE',
-        uri: `bdev:///${UUID}`
+        uri: `bdev:///${UUID}?uuid=1`
       });
       replica.pool = pool1;
       const nexus = new Nexus({
@@ -928,7 +950,7 @@ module.exports = function () {
         state: 'NEXUS_ONLINE',
         children: [
           {
-            uri: `bdev:///${UUID}`,
+            uri: `bdev:///${UUID}?uuid=1`,
             state: 'CHILD_ONLINE'
           }
         ]
@@ -966,7 +988,7 @@ module.exports = function () {
         uuid: UUID,
         size: 40,
         share: 'REPLICA_NVMF',
-        uri: `nvmf://node2/${UUID}`
+        uri: `nvmf://node2/${UUID}?uuid=2`
       });
       replica.pool = pool2;
       const nexus = new Nexus({
@@ -976,7 +998,7 @@ module.exports = function () {
         state: 'NEXUS_ONLINE',
         children: [
           {
-            uri: `nvmf://node2/${UUID}`,
+            uri: `nvmf://node2/${UUID}?uuid=2`,
             state: 'CHILD_ONLINE'
           }
         ]
@@ -994,10 +1016,10 @@ module.exports = function () {
         size: 40,
         thin: false,
         share: 'REPLICA_NONE',
-        uri: 'bdev:///' + UUID
+        uri: 'bdev:///' + UUID + '?uuid=3'
       });
       stub3.onCall(1).resolves({
-        uri: `bdev:///${UUID}`,
+        uri: `bdev:///${UUID}?uuid=3`,
         state: 'CHILD_DEGRADED',
         rebuildProgress: 10
       });
@@ -1025,7 +1047,7 @@ module.exports = function () {
       });
       sinon.assert.calledWithMatch(stub3.secondCall, 'addChildNexus', {
         uuid: UUID,
-        uri: `bdev:///${UUID}`,
+        uri: `bdev:///${UUID}?uuid=3`,
         norebuild: false
       });
     });
@@ -1047,7 +1069,7 @@ module.exports = function () {
         uuid: UUID,
         size: 95,
         share: 'REPLICA_NONE',
-        uri: `bdev:///${UUID}`
+        uri: `bdev:///${UUID}?uuid=1`
       });
       replica.pool = pool1;
       const getReplicaSetStub = sinon.stub(registry, 'getReplicaSet');
@@ -1070,6 +1092,7 @@ module.exports = function () {
 
     this.afterEach(() => {
       volumes.stop();
+      console.log('Stopped!');
     });
 
     it('should publish the volume', async () => {
@@ -1104,7 +1127,7 @@ module.exports = function () {
         state: 'NEXUS_ONLINE',
         children: [
           {
-            uri: `bdev:///${UUID}`,
+            uri: `bdev:///${UUID}?uuid=1`,
             state: 'CHILD_ONLINE',
             rebuildProgress: 0
           }
@@ -1157,6 +1180,7 @@ module.exports = function () {
       });
       sinon.assert.notCalled(stub2);
       sinon.assert.notCalled(stub3);
+      // await sleep(1700);
     });
 
     it('should fail to publish if create nexus grpc fails', async () => {
@@ -1167,7 +1191,7 @@ module.exports = function () {
       sinon.assert.calledWithMatch(stub1.firstCall, 'createNexus', {
         uuid: UUID,
         size: 95,
-        children: [`bdev:///${UUID}`]
+        children: [`bdev:///${UUID}?uuid=1`]
       });
       sinon.assert.notCalled(stub2);
       sinon.assert.notCalled(stub3);
@@ -1183,7 +1207,7 @@ module.exports = function () {
         uuid: UUID,
         size: 95,
         share: 'REPLICA_NONE',
-        uri: `bdev:///${UUID}`
+        uri: `bdev:///${UUID}?uuid=1`
       });
       replica.pool = pool1;
       const getReplicaSetStub = sinon.stub(registry, 'getReplicaSet');
@@ -1196,7 +1220,7 @@ module.exports = function () {
         deviceUri: 'nvmf://node1/nqn',
         children: [
           {
-            uri: `bdev:///${UUID}`,
+            uri: `bdev:///${UUID}?uuid=1`,
             state: 'CHILD_ONLINE',
             rebuildProgress: 0
           }
@@ -1278,7 +1302,7 @@ module.exports = function () {
         state: 'NEXUS_ONLINE',
         children: [
           {
-            uri: `bdev:///${UUID}`,
+            uri: `bdev:///${UUID}?uuid=1`,
             state: 'CHILD_ONLINE',
             rebuildProgress: 0
           }
@@ -1289,7 +1313,7 @@ module.exports = function () {
         uuid: UUID,
         size: 95,
         share: 'REPLICA_NONE',
-        uri: `bdev:///${UUID}`
+        uri: `bdev:///${UUID}?uuid=1`
       });
       replica.pool = pool1;
       const getReplicaSetStub = sinon.stub(registry, 'getReplicaSet');
@@ -1421,14 +1445,14 @@ module.exports = function () {
           size: 95,
           thin: false,
           share: 'REPLICA_NONE',
-          uri: 'bdev:///' + UUID
+          uri: 'bdev:///' + UUID + '?uuid=3'
         });
-        stub3.onCall(1).resolves({ uri: `nvmf://node3/${UUID}` });
+        stub3.onCall(1).resolves({ uri: `nvmf://node3/${UUID}?uuid=3` });
         // the faulted replica should be eventually removed
         stub2.onCall(0).resolves({});
         // nexus should be updated twice (add and remove a replica)
         stub1.onCall(0).resolves({
-          uri: `nvmf://node3/${UUID}`,
+          uri: `nvmf://node3/${UUID}?uuid=3`,
           state: 'CHILD_DEGRADED',
           rebuildProgress: 10
         });
@@ -1442,15 +1466,19 @@ module.exports = function () {
           object: nexus
         });
 
+        console.log('B');
+
         await waitUntil(
           () =>
             nexus.children.length === 3 &&
-            nexus.children.find((ch) => ch.uri === `nvmf://node3/${UUID}`),
+            nexus.children.find((ch) => ch.uri === `nvmf://node3/${UUID}?uuid=3`),
           'new replica'
         );
 
+        console.log('A');
+
         expect(volume.state).to.equal('degraded');
-        const child = nexus.children.find((ch) => ch.uri === `nvmf://node3/${UUID}`);
+        const child = nexus.children.find((ch) => ch.uri === `nvmf://node3/${UUID}?uuid=3`);
         child.state = 'CHILD_ONLINE';
         registry.emit('nexus', {
           eventType: 'mod',
@@ -1460,8 +1488,8 @@ module.exports = function () {
         await waitUntil(
           () =>
             nexus.children.length === 2 &&
-            !nexus.children.find((ch) => ch.uri === `nvmf://node2/${UUID}`) &&
-            nexus.children.find((ch) => ch.uri === `nvmf://node3/${UUID}`),
+            !nexus.children.find((ch) => ch.uri === `nvmf://node2/${UUID}?uuid=2`) &&
+            nexus.children.find((ch) => ch.uri === `nvmf://node3/${UUID}?uuid=3`),
           'faulted replica removal'
         );
         expect(volume.state).to.equal('healthy');
@@ -1475,11 +1503,11 @@ module.exports = function () {
           size: 95,
           thin: false,
           share: 'REPLICA_NONE',
-          uri: 'bdev:///' + UUID
+          uri: 'bdev:///' + UUID + '?uuid=3'
         });
-        stub3.onCall(1).resolves({ uri: `nvmf://node3/${UUID}` });
+        stub3.onCall(1).resolves({ uri: `nvmf://node3/${UUID}?uuid=3` });
         stub1.onCall(0).resolves({
-          uri: `nvmf://node3/${UUID}`,
+          uri: `nvmf://node3/${UUID}?uuid=3`,
           state: 'CHILD_DEGRADED',
           rebuildProgress: 10
         });
@@ -1514,11 +1542,11 @@ module.exports = function () {
           size: 95,
           thin: false,
           share: 'REPLICA_NONE',
-          uri: 'bdev:///' + UUID
+          uri: 'bdev:///' + UUID + '?uuid=3'
         });
-        stub3.onCall(1).resolves({ uri: `nvmf://node3/${UUID}` });
+        stub3.onCall(1).resolves({ uri: `nvmf://node3/${UUID}?uuid=3` });
         stub1.onCall(0).resolves({
-          uri: `nvmf://node3/${UUID}`,
+          uri: `nvmf://node3/${UUID}?uuid=3`,
           state: 'CHILD_DEGRADED',
           rebuildProgress: 10
         });
@@ -1585,12 +1613,12 @@ module.exports = function () {
           size: 95,
           thin: false,
           share: 'REPLICA_NONE',
-          uri: 'bdev:///' + UUID
+          uri: 'bdev:///' + UUID + '?uuid=3'
         });
-        stub3.onCall(1).resolves({ uri: `nvmf://node3/${UUID}` });
+        stub3.onCall(1).resolves({ uri: `nvmf://node3/${UUID}?uuid=3` });
         // nexus should be updated to add the new child
         stub1.onCall(0).resolves({
-          uri: `nvmf://node3/${UUID}`,
+          uri: `nvmf://node3/${UUID}?uuid=3`,
           state: 'CHILD_DEGRADED',
           rebuildProgress: 10
         });
@@ -1615,7 +1643,7 @@ module.exports = function () {
         const newChild = volume.nexus.children.find(
           (ch) => ch.state === 'CHILD_DEGRADED'
         );
-        expect(newChild.uri).to.equal(`nvmf://node3/${UUID}`);
+        expect(newChild.uri).to.equal(`nvmf://node3/${UUID}?uuid=3`);
         newChild.state = 'CHILD_ONLINE';
         registry.emit('nexus', {
           eventType: 'mod',
@@ -1636,12 +1664,12 @@ module.exports = function () {
           size: 95,
           thin: false,
           share: 'REPLICA_NONE',
-          uri: 'bdev:///' + UUID
+          uri: 'bdev:///' + UUID + '?uuid=3'
         });
-        stub3.onCall(2).resolves({ uri: `nvmf://node3/${UUID}` });
+        stub3.onCall(2).resolves({ uri: `nvmf://node3/${UUID}?uuid=3` });
         // nexus should be updated to add the new child
         stub1.onCall(0).resolves({
-          uri: `nvmf://node3/${UUID}`,
+          uri: `nvmf://node3/${UUID}?uuid=3`,
           state: 'CHILD_DEGRADED',
           rebuildProgress: 10
         });
@@ -1679,7 +1707,7 @@ module.exports = function () {
         const newChild = volume.nexus.children.find(
           (ch) => ch.state === 'CHILD_DEGRADED'
         );
-        expect(newChild.uri).to.equal(`nvmf://node3/${UUID}`);
+        expect(newChild.uri).to.equal(`nvmf://node3/${UUID}?uuid=3`);
         newChild.state = 'CHILD_ONLINE';
         registry.emit('nexus', {
           eventType: 'mod',
@@ -1705,12 +1733,12 @@ module.exports = function () {
           state: 'NEXUS_ONLINE',
           children: [
             {
-              uri: `bdev:///${UUID}`,
+              uri: `bdev:///${UUID}?uuid=1`,
               state: 'CHILD_ONLINE',
               rebuildProgress: 0
             },
             {
-              uri: `nvmf://node2/${UUID}`,
+              uri: `nvmf://node2/${UUID}?uuid=2`,
               state: 'CHILD_ONLINE',
               rebuildProgress: 0
             }
@@ -1723,12 +1751,12 @@ module.exports = function () {
           size: 95,
           thin: false,
           share: 'REPLICA_NONE',
-          uri: 'bdev:///' + UUID
+          uri: 'bdev:///' + UUID + '?uuid=3'
         });
-        stub3.onCall(1).resolves({ uri: `nvmf://node3/${UUID}` });
+        stub3.onCall(1).resolves({ uri: `nvmf://node3/${UUID}?uuid=3` });
         // nexus should be updated to add the new child
         stub1.onCall(1).resolves({
-          uri: `nvmf://node3/${UUID}`,
+          uri: `nvmf://node3/${UUID}?uuid=3`,
           state: 'CHILD_DEGRADED',
           rebuildProgress: 10
         });
@@ -1753,7 +1781,7 @@ module.exports = function () {
             volume.nexus.children.length === 3,
           'new replica'
         );
-        const newReplica = Object.values(volume.replicas).find((r) => r.uri === `nvmf://node3/${UUID}`);
+        const newReplica = Object.values(volume.replicas).find((r) => r.uri === `nvmf://node3/${UUID}?uuid=3`);
         const nexus = volume.nexus;
         const child = nexus.children[2];
         expect(nexus).not.to.be.null;
@@ -1781,12 +1809,12 @@ module.exports = function () {
           state: 'NEXUS_ONLINE',
           children: [
             {
-              uri: `bdev:///${UUID}`,
+              uri: `bdev:///${UUID}?uuid=1`,
               state: 'CHILD_ONLINE',
               rebuildProgress: 0
             },
             {
-              uri: `nvmf://node2/${UUID}`,
+              uri: `nvmf://node2/${UUID}?uuid=2`,
               state: 'CHILD_ONLINE',
               rebuildProgress: 0
             }
@@ -1924,12 +1952,12 @@ module.exports = function () {
         state: 'NEXUS_ONLINE',
         children: [
           {
-            uri: `bdev:///${UUID}`,
+            uri: `bdev:///${UUID}?uuid=1`,
             state: 'CHILD_ONLINE',
             rebuildProgress: 0
           },
           {
-            uri: `nvmf://node2/${UUID}`,
+            uri: `nvmf://node2/${UUID}?uuid=2`,
             state: 'CHILD_ONLINE',
             rebuildProgress: 0
           }
@@ -1981,12 +2009,12 @@ module.exports = function () {
         state: 'NEXUS_ONLINE',
         children: [
           {
-            uri: `bdev:///${UUID}`,
+            uri: `bdev:///${UUID}?uuid=2`,
             state: 'CHILD_ONLINE',
             rebuildProgress: 0
           },
           {
-            uri: `nvmf://node2/${UUID}`,
+            uri: `nvmf://node2/${UUID}?uuid=1`,
             state: 'CHILD_ONLINE',
             rebuildProgress: 0
           }
@@ -2003,20 +2031,22 @@ module.exports = function () {
 
     it('should replace a nexus in volume on wrong node', async () => {
       volume.publishedOn = 'node2';
-      stub1.onCall(0).resolves({});
+      stub1.onCall(0).resolves({ });
+      stub1.onCall(1).resolves({ uri: `nvmf://node1/${UUID}?uuid=1` });
+      stub2.onCall(0).resolves({ uri: `bdev:///${UUID}?uuid=2` });
       const newNexus = new Nexus({
         uuid: UUID,
         size: 95,
-        deviceUri: '',
+        deviceUri: `nvmf://node2/${UUID}`,
         state: 'NEXUS_ONLINE',
         children: [
           {
-            uri: `bdev:///${UUID}`,
+            uri: `bdev:///${UUID}?uuid=2`,
             state: 'CHILD_ONLINE',
             rebuildProgress: 0
           },
           {
-            uri: `nvmf://node2/${UUID}`,
+            uri: `nvmf://node1/${UUID}?uuid=1`,
             state: 'CHILD_ONLINE',
             rebuildProgress: 0
           }
@@ -2059,7 +2089,7 @@ module.exports = function () {
         size: 96,
         thin: false,
         share: 'REPLICA_NONE',
-        uri: 'bdev:///' + UUID
+        uri: 'bdev:///' + UUID + '?uuid=1'
       });
       stub1.onCall(1).resolves({
         uuid: UUID,
@@ -2067,17 +2097,17 @@ module.exports = function () {
         state: 'NEXUS_ONLINE',
         children: [
           {
-            uri: 'bdev:///' + UUID,
+            uri: 'bdev:///' + UUID + '?uuid=1',
             state: 'CHILD_ONLINE',
             rebuildProgress: 0
           },
           {
-            uri: `nvmf://node2/${UUID}`,
+            uri: `nvmf://node2/${UUID}?uuid=2`,
             state: 'CHILD_ONLINE',
             rebuildProgress: 0
           },
           {
-            uri: `nvmf://node3/${UUID}`,
+            uri: `nvmf://node3/${UUID}?uuid=3`,
             state: 'CHILD_ONLINE',
             rebuildProgress: 0
           }
@@ -2091,9 +2121,9 @@ module.exports = function () {
         size: 96,
         thin: false,
         share: 'REPLICA_NONE',
-        uri: 'bdev:///' + UUID
+        uri: 'bdev:///' + UUID + '?uuid=2'
       });
-      stub2.onCall(1).resolves({ uri: `nvmf://node2/${UUID}` });
+      stub2.onCall(1).resolves({ uri: `nvmf://node2/${UUID}?uuid=2` });
       // on node 3 is created replica and it is shared
       stub3.onCall(0).resolves({
         uuid: UUID,
@@ -2101,9 +2131,9 @@ module.exports = function () {
         size: 96,
         thin: false,
         share: 'REPLICA_NONE',
-        uri: 'bdev:///' + UUID
+        uri: 'bdev:///' + UUID + '?uuid=3'
       });
-      stub3.onCall(1).resolves({ uri: `nvmf://node3/${UUID}` });
+      stub3.onCall(1).resolves({ uri: `nvmf://node3/${UUID}?uuid=3` });
 
       volumes.start();
       volume = await volumes.createVolume(UUID, {
@@ -2127,7 +2157,7 @@ module.exports = function () {
       sinon.assert.calledWithMatch(stub1.secondCall, 'createNexus', {
         uuid: UUID,
         size: 96,
-        children: ['bdev:///' + UUID, `nvmf://node2/${UUID}`, `nvmf://node3/${UUID}`]
+        children: ['bdev:///' + UUID + '?uuid=1', `nvmf://node2/${UUID}?uuid=2`, `nvmf://node3/${UUID}?uuid=3`]
       });
       sinon.assert.calledWithMatch(stub1.thirdCall, 'destroyNexus', {
         uuid: UUID
@@ -2194,17 +2224,17 @@ module.exports = function () {
         state: 'NEXUS_ONLINE',
         children: [
           {
-            uri: 'bdev:///' + UUID,
+            uri: 'bdev:///' + UUID + '?uuid=1',
             state: 'CHILD_ONLINE',
             rebuildProgress: 0
           },
           {
-            uri: `nvmf://node2/${UUID}`,
+            uri: `nvmf://node2/${UUID}?uuid=2`,
             state: 'CHILD_ONLINE',
             rebuildProgress: 0
           },
           {
-            uri: `nvmf://node3/${UUID}`,
+            uri: `nvmf://node3/${UUID}?uuid=3`,
             state: 'CHILD_ONLINE',
             rebuildProgress: 0
           }
@@ -2219,7 +2249,7 @@ module.exports = function () {
       sinon.assert.calledWithMatch(stub1.firstCall, 'createNexus', {
         uuid: UUID,
         size: 96,
-        children: ['bdev:///' + UUID, `nvmf://node2/${UUID}`, `nvmf://node3/${UUID}`]
+        children: ['bdev:///' + UUID + '?uuid=1', `nvmf://node2/${UUID}?uuid=2`, `nvmf://node3/${UUID}?uuid=3`]
       });
       sinon.assert.calledWithMatch(stub1.secondCall, 'publishNexus', {
         uuid: UUID,

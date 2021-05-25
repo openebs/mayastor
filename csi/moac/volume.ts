@@ -9,6 +9,7 @@ import { Replica } from './replica';
 import { Child, Nexus, Protocol } from './nexus';
 import { Pool } from './pool';
 import { Node } from './node';
+import { Registry } from './registry';
 
 const log = require('./logger').Logger('volume');
 
@@ -95,7 +96,7 @@ export class Volume {
   private publishedOn: string | undefined;
   // internal properties
   private emitter: events.EventEmitter;
-  private registry: any;
+  private registry: Registry;
   private runFsa: number; // number of requests to run FSA
   private waiting: Record<DelegatedOp, DoneCallback>; // ops waiting for completion
   private retry_fsa: NodeJS.Timeout | undefined;
@@ -111,7 +112,7 @@ export class Volume {
   //
   constructor(
     uuid: string,
-    registry: any,
+    registry: Registry,
     emitter: events.EventEmitter,
     spec: VolumeSpec,
     state?: VolumeState,
@@ -328,6 +329,15 @@ export class Volume {
           `Failed to destroy a replica of ${this}: ${err}`,
         ));
       }
+      try {
+        await this.registry.getPersistentStore().destroyNexus(this.uuid);
+      } catch (err) {
+        this._delegatedOpFailed([DelegatedOp.Destroy], new GrpcError(
+          grpcCode.INTERNAL,
+          `Failed to destroy entry from the persistent store of ${this}: ${err}`,
+        ));
+      }
+
       this._delegatedOpSuccess(DelegatedOp.Destroy);
       if (this.retry_fsa) {
         clearTimeout(this.retry_fsa);
@@ -774,7 +784,7 @@ export class Volume {
   // registry.
   attach() {
     this.registry.getReplicaSet(this.uuid).forEach((r: Replica) => this.newReplica(r));
-    const nexus: Nexus = this.registry.getNexus(this.uuid);
+    const nexus = this.registry.getNexus(this.uuid);
     if (nexus) {
       this.newNexus(nexus);
     }
@@ -794,11 +804,20 @@ export class Volume {
         .map((r) => r.size)
         .reduce((acc, cur) => (cur < acc ? cur : acc), Number.MAX_SAFE_INTEGER);
     }
-    return node.createNexus(
-      this.uuid,
-      this.size,
-      Object.values(replicas)
-    );
+
+    // filter out unhealthy replicas (they don't have the latest data) from the create call
+    replicas = await this.registry.getPersistentStore().filterReplicas(this.uuid, replicas);
+
+    if (replicas.length == 0) {
+      // what could we really do in this case?
+      throw `No healthy children are available so nexus "${this.uuid}" creation is not allowed at this time`;
+    } else {
+      return node.createNexus(
+        this.uuid,
+        this.size,
+        Object.values(replicas)
+      );
+    }
   }
 
   // Adjust replica count for the volume to required count.
@@ -963,7 +982,7 @@ export class Volume {
     }
     let nexusNode: Node | undefined;
     if (appNode) {
-      nexusNode = this.registry.getNode(appNode);
+      nexusNode = this.registry.getNode(appNode.toString());
     }
     if (!nexusNode && this.nexus) {
       nexusNode = this.nexus.node;

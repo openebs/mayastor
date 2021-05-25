@@ -17,4 +17,5 @@
 /volume_operator.js
 /watcher.js
 /workq.js
+/persistent_store.js
 /*.js.map

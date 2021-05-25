@@ -77,5 +77,6 @@
     "volume_operator.ts",
     "watcher.ts",
     "workq.ts",
+    "persistent_store.ts"
   ]
 }

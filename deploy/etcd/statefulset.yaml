@@ -34,16 +34,14 @@ spec:
         podAffinity:
 
         podAntiAffinity:
-          preferredDuringSchedulingIgnoredDuringExecution:
-            - podAffinityTerm:
-                labelSelector:
-                  matchLabels:
-                    app.kubernetes.io/name: etcd
-                    app.kubernetes.io/instance: mayastor
-                namespaces:
-                  - "mayastor"
-                topologyKey: kubernetes.io/hostname
-              weight: 1
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  app.kubernetes.io/name: etcd
+                  app.kubernetes.io/instance: mayastor
+              namespaces:
+                - "mayastor"
+              topologyKey: kubernetes.io/hostname
         nodeAffinity:
 
       securityContext:

@@ -21,6 +21,7 @@ const volumesTest = require('./volumes_test.js');
 const volumeOperator = require('./volume_operator_test.js');
 const restApi = require('./rest_api_test.js');
 const csiTest = require('./csi_test.js');
+const persistenceTest = require('./persistence_test.ts');
 
 require('source-map-support').install();
 logger.setLevel('silly');
@@ -43,6 +44,7 @@ describe('moac', function () {
   describe('volume operator', volumeOperator);
   describe('rest api', restApi);
   describe('csi', csiTest);
+  describe('persistence', persistenceTest);
 
   // Start moac without k8s and NATS server just to test basic errors
   it('start moac process', function (done) {
@@ -55,6 +57,8 @@ describe('moac', function () {
       '--namespace=default',
       // NATS does not run but just to verify that the option works
       '--message-bus=127.0.0.1',
+      // ETCD does not run but just to verify that the option works
+      '--etcd-endpoint=127.0.0.1',
       // shorten the warm up to make the test faster
       '--heartbeat-interval=1',
       // test various sync options
@@ -64,15 +68,15 @@ describe('moac', function () {
     ]);
     let stderr = '';
 
-    child.stdout.on('data', (data) => {
+    child.stdout.on('data', (data: any) => {
       if (data.toString().indexOf('🚀') >= 0) {
         child.kill();
       }
     });
-    child.stderr.on('data', (data) => {
+    child.stderr.on('data', (data: any) => {
       stderr += data.toString();
     });
-    child.on('close', (code) => {
+    child.on('close', (code: any) => {
       if (code === 0) {
         done();
       } else {

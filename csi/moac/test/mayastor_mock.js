@@ -4,6 +4,7 @@ const path = require('path');
 const protoLoader = require('@grpc/proto-loader');
 const grpc = require('grpc-uds');
 const enums = require('./grpc_enums');
+const parse = require('url-parse');
 
 // each stat is incremented by this each time when stat method is called
 const STAT_DELTA = 1000;
@@ -60,6 +61,12 @@ class MayastorServer {
     this.replicas = _.cloneDeep(replicas || []);
     this.nexus = _.cloneDeep(nexus || []);
     this.statCounter = 0;
+    const randomUuidQp = () => {
+      return '?uuid=' + _.random(0, Number.MAX_SAFE_INTEGER);
+    };
+    const uuidQp = (uuid) => {
+      return '?uuid=' + uuid;
+    };
 
     const self = this;
     srv.addService(mayastor.Mayastor.service, {
@@ -117,11 +124,11 @@ class MayastorServer {
         }
         let uri;
         if (args.share === 'REPLICA_NONE') {
-          uri = 'bdev:///' + args.uuid;
+          uri = 'bdev:///' + args.uuid + randomUuidQp();
         } else if (args.share === 'REPLICA_ISCSI') {
-          uri = 'iscsi://192.168.0.1:3800/' + args.uuid;
+          uri = 'iscsi://192.168.0.1:3800/' + args.uuid + randomUuidQp();
         } else {
-          uri = 'nvmf://192.168.0.1:4020/' + args.uuid;
+          uri = 'nvmf://192.168.0.1:4020/' + args.uuid + randomUuidQp();
         }
 
         r = {
@@ -177,12 +184,14 @@ class MayastorServer {
           err.code = grpc.status.NOT_FOUND;
           return cb(err);
         }
+        assertHasKeys(r, ['uri']);
+        const realUuid = parse(r.uri, true).query.uuid;
         if (args.share === 'REPLICA_NONE') {
-          r.uri = 'bdev:///' + r.uuid;
+          r.uri = 'bdev:///' + uuidQp(realUuid);
         } else if (args.share === 'REPLICA_ISCSI') {
-          r.uri = 'iscsi://192.168.0.1:3800/' + r.uuid;
+          r.uri = 'iscsi://192.168.0.1:3800/' + r.uuid + uuidQp(realUuid);
         } else if (args.share === 'REPLICA_NVMF') {
-          r.uri = 'nvmf://192.168.0.1:4020/' + r.uuid;
+          r.uri = 'nvmf://192.168.0.1:4020/' + r.uuid + uuidQp(realUuid);
         } else {
           assert(false, 'Invalid share protocol');
         }

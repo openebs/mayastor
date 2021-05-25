@@ -129,6 +129,7 @@ export class Pool {
   //
   registerReplica(replica: Replica) {
     assert(!this.replicas.find((r) => r.uuid === replica.uuid));
+    assert(replica.realUuid !== undefined);
     this.replicas.push(replica);
     replica.bind(this);
   }

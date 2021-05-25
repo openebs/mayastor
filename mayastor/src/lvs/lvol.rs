@@ -162,8 +162,12 @@ impl Share for Lvol {
     }
 
     /// returns the share URI this lvol is shared as
+    /// this URI includes a UUID as a query parameter which can be used to
+    /// uniquely identify a replica as the replica UUID is currently set to its
+    /// name, which is *NOT* unique and in MOAC's use case, is the volume UUID
     fn share_uri(&self) -> Option<String> {
-        self.as_bdev().share_uri()
+        let uri_no_uuid = self.as_bdev().share_uri();
+        uri_no_uuid.map(|uri| format!("{}?uuid={}", uri, self.uuid()))
     }
 
     /// returns the URI that is used to construct the bdev. This is always None
