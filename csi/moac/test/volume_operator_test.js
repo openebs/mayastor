@@ -16,6 +16,10 @@ const { Volumes } = require('../volumes');
 const { VolumeOperator, VolumeResource } = require('../volume_operator');
 const { GrpcError, grpcCode } = require('../grpc_client');
 const { mockCache } = require('./watcher_stub');
+const Node = require('./node_stub');
+const { Nexus } = require('../nexus');
+const { Replica } = require('../replica');
+const { Pool } = require('../pool');
 
 const UUID = 'd01b8bfb-0116-47b0-a03a-447fcbdc0e99';
 const NAMESPACE = 'mayastor';
@@ -50,10 +54,10 @@ function defaultMeta (uuid) {
 }
 
 const defaultSpec = {
-  replicaCount: 1,
+  replicaCount: 2,
   local: true,
   preferredNodes: ['node1', 'node2'],
-  requiredNodes: ['node2'],
+  requiredNodes: ['node3', 'node2', 'node1'],
   requiredBytes: 100,
   limitBytes: 120,
   protocol: 'nvmf'
@@ -71,6 +75,10 @@ const defaultStatus = {
       {
         uri: 'bdev:///' + UUID,
         state: 'CHILD_ONLINE'
+      },
+      {
+        uri: 'nvmf://node1/' + UUID,
+        state: 'CHILD_ONLINE'
       }
     ]
   },
@@ -78,11 +86,68 @@ const defaultStatus = {
     {
       uri: 'bdev:///' + UUID,
       node: 'node2',
-      pool: 'pool',
+      pool: 'pool2',
+      offline: false
+    },
+    {
+      uri: 'nvmf://node1/' + UUID,
+      node: 'node1',
+      pool: 'pool1',
       offline: false
     }
   ]
 };
+
+// Function that creates a volume object corresponding to default spec and
+// status defined above.
+function createDefaultVolume (registry) {
+  const node1 = new Node('node1');
+  const node2 = new Node('node2');
+  const volume = new Volume(UUID, registry, new EventEmitter(), defaultSpec);
+  volume.state = defaultStatus.state;
+  volume.size = defaultStatus.size;
+  volume.publishedOn = defaultStatus.targetNodes[0];
+  volume.nexus = new Nexus({
+    uuid: UUID,
+    size: defaultStatus.size,
+    deviceUri: defaultStatus.nexus.deviceUri,
+    state: defaultStatus.nexus.state,
+    children: defaultStatus.nexus.children
+  });
+  volume.nexus.node = node2;
+
+  volume.replicas.node1 = new Replica({
+    uuid: UUID,
+    size: defaultStatus.size,
+    share: 'NVMF',
+    uri: defaultStatus.replicas[1].uri
+  });
+  volume.replicas.node1.pool = new Pool({
+    name: 'pool1',
+    disks: ['/dev/sda'],
+    state: 'POOL_ONLINE',
+    capacity: 1000,
+    used: 100
+  });
+  volume.replicas.node1.pool.node = node1;
+
+  volume.replicas.node2 = new Replica({
+    uuid: UUID,
+    size: defaultStatus.size,
+    share: 'NONE',
+    uri: defaultStatus.replicas[0].uri
+  });
+  volume.replicas.node2.pool = new Pool({
+    name: 'pool2',
+    disks: ['/dev/sda'],
+    state: 'POOL_ONLINE',
+    capacity: 1000,
+    used: 100
+  });
+  volume.replicas.node2.pool.node = node2;
+
+  return volume;
+}
 
 // Create k8s volume resource object
 function createK8sVolumeResource (uuid, spec, status) {
@@ -119,49 +184,17 @@ async function createVolumeOperator (volumes, stubsCb) {
 module.exports = function () {
   describe('VolumeResource constructor', () => {
     it('should create mayastor volume with status', () => {
-      const res = createVolumeResource(
-        UUID,
-        {
-          replicaCount: 3,
-          local: true,
-          preferredNodes: ['node1', 'node2'],
-          requiredNodes: ['node2'],
-          requiredBytes: 100,
-          limitBytes: 120
-        },
-        {
-          size: 110,
-          node: 'node2',
-          state: 'healthy',
-          nexus: {
-            deviceUri: 'nvmf://host/nqn',
-            state: 'NEXUS_ONLINE',
-            node: 'node2',
-            children: [
-              {
-                uri: 'bdev:///' + UUID,
-                state: 'CHILD_ONLINE'
-              }
-            ]
-          },
-          replicas: [
-            {
-              uri: 'bdev:///' + UUID,
-              node: 'node2',
-              pool: 'pool',
-              offline: false
-            }
-          ]
-        }
-      );
+      const res = createVolumeResource(UUID, defaultSpec, defaultStatus);
       expect(res.metadata.name).to.equal(UUID);
-      expect(res.spec.replicaCount).to.equal(3);
+      expect(res.spec.replicaCount).to.equal(2);
       expect(res.spec.local).to.be.true;
       expect(res.spec.preferredNodes).to.have.lengthOf(2);
       expect(res.spec.preferredNodes[0]).to.equal('node1');
       expect(res.spec.preferredNodes[1]).to.equal('node2');
-      expect(res.spec.requiredNodes).to.have.lengthOf(1);
-      expect(res.spec.requiredNodes[0]).to.equal('node2');
+      expect(res.spec.requiredNodes).to.have.lengthOf(3);
+      expect(res.spec.requiredNodes[0]).to.equal('node3');
+      expect(res.spec.requiredNodes[1]).to.equal('node2');
+      expect(res.spec.requiredNodes[2]).to.equal('node1');
       expect(res.spec.requiredBytes).to.equal(100);
       expect(res.spec.limitBytes).to.equal(120);
       expect(res.status.size).to.equal(110);
@@ -169,14 +202,21 @@ module.exports = function () {
       expect(res.status.nexus.deviceUri).to.equal('nvmf://host/nqn');
       expect(res.status.nexus.state).to.equal('NEXUS_ONLINE');
       expect(res.status.nexus.node).to.equal('node2');
-      expect(res.status.nexus.children).to.have.length(1);
+      expect(res.status.nexus.children).to.have.length(2);
       expect(res.status.nexus.children[0].uri).to.equal('bdev:///' + UUID);
       expect(res.status.nexus.children[0].state).to.equal('CHILD_ONLINE');
-      expect(res.status.replicas).to.have.lengthOf(1);
-      expect(res.status.replicas[0].uri).to.equal('bdev:///' + UUID);
-      expect(res.status.replicas[0].node).to.equal('node2');
-      expect(res.status.replicas[0].pool).to.equal('pool');
+      expect(res.status.nexus.children[1].uri).to.equal('nvmf://node1/' + UUID);
+      expect(res.status.nexus.children[1].state).to.equal('CHILD_ONLINE');
+      expect(res.status.replicas).to.have.lengthOf(2);
+      // replicas should be sorted by node name
+      expect(res.status.replicas[0].uri).to.equal('nvmf://node1/' + UUID);
+      expect(res.status.replicas[0].node).to.equal('node1');
+      expect(res.status.replicas[0].pool).to.equal('pool1');
       expect(res.status.replicas[0].offline).to.equal(false);
+      expect(res.status.replicas[1].uri).to.equal('bdev:///' + UUID);
+      expect(res.status.replicas[1].node).to.equal('node2');
+      expect(res.status.replicas[1].pool).to.equal('pool2');
+      expect(res.status.replicas[1].offline).to.equal(false);
     });
 
     it('should create mayastor volume with unknown state', () => {
@@ -530,7 +570,7 @@ module.exports = function () {
       await sleep(EVENT_PROPAGATION_DELAY);
 
       sinon.assert.notCalled(fsaStub);
-      expect(volume.spec.replicaCount).to.equal(1);
+      expect(volume.spec.replicaCount).to.equal(2);
       expect(volume.spec.requiredBytes).to.equal(100);
       expect(volume.spec.limitBytes).to.equal(120);
     });
@@ -759,6 +799,39 @@ module.exports = function () {
 
       sinon.assert.notCalled(stubs.update);
       sinon.assert.calledOnce(stubs.updateStatus);
+    });
+
+    it('should not update the status if only the order of entries in arrays differ', async () => {
+      let stubs;
+      const registry = new Registry({});
+      const volumes = new Volumes(registry);
+      sinon.stub(volumes, 'get').returns([]);
+
+      const volumeResource = createVolumeResource(UUID, defaultSpec, defaultStatus);
+      oper = await createVolumeOperator(volumes, (arg) => {
+        stubs = arg;
+        stubs.get.returns(volumeResource);
+        stubs.update.resolves();
+        stubs.updateStatus.resolves();
+      });
+
+      const volume = createDefaultVolume(registry);
+      volumeResource.status.replicas.reverse();
+      sinon.stub(volume, 'getReplicas').returns(
+        [].concat(Object.values(volume.replicas))
+          // reverse the order of replicas
+          .sort((a, b) => {
+            return (-1) * a.pool.node.name.localeCompare(b.pool.node.name);
+          })
+      );
+      volumes.emit('volume', {
+        eventType: 'mod',
+        object: volume
+      });
+      await sleep(EVENT_PROPAGATION_DELAY);
+
+      sinon.assert.notCalled(stubs.update);
+      sinon.assert.notCalled(stubs.updateStatus);
     });
 
     it('should not crash if PUT fails upon "mod" volume event', async () => {
