@@ -14,7 +14,6 @@ use crate::{
         nexus::{
             nexus_bdev::NEXUS_PRODUCT_ID,
             nexus_channel::{DrEvent, NexusChannel, NexusChannelInner},
-            nexus_child::NexusChild,
             nexus_persistence::PersistOp,
         },
         nexus_lookup,
@@ -650,10 +649,7 @@ impl NexusBio {
                                 Some(child) => {
                                     nexus
                                         .persist(PersistOp::Update((
-                                            NexusChild::uuid(&child.name)
-                                                .expect(
-                                                    "Failed to get child UUID.",
-                                                ),
+                                            child.name.clone(),
                                             child.state(),
                                         )))
                                         .await;

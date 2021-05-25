@@ -2,34 +2,31 @@ use crate::common::fio_run_verify;
 use common::compose::Builder;
 use composer::{Binary, ComposeTest, ContainerSpec, RpcHandle};
 use etcd_client::Client;
-use rpc::{
-    mayastor::{
-        BdevShareRequest,
-        BdevUri,
-        Child,
-        ChildState,
-        CreateNexusRequest,
-        CreateReply,
-        DestroyNexusRequest,
-        Nexus,
-        NexusState,
-        Null,
-        PublishNexusRequest,
-        ShareProtocolNexus,
-    },
-    persistence::{
-        ChildInfo,
-        ChildState as PersistentChildState,
-        NexusInfo,
-        Reason as PersistentReason,
-    },
+use rpc::mayastor::{
+    BdevShareRequest,
+    BdevUri,
+    Child,
+    ChildState,
+    CreateNexusRequest,
+    CreateReply,
+    DestroyNexusRequest,
+    Nexus,
+    NexusState,
+    Null,
+    PublishNexusRequest,
+    ShareProtocolNexus,
 };
+
+use mayastor::bdev::{ChildInfo, NexusInfo};
+
 use std::{convert::TryFrom, thread::sleep, time::Duration};
 use url::Url;
 
 pub mod common;
 
 static ETCD_ENDPOINT: &str = "0.0.0.0:2379";
+static CHILD1_UUID: &str = "d61b2fdf-1be8-457a-a481-70a42d0a2223";
+static CHILD2_UUID: &str = "094ae8c6-46aa-4139-b4f2-550d39645db3";
 
 /// This test checks that when an unexpected restart occurs, all persisted info
 /// remains unchanged. In particular, the clean shutdown variable must be false.
@@ -41,8 +38,8 @@ async fn persist_unexpected_restart() {
     let ms3 = &mut test.grpc_handle("ms3").await.unwrap();
 
     // Create bdevs and share over nvmf.
-    let child1 = create_and_share_bdevs(ms2).await;
-    let child2 = create_and_share_bdevs(ms3).await;
+    let child1 = create_and_share_bdevs(ms2, CHILD1_UUID).await;
+    let child2 = create_and_share_bdevs(ms3, CHILD2_UUID).await;
 
     // Create a nexus.
     let nexus_uuid = "8272e9d3-3738-4e33-b8c3-769d8eed5771";
@@ -60,12 +57,10 @@ async fn persist_unexpected_restart() {
     assert_eq!(nexus_info.clean_shutdown, false);
 
     let child = child_info(&nexus_info, &uuid(&child1));
-    assert_eq!(child.state, PersistentChildState::Open as i32);
-    assert_eq!(child.reason, PersistentReason::Unknown as i32);
+    assert!(child.healthy);
 
     let child = child_info(&nexus_info, &uuid(&child2));
-    assert_eq!(child.state, PersistentChildState::Open as i32);
-    assert_eq!(child.reason, PersistentReason::Unknown as i32);
+    assert!(child.healthy);
 
     // Restart the container where the nexus lives.
     test.restart("ms1")
@@ -81,12 +76,10 @@ async fn persist_unexpected_restart() {
     assert_eq!(nexus_info.clean_shutdown, false);
 
     let child = child_info(&nexus_info, &uuid(&child1));
-    assert_eq!(child.state, PersistentChildState::Open as i32);
-    assert_eq!(child.reason, PersistentReason::Unknown as i32);
+    assert!(child.healthy);
 
     let child = child_info(&nexus_info, &uuid(&child2));
-    assert_eq!(child.state, PersistentChildState::Open as i32);
-    assert_eq!(child.reason, PersistentReason::Unknown as i32);
+    assert!(child.healthy);
 }
 
 /// This test checks that, when a nexus is destroyed successfully the "clean
@@ -99,8 +92,8 @@ async fn persist_clean_shutdown() {
     let ms3 = &mut test.grpc_handle("ms3").await.unwrap();
 
     // Create bdevs and share over nvmf.
-    let child1 = create_and_share_bdevs(ms2).await;
-    let child2 = create_and_share_bdevs(ms3).await;
+    let child1 = create_and_share_bdevs(ms2, CHILD1_UUID).await;
+    let child2 = create_and_share_bdevs(ms3, CHILD2_UUID).await;
 
     // Create a nexus.
     let nexus_uuid = "8272e9d3-3738-4e33-b8c3-769d8eed5771";
@@ -118,12 +111,10 @@ async fn persist_clean_shutdown() {
     assert_eq!(nexus_info.clean_shutdown, false);
 
     let child = child_info(&nexus_info, &uuid(&child1));
-    assert_eq!(child.state, PersistentChildState::Open as i32);
-    assert_eq!(child.reason, PersistentReason::Unknown as i32);
+    assert!(child.healthy);
 
     let child = child_info(&nexus_info, &uuid(&child2));
-    assert_eq!(child.state, PersistentChildState::Open as i32);
-    assert_eq!(child.reason, PersistentReason::Unknown as i32);
+    assert!(child.healthy);
 
     // Destroy the nexus
     ms1.mayastor
@@ -142,12 +133,10 @@ async fn persist_clean_shutdown() {
     assert_eq!(nexus_info.clean_shutdown, true);
 
     let child = child_info(&nexus_info, &uuid(&child1));
-    assert_eq!(child.state, PersistentChildState::Open as i32);
-    assert_eq!(child.reason, PersistentReason::Unknown as i32);
+    assert!(child.healthy);
 
     let child = child_info(&nexus_info, &uuid(&child2));
-    assert_eq!(child.state, PersistentChildState::Open as i32);
-    assert_eq!(child.reason, PersistentReason::Unknown as i32);
+    assert!(child.healthy);
 }
 
 /// This test checks that the state of a child is successfully updated in the
@@ -160,8 +149,8 @@ async fn persist_io_failure() {
     let ms3 = &mut test.grpc_handle("ms3").await.unwrap();
 
     // Create bdevs and share over nvmf.
-    let child1 = create_and_share_bdevs(ms2).await;
-    let child2 = create_and_share_bdevs(ms3).await;
+    let child1 = create_and_share_bdevs(ms2, CHILD1_UUID).await;
+    let child2 = create_and_share_bdevs(ms3, CHILD2_UUID).await;
 
     // Create and publish a nexus.
     let nexus_uuid = "8272e9d3-3738-4e33-b8c3-769d8eed5771";
@@ -220,13 +209,11 @@ async fn persist_io_failure() {
 
     // Expect child1 to be healthy.
     let child = child_info(&nexus_info, &uuid(&child1));
-    assert_eq!(child.state, PersistentChildState::Open as i32);
-    assert_eq!(child.reason, PersistentReason::Unknown as i32);
+    assert!(child.healthy);
 
     // Expect child2 to be faulted due to an I/O error.
     let child = child_info(&nexus_info, &uuid(&child2));
-    assert_eq!(child.state, PersistentChildState::Faulted as i32);
-    assert_eq!(child.reason, PersistentReason::IoError as i32);
+    assert!(!child.healthy);
 }
 
 /// This test checks the behaviour when a connection to the persistent store is
@@ -244,8 +231,8 @@ async fn persistent_store_connection() {
         .expect("Failed to pause the etcd container");
 
     // Create bdevs and share over nvmf.
-    let child1 = create_and_share_bdevs(ms2).await;
-    let child2 = create_and_share_bdevs(ms3).await;
+    let child1 = create_and_share_bdevs(ms2, CHILD1_UUID).await;
+    let child2 = create_and_share_bdevs(ms3, CHILD2_UUID).await;
 
     // Attempt to create a nexus.
     // This operation requires the persistent store to be updated. Because etcd
@@ -337,7 +324,7 @@ async fn publish_nexus(hdl: &mut RpcHandle, uuid: &str) -> String {
 }
 
 /// Creates and shares a bdev over NVMf and returns the share uri.
-async fn create_and_share_bdevs(hdl: &mut RpcHandle) -> String {
+async fn create_and_share_bdevs(hdl: &mut RpcHandle, uuid: &str) -> String {
     hdl.bdev
         .create(BdevUri {
             uri: "malloc:///disk0?size_mb=100".into(),
@@ -352,7 +339,7 @@ async fn create_and_share_bdevs(hdl: &mut RpcHandle) -> String {
         })
         .await
         .unwrap();
-    reply.into_inner().uri
+    format!("{}?uuid={}", reply.into_inner().uri, uuid)
 }
 
 /// Returns the nexus with the given uuid.

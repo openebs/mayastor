@@ -1,29 +1,39 @@
 use crate::{
-    bdev::{
-        nexus::nexus_child::{ChildState::Faulted, NexusChild},
-        ChildState,
-        Nexus,
-        Reason,
-    },
+    bdev::{nexus::nexus_child::NexusChild, ChildState, Nexus},
     persistent_store::PersistentStore,
     sleep::mayastor_sleep,
 };
-use rpc::persistence::{
-    ChildInfo,
-    ChildState as PersistentChildState,
-    NexusInfo,
-    Reason as PersistentReason,
-};
+use serde::{Deserialize, Serialize};
 use std::time::Duration;
 
-type ChildUuid = String;
+type ChildUri = String;
+
+/// Definition of the nexus information that gets saved in the persistent
+/// store.
+#[derive(Serialize, Deserialize, Debug, Default)]
+pub struct NexusInfo {
+    /// Nexus destroyed successfully.
+    pub clean_shutdown: bool,
+    /// Information about children.
+    pub children: Vec<ChildInfo>,
+}
+
+/// Definition of the child information that gets saved in the persistent
+/// store.
+#[derive(Serialize, Deserialize, Debug, Default, Clone)]
+pub struct ChildInfo {
+    /// UUID of the child.
+    pub uuid: String,
+    /// Child's state of health.
+    pub healthy: bool,
+}
 
 /// Defines the type of persist operations.
 pub(crate) enum PersistOp {
     /// Create a persistent entry.
     Create,
     /// Update a persistent entry.
-    Update((ChildUuid, ChildState)),
+    Update((ChildUri, ChildState)),
     /// Save the clean shutdown variable.
     Shutdown,
 }
@@ -34,6 +44,7 @@ impl Nexus {
         if !PersistentStore::enabled() {
             return;
         }
+
         let mut nexus_info = self.nexus_info.lock().await;
         match op {
             PersistOp::Create => {
@@ -44,27 +55,23 @@ impl Nexus {
                 assert!(nexus_info.children.is_empty());
                 assert_eq!(nexus_info.clean_shutdown, false);
                 self.children.iter().for_each(|c| {
-                    let state: PersistentChildState = c.state().into();
-                    let reason: PersistentReason = c.state().into();
-                    nexus_info.children.push(ChildInfo {
+                    let child_info = ChildInfo {
                         uuid: NexusChild::uuid(&c.name)
                             .expect("Failed to get child UUID."),
-                        state: state as i32,
-                        reason: reason as i32,
-                    });
+                        healthy: Self::child_healthy(&c.state()),
+                    };
+                    nexus_info.children.push(child_info);
                 });
             }
-            PersistOp::Update((uuid, state)) => {
+            PersistOp::Update((uri, state)) => {
+                let uuid =
+                    NexusChild::uuid(&uri).expect("Failed to get child UUID.");
                 // Only update the state of the child that has changed. Do not
                 // update the other children or "clean shutdown" information.
                 // This should only be called on a child state change.
                 nexus_info.children.iter_mut().for_each(|c| {
                     if c.uuid == uuid {
-                        let persistent_state: PersistentChildState =
-                            state.into();
-                        let persistent_reason: PersistentReason = state.into();
-                        c.state = persistent_state as i32;
-                        c.reason = persistent_reason as i32;
+                        c.healthy = Self::child_healthy(&state);
                     }
                 });
             }
@@ -76,6 +83,11 @@ impl Nexus {
             }
         }
         self.save(&nexus_info).await;
+    }
+
+    /// Determine child health.
+    fn child_healthy(state: &ChildState) -> bool {
+        state == &ChildState::Open
     }
 
     // Save the nexus info to the store. This is integral to ensuring data
@@ -96,7 +108,8 @@ impl Nexus {
                     // silently retry.
                     if output_err {
                         error!(
-                            "Failed to persist with error {}. Retrying...",
+                            "Failed to persist nexus information for nexus {} with error {}. Retrying...",
+                            nexus_uuid,
                             e
                         );
                         output_err = false;
@@ -112,39 +125,6 @@ impl Nexus {
                     }
                 }
             }
-        }
-    }
-}
-
-impl From<ChildState> for rpc::persistence::ChildState {
-    fn from(state: ChildState) -> Self {
-        match state {
-            ChildState::Init => PersistentChildState::Init,
-            ChildState::ConfigInvalid => PersistentChildState::ConfigInvalid,
-            ChildState::Open => PersistentChildState::Open,
-            ChildState::Destroying => PersistentChildState::Destroying,
-            ChildState::Closed => PersistentChildState::Closed,
-            ChildState::Faulted(_) => PersistentChildState::Faulted,
-        }
-    }
-}
-
-impl From<ChildState> for rpc::persistence::Reason {
-    fn from(state: ChildState) -> Self {
-        match state {
-            ChildState::Init
-            | ChildState::ConfigInvalid
-            | ChildState::Open
-            | ChildState::Destroying
-            | ChildState::Closed => PersistentReason::Unknown,
-            Faulted(reason) => match reason {
-                Reason::Unknown => PersistentReason::Unknown,
-                Reason::OutOfSync => PersistentReason::OutOfSync,
-                Reason::CantOpen => PersistentReason::CantOpen,
-                Reason::RebuildFailed => PersistentReason::RebuildFailed,
-                Reason::IoError => PersistentReason::IoError,
-                Reason::Rpc => PersistentReason::Rpc,
-            },
         }
     }
 }

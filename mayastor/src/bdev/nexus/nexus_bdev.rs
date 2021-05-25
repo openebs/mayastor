@@ -19,7 +19,7 @@ use tonic::{Code, Status};
 
 use crate::core::IoDevice;
 
-use rpc::{mayastor::NvmeAnaState, persistence::NexusInfo};
+use rpc::mayastor::NvmeAnaState;
 use spdk_sys::{spdk_bdev, spdk_bdev_register, spdk_bdev_unregister};
 
 use crate::{
@@ -36,7 +36,7 @@ use crate::{
             nexus_child::{ChildError, ChildState, NexusChild},
             nexus_label::LabelError,
             nexus_nbd::{NbdDisk, NbdError},
-            nexus_persistence::PersistOp,
+            nexus_persistence::{NexusInfo, PersistOp},
         },
     },
     core::{Bdev, CoreError, Cores, IoType, Protocol, Reactor, Share},

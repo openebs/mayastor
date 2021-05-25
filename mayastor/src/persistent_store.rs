@@ -87,7 +87,7 @@ impl PersistentStore {
                         // Only output the error on first failure to prevent
                         // flooding the logs.
                         error!(
-                            "Failed to connect to etcd on endpoint {}",
+                            "Failed to connect to etcd on endpoint {}. Retrying...",
                             endpoint
                         );
                         output_err = false;
@@ -124,17 +124,16 @@ impl PersistentStore {
                         key_string,
                         value_clone.to_string()
                     );
-                    Ok(None)
+                    Ok(())
                 }
                 Err(e) => Err(e),
             }
         });
 
-        let result = rx.await.context(PutWait {
+        rx.await.context(PutWait {
             key: key.to_string(),
             value: put_value.to_string(),
-        })?;
-        result.map(|_| ())
+        })?
     }
 
     /// Retrieve a value, with the given key, from the store.
@@ -145,16 +144,14 @@ impl PersistentStore {
             match Self::backing_store().get_kv(&key_string).await {
                 Ok(value) => {
                     info!("Successfully got key {}", key_string);
-                    Ok(Some(value))
+                    Ok(value)
                 }
                 Err(e) => Err(e),
             }
         });
-        rx.await
-            .context(GetWait {
-                key: key.to_string(),
-            })?
-            .map(|value| value.unwrap())
+        rx.await.context(GetWait {
+            key: key.to_string(),
+        })?
     }
 
     /// Delete the entry in the store with the given key.
@@ -168,16 +165,14 @@ impl PersistentStore {
                         "Successfully deleted key {} from store.",
                         key_string
                     );
-                    Ok(None)
+                    Ok(())
                 }
                 Err(e) => Err(e),
             }
         });
-        rx.await
-            .context(DeleteWait {
-                key: key.to_string(),
-            })?
-            .map(|_| ())
+        rx.await.context(DeleteWait {
+            key: key.to_string(),
+        })?
     }
 
     /// Executes a future representing a store operation (i.e. put, get, delete)
@@ -185,10 +180,10 @@ impl PersistentStore {
     /// A channel is returned which is signalled when the operation completes.
     /// If an operation times out, reconnect to the backing store before failing
     /// the operation.
-    fn execute_store_op(
-        f: impl Future<Output = Result<Option<Value>, StoreError>> + Send + 'static,
-    ) -> oneshot::Receiver<Result<Option<Value>, StoreError>> {
-        let (tx, rx) = oneshot::channel::<Result<Option<Value>, StoreError>>();
+    fn execute_store_op<T: 'static + Send>(
+        f: impl Future<Output = Result<T, StoreError>> + Send + 'static,
+    ) -> oneshot::Receiver<Result<T, StoreError>> {
+        let (tx, rx) = oneshot::channel::<Result<T, StoreError>>();
         core::runtime::spawn(async move {
             let result = match tokio::time::timeout(STORE_OP_TIMEOUT, f).await {
                 Ok(result) => result,

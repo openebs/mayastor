@@ -34,7 +34,7 @@ pub mod nexus_label;
 pub mod nexus_metadata;
 pub mod nexus_module;
 pub mod nexus_nbd;
-mod nexus_persistence;
+pub mod nexus_persistence;
 pub mod nexus_share;
 
 #[derive(Deserialize)]

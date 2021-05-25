@@ -30,6 +30,7 @@ use crate::{
         Reactors,
     },
     nexus_uri::NexusBdevError,
+    persistent_store::PersistentStore,
     rebuild::{ClientOperations, RebuildJob},
 };
 use url::Url;
@@ -517,7 +518,8 @@ impl NexusChild {
         parent: String,
         device: Option<Box<dyn BlockDevice>>,
     ) -> Self {
-        if Self::uuid(&name).is_none() {
+        // TODO: Remove check for persistent store
+        if PersistentStore::enabled() && Self::uuid(&name).is_none() {
             panic!("Child name does not contain a UUID.");
         }
 
