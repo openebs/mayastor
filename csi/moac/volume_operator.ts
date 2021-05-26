@@ -131,14 +131,12 @@ export class VolumeResource extends CustomResource {
       this.status = <VolumeStatus> {
         size: status.size || 0,
         state: volumeStateFromString(status.state),
-        // sort the replicas according to uri to have deterministic order
-        replicas: [].concat(status.replicas || []).sort((a: any, b: any) => {
-          if (a.uri < b.uri) return -1;
-          else if (a.uri > b.uri) return 1;
-          else return 0;
-        }),
+        // sort the replicas according to node name to have deterministic order
+        replicas: []
+        .concat(status.replicas || [])
+        .sort((a: any, b: any) => a.node.localeCompare(b.node)),
       };
-      if (status.targetNodes) {
+      if (status.targetNodes && status.targetNodes.length > 0) {
         this.status.targetNodes = [].concat(status.targetNodes).sort();
       }
       if (status.nexus) {
@@ -261,7 +259,7 @@ export class VolumeOperator {
   _volumeToStatus (volume: Volume): VolumeStatus {
     const st: VolumeStatus = {
       size: volume.getSize(),
-      state: volumeStateFromString(volume.state),
+      state: volume.state,
       replicas: volume.getReplicas()
         // ignore replicas that are being removed (disassociated from node)
         .filter((r: Replica) => !!r.pool?.node)
@@ -273,16 +271,18 @@ export class VolumeOperator {
             offline: r.isOffline()
           };
         })
+        // enforce consistent order - important when comparing status objects
+        .sort((r1, r2) => r1.node.localeCompare(r2.node))
     };
     const nodeName = volume.getNodeName();
     if (nodeName) {
+      // NOTE: sort it when we have more than just one entry
       st.targetNodes = [ nodeName ];
     }
     const nexus = volume.getNexus();
     if (nexus && nexus.node) {
       st.nexus = {
         node: nexus.node.name,
-        deviceUri: nexus.deviceUri || '',
         state: nexus.state,
         children: nexus.children.map((ch: any) => {
           return {
@@ -291,6 +291,9 @@ export class VolumeOperator {
           };
         })
       };
+      if (nexus.deviceUri) {
+        st.nexus.deviceUri = nexus.deviceUri;
+      }
     }
     return st;
   }
