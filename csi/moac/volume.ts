@@ -341,6 +341,7 @@ export class Volume {
           grpcCode.INTERNAL,
           `Failed to destroy a replica of ${this}: ${err}`,
         ));
+        return;
       }
       try {
         await this.registry.getPersistentStore().destroyNexus(this.uuid);
@@ -349,6 +350,7 @@ export class Volume {
           grpcCode.INTERNAL,
           `Failed to destroy entry from the persistent store of ${this}: ${err}`,
         ));
+        return;
       }
 
       this._delegatedOpSuccess(DelegatedOp.Destroy);
