@@ -185,7 +185,7 @@ export class Registry extends events.EventEmitter {
     let pools;
 
     if (nodeName) {
-      pools = this.getPools().filter((p) => p.node.name === nodeName);
+      pools = this.getPools().filter((p) => p.node?.name === nodeName);
     } else {
       pools = this.getPools();
     }
@@ -206,6 +206,7 @@ export class Registry extends events.EventEmitter {
     let pools = this.getPools().filter((p) => {
       return (
         p.isAccessible() &&
+        p.node &&
         p.capacity - p.used >= requiredBytes &&
         (mustNodes.length === 0 || mustNodes.indexOf(p.node.name) >= 0)
       );
@@ -215,13 +216,13 @@ export class Registry extends events.EventEmitter {
       // Rule #1: User preference
       if (shouldNodes.length > 0) {
         if (
-          shouldNodes.indexOf(a.node.name) >= 0 &&
-          shouldNodes.indexOf(b.node.name) < 0
+          shouldNodes.indexOf(a.node!.name) >= 0 &&
+          shouldNodes.indexOf(b.node!.name) < 0
         ) {
           return -1;
         } else if (
-          shouldNodes.indexOf(a.node.name) < 0 &&
-          shouldNodes.indexOf(b.node.name) >= 0
+          shouldNodes.indexOf(a.node!.name) < 0 &&
+          shouldNodes.indexOf(b.node!.name) >= 0
         ) {
           return 1;
         }
@@ -250,8 +251,8 @@ export class Registry extends events.EventEmitter {
     // only one pool from each node
     const nodes: Node[] = [];
     pools = pools.filter((p) => {
-      if (nodes.indexOf(p.node) < 0) {
-        nodes.push(p.node);
+      if (nodes.indexOf(p.node!) < 0) {
+        nodes.push(p.node!);
         return true;
       } else {
         return false;

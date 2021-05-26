@@ -172,7 +172,7 @@ module.exports = function () {
         expect(ev.eventType).to.equal('del');
         expect(ev.object).to.equal(pool);
         setTimeout(() => {
-          expect(pool.node).to.be.null;
+          expect(pool.node).to.be.undefined;
           done();
         }, 0);
       });

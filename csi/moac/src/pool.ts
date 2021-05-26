@@ -2,6 +2,9 @@
 
 import assert from 'assert';
 import * as _ from 'lodash';
+
+import { grpcCode, GrpcError } from './grpc_client';
+import { Node } from './node';
 import { Replica } from './replica';
 import { Logger } from './logger';
 
@@ -19,7 +22,7 @@ function _stripUri(str: string) {
 }
 
 export class Pool {
-  node?: any;
+  node?: Node;
   name: string;
   disks: [string];
   // TODO: define an enum
@@ -37,7 +40,7 @@ export class Pool {
   // @param {number}   props.capacity Capacity of the pool in bytes.
   // @param {number}   props.used     How many bytes are used in the pool.
   constructor(props: any) {
-    this.node = null; // set by registerPool method on node
+    this.node = undefined; // set by registerPool method on node
     this.name = props.name;
     this.disks = props.disks.sort();
     this.state = props.state;
@@ -89,7 +92,7 @@ export class Pool {
       this.used = props.used;
       changed = true;
     }
-    if (changed) {
+    if (changed && this.node) {
       this.node.emit('pool', {
         eventType: 'mod',
         object: this
@@ -153,10 +156,9 @@ export class Pool {
   // Assign the pool to a node. It should be done right after creating
   // the pool object.
   //
-  // @param {object} node   Node object to assign the pool to.
+  // @param node   Node object to assign the pool to.
   //
-  bind(node: any) {
-    assert(!this.node);
+  bind(node: Node) {
     this.node = node;
     log.debug(`Adding pool "${this.name}" to the list of pools on "${node}"`);
     this.node.emit('pool', {
@@ -167,6 +169,7 @@ export class Pool {
 
   // Unbind the previously bound pool from the node.
   unbind() {
+    if (!this.node) return;
     log.debug(`Removing pool "${this}" from the list of pools`);
     this.replicas.forEach((r) => r.unbind());
     this.node.unregisterPool(this);
@@ -175,7 +178,7 @@ export class Pool {
       eventType: 'del',
       object: this
     });
-    this.node = null;
+    this.node = undefined;
   }
 
   // Return amount of free space in the storage pool.
@@ -187,6 +190,12 @@ export class Pool {
 
   // Destroy the pool and remove it from the list of pools on the node.
   async destroy() {
+    if (!this.node) {
+      throw new GrpcError(
+        grpcCode.INTERNAL,
+        `Cannot destroy disassociated pool "${this}"`,
+      );
+    }
     log.debug(`Destroying pool "${this}" ...`);
     await this.node.call('destroyPool', { name: this.name });
     log.info(`Destroyed pool "${this}"`);
@@ -201,10 +210,12 @@ export class Pool {
     this.replicas.forEach((r) => r.offline());
     // artificial state that does not appear in grpc protocol
     this.state = 'POOL_OFFLINE';
-    this.node.emit('pool', {
-      eventType: 'mod',
-      object: this
-    });
+    if (this.node) {
+      this.node.emit('pool', {
+        eventType: 'mod',
+        object: this
+      });
+    }
   }
 
   // Return true if pool exists and is accessible, otherwise false.
@@ -218,6 +229,12 @@ export class Pool {
   // @param {number} size   Size of the replica in bytes.
   //
   async createReplica(uuid: string, size: number) {
+    if (!this.node) {
+      throw new GrpcError(
+        grpcCode.INTERNAL,
+        `Cannot create replica on disassociated pool "${this}"`,
+      );
+    }
     const pool = this.name;
     const thin = false;
     const share = 'REPLICA_NONE';

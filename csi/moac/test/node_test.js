@@ -6,11 +6,15 @@
 
 const _ = require('lodash');
 const expect = require('chai').expect;
+
 const { Node } = require('../dist/node');
 const { Nexus } = require('../dist/nexus');
 const { Pool } = require('../dist/pool');
 const { Replica } = require('../dist/replica');
+const { grpcCode } = require('../dist/grpc_client');
+
 const { MayastorServer } = require('./mayastor_mock');
+const { shouldFailWith } = require('./utils');
 const enums = require('./grpc_enums');
 
 const UUID = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cbb';
@@ -524,15 +528,16 @@ module.exports = function () {
   });
 
   describe('object create', function () {
+    const DELAY_MS = 100;
     let replica;
     let pool;
     let nexus;
 
-    this.timeout(100);
+    this.timeout(500);
 
     // start a fake mayastor server
     before((done) => {
-      srv = new MayastorServer(MS_ENDPOINT, [], [], []);
+      srv = new MayastorServer(MS_ENDPOINT, [], [], [], DELAY_MS);
       srv.start((err) => {
         if (err) return done(err);
         // wait for the initial sync
@@ -604,6 +609,22 @@ module.exports = function () {
       nexus = await node.createNexus(UUID, 100, [replica]);
       expect(nexus).to.be.an.instanceof(Nexus);
       expect(emitted).to.be.true;
+    });
+
+    it('should timeout on a call that takes too long', async () => {
+      const UUID2 = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cb2';
+      await shouldFailWith(
+        grpcCode.DEADLINE_EXCEEDED,
+        () => node.call(
+          'createNexus',
+          {
+            uuid: UUID2,
+            size: 100,
+            children: [replica.uri]
+          },
+          DELAY_MS / 2
+        )
+      );
     });
   });
 

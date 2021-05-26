@@ -2,13 +2,17 @@
 
 import assert from 'assert';
 import * as _ from 'lodash';
-import { grpcCode, GrpcError, mayastor } from './grpc_client';
 
+import { grpcCode, GrpcError, mayastor } from './grpc_client';
 import { Node } from './node';
 import { Replica } from './replica';
 import { Logger } from './logger';
 
 const log = Logger('nexus');
+
+// We increase timeout value to nexus destroy method because it involves
+// updating etcd state in mayastor. Mayastor itself uses 30s timeout for etcd.
+const NEXUS_DESTROY_TIMEOUT_MS = 60000;
 
 // Protocol used to export nexus (volume)
 export enum Protocol {
@@ -322,7 +326,11 @@ export class Nexus {
       // is down - it may never come back online.
       log.warn(`Faking the destroy of "${this}" because it is unreachable`);
     } else {
-      await this.node!.call('destroyNexus', { uuid: this.uuid });
+      await this.node!.call(
+        'destroyNexus',
+        { uuid: this.uuid },
+        NEXUS_DESTROY_TIMEOUT_MS,
+      );
       log.info(`Destroyed nexus "${this}"`);
     }
     this.unbind();

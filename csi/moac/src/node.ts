@@ -4,6 +4,7 @@
 
 import assert from 'assert';
 import events = require('events');
+
 import { grpcCode, GrpcError, GrpcClient } from './grpc_client';
 import { Pool } from './pool';
 import { Nexus } from './nexus';
@@ -12,6 +13,10 @@ import { Workq } from './workq';
 import { Logger } from './logger';
 
 const log = Logger('node');
+
+// We increase timeout value to nexus create method because it involves
+// updating etcd state in mayastor. Mayastor itself uses 30s timeout for etcd.
+const NEXUS_CREATE_TIMEOUT_MS = 60000;
 
 // Type returned by stats grpc call
 export type ReplicaStat = {
@@ -24,12 +29,6 @@ export type ReplicaStat = {
   num_write_ops: number,
   bytes_read: number,
   bytes_written: number,
-}
-
-// Type used in workq for calling grpc
-type GrpcCallArgs = {
-  method: string;
-  args: any;
 }
 
 // Node options when created.
@@ -151,24 +150,25 @@ export class Node extends events.EventEmitter {
   // Call grpc method on storage node. The calls are serialized in order
   // to prevent race conditions and inconsistencies.
   //
-  // @param method  gRPC method name.
-  // @param args    Arguments for gRPC method.
+  // @param method    gRPC method name.
+  // @param args      Arguments for gRPC method.
+  // @param [timeout] Optional timeout in ms.
   // @returns A promise that evals to return value of gRPC method.
   //
-  async call(method: string, args: any): Promise<any> {
-    return this.workq.push({ method, args }, (args: GrpcCallArgs) => {
-      return this._call(args.method, args.args);
+  async call(method: string, args: any, timeout?: number): Promise<any> {
+    return this.workq.push({ method, args, timeout }, ({method, args, timeout}) => {
+      return this._call(method, args, timeout);
     });
   }
 
-  async _call(method: string, args: any): Promise<any> {
+  async _call(method: string, args: any, timeout?: number): Promise<any> {
     if (!this.client) {
       throw new GrpcError(
         grpcCode.INTERNAL,
         `Broken connection to mayastor on node "${this.name}"`
       );
     }
-    return this.client.call(method, args);
+    return this.client.call(method, args, timeout);
   }
 
   // Sync triggered by the timer. It ensures that the sync does run in
@@ -393,7 +393,11 @@ export class Node extends events.EventEmitter {
     const children = replicas.map((r) => r.uri);
     log.debug(`Creating nexus "${uuid}@${this.name}"`);
 
-    const nexusInfo = await this.call('createNexus', { uuid, size, children });
+    const nexusInfo = await this.call(
+      'createNexus',
+      { uuid, size, children },
+      NEXUS_CREATE_TIMEOUT_MS,
+    );
     log.info(`Created nexus "${uuid}@${this.name}"`);
 
     const newNexus = new Nexus(nexusInfo);
