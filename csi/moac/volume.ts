@@ -176,6 +176,15 @@ export class Volume {
     return this.nexus || undefined;
   }
 
+  // Return whether the volume can still be used and is updatable.
+  isSpecUpdatable (): boolean {
+    return ([
+      VolumeState.Unknown,
+      VolumeState.Pending,
+      VolumeState.Destroyed,
+    ].indexOf(this.state) < 0);
+  }
+
   // Publish the volume. That means, make it accessible through a target.
   //
   // @params nodeId        ID of the node where the volume will be mounted.
@@ -341,6 +350,7 @@ export class Volume {
           grpcCode.INTERNAL,
           `Failed to destroy a replica of ${this}: ${err}`,
         ));
+        return;
       }
       try {
         await this.registry.getPersistentStore().destroyNexus(this.uuid);
@@ -349,6 +359,7 @@ export class Volume {
           grpcCode.INTERNAL,
           `Failed to destroy entry from the persistent store of ${this}: ${err}`,
         ));
+        return;
       }
 
       this._delegatedOpSuccess(DelegatedOp.Destroy);
