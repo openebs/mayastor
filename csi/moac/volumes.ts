@@ -130,7 +130,17 @@ export class Volumes extends events.EventEmitter {
     }
     let volume = this.volumes[uuid];
     if (volume) {
-      volume.update(spec);
+      if (volume.isSpecUpdatable())
+        volume.update(spec);
+      else {
+        // note: if the volume is destroyed but still in the list, it may never get deleted again and so
+        // subsequent calls to create volume will keep failing.
+        log.error(`Failing createVolume for volume ${uuid} because its state is "${volume.state}"`);
+        throw new GrpcError(
+          grpcCode.UNAVAILABLE,
+          `Volume cannot be updated, its state is "${volume.state}"`
+        );
+      }
     } else {
       // The volume starts to exist before it is created because we must receive
       // events for it and we want to show to user that it is being created.
