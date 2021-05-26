@@ -9,7 +9,7 @@ use tokio::task::JoinHandle;
 
 use super::Mthread;
 
-/// spawn a future on the tiokio runtime.
+/// spawn a future on the tokio runtime.
 pub fn spawn(f: impl Future<Output = ()> + Send + 'static) {
     RUNTIME.spawn(f);
 }
@@ -19,7 +19,7 @@ pub fn block_on(f: impl Future<Output = ()> + Send + 'static) {
     RUNTIME.block_on(f);
 }
 
-/// spawn a future that might block on a seperate worker thread the
+/// spawn a future that might block on a separate worker thread the
 /// number of threads available is determined by max_blocking_threads
 pub fn spawn_blocking<F, R>(f: F) -> JoinHandle<R>
 where

@@ -44,6 +44,7 @@ use crate::{
     },
     grpc,
     logger,
+    persistent_store::PersistentStore,
     subsys::{self, Config},
     target::iscsi,
 };
@@ -121,6 +122,9 @@ pub struct MayastorCliArgs {
     /// List of cores to run on instead of using the core mask. When specified
     /// it supersedes the core mask (-m) argument.
     pub core_list: Option<String>,
+    #[structopt(short = "p")]
+    /// Endpoint of the persistent store.
+    pub persistent_store_endpoint: Option<String>,
 }
 
 /// Defaults are redefined here in case of using it during tests
@@ -129,6 +133,7 @@ impl Default for MayastorCliArgs {
         Self {
             grpc_endpoint: grpc::default_endpoint().to_string(),
             mbus_endpoint: None,
+            persistent_store_endpoint: None,
             node_name: None,
             env_context: None,
             reactor_mask: "0x1".into(),
@@ -191,6 +196,7 @@ pub struct MayastorEnvironment {
     pub node_name: String,
     pub mbus_endpoint: Option<String>,
     pub grpc_endpoint: Option<std::net::SocketAddr>,
+    persistent_store_endpoint: Option<String>,
     mayastor_config: Option<String>,
     child_status_config: Option<String>,
     delay_subsystem_init: bool,
@@ -226,6 +232,7 @@ impl Default for MayastorEnvironment {
             node_name: "mayastor-node".into(),
             mbus_endpoint: None,
             grpc_endpoint: None,
+            persistent_store_endpoint: None,
             mayastor_config: None,
             child_status_config: None,
             delay_subsystem_init: false,
@@ -331,6 +338,7 @@ impl MayastorEnvironment {
         Self {
             grpc_endpoint: Some(grpc::endpoint(args.grpc_endpoint)),
             mbus_endpoint: subsys::mbus_endpoint(args.mbus_endpoint),
+            persistent_store_endpoint: args.persistent_store_endpoint,
             node_name: args.node_name.unwrap_or_else(|| "mayastor-node".into()),
             mayastor_config: args.mayastor_config,
             child_status_config: args.child_status_config,
@@ -700,11 +708,13 @@ impl MayastorEnvironment {
         type FutureResult = Result<(), ()>;
         let grpc_endpoint = self.grpc_endpoint;
         let rpc_addr = self.rpc_addr.clone();
+        let persistent_store_endpoint = self.persistent_store_endpoint.clone();
         let ms = self.init();
 
         let rt = Builder::new_current_thread().enable_all().build().unwrap();
 
         rt.block_on(async {
+            PersistentStore::init(persistent_store_endpoint).await;
             let master = Reactors::current();
             master.send_future(async { f() });
             let mut futures: Vec<

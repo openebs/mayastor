@@ -11,7 +11,7 @@ use mayastor::{
 use std::path::Path;
 use structopt::StructOpt;
 mayastor::CPS_INIT!();
-use mayastor::subsys::Registration;
+use mayastor::{persistent_store::PersistentStore, subsys::Registration};
 
 fn start_tokio_runtime(args: &MayastorCliArgs) {
     let grpc_address = grpc::endpoint(args.grpc_endpoint.clone());
@@ -22,6 +22,7 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
         .unwrap_or_else(|| "mayastor-node".into());
 
     let endpoint = args.mbus_endpoint.clone();
+    let persistent_store_endpoint = args.persistent_store_endpoint.clone();
 
     Mthread::spawn_unaffinitized(move || {
         runtime::block_on(async move {
@@ -32,6 +33,8 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
                 Registration::init(&node_name, &grpc_address.to_string());
                 futures.push(subsys::Registration::run().boxed());
             }
+
+            PersistentStore::init(persistent_store_endpoint).await;
 
             futures.push(
                 grpc::MayastorGrpcServer::run(grpc_address, rpc_address)

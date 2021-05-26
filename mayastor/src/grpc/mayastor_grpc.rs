@@ -31,7 +31,7 @@ use crate::{
 };
 use nix::errno::Errno;
 use rpc::mayastor::*;
-use std::convert::TryFrom;
+use std::{convert::TryFrom, ops::Deref};
 use tonic::{Request, Response, Status};
 
 #[derive(Debug)]
@@ -421,6 +421,10 @@ impl mayastor_server::Mayastor for MayastorSvc {
             Ok(ListNexusReply {
                 nexus_list: instances()
                     .iter()
+                    .filter(|n| {
+                        n.state.lock().unwrap().deref()
+                            != &nexus_bdev::NexusState::Init
+                    })
                     .map(|n| n.to_grpc())
                     .collect::<Vec<_>>(),
             })
