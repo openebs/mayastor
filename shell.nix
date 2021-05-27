@@ -44,7 +44,7 @@ mkShell {
     meson
     nats-server
     ninja
-    nodejs-12_x
+    nodejs-16_x
     numactl
     nvme-cli
     nvmet-cli

@@ -1,4 +1,4 @@
-{ stdenv, fetchgit, autoreconfHook, sources }:
+{ stdenv, lib, fetchgit, autoreconfHook, sources }:
 
 stdenv.mkDerivation rec {
   version = sources.libiscsi.branch;
@@ -18,7 +18,7 @@ stdenv.mkDerivation rec {
       applications.
     '';
     homepage = "https://github.com/sahlberg/libiscsi";
-    licenses = stdenv.lib.licenses.gpl2;
+    licenses = lib.licenses.gpl2;
     maintainers = "gila@openebs.io";
   };
 }

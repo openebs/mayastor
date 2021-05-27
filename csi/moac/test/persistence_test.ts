@@ -5,11 +5,12 @@ import { defaults } from 'lodash';
 import { Done } from 'mocha';
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import { expect } from 'chai';
-import { rmdirSync } from 'fs';
 import { Replica } from '../src/replica';
 import { Policy, ConsecutiveBreaker } from 'cockatiel';
 import * as sinon from 'ts-sinon';
 import { PersistentStore, NexusInfo, ChildInfo } from '../src/persistent_store';
+
+const fs = require('fs');
 
 const ETCD_STORE = "/tmp/moac-etcd-test";
 const ETCD_PORT = '2379';
@@ -23,39 +24,42 @@ function startEtcd (done: Done) {
     done();
     return;
   }
-  rmdirSync(ETCD_STORE, { recursive: true });
-  etcdProc = spawn('etcd', ['--data-dir', ETCD_STORE]);
-  let doneCalled = false;
-  let stderr = '';
+  fs.rm(ETCD_STORE, { recursive: true }, (err: NodeJS.ErrnoException) => {
+    if (err && err.code !== 'ENOENT') return done(err);
 
-  etcdProc?.stderr.on('data', (data: any) => {
-    stderr += data.toString();
-    if (data.toString().match(/ready to serve client requests/)) {
-      doneCalled = true;
-      done();
-    }
-  });
+    etcdProc = spawn('etcd', ['--data-dir', ETCD_STORE]);
+    let doneCalled = false;
+    let stderr = '';
 
-  etcdProc?.once('close', (code: any) => {
-    etcdProc = null;
-    if (!doneCalled) {
-      if (code) {
-        done(new Error(`etcd server exited with code ${code}: ${stderr}`));
-      } else {
-        done(new Error('etcd server exited prematurely'));
+    etcdProc?.stderr.on('data', (data: any) => {
+      stderr += data.toString();
+      if (data.toString().match(/ready to serve client requests/)) {
+        doneCalled = true;
+        done();
       }
-      return;
-    }
-    if (code) {
-      console.log(`etcd server exited with code ${code}: ${stderr}`);
-    }
+    });
+
+    etcdProc?.once('close', (code: any) => {
+      etcdProc = null;
+      if (!doneCalled) {
+        if (code) {
+          done(new Error(`etcd server exited with code ${code}: ${stderr}`));
+        } else {
+          done(new Error('etcd server exited prematurely'));
+        }
+        return;
+      }
+      if (code) {
+        console.log(`etcd server exited with code ${code}: ${stderr}`);
+      }
+    });
   });
 }
 
 // Kill etcd server. Though it does not wait for it to exit!
-function stopEtcd () {
+async function stopEtcd () {
   etcdProc?.kill();
-  rmdirSync(ETCD_STORE, { recursive: true });
+  await fs.promises.rm(ETCD_STORE, { recursive: true });
 }
 
 module.exports = function () {
@@ -113,9 +117,7 @@ module.exports = function () {
       });
     });
 
-    after(() => {
-      stopEtcd();
-    });
+    after(stopEtcd);
 
     it('should read NexusInfo from the persistent store', async () => {
       let uuid = "1";
@@ -137,7 +139,7 @@ module.exports = function () {
     it('should throw if etcd is not reachable', async () => {
       const persistentStore = new PersistentStore([], 1000, () => client);
 
-      stopEtcd();
+      await stopEtcd();
       let hasThrown = false;
       try {
         await persistentStore.filterReplicas("1", []);

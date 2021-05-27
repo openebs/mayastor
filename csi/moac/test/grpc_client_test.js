@@ -3,7 +3,7 @@
 'use strict';
 
 const expect = require('chai').expect;
-const grpc = require('grpc-uds');
+const grpc = require('@grpc/grpc-js');
 const { MayastorServer } = require('./mayastor_mock');
 const { GrpcClient, grpcCode } = require('../dist/grpc_client');
 const { shouldFailWith } = require('./utils');
@@ -20,7 +20,7 @@ module.exports = function () {
     client = new GrpcClient(MS_ENDPOINT);
   });
 
-  beforeEach(() => {
+  beforeEach((done) => {
     if (!srv) {
       const pools = [
         {
@@ -31,7 +31,10 @@ module.exports = function () {
           used: 4
         }
       ];
-      srv = new MayastorServer(MS_ENDPOINT, pools).start();
+      srv = new MayastorServer(MS_ENDPOINT, pools);
+      srv.start(done);
+    } else {
+      done();
     }
   });
 
@@ -62,8 +65,8 @@ module.exports = function () {
   it('should throw if unable to connect to the server', async () => {
     srv.stop();
     srv = null;
-    // 14 = UNAVAILABLE: GOAWAY received
-    await shouldFailWith(14, async () => {
+    // 1 = CANCELLED received
+    await shouldFailWith(1, async () => {
       await client.call('destroyPool', { name: 'unknown-pool' });
     });
   });

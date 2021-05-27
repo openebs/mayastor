@@ -1,4 +1,4 @@
-{ stdenv, python3Packages, fetchurl }:
+{ lib, python3Packages, fetchurl }:
 
 python3Packages.buildPythonApplication rec {
   pname = "nvmet-cli";
@@ -22,7 +22,7 @@ python3Packages.buildPythonApplication rec {
     exit 0
   '';
 
-  meta = with stdenv.lib; {
+  meta = with lib; {
     description = "NVMe target CLI";
     license = licenses.asl20;
     platforms = platforms.linux;

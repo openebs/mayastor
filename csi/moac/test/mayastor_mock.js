@@ -2,7 +2,7 @@ const _ = require('lodash');
 const assert = require('chai').assert;
 const path = require('path');
 const protoLoader = require('@grpc/proto-loader');
-const grpc = require('grpc-uds');
+const grpc = require('@grpc/grpc-js');
 const enums = require('./grpc_enums');
 const parse = require('url-parse');
 
@@ -57,6 +57,7 @@ class MayastorServer {
     const mayastor = grpc.loadPackageDefinition(packageDefinition).mayastor;
     const srv = new grpc.Server();
 
+    this.endpoint = endpoint;
     this.pools = _.cloneDeep(pools || []);
     this.replicas = _.cloneDeep(replicas || []);
     this.nexus = _.cloneDeep(nexus || []);
@@ -301,7 +302,6 @@ class MayastorServer {
         cb();
       }
     });
-    srv.bind(endpoint, grpc.ServerCredentials.createInsecure());
     this.srv = srv;
   }
 
@@ -317,9 +317,15 @@ class MayastorServer {
     return this.nexus;
   }
 
-  start () {
-    this.srv.start();
-    return this;
+  start (done) {
+    this.srv.bindAsync(
+      this.endpoint,
+      grpc.ServerCredentials.createInsecure(),
+      (err) => {
+        if (err) return done(err);
+        this.srv.start();
+        done();
+      });
   }
 
   stop () {

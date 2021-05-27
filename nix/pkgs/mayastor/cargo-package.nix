@@ -60,7 +60,7 @@ let
     cargoSha256 = "0j24k64qkrws3z680n56dv6v7bzsg8kmcqmdli6fl1rxwg50vxll";
     inherit version cargoBuildFlags;
     src = whitelistSource ../../../. src_list;
-    LIBCLANG_PATH = "${llvmPackages.libclang}/lib";
+    LIBCLANG_PATH = "${llvmPackages.libclang.lib}/lib";
     PROTOC = "${protobuf}/bin/protoc";
     PROTOC_INCLUDE = "${protobuf}/include";
 

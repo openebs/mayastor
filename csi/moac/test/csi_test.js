@@ -6,8 +6,7 @@
 
 const expect = require('chai').expect;
 const fs = require('fs').promises;
-const grpc = require('grpc-uds');
-const grpcPromise = require('grpc-promise');
+const grpc = require('@grpc/grpc-js');
 const sinon = require('sinon');
 const sleep = require('sleep-promise');
 const EventEmitter = require('events');
@@ -29,8 +28,16 @@ const YAML_TRUE_VALUE = [
 
 // Return gRPC CSI client for given csi service
 function getCsiClient (svc) {
-  const client = new csi[svc](SOCKPATH, grpc.credentials.createInsecure());
-  grpcPromise.promisifyAll(client);
+  const client = new csi[svc]('unix://' + SOCKPATH, grpc.credentials.createInsecure());
+  // promisifying wrapper for calling api methods
+  client.pcall = (method, args) => {
+    return new Promise((resolve, reject) => {
+      client[method](args, (err, res) => {
+        if (err) reject(err);
+        else resolve(res);
+      });
+    });
+  };
   return client;
 }
 
@@ -72,7 +79,7 @@ module.exports = function () {
     });
 
     it('get plugin info', async () => {
-      const res = await client.getPluginInfo().sendMessage({});
+      const res = await client.pcall('getPluginInfo', {});
       // If you need to change any value of properties below, you will
       // need to change source code of csi node server too!
       expect(res.name).to.equal('io.openebs.csi-mayastor');
@@ -81,7 +88,7 @@ module.exports = function () {
     });
 
     it('get plugin capabilities', async () => {
-      const res = await client.getPluginCapabilities().sendMessage({});
+      const res = await client.pcall('getPluginCapabilities', {});
       // If you need to change any capabilities below, you will
       // need to change source code of csi node server too!
       expect(res.capabilities).to.have.lengthOf(2);
@@ -92,13 +99,13 @@ module.exports = function () {
     });
 
     it('probe not ready', async () => {
-      const res = await client.probe().sendMessage({});
+      const res = await client.pcall('probe', {});
       expect(res.ready).to.have.property('value', false);
     });
 
     it('probe ready', async () => {
       server.makeReady({}, {});
-      const res = await client.probe().sendMessage({});
+      const res = await client.pcall('probe', {});
       expect(res.ready).to.have.property('value', true);
     });
   });
@@ -155,7 +162,7 @@ module.exports = function () {
 
       it('should get controller capabilities', async () => {
         server = await mockedServer();
-        const res = await client.controllerGetCapabilities().sendMessage({});
+        const res = await client.pcall('controllerGetCapabilities', {});
         const caps = res.capabilities;
         expect(caps).to.have.lengthOf(4);
         expect(caps[0].rpc.type).to.equal('CREATE_DELETE_VOLUME');
@@ -168,14 +175,14 @@ module.exports = function () {
         server = await mockedServer();
         server.undoReady();
         await shouldFailWith(grpcCode.UNAVAILABLE, () =>
-          client.controllerGetCapabilities().sendMessage({})
+          client.pcall('controllerGetCapabilities', {})
         );
       });
 
       it('should return unimplemented error for CreateSnapshot', async () => {
         server = await mockedServer();
         await shouldFailWith(grpcCode.UNIMPLEMENTED, () =>
-          client.createSnapshot().sendMessage({
+          client.pcall('createSnapshot', {
             sourceVolumeId: 'd01b8bfb-0116-47b0-a03a-447fcbdc0e99',
             name: 'blabla2'
           })
@@ -185,21 +192,21 @@ module.exports = function () {
       it('should return unimplemented error for DeleteSnapshot', async () => {
         server = await mockedServer();
         await shouldFailWith(grpcCode.UNIMPLEMENTED, () =>
-          client.deleteSnapshot().sendMessage({ snapshotId: 'blabla' })
+          client.pcall('deleteSnapshot', { snapshotId: 'blabla' })
         );
       });
 
       it('should return unimplemented error for ListSnapshots', async () => {
         server = await mockedServer();
         await shouldFailWith(grpcCode.UNIMPLEMENTED, () =>
-          client.listSnapshots().sendMessage({})
+          client.pcall('listSnapshots', {})
         );
       });
 
       it('should return unimplemented error for ControllerExpandVolume', async () => {
         server = await mockedServer();
         await shouldFailWith(grpcCode.UNIMPLEMENTED, () =>
-          client.controllerExpandVolume().sendMessage({
+          client.pcall('controllerExpandVolume', {
             volumeId: UUID,
             capacityRange: {
               requiredBytes: 200,
@@ -255,7 +262,7 @@ module.exports = function () {
       it('should create a volume and return parameters in volume context', async () => {
         const parameters = { protocol: 'iscsi', repl: 3, local: 'true', blah: 'again' };
         createVolumeStub.resolves(returnedVolume(parameters));
-        const result = await client.createVolume().sendMessage({
+        const result = await client.pcall('createVolume', {
           name: 'pvc-' + UUID,
           capacityRange: {
             requiredBytes: 10,
@@ -292,7 +299,7 @@ module.exports = function () {
       it('should fail if topology requirement other than hostname', async () => {
         createVolumeStub.resolves(returnedVolume(defaultParams));
         await shouldFailWith(grpcCode.INVALID_ARGUMENT, () =>
-          client.createVolume().sendMessage({
+          client.pcall('createVolume', {
             name: 'pvc-' + UUID,
             capacityRange: {
               requiredBytes: 10,
@@ -316,7 +323,7 @@ module.exports = function () {
       it('should fail if volume source', async () => {
         createVolumeStub.resolves(returnedVolume(defaultParams));
         await shouldFailWith(grpcCode.INVALID_ARGUMENT, () =>
-          client.createVolume().sendMessage({
+          client.pcall('createVolume', {
             name: 'pvc-' + UUID,
             volumeContentSource: { volume: { volumeId: UUID } },
             capacityRange: {
@@ -337,7 +344,7 @@ module.exports = function () {
       it('should fail if capability other than SINGLE_NODE_WRITER', async () => {
         createVolumeStub.resolves(returnedVolume(defaultParams));
         await shouldFailWith(grpcCode.INVALID_ARGUMENT, () =>
-          client.createVolume().sendMessage({
+          client.pcall('createVolume', {
             name: 'pvc-' + UUID,
             capacityRange: {
               requiredBytes: 10,
@@ -359,7 +366,7 @@ module.exports = function () {
           new GrpcError(grpcCode.INTERNAL, 'Something went wrong')
         );
         await shouldFailWith(grpcCode.INTERNAL, () =>
-          client.createVolume().sendMessage({
+          client.pcall('createVolume', {
             name: 'pvc-' + UUID,
             capacityRange: {
               requiredBytes: 10,
@@ -379,7 +386,7 @@ module.exports = function () {
       it('should fail if volume name is not in expected form', async () => {
         createVolumeStub.resolves(returnedVolume(defaultParams));
         await shouldFailWith(grpcCode.INVALID_ARGUMENT, () =>
-          client.createVolume().sendMessage({
+          client.pcall('createVolume', {
             name: UUID, // missing pvc- prefix
             capacityRange: {
               requiredBytes: 10,
@@ -400,7 +407,7 @@ module.exports = function () {
         const parameters = { protocol: 'iscsi', ioTimeout: '30' };
         createVolumeStub.resolves(returnedVolume(parameters));
         await shouldFailWith(grpcCode.INVALID_ARGUMENT, () =>
-          client.createVolume().sendMessage({
+          client.pcall('createVolume', {
             name: 'pvc-' + UUID,
             capacityRange: {
               requiredBytes: 10,
@@ -424,7 +431,7 @@ module.exports = function () {
         const parameters = { protocol: 'nvmf', ioTimeout: 'bla' };
         createVolumeStub.resolves(returnedVolume(parameters));
         await shouldFailWith(grpcCode.INVALID_ARGUMENT, () =>
-          client.createVolume().sendMessage({
+          client.pcall('createVolume', {
             name: 'pvc-' + UUID,
             capacityRange: {
               requiredBytes: 10,
@@ -448,7 +455,7 @@ module.exports = function () {
         const params = { ioTimeout: '30', local: 'On' };
         createVolumeStub.resolves(returnedVolume(params));
         await shouldFailWith(grpcCode.INVALID_ARGUMENT, () =>
-          client.createVolume().sendMessage({
+          client.pcall('createVolume', {
             name: 'pvc-' + UUID,
             capacityRange: {
               requiredBytes: 10,
@@ -468,7 +475,7 @@ module.exports = function () {
       it('should create volume on specified node', async () => {
         const params = { protocol: 'nvmf', local: 'Y' };
         createVolumeStub.resolves(returnedVolume(params));
-        const result = await client.createVolume().sendMessage({
+        const result = await client.pcall('createVolume', {
           name: 'pvc-' + UUID,
           capacityRange: {
             requiredBytes: 50,
@@ -502,7 +509,7 @@ module.exports = function () {
       it('should create volume on preferred node', async () => {
         const params = { protocol: 'nvmf', local: 'No' };
         createVolumeStub.resolves(returnedVolume(params));
-        await client.createVolume().sendMessage({
+        await client.pcall('createVolume', {
           name: 'pvc-' + UUID,
           capacityRange: {
             requiredBytes: 50,
@@ -541,7 +548,7 @@ module.exports = function () {
       it('should create volume with specified number of replicas', async () => {
         const params = { repl: '3', protocol: 'nvmf' };
         createVolumeStub.resolves(returnedVolume(params));
-        await client.createVolume().sendMessage({
+        await client.pcall('createVolume', {
           name: 'pvc-' + UUID,
           capacityRange: {
             requiredBytes: 50,
@@ -569,7 +576,7 @@ module.exports = function () {
       it('should fail if number of replicas is not a number', async () => {
         createVolumeStub.resolves(returnedVolume(defaultParams));
         await shouldFailWith(grpcCode.INVALID_ARGUMENT, () =>
-          client.createVolume().sendMessage({
+          client.pcall('createVolume', {
             name: 'pvc-' + UUID,
             capacityRange: {
               requiredBytes: 50,
@@ -593,7 +600,7 @@ module.exports = function () {
           await sleep(10);
           return returnedVolume(defaultParams);
         });
-        const create1 = client.createVolume().sendMessage({
+        const create1 = client.pcall('createVolume', {
           name: 'pvc-' + UUID,
           capacityRange: {
             requiredBytes: 50,
@@ -607,7 +614,7 @@ module.exports = function () {
           ],
           parameters: { repl: '3', protocol: 'nvmf' }
         });
-        const create2 = client.createVolume().sendMessage({
+        const create2 = client.pcall('createVolume', {
           name: 'pvc-' + UUID,
           capacityRange: {
             requiredBytes: 50,
@@ -648,7 +655,7 @@ module.exports = function () {
       it('should delete volume with multiple replicas', async () => {
         destroyVolumeStub.resolves();
 
-        await client.deleteVolume().sendMessage({ volumeId: UUID });
+        await client.pcall('deleteVolume', { volumeId: UUID });
 
         sinon.assert.calledOnce(destroyVolumeStub);
         sinon.assert.calledWith(destroyVolumeStub, UUID);
@@ -660,7 +667,7 @@ module.exports = function () {
         );
 
         await shouldFailWith(grpcCode.INTERNAL, () =>
-          client.deleteVolume().sendMessage({ volumeId: UUID })
+          client.pcall('deleteVolume', { volumeId: UUID })
         );
 
         sinon.assert.calledOnce(destroyVolumeStub);
@@ -672,8 +679,8 @@ module.exports = function () {
         destroyVolumeStub.callsFake(async () => {
           await sleep(10);
         });
-        const delete1 = client.deleteVolume().sendMessage({ volumeId: UUID });
-        const delete2 = client.deleteVolume().sendMessage({ volumeId: UUID });
+        const delete1 = client.pcall('deleteVolume', { volumeId: UUID });
+        const delete2 = client.pcall('deleteVolume', { volumeId: UUID });
         Promise.all([delete1, delete2]).then((results) => {
           sinon.assert.calledOnce(destroyVolumeStub);
           expect(results).to.have.lengthOf(2);
@@ -720,7 +727,7 @@ module.exports = function () {
       });
 
       it('should list all volumes', async () => {
-        const resp = await client.listVolumes().sendMessage({});
+        const resp = await client.pcall('listVolumes', {});
         expect(resp.nextToken).to.be.empty;
         const vols = resp.entries.map((ent) => ent.volume);
         expect(vols).to.have.lengthOf(100);
@@ -737,7 +744,7 @@ module.exports = function () {
         let allVols = [];
 
         do {
-          const resp = await client.listVolumes().sendMessage({
+          const resp = await client.pcall('listVolumes', {
             maxEntries: pageSize,
             startingToken: next
           });
@@ -761,7 +768,7 @@ module.exports = function () {
 
       it('should fail if starting token is unknown', async () => {
         await shouldFailWith(grpcCode.INVALID_ARGUMENT, () =>
-          client.listVolumes().sendMessage({ startingToken: 'asdfquwer' })
+          client.pcall('listVolumes', { startingToken: 'asdfquwer' })
         );
       });
     });
@@ -793,7 +800,7 @@ module.exports = function () {
         getNodeNameStub.returns('node');
         getVolumesStub.returns(volume);
 
-        const reply = await client.controllerPublishVolume().sendMessage({
+        const reply = await client.pcall('controllerPublishVolume', {
           volumeId: UUID,
           nodeId: 'mayastor://node2',
           readonly: false,
@@ -844,8 +851,8 @@ module.exports = function () {
         getNodeNameStub.returns('node');
         getVolumesStub.returns(volume);
 
-        const publish1 = client.controllerPublishVolume().sendMessage(publishArgs);
-        const publish2 = client.controllerPublishVolume().sendMessage(publishArgs);
+        const publish1 = client.pcall('controllerPublishVolume', publishArgs);
+        const publish2 = client.pcall('controllerPublishVolume', publishArgs);
         Promise.all([publish1, publish2]).then((results) => {
           sinon.assert.calledOnce(publishStub);
           expect(results).to.have.lengthOf(2);
@@ -859,7 +866,7 @@ module.exports = function () {
         getVolumesStub.returns();
 
         await shouldFailWith(grpcCode.NOT_FOUND, () =>
-          client.controllerPublishVolume().sendMessage({
+          client.pcall('controllerPublishVolume', {
             volumeId: UUID,
             nodeId: 'mayastor://node',
             readonly: false,
@@ -886,7 +893,7 @@ module.exports = function () {
         getVolumesStub.returns(volume);
 
         await shouldFailWith(grpcCode.INVALID_ARGUMENT, () =>
-          client.controllerPublishVolume().sendMessage({
+          client.pcall('controllerPublishVolume', {
             volumeId: UUID,
             nodeId: 'mayastor://node',
             readonly: true,
@@ -911,7 +918,7 @@ module.exports = function () {
         getVolumesStub.returns(volume);
 
         await shouldFailWith(grpcCode.INVALID_ARGUMENT, () =>
-          client.controllerPublishVolume().sendMessage({
+          client.pcall('controllerPublishVolume', {
             volumeId: UUID,
             nodeId: 'mayastor://node',
             readonly: false,
@@ -936,7 +943,7 @@ module.exports = function () {
         getVolumesStub.returns(volume);
 
         await shouldFailWith(grpcCode.INVALID_ARGUMENT, () =>
-          client.controllerPublishVolume().sendMessage({
+          client.pcall('controllerPublishVolume', {
             volumeId: UUID,
             nodeId: 'mayastor2://node/10.244.2.15:10124',
             readonly: false,
@@ -974,7 +981,7 @@ module.exports = function () {
       it('should not return an error on unpublish volume if it does not exist', async () => {
         getVolumesStub.returns(null);
 
-        const error = await client.controllerUnpublishVolume().sendMessage({
+        const error = await client.pcall('controllerUnpublishVolume', {
           volumeId: UUID,
           nodeId: 'mayastor://node'
         });
@@ -991,7 +998,7 @@ module.exports = function () {
         getVolumesStub.returns(volume);
 
         await shouldFailWith(grpcCode.INVALID_ARGUMENT, () =>
-          client.controllerUnpublishVolume().sendMessage({
+          client.pcall('controllerUnpublishVolume', {
             volumeId: UUID,
             nodeId: 'mayastor2://node/10.244.2.15:10124'
           })
@@ -1006,7 +1013,7 @@ module.exports = function () {
         getNodeNameStub.returns('node');
         getVolumesStub.returns(volume);
 
-        await client.controllerUnpublishVolume().sendMessage({
+        await client.pcall('controllerUnpublishVolume', {
           volumeId: UUID,
           nodeId: 'mayastor://node'
         });
@@ -1024,7 +1031,7 @@ module.exports = function () {
         getNodeNameStub.returns('node');
         getVolumesStub.returns(volume);
 
-        await client.controllerUnpublishVolume().sendMessage({
+        await client.pcall('controllerUnpublishVolume', {
           volumeId: UUID,
           nodeId: 'mayastor://another-node'
         });
@@ -1050,8 +1057,8 @@ module.exports = function () {
         getNodeNameStub.returns('node');
         getVolumesStub.returns(volume);
 
-        const unpublish1 = client.controllerUnpublishVolume().sendMessage(unpublishArgs);
-        const unpublish2 = client.controllerUnpublishVolume().sendMessage(unpublishArgs);
+        const unpublish1 = client.pcall('controllerUnpublishVolume', unpublishArgs);
+        const unpublish2 = client.pcall('controllerUnpublishVolume', unpublishArgs);
         Promise.all([unpublish1, unpublish2]).then((results) => {
           sinon.assert.calledOnce(unpublishStub);
           expect(results).to.have.lengthOf(2);
@@ -1084,7 +1091,7 @@ module.exports = function () {
           'MULTI_NODE_SINGLE_WRITER',
           'MULTI_NODE_MULTI_WRITER'
         ];
-        const resp = await client.validateVolumeCapabilities().sendMessage({
+        const resp = await client.pcall('validateVolumeCapabilities', {
           volumeId: UUID,
           volumeCapabilities: caps.map((c) => {
             return {
@@ -1109,7 +1116,7 @@ module.exports = function () {
           'MULTI_NODE_SINGLE_WRITER',
           'MULTI_NODE_MULTI_WRITER'
         ];
-        const resp = await client.validateVolumeCapabilities().sendMessage({
+        const resp = await client.pcall('validateVolumeCapabilities', {
           volumeId: UUID,
           volumeCapabilities: caps.map((c) => {
             return {
@@ -1125,7 +1132,7 @@ module.exports = function () {
       it('should return error if volume does not exist', async () => {
         getVolumesStub.returns(null);
         await shouldFailWith(grpcCode.NOT_FOUND, () =>
-          client.validateVolumeCapabilities().sendMessage({
+          client.pcall('validateVolumeCapabilities', {
             volumeId: UUID,
             volumeCapabilities: [
               {
@@ -1158,7 +1165,7 @@ module.exports = function () {
 
       it('should get capacity of a single node with multiple pools', async () => {
         getCapacityStub.returns(75);
-        const resp = await client.getCapacity().sendMessage({
+        const resp = await client.pcall('getCapacity', {
           accessibleTopology: {
             segments: {
               'kubernetes.io/hostname': 'node1'
@@ -1172,7 +1179,7 @@ module.exports = function () {
 
       it('should get capacity of all pools on all nodes', async () => {
         getCapacityStub.returns(80);
-        const resp = await client.getCapacity().sendMessage({});
+        const resp = await client.pcall('getCapacity', {});
         expect(resp.availableCapacity).to.equal(80);
         sinon.assert.calledOnce(getCapacityStub);
         sinon.assert.calledWith(getCapacityStub, undefined);
