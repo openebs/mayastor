@@ -54,6 +54,7 @@ spec:
         - "-nnats"
         - "-y/var/local/mayastor/config.yaml"
         - "-l{{ include "mayastorCpuSpec" . }}"
+        - "-pmayastor-etcd"
         securityContext:
           privileged: true
         volumeMounts:
