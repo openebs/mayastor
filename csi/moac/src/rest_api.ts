@@ -7,12 +7,13 @@
 // 2. Interface that other components can use to interact with the control
 //    plane. Currently used only for liveness and readiness probes.
 
-const log = require('./logger').Logger('api');
-
 import express from 'express';
 import { Server } from 'http';
 import { Registry } from './registry';
 import { Node, ReplicaStat } from './node';
+import { Logger } from './logger';
+
+const log = Logger('api');
 
 export class ApiServer {
   private registry: Registry;

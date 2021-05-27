@@ -1,7 +1,8 @@
 
 import assert from 'assert';
+import { Logger } from './logger';
 
-const log = require('./logger').Logger('workq');
+const log = Logger('workq');
 
 type Task<A, R> = {
   func: (arg: A) => Promise<R>;

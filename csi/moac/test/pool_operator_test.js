@@ -17,11 +17,11 @@ const expect = require('chai').expect;
 const sinon = require('sinon');
 const sleep = require('sleep-promise');
 const { KubeConfig } = require('@kubernetes/client-node');
-const { Registry } = require('../registry');
-const { GrpcError, grpcCode } = require('../grpc_client');
-const { PoolOperator, PoolResource } = require('../pool_operator');
-const { Pool } = require('../pool');
-const { Replica } = require('../replica');
+const { Registry } = require('../dist/registry');
+const { GrpcError, grpcCode } = require('../dist/grpc_client');
+const { PoolOperator, PoolResource } = require('../dist/pool_operator');
+const { Pool } = require('../dist/pool');
+const { Replica } = require('../dist/replica');
 const { mockCache } = require('./watcher_stub');
 const Node = require('./node_stub');
 

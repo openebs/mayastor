@@ -3,7 +3,7 @@
 
 'use strict';
 
-const { Node } = require('../node');
+const { Node } = require('../dist/node');
 
 // It can be used instead of real node object in tests of components that
 // depend on the Node.

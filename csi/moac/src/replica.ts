@@ -3,9 +3,10 @@
 import assert from 'assert';
 import * as _ from 'lodash';
 import { grpcCode, GrpcError } from './grpc_client';
-var parse = require('url-parse');
+import { Logger } from './logger';
 
-const log = require('./logger').Logger('replica');
+const log = Logger('replica');
+var parse = require('url-parse');
 
 import { Pool } from './pool';
 

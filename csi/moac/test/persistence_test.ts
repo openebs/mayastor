@@ -6,10 +6,10 @@ import { Done } from 'mocha';
 import { spawn, ChildProcessWithoutNullStreams } from 'child_process';
 import { expect } from 'chai';
 import { rmdirSync } from 'fs';
-import { Replica } from '../replica';
+import { Replica } from '../src/replica';
 import { Policy, ConsecutiveBreaker } from 'cockatiel';
 import * as sinon from 'ts-sinon';
-import { PersistentStore, NexusInfo, ChildInfo } from '../persistent_store';
+import { PersistentStore, NexusInfo, ChildInfo } from '../src/persistent_store';
 
 const ETCD_STORE = "/tmp/moac-etcd-test";
 const ETCD_PORT = '2379';

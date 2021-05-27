@@ -7,14 +7,16 @@ import * as path from 'path';
 import { grpcCode, GrpcError } from './grpc_client';
 import { Volume } from './volume';
 import { Volumes } from './volumes';
+import { Logger } from './logger';
+
+const log = Logger('csi');
 
 const fs = require('fs').promises;
 const protoLoader = require('@grpc/proto-loader');
 const grpc = require('grpc-uds');
-const log = require('./logger').Logger('csi');
 
 const PLUGIN_NAME = 'io.openebs.csi-mayastor';
-const PROTO_PATH = path.join(__dirname, '/proto/csi.proto');
+const PROTO_PATH = path.join(__dirname, '../proto/csi.proto');
 // TODO: can we generate version with commit SHA dynamically?
 const VERSION = '0.1';
 const PVC_RE = /pvc-([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})/;

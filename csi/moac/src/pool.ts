@@ -3,8 +3,9 @@
 import assert from 'assert';
 import * as _ from 'lodash';
 import { Replica } from './replica';
+import { Logger } from './logger';
 
-const log = require('./logger').Logger('pool');
+const log = Logger('pool');
 
 const URI_REGEX = /^([^:]+):\/\/(.+)$/;
 

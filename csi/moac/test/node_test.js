@@ -6,10 +6,10 @@
 
 const _ = require('lodash');
 const expect = require('chai').expect;
-const { Node } = require('../node');
-const { Nexus } = require('../nexus');
-const { Pool } = require('../pool');
-const { Replica } = require('../replica');
+const { Node } = require('../dist/node');
+const { Nexus } = require('../dist/nexus');
+const { Pool } = require('../dist/pool');
+const { Replica } = require('../dist/replica');
 const { MayastorServer } = require('./mayastor_mock');
 const enums = require('./grpc_enums');
 

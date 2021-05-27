@@ -9,8 +9,9 @@ import { Pool } from './pool';
 import { Nexus } from './nexus';
 import { Replica } from './replica';
 import { Workq } from './workq';
+import { Logger } from './logger';
 
-const log = require('./logger').Logger('node');
+const log = Logger('node');
 
 // Type returned by stats grpc call
 export type ReplicaStat = {

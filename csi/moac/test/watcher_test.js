@@ -9,7 +9,7 @@ const expect = require('chai').expect;
 const sinon = require('sinon');
 const sleep = require('sleep-promise');
 const { KubeConfig } = require('@kubernetes/client-node');
-const { CustomResourceCache } = require('../watcher');
+const { CustomResourceCache } = require('../dist/watcher');
 
 // slightly modified cache tunings not to wait too long when testing things
 const IDLE_TIMEOUT_MS = 500;

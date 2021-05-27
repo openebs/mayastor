@@ -9,9 +9,33 @@
 //       hooks with source specific code when calling the constructor (the hooks
 //       for registry source object need to be shared to avoid code duplication)
 
-const _ = require('lodash');
-const assert = require('assert');
-const { Readable } = require('stream');
+import * as _ from 'lodash';
+import assert from 'assert';
+import { Readable } from 'stream';
+
+import { Node } from './node';
+import { Pool } from './pool';
+import { Replica } from './replica';
+import { Nexus } from './nexus';
+import { Volume } from './volume';
+import { Volumes } from './volumes';
+import { Registry } from './registry';
+
+type ReceivedEventObject = {
+  eventType: string,
+  object: any,
+};
+
+type EventObject = {
+  kind: string,
+  eventType: string,
+  object: any,
+};
+
+type EventSource = {
+  registry?: Registry, // Registry object.
+  volumes?: Volumes,   // Volume manager.
+};
 
 // Stream of events from registry and/or volume manager. Each event object
 // retrieved from the stream is in the following form:
@@ -32,15 +56,22 @@ const { Readable } = require('stream');
 // TODO: End the stream when registry is stopped (requires new registry event).
 //       Is there equivalent for the volume manager?
 //
-class EventStream extends Readable {
+export class EventStream extends Readable {
+  events: EventObject[];
+  waiting: boolean;
+  started: boolean;
+  destroyed: boolean;
+  registry?: Registry;
+  volumes?: Volumes;
+  registryEventListeners: Record<string, (ev: ReceivedEventObject) => void>;
+  volumesEventListeners: Record<string, (ev: ReceivedEventObject) => void>;
+
   // Create the stream.
   //
-  // @param {object} source           Source object for the events.
-  // @param {object} source.registry  Registry object.
-  // @param {object} source.volumes   Volume manager.
-  // @param {object} [opts]           nodejs stream options.
+  // @param source   Source object for the events.
+  // @param [opts]   nodejs stream options.
   //
-  constructor (source, opts) {
+  constructor (source: EventSource, opts?: any) {
     assert(source);
     super(_.assign({ objectMode: true }, opts || {}));
     this.events = [];
@@ -85,7 +116,7 @@ class EventStream extends Readable {
     // they appear as new.
     const self = this;
     if (self.registry) {
-      self.registry.getNodes().forEach((node) => {
+      self.registry.getNodes().forEach((node: Node) => {
         self.events.push({
           kind: 'node',
           eventType: 'new',
@@ -94,8 +125,8 @@ class EventStream extends Readable {
         // First we emit replica and then pool events. Otherwise volume manager
         // could start creating new volume on imported pool although that the
         // volume is already there.
-        node.pools.forEach((obj) => {
-          obj.replicas.forEach((obj) => {
+        node.pools.forEach((obj: Pool) => {
+          obj.replicas.forEach((obj: Replica) => {
             self.events.push({
               kind: 'replica',
               eventType: 'new',
@@ -108,7 +139,7 @@ class EventStream extends Readable {
             object: obj
           });
         });
-        node.nexus.forEach((obj) => {
+        node.nexus.forEach((obj: Nexus) => {
           self.events.push({
             kind: 'nexus',
             eventType: 'new',
@@ -125,7 +156,7 @@ class EventStream extends Readable {
       });
     }
     if (self.volumes) {
-      self.volumes.list().forEach((volume) => {
+      self.volumes.list().forEach((volume: Volume) => {
         self.events.push({
           kind: 'volume',
           eventType: 'new',
@@ -139,7 +170,7 @@ class EventStream extends Readable {
     }
   }
 
-  _onEvent (kind, ev) {
+  _onEvent (kind: string, ev: ReceivedEventObject) {
     this.events.push({
       kind: kind,
       eventType: ev.eventType,
@@ -151,7 +182,7 @@ class EventStream extends Readable {
     }
   }
 
-  _read (size) {
+  _read (_size?: number) {
     if (!this.started) {
       this._start();
     }
@@ -170,7 +201,7 @@ class EventStream extends Readable {
     }
   }
 
-  _destroy (err, cb) {
+  _destroy (err: Error, cb: (err: Error) => void) {
     if (this.started) {
       if (this.registry) {
         for (const kind in this.registryEventListeners) {
@@ -191,5 +222,3 @@ class EventStream extends Readable {
     cb(err);
   }
 }
-
-module.exports = EventStream;

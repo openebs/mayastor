@@ -7,10 +7,10 @@
 const _ = require('lodash');
 const expect = require('chai').expect;
 const sinon = require('sinon');
-const { Registry } = require('../registry');
-const { Replica } = require('../replica');
-const { Pool } = require('../pool');
-const { Nexus } = require('../nexus');
+const { Registry } = require('../dist/registry');
+const { Replica } = require('../dist/replica');
+const { Pool } = require('../dist/pool');
+const { Nexus } = require('../dist/nexus');
 const Node = require('./node_stub');
 
 module.exports = function () {

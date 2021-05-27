@@ -14,8 +14,8 @@
   },
   "scripts": {
     "prepare": "./bundle_protos.sh",
-    "clean": "rm -f csi.js grpc_client.js index.js node.js registry.js replica.js rest_api.js pool.js nexus.js watcher.js node_operator.js pool_operator.js volume.js volumes.js volume_operator.js workq.js persistent_store.js *.js.map",
-    "purge": "rm -rf node_modules proto csi.js grpc_client.js index.js node.js registry.js replica.js rest_api.js pool.js nexus.js watcher.js node_operator.js pool_operator.js volume.js volumes.js volume_operator.js workq.js persistent_store.js *.js.map",
+    "clean": "rm -f dist",
+    "purge": "rm -rf node_modules proto dist",
     "compile": "tsc --pretty",
     "start": "./moac",
     "test": "mocha test/index.ts",

@@ -2,17 +2,19 @@
 
 'use strict';
 
+/* eslint-disable no-unused-expressions */
+
 const expect = require('chai').expect;
 const EventEmitter = require('events');
 const sinon = require('sinon');
-const { Pool } = require('../pool');
-const { Replica } = require('../replica');
-const { Nexus } = require('../nexus');
-const { Registry } = require('../registry');
-const { Volume } = require('../volume');
-const { Volumes } = require('../volumes');
-const EventStream = require('../event_stream');
-var parse = require('url-parse');
+const { Pool } = require('../dist/pool');
+const { Replica } = require('../dist/replica');
+const { Nexus } = require('../dist/nexus');
+const { Registry } = require('../dist/registry');
+const { Volume } = require('../dist/volume');
+const { Volumes } = require('../dist/volumes');
+const { EventStream } = require('../dist/event_stream');
+const parse = require('url-parse');
 
 module.exports = function () {
   // Easy generator of a test node with fake pools, replicas and nexus
@@ -282,7 +284,7 @@ module.exports = function () {
       expect(events).to.have.lengthOf(i);
       events.forEach(element => {
         if (element.kind === 'replica') {
-          const realUuid = parse(element.object.uri, true).query['uuid'];
+          const realUuid = parse(element.object.uri, true).query.uuid;
           expect(realUuid).not.to.be.undefined;
         }
       });

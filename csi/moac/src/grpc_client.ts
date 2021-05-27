@@ -2,13 +2,15 @@
 
 import assert from 'assert';
 import * as path from 'path';
+import { Logger } from './logger';
+
+const log = Logger('grpc');
 
 const grpc = require('grpc-uds');
 const grpcPromise = require('grpc-promise');
 const protoLoader = require('@grpc/proto-loader');
-const log = require('./logger').Logger('grpc');
 
-const MAYASTOR_PROTO_PATH: string = path.join(__dirname, '/proto/mayastor.proto');
+const MAYASTOR_PROTO_PATH: string = path.join(__dirname, '../proto/mayastor.proto');
 
 // Load mayastor proto file
 const packageDefinition = protoLoader.loadSync(MAYASTOR_PROTO_PATH, {
