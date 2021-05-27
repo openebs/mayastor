@@ -11,11 +11,11 @@ const grpcPromise = require('grpc-promise');
 const sinon = require('sinon');
 const sleep = require('sleep-promise');
 const EventEmitter = require('events');
-const { CsiServer, csi } = require('../csi');
-const { GrpcError, grpcCode } = require('../grpc_client');
-const { Registry } = require('../registry');
-const { Volume } = require('../volume');
-const { Volumes } = require('../volumes');
+const { CsiServer, csi } = require('../dist/csi');
+const { GrpcError, grpcCode } = require('../dist/grpc_client');
+const { Registry } = require('../dist/registry');
+const { Volume } = require('../dist/volume');
+const { Volumes } = require('../dist/volumes');
 const { shouldFailWith } = require('./utils');
 
 const SOCKPATH = '/tmp/csi_controller_test.sock';

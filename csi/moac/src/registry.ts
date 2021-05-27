@@ -3,15 +3,16 @@
 // a database (other components can query it to get a list of objects) and also
 // as a message bus (other components can subscribe to events).
 
-const log = require('./logger').Logger('registry');
-
 import assert from 'assert';
 import events = require('events');
 import { Node, NodeOpts } from './node';
 import { Pool } from './pool';
 import { Nexus } from './nexus';
 import { Replica } from './replica';
-import { PersistentStore, NexusCreateInfo } from './persistent_store';
+import { PersistentStore } from './persistent_store';
+import { Logger } from './logger';
+
+const log = Logger('registry');
 
 // List of events emitted by the registry.
 //

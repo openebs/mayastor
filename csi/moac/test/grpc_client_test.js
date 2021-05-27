@@ -5,7 +5,7 @@
 const expect = require('chai').expect;
 const grpc = require('grpc-uds');
 const { MayastorServer } = require('./mayastor_mock');
-const { GrpcClient, grpcCode } = require('../grpc_client');
+const { GrpcClient, grpcCode } = require('../dist/grpc_client');
 const { shouldFailWith } = require('./utils');
 
 const MS_ENDPOINT = '127.0.0.1:12345';

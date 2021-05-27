@@ -5,10 +5,10 @@
 const expect = require('chai').expect;
 const http = require('http');
 const sinon = require('sinon');
-const { Registry } = require('../registry');
-const { Node } = require('../node');
-const { GrpcError, grpcCode } = require('../grpc_client');
-const { ApiServer } = require('../rest_api');
+const { Registry } = require('../dist/registry');
+const { Node } = require('../dist/node');
+const { GrpcError, grpcCode } = require('../dist/grpc_client');
+const { ApiServer } = require('../dist/rest_api');
 
 const PORT = 12312;
 const STAT_COUNTER = 1000000; // feels good!

@@ -8,8 +8,8 @@ const expect = require('chai').expect;
 const { spawn } = require('child_process');
 const nats = require('nats');
 const sleep = require('sleep-promise');
-const { Registry } = require('../registry');
-const { MessageBus } = require('../nats');
+const { Registry } = require('../dist/registry');
+const { MessageBus } = require('../dist/nats');
 const { waitUntil } = require('./utils');
 const NodeStub = require('./node_stub');
 

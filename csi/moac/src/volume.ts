@@ -10,8 +10,9 @@ import { Child, Nexus, Protocol } from './nexus';
 import { Pool } from './pool';
 import { Node } from './node';
 import { Registry } from './registry';
+import { Logger } from './logger';
 
-const log = require('./logger').Logger('volume');
+const log = Logger('volume');
 
 // If state transition in FSA fails due to an error and there is no consumer
 // for the error, we set a retry timer to retry the state transition.

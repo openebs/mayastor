@@ -9,11 +9,11 @@
 const EventEmitter = require('events');
 const expect = require('chai').expect;
 const sinon = require('sinon');
-const { Node } = require('../node');
-const { Registry } = require('../registry');
-const { Volume } = require('../volume');
+const { Node } = require('../dist/node');
+const { Registry } = require('../dist/registry');
+const { Volume } = require('../dist/volume');
 const { shouldFailWith } = require('./utils');
-const { grpcCode } = require('../grpc_client');
+const { grpcCode } = require('../dist/grpc_client');
 
 const UUID = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cbb';
 

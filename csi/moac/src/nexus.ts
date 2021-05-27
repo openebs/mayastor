@@ -4,10 +4,11 @@ import assert from 'assert';
 import * as _ from 'lodash';
 import { grpcCode, GrpcError, mayastor } from './grpc_client';
 
-const log = require('./logger').Logger('nexus');
-
 import { Node } from './node';
 import { Replica } from './replica';
+import { Logger } from './logger';
+
+const log = Logger('nexus');
 
 // Protocol used to export nexus (volume)
 export enum Protocol {

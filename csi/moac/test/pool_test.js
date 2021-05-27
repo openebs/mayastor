@@ -7,11 +7,11 @@
 const _ = require('lodash');
 const expect = require('chai').expect;
 const sinon = require('sinon');
-const { Node } = require('../node');
-const { Pool } = require('../pool');
-const { Replica } = require('../replica');
+const { Node } = require('../dist/node');
+const { Pool } = require('../dist/pool');
+const { Replica } = require('../dist/replica');
 const { shouldFailWith } = require('./utils');
-const { grpcCode, GrpcError } = require('../grpc_client');
+const { grpcCode, GrpcError } = require('../dist/grpc_client');
 
 module.exports = function () {
   const props = {

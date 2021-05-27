@@ -5,9 +5,10 @@ import { grpcCode, GrpcError } from './grpc_client';
 import { Volume, VolumeSpec, VolumeState } from './volume';
 import { Workq } from './workq';
 import { VolumeStatus } from './volume_operator';
+import { EventStream } from './event_stream';
+import { Logger } from './logger';
 
-const EventStream = require('./event_stream');
-const log = require('./logger').Logger('volumes');
+const log = Logger('volumes');
 
 // Type used in "create volume" workq
 type CreateArgs = {

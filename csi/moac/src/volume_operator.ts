@@ -38,8 +38,6 @@
 //
 
 const yaml = require('js-yaml');
-const EventStream = require('./event_stream');
-const log = require('./logger').Logger('volume-operator');
 
 import assert from 'assert';
 import * as fs from 'fs';
@@ -54,16 +52,20 @@ import {
   CustomResourceCache,
   CustomResourceMeta,
 } from './watcher';
+import { EventStream } from './event_stream';
 import { protocolFromString } from './nexus';
 import { Replica } from './replica';
 import { Volume } from './volume';
 import { Volumes } from './volumes';
 import { VolumeSpec, VolumeState, volumeStateFromString } from './volume';
 import { Workq } from './workq';
+import { Logger } from './logger';
+
+const log = Logger('volume-operator');
 
 const RESOURCE_NAME: string = 'mayastorvolume';
 const crdVolume = yaml.load(
-  fs.readFileSync(path.join(__dirname, '/crds/mayastorvolume.yaml'), 'utf8')
+  fs.readFileSync(path.join(__dirname, '../crds/mayastorvolume.yaml'), 'utf8')
 );
 // lower-case letters uuid pattern
 const uuidRegexp = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-5][0-9a-f]{3}-[089ab][0-9a-f]{3}-[0-9a-f]{12}$/;

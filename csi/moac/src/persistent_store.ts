@@ -2,11 +2,13 @@
 // such as the list of nexus children and their health state and whether the nexus was shutdown
 // cleanly or not.
 
-import assert from "assert";
-import { Etcd3, IOptions } from "etcd3";
+import assert from 'assert';
+import { Etcd3, IOptions } from 'etcd3';
 import { defaults } from 'lodash';
 import { Replica } from './replica';
-const log = require('./logger').Logger('persistent_store');
+import { Logger } from './logger';
+
+const log = Logger('store');
 
 // Definition of the nexus information that gets saved in the persistent store.
 export class NexusInfo {

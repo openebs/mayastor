@@ -4,20 +4,20 @@
 const { KubeConfig } = require('@kubernetes/client-node');
 const yargs = require('yargs');
 
-const logger = require('./logger');
-const { MessageBus } = require('./nats');
 
 import * as fs from 'fs';
 import { NodeOperator } from './node_operator';
 import { PoolOperator } from './pool_operator';
 import { Registry } from './registry';
 import { ApiServer } from './rest_api';
+import { MessageBus } from './nats';
 import { Volumes } from './volumes';
 import { VolumeOperator } from './volume_operator';
 import { CsiServer } from './csi';
 import { PersistentStore } from './persistent_store';
+import * as logger from './logger';
 
-const log = new logger.Logger();
+const log = logger.Logger();
 
 const NAMESPACE_FILE = '/var/run/secrets/kubernetes.io/serviceaccount/namespace';
 

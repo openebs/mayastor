@@ -3,7 +3,7 @@
 const path = require('path');
 const { spawn } = require('child_process');
 
-const logger = require('../logger');
+const logger = require('../dist/logger');
 const workqTest = require('./workq_test.js');
 const grpcTest = require('./grpc_client_test.js');
 const watcherTest = require('./watcher_test.js');
