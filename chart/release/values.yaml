@@ -11,7 +11,7 @@ nats:
 etcd:
   auth:
     rbac:
-      enabled: true
+      enabled: false
   replicaCount: 3
   persistence:
     enabled: false
