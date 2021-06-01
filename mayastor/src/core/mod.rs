@@ -1,11 +1,13 @@
 //!
 //! core contains the primary abstractions around the SPDK primitives.
+use std::sync::atomic::AtomicUsize;
+
 pub use ::uuid::Uuid;
 use nix::errno::Errno;
 use snafu::Snafu;
 
-use crate::{subsys::NvmfError, target::iscsi};
 pub use bdev::{Bdev, BdevIter};
+pub use bio::{Bio, IoStatus, IoType};
 pub use block_device::{
     BlockDevice,
     BlockDeviceDescriptor,
@@ -32,8 +34,6 @@ pub use env::{
     GLOBAL_RC,
     SIG_RECEIVED,
 };
-
-pub use bio::{Bio, IoStatus, IoType};
 pub use handle::BdevHandle;
 pub use io_device::IoDevice;
 pub use nvme::{
@@ -47,6 +47,8 @@ pub use reactor::{Reactor, ReactorState, Reactors, REACTOR_LIST};
 pub use runtime::spawn;
 pub use share::{Protocol, Share};
 pub use thread::Mthread;
+
+use crate::{subsys::NvmfError, target::iscsi};
 
 mod bdev;
 mod bio;
@@ -205,3 +207,16 @@ pub enum IoCompletionStatus {
     Success,
     NvmeError(NvmeCommandStatus),
 }
+
+pub static PAUSING: AtomicUsize = AtomicUsize::new(0);
+pub static PAUSED: AtomicUsize = AtomicUsize::new(0);
+type Nexus = String;
+type Child = String;
+
+pub enum Command {
+    Retire(Nexus, Child),
+}
+
+pub static DEAD_LIST: once_cell::sync::Lazy<
+    crossbeam::queue::SegQueue<Command>,
+> = once_cell::sync::Lazy::new(crossbeam::queue::SegQueue::new);

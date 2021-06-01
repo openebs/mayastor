@@ -174,14 +174,7 @@ impl Debug for NexusChild {
 impl Display for NexusChild {
     fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
         match &self.device {
-            Some(dev) => writeln!(
-                f,
-                "{}: {:?}, blk_cnt: {}, blk_size: {}",
-                self.name,
-                self.state(),
-                dev.num_blocks(),
-                dev.block_len(),
-            ),
+            Some(_dev) => writeln!(f, "{}: {:?}", self.name, self.state(),),
             None => writeln!(f, "{}: state {:?}", self.name, self.state()),
         }
     }
@@ -537,7 +530,7 @@ impl NexusChild {
     }
 
     /// destroy the child device
-    pub(crate) async fn destroy(&self) -> Result<(), NexusBdevError> {
+    pub async fn destroy(&self) -> Result<(), NexusBdevError> {
         if self.device.is_some() {
             self.set_state(ChildState::Destroying);
             info!("{} destroying underlying block device", self.name);

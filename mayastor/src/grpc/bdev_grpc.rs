@@ -39,7 +39,19 @@ impl From<Bdev> for RpcBdev {
 }
 
 #[derive(Debug)]
-pub struct BdevSvc;
+pub struct BdevSvc {}
+
+impl BdevSvc {
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl Default for BdevSvc {
+    fn default() -> Self {
+        Self::new()
+    }
+}
 
 #[tonic::async_trait]
 impl BdevRpc for BdevSvc {

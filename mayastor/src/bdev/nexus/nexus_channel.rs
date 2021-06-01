@@ -16,7 +16,7 @@ use spdk_sys::{
 
 use crate::{
     bdev::{nexus::nexus_child::ChildState, Nexus, Reason},
-    core::{BlockDeviceHandle, Mthread},
+    core::{BlockDeviceHandle, Cores, Mthread},
 };
 
 /// io channel, per core
@@ -101,7 +101,65 @@ impl NexusChannelInner {
         }
     }
 
-    /// refreshing our channels simply means that we either have a child going
+    /// Remove a child from the readers and/or writers
+    pub fn remove_child(&mut self, name: &str) -> bool {
+        self.previous = 0;
+        let nexus = unsafe { Nexus::from_raw(self.device) };
+        trace!(
+            ?name,
+            "core: {} thread: {} removing from during submission channels",
+            Cores::current(),
+            Mthread::current().unwrap().name()
+        );
+        trace!(
+            "{}: Current number of IO channels write: {} read: {}",
+            nexus.name,
+            self.writers.len(),
+            self.readers.len(),
+        );
+        self.readers
+            .retain(|c| c.get_device().device_name() != name);
+        self.writers
+            .retain(|c| c.get_device().device_name() != name);
+
+        trace!(
+            "{}: New number of IO channels write:{} read:{} out of {} children",
+            nexus.name,
+            self.writers.len(),
+            self.readers.len(),
+            nexus.children.len()
+        );
+        self.fault_child(name)
+    }
+
+    /// Fault the child by marking its status.
+    pub fn fault_child(&mut self, name: &str) -> bool {
+        let nexus = unsafe { Nexus::from_raw(self.device) };
+        nexus
+            .children
+            .iter()
+            .filter(|c| c.state() == ChildState::Open)
+            .filter(|c| {
+                // If there where previous retires, we do not have a reference
+                // to a BlockDevice. We do however, know it cant be the device
+                // we are attempting to retire in the first place so this
+                // condition is fine.
+                if let Ok(child) = c.get_device().as_ref() {
+                    child.device_name() == name
+                } else {
+                    false
+                }
+            })
+            .any(|c| {
+                ChildState::Open
+                    == c.state.compare_and_swap(
+                        ChildState::Open,
+                        ChildState::Faulted(Reason::IoError),
+                    )
+            })
+    }
+
+    /// Refreshing our channels simply means that we either have a child going
     /// online or offline. We don't know which child has gone, or was added, so
     /// we simply put back all the channels, and reopen the bdevs that are in
     /// the online state.
@@ -123,9 +181,9 @@ impl NexusChannelInner {
         // clear the vector of channels and reset other internal values,
         // clearing the values will drop any existing handles in the
         // channel
+
         self.writers.clear();
         self.readers.clear();
-        self.previous = 0;
 
         // iterate over all our children which are in the open state
         nexus

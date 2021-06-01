@@ -9,8 +9,8 @@ pub enum Error {
     #[snafu(display("failed to import pool {}", name))]
     Import { source: Errno, name: String },
 
-    #[snafu(display("failed to create pool {}", name))]
-    Create { source: Errno, name: String },
+    #[snafu(display("errno: {} failed to create pool {}", source, name))]
+    PoolCreate { source: Errno, name: String },
 
     #[snafu(display("failed to export pool {}", name))]
     Export { source: Errno, name: String },
@@ -26,13 +26,13 @@ pub enum Error {
         name: String,
     },
 
-    #[snafu(display("errno {}: {}", source.to_string(), msg))]
+    #[snafu(display("errno {}: {}", source, msg))]
     Invalid { source: Errno, msg: String },
 
     #[snafu(display("lvol exists {}", name))]
     RepExists { source: Errno, name: String },
 
-    #[snafu(display("failed to create lvol {}", name))]
+    #[snafu(display("errno: {} failed to create lvol {}", source, name))]
     RepCreate { source: Errno, name: String },
 
     #[snafu(display("failed to destroy lvol {}", name))]

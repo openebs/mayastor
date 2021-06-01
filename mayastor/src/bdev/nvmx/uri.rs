@@ -3,19 +3,18 @@
 //! This file handles the conversion from URI to NVMe controller creation(s).
 //! It's not very clean, but also the least important for now.
 
+use async_trait::async_trait;
+use futures::channel::{oneshot, oneshot::Sender};
+use nix::errno::Errno;
+use parking_lot::Mutex;
+use snafu::ResultExt;
 use std::{
     collections::HashMap,
     convert::{From, TryFrom},
     ffi::c_void,
     ptr::NonNull,
-    sync::{Arc, Mutex},
+    sync::Arc,
 };
-
-use async_trait::async_trait;
-use futures::channel::{oneshot, oneshot::Sender};
-use nix::errno::Errno;
-use snafu::ResultExt;
-use tracing::instrument;
 use url::Url;
 
 use controller::options::NvmeControllerOpts;
@@ -42,11 +41,8 @@ use crate::{
     },
     core::poller,
     ffihelper::ErrnoResult,
-    nexus_uri::{
-        NexusBdevError,
-        {self},
-    },
-    subsys::NvmeBdevOpts,
+    nexus_uri::{self, NexusBdevError},
+    subsys::Config,
 };
 
 use super::controller::transport::NvmeTransportId;
@@ -187,10 +183,13 @@ impl<'probe> NvmeControllerContext<'probe> {
         // makes debugging connections easier in certain cases. If no
         // HOSTNQN is provided.
 
-        let device_defaults = NvmeBdevOpts::default();
         let mut opts = controller::options::Builder::new()
-            .with_keep_alive_timeout_ms(device_defaults.keep_alive_timeout_ms)
-            .with_transport_retry_count(device_defaults.retry_count as u8);
+            .with_keep_alive_timeout_ms(
+                Config::get().nvme_bdev_opts.keep_alive_timeout_ms,
+            )
+            .with_transport_retry_count(
+                Config::get().nvme_bdev_opts.retry_count as u8,
+            );
 
         if let Ok(host_nqn) = std::env::var("HOSTNQN") {
             opts = opts.with_hostnqn(host_nqn);
@@ -226,7 +225,6 @@ impl<'probe> NvmeControllerContext<'probe> {
 impl CreateDestroy for NvmfDeviceTemplate {
     type Error = NexusBdevError;
 
-    #[instrument(err)]
     async fn create(&self) -> Result<String, Self::Error> {
         let cname = self.get_name();
         if NVME_CONTROLLERS.lookup_by_name(&cname).is_some() {
@@ -296,8 +294,7 @@ impl CreateDestroy for NvmfDeviceTemplate {
                     .lookup_by_name(&cname)
                     .expect("no controller in the list");
 
-                let controller =
-                    controller.lock().expect("failed to lock controller");
+                let controller = controller.lock();
 
                 // Successfully attached controllers must be in Running state.
                 assert_eq!(

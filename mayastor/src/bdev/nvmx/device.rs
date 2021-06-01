@@ -1,11 +1,8 @@
-use std::{
-    convert::From,
-    sync::{Arc, Mutex},
-};
-
 use async_trait::async_trait;
 use futures::channel::oneshot;
 use nix::errno::Errno;
+use parking_lot::Mutex;
+use std::{convert::From, sync::Arc};
 use uuid::Uuid;
 
 use crate::{
@@ -114,7 +111,7 @@ impl NvmeBlockDevice {
             },
         )?;
 
-        let controller = controller.lock().expect("lock poisoned");
+        let controller = controller.lock();
 
         // Make sure controller is available.
         if controller.get_state() == NvmeControllerState::Running {
@@ -199,7 +196,7 @@ impl BlockDevice for NvmeBlockDevice {
             oneshot::channel::<Result<BlockDeviceIoStats, CoreError>>();
         // Schedule async I/O stats collection and wait for the result.
         {
-            let controller = carc.lock().expect("lock poisoned");
+            let controller = carc.lock();
 
             controller.get_io_stats(
                 |stats, ch| {
@@ -236,7 +233,7 @@ impl BlockDevice for NvmeBlockDevice {
                 name: self.name.clone(),
             },
         )?;
-        let controller = controller.lock().expect("controller lock poisoned");
+        let controller = controller.lock();
         controller.add_event_listener(listener)
     }
 }
@@ -267,7 +264,7 @@ impl NvmeDeviceIoController {
 impl DeviceIoController for NvmeDeviceIoController {
     fn get_timeout_action(&self) -> Result<DeviceTimeoutAction, CoreError> {
         let controller = self.lookup_controller()?;
-        let controller = controller.lock().expect("lock poisoned");
+        let controller = controller.lock();
 
         controller.get_timeout_action()
     }
@@ -277,7 +274,7 @@ impl DeviceIoController for NvmeDeviceIoController {
         action: DeviceTimeoutAction,
     ) -> Result<(), CoreError> {
         let controller = self.lookup_controller()?;
-        let mut controller = controller.lock().expect("lock poisoned");
+        let mut controller = controller.lock();
 
         controller.set_timeout_action(action)
     }
@@ -288,7 +285,7 @@ impl DeviceIoController for NvmeDeviceIoController {
  */
 pub fn lookup_by_name(name: &str) -> Option<Box<dyn BlockDevice>> {
     if let Some(c) = NVME_CONTROLLERS.lookup_by_name(name) {
-        let controller = c.lock().expect("mutex poisoned");
+        let controller = c.lock();
         // Make sure controller is available.
         if controller.get_state() == NvmeControllerState::Running {
             let ns = controller
