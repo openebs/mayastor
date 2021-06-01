@@ -171,7 +171,7 @@ if (params.e2e_continuous == true) {
   rust_test = true
   grpc_test = true
   moac_test = true
-  e2e_test = true
+  e2e_test = false
   // Some long e2e tests are not suitable to be run for each PR
   e2e_test_profile = (env.BRANCH_NAME != 'staging' && env.BRANCH_NAME != 'trying') ? "nightly" : "ondemand"
   e2e_build_images = true
