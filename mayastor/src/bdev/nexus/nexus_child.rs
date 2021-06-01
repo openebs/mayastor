@@ -21,16 +21,25 @@ use crate::{
         VerboseError,
     },
     core::{
+        nvme_reservation_acquire_action,
+        nvme_reservation_register_action,
+        nvme_reservation_register_cptpl,
+        nvme_reservation_type,
         BlockDevice,
         BlockDeviceDescriptor,
         BlockDeviceHandle,
         CoreError,
+        DmaError,
         Reactor,
         Reactors,
     },
     nexus_uri::NexusBdevError,
     persistent_store::PersistentStore,
     rebuild::{ClientOperations, RebuildJob},
+    spdk_sys::{
+        spdk_nvme_registered_ctrlr_extended_data,
+        spdk_nvme_reservation_status_extended_data,
+    },
 };
 use url::Url;
 
@@ -64,8 +73,19 @@ pub enum ChildError {
     HandleCreate { source: CoreError },
     #[snafu(display("Failed to open a BlockDeviceHandle for child"))]
     HandleOpen { source: CoreError },
-    #[snafu(display("Failed to register key for child"))]
+    #[snafu(display("Failed to allocate DmaBuffer for child"))]
+    HandleDmaMalloc { source: DmaError },
+    #[snafu(display("Failed to register key for child: {}", source))]
     ResvRegisterKey { source: CoreError },
+    #[snafu(display("Failed to acquire reservation for child: {}", source))]
+    ResvAcquire { source: CoreError },
+    #[snafu(display(
+        "Failed to get reservation report for child: {}",
+        source
+    ))]
+    ResvReport { source: CoreError },
+    #[snafu(display("Failed to get NVMe host ID: {}", source))]
+    NvmeHostId { source: CoreError },
     #[snafu(display("Failed to create a BlockDevice for child {}", child))]
     ChildBdevCreate {
         child: String,
@@ -272,21 +292,182 @@ impl NexusChild {
         )
     }
 
-    /// Register a key
-    pub(crate) async fn resv_register(
+    /// Register an NVMe reservation, specifying a new key
+    async fn resv_register(
         &self,
+        hdl: &dyn BlockDeviceHandle,
         new_key: u64,
+    ) -> Result<(), CoreError> {
+        hdl.nvme_resv_register(
+            0,
+            new_key,
+            nvme_reservation_register_action::REGISTER_KEY,
+            nvme_reservation_register_cptpl::NO_CHANGES,
+        )
+        .await?;
+        info!(
+            "{}: registered key {:0x}h on child {}",
+            self.parent, new_key, self.name
+        );
+        Ok(())
+    }
+
+    /// Acquire an NVMe reservation
+    async fn resv_acquire(
+        &self,
+        hdl: &dyn BlockDeviceHandle,
+        current_key: u64,
+        preempt_key: u64,
+        acquire_action: u8,
+        resv_type: u8,
     ) -> Result<(), ChildError> {
-        let hdl = self.get_io_handle().context(HandleOpen {})?;
-        if hdl.get_device().driver_name() == "nvme" {
-            info!(
-                "{}: registering key {:x}h on child {}...",
-                self.parent, new_key, self.name
+        if let Err(e) = hdl
+            .nvme_resv_acquire(
+                current_key,
+                preempt_key,
+                acquire_action,
+                resv_type,
+            )
+            .await
+        {
+            return Err(ChildError::ResvAcquire {
+                source: e,
+            });
+        }
+        info!(
+            "{}: acquired reservation type {:x}h, action {:x}h, current key {:0x}h, preempt key {:0x}h on child {}",
+            self.parent, resv_type, acquire_action, current_key, preempt_key, self.name
+        );
+        Ok(())
+    }
+
+    /// Get NVMe reservation report
+    /// Returns: (key, host id) of write exclusive reservation holder
+    async fn resv_report(
+        &self,
+        hdl: &dyn BlockDeviceHandle,
+    ) -> Result<Option<(u64, [u8; 16])>, ChildError> {
+        let mut buffer = hdl.dma_malloc(4096).context(HandleDmaMalloc {})?;
+        if let Err(e) = hdl.nvme_resv_report(1, &mut buffer).await {
+            return Err(ChildError::ResvReport {
+                source: e,
+            });
+        }
+        trace!(
+            "{}: received reservation report for child {}",
+            self.parent,
+            self.name
+        );
+        let (stext, sl) = buffer.as_slice().split_at(std::mem::size_of::<
+            spdk_nvme_reservation_status_extended_data,
+        >());
+        let (pre, resv_status_ext, post) = unsafe {
+            stext.align_to::<spdk_nvme_reservation_status_extended_data>()
+        };
+        assert!(pre.is_empty());
+        assert!(post.is_empty());
+        let regctl = resv_status_ext[0].data.regctl;
+        trace!(
+            "reservation status: rtype {}, regctl {}, ptpls {}",
+            resv_status_ext[0].data.rtype,
+            regctl,
+            resv_status_ext[0].data.ptpls,
+        );
+        let (pre, reg_ctrlr_ext, _post) = unsafe {
+            sl.align_to::<spdk_nvme_registered_ctrlr_extended_data>()
+        };
+        if !pre.is_empty() {
+            return Ok(None);
+        }
+        let mut numctrlr: usize = regctl.into();
+        if numctrlr > reg_ctrlr_ext.len() {
+            numctrlr = reg_ctrlr_ext.len();
+            warn!(
+                "Expecting data for {} controllers, received {}",
+                regctl, numctrlr
             );
-            if let Err(e) = hdl.nvme_resv_register(0, new_key, 0, 0).await {
-                return Err(ChildError::ResvRegisterKey {
-                    source: e,
-                });
+        }
+        for (i, c) in reg_ctrlr_ext.iter().enumerate().take(numctrlr) {
+            let cntlid = c.cntlid;
+            let rkey = c.rkey;
+            trace!(
+                "ctrlr {}: cntlid {:0x}h, status {}, hostid {:0x?}, rkey {:0x}h",
+                i,
+                cntlid,
+                c.rcsts.status(),
+                c.hostid,
+                rkey,
+            );
+            if resv_status_ext[0].data.rtype == 1 && c.rcsts.status() == 1 {
+                return Ok(Some((rkey, c.hostid)));
+            }
+        }
+        Ok(None)
+    }
+
+    /// Register an NVMe reservation on the child then acquire a write
+    /// exclusive reservation, preempting an existing reservation, if another
+    /// host has it.
+    /// Ignores bdevs without NVMe reservation support.
+    pub(crate) async fn acquire_write_exclusive(
+        &self,
+    ) -> Result<(), ChildError> {
+        if std::env::var("NEXUS_NVMF_RESV_ENABLE").is_err() {
+            return Ok(());
+        }
+        let hdl = self.get_io_handle().context(HandleOpen {})?;
+        let key: u64 = 0x12345678;
+        if let Err(e) = self.resv_register(&*hdl, key).await {
+            match e {
+                CoreError::NotSupported {
+                    ..
+                } => return Ok(()),
+                _ => {
+                    return Err(ChildError::ResvRegisterKey {
+                        source: e,
+                    })
+                }
+            }
+        }
+        if let Err(e) = self
+            .resv_acquire(
+                &*hdl,
+                key,
+                0,
+                nvme_reservation_acquire_action::ACQUIRE,
+                nvme_reservation_type::WRITE_EXCLUSIVE,
+            )
+            .await
+        {
+            warn!("{}", e);
+        }
+        if let Some((pkey, hostid)) = self.resv_report(&*hdl).await? {
+            let my_hostid = match hdl.host_id().await {
+                Ok(h) => h,
+                Err(e) => {
+                    return Err(ChildError::NvmeHostId {
+                        source: e,
+                    });
+                }
+            };
+            if my_hostid != hostid {
+                info!("Write exclusive reservation held by {:0x?}", hostid);
+                self.resv_acquire(
+                    &*hdl,
+                    key,
+                    pkey,
+                    nvme_reservation_acquire_action::PREEMPT,
+                    nvme_reservation_type::WRITE_EXCLUSIVE,
+                )
+                .await?;
+                if let Some((_, hostid)) = self.resv_report(&*hdl).await? {
+                    if my_hostid != hostid {
+                        info!(
+                            "Write exclusive reservation held by {:0x?}",
+                            hostid
+                        );
+                    }
+                }
             }
         }
         Ok(())

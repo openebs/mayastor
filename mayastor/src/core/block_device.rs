@@ -180,9 +180,30 @@ pub trait BlockDeviceHandle {
         _register_action: u8,
         _cptpl: u8,
     ) -> Result<(), CoreError> {
-        Err(CoreError::NvmeIoPassthruDispatch {
+        Err(CoreError::NotSupported {
             source: Errno::EOPNOTSUPP,
-            opcode: 0, // FIXME
+        })
+    }
+
+    async fn nvme_resv_acquire(
+        &self,
+        _current_key: u64,
+        _preempt_key: u64,
+        _acquire_action: u8,
+        _resv_type: u8,
+    ) -> Result<(), CoreError> {
+        Err(CoreError::NotSupported {
+            source: Errno::EOPNOTSUPP,
+        })
+    }
+
+    async fn nvme_resv_report(
+        &self,
+        _cdw11: u32,
+        _buffer: &mut DmaBuf,
+    ) -> Result<(), CoreError> {
+        Err(CoreError::NotSupported {
+            source: Errno::EOPNOTSUPP,
         })
     }
 
@@ -194,6 +215,12 @@ pub trait BlockDeviceHandle {
         Err(CoreError::NvmeIoPassthruDispatch {
             source: Errno::EOPNOTSUPP,
             opcode: nvme_cmd.opc(),
+        })
+    }
+
+    async fn host_id(&self) -> Result<[u8; 16], CoreError> {
+        Err(CoreError::NotSupported {
+            source: Errno::EOPNOTSUPP,
         })
     }
 }

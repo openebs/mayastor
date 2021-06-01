@@ -40,6 +40,10 @@ pub use io_device::IoDevice;
 pub use nvme::{
     nvme_admin_opc,
     nvme_nvm_opcode,
+    nvme_reservation_acquire_action,
+    nvme_reservation_register_action,
+    nvme_reservation_register_cptpl,
+    nvme_reservation_type,
     GenericStatusCode,
     NvmeCommandStatus,
     NvmeStatus,

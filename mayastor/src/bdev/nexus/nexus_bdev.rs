@@ -150,6 +150,16 @@ pub enum Error {
     ChildMissing { child: String, name: String },
     #[snafu(display("Child {} of nexus {} has no error store", child, name))]
     ChildMissingErrStore { child: String, name: String },
+    #[snafu(display(
+        "Failed to acquire write exclusive reservation on child {} of nexus {}",
+        child,
+        name
+    ))]
+    ChildWriteExclusiveResvFailed {
+        source: ChildError,
+        child: String,
+        name: String,
+    },
     #[snafu(display("Failed to open child {} of nexus {}", child, name))]
     OpenChild {
         source: ChildError,

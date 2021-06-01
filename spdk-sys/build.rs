@@ -91,6 +91,8 @@ fn main() {
         .allowlist_function("^nvme_qpair_.*")
         .allowlist_function("^nvme_ctrlr_.*")
         .blocklist_type("^longfunc")
+        .allowlist_type("^spdk_nvme_registered_ctrlr.*")
+        .allowlist_type("^spdk_nvme_reservation.*")
         .allowlist_var("^NVMF.*")
         .allowlist_var("^SPDK.*")
         .allowlist_var("^spdk.*")

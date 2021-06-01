@@ -52,7 +52,7 @@ use crate::{
         IoType,
         NvmeCommandStatus,
     },
-    ffihelper::{cb_arg, done_cb},
+    ffihelper::{cb_arg, done_cb, FfiResult},
     subsys,
 };
 
@@ -930,7 +930,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
 
         let (s, r) = oneshot::channel::<bool>();
 
-        let _rc = unsafe {
+        unsafe {
             spdk_nvme_ctrlr_cmd_admin_raw(
                 self.ctrlr.as_ptr(),
                 &mut pcmd,
@@ -939,7 +939,11 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
                 Some(nvme_admin_passthru_done),
                 cb_arg(s),
             )
-        };
+        }
+        .to_result(|e| CoreError::NvmeAdminDispatch {
+            source: Errno::from_i32(e),
+            opcode: cmd.opc(),
+        })?;
 
         inner.account_io();
         let ret = if r.await.expect("Failed awaiting NVMe Admin command I/O") {
@@ -999,6 +1003,50 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         self.io_passthru(&cmd, Some(&mut buffer)).await
     }
 
+    /// NVMe Reservation Acquire
+    async fn nvme_resv_acquire(
+        &self,
+        current_key: u64,
+        preempt_key: u64,
+        acquire_action: u8,
+        resv_type: u8,
+    ) -> Result<(), CoreError> {
+        let mut cmd = spdk_sys::spdk_nvme_cmd::default();
+        cmd.set_opc(nvme_nvm_opcode::RESERVATION_ACQUIRE.into());
+        cmd.nsid = 0x1;
+        unsafe {
+            cmd.__bindgen_anon_1
+                .cdw10_bits
+                .resv_acquire
+                .set_racqa(acquire_action.into());
+            cmd.__bindgen_anon_1
+                .cdw10_bits
+                .resv_acquire
+                .set_rtype(resv_type.into());
+        }
+        let mut buffer = self.dma_malloc(16).unwrap();
+        let (ck, pk) = buffer.as_mut_slice().split_at_mut(8);
+        ck.copy_from_slice(&current_key.to_le_bytes());
+        pk.copy_from_slice(&preempt_key.to_le_bytes());
+        self.io_passthru(&cmd, Some(&mut buffer)).await
+    }
+
+    /// NVMe Reservation Report
+    /// cdw11: bit 0- Extended Data Structure
+    async fn nvme_resv_report(
+        &self,
+        cdw11: u32,
+        buffer: &mut DmaBuf,
+    ) -> Result<(), CoreError> {
+        let mut cmd = spdk_sys::spdk_nvme_cmd::default();
+        cmd.set_opc(nvme_nvm_opcode::RESERVATION_REPORT.into());
+        cmd.nsid = 0x1;
+        // Number of dwords to transfer
+        cmd.__bindgen_anon_1.cdw10 = ((buffer.len() >> 2) - 1) as u32;
+        cmd.__bindgen_anon_2.cdw11 = cdw11;
+        self.io_passthru(&cmd, Some(buffer)).await
+    }
+
     /// sends the specified NVMe IO Passthru command
     async fn io_passthru(
         &self,
@@ -1035,7 +1083,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
 
         let (s, r) = oneshot::channel::<bool>();
 
-        let _rc = unsafe {
+        unsafe {
             spdk_nvme_ctrlr_cmd_io_raw(
                 self.ctrlr.as_ptr(),
                 inner.qpair.as_mut().unwrap().as_ptr(),
@@ -1045,7 +1093,11 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
                 Some(nvme_io_passthru_done),
                 cb_arg(s),
             )
-        };
+        }
+        .to_result(|e| CoreError::NvmeIoPassthruDispatch {
+            source: Errno::from_i32(e),
+            opcode: nvme_cmd.opc(),
+        })?;
 
         inner.account_io();
         let ret = if r.await.expect("Failed awaiting NVMe IO passthru command")
@@ -1059,6 +1111,21 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         };
         inner.discard_io();
         ret
+    }
+
+    /// Returns NVMe extended host identifier
+    async fn host_id(&self) -> Result<[u8; 16], CoreError> {
+        let controller = NVME_CONTROLLERS.lookup_by_name(&self.name).ok_or(
+            CoreError::BdevNotFound {
+                name: self.name.to_string(),
+            },
+        )?;
+        let controller = controller.lock();
+        let inner = controller.controller().ok_or(CoreError::BdevNotFound {
+            name: self.name.to_string(),
+        })?;
+        let id = inner.ext_host_id();
+        Ok(*id)
     }
 }
 

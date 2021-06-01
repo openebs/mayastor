@@ -294,6 +294,11 @@ impl SpdkNvmeController {
     pub fn as_ptr(&self) -> *mut spdk_nvme_ctrlr {
         self.0.as_ptr()
     }
+
+    /// Returns extended host identifier
+    pub fn ext_host_id(&self) -> &[u8; 16] {
+        unsafe { &(*self.as_ptr()).opts.extended_host_id }
+    }
 }
 
 impl From<*mut spdk_nvme_ctrlr> for SpdkNvmeController {
