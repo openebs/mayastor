@@ -1,5 +1,10 @@
 #!/usr/bin/env groovy
 
+// To work around strange issue with missing files (MQ-280) we clean up
+// workspace before build which proved to hotfix the problem. That however
+// means that we need to use skipDefaultCheckout(). So we need to manage
+// sources ourselves.
+
 // On-demand E2E infra configuration
 // https://mayadata.atlassian.net/wiki/spaces/MS/pages/247332965/Test+infrastructure#On-Demand-E2E-K8S-Clusters
 
@@ -68,7 +73,7 @@ def getTag() {
   if (e2e_build_images == true) {
     def tag = sh(
       // using printf to get rid of trailing newline
-      script: "printf \$(git rev-parse --short=12 ${env.GIT_COMMIT})",
+      script: "printf \$(git rev-parse --short=12 HEAD)",
       returnStdout: true
     )
     return tag
@@ -184,6 +189,7 @@ pipeline {
   agent none
   options {
     timeout(time: 5, unit: 'HOURS')
+    skipDefaultCheckout()
   }
   parameters {
     booleanParam(defaultValue: false, name: 'e2e_continuous')
@@ -196,6 +202,9 @@ pipeline {
     stage('init') {
       agent { label 'nixos-mayastor' }
       steps {
+        cleanWs()
+        checkout scm
+        stash name: 'source', useDefaultExcludes: false
         step([
           $class: 'GitHubSetCommitStatusBuilder',
           contextSource: [
@@ -219,6 +228,8 @@ pipeline {
         }
       }
       steps {
+        cleanWs()
+        unstash 'source'
         sh 'nix-shell --run "cargo fmt --all -- --check"'
         sh 'nix-shell --run "cargo clippy --all-targets -- -D warnings"'
         sh 'nix-shell --run "./scripts/js-check.sh"'
@@ -245,6 +256,8 @@ pipeline {
             START_DATE = new Date().format("yyyy-MM-dd HH:mm:ss", TimeZone.getTimeZone('UTC'))
           }
           steps {
+            cleanWs()
+            unstash 'source'
             sh 'printenv'
             sh 'nix-shell --run "./scripts/cargo-test.sh"'
           }
@@ -266,6 +279,8 @@ pipeline {
             START_DATE = new Date().format("yyyy-MM-dd HH:mm:ss", TimeZone.getTimeZone('UTC'))
           }
           steps {
+            cleanWs()
+            unstash 'source'
             sh 'printenv'
             sh 'nix-shell --run "./scripts/grpc-test.sh"'
           }
@@ -283,6 +298,8 @@ pipeline {
           }
           agent { label 'nixos-mayastor' }
           steps {
+            cleanWs()
+            unstash 'source'
             sh 'printenv'
             sh 'nix-shell --run "./scripts/moac-test.sh"'
           }
@@ -305,6 +322,9 @@ pipeline {
               }
               agent { label 'nixos-mayastor' }
               steps {
+                cleanWs()
+                unstash 'source'
+
                 // e2e tests are the most demanding step for space on the disk so we
                 // test the free space here rather than repeating the same code in all
                 // stages.
