@@ -52,19 +52,19 @@ const nc = nats.connect(opts.s);
 nc.on('connect', () => {
   if (opts._[0] === 'register') {
     nc.publish('v0/registry', JSON.stringify({
-      id: "v0/register",
-      sender: "moac",
+      id: 'v0/register',
+      sender: 'moac',
       data: {
-      id: opts.node,
-      grpcEndpoint: opts.grpc
+        id: opts.node,
+        grpcEndpoint: opts.grpc
       }
     }));
   } else if (opts._[0] === 'deregister') {
     nc.publish('v0/registry', JSON.stringify({
-      id: "v0/deregister",
-      sender: "moac",
+      id: 'v0/deregister',
+      sender: 'moac',
       data: {
-      id: opts.node
+        id: opts.node
       }
     }));
   } else if (opts._[0] === 'raw') {

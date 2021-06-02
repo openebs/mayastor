@@ -2,14 +2,16 @@
 
 'use strict';
 
+/* eslint-disable no-unused-expressions */
+
 const _ = require('lodash');
 const expect = require('chai').expect;
 const sinon = require('sinon');
-const { Node } = require('../node');
-const { Replica } = require('../replica');
-const { Nexus } = require('../nexus');
+const { Node } = require('../dist/node');
+const { Replica } = require('../dist/replica');
+const { Nexus } = require('../dist/nexus');
 const { shouldFailWith } = require('./utils');
-const { grpcCode, GrpcError } = require('../grpc_client');
+const { grpcCode, GrpcError } = require('../dist/grpc_client');
 
 const UUID = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cbb';
 
@@ -43,7 +45,7 @@ module.exports = function () {
         expect(ev.eventType).to.equal('del');
         expect(ev.object).to.equal(nexus);
         setTimeout(() => {
-          expect(nexus.node).to.be.undefined();
+          expect(nexus.node).to.be.undefined;
           done();
         }, 0);
       });
@@ -412,7 +414,7 @@ module.exports = function () {
       });
       sinon.assert.calledOnce(callStub);
       sinon.assert.calledWith(callStub, 'destroyNexus', { uuid: UUID });
-      expect(nexus.node).to.be.undefined();
+      expect(nexus.node).to.be.undefined;
       expect(node.nexus).to.have.lengthOf(0);
     });
 
@@ -442,7 +444,7 @@ module.exports = function () {
         object: nexus
       });
       sinon.assert.notCalled(callStub);
-      expect(nexus.node).to.be.undefined();
+      expect(nexus.node).to.be.undefined;
       expect(node.nexus).to.have.lengthOf(0);
     });
   });

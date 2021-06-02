@@ -18,6 +18,7 @@ use spdk_sys::{
     spdk_nvme_async_event_completion,
     spdk_nvme_cpl,
     spdk_nvme_ctrlr,
+    spdk_nvme_ctrlr_fail,
     spdk_nvme_ctrlr_get_ns,
     spdk_nvme_ctrlr_is_active_ns,
     spdk_nvme_ctrlr_process_admin_completions,
@@ -248,7 +249,7 @@ impl<'a> NvmeController<'a> {
 
         // Deactivate existing namespace in case it is no longer active.
         if !ns_active && !ctrlr_inner.namespaces.is_empty() {
-            info!("{}: deactivating existing namespace", self.name);
+            debug!("{}: deactivating existing namespace", self.name);
             notify_listeners = true;
         }
 
@@ -259,7 +260,7 @@ impl<'a> NvmeController<'a> {
             );
             vec![]
         } else {
-            info!("{}: namespace successfully populated", self.name);
+            debug!("{}: namespace successfully populated", self.name);
             vec![Arc::new(NvmeNamespace::from_ptr(ns))]
         };
 
@@ -318,7 +319,7 @@ impl<'a> NvmeController<'a> {
                 }
             })?;
 
-        info!(
+        debug!(
             "{} initiating controller reset, failover = {}",
             self.name, failover
         );
@@ -342,7 +343,7 @@ impl<'a> NvmeController<'a> {
             shutdown_in_progress: false,
         };
 
-        info!("{}: starting reset", self.name);
+        debug!("{}: starting reset", self.name);
         let inner = self.inner.as_mut().unwrap();
         // Iterate over all I/O channels and reset/configure them one by one.
         inner.io_device.traverse_io_channels(
@@ -372,12 +373,12 @@ impl<'a> NvmeController<'a> {
     }
 
     fn _shutdown_channels_done(result: i32, ctx: ShutdownCtx) {
-        info!("{} all I/O channels shutted down", ctx.name);
+        debug!("{} all I/O channels shutted down", ctx.name);
 
         let controller = NVME_CONTROLLERS
             .lookup_by_name(&ctx.name)
             .expect("Controller disappeared while being shutdown");
-        let mut controller = controller.lock().expect("lock poisoned");
+        let mut controller = controller.lock();
 
         // In case I/O channels didn't shutdown successfully, mark
         // the controller as Faulted.
@@ -393,11 +394,16 @@ impl<'a> NvmeController<'a> {
         // Reset the controller to complete all remaining I/O requests after all
         // I/O channels are closed.
         // TODO: fail the controller via spdk_nvme_ctrlr_fail() upon shutdown ?
+        //debug!("{} resetting NVMe controller", ctx.name);
         debug!("{} resetting NVMe controller", ctx.name);
-        let rc = unsafe { spdk_nvme_ctrlr_reset(controller.ctrlr_as_ptr()) };
-        if rc != 0 {
-            error!("{} failed to reset controller, rc = {}", ctx.name, rc);
-        }
+        // unsafe {
+        //     (*controller.ctrlr_as_ptr()).reinit_after_reset = false;
+        // }
+        // let rc = unsafe { spdk_nvme_ctrlr_reset(controller.ctrlr_as_ptr()) };
+        // if rc != 0 {
+        //     error!("{} failed to reset controller, rc = {}", ctx.name, rc);
+        // }
+        unsafe { spdk_nvme_ctrlr_fail(controller.ctrlr_as_ptr()) };
 
         // Finalize controller shutdown and invoke callback.
         controller.clear_namespaces();
@@ -407,7 +413,7 @@ impl<'a> NvmeController<'a> {
             .expect("failed to transition controller to Unconfigured state");
 
         drop(controller);
-        info!("{} shutdown complete, result = {}", ctx.name, result);
+        debug!("{} shutdown complete, result = {}", ctx.name, result);
         (ctx.cb)(result == 0, ctx.cb_arg);
     }
 
@@ -505,7 +511,7 @@ impl<'a> NvmeController<'a> {
             }
         })?;
 
-        info!("{} shutting down the controller", self.name);
+        debug!("{} shutting down the controller", self.name);
 
         let ctx = ShutdownCtx {
             name: self.get_name(),
@@ -529,7 +535,7 @@ impl<'a> NvmeController<'a> {
         // in progress.
         let c = NVME_CONTROLLERS.lookup_by_name(reset_ctx.name);
         if let Some(controller) = c {
-            let mut controller = controller.lock().expect("lock poisoned");
+            let mut controller = controller.lock();
 
             // If controller exists, its state must reflect active reset
             // operation, as no other operations are allowed upon
@@ -594,11 +600,11 @@ impl<'a> NvmeController<'a> {
             return;
         }
 
-        info!("{}: all I/O channels successfully reset", reset_ctx.name);
+        debug!("{}: all I/O channels successfully reset", reset_ctx.name);
         // In case shutdown is active, don't reset the controller as its
         // being removed.
         if reset_ctx.shutdown_in_progress {
-            info!(
+            warn!(
                 "{}: controller shutdown detected, skipping reset",
                 reset_ctx.name
             );
@@ -615,7 +621,7 @@ impl<'a> NvmeController<'a> {
 
             NvmeController::_complete_reset(reset_ctx, rc);
         } else {
-            info!(
+            debug!(
                 "{} controller successfully reset, reinitializing I/O channels",
                 reset_ctx.name
             );
@@ -650,13 +656,13 @@ impl<'a> NvmeController<'a> {
                 reset_ctx.name, rc
             );
         } else {
-            info!("{} I/O channel successfully reinitialized", reset_ctx.name);
+            debug!("{} I/O channel successfully reinitialized", reset_ctx.name);
         }
         rc
     }
 
     fn _reset_create_channels_done(status: i32, reset_ctx: ResetCtx) {
-        info!(
+        debug!(
             "{} controller reset completed, status = {}",
             reset_ctx.name, status
         );
@@ -714,6 +720,14 @@ impl<'a> Drop for NvmeController<'a> {
         // Inner state might not be yes available.
         if self.inner.is_some() {
             let inner = self.inner.take().expect("NVMe inner already gone");
+            debug!(
+                ?self.name,
+                "stopping admin queue poller"
+            );
+
+            inner.adminq_poller.stop();
+
+            drop(inner.io_device);
 
             debug!(
                 ?self.name,
@@ -721,14 +735,8 @@ impl<'a> Drop for NvmeController<'a> {
             );
             let rc = unsafe { spdk_nvme_detach(inner.ctrlr.as_ptr()) };
 
-            debug!(
-                ?self.name,
-                "stopping admin queue poller"
-            );
-            inner.adminq_poller.stop();
-
             assert_eq!(rc, 0, "Failed to detach NVMe controller");
-            debug!(
+            info!(
                 ?self.name,
                 "NVMe controller successfully detached"
             );
@@ -754,7 +762,7 @@ extern "C" fn aer_cb(ctx: *mut c_void, cpl: *const spdk_nvme_cpl) {
         (event.bits.async_event_type(), event.bits.async_event_info())
     };
 
-    info!(
+    debug!(
         "Received AER event: event_type={:?}, event_info={:?}",
         event_type, event_info
     );
@@ -767,8 +775,8 @@ extern "C" fn aer_cb(ctx: *mut c_void, cpl: *const spdk_nvme_cpl) {
 
         match NVME_CONTROLLERS.lookup_by_name(cid.to_string()) {
             Some(c) => {
-                let mut ctrlr = c.lock().expect("lock poisoned");
-                info!(
+                let mut ctrlr = c.lock();
+                debug!(
                     "{}: populating namespaces in response to AER",
                     ctrlr.get_name()
                 );
@@ -784,7 +792,7 @@ extern "C" fn aer_cb(ctx: *mut c_void, cpl: *const spdk_nvme_cpl) {
     } else if event_type == NvmeAerType::Io as u32
         && event_info == NvmeAerInfoNvmCommandSet::ReservationLogAvail as u32
     {
-        info!("Reservation log available");
+        debug!("Reservation log available");
     }
 }
 
@@ -794,11 +802,11 @@ pub extern "C" fn nvme_poll_adminq(ctx: *mut c_void) -> i32 {
     let mut context = NonNull::<TimeoutConfig>::new(ctx.cast())
         .expect("ctx pointer may never be null");
     let context = unsafe { context.as_mut() };
-
     let rc =
         unsafe { spdk_nvme_ctrlr_process_admin_completions(context.ctrlr) };
     if rc < 0 {
-        context.reset_controller();
+        //tracing::error!("Would call reset_controller here!");
+        //context.reset_controller();
     }
 
     if rc == 0 {
@@ -820,7 +828,7 @@ pub(crate) async fn destroy_device(name: String) -> Result<(), NexusBdevError> {
     // of the controller.
     let (s, r) = oneshot::channel::<bool>();
     {
-        let mut controller = carc.lock().expect("lock poisoned");
+        let mut controller = carc.lock();
 
         fn _shutdown_callback(success: bool, ctx: *mut c_void) {
             done_cb(ctx, success);
@@ -855,7 +863,7 @@ pub(crate) async fn destroy_device(name: String) -> Result<(), NexusBdevError> {
 
     // Notify the listeners.
     debug!(?name, "notifying listeners about device removal");
-    let controller = carc.lock().unwrap();
+    let controller = carc.lock();
     let num_listeners = controller.notify_event(DeviceEventType::DeviceRemoved);
     debug!(
         ?name,
@@ -882,12 +890,12 @@ pub(crate) fn connected_attached_cb(
 
     // clone it now such that we can lock the original, and insert it later.
     let ctl = Arc::clone(&controller);
-    let mut controller = controller.lock().unwrap();
+    let mut controller = controller.lock();
     controller
         .state_machine
         .transition(Initializing)
         .expect("Failed to transition controller into Initialized state");
-
+    //unsafe { (*ctrlr.as_ptr()).reinit_after_reset = false };
     // set the controller as a pointer within the context of the time out config
     unsafe { controller.timeout_config.as_mut().ctrlr = ctrlr.as_ptr() };
     controller.set_id(cid);
@@ -1018,6 +1026,7 @@ pub(crate) mod options {
         /// Builder to override default values
         pub fn build(self) -> NvmeControllerOpts {
             let mut opts = NvmeControllerOpts::default();
+            opts.0.disable_error_logging = true;
 
             if let Some(timeout_ms) = self.admin_timeout_ms {
                 opts.0.admin_timeout_ms = timeout_ms;

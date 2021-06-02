@@ -757,7 +757,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
                 name: self.name.to_string(),
             },
         )?;
-        let mut controller = controller.lock().expect("lock poisoned");
+        let mut controller = controller.lock();
 
         let ctx = Box::new(ResetCtx {
             cb,

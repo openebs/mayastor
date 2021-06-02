@@ -178,15 +178,15 @@ where
 impl Default for NvmfTcpTransportOpts {
     fn default() -> Self {
         Self {
-            max_queue_depth: try_from_env("NVMF_TCP_MAX_QUEUE_DEPTH", 64),
+            max_queue_depth: try_from_env("NVMF_TCP_MAX_QUEUE_DEPTH", 32),
             in_capsule_data_size: 4096,
             max_io_size: 131_072,
             io_unit_size: 131_072,
-            max_qpairs_per_ctrl: 128,
+            max_qpairs_per_ctrl: 32,
             num_shared_buf: try_from_env("NVMF_TCP_NUM_SHARED_BUF", 2048),
             buf_cache_size: try_from_env("NVMF_TCP_BUF_CACHE_SIZE", 64),
             dif_insert_or_strip: false,
-            max_aq_depth: 128,
+            max_aq_depth: 32,
             abort_timeout_sec: 1,
         }
     }
@@ -268,16 +268,16 @@ impl Default for NvmeBdevOpts {
     fn default() -> Self {
         Self {
             action_on_timeout: SPDK_BDEV_NVME_TIMEOUT_ACTION_ABORT,
-            timeout_us: try_from_env("NVME_TIMEOUT_US", 30_000_000),
-            keep_alive_timeout_ms: try_from_env("NVME_KATO_MS", 10_000),
-            retry_count: try_from_env("NVME_RETRY_COUNT", 3),
+            timeout_us: try_from_env("NVME_TIMEOUT_US", 5_000_000),
+            keep_alive_timeout_ms: try_from_env("NVME_KATO_MS", 0),
+            retry_count: try_from_env("NVME_RETRY_COUNT", 0),
             arbitration_burst: 0,
             low_priority_weight: 0,
             medium_priority_weight: 0,
             high_priority_weight: 0,
             nvme_adminq_poll_period_us: try_from_env(
                 "NVME_ADMINQ_POLL_PERIOD_US",
-                0,
+                1_000,
             ),
             nvme_ioq_poll_period_us: try_from_env("NVME_IOQ_POLL_PERIOD_US", 0),
             io_queue_requests: 0,
@@ -534,7 +534,9 @@ pub struct PosixSocketOpts {
     enable_recv_pipe: bool,
     enable_zero_copy_send: bool,
     enable_quickack: bool,
-    enable_placement_id: bool,
+    enable_placement_id: u32,
+    enable_zerocopy_send_server: bool,
+    enable_zerocopy_send_client: bool,
 }
 
 impl Default for PosixSocketOpts {
@@ -545,7 +547,15 @@ impl Default for PosixSocketOpts {
             enable_recv_pipe: try_from_env("SOCK_ENABLE_RECV_PIPE", true),
             enable_zero_copy_send: try_from_env("SOCK_ZERO_COPY_SEND", true),
             enable_quickack: try_from_env("SOCK_ENABLE_QUICKACK", true),
-            enable_placement_id: try_from_env("SOCK_ENABLE_PLACEMENT_ID", true),
+            enable_placement_id: try_from_env("SOCK_ENABLE_PLACEMENT_ID", 0),
+            enable_zerocopy_send_server: try_from_env(
+                "SOCK_ZEROCOPY_SEND_SERVER",
+                true,
+            ),
+            enable_zerocopy_send_client: try_from_env(
+                "SOCK_ZEROCOPY_SEND_CLIENT",
+                true,
+            ),
         }
     }
 }
@@ -572,6 +582,8 @@ impl GetOpts for PosixSocketOpts {
             enable_zero_copy_send: opts.enable_zerocopy_send,
             enable_quickack: opts.enable_quickack,
             enable_placement_id: opts.enable_placement_id,
+            enable_zerocopy_send_server: opts.enable_zerocopy_send_server,
+            enable_zerocopy_send_client: opts.enable_zerocopy_send_client,
         }
     }
 
@@ -583,6 +595,8 @@ impl GetOpts for PosixSocketOpts {
             enable_zerocopy_send: self.enable_zero_copy_send,
             enable_quickack: self.enable_quickack,
             enable_placement_id: self.enable_placement_id,
+            enable_zerocopy_send_server: self.enable_zerocopy_send_server,
+            enable_zerocopy_send_client: self.enable_zerocopy_send_client,
         };
 
         let size = std::mem::size_of::<spdk_sock_impl_opts>() as u64;

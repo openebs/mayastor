@@ -172,6 +172,7 @@ impl Bio {
     #[inline]
     pub(crate) fn fail(&self) {
         unsafe {
+            trace!(?self, "failed");
             spdk_bdev_io_complete(self.0.as_ptr(), IoStatus::Failed.into())
         }
     }

@@ -21,33 +21,33 @@ mkShell {
   # fortify does not work with -O0 which is used by spdk when --enable-debug
   hardeningDisable = [ "fortify" ];
   buildInputs = [
-    docker-compose
-    kubectl
-    kind
-    docker
     clang
     cowsay
+    docker
+    docker-compose
     e2fsprogs
-    fio
     envsubst # for e2e tests
+    etcd
+    fio
     gdb
-    go
     git
+    go
     gptfdisk
+    kind
+    kubectl
     kubernetes-helm
     libaio
-    libiscsi
     libiscsi
     libudev
     liburing
     llvmPackages.libclang
+    meson
     nats-server
+    ninja
     nodejs-12_x
     numactl
-    nvmet-cli
-    meson
-    ninja
     nvme-cli
+    nvmet-cli
     openssl
     pkg-config
     pre-commit

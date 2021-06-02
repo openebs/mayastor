@@ -19,3 +19,34 @@ nats:
   logging:
     debug: false
     trace: false
+
+etcd:
+  ## Kubernetes Cluster Domain
+  ##
+  clusterDomain: cluster.local
+  ## TLS authentication for client-to-server communications
+  ## ref: https://etcd.io/docs/current/op-guide/security/
+  ##
+  client:
+    secureTransport: false
+  ## TLS authentication for server-to-server communications
+  ## ref: https://etcd.io/docs/current/op-guide/security/
+  ##
+  peer:
+    secureTransport: false
+  ## Enable persistence using Persistent Volume Claims
+  ## ref: http://kubernetes.io/docs/user-guide/persistent-volumes/
+  ##
+  persistence:
+    ## If true, use a Persistent Volume Claim. If false, use emptyDir.
+    ##
+    enabled: false
+  ## Set to true if you would like to see extra information on logs
+  ##
+  debug: false
+
+  ## Pod anti-affinity preset
+  ## Ref: https://kubernetes.io/docs/concepts/scheduling-eviction/assign-pod-node/#inter-pod-affinity-and-anti-affinity
+  ## Allowed values: soft, hard
+  ##
+  podAntiAffinityPreset: "hard"

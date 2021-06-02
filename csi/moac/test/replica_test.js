@@ -2,14 +2,16 @@
 
 'use strict';
 
+/* eslint-disable no-unused-expressions */
+
 const _ = require('lodash');
 const expect = require('chai').expect;
 const sinon = require('sinon');
-const { Node } = require('../node');
-const { Pool } = require('../pool');
-const { Replica } = require('../replica');
+const { Node } = require('../dist/node');
+const { Pool } = require('../dist/pool');
+const { Replica } = require('../dist/replica');
 const { shouldFailWith } = require('./utils');
-const { grpcCode, GrpcError } = require('../grpc_client');
+const { grpcCode, GrpcError } = require('../dist/grpc_client');
 
 const UUID = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cbb';
 
@@ -26,7 +28,7 @@ module.exports = function () {
     pool: 'pool',
     size: 100,
     share: 'REPLICA_NONE',
-    uri: 'bdev:///' + UUID
+    uri: 'bdev:///' + UUID + '?uuid=1'
   };
 
   describe('mod event', () => {
@@ -104,7 +106,7 @@ module.exports = function () {
         expect(ev.eventType).to.equal('del');
         expect(ev.object).to.equal(replica);
         setTimeout(() => {
-          expect(replica.pool).to.be.undefined();
+          expect(replica.pool).to.be.undefined;
           done();
         }, 0);
       });
@@ -123,7 +125,7 @@ module.exports = function () {
     node.once('replica', (ev) => {
       expect(ev.eventType).to.equal('mod');
       expect(ev.object).to.equal(replica);
-      expect(replica.isOffline()).to.be.true();
+      expect(replica.isOffline()).to.be.true;
       done();
     });
     replica.offline();
@@ -182,7 +184,7 @@ module.exports = function () {
       sinon.assert.calledOnce(callStub);
       sinon.assert.calledWith(callStub, 'destroyReplica', { uuid: UUID });
       setTimeout(() => {
-        expect(replica.pool).to.be.undefined();
+        expect(replica.pool).to.be.undefined;
         expect(pool.replicas).to.have.lengthOf(0);
         done();
       }, 0);
@@ -238,7 +240,7 @@ module.exports = function () {
       expect(ev.object).to.equal(replica);
       sinon.assert.notCalled(callStub);
       setTimeout(() => {
-        expect(replica.pool).to.be.undefined();
+        expect(replica.pool).to.be.undefined;
         expect(pool.replicas).to.have.lengthOf(0);
         done();
       }, 0);

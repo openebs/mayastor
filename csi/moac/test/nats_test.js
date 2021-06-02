@@ -2,12 +2,14 @@
 
 'use strict';
 
+/* eslint-disable no-unused-expressions */
+
 const expect = require('chai').expect;
 const { spawn } = require('child_process');
 const nats = require('nats');
 const sleep = require('sleep-promise');
-const { Registry } = require('../registry');
-const { MessageBus } = require('../nats');
+const { Registry } = require('../dist/registry');
+const { MessageBus } = require('../dist/nats');
 const { waitUntil } = require('./utils');
 const NodeStub = require('./node_stub');
 
@@ -153,7 +155,7 @@ module.exports = function () {
 
   it('should disconnect from the nats server', () => {
     eventBus.stop();
-    expect(eventBus.isConnected()).to.be.false();
+    expect(eventBus.isConnected()).to.be.false;
   });
 
   it('should retry connect until successfull', async () => {

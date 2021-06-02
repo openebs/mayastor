@@ -92,6 +92,7 @@ impl CreateDestroy for NVMe {
                 context.prchk_flags,
                 Some(nvme_create_cb),
                 cb_arg(sender),
+                std::ptr::null_mut(),
             )
         };
 
@@ -125,7 +126,10 @@ impl CreateDestroy for NVMe {
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
         if let Some(_bdev) = Bdev::lookup_by_name(&self.get_name()) {
             let errno = unsafe {
-                bdev_nvme_delete(self.name.clone().into_cstring().as_ptr())
+                bdev_nvme_delete(
+                    self.name.clone().into_cstring().as_ptr(),
+                    std::ptr::null(),
+                )
             };
             errno_result_from_i32((), errno).context(nexus_uri::DestroyBdev {
                 name: self.name.clone(),

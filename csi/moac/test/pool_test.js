@@ -2,14 +2,16 @@
 
 'use strict';
 
+/* eslint-disable no-unused-expressions */
+
 const _ = require('lodash');
 const expect = require('chai').expect;
 const sinon = require('sinon');
-const { Node } = require('../node');
-const { Pool } = require('../pool');
-const { Replica } = require('../replica');
+const { Node } = require('../dist/node');
+const { Pool } = require('../dist/pool');
+const { Replica } = require('../dist/replica');
 const { shouldFailWith } = require('./utils');
-const { grpcCode, GrpcError } = require('../grpc_client');
+const { grpcCode, GrpcError } = require('../dist/grpc_client');
 
 module.exports = function () {
   const props = {
@@ -111,13 +113,13 @@ module.exports = function () {
     const node = new Node('node');
     const spy = sinon.spy(node, 'emit');
     const pool = new Pool(props);
-    const modReplica = new Replica({ uuid: 'to-modify' });
-    const delReplica = new Replica({ uuid: 'to-delete' });
+    const modReplica = new Replica({ uuid: 'to-modify', uri: 'bdev:///to-modify?uuid=1' });
+    const delReplica = new Replica({ uuid: 'to-delete', uri: 'bdev:///to-delete?uuid=2' });
     node._registerPool(pool);
     pool.registerReplica(modReplica);
     pool.registerReplica(delReplica);
 
-    pool.merge(props, [{ uuid: 'to-create' }, { uuid: 'to-modify', size: 10 }]);
+    pool.merge(props, [{ uuid: 'to-create', uri: 'bdev:///to-create?uuid=3' }, { uuid: 'to-modify', uri: 'bdev:///to-modify?uuid=1', size: 10 }]);
 
     expect(pool.replicas).to.have.lengthOf(2);
     // first 3 events are for pool create and initial two replicas
@@ -170,7 +172,7 @@ module.exports = function () {
         expect(ev.eventType).to.equal('del');
         expect(ev.object).to.equal(pool);
         setTimeout(() => {
-          expect(pool.node).to.be.null();
+          expect(pool.node).to.be.null;
           done();
         }, 0);
       });
@@ -182,7 +184,7 @@ module.exports = function () {
   it('should unregister replica from the pool', () => {
     const node = new Node('node');
     const pool = new Pool(props);
-    const replica = new Replica({ uuid: 'uuid' });
+    const replica = new Replica({ uuid: 'uuid', uri: 'bdev:///uuid?uuid=1' });
     node._registerPool(pool);
     pool.registerReplica(replica);
     expect(pool.replicas).to.have.lengthOf(1);
@@ -197,14 +199,14 @@ module.exports = function () {
     stub.resolves({});
     const pool = new Pool(props);
     node._registerPool(pool);
-    const replica = new Replica({ uuid: 'uuid' });
+    const replica = new Replica({ uuid: 'uuid', uri: 'bdev:///uuid?uuid=1' });
     pool.registerReplica(replica);
 
     await pool.destroy();
 
     sinon.assert.calledOnce(stub);
     sinon.assert.calledWithMatch(stub, 'destroyPool', { name: 'pool' });
-    expect(node.pools).to.be.empty();
+    expect(node.pools).to.be.empty;
     // first two events are for the new pool and new replica
     expect(eventSpy.callCount).to.equal(4);
     sinon.assert.calledWith(eventSpy.getCall(2), 'replica', {
@@ -222,13 +224,13 @@ module.exports = function () {
     const eventSpy = sinon.spy(node, 'emit');
     const pool = new Pool(props);
     node._registerPool(pool);
-    const replica = new Replica({ uuid: 'uuid' });
+    const replica = new Replica({ uuid: 'uuid', uri: 'bdev:///uuid?uuid=1' });
     pool.registerReplica(replica);
 
     pool.offline();
 
     expect(pool.state).to.equal('POOL_OFFLINE');
-    expect(replica.isOffline()).to.be.true();
+    expect(replica.isOffline()).to.be.true;
 
     // first two events are for the new pool and new replica
     expect(eventSpy.callCount).to.equal(4);
@@ -251,7 +253,7 @@ module.exports = function () {
       size: 100,
       thin: false,
       share: 'REPLICA_NONE',
-      uri: 'bdev://blabla'
+      uri: 'bdev://blabla?uuid=blabla'
     });
     const pool = new Pool(props);
     node._registerPool(pool);
@@ -296,15 +298,15 @@ module.exports = function () {
     const poolProps = _.clone(props);
     poolProps.state = 'POOL_ONLINE';
     let pool = new Pool(poolProps);
-    expect(pool.isAccessible()).to.be.true();
+    expect(pool.isAccessible()).to.be.true;
 
     poolProps.state = 'POOL_FAULTED';
     pool = new Pool(poolProps);
-    expect(pool.isAccessible()).to.be.false();
+    expect(pool.isAccessible()).to.be.false;
 
     poolProps.state = 'POOL_DEGRADED';
     pool = new Pool(poolProps);
-    expect(pool.isAccessible()).to.be.true();
+    expect(pool.isAccessible()).to.be.true;
   });
 
   it('should return free space in the pool', () => {

@@ -58,7 +58,7 @@ impl Nexus {
     /// register children with the nexus, only allowed during the nexus init
     /// phase
     pub fn register_children(&mut self, dev_name: &[String]) {
-        assert_eq!(*self.state.lock().unwrap(), NexusState::Init);
+        assert_eq!(*self.state.lock(), NexusState::Init);
         self.child_count = dev_name.len() as u32;
         dev_name
             .iter()
@@ -79,7 +79,7 @@ impl Nexus {
         &mut self,
         uri: &str,
     ) -> Result<(), NexusBdevError> {
-        assert_eq!(*self.state.lock().unwrap(), NexusState::Init);
+        assert_eq!(*self.state.lock(), NexusState::Init);
         let name = device_create(&uri).await?;
         self.children.push(NexusChild::new(
             uri.to_string(),

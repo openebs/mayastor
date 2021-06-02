@@ -516,11 +516,11 @@ describe('nexus', function () {
     });
   });
 
-  describe('nbd control', function () {
+  describe.skip('nbd control', function () {
     controlPlaneTest(enums.NEXUS_NBD);
   }); // End describe('nbd control')
 
-  describe('nbd datapath', function () {
+  describe.skip('nbd datapath', function () {
     let nbdDeviceUri;
 
     it('should publish the nexus', (done) => {
@@ -824,7 +824,7 @@ describe('nexus', function () {
       });
     });
 
-    it('should create, publish, un-publish and finally destroy the same NBD nexus', async () => {
+    it.skip('should create, publish, un-publish and finally destroy the same NBD nexus', async () => {
       for (let i = 0; i < 10; i++) {
         await createNexus(createArgs);
         await publish({
@@ -856,7 +856,7 @@ describe('nexus', function () {
       });
     });
 
-    it('should create, publish, and destroy but without un-publishing the same nexus, with NBD protocol', async () => {
+    it.skip('should create, publish, and destroy but without un-publishing the same nexus, with NBD protocol', async () => {
       for (let i = 0; i < 10; i++) {
         await createNexus(createArgs);
         await publish({

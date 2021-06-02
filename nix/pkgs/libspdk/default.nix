@@ -14,6 +14,7 @@
 , libexecinfo
 , nasm
 , cmake
+, fio
 , ninja
 , jansson
 , meson
@@ -28,19 +29,20 @@
 , buildPlatform
 , buildPackages
 , llvmPackages_11
+, pkgs
 , gcc
 , zlib
 }:
 let
   # Derivation attributes for production version of libspdk
   drvAttrs = rec {
-    version = "21.01";
+    version = "21.04-ab79841";
 
     src = fetchFromGitHub {
       owner = "openebs";
       repo = "spdk";
-      rev = "3f85fb587d7a1013f3fab9304805dd943d95c0a2";
-      sha256 = "0z7iw5xa2l4xrbl3zd4139mdyfd236gkswmysnkswmpmw7s6krsc";
+      rev = "ab79841affa8713e68df45fcf36c286dfb3809ca";
+      sha256 = "1rvnnw2n949c3kdd4rz5pc73sic2lgg36w1m25kkipzw7x1c57hm";
       #sha256 = stdenv.lib.fakeSha256;
       fetchSubmodules = true;
     };
@@ -57,6 +59,7 @@ let
 
     buildInputs = [
       binutils
+      fio
       libtool
       libaio
       libiscsi
@@ -92,9 +95,9 @@ let
       "--without-isal"
       "--with-iscsi-initiator"
       "--with-uring"
-      "--disable-examples"
       "--disable-unit-tests"
       "--disable-tests"
+      "--with-fio=${pkgs.fio}/include"
     ];
 
     enableParallelBuilding = true;
@@ -130,6 +133,7 @@ let
     installPhase = ''
       mkdir -p $out/lib
       mkdir $out/bin
+      mkdir $out/fio
 
       pushd include
       find . -type f -name "*.h" -exec install -D "{}" $out/include/{} \;
@@ -149,6 +153,8 @@ let
 
       echo $(find $out -type f -name '*.a*' -delete)
       find . -executable -type f -name 'bdevperf' -exec install -D "{}" $out/bin \;
+
+      cp build/fio/spdk_* $out/fio
     '';
   };
 in

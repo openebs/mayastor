@@ -20,6 +20,7 @@ pub use nexus::{
         MetaDataObject,
         NexusMetaData,
     },
+    nexus_persistence::{ChildInfo, NexusInfo},
 };
 
 mod aio;

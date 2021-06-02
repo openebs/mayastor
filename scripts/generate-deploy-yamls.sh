@@ -153,6 +153,17 @@ if [ -n "$pools" ]; then
   done
 fi
 
+# update helm dependencies
+( cd "$SCRIPTDIR"/../chart && helm dependency update )
+# generate the yaml
 helm template --set "$template_params" mayastor "$SCRIPTDIR/../chart" --output-dir="$tmpd" --namespace mayastor -f "$SCRIPTDIR/../chart/$profile/values.yaml"
 
+# mayastor and nats yaml files
 mv "$tmpd"/mayastor/templates/*.yaml "$output_dir/"
+
+# etcd yaml files
+output_dir_etcd="$output_dir/etcd"
+if [ ! -d "$output_dir_etcd" ]; then
+  mkdir -p "$output_dir_etcd"
+fi
+mv "$tmpd"/mayastor/charts/etcd/templates/*.yaml "$output_dir_etcd"

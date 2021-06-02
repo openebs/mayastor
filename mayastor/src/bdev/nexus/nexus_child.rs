@@ -30,8 +30,10 @@ use crate::{
         Reactors,
     },
     nexus_uri::NexusBdevError,
+    persistent_store::PersistentStore,
     rebuild::{ClientOperations, RebuildJob},
 };
+use url::Url;
 
 #[derive(Debug, Snafu)]
 pub enum ChildError {
@@ -172,14 +174,7 @@ impl Debug for NexusChild {
 impl Display for NexusChild {
     fn fmt(&self, f: &mut Formatter) -> Result<(), std::fmt::Error> {
         match &self.device {
-            Some(dev) => writeln!(
-                f,
-                "{}: {:?}, blk_cnt: {}, blk_size: {}",
-                self.name,
-                self.state(),
-                dev.num_blocks(),
-                dev.block_len(),
-            ),
+            Some(_dev) => writeln!(f, "{}: {:?}", self.name, self.state(),),
             None => writeln!(f, "{}: state {:?}", self.name, self.state()),
         }
     }
@@ -379,6 +374,17 @@ impl NexusChild {
         }
     }
 
+    /// Extract a UUID from a URI.
+    pub(crate) fn uuid(uri: &str) -> Option<String> {
+        let url = Url::parse(uri).expect("Failed to parse URI");
+        for pair in url.query_pairs() {
+            if pair.0 == "uuid" {
+                return Some(pair.1.to_string());
+            }
+        }
+        None
+    }
+
     /// returns the state of the child
     pub fn state(&self) -> ChildState {
         self.state.load()
@@ -505,6 +511,11 @@ impl NexusChild {
         parent: String,
         device: Option<Box<dyn BlockDevice>>,
     ) -> Self {
+        // TODO: Remove check for persistent store
+        if PersistentStore::enabled() && Self::uuid(&name).is_none() {
+            panic!("Child name does not contain a UUID.");
+        }
+
         NexusChild {
             name,
             device,
@@ -519,7 +530,7 @@ impl NexusChild {
     }
 
     /// destroy the child device
-    pub(crate) async fn destroy(&self) -> Result<(), NexusBdevError> {
+    pub async fn destroy(&self) -> Result<(), NexusBdevError> {
         if self.device.is_some() {
             self.set_state(ChildState::Destroying);
             info!("{}: destroying underlying block device", self.name);

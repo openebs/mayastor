@@ -1,5 +1,6 @@
 use std::{os::raw::c_void, ptr::NonNull};
 
+use crate::ffihelper::IntoCString;
 use spdk_sys::{
     spdk_for_each_channel,
     spdk_for_each_channel_continue,
@@ -10,7 +11,6 @@ use spdk_sys::{
     spdk_io_device_register,
     spdk_io_device_unregister,
 };
-
 #[derive(Debug)]
 pub struct IoDevice(NonNull<c_void>);
 
@@ -28,13 +28,14 @@ impl IoDevice {
         create_cb: Option<IoDeviceCreateCb>,
         destroy_cb: Option<IoDeviceDestroyCb>,
     ) -> Self {
+        let cname = name.into_cstring();
         unsafe {
             spdk_io_device_register(
                 devptr.as_ptr(),
                 create_cb,
                 destroy_cb,
                 std::mem::size_of::<C>() as u32,
-                name.as_ptr() as *const i8,
+                cname.as_ptr(),
             )
         }
 

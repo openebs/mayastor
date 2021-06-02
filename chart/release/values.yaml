@@ -7,3 +7,12 @@ nats:
   logging:
     debug: false
     trace: false
+
+etcd:
+  auth:
+    rbac:
+      enabled: false
+  replicaCount: 3
+  persistence:
+    enabled: false
+
