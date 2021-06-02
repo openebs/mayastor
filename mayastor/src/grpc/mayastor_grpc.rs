@@ -2,7 +2,7 @@
 //!
 //! The Mayastor gRPC methods serve as a higher abstraction for provisioning
 //! replicas and targets to be used with CSI.
-//!
+//
 //! We want to keep the code here to a minimal, for example grpc/pool.rs
 //! contains all the conversions and mappings etc to whatever interface from a
 //! grpc perspective we provide. Also, by doing his, we can test the methods
@@ -16,6 +16,7 @@ use crate::{
     },
     core::{Bdev, BlockDeviceIoStats, CoreError, Protocol, Share},
     grpc::{
+        controller_grpc::list_controllers,
         nexus_grpc::{
             nexus_add_child,
             nexus_destroy,
@@ -152,6 +153,7 @@ impl From<Lvol> for Replica {
         }
     }
 }
+
 #[tonic::async_trait]
 impl mayastor_server::Mayastor for MayastorSvc {
     async fn create_pool(
@@ -903,5 +905,12 @@ impl mayastor_server::Mayastor for MayastorSvc {
         };
         trace!("{:?}", reply);
         Ok(Response::new(reply))
+    }
+
+    async fn list_nvme_controllers(
+        &self,
+        _request: Request<Null>,
+    ) -> GrpcResult<ListNvmeControllersReply> {
+        list_controllers().await
     }
 }

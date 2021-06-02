@@ -21,7 +21,12 @@ pub use nexus::{
     },
     nexus_persistence::{ChildInfo, NexusInfo},
 };
-pub use nvmx::nvme_io_ctx_pool_init;
+pub use nvmx::{
+    nvme_io_ctx_pool_init,
+    NvmeController,
+    NvmeControllerState,
+    NVME_CONTROLLERS,
+};
 
 mod aio;
 pub(crate) mod dev;
@@ -33,7 +38,7 @@ pub(crate) mod nexus;
 mod null;
 mod nvme;
 mod nvmf;
-mod nvmx;
+pub(crate) mod nvmx;
 mod uring;
 pub mod util;
 

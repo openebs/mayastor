@@ -28,7 +28,7 @@ pub mod utils;
 
 #[derive(Debug)]
 #[allow(clippy::upper_case_acronyms)]
-pub(crate) struct NVMeCtlrList<'a> {
+pub struct NVMeCtlrList<'a> {
     entries: RwLock<HashMap<String, Arc<Mutex<NvmeController<'a>>>>>,
 }
 
@@ -90,6 +90,16 @@ impl<'a> NVMeCtlrList<'a> {
         let mut entries = self.write_lock();
         entries.insert(cid, ctl);
     }
+
+    /// Get the names of all available NVMe controllers.
+    pub fn controllers(&self) -> Vec<String> {
+        let entries = self.read_lock();
+        entries
+            .keys()
+            .map(|k| k.to_string())
+            .filter(|k| k.contains("nqn")) // Filter out CIDs
+            .collect::<Vec<_>>()
+    }
 }
 
 impl<'a> Default for NVMeCtlrList<'a> {
@@ -102,7 +112,8 @@ impl<'a> Default for NVMeCtlrList<'a> {
     }
 }
 
-static NVME_CONTROLLERS: Lazy<NVMeCtlrList> = Lazy::new(NVMeCtlrList::default);
+pub static NVME_CONTROLLERS: Lazy<NVMeCtlrList> =
+    Lazy::new(NVMeCtlrList::default);
 
 pub fn nvme_bdev_running_config() -> &'static NvmeBdevOpts {
     &Config::get().nvme_bdev_opts

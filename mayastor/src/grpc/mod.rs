@@ -35,6 +35,7 @@ impl From<CoreError> for tonic::Status {
     }
 }
 mod bdev_grpc;
+mod controller_grpc;
 mod json_grpc;
 mod mayastor_grpc;
 mod nexus_grpc;
