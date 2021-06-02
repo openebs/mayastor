@@ -11,7 +11,7 @@ metadata:
     app.kubernetes.io/instance: mayastor
     app.kubernetes.io/managed-by: Helm
 spec:
-  replicas: 1
+  replicas: 3
   selector:
     matchLabels:
       app.kubernetes.io/name: etcd
@@ -27,6 +27,7 @@ spec:
         helm.sh/chart: etcd-6.2.3
         app.kubernetes.io/instance: mayastor
         app.kubernetes.io/managed-by: Helm
+        app: mayastor-etcd
       annotations:
     spec:
 
