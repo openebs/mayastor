@@ -697,6 +697,12 @@ impl Nexus {
     /// be called only from the master core.
     pub async fn resume(&mut self) -> Result<(), Error> {
         assert_eq!(Cores::current(), Cores::first());
+
+        // if we are pausing we have concurrent requests for this
+        if matches!(self.pause_state.load(), NexusPauseState::Pausing) {
+            return Ok(());
+        }
+
         assert_eq!(self.pause_state.load(), NexusPauseState::Paused);
 
         info!(
@@ -747,20 +753,14 @@ impl Nexus {
     pub async fn pause(&mut self) -> Result<(), Error> {
         assert_eq!(Cores::current(), Cores::first());
 
-        let state = self
-            .pause_state
-            .compare_exchange(
-                NexusPauseState::Unpaused,
-                NexusPauseState::Pausing,
-            )
-            .map_err(|e| Error::PauseError {
-                state: e,
-                name: self.name.clone(),
-            })?;
+        let state = self.pause_state.compare_exchange(
+            NexusPauseState::Unpaused,
+            NexusPauseState::Pausing,
+        );
 
         match state {
             // Pause nexus if it is in the unpaused state.
-            NexusPauseState::Unpaused => {
+            Ok(NexusPauseState::Unpaused) => {
                 if let Some(Protocol::Nvmf) = self.shared() {
                     if let Some(subsystem) =
                         NvmfSubsystem::nqn_lookup(&self.name)
@@ -778,6 +778,7 @@ impl Nexus {
                         );
                     }
                 }
+                // the fist pause will win
                 self.pause_state
                     .compare_exchange(
                         NexusPauseState::Pausing,
@@ -785,7 +786,18 @@ impl Nexus {
                     )
                     .unwrap();
             }
+
+            Err(NexusPauseState::Pausing) | Err(NexusPauseState::Paused) => {
+                // we are alreayd pausing or pasued
+                return Ok(());
+            }
+
+            // we must pause again, schedule pause operation
+            Err(NexusPauseState::Unpausing) => {
+               return Err(Error::PauseError{ state: NexusPauseState::Unpausing, name: self.name.clone()});
+            }
             _ => {
+                panic!("huh?");
                 debug!(
                     "{} concurrent subsystem pause detected, yielding at state: {:?}",
                     self.name, self.pause_state,
