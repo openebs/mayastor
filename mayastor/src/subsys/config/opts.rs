@@ -534,7 +534,9 @@ pub struct PosixSocketOpts {
     enable_recv_pipe: bool,
     enable_zero_copy_send: bool,
     enable_quickack: bool,
-    enable_placement_id: bool,
+    enable_placement_id: u32,
+    enable_zerocopy_send_server: bool,
+    enable_zerocopy_send_client: bool,
 }
 
 impl Default for PosixSocketOpts {
@@ -545,7 +547,15 @@ impl Default for PosixSocketOpts {
             enable_recv_pipe: try_from_env("SOCK_ENABLE_RECV_PIPE", true),
             enable_zero_copy_send: try_from_env("SOCK_ZERO_COPY_SEND", true),
             enable_quickack: try_from_env("SOCK_ENABLE_QUICKACK", true),
-            enable_placement_id: try_from_env("SOCK_ENABLE_PLACEMENT_ID", true),
+            enable_placement_id: try_from_env("SOCK_ENABLE_PLACEMENT_ID", 0),
+            enable_zerocopy_send_server: try_from_env(
+                "SOCK_ZEROCOPY_SEND_SERVER",
+                true,
+            ),
+            enable_zerocopy_send_client: try_from_env(
+                "SOCK_ZEROCOPY_SEND_CLIENT",
+                true,
+            ),
         }
     }
 }
@@ -572,6 +582,8 @@ impl GetOpts for PosixSocketOpts {
             enable_zero_copy_send: opts.enable_zerocopy_send,
             enable_quickack: opts.enable_quickack,
             enable_placement_id: opts.enable_placement_id,
+            enable_zerocopy_send_server: opts.enable_zerocopy_send_server,
+            enable_zerocopy_send_client: opts.enable_zerocopy_send_client,
         }
     }
 
@@ -583,6 +595,8 @@ impl GetOpts for PosixSocketOpts {
             enable_zerocopy_send: self.enable_zero_copy_send,
             enable_quickack: self.enable_quickack,
             enable_placement_id: self.enable_placement_id,
+            enable_zerocopy_send_server: self.enable_zerocopy_send_server,
+            enable_zerocopy_send_client: self.enable_zerocopy_send_client,
         };
 
         let size = std::mem::size_of::<spdk_sock_impl_opts>() as u64;
