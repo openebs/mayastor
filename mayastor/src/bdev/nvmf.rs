@@ -172,6 +172,7 @@ impl CreateDestroy for Nvmf {
                 context.prchk_flags,
                 Some(done_nvme_create_cb),
                 cb_arg(sender),
+                std::ptr::null_mut(),
             )
         };
 
@@ -192,7 +193,8 @@ impl CreateDestroy for Nvmf {
             error!("No nvme bdev created, no namespaces?");
             // Remove partially created nvme bdev which doesn't show up in
             // the list of bdevs
-            let errno = unsafe { bdev_nvme_delete(cname.as_ptr()) };
+            let errno =
+                unsafe { bdev_nvme_delete(cname.as_ptr(), std::ptr::null()) };
             info!(
                 "removed partially created bdev {}, returned {}",
                 self.name, errno
@@ -228,7 +230,9 @@ impl CreateDestroy for Nvmf {
             Some(_) => {
                 let cname = CString::new(self.name.clone()).unwrap();
 
-                let errno = unsafe { bdev_nvme_delete(cname.as_ptr()) };
+                let errno = unsafe {
+                    bdev_nvme_delete(cname.as_ptr(), std::ptr::null())
+                };
 
                 async {
                     errno_result_from_i32((), errno).context(
