@@ -1167,6 +1167,7 @@ export class Volume {
       log.warn(
         `Cannot add replica "${replica}" without a node to the volume`
       );
+      return;
     }
     if (this.replicas[nodeName]) {
       log.warn(
@@ -1190,6 +1191,7 @@ export class Volume {
       log.warn(
         `Cannot update volume by replica "${replica}" without a node`
       );
+      return;
     }
     if (!this.replicas[nodeName]) {
       log.warn(`Modified replica "${replica}" does not belong to the volume`);
@@ -1211,6 +1213,7 @@ export class Volume {
       log.warn(
         `Cannot delete replica "${replica}" without a node from the volume`
       );
+      return;
     }
     if (!this.replicas[nodeName]) {
       log.warn(`Deleted replica "${replica}" does not belong to the volume`);
