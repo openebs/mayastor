@@ -22,8 +22,8 @@ const path = require('path');
 const { execSync } = require('child_process');
 const protoLoader = require('@grpc/proto-loader');
 // we can't use grpc-kit because we need to connect to UDS and that's currently
-// possible only with grpc-uds.
-const grpc = require('grpc-uds');
+// possible only with grpc-js.
+const grpc = require('@grpc/grpc-js');
 const common = require('./test_common');
 const enums = require('./grpc_enums');
 
@@ -64,7 +64,7 @@ function createCsiClient (service) {
     )
   );
   const proto = pkgDef.csi.v1;
-  return new proto[service](csiSock, grpc.credentials.createInsecure());
+  return new proto[service]('unix://' + csiSock, grpc.credentials.createInsecure());
 }
 
 function cleanPublishDir (mountTarget, done) {

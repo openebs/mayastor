@@ -62,8 +62,9 @@ module.exports = function () {
     this.timeout(500);
 
     // start a fake mayastor server
-    before(() => {
-      srv = new MayastorServer(MS_ENDPOINT, pools, replicas, nexus).start();
+    before((done) => {
+      srv = new MayastorServer(MS_ENDPOINT, pools, replicas, nexus);
+      srv.start(done);
     });
 
     after(() => {
@@ -373,8 +374,9 @@ module.exports = function () {
 
   describe('sync failures', () => {
     // start a fake mayastor server
-    beforeEach(() => {
-      srv = new MayastorServer(MS_ENDPOINT, pools, replicas, nexus).start();
+    beforeEach((done) => {
+      srv = new MayastorServer(MS_ENDPOINT, pools, replicas, nexus);
+      srv.start(done);
     });
 
     afterEach(() => {
@@ -496,21 +498,24 @@ module.exports = function () {
             pools,
             replicas,
             nexus
-          ).start();
+          );
+          srv.start((err) => {
+            if (err) return done(err);
 
-          // pool/replica/nexus event should be emitted before node event and
-          // node should be online when emitting those events.
-          let poolEvent;
-          node.once('pool', (ev) => {
-            expect(node.isSynced()).to.be.true;
-            poolEvent = ev;
-          });
-          node.once('node', (ev) => {
-            expect(poolEvent).not.to.be.undefined;
-            expect(ev.eventType).to.equal('mod');
-            expect(ev.object).to.equal(node);
-            expect(node.isSynced()).to.be.true;
-            done();
+            // pool/replica/nexus event should be emitted before node event and
+            // node should be online when emitting those events.
+            let poolEvent;
+            node.once('pool', (ev) => {
+              expect(node.isSynced()).to.be.true;
+              poolEvent = ev;
+            });
+            node.once('node', (ev) => {
+              expect(poolEvent).not.to.be.undefined;
+              expect(ev.eventType).to.equal('mod');
+              expect(ev.object).to.equal(node);
+              expect(node.isSynced()).to.be.true;
+              done();
+            });
           });
         });
       });
@@ -527,15 +532,17 @@ module.exports = function () {
 
     // start a fake mayastor server
     before((done) => {
-      srv = new MayastorServer(MS_ENDPOINT, [], [], []).start();
-
-      // wait for the initial sync
-      node = new Node('node');
-      node.once('node', (ev) => {
-        expect(ev.eventType).to.equal('mod');
-        done();
+      srv = new MayastorServer(MS_ENDPOINT, [], [], []);
+      srv.start((err) => {
+        if (err) return done(err);
+        // wait for the initial sync
+        node = new Node('node');
+        node.once('node', (ev) => {
+          expect(ev.eventType).to.equal('mod');
+          done();
+        });
+        node.connect(MS_ENDPOINT);
       });
-      node.connect(MS_ENDPOINT);
     });
 
     after(() => {
@@ -659,15 +666,17 @@ module.exports = function () {
           uri: `bdev:///${UUID4}?uuid=4`
         }
       ];
-      srv = new MayastorServer(MS_ENDPOINT, pools, replicas, []).start();
-
-      // wait for the initial sync
-      node = new Node('node');
-      node.once('node', (ev) => {
-        expect(ev.eventType).to.equal('mod');
-        done();
+      srv = new MayastorServer(MS_ENDPOINT, pools, replicas, []);
+      srv.start((err) => {
+        if (err) return done(err);
+        // wait for the initial sync
+        node = new Node('node');
+        node.once('node', (ev) => {
+          expect(ev.eventType).to.equal('mod');
+          done();
+        });
+        node.connect(MS_ENDPOINT);
       });
-      node.connect(MS_ENDPOINT);
     });
 
     after(() => {

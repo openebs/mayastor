@@ -187,10 +187,8 @@ export class Nexus {
     }
 
     const nexusProtocol = 'NEXUS_'.concat(protocol.toUpperCase());
-    var share = mayastor.ShareProtocolNexus.type.value.find(
-      (ent: any) => ent.name === nexusProtocol
-    );
-    if (!share) {
+    var shareNumber = mayastor.enums[nexusProtocol];
+    if (shareNumber === undefined) {
       throw new GrpcError(
         grpcCode.NOT_FOUND,
         `Cannot find protocol "${protocol}" for Nexus ${this}`
@@ -201,7 +199,7 @@ export class Nexus {
       res = await this.node!.call('publishNexus', {
         uuid: this.uuid,
         key: '',
-        share: share.number
+        share: shareNumber
       });
     } catch (err) {
       throw new GrpcError(

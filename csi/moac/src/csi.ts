@@ -8,12 +8,12 @@ import { grpcCode, GrpcError } from './grpc_client';
 import { Volume } from './volume';
 import { Volumes } from './volumes';
 import { Logger } from './logger';
+import * as grpc from '@grpc/grpc-js';
+import { loadSync } from '@grpc/proto-loader';
 
 const log = Logger('csi');
 
 const fs = require('fs').promises;
-const protoLoader = require('@grpc/proto-loader');
-const grpc = require('grpc-uds');
 
 const PLUGIN_NAME = 'io.openebs.csi-mayastor';
 const PROTO_PATH = path.join(__dirname, '../proto/csi.proto');
@@ -27,7 +27,7 @@ const YAML_TRUE_VALUE = [
 ];
 
 // Load csi proto file with controller and identity services
-const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
+const packageDefinition = loadSync(PROTO_PATH, {
   keepCase: false,
   longs: Number,
   enums: String,
@@ -37,7 +37,8 @@ const packageDefinition = protoLoader.loadSync(PROTO_PATH, {
   // unresolvable extensions: 'extend google.protobuf.FieldOptions' in .csi.v1
   includeDirs: [path.join(__dirname, '/node_modules/protobufjs')]
 });
-const csi = grpc.loadPackageDefinition(packageDefinition).csi.v1;
+// TODO: figure out how to remove any
+const csi = (<any> grpc.loadPackageDefinition(packageDefinition).csi).v1;
 
 // Done callback in CSI methods
 type CsiDoneCb = (err: any, resp?: any) => void;
@@ -218,7 +219,11 @@ export class CsiServer {
     // Note: what used to be elegant in JS is a type disaster in TS.
     // Dynamic wrapper for calling methods defined on an object.
     methodNames.forEach((name) => {
-      controllerMethods[name] = (args, cb) => {
+      controllerMethods[name] = (
+        call: grpc.ServerUnaryCall<any, any>,
+        cb: (err: Error | undefined, resp?: any,
+      ) => void) => {
+        const args = call.request;
         log.trace(`CSI ${name} request: ${JSON.stringify(args)}`);
 
         if (!this.ready) {
@@ -264,7 +269,7 @@ export class CsiServer {
   }
 
   // Listen on UDS
-  async start () {
+  async start (): Promise<void> {
     try {
       await fs.lstat(this.sockPath);
       log.info('Removing stale socket file ' + this.sockPath);
@@ -272,16 +277,22 @@ export class CsiServer {
     } catch (err) {
       // the file does not exist which is ok
     }
-    const ok = this.server.bind(
-      this.sockPath,
-      grpc.ServerCredentials.createInsecure()
-    );
-    if (!ok) {
-      log.error('CSI server failed to bind at ' + this.sockPath);
-      throw new Error('Bind failed');
-    }
-    log.info('CSI server listens at ' + this.sockPath);
-    this.server.start();
+    return new Promise((resolve, reject) => {
+      this.server.bindAsync(
+        'unix://' + this.sockPath,
+        grpc.ServerCredentials.createInsecure(),
+        (err: Error) => {
+          if (err) {
+            log.error(`CSI server failed to bind at ${this.sockPath}`);
+            reject(new Error(`Bind failed: ${err}`));
+          } else {
+            log.info('CSI server listens at ' + this.sockPath);
+            this.server.start();
+            resolve();
+          }
+        }
+      );
+    });
   }
 
   // Stop the grpc server.
@@ -384,8 +395,7 @@ export class CsiServer {
     });
   }
 
-  async createVolume (call: any, cb: CsiDoneCb) {
-    const args = call.request;
+  async createVolume (args: any, cb: CsiDoneCb) {
     assert(this.volumes);
 
     log.debug(
@@ -543,8 +553,7 @@ export class CsiServer {
     });
   }
 
-  async deleteVolume (call: any, cb: CsiDoneCb) {
-    const args = call.request;
+  async deleteVolume (args: any, cb: CsiDoneCb) {
     assert(this.volumes);
 
     log.debug(`Request to destroy volume "${args.volumeId}"`);
@@ -564,9 +573,8 @@ export class CsiServer {
     this._endRequest(request, null);
   }
 
-  async listVolumes (call: any, cb: CsiDoneCb) {
+  async listVolumes (args: any, cb: CsiDoneCb) {
     assert(this.volumes);
-    const args = call.request;
     let ctx: ListContext;
 
     if (args.startingToken) {
@@ -611,9 +619,8 @@ export class CsiServer {
     }
   }
 
-  async controllerPublishVolume (call: any, cb: CsiDoneCb) {
+  async controllerPublishVolume (args: any, cb: CsiDoneCb) {
     assert(this.volumes);
-    const args = call.request;
     const publishContext: any = {};
 
     log.debug(
@@ -681,9 +688,8 @@ export class CsiServer {
     this._endRequest(request, null, { publishContext });
   }
 
-  async controllerUnpublishVolume (call: any, cb: CsiDoneCb) {
+  async controllerUnpublishVolume (args: any, cb: CsiDoneCb) {
     assert(this.volumes);
-    const args = call.request;
 
     log.debug(`Request to unpublish volume "${args.volumeId}"`);
 
@@ -715,9 +721,8 @@ export class CsiServer {
     this._endRequest(request, null, {});
   }
 
-  async validateVolumeCapabilities (call: any, cb: CsiDoneCb) {
+  async validateVolumeCapabilities (args: any, cb: CsiDoneCb) {
     assert(this.volumes);
-    const args = call.request;
 
     log.debug(`Request to validate volume capabilities for "${args.volumeId}"`);
 
@@ -747,9 +752,8 @@ export class CsiServer {
   //
   // XXX Is the caller interested in total capacity (sum of all pools) or
   // a capacity usable by a single volume?
-  async getCapacity (call: any, cb: CsiDoneCb) {
+  async getCapacity (args: any, cb: CsiDoneCb) {
     let nodeName;
-    const args = call.request;
 
     if (args.volumeCapabilities) {
       try {

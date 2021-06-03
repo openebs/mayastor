@@ -20,7 +20,7 @@ with K8s API server. In a nutshell it has following responsibilities:
 Enter a nix shell with NodeJS and python packages:
 
 ```bash
-nix-shell -p nodejs-12_x python
+nix-shell -p nodejs-16_x python
 ```
 
 ### NodeJS on Ubuntu
@@ -104,7 +104,7 @@ updated too;
    (debug info, code optimisations, etc.).
    ```bash
    rm -rf node_modules
-   node2nix -l package-lock.json --development --nodejs-12 -c node-composition.nix
+   node2nix -l package-lock.json --development --nodejs-16 -c node-composition.nix
    ```
 
 4. Patch generated nix files by following patch in order to reduce the size
@@ -119,8 +119,8 @@ updated too;
 
     {pkgs ? import <nixpkgs> {
         inherit system;
-   -  }, system ? builtins.currentSystem, nodejs ? pkgs."nodejs-12_x"}:
-   +  }, system ? builtins.currentSystem, nodejs-slim ? pkgs.nodejs-slim-12_x, nodejs ? pkgs."nodejs-12_x"}:
+   -  }, system ? builtins.currentSystem, nodejs ? pkgs."nodejs-16_x"}:
+   +  }, system ? builtins.currentSystem, nodejs-slim ? pkgs.nodejs-slim-16_x, nodejs ? pkgs."nodejs-16_x"}:
     let
       nodeEnv = import ./node-env.nix {
         inherit (pkgs) stdenv python2 utillinux runCommand writeTextFile;
@@ -136,8 +136,8 @@ updated too;
    @@ -1,6 +1,6 @@
     # This file originates from node2nix
 
-   -{stdenv, nodejs, python2, utillinux, libtool, runCommand, writeTextFile}:
-   +{stdenv, nodejs-slim, nodejs, python2, utillinux, libtool, runCommand, writeTextFile}:
+   -{lib, stdenv, nodejs, python2, utillinux, libtool, runCommand, writeTextFile}:
+   +{lib, stdenv, nodejs-slim, nodejs, python2, utillinux, libtool, runCommand, writeTextFile}:
 
     let
       python = if nodejs ? python then nodejs.python else python2;
@@ -147,8 +147,8 @@ updated too;
           name = "node_${name}-${version}";
    -      buildInputs = [ tarWrapper python nodejs ]
    +      buildInputs = [ tarWrapper python nodejs-slim nodejs ]
-            ++ stdenv.lib.optional (stdenv.isLinux) utillinux
-            ++ stdenv.lib.optional (stdenv.isDarwin) libtool
+            ++ lib.optional (stdenv.isLinux) utillinux
+            ++ lib.optional (stdenv.isDarwin) libtool
             ++ buildInputs;
    ```
 
@@ -316,7 +316,7 @@ can be used to setup a dev environment for moac in a moment. Example of
 
 ```json
 {
-    "image": "node:12",
+    "image": "node:16",
     "workspaceMount": "source=/path/to/repo/on/the/host/Mayastor,target=/workspace,type=bind,consistency=cached",
     "workspaceFolder": "/workspace",
     "extensions": [
