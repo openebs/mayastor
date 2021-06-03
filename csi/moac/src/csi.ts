@@ -10,6 +10,7 @@ import { Volumes } from './volumes';
 import { Logger } from './logger';
 import * as grpc from '@grpc/grpc-js';
 import { loadSync } from '@grpc/proto-loader';
+import { Workq } from './workq';
 
 const log = Logger('csi');
 
@@ -44,6 +45,7 @@ const csi = (<any> grpc.loadPackageDefinition(packageDefinition).csi).v1;
 type CsiDoneCb = (err: any, resp?: any) => void;
 // CSI method signature
 type CsiMethod = (args: any, cb: CsiDoneCb) => void;
+type CsiMethodImpl = (args: any) => Promise<any>;
 
 // Limited definition of topology key from CSI spec.
 type TopologyKeys = {
@@ -148,13 +150,13 @@ function createK8sVolumeObject (volume: Volume): K8sVolume {
 // volume (the same uuid) with different parameters.
 //
 class Request {
-  uuid: string; // ID of the object in the operation
-  op: string; // name of the operation
+  args: string; // stringified method args
+  method: string; // CSI method name
   callbacks: CsiDoneCb[]; // callbacks to call when done
 
-  constructor (uuid: string, op: string, cb: CsiDoneCb) {
-    this.uuid = uuid;
-    this.op = op;
+  constructor (args: any, method: string, cb: CsiDoneCb) {
+    this.args = JSON.stringify(args);
+    this.method = method;
     this.callbacks = [cb];
   }
 
@@ -181,6 +183,7 @@ export class CsiServer {
   private nextListContextId: number;
   private listContexts: Record<string, ListContext>;
   private duplicateRequestCache: Request[];
+  private serializationQueue: Workq;
 
   // Creates new csi server
   //
@@ -194,6 +197,7 @@ export class CsiServer {
     this.nextListContextId = 1;
     this.listContexts = {};
     this.duplicateRequestCache = [];
+    this.serializationQueue = new Workq('serial-csi');
 
     // The data returned by identity service should be kept in sync with
     // responses for the same methods on storage node.
@@ -234,21 +238,43 @@ export class CsiServer {
             )
           );
         }
-        let csiMethod = <CsiMethod> this[name as keyof CsiServer].bind(this);
-        return csiMethod(args, (err: any, resp: any) => {
-          if (err) {
-            if (!(err instanceof GrpcError)) {
-              err = new GrpcError(
-                grpcCode.UNKNOWN,
-                `Unexpected error in ${name} method: ` + err.stack
-              );
-            }
-            log.error(`CSI ${name} failed: ${err}`);
-          } else {
-            log.trace(`CSI ${name} response: ${JSON.stringify(resp)}`);
-          }
-          cb(err, resp);
-        });
+
+        // detect duplicate method
+        let request = this._beginRequest(args, name, cb);
+        if (!request) {
+          // cb will be called when the original request completes - nothing to do
+          return;
+        }
+
+        let csiMethodImpl = (args: any) => {
+          return (<CsiMethodImpl> this[name as keyof CsiServer].bind(this))(args)
+            .then((resp: any) => {
+              log.trace(`CSI ${name} response: ${JSON.stringify(resp)}`);
+              assert(request);
+              this._endRequest(request, undefined, resp);
+            })
+            .catch((err: any) => {
+              if (!(err instanceof GrpcError)) {
+                err = new GrpcError(
+                  grpcCode.UNKNOWN,
+                  `Unexpected error in ${name} method: ` + err.stack
+                );
+              }
+              log.error(`CSI ${name} failed: ${err}`);
+              assert(request);
+              this._endRequest(request, err);
+            });
+        };
+
+        // We have to serialize create and publish volume requests because:
+        // 1. create requests create havoc in space accounting
+        // 2. concurrent publish reqs triggers blocking connect bug in mayastor
+        // 3. they make the log file difficult to follow
+        if (['createVolume', 'controllerPublishVolume'].indexOf(name) >= 0) {
+          this.serializationQueue.push(args, (args) => csiMethodImpl(args));
+        } else {
+          csiMethodImpl(args);
+        }
       };
     });
     // unimplemented methods
@@ -321,18 +347,21 @@ export class CsiServer {
   }
 
   // Find outstanding request by uuid and operation type.
-  _findRequest (uuid: string, op: string): Request | undefined {
-    return this.duplicateRequestCache.find((e) => e.uuid === uuid && e.op === op);
+  _findRequest (args: any, method: string): Request | undefined {
+    args = JSON.stringify(args);
+    return this.duplicateRequestCache.find(
+      (e) => e.args === args && e.method === method
+    );
   }
 
-  _beginRequest (uuid: string, op: string, cb: CsiDoneCb): Request | undefined {
-    let request = this._findRequest(uuid, op);
+  _beginRequest (args: any, method: string, cb: CsiDoneCb): Request | undefined {
+    let request = this._findRequest(args, method);
     if (request) {
-      log.debug(`Duplicate ${op} volume request detected`);
+      log.debug(`Duplicate ${method} volume request detected`);
       request.wait(cb);
       return;
     }
-    request = new Request(uuid, op, cb);
+    request = new Request(args, method, cb);
     this.duplicateRequestCache.push(request);
     return request;
   }
@@ -380,7 +409,7 @@ export class CsiServer {
   // Implementation of CSI controller methods
   //
 
-  async controllerGetCapabilities (_: any, cb: CsiDoneCb) {
+  async controllerGetCapabilities (_: any) {
     const caps = [
       'CREATE_DELETE_VOLUME',
       'PUBLISH_UNPUBLISH_VOLUME',
@@ -388,14 +417,14 @@ export class CsiServer {
       'GET_CAPACITY'
     ];
     log.debug('get capabilities request: ' + caps.join(', '));
-    cb(null, {
+    return {
       capabilities: caps.map((c) => {
         return { rpc: { type: c } };
       })
-    });
+    };
   }
 
-  async createVolume (args: any, cb: CsiDoneCb) {
+  async createVolume (args: any): Promise<any> {
     assert(this.volumes);
 
     log.debug(
@@ -405,51 +434,41 @@ export class CsiServer {
     );
 
     if (args.volumeContentSource) {
-      return cb(
-        new GrpcError(
-          grpcCode.INVALID_ARGUMENT,
-          'Source for create volume is not supported'
-        )
+      throw new GrpcError(
+        grpcCode.INVALID_ARGUMENT,
+        'Source for create volume is not supported'
       );
     }
     // k8s uses names pvc-{uuid} and we use uuid further as ID in SPDK so we
     // must require it.
     const m = args.name.match(PVC_RE);
     if (!m) {
-      return cb(
-        new GrpcError(
-          grpcCode.INVALID_ARGUMENT,
-          `Expected the volume name in pvc-{uuid} format: ${args.name}`
-        )
+      throw new GrpcError(
+        grpcCode.INVALID_ARGUMENT,
+        `Expected the volume name in pvc-{uuid} format: ${args.name}`
       );
     }
     const uuid = m[1];
-    try {
-      checkCapabilities(args.volumeCapabilities);
-    } catch (err) {
-      return cb(err);
-    }
+    checkCapabilities(args.volumeCapabilities);
 
     // Storage protocol for accessing nexus is a required parameter
     const protocol = args.parameters && args.parameters.protocol;
     if (!protocol) {
-      return cb(
-        new GrpcError(grpcCode.INVALID_ARGUMENT, 'missing storage protocol')
-      );
+      throw new GrpcError(grpcCode.INVALID_ARGUMENT, 'missing storage protocol');
     }
     const ioTimeout = args.parameters.ioTimeout;
     if (ioTimeout !== undefined) {
       if (protocol !== 'nvmf') {
-        return cb(new GrpcError(
+        throw new GrpcError(
           grpcCode.INVALID_ARGUMENT,
           'ioTimeout is valid only for nvmf protocol'
-        ));
+        );
       }
       if (Object.is(parseInt(ioTimeout), NaN)) {
-        return cb(new GrpcError(
+        throw new GrpcError(
           grpcCode.INVALID_ARGUMENT,
           'ioTimeout must be an integer'
-        ));
+        );
       }
     }
 
@@ -478,11 +497,9 @@ export class CsiServer {
           // We are not able to evaluate any other topology requirements than
           // the hostname req. Reject all others.
           if (key !== 'kubernetes.io/hostname') {
-            return cb(
-              new GrpcError(
-                grpcCode.INVALID_ARGUMENT,
-                'Volume topology other than hostname not supported'
-              )
+            throw new GrpcError(
+              grpcCode.INVALID_ARGUMENT,
+              'Volume topology other than hostname not supported'
             );
           } else {
             mustNodes.push(reqs.segments[key]);
@@ -508,38 +525,24 @@ export class CsiServer {
     if (count) {
       count = parseInt(count);
       if (isNaN(count) || count <= 0) {
-        return cb(
-          new GrpcError(grpcCode.INVALID_ARGUMENT, 'Invalid replica count')
-        );
+        throw new GrpcError(grpcCode.INVALID_ARGUMENT, 'Invalid replica count');
       }
     } else {
       count = 1;
     }
 
-    // If this is a duplicate request then assure it is executed just once.
-    let request = this._beginRequest(uuid, 'create', cb);
-    if (!request) {
-      return;
-    }
-
     // create the volume
-    let volume;
-    try {
-      volume = await this.volumes.createVolume(uuid, {
-        replicaCount: count,
-        local: YAML_TRUE_VALUE.indexOf(args.parameters.local) >= 0,
-        preferredNodes: shouldNodes,
-        requiredNodes: mustNodes,
-        requiredBytes: args.capacityRange.requiredBytes,
-        limitBytes: args.capacityRange.limitBytes,
-        protocol: protocol
-      });
-    } catch (err) {
-      this._endRequest(request, err);
-      return;
-    }
+    let volume = await this.volumes.createVolume(uuid, {
+      replicaCount: count,
+      local: YAML_TRUE_VALUE.indexOf(args.parameters.local) >= 0,
+      preferredNodes: shouldNodes,
+      requiredNodes: mustNodes,
+      requiredBytes: args.capacityRange.requiredBytes,
+      limitBytes: args.capacityRange.limitBytes,
+      protocol: protocol
+    });
 
-    this._endRequest(request, null, {
+    return {
       volume: {
         capacityBytes: volume.getSize(),
         volumeId: uuid,
@@ -550,30 +553,19 @@ export class CsiServer {
         // standing up a volume, using the volume context.
         volumeContext: args.parameters
       }
-    });
+    };
   }
 
-  async deleteVolume (args: any, cb: CsiDoneCb) {
+  async deleteVolume (args: any) {
     assert(this.volumes);
 
     log.debug(`Request to destroy volume "${args.volumeId}"`);
 
-    // If this is a duplicate request then assure it is executed just once.
-    let request = this._beginRequest(args.volumeId, 'delete', cb);
-    if (!request) {
-      return;
-    }
-
-    try {
-      await this.volumes.destroyVolume(args.volumeId);
-    } catch (err) {
-      return this._endRequest(request, err);
-    }
+    await this.volumes.destroyVolume(args.volumeId);
     log.info(`Volume "${args.volumeId}" destroyed`);
-    this._endRequest(request, null);
   }
 
-  async listVolumes (args: any, cb: CsiDoneCb) {
+  async listVolumes (args: any) {
     assert(this.volumes);
     let ctx: ListContext;
 
@@ -581,11 +573,9 @@ export class CsiServer {
       ctx = this.listContexts[args.startingToken];
       delete this.listContexts[args.startingToken];
       if (!ctx) {
-        return cb(
-          new GrpcError(
-            grpcCode.INVALID_ARGUMENT,
-            'Paging context for list volumes is gone'
-          )
+        throw new GrpcError(
+          grpcCode.INVALID_ARGUMENT,
+          'Paging context for list volumes is gone'
         );
       }
     } else {
@@ -610,16 +600,16 @@ export class CsiServer {
     if (ctx.volumes.length > 0) {
       const ctxId = (this.nextListContextId++).toString();
       this.listContexts[ctxId] = ctx;
-      cb(null, {
+      return {
         entries: entries,
         nextToken: ctxId,
-      });
+      };
     } else {
-      cb(null, { entries: entries });
+      return { entries: entries };
     }
   }
 
-  async controllerPublishVolume (args: any, cb: CsiDoneCb) {
+  async controllerPublishVolume (args: any): Promise<any> {
     assert(this.volumes);
     const publishContext: any = {};
 
@@ -629,66 +619,44 @@ export class CsiServer {
 
     const volume = this.volumes.get(args.volumeId);
     if (!volume) {
-      return cb(
-        new GrpcError(
-          grpcCode.NOT_FOUND,
-          `Volume "${args.volumeId}" does not exist`
-        )
+      throw new GrpcError(
+        grpcCode.NOT_FOUND,
+        `Volume "${args.volumeId}" does not exist`
       );
     }
     let nodeId;
-    try {
-      nodeId = parseMayastorNodeId(args.nodeId);
-    } catch (err) {
-      return cb(err);
-    }
+    nodeId = parseMayastorNodeId(args.nodeId);
     const ioTimeout = args.volumeContext?.ioTimeout;
     if (ioTimeout !== undefined) {
       // The value has been checked during the createVolume
       publishContext.ioTimeout = ioTimeout;
     }
     if (args.readonly) {
-      return cb(
-        new GrpcError(
-          grpcCode.INVALID_ARGUMENT,
-          'readonly volumes are unsupported'
-        )
+      throw new GrpcError(
+        grpcCode.INVALID_ARGUMENT,
+        'readonly volumes are unsupported'
       );
     }
     if (!args.volumeCapability) {
-      return cb(
-        new GrpcError(grpcCode.INVALID_ARGUMENT, 'missing volume capability')
-      );
+      throw new GrpcError(grpcCode.INVALID_ARGUMENT, 'missing volume capability');
     }
-    try {
-      checkCapabilities([args.volumeCapability]);
-    } catch (err) {
-      return cb(err);
-    }
-
-    // If this is a duplicate request then assure it is executed just once.
-    let request = this._beginRequest(args.volumeId, 'publish', cb);
-    if (!request) {
-      return;
-    }
+    checkCapabilities([args.volumeCapability]);
 
     try {
       publishContext.uri = await volume.publish(nodeId);
     } catch (err) {
-      if (err.code === grpcCode.ALREADY_EXISTS) {
-        log.debug(`Volume "${args.volumeId}" already published on this node`);
-        this._endRequest(request, null, { publishContext });
-      } else {
-        this._endRequest(request, err);
+      if (err.code !== grpcCode.ALREADY_EXISTS) {
+        throw err;
       }
-      return;
+      log.debug(`Volume "${args.volumeId}" already published on this node`);
+      return { publishContext };
     }
 
     log.info(`Published "${args.volumeId}" at ${publishContext.uri}`);
-    this._endRequest(request, null, { publishContext });
+    return { publishContext };
   }
 
-  async controllerUnpublishVolume (args: any, cb: CsiDoneCb) {
+  async controllerUnpublishVolume (args: any) {
     assert(this.volumes);
 
     log.debug(`Request to unpublish volume "${args.volumeId}"`);
@@ -698,40 +666,23 @@ export class CsiServer {
       log.warn(
         `Request to unpublish volume "${args.volumeId}" which does not exist`
       );
-      return cb(null, {});
-    }
-    try {
-      parseMayastorNodeId(args.nodeId);
-    } catch (err) {
-      return cb(err);
-    }
-
-    // If this is a duplicate request then assure it is executed just once.
-    let request = this._beginRequest(args.volumeId, 'unpublish', cb);
-    if (!request) {
       return;
     }
+    parseMayastorNodeId(args.nodeId);
 
-    try {
-      await volume.unpublish();
-    } catch (err) {
-      return this._endRequest(request, err);
-    }
+    await volume.unpublish();
     log.info(`Unpublished volume "${args.volumeId}"`);
-    this._endRequest(request, null, {});
   }
 
-  async validateVolumeCapabilities (args: any, cb: CsiDoneCb) {
+  async validateVolumeCapabilities (args: any): Promise<any> {
     assert(this.volumes);
 
     log.debug(`Request to validate volume capabilities for "${args.volumeId}"`);
 
     if (!this.volumes.get(args.volumeId)) {
-      return cb(
-        new GrpcError(
-          grpcCode.NOT_FOUND,
-          `Volume "${args.volumeId}" does not exist`
-        )
+      throw new GrpcError(
+        grpcCode.NOT_FOUND,
+        `Volume "${args.volumeId}" does not exist`
       );
     }
     const caps = args.volumeCapabilities.filter(
@@ -743,7 +694,7 @@ export class CsiServer {
     } else {
       resp.message = 'The only supported capability is SINGLE_NODE_WRITER';
     }
-    cb(null, resp);
+    return resp;
   }
 
   // We understand just one topology segment type and that is hostname.
@@ -752,15 +703,11 @@ export class CsiServer {
   //
   // XXX Is the caller interested in total capacity (sum of all pools) or
   // a capacity usable by a single volume?
-  async getCapacity (args: any, cb: CsiDoneCb) {
+  async getCapacity (args: any) {
     let nodeName;
 
     if (args.volumeCapabilities) {
-      try {
-        checkCapabilities(args.volumeCapabilities);
-      } catch (err) {
-        return cb(err);
-      }
+      checkCapabilities(args.volumeCapabilities);
     }
     if (args.accessibleTopology) {
       for (const key in args.accessibleTopology.segments) {
@@ -773,7 +720,7 @@ export class CsiServer {
 
     const capacity = this.registry.getCapacity(nodeName);
     log.debug(`Get total capacity of node "${nodeName}": ${capacity} bytes`);
-    cb(null, { availableCapacity: capacity });
+    return { availableCapacity: capacity };
   }
 }
 
