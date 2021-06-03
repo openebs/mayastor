@@ -208,6 +208,8 @@ pub enum DeviceTimeoutAction {
     Reset,
     /// Do not take any actions on command timeout.
     Ignore,
+    /// Remove the device from the configuration
+    HotRemove,
 }
 
 impl ToString for DeviceTimeoutAction {
@@ -216,6 +218,7 @@ impl ToString for DeviceTimeoutAction {
             Self::Abort => "Abort",
             Self::Reset => "Reset",
             Self::Ignore => "Ignore",
+            Self::HotRemove => "HotRemove",
         }
         .to_string()
     }

@@ -265,6 +265,14 @@ impl NexusChild {
         Ok(self.name.clone())
     }
 
+    /// Check if we're open
+    pub(crate) fn is_open(&self) -> bool {
+        matches!(
+            self.state(),
+            ChildState::Open | ChildState::Faulted(Reason::OutOfSync)
+        )
+    }
+
     /// Register a key
     pub(crate) async fn resv_register(
         &self,

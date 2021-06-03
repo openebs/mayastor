@@ -166,10 +166,10 @@ impl Registration {
         // the message has been sent to the nats server, but we don't know
         // whether the control plane has received it or not
         // we could use request/reply to guarantee that it was delivered
-        debug!(
-            "Registered '{}' and grpc server {}",
-            self.config.node, self.config.grpc_endpoint
-        );
+        // debug!(
+        //     "Registered '{}' and grpc server {}",
+        //     self.config.node, self.config.grpc_endpoint
+        // );
         Ok(())
     }
 

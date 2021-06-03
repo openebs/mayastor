@@ -1,8 +1,9 @@
 //!
 //! core contains the primary abstractions around the SPDK primitives.
-use std::sync::atomic::AtomicUsize;
+use std::{fmt::Debug, sync::atomic::AtomicUsize, time::Duration};
 
 pub use ::uuid::Uuid;
+
 use nix::errno::Errno;
 use snafu::Snafu;
 
@@ -48,7 +49,7 @@ pub use runtime::spawn;
 pub use share::{Protocol, Share};
 pub use thread::Mthread;
 
-use crate::{subsys::NvmfError, target::iscsi};
+use crate::{bdev::nexus_lookup, subsys::NvmfError, target::iscsi};
 
 mod bdev;
 mod bio;
@@ -208,15 +209,85 @@ pub enum IoCompletionStatus {
     NvmeError(NvmeCommandStatus),
 }
 
+// TODO move this elsewhere ASAP
 pub static PAUSING: AtomicUsize = AtomicUsize::new(0);
 pub static PAUSED: AtomicUsize = AtomicUsize::new(0);
+
+pub async fn device_monitor() {
+    let handle = Mthread::get_init();
+    let mut interval = tokio::time::interval(Duration::from_millis(10));
+    loop {
+        interval.tick().await;
+        if let Some(w) = MWQ.take() {
+            info!(?w, "executing command");
+            match w {
+                Command::RemoveDevice(nexus, child) => {
+                    let rx = handle.spawn_local(async move {
+                        if let Some(n) = nexus_lookup(&nexus) {
+                            if let Err(e) = n.destroy_child(&child).await {
+                                error!(?e, "destroy child failed");
+                            }
+                        }
+                    });
+
+                    match rx {
+                        Err(e) => {
+                            error!(?e, "failed to equeue removal request")
+                        }
+                        Ok(rx) => rx.await.unwrap(),
+                    }
+                }
+            }
+        }
+    }
+}
+
 type Nexus = String;
 type Child = String;
 
+#[derive(Debug, Clone)]
 pub enum Command {
-    Retire(Nexus, Child),
+    RemoveDevice(Nexus, Child),
 }
 
-pub static DEAD_LIST: once_cell::sync::Lazy<
-    crossbeam::queue::SegQueue<Command>,
-> = once_cell::sync::Lazy::new(crossbeam::queue::SegQueue::new);
+#[derive(Debug)]
+pub struct MayastorWorkQueue<T: Send + Debug> {
+    incoming: crossbeam::queue::SegQueue<T>,
+}
+
+impl<T: Send + Debug> Default for MayastorWorkQueue<T> {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl<T: Send + Debug> MayastorWorkQueue<T> {
+    pub fn new() -> Self {
+        Self {
+            incoming: crossbeam::queue::SegQueue::new(),
+        }
+    }
+
+    pub fn enqueue(&self, entry: T) {
+        trace!(?entry, "enqueued");
+        self.incoming.push(entry)
+    }
+
+    pub fn len(&self) -> usize {
+        self.incoming.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.incoming.len() == 0
+    }
+
+    pub fn take(&self) -> Option<T> {
+        if let Ok(elem) = self.incoming.pop() {
+            return Some(elem);
+        }
+        None
+    }
+}
+
+pub static MWQ: once_cell::sync::Lazy<MayastorWorkQueue<Command>> =
+    once_cell::sync::Lazy::new(MayastorWorkQueue::new);

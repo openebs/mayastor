@@ -518,8 +518,23 @@ impl Nexus {
         Ok(())
     }
 
+    pub async fn destroy_child(&mut self, name: &str) -> Result<(), Error> {
+        if let Some(child) = self.child_lookup(&name) {
+            child.destroy().await.map_err(|source| Error::DestroyChild {
+                source,
+                child: name.to_string(),
+                name: self.name.to_string(),
+            })
+        } else {
+            Err(Error::ChildNotFound {
+                child: name.to_string(),
+                name: self.name.to_string(),
+            })
+        }
+    }
+
     /// The nexus is allowed to be smaller then the underlying child devices
-    /// this function returns the smallest blockcnt of all online children as
+    /// this function returns the smallest blkcnt of all online children as
     /// they MAY vary in size.
     pub(crate) fn min_num_blocks(&self) -> Option<u64> {
         self.children

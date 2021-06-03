@@ -178,7 +178,7 @@ extern "C" fn nvme_admin_passthru_done(
     ctx: *mut c_void,
     cpl: *const spdk_nvme_cpl,
 ) {
-    debug!(
+    trace!(
         "Admin passthrough completed, succeeded={}",
         nvme_cpl_succeeded(cpl)
     );
@@ -271,7 +271,7 @@ fn complete_nvme_command(ctx: *mut NvmeIoCtx, cpl: *const spdk_nvme_cpl) {
 extern "C" fn nvme_writev_done(ctx: *mut c_void, cpl: *const spdk_nvme_cpl) {
     let nvme_io_ctx = ctx as *mut NvmeIoCtx;
 
-    debug!("NVMe writev I/O completed !");
+    trace!("NVMe writev I/O completed !");
 
     // Check if operation successfully completed.
     if nvme_cpl_is_pi_error(cpl) {
@@ -306,7 +306,7 @@ extern "C" fn nvme_unmap_completion(
     cpl: *const spdk_nvme_cpl,
 ) {
     let nvme_io_ctx = ctx as *mut NvmeIoCtx;
-    debug!("Async unmap completed");
+    trace!("Async unmap completed");
     complete_nvme_command(nvme_io_ctx, cpl);
 }
 
@@ -454,7 +454,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         let (valid, offset_blocks, num_blocks) =
             self.bytes_to_blocks(offset, buffer.len());
 
-        debug!(
+        trace!(
             "{} read(offset={}, size={})",
             self.name,
             offset,
@@ -527,7 +527,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
         let (valid, offset_blocks, num_blocks) =
             self.bytes_to_blocks(offset, buffer.len());
 
-        debug!(
+        trace!(
             "{} write(offset={}, size={})",
             self.name,
             offset,

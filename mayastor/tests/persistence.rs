@@ -54,7 +54,7 @@ async fn persist_unexpected_restart() {
 
     // Check the persisted nexus info is correct.
 
-    assert_eq!(nexus_info.clean_shutdown, false);
+    assert!(!nexus_info.clean_shutdown);
 
     let child = child_info(&nexus_info, &uuid(&child1));
     assert!(child.healthy);
@@ -73,7 +73,7 @@ async fn persist_unexpected_restart() {
 
     // Check the persisted nexus info remains unchanged.
 
-    assert_eq!(nexus_info.clean_shutdown, false);
+    assert!(!nexus_info.clean_shutdown);
 
     let child = child_info(&nexus_info, &uuid(&child1));
     assert!(child.healthy);
@@ -108,7 +108,7 @@ async fn persist_clean_shutdown() {
 
     // Check the persisted nexus info is correct.
 
-    assert_eq!(nexus_info.clean_shutdown, false);
+    assert!(!nexus_info.clean_shutdown);
 
     let child = child_info(&nexus_info, &uuid(&child1));
     assert!(child.healthy);
@@ -130,7 +130,7 @@ async fn persist_clean_shutdown() {
 
     // Check the persisted nexus info is correct.
 
-    assert_eq!(nexus_info.clean_shutdown, true);
+    assert!(nexus_info.clean_shutdown);
 
     let child = child_info(&nexus_info, &uuid(&child1));
     assert!(child.healthy);
@@ -205,7 +205,7 @@ async fn persist_io_failure() {
     let response = etcd.get(nexus_uuid, None).await.expect("No entry found");
     let value = response.kvs().first().unwrap().value();
     let nexus_info: NexusInfo = serde_json::from_slice(value).unwrap();
-    assert_eq!(nexus_info.clean_shutdown, false);
+    assert!(!nexus_info.clean_shutdown);
 
     // Expect child1 to be healthy.
     let child = child_info(&nexus_info, &uuid(&child1));

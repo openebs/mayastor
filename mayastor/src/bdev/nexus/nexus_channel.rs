@@ -122,9 +122,10 @@ impl NexusChannelInner {
         self.writers
             .retain(|c| c.get_device().device_name() != name);
 
-        trace!(
-            "{}: New number of IO channels write:{} read:{} out of {} children",
-            nexus.name,
+        trace!(?name,
+            "core: {} thread: {}: New number of IO channels write:{} read:{} out of {} children",
+            Cores::current(),
+            Mthread::current().unwrap().name(),
             self.writers.len(),
             self.readers.len(),
             nexus.children.len()
@@ -181,9 +182,15 @@ impl NexusChannelInner {
         // clear the vector of channels and reset other internal values,
         // clearing the values will drop any existing handles in the
         // channel
+        self.previous = 0;
 
-        self.writers.clear();
-        self.readers.clear();
+        // nvmx will drop the IO qpairs which is different from all other
+        // bdevs we might be dealing with. So instead of clearing and refreshing
+        // which had no side effects before, we create a new vector and
+        // swap them out later
+
+        let mut writers = Vec::new();
+        let mut readers = Vec::new();
 
         // iterate over all our children which are in the open state
         nexus
@@ -192,8 +199,8 @@ impl NexusChannelInner {
             .filter(|c| c.state() == ChildState::Open)
             .for_each(|c| match (c.get_io_handle(), c.get_io_handle()) {
                 (Ok(w), Ok(r)) => {
-                    self.writers.push(w);
-                    self.readers.push(r);
+                    writers.push(w);
+                    readers.push(r);
                 }
                 _ => {
                     c.set_state(ChildState::Faulted(Reason::CantOpen));
@@ -209,13 +216,19 @@ impl NexusChannelInner {
                 .filter(|c| c.rebuilding())
                 .for_each(|c| {
                     if let Ok(hdl) = c.get_io_handle() {
-                        self.writers.push(hdl);
+                        writers.push(hdl);
                     } else {
                         c.set_state(ChildState::Faulted(Reason::CantOpen));
                         error!("failed to get I/O handle for {}", c.get_name());
                     }
                 });
         }
+
+        self.writers.clear();
+        self.readers.clear();
+
+        self.writers = writers;
+        self.readers = readers;
 
         trace!(
             "{}: New number of IO channels write:{} read:{} out of {} children",
