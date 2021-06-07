@@ -119,6 +119,15 @@ async fn nexus_with_local() {
         .await
         .unwrap();
 
+    ms1.mayastor
+        .add_child_nexus(AddChildNexusRequest {
+            uri: format!("bdev:///{}", uuid()),
+            uuid: uuid(),
+            norebuild: false,
+        })
+        .await
+        .expect_err("Should fail to add the same child again");
+
     check_aliases(&mut ms1, true).await;
     ms1.bdev
         .destroy(BdevUri {

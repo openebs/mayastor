@@ -163,6 +163,13 @@ impl Nexus {
             }
         };
 
+        if self.child_lookup(&name).is_some() {
+            return Err(Error::ChildAlreadyExists {
+                child: name,
+                name: self.name.to_owned(),
+            });
+        }
+
         let mut child = NexusChild::new(
             uri.to_owned(),
             self.name.clone(),
