@@ -66,9 +66,12 @@ impl CreateDestroy for Loopback {
     type Error = NexusBdevError;
 
     async fn create(&self) -> Result<String, Self::Error> {
-        if let Some(mut bdev) = Bdev::lookup_by_name(&self.name) {
-            if let Some(uuid) = self.uuid {
-                bdev.set_uuid(uuid);
+        if let Some(bdev) = Bdev::lookup_by_name(&self.name) {
+            if self.uuid.is_some() && Some(bdev.uuid()) != self.uuid {
+                return Err(NexusBdevError::BdevWrongUuid {
+                    name: self.get_name(),
+                    uuid: bdev.uuid_as_string(),
+                });
             }
 
             if !bdev.add_alias(&self.alias) {

@@ -53,6 +53,12 @@ pub enum NexusBdevError {
     // Bdev create/destroy errors
     #[snafu(display("bdev {} already exists", name))]
     BdevExists { name: String },
+    #[snafu(display(
+        "bdev {} already exists with a different uuid: {}",
+        name,
+        uuid
+    ))]
+    BdevWrongUuid { name: String, uuid: String },
     #[snafu(display("bdev {} not found", name))]
     BdevNotFound { name: String },
     #[snafu(display("Invalid parameters for bdev create {}", name))]

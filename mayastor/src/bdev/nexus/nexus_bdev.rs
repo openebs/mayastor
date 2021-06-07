@@ -183,6 +183,8 @@ pub enum Error {
     },
     #[snafu(display("Child {} of nexus {} not found", child, name))]
     ChildNotFound { child: String, name: String },
+    #[snafu(display("Child {} of nexus {} already exists", child, name))]
+    ChildAlreadyExists { child: String, name: String },
     #[snafu(display("Failed to pause child {} of nexus {}", child, name))]
     PauseChild { child: String, name: String },
     #[snafu(display("Suitable rebuild source for nexus {} not found", name))]

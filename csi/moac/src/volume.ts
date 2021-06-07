@@ -509,11 +509,11 @@ export class Volume {
 
     // pair nexus children with replica objects to get the full picture
     const childReplicaPairs: { ch: Child, r: Replica | undefined }[] = this.nexus.children.map((ch) => {
-      const r = Object.values(this.replicas).find((r) => r.uri === ch.uri);
+      const r = Object.values(replicaSet).find((r) => r.uri === ch.uri);
       return { ch, r };
     });
     // add newly found replicas to the nexus (one by one)
-    const newReplicas = Object.values(this.replicas).filter((r) => {
+    const newReplicas = Object.values(replicaSet).filter((r) => {
       return (!r.isOffline() && !childReplicaPairs.find((pair) => pair.r === r));
     });
     for (let i = 0; i < newReplicas.length; i++) {
