@@ -68,10 +68,12 @@ impl Descriptor {
         err == 0
     }
 
-    /// unclaim a previously claimed bdev
+    /// unclaim a bdev previously claimed by NEXUS_MODULE
     pub(crate) fn unclaim(&self) {
         unsafe {
-            if !(*self.get_bdev().as_ptr()).internal.claim_module.is_null() {
+            if (*self.get_bdev().as_ptr()).internal.claim_module
+                == NEXUS_MODULE.as_ptr()
+            {
                 spdk_bdev_module_release_bdev(self.get_bdev().as_ptr());
             }
         }
