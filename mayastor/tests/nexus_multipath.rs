@@ -8,6 +8,8 @@ use rpc::mayastor::{
     CreateNexusRequest,
     CreatePoolRequest,
     CreateReplicaRequest,
+    DestroyNexusRequest,
+    Null,
     NvmeAnaState,
     PublishNexusRequest,
     ShareProtocolNexus,
@@ -272,4 +274,24 @@ async fn nexus_multipath() {
         "failed to disconnect from remote replica, {}",
         output_dis2.status
     );
+
+    // destroy nexus on remote node
+    hdls[0]
+        .mayastor
+        .destroy_nexus(DestroyNexusRequest {
+            uuid: UUID.to_string(),
+        })
+        .await
+        .unwrap();
+
+    // verify that the replica is still shared over nvmf
+    assert!(hdls[0]
+        .mayastor
+        .list_replicas(Null {})
+        .await
+        .unwrap()
+        .into_inner()
+        .replicas[0]
+        .uri
+        .contains("nvmf://"));
 }
