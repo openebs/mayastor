@@ -6,11 +6,12 @@ import * as grpc from '@grpc/grpc-js';
 import { loadSync } from '@grpc/proto-loader';
 
 import { Logger } from './logger';
-import { ServiceClientConstructor } from '@grpc/grpc-js/build/src/make-client';
+import { ServiceClient, ServiceClientConstructor } from '@grpc/grpc-js/build/src/make-client';
 
 const log = Logger('grpc');
 
 const MAYASTOR_PROTO_PATH: string = path.join(__dirname, '../proto/mayastor.proto');
+const DEFAULT_TIMEOUT_MS: number = 15000;
 
 // Result of loadPackageDefinition() when run on mayastor proto file.
 class MayastorDef {
@@ -94,29 +95,38 @@ export class GrpcError extends Error {
 // Implementation of gRPC client encapsulating common code for calling a grpc
 // method on a storage node (the node running mayastor).
 export class GrpcClient {
-  handle: any;
+  private handle: ServiceClient;
+  private timeout: number; // timeout in milliseconds
 
   // Create promise-friendly grpc client handle.
   //
   // @param endpoint   Host and port that mayastor server listens on.
-  constructor (endpoint: string) {
+  // @param [timeout]  Default timeout for grpc methods in millis.
+  constructor (endpoint: string, timeout?: number) {
     this.handle = new mayastor.clientConstructor(
       endpoint,
       grpc.credentials.createInsecure()
     );
+    this.timeout = (timeout === undefined) ? DEFAULT_TIMEOUT_MS : timeout;
   }
 
   // Call a grpc method with arguments.
   //
-  // @param method   Name of the grpc method.
-  // @param args     Arguments of the grpc method.
+  // @param method     Name of the grpc method.
+  // @param args       Arguments of the grpc method.
+  // @param [timeout]  Timeout in ms if the default should not be used.
   // @returns Return value of the grpc method.
-  call (method: string, args: any): Promise<any> {
+  call (method: string, args: any, timeout?: number): Promise<any> {
     log.trace(
       `Calling grpc method ${method} with arguments: ${JSON.stringify(args)}`
     );
+    if (timeout === undefined) {
+      timeout = this.timeout;
+    }
     return new Promise((resolve, reject) => {
-      this.handle[method](args, (err: Error, val: any) => {
+      const metadata = new grpc.Metadata();
+      metadata.set('grpc-timeout', `${timeout}m`);
+      this.handle[method](args, metadata, (err: Error, val: any) => {
         if (err) {
           log.trace(`Grpc method ${method} failed: ${err}`);
           reject(err);

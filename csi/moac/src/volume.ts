@@ -1032,7 +1032,8 @@ export class Volume {
     // with the least # of nexuses.
     if (!nexusNode) {
       nexusNode = replicaSet
-        .map((r: Replica) => r.pool!.node)
+        .filter((r: Replica) => !!(r.pool && r.pool.node))
+        .map((r: Replica) => r.pool!.node!)
         .sort((a: Node, b: Node) => a.nexus.length - b.nexus.length)[0];
     }
     assert(nexusNode);
@@ -1047,7 +1048,8 @@ export class Volume {
 
     for (let i = 0; i < replicaSet.length; i++) {
       const replica: Replica = replicaSet[i];
-      const replicaNode: Node = replica.pool!.node;
+      if (replica.pool?.node === undefined) continue;
+      const replicaNode: Node = replica.pool.node;
       let share;
       const local = replicaNode === nexusNode;
       // make sure that replica which is local to the nexus is accessed locally

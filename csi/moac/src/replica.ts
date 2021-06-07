@@ -2,13 +2,17 @@
 
 import assert from 'assert';
 import * as _ from 'lodash';
+
 import { grpcCode, GrpcError } from './grpc_client';
 import { Logger } from './logger';
+import { Pool } from './pool';
 
 const log = Logger('replica');
-var parse = require('url-parse');
+const parse = require('url-parse');
 
-import { Pool } from './pool';
+// Replica destruction on mayastor node can be very slow. Until the problem
+// is fixed in mayastor we use 1 hour timeout for destroy calls.
+const DESTROY_TIMEOUT_MS = 60 * 60 * 1000;
 
 export class Replica {
   pool?: Pool;
@@ -68,7 +72,7 @@ export class Replica {
       this.isDown = false;
       changed = true;
     }
-    if (changed) {
+    if (changed && this.pool.node) {
       this.pool.node.emit('replica', {
         eventType: 'mod',
         object: this
@@ -85,10 +89,12 @@ export class Replica {
     }
     log.warn(`Replica "${this}" got offline`);
     this.isDown = true;
-    this.pool.node.emit('replica', {
-      eventType: 'mod',
-      object: this
-    });
+    if (this.pool.node) {
+      this.pool.node.emit('replica', {
+        eventType: 'mod',
+        object: this
+      });
+    }
   }
 
   // Return true if replica is offline otherwise false.
@@ -109,7 +115,10 @@ export class Replica {
       ['REPLICA_NONE', 'REPLICA_ISCSI', 'REPLICA_NVMF'].indexOf(share) >= 0
     );
     if (!this.pool) {
-      throw new Error('Cannot offline a replica that has not been bound');
+      throw new Error('Cannot set share protocol when replica is not bound');
+    }
+    if (!this.pool.node) {
+      throw new Error('Cannot set share protocol when pool is not bound');
     }
     log.debug(`Setting share protocol "${share}" for replica "${this}" ...`);
 
@@ -147,7 +156,11 @@ export class Replica {
       // is down - it may never come back online.
       log.warn(`Faking the destroy of "${this}" because it is unreachable`);
     } else {
-      await this.pool.node.call('destroyReplica', { uuid: this.uuid });
+      await this.pool.node.call(
+        'destroyReplica',
+        { uuid: this.uuid },
+        DESTROY_TIMEOUT_MS,
+      );
       log.info(`Destroyed replica "${this}"`);
     }
     this.unbind();
@@ -158,15 +171,16 @@ export class Replica {
   // @param {object} pool   Pool object to associate the replica with.
   //
   bind(pool: Pool) {
-    assert(!this.pool);
     this.pool = pool;
     log.debug(
       `Adding "${this.uuid}" to the list of replicas for the pool "${pool}"`
     );
-    this.pool.node.emit('replica', {
-      eventType: 'new',
-      object: this
-    });
+    if (this.pool.node) {
+      this.pool.node.emit('replica', {
+        eventType: 'new',
+        object: this
+      });
+    }
   }
 
   // Remove the replica reference from pool
@@ -174,10 +188,12 @@ export class Replica {
     if (!this.pool) return;
     log.debug(`Removing replica "${this}" from the list of replicas`);
     this.pool.unregisterReplica(this);
-    this.pool.node.emit('replica', {
-      eventType: 'del',
-      object: this
-    });
+    if (this.pool.node) {
+      this.pool.node.emit('replica', {
+        eventType: 'del',
+        object: this
+      });
+    }
     this.pool = undefined;
   }
 }
