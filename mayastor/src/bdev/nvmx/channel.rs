@@ -107,6 +107,7 @@ impl ToString for QPairState {
     }
 }
 
+#[derive(Debug)]
 pub struct IoQpair {
     qpair: NonNull<spdk_nvme_qpair>,
     ctrlr_handle: SpdkNvmeController,
@@ -248,6 +249,15 @@ impl Drop for IoQpair {
     }
 }
 
+impl std::fmt::Debug for NvmeIoChannelInner<'_> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("NvmeIoChannelInner")
+            .field("qpair", &self.qpair)
+            .field("pending IO", &self.num_pending_ios)
+            .finish()
+    }
+}
+
 pub struct NvmeIoChannelInner<'a> {
     pub qpair: Option<IoQpair>,
     poll_group: PollGroup,
@@ -277,7 +287,7 @@ impl NvmeIoChannelInner<'_> {
             // Remove qpair and trigger its deallocation via drop().
             let qpair = self.qpair.take().unwrap();
             debug!(
-                "dropping qpair {:p} ({} I/O requests pending)",
+                "dropping qpair {:p} ({}) I/O requests pending)",
                 qpair.as_ptr(),
                 self.num_pending_ios
             );

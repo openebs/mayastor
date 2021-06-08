@@ -19,7 +19,6 @@ use spdk_sys::{
     spdk_sock_impl_get_opts,
     spdk_sock_impl_opts,
     spdk_sock_impl_set_opts,
-    SPDK_BDEV_NVME_TIMEOUT_ACTION_ABORT,
 };
 
 use std::{
@@ -267,9 +266,9 @@ impl GetOpts for NvmeBdevOpts {
 impl Default for NvmeBdevOpts {
     fn default() -> Self {
         Self {
-            action_on_timeout: SPDK_BDEV_NVME_TIMEOUT_ACTION_ABORT,
+            action_on_timeout: 4,
             timeout_us: try_from_env("NVME_TIMEOUT_US", 5_000_000),
-            keep_alive_timeout_ms: try_from_env("NVME_KATO_MS", 0),
+            keep_alive_timeout_ms: try_from_env("NVME_KATO_MS", 1_000),
             retry_count: try_from_env("NVME_RETRY_COUNT", 0),
             arbitration_burst: 0,
             low_priority_weight: 0,

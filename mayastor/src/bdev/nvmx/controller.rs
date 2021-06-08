@@ -21,7 +21,6 @@ use spdk_sys::{
     spdk_nvme_ctrlr_fail,
     spdk_nvme_ctrlr_get_ns,
     spdk_nvme_ctrlr_is_active_ns,
-    spdk_nvme_ctrlr_process_admin_completions,
     spdk_nvme_ctrlr_register_aer_callback,
     spdk_nvme_ctrlr_reset,
     spdk_nvme_detach,
@@ -69,6 +68,7 @@ const RESET_CTX_POOL_SIZE: u64 = 1024 - 1;
 // Memory pool for keeping context during controller resets.
 static RESET_CTX_POOL: OnceCell<MemoryPool<ResetCtx>> = OnceCell::new();
 
+#[derive(Debug)]
 struct ResetCtx {
     name: String,
     cb: OpCompletionCallback,
@@ -567,7 +567,7 @@ impl<'a> NvmeController<'a> {
         channel: &mut NvmeIoChannelInner,
         ctx: &mut ResetCtx,
     ) -> i32 {
-        debug!("Resetting I/O channel");
+        debug!(?channel, "resetting");
 
         // Bail out preliminary if shutdown is active.
         if ctx.shutdown_in_progress {
@@ -588,6 +588,39 @@ impl<'a> NvmeController<'a> {
             error!("failed to reset I/O channel (rc={}), reset aborted", rc);
         }
         rc
+    }
+
+    fn hot_remove_channels_done(status: i32, ctx: ResetCtx) {
+        trace!(?ctx, ?status, "all I/O channels successfully removed");
+    }
+
+    pub fn hot_remove(
+        &mut self,
+        cb: OpCompletionCallback,
+        cb_arg: OpCompletionCallbackArg,
+    ) -> Result<(), CoreError> {
+        if let Some(c) = self.controller() {
+            c.fail()
+        }
+        let io_device = Arc::clone(&self.inner.as_ref().unwrap().io_device);
+        let reset_ctx = ResetCtx {
+            name: self.name.clone(),
+            cb,
+            cb_arg,
+            spdk_handle: self.controller().expect("controller may not be NULL"),
+            io_device,
+            shutdown_in_progress: false,
+        };
+
+        let inner = self.inner.as_mut().unwrap();
+        // Iterate over all I/O channels and reset/configure them one by one.
+        inner.io_device.traverse_io_channels(
+            NvmeController::_reset_destroy_channels,
+            NvmeController::hot_remove_channels_done,
+            NvmeIoChannel::inner_from_channel,
+            reset_ctx,
+        );
+        Ok(())
     }
 
     fn _reset_destroy_channels_done(status: i32, reset_ctx: ResetCtx) {
@@ -626,9 +659,8 @@ impl<'a> NvmeController<'a> {
                 reset_ctx.name
             );
 
-            /* Once controller is successfully reset, schedule another I/O
-             * channel traversal to restore all I/O channels.
-             */
+            // Once controller is successfully reset, schedule another
+            //I/O channel traversal to restore all I/O channels.
             let io_device = Arc::clone(&reset_ctx.io_device);
             io_device.traverse_io_channels(
                 NvmeController::_reset_create_channels,
@@ -796,20 +828,26 @@ extern "C" fn aer_cb(ctx: *mut c_void, cpl: *const spdk_nvme_cpl) {
     }
 }
 
-/// return number of completions processed (maybe 0) or negated on error. -ENXIO
-/// in the special case that the qpair is failed at the transport layer.
+/// return number of completions processed (maybe 0) or the negated on error,
+/// which is one of:
+///
+/// ENXIO: the qpair is not conected  or when the controller is
+/// marked as failed.
+///
+/// EGAIN: returned whenever the controller is being reset.
 pub extern "C" fn nvme_poll_adminq(ctx: *mut c_void) -> i32 {
     let mut context = NonNull::<TimeoutConfig>::new(ctx.cast())
         .expect("ctx pointer may never be null");
     let context = unsafe { context.as_mut() };
-    let rc =
-        unsafe { spdk_nvme_ctrlr_process_admin_completions(context.ctrlr) };
-    if rc < 0 {
-        //tracing::error!("Would call reset_controller here!");
-        //context.reset_controller();
+
+    let result = context.process_adminq();
+
+    if result < 0 {
+        //error!("{}: {}", context.name, Errno::from_i32(result.abs()));
+        return 1;
     }
 
-    if rc == 0 {
+    if result == 0 {
         0
     } else {
         1
@@ -897,7 +935,7 @@ pub(crate) fn connected_attached_cb(
         .expect("Failed to transition controller into Initialized state");
     //unsafe { (*ctrlr.as_ptr()).reinit_after_reset = false };
     // set the controller as a pointer within the context of the time out config
-    unsafe { controller.timeout_config.as_mut().ctrlr = ctrlr.as_ptr() };
+    unsafe { controller.timeout_config.as_mut().set_controller(ctrlr) };
     controller.set_id(cid);
     controller.inner = Some(NvmeControllerInner::new(
         ctrlr,

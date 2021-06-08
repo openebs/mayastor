@@ -5,7 +5,6 @@ use std::{
 
 use spdk_sys::{spdk_io_channel, spdk_put_io_channel};
 use std::ptr::NonNull;
-
 pub struct IoChannel(NonNull<spdk_io_channel>);
 
 impl From<*mut spdk_io_channel> for IoChannel {

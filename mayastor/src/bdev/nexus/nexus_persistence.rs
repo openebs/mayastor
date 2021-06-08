@@ -53,7 +53,7 @@ impl Nexus {
                 // This should only be called on nexus creation, therefore we
                 // expect the NexusInfo structure to contain default values.
                 assert!(nexus_info.children.is_empty());
-                assert_eq!(nexus_info.clean_shutdown, false);
+                assert!(!nexus_info.clean_shutdown);
                 self.children.iter().for_each(|c| {
                     let child_info = ChildInfo {
                         uuid: NexusChild::uuid(&c.name)

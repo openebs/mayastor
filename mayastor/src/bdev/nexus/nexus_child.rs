@@ -265,6 +265,14 @@ impl NexusChild {
         Ok(self.name.clone())
     }
 
+    /// Check if we're open
+    pub(crate) fn is_open(&self) -> bool {
+        matches!(
+            self.state(),
+            ChildState::Open | ChildState::Faulted(Reason::OutOfSync)
+        )
+    }
+
     /// Register a key
     pub(crate) async fn resv_register(
         &self,
@@ -533,21 +541,16 @@ impl NexusChild {
     pub async fn destroy(&self) -> Result<(), NexusBdevError> {
         if self.device.is_some() {
             self.set_state(ChildState::Destroying);
-            info!("{} destroying underlying block device", self.name);
-            let rc = device_destroy(&self.name).await;
-            info!(
-                "{} underlying block device destroyed, rc = {:?}",
-                self.name, rc
-            );
-            rc
+            info!("{}: destroying underlying block device", self.name);
+            device_destroy(&self.name).await?;
+            info!("{}: underlying block device destroyed", self.name);
         } else {
-            warn!(
-                "{}: destroying nexus child without associated block device",
-                self.name
-            );
-            Ok(())
+            warn!("{}: no underlying block device", self.name);
         }
+
+        Ok(())
     }
+
     /// Return reference to child's block device.
     pub fn get_device(&self) -> Result<&dyn BlockDevice, ChildError> {
         if let Some(ref device) = self.device {

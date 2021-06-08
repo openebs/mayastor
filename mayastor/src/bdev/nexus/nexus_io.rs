@@ -532,11 +532,17 @@ impl NexusBio {
     }
 
     /// Retire a child for this nexus.
-    async fn child_retire(nexus: String, device: String) {
-        if let Some(nexus) = nexus_lookup(&nexus) {
+    async fn child_retire(nexus_name: String, device: String) {
+        if let Some(nexus) = nexus_lookup(&nexus_name) {
             warn!(?nexus, ?device, "retiring child");
 
-            nexus.child_retire(device).await.unwrap();
+            if let Err(e) = nexus.child_retire(device.clone()).await {
+                error!(?e, "double pause which we cant sneak in...");
+                Reactors::current()
+                    .send_future(Self::child_retire(nexus_name, device));
+                return;
+            }
+
             if matches!(nexus.status(), NexusStatus::Faulted) {
                 warn!(?nexus, "no children left");
             }

@@ -12,24 +12,30 @@ rm libspdk.so
 ./configure --enable-debug \
 	--target-arch=nehalem \
 	--without-isal \
-	--with-iscsi-initiator \
 	--with-crypto \
 	--with-uring \
-	--enable-unit-tests \
+	--disable-unit-tests \
+	--disable-tests \
 	--with-fio=$(which fio | sed s';bin/fio;include;')
 
+#bear -- make -j 8
 make -j $(nproc)
-
 # delete things we for sure do not want link
 find . -type f -name 'libspdk_event_nvmf.a' -delete
 find . -type f -name 'libspdk_sock_uring.a' -delete
 find . -type f -name 'libspdk_ut_mock.a' -delete
+find . -type f -name 'libspdk_bdev_ftl.a' -delete
+find . -type f -name 'libspdk_bdev_gpt.a' -delete
+find . -type f -name 'libspdk_bdev_iscsi.a' -delete
+find . -type f -name 'libspdk_bdev_raid.a' -delete
+find . -type f -name 'libspdk_bdev_split.a' -delete
+find . -type f -name 'libspdk_bdev_blobfs.a' -delete
 
 # the event libraries are the libraries that parse configuration files
 # we do our own config file parsing, and we setup our own targets.
 
 $CC -shared -o libspdk.so \
-	-lc  -laio -liscsi -lnuma -ldl -lrt -luuid -lpthread -lcrypto \
+	-lc  -laio -lnuma -ldl -lrt -luuid -lpthread -lcrypto \
 	-luring \
 	-Wl,--whole-archive \
 	$(find build/lib -type f -name 'libspdk_*.a*' -o -name 'librte_*.a*') \

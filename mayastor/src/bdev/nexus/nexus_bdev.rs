@@ -12,7 +12,7 @@ use std::{
 };
 
 use crossbeam::atomic::AtomicCell;
-use futures::{channel::oneshot, future::join_all};
+use futures::channel::oneshot;
 use nix::errno::Errno;
 use serde::Serialize;
 use snafu::{ResultExt, Snafu};
@@ -23,8 +23,9 @@ use spdk_sys::{spdk_bdev, spdk_bdev_register, spdk_bdev_unregister};
 
 use crate::{
     bdev::{
-        nexus,
+        device_destroy,
         nexus::{
+            self,
             instances,
             nexus_channel::{
                 DrEvent,
@@ -40,6 +41,7 @@ use crate::{
     },
     core::{
         Bdev,
+        Command,
         CoreError,
         Cores,
         IoDevice,
@@ -47,9 +49,10 @@ use crate::{
         Protocol,
         Reactor,
         Share,
+        MWQ,
     },
     ffihelper::errno_result_from_i32,
-    nexus_uri::{bdev_destroy, NexusBdevError},
+    nexus_uri::NexusBdevError,
     rebuild::RebuildError,
     subsys::{NvmfError, NvmfSubsystem},
 };
@@ -697,6 +700,12 @@ impl Nexus {
     /// be called only from the master core.
     pub async fn resume(&mut self) -> Result<(), Error> {
         assert_eq!(Cores::current(), Cores::first());
+
+        // if we are pausing we have concurrent requests for this
+        if matches!(self.pause_state.load(), NexusPauseState::Pausing) {
+            return Ok(());
+        }
+
         assert_eq!(self.pause_state.load(), NexusPauseState::Paused);
 
         info!(
@@ -747,20 +756,14 @@ impl Nexus {
     pub async fn pause(&mut self) -> Result<(), Error> {
         assert_eq!(Cores::current(), Cores::first());
 
-        let state = self
-            .pause_state
-            .compare_exchange(
-                NexusPauseState::Unpaused,
-                NexusPauseState::Pausing,
-            )
-            .map_err(|e| Error::PauseError {
-                state: e,
-                name: self.name.clone(),
-            })?;
+        let state = self.pause_state.compare_exchange(
+            NexusPauseState::Unpaused,
+            NexusPauseState::Pausing,
+        );
 
         match state {
             // Pause nexus if it is in the unpaused state.
-            NexusPauseState::Unpaused => {
+            Ok(NexusPauseState::Unpaused) => {
                 if let Some(Protocol::Nvmf) = self.shared() {
                     if let Some(subsystem) =
                         NvmfSubsystem::nqn_lookup(&self.name)
@@ -778,6 +781,7 @@ impl Nexus {
                         );
                     }
                 }
+                // the fist pause will win
                 self.pause_state
                     .compare_exchange(
                         NexusPauseState::Pausing,
@@ -785,17 +789,21 @@ impl Nexus {
                     )
                     .unwrap();
             }
-            _ => {
-                debug!(
-                    "{} concurrent subsystem pause detected, yielding at state: {:?}",
-                    self.name, self.pause_state,
-                );
 
-                let (s, r) = oneshot::channel::<i32>();
-                self.pause_waiters.push(s);
-                r.await.expect("Nexus pause sender disappeared");
-                debug!("{} pause is granted", self.name,);
-                assert_eq!(self.pause_state.load(), NexusPauseState::Paused);
+            Err(NexusPauseState::Pausing) | Err(NexusPauseState::Paused) => {
+                // we are already pausing or paused
+                return Ok(());
+            }
+
+            // we must pause again, schedule pause operation
+            Err(NexusPauseState::Unpausing) => {
+                return Err(Error::PauseError {
+                    state: NexusPauseState::Unpausing,
+                    name: self.name.clone(),
+                });
+            }
+            _ => {
+                panic!("Corrupted nexus state");
             }
         }
 
@@ -868,11 +876,13 @@ impl Nexus {
         self.pause().await?;
         debug!(?self, "UNPAUSE");
         if let Some(child) = self.child_lookup(&name) {
-            self.persist(PersistOp::Update((
-                child.name.clone(),
-                child.state(),
-            )))
-            .await;
+            let uri = child.name.clone();
+            // schedule the deletion of the child eventhough etcd has not been
+            // updated yet we do not need to wait for that to
+            // complete anyway.
+            MWQ.enqueue(Command::RemoveDevice(self.name.clone(), name));
+            self.persist(PersistOp::Update((uri.clone(), child.state())))
+                .await;
         }
         self.resume().await
     }
@@ -1049,9 +1059,14 @@ pub async fn nexus_create(
     // global variable defined in the nexus module
     let nexus_list = instances();
 
-    if nexus_list.iter().any(|n| n.name == name) {
+    if let Some(nexus) = nexus_list.iter().find(|n| n.name == name) {
         // FIXME: Instead of error, we return Ok without checking
         // that the children match, which seems wrong.
+        if *nexus.state.lock() == NexusState::Init {
+            return Err(Error::NexusNotFound {
+                name: name.to_owned(),
+            });
+        }
         return Ok(());
     }
 
@@ -1092,9 +1107,16 @@ pub async fn nexus_create(
         }) => {
             // We still have code that waits for children to come online,
             // although this currently only works for config files.
-            // We need to explicitly clean up child bdevs if we get this error.
-            error!("failed to open nexus {}: missing children", name);
-            destroy_child_bdevs(name, children).await;
+            // We need to explicitly clean up child devices
+            // if we get this error.
+            error!(
+                "failed to open nexus {}: not all children are available",
+                name
+            );
+            for child in ni.children.iter() {
+                // TODO: children may already be destroyed
+                let _ = device_destroy(&child.name).await;
+            }
             nexus_list.retain(|n| n.name != name);
             Err(Error::NexusCreate {
                 name: String::from(name),
@@ -1109,15 +1131,6 @@ pub async fn nexus_create(
         }
 
         Ok(_) => Ok(()),
-    }
-}
-
-/// Destroy list of child bdevs
-async fn destroy_child_bdevs(name: &str, list: &[String]) {
-    let futures = list.iter().map(String::as_str).map(bdev_destroy);
-    let results = join_all(futures).await;
-    if results.iter().any(|c| c.is_err()) {
-        error!("{}: Failed to destroy child bdevs", name);
     }
 }
 

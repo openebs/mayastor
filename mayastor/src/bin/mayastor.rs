@@ -8,7 +8,14 @@ use structopt::StructOpt;
 
 use mayastor::{
     bdev::util::uring,
-    core::{runtime, MayastorCliArgs, MayastorEnvironment, Mthread, Reactors},
+    core::{
+        device_monitor,
+        runtime,
+        MayastorCliArgs,
+        MayastorEnvironment,
+        Mthread,
+        Reactors,
+    },
     grpc,
     logger,
     persistent_store::PersistentStore,
@@ -39,6 +46,7 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
             }
 
             PersistentStore::init(persistent_store_endpoint).await;
+            runtime::spawn(device_monitor());
 
             futures.push(
                 grpc::MayastorGrpcServer::run(grpc_address, rpc_address)
@@ -51,6 +59,8 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
         });
     });
 }
+
+const VERSION_STR: &str = "0.9.0 C2.RC2";
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
     let args = MayastorCliArgs::from_args();
@@ -97,7 +107,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         };
 
-    info!("Starting Mayastor ..");
+    info!("Starting Mayastor version: {}", VERSION_STR);
     info!(
         "kernel io_uring support: {}",
         if uring_supported { "yes" } else { "no" }
