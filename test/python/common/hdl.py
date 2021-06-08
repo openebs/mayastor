@@ -80,11 +80,11 @@ class MayastorHandle(object):
         """Destroy  the pool."""
         return self.ms.DestroyPool(pb.DestroyPoolRequest(name=name))
 
-    def replica_create(self, pool, uuid, size):
+    def replica_create(self, pool, uuid, size, share=1):
         """Create  a replica on the pool with the specified UUID and size."""
         return self.ms.CreateReplica(
             pb.CreateReplicaRequest(
-                pool=pool, uuid=str(uuid), size=size, thin=False, share=1
+                pool=pool, uuid=str(uuid), size=size, thin=False, share=share
             )
         )
 
