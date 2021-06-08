@@ -149,13 +149,13 @@ impl TimeoutConfig {
 
     ///
     /// After an IO timeout, we will remove any qpairs associated with
-    /// this controller. This will result into any pending IO (waiting
-    /// for completion) to be aborted. While this is happening, due to the
-    /// nature of the reactor, newly sumbitted to the  qpair we just detached,
-    /// will get an EXIO. However, this will happen only after the qpair is
-    /// disconnected or if the controller is failed. Therefor, we must fall
-    /// thee controller as soon as possible to avoid the need to reset after
-    /// the hot removal.
+    /// this controller. This will result in any pending IO (waiting for
+    /// completion) to be aborted. While this is happening, due to the
+    /// nature of the reactor, newly submitted IOs to the qpair we just
+    /// detached, will get an EXIO. However, this will happen only after the
+    /// qpair is disconnected or if the controller is failed. Therefore, we
+    /// must fail the controller as soon as possible to avoid the need to
+    /// reset after the hot removal.
 
     pub(crate) fn hot_remove(&mut self) {
         // cb invoked when the whole process is done.

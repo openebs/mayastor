@@ -86,6 +86,8 @@ where
 pub enum Error {
     #[snafu(display("Nexus {} does not exist", name))]
     NexusNotFound { name: String },
+    #[snafu(display("Nexus {} exists and is initialising", name))]
+    NexusInitialising { name: String },
     #[snafu(display("Invalid nexus uuid \"{}\"", uuid))]
     InvalidUuid { uuid: String },
     #[snafu(display("Invalid encryption key"))]
@@ -1063,7 +1065,7 @@ pub async fn nexus_create(
         // FIXME: Instead of error, we return Ok without checking
         // that the children match, which seems wrong.
         if *nexus.state.lock() == NexusState::Init {
-            return Err(Error::NexusNotFound {
+            return Err(Error::NexusInitialising {
                 name: name.to_owned(),
             });
         }
