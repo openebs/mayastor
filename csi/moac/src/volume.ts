@@ -22,7 +22,6 @@ type DoneCallback = (err?: Error, res?: unknown) => void;
 
 // ID of the operation delegated to fsa() to perform.
 enum DelegatedOp {
-  Create,
   Publish,
   Unpublish,
   Destroy,
@@ -136,7 +135,6 @@ export class Volume {
     this.runFsa = 0;
     this.emitter = emitter;
     this.waiting = <Record<DelegatedOp, DoneCallback[]>> {};
-    this.waiting[DelegatedOp.Create] = [];
     this.waiting[DelegatedOp.Publish] = [];
     this.waiting[DelegatedOp.Unpublish] = [];
     this.waiting[DelegatedOp.Destroy] = [];
@@ -268,7 +266,6 @@ export class Volume {
 
     // Cancel all other types of operations that might be in progress
     this._delegatedOpCancel([
-      DelegatedOp.Create,
       DelegatedOp.Publish,
       DelegatedOp.Unpublish,
     ], new GrpcError(
@@ -407,10 +404,7 @@ export class Volume {
       replicaSet = this._activeReplicas();
     } catch (err) {
       this._setState(VolumeState.Faulted);
-      this._delegatedOpFailed([
-        DelegatedOp.Create,
-        DelegatedOp.Publish,
-      ], new GrpcError(
+      this._delegatedOpFailed([ DelegatedOp.Publish ], new GrpcError(
         grpcCode.INTERNAL,
         err.toString(),
       ));
@@ -432,10 +426,7 @@ export class Volume {
             replicaSet = await this._ensureReplicaShareProtocols(nexusNode, replicaSet);
           } catch (err) {
             this._setState(VolumeState.Offline);
-            this._delegatedOpFailed([
-              DelegatedOp.Create,
-              DelegatedOp.Publish,
-            ], new GrpcError(
+            this._delegatedOpFailed([ DelegatedOp.Publish ], new GrpcError(
               grpcCode.INTERNAL,
               err.toString(),
             ));
@@ -445,27 +436,20 @@ export class Volume {
             await this._createNexus(nexusNode, replicaSet);
           } catch (err) {
             this._setState(VolumeState.Offline);
-            this._delegatedOpFailed([
-              DelegatedOp.Create,
-              DelegatedOp.Publish,
-            ], new GrpcError(
+            this._delegatedOpFailed([ DelegatedOp.Publish ], new GrpcError(
               grpcCode.INTERNAL,
               `Failed to create nexus for ${this} on "${this.publishedOn}": ${err}`,
             ));
           }
         } else {
           this._setState(VolumeState.Offline);
-          this._delegatedOpFailed([
-            DelegatedOp.Create,
-            DelegatedOp.Publish,
-          ], new GrpcError(
+          this._delegatedOpFailed([ DelegatedOp.Publish ], new GrpcError(
             grpcCode.INTERNAL,
             `Cannot create nexus for ${this} because "${this.publishedOn}" is down`,
           ));
         }
       } else {
         // we have just the right # of replicas and we don't need a nexus
-        this._delegatedOpSuccess(DelegatedOp.Create);
         this._setState(VolumeState.Healthy);
       }
       // fsa will get called again when event about created nexus arrives
@@ -498,7 +482,6 @@ export class Volume {
       replicaSet = await this._ensureReplicaShareProtocols(nexusNode, replicaSet);
     } catch (err) {
       this._delegatedOpFailed([
-        DelegatedOp.Create,
         DelegatedOp.Publish,
       ], new GrpcError(
         grpcCode.INTERNAL,
@@ -535,7 +518,6 @@ export class Volume {
     if (onlineCount === 0) {
       this._setState(VolumeState.Faulted);
       this._delegatedOpFailed([
-        DelegatedOp.Create,
         DelegatedOp.Publish,
       ], new GrpcError(
         grpcCode.INTERNAL,
@@ -570,10 +552,7 @@ export class Volume {
       try {
         await this._createReplicas(this.spec.replicaCount - soundCount);
       } catch (err) {
-        this._delegatedOpFailed([DelegatedOp.Create], new GrpcError(
-          grpcCode.INTERNAL,
-          err.toString(),
-        ));
+        log.error(err.toString());
       }
       // The replicas will be added to nexus when the fsa is run next time
       // which happens immediately after we exit.
@@ -782,42 +761,7 @@ export class Volume {
         );
       }
     }
-    let replicaSet = this._activeReplicas();
-    let nexusNode = this._desiredNexusNode(replicaSet, replicaSet[0]?.pool?.node?.name);
-    if (!nexusNode) {
-      throw new GrpcError(
-        grpcCode.INTERNAL,
-        `Cannot create nexus for ${this} because "${this.publishedOn}" is down`
-      );
-    }
-    let newReplicaSet = await this._ensureReplicaShareProtocols(nexusNode, replicaSet);
-    // We are strict when creating a new volume - all replicas must be usable.
-    if (newReplicaSet.length !== replicaSet.length) {
-      throw new GrpcError(
-        grpcCode.INTERNAL,
-        `Some of the replicas for ${this} are not accessible from nexus`,
-      );
-    }
-    if (this.pendingDestroy) {
-      throw new GrpcError(
-        grpcCode.INTERNAL,
-        `The volume ${this} was destroyed before it was created`,
-      );
-    }
-    if (!this.nexus) {
-      await this._createNexus(nexusNode, replicaSet);
-      if (this.pendingDestroy) {
-        throw new GrpcError(
-          grpcCode.INTERNAL,
-          `The volume ${this} was destroyed before it was created`,
-        );
-      }
-    }
-    this.state = VolumeState.Unknown;
-
-    // Wait for the temporary nexus (created just for labeling replicas) to do
-    // its work and go away before we return.
-    await this._delegate(DelegatedOp.Create);
+    this.state = VolumeState.Healthy;
     log.info(`Volume "${this}" with ${this.spec.replicaCount} replica(s) and size ${this.size} was created`);
   }
 
