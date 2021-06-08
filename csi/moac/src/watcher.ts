@@ -1,6 +1,7 @@
 // Implementation of a cache for arbitrary k8s custom resource in openebs.io
 // api with v1alpha1 version.
 
+import assert from 'assert';
 import * as _ from 'lodash';
 import events = require('events');
 import {
@@ -153,6 +154,7 @@ export class CustomResourceCache<T> extends events.EventEmitter {
   listWatch: ListWatch<CustomResource>;
   creator: new (obj: CustomResource) => T;
   eventHandlers: Record<string, (obj: CustomResource) => void>;
+  onErrorCb: (err: any) => void;
   connected: boolean;
   restartDelay: number;
   idleTimeout: number;
@@ -189,10 +191,12 @@ export class CustomResourceCache<T> extends events.EventEmitter {
     this.eventTimeout = opts?.eventTimeout || EVENT_TIMEOUT;
     this.idleTimeout = opts?.idleTimeout || 0;
     this.eventHandlers = {
+      error: this._onError.bind(this),
       add: this._onEvent.bind(this, 'new'),
       update: this._onEvent.bind(this, 'mod'),
       delete: this._onEvent.bind(this, 'del'),
     };
+    this.onErrorCb = (err) => this._onError(err);
 
     const watch = new Watch(kubeConfig);
     this.listWatch = new ListWatch<CustomResource>(
@@ -267,12 +271,15 @@ export class CustomResourceCache<T> extends events.EventEmitter {
   // This method does not return until the cache is successfully populated.
   // That means that the promise eventually always fulfills (resolves).
   start(): Promise<void> {
-    this.listWatch.on('error', this._onError.bind(this));
     for (let evName in this.eventHandlers) {
       this.listWatch.on(evName, this.eventHandlers[evName]);
     }
     return this.listWatch.start()
       .then(() => {
+        // k8s client library has a bug/feature that on-error cb is called right
+        // after the client starts, so we must register it after it starts.
+        this.listWatch.on('error', this.onErrorCb);
+
         this.connected = true;
         log.debug(`${this.name} watcher with ${this.listWatch.list().length} objects was started`);
         log.trace(`Initial content of the "${this.name}" cache: ` +
@@ -293,22 +300,28 @@ export class CustomResourceCache<T> extends events.EventEmitter {
 
   // Called when the connection breaks.
   _onError(err: any) {
-    log.error(`Watcher error: ${err}`);
-    this.stop();
+    // do not print the error if it was us who terminated the watcher
+    if (this.connected) {
+      log.error(`Watcher error: ${err}`);
+      this.stop();
+    }
     log.info(`Restarting ${this.name} watcher after ${this.restartDelay}ms...`);
     this.timer = setTimeout(() => this.start(), this.restartDelay);
   }
 
   // Deregister all internal event handlers on the watcher.
   stop() {
-    this._clearTimer();
-    this.connected = false;
     log.debug(`Deregistering "${this.name}" cache event handlers`);
-    this.listWatch.off('error', this._onError);
     for (let evName in this.eventHandlers) {
       this.listWatch.off(evName, this.eventHandlers[evName]);
     }
-    this.listWatch.stop();
+    this.listWatch.off('error', this.onErrorCb);
+
+    if (this.connected) {
+      this._clearTimer();
+      this.connected = false;
+      this.listWatch.stop();
+    }
   }
 
   isConnected(): boolean {
