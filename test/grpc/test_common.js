@@ -344,8 +344,7 @@ function jsonrpcCommand (sock, method, args, done) {
 }
 
 // Create mayastor grpc client. Must be closed by the user when not used anymore.
-function createGrpcClient (endpoint) {
-  endpoint = endpoint || grpcEndpoint;
+function createGrpcClient (serviceName = 'Mayastor', endpoint = grpcEndpoint) {
   const client = createClient(
     {
       protoPath: path.join(
@@ -357,7 +356,7 @@ function createGrpcClient (endpoint) {
         'mayastor.proto'
       ),
       packageName: 'mayastor',
-      serviceName: 'Mayastor',
+      serviceName: serviceName,
       options: {
         keepCase: true,
         longs: String,
@@ -386,6 +385,34 @@ function callGrpcMethod (method, args, done) {
     client.close();
     done(err, res);
   });
+}
+
+// Create bdevrpc grpc client, create the specified bdevs,
+// and export them via the specified protocol.
+// Close the client when we are done.
+function createBdevs (bdevs, proto, endpoint, done) {
+  let client;
+  try {
+    client = createGrpcClient('BdevRpc', endpoint);
+  } catch (err) {
+    return done(err);
+  }
+  async.each(
+    bdevs,
+    (uri, next) => {
+      client.create(
+        { uri: uri },
+        (err, res) => {
+          if (err) return next(err);
+          client.share({ name: res.name, proto: proto }, next);
+        }
+      );
+    },
+    (err, res) => {
+      client.close();
+      done(err, res);
+    }
+  );
 }
 
 // Ensure that /dev/nbd* devices are writable by the current process.
@@ -460,5 +487,6 @@ module.exports = {
   getMyIp,
   getCmdPath,
   createGrpcClient,
-  callGrpcMethod
+  callGrpcMethod,
+  createBdevs
 };

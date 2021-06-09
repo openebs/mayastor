@@ -29,16 +29,6 @@ const enums = require('./grpc_enums');
 
 const csiSock = common.CSI_ENDPOINT;
 
-// One big malloc bdev which we put lvol store on.
-const CONFIG = `
-sync_disable: true
-base_bdevs:
-  - uri: "malloc:///malloc0?size_mb=64&uuid=11111111-0000-0000-0000-000000000000&blk_size=4096"
-  - uri: "malloc:///malloc1?size_mb=64&uuid=11111111-0000-0000-0000-000000000001&blk_size=4096"
-  - uri: "malloc:///malloc2?size_mb=64&uuid=11111111-0000-0000-0000-000000000002&blk_size=4096"
-  - uri: "malloc:///malloc3?size_mb=64&uuid=11111111-0000-0000-0000-000000000003&blk_size=4096"
-  - uri: "malloc:///malloc4?size_mb=64&uuid=11111111-0000-0000-0000-000000000004&blk_size=4096"
-`;
 // uuid without the last digit
 const BASE_UUID = '11111111-0000-0000-0000-00000000000';
 // used UUID aliases
@@ -164,7 +154,7 @@ describe('csi', function () {
   // NOTE: Don't use mayastor in setup - we test CSI interface and we don't want
   // to depend on correct function of mayastor iface in order to test CSI.
   before((done) => {
-    common.startMayastor(CONFIG);
+    common.startMayastor();
     common.startMayastorCsi();
 
     const client = common.createGrpcClient();
@@ -183,6 +173,13 @@ describe('csi', function () {
               client.listPools({}, pingDone);
             });
           }, next);
+        },
+        (next) => {
+            var bdevs = [];
+            for (let n =0 ; n < 5; n++) {
+                bdevs.push('malloc:///malloc' + n + '?size_mb=64&uuid=' + BASE_UUID + n + '&blk_size=4096');
+            }
+            common.createBdevs(bdevs, 'nvmf', undefined, next);
         },
         (next) => {
           async.times(

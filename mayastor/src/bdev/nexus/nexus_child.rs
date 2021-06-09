@@ -15,7 +15,6 @@ use crate::{
             instances,
             nexus_channel::DrEvent,
             nexus_child::ChildState::Faulted,
-            nexus_child_status_config::ChildStatusConfig,
         },
         nexus_lookup,
         Guid,
@@ -313,7 +312,6 @@ impl NexusChild {
                 self.set_state(ChildState::Faulted(reason));
             }
         }
-        NexusChild::save_state_change();
     }
 
     /// Set the child as temporarily offline
@@ -326,7 +324,6 @@ impl NexusChild {
                 e.verbose()
             );
         }
-        NexusChild::save_state_change();
     }
 
     /// Get full name of this Nexus child.
@@ -371,15 +368,7 @@ impl NexusChild {
 
         let result = self.open(parent_size);
         self.set_state(ChildState::Faulted(Reason::OutOfSync));
-        NexusChild::save_state_change();
         result
-    }
-
-    /// Save the state of the children to the config file
-    pub(crate) fn save_state_change() {
-        if ChildStatusConfig::save().is_err() {
-            error!("Failed to save child status information");
-        }
     }
 
     /// Extract a UUID from a URI.

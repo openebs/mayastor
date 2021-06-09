@@ -10,10 +10,7 @@ use std::{
     time::Duration,
 };
 
-static CONFIG_TEXT: &str = "sync_disable: true
-base_bdevs:
-  - uri: \"malloc:///Malloc0?size_mb=64&blk_size=4096&uuid=dbe4d7eb-118a-4d15-b789-a18d9af6ff29\"
-nexus_opts:
+static CONFIG_TEXT: &str = "nexus_opts:
   nvmf_nexus_port: 4422
   nvmf_replica_port: NVMF_PORT
   iscsi_enable: false
@@ -23,13 +20,11 @@ nvmf_tcp_tgt_conf:
 iscsi_tgt_conf:
   max_sessions: 1
   max_connections_per_session: 1
-implicit_share_base: true
 ";
 
 const CONFIG_FILE: &str = "/tmp/nvmeadm_nvmf_target.yaml";
 
-const SERVED_DISK_NQN: &str =
-    "nqn.2019-05.io.openebs:dbe4d7eb-118a-4d15-b789-a18d9af6ff29";
+const SERVED_DISK_NQN: &str = "nqn.2019-05.io.openebs:m0";
 
 const TARGET_PORT: u32 = 9523;
 
@@ -62,27 +57,25 @@ fn wait_for_mayastor_ready(listening_port: u32) -> Result<(), String> {
     let dest = format!("127.0.0.1:{}", listening_port);
     let socket_addr: SocketAddr = dest.parse().expect("Badly formed address");
 
-    let mut bound = false;
-    for _index in 1 .. 20 {
+    for _ in 1 .. 20 {
         let result = TcpStream::connect_timeout(
             &socket_addr,
             Duration::from_millis(100),
         );
-        bound = result.is_ok();
-        if bound {
-            break;
+
+        if result.is_ok() {
+            // FIXME: For some reason mayastor may still not be ready
+            // at this point, and can still refuse a connection from
+            // mayastor-client. Need to rethink this approach,
+            // but just add an extra sleep for now.
+            thread::sleep(Duration::from_secs(2));
+            return Ok(());
         }
-        thread::sleep(Duration::from_millis(101));
+
+        thread::sleep(Duration::from_millis(100));
     }
 
-    if bound {
-        Ok(())
-    } else {
-        Err(format!(
-            "spdk listening port ({}) not found",
-            listening_port
-        ))
-    }
+    Err(format!("failed to connect to spdk port {}", listening_port))
 }
 
 pub struct NvmfTarget {
@@ -91,6 +84,30 @@ pub struct NvmfTarget {
 }
 
 impl NvmfTarget {
+    fn get_status(
+        result: Result<std::process::Output, std::io::Error>,
+    ) -> bool {
+        match result {
+            Ok(output) => {
+                if output.status.success() {
+                    return true;
+                }
+                match std::str::from_utf8(&output.stderr) {
+                    Ok(s) => {
+                        println!("mayastor-client failed: {}", s);
+                    }
+                    Err(_) => {
+                        println!("mayastor-client failed");
+                    }
+                }
+            }
+            Err(error) => {
+                println!("failed to execute mayastor-client: {}", error);
+            }
+        }
+        false
+    }
+
     pub fn new(config_file: &str, nvmf_port: &str) -> Self {
         create_config_file(config_file, nvmf_port);
         let spdk_proc = Command::new("../target/debug/mayastor")
@@ -100,6 +117,30 @@ impl NvmfTarget {
             .expect("Failed to start spdk!");
 
         wait_for_mayastor_ready(TARGET_PORT).expect("mayastor not ready");
+
+        // create base bdev
+        let result = Command::new("../target/debug/mayastor-client")
+            .arg("bdev")
+            .arg("create")
+            .arg("malloc:///m0?size_mb=64&blk_size=4096&uuid=dbe4d7eb-118a-4d15-b789-a18d9af6ff29")
+            .output();
+
+        if Self::get_status(result) {
+            println!("base bdev created");
+
+            // share bdev over nvmf
+            let result = Command::new("../target/debug/mayastor-client")
+                .arg("bdev")
+                .arg("share")
+                .arg("-p")
+                .arg("nvmf")
+                .arg("m0")
+                .output();
+
+            if Self::get_status(result) {
+                println!("bdev shared");
+            }
+        }
 
         let _ = DiscoveryBuilder::default()
             .transport("tcp".to_string())

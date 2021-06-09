@@ -323,7 +323,6 @@ fn main() {
         let mut cfg = Config::default();
         cfg.nexus_opts.iscsi_enable = false;
         cfg.nexus_opts.nvmf_enable = false;
-        cfg.sync_disable = true;
         cfg
     });
 

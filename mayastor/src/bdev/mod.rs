@@ -12,7 +12,6 @@ pub use nexus::{
         VerboseError,
     },
     nexus_child::{lookup_nexus_child, ChildState, Reason},
-    nexus_child_status_config,
     nexus_label::{GptEntry, GptGuid as Guid, GptHeader},
     nexus_metadata::{
         MetaDataChildEntry,

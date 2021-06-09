@@ -20,7 +20,7 @@ use crate::{
                 RemoveRebuildJob,
             },
             nexus_channel::DrEvent,
-            nexus_child::{ChildState, NexusChild, Reason},
+            nexus_child::{ChildState, Reason},
         },
         VerboseError,
     },
@@ -261,7 +261,6 @@ impl Nexus {
         match job.state() {
             RebuildState::Completed => {
                 recovering_child.set_state(ChildState::Open);
-                NexusChild::save_state_change();
                 info!(
                     "Child {} has been rebuilt successfully",
                     recovering_child.get_name()

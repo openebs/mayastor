@@ -6,16 +6,8 @@
 //! spell out the YAML spec for a given sub component. Serde will fill
 //! in the default when missing, which are defined within the individual
 //! options.
-use std::{
-    convert::TryFrom,
-    fmt::Display,
-    fs,
-    fs::File,
-    io::Write,
-    path::Path,
-};
+use std::{fmt::Display, fs, io::Write, path::Path};
 
-use byte_unit::Byte;
 use futures::FutureExt;
 use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
@@ -29,32 +21,14 @@ use spdk_sys::{
 };
 
 use crate::{
-    bdev::{
-        nexus::{
-            instances,
-            nexus_child::{ChildState, NexusChild, Reason},
-            nexus_child_status_config::ChildStatusConfig,
-        },
-        nexus_create,
-        VerboseError,
-    },
-    core::{Bdev, Cores, Reactor, Share},
     jsonrpc::{jsonrpc_register, Code, RpcErrorCode},
-    lvs::Lvs,
-    nexus_uri::bdev_create,
-    pool::PoolsIter,
-    replica::{ReplicaIter, ShareType},
-    subsys::{
-        config::opts::{
-            BdevOpts,
-            GetOpts,
-            IscsiTgtOpts,
-            NexusOpts,
-            NvmeBdevOpts,
-            NvmfTgtConfig,
-            PosixSocketOpts,
-        },
-        NvmfSubsystem,
+    subsys::config::opts::{
+        BdevOpts,
+        GetOpts,
+        IscsiTgtOpts,
+        NexusOpts,
+        NvmeBdevOpts,
+        NvmfTgtConfig,
     },
 };
 
@@ -66,7 +40,9 @@ impl RpcErrorCode for Error {
         Code::InternalError
     }
 }
+
 pub(crate) mod opts;
+pub(crate) mod pool;
 
 pub static CONFIG: OnceCell<Config> = OnceCell::new();
 
@@ -154,20 +130,6 @@ pub struct Config {
     pub bdev_opts: BdevOpts,
     /// nexus specific options
     pub nexus_opts: NexusOpts,
-    /// list of pools to create on load
-    pub pools: Option<Vec<Pool>>,
-    ///
-    /// The next options are intended for usage during testing
-    ///
-    /// list of bdevs to be created on load
-    pub base_bdevs: Option<Vec<BaseBdev>>,
-    /// list of nexus bdevs that will create the base bdevs implicitly
-    pub nexus_bdevs: Option<Vec<NexusBdev>>,
-    /// any base bdevs created implicitly are shared over nvmf
-    pub implicit_share_base: bool,
-    /// flag to enable or disable config sync
-    pub sync_disable: bool,
-    pub socket_opts: PosixSocketOpts,
 }
 
 impl Default for Config {
@@ -179,12 +141,6 @@ impl Default for Config {
             nvme_bdev_opts: Default::default(),
             bdev_opts: Default::default(),
             nexus_opts: Default::default(),
-            base_bdevs: None,
-            nexus_bdevs: None,
-            pools: None,
-            implicit_share_base: false,
-            sync_disable: false,
-            socket_opts: Default::default(),
         }
     }
 }
@@ -230,10 +186,8 @@ impl Config {
             config = Config::default();
         }
 
-        if !config.sync_disable {
-            // use the source luke!
-            config.source = Some(file.to_string());
-        }
+        config.source = Some(file.to_string());
+
         Ok(config)
     }
 
@@ -244,93 +198,14 @@ impl Config {
         // such that we can scribble in the current bdevs. The config
         // gets loaded with the current settings, as we know that these
         // are immutable, we can copy them with any locks held
-        let mut current = Config {
+        Config {
             source: self.source.clone(),
             nvmf_tcp_tgt_conf: self.nvmf_tcp_tgt_conf.get(),
             iscsi_tgt_conf: self.iscsi_tgt_conf.get(),
             nvme_bdev_opts: self.nvme_bdev_opts.get(),
             bdev_opts: self.bdev_opts.get(),
             nexus_opts: self.nexus_opts.get(),
-            base_bdevs: None,
-            nexus_bdevs: None,
-            pools: None,
-            implicit_share_base: self.implicit_share_base,
-            sync_disable: self.sync_disable,
-            socket_opts: self.socket_opts.get(),
-        };
-
-        // collect nexus bdevs and insert them into the config
-        let nexus_bdevs = instances()
-            .iter()
-            .map(|nexus| NexusBdev {
-                name: nexus.name.clone(),
-                uuid: nexus.bdev.uuid_as_string(),
-                size: nexus.bdev.size_in_bytes().to_string(),
-                children: nexus
-                    .children
-                    .iter()
-                    .map(|child| child.get_name().to_string())
-                    .collect::<Vec<_>>(),
-            })
-            .collect::<Vec<_>>();
-
-        // collect base bdevs and insert them into the config
-        if let Some(bdevs) = Bdev::bdev_first() {
-            let result = bdevs
-                .into_iter()
-                .filter(|b| url::Url::try_from(b.clone()).is_ok())
-                .map(|b| BaseBdev {
-                    uri: url::Url::try_from(b.clone())
-                        .map_or(b.name(), |u| u.to_string()),
-                })
-                .collect::<Vec<_>>();
-
-            current.base_bdevs = Some(result);
         }
-
-        current.nexus_bdevs = Some(nexus_bdevs);
-
-        // collect any pools that are on the system, and insert them
-        let pools = PoolsIter::new()
-            .map(|p| {
-                let base = p.get_base_bdev();
-                let name = p.get_name();
-                Pool {
-                    name: name.to_string(),
-                    disks: vec![base.bdev_uri().unwrap_or_else(|| base.name())],
-                    replicas: ReplicaIter::new()
-                        .filter(|r| r.get_pool_name() == name)
-                        .map(|r| Replica {
-                            name: r.get_name().to_string(),
-                            share: r.get_share_type(),
-                        })
-                        .collect(),
-                }
-            })
-            .collect();
-
-        current.pools = Some(pools);
-
-        current
-    }
-
-    /// write the current pool configuration to disk
-    pub fn write_pools<P>(&self, file: P) -> Result<(), std::io::Error>
-    where
-        P: AsRef<Path>,
-    {
-        let pools = serde_json::json!({
-            "pools": self.pools.clone()
-        });
-
-        if let Ok(s) = serde_yaml::to_string(&pools) {
-            let mut file = File::create(file)?;
-            return file.write_all(s.as_bytes());
-        }
-        Err(std::io::Error::new(
-            std::io::ErrorKind::Other,
-            "failed to serialize the pool config",
-        ))
     }
 
     /// write the current configuration to disk
@@ -339,7 +214,7 @@ impl Config {
         P: AsRef<Path>,
     {
         if let Ok(s) = serde_yaml::to_string(&self) {
-            let mut file = File::create(file)?;
+            let mut file = fs::File::create(file)?;
             return file.write_all(s.as_bytes());
         }
         Err(std::io::Error::new(
@@ -356,7 +231,6 @@ impl Config {
     /// it does not consult a global (mutable) data structure
     pub fn apply(&self) {
         info!("Applying Mayastor configuration settings");
-        assert!(self.socket_opts.set());
         assert!(self.nvme_bdev_opts.set());
         assert!(self.bdev_opts.set());
 
@@ -364,248 +238,4 @@ impl Config {
         self.iscsi_tgt_conf.set();
         debug!("{:#?}", self);
     }
-
-    /// create any nexus bdevs any failure will be logged, but we will silently
-    /// continue and try to create as many as possible. Returns the number of
-    /// bdevs for which the creation failed.
-    async fn create_nexus_bdevs(&self) -> usize {
-        let mut failures = 0;
-        info!("creating nexus devices");
-
-        // we can't use iterators here as they are not async
-        if let Some(bdevs) = self.nexus_bdevs.as_ref() {
-            for nexus in bdevs {
-                info!("creating nexus {}", nexus.name);
-                match Byte::from_str(&nexus.size) {
-                    Ok(val) => {
-                        if let Err(e) = nexus_create(
-                            &nexus.name,
-                            val.get_bytes() as u64,
-                            Some(&nexus.uuid),
-                            &nexus.children,
-                        )
-                        .await
-                        {
-                            error!(
-                                "Failed to create nexus {}, error={}",
-                                nexus.name,
-                                e.verbose()
-                            );
-                            failures += 1;
-                        }
-                    }
-                    Err(_e) => {
-                        failures += 1;
-                        error!(
-                            "Invalid size {} for {}",
-                            &nexus.size, nexus.name
-                        );
-                    }
-                }
-            }
-        }
-
-        // Apply the saved child status and start rebuilding any degraded
-        // children
-        ChildStatusConfig::apply().await;
-        self.start_rebuilds().await;
-
-        failures
-    }
-
-    /// start rebuilding any child that is in the degraded state
-    async fn start_rebuilds(&self) {
-        if let Some(nexuses) = self.nexus_bdevs.as_ref() {
-            for nexus in nexuses {
-                if let Some(nexus_instance) =
-                    instances().iter().find(|n| n.name == nexus.name)
-                {
-                    let degraded_children: Vec<&NexusChild> = nexus_instance
-                        .children
-                        .iter()
-                        .filter(|child| {
-                            child.state()
-                                == ChildState::Faulted(Reason::OutOfSync)
-                        })
-                        .collect::<Vec<_>>();
-
-                    // Get a mutable reference to the nexus instance. We can't
-                    // do this when we first get the nexus instance (above)
-                    // because it would cause multiple mutable borrows.
-                    // We use "expect" here because we have already checked that
-                    // the nexus exists above so we don't expect this to fail.
-                    let nexus_instance = instances()
-                        .iter_mut()
-                        .find(|n| n.name == nexus.name)
-                        .expect("Failed to find nexus");
-
-                    for child in degraded_children {
-                        dbg!("Start rebuilding child {}", child.get_name());
-                        if nexus_instance
-                            .start_rebuild(child.get_name())
-                            .await
-                            .is_err()
-                        {
-                            error!("Failed to start rebuild for {}", child);
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /// create base bdevs and export these over nvmf if configured
-    async fn create_base_bdevs(&self) -> usize {
-        let mut failures: usize = 0;
-        if let Some(bdevs) = self.base_bdevs.as_ref() {
-            for bdev in bdevs {
-                info!("creating bdev {}", bdev.uri);
-                if let Err(e) = bdev_create(&bdev.uri).await {
-                    warn!(
-                        "failed to create bdev {} during config load, error={}",
-                        bdev.uri,
-                        e.verbose(),
-                    );
-                    failures += 1;
-                    continue;
-                }
-
-                let my_bdev = Bdev::lookup_by_name(&bdev.uri).unwrap();
-                let uuid = my_bdev.uuid_as_string();
-
-                if !self.implicit_share_base {
-                    continue;
-                }
-
-                if let Ok(ss) = NvmfSubsystem::new_with_uuid(&uuid, &my_bdev) {
-                    // TODO: ss.set_cntlid_range(min, max);
-                    ss.start()
-                        .await
-                        .map_err(|_| {
-                            warn!("failed to share {}", my_bdev);
-                        })
-                        .unwrap();
-                }
-            }
-        }
-        failures
-    }
-
-    /// Create any pools defined in the config file.
-    async fn create_pools(&self) -> usize {
-        let mut failures = 0;
-        if let Some(pools) = self.pools.as_ref() {
-            for pool in pools {
-                info!("creating pool {}", pool.name);
-                if let Err(e) = Lvs::create_or_import(pool.into()).await {
-                    error!(
-                        "Failed to create pool {}. {}",
-                        pool.name,
-                        e.verbose()
-                    );
-                    failures += 1;
-                }
-            }
-        }
-        failures
-    }
-
-    pub fn import_nexuses() -> bool {
-        match std::env::var_os("IMPORT_NEXUSES") {
-            Some(val) => val.into_string().unwrap().parse::<bool>().unwrap(),
-            None => true,
-        }
-    }
-
-    /// Import bdevs with a specific order
-    pub fn import_bdevs(&'static self) {
-        assert_eq!(Cores::current(), Cores::first());
-        Reactor::block_on(async move {
-            // There should not be any duplicate bdevs in the config
-            // file. We count any creation failures, but we do not retry.
-
-            // The nexus should be created after the pools as it may be using
-            // the pool's lvol
-            // The base bdevs need to be created after the nexus as otherwise
-            // the nexus create will fail
-
-            let mut errors = self.create_pools().await;
-
-            if Self::import_nexuses() {
-                errors += self.create_nexus_bdevs().await;
-            }
-
-            errors += self.create_base_bdevs().await;
-
-            if errors != 0 {
-                warn!("Not all bdevs({}) were imported successfully", errors);
-            }
-        });
-    }
-
-    /// exports the current configuration to the mayastor config file
-    pub(crate) fn export_config() -> Result<(), std::io::Error> {
-        let cfg = Config::get().refresh();
-        match cfg.source.as_ref() {
-            Some(target) => cfg.write_pools(&target),
-            // no config file to export to
-            None => Ok(()),
-        }
-    }
-}
-
-#[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
-/// Nexus bdevs to be created. The children are created implicitly this means
-/// that if a base_bdev, and a nexus child refer to the same resources, the
-/// creation of the nexus will fail.
-pub struct NexusBdev {
-    /// name of the nexus to be created
-    pub name: String,
-    /// UUID the nexus should take. Note that we do not check currently if the
-    /// GPT labels have the same UUID
-    pub uuid: String,
-    /// the size of the nexus -- will be removed soon we hope
-    pub size: String,
-    /// the children the nexus should be created on
-    pub children: Vec<String>,
-}
-
-#[derive(Debug, Default, PartialEq, Serialize, Deserialize)]
-/// Base bdevs are bdevs that do not belong to a pool. This is used
-/// mostly for testing. Typically, our replicas are always served from
-/// pools.
-pub struct BaseBdev {
-    /// bdevs to create outside of the nexus control
-    pub uri: String,
-}
-
-#[derive(Debug, Default, PartialEq, Serialize, Deserialize, Clone)]
-/// Pools that we create. Future work will include the ability to create RAID0
-/// or RAID5.
-pub struct Pool {
-    /// name of the pool to be created or imported
-    pub name: String,
-    /// bdevs to create outside of the nexus control
-    pub disks: Vec<String>,
-    /// list of replicas (not required, informational only)
-    pub replicas: Vec<Replica>,
-}
-
-/// Convert Pool into a gRPC request payload
-impl From<&Pool> for rpc::mayastor::CreatePoolRequest {
-    fn from(o: &Pool) -> Self {
-        Self {
-            name: o.name.clone(),
-            disks: o.disks.clone(),
-        }
-    }
-}
-
-#[derive(Debug, Default, PartialEq, Serialize, Deserialize, Clone)]
-/// Pool replicas that we share via `ShareType`
-pub struct Replica {
-    /// name of the replica
-    pub name: String,
-    /// share type if shared
-    pub share: Option<ShareType>,
 }

@@ -55,6 +55,7 @@ spec:
         - "-g$(MY_POD_IP)"
         - "-nnats"
         - "-y/var/local/mayastor/config.yaml"
+        - "-P/var/local/mayastor/pools.yaml"
         - "-l0"
         - "-pmayastor-etcd"
         securityContext:
