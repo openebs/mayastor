@@ -4,6 +4,7 @@
 
 /* eslint-disable no-unused-expressions */
 
+const _ = require('lodash');
 const expect = require('chai').expect;
 const fs = require('fs').promises;
 const grpc = require('@grpc/grpc-js');
@@ -20,6 +21,7 @@ const { shouldFailWith } = require('./utils');
 const SOCKPATH = '/tmp/csi_controller_test.sock';
 // uuid used whenever we need some uuid and don't care about which one
 const UUID = 'd01b8bfb-0116-47b0-a03a-447fcbdc0e99';
+const UUID2 = 'a01b8bfb-0116-47b0-a03a-447fcbdc0e92';
 const YAML_TRUE_VALUE = [
   'y', 'Y', 'yes', 'Yes', 'YES',
   'true', 'True', 'TRUE',
@@ -593,11 +595,13 @@ module.exports = function () {
         );
       });
 
-      it('should detect duplicate create volume request', (done) => {
+      it('should serialize all requests and detect duplicates', (done) => {
         // We must sleep in the stub. Otherwise reply is sent before the second
         // request comes in.
+        this.timeout(1000);
+        const delay = 50;
         createVolumeStub.callsFake(async () => {
-          await sleep(10);
+          await sleep(delay);
           return returnedVolume(defaultParams);
         });
         const create1 = client.pcall('createVolume', {
@@ -615,6 +619,20 @@ module.exports = function () {
           parameters: { repl: '3', protocol: 'nvmf' }
         });
         const create2 = client.pcall('createVolume', {
+          name: 'pvc-' + UUID2,
+          capacityRange: {
+            requiredBytes: 50,
+            limitBytes: 70
+          },
+          volumeCapabilities: [
+            {
+              accessMode: { mode: 'SINGLE_NODE_WRITER' },
+              block: {}
+            }
+          ],
+          parameters: { repl: '3', protocol: 'nvmf' }
+        });
+        const create3 = client.pcall('createVolume', {
           name: 'pvc-' + UUID,
           capacityRange: {
             requiredBytes: 50,
@@ -628,11 +646,14 @@ module.exports = function () {
           ],
           parameters: { repl: '3', protocol: 'nvmf' }
         });
-        Promise.all([create1, create2]).then((results) => {
-          expect(results).to.have.lengthOf(2);
+        const start = new Date();
+        Promise.all([create1, create2, create3]).then((results) => {
+          expect(results).to.have.lengthOf(3);
           expect(results[0].volume.volumeId).to.equal(UUID);
-          expect(results[1].volume.volumeId).to.equal(UUID);
-          sinon.assert.calledOnce(createVolumeStub);
+          expect(results[1].volume.volumeId).to.equal(UUID2);
+          expect(results[2].volume.volumeId).to.equal(UUID);
+          sinon.assert.calledTwice(createVolumeStub);
+          expect(new Date() - start).to.be.above(2 * delay - 1);
           done();
         });
       });
@@ -824,7 +845,8 @@ module.exports = function () {
         sinon.assert.calledWith(publishStub, 'node2');
       });
 
-      it('should detect duplicate publish volume request', (done) => {
+      it('should serialize all requests and detect duplicates', (done) => {
+        const delay = 50;
         const iscsiUri = `iscsi://host/iqn-${UUID}`;
         const publishArgs = {
           volumeId: UUID,
@@ -839,12 +861,14 @@ module.exports = function () {
           },
           volumeContext: { protocol: 'iscsi' }
         };
+        const publishArgs2 = _.clone(publishArgs);
+        publishArgs.volumeId = UUID2;
         const volume = new Volume(UUID, registry, new EventEmitter(), volumeArgs);
         const publishStub = sinon.stub(volume, 'publish');
         // We must sleep in the stub. Otherwise reply is sent before the second
         // request comes in.
         publishStub.callsFake(async () => {
-          await sleep(10);
+          await sleep(delay);
           return iscsiUri;
         });
         const getNodeNameStub = sinon.stub(volume, 'getNodeName');
@@ -852,12 +876,16 @@ module.exports = function () {
         getVolumesStub.returns(volume);
 
         const publish1 = client.pcall('controllerPublishVolume', publishArgs);
-        const publish2 = client.pcall('controllerPublishVolume', publishArgs);
-        Promise.all([publish1, publish2]).then((results) => {
-          sinon.assert.calledOnce(publishStub);
-          expect(results).to.have.lengthOf(2);
+        const publish2 = client.pcall('controllerPublishVolume', publishArgs2);
+        const publish3 = client.pcall('controllerPublishVolume', publishArgs);
+        const start = new Date();
+        Promise.all([publish1, publish2, publish3]).then((results) => {
+          expect(results).to.have.lengthOf(3);
           expect(results[0].publishContext.uri).to.equal(iscsiUri);
           expect(results[1].publishContext.uri).to.equal(iscsiUri);
+          expect(results[2].publishContext.uri).to.equal(iscsiUri);
+          sinon.assert.calledTwice(publishStub);
+          expect(new Date() - start).to.be.above(2 * delay - 1);
           done();
         });
       });

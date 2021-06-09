@@ -21,14 +21,12 @@ export class Volumes extends events.EventEmitter {
   private registry: any;
   private events: any; // stream of events from registry
   private volumes: Record<string, Volume>; // volumes indexed by uuid
-  private createWorkq: Workq;
 
   constructor (registry: any) {
     super();
     this.registry = registry;
     this.events = null;
     this.volumes = {};
-    this.createWorkq = new Workq('create volume');
   }
 
   start() {
@@ -100,8 +98,9 @@ export class Volumes extends events.EventEmitter {
     return Object.values(this.volumes);
   }
 
-  // We have to serialize create volume requests because concurrent creates
-  // can create havoc in space accounting and contribute to overall mess.
+  // Create volume object (just the object) and add it to the internal list
+  // of volumes. The method is idempotent. If a volume with the same uuid
+  // already exists, then update its parameters.
   //
   // @param   {string}   uuid                 ID of the volume.
   // @param   {object}   spec                 Properties of the volume.
@@ -113,16 +112,6 @@ export class Volumes extends events.EventEmitter {
   // @params  {string}   spec.protocol        The share protocol for the nexus.
   // @returns {object}   New volume object.
   async createVolume(uuid: string, spec: VolumeSpec): Promise<Volume> {
-    return await this.createWorkq.push({uuid, spec}, (args: CreateArgs) => {
-      return this._createVolume(args.uuid, args.spec);
-    });
-  }
-
-  // Create volume object (just the object) and add it to the internal list
-  // of volumes. The method is idempotent. If a volume with the same uuid
-  // already exists, then update its parameters.
-  //
-  async _createVolume(uuid: string, spec: VolumeSpec): Promise<Volume> {
     if (!spec.requiredBytes || spec.requiredBytes < 0) {
       throw new GrpcError(
         grpcCode.INVALID_ARGUMENT,
