@@ -36,7 +36,7 @@ use uuid::Uuid;
 
 mod iscsi;
 mod nbd;
-mod nvmf;
+pub(crate) mod nvmf;
 mod util;
 
 const NVME_NQN_PREFIX: &str = "nqn.2019-05.io.openebs";
@@ -54,6 +54,7 @@ pub trait Attach: Sync + Send {
     ) -> Result<(), DeviceError>;
     async fn attach(&self) -> Result<(), DeviceError>;
     async fn find(&self) -> Result<Option<DeviceName>, DeviceError>;
+    /// Fixup parameters which cannot be set during attach, eg IO timeout
     async fn fixup(&self) -> Result<(), DeviceError>;
 }
 
