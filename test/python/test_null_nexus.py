@@ -133,11 +133,10 @@ def create_nexus_devices(mayastors, share_null_devs):
     rlist_m2 = mayastors.get('ms2').bdev_list()
 
     assert len(rlist_m0) == len(rlist_m1) == len(rlist_m2)
-    
+
     ms = mayastors.get('ms3')
 
     for uuid in nexus_uuids:
-        time.sleep(0.1)
         ms.nexus_create(uuid,
                         94 * 1024 * 1024,
                         [rlist_m0.pop().share_uri,
