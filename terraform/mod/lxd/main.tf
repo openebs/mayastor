@@ -6,6 +6,12 @@ variable "num_nodes" {
   default = 3
 }
 
+variable "memory" {
+}
+
+variable "vcpu" {
+}
+
 resource "lxd_cached_image" "ubuntu" {
   source_remote = "ubuntu"
   source_image  = "bionic/amd64"

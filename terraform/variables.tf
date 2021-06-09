@@ -57,6 +57,18 @@ variable "nr_hugepages" {
   default     = "512"
 }
 
+variable "memory" {
+  type        = number
+  default     = 4096
+  description = "Amount of memory (MiB) allocated to each node - only needed for libvirt provider"
+}
+
+variable "vcpu" {
+  type        = number
+  default     = 2
+  description = "Virtual CPUs allocated to each node - only needed for libvirt provider"
+}
+
 variable "modprobe_nvme" {
   type        = string
   description = "modprobe nvme tcp selector for node.sh"
