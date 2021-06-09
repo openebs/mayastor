@@ -16,3 +16,4 @@ etcd:
   persistence:
     enabled: false
 
+mayastorLogLevel: info
