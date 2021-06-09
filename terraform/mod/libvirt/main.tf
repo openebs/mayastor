@@ -6,6 +6,12 @@ variable "image_path" {
 variable "num_nodes" {
 }
 
+variable "memory" {
+}
+
+variable "vcpu" {
+}
+
 variable "hostname_formatter" {
 }
 
@@ -81,8 +87,8 @@ resource "libvirt_cloudinit_disk" "commoninit" {
 resource "libvirt_domain" "ubuntu-domain" {
   count     = var.num_nodes
   name      = format(var.hostname_formatter, count.index + 1)
-  memory    = 4096
-  vcpu      = 2
+  memory    = var.memory
+  vcpu      = var.vcpu
   autostart = true
 
   cloudinit = libvirt_cloudinit_disk.commoninit[count.index].id
