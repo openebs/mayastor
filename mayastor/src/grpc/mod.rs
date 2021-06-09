@@ -4,9 +4,8 @@ use std::{
 };
 
 use futures::{channel::oneshot::Receiver, Future};
-use tonic::{Response, Status};
-
 pub use server::MayastorGrpcServer;
+use tonic::{Response, Status};
 
 use crate::{
     core::{CoreError, Mthread, Reactor},
@@ -40,6 +39,12 @@ mod json_grpc;
 mod mayastor_grpc;
 mod nexus_grpc;
 mod server;
+
+#[async_trait::async_trait]
+/// trait to lock serialize gRPC request outstanding
+pub(crate) trait Serializer<F, R> {
+    async fn locked(&self, f: F) -> R;
+}
 
 pub type GrpcResult<T> = std::result::Result<Response<T>, Status>;
 
