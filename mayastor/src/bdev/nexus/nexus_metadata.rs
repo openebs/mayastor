@@ -417,9 +417,7 @@ impl NexusMetaData {
     }
 
     /// Get the location of the MetaDataIndex
-    pub(crate) fn get_index_lba(
-        label: &NexusLabel,
-    ) -> Result<u64, MetaDataError> {
+    pub fn get_index_lba(label: &NexusLabel) -> Result<u64, MetaDataError> {
         match label.get_partition("MayaMeta") {
             Some(entry) => Ok(entry.ent_start + 1),
             None => Err(MetaDataError::MissingPartition {
@@ -430,7 +428,7 @@ impl NexusMetaData {
 
     /// Check that a valid MetaDataIndex exists on the MayaMeta partition,
     /// and that it is consistent with the NexusChild object.
-    pub(crate) async fn validate_index(
+    pub async fn validate_index(
         child: &NexusChild,
     ) -> Result<(), MetaDataError> {
         if let Some(index) = NexusMetaData::get_index(child).await? {

@@ -150,8 +150,8 @@ async fn read_write_metadata() {
     });
     data.push(object);
 
-    // check if default index was created
-    assert!(NexusMetaData::get_index(&child).await.unwrap().is_some());
+    // check if the offset into the "MayaMeta" partition has been set
+    assert!(child.metadata_index_lba > 0);
 
     // create a (new) index with a capacity of 4
     let now = SystemTime::now();

@@ -58,7 +58,6 @@ use std::{
     fmt,
     io::{Cursor, Seek, SeekFrom},
     str::FromStr,
-    time::SystemTime,
 };
 
 use bincode::{deserialize_from, serialize, serialize_into, Error};
@@ -76,7 +75,7 @@ use crate::{
     bdev::nexus::{
         nexus_bdev::Nexus,
         nexus_child::NexusChild,
-        nexus_metadata::{MetaDataError, MetaDataIndex, NexusMetaData},
+        nexus_metadata::{MetaDataError, NexusMetaData},
     },
     core::{BlockDeviceHandle, CoreError, DmaBuf, DmaError},
 };
@@ -117,30 +116,14 @@ pub enum LabelError {
     DeviceTooSmall { num_blocks: u64, block_size: u64 },
     #[snafu(display("Child data offsets differ for nexus {}", name))]
     DataOffsetMismatch { name: String },
-    #[snafu(display(
-        "Error creating MetaDataIndex for child {}: {}",
-        name,
-        source
-    ))]
-    IndexCreate { source: MetaDataError, name: String },
-    #[snafu(display(
-        "Error locating MetaDataIndex for child {}: {}",
-        name,
-        source
-    ))]
-    IndexLocate { source: MetaDataError, name: String },
+    #[snafu(display("Nexus {} has no children", name))]
+    MissingChildren { name: String },
     #[snafu(display(
         "Error setting MetaDataIndex address for child {}: {}",
         name,
         source
     ))]
     IndexAddress { source: MetaDataError, name: String },
-    #[snafu(display(
-        "Error validating MetaDataIndex for child {}: {}",
-        name,
-        source
-    ))]
-    InvalidIndex { source: MetaDataError, name: String },
 }
 
 #[derive(Debug, Snafu)]
@@ -1185,44 +1168,39 @@ impl NexusChild {
         })
     }
 
-    /// Create new label and index on this child.
+    /// Create new label on this child.
     async fn create_label(
         &mut self,
-        guid: GptGuid,
         size: u64,
-        now: &SystemTime,
     ) -> Result<NexusLabel, LabelError> {
         // Create new label.
         info!("creating new label for child {}", self.name);
-        self.generate_and_write_label(guid, size, now).await
+        self.generate_and_write_label(size).await
     }
 
-    /// Create new or replace existing label and index
+    /// Create new or replace existing label
     /// on this child as necessary.
     async fn update_label(
         &mut self,
-        guid: GptGuid,
         size: u64,
-        now: &SystemTime,
     ) -> Result<NexusLabel, LabelError> {
         match self.probe_label().await {
             Ok(label) if NexusLabel::check_maya_partitions(&label) => {
                 // Keep existing label.
-                // Create new index (only) if none exists.
-                self.check_or_write_label(guid, &label, now).await?;
+                self.check_or_write_label(&label).await?;
                 Ok(label)
             }
             Ok(_) => {
-                // Replace existing label and index.
+                // Replace existing label.
                 info!("replacing existing label for child {}", self.name);
-                self.generate_and_write_label(guid, size, now).await
+                self.generate_and_write_label(size).await
             }
             Err(LabelError::InvalidLabel {
                 ..
             }) => {
-                // Create new label and index.
+                // Create new label.
                 info!("creating new label for child {}", self.name);
-                self.generate_and_write_label(guid, size, now).await
+                self.generate_and_write_label(size).await
             }
             Err(error) => Err(error),
         }
@@ -1247,13 +1225,12 @@ impl NexusChild {
         Ok(label)
     }
 
-    /// Create a new label and write it to this child.
-    /// Also create a new index on the (newly created) "MayaMeta" partition.
+    /// Initialise a child device.
+    /// Create a new disk label and write it to the child.
+    /// Usually called to prepare a child device for first use.
     async fn generate_and_write_label(
         &mut self,
-        parent: GptGuid,
         size: u64,
-        now: &SystemTime,
     ) -> Result<NexusLabel, LabelError> {
         let handle = self.get_io_handle().context(HandleError {
             name: self.name.clone(),
@@ -1262,6 +1239,7 @@ impl NexusChild {
         let bdev = handle.get_device();
         let guid = GptGuid::from(bdev.uuid());
 
+        // Create new disk label.
         let label = NexusLabel::generate_label(
             guid,
             bdev.block_len(),
@@ -1269,77 +1247,36 @@ impl NexusChild {
             size,
         )?;
 
-        // Write out primary and secondary labels.
-        info!("writing label to child {}", self.name);
-        let primary = NexusLabel::get_primary_data(&*handle, &label)?;
-        let secondary = NexusLabel::get_secondary_data(&*handle, &label)?;
-        handle
-            .write_at(primary.offset, &primary.buf)
-            .await
-            .context(WriteError {
-                name: self.name.clone(),
-            })?;
-        handle
-            .write_at(secondary.offset, &secondary.buf)
-            .await
-            .context(WriteError {
-                name: self.name.clone(),
-            })?;
-
-        // Create a new index on the "MayaMeta" partition.
-        let index_lba =
-            NexusMetaData::get_index_lba(&label).context(IndexCreate {
-                name: self.name.clone(),
-            })?;
-
-        let mut index = MetaDataIndex::new(
-            parent,
-            guid,
-            index_lba,
-            NexusMetaData::METADATA_INDEX_CAPACITY,
-        );
-
-        info!("writing index to child {}", self.name);
-        let mut buf =
-            handle.dma_malloc(label.block_size).context(WriteAlloc {
-                name: String::from("index"),
-            })?;
-
-        NexusMetaData::write_index(&mut buf, &mut index, now)
-            .context(SerializeError {})?;
-
-        handle
-            .write_at(index.self_lba * label.block_size, &buf)
-            .await
-            .context(WriteError {
-                name: self.name.clone(),
-            })?;
-
-        if self.guid != guid {
-            // Set GUID for this child to match that of the associated bdev.
-            self.guid = guid;
-            info!(
-                "setting GUID to {} for child {} to match bdev",
-                self.guid, self.name
-            );
-        }
+        // Sync label.
+        self.write_label(&*handle, &label).await?;
 
         Ok(label)
     }
 
-    /// Check primary and secondary disk labels on this child, updating
-    /// as necessary to ensure consistency. Also check the index on the
-    /// "MayaMeta" partition, creating a new one if none exists.
+    /// Validate a child device.
+    /// Ensure that both primary and secondary disk labels
+    /// are synced with the device as required. Usually called
+    /// to prepare a child device that has been used previously.
     async fn check_or_write_label(
         &mut self,
-        parent: GptGuid,
         label: &NexusLabel,
-        now: &SystemTime,
     ) -> Result<(), LabelError> {
         let handle = self.get_io_handle().context(HandleError {
             name: self.name.clone(),
         })?;
 
+        // Sync label.
+        self.write_label(&*handle, label).await?;
+
+        Ok(())
+    }
+
+    /// Sync primary and secondary disk labels on this child.
+    async fn write_label(
+        &self,
+        handle: &dyn BlockDeviceHandle,
+        label: &NexusLabel,
+    ) -> Result<(), LabelError> {
         match label.status {
             NexusLabelStatus::Both => {
                 // Nothing to do as both labels on disk are valid.
@@ -1347,8 +1284,7 @@ impl NexusChild {
             NexusLabelStatus::Primary => {
                 // Only write out secondary as disk already has valid primary.
                 info!("writing secondary label to child {}", self.name);
-                let secondary =
-                    NexusLabel::get_secondary_data(&*handle, label)?;
+                let secondary = NexusLabel::get_secondary_data(handle, label)?;
                 handle
                     .write_at(secondary.offset, &secondary.buf)
                     .await
@@ -1359,7 +1295,7 @@ impl NexusChild {
             NexusLabelStatus::Secondary => {
                 // Only write out primary as disk already has valid secondary.
                 info!("writing primary label to child {}", self.name);
-                let primary = NexusLabel::get_primary_data(&*handle, label)?;
+                let primary = NexusLabel::get_primary_data(handle, label)?;
                 handle
                     .write_at(primary.offset, &primary.buf)
                     .await
@@ -1370,9 +1306,8 @@ impl NexusChild {
             NexusLabelStatus::Neither => {
                 // Write out both labels.
                 info!("writing label to child {}", self.name);
-                let primary = NexusLabel::get_primary_data(&*handle, label)?;
-                let secondary =
-                    NexusLabel::get_secondary_data(&*handle, label)?;
+                let primary = NexusLabel::get_primary_data(handle, label)?;
+                let secondary = NexusLabel::get_secondary_data(handle, label)?;
                 handle
                     .write_at(primary.offset, &primary.buf)
                     .await
@@ -1386,75 +1321,6 @@ impl NexusChild {
                         name: self.name.clone(),
                     })?;
             }
-        }
-
-        // Check if there is a valid index on the "MayaMeta" partition.
-        let index_lba =
-            NexusMetaData::get_index_lba(label).context(IndexLocate {
-                name: self.name.clone(),
-            })?;
-
-        let mut buf =
-            handle.dma_malloc(label.block_size).context(ReadAlloc {
-                name: String::from("index"),
-            })?;
-
-        handle
-            .read_at(index_lba * label.block_size, &mut buf)
-            .await
-            .context(ReadError {
-                name: String::from("index"),
-            })?;
-
-        if let Ok(index) = MetaDataIndex::from_slice(buf.as_slice()) {
-            if index.self_lba != index_lba {
-                return Err(LabelError::InvalidIndex {
-                    source: MetaDataError::IndexSelfAddress {},
-                    name: self.name.clone(),
-                });
-            }
-
-            if self.guid != index.guid {
-                // Set GUID for this child to match that stored in the index.
-                self.guid = index.guid;
-                info!(
-                    "setting GUID to {} for child {} to match index",
-                    self.guid, self.name
-                );
-            }
-
-            return Ok(());
-        }
-
-        let bdev = handle.get_device();
-        let guid = GptGuid::from(bdev.uuid());
-
-        // Create a new index on the "MayaMeta" partition.
-        let mut index = MetaDataIndex::new(
-            parent,
-            guid,
-            index_lba,
-            NexusMetaData::METADATA_INDEX_CAPACITY,
-        );
-
-        info!("writing index to child {}", self.name);
-        NexusMetaData::write_index(&mut buf, &mut index, now)
-            .context(SerializeError {})?;
-
-        handle
-            .write_at(index.self_lba * label.block_size, &buf)
-            .await
-            .context(WriteError {
-                name: self.name.clone(),
-            })?;
-
-        if self.guid != guid {
-            // Set GUID for this child to match that of the associated bdev.
-            self.guid = guid;
-            info!(
-                "setting GUID to {} for child {} to match bdev",
-                self.guid, self.name
-            );
         }
 
         Ok(())
@@ -1466,7 +1332,14 @@ impl Nexus {
     pub(crate) async fn validate_child_labels(
         &mut self,
     ) -> Result<(), LabelError> {
+        if self.children.is_empty() {
+            return Err(LabelError::MissingChildren {
+                name: self.name.clone(),
+            });
+        }
+
         let block_size = u64::from(self.bdev.block_len());
+
         let mut offsets: Vec<u64> = Vec::new();
         let mut size = self.size;
 
@@ -1481,13 +1354,6 @@ impl Nexus {
                     })?;
             }
 
-            // Check that a valid MetaDataIndex exists
-            NexusMetaData::validate_index(child).await.context(
-                InvalidIndex {
-                    name: child.name.clone(),
-                },
-            )?;
-
             // Append the offset of the Data partition
             offsets.push(label.partition_offset("MayaData")?);
 
@@ -1495,17 +1361,17 @@ impl Nexus {
             size = min(size, label.partition_size("MayaData")?);
         }
 
-        // Set the (common) "Data" offset
-        match unique(&offsets) {
-            Some(&value) => {
-                self.data_ent_offset = value / block_size;
-            }
-            None => {
-                return Err(LabelError::DataOffsetMismatch {
-                    name: self.name.clone(),
-                });
-            }
+        // Ensure Data partitions offsets are identical for all children.
+        offsets.dedup();
+
+        if offsets.len() != 1 {
+            return Err(LabelError::DataOffsetMismatch {
+                name: self.name.clone(),
+            });
         }
+
+        // Set the (common) "Data" offset
+        self.data_ent_offset = offsets[0] / block_size;
 
         // Set the nexus size
         self.bdev.set_block_count(size / block_size);
@@ -1517,11 +1383,14 @@ impl Nexus {
     pub(crate) async fn update_child_labels(
         &mut self,
     ) -> Result<(), LabelError> {
-        let now = SystemTime::now();
-        let guid = GptGuid::from(self.bdev.uuid());
+        if self.children.is_empty() {
+            return Err(LabelError::MissingChildren {
+                name: self.name.clone(),
+            });
+        }
 
         for child in self.children.iter_mut().filter(|c| c.is_open()) {
-            child.update_label(guid, self.size, &now).await?;
+            child.update_label(self.size).await?;
         }
 
         Ok(())
@@ -1532,15 +1401,19 @@ impl Nexus {
     pub(crate) async fn create_child_labels(
         &mut self,
     ) -> Result<(), LabelError> {
-        let now = SystemTime::now();
-        let guid = GptGuid::from(self.bdev.uuid());
+        if self.children.is_empty() {
+            return Err(LabelError::MissingChildren {
+                name: self.name.clone(),
+            });
+        }
 
         let block_size = u64::from(self.bdev.block_len());
+
         let mut offsets: Vec<u64> = Vec::new();
         let mut size = self.size;
 
         for child in self.children.iter_mut().filter(|c| c.is_open()) {
-            let label = child.create_label(guid, self.size, &now).await?;
+            let label = child.create_label(self.size).await?;
 
             if child.metadata_index_lba == 0 {
                 // Set the address of the MetaDataIndex
@@ -1557,17 +1430,17 @@ impl Nexus {
             size = min(size, label.partition_size("MayaData")?);
         }
 
-        // Set the (common) "Data" offset
-        match unique(&offsets) {
-            Some(&value) => {
-                self.data_ent_offset = value / block_size;
-            }
-            None => {
-                return Err(LabelError::DataOffsetMismatch {
-                    name: self.name.clone(),
-                });
-            }
+        // Ensure Data partitions offsets are identical for all children.
+        offsets.dedup();
+
+        if offsets.len() != 1 {
+            return Err(LabelError::DataOffsetMismatch {
+                name: self.name.clone(),
+            });
         }
+
+        // Set the (common) "Data" offset
+        self.data_ent_offset = offsets[0] / block_size;
 
         // Set the nexus size
         self.bdev.set_block_count(size / block_size);
@@ -1682,15 +1555,4 @@ impl Aligned for u64 {
             _ => blocks + 1,
         }
     }
-}
-
-/// Check that all elements in a slice have identical values.
-fn unique<T: Eq>(list: &[T]) -> Option<&T> {
-    if !list.is_empty() {
-        let first = &list[0];
-        if list.iter().skip(1).all(|value| value == first) {
-            return Some(first);
-        }
-    }
-    None
 }
