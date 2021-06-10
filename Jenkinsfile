@@ -189,7 +189,7 @@ pipeline {
   parameters {
     booleanParam(defaultValue: false, name: 'e2e_continuous')
     booleanParam(defaultValue: false, name: 'run_as_nightly')
-    booleanParam(defaultValue: true, name: 'run_e2e_test')
+    booleanParam(defaultValue: false, name: 'run_e2e_test')
   }
   triggers {
     cron(cron_schedule)
