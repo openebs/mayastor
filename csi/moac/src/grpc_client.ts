@@ -12,6 +12,7 @@ const log = Logger('grpc');
 
 const MAYASTOR_PROTO_PATH: string = path.join(__dirname, '../proto/mayastor.proto');
 const DEFAULT_TIMEOUT_MS: number = 15000;
+const SOFT_TIMEOUT_SLACK_MS: number = 1000;
 
 // Result of loadPackageDefinition() when run on mayastor proto file.
 class MayastorDef {
@@ -110,6 +111,14 @@ export class GrpcClient {
     this.timeout = (timeout === undefined) ? DEFAULT_TIMEOUT_MS : timeout;
   }
 
+  private promiseWithTimeout = (prom: Promise<any>, timeoutMs: number, exception: any) => {
+    let timer: NodeJS.Timeout;
+    return Promise.race([
+      prom,
+      new Promise((_r, rej) => timer = setTimeout(rej, timeoutMs, exception))
+    ]).finally(() => clearTimeout(timer));
+  }
+
   // Call a grpc method with arguments.
   //
   // @param method     Name of the grpc method.
@@ -123,7 +132,7 @@ export class GrpcClient {
     if (timeout === undefined) {
       timeout = this.timeout;
     }
-    return new Promise((resolve, reject) => {
+    let promise = new Promise((resolve, reject) => {
       const metadata = new grpc.Metadata();
       metadata.set('grpc-timeout', `${timeout}m`);
       this.handle[method](args, metadata, (err: Error, val: any) => {
@@ -136,6 +145,13 @@ export class GrpcClient {
         }
       });
     });
+
+    // In some conditions, the grpc-timeout we've set above is not respected and the call simply gets stuck.
+    // When the grpc-timeout is not triggered then trigger our own soft timeout which is the original
+    // timeout plus some added slack.
+    const softTimeout = timeout + SOFT_TIMEOUT_SLACK_MS;
+    const error = new GrpcError(grpcCode.DEADLINE_EXCEEDED, `Soft timeout after ${softTimeout}ms`);
+    return this.promiseWithTimeout(promise, softTimeout, error);
   }
 
   // Close the grpc handle. The client should not be used after that.
