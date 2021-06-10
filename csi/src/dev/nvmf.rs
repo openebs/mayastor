@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     convert::{From, TryFrom},
+    path::Path,
 };
 
 use nvmeadm::{
@@ -233,4 +234,19 @@ impl Detach for NvmfDetach {
     fn devname(&self) -> DeviceName {
         self.name.clone()
     }
+}
+
+/// Set the nvme_core module IO timeout
+/// (note, this is a system-wide parameter)
+pub(crate) fn set_nvmecore_iotimeout(
+    io_timeout_secs: u32,
+) -> Result<(), std::io::Error> {
+    let path = Path::new("/sys/module/nvme_core/parameters");
+    debug!(
+        "Setting nvme_core IO timeout on \"{}\" to {}s",
+        path.to_string_lossy(),
+        io_timeout_secs
+    );
+    sysfs::write_value(&path, "io_timeout", io_timeout_secs)?;
+    Ok(())
 }

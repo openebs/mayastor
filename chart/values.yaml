@@ -11,6 +11,12 @@ mayastorPools:
 # remove when no longer needed.
 moacDebug: false
 
+csi:
+  nvme:
+    # nvme_core module io timeout in seconds
+    io_timeout: "30"
+    io_timeout_enabled: true
+
 nats:
   cluster:
     enabled: false
