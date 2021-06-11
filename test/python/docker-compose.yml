@@ -79,7 +79,7 @@ services:
         - NVME_KATO_MS=1000
         - RUST_LOG=mayastor=trace
         - NEXUS_DONT_READ_LABELS=true
-    command: ${SRCDIR}/target/debug/mayastor -g 0.0.0.0 -l 11,12,13,14,15 -r /tmp/ms3.sock
+    command: ${SRCDIR}/target/debug/mayastor -g 0.0.0.0 -l 0,7 -r /tmp/ms3.sock
     networks:
       mayastor_net:
         ipv4_address: 10.0.0.5

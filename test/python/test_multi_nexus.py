@@ -1,7 +1,8 @@
 from common.hdl import MayastorHandle
-from common.command import run_cmd, run_cmd_async_at
+from common.command import run_cmd, run_cmd_async, run_cmd_async_at
 from common.nvme import nvme_remote_connect, nvme_remote_disconnect
 from common.fio import Fio
+from common.fio_spdk import FioSpdk
 import pytest
 import asyncio
 import uuid as guid
@@ -155,3 +156,29 @@ async def test_multiple(create_pool_on_all_nodes,
 
     for nexus in nexus_list:
         dev = await nvme_remote_disconnect(target_vm, nexus)
+
+
+@pytest.mark.skip
+@pytest.mark.asyncio
+async def test_multiple_spdk(create_pool_on_all_nodes,
+                        containers,
+                        mayastors):
+
+    ms1 = mayastors.get('ms1')
+    rlist_m2 = mayastors.get('ms2').replica_list().replicas
+    rlist_m3 = mayastors.get('ms3').replica_list().replicas
+    nexus_list = []
+    to_kill = containers.get("ms3")
+
+    devs = []
+
+    for i in range(30):
+        uuid = guid.uuid4()
+        ms1.nexus_create(uuid, 60 * 1024 * 1024,
+                         [rlist_m2.pop().uri, rlist_m3.pop().uri])
+        nexus_list.append(ms1.nexus_publish(uuid))
+
+    fio_cmd = FioSpdk(f"job-1", "randwrite", nexus_list).build()
+
+    await asyncio.gather(run_cmd_async(fio_cmd),
+                         kill_after(to_kill, 3))

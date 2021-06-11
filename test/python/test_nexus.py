@@ -1,5 +1,6 @@
 from common.command import run_cmd_async_at, run_cmd_async
 from common.fio import Fio
+from common.fio_spdk import FioSpdk
 from common.volume import Volume
 from common.hdl import MayastorHandle
 import logging
@@ -279,3 +280,27 @@ async def test_nexus_2_remote_mirror_kill_one(target_vm,
 
     # disconnect the VM from our target before we shutdown
     await nvme_remote_disconnect(target_vm, uri)
+
+
+@pytest.mark.skip
+@pytest.mark.asyncio
+@pytest.mark.timeout(60)
+async def test_nexus_2_remote_mirror_kill_one_spdk(
+        containers, nexus_uuid, wait_for_mayastor, create_nexus):
+    """
+    Identical to the previous test except fio uses the SPDK ioengine
+    """
+
+    uri = create_nexus
+    NEXUS_UUID, size_mb = nexus_uuid
+    job = FioSpdk("job1", "randwrite", uri).build()
+
+    await asyncio.gather(
+        run_cmd_async(job),
+        kill_after(containers.get("ms2"), 4)
+    )
+
+    list = wait_for_mayastor.get("ms3").nexus_list()
+    nexus = next(n for n in list if n.uuid == NEXUS_UUID)
+    assert nexus.state == pb.NEXUS_DEGRADED
+    nexus.children[1].state == pb.CHILD_FAULTED

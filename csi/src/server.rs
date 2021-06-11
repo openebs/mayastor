@@ -137,6 +137,14 @@ async fn main() -> Result<(), String> {
                 .multiple(true)
                 .help("Sets the verbosity level"),
         )
+        .arg(
+            Arg::with_name("nvme-core-io-timeout")
+                .long("nvme-core-io-timeout")
+                .value_name("TIMEOUT")
+                .takes_value(true)
+                .required(false)
+                .help("Sets the global nvme_core module io_timeout, in seconds"),
+        )
         .get_matches();
 
     let node_name = matches.value_of("node-name").unwrap();
@@ -174,6 +182,17 @@ async fn main() -> Result<(), String> {
         });
     }
     builder.init();
+
+    if let Some(nvme_io_timeout_secs) = matches.value_of("nvme_core io_timeout")
+    {
+        let io_timeout_secs: u32 = nvme_io_timeout_secs
+            .parse()
+            .expect("nvme_core io_timeout should be an integer number, representing the timeout in seconds");
+
+        if let Err(error) = dev::nvmf::set_nvmecore_iotimeout(io_timeout_secs) {
+            panic!("Failed to set nvme_core io_timeout: {}", error.to_string());
+        }
+    }
 
     // Remove stale CSI socket from previous instance if there is any
     match fs::remove_file(csi_socket) {

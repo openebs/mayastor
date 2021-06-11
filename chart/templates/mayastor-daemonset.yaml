@@ -34,6 +34,8 @@ spec:
         image: {{ include "mayastorImagesPrefix" . }}mayadata/mayastor:{{ .Values.mayastorImagesTag }}
         imagePullPolicy: {{ .Values.mayastorImagePullPolicy }}
         env:
+        - name: RUST_LOG
+          value: mayastor={{ .Values.mayastorLogLevel }}
         - name: MY_NODE_NAME
           valueFrom:
             fieldRef:

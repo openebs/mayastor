@@ -19,6 +19,8 @@ profile=
 pull_policy=
 registry=
 tag=
+helm_string=
+helm_file=
 
 help() {
   cat <<EOF
@@ -32,6 +34,8 @@ Common options:
   -p <node,device> Node name and associated pool device (the option may repeat).
   -r <registry>    Docker image registry of mayastor images (default none).
   -t <tag>         Tag of mayastor images overriding the profile's default.
+  -s <variables>   Set chart values on the command line (can specify multiple or separate values with commas: key1=val1,key2=val2)
+  -f <file>        Specify values in a YAML file or a URL (can specify multiple)
 
 Profiles:
   develop:   Used by developers of mayastor.
@@ -62,6 +66,14 @@ while [ "$#" -gt 0 ]; do
     -r)
       shift
       registry=$1
+      ;;
+    -s)
+      shift
+      helm_string=$1
+      ;;
+    -f)
+      shift
+      helm_file=$1
       ;;
     -t)
       shift
@@ -156,7 +168,7 @@ fi
 # update helm dependencies
 ( cd "$SCRIPTDIR"/../chart && helm dependency update )
 # generate the yaml
-helm template --set "$template_params" mayastor "$SCRIPTDIR/../chart" --output-dir="$tmpd" --namespace mayastor -f "$SCRIPTDIR/../chart/$profile/values.yaml"
+helm template --set "$template_params" mayastor "$SCRIPTDIR/../chart" --output-dir="$tmpd" --namespace mayastor -f "$SCRIPTDIR/../chart/$profile/values.yaml" --set "$helm_string" -f "$helm_file"
 
 # mayastor and nats yaml files
 mv "$tmpd"/mayastor/templates/*.yaml "$output_dir/"

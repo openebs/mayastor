@@ -47,7 +47,8 @@ spec:
         args:
         - "--csi-socket=/csi/csi.sock"
         - "--node-name=$(MY_NODE_NAME)"
-        - "--grpc-endpoint=$(MY_POD_IP):10199"
+        - "--grpc-endpoint=$(MY_POD_IP):10199"{{ if .Values.csi.nvme.io_timeout_enabled }}
+        - "--nvme-core-io-timeout={{ .Values.csi.nvme.io_timeout }}"{{ end }}
         - "-v"
         volumeMounts:
         - name: device
