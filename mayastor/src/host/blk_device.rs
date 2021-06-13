@@ -273,7 +273,7 @@ fn get_disks(
             let partitions = get_partitions(devname.to_str(), &entry, mounts)?;
 
             if let Some(device) =
-                new_device(None, partitions.is_empty(), &entry, &mounts)
+                new_device(None, partitions.is_empty(), &entry, mounts)
             {
                 if all || device.available {
                     list.push(device);
@@ -306,7 +306,7 @@ fn get_partitions(
     enumerator.match_property("DEVTYPE", "partition")?;
 
     for entry in enumerator.scan_devices()? {
-        if let Some(device) = new_device(parent, true, &entry, &mounts) {
+        if let Some(device) = new_device(parent, true, &entry, mounts) {
             list.push(device);
         }
     }

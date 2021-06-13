@@ -55,7 +55,7 @@ pub async fn stage_fs_volume(
         }
     };
 
-    if mount::find_mount(Some(&device_path), Some(&fs_staging_path)).is_some() {
+    if mount::find_mount(Some(&device_path), Some(fs_staging_path)).is_some() {
         debug!(
             "Device {} is already mounted onto {}",
             device_path, fs_staging_path
@@ -78,7 +78,7 @@ pub async fn stage_fs_volume(
     }
 
     // abort if some another device is mounted on staging_path
-    if mount::find_mount(None, Some(&fs_staging_path)).is_some() {
+    if mount::find_mount(None, Some(fs_staging_path)).is_some() {
         return Err(failure!(
                     Code::AlreadyExists,
                     "Failed to stage volume {}: another device is already mounted onto {}",
@@ -101,7 +101,7 @@ pub async fn stage_fs_volume(
 
     if let Err(error) = mount::filesystem_mount(
         &device_path,
-        &fs_staging_path,
+        fs_staging_path,
         &fstype,
         &mnt.mount_flags,
     ) {
@@ -127,12 +127,12 @@ pub async fn unstage_fs_volume(
     let volume_id = &msg.volume_id;
     let fs_staging_path = &msg.staging_target_path;
 
-    if let Some(mount) = mount::find_mount(None, Some(&fs_staging_path)) {
+    if let Some(mount) = mount::find_mount(None, Some(fs_staging_path)) {
         debug!(
             "Unstaging filesystem volume {}, unmounting device {} from {}",
             volume_id, mount.source, fs_staging_path
         );
-        if let Err(error) = mount::filesystem_unmount(&fs_staging_path) {
+        if let Err(error) = mount::filesystem_unmount(fs_staging_path) {
             return Err(failure!(
                     Code::Internal,
                     "Failed to unstage volume {}: failed to unmount device {} from {}: {}",
@@ -163,7 +163,7 @@ pub fn publish_fs_volume(
     );
 
     let staged =
-        mount::find_mount(None, Some(&fs_staging_path)).ok_or_else(|| {
+        mount::find_mount(None, Some(fs_staging_path)).ok_or_else(|| {
             failure!(
                 Code::InvalidArgument,
                 "Failed to publish volume {}: no mount for staging path {}",
@@ -249,7 +249,7 @@ pub fn publish_fs_volume(
 
     debug!("Mounting {} to {}", fs_staging_path, target_path);
 
-    if let Err(error) = mount::bind_mount(&fs_staging_path, &target_path, false)
+    if let Err(error) = mount::bind_mount(fs_staging_path, target_path, false)
     {
         return Err(failure!(
             Code::Internal,
@@ -267,7 +267,7 @@ pub fn publish_fs_volume(
 
         debug!("Remounting {} as readonly", target_path);
 
-        if let Err(error) = mount::bind_remount(&target_path, &options) {
+        if let Err(error) = mount::bind_remount(target_path, &options) {
             let message = format!(
                     "Failed to publish volume {}: failed to mount {} to {} as readonly: {}",
                     volume_id,
@@ -280,7 +280,7 @@ pub fn publish_fs_volume(
 
             debug!("Unmounting {}", target_path);
 
-            if let Err(error) = mount::bind_unmount(&target_path) {
+            if let Err(error) = mount::bind_unmount(target_path) {
                 error!("Failed to unmount {}: {}", target_path, error);
             }
 

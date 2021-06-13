@@ -17,13 +17,13 @@ pub async fn handler(
     matches: &ArgMatches<'_>,
 ) -> crate::Result<()> {
     match matches.subcommand() {
-        ("start", Some(args)) => start(ctx, &args).await,
-        ("stop", Some(args)) => stop(ctx, &args).await,
-        ("pause", Some(args)) => pause(ctx, &args).await,
-        ("resume", Some(args)) => resume(ctx, &args).await,
-        ("state", Some(args)) => state(ctx, &args).await,
-        ("stats", Some(args)) => stats(ctx, &args).await,
-        ("progress", Some(args)) => progress(ctx, &args).await,
+        ("start", Some(args)) => start(ctx, args).await,
+        ("stop", Some(args)) => stop(ctx, args).await,
+        ("pause", Some(args)) => pause(ctx, args).await,
+        ("resume", Some(args)) => resume(ctx, args).await,
+        ("state", Some(args)) => state(ctx, args).await,
+        ("stats", Some(args)) => stats(ctx, args).await,
+        ("progress", Some(args)) => progress(ctx, args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {} does not exist", cmd)))
                 .context(GrpcStatus)

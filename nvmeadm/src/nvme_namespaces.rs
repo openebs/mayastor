@@ -42,19 +42,19 @@ impl NvmeDevice {
 
         Ok(NvmeDevice {
             path: p.display().to_string(),
-            fw_rev: parse_value(&subsys, "firmware_rev")?,
-            subsysnqn: parse_value(&subsys, "subsysnqn")?,
-            model: parse_value(&subsys, "model")?,
-            serial: parse_value(&subsys, "serial")?,
-            size: parse_value(&source, "size")?,
+            fw_rev: parse_value(subsys, "firmware_rev")?,
+            subsysnqn: parse_value(subsys, "subsysnqn")?,
+            model: parse_value(subsys, "model")?,
+            serial: parse_value(subsys, "serial")?,
+            size: parse_value(source, "size")?,
             // /* NOTE: during my testing, it seems that NON fabric devices
             //  * do not have a UUID, this means that local PCIe devices will
             //  * be filtered out automatically. We should not depend on this
             //  * feature or, bug until we gather more data
-            uuid: parse_value(&source, "uuid")
+            uuid: parse_value(source, "uuid")
                 .unwrap_or_else(|_| String::from("N/A")),
-            wwid: parse_value(&source, "wwid")?,
-            nsid: parse_value(&source, "nsid")?,
+            wwid: parse_value(source, "wwid")?,
+            nsid: parse_value(source, "nsid")?,
         })
     }
 }

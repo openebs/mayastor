@@ -247,6 +247,6 @@ pub(crate) fn set_nvmecore_iotimeout(
         path.to_string_lossy(),
         io_timeout_secs
     );
-    sysfs::write_value(&path, "io_timeout", io_timeout_secs)?;
+    sysfs::write_value(path, "io_timeout", io_timeout_secs)?;
     Ok(())
 }

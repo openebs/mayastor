@@ -65,9 +65,9 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
 
 fn hugepage_check() {
     let hugepage_path = Path::new("/sys/kernel/mm/hugepages/hugepages-2048kB");
-    let nr_pages: u32 = sysfs::parse_value(&hugepage_path, "nr_hugepages")
+    let nr_pages: u32 = sysfs::parse_value(hugepage_path, "nr_hugepages")
         .expect("failed to read the number of pages");
-    let free_pages: u32 = sysfs::parse_value(&hugepage_path, "free_hugepages")
+    let free_pages: u32 = sysfs::parse_value(hugepage_path, "free_hugepages")
         .expect("failed to read the number of free pages");
     if nr_pages < PAGES_NEEDED {
         error!(
@@ -105,7 +105,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     let nvme_core_path = Path::new("/sys/module/nvme_core/parameters");
     let nvme_mp: String =
-        match sysfs::parse_value::<String>(&nvme_core_path, "multipath") {
+        match sysfs::parse_value::<String>(nvme_core_path, "multipath") {
             Ok(s) => match s.as_str() {
                 "Y" => "yes".to_string(),
                 "N" => "disabled".to_string(),

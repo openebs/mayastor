@@ -258,7 +258,7 @@ impl node_server::Node for Node {
             )
         })? {
             AccessType::Mount(mnt) => {
-                publish_fs_volume(&msg, &mnt, &self.filesystems)?;
+                publish_fs_volume(&msg, mnt, &self.filesystems)?;
             }
             AccessType::Block(_) => {
                 publish_block_volume(&msg).await?;
@@ -432,7 +432,7 @@ impl node_server::Node for Node {
         // All checks complete, now attach, if not attached already.
         debug!("Volume {} has URI {}", &msg.volume_id, uri);
 
-        let mut device = Device::parse(&uri).map_err(|error| {
+        let mut device = Device::parse(uri).map_err(|error| {
             failure!(
                 Code::Internal,
                 "Failed to stage volume {}: error parsing URI {}: {}",
@@ -508,7 +508,7 @@ impl node_server::Node for Node {
         match access_type {
             AccessType::Mount(mnt) => {
                 if let Err(fsmount_error) =
-                    stage_fs_volume(&msg, device_path, &mnt, &self.filesystems)
+                    stage_fs_volume(&msg, device_path, mnt, &self.filesystems)
                         .await
                 {
                     detach(

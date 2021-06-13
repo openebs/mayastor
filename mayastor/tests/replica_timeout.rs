@@ -69,7 +69,7 @@ async fn replica_stop_cont() {
             nexus_create(NXNAME, 1024 * 1024 * 50, None, &[c.clone()])
                 .await
                 .unwrap();
-            nexus_lookup(&NXNAME)
+            nexus_lookup(NXNAME)
                 .unwrap()
                 .share(ShareProtocolNexus::NexusNvmf, None)
                 .await
@@ -127,7 +127,7 @@ async fn replica_stop_cont() {
                 Bdev::lookup_by_name(&bdev_get_name(&c).unwrap()).is_none(),
                 "child bdev must be destroyed"
             );
-            let nx = nexus_lookup(&NXNAME).unwrap();
+            let nx = nexus_lookup(NXNAME).unwrap();
             assert_eq!(nx.status(), NexusStatus::Faulted);
             assert_eq!(nx.children.len(), 1, "nexus child must still exist");
             nx.unshare_nexus().await.expect("should unpublish nexus");

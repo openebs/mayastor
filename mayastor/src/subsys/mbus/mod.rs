@@ -40,7 +40,7 @@ pub fn mbus_endpoint(endpoint: Option<String>) -> Option<String> {
                     .expect("Invalid Ipv4 Address");
                 debug!("Nats endpoint found at {}", nats);
             } else {
-                let nats = lookup_host(&address_or_ip)
+                let nats = lookup_host(address_or_ip)
                     .expect("Failed to lookup the NATS endpoint");
                 debug!("Nats endpoint found at {:?}", nats);
             }

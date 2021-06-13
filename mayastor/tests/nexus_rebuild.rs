@@ -33,7 +33,7 @@ const MAX_CHILDREN: u64 = 16;
 fn get_ms() -> &'static MayastorTest<'static> {
     let instance =
         MAYASTOR.get_or_init(|| MayastorTest::new(MayastorCliArgs::default()));
-    &instance
+    instance
 }
 
 fn test_ini(name: &'static str) {

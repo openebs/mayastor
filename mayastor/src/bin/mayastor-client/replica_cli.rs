@@ -89,11 +89,11 @@ pub async fn handler(
     matches: &ArgMatches<'_>,
 ) -> crate::Result<()> {
     match matches.subcommand() {
-        ("create", Some(args)) => replica_create(ctx, &args).await,
-        ("destroy", Some(args)) => replica_destroy(ctx, &args).await,
-        ("list", Some(args)) => replica_list(ctx, &args).await,
-        ("share", Some(args)) => replica_share(ctx, &args).await,
-        ("stats", Some(args)) => replica_stat(ctx, &args).await,
+        ("create", Some(args)) => replica_create(ctx, args).await,
+        ("destroy", Some(args)) => replica_destroy(ctx, args).await,
+        ("list", Some(args)) => replica_list(ctx, args).await,
+        ("share", Some(args)) => replica_share(ctx, args).await,
+        ("stats", Some(args)) => replica_stat(ctx, args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {} does not exist", cmd)))
                 .context(GrpcStatus)

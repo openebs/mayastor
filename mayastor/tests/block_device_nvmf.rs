@@ -57,7 +57,7 @@ const MAYASTOR_CTRLR_TITLE: &str = "Mayastor NVMe controller";
 fn get_ms() -> &'static MayastorTest<'static> {
     let instance =
         MAYASTOR.get_or_init(|| MayastorTest::new(MayastorCliArgs::default()));
-    &instance
+    instance
 }
 
 async fn launch_instance() -> (ComposeTest, String) {

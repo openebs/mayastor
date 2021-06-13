@@ -161,37 +161,37 @@ async fn read_write_metadata() {
         child.metadata_index_lba,
         4,
     );
-    NexusMetaData::create_index(&child, &mut index, &now)
+    NexusMetaData::create_index(child, &mut index, &now)
         .await
         .unwrap();
 
     // verify index exists
-    assert!(NexusMetaData::get_index(&child).await.unwrap().is_some());
+    assert!(NexusMetaData::get_index(child).await.unwrap().is_some());
 
     // append two objects
     let now = SystemTime::now();
-    NexusMetaData::add(&child, &mut data[0], &now)
+    NexusMetaData::add(child, &mut data[0], &now)
         .await
         .unwrap();
-    NexusMetaData::add(&child, &mut data[1], &now)
+    NexusMetaData::add(child, &mut data[1], &now)
         .await
         .unwrap();
 
     // retrieve the "last" object and compare with the original
-    let object = NexusMetaData::last(&child).await.unwrap();
+    let object = NexusMetaData::last(child).await.unwrap();
     assert_eq!(object.unwrap(), data[1]);
 
     // append two more objects
     let now = SystemTime::now();
-    NexusMetaData::add(&child, &mut data[2], &now)
+    NexusMetaData::add(child, &mut data[2], &now)
         .await
         .unwrap();
-    NexusMetaData::add(&child, &mut data[3], &now)
+    NexusMetaData::add(child, &mut data[3], &now)
         .await
         .unwrap();
 
     // the index should now be full - retrieve all objects
-    let stored = NexusMetaData::get(&child, 10).await.unwrap();
+    let stored = NexusMetaData::get(child, 10).await.unwrap();
     assert_eq!(stored.len(), 4);
     assert_eq!(data[0], stored[0]);
     assert_eq!(data[1], stored[1]);
@@ -200,12 +200,12 @@ async fn read_write_metadata() {
 
     // append one more object
     let now = SystemTime::now();
-    NexusMetaData::add(&child, &mut data[4], &now)
+    NexusMetaData::add(child, &mut data[4], &now)
         .await
         .unwrap();
 
     // retrieve all objects again
-    let stored = NexusMetaData::get(&child, 10).await.unwrap();
+    let stored = NexusMetaData::get(child, 10).await.unwrap();
     assert_eq!(stored.len(), 4);
 
     // the first object should have been removed
@@ -217,17 +217,17 @@ async fn read_write_metadata() {
 
     // remove the last object
     let now = SystemTime::now();
-    let object = NexusMetaData::remove(&child, &now).await.unwrap();
+    let object = NexusMetaData::remove(child, &now).await.unwrap();
     assert_eq!(object.unwrap(), data[4]);
 
     // replace the (new) last object
     let now = SystemTime::now();
-    NexusMetaData::update(&child, &mut data[5], &now)
+    NexusMetaData::update(child, &mut data[5], &now)
         .await
         .unwrap();
 
     // retrieve last two objects
-    let stored = NexusMetaData::get(&child, 2).await.unwrap();
+    let stored = NexusMetaData::get(child, 2).await.unwrap();
     assert_eq!(stored.len(), 2);
     assert_eq!(data[2], stored[0]);
     assert_eq!(data[5], stored[1]);
@@ -237,10 +237,10 @@ async fn read_write_metadata() {
 
     // purge all but the last object
     let now = SystemTime::now();
-    NexusMetaData::purge(&child, 1, &now).await.unwrap();
+    NexusMetaData::purge(child, 1, &now).await.unwrap();
 
     // retrieve all objects again
-    let stored = NexusMetaData::get(&child, 10).await.unwrap();
+    let stored = NexusMetaData::get(child, 10).await.unwrap();
     assert_eq!(stored.len(), 1);
     assert_eq!(data[5], stored[0]);
 }

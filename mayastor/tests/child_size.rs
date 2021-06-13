@@ -29,7 +29,7 @@ static MS: OnceCell<MayastorTest> = OnceCell::new();
 
 fn mayastor() -> &'static MayastorTest<'static> {
     let ms = MS.get_or_init(|| MayastorTest::new(MayastorCliArgs::default()));
-    &ms
+    ms
 }
 
 #[tokio::test]

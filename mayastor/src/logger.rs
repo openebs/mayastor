@@ -164,7 +164,7 @@ where
 
         let scope = self
             .span
-            .and_then(|ref id| self.context.span(id))
+            .and_then(|id| self.context.span(id))
             .or_else(|| self.context.lookup_current())
             .into_iter()
             .flat_map(|span| span.from_root().chain(std::iter::once(span)));
@@ -243,7 +243,7 @@ where
             FormatLevel::new(meta.level(), self.ansi),
             meta.target(),
             CustomContext::new(context, event.parent(), self.ansi),
-            Location::new(&meta)
+            Location::new(meta)
         )?;
 
         context.format_fields(writer, event)?;
