@@ -11,18 +11,6 @@
         "url": "https://github.com/sahlberg/libiscsi/archive/eea5d3ba8e8fca98cde4b16b77f23a4fd683f3ba.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     },
-    "liburing": {
-        "branch": "liburing-0.7",
-        "description": null,
-        "homepage": null,
-        "owner": "axboe",
-        "repo": "liburing",
-        "rev": "45f0735219a615ae848033c47c7e2d85d101d43e",
-        "sha256": "15z44l7y4c6s6dlf7v8lq4znlsjbja2r4ifbni0l8cdcnq0w3zh3",
-        "type": "tarball",
-        "url": "https://github.com/axboe/liburing/archive/45f0735219a615ae848033c47c7e2d85d101d43e.tar.gz",
-        "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
-    },
     "niv": {
         "branch": "master",
         "description": "Easy dependency management for Nix projects",
@@ -53,10 +41,10 @@
         "homepage": "https://github.com/mozilla/nixpkgs-mozilla",
         "owner": "mozilla",
         "repo": "nixpkgs-mozilla",
-        "rev": "8c007b60731c07dd7a052cce508de3bb1ae849b4",
-        "sha256": "1zybp62zz0h077zm2zmqs2wcg3whg6jqaah9hcl1gv4x8af4zhs6",
+        "rev": "3f3fba4e2066f28a1ad7ac60e86a688a92eb5b5f",
+        "sha256": "1mrj89gzrzhci4lssvzmmk31l715cddp7l39favnfs1qaijly814",
         "type": "tarball",
-        "url": "https://github.com/mozilla/nixpkgs-mozilla/archive/8c007b60731c07dd7a052cce508de3bb1ae849b4.tar.gz",
+        "url": "https://github.com/mozilla/nixpkgs-mozilla/archive/3f3fba4e2066f28a1ad7ac60e86a688a92eb5b5f.tar.gz",
         "url_template": "https://github.com/<owner>/<repo>/archive/<rev>.tar.gz"
     }
 }
