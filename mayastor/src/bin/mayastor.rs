@@ -24,7 +24,8 @@ use mayastor::{
     subsys::Registration,
 };
 
-const GIT_VERSION: &str = git_version!(args = ["--tags", "--abbrev=12"]);
+const GIT_VERSION: &str =
+    git_version!(args = ["--tags", "--abbrev=12"], fallback = "unknown");
 const PAGES_NEEDED: u32 = 1024;
 
 mayastor::CPS_INIT!();

@@ -73,7 +73,7 @@ fn parse_mb(src: &str) -> Result<i32, String> {
 #[structopt(
     name = "Mayastor",
     about = "Containerized Attached Storage (CAS) for k8s",
-    version = git_version!(args = ["--tags", "--abbrev=12"]),
+    version = git_version!(args = ["--tags", "--abbrev=12"], fallback="unkown"),
     setting(structopt::clap::AppSettings::ColoredHelp)
 )]
 pub struct MayastorCliArgs {
