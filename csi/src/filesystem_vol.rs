@@ -249,8 +249,7 @@ pub fn publish_fs_volume(
 
     debug!("Mounting {} to {}", fs_staging_path, target_path);
 
-    if let Err(error) = mount::bind_mount(fs_staging_path, target_path, false)
-    {
+    if let Err(error) = mount::bind_mount(fs_staging_path, target_path, false) {
         return Err(failure!(
             Code::Internal,
             "Failed to publish volume {}: failed to mount {} to {}: {}",

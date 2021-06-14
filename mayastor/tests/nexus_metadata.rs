@@ -170,12 +170,8 @@ async fn read_write_metadata() {
 
     // append two objects
     let now = SystemTime::now();
-    NexusMetaData::add(child, &mut data[0], &now)
-        .await
-        .unwrap();
-    NexusMetaData::add(child, &mut data[1], &now)
-        .await
-        .unwrap();
+    NexusMetaData::add(child, &mut data[0], &now).await.unwrap();
+    NexusMetaData::add(child, &mut data[1], &now).await.unwrap();
 
     // retrieve the "last" object and compare with the original
     let object = NexusMetaData::last(child).await.unwrap();
@@ -183,12 +179,8 @@ async fn read_write_metadata() {
 
     // append two more objects
     let now = SystemTime::now();
-    NexusMetaData::add(child, &mut data[2], &now)
-        .await
-        .unwrap();
-    NexusMetaData::add(child, &mut data[3], &now)
-        .await
-        .unwrap();
+    NexusMetaData::add(child, &mut data[2], &now).await.unwrap();
+    NexusMetaData::add(child, &mut data[3], &now).await.unwrap();
 
     // the index should now be full - retrieve all objects
     let stored = NexusMetaData::get(child, 10).await.unwrap();
@@ -200,9 +192,7 @@ async fn read_write_metadata() {
 
     // append one more object
     let now = SystemTime::now();
-    NexusMetaData::add(child, &mut data[4], &now)
-        .await
-        .unwrap();
+    NexusMetaData::add(child, &mut data[4], &now).await.unwrap();
 
     // retrieve all objects again
     let stored = NexusMetaData::get(child, 10).await.unwrap();
