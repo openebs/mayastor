@@ -71,19 +71,21 @@ fn hugepage_check() {
     let free_pages: u32 = sysfs::parse_value(hugepage_path, "free_hugepages")
         .expect("failed to read the number of free pages");
     if nr_pages < PAGES_NEEDED {
-        error!(
-            "insufficient huge pages allocated, needed:  {}  allocated: {}",
-            PAGES_NEEDED, nr_pages
-        );
-        std::process::exit(1)
+        error!(?PAGES_NEEDED, ?nr_pages, "insuffucient pages available");
+        if !cfg!(debug_assertions) {
+            std::process::exit(1)
+        }
     }
 
     if free_pages < PAGES_NEEDED {
         error!(
-            "not enough free pages available: {}, free: {}",
-            PAGES_NEEDED, free_pages
+            ?PAGES_NEEDED,
+            ?nr_pages,
+            "insuffucient free pages available"
         );
-        std::process::exit(1)
+        if !cfg!(debug_assertions) {
+            std::process::exit(1)
+        }
     }
 
     info!("free_pages: {} nr_pages: {}", free_pages, nr_pages);
