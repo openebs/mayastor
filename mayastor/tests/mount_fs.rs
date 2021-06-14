@@ -30,9 +30,7 @@ macro_rules! prepare_storage {
 }
 
 fn get_ms() -> &'static MayastorTest<'static> {
-    let instance =
-        MAYASTOR.get_or_init(|| MayastorTest::new(MayastorCliArgs::default()));
-    instance
+    MAYASTOR.get_or_init(|| MayastorTest::new(MayastorCliArgs::default()))
 }
 
 async fn create_connected_nvmf_nexus(

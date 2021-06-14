@@ -10,9 +10,7 @@ pub mod common;
 static MAYASTOR: OnceCell<MayastorTest> = OnceCell::new();
 
 fn get_ms() -> &'static MayastorTest<'static> {
-    let instance =
-        MAYASTOR.get_or_init(|| MayastorTest::new(MayastorCliArgs::default()));
-    instance
+    MAYASTOR.get_or_init(|| MayastorTest::new(MayastorCliArgs::default()))
 }
 
 struct TestCtx {
