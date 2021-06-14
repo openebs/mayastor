@@ -14,11 +14,9 @@ use std::{
 
 use byte_unit::{Byte, ByteUnit};
 use futures::{channel::oneshot, future};
+use git_version::git_version;
 use once_cell::sync::{Lazy, OnceCell};
 use snafu::Snafu;
-use structopt::StructOpt;
-use tokio::runtime::Builder;
-
 use spdk_sys::{
     maya_log,
     spdk_app_shutdown_cb,
@@ -34,6 +32,8 @@ use spdk_sys::{
     SPDK_LOG_INFO,
     SPDK_RPC_RUNTIME,
 };
+use structopt::StructOpt;
+use tokio::runtime::Builder;
 
 use crate::{
     bdev::nexus,
@@ -73,7 +73,7 @@ fn parse_mb(src: &str) -> Result<i32, String> {
 #[structopt(
     name = "Mayastor",
     about = "Containerized Attached Storage (CAS) for k8s",
-    version = "0.9.0",
+    version = git_version!(args = ["--tags", "--abbrev=12"], fallback="unkown"),
     setting(structopt::clap::AppSettings::ColoredHelp)
 )]
 pub struct MayastorCliArgs {

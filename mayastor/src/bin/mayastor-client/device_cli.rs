@@ -112,7 +112,7 @@ async fn list_block_devices(
                             "no"
                         }),
                         device.model.clone(),
-                        get_partition_type(&device),
+                        get_partition_type(device),
                         fstype,
                         uuid,
                         mountpoint,

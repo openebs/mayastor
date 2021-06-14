@@ -229,7 +229,7 @@ impl Nexus {
         &self,
         name: &'a str,
     ) -> Vec<&'a mut RebuildJob> {
-        let jobs = RebuildJob::lookup_src(&name);
+        let jobs = RebuildJob::lookup_src(name);
 
         jobs.iter().for_each(|job| assert_eq!(job.nexus, self.name));
         jobs
@@ -241,7 +241,7 @@ impl Nexus {
         &self,
         name: &'a str,
     ) -> Result<&'a mut RebuildJob, Error> {
-        let job = RebuildJob::lookup(&name).context(RebuildJobNotFound {
+        let job = RebuildJob::lookup(name).context(RebuildJobNotFound {
             child: name.to_owned(),
             name: self.name.clone(),
         })?;
@@ -315,7 +315,7 @@ impl Nexus {
             return Ok(());
         }
 
-        let complete_err = self.on_rebuild_complete_job(&j).await;
+        let complete_err = self.on_rebuild_complete_job(j).await;
         let remove_err = RebuildJob::remove(&job)
             .context(RemoveRebuildJob {
                 child: job,

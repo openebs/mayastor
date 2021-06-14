@@ -69,7 +69,7 @@ impl Share for Bdev {
 
     /// share the bdev over iscsi
     async fn share_iscsi(&self) -> Result<Self::Output, Self::Error> {
-        iscsi::share(&self.name(), &self, Side::Nexus).context(ShareIscsi {})
+        iscsi::share(&self.name(), self, Side::Nexus).context(ShareIscsi {})
     }
 
     /// share the bdev over NVMe-OF TCP

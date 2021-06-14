@@ -144,11 +144,11 @@ async fn create_nexus(t: u64, ip: &std::net::IpAddr) {
     if t > 0 {
         children
             .iter_mut()
-            .for_each(|c| *c = Lvol::format_snapshot_name(&c, t));
+            .for_each(|c| *c = Lvol::format_snapshot_name(c, t));
         nexus_name = NXNAME_SNAP;
     }
 
-    nexus_create(&nexus_name, 64 * 1024 * 1024, None, &children)
+    nexus_create(nexus_name, 64 * 1024 * 1024, None, &children)
         .await
         .unwrap();
 }

@@ -272,7 +272,7 @@ impl Lvs {
                 name: name.to_string(),
             })?;
 
-        match Self::lookup(&name) {
+        match Self::lookup(name) {
             Some(pool) => {
                 info!("The pool '{}' has been created on {}", name, bdev);
                 Ok(pool)

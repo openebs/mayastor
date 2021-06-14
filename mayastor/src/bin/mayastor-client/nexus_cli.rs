@@ -159,15 +159,15 @@ pub async fn handler(
     matches: &ArgMatches<'_>,
 ) -> crate::Result<()> {
     match matches.subcommand() {
-        ("create", Some(args)) => nexus_create(ctx, &args).await,
-        ("destroy", Some(args)) => nexus_destroy(ctx, &args).await,
-        ("list", Some(args)) => nexus_list(ctx, &args).await,
-        ("children", Some(args)) => nexus_children(ctx, &args).await,
-        ("publish", Some(args)) => nexus_publish(ctx, &args).await,
-        ("unpublish", Some(args)) => nexus_unpublish(ctx, &args).await,
-        ("ana_state", Some(args)) => nexus_nvme_ana_state(ctx, &args).await,
-        ("add", Some(args)) => nexus_add(ctx, &args).await,
-        ("remove", Some(args)) => nexus_remove(ctx, &args).await,
+        ("create", Some(args)) => nexus_create(ctx, args).await,
+        ("destroy", Some(args)) => nexus_destroy(ctx, args).await,
+        ("list", Some(args)) => nexus_list(ctx, args).await,
+        ("children", Some(args)) => nexus_children(ctx, args).await,
+        ("publish", Some(args)) => nexus_publish(ctx, args).await,
+        ("unpublish", Some(args)) => nexus_unpublish(ctx, args).await,
+        ("ana_state", Some(args)) => nexus_nvme_ana_state(ctx, args).await,
+        ("add", Some(args)) => nexus_add(ctx, args).await,
+        ("remove", Some(args)) => nexus_remove(ctx, args).await,
         ("child", Some(args)) => nexus_child_cli::handler(ctx, args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {} does not exist", cmd)))

@@ -187,15 +187,15 @@ async fn persist_io_failure() {
         .expect("Failed to share");
 
     assert_eq!(
-        get_nexus_state(ms1, &nexus_uuid).await.unwrap(),
+        get_nexus_state(ms1, nexus_uuid).await.unwrap(),
         NexusState::NexusDegraded as i32
     );
     assert_eq!(
-        get_child(ms1, &nexus_uuid, &child1).await.state,
+        get_child(ms1, nexus_uuid, &child1).await.state,
         ChildState::ChildOnline as i32
     );
     assert_eq!(
-        get_child(ms1, &nexus_uuid, &child2).await.state,
+        get_child(ms1, nexus_uuid, &child2).await.state,
         ChildState::ChildFaulted as i32
     );
 

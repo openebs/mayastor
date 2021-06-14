@@ -79,7 +79,7 @@ impl Nexus {
         uri: &str,
     ) -> Result<(), NexusBdevError> {
         assert_eq!(*self.state.lock(), NexusState::Init);
-        let name = device_create(&uri).await?;
+        let name = device_create(uri).await?;
         self.children.push(NexusChild::new(
             uri.to_string(),
             self.name.clone(),
@@ -107,7 +107,7 @@ impl Nexus {
         let status = self.add_child_only(uri).await?;
 
         if !norebuild {
-            if let Err(e) = self.start_rebuild(&uri).await {
+            if let Err(e) = self.start_rebuild(uri).await {
                 // todo: CAS-253 retry starting the rebuild again when ready
                 error!(
                     "Child added but rebuild failed to start: {}",
@@ -132,7 +132,7 @@ impl Nexus {
         &mut self,
         uri: &str,
     ) -> Result<NexusStatus, Error> {
-        let name = device_create(&uri).await.context(CreateChild {
+        let name = device_create(uri).await.context(CreateChild {
             name: self.name.clone(),
         })?;
 
@@ -511,7 +511,7 @@ impl Nexus {
     }
 
     pub async fn destroy_child(&mut self, name: &str) -> Result<(), Error> {
-        if let Some(child) = self.child_lookup(&name) {
+        if let Some(child) = self.child_lookup(name) {
             child.destroy().await.map_err(|source| Error::DestroyChild {
                 source,
                 child: name.to_string(),

@@ -268,7 +268,7 @@ fn lock_then_fe_io() {
     // Issue front-end I/O
     let (io_sender, io_receiver) = unbounded::<()>();
     reactor.send_future(async move {
-        let nexus_desc = Bdev::open_by_name(&NEXUS_NAME, true).unwrap();
+        let nexus_desc = Bdev::open_by_name(NEXUS_NAME, true).unwrap();
         let h = nexus_desc.into_handle().unwrap();
 
         let blk = 2;

@@ -439,7 +439,7 @@ impl DiscoveryBuilder {
             }
         }
         if let Some(traddr) = &self.traddr {
-            is_valid_ip(&traddr)?;
+            is_valid_ip(traddr)?;
         }
 
         Ok(())
@@ -475,11 +475,11 @@ impl ConnectArgsBuilder {
         match &self.transport {
             Some(TrType::tcp) => {
                 match &self.trsvcid {
-                    Some(trsvcid) => is_valid_port(&trsvcid),
+                    Some(trsvcid) => is_valid_port(trsvcid),
                     None => Err("missing svcid".into()),
                 }?;
                 match &self.traddr {
-                    Some(traddr) => is_valid_ip(&traddr),
+                    Some(traddr) => is_valid_ip(traddr),
                     None => Err("missing traddr".into()),
                 }
             }

@@ -55,9 +55,7 @@ const MAYASTOR_CTRLR_TITLE: &str = "Mayastor NVMe controller";
 //const MAYASTOR_NQN_PREFIX: &str = "nqn.2019-05.io.openebs:";
 
 fn get_ms() -> &'static MayastorTest<'static> {
-    let instance =
-        MAYASTOR.get_or_init(|| MayastorTest::new(MayastorCliArgs::default()));
-    &instance
+    MAYASTOR.get_or_init(|| MayastorTest::new(MayastorCliArgs::default()))
 }
 
 async fn launch_instance() -> (ComposeTest, String) {

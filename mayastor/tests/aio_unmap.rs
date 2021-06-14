@@ -503,7 +503,7 @@ async fn unmap_share_test() {
     // Write to all devices
     for dev in &devlist {
         info!("writing to {} with dd ...", dev);
-        common::dd_urandom_blkdev(&dev);
+        common::dd_urandom_blkdev(dev);
     }
 
     // Disconnect all targets.

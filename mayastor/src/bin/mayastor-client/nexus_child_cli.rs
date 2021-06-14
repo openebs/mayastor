@@ -17,7 +17,7 @@ pub async fn handler(
     matches: &ArgMatches<'_>,
 ) -> crate::Result<()> {
     match matches.subcommand() {
-        ("fault", Some(args)) => fault(ctx, &args).await,
+        ("fault", Some(args)) => fault(ctx, args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {} does not exist", cmd)))
                 .context(GrpcStatus)

@@ -860,9 +860,9 @@ impl ComposeTest {
     /// remove all containers and its network
     async fn remove_all(&self) -> Result<(), Error> {
         for k in &self.containers {
-            self.stop(&k.0).await?;
-            self.remove_container(&k.0).await?;
-            while let Ok(_c) = self.docker.inspect_container(&k.0, None).await {
+            self.stop(k.0).await?;
+            self.remove_container(k.0).await?;
+            while let Ok(_c) = self.docker.inspect_container(k.0, None).await {
                 tokio::time::sleep(Duration::from_millis(500)).await;
             }
         }
@@ -1181,7 +1181,7 @@ impl ComposeTest {
     /// created due to that are returned
     pub async fn logs_all(&self) -> Result<(), Error> {
         for container in &self.containers {
-            let _ = self.logs(&container.0).await;
+            let _ = self.logs(container.0).await;
         }
         Ok(())
     }
@@ -1189,7 +1189,7 @@ impl ComposeTest {
     /// start all the containers
     async fn start_all(&mut self) -> Result<(), Error> {
         for k in &self.containers {
-            self.start(&k.0).await?;
+            self.start(k.0).await?;
         }
 
         Ok(())
