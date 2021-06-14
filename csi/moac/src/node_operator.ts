@@ -65,8 +65,8 @@ export class NodeResource extends CustomResource {
       throw new Error('missing spec');
     } else {
       let grpcEndpoint = (cr.spec as any).grpcEndpoint;
-      if (grpcEndpoint === undefined) {
-        throw new Error('missing grpc endpoint in spec');
+      if (!grpcEndpoint) {
+        grpcEndpoint = '';
       }
       this.spec = { grpcEndpoint };
     }
@@ -129,7 +129,7 @@ export class NodeOperator {
   //
   _bindWatcher (watcher: CustomResourceCache<NodeResource>) {
     watcher.on('new', (obj: NodeResource) => {
-      if (obj.metadata) {
+      if (obj.metadata && obj.spec.grpcEndpoint) {
         this.registry.addNode(obj.metadata.name, obj.spec.grpcEndpoint);
       }
     });
@@ -155,7 +155,7 @@ export class NodeOperator {
   async _onNodeEvent (ev: any) {
     const name = ev.object.name;
     if (ev.eventType === 'new') {
-      const grpcEndpoint = ev.object.endpoint;
+      const grpcEndpoint = ev.object.endpoint || '';
       let origObj = this.watcher.get(name);
       if (origObj === undefined) {
         await this._createResource(name, grpcEndpoint);
@@ -167,7 +167,7 @@ export class NodeOperator {
         ev.object.isSynced() ? NodeState.Online : NodeState.Offline,
       );
     } else if (ev.eventType === 'mod') {
-      const grpcEndpoint = ev.object.endpoint;
+      const grpcEndpoint = ev.object.endpoint || '';
       let origObj = this.watcher.get(name);
       // The node might be just going away - do nothing if not in the cache
       if (origObj !== undefined) {

@@ -62,14 +62,7 @@ export class Registry extends events.EventEmitter {
   addNode (name: string, endpoint: string) {
     let node = this.nodes[name];
     if (node) {
-      // if grpc endpoint has not changed, then this will not do anything
-      if (node.endpoint !== endpoint) {
-        node.connect(endpoint);
-        this.emit('node', {
-          eventType: 'mod',
-          object: node
-        });
-      }
+      node.connect(endpoint);
     } else {
       node = new this.Node(name, this.nodeOpts);
       node.connect(endpoint);
@@ -101,22 +94,36 @@ export class Registry extends events.EventEmitter {
     });
   }
 
+  // Disconnect the node and offline it (but keep it in the list).
+  //
+  // @param name   Name of the node to offline.
+  disconnectNode (name: string) {
+    const node = this.nodes[name];
+    if (!node) return;
+    log.info(`mayastor on node "${name}" left`);
+    node.disconnect();
+  }
+
   // Remove mayastor node from the list of nodes and unsubscribe events.
   //
-  // @param {string} name   Name of the node to remove.
+  // @param name   Name of the node to remove.
   removeNode (name: string) {
     const node = this.nodes[name];
     if (!node) return;
     delete this.nodes[name];
     node.disconnect();
-    node.unbind();
 
-    log.info(`mayastor on node "${name}" left`);
+    // There is a hidden problem here. Some actions that should have been
+    // done on behalf of node.disconnect() above, might not have sufficient time
+    // to run and after we would remove the node from list of the nodes and
+    // unsubscribe event subscribers, further event propagation on this node
+    // would stop. As a workaround we never remove the node unless we are
+    // shutting down the moac. Users can remove a node by kubectl if they wish.
+    node.unbind();
     this.emit('node', {
       eventType: 'del',
       object: node
     });
-
     eventObjects.forEach((objType) => {
       node.removeAllListeners(objType);
     });

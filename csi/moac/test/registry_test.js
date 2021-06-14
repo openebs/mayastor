@@ -34,7 +34,7 @@ module.exports = function () {
     // ensure the events from the node are relayed by the registry
     const events = ['node', 'pool', 'replica', 'nexus'];
     events.forEach((ev) => {
-      registry.once(ev, () => {
+      registry.on(ev, () => {
         const idx = events.findIndex((ent) => ent === ev);
         expect(idx).to.not.equal(-1);
         events.splice(idx, 1);
@@ -47,39 +47,34 @@ module.exports = function () {
   it('should not do anything if the same node already exists in the registry', () => {
     const registry = new Registry({});
     registry.Node = Node;
-    const node = new Node('node');
-    node.connect('127.0.0.1:123');
-    const connectStub = sinon.stub(node, 'connect');
-    registry.nodes.node = node;
 
-    let nodeEvent;
-    registry.once('node', (ev) => {
-      nodeEvent = ev;
+    const nodeEvents = [];
+    registry.on('node', (ev) => {
+      nodeEvents.push(ev);
     });
 
     registry.addNode('node', '127.0.0.1:123');
-    sinon.assert.notCalled(connectStub);
-    expect(nodeEvent).to.be.undefined;
+    expect(nodeEvents).to.have.lengthOf(1);
+    expect(nodeEvents[0].eventType).to.equal('new');
+
+    registry.addNode('node', '127.0.0.1:123');
+    expect(nodeEvents).to.have.lengthOf(1);
   });
 
   it('should reconnect node if it exists but grpc endpoint has changed', () => {
     const registry = new Registry({});
     registry.Node = Node;
-    const node = new Node('node');
-    node.connect('127.0.0.1:123');
-    const connectStub = sinon.stub(node, 'connect');
-    registry.nodes.node = node;
 
-    let nodeEvent;
-    registry.once('node', (ev) => {
-      nodeEvent = ev;
+    const nodeEvents = [];
+    registry.on('node', (ev) => {
+      nodeEvents.push(ev);
     });
 
+    registry.addNode('node', '127.0.0.1:123');
     registry.addNode('node', '127.0.0.1:124');
-    sinon.assert.calledOnce(connectStub);
-    sinon.assert.calledWith(connectStub, '127.0.0.1:124');
-    expect(nodeEvent.eventType).to.equal('mod');
-    expect(nodeEvent.object.name).to.equal('node');
+    expect(nodeEvents).to.have.lengthOf(2);
+    expect(nodeEvents[0].eventType).to.equal('new');
+    expect(nodeEvents[1].eventType).to.equal('mod');
   });
 
   it('should get a list of nodes from registry', () => {

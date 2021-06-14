@@ -134,7 +134,7 @@ export class MessageBus {
       return;
     }
     log.trace(`"${id}" requested deregistration`);
-    this.registry.removeNode(id);
+    this.registry.disconnectNode(id);
   }
 
   _subscribe () {

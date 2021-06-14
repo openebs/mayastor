@@ -96,6 +96,7 @@ module.exports = function () {
       nc = null;
     }
     stopNats();
+    registry.close();
   });
 
   it('should connect to the nats server', async () => {
@@ -148,9 +149,10 @@ module.exports = function () {
       id: 'v0/deregister',
       data: { id: NODE_NAME }
     })));
+    expect(registry.getNode(NODE_NAME).isSynced());
     await waitUntil(async () => {
-      return !registry.getNode(NODE_NAME);
-    }, 1000, 'node removal');
+      return !registry.getNode(NODE_NAME).isSynced();
+    }, 1000, 'node offline');
   });
 
   it('should disconnect from the nats server', () => {
