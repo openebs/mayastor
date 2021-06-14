@@ -195,9 +195,7 @@ export class Volumes extends events.EventEmitter {
   importVolume(uuid: string, spec: VolumeSpec, status?: VolumeStatus): Volume {
     let volume = this.volumes[uuid];
 
-    if (volume) {
-      volume.update(spec);
-    } else {
+    if (!volume) {
       let state = status?.state;
       let size = status?.size;
       // We don't support multiple nexuses yet so take the first one
