@@ -78,12 +78,9 @@ struct NvmeIoCtx {
 unsafe impl Send for NvmeIoCtx {}
 unsafe impl Sync for NvmeIoCtx {}
 
-// Size of the memory pool for NVMe I/O structures.
-const IOCTX_POOL_SIZE: u64 = 64 * 1024 - 1;
-
-// Memory pool for NVMe controller - specific I/O context, which is used
-// in every user BIO-based I/O operation.
-static IOCTX_POOL: OnceCell<MemoryPool<NvmeIoCtx>> = OnceCell::new();
+// Memory pool for NVMe controller specific I/O context,
+// which is used in every user BIO-based I/O operation.
+static NVME_IOCTX_POOL: OnceCell<MemoryPool<NvmeIoCtx>> = OnceCell::new();
 
 // Maximum number of range sets that may be specified in the dataset management
 // command.
@@ -124,14 +121,6 @@ impl NvmeDeviceHandle {
         ns: Arc<NvmeNamespace>,
         prchk_flags: u32,
     ) -> Result<NvmeDeviceHandle, CoreError> {
-        // Initialize memory pool for holding I/O context now, during the slow
-        // path, to make sure it's available before the first I/O
-        // operations take place.
-        IOCTX_POOL.get_or_init(|| MemoryPool::<NvmeIoCtx>::create(
-            "nvme_ctrl_io_ctx",
-            IOCTX_POOL_SIZE
-        ).expect("Failed to create memory pool for NVMe controller I/O contexts"));
-
         // Obtain SPDK I/O channel for NVMe controller.
         let io_channel = NvmeControllerIoChannel::from_null_checked(unsafe {
             spdk_get_io_channel(id as *mut c_void)
@@ -264,7 +253,8 @@ fn complete_nvme_command(ctx: *mut NvmeIoCtx, cpl: *const spdk_nvme_cpl) {
             io_ctx.cb_arg,
         );
     }
-    IOCTX_POOL.get().unwrap().put(ctx);
+
+    free_nvme_io_ctx(ctx);
 }
 
 /// Completion handler for vectored write requests.
@@ -380,19 +370,32 @@ fn io_type_to_err(
     }
 }
 
+/// Initialize memory pool for allocating NVMe controller I/O contexts.
+/// This must be called before the first I/O operations take place.
+pub fn nvme_io_ctx_pool_init(size: u64) {
+    NVME_IOCTX_POOL.get_or_init(|| {
+        MemoryPool::<NvmeIoCtx>::create("nvme_ctrl_io_ctx", size)
+            .expect("Failed to create memory pool [nvme_ctrl_io_ctx] for NVMe controller I/O contexts")
+    });
+}
+
+/// Allocate an NVMe controller I/O context from the pool.
 fn alloc_nvme_io_ctx(
     op: IoType,
     ctx: NvmeIoCtx,
     offset_blocks: u64,
     num_blocks: u64,
 ) -> Result<*mut NvmeIoCtx, CoreError> {
-    let pool = IOCTX_POOL.get().unwrap();
+    let pool = NVME_IOCTX_POOL.get().unwrap();
+    pool.get(ctx).ok_or_else(|| {
+        io_type_to_err(op, libc::ENOMEM, offset_blocks, num_blocks)
+    })
+}
 
-    if let Some(c) = pool.get(ctx) {
-        Ok(c)
-    } else {
-        Err(io_type_to_err(op, libc::ENOMEM, offset_blocks, num_blocks))
-    }
+/// Release the memory used by the NVMe controller I/O context back to the pool.
+fn free_nvme_io_ctx(ctx: *mut NvmeIoCtx) {
+    let pool = NVME_IOCTX_POOL.get().unwrap();
+    pool.put(ctx);
 }
 
 /// Check whether channel is suitable for serving I/O.
