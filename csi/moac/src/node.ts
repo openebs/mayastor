@@ -102,6 +102,10 @@ export class Node extends events.EventEmitter {
         log.info(
           `mayastor endpoint on node "${this.name}" changed from "${this.endpoint}" to "${endpoint}"`
         );
+        this.emit('node', {
+          eventType: 'mod',
+          object: this
+        });
         this.client.close();
         if (this.syncTimer) {
           clearTimeout(this.syncTimer);
@@ -118,10 +122,11 @@ export class Node extends events.EventEmitter {
 
   // Close the grpc connection
   disconnect() {
+    if (!this.client) return;
     log.info(`mayastor on node "${this.name}" is gone`);
-    assert(this.client);
     this.client.close();
     this.client = null;
+    this.endpoint = null;
     if (this.syncTimer) {
       clearTimeout(this.syncTimer);
       this.syncTimer = null;
