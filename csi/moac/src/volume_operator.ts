@@ -430,17 +430,7 @@ export class VolumeOperator {
       this.workq.push(obj, this._modifyVolume.bind(this));
     });
     watcher.on('del', (obj: VolumeResource) => {
-      // most likely it was not user but us (the operator) who deleted
-      // the resource. So check if it really exists first.
-      const name = obj.metadata.name!;
-      const volume = this.volumes.get(name);
-      if (volume) {
-        if (volume.state !== VolumeState.Destroyed) {
-          this.workq.push(name, this._destroyVolume.bind(this));
-        } else {
-          log.warn(`Destruction of volume "${name}" is already in progress`);
-        }
-      }
+      this.workq.push(obj.metadata.name!, this._destroyVolume.bind(this));
     });
   }
 
@@ -489,9 +479,21 @@ export class VolumeOperator {
   // @param uuid   ID of the volume to destroy.
   //
   async _destroyVolume (uuid: string) {
+    const volume = this.volumes.get(uuid);
+    if (!volume) {
+      log.warn(
+        `Volume resource "${uuid}" was deleted but the volume does not exist`
+      );
+      return;
+    } else if (volume.state === VolumeState.Destroyed) {
+      log.warn(`Destruction of volume "${uuid}" is already in progress`);
+      return;
+    }
+
     log.debug(
       `Destroying volume "${uuid}" in response to "del" resource event`
     );
+
     try {
       await this.volumes.destroyVolume(uuid);
     } catch (err) {

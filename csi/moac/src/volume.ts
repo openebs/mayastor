@@ -181,6 +181,7 @@ export class Volume {
       VolumeState.Unknown,
       VolumeState.Pending,
       VolumeState.Destroyed,
+      VolumeState.Faulted,
     ].indexOf(this.state) < 0);
   }
 
@@ -272,11 +273,6 @@ export class Volume {
       grpcCode.INTERNAL,
       `Volume ${this} has been destroyed`,
     ));
-
-    // If the volume has been already destroyed then return
-    if (!this.nexus && Object.keys(this.replicas).length === 0) {
-      return;
-    }
 
     await this._delegate(DelegatedOp.Destroy);
   }
@@ -820,12 +816,12 @@ export class Volume {
     pools = pools.filter((p) => p.node && usedNodes.indexOf(p.node.name) < 0);
     if (pools.length < count) {
       log.error(
-        `No suitable pool(s) for volume "${this}" with capacity ` +
+        `Not enough suitable pool(s) for volume "${this}" with capacity ` +
         `${this.spec.requiredBytes} and replica count ${this.spec.replicaCount}`
       );
       throw new GrpcError(
         grpcCode.RESOURCE_EXHAUSTED,
-        'Cannot find suitable storage pool(s) for the volume'
+        `Volume ${this.uuid} with capacity ${this.spec.requiredBytes} requires ${count} storage pool(s). Only ${pools.length} suitable storage pool(s) found.`
       );
     }
 
@@ -854,6 +850,7 @@ export class Volume {
     // We record all failures as we try to create the replica on available
     // pools to return them to the user at the end if we ultimately fail.
     const errors = [];
+    const requestedReplicas = count;
     // try one pool after another until success
     for (let i = 0; i < pools.length && count > 0; i++) {
       const pool = pools[i];
@@ -870,7 +867,7 @@ export class Volume {
     }
     // check if we created enough replicas
     if (count > 0) {
-      let msg = `Failed to create required number of replicas for volume "${this}": `;
+      let msg = `Failed to create ${count} out of ${requestedReplicas} requested replicas for volume "${this}": `;
       msg += errors.join('. ');
       throw new GrpcError(grpcCode.INTERNAL, msg);
     }
@@ -1039,7 +1036,7 @@ export class Volume {
   update(spec: any) {
     var changed = false;
 
-    if (this.size < spec.requiredBytes) {
+    if (this.size && this.size < spec.requiredBytes) {
       throw new GrpcError(
         grpcCode.INVALID_ARGUMENT,
         `Extending the volume "${this}" is not supported`
