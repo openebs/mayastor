@@ -41,7 +41,7 @@ struct IoOpCtx {
 async fn test_io_timeout(action_on_timeout: DeviceTimeoutAction) {
     Config::get_or_init(|| Config {
         nvme_bdev_opts: NvmeBdevOpts {
-            timeout_us: 2_000_000,
+            timeout_us: 7_000_000,
             keep_alive_timeout_ms: 5_000,
             retry_count: 2,
             ..Default::default()
