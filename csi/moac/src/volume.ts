@@ -757,7 +757,7 @@ export class Volume {
         );
       }
     }
-    this.state = VolumeState.Healthy;
+    this._setState(VolumeState.Healthy);
     log.info(`Volume "${this}" with ${this.spec.replicaCount} replica(s) and size ${this.size} was created`);
   }
 
