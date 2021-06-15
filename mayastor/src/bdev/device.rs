@@ -10,7 +10,7 @@ use std::{
 
 use async_trait::async_trait;
 use nix::errno::Errno;
-use once_cell::sync::Lazy;
+use once_cell::sync::{Lazy, OnceCell};
 
 use spdk_sys::{
     iovec,
@@ -50,12 +50,8 @@ use crate::core::{
 static BDEV_LISTENERS: Lazy<RwLock<HashMap<String, Vec<DeviceEventListener>>>> =
     Lazy::new(|| RwLock::new(HashMap::new()));
 
-// Size of the memory pool for NVMe I/O structures.
-const IOCTX_POOL_SIZE: u64 = 64 * 1024 - 1;
-static IOCTX_POOL: Lazy<MemoryPool<IoCtx>> = Lazy::new(|| {
-    MemoryPool::<IoCtx>::create("bdev_io_ctx", IOCTX_POOL_SIZE)
-        .expect("Failed to create memory pool for bdev I/O context")
-});
+// Memory pool for bdev I/O context.
+static BDEV_IOCTX_POOL: OnceCell<MemoryPool<IoCtx>> = OnceCell::new();
 
 /// Wrapper around native SPDK block devices, which mimics target SPDK block
 /// device as an abstract BlockDevice instance.
@@ -278,16 +274,33 @@ fn io_type_to_err(
     }
 }
 
-#[inline]
-fn alloc_io_ctx(
+/// Initialize memory pool for allocating bdev I/O contexts.
+/// This must be called before the first I/O operations take place.
+pub fn bdev_io_ctx_pool_init(size: u64) {
+    BDEV_IOCTX_POOL.get_or_init(|| {
+        MemoryPool::<IoCtx>::create("bdev_io_ctx", size).expect(
+            "Failed to create memory pool [bdev_io_ctx] for bdev I/O contexts",
+        )
+    });
+}
+
+/// Allocate a bdev I/O context from the pool.
+fn alloc_bdev_io_ctx(
     op: IoType,
     ctx: IoCtx,
     offset_blocks: u64,
     num_blocks: u64,
 ) -> Result<*mut IoCtx, CoreError> {
-    IOCTX_POOL.get(ctx).ok_or_else(|| {
+    let pool = BDEV_IOCTX_POOL.get().unwrap();
+    pool.get(ctx).ok_or_else(|| {
         io_type_to_err(op, Errno::ENOMEM, offset_blocks, num_blocks)
     })
+}
+
+/// Release the memory used by the bdev I/O context back to the pool.
+fn free_bdev_io_ctx(ctx: *mut IoCtx) {
+    let pool = BDEV_IOCTX_POOL.get().unwrap();
+    pool.put(ctx);
 }
 
 extern "C" fn bdev_io_completion(
@@ -311,8 +324,8 @@ extern "C" fn bdev_io_completion(
 
     (bio.cb)(&*bio.handle.device, status, bio.cb_arg);
 
-    // Free ctx,
-    IOCTX_POOL.put(&mut *bio);
+    // Free ctx.
+    free_bdev_io_ctx(&mut *bio);
 
     // Free replica's bio.
     unsafe {
@@ -355,7 +368,7 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
         cb: IoCompletionCallback,
         cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError> {
-        let ctx = alloc_io_ctx(
+        let ctx = alloc_bdev_io_ctx(
             IoType::Read,
             IoCtx {
                 handle: self,
@@ -400,7 +413,7 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
         cb: IoCompletionCallback,
         cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError> {
-        let ctx = alloc_io_ctx(
+        let ctx = alloc_bdev_io_ctx(
             IoType::Write,
             IoCtx {
                 handle: self,
@@ -441,7 +454,7 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
         cb: IoCompletionCallback,
         cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError> {
-        let ctx = alloc_io_ctx(
+        let ctx = alloc_bdev_io_ctx(
             IoType::Reset,
             IoCtx {
                 handle: self,
@@ -478,7 +491,7 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
         cb: IoCompletionCallback,
         cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError> {
-        let ctx = alloc_io_ctx(
+        let ctx = alloc_bdev_io_ctx(
             IoType::Unmap,
             IoCtx {
                 handle: self,
@@ -519,7 +532,7 @@ impl BlockDeviceHandle for SpdkBlockDeviceHandle {
         cb: IoCompletionCallback,
         cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError> {
-        let ctx = alloc_io_ctx(
+        let ctx = alloc_bdev_io_ctx(
             IoType::WriteZeros,
             IoCtx {
                 handle: self,

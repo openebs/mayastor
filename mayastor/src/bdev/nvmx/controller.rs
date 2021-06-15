@@ -12,7 +12,6 @@ use std::{
 use futures::channel::oneshot;
 use merge::Merge;
 use nix::errno::Errno;
-use once_cell::sync::OnceCell;
 
 use spdk_sys::{
     spdk_nvme_async_event_completion,
@@ -49,7 +48,6 @@ use crate::{
         NVME_CONTROLLERS,
     },
     core::{
-        mempool::MemoryPool,
         poller,
         BlockDeviceIoStats,
         CoreError,
@@ -62,11 +60,6 @@ use crate::{
     ffihelper::{cb_arg, done_cb},
     nexus_uri::NexusBdevError,
 };
-
-const RESET_CTX_POOL_SIZE: u64 = 1024 - 1;
-
-// Memory pool for keeping context during controller resets.
-static RESET_CTX_POOL: OnceCell<MemoryPool<ResetCtx>> = OnceCell::new();
 
 #[derive(Debug)]
 struct ResetCtx {
@@ -952,17 +945,6 @@ pub(crate) fn connected_attached_cb(
             .expect("done callback receiver side disappeared");
         return;
     }
-
-    // Proactively initialize cache for controller operations.
-    RESET_CTX_POOL.get_or_init(|| {
-        MemoryPool::<ResetCtx>::create(
-            "nvme_ctrlr_reset_ctx",
-            RESET_CTX_POOL_SIZE,
-        )
-        .expect(
-            "Failed to create memory pool for NVMe controller reset contexts",
-        )
-    });
 
     // Register callbacks.
     controller.register_callbacks();

@@ -36,7 +36,7 @@ use structopt::StructOpt;
 use tokio::runtime::Builder;
 
 use crate::{
-    bdev::nexus,
+    bdev::{bdev_io_ctx_pool_init, nexus, nvme_io_ctx_pool_init},
     core::{
         reactor::{Reactor, ReactorState, Reactors},
         Cores,
@@ -92,8 +92,8 @@ pub struct MayastorCliArgs {
     #[structopt(short = "n")]
     /// Hostname/IP and port (optional) of the message bus server.
     pub mbus_endpoint: Option<String>,
-    /// The maximum amount of hugepage memory we are allowed to allocate in MiB
-    /// a value of 0 means no limits.
+    /// The maximum amount of hugepage memory we are allowed to allocate in
+    /// MiB. A value of 0 means no limit.
     #[structopt(
     short = "s",
     parse(try_from_str = parse_mb),
@@ -125,6 +125,12 @@ pub struct MayastorCliArgs {
     #[structopt(short = "p")]
     /// Endpoint of the persistent store.
     pub persistent_store_endpoint: Option<String>,
+    #[structopt(long = "bdev-pool-size", default_value = "65535")]
+    /// Number of entries in memory pool for bdev I/O contexts
+    pub bdev_io_ctx_pool_size: u64,
+    #[structopt(long = "nvme-ctl-pool-size", default_value = "65535")]
+    /// Number of entries in memory pool for NVMe controller I/O contexts
+    pub nvme_ctl_io_ctx_pool_size: u64,
 }
 
 /// Defaults are redefined here in case of using it during tests
@@ -145,6 +151,8 @@ impl Default for MayastorCliArgs {
             pool_config: None,
             hugedir: None,
             core_list: None,
+            bdev_io_ctx_pool_size: 65535,
+            nvme_ctl_io_ctx_pool_size: 65535,
         }
     }
 }
@@ -224,6 +232,8 @@ pub struct MayastorEnvironment {
     unlink_hugepage: bool,
     log_component: Vec<String>,
     core_list: Option<String>,
+    bdev_io_ctx_pool_size: u64,
+    nvme_ctl_io_ctx_pool_size: u64,
 }
 
 impl Default for MayastorEnvironment {
@@ -260,6 +270,8 @@ impl Default for MayastorEnvironment {
             unlink_hugepage: true,
             log_component: vec![],
             core_list: None,
+            bdev_io_ctx_pool_size: 65535,
+            nvme_ctl_io_ctx_pool_size: 65535,
         }
     }
 }
@@ -350,6 +362,8 @@ impl MayastorEnvironment {
             hugedir: args.hugedir,
             env_context: args.env_context,
             core_list: args.core_list,
+            bdev_io_ctx_pool_size: args.bdev_io_ctx_pool_size,
+            nvme_ctl_io_ctx_pool_size: args.nvme_ctl_io_ctx_pool_size,
             ..Default::default()
         }
         .setup_static()
@@ -636,6 +650,12 @@ impl MayastorEnvironment {
 
         // bootstrap DPDK and its magic
         self.initialize_eal();
+
+        // initialize memory pool for allocating bdev I/O contexts
+        bdev_io_ctx_pool_init(self.bdev_io_ctx_pool_size);
+
+        // initialize memory pool for allocating NVMe controller I/O contexts
+        nvme_io_ctx_pool_init(self.nvme_ctl_io_ctx_pool_size);
 
         info!(
             "Total number of cores available: {}",
