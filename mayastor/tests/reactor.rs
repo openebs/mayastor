@@ -9,7 +9,7 @@ use mayastor::core::{
 };
 use std::sync::atomic::{AtomicUsize, Ordering};
 
-use once_cell::unsync::Lazy;
+use once_cell::sync::Lazy;
 use pin_utils::core_reexport::time::Duration;
 
 pub mod common;
