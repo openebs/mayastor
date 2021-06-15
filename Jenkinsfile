@@ -200,7 +200,14 @@ pipeline {
       agent { label 'nixos-mayastor' }
       steps {
         cleanWs()
-        checkout scm
+        checkout([
+          $class: 'GitSCM',
+          branches: scm.branches,
+          extensions: scm.extensions.findAll{!(it instanceof jenkins.plugins.git.GitSCMSourceDefaults)} + [
+            [$class: 'CloneOption', noTags: false, reference: '', shallow: false],
+          ],
+          userRemoteConfigs: scm.userRemoteConfigs
+        ])
         stash name: 'source', useDefaultExcludes: false
         step([
           $class: 'GitHubSetCommitStatusBuilder',
