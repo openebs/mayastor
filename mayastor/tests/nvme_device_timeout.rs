@@ -38,7 +38,7 @@ struct IoOpCtx {
     handle: Box<dyn BlockDeviceHandle>,
 }
 
-async fn test_io_timeout(action_on_timeout: DeviceTimeoutAction) {
+fn get_config() -> &'static Config {
     Config::get_or_init(|| Config {
         nvme_bdev_opts: NvmeBdevOpts {
             timeout_us: 7_000_000,
@@ -48,7 +48,10 @@ async fn test_io_timeout(action_on_timeout: DeviceTimeoutAction) {
         },
         ..Default::default()
     })
-    .apply();
+}
+
+async fn test_io_timeout(action_on_timeout: DeviceTimeoutAction) {
+    get_config().apply();
 
     let test = Builder::new()
         .name("cargo-test")
@@ -231,16 +234,7 @@ async fn io_timeout_reset() {
 
 #[tokio::test]
 async fn io_timeout_ignore() {
-    Config::get_or_init(|| Config {
-        nvme_bdev_opts: NvmeBdevOpts {
-            timeout_us: 2_000_000,
-            keep_alive_timeout_ms: 5_000,
-            retry_count: 2,
-            ..Default::default()
-        },
-        ..Default::default()
-    })
-    .apply();
+    get_config().apply();
 
     let test = Builder::new()
         .name("cargo-test")

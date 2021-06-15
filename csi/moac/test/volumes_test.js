@@ -355,7 +355,7 @@ module.exports = function () {
         thin: false,
         share: 'REPLICA_NONE'
       });
-      expect(volEvents).to.have.lengthOf(2);
+      expect(volEvents).to.have.lengthOf(3);
     });
 
     it('should limit the size of created volume', async () => {
@@ -400,7 +400,7 @@ module.exports = function () {
         thin: false,
         share: 'REPLICA_NONE'
       });
-      expect(volEvents).to.have.lengthOf(2);
+      expect(volEvents).to.have.lengthOf(3);
     });
 
     it('should fail if the size is zero', async () => {
@@ -449,7 +449,7 @@ module.exports = function () {
       sinon.assert.notCalled(stub3);
       expect(Object.keys(volume.replicas)).to.have.lengthOf(1);
       expect(Object.values(volume.replicas)[0]).to.equal(replica);
-      expect(volEvents).to.have.lengthOf(2);
+      expect(volEvents).to.have.lengthOf(3);
       expect(volEvents[0].eventType).to.equal('new');
       expect(volEvents[1].eventType).to.equal('mod');
     });
@@ -1989,7 +1989,7 @@ module.exports = function () {
       expect(volume.replicas.node3.uuid).to.equal(UUID);
       expect(volume.state).to.equal('healthy');
 
-      expect(volEvents).to.have.lengthOf(4);
+      expect(volEvents).to.have.lengthOf(5);
     });
 
     it('should publish the volume', async () => {
