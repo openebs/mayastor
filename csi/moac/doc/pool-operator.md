@@ -1,13 +1,13 @@
 # Pool Operator
 
-Pool operator is part of mayastor control plane (moac) and is responsible
-for storage pool creation and destruction on storage nodes. It follows classic
-k8s custom resource operator model. Custom resource (CR) managed by the operator
-is [MayastorPool](/csi/moac/crd/mayastorpool.yaml). CR objects represent the
+Pool operator is responsible for storage pool creation and destruction on
+storage nodes. It follows classic k8s custom resource operator model. Custom
+resource (CR) managed by the operator is
+[MayastorPool](../crd/mayastorpool.yaml). CR objects represent the
 *desired state* by a user. Pool operator is responsible for making the desired
 state real. *Storage admin* creates and destroys mayastorpool CRs using
-`kubectl`. The operator issues create and destroy storage pool commands
-to storage nodes to make the state real.
+`kubectl`. The operator issues create and destroy storage pool commands to
+storage nodes to make the state real.
 
 ## MayastorPool
 
@@ -24,6 +24,8 @@ MayastorPool custom resource is structured as follows:
     * degraded: Pool has been created and is usable but has some issue.
     * faulted: Pool has unrecoverable error and is not usable.
     * offline: Pool was created but currently it is not available because mayastor does not run on the k8s node.
+  * node: cached value from spec to prevent confusing the operator by changing the value in spec
+  * disks: cached value from spec to prevent confusing the operator by changing the value in spec
   * reason: If applicable it provides additional information explaining the state.
 
 MayastorPool CR entries are shared between storage admin and pool operator
@@ -31,7 +33,7 @@ with following responsibilities for each stake holder:
 
 * Storage admin:
   1. Is responsible for creation/destruction of the CRs.
-  2. Modification of the CR is possible but not recommended.
+  2. Modification of the CR is possible but should not be done.
   3. Status section of the CR is read-only
 * Pool operator:
   1. Is responsible for updating status section of the CR.
@@ -41,7 +43,7 @@ with following responsibilities for each stake holder:
 ## List storage pools
 
 ```bash
-kubectl get msp
+kubectl -n mayastor get msp
 ```
 
 ## Create a storage pool
@@ -55,6 +57,7 @@ apiVersion: "openebs.io/v1alpha1"
 kind: MayastorPool
 metadata:
   name: my-new-pool
+  namespace: mayastor
 spec:
   node: node1
   disks: ["/dev/loop0"]
@@ -66,5 +69,5 @@ EOF
 Example of destroying the storage pool `my-new-pool`:
 
 ```bash
-kubectl delete msp my-new-pool
+kubectl -n mayastor delete msp my-new-pool
 ```

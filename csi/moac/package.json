@@ -13,8 +13,8 @@
     "directory": "csi/moac"
   },
   "scripts": {
-    "prepare": "./bundle_protos.sh",
-    "clean": "rm -f dist",
+    "prepare": "./scripts/download_protos.sh 7f5d5a10c22d20d4502775d0639e94903773fdcd",
+    "clean": "rm -rf dist",
     "purge": "rm -rf node_modules proto dist",
     "compile": "tsc --pretty",
     "start": "./moac",
@@ -55,9 +55,12 @@
     "wtfnode": "^0.8.4"
   },
   "files": [
-    "*.js",
-    "crds/*.yaml",
-    "bundle_protos.sh"
+    "/README.md",
+    "/mbus.js",
+    "/moac",
+    "/dist/",
+    "/crds/",
+    "/proto/"
   ],
   "semistandard": {
     "env": [
