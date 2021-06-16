@@ -27,6 +27,7 @@ services:
       - /nix:/nix
       - /dev/hugepages:/dev/hugepages
       - /tmp:/tmp
+      - /var/tmp:/var/tmp
   ms1:
     container_name: "ms1"
     image: rust:latest
@@ -50,6 +51,7 @@ services:
       - /nix:/nix
       - /dev/hugepages:/dev/hugepages
       - /tmp:/tmp
+      - /var/tmp:/var/tmp
   ms2:
     container_name: "ms2"
     image: rust:latest
@@ -70,6 +72,7 @@ services:
       - /nix:/nix
       - /dev/hugepages:/dev/hugepages
       - /tmp:/tmp
+      - /var/tmp:/var/tmp
   ms3:
     container_name: "ms3"
     image: rust:latest
@@ -94,6 +97,7 @@ services:
       - /nix:/nix
       - /dev/hugepages:/dev/hugepages
       - /tmp:/tmp
+      - /var/tmp:/var/tmp
 networks:
   mayastor_net:
     name: mayastor_net

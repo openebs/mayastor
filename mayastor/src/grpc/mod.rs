@@ -41,10 +41,16 @@ mod mayastor_grpc;
 mod nexus_grpc;
 mod server;
 
+#[derive(Debug)]
+pub(crate) struct GrpcClientContext {
+    pub args: String,
+    pub id: String,
+}
+
 #[async_trait::async_trait]
 /// trait to lock serialize gRPC request outstanding
-pub(crate) trait Serializer<F, R> {
-    async fn locked(&self, f: F) -> R;
+pub(crate) trait Serializer<F, T> {
+    async fn locked(&self, ctx: GrpcClientContext, f: F) -> Result<T, Status>;
 }
 
 pub type GrpcResult<T> = std::result::Result<Response<T>, Status>;

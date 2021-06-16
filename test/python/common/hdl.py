@@ -2,6 +2,8 @@
 import mayastor_pb2 as pb
 import grpc
 import mayastor_pb2_grpc as rpc
+from pytest_testconfig import config
+from functools import partial
 
 pytest_plugins = ["docker_compose"]
 
@@ -12,16 +14,30 @@ class MayastorHandle(object):
     def __init__(self, ip_v4):
         """Init."""
         self.ip_v4 = ip_v4
+        self.timeout = config["grpc"]["client_timeout"]
         self.channel = grpc.insecure_channel(("%s:10124") % self.ip_v4)
         self.bdev = rpc.BdevRpcStub(self.channel)
         self.ms = rpc.MayastorStub(self.channel)
         self.bdev_list()
         self.pool_list()
 
+    def set_timeout(self, timeout):
+        self.timeout = timeout
+
+    def install_stub(self, name):
+        stub = getattr(rpc, name)(self.channel)
+
+        # Install default timeout to all functions, ignore system attributes.
+        for f in dir(stub):
+            if not f.startswith("__"):
+                h = getattr(stub, f)
+                setattr(stub, f, partial(h, timeout=self.timeout))
+        return stub
+
     def reconnect(self):
         self.channel = grpc.insecure_channel(("%s:10124") % self.ip_v4)
-        self.bdev = rpc.BdevRpcStub(self.channel)
-        self.ms = rpc.MayastorStub(self.channel)
+        self.bdev = self.install_stub("BdevRpcStub")
+        self.ms = self.install_stub("MayastorStub")
         self.bdev_list()
         self.pool_list()
 
