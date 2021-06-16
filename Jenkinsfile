@@ -110,26 +110,6 @@ def lokiUninstall(tag, loki_run_id) {
   sh 'kubectl delete -f ./mayastor-e2e/loki/promtail_namespace_e2e.yaml'
 }
 
-// Send out a slack message if branch got broken or has recovered
-def notifySlackUponStateChange(build) {
-  def cur = build.getResult()
-  def prev = getLastNonAbortedBuild(build.getPreviousBuild())?.getResult()
-  if (cur != prev) {
-    if (cur == 'SUCCESS') {
-      slackSend(
-        channel: '#mayastor-backend',
-        color: 'normal',
-        message: "Branch ${env.BRANCH_NAME} has been fixed :beers: (<${env.BUILD_URL}|Open>)"
-      )
-    } else if (prev == 'SUCCESS') {
-      slackSend(
-        channel: '#mayastor-backend',
-        color: 'danger',
-        message: "Branch ${env.BRANCH_NAME} is broken :face_with_raised_eyebrow: (<${env.BUILD_URL}|Open>)"
-      )
-    }
-  }
-}
 def notifySlackUponE2EFailure(build) {
   if (build.getResult() != 'SUCCESS' && env.BRANCH_NAME == 'develop') {
     slackSend(
@@ -598,9 +578,6 @@ pipeline {
                   ]
                 ]
               ])
-              if (env.BRANCH_NAME == 'develop') {
-                notifySlackUponStateChange(currentBuild)
-              }
             } else {
               notifySlackUponE2EFailure(currentBuild)
             }
