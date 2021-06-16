@@ -178,6 +178,26 @@ describe('mayastor-client', function () {
           }
         },
         {
+          method: 'ListNvmeControllers',
+          input: {},
+          output: {
+            controllers: [
+              {
+                name: '10.0.0.4:8420/nqn.2019-05.io.openebs:null1n1',
+                state: 2,
+                size: 100 * (1024 * 1024),
+                blkSize: 4096
+              },
+              {
+                name: '10.0.0.5:8420/nqn.2019-05.io.openebs:null1n1',
+                state: 3,
+                size: 100 * (1024 * 1024),
+                blkSize: 4096
+              }
+            ]
+          }
+        },
+        {
           method: 'DestroyNexus',
           input: {
             uuid: UUID
@@ -490,6 +510,42 @@ describe('mayastor-client', function () {
         assert.equal(nexus[1].size, '10485760');
         assert.equal(nexus[1].state, 'degraded');
         assert.equal(nexus[1].rebuilds, '1');
+
+        done();
+      });
+    });
+
+    it('should list nvme controllers for nexus children', function (done) {
+      const cmd = util.format('%s -q controller list', EGRESS_CMD);
+
+      exec(cmd, (err, stdout, stderr) => {
+        const controllers = [];
+        if (err) { return done(err); }
+        assert.isEmpty(stderr);
+
+        stdout.split('\n').forEach((line) => {
+          const parts = line.trim().split(' ').filter((s) => s.length !== 0);
+          if (parts.length <= 1) { return; }
+
+          controllers.push({
+            name: parts[0],
+            size: parts[1],
+            state: parts[2],
+            blk_size: parts[3]
+          });
+        });
+
+        assert.lengthOf(controllers, 2);
+
+        assert.equal(controllers[0].name, '10.0.0.4:8420/nqn.2019-05.io.openebs:null1n1');
+        assert.equal(controllers[0].size, '104857600');
+        assert.equal(controllers[0].state, 'running');
+        assert.equal(controllers[0].blk_size, '4096');
+
+        assert.equal(controllers[1].name, '10.0.0.5:8420/nqn.2019-05.io.openebs:null1n1');
+        assert.equal(controllers[1].size, '104857600');
+        assert.equal(controllers[1].state, 'faulted');
+        assert.equal(controllers[1].blk_size, '4096');
 
         done();
       });

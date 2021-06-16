@@ -12,6 +12,7 @@ use ::rpc::mayastor::{
 
 mod bdev_cli;
 mod context;
+mod controller_cli;
 mod device_cli;
 mod jsonrpc_cli;
 mod nexus_child_cli;
@@ -108,6 +109,7 @@ async fn main() -> crate::Result<()> {
         .subcommand(rebuild_cli::subcommands())
         .subcommand(snapshot_cli::subcommands())
         .subcommand(jsonrpc_cli::subcommands())
+        .subcommand(controller_cli::subcommands())
         .get_matches();
 
     let ctx = Context::new(&matches).await.context(ContextError)?;
@@ -121,6 +123,7 @@ async fn main() -> crate::Result<()> {
         ("replica", Some(args)) => replica_cli::handler(ctx, args).await,
         ("rebuild", Some(args)) => rebuild_cli::handler(ctx, args).await,
         ("snapshot", Some(args)) => snapshot_cli::handler(ctx, args).await,
+        ("controller", Some(args)) => controller_cli::handler(ctx, args).await,
         ("jsonrpc", Some(args)) => jsonrpc_cli::json_rpc_call(ctx, args).await,
         _ => panic!("Command not found"),
     };
