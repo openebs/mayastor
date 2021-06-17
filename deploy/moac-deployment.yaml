@@ -47,7 +47,7 @@ spec:
               mountPath: /var/lib/csi/sockets/pluginproxy/
 
         - name: moac
-          image: mayadata/moac:develop
+          image: mayadata/moac:v0.8.1
           imagePullPolicy: Always
           args:
             - "--csi-address=$(CSI_ENDPOINT)"
@@ -55,7 +55,7 @@ spec:
             - "--watcher-idle-timeout=600000"
             - "--etcd-endpoint=mayastor-etcd"
             - "--message-bus=nats"
-            - "-vv"
+            - "-v"
           env:
             - name: CSI_ENDPOINT
               value: /var/lib/csi/sockets/pluginproxy/csi.sock
