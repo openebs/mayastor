@@ -458,7 +458,7 @@ impl Default for IscsiTgtOpts {
             error_recovery_level: 0,
             allow_duplicate_isid: false,
             max_large_data_in_per_connection: 64,
-            max_r2t_per_connection: 64,
+            max_r2t_per_connection: 4,
         }
     }
 }
