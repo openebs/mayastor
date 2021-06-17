@@ -18,3 +18,6 @@ artifacts/
 **/__pycache__
 /chart/charts/
 ansible-hosts
+/test/python/mayastor_pb2.py
+/test/python/mayastor_pb2_grpc.py
+/package.json

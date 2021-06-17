@@ -35,7 +35,7 @@ spec:
         imagePullPolicy: {{ .Values.mayastorImagePullPolicy }}
         env:
         - name: RUST_LOG
-          value: mayastor={{ .Values.mayastorLogLevel }}
+          value: info,mayastor={{ .Values.mayastorLogLevel }}
         - name: MY_NODE_NAME
           valueFrom:
             fieldRef:
@@ -44,8 +44,6 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: status.podIP
-        - name: IMPORT_NEXUSES
-          value: "false"
         args:
         # The -l argument accepts cpu-list. Indexing starts at zero.
         # For example -l 1,2,10-20 means use core 1, 2, 10 to 20.

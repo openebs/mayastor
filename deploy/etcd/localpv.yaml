@@ -1,0 +1,17 @@
+---
+# Source: mayastor/templates/etcd/localpv.yaml
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  namespace: mayastor
+  name: etcd-volume-0
+  labels:
+    statefulset.kubernetes.io/pod-name: mayastor-etcd-0
+spec:
+  storageClassName: manual
+  capacity:
+    storage: "2Gi"
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/var/local/mayastor/etcd/pod-0"
