@@ -24,8 +24,11 @@ pub fn mbus_endpoint(endpoint: Option<String>) -> Option<String> {
             let (address_or_ip, port) = if endpoint.contains(':') {
                 let mut s = endpoint.split(':');
                 (
-                    s.next().unwrap(),
-                    s.next().unwrap().parse::<u16>().expect("Invalid Port"),
+                    s.next().expect("Invalid NATS endpoint"),
+                    s.next()
+                        .unwrap()
+                        .parse::<u16>()
+                        .expect("Invalid NATS endpoint port"),
                 )
             } else {
                 (endpoint.as_str(), 4222)
@@ -37,8 +40,8 @@ pub fn mbus_endpoint(endpoint: Option<String>) -> Option<String> {
                     .expect("Invalid Ipv4 Address");
                 debug!("Nats endpoint found at {}", nats);
             } else {
-                let nats =
-                    lookup_host(&address_or_ip).expect("Invalid Host Name");
+                let nats = lookup_host(address_or_ip)
+                    .expect("Failed to lookup the NATS endpoint");
                 debug!("Nats endpoint found at {:?}", nats);
             }
 
@@ -61,12 +64,6 @@ impl MessageBusSubsystem {
     /// initialise a new subsystem that handles the control plane
     /// message bus registration process
     extern "C" fn init() {
-        debug!("mayastor mbus subsystem init");
-        let args = MayastorEnvironment::global_or_default();
-        if let (Some(_), Some(grpc)) = (args.mbus_endpoint, args.grpc_endpoint)
-        {
-            Registration::init(&args.node_name, &grpc.to_string());
-        }
         unsafe { spdk_subsystem_init_next(0) }
     }
 
@@ -74,7 +71,9 @@ impl MessageBusSubsystem {
         debug!("mayastor mbus subsystem fini");
         let args = MayastorEnvironment::global_or_default();
         if args.mbus_endpoint.is_some() && args.grpc_endpoint.is_some() {
-            Registration::get().fini();
+            if let Some(registration) = Registration::get() {
+                registration.fini();
+            }
         }
         unsafe { spdk_subsystem_fini_next() }
     }

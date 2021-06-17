@@ -29,8 +29,8 @@ use spdk_sys::{
 use url::Url;
 
 use crate::{
-    bdev::{nexus::nexus_io::IoType, util::uring, Uri},
-    core::{Bdev, Share, Uuid},
+    bdev::Uri,
+    core::{Bdev, IoType, Share, Uuid},
     ffihelper::{cb_arg, pair, AsStr, ErrnoResult, FfiResult, IntoCString},
     lvs::{Error, Lvol, PropName, PropValue},
     nexus_uri::{bdev_destroy, NexusBdevError},
@@ -181,7 +181,7 @@ impl Lvs {
     }
 
     /// imports a pool based on its name and base bdev name
-    #[instrument(level = "debug", err)]
+    #[instrument(level = "debug")]
     pub async fn import(name: &str, bdev: &str) -> Result<Lvs, Error> {
         let (sender, receiver) = pair::<ErrnoResult<Lvs>>();
 
@@ -259,7 +259,7 @@ impl Lvs {
                 cb_arg(sender),
             )
         }
-        .to_result(|e| Error::Create {
+        .to_result(|e| Error::PoolCreate {
             source: Errno::from_i32(e),
             name: name.to_string(),
         })?;
@@ -267,17 +267,17 @@ impl Lvs {
         receiver
             .await
             .expect("Cancellation is not supported")
-            .map_err(|err| Error::Create {
+            .map_err(|err| Error::PoolCreate {
                 source: err,
                 name: name.to_string(),
             })?;
 
-        match Self::lookup(&name) {
+        match Self::lookup(name) {
             Some(pool) => {
                 info!("The pool '{}' has been created on {}", name, bdev);
                 Ok(pool)
             }
-            None => Err(Error::Create {
+            None => Err(Error::PoolCreate {
                 source: Errno::ENOENT,
                 name: name.to_string(),
             }),
@@ -300,21 +300,13 @@ impl Lvs {
             });
         }
 
-        // default to uring if kernel supports it
+        // default to aio if no specific driver scheme is specified
         let disks = args
             .disks
             .iter()
             .map(|d| {
                 if Url::parse(d).is_err() {
-                    format!(
-                        "{}://{}",
-                        if uring::kernel_support() {
-                            "uring"
-                        } else {
-                            "aio"
-                        },
-                        d,
-                    )
+                    format!("aio://{}", d)
                 } else {
                     d.clone()
                 }
@@ -330,7 +322,7 @@ impl Lvs {
             return if pool.base_bdev().name() == parsed.get_name() {
                 Ok(pool)
             } else {
-                Err(Error::Create {
+                Err(Error::PoolCreate {
                     source: Errno::EEXIST,
                     name: args.name.clone(),
                 })
@@ -436,7 +428,7 @@ impl Lvs {
                 if let Ok(prop) = l.get(PropName::Shared).await {
                     match prop {
                         PropValue::Shared(true) => {
-                            if let Err(e) = l.share_nvmf().await {
+                            if let Err(e) = l.share_nvmf(None).await {
                                 error!(
                                     "failed to share {} {}",
                                     l.name(),

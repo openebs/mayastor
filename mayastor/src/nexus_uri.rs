@@ -4,7 +4,7 @@ use crate::{bdev::Uri, core::Bdev};
 use futures::channel::oneshot::Canceled;
 use nix::errno::Errno;
 use snafu::Snafu;
-use tracing::instrument;
+
 use url::ParseError;
 
 // parse URI and bdev create/destroy errors common for all types of bdevs
@@ -49,13 +49,16 @@ pub enum NexusBdevError {
         "Invalid URI \"{}\": could not parse uuid parameter value",
         uri,
     ))]
-    UuidParamParseError {
-        source: uuid::parser::ParseError,
-        uri: String,
-    },
+    UuidParamParseError { source: uuid::Error, uri: String },
     // Bdev create/destroy errors
     #[snafu(display("bdev {} already exists", name))]
     BdevExists { name: String },
+    #[snafu(display(
+        "bdev {} already exists with a different uuid: {}",
+        name,
+        uuid
+    ))]
+    BdevWrongUuid { name: String, uuid: String },
     #[snafu(display("bdev {} not found", name))]
     BdevNotFound { name: String },
     #[snafu(display("Invalid parameters for bdev create {}", name))]
@@ -70,14 +73,14 @@ pub enum NexusBdevError {
 
 /// Parse URI and create bdev described in the URI.
 /// Return the bdev name (which can be different from URI).
-#[instrument]
 pub async fn bdev_create(uri: &str) -> Result<String, NexusBdevError> {
+    info!(?uri, "create");
     Uri::parse(uri)?.create().await
 }
 
 /// Parse URI and destroy bdev described in the URI.
-#[instrument]
 pub async fn bdev_destroy(uri: &str) -> Result<(), NexusBdevError> {
+    info!(?uri, "destroy");
     Uri::parse(uri)?.destroy().await
 }
 
@@ -122,7 +125,7 @@ impl TryFrom<Bdev> for url::Url {
         for alias in bdev.aliases().iter() {
             if let Ok(mut uri) = url::Url::parse(alias) {
                 if bdev == uri {
-                    if uri.query_pairs().find(|e| e.0 == "uuid").is_none() {
+                    if !uri.query_pairs().any(|e| e.0 == "uuid") {
                         uri.query_pairs_mut()
                             .append_pair("uuid", &bdev.uuid_as_string());
                     }

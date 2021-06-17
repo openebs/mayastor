@@ -17,27 +17,18 @@ const URL = require('url').URL;
 const assert = require('chai').assert;
 const async = require('async');
 const fs = require('fs');
+const glob = require('glob');
 const path = require('path');
 const { execSync } = require('child_process');
 const protoLoader = require('@grpc/proto-loader');
 // we can't use grpc-kit because we need to connect to UDS and that's currently
-// possible only with grpc-uds.
-const grpc = require('grpc-uds');
+// possible only with grpc-js.
+const grpc = require('@grpc/grpc-js');
 const common = require('./test_common');
 const enums = require('./grpc_enums');
 
 const csiSock = common.CSI_ENDPOINT;
 
-// One big malloc bdev which we put lvol store on.
-const CONFIG = `
-sync_disable: true
-base_bdevs:
-  - uri: "malloc:///malloc0?size_mb=64&uuid=11111111-0000-0000-0000-000000000000&blk_size=4096"
-  - uri: "malloc:///malloc1?size_mb=64&uuid=11111111-0000-0000-0000-000000000001&blk_size=4096"
-  - uri: "malloc:///malloc2?size_mb=64&uuid=11111111-0000-0000-0000-000000000002&blk_size=4096"
-  - uri: "malloc:///malloc3?size_mb=64&uuid=11111111-0000-0000-0000-000000000003&blk_size=4096"
-  - uri: "malloc:///malloc4?size_mb=64&uuid=11111111-0000-0000-0000-000000000004&blk_size=4096"
-`;
 // uuid without the last digit
 const BASE_UUID = '11111111-0000-0000-0000-00000000000';
 // used UUID aliases
@@ -63,7 +54,7 @@ function createCsiClient (service) {
     )
   );
   const proto = pkgDef.csi.v1;
-  return new proto[service](csiSock, grpc.credentials.createInsecure());
+  return new proto[service]('unix://' + csiSock, grpc.credentials.createInsecure());
 }
 
 function cleanPublishDir (mountTarget, done) {
@@ -142,6 +133,20 @@ function getFsType (mp) {
   }
 }
 
+// Get device for given mount point.
+function getFsDevice (mp) {
+  const lines = execSync('mount')
+    .toString()
+    .trim()
+    .split('\n');
+  for (let i = 0; i < lines.length; i++) {
+    const cols = lines[i].split(' ');
+    if (mp === cols[2]) {
+      return cols[0];
+    }
+  }
+}
+
 describe('csi', function () {
   this.timeout(10000); // for network tests we need long timeouts
 
@@ -149,7 +154,7 @@ describe('csi', function () {
   // NOTE: Don't use mayastor in setup - we test CSI interface and we don't want
   // to depend on correct function of mayastor iface in order to test CSI.
   before((done) => {
-    common.startMayastor(CONFIG);
+    common.startMayastor();
     common.startMayastorCsi();
 
     const client = common.createGrpcClient();
@@ -168,6 +173,13 @@ describe('csi', function () {
               client.listPools({}, pingDone);
             });
           }, next);
+        },
+        (next) => {
+            var bdevs = [];
+            for (let n =0 ; n < 5; n++) {
+                bdevs.push('malloc:///malloc' + n + '?size_mb=64&uuid=' + BASE_UUID + n + '&blk_size=4096');
+            }
+            common.createBdevs(bdevs, 'nvmf', undefined, next);
         },
         (next) => {
           async.times(
@@ -302,10 +314,11 @@ describe('csi', function () {
           'mayastor://' + common.CSI_ID
         );
 
-        assert.isAbove(
+        // until we decide otherwise
+        assert.equal(
           parseInt(res.max_volumes_per_node, 10),
-          1,
-          'number of nbd devices should be above 1'
+          0,
+          'unlimited number of devices on the node'
         );
         done();
       });
@@ -327,8 +340,8 @@ describe('csi', function () {
   csiProtocolTest('NVMF', enums.NEXUS_NVMF, 120000);
 });
 
-function csiProtocolTest (protoname, shareType, timeoutMillis) {
-  describe(protoname, function () {
+function csiProtocolTest (protoName, shareType, timeoutMillis) {
+  describe(protoName, function () {
     this.timeout(timeoutMillis); // for network tests we need long timeouts
     const publishedUris = {};
 
@@ -392,7 +405,10 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
       function getDefaultArgs () {
         return {
           volume_id: UUID1,
-          publish_context: publishedUris[UUID1],
+          publish_context: {
+            uri: publishedUris[UUID1].uri,
+            ioTimeout: '33'
+          },
           staging_target_path: mountTarget,
           volume_capability: {
             access_mode: {
@@ -427,7 +443,19 @@ function csiProtocolTest (protoname, shareType, timeoutMillis) {
         client.nodeStageVolume(getDefaultArgs(), (err) => {
           if (err) return done(err);
           assert.equal(getFsType(mountTarget), 'xfs');
-          done();
+          // Other protocols than NVMF do not honor ioTimeout setting
+          if (protoName !== 'NVMF') return done();
+          const major = getFsDevice(mountTarget).match(/nvme(\d+)n1/)[1];
+          glob(`/sys/class/nvme/nvme${major}/nvme*n1/queue/io_timeout`, (err, paths) => {
+            if (err) return done(err);
+            const path = paths[0];
+            assert(path, `Path "${path}" not found`);
+            fs.readFile(path, (err, data) => {
+              if (err) return done(err);
+              assert.equal(data.toString().trim(), '33000');
+              done();
+            });
+          });
         });
       });
 

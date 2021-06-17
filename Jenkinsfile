@@ -1,5 +1,10 @@
 #!/usr/bin/env groovy
 
+// To work around strange issue with missing files (MQ-280) we clean up
+// workspace before build which proved to hotfix the problem. That however
+// means that we need to use skipDefaultCheckout(). So we need to manage
+// sources ourselves.
+
 // On-demand E2E infra configuration
 // https://mayadata.atlassian.net/wiki/spaces/MS/pages/247332965/Test+infrastructure#On-Demand-E2E-K8S-Clusters
 
@@ -15,9 +20,24 @@ xray_on_demand_testplan='MQ-1'
 xray_nightly_testplan='MQ-17'
 xray_continuous_testplan='MQ-33'
 xray_test_execution_type='10059'
+// do not send xray reports as a result of "bors try"
+xray_send_report = (env.BRANCH_NAME == 'trying') ? false : true
 
 // if e2e run does not build its own images, which tag to use when pulling
-e2e_continuous_image_tag='v0.7.1'
+e2e_continuous_image_tag='v0.8.0'
+e2e_reports_dir='artifacts/reports/'
+
+// In the case of multi-branch pipelines, the pipeline
+// name a.k.a. job base name, will be the
+// 2nd-to-last item of env.JOB_NAME which
+// consists of identifiers separated by '/' e.g.
+//     first/second/pipeline/branch
+// In the case of a non-multibranch pipeline, the pipeline
+// name is env.JOB_NAME. This caters for all eventualities.
+def getJobBaseName() {
+  def jobSections = env.JOB_NAME.tokenize('/') as String[]
+  return jobSections.length < 2 ? env.JOB_NAME : jobSections[ jobSections.length - 2 ]
+}
 
 // Searches previous builds to find first non aborted one
 def getLastNonAbortedBuild(build) {
@@ -32,61 +52,68 @@ def getLastNonAbortedBuild(build) {
   }
 }
 
+def isTimed() {
+    def causes = currentBuild.getBuildCauses()
+    for(cause in causes) {
+      if ("${cause}".contains("hudson.triggers.TimerTrigger\$TimerTriggerCause")) {
+        return true
+      }
+    }
+    return false
+}
+
+def getAliasTag() { // alternative tag for CI pushed images
+    if (isTimed() == true || params.run_as_nightly == true) {
+      return 'nightly'
+    }
+    return 'ci'
+}
+
+def getTag() {
+  if (e2e_build_images == true) {
+    def tag = sh(
+      // using printf to get rid of trailing newline
+      script: "printf \$(git rev-parse --short=12 HEAD)",
+      returnStdout: true
+    )
+    return tag
+  } else {
+    return e2e_continuous_image_tag
+  }
+}
+
 def getTestPlan() {
   if (params.e2e_continuous == true)  {
     return xray_continuous_testplan
   }
-  def causes = currentBuild.getBuildCauses()
-  for(cause in causes) {
-    if ("${cause}".contains("hudson.triggers.TimerTrigger\$TimerTriggerCause")) {
-      return xray_nightly_testplan
-    }
+  if (isTimed() == true) {
+    return xray_nightly_testplan
   }
   return xray_on_demand_testplan
 }
 
 // Install Loki on the cluster
-def lokiInstall(tag) {
-  sh 'kubectl apply -f ./test/e2e/loki/promtail_namespace_e2e.yaml'
-  sh 'kubectl apply -f ./test/e2e/loki/promtail_rbac_e2e.yaml'
-  sh 'kubectl apply -f ./test/e2e/loki/promtail_configmap_e2e.yaml'
-  def cmd = "run=\"${env.BUILD_NUMBER}\" version=\"${tag}\" envsubst -no-unset < ./test/e2e/loki/promtail_daemonset_e2e.template.yaml | kubectl apply -f -"
+def lokiInstall(tag, loki_run_id) {
+  sh 'kubectl apply -f ./mayastor-e2e/loki/promtail_namespace_e2e.yaml'
+  sh 'kubectl apply -f ./mayastor-e2e/loki/promtail_rbac_e2e.yaml'
+  sh 'kubectl apply -f ./mayastor-e2e/loki/promtail_configmap_e2e.yaml'
+  def cmd = "run=\"${loki_run_id}\" version=\"${tag}\" envsubst -no-unset < ./mayastor-e2e/loki/promtail_daemonset_e2e.template.yaml | kubectl apply -f -"
   sh "nix-shell --run '${cmd}'"
 }
 
 // Unnstall Loki
-def lokiUninstall(tag) {
-  def cmd = "run=\"${env.BUILD_NUMBER}\" version=\"${tag}\" envsubst -no-unset < ./test/e2e/loki/promtail_daemonset_e2e.template.yaml | kubectl delete -f -"
+def lokiUninstall(tag, loki_run_id) {
+  def cmd = "run=\"${loki_run_id}\" version=\"${tag}\" envsubst -no-unset < ./mayastor-e2e/loki/promtail_daemonset_e2e.template.yaml | kubectl delete -f -"
   sh "nix-shell --run '${cmd}'"
-  sh 'kubectl delete -f ./test/e2e/loki/promtail_configmap_e2e.yaml'
-  sh 'kubectl delete -f ./test/e2e/loki/promtail_rbac_e2e.yaml'
-  sh 'kubectl delete -f ./test/e2e/loki/promtail_namespace_e2e.yaml'
+  sh 'kubectl delete -f ./mayastor-e2e/loki/promtail_configmap_e2e.yaml'
+  sh 'kubectl delete -f ./mayastor-e2e/loki/promtail_rbac_e2e.yaml'
+  sh 'kubectl delete -f ./mayastor-e2e/loki/promtail_namespace_e2e.yaml'
 }
 
-// Send out a slack message if branch got broken or has recovered
-def notifySlackUponStateChange(build) {
-  def cur = build.getResult()
-  def prev = getLastNonAbortedBuild(build.getPreviousBuild())?.getResult()
-  if (cur != prev) {
-    if (cur == 'SUCCESS') {
-      slackSend(
-        channel: '#mayastor-backend',
-        color: 'normal',
-        message: "Branch ${env.BRANCH_NAME} has been fixed :beers: (<${env.BUILD_URL}|Open>)"
-      )
-    } else if (prev == 'SUCCESS') {
-      slackSend(
-        channel: '#mayastor-backend',
-        color: 'danger',
-        message: "Branch ${env.BRANCH_NAME} is broken :face_with_raised_eyebrow: (<${env.BUILD_URL}|Open>)"
-      )
-    }
-  }
-}
 def notifySlackUponE2EFailure(build) {
-  if (build.getResult() != 'SUCCESS') {
+  if (build.getResult() != 'SUCCESS' && env.BRANCH_NAME == 'develop') {
     slackSend(
-      channel: '#mayastor-backend',
+      channel: '#mayastor-e2e',
       color: 'danger',
       message: "E2E continuous testing has failed (<${env.BUILD_URL}|Open>)"
     )
@@ -102,7 +129,10 @@ if (currentBuild.getBuildCauses('jenkins.branch.BranchIndexingCause') &&
 }
 
 // Only schedule regular builds on develop branch, so we don't need to guard against it
-String cron_schedule = BRANCH_NAME == "develop" ? "0 2 * * *" : ""
+// Run only on one Mayastor pipeline
+String job_base_name = getJobBaseName()
+String cron_schedule = BRANCH_NAME == "develop" && job_base_name == "Mayastor" ? "0 2 * * *" : ""
+String loki_run_id = job_base_name + "-" + env.BRANCH_NAME + "-" + env.BUILD_NUMBER
 
 // Determine which stages to run
 if (params.e2e_continuous == true) {
@@ -110,10 +140,11 @@ if (params.e2e_continuous == true) {
   rust_test = false
   grpc_test = false
   moac_test = false
-  e2e_test = true
   e2e_test_profile = "continuous"
   // use images from dockerhub tagged with e2e_continuous_image_tag instead of building from current source
   e2e_build_images = false
+  // here 'dockerhub' is a keyword the e2e-test.sh script recognizes as meaning "pull from DockerHub"
+  e2e_test_image_registry = 'dockerhub'
   // do not push images even when running on master/develop/release branches
   do_not_push_images = true
 } else {
@@ -121,20 +152,24 @@ if (params.e2e_continuous == true) {
   rust_test = true
   grpc_test = true
   moac_test = true
-  e2e_test = true
   // Some long e2e tests are not suitable to be run for each PR
-  e2e_test_profile = (env.BRANCH_NAME != 'staging' && env.BRANCH_NAME != 'trying') ? "extended" : "ondemand"
+  e2e_test_profile = (env.BRANCH_NAME != 'staging' && env.BRANCH_NAME != 'trying') ? "nightly" : "ondemand"
   e2e_build_images = true
+  e2e_test_image_registry = env.REGISTRY
   do_not_push_images = false
 }
+e2e_alias_tag = getAliasTag()
 
 pipeline {
   agent none
   options {
-    timeout(time: 2, unit: 'HOURS')
+    timeout(time: 5, unit: 'HOURS')
+    skipDefaultCheckout()
   }
   parameters {
     booleanParam(defaultValue: false, name: 'e2e_continuous')
+    booleanParam(defaultValue: false, name: 'run_as_nightly')
+    booleanParam(defaultValue: false, name: 'run_e2e_test')
   }
   triggers {
     cron(cron_schedule)
@@ -144,6 +179,16 @@ pipeline {
     stage('init') {
       agent { label 'nixos-mayastor' }
       steps {
+        cleanWs()
+        checkout([
+          $class: 'GitSCM',
+          branches: scm.branches,
+          extensions: scm.extensions.findAll{!(it instanceof jenkins.plugins.git.GitSCMSourceDefaults)} + [
+            [$class: 'CloneOption', noTags: false, reference: '', shallow: false],
+          ],
+          userRemoteConfigs: scm.userRemoteConfigs
+        ])
+        stash name: 'source', useDefaultExcludes: false
         step([
           $class: 'GitHubSetCommitStatusBuilder',
           contextSource: [
@@ -167,6 +212,8 @@ pipeline {
         }
       }
       steps {
+        cleanWs()
+        unstash 'source'
         sh 'nix-shell --run "cargo fmt --all -- --check"'
         sh 'nix-shell --run "cargo clippy --all-targets -- -D warnings"'
         sh 'nix-shell --run "./scripts/js-check.sh"'
@@ -193,6 +240,8 @@ pipeline {
             START_DATE = new Date().format("yyyy-MM-dd HH:mm:ss", TimeZone.getTimeZone('UTC'))
           }
           steps {
+            cleanWs()
+            unstash 'source'
             sh 'printenv'
             sh 'nix-shell --run "./scripts/cargo-test.sh"'
           }
@@ -214,6 +263,8 @@ pipeline {
             START_DATE = new Date().format("yyyy-MM-dd HH:mm:ss", TimeZone.getTimeZone('UTC'))
           }
           steps {
+            cleanWs()
+            unstash 'source'
             sh 'printenv'
             sh 'nix-shell --run "./scripts/grpc-test.sh"'
           }
@@ -231,6 +282,8 @@ pipeline {
           }
           agent { label 'nixos-mayastor' }
           steps {
+            cleanWs()
+            unstash 'source'
             sh 'printenv'
             sh 'nix-shell --run "./scripts/moac-test.sh"'
           }
@@ -243,7 +296,7 @@ pipeline {
         stage('e2e tests') {
           when {
             beforeAgent true
-            expression { e2e_test == true }
+            expression { params.run_e2e_test == true }
           }
           stages {
             stage('e2e docker images') {
@@ -253,6 +306,9 @@ pipeline {
               }
               agent { label 'nixos-mayastor' }
               steps {
+                cleanWs()
+                unstash 'source'
+
                 // e2e tests are the most demanding step for space on the disk so we
                 // test the free space here rather than repeating the same code in all
                 // stages.
@@ -261,7 +317,7 @@ pipeline {
                 // Build images (REGISTRY is set in jenkin's global configuration).
                 // Note: We might want to build and test dev images that have more
                 // assertions instead but that complicates e2e tests a bit.
-                sh "./scripts/release.sh --alias-tag ci --registry \"${env.REGISTRY}\""
+                sh "./scripts/release.sh --registry \"${env.REGISTRY}\""
               }
               post {
                 // Always remove all docker images because they are usually used just once
@@ -292,11 +348,6 @@ pipeline {
             stage('run e2e') {
               agent { label 'nixos' }
               environment {
-                GIT_COMMIT_SHORT = sh(
-                  // using printf to get rid of trailing newline
-                  script: "printf \$(git rev-parse --short ${GIT_COMMIT})",
-                  returnStdout: true
-                )
                 KUBECONFIG = "${env.WORKSPACE}/${e2e_environment}/modules/k8s/secrets/admin.conf"
               }
               steps {
@@ -314,24 +365,27 @@ pipeline {
                 sh 'kubectl get nodes -o wide'
 
                 script {
-                  def tag = ''
-                  if (e2e_build_images == true) {
-                    tag = env.GIT_COMMIT_SHORT
-                  } else {
-                    tag = e2e_continuous_image_tag
+                  // get copy of latest mayastor-e2e test files
+                  sh 'rm -Rf mayastor-e2e'
+                  withCredentials([
+                    usernamePassword(credentialsId: 'github-checkout', usernameVariable: 'ghuser', passwordVariable: 'ghpw')
+                  ]) {
+                    sh "git clone https://${ghuser}:${ghpw}@github.com/mayadata-io/mayastor-e2e.git"
+                    sh 'cd mayastor-e2e && git checkout develop'
                   }
-                  def cmd = "./scripts/e2e-test.sh --device /dev/sdb --tag \"${tag}\" --logs --profile \"${e2e_test_profile}\" --build_number \"${env.BUILD_NUMBER}\" "
-                  // building images also means using the CI registry
-                  if (e2e_build_images == true) {
-                    cmd = cmd + " --registry \"" + env.REGISTRY + "\""
-                  }
+                  sh "mkdir -p ./${e2e_reports_dir}"
+                  def tag = getTag()
+                  def cmd = "./scripts/e2e-test.sh --device /dev/sdb --tag \"${tag}\" --logs --profile \"${e2e_test_profile}\" --loki_run_id \"${loki_run_id}\" --mayastor \"${env.WORKSPACE}\" --reportsdir \"${env.WORKSPACE}/${e2e_reports_dir}\" --registry \"${e2e_test_image_registry}\" "
 
+                  if (e2e_test_profile == "nightly") {
+                        cmd = cmd + " --onfail reinstall "
+                  }
                   withCredentials([
                     usernamePassword(credentialsId: 'GRAFANA_API', usernameVariable: 'grafana_api_user', passwordVariable: 'grafana_api_pw')
                   ]) {
-                    lokiInstall(tag)
-                    sh "nix-shell --run '${cmd}'"
-                    lokiUninstall(tag) // so that, if we keep the cluster, the next Loki instance can use different parameters
+                    lokiInstall(tag, loki_run_id)
+                    sh "nix-shell --run 'cd mayastor-e2e && ${cmd}'"
+                    lokiUninstall(tag, loki_run_id) // so that, if we keep the cluster, the next Loki instance can use different parameters
                   }
                 }
               }
@@ -355,7 +409,7 @@ pipeline {
                     build_cluster_destroy_url="${JENKINS_URL}job/${e2e_destroy_cluster_job}/buildWithParameters?BUILD=${k8s_job.getProjectName()}%23${k8s_job.getNumber()}"
                     kubeconfig_url="${JENKINS_URL}job/${k8s_job.getProjectName()}/${k8s_job.getNumber()}/artifact/hcloud-kubeadm/modules/k8s/secrets/admin.conf"
                     slackSend(
-                      channel: '#mayastor-backend',
+                      channel: '#mayastor-e2e',
                       color: 'danger',
                       message: "E2E k8s cluster <$build_cluster_run_url|#${k8s_job.getNumber()}> left running due to failure of " +
                         "<$self_url|$self_name>. Investigate using <$kubeconfig_url|kubeconfig>, or ssh as root to:\n" +
@@ -368,32 +422,48 @@ pipeline {
                 }
                 always {
                   archiveArtifacts 'artifacts/**/*.*'
-                  // always send the junit results back to Xray and Jenkins
-                  junit 'e2e.*.xml'
+                  // TODO get e2e-test.sh to take a configurable dir for artifacts
+                  archiveArtifacts 'mayastor-e2e/artifacts/**/*.*'
+                  // handle junit results on success or failure
+                  junit "${e2e_reports_dir}/*.xml"
                   script {
-                    def xray_testplan = getTestPlan()
-                    step([
-                      $class: 'XrayImportBuilder',
-                      endpointName: '/junit/multipart',
-                      importFilePath: 'e2e.*.xml',
-                      importToSameExecution: 'true',
-                      projectKey: "${xray_projectkey}",
-                      testPlanKey: "${xray_testplan}",
-                      serverInstance: "${env.JIRASERVERUUID}",
-                      inputInfoSwitcher: 'fileContent',
-                      importInfo: """{
-                        "fields": {
-                          "summary": "Build #${env.BUILD_NUMBER}, branch: ${env.BRANCH_name}",
-                          "project": {
-                            "key": "${xray_projectkey}"
-                          },
-                          "issuetype": {
-                            "id": "${xray_test_execution_type}"
-                          },
-                          "description": "Results for build #${env.BUILD_NUMBER} at ${env.BUILD_URL}"
-                        }
-                      }"""
-                    ])
+                    if (xray_send_report == true) {
+                      try {
+                        def xray_testplan = getTestPlan()
+                        def tag = getTag()
+                        step([
+                          $class: 'XrayImportBuilder',
+                          endpointName: '/junit/multipart',
+                          importFilePath: "${e2e_reports_dir}/*.xml",
+                          importToSameExecution: 'true',
+                          projectKey: "${xray_projectkey}",
+                          testPlanKey: "${xray_testplan}",
+                          serverInstance: "${env.JIRASERVERUUID}",
+                          inputInfoSwitcher: 'fileContent',
+                          importInfo: """{
+                            "fields": {
+                              "summary": "Build #${env.BUILD_NUMBER}, branch: ${env.BRANCH_name}, tag: ${tag}",
+                              "project": {
+                                "key": "${xray_projectkey}"
+                              },
+                              "issuetype": {
+                                "id": "${xray_test_execution_type}"
+                              },
+                              "description": "Results for build #${env.BUILD_NUMBER} at ${env.BUILD_URL}"
+                            }
+                          }"""
+                        ])
+                      } catch (err) {
+                        echo 'XRay failed'
+                        echo err.getMessage()
+                        // Send Slack message to inform of XRay failure
+                        slackSend(
+                           channel: '#mayastor-e2e',
+                           color: 'danger',
+                           message: "E2E failed to send XRay reports (<${env.BUILD_URL}|Open>)"
+                        )
+                      }
+                    }
                   }
                 }
               }
@@ -430,6 +500,29 @@ pipeline {
         }// end of "e2e tests" stage
       }// parallel stages block
     }// end of test stage
+
+    // On develop, push tagged images to the CI repo if all tests have passed.
+    // Tag as 'nightly' if it was a nightly run, otherwise 'ci'.
+    stage('e2e push tagged images to CI repo') {
+      agent { label 'nixos-mayastor' }
+      when {
+        beforeAgent true
+        allOf {
+          expression { e2e_build_images == true }
+          branch 'develop'
+        }
+      }
+      steps {
+        // Build, tag and push the built images to the CI registry, but only after the test has succeeded
+        sh "./scripts/release.sh --alias-tag \"${e2e_alias_tag}\" --registry \"${env.REGISTRY}\" "
+      }
+      post {
+        always {
+          sh 'docker image prune --all --force'
+        }
+      }
+    }
+
     stage('push images') {
       agent { label 'nixos-mayastor' }
       when {
@@ -485,9 +578,6 @@ pipeline {
                   ]
                 ]
               ])
-              if (env.BRANCH_NAME == 'develop') {
-                notifySlackUponStateChange(currentBuild)
-              }
             } else {
               notifySlackUponE2EFailure(currentBuild)
             }

@@ -1,11 +1,9 @@
 use std::{
     convert::TryFrom,
     ffi::{c_void, CString},
-    fmt,
-    fmt::{Debug, Display, Formatter},
+    fmt::{self, Debug, Display, Formatter},
     mem::size_of,
-    ptr,
-    ptr::NonNull,
+    ptr::{self, NonNull},
 };
 
 use futures::channel::oneshot;
@@ -14,12 +12,13 @@ use nix::errno::Errno;
 use spdk_sys::{
     nvmf_subsystem_find_listener,
     nvmf_subsystem_set_ana_state,
+    nvmf_subsystem_set_cntlid_range,
     spdk_bdev_nvme_opts,
     spdk_nvmf_ns_get_bdev,
     spdk_nvmf_ns_opts,
     spdk_nvmf_subsystem,
     spdk_nvmf_subsystem_add_listener,
-    spdk_nvmf_subsystem_add_ns,
+    spdk_nvmf_subsystem_add_ns_ext,
     spdk_nvmf_subsystem_create,
     spdk_nvmf_subsystem_destroy,
     spdk_nvmf_subsystem_get_first,
@@ -197,13 +196,14 @@ impl NvmfSubsystem {
     /// add the given bdev to this namespace
     pub fn add_namespace(&self, bdev: &Bdev) -> Result<(), Error> {
         let opts = spdk_nvmf_ns_opts {
-            nguid: bdev.uuid().as_bytes(),
+            nguid: *bdev.uuid().as_bytes(),
             ..Default::default()
         };
+        let bdev_cname = CString::new(bdev.name()).unwrap();
         let ns_id = unsafe {
-            spdk_nvmf_subsystem_add_ns(
+            spdk_nvmf_subsystem_add_ns_ext(
                 self.0.as_ptr(),
-                bdev.as_ptr(),
+                bdev_cname.as_ptr(),
                 &opts as *const _,
                 size_of::<spdk_bdev_nvme_opts>() as u64,
                 ptr::null_mut(),
@@ -247,6 +247,16 @@ impl NvmfSubsystem {
 
     /// enable Asymmetric Namespace Access (ANA) reporting
     pub fn set_ana_reporting(&self, enable: bool) -> Result<(), Error> {
+        match std::env::var("NEXUS_NVMF_ANA_ENABLE") {
+            Ok(s) => {
+                if s != "1" {
+                    return Ok(());
+                }
+            }
+            Err(_) => {
+                return Ok(());
+            }
+        }
         unsafe {
             spdk_nvmf_subsystem_set_ana_reporting(self.0.as_ptr(), enable)
         }
@@ -254,6 +264,30 @@ impl NvmfSubsystem {
             source: Errno::from_i32(e),
             nqn: self.get_nqn(),
             msg: format!("failed to set ANA reporting, enable {}", enable),
+        })?;
+        Ok(())
+    }
+
+    /// set controller ID range
+    pub fn set_cntlid_range(
+        &self,
+        cntlid_min: u16,
+        cntlid_max: u16,
+    ) -> Result<(), Error> {
+        unsafe {
+            nvmf_subsystem_set_cntlid_range(
+                self.0.as_ptr(),
+                cntlid_min,
+                cntlid_max,
+            )
+        }
+        .to_result(|e| Error::Subsystem {
+            source: Errno::from_i32(e),
+            nqn: self.get_nqn(),
+            msg: format!(
+                "failed to set controller ID range [{}, {}]",
+                cntlid_min, cntlid_max
+            ),
         })?;
         Ok(())
     }

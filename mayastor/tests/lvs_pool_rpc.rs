@@ -89,17 +89,15 @@ async fn lvs_pool_rpc() {
         .unwrap();
 
     // assert we are shared
-    assert_eq!(
-        gdl.mayastor
-            .list_replicas(Null {})
-            .await
-            .unwrap()
-            .into_inner()
-            .replicas[0]
-            .uri
-            .contains("nvmf://"),
-        true
-    );
+    assert!(gdl
+        .mayastor
+        .list_replicas(Null {})
+        .await
+        .unwrap()
+        .into_inner()
+        .replicas[0]
+        .uri
+        .contains("nvmf://"));
 
     // unshare it
     gdl.mayastor
@@ -111,17 +109,15 @@ async fn lvs_pool_rpc() {
         .unwrap();
 
     // assert we are not shared
-    assert_eq!(
-        gdl.mayastor
-            .list_replicas(Null {})
-            .await
-            .unwrap()
-            .into_inner()
-            .replicas[0]
-            .uri
-            .contains("bdev://"),
-        true
-    );
+    assert!(gdl
+        .mayastor
+        .list_replicas(Null {})
+        .await
+        .unwrap()
+        .into_inner()
+        .replicas[0]
+        .uri
+        .contains("bdev://"));
 
     // destroy the replica
     gdl.mayastor

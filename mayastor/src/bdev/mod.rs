@@ -1,5 +1,7 @@
 use async_trait::async_trait;
 
+pub use dev::{device_create, device_destroy, device_lookup, device_open};
+pub use device::{bdev_io_ctx_pool_init, SpdkBlockDevice};
 pub use nexus::{
     nexus_bdev::{
         nexus_create,
@@ -9,18 +11,36 @@ pub use nexus::{
         NexusStatus,
         VerboseError,
     },
-    nexus_child::{lookup_child_from_bdev, ChildState, Reason},
-    nexus_child_error_store::{ActionType, NexusErrStore, QueryType},
-    nexus_child_status_config,
-    nexus_io::Bio,
-    nexus_label::{GptEntry, GptHeader},
-    nexus_metadata_content::{
-        NexusConfig,
-        NexusConfigVersion1,
-        NexusConfigVersion2,
-        NexusConfigVersion3,
+    nexus_child::{lookup_nexus_child, ChildState, Reason},
+    nexus_label::{GptEntry, GptGuid as Guid, GptHeader},
+    nexus_metadata::{
+        MetaDataChildEntry,
+        MetaDataIndex,
+        MetaDataObject,
+        NexusMetaData,
     },
+    nexus_persistence::{ChildInfo, NexusInfo},
 };
+pub use nvmx::{
+    nvme_io_ctx_pool_init,
+    NvmeController,
+    NvmeControllerState,
+    NVME_CONTROLLERS,
+};
+
+mod aio;
+pub(crate) mod dev;
+pub(crate) mod device;
+mod iscsi;
+mod loopback;
+mod malloc;
+pub(crate) mod nexus;
+mod null;
+mod nvme;
+mod nvmf;
+pub(crate) mod nvmx;
+mod uring;
+pub mod util;
 
 pub trait BdevCreateDestroy: CreateDestroy + GetName + std::fmt::Debug {}
 
@@ -42,7 +62,3 @@ pub trait GetName {
 }
 
 pub struct Uri;
-
-pub(crate) mod dev;
-pub(crate) mod nexus;
-pub mod util;

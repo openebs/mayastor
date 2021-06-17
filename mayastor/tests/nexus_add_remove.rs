@@ -42,7 +42,7 @@ async fn nexus_3_way_create() {
             .unwrap();
 
             let n = nexus_lookup("nexus0").unwrap();
-            n.share_nvmf().await.unwrap();
+            n.share_nvmf(None).await.unwrap();
         })
         .await;
 }
@@ -58,7 +58,7 @@ async fn nexus_destroy() {
 }
 async fn nexus_share() {
     let n = nexus_lookup("nexus0").unwrap();
-    n.share_nvmf().await.unwrap();
+    n.share_nvmf(None).await.unwrap();
 }
 
 async fn nexus_create_2_way_add_one() {

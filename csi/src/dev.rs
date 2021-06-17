@@ -27,16 +27,16 @@
 //!     }
 //! ```
 
-use std::{convert::TryFrom, time::Duration};
+use std::{collections::HashMap, convert::TryFrom, time::Duration};
 
-use tokio::time::delay_for;
+use tokio::time::sleep;
 use udev::Enumerator;
 use url::Url;
 use uuid::Uuid;
 
 mod iscsi;
 mod nbd;
-mod nvmf;
+pub(crate) mod nvmf;
 mod util;
 
 const NVME_NQN_PREFIX: &str = "nqn.2019-05.io.openebs";
@@ -48,8 +48,14 @@ pub type DeviceName = String;
 
 #[tonic::async_trait]
 pub trait Attach: Sync + Send {
+    async fn parse_parameters(
+        &mut self,
+        context: &HashMap<String, String>,
+    ) -> Result<(), DeviceError>;
     async fn attach(&self) -> Result<(), DeviceError>;
     async fn find(&self) -> Result<Option<DeviceName>, DeviceError>;
+    /// Fixup parameters which cannot be set during attach, eg IO timeout
+    async fn fixup(&self) -> Result<(), DeviceError>;
 }
 
 #[tonic::async_trait]
@@ -119,7 +125,7 @@ impl Device {
     /// Wait for a device to show up in udev
     /// once attach() has been called.
     pub async fn wait_for_device(
-        device: Box<dyn Attach>,
+        device: &dyn Attach,
         timeout: Duration,
         retries: u32,
     ) -> Result<DeviceName, DeviceError> {
@@ -127,7 +133,7 @@ impl Device {
             if let Some(devname) = device.find().await? {
                 return Ok(devname);
             }
-            delay_for(timeout).await;
+            sleep(timeout).await;
         }
         Err(DeviceError::new("device attach timeout"))
     }

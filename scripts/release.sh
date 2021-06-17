@@ -17,7 +17,7 @@ dockerhub_tag_exists() {
 get_tag() {
   vers=`git tag --points-at HEAD`
   if [ -z "$vers" ]; then
-    vers=`git rev-parse --short HEAD`
+    vers=`git rev-parse --short=12 HEAD`
   fi
   echo -n $vers
 }

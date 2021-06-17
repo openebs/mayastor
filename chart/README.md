@@ -17,6 +17,8 @@ helm uninstall mayastor -n mayastor
 kubectl delete namespace mayastor
 ```
 
+Please note that the provided etcd deployment with its default values uses an EmptyDir Volume as its backing store and is not production ready.
+
 # TODO
 
 [ ] publish :-)

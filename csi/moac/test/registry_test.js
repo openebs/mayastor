@@ -1,19 +1,23 @@
 // Unit tests for the registry class.
 
+'use strict';
+
+/* eslint-disable no-unused-expressions */
+
 const _ = require('lodash');
 const expect = require('chai').expect;
 const sinon = require('sinon');
-const Registry = require('../registry');
-const { Replica } = require('../replica');
-const { Pool } = require('../pool');
-const { Nexus } = require('../nexus');
+const { Registry } = require('../dist/registry');
+const { Replica } = require('../dist/replica');
+const { Pool } = require('../dist/pool');
+const { Nexus } = require('../dist/nexus');
 const Node = require('./node_stub');
 
 module.exports = function () {
   it('should add a node to the registry and look up the node', () => {
-    const registry = new Registry();
+    const registry = new Registry({});
     registry.Node = Node;
-    var nodeEvent;
+    let nodeEvent;
 
     registry.once('node', (ev) => {
       nodeEvent = ev;
@@ -28,70 +32,65 @@ module.exports = function () {
     expect(node.endpoint).to.equal('127.0.0.1:123');
 
     // ensure the events from the node are relayed by the registry
-    var events = ['node', 'pool', 'replica', 'nexus'];
+    const events = ['node', 'pool', 'replica', 'nexus'];
     events.forEach((ev) => {
-      registry.once(ev, () => {
+      registry.on(ev, () => {
         const idx = events.findIndex((ent) => ent === ev);
         expect(idx).to.not.equal(-1);
         events.splice(idx, 1);
       });
     });
     _.clone(events).forEach((ev) => node.emit(ev, {}));
-    expect(events).to.be.empty();
+    expect(events).to.be.empty;
   });
 
   it('should not do anything if the same node already exists in the registry', () => {
-    const registry = new Registry();
+    const registry = new Registry({});
     registry.Node = Node;
-    const node = new Node('node');
-    node.connect('127.0.0.1:123');
-    const connectStub = sinon.stub(node, 'connect');
-    registry.nodes.node = node;
 
-    var nodeEvent;
-    registry.once('node', (ev) => {
-      nodeEvent = ev;
+    const nodeEvents = [];
+    registry.on('node', (ev) => {
+      nodeEvents.push(ev);
     });
 
     registry.addNode('node', '127.0.0.1:123');
-    sinon.assert.notCalled(connectStub);
-    expect(nodeEvent).to.be.undefined();
+    expect(nodeEvents).to.have.lengthOf(1);
+    expect(nodeEvents[0].eventType).to.equal('new');
+
+    registry.addNode('node', '127.0.0.1:123');
+    expect(nodeEvents).to.have.lengthOf(1);
   });
 
   it('should reconnect node if it exists but grpc endpoint has changed', () => {
-    const registry = new Registry();
+    const registry = new Registry({});
     registry.Node = Node;
-    const node = new Node('node');
-    node.connect('127.0.0.1:123');
-    const connectStub = sinon.stub(node, 'connect');
-    registry.nodes.node = node;
 
-    var nodeEvent;
-    registry.once('node', (ev) => {
-      nodeEvent = ev;
+    const nodeEvents = [];
+    registry.on('node', (ev) => {
+      nodeEvents.push(ev);
     });
 
+    registry.addNode('node', '127.0.0.1:123');
     registry.addNode('node', '127.0.0.1:124');
-    sinon.assert.calledOnce(connectStub);
-    sinon.assert.calledWith(connectStub, '127.0.0.1:124');
-    expect(nodeEvent.eventType).to.equal('mod');
-    expect(nodeEvent.object.name).to.equal('node');
+    expect(nodeEvents).to.have.lengthOf(2);
+    expect(nodeEvents[0].eventType).to.equal('new');
+    expect(nodeEvents[1].eventType).to.equal('mod');
   });
 
   it('should get a list of nodes from registry', () => {
-    const registry = new Registry();
+    const registry = new Registry({});
     registry.nodes.node1 = new Node('node1');
     registry.nodes.node2 = new Node('node2');
     registry.nodes.node3 = new Node('node3');
-    const list = registry.getNode();
+    const list = registry.getNodes();
     expect(list).to.have.lengthOf(3);
   });
 
   it('should remove a node from the registry', () => {
-    const registry = new Registry();
+    const registry = new Registry({});
     const node = new Node('node');
     registry.nodes.node = node;
-    var nodeEvent;
+    let nodeEvent;
     registry.once('node', (ev) => {
       nodeEvent = ev;
     });
@@ -101,7 +100,7 @@ module.exports = function () {
     expect(nodeEvent.object.name).to.equal('node');
 
     // ensure the events from the node are not relayed
-    var events = ['node', 'pool', 'replica', 'nexus'];
+    const events = ['node', 'pool', 'replica', 'nexus'];
     events.forEach((ev) => {
       registry.on(ev, () => {
         throw new Error('Received event after the node was removed');
@@ -111,17 +110,17 @@ module.exports = function () {
   });
 
   it('should not do anything if removed node does not exist', () => {
-    const registry = new Registry();
-    var nodeEvent;
+    const registry = new Registry({});
+    let nodeEvent;
     registry.once('node', (ev) => {
       nodeEvent = ev;
     });
     registry.removeNode('node');
-    expect(nodeEvent).to.be.undefined();
+    expect(nodeEvent).to.be.undefined;
   });
 
   it('should get a list of pools from registry', () => {
-    const registry = new Registry();
+    const registry = new Registry({});
     const node1 = new Node('node1', {}, [
       new Pool({ name: 'pool1', disks: [] })
     ]);
@@ -132,19 +131,21 @@ module.exports = function () {
     registry.nodes.node1 = node1;
     registry.nodes.node2 = node2;
 
-    const pools = registry.getPool();
+    const pools = registry.getPools();
     pools.sort();
     expect(pools).to.have.lengthOf(3);
     expect(pools[0].name).to.equal('pool1');
     expect(pools[1].name).to.equal('pool2a');
     expect(pools[2].name).to.equal('pool2b');
+    const pool = registry.getPool('pool2a');
+    expect(pool.name).to.equal('pool2a');
   });
 
   it('should get a list of nexus from registry', () => {
     const UUID1 = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cb1';
     const UUID2 = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cb2';
     const UUID3 = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cb3';
-    const registry = new Registry();
+    const registry = new Registry({});
     const node1 = new Node('node1', {}, [], [new Nexus({ uuid: UUID1 })]);
     const node2 = new Node(
       'node2',
@@ -155,12 +156,14 @@ module.exports = function () {
     registry.nodes.node1 = node1;
     registry.nodes.node2 = node2;
 
-    const nexus = registry.getNexus();
-    nexus.sort();
-    expect(nexus).to.have.lengthOf(3);
-    expect(nexus[0].uuid).to.equal(UUID1);
-    expect(nexus[1].uuid).to.equal(UUID2);
-    expect(nexus[2].uuid).to.equal(UUID3);
+    const nexuses = registry.getNexuses();
+    nexuses.sort();
+    expect(nexuses).to.have.lengthOf(3);
+    expect(nexuses[0].uuid).to.equal(UUID1);
+    expect(nexuses[1].uuid).to.equal(UUID2);
+    expect(nexuses[2].uuid).to.equal(UUID3);
+    const nexus = registry.getNexus(UUID2);
+    expect(nexus.uuid).to.equal(UUID2);
   });
 
   it('should get a list of replicas from registry', () => {
@@ -174,7 +177,7 @@ module.exports = function () {
     node1.pools = [pool1];
     const node2 = new Node('node2');
     node2.pools = [pool2a, pool2b];
-    const registry = new Registry();
+    const registry = new Registry({});
     registry.nodes.node1 = node1;
     registry.nodes.node2 = node2;
     pool1.replicas = [
@@ -183,7 +186,7 @@ module.exports = function () {
     ];
     pool2b.replicas = [new Replica({ uuid: UUID3 })];
 
-    let replicas = registry.getReplicaSet();
+    let replicas = registry.getReplicas();
     replicas.sort();
     expect(replicas).to.have.lengthOf(3);
     expect(replicas[0].uuid).to.equal(UUID1);
@@ -195,7 +198,7 @@ module.exports = function () {
   });
 
   it('should close the registry', () => {
-    const registry = new Registry();
+    const registry = new Registry({});
     const node = new Node('node');
     const connectStub = sinon.stub(node, 'connect');
     const disconnectStub = sinon.stub(node, 'disconnect');
@@ -248,7 +251,7 @@ module.exports = function () {
     pool2a.bind(node2);
     pool2b.bind(node2);
     pool2c.bind(node2);
-    const registry = new Registry();
+    const registry = new Registry({});
     registry.nodes.node1 = node1;
     registry.nodes.node2 = node2;
 
@@ -285,7 +288,7 @@ module.exports = function () {
       const node1 = new Node('node1', {}, [pool1]);
       const node2 = new Node('node2', {}, [pool2]);
       const node3 = new Node('node3', {}, [pool3]);
-      const registry = new Registry();
+      const registry = new Registry({});
       registry.nodes.node1 = node1;
       registry.nodes.node2 = node2;
       registry.nodes.node3 = node3;
@@ -328,7 +331,7 @@ module.exports = function () {
       pool2.replicas = [new Replica({ uuid: UUID1 })];
       const node1 = new Node('node1', {}, [pool1]);
       const node2 = new Node('node2', {}, [pool2]);
-      const registry = new Registry();
+      const registry = new Registry({});
       registry.nodes.node1 = node1;
       registry.nodes.node2 = node2;
 
@@ -361,7 +364,7 @@ module.exports = function () {
       });
       const node1 = new Node('node1', {}, [pool1]);
       const node2 = new Node('node2', {}, [pool2]);
-      const registry = new Registry();
+      const registry = new Registry({});
       registry.nodes.node1 = node1;
       registry.nodes.node2 = node2;
 
@@ -404,7 +407,7 @@ module.exports = function () {
       const node1 = new Node('node1', {}, [pool1]);
       const node2 = new Node('node2', {}, [pool2]);
       const node3 = new Node('node3', {}, [pool3]);
-      const registry = new Registry();
+      const registry = new Registry({});
       registry.nodes.node1 = node1;
       registry.nodes.node2 = node2;
       registry.nodes.node3 = node3;
@@ -429,7 +432,7 @@ module.exports = function () {
         used: 10
       });
       const node1 = new Node('node1', {}, [pool1, pool2]);
-      const registry = new Registry();
+      const registry = new Registry({});
       registry.nodes.node1 = node1;
 
       const pools = registry.choosePools(75, [], []);
@@ -454,7 +457,7 @@ module.exports = function () {
       });
       const node1 = new Node('node1', {}, [pool1]);
       const node2 = new Node('node2', {}, [pool2]);
-      const registry = new Registry();
+      const registry = new Registry({});
       registry.nodes.node1 = node1;
       registry.nodes.node2 = node2;
 
@@ -481,7 +484,7 @@ module.exports = function () {
       });
       const node1 = new Node('node1', {}, [pool1]);
       const node2 = new Node('node2', {}, [pool2]);
-      const registry = new Registry();
+      const registry = new Registry({});
       registry.nodes.node1 = node1;
       registry.nodes.node2 = node2;
 

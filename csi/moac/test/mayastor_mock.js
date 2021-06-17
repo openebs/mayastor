@@ -2,8 +2,9 @@ const _ = require('lodash');
 const assert = require('chai').assert;
 const path = require('path');
 const protoLoader = require('@grpc/proto-loader');
-const grpc = require('grpc-uds');
+const grpc = require('@grpc/grpc-js');
 const enums = require('./grpc_enums');
+const parse = require('url-parse');
 
 // each stat is incremented by this each time when stat method is called
 const STAT_DELTA = 1000;
@@ -42,7 +43,7 @@ function assertHasKeys (obj, keys, empty) {
 // and nexus objects. Pools can be added & deleted by means of grpc calls.
 // The actual state (i.e. list of pools) can be retrieved by get*() method.
 class MayastorServer {
-  constructor (endpoint, pools, replicas, nexus) {
+  constructor (endpoint, pools, replicas, nexus, replyDelay) {
     const packageDefinition = protoLoader.loadSync(
       path.join(__dirname, '..', 'proto', 'mayastor.proto'),
       {
@@ -56,10 +57,20 @@ class MayastorServer {
     const mayastor = grpc.loadPackageDefinition(packageDefinition).mayastor;
     const srv = new grpc.Server();
 
+    this.endpoint = endpoint;
     this.pools = _.cloneDeep(pools || []);
     this.replicas = _.cloneDeep(replicas || []);
     this.nexus = _.cloneDeep(nexus || []);
     this.statCounter = 0;
+    const randomUuidQp = () => {
+      return '?uuid=' + _.random(0, Number.MAX_SAFE_INTEGER);
+    };
+    const uuidQp = (uuid) => {
+      return '?uuid=' + uuid;
+    };
+    if (replyDelay == null) {
+      replyDelay = 0;
+    }
 
     const self = this;
     srv.addService(mayastor.Mayastor.service, {
@@ -83,7 +94,7 @@ class MayastorServer {
           };
           self.pools.push(pool);
         }
-        cb(null, pool);
+        setTimeout(() => cb(null, pool), replyDelay);
       },
       destroyPool: (call, cb) => {
         const args = call.request;
@@ -92,36 +103,34 @@ class MayastorServer {
         if (idx >= 0) {
           self.pools.splice(idx, 1);
         }
-        cb(null, {});
+        setTimeout(() => cb(null, {}), replyDelay);
       },
       listPools: (_unused, cb) => {
-        cb(null, {
-          pools: self.pools
-        });
+        setTimeout(() => cb(null, { pools: self.pools }), replyDelay);
       },
       createReplica: (call, cb) => {
         const args = call.request;
         assertHasKeys(args, ['uuid', 'pool', 'size', 'thin', 'share']);
         let r = self.replicas.find((r) => r.uuid === args.uuid);
         if (r) {
-          return cb(null, r);
+          return setTimeout(() => cb(null, r), replyDelay);
         }
         const pool = self.pools.find((p) => p.name === args.pool);
         if (!pool) {
           const err = new Error('pool not found');
           err.code = grpc.status.NOT_FOUND;
-          return cb(err);
+          return setTimeout(() => cb(err), replyDelay);
         }
         if (!args.thin) {
           pool.used += args.size;
         }
         let uri;
         if (args.share === 'REPLICA_NONE') {
-          uri = 'bdev:///' + args.uuid;
+          uri = 'bdev:///' + args.uuid + randomUuidQp();
         } else if (args.share === 'REPLICA_ISCSI') {
-          uri = 'iscsi://192.168.0.1:3800/' + args.uuid;
+          uri = 'iscsi://192.168.0.1:3800/' + args.uuid + randomUuidQp();
         } else {
-          uri = 'nvmf://192.168.0.1:4020/' + args.uuid;
+          uri = 'nvmf://192.168.0.1:4020/' + args.uuid + randomUuidQp();
         }
 
         r = {
@@ -133,7 +142,7 @@ class MayastorServer {
           uri
         };
         self.replicas.push(r);
-        cb(null, r);
+        setTimeout(() => cb(null, r), replyDelay);
       },
       destroyReplica: (call, cb) => {
         const args = call.request;
@@ -146,14 +155,14 @@ class MayastorServer {
             pool.used -= r.size;
           }
         }
-        cb(null, {});
+        setTimeout(() => cb(null, {}), replyDelay);
       },
       listReplicas: (_unused, cb) => {
-        cb(null, { replicas: self.replicas });
+        setTimeout(() => cb(null, { replicas: self.replicas }), replyDelay);
       },
       statReplicas: (_unused, cb) => {
         self.statCounter += STAT_DELTA;
-        cb(null, {
+        setTimeout(() => cb(null, {
           replicas: self.replicas.map((r) => {
             return {
               uuid: r.uuid,
@@ -166,7 +175,7 @@ class MayastorServer {
               }
             };
           })
-        });
+        }), replyDelay);
       },
       shareReplica: (call, cb) => {
         const args = call.request;
@@ -175,21 +184,21 @@ class MayastorServer {
         if (!r) {
           const err = new Error('not found');
           err.code = grpc.status.NOT_FOUND;
-          return cb(err);
+          return setTimeout(() => cb(err), replyDelay);
         }
+        assertHasKeys(r, ['uri']);
+        const realUuid = parse(r.uri, true).query.uuid;
         if (args.share === 'REPLICA_NONE') {
-          r.uri = 'bdev:///' + r.uuid;
+          r.uri = 'bdev:///' + uuidQp(realUuid);
         } else if (args.share === 'REPLICA_ISCSI') {
-          r.uri = 'iscsi://192.168.0.1:3800/' + r.uuid;
+          r.uri = 'iscsi://192.168.0.1:3800/' + r.uuid + uuidQp(realUuid);
         } else if (args.share === 'REPLICA_NVMF') {
-          r.uri = 'nvmf://192.168.0.1:4020/' + r.uuid;
+          r.uri = 'nvmf://192.168.0.1:4020/' + r.uuid + uuidQp(realUuid);
         } else {
           assert(false, 'Invalid share protocol');
         }
         r.share = args.share;
-        cb(null, {
-          uri: r.uri
-        });
+        setTimeout(() => cb(null, { uri: r.uri }), replyDelay);
       },
       createNexus: (call, cb) => {
         const args = call.request;
@@ -211,7 +220,7 @@ class MayastorServer {
           };
           self.nexus.push(nexus);
         }
-        cb(null, nexus);
+        setTimeout(() => cb(null, nexus), replyDelay);
       },
       destroyNexus: (call, cb) => {
         const args = call.request;
@@ -220,10 +229,10 @@ class MayastorServer {
         if (idx >= 0) {
           self.nexus.splice(idx, 1);
         }
-        cb(null, {});
+        setTimeout(() => cb(null, {}), replyDelay);
       },
       listNexus: (_unused, cb) => {
-        cb(null, { nexusList: self.nexus });
+        setTimeout(() => cb(null, { nexusList: self.nexus }), replyDelay);
       },
       publishNexus: (call, cb) => {
         const args = call.request;
@@ -232,13 +241,13 @@ class MayastorServer {
         const idx = self.nexus.findIndex((n) => n.uuid === args.uuid);
         if (idx >= 0) {
           self.nexus[idx].deviceUri = 'nvmf://host/nqn';
-          cb(null, {
+          setTimeout(() => cb(null, {
             deviceUri: 'nvmf://host/nqn'
-          });
+          }), replyDelay);
         } else {
           const err = new Error('not found');
           err.code = grpc.status.NOT_FOUND;
-          cb(err);
+          setTimeout(() => cb(err), replyDelay);
         }
       },
       unpublishNexus: (call, cb) => {
@@ -247,11 +256,11 @@ class MayastorServer {
         const idx = self.nexus.findIndex((n) => n.uuid === args.uuid);
         if (idx >= 0) {
           delete self.nexus[idx].deviceUri;
-          cb(null, {});
+          setTimeout(() => cb(null, {}), replyDelay);
         } else {
           const err = new Error('not found');
           err.code = grpc.status.NOT_FOUND;
-          cb(err);
+          setTimeout(() => cb(err), replyDelay);
         }
       },
       addChildNexus: (call, cb) => {
@@ -261,7 +270,7 @@ class MayastorServer {
         if (!n) {
           const err = new Error('not found');
           err.code = grpc.status.NOT_FOUND;
-          return cb(err);
+          return setTimeout(() => cb(err), replyDelay);
         }
         if (!n.children.find((ch) => ch.uri === args.uri)) {
           n.children.push({
@@ -269,11 +278,11 @@ class MayastorServer {
             state: enums.CHILD_DEGRADED
           });
         }
-        cb(null, {
+        setTimeout(() => cb(null, {
           uri: args.uri,
           state: enums.CHILD_DEGRADED,
           rebuildProgress: 0
-        });
+        }), replyDelay);
       },
       removeChildNexus: (call, cb) => {
         const args = call.request;
@@ -282,17 +291,16 @@ class MayastorServer {
         if (!n) {
           const err = new Error('not found');
           err.code = grpc.status.NOT_FOUND;
-          return cb(err);
+          return setTimeout(() => cb(err), replyDelay);
         }
         n.children = n.children.filter((ch) => ch.uri !== args.uri);
-        cb();
+        setTimeout(cb, replyDelay);
       },
       // dummy impl to silence the warning about unimplemented method
       childOperation: (_unused, cb) => {
-        cb();
+        setTimeout(cb, replyDelay);
       }
     });
-    srv.bind(endpoint, grpc.ServerCredentials.createInsecure());
     this.srv = srv;
   }
 
@@ -308,9 +316,15 @@ class MayastorServer {
     return this.nexus;
   }
 
-  start () {
-    this.srv.start();
-    return this;
+  start (done) {
+    this.srv.bindAsync(
+      this.endpoint,
+      grpc.ServerCredentials.createInsecure(),
+      (err) => {
+        if (err) return done(err);
+        this.srv.start();
+        done();
+      });
   }
 
   stop () {

@@ -149,7 +149,7 @@ pub fn dd_random_file(path: &str, bs: u32, size: u64) {
         .output()
         .expect("failed exec dd");
 
-    assert_eq!(output.status.success(), true);
+    assert!(output.status.success());
 }
 
 pub fn truncate_file(path: &str, size: u64) {
@@ -158,7 +158,7 @@ pub fn truncate_file(path: &str, size: u64) {
         .output()
         .expect("failed exec truncate");
 
-    assert_eq!(output.status.success(), true);
+    assert!(output.status.success());
 }
 
 pub fn truncate_file_bytes(path: &str, size: u64) {
@@ -166,8 +166,7 @@ pub fn truncate_file_bytes(path: &str, size: u64) {
         .args(&["-s", &format!("{}", size), path])
         .output()
         .expect("failed exec truncate");
-
-    assert_eq!(output.status.success(), true);
+    assert!(output.status.success());
 }
 
 pub fn fscheck(device: &str) {
@@ -178,7 +177,8 @@ pub fn fscheck(device: &str) {
 
     io::stdout().write_all(&output.stderr).unwrap();
     io::stdout().write_all(&output.stdout).unwrap();
-    assert_eq!(output.status.success(), true);
+
+    assert!(output.status.success());
 }
 
 pub fn mkfs(path: &str, fstype: &str) -> bool {
@@ -222,7 +222,7 @@ pub fn compare_files(a: &str, b: &str) {
 
     io::stdout().write_all(&output.stderr).unwrap();
     io::stdout().write_all(&output.stdout).unwrap();
-    assert_eq!(output.status.success(), true);
+    assert!(output.status.success());
 }
 
 pub fn mount_umount(device: &str) -> Result<String, String> {
@@ -408,7 +408,7 @@ pub fn get_device_size(nexus_device: &str) -> u64 {
         .output()
         .expect("failed to get block device size");
 
-    assert_eq!(output.status.success(), true);
+    assert!(output.status.success());
     String::from_utf8(output.stdout)
         .unwrap()
         .trim_end()

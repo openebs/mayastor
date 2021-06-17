@@ -41,7 +41,7 @@ fn nvmf_target() {
                 let bdev = Bdev::lookup_by_name(BDEVNAME1).unwrap();
 
                 let should_err = NvmfSubsystem::try_from(bdev);
-                assert_eq!(should_err.is_err(), true);
+                assert!(should_err.is_err());
             });
 
             // we should have at least 2 subsystems
@@ -56,7 +56,7 @@ fn nvmf_target() {
             // over the discovery controller
             Reactor::block_on(async {
                 let bdev = Bdev::bdev_first().unwrap();
-                assert_eq!(bdev.is_claimed(), true);
+                assert!(bdev.is_claimed());
                 assert_eq!(bdev.claimed_by().unwrap(), "NVMe-oF Target");
 
                 let ss = NvmfSubsystem::first().unwrap();
@@ -68,11 +68,11 @@ fn nvmf_target() {
                     let sbdev = s.bdev().unwrap();
                     assert_eq!(sbdev.name(), bdev.name());
 
-                    assert_eq!(bdev.is_claimed(), true);
+                    assert!(bdev.is_claimed());
                     assert_eq!(bdev.claimed_by().unwrap(), "NVMe-oF Target");
 
                     s.destroy();
-                    assert_eq!(bdev.is_claimed(), false);
+                    assert!(!bdev.is_claimed());
                     assert_eq!(bdev.claimed_by(), None);
                 }
             });

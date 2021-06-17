@@ -81,7 +81,7 @@ a URI to the resource and we can start using it.
 
 ```bash
 > mayastor-client nexus create `uuidgen -r` 1GiB aio:///dev/sdb
-Nexus 4db90841-5ee8-4b7d-a4e9-13be1043bcb3 created
+4db90841-5ee8-4b7d-a4e9-13be1043bcb3
 ```
 Tip: To find out what the arguments are, simply append the `-h` flag to any command.
 
@@ -101,7 +101,7 @@ fine writing to it as it were a local disk.
 ```bash
 > fallocate -l 2GiB /data/file.img
 > mayastor-client nexus create `uuidgen -r` 1GiB 'aio:///data/file.img?blk_size=512 aio:///dev/sdb'
-Nexus d0c47a07-d104-48e6-8f36-bfdb47e8e766 created
+d0c47a07-d104-48e6-8f36-bfdb47e8e766
 ```
 
 Notice the added query parameter `blk_size`, required as files do not have block sizes.
@@ -117,7 +117,7 @@ yourself by running fio on top of the NBD device.
 
 ```bash
 > mayastor-client nexus remove d0c47a07-d104-48e6-8f36-bfdb47e8e766 'aio:///data/file.img?blk_size=512'
-Removed aio:///data/file.img?blk_size=512 from children of d0c47a07-d104-48e6-8f36-bfdb47e8e766
+aio:///data/file.img?blk_size=512
 ```
 
 In the logs of mayastor you will see something like:
@@ -134,7 +134,7 @@ Now we can add the device again:
 
 ```bash
 > mayastor-client nexus add d0c47a07-d104-48e6-8f36-bfdb47e8e766 'aio:///data/file.img?blk_size=512'
-Added aio:///data/file.img?blk_size=512 to children of d0c47a07-d104-48e6-8f36-bfdb47e8e766
+aio:///data/file.img?blk_size=512
 ```
 
 Both the nexus and the newly added children are now degraded. The child is degraded because it needs to be rebuilt
@@ -280,9 +280,8 @@ We are maxing out at roughly 90MB, as this a 1 GbE network that is to be expecte
 Now, let's disconnect it and create a Nexus that that consumes one of the NVMe targets and rerun the test:
 
 ```bash
-    nvme disconnect -d {/dev/nvme1,/dev/nvme2}
-    mayastor-client nexus create `uuidgen -r` 64MiB 'nvmf://192.168.1.2/nqn.2019-05.io.openebs:cnode2
-        nvmf://192.168.1.2/nqn.2019-05.io.openebs:cnode1'
+nvme disconnect -d {/dev/nvme1,/dev/nvme2}
+mayastor-client nexus create `uuidgen -r` 64MiB 'nvmf://192.168.1.2/nqn.2019-05.io.openebs:cnode2 nvmf://192.168.1.2/nqn.2019-05.io.openebs:cnode1'
 ```
 
 Ok we now have created a nexus that consists out of 2 replica's:
@@ -300,7 +299,7 @@ and NVMF
 
 ```bash
 > mayastor-client nexus publish 787f82e7-e7d8-4ae1-8a25-5d48ead4f4cd
-Nexus published at file:///dev/nbd0
+file:///dev/nbd0
 ```
 
 And the results:

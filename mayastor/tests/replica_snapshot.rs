@@ -27,6 +27,7 @@ static NXNAME: &str = "replica_snapshot_test";
 static NXNAME_SNAP: &str = "replica_snapshot_test-snap";
 
 #[tokio::test]
+#[ignore]
 async fn replica_snapshot() {
     // Start with fresh pools
     common::delete_file(&[DISKNAME1.to_string()]);
@@ -143,11 +144,11 @@ async fn create_nexus(t: u64, ip: &std::net::IpAddr) {
     if t > 0 {
         children
             .iter_mut()
-            .for_each(|c| *c = Lvol::format_snapshot_name(&c, t));
+            .for_each(|c| *c = Lvol::format_snapshot_name(c, t));
         nexus_name = NXNAME_SNAP;
     }
 
-    nexus_create(&nexus_name, 64 * 1024 * 1024, None, &children)
+    nexus_create(nexus_name, 64 * 1024 * 1024, None, &children)
         .await
         .unwrap();
 }

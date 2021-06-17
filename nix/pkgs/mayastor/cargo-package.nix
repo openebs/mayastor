@@ -35,11 +35,11 @@ let
     builtins.filterSource
       (path: type:
         lib.any
-          (allowedPrefix:
-            lib.hasPrefix (toString (src + "/${allowedPrefix}")) path)
+          (allowedPrefix: lib.hasPrefix (toString (src + "/${allowedPrefix}")) path)
           allowedPrefixes)
       src;
   src_list = [
+    ".git"
     "Cargo.lock"
     "Cargo.toml"
     "cli"
@@ -56,24 +56,21 @@ let
   ];
   buildProps = rec {
     name = "mayastor";
-    #cargoSha256 = "0000000000000000000000000000000000000000000000000000";
-    cargoSha256 = "07jrhgbz7rfk1d1rwzj637afm8i1fhw143dhrz7vm9p9pyjzyj31";
+    # cargoSha256 = "0000000000000000000000000000000000000000000000000000";
+    cargoSha256 = "0m783ckamvr9143n0ahfqq3z5klix66fxq1vh466vvgpcw7jnnw5";
+
     inherit version cargoBuildFlags;
     src = whitelistSource ../../../. src_list;
-    LIBCLANG_PATH = "${llvmPackages.libclang}/lib";
+    LIBCLANG_PATH = "${llvmPackages.libclang.lib}/lib";
     PROTOC = "${protobuf}/bin/protoc";
     PROTOC_INCLUDE = "${protobuf}/include";
 
-    nativeBuildInputs = [
-      pkg-config
-      protobuf
-      llvmPackages_11.clang
-    ];
+    nativeBuildInputs = [ pkg-config protobuf llvmPackages_11.clang ];
     buildInputs = [
       llvmPackages_11.libclang
       protobuf
       libaio
-      libiscsi.lib
+      libiscsi
       libudev
       liburing
       numactl
@@ -82,22 +79,20 @@ let
     ];
     verifyCargoDeps = false;
     doCheck = false;
-    meta = { platforms = stdenv.lib.platforms.linux; };
+    meta = { platforms = lib.platforms.linux; };
   };
 in
 {
-  release = rustPlatform.buildRustPackage
-    (buildProps // {
-      buildType = "release";
-      buildInputs = buildProps.buildInputs ++ [ libspdk ];
-      SPDK_PATH = "${libspdk}";
-    });
-  debug = rustPlatform.buildRustPackage
-    (buildProps // {
-      buildType = "debug";
-      buildInputs = buildProps.buildInputs ++ [ libspdk-dev ];
-      SPDK_PATH = "${libspdk-dev}";
-    });
+  release = rustPlatform.buildRustPackage (buildProps // {
+    buildType = "release";
+    buildInputs = buildProps.buildInputs ++ [ libspdk ];
+    SPDK_PATH = "${libspdk}";
+  });
+  debug = rustPlatform.buildRustPackage (buildProps // {
+    buildType = "debug";
+    buildInputs = buildProps.buildInputs ++ [ libspdk-dev ];
+    SPDK_PATH = "${libspdk-dev}";
+  });
   # this is for an image that does not do a build of mayastor
   adhoc = stdenv.mkDerivation {
     name = "mayastor-adhoc";

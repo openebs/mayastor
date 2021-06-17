@@ -1,0 +1,6 @@
+asyncio
+asyncssh
+pytest-timeout
+pytest-docker-compose
+pytest-asyncio
+pytest-variables

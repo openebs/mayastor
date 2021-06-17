@@ -20,13 +20,9 @@ result // rec {
     postInstall = ''
       npm run compile
       npm run prepare
-      # Remove makefiles, object files, etc. of bindings that would otherwise
-      # reference npm, node sources and other packages not needed at runtime
-      find node_modules/grpc-uds/build -name grpc_node.node -o -type f -exec rm '{}' \;
-      find node_modules/grpc-uds/build -type f -exec strip '{}' \;
     '';
     # add nodejs and busybox to this variable to set it later to ammend the
     # path variable. This makes it easer to exec into the container
-    env = pkgs.stdenv.lib.makeBinPath [ pkgs.busybox pkgs.nodejs-slim-12_x ];
+    env = pkgs.lib.makeBinPath [ pkgs.busybox pkgs.nodejs-slim-16_x ];
   };
 }

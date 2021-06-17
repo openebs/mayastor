@@ -47,7 +47,10 @@ pub trait Share: std::fmt::Debug {
     type Error;
     type Output: std::fmt::Display + std::fmt::Debug;
     async fn share_iscsi(&self) -> Result<Self::Output, Self::Error>;
-    async fn share_nvmf(&self) -> Result<Self::Output, Self::Error>;
+    async fn share_nvmf(
+        &self,
+        cntlid_range: Option<(u16, u16)>,
+    ) -> Result<Self::Output, Self::Error>;
     async fn unshare(&self) -> Result<Self::Output, Self::Error>;
     fn shared(&self) -> Option<Protocol>;
     fn share_uri(&self) -> Option<String>;

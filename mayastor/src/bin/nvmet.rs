@@ -14,16 +14,37 @@ use clap::{App, AppSettings, Arg, ArgMatches};
 use futures::FutureExt;
 use mayastor::{
     bdev::{nexus_create, nexus_lookup},
-    core::{MayastorCliArgs, MayastorEnvironment, Reactors, Share},
+    core::{MayastorCliArgs, MayastorEnvironment, Mthread, Reactors, Share},
     grpc,
     logger,
 };
 
 mayastor::CPS_INIT!();
-#[macro_use]
 extern crate tracing;
 
 const NEXUS: &str = "nexus-e1e27668-fbe1-4c8a-9108-513f6e44d342";
+
+fn start_tokio_runtime(args: &MayastorCliArgs) {
+    let grpc_endpoint = grpc::endpoint(args.grpc_endpoint.clone());
+    let rpc_address = args.rpc_address.clone();
+
+    Mthread::spawn_unaffinitized(move || {
+        let rt = tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(4)
+            .max_blocking_threads(4)
+            .on_thread_start(Mthread::unaffinitize)
+            .enable_all()
+            .build()
+            .unwrap();
+
+        let futures =
+            vec![grpc::MayastorGrpcServer::run(grpc_endpoint, rpc_address)
+                .boxed_local()];
+
+        rt.block_on(futures::future::try_join_all(futures))
+            .expect_err("reactor exit in abnormal state");
+    });
+}
 
 async fn create_nexus(args: &ArgMatches<'_>) {
     let ep = args.values_of("uri").expect("invalid endpoints");
@@ -37,12 +58,10 @@ async fn create_nexus(args: &ArgMatches<'_>) {
         .unwrap();
 
     let nexus = nexus_lookup(NEXUS).unwrap();
-    nexus.share_nvmf().await.unwrap();
+    nexus.share_nvmf(None).await.unwrap();
 }
 
 fn main() {
-    std::env::set_var("NEXUS_LABEL_IGNORE_ERRORS", "1");
-
     let matches = App::new("NVMeT CLI")
         .version("0.1")
         .settings(&[
@@ -53,7 +72,7 @@ fn main() {
             .required(true)
             .default_value("64")
             .short("s")
-            .long("size") 
+            .long("size")
             .help("Size of the nexus to create in MB")
         )
         .arg(
@@ -70,32 +89,15 @@ fn main() {
         ..Default::default()
     };
 
-    logger::init("INFO");
+    logger::init("mayastor=trace");
 
-    let mut rt = tokio::runtime::Builder::new()
-        .basic_scheduler()
-        .enable_all()
-        .build()
-        .unwrap();
+    let ms = MayastorEnvironment::new(margs.clone()).init();
+    start_tokio_runtime(&margs);
+    Reactors::current()
+        .send_future(async move { create_nexus(&matches).await });
 
-    let grpc_endpoint = grpc::endpoint(margs.grpc_endpoint.clone());
-    let rpc_address = margs.rpc_address.clone();
-
-    let ms = rt.enter(|| MayastorEnvironment::new(margs).init());
-    let master = Reactors::master();
-
-    master.send_future(async { info!("NVMeT started {} ...", '\u{1F680}') });
-    master.send_future(async move {
-        create_nexus(&matches).await;
-    });
-
-    let futures = vec![
-        master.boxed_local(),
-        grpc::MayastorGrpcServer::run(grpc_endpoint, rpc_address).boxed_local(),
-    ];
-
-    rt.block_on(futures::future::try_join_all(futures))
-        .expect_err("reactor exit in abnormal state");
+    Reactors::current().running();
+    Reactors::current().poll_reactor();
 
     ms.fini();
 }

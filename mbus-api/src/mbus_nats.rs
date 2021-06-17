@@ -9,14 +9,18 @@ static NATS_MSG_BUS: OnceCell<NatsMessageBus> = OnceCell::new();
 pub fn message_bus_init_tokio(server: String) {
     NATS_MSG_BUS.get_or_init(|| {
         // Waits for the message bus to become ready
-        tokio::runtime::Handle::current().block_on(async {
+        let handle = tokio::runtime::Handle::current();
+        let guard = handle.enter();
+        let bus = futures::executor::block_on(async {
             NatsMessageBus::new(
                 &server,
                 BusOptions::new(),
                 TimeoutOptions::new(),
             )
             .await
-        })
+        });
+        drop(guard);
+        bus
     });
 }
 /// Initialise the Nats Message Bus
@@ -69,6 +73,14 @@ impl NatsMessageBus {
         loop {
             match BusOptions::new()
                 .max_reconnects(None)
+                .disconnect_callback(|| {
+                    warn!("Connection to the NATS server has been lost.");
+                })
+                .reconnect_callback(|| {
+                    info!(
+                        "Connection to the NATS server has been reestablished."
+                    )
+                })
                 .connect_async(server)
                 .await
             {
@@ -87,7 +99,7 @@ impl NatsMessageBus {
                         );
                         log_error = false;
                     }
-                    smol::Timer::after(interval).await;
+                    tokio::time::sleep(interval).await;
                     continue;
                 }
             }
@@ -178,6 +190,13 @@ impl Bus for NatsMessageBus {
 
     async fn flush(&self) -> BusResult<()> {
         self.connection.flush().await.context(Flush {})
+    }
+
+    async fn flush_timeout(&self, timeout: Duration) -> BusResult<()> {
+        self.connection
+            .flush_timeout(timeout)
+            .await
+            .context(Flush {})
     }
 
     async fn subscribe(&self, channel: Channel) -> BusResult<BusSubscription> {

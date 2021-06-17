@@ -43,6 +43,7 @@ use bollard::{
 use mbus_api::TimeoutOptions;
 use rpc::mayastor::{
     bdev_rpc_client::BdevRpcClient,
+    json_rpc_client::JsonRpcClient,
     mayastor_client::MayastorClient,
 };
 
@@ -54,6 +55,7 @@ pub struct RpcHandle {
     pub endpoint: SocketAddr,
     pub mayastor: MayastorClient<Channel>,
     pub bdev: BdevRpcClient<Channel>,
+    pub jsonrpc: JsonRpcClient<Channel>,
 }
 
 impl RpcHandle {
@@ -88,12 +90,17 @@ impl RpcHandle {
             BdevRpcClient::connect(format!("http://{}", endpoint.to_string()))
                 .await
                 .unwrap();
+        let jsonrpc =
+            JsonRpcClient::connect(format!("http://{}", endpoint.to_string()))
+                .await
+                .unwrap();
 
         Ok(Self {
             name,
+            endpoint,
             mayastor,
             bdev,
-            endpoint,
+            jsonrpc,
         })
     }
 }
@@ -189,7 +196,7 @@ impl Binary {
 }
 
 const RUST_LOG_DEFAULT: &str =
-    "debug,actix_web=debug,actix=debug,h2=info,hyper=info,tower_buffer=info,bollard=info,rustls=info";
+    "debug,actix_web=debug,actix=debug,h2=info,hyper=info,tower=info,bollard=info,rustls=info";
 
 /// Specs of the allowed containers include only the binary path
 /// (relative to src) and the required arguments
@@ -670,10 +677,17 @@ impl Drop for ComposeTest {
     fn drop(&mut self) {
         if thread::panicking() && self.logs_on_panic {
             self.containers.keys().for_each(|name| {
-                tracing::error!("Logs from container '{}':", name);
+                tracing::error!(
+                    "========== Logs from container '{}' start:",
+                    &name
+                );
                 let _ = std::process::Command::new("docker")
                     .args(&["logs", name])
                     .status();
+                tracing::error!(
+                    "========== Logs from container '{} end':",
+                    name
+                );
             });
         }
 
@@ -764,7 +778,7 @@ impl ComposeTest {
             self.remove_container(&name).await?;
             while let Ok(_c) = self.docker.inspect_container(&name, None).await
             {
-                tokio::time::delay_for(Duration::from_millis(500)).await;
+                tokio::time::sleep(Duration::from_millis(500)).await;
             }
         }
         Ok(())
@@ -846,10 +860,10 @@ impl ComposeTest {
     /// remove all containers and its network
     async fn remove_all(&self) -> Result<(), Error> {
         for k in &self.containers {
-            self.stop(&k.0).await?;
-            self.remove_container(&k.0).await?;
-            while let Ok(_c) = self.docker.inspect_container(&k.0, None).await {
-                tokio::time::delay_for(Duration::from_millis(500)).await;
+            self.stop(k.0).await?;
+            self.remove_container(k.0).await?;
+            while let Ok(_c) = self.docker.inspect_container(k.0, None).await {
+                tokio::time::sleep(Duration::from_millis(500)).await;
             }
         }
         self.network_remove(&self.name).await?;
@@ -1167,7 +1181,7 @@ impl ComposeTest {
     /// created due to that are returned
     pub async fn logs_all(&self) -> Result<(), Error> {
         for container in &self.containers {
-            let _ = self.logs(&container.0).await;
+            let _ = self.logs(container.0).await;
         }
         Ok(())
     }
@@ -1175,7 +1189,7 @@ impl ComposeTest {
     /// start all the containers
     async fn start_all(&mut self) -> Result<(), Error> {
         for k in &self.containers {
-            self.start(&k.0).await?;
+            self.start(k.0).await?;
         }
 
         Ok(())

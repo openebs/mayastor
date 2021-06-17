@@ -2,17 +2,24 @@
 
 'use strict';
 
+/* eslint-disable no-unused-expressions */
+
 const _ = require('lodash');
+const EventEmitter = require('events');
 const expect = require('chai').expect;
 const sinon = require('sinon');
 const sleep = require('sleep-promise');
-const { KubeConfig } = require('client-node-fixed-watcher');
-const Registry = require('../registry');
-const { Volume } = require('../volume');
-const { Volumes } = require('../volumes');
-const { VolumeOperator, VolumeResource } = require('../volume_operator');
-const { GrpcError, GrpcCode } = require('../grpc_client');
+const { KubeConfig } = require('@kubernetes/client-node');
+const { Registry } = require('../dist/registry');
+const { Volume } = require('../dist/volume');
+const { Volumes } = require('../dist/volumes');
+const { VolumeOperator, VolumeResource } = require('../dist/volume_operator');
+const { GrpcError, grpcCode } = require('../dist/grpc_client');
 const { mockCache } = require('./watcher_stub');
+const Node = require('./node_stub');
+const { Nexus } = require('../dist/nexus');
+const { Replica } = require('../dist/replica');
+const { Pool } = require('../dist/pool');
 
 const UUID = 'd01b8bfb-0116-47b0-a03a-447fcbdc0e99';
 const NAMESPACE = 'mayastor';
@@ -47,9 +54,10 @@ function defaultMeta (uuid) {
 }
 
 const defaultSpec = {
-  replicaCount: 1,
+  replicaCount: 2,
+  local: true,
   preferredNodes: ['node1', 'node2'],
-  requiredNodes: ['node2'],
+  requiredNodes: ['node3', 'node2', 'node1'],
   requiredBytes: 100,
   limitBytes: 120,
   protocol: 'nvmf'
@@ -67,6 +75,10 @@ const defaultStatus = {
       {
         uri: 'bdev:///' + UUID,
         state: 'CHILD_ONLINE'
+      },
+      {
+        uri: 'nvmf://node1/' + UUID,
+        state: 'CHILD_ONLINE'
       }
     ]
   },
@@ -74,11 +86,68 @@ const defaultStatus = {
     {
       uri: 'bdev:///' + UUID,
       node: 'node2',
-      pool: 'pool',
+      pool: 'pool2',
+      offline: false
+    },
+    {
+      uri: 'nvmf://node1/' + UUID,
+      node: 'node1',
+      pool: 'pool1',
       offline: false
     }
   ]
 };
+
+// Function that creates a volume object corresponding to default spec and
+// status defined above.
+function createDefaultVolume (registry) {
+  const node1 = new Node('node1');
+  const node2 = new Node('node2');
+  const volume = new Volume(UUID, registry, new EventEmitter(), defaultSpec);
+  volume.state = defaultStatus.state;
+  volume.size = defaultStatus.size;
+  volume.publishedOn = defaultStatus.targetNodes[0];
+  volume.nexus = new Nexus({
+    uuid: UUID,
+    size: defaultStatus.size,
+    deviceUri: defaultStatus.nexus.deviceUri,
+    state: defaultStatus.nexus.state,
+    children: defaultStatus.nexus.children
+  });
+  volume.nexus.node = node2;
+
+  volume.replicas.node1 = new Replica({
+    uuid: UUID,
+    size: defaultStatus.size,
+    share: 'NVMF',
+    uri: defaultStatus.replicas[1].uri
+  });
+  volume.replicas.node1.pool = new Pool({
+    name: 'pool1',
+    disks: ['/dev/sda'],
+    state: 'POOL_ONLINE',
+    capacity: 1000,
+    used: 100
+  });
+  volume.replicas.node1.pool.node = node1;
+
+  volume.replicas.node2 = new Replica({
+    uuid: UUID,
+    size: defaultStatus.size,
+    share: 'NONE',
+    uri: defaultStatus.replicas[0].uri
+  });
+  volume.replicas.node2.pool = new Pool({
+    name: 'pool2',
+    disks: ['/dev/sda'],
+    state: 'POOL_ONLINE',
+    capacity: 1000,
+    used: 100
+  });
+  volume.replicas.node2.pool.node = node2;
+
+  return volume;
+}
 
 // Create k8s volume resource object
 function createK8sVolumeResource (uuid, spec, status) {
@@ -115,47 +184,17 @@ async function createVolumeOperator (volumes, stubsCb) {
 module.exports = function () {
   describe('VolumeResource constructor', () => {
     it('should create mayastor volume with status', () => {
-      const res = createVolumeResource(
-        UUID,
-        {
-          replicaCount: 3,
-          preferredNodes: ['node1', 'node2'],
-          requiredNodes: ['node2'],
-          requiredBytes: 100,
-          limitBytes: 120
-        },
-        {
-          size: 110,
-          node: 'node2',
-          state: 'healthy',
-          nexus: {
-            deviceUri: 'nvmf://host/nqn',
-            state: 'NEXUS_ONLINE',
-            node: 'node2',
-            children: [
-              {
-                uri: 'bdev:///' + UUID,
-                state: 'CHILD_ONLINE'
-              }
-            ]
-          },
-          replicas: [
-            {
-              uri: 'bdev:///' + UUID,
-              node: 'node2',
-              pool: 'pool',
-              offline: false
-            }
-          ]
-        }
-      );
+      const res = createVolumeResource(UUID, defaultSpec, defaultStatus);
       expect(res.metadata.name).to.equal(UUID);
-      expect(res.spec.replicaCount).to.equal(3);
+      expect(res.spec.replicaCount).to.equal(2);
+      expect(res.spec.local).to.be.true;
       expect(res.spec.preferredNodes).to.have.lengthOf(2);
       expect(res.spec.preferredNodes[0]).to.equal('node1');
       expect(res.spec.preferredNodes[1]).to.equal('node2');
-      expect(res.spec.requiredNodes).to.have.lengthOf(1);
-      expect(res.spec.requiredNodes[0]).to.equal('node2');
+      expect(res.spec.requiredNodes).to.have.lengthOf(3);
+      expect(res.spec.requiredNodes[0]).to.equal('node3');
+      expect(res.spec.requiredNodes[1]).to.equal('node2');
+      expect(res.spec.requiredNodes[2]).to.equal('node1');
       expect(res.spec.requiredBytes).to.equal(100);
       expect(res.spec.limitBytes).to.equal(120);
       expect(res.status.size).to.equal(110);
@@ -163,14 +202,21 @@ module.exports = function () {
       expect(res.status.nexus.deviceUri).to.equal('nvmf://host/nqn');
       expect(res.status.nexus.state).to.equal('NEXUS_ONLINE');
       expect(res.status.nexus.node).to.equal('node2');
-      expect(res.status.nexus.children).to.have.length(1);
+      expect(res.status.nexus.children).to.have.length(2);
       expect(res.status.nexus.children[0].uri).to.equal('bdev:///' + UUID);
       expect(res.status.nexus.children[0].state).to.equal('CHILD_ONLINE');
-      expect(res.status.replicas).to.have.lengthOf(1);
-      expect(res.status.replicas[0].uri).to.equal('bdev:///' + UUID);
-      expect(res.status.replicas[0].node).to.equal('node2');
-      expect(res.status.replicas[0].pool).to.equal('pool');
+      expect(res.status.nexus.children[1].uri).to.equal('nvmf://node1/' + UUID);
+      expect(res.status.nexus.children[1].state).to.equal('CHILD_ONLINE');
+      expect(res.status.replicas).to.have.lengthOf(2);
+      // replicas should be sorted by node name
+      expect(res.status.replicas[0].uri).to.equal('nvmf://node1/' + UUID);
+      expect(res.status.replicas[0].node).to.equal('node1');
+      expect(res.status.replicas[0].pool).to.equal('pool1');
       expect(res.status.replicas[0].offline).to.equal(false);
+      expect(res.status.replicas[1].uri).to.equal('bdev:///' + UUID);
+      expect(res.status.replicas[1].node).to.equal('node2');
+      expect(res.status.replicas[1].pool).to.equal('pool2');
+      expect(res.status.replicas[1].offline).to.equal(false);
     });
 
     it('should create mayastor volume with unknown state', () => {
@@ -198,6 +244,7 @@ module.exports = function () {
         UUID,
         {
           replicaCount: 3,
+          local: false,
           preferredNodes: ['node1', 'node2'],
           requiredNodes: ['node2'],
           requiredBytes: 100,
@@ -213,6 +260,7 @@ module.exports = function () {
 
       expect(res.metadata.name).to.equal(UUID);
       expect(res.spec.replicaCount).to.equal(3);
+      expect(res.spec.local).to.be.false;
       expect(res.spec.preferredNodes).to.have.lengthOf(2);
       expect(res.spec.preferredNodes[0]).to.equal('node1');
       expect(res.spec.preferredNodes[1]).to.equal('node2');
@@ -223,13 +271,14 @@ module.exports = function () {
       expect(res.status.size).to.equal(110);
       expect(res.status.targetNodes).to.deep.equal(['node2']);
       expect(res.status.state).to.equal('healthy');
-      expect(res.status.nexus).is.undefined();
+      expect(res.status.nexus).is.undefined;
       expect(res.status.replicas).to.have.lengthOf(0);
     });
 
     it('should create mayastor volume without status', () => {
       const res = createVolumeResource(UUID, {
         replicaCount: 3,
+        local: true,
         preferredNodes: ['node1', 'node2'],
         requiredNodes: ['node2'],
         requiredBytes: 100,
@@ -237,7 +286,7 @@ module.exports = function () {
       });
       expect(res.metadata.name).to.equal(UUID);
       expect(res.spec.replicaCount).to.equal(3);
-      expect(res.status).to.be.undefined();
+      expect(res.status).to.be.undefined;
     });
 
     it('should create mayastor volume without optional parameters', () => {
@@ -246,16 +295,18 @@ module.exports = function () {
       });
       expect(res.metadata.name).to.equal(UUID);
       expect(res.spec.replicaCount).to.equal(1);
+      expect(res.spec.local).to.be.false;
       expect(res.spec.preferredNodes).to.have.lengthOf(0);
       expect(res.spec.requiredNodes).to.have.lengthOf(0);
       expect(res.spec.requiredBytes).to.equal(100);
       expect(res.spec.limitBytes).to.equal(0);
-      expect(res.status).to.be.undefined();
+      expect(res.status).to.be.undefined;
     });
 
     it('should throw if requiredSize is missing', () => {
       expect(() => createVolumeResource(UUID, {
         replicaCount: 3,
+        local: true,
         preferredNodes: ['node1', 'node2'],
         requiredNodes: ['node2'],
         limitBytes: 120
@@ -265,6 +316,7 @@ module.exports = function () {
     it('should throw if UUID is invalid', () => {
       expect(() => createVolumeResource('blabla', {
         replicaCount: 3,
+        local: true,
         preferredNodes: ['node1', 'node2'],
         requiredNodes: ['node2'],
         requiredBytes: 100,
@@ -277,7 +329,7 @@ module.exports = function () {
     let kc, oper, fakeApiStub;
 
     beforeEach(() => {
-      const registry = new Registry();
+      const registry = new Registry({});
       kc = new KubeConfig();
       Object.assign(kc, fakeConfig);
       oper = new VolumeOperator(NAMESPACE, kc, registry);
@@ -333,7 +385,7 @@ module.exports = function () {
 
     it('should call import volume for existing resources when starting the operator', async () => {
       let stubs;
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
       const importVolumeStub = sinon.stub(volumes, 'importVolume');
       // return value is not used so just return something
@@ -355,11 +407,11 @@ module.exports = function () {
 
     it('should set reason in resource if volume import fails upon "new" event', async () => {
       let stubs;
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
       const importVolumeStub = sinon.stub(volumes, 'importVolume');
       importVolumeStub.throws(
-        new GrpcError(GrpcCode.INTERNAL, 'create failed')
+        new GrpcError(grpcCode.INTERNAL, 'create failed')
       );
 
       const volumeResource = createVolumeResource(UUID, defaultSpec, defaultStatus);
@@ -380,7 +432,7 @@ module.exports = function () {
 
     it('should destroy the volume upon "del" event', async () => {
       let stubs;
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
       const destroyVolumeStub = sinon.stub(volumes, 'destroyVolume');
       destroyVolumeStub.resolves();
@@ -403,11 +455,11 @@ module.exports = function () {
 
     it('should handle gracefully if destroy of a volume fails upon "del" event', async () => {
       let stubs;
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
       const destroyVolumeStub = sinon.stub(volumes, 'destroyVolume');
       destroyVolumeStub.rejects(
-        new GrpcError(GrpcCode.INTERNAL, 'destroy failed')
+        new GrpcError(grpcCode.INTERNAL, 'destroy failed')
       );
       const volumeResource = createVolumeResource(UUID, defaultSpec, defaultStatus);
 
@@ -428,9 +480,9 @@ module.exports = function () {
 
     it('should modify the volume upon "mod" event', async () => {
       let stubs;
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
-      const volume = new Volume(UUID, registry, () => {}, defaultSpec);
+      const volume = new Volume(UUID, registry, new EventEmitter(), defaultSpec);
       volume.size = 110;
       const fsaStub = sinon.stub(volume, 'fsa');
       fsaStub.returns();
@@ -448,6 +500,7 @@ module.exports = function () {
         UUID,
         {
           replicaCount: 3,
+          local: true,
           preferredNodes: ['node1'],
           requiredNodes: [],
           requiredBytes: 90,
@@ -467,18 +520,19 @@ module.exports = function () {
       await sleep(EVENT_PROPAGATION_DELAY);
 
       sinon.assert.calledOnce(fsaStub);
-      expect(volume.replicaCount).to.equal(3);
-      expect(volume.preferredNodes).to.have.lengthOf(1);
-      expect(volume.requiredNodes).to.have.lengthOf(0);
-      expect(volume.requiredBytes).to.equal(90);
-      expect(volume.limitBytes).to.equal(130);
+      expect(volume.spec.replicaCount).to.equal(3);
+      expect(volume.spec.local).to.be.true;
+      expect(volume.spec.preferredNodes).to.have.lengthOf(1);
+      expect(volume.spec.requiredNodes).to.have.lengthOf(0);
+      expect(volume.spec.requiredBytes).to.equal(90);
+      expect(volume.spec.limitBytes).to.equal(130);
     });
 
     it('should not crash if update volume fails upon "mod" event', async () => {
       let stubs;
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
-      const volume = new Volume(UUID, registry, () => {}, defaultSpec);
+      const volume = new Volume(UUID, registry, new EventEmitter(), defaultSpec);
       volume.size = 110;
       const fsaStub = sinon.stub(volume, 'fsa');
       fsaStub.resolves();
@@ -496,6 +550,7 @@ module.exports = function () {
         UUID,
         {
           replicaCount: 3,
+          local: true,
           preferredNodes: ['node1'],
           requiredNodes: [],
           requiredBytes: 111,
@@ -515,16 +570,16 @@ module.exports = function () {
       await sleep(EVENT_PROPAGATION_DELAY);
 
       sinon.assert.notCalled(fsaStub);
-      expect(volume.replicaCount).to.equal(1);
-      expect(volume.requiredBytes).to.equal(100);
-      expect(volume.limitBytes).to.equal(120);
+      expect(volume.spec.replicaCount).to.equal(2);
+      expect(volume.spec.requiredBytes).to.equal(100);
+      expect(volume.spec.limitBytes).to.equal(120);
     });
 
     it('should not do anything if volume params stay the same upon "mod" event', async () => {
       let stubs;
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
-      const volume = new Volume(UUID, registry, () => {}, defaultSpec);
+      const volume = new Volume(UUID, registry, new EventEmitter(), defaultSpec);
       volume.size = 110;
       const fsaStub = sinon.stub(volume, 'fsa');
       fsaStub.returns();
@@ -565,8 +620,8 @@ module.exports = function () {
 
     it('should create a resource upon "new" volume event', async () => {
       let stubs;
-      const registry = new Registry();
-      const volume = new Volume(UUID, registry, () => {}, defaultSpec);
+      const registry = new Registry({});
+      const volume = new Volume(UUID, registry, new EventEmitter(), defaultSpec);
       const volumes = new Volumes(registry);
       sinon
         .stub(volumes, 'get')
@@ -596,14 +651,14 @@ module.exports = function () {
         size: 0,
         state: 'pending'
       });
-      expect(stubs.updateStatus.args[0][5].status.targetNodes).to.be.undefined();
+      expect(stubs.updateStatus.args[0][5].status.targetNodes).to.be.undefined;
     });
 
     it('should not crash if POST fails upon "new" volume event', async () => {
       let stubs;
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
-      const volume = new Volume(UUID, registry, () => {}, defaultSpec);
+      const volume = new Volume(UUID, registry, new EventEmitter(), defaultSpec);
       sinon.stub(volumes, 'get').returns([]);
 
       const volumeResource = createVolumeResource(UUID, defaultSpec);
@@ -626,11 +681,11 @@ module.exports = function () {
 
     it('should update the resource upon "new" volume event if it exists', async () => {
       let stubs;
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
       const newSpec = _.cloneDeep(defaultSpec);
       newSpec.replicaCount += 1;
-      const volume = new Volume(UUID, registry, () => {}, newSpec);
+      const volume = new Volume(UUID, registry, new EventEmitter(), newSpec);
       sinon
         .stub(volumes, 'get')
         .withArgs(UUID)
@@ -656,9 +711,9 @@ module.exports = function () {
 
     it('should not update the resource upon "new" volume event if it is the same', async () => {
       let stubs;
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
-      const volume = new Volume(UUID, registry, () => {}, defaultSpec, 'pending', 100, 'node2');
+      const volume = new Volume(UUID, registry, new EventEmitter(), defaultSpec, 'pending', 100, 'node2');
       sinon
         .stub(volumes, 'get')
         .withArgs(UUID)
@@ -688,7 +743,7 @@ module.exports = function () {
 
     it('should update the resource upon "mod" volume event', async () => {
       let stubs;
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
       sinon.stub(volumes, 'get').returns([]);
 
@@ -702,13 +757,14 @@ module.exports = function () {
 
       const newSpec = {
         replicaCount: 3,
+        local: true,
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 90,
         limitBytes: 130,
         protocol: 'nvmf'
       };
-      const volume = new Volume(UUID, registry, () => {}, newSpec);
+      const volume = new Volume(UUID, registry, new EventEmitter(), newSpec);
       volumes.emit('volume', {
         eventType: 'mod',
         object: volume
@@ -722,7 +778,7 @@ module.exports = function () {
 
     it('should update just the status if spec has not changed upon "mod" volume event', async () => {
       let stubs;
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
       sinon.stub(volumes, 'get').returns([]);
 
@@ -734,7 +790,7 @@ module.exports = function () {
         stubs.updateStatus.resolves();
       });
 
-      const volume = new Volume(UUID, registry, () => {}, defaultSpec);
+      const volume = new Volume(UUID, registry, new EventEmitter(), defaultSpec);
       volumes.emit('volume', {
         eventType: 'mod',
         object: volume
@@ -745,9 +801,42 @@ module.exports = function () {
       sinon.assert.calledOnce(stubs.updateStatus);
     });
 
+    it('should not update the status if only the order of entries in arrays differ', async () => {
+      let stubs;
+      const registry = new Registry({});
+      const volumes = new Volumes(registry);
+      sinon.stub(volumes, 'get').returns([]);
+
+      const volumeResource = createVolumeResource(UUID, defaultSpec, defaultStatus);
+      oper = await createVolumeOperator(volumes, (arg) => {
+        stubs = arg;
+        stubs.get.returns(volumeResource);
+        stubs.update.resolves();
+        stubs.updateStatus.resolves();
+      });
+
+      const volume = createDefaultVolume(registry);
+      volumeResource.status.replicas.reverse();
+      sinon.stub(volume, 'getReplicas').returns(
+        [].concat(Object.values(volume.replicas))
+          // reverse the order of replicas
+          .sort((a, b) => {
+            return (-1) * a.pool.node.name.localeCompare(b.pool.node.name);
+          })
+      );
+      volumes.emit('volume', {
+        eventType: 'mod',
+        object: volume
+      });
+      await sleep(EVENT_PROPAGATION_DELAY);
+
+      sinon.assert.notCalled(stubs.update);
+      sinon.assert.notCalled(stubs.updateStatus);
+    });
+
     it('should not crash if PUT fails upon "mod" volume event', async () => {
       let stubs;
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
       sinon.stub(volumes, 'get').returns([]);
 
@@ -761,13 +850,14 @@ module.exports = function () {
 
       const newSpec = {
         replicaCount: 3,
+        local: true,
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 90,
         limitBytes: 130,
         protocol: 'nvmf'
       };
-      const volume = new Volume(UUID, registry, () => {}, newSpec);
+      const volume = new Volume(UUID, registry, new EventEmitter(), newSpec);
       volumes.emit('volume', {
         eventType: 'mod',
         object: volume
@@ -780,7 +870,7 @@ module.exports = function () {
 
     it('should not crash if the resource does not exist upon "mod" volume event', async () => {
       let stubs;
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
       sinon.stub(volumes, 'get').returns([]);
 
@@ -791,13 +881,14 @@ module.exports = function () {
 
       const newSpec = {
         replicaCount: 3,
+        local: true,
         preferredNodes: [],
         requiredNodes: [],
         requiredBytes: 90,
         limitBytes: 130,
         protocol: 'nvmf'
       };
-      const volume = new Volume(UUID, registry, () => {}, newSpec);
+      const volume = new Volume(UUID, registry, new EventEmitter(), newSpec);
       volumes.emit('volume', {
         eventType: 'mod',
         object: volume
@@ -812,7 +903,7 @@ module.exports = function () {
     it('should delete the resource upon "del" volume event', async () => {
       let stubs;
       const volumeResource = createVolumeResource(UUID, defaultSpec);
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
       sinon.stub(volumes, 'get').returns([]);
 
@@ -822,7 +913,7 @@ module.exports = function () {
         stubs.delete.resolves();
       });
 
-      const volume = new Volume(UUID, registry, () => {}, defaultSpec);
+      const volume = new Volume(UUID, registry, new EventEmitter(), defaultSpec);
       volumes.emit('volume', {
         eventType: 'del',
         object: volume
@@ -835,7 +926,7 @@ module.exports = function () {
     it('should not crash if DELETE fails upon "del" volume event', async () => {
       let stubs;
       const volumeResource = createVolumeResource(UUID, defaultSpec);
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
       sinon.stub(volumes, 'get').returns([]);
 
@@ -845,7 +936,7 @@ module.exports = function () {
         stubs.delete.rejects(new Error('delete failed'));
       });
 
-      const volume = new Volume(UUID, registry, () => {}, defaultSpec);
+      const volume = new Volume(UUID, registry, new EventEmitter(), defaultSpec);
       volumes.emit('volume', {
         eventType: 'del',
         object: volume
@@ -857,7 +948,7 @@ module.exports = function () {
 
     it('should not crash if the resource does not exist upon "del" volume event', async () => {
       let stubs;
-      const registry = new Registry();
+      const registry = new Registry({});
       const volumes = new Volumes(registry);
       sinon.stub(volumes, 'get').returns([]);
 
@@ -867,7 +958,7 @@ module.exports = function () {
         stubs.delete.resolves();
       });
 
-      const volume = new Volume(UUID, registry, () => {}, defaultSpec);
+      const volume = new Volume(UUID, registry, new EventEmitter(), defaultSpec);
       volumes.emit('volume', {
         eventType: 'del',
         object: volume

@@ -14,11 +14,9 @@ use std::{
 
 use byte_unit::{Byte, ByteUnit};
 use futures::{channel::oneshot, future};
+use git_version::git_version;
 use once_cell::sync::{Lazy, OnceCell};
 use snafu::Snafu;
-use structopt::StructOpt;
-use tokio::runtime::Builder;
-
 use spdk_sys::{
     maya_log,
     spdk_app_shutdown_cb,
@@ -34,9 +32,11 @@ use spdk_sys::{
     SPDK_LOG_INFO,
     SPDK_RPC_RUNTIME,
 };
+use structopt::StructOpt;
+use tokio::runtime::Builder;
 
 use crate::{
-    bdev::{nexus, nexus::nexus_child_status_config::ChildStatusConfig},
+    bdev::{bdev_io_ctx_pool_init, nexus, nvme_io_ctx_pool_init},
     core::{
         reactor::{Reactor, ReactorState, Reactors},
         Cores,
@@ -44,7 +44,8 @@ use crate::{
     },
     grpc,
     logger,
-    subsys::{self, Config},
+    persistent_store::PersistentStore,
+    subsys::{self, Config, PoolConfig},
     target::iscsi,
 };
 
@@ -68,11 +69,11 @@ fn parse_mb(src: &str) -> Result<i32, String> {
     }
 }
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, Clone, StructOpt)]
 #[structopt(
     name = "Mayastor",
     about = "Containerized Attached Storage (CAS) for k8s",
-    version = "19.12.1",
+    version = git_version!(args = ["--tags", "--abbrev=12"], fallback="unkown"),
     setting(structopt::clap::AppSettings::ColoredHelp)
 )]
 pub struct MayastorCliArgs {
@@ -91,8 +92,8 @@ pub struct MayastorCliArgs {
     #[structopt(short = "n")]
     /// Hostname/IP and port (optional) of the message bus server.
     pub mbus_endpoint: Option<String>,
-    /// The maximum amount of hugepage memory we are allowed to allocate in MiB
-    /// a value of 0 means no limits.
+    /// The maximum amount of hugepage memory we are allowed to allocate in
+    /// MiB. A value of 0 means no limit.
     #[structopt(
     short = "s",
     parse(try_from_str = parse_mb),
@@ -106,21 +107,30 @@ pub struct MayastorCliArgs {
     /// Path to create the rpc socket.
     pub rpc_address: String,
     #[structopt(short = "y")]
-    /// Path to mayastor YAML config file.
+    /// Path to mayastor config YAML file.
     pub mayastor_config: Option<String>,
-    #[structopt(short = "C")]
-    /// Path to child status config file.
-    pub child_status_config: Option<String>,
+    #[structopt(short = "P")]
+    /// Path to pool config file.
+    pub pool_config: Option<String>,
     #[structopt(long = "huge-dir")]
     /// Path to hugedir.
     pub hugedir: Option<String>,
     #[structopt(long = "env-context")]
     /// Pass additional arguments to the EAL environment.
     pub env_context: Option<String>,
-    #[structopt(short = "-l")]
+    #[structopt(short = "l")]
     /// List of cores to run on instead of using the core mask. When specified
     /// it supersedes the core mask (-m) argument.
     pub core_list: Option<String>,
+    #[structopt(short = "p")]
+    /// Endpoint of the persistent store.
+    pub persistent_store_endpoint: Option<String>,
+    #[structopt(long = "bdev-pool-size", default_value = "65535")]
+    /// Number of entries in memory pool for bdev I/O contexts
+    pub bdev_io_ctx_pool_size: u64,
+    #[structopt(long = "nvme-ctl-pool-size", default_value = "65535")]
+    /// Number of entries in memory pool for NVMe controller I/O contexts
+    pub nvme_ctl_io_ctx_pool_size: u64,
 }
 
 /// Defaults are redefined here in case of using it during tests
@@ -129,6 +139,7 @@ impl Default for MayastorCliArgs {
         Self {
             grpc_endpoint: grpc::default_endpoint().to_string(),
             mbus_endpoint: None,
+            persistent_store_endpoint: None,
             node_name: None,
             env_context: None,
             reactor_mask: "0x1".into(),
@@ -137,9 +148,11 @@ impl Default for MayastorCliArgs {
             no_pci: true,
             log_components: vec![],
             mayastor_config: None,
-            child_status_config: None,
+            pool_config: None,
             hugedir: None,
             core_list: None,
+            bdev_io_ctx_pool_size: 65535,
+            nvme_ctl_io_ctx_pool_size: 65535,
         }
     }
 }
@@ -191,8 +204,9 @@ pub struct MayastorEnvironment {
     pub node_name: String,
     pub mbus_endpoint: Option<String>,
     pub grpc_endpoint: Option<std::net::SocketAddr>,
+    persistent_store_endpoint: Option<String>,
     mayastor_config: Option<String>,
-    child_status_config: Option<String>,
+    pool_config: Option<String>,
     delay_subsystem_init: bool,
     enable_coredump: bool,
     env_context: Option<String>,
@@ -206,8 +220,8 @@ pub struct MayastorEnvironment {
     no_pci: bool,
     num_entries: u64,
     num_pci_addr: usize,
-    pci_blacklist: Vec<spdk_pci_addr>,
-    pci_whitelist: Vec<spdk_pci_addr>,
+    pci_blocklist: Vec<spdk_pci_addr>,
+    pci_allowlist: Vec<spdk_pci_addr>,
     print_level: spdk_log_level,
     debug_level: spdk_log_level,
     reactor_mask: String,
@@ -218,6 +232,8 @@ pub struct MayastorEnvironment {
     unlink_hugepage: bool,
     log_component: Vec<String>,
     core_list: Option<String>,
+    bdev_io_ctx_pool_size: u64,
+    nvme_ctl_io_ctx_pool_size: u64,
 }
 
 impl Default for MayastorEnvironment {
@@ -226,8 +242,9 @@ impl Default for MayastorEnvironment {
             node_name: "mayastor-node".into(),
             mbus_endpoint: None,
             grpc_endpoint: None,
+            persistent_store_endpoint: None,
             mayastor_config: None,
-            child_status_config: None,
+            pool_config: None,
             delay_subsystem_init: false,
             enable_coredump: true,
             env_context: None,
@@ -241,8 +258,8 @@ impl Default for MayastorEnvironment {
             no_pci: false,
             num_entries: 0,
             num_pci_addr: 0,
-            pci_blacklist: vec![],
-            pci_whitelist: vec![],
+            pci_blocklist: vec![],
+            pci_allowlist: vec![],
             print_level: SPDK_LOG_INFO,
             debug_level: SPDK_LOG_INFO,
             reactor_mask: "0x1".into(),
@@ -253,6 +270,8 @@ impl Default for MayastorEnvironment {
             unlink_hugepage: true,
             log_component: vec![],
             core_list: None,
+            bdev_io_ctx_pool_size: 65535,
+            nvme_ctl_io_ctx_pool_size: 65535,
         }
     }
 }
@@ -331,9 +350,10 @@ impl MayastorEnvironment {
         Self {
             grpc_endpoint: Some(grpc::endpoint(args.grpc_endpoint)),
             mbus_endpoint: subsys::mbus_endpoint(args.mbus_endpoint),
+            persistent_store_endpoint: args.persistent_store_endpoint,
             node_name: args.node_name.unwrap_or_else(|| "mayastor-node".into()),
             mayastor_config: args.mayastor_config,
-            child_status_config: args.child_status_config,
+            pool_config: args.pool_config,
             log_component: args.log_components,
             mem_size: args.mem_size,
             no_pci: args.no_pci,
@@ -342,6 +362,8 @@ impl MayastorEnvironment {
             hugedir: args.hugedir,
             env_context: args.env_context,
             core_list: args.core_list,
+            bdev_io_ctx_pool_size: args.bdev_io_ctx_pool_size,
+            nvme_ctl_io_ctx_pool_size: args.nvme_ctl_io_ctx_pool_size,
             ..Default::default()
         }
         .setup_static()
@@ -586,7 +608,7 @@ impl MayastorEnvironment {
     /// there is currently no run time check that enforces this.
     fn load_yaml_config(&self) {
         let cfg = if let Some(yaml) = &self.mayastor_config {
-            info!("loading YAML config file {}", yaml);
+            info!("loading mayastor config YAML file {}", yaml);
             Config::get_or_init(|| {
                 if let Ok(cfg) = Config::read(yaml) {
                     cfg
@@ -601,33 +623,39 @@ impl MayastorEnvironment {
         cfg.apply();
     }
 
-    // load the child status file
-    fn load_child_status(&self) {
-        ChildStatusConfig::get_or_init(|| {
-            if let Ok(cfg) = ChildStatusConfig::load(&self.child_status_config)
-            {
-                cfg
-            } else {
-                // if the configuration is invalid exit early
-                panic!("Failed to load the child status configuration")
+    /// load the pool config file.
+    fn load_pool_config(&self) -> Option<PoolConfig> {
+        if let Some(file) = &self.pool_config {
+            info!("loading pool config file {}", file);
+            match PoolConfig::load(file) {
+                Ok(config) => {
+                    return Some(config);
+                }
+                Err(error) => {
+                    warn!("failed to load pool configuration: {}", error);
+                }
             }
-        });
+        }
+        None
     }
 
     /// initialize the core, call this before all else
     pub fn init(mut self) -> Self {
-        // initialise the message bus
-        subsys::message_bus_init();
-
         // setup the logger as soon as possible
         self.init_logger().unwrap();
 
         self.load_yaml_config();
 
-        self.load_child_status();
+        let pool_config = self.load_pool_config();
 
         // bootstrap DPDK and its magic
         self.initialize_eal();
+
+        // initialize memory pool for allocating bdev I/O contexts
+        bdev_io_ctx_pool_init(self.bdev_io_ctx_pool_size);
+
+        // initialize memory pool for allocating NVMe controller I/O contexts
+        nvme_io_ctx_pool_init(self.nvme_ctl_io_ctx_pool_size);
 
         info!(
             "Total number of cores available: {}",
@@ -676,11 +704,13 @@ impl MayastorEnvironment {
                 );
             }
 
-            assert_eq!(receiver.await.unwrap(), true);
+            assert!(receiver.await.unwrap());
         });
 
-        // load any bdevs that need to be created
-        Config::get().import_bdevs();
+        // load any pools that need to be created
+        if let Some(config) = pool_config {
+            config.import_pools();
+        }
 
         self
     }
@@ -703,15 +733,13 @@ impl MayastorEnvironment {
         type FutureResult = Result<(), ()>;
         let grpc_endpoint = self.grpc_endpoint;
         let rpc_addr = self.rpc_addr.clone();
+        let persistent_store_endpoint = self.persistent_store_endpoint.clone();
         let ms = self.init();
 
-        let mut rt = Builder::new()
-            .basic_scheduler()
-            .enable_all()
-            .build()
-            .unwrap();
+        let rt = Builder::new_current_thread().enable_all().build().unwrap();
 
         rt.block_on(async {
+            PersistentStore::init(persistent_store_endpoint).await;
             let master = Reactors::current();
             master.send_future(async { f() });
             let mut futures: Vec<

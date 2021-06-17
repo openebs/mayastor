@@ -5,7 +5,7 @@
 const expect = require('chai').expect;
 const sinon = require('sinon');
 const sleep = require('sleep-promise');
-const { Workq } = require('../workq');
+const { Workq } = require('../dist/workq');
 
 class Task {
   constructor (id, delay) {

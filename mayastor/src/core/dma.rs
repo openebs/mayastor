@@ -105,9 +105,6 @@ impl DerefMut for DmaBuf {
 
 impl Drop for DmaBuf {
     fn drop(&mut self) {
-        if cfg!(debug_assertions) {
-            trace!("dropping Dmabuf {:?}", self);
-        }
         unsafe { spdk_dma_free(self.buf as *mut c_void) }
     }
 }

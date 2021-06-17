@@ -16,10 +16,7 @@ pub enum ServiceError {
     #[snafu(display("Cannot find volume: volume ID: {}", volid))]
     VolumeNotFound { volid: String },
     #[snafu(display("Invalid volume ID: {}, {}", volid, source))]
-    InvalidVolumeId {
-        source: uuid::parser::ParseError,
-        volid: String,
-    },
+    InvalidVolumeId { source: uuid::Error, volid: String },
     #[snafu(display("fsfreeze failed: volume ID: {}, {}", volid, error))]
     FsfreezeFailed { volid: String, error: String },
     #[snafu(display("Internal failure: volume ID: {}, {}", volid, source))]

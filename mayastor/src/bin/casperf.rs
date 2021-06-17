@@ -126,7 +126,7 @@ impl Job {
 
     /// construct a new job
     async fn new(bdev: &str, size: u64, qd: u64) -> Box<Self> {
-        let bdev = bdev_create(&bdev)
+        let bdev = bdev_create(bdev)
             .await
             .map_err(|e| {
                 eprintln!("Failed to open URI {}: {}", bdev, e.to_string());
@@ -323,7 +323,6 @@ fn main() {
         let mut cfg = Config::default();
         cfg.nexus_opts.iscsi_enable = false;
         cfg.nexus_opts.nvmf_enable = false;
-        cfg.sync_disable = true;
         cfg
     });
 

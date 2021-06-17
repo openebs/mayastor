@@ -86,9 +86,9 @@ async fn child_location() {
             let nexus = nexus_lookup(NEXUS_NAME).expect("Failed to find nexus");
             let children = &nexus.children;
             assert_eq!(children.len(), 3);
-            assert_eq!(children[0].is_local().unwrap(), true);
-            assert_eq!(children[1].is_local().unwrap(), false);
-            assert_eq!(children[2].is_local().unwrap(), false);
+            assert!(children[0].is_local().unwrap());
+            assert!(!children[1].is_local().unwrap());
+            assert!(!children[2].is_local().unwrap());
         })
         .await;
 }

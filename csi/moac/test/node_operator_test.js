@@ -5,9 +5,9 @@
 const expect = require('chai').expect;
 const sinon = require('sinon');
 const sleep = require('sleep-promise');
-const { KubeConfig } = require('client-node-fixed-watcher');
-const Registry = require('../registry');
-const { NodeOperator, NodeResource } = require('../node_operator');
+const { KubeConfig } = require('@kubernetes/client-node');
+const { Registry } = require('../dist/registry');
+const { NodeOperator, NodeResource } = require('../dist/node_operator');
 const { mockCache } = require('./watcher_stub');
 const Node = require('./node_stub');
 
@@ -88,8 +88,12 @@ module.exports = function () {
       expect(obj.status).to.equal('unknown');
     });
 
-    it('should not create node resource without grpc endpoint', () => {
-      expect(() => createNodeResource(NAME)).to.throw();
+    // empty endpoint means that the node has unregistered itself
+    it('should create node resource with empty grpc endpoint', () => {
+      const obj = createNodeResource(NAME, '', 'offline');
+      expect(obj.metadata.name).to.equal(NAME);
+      expect(obj.spec.grpcEndpoint).to.equal('');
+      expect(obj.status).to.equal('offline');
     });
   });
 
@@ -97,7 +101,7 @@ module.exports = function () {
     let kc, oper, fakeApiStub;
 
     beforeEach(() => {
-      const registry = new Registry();
+      const registry = new Registry({});
       kc = new KubeConfig();
       Object.assign(kc, fakeConfig);
       oper = new NodeOperator(NAMESPACE, kc, registry);
@@ -146,7 +150,7 @@ module.exports = function () {
     let stubs, registry, nodeResource;
 
     beforeEach(async () => {
-      registry = new Registry();
+      registry = new Registry({});
       registry.Node = Node;
 
       oper = createNodeOperator(registry);
@@ -173,6 +177,14 @@ module.exports = function () {
       await sleep(EVENT_PROPAGATION_DELAY);
       sinon.assert.calledOnce(addNodeSpy);
       sinon.assert.calledWith(addNodeSpy, NAME, ENDPOINT);
+    });
+
+    it('should not add node to registry if endpoint is empty', async () => {
+      const addNodeSpy = sinon.spy(registry, 'addNode');
+      nodeResource.spec.grpcEndpoint = '';
+      oper.watcher.emit('new', nodeResource);
+      await sleep(EVENT_PROPAGATION_DELAY);
+      sinon.assert.notCalled(addNodeSpy);
     });
 
     it('should remove node from registry upon "del" event', async () => {
@@ -210,7 +222,7 @@ module.exports = function () {
     let registry, oper;
 
     beforeEach(async () => {
-      registry = new Registry();
+      registry = new Registry({});
       registry.Node = Node;
       oper = createNodeOperator(registry);
     });
@@ -348,6 +360,34 @@ module.exports = function () {
 
       sinon.assert.notCalled(stubs.create);
       sinon.assert.notCalled(stubs.update);
+      sinon.assert.calledOnce(stubs.updateStatus);
+      expect(stubs.updateStatus.args[0][5].metadata.name).to.equal(NAME);
+      expect(stubs.updateStatus.args[0][5].status).to.equal('offline');
+      sinon.assert.notCalled(stubs.delete);
+    });
+
+    it('should update spec and status of the resource upon "mod" node event', async () => {
+      let stubs;
+      const nodeResource = createNodeResource(NAME, ENDPOINT, 'online');
+      mockCache(oper.watcher, (arg) => {
+        stubs = arg;
+        stubs.get.returns(nodeResource);
+      });
+      await oper.start();
+      // give time to registry to install its callbacks
+      await sleep(EVENT_PROPAGATION_DELAY);
+      registry.addNode(NAME, ENDPOINT);
+      await sleep(EVENT_PROPAGATION_DELAY);
+      const node = registry.getNode(NAME);
+      const isSyncedStub = sinon.stub(node, 'isSynced');
+      isSyncedStub.returns(false);
+      node.disconnect();
+      await sleep(EVENT_PROPAGATION_DELAY);
+
+      sinon.assert.notCalled(stubs.create);
+      sinon.assert.calledOnce(stubs.update);
+      expect(stubs.update.args[0][5].metadata.name).to.equal(NAME);
+      expect(stubs.update.args[0][5].spec.grpcEndpoint).to.equal('');
       sinon.assert.calledOnce(stubs.updateStatus);
       expect(stubs.updateStatus.args[0][5].metadata.name).to.equal(NAME);
       expect(stubs.updateStatus.args[0][5].status).to.equal('offline');

@@ -15,7 +15,6 @@ mod test;
 
 use self::error::{Error, RpcCode};
 use nix::errno::Errno;
-use std::net::Shutdown;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::UnixStream,
@@ -82,11 +81,10 @@ where
     trace!("JSON request: {}", String::from_utf8_lossy(&buf));
 
     socket.write_all(&buf).await?;
-    socket.shutdown(Shutdown::Write)?;
+    socket.shutdown().await?;
 
     buf.clear();
     socket.read_to_end(&mut buf).await?;
-    socket.shutdown(Shutdown::Both)?;
 
     parse_reply(&buf)
 }

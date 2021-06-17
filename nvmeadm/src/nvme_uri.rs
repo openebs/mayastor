@@ -5,10 +5,8 @@ use url::{ParseError, Url};
 use crate::{
     error::NvmeError,
     nvme_namespaces::{NvmeDevice, NvmeDeviceList},
-    nvmf_discovery::disconnect,
+    nvmf_discovery::{disconnect, ConnectArgsBuilder},
 };
-
-use super::nvmf_discovery::connect;
 
 pub struct NvmeTarget {
     host: String,
@@ -28,7 +26,7 @@ impl TryFrom<&str> for NvmeTarget {
     type Error = NvmeError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let url = Url::parse(&value).map_err(|source| NvmeError::UrlError {
+        let url = Url::parse(value).map_err(|source| NvmeError::UrlError {
             source,
         })?;
 
@@ -80,7 +78,13 @@ impl NvmeTarget {
             });
         }
 
-        connect(&self.host, self.port, &self.subsysnqn)?;
+        ConnectArgsBuilder::default()
+            .traddr(&self.host)
+            .trsvcid(self.port.to_string())
+            .nqn(&self.subsysnqn)
+            .build()
+            .map_err(|_| NvmeError::ParseError {})?
+            .connect()?;
 
         let mut retries = 10;
         let mut all_nvme_devices;

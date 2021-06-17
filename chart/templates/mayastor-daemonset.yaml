@@ -34,6 +34,8 @@ spec:
         image: {{ include "mayastorImagesPrefix" . }}mayadata/mayastor:{{ .Values.mayastorImagesTag }}
         imagePullPolicy: {{ .Values.mayastorImagePullPolicy }}
         env:
+        - name: RUST_LOG
+          value: mayastor={{ .Values.mayastorLogLevel }}
         - name: MY_NODE_NAME
           valueFrom:
             fieldRef:
@@ -53,7 +55,9 @@ spec:
         - "-g$(MY_POD_IP)"
         - "-nnats"
         - "-y/var/local/mayastor/config.yaml"
+        - "-P/var/local/mayastor/pools.yaml"
         - "-l{{ include "mayastorCpuSpec" . }}"
+        - "-pmayastor-etcd"
         securityContext:
           privileged: true
         volumeMounts:
@@ -65,8 +69,6 @@ spec:
           mountPath: /dev/shm
         - name: configlocation
           mountPath: /var/local/mayastor/
-        - name: config
-          mountPath: /var/local/mayastor/config.yaml
         resources:
           # NOTE: Each container must have mem/cpu limits defined in order to
           # belong to Guaranteed QoS class, hence can never get evicted in case of
@@ -103,7 +105,3 @@ spec:
         hostPath:
           path: /var/local/mayastor/
           type: DirectoryOrCreate
-      - name: config
-        hostPath:
-          path: /var/local/mayastor/config.yaml
-          type: FileOrCreate

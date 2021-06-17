@@ -93,9 +93,7 @@ impl Nvmf {
         admin_cmd::setup_create_snapshot_hdlr();
 
         if Config::get().nexus_opts.nvmf_enable {
-            NVMF_TGT.with(|tgt| {
-                tgt.borrow_mut().next_state();
-            });
+            NVMF_TGT.with(|tgt| tgt.borrow_mut().next_state());
         } else {
             debug!("nvmf target disabled");
             unsafe { spdk_subsystem_init_next(0) }

@@ -1,4 +1,10 @@
-use std::{boxed::Box, path::Path, time::Duration, vec::Vec};
+use std::{
+    boxed::Box,
+    collections::HashMap,
+    path::Path,
+    time::Duration,
+    vec::Vec,
+};
 
 use tonic::{Code, Request, Response, Status};
 
@@ -7,7 +13,6 @@ macro_rules! failure {
     (Code::$code:ident, $fmt:literal $(,$args:expr)+) => {{ let message = format!($fmt $(,$args)+); error!("{}", message); Status::new(Code::$code, message) }};
 }
 
-use glob::glob;
 use uuid::Uuid;
 
 use crate::{
@@ -130,18 +135,20 @@ impl node_server::Node for Node {
         _request: Request<NodeGetInfoRequest>,
     ) -> Result<Response<NodeGetInfoResponse>, Status> {
         let node_id = format!("mayastor://{}", &self.node_name);
-        let max_volumes_per_node =
-            glob("/dev/nbd*").expect("Invalid glob pattern").count() as i64;
-
-        debug!(
-            "NodeGetInfo request: ID={}, max volumes={}",
-            node_id, max_volumes_per_node,
+        let mut segments = HashMap::new();
+        segments.insert(
+            "kubernetes.io/hostname".to_owned(),
+            self.node_name.clone(),
         );
+
+        debug!("NodeGetInfo request: ID={}", node_id);
 
         Ok(Response::new(NodeGetInfoResponse {
             node_id,
-            max_volumes_per_node,
-            accessible_topology: None,
+            max_volumes_per_node: 0,
+            accessible_topology: Some(Topology {
+                segments,
+            }),
         }))
     }
 
@@ -251,7 +258,7 @@ impl node_server::Node for Node {
             )
         })? {
             AccessType::Mount(mnt) => {
-                publish_fs_volume(&msg, &mnt, &self.filesystems)?;
+                publish_fs_volume(&msg, mnt, &self.filesystems)?;
             }
             AccessType::Block(_) => {
                 publish_block_volume(&msg).await?;
@@ -425,7 +432,7 @@ impl node_server::Node for Node {
         // All checks complete, now attach, if not attached already.
         debug!("Volume {} has URI {}", &msg.volume_id, uri);
 
-        let device = Device::parse(&uri).map_err(|error| {
+        let mut device = Device::parse(uri).map_err(|error| {
             failure!(
                 Code::Internal,
                 "Failed to stage volume {}: error parsing URI {}: {}",
@@ -434,6 +441,17 @@ impl node_server::Node for Node {
                 error
             )
         })?;
+        device
+            .parse_parameters(&msg.publish_context)
+            .await
+            .map_err(|error| {
+                failure!(
+            Code::InvalidArgument,
+            "Failed to parse storage class parameters for volume {}: {}",
+            &msg.volume_id,
+            error
+        )
+            })?;
 
         let device_path = match device.find().await.map_err(|error| {
             failure!(
@@ -458,8 +476,8 @@ impl node_server::Node for Node {
                     ));
                 }
 
-                Device::wait_for_device(
-                    device,
+                let devpath = Device::wait_for_device(
+                    &*device,
                     ATTACH_TIMEOUT_INTERVAL,
                     ATTACH_RETRIES,
                 )
@@ -471,7 +489,18 @@ impl node_server::Node for Node {
                         &msg.volume_id,
                         error
                     )
-                })?
+                })?;
+
+                device.fixup().await.map_err(|error| {
+                    failure!(
+                        Code::Internal,
+                        "Could not set parameters on staged device {}: {}",
+                        &msg.volume_id,
+                        error
+                    )
+                })?;
+
+                devpath
             }
         };
 
@@ -479,7 +508,7 @@ impl node_server::Node for Node {
         match access_type {
             AccessType::Mount(mnt) => {
                 if let Err(fsmount_error) =
-                    stage_fs_volume(&msg, device_path, &mnt, &self.filesystems)
+                    stage_fs_volume(&msg, device_path, mnt, &self.filesystems)
                         .await
                 {
                     detach(

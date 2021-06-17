@@ -32,8 +32,7 @@
 use std::{
     cell::RefCell,
     collections::VecDeque,
-    fmt,
-    fmt::{Display, Formatter},
+    fmt::{self, Display, Formatter},
     os::raw::c_void,
     pin::Pin,
     slice::Iter,
@@ -289,7 +288,7 @@ impl Reactor {
             warn!("calling poll on a reactor who is not in the INIT state");
         }
 
-        if cfg!(debug_assertions) {
+        if std::env::var("MAYASTOR_DELAY").is_ok() {
             reactor.developer_delayed();
         } else {
             reactor.running();
@@ -454,10 +453,12 @@ impl Reactor {
     pub fn poll_once(&self) {
         self.receive_futures();
         self.run_futures();
-        self.threads.borrow().iter().for_each(|t| {
+        let threads = self.threads.borrow();
+        threads.iter().for_each(|t| {
             t.poll();
         });
 
+        drop(threads);
         while let Ok(i) = self.incoming.pop() {
             self.threads.borrow_mut().push_back(i);
         }
@@ -518,7 +519,7 @@ impl Future for &'static Reactor {
                 Poll::Pending
             }
             ReactorState::Init => {
-                if cfg!(debug_assertions) {
+                if std::env::var("MAYASTOR_DELAY").is_ok() {
                     self.developer_delayed();
                 } else {
                     self.running();

@@ -1,7 +1,13 @@
-use super::context::Context;
+use crate::{
+    context::{Context, OutputFormat},
+    Error,
+    GrpcStatus,
+};
 use ::rpc::mayastor as rpc;
 use byte_unit::Byte;
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
+use colored_json::ToColoredJson;
+use snafu::ResultExt;
 use tonic::Status;
 
 pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
@@ -43,13 +49,14 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
 pub async fn handler(
     ctx: Context,
     matches: &ArgMatches<'_>,
-) -> Result<(), Status> {
+) -> crate::Result<()> {
     match matches.subcommand() {
         ("create", Some(args)) => create(ctx, args).await,
         ("destroy", Some(args)) => destroy(ctx, args).await,
         ("list", Some(args)) => list(ctx, args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {} does not exist", cmd)))
+                .context(GrpcStatus)
         }
     }
 }
@@ -57,72 +64,135 @@ pub async fn handler(
 async fn create(
     mut ctx: Context,
     matches: &ArgMatches<'_>,
-) -> Result<(), Status> {
-    let name = matches.value_of("pool").unwrap().to_owned();
+) -> crate::Result<()> {
+    let name = matches
+        .value_of("pool")
+        .ok_or_else(|| Error::MissingValue {
+            field: "pool".to_string(),
+        })?
+        .to_owned();
     let disks = matches
         .values_of("disk")
-        .unwrap()
+        .ok_or_else(|| Error::MissingValue {
+            field: "disk".to_string(),
+        })?
         .map(|dev| dev.to_owned())
         .collect();
 
-    ctx.v2(&format!("Creating pool {}", name));
-    ctx.client
+    let response = ctx
+        .client
         .create_pool(rpc::CreatePoolRequest {
             name: name.clone(),
             disks,
         })
-        .await?;
-    ctx.v1(&format!("Created pool {}", name));
+        .await
+        .context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            println!("{}", &name);
+        }
+    };
+
     Ok(())
 }
 
 async fn destroy(
     mut ctx: Context,
     matches: &ArgMatches<'_>,
-) -> Result<(), Status> {
-    let name = matches.value_of("pool").unwrap().to_owned();
+) -> crate::Result<()> {
+    let name = matches
+        .value_of("pool")
+        .ok_or_else(|| Error::MissingValue {
+            field: "pool".to_string(),
+        })?
+        .to_owned();
 
-    ctx.v2(&format!("Destroying pool {}", name));
-    ctx.client
+    let response = ctx
+        .client
         .destroy_pool(rpc::DestroyPoolRequest {
             name: name.clone(),
         })
-        .await?;
-    ctx.v1(&format!("Destroyed pool {}", name));
+        .await
+        .context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            println!("{}", &name);
+        }
+    };
+
     Ok(())
 }
 
 async fn list(
     mut ctx: Context,
     _matches: &ArgMatches<'_>,
-) -> Result<(), Status> {
+) -> crate::Result<()> {
     ctx.v2("Requesting a list of pools");
 
-    let reply = ctx.client.list_pools(rpc::Null {}).await?;
-    let pools: &Vec<rpc::Pool> = &reply.get_ref().pools;
-    if pools.is_empty() {
-        ctx.v1("No pools found");
-        return Ok(());
-    }
+    let response = ctx
+        .client
+        .list_pools(rpc::Null {})
+        .await
+        .context(GrpcStatus)?;
 
-    ctx.v2("Found following pools:");
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            let pools: &Vec<rpc::Pool> = &response.get_ref().pools;
+            if pools.is_empty() {
+                ctx.v1("No pools found");
+                return Ok(());
+            }
 
-    let table = pools
-        .iter()
-        .map(|p| {
-            let cap = Byte::from_bytes(p.capacity.into());
-            let used = Byte::from_bytes(p.used.into());
-            let state = pool_state_to_str(p.state);
-            vec![
-                p.name.clone(),
-                state.to_string(),
-                ctx.units(cap),
-                ctx.units(used),
-                p.disks.join(" "),
-            ]
-        })
-        .collect();
-    ctx.print_list(vec!["NAME", "STATE", ">CAPACITY", ">USED", "DISKS"], table);
+            let table = pools
+                .iter()
+                .map(|p| {
+                    let cap = Byte::from_bytes(p.capacity.into());
+                    let used = Byte::from_bytes(p.used.into());
+                    let state = pool_state_to_str(p.state);
+                    vec![
+                        p.name.clone(),
+                        state.to_string(),
+                        ctx.units(cap),
+                        ctx.units(used),
+                        p.disks.join(" "),
+                    ]
+                })
+                .collect();
+            ctx.print_list(
+                vec!["NAME", "STATE", ">CAPACITY", ">USED", "DISKS"],
+                table,
+            );
+        }
+    };
 
     Ok(())
 }

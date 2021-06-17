@@ -122,13 +122,17 @@ impl Share for Lvol {
 
     /// share the lvol as a nvmf target
     #[instrument(level = "debug", err)]
-    async fn share_nvmf(&self) -> Result<Self::Output, Self::Error> {
-        let share = self.as_bdev().share_nvmf().await.map_err(|e| {
-            Error::LvolShare {
-                source: e,
-                name: self.name(),
-            }
-        })?;
+    async fn share_nvmf(
+        &self,
+        cntlid_range: Option<(u16, u16)>,
+    ) -> Result<Self::Output, Self::Error> {
+        let share =
+            self.as_bdev().share_nvmf(cntlid_range).await.map_err(|e| {
+                Error::LvolShare {
+                    source: e,
+                    name: self.name(),
+                }
+            })?;
 
         self.set(PropValue::Shared(true)).await?;
         info!("shared {}", self);
@@ -158,8 +162,12 @@ impl Share for Lvol {
     }
 
     /// returns the share URI this lvol is shared as
+    /// this URI includes a UUID as a query parameter which can be used to
+    /// uniquely identify a replica as the replica UUID is currently set to its
+    /// name, which is *NOT* unique and in MOAC's use case, is the volume UUID
     fn share_uri(&self) -> Option<String> {
-        self.as_bdev().share_uri()
+        let uri_no_uuid = self.as_bdev().share_uri();
+        uri_no_uuid.map(|uri| format!("{}?uuid={}", uri, self.uuid()))
     }
 
     /// returns the URI that is used to construct the bdev. This is always None
@@ -272,7 +280,7 @@ impl Lvol {
     #[instrument(level = "debug", err)]
     pub async fn set(&self, prop: PropValue) -> Result<(), Error> {
         let blob = unsafe { self.0.as_ref().blob };
-        assert_ne!(blob.is_null(), true);
+        assert!(!blob.is_null());
 
         if self.is_snapshot() {
             warn!("ignoring set property on snapshot {}", self.name());
@@ -320,7 +328,7 @@ impl Lvol {
     #[instrument(level = "debug", err)]
     pub async fn get(&self, prop: PropName) -> Result<PropValue, Error> {
         let blob = unsafe { self.0.as_ref().blob };
-        assert_ne!(blob.is_null(), true);
+        assert!(!blob.is_null());
 
         match prop {
             PropName::Shared => {

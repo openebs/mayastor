@@ -2,12 +2,14 @@
 
 'use strict';
 
+/* eslint-disable no-unused-expressions */
+
 const expect = require('chai').expect;
 const { spawn } = require('child_process');
 const nats = require('nats');
 const sleep = require('sleep-promise');
-const Registry = require('../registry');
-const { MessageBus } = require('../nats');
+const { Registry } = require('../dist/registry');
+const { MessageBus } = require('../dist/nats');
 const { waitUntil } = require('./utils');
 const NodeStub = require('./node_stub');
 
@@ -78,7 +80,7 @@ module.exports = function () {
 
   // Create registry, event bus object, nats client and start nat server
   before((done) => {
-    registry = new Registry();
+    registry = new Registry({});
     registry.Node = NodeStub;
     eventBus = new MessageBus(registry, RECONNECT_DELAY);
     startNats(err => {
@@ -94,6 +96,7 @@ module.exports = function () {
       nc = null;
     }
     stopNats();
+    registry.close();
   });
 
   it('should connect to the nats server', async () => {
@@ -146,14 +149,15 @@ module.exports = function () {
       id: 'v0/deregister',
       data: { id: NODE_NAME }
     })));
+    expect(registry.getNode(NODE_NAME).isSynced());
     await waitUntil(async () => {
-      return !registry.getNode(NODE_NAME);
-    }, 1000, 'node removal');
+      return !registry.getNode(NODE_NAME).isSynced();
+    }, 1000, 'node offline');
   });
 
   it('should disconnect from the nats server', () => {
     eventBus.stop();
-    expect(eventBus.isConnected()).to.be.false();
+    expect(eventBus.isConnected()).to.be.false;
   });
 
   it('should retry connect until successfull', async () => {

@@ -1,4 +1,4 @@
-use std::convert::TryFrom;
+use std::{collections::HashMap, convert::TryFrom};
 
 use url::Url;
 
@@ -37,11 +37,22 @@ impl TryFrom<&Url> for Nbd {
 
 #[tonic::async_trait]
 impl Attach for Nbd {
+    async fn parse_parameters(
+        &mut self,
+        _context: &HashMap<String, String>,
+    ) -> Result<(), DeviceError> {
+        Ok(())
+    }
+
     async fn attach(&self) -> Result<(), DeviceError> {
         Ok(())
     }
 
     async fn find(&self) -> Result<Option<DeviceName>, DeviceError> {
         Ok(Some(DeviceName::from(&self.path)))
+    }
+
+    async fn fixup(&self) -> Result<(), DeviceError> {
+        Ok(())
     }
 }

@@ -35,14 +35,14 @@ fn read_label() {
         .args(&["-s", "64m", DISKNAME1])
         .output()
         .expect("failed exec truncate");
-    assert_eq!(output.status.success(), true);
+    assert!(output.status.success());
 
     let output = Command::new("truncate")
         .args(&["-s", "64m", DISKNAME2])
         .output()
         .expect("failed exec truncate");
 
-    assert_eq!(output.status.success(), true);
+    assert!(output.status.success());
 
     let rc = MayastorEnvironment::new(MayastorCliArgs::default())
         .start(|| Reactor::block_on(start()).unwrap())
@@ -54,7 +54,7 @@ fn read_label() {
         .output()
         .expect("failed delete test file");
 
-    assert_eq!(output.status.success(), true);
+    assert!(output.status.success());
 }
 
 async fn start() {
@@ -89,9 +89,10 @@ fn test_known_label() {
     assert_eq!(partitions[0].ent_name.name, "nexus_meta");
     assert_eq!(partitions[1].ent_name.name, "zfs_data");
 
-    assert_eq!(hdr.checksum(), CRC32);
+    assert_eq!(hdr.checksum().unwrap(), CRC32);
 
-    let array_checksum = GptEntry::checksum(&partitions, hdr.num_entries);
+    let array_checksum =
+        GptEntry::checksum(&partitions, hdr.num_entries).unwrap();
 
     assert_eq!(array_checksum, hdr.table_crc);
 
@@ -107,7 +108,8 @@ fn test_known_label() {
     let partitions =
         GptEntry::from_slice(buf.as_slice(), hdr.num_entries).unwrap();
 
-    let array_checksum = GptEntry::checksum(&partitions, hdr.num_entries);
+    let array_checksum =
+        GptEntry::checksum(&partitions, hdr.num_entries).unwrap();
     assert_eq!(array_checksum, hdr.table_crc);
 }
 
@@ -124,7 +126,7 @@ async fn make_nexus() {
 async fn label_child() {
     let nexus = nexus_lookup("gpt_nexus").unwrap();
     let child = &mut nexus.children[0];
-    let hdl = child.handle().unwrap();
+    let hdl = child.get_io_handle().unwrap();
 
     let mut file = std::fs::File::open("./gpt_primary_test_data.bin").unwrap();
     let mut buffer = hdl.dma_malloc(34 * 512).unwrap();

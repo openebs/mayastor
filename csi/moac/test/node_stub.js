@@ -3,7 +3,7 @@
 
 'use strict';
 
-const { Node } = require('../node');
+const { Node } = require('../dist/node');
 
 // It can be used instead of real node object in tests of components that
 // depend on the Node.
@@ -32,12 +32,23 @@ class NodeStub extends Node {
 
   connect (endpoint) {
     this.syncFailed = 0;
+    if (this.endpoint === endpoint) {
+      // nothing changed
+      return;
+    } else if (this.endpoint) {
+      this.emit('node', {
+        eventType: 'mod',
+        object: this
+      });
+    }
     this.endpoint = endpoint;
   }
 
   disconnect () {
     this.syncFailed = this.syncBadLimit + 1;
     this.endpoint = null;
+    this.client = null;
+    this._offline();
   }
 }
 

@@ -119,19 +119,19 @@ impl Replica {
     /// Expose replica over supported remote access storage protocols (nvmf
     /// and iscsi).
     pub async fn share(&self, kind: ShareType) -> Result<()> {
-        let uuid = self.get_uuid().to_owned();
-        if detect_share(&uuid).is_some() {
+        let name = self.get_name().to_owned();
+        if detect_share(&name).is_some() {
             return Err(Error::ReplicaShared {});
         }
 
         let bdev = unsafe { Bdev::from((*self.lvol_ptr).bdev) };
 
         match kind {
-            ShareType::Nvmf => target::nvmf::share(&uuid, &bdev)
+            ShareType::Nvmf => target::nvmf::share(&name, &bdev)
                 .await
                 .context(ShareNvmf {})?,
             ShareType::Iscsi => {
-                target::iscsi::share(&uuid, &bdev, target::Side::Replica)
+                target::iscsi::share(&name, &bdev, target::Side::Replica)
                     .context(ShareIscsi {})?;
             }
         }
@@ -141,13 +141,13 @@ impl Replica {
     /// The opposite of share. It is not an error to call unshare on a replica
     /// which is not shared.
     pub async fn unshare(&self) -> Result<()> {
-        let uuid = self.get_uuid().to_owned();
-        if let Some((share_type, _)) = detect_share(&uuid) {
+        let name = self.get_name().to_owned();
+        if let Some((share_type, _)) = detect_share(&name) {
             match share_type {
-                ShareType::Nvmf => target::nvmf::unshare(&uuid)
+                ShareType::Nvmf => target::nvmf::unshare(&name)
                     .await
                     .context(UnshareNvmf {})?,
-                ShareType::Iscsi => target::iscsi::unshare(&uuid)
+                ShareType::Iscsi => target::iscsi::unshare(&name)
                     .await
                     .context(UnshareIscsi {})?,
             }
@@ -159,15 +159,18 @@ impl Replica {
     /// (nqn for nvmf and iqn for iscsi) or none if the replica is not
     /// shared.
     pub fn get_share_type(&self) -> Option<ShareType> {
-        detect_share(self.get_uuid()).map(|val| val.0)
+        detect_share(self.get_name()).map(|val| val.0)
     }
 
     /// Return storage URI understood & used by nexus to access the replica.
     pub fn get_share_uri(&self) -> String {
-        match detect_share(self.get_uuid()) {
+        let uri_no_uuid = match detect_share(self.get_name()) {
             Some((_, share_uri)) => share_uri,
-            None => format!("bdev:///{}", self.get_uuid()),
-        }
+            None => {
+                format!("bdev:///{}", self.get_name())
+            }
+        };
+        format!("{}?uuid={}", uri_no_uuid, self.get_uuid())
     }
 
     /// Get size of the replica in bytes.
@@ -184,10 +187,19 @@ impl Replica {
         }
     }
 
-    /// Get uuid (= name) of the replica.
-    pub fn get_uuid(&self) -> &str {
+    /// Get name of the replica.
+    pub fn get_name(&self) -> &str {
         unsafe {
             CStr::from_ptr(&(*self.lvol_ptr).name as *const c_char)
+                .to_str()
+                .unwrap()
+        }
+    }
+
+    /// Get uuid of the replica.
+    pub fn get_uuid(&self) -> &str {
+        unsafe {
+            CStr::from_ptr(&(*self.lvol_ptr).uuid_str as *const c_char)
                 .to_str()
                 .unwrap()
         }
@@ -269,7 +281,8 @@ impl Iterator for ReplicaIter {
 impl From<Replica> for rpc::Replica {
     fn from(r: Replica) -> Self {
         rpc::Replica {
-            uuid: r.get_uuid().to_owned(),
+            // we currently report the replica name as the volume uuid
+            uuid: r.get_name().to_owned(),
             pool: r.get_pool_name().to_owned(),
             size: r.get_size(),
             thin: r.is_thin(),

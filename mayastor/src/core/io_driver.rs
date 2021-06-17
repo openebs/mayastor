@@ -374,13 +374,10 @@ impl JobQueue {
     /// look up the job by bdev name
     fn lookup(&self, name: &str) -> Option<Box<Job>> {
         let mut inner = self.inner.lock().unwrap();
-        if let Some(index) =
-            inner.iter().position(|job| job.bdev.name() == name)
-        {
-            Some(inner.remove(index))
-        } else {
-            None
-        }
+        inner
+            .iter()
+            .position(|job| job.bdev.name() == name)
+            .map(|index| inner.remove(index))
     }
 
     /// start the job

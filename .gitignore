@@ -14,3 +14,7 @@ test-yamls/*
 /node_modules
 artifacts/
 .idea
+**/.pytest_cache
+**/__pycache__
+/chart/charts/
+ansible-hosts

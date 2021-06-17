@@ -50,12 +50,17 @@ impl Share for Nexus {
         Ok(self.share_uri().unwrap())
     }
 
-    async fn share_nvmf(&self) -> Result<Self::Output, Self::Error> {
+    async fn share_nvmf(
+        &self,
+        cntlid_range: Option<(u16, u16)>,
+    ) -> Result<Self::Output, Self::Error> {
         match self.shared() {
             Some(Protocol::Off) | None => {
-                self.bdev.share_nvmf().await.context(ShareNvmfNexus {
-                    name: self.name.clone(),
-                })?;
+                self.bdev.share_nvmf(cntlid_range).await.context(
+                    ShareNvmfNexus {
+                        name: self.name.clone(),
+                    },
+                )?;
             }
             Some(Protocol::Nvmf) => {}
             Some(protocol) => {
@@ -136,7 +141,7 @@ impl Nexus {
                 Ok(uri)
             }
             ShareProtocolNexus::NexusNvmf => {
-                let uri = self.share_nvmf().await?;
+                let uri = self.share_nvmf(None).await?;
                 self.nexus_target = Some(NexusTarget::NexusNvmfTarget);
                 Ok(uri)
             }

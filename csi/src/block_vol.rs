@@ -33,7 +33,7 @@ pub async fn publish_block_volume(
     // Block volumes are not staged, instead
     // bind mount to the device path,
     // this can be done for mutliple target paths.
-    let device = Device::parse(&uri).map_err(|error| {
+    let device = Device::parse(uri).map_err(|error| {
         failure!(
             Code::Internal,
             "Failed to publish volume {}: error parsing URI {}: {}",
@@ -129,7 +129,7 @@ pub fn unpublish_block_volume(
     // block volumes are mounted on block special file, which is not
     // a regular file.
     if mount::find_mount(None, Some(target_path)).is_some() {
-        match mount::blockdevice_unmount(&target_path) {
+        match mount::blockdevice_unmount(target_path) {
             Ok(_) => {}
             Err(err) => {
                 return Err(Status::new(

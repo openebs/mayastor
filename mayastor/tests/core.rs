@@ -52,8 +52,7 @@ async fn create_nexus() {
 static MS: OnceCell<MayastorTest> = OnceCell::new();
 
 fn mayastor() -> &'static MayastorTest<'static> {
-    let ms = MS.get_or_init(|| MayastorTest::new(MayastorCliArgs::default()));
-    &ms
+    MS.get_or_init(|| MayastorTest::new(MayastorCliArgs::default()))
 }
 
 #[tokio::test]
@@ -70,7 +69,7 @@ async fn core() {
 }
 
 async fn works() {
-    assert_eq!(Bdev::lookup_by_name("core_nexus").is_none(), true);
+    assert!(Bdev::lookup_by_name("core_nexus").is_none());
     create_nexus().await;
     let b = Bdev::lookup_by_name("core_nexus").unwrap();
     assert_eq!(b.name(), "core_nexus");
@@ -117,7 +116,7 @@ async fn core_3() {
             let hdl2 = BdevHandle::open(BDEVNAME1, true, true)
                 .expect("failed to create the handle!");
             let hdl3 = BdevHandle::open(BDEVNAME1, true, true);
-            assert_eq!(hdl3.is_err(), true);
+            assert!(hdl3.is_err());
 
             // we must drop the descriptors before we destroy the nexus
             drop(hdl2);
@@ -172,7 +171,7 @@ async fn core_4() {
                     let nexus = nexus_lookup(nexus_name).unwrap();
 
                     if child_ok {
-                        nexus.add_child(&BDEVNAME2, true).await.unwrap_or_else(
+                        nexus.add_child(BDEVNAME2, true).await.unwrap_or_else(
                             |_| {
                                 panic!(
                                     "Case {} - Child should have been added",
@@ -181,7 +180,7 @@ async fn core_4() {
                             },
                         );
                     } else {
-                        nexus.add_child(&BDEVNAME2, true).await.expect_err(
+                        nexus.add_child(BDEVNAME2, true).await.expect_err(
                             &format!(
                                 "Case {} - Child should have been added",
                                 test_case_index

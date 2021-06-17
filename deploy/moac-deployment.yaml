@@ -18,11 +18,13 @@ spec:
       serviceAccount: moac
       containers:
         - name: csi-provisioner
-          image: quay.io/k8scsi/csi-provisioner:v2.1.1
+          image: k8s.gcr.io/sig-storage/csi-provisioner:v2.2.1
           args:
             - "--v=2"
             - "--csi-address=$(ADDRESS)"
-            - "--feature-gates=Topology=false"
+            - "--feature-gates=Topology=true"
+            - "--strict-topology=false"
+            - "--default-fstype=ext4"
           env:
             - name: ADDRESS
               value: /var/lib/csi/sockets/pluginproxy/csi.sock
@@ -32,7 +34,7 @@ spec:
               mountPath: /var/lib/csi/sockets/pluginproxy/
 
         - name: csi-attacher
-          image: quay.io/k8scsi/csi-attacher:v3.1.0
+          image: k8s.gcr.io/sig-storage/csi-attacher:v3.2.1
           args:
             - "--v=2"
             - "--csi-address=$(ADDRESS)"
@@ -45,24 +47,33 @@ spec:
               mountPath: /var/lib/csi/sockets/pluginproxy/
 
         - name: moac
-          image: mayadata/moac:v0.8.0
-          imagePullPolicy: IfNotPresent
+          image: mayadata/moac:v0.8.1
+          imagePullPolicy: Always
           args:
             - "--csi-address=$(CSI_ENDPOINT)"
-            - "--namespace=$(MY_POD_NAMESPACE)"
-            - "--port=4000"
+            - "--port=3000"
             - "--watcher-idle-timeout=600000"
+            - "--etcd-endpoint=mayastor-etcd"
             - "--message-bus=nats"
+            - "-v"
           env:
             - name: CSI_ENDPOINT
               value: /var/lib/csi/sockets/pluginproxy/csi.sock
-            - name: MY_POD_NAMESPACE
-              valueFrom:
-                fieldRef:
-                  fieldPath: metadata.namespace
           volumeMounts:
             - name: socket-dir
               mountPath: /var/lib/csi/sockets/pluginproxy/
+          livenessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 20
+            timeoutSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /
+              port: 3000
+            initialDelaySeconds: 20
+            timeoutSeconds: 10
       volumes:
         - name: socket-dir
           emptyDir:

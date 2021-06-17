@@ -1,7 +1,8 @@
 use common::{compose::Builder, MayastorTest};
 use mayastor::{
     bdev::{nexus_create, nexus_lookup, NexusStatus},
-    core::MayastorCliArgs,
+    core::{Bdev, MayastorCliArgs},
+    nexus_uri::bdev_get_name,
     subsys::{Config, NvmeBdevOpts},
 };
 use rpc::mayastor::{BdevShareRequest, BdevUri, Null, ShareProtocolNexus};
@@ -12,6 +13,7 @@ pub mod common;
 static NXNAME: &str = "nexus";
 
 #[tokio::test]
+#[ignore]
 async fn replica_stop_cont() {
     // Use shorter timeouts than the defaults to reduce test runtime
     Config::get_or_init(|| Config {
@@ -57,24 +59,25 @@ async fn replica_stop_cont() {
     let mayastor = MayastorTest::new(MayastorCliArgs::default());
 
     // create a nexus with the remote replica as its child
+    let child_uri = format!(
+        "nvmf://{}:8420/nqn.2019-05.io.openebs:disk0",
+        hdls[0].endpoint.ip()
+    );
+    let c = child_uri.clone();
     mayastor
         .spawn(async move {
-            nexus_create(
-                NXNAME,
-                1024 * 1024 * 50,
-                None,
-                &[format!(
-                    "nvmf://{}:8420/nqn.2019-05.io.openebs:disk0",
-                    hdls[0].endpoint.ip()
-                )],
-            )
-            .await
-            .unwrap();
-            nexus_lookup(&NXNAME)
+            nexus_create(NXNAME, 1024 * 1024 * 50, None, &[c.clone()])
+                .await
+                .unwrap();
+            nexus_lookup(NXNAME)
                 .unwrap()
                 .share(ShareProtocolNexus::NexusNvmf, None)
                 .await
                 .expect("should publish nexus over nvmf");
+            assert!(
+                Bdev::lookup_by_name(&bdev_get_name(&c).unwrap()).is_some(),
+                "child bdev must exist"
+            );
         })
         .await;
 
@@ -117,17 +120,17 @@ async fn replica_stop_cont() {
     assert!(!status.success());
 
     // unshare the nexus while its status is faulted
+    let c = child_uri.clone();
     mayastor
         .spawn(async move {
-            assert_eq!(
-                nexus_lookup(&NXNAME).unwrap().status(),
-                NexusStatus::Faulted,
+            assert!(
+                Bdev::lookup_by_name(&bdev_get_name(&c).unwrap()).is_none(),
+                "child bdev must be destroyed"
             );
-            nexus_lookup(&NXNAME)
-                .unwrap()
-                .unshare_nexus()
-                .await
-                .expect("should unpublish nexus");
+            let nx = nexus_lookup(NXNAME).unwrap();
+            assert_eq!(nx.status(), NexusStatus::Faulted);
+            assert_eq!(nx.children.len(), 1, "nexus child must still exist");
+            nx.unshare_nexus().await.expect("should unpublish nexus");
         })
         .await;
 }

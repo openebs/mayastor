@@ -3,11 +3,9 @@
 
 pub use config::{
     opts::{NexusOpts, NvmeBdevOpts},
-    BaseBdev,
+    pool::PoolConfig,
     Config,
     ConfigSubsystem,
-    NexusBdev,
-    Pool,
 };
 pub use nvmf::{
     create_snapshot,

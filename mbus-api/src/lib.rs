@@ -487,6 +487,11 @@ pub trait Bus: Clone + Send + Sync {
     ) -> BusResult<BusMessage>;
     /// Flush queued messages to the server
     async fn flush(&self) -> BusResult<()>;
+    /// Flush queued messages to the server with a timeout
+    async fn flush_timeout(
+        &self,
+        timeout: std::time::Duration,
+    ) -> BusResult<()>;
     /// Create a subscription on the given channel which can be
     /// polled for messages until it is either explicitly closed or
     /// when the bus is closed

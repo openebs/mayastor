@@ -8,6 +8,6 @@ npm install
 npm run prepare
 npm run compile
 
-./node_modules/mocha/bin/mocha test/index.js \
+./node_modules/mocha/bin/mocha test/index.ts \
     --reporter test/multi_reporter.js \
     --reporter-options reporters="xunit spec",output=../../moac-xunit-report.xml

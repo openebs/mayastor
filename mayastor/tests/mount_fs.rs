@@ -30,9 +30,7 @@ macro_rules! prepare_storage {
 }
 
 fn get_ms() -> &'static MayastorTest<'static> {
-    let instance =
-        MAYASTOR.get_or_init(|| MayastorTest::new(MayastorCliArgs::default()));
-    &instance
+    MAYASTOR.get_or_init(|| MayastorTest::new(MayastorCliArgs::default()))
 }
 
 async fn create_connected_nvmf_nexus(
@@ -61,7 +59,7 @@ async fn mount_test(ms: &'static MayastorTest<'static>, fstype: &str) {
     let (target, nvmf_dev) = create_connected_nvmf_nexus(ms).await;
 
     // Create a filesystem with test file.
-    assert!(common::mkfs(&nvmf_dev, &fstype));
+    assert!(common::mkfs(&nvmf_dev, fstype));
     let md5sum = match common::mount_and_write_file(&nvmf_dev) {
         Ok(r) => r,
         Err(e) => panic!("Failed to create test file: {}", e),
@@ -103,7 +101,7 @@ async fn mount_test(ms: &'static MayastorTest<'static>, fstype: &str) {
 
         assert_eq!(devices.len(), 1);
         let nvmf_dev = &devices[0].path;
-        let md5 = common::mount_and_get_md5(&nvmf_dev).unwrap();
+        let md5 = common::mount_and_get_md5(nvmf_dev).unwrap();
 
         assert_eq!(md5, md5sum);
 

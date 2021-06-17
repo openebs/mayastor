@@ -2,14 +2,16 @@
 
 'use strict';
 
+/* eslint-disable no-unused-expressions */
+
 const _ = require('lodash');
 const expect = require('chai').expect;
 const sinon = require('sinon');
-const { Node } = require('../node');
-const { Replica } = require('../replica');
-const { Nexus } = require('../nexus');
+const { Node } = require('../dist/node');
+const { Replica } = require('../dist/replica');
+const { Nexus } = require('../dist/nexus');
 const { shouldFailWith } = require('./utils');
-const { GrpcCode, GrpcError } = require('../grpc_client');
+const { grpcCode, GrpcError } = require('../dist/grpc_client');
 
 const UUID = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cbb';
 
@@ -43,7 +45,7 @@ module.exports = function () {
         expect(ev.eventType).to.equal('del');
         expect(ev.object).to.equal(nexus);
         setTimeout(() => {
-          expect(nexus.node).to.be.null();
+          expect(nexus.node).to.be.undefined;
           done();
         }, 0);
       });
@@ -162,7 +164,7 @@ module.exports = function () {
   });
 
   describe('grpc', () => {
-    let node, nexus, eventSpy, callStub;
+    let node, nexus, eventSpy, callStub, isSyncedStub;
 
     // Create a sample nexus bound to a node
     beforeEach((done) => {
@@ -172,6 +174,8 @@ module.exports = function () {
         expect(ev.eventType).to.equal('new');
         eventSpy = sinon.spy(node, 'emit');
         callStub = sinon.stub(node, 'call');
+        isSyncedStub = sinon.stub(node, 'isSynced');
+        isSyncedStub.returns(true);
         done();
       });
       node._registerNexus(nexus);
@@ -180,13 +184,14 @@ module.exports = function () {
     afterEach(() => {
       eventSpy.resetHistory();
       callStub.reset();
+      isSyncedStub.reset();
     });
 
     it('should not publish the nexus with whatever protocol', async () => {
       callStub.resolves({ deviceUri: 'file:///dev/whatever0' });
-      callStub.rejects(new GrpcError(GrpcCode.NOT_FOUND, 'Test failure'));
+      callStub.rejects(new GrpcError(grpcCode.NOT_FOUND, 'Test failure'));
 
-      await shouldFailWith(GrpcCode.NOT_FOUND, async () => {
+      await shouldFailWith(grpcCode.NOT_FOUND, async () => {
         await nexus.publish('whatever');
       });
 
@@ -265,6 +270,36 @@ module.exports = function () {
       });
     });
 
+    it('should not fail to unpublish the nexus if it does not exist', async () => {
+      callStub.rejects(new GrpcError(grpcCode.NOT_FOUND, 'test not found'));
+
+      await nexus.unpublish();
+
+      sinon.assert.calledOnce(callStub);
+      sinon.assert.calledWith(callStub, 'unpublishNexus', { uuid: UUID });
+      expect(nexus.deviceUri).to.equal('');
+      sinon.assert.calledOnce(eventSpy);
+      sinon.assert.calledWith(eventSpy, 'nexus', {
+        eventType: 'mod',
+        object: nexus
+      });
+    });
+
+    it('should fake the unpublish if the node is offline', async () => {
+      callStub.resolves({});
+      isSyncedStub.returns(false);
+
+      await nexus.unpublish();
+
+      sinon.assert.notCalled(callStub);
+      expect(nexus.deviceUri).to.equal('');
+      sinon.assert.calledOnce(eventSpy);
+      sinon.assert.calledWith(eventSpy, 'nexus', {
+        eventType: 'mod',
+        object: nexus
+      });
+    });
+
     it('should add replica to nexus', async () => {
       const uri = 'iscsi://' + UUID;
       const replica = new Replica({
@@ -277,8 +312,10 @@ module.exports = function () {
         rebuildProgress: 0
       });
 
-      await nexus.addReplica(replica);
+      const res = await nexus.addReplica(replica);
 
+      expect(res.uri).to.equal(uri);
+      expect(res.state).to.equal('CHILD_DEGRADED');
       sinon.assert.calledOnce(callStub);
       sinon.assert.calledWith(callStub, 'addChildNexus', {
         uuid: UUID,
@@ -302,9 +339,9 @@ module.exports = function () {
         uuid: UUID,
         uri: 'iscsi://' + UUID
       });
-      callStub.rejects(new GrpcError(GrpcCode.INTERNAL, 'Test failure'));
+      callStub.rejects(new GrpcError(grpcCode.INTERNAL, 'Test failure'));
 
-      await shouldFailWith(GrpcCode.INTERNAL, async () => {
+      await shouldFailWith(grpcCode.INTERNAL, async () => {
         await nexus.addReplica(replica);
       });
 
@@ -348,9 +385,9 @@ module.exports = function () {
         uuid: UUID,
         uri: 'nvmf://' + UUID
       });
-      callStub.rejects(new GrpcError(GrpcCode.INTERNAL, 'Test failure'));
+      callStub.rejects(new GrpcError(grpcCode.INTERNAL, 'Test failure'));
 
-      await shouldFailWith(GrpcCode.INTERNAL, async () => {
+      await shouldFailWith(grpcCode.INTERNAL, async () => {
         await nexus.removeReplica(replica.uri);
       });
 
@@ -377,14 +414,14 @@ module.exports = function () {
       });
       sinon.assert.calledOnce(callStub);
       sinon.assert.calledWith(callStub, 'destroyNexus', { uuid: UUID });
-      expect(nexus.node).to.be.null();
+      expect(nexus.node).to.be.undefined;
       expect(node.nexus).to.have.lengthOf(0);
     });
 
     it('should not remove the nexus if grpc fails', async () => {
-      callStub.rejects(new GrpcError(GrpcCode.INTERNAL, 'Test failure'));
+      callStub.rejects(new GrpcError(grpcCode.INTERNAL, 'Test failure'));
 
-      await shouldFailWith(GrpcCode.INTERNAL, async () => {
+      await shouldFailWith(grpcCode.INTERNAL, async () => {
         await nexus.destroy();
       });
 
@@ -395,8 +432,9 @@ module.exports = function () {
       expect(node.nexus).to.have.lengthOf(1);
     });
 
-    it('should ignore NOT_FOUND error when destroying the nexus', async () => {
-      callStub.resolves({});
+    it('should fake the destroy if the node is offline', async () => {
+      callStub.rejects(new GrpcError(grpcCode.INTERNAL, 'Not connected'));
+      isSyncedStub.returns(false);
 
       await nexus.destroy();
 
@@ -405,9 +443,8 @@ module.exports = function () {
         eventType: 'del',
         object: nexus
       });
-      sinon.assert.calledOnce(callStub);
-      sinon.assert.calledWith(callStub, 'destroyNexus', { uuid: UUID });
-      expect(nexus.node).to.be.null();
+      sinon.assert.notCalled(callStub);
+      expect(nexus.node).to.be.undefined;
       expect(node.nexus).to.have.lengthOf(0);
     });
   });

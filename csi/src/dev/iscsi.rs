@@ -1,4 +1,4 @@
-use std::convert::TryFrom;
+use std::{collections::HashMap, convert::TryFrom};
 
 use regex::Regex;
 use udev::Enumerator;
@@ -116,6 +116,13 @@ impl TryFrom<&Url> for IscsiDevice {
 
 #[tonic::async_trait]
 impl Attach for IscsiAttach {
+    async fn parse_parameters(
+        &mut self,
+        _context: &HashMap<String, String>,
+    ) -> Result<(), DeviceError> {
+        Ok(())
+    }
+
     async fn attach(&self) -> Result<(), DeviceError> {
         match IscsiAdmin::find_session(&self.portal, &self.iqn) {
             Ok(found) => {
@@ -167,6 +174,10 @@ impl Attach for IscsiAttach {
         }
 
         Ok(None)
+    }
+
+    async fn fixup(&self) -> Result<(), DeviceError> {
+        Ok(())
     }
 }
 

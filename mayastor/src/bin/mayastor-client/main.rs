@@ -12,6 +12,7 @@ use ::rpc::mayastor::{
 
 mod bdev_cli;
 mod context;
+mod controller_cli;
 mod device_cli;
 mod jsonrpc_cli;
 mod nexus_child_cli;
@@ -38,6 +39,8 @@ pub enum Error {
         source: context::Error,
         backtrace: Backtrace,
     },
+    #[snafu(display("Missing value for {}", field))]
+    MissingValue { field: String },
 }
 
 pub type Result<T, E = Error> = std::result::Result<T, E>;
@@ -46,7 +49,7 @@ pub(crate) fn parse_size(src: &str) -> Result<Byte, String> {
     Byte::from_str(src).map_err(|_| src.to_string())
 }
 
-#[tokio::main(max_threads = 2)]
+#[tokio::main(worker_threads = 2)]
 async fn main() -> crate::Result<()> {
     env_logger::init();
 
@@ -87,6 +90,16 @@ async fn main() -> crate::Result<()> {
                 .hide_possible_values(true)
                 .next_line_help(true)
                 .help("Output with large units: i for kiB, etc. or d for kB, etc."))
+        .arg(
+            Arg::with_name("output")
+                .short("o")
+                .long("output")
+                .value_name("FORMAT")
+                .default_value("default")
+                .possible_values(&["default", "json"])
+                .global(true)
+                .help("Output format.")
+        )
         .subcommand(pool_cli::subcommands())
         .subcommand(nexus_cli::subcommands())
         .subcommand(replica_cli::subcommands())
@@ -96,6 +109,7 @@ async fn main() -> crate::Result<()> {
         .subcommand(rebuild_cli::subcommands())
         .subcommand(snapshot_cli::subcommands())
         .subcommand(jsonrpc_cli::subcommands())
+        .subcommand(controller_cli::subcommands())
         .get_matches();
 
     let ctx = Context::new(&matches).await.context(ContextError)?;
@@ -109,8 +123,9 @@ async fn main() -> crate::Result<()> {
         ("replica", Some(args)) => replica_cli::handler(ctx, args).await,
         ("rebuild", Some(args)) => rebuild_cli::handler(ctx, args).await,
         ("snapshot", Some(args)) => snapshot_cli::handler(ctx, args).await,
+        ("controller", Some(args)) => controller_cli::handler(ctx, args).await,
         ("jsonrpc", Some(args)) => jsonrpc_cli::json_rpc_call(ctx, args).await,
         _ => panic!("Command not found"),
     };
-    status.context(GrpcStatus)
+    status
 }

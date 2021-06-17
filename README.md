@@ -27,6 +27,16 @@ Some targeted use cases are:
  - Programmatic based storage access, i.e write to block devices from within your application instead of making system calls
  - Storage unification to lift barriers so that you can start deploying cloud native apps on your existing storage without painful data gravity barriers that prevent progress and innovation
 
+# User Documentation
+
+The official user documentation for the Mayastor Project is published here in GitBook format: [mayastor.gitbook.io](https://mayastor.gitbook.io/)
+
+# Project Status
+
+Mayastor is currently beta software.  From Wikipedia: "it (beta software) will generally have many more bugs in it than completed software and speed or performance issues, and may still cause crashes or data loss."
+
+The project's maintainers operate a live issue tracking dashboard for defects which they have under active triage and investigation. It can be accessed [here](https://mayadata.atlassian.net/secure/Dashboard.jspa?selectPageId=10015). You are strongly encouraged to familisarise yourself with the issues identified there before deploying Mayastor and/or raising issue reports.
+
 Table of contents:
 ==================
 - [Quickly deploy it on K8s and get started](/deploy/README.md)

@@ -1,18 +1,21 @@
 //!
 //! methods to directly interact with the bdev layer
 
+use crate::{
+    context::{Context, OutputFormat},
+    Error,
+    GrpcStatus,
+};
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 use colored_json::prelude::*;
-use tonic::Status;
-
 use rpc::mayastor::{BdevShareRequest, BdevUri, CreateReply, Null};
-
-use crate::context::Context;
+use snafu::ResultExt;
+use tonic::Status;
 
 pub async fn handler(
     ctx: Context,
     matches: &ArgMatches<'_>,
-) -> Result<(), Status> {
+) -> crate::Result<()> {
     match matches.subcommand() {
         ("list", Some(args)) => list(ctx, args).await,
         ("create", Some(args)) => create(ctx, args).await,
@@ -21,9 +24,11 @@ pub async fn handler(
         ("unshare", Some(args)) => unshare(ctx, args).await,
         (cmd, _) => {
             Err(Status::not_found(format!("command {} does not exist", cmd)))
+                .context(GrpcStatus)
         }
     }
 }
+
 pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
     let list = SubCommand::with_name("list").about("List all bdevs");
     let create = SubCommand::with_name("create")
@@ -64,108 +69,212 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
         .subcommand(destroy)
 }
 
-async fn list(mut ctx: Context, _args: &ArgMatches<'_>) -> Result<(), Status> {
-    let bdevs = ctx.bdev.list(Null {}).await?;
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&bdevs.into_inner())
-            .unwrap()
-            .to_colored_json_auto()
-            .unwrap()
-    );
+async fn list(mut ctx: Context, _args: &ArgMatches<'_>) -> crate::Result<()> {
+    let response = ctx.bdev.list(Null {}).await.context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            let bdevs = &response.get_ref().bdevs;
+            if bdevs.is_empty() {
+                ctx.v1("No bdevs found");
+                return Ok(());
+            }
+            let header = vec![
+                "UUID",
+                "NUM_BLOCKS",
+                "BLK_SIZE",
+                "CLAIMED_BY",
+                "NAME",
+                "SHARE_URI",
+            ];
+            let table = bdevs
+                .iter()
+                .map(|bdev| {
+                    vec![
+                        bdev.uuid.to_string(),
+                        bdev.num_blocks.to_string(),
+                        bdev.blk_size.to_string(),
+                        bdev.claimed_by.to_string(),
+                        bdev.name.to_string(),
+                        bdev.share_uri.to_string(),
+                    ]
+                })
+                .collect();
+            ctx.print_list(header, table);
+        }
+    };
 
     Ok(())
 }
-async fn create(mut ctx: Context, args: &ArgMatches<'_>) -> Result<(), Status> {
-    let uri = args.value_of("uri").unwrap().to_owned();
+
+async fn create(mut ctx: Context, args: &ArgMatches<'_>) -> crate::Result<()> {
+    let uri = args
+        .value_of("uri")
+        .ok_or_else(|| Error::MissingValue {
+            field: "uri".to_string(),
+        })?
+        .to_owned();
+
     let response = ctx
         .bdev
         .create(BdevUri {
             uri,
         })
-        .await?;
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&response.into_inner())
-            .unwrap()
-            .to_colored_json_auto()
-            .unwrap()
-    );
+        .await
+        .context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            println!("{}", &response.get_ref().name);
+        }
+    };
+
     Ok(())
 }
 
-async fn destroy(
-    mut ctx: Context,
-    args: &ArgMatches<'_>,
-) -> Result<(), Status> {
-    let name = args.value_of("name").unwrap().to_owned();
-    let bdevs = ctx.bdev.list(Null {}).await?.into_inner();
+async fn destroy(mut ctx: Context, args: &ArgMatches<'_>) -> crate::Result<()> {
+    let name = args
+        .value_of("name")
+        .ok_or_else(|| Error::MissingValue {
+            field: "name".to_string(),
+        })?
+        .to_owned();
+    let bdevs = ctx
+        .bdev
+        .list(Null {})
+        .await
+        .context(GrpcStatus)?
+        .into_inner();
 
-    if let Some(bdev) = bdevs.bdevs.iter().find(|b| b.name == name) {
-        // un share the bdev
-        let _ = ctx
-            .bdev
-            .unshare(CreateReply {
-                name,
-            })
-            .await?;
+    let found = bdevs
+        .bdevs
+        .iter()
+        .find(|b| b.name == name)
+        .ok_or_else(|| Status::not_found(name.clone()))
+        .context(GrpcStatus)?;
 
-        let response = ctx
-            .bdev
-            .destroy(BdevUri {
-                uri: bdev.uri.clone(),
-            })
-            .await?;
-        println!(
-            "{}",
-            serde_json::to_string_pretty(&response.into_inner())
-                .unwrap()
-                .to_colored_json_auto()
-                .unwrap()
-        );
-        Ok(())
-    } else {
-        Err(Status::not_found(name))
-    }
+    // un share the bdev
+    let _ = ctx
+        .bdev
+        .unshare(CreateReply {
+            name,
+        })
+        .await
+        .context(GrpcStatus)?;
+
+    let response = ctx
+        .bdev
+        .destroy(BdevUri {
+            uri: found.uri.clone(),
+        })
+        .await
+        .context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            println!("{}", found.name,);
+        }
+    };
+
+    Ok(())
 }
 
-async fn share(mut ctx: Context, args: &ArgMatches<'_>) -> Result<(), Status> {
-    let name = args.value_of("name").unwrap().to_owned();
-    let protocol = args.value_of("protocol").unwrap().to_owned();
+async fn share(mut ctx: Context, args: &ArgMatches<'_>) -> crate::Result<()> {
+    let name = args
+        .value_of("name")
+        .ok_or_else(|| Error::MissingValue {
+            field: "name".to_string(),
+        })?
+        .to_owned();
+    let protocol = args
+        .value_of("protocol")
+        .ok_or_else(|| Error::MissingValue {
+            field: "protocol".to_string(),
+        })?
+        .to_owned();
+
     let response = ctx
         .bdev
         .share(BdevShareRequest {
             name,
             proto: protocol,
         })
-        .await?;
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&response.into_inner())
-            .unwrap()
-            .to_colored_json_auto()
-            .unwrap()
-    );
+        .await
+        .context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            println!("{}", &response.get_ref().uri,);
+        }
+    }
     Ok(())
 }
 
-async fn unshare(
-    mut ctx: Context,
-    args: &ArgMatches<'_>,
-) -> Result<(), Status> {
-    let name = args.value_of("name").unwrap().to_owned();
+async fn unshare(mut ctx: Context, args: &ArgMatches<'_>) -> crate::Result<()> {
+    let name = args
+        .value_of("name")
+        .ok_or_else(|| Error::MissingValue {
+            field: "name".to_string(),
+        })?
+        .to_owned();
+
     let response = ctx
         .bdev
         .unshare(CreateReply {
-            name,
+            name: name.clone(),
         })
-        .await?;
-    println!(
-        "{}",
-        serde_json::to_string_pretty(&response.into_inner())
-            .unwrap()
-            .to_colored_json_auto()
-            .unwrap()
-    );
+        .await
+        .context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            println!("{}", name,);
+        }
+    }
     Ok(())
 }

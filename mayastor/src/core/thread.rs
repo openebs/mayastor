@@ -14,8 +14,10 @@ use spdk_sys::{
     spdk_thread_send_msg,
 };
 
-use crate::core::{cpu_cores::CpuMask, Cores};
-use std::ptr::NonNull;
+use crate::core::{cpu_cores::CpuMask, CoreError, Cores, Reactors};
+use futures::channel::oneshot::{channel, Receiver, Sender};
+use nix::errno::Errno;
+use std::{fmt::Debug, future::Future, ptr::NonNull};
 
 #[derive(Debug, Snafu)]
 pub enum Error {
@@ -29,7 +31,7 @@ pub enum Error {
 /// analogous to a container to which you can submit work and poll it to drive
 /// the submitted work to completion.
 pub struct Mthread(NonNull<spdk_thread>);
-
+unsafe impl Send for Mthread {}
 impl From<*mut spdk_thread> for Mthread {
     fn from(t: *mut spdk_thread) -> Self {
         let t = NonNull::new(t).expect("thread may not be NULL");
@@ -54,15 +56,12 @@ impl Mthread {
     pub fn new(name: String, core: u32) -> Option<Self> {
         let name = CString::new(name).unwrap();
 
-        if let Some(t) = NonNull::new(unsafe {
+        NonNull::new(unsafe {
             let mut mask = CpuMask::new();
             mask.set_cpu(core, true);
             spdk_thread_create(name.as_ptr(), mask.as_ptr())
-        }) {
-            Some(Mthread(t))
-        } else {
-            None
-        }
+        })
+        .map(Mthread)
     }
 
     pub fn id(&self) -> u64 {
@@ -91,22 +90,16 @@ impl Mthread {
 
     #[inline]
     pub fn enter(&self) {
-        debug!("setting thread {:?}", self);
         unsafe { spdk_set_thread(self.0.as_ptr()) };
     }
 
     #[inline]
     pub fn exit(&self) {
-        debug!("exit thread {:?}", self);
         unsafe { spdk_set_thread(std::ptr::null_mut()) };
     }
 
     pub fn current() -> Option<Mthread> {
-        if let Some(t) = NonNull::new(unsafe { spdk_get_thread() }) {
-            Some(Mthread(t))
-        } else {
-            None
-        }
+        NonNull::new(unsafe { spdk_get_thread() }).map(Mthread)
     }
 
     pub fn name(&self) -> &str {
@@ -153,7 +146,7 @@ impl Mthread {
     /// send the given thread 'msg' in xPDK speak.
     pub fn msg<F, T>(&self, t: T, f: F)
     where
-        F: FnMut(T),
+        F: FnOnce(T),
         T: std::fmt::Debug + 'static,
     {
         // context structure which is passed to the callback as argument
@@ -165,10 +158,10 @@ impl Mthread {
         // helper routine to unpack the closure and its arguments
         extern "C" fn trampoline<F, T>(arg: *mut c_void)
         where
-            F: FnMut(T),
+            F: FnOnce(T),
             T: 'static + std::fmt::Debug,
         {
-            let mut ctx = unsafe { Box::from_raw(arg as *mut Ctx<F, T>) };
+            let ctx = unsafe { Box::from_raw(arg as *mut Ctx<F, T>) };
             (ctx.closure)(ctx.args);
         }
 
@@ -185,6 +178,69 @@ impl Mthread {
             )
         };
         assert_eq!(rc, 0);
+    }
+
+    /// spawn a future on a core the current thread is running on returning a
+    /// channel which can be awaited. This decouples the SPDK runtime from the
+    /// future runtimes within rust.
+    pub fn spawn_local<F>(&self, f: F) -> Result<Receiver<F::Output>, CoreError>
+    where
+        F: Future + 'static,
+        F::Output: Send + Debug,
+    {
+        // context structure which is passed to the callback as argument
+        struct Ctx<F>
+        where
+            F: Future,
+            F::Output: Send + Debug,
+        {
+            future: F,
+            sender: Option<Sender<F::Output>>,
+        }
+
+        // helper routine to unpack the closure and its arguments
+        extern "C" fn trampoline<F>(arg: *mut c_void)
+        where
+            F: Future + 'static,
+            F::Output: Send + Debug,
+        {
+            let mut ctx = unsafe { Box::from_raw(arg as *mut Ctx<F>) };
+            Reactors::current()
+                .spawn_local(async move {
+                    let result = ctx.future.await;
+                    if let Err(e) = ctx
+                        .sender
+                        .take()
+                        .expect("sender already taken")
+                        .send(result)
+                    {
+                        error!("Failed to send with error {:?}", e);
+                    }
+                })
+                .detach();
+        }
+
+        let (s, r) = channel::<F::Output>();
+
+        let ctx = Box::new(Ctx {
+            future: f,
+            sender: Some(s),
+        });
+
+        let rc = unsafe {
+            spdk_thread_send_msg(
+                self.0.as_ptr(),
+                Some(trampoline::<F>),
+                Box::into_raw(ctx).cast(),
+            )
+        };
+        if rc != 0 {
+            Err(CoreError::NotSupported {
+                source: Errno::UnknownErrno,
+            })
+        } else {
+            Ok(r)
+        }
     }
 
     /// spawns a thread and setting its affinity to the inverse cpu set of
@@ -217,7 +273,7 @@ impl Mthread {
                 &set,
             );
 
-            info!("pthread started on core {}", libc::sched_getcpu());
+            debug!("pthread started on core {}", libc::sched_getcpu());
         }
     }
 }

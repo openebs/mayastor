@@ -20,7 +20,7 @@ use crate::{
                 RemoveRebuildJob,
             },
             nexus_channel::DrEvent,
-            nexus_child::{ChildState, NexusChild, Reason},
+            nexus_child::{ChildState, Reason},
         },
         VerboseError,
     },
@@ -46,7 +46,7 @@ impl Nexus {
         let src_child_name = match self
             .children
             .iter()
-            .find(|c| c.state() == ChildState::Open && c.name != name)
+            .find(|c| c.state() == ChildState::Open && c.get_name() != name)
         {
             Some(child) => Ok(child.name.clone()),
             None => Err(Error::NoRebuildSource {
@@ -55,7 +55,7 @@ impl Nexus {
         }?;
 
         let dst_child_name =
-            match self.children.iter_mut().find(|c| c.name == name) {
+            match self.children.iter().find(|c| c.get_name() == name) {
                 Some(c)
                     if c.state() == ChildState::Faulted(Reason::OutOfSync) =>
                 {
@@ -229,7 +229,7 @@ impl Nexus {
         &self,
         name: &'a str,
     ) -> Vec<&'a mut RebuildJob> {
-        let jobs = RebuildJob::lookup_src(&name);
+        let jobs = RebuildJob::lookup_src(name);
 
         jobs.iter().for_each(|job| assert_eq!(job.nexus, self.name));
         jobs
@@ -241,7 +241,7 @@ impl Nexus {
         &self,
         name: &'a str,
     ) -> Result<&'a mut RebuildJob, Error> {
-        let job = RebuildJob::lookup(&name).context(RebuildJobNotFound {
+        let job = RebuildJob::lookup(name).context(RebuildJobNotFound {
             child: name.to_owned(),
             name: self.name.clone(),
         })?;
@@ -261,10 +261,9 @@ impl Nexus {
         match job.state() {
             RebuildState::Completed => {
                 recovering_child.set_state(ChildState::Open);
-                NexusChild::save_state_change();
                 info!(
                     "Child {} has been rebuilt successfully",
-                    recovering_child.name
+                    recovering_child.get_name()
                 );
             }
             RebuildState::Stopped => {
@@ -316,7 +315,7 @@ impl Nexus {
             return Ok(());
         }
 
-        let complete_err = self.on_rebuild_complete_job(&j).await;
+        let complete_err = self.on_rebuild_complete_job(j).await;
         let remove_err = RebuildJob::remove(&job)
             .context(RemoveRebuildJob {
                 child: job,

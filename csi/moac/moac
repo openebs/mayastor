@@ -1,0 +1,18 @@
+#!/usr/bin/env node
+
+'use strict';
+
+const fs = require('fs');
+const path = require('path');
+
+const MAIN_FILE = './dist/index.js';
+
+try {
+  fs.statSync(path.join(__dirname, MAIN_FILE));
+} catch (err) {
+  console.error(`Missing ${MAIN_FILE}. You need to compile the code: "npm run compile"`);
+  process.exit(1);
+}
+
+const { main } = require(MAIN_FILE);
+main();

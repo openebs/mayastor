@@ -86,10 +86,11 @@ async fn unmap(
 ) -> Result<(), Error> {
     let (sender, receiver) = oneshot::channel::<bool>();
 
+    let (desc, ch) = handle.io_tuple();
     let errno = unsafe {
         spdk_bdev_unmap(
-            handle.desc.as_ptr(),
-            handle.channel.as_ptr(),
+            desc,
+            ch,
             offset,
             nbytes,
             Some(io_completion_cb),
@@ -117,11 +118,12 @@ async fn write_zeroes(
     nbytes: u64,
 ) -> Result<(), Error> {
     let (sender, receiver) = oneshot::channel::<bool>();
+    let (desc, ch) = handle.io_tuple();
 
     let errno = unsafe {
         spdk_bdev_write_zeroes(
-            handle.desc.as_ptr(),
-            handle.channel.as_ptr(),
+            desc,
+            ch,
             offset,
             nbytes,
             Some(io_completion_cb),
@@ -478,7 +480,7 @@ async fn unmap_share_test() {
             let mut targets: Vec<NvmeTarget> = Vec::new();
 
             for vol in pool.lvols().unwrap() {
-                vol.share_nvmf().await.unwrap();
+                vol.share_nvmf(None).await.unwrap();
                 let uri = vol.share_uri().unwrap();
                 info!("lvol {} shared as: {}", vol.name(), uri);
                 targets.push(NvmeTarget::try_from(uri).unwrap());
@@ -501,7 +503,7 @@ async fn unmap_share_test() {
     // Write to all devices
     for dev in &devlist {
         info!("writing to {} with dd ...", dev);
-        common::dd_urandom_blkdev(&dev);
+        common::dd_urandom_blkdev(dev);
     }
 
     // Disconnect all targets.

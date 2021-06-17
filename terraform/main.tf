@@ -18,6 +18,8 @@ module "provider" {
   ssh_user  = var.ssh_user
   ssh_key   = var.ssh_key
   num_nodes = var.num_nodes
+  memory = var.memory
+  vcpu = var.vcpu
 
   # libvirt
   image_path         = var.image_path

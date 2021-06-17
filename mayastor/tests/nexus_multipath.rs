@@ -8,6 +8,8 @@ use rpc::mayastor::{
     CreateNexusRequest,
     CreatePoolRequest,
     CreateReplicaRequest,
+    DestroyNexusRequest,
+    Null,
     NvmeAnaState,
     PublishNexusRequest,
     ShareProtocolNexus,
@@ -21,8 +23,26 @@ static POOL_NAME: &str = "tpool";
 static UUID: &str = "cdc2a7db-3ac3-403a-af80-7fadc1581c47";
 static HOSTNQN: &str = "nqn.2019-05.io.openebs";
 
+fn get_mayastor_nvme_device() -> String {
+    let output_list = Command::new("nvme").args(&["list"]).output().unwrap();
+    assert!(
+        output_list.status.success(),
+        "failed to list nvme devices, {}",
+        output_list.status
+    );
+    let sl = String::from_utf8(output_list.stdout).unwrap();
+    let nvmems: Vec<&str> = sl
+        .lines()
+        .filter(|line| line.contains("Mayastor NVMe controller"))
+        .collect();
+    assert_eq!(nvmems.len(), 1);
+    let ns = nvmems[0].split(' ').collect::<Vec<_>>()[0];
+    ns.to_string()
+}
+
 #[tokio::test]
 async fn nexus_multipath() {
+    std::env::set_var("NEXUS_NVMF_ANA_ENABLE", "1");
     // create a new composeTest
     let test = Builder::new()
         .name("nexus_shared_replica_test")
@@ -119,7 +139,7 @@ async fn nexus_multipath() {
         status
     );
 
-    // The first attempt often fails with "Duplicate cntlid x with y" error from
+    // The first attempt will fail with "Duplicate cntlid x with y" error from
     // kernel
     for i in 0 .. 2 {
         let status_c0 = Command::new("nvme")
@@ -140,19 +160,7 @@ async fn nexus_multipath() {
         );
     }
 
-    let output_list = Command::new("nvme").args(&["list"]).output().unwrap();
-    assert!(
-        output_list.status.success(),
-        "failed to list nvme devices, {}",
-        output_list.status
-    );
-    let sl = String::from_utf8(output_list.stdout).unwrap();
-    let nvmems: Vec<&str> = sl
-        .lines()
-        .filter(|line| line.contains("Mayastor NVMe controller"))
-        .collect();
-    assert_eq!(nvmems.len(), 1);
-    let ns = nvmems[0].split(' ').collect::<Vec<_>>()[0];
+    let ns = get_mayastor_nvme_device();
 
     mayastor
         .spawn(async move {
@@ -203,4 +211,87 @@ async fn nexus_multipath() {
     assert_eq!(v[1], "disconnected");
     assert_eq!(v[0], format!("NQN:{}", &nqn), "mismatched NQN disconnected");
     assert_eq!(v[2], "2", "mismatched number of controllers disconnected");
+
+    // Connect to remote replica to check key registered
+    let rep_nqn = format!("{}:{}", HOSTNQN, UUID);
+    let status = Command::new("nvme")
+        .args(&["connect"])
+        .args(&["-t", "tcp"])
+        .args(&["-a", &ip0.to_string()])
+        .args(&["-s", "8420"])
+        .args(&["-n", &rep_nqn])
+        .status()
+        .unwrap();
+    assert!(
+        status.success(),
+        "failed to connect to remote replica, {}",
+        status
+    );
+
+    let rep_dev = get_mayastor_nvme_device();
+
+    let output_resv = Command::new("nvme")
+        .args(&["resv-report"])
+        .args(&[rep_dev])
+        .args(&["-c", "1"])
+        .args(&["-o", "json"])
+        .output()
+        .unwrap();
+    assert!(
+        output_resv.status.success(),
+        "failed to get reservation report from remote replica, {}",
+        output_resv.status
+    );
+    let resv_rep = String::from_utf8(output_resv.stdout).unwrap();
+    let v: serde_json::Value =
+        serde_json::from_str(&resv_rep).expect("JSON was not well-formatted");
+    assert_eq!(v["rtype"], 0, "should have no reservation type");
+    assert_eq!(v["regctl"], 1, "should have 1 registered controller");
+    assert_eq!(
+        v["ptpls"], 0,
+        "should have Persist Through Power Loss State as 0"
+    );
+    assert_eq!(
+        v["regctlext"][0]["cntlid"], 0xffff,
+        "should have dynamic controller ID"
+    );
+    assert_eq!(
+        v["regctlext"][0]["rcsts"], 0,
+        "should have reservation status as no reservation"
+    );
+    assert_eq!(
+        v["regctlext"][0]["rkey"], 0x12345678,
+        "should have default registered key"
+    );
+
+    let output_dis2 = Command::new("nvme")
+        .args(&["disconnect"])
+        .args(&["-n", &rep_nqn])
+        .output()
+        .unwrap();
+    assert!(
+        output_dis2.status.success(),
+        "failed to disconnect from remote replica, {}",
+        output_dis2.status
+    );
+
+    // destroy nexus on remote node
+    hdls[0]
+        .mayastor
+        .destroy_nexus(DestroyNexusRequest {
+            uuid: UUID.to_string(),
+        })
+        .await
+        .unwrap();
+
+    // verify that the replica is still shared over nvmf
+    assert!(hdls[0]
+        .mayastor
+        .list_replicas(Null {})
+        .await
+        .unwrap()
+        .into_inner()
+        .replicas[0]
+        .uri
+        .contains("nvmf://"));
 }

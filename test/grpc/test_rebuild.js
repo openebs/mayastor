@@ -8,7 +8,7 @@ const common = require('./test_common');
 const path = require('path');
 const assert = require('chai').assert;
 const sleep = require('sleep-promise');
-const grpc = require('grpc-uds');
+const grpc = require('grpc');
 const grpcPromise = require('grpc-promise');
 const protoLoader = require('@grpc/proto-loader');
 

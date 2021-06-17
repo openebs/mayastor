@@ -23,7 +23,7 @@
 let
   versionDrv = import ../../lib/version.nix { inherit lib stdenv git; };
   version = builtins.readFile "${versionDrv}";
-  env = stdenv.lib.makeBinPath [ busybox xfsprogs e2fsprogs utillinux ];
+  env = lib.makeBinPath [ busybox xfsprogs e2fsprogs utillinux ];
 
   # common props for all mayastor images
   mayastorImageProps = {
@@ -103,20 +103,15 @@ in
     created = "now";
     contents = [ busybox moac ];
     config = {
-      Entrypoint = [ "${moac.out}/bin/moac" ];
+      Entrypoint = [ "${moac.out}/lib/node_modules/moac/moac" ];
       ExposedPorts = { "3000/tcp" = { }; };
-      Env = [ "PATH=${moac.env}:${moac.out}/bin" ];
-      WorkDir = "${moac.out}";
+      Env = [ "PATH=${moac.env}:${moac.out}/lib/node_modules/moac" ];
+      WorkDir = "${moac.out}/lib/node_modules/moac";
     };
     extraCommands = ''
       chmod u+w bin
-      ln -s ${moac.out}/bin/moac bin/moac
+      ln -s ${moac.out}/lib/node_modules/moac/moac bin/moac
       chmod u-w bin
-      # workaround for detect-libc npm module unable to detect glibc system
-      chmod u+w .
-      mkdir -p usr/sbin
-      touch usr/sbin/detect-glibc-in-nix-container
-      chmod u-w .
     '';
     maxLayers = 42;
   };

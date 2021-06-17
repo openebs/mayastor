@@ -1,6 +1,6 @@
 //!
 //! IO is driven by means of so called channels.
-use std::{ffi::c_void, ptr::NonNull};
+use std::{ffi::c_void, fmt::Debug, ptr::NonNull};
 
 use futures::channel::oneshot;
 
@@ -16,7 +16,7 @@ use spdk_sys::{
 
 use crate::{
     bdev::{nexus::nexus_child::ChildState, Nexus, Reason},
-    core::{BdevHandle, Mthread},
+    core::{BlockDeviceHandle, Cores, Mthread},
 };
 
 /// io channel, per core
@@ -27,12 +27,23 @@ pub(crate) struct NexusChannel {
 }
 
 #[repr(C)]
-#[derive(Debug)]
 pub(crate) struct NexusChannelInner {
-    pub(crate) writers: Vec<BdevHandle>,
-    pub(crate) readers: Vec<BdevHandle>,
+    pub(crate) writers: Vec<Box<dyn BlockDeviceHandle>>,
+    pub(crate) readers: Vec<Box<dyn BlockDeviceHandle>>,
     pub(crate) previous: usize,
+    pub(crate) fail_fast: u32,
     device: *mut c_void,
+}
+
+impl Debug for NexusChannelInner {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "readers = {}, writers = {}",
+            self.readers.len(),
+            self.writers.len()
+        )
+    }
 }
 
 #[derive(Debug)]
@@ -67,8 +78,6 @@ pub enum DrEvent {
     ChildRemove,
     /// Child rebuild event
     ChildRebuild,
-    /// Child status information is being applied
-    ChildStatusSync,
 }
 
 impl NexusChannelInner {
@@ -90,11 +99,69 @@ impl NexusChannelInner {
         }
     }
 
-    /// refreshing our channels simply means that we either have a child going
+    /// Remove a child from the readers and/or writers
+    pub fn remove_child(&mut self, name: &str) -> bool {
+        self.previous = 0;
+        let nexus = unsafe { Nexus::from_raw(self.device) };
+        trace!(
+            ?name,
+            "core: {} thread: {} removing from during submission channels",
+            Cores::current(),
+            Mthread::current().unwrap().name()
+        );
+        trace!(
+            "{}: Current number of IO channels write: {} read: {}",
+            nexus.name,
+            self.writers.len(),
+            self.readers.len(),
+        );
+        self.readers
+            .retain(|c| c.get_device().device_name() != name);
+        self.writers
+            .retain(|c| c.get_device().device_name() != name);
+
+        trace!(?name,
+            "core: {} thread: {}: New number of IO channels write:{} read:{} out of {} children",
+            Cores::current(),
+            Mthread::current().unwrap().name(),
+            self.writers.len(),
+            self.readers.len(),
+            nexus.children.len()
+        );
+        self.fault_child(name)
+    }
+
+    /// Fault the child by marking its status.
+    pub fn fault_child(&mut self, name: &str) -> bool {
+        let nexus = unsafe { Nexus::from_raw(self.device) };
+        nexus
+            .children
+            .iter()
+            .filter(|c| c.state() == ChildState::Open)
+            .filter(|c| {
+                // If there where previous retires, we do not have a reference
+                // to a BlockDevice. We do however, know it cant be the device
+                // we are attempting to retire in the first place so this
+                // condition is fine.
+                if let Ok(child) = c.get_device().as_ref() {
+                    child.device_name() == name
+                } else {
+                    false
+                }
+            })
+            .any(|c| {
+                ChildState::Open
+                    == c.state.compare_and_swap(
+                        ChildState::Open,
+                        ChildState::Faulted(Reason::IoError),
+                    )
+            })
+    }
+
+    /// Refreshing our channels simply means that we either have a child going
     /// online or offline. We don't know which child has gone, or was added, so
     /// we simply put back all the channels, and reopen the bdevs that are in
     /// the online state.
-
     pub(crate) fn refresh(&mut self) {
         let nexus = unsafe { Nexus::from_raw(self.device) };
         info!(
@@ -113,23 +180,29 @@ impl NexusChannelInner {
         // clear the vector of channels and reset other internal values,
         // clearing the values will drop any existing handles in the
         // channel
-        self.writers.clear();
-        self.readers.clear();
         self.previous = 0;
+
+        // nvmx will drop the IO qpairs which is different from all other
+        // bdevs we might be dealing with. So instead of clearing and refreshing
+        // which had no side effects before, we create a new vector and
+        // swap them out later
+
+        let mut writers = Vec::new();
+        let mut readers = Vec::new();
 
         // iterate over all our children which are in the open state
         nexus
             .children
             .iter_mut()
             .filter(|c| c.state() == ChildState::Open)
-            .for_each(|c| match (c.handle(), c.handle()) {
+            .for_each(|c| match (c.get_io_handle(), c.get_io_handle()) {
                 (Ok(w), Ok(r)) => {
-                    self.writers.push(w);
-                    self.readers.push(r);
+                    writers.push(w);
+                    readers.push(r);
                 }
                 _ => {
                     c.set_state(ChildState::Faulted(Reason::CantOpen));
-                    error!("failed to create handle for {}", c);
+                    error!("failed to get I/O handle for {}", c.get_name());
                 }
             });
 
@@ -140,14 +213,20 @@ impl NexusChannelInner {
                 .iter_mut()
                 .filter(|c| c.rebuilding())
                 .for_each(|c| {
-                    if let Ok(hdl) = c.handle() {
-                        self.writers.push(hdl);
+                    if let Ok(hdl) = c.get_io_handle() {
+                        writers.push(hdl);
                     } else {
                         c.set_state(ChildState::Faulted(Reason::CantOpen));
-                        error!("failed to create handle for {}", c);
+                        error!("failed to get I/O handle for {}", c.get_name());
                     }
                 });
         }
+
+        self.writers.clear();
+        self.readers.clear();
+
+        self.writers = writers;
+        self.readers = readers;
 
         trace!(
             "{}: New number of IO channels write:{} read:{} out of {} children",
@@ -176,20 +255,21 @@ impl NexusChannel {
             readers: Vec::new(),
             previous: 0,
             device,
+            fail_fast: 0,
         });
 
         nexus
             .children
             .iter_mut()
             .filter(|c| c.state() == ChildState::Open)
-            .for_each(|c| match (c.handle(), c.handle()) {
+            .for_each(|c| match (c.get_io_handle(), c.get_io_handle()) {
                 (Ok(w), Ok(r)) => {
                     channels.writers.push(w);
                     channels.readers.push(r);
                 }
                 _ => {
                     c.set_state(ChildState::Faulted(Reason::CantOpen));
-                    error!("Failed to get handle for {}, skipping bdev", c)
+                    error!("Failed to get I/O handle for {}, skipping block device", c.get_name())
                 }
             });
         ch.inner = Box::into_raw(channels);
@@ -215,8 +295,7 @@ impl NexusChannel {
             DrEvent::ChildOffline
             | DrEvent::ChildRemove
             | DrEvent::ChildFault
-            | DrEvent::ChildRebuild
-            | DrEvent::ChildStatusSync => unsafe {
+            | DrEvent::ChildRebuild => unsafe {
                 spdk_for_each_channel(
                     device,
                     Some(NexusChannel::refresh_io_channels),
@@ -264,6 +343,8 @@ impl NexusChannel {
     }
 
     /// helper function to get a mutable reference to the inner channel
+    /// FIXME; we can have several types of inner channels and so
+    /// it would be nice to have that abstracted properly
     pub(crate) fn inner_from_channel<'a>(
         channel: *mut spdk_io_channel,
     ) -> &'a mut NexusChannelInner {

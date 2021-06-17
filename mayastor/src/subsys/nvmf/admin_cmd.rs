@@ -19,8 +19,8 @@ use spdk_sys::{
 };
 
 use crate::{
-    bdev::nexus::{nexus_io::nvme_admin_opc, nexus_module},
-    core::{Bdev, Reactors},
+    bdev::nexus::nexus_module,
+    core::{nvme_admin_opc, Bdev, Reactors},
     lvs::Lvol,
 };
 

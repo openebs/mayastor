@@ -1,0 +1,19 @@
+nats:
+  cluster:
+    enabled: true
+    replicas: 3
+  exporter:
+    enabled: false
+  logging:
+    debug: false
+    trace: false
+
+etcd:
+  auth:
+    rbac:
+      enabled: false
+  replicaCount: 3
+  persistence:
+    enabled: false
+
+mayastorLogLevel: info

@@ -3,14 +3,16 @@ apiVersion: v1
 metadata:
   name: fio
 spec:
+  # Run on a storage node so that the nexus is local to the app
+  nodeSelector:
+    openebs.io/engine: mayastor
   volumes:
     - name: ms-volume
       persistentVolumeClaim:
        claimName: ms-volume-claim
   containers:
     - name: fio
-      image: nixery.dev/shell/fio/tini
-      command: [ "tini", "--" ]
+      image: mayadata/fio
       args:
         - sleep
         - "1000000"

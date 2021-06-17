@@ -14,21 +14,23 @@ use std::{
     io::{ErrorKind, Write},
 };
 
+use crate::{identity::Identity, mount::probe_filesystems, node::Node};
 use chrono::Local;
 use clap::{App, Arg};
 use csi::{identity_server::IdentityServer, node_server::NodeServer};
 use env_logger::{Builder, Env};
-use futures::stream::TryStreamExt;
+use futures::TryFutureExt;
 use nodeplugin_grpc::MayastorNodePluginGrpcServer;
 use std::{
     path::Path,
     pin::Pin,
     task::{Context, Poll},
 };
-use tokio::{net::UnixListener, prelude::*};
+use tokio::{
+    io::{AsyncRead, AsyncWrite, ReadBuf},
+    net::UnixListener,
+};
 use tonic::transport::{server::Connected, Server};
-
-use crate::{identity::Identity, mount::probe_filesystems, node::Node};
 
 #[allow(dead_code)]
 #[allow(clippy::type_complexity)]
@@ -62,8 +64,8 @@ impl AsyncRead for UnixStream {
     fn poll_read(
         mut self: Pin<&mut Self>,
         cx: &mut Context<'_>,
-        buf: &mut [u8],
-    ) -> Poll<std::io::Result<usize>> {
+        buf: &mut ReadBuf<'_>,
+    ) -> Poll<std::io::Result<()>> {
         Pin::new(&mut self.0).poll_read(cx, buf)
     }
 }
@@ -135,6 +137,14 @@ async fn main() -> Result<(), String> {
                 .multiple(true)
                 .help("Sets the verbosity level"),
         )
+        .arg(
+            Arg::with_name("nvme-core-io-timeout")
+                .long("nvme-core-io-timeout")
+                .value_name("TIMEOUT")
+                .takes_value(true)
+                .required(false)
+                .help("Sets the global nvme_core module io_timeout, in seconds"),
+        )
         .get_matches();
 
     let node_name = matches.value_of("node-name").unwrap();
@@ -173,6 +183,17 @@ async fn main() -> Result<(), String> {
     }
     builder.init();
 
+    if let Some(nvme_io_timeout_secs) = matches.value_of("nvme_core io_timeout")
+    {
+        let io_timeout_secs: u32 = nvme_io_timeout_secs
+            .parse()
+            .expect("nvme_core io_timeout should be an integer number, representing the timeout in seconds");
+
+        if let Err(error) = dev::nvmf::set_nvmecore_iotimeout(io_timeout_secs) {
+            panic!("Failed to set nvme_core io_timeout: {}", error.to_string());
+        }
+    }
+
     // Remove stale CSI socket from previous instance if there is any
     match fs::remove_file(csi_socket) {
         Ok(_) => info!("Removed stale CSI socket {}", csi_socket),
@@ -206,8 +227,16 @@ struct CsiServer {}
 
 impl CsiServer {
     pub async fn run(csi_socket: &str, node_name: &str) -> Result<(), ()> {
-        let mut uds_sock = UnixListener::bind(csi_socket).unwrap();
-        info!("CSI plugin bound to {}", csi_socket);
+        let incoming = {
+            let uds = UnixListener::bind(csi_socket).unwrap();
+            info!("CSI plugin bound to {}", csi_socket);
+
+            async_stream::stream! {
+                while let item = uds.accept().map_ok(|(st, _)| wrapped_stream::UnixStream(st)).await {
+                    yield item;
+                }
+            }
+        };
 
         if let Err(e) = Server::builder()
             .add_service(NodeServer::new(Node {
@@ -215,7 +244,7 @@ impl CsiServer {
                 filesystems: probe_filesystems(),
             }))
             .add_service(IdentityServer::new(Identity {}))
-            .serve_with_incoming(uds_sock.incoming().map_ok(UnixStream))
+            .serve_with_incoming(incoming)
             .await
         {
             error!("CSI server failed with error: {}", e);
@@ -223,5 +252,56 @@ impl CsiServer {
         }
 
         Ok(())
+    }
+}
+
+// Contained in https://github.com/hyperium/tonic/blob/61555ff2b5b76e4e3172717354aed1e6f31d6611/examples/src/uds/server.rs#L45-L108
+#[cfg(unix)]
+mod wrapped_stream {
+    use std::{
+        pin::Pin,
+        task::{Context, Poll},
+    };
+
+    use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+    use tonic::transport::server::Connected;
+
+    #[derive(Debug)]
+    pub struct UnixStream(pub tokio::net::UnixStream);
+
+    impl Connected for UnixStream {}
+
+    impl AsyncRead for UnixStream {
+        fn poll_read(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &mut ReadBuf<'_>,
+        ) -> Poll<std::io::Result<()>> {
+            Pin::new(&mut self.0).poll_read(cx, buf)
+        }
+    }
+
+    impl AsyncWrite for UnixStream {
+        fn poll_write(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+            buf: &[u8],
+        ) -> Poll<std::io::Result<usize>> {
+            Pin::new(&mut self.0).poll_write(cx, buf)
+        }
+
+        fn poll_flush(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+        ) -> Poll<std::io::Result<()>> {
+            Pin::new(&mut self.0).poll_flush(cx)
+        }
+
+        fn poll_shutdown(
+            mut self: Pin<&mut Self>,
+            cx: &mut Context<'_>,
+        ) -> Poll<std::io::Result<()>> {
+            Pin::new(&mut self.0).poll_shutdown(cx)
+        }
     }
 }

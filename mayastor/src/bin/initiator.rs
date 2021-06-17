@@ -14,6 +14,7 @@ use std::{
 use clap::{App, Arg, SubCommand};
 
 use mayastor::{
+    bdev::{device_create, device_open},
     core::{
         mayastor_env_stop,
         Bdev,
@@ -89,12 +90,10 @@ async fn create_bdev(uri: &str) -> Result<Bdev> {
 
 /// Read block of data from bdev at given offset to a file.
 async fn read(uri: &str, offset: u64, file: &str) -> Result<()> {
-    let bdev = create_bdev(uri).await?;
-    let desc = Bdev::open(&bdev, false).unwrap().into_handle().unwrap();
-    let mut buf = desc
-        .dma_malloc(desc.get_bdev().block_len() as usize as u64)
-        .unwrap();
-    let n = desc.read_at(offset, &mut buf).await?;
+    let bdev = device_create(uri).await?;
+    let h = device_open(&bdev, false).unwrap().into_handle().unwrap();
+    let mut buf = h.dma_malloc(h.get_device().block_len() as u64).unwrap();
+    let n = h.read_at(offset, &mut buf).await?;
     fs::write(file, buf.as_slice())?;
     info!("{} bytes read", n);
     Ok(())
@@ -102,41 +101,40 @@ async fn read(uri: &str, offset: u64, file: &str) -> Result<()> {
 
 /// Write block of data from file to bdev at given offset.
 async fn write(uri: &str, offset: u64, file: &str) -> Result<()> {
-    let bdev = create_bdev(uri).await?;
+    let bdev = device_create(uri).await?;
     let bytes = fs::read(file)?;
-    let desc = Bdev::open(&bdev, true).unwrap().into_handle().unwrap();
-    let mut buf = desc.dma_malloc(desc.get_bdev().block_len() as u64).unwrap();
-    let mut n = buf.as_mut_slice().write(&bytes[..]).unwrap();
+    let h = device_open(&bdev, false).unwrap().into_handle().unwrap();
+    let mut buf = h.dma_malloc(h.get_device().block_len() as u64).unwrap();
+    let n = buf.as_mut_slice().write(&bytes[..]).unwrap();
     if n < buf.len() as usize {
         warn!("Writing a buffer which was not fully initialized from a file");
     }
-    n = desc.write_at(offset, &buf).await?;
-    info!("{} bytes written", n);
+    let written = h.write_at(offset, &buf).await?;
+    info!("{} bytes written", written);
     Ok(())
 }
 
 /// NVMe Admin. Only works with read commands without a buffer requirement.
 async fn nvme_admin(uri: &str, opcode: u8) -> Result<()> {
-    let bdev = create_bdev(uri).await?;
-    let h = Bdev::open(&bdev, true).unwrap().into_handle().unwrap();
+    let bdev = device_create(uri).await?;
+    let h = device_open(&bdev, true).unwrap().into_handle().unwrap();
     h.nvme_admin_custom(opcode).await?;
     Ok(())
 }
 
 /// NVMe Admin identify controller, write output to a file.
 async fn identify_ctrlr(uri: &str, file: &str) -> Result<()> {
-    let bdev = create_bdev(uri).await?;
-    let h = Bdev::open(&bdev, true).unwrap().into_handle().unwrap();
-    let mut buf = h.dma_malloc(4096).unwrap();
-    h.nvme_identify_ctrlr(&mut buf).await?;
+    let bdev = device_create(uri).await?;
+    let h = device_open(&bdev, true).unwrap().into_handle().unwrap();
+    let buf = h.nvme_identify_ctrlr().await.unwrap();
     fs::write(file, buf.as_slice())?;
     Ok(())
 }
 
 /// Create a snapshot.
 async fn create_snapshot(uri: &str) -> Result<()> {
-    let bdev = create_bdev(uri).await?;
-    let h = Bdev::open(&bdev, true).unwrap().into_handle().unwrap();
+    let bdev = device_create(uri).await?;
+    let h = device_open(&bdev, true).unwrap().into_handle().unwrap();
     let t = h.create_snapshot().await?;
     info!("snapshot taken at {}", t);
     Ok(())

@@ -28,33 +28,30 @@ use spdk_sys::{
     spdk_bdev_io_type_supported,
     spdk_bdev_next,
     spdk_bdev_open_ext,
+    spdk_uuid,
+    spdk_uuid_copy,
     spdk_uuid_generate,
 };
 
 use crate::{
-    bdev::{lookup_child_from_bdev, nexus::nexus_io::IoType},
+    bdev::SpdkBlockDevice,
     core::{
         share::{Protocol, Share},
         uuid::Uuid,
+        BlockDeviceIoStats,
         CoreError,
         Descriptor,
+        DeviceEventType,
+        IoType,
         ShareIscsi,
         ShareNvmf,
         UnshareIscsi,
         UnshareNvmf,
     },
-    ffihelper::{cb_arg, AsStr},
+    ffihelper::{cb_arg, AsStr, FfiResult, IntoCString},
     subsys::NvmfSubsystem,
     target::{iscsi, nvmf, Side},
 };
-
-#[derive(Debug)]
-pub struct BdevStats {
-    pub num_read_ops: u64,
-    pub num_write_ops: u64,
-    pub bytes_read: u64,
-    pub bytes_written: u64,
-}
 
 /// Newtype structure that represents a block device. The soundness of the API
 /// is based on the fact that opening and finding of a bdev, returns a valid
@@ -72,13 +69,21 @@ impl Share for Bdev {
 
     /// share the bdev over iscsi
     async fn share_iscsi(&self) -> Result<Self::Output, Self::Error> {
-        iscsi::share(&self.name(), &self, Side::Nexus).context(ShareIscsi {})
+        iscsi::share(&self.name(), self, Side::Nexus).context(ShareIscsi {})
     }
 
     /// share the bdev over NVMe-OF TCP
-    async fn share_nvmf(&self) -> Result<Self::Output, Self::Error> {
+    async fn share_nvmf(
+        &self,
+        cntlid_range: Option<(u16, u16)>,
+    ) -> Result<Self::Output, Self::Error> {
         let subsystem =
             NvmfSubsystem::try_from(self.clone()).context(ShareNvmf {})?;
+        if let Some((cntlid_min, cntlid_max)) = cntlid_range {
+            subsystem
+                .set_cntlid_range(cntlid_min, cntlid_max)
+                .context(ShareNvmf {})?;
+        }
         subsystem.start().await.context(ShareNvmf {})
     }
 
@@ -128,7 +133,7 @@ impl Share for Bdev {
         for alias in self.aliases().iter() {
             if let Ok(mut uri) = url::Url::parse(alias) {
                 if self == uri {
-                    if uri.query_pairs().find(|e| e.0 == "uuid").is_none() {
+                    if !uri.query_pairs().any(|e| e.0 == "uuid") {
                         uri.query_pairs_mut()
                             .append_pair("uuid", &self.uuid_as_string());
                     }
@@ -162,27 +167,30 @@ impl Bdev {
         _ctx: *mut c_void,
     ) {
         let bdev = Bdev::from_ptr(bdev).unwrap();
-        // Take the appropriate action for the given event type
-        match event {
+        let name = bdev.name();
+
+        // Translate SPDK events into common device events.
+        let event = match event {
             spdk_sys::SPDK_BDEV_EVENT_REMOVE => {
-                info!("Received remove event for bdev {}", bdev.name());
-                if let Some(child) = lookup_child_from_bdev(&bdev.name()) {
-                    child.remove();
-                }
+                info!("Received remove event for bdev {}", name);
+                DeviceEventType::DeviceRemoved
             }
             spdk_sys::SPDK_BDEV_EVENT_RESIZE => {
-                warn!("Received resize event for bdev {}", bdev.name())
+                warn!("Received resize event for bdev {}", name);
+                DeviceEventType::DeviceResized
             }
-            spdk_sys::SPDK_BDEV_EVENT_MEDIA_MANAGEMENT => warn!(
-                "Received media management event for bdev {}",
-                bdev.name()
-            ),
-            _ => error!(
-                "Received unknown event {} for bdev {}",
-                event,
-                bdev.name()
-            ),
-        }
+            spdk_sys::SPDK_BDEV_EVENT_MEDIA_MANAGEMENT => {
+                warn!("Received media management event for bdev {}", name,);
+                DeviceEventType::MediaManagement
+            }
+            _ => {
+                error!("Received unknown event {} for bdev {}", event, name,);
+                return;
+            }
+        };
+
+        // Forward event to high-level handler.
+        SpdkBlockDevice::process_device_event(event, &name);
     }
 
     /// open the current bdev, the bdev can be opened multiple times resulting
@@ -293,16 +301,14 @@ impl Bdev {
             .to_string()
     }
 
-    /// the UUID that is set for this bdev, all bdevs should have a UUID set
-    pub fn uuid(&self) -> Uuid {
-        Uuid(unsafe { spdk_bdev_get_uuid(self.0.as_ptr()) })
+    /// return the UUID of this bdev
+    pub fn uuid(&self) -> uuid::Uuid {
+        Uuid(unsafe { spdk_bdev_get_uuid(self.0.as_ptr()) }).into()
     }
 
-    /// converts the UUID to a string
+    /// return the UUID of this bdev as a string
     pub fn uuid_as_string(&self) -> String {
-        let u = Uuid(unsafe { spdk_bdev_get_uuid(self.0.as_ptr()) });
-        let uuid = uuid::Uuid::from_bytes(u.as_bytes());
-        uuid.to_hyphenated().to_string()
+        self.uuid().to_hyphenated().to_string()
     }
 
     /// Set a list of aliases on the bdev, used to find the bdev later
@@ -314,14 +320,24 @@ impl Bdev {
             == 0
     }
 
-    /// Set an alias on the bdev, this alias can be used to find the bdev later
+    /// Set an alias on the bdev, this alias can be used to find the bdev later.
+    /// If the alias is already present we return true
     pub fn add_alias(&self, alias: &str) -> bool {
-        let alias = CString::new(alias).unwrap();
+        let alias = alias.into_cstring();
         let ret = unsafe {
             spdk_sys::spdk_bdev_alias_add(self.0.as_ptr(), alias.as_ptr())
-        };
+        }
+        .to_result(Errno::from_i32);
 
-        ret == 0
+        matches!(ret, Err(Errno::EEXIST) | Ok(_))
+    }
+
+    /// removes the given alias from the bdev
+    pub fn remove_alias(&self, alias: &str) {
+        let alias = alias.into_cstring();
+        unsafe {
+            spdk_sys::spdk_bdev_alias_del(self.0.as_ptr(), alias.as_ptr())
+        };
     }
 
     /// Get list of bdev aliases
@@ -344,29 +360,26 @@ impl Bdev {
     }
 
     /// returns the bdev as a ptr
+    /// dont use please
     pub fn as_ptr(&self) -> *mut spdk_bdev {
         self.0.as_ptr()
     }
 
-    /// convert a given UUID into a spdk_bdev_uuid or otherwise, auto generate
-    /// one when uuid is None
-    pub fn set_uuid(&mut self, uuid: Option<String>) {
-        if let Some(uuid) = uuid {
-            if let Ok(this_uuid) = uuid::Uuid::parse_str(&uuid) {
-                unsafe {
-                    std::ptr::copy_nonoverlapping(
-                        this_uuid.as_bytes().as_ptr() as *const _
-                            as *mut c_void,
-                        &mut self.0.as_mut().uuid.u.raw[0] as *const _
-                            as *mut c_void,
-                        self.0.as_ref().uuid.u.raw.len(),
-                    );
-                }
-                return;
-            }
+    /// set the UUID for this bdev
+    pub fn set_uuid(&mut self, uuid: uuid::Uuid) {
+        unsafe {
+            spdk_uuid_copy(
+                &mut (*self.0.as_ptr()).uuid,
+                uuid.as_bytes().as_ptr() as *const spdk_uuid,
+            );
         }
-        unsafe { spdk_uuid_generate(&mut (*self.0.as_ptr()).uuid) };
-        info!("No or invalid v4 UUID specified, using self generated one");
+    }
+
+    /// generate a new random UUID for this bdev
+    pub fn generate_uuid(&mut self) {
+        unsafe {
+            spdk_uuid_generate(&mut (*self.0.as_ptr()).uuid);
+        }
     }
 
     extern "C" fn stat_cb(
@@ -380,8 +393,8 @@ impl Bdev {
         sender.send(errno).expect("stat_cb receiver is gone");
     }
 
-    /// Get bdev stats or errno value in case of an error.
-    pub async fn stats(&self) -> Result<BdevStats, i32> {
+    /// Get bdev § or errno value in case of an error.
+    pub async fn stats(&self) -> Result<BlockDeviceIoStats, CoreError> {
         let mut stat: spdk_bdev_io_stat = Default::default();
         let (sender, receiver) = oneshot::channel::<i32>();
 
@@ -397,17 +410,22 @@ impl Bdev {
 
         let errno = receiver.await.expect("Cancellation is not supported");
         if errno != 0 {
-            Err(errno)
+            Err(CoreError::DeviceStatisticsError {
+                source: Errno::from_i32(errno),
+            })
         } else {
             // stat is populated with the stats by now
-            Ok(BdevStats {
+            Ok(BlockDeviceIoStats {
                 num_read_ops: stat.num_read_ops,
                 num_write_ops: stat.num_write_ops,
                 bytes_read: stat.bytes_read,
                 bytes_written: stat.bytes_written,
+                num_unmap_ops: stat.num_unmap_ops,
+                bytes_unmapped: stat.bytes_unmapped,
             })
         }
     }
+
     /// returns the first bdev in the list
     pub fn bdev_first() -> Option<Bdev> {
         Self::from_ptr(unsafe { spdk_bdev_first() })

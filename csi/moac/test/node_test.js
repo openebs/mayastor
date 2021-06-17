@@ -2,13 +2,19 @@
 
 'use strict';
 
+/* eslint-disable no-unused-expressions */
+
 const _ = require('lodash');
 const expect = require('chai').expect;
-const { Node } = require('../node');
-const { Nexus } = require('../nexus');
-const { Pool } = require('../pool');
-const { Replica } = require('../replica');
+
+const { Node } = require('../dist/node');
+const { Nexus } = require('../dist/nexus');
+const { Pool } = require('../dist/pool');
+const { Replica } = require('../dist/replica');
+const { grpcCode } = require('../dist/grpc_client');
+
 const { MayastorServer } = require('./mayastor_mock');
+const { shouldFailWith } = require('./utils');
 const enums = require('./grpc_enums');
 
 const UUID = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cbb';
@@ -33,7 +39,7 @@ module.exports = function () {
       size: 10,
       thin: false,
       share: 'REPLICA_NONE',
-      uri: 'bdev:///' + UUID
+      uri: `bdev:///${UUID}?uuid=1`
     }
   ];
   const nexus = [
@@ -44,7 +50,7 @@ module.exports = function () {
       state: 'NEXUS_ONLINE',
       children: [
         {
-          uri: 'bdev:///' + UUID,
+          uri: `bdev:///${UUID}?uuid=1`,
           state: 'CHILD_ONLINE'
         }
       ]
@@ -60,8 +66,9 @@ module.exports = function () {
     this.timeout(500);
 
     // start a fake mayastor server
-    before(() => {
-      srv = new MayastorServer(MS_ENDPOINT, pools, replicas, nexus).start();
+    before((done) => {
+      srv = new MayastorServer(MS_ENDPOINT, pools, replicas, nexus);
+      srv.start(done);
     });
 
     after(() => {
@@ -111,7 +118,7 @@ module.exports = function () {
         node.connect(MS_ENDPOINT);
 
         setTimeout(() => {
-          expect(node.isSynced()).to.be.true();
+          expect(node.isSynced()).to.be.true;
           expect(nodeEvents).to.have.lengthOf(1);
           expect(nodeEvents[0].eventType).to.equal('mod');
           expect(nodeEvents[0].object).to.equal(node);
@@ -130,14 +137,14 @@ module.exports = function () {
           expect(replicaObjects[0].pool.name).to.equal('pool');
           expect(replicaObjects[0].size).to.equal(10);
           expect(replicaObjects[0].share).to.equal('REPLICA_NONE');
-          expect(replicaObjects[0].uri).to.equal('bdev:///' + UUID);
+          expect(replicaObjects[0].uri).to.equal(`bdev:///${UUID}?uuid=1`);
 
           expect(nexusObjects).to.have.lengthOf(1);
           expect(nexusObjects[0].uuid).to.equal(UUID);
           expect(nexusObjects[0].size).to.equal(10);
           expect(nexusObjects[0].state).to.equal('NEXUS_ONLINE');
           expect(nexusObjects[0].children).to.have.lengthOf(1);
-          expect(nexusObjects[0].children[0].uri).to.equal('bdev:///' + UUID);
+          expect(nexusObjects[0].children[0].uri).to.equal(`bdev:///${UUID}?uuid=1`);
           expect(nexusObjects[0].children[0].state).to.equal('CHILD_ONLINE');
 
           done();
@@ -222,7 +229,7 @@ module.exports = function () {
           size: 20,
           thin: false,
           share: 'REPLICA_NONE',
-          uri: 'bdev:///' + newUuid
+          uri: `bdev:///${newUuid}?uuid=1234`
         });
       });
 
@@ -244,7 +251,7 @@ module.exports = function () {
           size: 20,
           thin: false,
           share: 'REPLICA_NONE',
-          uri: 'bdev:///' + newUuid
+          uri: `bdev:///${newUuid}?uuid=1234`
         });
       });
 
@@ -274,7 +281,7 @@ module.exports = function () {
           expect(ev.eventType).to.equal('del');
           expect(ev.object).to.be.an.instanceof(Pool);
           expect(ev.object.name).to.equal('pool');
-          expect(replicaRemoved).to.be.true();
+          expect(replicaRemoved).to.be.true;
           done();
         });
         // empty the pool list
@@ -295,7 +302,7 @@ module.exports = function () {
           expect(ev.eventType).to.equal('new');
           expect(ev.object).to.be.an.instanceof(Replica);
           expect(ev.object.uuid).to.equal(newUuid);
-          expect(poolAdded).to.be.true();
+          expect(poolAdded).to.be.true;
           done();
         });
         // add a new pool with a replica
@@ -312,7 +319,7 @@ module.exports = function () {
           size: 10,
           thin: false,
           share: 'REPLICA_NONE',
-          uri: 'bdev:///' + newUuid
+          uri: `bdev:///${newUuid}?uuid=1234`
         });
       });
 
@@ -328,7 +335,7 @@ module.exports = function () {
         const newNexus = _.cloneDeep(nexus);
         newNexus[0].children = [
           {
-            uri: 'bdev:///' + UUID,
+            uri: `bdev:///${UUID}?uuid=1`,
             state: 'CHILD_ONLINE'
           },
           {
@@ -371,8 +378,9 @@ module.exports = function () {
 
   describe('sync failures', () => {
     // start a fake mayastor server
-    beforeEach(() => {
-      srv = new MayastorServer(MS_ENDPOINT, pools, replicas, nexus).start();
+    beforeEach((done) => {
+      srv = new MayastorServer(MS_ENDPOINT, pools, replicas, nexus);
+      srv.start(done);
     });
 
     afterEach(() => {
@@ -411,7 +419,7 @@ module.exports = function () {
         node.once('replica', (ev) => {
           expect(ev.eventType).to.equal('mod');
           expect(ev.object.uuid).to.equal(UUID);
-          expect(ev.object.isOffline()).to.be.true();
+          expect(ev.object.isOffline()).to.be.true;
           offline();
         });
         node.once('nexus', (ev) => {
@@ -423,7 +431,7 @@ module.exports = function () {
 
         function offline () {
           if (++offlineCount === 3) {
-            expect(node.isSynced()).to.be.false();
+            expect(node.isSynced()).to.be.false;
             expect(Date.now() - firstSync).to.be.below(syncInterval * 1.5);
             done();
           }
@@ -453,12 +461,12 @@ module.exports = function () {
           expect(ev.eventType).to.equal('mod');
           expect(ev.object.name).to.equal('pool');
           expect(ev.object.state).to.equal('POOL_OFFLINE');
-          expect(node.isSynced()).to.be.false();
+          expect(node.isSynced()).to.be.false;
           expect(Date.now() - firstSync).to.be.above(
-            syncPeriod + syncRetry * 2
+            syncPeriod + syncRetry * 2 - 1
           );
           expect(Date.now() - firstSync).to.be.below(
-            syncPeriod + syncRetry * 4
+            syncPeriod + syncRetry * 4 + 1
           );
           done();
         });
@@ -478,7 +486,7 @@ module.exports = function () {
       node.once('node', (ev) => {
         expect(ev.eventType).to.equal('mod');
         expect(ev.object).to.equal(node);
-        expect(node.isSynced()).to.be.true();
+        expect(node.isSynced()).to.be.true;
 
         srv.stop();
         srv = null;
@@ -487,28 +495,31 @@ module.exports = function () {
           expect(ev.eventType).to.equal('mod');
           expect(ev.object.name).to.equal('pool');
           expect(ev.object.state).to.equal('POOL_OFFLINE');
-          expect(node.isSynced()).to.be.false();
+          expect(node.isSynced()).to.be.false;
 
           srv = new MayastorServer(
             MS_ENDPOINT,
             pools,
             replicas,
             nexus
-          ).start();
+          );
+          srv.start((err) => {
+            if (err) return done(err);
 
-          // pool/replica/nexus event should be emitted before node event and
-          // node should be online when emitting those events.
-          let poolEvent;
-          node.once('pool', (ev) => {
-            expect(node.isSynced()).to.be.true();
-            poolEvent = ev;
-          });
-          node.once('node', (ev) => {
-            expect(poolEvent).not.to.be.undefined();
-            expect(ev.eventType).to.equal('mod');
-            expect(ev.object).to.equal(node);
-            expect(node.isSynced()).to.be.true();
-            done();
+            // pool/replica/nexus event should be emitted before node event and
+            // node should be online when emitting those events.
+            let poolEvent;
+            node.once('pool', (ev) => {
+              expect(node.isSynced()).to.be.true;
+              poolEvent = ev;
+            });
+            node.once('node', (ev) => {
+              expect(poolEvent).not.to.be.undefined;
+              expect(ev.eventType).to.equal('mod');
+              expect(ev.object).to.equal(node);
+              expect(node.isSynced()).to.be.true;
+              done();
+            });
           });
         });
       });
@@ -517,23 +528,26 @@ module.exports = function () {
   });
 
   describe('object create', function () {
+    const DELAY_MS = 100;
     let replica;
     let pool;
     let nexus;
 
-    this.timeout(100);
+    this.timeout(500);
 
     // start a fake mayastor server
     before((done) => {
-      srv = new MayastorServer(MS_ENDPOINT, [], [], []).start();
-
-      // wait for the initial sync
-      node = new Node('node');
-      node.once('node', (ev) => {
-        expect(ev.eventType).to.equal('mod');
-        done();
+      srv = new MayastorServer(MS_ENDPOINT, [], [], [], DELAY_MS);
+      srv.start((err) => {
+        if (err) return done(err);
+        // wait for the initial sync
+        node = new Node('node');
+        node.once('node', (ev) => {
+          expect(ev.eventType).to.equal('mod');
+          done();
+        });
+        node.connect(MS_ENDPOINT);
       });
-      node.connect(MS_ENDPOINT);
     });
 
     after(() => {
@@ -560,7 +574,7 @@ module.exports = function () {
 
       pool = await node.createPool('pool', ['/dev/sda']);
       expect(pool).to.be.an.instanceof(Pool);
-      expect(emitted).to.be.true();
+      expect(emitted).to.be.true;
     });
 
     it('should create a replica on the pool', async () => {
@@ -575,7 +589,7 @@ module.exports = function () {
       });
       replica = await pool.createReplica(UUID, 100);
       expect(replica).to.be.an.instanceof(Replica);
-      expect(emitted).to.be.true();
+      expect(emitted).to.be.true;
     });
 
     it('should create a nexus on the node', async () => {
@@ -594,7 +608,23 @@ module.exports = function () {
 
       nexus = await node.createNexus(UUID, 100, [replica]);
       expect(nexus).to.be.an.instanceof(Nexus);
-      expect(emitted).to.be.true();
+      expect(emitted).to.be.true;
+    });
+
+    it('should timeout on a call that takes too long', async () => {
+      const UUID2 = 'ba5e39e9-0c0e-4973-8a3a-0dccada09cb2';
+      await shouldFailWith(
+        grpcCode.DEADLINE_EXCEEDED,
+        () => node.call(
+          'createNexus',
+          {
+            uuid: UUID2,
+            size: 100,
+            children: [replica.uri]
+          },
+          DELAY_MS / 2
+        )
+      );
     });
   });
 
@@ -629,7 +659,7 @@ module.exports = function () {
           size: 10,
           thin: false,
           share: 'REPLICA_NONE',
-          uri: 'bdev:///' + UUID
+          uri: `bdev:///${UUID1}?uuid=1`
         },
         {
           uuid: UUID2,
@@ -637,7 +667,7 @@ module.exports = function () {
           size: 10,
           thin: false,
           share: 'REPLICA_NONE',
-          uri: 'bdev:///' + UUID
+          uri: `bdev:///${UUID2}?uuid=2`
         },
         {
           uuid: UUID3,
@@ -645,7 +675,7 @@ module.exports = function () {
           size: 10,
           thin: false,
           share: 'REPLICA_NONE',
-          uri: 'bdev:///' + UUID
+          uri: `bdev:///${UUID3}?uuid=3`
         },
         // this replica does not belong to any pool so should be ignored
         {
@@ -654,18 +684,20 @@ module.exports = function () {
           size: 10,
           thin: false,
           share: 'REPLICA_NONE',
-          uri: 'bdev:///' + UUID
+          uri: `bdev:///${UUID4}?uuid=4`
         }
       ];
-      srv = new MayastorServer(MS_ENDPOINT, pools, replicas, []).start();
-
-      // wait for the initial sync
-      node = new Node('node');
-      node.once('node', (ev) => {
-        expect(ev.eventType).to.equal('mod');
-        done();
+      srv = new MayastorServer(MS_ENDPOINT, pools, replicas, []);
+      srv.start((err) => {
+        if (err) return done(err);
+        // wait for the initial sync
+        node = new Node('node');
+        node.once('node', (ev) => {
+          expect(ev.eventType).to.equal('mod');
+          done();
+        });
+        node.connect(MS_ENDPOINT);
       });
-      node.connect(MS_ENDPOINT);
     });
 
     after(() => {

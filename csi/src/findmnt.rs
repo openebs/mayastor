@@ -88,7 +88,7 @@ fn filter_findmnt(
     match json_val {
         Value::Array(json_array) => {
             for jsonvalue in json_array {
-                filter_findmnt(&jsonvalue, filter, results);
+                filter_findmnt(jsonvalue, filter, results);
             }
         }
         Value::Object(json_map) => {

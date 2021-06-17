@@ -2,7 +2,7 @@
 
 const path = require('path');
 const protoLoader = require('@grpc/proto-loader');
-const grpc = require('grpc-uds');
+const grpc = require('@grpc/grpc-js');
 
 const constants = {};
 
