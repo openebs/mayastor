@@ -12,7 +12,6 @@
 , e2fsprogs
 , git
 , lib
-, moac
 , writeScriptBin
 , xfsprogs
 , mayastor
@@ -83,6 +82,9 @@ in
     contents = [ busybox mayastor-adhoc ];
   });
 
+  # The algorithm for placing packages into the layers is not optimal.
+  # There are a couple of layers with negligible size and then there is one
+  # big layer with everything else. That defeats the purpose of layering.
   mayastor-csi = dockerTools.buildLayeredImage (mayastorCsiImageProps // {
     name = "mayadata/mayastor-csi";
     contents = [ busybox mayastor mayastorIscsiadm ];
@@ -93,28 +95,6 @@ in
     name = "mayadata/mayastor-csi-dev";
     contents = [ busybox mayastor-dev mayastorIscsiadm ];
   });
-
-  # The algorithm for placing packages into the layers is not optimal.
-  # There are a couple of layers with negligable size and then there is one
-  # big layer with everything else. That defeats the purpose of layering.
-  moac = dockerTools.buildLayeredImage {
-    name = "mayadata/moac";
-    tag = version;
-    created = "now";
-    contents = [ busybox moac ];
-    config = {
-      Entrypoint = [ "${moac.out}/lib/node_modules/moac/moac" ];
-      ExposedPorts = { "3000/tcp" = { }; };
-      Env = [ "PATH=${moac.env}:${moac.out}/lib/node_modules/moac" ];
-      WorkDir = "${moac.out}/lib/node_modules/moac";
-    };
-    extraCommands = ''
-      chmod u+w bin
-      ln -s ${moac.out}/lib/node_modules/moac/moac bin/moac
-      chmod u-w bin
-    '';
-    maxLayers = 42;
-  };
 
   mayastor-client = dockerTools.buildImage (clientImageProps // {
     name = "mayadata/mayastor-client";

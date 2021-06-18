@@ -285,7 +285,7 @@ pipeline {
             cleanWs()
             unstash 'source'
             sh 'printenv'
-            sh 'nix-shell --run "./scripts/moac-test.sh"'
+            sh 'cd ./csi/moac && nix-shell --run "./scripts/citest.sh"'
           }
           post {
             always {
@@ -318,6 +318,7 @@ pipeline {
                 // Note: We might want to build and test dev images that have more
                 // assertions instead but that complicates e2e tests a bit.
                 sh "./scripts/release.sh --registry \"${env.REGISTRY}\""
+                sh "./csi/moac/scripts/release.sh --registry \"${env.REGISTRY}\""
               }
               post {
                 // Always remove all docker images because they are usually used just once
@@ -515,6 +516,7 @@ pipeline {
       steps {
         // Build, tag and push the built images to the CI registry, but only after the test has succeeded
         sh "./scripts/release.sh --alias-tag \"${e2e_alias_tag}\" --registry \"${env.REGISTRY}\" "
+        sh "./csi/moac/scripts/release.sh --alias-tag \"${e2e_alias_tag}\" --registry \"${env.REGISTRY}\" "
       }
       post {
         always {
@@ -541,6 +543,7 @@ pipeline {
           sh 'echo $PASSWORD | docker login -u $USERNAME --password-stdin'
         }
         sh './scripts/release.sh'
+        sh './csi/moac/scripts/release.sh'
       }
       post {
         always {

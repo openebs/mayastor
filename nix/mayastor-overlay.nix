@@ -9,7 +9,6 @@ self: super: {
   mayastor-adhoc = (super.callPackage ./pkgs/mayastor { }).adhoc;
   mayastor-dev = (super.callPackage ./pkgs/mayastor { }).debug;
   mkContainerEnv = super.callPackage ./lib/mkContainerEnv.nix { };
-  moac = (import ./../csi/moac { pkgs = super; }).package;
   ms-buildenv = super.callPackage ./pkgs/ms-buildenv { };
   nvmet-cli = super.callPackage ./pkgs/nvmet-cli { };
   units = (super.callPackage ./pkgs/mayastor/units.nix { });
