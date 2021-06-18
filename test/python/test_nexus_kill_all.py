@@ -20,9 +20,8 @@ async def kill_after(container, sec):
 
 @pytest.mark.asyncio
 @pytest.mark.timeout(60)
-async def test_nexus_2_remote_mirror_kill_all(
-        container_ref, wait_for_mayastor, create_nexus):
-
+async def test_nexus_2_remote_mirror_kill_all(container_ref, wait_for_mayastor,
+                                              create_nexus):
     """
 
     This test does the following steps:
@@ -48,15 +47,14 @@ async def test_nexus_2_remote_mirror_kill_all(
 
     try:
         # create an event loop polling the async processes for completion
-        await asyncio.gather(
-            run_cmd_async_at("vixos1", job),
-            kill_after(containers.get("ms2"), 4),
-            kill_after(containers.get("ms1"), 5))
+        await asyncio.gather(run_cmd_async_at("vixos1", job),
+                             kill_after(containers.get("ms2"), 4),
+                             kill_after(containers.get("ms1"), 5))
     except ChildProcessError:
         pass
     except Exception as e:
         # if its not a child processe error fail the test
-        raise(e)
+        raise (e)
     finally:
         list = wait_for_mayastor.get("ms3").nexus_list()
         nexus = next(n for n in list if n.uuid == NEXUS_UUID)

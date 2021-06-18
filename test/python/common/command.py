@@ -2,6 +2,7 @@ import asyncio
 from collections import namedtuple
 import asyncssh
 import subprocess
+
 CommandReturn = namedtuple("CommandReturn", "returncode stdout stderr")
 
 
@@ -12,9 +13,7 @@ def run_cmd(cmd, check=True):
 async def run_cmd_async(cmd):
     """Runs a command on the current machine."""
     proc = await asyncio.create_subprocess_shell(
-        cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE)
+        cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
     stdout, stderr = await proc.communicate()
 
     output_message = f"\n[{proc.pid}] Command:\n{cmd}"
@@ -34,10 +33,7 @@ async def run_cmd_async(cmd):
                 f"\nstderr:\n{stderr.decode()}"
         raise ChildProcessError(output_message)
 
-    return CommandReturn(
-        proc.returncode,
-        stdout.decode(),
-        stderr.decode())
+    return CommandReturn(proc.returncode, stdout.decode(), stderr.decode())
 
 
 async def run_cmd_async_at(host, cmd):
@@ -62,7 +58,4 @@ async def run_cmd_async_at(host, cmd):
                     f"\nstderr:\n{result.stderr}"
             raise ChildProcessError(output_message)
 
-        return CommandReturn(
-            result.exit_status,
-            result.stdout,
-            result.stderr)
+        return CommandReturn(result.exit_status, result.stdout, result.stderr)
