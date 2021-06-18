@@ -10,6 +10,8 @@ metadata:
     statefulset.kubernetes.io/pod-name: mayastor-etcd-{{ $index }}
 spec:
   storageClassName: manual
+  # You must also delete the hostpath on the node
+  persistentVolumeReclaimPolicy: Retain
   capacity:
     storage: {{ $.Values.etcd.persistence.size | quote }}
   accessModes:
