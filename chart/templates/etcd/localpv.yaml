@@ -1,0 +1,21 @@
+---
+{{ if and .Values.etcd.persistence.enabled (eq .Values.etcd.persistence.storageClass "manual") }}
+{{- range $index, $end := until (.Values.etcd.replicaCount | int) }}
+apiVersion: v1
+kind: PersistentVolume
+metadata:
+  namespace: mayastor
+  name: etcd-volume-{{ $index }}
+  labels:
+    statefulset.kubernetes.io/pod-name: mayastor-etcd-{{ $index }}
+spec:
+  storageClassName: manual
+  capacity:
+    storage: {{ $.Values.etcd.persistence.size | quote }}
+  accessModes:
+    - ReadWriteOnce
+  hostPath:
+    path: "/var/local/mayastor/etcd/pod-{{ $index }}"
+---
+{{- end }}
+{{- end }}
