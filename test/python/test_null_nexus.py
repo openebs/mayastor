@@ -1,13 +1,9 @@
-from common.hdl import MayastorHandle
-from common.command import run_cmd, run_cmd_async_at
+from common.command import run_cmd_async_at
 from common.nvme import nvme_remote_connect, nvme_remote_disconnect
 from common.fio import Fio
 import pytest
 import asyncio
-import uuid as guid
-import time
 import mayastor_pb2 as pb
-import random
 # Reusing nexus UUIDs to avoid the need to disconnect between tests
 nexus_uuids = [
     "78c0e836-ef26-47c2-a136-2a99b538a9a8",
@@ -125,6 +121,7 @@ def destroy_nexus(ms, list):
     for uuid in list:
         ms.nexus_destroy(uuid)
 
+
 @pytest.fixture
 def create_nexus_devices(mayastors, share_null_devs):
 
@@ -136,17 +133,22 @@ def create_nexus_devices(mayastors, share_null_devs):
 
     ms = mayastors.get('ms3')
 
-    for uuid in nexus_uuids:
-        ms.nexus_create(uuid,
-                        94 * 1024 * 1024,
-                        [rlist_m0.pop().share_uri,
-                         rlist_m1.pop().share_uri,
-                         rlist_m2.pop().share_uri])
+    uris = []
 
     for uuid in nexus_uuids:
-        ms.nexus_publish(uuid)
+        ms.nexus_create(uuid, 94 * 1024 * 1024, [
+            rlist_m0.pop().share_uri,
+            rlist_m1.pop().share_uri,
+            rlist_m2.pop().share_uri
+        ])
+
+    for uuid in nexus_uuids:
+        uri = ms.nexus_publish(uuid)
+        uris.append(uri)
 
     assert len(ms.nexus_list()) == len(nexus_uuids)
+
+    return uris
 
 
 @pytest.fixture
@@ -156,13 +158,7 @@ def create_null_devs(mayastors):
 
         for i in range(len(nexus_uuids)):
             ms.bdev_create(f"null:///null{i}?blk_size=512&size_mb=100")
-    yield
-#    for node in ['ms0', 'ms1', 'ms2']:
-#        ms = mayastors.get(node)
-#        names = ms.bdev_list()
-#        for n in names:
-#            ms.bdev_destroy((n.uri))
-#
+
 
 @pytest.fixture
 def share_null_devs(mayastors, create_null_devs):
@@ -173,14 +169,6 @@ def share_null_devs(mayastors, create_null_devs):
         for n in names:
             ms.bdev_share((n.name))
 
-    yield
-
-#    for node in ['ms0', 'ms1', 'ms2']:
-#        ms = mayastors.get(node)
-#        names = ms.bdev_list()
-#        for n in names:
-#            ms.bdev_unshare((n.name))
-#
 
 async def kill_after(container, sec):
     """Kill the given container after sec seconds."""
@@ -188,26 +176,32 @@ async def kill_after(container, sec):
     container.kill()
 
 
-def test_null_nexus(create_nexus_devices,
-                          containers,
-                          mayastors,
-                          target_vm):
+async def connect_to_uris(uris, target_vm):
+    devices = []
 
+    for uri in uris:
+        dev = await nvme_remote_connect(target_vm, uri)
+        devices.append(dev)
+
+    job = Fio("job1", "randwrite", devices).build()
+
+    return job
+
+
+async def disconnect_from_uris(uris, target_vm):
+    for uri in uris:
+        await nvme_remote_disconnect(target_vm, uri)
+
+
+@pytest.mark.asyncio
+async def test_null_nexus(create_nexus_devices, mayastors, target_vm):
+    vm = target_vm
+    uris = create_nexus_devices
     ms = mayastors.get('ms3')
     check_nexus_state(ms)
-#    destroy_nexus(ms, nexus_uuids)
 
-@pytest.mark.skip
-def test_kill_one_by_one(create_nexus_devices, containers, mayastors):
-
-    ms = mayastors.get('ms3')
-
-    check_nexus_state(ms)
-    nodes = ['ms0', 'ms1', 'ms2'];
-    random.shuffle(nodes)
-
-
-    for ms in nodes:
-        ms.kill()
-
-    check_nexus_state(ms, state=pb.NEXUS_FAULTED)
+    # removing the last three lines will allow you to do whatever against
+    # the containers at this point.
+    job = await connect_to_uris(uris, vm)
+    await run_cmd_async_at(vm, job)
+    await disconnect_from_uris(uris, vm)

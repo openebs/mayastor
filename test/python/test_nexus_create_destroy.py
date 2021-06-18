@@ -1,8 +1,5 @@
 from common.hdl import MayastorHandle
-import logging
 import pytest
-import uuid as guid
-import grpc
 import mayastor_pb2 as pb
 
 
