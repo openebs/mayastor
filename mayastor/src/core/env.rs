@@ -36,7 +36,13 @@ use structopt::StructOpt;
 use tokio::runtime::Builder;
 
 use crate::{
-    bdev::{bdev_io_ctx_pool_init, nexus, nvme_io_ctx_pool_init},
+    bdev::{
+        bdev_io_ctx_pool_fini,
+        bdev_io_ctx_pool_init,
+        nexus,
+        nvme_io_ctx_pool_fini,
+        nvme_io_ctx_pool_init,
+    },
     core::{
         reactor::{Reactor, ReactorState, Reactors},
         Cores,
@@ -717,6 +723,10 @@ impl MayastorEnvironment {
 
     // finalize our environment
     pub fn fini(&self) {
+        // clean up I/O context memory pools
+        bdev_io_ctx_pool_fini();
+        nvme_io_ctx_pool_fini();
+
         unsafe {
             spdk_trace_cleanup();
             spdk_thread_lib_fini();

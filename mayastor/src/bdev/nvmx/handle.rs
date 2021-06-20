@@ -1,4 +1,9 @@
-use std::{alloc::Layout, mem::ManuallyDrop, os::raw::c_void, sync::Arc};
+use std::{
+    alloc::Layout,
+    mem::ManuallyDrop,
+    os::raw::c_void,
+    sync::{Arc, RwLock},
+};
 
 use async_trait::async_trait;
 use futures::channel::oneshot;
@@ -80,7 +85,8 @@ unsafe impl Sync for NvmeIoCtx {}
 
 // Memory pool for NVMe controller specific I/O context,
 // which is used in every user BIO-based I/O operation.
-static NVME_IOCTX_POOL: OnceCell<MemoryPool<NvmeIoCtx>> = OnceCell::new();
+static NVME_IOCTX_POOL: OnceCell<RwLock<Option<MemoryPool<NvmeIoCtx>>>> =
+    OnceCell::new();
 
 // Maximum number of range sets that may be specified in the dataset management
 // command.
@@ -374,8 +380,9 @@ fn io_type_to_err(
 /// This must be called before the first I/O operations take place.
 pub fn nvme_io_ctx_pool_init(size: u64) {
     NVME_IOCTX_POOL.get_or_init(|| {
-        MemoryPool::<NvmeIoCtx>::create("nvme_ctrl_io_ctx", size)
-            .expect("Failed to create memory pool [nvme_ctrl_io_ctx] for NVMe controller I/O contexts")
+        RwLock::new(Some(MemoryPool::create("nvme_ctrl_io_ctx", size).expect(
+            "Failed to create memory pool [nvme_ctrl_io_ctx] for NVMe controller I/O contexts",
+        )))
     });
 }
 
@@ -386,16 +393,36 @@ fn alloc_nvme_io_ctx(
     offset_blocks: u64,
     num_blocks: u64,
 ) -> Result<*mut NvmeIoCtx, CoreError> {
-    let pool = NVME_IOCTX_POOL.get().unwrap();
-    pool.get(ctx).ok_or_else(|| {
-        io_type_to_err(op, libc::ENOMEM, offset_blocks, num_blocks)
-    })
+    NVME_IOCTX_POOL
+        .get()
+        .unwrap()
+        .read()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .get(ctx)
+        .ok_or_else(|| {
+            io_type_to_err(op, libc::ENOMEM, offset_blocks, num_blocks)
+        })
 }
 
 /// Release the memory used by the NVMe controller I/O context back to the pool.
 fn free_nvme_io_ctx(ctx: *mut NvmeIoCtx) {
-    let pool = NVME_IOCTX_POOL.get().unwrap();
-    pool.put(ctx);
+    NVME_IOCTX_POOL
+        .get()
+        .unwrap()
+        .read()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .put(ctx);
+}
+
+/// Release the memory used by the pool itself
+/// and effectively return it to uninitialised state.
+pub fn nvme_io_ctx_pool_fini() {
+    let mut pool = NVME_IOCTX_POOL.get().unwrap().write().unwrap();
+    *pool = None;
 }
 
 /// Check whether channel is suitable for serving I/O.

@@ -51,7 +51,8 @@ static BDEV_LISTENERS: Lazy<RwLock<HashMap<String, Vec<DeviceEventListener>>>> =
     Lazy::new(|| RwLock::new(HashMap::new()));
 
 // Memory pool for bdev I/O context.
-static BDEV_IOCTX_POOL: OnceCell<MemoryPool<IoCtx>> = OnceCell::new();
+static BDEV_IOCTX_POOL: OnceCell<RwLock<Option<MemoryPool<IoCtx>>>> =
+    OnceCell::new();
 
 /// Wrapper around native SPDK block devices, which mimics target SPDK block
 /// device as an abstract BlockDevice instance.
@@ -278,9 +279,9 @@ fn io_type_to_err(
 /// This must be called before the first I/O operations take place.
 pub fn bdev_io_ctx_pool_init(size: u64) {
     BDEV_IOCTX_POOL.get_or_init(|| {
-        MemoryPool::<IoCtx>::create("bdev_io_ctx", size).expect(
+        RwLock::new(Some(MemoryPool::create("bdev_io_ctx", size).expect(
             "Failed to create memory pool [bdev_io_ctx] for bdev I/O contexts",
-        )
+        )))
     });
 }
 
@@ -291,16 +292,36 @@ fn alloc_bdev_io_ctx(
     offset_blocks: u64,
     num_blocks: u64,
 ) -> Result<*mut IoCtx, CoreError> {
-    let pool = BDEV_IOCTX_POOL.get().unwrap();
-    pool.get(ctx).ok_or_else(|| {
-        io_type_to_err(op, Errno::ENOMEM, offset_blocks, num_blocks)
-    })
+    BDEV_IOCTX_POOL
+        .get()
+        .unwrap()
+        .read()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .get(ctx)
+        .ok_or_else(|| {
+            io_type_to_err(op, Errno::ENOMEM, offset_blocks, num_blocks)
+        })
 }
 
 /// Release the memory used by the bdev I/O context back to the pool.
 fn free_bdev_io_ctx(ctx: *mut IoCtx) {
-    let pool = BDEV_IOCTX_POOL.get().unwrap();
-    pool.put(ctx);
+    BDEV_IOCTX_POOL
+        .get()
+        .unwrap()
+        .read()
+        .unwrap()
+        .as_ref()
+        .unwrap()
+        .put(ctx);
+}
+
+/// Release the memory used by the pool itself
+/// and effectively return it to uninitialised state.
+pub fn bdev_io_ctx_pool_fini() {
+    let mut pool = BDEV_IOCTX_POOL.get().unwrap().write().unwrap();
+    *pool = None;
 }
 
 extern "C" fn bdev_io_completion(

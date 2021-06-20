@@ -7,7 +7,11 @@ pub use channel::{NvmeControllerIoChannel, NvmeIoChannel, NvmeIoChannelInner};
 pub use controller::NvmeController;
 pub use controller_state::NvmeControllerState;
 pub use device::{lookup_by_name, open_by_name, NvmeBlockDevice};
-pub use handle::{nvme_io_ctx_pool_init, NvmeDeviceHandle};
+pub use handle::{
+    nvme_io_ctx_pool_fini,
+    nvme_io_ctx_pool_init,
+    NvmeDeviceHandle,
+};
 pub use namespace::NvmeNamespace;
 pub(crate) use uri::NvmfDeviceTemplate;
 

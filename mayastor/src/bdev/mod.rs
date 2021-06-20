@@ -1,7 +1,11 @@
 use async_trait::async_trait;
 
 pub use dev::{device_create, device_destroy, device_lookup, device_open};
-pub use device::{bdev_io_ctx_pool_init, SpdkBlockDevice};
+pub use device::{
+    bdev_io_ctx_pool_fini,
+    bdev_io_ctx_pool_init,
+    SpdkBlockDevice,
+};
 pub use nexus::{
     nexus_bdev::{
         nexus_create,
@@ -22,6 +26,7 @@ pub use nexus::{
     nexus_persistence::{ChildInfo, NexusInfo},
 };
 pub use nvmx::{
+    nvme_io_ctx_pool_fini,
     nvme_io_ctx_pool_init,
     NvmeController,
     NvmeControllerState,
