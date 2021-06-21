@@ -17,7 +17,7 @@ def create_temp_files(containers):
     for name in containers:
         run_cmd(f"rm -rf /tmp/{name}.img", True)
     for name in containers:
-        run_cmd(f"truncate -s 2G /tmp/{name}.img", True)
+        run_cmd(f"truncate -s 1G /tmp/{name}.img", True)
 
 
 def check_size(prev, current, delta):
@@ -35,8 +35,7 @@ def mayastors(docker_project, function_scoped_container_getter):
     for name in project.service_names:
         # because we use static networks .get_service() does not work
         services = function_scoped_container_getter.get(name)
-        ip_v4 = services.get(
-            "NetworkSettings.Networks.python_mayastor_net.IPAddress")
+        ip_v4 = services.get("NetworkSettings.Networks.python_mayastor_net.IPAddress")
         handles[name] = MayastorHandle(ip_v4)
     yield handles
 
@@ -61,7 +60,7 @@ def create_pool_on_all_nodes(create_temp_files, containers, mayastors):
         # validate we have zero replicas
         assert len(h.replica_list().replicas) == 0
 
-    for i in range(30):
+    for i in range(15):
         uuid = guid.uuid4()
         for name, h in mayastors.items():
             before = h.pool_list()
@@ -75,13 +74,8 @@ def create_pool_on_all_nodes(create_temp_files, containers, mayastors):
     return uuids
 
 
-@pytest.mark.skip
 @pytest.mark.parametrize("times", range(2))
-def test_restart(
-        times,
-        create_pool_on_all_nodes,
-        containers,
-        mayastors):
+def test_restart(times, create_pool_on_all_nodes, containers, mayastors):
     """
     Test that when we create replicas and destroy them the count is as expected
     At this point we have 3 nodes each with 15 replica's.
@@ -125,23 +119,21 @@ async def kill_after(container, sec):
 
 
 @pytest.mark.asyncio
-async def test_multiple(create_pool_on_all_nodes,
-                        containers,
-                        mayastors,
-                        target_vm):
+async def test_multiple(create_pool_on_all_nodes, containers, mayastors, target_vm):
 
-    ms1 = mayastors.get('ms1')
-    rlist_m2 = mayastors.get('ms2').replica_list().replicas
-    rlist_m3 = mayastors.get('ms3').replica_list().replicas
+    ms1 = mayastors.get("ms1")
+    rlist_m2 = mayastors.get("ms2").replica_list().replicas
+    rlist_m3 = mayastors.get("ms3").replica_list().replicas
     nexus_list = []
     to_kill = containers.get("ms3")
 
     devs = []
 
-    for i in range(30):
+    for _i in range(15):
         uuid = guid.uuid4()
-        ms1.nexus_create(uuid, 60 * 1024 * 1024,
-                         [rlist_m2.pop().uri, rlist_m3.pop().uri])
+        ms1.nexus_create(
+            uuid, 60 * 1024 * 1024, [rlist_m2.pop().uri, rlist_m3.pop().uri]
+        )
         nexus_list.append(ms1.nexus_publish(uuid))
 
     for nexus in nexus_list:
@@ -150,35 +142,33 @@ async def test_multiple(create_pool_on_all_nodes,
 
     fio_cmd = Fio(f"job-{dev}", "randwrite", devs).build()
 
-    await asyncio.gather(run_cmd_async_at(target_vm, fio_cmd),
-                         kill_after(to_kill, 3),
-                         )
+    await asyncio.gather(
+        run_cmd_async_at(target_vm, fio_cmd),
+        kill_after(to_kill, 3),
+    )
 
     for nexus in nexus_list:
         dev = await nvme_remote_disconnect(target_vm, nexus)
 
 
-@pytest.mark.skip
 @pytest.mark.asyncio
-async def test_multiple_spdk(create_pool_on_all_nodes,
-                        containers,
-                        mayastors):
+async def test_multiple_spdk(create_pool_on_all_nodes, containers, mayastors):
 
-    ms1 = mayastors.get('ms1')
-    rlist_m2 = mayastors.get('ms2').replica_list().replicas
-    rlist_m3 = mayastors.get('ms3').replica_list().replicas
+    ms1 = mayastors.get("ms1")
+    rlist_m2 = mayastors.get("ms2").replica_list().replicas
+    rlist_m3 = mayastors.get("ms3").replica_list().replicas
     nexus_list = []
     to_kill = containers.get("ms3")
 
     devs = []
 
-    for i in range(30):
+    for i in range(15):
         uuid = guid.uuid4()
-        ms1.nexus_create(uuid, 60 * 1024 * 1024,
-                         [rlist_m2.pop().uri, rlist_m3.pop().uri])
+        ms1.nexus_create(
+            uuid, 60 * 1024 * 1024, [rlist_m2.pop().uri, rlist_m3.pop().uri]
+        )
         nexus_list.append(ms1.nexus_publish(uuid))
 
     fio_cmd = FioSpdk(f"job-1", "randwrite", nexus_list).build()
 
-    await asyncio.gather(run_cmd_async(fio_cmd),
-                         kill_after(to_kill, 3))
+    await asyncio.gather(run_cmd_async(fio_cmd), kill_after(to_kill, 3))

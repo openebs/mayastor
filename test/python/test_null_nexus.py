@@ -4,6 +4,7 @@ from common.fio import Fio
 import pytest
 import asyncio
 import mayastor_pb2 as pb
+
 # Reusing nexus UUIDs to avoid the need to disconnect between tests
 nexus_uuids = [
     "78c0e836-ef26-47c2-a136-2a99b538a9a8",
@@ -125,22 +126,26 @@ def destroy_nexus(ms, list):
 @pytest.fixture
 def create_nexus_devices(mayastors, share_null_devs):
 
-    rlist_m0 = mayastors.get('ms0').bdev_list()
-    rlist_m1 = mayastors.get('ms1').bdev_list()
-    rlist_m2 = mayastors.get('ms2').bdev_list()
+    rlist_m0 = mayastors.get("ms0").bdev_list()
+    rlist_m1 = mayastors.get("ms1").bdev_list()
+    rlist_m2 = mayastors.get("ms2").bdev_list()
 
     assert len(rlist_m0) == len(rlist_m1) == len(rlist_m2)
 
-    ms = mayastors.get('ms3')
+    ms = mayastors.get("ms3")
 
     uris = []
 
     for uuid in nexus_uuids:
-        ms.nexus_create(uuid, 94 * 1024 * 1024, [
-            rlist_m0.pop().share_uri,
-            rlist_m1.pop().share_uri,
-            rlist_m2.pop().share_uri
-        ])
+        ms.nexus_create(
+            uuid,
+            94 * 1024 * 1024,
+            [
+                rlist_m0.pop().share_uri,
+                rlist_m1.pop().share_uri,
+                rlist_m2.pop().share_uri,
+            ],
+        )
 
     for uuid in nexus_uuids:
         uri = ms.nexus_publish(uuid)
@@ -153,7 +158,7 @@ def create_nexus_devices(mayastors, share_null_devs):
 
 @pytest.fixture
 def create_null_devs(mayastors):
-    for node in ['ms0', 'ms1', 'ms2']:
+    for node in ["ms0", "ms1", "ms2"]:
         ms = mayastors.get(node)
 
         for i in range(len(nexus_uuids)):
@@ -163,7 +168,7 @@ def create_null_devs(mayastors):
 @pytest.fixture
 def share_null_devs(mayastors, create_null_devs):
 
-    for node in ['ms0', 'ms1', 'ms2']:
+    for node in ["ms0", "ms1", "ms2"]:
         ms = mayastors.get(node)
         names = ms.bdev_list()
         for n in names:
@@ -197,7 +202,7 @@ async def disconnect_from_uris(uris, target_vm):
 async def test_null_nexus(create_nexus_devices, mayastors, target_vm):
     vm = target_vm
     uris = create_nexus_devices
-    ms = mayastors.get('ms3')
+    ms = mayastors.get("ms3")
     check_nexus_state(ms)
 
     # removing the last three lines will allow you to do whatever against
