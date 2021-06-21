@@ -9,8 +9,13 @@ import uuid as guid
 import grpc
 import asyncio
 import mayastor_pb2 as pb
-from common.nvme import (nvme_discover, nvme_connect, nvme_disconnect,
-                         nvme_remote_connect, nvme_remote_disconnect)
+from common.nvme import (
+    nvme_discover,
+    nvme_connect,
+    nvme_disconnect,
+    nvme_remote_connect,
+    nvme_remote_disconnect,
+)
 
 
 @pytest.fixture
@@ -21,17 +26,17 @@ def create_nexus(mayastor_mod, nexus_uuid, create_replica):
 
     NEXUS_UUID, size_mb = nexus_uuid
 
-    hdls['ms3'].nexus_create(NEXUS_UUID, 64 * 1024 * 1024, replicas)
-    uri = hdls['ms3'].nexus_publish(NEXUS_UUID)
-    assert len(hdls['ms1'].bdev_list()) == 2
-    assert len(hdls['ms2'].bdev_list()) == 2
-    assert len(hdls['ms3'].bdev_list()) == 1
+    hdls["ms3"].nexus_create(NEXUS_UUID, 64 * 1024 * 1024, replicas)
+    uri = hdls["ms3"].nexus_publish(NEXUS_UUID)
+    assert len(hdls["ms1"].bdev_list()) == 2
+    assert len(hdls["ms2"].bdev_list()) == 2
+    assert len(hdls["ms3"].bdev_list()) == 1
 
-    assert len(hdls['ms1'].pool_list().pools) == 1
-    assert len(hdls['ms2'].pool_list().pools) == 1
+    assert len(hdls["ms1"].pool_list().pools) == 1
+    assert len(hdls["ms2"].pool_list().pools) == 1
 
     yield uri
-    hdls['ms3'].nexus_destroy(NEXUS_UUID)
+    hdls["ms3"].nexus_destroy(NEXUS_UUID)
 
 
 @pytest.fixture
@@ -41,8 +46,8 @@ def pool_config():
     created.
     """
     pool = {}
-    pool['name'] = "tpool"
-    pool['uri'] = "malloc:///disk0?size_mb=100"
+    pool["name"] = "tpool"
+    pool["uri"] = "malloc:///disk0?size_mb=100"
     return pool
 
 
@@ -69,16 +74,16 @@ def create_pools(mayastor_mod, pool_config):
     cfg = pool_config
     pools = []
 
-    pools.append(hdls['ms1'].pool_create(cfg.get('name'), cfg.get('uri')))
+    pools.append(hdls["ms1"].pool_create(cfg.get("name"), cfg.get("uri")))
 
-    pools.append(hdls['ms2'].pool_create(cfg.get('name'), cfg.get('uri')))
+    pools.append(hdls["ms2"].pool_create(cfg.get("name"), cfg.get("uri")))
 
     for p in pools:
         assert p.state == pb.POOL_ONLINE
     yield pools
     try:
-        hdls['ms1'].pool_destroy(cfg.get('name'))
-        hdls['ms2'].pool_destroy(cfg.get('name'))
+        hdls["ms1"].pool_destroy(cfg.get("name"))
+        hdls["ms2"].pool_destroy(cfg.get("name"))
     except Exception:
         pass
 
@@ -91,13 +96,13 @@ def create_replica(mayastor_mod, replica_uuid, create_pools):
 
     UUID, size_mb = replica_uuid
 
-    replicas.append(hdls['ms1'].replica_create(pools[0].name, UUID, size_mb))
-    replicas.append(hdls['ms2'].replica_create(pools[0].name, UUID, size_mb))
+    replicas.append(hdls["ms1"].replica_create(pools[0].name, UUID, size_mb))
+    replicas.append(hdls["ms2"].replica_create(pools[0].name, UUID, size_mb))
 
     yield replicas
     try:
-        hdls['ms1'].replica_destroy(UUID)
-        hdls['ms2'].replica_destroy(UUID)
+        hdls["ms1"].replica_destroy(UUID)
+        hdls["ms2"].replica_destroy(UUID)
     except Exception as e:
         logging.debug(e)
 
@@ -114,7 +119,7 @@ def test_enospace_on_volume(mayastor_mod):
 
     v = Volume(uuid, nexus_node, pools, 100 * 1024 * 1024)
 
-    with pytest.raises(grpc.RpcError, match='RESOURCE_EXHAUSTED'):
+    with pytest.raises(grpc.RpcError, match="RESOURCE_EXHAUSTED"):
         _ = v.create()
     print("expected failed")
 
@@ -146,9 +151,9 @@ async def test_nexus_2_mirror_kill_one(containers, create_nexus):
 @pytest.mark.asyncio
 @pytest.mark.skip
 @pytest.mark.timeout(60)
-async def test_nexus_2_remote_mirror_kill_one(target_vm, containers,
-                                              nexus_uuid, mayastor_mod,
-                                              create_nexus):
+async def test_nexus_2_remote_mirror_kill_one(
+    target_vm, containers, nexus_uuid, mayastor_mod, create_nexus
+):
     """
     This test does the following steps:
 
@@ -178,8 +183,9 @@ async def test_nexus_2_remote_mirror_kill_one(target_vm, containers,
     job = Fio("job1", "randwrite", dev).build()
 
     # create an event loop polling the async processes for completion
-    await asyncio.gather(run_cmd_async_at(target_vm, job),
-                         kill_after(containers.get("ms2"), 4))
+    await asyncio.gather(
+        run_cmd_async_at(target_vm, job), kill_after(containers.get("ms2"), 4)
+    )
 
     list = mayastor_mod.get("ms3").nexus_list()
     nexus = next(n for n in list if n.uuid == NEXUS_UUID)
@@ -192,8 +198,9 @@ async def test_nexus_2_remote_mirror_kill_one(target_vm, containers,
 
 @pytest.mark.asyncio
 @pytest.mark.timeout(60)
-async def test_nexus_2_remote_mirror_kill_one_spdk(containers, nexus_uuid,
-                                                   mayastor_mod, create_nexus):
+async def test_nexus_2_remote_mirror_kill_one_spdk(
+    containers_mod, nexus_uuid, mayastor_mod, create_nexus
+):
     """
     Identical to the previous test except fio uses the SPDK ioengine
     """
@@ -203,8 +210,7 @@ async def test_nexus_2_remote_mirror_kill_one_spdk(containers, nexus_uuid,
     job = FioSpdk("job1", "randwrite", uri).build()
     print(job)
 
-    await asyncio.gather(run_cmd_async(job),
-                         kill_after(containers.get("ms2"), 4))
+    await asyncio.gather(run_cmd_async(job), kill_after(containers_mod.get("ms2"), 4))
 
     list = mayastor_mod.get("ms3").nexus_list()
     nexus = next(n for n in list if n.uuid == NEXUS_UUID)

@@ -40,20 +40,9 @@ def mayastors(docker_project, function_scoped_container_getter):
     for name in project.service_names:
         # because we use static networks .get_service() does not work
         services = function_scoped_container_getter.get(name)
-        ip_v4 = services.get(
-            "NetworkSettings.Networks.python_mayastor_net.IPAddress")
+        ip_v4 = services.get("NetworkSettings.Networks.python_mayastor_net.IPAddress")
         handles[name] = MayastorHandle(ip_v4)
     yield handles
-
-
-@pytest.fixture(scope="function")
-def containers(docker_project, function_scoped_container_getter):
-    """Fixture to get handles to mayastor as well as the containers."""
-    project = docker_project
-    containers = {}
-    for name in project.service_names:
-        containers[name] = function_scoped_container_getter.get(name)
-    yield containers
 
 
 @pytest.fixture(scope="module")
@@ -74,7 +63,6 @@ def mayastor_mod(docker_project, module_scoped_container_getter):
     for name in project.service_names:
         # because we use static networks .get_service() does not work
         services = module_scoped_container_getter.get(name)
-        ip_v4 = services.get(
-            "NetworkSettings.Networks.python_mayastor_net.IPAddress")
+        ip_v4 = services.get("NetworkSettings.Networks.python_mayastor_net.IPAddress")
         handles[name] = MayastorHandle(ip_v4)
     yield handles

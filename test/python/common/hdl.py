@@ -53,20 +53,13 @@ class MayastorHandle(object):
         return self.bdev.Create(pb.BdevUri(uri=uri))
 
     def bdev_share(self, name):
-        return self.bdev.Share(
-            pb.BdevShareRequest(
-                name=str(name),
-                proto="nvmf")).uri
+        return self.bdev.Share(pb.BdevShareRequest(name=str(name), proto="nvmf")).uri
 
     def bdev_unshare(self, name):
-        return self.bdev.Unshare(
-            pb.CreateReply(
-                name=str(name)))
+        return self.bdev.Unshare(pb.CreateReply(name=str(name)))
 
     def bdev_destroy(self, uri):
-        return self.bdev.Destroy(
-            pb.BdevUri(
-                uri=str(uri)))
+        return self.bdev.Destroy(pb.BdevUri(uri=str(uri)))
 
     def pool_create(self, name, bdev):
         """Create a pool with given name on this node using the bdev as the
@@ -111,8 +104,8 @@ class MayastorHandle(object):
         """Publish the nexus. this is the same as bdev_share() but is not used
         by the control plane."""
         return self.ms.PublishNexus(
-            pb.PublishNexusRequest(
-                uuid=str(uuid), key="", share=1)).device_uri
+            pb.PublishNexusRequest(uuid=str(uuid), key="", share=1)
+        ).device_uri
 
     def nexus_unpublish(self, uuid):
         """Unpublish the nexus."""
@@ -123,7 +116,7 @@ class MayastorHandle(object):
         return self.ms.ListNexus(pb.Null()).nexus_list
 
     def bdev_list(self):
-        """"List all bdevs found within the system."""
+        """ "List all bdevs found within the system."""
         return self.bdev.List(pb.Null(), wait_for_ready=True).bdevs
 
     def pool_list(self):

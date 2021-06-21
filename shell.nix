@@ -15,7 +15,7 @@ let
   channel = import ./nix/lib/rust.nix { inherit sources; };
   # python environment for test/python
   pytest_inputs = python3.withPackages
-    (ps: with ps; [ virtualenv grpcio grpcio-tools asyncssh ]);
+    (ps: with ps; [ virtualenv grpcio grpcio-tools asyncssh black ]);
 in
 mkShell {
 
@@ -54,6 +54,7 @@ mkShell {
     pre-commit
     procps
     python3
+    pytest_inputs
     utillinux
     xfsprogs
   ] ++ (if (nospdk) then [ libspdk-dev.buildInputs ] else [ libspdk-dev ])
