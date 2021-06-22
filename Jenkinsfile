@@ -139,7 +139,6 @@ if (params.e2e_continuous == true) {
   run_linter = false
   rust_test = false
   grpc_test = false
-  moac_test = false
   e2e_test_profile = "continuous"
   // use images from dockerhub tagged with e2e_continuous_image_tag instead of building from current source
   e2e_build_images = false
@@ -151,7 +150,6 @@ if (params.e2e_continuous == true) {
   run_linter = true
   rust_test = true
   grpc_test = true
-  moac_test = true
   // Some long e2e tests are not suitable to be run for each PR
   e2e_test_profile = (env.BRANCH_NAME != 'staging' && env.BRANCH_NAME != 'trying') ? "nightly" : "ondemand"
   e2e_build_images = true
@@ -275,24 +273,6 @@ pipeline {
             }
           }
         }
-        stage('moac unit tests') {
-          when {
-            beforeAgent true
-            expression { moac_test == true }
-          }
-          agent { label 'nixos-mayastor' }
-          steps {
-            cleanWs()
-            unstash 'source'
-            sh 'printenv'
-            sh 'cd ./csi/moac && nix-shell --run "./scripts/citest.sh"'
-          }
-          post {
-            always {
-              junit 'moac-xunit-report.xml'
-            }
-          }
-        }
         stage('e2e tests') {
           when {
             beforeAgent true
@@ -318,7 +298,6 @@ pipeline {
                 // Note: We might want to build and test dev images that have more
                 // assertions instead but that complicates e2e tests a bit.
                 sh "./scripts/release.sh --registry \"${env.REGISTRY}\""
-                sh "./csi/moac/scripts/release.sh --registry \"${env.REGISTRY}\""
               }
               post {
                 // Always remove all docker images because they are usually used just once
@@ -516,7 +495,6 @@ pipeline {
       steps {
         // Build, tag and push the built images to the CI registry, but only after the test has succeeded
         sh "./scripts/release.sh --alias-tag \"${e2e_alias_tag}\" --registry \"${env.REGISTRY}\" "
-        sh "./csi/moac/scripts/release.sh --alias-tag \"${e2e_alias_tag}\" --registry \"${env.REGISTRY}\" "
       }
       post {
         always {
@@ -543,7 +521,6 @@ pipeline {
           sh 'echo $PASSWORD | docker login -u $USERNAME --password-stdin'
         }
         sh './scripts/release.sh'
-        sh './csi/moac/scripts/release.sh'
       }
       post {
         always {

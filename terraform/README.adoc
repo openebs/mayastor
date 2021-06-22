@@ -267,21 +267,21 @@ docker-compose up
 ----
 
 Subsequently, you can push mayastor images there using docker or skopeo.
-Examples below are for moac image. Similarly you should push mayastor and
-mayastor-csi images. Replace "hostname" by the name of your registry host.
+Example below is for mayastor image. Similarly you should push mayastor-csi
+image. Replace "hostname" by the name of your registry host.
 
 [source,bash]
 ----
-nix-build '<nixpkgs>' -A images.moac
+nix-build '<nixpkgs>' -A images.mayastor
 docker load <result
-docker tag mayadata/moac hostname:5000/moac:latest
-docker push hostname:5000/moac:latest
+docker tag mayadata/mayastor hostname:5000/mayastor:latest
+docker push hostname:5000/mayastor:latest
 ----
 
 [source,bash]
 ----
-nix-build '<nixpkgs>' -A images.moac
-skopeo copy --dest-tls-verify=false docker-archive:result docker://hostname:5000/mayadata/moac:latest
+nix-build '<nixpkgs>' -A images.mayastor
+skopeo copy --dest-tls-verify=false docker-archive:result docker://hostname:5000/mayadata/mayastor:latest
 ----
 
 Nodes in the k8s cluster will refuse to pull images from such registry
@@ -289,7 +289,7 @@ because it is insecure (not using tls). To work around this problem
 modify `mod/k8s/repo.sh` adding insecure-registry to daemon.json and
 then provision your cluster.
 
-Now edit mayastor deployment yamls and change all mayastor & moac image
-names to point to your private docker registry. For moac image that would be
-`image: mayadata/moac:latest` -> `image: hostname:5000/mayadata/moac:latest`.
+Now edit mayastor deployment yamls and change all mayastor(-csi) image
+names to point to your private docker registry. For mayastor image that would be
+`image: mayadata/mayastor:latest` -> `image: hostname:5000/mayadata/mayastor:latest`.
 

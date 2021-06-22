@@ -1,9 +1,8 @@
 ## About
 
-This crate contains CSI protocol implementation: the node part (mayastor-csi)
-and the control plane part (moac) written in node-js. The rest of the doc
-is about the mayastor-csi. It is an asynchronous server implementation making
-use of tokio.rs.
+This crate contains CSI protocol implementation, the part that implements
+`identity` and `node` grpc CSI services. It is an asynchronous server
+implementation making use of tokio.rs.
 
 The mayastor-csi plugin implements two gRPC services:
 
