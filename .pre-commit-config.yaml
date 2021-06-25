@@ -39,9 +39,8 @@ repos:
         stages: [commit-msg]
     -   id: python-check
         name: python lint
+        entry: black
         description: runs black against the python code
-        exclude: ^test/python/venv/
-        entry: black test/python
-        pass_filenames: false
+        pass_filenames: true
         types: [file, python]
         language: system

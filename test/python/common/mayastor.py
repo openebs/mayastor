@@ -1,5 +1,6 @@
 """Default fixtures that are considered to be reusable. These are all function scoped."""
 import pytest
+from pytest_testconfig import config
 from common.hdl import MayastorHandle
 from common.command import run_cmd
 import os
@@ -9,11 +10,7 @@ pytest_plugins = ["docker_compose"]
 
 @pytest.fixture
 def target_vm():
-    try:
-        return os.environ.get("TARGET_VM")
-    except Exception as e:
-        print("the environment variable TARGET_VM must be set to a valid host")
-        raise (e)
+    config["load_generators"]["vm1"]
 
 
 @pytest.fixture(scope="function")
@@ -40,7 +37,7 @@ def mayastors(docker_project, function_scoped_container_getter):
     for name in project.service_names:
         # because we use static networks .get_service() does not work
         services = function_scoped_container_getter.get(name)
-        ip_v4 = services.get("NetworkSettings.Networks.python_mayastor_net.IPAddress")
+        ip_v4 = services.get("NetworkSettings.Networks.mayastor_net.IPAddress")
         handles[name] = MayastorHandle(ip_v4)
     yield handles
 
@@ -63,6 +60,7 @@ def mayastor_mod(docker_project, module_scoped_container_getter):
     for name in project.service_names:
         # because we use static networks .get_service() does not work
         services = module_scoped_container_getter.get(name)
-        ip_v4 = services.get("NetworkSettings.Networks.python_mayastor_net.IPAddress")
+        ip_v4 = services.get("NetworkSettings.Networks.mayastor_net.IPAddress")
         handles[name] = MayastorHandle(ip_v4)
+
     yield handles
