@@ -6,6 +6,6 @@ pytest-asyncio
 pytest-bdd
 pytest-black
 pytest-docker-compose
+pytest-testconfig
 pytest-timeout
 pytest-variables
-

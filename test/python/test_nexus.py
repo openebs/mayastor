@@ -17,6 +17,8 @@ from common.nvme import (
     nvme_remote_disconnect,
 )
 
+from common.mayastor import containers_mod, mayastor_mod
+
 
 @pytest.fixture
 def create_nexus(mayastor_mod, nexus_uuid, create_replica):

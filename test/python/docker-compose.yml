@@ -96,6 +96,7 @@ services:
       - /tmp:/tmp
 networks:
   mayastor_net:
+    name: mayastor_net
     ipam:
       driver: default
       config:

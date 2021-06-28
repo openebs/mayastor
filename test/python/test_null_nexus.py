@@ -1,6 +1,7 @@
 from common.command import run_cmd_async_at
 from common.nvme import nvme_remote_connect, nvme_remote_disconnect
 from common.fio import Fio
+from common.mayastor import mayastors
 import pytest
 import asyncio
 import mayastor_pb2 as pb
