@@ -5,10 +5,13 @@ use crate::{
         NvmeControllerState,
         NVME_CONTROLLERS,
     },
+    core::{BlockDeviceIoStats, CoreError},
+    ffihelper::{cb_arg, done_cb},
     grpc::{rpc_submit, GrpcResult},
 };
 
 use ::rpc::mayastor as rpc;
+use futures::channel::oneshot;
 use std::convert::From;
 use tonic::{Response, Status};
 
@@ -46,6 +49,68 @@ impl From<NvmeControllerState> for rpc::NvmeControllerState {
             }
         }
     }
+}
+
+impl From<BlockDeviceIoStats> for rpc::NvmeControllerIoStats {
+    fn from(b: BlockDeviceIoStats) -> Self {
+        Self {
+            num_read_ops: b.num_read_ops,
+            num_write_ops: b.num_write_ops,
+            bytes_read: b.bytes_read,
+            bytes_written: b.bytes_written,
+            num_unmap_ops: b.num_unmap_ops,
+            bytes_unmapped: b.bytes_unmapped,
+        }
+    }
+}
+
+pub async fn controller_stats() -> GrpcResult<rpc::StatNvmeControllersReply> {
+    let rx = rpc_submit::<_, _, nexus_bdev::Error>(async move {
+        let mut res: Vec<rpc::NvmeControllerStats> = Vec::new();
+        let controllers = NVME_CONTROLLERS.controllers();
+        for name in controllers.iter() {
+            if let Some(ctrlr) = NVME_CONTROLLERS.lookup_by_name(name) {
+                let (s, r) =
+                    oneshot::channel::<Result<BlockDeviceIoStats, CoreError>>();
+
+                {
+                    let ctrlr = ctrlr.lock();
+
+                    if let Err(e) = ctrlr.get_io_stats(
+                        |stats, ch| {
+                            done_cb(ch, stats);
+                        },
+                        cb_arg(s),
+                    ) {
+                        error!(
+                            "{}: failed to get stats for NVMe controller: {:?}",
+                            name, e
+                        );
+                        continue;
+                    }
+                }
+
+                let stats = r.await.expect("Failed awaiting at io_stats");
+                if stats.is_err() {
+                    error!("{}: failed to get stats for NVMe controller", name);
+                } else {
+                    res.push(rpc::NvmeControllerStats {
+                        name: name.to_string(),
+                        stats: stats.ok().map(rpc::NvmeControllerIoStats::from),
+                    });
+                }
+            }
+        }
+
+        Ok(rpc::StatNvmeControllersReply {
+            controllers: res,
+        })
+    })?;
+
+    rx.await
+        .map_err(|_| Status::cancelled("cancelled"))?
+        .map_err(Status::from)
+        .map(Response::new)
 }
 
 pub async fn list_controllers() -> GrpcResult<rpc::ListNvmeControllersReply> {

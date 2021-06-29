@@ -47,6 +47,9 @@ class MayastorHandle(object):
     def close(self):
         self.__del__()
 
+    def ip_address(self):
+        return self.ip_v4
+
     def as_target(self) -> str:
         """Returns this node as scheme which is used to designate this node to
         be used as the node where the nexus shall be created on."""
@@ -128,8 +131,18 @@ class MayastorHandle(object):
         return self.ms.UnpublishNexus(pb.UnpublishNexusRequest(uuid=str(uuid)))
 
     def nexus_list(self):
-        """List all the  the nexus devices."""
+        """List all the nexus devices."""
         return self.ms.ListNexus(pb.Null()).nexus_list
+
+    def nexus_add_replica(self, uuid, uri, norebuild):
+        """Add a new replica to the nexus"""
+        return self.ms.AddChildNexus(
+            pb.AddChildNexusRequest(uuid=uuid, uri=uri, norebuild=norebuild)
+        )
+
+    def nexus_remove_replica(self, uuid, uri):
+        """Add a new replica to the nexus"""
+        return self.ms.RemoveChildNexus(pb.RemoveChildNexusRequest(uuid=uuid, uri=uri))
 
     def bdev_list(self):
         """ "List all bdevs found within the system."""

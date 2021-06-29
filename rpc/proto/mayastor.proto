@@ -78,6 +78,7 @@ service Mayastor {
 
   // NVMe controllers
   rpc ListNvmeControllers (Null) returns (ListNvmeControllersReply) {}
+  rpc StatNvmeControllers (Null) returns (StatNvmeControllersReply) {}
 }
 
 // Means no arguments or no return value.
@@ -491,6 +492,24 @@ message NvmeController {
 
 message ListNvmeControllersReply {
   repeated NvmeController controllers = 1;
+}
+
+message NvmeControllerIoStats {
+  uint64 num_read_ops = 1;
+  uint64 num_write_ops = 2;
+  uint64 bytes_read = 3;
+  uint64 bytes_written = 4;
+  uint64 num_unmap_ops = 5;
+  uint64 bytes_unmapped = 6;
+}
+
+message NvmeControllerStats {
+  string name = 1;                 // NVMe controller name
+  NvmeControllerIoStats stats = 2; // Controller I/O statistics
+}
+
+message StatNvmeControllersReply {
+  repeated NvmeControllerStats controllers = 1;
 }
 
 // SPDK json-rpc proxy service
