@@ -182,7 +182,7 @@ async fn core_4() {
                     } else {
                         nexus.add_child(BDEVNAME2, true).await.expect_err(
                             &format!(
-                                "Case {} - Child should have been added",
+                                "Case {} - Child should not have been added",
                                 test_case_index
                             ),
                         );

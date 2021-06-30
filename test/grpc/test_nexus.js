@@ -1,6 +1,6 @@
 // Unit tests for nexus grpc api. Nexus is basically a hub which does IO
 // replication to connected replicas. We test nexus operations with all
-// supported replica types: nvmf, iscsi, bdev, aio and uring. aio is not used
+// supported replica types: nvmf, bdev, aio and uring. aio is not used
 // in the product but it was part of initial implementation, so we keep it in
 // case it would be useful in the future. uring was added later and is also
 // not used in the product but kept for testing.
@@ -32,10 +32,6 @@ const diskSize = 64 * 1024 * 1024;
 const externIp = common.getMyIp();
 // port at which iscsi replicas are available
 const iscsiReplicaPort = '3261';
-
-// NVMEoF frontends don't play nicely with iSCSI backend at the time of writing,
-// so temporarily disable these tests.
-const doIscsiReplica = false;
 
 // The config just for nvmf target which cannot run in the same process as
 // the nvmf initiator (SPDK limitation).
@@ -267,7 +263,7 @@ describe('nexus', function () {
           }, next);
         },
         (next) => {
-            common.createBdevs([`malloc:///Malloc0?size_mb=64&blk_size=4096&uuid=${TGTUUID}`], 'nvmf', '127.0.0.1:10125', next);
+          common.createBdevs([`malloc:///Malloc0?size_mb=64&blk_size=4096&uuid=${TGTUUID}`], 'nvmf', '127.0.0.1:10125', next);
         },
         (next) => {
           fs.writeFile(aioFile, '', next);
@@ -295,7 +291,7 @@ describe('nexus', function () {
           }, next);
         },
         (next) => {
-            common.createBdevs(['malloc:///Malloc0?size_mb=64&blk_size=4096'], 'nvmf', common.grpcEndpoint, next);
+          common.createBdevs(['malloc:///Malloc0?size_mb=64&blk_size=4096'], 'nvmf', common.grpcEndpoint, next);
         }
       ],
       done
@@ -341,7 +337,6 @@ describe('nexus', function () {
         `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${BASEDEV}`
       ]
     };
-    if (doIscsiReplica) args.children.push(`iscsi://iscsi://${externIp}:${iscsiReplicaPort}/iqn.2019-05.io.openebs:disk1`);
     if (doUring()) args.children.push(`uring://${uringFile}?blk_size=4096`);
 
     client.createNexus(args, done);
@@ -350,7 +345,7 @@ describe('nexus', function () {
   it('should create a nexus using all types of replicas', (done) => {
     createNexusWithAllTypes((err, nexus) => {
       if (err) return done(err);
-      const expectedChildren = 3 + doIscsiReplica + doUring();
+      const expectedChildren = 3 + doUring();
       assert.equal(nexus.uuid, UUID);
       assert.equal(nexus.state, 'NEXUS_ONLINE');
       assert.lengthOf(nexus.children, expectedChildren);
@@ -364,21 +359,13 @@ describe('nexus', function () {
         `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${BASEDEV}`
       );
       assert.equal(nexus.children[2].state, 'CHILD_ONLINE');
-      if (doIscsiReplica) {
-        assert.equal(
-          nexus.children[3].uri,
-          `iscsi://${externIp}:${iscsiReplicaPort}/iqn.2019-05.io.openebs:disk1`
-        );
-        assert.equal(nexus.children[2].state, 'CHILD_ONLINE');
-      }
 
       if (doUring()) {
-        const uringIndex = 3 + doIscsiReplica;
         assert.equal(
-          nexus.children[uringIndex].uri,
+          nexus.children[3].uri,
           `uring://${uringFile}?blk_size=4096`
         );
-        assert.equal(nexus.children[uringIndex].state, 'CHILD_ONLINE');
+        assert.equal(nexus.children[3].state, 'CHILD_ONLINE');
       }
       done();
     });
@@ -399,7 +386,7 @@ describe('nexus', function () {
       assert.lengthOf(res.nexus_list, 1);
 
       const nexus = res.nexus_list[0];
-      const expectedChildren = 3 + doIscsiReplica + doUring();
+      const expectedChildren = 3 + doUring();
 
       assert.equal(nexus.uuid, UUID);
       assert.equal(nexus.state, 'NEXUS_ONLINE');
@@ -414,21 +401,13 @@ describe('nexus', function () {
         `nvmf://127.0.0.1:8420/nqn.2019-05.io.openebs:${BASEDEV}`
       );
       assert.equal(nexus.children[2].state, 'CHILD_ONLINE');
-      if (doIscsiReplica) {
-        assert.equal(
-          nexus.children[3].uri,
-          `iscsi://${externIp}:${iscsiReplicaPort}/iqn.2019-05.io.openebs:disk1`
-        );
-        assert.equal(nexus.children[2].state, 'CHILD_ONLINE');
-      }
 
       if (doUring()) {
-        const uringIndex = 3 + doIscsiReplica;
         assert.equal(
-          nexus.children[uringIndex].uri,
+          nexus.children[3].uri,
           `uring://${uringFile}?blk_size=4096`
         );
-        assert.equal(nexus.children[uringIndex].state, 'CHILD_ONLINE');
+        assert.equal(nexus.children[3].state, 'CHILD_ONLINE');
       }
       done();
     });
@@ -446,7 +425,7 @@ describe('nexus', function () {
       client.listNexus({}, (err, res) => {
         if (err) return done(err);
         const nexus = res.nexus_list[0];
-        const expectedChildren = 2 + doIscsiReplica + doUring();
+        const expectedChildren = 2 + doUring();
         assert.lengthOf(nexus.children, expectedChildren);
         assert(!nexus.children.find((ch) => ch.uri.match(/^nvmf:/)));
         done();
@@ -470,7 +449,7 @@ describe('nexus', function () {
       client.listNexus({}, (err, res) => {
         if (err) return done(err);
         const nexus = res.nexus_list[0];
-        const expectedChildren = 3 + doIscsiReplica + doUring();
+        const expectedChildren = 3 + doUring();
         assert.lengthOf(nexus.children, expectedChildren);
         assert(nexus.children.find((ch) => ch.uri.match(/^nvmf:/)));
         done();

@@ -31,7 +31,7 @@ use crate::{
     nexus_uri::{self, NexusBdevError},
 };
 
-use super::{aio, iscsi, loopback, malloc, null, nvme, nvmx, uring};
+use super::{aio, loopback, malloc, null, nvme, nvmx, uring};
 
 impl Uri {
     pub fn parse(
@@ -47,7 +47,6 @@ impl Uri {
         match url.scheme() {
             "aio" => Ok(Box::new(aio::Aio::try_from(&url)?)),
             "bdev" => Ok(Box::new(loopback::Loopback::try_from(&url)?)),
-            "iscsi" => Ok(Box::new(iscsi::Iscsi::try_from(&url)?)),
             "loopback" => Ok(Box::new(loopback::Loopback::try_from(&url)?)),
             "malloc" => Ok(Box::new(malloc::Malloc::try_from(&url)?)),
             "null" => Ok(Box::new(null::Null::try_from(&url)?)),
