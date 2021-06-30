@@ -46,12 +46,25 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
 
     let publish = SubCommand::with_name("publish")
         .about("publish the nexus")
-        .arg(Arg::with_name("protocol").short("p").long("protocol").value_name("PROTOCOL")
-            .help("Name of a protocol (nvmf, iscsi) used for publishing the nexus remotely"))
-        .arg(Arg::with_name("uuid").required(true).index(1)
-            .help("uuid for the nexus"))
-        .arg(Arg::with_name("key").required(false).index(2)
-            .help("crypto key to use"));
+        .arg(
+            Arg::with_name("protocol")
+                .short("p")
+                .long("protocol")
+                .value_name("PROTOCOL")
+                .help("Name of a protocol (nvmf, iscsi) used for publishing the nexus remotely"),
+        )
+        .arg(
+            Arg::with_name("uuid")
+                .required(true)
+                .index(1)
+                .help("uuid for the nexus"),
+        )
+        .arg(
+            Arg::with_name("key")
+                .required(false)
+                .index(2)
+                .help("crypto key to use"),
+        );
 
     let unpublish = SubCommand::with_name("unpublish")
         .about("unpublish the nexus")
@@ -500,21 +513,12 @@ async fn nexus_set_nvme_ana_state(
     uuid: String,
     ana_state_str: String,
 ) -> crate::Result<()> {
-    let ana_state: rpc::NvmeAnaState = match ana_state_str.parse() {
-        Ok(a) => a,
-        _ => {
-            return Err(Status::new(
-                Code::Internal,
-                "Invalid value of NVMe ANA state".to_owned(),
-            ))
-            .context(GrpcStatus);
-        }
-    };
+    let ana_state = AnaState::from(ana_state_str);
 
     ctx.client
         .set_nvme_ana_state(rpc::SetNvmeAnaStateRequest {
             uuid: uuid.clone(),
-            ana_state: ana_state.into(),
+            ana_state: ana_state.0.into(),
         })
         .await
         .context(GrpcStatus)?;
@@ -642,5 +646,20 @@ fn child_state_to_str(idx: i32) -> &'static str {
         rpc::ChildState::ChildOnline => "online",
         rpc::ChildState::ChildDegraded => "degraded",
         rpc::ChildState::ChildFaulted => "faulted",
+    }
+}
+#[derive(Debug)]
+struct AnaState(rpc::NvmeAnaState);
+
+impl From<String> for AnaState {
+    fn from(state: String) -> Self {
+        match state.as_str() {
+            "optimized" => Self(rpc::NvmeAnaState::NvmeAnaOptimizedState),
+            "non_optimized" => {
+                Self(rpc::NvmeAnaState::NvmeAnaNonOptimizedState)
+            }
+            "inaccessible" => Self(rpc::NvmeAnaState::NvmeAnaInaccessibleState),
+            _ => Self(rpc::NvmeAnaState::NvmeAnaInvalidState),
+        }
     }
 }

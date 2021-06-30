@@ -10,7 +10,7 @@ edition = "2018"
 tokio = { version = "1", features = ["full"] }
 futures = "0.3.8"
 tonic = "0.4"
-rpc = { path = "../rpc" }
+rpc = { git = "https://github.com/gila/rpc", branch = "master" }
 ipnetwork = "0.17.0"
 bollard = "0.10.0"
 tracing = "0.1.22"

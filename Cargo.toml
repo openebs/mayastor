@@ -13,7 +13,6 @@ members = [
 	"mayastor",
 	"mbus-api",
 	"nvmeadm",
-	"rpc",
 	"sysfs",
 	"composer",
 ]

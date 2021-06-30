@@ -46,7 +46,6 @@ clap = "2.33.0"
 colored_json = "*"
 crc = "1.8.1"
 crossbeam = "0.7.3"
-crossbeam-sync = "0.0.0"
 env_logger = "0.8"
 futures = "0.3"
 git-version = "0.3.4"
@@ -65,7 +64,6 @@ pin-utils = "0.1"
 proc-mounts = "0.2"
 prost = "0.7"
 prost-derive = "0.7"
-prost-types = "0.7"
 rand = "0.7.3"
 serde_json = "1.0"
 serde_yaml = "0.8"
@@ -90,7 +88,8 @@ parking_lot = {version = "0.11.1" }
 
 
 [dependencies.rpc]
-path = "../rpc"
+git = "https://github.com/gila/rpc"
+branch = "master"
 
 [dependencies.serde]
 features = ["derive"]

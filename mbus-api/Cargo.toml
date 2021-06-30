@@ -22,7 +22,7 @@ uuid = { version = "0.8", features = ["v4"] }
 
 [dev-dependencies]
 composer = { path = "../composer" }
-rpc = { path = "../rpc" }
+rpc = { git = "https://github.com/gila/rpc", branch = "master" }
 
 [dependencies.serde]
 features = ["derive"]
