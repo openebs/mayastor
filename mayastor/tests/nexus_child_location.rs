@@ -42,28 +42,11 @@ async fn child_location() {
         .await
         .unwrap();
 
-    // Create and share a bdev over iscsi
-    hdls[0]
-        .bdev
-        .create(BdevUri {
-            uri: "malloc:///disk1?size_mb=100".into(),
-        })
-        .await
-        .unwrap();
-    hdls[0]
-        .bdev
-        .share(BdevShareRequest {
-            name: "disk1".into(),
-            proto: "iscsi".into(),
-        })
-        .await
-        .unwrap();
-
     let mayastor = MayastorTest::new(MayastorCliArgs::default());
     mayastor
         .spawn(async move {
-            // Create a nexus with a local child, and two remote children (one
-            // exported over nvmf and the other over iscsi).
+            // Create a nexus with a local child, and one remote child
+            // (exported over nvmf).
             nexus_create(
                 NEXUS_NAME,
                 1024 * 1024 * 50,
@@ -74,10 +57,6 @@ async fn child_location() {
                         "nvmf://{}:8420/nqn.2019-05.io.openebs:disk0",
                         hdls[0].endpoint.ip()
                     ),
-                    format!(
-                        "iscsi://{}:3260/iqn.2019-05.io.openebs:disk1/0",
-                        hdls[0].endpoint.ip()
-                    ),
                 ],
             )
             .await
@@ -85,10 +64,9 @@ async fn child_location() {
 
             let nexus = nexus_lookup(NEXUS_NAME).expect("Failed to find nexus");
             let children = &nexus.children;
-            assert_eq!(children.len(), 3);
+            assert_eq!(children.len(), 2);
             assert!(children[0].is_local().unwrap());
             assert!(!children[1].is_local().unwrap());
-            assert!(!children[2].is_local().unwrap());
         })
         .await;
 }

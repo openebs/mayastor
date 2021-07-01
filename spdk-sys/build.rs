@@ -123,7 +123,6 @@ fn main() {
     println!("cargo:rustc-link-search={}/spdk", manifest_dir);
     println!("cargo:rustc-link-lib=spdk");
     println!("cargo:rustc-link-lib=aio");
-    println!("cargo:rustc-link-lib=iscsi");
     println!("cargo:rustc-link-lib=dl");
     println!("cargo:rustc-link-lib=uuid");
     println!("cargo:rustc-link-lib=numa");

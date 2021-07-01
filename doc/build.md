@@ -237,7 +237,7 @@ The basic steps are:
 ```
 git submodule update --init --recursive
 sudo ./spdk-sys/spdk/scripts/pkgdep
-./spdk-sys/build.sh --enable-debug --without-isal --with-iscsi-initiator --with-rdma \
+./spdk-sys/build.sh --enable-debug --without-isal --with-rdma \
             --with-internal-vhost-lib --disable-tests \
             --with-crypto
 ```

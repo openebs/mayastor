@@ -5,7 +5,6 @@
 , lcov
 , lib
 , libaio
-, libiscsi
 , libbpf
 , libelf
 , liburing
@@ -63,7 +62,6 @@ let
       fio
       libtool
       libaio
-      libiscsi
       liburing
       libuuid
       nasm
@@ -94,7 +92,6 @@ let
     (if (targetPlatform.config != buildPlatform.config) then [ "--cross-prefix=${targetPlatform.config}" ] else [ ]) ++
     [
       "--without-isal"
-      "--with-iscsi-initiator"
       "--with-uring"
       "--disable-unit-tests"
       "--disable-tests"
@@ -120,10 +117,16 @@ let
       find . -type f -name 'libspdk_event_nvmf.a' -delete
       find . -type f -name 'libspdk_sock_uring.a' -delete
       find . -type f -name 'libspdk_ut_mock.a' -delete
+      find . -type f -name 'libspdk_bdev_blobfs.a' -delete
+      find . -type f -name 'libspdk_bdev_ftl.a' -delete
+      find . -type f -name 'libspdk_bdev_gpt.a' -delete
+      find . -type f -name 'libspdk_bdev_passthru.a' -delete
+      find . -type f -name 'libspdk_bdev_raid.a' -delete
+      find . -type f -name 'libspdk_bdev_split.a' -delete
+      find . -type f -name 'libspdk_bdev_zone_block.a' -delete
 
       $CC -shared -o libspdk.so \
-        -lc  -laio -liscsi -lnuma -ldl -lrt -luuid -lpthread -lcrypto \
-        -luring \
+        -lc -laio -lnuma -ldl -lrt -luuid -lpthread -lcrypto -luring \
         -Wl,--whole-archive \
         $(find build/lib -type f -name 'libspdk_*.a*' -o -name 'librte_*.a*') \
         $(find dpdk/build/lib -type f -name 'librte_*.a*') \

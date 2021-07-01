@@ -12,7 +12,6 @@ rm libspdk.so
 ./configure --enable-debug \
 	--target-arch=nehalem \
 	--without-isal \
-	--with-iscsi-initiator \
 	--with-crypto \
 	--with-uring \
 	--disable-unit-tests \
@@ -25,11 +24,13 @@ make -j $(nproc)
 find . -type f -name 'libspdk_event_nvmf.a' -delete
 find . -type f -name 'libspdk_sock_uring.a' -delete
 find . -type f -name 'libspdk_ut_mock.a' -delete
+find . -type f -name 'libspdk_bdev_blobfs.a' -delete
 find . -type f -name 'libspdk_bdev_ftl.a' -delete
 find . -type f -name 'libspdk_bdev_gpt.a' -delete
+find . -type f -name 'libspdk_bdev_passthru.a' -delete
 find . -type f -name 'libspdk_bdev_raid.a' -delete
 find . -type f -name 'libspdk_bdev_split.a' -delete
-find . -type f -name 'libspdk_bdev_blobfs.a' -delete
+find . -type f -name 'libspdk_bdev_zone_block.a' -delete
 
 # the event libraries are the libraries that parse configuration files
 # we do our own config file parsing, and we setup our own targets.

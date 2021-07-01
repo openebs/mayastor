@@ -31,7 +31,6 @@ pub use nvmx::{
 mod aio;
 pub(crate) mod dev;
 pub(crate) mod device;
-mod iscsi;
 mod loopback;
 mod malloc;
 pub(crate) mod nexus;

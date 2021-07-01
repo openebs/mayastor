@@ -4,7 +4,6 @@
 , e2fsprogs
 , lib
 , libaio
-, libiscsi
 , libspdk
 , libspdk-dev
 , libudev
@@ -70,7 +69,6 @@ let
       llvmPackages_11.libclang
       protobuf
       libaio
-      libiscsi
       libudev
       liburing
       numactl
@@ -106,7 +104,6 @@ in
 
     buildInputs = [
       libaio
-      libiscsi.lib
       libspdk-dev
       liburing
       libudev

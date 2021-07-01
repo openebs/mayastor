@@ -4,7 +4,6 @@
 , e2fsprogs
 , lib
 , libaio
-, libiscsi
 , libspdk
 , libspdk-dev
 , libudev
