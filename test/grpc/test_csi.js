@@ -335,7 +335,6 @@ describe('csi', function () {
     });
   });
 
-  csiProtocolTest('NBD', enums.NEXUS_NBD, 10000);
   csiProtocolTest('iSCSI', enums.NEXUS_ISCSI, 120000);
   csiProtocolTest('NVMF', enums.NEXUS_NVMF, 120000);
 });

@@ -1,4 +1,5 @@
 [patch.crates-io]
+h2 = { git = "https://github.com/openebs/h2",  rev = "0.3.3"}
 
 [profile.dev]
 panic = "abort"

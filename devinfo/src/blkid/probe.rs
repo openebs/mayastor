@@ -8,6 +8,7 @@ use crate::blkid::{
     blkid_probe_has_value,
     blkid_probe_lookup_value,
 };
+use core::slice;
 use std::{
     ffi::{CStr, CString},
     path::Path,
@@ -44,32 +45,34 @@ impl Probe {
         unsafe { to_result(blkid_do_safeprobe(self.0)) }
     }
 
+    pub fn has_value(self, name: &str) -> bool {
+        let name = CString::new(name).unwrap();
+        let ret = unsafe { blkid_probe_has_value(self.0, name.as_ptr()) };
+        ret == 1
+    }
+
     /// Fetch a value by name.
     pub fn lookup_value(self, name: &str) -> Result<String, DevInfoError> {
         let name = CString::new(name).unwrap();
-        let data_ptr = std::ptr::null_mut();
+        let mut data_ptr = std::ptr::null();
         let mut len = 0;
         unsafe {
             to_result::<i32>(blkid_probe_lookup_value(
                 self.0,
                 name.as_ptr(),
-                data_ptr,
+                &mut data_ptr,
                 &mut len,
             ))?;
-            Ok(CStr::from_ptr(data_ptr.cast())
-                .to_string_lossy()
-                .to_string())
-        }
-    }
 
-    /// Returns `true` if the value exists.
-    pub fn has_value(&self, name: &str) -> Result<bool, DevInfoError> {
-        let name =
-            CString::new(name).expect("provided path contained null bytes");
-
-        unsafe {
-            to_result(blkid_probe_has_value(self.0, name.as_ptr()))
-                .map(|v| v == 1)
+            let str = CStr::from_bytes_with_nul(slice::from_raw_parts(
+                data_ptr.cast(),
+                len as usize,
+            ))
+            .map_err(|_e| DevInfoError::InvalidStr {})?
+            .to_str()
+            .map_err(|_e| DevInfoError::InvalidStr {})?
+            .to_string();
+            Ok(str)
         }
     }
 }

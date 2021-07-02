@@ -161,13 +161,12 @@ where
         } else {
             Style::new()
         };
-
         let scope = self
             .span
             .and_then(|id| self.context.span(id))
             .or_else(|| self.context.lookup_current())
             .into_iter()
-            .flat_map(|span| span.from_root().chain(std::iter::once(span)));
+            .flat_map(|span| span.scope().from_root());
 
         for span in scope {
             write!(f, ":{}", bold.paint(span.metadata().name()))?;

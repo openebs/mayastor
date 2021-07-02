@@ -1,7 +1,28 @@
-{ stdenv, clang_11, dockerTools, e2fsprogs, lib, libaio, libspdk, libspdk-dev
-, libudev, liburing, makeRustPlatform, numactl, openssl, pkg-config, protobuf
-, sources, xfsprogs, utillinux, llvmPackages_11, targetPackages, buildPackages
-, targetPlatform, version, cargoBuildFlags ? [ ] }:
+{ stdenv
+, clang_11
+, dockerTools
+, e2fsprogs
+, lib
+, libaio
+, libspdk
+, libspdk-dev
+, libudev
+, liburing
+, makeRustPlatform
+, numactl
+, openssl
+, pkg-config
+, protobuf
+, sources
+, xfsprogs
+, utillinux
+, llvmPackages_11
+, targetPackages
+, buildPackages
+, targetPlatform
+, version
+, cargoBuildFlags ? [ ]
+}:
 let
   channel = import ../../lib/rust.nix { inherit sources; };
   rustPlatform = makeRustPlatform {
@@ -9,10 +30,12 @@ let
     cargo = channel.stable.cargo;
   };
   whitelistSource = src: allowedPrefixes:
-    builtins.filterSource (path: type:
-      lib.any
-      (allowedPrefix: lib.hasPrefix (toString (src + "/${allowedPrefix}")) path)
-      allowedPrefixes) src;
+    builtins.filterSource
+      (path: type:
+        lib.any
+          (allowedPrefix: lib.hasPrefix (toString (src + "/${allowedPrefix}")) path)
+          allowedPrefixes)
+      src;
   src_list = [
     ".git"
     "Cargo.lock"
@@ -50,12 +73,15 @@ let
     ];
     cargoLock = {
       lockFile = ../../../Cargo.lock;
-      outputHashes = { };
+      outputHashes = {
+        "h2-0.3.3" = "sha256-Y4AaBj10ZOutI37sVRY4yVUYmVWj5dwPbPhBhPWHNiQ=";
+      };
     };
     doCheck = false;
     meta = { platforms = lib.platforms.linux; };
   };
-in {
+in
+{
   release = rustPlatform.buildRustPackage (buildProps // {
     buildType = "release";
     buildInputs = buildProps.buildInputs ++ [ libspdk ];
