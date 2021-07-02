@@ -1,5 +1,5 @@
 { stdenv
-, clang
+, clang_11
 , dockerTools
 , e2fsprogs
 , lib
@@ -8,7 +8,6 @@
 , libspdk-dev
 , libudev
 , liburing
-, llvmPackages
 , makeRustPlatform
 , numactl
 , openssl
@@ -60,7 +59,7 @@ let
 
     inherit version cargoBuildFlags;
     src = whitelistSource ../../../. src_list;
-    LIBCLANG_PATH = "${llvmPackages.libclang.lib}/lib";
+    LIBCLANG_PATH = "${llvmPackages_11.libclang.lib}/lib";
     PROTOC = "${protobuf}/bin/protoc";
     PROTOC_INCLUDE = "${protobuf}/include";
 

@@ -237,9 +237,36 @@ pub mod nvme_nvm_opcode {
     // pub const WRITE_ZEROES: u8 = 0x08;
     // pub const DATASET_MANAGEMENT: u8 = 0x09;
     pub const RESERVATION_REGISTER: u8 = 0x0d;
-    // pub const RESERVATION_REPORT: u8 = 0x0e;
-    // pub const RESERVATION_ACQUIRE: u8 = 0x11;
+    pub const RESERVATION_REPORT: u8 = 0x0e;
+    pub const RESERVATION_ACQUIRE: u8 = 0x11;
     // pub const RESERVATION_RELEASE: u8 = 0x15;
+}
+
+pub mod nvme_reservation_type {
+    pub const WRITE_EXCLUSIVE: u8 = 0x1;
+    pub const EXCLUSIVE_ACCESS: u8 = 0x2;
+    pub const WRITE_EXCLUSIVE_REG_ONLY: u8 = 0x3;
+    pub const EXCLUSIVE_ACCESS_REG_ONLY: u8 = 0x4;
+    pub const WRITE_EXCLUSIVE_ALL_REGS: u8 = 0x5;
+    pub const EXCLUSIVE_ACCESS_ALL_REGS: u8 = 0x6;
+}
+
+pub mod nvme_reservation_register_action {
+    pub const REGISTER_KEY: u8 = 0x0;
+    pub const UNREGISTER_KEY: u8 = 0x1;
+    pub const REPLACE_KEY: u8 = 0x2;
+}
+
+pub mod nvme_reservation_register_cptpl {
+    pub const NO_CHANGES: u8 = 0x0;
+    pub const CLEAR_POWER_ON: u8 = 0x2;
+    pub const PERSIST_POWER_LOSS: u8 = 0x2;
+}
+
+pub mod nvme_reservation_acquire_action {
+    pub const ACQUIRE: u8 = 0x0;
+    pub const PREEMPT: u8 = 0x1;
+    pub const PREEMPT_ABORT: u8 = 0x2;
 }
 
 impl NvmeCommandStatus {

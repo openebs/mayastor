@@ -178,20 +178,21 @@ impl Nexus {
             self.name.clone(),
             Some(child_bdev),
         );
-        match child.open(self.size) {
-            Ok(name) => {
-                // we have created the bdev, and created a nexusChild struct. To
-                // make use of the device itself the
-                // data and metadata must be validated. The child
-                // will be added and marked as faulted, once the rebuild has
-                // completed the device can transition to online
-                info!("{}: child opened successfully {}", self.name, name);
+        let mut child_name = child.open(self.size);
+        if let Ok(ref name) = child_name {
+            // we have created the bdev, and created a nexusChild struct. To
+            // make use of the device itself the
+            // data and metadata must be validated. The child
+            // will be added and marked as faulted, once the rebuild has
+            // completed the device can transition to online
+            info!("{}: child opened successfully {}", self.name, name);
 
-                // FIXME: use dummy key for now
-                if let Err(e) = child.resv_register(0x12345678).await {
-                    error!("Failed to register key with child: {}", e);
-                }
-
+            if let Err(e) = child.acquire_write_exclusive().await {
+                child_name = Err(e);
+            }
+        }
+        match child_name {
+            Ok(_) => {
                 // it can never take part in the IO path
                 // of the nexus until it's rebuilt from a healthy child.
                 child.fault(Reason::OutOfSync).await;
@@ -487,14 +488,31 @@ impl Nexus {
             });
         }
 
-        // FIXME: use dummy key for now
+        // acquire a write exclusive reservation on all children,
+        // if any one fails, close all children.
+        let mut we_err: Result<(), Error> = Ok(());
         for child in self.children.iter() {
-            if let Err(error) = child.resv_register(0x12345678).await {
-                error!(
-                    "{}: failed to register key {} for child {}",
-                    self.name, child.name, error
-                );
+            if let Err(error) = child.acquire_write_exclusive().await {
+                we_err = Err(Error::ChildWriteExclusiveResvFailed {
+                    source: error,
+                    child: child.name.clone(),
+                    name: self.name.clone(),
+                });
+                break;
             }
+        }
+        if let Err(error) = we_err {
+            for child in &mut self.children {
+                if let Err(error) = child.close().await {
+                    error!(
+                        "{}: child {} failed to close with error {}",
+                        self.name,
+                        &child.name,
+                        error.verbose()
+                    );
+                }
+            }
+            return Err(error);
         }
 
         for child in self.children.iter() {
