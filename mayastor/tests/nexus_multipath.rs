@@ -22,6 +22,7 @@ use common::{compose::Builder, MayastorTest};
 static POOL_NAME: &str = "tpool";
 static UUID: &str = "cdc2a7db-3ac3-403a-af80-7fadc1581c47";
 static HOSTNQN: &str = "nqn.2019-05.io.openebs";
+static HOSTID0: &str = "53b35ce9-8e71-49a9-ab9b-cba7c5670fad";
 
 fn nvme_connect(target_addr: &str, nqn: &str) {
     let status = Command::new("nvme")
@@ -310,6 +311,7 @@ async fn nexus_multipath() {
 /// that the write exclusive reservation has been acquired by the new nexus.
 async fn nexus_resv_acquire() {
     std::env::set_var("NEXUS_NVMF_RESV_ENABLE", "1");
+    std::env::set_var("MAYASTOR_NVMF_HOSTID", HOSTID0);
     let test = Builder::new()
         .name("nexus_resv_acquire_test")
         .network("10.1.0.0/16")
@@ -395,6 +397,11 @@ async fn nexus_resv_acquire() {
     assert_eq!(
         v["regctlext"][0]["rcsts"], 1,
         "should have reservation status as reserved"
+    );
+    assert_eq!(
+        v["regctlext"][0]["hostid"].as_str().unwrap(),
+        HOSTID0.to_string().replace("-", ""),
+        "should match host ID of NVMe client"
     );
     assert_eq!(
         v["regctlext"][0]["rkey"], 0x12345678,
