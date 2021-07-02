@@ -1003,6 +1003,7 @@ pub(crate) mod options {
         admin_timeout_ms: Option<u32>,
         disable_error_logging: Option<bool>,
         fabrics_connect_timeout_us: Option<u64>,
+        ext_host_id: Option<[u8; 16]>,
         host_nqn: Option<String>,
         keep_alive_timeout_ms: Option<u32>,
         transport_retry_count: Option<u8>,
@@ -1038,6 +1039,11 @@ pub(crate) mod options {
             self
         }
 
+        pub fn with_ext_host_id(mut self, ext_host_id: [u8; 16]) -> Self {
+            self.ext_host_id = Some(ext_host_id);
+            self
+        }
+
         pub fn with_hostnqn<T: Into<String>>(mut self, host_nqn: T) -> Self {
             self.host_nqn = Some(host_nqn.into());
             self
@@ -1061,6 +1067,10 @@ pub(crate) mod options {
 
             if let Some(timeout_ms) = self.keep_alive_timeout_ms {
                 opts.0.keep_alive_timeout_ms = timeout_ms;
+            }
+
+            if let Some(ext_host_id) = self.ext_host_id {
+                opts.0.extended_host_id = ext_host_id;
             }
 
             if let Some(host_nqn) = self.host_nqn {
