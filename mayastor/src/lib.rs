@@ -5,6 +5,7 @@ extern crate tracing;
 extern crate nix;
 #[macro_use]
 extern crate serde;
+extern crate function_name;
 extern crate serde_json;
 extern crate snafu;
 extern crate spdk_sys;
