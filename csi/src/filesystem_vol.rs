@@ -129,13 +129,13 @@ pub async fn unstage_fs_volume(
 
     if let Some(mount) = mount::find_mount(None, Some(fs_staging_path)) {
         debug!(
-            "Unstaging filesystem volume {}, unmounting device {} from {}",
+            "Unstaging filesystem volume {}, unmounting device {:?} from {}",
             volume_id, mount.source, fs_staging_path
         );
         if let Err(error) = mount::filesystem_unmount(fs_staging_path) {
             return Err(failure!(
                     Code::Internal,
-                    "Failed to unstage volume {}: failed to unmount device {} from {}: {}",
+                    "Failed to unstage volume {}: failed to unmount device {:?} from {}: {}",
                     volume_id,
                     mount.source,
                     fs_staging_path,

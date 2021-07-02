@@ -4,9 +4,10 @@ version = "0.1.0"
 authors = ["Jeffry Molanus <jeffry.molanus@gmail.com>"]
 edition = "2018"
 
-
 [dependencies]
 snafu = "0.6"
 udev = "0.6"
 url = "2.1"
 uuid = { version = "0.8", features = ["v4"] }
+[build-dependencies]
+bindgen = "0.58"

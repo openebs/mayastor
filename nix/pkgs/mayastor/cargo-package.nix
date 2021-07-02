@@ -1,28 +1,7 @@
-{ stdenv
-, clang_11
-, dockerTools
-, e2fsprogs
-, lib
-, libaio
-, libspdk
-, libspdk-dev
-, libudev
-, liburing
-, makeRustPlatform
-, numactl
-, openssl
-, pkg-config
-, protobuf
-, sources
-, xfsprogs
-, utillinux
-, llvmPackages_11
-, targetPackages
-, buildPackages
-, targetPlatform
-, version
-, cargoBuildFlags ? [ ]
-}:
+{ stdenv, clang_11, dockerTools, e2fsprogs, lib, libaio, libspdk, libspdk-dev
+, libudev, liburing, makeRustPlatform, numactl, openssl, pkg-config, protobuf
+, sources, xfsprogs, utillinux, llvmPackages_11, targetPackages, buildPackages
+, targetPlatform, version, cargoBuildFlags ? [ ] }:
 let
   channel = import ../../lib/rust.nix { inherit sources; };
   rustPlatform = makeRustPlatform {
@@ -30,32 +9,28 @@ let
     cargo = channel.stable.cargo;
   };
   whitelistSource = src: allowedPrefixes:
-    builtins.filterSource
-      (path: type:
-        lib.any
-          (allowedPrefix: lib.hasPrefix (toString (src + "/${allowedPrefix}")) path)
-          allowedPrefixes)
-      src;
+    builtins.filterSource (path: type:
+      lib.any
+      (allowedPrefix: lib.hasPrefix (toString (src + "/${allowedPrefix}")) path)
+      allowedPrefixes) src;
   src_list = [
     ".git"
     "Cargo.lock"
     "Cargo.toml"
     "cli"
+    "composer"
     "csi"
     "devinfo"
     "jsonrpc"
     "mayastor"
+    "mbus-api"
     "nvmeadm"
     "rpc"
     "spdk-sys"
     "sysfs"
-    "mbus-api"
-    "composer"
   ];
   buildProps = rec {
     name = "mayastor";
-    # cargoSha256 = "0000000000000000000000000000000000000000000000000000";
-    cargoSha256 = "0950ck7vn49ws0351nwfqvx84ihr6bakvn9926qz3rkyc55qi786";
     inherit version cargoBuildFlags;
     src = whitelistSource ../../../. src_list;
     LIBCLANG_PATH = "${llvmPackages_11.libclang.lib}/lib";
@@ -73,12 +48,14 @@ let
       openssl
       utillinux
     ];
-    verifyCargoDeps = false;
+    cargoLock = {
+      lockFile = ../../../Cargo.lock;
+      outputHashes = { };
+    };
     doCheck = false;
     meta = { platforms = lib.platforms.linux; };
   };
-in
-{
+in {
   release = rustPlatform.buildRustPackage (buildProps // {
     buildType = "release";
     buildInputs = buildProps.buildInputs ++ [ libspdk ];
@@ -100,15 +77,8 @@ in
       ../../../target/debug/jsonrpc
     ];
 
-    buildInputs = [
-      libaio
-      libspdk-dev
-      liburing
-      libudev
-      openssl
-      xfsprogs
-      e2fsprogs
-    ];
+    buildInputs =
+      [ libaio libspdk-dev liburing libudev openssl xfsprogs e2fsprogs ];
 
     unpackPhase = ''
       for srcFile in $src; do

@@ -42,8 +42,5 @@ udev = "0.6"
 url = "2.1.1"
 uuid = { version = "0.8", features = ["v4"] }
 which = "3.1.1"
-
-[dependencies.blkid]
-branch = "blkid-sys"
-git = "https://github.com/openebs/blkid"
+devinfo = { path = "../devinfo"}
 
