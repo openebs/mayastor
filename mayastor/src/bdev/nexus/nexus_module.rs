@@ -99,7 +99,6 @@ impl NexusModule {
 impl NexusModule {
     extern "C" fn nexus_mod_init() -> i32 {
         info!("Initializing Nexus CAS Module");
-        crate::bdev::nexus::nexus_config::parse_ini_config_file();
         0
     }
 
