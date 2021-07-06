@@ -10,7 +10,7 @@ pytest_plugins = ["docker_compose"]
 
 @pytest.fixture
 def target_vm():
-    config["load_generators"]["vm1"]
+    return config["load_generators"]["vm1"]
 
 
 @pytest.fixture(scope="function")
@@ -40,6 +40,16 @@ def mayastors(docker_project, function_scoped_container_getter):
         ip_v4 = services.get("NetworkSettings.Networks.mayastor_net.IPAddress")
         handles[name] = MayastorHandle(ip_v4)
     yield handles
+
+
+@pytest.fixture(scope="function")
+def containers(docker_project, function_scoped_container_getter):
+    """Fixture to get handles to mayastor as well as the containers."""
+    project = docker_project
+    containers = {}
+    for name in project.service_names:
+        containers[name] = function_scoped_container_getter.get(name)
+    yield containers
 
 
 @pytest.fixture(scope="module")

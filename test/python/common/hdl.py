@@ -14,7 +14,7 @@ class MayastorHandle(object):
     def __init__(self, ip_v4):
         """Init."""
         self.ip_v4 = ip_v4
-        self.timeout = config["grpc"]["client_timeout"]
+        self.timeout = float(config["grpc"]["client_timeout"])
         self.channel = grpc.insecure_channel(("%s:10124") % self.ip_v4)
         self.bdev = rpc.BdevRpcStub(self.channel)
         self.ms = rpc.MayastorStub(self.channel)
