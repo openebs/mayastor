@@ -2,7 +2,7 @@
 
 use std::{collections::HashSet, io::Error};
 
-use proc_mounts::MountIter;
+use devinfo::mountinfo::{MountInfo, MountIter};
 use sys_mount::{unmount, FilesystemType, Mount, MountFlags, UnmountFlags};
 
 // Simple trait for checking if the readonly (ro) option
@@ -24,32 +24,12 @@ impl ReadOnly for &str {
     }
 }
 
-// Information about a mounted filesystem.
-#[derive(Debug)]
-pub struct MountInfo {
-    pub source: String,
-    pub dest: String,
-    pub fstype: String,
-    pub options: Vec<String>,
-}
-
-impl From<proc_mounts::MountInfo> for MountInfo {
-    fn from(mount: proc_mounts::MountInfo) -> MountInfo {
-        MountInfo {
-            source: mount.source.to_string_lossy().to_string(),
-            dest: mount.dest.to_string_lossy().to_string(),
-            fstype: mount.fstype,
-            options: mount.options,
-        }
-    }
-}
-
 /// Return mountinfo matching source and/or destination.
 pub fn find_mount(
     source: Option<&str>,
     target: Option<&str>,
 ) -> Option<MountInfo> {
-    let mut found: Option<proc_mounts::MountInfo> = None;
+    let mut found: Option<MountInfo> = None;
 
     for mount in MountIter::new().unwrap().flatten() {
         if let Some(value) = source {

@@ -41,21 +41,19 @@ let
     "Cargo.lock"
     "Cargo.toml"
     "cli"
+    "composer"
     "csi"
     "devinfo"
     "jsonrpc"
     "mayastor"
+    "mbus-api"
     "nvmeadm"
     "rpc"
     "spdk-sys"
     "sysfs"
-    "mbus-api"
-    "composer"
   ];
   buildProps = rec {
     name = "mayastor";
-    # cargoSha256 = "0000000000000000000000000000000000000000000000000000";
-    cargoSha256 = "0950ck7vn49ws0351nwfqvx84ihr6bakvn9926qz3rkyc55qi786";
     inherit version cargoBuildFlags;
     src = whitelistSource ../../../. src_list;
     LIBCLANG_PATH = "${llvmPackages_11.libclang.lib}/lib";
@@ -73,7 +71,12 @@ let
       openssl
       utillinux
     ];
-    verifyCargoDeps = false;
+    cargoLock = {
+      lockFile = ../../../Cargo.lock;
+      outputHashes = {
+        "h2-0.3.3" = "sha256-Y4AaBj10ZOutI37sVRY4yVUYmVWj5dwPbPhBhPWHNiQ=";
+      };
+    };
     doCheck = false;
     meta = { platforms = lib.platforms.linux; };
   };
@@ -100,15 +103,8 @@ in
       ../../../target/debug/jsonrpc
     ];
 
-    buildInputs = [
-      libaio
-      libspdk-dev
-      liburing
-      libudev
-      openssl
-      xfsprogs
-      e2fsprogs
-    ];
+    buildInputs =
+      [ libaio libspdk-dev liburing libudev openssl xfsprogs e2fsprogs ];
 
     unpackPhase = ''
       for srcFile in $src; do

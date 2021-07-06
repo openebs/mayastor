@@ -11,7 +11,6 @@ path = "src/server.rs"
 [build-dependencies]
 tonic-build = "0.4"
 prost-build = "0.7"
-
 [dependencies]
 async-trait = "0.1.36"
 async-stream = "0.3.0"
@@ -42,8 +41,5 @@ udev = "0.6"
 url = "2.1.1"
 uuid = { version = "0.8", features = ["v4"] }
 which = "3.1.1"
-
-[dependencies.blkid]
-branch = "blkid-sys"
-git = "https://github.com/openebs/blkid"
+devinfo = { path = "../devinfo"}
 
