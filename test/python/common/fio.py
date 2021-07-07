@@ -2,7 +2,7 @@ import shutil
 
 
 class Fio(object):
-    def __init__(self, name, rw, device, runtime=15):
+    def __init__(self, name, rw, device, runtime=15, optstr=None):
         self.name = name
         self.rw = rw
         self.device = device
@@ -10,6 +10,7 @@ class Fio(object):
         self.output = {}
         self.success = {}
         self.runtime = runtime
+        self.optstr = optstr
 
     def build(self) -> str:
         if isinstance(self.device, str):
@@ -19,9 +20,11 @@ class Fio(object):
 
         command = (
             "sudo fio --ioengine=linuxaio --direct=1 --bs=4k "
-            "--time_based=1 --rw={} "
+            "--time_based=1  {} --rw={} "
             "--group_reporting=1 --norandommap=1 --iodepth=64 "
-            "--runtime={} --name={} --filename={}"
-        ).format(self.rw, self.runtime, self.name, " --filename=".join(map(str, devs)))
+            "--runtime={} --name={}"
+        ).format(self.optstr, self.rw, self.runtime, self.name)
+
+        command += " --filename=".join(map(str, devs))
 
         return command

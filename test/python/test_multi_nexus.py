@@ -3,6 +3,7 @@ from common.command import run_cmd, run_cmd_async, run_cmd_async_at
 from common.nvme import nvme_remote_connect, nvme_remote_disconnect
 from common.fio import Fio
 from common.fio_spdk import FioSpdk
+from common.mayastor import mayastors, target_vm, containers
 import pytest
 import asyncio
 import uuid as guid
@@ -25,29 +26,6 @@ def check_size(prev, current, delta):
     before = prev.pools[0].used
     after = current.pools[0].used
     assert delta == (before - after) >> 20
-
-
-@pytest.fixture(scope="function")
-def mayastors(docker_project, function_scoped_container_getter):
-    """Fixture to get a reference to mayastor handles."""
-    project = docker_project
-    handles = {}
-    for name in project.service_names:
-        # because we use static networks .get_service() does not work
-        services = function_scoped_container_getter.get(name)
-        ip_v4 = services.get("NetworkSettings.Networks.python_mayastor_net.IPAddress")
-        handles[name] = MayastorHandle(ip_v4)
-    yield handles
-
-
-@pytest.fixture(scope="function")
-def containers(docker_project, function_scoped_container_getter):
-    """Fixture to get handles to mayastor as well as the containers."""
-    project = docker_project
-    containers = {}
-    for name in project.service_names:
-        containers[name] = function_scoped_container_getter.get(name)
-    yield containers
 
 
 @pytest.fixture
@@ -129,7 +107,7 @@ async def test_multiple(create_pool_on_all_nodes, containers, mayastors, target_
 
     devs = []
 
-    for _i in range(15):
+    for _ in range(15):
         uuid = guid.uuid4()
         ms1.nexus_create(
             uuid, 60 * 1024 * 1024, [rlist_m2.pop().uri, rlist_m3.pop().uri]
@@ -140,12 +118,63 @@ async def test_multiple(create_pool_on_all_nodes, containers, mayastors, target_
         dev = await nvme_remote_connect(target_vm, nexus)
         devs.append(dev)
 
-    fio_cmd = Fio(f"job-{dev}", "randwrite", devs).build()
+    fio_cmd = Fio(f"job-raw", "randwrite", devs).build()
+    await asyncio.gather(
+        run_cmd_async_at(target_vm, fio_cmd),
+        kill_after(to_kill, 3),
+    )
+
+    for nexus in nexus_list:
+        dev = await nvme_remote_disconnect(target_vm, nexus)
+
+
+@pytest.mark.asyncio
+async def test_multiple_fs(create_pool_on_all_nodes, containers, mayastors, target_vm):
+
+    ms1 = mayastors.get("ms1")
+    rlist_m2 = mayastors.get("ms2").replica_list().replicas
+    rlist_m3 = mayastors.get("ms3").replica_list().replicas
+    nexus_list = []
+    to_kill = containers.get("ms3")
+
+    devs = []
+
+    for _ in range(15):
+        uuid = guid.uuid4()
+        ms1.nexus_create(
+            uuid, 60 * 1024 * 1024, [rlist_m2.pop().uri, rlist_m3.pop().uri]
+        )
+        nexus_list.append(ms1.nexus_publish(uuid))
+
+    for nexus in nexus_list:
+        dev = await nvme_remote_connect(target_vm, nexus)
+        devs.append(dev)
+
+    for d in devs:
+        await run_cmd_async_at(target_vm, f"sudo mkfs.xfs {d}")
+        await run_cmd_async_at(target_vm, f"sudo mkdir -p /mnt{d}")
+        await run_cmd_async_at(target_vm, f"sudo mount {d} /mnt{d}")
+
+    # as we are mounted now we need to ensure we write to files not raw devices
+    files = []
+    for d in devs:
+        files.append(f"/mnt{d}/file.dat")
+
+    fio_cmd = Fio(
+        f"job-fs",
+        "randwrite",
+        files,
+        optstr="--verify=crc32 --verify_fatal=1 --verify_async=2 --size=50mb",
+    ).build()
+    print(fio_cmd)
 
     await asyncio.gather(
         run_cmd_async_at(target_vm, fio_cmd),
         kill_after(to_kill, 3),
     )
+
+    for d in devs:
+        await run_cmd_async_at(target_vm, f"sudo umount {d}")
 
     for nexus in nexus_list:
         dev = await nvme_remote_disconnect(target_vm, nexus)
