@@ -55,6 +55,9 @@ service Mayastor {
   rpc GetNvmeAnaState (GetNvmeAnaStateRequest) returns (GetNvmeAnaStateReply) {}
   rpc SetNvmeAnaState (SetNvmeAnaStateRequest) returns (Null) {}
 
+  // Mayastor instance methods.
+  rpc GetMayastorInfo (Null) returns (MayastorInfoRequest) {}
+
   // Nexus child operations
   rpc ChildOperation(ChildNexusRequest) returns (Null) {}
 
@@ -301,6 +304,15 @@ message GetNvmeAnaStateReply {
 message SetNvmeAnaStateRequest {
   string uuid = 1;   // uuid of the nexus
   NvmeAnaState ana_state = 2;
+}
+
+message MayastorFeatures {
+  bool asymmetricNamespaceAccess = 1;
+}
+
+message MayastorInfoRequest {
+  string version = 1;
+  MayastorFeatures supportedFeatures = 2;
 }
 
 enum ChildAction {

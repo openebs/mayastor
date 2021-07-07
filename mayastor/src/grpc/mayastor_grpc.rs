@@ -14,7 +14,14 @@ use crate::{
         nexus_create,
         Reason,
     },
-    core::{Bdev, BlockDeviceIoStats, CoreError, Protocol, Share},
+    core::{
+        Bdev,
+        BlockDeviceIoStats,
+        CoreError,
+        MayastorFeatures,
+        Protocol,
+        Share,
+    },
     grpc::{
         controller_grpc::{controller_stats, list_controllers},
         nexus_grpc::{
@@ -42,6 +49,7 @@ use tonic::{Request, Response, Status};
 struct UnixStream(tokio::net::UnixStream);
 
 use ::function_name::named;
+use git_version::git_version;
 use std::panic::AssertUnwindSafe;
 
 impl GrpcClientContext {
@@ -190,6 +198,14 @@ impl From<Lvol> for Replica {
             size: l.size(),
             share: l.shared().unwrap().into(),
             uri: l.share_uri().unwrap(),
+        }
+    }
+}
+
+impl From<MayastorFeatures> for rpc::mayastor::MayastorFeatures {
+    fn from(f: MayastorFeatures) -> Self {
+        Self {
+            asymmetric_namespace_access: f.asymmetric_namespace_access,
         }
     }
 }
@@ -1021,5 +1037,23 @@ impl mayastor_server::Mayastor for MayastorSvc {
         _request: Request<Null>,
     ) -> GrpcResult<StatNvmeControllersReply> {
         controller_stats().await
+    }
+
+    async fn get_mayastor_info(
+        &self,
+        _request: Request<Null>,
+    ) -> GrpcResult<MayastorInfoRequest> {
+        let features = MayastorFeatures::get_features().into();
+
+        let reply = MayastorInfoRequest {
+            version: git_version!(
+                args = ["--tags", "--abbrev=12"],
+                fallback = "unknown"
+            )
+            .to_string(),
+            supported_features: Some(features),
+        };
+
+        Ok(Response::new(reply))
     }
 }

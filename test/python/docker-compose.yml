@@ -57,6 +57,7 @@ services:
     image: rust:latest
     environment:
         - MY_POD_IP=10.0.0.4
+        - NEXUS_NVMF_ANA_ENABLE=1
     command: ${SRCDIR}/target/debug/mayastor -g 0.0.0.0 -l 5,6 -r /tmp/ms2.sock
     networks:
       mayastor_net:
@@ -82,6 +83,7 @@ services:
         - NVME_KATO_MS=1000
         - RUST_LOG=mayastor=trace
         - NEXUS_DONT_READ_LABELS=true
+        - NEXUS_NVMF_ANA_ENABLE=1
     command: ${SRCDIR}/target/debug/mayastor -g 0.0.0.0 -l 0,7 -r /tmp/ms3.sock
     networks:
       mayastor_net:
