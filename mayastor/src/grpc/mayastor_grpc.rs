@@ -16,7 +16,7 @@ use crate::{
     },
     core::{Bdev, BlockDeviceIoStats, CoreError, Protocol, Share},
     grpc::{
-        controller_grpc::list_controllers,
+        controller_grpc::{controller_stats, list_controllers},
         nexus_grpc::{
             nexus_add_child,
             nexus_destroy,
@@ -1014,5 +1014,12 @@ impl mayastor_server::Mayastor for MayastorSvc {
         _request: Request<Null>,
     ) -> GrpcResult<ListNvmeControllersReply> {
         list_controllers().await
+    }
+
+    async fn stat_nvme_controllers(
+        &self,
+        _request: Request<Null>,
+    ) -> GrpcResult<StatNvmeControllersReply> {
+        controller_stats().await
     }
 }
