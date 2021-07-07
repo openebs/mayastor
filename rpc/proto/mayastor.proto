@@ -40,6 +40,7 @@ service Mayastor {
   // replication and rebuild in the background.
 
   rpc CreateNexus (CreateNexusRequest) returns (Nexus) {}
+  rpc CreateNexusV2 (CreateNexusV2Request) returns (Nexus) {}
   rpc DestroyNexus (DestroyNexusRequest) returns (Null) {}
   rpc ListNexus (Null) returns (ListNexusReply) {}
   rpc AddChildNexus (AddChildNexusRequest) returns (Child) {}
@@ -204,9 +205,18 @@ message ShareReplicaReply {
 message CreateNexusRequest {
   string uuid = 1; // this UUID will be set in as the UUID
   uint64 size = 2; // size of the device in bytes
-  // replica can be iscsi and nvmf remote targets or a local spdk bdev
+  // replica can be nvmf remote targets or a local spdk bdev
   // (i.e. bdev:///name-of-the-bdev).
   repeated string children = 3; // uris to the targets we connect to
+}
+
+message CreateNexusV2Request {
+  string uuid = 1; // this UUID will be set in as the UUID
+  uint64 size = 2; // size of the device in bytes
+  uint32 minCntlId = 3;  // minimum NVMe controller ID
+  uint32 maxCntlId = 4;  // maximum NVMe controller ID
+  uint64 resvKey = 5;    // NVMe reservation key for children
+  repeated string children = 6; // uris to the targets we connect to
 }
 
 // State of the nexus child.

@@ -109,10 +109,25 @@ class MayastorHandle(object):
         return self.ms.ListReplicas(pb.Null())
 
     def nexus_create(self, uuid, size, children):
-        """Create a nexus with the given uuid and size. The children are
-        should be an array of nvmf URIs."""
+        """Create a nexus with the given uuid and size. The children should
+        be an array of nvmf URIs."""
         return self.ms.CreateNexus(
             pb.CreateNexusRequest(uuid=str(uuid), size=size, children=children)
+        )
+
+    def nexus_create_v2(self, uuid, size, min_cntlid, max_cntlid, resv_key, children):
+        """Create a nexus with the given uuid, size, NVMe controller ID range,
+        and NVMe reservation key for children. The children should be an array
+        of nvmf URIs."""
+        return self.ms.CreateNexusV2(
+            pb.CreateNexusV2Request(
+                uuid=str(uuid),
+                size=size,
+                minCntlId=min_cntlid,
+                maxCntlId=max_cntlid,
+                resvKey=resv_key,
+                children=children,
+            )
         )
 
     def nexus_destroy(self, uuid):

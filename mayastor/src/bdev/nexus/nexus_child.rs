@@ -411,12 +411,12 @@ impl NexusChild {
     /// Ignores bdevs without NVMe reservation support.
     pub(crate) async fn acquire_write_exclusive(
         &self,
+        key: u64,
     ) -> Result<(), ChildError> {
         if std::env::var("NEXUS_NVMF_RESV_ENABLE").is_err() {
             return Ok(());
         }
         let hdl = self.get_io_handle().context(HandleOpen {})?;
-        let key: u64 = 0x12345678;
         if let Err(e) = self.resv_register(&*hdl, key).await {
             match e {
                 CoreError::NotSupported {

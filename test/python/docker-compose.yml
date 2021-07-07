@@ -84,6 +84,7 @@ services:
         - RUST_LOG=mayastor=trace
         - NEXUS_DONT_READ_LABELS=true
         - NEXUS_NVMF_ANA_ENABLE=1
+        - NEXUS_NVMF_RESV_ENABLE=1
     command: ${SRCDIR}/target/debug/mayastor -g 0.0.0.0 -l 0,7 -r /tmp/ms3.sock
     networks:
       mayastor_net:

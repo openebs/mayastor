@@ -187,7 +187,10 @@ impl Nexus {
             // completed the device can transition to online
             info!("{}: child opened successfully {}", self.name, name);
 
-            if let Err(e) = child.acquire_write_exclusive().await {
+            if let Err(e) = child
+                .acquire_write_exclusive(self.nvme_params.resv_key)
+                .await
+            {
                 child_name = Err(e);
             }
         }
@@ -492,7 +495,10 @@ impl Nexus {
         // if any one fails, close all children.
         let mut we_err: Result<(), Error> = Ok(());
         for child in self.children.iter() {
-            if let Err(error) = child.acquire_write_exclusive().await {
+            if let Err(error) = child
+                .acquire_write_exclusive(self.nvme_params.resv_key)
+                .await
+            {
                 we_err = Err(Error::ChildWriteExclusiveResvFailed {
                     source: error,
                     child: child.name.clone(),

@@ -141,7 +141,12 @@ impl Nexus {
                 Ok(uri)
             }
             ShareProtocolNexus::NexusNvmf => {
-                let uri = self.share_nvmf(None).await?;
+                let uri = self
+                    .share_nvmf(Some((
+                        self.nvme_params.min_cntlid,
+                        self.nvme_params.max_cntlid,
+                    )))
+                    .await?;
                 self.nexus_target = Some(NexusTarget::NexusNvmfTarget);
                 Ok(uri)
             }
