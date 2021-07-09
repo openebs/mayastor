@@ -295,3 +295,8 @@ impl<T: Send + Debug> MayastorWorkQueue<T> {
 
 pub static MWQ: once_cell::sync::Lazy<MayastorWorkQueue<Command>> =
     once_cell::sync::Lazy::new(MayastorWorkQueue::new);
+
+#[derive(Debug, Clone)]
+pub struct MayastorFeatures {
+    pub asymmetric_namespace_access: bool,
+}

@@ -160,3 +160,7 @@ class MayastorHandle(object):
             uri = "pool://{0}/{1}".format(self.ip_v4, p.name)
             uris.append(uri)
         return uris
+
+    def mayastor_info(self):
+        """Get information about Mayastor instance"""
+        return self.ms.GetMayastorInfo(pb.Null())
