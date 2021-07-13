@@ -106,6 +106,14 @@ async def test_io_policy(create_replicas, create_nexuses, mayastor_mod):
         "../devices/virtual/nvme-subsystem/nvme-subsys"
     ), "No virtual NVMe subsystem exists for multipath Nexus"
 
+    # Make sure I/O policy is NUMA.
+    subsys = descr["Subsystems"][0]["Name"]
+    pfile = "/sys/class/nvme-subsystem/%s/iopolicy" % subsys
+    assert os.path.isfile(pfile), "No iopolicy file exists"
+    with open(pfile) as f:
+        iopolicy = f.read().strip()
+        assert iopolicy == "numa", "I/O policy is not NUMA"
+
 
 @pytest.mark.asyncio
 async def test_namespace_guid(create_replicas, create_nexuses, mayastor_mod):
