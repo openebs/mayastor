@@ -76,7 +76,7 @@ def nvme_connect(uri):
 
     # we should only have one connection
     assert len(dev) == 1
-    device = "/dev/{}".format(dev[0].get("Namespaces")[0].get("NameSpace"))
+    device = "/dev/{}".format(dev[0]["Namespaces"][0].get("NameSpace"))
     return device
 
 
@@ -101,3 +101,37 @@ def nvme_disconnect(uri):
 
     command = "sudo nvme disconnect -n {0}".format(nqn)
     subprocess.run(command, check=True, shell=True, capture_output=True)
+
+
+def nvme_disconnect_all():
+    """Disconnect from all connected nvme subsystems"""
+    command = "sudo nvme disconnect-all"
+    subprocess.run(command, check=True, shell=True, capture_output=True)
+
+
+def nvme_list_subsystems(device):
+    """Retrieve information for NVMe subsystems"""
+    command = "sudo nvme list-subsys {} -o json".format(device)
+    return json.loads(
+        subprocess.run(
+            command, check=True, shell=True, capture_output=True, encoding="utf-8"
+        ).stdout
+    )
+
+
+NS_PROPS = ["nguid", "eui64"]
+
+
+def identify_namespace(device):
+    """Get properties of a namespace on this host"""
+    command = "sudo nvme id-ns {}".format(device)
+    output = subprocess.run(
+        command, check=True, shell=True, capture_output=True, encoding="utf-8"
+    )
+    props = output.stdout.strip().split("\n")[1:]
+    ns = {}
+    for p in props:
+        v = [v.strip() for v in p.split(":") if p.count(":") == 1]
+        if len(v) == 2 and v[0] in NS_PROPS:
+            ns[v[0]] = v[1]
+    return ns
