@@ -115,12 +115,15 @@ class MayastorHandle(object):
             pb.CreateNexusRequest(uuid=str(uuid), size=size, children=children)
         )
 
-    def nexus_create_v2(self, uuid, size, min_cntlid, max_cntlid, resv_key, children):
-        """Create a nexus with the given uuid, size, NVMe controller ID range,
+    def nexus_create_v2(
+        self, name, uuid, size, min_cntlid, max_cntlid, resv_key, children
+    ):
+        """Create a nexus with the given name, uuid, size, NVMe controller ID range,
         and NVMe reservation key for children. The children should be an array
         of nvmf URIs."""
         return self.ms.CreateNexusV2(
             pb.CreateNexusV2Request(
+                name=name,
                 uuid=str(uuid),
                 size=size,
                 minCntlId=min_cntlid,
@@ -148,6 +151,10 @@ class MayastorHandle(object):
     def nexus_list(self):
         """List all the nexus devices."""
         return self.ms.ListNexus(pb.Null()).nexus_list
+
+    def nexus_list_v2(self):
+        """List all the nexus devices, with separate name and uuid."""
+        return self.ms.ListNexusV2(pb.Null()).nexus_list
 
     def nexus_add_replica(self, uuid, uri, norebuild):
         """Add a new replica to the nexus"""

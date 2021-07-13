@@ -21,6 +21,7 @@ pub mod common;
 use common::{compose::Builder, MayastorTest};
 
 static POOL_NAME: &str = "tpool";
+static NXNAME: &str = "nexus0";
 static UUID: &str = "cdc2a7db-3ac3-403a-af80-7fadc1581c47";
 static HOSTNQN: &str = "nqn.2019-05.io.openebs";
 static HOSTID0: &str = "53b35ce9-8e71-49a9-ab9b-cba7c5670fad";
@@ -360,8 +361,6 @@ async fn nexus_resv_acquire() {
 
     let mayastor = MayastorTest::new(MayastorCliArgs::default());
     let ip0 = hdls[0].endpoint.ip();
-    let nexus_name = format!("nexus-{}", UUID);
-    let name = nexus_name.clone();
     let resv_key = 0xabcd_ef00_1234_5678;
     mayastor
         .spawn(async move {
@@ -369,7 +368,7 @@ async fn nexus_resv_acquire() {
             nvme_params.set_resv_key(resv_key);
             // create nexus on local node with remote replica as child
             nexus_create_v2(
-                &name,
+                &NXNAME.to_string(),
                 32 * 1024 * 1024,
                 Some(UUID),
                 nvme_params,
@@ -377,8 +376,12 @@ async fn nexus_resv_acquire() {
             )
             .await
             .unwrap();
-            bdev_io::write_some(&name, 0, 0xff).await.unwrap();
-            bdev_io::read_some(&name, 0, 0xff).await.unwrap();
+            bdev_io::write_some(&NXNAME.to_string(), 0, 0xff)
+                .await
+                .unwrap();
+            bdev_io::read_some(&NXNAME.to_string(), 0, 0xff)
+                .await
+                .unwrap();
         })
         .await;
 
@@ -418,6 +421,7 @@ async fn nexus_resv_acquire() {
     hdls[1]
         .mayastor
         .create_nexus_v2(CreateNexusV2Request {
+            name: NXNAME.to_string(),
             uuid: UUID.to_string(),
             size: 32 * 1024 * 1024,
             min_cntl_id: 1,
@@ -455,13 +459,12 @@ async fn nexus_resv_acquire() {
         "should have different hostid holding reservation"
     );
 
-    let name = nexus_name.clone();
     mayastor
         .spawn(async move {
-            bdev_io::write_some(&name, 0, 0xff)
+            bdev_io::write_some(&NXNAME.to_string(), 0, 0xff)
                 .await
                 .expect_err("writes should fail");
-            bdev_io::read_some(&name, 0, 0xff)
+            bdev_io::read_some(&NXNAME.to_string(), 0, 0xff)
                 .await
                 .expect_err("reads should also fail after write failure");
         })

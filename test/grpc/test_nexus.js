@@ -16,6 +16,7 @@ const grpc = require('grpc');
 const common = require('./test_common');
 const enums = require('./grpc_enums');
 const url = require('url');
+const NEXUSNAME = 'nexus0';
 // just some UUID used for nexus ID
 const UUID = 'dbe4d7eb-118a-4d15-b789-a18d9af6ff21';
 const UUID2 = 'dbe4d7eb-118a-4d15-b789-a18d9af6ff22';
@@ -331,9 +332,6 @@ describe('nexus', function () {
     const args = {
       uuid: UUID,
       size: diskSize,
-      minCntlId: 2340,
-      maxCntlId: 2350,
-      resvKey: 0xabcd1234,
       children: [
         'bdev:///Malloc0',
         `aio://${aioFile}?blk_size=4096`,
@@ -342,7 +340,7 @@ describe('nexus', function () {
     };
     if (doUring()) args.children.push(`uring://${uringFile}?blk_size=4096`);
 
-    client.createNexusV2(args, done);
+    client.createNexus(args, done);
   }
 
   it('should create a nexus using all types of replicas', (done) => {
@@ -656,7 +654,7 @@ describe('nexus', function () {
             assert.equal((data[76] & 0x8), 0x8, 'ANA reporting should be enabled');
             // cntlid
             const cntlid = data[79] << 8 | data[78];
-            assert.equal(cntlid, 2340, 'should match expected cntlid');
+            assert.equal(cntlid, 1, 'should match expected cntlid');
           });
           done();
         }
@@ -792,6 +790,7 @@ describe('nexus', function () {
 
     it('should fail to create a nexus with invalid NVMe controller ID range', (done) => {
       const args = {
+        name: NEXUSNAME,
         uuid: UUID,
         size: 131072,
         minCntlId: 0xfff0,
@@ -810,6 +809,7 @@ describe('nexus', function () {
 
     it('should fail to create a nexus with invalid NVMe reservation key', (done) => {
       const args = {
+        name: NEXUSNAME,
         uuid: UUID,
         size: 131072,
         minCntlId: 1,
