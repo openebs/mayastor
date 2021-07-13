@@ -12,9 +12,11 @@ import mayastor_pb2 as pb
 from common.nvme import (
     nvme_discover,
     nvme_connect,
+    nvme_id_ctrl,
     nvme_disconnect,
     nvme_remote_connect,
     nvme_remote_disconnect,
+    nvme_resv_report,
 )
 
 from common.mayastor import containers_mod, mayastor_mod
@@ -29,6 +31,29 @@ def create_nexus(mayastor_mod, nexus_uuid, create_replica):
     NEXUS_UUID, size_mb = nexus_uuid
 
     hdls["ms3"].nexus_create(NEXUS_UUID, 64 * 1024 * 1024, replicas)
+    uri = hdls["ms3"].nexus_publish(NEXUS_UUID)
+    assert len(hdls["ms1"].bdev_list()) == 2
+    assert len(hdls["ms2"].bdev_list()) == 2
+    assert len(hdls["ms3"].bdev_list()) == 1
+
+    assert len(hdls["ms1"].pool_list().pools) == 1
+    assert len(hdls["ms2"].pool_list().pools) == 1
+
+    yield uri
+    hdls["ms3"].nexus_destroy(NEXUS_UUID)
+
+
+@pytest.fixture
+def create_nexus_v2(mayastor_mod, nexus_uuid, create_replica, min_cntlid, resv_key):
+    hdls = mayastor_mod
+    replicas = create_replica
+    replicas = [k.uri for k in replicas]
+
+    NEXUS_UUID, size_mb = nexus_uuid
+
+    hdls["ms3"].nexus_create_v2(
+        NEXUS_UUID, 64 * 1024 * 1024, min_cntlid, min_cntlid + 9, resv_key, replicas
+    )
     uri = hdls["ms3"].nexus_publish(NEXUS_UUID)
     assert len(hdls["ms1"].bdev_list()) == 2
     assert len(hdls["ms2"].bdev_list()) == 2
@@ -67,6 +92,20 @@ def nexus_uuid():
     NEXUS_UUID = "3ae73410-6136-4430-a7b5-cbec9fe2d273"
     size_mb = 64 * 1024 * 1024
     return (NEXUS_UUID, size_mb)
+
+
+@pytest.fixture
+def min_cntlid():
+    """NVMe minimum controller ID to be used."""
+    min_cntlid = 50
+    return min_cntlid
+
+
+@pytest.fixture
+def resv_key():
+    """NVMe reservation key to be used."""
+    resv_key = 0xABCDEF0012345678
+    return resv_key
 
 
 @pytest.fixture
@@ -218,3 +257,47 @@ async def test_nexus_2_remote_mirror_kill_one_spdk(
     nexus = next(n for n in list if n.uuid == NEXUS_UUID)
     assert nexus.state == pb.NEXUS_DEGRADED
     nexus.children[1].state == pb.CHILD_FAULTED
+
+
+@pytest.mark.timeout(60)
+async def test_nexus_cntlid(create_nexus_v2, min_cntlid):
+    """Test create_nexus_v2 NVMe controller ID"""
+
+    uri = create_nexus_v2
+    min_cntlid = min_cntlid
+
+    dev = nvme_connect(uri)
+    id_ctrl = nvme_id_ctrl(dev)
+    assert id_ctrl["cntlid"] == min_cntlid
+
+    nvme_disconnect(uri)
+
+
+@pytest.mark.timeout(60)
+async def test_nexus_resv_key(create_nexus_v2, nexus_uuid, mayastor_mod, resv_key):
+    """Test create_nexus_v2 replica NVMe reservation key"""
+
+    uri = create_nexus_v2
+    NEXUS_UUID, _ = nexus_uuid
+    resv_key = resv_key
+
+    list = mayastor_mod.get("ms3").nexus_list()
+    nexus = next(n for n in list if n.uuid == NEXUS_UUID)
+    child_uri = nexus.children[0].uri
+
+    dev = nvme_connect(child_uri)
+    report = nvme_resv_report(dev)
+
+    # write exclusive reservation
+    assert report["rtype"] == 1
+    # 1 registered controller
+    assert report["regctl"] == 1
+    # Persist Through Power Loss State
+    assert report["ptpls"] == 0
+    # dynamic controller ID
+    assert report["regctlext"][0]["cntlid"] == 0xFFFF
+    # reservation status reserved
+    assert report["regctlext"][0]["rcsts"] == 1
+    assert report["regctlext"][0]["rkey"] == resv_key
+
+    nvme_disconnect(child_uri)

@@ -1,11 +1,12 @@
 //! Multipath NVMf and reservation tests
 use common::bdev_io;
 use mayastor::{
-    bdev::{nexus_create, nexus_lookup},
+    bdev::{nexus_create, nexus_create_v2, nexus_lookup, NexusNvmeParams},
     core::MayastorCliArgs,
 };
 use rpc::mayastor::{
     CreateNexusRequest,
+    CreateNexusV2Request,
     CreatePoolRequest,
     CreateReplicaRequest,
     DestroyNexusRequest,
@@ -361,13 +362,17 @@ async fn nexus_resv_acquire() {
     let ip0 = hdls[0].endpoint.ip();
     let nexus_name = format!("nexus-{}", UUID);
     let name = nexus_name.clone();
+    let resv_key = 0xabcd_ef00_1234_5678;
     mayastor
         .spawn(async move {
+            let mut nvme_params = NexusNvmeParams::default();
+            nvme_params.set_resv_key(resv_key);
             // create nexus on local node with remote replica as child
-            nexus_create(
+            nexus_create_v2(
                 &name,
                 32 * 1024 * 1024,
                 Some(UUID),
+                nvme_params,
                 &[format!("nvmf://{}:8420/{}:{}", ip0, HOSTNQN, UUID)],
             )
             .await
@@ -404,16 +409,20 @@ async fn nexus_resv_acquire() {
         "should match host ID of NVMe client"
     );
     assert_eq!(
-        v["regctlext"][0]["rkey"], 0x12345678,
-        "should have default registered key"
+        v["regctlext"][0]["rkey"], resv_key,
+        "should have configured registered key"
     );
 
     // create nexus on remote node 2 with replica on node 1 as child
+    let resv_key2 = 0xfeed_f00d_bead_5678;
     hdls[1]
         .mayastor
-        .create_nexus(CreateNexusRequest {
+        .create_nexus_v2(CreateNexusV2Request {
             uuid: UUID.to_string(),
             size: 32 * 1024 * 1024,
+            min_cntl_id: 1,
+            max_cntl_id: 0xffef,
+            resv_key: resv_key2,
             children: [format!("nvmf://{}:8420/{}:{}", ip0, HOSTNQN, UUID)]
                 .to_vec(),
         })
@@ -437,8 +446,8 @@ async fn nexus_resv_acquire() {
         "should have reservation status as reserved"
     );
     assert_eq!(
-        v2["regctlext"][0]["rkey"], 0x12345678,
-        "should have default registered key"
+        v2["regctlext"][0]["rkey"], resv_key2,
+        "should have configured registered key"
     );
     // Until host IDs can be configured, different host ID is sufficient
     assert_ne!(

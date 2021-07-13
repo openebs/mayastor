@@ -331,6 +331,9 @@ describe('nexus', function () {
     const args = {
       uuid: UUID,
       size: diskSize,
+      minCntlId: 2340,
+      maxCntlId: 2350,
+      resvKey: 0xabcd1234,
       children: [
         'bdev:///Malloc0',
         `aio://${aioFile}?blk_size=4096`,
@@ -339,7 +342,7 @@ describe('nexus', function () {
     };
     if (doUring()) args.children.push(`uring://${uringFile}?blk_size=4096`);
 
-    client.createNexus(args, done);
+    client.createNexusV2(args, done);
   }
 
   it('should create a nexus using all types of replicas', (done) => {
@@ -653,7 +656,7 @@ describe('nexus', function () {
             assert.equal((data[76] & 0x8), 0x8, 'ANA reporting should be enabled');
             // cntlid
             const cntlid = data[79] << 8 | data[78];
-            assert.equal(cntlid, 1, 'should match expected cntlid');
+            assert.equal(cntlid, 2340, 'should match expected cntlid');
           });
           done();
         }
@@ -782,6 +785,42 @@ describe('nexus', function () {
         // todo: fixme
         // in this case we hit a Error::NexusCreate which atm is converted
         // into a grpc internal error
+        assert.equal(err.code, grpc.status.INTERNAL);
+        done();
+      });
+    });
+
+    it('should fail to create a nexus with invalid NVMe controller ID range', (done) => {
+      const args = {
+        uuid: UUID,
+        size: 131072,
+        minCntlId: 0xfff0,
+        maxCntlId: 1,
+        resvKey: 0x12345678,
+        children: [
+          'malloc:///malloc1?size_mb=64'
+        ]
+      };
+      client.createNexusV2(args, (err) => {
+        if (!err) return done(new Error('Expected error'));
+        assert.equal(err.code, grpc.status.INTERNAL);
+        done();
+      });
+    });
+
+    it('should fail to create a nexus with invalid NVMe reservation key', (done) => {
+      const args = {
+        uuid: UUID,
+        size: 131072,
+        minCntlId: 1,
+        maxCntlId: 0xffef,
+        resvKey: 0,
+        children: [
+          'malloc:///malloc1?size_mb=64'
+        ]
+      };
+      client.createNexusV2(args, (err) => {
+        if (!err) return done(new Error('Expected error'));
         assert.equal(err.code, grpc.status.INTERNAL);
         done();
       });

@@ -12,6 +12,7 @@ use crate::{
     bdev::{
         nexus::{instances, nexus_bdev},
         nexus_create,
+        nexus_create_v2,
         Reason,
     },
     core::{
@@ -24,6 +25,7 @@ use crate::{
     },
     grpc::{
         controller_grpc::{controller_stats, list_controllers},
+        mayastor_grpc::nexus_bdev::NexusNvmeParams,
         nexus_grpc::{
             nexus_add_child,
             nexus_destroy,
@@ -533,6 +535,43 @@ impl mayastor_server::Mayastor for MayastorSvc {
                         &name,
                         args.size,
                         Some(&args.uuid),
+                        &args.children,
+                    )
+                    .await?;
+                    let nexus = nexus_lookup(&uuid)?;
+                    info!("Created nexus {}", uuid);
+                    Ok(nexus.to_grpc())
+                })?;
+                rx.await
+                    .map_err(|_| Status::cancelled("cancelled"))?
+                    .map_err(Status::from)
+                    .map(Response::new)
+            },
+        )
+        .await
+    }
+
+    #[named]
+    async fn create_nexus_v2(
+        &self,
+        request: Request<CreateNexusV2Request>,
+    ) -> GrpcResult<Nexus> {
+        self.locked(
+            GrpcClientContext::new(&request, function_name!()),
+            async move {
+                let args = request.into_inner();
+                let rx = rpc_submit::<_, _, nexus_bdev::Error>(async move {
+                    let uuid = args.uuid.clone();
+                    let name = uuid_to_name(&args.uuid)?;
+                    nexus_create_v2(
+                        &name,
+                        args.size,
+                        Some(&args.uuid),
+                        NexusNvmeParams {
+                            min_cntlid: args.min_cntl_id as u16,
+                            max_cntlid: args.max_cntl_id as u16,
+                            resv_key: args.resv_key,
+                        },
                         &args.children,
                     )
                     .await?;

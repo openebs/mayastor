@@ -57,6 +57,9 @@ use crate::{
     subsys::{NvmfError, NvmfSubsystem},
 };
 
+pub static NVME_MIN_CNTLID: u16 = 1;
+pub static NVME_MAX_CNTLID: u16 = 0xffef;
+
 /// Obtain the full error chain
 pub trait VerboseError {
     fn verbose(&self) -> String;
@@ -248,6 +251,8 @@ pub enum Error {
     InvalidShareProtocol { sp_value: i32 },
     #[snafu(display("Invalid NvmeAnaState value {}", ana_value))]
     InvalidNvmeAnaState { ana_value: i32 },
+    #[snafu(display("Invalid arguments for nexus {}: {}", name, args))]
+    InvalidArguments { name: String, args: String },
     #[snafu(display("Failed to create nexus {}", name))]
     NexusCreate { name: String },
     #[snafu(display("Failed to destroy nexus {}", name))]
@@ -344,6 +349,39 @@ pub enum NexusPauseState {
     Unpausing,
 }
 
+/// NVMe-specific parameters for the Nexus
+#[derive(Debug)]
+pub struct NexusNvmeParams {
+    /// minimum NVMe controller ID for sharing over NVMf
+    pub(crate) min_cntlid: u16,
+    /// maximum NVMe controller ID
+    pub(crate) max_cntlid: u16,
+    /// NVMe reservation key for children
+    pub(crate) resv_key: u64,
+}
+
+impl Default for NexusNvmeParams {
+    fn default() -> Self {
+        NexusNvmeParams {
+            min_cntlid: NVME_MIN_CNTLID,
+            max_cntlid: NVME_MAX_CNTLID,
+            resv_key: 0x1234_5678,
+        }
+    }
+}
+
+impl NexusNvmeParams {
+    pub fn set_min_cntlid(&mut self, min_cntlid: u16) {
+        self.min_cntlid = min_cntlid;
+    }
+    pub fn set_max_cntlid(&mut self, max_cntlid: u16) {
+        self.max_cntlid = max_cntlid;
+    }
+    pub fn set_resv_key(&mut self, resv_key: u64) {
+        self.resv_key = resv_key;
+    }
+}
+
 /// The main nexus structure
 #[derive(Debug)]
 pub struct Nexus {
@@ -355,6 +393,8 @@ pub struct Nexus {
     pub(crate) child_count: u32,
     /// vector of children
     pub children: Vec<NexusChild>,
+    /// NVMe parameters
+    pub(crate) nvme_params: NexusNvmeParams,
     /// inner bdev
     pub(crate) bdev: Bdev,
     /// raw pointer to bdev (to destruct it later using Box::from_raw())
@@ -463,6 +503,7 @@ impl Nexus {
         name: &str,
         size: u64,
         uuid: Option<&str>,
+        nvme_params: NexusNvmeParams,
         child_bdevs: Option<&[String]>,
     ) -> Box<Self> {
         let mut b = Box::new(spdk_bdev::default());
@@ -486,6 +527,7 @@ impl Nexus {
             share_handle: None,
             size,
             nexus_target: None,
+            nvme_params,
             io_device: None,
             pause_state: AtomicCell::new(NexusPauseState::Unpaused),
             pause_waiters: Vec::new(),
@@ -1066,6 +1108,59 @@ pub async fn nexus_create(
     uuid: Option<&str>,
     children: &[String],
 ) -> Result<(), Error> {
+    nexus_create_internal(
+        name,
+        size,
+        uuid,
+        NexusNvmeParams::default(),
+        children,
+    )
+    .await
+}
+
+/// As create_nexus with additional parameters:
+/// min_cntlid, max_cntldi: NVMe controller ID range when sharing over NVMf
+/// resv_key: NVMe reservation key for children
+pub async fn nexus_create_v2(
+    name: &str,
+    size: u64,
+    uuid: Option<&str>,
+    nvme_params: NexusNvmeParams,
+    children: &[String],
+) -> Result<(), Error> {
+    if nvme_params.min_cntlid < NVME_MIN_CNTLID
+        || nvme_params.min_cntlid > nvme_params.max_cntlid
+        || nvme_params.max_cntlid > NVME_MAX_CNTLID
+    {
+        let args = format!(
+            "invalid NVMe controller ID range [{:x}h, {:x}h]",
+            nvme_params.min_cntlid, nvme_params.max_cntlid
+        );
+        error!("failed to create nexus {}: {}", name, args);
+        return Err(Error::InvalidArguments {
+            name: name.to_owned(),
+            args,
+        });
+    }
+    if nvme_params.resv_key == 0 {
+        let args = "invalid NVMe reservation key";
+        error!("failed to create nexus {}: {}", name, args);
+        return Err(Error::InvalidArguments {
+            name: name.to_owned(),
+            args: args.to_string(),
+        });
+    }
+
+    nexus_create_internal(name, size, uuid, nvme_params, children).await
+}
+
+async fn nexus_create_internal(
+    name: &str,
+    size: u64,
+    uuid: Option<&str>,
+    nvme_params: NexusNvmeParams,
+    children: &[String],
+) -> Result<(), Error> {
     // global variable defined in the nexus module
     let nexus_list = instances();
 
@@ -1085,7 +1180,7 @@ pub async fn nexus_create(
     // closing a child assumes that the nexus to which it belongs will appear
     // in the global list of nexus instances. We must also ensure that the
     // nexus instance gets removed from the global list if an error occurs.
-    nexus_list.push(Nexus::new(name, size, uuid, None));
+    nexus_list.push(Nexus::new(name, size, uuid, nvme_params, None));
 
     // Obtain a reference to the newly created Nexus object.
     let ni =

@@ -5,8 +5,10 @@ pub use device::{bdev_io_ctx_pool_init, SpdkBlockDevice};
 pub use nexus::{
     nexus_bdev::{
         nexus_create,
+        nexus_create_v2,
         nexus_lookup,
         Nexus,
+        NexusNvmeParams,
         NexusState,
         NexusStatus,
         VerboseError,

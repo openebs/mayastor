@@ -7,7 +7,7 @@ use crate::{
 };
 use ::rpc::mayastor as rpc;
 use byte_unit::Byte;
-use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
+use clap::{value_t, App, AppSettings, Arg, ArgMatches, SubCommand};
 use colored_json::ToColoredJson;
 use snafu::ResultExt;
 use tonic::{Code, Status};
@@ -32,6 +32,41 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
                 .required(true)
                 .multiple(true)
                 .index(3)
+                .help("list of children to add"),
+        );
+
+    let create_v2 = SubCommand::with_name("create2")
+        .about("Create a new nexus device with NVMe options")
+        .arg(
+            Arg::with_name("uuid")
+                .required(true)
+                .index(1)
+                .help("uuid for the nexus"),
+        )
+        .arg(
+            Arg::with_name("size")
+                .required(true)
+                .help("size with optional unit suffix"),
+        )
+        .arg(
+            Arg::with_name("min-cntlid")
+                .required(true)
+                .help("minimum NVMe controller ID for sharing over NVMf"),
+        )
+        .arg(
+            Arg::with_name("max-cntlid")
+                .required(true)
+                .help("maximum NVMe controller ID"),
+        )
+        .arg(
+            Arg::with_name("resv-key")
+                .required(true)
+                .help("NVMe reservation key for children"),
+        )
+        .arg(
+            Arg::with_name("children")
+                .required(true)
+                .multiple(true)
                 .help("list of children to add"),
         );
 
@@ -143,6 +178,7 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
         ])
         .about("Nexus device management")
         .subcommand(create)
+        .subcommand(create_v2)
         .subcommand(destroy)
         .subcommand(publish)
         .subcommand(add)
@@ -160,6 +196,7 @@ pub async fn handler(
 ) -> crate::Result<()> {
     match matches.subcommand() {
         ("create", Some(args)) => nexus_create(ctx, args).await,
+        ("create2", Some(args)) => nexus_create_v2(ctx, args).await,
         ("destroy", Some(args)) => nexus_destroy(ctx, args).await,
         ("list", Some(args)) => nexus_list(ctx, args).await,
         ("children", Some(args)) => nexus_children(ctx, args).await,
@@ -176,10 +213,13 @@ pub async fn handler(
     }
 }
 
-async fn nexus_create(
-    mut ctx: Context,
+fn nexus_create_parse(
     matches: &ArgMatches<'_>,
-) -> crate::Result<()> {
+) -> crate::Result<(
+    ::prost::alloc::string::String,
+    u64,
+    ::prost::alloc::vec::Vec<::prost::alloc::string::String>,
+)> {
     let uuid = matches.value_of("uuid").unwrap().to_string();
     let size = parse_size(matches.value_of("size").ok_or_else(|| {
         Error::MissingValue {
@@ -196,12 +236,63 @@ async fn nexus_create(
         .map(|c| c.to_string())
         .collect::<Vec<String>>();
     let size = size.get_bytes() as u64;
+    Ok((uuid, size, children))
+}
+
+async fn nexus_create(
+    mut ctx: Context,
+    matches: &ArgMatches<'_>,
+) -> crate::Result<()> {
+    let (uuid, size, children) = nexus_create_parse(matches)?;
 
     let response = ctx
         .client
         .create_nexus(rpc::CreateNexusRequest {
             uuid: uuid.clone(),
             size,
+            children,
+        })
+        .await
+        .context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            println!("{}", &response.get_ref().uuid);
+        }
+    };
+
+    Ok(())
+}
+
+async fn nexus_create_v2(
+    mut ctx: Context,
+    matches: &ArgMatches<'_>,
+) -> crate::Result<()> {
+    let (uuid, size, children) = nexus_create_parse(matches)?;
+    let min_cntl_id = value_t!(matches.value_of("min-cntlid"), u32)
+        .unwrap_or_else(|e| e.exit());
+    let max_cntl_id = value_t!(matches.value_of("max-cntlid"), u32)
+        .unwrap_or_else(|e| e.exit());
+    let resv_key = value_t!(matches.value_of("resv-key"), u64)
+        .unwrap_or_else(|e| e.exit());
+
+    let response = ctx
+        .client
+        .create_nexus_v2(rpc::CreateNexusV2Request {
+            uuid: uuid.clone(),
+            size,
+            min_cntl_id,
+            max_cntl_id,
+            resv_key,
             children,
         })
         .await

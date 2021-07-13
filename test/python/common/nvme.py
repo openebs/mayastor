@@ -80,6 +80,30 @@ def nvme_connect(uri):
     return device
 
 
+def nvme_id_ctrl(device):
+    """Identify controller."""
+    command = "sudo nvme id-ctrl {0} -o json".format(device)
+    id_ctrl = json.loads(
+        subprocess.run(
+            command, shell=True, check=True, text=True, capture_output=True
+        ).stdout
+    )
+
+    return id_ctrl
+
+
+def nvme_resv_report(device):
+    """Reservation report."""
+    command = "sudo nvme resv-report {0} -c 1 -o json".format(device)
+    resv_report = json.loads(
+        subprocess.run(
+            command, shell=True, check=True, text=True, capture_output=True
+        ).stdout
+    )
+
+    return resv_report
+
+
 def nvme_discover(uri):
     """Discover target."""
     u = urlparse(uri)
