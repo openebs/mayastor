@@ -26,8 +26,8 @@
 let
   channel = import ../../lib/rust.nix { inherit sources; };
   rustPlatform = makeRustPlatform {
-    rustc = channel.stable.rust;
-    cargo = channel.stable.cargo;
+    rustc = channel.stable;
+    cargo = channel.stable;
   };
   whitelistSource = src: allowedPrefixes:
     builtins.filterSource
@@ -83,6 +83,7 @@ let
 in
 {
   release = rustPlatform.buildRustPackage (buildProps // {
+    cargoBuildFlags = "--bin mayastor --bin mayastor-client";
     buildType = "release";
     buildInputs = buildProps.buildInputs ++ [ libspdk ];
     SPDK_PATH = "${libspdk}";
@@ -92,30 +93,4 @@ in
     buildInputs = buildProps.buildInputs ++ [ libspdk-dev ];
     SPDK_PATH = "${libspdk-dev}";
   });
-  # this is for an image that does not do a build of mayastor
-  adhoc = stdenv.mkDerivation {
-    name = "mayastor-adhoc";
-    inherit version;
-    src = [
-      ../../../target/debug/mayastor
-      ../../../target/debug/mayastor-csi
-      ../../../target/debug/mayastor-client
-      ../../../target/debug/jsonrpc
-    ];
-
-    buildInputs =
-      [ libaio libspdk-dev liburing libudev openssl xfsprogs e2fsprogs ];
-
-    unpackPhase = ''
-      for srcFile in $src; do
-         cp $srcFile $(stripHash $srcFile)
-      done
-    '';
-    dontBuild = true;
-    dontConfigure = true;
-    installPhase = ''
-      mkdir -p $out/bin
-      install * $out/bin
-    '';
-  };
 }

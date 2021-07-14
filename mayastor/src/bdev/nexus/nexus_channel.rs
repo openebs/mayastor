@@ -68,6 +68,7 @@ impl ReconfigureCtx {
 }
 
 #[derive(Debug)]
+#[allow(clippy::enum_variant_names)]
 /// Dynamic Reconfiguration Events occur when a child is added or removed
 pub enum DrEvent {
     /// Child offline reconfiguration event
@@ -289,20 +290,15 @@ impl NexusChannel {
     pub extern "C" fn reconfigure(
         device: *mut c_void,
         ctx: Box<ReconfigureCtx>,
-        event: &DrEvent,
+        _event: &DrEvent,
     ) {
-        match event {
-            DrEvent::ChildOffline
-            | DrEvent::ChildRemove
-            | DrEvent::ChildFault
-            | DrEvent::ChildRebuild => unsafe {
-                spdk_for_each_channel(
-                    device,
-                    Some(NexusChannel::refresh_io_channels),
-                    Box::into_raw(ctx).cast(),
-                    Some(Self::reconfigure_completed),
-                );
-            },
+        unsafe {
+            spdk_for_each_channel(
+                device,
+                Some(NexusChannel::refresh_io_channels),
+                Box::into_raw(ctx).cast(),
+                Some(Self::reconfigure_completed),
+            );
         }
     }
 

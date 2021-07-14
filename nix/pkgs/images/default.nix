@@ -22,7 +22,7 @@
 let
   versionDrv = import ../../lib/version.nix { inherit lib stdenv git; };
   version = builtins.readFile "${versionDrv}";
-  env = lib.makeBinPath [ busybox xfsprogs e2fsprogs utillinux ];
+  env = lib.makeBinPath [ "/" busybox xfsprogs e2fsprogs utillinux ];
 
   # common props for all mayastor images
   mayastorImageProps = {
@@ -65,21 +65,20 @@ let
     #!${stdenv.shell}
     chroot /host /usr/bin/env -i PATH="/sbin:/bin:/usr/bin" iscsiadm "$@"
   '';
+
+  mctl = writeScriptBin "mctl" ''
+    /bin/mayastor-client "$@"
+  '';
 in
 {
   mayastor = dockerTools.buildImage (mayastorImageProps // {
     name = "mayadata/mayastor";
-    contents = [ busybox mayastor ];
+    contents = [ busybox mayastor mctl ];
   });
 
   mayastor-dev = dockerTools.buildImage (mayastorImageProps // {
     name = "mayadata/mayastor-dev";
     contents = [ busybox mayastor-dev ];
-  });
-
-  mayastor-adhoc = dockerTools.buildImage (mayastorImageProps // {
-    name = "mayadata/mayastor-adhoc";
-    contents = [ busybox mayastor-adhoc ];
   });
 
   # The algorithm for placing packages into the layers is not optimal.

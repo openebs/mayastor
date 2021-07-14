@@ -18,7 +18,7 @@ let
     (ps: with ps; [ virtualenv grpcio grpcio-tools asyncssh black ]);
 in
 mkShell {
-
+  name = "mayastor-dev-shell";
   # fortify does not work with -O0 which is used by spdk when --enable-debug
   hardeningDisable = [ "fortify" ];
   buildInputs = [
@@ -27,15 +27,10 @@ mkShell {
     docker
     docker-compose
     e2fsprogs
-    envsubst # for e2e tests
     etcd
     fio
     gdb
     git
-    go
-    gptfdisk
-    kind
-    kubectl
     kubernetes-helm
     libaio
     libiscsi
@@ -46,19 +41,18 @@ mkShell {
     nats-server
     ninja
     nodejs-16_x
-    numactl
     nvme-cli
-    nvmet-cli
+    numactl
     openssl
     pkg-config
     pre-commit
     procps
-    python3
     pytest_inputs
+    python3
     utillinux
     xfsprogs
   ] ++ (if (nospdk) then [ libspdk-dev.buildInputs ] else [ libspdk-dev ])
-  ++ pkgs.lib.optional (!norust) channel.nightly.rust;
+  ++ pkgs.lib.optional (!norust) channel.nightly;
 
   LIBCLANG_PATH = mayastor.LIBCLANG_PATH;
   PROTOC = mayastor.PROTOC;

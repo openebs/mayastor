@@ -212,7 +212,7 @@ pub enum Error {
         child,
         name,
     ))]
-    CreateRebuildError {
+    CreateRebuild {
         source: RebuildError,
         child: String,
         name: String,
@@ -242,7 +242,7 @@ pub enum Error {
         job,
         name,
     ))]
-    RebuildOperationError {
+    RebuildOperation {
         job: String,
         name: String,
         source: RebuildError,
@@ -273,9 +273,9 @@ pub enum Error {
     #[snafu(display("Failed to create snapshot on nexus {}", name))]
     FailedCreateSnapshot { name: String, source: CoreError },
     #[snafu(display("NVMf subsystem error: {}", e))]
-    SubsysNvmfError { e: String },
+    SubsysNvmf { e: String },
     #[snafu(display("failed to pause {} current state {:?}", name, state))]
-    PauseError {
+    Pause {
         state: NexusPauseState,
         name: String,
     },
@@ -283,7 +283,7 @@ pub enum Error {
 
 impl From<NvmfError> for Error {
     fn from(error: NvmfError) -> Self {
-        Error::SubsysNvmfError {
+        Error::SubsysNvmf {
             e: error.to_string(),
         }
     }
@@ -849,7 +849,7 @@ impl Nexus {
 
             // we must pause again, schedule pause operation
             Err(NexusPauseState::Unpausing) => {
-                return Err(Error::PauseError {
+                return Err(Error::Pause {
                     state: NexusPauseState::Unpausing,
                     name: self.name.clone(),
                 });

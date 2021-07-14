@@ -263,7 +263,7 @@ impl<'a> NvmeController<'a> {
         if !ns_active {
             self
                 .state_machine
-                .transition(Faulted(ControllerFailureReason::NamespaceInitFailed))
+                .transition(Faulted(ControllerFailureReason::NamespaceInit))
                 .expect("failed to fault controller in response to ns enumeration failure");
         }
 
@@ -379,7 +379,7 @@ impl<'a> NvmeController<'a> {
             error!("{} failed to shutdown I/O channels, rc = {}. Shutdown aborted.", ctx.name, result);
             controller
                 .state_machine
-                .transition(Faulted(ControllerFailureReason::ShutdownFailed))
+                .transition(Faulted(ControllerFailureReason::Shutdown))
                 .expect("failed to transition controller to Faulted state");
             return;
         }
@@ -544,7 +544,7 @@ impl<'a> NvmeController<'a> {
                 // shutdown might be in place.
                 let _ = controller.state_machine.transition_checked(
                     Running,
-                    Faulted(ControllerFailureReason::ResetFailed),
+                    Faulted(ControllerFailureReason::Reset),
                 );
             }
 

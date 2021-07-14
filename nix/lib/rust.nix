@@ -1,8 +1,9 @@
 { sources ? import ../sources.nix }:
 let
-  pkgs = import sources.nixpkgs { overlays = [ (import sources.nixpkgs-mozilla) ]; };
+  pkgs =
+    import sources.nixpkgs { overlays = [ (import sources.rust-overlay) ]; };
 in
-rec {
-  nightly = pkgs.rustChannelOf { channel = "nightly"; date = "2021-04-19"; };
-  stable = pkgs.rustChannelOf { channel = "stable"; };
+with pkgs; rec  {
+  nightly = rust-bin.nightly."2021-06-22".default;
+  stable = rust-bin.stable.latest.default;
 }
