@@ -30,7 +30,7 @@ pub enum Error {
         backtrace: Backtrace,
     },
     #[snafu(display("Invalid output format: {}", format))]
-    OutputFormatError { format: String },
+    OutputFormatInvalid { format: String },
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -46,7 +46,7 @@ impl FromStr for OutputFormat {
         match s.to_lowercase().as_str() {
             "json" => Ok(Self::Json),
             "default" => Ok(Self::Default),
-            s => Err(Error::OutputFormatError {
+            s => Err(Error::OutputFormatInvalid {
                 format: s.to_string(),
             }),
         }
@@ -102,7 +102,7 @@ impl Context {
         }
 
         let output = matches.value_of("output").ok_or_else(|| {
-            Error::OutputFormatError {
+            Error::OutputFormatInvalid {
                 format: "<none>".to_string(),
             }
         })?;

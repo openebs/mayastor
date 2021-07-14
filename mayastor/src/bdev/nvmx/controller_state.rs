@@ -14,9 +14,9 @@ pub enum NvmeControllerState {
 }
 #[derive(Debug, PartialEq, Copy, Clone)]
 pub enum ControllerFailureReason {
-    ResetFailed,
-    ShutdownFailed,
-    NamespaceInitFailed,
+    Reset,
+    Shutdown,
+    NamespaceInit,
 }
 
 impl ToString for NvmeControllerState {
