@@ -42,6 +42,7 @@ mkShell {
     ninja
     nodejs-16_x
     nvme-cli
+    numactl
     openssl
     pkg-config
     pre-commit
