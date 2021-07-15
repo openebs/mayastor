@@ -59,21 +59,20 @@ let
 
     buildInputs = [
       binutils
-      fio
-      libtool
+      jansson
       libaio
+      libbpf
+      libbsd
+      libelf
+      libexecinfo
+      libpcap
+      libtool
       liburing
       libuuid
       nasm
       ncurses
       numactl
       openssl
-      libpcap
-      libbsd
-      jansson
-      libbpf
-      libelf
-      libexecinfo
       zlib
     ];
 
@@ -95,20 +94,14 @@ let
       "--with-uring"
       "--disable-unit-tests"
       "--disable-tests"
-      "--with-fio=${pkgs.fio}/include"
     ];
-
-    enableParallelBuilding = true;
 
     configurePhase = ''
       patchShebangs ./. > /dev/null
-      ./configure ${builtins.concatStringsSep
-          " "
-          (builtins.filter
-              (opt: (builtins.match "--build=.*" opt) == null)
-              configureFlags)
-      }
+      ./configure ${builtins.concatStringsSep " " configureFlags}
     '';
+    enableParallelBuilding = true;
+
 
     hardeningDisable = [ "all" ];
 
@@ -137,7 +130,6 @@ let
     installPhase = ''
       mkdir -p $out/lib
       mkdir $out/bin
-      mkdir $out/fio
 
       pushd include
       find . -type f -name "*.h" -exec install -D "{}" $out/include/{} \;
@@ -157,8 +149,6 @@ let
 
       echo $(find $out -type f -name '*.a*' -delete)
       find . -executable -type f -name 'bdevperf' -exec install -D "{}" $out/bin \;
-
-      cp build/fio/spdk_* $out/fio
     '';
   };
 in
@@ -167,22 +157,26 @@ in
     pname = "libspdk";
     separateDebugInfo = true;
     dontStrip = false;
-    configureFlags = drvAttrs.configureFlags ++ [
-      "--disable-tests"
-      "--disable-unit-tests"
-    ];
   });
   debug = llvmPackages_11.stdenv.mkDerivation (drvAttrs // {
     pname = "libspdk-dev";
     separateDebugInfo = false;
     dontStrip = true;
-    buildInputs = drvAttrs.buildInputs ++ [ cunit lcov ];
-    configureFlags = drvAttrs.configureFlags ++ [
-      "--enable-debug"
-    ];
+    nativeBuildInputs = drvAttrs.nativeBuildInputs ++ [ cunit lcov ];
+    buildInputs = drvAttrs.buildInputs ++ [ cunit lcov fio ];
+    configurePhase = ''
+      patchShebangs ./. > /dev/null
+      ./configure ${builtins.concatStringsSep " " (drvAttrs.configureFlags ++
+      [
+        "--enable-debug"
+        "--with-fio=${pkgs.fio}/include"
+      ])}
+    '';
     installPhase = drvAttrs.installPhase + ''
       echo "Copying test files"
       cp -ar test $out/test
+      mkdir $out/fio
+      cp build/fio/spdk_* $out/fio
     '';
   });
 }

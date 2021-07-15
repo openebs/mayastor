@@ -83,7 +83,7 @@ let
 in
 {
   release = rustPlatform.buildRustPackage (buildProps // {
-    cargoBuildFlags = "--bin mayastor --bin mayastor-client";
+    cargoBuildFlags = "--bin mayastor --bin mayastor-client --bin mayastor-csi";
     buildType = "release";
     buildInputs = buildProps.buildInputs ++ [ libspdk ];
     SPDK_PATH = "${libspdk}";

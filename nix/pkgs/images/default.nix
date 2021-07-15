@@ -6,30 +6,32 @@
 # containerd triggered when there are too many layers:
 # https://github.com/containerd/containerd/issues/4684
 
-{ stdenv
-, busybox
+{ busybox
 , dockerTools
 , e2fsprogs
 , git
 , lib
-, writeScriptBin
-, xfsprogs
 , mayastor
 , mayastor-dev
-, mayastor-adhoc
+, stdenv
 , utillinux
+, writeScriptBin
+, xfsprogs
 }:
 let
   versionDrv = import ../../lib/version.nix { inherit lib stdenv git; };
   version = builtins.readFile "${versionDrv}";
-  env = lib.makeBinPath [ "/" busybox xfsprogs e2fsprogs utillinux ];
+  path = lib.makeBinPath [ "/" busybox xfsprogs e2fsprogs utillinux ];
 
   # common props for all mayastor images
   mayastorImageProps = {
     tag = version;
     created = "now";
     config = {
-      Env = [ "PATH=${env}" ];
+      Env = [
+        "PATH=${path}"
+        "RUST_BACKTRACE=1"
+      ];
       ExposedPorts = { "10124/tcp" = { }; };
       Entrypoint = [ "/bin/mayastor" ];
     };
@@ -43,7 +45,10 @@ let
     created = "now";
     config = {
       Entrypoint = [ "/bin/mayastor-csi" ];
-      Env = [ "PATH=${env}" ];
+      Env = [
+        "PATH=${path}"
+        "RUST_BACKTRACE=1"
+      ];
     };
     extraCommands = ''
       mkdir tmp
@@ -54,7 +59,7 @@ let
     tag = version;
     created = "now";
     config = {
-      Env = [ "PATH=${env}" ];
+      Env = [ "PATH=${path}" ];
     };
     extraCommands = ''
       mkdir tmp
