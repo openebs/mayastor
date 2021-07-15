@@ -561,10 +561,8 @@ impl mayastor_server::Mayastor for MayastorSvc {
             async move {
                 let args = request.into_inner();
                 let rx = rpc_submit::<_, _, nexus_bdev::Error>(async move {
-                    let uuid = args.uuid.clone();
-                    let name = uuid_to_name(&args.uuid)?;
                     nexus_create_v2(
-                        &name,
+                        &args.name,
                         args.size,
                         Some(&args.uuid),
                         NexusNvmeParams {
@@ -575,8 +573,8 @@ impl mayastor_server::Mayastor for MayastorSvc {
                         &args.children,
                     )
                     .await?;
-                    let nexus = nexus_lookup(&uuid)?;
-                    info!("Created nexus {}", uuid);
+                    let nexus = nexus_lookup(&args.name)?;
+                    info!("Created nexus {}", &args.name);
                     Ok(nexus.to_grpc())
                 })?;
                 rx.await
@@ -627,6 +625,31 @@ impl mayastor_server::Mayastor for MayastorSvc {
                         n.state.lock().deref() != &nexus_bdev::NexusState::Init
                     })
                     .map(|n| n.to_grpc())
+                    .collect::<Vec<_>>(),
+            })
+        })?;
+
+        rx.await
+            .map_err(|_| Status::cancelled("cancelled"))?
+            .map_err(Status::from)
+            .map(Response::new)
+    }
+
+    async fn list_nexus_v2(
+        &self,
+        request: Request<Null>,
+    ) -> GrpcResult<ListNexusV2Reply> {
+        let args = request.into_inner();
+        trace!("{:?}", args);
+
+        let rx = rpc_submit::<_, _, nexus_bdev::Error>(async move {
+            Ok(ListNexusV2Reply {
+                nexus_list: instances()
+                    .iter()
+                    .filter(|n| {
+                        n.state.lock().deref() != &nexus_bdev::NexusState::Init
+                    })
+                    .map(|n| n.to_grpc_v2())
                     .collect::<Vec<_>>(),
             })
         })?;

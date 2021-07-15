@@ -44,17 +44,26 @@ def create_nexus(mayastor_mod, nexus_uuid, create_replica):
 
 
 @pytest.fixture
-def create_nexus_v2(mayastor_mod, nexus_uuid, create_replica, min_cntlid, resv_key):
+def create_nexus_v2(
+    mayastor_mod, nexus_name, nexus_uuid, create_replica, min_cntlid, resv_key
+):
     hdls = mayastor_mod
     replicas = create_replica
     replicas = [k.uri for k in replicas]
 
     NEXUS_UUID, size_mb = nexus_uuid
+    NEXUS_NAME = nexus_name
 
     hdls["ms3"].nexus_create_v2(
-        NEXUS_UUID, 64 * 1024 * 1024, min_cntlid, min_cntlid + 9, resv_key, replicas
+        NEXUS_NAME,
+        NEXUS_UUID,
+        size_mb,
+        min_cntlid,
+        min_cntlid + 9,
+        resv_key,
+        replicas,
     )
-    uri = hdls["ms3"].nexus_publish(NEXUS_UUID)
+    uri = hdls["ms3"].nexus_publish(NEXUS_NAME)
     assert len(hdls["ms1"].bdev_list()) == 2
     assert len(hdls["ms2"].bdev_list()) == 2
     assert len(hdls["ms3"].bdev_list()) == 1
@@ -63,7 +72,7 @@ def create_nexus_v2(mayastor_mod, nexus_uuid, create_replica, min_cntlid, resv_k
     assert len(hdls["ms2"].pool_list().pools) == 1
 
     yield uri
-    hdls["ms3"].nexus_destroy(NEXUS_UUID)
+    hdls["ms3"].nexus_destroy(NEXUS_NAME)
 
 
 @pytest.fixture
@@ -84,6 +93,13 @@ def replica_uuid():
     UUID = "0000000-0000-0000-0000-000000000001"
     size_mb = 64 * 1024 * 1024
     return (UUID, size_mb)
+
+
+@pytest.fixture
+def nexus_name():
+    """Nexus name to be used."""
+    NEXUS_NAME = "nexus0"
+    return NEXUS_NAME
 
 
 @pytest.fixture
@@ -237,6 +253,7 @@ async def test_nexus_2_remote_mirror_kill_one(
     await nvme_remote_disconnect(target_vm, uri)
 
 
+@pytest.mark.skip
 @pytest.mark.asyncio
 @pytest.mark.timeout(60)
 async def test_nexus_2_remote_mirror_kill_one_spdk(
@@ -274,15 +291,19 @@ async def test_nexus_cntlid(create_nexus_v2, min_cntlid):
 
 
 @pytest.mark.timeout(60)
-async def test_nexus_resv_key(create_nexus_v2, nexus_uuid, mayastor_mod, resv_key):
+async def test_nexus_resv_key(
+    create_nexus_v2, nexus_name, nexus_uuid, mayastor_mod, resv_key
+):
     """Test create_nexus_v2 replica NVMe reservation key"""
 
     uri = create_nexus_v2
     NEXUS_UUID, _ = nexus_uuid
+    NEXUS_NAME = nexus_name
     resv_key = resv_key
 
-    list = mayastor_mod.get("ms3").nexus_list()
-    nexus = next(n for n in list if n.uuid == NEXUS_UUID)
+    list = mayastor_mod.get("ms3").nexus_list_v2()
+    nexus = next(n for n in list if n.name == NEXUS_NAME)
+    assert nexus.uuid == NEXUS_UUID
     child_uri = nexus.children[0].uri
 
     dev = nvme_connect(child_uri)

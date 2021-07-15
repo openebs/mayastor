@@ -38,9 +38,14 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
     let create_v2 = SubCommand::with_name("create2")
         .about("Create a new nexus device with NVMe options")
         .arg(
-            Arg::with_name("uuid")
+            Arg::with_name("name")
                 .required(true)
                 .index(1)
+                .help("name of the nexus"),
+        )
+        .arg(
+            Arg::with_name("uuid")
+                .required(true)
                 .help("uuid for the nexus"),
         )
         .arg(
@@ -161,6 +166,16 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
                 .takes_value(false),
         );
 
+    let list2 = SubCommand::with_name("list2")
+        .about("list all nexus devices")
+        .arg(
+            Arg::with_name("children")
+                .short("c")
+                .long("show-children")
+                .required(false)
+                .takes_value(false),
+        );
+
     let children = SubCommand::with_name("children")
         .about("list nexus children")
         .arg(
@@ -186,6 +201,7 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
         .subcommand(unpublish)
         .subcommand(ana_state)
         .subcommand(list)
+        .subcommand(list2)
         .subcommand(children)
         .subcommand(nexus_child_cli::subcommands())
 }
@@ -199,6 +215,7 @@ pub async fn handler(
         ("create2", Some(args)) => nexus_create_v2(ctx, args).await,
         ("destroy", Some(args)) => nexus_destroy(ctx, args).await,
         ("list", Some(args)) => nexus_list(ctx, args).await,
+        ("list2", Some(args)) => nexus_list_v2(ctx, args).await,
         ("children", Some(args)) => nexus_children(ctx, args).await,
         ("publish", Some(args)) => nexus_publish(ctx, args).await,
         ("unpublish", Some(args)) => nexus_unpublish(ctx, args).await,
@@ -278,6 +295,7 @@ async fn nexus_create_v2(
     matches: &ArgMatches<'_>,
 ) -> crate::Result<()> {
     let (uuid, size, children) = nexus_create_parse(matches)?;
+    let name = matches.value_of("name").unwrap().to_string();
     let min_cntl_id = value_t!(matches.value_of("min-cntlid"), u32)
         .unwrap_or_else(|e| e.exit());
     let max_cntl_id = value_t!(matches.value_of("max-cntlid"), u32)
@@ -288,6 +306,7 @@ async fn nexus_create_v2(
     let response = ctx
         .client
         .create_nexus_v2(rpc::CreateNexusV2Request {
+            name: name.clone(),
             uuid: uuid.clone(),
             size,
             min_cntl_id,
@@ -403,6 +422,73 @@ async fn nexus_list(
                 })
                 .collect();
             let mut hdr = vec!["NAME", ">SIZE", "STATE", ">REBUILDS", "PATH"];
+            if show_child {
+                hdr.push("CHILDREN");
+            }
+            ctx.print_list(hdr, table);
+        }
+    };
+
+    Ok(())
+}
+
+async fn nexus_list_v2(
+    mut ctx: Context,
+    matches: &ArgMatches<'_>,
+) -> crate::Result<()> {
+    let response = ctx
+        .client
+        .list_nexus_v2(rpc::Null {})
+        .await
+        .context(GrpcStatus)?;
+
+    match ctx.output {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&response.get_ref())
+                    .unwrap()
+                    .to_colored_json_auto()
+                    .unwrap()
+            );
+        }
+        OutputFormat::Default => {
+            let nexus = &response.get_ref().nexus_list;
+            if nexus.is_empty() {
+                ctx.v1("No nexus found");
+                return Ok(());
+            }
+
+            ctx.v2("Found following nexus:");
+            let show_child = matches.is_present("children");
+
+            let table = nexus
+                .iter()
+                .map(|n| {
+                    let size = ctx.units(Byte::from_bytes(n.size.into()));
+                    let state = nexus_state_to_str(n.state);
+                    let mut row = vec![
+                        n.name.clone(),
+                        n.uuid.clone(),
+                        size,
+                        state.to_string(),
+                        n.rebuilds.to_string(),
+                        n.device_uri.clone(),
+                    ];
+                    if show_child {
+                        row.push(
+                            n.children
+                                .iter()
+                                .map(|c| c.uri.clone())
+                                .collect::<Vec<String>>()
+                                .join(","),
+                        )
+                    }
+                    row
+                })
+                .collect();
+            let mut hdr =
+                vec!["NAME", "UUID", ">SIZE", "STATE", ">REBUILDS", "PATH"];
             if show_child {
                 hdr.push("CHILDREN");
             }
