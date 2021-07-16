@@ -1,15 +1,24 @@
-# MayaStor
+# Mayastor
 
 [![Releases](https://img.shields.io/github/release/openebs/Mayastor/all.svg?style=flat-square)](https://github.com/openebs/Mayastor/releases)
-[![CI-basic](https://mayastor-ci.mayadata.io/buildStatus/icon?job=Mayastor%2Fmaster)](https://mayastor-ci.mayadata.io/blue/organizations/jenkins/Mayastor/activity/)
+[![CI-basic](https://mayastor-ci.mayadata.io/buildStatus/icon?job=Mayastor%2Fdevelop)](https://mayastor-ci.mayadata.io/blue/organizations/jenkins/Mayastor/activity/)
 [![Slack](https://img.shields.io/badge/JOIN-SLACK-blue)](https://kubernetes.slack.com/messages/openebs)
-[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fopenebs%2FMayaStor.svg?type=shield)](https://app.fossa.io/projects/git%2Bgithub.com%2Fopenebs%2FMayaStor?ref=badge_shield)
 [![built with nix](https://builtwithnix.org/badge.svg)](https://builtwithnix.org)
 
-<img width="300" align="right" alt="OpenEBS Logo" src="https://raw.githubusercontent.com/cncf/artwork/master/projects/openebs/stacked/color/openebs-stacked-color.png" xmlns="http://www.w3.org/1999/html">
+Table of contents:
+==================
+- [Quickly deploy it on K8s and get started](https://mayastor.gitbook.io)
+    - [Deploying on microk8s](/doc/microk8s.md)
+- [High-level overview](#overview)
+    - [The Nexus CAS module](#Nexus)
+    - [Local storage](#local-storage)
+    - [Exporting a Nexus](#exporting-the-nexus)
+- [Building from source](/doc/build.md)
+- [Examples of the Nexus module](/doc/mcli.md)
+- [Frequently asked questions](/doc/FAQ.md)
 
 <p align="justify">
-<strong>MayaStor</strong> is a cloud-native declarative data plane written in <strong>Rust.</strong>
+<strong>Mayastor</strong> is a cloud-native declarative data plane written in <strong>Rust.</strong>
 Our goal is to abstract storage resources and their differences through the data plane such that users only need to
 supply the <strong>what</strong> and do not have to worry about the <strong>how</strong> so that individual teams stay in control.
 
@@ -35,23 +44,11 @@ The official user documentation for the Mayastor Project is published here in Gi
 
 Mayastor is currently beta software.  From Wikipedia: "it (beta software) will generally have many more bugs in it than completed software and speed or performance issues, and may still cause crashes or data loss."
 
-The project's maintainers operate a live issue tracking dashboard for defects which they have under active triage and investigation. It can be accessed [here](https://mayadata.atlassian.net/secure/Dashboard.jspa?selectPageId=10015). You are strongly encouraged to familisarise yourself with the issues identified there before deploying Mayastor and/or raising issue reports.
-
-Table of contents:
-==================
-- [Quickly deploy it on K8s and get started](/deploy/README.md)
-    - [Deploying on microk8s](/doc/microk8s.md)
-- [High-level overview](#overview)
-    - [The Nexus CAS module](#Nexus)
-    - [Local storage](#local-storage)
-    - [Exporting a Nexus](#exporting-the-nexus)
-- [Building from source](/doc/build.md)
-- [Examples of the Nexus module](/doc/mcli.md)
-- [Frequently asked questions](/doc/FAQ.md)
+The project's maintainers operate a live issue tracking dashboard for defects which they have under active triage and investigation. It can be accessed [here](https://mayadata.atlassian.net/secure/Dashboard.jspa?selectPageId=10015). You are strongly encouraged to familiarise yourself with the issues identified there before deploying Mayastor and/or raising issue reports.
 
 ## Overview
 
-At a high-level, MayaStor consists of two major components.
+At a high-level, Mayastor consists of two major components.
 
 ### **Control plane:**
 
@@ -61,7 +58,7 @@ At a high-level, MayaStor consists of two major components.
 
 ### **Data plane:**
 
-* Each node you wish to use for storage or storage services will have to run a MayaStor daemon set. MayaStor itself has three major components: the Nexus, a local storage component, and the mayastor-csi plugin.
+* Each node you wish to use for storage or storage services will have to run a Mayastor daemon set. Mayastor itself has three major components: the Nexus, a local storage component, and the mayastor-csi plugin.
 
 ## Nexus
 
@@ -221,9 +218,6 @@ Mayastor is developed under Apache 2.0 license at the project level. Some compon
 other open source projects and are distributed under their respective licenses.
 
 ```http://www.apache.org/licenses/LICENSE-2.0```
-
-
-[![FOSSA Status](https://app.fossa.io/api/projects/git%2Bgithub.com%2Fopenebs%2FMayaStor.svg?type=large)](https://app.fossa.io/projects/git%2Bgithub.com%2Fopenebs%2FMayaStor?ref=badge_large)
 
 ### Contributions
 
