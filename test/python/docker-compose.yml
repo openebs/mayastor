@@ -9,6 +9,7 @@ services:
     image: rust:latest
     environment:
         - MY_POD_IP=10.0.0.2
+        - NEXUS_NVMF_RESV_ENABLE=1
     command: ${SRCDIR}/target/debug/mayastor -g 0.0.0.0 -l 1,2 -r /tmp/ms0.sock
     networks:
       mayastor_net:

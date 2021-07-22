@@ -25,6 +25,7 @@ static NXNAME: &str = "nexus0";
 static UUID: &str = "cdc2a7db-3ac3-403a-af80-7fadc1581c47";
 static HOSTNQN: &str = "nqn.2019-05.io.openebs";
 static HOSTID0: &str = "53b35ce9-8e71-49a9-ab9b-cba7c5670fad";
+static HOSTID1: &str = "c1affd2d-ef79-4ba4-b5cf-8eb48f9c07d0";
 
 fn nvme_connect(target_addr: &str, nqn: &str) {
     let status = Command::new("nvme")
@@ -310,7 +311,8 @@ async fn nexus_multipath() {
 #[tokio::test]
 /// Create a nexus with a remote replica on 1 node as its child.
 /// Create another nexus with the same remote replica as its child, verifying
-/// that the write exclusive reservation has been acquired by the new nexus.
+/// that the write exclusive, all registrants reservation has also been
+/// registered by the new nexus.
 async fn nexus_resv_acquire() {
     std::env::set_var("NEXUS_NVMF_RESV_ENABLE", "1");
     std::env::set_var("MAYASTOR_NVMF_HOSTID", HOSTID0);
@@ -320,12 +322,14 @@ async fn nexus_resv_acquire() {
         .add_container_bin(
             "ms2",
             composer::Binary::from_dbg("mayastor")
-                .with_env("NEXUS_NVMF_RESV_ENABLE", "1"),
+                .with_env("NEXUS_NVMF_RESV_ENABLE", "1")
+                .with_env("MAYASTOR_NVMF_HOSTID", HOSTID1),
         )
         .add_container_bin(
             "ms1",
             composer::Binary::from_dbg("mayastor")
-                .with_env("NEXUS_NVMF_RESV_ENABLE", "1"),
+                .with_env("NEXUS_NVMF_RESV_ENABLE", "1")
+                .with_env("MAYASTOR_NVMF_HOSTID", HOSTID1),
         )
         .with_clean(true)
         .build()
@@ -392,7 +396,10 @@ async fn nexus_resv_acquire() {
     let rep_dev = get_mayastor_nvme_device();
 
     let v = get_nvme_resv_report(&rep_dev);
-    assert_eq!(v["rtype"], 1, "should have write exclusive reservation");
+    assert_eq!(
+        v["rtype"], 5,
+        "should have write exclusive, all registrants reservation"
+    );
     assert_eq!(v["regctl"], 1, "should have 1 registered controller");
     assert_eq!(
         v["ptpls"], 0,
@@ -433,40 +440,43 @@ async fn nexus_resv_acquire() {
         .await
         .unwrap();
 
-    // Verify that it has grabbed the write exclusive reservation
+    // Verify that the second nexus has registered
     let v2 = get_nvme_resv_report(&rep_dev);
-    assert_eq!(v2["rtype"], 1, "should have write exclusive reservation");
-    assert_eq!(v2["regctl"], 1, "should have 1 registered controller");
+    assert_eq!(
+        v2["rtype"], 5,
+        "should have write exclusive, all registrants reservation"
+    );
+    assert_eq!(v2["regctl"], 2, "should have 2 registered controllers");
     assert_eq!(
         v2["ptpls"], 0,
         "should have Persist Through Power Loss State as 0"
     );
     assert_eq!(
-        v2["regctlext"][0]["cntlid"], 0xffff,
+        v2["regctlext"][1]["cntlid"], 0xffff,
         "should have dynamic controller ID"
     );
     assert_eq!(
-        v2["regctlext"][0]["rcsts"], 1,
-        "should have reservation status as reserved"
+        v2["regctlext"][1]["rcsts"], 0,
+        "should have reservation status as not reserved"
     );
     assert_eq!(
-        v2["regctlext"][0]["rkey"], resv_key2,
+        v2["regctlext"][1]["rkey"], resv_key2,
         "should have configured registered key"
     );
-    // Until host IDs can be configured, different host ID is sufficient
-    assert_ne!(
-        v2["regctlext"][0]["hostid"], v["regctlext"][0]["hostid"],
-        "should have different hostid holding reservation"
+    assert_eq!(
+        v2["regctlext"][1]["hostid"].as_str().unwrap(),
+        HOSTID1.to_string().replace("-", ""),
+        "should match host ID of NVMe client"
     );
 
     mayastor
         .spawn(async move {
             bdev_io::write_some(&NXNAME.to_string(), 0, 0xff)
                 .await
-                .expect_err("writes should fail");
+                .expect("writes should still succeed");
             bdev_io::read_some(&NXNAME.to_string(), 0, 0xff)
                 .await
-                .expect_err("reads should also fail after write failure");
+                .expect("reads should succeed");
         })
         .await;
 

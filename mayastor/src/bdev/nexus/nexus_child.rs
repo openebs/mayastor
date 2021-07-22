@@ -435,7 +435,7 @@ impl NexusChild {
                 key,
                 0,
                 nvme_reservation_acquire_action::ACQUIRE,
-                nvme_reservation_type::WRITE_EXCLUSIVE,
+                nvme_reservation_type::WRITE_EXCLUSIVE_ALL_REGS,
             )
             .await
         {
@@ -457,7 +457,7 @@ impl NexusChild {
                     key,
                     pkey,
                     nvme_reservation_acquire_action::PREEMPT,
-                    nvme_reservation_type::WRITE_EXCLUSIVE,
+                    nvme_reservation_type::WRITE_EXCLUSIVE_ALL_REGS,
                 )
                 .await?;
                 if let Some((_, hostid)) = self.resv_report(&*hdl).await? {
