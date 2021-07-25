@@ -139,6 +139,7 @@ if (params.e2e_continuous == true) {
   run_linter = false
   rust_test = false
   grpc_test = false
+  pytest_test = false
   e2e_test_profile = "continuous"
   // use images from dockerhub tagged with e2e_continuous_image_tag instead of building from current source
   e2e_build_images = false
@@ -150,6 +151,7 @@ if (params.e2e_continuous == true) {
   run_linter = true
   rust_test = true
   grpc_test = true
+  pytest_test = true
   // Some long e2e tests are not suitable to be run for each PR
   e2e_test_profile = (env.BRANCH_NAME != 'staging' && env.BRANCH_NAME != 'trying') ? "nightly" : "ondemand"
   e2e_build_images = true
@@ -270,6 +272,42 @@ pipeline {
             always {
               junit '*-xunit-report.xml'
               sh './scripts/check-coredumps.sh --since "${START_DATE}"'
+            }
+          }
+        }
+        stage('pytest tests') {
+          when {
+            beforeAgent true
+            expression { pytest_test == true }
+          }
+          agent { label 'nixos-mayastor-pytest' }
+          stages {
+            stage('checkout') {
+              steps {
+                checkout([
+                  $class: 'GitSCM',
+                  branches: scm.branches,
+                  extensions: scm.extensions.findAll{!(it instanceof jenkins.plugins.git.GitSCMSourceDefaults)} + [[$class: 'CloneOption', noTags: false, reference: '', shallow: false]],
+                  userRemoteConfigs: scm.userRemoteConfigs
+                ])
+              }
+            }
+            stage('build') {
+              steps {
+                sh 'printenv'
+                sh 'nix-shell --run "cargo build --bins"'
+              }
+            }
+            stage('python setup') {
+              steps {
+                sh 'nix-shell --run "./test/python/setup.sh"'
+              }
+            }
+            stage('run tests') {
+              steps {
+                sh 'printenv'
+                sh 'nix-shell --run "./scripts/pytest-tests.sh"'
+              }
             }
           }
         }
