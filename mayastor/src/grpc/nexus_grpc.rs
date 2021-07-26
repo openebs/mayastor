@@ -115,21 +115,21 @@ pub fn uuid_to_name(uuid: &str) -> Result<String, Error> {
     }
 }
 
-/// Look up a nexus by its uuid prepending "nexus-" prefix, or by name if not
-/// a valid uuid (if created by nexus_create_v2).
+/// Look up a nexus by name first (if created by nexus_create_v2) then by its
+/// uuid prepending "nexus-" prefix.
 /// Return error if nexus not found.
 pub fn nexus_lookup(uuid: &str) -> Result<&mut Nexus, Error> {
-    let name = match uuid_to_name(uuid) {
-        Ok(name) => name,
-        Err(_) => uuid.to_string(),
-    };
-
-    if let Some(nexus) = instances().iter_mut().find(|n| n.name == name) {
+    if let Some(nexus) = instances().iter_mut().find(|n| n.name == uuid) {
         Ok(nexus)
     } else {
-        Err(Error::NexusNotFound {
-            name: uuid.to_owned(),
-        })
+        let name = uuid_to_name(uuid)?;
+        if let Some(nexus) = instances().iter_mut().find(|n| n.name == name) {
+            Ok(nexus)
+        } else {
+            Err(Error::NexusNotFound {
+                name: uuid.to_owned(),
+            })
+        }
     }
 }
 
