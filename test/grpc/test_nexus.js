@@ -17,6 +17,7 @@ const common = require('./test_common');
 const enums = require('./grpc_enums');
 const url = require('url');
 const NEXUSNAME = 'nexus0';
+const NEXUSUUID = 'dbe4d7eb-118a-4d15-b789-a18d9af6ff20';
 // just some UUID used for nexus ID
 const UUID = 'dbe4d7eb-118a-4d15-b789-a18d9af6ff21';
 const UUID2 = 'dbe4d7eb-118a-4d15-b789-a18d9af6ff22';
@@ -214,6 +215,15 @@ describe('nexus', function () {
   const createNexus = (args) => {
     return new Promise((resolve, reject) => {
       client.createNexus(args, (err, data) => {
+        if (err) return reject(err);
+        resolve(data);
+      });
+    });
+  };
+
+  const createNexusV2 = (args) => {
+    return new Promise((resolve, reject) => {
+      client.createNexusV2(args, (err, data) => {
         if (err) return reject(err);
         resolve(data);
       });
@@ -786,6 +796,22 @@ describe('nexus', function () {
         assert.equal(err.code, grpc.status.INTERNAL);
         done();
       });
+    });
+
+    it('should create v2 and destroy a nexus with UUID as name', async () => {
+      const args = {
+        name: NEXUSUUID,
+        uuid: UUID,
+        size: 32768,
+        minCntlId: 1,
+        maxCntlId: 0xffef,
+        resvKey: 0x12345678,
+        children: [
+          'malloc:///malloc1?size_mb=64'
+        ]
+      };
+      await createNexusV2(args);
+      await destroyNexus({ uuid: NEXUSUUID });
     });
 
     it('should fail to create a nexus with invalid NVMe controller ID range', (done) => {
