@@ -53,7 +53,8 @@ Not all packages are available on nix, so one extra step is needed if you run
 nix.
 
 ```shell
-python -m grpc_tools.protoc -I `realpath ./rpc/proto` --python_out=test/python --grpc_python_out=test/python mayastor.proto
+python -m grpc_tools.protoc --proto_path=`realpath rpc/proto` --python_out=test/python --grpc_python_out=test/python mayastor.proto
+python -m grpc_tools.protoc --proto_path=`realpath csi/proto` --python_out=test/python --grpc_python_out=test/python csi.proto
 virtualenv --no-setuptools test/python/venv
 source test/python/venv/bin/activate
 pip install -r test/python/requirements.txt

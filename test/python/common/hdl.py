@@ -137,11 +137,11 @@ class MayastorHandle(object):
         """Destroy the nexus."""
         return self.ms.DestroyNexus(pb.DestroyNexusRequest(uuid=uuid))
 
-    def nexus_publish(self, uuid):
+    def nexus_publish(self, uuid, share=1):
         """Publish the nexus. this is the same as bdev_share() but is not used
         by the control plane."""
         return self.ms.PublishNexus(
-            pb.PublishNexusRequest(uuid=str(uuid), key="", share=1)
+            pb.PublishNexusRequest(uuid=str(uuid), key="", share=share)
         ).device_uri
 
     def nexus_unpublish(self, uuid):
