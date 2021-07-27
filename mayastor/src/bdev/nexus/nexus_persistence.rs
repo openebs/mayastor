@@ -96,7 +96,7 @@ impl Nexus {
     // TODO: Should we give up retrying eventually?
     async fn save(&self, info: &NexusInfo) {
         let mut output_err = true;
-        let nexus_uuid = self.name.strip_prefix("nexus-").unwrap_or(&self.name);
+        let nexus_uuid = self.bdev.uuid().to_string();
         loop {
             match PersistentStore::put(&nexus_uuid, info).await {
                 Ok(_) => {
@@ -108,7 +108,8 @@ impl Nexus {
                     // silently retry.
                     if output_err {
                         error!(
-                            "Failed to persist nexus information for nexus {} with error {}. Retrying...",
+                            "Failed to persist nexus information for nexus {}, UUID {} with error {}. Retrying...",
+                            self.name,
                             nexus_uuid,
                             e
                         );
