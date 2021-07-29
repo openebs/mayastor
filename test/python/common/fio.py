@@ -2,7 +2,7 @@ import shutil
 
 
 class Fio(object):
-    def __init__(self, name, rw, device, runtime=15, optstr=None):
+    def __init__(self, name, rw, device, runtime=15, optstr=""):
         self.name = name
         self.rw = rw
         self.device = device
@@ -22,9 +22,9 @@ class Fio(object):
             "sudo fio --ioengine=linuxaio --direct=1 --bs=4k "
             "--time_based=1  {} --rw={} "
             "--group_reporting=1 --norandommap=1 --iodepth=64 "
-            "--runtime={} --name={}"
+            "--runtime={} --name={} --filename="
         ).format(self.optstr, self.rw, self.runtime, self.name)
 
-        command += " --filename=".join(map(str, devs))
+        command += "".join(map(str, devs))
 
         return command
