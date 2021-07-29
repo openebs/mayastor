@@ -309,6 +309,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
         self.locked(GrpcClientContext::new(&request, function_name!()), async move {
         let rx = rpc_submit(async move {
             let args = request.into_inner();
+
             if Lvs::lookup(&args.pool).is_none() {
                 return Err(LvsError::Invalid {
                     source: Errno::ENOSYS,

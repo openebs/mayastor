@@ -219,7 +219,7 @@ impl NvmfSubsystem {
                 msg: "failed to add namespace ID".to_string(),
             })
         } else {
-            info!("added NS ID {}", ns_id);
+            debug!(?bdev, ?ns_id, "added as namespace");
             Ok(())
         }
     }
@@ -368,7 +368,7 @@ impl NvmfSubsystem {
             msg: "failed to start the subsystem".to_string(),
         })?;
 
-        info!("started {:?}", self.get_nqn());
+        debug!(?self, "shared");
         Ok(self.get_nqn())
     }
 
@@ -409,7 +409,7 @@ impl NvmfSubsystem {
             msg: "failed to stop the subsystem".to_string(),
         })?;
 
-        info!("stopped {}", self.get_nqn());
+        debug!("stopped {}", self.get_nqn());
         Ok(())
     }
 

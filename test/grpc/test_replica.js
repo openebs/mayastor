@@ -360,10 +360,6 @@ describe('replica', function () {
       assert.lengthOf(res, 1);
       res = res[0];
       assert.equal(res.pool, POOL);
-      assert.equal(parseInt(res.stats.num_read_ops), 0);
-      assert.equal(parseInt(res.stats.num_write_ops), 0);
-      assert.equal(parseInt(res.stats.bytes_read), 0);
-      assert.equal(parseInt(res.stats.bytes_written), 0);
       done();
     });
   });
