@@ -1,14 +1,16 @@
-from common.command import run_cmd_async_at, run_cmd_async
 from common.volume import Volume
 from common.hdl import MayastorHandle
 import logging
 import pytest
+import subprocess
+import time
 import uuid as guid
-import asyncio
 import mayastor_pb2 as pb
+from common.fio import Fio
 from common.nvme import (
     nvme_connect,
     nvme_disconnect,
+    nvme_list_subsystems,
     nvme_resv_report,
 )
 
@@ -82,6 +84,62 @@ def create_nexus_2(mayastor_mod, nexus_name, nexus_uuid, min_cntlid_2, resv_key_
 
 
 @pytest.fixture
+def create_nexus_dev(create_nexus):
+    uri = create_nexus
+    dev = nvme_connect(uri)
+    yield dev
+    nvme_disconnect(uri)
+
+
+@pytest.fixture
+def create_nexus_2_dev(create_nexus_2):
+    uri = create_nexus_2
+    dev = nvme_connect(uri)
+    yield dev
+    nvme_disconnect(uri)
+
+
+@pytest.fixture
+def create_nexus_3_dev(
+    mayastor_mod, nexus_name, nexus_uuid, replica_uuid, min_cntlid_3, resv_key_3
+):
+    """ Create a 3rd nexus on ms1 with the same 2 replicas but with resv_key_3 """
+    hdls = mayastor_mod
+    NEXUS_NAME = nexus_name
+
+    replicas = []
+    list = mayastor_mod.get("ms3").nexus_list_v2()
+    nexus = next(n for n in list if n.name == NEXUS_NAME)
+    # use loopback until nvme initiator can connect to target in same instance
+    REP_UUID, rep_size_mb = replica_uuid
+    replicas.append("loopback:///" + REP_UUID)
+    replicas.append(nexus.children[1].uri)
+
+    NEXUS_UUID, size_mb = nexus_uuid
+
+    hdls["ms1"].nexus_create_v2(
+        NEXUS_NAME,
+        NEXUS_UUID,
+        size_mb,
+        min_cntlid_3,
+        min_cntlid_3 + 9,
+        resv_key_3,
+        replicas,
+    )
+    uri = hdls["ms1"].nexus_publish(NEXUS_NAME)
+    assert len(hdls["ms0"].bdev_list()) == 1
+    assert len(hdls["ms1"].bdev_list()) == 3
+    assert len(hdls["ms2"].bdev_list()) == 2
+    assert len(hdls["ms3"].bdev_list()) == 1
+
+    dev = nvme_connect(uri)
+
+    yield dev
+    nvme_disconnect(uri)
+    hdls["ms1"].nexus_destroy(NEXUS_NAME)
+
+
+@pytest.fixture
 def pool_config():
     """
     The idea is this used to obtain the pool types and names that should be
@@ -131,6 +189,13 @@ def min_cntlid_2():
 
 
 @pytest.fixture
+def min_cntlid_3():
+    """NVMe minimum controller ID for 3rd nexus."""
+    min_cntlid = 70
+    return min_cntlid
+
+
+@pytest.fixture
 def resv_key():
     """NVMe reservation key to be used."""
     resv_key = 0xABCDEF0012345678
@@ -141,6 +206,13 @@ def resv_key():
 def resv_key_2():
     """NVMe reservation key to be used for 2nd nexus."""
     resv_key = 0x1234567890ABCDEF
+    return resv_key
+
+
+@pytest.fixture
+def resv_key_3():
+    """NVMe reservation key for 3rd nexus."""
+    resv_key = 0x567890ABCDEF1234
     return resv_key
 
 
@@ -184,8 +256,20 @@ def create_replica(mayastor_mod, replica_uuid, create_pools):
         logging.debug(e)
 
 
+@pytest.fixture
+def start_fio(create_nexus_dev):
+    dev = create_nexus_dev
+    cmd = Fio("job1", "randwrite", dev).build().split()
+    output = subprocess.Popen(cmd)
+    # wait for fio to start
+    time.sleep(1)
+    yield
+    output.communicate()
+    assert output.returncode == 0
+
+
 @pytest.mark.timeout(60)
-async def test_nexus_multipath(
+def test_nexus_multipath(
     create_nexus,
     create_nexus_2,
     nexus_name,
@@ -228,3 +312,27 @@ async def test_nexus_multipath(
         assert report["regctlext"][1]["rcsts"] == 0
 
         nvme_disconnect(child_uri)
+
+
+@pytest.mark.timeout(60)
+def test_nexus_multipath_add_3rd_path(
+    create_nexus_dev,
+    create_nexus_2_dev,
+    start_fio,
+    create_nexus_3_dev,
+):
+    """Create 2 nexuses, connect over NVMe, start fio, create and connect a 3rd nexus."""
+
+    dev = create_nexus_dev
+    dev2 = create_nexus_2_dev
+    start_fio
+    dev3 = create_nexus_3_dev
+    assert dev == dev2, "should have one namespace"
+    assert dev == dev3, "should have one namespace"
+
+    desc = nvme_list_subsystems(dev)
+    paths = desc["Subsystems"][0]["Paths"]
+    assert len(paths) == 3, "should have 3 paths"
+
+    # wait for fio to complete
+    time.sleep(15)
