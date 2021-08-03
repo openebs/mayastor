@@ -114,6 +114,15 @@ async def test_io_policy(create_replicas, create_nexuses, mayastor_mod):
         iopolicy = f.read().strip()
         assert iopolicy == "numa", "I/O policy is not NUMA"
 
+    # Make sure ANA state is reported properly for both nexuses.
+    for n in ["ms2", "ms3"]:
+        ms = mayastor_mod.get(n)
+        nexuses = ms.nexus_list_v2()
+        assert len(nexuses) == 1, "Number of nexuses mismatches"
+        assert (
+            nexuses[0].ana_state == pb.NVME_ANA_OPTIMIZED_STATE
+        ), "ANA state of nexus mismatches"
+
 
 @pytest.mark.asyncio
 async def test_namespace_guid(create_replicas, create_nexuses, mayastor_mod):
