@@ -167,7 +167,7 @@ class MayastorHandle(object):
         return self.ms.RemoveChildNexus(pb.RemoveChildNexusRequest(uuid=uuid, uri=uri))
 
     def bdev_list(self):
-        """ "List all bdevs found within the system."""
+        """List all bdevs found within the system."""
         return self.bdev.List(pb.Null(), wait_for_ready=True).bdevs
 
     def pool_list(self):
@@ -182,6 +182,10 @@ class MayastorHandle(object):
             uri = "pool://{0}/{1}".format(self.ip_v4, p.name)
             uris.append(uri)
         return uris
+
+    def stat_nvme_controllers(self):
+        """Statistics for all nvmx controllers"""
+        return self.ms.StatNvmeControllers(pb.Null()).controllers
 
     def mayastor_info(self):
         """Get information about Mayastor instance"""
