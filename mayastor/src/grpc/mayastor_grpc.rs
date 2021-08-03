@@ -643,14 +643,16 @@ impl mayastor_server::Mayastor for MayastorSvc {
         trace!("{:?}", args);
 
         let rx = rpc_submit::<_, _, nexus_bdev::Error>(async move {
+            let mut nexus_list: Vec<NexusV2> = Vec::new();
+
+            for n in instances() {
+                if n.state.lock().deref() != &nexus_bdev::NexusState::Init {
+                    nexus_list.push(n.to_grpc_v2().await);
+                }
+            }
+
             Ok(ListNexusV2Reply {
-                nexus_list: instances()
-                    .iter()
-                    .filter(|n| {
-                        n.state.lock().deref() != &nexus_bdev::NexusState::Init
-                    })
-                    .map(|n| n.to_grpc_v2())
-                    .collect::<Vec<_>>(),
+                nexus_list,
             })
         })?;
 

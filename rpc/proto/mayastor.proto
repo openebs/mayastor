@@ -271,6 +271,7 @@ message NexusV2 {
   // Missing property and empty string are treated the same.
   string device_uri = 6;
   uint32 rebuilds = 7;         // total number of rebuild tasks
+  NvmeAnaState ana_state = 8;  // Nexus ANA state.
 }
 
 message ListNexusV2Reply {
