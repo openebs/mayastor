@@ -51,7 +51,9 @@ def create_nexus(
 
 
 @pytest.fixture
-def create_nexus_2(mayastor_mod, nexus_name, nexus_uuid, min_cntlid_2, resv_key_2):
+def create_nexus_2_no_destroy(
+    mayastor_mod, nexus_name, nexus_uuid, min_cntlid_2, resv_key_2
+):
     """ Create a 2nd nexus on ms0 with the same 2 replicas but with resv_key_2 """
     hdls = mayastor_mod
     NEXUS_NAME = nexus_name
@@ -79,6 +81,14 @@ def create_nexus_2(mayastor_mod, nexus_name, nexus_uuid, min_cntlid_2, resv_key_
     assert len(hdls["ms2"].bdev_list()) == 2
     assert len(hdls["ms3"].bdev_list()) == 1
 
+    return uri
+
+
+@pytest.fixture
+def create_nexus_2(create_nexus_2_no_destroy, mayastor_mod, nexus_name):
+    hdls = mayastor_mod
+    NEXUS_NAME = nexus_name
+    uri = create_nexus_2_no_destroy
     yield uri
     hdls["ms0"].nexus_destroy(NEXUS_NAME)
 
@@ -97,6 +107,20 @@ def create_nexus_2_dev(create_nexus_2):
     dev = nvme_connect(uri)
     yield dev
     nvme_disconnect(uri)
+
+
+@pytest.fixture
+def connect_nexus_2(create_nexus_2_no_destroy):
+    uri = create_nexus_2_no_destroy
+    dev = nvme_connect(uri)
+    return dev
+
+
+@pytest.fixture
+def destroy_nexus_2(mayastor_mod, nexus_name):
+    hdls = mayastor_mod
+    NEXUS_NAME = nexus_name
+    hdls["ms0"].nexus_destroy(NEXUS_NAME)
 
 
 @pytest.fixture
@@ -333,6 +357,36 @@ def test_nexus_multipath_add_3rd_path(
     desc = nvme_list_subsystems(dev)
     paths = desc["Subsystems"][0]["Paths"]
     assert len(paths) == 3, "should have 3 paths"
+
+    # wait for fio to complete
+    time.sleep(15)
+
+
+@pytest.mark.timeout(60)
+def test_nexus_multipath_remove_3rd_path(
+    create_nexus_dev,
+    create_nexus_2_no_destroy,
+    connect_nexus_2,
+    create_nexus_3_dev,
+    start_fio,
+    destroy_nexus_2,
+):
+    """Create 3 nexuses, connect over NVMe, start fio, destroy 2nd nexus."""
+
+    dev = create_nexus_dev
+    dev2 = connect_nexus_2
+    dev3 = create_nexus_3_dev
+    assert dev == dev2, "should have one namespace"
+    assert dev == dev3, "should have one namespace"
+
+    desc = nvme_list_subsystems(dev)
+    paths = desc["Subsystems"][0]["Paths"]
+    assert len(paths) == 3, "should have 3 paths"
+
+    assert paths[0]["State"] == "live"
+    # kernel 5.4 reports resetting, 5.10 reports connecting
+    assert paths[1]["State"] == "resetting" or paths[1]["State"] == "connecting"
+    assert paths[2]["State"] == "live"
 
     # wait for fio to complete
     time.sleep(15)
