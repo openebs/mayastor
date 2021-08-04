@@ -45,6 +45,7 @@ impl TryFrom<&Url> for Aio {
                 value.parse().context(nexus_uri::IntParamParseError {
                     uri: url.to_string(),
                     parameter: String::from("blk_size"),
+                    value: value.clone(),
                 })?
             }
             None => 512,

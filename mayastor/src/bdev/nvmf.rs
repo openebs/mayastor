@@ -84,6 +84,7 @@ impl TryFrom<&Url> for Nvmf {
                 nexus_uri::BoolParamParseError {
                     uri: url.to_string(),
                     parameter: String::from("reftag"),
+                    value: value.to_string(),
                 },
             )? {
                 prchk_flags |= spdk_sys::SPDK_NVME_IO_FLAGS_PRCHK_REFTAG;
@@ -95,6 +96,7 @@ impl TryFrom<&Url> for Nvmf {
                 nexus_uri::BoolParamParseError {
                     uri: url.to_string(),
                     parameter: String::from("guard"),
+                    value: value.to_string(),
                 },
             )? {
                 prchk_flags |= spdk_sys::SPDK_NVME_IO_FLAGS_PRCHK_GUARD;
@@ -176,9 +178,11 @@ impl CreateDestroy for Nvmf {
             )
         };
 
-        errno_result_from_i32((), errno).context(nexus_uri::InvalidParams {
-            name: self.name.clone(),
-        })?;
+        errno_result_from_i32((), errno).context(
+            nexus_uri::CreateBdevInvalidParams {
+                name: self.name.clone(),
+            },
+        )?;
 
         let bdev_count = receiver
             .await

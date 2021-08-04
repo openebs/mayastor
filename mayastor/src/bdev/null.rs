@@ -54,6 +54,7 @@ impl TryFrom<&Url> for Null {
             value.parse().context(nexus_uri::IntParamParseError {
                 uri: uri.to_string(),
                 parameter: String::from("blk_size"),
+                value: value.clone(),
             })?
         } else {
             512
@@ -72,6 +73,7 @@ impl TryFrom<&Url> for Null {
             value.parse().context(nexus_uri::IntParamParseError {
                 uri: uri.to_string(),
                 parameter: String::from("size_mb"),
+                value: value.clone(),
             })?
         } else {
             0
@@ -82,6 +84,7 @@ impl TryFrom<&Url> for Null {
                 value.parse().context(nexus_uri::IntParamParseError {
                     uri: uri.to_string(),
                     parameter: String::from("blk_size"),
+                    value: value.clone(),
                 })?
             } else {
                 0

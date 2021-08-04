@@ -96,9 +96,11 @@ impl CreateDestroy for NVMe {
             )
         };
 
-        errno_result_from_i32((), errno).context(nexus_uri::InvalidParams {
-            name: self.name.clone(),
-        })?;
+        errno_result_from_i32((), errno).context(
+            nexus_uri::CreateBdevInvalidParams {
+                name: self.name.clone(),
+            },
+        )?;
 
         receiver
             .await
