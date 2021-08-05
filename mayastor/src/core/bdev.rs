@@ -473,12 +473,13 @@ impl Debug for Bdev {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), std::fmt::Error> {
         write!(
             f,
-            "name: {}, driver: {}, product: {}, num_blocks: {}, block_len: {}",
+            "name: {}, driver: {}, product: {}, num_blocks: {}, block_len: {}, alignment: {}",
             self.name(),
             self.driver(),
             self.product_name(),
             self.num_blocks(),
-            self.block_len()
+            self.block_len(),
+            self.alignment(),
         )
     }
 }

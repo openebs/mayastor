@@ -3,7 +3,6 @@ use std::{convert::TryFrom, fmt::Debug, os::raw::c_void, ptr::NonNull};
 use futures::channel::oneshot;
 use nix::errno::Errno;
 use pin_utils::core_reexport::fmt::Formatter;
-use tracing::instrument;
 
 use rpc::mayastor::CreatePoolRequest;
 use spdk_sys::{
@@ -22,8 +21,8 @@ use spdk_sys::{
     vbdev_lvs_destruct,
     vbdev_lvs_examine,
     vbdev_lvs_unload,
+    LVOL_CLEAR_WITH_NONE,
     LVOL_CLEAR_WITH_UNMAP,
-    LVOL_CLEAR_WITH_WRITE_ZEROES,
     LVS_CLEAR_WITH_NONE,
 };
 use url::Url;
@@ -128,6 +127,13 @@ impl Lvs {
         LvsIterator::default()
     }
 
+    /// export all LVS instances
+    pub async fn export_all() {
+        for pool in Self::iter() {
+            let _ = pool.export().await;
+        }
+    }
+
     /// lookup a lvol store by its name
     pub fn lookup(name: &str) -> Option<Self> {
         let name = name.into_cstring();
@@ -181,7 +187,6 @@ impl Lvs {
     }
 
     /// imports a pool based on its name and base bdev name
-    #[instrument(level = "debug")]
     pub async fn import(name: &str, bdev: &str) -> Result<Lvs, Error> {
         let (sender, receiver) = pair::<ErrnoResult<Lvs>>();
 
@@ -238,7 +243,6 @@ impl Lvs {
         }
     }
 
-    #[instrument(level = "debug", err)]
     /// Create a pool on base bdev
     pub async fn create(name: &str, bdev: &str) -> Result<Lvs, Error> {
         let pool_name = name.into_cstring();
@@ -285,7 +289,6 @@ impl Lvs {
     }
 
     /// imports the pool if it exists, otherwise try to create it
-    #[instrument(level = "debug", err)]
     pub async fn create_or_import(
         args: CreatePoolRequest,
     ) -> Result<Lvs, Error> {
@@ -352,7 +355,10 @@ impl Lvs {
                 error!("pool name mismatch");
                 Err(Error::Import {
                     source,
-                    name,
+                    name: format!(
+                        "a pool currently exists on the device with name: {}",
+                        name
+                    ),
                 })
             }
             // try to create the pool
@@ -378,8 +384,6 @@ impl Lvs {
     }
 
     /// export the given lvl
-    #[allow(clippy::unit_arg)] // here to silence the () argument
-    #[instrument(level = "debug", err)]
     pub async fn export(self) -> Result<(), Error> {
         let pool = self.name().to_string();
         let base_bdev = self.base_bdev();
@@ -447,8 +451,6 @@ impl Lvs {
 
     /// destroys the given pool deleting the on disk super blob before doing so,
     /// un share all targets
-    #[allow(clippy::unit_arg)]
-    #[instrument(level = "debug", err)]
     pub async fn destroy(self) -> Result<(), Error> {
         let pool = self.name().to_string();
         let (s, r) = pair::<i32>();
@@ -504,8 +506,6 @@ impl Lvs {
             None
         }
     }
-
-    #[instrument(level = "debug", err)]
     /// create a new lvol on this pool
     pub async fn create_lvol(
         &self,
@@ -517,7 +517,7 @@ impl Lvs {
         {
             LVOL_CLEAR_WITH_UNMAP
         } else {
-            LVOL_CLEAR_WITH_WRITE_ZEROES
+            LVOL_CLEAR_WITH_NONE
         };
 
         if Bdev::lookup_by_name(name).is_some() {
@@ -554,6 +554,8 @@ impl Lvs {
                 name: name.to_string(),
             })
             .map(|lvol| Lvol(NonNull::new(lvol).unwrap()))?;
+
+        lvol.wipe_super().await?;
 
         info!("created {}", lvol);
         Ok(lvol)

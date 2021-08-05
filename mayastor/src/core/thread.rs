@@ -214,7 +214,7 @@ impl Mthread {
                         .expect("sender already taken")
                         .send(result)
                     {
-                        error!("Failed to send with error {:?}", e);
+                        error!("Failed to send response future result {:?}", e);
                     }
                 })
                 .detach();
