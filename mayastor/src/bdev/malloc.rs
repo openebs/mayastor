@@ -43,7 +43,7 @@ impl TryFrom<&Url> for Malloc {
         if segments.is_empty() {
             return Err(NexusBdevError::UriInvalid {
                 uri: uri.to_string(),
-                message: "no path segments".to_string(),
+                message: "empty path".to_string(),
             });
         }
 
@@ -54,24 +54,17 @@ impl TryFrom<&Url> for Malloc {
             value.parse().context(nexus_uri::IntParamParseError {
                 uri: uri.to_string(),
                 parameter: String::from("blk_size"),
+                value: value.clone(),
             })?
         } else {
             512
         };
 
-        if blk_size != 512 && blk_size != 4096 {
-            return Err(NexusBdevError::UriInvalid {
-                uri: uri.to_string(),
-                message:
-                    "invalid blk_size specified must be one of 512 or 4096"
-                        .to_string(),
-            });
-        }
-
         let size: u32 = if let Some(value) = parameters.remove("size_mb") {
             value.parse().context(nexus_uri::IntParamParseError {
                 uri: uri.to_string(),
                 parameter: String::from("size_mb"),
+                value: value.clone(),
             })?
         } else {
             0
@@ -81,19 +74,12 @@ impl TryFrom<&Url> for Malloc {
             if let Some(value) = parameters.remove("num_blocks") {
                 value.parse().context(nexus_uri::IntParamParseError {
                     uri: uri.to_string(),
-                    parameter: String::from("blk_size"),
+                    parameter: String::from("num_blocks"),
+                    value: value.clone(),
                 })?
             } else {
                 0
             };
-
-        if size != 0 && num_blocks != 0 {
-            return Err(NexusBdevError::UriInvalid {
-                uri: uri.to_string(),
-                message: "conflicting parameters num_blocks and size_mb are mutually exclusive"
-                    .to_string(),
-            });
-        }
 
         let uuid = uri::uuid(parameters.remove("uuid")).context(
             nexus_uri::UuidParamParseError {
@@ -102,6 +88,30 @@ impl TryFrom<&Url> for Malloc {
         )?;
 
         reject_unknown_parameters(uri, parameters)?;
+
+        // Validate parameters.
+        if blk_size != 512 && blk_size != 4096 {
+            return Err(NexusBdevError::UriInvalid {
+                uri: uri.to_string(),
+                message: "'blk_size' must be one of: 512, 4096".to_string(),
+            });
+        }
+
+        if size != 0 && num_blocks != 0 {
+            return Err(NexusBdevError::UriInvalid {
+                uri: uri.to_string(),
+                message: "'num_blocks' and 'size_mb' are mutually exclusive"
+                    .to_string(),
+            });
+        }
+
+        if size == 0 && num_blocks == 0 {
+            return Err(NexusBdevError::UriInvalid {
+                uri: uri.to_string(),
+                message: "either 'num_blocks' or 'size_mb' must be specified"
+                    .to_string(),
+            });
+        }
 
         Ok(Self {
             name: uri.path()[1 ..].into(),

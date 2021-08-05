@@ -120,6 +120,7 @@ impl TryFrom<&Url> for NvmfDeviceTemplate {
                 nexus_uri::BoolParamParseError {
                     uri: url.to_string(),
                     parameter: String::from("reftag"),
+                    value: value.to_string(),
                 },
             )? {
                 prchk_flags |= spdk_sys::SPDK_NVME_IO_FLAGS_PRCHK_REFTAG;
@@ -131,6 +132,7 @@ impl TryFrom<&Url> for NvmfDeviceTemplate {
                 nexus_uri::BoolParamParseError {
                     uri: url.to_string(),
                     parameter: String::from("guard"),
+                    value: value.to_string(),
                 },
             )? {
                 prchk_flags |= spdk_sys::SPDK_NVME_IO_FLAGS_PRCHK_GUARD;

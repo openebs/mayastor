@@ -11,63 +11,99 @@ use url::ParseError;
 #[derive(Debug, Snafu, Clone)]
 #[snafu(visibility = "pub(crate)")]
 pub enum NexusBdevError {
-    // Generic URL parse errors
-    #[snafu(display("Error parsing URI \"{}\"", uri))]
+    // Generic URL parse errors.
+    #[snafu(display("Error parsing URI '{}'", uri))]
     UrlParseError { source: ParseError, uri: String },
+
+    // No matching URI error.
     #[snafu(display(
-        "No matching URI found for bdev {} in aliases {:?}",
+        "No matching URI found for BDEV '{}' in aliases {:?}",
         name,
         aliases
     ))]
     BdevNoUri { name: String, aliases: Vec<String> },
-    #[snafu(display("Unsupported URI scheme: {}", scheme))]
+
+    // Unsupported URI scheme.
+    #[snafu(display("Unsupported URI scheme: '{}'", scheme))]
     UriSchemeUnsupported { scheme: String },
-    // Scheme specific URI format errors
-    #[snafu(display("Invalid URI \"{}\": {}", uri, message))]
+
+    // Scheme-specific URI format errors.
+    #[snafu(display("Invalid URI '{}': {}", uri, message))]
     UriInvalid { uri: String, message: String },
+
+    // Bad value of a boolean parameter.
     #[snafu(display(
-        "Invalid URI \"{}\": could not parse {} parameter value",
+        "Invalid URI '{}': could not parse value of parameter '{}': '{}' is given, \
+            a boolean expected",
         uri,
-        parameter
+        parameter,
+        value
     ))]
     BoolParamParseError {
         source: ParseBoolError,
         uri: String,
         parameter: String,
+        value: String,
     },
+
+    // Bad value of an integer parameter.
     #[snafu(display(
-        "Invalid URI \"{}\": could not parse {} parameter value",
+        "Invalid URI '{}': could not parse value of parameter '{}': '{}' is given, \
+            an integer expected",
         uri,
-        parameter
+        parameter,
+        value
     ))]
     IntParamParseError {
         source: ParseIntError,
         uri: String,
         parameter: String,
+        value: String,
     },
+
+    // Bad value of a UUID parameter.
     #[snafu(display(
-        "Invalid URI \"{}\": could not parse uuid parameter value",
-        uri,
+        "Invalid URI '{}': could not parse value of UUID parameter",
+        uri
     ))]
     UuidParamParseError { source: uuid::Error, uri: String },
-    // Bdev create/destroy errors
-    #[snafu(display("bdev {} already exists", name))]
-    BdevExists { name: String },
+
+    // BDEV name already exists.
     #[snafu(display(
-        "bdev {} already exists with a different uuid: {}",
+        "Failed to create a BDEV: name '{}' already exists",
+        name
+    ))]
+    BdevExists { name: String },
+
+    // Creating a BDEV with a different UUID.
+    #[snafu(display(
+        "Failed to create a BDEV: '{}' already exists with a different UUID: '{}'",
         name,
         uuid
     ))]
     BdevWrongUuid { name: String, uuid: String },
-    #[snafu(display("bdev {} not found", name))]
+
+    // BDEV is not found.
+    #[snafu(display("BDEV '{}' could not be found", name))]
     BdevNotFound { name: String },
-    #[snafu(display("Invalid parameters for bdev create {}", name))]
-    InvalidParams { source: Errno, name: String },
-    #[snafu(display("Failed to create bdev {}", name))]
+
+    // Invalid creation parameters.
+    #[snafu(display(
+        "Failed to create a BDEV '{}': invalid parameters",
+        name
+    ))]
+    CreateBdevInvalidParams { source: Errno, name: String },
+
+    // Generic creation failure.
+    #[snafu(display("Failed to create a BDEV '{}'", name))]
     CreateBdev { source: Errno, name: String },
-    #[snafu(display("Failed to destroy bdev {}", name))]
+
+    // Generic destruction failure.
+    #[snafu(display("Failed to destroy a BDEV '{}'", name))]
     DestroyBdev { source: Errno, name: String },
-    #[snafu(display("Command canceled for bdev {}", name))]
+
+    // Command canceled.
+    #[snafu(display("Command canceled for a BDEV '{}'", name))]
     CancelBdev { source: Canceled, name: String },
 }
 

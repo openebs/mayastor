@@ -74,7 +74,7 @@ pub(crate) fn reject_unknown_parameters(
         Err(NexusBdevError::UriInvalid {
             uri: url.to_string(),
             message: format!(
-                "unrecognized parameters: {}.",
+                "unrecognized parameter(s): {}",
                 invalid_parameters
             ),
         })
