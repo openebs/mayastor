@@ -1,9 +1,11 @@
-use std::{
-    fmt::{Debug, Error, Formatter},
-    os::raw::c_char,
-};
+use std::fmt::{Debug, Error, Formatter};
 
-use spdk_sys::{spdk_io_channel, spdk_put_io_channel};
+use spdk_sys::{
+    spdk_io_channel,
+    spdk_io_channel_get_io_device_name,
+    spdk_put_io_channel,
+    spdk_thread_get_name,
+};
 use std::ptr::NonNull;
 pub struct IoChannel(NonNull<spdk_io_channel>);
 
@@ -24,13 +26,9 @@ impl IoChannel {
     /// actual name
     fn name(&self) -> &str {
         unsafe {
-            // struct is opaque
-            std::ffi::CStr::from_ptr(
-                (*(self.0.as_ptr()))
-                    .dev
-                    .add(std::mem::size_of::<*mut spdk_io_channel>())
-                    as *const c_char,
-            )
+            std::ffi::CStr::from_ptr(spdk_io_channel_get_io_device_name(
+                self.0.as_ptr(),
+            ))
             .to_str()
             .unwrap()
         }
@@ -38,9 +36,11 @@ impl IoChannel {
 
     fn thread_name(&self) -> &str {
         unsafe {
-            std::ffi::CStr::from_ptr(&(*self.0.as_ref().thread).name[0])
-                .to_str()
-                .unwrap()
+            std::ffi::CStr::from_ptr(spdk_thread_get_name(
+                self.0.as_ref().thread,
+            ))
+            .to_str()
+            .unwrap()
         }
     }
 }

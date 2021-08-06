@@ -220,8 +220,10 @@ impl From<NvmfTcpTransportOpts> for spdk_nvmf_transport_opts {
 pub struct NvmeBdevOpts {
     /// action take on timeout
     pub action_on_timeout: u32,
-    /// timeout for each command
+    /// timeout for IO commands
     pub timeout_us: u64,
+    /// timeout for admin commands
+    pub timeout_admin_us: u64,
     /// keep-alive timeout
     pub keep_alive_timeout_ms: u32,
     /// retry count
@@ -268,6 +270,7 @@ impl Default for NvmeBdevOpts {
         Self {
             action_on_timeout: 4,
             timeout_us: try_from_env("NVME_TIMEOUT_US", 5_000_000),
+            timeout_admin_us: try_from_env("NVME_TIMEOUT_ADMIN_US", 5_000_000),
             keep_alive_timeout_ms: try_from_env("NVME_KATO_MS", 1_000),
             retry_count: try_from_env("NVME_RETRY_COUNT", 0),
             arbitration_burst: 0,
@@ -290,6 +293,7 @@ impl From<spdk_bdev_nvme_opts> for NvmeBdevOpts {
         Self {
             action_on_timeout: o.action_on_timeout,
             timeout_us: o.timeout_us,
+            timeout_admin_us: o.timeout_admin_us,
             keep_alive_timeout_ms: o.keep_alive_timeout_ms,
             retry_count: o.retry_count,
             arbitration_burst: o.arbitration_burst,
@@ -309,6 +313,7 @@ impl From<&NvmeBdevOpts> for spdk_bdev_nvme_opts {
         Self {
             action_on_timeout: o.action_on_timeout,
             timeout_us: o.timeout_us,
+            timeout_admin_us: o.timeout_admin_us,
             keep_alive_timeout_ms: o.keep_alive_timeout_ms,
             retry_count: o.retry_count,
             arbitration_burst: o.arbitration_burst,
@@ -434,6 +439,12 @@ pub struct IscsiTgtOpts {
     max_large_data_in_per_connection: u32,
     /// todo
     max_r2t_per_connection: u32,
+    /// todo
+    pdu_pool_size: u32,
+    /// todo
+    immediate_data_pool_size: u32,
+    /// todo
+    data_out_pool_size: u32,
 }
 
 impl Default for IscsiTgtOpts {
@@ -459,6 +470,12 @@ impl Default for IscsiTgtOpts {
             allow_duplicate_isid: false,
             max_large_data_in_per_connection: 64,
             max_r2t_per_connection: 4,
+            // 2 * (MaxQueueDepth + MaxLargeDataInPerConnection + 2 *
+            // MaxR2TPerConnection + 8)
+            pdu_pool_size: 110 * (2 * (32 + 64 + 2 * 4 + 8)),
+            immediate_data_pool_size: 110 * 128,
+            // MaxSessions * MAX_DATA_OUT_PER_CONNECTION
+            data_out_pool_size: 110 * 16,
         }
     }
 }
@@ -490,6 +507,9 @@ impl From<&IscsiTgtOpts> for spdk_iscsi_opts {
             AllowDuplicateIsid: o.allow_duplicate_isid,
             MaxLargeDataInPerConnection: o.max_large_data_in_per_connection,
             MaxR2TPerConnection: o.max_r2t_per_connection,
+            pdu_pool_size: o.pdu_pool_size,
+            immediate_data_pool_size: o.immediate_data_pool_size,
+            data_out_pool_size: o.data_out_pool_size,
         }
     }
 }

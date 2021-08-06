@@ -347,7 +347,7 @@ impl Bdev {
         let mut ent_ptr = head.tqh_first;
         while !ent_ptr.is_null() {
             let ent = unsafe { &*ent_ptr };
-            let alias = unsafe { CStr::from_ptr(ent.alias) };
+            let alias = unsafe { CStr::from_ptr(ent.alias.name) };
             aliases.push(alias.to_str().unwrap().to_string());
             ent_ptr = ent.tailq.tqe_next;
         }
