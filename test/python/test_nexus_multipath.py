@@ -18,7 +18,7 @@ from common.mayastor import containers_mod, mayastor_mod
 
 
 @pytest.fixture
-def create_nexus(
+def create_nexus_no_destroy(
     mayastor_mod, nexus_name, nexus_uuid, create_replica, min_cntlid, resv_key
 ):
     """ Create a nexus on ms3 with 2 replicas """
@@ -46,6 +46,14 @@ def create_nexus(
     assert len(hdls["ms1"].pool_list().pools) == 1
     assert len(hdls["ms2"].pool_list().pools) == 1
 
+    return uri
+
+
+@pytest.fixture
+def create_nexus(create_nexus_no_destroy, mayastor_mod, nexus_name):
+    hdls = mayastor_mod
+    NEXUS_NAME = nexus_name
+    uri = create_nexus_no_destroy
     yield uri
     hdls["ms3"].nexus_destroy(NEXUS_NAME)
 
@@ -94,19 +102,26 @@ def create_nexus_2(create_nexus_2_no_destroy, mayastor_mod, nexus_name):
 
 
 @pytest.fixture
-def create_nexus_dev(create_nexus):
+def create_nexus_dev(create_nexus, connect_nexus):
     uri = create_nexus
-    dev = nvme_connect(uri)
+    dev = connect_nexus
     yield dev
     nvme_disconnect(uri)
 
 
 @pytest.fixture
-def create_nexus_2_dev(create_nexus_2):
+def create_nexus_2_dev(create_nexus_2, connect_nexus_2):
     uri = create_nexus_2
-    dev = nvme_connect(uri)
+    dev = connect_nexus_2
     yield dev
     nvme_disconnect(uri)
+
+
+@pytest.fixture
+def connect_nexus(create_nexus_no_destroy):
+    uri = create_nexus_no_destroy
+    dev = nvme_connect(uri)
+    return dev
 
 
 @pytest.fixture
@@ -117,10 +132,24 @@ def connect_nexus_2(create_nexus_2_no_destroy):
 
 
 @pytest.fixture
+def unpublish_nexus(mayastor_mod, nexus_name):
+    hdls = mayastor_mod
+    NEXUS_NAME = nexus_name
+    hdls["ms3"].nexus_unpublish(NEXUS_NAME)
+
+
+@pytest.fixture
 def destroy_nexus_2(mayastor_mod, nexus_name):
     hdls = mayastor_mod
     NEXUS_NAME = nexus_name
     hdls["ms0"].nexus_destroy(NEXUS_NAME)
+
+
+@pytest.fixture
+def publish_nexus(mayastor_mod, nexus_name):
+    hdls = mayastor_mod
+    NEXUS_NAME = nexus_name
+    hdls["ms3"].nexus_publish(NEXUS_NAME)
 
 
 @pytest.fixture
@@ -292,6 +321,28 @@ def start_fio(create_nexus_dev):
     assert output.returncode == 0
 
 
+@pytest.fixture
+def delay():
+    """Wait for kernel to notice change to path state"""
+    time.sleep(2)
+
+
+@pytest.fixture
+def delay2():
+    """Wait for kernel to notice change to path state"""
+    time.sleep(2)
+
+
+@pytest.fixture
+def verify_paths(connect_nexus):
+    dev = connect_nexus
+    desc = nvme_list_subsystems(dev)
+    paths = desc["Subsystems"][0]["Paths"]
+    assert len(paths) == 2, "should have 2 paths"
+    assert paths[0]["State"] == "connecting"
+    assert paths[1]["State"] == "live"
+
+
 @pytest.mark.timeout(60)
 def test_nexus_multipath(
     create_nexus,
@@ -390,3 +441,39 @@ def test_nexus_multipath_remove_3rd_path(
 
     # wait for fio to complete
     time.sleep(15)
+
+
+@pytest.mark.timeout(60)
+def test_nexus_multipath_remove_all_paths(
+    create_nexus_no_destroy,
+    create_nexus_2_no_destroy,
+    connect_nexus,
+    connect_nexus_2,
+    start_fio,
+    unpublish_nexus,
+    delay,
+    verify_paths,
+    destroy_nexus_2,
+    delay2,
+    publish_nexus,
+):
+    """Create 2 nexuses, connect over NVMe, start fio, unpublish one nexus,
+    verify failover, destroy the other nexus, re-publish the first nexus,
+    verify IO restarts."""
+
+    dev = connect_nexus
+    dev2 = connect_nexus_2
+    assert dev == dev2, "should have one namespace"
+
+    # wait for reconnection
+    time.sleep(10)
+
+    desc = nvme_list_subsystems(dev)
+    paths = desc["Subsystems"][0]["Paths"]
+    assert len(paths) == 2, "should have 2 paths"
+
+    assert paths[0]["State"] == "live"
+    assert paths[1]["State"] == "connecting"
+
+    # wait for fio to complete
+    time.sleep(5)
