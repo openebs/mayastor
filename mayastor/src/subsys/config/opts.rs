@@ -551,6 +551,8 @@ pub struct PosixSocketOpts {
     recv_buf_size: u32,
     send_buf_size: u32,
     enable_recv_pipe: bool,
+    /// deprecated, use use enable_zerocopy_send_server or
+    /// enable_zerocopy_send_client instead
     enable_zero_copy_send: bool,
     enable_quickack: bool,
     enable_placement_id: u32,
@@ -564,7 +566,7 @@ impl Default for PosixSocketOpts {
             recv_buf_size: try_from_env("SOCK_RECV_BUF_SIZE", 2097152),
             send_buf_size: try_from_env("SOCK_SEND_BUF_SIZE", 2097152),
             enable_recv_pipe: try_from_env("SOCK_ENABLE_RECV_PIPE", true),
-            enable_zero_copy_send: try_from_env("SOCK_ZERO_COPY_SEND", true),
+            enable_zero_copy_send: true,
             enable_quickack: try_from_env("SOCK_ENABLE_QUICKACK", true),
             enable_placement_id: try_from_env("SOCK_ENABLE_PLACEMENT_ID", 0),
             enable_zerocopy_send_server: try_from_env(
@@ -573,7 +575,7 @@ impl Default for PosixSocketOpts {
             ),
             enable_zerocopy_send_client: try_from_env(
                 "SOCK_ZEROCOPY_SEND_CLIENT",
-                true,
+                false,
             ),
         }
     }
