@@ -231,7 +231,8 @@ impl CreateDestroy for Nvmf {
     /// Destroy the given NVMF bdev
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
         match Bdev::lookup_by_name(&self.get_name()) {
-            Some(_) => {
+            Some(bdev) => {
+                bdev.remove_alias(&self.alias);
                 let cname = CString::new(self.name.clone()).unwrap();
 
                 let errno = unsafe {

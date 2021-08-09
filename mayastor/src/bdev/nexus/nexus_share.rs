@@ -90,6 +90,10 @@ impl Share for Nexus {
     fn bdev_uri(&self) -> Option<String> {
         self.bdev.bdev_uri()
     }
+
+    fn bdev_uri_original(&self) -> Option<String> {
+        self.bdev.bdev_uri_original()
+    }
 }
 
 impl From<&NexusTarget> for ShareProtocolNexus {

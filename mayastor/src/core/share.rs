@@ -55,4 +55,5 @@ pub trait Share: std::fmt::Debug {
     fn shared(&self) -> Option<Protocol>;
     fn share_uri(&self) -> Option<String>;
     fn bdev_uri(&self) -> Option<String>;
+    fn bdev_uri_original(&self) -> Option<String>;
 }

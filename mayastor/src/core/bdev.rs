@@ -143,6 +143,18 @@ impl Share for Bdev {
         }
         None
     }
+
+    /// return the URI that was used to construct the bdev, without uuid
+    fn bdev_uri_original(&self) -> Option<String> {
+        for alias in self.aliases().iter() {
+            if let Ok(uri) = url::Url::parse(alias) {
+                if self == uri {
+                    return Some(uri.to_string());
+                }
+            }
+        }
+        None
+    }
 }
 
 impl Bdev {

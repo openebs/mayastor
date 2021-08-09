@@ -174,6 +174,10 @@ impl Share for Lvol {
     fn bdev_uri(&self) -> Option<String> {
         None
     }
+
+    fn bdev_uri_original(&self) -> Option<String> {
+        None
+    }
 }
 
 impl Lvol {
