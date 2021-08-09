@@ -15,6 +15,7 @@ use spdk_sys::{
     vbdev_get_lvol_store_by_name,
     vbdev_get_lvs_bdev_by_lvs,
     vbdev_lvol_create,
+    vbdev_lvol_create_with_uuid,
     vbdev_lvol_store_first,
     vbdev_lvol_store_next,
     vbdev_lvs_create,
@@ -511,6 +512,7 @@ impl Lvs {
         &self,
         name: &str,
         size: u64,
+        uuid: Option<&str>,
         thin: bool,
     ) -> Result<Lvol, Error> {
         let clear_method = if self.base_bdev().io_type_supported(IoType::Unmap)
@@ -531,15 +533,31 @@ impl Lvs {
 
         let cname = name.into_cstring();
         unsafe {
-            vbdev_lvol_create(
-                self.0.as_ptr(),
-                cname.as_ptr(),
-                size,
-                thin,
-                clear_method,
-                Some(Lvol::lvol_cb),
-                cb_arg(s),
-            )
+            match uuid {
+                Some(u) => {
+                    let cuuid = u.into_cstring();
+
+                    vbdev_lvol_create_with_uuid(
+                        self.0.as_ptr(),
+                        cname.as_ptr(),
+                        size,
+                        thin,
+                        clear_method,
+                        cuuid.as_ptr(),
+                        Some(Lvol::lvol_cb),
+                        cb_arg(s),
+                    )
+                }
+                None => vbdev_lvol_create(
+                    self.0.as_ptr(),
+                    cname.as_ptr(),
+                    size,
+                    thin,
+                    clear_method,
+                    Some(Lvol::lvol_cb),
+                    cb_arg(s),
+                ),
+            }
         }
         .to_result(|e| Error::RepCreate {
             source: Errno::from_i32(e),

@@ -123,9 +123,14 @@ async fn lvs_pool_test() {
     ms.spawn(async {
         let pool = Lvs::lookup("tpool").unwrap();
         for i in 0 .. 10 {
-            pool.create_lvol(&format!("vol-{}", i), 8 * 1024 * 1024, true)
-                .await
-                .unwrap();
+            pool.create_lvol(
+                &format!("vol-{}", i),
+                8 * 1024 * 1024,
+                None,
+                true,
+            )
+            .await
+            .unwrap();
         }
 
         assert_eq!(pool.lvols().unwrap().count(), 10);
@@ -146,6 +151,7 @@ async fn lvs_pool_test() {
                 .create_lvol(
                     &format!("pool2-vol-{}", i),
                     8 * 1024 * 1024,
+                    None,
                     false,
                 )
                 .await
@@ -209,7 +215,7 @@ async fn lvs_pool_test() {
     ms.spawn(async {
         let pool = Lvs::lookup("tpool").unwrap();
         let lvol = pool
-            .create_lvol("vol-1", 1024 * 1024 * 8, false)
+            .create_lvol("vol-1", 1024 * 1024 * 8, None, false)
             .await
             .unwrap();
 
@@ -250,16 +256,21 @@ async fn lvs_pool_test() {
         let pool = Lvs::lookup("tpool").unwrap();
 
         for i in 0 .. 10 {
-            pool.create_lvol(&format!("vol-{}", i), 8 * 1024 * 1024, true)
-                .await
-                .unwrap();
+            pool.create_lvol(
+                &format!("vol-{}", i),
+                8 * 1024 * 1024,
+                None,
+                true,
+            )
+            .await
+            .unwrap();
         }
 
         for l in pool.lvols().unwrap() {
             l.share_nvmf(None).await.unwrap();
         }
 
-        pool.create_lvol("notshared", 8 * 1024 * 1024, true)
+        pool.create_lvol("notshared", 8 * 1024 * 1024, None, true)
             .await
             .unwrap();
 

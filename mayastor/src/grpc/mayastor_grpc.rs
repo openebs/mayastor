@@ -204,6 +204,20 @@ impl From<Lvol> for Replica {
     }
 }
 
+impl From<Lvol> for ReplicaV2 {
+    fn from(l: Lvol) -> Self {
+        Self {
+            name: l.name(),
+            uuid: l.uuid(),
+            pool: l.pool(),
+            thin: l.is_thin(),
+            size: l.size(),
+            share: l.shared().unwrap().into(),
+            uri: l.share_uri().unwrap(),
+        }
+    }
+}
+
 impl From<MayastorFeatures> for rpc::mayastor::MayastorFeatures {
     fn from(f: MayastorFeatures) -> Self {
         Self {
@@ -332,7 +346,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
             }
 
             let p = Lvs::lookup(&args.pool).unwrap();
-            match p.create_lvol(&args.uuid, args.size, false).await {
+            match p.create_lvol(&args.uuid, args.size, None, false).await {
                 Ok(lvol)
                     if Protocol::try_from(args.share)? == Protocol::Nvmf =>
                 {
@@ -355,6 +369,74 @@ impl mayastor_server::Mayastor for MayastorSvc {
                 Ok(lvol) => {
                     debug!("created lvol {}", lvol);
                     Ok(Replica::from(lvol))
+                }
+                Err(e) => Err(e),
+            }
+        })?;
+
+        rx.await
+            .map_err(|_| Status::cancelled("cancelled"))?
+            .map_err(Status::from)
+            .map(Response::new)
+        }).await
+    }
+
+    #[named]
+    async fn create_replica_v2(
+        &self,
+        request: Request<CreateReplicaRequestV2>,
+    ) -> GrpcResult<ReplicaV2> {
+        self.locked(GrpcClientContext::new(&request, function_name!()), async move {
+        let rx = rpc_submit(async move {
+            let args = request.into_inner();
+
+            let lvs = match Lvs::lookup(&args.pool) {
+                Some(lvs) => lvs,
+                None => {
+                    return Err(LvsError::Invalid {
+                        source: Errno::ENOSYS,
+                        msg: format!("Pool {} not found", args.pool),
+                    })
+                }
+            };
+
+            if let Some(b) = Bdev::lookup_by_name(&args.name) {
+                let lvol = Lvol::try_from(b)?;
+                return Ok(ReplicaV2::from(lvol));
+            }
+
+            if !matches!(
+                Protocol::try_from(args.share)?,
+                Protocol::Off | Protocol::Nvmf
+            ) {
+                return Err(LvsError::ReplicaShareProtocol {
+                    value: args.share,
+                });
+            }
+
+            match lvs.create_lvol(&args.name, args.size, Some(&args.uuid), false).await {
+                Ok(lvol)
+                    if Protocol::try_from(args.share)? == Protocol::Nvmf =>
+                {
+                    match lvol.share_nvmf(None).await {
+                        Ok(s) => {
+                            debug!("created and shared {} as {}", lvol, s);
+                            Ok(ReplicaV2::from(lvol))
+                        }
+                        Err(e) => {
+                            debug!(
+                                "failed to share created lvol {}: {} (destroying)",
+                                lvol,
+                                e.to_string()
+                            );
+                            let _ = lvol.destroy().await;
+                            Err(e)
+                        }
+                    }
+                }
+                Ok(lvol) => {
+                    debug!("created lvol {}", lvol);
+                    Ok(ReplicaV2::from(lvol))
                 }
                 Err(e) => Err(e),
             }
@@ -407,6 +489,35 @@ impl mayastor_server::Mayastor for MayastorSvc {
                 }
 
                 Ok(ListReplicasReply {
+                    replicas,
+                })
+            })?;
+
+            rx.await
+                .map_err(|_| Status::cancelled("cancelled"))?
+                .map_err(Status::from)
+                .map(Response::new)
+        })
+        .await
+    }
+
+    #[named]
+    async fn list_replicas_v2(
+        &self,
+        request: Request<Null>,
+    ) -> GrpcResult<ListReplicasReplyV2> {
+        self.locked(GrpcClientContext::new(&request, function_name!()), async {
+            let rx = rpc_submit::<_, _, LvsError>(async move {
+                let mut replicas = Vec::new();
+                if let Some(bdev) = Bdev::bdev_first() {
+                    replicas = bdev
+                        .into_iter()
+                        .filter(|b| b.driver() == "lvol")
+                        .map(|b| ReplicaV2::from(Lvol::try_from(b).unwrap()))
+                        .collect();
+                }
+
+                Ok(ListReplicasReplyV2 {
                     replicas,
                 })
             })?;
