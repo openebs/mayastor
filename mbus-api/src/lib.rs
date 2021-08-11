@@ -22,9 +22,8 @@ pub use mbus_nats::{
 pub use receive::*;
 pub use send::*;
 use serde::{de::StdError, Deserialize, Serialize};
-use smol::io;
 use snafu::{ResultExt, Snafu};
-use std::{fmt::Debug, marker::PhantomData, str::FromStr, time::Duration};
+use std::{fmt::Debug, io, marker::PhantomData, str::FromStr, time::Duration};
 use strum_macros::{AsRefStr, ToString};
 
 /// Result wrapper for send/receive
