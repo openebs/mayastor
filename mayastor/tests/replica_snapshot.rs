@@ -79,7 +79,7 @@ async fn replica_snapshot() {
             .await
             .unwrap();
             let pool = Lvs::lookup(POOL1_NAME).unwrap();
-            pool.create_lvol(UUID1, 64 * 1024 * 1024, true)
+            pool.create_lvol(UUID1, 64 * 1024 * 1024, None, true)
                 .await
                 .unwrap();
             create_nexus(0, &ip0).await;

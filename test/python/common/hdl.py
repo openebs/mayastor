@@ -100,13 +100,26 @@ class MayastorHandle(object):
             )
         )
 
+    def replica_create_v2(self, pool, name, uuid, size, share=1):
+        """Create a replica on the pool with the specified UUID and size."""
+        return self.ms.CreateReplicaV2(
+            pb.CreateReplicaRequestV2(
+                pool=pool, name=name, uuid=uuid, size=size, thin=False, share=share
+            )
+        )
+
     def replica_destroy(self, uuid):
         """Destroy the replica by the UUID, the pool is resolved within
         mayastor."""
         return self.ms.DestroyReplica(pb.DestroyReplicaRequest(uuid=uuid))
 
     def replica_list(self):
+        """List existing replicas"""
         return self.ms.ListReplicas(pb.Null())
+
+    def replica_list_v2(self):
+        """List existing replicas along with their UUIDs"""
+        return self.ms.ListReplicasV2(pb.Null())
 
     def nexus_create(self, uuid, size, children):
         """Create a nexus with the given uuid and size. The children should

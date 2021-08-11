@@ -29,8 +29,10 @@ service Mayastor {
   // Replica allocates space from storage pool.
 
   rpc CreateReplica (CreateReplicaRequest) returns (Replica) {}
+  rpc CreateReplicaV2 (CreateReplicaRequestV2) returns (ReplicaV2) {}
   rpc DestroyReplica (DestroyReplicaRequest) returns (Null) {}
   rpc ListReplicas (Null) returns (ListReplicasReply) {}
+  rpc ListReplicasV2 (Null) returns (ListReplicasReplyV2) {}
   rpc StatReplicas (Null) returns (StatReplicasReply) {}
   rpc ShareReplica (ShareReplicaRequest) returns (ShareReplicaReply) {}
 
@@ -148,6 +150,15 @@ message CreateReplicaRequest {
   ShareProtocolReplica share = 5;  // protocol to expose the replica over
 }
 
+message CreateReplicaRequestV2 {
+  string name = 1;  // name of the replica
+  string uuid = 2;  // uuid of the replica
+  string pool = 3;  // name of the pool
+  uint64 size = 4;  // size of the replica in bytes
+  bool thin = 5;    // thin provisioning
+  ShareProtocolReplica share = 6;  // protocol to expose the replica over
+}
+
 // Destroy replica arguments.
 message DestroyReplicaRequest {
   string uuid = 1;  // name of the replica
@@ -163,9 +174,25 @@ message Replica {
   string uri = 6;   // uri usable by nexus to access it
 }
 
+// Replica2 properties
+message ReplicaV2 {
+  string name = 1;  // name of the replica
+  string uuid = 2;  // uuid of the replica
+  string pool = 3;  // name of the pool
+  bool thin = 4;    // thin provisioning
+  uint64 size = 5;  // size of the replica in bytes
+  ShareProtocolReplica share = 6;  // protocol used for exposing the replica
+  string uri = 7;   // uri usable by nexus to access it
+}
+
 // List of replicas and their properties.
 message ListReplicasReply {
   repeated Replica replicas = 1;  // list of the replicas
+}
+
+// List of V2 replicas and their properties.
+message ListReplicasReplyV2 {
+  repeated ReplicaV2 replicas = 1;  // list of the replicas
 }
 
 // NOTE: We use struct instead of more suitable map type, because JS protobuf
