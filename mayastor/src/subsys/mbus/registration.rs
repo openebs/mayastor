@@ -62,9 +62,9 @@ pub struct Registration {
     /// Configuration of the registration
     config: Configuration,
     /// Receive channel for messages and termination
-    rcv_chan: smol::channel::Receiver<()>,
+    rcv_chan: async_channel::Receiver<()>,
     /// Termination channel
-    fini_chan: smol::channel::Sender<()>,
+    fini_chan: async_channel::Sender<()>,
 }
 
 static MESSAGE_BUS_REG: OnceCell<Registration> = OnceCell::new();
@@ -95,7 +95,7 @@ impl Registration {
     }
 
     fn new(node: &NodeId, grpc_endpoint: &str) -> Registration {
-        let (msg_sender, msg_receiver) = smol::channel::unbounded::<()>();
+        let (msg_sender, msg_receiver) = async_channel::unbounded::<()>();
         let config = Configuration {
             node: node.to_owned(),
             grpc_endpoint: grpc_endpoint.to_owned(),
