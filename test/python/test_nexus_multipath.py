@@ -308,8 +308,8 @@ def test_nexus_multipath(
             ), "should have dynamic controller ID"
         assert report["regctlext"][0]["rkey"] == resv_key
         assert report["regctlext"][1]["rkey"] == resv_key_2
-        assert report["regctlext"][0]["rcsts"] == 1
-        assert report["regctlext"][1]["rcsts"] == 0
+        assert (report["regctlext"][0]["rcsts"] & 0x1) == 1
+        assert (report["regctlext"][1]["rcsts"] & 0x1) == 0
 
         nvme_disconnect(child_uri)
 
