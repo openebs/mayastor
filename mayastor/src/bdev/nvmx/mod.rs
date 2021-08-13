@@ -51,7 +51,7 @@ impl<'a> NVMeCtlrList<'a> {
         name: T,
     ) -> Option<Arc<Mutex<NvmeController<'a>>>> {
         let entries = self.read_lock();
-        entries.get(&name.into()).map(|e| Arc::clone(e))
+        entries.get(&name.into()).cloned()
     }
 
     /// remove a NVMe controller from the list, when the last reference to the

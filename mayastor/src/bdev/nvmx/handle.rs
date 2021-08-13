@@ -144,7 +144,7 @@ impl NvmeDeviceHandle {
         name: &str,
         ns: &Arc<NvmeNamespace>,
     ) -> Box<dyn BlockDevice> {
-        Box::new(NvmeBlockDevice::from_ns(name, Arc::clone(ns)))
+        Box::new(NvmeBlockDevice::from_ns(name, ns.clone()))
     }
 
     #[inline]
