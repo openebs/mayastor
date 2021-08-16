@@ -65,7 +65,7 @@ impl NvmeDeviceDescriptor {
 
 impl BlockDeviceDescriptor for NvmeDeviceDescriptor {
     fn get_device(&self) -> Box<dyn BlockDevice> {
-        Box::new(NvmeBlockDevice::from_ns(&self.name, Arc::clone(&self.ns)))
+        Box::new(NvmeBlockDevice::from_ns(&self.name, self.ns.clone()))
     }
 
     fn into_handle(
@@ -85,7 +85,7 @@ impl BlockDeviceDescriptor for NvmeDeviceDescriptor {
             &self.name,
             self.io_device_id,
             self.ctrlr,
-            Arc::clone(&self.ns),
+            self.ns.clone(),
             self.prchk_flags,
         )?))
     }

@@ -199,7 +199,7 @@ impl<'a> NvmeController<'a> {
             .expect("(BUG) no inner NVMe controller defined yet");
 
         if let Some(ns) = inner.namespaces.get(0) {
-            Some(Arc::clone(ns))
+            Some(ns.clone())
         } else {
             debug!("no namespaces associated with the current controller");
             None
@@ -324,7 +324,7 @@ impl<'a> NvmeController<'a> {
             );
         }
 
-        let io_device = Arc::clone(&self.inner.as_ref().unwrap().io_device);
+        let io_device = self.inner.as_ref().unwrap().io_device.clone();
         let reset_ctx = ResetCtx {
             name: self.name.clone(),
             cb,
@@ -595,7 +595,7 @@ impl<'a> NvmeController<'a> {
         if let Some(c) = self.controller() {
             c.fail()
         }
-        let io_device = Arc::clone(&self.inner.as_ref().unwrap().io_device);
+        let io_device = self.inner.as_ref().unwrap().io_device.clone();
         let reset_ctx = ResetCtx {
             name: self.name.clone(),
             cb,
@@ -654,7 +654,7 @@ impl<'a> NvmeController<'a> {
 
             // Once controller is successfully reset, schedule another
             //I/O channel traversal to restore all I/O channels.
-            let io_device = Arc::clone(&reset_ctx.io_device);
+            let io_device = reset_ctx.io_device.clone();
             io_device.traverse_io_channels(
                 NvmeController::_reset_create_channels,
                 NvmeController::_reset_create_channels_done,
@@ -920,7 +920,7 @@ pub(crate) fn connected_attached_cb(
         .expect("no controller in the list");
 
     // clone it now such that we can lock the original, and insert it later.
-    let ctl = Arc::clone(&controller);
+    let ctl = controller.clone();
     let mut controller = controller.lock();
     controller
         .state_machine

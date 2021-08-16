@@ -537,7 +537,7 @@ async fn nvmf_device_readv_test() {
     let ms = get_ms();
     let (_test, dev_url) = launch_instance().await;
     let u = Arc::new(dev_url);
-    let mut url = Arc::clone(&u);
+    let mut url = u.clone();
 
     // Placeholder structure to let all the fields outlive API invocations.
     struct IoCtx {
@@ -653,7 +653,7 @@ async fn nvmf_device_readv_test() {
     .await;
 
     // Once all handles are closed, destroy the device.
-    url = Arc::clone(&u);
+    url = u.clone();
     ms.spawn(async move {
         device_destroy(&(*url)).await.unwrap();
     })
@@ -668,7 +668,7 @@ async fn nvmf_device_writev_test() {
     let ms = get_ms();
     let (_test, dev_url) = launch_instance().await;
     let u = Arc::new(dev_url);
-    let url = Arc::clone(&u);
+    let url = u.clone();
 
     static DEVICE_NAME: OnceCell<String> = OnceCell::new();
 
@@ -839,7 +839,7 @@ async fn nvmf_device_readv_iovs_test() {
     let ms = get_ms();
     let (_test, dev_url) = launch_instance().await;
     let u = Arc::new(dev_url);
-    let mut url = Arc::clone(&u);
+    let mut url = u.clone();
 
     static DEVICE_NAME: OnceCell<String> = OnceCell::new();
 
@@ -957,7 +957,7 @@ async fn nvmf_device_readv_iovs_test() {
     // Check that the callback has been called.
     check_callback_invocation();
 
-    url = Arc::clone(&u);
+    url = u.clone();
     ms.spawn(async move {
         let ctx = unsafe { Box::<IoCtx>::from_raw(io_ctx.into_inner()) };
 
@@ -998,7 +998,7 @@ async fn nvmf_device_writev_iovs_test() {
     let ms = get_ms();
     let (_test, dev_url) = launch_instance().await;
     let u = Arc::new(dev_url);
-    let url = Arc::clone(&u);
+    let url = u.clone();
 
     // Clear callback invocation flag.
     clear_callback_invocation_flag();
@@ -1490,7 +1490,7 @@ async fn nvmf_reset_abort_io() {
     let ms = get_ms();
     let (_test, dev_url) = launch_instance().await;
     let u = Arc::new(dev_url);
-    let mut url = Arc::clone(&u);
+    let mut url = u.clone();
 
     // Placeholder structure to let all the fields outlive API invocations.
     struct IoCtx {
@@ -1695,7 +1695,7 @@ async fn nvmf_reset_abort_io() {
     .await;
 
     // Once all handles are closed, destroy the device.
-    url = Arc::clone(&u);
+    url = u.clone();
     ms.spawn(async move {
         device_destroy(&(*url)).await.unwrap();
     })
