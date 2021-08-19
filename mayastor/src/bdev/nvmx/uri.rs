@@ -5,6 +5,7 @@
 
 use async_trait::async_trait;
 use futures::channel::{oneshot, oneshot::Sender};
+use libc;
 use nix::errno::Errno;
 use parking_lot::Mutex;
 use snafu::ResultExt;
@@ -24,6 +25,7 @@ use spdk_sys::{
     spdk_nvme_connect_async,
     spdk_nvme_ctrlr,
     spdk_nvme_ctrlr_opts,
+    spdk_nvme_probe_ctx,
     spdk_nvme_probe_poll_async,
     spdk_nvme_transport_id,
 };
@@ -49,7 +51,7 @@ use crate::{
 use super::controller::transport::NvmeTransportId;
 
 const DEFAULT_NVMF_PORT: u16 = 8420;
-// Callback to be called once NVMe controller is successfully created.
+// Callback to be called once NVMe controller attach sequence completes.
 extern "C" fn connect_attach_cb(
     _cb_ctx: *mut c_void,
     _trid: *const spdk_nvme_transport_id,
@@ -58,11 +60,32 @@ extern "C" fn connect_attach_cb(
 ) {
     let context =
         unsafe { &mut *(_cb_ctx as *const _ as *mut NvmeControllerContext) };
-    controller::connected_attached_cb(
-        context,
-        SpdkNvmeController::from_ptr(ctrlr)
-            .expect("probe callback with NULL ptr"),
-    );
+
+    // Normally, the attach handler is called by the poller after
+    // the controller is connected. In such a case 'spdk_nvme_probe_poll_async'
+    // returns zero. However, in case of attach errors zero is also returned.
+    // In order to notify the polling function about successfull attach,
+    // we set up the flag.
+    assert!(!context.attached);
+    context.attached = true;
+
+    // Unregister poller immediately after controller attach completes.
+    context.unregister_poller();
+
+    // Check whether controller attach failed.
+    if ctrlr.is_null() {
+        context
+            .sender()
+            .send(Err(Errno::ENXIO))
+            .expect("done callback receiver side disappeared");
+    } else {
+        // Instantiate the controller in case attach succeeded.
+        controller::connected_attached_cb(
+            context,
+            SpdkNvmeController::from_ptr(ctrlr)
+                .expect("probe callback with NULL ptr"),
+        );
+    }
 }
 
 #[derive(Debug)]
@@ -172,6 +195,7 @@ pub(crate) struct NvmeControllerContext<'probe> {
     sender: Option<oneshot::Sender<Result<(), Errno>>>,
     receiver: oneshot::Receiver<Result<(), Errno>>,
     poller: Option<Poller<'probe>>,
+    attached: bool,
 }
 
 impl<'probe> NvmeControllerContext<'probe> {
@@ -220,6 +244,7 @@ impl<'probe> NvmeControllerContext<'probe> {
             sender: Some(sender),
             receiver,
             poller: None,
+            attached: false,
         }
     }
 
@@ -241,6 +266,7 @@ impl CreateDestroy for NvmfDeviceTemplate {
     type Error = NexusBdevError;
 
     async fn create(&self) -> Result<String, Self::Error> {
+        info!("::create() {}", self.get_name());
         let cname = self.get_name();
         if NVME_CONTROLLERS.lookup_by_name(&cname).is_some() {
             return Err(NexusBdevError::BdevExists {
@@ -261,28 +287,67 @@ impl CreateDestroy for NvmfDeviceTemplate {
         let mut context = NvmeControllerContext::new(self);
 
         // Initiate connection with remote NVMe target.
-        let probe_ctx = NonNull::new(unsafe {
+        let probe_ctx = match NonNull::new(unsafe {
             spdk_nvme_connect_async(
                 context.trid.as_ptr(),
                 context.opts.as_ptr(),
                 Some(connect_attach_cb),
             )
-        });
+        }) {
+            Some(ctx) => ctx,
+            None => {
+                // Remove controller record before returning error.
+                NVME_CONTROLLERS.remove_by_name(&cname).unwrap();
+                return Err(NexusBdevError::CreateBdev {
+                    name: cname,
+                    source: Errno::ENODEV,
+                });
+            }
+        };
 
-        if probe_ctx.is_none() {
-            // Remove controller record before returning error.
-            NVME_CONTROLLERS.remove_by_name(&cname).unwrap();
-            return Err(NexusBdevError::CreateBdev {
-                name: cname,
-                source: Errno::ENODEV,
-            });
+        struct AttachCtx {
+            probe_ctx: NonNull<spdk_nvme_probe_ctx>,
+            /// NvmeControllerContext required for handling of attach failures.
+            cb_ctx: *const spdk_nvme_ctrlr_opts,
+            name: String,
         }
+
+        let attach_cb_ctx = AttachCtx {
+            probe_ctx,
+            cb_ctx: context.opts.as_ptr(),
+            name: self.get_name(),
+        };
 
         let poller = poller::Builder::new()
             .with_name("nvme_async_probe_poller")
             .with_interval(1000) // poll every 1 second
             .with_poll_fn(move || unsafe {
-                spdk_nvme_probe_poll_async(probe_ctx.unwrap().as_ptr())
+                let context =
+                    &mut *(attach_cb_ctx.cb_ctx as *mut NvmeControllerContext);
+
+                let r = spdk_nvme_probe_poll_async(
+                    attach_cb_ctx.probe_ctx.as_ptr(),
+                );
+
+                if r != -libc::EAGAIN {
+                    // Double check against successful attach, as we expect
+                    // the attach handler to be called by the poller.
+                    if !context.attached {
+                        error!(
+                            "{} controller attach failed",
+                            attach_cb_ctx.name
+                        );
+
+                        connect_attach_cb(
+                            attach_cb_ctx.cb_ctx as *mut c_void,
+                            std::ptr::null(),
+                            std::ptr::null_mut(),
+                            std::ptr::null(),
+                        );
+                    }
+                }
+
+                r
             })
             .build();
 
