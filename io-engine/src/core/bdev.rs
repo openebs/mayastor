@@ -134,16 +134,9 @@ where
     pub fn lookup_by_uuid_str(uuid: &str) -> Option<Self> {
         match Self::bdev_first() {
             None => None,
-            Some(bdev) => {
-                let b: Vec<Self> = bdev
-                    .into_iter()
-                    .filter(|b| b.uuid_as_string() == uuid.to_lowercase())
-                    .collect();
-
-                b.first().map(|b| Self {
-                    inner: b.inner.clone(),
-                })
-            }
+            Some(bdev) => bdev
+                .into_iter()
+                .find(|b| b.uuid_as_string() == uuid.to_lowercase()),
         }
     }
 
@@ -218,6 +211,9 @@ where
         let props = ShareProps::from(props);
 
         let ptpl = props.ptpl().as_ref().map(|ptpl| ptpl.path());
+
+        // todo: add option to use uuid here, will allow for the replica uuid to
+        // be used!
         let subsystem =
             NvmfSubsystem::try_from_with(me, ptpl).context(ShareNvmf {})?;
 

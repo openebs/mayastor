@@ -228,6 +228,7 @@ pub async fn list_replicas(
             uuid: None,
             pooluuid: None,
             query: None,
+            pooltypes: vec![],
         })
         .await
         .map(|r| r.into_inner().replicas)
@@ -246,6 +247,7 @@ pub async fn find_replica_by_uuid(
             uuid: Some(uuid.to_owned()),
             pooluuid: None,
             query: None,
+            pooltypes: vec![],
         })
         .await
         .map(|r| r.into_inner().replicas)?

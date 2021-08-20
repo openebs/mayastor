@@ -3,7 +3,8 @@
 //! runtime to do whatever it needs to do. The tokio threads are
 //! unaffinitized such that they do not run on any of our reactors.
 
-use futures::Future;
+use crate::core::Reactor;
+use futures::{channel::oneshot, Future};
 use once_cell::sync::Lazy;
 use tokio::task::JoinHandle;
 
@@ -12,6 +13,22 @@ use super::Mthread;
 /// spawn a future on the tokio runtime.
 pub fn spawn(f: impl Future<Output = ()> + Send + 'static) {
     RUNTIME.spawn(f);
+}
+
+/// Spawn a future on the tokio runtime and await its completion.
+pub async fn spawn_await(f: impl Future<Output = ()> + Send + 'static) {
+    let (s, r) = oneshot::channel();
+
+    RUNTIME.spawn(async move {
+        f.await;
+
+        if let Ok(r) = Reactor::spawn_at_primary(async move {
+            s.send(()).ok();
+        }) {
+            r.await.ok();
+        }
+    });
+    r.await.ok();
 }
 
 /// block on the given future until it completes

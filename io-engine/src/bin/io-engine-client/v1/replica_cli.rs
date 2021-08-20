@@ -1,7 +1,9 @@
+use super::pool_cli;
 use crate::{
     context::{Context, OutputFormat},
     parse_size,
     ClientError,
+    GrpcParseStatus,
     GrpcStatus,
 };
 use byte_unit::Byte;
@@ -9,7 +11,7 @@ use clap::{Arg, ArgMatches, Command};
 use colored_json::ToColoredJson;
 use io_engine_api::{v0 as rpc, v1 as v1_rpc};
 use snafu::ResultExt;
-use std::convert::TryFrom;
+use std::{convert::TryFrom, str::FromStr};
 use tonic::{Code, Status};
 
 pub fn subcommands() -> Command {
@@ -51,12 +53,19 @@ pub fn subcommands() -> Command {
         .arg(
             Arg::new("allowed-host")
                 .long("allowed-host")
-
                 .action(clap::ArgAction::Append)
                 .required(false)
                 .help(
                     "NQN of hosts which are allowed to connect to the target",
                 ),
+        )
+        .arg(
+            Arg::new("type")
+                .long("type")
+                .help("The type of the pool")
+                .required(false)
+                .value_parser(pool_cli::PoolType::types().to_vec())
+                .default_value(pool_cli::PoolType::Lvs.as_ref()),
         );
 
     let destroy = Command::new("destroy")
@@ -99,7 +108,8 @@ pub fn subcommands() -> Command {
 
                 .action(clap::ArgAction::Append)
                 .required(false)
-                .help("Name of a protocol (nvmf) used for sharing or \"none\" to unshare the replica"));
+                .help("Name of a protocol (nvmf) used for sharing or \"none\" to unshare the replica")
+        );
     let unshare = Command::new("unshare").about("Unshare replica").arg(
         Arg::new("uuid")
             .required(true)
@@ -120,6 +130,15 @@ pub fn subcommands() -> Command {
                 .index(2)
                 .help("Requested new size of the replica"),
         );
+    let list = Command::new("list").about("List replicas").arg(
+        Arg::new("type")
+            .short('t')
+            .long("type")
+            .help("The type of the pool")
+            .required(false)
+            .action(clap::ArgAction::Append)
+            .value_parser(pool_cli::PoolType::types().to_vec()),
+    );
     Command::new("replica")
         .subcommand_required(true)
         .arg_required_else_help(true)
@@ -129,7 +148,7 @@ pub fn subcommands() -> Command {
         .subcommand(share)
         .subcommand(unshare)
         .subcommand(resize)
-        .subcommand(Command::new("list").about("List replicas"))
+        .subcommand(list)
         .subcommand(Command::new("stats").about("IO stats of replicas"))
 }
 
@@ -270,8 +289,19 @@ async fn replica_destroy(
 
 async fn replica_list(
     mut ctx: Context,
-    _matches: &ArgMatches,
+    matches: &ArgMatches,
 ) -> crate::Result<()> {
+    let pooltype = matches
+        .get_many::<String>("type")
+        .unwrap_or_default()
+        .map(|s| pool_cli::PoolType::from_str(s.as_str()))
+        .collect::<Result<Vec<_>, _>>()
+        .context(GrpcParseStatus)?;
+    let pooltypes = pooltype
+        .into_iter()
+        .map(|t| v1_rpc::pool::PoolType::from(t) as i32)
+        .collect::<Vec<_>>();
+
     let response = ctx
         .v1
         .replica
@@ -281,6 +311,7 @@ async fn replica_list(
             uuid: None,
             pooluuid: None,
             query: None,
+            pooltypes,
         })
         .await
         .context(GrpcStatus)?;
@@ -401,6 +432,7 @@ async fn replica_unshare(
     matches: &ArgMatches,
 ) -> crate::Result<()> {
     let uuid = matches.get_one::<String>("uuid").unwrap().to_owned();
+
     let response = ctx
         .v1
         .replica

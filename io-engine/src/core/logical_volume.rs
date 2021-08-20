@@ -1,13 +1,5 @@
-use crate::lvs::LvolSpaceUsage;
-
 ///  LogicalVolume Trait Provide all the Generic Interface for Volume
 pub trait LogicalVolume {
-    type InnerPtr;
-    type BlobPtr;
-
-    /// Get lvol inner ptr.
-    fn as_inner_ptr(&self) -> Self::InnerPtr;
-
     /// Returns the name of the Logical Volume
     fn name(&self) -> String;
 
@@ -35,9 +27,28 @@ pub trait LogicalVolume {
     /// Return the committed size of the Logical Volume in bytes.
     fn committed(&self) -> u64;
 
-    /// Get BlobPtr from spdk_lvol.
-    fn blob_checked(&self) -> Self::BlobPtr;
-
     /// Returns Lvol disk space usage
     fn usage(&self) -> LvolSpaceUsage;
+}
+
+/// Lvol space usage.
+#[derive(Default, Copy, Clone, Debug)]
+pub struct LvolSpaceUsage {
+    /// Lvol size in bytes.
+    pub capacity_bytes: u64,
+    /// Amount of actually allocated disk space for this replica in bytes.
+    pub allocated_bytes: u64,
+    /// Cluster size in bytes.
+    pub cluster_size: u64,
+    /// Total number of clusters.
+    pub num_clusters: u64,
+    /// Number of actually allocated clusters.
+    pub num_allocated_clusters: u64,
+    /// Amount of disk space allocated by snapshots of this volume.
+    pub allocated_bytes_snapshots: u64,
+    /// Number of clusters allocated by snapshots of this volume.
+    pub num_allocated_clusters_snapshots: u64,
+    /// Actual Amount of disk space allocated by snapshot which is created from
+    /// clone.
+    pub allocated_bytes_snapshot_from_clone: Option<u64>,
 }
