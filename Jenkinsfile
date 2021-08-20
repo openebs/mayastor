@@ -275,14 +275,32 @@ pipeline {
             }
           }
         }
-        stage('pytest tests - disabled') {
+        stage('pytest tests') {
           when {
             beforeAgent true
             expression { pytest_test == true }
           }
           agent { label 'nixos-mayastor' }
-          steps {
-            echo 'pytests are temporarily disabled'
+          stages {
+            stage('build') {
+              steps {
+                cleanWs()
+                unstash 'source'
+                sh 'printenv'
+                sh 'nix-shell --run "cargo build --bins"'
+              }
+            }
+            stage('python setup') {
+              steps {
+                sh 'nix-shell --run "./test/python/setup.sh"'
+              }
+            }
+            stage('run tests') {
+              steps {
+                sh 'printenv'
+                sh 'nix-shell --run "./scripts/pytest-tests.sh"'
+              }
+            }
           }
         }
         stage('e2e tests') {
