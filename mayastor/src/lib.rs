@@ -18,6 +18,7 @@ pub mod grpc;
 pub mod host;
 pub mod jsonrpc;
 pub mod logger;
+pub mod lvm;
 pub mod lvs;
 pub mod nexus_uri;
 pub mod persistent_store;
