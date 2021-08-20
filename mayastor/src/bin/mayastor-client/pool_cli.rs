@@ -8,7 +8,7 @@ use byte_unit::Byte;
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 use colored_json::ToColoredJson;
 use snafu::ResultExt;
-use tonic::Status;
+use tonic::{Code, Status};
 
 pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
     let create = SubCommand::with_name("create")
@@ -21,10 +21,18 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
         )
         .arg(
             Arg::with_name("disk")
-                .required(true)
+                .required(false)
                 .multiple(true)
                 .index(2)
                 .help("Disk device files"),
+        )
+        .arg(
+            Arg::with_name("pooltype")
+                .short("t")
+                .help("the type of the pool")
+                .required(false)
+                .possible_values(&["lvs", "lvm"])
+                .default_value("lvs"),
         );
     let destroy = SubCommand::with_name("destroy")
         .about("Destroy storage pool")
@@ -73,17 +81,20 @@ async fn create(
         .to_owned();
     let disks = matches
         .values_of("disk")
-        .ok_or_else(|| Error::MissingValue {
-            field: "disk".to_string(),
-        })?
-        .map(|dev| dev.to_owned())
+        .map(|values| values.collect::<Vec<_>>())
+        .unwrap_or_default()
+        .iter()
+        .map(|disk| disk.to_string())
         .collect();
+    let pooltype =
+        parse_pooltype(matches.value_of("pooltype")).context(GrpcStatus)?;
 
     let response = ctx
         .client
         .create_pool(rpc::CreatePoolRequest {
             name: name.clone(),
             disks,
+            pooltype,
         })
         .await
         .context(GrpcStatus)?;
@@ -178,8 +189,10 @@ async fn list(
                     let cap = Byte::from_bytes(p.capacity.into());
                     let used = Byte::from_bytes(p.used.into());
                     let state = pool_state_to_str(p.state);
+                    let pooltype = pooltype_to_str(p.pooltype);
                     vec![
                         p.name.clone(),
+                        pooltype.to_string(),
                         state.to_string(),
                         ctx.units(cap),
                         ctx.units(used),
@@ -188,7 +201,7 @@ async fn list(
                 })
                 .collect();
             ctx.print_list(
-                vec!["NAME", "STATE", ">CAPACITY", ">USED", "DISKS"],
+                vec!["NAME", "TYPE", "STATE", ">CAPACITY", ">USED", "DISKS"],
                 table,
             );
         }
@@ -203,5 +216,24 @@ fn pool_state_to_str(idx: i32) -> &'static str {
         rpc::PoolState::PoolOnline => "online",
         rpc::PoolState::PoolDegraded => "degraded",
         rpc::PoolState::PoolFaulted => "faulted",
+    }
+}
+
+fn pooltype_to_str(idx: i32) -> &'static str {
+    match rpc::PoolType::from_i32(idx).unwrap() {
+        rpc::PoolType::Lvs => "lvs",
+        rpc::PoolType::Lvm => "lvm",
+    }
+}
+
+fn parse_pooltype(ptype: Option<&str>) -> Result<i32, Status> {
+    match ptype {
+        None => Ok(rpc::PoolType::Lvs as i32),
+        Some("lvs") => Ok(rpc::PoolType::Lvs as i32),
+        Some("lvm") => Ok(rpc::PoolType::Lvm as i32),
+        Some(_) => Err(Status::new(
+            Code::Internal,
+            "Invalid value of pool type".to_owned(),
+        )),
     }
 }

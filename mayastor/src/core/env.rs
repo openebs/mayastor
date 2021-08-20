@@ -142,8 +142,11 @@ impl MayastorFeatures {
             Err(_) => false,
         };
 
+        let lvm = matches!(std::env::var("LVM_ENABLE"), Ok(s) if s == "1");
+
         MayastorFeatures {
             asymmetric_namespace_access: ana,
+            lvm,
         }
     }
 

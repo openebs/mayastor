@@ -128,6 +128,7 @@ impl From<Pool> for rpc::Pool {
             state: rpc::PoolState::PoolOnline as i32,
             capacity: pool.get_capacity(),
             used: pool.get_capacity() - pool.get_free(),
+            pooltype: rpc::PoolType::Lvs as i32,
         }
     }
 }

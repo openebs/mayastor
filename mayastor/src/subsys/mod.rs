@@ -3,7 +3,7 @@
 
 pub use config::{
     opts::{NexusOpts, NvmeBdevOpts},
-    pool::PoolConfig,
+    pool::{PoolBackend, PoolConfig},
     Config,
     ConfigSubsystem,
 };

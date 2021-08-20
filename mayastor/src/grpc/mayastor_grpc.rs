@@ -38,9 +38,13 @@ use crate::{
         Serializer,
     },
     host::{blk_device, resource},
+    lvm::{
+        pool::{VolGroup, MAYASTOR_LABEL},
+        Error as LvmError,
+    },
     lvs::{Error as LvsError, Lvol, Lvs},
     nexus_uri::NexusBdevError,
-    subsys::PoolConfig,
+    subsys::{PoolBackend, PoolConfig},
 };
 use futures::FutureExt;
 use nix::errno::Errno;
@@ -158,6 +162,20 @@ impl From<LvsError> for Status {
     }
 }
 
+impl From<LvmError> for Status {
+    fn from(e: LvmError) -> Self {
+        match e {
+            LvmError::InvalidPoolType {
+                ..
+            }
+            | LvmError::Io {
+                ..
+            } => Status::invalid_argument(e.to_string()),
+            _ => Status::internal(e.to_string()),
+        }
+    }
+}
+
 impl From<Protocol> for i32 {
     fn from(p: Protocol) -> Self {
         match p {
@@ -176,6 +194,20 @@ impl From<Lvs> for Pool {
             state: PoolState::PoolOnline.into(),
             capacity: l.capacity(),
             used: l.used(),
+            pooltype: PoolType::Lvs as i32,
+        }
+    }
+}
+
+impl From<VolGroup> for Pool {
+    fn from(v: VolGroup) -> Self {
+        Self {
+            name: v.name().into(),
+            disks: v.disks(),
+            state: PoolState::PoolOnline.into(),
+            capacity: v.capacity(),
+            used: v.used(),
+            pooltype: PoolType::Lvm as i32,
         }
     }
 }
@@ -222,6 +254,7 @@ impl From<MayastorFeatures> for rpc::mayastor::MayastorFeatures {
     fn from(f: MayastorFeatures) -> Self {
         Self {
             asymmetric_namespace_access: f.asymmetric_namespace_access,
+            lvm: f.lvm,
         }
     }
 }
@@ -238,21 +271,49 @@ impl mayastor_server::Mayastor for MayastorSvc {
             async move {
                 let args = request.into_inner();
 
-                if args.disks.is_empty() {
-                    return Err(Status::invalid_argument("Missing devices"));
-                }
-
-                let rx = rpc_submit::<_, _, LvsError>(async move {
-                    let pool = Lvs::create_or_import(args).await?;
-                    // Capture current pool config and export to file.
-                    PoolConfig::capture().export().await;
-                    Ok(Pool::from(pool))
-                })?;
-
-                rx.await
-                    .map_err(|_| Status::cancelled("cancelled"))?
-                    .map_err(Status::from)
-                    .map(Response::new)
+                let resp = match PoolBackend::try_from(args.pooltype)? {
+                    PoolBackend::Lvs => {
+                        if MayastorFeatures::get_features().lvm {
+                            // check if a lvm pool already exists with the same name
+                            if let Some(pool) = VolGroup::lookup_by_name(args.name.as_str(), MAYASTOR_LABEL).await {
+                                return Err(Status::invalid_argument(format!("lvm pool with the name '{}' already exists", pool.name())))
+                            };
+                            // check if the disks are used by existing lvm pool
+                            if let Some(pool) = VolGroup::lookup_by_disk(args.disks[0].as_str()).await {
+                                return Err(Status::invalid_argument(format!("a lvm pool {} already uses the disks {:?}", pool.name(), pool.disks())))
+                            };
+                        }
+                        let rx = rpc_submit::<_, _, LvsError>(async move {
+                            let pool = Lvs::create_or_import(args).await?;
+                            // Capture current pool config and export to file.
+                            PoolConfig::capture().export().await;
+                            Ok(Pool::from(pool))
+                        })?;
+                        rx.await
+                            .map_err(|_| Status::cancelled("cancelled"))?
+                            .map_err(Status::from)
+                            .map(Response::new)
+                    },
+                    PoolBackend::Lvm => {
+                        if !MayastorFeatures::get_features().lvm {
+                            return Err(Status::failed_precondition("lvm support not available"))
+                        }
+                        // check if a lvs pool already exists with the same name
+                        if let Some(_pool) = Lvs::lookup(args.name.as_str()) {
+                            return Err(Status::invalid_argument("lvs pool with the same name already exists"))
+                        };
+                        // check if the disks are used by existing lvs pool
+                        if Lvs::iter()
+                            .map(|l| l.base_bdev().name()).any(|d| args.disks.contains(&d)){
+                                return Err(Status::invalid_argument("a lvs pool already uses the disk"))
+                            };
+                        VolGroup::import_or_create(args).await
+                            .map_err(Status::from)
+                            .map(Pool::from)
+                            .map(Response::new)
+                    },
+                };
+                resp
             },
         )
         .await
@@ -268,6 +329,23 @@ impl mayastor_server::Mayastor for MayastorSvc {
             async move {
                 let args = request.into_inner();
                 info!("{:?}", args);
+                let mut lvm_pool_found = false;
+                if MayastorFeatures::get_features().lvm {
+                    let res: Result<_, LvmError> = {
+                        if let Some(pool) =
+                            VolGroup::lookup_by_name(&args.name, MAYASTOR_LABEL)
+                                .await
+                        {
+                            lvm_pool_found = true;
+                            pool.destroy().await?;
+                        }
+                        Ok(Null {})
+                    };
+                    if lvm_pool_found {
+                        return res.map_err(Status::from).map(Response::new);
+                    }
+                }
+
                 let rx = rpc_submit::<_, _, LvsError>(async move {
                     if let Some(pool) = Lvs::lookup(&args.name) {
                         // Remove pool from current config and export to file.
@@ -299,17 +377,37 @@ impl mayastor_server::Mayastor for MayastorSvc {
             GrpcClientContext::new(&request, function_name!()),
             async move {
                 let rx = rpc_submit::<_, _, LvsError>(async move {
-                    Ok(ListPoolsReply {
-                        pools: Lvs::iter()
-                            .map(|l| l.into())
-                            .collect::<Vec<Pool>>(),
-                    })
+                    Ok(Lvs::iter().map(|l| l.into()).collect::<Vec<Pool>>())
                 })?;
 
-                rx.await
+                let rec = rx
+                    .await
                     .map_err(|_| Status::cancelled("cancelled"))?
-                    .map_err(Status::from)
-                    .map(Response::new)
+                    .map_err(Status::from);
+
+                let mut lvs_pools = match rec {
+                    Ok(pools) => pools,
+                    Err(e) => return Err(e),
+                };
+
+                if MayastorFeatures::get_features().lvm {
+                    let mut lvm_pools =
+                        match VolGroup::list(MAYASTOR_LABEL).await {
+                            Ok(pools) => pools
+                                .iter()
+                                .map(|v| v.clone().into())
+                                .collect::<Vec<Pool>>(),
+                            Err(e) => {
+                                error!("failed to fetch lvm pools {}", e);
+                                vec![]
+                            }
+                        };
+                    lvs_pools.append(&mut lvm_pools);
+                }
+
+                Ok(Response::new(ListPoolsReply {
+                    pools: lvs_pools,
+                }))
             },
         )
         .await

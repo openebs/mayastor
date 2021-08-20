@@ -1,20 +1,20 @@
-use std::{fmt::Display, fs, path::Path, sync::Mutex};
-
 use futures::channel::oneshot;
 use once_cell::sync::{Lazy, OnceCell};
 use serde::{Deserialize, Serialize};
+use std::{convert::TryFrom, fmt::Display, fs, path::Path, sync::Mutex};
 use tonic::Status;
 
 use crate::{
     bdev::VerboseError,
     core::{runtime, Cores, Mthread, Reactor, Share},
     grpc::rpc_submit,
+    lvm::Error as LvmError,
     lvs::{Error as LvsError, Lvs},
     pool::{Pool as SpdkPool, PoolsIter},
     replica::ShareType,
 };
 
-use rpc::mayastor::CreatePoolRequest;
+use rpc::mayastor::{CreatePoolRequest, PoolType};
 
 static CONFIG_FILE: OnceCell<String> = OnceCell::new();
 
@@ -177,6 +177,27 @@ impl From<&Pool> for CreatePoolRequest {
         Self {
             name: pool.name.clone(),
             disks: pool.disks.clone(),
+            pooltype: PoolType::Lvs as i32,
+        }
+    }
+}
+
+#[derive(Debug, PartialOrd, PartialEq)]
+pub enum PoolBackend {
+    Lvs,
+    Lvm,
+}
+
+impl TryFrom<i32> for PoolBackend {
+    type Error = LvmError;
+
+    fn try_from(value: i32) -> Result<Self, Self::Error> {
+        match value {
+            0 => Ok(Self::Lvs),
+            1 => Ok(Self::Lvm),
+            _ => Err(LvmError::InvalidPoolType {
+                value,
+            }),
         }
     }
 }

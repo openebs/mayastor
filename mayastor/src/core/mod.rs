@@ -299,4 +299,6 @@ pub static MWQ: once_cell::sync::Lazy<MayastorWorkQueue<Command>> =
 #[derive(Debug, Clone)]
 pub struct MayastorFeatures {
     pub asymmetric_namespace_access: bool,
+    /// when set to true, support for lvm pools and volumes is enabled
+    pub lvm: bool,
 }
