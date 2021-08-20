@@ -286,7 +286,7 @@ impl<T: Send + Debug> MayastorWorkQueue<T> {
     }
 
     pub fn take(&self) -> Option<T> {
-        if let Ok(elem) = self.incoming.pop() {
+        if let Some(elem) = self.incoming.pop() {
             return Some(elem);
         }
         None

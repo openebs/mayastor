@@ -215,7 +215,7 @@ impl PersistentStore {
     }
 
     /// Get the persistent store.
-    fn persistent_store() -> &'static Mutex<PersistentStore> {
+    fn new() -> &'static Mutex<PersistentStore> {
         PERSISTENT_STORE
             .get()
             .expect("Persistent store should have been initialised")
@@ -225,19 +225,19 @@ impl PersistentStore {
 
     /// Get an instance of the backing store.
     fn backing_store() -> Etcd {
-        Self::persistent_store().lock().unwrap().store.clone()
+        Self::new().lock().unwrap().store.clone()
     }
 
     /// Get the endpoint of the backing store.
     fn endpoint() -> String {
-        Self::persistent_store().lock().unwrap().endpoint.clone()
+        Self::new().lock().unwrap().endpoint.clone()
     }
 
     /// Reconnects to the backing store and replaces the old connection with the
     /// new connection.
     async fn reconnect() {
         warn!("Attempting to reconnect to persistent store....");
-        let persistent_store = Self::persistent_store();
+        let persistent_store = Self::new();
         let backing_store =
             Self::connect_to_backing_store(&PersistentStore::endpoint()).await;
         persistent_store.lock().unwrap().store = backing_store;

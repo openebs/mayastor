@@ -151,8 +151,8 @@ impl NexusChannelInner {
                 }
             })
             .any(|c| {
-                ChildState::Open
-                    == c.state.compare_and_swap(
+                Ok(ChildState::Open)
+                    == c.state.compare_exchange(
                         ChildState::Open,
                         ChildState::Faulted(Reason::IoError),
                     )
