@@ -109,7 +109,7 @@ def mayastor_instance(mayastor_mod):
 @pytest.fixture(scope="module")
 def mayastor_pool(mayastor_instance):
     pool = mayastor_instance.ms.CreatePool(
-        pb.CreatePoolRequest(name="p0", disks=["malloc:///disk0?size_mb=512"])
+        pb.CreatePoolRequest(name="p0", disks=["malloc:///disk0?size_mb=512"], pooltype=pb.Lvs)
     )
     yield pool.name
     mayastor_instance.ms.DestroyPool(pb.DestroyPoolRequest(name=pool.name))

@@ -80,13 +80,13 @@ class MayastorHandle(object):
     def bdev_destroy(self, uri):
         return self.bdev.Destroy(pb.BdevUri(uri=str(uri)))
 
-    def pool_create(self, name, bdev):
+    def pool_create(self, name, bdev, pooltype):
         """Create a pool with given name on this node using the bdev as the
         backend device. The bdev is implicitly created."""
 
         disks = []
         disks.append(bdev)
-        return self.ms.CreatePool(pb.CreatePoolRequest(name=name, disks=disks))
+        return self.ms.CreatePool(pb.CreatePoolRequest(name=name, disks=disks, pooltype=pooltype))
 
     def pool_destroy(self, name):
         """Destroy  the pool."""

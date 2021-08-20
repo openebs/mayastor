@@ -73,9 +73,9 @@ def replica_pools(get_mayastor_instance):
 
 @pytest.fixture
 def create_pool(get_mayastor_instance, replica_pools):
-    def create(name, disks):
+    def create(name, disks, pooltype):
         pool = get_mayastor_instance.ms.CreatePool(
-            pb.CreatePoolRequest(name=name, disks=disks)
+            pb.CreatePoolRequest(name=name, disks=disks, pooltype=pooltype)
         )
         replica_pools[name] = pool
 
@@ -92,13 +92,13 @@ def get_mayastor_instance(mayastor_mod, name):
 
 @given(parsers.parse('a pool "{name}"'), target_fixture="get_pool_name")
 def get_pool_name(get_mayastor_instance, create_pool, name):
-    create_pool(name, ["malloc:///disk0?size_mb=100"])
+    create_pool(name, ["malloc:///disk0?size_mb=100"], pb.Lvs)
     return name
 
 
 @when("the user creates a pool specifying a URI representing an aio disk")
 def create_pool_from_aio_disk(get_mayastor_instance, create_pool, image_file):
-    create_pool("p0", [f"aio://{image_file}"])
+    create_pool("p0", [f"aio://{image_file}"], pb.Lvs)
 
 
 @when("the user attempts to create a pool specifying a disk with an invalid block size")
@@ -106,7 +106,7 @@ def attempt_to_create_pool_from_disk_with_invalid_block_size(
     get_mayastor_instance, create_pool
 ):
     with pytest.raises(grpc.RpcError) as error:
-        create_pool("p0", "malloc:///disk0?size_mb=100&blk_size=1024")
+        create_pool("p0", "malloc:///disk0?size_mb=100&blk_size=1024", pb.Lvs)
     assert error.value.code() == grpc.StatusCode.INVALID_ARGUMENT
 
 
@@ -114,14 +114,14 @@ def attempt_to_create_pool_from_disk_with_invalid_block_size(
 def attempt_to_create_pool_from_multiple_disks(get_mayastor_instance, create_pool):
     with pytest.raises(grpc.RpcError) as error:
         create_pool(
-            "p0", ["malloc:///disk0?size_mb=100", "malloc:///disk1?size_mb=100"]
+            "p0", ["malloc:///disk0?size_mb=100", "malloc:///disk1?size_mb=100"], pb.Lvs
         )
     assert error.value.code() == grpc.StatusCode.INVALID_ARGUMENT
 
 
 @when("the user creates a pool with the name of an existing pool")
 def create_pool_that_already_exists(get_mayastor_instance, create_pool, get_pool_name):
-    create_pool(get_pool_name, ["malloc:///disk0?size_mb=100"])
+    create_pool(get_pool_name, ["malloc:///disk0?size_mb=100"], pb.Lvs)
 
 
 @when("the user destroys a pool that does not exist")

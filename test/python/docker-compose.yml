@@ -11,6 +11,7 @@ services:
         - MY_POD_IP=10.0.0.2
         - NEXUS_NVMF_ANA_ENABLE=1
         - NEXUS_NVMF_RESV_ENABLE=1
+        - LVM_ENABLE=1
     command: ${SRCDIR}/target/debug/mayastor -g 0.0.0.0 -l 1,2 -r /tmp/ms0.sock
     networks:
       mayastor_net:
@@ -24,12 +25,20 @@ services:
     security_opt:
       # we can set this to a JSON file to allow per syscall access
       - seccomp:unconfined
+    privileged: true
     volumes:
       - ${SRCDIR}:${SRCDIR}
       - /nix:/nix
       - /dev/hugepages:/dev/hugepages
       - /tmp:/tmp
       - /var/tmp:/var/tmp
+      - /run/udev:/run/udev
+      - /dev:/dev
+      - /sbin:/sbin
+      - /usr/lib:/usr/lib
+      - /lib:/lib
+      - /lib64:/lib64
+      - /etc/lvm:/etc/lvm
   ms1:
     container_name: "ms1"
     image: rust:latest
