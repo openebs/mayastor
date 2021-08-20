@@ -5,9 +5,10 @@ use std::{convert::TryFrom, fmt::Display, pin::Pin};
 use crate::lvs::Error as LvsError;
 
 /// Indicates what protocol the bdev is shared as.
-#[derive(Debug, PartialOrd, PartialEq)]
+#[derive(Debug, Default, PartialOrd, Eq, PartialEq, Copy, Clone)]
 pub enum Protocol {
     /// not shared by any of the variants
+    #[default]
     Off,
     /// shared as NVMe-oF TCP
     Nvmf,
@@ -126,6 +127,11 @@ impl From<Option<ShareProps>> for ShareProps {
             None => Self::new(),
             Some(props) => props,
         }
+    }
+}
+impl From<ShareProps> for UpdateProps {
+    fn from(value: ShareProps) -> Self {
+        UpdateProps::new().with_allowed_hosts(value.allowed_hosts)
     }
 }
 

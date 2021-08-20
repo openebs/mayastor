@@ -1107,6 +1107,7 @@ async fn test_replica_listing_with_query() {
             uuid: None,
             pooluuid: None,
             query: None,
+            pooltypes: vec![],
         })
         .await
         .expect("List should not fail")
@@ -1127,6 +1128,7 @@ async fn test_replica_listing_with_query() {
                 snapshot: false,
                 clone: true,
             }),
+            pooltypes: vec![],
         })
         .await
         .expect("List should not fail")
@@ -1150,6 +1152,7 @@ async fn test_replica_listing_with_query() {
                 snapshot: true,
                 clone: false,
             }),
+            pooltypes: vec![],
         })
         .await
         .expect("List should not fail")
@@ -1174,6 +1177,7 @@ async fn test_replica_listing_with_query() {
                 snapshot: true,
                 clone: true,
             }),
+            pooltypes: vec![],
         })
         .await
         .expect("List should not fail")
@@ -1197,6 +1201,7 @@ async fn test_replica_listing_with_query() {
                 snapshot: true,
                 clone: false,
             }),
+            pooltypes: vec![],
         })
         .await
         .expect("List should not fail")
@@ -1219,6 +1224,7 @@ async fn test_replica_listing_with_query() {
                 snapshot: false,
                 clone: true,
             }),
+            pooltypes: vec![],
         })
         .await
         .expect("List should not fail")
@@ -1240,6 +1246,7 @@ async fn test_replica_listing_with_query() {
                 snapshot: false,
                 clone: false,
             }),
+            pooltypes: vec![],
         })
         .await
         .expect("List should not fail")

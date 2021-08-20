@@ -2,7 +2,7 @@ use io_engine::{
     bdev::nexus::nexus_create,
     core::{CoreError, MayastorCliArgs, SnapshotParams, UntypedBdevHandle},
     lvs::{Lvol, Lvs},
-    pool_backend::PoolArgs,
+    pool_backend::{PoolArgs, PoolBackend},
 };
 use tracing::info;
 use uuid::Uuid;
@@ -97,6 +97,7 @@ async fn replica_snapshot() {
                 disks: vec![format!("aio://{DISKNAME1}")],
                 uuid: None,
                 cluster_size: None,
+                backend: PoolBackend::Lvs,
             })
             .await
             .unwrap();

@@ -33,14 +33,18 @@ use io_engine::{
 };
 
 use chrono::Utc;
-use io_engine::core::{
-    snapshot::VolumeSnapshotDescriptor,
-    SnapshotDescriptor,
-    SnapshotOps,
+use io_engine::{
+    core::{
+        snapshot::VolumeSnapshotDescriptor,
+        SnapshotDescriptor,
+        SnapshotOps,
+    },
+    pool_backend::PoolBackend,
 };
 use log::info;
 use std::{convert::TryFrom, str};
 use uuid::Uuid;
+
 static MAYASTOR: OnceCell<MayastorTest> = OnceCell::new();
 
 static POOL_DISK_NAME: &str = "/tmp/disk1.img";
@@ -67,6 +71,7 @@ async fn create_test_pool(
         disks: vec![disk],
         uuid: None,
         cluster_size,
+        backend: PoolBackend::Lvs,
     })
     .await
     .expect("Failed to create test pool");

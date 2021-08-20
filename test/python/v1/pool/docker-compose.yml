@@ -11,8 +11,9 @@ services:
         - MY_POD_IP=10.0.0.2
         - NEXUS_NVMF_ANA_ENABLE=1
         - NEXUS_NVMF_RESV_ENABLE=1
-        - PATH=${LLVM_SYMBOLIZER_DIR:-}
+        - PATH=${LLVM_SYMBOLIZER_DIR:-}:${LVM_BINS:-}
         - ASAN_OPTIONS=detect_leaks=0
+        - ENABLE_LVM=true
     command: ${SRCDIR}/${IO_ENGINE_DIR}/io-engine -g 0.0.0.0 -l 1,2 -r /tmp/ms0.sock
     networks:
       mayastor_net:
@@ -32,6 +33,16 @@ services:
       - /dev/hugepages:/dev/hugepages
       - /tmp:/tmp
       - /var/tmp:/var/tmp
+    # these should be enough... otherwise we can always make it privileged
+    devices:
+      - /dev/loop0
+      - /dev/loop1
+      - /dev/loop2
+      - /dev/loop3
+      - /dev/loop4
+      - /dev/loop5
+      - /dev/loop6
+      - /dev/loop7
 networks:
   mayastor_net:
     name: mayastor_net

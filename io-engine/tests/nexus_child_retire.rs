@@ -567,8 +567,7 @@ async fn init_ms_etcd_test() -> ComposeTest {
             let pool_0 = Lvs::create_or_import(PoolArgs {
                 name: POOL_NAME_0.to_string(),
                 disks: vec![BDEV_NAME_0.to_string()],
-                uuid: None,
-                cluster_size: None,
+                ..Default::default()
             })
             .await
             .unwrap();
@@ -588,8 +587,7 @@ async fn init_ms_etcd_test() -> ComposeTest {
             let pool_1 = Lvs::create_or_import(PoolArgs {
                 name: POOL_NAME_1.to_string(),
                 disks: vec![DISK_NAME_1.to_string()],
-                uuid: None,
-                cluster_size: None,
+                ..Default::default()
             })
             .await
             .unwrap();

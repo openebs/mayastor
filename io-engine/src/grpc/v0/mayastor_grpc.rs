@@ -22,7 +22,7 @@ use crate::{
     bdev_api::BdevError,
     core::{
         lock::{ProtectedSubsystems, ResourceLockManager},
-        logical_volume::LogicalVolume,
+        logical_volume::{LogicalVolume, LvolSpaceUsage},
         BlockDeviceIoStats,
         CoreError,
         MayastorFeatures,
@@ -50,7 +50,7 @@ use crate::{
         Serializer,
     },
     host::{blk_device, resource},
-    lvs::{lvs_lvol::LvsLvol, Error as LvsError, Lvol, LvolSpaceUsage, Lvs},
+    lvs::{lvs_lvol::LvsLvol, Error as LvsError, Lvol, Lvs},
     pool_backend::PoolArgs,
     rebuild::{RebuildState, RebuildStats},
     subsys::PoolConfig,
@@ -208,8 +208,7 @@ impl TryFrom<CreatePoolRequest> for PoolArgs {
             _ => Ok(Self {
                 name: args.name,
                 disks: args.disks,
-                uuid: None,
-                cluster_size: None,
+                ..Default::default()
             }),
         }
     }

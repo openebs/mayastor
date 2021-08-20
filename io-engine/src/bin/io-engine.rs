@@ -89,6 +89,13 @@ fn start_tokio_runtime(args: &MayastorCliArgs) {
     if !ENABLE_NEXUS_RESET.load(Ordering::SeqCst) {
         warn!("Nexus reset is disabled");
     }
+    if args.lvm {
+        env::set_var("LVM", "1");
+        if env::var("LVM_SUPPRESS_FD_WARNINGS").is_err() {
+            env::set_var("LVM_SUPPRESS_FD_WARNINGS", "1");
+        }
+        warn!("Experimental LVM pool backend is enabled");
+    }
 
     if args.enable_nexus_channel_debug {
         ENABLE_NEXUS_CHANNEL_DEBUG.store(true, Ordering::SeqCst);

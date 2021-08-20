@@ -14,6 +14,7 @@ use crate::{
     bdev_api::BdevError,
     core::{
         CoreError,
+        MayastorFeatures,
         Reactor,
         ResourceLockGuard,
         ResourceSubsystem,
@@ -90,6 +91,14 @@ pub mod v1 {
     pub mod snapshot_rebuild;
     pub mod stats;
     pub mod test;
+    pub mod lvm {
+        pub mod pool;
+        pub mod replica;
+    }
+    pub mod lvs {
+        pub mod pool;
+        pub mod replica;
+    }
 }
 
 /// Default timeout for gRPC calls, in seconds. Should be enforced in case
@@ -167,6 +176,14 @@ pub fn rpc_submit<F, R, E>(
 where
     E: Send + Debug + Display + 'static,
     F: Future<Output = Result<R, E>> + 'static,
+    R: Send + Debug + 'static,
+{
+    Reactor::spawn_at_primary(future)
+        .map_err(|_| Status::resource_exhausted("ENOMEM"))
+}
+pub fn rpc_submit_ext<F, R>(future: F) -> Result<Receiver<R>, tonic::Status>
+where
+    F: Future<Output = R> + 'static,
     R: Send + Debug + 'static,
 {
     Reactor::spawn_at_primary(future)
@@ -306,4 +323,11 @@ pub fn get_request_timeout<T>(req: &Request<T>) -> Duration {
         // No I/O timeout provided by gRPC client, use the default one.
         None => Duration::from_secs(DEFAULT_GRPC_TIMEOUT_SEC),
     }
+}
+
+fn lvm_enabled() -> Result<(), Status> {
+    if !MayastorFeatures::get_features().lvm() {
+        return Err(Status::failed_precondition("lvm support not enabled"));
+    }
+    Ok(())
 }
