@@ -129,7 +129,7 @@ impl Device {
         timeout: Duration,
         retries: u32,
     ) -> Result<DeviceName, DeviceError> {
-        for _ in 0 ..= retries {
+        for _ in 0..=retries {
             if let Some(devname) = device.find().await? {
                 return Ok(devname);
             }

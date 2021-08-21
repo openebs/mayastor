@@ -6,18 +6,10 @@ use nix::errno::Errno;
 use once_cell::sync::OnceCell;
 
 use spdk_sys::{
-    self,
-    iovec,
-    spdk_get_io_channel,
-    spdk_io_channel,
-    spdk_nvme_cpl,
-    spdk_nvme_ctrlr_cmd_admin_raw,
-    spdk_nvme_ctrlr_cmd_io_raw,
-    spdk_nvme_dsm_range,
-    spdk_nvme_ns_cmd_dataset_management,
-    spdk_nvme_ns_cmd_read,
-    spdk_nvme_ns_cmd_readv,
-    spdk_nvme_ns_cmd_write,
+    self, iovec, spdk_get_io_channel, spdk_io_channel, spdk_nvme_cpl,
+    spdk_nvme_ctrlr_cmd_admin_raw, spdk_nvme_ctrlr_cmd_io_raw,
+    spdk_nvme_dsm_range, spdk_nvme_ns_cmd_dataset_management,
+    spdk_nvme_ns_cmd_read, spdk_nvme_ns_cmd_readv, spdk_nvme_ns_cmd_write,
     spdk_nvme_ns_cmd_writev,
 };
 
@@ -27,30 +19,15 @@ use crate::{
         controller_inner::SpdkNvmeController,
         utils,
         utils::{
-            nvme_command_status,
-            nvme_cpl_is_pi_error,
-            nvme_cpl_succeeded,
+            nvme_command_status, nvme_cpl_is_pi_error, nvme_cpl_succeeded,
         },
-        NvmeBlockDevice,
-        NvmeIoChannel,
-        NvmeNamespace,
-        NVME_CONTROLLERS,
+        NvmeBlockDevice, NvmeIoChannel, NvmeNamespace, NVME_CONTROLLERS,
     },
     core::{
-        mempool::MemoryPool,
-        nvme_admin_opc,
-        nvme_nvm_opcode,
-        BlockDevice,
-        BlockDeviceHandle,
-        CoreError,
-        DmaBuf,
-        DmaError,
-        GenericStatusCode,
-        IoCompletionCallback,
-        IoCompletionCallbackArg,
-        IoCompletionStatus,
-        IoType,
-        NvmeCommandStatus,
+        mempool::MemoryPool, nvme_admin_opc, nvme_nvm_opcode, BlockDevice,
+        BlockDeviceHandle, CoreError, DmaBuf, DmaError, GenericStatusCode,
+        IoCompletionCallback, IoCompletionCallbackArg, IoCompletionStatus,
+        IoType, NvmeCommandStatus,
     },
     ffihelper::{cb_arg, done_cb, FfiResult},
     subsys,
@@ -363,9 +340,7 @@ fn io_type_to_err(
         },
         _ => {
             warn!("Unsupported I/O operation: {:?}", op);
-            CoreError::NotSupported {
-                source,
-            }
+            CoreError::NotSupported { source }
         }
     }
 }
@@ -471,9 +446,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
                 offset,
                 buffer.len()
             );
-            return Err(CoreError::InvalidOffset {
-                offset,
-            });
+            return Err(CoreError::InvalidOffset { offset });
         }
 
         let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
@@ -544,9 +517,7 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
                 offset,
                 buffer.len()
             );
-            return Err(CoreError::InvalidOffset {
-                offset,
-            });
+            return Err(CoreError::InvalidOffset { offset });
         }
 
         let inner = NvmeIoChannel::inner_from_channel(self.io_channel.as_ptr());
@@ -959,11 +930,8 @@ impl BlockDeviceHandle for NvmeDeviceHandle {
     }
 
     async fn nvme_identify_ctrlr(&self) -> Result<DmaBuf, CoreError> {
-        let mut buf = DmaBuf::new(4096, 8).map_err(|_e| {
-            CoreError::DmaAllocationError {
-                size: 4096,
-            }
-        })?;
+        let mut buf = DmaBuf::new(4096, 8)
+            .map_err(|_e| CoreError::DmaAllocationError { size: 4096 })?;
 
         let mut cmd = spdk_sys::spdk_nvme_cmd::default();
         cmd.set_opc(nvme_admin_opc::IDENTIFY.into());

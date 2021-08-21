@@ -12,22 +12,14 @@ use nix::errno::Errno;
 use once_cell::sync::Lazy;
 
 use spdk_sys::{
-    spdk_nvme_transport_id,
-    spdk_nvmf_tgt_add_transport,
-    spdk_nvmf_transport_create,
-    SPDK_NVME_TRANSPORT_TCP,
-    SPDK_NVMF_ADRFAM_IPV4,
+    spdk_nvme_transport_id, spdk_nvmf_tgt_add_transport,
+    spdk_nvmf_transport_create, SPDK_NVME_TRANSPORT_TCP, SPDK_NVMF_ADRFAM_IPV4,
     SPDK_NVMF_TRSVCID_MAX_LEN,
 };
 
 use crate::{
     ffihelper::{
-        cb_arg,
-        done_errno_cb,
-        AsStr,
-        ErrnoResult,
-        FfiResult,
-        IntoCString,
+        cb_arg, done_errno_cb, AsStr, ErrnoResult, FfiResult, IntoCString,
     },
     subsys::{
         nvmf::{Error, NVMF_TGT},

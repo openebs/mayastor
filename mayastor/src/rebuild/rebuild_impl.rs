@@ -15,13 +15,8 @@ use spdk_sys::{spdk_get_thread, SPDK_BDEV_LARGE_BUF_MAX_SIZE};
 use crate::{
     bdev::{device_open, VerboseError},
     core::{
-        Bdev,
-        BlockDevice,
-        BlockDeviceDescriptor,
-        BlockDeviceHandle,
-        DmaBuf,
-        RangeContext,
-        Reactors,
+        Bdev, BlockDevice, BlockDeviceDescriptor, BlockDeviceHandle, DmaBuf,
+        RangeContext, Reactors,
     },
     nexus_uri::bdev_get_name,
 };
@@ -165,7 +160,7 @@ impl RebuildJob {
             segments_done: 0,
         };
 
-        for _ in 0 .. tasks.total {
+        for _ in 0..tasks.total {
             let copy_buffer = destination_hdl
                 .dma_malloc(segment_size_blks * block_size)
                 .context(NoCopyBuffer {})?;
@@ -291,10 +286,7 @@ impl RebuildJob {
         self.nexus_descriptor
             .lock_lba_range(&mut ctx, &ch)
             .await
-            .context(RangeLockError {
-                blk,
-                len,
-            })?;
+            .context(RangeLockError { blk, len })?;
 
         // Perform the copy
         let result = self.copy_one(id, blk).await;
@@ -304,10 +296,7 @@ impl RebuildJob {
         self.nexus_descriptor
             .unlock_lba_range(&mut ctx, &ch)
             .await
-            .context(RangeUnLockError {
-                blk,
-                len,
-            })?;
+            .context(RangeUnLockError { blk, len })?;
 
         result
     }
@@ -344,9 +333,7 @@ impl RebuildJob {
         source_hdl
             .read_at(blk * self.block_size, copy_buffer)
             .await
-            .context(ReadIoError {
-                bdev: &self.source,
-            })?;
+            .context(ReadIoError { bdev: &self.source })?;
 
         destination_hdl
             .write_at(blk * self.block_size, copy_buffer)
@@ -392,8 +379,8 @@ impl RebuildJob {
     ) -> bool {
         // todo: make sure we don't overwrite the labels
         let data_partition_start = 0;
-        range.within(data_partition_start .. source.num_blocks())
-            && range.within(data_partition_start .. destination.num_blocks())
+        range.within(data_partition_start..source.num_blocks())
+            && range.within(data_partition_start..destination.num_blocks())
             && source.block_len() == destination.block_len()
     }
 
@@ -582,7 +569,7 @@ impl RebuildJob {
             self.task_pool.active
         );
 
-        for n in 0 .. self.task_pool.total {
+        for n in 0..self.task_pool.total {
             self.next = match self.send_segment_task(n) {
                 Some(next) => {
                     self.task_pool.active += 1;

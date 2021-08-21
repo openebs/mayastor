@@ -3,13 +3,8 @@ use common::compose::Builder;
 use composer::{Binary, RpcHandle};
 
 use rpc::mayastor::{
-    AddChildNexusRequest,
-    BdevUri,
-    CreateNexusRequest,
-    CreatePoolRequest,
-    CreateReplicaRequest,
-    Null,
-    RemoveChildNexusRequest,
+    AddChildNexusRequest, BdevUri, CreateNexusRequest, CreatePoolRequest,
+    CreateReplicaRequest, Null, RemoveChildNexusRequest,
 };
 
 fn uuid() -> String {

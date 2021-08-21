@@ -42,9 +42,7 @@ static RUNTIME: Lazy<Runtime> = Lazy::new(|| {
         .build()
         .unwrap();
 
-    Runtime {
-        rt,
-    }
+    Runtime { rt }
 });
 
 impl Runtime {

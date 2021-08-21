@@ -9,25 +9,17 @@ use std::{
 use crossbeam::atomic::AtomicCell;
 
 use spdk_sys::{
-    spdk_nvme_cmd_cb,
-    spdk_nvme_cpl,
-    spdk_nvme_ctrlr,
-    spdk_nvme_ctrlr_cmd_abort,
-    spdk_nvme_ctrlr_fail,
-    spdk_nvme_ctrlr_get_regs_csts,
-    spdk_nvme_ctrlr_process_admin_completions,
-    spdk_nvme_ctrlr_register_timeout_callback,
-    spdk_nvme_qpair,
-    SPDK_BDEV_NVME_TIMEOUT_ACTION_ABORT,
-    SPDK_BDEV_NVME_TIMEOUT_ACTION_NONE,
+    spdk_nvme_cmd_cb, spdk_nvme_cpl, spdk_nvme_ctrlr,
+    spdk_nvme_ctrlr_cmd_abort, spdk_nvme_ctrlr_fail,
+    spdk_nvme_ctrlr_get_regs_csts, spdk_nvme_ctrlr_process_admin_completions,
+    spdk_nvme_ctrlr_register_timeout_callback, spdk_nvme_qpair,
+    SPDK_BDEV_NVME_TIMEOUT_ACTION_ABORT, SPDK_BDEV_NVME_TIMEOUT_ACTION_NONE,
     SPDK_BDEV_NVME_TIMEOUT_ACTION_RESET,
 };
 
 use crate::{
     bdev::nvmx::{
-        nvme_bdev_running_config,
-        utils::nvme_cpl_succeeded,
-        NvmeController,
+        nvme_bdev_running_config, utils::nvme_cpl_succeeded, NvmeController,
         NVME_CONTROLLERS,
     },
     core::{CoreError, DeviceIoController, DeviceTimeoutAction},

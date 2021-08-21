@@ -2,16 +2,9 @@ use std::ffi::{c_void, CString};
 
 use snafu::Snafu;
 use spdk_sys::{
-    spdk_get_thread,
-    spdk_set_thread,
-    spdk_thread,
-    spdk_thread_create,
-    spdk_thread_destroy,
-    spdk_thread_exit,
-    spdk_thread_get_by_id,
-    spdk_thread_is_exited,
-    spdk_thread_poll,
-    spdk_thread_send_msg,
+    spdk_get_thread, spdk_set_thread, spdk_thread, spdk_thread_create,
+    spdk_thread_destroy, spdk_thread_exit, spdk_thread_get_by_id,
+    spdk_thread_is_exited, spdk_thread_poll, spdk_thread_send_msg,
 };
 
 use crate::core::{cpu_cores::CpuMask, CoreError, Cores, Reactors};
@@ -259,7 +252,7 @@ impl Mthread {
     pub fn unaffinitize() {
         unsafe {
             let mut set: libc::cpu_set_t = std::mem::zeroed();
-            for i in 0 .. libc::sysconf(libc::_SC_NPROCESSORS_ONLN) {
+            for i in 0..libc::sysconf(libc::_SC_NPROCESSORS_ONLN) {
                 libc::CPU_SET(i as usize, &mut set)
             }
 

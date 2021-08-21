@@ -3,32 +3,21 @@
 use std::{cmp::max, mem::size_of, os::raw::c_void, ptr::NonNull};
 
 use spdk_sys::{
-    nvme_qpair_abort_reqs,
-    spdk_io_channel,
-    spdk_nvme_ctrlr_alloc_io_qpair,
-    spdk_nvme_ctrlr_connect_io_qpair,
-    spdk_nvme_ctrlr_disconnect_io_qpair,
-    spdk_nvme_ctrlr_free_io_qpair,
-    spdk_nvme_ctrlr_get_default_io_qpair_opts,
-    spdk_nvme_io_qpair_opts,
-    spdk_nvme_poll_group,
-    spdk_nvme_poll_group_add,
-    spdk_nvme_poll_group_create,
-    spdk_nvme_poll_group_destroy,
-    spdk_nvme_poll_group_process_completions,
-    spdk_nvme_poll_group_remove,
-    spdk_nvme_qpair,
-    spdk_put_io_channel,
+    nvme_qpair_abort_reqs, spdk_io_channel, spdk_nvme_ctrlr_alloc_io_qpair,
+    spdk_nvme_ctrlr_connect_io_qpair, spdk_nvme_ctrlr_disconnect_io_qpair,
+    spdk_nvme_ctrlr_free_io_qpair, spdk_nvme_ctrlr_get_default_io_qpair_opts,
+    spdk_nvme_io_qpair_opts, spdk_nvme_poll_group, spdk_nvme_poll_group_add,
+    spdk_nvme_poll_group_create, spdk_nvme_poll_group_destroy,
+    spdk_nvme_poll_group_process_completions, spdk_nvme_poll_group_remove,
+    spdk_nvme_qpair, spdk_put_io_channel,
 };
 
 use crate::{
     bdev::{
         device_lookup,
         nvmx::{
-            controller_inner::SpdkNvmeController,
-            nvme_bdev_running_config,
-            NvmeControllerState,
-            NVME_CONTROLLERS,
+            controller_inner::SpdkNvmeController, nvme_bdev_running_config,
+            NvmeControllerState, NVME_CONTROLLERS,
         },
     },
     core::{poller, BlockDevice, BlockDeviceIoStats, CoreError, IoType},

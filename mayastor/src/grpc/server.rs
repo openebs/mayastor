@@ -1,11 +1,8 @@
 use crate::grpc::{
-    bdev_grpc::BdevSvc,
-    json_grpc::JsonRpcSvc,
-    mayastor_grpc::MayastorSvc,
+    bdev_grpc::BdevSvc, json_grpc::JsonRpcSvc, mayastor_grpc::MayastorSvc,
 };
 use rpc::mayastor::{
-    bdev_rpc_server::BdevRpcServer,
-    json_rpc_server::JsonRpcServer,
+    bdev_rpc_server::BdevRpcServer, json_rpc_server::JsonRpcServer,
     mayastor_server::MayastorServer as MayastorRpcServer,
 };
 use std::time::Duration;
@@ -24,9 +21,7 @@ impl MayastorGrpcServer {
                 Duration::from_millis(4),
             )))
             .add_service(BdevRpcServer::new(BdevSvc::new()))
-            .add_service(JsonRpcServer::new(JsonRpcSvc {
-                rpc_addr,
-            }))
+            .add_service(JsonRpcServer::new(JsonRpcSvc { rpc_addr }))
             .serve(endpoint);
 
         match svc.await {

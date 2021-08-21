@@ -9,12 +9,7 @@ use crate::{
     store::{
         etcd::Etcd,
         store_defs::{
-            DeleteWait,
-            GetWait,
-            PutWait,
-            Store,
-            StoreError,
-            StoreKey,
+            DeleteWait, GetWait, PutWait, Store, StoreError, StoreKey,
             StoreValue,
         },
     },
@@ -55,10 +50,7 @@ impl PersistentStore {
         let endpoint = Self::format_endpoint(&endpoint.unwrap());
         let store = Self::connect_to_backing_store(&endpoint.clone()).await;
         PERSISTENT_STORE.get_or_init(|| {
-            Some(Mutex::new(PersistentStore {
-                store,
-                endpoint,
-            }))
+            Some(Mutex::new(PersistentStore { store, endpoint }))
         });
     }
 

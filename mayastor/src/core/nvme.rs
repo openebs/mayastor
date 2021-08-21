@@ -1,10 +1,7 @@
 use crate::core::{
     nvme::StatusCodeType::{
-        CommandSpecificStatus,
-        GenericCommandStatus,
-        MediaDataIntegrityErrors,
-        Reserved,
-        VendorSpecific,
+        CommandSpecificStatus, GenericCommandStatus, MediaDataIntegrityErrors,
+        Reserved, VendorSpecific,
     },
     Bio,
 };

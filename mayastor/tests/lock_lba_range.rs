@@ -12,14 +12,8 @@ use crossbeam::channel::unbounded;
 use mayastor::{
     bdev::{nexus_create, nexus_lookup},
     core::{
-        Bdev,
-        DmaBuf,
-        IoChannel,
-        MayastorCliArgs,
-        MayastorEnvironment,
-        RangeContext,
-        Reactor,
-        Reactors,
+        Bdev, DmaBuf, IoChannel, MayastorCliArgs, MayastorEnvironment,
+        RangeContext, Reactor, Reactors,
     },
 };
 
@@ -65,7 +59,7 @@ impl ShareableContext {
 
 fn test_ini() {
     test_init!();
-    for i in 0 .. NUM_NEXUS_CHILDREN {
+    for i in 0..NUM_NEXUS_CHILDREN {
         common::delete_file(&[get_disk(i)]);
         common::truncate_file_bytes(&get_disk(i), NEXUS_SIZE);
     }
@@ -76,7 +70,7 @@ fn test_ini() {
 }
 
 fn test_fini() {
-    for i in 0 .. NUM_NEXUS_CHILDREN {
+    for i in 0..NUM_NEXUS_CHILDREN {
         common::delete_file(&[get_disk(i)]);
     }
 
@@ -96,7 +90,7 @@ fn get_dev(number: u64) -> String {
 
 async fn create_nexus() {
     let mut ch = Vec::new();
-    for i in 0 .. NUM_NEXUS_CHILDREN {
+    for i in 0..NUM_NEXUS_CHILDREN {
         ch.push(get_dev(i));
     }
 

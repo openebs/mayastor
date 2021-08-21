@@ -59,22 +59,18 @@ async fn list_block_devices(
 
     let response = ctx
         .client
-        .list_block_devices(rpc::ListBlockDevicesRequest {
-            all,
-        })
+        .list_block_devices(rpc::ListBlockDevicesRequest { all })
         .await
         .context(GrpcStatus)?;
 
     match ctx.output {
-        OutputFormat::Json => {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&response.into_inner())
-                    .unwrap()
-                    .to_colored_json_auto()
-                    .unwrap()
-            )
-        }
+        OutputFormat::Json => println!(
+            "{}",
+            serde_json::to_string_pretty(&response.into_inner())
+                .unwrap()
+                .to_colored_json_auto()
+                .unwrap()
+        ),
         OutputFormat::Default => {
             let devices: &Vec<rpc::BlockDevice> = &response.get_ref().devices;
 

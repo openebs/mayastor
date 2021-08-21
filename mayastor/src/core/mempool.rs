@@ -7,13 +7,8 @@
 use std::{marker::PhantomData, mem::size_of, os::raw::c_void, ptr::NonNull};
 
 use spdk_sys::{
-    self,
-    spdk_mempool,
-    spdk_mempool_count,
-    spdk_mempool_create,
-    spdk_mempool_free,
-    spdk_mempool_get,
-    spdk_mempool_put,
+    self, spdk_mempool, spdk_mempool_count, spdk_mempool_create,
+    spdk_mempool_free, spdk_mempool_get, spdk_mempool_put,
 };
 
 use crate::ffihelper::IntoCString;

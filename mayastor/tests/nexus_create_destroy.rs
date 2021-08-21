@@ -19,7 +19,7 @@ async fn nexus_create_destroy() {
 
     let mut hdl = compose.grpc_handle("ms1").await.unwrap();
 
-    for i in 0 .. NEXUS_COUNT {
+    for i in 0..NEXUS_COUNT {
         let nexus = hdl
             .mayastor
             .create_nexus(CreateNexusRequest {
@@ -76,7 +76,7 @@ async fn nexus_create_multiple_then_destroy() {
 
 async fn create_nexuses(handle: &mut RpcHandle, count: usize) -> Vec<Nexus> {
     let mut nexuses = vec![];
-    for i in 0 .. count {
+    for i in 0..count {
         let nexus = handle
             .mayastor
             .create_nexus(CreateNexusRequest {

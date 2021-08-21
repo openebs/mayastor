@@ -74,9 +74,7 @@ impl From<nvmf_discovery::ConnectArgsBuilderError> for DeviceError {
 
 impl From<String> for DeviceError {
     fn from(message: String) -> DeviceError {
-        DeviceError {
-            message,
-        }
+        DeviceError { message }
     }
 }
 

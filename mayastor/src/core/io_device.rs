@@ -2,13 +2,9 @@ use std::{os::raw::c_void, ptr::NonNull};
 
 use crate::ffihelper::IntoCString;
 use spdk_sys::{
-    spdk_for_each_channel,
-    spdk_for_each_channel_continue,
-    spdk_io_channel,
-    spdk_io_channel_iter,
-    spdk_io_channel_iter_get_channel,
-    spdk_io_channel_iter_get_ctx,
-    spdk_io_device_register,
+    spdk_for_each_channel, spdk_for_each_channel_continue, spdk_io_channel,
+    spdk_io_channel_iter, spdk_io_channel_iter_get_channel,
+    spdk_io_channel_iter_get_ctx, spdk_io_device_register,
     spdk_io_device_unregister,
 };
 #[derive(Debug)]

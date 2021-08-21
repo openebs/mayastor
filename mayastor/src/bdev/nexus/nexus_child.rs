@@ -8,29 +8,16 @@ use snafu::{ResultExt, Snafu};
 
 use crate::{
     bdev::{
-        device_create,
-        device_destroy,
-        device_lookup,
+        device_create, device_destroy, device_lookup,
         nexus::{
-            instances,
-            nexus_channel::DrEvent,
-            nexus_child::ChildState::Faulted,
+            instances, nexus_channel::DrEvent, nexus_child::ChildState::Faulted,
         },
-        nexus_lookup,
-        Guid,
-        VerboseError,
+        nexus_lookup, Guid, VerboseError,
     },
     core::{
-        nvme_reservation_acquire_action,
-        nvme_reservation_register_action,
-        nvme_reservation_register_cptpl,
-        nvme_reservation_type,
-        BlockDevice,
-        BlockDeviceDescriptor,
-        BlockDeviceHandle,
-        CoreError,
-        DmaError,
-        Reactor,
+        nvme_reservation_acquire_action, nvme_reservation_register_action,
+        nvme_reservation_register_cptpl, nvme_reservation_type, BlockDevice,
+        BlockDeviceDescriptor, BlockDeviceHandle, CoreError, DmaError, Reactor,
         Reactors,
     },
     nexus_uri::NexusBdevError,
@@ -272,9 +259,7 @@ impl NexusChild {
 
         let desc = dev.open(true).map_err(|source| {
             self.set_state(Faulted(Reason::CantOpen));
-            ChildError::OpenChild {
-                source,
-            }
+            ChildError::OpenChild { source }
         })?;
         self.device_descriptor = Some(desc);
 
@@ -330,9 +315,7 @@ impl NexusChild {
             )
             .await
         {
-            return Err(ChildError::ResvAcquire {
-                source: e,
-            });
+            return Err(ChildError::ResvAcquire { source: e });
         }
         info!(
             "{}: acquired reservation type {:x}h, action {:x}h, current key {:0x}h, preempt key {:0x}h on child {}",
@@ -349,9 +332,7 @@ impl NexusChild {
     ) -> Result<Option<(u64, [u8; 16])>, ChildError> {
         let mut buffer = hdl.dma_malloc(4096).context(HandleDmaMalloc {})?;
         if let Err(e) = hdl.nvme_resv_report(1, &mut buffer).await {
-            return Err(ChildError::ResvReport {
-                source: e,
-            });
+            return Err(ChildError::ResvReport { source: e });
         }
         trace!(
             "{}: received reservation report for child {}",
@@ -419,14 +400,8 @@ impl NexusChild {
         let hdl = self.get_io_handle().context(HandleOpen {})?;
         if let Err(e) = self.resv_register(&*hdl, key).await {
             match e {
-                CoreError::NotSupported {
-                    ..
-                } => return Ok(()),
-                _ => {
-                    return Err(ChildError::ResvRegisterKey {
-                        source: e,
-                    })
-                }
+                CoreError::NotSupported { .. } => return Ok(()),
+                _ => return Err(ChildError::ResvRegisterKey { source: e }),
             }
         }
         if let Err(e) = self
@@ -445,9 +420,7 @@ impl NexusChild {
             let my_hostid = match hdl.host_id().await {
                 Ok(h) => h,
                 Err(e) => {
-                    return Err(ChildError::NvmeHostId {
-                        source: e,
-                    });
+                    return Err(ChildError::NvmeHostId { source: e });
                 }
             };
             if my_hostid != hostid {

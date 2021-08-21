@@ -15,8 +15,7 @@ use futures::FutureExt;
 use mayastor::{
     bdev::{nexus_create, nexus_lookup},
     core::{MayastorCliArgs, MayastorEnvironment, Mthread, Reactors, Share},
-    grpc,
-    logger,
+    grpc, logger,
 };
 
 mayastor::CPS_INIT!();

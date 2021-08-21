@@ -5,8 +5,7 @@ use tonic::transport::Channel;
 
 use crate::context::Context;
 use ::rpc::mayastor::{
-    bdev_rpc_client::BdevRpcClient,
-    json_rpc_client::JsonRpcClient,
+    bdev_rpc_client::BdevRpcClient, json_rpc_client::JsonRpcClient,
     mayastor_client::MayastorClient,
 };
 

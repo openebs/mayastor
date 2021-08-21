@@ -3,8 +3,7 @@
 //! freeze and unfreeze filesystem volumes provisioned by Mayastor
 use crate::{
     dev::{Device, DeviceError},
-    findmnt,
-    mount,
+    findmnt, mount,
 };
 use snafu::{ResultExt, Snafu};
 use tokio::process::Command;

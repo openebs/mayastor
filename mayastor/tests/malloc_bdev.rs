@@ -58,7 +58,7 @@ async fn malloc_bdev() {
         let s0 = b0.as_slice();
         let s1 = b1.as_slice();
 
-        for i in 0 .. s0.len() {
+        for i in 0..s0.len() {
             assert_eq!(s0[i], 3);
             assert_eq!(s0[i], s1[i])
         }

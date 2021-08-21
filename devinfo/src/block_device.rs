@@ -107,8 +107,6 @@ impl BlkDev {
         }
 
         // fall through
-        Err(DevInfoError::NotFound {
-            path: value,
-        })
+        Err(DevInfoError::NotFound { path: value })
     }
 }

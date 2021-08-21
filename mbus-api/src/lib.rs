@@ -14,10 +14,7 @@ pub mod v0;
 use async_trait::async_trait;
 use dyn_clonable::clonable;
 pub use mbus_nats::{
-    bus,
-    message_bus_init,
-    message_bus_init_options,
-    message_bus_init_tokio,
+    bus, message_bus_init, message_bus_init_options, message_bus_init_tokio,
 };
 pub use receive::*;
 pub use send::*;
@@ -145,7 +142,7 @@ impl FromStr for Channel {
         match source.split('/').next() {
             Some(v0::VERSION) => {
                 let c: v0::ChannelVs =
-                    source[v0::VERSION.len() + 1 ..].parse()?;
+                    source[v0::VERSION.len() + 1..].parse()?;
                 Ok(Self::v0(c))
             }
             _ => Err(strum::ParseError::VariantNotFound),
@@ -208,7 +205,7 @@ impl FromStr for MessageId {
         match source.split('/').next() {
             Some(v0::VERSION) => {
                 let id: v0::MessageIdVs =
-                    source[v0::VERSION.len() + 1 ..].parse()?;
+                    source[v0::VERSION.len() + 1..].parse()?;
                 Ok(Self::v0(id))
             }
             _ => Err(strum::ParseError::VariantNotFound),
@@ -368,17 +365,13 @@ impl From<Error> for ReplyError {
         #[allow(deprecated)]
         let source_name = error.description().to_string();
         match error {
-            Error::RequestTimeout {
-                ..
-            } => Self {
+            Error::RequestTimeout { .. } => Self {
                 kind: ReplyErrorKind::Timeout,
                 resource: ResourceKind::Unknown,
                 source: source_name,
                 extra: error.to_string(),
             },
-            Error::ReplyWithError {
-                source,
-            } => source,
+            Error::ReplyWithError { source } => source,
             _ => Self {
                 kind: ReplyErrorKind::Internal,
                 resource: ResourceKind::Unknown,

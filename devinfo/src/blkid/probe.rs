@@ -1,11 +1,6 @@
 use crate::blkid::{
-    blkid_do_probe,
-    blkid_do_safeprobe,
-    blkid_free_probe,
-    blkid_new_probe,
-    blkid_new_probe_from_filename,
-    blkid_probe,
-    blkid_probe_has_value,
+    blkid_do_probe, blkid_do_safeprobe, blkid_free_probe, blkid_new_probe,
+    blkid_new_probe_from_filename, blkid_probe, blkid_probe_has_value,
     blkid_probe_lookup_value,
 };
 use core::slice;

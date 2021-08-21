@@ -6,24 +6,14 @@
 use crate::nodeplugin_svc;
 use mayastor_node_plugin::{
     mayastor_node_plugin_server::{
-        MayastorNodePlugin,
-        MayastorNodePluginServer,
+        MayastorNodePlugin, MayastorNodePluginServer,
     },
-    FindVolumeReply,
-    FindVolumeRequest,
-    FreezeFsReply,
-    FreezeFsRequest,
-    UnfreezeFsReply,
-    UnfreezeFsRequest,
-    VolumeType,
+    FindVolumeReply, FindVolumeRequest, FreezeFsReply, FreezeFsRequest,
+    UnfreezeFsReply, UnfreezeFsRequest, VolumeType,
 };
 
 use nodeplugin_svc::{
-    find_volume,
-    freeze_volume,
-    unfreeze_volume,
-    ServiceError,
-    TypeOfMount,
+    find_volume, freeze_volume, unfreeze_volume, ServiceError, TypeOfMount,
 };
 use tonic::{transport::Server, Code, Request, Response, Status};
 
@@ -38,27 +28,27 @@ pub struct MayastorNodePluginSvc {}
 impl From<ServiceError> for Status {
     fn from(err: ServiceError) -> Self {
         match err {
-            ServiceError::VolumeNotFound {
-                ..
-            } => Status::new(Code::NotFound, err.to_string()),
-            ServiceError::FsfreezeFailed {
-                ..
-            } => Status::new(Code::Internal, err.to_string()),
-            ServiceError::InvalidVolumeId {
-                ..
-            } => Status::new(Code::InvalidArgument, err.to_string()),
-            ServiceError::InternalFailure {
-                ..
-            } => Status::new(Code::Internal, err.to_string()),
-            ServiceError::IoError {
-                ..
-            } => Status::new(Code::Unknown, err.to_string()),
-            ServiceError::InconsistentMountFs {
-                ..
-            } => Status::new(Code::Unknown, err.to_string()),
-            ServiceError::BlockDeviceMount {
-                ..
-            } => Status::new(Code::FailedPrecondition, err.to_string()),
+            ServiceError::VolumeNotFound { .. } => {
+                Status::new(Code::NotFound, err.to_string())
+            }
+            ServiceError::FsfreezeFailed { .. } => {
+                Status::new(Code::Internal, err.to_string())
+            }
+            ServiceError::InvalidVolumeId { .. } => {
+                Status::new(Code::InvalidArgument, err.to_string())
+            }
+            ServiceError::InternalFailure { .. } => {
+                Status::new(Code::Internal, err.to_string())
+            }
+            ServiceError::IoError { .. } => {
+                Status::new(Code::Unknown, err.to_string())
+            }
+            ServiceError::InconsistentMountFs { .. } => {
+                Status::new(Code::Unknown, err.to_string())
+            }
+            ServiceError::BlockDeviceMount { .. } => {
+                Status::new(Code::FailedPrecondition, err.to_string())
+            }
         }
     }
 }

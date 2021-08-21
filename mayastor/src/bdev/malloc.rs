@@ -114,7 +114,7 @@ impl TryFrom<&Url> for Malloc {
         }
 
         Ok(Self {
-            name: uri.path()[1 ..].into(),
+            name: uri.path()[1..].into(),
             alias: uri.to_string(),
             num_blocks: if num_blocks != 0 {
                 num_blocks
@@ -201,13 +201,9 @@ impl CreateDestroy for Malloc {
                 .context(nexus_uri::CancelBdev {
                     name: self.name.clone(),
                 })?
-                .context(nexus_uri::DestroyBdev {
-                    name: self.name,
-                })
+                .context(nexus_uri::DestroyBdev { name: self.name })
         } else {
-            Err(NexusBdevError::BdevNotFound {
-                name: self.name,
-            })
+            Err(NexusBdevError::BdevNotFound { name: self.name })
         }
     }
 }

@@ -16,9 +16,7 @@ use snafu::Snafu;
 pub use admin_cmd::{create_snapshot, set_snapshot_time, NvmeCpl, NvmfReq};
 use poll_groups::PollGroup;
 use spdk_sys::{
-    spdk_subsystem,
-    spdk_subsystem_fini_next,
-    spdk_subsystem_init_next,
+    spdk_subsystem, spdk_subsystem_fini_next, spdk_subsystem_init_next,
 };
 pub use subsystem::{NvmfSubsystem, SubType};
 pub use target::Target;

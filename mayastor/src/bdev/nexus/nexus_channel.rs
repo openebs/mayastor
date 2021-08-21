@@ -5,13 +5,9 @@ use std::{ffi::c_void, fmt::Debug, ptr::NonNull};
 use futures::channel::oneshot;
 
 use spdk_sys::{
-    spdk_for_each_channel,
-    spdk_for_each_channel_continue,
-    spdk_io_channel,
-    spdk_io_channel_iter,
-    spdk_io_channel_iter_get_channel,
-    spdk_io_channel_iter_get_ctx,
-    spdk_io_channel_iter_get_io_device,
+    spdk_for_each_channel, spdk_for_each_channel_continue, spdk_io_channel,
+    spdk_io_channel_iter, spdk_io_channel_iter_get_channel,
+    spdk_io_channel_iter_get_ctx, spdk_io_channel_iter_get_io_device,
 };
 
 use crate::{
@@ -60,10 +56,7 @@ impl ReconfigureCtx {
         sender: oneshot::Sender<i32>,
         device: NonNull<c_void>,
     ) -> Self {
-        Self {
-            sender,
-            device,
-        }
+        Self { sender, device }
     }
 }
 

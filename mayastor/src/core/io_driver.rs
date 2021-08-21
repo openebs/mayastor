@@ -4,10 +4,7 @@ use rand::Rng;
 use std::{ptr::NonNull, sync::Mutex};
 
 use spdk_sys::{
-    spdk_bdev_free_io,
-    spdk_bdev_read,
-    spdk_bdev_reset,
-    spdk_bdev_write,
+    spdk_bdev_free_io, spdk_bdev_read, spdk_bdev_reset, spdk_bdev_write,
 };
 
 use crate::{
@@ -320,7 +317,7 @@ impl Builder {
 
         let mut queue = Vec::new();
 
-        (0 .. self.qd).for_each(|offset| {
+        (0..self.qd).for_each(|offset| {
             queue.push(Io {
                 buf: DmaBuf::new(self.io_size as u64, bdev.alignment())
                     .unwrap(),

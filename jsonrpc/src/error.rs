@@ -40,10 +40,7 @@ impl From<RpcCode> for Code {
 impl From<Error> for Status {
     fn from(error: Error) -> Status {
         match error {
-            Error::RpcError {
-                code,
-                msg,
-            } => Status::new(code.into(), msg),
+            Error::RpcError { code, msg } => Status::new(code.into(), msg),
             _ => Status::new(Code::Internal, error.to_string()),
         }
     }
@@ -54,16 +51,14 @@ impl fmt::Display for Error {
         match self {
             Error::InvalidVersion => write!(f, "Invalid json-rpc version"),
             Error::InvalidReplyId => write!(f, "Invalid ID of json-rpc reply"),
-            Error::ConnectError {
-                sock,
-                err,
-            } => write!(f, "Error connecting to {}: {}", sock, err),
+            Error::ConnectError { sock, err } => {
+                write!(f, "Error connecting to {}: {}", sock, err)
+            }
             Error::IoError(err) => write!(f, "IO error: {}", err),
             Error::ParseError(err) => write!(f, "Invalid json reply: {}", err),
-            Error::RpcError {
-                code,
-                msg,
-            } => write!(f, "Json-rpc error {:?}: {}", code, msg),
+            Error::RpcError { code, msg } => {
+                write!(f, "Json-rpc error {:?}: {}", code, msg)
+            }
             Error::GenericError(msg) => write!(f, "{}", msg),
         }
     }

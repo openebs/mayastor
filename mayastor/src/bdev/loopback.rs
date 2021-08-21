@@ -6,11 +6,8 @@ use url::Url;
 
 use crate::{
     bdev::{
-        dev::reject_unknown_parameters,
-        lookup_nexus_child,
-        util::uri,
-        CreateDestroy,
-        GetName,
+        dev::reject_unknown_parameters, lookup_nexus_child, util::uri,
+        CreateDestroy, GetName,
     },
     core::Bdev,
     nexus_uri::{self, NexusBdevError},

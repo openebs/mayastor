@@ -8,13 +8,8 @@ use std::{
 };
 
 use spdk_sys::{
-    spdk_bdev,
-    spdk_bdev_desc,
-    spdk_io_channel,
-    spdk_nvme_cmd,
-    spdk_nvme_cpl,
-    spdk_nvme_status,
-    spdk_nvmf_bdev_ctrlr_nvme_passthru_admin,
+    spdk_bdev, spdk_bdev_desc, spdk_io_channel, spdk_nvme_cmd, spdk_nvme_cpl,
+    spdk_nvme_status, spdk_nvmf_bdev_ctrlr_nvme_passthru_admin,
     spdk_nvmf_request,
 };
 

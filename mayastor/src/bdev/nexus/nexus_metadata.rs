@@ -135,7 +135,7 @@ impl MetaDataChildEntry {
         }
         if count < MetaDataObject::MAX_CHILD_ENTRIES {
             let pad = serialize(&MetaDataChildEntry::default())?;
-            for _ in count .. MetaDataObject::MAX_CHILD_ENTRIES {
+            for _ in count..MetaDataObject::MAX_CHILD_ENTRIES {
                 digest.write(&pad);
             }
         }
@@ -197,7 +197,7 @@ impl MetaDataObject {
         let mut children: Vec<MetaDataChildEntry> =
             Vec::with_capacity(header.count as usize);
 
-        for _ in 0 .. header.count {
+        for _ in 0..header.count {
             children.push(
                 deserialize_from(&mut reader).context(DeserializeError {})?,
             );
@@ -810,7 +810,7 @@ impl NexusMetaData {
         };
 
         if start > index.current_entry {
-            for offset in start .. index.total_entries {
+            for offset in start..index.total_entries {
                 handle
                     .read_at((index.start_lba + offset) * block_size, &mut buf)
                     .await
@@ -820,7 +820,7 @@ impl NexusMetaData {
                 list.push(NexusMetaData::read_object(&buf)?);
             }
 
-            for offset in 0 ..= index.current_entry {
+            for offset in 0..=index.current_entry {
                 handle
                     .read_at((index.start_lba + offset) * block_size, &mut buf)
                     .await
@@ -830,7 +830,7 @@ impl NexusMetaData {
                 list.push(NexusMetaData::read_object(&buf)?);
             }
         } else {
-            for offset in start ..= index.current_entry {
+            for offset in start..=index.current_entry {
                 handle
                     .read_at((index.start_lba + offset) * block_size, &mut buf)
                     .await

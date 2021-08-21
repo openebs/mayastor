@@ -12,10 +12,7 @@ use snafu::ResultExt;
 use url::Url;
 
 use spdk_sys::{
-    self,
-    bdev_nvme_create,
-    bdev_nvme_delete,
-    spdk_nvme_host_id,
+    self, bdev_nvme_create, bdev_nvme_delete, spdk_nvme_host_id,
     spdk_nvme_transport_id,
 };
 
@@ -112,7 +109,7 @@ impl TryFrom<&Url> for Nvmf {
         reject_unknown_parameters(url, parameters)?;
 
         Ok(Nvmf {
-            name: url[url::Position::BeforeHost .. url::Position::AfterPath]
+            name: url[url::Position::BeforeHost..url::Position::AfterPath]
                 .into(),
             alias: url.to_string(),
             host: host.to_string(),

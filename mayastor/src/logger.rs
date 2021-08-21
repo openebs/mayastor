@@ -7,8 +7,7 @@ use tracing_log::{LogTracer, NormalizeEvent};
 use tracing_subscriber::{
     fmt::{
         format::{FmtSpan, FormatEvent, FormatFields},
-        FmtContext,
-        FormattedFields,
+        FmtContext, FormattedFields,
     },
     registry::LookupSpan,
     EnvFilter,
@@ -74,10 +73,7 @@ struct FormatLevel<'a> {
 
 impl<'a> FormatLevel<'a> {
     fn new(level: &'a tracing::Level, ansi: bool) -> Self {
-        Self {
-            level,
-            ansi,
-        }
+        Self { level, ansi }
     }
 }
 
@@ -197,9 +193,7 @@ struct Location<'a> {
 
 impl<'a> Location<'a> {
     fn new(meta: &'a Metadata<'a>) -> Self {
-        Self {
-            meta,
-        }
+        Self { meta }
     }
 }
 

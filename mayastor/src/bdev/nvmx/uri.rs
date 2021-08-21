@@ -21,24 +21,18 @@ use uuid::Uuid;
 use controller::options::NvmeControllerOpts;
 use poller::Poller;
 use spdk_sys::{
-    spdk_nvme_connect_async,
-    spdk_nvme_ctrlr,
-    spdk_nvme_ctrlr_opts,
-    spdk_nvme_probe_poll_async,
-    spdk_nvme_transport_id,
+    spdk_nvme_connect_async, spdk_nvme_ctrlr, spdk_nvme_ctrlr_opts,
+    spdk_nvme_probe_poll_async, spdk_nvme_transport_id,
 };
 
 use crate::{
     bdev::{
         nvmx::{
-            controller,
-            controller_inner::SpdkNvmeController,
-            NvmeControllerState,
-            NVME_CONTROLLERS,
+            controller, controller_inner::SpdkNvmeController,
+            NvmeControllerState, NVME_CONTROLLERS,
         },
         util::uri,
-        CreateDestroy,
-        GetName,
+        CreateDestroy, GetName,
     },
     core::poller,
     ffihelper::ErrnoResult,
@@ -146,7 +140,7 @@ impl TryFrom<&Url> for NvmfDeviceTemplate {
         )?;
 
         Ok(NvmfDeviceTemplate {
-            name: url[url::Position::BeforeHost .. url::Position::AfterPath]
+            name: url[url::Position::BeforeHost..url::Position::AfterPath]
                 .to_string(),
             alias: url.to_string(),
             host: host.to_string(),
@@ -243,9 +237,7 @@ impl CreateDestroy for NvmfDeviceTemplate {
     async fn create(&self) -> Result<String, Self::Error> {
         let cname = self.get_name();
         if NVME_CONTROLLERS.lookup_by_name(&cname).is_some() {
-            return Err(NexusBdevError::BdevExists {
-                name: cname,
-            });
+            return Err(NexusBdevError::BdevExists { name: cname });
         }
 
         // Insert a new controller instance (uninitialized) as a guard, and

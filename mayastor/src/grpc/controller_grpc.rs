@@ -1,8 +1,6 @@
 use crate::{
     bdev::{
-        nexus::nexus_bdev,
-        NvmeController,
-        NvmeControllerState,
+        nexus::nexus_bdev, NvmeController, NvmeControllerState,
         NVME_CONTROLLERS,
     },
     core::{BlockDeviceIoStats, CoreError},
@@ -102,9 +100,7 @@ pub async fn controller_stats() -> GrpcResult<rpc::StatNvmeControllersReply> {
             }
         }
 
-        Ok(rpc::StatNvmeControllersReply {
-            controllers: res,
-        })
+        Ok(rpc::StatNvmeControllersReply { controllers: res })
     })?;
 
     rx.await
@@ -125,9 +121,7 @@ pub async fn list_controllers() -> GrpcResult<rpc::ListNvmeControllersReply> {
             })
             .collect::<Vec<_>>();
 
-        Ok(rpc::ListNvmeControllersReply {
-            controllers,
-        })
+        Ok(rpc::ListNvmeControllersReply { controllers })
     })?;
 
     rx.await

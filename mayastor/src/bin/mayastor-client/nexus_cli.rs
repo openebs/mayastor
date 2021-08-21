@@ -1,9 +1,6 @@
 use crate::{
     context::{Context, OutputFormat},
-    nexus_child_cli,
-    parse_size,
-    Error,
-    GrpcStatus,
+    nexus_child_cli, parse_size, Error, GrpcStatus,
 };
 use ::rpc::mayastor as rpc;
 use byte_unit::Byte;
@@ -343,9 +340,7 @@ async fn nexus_destroy(
 
     let response = ctx
         .client
-        .destroy_nexus(rpc::DestroyNexusRequest {
-            uuid: uuid.clone(),
-        })
+        .destroy_nexus(rpc::DestroyNexusRequest { uuid: uuid.clone() })
         .await
         .context(GrpcStatus)?;
 
@@ -599,9 +594,7 @@ async fn nexus_publish(
                     .unwrap()
             );
         }
-        OutputFormat::Default => {
-            println!("{}", response.get_ref().device_uri,)
-        }
+        OutputFormat::Default => println!("{}", response.get_ref().device_uri,),
     };
 
     Ok(())
@@ -620,9 +613,7 @@ async fn nexus_unpublish(
 
     let response = ctx
         .client
-        .unpublish_nexus(rpc::UnpublishNexusRequest {
-            uuid: uuid.clone(),
-        })
+        .unpublish_nexus(rpc::UnpublishNexusRequest { uuid: uuid.clone() })
         .await
         .context(GrpcStatus)?;
 
@@ -636,9 +627,7 @@ async fn nexus_unpublish(
                     .unwrap()
             );
         }
-        OutputFormat::Default => {
-            println!("{}", &uuid,)
-        }
+        OutputFormat::Default => println!("{}", &uuid,),
     };
 
     Ok(())
@@ -663,9 +652,7 @@ async fn nexus_get_nvme_ana_state(
 ) -> crate::Result<()> {
     let resp = ctx
         .client
-        .get_nvme_ana_state(rpc::GetNvmeAnaStateRequest {
-            uuid: uuid.clone(),
-        })
+        .get_nvme_ana_state(rpc::GetNvmeAnaStateRequest { uuid: uuid.clone() })
         .await
         .context(GrpcStatus)?;
     ctx.v1(ana_state_idx_to_str(resp.get_ref().ana_state));
@@ -741,9 +728,7 @@ async fn nexus_add(
                     .unwrap()
             );
         }
-        OutputFormat::Default => {
-            println!("{}", &uuid,)
-        }
+        OutputFormat::Default => println!("{}", &uuid,),
     };
 
     Ok(())
@@ -785,9 +770,7 @@ async fn nexus_remove(
                     .unwrap()
             );
         }
-        OutputFormat::Default => {
-            println!("{}", &uri,)
-        }
+        OutputFormat::Default => println!("{}", &uri,),
     };
 
     Ok(())

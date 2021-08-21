@@ -6,25 +6,12 @@ use pin_utils::core_reexport::fmt::Formatter;
 
 use rpc::mayastor::CreatePoolRequest;
 use spdk_sys::{
-    lvol_store_bdev,
-    spdk_bs_free_cluster_count,
-    spdk_bs_get_cluster_size,
-    spdk_bs_total_data_cluster_count,
-    spdk_lvol,
-    spdk_lvol_store,
-    vbdev_get_lvol_store_by_name,
-    vbdev_get_lvs_bdev_by_lvs,
-    vbdev_lvol_create,
-    vbdev_lvol_create_with_uuid,
-    vbdev_lvol_store_first,
-    vbdev_lvol_store_next,
-    vbdev_lvs_create,
-    vbdev_lvs_destruct,
-    vbdev_lvs_examine,
-    vbdev_lvs_unload,
-    LVOL_CLEAR_WITH_NONE,
-    LVOL_CLEAR_WITH_UNMAP,
-    LVS_CLEAR_WITH_NONE,
+    lvol_store_bdev, spdk_bs_free_cluster_count, spdk_bs_get_cluster_size,
+    spdk_bs_total_data_cluster_count, spdk_lvol, spdk_lvol_store,
+    vbdev_get_lvol_store_by_name, vbdev_get_lvs_bdev_by_lvs, vbdev_lvol_create,
+    vbdev_lvol_create_with_uuid, vbdev_lvol_store_first, vbdev_lvol_store_next,
+    vbdev_lvs_create, vbdev_lvs_destruct, vbdev_lvs_examine, vbdev_lvs_unload,
+    LVOL_CLEAR_WITH_NONE, LVOL_CLEAR_WITH_UNMAP, LVS_CLEAR_WITH_NONE,
 };
 use url::Url;
 
@@ -335,9 +322,7 @@ impl Lvs {
 
         let bdev = match parsed.create().await {
             Err(e) => match e {
-                NexusBdevError::BdevExists {
-                    ..
-                } => Ok(parsed.get_name()),
+                NexusBdevError::BdevExists { .. } => Ok(parsed.get_name()),
                 _ => Err(Error::InvalidBdev {
                     source: e,
                     name: args.disks[0].clone(),
@@ -348,10 +333,7 @@ impl Lvs {
 
         match Self::import(&args.name, &bdev).await {
             Ok(pool) => Ok(pool),
-            Err(Error::Import {
-                source,
-                name,
-            }) if source == Errno::EINVAL => {
+            Err(Error::Import { source, name }) if source == Errno::EINVAL => {
                 // there is a pool here, but it does not match the name
                 error!("pool name mismatch");
                 Err(Error::Import {
@@ -363,9 +345,7 @@ impl Lvs {
                 })
             }
             // try to create the pool
-            Err(Error::Import {
-                source, ..
-            }) if source == Errno::EILSEQ => {
+            Err(Error::Import { source, .. }) if source == Errno::EILSEQ => {
                 match Self::create(&args.name, &bdev).await {
                     Err(create) => {
                         let _ = parsed.destroy().await.map_err(|_e| {

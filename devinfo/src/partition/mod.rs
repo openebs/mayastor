@@ -25,10 +25,7 @@ pub struct PartitionID {
 impl PartitionID {
     /// Construct a new `PartitionID` as the given source.
     pub fn new(variant: PartitionSource, id: String) -> Self {
-        Self {
-            variant,
-            id,
-        }
+        Self { variant, id }
     }
 
     /// Construct a new `PartitionID` as a `ID` source.

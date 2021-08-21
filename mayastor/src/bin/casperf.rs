@@ -5,26 +5,15 @@ use rand::Rng;
 
 use mayastor::{
     core::{
-        mayastor_env_stop,
-        Bdev,
-        Cores,
-        Descriptor,
-        DmaBuf,
-        IoChannel,
-        MayastorCliArgs,
-        MayastorEnvironment,
-        Mthread,
-        Reactors,
+        mayastor_env_stop, Bdev, Cores, Descriptor, DmaBuf, IoChannel,
+        MayastorCliArgs, MayastorEnvironment, Mthread, Reactors,
     },
     logger,
     nexus_uri::bdev_create,
     subsys::Config,
 };
 use spdk_sys::{
-    spdk_bdev_free_io,
-    spdk_bdev_read,
-    spdk_bdev_write,
-    spdk_poller,
+    spdk_bdev_free_io, spdk_bdev_read, spdk_bdev_write, spdk_poller,
     spdk_poller_unregister,
 };
 
@@ -145,7 +134,7 @@ impl Job {
 
         let mut queue = Vec::new();
 
-        (0 ..= qd).for_each(|offset| {
+        (0..=qd).for_each(|offset| {
             queue.push(Io {
                 buf: DmaBuf::new(size, bdev.alignment()).unwrap(),
                 iot: IoType::Read,

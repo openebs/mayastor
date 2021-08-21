@@ -11,31 +11,18 @@
 use crate::{
     bdev::{
         nexus::{instances, nexus_bdev},
-        nexus_create,
-        nexus_create_v2,
-        Reason,
+        nexus_create, nexus_create_v2, Reason,
     },
     core::{
-        Bdev,
-        BlockDeviceIoStats,
-        CoreError,
-        MayastorFeatures,
-        Protocol,
-        Share,
+        Bdev, BlockDeviceIoStats, CoreError, MayastorFeatures, Protocol, Share,
     },
     grpc::{
         controller_grpc::{controller_stats, list_controllers},
         mayastor_grpc::nexus_bdev::NexusNvmeParams,
         nexus_grpc::{
-            nexus_add_child,
-            nexus_destroy,
-            nexus_lookup,
-            uuid_to_name,
+            nexus_add_child, nexus_destroy, nexus_lookup, uuid_to_name,
         },
-        rpc_submit,
-        GrpcClientContext,
-        GrpcResult,
-        Serializer,
+        rpc_submit, GrpcClientContext, GrpcResult, Serializer,
     },
     host::{blk_device, resource},
     lvs::{Error as LvsError, Lvol, Lvs},
@@ -128,31 +115,21 @@ impl MayastorSvc {
 impl From<LvsError> for Status {
     fn from(e: LvsError) -> Self {
         match e {
-            LvsError::Import {
-                ..
-            } => Status::invalid_argument(e.to_string()),
-            LvsError::RepCreate {
-                source, ..
-            } => {
+            LvsError::Import { .. } => Status::invalid_argument(e.to_string()),
+            LvsError::RepCreate { source, .. } => {
                 if source == Errno::ENOSPC {
                     Status::resource_exhausted(e.to_string())
                 } else {
                     Status::invalid_argument(e.to_string())
                 }
             }
-            LvsError::ReplicaShareProtocol {
-                ..
-            } => Status::invalid_argument(e.to_string()),
+            LvsError::ReplicaShareProtocol { .. } => {
+                Status::invalid_argument(e.to_string())
+            }
 
-            LvsError::Destroy {
-                source, ..
-            } => source.into(),
-            LvsError::Invalid {
-                ..
-            } => Status::invalid_argument(e.to_string()),
-            LvsError::InvalidBdev {
-                source, ..
-            } => source.into(),
+            LvsError::Destroy { source, .. } => source.into(),
+            LvsError::Invalid { .. } => Status::invalid_argument(e.to_string()),
+            LvsError::InvalidBdev { source, .. } => source.into(),
             _ => Status::internal(e.to_string()),
         }
     }
@@ -488,9 +465,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                         .collect();
                 }
 
-                Ok(ListReplicasReply {
-                    replicas,
-                })
+                Ok(ListReplicasReply { replicas })
             })?;
 
             rx.await
@@ -517,9 +492,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                         .collect();
                 }
 
-                Ok(ListReplicasReplyV2 {
-                    replicas,
-                })
+                Ok(ListReplicasReplyV2 { replicas })
             })?;
 
             rx.await
@@ -557,9 +530,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                 });
             }
 
-            Ok(StatReplicasReply {
-                replicas,
-            })
+            Ok(StatReplicasReply { replicas })
         })?;
 
         rx.await
@@ -763,9 +734,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                 }
             }
 
-            Ok(ListNexusV2Reply {
-                nexus_list,
-            })
+            Ok(ListNexusV2Reply { nexus_list })
         })?;
 
         rx.await
@@ -871,9 +840,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
                 nexus_lookup(&args.uuid)?.share(share_protocol, key).await?;
 
             info!("Published nexus {} under {}", uuid, device_uri);
-            Ok(PublishNexusReply {
-                device_uri,
-            })
+            Ok(PublishNexusReply { device_uri })
         })?;
         rx.await
             .map_err(|_| Status::cancelled("cancelled"))?
@@ -1194,9 +1161,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
         _request: Request<Null>,
     ) -> GrpcResult<GetResourceUsageReply> {
         let usage = resource::get_resource_usage().await?;
-        let reply = GetResourceUsageReply {
-            usage: Some(usage),
-        };
+        let reply = GetResourceUsageReply { usage: Some(usage) };
         trace!("{:?}", reply);
         Ok(Response::new(reply))
     }

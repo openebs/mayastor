@@ -65,8 +65,7 @@ use crc::{crc32, Hasher32};
 use serde::{
     de::{Deserializer, SeqAccess, Unexpected, Visitor},
     ser::{SerializeTuple, Serializer},
-    Deserialize,
-    Serialize,
+    Deserialize, Serialize,
 };
 use snafu::{ResultExt, Snafu};
 use uuid::{self, Uuid};
@@ -195,9 +194,7 @@ pub enum ProbeError {
 
 impl From<ProbeError> for LabelError {
     fn from(error: ProbeError) -> LabelError {
-        LabelError::InvalidLabel {
-            source: error,
-        }
+        LabelError::InvalidLabel { source: error }
     }
 }
 
@@ -448,9 +445,7 @@ impl<'a> Visitor<'a> for GpEntryNameVisitor {
 
 impl From<String> for GptName {
     fn from(name: String) -> GptName {
-        GptName {
-            name,
-        }
+        GptName { name }
     }
 }
 
@@ -485,7 +480,7 @@ impl GptEntry {
     ) -> Result<Vec<GptEntry>, ProbeError> {
         let mut reader = Cursor::new(slice);
         let mut partitions: Vec<GptEntry> = Vec::with_capacity(count as usize);
-        for _ in 0 .. count {
+        for _ in 0..count {
             partitions.push(
                 deserialize_from(&mut reader).context(DeserializeError {})?,
             );
@@ -502,7 +497,7 @@ impl GptEntry {
         }
         if count < size {
             let pad = serialize(&GptEntry::default())?;
-            for _ in count .. size {
+            for _ in count..size {
                 digest.write(&pad);
             }
         }
@@ -844,7 +839,7 @@ impl fmt::Display for NexusLabel {
         writeln!(f, "LBA first usable block: {}", self.primary.lba_start)?;
         writeln!(f, "LBA last usable block: {}", self.primary.lba_end)?;
 
-        for i in 0 .. self.partitions.len() {
+        for i in 0..self.partitions.len() {
             writeln!(f, "  Partition {}", i)?;
             writeln!(
                 f,
@@ -868,7 +863,7 @@ impl fmt::Display for NexusLabel {
 impl NexusLabel {
     /// Construct a Pmbr from raw data.
     fn read_mbr(buf: &DmaBuf) -> Result<Pmbr, ProbeError> {
-        Pmbr::from_slice(&buf.as_slice()[440 .. 512])
+        Pmbr::from_slice(&buf.as_slice()[440..512])
     }
 
     /// Construct a GPT header from raw data.
@@ -1119,9 +1114,7 @@ impl NexusChild {
                     Err(_) => {
                         // Neither primary or secondary GPT header
                         // is present or valid.
-                        return Err(LabelError::InvalidLabel {
-                            source: error,
-                        });
+                        return Err(LabelError::InvalidLabel { source: error });
                     }
                 }
             }
@@ -1195,9 +1188,7 @@ impl NexusChild {
                 info!("replacing existing label for child {}", self.name);
                 self.generate_and_write_label(size).await
             }
-            Err(LabelError::InvalidLabel {
-                ..
-            }) => {
+            Err(LabelError::InvalidLabel { .. }) => {
                 // Create new label.
                 info!("creating new label for child {}", self.name);
                 self.generate_and_write_label(size).await
@@ -1487,10 +1478,7 @@ impl NexusLabel {
             serialize_into(&mut writer, &entry).context(SerializeError {})?;
         }
 
-        Ok(LabelData {
-            offset: 0,
-            buf,
-        })
+        Ok(LabelData { offset: 0, buf })
     }
 
     /// Generate raw data for (secondary) label ready to be written to disk.

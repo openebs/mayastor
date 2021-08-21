@@ -1,14 +1,10 @@
 use crate::{
     blkid::{
-        blkid_partition,
-        blkid_partition_get_name,
-        blkid_partition_get_type_string,
-        blkid_partition_get_uuid,
-        blkid_partlist,
-        blkid_partlist_get_partition,
+        blkid_partition, blkid_partition_get_name,
+        blkid_partition_get_type_string, blkid_partition_get_uuid,
+        blkid_partlist, blkid_partlist_get_partition,
         blkid_partlist_get_partition_by_partno,
-        blkid_partlist_numof_partitions,
-        to_result,
+        blkid_partlist_numof_partitions, to_result,
     },
     DevInfoError,
 };

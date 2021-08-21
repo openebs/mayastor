@@ -63,9 +63,7 @@ impl<'a> NVMeCtlrList<'a> {
         let mut entries = self.write_lock();
 
         if !entries.contains_key(&name.to_string()) {
-            return Err(CoreError::BdevNotFound {
-                name: name.into(),
-            });
+            return Err(CoreError::BdevNotFound { name: name.into() });
         }
 
         // Remove 'controller name -> controller' mapping.

@@ -10,15 +10,10 @@ use git_version::git_version;
 use mayastor::{
     bdev::util::uring,
     core::{
-        device_monitor,
-        runtime,
-        MayastorCliArgs,
-        MayastorEnvironment,
-        Mthread,
+        device_monitor, runtime, MayastorCliArgs, MayastorEnvironment, Mthread,
         Reactors,
     },
-    grpc,
-    logger,
+    grpc, logger,
     persistent_store::PersistentStore,
     subsys,
     subsys::Registration,

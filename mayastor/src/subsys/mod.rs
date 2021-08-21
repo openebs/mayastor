@@ -4,29 +4,18 @@
 pub use config::{
     opts::{NexusOpts, NvmeBdevOpts},
     pool::PoolConfig,
-    Config,
-    ConfigSubsystem,
+    Config, ConfigSubsystem,
 };
 pub use nvmf::{
-    create_snapshot,
-    set_snapshot_time,
-    Error as NvmfError,
-    NvmeCpl,
-    NvmfReq,
-    NvmfSubsystem,
-    SubType,
-    Target as NvmfTarget,
+    create_snapshot, set_snapshot_time, Error as NvmfError, NvmeCpl, NvmfReq,
+    NvmfSubsystem, SubType, Target as NvmfTarget,
 };
 use spdk_sys::{
-    spdk_add_subsystem,
-    spdk_add_subsystem_depend,
-    spdk_subsystem_depend,
+    spdk_add_subsystem, spdk_add_subsystem_depend, spdk_subsystem_depend,
 };
 
 pub use mbus::{
-    mbus_endpoint,
-    message_bus_init,
-    registration::Registration,
+    mbus_endpoint, message_bus_init, registration::Registration,
     MessageBusSubsystem,
 };
 

@@ -4,11 +4,8 @@ use once_cell::sync::{Lazy, OnceCell};
 use serde_json::json;
 
 use spdk_sys::{
-    spdk_bdev_module,
-    spdk_bdev_module_list_add,
-    spdk_get_thread,
-    spdk_json_write_ctx,
-    spdk_json_write_val_raw,
+    spdk_bdev_module, spdk_bdev_module_list_add, spdk_get_thread,
+    spdk_json_write_ctx, spdk_json_write_val_raw,
 };
 
 use crate::bdev::nexus::{nexus_bdev::Nexus, nexus_io::NioCtx};

@@ -1,8 +1,6 @@
 use crate::{
     context::{Context, OutputFormat},
-    parse_size,
-    Error,
-    GrpcStatus,
+    parse_size, Error, GrpcStatus,
 };
 use ::rpc::mayastor as rpc;
 use byte_unit::Byte;
@@ -271,9 +269,7 @@ async fn replica_destroy(
 
     let response = ctx
         .client
-        .destroy_replica(rpc::DestroyReplicaRequest {
-            uuid: uuid.clone(),
-        })
+        .destroy_replica(rpc::DestroyReplicaRequest { uuid: uuid.clone() })
         .await
         .context(GrpcStatus)?;
 

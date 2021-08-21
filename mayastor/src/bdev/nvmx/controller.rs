@@ -14,14 +14,9 @@ use merge::Merge;
 use nix::errno::Errno;
 
 use spdk_sys::{
-    spdk_nvme_async_event_completion,
-    spdk_nvme_cpl,
-    spdk_nvme_ctrlr,
-    spdk_nvme_ctrlr_fail,
-    spdk_nvme_ctrlr_get_ns,
-    spdk_nvme_ctrlr_is_active_ns,
-    spdk_nvme_ctrlr_register_aer_callback,
-    spdk_nvme_ctrlr_reset,
+    spdk_nvme_async_event_completion, spdk_nvme_cpl, spdk_nvme_ctrlr,
+    spdk_nvme_ctrlr_fail, spdk_nvme_ctrlr_get_ns, spdk_nvme_ctrlr_is_active_ns,
+    spdk_nvme_ctrlr_register_aer_callback, spdk_nvme_ctrlr_reset,
     spdk_nvme_detach,
 };
 
@@ -30,31 +25,21 @@ use crate::{
         channel::{NvmeControllerIoChannel, NvmeIoChannel, NvmeIoChannelInner},
         controller_inner::{SpdkNvmeController, TimeoutConfig},
         controller_state::{
-            ControllerFailureReason,
-            ControllerFlag,
-            ControllerStateMachine,
+            ControllerFailureReason, ControllerFlag, ControllerStateMachine,
         },
         nvme_bdev_running_config,
         uri::NvmeControllerContext,
         utils::{
-            nvme_cpl_succeeded,
-            NvmeAerInfoNotice,
-            NvmeAerInfoNvmCommandSet,
+            nvme_cpl_succeeded, NvmeAerInfoNotice, NvmeAerInfoNvmCommandSet,
             NvmeAerType,
         },
         NvmeControllerState,
         NvmeControllerState::*,
-        NvmeNamespace,
-        NVME_CONTROLLERS,
+        NvmeNamespace, NVME_CONTROLLERS,
     },
     core::{
-        poller,
-        BlockDeviceIoStats,
-        CoreError,
-        DeviceEventListener,
-        DeviceEventType,
-        IoDevice,
-        OpCompletionCallback,
+        poller, BlockDeviceIoStats, CoreError, DeviceEventListener,
+        DeviceEventType, IoDevice, OpCompletionCallback,
         OpCompletionCallbackArg,
     },
     ffihelper::{cb_arg, done_cb},
@@ -966,8 +951,7 @@ pub(crate) mod options {
     use std::{mem::size_of, ptr::copy_nonoverlapping};
 
     use spdk_sys::{
-        spdk_nvme_ctrlr_get_default_ctrlr_opts,
-        spdk_nvme_ctrlr_opts,
+        spdk_nvme_ctrlr_get_default_ctrlr_opts, spdk_nvme_ctrlr_opts,
     };
 
     use crate::ffihelper::IntoCString;

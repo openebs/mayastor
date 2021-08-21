@@ -122,7 +122,7 @@ async fn lvs_pool_test() {
     // create 10 lvol on this pool
     ms.spawn(async {
         let pool = Lvs::lookup("tpool").unwrap();
-        for i in 0 .. 10 {
+        for i in 0..10 {
             pool.create_lvol(
                 &format!("vol-{}", i),
                 8 * 1024 * 1024,
@@ -146,7 +146,7 @@ async fn lvs_pool_test() {
         .await
         .unwrap();
 
-        for i in 0 .. 5 {
+        for i in 0..5 {
             pool2
                 .create_lvol(
                     &format!("pool2-vol-{}", i),
@@ -255,7 +255,7 @@ async fn lvs_pool_test() {
     ms.spawn(async {
         let pool = Lvs::lookup("tpool").unwrap();
 
-        for i in 0 .. 10 {
+        for i in 0..10 {
             pool.create_lvol(
                 &format!("vol-{}", i),
                 8 * 1024 * 1024,

@@ -1,7 +1,6 @@
 use crate::{
     context::{Context, OutputFormat},
-    Error,
-    GrpcStatus,
+    Error, GrpcStatus,
 };
 use ::rpc::mayastor as rpc;
 use clap::{App, Arg, ArgMatches, SubCommand};
@@ -45,10 +44,7 @@ pub async fn json_rpc_call(
 
     let response = ctx
         .json
-        .json_rpc_call(rpc::JsonRpcRequest {
-            method,
-            params,
-        })
+        .json_rpc_call(rpc::JsonRpcRequest { method, params })
         .await
         .context(GrpcStatus)?;
 

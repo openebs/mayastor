@@ -9,24 +9,14 @@ use libc::c_void;
 use nix::errno::Errno;
 
 use spdk_sys::{
-    spdk_bdev_desc,
-    spdk_bdev_free_io,
-    spdk_bdev_io,
-    spdk_bdev_nvme_admin_passthru_ro,
-    spdk_bdev_read,
-    spdk_bdev_reset,
-    spdk_bdev_write,
-    spdk_io_channel,
+    spdk_bdev_desc, spdk_bdev_free_io, spdk_bdev_io,
+    spdk_bdev_nvme_admin_passthru_ro, spdk_bdev_read, spdk_bdev_reset,
+    spdk_bdev_write, spdk_io_channel,
 };
 
 use crate::{
     core::{
-        nvme_admin_opc,
-        Bdev,
-        CoreError,
-        Descriptor,
-        DmaBuf,
-        DmaError,
+        nvme_admin_opc, Bdev, CoreError, Descriptor, DmaBuf, DmaError,
         IoChannel,
     },
     ffihelper::cb_arg,
@@ -53,16 +43,12 @@ impl BdevHandle {
     ) -> Result<BdevHandle, CoreError> {
         if let Ok(desc) = Bdev::open_by_name(name, read_write) {
             if claim && !desc.claim() {
-                return Err(CoreError::BdevNotFound {
-                    name: name.into(),
-                });
+                return Err(CoreError::BdevNotFound { name: name.into() });
             }
             return BdevHandle::try_from(Arc::new(desc));
         }
 
-        Err(CoreError::BdevNotFound {
-            name: name.into(),
-        })
+        Err(CoreError::BdevNotFound { name: name.into() })
     }
 
     /// open a new bdev handle given a bdev
@@ -319,10 +305,7 @@ impl TryFrom<Arc<Descriptor>> for BdevHandle {
 
     fn try_from(desc: Arc<Descriptor>) -> Result<Self, Self::Error> {
         if let Some(channel) = desc.get_channel() {
-            return Ok(Self {
-                channel,
-                desc,
-            });
+            return Ok(Self { channel, desc });
         }
 
         Err(CoreError::GetIoChannel {

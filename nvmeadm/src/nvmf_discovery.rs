@@ -18,8 +18,7 @@ use crate::{
     error,
     nvme_page::{NvmeAdminCmd, NvmfDiscRspPageEntry, NvmfDiscRspPageHdr},
     nvmf_subsystem::{NvmeSubsystems, Subsystem},
-    NVME_ADMIN_CMD_IOCTL,
-    NVME_FABRICS_PATH,
+    NVME_ADMIN_CMD_IOCTL, NVME_FABRICS_PATH,
 };
 
 /// when connecting to a NVMF target, we MAY send a NQN that we want to be
@@ -211,9 +210,7 @@ impl Discovery {
         let f = OpenOptions::new()
             .read(true)
             .open(Path::new(&target))
-            .context(FileIoError {
-                filename: target,
-            })?;
+            .context(FileIoError { filename: target })?;
 
         // See NVM-Express1_3d 5.14
         let hdr_len = std::mem::size_of::<NvmfDiscRspPageHdr>() as u32;
@@ -260,9 +257,7 @@ impl Discovery {
         let f = OpenOptions::new()
             .read(true)
             .open(Path::new(&target))
-            .context(FileIoError {
-                filename: target,
-            })?;
+            .context(FileIoError { filename: target })?;
 
         let count = self.get_discovery_response_page_entries()?;
 
@@ -297,9 +292,7 @@ impl Discovery {
 
         if let Err(e) = ret {
             unsafe { libc::free(buffer) };
-            return Err(NvmeError::DiscoveryError {
-                source: e,
-            });
+            return Err(NvmeError::DiscoveryError { source: e });
         }
 
         let hdr = unsafe { &mut *(buffer as *mut NvmfDiscRspPageHdr) };
@@ -357,14 +350,12 @@ impl Discovery {
         let target =
             format!("/sys/class/nvme/nvme{}/delete_controller", self.ctl_id);
         let path = Path::new(&target);
-        let mut file = OpenOptions::new().write(true).open(&path).context(
-            FileIoError {
-                filename: &target,
-            },
-        )?;
-        file.write_all(b"1").context(FileIoError {
-            filename: target,
-        })?;
+        let mut file = OpenOptions::new()
+            .write(true)
+            .open(&path)
+            .context(FileIoError { filename: &target })?;
+        file.write_all(b"1")
+            .context(FileIoError { filename: target })?;
         Ok(())
     }
 
@@ -424,9 +415,7 @@ impl Discovery {
                 }),
             }
         } else {
-            Err(NvmeError::NqnNotFound {
-                text: nqn.into(),
-            })
+            Err(NvmeError::NqnNotFound { text: nqn.into() })
         }
     }
 }
@@ -550,9 +539,7 @@ impl ConnectArgs {
         if let Err(e) = file.write_all(format!("{}", self).as_bytes()) {
             return match e.kind() {
                 ErrorKind::AlreadyExists => Err(NvmeError::ConnectInProgress),
-                _ => Err(NvmeError::IoError {
-                    source: e,
-                }),
+                _ => Err(NvmeError::IoError { source: e }),
             };
         }
         let mut buf = String::new();

@@ -133,7 +133,7 @@ async fn mount_fs_multiple() {
     prepare_storage!();
     let (target, nvmf_dev) = create_connected_nvmf_nexus(ms).await;
 
-    for _i in 0 .. 10 {
+    for _i in 0..10 {
         common::mount_umount(&nvmf_dev).unwrap();
     }
 

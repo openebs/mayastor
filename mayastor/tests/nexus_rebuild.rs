@@ -38,14 +38,14 @@ fn test_ini(name: &'static str) {
     *NEXUS_NAME.lock().unwrap() = name;
     get_err_bdev().clear();
 
-    for i in 0 .. MAX_CHILDREN {
+    for i in 0..MAX_CHILDREN {
         common::delete_file(&[get_disk(i)]);
         common::truncate_file_bytes(&get_disk(i), NEXUS_SIZE + META_SIZE);
     }
 }
 
 fn test_fini() {
-    for i in 0 .. MAX_CHILDREN {
+    for i in 0..MAX_CHILDREN {
         common::delete_file(&[get_disk(i)]);
     }
 }
@@ -73,7 +73,7 @@ fn get_dev(number: u64) -> String {
 
 async fn nexus_create(size: u64, children: u64, fill_random: bool) {
     let mut ch = Vec::new();
-    for i in 0 .. children {
+    for i in 0..children {
         ch.push(get_dev(i));
     }
 
@@ -210,7 +210,7 @@ async fn rebuild_replica() {
         let nexus = nexus_lookup(nexus_name()).unwrap();
         nexus.add_child(&get_dev(NUM_CHILDREN), true).await.unwrap();
 
-        for child in 0 .. NUM_CHILDREN {
+        for child in 0..NUM_CHILDREN {
             RebuildJob::lookup(&get_dev(child)).expect_err("Should not exist");
 
             RebuildJob::lookup_src(&get_dev(child))
@@ -225,7 +225,7 @@ async fn rebuild_replica() {
         }
 
         let _ = nexus.start_rebuild(&get_dev(NUM_CHILDREN)).await.unwrap();
-        for child in 0 .. NUM_CHILDREN {
+        for child in 0..NUM_CHILDREN {
             RebuildJob::lookup(&get_dev(child))
                 .expect_err("rebuild job not created yet");
         }
@@ -234,7 +234,7 @@ async fn rebuild_replica() {
             .source
             .clone();
 
-        for child in 0 .. NUM_CHILDREN {
+        for child in 0..NUM_CHILDREN {
             if get_dev(child) != src {
                 RebuildJob::lookup_src(&get_dev(child))
                     .iter()

@@ -7,12 +7,8 @@ use std::{ffi::CStr, os::raw::c_char};
 
 use ::rpc::mayastor as rpc;
 use spdk_sys::{
-    lvol_store_bdev,
-    spdk_bs_free_cluster_count,
-    spdk_bs_get_cluster_size,
-    spdk_bs_total_data_cluster_count,
-    spdk_lvol_store,
-    vbdev_lvol_store_first,
+    lvol_store_bdev, spdk_bs_free_cluster_count, spdk_bs_get_cluster_size,
+    spdk_bs_total_data_cluster_count, spdk_lvol_store, vbdev_lvol_store_first,
     vbdev_lvol_store_next,
 };
 
@@ -82,9 +78,7 @@ pub struct PoolsIter {
 
 impl PoolsIter {
     pub fn new() -> Self {
-        Self {
-            lvs_bdev_ptr: None,
-        }
+        Self { lvs_bdev_ptr: None }
     }
 }
 

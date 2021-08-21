@@ -7,23 +7,13 @@ use uuid::Uuid;
 
 use crate::{
     bdev::nvmx::{
-        controller_inner::SpdkNvmeController,
-        NvmeController,
-        NvmeControllerState,
-        NvmeDeviceHandle,
-        NvmeNamespace,
-        NVME_CONTROLLERS,
+        controller_inner::SpdkNvmeController, NvmeController,
+        NvmeControllerState, NvmeDeviceHandle, NvmeNamespace, NVME_CONTROLLERS,
     },
     core::{
-        BlockDevice,
-        BlockDeviceDescriptor,
-        BlockDeviceHandle,
-        BlockDeviceIoStats,
-        CoreError,
-        DeviceEventType,
-        DeviceIoController,
-        DeviceTimeoutAction,
-        IoType,
+        BlockDevice, BlockDeviceDescriptor, BlockDeviceHandle,
+        BlockDeviceIoStats, CoreError, DeviceEventType, DeviceIoController,
+        DeviceTimeoutAction, IoType,
     },
     ffihelper::{cb_arg, done_cb},
 };
@@ -244,9 +234,7 @@ struct NvmeDeviceIoController {
 
 impl NvmeDeviceIoController {
     pub fn new(name: String) -> Self {
-        Self {
-            name,
-        }
+        Self { name }
     }
 
     fn lookup_controller(

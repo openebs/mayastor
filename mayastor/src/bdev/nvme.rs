@@ -11,10 +11,7 @@ use snafu::ResultExt;
 use url::Url;
 
 use spdk_sys::{
-    self,
-    bdev_nvme_create,
-    bdev_nvme_delete,
-    spdk_nvme_host_id,
+    self, bdev_nvme_create, bdev_nvme_delete, spdk_nvme_host_id,
     spdk_nvme_transport_id,
 };
 
@@ -39,7 +36,7 @@ impl TryFrom<&Url> for NVMe {
 
     fn try_from(url: &Url) -> Result<Self, Self::Error> {
         Ok(Self {
-            name: url.path()[1 ..].into(),
+            name: url.path()[1..].into(),
             url: url.clone(),
         })
     }

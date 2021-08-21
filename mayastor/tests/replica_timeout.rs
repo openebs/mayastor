@@ -83,7 +83,7 @@ async fn replica_stop_cont() {
 
     test.pause("ms1").await.unwrap();
     let mut ticker = tokio::time::interval(Duration::from_secs(1));
-    for i in 1 .. 6 {
+    for i in 1..6 {
         ticker.tick().await;
         println!("waiting for the container to be fully suspended... {}/5", i);
     }
@@ -101,7 +101,7 @@ async fn replica_stop_cont() {
 
     // KATO is 5s, wait at least that long
     let n = 10;
-    for i in 1 ..= n {
+    for i in 1..=n {
         ticker.tick().await;
         println!("unfreeze delay... {}/{}", i, n);
     }

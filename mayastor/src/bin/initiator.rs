@@ -6,8 +6,7 @@ extern crate clap;
 extern crate tracing;
 
 use std::{
-    fmt,
-    fs,
+    fmt, fs,
     io::{self, Write},
 };
 
@@ -16,13 +15,8 @@ use clap::{App, Arg, SubCommand};
 use mayastor::{
     bdev::{device_create, device_open},
     core::{
-        mayastor_env_stop,
-        Bdev,
-        CoreError,
-        DmaError,
-        MayastorCliArgs,
-        MayastorEnvironment,
-        Reactor,
+        mayastor_env_stop, Bdev, CoreError, DmaError, MayastorCliArgs,
+        MayastorEnvironment, Reactor,
     },
     jsonrpc::print_error_chain,
     logger,

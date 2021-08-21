@@ -37,15 +37,11 @@ async fn test_get() {
 
         // Allocate all available items from the pool, make sure all addresses
         // are unique.
-        for i in 0 .. POOL_SIZE {
+        for i in 0..POOL_SIZE {
             let id: u64 = i;
             let pos: u32 = 3 * i as u32;
 
-            let o = pool.get(TestCtx {
-                id,
-                pos,
-                ctx: c_c,
-            });
+            let o = pool.get(TestCtx { id, pos, ctx: c_c });
 
             assert!(o.is_some(), "Failed to get element from memory pool");
             let p = o.unwrap();
@@ -90,7 +86,7 @@ async fn test_get() {
 
         // Now try to allocate elements - we must see the same addresses as the
         // ones we just freed.
-        for _ in 0 .. TEST_BULK_SIZE {
+        for _ in 0..TEST_BULK_SIZE {
             let o = pool.get(TestCtx {
                 id: 1,
                 pos: 1984,

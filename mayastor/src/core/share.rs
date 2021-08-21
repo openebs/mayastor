@@ -24,9 +24,7 @@ impl TryFrom<i32> for Protocol {
             2 => Ok(Self::Iscsi),
             // the gRPC code does not validate enum's so we have
             // to do it here
-            _ => Err(Error::ReplicaShareProtocol {
-                value,
-            }),
+            _ => Err(Error::ReplicaShareProtocol { value }),
         }
     }
 }

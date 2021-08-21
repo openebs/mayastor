@@ -18,23 +18,14 @@ use nix::errno::Errno;
 use snafu::{ResultExt, Snafu};
 
 use spdk_sys::{
-    iscsi_find_tgt_node,
-    iscsi_init_grp_create_from_initiator_list,
-    iscsi_init_grp_destroy,
-    iscsi_init_grp_find_by_tag,
-    iscsi_init_grp_unregister,
-    iscsi_portal_create,
-    iscsi_portal_grp_add_portal,
-    iscsi_portal_grp_create,
-    iscsi_portal_grp_find_by_tag,
-    iscsi_portal_grp_open,
-    iscsi_portal_grp_register,
-    iscsi_portal_grp_release,
-    iscsi_portal_grp_unregister,
-    iscsi_shutdown_tgt_node_by_name,
-    iscsi_tgt_node_construct,
-    spdk_bdev_module,
-    spdk_bdev_module_claim_bdev,
+    iscsi_find_tgt_node, iscsi_init_grp_create_from_initiator_list,
+    iscsi_init_grp_destroy, iscsi_init_grp_find_by_tag,
+    iscsi_init_grp_unregister, iscsi_portal_create,
+    iscsi_portal_grp_add_portal, iscsi_portal_grp_create,
+    iscsi_portal_grp_find_by_tag, iscsi_portal_grp_open,
+    iscsi_portal_grp_register, iscsi_portal_grp_release,
+    iscsi_portal_grp_unregister, iscsi_shutdown_tgt_node_by_name,
+    iscsi_tgt_node_construct, spdk_bdev_module, spdk_bdev_module_claim_bdev,
     spdk_bdev_module_release_bdev,
 };
 

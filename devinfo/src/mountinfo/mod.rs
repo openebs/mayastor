@@ -112,7 +112,7 @@ impl MountInfo {
             match b {
                 b'\\' => {
                     let mut code = 0;
-                    for _i in 0 .. 3 {
+                    for _i in 0..3 {
                         if let Some(b) = bytes.next() {
                             code *= 8;
                             code += u32::from_str_radix(

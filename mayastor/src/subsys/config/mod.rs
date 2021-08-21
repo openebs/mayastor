@@ -13,22 +13,14 @@ use once_cell::sync::OnceCell;
 use serde::{Deserialize, Serialize};
 use snafu::Snafu;
 use spdk_sys::{
-    spdk_json_write_ctx,
-    spdk_json_write_val_raw,
-    spdk_subsystem,
-    spdk_subsystem_fini_next,
-    spdk_subsystem_init_next,
+    spdk_json_write_ctx, spdk_json_write_val_raw, spdk_subsystem,
+    spdk_subsystem_fini_next, spdk_subsystem_init_next,
 };
 
 use crate::{
     jsonrpc::{jsonrpc_register, Code, RpcErrorCode},
     subsys::config::opts::{
-        BdevOpts,
-        GetOpts,
-        IscsiTgtOpts,
-        NexusOpts,
-        NvmeBdevOpts,
-        NvmfTgtConfig,
+        BdevOpts, GetOpts, IscsiTgtOpts, NexusOpts, NvmeBdevOpts, NvmfTgtConfig,
     },
 };
 

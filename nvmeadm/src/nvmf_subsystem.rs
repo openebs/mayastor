@@ -77,9 +77,7 @@ impl Subsystem {
                 filename: &filename,
             },
         )?;
-        file.write_all(b"1").context(FileIoError {
-            filename,
-        })?;
+        file.write_all(b"1").context(FileIoError { filename })?;
         Ok(())
     }
     /// disconnects the transport dropping all namespaces
@@ -93,9 +91,7 @@ impl Subsystem {
                 filename: &filename,
             },
         )?;
-        file.write_all(b"1").context(FileIoError {
-            filename,
-        })?;
+        file.write_all(b"1").context(FileIoError { filename })?;
         Ok(())
     }
     /// resets the nvme controller
@@ -109,9 +105,7 @@ impl Subsystem {
                 filename: &filename,
             },
         )?;
-        file.write_all(b"1").context(FileIoError {
-            filename,
-        })?;
+        file.write_all(b"1").context(FileIoError { filename })?;
         Ok(())
     }
 }
@@ -136,15 +130,12 @@ impl NvmeSubsystems {
     /// Construct a new list of subsystems
     pub fn new() -> Result<Self, NvmeError> {
         let path_prefix = "/sys/devices/virtual/nvme-fabrics/ctl/nvme*";
-        let path_entries = glob(path_prefix).context(SubSysError {
-            path_prefix,
-        })?;
+        let path_entries =
+            glob(path_prefix).context(SubSysError { path_prefix })?;
         let mut entries = Vec::new();
         for path in path_entries.flatten() {
             entries.push(path.display().to_string())
         }
-        Ok(NvmeSubsystems {
-            entries,
-        })
+        Ok(NvmeSubsystems { entries })
     }
 }

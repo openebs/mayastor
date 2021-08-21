@@ -25,9 +25,7 @@ impl JsonRpc for JsonRpcSvc {
             .spdk_jsonrpc_call(&args.method, empty_as_none(&args.params))
             .await?;
 
-        Ok(Response::new(JsonRpcReply {
-            result,
-        }))
+        Ok(Response::new(JsonRpcReply { result }))
     }
 }
 

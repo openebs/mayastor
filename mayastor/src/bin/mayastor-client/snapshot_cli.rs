@@ -3,8 +3,7 @@
 
 use crate::{
     context::{Context, OutputFormat},
-    Error,
-    GrpcStatus,
+    Error, GrpcStatus,
 };
 use ::rpc::mayastor as rpc;
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
@@ -58,9 +57,7 @@ async fn create(
 
     let response = ctx
         .client
-        .create_snapshot(rpc::CreateSnapshotRequest {
-            uuid: uuid.clone(),
-        })
+        .create_snapshot(rpc::CreateSnapshotRequest { uuid: uuid.clone() })
         .await
         .context(GrpcStatus)?;
 

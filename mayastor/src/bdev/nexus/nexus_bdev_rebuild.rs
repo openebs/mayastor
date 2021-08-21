@@ -2,22 +2,15 @@ use futures::channel::oneshot::Receiver;
 use snafu::ResultExt;
 
 use rpc::mayastor::{
-    RebuildProgressReply,
-    RebuildStateReply,
-    RebuildStatsReply,
+    RebuildProgressReply, RebuildStateReply, RebuildStatsReply,
 };
 
 use crate::{
     bdev::{
         nexus::{
             nexus_bdev::{
-                nexus_lookup,
-                CreateRebuild,
-                Error,
-                Nexus,
-                RebuildJobNotFound,
-                RebuildOperation,
-                RemoveRebuildJob,
+                nexus_lookup, CreateRebuild, Error, Nexus, RebuildJobNotFound,
+                RebuildOperation, RemoveRebuildJob,
             },
             nexus_channel::DrEvent,
             nexus_child::{ChildState, Reason},
@@ -26,11 +19,7 @@ use crate::{
     },
     core::Reactors,
     rebuild::{
-        ClientOperations,
-        RebuildError,
-        RebuildJob,
-        RebuildState,
-        RebuildStats,
+        ClientOperations, RebuildError, RebuildJob, RebuildState, RebuildStats,
     },
 };
 
@@ -275,10 +264,7 @@ impl Nexus {
             RebuildState::Failed => {
                 // rebuild has failed so we need to set the child as faulted
                 // allowing the control plane to replace it with another
-                if let Some(RebuildError::ReadIoError {
-                    ..
-                }) = job.error
-                {
+                if let Some(RebuildError::ReadIoError { .. }) = job.error {
                     // todo: retry rebuild using another child as source?
                 }
                 recovering_child.fault(Reason::RebuildFailed).await;

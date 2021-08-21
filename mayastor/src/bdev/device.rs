@@ -13,38 +13,17 @@ use nix::errno::Errno;
 use once_cell::sync::{Lazy, OnceCell};
 
 use spdk_sys::{
-    iovec,
-    spdk_bdev_free_io,
-    spdk_bdev_io,
-    spdk_bdev_readv_blocks,
-    spdk_bdev_reset,
-    spdk_bdev_unmap_blocks,
-    spdk_bdev_write_zeroes_blocks,
+    iovec, spdk_bdev_free_io, spdk_bdev_io, spdk_bdev_readv_blocks,
+    spdk_bdev_reset, spdk_bdev_unmap_blocks, spdk_bdev_write_zeroes_blocks,
     spdk_bdev_writev_blocks,
 };
 
 use crate::core::{
-    mempool::MemoryPool,
-    nvme_admin_opc,
-    Bdev,
-    BdevHandle,
-    Bio,
-    BlockDevice,
-    BlockDeviceDescriptor,
-    BlockDeviceHandle,
-    BlockDeviceIoStats,
-    CoreError,
-    Descriptor,
-    DeviceEventListener,
-    DeviceEventType,
-    DeviceIoController,
-    DmaBuf,
-    DmaError,
-    IoCompletionCallback,
-    IoCompletionCallbackArg,
-    IoCompletionStatus,
-    IoType,
-    NvmeCommandStatus,
+    mempool::MemoryPool, nvme_admin_opc, Bdev, BdevHandle, Bio, BlockDevice,
+    BlockDeviceDescriptor, BlockDeviceHandle, BlockDeviceIoStats, CoreError,
+    Descriptor, DeviceEventListener, DeviceEventType, DeviceIoController,
+    DmaBuf, DmaError, IoCompletionCallback, IoCompletionCallbackArg,
+    IoCompletionStatus, IoType, NvmeCommandStatus,
 };
 
 static BDEV_LISTENERS: Lazy<RwLock<HashMap<String, Vec<DeviceEventListener>>>> =
@@ -104,17 +83,13 @@ impl BlockDeviceDescriptor for SpdkBlockDeviceDescriptor {
 
 impl From<Bdev> for SpdkBlockDevice {
     fn from(bdev: Bdev) -> Self {
-        Self {
-            bdev,
-        }
+        Self { bdev }
     }
 }
 
 impl SpdkBlockDevice {
     fn new(bdev: Bdev) -> Self {
-        Self {
-            bdev,
-        }
+        Self { bdev }
     }
 
     /// Lookup existing SPDK bdev by its name.
@@ -262,14 +237,10 @@ fn io_type_to_err(
             offset,
             len,
         },
-        IoType::Reset => CoreError::ResetDispatch {
-            source,
-        },
+        IoType::Reset => CoreError::ResetDispatch { source },
         _ => {
             warn!("Unsupported I/O operation: {:?}", op);
-            CoreError::NotSupported {
-                source,
-            }
+            CoreError::NotSupported { source }
         }
     }
 }

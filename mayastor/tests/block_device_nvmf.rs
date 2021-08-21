@@ -6,12 +6,8 @@ use common::compose::{Builder, MayastorTest};
 use mayastor::{
     bdev::{device_create, device_destroy, device_lookup, device_open},
     core::{
-        BlockDevice,
-        BlockDeviceHandle,
-        DeviceEventType,
-        DmaBuf,
-        IoCompletionStatus,
-        MayastorCliArgs,
+        BlockDevice, BlockDeviceHandle, DeviceEventType, DmaBuf,
+        IoCompletionStatus, MayastorCliArgs,
     },
     subsys::{Config, NvmeBdevOpts},
 };
@@ -19,8 +15,7 @@ use rpc::mayastor::{BdevShareRequest, BdevUri, JsonRpcRequest, Null};
 
 use std::{
     alloc::Layout,
-    slice,
-    str,
+    slice, str,
     sync::{
         atomic::{AtomicBool, AtomicPtr, AtomicU64, Ordering},
         Arc,
@@ -1264,9 +1259,7 @@ async fn nvmf_device_reset() {
                 )
                 .unwrap();
 
-            AtomicPtr::new(Box::into_raw(Box::new(DeviceIoCtx {
-                handle,
-            })))
+            AtomicPtr::new(Box::into_raw(Box::new(DeviceIoCtx { handle })))
         })
         .await;
 
@@ -1416,9 +1409,7 @@ async fn wipe_device_blocks(is_unmap: bool) {
                     .unwrap();
             }
 
-            AtomicPtr::new(Box::into_raw(Box::new(DeviceIoCtx {
-                handle,
-            })))
+            AtomicPtr::new(Box::into_raw(Box::new(DeviceIoCtx { handle })))
         })
         .await;
 
@@ -1624,7 +1615,7 @@ async fn nvmf_reset_abort_io() {
             // Initiate a 3 read and 3 write operations into the buffer.
             // We use the same IOVs as we don't care about the I/O result and
             // care only about failures which we're gonna trigger.
-            for _ in 0 .. NUM_IOS {
+            for _ in 0..NUM_IOS {
                 io_ctx
                     .handle
                     .readv_blocks(

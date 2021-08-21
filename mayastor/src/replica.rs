@@ -22,9 +22,7 @@ pub enum RpcError {
 impl From<RpcError> for tonic::Status {
     fn from(e: RpcError) -> Self {
         match e {
-            RpcError::ShareReplica {
-                source, ..
-            } => Self::from(source),
+            RpcError::ShareReplica { source, .. } => Self::from(source),
         }
     }
 }
@@ -51,9 +49,9 @@ pub enum Error {
 impl From<Error> for tonic::Status {
     fn from(error: Error) -> Self {
         match error {
-            Error::InvalidProtocol {
-                ..
-            } => Self::invalid_argument(error.to_string()),
+            Error::InvalidProtocol { .. } => {
+                Self::invalid_argument(error.to_string())
+            }
             Error::ReplicaNotFound {} => Self::not_found(error.to_string()),
             _ => Self::internal(error.to_string()),
         }
@@ -110,9 +108,7 @@ impl Replica {
         if lvol.is_null() {
             None
         } else {
-            Some(Self {
-                lvol_ptr: lvol,
-            })
+            Some(Self { lvol_ptr: lvol })
         }
     }
 
@@ -166,9 +162,7 @@ impl Replica {
     pub fn get_share_uri(&self) -> String {
         let uri_no_uuid = match detect_share(self.get_name()) {
             Some((_, share_uri)) => share_uri,
-            None => {
-                format!("bdev:///{}", self.get_name())
-            }
+            None => format!("bdev:///{}", self.get_name()),
         };
         format!("{}?uuid={}", uri_no_uuid, self.get_uuid())
     }
@@ -220,9 +214,7 @@ pub struct ReplicaIter {
 
 impl ReplicaIter {
     pub fn new() -> ReplicaIter {
-        ReplicaIter {
-            bdev: None,
-        }
+        ReplicaIter { bdev: None }
     }
 }
 
@@ -261,9 +253,7 @@ impl Iterator for ReplicaIter {
                     let parts: Vec<&str> = alias.split('/').collect();
 
                     if parts.len() == 2 && bdev.name() == parts[1] {
-                        let replica = Replica {
-                            lvol_ptr: lvol,
-                        };
+                        let replica = Replica { lvol_ptr: lvol };
 
                         if replica.get_pool_name() == parts[0] {
                             // we found a replica

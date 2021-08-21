@@ -1,10 +1,6 @@
 use rpc::mayastor::{
-    CreatePoolRequest,
-    CreateReplicaRequest,
-    DestroyPoolRequest,
-    DestroyReplicaRequest,
-    Null,
-    ShareReplicaRequest,
+    CreatePoolRequest, CreateReplicaRequest, DestroyPoolRequest,
+    DestroyReplicaRequest, Null, ShareReplicaRequest,
 };
 
 pub mod common;

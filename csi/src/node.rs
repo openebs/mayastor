@@ -1,9 +1,5 @@
 use std::{
-    boxed::Box,
-    collections::HashMap,
-    path::Path,
-    time::Duration,
-    vec::Vec,
+    boxed::Box, collections::HashMap, path::Path, time::Duration, vec::Vec,
 };
 
 use tonic::{Code, Request, Response, Status};
@@ -23,9 +19,7 @@ use crate::{
     },
     dev::Device,
     filesystem_vol::{
-        publish_fs_volume,
-        stage_fs_volume,
-        unpublish_fs_volume,
+        publish_fs_volume, stage_fs_volume, unpublish_fs_volume,
         unstage_fs_volume,
     },
 };
@@ -146,9 +140,7 @@ impl node_server::Node for Node {
         Ok(Response::new(NodeGetInfoResponse {
             node_id,
             max_volumes_per_node: 0,
-            accessible_topology: Some(Topology {
-                segments,
-            }),
+            accessible_topology: Some(Topology { segments }),
         }))
     }
 
@@ -166,9 +158,7 @@ impl node_server::Node for Node {
                 .into_iter()
                 .map(|c| NodeServiceCapability {
                     r#type: Some(node_service_capability::Type::Rpc(
-                        node_service_capability::Rpc {
-                            r#type: c as i32,
-                        },
+                        node_service_capability::Rpc { r#type: c as i32 },
                     )),
                 })
                 .collect(),

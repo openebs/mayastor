@@ -168,9 +168,7 @@ impl<'a> ReceivedRawMessage<'a> {
 
 impl<'a> std::convert::From<&'a BusMessage> for ReceivedRawMessage<'a> {
     fn from(value: &'a BusMessage) -> Self {
-        Self {
-            bus_msg: value,
-        }
+        Self { bus_msg: value }
     }
 }
 

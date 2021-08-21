@@ -119,9 +119,7 @@ impl PoolConfig {
     /// Capture current pool configuration
     pub fn capture() -> PoolConfig {
         let pools = PoolsIter::new().map(Pool::from).collect();
-        PoolConfig {
-            pools: Some(pools),
-        }
+        PoolConfig { pools: Some(pools) }
     }
 
     /// Create pools specified in this configuration

@@ -54,8 +54,6 @@ pub enum NvmeError {
 
 impl From<std::io::Error> for NvmeError {
     fn from(source: std::io::Error) -> NvmeError {
-        NvmeError::IoError {
-            source,
-        }
+        NvmeError::IoError { source }
     }
 }

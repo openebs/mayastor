@@ -15,8 +15,7 @@ use crate::{
     core::Bdev,
     ffihelper::{cb_arg, done_errno_cb, ErrnoResult, IntoCString},
     nexus_uri::{
-        NexusBdevError,
-        {self},
+        NexusBdevError, {self},
     },
 };
 
@@ -107,7 +106,7 @@ impl TryFrom<&Url> for Null {
         reject_unknown_parameters(uri, parameters)?;
 
         Ok(Self {
-            name: uri.path()[1 ..].into(),
+            name: uri.path()[1..].into(),
             alias: uri.to_string(),
             num_blocks: if num_blocks != 0 {
                 num_blocks
@@ -198,13 +197,9 @@ impl CreateDestroy for Null {
                 .context(nexus_uri::CancelBdev {
                     name: self.name.clone(),
                 })?
-                .context(nexus_uri::DestroyBdev {
-                    name: self.name,
-                })
+                .context(nexus_uri::DestroyBdev { name: self.name })
         } else {
-            Err(NexusBdevError::BdevNotFound {
-                name: self.name,
-            })
+            Err(NexusBdevError::BdevNotFound { name: self.name })
         }
     }
 }

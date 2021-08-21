@@ -211,10 +211,7 @@ pub(super) struct NvmfDetach {
 
 impl NvmfDetach {
     pub(super) fn new(name: DeviceName, nqn: String) -> NvmfDetach {
-        NvmfDetach {
-            name,
-            nqn,
-        }
+        NvmfDetach { name, nqn }
     }
 }
 

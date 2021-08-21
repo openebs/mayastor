@@ -17,12 +17,8 @@ use std::{
 
 use mayastor::delay;
 use spdk_sys::{
-    spdk_app_fini,
-    spdk_app_opts,
-    spdk_app_opts_init,
-    spdk_app_parse_args,
-    spdk_app_start,
-    spdk_app_stop,
+    spdk_app_fini, spdk_app_opts, spdk_app_opts_init, spdk_app_parse_args,
+    spdk_app_start, spdk_app_stop,
 };
 
 fn main() -> Result<(), std::io::Error> {

@@ -25,13 +25,9 @@ use crate::{
     bdev::{
         device_destroy,
         nexus::{
-            self,
-            instances,
+            self, instances,
             nexus_channel::{
-                DrEvent,
-                NexusChannel,
-                NexusChannelInner,
-                ReconfigureCtx,
+                DrEvent, NexusChannel, NexusChannelInner, ReconfigureCtx,
             },
             nexus_child::{ChildError, ChildState, NexusChild},
             nexus_label::LabelError,
@@ -40,16 +36,8 @@ use crate::{
         },
     },
     core::{
-        Bdev,
-        Command,
-        CoreError,
-        Cores,
-        IoDevice,
-        IoType,
-        Protocol,
-        Reactor,
-        Share,
-        MWQ,
+        Bdev, Command, CoreError, Cores, IoDevice, IoType, Protocol, Reactor,
+        Share, MWQ,
     },
     ffihelper::errno_result_from_i32,
     nexus_uri::NexusBdevError,
@@ -292,42 +280,32 @@ impl From<NvmfError> for Error {
 impl From<Error> for tonic::Status {
     fn from(e: Error) -> Self {
         match e {
-            Error::NexusNotFound {
-                ..
-            } => Status::not_found(e.to_string()),
-            Error::InvalidUuid {
-                ..
-            } => Status::invalid_argument(e.to_string()),
-            Error::InvalidKey {
-                ..
-            } => Status::invalid_argument(e.to_string()),
-            Error::AlreadyShared {
-                ..
-            } => Status::invalid_argument(e.to_string()),
-            Error::NotShared {
-                ..
-            } => Status::invalid_argument(e.to_string()),
-            Error::NotSharedNvmf {
-                ..
-            } => Status::invalid_argument(e.to_string()),
-            Error::CreateChild {
-                ..
-            } => Status::invalid_argument(e.to_string()),
-            Error::MixedBlockSizes {
-                ..
-            } => Status::invalid_argument(e.to_string()),
-            Error::ChildGeometry {
-                ..
-            } => Status::invalid_argument(e.to_string()),
-            Error::OpenChild {
-                ..
-            } => Status::invalid_argument(e.to_string()),
-            Error::DestroyLastChild {
-                ..
-            } => Status::invalid_argument(e.to_string()),
-            Error::ChildNotFound {
-                ..
-            } => Status::not_found(e.to_string()),
+            Error::NexusNotFound { .. } => Status::not_found(e.to_string()),
+            Error::InvalidUuid { .. } => {
+                Status::invalid_argument(e.to_string())
+            }
+            Error::InvalidKey { .. } => Status::invalid_argument(e.to_string()),
+            Error::AlreadyShared { .. } => {
+                Status::invalid_argument(e.to_string())
+            }
+            Error::NotShared { .. } => Status::invalid_argument(e.to_string()),
+            Error::NotSharedNvmf { .. } => {
+                Status::invalid_argument(e.to_string())
+            }
+            Error::CreateChild { .. } => {
+                Status::invalid_argument(e.to_string())
+            }
+            Error::MixedBlockSizes { .. } => {
+                Status::invalid_argument(e.to_string())
+            }
+            Error::ChildGeometry { .. } => {
+                Status::invalid_argument(e.to_string())
+            }
+            Error::OpenChild { .. } => Status::invalid_argument(e.to_string()),
+            Error::DestroyLastChild { .. } => {
+                Status::invalid_argument(e.to_string())
+            }
+            Error::ChildNotFound { .. } => Status::not_found(e.to_string()),
             e => Status::new(Code::Internal, e.to_string()),
         }
     }
@@ -1207,9 +1185,7 @@ async fn nexus_create_internal(
     }
 
     match ni.open().await {
-        Err(Error::NexusIncomplete {
-            ..
-        }) => {
+        Err(Error::NexusIncomplete { .. }) => {
             // We still have code that waits for children to come online,
             // although this currently only works for config files.
             // We need to explicitly clean up child devices

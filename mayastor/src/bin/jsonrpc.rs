@@ -39,10 +39,7 @@ async fn main() -> std::result::Result<(), Box<dyn std::error::Error>> {
     let opt = Opt::from_args();
 
     let fut = match opt.cmd {
-        Sub::Raw {
-            method,
-            arg,
-        } => {
+        Sub::Raw { method, arg } => {
             if let Some(arg) = arg {
                 let args: serde_json::Value = serde_json::from_str(&arg)?;
 

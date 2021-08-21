@@ -3,8 +3,7 @@
 
 use crate::{
     context::{Context, OutputFormat},
-    Error,
-    GrpcStatus,
+    Error, GrpcStatus,
 };
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};
 use colored_json::prelude::*;
@@ -124,13 +123,8 @@ async fn create(mut ctx: Context, args: &ArgMatches<'_>) -> crate::Result<()> {
         })?
         .to_owned();
 
-    let response = ctx
-        .bdev
-        .create(BdevUri {
-            uri,
-        })
-        .await
-        .context(GrpcStatus)?;
+    let response =
+        ctx.bdev.create(BdevUri { uri }).await.context(GrpcStatus)?;
 
     match ctx.output {
         OutputFormat::Json => {
@@ -174,9 +168,7 @@ async fn destroy(mut ctx: Context, args: &ArgMatches<'_>) -> crate::Result<()> {
     // un share the bdev
     let _ = ctx
         .bdev
-        .unshare(CreateReply {
-            name,
-        })
+        .unshare(CreateReply { name })
         .await
         .context(GrpcStatus)?;
 
@@ -256,9 +248,7 @@ async fn unshare(mut ctx: Context, args: &ArgMatches<'_>) -> crate::Result<()> {
 
     let response = ctx
         .bdev
-        .unshare(CreateReply {
-            name: name.clone(),
-        })
+        .unshare(CreateReply { name: name.clone() })
         .await
         .context(GrpcStatus)?;
 

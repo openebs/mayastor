@@ -108,9 +108,7 @@ fn main() {
         .derive_copy(true)
         .prepend_enum_name(false)
         .generate_inline_functions(true)
-        .parse_callbacks(Box::new(MacroCallback {
-            macros,
-        }));
+        .parse_callbacks(Box::new(MacroCallback { macros }));
 
     #[cfg(target_arch = "x86_64")]
     let bindings = bindings.clang_arg("-march=nehalem");

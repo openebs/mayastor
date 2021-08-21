@@ -47,11 +47,8 @@ use futures::{
 use once_cell::sync::OnceCell;
 
 use spdk_sys::{
-    spdk_cpuset_get_cpu,
-    spdk_env_thread_launch_pinned,
-    spdk_env_thread_wait_all,
-    spdk_thread,
-    spdk_thread_get_cpumask,
+    spdk_cpuset_get_cpu, spdk_env_thread_launch_pinned,
+    spdk_env_thread_wait_all, spdk_thread, spdk_thread_get_cpumask,
     spdk_thread_lib_init_ext,
 };
 
@@ -471,7 +468,7 @@ impl Reactor {
     /// queues
     pub fn poll_times(&self, times: u32) {
         let threads = self.threads.borrow();
-        for _ in 0 .. times {
+        for _ in 0..times {
             threads.iter().for_each(|t| {
                 t.poll();
             });

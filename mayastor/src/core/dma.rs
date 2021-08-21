@@ -11,10 +11,7 @@ use std::{
 use snafu::Snafu;
 
 use spdk_sys::{
-    spdk_dma_free,
-    spdk_zmalloc,
-    SPDK_ENV_LCORE_ID_ANY,
-    SPDK_MALLOC_DMA,
+    spdk_dma_free, spdk_zmalloc, SPDK_ENV_LCORE_ID_ANY, SPDK_MALLOC_DMA,
 };
 
 #[derive(Debug, Snafu, Clone)]
@@ -70,10 +67,7 @@ impl DmaBuf {
         if buf.is_null() {
             Err(DmaError::Alloc {})
         } else {
-            Ok(DmaBuf {
-                buf,
-                length: size,
-            })
+            Ok(DmaBuf { buf, length: size })
         }
     }
 

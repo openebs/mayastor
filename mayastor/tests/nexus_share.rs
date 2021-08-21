@@ -1,12 +1,7 @@
 use mayastor::{
     bdev::{nexus_create, nexus_lookup},
     core::{
-        mayastor_env_stop,
-        Bdev,
-        MayastorCliArgs,
-        Protocol,
-        Reactor,
-        Share,
+        mayastor_env_stop, Bdev, MayastorCliArgs, Protocol, Reactor, Share,
     },
 };
 

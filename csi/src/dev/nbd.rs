@@ -10,9 +10,7 @@ pub(super) struct Nbd {
 
 impl Nbd {
     fn new(path: String) -> Nbd {
-        Nbd {
-            path,
-        }
+        Nbd { path }
     }
 }
 

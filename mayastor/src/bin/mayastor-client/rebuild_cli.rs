@@ -3,8 +3,7 @@
 
 use crate::{
     context::{Context, OutputFormat},
-    Error,
-    GrpcStatus,
+    Error, GrpcStatus,
 };
 use ::rpc::mayastor as rpc;
 use clap::{App, AppSettings, Arg, ArgMatches, SubCommand};

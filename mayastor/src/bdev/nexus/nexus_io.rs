@@ -15,23 +15,12 @@ use crate::{
             nexus_bdev::NEXUS_PRODUCT_ID,
             nexus_channel::{NexusChannel, NexusChannelInner},
         },
-        nexus_lookup,
-        Nexus,
-        NexusStatus,
+        nexus_lookup, Nexus, NexusStatus,
     },
     core::{
-        Bio,
-        BlockDevice,
-        BlockDeviceHandle,
-        CoreError,
-        Cores,
-        GenericStatusCode,
-        IoCompletionStatus,
-        IoStatus,
-        IoType,
-        Mthread,
-        NvmeCommandStatus,
-        Reactors,
+        Bio, BlockDevice, BlockDeviceHandle, CoreError, Cores,
+        GenericStatusCode, IoCompletionStatus, IoStatus, IoType, Mthread,
+        NvmeCommandStatus, Reactors,
     },
 };
 
@@ -207,7 +196,7 @@ impl NexusBio {
             if self.ctx().must_fail {
                 //warn!(?self, "resubmitted due to must_fail");
                 self.retry_checked();
-                //self.fail();
+            //self.fail();
             } else {
                 self.ok();
             }

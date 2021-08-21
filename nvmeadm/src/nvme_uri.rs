@@ -26,9 +26,8 @@ impl TryFrom<&str> for NvmeTarget {
     type Error = NvmeError;
 
     fn try_from(value: &str) -> Result<Self, Self::Error> {
-        let url = Url::parse(value).map_err(|source| NvmeError::UrlError {
-            source,
-        })?;
+        let url = Url::parse(value)
+            .map_err(|source| NvmeError::UrlError { source })?;
 
         let trtype = match url.scheme() {
             "nvmf" | "nvmf+tcp" => Ok("tcp"),

@@ -2,13 +2,8 @@ use std::{process::Command, time::SystemTime};
 
 use mayastor::{
     bdev::{
-        nexus_create,
-        nexus_lookup,
-        Guid,
-        MetaDataChildEntry,
-        MetaDataIndex,
-        MetaDataObject,
-        NexusMetaData,
+        nexus_create, nexus_lookup, Guid, MetaDataChildEntry, MetaDataIndex,
+        MetaDataObject, NexusMetaData,
     },
     core::{mayastor_env_stop, MayastorCliArgs, MayastorEnvironment, Reactor},
 };
@@ -95,7 +90,7 @@ async fn read_write_metadata() {
     let mut object = MetaDataObject::new();
     object.generation = 3;
     object.timestamp = 1003;
-    for i in 0 .. 26 {
+    for i in 0..26 {
         object.children.push(MetaDataChildEntry {
             guid: Guid::new_random(),
             state: i,

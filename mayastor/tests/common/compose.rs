@@ -6,11 +6,7 @@ use tokio::sync::oneshot::channel;
 
 use crate::common::mayastor_test_init;
 use mayastor::core::{
-    mayastor_env_stop,
-    MayastorCliArgs,
-    MayastorEnvironment,
-    Reactor,
-    Reactors,
+    mayastor_env_stop, MayastorCliArgs, MayastorEnvironment, Reactor, Reactors,
     GLOBAL_RC,
 };
 use std::time::Duration;

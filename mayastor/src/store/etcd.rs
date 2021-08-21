@@ -1,18 +1,8 @@
 //! Implementation of an etcd key-value store.
 
 use crate::store::store_defs::{
-    Connect,
-    Delete,
-    DeserialiseValue,
-    Get,
-    Put,
-    SerialiseValue,
-    Store,
-    StoreError,
-    StoreError::MissingEntry,
-    StoreKey,
-    StoreValue,
-    ValueString,
+    Connect, Delete, DeserialiseValue, Get, Put, SerialiseValue, Store,
+    StoreError, StoreError::MissingEntry, StoreKey, StoreValue, ValueString,
 };
 use async_trait::async_trait;
 use etcd_client::Client;

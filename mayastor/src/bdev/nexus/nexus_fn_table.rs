@@ -6,15 +6,9 @@ use std::{
 use once_cell::sync::Lazy;
 
 use spdk_sys::{
-    spdk_bdev_fn_table,
-    spdk_bdev_io,
-    spdk_bdev_io_type,
-    spdk_get_io_channel,
-    spdk_io_channel,
-    spdk_json_write_array_end,
-    spdk_json_write_ctx,
-    spdk_json_write_named_array_begin,
-    spdk_json_write_val_raw,
+    spdk_bdev_fn_table, spdk_bdev_io, spdk_bdev_io_type, spdk_get_io_channel,
+    spdk_io_channel, spdk_json_write_array_end, spdk_json_write_ctx,
+    spdk_json_write_named_array_begin, spdk_json_write_val_raw,
 };
 
 use crate::{
@@ -52,9 +46,7 @@ impl NexusFnTable {
             get_module_ctx: None,
         };
 
-        NexusFnTable {
-            f_tbl,
-        }
+        NexusFnTable { f_tbl }
     }
 
     /// get a reference to this static function table to pass on to every

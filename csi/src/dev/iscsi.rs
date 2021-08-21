@@ -192,10 +192,7 @@ impl IscsiDetach {
         path: &str,
     ) -> Result<IscsiDetach, DeviceError> {
         let device = IscsiDevice::from_path(path)?;
-        Ok(IscsiDetach {
-            name,
-            device,
-        })
+        Ok(IscsiDetach { name, device })
     }
 
     pub(super) fn uuid(&self) -> &Uuid {

@@ -11,7 +11,7 @@ use mayastor::{
 pub mod common;
 
 async fn create_nexus(nexus_size: u64, child_sizes: Vec<u64>) -> bool {
-    let children: Vec<String> = (0 .. child_sizes.len())
+    let children: Vec<String> = (0..child_sizes.len())
         .map(|i| format!("malloc:///m{}?size_mb={}", i, child_sizes[i]))
         .collect();
 

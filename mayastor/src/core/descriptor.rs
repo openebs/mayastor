@@ -7,14 +7,9 @@ use std::{
 use futures::channel::oneshot;
 
 use spdk_sys::{
-    bdev_lock_lba_range,
-    bdev_unlock_lba_range,
-    spdk_bdev_close,
-    spdk_bdev_desc,
-    spdk_bdev_desc_get_bdev,
-    spdk_bdev_get_io_channel,
-    spdk_bdev_module_claim_bdev,
-    spdk_bdev_module_release_bdev,
+    bdev_lock_lba_range, bdev_unlock_lba_range, spdk_bdev_close,
+    spdk_bdev_desc, spdk_bdev_desc_get_bdev, spdk_bdev_get_io_channel,
+    spdk_bdev_module_claim_bdev, spdk_bdev_module_release_bdev,
 };
 
 use crate::{

@@ -68,7 +68,7 @@ macro_rules! reactor_poll {
         }
     };
     ($n:expr) => {
-        for _ in 0 .. $n {
+        for _ in 0..$n {
             mayastor::core::Reactors::current().poll_once();
         }
         mayastor::core::Reactors::current();

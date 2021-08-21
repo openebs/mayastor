@@ -8,12 +8,8 @@ use common::compose::{Builder, MayastorTest};
 use mayastor::{
     bdev::{device_create, device_destroy, device_open},
     core::{
-        BlockDevice,
-        BlockDeviceHandle,
-        DeviceTimeoutAction,
-        DmaBuf,
-        IoCompletionStatus,
-        MayastorCliArgs,
+        BlockDevice, BlockDeviceHandle, DeviceTimeoutAction, DmaBuf,
+        IoCompletionStatus, MayastorCliArgs,
     },
     subsys::{Config, NvmeBdevOpts},
 };
@@ -123,7 +119,7 @@ async fn test_io_timeout(action_on_timeout: DeviceTimeoutAction) {
         .await;
 
     test.pause("ms1").await.unwrap();
-    for i in 1 .. 6 {
+    for i in 1..6 {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         println!("waiting for the container to be fully suspended... {}/5", i);
     }
@@ -200,7 +196,7 @@ async fn test_io_timeout(action_on_timeout: DeviceTimeoutAction) {
     let mut io_timedout = false;
 
     // Wait up to 120 seconds till I/O times out.
-    for i in 1 .. 25 {
+    for i in 1..25 {
         println!("waiting for I/O to be timed out... {}/24", i);
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         // Break the loop if the callback has been called in response to I/O
@@ -310,7 +306,7 @@ async fn io_timeout_ignore() {
         .await;
 
     test.pause("ms1").await.unwrap();
-    for i in 1 .. 6 {
+    for i in 1..6 {
         tokio::time::sleep(std::time::Duration::from_secs(1)).await;
         println!("waiting for the container to be fully suspended... {}/5", i);
     }
@@ -389,7 +385,7 @@ async fn io_timeout_ignore() {
 
     // Wait 5 times longer than timeout interval. Make sure I/O operation not
     // interrupted.
-    for i in 1 .. 6 {
+    for i in 1..6 {
         println!("waiting for I/O timeout to happen... {}/5", i);
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         assert!(!CALLBACK_FLAG.load(), "I/O operation interrupted");

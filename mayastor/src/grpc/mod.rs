@@ -15,15 +15,15 @@ use crate::{
 impl From<NexusBdevError> for tonic::Status {
     fn from(e: NexusBdevError) -> Self {
         match e {
-            NexusBdevError::UrlParseError {
-                ..
-            } => Status::invalid_argument(e.to_string()),
-            NexusBdevError::UriSchemeUnsupported {
-                ..
-            } => Status::invalid_argument(e.to_string()),
-            NexusBdevError::UriInvalid {
-                ..
-            } => Status::invalid_argument(e.to_string()),
+            NexusBdevError::UrlParseError { .. } => {
+                Status::invalid_argument(e.to_string())
+            }
+            NexusBdevError::UriSchemeUnsupported { .. } => {
+                Status::invalid_argument(e.to_string())
+            }
+            NexusBdevError::UriInvalid { .. } => {
+                Status::invalid_argument(e.to_string())
+            }
             e => Status::internal(e.to_string()),
         }
     }

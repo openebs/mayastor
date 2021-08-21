@@ -1,7 +1,6 @@
 use crate::{
     context::{Context, OutputFormat},
-    Error,
-    GrpcStatus,
+    Error, GrpcStatus,
 };
 use ::rpc::mayastor as rpc;
 use byte_unit::Byte;
@@ -119,9 +118,7 @@ async fn destroy(
 
     let response = ctx
         .client
-        .destroy_pool(rpc::DestroyPoolRequest {
-            name: name.clone(),
-        })
+        .destroy_pool(rpc::DestroyPoolRequest { name: name.clone() })
         .await
         .context(GrpcStatus)?;
 

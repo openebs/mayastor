@@ -6,12 +6,8 @@ use std::{
 };
 
 use spdk_sys::{
-    spdk_poller,
-    spdk_poller_pause,
-    spdk_poller_register,
-    spdk_poller_register_named,
-    spdk_poller_resume,
-    spdk_poller_unregister,
+    spdk_poller, spdk_poller_pause, spdk_poller_register,
+    spdk_poller_register_named, spdk_poller_resume, spdk_poller_unregister,
 };
 
 /// structure holding our function and context

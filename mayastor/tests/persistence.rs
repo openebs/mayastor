@@ -3,18 +3,9 @@ use common::compose::Builder;
 use composer::{Binary, ComposeTest, ContainerSpec, RpcHandle};
 use etcd_client::Client;
 use rpc::mayastor::{
-    BdevShareRequest,
-    BdevUri,
-    Child,
-    ChildState,
-    CreateNexusRequest,
-    CreateReply,
-    DestroyNexusRequest,
-    Nexus,
-    NexusState,
-    Null,
-    PublishNexusRequest,
-    ShareProtocolNexus,
+    BdevShareRequest, BdevUri, Child, ChildState, CreateNexusRequest,
+    CreateReply, DestroyNexusRequest, Nexus, NexusState, Null,
+    PublishNexusRequest, ShareProtocolNexus,
 };
 
 use mayastor::bdev::{ChildInfo, NexusInfo};

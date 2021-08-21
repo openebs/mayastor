@@ -1,13 +1,7 @@
 use composer::RpcHandle;
 use rpc::mayastor::{
-    Bdev,
-    CreateNexusRequest,
-    CreatePoolRequest,
-    CreateReplicaRequest,
-    Null,
-    Replica,
-    ShareProtocolReplica,
-    ShareReplicaRequest,
+    Bdev, CreateNexusRequest, CreatePoolRequest, CreateReplicaRequest, Null,
+    Replica, ShareProtocolReplica, ShareReplicaRequest,
 };
 use std::str::FromStr;
 use tracing::info;

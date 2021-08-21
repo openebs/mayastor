@@ -5,14 +5,8 @@ use std::convert::TryFrom;
 use url::Url;
 
 use rpc::mayastor::{
-    bdev_rpc_server::BdevRpc,
-    Bdev as RpcBdev,
-    BdevShareReply,
-    BdevShareRequest,
-    BdevUri,
-    Bdevs,
-    CreateReply,
-    Null,
+    bdev_rpc_server::BdevRpc, Bdev as RpcBdev, BdevShareReply,
+    BdevShareRequest, BdevUri, Bdevs, CreateReply, Null,
 };
 
 use crate::{
@@ -63,9 +57,7 @@ impl BdevRpc for BdevSvc {
                 bdev.into_iter().for_each(|bdev| list.push(bdev.into()))
             }
 
-            Ok(Bdevs {
-                bdevs: list,
-            })
+            Ok(Bdevs { bdevs: list })
         })?;
 
         rx.await
@@ -86,11 +78,7 @@ impl BdevRpc for BdevSvc {
         rx.await
             .map_err(|_| Status::cancelled("cancelled"))?
             .map_err(Status::from)
-            .map(|name| {
-                Ok(Response::new(CreateReply {
-                    name,
-                }))
-            })?
+            .map(|name| Ok(Response::new(CreateReply { name })))?
     }
 
     #[instrument(level = "debug", err)]
@@ -143,11 +131,7 @@ impl BdevRpc for BdevSvc {
         rx.await
             .map_err(|_| Status::cancelled("cancelled"))?
             .map_err(|e| Status::internal(e.to_string()))
-            .map(|uri| {
-                Ok(Response::new(BdevShareReply {
-                    uri,
-                }))
-            })?
+            .map(|uri| Ok(Response::new(BdevShareReply { uri })))?
     }
 
     #[instrument(level = "debug", err)]

@@ -6,8 +6,7 @@ use std::{
     pin::Pin,
     sync::{
         atomic::{AtomicBool, Ordering::SeqCst},
-        Arc,
-        Mutex,
+        Arc, Mutex,
     },
     time::Duration,
 };
@@ -18,19 +17,10 @@ use git_version::git_version;
 use once_cell::sync::{Lazy, OnceCell};
 use snafu::Snafu;
 use spdk_sys::{
-    maya_log,
-    spdk_app_shutdown_cb,
-    spdk_log_level,
-    spdk_log_open,
-    spdk_log_set_level,
-    spdk_log_set_print_level,
-    spdk_pci_addr,
-    spdk_rpc_set_state,
-    spdk_thread_lib_fini,
-    spdk_thread_send_critical_msg,
-    SPDK_LOG_DEBUG,
-    SPDK_LOG_INFO,
-    SPDK_RPC_RUNTIME,
+    maya_log, spdk_app_shutdown_cb, spdk_log_level, spdk_log_open,
+    spdk_log_set_level, spdk_log_set_print_level, spdk_pci_addr,
+    spdk_rpc_set_state, spdk_thread_lib_fini, spdk_thread_send_critical_msg,
+    SPDK_LOG_DEBUG, SPDK_LOG_INFO, SPDK_RPC_RUNTIME,
 };
 use structopt::StructOpt;
 use tokio::runtime::Builder;
@@ -39,12 +29,9 @@ use crate::{
     bdev::{bdev_io_ctx_pool_init, nexus, nvme_io_ctx_pool_init},
     core::{
         reactor::{Reactor, ReactorState, Reactors},
-        Cores,
-        MayastorFeatures,
-        Mthread,
+        Cores, MayastorFeatures, Mthread,
     },
-    grpc,
-    logger,
+    grpc, logger,
     persistent_store::PersistentStore,
     subsys::{self, Config, PoolConfig},
     target::iscsi,
@@ -719,10 +706,8 @@ impl MayastorEnvironment {
             unsafe {
                 spdk_subsystem_init(
                     Some(Self::start_rpc),
-                    Box::into_raw(Box::new(SubsystemCtx {
-                        rpc,
-                        sender,
-                    })) as *mut _,
+                    Box::into_raw(Box::new(SubsystemCtx { rpc, sender }))
+                        as *mut _,
                 );
             }
 

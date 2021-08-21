@@ -17,10 +17,7 @@ use nix::{convert_ioctl_res, errno::Errno, libc};
 use snafu::{ResultExt, Snafu};
 
 use spdk_sys::{
-    nbd_disk_find_by_nbd_path,
-    spdk_nbd_disk,
-    spdk_nbd_get_path,
-    spdk_nbd_start,
+    nbd_disk_find_by_nbd_path, spdk_nbd_disk, spdk_nbd_get_path, spdk_nbd_start,
 };
 use sysfs::parse_value;
 
@@ -76,7 +73,7 @@ pub(crate) fn wait_until_ready(path: &str) {
         debug!("Timeout of NBD device {} was set to {}", tpath, timeout);
         let size: u64 = 0;
         let mut delay = 1;
-        for _i in 0i32 .. 10 {
+        for _i in 0i32..10 {
             if let Ok(f) = OpenOptions::new().read(true).open(Path::new(&tpath))
             {
                 let res = unsafe {
@@ -123,7 +120,7 @@ pub fn find_unused() -> Result<String, NbdError> {
         parse_value(Path::new("/sys/class/modules/nbd/parameters"), "nbds_max")
             .unwrap_or(16);
 
-    for i in 0 .. nbd_max {
+    for i in 0..nbd_max {
         let name = format!("nbd{}", i);
         match parse_value::<u32>(
             Path::new(&format!("/sys/class/block/{}", name)),
@@ -224,9 +221,7 @@ impl NbdDisk {
         wait_until_ready(&device_path);
         info!("Started nbd disk {} for {}", device_path, bdev_name);
 
-        Ok(Self {
-            nbd_ptr,
-        })
+        Ok(Self { nbd_ptr })
     }
 
     /// Stop and release nbd device.

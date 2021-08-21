@@ -1,14 +1,10 @@
 use std::ptr::NonNull;
 
 use spdk_sys::{
-    spdk_nvme_ns,
-    spdk_nvme_ns_get_extended_sector_size,
-    spdk_nvme_ns_get_md_size,
-    spdk_nvme_ns_get_num_sectors,
-    spdk_nvme_ns_get_optimal_io_boundary,
-    spdk_nvme_ns_get_size,
-    spdk_nvme_ns_get_uuid,
-    spdk_nvme_ns_supports_compare,
+    spdk_nvme_ns, spdk_nvme_ns_get_extended_sector_size,
+    spdk_nvme_ns_get_md_size, spdk_nvme_ns_get_num_sectors,
+    spdk_nvme_ns_get_optimal_io_boundary, spdk_nvme_ns_get_size,
+    spdk_nvme_ns_get_uuid, spdk_nvme_ns_supports_compare,
 };
 
 #[derive(Debug)]

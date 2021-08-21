@@ -10,43 +10,25 @@ use snafu::Snafu;
 pub use bdev::{Bdev, BdevIter};
 pub use bio::{Bio, IoStatus, IoType};
 pub use block_device::{
-    BlockDevice,
-    BlockDeviceDescriptor,
-    BlockDeviceHandle,
-    BlockDeviceIoStats,
-    DeviceEventListener,
-    DeviceEventType,
-    DeviceIoController,
-    DeviceTimeoutAction,
-    IoCompletionCallback,
-    IoCompletionCallbackArg,
-    LbaRangeController,
-    OpCompletionCallback,
-    OpCompletionCallbackArg,
+    BlockDevice, BlockDeviceDescriptor, BlockDeviceHandle, BlockDeviceIoStats,
+    DeviceEventListener, DeviceEventType, DeviceIoController,
+    DeviceTimeoutAction, IoCompletionCallback, IoCompletionCallbackArg,
+    LbaRangeController, OpCompletionCallback, OpCompletionCallbackArg,
 };
 pub use channel::IoChannel;
 pub use cpu_cores::{Core, Cores};
 pub use descriptor::{Descriptor, RangeContext};
 pub use dma::{DmaBuf, DmaError};
 pub use env::{
-    mayastor_env_stop,
-    MayastorCliArgs,
-    MayastorEnvironment,
-    GLOBAL_RC,
+    mayastor_env_stop, MayastorCliArgs, MayastorEnvironment, GLOBAL_RC,
     SIG_RECEIVED,
 };
 pub use handle::BdevHandle;
 pub use io_device::IoDevice;
 pub use nvme::{
-    nvme_admin_opc,
-    nvme_nvm_opcode,
-    nvme_reservation_acquire_action,
-    nvme_reservation_register_action,
-    nvme_reservation_register_cptpl,
-    nvme_reservation_type,
-    GenericStatusCode,
-    NvmeCommandStatus,
-    NvmeStatus,
+    nvme_admin_opc, nvme_nvm_opcode, nvme_reservation_acquire_action,
+    nvme_reservation_register_action, nvme_reservation_register_cptpl,
+    nvme_reservation_type, GenericStatusCode, NvmeCommandStatus, NvmeStatus,
 };
 pub use reactor::{Reactor, ReactorState, Reactors, REACTOR_LIST};
 pub use runtime::spawn;

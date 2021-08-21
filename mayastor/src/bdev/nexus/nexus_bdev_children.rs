@@ -30,24 +30,15 @@ use snafu::ResultExt;
 
 use crate::{
     bdev::{
-        device_create,
-        device_destroy,
-        device_lookup,
-        lookup_nexus_child,
+        device_create, device_destroy, device_lookup, lookup_nexus_child,
         nexus::{
             nexus_bdev::{
-                CreateChild,
-                Error,
-                Nexus,
-                NexusState,
-                NexusStatus,
-                OpenChild,
+                CreateChild, Error, Nexus, NexusState, NexusStatus, OpenChild,
             },
             nexus_channel::DrEvent,
             nexus_child::{ChildState, NexusChild},
         },
-        Reason,
-        VerboseError,
+        Reason, VerboseError,
     },
     core::DeviceEventType,
     nexus_uri::NexusBdevError,
@@ -451,7 +442,7 @@ impl Nexus {
 
         let size = self.size;
 
-        let (opened, failed): (Vec<usize>, Vec<usize>) = (0 .. self
+        let (opened, failed): (Vec<usize>, Vec<usize>) = (0..self
             .children
             .len())
             .partition(|&i| match self.children[i].open(size) {

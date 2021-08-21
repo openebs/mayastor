@@ -7,18 +7,10 @@ use std::ptr::copy_nonoverlapping;
 use serde::{Deserialize, Serialize};
 
 use spdk_sys::{
-    bdev_nvme_get_opts,
-    bdev_nvme_set_opts,
-    iscsi_opts_copy,
-    spdk_bdev_nvme_opts,
-    spdk_bdev_opts,
-    spdk_bdev_set_opts,
-    spdk_iscsi_opts,
-    spdk_nvmf_target_opts,
-    spdk_nvmf_transport_opts,
-    spdk_sock_impl_get_opts,
-    spdk_sock_impl_opts,
-    spdk_sock_impl_set_opts,
+    bdev_nvme_get_opts, bdev_nvme_set_opts, iscsi_opts_copy,
+    spdk_bdev_nvme_opts, spdk_bdev_opts, spdk_bdev_set_opts, spdk_iscsi_opts,
+    spdk_nvmf_target_opts, spdk_nvmf_transport_opts, spdk_sock_impl_get_opts,
+    spdk_sock_impl_opts, spdk_sock_impl_set_opts,
 };
 
 use std::{

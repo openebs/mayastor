@@ -12,15 +12,9 @@ use nix::errno::Errno;
 use pin_utils::core_reexport::fmt::Formatter;
 
 use spdk_sys::{
-    spdk_blob_get_xattr_value,
-    spdk_blob_is_read_only,
-    spdk_blob_is_snapshot,
-    spdk_blob_set_xattr,
-    spdk_blob_sync_md,
-    spdk_lvol,
-    vbdev_lvol_create_snapshot,
-    vbdev_lvol_destroy,
-    vbdev_lvol_get_from_bdev,
+    spdk_blob_get_xattr_value, spdk_blob_is_read_only, spdk_blob_is_snapshot,
+    spdk_blob_set_xattr, spdk_blob_sync_md, spdk_lvol,
+    vbdev_lvol_create_snapshot, vbdev_lvol_destroy, vbdev_lvol_get_from_bdev,
     LVS_CLEAR_WITH_UNMAP,
 };
 
@@ -28,11 +22,7 @@ use crate::{
     bdev::nexus::nexus_bdev::Nexus,
     core::{Bdev, CoreError, Mthread, Protocol, Share},
     ffihelper::{
-        cb_arg,
-        errno_result_from_i32,
-        pair,
-        ErrnoResult,
-        FfiResult,
+        cb_arg, errno_result_from_i32, pair, ErrnoResult, FfiResult,
         IntoCString,
     },
     lvs::{error::Error, lvs_pool::Lvs},
@@ -250,7 +240,7 @@ impl Lvol {
             let range =
                 std::cmp::min(self.as_bdev().size_in_bytes(), (1 << 20) * 8);
             debug!(?self, ?range, "zeroing range");
-            for offset in 0 .. (range >> 12) {
+            for offset in 0..(range >> 12) {
                 hdl.write_at(offset * buf.len(), &buf).await.map_err(|e| {
                     error!(?self, ?e);
                     Error::RepDestroy {

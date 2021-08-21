@@ -6,13 +6,8 @@ use rpc::mayastor::ShareProtocolNexus;
 use crate::{
     bdev::nexus::{
         nexus_bdev::{
-            Error,
-            Nexus,
-            NexusTarget,
-            ShareIscsiNexus,
-            ShareNbdNexus,
-            ShareNvmfNexus,
-            UnshareNexus,
+            Error, Nexus, NexusTarget, ShareIscsiNexus, ShareNbdNexus,
+            ShareNvmfNexus, UnshareNexus,
         },
         nexus_nbd::NbdDisk,
     },

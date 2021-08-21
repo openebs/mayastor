@@ -5,9 +5,7 @@ use mayastor::{
     lvs::{Lvol, Lvs},
 };
 use rpc::mayastor::{
-    CreatePoolRequest,
-    CreateReplicaRequest,
-    ShareProtocolReplica,
+    CreatePoolRequest, CreateReplicaRequest, ShareProtocolReplica,
     ShareReplicaRequest,
 };
 use tracing::info;

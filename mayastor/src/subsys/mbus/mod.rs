@@ -11,9 +11,7 @@ use crate::core::MayastorEnvironment;
 use dns_lookup::{lookup_addr, lookup_host};
 use registration::Registration;
 use spdk_sys::{
-    spdk_add_subsystem,
-    spdk_subsystem,
-    spdk_subsystem_fini_next,
+    spdk_add_subsystem, spdk_subsystem, spdk_subsystem_fini_next,
     spdk_subsystem_init_next,
 };
 use std::net::{IpAddr, Ipv4Addr};

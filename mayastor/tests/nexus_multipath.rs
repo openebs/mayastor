@@ -5,15 +5,9 @@ use mayastor::{
     core::MayastorCliArgs,
 };
 use rpc::mayastor::{
-    CreateNexusRequest,
-    CreateNexusV2Request,
-    CreatePoolRequest,
-    CreateReplicaRequest,
-    DestroyNexusRequest,
-    Null,
-    NvmeAnaState,
-    PublishNexusRequest,
-    ShareProtocolNexus,
+    CreateNexusRequest, CreateNexusV2Request, CreatePoolRequest,
+    CreateReplicaRequest, DestroyNexusRequest, Null, NvmeAnaState,
+    PublishNexusRequest, ShareProtocolNexus,
 };
 use std::process::Command;
 
@@ -188,7 +182,7 @@ async fn nexus_multipath() {
 
     // The first attempt will fail with "Duplicate cntlid x with y" error from
     // kernel
-    for i in 0 .. 2 {
+    for i in 0..2 {
         let status_c0 = Command::new("nvme")
             .args(&["connect"])
             .args(&["-t", "tcp"])

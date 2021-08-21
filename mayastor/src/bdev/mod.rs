@@ -4,29 +4,18 @@ pub use dev::{device_create, device_destroy, device_lookup, device_open};
 pub use device::{bdev_io_ctx_pool_init, SpdkBlockDevice};
 pub use nexus::{
     nexus_bdev::{
-        nexus_create,
-        nexus_create_v2,
-        nexus_lookup,
-        Nexus,
-        NexusNvmeParams,
-        NexusState,
-        NexusStatus,
-        VerboseError,
+        nexus_create, nexus_create_v2, nexus_lookup, Nexus, NexusNvmeParams,
+        NexusState, NexusStatus, VerboseError,
     },
     nexus_child::{lookup_nexus_child, ChildState, Reason},
     nexus_label::{GptEntry, GptGuid as Guid, GptHeader},
     nexus_metadata::{
-        MetaDataChildEntry,
-        MetaDataIndex,
-        MetaDataObject,
-        NexusMetaData,
+        MetaDataChildEntry, MetaDataIndex, MetaDataObject, NexusMetaData,
     },
     nexus_persistence::{ChildInfo, NexusInfo},
 };
 pub use nvmx::{
-    nvme_io_ctx_pool_init,
-    NvmeController,
-    NvmeControllerState,
+    nvme_io_ctx_pool_init, NvmeController, NvmeControllerState,
     NVME_CONTROLLERS,
 };
 

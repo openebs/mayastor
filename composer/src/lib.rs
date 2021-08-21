@@ -7,27 +7,15 @@ use std::{
 
 use bollard::{
     container::{
-        Config,
-        CreateContainerOptions,
-        ListContainersOptions,
-        LogsOptions,
-        NetworkingConfig,
-        RemoveContainerOptions,
-        RestartContainerOptions,
+        Config, CreateContainerOptions, ListContainersOptions, LogsOptions,
+        NetworkingConfig, RemoveContainerOptions, RestartContainerOptions,
         StopContainerOptions,
     },
     errors::Error,
     network::{CreateNetworkOptions, ListNetworksOptions},
     service::{
-        ContainerSummaryInner,
-        EndpointIpamConfig,
-        EndpointSettings,
-        HostConfig,
-        Ipam,
-        Mount,
-        MountTypeEnum,
-        Network,
-        PortMap,
+        ContainerSummaryInner, EndpointIpamConfig, EndpointSettings,
+        HostConfig, Ipam, Mount, MountTypeEnum, Network, PortMap,
     },
     Docker,
 };
@@ -36,14 +24,12 @@ use ipnetwork::Ipv4Network;
 use tonic::transport::Channel;
 
 use bollard::{
-    image::CreateImageOptions,
-    models::ContainerInspectResponse,
+    image::CreateImageOptions, models::ContainerInspectResponse,
     network::DisconnectNetworkOptions,
 };
 use mbus_api::TimeoutOptions;
 use rpc::mayastor::{
-    bdev_rpc_client::BdevRpcClient,
-    json_rpc_client::JsonRpcClient,
+    bdev_rpc_client::BdevRpcClient, json_rpc_client::JsonRpcClient,
     mayastor_client::MayastorClient,
 };
 
@@ -606,7 +592,7 @@ impl Builder {
                     if let Some(endpoint) = networks.get(&self.name) {
                         if let Some(ip) = endpoint.ip_address.clone() {
                             compose.containers.insert(
-                                n[1 ..].into(),
+                                n[1..].into(),
                                 (container.id.unwrap_or_default(), ip.parse()?),
                             );
                         }
@@ -886,12 +872,7 @@ impl ComposeTest {
         if self.prune {
             let _ = self
                 .docker
-                .stop_container(
-                    &spec.name,
-                    Some(StopContainerOptions {
-                        t: 0,
-                    }),
-                )
+                .stop_container(&spec.name, Some(StopContainerOptions { t: 0 }))
                 .await;
             let _ = self
                 .docker
@@ -976,9 +957,7 @@ impl ComposeTest {
             image,
             hostname: Some(name),
             host_config: Some(host_config),
-            networking_config: Some(NetworkingConfig {
-                endpoints_config,
-            }),
+            networking_config: Some(NetworkingConfig { endpoints_config }),
             working_dir: Some(self.srcdir.as_str()),
             volumes: Some(
                 vec![
@@ -1002,12 +981,7 @@ impl ComposeTest {
 
         let container = self
             .docker
-            .create_container(
-                Some(CreateContainerOptions {
-                    name,
-                }),
-                config,
-            )
+            .create_container(Some(CreateContainerOptions { name }), config)
             .await
             .unwrap();
 
@@ -1093,12 +1067,7 @@ impl ComposeTest {
     pub async fn stop_id(&self, id: &str) -> Result<(), Error> {
         if let Err(e) = self
             .docker
-            .stop_container(
-                id,
-                Some(StopContainerOptions {
-                    t: 3,
-                }),
-            )
+            .stop_container(id, Some(StopContainerOptions { t: 3 }))
             .await
         {
             // where already stopped
@@ -1120,12 +1089,7 @@ impl ComposeTest {
     pub async fn restart_id(&self, id: &str) -> Result<(), Error> {
         if let Err(e) = self
             .docker
-            .restart_container(
-                id,
-                Some(RestartContainerOptions {
-                    t: 3,
-                }),
-            )
+            .restart_container(id, Some(RestartContainerOptions { t: 3 }))
             .await
         {
             // where already stopped
