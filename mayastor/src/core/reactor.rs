@@ -459,7 +459,7 @@ impl Reactor {
         });
 
         drop(threads);
-        while let Ok(i) = self.incoming.pop() {
+        while let Some(i) = self.incoming.pop() {
             self.threads.borrow_mut().push_back(i);
         }
     }
@@ -481,7 +481,7 @@ impl Reactor {
         self.run_futures();
         drop(threads);
 
-        while let Ok(i) = self.incoming.pop() {
+        while let Some(i) = self.incoming.pop() {
             self.threads.borrow_mut().push_back(i);
         }
     }

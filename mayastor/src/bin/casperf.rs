@@ -280,9 +280,9 @@ fn sig_override() {
     };
 
     unsafe {
-        signal_hook::register(signal_hook::SIGTERM, handler)
+        signal_hook::low_level::register(signal_hook::consts::SIGTERM, handler)
             .expect("failed to set SIGTERM");
-        signal_hook::register(signal_hook::SIGINT, handler)
+        signal_hook::low_level::register(signal_hook::consts::SIGINT, handler)
             .expect("failed to set SIGINT");
     };
 }

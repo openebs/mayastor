@@ -16,7 +16,7 @@ use crate::{
 /// NOTE: The resulting string must be freed explicitly after use!
 macro_rules! c_str {
     ($lit:expr) => {
-        std::ffi::CString::new($lit).unwrap().into_raw();
+        std::ffi::CString::new($lit).unwrap().into_raw()
     };
 }
 

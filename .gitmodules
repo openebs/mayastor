@@ -1,0 +1,3 @@
+[submodule "rpc/mayastor-api"]
+	path = rpc/mayastor-api
+	url = https://github.com/openebs/mayastor-api

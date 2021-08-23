@@ -408,16 +408,18 @@ impl MayastorEnvironment {
     /// configure signal handling
     fn install_signal_handlers(&self) {
         unsafe {
-            signal_hook::register(signal_hook::SIGTERM, || {
-                mayastor_signal_handler(1)
-            })
+            signal_hook::low_level::register(
+                signal_hook::consts::SIGTERM,
+                || mayastor_signal_handler(1),
+            )
         }
         .unwrap();
 
         unsafe {
-            signal_hook::register(signal_hook::SIGINT, || {
-                mayastor_signal_handler(1)
-            })
+            signal_hook::low_level::register(
+                signal_hook::consts::SIGINT,
+                || mayastor_signal_handler(1),
+            )
         }
         .unwrap();
     }

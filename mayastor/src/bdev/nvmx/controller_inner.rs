@@ -142,7 +142,10 @@ impl TimeoutConfig {
 
         // Clear the flag as we are the exclusive owner.
         assert!(
-            timeout_ctx.reset_in_progress.compare_and_swap(true, false),
+            timeout_ctx
+                .reset_in_progress
+                .compare_exchange(true, false)
+                .is_ok(),
             "non-exclusive access to controller reset flag"
         );
     }
@@ -176,7 +179,7 @@ impl TimeoutConfig {
     /// resets related to I/O timeout.
     pub(crate) fn reset_controller(&mut self) {
         // Make sure no other resets are in progress.
-        if self.reset_in_progress.compare_and_swap(false, true) {
+        if self.reset_in_progress.compare_exchange(false, true).is_ok() {
             return;
         }
 
@@ -223,7 +226,7 @@ impl TimeoutConfig {
 
         // Clear the flag as we are the exclusive owner.
         assert!(
-            self.reset_in_progress.compare_and_swap(true, false),
+            self.reset_in_progress.compare_exchange(true, false).is_ok(),
             "non-exclusive access to controller reset flag"
         );
     }
