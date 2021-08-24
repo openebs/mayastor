@@ -36,13 +36,13 @@
 let
   # Derivation attributes for production version of libspdk
   drvAttrs = rec {
-    version = "21.04-34af5c5fd07c10e432b3b878ade69e36571e1b67";
+    version = "21.07-4a58029";
 
     src = fetchFromGitHub {
       owner = "openebs";
       repo = "spdk";
-      rev = "34af5c5fd07c10e432b3b878ade69e36571e1b67";
-      sha256 = "bC0plqdOB8Ynjh6u6qaQugyPUI7kvGcxI17QwBakXe4=";
+      rev = "4a5802936d06b03e300759d72a7f4dd0e6a7adb9";
+      sha256 = "0mi86rwm5v0yal5w69ykhxc4hdmmzcrb750yanbdzgb4lpcpi7g3";
       #sha256 = lib.fakeSha256;
       fetchSubmodules = true;
     };
@@ -73,6 +73,7 @@ let
       ncurses
       numactl
       openssl
+      (python3.withPackages (ps: with ps; [ pyelftools ]))
       zlib
     ];
 

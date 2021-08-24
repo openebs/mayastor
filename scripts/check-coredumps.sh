@@ -53,7 +53,7 @@ fi
 # Iterate over new coredumps and print a summary and stack for each
 echo "Looking for new coredumps ..."
 echo
-coredump_pids=$(coredumpctl list --quiet --no-legend --since="$since" | awk '{ print $5 }')
+coredump_pids=$(coredumpctl list --quiet --no-legend --since="$since" | grep -v "sshd$" | awk '{ print $5 }')
 coredump_count=0
 for pid in $coredump_pids; do
   coredump_count=$((coredump_count + 1))

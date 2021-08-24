@@ -861,24 +861,30 @@ pub(crate) async fn destroy_device(name: String) -> Result<(), NexusBdevError> {
     {
         let mut controller = carc.lock();
 
-        fn _shutdown_callback(success: bool, ctx: *mut c_void) {
-            done_cb(ctx, success);
+        // Skip not-fully initialized controllers.
+        if controller.get_state() != NvmeControllerState::New {
+            fn _shutdown_callback(success: bool, ctx: *mut c_void) {
+                done_cb(ctx, success);
+            }
+
+            controller.shutdown(_shutdown_callback, cb_arg(s)).map_err(
+                |_| NexusBdevError::DestroyBdev {
+                    name: String::from(&name),
+                    source: Errno::EAGAIN,
+                },
+            )?;
+
+            // Release the lock before waiting for controller shutdown.
+            drop(controller);
+
+            if !r.await.expect("Failed awaiting at shutdown()") {
+                error!(?name, "failed to shutdown controller");
+                return Err(NexusBdevError::DestroyBdev {
+                    name: String::from(&name),
+                    source: Errno::EAGAIN,
+                });
+            }
         }
-
-        controller
-            .shutdown(_shutdown_callback, cb_arg(s))
-            .map_err(|_| NexusBdevError::DestroyBdev {
-                name: String::from(&name),
-                source: Errno::EAGAIN,
-            })?
-    }
-
-    if !r.await.expect("Failed awaiting at shutdown()") {
-        error!(?name, "failed to shutdown controller");
-        return Err(NexusBdevError::DestroyBdev {
-            name: String::from(&name),
-            source: Errno::EAGAIN,
-        });
     }
 
     // 2. Remove controller from the list so that a new controller with the
@@ -909,7 +915,6 @@ pub(crate) fn connected_attached_cb(
     ctx: &mut NvmeControllerContext,
     ctrlr: SpdkNvmeController,
 ) {
-    ctx.unregister_poller();
     // we use the ctrlr address as the controller id in the global table
     let cid = ctrlr.as_ptr() as u64;
 

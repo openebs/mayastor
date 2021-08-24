@@ -126,7 +126,8 @@ impl CreateDestroy for NVMe {
     }
 
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
-        if let Some(_bdev) = Bdev::lookup_by_name(&self.get_name()) {
+        if let Some(bdev) = Bdev::lookup_by_name(&self.get_name()) {
+            bdev.remove_alias(&self.url.to_string());
             let errno = unsafe {
                 bdev_nvme_delete(
                     self.name.clone().into_cstring().as_ptr(),

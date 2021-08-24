@@ -456,7 +456,8 @@ async fn nexus_resv_acquire() {
         "should have dynamic controller ID"
     );
     assert_eq!(
-        v2["regctlext"][1]["rcsts"], 0,
+        v2["regctlext"][1]["rcsts"].as_u64().unwrap() & 0x1,
+        0,
         "should have reservation status as not reserved"
     );
     assert_eq!(

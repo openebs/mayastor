@@ -404,7 +404,7 @@ impl Lvs {
             })?;
 
         info!("pool {} exported successfully", pool);
-        bdev_destroy(&base_bdev.bdev_uri().unwrap())
+        bdev_destroy(&base_bdev.bdev_uri_original().unwrap())
             .await
             .map_err(|e| Error::Destroy {
                 source: e,
@@ -478,7 +478,7 @@ impl Lvs {
 
         info!("pool {} destroyed successfully", pool);
 
-        bdev_destroy(&base_bdev.bdev_uri().unwrap())
+        bdev_destroy(&base_bdev.bdev_uri_original().unwrap())
             .await
             .map_err(|e| Error::Destroy {
                 source: e,
