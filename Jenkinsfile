@@ -98,13 +98,13 @@ def lokiInstall(tag, loki_run_id) {
   sh 'kubectl apply -f ./mayastor-e2e/loki/promtail_rbac_e2e.yaml'
   sh 'kubectl apply -f ./mayastor-e2e/loki/promtail_configmap_e2e.yaml'
   def cmd = "run=\"${loki_run_id}\" version=\"${tag}\" envsubst -no-unset < ./mayastor-e2e/loki/promtail_daemonset_e2e.template.yaml | kubectl apply -f -"
-  sh "nix-shell --run '${cmd}'"
+  sh "nix-shell --run '${cmd}' ci.nix"
 }
 
 // Unnstall Loki
 def lokiUninstall(tag, loki_run_id) {
   def cmd = "run=\"${loki_run_id}\" version=\"${tag}\" envsubst -no-unset < ./mayastor-e2e/loki/promtail_daemonset_e2e.template.yaml | kubectl delete -f -"
-  sh "nix-shell --run '${cmd}'"
+  sh "nix-shell --run '${cmd}' ci.nix"
   sh 'kubectl delete -f ./mayastor-e2e/loki/promtail_configmap_e2e.yaml'
   sh 'kubectl delete -f ./mayastor-e2e/loki/promtail_rbac_e2e.yaml'
   sh 'kubectl delete -f ./mayastor-e2e/loki/promtail_namespace_e2e.yaml'
@@ -214,9 +214,9 @@ pipeline {
       steps {
         cleanWs()
         unstash 'source'
-        sh 'nix-shell --run "cargo fmt --all -- --check"'
-        sh 'nix-shell --run "cargo clippy --all-targets -- -D warnings"'
-        sh 'nix-shell --run "./scripts/js-check.sh"'
+        sh 'nix-shell --run "cargo fmt --all -- --check" ci.nix'
+        sh 'nix-shell --run "cargo clippy --all-targets -- -D warnings" ci.nix'
+        sh 'nix-shell --run "./scripts/js-check.sh" ci.nix'
       }
     }
     stage('test') {
@@ -243,7 +243,7 @@ pipeline {
             cleanWs()
             unstash 'source'
             sh 'printenv'
-            sh 'nix-shell --run "./scripts/cargo-test.sh"'
+            sh 'nix-shell --run "./scripts/cargo-test.sh" ci.nix'
           }
           post {
             always {
@@ -266,7 +266,7 @@ pipeline {
             cleanWs()
             unstash 'source'
             sh 'printenv'
-            sh 'nix-shell --run "./scripts/grpc-test.sh"'
+            sh 'nix-shell --run "./scripts/grpc-test.sh" ci.nix'
           }
           post {
             always {
@@ -376,7 +376,7 @@ pipeline {
                     usernamePassword(credentialsId: 'GRAFANA_API', usernameVariable: 'grafana_api_user', passwordVariable: 'grafana_api_pw')
                   ]) {
                     lokiInstall(tag, loki_run_id)
-                    sh "nix-shell --run 'cd mayastor-e2e && ${cmd}'"
+                    sh "nix-shell --run 'cd mayastor-e2e && ${cmd}' ci.nix"
                     lokiUninstall(tag, loki_run_id) // so that, if we keep the cluster, the next Loki instance can use different parameters
                   }
                 }
@@ -387,7 +387,7 @@ pipeline {
                     withCredentials([string(credentialsId: 'HCLOUD_TOKEN', variable: 'HCLOUD_TOKEN')]) {
                       e2e_nodes=sh(
                         script: """
-                          nix-shell -p hcloud --run 'hcloud server list' | grep -e '-${k8s_job.getNumber()} ' | awk '{ print \$2" "\$4 }'
+                          nix-shell -p hcloud --run 'hcloud server list' ci.nix | grep -e '-${k8s_job.getNumber()} ' | awk '{ print \$2" "\$4 }'
                         """,
                         returnStdout: true
                       ).trim()
