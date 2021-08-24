@@ -24,14 +24,8 @@ mkShell {
   buildInputs = [
     clang_11
     cowsay
-    docker
-    docker-compose
-    e2fsprogs
     etcd
     fio
-    gdb
-    git
-    kubernetes-helm
     libaio
     libiscsi
     libudev
@@ -50,7 +44,6 @@ mkShell {
     pytest_inputs
     python3
     utillinux
-    xfsprogs
   ] ++ (if (nospdk) then [ libspdk-dev.buildInputs ] else [ libspdk-dev ]);
 
   LIBCLANG_PATH = mayastor.LIBCLANG_PATH;
