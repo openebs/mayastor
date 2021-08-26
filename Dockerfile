@@ -12,9 +12,9 @@ RUN nix-env -i bash git nano sudo procps
 
 # Copy all nix files from the repo so that we can use them to install
 # mayastor dependencies
-COPY shell.nix $NIX_EXPR_DIR/
+COPY ci.nix $NIX_EXPR_DIR/
 COPY nix $NIX_EXPR_DIR/nix
 
 RUN cd $NIX_EXPR_DIR && \
-  nix-shell --argstr channel nightly --command "echo Debug dependencies done" && \
-  nix-shell --argstr channel stable --command "echo Release dependencies done"
+  nix-shell --argstr channel nightly --command "echo Debug dependencies done" ci.nix && \
+  nix-shell --argstr channel stable --command "echo Release dependencies done" ci.nix

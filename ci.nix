@@ -1,4 +1,4 @@
-{ nospdk ? false }:
+{ nospdk ? false, norust ? false }:
 let
   sources = import ./nix/sources.nix;
   pkgs = import sources.nixpkgs {
@@ -24,8 +24,14 @@ mkShell {
   buildInputs = [
     clang_11
     cowsay
+    docker
+    docker-compose
+    e2fsprogs
     etcd
     fio
+    gdb
+    git
+    kubernetes-helm
     libaio
     libiscsi
     libudev
@@ -44,7 +50,9 @@ mkShell {
     pytest_inputs
     python3
     utillinux
-  ] ++ (if (nospdk) then [ libspdk-dev.buildInputs ] else [ libspdk-dev ]);
+    xfsprogs
+  ] ++ (if (nospdk) then [ libspdk-dev.buildInputs ] else [ libspdk-dev ])
+  ++ pkgs.lib.optional (!norust) channel.nightly;
 
   LIBCLANG_PATH = mayastor.LIBCLANG_PATH;
   PROTOC = mayastor.PROTOC;
@@ -57,9 +65,9 @@ mkShell {
     ${pkgs.lib.optionalString (nospdk)
     ''export RUSTFLAGS="-C link-args=-Wl,-rpath,$(pwd)/spdk-sys/spdk"''}
     ${pkgs.lib.optionalString (nospdk) "echo"}
-
-    echo 'Hint: use rustup tool.'
-    echo
+    ${pkgs.lib.optionalString (norust) "cowsay ${norust_moth}"}
+    ${pkgs.lib.optionalString (norust) "echo 'Hint: use rustup tool.'"}
+    ${pkgs.lib.optionalString (norust) "echo"}
 
     # SRCDIR is needed by docker-compose files as it requires absolute paths
     export SRCDIR=`pwd`
