@@ -393,12 +393,12 @@ pub fn compare_devices(
     stdout
 }
 
-pub fn device_path_from_uri(device_uri: String) -> String {
+pub fn device_path_from_uri(device_uri: &str) -> String {
     assert_ne!(
-        Url::parse(device_uri.as_str()),
+        Url::parse(device_uri),
         Err(ParseError::RelativeUrlWithoutBase)
     );
-    let url = Url::parse(device_uri.as_str()).unwrap();
+    let url = Url::parse(device_uri).unwrap();
     String::from(url.path())
 }
 

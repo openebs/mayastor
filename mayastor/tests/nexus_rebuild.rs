@@ -103,7 +103,7 @@ async fn nexus_create(size: u64, children: u64, fill_random: bool) {
 async fn nexus_share() -> String {
     let nexus = nexus_lookup(nexus_name()).unwrap();
     let device = common::device_path_from_uri(
-        nexus
+        &nexus
             .share(ShareProtocolNexus::NexusNbd, None)
             .await
             .unwrap(),

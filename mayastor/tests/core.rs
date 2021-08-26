@@ -230,7 +230,7 @@ async fn core_5() {
                 .unwrap();
                 let nexus = nexus_lookup(nexus_name).unwrap();
                 let device = common::device_path_from_uri(
-                    nexus
+                    &nexus
                         .share(ShareProtocolNexus::NexusNbd, None)
                         .await
                         .unwrap(),
