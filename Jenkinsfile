@@ -275,14 +275,40 @@ pipeline {
             }
           }
         }
-        stage('pytest tests - disabled') {
+        stage('pytest tests') {
           when {
             beforeAgent true
             expression { pytest_test == true }
           }
-          agent { label 'nixos-mayastor' }
-          steps {
-            echo 'pytests are temporarily disabled'
+          agent { label 'virtual-nixos-mayastor' }
+          stages {
+            stage('checkout') {
+              steps {
+                checkout([
+                  $class: 'GitSCM',
+                  branches: scm.branches,
+                  extensions: scm.extensions.findAll{!(it instanceof jenkins.plugins.git.GitSCMSourceDefaults)} + [[$class: 'CloneOption', noTags: false, reference: '', shallow: false]],
+                  userRemoteConfigs: scm.userRemoteConfigs
+                ])
+              }
+            }
+            stage('build') {
+              steps {
+                sh 'printenv'
+                sh 'nix-shell --run "cargo build --bins" ci.nix'
+              }
+            }
+            stage('python setup') {
+              steps {
+                sh 'nix-shell --run "./test/python/setup.sh" ci.nix'
+              }
+            }
+            stage('run tests') {
+              steps {
+                sh 'printenv'
+                sh 'nix-shell --run "./scripts/pytest-tests.sh" ci.nix'
+              }
+            }
           }
         }
         stage('e2e tests') {
