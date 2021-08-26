@@ -8,6 +8,7 @@ self: super: {
   mayastor = (super.callPackage ./pkgs/mayastor { }).release;
   mayastor-adhoc = (super.callPackage ./pkgs/mayastor { }).adhoc;
   mayastor-dev = (super.callPackage ./pkgs/mayastor { }).debug;
+  mayastor-cov = (super.callPackage ./pkgs/mayastor { }).cov;
   mkContainerEnv = super.callPackage ./lib/mkContainerEnv.nix { };
   ms-buildenv = super.callPackage ./pkgs/ms-buildenv { };
   nvmet-cli = super.callPackage ./pkgs/nvmet-cli { };

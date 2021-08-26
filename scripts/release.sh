@@ -30,6 +30,7 @@ Options:
   -d, --dry-run              Output actions that would be taken, but don't run them.
   -h, --help                 Display this text.
   --registry <host[:port]>   Push the built images to the provided registry.
+  --coverage                 Build coverage-enabled version of images where possible.
   --debug                    Build debug version of images where possible.
   --skip-build               Don't perform nix-build.
   --skip-publish             Don't publish built images.
@@ -53,6 +54,7 @@ SKIP_PUBLISH=
 SKIP_BUILD=
 REGISTRY=
 ALIAS=
+COVERAGE=
 DEBUG=
 
 # Check if all needed tools are installed
@@ -108,6 +110,10 @@ while [ "$#" -gt 0 ]; do
       DEBUG="yes"
       shift
       ;;
+    --coverage)
+      COVERAGE="yes"
+      shift
+      ;;
     *)
       echo "Unknown option: $1"
       exit 1
@@ -115,13 +121,22 @@ while [ "$#" -gt 0 ]; do
   esac
 done
 
+if [ -n "$COVERAGE" ] && [ -n "$DEBUG" ]; then
+  echo "cannot specify --coverage and --debug"
+  exit 1
+fi
+
 cd $SCRIPTDIR/..
 
+# Note mayastor-csi now also part of mayastor image
+# TODO: remove mayastor-csi from these lists
 if [ -z "$IMAGES" ]; then
-  if [ -z "$DEBUG" ]; then
-    IMAGES="mayastor mayastor-csi mayastor-client"
-  else
+  if [ -n "$DEBUG" ]; then
     IMAGES="mayastor-dev mayastor-csi-dev mayastor-client"
+  elif [ -n "$COVERAGE" ]; then
+    IMAGES="mayastor-cov mayastor-csi mayastor-client"
+  else
+    IMAGES="mayastor mayastor-csi mayastor-client"
   fi
 fi
 

@@ -44,6 +44,8 @@ spec:
           valueFrom:
             fieldRef:
               fieldPath: status.podIP
+        - name: LLVM_PROFILE_FILE
+          value: /var/local/mayastor/mayastor.profraw
         args:
         # The -l argument accepts cpu-list. Indexing starts at zero.
         # For example -l 1,2,10-20 means use core 1, 2, 10 to 20.
@@ -56,6 +58,8 @@ spec:
         - "-P/var/local/mayastor/pools.yaml"
         - "-l{{ include "mayastorCpuSpec" . }}"
         - "-pmayastor-etcd"
+        command:
+        - mayastor
         securityContext:
           privileged: true
         volumeMounts:
