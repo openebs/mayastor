@@ -4,6 +4,7 @@ use std::{
     fmt::{Debug, Display, Formatter},
     os::raw::c_void,
     ptr::NonNull,
+    sync::Arc,
 };
 
 use async_trait::async_trait;
@@ -157,6 +158,15 @@ impl Share for Bdev {
     }
 }
 
+impl Default for Bdev {
+    fn default() -> Self {
+        Self(
+            NonNull::new(Box::into_raw(Box::new(spdk_bdev::default())))
+                .unwrap(),
+        )
+    }
+}
+
 impl Bdev {
     /// open a bdev by its name in read_write mode.
     pub fn open_by_name(
@@ -295,6 +305,38 @@ impl Bdev {
             .to_str()
             .unwrap()
             .to_string()
+    }
+
+    // only safe during creation, after register it will blow up
+    pub fn set_product(&mut self, name: String) {
+        unsafe {
+            self.0.as_mut().product_name = name.into_cstring().into_raw();
+        }
+    }
+
+    pub fn set_name(&mut self, name: String) {
+        unsafe {
+            self.0.as_mut().name = name.into_cstring().into_raw();
+        }
+    }
+
+    pub fn set_fntable(&mut self, table: Arc<spdk_sys::spdk_bdev_fn_table>) {
+        unsafe { self.0.as_mut().fn_table = Arc::into_raw(table) };
+    }
+
+    /// should only be allowed when *creating* new instances
+    ///  soluton: use builder pattern
+    ///
+    ///  let bdev =
+    /// Bdev::builder().with_aligmnent(9).with_foo().with_bar().build();
+    ///
+    ///  // fails
+    ///  bdev.set_alignment();
+    ///  Bdev::new(name, 9,.., 0, 0)
+    pub fn set_alignment(&mut self, shift: u8) {
+        unsafe {
+            self.0.as_mut().required_alignment = shift;
+        }
     }
 
     /// returns the name of driver module for the given bdev

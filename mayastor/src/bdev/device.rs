@@ -43,9 +43,10 @@ use crate::core::{
     IoCompletionCallback,
     IoCompletionCallbackArg,
     IoCompletionStatus,
-    IoType,
     NvmeCommandStatus,
 };
+
+use spdk::IoType;
 
 static BDEV_LISTENERS: Lazy<RwLock<HashMap<String, Vec<DeviceEventListener>>>> =
     Lazy::new(|| RwLock::new(HashMap::new()));

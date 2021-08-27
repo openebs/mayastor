@@ -104,3 +104,9 @@ impl CpuMask {
         &self.0 as *const _ as *mut spdk_cpuset
     }
 }
+
+impl Default for CpuMask {
+    fn default() -> Self {
+        Self::new()
+    }
+}

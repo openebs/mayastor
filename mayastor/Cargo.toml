@@ -97,6 +97,9 @@ path = "../rpc"
 features = ["derive"]
 version = "1.0.127"
 
+[dependencies.spdk]
+path = "../spdk"
+
 [dependencies.spdk-sys]
 path = "../spdk-sys"
 

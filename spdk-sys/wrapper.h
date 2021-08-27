@@ -39,3 +39,4 @@
 
 #include "logwrapper.h"
 #include "nvme_helper.h"
+#include "spdk_helper.h"

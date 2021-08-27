@@ -36,6 +36,11 @@ fn build_wrapper() {
         .include(".")
         .file("nvme_helper.c")
         .compile("nvme_helper");
+    cc::Build::new()
+        .include("spdk/include")
+        .include(".")
+        .file("spdk_helper.c")
+        .compile("spdk_helper");
 }
 
 fn main() {
@@ -135,4 +140,5 @@ fn main() {
     println!("cargo:rerun-if-changed=wrapper.h");
     println!("cargo:rerun-if-changed=logwrapper.c");
     println!("cargo:rerun-if-changed=nvme_helper.c");
+    println!("cargo:rerun-if-changed=spdk_helper.c");
 }

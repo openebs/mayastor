@@ -38,6 +38,8 @@ mod loopback;
 mod malloc;
 pub(crate) mod nexus;
 mod null;
+pub mod null_ng;
+pub mod nullblk;
 mod nvme;
 mod nvmf;
 pub(crate) mod nvmx;

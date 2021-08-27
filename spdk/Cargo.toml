@@ -1,0 +1,18 @@
+[package]
+name = "spdk"
+version = "0.1.0"
+authors = ["Dmitry Savitskiy <dmitry.savitsky@mayadata.io>"]
+edition = "2018"
+
+[dependencies]
+futures = "0.3.16"
+nix = "0.22.1"
+snafu = "0.6.10"
+tracing = "0.1.26"
+
+[dependencies.spdk-sys]
+path = "../spdk-sys"
+
+[dependencies.uuid]
+features = ["v4"]
+version = "0.8"

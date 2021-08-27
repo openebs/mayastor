@@ -1582,6 +1582,7 @@ dependencies = [
  "serde_yaml",
  "signal-hook",
  "snafu",
+ "spdk",
  "spdk-sys",
  "structopt",
  "sysfs",
@@ -2609,6 +2610,18 @@ checksum = "765f090f0e423d2b55843402a07915add955e7d60657db13707a159727326cad"
 dependencies = [
  "libc",
  "winapi",
+]
+
+[[package]]
+name = "spdk"
+version = "0.1.0"
+dependencies = [
+ "futures",
+ "nix",
+ "snafu",
+ "spdk-sys",
+ "tracing",
+ "uuid",
 ]
 
 [[package]]

@@ -8,7 +8,7 @@ use nix::errno::Errno;
 use snafu::Snafu;
 
 pub use bdev::{Bdev, BdevIter};
-pub use bio::{Bio, IoStatus, IoType};
+pub use bio::Bio;
 pub use block_device::{
     BlockDevice,
     BlockDeviceDescriptor,
@@ -51,6 +51,7 @@ pub use nvme::{
 pub use reactor::{Reactor, ReactorState, Reactors, REACTOR_LIST};
 pub use runtime::spawn;
 pub use share::{Protocol, Share};
+pub use spdk::{IoStatus, IoType};
 pub use thread::Mthread;
 
 use crate::{bdev::nexus_lookup, subsys::NvmfError, target::iscsi};
@@ -59,7 +60,7 @@ mod bdev;
 mod bio;
 mod block_device;
 mod channel;
-mod cpu_cores;
+pub use spdk::cpu_cores;
 mod descriptor;
 mod dma;
 mod env;
