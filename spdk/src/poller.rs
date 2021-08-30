@@ -5,6 +5,7 @@ use std::{
 };
 
 use crate::{cpu_cores::Cores, ffihelper::IntoCString};
+
 use spdk_sys::{
     spdk_poller,
     spdk_poller_fn,
@@ -15,20 +16,20 @@ use spdk_sys::{
     spdk_poller_unregister,
 };
 
-/// TODO
-struct PollerData<'a, PollerContext: 'a> {
+/// A structure for poller context.
+struct Context<'a, PollerData: 'a> {
     name: Option<CString>,
-    context: Box<PollerContext>,
-    poll_fn: Box<dyn Fn(&PollerContext) -> i32 + 'a>,
+    data: PollerData,
+    poll_fn: Box<dyn Fn(&PollerData) -> i32 + 'a>,
 }
 
 /// Poller structure that allows us to pause, stop, resume periodic tasks
-pub struct Poller<'a, PollerContext: 'a> {
+pub struct Poller<'a, PollerData: 'a> {
     inner: NonNull<spdk_poller>,
-    data: Box<PollerData<'a, PollerContext>>,
+    ctx: Box<Context<'a, PollerData>>,
 }
 
-impl<'a, PollerContext: 'a> Poller<'a, PollerContext> {
+impl<'a, PollerData: 'a> Poller<'a, PollerData> {
     /// Consumers the poller instance and stops it.
     pub fn stop(self) {
         std::mem::drop(self);
@@ -48,13 +49,13 @@ impl<'a, PollerContext: 'a> Poller<'a, PollerContext> {
         }
     }
 
-    /// Returns poller's context.
-    pub fn context(&self) -> &PollerContext {
-        self.data.context.as_ref()
+    /// Returns a reference to poller's data object.
+    pub fn data(&self) -> &PollerData {
+        &self.ctx.data
     }
 }
 
-impl<'a, PollerContext: 'a> Drop for Poller<'a, PollerContext> {
+impl<'a, PollerData: 'a> Drop for Poller<'a, PollerData> {
     fn drop(&mut self) {
         dbgln!(Poller, ""; "dropped");
         unsafe {
@@ -65,56 +66,58 @@ impl<'a, PollerContext: 'a> Drop for Poller<'a, PollerContext> {
 }
 
 /// TODO
-unsafe extern "C" fn inner_poller_cb<'a, PollerContext: 'a>(
+unsafe extern "C" fn inner_poller_cb<'a, PollerData: 'a>(
     ctx: *mut c_void,
 ) -> i32 {
-    let data = &*(ctx as *mut PollerData<PollerContext>);
-    (data.poll_fn)(data.context.as_ref());
+    let ctx = &*(ctx as *mut Context<PollerData>);
+    (ctx.poll_fn)(&ctx.data);
     0
 }
 
 /// Builder type to create a new poller.
-pub struct PollerBuilder<'a, PollerContext> {
+pub struct PollerBuilder<'a, PollerData> {
     name: Option<CString>,
-    context: Option<Box<PollerContext>>,
-    poll_fn: Option<Box<dyn Fn(&PollerContext) -> i32 + 'a>>,
+    data: Option<PollerData>,
+    poll_fn: Option<Box<dyn Fn(&PollerData) -> i32 + 'a>>,
     interval: std::time::Duration,
 }
 
-impl<'a, PollerContext> Default for PollerBuilder<'a, PollerContext> {
+impl<'a, PollerData> Default for PollerBuilder<'a, PollerData> {
     fn default() -> Self {
         Self::new()
     }
 }
 
-impl<'a, PollerContext> PollerBuilder<'a, PollerContext> {
+impl<'a, PollerData> PollerBuilder<'a, PollerData> {
     /// Creates a new nameless poller that runs every time the thread the poller
     /// is created on is polled.
     pub fn new() -> Self {
         Self {
             name: None,
-            context: None,
+            data: None,
             poll_fn: None,
             interval: Duration::from_micros(0),
         }
     }
 
-    /// Sets poller name.
+    /// Sets optional poller name.
     pub fn with_name(mut self, name: &str) -> Self {
         self.name = Some(String::from(name).into_cstring());
         self
     }
 
-    /// Sets the poller context instance.
-    pub fn with_context(mut self, ctx: Box<PollerContext>) -> Self {
-        self.context = Some(ctx);
+    /// Sets the poller data instance.
+    /// This Poller parameter is manadory.
+    pub fn with_data(mut self, data: PollerData) -> Self {
+        self.data = Some(data);
         self
     }
 
-    /// Sets the pool function for this poller.
+    /// Sets the poll function for this poller.
+    /// This Poller parameter is manadory.
     pub fn with_poll_fn(
         mut self,
-        poll_fn: impl Fn(&PollerContext) -> i32 + 'a,
+        poll_fn: impl Fn(&PollerData) -> i32 + 'a,
     ) -> Self {
         self.poll_fn = Some(Box::new(poll_fn));
         self
@@ -126,18 +129,18 @@ impl<'a, PollerContext> PollerBuilder<'a, PollerContext> {
         self
     }
 
-    /// Consumes a `PollerBuild` instance and registers a new poller within
+    /// Consumes a `PollerBuilder` instance, and registers a new poller within
     /// SPDK.
-    pub fn build(self) -> Poller<'a, PollerContext> {
+    pub fn build(self) -> Poller<'a, PollerData> {
         // Create a new `PollerData` instance.
-        let mut data = Box::new(PollerData {
+        let mut data = Box::new(Context {
             name: self.name,
-            context: self.context.expect("Poller context must be set"),
+            data: self.data.expect("Poller data must be set"),
             poll_fn: self.poll_fn.expect("Poller function must be set"),
         });
 
-        let pf: spdk_poller_fn = Some(inner_poller_cb::<PollerContext>);
-        let pd = data.as_mut() as *mut PollerData<_> as *mut c_void;
+        let pf: spdk_poller_fn = Some(inner_poller_cb::<PollerData>);
+        let pd = data.as_mut() as *mut Context<_> as *mut c_void;
         let t = self.interval.as_micros() as u64;
 
         // Register the poller.
@@ -150,7 +153,7 @@ impl<'a, PollerContext> PollerBuilder<'a, PollerContext> {
 
         Poller {
             inner: NonNull::new(inner).unwrap(),
-            data,
+            ctx: data,
         }
     }
 }

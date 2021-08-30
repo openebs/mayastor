@@ -1,3 +1,4 @@
+/// TODO
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Eq)]
 pub enum IoType {
     Invalid,
@@ -20,6 +21,7 @@ pub enum IoType {
     IoNumTypes,
 }
 
+/// TODO
 #[derive(Debug, Copy, Clone, PartialOrd, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum IoStatus {
@@ -35,6 +37,7 @@ pub enum IoStatus {
 }
 
 impl From<IoType> for u32 {
+    /// TODO
     fn from(t: IoType) -> Self {
         match t {
             IoType::Invalid => 0,
@@ -60,6 +63,7 @@ impl From<IoType> for u32 {
 }
 
 impl From<u32> for IoType {
+    /// TODO
     fn from(u: u32) -> Self {
         match u {
             0 => Self::Invalid,
@@ -86,6 +90,7 @@ impl From<u32> for IoType {
 }
 
 impl From<i32> for IoStatus {
+    /// TODO
     fn from(status: i32) -> Self {
         match status {
             -7 => Self::Aborted,
@@ -103,6 +108,7 @@ impl From<i32> for IoStatus {
 }
 
 impl From<IoStatus> for i32 {
+    /// TODO
     fn from(i: IoStatus) -> Self {
         match i {
             IoStatus::Aborted => -7,
@@ -119,6 +125,7 @@ impl From<IoStatus> for i32 {
 }
 
 impl From<i8> for IoStatus {
+    /// TODO
     fn from(status: i8) -> Self {
         (status as i32).into()
     }

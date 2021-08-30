@@ -1,14 +1,22 @@
-use crate::{Bdev, BdevOps, IoStatus, IoType};
-use spdk_sys::{spdk_bdev_io, spdk_bdev_io_complete};
 use std::{marker::PhantomData, ptr::NonNull};
 
+use crate::{Bdev, BdevOps, IoStatus, IoType};
+
+use spdk_sys::{spdk_bdev_io, spdk_bdev_io_complete};
+
 /// Wrapper for SPDK `spdk_bdev_io` data structure.
-pub struct BdevIo<BdevContext: BdevOps> {
+pub struct BdevIo<BdevData>
+where
+    BdevData: BdevOps,
+{
     inner: NonNull<spdk_bdev_io>,
-    _ctx: PhantomData<BdevContext>,
+    _ctx: PhantomData<BdevData>,
 }
 
-impl<BdevContext: BdevOps> BdevIo<BdevContext> {
+impl<BdevData> BdevIo<BdevData>
+where
+    BdevData: BdevOps,
+{
     /// Makes a new `BdevIo` instance from a raw SPDK structure pointer.
     pub(crate) fn new(bio: *mut spdk_bdev_io) -> Self {
         BdevIo {
@@ -19,7 +27,7 @@ impl<BdevContext: BdevOps> BdevIo<BdevContext> {
 
     /// Returns the block device that this I/O belongs to.
     #[inline]
-    pub fn bdev(&self) -> Bdev<BdevContext> {
+    pub fn bdev(&self) -> Bdev<BdevData> {
         Bdev::new(unsafe { self.inner.as_ref().bdev })
     }
 
@@ -52,8 +60,8 @@ impl<BdevContext: BdevOps> BdevIo<BdevContext> {
     /// TODO
     pub fn dbg(&self) -> String {
         format!(
-            "BdevIo[bdev <{}> io_type '{:?}']",
-            self.bdev().context().dbg(),
+            "bdev <{}> io_type '{:?}'",
+            self.bdev().dbg(),
             self.io_type()
         )
     }
