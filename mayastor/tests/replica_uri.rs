@@ -5,6 +5,7 @@ use rpc::mayastor::{
     CreatePoolRequest,
     CreateReplicaRequest,
     Null,
+    PoolType,
     Replica,
     ShareProtocolReplica,
     ShareReplicaRequest,
@@ -53,6 +54,7 @@ async fn replica_uri() {
                     "malloc:///disk0?size_mb={}",
                     DISKSIZE_KB / 1024
                 )],
+                pooltype: PoolType::Lvs as i32,
             })
             .await
             .unwrap();

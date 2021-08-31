@@ -7,6 +7,7 @@ use mayastor::{
 use rpc::mayastor::{
     CreatePoolRequest,
     CreateReplicaRequest,
+    PoolType,
     ShareProtocolReplica,
     ShareReplicaRequest,
 };
@@ -50,6 +51,7 @@ async fn replica_snapshot() {
         .create_pool(CreatePoolRequest {
             name: POOL2_NAME.to_string(),
             disks: vec!["malloc:///disk0?size_mb=96".into()],
+            pooltype: PoolType::Lvs as i32,
         })
         .await
         .unwrap();
@@ -75,6 +77,7 @@ async fn replica_snapshot() {
             Lvs::create_or_import(CreatePoolRequest {
                 name: POOL1_NAME.to_string(),
                 disks: vec![format!("aio://{}", DISKNAME1)],
+                pooltype: PoolType::Lvs as i32,
             })
             .await
             .unwrap();

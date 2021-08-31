@@ -4,6 +4,7 @@ use rpc::mayastor::{
     DestroyPoolRequest,
     DestroyReplicaRequest,
     Null,
+    PoolType,
     ShareReplicaRequest,
 };
 
@@ -30,6 +31,7 @@ async fn lvs_pool_rpc() {
         .create_pool(CreatePoolRequest {
             name: "tpool".to_string(),
             disks: vec!["malloc:///disk0?size_mb=64".into()],
+            pooltype: PoolType::Lvs as i32,
         })
         .await
         .unwrap();
@@ -38,6 +40,7 @@ async fn lvs_pool_rpc() {
         .create_pool(CreatePoolRequest {
             name: "tpool".to_string(),
             disks: vec!["malloc:///disk0?size_mb=64".into()],
+            pooltype: PoolType::Lvs as i32,
         })
         .await
         .unwrap();

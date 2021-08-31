@@ -9,6 +9,7 @@ use rpc::mayastor::{
     CreatePoolRequest,
     CreateReplicaRequest,
     Null,
+    PoolType,
     RemoveChildNexusRequest,
 };
 
@@ -25,6 +26,7 @@ async fn create_replicas(h: &mut RpcHandle) {
         .create_pool(CreatePoolRequest {
             name: pool(),
             disks: vec!["malloc:///disk0?size_mb=64".into()],
+            pooltype: PoolType::Lvs as i32,
         })
         .await
         .unwrap();

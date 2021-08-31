@@ -5,7 +5,7 @@ use mayastor::{
     nexus_uri::bdev_create,
     subsys::NvmfSubsystem,
 };
-use rpc::mayastor::CreatePoolRequest;
+use rpc::mayastor::{CreatePoolRequest, PoolType};
 
 pub mod common;
 
@@ -34,6 +34,7 @@ async fn lvs_pool_test() {
         Lvs::create_or_import(CreatePoolRequest {
             name: "tpool".into(),
             disks: vec!["aio:///tmp/disk1.img".into()],
+            pooltype: PoolType::Lvs as i32,
         })
         .await
         .unwrap();
@@ -46,6 +47,7 @@ async fn lvs_pool_test() {
         assert!(Lvs::create_or_import(CreatePoolRequest {
             name: "tpool".into(),
             disks: vec!["aio:///tmp/disk1.img".into()],
+            pooltype: PoolType::Lvs as i32,
         })
         .await
         .is_ok())
@@ -142,6 +144,7 @@ async fn lvs_pool_test() {
         let pool2 = Lvs::create_or_import(CreatePoolRequest {
             name: "tpool2".to_string(),
             disks: vec!["malloc:///malloc0?size_mb=64".to_string()],
+            pooltype: PoolType::Lvs as i32,
         })
         .await
         .unwrap();
@@ -175,6 +178,7 @@ async fn lvs_pool_test() {
         let pool = Lvs::create_or_import(CreatePoolRequest {
             name: "tpool".to_string(),
             disks: vec!["aio:///tmp/disk1.img".to_string()],
+            pooltype: PoolType::Lvs as i32,
         })
         .await
         .unwrap();
@@ -306,6 +310,7 @@ async fn lvs_pool_test() {
         let pool = Lvs::create_or_import(CreatePoolRequest {
             name: "tpool".into(),
             disks: vec!["aio:///tmp/disk1.img".into()],
+            pooltype: PoolType::Lvs as i32,
         })
         .await
         .unwrap();
@@ -334,6 +339,7 @@ async fn lvs_pool_test() {
         Lvs::create_or_import(CreatePoolRequest {
             name: "jpool".into(),
             disks: vec!["aio:///tmp/disk1.img".into()],
+            pooltype: PoolType::Lvs as i32,
         })
         .await
         .err()
@@ -348,6 +354,7 @@ async fn lvs_pool_test() {
         let pool = Lvs::create_or_import(CreatePoolRequest {
             name: "tpool2".into(),
             disks: vec!["/tmp/disk2.img".into()],
+            pooltype: PoolType::Lvs as i32,
         })
         .await
         .unwrap();

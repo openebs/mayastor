@@ -12,6 +12,7 @@ use rpc::mayastor::{
     DestroyNexusRequest,
     Null,
     NvmeAnaState,
+    PoolType,
     PublishNexusRequest,
     ShareProtocolNexus,
 };
@@ -120,6 +121,7 @@ async fn nexus_multipath() {
         .create_pool(CreatePoolRequest {
             name: POOL_NAME.to_string(),
             disks: vec!["malloc:///disk0?size_mb=64".into()],
+            pooltype: PoolType::Lvs as i32,
         })
         .await
         .unwrap();
@@ -346,6 +348,7 @@ async fn nexus_resv_acquire() {
         .create_pool(CreatePoolRequest {
             name: POOL_NAME.to_string(),
             disks: vec!["malloc:///disk0?size_mb=64".into()],
+            pooltype: PoolType::Lvs as i32,
         })
         .await
         .unwrap();
