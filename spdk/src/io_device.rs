@@ -3,7 +3,7 @@ use std::{
     ptr,
 };
 
-use crate::{cpu_cores::Cores, ffihelper::IntoCString};
+use crate::ffihelper::IntoCString;
 
 use spdk_sys::{spdk_io_device_register, spdk_io_device_unregister};
 
@@ -16,9 +16,7 @@ pub trait IoDevice: Sized {
     /// Called during device unregisration process to allow the client code
     /// to do a clean up.
     /// The default implementation does nothing.
-    fn unregister_callback(&self) {
-        dbgln!(IoDevice, self.dbg(); "io_device_unregister: final callback");
-    }
+    fn unregister_callback(&self) {}
 
     /// Called to create a new per-core I/O channel data instance.
     fn io_channel_create(&self) -> Self::ChannelData;
@@ -36,8 +34,6 @@ pub trait IoDevice: Sized {
     /// TODO: check for register errors (spdk_io_device_register is void).
     /// TODO: check double registeration errors
     fn io_device_register(&self, name: Option<&str>) {
-        dbgln!(IoDevice, self.dbg(); "io_device_register");
-
         // `spdk_io_device_register` copies the name argument internally,
         // so we don't have to keep track on it.
         let name = if let Some(s) = name {
@@ -59,8 +55,6 @@ pub trait IoDevice: Sized {
 
     /// Unregisters this I/O device from SPDK.
     fn io_device_unregister(&self) {
-        dbgln!(IoDevice, self.dbg(); "io_device_unregister [pending free]");
-
         unsafe {
             spdk_io_device_unregister(
                 self.get_io_device_id(),
@@ -73,10 +67,14 @@ pub trait IoDevice: Sized {
     fn get_io_device_id(&self) -> *mut c_void {
         self as *const Self as *mut c_void
     }
+}
 
-    /// Makes a debug string for this device.
-    fn dbg(&self) -> String {
-        format!("id '{:p}'", self.get_io_device_id(),)
+/// TODO
+impl IoDevice for () {
+    type ChannelData = ();
+
+    fn io_channel_create(&self) -> Self::ChannelData {
+        ()
     }
 }
 
@@ -107,12 +105,8 @@ where
     Dev: IoDevice,
 {
     let io_dev = from_io_device_id::<Dev>(ctx);
-
-    dbgln!(IoDevice, io_dev.dbg(); "inner_io_channel_create: buf {:p}", buf);
-
     let io_chan = io_dev.io_channel_create();
     ptr::write(buf as *mut Dev::ChannelData, io_chan);
-
     0
 }
 
@@ -128,9 +122,6 @@ unsafe extern "C" fn inner_io_channel_destroy<Dev>(
     Dev: IoDevice,
 {
     let io_dev = from_io_device_id::<Dev>(ctx);
-
-    dbgln!(IoDevice, io_dev.dbg(); "inner_io_channel_destroy: buf {:p}", buf);
-
     let io_chan = ptr::read(buf as *mut Dev::ChannelData);
     io_dev.io_channel_destroy(io_chan);
 }

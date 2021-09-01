@@ -33,6 +33,17 @@ impl AsStr for *const c_char {
     }
 }
 
+impl AsStr for *mut c_char {
+    fn as_str(&self) -> &str {
+        unsafe {
+            CStr::from_ptr(*self).to_str().unwrap_or_else(|_| {
+                warn!("invalid UTF8 data");
+                Default::default()
+            })
+        }
+    }
+}
+
 impl AsStr for [c_char] {
     fn as_str(&self) -> &str {
         unsafe {

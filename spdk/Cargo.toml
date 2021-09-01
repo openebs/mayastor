@@ -7,8 +7,13 @@ edition = "2018"
 [dependencies]
 futures = "0.3.16"
 nix = "0.22.1"
+serde_json = "1.0.66"
 snafu = "0.6.10"
 tracing = "0.1.26"
+
+[dependencies.serde]
+features = ["derive"]
+version = "1.0.127"
 
 [dependencies.spdk-sys]
 path = "../spdk-sys"

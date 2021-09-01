@@ -2618,6 +2618,8 @@ version = "0.1.0"
 dependencies = [
  "futures",
  "nix",
+ "serde",
+ "serde_json",
  "snafu",
  "spdk-sys",
  "tracing",

@@ -17,18 +17,10 @@ impl<BdevData> BdevIo<BdevData>
 where
     BdevData: BdevOps,
 {
-    /// Makes a new `BdevIo` instance from a raw SPDK structure pointer.
-    pub(crate) fn new(bio: *mut spdk_bdev_io) -> Self {
-        BdevIo {
-            inner: NonNull::new(bio).unwrap(),
-            _ctx: Default::default(),
-        }
-    }
-
     /// Returns the block device that this I/O belongs to.
     #[inline]
     pub fn bdev(&self) -> Bdev<BdevData> {
-        Bdev::new(unsafe { self.inner.as_ref().bdev })
+        Bdev::from_ptr(unsafe { self.inner.as_ref().bdev })
     }
 
     /// Determines the type of this I/O.
@@ -57,12 +49,11 @@ where
         }
     }
 
-    /// TODO
-    pub fn dbg(&self) -> String {
-        format!(
-            "bdev <{}> io_type '{:?}'",
-            self.bdev().dbg(),
-            self.io_type()
-        )
+    /// Makes a new `BdevIo` instance from a raw SPDK structure pointer.
+    pub(crate) fn from_ptr(bio: *mut spdk_bdev_io) -> Self {
+        BdevIo {
+            inner: NonNull::new(bio).unwrap(),
+            _ctx: Default::default(),
+        }
     }
 }

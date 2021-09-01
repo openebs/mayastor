@@ -1,54 +1,38 @@
 #[macro_use]
 extern crate tracing;
+extern crate serde;
+extern crate serde_json;
 
+mod bdev;
+mod bdev_io;
 mod bdev_module;
+pub mod cpu_cores;
+mod error;
+pub mod ffihelper;
+mod io_channel;
+mod io_device;
+mod io_type;
+mod json_write_context;
+mod poller;
+mod thread;
+mod uuid;
+
+pub use crate::uuid::Uuid;
+pub use bdev::{Bdev, BdevBuilder, BdevOps};
+pub use bdev_io::BdevIo;
 pub use bdev_module::{
     BdevModule,
     BdevModuleBuild,
     BdevModuleBuilder,
-    BdevModuleConfigJson,
-    BdevModuleError,
-    BdevModuleFini,
-    BdevModuleGetCtxSize,
-    BdevModuleInit,
+    WithModuleConfigJson,
+    WithModuleFini,
+    WithModuleGetCtxSize,
+    WithModuleInit,
 };
-
-mod uuid;
-pub use crate::uuid::Uuid;
-
-pub mod cpu_cores;
-pub mod ffihelper;
-
-mod io_type;
-pub use io_type::{IoStatus, IoType};
-
-// -- tmp --
-#[macro_export]
-macro_rules! dbgln {
-    ($cls:ident, $subcls:expr; $fmt:expr $(,$a:expr)*) => ({
-        let p = format!("{: >2}| {: <20} | {: <64} |", Cores::current(),
-            stringify!($cls), $subcls);
-        let m = format!($fmt $(,$a)*);
-        println!("{} {}", p, m);
-    });
-}
-
-#[macro_use]
-pub mod bdev;
-pub use bdev::{Bdev, BdevBuilder, BdevOps};
-
-#[macro_use]
-mod io_device;
-pub use io_device::IoDevice;
-
-#[macro_use]
-mod io_channel;
+pub use error::{Result, SpdkError};
 pub use io_channel::IoChannel;
-
-#[macro_use]
-mod bdev_io;
-pub use bdev_io::BdevIo;
-
-#[macro_use]
-mod poller;
+pub use io_device::IoDevice;
+pub use io_type::{IoStatus, IoType};
+pub use json_write_context::JsonWriteContext;
 pub use poller::{Poller, PollerBuilder};
+pub use thread::Thread;

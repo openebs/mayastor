@@ -484,6 +484,11 @@ impl Bdev {
     pub fn bdev_first() -> Option<Bdev> {
         Self::from_ptr(unsafe { spdk_bdev_first() })
     }
+
+    /// TODO
+    pub fn as_v2(&self) -> spdk::Bdev<()> {
+        spdk::Bdev::<()>::legacy_from_ptr(self.as_ptr())
+    }
 }
 
 pub struct BdevIter(*mut spdk_bdev);

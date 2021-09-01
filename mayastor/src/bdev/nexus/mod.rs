@@ -4,13 +4,12 @@ use std::pin::Pin;
 
 use futures::{future::Future, FutureExt};
 
-use spdk_sys::spdk_bdev_module;
-
 use crate::{
     bdev::nexus::{nexus_bdev::Nexus, nexus_fn_table::NexusFnTable},
     core::{Bdev, Share},
     jsonrpc::{jsonrpc_register, Code, JsonRpcError, Result},
 };
+use spdk::BdevModule;
 
 /// Allocate C string and return pointer to it.
 /// NOTE: The resulting string must be freed explicitly after use!
@@ -110,9 +109,10 @@ pub fn register_module() {
     );
 }
 
-/// get a reference to the module
-pub fn module() -> Option<*mut spdk_bdev_module> {
-    nexus_module::NexusModule::current().map(|m| m.as_ptr())
+/// Returns Nexus Bdev module instance.
+/// Panics if the Nexus module was not registered.
+pub fn module() -> BdevModule {
+    nexus_module::NexusModule::current()
 }
 
 /// get a static ref to the fn table of the nexus module

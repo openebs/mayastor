@@ -8,14 +8,6 @@ pub struct IoChannel<ChannelData> {
 }
 
 impl<ChannelData> IoChannel<ChannelData> {
-    /// Makes a new `IoChannel` instance from a raw SPDK structure pointer.
-    pub(crate) fn new(raw_chan: *mut spdk_io_channel) -> Self {
-        Self {
-            inner: NonNull::new(raw_chan).unwrap(),
-            _cd: Default::default(),
-        }
-    }
-
     /// Returns a channel data instance that this I/O channel owns.
     pub fn channel_data<'a>(&self) -> &'a ChannelData {
         unsafe {
@@ -24,8 +16,11 @@ impl<ChannelData> IoChannel<ChannelData> {
         }
     }
 
-    /// TODO
-    pub fn dbg(&self) -> String {
-        format!("id '{:p}'", unsafe { self.inner.as_ref().dev })
+    /// Makes a new `IoChannel` wrapper from a raw SPDK structure pointer.
+    pub(crate) fn from_ptr(ptr: *mut spdk_io_channel) -> Self {
+        Self {
+            inner: NonNull::new(ptr).unwrap(),
+            _cd: Default::default(),
+        }
     }
 }

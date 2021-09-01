@@ -4,7 +4,7 @@ use std::{
     time::Duration,
 };
 
-use crate::{cpu_cores::Cores, ffihelper::IntoCString};
+use crate::ffihelper::IntoCString;
 
 use spdk_sys::{
     spdk_poller,
@@ -57,7 +57,6 @@ impl<'a, PollerData: 'a> Poller<'a, PollerData> {
 
 impl<'a, PollerData: 'a> Drop for Poller<'a, PollerData> {
     fn drop(&mut self) {
-        dbgln!(Poller, ""; "dropped");
         unsafe {
             let mut ptr: *mut spdk_poller = self.inner.as_ptr();
             spdk_poller_unregister(&mut ptr);

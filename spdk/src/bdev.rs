@@ -5,13 +5,22 @@ use std::{
     ptr::{null_mut, NonNull},
 };
 
-use crate::{cpu_cores::Cores, ffihelper::IntoCString, BdevIo, BdevModule, IoChannel, IoType, Uuid, IoDevice};
+use crate::{
+    ffihelper::{AsStr, IntoCString},
+    BdevIo,
+    BdevModule,
+    IoChannel,
+    IoDevice,
+    IoType,
+    Uuid,
+};
 
 use spdk_sys::{
     spdk_bdev,
     spdk_bdev_fn_table,
     spdk_bdev_io,
     spdk_bdev_io_type,
+    spdk_bdev_module_release_bdev,
     spdk_bdev_register,
     spdk_get_io_channel,
     spdk_io_channel,
@@ -32,7 +41,32 @@ where
 {
     /// Consumes the Bdev and registers it in SPDK.
     pub fn bdev_register(self) {
-        unsafe { spdk_bdev_register(self.inner.as_ptr()) };
+        // TODO: error check.
+        unsafe { spdk_bdev_register(self.as_ptr()) };
+    }
+
+    /// Returns Bdev name.
+    pub fn name(&self) -> &str {
+        self.as_ref().name.as_str()
+    }
+
+    /// Returns true if this Bdev is claimed by some other component.
+    pub fn is_claimed(&self) -> bool {
+        !self.as_ref().internal.claim_module.is_null()
+    }
+
+    /// Returns true if this Bdev is claimed by the given Bdev module.
+    pub fn is_claimed_by_module(&self, module: &BdevModule) -> bool {
+        self.as_ref().internal.claim_module == module.as_ptr()
+    }
+
+    /// Releases a write claim on a block device.
+    pub fn release_claim(&self) {
+        if self.is_claimed() {
+            unsafe {
+                spdk_bdev_module_release_bdev(self.as_ptr());
+            }
+        }
     }
 
     /// Returns a reference to a data object associated with this Bdev.
@@ -42,20 +76,31 @@ where
 
     /// Returns a reference to a container for with Bdev.
     fn container<'a>(&self) -> &'a Container<BdevData> {
-        unsafe { Container::<BdevData>::new(self.inner.as_ref().ctxt) }
+        Container::<BdevData>::from_ptr(self.as_ref().ctxt)
     }
 
-    /// Creates a new `Bdev` instance from an SPDK structure pointer.
-    pub(crate) fn new(ptr: *mut spdk_bdev) -> Self {
+    /// Creates a new `Bdev` wrapper from an SPDK structure pointer.
+    pub(crate) fn from_ptr(ptr: *mut spdk_bdev) -> Self {
         Self {
             inner: NonNull::new(ptr).unwrap(),
             _data: Default::default(),
         }
     }
 
-    /// TODO
-    pub(crate) fn dbg(&self) -> String {
-        format!("bdev: {}", self.container().dbg())
+    /// `from_ptr()` for legacy use.
+    /// TODO: remove me.
+    pub fn legacy_from_ptr(ptr: *mut spdk_bdev) -> Self {
+        Self::from_ptr(ptr)
+    }
+
+    /// Returns a pointer to the underlying `spdk_bdev` structure.
+    pub(crate) fn as_ptr(&self) -> *mut spdk_bdev {
+        self.inner.as_ptr()
+    }
+
+    /// Returns a reference to the underlying `spdk_bdev` structure.
+    pub(crate) fn as_ref(&self) -> &spdk_bdev {
+        unsafe { self.inner.as_ref() }
     }
 }
 
@@ -87,6 +132,30 @@ pub trait BdevOps {
     fn get_io_device(&self) -> &Self::IoDev;
 }
 
+/// TODO
+impl BdevOps for () {
+    type ChannelData = ();
+    type BdevData = ();
+    type IoDev = ();
+
+    fn destruct(&self) {}
+
+    fn submit_request(
+        &self,
+        _chan: IoChannel<Self::ChannelData>,
+        _bio: BdevIo<Self::BdevData>,
+    ) {
+    }
+
+    fn io_type_supported(&self, _io_type: IoType) -> bool {
+        false
+    }
+
+    fn get_io_device(&self) -> &Self::IoDev {
+        &self
+    }
+}
+
 /// Container for the data associated with a `Bdev` instance.
 /// This container stores the `spdk_bdev` structure itself,
 /// its associated function table and user-defined data structure provided upon
@@ -108,10 +177,7 @@ where
     BdevData: BdevOps,
 {
     fn drop(&mut self) {
-        dbgln!(Bdev, self.dbg(); "drop container ...");
-
         // Tell the Bdev data object to be cleaned up.
-        dbgln!(Bdev, self.dbg(); "destruct data ...");
         self.data.destruct();
 
         // Drop the associated strings.
@@ -132,13 +198,8 @@ where
     /// # Safety
     ///
     /// TODO
-    fn new<'a>(ctx: *mut c_void) -> &'a mut Self {
+    fn from_ptr<'a>(ctx: *mut c_void) -> &'a mut Self {
         unsafe { &mut *(ctx as *mut Self) }
-    }
-
-    /// TODO
-    fn dbg(&self) -> String {
-        format!("data '{:p}'", &self.data as *const _ as *const c_void)
     }
 }
 
@@ -152,13 +213,9 @@ unsafe extern "C" fn inner_bdev_destruct<BdevData>(ctx: *mut c_void) -> i32
 where
     BdevData: BdevOps,
 {
-    dbgln!(Bdev, Container::<BdevData>::new(ctx).dbg();
-        "raw bdev_destruct ...");
-
     // Dropping the container will drop all the associated resources:
     // the context, names, function table and `spdk_bdev` itself.
     Box::from_raw(ctx as *mut Container<BdevData>);
-    dbgln!(Bdev, "------------------"; "drop done");
     0
 }
 
@@ -169,11 +226,8 @@ unsafe extern "C" fn inner_bdev_submit_request<BdevData>(
 ) where
     BdevData: BdevOps<BdevData = BdevData>,
 {
-    let c = IoChannel::<BdevData::ChannelData>::new(chan);
-    let b = BdevIo::<BdevData::BdevData>::new(bio);
-
-    dbgln!(Bdev, b.dbg(); "raw submit_request for chan '{}' ...", c.dbg());
-
+    let c = IoChannel::<BdevData::ChannelData>::from_ptr(chan);
+    let b = BdevIo::<BdevData::BdevData>::from_ptr(bio);
     b.bdev().data().submit_request(c, b);
 }
 
@@ -191,24 +245,18 @@ unsafe extern "C" fn inner_bdev_get_io_channel<BdevData>(
 where
     BdevData: BdevOps<BdevData = BdevData>,
 {
-    dbgln!(Bdev, Container::<BdevData>::new(ctx).dbg();
-        "raw get_io_channel...");
-
-    let c = Container::<BdevData>::new(ctx);
+    let c = Container::<BdevData>::from_ptr(ctx);
     let io_dev = c.data.get_io_device();
     spdk_get_io_channel(io_dev.get_io_device_id())
 }
 
 /// TODO
 unsafe extern "C" fn inner_bdev_get_module_ctx<BdevData>(
-    ctx: *mut c_void,
+    _ctx: *mut c_void,
 ) -> *mut c_void
 where
     BdevData: BdevOps<BdevData = BdevData>,
 {
-    dbgln!(Bdev, Container::<BdevData>::new(ctx).dbg();
-        "raw get_module_ctx...");
-
     null_mut::<c_void>()
 }
 
@@ -227,10 +275,7 @@ unsafe extern "C" fn inner_bdev_io_type_supported<BdevData>(
 where
     BdevData: BdevOps<BdevData = BdevData>,
 {
-    dbgln!(Bdev, Container::<BdevData>::new(ctx).dbg();
-        "raw io_type_supported...");
-
-    let c = Container::<BdevData>::new(ctx);
+    let c = Container::<BdevData>::from_ptr(ctx);
     c.data.io_type_supported(IoType::from(io_type))
 }
 
@@ -404,7 +449,7 @@ where
         unsafe {
             (*p).bdev.fn_table = &(*p).fn_table;
             (*p).bdev.ctxt = p as *mut c_void;
-            Bdev::new(&mut (*p).bdev)
+            Bdev::from_ptr(&mut (*p).bdev)
         }
     }
 }

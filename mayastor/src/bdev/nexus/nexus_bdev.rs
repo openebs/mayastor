@@ -520,7 +520,7 @@ impl Nexus {
         b.name = c_str!(name);
         b.product_name = c_str!(NEXUS_PRODUCT_ID);
         b.fn_table = nexus::fn_table().unwrap();
-        b.module = nexus::module().unwrap();
+        b.module = nexus::module().legacy_as_ptr();
         b.blocklen = 0;
         b.blockcnt = 0;
         b.required_alignment = 9;

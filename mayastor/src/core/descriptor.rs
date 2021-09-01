@@ -13,14 +13,14 @@ use spdk_sys::{
     spdk_bdev_desc,
     spdk_bdev_desc_get_bdev,
     spdk_bdev_get_io_channel,
-    spdk_bdev_module_claim_bdev,
-    spdk_bdev_module_release_bdev,
 };
 
 use crate::{
-    bdev::nexus::nexus_module::NEXUS_MODULE,
+    // bdev::nexus::nexus_module::NEXUS_MODULE,
+    bdev::nexus::nexus_module::NEXUS_NAME,
     core::{channel::IoChannel, Bdev, BdevHandle, CoreError, Mthread},
 };
+use spdk::BdevModule;
 
 /// NewType around a descriptor, multiple descriptor to the same bdev is
 /// allowed. A bdev can be claimed for exclusive write access. Any existing
@@ -55,37 +55,38 @@ impl Descriptor {
     ///
     /// Conversely, Preexisting writers will not be downgraded.
     pub fn claim(&self) -> bool {
-        let err = unsafe {
-            spdk_bdev_module_claim_bdev(
-                self.get_bdev().as_ptr(),
-                self.0,
-                NEXUS_MODULE.as_ptr(),
-            )
-        };
-
-        let name = self.get_bdev().name();
-        debug!("claimed bdev {}", name);
-        err == 0
+        match BdevModule::find_by_name(NEXUS_NAME) {
+            Ok(m) => {
+                match m.claim_bdev(&self.get_bdev().as_v2(), self.0) {
+                    Ok(_) => true,
+                    Err(_) => false,
+                }
+            },
+            Err(err) => {
+                error!("{}", err);
+                false
+            }
+        }
     }
 
     /// unclaim a bdev previously claimed by NEXUS_MODULE
     pub(crate) fn unclaim(&self) {
-        unsafe {
-            if (*self.get_bdev().as_ptr()).internal.claim_module
-                == NEXUS_MODULE.as_ptr()
-            {
-                spdk_bdev_module_release_bdev(self.get_bdev().as_ptr());
+        match BdevModule::find_by_name(NEXUS_NAME) {
+            Ok(m) => {
+                match m.release_bdev(&self.get_bdev().as_v2()) {
+                    Err(err) => error!("{}", err),
+                    _ => ()
+                };
+            },
+            Err(err) => {
+                error!("{}", err);
             }
         }
     }
 
     /// release a previously claimed bdev
     pub fn release(&self) {
-        unsafe {
-            if self.get_bdev().is_claimed() {
-                spdk_bdev_module_release_bdev(self.get_bdev().as_ptr())
-            }
-        }
+        self.get_bdev().as_v2().release_claim();
     }
 
     /// Return the bdev associated with this descriptor, a descriptor cannot

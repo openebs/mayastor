@@ -8,7 +8,6 @@ extern crate serde;
 extern crate function_name;
 extern crate serde_json;
 extern crate snafu;
-#[macro_use]
 extern crate spdk;
 extern crate spdk_sys;
 
@@ -42,6 +41,5 @@ macro_rules! CPS_INIT {
 pub extern "C" fn cps_init() {
     subsys::register_subsystem();
     bdev::nexus::register_module();
-    bdev::nullblk::register();
     bdev::null_ng::register();
 }
