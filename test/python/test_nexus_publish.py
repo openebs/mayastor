@@ -3,7 +3,7 @@ import pytest
 from collections import namedtuple
 import subprocess
 
-from common.mayastor import mayastor_mod
+from common.mayastor import container_mod, mayastor_mod
 
 import grpc
 import mayastor_pb2 as pb

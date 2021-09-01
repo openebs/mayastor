@@ -12,19 +12,16 @@ class Fio(object):
         self.runtime = runtime
         self.optstr = optstr
 
-    def build(self) -> str:
-        if isinstance(self.device, str):
-            devs = [self.device]
-        else:
-            devs = self.device
+    def build(self):
+        devs = [self.device] if isinstance(self.device, str) else self.device
 
         command = (
             "sudo fio --ioengine=linuxaio --direct=1 --bs=4k "
-            "--time_based=1  {} --rw={} "
+            "--time_based=1 {} --rw={} "
             "--group_reporting=1 --norandommap=1 --iodepth=64 "
-            "--runtime={} --name={} --filename="
-        ).format(self.optstr, self.rw, self.runtime, self.name)
-
-        command += "".join(map(str, devs))
+            "--runtime={} --name={} --filename={}"
+        ).format(
+            self.optstr, self.rw, self.runtime, self.name, ":".join(map(str, devs))
+        )
 
         return command

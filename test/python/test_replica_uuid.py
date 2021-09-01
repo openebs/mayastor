@@ -1,6 +1,6 @@
 import pytest
 from pytest_bdd import given, scenario, then, when
-from common.mayastor import mayastor_mod
+from common.mayastor import container_mod, mayastor_mod
 import mayastor_pb2 as pb
 
 POOL_NAME = "pool0"

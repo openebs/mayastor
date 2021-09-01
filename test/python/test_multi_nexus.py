@@ -1,9 +1,9 @@
 from common.hdl import MayastorHandle
-from common.command import run_cmd, run_cmd_async, run_cmd_async_at
-from common.nvme import nvme_remote_connect, nvme_remote_disconnect
+from common.command import run_cmd, run_cmd_async
+from common.nvme import nvme_connect, nvme_disconnect
 from common.fio import Fio
 from common.fio_spdk import FioSpdk
-from common.mayastor import mayastors, target_vm, containers
+from common.mayastor import containers, mayastors, create_temp_files, check_size
 import pytest
 import asyncio
 import uuid as guid
@@ -12,48 +12,32 @@ UUID = "0000000-0000-0000-0000-000000000001"
 NEXUS_UUID = "3ae73410-6136-4430-a7b5-cbec9fe2d273"
 
 
-@pytest.fixture(scope="function")
-def create_temp_files(containers):
-    """Create temp files for each run so we start out clean."""
-    for name in containers:
-        run_cmd(f"rm -rf /tmp/{name}.img", True)
-    for name in containers:
-        run_cmd(f"truncate -s 1G /tmp/{name}.img", True)
-
-
-def check_size(prev, current, delta):
-    """Validate that replica creation consumes space on the pool."""
-    before = prev.pools[0].used
-    after = current.pools[0].used
-    assert delta == (before - after) >> 20
-
-
 @pytest.fixture
-def create_pool_on_all_nodes(create_temp_files, containers, mayastors):
-    """Create a pool on each node."""
+def create_pool_on_all_nodes(mayastors, create_temp_files):
+    "Create a pool on each node."
     uuids = []
 
-    for name, h in mayastors.items():
-        h.pool_create(f"{name}", f"aio:///tmp/{name}.img")
+    for name, ms in mayastors.items():
+        ms.pool_create(f"{name}", f"aio:///tmp/{name}.img")
         # validate we have zero replicas
-        assert len(h.replica_list().replicas) == 0
+        assert len(ms.replica_list().replicas) == 0
 
     for i in range(15):
         uuid = guid.uuid4()
-        for name, h in mayastors.items():
-            before = h.pool_list()
-            h.replica_create(name, uuid, 64 * 1024 * 1024)
-            after = h.pool_list()
+        for name, ms in mayastors.items():
+            before = ms.pool_list()
+            ms.replica_create(name, uuid, 64 * 1024 * 1024)
+            after = ms.pool_list()
             check_size(before, after, -64)
             # ensure our replica count goes up as expected
-            assert len(h.replica_list().replicas) == i + 1
-
+            assert len(ms.replica_list().replicas) == i + 1
         uuids.append(uuid)
+
     return uuids
 
 
 @pytest.mark.parametrize("times", range(2))
-def test_restart(times, create_pool_on_all_nodes, containers, mayastors):
+def test_restart(containers, mayastors, create_pool_on_all_nodes, times):
     """
     Test that when we create replicas and destroy them the count is as expected
     At this point we have 3 nodes each with 15 replica's.
@@ -87,17 +71,17 @@ def test_restart(times, create_pool_on_all_nodes, containers, mayastors):
     ms1.pool_create("ms1", "aio:///tmp/ms1.img")
     replicas = ms1.replica_list().replicas
 
-    assert 8 == len(replicas)
+    assert len(replicas) == 8
 
 
 async def kill_after(container, sec):
-    """Kill the given container after sec seconds."""
+    "Kill the given container after sec seconds."
     await asyncio.sleep(sec)
     container.kill()
 
 
 @pytest.mark.asyncio
-async def test_multiple(create_pool_on_all_nodes, containers, mayastors, target_vm):
+async def test_multiple(containers, mayastors, create_pool_on_all_nodes):
 
     ms1 = mayastors.get("ms1")
     rlist_m2 = mayastors.get("ms2").replica_list().replicas
@@ -115,21 +99,19 @@ async def test_multiple(create_pool_on_all_nodes, containers, mayastors, target_
         nexus_list.append(ms1.nexus_publish(uuid))
 
     for nexus in nexus_list:
-        dev = await nvme_remote_connect(target_vm, nexus)
+        dev = nvme_connect(nexus)
         devs.append(dev)
 
     fio_cmd = Fio(f"job-raw", "randwrite", devs).build()
-    await asyncio.gather(
-        run_cmd_async_at(target_vm, fio_cmd),
-        kill_after(to_kill, 3),
-    )
+
+    await asyncio.gather(run_cmd_async(fio_cmd), kill_after(to_kill, 3))
 
     for nexus in nexus_list:
-        dev = await nvme_remote_disconnect(target_vm, nexus)
+        nvme_disconnect(nexus)
 
 
 @pytest.mark.asyncio
-async def test_multiple_fs(create_pool_on_all_nodes, containers, mayastors, target_vm):
+async def test_multiple_fs(containers, mayastors, create_pool_on_all_nodes):
 
     ms1 = mayastors.get("ms1")
     rlist_m2 = mayastors.get("ms2").replica_list().replicas
@@ -147,13 +129,13 @@ async def test_multiple_fs(create_pool_on_all_nodes, containers, mayastors, targ
         nexus_list.append(ms1.nexus_publish(uuid))
 
     for nexus in nexus_list:
-        dev = await nvme_remote_connect(target_vm, nexus)
+        dev = nvme_connect(nexus)
         devs.append(dev)
 
     for d in devs:
-        await run_cmd_async_at(target_vm, f"sudo mkfs.xfs {d}")
-        await run_cmd_async_at(target_vm, f"sudo mkdir -p /mnt{d}")
-        await run_cmd_async_at(target_vm, f"sudo mount {d} /mnt{d}")
+        await run_cmd_async(f"sudo mkfs.xfs {d}")
+        await run_cmd_async(f"sudo mkdir -p /mnt{d}")
+        await run_cmd_async(f"sudo mount {d} /mnt{d}")
 
     # as we are mounted now we need to ensure we write to files not raw devices
     files = []
@@ -168,20 +150,17 @@ async def test_multiple_fs(create_pool_on_all_nodes, containers, mayastors, targ
     ).build()
     print(fio_cmd)
 
-    await asyncio.gather(
-        run_cmd_async_at(target_vm, fio_cmd),
-        kill_after(to_kill, 3),
-    )
+    await asyncio.gather(run_cmd_async(fio_cmd), kill_after(to_kill, 3))
 
     for d in devs:
-        await run_cmd_async_at(target_vm, f"sudo umount {d}")
+        await run_cmd_async(f"sudo umount {d}")
 
     for nexus in nexus_list:
-        dev = await nvme_remote_disconnect(target_vm, nexus)
+        nvme_disconnect(nexus)
 
 
 @pytest.mark.asyncio
-async def test_multiple_spdk(create_pool_on_all_nodes, containers, mayastors):
+async def test_multiple_spdk(containers, mayastors, create_pool_on_all_nodes):
 
     ms1 = mayastors.get("ms1")
     rlist_m2 = mayastors.get("ms2").replica_list().replicas

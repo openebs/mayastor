@@ -1,5 +1,5 @@
 import pytest
-from common.mayastor import containers_mod, mayastor_mod
+from common.mayastor import container_mod, mayastor_mod
 from common.msclient import get_msclient
 import mayastor_pb2 as pb
 import uuid
@@ -59,7 +59,7 @@ def ctrl_name_from_uri(uri):
 
 
 @pytest.mark.asyncio
-async def test_controller_list(create_replicas, create_nexus, mayastor_mod):
+async def test_controller_list(mayastor_mod, create_replicas, create_nexus):
     replica1 = mayastor_mod.get("ms1")
     replica2 = mayastor_mod.get("ms2")
     replicas = [replica1, replica2]
@@ -85,9 +85,7 @@ async def test_controller_list(create_replicas, create_nexus, mayastor_mod):
 
 
 @pytest.mark.asyncio
-async def test_controller_stats(
-    create_replicas, create_nexus, mayastor_mod, containers_mod
-):
+async def test_controller_stats(mayastor_mod, create_replicas, create_nexus):
     nexus = mayastor_mod.get("ms3")
     mscli = get_msclient().with_json_output().with_url(nexus.ip_address())
 

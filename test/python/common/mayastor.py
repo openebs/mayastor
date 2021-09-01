@@ -1,76 +1,62 @@
-"""Default fixtures that are considered to be reusable. These are all function scoped."""
+"Default fixtures that are considered to be reusable."
 import pytest
-from pytest_testconfig import config
 from common.hdl import MayastorHandle
 from common.command import run_cmd
-import os
 
 pytest_plugins = ["docker_compose"]
 
 
-@pytest.fixture
-def target_vm():
-    return config["load_generators"]["vm1"]
-
-
-@pytest.fixture(scope="function")
-def create_temp_files(containers):
-    """Create temp files for each run so we start out clean."""
-    for name in containers:
-        run_cmd(f"rm -rf /tmp/{name}.img", True)
-    for name in containers:
-        run_cmd(f"truncate -s 1G /tmp/{name}.img", True)
-
-
 def check_size(prev, current, delta):
-    """Validate that replica creation consumes space on the pool."""
+    "Validate that replica creation consumes space on the pool."
     before = prev.pools[0].used
     after = current.pools[0].used
     assert delta == (before - after) >> 20
 
 
 @pytest.fixture(scope="function")
-def mayastors(docker_project, function_scoped_container_getter):
-    """Fixture to get a reference to mayastor gRPC handles."""
-    project = docker_project
-    handles = {}
-    for name in project.service_names:
-        # because we use static networks .get_service() does not work
-        services = function_scoped_container_getter.get(name)
-        ip_v4 = services.get("NetworkSettings.Networks.mayastor_net.IPAddress")
-        handles[name] = MayastorHandle(ip_v4)
-    yield handles
-
-
-@pytest.fixture(scope="function")
 def containers(docker_project, function_scoped_container_getter):
-    """Fixture to get handles to mayastor as well as the containers."""
-    project = docker_project
+    "Fixture to get handles to mayastor containers."
     containers = {}
-    for name in project.service_names:
+    for name in docker_project.service_names:
         containers[name] = function_scoped_container_getter.get(name)
     yield containers
 
 
+@pytest.fixture(scope="function")
+def mayastors(docker_project, containers):
+    "Fixture to get a reference to mayastor gRPC handles"
+    handles = {}
+    for name, container in containers.items():
+        handles[name] = MayastorHandle(
+            container.get("NetworkSettings.Networks.mayastor_net.IPAddress")
+        )
+    yield handles
+
+
+@pytest.fixture(scope="function")
+def create_temp_files(containers):
+    "Create temp files for each run so we start out clean."
+    for name in containers.keys():
+        run_cmd(f"rm -f /tmp/{name}.img", True)
+    for name in containers.keys():
+        run_cmd(f"truncate -s 1G /tmp/{name}.img", True)
+
+
 @pytest.fixture(scope="module")
-def containers_mod(docker_project, module_scoped_container_getter):
-    """Fixture to get handles to mayastor as well as the containers."""
-    project = docker_project
+def container_mod(docker_project, module_scoped_container_getter):
+    "Fixture to get handles to mayastor containers."
     containers = {}
-    for name in project.service_names:
+    for name in docker_project.service_names:
         containers[name] = module_scoped_container_getter.get(name)
     yield containers
 
 
 @pytest.fixture(scope="module")
-def mayastor_mod(docker_project, module_scoped_container_getter):
-    """Fixture to get a reference to mayastor gRPC handles"""
-    project = docker_project
+def mayastor_mod(docker_project, container_mod):
+    "Fixture to get a reference to mayastor gRPC handles."
     handles = {}
-    for name in project.service_names:
-        # because we use static networks .get_service() does not work
-        services = module_scoped_container_getter.get(name)
-        ip_v4 = services.get("NetworkSettings.Networks.mayastor_net.IPAddress")
-        handles[name] = MayastorHandle(ip_v4)
-
+    for name, container in container_mod.items():
+        handles[name] = MayastorHandle(
+            container.get("NetworkSettings.Networks.mayastor_net.IPAddress")
+        )
     yield handles

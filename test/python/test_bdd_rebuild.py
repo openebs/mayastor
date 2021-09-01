@@ -5,7 +5,7 @@ import os
 import subprocess
 import time
 
-from common.mayastor import mayastor_mod
+from common.mayastor import container_mod, mayastor_mod
 from common.volume import Volume
 
 import grpc

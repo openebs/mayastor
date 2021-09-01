@@ -2,7 +2,7 @@ import pytest
 from pytest_bdd import given, scenario, then, when, parsers
 
 from common.command import run_cmd
-from common.mayastor import mayastor_mod
+from common.mayastor import container_mod, mayastor_mod
 
 import grpc
 import mayastor_pb2 as pb

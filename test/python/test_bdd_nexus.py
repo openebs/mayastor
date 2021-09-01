@@ -4,7 +4,7 @@ from pytest_bdd import given, scenario, then, when, parsers
 from collections import namedtuple
 import subprocess
 
-from common.mayastor import mayastor_mod
+from common.mayastor import container_mod, mayastor_mod
 from common.volume import Volume
 
 import grpc
