@@ -26,7 +26,7 @@ use crate::{
         device_destroy,
         nexus::{
             self,
-            instances,
+            instances_mut,
             nexus_channel::{
                 DrEvent,
                 NexusChannel,
@@ -405,7 +405,7 @@ pub struct Nexus {
     /// NVMe parameters
     pub(crate) nvme_params: NexusNvmeParams,
     /// inner bdev
-    pub(crate) bdev: Bdev,
+    // my_bdev: Bdev,
     /// raw pointer to bdev (to destruct it later using Box::from_raw())
     bdev_raw: *mut spdk_bdev,
     /// represents the current state of the Nexus
@@ -529,9 +529,8 @@ impl Nexus {
             name: name.to_string(),
             child_count: 0,
             children: Vec::new(),
-            bdev: Bdev::from(&*b as *const _ as *mut spdk_bdev),
             state: parking_lot::Mutex::new(NexusState::Init),
-            bdev_raw: Box::into_raw(b),
+            bdev_raw: std::ptr::null_mut::<spdk_bdev>(),
             data_ent_offset: 0,
             share_handle: None,
             size,
@@ -543,6 +542,8 @@ impl Nexus {
             nexus_info: futures::lock::Mutex::new(Default::default()),
         });
 
+        n.bdev_raw = Box::into_raw(b);
+
         // set the UUID of the underlying bdev
         n.set_uuid(uuid);
 
@@ -553,9 +554,20 @@ impl Nexus {
 
         // store a reference to the Self in the bdev structure.
         unsafe {
-            (*n.bdev.as_ptr()).ctxt = n.as_ref() as *const _ as *mut c_void;
+            (*n.bdev_mut().as_ptr()).ctxt =
+                n.as_ref() as *const _ as *mut c_void;
         }
         n
+    }
+
+    /// TODO
+    pub(crate) fn bdev(&self) -> Bdev {
+        Bdev::from(self.bdev_raw)
+    }
+
+    /// TODO
+    pub(crate) fn bdev_mut(&mut self) -> Bdev {
+        Bdev::from(self.bdev_raw)
     }
 
     /// Set the UUID of the underlying bdev of this nexus
@@ -564,7 +576,7 @@ impl Nexus {
         match uuid {
             Some(s) => match uuid::Uuid::parse_str(s) {
                 Ok(u) => {
-                    self.bdev.set_uuid(u);
+                    self.bdev_mut().set_uuid(u);
                     info!("UUID set to {} for nexus {}", u, self.name);
                     return;
                 }
@@ -580,10 +592,10 @@ impl Nexus {
             }
         }
 
-        self.bdev.generate_uuid();
+        self.bdev_mut().generate_uuid();
         info!(
             "using generated UUID {} for nexus {}",
-            self.bdev.uuid(),
+            self.bdev().uuid(),
             self.name
         );
     }
@@ -597,9 +609,10 @@ impl Nexus {
         *self.state.lock() = state;
         state
     }
+
     /// returns the size in bytes of the nexus instance
     pub fn size(&self) -> u64 {
-        u64::from(self.bdev.block_len()) * self.bdev.num_blocks()
+        self.bdev().size_in_bytes()
     }
 
     /// reconfigure the child event handler
@@ -714,7 +727,7 @@ impl Nexus {
 
         // no-op when not shared and will be removed once the old share bits are
         // gone
-        self.bdev.unshare().await.unwrap();
+        self.bdev().unshare().await.unwrap();
 
         // wait for all rebuild jobs to be cancelled before proceeding with the
         // destruction of the nexus
@@ -741,7 +754,7 @@ impl Nexus {
         unsafe {
             // This will trigger a callback to destruct() in the fn_table.
             spdk_bdev_unregister(
-                self.bdev.as_ptr(),
+                self.bdev().as_ptr(),
                 Some(nexus_destroy_cb),
                 Box::into_raw(Box::new(s)) as *mut _,
             );
@@ -1010,7 +1023,7 @@ impl Nexus {
 
         debug!("{}: IO device registered at {:p}", self.name, self.as_ptr());
 
-        let errno = unsafe { spdk_bdev_register(self.bdev.as_ptr()) };
+        let errno = unsafe { spdk_bdev_register(self.bdev().as_ptr()) };
 
         match errno_result_from_i32((), errno) {
             Ok(_) => {
@@ -1172,7 +1185,7 @@ async fn nexus_create_internal(
     children: &[String],
 ) -> Result<(), Error> {
     // global variable defined in the nexus module
-    let nexus_list = instances();
+    let nexus_list = instances_mut();
 
     if let Some(nexus) = nexus_list.iter().find(|n| n.name == name) {
         // FIXME: Instead of error, we return Ok without checking
@@ -1251,7 +1264,7 @@ async fn nexus_create_internal(
 
 /// Lookup a nexus by its name (currently used only by test functions).
 pub fn nexus_lookup(name: &str) -> Option<&mut Nexus> {
-    instances()
+    instances_mut()
         .iter_mut()
         .find(|n| n.name == name)
         .map(AsMut::as_mut)
@@ -1264,8 +1277,8 @@ impl Display for Nexus {
             "{}: state: {:?} blk_cnt: {}, blk_size: {}",
             self.name,
             self.state,
-            self.bdev.num_blocks(),
-            self.bdev.block_len(),
+            self.bdev().num_blocks(),
+            self.bdev().block_len(),
         );
 
         self.children

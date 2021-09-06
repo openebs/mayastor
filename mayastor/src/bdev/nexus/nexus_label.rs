@@ -1338,7 +1338,7 @@ impl Nexus {
             });
         }
 
-        let block_size = u64::from(self.bdev.block_len());
+        let block_size = u64::from(self.bdev().block_len());
 
         let mut offsets: Vec<u64> = Vec::new();
         let mut size = self.size;
@@ -1374,7 +1374,7 @@ impl Nexus {
         self.data_ent_offset = offsets[0] / block_size;
 
         // Set the nexus size
-        self.bdev.set_block_count(size / block_size);
+        self.bdev_mut().set_block_count(size / block_size);
 
         Ok(())
     }
@@ -1407,7 +1407,7 @@ impl Nexus {
             });
         }
 
-        let block_size = u64::from(self.bdev.block_len());
+        let block_size = u64::from(self.bdev().block_len());
 
         let mut offsets: Vec<u64> = Vec::new();
         let mut size = self.size;
@@ -1443,7 +1443,7 @@ impl Nexus {
         self.data_ent_offset = offsets[0] / block_size;
 
         // Set the nexus size
-        self.bdev.set_block_count(size / block_size);
+        self.bdev_mut().set_block_count(size / block_size);
 
         Ok(())
     }

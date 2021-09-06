@@ -253,7 +253,7 @@ impl NexusChannel {
         ctx: *mut c_void,
     ) -> i32 {
         let nexus = unsafe { Nexus::from_raw(device) };
-        debug!("{}: Creating IO channels at {:p}", nexus.bdev.name(), ctx);
+        debug!("{}: Creating IO channels at {:p}", nexus.bdev().name(), ctx);
 
         let ch = NexusChannel::from_raw(ctx);
         let mut channels = Box::new(NexusChannelInner {
@@ -285,7 +285,7 @@ impl NexusChannel {
     /// function called on io channel destruction
     pub(crate) extern "C" fn destroy(device: *mut c_void, ctx: *mut c_void) {
         let nexus = unsafe { Nexus::from_raw(device) };
-        debug!("{} Destroying IO channels", nexus.bdev.name());
+        debug!("{} Destroying IO channels", nexus.bdev().name());
         let inner = NexusChannel::from_raw(ctx).inner_mut();
         inner.writers.clear();
         inner.readers.clear();

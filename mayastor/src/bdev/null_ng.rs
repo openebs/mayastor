@@ -83,7 +83,7 @@ impl<'a> BdevOps for NullIoDevice<'a> {
     type IoDev = Self;
 
     /// TODO
-    fn destruct(&self) {
+    fn destruct(&mut self) {
         self.io_device_unregister();
     }
 

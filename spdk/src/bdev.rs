@@ -18,6 +18,7 @@ use crate::{
 use spdk_sys::{
     spdk_bdev,
     spdk_bdev_fn_table,
+    spdk_bdev_get_buf_align,
     spdk_bdev_io,
     spdk_bdev_io_type,
     spdk_bdev_module_release_bdev,
@@ -45,9 +46,48 @@ where
         unsafe { spdk_bdev_register(self.as_ptr()) };
     }
 
+    /// Returns a Bdev module for this Bdev.
+    pub fn bdev_module(&self) -> BdevModule {
+        BdevModule::from_ptr(self.as_ref().module)
+    }
+
     /// Returns Bdev name.
     pub fn name(&self) -> &str {
         self.as_ref().name.as_str()
+    }
+    /// Returns the configured product name.
+    pub fn product_name(&self) -> &str {
+        self.as_ref().product_name.as_str()
+    }
+
+    /// Returns the name of the module for thos Bdev.
+    pub fn module_name(&self) -> &str {
+        unsafe { (*self.as_ref().module).name.as_str() }
+    }
+
+    /// Returns the block size of the underlying device.
+    pub fn block_len(&self) -> u64 {
+        self.as_ref().blocklen as u64
+    }
+
+    /// Returns number of blocks for this device.
+    pub fn num_blocks(&self) -> u64 {
+        self.as_ref().blockcnt
+    }
+
+    /// Returns the Bdev size in bytes.
+    pub fn size_in_bytes(&self) -> u64 {
+        self.num_blocks() * self.block_len()
+    }
+
+    /// Returns the alignment of the Bdev.
+    pub fn alignment(&self) -> u64 {
+        unsafe { spdk_bdev_get_buf_align(self.as_ptr()) }
+    }
+
+    /// Returns the required alignment of the Bdev.
+    pub fn required_alignment(&self) -> u8 {
+        self.as_ref().required_alignment
     }
 
     /// Returns true if this Bdev is claimed by some other component.
@@ -74,8 +114,18 @@ where
         &self.container().data
     }
 
+    /// Returns a mutable reference to a data object associated with this Bdev.
+    pub fn data_mut<'a>(&mut self) -> &'a mut BdevData {
+        &mut self.container_mut().data
+    }
+
     /// Returns a reference to a container for with Bdev.
     fn container<'a>(&self) -> &'a Container<BdevData> {
+        Container::<BdevData>::from_ptr(self.as_ref().ctxt)
+    }
+
+    /// Returns a reference to a container for with Bdev.
+    fn container_mut<'a>(&mut self) -> &'a mut Container<BdevData> {
         Container::<BdevData>::from_ptr(self.as_ref().ctxt)
     }
 
@@ -116,7 +166,7 @@ pub trait BdevOps {
     type IoDev: IoDevice;
 
     /// TODO
-    fn destruct(&self);
+    fn destruct(&mut self);
 
     /// TODO
     fn submit_request(
@@ -138,7 +188,7 @@ impl BdevOps for () {
     type BdevData = ();
     type IoDev = ();
 
-    fn destruct(&self) {}
+    fn destruct(&mut self) {}
 
     fn submit_request(
         &self,
@@ -342,6 +392,12 @@ where
             get_module_ctx: Some(inner_bdev_get_module_ctx::<BdevData>),
         });
         self.data = Some(ctx);
+        self
+    }
+
+    /// TODO
+    pub fn with_uuid(mut self, u: Uuid) -> Self {
+        self.uuid = Some(u);
         self
     }
 

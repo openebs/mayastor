@@ -19,7 +19,7 @@ use spdk_sys::{
 
 use crate::{
     bdev::nexus::{
-        instances,
+        instances_mut,
         nexus_bdev::Nexus,
         nexus_io::{nexus_submit_io, NexusBio},
     },
@@ -84,7 +84,7 @@ impl NexusFnTable {
                     trace!(
                         "IO type {:?} not supported for {}",
                         _io_type,
-                        nexus.bdev.name()
+                        nexus.bdev().name()
                     );
                 }
                 supported
@@ -93,7 +93,7 @@ impl NexusFnTable {
                 debug!(
                     "un matched IO type {:#?} not supported for {}",
                     _io_type,
-                    nexus.bdev.name()
+                    nexus.bdev().name()
                 );
                 false
             }
@@ -115,7 +115,7 @@ impl NexusFnTable {
     /// called per core to create IO channels per Nexus instance
     extern "C" fn io_channel(ctx: *mut c_void) -> *mut spdk_io_channel {
         let n = unsafe { Nexus::from_raw(ctx) };
-        trace!("{}: Get IO channel", n.bdev.name());
+        trace!("{}: Get IO channel", n.bdev().name());
         unsafe { spdk_get_io_channel(ctx) }
     }
 
@@ -123,7 +123,7 @@ impl NexusFnTable {
     extern "C" fn destruct(ctx: *mut c_void) -> i32 {
         let nexus = unsafe { Nexus::from_raw(ctx) };
         nexus.destruct();
-        let instances = instances();
+        let instances = instances_mut();
         // removing the nexus from the list should cause a drop
         let nexus_name = nexus.name.clone();
         instances.retain(|x| x.name != nexus_name);

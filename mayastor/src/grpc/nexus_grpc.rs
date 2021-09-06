@@ -6,7 +6,7 @@ use uuid::Uuid;
 
 use crate::{
     bdev::nexus::{
-        instances,
+        instances_mut,
         nexus_bdev::{Error, Nexus, NexusStatus},
         nexus_child::{ChildState, NexusChild, Reason},
     },
@@ -87,7 +87,7 @@ impl Nexus {
 
         rpc::NexusV2 {
             name: name_to_uuid(&self.name).to_string(),
-            uuid: self.bdev.uuid().to_string(),
+            uuid: self.bdev().uuid().to_string(),
             size: self.size,
             state: rpc::NexusState::from(self.status()) as i32,
             device_uri: self.get_share_uri().unwrap_or_default(),
@@ -130,11 +130,12 @@ pub fn uuid_to_name(uuid: &str) -> Result<String, Error> {
 /// uuid prepending "nexus-" prefix.
 /// Return error if nexus not found.
 pub fn nexus_lookup(uuid: &str) -> Result<&mut Nexus, Error> {
-    if let Some(nexus) = instances().iter_mut().find(|n| n.name == uuid) {
+    if let Some(nexus) = instances_mut().iter_mut().find(|n| n.name == uuid) {
         Ok(nexus)
     } else {
         let name = uuid_to_name(uuid)?;
-        if let Some(nexus) = instances().iter_mut().find(|n| n.name == name) {
+        if let Some(nexus) = instances_mut().iter_mut().find(|n| n.name == name)
+        {
             Ok(nexus)
         } else {
             Err(Error::NexusNotFound {

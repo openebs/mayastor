@@ -99,6 +99,13 @@ impl BdevModule {
         }
     }
 
+    /// Creates a new `spdk_bdev_module` wrapper from an SPDK structure pointer.
+    pub(crate) fn from_ptr(ptr: *mut spdk_bdev_module) -> Self {
+        Self {
+            inner: NonNull::new(ptr).unwrap(),
+        }
+    }
+
     /// Returns a pointer to the underlying `spdk_bdev_module` structure.
     pub(crate) fn as_ptr(&self) -> *mut spdk_bdev_module {
         self.inner.as_ptr()

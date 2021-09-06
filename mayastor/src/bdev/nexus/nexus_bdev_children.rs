@@ -140,7 +140,7 @@ impl Nexus {
 
         let child_bdev = match device_lookup(&name) {
             Some(child) => {
-                if child.block_len() as u32 != self.bdev.block_len()
+                if child.block_len() as u32 != self.bdev().block_len()
                     || self
                         .min_num_blocks()
                         .map_or(true, |n| n > child.num_blocks())
@@ -483,7 +483,7 @@ impl Nexus {
             });
         }
 
-        self.bdev.set_block_len(blk_size as u32);
+        self.bdev_mut().set_block_len(blk_size as u32);
 
         let size = self.size;
 
@@ -562,10 +562,10 @@ impl Nexus {
 
         for child in self.children.iter() {
             let alignment = child.get_device().as_ref().unwrap().alignment();
-            if self.bdev.alignment() < alignment {
-                info!("{}: child {} has alignment {}, updating required_alignment from {}", self.name, child.name, alignment, self.bdev.alignment());
+            if self.bdev().alignment() < alignment {
+                info!("{}: child {} has alignment {}, updating required_alignment from {}", self.name, child.name, alignment, self.bdev().alignment());
                 unsafe {
-                    (*self.bdev.as_ptr()).required_alignment = alignment as u8;
+                    (*self.bdev().as_ptr()).required_alignment = alignment as u8;
                 }
             }
         }

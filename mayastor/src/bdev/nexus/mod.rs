@@ -121,7 +121,12 @@ pub fn fn_table() -> Option<&'static spdk_sys::spdk_bdev_fn_table> {
 }
 
 /// get a reference to the global nexuses
-pub fn instances() -> &'static mut Vec<Box<Nexus>> {
+pub fn instances() -> &'static Vec<Box<Nexus>> {
+    nexus_module::NexusModule::get_instances()
+}
+
+/// get a reference to the global nexuses
+pub fn instances_mut() -> &'static mut Vec<Box<Nexus>> {
     nexus_module::NexusModule::get_instances()
 }
 

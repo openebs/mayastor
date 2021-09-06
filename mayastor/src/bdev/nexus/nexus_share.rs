@@ -35,7 +35,7 @@ impl Share for Nexus {
     async fn share_iscsi(&self) -> Result<Self::Output, Self::Error> {
         match self.shared() {
             Some(Protocol::Off) | None => {
-                self.bdev.share_iscsi().await.context(ShareIscsiNexus {
+                self.bdev().share_iscsi().await.context(ShareIscsiNexus {
                     name: self.name.clone(),
                 })?;
             }
@@ -56,7 +56,7 @@ impl Share for Nexus {
     ) -> Result<Self::Output, Self::Error> {
         match self.shared() {
             Some(Protocol::Off) | None => {
-                self.bdev.share_nvmf(cntlid_range).await.context(
+                self.bdev().share_nvmf(cntlid_range).await.context(
                     ShareNvmfNexus {
                         name: self.name.clone(),
                     },
@@ -74,25 +74,25 @@ impl Share for Nexus {
     }
 
     async fn unshare(&self) -> Result<Self::Output, Self::Error> {
-        self.bdev.unshare().await.context(UnshareNexus {
+        self.bdev().unshare().await.context(UnshareNexus {
             name: self.name.clone(),
         })
     }
 
     fn shared(&self) -> Option<Protocol> {
-        self.bdev.shared()
+        self.bdev().shared()
     }
 
     fn share_uri(&self) -> Option<String> {
-        self.bdev.share_uri()
+        self.bdev().share_uri()
     }
 
     fn bdev_uri(&self) -> Option<String> {
-        self.bdev.bdev_uri()
+        self.bdev().bdev_uri()
     }
 
     fn bdev_uri_original(&self) -> Option<String> {
-        self.bdev.bdev_uri_original()
+        self.bdev().bdev_uri_original()
     }
 }
 

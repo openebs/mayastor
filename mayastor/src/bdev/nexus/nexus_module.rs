@@ -100,7 +100,7 @@ impl WithModuleConfigJson for NexusModule {
                 "method": "create_nexus",
                 "params": {
                     "name" : nexus.name,
-                    "uuid" : nexus.bdev.uuid_as_string(),
+                    "uuid" : nexus.bdev().uuid_as_string(),
                     "children" : uris,
                     "size": nexus.size,
                 },
