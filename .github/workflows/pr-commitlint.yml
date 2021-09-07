@@ -17,8 +17,3 @@ jobs:
           first_commit=$(curl ${{ github.event.pull_request.commits_url }} 2>/dev/null | jq '.[0].sha' | sed 's/"//g')
           last_commit=HEAD^2 # don't lint the merge commit
           npx commitlint --from $first_commit~1 --to $last_commit -V
-      - name: Lint Pull Request
-        env:
-          TITLE: ${{ github.event.pull_request.title }}
-          BODY: ${{ github.event.pull_request.body }}
-        run: export NL=; printenv TITLE NL BODY | npx commitlint -V
