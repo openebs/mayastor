@@ -6,7 +6,6 @@ pub use nexus::{
     nexus_bdev::{
         nexus_create,
         nexus_create_v2,
-        nexus_lookup,
         Nexus,
         NexusNvmeParams,
         NexusState,
@@ -14,6 +13,7 @@ pub use nexus::{
         VerboseError,
     },
     nexus_child::{lookup_nexus_child, ChildState, Reason},
+    nexus_instances::nexus_lookup,
     nexus_label::{GptEntry, GptGuid as Guid, GptHeader},
     nexus_metadata::{
         MetaDataChildEntry,

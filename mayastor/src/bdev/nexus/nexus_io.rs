@@ -14,8 +14,8 @@ use crate::{
         nexus::{
             nexus_bdev::NEXUS_PRODUCT_ID,
             nexus_channel::{NexusChannel, NexusChannelInner},
+            nexus_instances::nexus_lookup,
         },
-        nexus_lookup,
         Nexus,
         NexusStatus,
     },

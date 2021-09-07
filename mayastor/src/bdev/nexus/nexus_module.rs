@@ -1,15 +1,11 @@
-use super::instances;
-use once_cell::sync::OnceCell;
 use serde_json::json;
-use std::cell::UnsafeCell;
 
-use crate::bdev::nexus::{nexus_bdev::Nexus, nexus_io::NioCtx};
+use super::{NexusInstances, nexus_io::NioCtx};
 
 use spdk::{
     BdevModule,
     BdevModuleBuild,
     JsonWriteContext,
-    Thread,
     WithModuleConfigJson,
     WithModuleFini,
     WithModuleGetCtxSize,
@@ -18,15 +14,6 @@ use spdk::{
 
 /// Name for Nexus Bdev module name.
 pub const NEXUS_NAME: &str = "NEXUS_CAS_MODULE";
-
-/// TODO
-#[derive(Default, Debug)]
-pub struct NexusInstances {
-    inner: UnsafeCell<Vec<Box<Nexus>>>,
-}
-
-unsafe impl Sync for NexusInstances {}
-unsafe impl Send for NexusInstances {}
 
 /// TODO
 #[derive(Debug)]
@@ -40,22 +27,6 @@ impl NexusModule {
             Ok(m) => m,
             Err(err) => panic!("{}", err),
         }
-    }
-
-    /// Returns instances, we ensure that this can only ever be called on a
-    /// properly allocated thread.
-    pub fn get_instances() -> &'static mut Vec<Box<Nexus>> {
-        if let None = Thread::current() {
-            panic!("Not called from an SPDK thread")
-        }
-
-        static NEXUS_INSTANCES: OnceCell<NexusInstances> = OnceCell::new();
-
-        let global_instances = NEXUS_INSTANCES.get_or_init(|| NexusInstances {
-            inner: UnsafeCell::new(Vec::new()),
-        });
-
-        unsafe { &mut *global_instances.inner.get() }
     }
 }
 
@@ -71,7 +42,7 @@ impl WithModuleFini for NexusModule {
     /// TODO
     fn module_fini() {
         info!("Unloading Nexus CAS Module");
-        Self::get_instances().clear();
+        NexusInstances::as_mut().clear();
     }
 }
 
@@ -89,7 +60,7 @@ impl WithModuleConfigJson for NexusModule {
     /// you should not have any iSCSI create related calls that
     /// construct children in the config file.
     fn config_json(w: JsonWriteContext) -> i32 {
-        instances().iter().for_each(|nexus| {
+        NexusInstances::as_ref().iter().for_each(|nexus| {
             let uris = nexus
                 .children
                 .iter()

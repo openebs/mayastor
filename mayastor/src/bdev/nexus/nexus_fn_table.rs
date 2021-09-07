@@ -19,7 +19,7 @@ use spdk_sys::{
 
 use crate::{
     bdev::nexus::{
-        instances_mut,
+        NexusInstances,
         nexus_bdev::Nexus,
         nexus_io::{nexus_submit_io, NexusBio},
     },
@@ -123,7 +123,7 @@ impl NexusFnTable {
     extern "C" fn destruct(ctx: *mut c_void) -> i32 {
         let nexus = unsafe { Nexus::from_raw(ctx) };
         nexus.destruct();
-        let instances = instances_mut();
+        let instances = NexusInstances::as_mut();
         // removing the nexus from the list should cause a drop
         let nexus_name = nexus.name.clone();
         instances.retain(|x| x.name != nexus_name);

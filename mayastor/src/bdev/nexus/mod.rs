@@ -5,7 +5,7 @@ use std::pin::Pin;
 use futures::{future::Future, FutureExt};
 
 use crate::{
-    bdev::nexus::{nexus_bdev::Nexus, nexus_fn_table::NexusFnTable},
+    bdev::nexus::nexus_fn_table::NexusFnTable,
     core::{Bdev, Share},
     jsonrpc::{jsonrpc_register, Code, JsonRpcError, Result},
 };
@@ -26,6 +26,7 @@ pub mod nexus_bdev_snapshot;
 mod nexus_channel;
 pub(crate) mod nexus_child;
 pub mod nexus_fn_table;
+pub mod nexus_instances;
 pub mod nexus_io;
 pub mod nexus_label;
 pub mod nexus_metadata;
@@ -33,6 +34,8 @@ pub mod nexus_module;
 pub mod nexus_nbd;
 pub mod nexus_persistence;
 pub mod nexus_share;
+
+pub use nexus_instances::NexusInstances;
 
 #[derive(Deserialize)]
 struct NexusShareArgs {
@@ -120,21 +123,11 @@ pub fn fn_table() -> Option<&'static spdk_sys::spdk_bdev_fn_table> {
     Some(NexusFnTable::table())
 }
 
-/// get a reference to the global nexuses
-pub fn instances() -> &'static Vec<Box<Nexus>> {
-    nexus_module::NexusModule::get_instances()
-}
-
-/// get a reference to the global nexuses
-pub fn instances_mut() -> &'static mut Vec<Box<Nexus>> {
-    nexus_module::NexusModule::get_instances()
-}
-
 /// called during shutdown so that all nexus children are in Destroying state
 /// so that a possible remove event from SPDK also results in bdev removal
 pub async fn nexus_children_to_destroying_state() {
     info!("setting all nexus children to destroying state...");
-    for nexus in instances() {
+    for nexus in NexusInstances::as_ref() {
         for child in nexus.children.iter() {
             child.set_state(nexus_child::ChildState::Destroying);
         }

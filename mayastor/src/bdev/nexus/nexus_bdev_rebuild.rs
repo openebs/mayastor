@@ -11,7 +11,6 @@ use crate::{
     bdev::{
         nexus::{
             nexus_bdev::{
-                nexus_lookup,
                 CreateRebuild,
                 Error,
                 Nexus,
@@ -19,6 +18,7 @@ use crate::{
                 RebuildOperation,
                 RemoveRebuildJob,
             },
+            nexus_instances::nexus_lookup,
             nexus_channel::DrEvent,
             nexus_child::{ChildState, Reason},
         },

@@ -12,7 +12,7 @@ use crate::{
         device_destroy,
         device_lookup,
         nexus::{
-            instances_mut,
+            NexusInstances,
             nexus_channel::DrEvent,
             nexus_child::ChildState::Faulted,
         },
@@ -781,7 +781,7 @@ impl NexusChild {
 
 /// Looks up a child based on the underlying block device name.
 pub fn lookup_nexus_child(bdev_name: &str) -> Option<&mut NexusChild> {
-    for nexus in instances_mut() {
+    for nexus in NexusInstances::as_mut() {
         for child in &mut nexus.children {
             if child.device.is_some()
                 && child.device.as_ref().unwrap().device_name() == bdev_name

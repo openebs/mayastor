@@ -26,7 +26,10 @@ use crate::{
         device_destroy,
         nexus::{
             self,
-            instances_mut,
+            nexus_instances::{
+                NexusInstances,
+                nexus_lookup
+            },
             nexus_channel::{
                 DrEvent,
                 NexusChannel,
@@ -1185,7 +1188,7 @@ async fn nexus_create_internal(
     children: &[String],
 ) -> Result<(), Error> {
     // global variable defined in the nexus module
-    let nexus_list = instances_mut();
+    let nexus_list = NexusInstances::as_mut();
 
     if let Some(nexus) = nexus_list.iter().find(|n| n.name == name) {
         // FIXME: Instead of error, we return Ok without checking
@@ -1260,14 +1263,6 @@ async fn nexus_create_internal(
 
         Ok(_) => Ok(()),
     }
-}
-
-/// Lookup a nexus by its name (currently used only by test functions).
-pub fn nexus_lookup(name: &str) -> Option<&mut Nexus> {
-    instances_mut()
-        .iter_mut()
-        .find(|n| n.name == name)
-        .map(AsMut::as_mut)
 }
 
 impl Display for Nexus {
