@@ -294,6 +294,7 @@ impl From<Replica> for rpc::Replica {
                 None => rpc::ShareProtocolReplica::ReplicaNone,
             } as i32,
             uri: r.get_share_uri(),
+            pooltype: rpc::PoolType::Lvs as i32,
         }
     }
 }
