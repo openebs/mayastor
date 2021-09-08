@@ -52,7 +52,7 @@ pub static MSTEST: OnceCell<MayastorEnvironment> = OnceCell::new();
 macro_rules! reactor_poll {
     ($ch:ident, $name:ident) => {
         loop {
-            mayastor::core::Reactors::current().poll_once();
+            mayastor::core::Reactors::current().poll_once_blocking();
             if let Ok(r) = $ch.try_recv() {
                 $name = r;
                 break;
@@ -61,7 +61,7 @@ macro_rules! reactor_poll {
     };
     ($ch:ident) => {
         loop {
-            mayastor::core::Reactors::current().poll_once();
+            mayastor::core::Reactors::current().poll_once_blocking();
             if $ch.try_recv().is_ok() {
                 break;
             }
@@ -69,7 +69,7 @@ macro_rules! reactor_poll {
     };
     ($n:expr) => {
         for _ in 0 .. $n {
-            mayastor::core::Reactors::current().poll_once();
+            mayastor::core::Reactors::current().poll_once_blocking();
         }
         mayastor::core::Reactors::current();
     };
@@ -81,7 +81,7 @@ macro_rules! reactor_poll {
 macro_rules! assert_reactor_poll {
     ($ch:ident, $val:expr) => {
         loop {
-            mayastor::core::Reactors::current().poll_once();
+            mayastor::core::Reactors::current().poll_once_blocking();
             if let Ok(r) = $ch.try_recv() {
                 assert_eq!(r, $val);
                 break;

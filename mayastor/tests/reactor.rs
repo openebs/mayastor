@@ -49,7 +49,7 @@ fn reactor_start_stop() {
         });
 
         while unsafe { WAIT_FOR.load(Ordering::SeqCst) } != 0 {
-            Reactors::master().poll_once();
+            Reactors::master().poll_once_blocking();
         }
 
         let threads = Cores::count()

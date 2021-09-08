@@ -41,8 +41,12 @@ use std::{
 
 use crossbeam::channel::{unbounded, Receiver, Sender};
 use futures::{
+    ready,
+    stream::FuturesUnordered,
     task::{Context, Poll},
     Future,
+    FutureExt,
+    StreamExt,
 };
 use once_cell::sync::OnceCell;
 
@@ -53,6 +57,10 @@ use spdk_sys::{
     spdk_thread,
     spdk_thread_get_cpumask,
     spdk_thread_lib_init_ext,
+};
+use tokio::{
+    runtime::{Builder, Runtime},
+    sync::oneshot,
 };
 
 use crate::core::{CoreError, Cores, Mthread};
@@ -110,11 +118,16 @@ pub struct Reactor {
     /// through FFI
     sx: Sender<Pin<Box<dyn Future<Output = ()> + 'static>>>,
     rx: Receiver<Pin<Box<dyn Future<Output = ()> + 'static>>>,
+
+    tokio_rt: Runtime,
 }
+
+type FutureSender = Sender<Pin<Box<dyn Future<Output = ()>>>>;
+type FutureReceiver = Receiver<Pin<Box<dyn Future<Output = ()>>>>;
 
 thread_local! {
     /// This queue holds any in coming futures from other cores
-    static QUEUE: (Sender<async_task::Runnable>, Receiver<async_task::Runnable>) = unbounded();
+    static QUEUE: (FutureSender, FutureReceiver) = unbounded();
 }
 
 impl Reactors {
@@ -270,6 +283,11 @@ impl Reactor {
         let (sx, rx) =
             unbounded::<Pin<Box<dyn Future<Output = ()> + 'static>>>();
 
+        // SAFETY: If this fails, we're in some deep deep trouble already so a
+        // panic isn't very wrong.
+        let tokio_rt = Builder::new_current_thread()
+            .build()
+            .expect("Failed to create tokio runtime");
         Self {
             threads: RefCell::new(VecDeque::new()),
             incoming: crossbeam::queue::SegQueue::new(),
@@ -277,6 +295,7 @@ impl Reactor {
             flags: Cell::new(ReactorState::Init),
             sx,
             rx,
+            tokio_rt,
         }
     }
 
@@ -299,18 +318,21 @@ impl Reactor {
     }
 
     /// run the futures received on the channel
-    fn run_futures(&self) {
+    async fn run_futures(&self) {
+        let futures = FuturesUnordered::new();
         QUEUE.with(|(_, r)| {
-            r.try_iter().for_each(|f| {
-                f.run();
-            })
+            for f in r {
+                futures.push(f);
+            }
         });
+
+        futures.collect::<()>().await;
     }
 
     /// receive futures if any
     fn receive_futures(&self) {
         self.rx.try_iter().for_each(|m| {
-            self.spawn_local(m).detach();
+            let _ = self.spawn_local(m);
         });
     }
 
@@ -322,60 +344,83 @@ impl Reactor {
         self.sx.send(Box::pin(future)).unwrap();
     }
 
-    /// spawn a future locally on this core; note that you can *not* use the
-    /// handle to complete the future with a different runtime.
-    pub fn spawn_local<F, R>(&self, future: F) -> async_task::Task<R>
+    pub fn spawn_local<F>(&self, future: F) -> impl Future<Output = F::Output>
     where
-        F: Future<Output = R> + 'static,
-        R: 'static,
+        F: Future + 'static,
     {
+        let (tx, rx) = oneshot::channel();
+
+        let f = Box::pin(async move {
+            let output = future.await;
+
+            // Ignore error as unsuccessful send means the `spawn_local` caller
+            // dropped the `rx`.
+            let _ = tx.send(output);
+        });
         // our scheduling right now is basically non-existent but -- in the
         // future we want to schedule work to cores that are not very
         // busy etc.
-        let schedule = |t| QUEUE.with(|(s, _)| s.send(t).unwrap());
+        QUEUE.with(|(s, _)| s.send(f).unwrap());
 
-        let (runnable, task) = async_task::spawn_local(future, schedule);
-        runnable.schedule();
         // the handler typically has no meaning to us unless we want to wait for
         // the spawned future to complete before we continue which is
         // done, in example with ['block_on']
-        task
+        rx.map(|res| res.expect("oneshot channel sender hung up"))
     }
 
     /// spawn a future locally on the current core block until the future is
     /// completed. The master core is used.
-    pub fn block_on<F, R>(future: F) -> Option<R>
+    pub fn block_on<F>(future: F) -> Option<F::Output>
     where
-        F: Future<Output = R> + 'static,
-        R: 'static,
+        F: Future + 'static,
+        F::Output: 'static,
     {
         // hold on to the any potential thread we might be running on right now
         let thread = Mthread::current();
         Mthread::get_init().enter();
-        let schedule = |t| QUEUE.with(|(s, _)| s.send(t).unwrap());
-        let (runnable, task) = async_task::spawn_local(future, schedule);
 
-        let waker = runnable.waker();
-        let cx = &mut Context::from_waker(&waker);
-
-        pin_utils::pin_mut!(task);
-        runnable.schedule();
-        let reactor = Reactors::master();
-
-        loop {
-            match task.as_mut().poll(cx) {
-                Poll::Ready(output) => {
-                    Mthread::get_init().exit();
-                    if let Some(t) = thread {
-                        t.enter()
-                    }
-                    return Some(output);
-                }
-                Poll::Pending => {
-                    reactor.poll_once();
-                }
-            };
+        struct FutureWrapper<'r, F> {
+            future: Pin<Box<F>>,
+            reactor: &'r Reactor,
         }
+        impl<F> Future for FutureWrapper<'_, F>
+        where
+            F: Future + 'static,
+            F::Output: 'static,
+        {
+            type Output = F::Output;
+
+            fn poll(
+                mut self: Pin<&mut Self>,
+                cx: &mut Context<'_>,
+            ) -> Poll<Self::Output> {
+                match Pin::new(&mut self.as_mut().future).poll(cx) {
+                    Poll::Pending => {
+                        let mut f = Box::pin(self.reactor.poll_once());
+                        ready!(Pin::new(&mut f).poll(cx));
+
+                        Poll::Pending
+                    }
+                    Poll::Ready(output) => Poll::Ready(output),
+                }
+            }
+        }
+
+        let reactor = Reactors::master();
+        let future = FutureWrapper {
+            future: Box::pin(reactor.spawn_local(future)),
+            reactor,
+        };
+
+        let ret = reactor.tokio_rt.block_on(future);
+
+        Mthread::get_init().exit();
+        if let Some(t) = thread {
+            t.enter()
+        }
+
+        // FIXME: Why do we return an Option here?
+        Some(ret)
     }
 
     /// set the state of this reactor
@@ -421,24 +466,31 @@ impl Reactor {
 
     /// poll this reactor to complete any work that is pending
     pub fn poll_reactor(&self) {
-        loop {
-            match self.get_state() {
-                // running is the default mode for all cores. All cores, except
-                // the master core spin within this specific loop
-                ReactorState::Running => {
-                    self.poll_once();
+        self.tokio_rt.block_on(async {
+            loop {
+                match self.get_state() {
+                    // running is the default mode for all cores. All cores,
+                    // except the master core spin within
+                    // this specific loop
+                    ReactorState::Running => {
+                        self.poll_once().await;
+                    }
+                    ReactorState::Shutdown => {
+                        info!("reactor {} shutdown requested", self.lcore);
+                        break;
+                    }
+                    ReactorState::Delayed => {
+                        let _ = tokio::time::timeout(
+                            Duration::from_millis(1),
+                            std::future::pending::<()>(),
+                        )
+                        .await;
+                        self.poll_once().await;
+                    }
+                    _ => panic!("invalid reactor state {:?}", self.get_state()),
                 }
-                ReactorState::Shutdown => {
-                    info!("reactor {} shutdown requested", self.lcore);
-                    break;
-                }
-                ReactorState::Delayed => {
-                    std::thread::sleep(Duration::from_millis(1));
-                    self.poll_once();
-                }
-                _ => panic!("invalid reactor state {:?}", self.get_state()),
             }
-        }
+        });
 
         debug!("initiating shutdown for core {}", Cores::current());
 
@@ -450,9 +502,9 @@ impl Reactor {
     /// polls the reactor only once for any work regardless of its state. For
     /// now
     #[inline]
-    pub fn poll_once(&self) {
+    pub async fn poll_once(&self) {
         self.receive_futures();
-        self.run_futures();
+        self.run_futures().await;
         let threads = self.threads.borrow();
         threads.iter().for_each(|t| {
             t.poll();
@@ -464,12 +516,17 @@ impl Reactor {
         }
     }
 
+    #[inline]
+    pub fn poll_once_blocking(&self) {
+        self.tokio_rt.block_on(self.poll_once());
+    }
+
     /// poll the threads n times but only poll the futures queue once and look
     /// for incoming only once.
     ///
     /// We might want to set a flag that we need to run futures and or incoming
     /// queues
-    pub fn poll_times(&self, times: u32) {
+    pub async fn poll_times(&self, times: u32) {
         let threads = self.threads.borrow();
         for _ in 0 .. times {
             threads.iter().for_each(|t| {
@@ -478,11 +535,15 @@ impl Reactor {
         }
 
         self.receive_futures();
-        self.run_futures();
+        self.run_futures().await;
         drop(threads);
 
         while let Some(i) = self.incoming.pop() {
             self.threads.borrow_mut().push_back(i);
         }
+    }
+
+    pub fn poll_times_blocking(&self, times: u32) {
+        self.tokio_rt.block_on(self.poll_times(times));
     }
 }

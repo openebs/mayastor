@@ -35,7 +35,7 @@ fn poller() {
         .build();
 
     drop(poller);
-    Reactors::master().poll_once();
+    Reactors::master().poll_once_blocking();
 
     // we dropped the poller before we polled, the value should still be 0
     assert_eq!(COUNT.load(), 0);
@@ -51,21 +51,21 @@ fn poller() {
         })
         .build();
 
-    Reactors::master().poll_times(64);
+    Reactors::master().poll_times_blocking(64);
     assert_eq!(COUNT.load(), 64);
 
     poller.pause();
-    Reactors::master().poll_times(64);
+    Reactors::master().poll_times_blocking(64);
     assert_eq!(COUNT.load(), 64);
 
     poller.resume();
-    Reactors::master().poll_times(64);
+    Reactors::master().poll_times_blocking(64);
     assert_eq!(COUNT.load(), 128);
 
     // poller stop consumes self
     poller.stop();
 
-    Reactors::master().poll_times(64);
+    Reactors::master().poll_times_blocking(64);
     assert_eq!(COUNT.load(), 128);
 
     // demonstrate we keep state during callbacks
@@ -79,7 +79,7 @@ fn poller() {
         })
         .build();
 
-    Reactors::master().poll_times(64);
+    Reactors::master().poll_times_blocking(64);
     drop(poller);
 
     mayastor_env_stop(0);

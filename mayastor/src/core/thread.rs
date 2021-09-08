@@ -207,19 +207,17 @@ impl Mthread {
             F::Output: Send + Debug,
         {
             let mut ctx = unsafe { Box::from_raw(arg as *mut Ctx<F>) };
-            Reactors::current()
-                .spawn_local(async move {
-                    let result = ctx.future.await;
-                    if let Err(e) = ctx
-                        .sender
-                        .take()
-                        .expect("sender already taken")
-                        .send(result)
-                    {
-                        error!("Failed to send response future result {:?}", e);
-                    }
-                })
-                .detach();
+            let _ = Reactors::current().spawn_local(async move {
+                let result = ctx.future.await;
+                if let Err(e) = ctx
+                    .sender
+                    .take()
+                    .expect("sender already taken")
+                    .send(result)
+                {
+                    error!("Failed to send response future result {:?}", e);
+                }
+            });
         }
 
         let (s, r) = channel::<F::Output>();

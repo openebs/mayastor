@@ -110,7 +110,7 @@ pub(crate) fn wait_until_ready(path: &str) {
     // reactor. We keep doing this until the above thread has updated the
     // atomic. In the future we might be able call yield()
     while !started.load(SeqCst) {
-        Reactors::current().poll_once();
+        Reactors::current().poll_once_blocking();
     }
 }
 
@@ -265,7 +265,7 @@ impl NbdDisk {
         });
 
         while !started.load(SeqCst) {
-            Reactors::current().poll_once();
+            Reactors::current().poll_once_blocking();
         }
 
         info!("NBD {} device stopped", name);
