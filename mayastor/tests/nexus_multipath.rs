@@ -15,7 +15,7 @@ use rpc::mayastor::{
     PublishNexusRequest,
     ShareProtocolNexus,
 };
-use std::process::Command;
+use std::process::{Command, ExitStatus};
 
 pub mod common;
 use common::{compose::Builder, MayastorTest};
@@ -27,7 +27,11 @@ static HOSTNQN: &str = "nqn.2019-05.io.openebs";
 static HOSTID0: &str = "53b35ce9-8e71-49a9-ab9b-cba7c5670fad";
 static HOSTID1: &str = "c1affd2d-ef79-4ba4-b5cf-8eb48f9c07d0";
 
-fn nvme_connect(target_addr: &str, nqn: &str) {
+fn nvme_connect(
+    target_addr: &str,
+    nqn: &str,
+    must_succeed: bool,
+) -> ExitStatus {
     let status = Command::new("nvme")
         .args(&["connect"])
         .args(&["-t", "tcp"])
@@ -36,13 +40,20 @@ fn nvme_connect(target_addr: &str, nqn: &str) {
         .args(&["-n", nqn])
         .status()
         .unwrap();
-    assert!(
-        status.success(),
-        "failed to connect to {}, nqn {}: {}",
-        target_addr,
-        nqn,
-        status
-    );
+
+    if !status.success() {
+        let msg = format!(
+            "failed to connect to {}, nqn {}: {}",
+            target_addr, nqn, status,
+        );
+        if must_succeed {
+            panic!("{}", msg);
+        } else {
+            eprintln!("{}", msg);
+        }
+    }
+
+    status
 }
 
 fn get_mayastor_nvme_device() -> String {
@@ -184,19 +195,12 @@ async fn nexus_multipath() {
         .unwrap();
 
     let nqn = format!("{}:nexus-{}", HOSTNQN, UUID);
-    nvme_connect("127.0.0.1", &nqn);
+    nvme_connect("127.0.0.1", &nqn, true);
 
     // The first attempt will fail with "Duplicate cntlid x with y" error from
     // kernel
     for i in 0 .. 2 {
-        let status_c0 = Command::new("nvme")
-            .args(&["connect"])
-            .args(&["-t", "tcp"])
-            .args(&["-a", &ip0.to_string()])
-            .args(&["-s", "8420"])
-            .args(&["-n", &nqn])
-            .status()
-            .unwrap();
+        let status_c0 = nvme_connect(&ip0.to_string(), &nqn, false);
         if i == 0 && status_c0.success() {
             break;
         }
@@ -261,7 +265,7 @@ async fn nexus_multipath() {
 
     // Connect to remote replica to check key registered
     let rep_nqn = format!("{}:{}", HOSTNQN, UUID);
-    nvme_connect(&ip0.to_string(), &rep_nqn);
+    nvme_connect(&ip0.to_string(), &rep_nqn, true);
 
     let rep_dev = get_mayastor_nvme_device();
 
@@ -391,7 +395,7 @@ async fn nexus_resv_acquire() {
 
     // Connect to remote replica to check key registered
     let rep_nqn = format!("{}:{}", HOSTNQN, UUID);
-    nvme_connect(&ip0.to_string(), &rep_nqn);
+    nvme_connect(&ip0.to_string(), &rep_nqn, true);
 
     let rep_dev = get_mayastor_nvme_device();
 
