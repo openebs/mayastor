@@ -12,7 +12,14 @@ services:
         - NEXUS_NVMF_ANA_ENABLE=1
         - NEXUS_NVMF_RESV_ENABLE=1
         - LVM_ENABLE=1
-    command: ${SRCDIR}/target/debug/mayastor -g 0.0.0.0 -l 1,2 -r /tmp/ms0.sock
+    # lvm conf is changed to ignore udev rules, and turn off udev sync
+    command: |
+      /bin/bash -c
+      "cp /etc/lvm/lvm.conf lvm.conf &&
+      sed -i 's/udev_sync = 1/udev_sync = 0/' /lvm.conf &&
+      sed -i 's/udev_rules = 1/udev_rules = 0/' /lvm.conf &&
+      cat lvm.conf > /etc/lvm/lvm.conf &&
+      ${SRCDIR}/target/debug/mayastor -g 0.0.0.0 -l 1,2 -r /tmp/ms0.sock"
     networks:
       mayastor_net:
         ipv4_address: 10.0.0.2
@@ -39,79 +46,79 @@ services:
       - /lib:/lib
       - /lib64:/lib64
       - /etc/lvm:/etc/lvm
-  ms1:
-    container_name: "ms1"
-    image: rust:latest
-    environment:
-        - MY_POD_IP=10.0.0.3
-    command: ${SRCDIR}/target/debug/mayastor -g 0.0.0.0 -l 3,4 -r /tmp/ms1.sock
-    networks:
-      mayastor_net:
-        ipv4_address: 10.0.0.3
-    cap_add:
-      # NUMA related
-      - SYS_ADMIN
-      - SYS_NICE
-      # uring needs mmap
-      - IPC_LOCK
-    security_opt:
-      # we can set this to a JSON file to allow per syscall access
-      - seccomp:unconfined
-    volumes:
-      - ${SRCDIR}:${SRCDIR}
-      - /nix:/nix
-      - /dev/hugepages:/dev/hugepages
-      - /tmp:/tmp
-      - /var/tmp:/var/tmp
-  ms2:
-    container_name: "ms2"
-    image: rust:latest
-    environment:
-        - MY_POD_IP=10.0.0.4
-        - NEXUS_NVMF_ANA_ENABLE=1
-    command: ${SRCDIR}/target/debug/mayastor -g 0.0.0.0 -l 5,6 -r /tmp/ms2.sock
-    networks:
-      mayastor_net:
-        ipv4_address: 10.0.0.4
-    cap_add:
-      - SYS_ADMIN
-      - SYS_NICE
-      - IPC_LOCK
-    security_opt:
-      - seccomp:unconfined
-    volumes:
-      - ${SRCDIR}:${SRCDIR}
-      - /nix:/nix
-      - /dev/hugepages:/dev/hugepages
-      - /tmp:/tmp
-      - /var/tmp:/var/tmp
-  ms3:
-    container_name: "ms3"
-    image: rust:latest
-    environment:
-        - MY_POD_IP=10.0.0.5
-        - RUST_BACKTRACE=full
-        - NVME_KATO_MS=1000
-        - RUST_LOG=mayastor=trace
-        - NEXUS_DONT_READ_LABELS=true
-        - NEXUS_NVMF_ANA_ENABLE=1
-        - NEXUS_NVMF_RESV_ENABLE=1
-    command: ${SRCDIR}/target/debug/mayastor -g 0.0.0.0 -l 0,7 -r /tmp/ms3.sock
-    networks:
-      mayastor_net:
-        ipv4_address: 10.0.0.5
-    cap_add:
-      - SYS_ADMIN
-      - SYS_NICE
-      - IPC_LOCK
-    security_opt:
-      - seccomp:unconfined
-    volumes:
-      - ${SRCDIR}:${SRCDIR}
-      - /nix:/nix
-      - /dev/hugepages:/dev/hugepages
-      - /tmp:/tmp
-      - /var/tmp:/var/tmp
+#  ms1:
+#    container_name: "ms1"
+#    image: rust:latest
+#    environment:
+#        - MY_POD_IP=10.0.0.3
+#    command: ${SRCDIR}/target/debug/mayastor -g 0.0.0.0 -l 3,4 -r /tmp/ms1.sock
+#    networks:
+#      mayastor_net:
+#        ipv4_address: 10.0.0.3
+#    cap_add:
+#      # NUMA related
+#      - SYS_ADMIN
+#      - SYS_NICE
+#      # uring needs mmap
+#      - IPC_LOCK
+#    security_opt:
+#      # we can set this to a JSON file to allow per syscall access
+#      - seccomp:unconfined
+#    volumes:
+#      - ${SRCDIR}:${SRCDIR}
+#      - /nix:/nix
+#      - /dev/hugepages:/dev/hugepages
+#      - /tmp:/tmp
+#      - /var/tmp:/var/tmp
+#  ms2:
+#    container_name: "ms2"
+#    image: rust:latest
+#    environment:
+#        - MY_POD_IP=10.0.0.4
+#        - NEXUS_NVMF_ANA_ENABLE=1
+#    command: ${SRCDIR}/target/debug/mayastor -g 0.0.0.0 -l 5,6 -r /tmp/ms2.sock
+#    networks:
+#      mayastor_net:
+#        ipv4_address: 10.0.0.4
+#    cap_add:
+#      - SYS_ADMIN
+#      - SYS_NICE
+#      - IPC_LOCK
+#    security_opt:
+#      - seccomp:unconfined
+#    volumes:
+#      - ${SRCDIR}:${SRCDIR}
+#      - /nix:/nix
+#      - /dev/hugepages:/dev/hugepages
+#      - /tmp:/tmp
+#      - /var/tmp:/var/tmp
+#  ms3:
+#    container_name: "ms3"
+#    image: rust:latest
+#    environment:
+#        - MY_POD_IP=10.0.0.5
+#        - RUST_BACKTRACE=full
+#        - NVME_KATO_MS=1000
+#        - RUST_LOG=mayastor=trace
+#        - NEXUS_DONT_READ_LABELS=true
+#        - NEXUS_NVMF_ANA_ENABLE=1
+#        - NEXUS_NVMF_RESV_ENABLE=1
+#    command: ${SRCDIR}/target/debug/mayastor -g 0.0.0.0 -l 0,7 -r /tmp/ms3.sock
+#    networks:
+#      mayastor_net:
+#        ipv4_address: 10.0.0.5
+#    cap_add:
+#      - SYS_ADMIN
+#      - SYS_NICE
+#      - IPC_LOCK
+#    security_opt:
+#      - seccomp:unconfined
+#    volumes:
+#      - ${SRCDIR}:${SRCDIR}
+#      - /nix:/nix
+#      - /dev/hugepages:/dev/hugepages
+#      - /tmp:/tmp
+#      - /var/tmp:/var/tmp
 networks:
   mayastor_net:
     name: mayastor_net
