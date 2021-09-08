@@ -130,12 +130,11 @@ pub fn uuid_to_name(uuid: &str) -> Result<String, Error> {
 /// uuid prepending "nexus-" prefix.
 /// Return error if nexus not found.
 pub fn nexus_lookup(uuid: &str) -> Result<&mut Nexus, Error> {
-    if let Some(nexus) = NexusInstances::as_mut().iter_mut().find(|n| n.name == uuid) {
+    if let Some(nexus) = NexusInstances::as_mut().lookup_mut(uuid) {
         Ok(nexus)
     } else {
         let name = uuid_to_name(uuid)?;
-        if let Some(nexus) = NexusInstances::as_mut().iter_mut().find(|n| n.name == name)
-        {
+        if let Some(nexus) = NexusInstances::as_mut().lookup_mut(&name) {
             Ok(nexus)
         } else {
             Err(Error::NexusNotFound {

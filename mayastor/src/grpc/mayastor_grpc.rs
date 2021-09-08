@@ -10,7 +10,7 @@
 
 use crate::{
     bdev::{
-        nexus::{NexusInstances, nexus_bdev},
+        nexus::{nexus_bdev, NexusInstances},
         nexus_create,
         nexus_create_v2,
         Reason,
@@ -761,7 +761,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
         let rx = rpc_submit::<_, _, nexus_bdev::Error>(async move {
             let mut nexus_list: Vec<NexusV2> = Vec::new();
 
-            for n in NexusInstances::as_ref() {
+            for n in NexusInstances::as_ref().iter() {
                 if n.state.lock().deref() != &nexus_bdev::NexusState::Init {
                     nexus_list.push(n.to_grpc_v2().await);
                 }

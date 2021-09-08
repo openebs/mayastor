@@ -26,10 +26,6 @@ use crate::{
         device_destroy,
         nexus::{
             self,
-            nexus_instances::{
-                NexusInstances,
-                nexus_lookup
-            },
             nexus_channel::{
                 DrEvent,
                 NexusChannel,
@@ -37,6 +33,7 @@ use crate::{
                 ReconfigureCtx,
             },
             nexus_child::{ChildError, ChildState, NexusChild},
+            nexus_instances::{nexus_lookup, NexusInstances},
             nexus_label::LabelError,
             nexus_nbd::{NbdDisk, NbdError},
             nexus_persistence::{NexusInfo, PersistOp},
@@ -1119,6 +1116,15 @@ impl Nexus {
             }
         }
     }
+
+    /// Looks up a child based on the underlying block device name and
+    /// returns a mutable reference.
+    pub fn lookup_child_mut(
+        &mut self,
+        bdev_name: &str,
+    ) -> Option<&mut NexusChild> {
+        self.children.iter_mut().find(|c| c.is_me(bdev_name))
+    }
 }
 
 /// Create a new nexus and bring it online.
@@ -1187,10 +1193,9 @@ async fn nexus_create_internal(
     nvme_params: NexusNvmeParams,
     children: &[String],
 ) -> Result<(), Error> {
-    // global variable defined in the nexus module
-    let nexus_list = NexusInstances::as_mut();
+    let nexuses = NexusInstances::as_mut();
 
-    if let Some(nexus) = nexus_list.iter().find(|n| n.name == name) {
+    if let Some(nexus) = nexuses.lookup(name) {
         // FIXME: Instead of error, we return Ok without checking
         // that the children match, which seems wrong.
         if *nexus.state.lock() == NexusState::Init {
@@ -1206,16 +1211,7 @@ async fn nexus_create_internal(
     // closing a child assumes that the nexus to which it belongs will appear
     // in the global list of nexus instances. We must also ensure that the
     // nexus instance gets removed from the global list if an error occurs.
-    nexus_list.push(Nexus::new(name, size, uuid, nvme_params, None));
-
-    // Obtain a reference to the newly created Nexus object.
-    let ni =
-        nexus_list
-            .iter_mut()
-            .find(|n| n.name == name)
-            .ok_or_else(|| Error::NexusNotFound {
-                name: String::from(name),
-            })?;
+    let ni = nexuses.add(Nexus::new(name, size, uuid, nvme_params, None));
 
     for child in children {
         if let Err(error) = ni.create_and_register(child).await {
@@ -1224,7 +1220,7 @@ async fn nexus_create_internal(
                 name, child, error
             );
             ni.close_children().await;
-            nexus_list.retain(|n| n.name != name);
+            nexuses.remove_by_name(name);
             return Err(Error::CreateChild {
                 source: error,
                 name: String::from(name),
@@ -1248,7 +1244,7 @@ async fn nexus_create_internal(
                 // TODO: children may already be destroyed
                 let _ = device_destroy(&child.name).await;
             }
-            nexus_list.retain(|n| n.name != name);
+            nexuses.remove_by_name(name);
             Err(Error::NexusCreate {
                 name: String::from(name),
             })
@@ -1257,7 +1253,7 @@ async fn nexus_create_internal(
         Err(error) => {
             error!("failed to open nexus {}: {}", name, error);
             ni.close_children().await;
-            nexus_list.retain(|n| n.name != name);
+            nexuses.remove_by_name(name);
             Err(error)
         }
 

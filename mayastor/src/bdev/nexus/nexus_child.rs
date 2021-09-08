@@ -777,17 +777,21 @@ impl NexusChild {
             })
         }
     }
+
+    /// TODO
+    pub fn is_me(&self, bdev_name: &str) -> bool {
+        match &self.device {
+            Some(d) => d.device_name() == bdev_name,
+            None => false
+        }
+    }
 }
 
 /// Looks up a child based on the underlying block device name.
 pub fn lookup_nexus_child(bdev_name: &str) -> Option<&mut NexusChild> {
-    for nexus in NexusInstances::as_mut() {
-        for child in &mut nexus.children {
-            if child.device.is_some()
-                && child.device.as_ref().unwrap().device_name() == bdev_name
-            {
-                return Some(child);
-            }
+    for nexus in NexusInstances::as_mut().iter_mut() {
+        if let Some(c) = nexus.lookup_child_mut(bdev_name) {
+            return Some(c);
         }
     }
     None

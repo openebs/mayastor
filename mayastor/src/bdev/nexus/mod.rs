@@ -127,7 +127,7 @@ pub fn fn_table() -> Option<&'static spdk_sys::spdk_bdev_fn_table> {
 /// so that a possible remove event from SPDK also results in bdev removal
 pub async fn nexus_children_to_destroying_state() {
     info!("setting all nexus children to destroying state...");
-    for nexus in NexusInstances::as_ref() {
+    for nexus in NexusInstances::as_ref().iter() {
         for child in nexus.children.iter() {
             child.set_state(nexus_child::ChildState::Destroying);
         }

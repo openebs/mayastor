@@ -11,8 +11,9 @@ extern crate snafu;
 extern crate spdk;
 extern crate spdk_sys;
 
-pub mod bdev;
+#[macro_use]
 pub mod core;
+pub mod bdev;
 pub mod delay;
 pub use spdk::ffihelper;
 pub mod grpc;

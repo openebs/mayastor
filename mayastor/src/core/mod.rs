@@ -56,6 +56,8 @@ pub use thread::Mthread;
 
 use crate::{bdev::nexus_lookup, subsys::NvmfError, target::iscsi};
 
+#[macro_use]
+pub mod singleton;
 mod bdev;
 mod bio;
 mod block_device;
