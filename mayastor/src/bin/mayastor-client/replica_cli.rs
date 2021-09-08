@@ -1,6 +1,7 @@
 use crate::{
     context::{Context, OutputFormat},
     parse_size,
+    pool_cli::{parse_pooltype, pooltype_to_str},
     Error,
     GrpcStatus,
 };
@@ -44,7 +45,14 @@ pub fn subcommands<'a, 'b>() -> App<'a, 'b> {
                 .short("t")
                 .long("thin")
                 .takes_value(false)
-                .help("Whether replica is thin provisioned (default false)"));
+                .help("Whether replica is thin provisioned (default false)"))
+        .arg(
+            Arg::with_name("pooltype")
+                .long("type")
+                .required(false)
+                .possible_values(&["lvs", "lvm"])
+                .default_value("lvs")
+                .help("type of the pool"));
 
     let create_v2 = SubCommand::with_name("create2")
                 .about("Create replica on pool")
@@ -168,12 +176,15 @@ async fn replica_create(
     let thin = matches.is_present("thin");
     let share = parse_replica_protocol(matches.value_of("protocol"))
         .context(GrpcStatus)?;
+    let pooltype = parse_pooltype(matches.value_of("pooltype"))
+        .context(GrpcStatus)?;
 
     let rq = rpc::CreateReplicaRequest {
         uuid: name.clone(),
         pool,
         thin,
         share,
+        pooltype,
         size: size.get_bytes() as u64,
     };
     let response = ctx.client.create_replica(rq).await.context(GrpcStatus)?;
@@ -327,8 +338,10 @@ async fn replica_list(
                 .map(|r| {
                     let proto = replica_protocol_to_str(r.share);
                     let size = ctx.units(Byte::from_bytes(r.size.into()));
+                    let pooltype = pooltype_to_str(r.pooltype);
                     vec![
                         r.pool.clone(),
+                        pooltype.to_string(),
                         r.uuid.clone(),
                         r.thin.to_string(),
                         proto.to_string(),
@@ -338,7 +351,7 @@ async fn replica_list(
                 })
                 .collect();
             ctx.print_list(
-                vec!["POOL", "NAME", ">THIN", ">SHARE", ">SIZE", "URI"],
+                vec!["POOL", "TYPE",  "NAME", ">THIN", ">SHARE", ">SIZE", "URI"],
                 table,
             );
         }

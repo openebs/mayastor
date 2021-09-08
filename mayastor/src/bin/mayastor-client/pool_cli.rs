@@ -219,14 +219,14 @@ fn pool_state_to_str(idx: i32) -> &'static str {
     }
 }
 
-fn pooltype_to_str(idx: i32) -> &'static str {
+pub(crate) fn pooltype_to_str(idx: i32) -> &'static str {
     match rpc::PoolType::from_i32(idx).unwrap() {
         rpc::PoolType::Lvs => "lvs",
         rpc::PoolType::Lvm => "lvm",
     }
 }
 
-fn parse_pooltype(ptype: Option<&str>) -> Result<i32, Status> {
+pub(crate) fn parse_pooltype(ptype: Option<&str>) -> Result<i32, Status> {
     match ptype {
         None => Ok(rpc::PoolType::Lvs as i32),
         Some("lvs") => Ok(rpc::PoolType::Lvs as i32),
