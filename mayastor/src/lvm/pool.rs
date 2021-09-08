@@ -37,9 +37,10 @@ use rpc::mayastor::CreatePoolRequest;
 const PVS_COMMAND: &str = "pvs";
 const VGCHANGE_COMMAND: &str = "vgchange";
 const VGS_COMMAND: &str = "vgs";
+pub const MAYASTOR_TAG: &str = "mayastor";
 pub const MAYASTOR_LABEL: &str = "@mayastor";
 
-fn deserialize_number_from_string<'de, T, D>(
+pub fn deserialize_number_from_string<'de, T, D>(
     deserializer: D,
 ) -> Result<T, D::Error>
 where
