@@ -8,9 +8,6 @@ import pytest
 import asyncio
 import uuid as guid
 
-UUID = "0000000-0000-0000-0000-000000000001"
-NEXUS_UUID = "3ae73410-6136-4430-a7b5-cbec9fe2d273"
-
 
 @pytest.fixture
 def create_pool_on_all_nodes(mayastors, create_temp_files):
@@ -18,7 +15,7 @@ def create_pool_on_all_nodes(mayastors, create_temp_files):
     uuids = []
 
     for name, ms in mayastors.items():
-        ms.pool_create(f"{name}", f"aio:///tmp/{name}.img")
+        ms.pool_create(name, f"aio:///tmp/{name}.img")
         # validate we have zero replicas
         assert len(ms.replica_list().replicas) == 0
 
@@ -33,10 +30,10 @@ def create_pool_on_all_nodes(mayastors, create_temp_files):
             assert len(ms.replica_list().replicas) == i + 1
         uuids.append(uuid)
 
-    return uuids
+    yield uuids
 
 
-@pytest.mark.parametrize("times", range(2))
+@pytest.mark.parametrize("times", range(3))
 def test_restart(containers, mayastors, create_pool_on_all_nodes, times):
     """
     Test that when we create replicas and destroy them the count is as expected
@@ -80,68 +77,65 @@ async def kill_after(container, sec):
     container.kill()
 
 
-@pytest.mark.asyncio
-async def test_multiple(containers, mayastors, create_pool_on_all_nodes):
-
+@pytest.fixture
+def create_nexuses(mayastors, create_pool_on_all_nodes):
+    "Create a nexus for each replica on each child node."
+    nexuses = []
     ms1 = mayastors.get("ms1")
-    rlist_m2 = mayastors.get("ms2").replica_list().replicas
-    rlist_m3 = mayastors.get("ms3").replica_list().replicas
-    nexus_list = []
-    to_kill = containers.get("ms3")
+    uris = [
+        [replica.uri for replica in mayastors.get(node).replica_list().replicas]
+        for node in ["ms2", "ms3"]
+    ]
 
-    devs = []
-
-    for _ in range(15):
+    for children in zip(*uris):
         uuid = guid.uuid4()
-        ms1.nexus_create(
-            uuid, 60 * 1024 * 1024, [rlist_m2.pop().uri, rlist_m3.pop().uri]
-        )
-        nexus_list.append(ms1.nexus_publish(uuid))
+        ms1.nexus_create(uuid, 60 * 1024 * 1024, list(children))
+        nexuses.append(ms1.nexus_publish(uuid))
 
-    for nexus in nexus_list:
-        dev = nvme_connect(nexus)
-        devs.append(dev)
+    yield nexuses
 
-    fio_cmd = Fio(f"job-raw", "randwrite", devs).build()
+    for nexus in ms1.nexus_list():
+        uuid = nexus.uuid
+        ms1.nexus_unpublish(uuid)
+        ms1.nexus_destroy(uuid)
 
-    await asyncio.gather(run_cmd_async(fio_cmd), kill_after(to_kill, 3))
 
-    for nexus in nexus_list:
+@pytest.fixture
+def connect_devices(create_nexuses):
+    "Connect an nvmf device to each nexus."
+    yield [nvme_connect(nexus) for nexus in create_nexuses]
+
+    for nexus in create_nexuses:
         nvme_disconnect(nexus)
 
 
+@pytest.fixture
+async def mount_devices(connect_devices):
+    "Create and mount a filesystem on each nvmf connected device."
+    for dev in connect_devices:
+        await run_cmd_async(f"sudo mkfs.xfs {dev}")
+        await run_cmd_async(f"sudo mkdir -p /mnt{dev}")
+        await run_cmd_async(f"sudo mount {dev} /mnt{dev}")
+
+    yield
+
+    for dev in connect_devices:
+        await run_cmd_async(f"sudo umount /mnt{dev}")
+
+
 @pytest.mark.asyncio
-async def test_multiple_fs(containers, mayastors, create_pool_on_all_nodes):
+async def test_multiple(containers, connect_devices):
+    fio_cmd = Fio(f"job-raw", "randwrite", connect_devices).build()
+    print(fio_cmd)
 
-    ms1 = mayastors.get("ms1")
-    rlist_m2 = mayastors.get("ms2").replica_list().replicas
-    rlist_m3 = mayastors.get("ms3").replica_list().replicas
-    nexus_list = []
     to_kill = containers.get("ms3")
+    await asyncio.gather(run_cmd_async(fio_cmd), kill_after(to_kill, 3))
 
-    devs = []
 
-    for _ in range(15):
-        uuid = guid.uuid4()
-        ms1.nexus_create(
-            uuid, 60 * 1024 * 1024, [rlist_m2.pop().uri, rlist_m3.pop().uri]
-        )
-        nexus_list.append(ms1.nexus_publish(uuid))
-
-    for nexus in nexus_list:
-        dev = nvme_connect(nexus)
-        devs.append(dev)
-
-    for d in devs:
-        await run_cmd_async(f"sudo mkfs.xfs {d}")
-        await run_cmd_async(f"sudo mkdir -p /mnt{d}")
-        await run_cmd_async(f"sudo mount {d} /mnt{d}")
-
-    # as we are mounted now we need to ensure we write to files not raw devices
-    files = []
-    for d in devs:
-        files.append(f"/mnt{d}/file.dat")
-
+@pytest.mark.asyncio
+async def test_multiple_fs(containers, connect_devices, mount_devices):
+    # we're now writing to files not raw devices
+    files = [f"/mnt{dev}/file.dat" for dev in connect_devices]
     fio_cmd = Fio(
         f"job-fs",
         "randwrite",
@@ -150,33 +144,13 @@ async def test_multiple_fs(containers, mayastors, create_pool_on_all_nodes):
     ).build()
     print(fio_cmd)
 
+    to_kill = containers.get("ms3")
     await asyncio.gather(run_cmd_async(fio_cmd), kill_after(to_kill, 3))
-
-    for d in devs:
-        await run_cmd_async(f"sudo umount {d}")
-
-    for nexus in nexus_list:
-        nvme_disconnect(nexus)
 
 
 @pytest.mark.asyncio
-async def test_multiple_spdk(containers, mayastors, create_pool_on_all_nodes):
+async def test_multiple_spdk(containers, create_nexuses):
+    fio_cmd = FioSpdk(f"job-spdk", "randwrite", create_nexuses).build()
 
-    ms1 = mayastors.get("ms1")
-    rlist_m2 = mayastors.get("ms2").replica_list().replicas
-    rlist_m3 = mayastors.get("ms3").replica_list().replicas
-    nexus_list = []
     to_kill = containers.get("ms3")
-
-    devs = []
-
-    for i in range(15):
-        uuid = guid.uuid4()
-        ms1.nexus_create(
-            uuid, 60 * 1024 * 1024, [rlist_m2.pop().uri, rlist_m3.pop().uri]
-        )
-        nexus_list.append(ms1.nexus_publish(uuid))
-
-    fio_cmd = FioSpdk(f"job-1", "randwrite", nexus_list).build()
-
     await asyncio.gather(run_cmd_async(fio_cmd), kill_after(to_kill, 3))
