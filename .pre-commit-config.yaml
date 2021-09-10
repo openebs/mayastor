@@ -12,7 +12,7 @@ repos:
     -   id: rust-style
         name: Rust style
         description: Run cargo fmt on files included in the commit. rustfmt should be installed before-hand.
-        entry: cargo fmt --all -- --check
+        entry: cargo +nightly fmt --all -- --check
         pass_filenames: true
         types: [file, rust]
         language: system
