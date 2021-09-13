@@ -3,7 +3,6 @@ use std::{convert::TryFrom, fmt::Debug, os::raw::c_void, ptr::NonNull};
 use futures::channel::oneshot;
 use nix::errno::Errno;
 use pin_utils::core_reexport::fmt::Formatter;
-use rpc::mayastor::CreatePoolRequest;
 use spdk_rs::libspdk::{
     lvol_store_bdev,
     spdk_bs_free_cluster_count,
@@ -43,6 +42,11 @@ impl From<*mut spdk_lvol_store> for Lvs {
 
 /// iterator over all lvol stores
 pub struct LvsIterator(*mut lvol_store_bdev);
+
+pub struct PoolArgs {
+    pub name: String,
+    pub disks: Vec<String>,
+}
 
 /// returns a new lvs iterator
 impl LvsIterator {
@@ -289,9 +293,7 @@ impl Lvs {
     }
 
     /// imports the pool if it exists, otherwise try to create it
-    pub async fn create_or_import(
-        args: CreatePoolRequest,
-    ) -> Result<Lvs, Error> {
+    pub async fn create_or_import(args: PoolArgs) -> Result<Lvs, Error> {
         if args.disks.len() != 1 {
             return Err(Error::Invalid {
                 source: Errno::EINVAL,

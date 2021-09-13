@@ -1,6 +1,7 @@
 use crate::grpc::{
     bdev_grpc::BdevSvc,
     json_grpc::JsonRpcSvc,
+    mayastor::v1::MayastorSvc as MayastorSvcV1,
     mayastor_grpc::MayastorSvc,
 };
 
@@ -13,6 +14,7 @@ use rpc::mayastor::{
     v1,
 };
 
+use rpc::mayastor::v1::mayastor_server::MayastorServer as MayastorRpcServer1;
 use std::{borrow::Cow, time::Duration};
 use tonic::transport::Server;
 use tracing::trace;
@@ -28,6 +30,9 @@ impl MayastorGrpcServer {
         let address = Cow::from(rpc_addr);
         let svc = Server::builder()
             .add_service(MayastorRpcServer::new(MayastorSvc::new(
+                Duration::from_millis(4),
+            )))
+            .add_service(MayastorRpcServer1::new(MayastorSvcV1::new(
                 Duration::from_millis(4),
             )))
             .add_service(BdevRpcServer::new(BdevSvc::new()))

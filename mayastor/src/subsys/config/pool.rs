@@ -1,4 +1,4 @@
-use std::{fmt::Display, fs, path::Path, sync::Mutex};
+use std::{convert::TryFrom, fmt::Display, fs, path::Path, sync::Mutex};
 
 use futures::channel::oneshot;
 use once_cell::sync::{Lazy, OnceCell};
@@ -9,7 +9,7 @@ use crate::{
     bdev::nexus::VerboseError,
     core::{runtime, Cores, Mthread, Reactor, Share},
     grpc::rpc_submit,
-    lvs::{Error as LvsError, Lvs},
+    lvs::{Error as LvsError, Lvs, PoolArgs},
     pool::{Pool as SpdkPool, PoolsIter},
     replica::ShareType,
 };
@@ -213,7 +213,7 @@ async fn create_pool(
     }
 
     let rx = rpc_submit::<_, _, LvsError>(async move {
-        let pool = Lvs::create_or_import(args).await?;
+        let pool = Lvs::create_or_import(PoolArgs::try_from(args)?).await?;
         Ok(pool.into())
     })?;
 

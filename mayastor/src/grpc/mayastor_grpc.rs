@@ -32,7 +32,7 @@ use crate::{
         Serializer,
     },
     host::{blk_device, resource},
-    lvs::{Error as LvsError, Lvol, Lvs},
+    lvs::{Error as LvsError, Lvol, Lvs, PoolArgs},
     nexus_uri::NexusBdevError,
     subsys::PoolConfig,
 };
@@ -119,6 +119,23 @@ impl MayastorSvc {
             name: String::from("CSISvc"),
             interval,
             rw_lock: tokio::sync::RwLock::new(None),
+        }
+    }
+}
+
+impl TryFrom<CreatePoolRequest> for PoolArgs {
+    type Error = LvsError;
+    fn try_from(pool: CreatePoolRequest) -> Result<Self, Self::Error> {
+        if pool.disks.is_empty() {
+            Err(LvsError::Invalid {
+                source: Errno::EINVAL,
+                msg: "Missing devices".to_string(),
+            })
+        } else {
+            Ok(Self {
+                name: pool.name,
+                disks: pool.disks,
+            })
         }
     }
 }
@@ -241,7 +258,8 @@ impl mayastor_server::Mayastor for MayastorSvc {
                 }
 
                 let rx = rpc_submit::<_, _, LvsError>(async move {
-                    let pool = Lvs::create_or_import(args).await?;
+                    let pool = Lvs::create_or_import(PoolArgs::try_from(args)?)
+                        .await?;
                     // Capture current pool config and export to file.
                     PoolConfig::capture().export().await;
                     Ok(Pool::from(pool))

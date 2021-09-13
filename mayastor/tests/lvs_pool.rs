@@ -1,11 +1,10 @@
 use common::MayastorTest;
 use mayastor::{
     core::{Bdev, MayastorCliArgs, Protocol, Share},
-    lvs::{Lvs, PropName, PropValue},
+    lvs::{Lvs, PoolArgs, PropName, PropValue},
     nexus_uri::bdev_create,
     subsys::NvmfSubsystem,
 };
-use rpc::mayastor::CreatePoolRequest;
 
 pub mod common;
 
@@ -31,7 +30,7 @@ async fn lvs_pool_test() {
 
     // should succeed to create a pool we can not import
     ms.spawn(async {
-        Lvs::create_or_import(CreatePoolRequest {
+        Lvs::create_or_import(PoolArgs {
             name: "tpool".into(),
             disks: vec!["aio:///tmp/disk1.img".into()],
         })
@@ -43,7 +42,7 @@ async fn lvs_pool_test() {
     // returns OK when the pool is already there and we create
     // it again
     ms.spawn(async {
-        assert!(Lvs::create_or_import(CreatePoolRequest {
+        assert!(Lvs::create_or_import(PoolArgs {
             name: "tpool".into(),
             disks: vec!["aio:///tmp/disk1.img".into()],
         })
@@ -139,7 +138,7 @@ async fn lvs_pool_test() {
 
     // create a second pool and ensure it filters correctly
     ms.spawn(async {
-        let pool2 = Lvs::create_or_import(CreatePoolRequest {
+        let pool2 = Lvs::create_or_import(PoolArgs {
             name: "tpool2".to_string(),
             disks: vec!["malloc:///malloc0?size_mb=64".to_string()],
         })
@@ -172,7 +171,7 @@ async fn lvs_pool_test() {
     ms.spawn(async {
         let pool = Lvs::lookup("tpool").unwrap();
         pool.export().await.unwrap();
-        let pool = Lvs::create_or_import(CreatePoolRequest {
+        let pool = Lvs::create_or_import(PoolArgs {
             name: "tpool".to_string(),
             disks: vec!["aio:///tmp/disk1.img".to_string()],
         })
@@ -303,7 +302,7 @@ async fn lvs_pool_test() {
         pool.destroy().await.unwrap();
         assert_eq!(NvmfSubsystem::first().unwrap().into_iter().count(), 1);
 
-        let pool = Lvs::create_or_import(CreatePoolRequest {
+        let pool = Lvs::create_or_import(PoolArgs {
             name: "tpool".into(),
             disks: vec!["aio:///tmp/disk1.img".into()],
         })
@@ -331,7 +330,7 @@ async fn lvs_pool_test() {
         assert_eq!(Bdev::bdev_first().into_iter().count(), 0);
 
         // importing a pool with the wrong name should fail
-        Lvs::create_or_import(CreatePoolRequest {
+        Lvs::create_or_import(PoolArgs {
             name: "jpool".into(),
             disks: vec!["aio:///tmp/disk1.img".into()],
         })
@@ -345,7 +344,7 @@ async fn lvs_pool_test() {
 
     // if not specified, default driver scheme should be AIO
     ms.spawn(async {
-        let pool = Lvs::create_or_import(CreatePoolRequest {
+        let pool = Lvs::create_or_import(PoolArgs {
             name: "tpool2".into(),
             disks: vec!["/tmp/disk2.img".into()],
         })
