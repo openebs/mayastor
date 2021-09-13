@@ -3,11 +3,12 @@ use crate::{
     core::singleton::{Singleton, SingletonCell},
 };
 use spdk::Thread;
+use std::ptr::NonNull;
 
 /// TODO
 #[derive(Debug)]
 pub struct NexusInstances {
-    nexuses: Vec<Box<Nexus>>,
+    nexuses: Vec<NonNull<Nexus>>,
 }
 
 impl Default for NexusInstances {
@@ -43,35 +44,29 @@ impl NexusInstances {
 
     /// Returns an immutable iterator for Nexus instances.
     pub fn iter(&self) -> NexusIter {
-        NexusIter {
-            n: 0,
-        }
+        NexusIter::new()
     }
 
     /// Returns an iterator for Nexus instances that allows
     /// modifying an Nexus object.
     pub fn iter_mut(&mut self) -> NexusIterMut {
-        NexusIterMut {
-            n: 0,
-        }
+        NexusIterMut::new()
     }
 
     /// TODO
-    pub fn add(&mut self, n: Box<Nexus>) -> &mut Nexus {
+    pub fn add(&mut self, n: NonNull<Nexus>) -> &mut Nexus {
         self.nexuses.push(n);
-        self.nexuses.last_mut().unwrap()
+        unsafe { self.nexuses.last_mut().unwrap().as_mut() }
     }
 
     /// Lookups a nexus by its name and returns a reference to it.
     pub fn lookup(&self, name: &str) -> Option<&Nexus> {
-        self.iter()
-            .find(|n| n.name == name)
+        self.iter().find(|n| n.name == name)
     }
 
     /// Lookups a nexus by its name and returns a mutable reference to it.
     pub fn lookup_mut(&mut self, name: &str) -> Option<&mut Nexus> {
-        self.iter_mut()
-            .find(|n| n.name == name)
+        self.iter_mut().find(|n| n.name == name)
     }
 
     /// TODO
@@ -81,26 +76,47 @@ impl NexusInstances {
 
     /// TODO
     pub fn remove_by_name(&mut self, name: &str) {
-        self.nexuses.retain(|x| x.name != name);
+        for (idx, p) in self.nexuses.iter().enumerate() {
+            if unsafe { p.as_ref() }.name != name {
+                continue;
+            }
+
+            unsafe { Box::from_raw(p.as_ptr()) };
+            self.nexuses.remove(idx);
+            return;
+        }
+
+        warn!("None Nexus removed: {}!", name);
     }
 }
 
 /// TODO
 pub struct NexusIter {
     n: usize,
+    // iter: BdevIter<()>,
 }
 
 impl Iterator for NexusIter {
     type Item = &'static Nexus;
 
     fn next(&mut self) -> Option<&'static Nexus> {
+        // self.iter.next().map(|b| b.legacy_ctxt::<Nexus>())
         let inst = NexusInstances::get_or_init();
         if self.n < inst.nexuses.len() {
             let i = self.n;
             self.n += 1;
-            Some(&mut inst.nexuses[i])
+            Some(unsafe { inst.nexuses[i].as_ref() })
         } else {
             None
+        }
+    }
+}
+
+impl NexusIter {
+    fn new() -> Self {
+        Self {
+            n: 0,
+            // iter: module().iter_bdevs()
         }
     }
 }
@@ -108,19 +124,30 @@ impl Iterator for NexusIter {
 /// TODO
 pub struct NexusIterMut {
     n: usize,
+    // iter: BdevIter<()>,
 }
 
 impl Iterator for NexusIterMut {
     type Item = &'static mut Nexus;
 
     fn next(&mut self) -> Option<&'static mut Nexus> {
+        // self.iter.next().map(|b| b.legacy_ctxt_mut::<Nexus>())
         let inst = NexusInstances::get_or_init();
         if self.n < inst.nexuses.len() {
             let i = self.n;
             self.n += 1;
-            Some(&mut inst.nexuses[i])
+            Some(unsafe { inst.nexuses[i].as_mut() })
         } else {
             None
+        }
+    }
+}
+
+impl NexusIterMut {
+    fn new() -> Self {
+        Self {
+            n: 0,
+            // iter: module().iter_bdevs()
         }
     }
 }

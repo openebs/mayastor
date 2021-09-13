@@ -19,6 +19,12 @@ impl Uuid {
     pub(crate) fn into_raw(self) -> spdk_uuid {
         self.inner
     }
+
+    /// TODO
+    /// Note: for some reason the uuid is a union.
+    pub fn as_bytes(&self) -> [u8; 16] {
+        unsafe { self.inner.u.raw }
+    }
 }
 
 impl From<uuid::Uuid> for Uuid {
@@ -36,5 +42,11 @@ impl From<uuid::Uuid> for Uuid {
         Self {
             inner,
         }
+    }
+}
+
+impl From<Uuid> for uuid::Uuid {
+    fn from(u: Uuid) -> Self {
+        Self::from_bytes(u.as_bytes())
     }
 }

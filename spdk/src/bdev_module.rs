@@ -3,6 +3,7 @@ use std::{ffi::CString, marker::PhantomData, ptr::NonNull};
 use crate::{
     ffihelper::{AsStr, IntoCString},
     Bdev,
+    BdevIter,
     BdevOps,
     JsonWriteContext,
     Result,
@@ -49,6 +50,14 @@ impl BdevModule {
                 name: String::from(mod_name),
             }),
         }
+    }
+
+    /// TODO
+    pub fn iter_bdevs<T>(&self) -> BdevIter<T>
+    where
+        T: BdevOps,
+    {
+        BdevIter::<T>::new(self)
     }
 
     /// Lays exclusive write claim to a Bdev.

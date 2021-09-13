@@ -508,13 +508,13 @@ fn update_failfast_done(_status: i32, ctx: UpdateFailFastCtx) {
 impl Nexus {
     /// create a new nexus instance with optionally directly attaching
     /// children to it.
-    pub fn new(
+    fn new(
         name: &str,
         size: u64,
         uuid: Option<&str>,
         nvme_params: NexusNvmeParams,
         child_bdevs: Option<&[String]>,
-    ) -> Box<Self> {
+    ) -> NonNull<Nexus> {
         let mut b = Box::new(spdk_bdev::default());
 
         b.name = c_str!(name);
@@ -557,7 +557,8 @@ impl Nexus {
             (*n.bdev_mut().as_ptr()).ctxt =
                 n.as_ref() as *const _ as *mut c_void;
         }
-        n
+
+        NonNull::new(Box::into_raw(n)).unwrap()
     }
 
     /// TODO
@@ -639,16 +640,16 @@ impl Nexus {
         );
     }
 
-    /// Opens the Nexus instance for IO
-    pub async fn open(&mut self) -> Result<(), Error> {
+    /// Opens the Nexus instance for IO.
+    async fn register_instance(&mut self) -> Result<(), Error> {
         debug!("Opening nexus {}", self.name);
 
         self.try_open_children().await?;
         self.sync_labels().await?;
-        self.register().await
+        self.register_device().await
     }
 
-    pub async fn sync_labels(&mut self) -> Result<(), Error> {
+    pub(crate) async fn sync_labels(&mut self) -> Result<(), Error> {
         if env::var("NEXUS_DONT_READ_LABELS").is_ok() {
             // This is to allow for the specific case where the underlying
             // child devices are NULL bdevs, which may be written to
@@ -1011,7 +1012,7 @@ impl Nexus {
     /// register the bdev with SPDK and set the callbacks for io channel
     /// creation. Once this function is called, the device is visible and can
     /// be used for IO.
-    pub(crate) async fn register(&mut self) -> Result<(), Error> {
+    async fn register_device(&mut self) -> Result<(), Error> {
         assert_eq!(*self.state.lock(), NexusState::Init);
 
         let io_device = IoDevice::new::<NexusChannel>(
@@ -1211,16 +1212,21 @@ async fn nexus_create_internal(
     // closing a child assumes that the nexus to which it belongs will appear
     // in the global list of nexus instances. We must also ensure that the
     // nexus instance gets removed from the global list if an error occurs.
-    let ni = nexuses.add(Nexus::new(name, size, uuid, nvme_params, None));
+    let mut new_nex = Nexus::new(name, size, uuid, nvme_params, None);
 
     for child in children {
+        let ni = unsafe { new_nex.as_mut() };
         if let Err(error) = ni.create_and_register(child).await {
             error!(
                 "failed to create nexus {}: failed to create child {}: {}",
                 name, child, error
             );
             ni.close_children().await;
-            nexuses.remove_by_name(name);
+
+            // TODO: removal
+            // nexuses.remove_by_name(name);
+            unsafe { Box::from_raw(ni.as_ptr()) };
+
             return Err(Error::CreateChild {
                 source: error,
                 name: String::from(name),
@@ -1228,7 +1234,8 @@ async fn nexus_create_internal(
         }
     }
 
-    match ni.open().await {
+    let ni = nexuses.add(new_nex);
+    match ni.register_instance().await {
         Err(Error::NexusIncomplete {
             ..
         }) => {

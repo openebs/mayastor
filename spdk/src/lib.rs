@@ -5,6 +5,7 @@ extern crate serde_json;
 
 mod bdev;
 mod bdev_io;
+mod bdev_iter;
 mod bdev_module;
 pub mod cpu_cores;
 mod error;
@@ -20,6 +21,7 @@ mod uuid;
 pub use crate::uuid::Uuid;
 pub use bdev::{Bdev, BdevBuilder, BdevOps};
 pub use bdev_io::BdevIo;
+pub use bdev_iter::BdevIter;
 pub use bdev_module::{
     BdevModule,
     BdevModuleBuild,
