@@ -1,4 +1,5 @@
 from common.volume import Volume
+from common.mayastor import container_mod, mayastor_mod
 from common.hdl import MayastorHandle
 import logging
 import pytest
@@ -13,8 +14,6 @@ from common.nvme import (
     nvme_list_subsystems,
     nvme_resv_report,
 )
-
-from common.mayastor import containers_mod, mayastor_mod
 
 
 @pytest.fixture

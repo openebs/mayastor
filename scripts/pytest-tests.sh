@@ -1,6 +1,24 @@
 #! /usr/bin/env bash
 
-set -euxo pipefail
+set -eu -o pipefail
+
+function run_tests()
+{
+  while read name extra
+  do
+    case "$name" in
+      test_*)
+        if [ -f "$name.py" ]
+        then
+        (
+          set -x
+          pytest --tc-file=test_config.ini "$name.py"
+        )
+        fi
+      ;;
+    esac
+  done
+}
 
 if [ "${SRCDIR:-unset}" = unset ]
 then
@@ -8,19 +26,28 @@ then
   exit 1
 fi
 
-tests='test_bdd_pool'
-tests+=' test_bdd_replica'
-tests+=' test_bdd_nexus'
-tests+=' test_nexus_publish'
-tests+=' test_bdd_rebuild'
-tests+=' test_bdd_csi'
-tests+=' test_csi'
-tests+=' test_nexus_multipath'
-tests+=' test_bdd_nexus_multipath'
-
 cd "$SRCDIR/test/python" && source ./venv/bin/activate
 
-for ts in $tests
-do
-  pytest --tc-file=test_config.ini "$ts.py"
-done
+run_tests << 'END'
+
+test_bdd_pool
+test_bdd_replica
+test_bdd_nexus
+test_nexus_publish
+test_bdd_rebuild
+test_bdd_csi
+test_csi
+
+test_ana_client
+test_cli_controller
+test_replica_uuid
+# test_rpc
+
+test_bdd_nexus_multipath
+test_nexus_multipath
+
+test_multi_nexus
+test_nexus
+test_null_nexus
+
+END

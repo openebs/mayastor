@@ -1,8 +1,9 @@
+from common.hdl import MayastorHandle
 from common.command import run_cmd_async_at, run_cmd_async
 from common.fio import Fio
 from common.fio_spdk import FioSpdk
+from common.mayastor import containers, mayastors
 from common.volume import Volume
-from common.hdl import MayastorHandle
 import logging
 import pytest
 import uuid as guid
@@ -12,26 +13,22 @@ import mayastor_pb2 as pb
 from common.nvme import (
     nvme_discover,
     nvme_connect,
-    nvme_id_ctrl,
     nvme_disconnect,
-    nvme_remote_connect,
-    nvme_remote_disconnect,
+    nvme_id_ctrl,
     nvme_resv_report,
 )
 
-from common.mayastor import containers_mod, mayastor_mod
-
 
 @pytest.fixture
-def create_nexus(mayastor_mod, nexus_uuid, create_replica):
-    hdls = mayastor_mod
-    replicas = create_replica
-    replicas = [k.uri for k in replicas]
+def create_nexus(mayastors, nexus_uuid, create_replica):
+    hdls = mayastors
+    replicas = [k.uri for k in create_replica]
 
     NEXUS_UUID, size_mb = nexus_uuid
 
     hdls["ms3"].nexus_create(NEXUS_UUID, 64 * 1024 * 1024, replicas)
     uri = hdls["ms3"].nexus_publish(NEXUS_UUID)
+
     assert len(hdls["ms1"].bdev_list()) == 2
     assert len(hdls["ms2"].bdev_list()) == 2
     assert len(hdls["ms3"].bdev_list()) == 1
@@ -45,17 +42,15 @@ def create_nexus(mayastor_mod, nexus_uuid, create_replica):
 
 @pytest.fixture
 def create_nexus_v2(
-    mayastor_mod, nexus_name, nexus_uuid, create_replica, min_cntlid, resv_key
+    mayastors, nexus_name, nexus_uuid, create_replica, min_cntlid, resv_key
 ):
-    hdls = mayastor_mod
-    replicas = create_replica
-    replicas = [k.uri for k in replicas]
+    hdls = mayastors
+    replicas = [k.uri for k in create_replica]
 
     NEXUS_UUID, size_mb = nexus_uuid
-    NEXUS_NAME = nexus_name
 
     hdls["ms3"].nexus_create_v2(
-        NEXUS_NAME,
+        nexus_name,
         NEXUS_UUID,
         size_mb,
         min_cntlid,
@@ -63,7 +58,9 @@ def create_nexus_v2(
         resv_key,
         replicas,
     )
-    uri = hdls["ms3"].nexus_publish(NEXUS_NAME)
+
+    uri = hdls["ms3"].nexus_publish(nexus_name)
+
     assert len(hdls["ms1"].bdev_list()) == 2
     assert len(hdls["ms2"].bdev_list()) == 2
     assert len(hdls["ms3"].bdev_list()) == 1
@@ -72,7 +69,7 @@ def create_nexus_v2(
     assert len(hdls["ms2"].pool_list().pools) == 1
 
     yield uri
-    hdls["ms3"].nexus_destroy(NEXUS_NAME)
+    hdls["ms3"].nexus_destroy(nexus_name)
 
 
 @pytest.fixture
@@ -125,18 +122,18 @@ def resv_key():
 
 
 @pytest.fixture
-def create_pools(mayastor_mod, pool_config):
-    hdls = mayastor_mod
+def create_pools(containers, mayastors, pool_config):
+    hdls = mayastors
 
     cfg = pool_config
     pools = []
 
     pools.append(hdls["ms1"].pool_create(cfg.get("name"), cfg.get("uri")))
-
     pools.append(hdls["ms2"].pool_create(cfg.get("name"), cfg.get("uri")))
 
     for p in pools:
         assert p.state == pb.POOL_ONLINE
+
     yield pools
     try:
         hdls["ms1"].pool_destroy(cfg.get("name"))
@@ -146,8 +143,8 @@ def create_pools(mayastor_mod, pool_config):
 
 
 @pytest.fixture
-def create_replica(mayastor_mod, replica_uuid, create_pools):
-    hdls = mayastor_mod
+def create_replica(mayastors, replica_uuid, create_pools):
+    hdls = mayastors
     pools = create_pools
     replicas = []
 
@@ -164,9 +161,8 @@ def create_replica(mayastor_mod, replica_uuid, create_pools):
         logging.debug(e)
 
 
-@pytest.mark.skip
-def test_enospace_on_volume(mayastor_mod):
-    nodes = mayastor_mod
+def test_enospace_on_volume(mayastors, create_replica):
+    nodes = mayastors
     pools = []
     uuid = guid.uuid4()
 
@@ -176,9 +172,9 @@ def test_enospace_on_volume(mayastor_mod):
 
     v = Volume(uuid, nexus_node, pools, 100 * 1024 * 1024)
 
-    with pytest.raises(grpc.RpcError, match="RESOURCE_EXHAUSTED"):
-        _ = v.create()
-    print("expected failed")
+    with pytest.raises(grpc.RpcError) as error:
+        v.create()
+    assert error.value.code() == grpc.StatusCode.RESOURCE_EXHAUSTED
 
 
 async def kill_after(container, sec):
@@ -188,28 +184,27 @@ async def kill_after(container, sec):
     container.kill()
 
 
-@pytest.mark.skip
 @pytest.mark.asyncio
-@pytest.mark.timeout(60)
-async def test_nexus_2_mirror_kill_one(containers, create_nexus):
+async def test_nexus_2_mirror_kill_one(containers, mayastors, create_nexus):
 
-    to_kill = containers.get("ms2")
     uri = create_nexus
-
     nvme_discover(uri)
     dev = nvme_connect(uri)
-    job = Fio("job1", "rw", dev).build()
+    try:
+        job = Fio("job1", "rw", dev).build()
+        print(job)
 
-    await asyncio.gather(run_cmd_async(job), kill_after(to_kill, 5))
+        to_kill = containers.get("ms2")
+        await asyncio.gather(run_cmd_async(job), kill_after(to_kill, 5))
 
-    nvme_disconnect(uri)
+    finally:
+        # disconnect target before we shutdown
+        nvme_disconnect(uri)
 
 
 @pytest.mark.asyncio
-@pytest.mark.skip
-@pytest.mark.timeout(60)
 async def test_nexus_2_remote_mirror_kill_one(
-    target_vm, containers, nexus_uuid, mayastor_mod, create_nexus
+    containers, mayastors, nexus_uuid, create_nexus
 ):
     """
     This test does the following steps:
@@ -235,90 +230,102 @@ async def test_nexus_2_remote_mirror_kill_one(
     """
 
     uri = create_nexus
-    NEXUS_UUID, size_mb = nexus_uuid
-    dev = await nvme_remote_connect(target_vm, uri)
-    job = Fio("job1", "randwrite", dev).build()
+    dev = nvme_connect(uri)
+    try:
+        job = Fio("job1", "randwrite", dev).build()
+        print(job)
 
-    # create an event loop polling the async processes for completion
-    await asyncio.gather(
-        run_cmd_async_at(target_vm, job), kill_after(containers.get("ms2"), 4)
-    )
+        to_kill = containers.get("ms2")
 
-    list = mayastor_mod.get("ms3").nexus_list()
-    nexus = next(n for n in list if n.uuid == NEXUS_UUID)
-    assert nexus.state == pb.NEXUS_DEGRADED
-    nexus.children[1].state == pb.CHILD_FAULTED
+        # create an event loop polling the async processes for completion
+        await asyncio.gather(run_cmd_async(job), kill_after(to_kill, 4))
 
-    # disconnect the VM from our target before we shutdown
-    await nvme_remote_disconnect(target_vm, uri)
+        list = mayastors.get("ms3").nexus_list()
+
+        NEXUS_UUID, size_mb = nexus_uuid
+        nexus = next(n for n in list if n.uuid == NEXUS_UUID)
+
+        assert nexus.state == pb.NEXUS_DEGRADED
+        assert nexus.children[1].state == pb.CHILD_FAULTED
+
+    finally:
+        # disconnect target before we shutdown
+        nvme_disconnect(uri)
 
 
-@pytest.mark.skip
 @pytest.mark.asyncio
-@pytest.mark.timeout(60)
 async def test_nexus_2_remote_mirror_kill_one_spdk(
-    containers_mod, nexus_uuid, mayastor_mod, create_nexus
+    containers, mayastors, nexus_uuid, create_nexus
 ):
     """
     Identical to the previous test except fio uses the SPDK ioengine
     """
 
     uri = create_nexus
-    NEXUS_UUID, _ = nexus_uuid
+
     job = FioSpdk("job1", "randwrite", uri).build()
     print(job)
 
-    await asyncio.gather(run_cmd_async(job), kill_after(containers_mod.get("ms2"), 4))
+    to_kill = containers.get("ms2")
+    await asyncio.gather(run_cmd_async(job), kill_after(to_kill, 4))
 
-    list = mayastor_mod.get("ms3").nexus_list()
+    list = mayastors.get("ms3").nexus_list()
+
+    NEXUS_UUID, _ = nexus_uuid
     nexus = next(n for n in list if n.uuid == NEXUS_UUID)
+
     assert nexus.state == pb.NEXUS_DEGRADED
-    nexus.children[1].state == pb.CHILD_FAULTED
+    assert nexus.children[1].state == pb.CHILD_FAULTED
 
 
-@pytest.mark.timeout(60)
+@pytest.mark.asyncio
 async def test_nexus_cntlid(create_nexus_v2, min_cntlid):
     """Test create_nexus_v2 NVMe controller ID"""
 
     uri = create_nexus_v2
-    min_cntlid = min_cntlid
 
     dev = nvme_connect(uri)
-    id_ctrl = nvme_id_ctrl(dev)
-    assert id_ctrl["cntlid"] == min_cntlid
+    try:
+        id_ctrl = nvme_id_ctrl(dev)
+        assert id_ctrl["cntlid"] == min_cntlid
 
-    nvme_disconnect(uri)
+    finally:
+        # disconnect target before we shutdown
+        nvme_disconnect(uri)
 
 
-@pytest.mark.timeout(60)
-async def test_nexus_resv_key(
-    create_nexus_v2, nexus_name, nexus_uuid, mayastor_mod, resv_key
-):
+def test_nexus_resv_key(create_nexus_v2, nexus_name, nexus_uuid, mayastors, resv_key):
     """Test create_nexus_v2 replica NVMe reservation key"""
 
     uri = create_nexus_v2
     NEXUS_UUID, _ = nexus_uuid
-    NEXUS_NAME = nexus_name
-    resv_key = resv_key
 
-    list = mayastor_mod.get("ms3").nexus_list_v2()
-    nexus = next(n for n in list if n.name == NEXUS_NAME)
+    list = mayastors.get("ms3").nexus_list_v2()
+    nexus = next(n for n in list if n.name == nexus_name)
     assert nexus.uuid == NEXUS_UUID
     child_uri = nexus.children[0].uri
 
     dev = nvme_connect(child_uri)
-    report = nvme_resv_report(dev)
+    try:
+        report = nvme_resv_report(dev)
+        print(report)
 
-    # write exclusive reservation
-    assert report["rtype"] == 1
-    # 1 registered controller
-    assert report["regctl"] == 1
-    # Persist Through Power Loss State
-    assert report["ptpls"] == 0
-    # dynamic controller ID
-    assert report["regctlext"][0]["cntlid"] == 0xFFFF
-    # reservation status reserved
-    assert report["regctlext"][0]["rcsts"] == 1
-    assert report["regctlext"][0]["rkey"] == resv_key
+        # write exclusive reservation
+        assert report["rtype"] == 5
 
-    nvme_disconnect(child_uri)
+        # 1 registered controller
+        assert report["regctl"] == 1
+
+        # Persist Through Power Loss State
+        assert report["ptpls"] == 0
+
+        # dynamic controller ID
+        assert report["regctlext"][0]["cntlid"] == 0xFFFF
+
+        # reservation status reserved
+        assert (report["regctlext"][0]["rcsts"] & 0x1) == 1
+        assert report["regctlext"][0]["rkey"] == resv_key
+
+    finally:
+        # disconnect target before we shutdown
+        nvme_disconnect(child_uri)

@@ -4,7 +4,7 @@ from pytest_bdd import given, scenario, then, when, parsers
 
 from common.command import run_cmd
 from common.fio import Fio
-from common.mayastor import containers_mod, mayastor_mod
+from common.mayastor import container_mod, mayastor_mod
 
 import grpc
 import mayastor_pb2 as pb

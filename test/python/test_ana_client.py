@@ -1,5 +1,5 @@
 import pytest
-from common.mayastor import mayastor_mod
+from common.mayastor import container_mod, mayastor_mod
 from common.nvme import (
     nvme_connect,
     nvme_disconnect,

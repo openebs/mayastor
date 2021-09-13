@@ -1,5 +1,5 @@
 from common.hdl import MayastorHandle
-from common.mayastor import mayastor_mod
+from common.mayastor import container_mod, mayastor_mod
 import pytest
 
 
