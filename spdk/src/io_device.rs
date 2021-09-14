@@ -19,11 +19,11 @@ pub trait IoDevice: Sized {
     fn unregister_callback(&self) {}
 
     /// Called to create a new per-core I/O channel data instance.
-    fn io_channel_create(&self) -> Self::ChannelData;
+    fn io_channel_create(&mut self) -> Self::ChannelData;
 
     /// Called to destroy the given per-core I/O channel data instance.
     /// The default implementation just drops it.
-    fn io_channel_destroy(&self, _chan: Self::ChannelData) {}
+    fn io_channel_destroy(&mut self, _chan: Self::ChannelData) {}
 
     /// Registers this I/O device within SPDK.
     ///
@@ -54,7 +54,7 @@ pub trait IoDevice: Sized {
     }
 
     /// Unregisters this I/O device from SPDK.
-    fn io_device_unregister(&self) {
+    fn io_device_unregister(&mut self) {
         unsafe {
             spdk_io_device_unregister(
                 self.get_io_device_id(),
@@ -73,7 +73,7 @@ pub trait IoDevice: Sized {
 impl IoDevice for () {
     type ChannelData = ();
 
-    fn io_channel_create(&self) -> Self::ChannelData {
+    fn io_channel_create(&mut self) -> Self::ChannelData {
         ()
     }
 }
@@ -83,12 +83,12 @@ impl IoDevice for () {
 /// # Parameters
 ///
 /// TODO
-fn from_io_device_id<'a, Dev>(ctx: *mut c_void) -> &'a Dev
+fn from_io_device_id<'a, Dev>(ctx: *mut c_void) -> &'a mut Dev
 where
     Dev: IoDevice,
 {
     // TODO: NULL check.
-    unsafe { &*(ctx as *const Dev) }
+    unsafe { &mut *(ctx as *mut Dev) }
 }
 
 /// Called by SPDK in order to create a new channel data owned by an I/O

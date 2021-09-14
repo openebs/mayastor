@@ -56,4 +56,9 @@ where
             _ctx: Default::default(),
         }
     }
+
+    /// TODO
+    pub fn legacy_as_ptr(&self) -> *mut spdk_bdev_io {
+        self.inner.as_ptr()
+    }
 }

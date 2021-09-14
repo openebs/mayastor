@@ -7,7 +7,12 @@ use serde::Serialize;
 
 use crate::{Result, SpdkError};
 
-use spdk_sys::{spdk_json_write_ctx, spdk_json_write_val_raw};
+use spdk_sys::{
+    spdk_json_write_array_end,
+    spdk_json_write_ctx,
+    spdk_json_write_named_array_begin,
+    spdk_json_write_val_raw,
+};
 
 /// Wrapper for SPDK JSON write context.
 pub struct JsonWriteContext {
@@ -21,9 +26,7 @@ impl JsonWriteContext {
         T: ?Sized + Serialize,
     {
         match serde_json::to_string(val) {
-            Ok(s) => {
-                self.write_string(&s)
-            }
+            Ok(s) => self.write_string(&s),
             Err(err) => Err(SpdkError::SerdeFailed {
                 source: err,
             }),
@@ -50,6 +53,23 @@ impl JsonWriteContext {
             Err(SpdkError::JsonWriteFailed {
                 code: err,
             })
+        }
+    }
+
+    /// TODO
+    pub fn write_named_array_begin(&self, name: &str) {
+        let cname = CString::new(name).unwrap();
+        unsafe {
+            // TODO: error processing
+            spdk_json_write_named_array_begin(self.as_ptr(), cname.as_ptr());
+        };
+    }
+
+    /// TODO
+    pub fn write_array_end(&self) {
+        unsafe {
+            // TODO: error processing
+            spdk_json_write_array_end(self.as_ptr());
         }
     }
 

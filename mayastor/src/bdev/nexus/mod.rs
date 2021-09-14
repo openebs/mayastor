@@ -5,19 +5,10 @@ use std::pin::Pin;
 use futures::{future::Future, FutureExt};
 
 use crate::{
-    bdev::nexus::nexus_fn_table::NexusFnTable,
     core::{Bdev, Share},
     jsonrpc::{jsonrpc_register, Code, JsonRpcError, Result},
 };
 use spdk::BdevModule;
-
-/// Allocate C string and return pointer to it.
-/// NOTE: The resulting string must be freed explicitly after use!
-macro_rules! c_str {
-    ($lit:expr) => {
-        std::ffi::CString::new($lit).unwrap().into_raw()
-    };
-}
 
 pub mod nexus_bdev;
 pub mod nexus_bdev_children;
@@ -25,7 +16,6 @@ pub mod nexus_bdev_rebuild;
 pub mod nexus_bdev_snapshot;
 mod nexus_channel;
 pub(crate) mod nexus_child;
-pub mod nexus_fn_table;
 pub mod nexus_instances;
 pub mod nexus_io;
 pub mod nexus_label;
@@ -116,11 +106,6 @@ pub fn register_module() {
 /// Panics if the Nexus module was not registered.
 pub fn module() -> BdevModule {
     nexus_module::NexusModule::current()
-}
-
-/// get a static ref to the fn table of the nexus module
-pub fn fn_table() -> Option<&'static spdk_sys::spdk_bdev_fn_table> {
-    Some(NexusFnTable::table())
 }
 
 /// called during shutdown so that all nexus children are in Destroying state

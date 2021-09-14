@@ -64,7 +64,7 @@ impl<'a> IoDevice for NullIoDevice<'a> {
     type ChannelData = NullIoChannelData<'a>;
 
     /// TODO
-    fn io_channel_create(&self) -> Self::ChannelData {
+    fn io_channel_create(&mut self) -> Self::ChannelData {
         let mut x = self.next_chan_id.borrow_mut();
         *x += 1;
         self.get_io_device_id();
@@ -73,7 +73,7 @@ impl<'a> IoDevice for NullIoDevice<'a> {
     }
 
     /// TODO
-    fn io_channel_destroy(&self, _io_chan: Self::ChannelData) {}
+    fn io_channel_destroy(&mut self, _io_chan: Self::ChannelData) {}
 }
 
 /// TODO
@@ -126,7 +126,7 @@ impl<'a> NullIoDevice<'a> {
             _a: Default::default(),
         };
 
-        let bdev = BdevBuilder::new()
+        let mut bdev = BdevBuilder::new()
             .with_data(io_dev)
             .with_module(&bm)
             .with_name(name)
@@ -137,7 +137,11 @@ impl<'a> NullIoDevice<'a> {
             .build();
 
         bdev.data().io_device_register(Some(name));
-        bdev.bdev_register();
+
+        match bdev.bdev_register() {
+            Ok(_) => info!("NullNg Bdev regustered"),
+            Err(err) => error!("Failed to register NullNg Bdev: {}", err),
+        }
     }
 }
 

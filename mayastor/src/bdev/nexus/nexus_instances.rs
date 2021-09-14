@@ -76,17 +76,18 @@ impl NexusInstances {
 
     /// TODO
     pub fn remove_by_name(&mut self, name: &str) {
+        info!("^^^^ Removing Nexus from list: {}", name);
         for (idx, p) in self.nexuses.iter().enumerate() {
             if unsafe { p.as_ref() }.name != name {
                 continue;
             }
 
-            unsafe { Box::from_raw(p.as_ptr()) };
+            // unsafe { Box::from_raw(p.as_ptr()) };
             self.nexuses.remove(idx);
             return;
         }
 
-        warn!("None Nexus removed: {}!", name);
+        warn!("^^^^ Nexus to be removed not found: {}!", name);
     }
 }
 

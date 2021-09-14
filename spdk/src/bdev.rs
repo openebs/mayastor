@@ -12,9 +12,11 @@ use crate::{
     IoChannel,
     IoDevice,
     IoType,
+    JsonWriteContext,
     Uuid,
 };
 
+use crate::ffihelper::{errno_result_from_i32, ErrnoResult};
 use spdk_sys::{
     spdk_bdev,
     spdk_bdev_fn_table,
@@ -25,6 +27,7 @@ use spdk_sys::{
     spdk_bdev_register,
     spdk_get_io_channel,
     spdk_io_channel,
+    spdk_json_write_ctx,
 };
 
 /// Wrapper for SPDK `spdk_bdev` structure and related API.
@@ -41,9 +44,11 @@ where
     BdevData: BdevOps,
 {
     /// Consumes the Bdev and registers it in SPDK.
-    pub fn bdev_register(self) {
+    /// TODO ...
+    pub fn bdev_register(&mut self) -> ErrnoResult<()> {
         // TODO: error check.
-        unsafe { spdk_bdev_register(self.as_ptr()) };
+        let errno = unsafe { spdk_bdev_register(self.as_ptr()) };
+        errno_result_from_i32((), errno)
     }
 
     /// Returns a Bdev module for this Bdev.
@@ -200,6 +205,9 @@ pub trait BdevOps {
 
     /// TODO
     fn get_io_device(&self) -> &Self::IoDev;
+
+    /// TODO
+    fn dump_info_json(&self, _w: JsonWriteContext) {}
 }
 
 /// TODO
@@ -349,6 +357,26 @@ where
     c.data.io_type_supported(IoType::from(io_type))
 }
 
+/// TODO
+///
+/// # Parameters
+///
+/// * `ctx` - Pointer to a Bdev context, which is a pointer to `Container<_>` in
+///   our case.
+unsafe extern "C" fn inner_dump_info_json<BdevData>(
+    ctx: *mut c_void,
+    w: *mut spdk_json_write_ctx,
+) -> i32
+where
+    BdevData: BdevOps<BdevData = BdevData>,
+{
+    let c = Container::<BdevData>::from_ptr(ctx);
+    c.data.dump_info_json(JsonWriteContext::from_ptr(w));
+
+    // TODO: error processing?
+    0
+}
+
 /// Builder for `Bdev` structure.
 ///
 /// # Generic Parameters
@@ -406,7 +434,7 @@ where
             submit_request: Some(inner_bdev_submit_request::<BdevData>),
             io_type_supported: Some(inner_bdev_io_type_supported::<BdevData>),
             get_io_channel: Some(inner_bdev_get_io_channel::<BdevData>),
-            dump_info_json: None,
+            dump_info_json: Some(inner_dump_info_json::<BdevData>),
             write_config_json: None,
             get_spin_time: None,
             get_module_ctx: Some(inner_bdev_get_module_ctx::<BdevData>),
@@ -518,14 +546,14 @@ where
         // Consume the container and store pointer to it within the `spdk_bdev`
         // context field. It will be converted back into Box<> and
         // dropped later upon Bdev destruction.
-        let p = Box::into_raw(cont);
+        let pcont = Box::into_raw(cont);
 
         // Fill the context field (our Container<>) and the function table,
         // and construct a `Bdev` wrapper.
         unsafe {
-            (*p).bdev.fn_table = &(*p).fn_table;
-            (*p).bdev.ctxt = p as *mut c_void;
-            Bdev::from_ptr(&mut (*p).bdev)
+            (*pcont).bdev.fn_table = &(*pcont).fn_table;
+            (*pcont).bdev.ctxt = pcont as *mut c_void;
+            Bdev::from_ptr(&mut (*pcont).bdev)
         }
     }
 }

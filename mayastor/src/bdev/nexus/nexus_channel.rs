@@ -12,6 +12,7 @@ use spdk_sys::{
     spdk_io_channel_iter_get_channel,
     spdk_io_channel_iter_get_ctx,
     spdk_io_channel_iter_get_io_device,
+    spdk_io_channel_get_ctx_hpl,
 };
 
 use crate::{
@@ -22,7 +23,7 @@ use crate::{
 /// io channel, per core
 #[repr(C)]
 #[derive(Debug)]
-pub(crate) struct NexusChannel {
+pub struct NexusChannel {
     inner: *mut NexusChannelInner,
 }
 
@@ -247,10 +248,48 @@ impl NexusChannelInner {
 }
 
 impl NexusChannel {
+    /// TODO
+    pub(crate) fn new(nexus: &mut Nexus) -> Self {
+        let mut channels = Box::new(NexusChannelInner {
+            writers: Vec::new(),
+            readers: Vec::new(),
+            previous: 0,
+            device: nexus.as_ptr() as *mut c_void,
+            fail_fast: 0,
+        });
+
+        nexus
+            .children
+            .iter_mut()
+            .filter(|c| c.state() == ChildState::Open)
+            .for_each(|c| match (c.get_io_handle(), c.get_io_handle()) {
+                (Ok(w), Ok(r)) => {
+                    channels.writers.push(w);
+                    channels.readers.push(r);
+                }
+                _ => {
+                    c.set_state(ChildState::Faulted(Reason::CantOpen));
+                    error!("Failed to get I/O handle for {}, skipping block device", c.get_name())
+                }
+            });
+
+        Self {
+            inner: Box::into_raw(channels)
+        }
+    }
+
+    /// TODO
+    pub(crate) fn clear(self) {
+        let inner = unsafe { &mut *self.inner };
+        inner.writers.clear();
+        inner.readers.clear();
+    }
+
+    /*
     /// allocates an io channel per child
     pub(crate) extern "C" fn create(
-        device: *mut c_void,
-        ctx: *mut c_void,
+        device: *mut c_void,        // Nexus*
+        ctx: *mut c_void,           // NexusChannel* (SPDK buffer)
     ) -> i32 {
         let nexus = unsafe { Nexus::from_raw(device) };
         debug!("{}: Creating IO channels at {:p}", nexus.bdev().name(), ctx);
@@ -281,7 +320,9 @@ impl NexusChannel {
         ch.inner = Box::into_raw(channels);
         0
     }
+    */
 
+    /*
     /// function called on io channel destruction
     pub(crate) extern "C" fn destroy(device: *mut c_void, ctx: *mut c_void) {
         let nexus = unsafe { Nexus::from_raw(device) };
@@ -290,6 +331,7 @@ impl NexusChannel {
         inner.writers.clear();
         inner.readers.clear();
     }
+    */
 
     /// function called when we receive a Dynamic Reconfigure event (DR)
     pub extern "C" fn reconfigure(
@@ -329,7 +371,6 @@ impl NexusChannel {
     /// Refresh the IO channels of the underlying children. Typically, this is
     /// called when a device is either added or removed. IO that has already
     /// been issued may or may not complete. In case of remove that is fine.
-
     pub extern "C" fn refresh_io_channels(ch_iter: *mut spdk_io_channel_iter) {
         let channel = unsafe { spdk_io_channel_iter_get_channel(ch_iter) };
         let inner = Self::inner_from_channel(channel);
@@ -355,8 +396,7 @@ impl NexusChannel {
     /// get the offset to our ctx from the channel
     fn io_channel_ctx(ch: *mut spdk_io_channel) -> *mut c_void {
         unsafe {
-            use std::mem::size_of;
-            (ch as *mut u8).add(size_of::<spdk_io_channel>()) as *mut c_void
+            spdk_io_channel_get_ctx_hpl(ch)
         }
     }
 

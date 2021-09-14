@@ -11,6 +11,7 @@ pub mod cpu_cores;
 mod error;
 pub mod ffihelper;
 mod io_channel;
+mod io_channel_iter;
 mod io_device;
 mod io_type;
 mod json_write_context;
@@ -33,6 +34,7 @@ pub use bdev_module::{
 };
 pub use error::{Result, SpdkError};
 pub use io_channel::IoChannel;
+pub use io_channel_iter::IoChannelIter;
 pub use io_device::IoDevice;
 pub use io_type::{IoStatus, IoType};
 pub use json_write_context::JsonWriteContext;

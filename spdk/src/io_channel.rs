@@ -23,4 +23,9 @@ impl<ChannelData> IoChannel<ChannelData> {
             _cd: Default::default(),
         }
     }
+
+    /// TODO
+    pub fn legacy_as_ptr(&self) -> *mut spdk_io_channel {
+        self.inner.as_ptr()
+    }
 }

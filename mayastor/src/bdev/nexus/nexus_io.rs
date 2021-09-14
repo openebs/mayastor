@@ -131,7 +131,7 @@ pub(crate) fn nexus_submit_io(mut io: NexusBio) {
 impl NexusBio {
     /// helper function to wrap the raw pointers into new types. From here we
     /// should not be dealing with any raw pointers.
-    pub unsafe fn nexus_bio_setup(
+    fn nexus_bio_setup(
         channel: *mut spdk_sys::spdk_io_channel,
         io: *mut spdk_sys::spdk_bdev_io,
     ) -> Self {
@@ -142,6 +142,14 @@ impl NexusBio {
         ctx.in_flight = 0;
         ctx.must_fail = false;
         bio
+    }
+
+    /// TODO
+    pub fn nexus_bio_setup_v2(
+        channel: spdk::IoChannel<NexusChannel>,
+        io: spdk::BdevIo<Nexus>,
+    ) -> Self {
+        NexusBio::nexus_bio_setup(channel.legacy_as_ptr(), io.legacy_as_ptr())
     }
 
     /// invoked when a nexus IO completes
@@ -226,12 +234,10 @@ impl NexusBio {
     #[inline]
     pub fn retry_checked(&mut self) {
         if self.ctx().in_flight == 0 {
-            let bio = unsafe {
-                Self::nexus_bio_setup(
-                    self.ctx().channel.as_ptr(),
-                    self.as_ptr(),
-                )
-            };
+            let bio = Self::nexus_bio_setup(
+                self.ctx().channel.as_ptr(),
+                self.as_ptr(),
+            );
             debug!(?self, "resubmitting IO");
             nexus_submit_io(bio);
         }
