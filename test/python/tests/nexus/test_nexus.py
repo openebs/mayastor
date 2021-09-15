@@ -246,7 +246,7 @@ async def test_nexus_2_remote_mirror_kill_one(
         nexus = next(n for n in list if n.uuid == NEXUS_UUID)
 
         assert nexus.state == pb.NEXUS_DEGRADED
-        assert nexus.children[1].state == pb.CHILD_FAULTED
+        assert nexus.children[1].state == pb.CHILD_DEGRADED
 
     finally:
         # disconnect target before we shutdown
@@ -275,7 +275,7 @@ async def test_nexus_2_remote_mirror_kill_one_spdk(
     nexus = next(n for n in list if n.uuid == NEXUS_UUID)
 
     assert nexus.state == pb.NEXUS_DEGRADED
-    assert nexus.children[1].state == pb.CHILD_FAULTED
+    assert nexus.children[1].state == pb.CHILD_DEGRADED
 
 
 @pytest.mark.asyncio
@@ -329,3 +329,70 @@ def test_nexus_resv_key(create_nexus_v2, nexus_name, nexus_uuid, mayastors, resv
     finally:
         # disconnect target before we shutdown
         nvme_disconnect(child_uri)
+
+
+@pytest.mark.asyncio
+async def test_nexus_2_remote_mirror_kill_1(
+    containers, mayastors, create_nexus, nexus_uuid
+):
+    """Create a nexus on ms3 with replicas on ms1 and ms2. Sleep for 10s. Kill
+    ms2 after 4s, verify that the second child is degraded.
+    """
+
+    uri = create_nexus
+    NEXUS_UUID, _ = nexus_uuid
+
+    job = "sleep 10"
+
+    try:
+        # create an event loop polling the async processes for completion
+        await asyncio.gather(
+            run_cmd_async(job),
+            kill_after(containers.get("ms2"), 4),
+        )
+    except Exception as e:
+        raise (e)
+    finally:
+        list = mayastors.get("ms3").nexus_list()
+        nexus = next(n for n in list if n.uuid == NEXUS_UUID)
+
+        assert nexus.state == pb.NEXUS_DEGRADED
+
+        assert nexus.children[0].state == pb.CHILD_ONLINE
+        assert nexus.children[1].state == pb.CHILD_DEGRADED
+
+
+@pytest.mark.asyncio
+async def test_nexus_2_remote_mirror_kill_all_fio(
+    containers, mayastors, create_nexus, nexus_uuid
+):
+    """Create a nexus on ms3 with replicas on ms1 and ms2. Start fio_spdk for
+    15s. Kill ms2 after 4s, ms1 after 4s. Assume the fail with a
+    ChildProcessError is due to fio bailing out. Remove the nexus from ms3.
+    """
+
+    uri = create_nexus
+    NEXUS_UUID, _ = nexus_uuid
+
+    job = FioSpdk("job1", "randwrite", uri).build()
+
+    try:
+        # create an event loop polling the async processes for completion
+        await asyncio.gather(
+            run_cmd_async(job),
+            kill_after(containers.get("ms2"), 4),
+            kill_after(containers.get("ms1"), 4),
+        )
+    except ChildProcessError:
+        pass
+    except Exception as e:
+        # if it's not a child process error fail the test
+        raise (e)
+    finally:
+        list = mayastors.get("ms3").nexus_list()
+        nexus = next(n for n in list if n.uuid == NEXUS_UUID)
+
+        assert nexus.state == pb.NEXUS_FAULTED
+
+        assert nexus.children[0].state == pb.CHILD_DEGRADED
+        assert nexus.children[1].state == pb.CHILD_DEGRADED

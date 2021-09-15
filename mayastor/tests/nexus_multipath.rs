@@ -51,6 +51,8 @@ fn nvme_connect(
         } else {
             eprintln!("{}", msg);
         }
+    } else {
+        std::thread::sleep(std::time::Duration::from_secs(1));
     }
 
     status
