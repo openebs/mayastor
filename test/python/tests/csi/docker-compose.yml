@@ -1,0 +1,68 @@
+#
+# {SRCDIR} should point to your working tree which should be your current pwd
+#
+
+version: '3'
+services:
+  ms0:
+    container_name: "ms0"
+    image: rust:latest
+    environment:
+        - MY_POD_IP=10.0.0.2
+        - NEXUS_NVMF_ANA_ENABLE=1
+        - NEXUS_NVMF_RESV_ENABLE=1
+    command: ${SRCDIR}/target/debug/mayastor -g 0.0.0.0 -l 1,2 -r /tmp/ms0.sock
+    networks:
+      mayastor_net:
+        ipv4_address: 10.0.0.2
+    cap_add:
+      # NUMA related
+      - SYS_ADMIN
+      - SYS_NICE
+      # uring needs mmap
+      - IPC_LOCK
+    security_opt:
+      # we can set this to a JSON file to allow per syscall access
+      - seccomp:unconfined
+    volumes:
+      - ${SRCDIR}:${SRCDIR}
+      - /nix:/nix
+      - /dev/hugepages:/dev/hugepages
+      - /tmp:/tmp
+      - /var/tmp:/var/tmp
+  ms1:
+    container_name: "ms1"
+    image: rust:latest
+    privileged: true
+    environment:
+        - MY_POD_IP=10.0.0.3
+        - MY_NODE_NAME=ms1-test
+    command: ${SRCDIR}/target/debug/mayastor-csi --csi-socket=/tmp/csi.sock --node-name=ms1-test --grpc-endpoint=10.0.0.3:10199 --nvme-core-io-timeout=30 -v
+    networks:
+      mayastor_net:
+        ipv4_address: 10.0.0.3
+    cap_add:
+      # NUMA related
+      - SYS_ADMIN
+      - SYS_NICE
+      # uring needs mmap
+      - IPC_LOCK
+    security_opt:
+      # we can set this to a JSON file to allow per syscall access
+      - seccomp:unconfined
+    volumes:
+      - /:/host
+      - ${SRCDIR}:${SRCDIR}
+      - /nix:/nix
+      - /dev:/dev
+      - /run/udev:/run/udev
+      - /sys:/sys
+      - /tmp:/tmp
+      - /var/tmp:/var/tmp
+networks:
+  mayastor_net:
+    name: mayastor_net
+    ipam:
+      driver: default
+      config:
+        - subnet: "10.0.0.0/16"

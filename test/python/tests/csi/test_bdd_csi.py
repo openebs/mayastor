@@ -1,21 +1,17 @@
 import pytest
 from pytest_bdd import given, scenario, then, when, parsers
 
-import logging
 import os
-import signal
 import subprocess
-import threading
 import time
 
+from common.mayastor import container_mod
 from common.hdl import MayastorHandle
 from common.csi_hdl import CsiHandle
 
 import grpc
 import csi_pb2 as pb
 import csi_pb2_grpc as rpc
-
-pytest_plugins = ["docker_compose"]
 
 
 class Nexus:
@@ -86,63 +82,27 @@ def get_volume_capability(volume, read_only):
 
 
 @pytest.fixture(scope="module")
-def start_csi_plugin():
-    def monitor(proc, result):
-        stdout, stderr = proc.communicate()
-        result["stdout"] = stdout.decode()
-        result["stderr"] = stderr.decode()
-        result["status"] = proc.returncode
-
-    proc = subprocess.Popen(
-        args=[
-            "sudo",
-            os.environ["SRCDIR"] + "/target/debug/mayastor-csi",
-            "--csi-socket=/tmp/csi.sock",
-            "--grpc-endpoint=0.0.0.0",
-            "--node-name=msn-test",
-            "-v",
-        ],
-        stdout=subprocess.PIPE,
-        stderr=subprocess.PIPE,
+def mayastor_instance(container_mod):
+    container = container_mod.get("ms0")
+    yield MayastorHandle(
+        container.get("NetworkSettings.Networks.mayastor_net.IPAddress")
     )
 
-    result = {}
-    handler = threading.Thread(target=monitor, args=[proc, result])
-    handler.start()
-    time.sleep(1)
-    yield
-    subprocess.run(["sudo", "pkill", "mayastor-csi"], check=True)
-    handler.join()
-    print("[CSI] exit status: %d" % (result["status"]))
-    print(result["stdout"])
-    print(result["stderr"])
+
+@pytest.fixture(scope="module")
+def csi_container(container_mod):
+    container = container_mod.get("ms1")
+    yield container.get("NetworkSettings.Networks.mayastor_net.IPAddress")
 
 
 @pytest.fixture(scope="module")
-def handles_mod(docker_project, module_scoped_container_getter):
-    assert "ms0" in docker_project.service_names
-    handles = {}
-    handles["ms0"] = MayastorHandle(
-        module_scoped_container_getter.get("ms0").get(
-            "NetworkSettings.Networks.mayastor_net.IPAddress"
-        )
-    )
-    yield handles
-
-
-@pytest.fixture(scope="module")
-def mayastor_instance(handles_mod):
-    yield handles_mod["ms0"]
-
-
-@pytest.fixture(scope="module")
-def fix_socket_permissions(start_csi_plugin):
+def fix_socket_permissions(csi_container):
     subprocess.run(["sudo", "chmod", "go+rw", "/tmp/csi.sock"], check=True)
     yield
 
 
 @pytest.fixture(scope="module")
-def csi_instance(start_csi_plugin, fix_socket_permissions):
+def csi_instance(fix_socket_permissions):
     yield CsiHandle("unix:///tmp/csi.sock")
 
 

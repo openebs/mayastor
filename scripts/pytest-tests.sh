@@ -38,11 +38,12 @@ tests/replica
 tests/publish
 tests/rebuild
 
-# tests/csi
+tests/csi
 
 tests/ana_client
 tests/cli_controller
 tests/replica_uuid
+
 # tests/rpc
 
 tests/nexus_multipath
