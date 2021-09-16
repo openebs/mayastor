@@ -8,18 +8,21 @@ import pytest
 import asyncio
 import uuid as guid
 
+NEXUS_COUNT = 15
+DESTROY_COUNT = 7
+
 
 @pytest.fixture
-def create_pool_on_all_nodes(mayastors, create_temp_files):
+def create_replicas_on_all_nodes(mayastors, create_temp_files):
     "Create a pool on each node."
     uuids = []
 
     for name, ms in mayastors.items():
         ms.pool_create(name, f"aio:///tmp/{name}.img")
-        # validate we have zero replicas
+        # verify we have zero replicas
         assert len(ms.replica_list().replicas) == 0
 
-    for i in range(15):
+    for i in range(NEXUS_COUNT):
         uuid = guid.uuid4()
         for name, ms in mayastors.items():
             before = ms.pool_list()
@@ -34,41 +37,43 @@ def create_pool_on_all_nodes(mayastors, create_temp_files):
 
 
 @pytest.mark.parametrize("times", range(3))
-def test_restart(containers, mayastors, create_pool_on_all_nodes, times):
+def test_restart(containers, mayastors, create_replicas_on_all_nodes, times):
     """
     Test that when we create replicas and destroy them the count is as expected
-    At this point we have 3 nodes each with 15 replica's.
+    At this point we have 3 nodes each with NEXUS_COUNT replicas.
     """
 
     node = containers.get("ms1")
     ms1 = mayastors.get("ms1")
 
-    # kill one of the nodes and validate we indeed have 15 replica's
+    # kill one of the nodes, restart it, and verify we still have NEXUS_COUNT replicas
     node.kill()
     node.start()
-    # we must reconnect grpc here..
+
+    # must reconnect grpc
     ms1.reconnect()
+
     # create does import here if found
     ms1.pool_create("ms1", "aio:///tmp/ms1.img")
 
-    # check the list has 15 replica's
+    # check the list has the required number of replicas
     replicas = ms1.replica_list().replicas
-    assert 15 == len(replicas)
+    assert len(replicas) == NEXUS_COUNT
 
     # destroy a few
-    for i in range(7):
+    for i in range(DESTROY_COUNT):
         ms1.replica_destroy(replicas[i].uuid)
 
-    # kill and reconnect
+    # kill (again) and reconnect
     node.kill()
     node.start()
     ms1.reconnect()
 
-    # validate we have 8 replicas left
+    # verify we have correct number of replicas remaining
     ms1.pool_create("ms1", "aio:///tmp/ms1.img")
     replicas = ms1.replica_list().replicas
 
-    assert len(replicas) == 8
+    assert len(replicas) + DESTROY_COUNT == NEXUS_COUNT
 
 
 async def kill_after(container, sec):
@@ -78,7 +83,7 @@ async def kill_after(container, sec):
 
 
 @pytest.fixture
-def create_nexuses(mayastors, create_pool_on_all_nodes):
+def create_nexuses(mayastors, create_replicas_on_all_nodes):
     "Create a nexus for each replica on each child node."
     nexuses = []
     ms1 = mayastors.get("ms1")
@@ -124,7 +129,7 @@ async def mount_devices(connect_devices):
 
 
 @pytest.mark.asyncio
-async def test_multiple(containers, connect_devices):
+async def test_multiple_raw(containers, connect_devices):
     fio_cmd = Fio(f"job-raw", "randwrite", connect_devices).build()
     print(fio_cmd)
 

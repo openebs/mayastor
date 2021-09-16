@@ -6,17 +6,21 @@ function run_tests()
 {
   while read name extra
   do
-    case "$name" in
-      test_*)
-        if [ -f "$name.py" ]
-        then
-        (
-          set -x
-          pytest --tc-file=test_config.ini "$name.py"
-        )
-        fi
-      ;;
-    esac
+    if [[ "$name" = '#'* ]]
+    then
+      continue
+    fi
+    if [ -z "$name" ]
+    then
+      continue
+    fi
+    if [ -d "$name" ]
+    then
+    (
+      set -x
+      python -m pytest --tc-file='test_config.ini' --docker-compose="$name" "$name"
+    )
+    fi
   done
 }
 
@@ -30,24 +34,18 @@ cd "$SRCDIR/test/python" && source ./venv/bin/activate
 
 run_tests << 'END'
 
-test_bdd_pool
-test_bdd_replica
-test_bdd_nexus
-test_nexus_publish
-test_bdd_rebuild
-test_bdd_csi
-test_csi
+tests/replica
+tests/publish
+tests/rebuild
 
-test_ana_client
-test_cli_controller
-test_replica_uuid
-# test_rpc
+# tests/csi
 
-test_bdd_nexus_multipath
-test_nexus_multipath
+tests/ana_client
+tests/cli_controller
+tests/replica_uuid
+# tests/rpc
 
-test_multi_nexus
-test_nexus
-test_null_nexus
+tests/nexus_multipath
+tests/nexus
 
 END
