@@ -249,7 +249,7 @@ impl Lvol {
                     name: self.name(),
                 }
             })?;
-            // write zero to the first 8MB which whipes the metadata and the
+            // write zero to the first 8MB which wipes the metadata and the
             // first 4MB of the data partition
             let range =
                 std::cmp::min(self.as_bdev().size_in_bytes(), (1 << 20) * 8);
@@ -292,7 +292,6 @@ impl Lvol {
 
         // we must always unshare before destroying bdev
         let _ = self.unshare().await;
-        self.wipe_super().await?;
 
         let name = self.name();
 
