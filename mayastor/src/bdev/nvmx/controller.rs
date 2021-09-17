@@ -56,6 +56,7 @@ use crate::{
         IoDevice,
         OpCompletionCallback,
         OpCompletionCallbackArg,
+        Reactors,
     },
     ffihelper::{cb_arg, done_cb},
     nexus_uri::NexusBdevError,
@@ -503,6 +504,10 @@ impl<'a> NvmeController<'a> {
                 source: Errno::EBUSY,
             }
         })?;
+        // Prevent racing device destroy
+        unsafe {
+            self.timeout_config.as_mut().start_device_destroy();
+        }
 
         debug!("{} shutting down the controller", self.name);
 
@@ -821,22 +826,37 @@ extern "C" fn aer_cb(ctx: *mut c_void, cpl: *const spdk_nvme_cpl) {
     }
 }
 
-/// return number of completions processed (maybe 0) or the negated on error,
-/// which is one of:
-///
-/// ENXIO: the qpair is not conected  or when the controller is
-/// marked as failed.
-///
-/// EGAIN: returned whenever the controller is being reset.
+/// Poll to process qpair completions on admin queue
+/// Returns: 0 (SPDK_POLLER_IDLE) or 1 (SPDK_POLLER_BUSY)
 pub extern "C" fn nvme_poll_adminq(ctx: *mut c_void) -> i32 {
     let mut context = NonNull::<TimeoutConfig>::new(ctx.cast())
         .expect("ctx pointer may never be null");
     let context = unsafe { context.as_mut() };
 
+    // returns number of completions processed (maybe 0) or the negated error,
+    // which is one of:
+    //
+    // ENXIO: the qpair is not connected or when the controller is
+    // marked as failed.
+    //
+    // EAGAIN: returned whenever the controller is being reset.
     let result = context.process_adminq();
 
     if result < 0 {
-        //error!("{}: {}", context.name, Errno::from_i32(result.abs()));
+        error!(
+            "process adminq: {}: {}",
+            context.name,
+            Errno::from_i32(result.abs())
+        );
+        if context.start_device_destroy() {
+            info!("dispatching device destroy: {}", context.name);
+            let dev_name = context.name.to_string();
+            Reactors::master().send_future(async move {
+                let _ = destroy_device(dev_name).await;
+            });
+        } else {
+            warn!("device destroy already dispatched: {}", context.name);
+        }
         return 1;
     }
 

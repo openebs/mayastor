@@ -74,6 +74,7 @@ pub(crate) struct TimeoutConfig {
     ctrlr: SpdkNvmeController,
     reset_attempts: u32,
     next_reset_time: Instant,
+    destroy_in_progress: AtomicCell<bool>,
 }
 
 impl Drop for TimeoutConfig {
@@ -93,6 +94,7 @@ impl TimeoutConfig {
             ctrlr: SpdkNvmeController(NonNull::dangling()),
             reset_attempts: MAX_RESET_ATTEMPTS,
             next_reset_time: Instant::now(),
+            destroy_in_progress: AtomicCell::new(false),
         }
     }
 
@@ -100,6 +102,11 @@ impl TimeoutConfig {
         self as *const _ as *mut _
     }
 
+    pub fn start_device_destroy(&mut self) -> bool {
+        self.destroy_in_progress
+            .compare_exchange(false, true)
+            .is_ok()
+    }
     pub fn set_controller(&mut self, ctrlr: SpdkNvmeController) {
         self.ctrlr = ctrlr;
     }
