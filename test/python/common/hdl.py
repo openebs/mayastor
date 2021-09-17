@@ -18,8 +18,7 @@ class MayastorHandle(object):
         self.channel = grpc.insecure_channel(("%s:10124") % self.ip_v4)
         self.bdev = rpc.BdevRpcStub(self.channel)
         self.ms = rpc.MayastorStub(self.channel)
-        self.bdev_list()
-        self.pool_list()
+        self._readiness_check()
 
     def set_timeout(self, timeout):
         self.timeout = timeout
@@ -34,12 +33,21 @@ class MayastorHandle(object):
                 setattr(stub, f, partial(h, timeout=self.timeout))
         return stub
 
+    def _readiness_check(self):
+        try:
+            self.bdev_list()
+            self.pool_list()
+        except grpc._channel._InactiveRpcError:
+            # This is to get around a gRPC bug.
+            # Retry once before failing
+            self.bdev_list()
+            self.pool_list()
+
     def reconnect(self):
         self.channel = grpc.insecure_channel(("%s:10124") % self.ip_v4)
         self.bdev = self.install_stub("BdevRpcStub")
         self.ms = self.install_stub("MayastorStub")
-        self.bdev_list()
-        self.pool_list()
+        self._readiness_check()
 
     def __del__(self):
         del self.channel
