@@ -22,6 +22,7 @@ use spdk_sys::{
     vbdev_lvol_destroy,
     vbdev_lvol_get_from_bdev,
     LVS_CLEAR_WITH_UNMAP,
+    SPDK_BDEV_LARGE_BUF_MAX_SIZE,
 };
 
 use crate::{
@@ -238,7 +239,10 @@ impl Lvol {
                         name: self.name(),
                     }
                 })?;
-            let buf = hdl.dma_malloc(1 << 16).map_err(|e| {
+
+            // Set the buffer size to the maximum allowed by SPDK.
+            let buf_size = SPDK_BDEV_LARGE_BUF_MAX_SIZE as u64;
+            let buf = hdl.dma_malloc(buf_size).map_err(|e| {
                 error!(
                     ?self,
                     ?e,
@@ -253,8 +257,7 @@ impl Lvol {
             // first 4MB of the data partition
             let range =
                 std::cmp::min(self.as_bdev().size_in_bytes(), (1 << 20) * 8);
-            debug!(?self, ?range, "zeroing range");
-            for offset in 0 .. (range >> 16) {
+            for offset in 0 .. (range / buf_size) {
                 hdl.write_at(offset * buf.len(), &buf).await.map_err(|e| {
                     error!(?self, ?e);
                     Error::RepDestroy {
