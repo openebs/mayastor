@@ -88,7 +88,7 @@ impl TryFrom<Bdev> for Lvol {
         } else {
             Err(Error::NotALvol {
                 source: Errno::EINVAL,
-                name: b.name(),
+                name: b.name().to_string(),
             })
         }
     }
@@ -209,7 +209,7 @@ impl Lvol {
 
     /// returns the name of the bdev
     pub fn name(&self) -> String {
-        self.as_bdev().name()
+        self.as_bdev().name().to_string()
     }
 
     /// returns the UUID of the lvol

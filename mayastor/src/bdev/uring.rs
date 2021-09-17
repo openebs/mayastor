@@ -87,11 +87,11 @@ impl CreateDestroy for Uring {
 
         let cname = CString::new(self.get_name()).unwrap();
 
-        if let Some(mut bdev) = Bdev::from_ptr(unsafe {
+        if let Some(mut bdev) = Bdev::from_ptr_abc(unsafe {
             create_uring_bdev(cname.as_ptr(), cname.as_ptr(), self.blk_size)
         }) {
             if let Some(uuid) = self.uuid {
-                bdev.set_uuid(uuid);
+                unsafe { bdev.set_uuid(uuid) };
             }
 
             if !bdev.add_alias(&self.alias) {
@@ -102,7 +102,7 @@ impl CreateDestroy for Uring {
                 );
             }
 
-            return Ok(bdev.name());
+            return Ok(bdev.name().to_string());
         }
 
         Err(NexusBdevError::BdevNotFound {

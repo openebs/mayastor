@@ -112,7 +112,7 @@ where
     /// get the block length of this IO
     #[inline]
     #[allow(dead_code)]
-    pub fn block_len(&self) -> u64 {
+    pub fn block_len(&self) -> u32 {
         self.bdev().block_len()
     }
 
@@ -151,7 +151,7 @@ where
         spdk_bdev_io_get_buf(
             self.as_ptr(),
             Some(cb),
-            self.num_blocks() * self.block_len(),
+            self.num_blocks() * (self.block_len() as u64),
         )
     }
 

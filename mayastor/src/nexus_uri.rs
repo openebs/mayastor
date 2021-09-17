@@ -171,7 +171,7 @@ impl TryFrom<Bdev> for url::Url {
         }
 
         Err(NexusBdevError::BdevNoUri {
-            name: bdev.name(),
+            name: bdev.name().to_string(),
             aliases: bdev.aliases(),
         })
     }

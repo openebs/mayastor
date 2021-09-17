@@ -17,7 +17,7 @@ impl Nexus {
                     name: Lvol::format_snapshot_name(&self.bdev().name(), t),
                 }),
                 Err(e) => Err(Error::FailedCreateSnapshot {
-                    name: self.bdev().name(),
+                    name: self.bdev().name().to_string(),
                     source: e,
                 }),
             }

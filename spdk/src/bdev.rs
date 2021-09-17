@@ -23,6 +23,7 @@ use spdk_sys::{
     spdk_bdev_get_buf_align,
     spdk_bdev_io,
     spdk_bdev_io_type,
+    spdk_bdev_io_type_supported,
     spdk_bdev_module_release_bdev,
     spdk_bdev_register,
     spdk_get_io_channel,
@@ -56,6 +57,21 @@ where
         BdevModule::from_ptr(self.as_ref().module)
     }
 
+    /// Returns a Bdev module name for this Bdev.
+    pub fn bdev_module_name(&self) -> &str {
+        unsafe { (*self.as_ref().module).name.as_str() }
+    }
+
+    /// Returns by a Bdev module who has claimed this Bdev.
+    pub fn claimed_by(&self) -> Option<BdevModule> {
+        let ptr = self.as_ref().internal.claim_module;
+        if ptr.is_null() {
+            None
+        } else {
+            Some(BdevModule::from_ptr(ptr))
+        }
+    }
+
     /// Returns Bdev name.
     pub fn name(&self) -> &str {
         self.as_ref().name.as_str()
@@ -70,14 +86,24 @@ where
         Uuid::new(&self.as_ref().uuid)
     }
 
+    /// Sets Bdev's UUID.
+    pub unsafe fn set_uuid(&mut self, uuid: Uuid) {
+        self.as_mut().uuid = uuid.into_raw();
+    }
+
     /// Returns the name of the module for thos Bdev.
     pub fn module_name(&self) -> &str {
         unsafe { (*self.as_ref().module).name.as_str() }
     }
 
     /// Returns the block size of the underlying device.
-    pub fn block_len(&self) -> u64 {
-        self.as_ref().blocklen as u64
+    pub fn block_len(&self) -> u32 {
+        self.as_ref().blocklen
+    }
+
+    /// Sets the block size of the underlying device.
+    pub unsafe fn set_block_len(&mut self, len: u32) {
+        self.as_mut().blocklen = len;
     }
 
     /// Returns number of blocks for this device.
@@ -85,9 +111,14 @@ where
         self.as_ref().blockcnt
     }
 
+    /// Sets number of blocks for this device.
+    pub unsafe fn set_num_blocks(&mut self, count: u64) {
+        self.as_mut().blockcnt = count
+    }
+
     /// Returns the Bdev size in bytes.
     pub fn size_in_bytes(&self) -> u64 {
-        self.num_blocks() * self.block_len()
+        self.num_blocks() * (self.block_len() as u64)
     }
 
     /// Returns the alignment of the Bdev.
@@ -117,6 +148,11 @@ where
                 spdk_bdev_module_release_bdev(self.as_ptr());
             }
         }
+    }
+
+    /// Determines whenever the Bdev supports the requested I/O type.
+    pub fn io_type_supported(&self, io_type: IoType) -> bool {
+        unsafe { spdk_bdev_io_type_supported(self.as_ptr(), io_type.into()) }
     }
 
     /// Returns a reference to a data object associated with this Bdev.
@@ -157,6 +193,11 @@ where
         unsafe { self.inner.as_ref() }
     }
 
+    /// Returns a mutable reference to the underlying `spdk_bdev` structure.
+    pub(crate) fn as_mut(&mut self) -> &mut spdk_bdev {
+        unsafe { self.inner.as_mut() }
+    }
+
     /// Returns a pointer to the underlying `spdk_bdev` structure.
     pub fn legacy_as_ptr(&self) -> *mut spdk_bdev {
         self.inner.as_ptr()
@@ -181,6 +222,18 @@ where
     /// TODO
     pub fn legacy_data_nn(&mut self) -> NonNull<BdevData> {
         NonNull::new(&mut self.container_mut().data).unwrap()
+    }
+}
+
+impl<BdevData> Clone for Bdev<BdevData>
+where
+    BdevData: BdevOps,
+{
+    fn clone(&self) -> Self {
+        Self {
+            inner: self.inner,
+            _data: Default::default(),
+        }
     }
 }
 

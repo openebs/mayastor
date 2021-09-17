@@ -378,7 +378,8 @@ fn main() {
         for j in jobs {
             let job = j.await;
             let thread =
-                Mthread::new(job.bdev.name(), Cores::current()).unwrap();
+                Mthread::new(job.bdev.name().to_string(), Cores::current())
+                    .unwrap();
             thread.msg(job, |job| {
                 job.run();
             });

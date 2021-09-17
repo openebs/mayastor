@@ -171,15 +171,15 @@ impl BlockDevice for SpdkBlockDevice {
     }
     //// returns the product name
     fn product_name(&self) -> String {
-        self.bdev.product_name()
+        self.bdev.product_name().to_string()
     }
     //// returns the driver name of the block device
     fn driver_name(&self) -> String {
-        self.bdev.driver()
+        self.bdev.driver().to_string()
     }
     /// returns the name of the device
     fn device_name(&self) -> String {
-        self.bdev.name()
+        self.bdev.name().to_string()
     }
     //// returns the alignment of the device
     fn alignment(&self) -> u64 {
@@ -216,7 +216,7 @@ impl BlockDevice for SpdkBlockDevice {
         listener: DeviceEventListener,
     ) -> Result<(), CoreError> {
         let mut map = BDEV_LISTENERS.write().expect("lock poisoned");
-        let listeners = map.entry(self.bdev.name()).or_default();
+        let listeners = map.entry(self.bdev.name().to_string()).or_default();
         listeners.push(listener);
         Ok(())
     }

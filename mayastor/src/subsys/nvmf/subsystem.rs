@@ -129,7 +129,7 @@ impl TryFrom<Bdev> for NvmfSubsystem {
                 msg: "already shared".to_string(),
             });
         }
-        let ss = NvmfSubsystem::new(bdev.name().as_str())?;
+        let ss = NvmfSubsystem::new(bdev.name())?;
         ss.set_ana_reporting(true)?;
         ss.allow_any(true);
         if let Err(e) = ss.add_namespace(&bdev) {
@@ -215,7 +215,7 @@ impl NvmfSubsystem {
 
         if ns_id < 1 {
             Err(Error::Namespace {
-                bdev: bdev.name(),
+                bdev: bdev.name().to_string(),
                 msg: "failed to add namespace ID".to_string(),
             })
         } else {
@@ -612,7 +612,7 @@ impl NvmfSubsystem {
             return None;
         }
 
-        Bdev::from_ptr(unsafe { spdk_nvmf_ns_get_bdev(ns) })
+        Bdev::from_ptr_abc(unsafe { spdk_nvmf_ns_get_bdev(ns) })
     }
 
     fn listeners_to_vec(&self) -> Option<Vec<TransportId>> {

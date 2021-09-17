@@ -187,7 +187,9 @@ impl From<SpdkPool> for Pool {
         let base = pool.get_base_bdev();
         Self {
             name: pool.get_name().to_string(),
-            disks: vec![base.bdev_uri().unwrap_or_else(|| base.name())],
+            disks: vec![base
+                .bdev_uri()
+                .unwrap_or_else(|| base.name().to_string())],
             replicas: None,
         }
     }

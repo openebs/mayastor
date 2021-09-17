@@ -164,7 +164,7 @@ impl CreateDestroy for Null {
 
         if let Some(mut bdev) = Bdev::lookup_by_name(&self.name) {
             if let Some(uuid) = self.uuid {
-                bdev.set_uuid(uuid);
+                unsafe { bdev.set_uuid(uuid) };
             }
 
             if !bdev.add_alias(&self.alias) {

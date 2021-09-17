@@ -483,7 +483,7 @@ impl Nexus {
             });
         }
 
-        self.bdev_mut().set_block_len(blk_size as u32);
+        unsafe { self.bdev_mut().set_block_len(blk_size as u32) };
 
         let size = self.size;
 

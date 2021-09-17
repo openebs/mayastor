@@ -3,8 +3,6 @@ use std::{
     ffi::{CStr, CString},
     fmt::{Debug, Display, Formatter},
     os::raw::c_void,
-    ptr::NonNull,
-    sync::Arc,
 };
 
 use async_trait::async_trait;
@@ -17,20 +15,11 @@ use spdk_sys::{
     spdk_bdev_event_type,
     spdk_bdev_first,
     spdk_bdev_get_aliases,
-    spdk_bdev_get_block_size,
-    spdk_bdev_get_buf_align,
     spdk_bdev_get_by_name,
     spdk_bdev_get_device_stat,
-    spdk_bdev_get_name,
-    spdk_bdev_get_num_blocks,
-    spdk_bdev_get_product_name,
     spdk_bdev_io_stat,
-    spdk_bdev_io_type_supported,
     spdk_bdev_next,
     spdk_bdev_open_ext,
-    spdk_uuid,
-    spdk_uuid_copy,
-    spdk_uuid_generate,
 };
 
 use crate::{
@@ -47,7 +36,7 @@ use crate::{
         UnshareIscsi,
         UnshareNvmf,
     },
-    ffihelper::{cb_arg, AsStr, FfiResult, IntoCString},
+    ffihelper::{cb_arg, FfiResult, IntoCString},
     subsys::NvmfSubsystem,
     target::{iscsi, nvmf, Side},
 };
@@ -59,7 +48,7 @@ use crate::{
 /// core. This means that the structure is always valid for the lifetime of the
 /// scope.
 #[derive(Clone)]
-pub struct Bdev(NonNull<spdk_bdev>);
+pub struct Bdev(spdk::Bdev<()>);
 
 #[async_trait(? Send)]
 impl Share for Bdev {
@@ -104,7 +93,7 @@ impl Share for Bdev {
             Some(Protocol::Off) | None => {}
         }
 
-        Ok(self.name())
+        Ok(self.name().to_string())
     }
 
     /// returns if the bdev is currently shared
@@ -156,15 +145,6 @@ impl Share for Bdev {
     }
 }
 
-impl Default for Bdev {
-    fn default() -> Self {
-        Self(
-            NonNull::new(Box::into_raw(Box::new(spdk_bdev::default())))
-                .unwrap(),
-        )
-    }
-}
-
 impl Bdev {
     /// open a bdev by its name in read_write mode.
     pub fn open_by_name(
@@ -186,7 +166,7 @@ impl Bdev {
         bdev: *mut spdk_bdev,
         _ctx: *mut c_void,
     ) {
-        let bdev = Bdev::from_ptr(bdev).unwrap();
+        let bdev = Bdev::from_ptr_abc(bdev).unwrap();
         let name = bdev.name();
 
         // Translate SPDK events into common device events.
@@ -239,123 +219,82 @@ impl Bdev {
 
     /// returns true if this bdev is claimed by some other component
     pub fn is_claimed(&self) -> bool {
-        !unsafe { self.0.as_ref().internal.claim_module.is_null() }
+        self.0.is_claimed()
     }
 
     /// returns by who the bdev is claimed
     pub fn claimed_by(&self) -> Option<String> {
-        let ptr = unsafe { self.0.as_ref().internal.claim_module };
-        if ptr.is_null() {
-            None
-        } else {
-            Some(unsafe { (*ptr).name.as_str() }.to_string())
-        }
+        self.0.claimed_by().map(|m| m.name().to_string())
+    }
+
+    /// TODO
+    pub fn from_v2(bdev: spdk::Bdev<()>) -> Self {
+        Self(bdev)
     }
 
     /// construct bdev from raw pointer
-    pub fn from_ptr(bdev: *mut spdk_bdev) -> Option<Bdev> {
-        NonNull::new(bdev).map(Bdev)
+    pub fn from_ptr_abc(bdev: *mut spdk_bdev) -> Option<Bdev> {
+        if bdev.is_null() {
+            None
+        } else {
+            Some(Self::from_v2(spdk::Bdev::<()>::legacy_from_ptr(bdev)))
+        }
     }
 
     /// lookup a bdev by its name
     pub fn lookup_by_name(name: &str) -> Option<Bdev> {
         let name = CString::new(name).unwrap();
-        Self::from_ptr(unsafe { spdk_bdev_get_by_name(name.as_ptr()) })
+        Self::from_ptr_abc(unsafe { spdk_bdev_get_by_name(name.as_ptr()) })
     }
 
     /// returns the block_size of the underlying device
     pub fn block_len(&self) -> u32 {
-        unsafe { spdk_bdev_get_block_size(self.0.as_ptr()) }
+        self.0.block_len()
+    }
+
+    /// set the block length of the device in bytes
+    pub unsafe fn set_block_len(&mut self, len: u32) {
+        self.0.set_block_len(len)
     }
 
     /// number of blocks for this device
     pub fn num_blocks(&self) -> u64 {
-        unsafe { spdk_bdev_get_num_blocks(self.0.as_ptr()) }
+        self.0.num_blocks()
     }
 
     /// set the block count of this device
-    pub fn set_block_count(&mut self, count: u64) {
-        unsafe {
-            self.0.as_mut().blockcnt = count;
-        }
-    }
-
-    /// set the block length of the device in bytes
-    pub fn set_block_len(&mut self, len: u32) {
-        unsafe {
-            self.0.as_mut().blocklen = len;
-        }
+    pub unsafe fn set_num_blocks(&mut self, count: u64) {
+        self.0.set_num_blocks(count)
     }
 
     /// return the bdev size in bytes
     pub fn size_in_bytes(&self) -> u64 {
-        self.num_blocks() * self.block_len() as u64
+        self.0.size_in_bytes()
     }
 
     /// returns the alignment of the bdev
     pub fn alignment(&self) -> u64 {
-        unsafe { spdk_bdev_get_buf_align(self.0.as_ptr()) }
+        self.0.alignment()
     }
 
     /// returns the configured product name
-    pub fn product_name(&self) -> String {
-        unsafe { CStr::from_ptr(spdk_bdev_get_product_name(self.0.as_ptr())) }
-            .to_str()
-            .unwrap()
-            .to_string()
-    }
-
-    // only safe during creation, after register it will blow up
-    pub fn set_product(&mut self, name: String) {
-        unsafe {
-            self.0.as_mut().product_name = name.into_cstring().into_raw();
-        }
-    }
-
-    pub fn set_name(&mut self, name: String) {
-        unsafe {
-            self.0.as_mut().name = name.into_cstring().into_raw();
-        }
-    }
-
-    pub fn set_fntable(&mut self, table: Arc<spdk_sys::spdk_bdev_fn_table>) {
-        unsafe { self.0.as_mut().fn_table = Arc::into_raw(table) };
-    }
-
-    /// should only be allowed when *creating* new instances
-    ///  soluton: use builder pattern
-    ///
-    ///  let bdev =
-    /// Bdev::builder().with_aligmnent(9).with_foo().with_bar().build();
-    ///
-    ///  // fails
-    ///  bdev.set_alignment();
-    ///  Bdev::new(name, 9,.., 0, 0)
-    pub fn set_alignment(&mut self, shift: u8) {
-        unsafe {
-            self.0.as_mut().required_alignment = shift;
-        }
+    pub fn product_name(&self) -> &str {
+        self.0.product_name()
     }
 
     /// returns the name of driver module for the given bdev
-    pub fn driver(&self) -> String {
-        unsafe { CStr::from_ptr((*self.0.as_ref().module).name) }
-            .to_str()
-            .unwrap()
-            .to_string()
+    pub fn driver(&self) -> &str {
+        self.0.bdev_module_name()
     }
 
     /// returns the bdev name
-    pub fn name(&self) -> String {
-        unsafe { CStr::from_ptr(spdk_bdev_get_name(self.0.as_ptr())) }
-            .to_str()
-            .unwrap()
-            .to_string()
+    pub fn name(&self) -> &str {
+        self.0.name()
     }
 
     /// return the UUID of this bdev
     pub fn uuid(&self) -> uuid::Uuid {
-        self.as_v2().uuid().into()
+        self.0.uuid().into()
     }
 
     /// return the UUID of this bdev as a hyphenated string
@@ -377,7 +316,7 @@ impl Bdev {
     pub fn add_alias(&self, alias: &str) -> bool {
         let alias = alias.into_cstring();
         let ret = unsafe {
-            spdk_sys::spdk_bdev_alias_add(self.0.as_ptr(), alias.as_ptr())
+            spdk_sys::spdk_bdev_alias_add(self.as_ptr(), alias.as_ptr())
         }
         .to_result(Errno::from_i32);
 
@@ -388,14 +327,14 @@ impl Bdev {
     pub fn remove_alias(&self, alias: &str) {
         let alias = alias.into_cstring();
         unsafe {
-            spdk_sys::spdk_bdev_alias_del(self.0.as_ptr(), alias.as_ptr())
+            spdk_sys::spdk_bdev_alias_del(self.as_ptr(), alias.as_ptr())
         };
     }
 
     /// Get list of bdev aliases
     pub fn aliases(&self) -> Vec<String> {
         let mut aliases = Vec::new();
-        let head = unsafe { &*spdk_bdev_get_aliases(self.0.as_ptr()) };
+        let head = unsafe { &*spdk_bdev_get_aliases(self.as_ptr()) };
         let mut ent_ptr = head.tqh_first;
         while !ent_ptr.is_null() {
             let ent = unsafe { &*ent_ptr };
@@ -408,30 +347,18 @@ impl Bdev {
 
     /// returns whenever the bdev supports the requested IO type
     pub fn io_type_supported(&self, io_type: IoType) -> bool {
-        unsafe { spdk_bdev_io_type_supported(self.0.as_ptr(), io_type.into()) }
+        self.0.io_type_supported(io_type)
     }
 
     /// returns the bdev as a ptr
     /// dont use please
     pub fn as_ptr(&self) -> *mut spdk_bdev {
-        self.0.as_ptr()
+        self.0.legacy_as_ptr()
     }
 
     /// set the UUID for this bdev
-    pub fn set_uuid(&mut self, uuid: uuid::Uuid) {
-        unsafe {
-            spdk_uuid_copy(
-                &mut (*self.0.as_ptr()).uuid,
-                uuid.as_bytes().as_ptr() as *const spdk_uuid,
-            );
-        }
-    }
-
-    /// generate a new random UUID for this bdev
-    pub fn generate_uuid(&mut self) {
-        unsafe {
-            spdk_uuid_generate(&mut (*self.0.as_ptr()).uuid);
-        }
+    pub unsafe fn set_uuid(&mut self, uuid: uuid::Uuid) {
+        self.0.set_uuid(uuid.into());
     }
 
     extern "C" fn stat_cb(
@@ -453,7 +380,7 @@ impl Bdev {
         // this will iterate over io channels and call async cb when done
         unsafe {
             spdk_bdev_get_device_stat(
-                self.0.as_ptr(),
+                self.as_ptr(),
                 &mut stat as *mut _,
                 Some(Self::stat_cb),
                 cb_arg(sender),
@@ -480,7 +407,7 @@ impl Bdev {
 
     /// returns the first bdev in the list
     pub fn bdev_first() -> Option<Bdev> {
-        Self::from_ptr(unsafe { spdk_bdev_first() })
+        Self::from_ptr_abc(unsafe { spdk_bdev_first() })
     }
 
     /// TODO
@@ -508,14 +435,14 @@ impl Iterator for BdevIter {
         } else {
             let current = self.0;
             self.0 = unsafe { spdk_bdev_next(current) };
-            Bdev::from_ptr(current)
+            Bdev::from_ptr_abc(current)
         }
     }
 }
 
 impl From<*mut spdk_bdev> for Bdev {
     fn from(bdev: *mut spdk_bdev) -> Self {
-        Self::from_ptr(bdev)
+        Self::from_ptr_abc(bdev)
             .expect("nullptr dereference while accessing a bdev")
     }
 }

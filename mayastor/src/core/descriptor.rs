@@ -6,6 +6,8 @@ use std::{
 
 use futures::channel::oneshot;
 
+use spdk::BdevModule;
+
 use spdk_sys::{
     bdev_lock_lba_range,
     bdev_unlock_lba_range,
@@ -19,7 +21,6 @@ use crate::{
     bdev::nexus::nexus_module::NEXUS_NAME,
     core::{channel::IoChannel, Bdev, BdevHandle, CoreError, Mthread},
 };
-use spdk::BdevModule;
 
 /// NewType around a descriptor, multiple descriptor to the same bdev is
 /// allowed. A bdev can be claimed for exclusive write access. Any existing
@@ -55,11 +56,9 @@ impl Descriptor {
     /// Conversely, Preexisting writers will not be downgraded.
     pub fn claim(&self) -> bool {
         match BdevModule::find_by_name(NEXUS_NAME) {
-            Ok(m) => {
-                match m.claim_bdev(&self.get_bdev().as_v2(), self.0) {
-                    Ok(_) => true,
-                    Err(_) => false,
-                }
+            Ok(m) => match m.claim_bdev(&self.get_bdev().as_v2(), self.0) {
+                Ok(_) => true,
+                Err(_) => false,
             },
             Err(err) => {
                 error!("{}", err);
@@ -74,9 +73,9 @@ impl Descriptor {
             Ok(m) => {
                 match m.release_bdev(&self.get_bdev().as_v2()) {
                     Err(err) => error!("{}", err),
-                    _ => ()
+                    _ => (),
                 };
-            },
+            }
             Err(err) => {
                 error!("{}", err);
             }

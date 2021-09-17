@@ -345,7 +345,7 @@ impl TryFrom<Descriptor> for BdevHandle {
         }
 
         Err(CoreError::GetIoChannel {
-            name: desc.get_bdev().name(),
+            name: desc.get_bdev().name().to_string(),
         })
     }
 }
@@ -362,7 +362,7 @@ impl TryFrom<Arc<Descriptor>> for BdevHandle {
         }
 
         Err(CoreError::GetIoChannel {
-            name: desc.get_bdev().name(),
+            name: desc.get_bdev().name().to_string(),
         })
     }
 }

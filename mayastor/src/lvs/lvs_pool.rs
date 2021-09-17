@@ -206,7 +206,7 @@ impl Lvs {
         if bdev.is_claimed() {
             return Err(Error::Import {
                 source: Errno::EBUSY,
-                name: bdev.name(),
+                name: bdev.name().to_string(),
             });
         }
 
@@ -408,7 +408,7 @@ impl Lvs {
             .await
             .map_err(|e| Error::Destroy {
                 source: e,
-                name: base_bdev.name(),
+                name: base_bdev.name().to_string(),
             })?;
         Ok(())
     }
@@ -482,7 +482,7 @@ impl Lvs {
             .await
             .map_err(|e| Error::Destroy {
                 source: e,
-                name: base_bdev.name(),
+                name: base_bdev.name().to_string(),
             })?;
 
         Ok(())

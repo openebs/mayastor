@@ -120,7 +120,7 @@ impl From<Pool> for rpc::Pool {
         rpc::Pool {
             name: pool.get_name().to_owned(),
             disks: vec![
-                pool.get_base_bdev().driver()
+                pool.get_base_bdev().driver().to_string()
                     + "://"
                     + &pool.get_base_bdev().name(),
             ],

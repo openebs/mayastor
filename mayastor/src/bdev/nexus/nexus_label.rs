@@ -1374,7 +1374,7 @@ impl Nexus {
         self.data_ent_offset = offsets[0] / block_size;
 
         // Set the nexus size
-        self.bdev_mut().set_block_count(size / block_size);
+        unsafe { self.bdev_mut().set_num_blocks(size / block_size) };
 
         Ok(())
     }
@@ -1443,7 +1443,7 @@ impl Nexus {
         self.data_ent_offset = offsets[0] / block_size;
 
         // Set the nexus size
-        self.bdev_mut().set_block_count(size / block_size);
+        unsafe { self.bdev_mut().set_num_blocks(size / block_size) };
 
         Ok(())
     }
