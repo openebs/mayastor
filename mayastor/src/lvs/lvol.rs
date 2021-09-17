@@ -22,6 +22,7 @@ use spdk_sys::{
     vbdev_lvol_destroy,
     vbdev_lvol_get_from_bdev,
     LVS_CLEAR_WITH_UNMAP,
+    SPDK_BDEV_LARGE_BUF_MAX_SIZE,
 };
 
 use crate::{
@@ -225,7 +226,7 @@ impl Lvol {
         }
     }
 
-    // wipe the first MB if unmap is not supported on failure the operation
+    // wipe the first 8MB if unmap is not supported on failure the operation
     // needs to be repeated
     pub async fn wipe_super(&self) -> Result<(), Error> {
         if !unsafe { self.0.as_ref().clear_method == LVS_CLEAR_WITH_UNMAP } {
@@ -238,7 +239,10 @@ impl Lvol {
                         name: self.name(),
                     }
                 })?;
-            let buf = hdl.dma_malloc(1 << 12).map_err(|e| {
+
+            // Set the buffer size to the maximum allowed by SPDK.
+            let buf_size = SPDK_BDEV_LARGE_BUF_MAX_SIZE as u64;
+            let buf = hdl.dma_malloc(buf_size).map_err(|e| {
                 error!(
                     ?self,
                     ?e,
@@ -249,12 +253,11 @@ impl Lvol {
                     name: self.name(),
                 }
             })?;
-            // write zero to the first 8MB which whipes the metadata and the
+            // write zero to the first 8MB which wipes the metadata and the
             // first 4MB of the data partition
             let range =
                 std::cmp::min(self.as_bdev().size_in_bytes(), (1 << 20) * 8);
-            debug!(?self, ?range, "zeroing range");
-            for offset in 0 .. (range >> 12) {
+            for offset in 0 .. (range / buf_size) {
                 hdl.write_at(offset * buf.len(), &buf).await.map_err(|e| {
                     error!(?self, ?e);
                     Error::RepDestroy {
@@ -292,7 +295,6 @@ impl Lvol {
 
         // we must always unshare before destroying bdev
         let _ = self.unshare().await;
-        self.wipe_super().await?;
 
         let name = self.name();
 
