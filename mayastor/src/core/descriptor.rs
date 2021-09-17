@@ -16,7 +16,6 @@ use spdk_sys::{
 };
 
 use crate::{
-    // bdev::nexus::nexus_module::NEXUS_MODULE,
     bdev::nexus::nexus_module::NEXUS_NAME,
     core::{channel::IoChannel, Bdev, BdevHandle, CoreError, Mthread},
 };

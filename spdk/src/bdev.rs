@@ -65,6 +65,11 @@ where
         self.as_ref().product_name.as_str()
     }
 
+    /// Returns Bdev's UUID.
+    pub fn uuid(&self) -> Uuid {
+        Uuid::new(&self.as_ref().uuid)
+    }
+
     /// Returns the name of the module for thos Bdev.
     pub fn module_name(&self) -> &str {
         unsafe { (*self.as_ref().module).name.as_str() }
@@ -436,8 +441,8 @@ where
     }
 
     /// TODO
-    pub fn with_uuid(mut self, u: uuid::Uuid) -> Self {
-        self.uuid = Some(Uuid::from(u));
+    pub fn with_uuid(mut self, u: Uuid) -> Self {
+        self.uuid = Some(u);
         self
     }
 

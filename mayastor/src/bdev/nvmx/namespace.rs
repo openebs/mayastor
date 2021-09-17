@@ -28,9 +28,9 @@ impl NvmeNamespace {
     }
 
     pub fn uuid(&self) -> uuid::Uuid {
-        unsafe {
-            crate::core::uuid::Uuid(spdk_nvme_ns_get_uuid(self.0.as_ptr()))
-        }
+        spdk::Uuid::legacy_from_ptr(unsafe {
+            spdk_nvme_ns_get_uuid(self.0.as_ptr())
+        })
         .into()
     }
 

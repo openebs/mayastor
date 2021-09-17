@@ -184,7 +184,7 @@ impl Lvs {
     /// returns the UUID of the lvs
     pub fn uuid(&self) -> String {
         let t = unsafe { self.0.as_ref().uuid.u.raw };
-        Uuid::from_bytes(t).to_string()
+        uuid::Uuid::from_bytes(t).to_string()
     }
 
     /// imports a pool based on its name and base bdev name

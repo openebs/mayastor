@@ -2,8 +2,6 @@
 //! core contains the primary abstractions around the SPDK primitives.
 use std::{fmt::Debug, sync::atomic::AtomicUsize, time::Duration};
 
-pub use ::uuid::Uuid;
-
 use nix::errno::Errno;
 use snafu::Snafu;
 
@@ -26,7 +24,6 @@ pub use block_device::{
 pub use channel::IoChannel;
 pub use cpu_cores::{Core, Cores};
 pub use descriptor::{Descriptor, RangeContext};
-pub use dma::{DmaBuf, DmaError};
 pub use env::{
     mayastor_env_stop,
     MayastorCliArgs,
@@ -36,21 +33,25 @@ pub use env::{
 };
 pub use handle::BdevHandle;
 pub use io_device::IoDevice;
+pub use reactor::{Reactor, ReactorState, Reactors, REACTOR_LIST};
+pub use runtime::spawn;
+pub use share::{Protocol, Share};
 pub use spdk::{
+    cpu_cores,
     nvme_admin_opc,
     nvme_nvm_opcode,
     nvme_reservation_acquire_action,
     nvme_reservation_register_action,
     nvme_reservation_register_cptpl,
     nvme_reservation_type,
+    DmaBuf,
+    DmaError,
     GenericStatusCode,
+    IoStatus,
+    IoType,
     NvmeCommandStatus,
     NvmeStatus,
 };
-pub use reactor::{Reactor, ReactorState, Reactors, REACTOR_LIST};
-pub use runtime::spawn;
-pub use share::{Protocol, Share};
-pub use spdk::{IoStatus, IoType};
 pub use thread::Mthread;
 
 use crate::{bdev::nexus_lookup, subsys::NvmfError, target::iscsi};
@@ -60,9 +61,7 @@ pub mod singleton;
 mod bdev;
 mod block_device;
 mod channel;
-pub use spdk::cpu_cores;
 mod descriptor;
-mod dma;
 mod env;
 mod handle;
 mod io_device;
@@ -73,7 +72,6 @@ mod reactor;
 pub mod runtime;
 mod share;
 pub(crate) mod thread;
-pub mod uuid;
 
 #[derive(Debug, Snafu, Clone)]
 #[snafu(visibility = "pub")]

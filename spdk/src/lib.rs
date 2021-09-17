@@ -8,6 +8,7 @@ mod bdev_io;
 mod bdev_iter;
 mod bdev_module;
 pub mod cpu_cores;
+mod dma;
 mod error;
 pub mod ffihelper;
 mod io_channel;
@@ -33,6 +34,7 @@ pub use crate::{
         WithModuleGetCtxSize,
         WithModuleInit,
     },
+    dma::{DmaBuf, DmaError},
     error::{Result, SpdkError},
     io_channel::IoChannel,
     io_device::IoDevice,

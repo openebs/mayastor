@@ -67,7 +67,7 @@ impl CreateDestroy for Loopback {
 
     async fn create(&self) -> Result<String, Self::Error> {
         if let Some(bdev) = Bdev::lookup_by_name(&self.name) {
-            if self.uuid.is_some() && Some(bdev.uuid()) != self.uuid {
+            if self.uuid.is_some() && Some(bdev.uuid().into()) != self.uuid {
                 return Err(NexusBdevError::BdevWrongUuid {
                     name: self.get_name(),
                     uuid: bdev.uuid_as_string(),

@@ -24,7 +24,6 @@ use spdk_sys::{
     spdk_bdev_get_name,
     spdk_bdev_get_num_blocks,
     spdk_bdev_get_product_name,
-    spdk_bdev_get_uuid,
     spdk_bdev_io_stat,
     spdk_bdev_io_type_supported,
     spdk_bdev_next,
@@ -38,7 +37,6 @@ use crate::{
     bdev::SpdkBlockDevice,
     core::{
         share::{Protocol, Share},
-        uuid::Uuid,
         BlockDeviceIoStats,
         CoreError,
         Descriptor,
@@ -357,10 +355,10 @@ impl Bdev {
 
     /// return the UUID of this bdev
     pub fn uuid(&self) -> uuid::Uuid {
-        Uuid(unsafe { spdk_bdev_get_uuid(self.0.as_ptr()) }).into()
+        self.as_v2().uuid().into()
     }
 
-    /// return the UUID of this bdev as a string
+    /// return the UUID of this bdev as a hyphenated string
     pub fn uuid_as_string(&self) -> String {
         self.uuid().to_hyphenated().to_string()
     }

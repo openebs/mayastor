@@ -570,12 +570,12 @@ impl Nexus {
 
     /// Makes the UUID of the underlying Bdev of this nexus.
     /// Generates a new UUID if specified uuid is None (or invalid).
-    fn make_uuid(name: &str, uuid: Option<&str>) -> uuid::Uuid {
+    fn make_uuid(name: &str, uuid: Option<&str>) -> spdk::Uuid {
         match uuid {
             Some(s) => match uuid::Uuid::parse_str(s) {
                 Ok(u) => {
                     info!("UUID set to {} for nexus {}", u, name);
-                    return u;
+                    return u.into();
                 }
                 Err(error) => {
                     warn!(
@@ -589,7 +589,7 @@ impl Nexus {
             }
         }
 
-        let u: uuid::Uuid = spdk::Uuid::generate().into();
+        let u = spdk::Uuid::generate();
         info!("using generated UUID {} for nexus {}", u, name);
         u
     }
