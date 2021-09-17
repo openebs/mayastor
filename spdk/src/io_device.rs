@@ -5,7 +5,10 @@ use std::{
 
 use crate::ffihelper::IntoCString;
 
-use spdk_sys::{spdk_io_device_register, spdk_io_device_unregister};
+use spdk_sys::{
+    spdk_io_device_register,
+    spdk_io_device_unregister,
+};
 
 /// Abstraction over SPDK concept of I/O device.
 pub trait IoDevice: Sized {

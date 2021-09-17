@@ -11,32 +11,46 @@ pub mod cpu_cores;
 mod error;
 pub mod ffihelper;
 mod io_channel;
-mod io_channel_iter;
 mod io_device;
+mod io_device_traverse;
 mod io_type;
 mod json_write_context;
+mod nvme;
 mod poller;
 mod thread;
 mod uuid;
 
-pub use crate::uuid::Uuid;
-pub use bdev::{Bdev, BdevBuilder, BdevOps};
-pub use bdev_io::BdevIo;
-pub use bdev_iter::BdevIter;
-pub use bdev_module::{
-    BdevModule,
-    BdevModuleBuild,
-    BdevModuleBuilder,
-    WithModuleConfigJson,
-    WithModuleFini,
-    WithModuleGetCtxSize,
-    WithModuleInit,
+pub use crate::{
+    bdev::{Bdev, BdevBuilder, BdevOps},
+    bdev_io::BdevIo,
+    bdev_iter::BdevIter,
+    bdev_module::{
+        BdevModule,
+        BdevModuleBuild,
+        BdevModuleBuilder,
+        WithModuleConfigJson,
+        WithModuleFini,
+        WithModuleGetCtxSize,
+        WithModuleInit,
+    },
+    error::{Result, SpdkError},
+    io_channel::IoChannel,
+    io_device::IoDevice,
+    io_device_traverse::{ChannelTraverseStatus, IoDeviceChannelTraverse},
+    io_type::{IoStatus, IoType},
+    json_write_context::JsonWriteContext,
+    nvme::{
+        nvme_admin_opc,
+        nvme_nvm_opcode,
+        nvme_reservation_acquire_action,
+        nvme_reservation_register_action,
+        nvme_reservation_register_cptpl,
+        nvme_reservation_type,
+        GenericStatusCode,
+        NvmeCommandStatus,
+        NvmeStatus,
+    },
+    poller::{Poller, PollerBuilder},
+    thread::Thread,
+    uuid::Uuid,
 };
-pub use error::{Result, SpdkError};
-pub use io_channel::IoChannel;
-pub use io_channel_iter::IoChannelIter;
-pub use io_device::IoDevice;
-pub use io_type::{IoStatus, IoType};
-pub use json_write_context::JsonWriteContext;
-pub use poller::{Poller, PollerBuilder};
-pub use thread::Thread;

@@ -8,7 +8,6 @@ use nix::errno::Errno;
 use snafu::Snafu;
 
 pub use bdev::{Bdev, BdevIter};
-pub use bio::Bio;
 pub use block_device::{
     BlockDevice,
     BlockDeviceDescriptor,
@@ -37,7 +36,7 @@ pub use env::{
 };
 pub use handle::BdevHandle;
 pub use io_device::IoDevice;
-pub use nvme::{
+pub use spdk::{
     nvme_admin_opc,
     nvme_nvm_opcode,
     nvme_reservation_acquire_action,
@@ -59,7 +58,6 @@ use crate::{bdev::nexus_lookup, subsys::NvmfError, target::iscsi};
 #[macro_use]
 pub mod singleton;
 mod bdev;
-mod bio;
 mod block_device;
 mod channel;
 pub use spdk::cpu_cores;
@@ -70,7 +68,6 @@ mod handle;
 mod io_device;
 pub mod io_driver;
 pub mod mempool;
-mod nvme;
 pub mod poller;
 mod reactor;
 pub mod runtime;

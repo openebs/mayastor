@@ -8,7 +8,6 @@ use crate::{
     core::{Bdev, Share},
     jsonrpc::{jsonrpc_register, Code, JsonRpcError, Result},
 };
-use spdk::BdevModule;
 
 pub mod nexus_bdev;
 pub mod nexus_bdev_children;
@@ -100,12 +99,6 @@ pub fn register_module() {
             Box::pin(f.boxed_local())
         },
     );
-}
-
-/// Returns Nexus Bdev module instance.
-/// Panics if the Nexus module was not registered.
-pub fn module() -> BdevModule {
-    nexus_module::NexusModule::current()
 }
 
 /// called during shutdown so that all nexus children are in Destroying state

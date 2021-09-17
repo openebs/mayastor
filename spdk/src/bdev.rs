@@ -241,6 +241,7 @@ impl BdevOps for () {
 ///
 /// When SPDK destructs a BDEV, this container is dropped,
 /// automatically freeing all the resources allocated during BDEV creation.
+#[repr(C)]
 struct Container<BdevData>
 where
     BdevData: BdevOps,
@@ -393,18 +394,9 @@ where
     blockcnt: Option<u64>,
     required_alignment: Option<u8>,
     uuid: Option<Uuid>,
-    module: Option<&'m BdevModule>,
+    module: &'m BdevModule,
     fn_table: Option<spdk_bdev_fn_table>,
     data: Option<BdevData>,
-}
-
-impl<'m, BdevData> Default for BdevBuilder<'m, BdevData>
-where
-    BdevData: BdevOps<BdevData = BdevData>,
-{
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl<'m, BdevData> BdevBuilder<'m, BdevData>
@@ -412,7 +404,7 @@ where
     BdevData: BdevOps<BdevData = BdevData>,
 {
     /// Creates a new `BdevBuilder` instance.
-    pub fn new() -> BdevBuilder<'m, BdevData> {
+    pub(crate) fn new(bdev_mod: &'m BdevModule) -> BdevBuilder<'m, BdevData> {
         BdevBuilder {
             name: None,
             product_name: None,
@@ -420,7 +412,7 @@ where
             blocklen: None,
             blockcnt: None,
             uuid: None,
-            module: None,
+            module: bdev_mod,
             fn_table: None,
             data: None,
         }
@@ -446,13 +438,6 @@ where
     /// TODO
     pub fn with_uuid(mut self, u: uuid::Uuid) -> Self {
         self.uuid = Some(Uuid::from(u));
-        self
-    }
-
-    /// Sets the `BdevModule` instance for this Bdev.
-    /// This Bdev parameter is manadory.
-    pub fn with_module(mut self, m: &'m BdevModule) -> Self {
-        self.module = Some(m);
         self
     }
 
@@ -535,7 +520,7 @@ where
                 max_active_zones: Default::default(),
                 optimal_open_zones: Default::default(),
                 media_events: Default::default(),
-                module: self.module.expect("Bdev module must be set").as_ptr(),
+                module: self.module.as_ptr(),
                 fn_table: null_mut::<spdk_bdev_fn_table>(),
                 internal: Default::default(),
             },

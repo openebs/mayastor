@@ -1,4 +1,4 @@
-use crate::core::{
+use crate::{
     nvme::StatusCodeType::{
         CommandSpecificStatus,
         GenericCommandStatus,
@@ -6,9 +6,9 @@ use crate::core::{
         Reserved,
         VendorSpecific,
     },
-    Bio,
+    // Bio,
 };
-use spdk_sys::spdk_bdev_io_get_nvme_status;
+use spdk_sys::{spdk_bdev_io, spdk_bdev_io_get_nvme_status};
 
 #[derive(Debug, Copy, Clone, Eq, PartialOrd, PartialEq)]
 pub enum StatusCodeType {
@@ -148,60 +148,15 @@ impl NvmeStatus {
     }
 }
 
-impl From<Bio> for NvmeStatus {
-    fn from(b: Bio) -> Self {
+impl From<*mut spdk_bdev_io> for NvmeStatus {
+    fn from(b: *mut spdk_bdev_io) -> Self {
         let mut cdw0: u32 = 0;
         let mut sct: i32 = 0;
         let mut sc: i32 = 0;
 
         unsafe {
             spdk_bdev_io_get_nvme_status(
-                b.as_ptr(),
-                &mut cdw0,
-                &mut sct,
-                &mut sc,
-            )
-        }
-
-        Self {
-            cdw0,
-            sct: StatusCodeType::from(sct),
-            sc: GenericStatusCode::from(sc),
-        }
-    }
-}
-
-impl From<&mut Bio> for NvmeStatus {
-    fn from(b: &mut Bio) -> Self {
-        let mut cdw0: u32 = 0;
-        let mut sct: i32 = 0;
-        let mut sc: i32 = 0;
-
-        unsafe {
-            spdk_bdev_io_get_nvme_status(
-                b.as_ptr(),
-                &mut cdw0,
-                &mut sct,
-                &mut sc,
-            )
-        }
-
-        Self {
-            cdw0,
-            sct: StatusCodeType::from(sct),
-            sc: GenericStatusCode::from(sc),
-        }
-    }
-}
-impl From<&Bio> for NvmeStatus {
-    fn from(b: &Bio) -> Self {
-        let mut cdw0: u32 = 0;
-        let mut sct: i32 = 0;
-        let mut sc: i32 = 0;
-
-        unsafe {
-            spdk_bdev_io_get_nvme_status(
-                b.as_ptr(),
+                b,
                 &mut cdw0,
                 &mut sct,
                 &mut sc,

@@ -28,7 +28,6 @@ use crate::core::{
     nvme_admin_opc,
     Bdev,
     BdevHandle,
-    Bio,
     BlockDevice,
     BlockDeviceDescriptor,
     BlockDeviceHandle,
@@ -44,6 +43,7 @@ use crate::core::{
     IoCompletionCallbackArg,
     IoCompletionStatus,
     NvmeCommandStatus,
+    NvmeStatus,
 };
 
 use spdk::IoType;
@@ -315,7 +315,7 @@ extern "C" fn bdev_io_completion(
     let status = if success {
         IoCompletionStatus::Success
     } else {
-        let nvme_status = Bio::from(child_bio).nvme_status();
+        let nvme_status = NvmeStatus::from(child_bio);
         let nvme_cmd_status = NvmeCommandStatus::from_command_status(
             nvme_status.status_type(),
             nvme_status.status_code(),

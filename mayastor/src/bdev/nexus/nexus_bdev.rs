@@ -8,7 +8,6 @@ use std::{
     env,
     fmt::{Display, Formatter},
     os::raw::c_void,
-    ptr::NonNull,
 };
 
 use crossbeam::atomic::AtomicCell;
@@ -19,20 +18,15 @@ use snafu::{ResultExt, Snafu};
 use tonic::{Code, Status};
 
 use rpc::mayastor::NvmeAnaState;
-use spdk_sys::{spdk_bdev, spdk_bdev_unregister};
 
 use crate::{
     bdev::{
         device_destroy,
         nexus::{
-            nexus_channel::{
-                DrEvent,
-                NexusChannel,
-                NexusChannelInner,
-                ReconfigureCtx,
-            },
+            nexus_channel::{DrEvent, NexusChannel},
             nexus_child::{ChildError, ChildState, NexusChild},
             nexus_instances::{nexus_lookup, NexusInstances},
+            nexus_io::{nexus_submit_io, NexusBio},
             nexus_label::LabelError,
             nexus_module::NexusModule,
             nexus_nbd::{NbdDisk, NbdError},
@@ -55,15 +49,16 @@ use crate::{
     subsys::{NvmfError, NvmfSubsystem},
 };
 
-use crate::bdev::nexus::nexus_io::{nexus_submit_io, NexusBio};
 use spdk::{
     BdevIo,
     BdevOps,
+    ChannelTraverseStatus,
     IoChannel,
-    IoChannelIter,
     IoDevice,
+    IoDeviceChannelTraverse,
     JsonWriteContext,
 };
+use spdk_sys::{spdk_bdev, spdk_bdev_unregister};
 
 pub static NVME_MIN_CNTLID: u16 = 1;
 pub static NVME_MAX_CNTLID: u16 = 0xffef;
@@ -496,16 +491,20 @@ struct UpdateFailFastCtx {
 
 /// TODO
 fn update_failfast_cb(
-    channel: &mut NexusChannelInner,
+    channel: &mut NexusChannel,
     ctx: &mut UpdateFailFastCtx,
-) -> i32 {
+) -> ChannelTraverseStatus {
+    let channel = channel.inner_mut();
     ctx.child.as_ref().map(|child| channel.remove_child(child));
     debug!(?ctx.nexus, ?ctx.child, "removed from channel");
-    0
+    ChannelTraverseStatus::Ok
 }
 
 /// TODO
-fn update_failfast_done(_status: i32, ctx: UpdateFailFastCtx) {
+fn update_failfast_done(
+    _status: ChannelTraverseStatus,
+    ctx: UpdateFailFastCtx,
+) {
     ctx.sender.send(true).expect("Receiver disappeared");
 }
 
@@ -537,19 +536,16 @@ impl Nexus {
             nexus_info: futures::lock::Mutex::new(Default::default()),
         };
 
-        let m = NexusModule::current();
-
-        let bld = spdk::BdevBuilder::new()
-            .with_module(&m)
+        let mut bdev = NexusModule::current()
+            .bdev_builder()
             .with_name(name)
             .with_product_name(NEXUS_PRODUCT_ID)
             .with_uuid(Self::make_uuid(name, uuid))
             .with_block_length(0)
             .with_block_count(0)
             .with_required_alignment(9)
-            .with_data(n);
-
-        let mut bdev = bld.build();
+            .with_data(n)
+            .build();
 
         let n = bdev.data_mut();
         n.bdev_raw = bdev.legacy_as_ptr();
@@ -570,11 +566,6 @@ impl Nexus {
     /// TODO
     pub(crate) fn bdev_mut(&mut self) -> Bdev {
         Bdev::from(self.bdev_raw)
-    }
-
-    /// TODO
-    pub(crate) fn spdk_bdev(&self) -> spdk::Bdev<Nexus> {
-        spdk::Bdev::legacy_from_ptr(self.bdev_raw)
     }
 
     /// Makes the UUID of the underlying Bdev of this nexus.
@@ -618,23 +609,28 @@ impl Nexus {
         self.bdev().size_in_bytes()
     }
 
-    /// reconfigure the child event handler
+    /// Reconfigures the child event handler.
     pub(crate) async fn reconfigure(&self, event: DrEvent) {
-        let (s, r) = oneshot::channel::<i32>();
-
         info!(
             "{}: Dynamic reconfiguration event: {:?} started",
             self.name, event
         );
 
-        let ctx = Box::new(ReconfigureCtx::new(
-            s,
-            NonNull::new(self.as_ptr()).unwrap(),
-        ));
+        let (sender, recv) = oneshot::channel::<ChannelTraverseStatus>();
 
-        NexusChannel::reconfigure(self.as_ptr(), ctx, &event);
+        self.traverse_io_channels(
+            |chan, _sender| -> ChannelTraverseStatus {
+                chan.inner_mut().refresh();
+                ChannelTraverseStatus::Ok
+            },
+            |status, sender| {
+                info!("{}: Reconfigure completed", self.name);
+                sender.send(status).expect("reconfigure channel gone");
+            },
+            sender
+        );
 
-        let result = r.await.expect("reconfigure sender already dropped");
+        let result = recv.await.expect("reconfigure sender already dropped");
 
         info!(
             "{}: Dynamic reconfiguration event: {:?} completed {:?}",
@@ -658,21 +654,7 @@ impl Nexus {
 
         // Register the bdev with SPDK and set the callbacks for io channel
         // creation.
-
-        //------
-
-        // let io_device = IoDevice::new::<NexusChannel>(
-        //     NonNull::new(ni.as_ptr()).unwrap(),
-        //     &ni.name,
-        //     Some(NexusChannel::create),
-        //     Some(NexusChannel::destroy),
-        // );
-
-        //------
-
         nex.io_device_register(Some(&nex.name));
-
-        //------
 
         debug!("{}: IO device registered at {:p}", nex.name, nex.as_ptr());
 
@@ -931,7 +913,6 @@ impl Nexus {
         self.traverse_io_channels(
             update_failfast_cb,
             update_failfast_done,
-            NexusChannel::inner_from_channel,
             ctx,
         );
 
@@ -958,7 +939,6 @@ impl Nexus {
             self.traverse_io_channels(
                 update_failfast_cb,
                 update_failfast_done,
-                NexusChannel::inner_from_channel,
                 ctx,
             );
 
@@ -1147,8 +1127,7 @@ impl IoDevice for Nexus {
     }
 }
 
-// TODO: this is here to get 'traverse_io_channels()'.
-impl IoChannelIter for Nexus {}
+impl IoDeviceChannelTraverse for Nexus {}
 
 impl BdevOps for Nexus {
     type ChannelData = NexusChannel;
@@ -1203,7 +1182,7 @@ impl BdevOps for Nexus {
     ) {
         info!("^^^^ submit req");
 
-        let bio = NexusBio::nexus_bio_setup_v2(chan, bio);
+        let bio = NexusBio::nexus_bio_setup(chan, bio);
         nexus_submit_io(bio);
     }
 
@@ -1253,7 +1232,9 @@ impl BdevOps for Nexus {
     fn dump_info_json(&self, w: JsonWriteContext) {
         info!("^^^^ dump_info_json");
         w.write_named_array_begin("children");
-        w.write(&self.children);
+        if let Err(err) = w.write(&self.children) {
+            error!("Failed to dump into JSON: {}", err);
+        }
         w.write_array_end();
     }
 }

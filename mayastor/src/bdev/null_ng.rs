@@ -1,7 +1,6 @@
 use std::{cell::RefCell, marker::PhantomData};
 
 use spdk::{
-    BdevBuilder,
     BdevIo,
     BdevModule,
     BdevModuleBuild,
@@ -126,9 +125,8 @@ impl<'a> NullIoDevice<'a> {
             _a: Default::default(),
         };
 
-        let mut bdev = BdevBuilder::new()
+        let mut bdev = bm.bdev_builder()
             .with_data(io_dev)
-            .with_module(&bm)
             .with_name(name)
             .with_product_name("Null Device New Generation")
             .with_block_length(1 << 12)

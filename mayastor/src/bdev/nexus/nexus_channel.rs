@@ -1,19 +1,6 @@
 //!
 //! IO is driven by means of so called channels.
-use std::{ffi::c_void, fmt::Debug, ptr::NonNull};
-
-use futures::channel::oneshot;
-
-use spdk_sys::{
-    spdk_for_each_channel,
-    spdk_for_each_channel_continue,
-    spdk_io_channel,
-    spdk_io_channel_iter,
-    spdk_io_channel_iter_get_channel,
-    spdk_io_channel_iter_get_ctx,
-    spdk_io_channel_iter_get_io_device,
-    spdk_io_channel_get_ctx_hpl,
-};
+use std::{ffi::c_void, fmt::Debug};
 
 use crate::{
     bdev::{nexus::nexus_child::ChildState, Nexus, Reason},
@@ -44,27 +31,6 @@ impl Debug for NexusChannelInner {
             self.readers.len(),
             self.writers.len()
         )
-    }
-}
-
-#[derive(Debug)]
-/// reconfigure context holding among others
-/// the completion channel.
-pub struct ReconfigureCtx {
-    /// channel to send completion on.
-    sender: oneshot::Sender<i32>,
-    device: NonNull<c_void>,
-}
-
-impl ReconfigureCtx {
-    pub(crate) fn new(
-        sender: oneshot::Sender<i32>,
-        device: NonNull<c_void>,
-    ) -> Self {
-        Self {
-            sender,
-            device,
-        }
     }
 }
 
@@ -274,7 +240,7 @@ impl NexusChannel {
             });
 
         Self {
-            inner: Box::into_raw(channels)
+            inner: Box::into_raw(channels),
         }
     }
 
@@ -333,73 +299,12 @@ impl NexusChannel {
     }
     */
 
-    /// function called when we receive a Dynamic Reconfigure event (DR)
-    pub extern "C" fn reconfigure(
-        device: *mut c_void,
-        ctx: Box<ReconfigureCtx>,
-        _event: &DrEvent,
-    ) {
-        unsafe {
-            spdk_for_each_channel(
-                device,
-                Some(NexusChannel::refresh_io_channels),
-                Box::into_raw(ctx).cast(),
-                Some(Self::reconfigure_completed),
-            );
-        }
+    /// TODO
+    pub(crate) fn inner(&self) -> &NexusChannelInner {
+        unsafe { &*self.inner }
     }
 
-    /// a generic callback for signaling that all cores have reconfigured
-    pub extern "C" fn reconfigure_completed(
-        ch_iter: *mut spdk_io_channel_iter,
-        status: i32,
-    ) {
-        let nexus = unsafe {
-            Nexus::from_raw(spdk_io_channel_iter_get_io_device(ch_iter))
-        };
-
-        let ctx: Box<ReconfigureCtx> = unsafe {
-            Box::from_raw(
-                spdk_io_channel_iter_get_ctx(ch_iter) as *mut ReconfigureCtx
-            )
-        };
-
-        info!("{}: Reconfigure completed", nexus.name);
-        ctx.sender.send(status).expect("reconfigure channel gone");
-    }
-
-    /// Refresh the IO channels of the underlying children. Typically, this is
-    /// called when a device is either added or removed. IO that has already
-    /// been issued may or may not complete. In case of remove that is fine.
-    pub extern "C" fn refresh_io_channels(ch_iter: *mut spdk_io_channel_iter) {
-        let channel = unsafe { spdk_io_channel_iter_get_channel(ch_iter) };
-        let inner = Self::inner_from_channel(channel);
-        inner.refresh();
-        unsafe { spdk_for_each_channel_continue(ch_iter, 0) };
-    }
-
-    /// Converts a raw pointer to a nexusChannel. Note that the memory is not
-    /// allocated by us.
-    pub(crate) fn from_raw<'a>(n: *mut c_void) -> &'a mut Self {
-        unsafe { &mut *(n as *mut NexusChannel) }
-    }
-
-    /// helper function to get a mutable reference to the inner channel
-    /// FIXME; we can have several types of inner channels and so
-    /// it would be nice to have that abstracted properly
-    pub(crate) fn inner_from_channel<'a>(
-        channel: *mut spdk_io_channel,
-    ) -> &'a mut NexusChannelInner {
-        NexusChannel::from_raw(Self::io_channel_ctx(channel)).inner_mut()
-    }
-
-    /// get the offset to our ctx from the channel
-    fn io_channel_ctx(ch: *mut spdk_io_channel) -> *mut c_void {
-        unsafe {
-            spdk_io_channel_get_ctx_hpl(ch)
-        }
-    }
-
+    /// TODO
     pub(crate) fn inner_mut(&mut self) -> &mut NexusChannelInner {
         unsafe { &mut *self.inner }
     }

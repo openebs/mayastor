@@ -3,6 +3,7 @@ use std::{ffi::CString, marker::PhantomData, ptr::NonNull};
 use crate::{
     ffihelper::{AsStr, IntoCString},
     Bdev,
+    BdevBuilder,
     BdevIter,
     BdevOps,
     JsonWriteContext,
@@ -50,6 +51,14 @@ impl BdevModule {
                 name: String::from(mod_name),
             }),
         }
+    }
+
+    /// TODO
+    pub fn bdev_builder<'a, T>(&'a self) -> BdevBuilder<'a, T>
+    where
+        T: BdevOps<BdevData = T>,
+    {
+        BdevBuilder::<'a, T>::new(self)
     }
 
     /// TODO
