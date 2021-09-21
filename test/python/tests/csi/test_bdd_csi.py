@@ -91,8 +91,9 @@ def mayastor_instance(container_mod):
 
 @pytest.fixture(scope="module")
 def csi_container(container_mod):
-    container = container_mod.get("ms1")
-    yield container.get("NetworkSettings.Networks.mayastor_net.IPAddress")
+    # wait until container has address
+    container_mod.get("ms1").get("NetworkSettings.Networks.mayastor_net.IPAddress")
+    yield
 
 
 @pytest.fixture(scope="module")

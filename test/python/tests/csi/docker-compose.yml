@@ -23,7 +23,7 @@ services:
       - IPC_LOCK
     security_opt:
       # we can set this to a JSON file to allow per syscall access
-      - seccomp:unconfined
+      - seccomp=unconfined
     volumes:
       - ${SRCDIR}:${SRCDIR}
       - /nix:/nix
@@ -49,7 +49,7 @@ services:
       - IPC_LOCK
     security_opt:
       # we can set this to a JSON file to allow per syscall access
-      - seccomp:unconfined
+      - seccomp=unconfined
     volumes:
       - /:/host
       - ${SRCDIR}:${SRCDIR}
