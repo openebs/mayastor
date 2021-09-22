@@ -211,7 +211,8 @@ where
         unsafe { self.inner.as_mut() }
     }
 
-    /// Returns a pointer to the underlying `spdk_bdev` structure.
+    /// Public version of `as_ptr()`.
+    /// TODO: remove me.
     pub fn legacy_as_ptr(&self) -> *mut spdk_bdev {
         self.inner.as_ptr()
     }
@@ -224,25 +225,10 @@ where
         }
     }
 
-    /// `from_ptr()` for legacy use.
+    /// Public version of `from_ptr()`.
     /// TODO: remove me.
     pub fn legacy_from_ptr(ptr: *mut spdk_bdev) -> Self {
         Self::from_ptr(ptr)
-    }
-
-    /// TODO
-    pub fn legacy_ctxt<T>(&self) -> &'static T {
-        unsafe { &*(self.as_ref().ctxt as *const T) }
-    }
-
-    /// TODO
-    pub fn legacy_ctxt_mut<T>(&self) -> &'static mut T {
-        unsafe { &mut *(self.as_ref().ctxt as *mut T) }
-    }
-
-    /// TODO
-    pub fn legacy_data_nn(&mut self) -> NonNull<BdevData> {
-        NonNull::new(&mut self.container_mut().data).unwrap()
     }
 }
 

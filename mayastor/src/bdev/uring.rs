@@ -1,11 +1,9 @@
-use std::{collections::HashMap, convert::TryFrom, ffi::CString};
+use std::{collections::HashMap, convert::TryFrom};
 
 use async_trait::async_trait;
 use futures::channel::oneshot;
 use snafu::ResultExt;
 use url::Url;
-
-use spdk_sys::{create_uring_bdev, delete_uring_bdev};
 
 use crate::{
     bdev::{dev::reject_unknown_parameters, util::uri, CreateDestroy, GetName},
@@ -85,11 +83,10 @@ impl CreateDestroy for Uring {
             });
         }
 
-        let cname = CString::new(self.get_name()).unwrap();
-
-        if let Some(mut bdev) = Bdev::from_ptr_abc(unsafe {
-            create_uring_bdev(cname.as_ptr(), cname.as_ptr(), self.blk_size)
-        }) {
+        let name = self.get_name();
+        if let Some(mut bdev) =
+            Bdev::create_uring_bdev(&name, &name, self.blk_size)
+        {
             if let Some(uuid) = self.uuid {
                 unsafe { bdev.set_uuid(uuid) };
             }
@@ -117,11 +114,7 @@ impl CreateDestroy for Uring {
                 bdev.remove_alias(&self.alias);
                 let (sender, receiver) = oneshot::channel::<ErrnoResult<()>>();
                 unsafe {
-                    delete_uring_bdev(
-                        bdev.as_ptr(),
-                        Some(done_errno_cb),
-                        cb_arg(sender),
-                    );
+                    bdev.delete_uring_bdev(done_errno_cb, cb_arg(sender));
                 }
                 receiver
                     .await

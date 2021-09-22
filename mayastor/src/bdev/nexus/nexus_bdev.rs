@@ -59,6 +59,7 @@ use spdk::{
     JsonWriteContext,
 };
 use spdk_sys::{spdk_bdev, spdk_bdev_unregister};
+use std::ptr::NonNull;
 
 pub static NVME_MIN_CNTLID: u16 = 1;
 pub static NVME_MAX_CNTLID: u16 = 0xffef;
@@ -1324,7 +1325,7 @@ async fn nexus_create_internal(
     // in the global list of nexus instances. We must also ensure that the
     // nexus instance gets removed from the global list if an error occurs.
     let mut nexus_bdev = Nexus::new(name, size, uuid, nvme_params, None);
-    nexuses.add(nexus_bdev.legacy_data_nn());
+    nexuses.add(NonNull::new(nexus_bdev.data_mut()).unwrap());
 
     for child in children {
         let ni = nexus_bdev.data_mut();

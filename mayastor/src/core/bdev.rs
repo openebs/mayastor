@@ -148,6 +148,15 @@ impl Bdev {
         Self(b)
     }
 
+    /// construct bdev from raw pointer
+    pub(crate) fn from_ptr(bdev: *mut spdk_bdev) -> Option<Bdev> {
+        if bdev.is_null() {
+            None
+        } else {
+            Some(Self(spdk::Bdev::<()>::legacy_from_ptr(bdev)))
+        }
+    }
+
     /// open a bdev by its name in read_write mode.
     pub fn open_by_name(
         name: &str,
@@ -160,6 +169,27 @@ impl Bdev {
                 source: Errno::ENODEV,
             })
         }
+    }
+
+    /// TODO
+    pub(crate) fn create_uring_bdev(
+        name: &str,
+        filename: &str,
+        block_len: u32,
+    ) -> Option<Self> {
+        match spdk::Bdev::<()>::create_uring_bdev(name, filename, block_len) {
+            Ok(b) => Some(Self::new(b)),
+            Err(_) => None,
+        }
+    }
+
+    /// TODO
+    pub(crate) unsafe fn delete_uring_bdev(
+        &mut self,
+        complete_cb: extern "C" fn(*mut c_void, i32),
+        ctx: *mut c_void,
+    ) {
+        self.0.delete_uring_bdev(complete_cb, ctx)
     }
 
     /// Called by spdk when there is an asynchronous bdev event i.e. removal.
@@ -212,19 +242,10 @@ impl Bdev {
         self.0.claimed_by().map(|m| m.name().to_string())
     }
 
-    /// construct bdev from raw pointer
-    pub fn from_ptr_abc(bdev: *mut spdk_bdev) -> Option<Bdev> {
-        if bdev.is_null() {
-            None
-        } else {
-            Some(Self(spdk::Bdev::<()>::legacy_from_ptr(bdev)))
-        }
-    }
-
     /// lookup a bdev by its name
     pub fn lookup_by_name(name: &str) -> Option<Bdev> {
         let name = CString::new(name).unwrap();
-        Self::from_ptr_abc(unsafe { spdk_bdev_get_by_name(name.as_ptr()) })
+        Self::from_ptr(unsafe { spdk_bdev_get_by_name(name.as_ptr()) })
     }
 
     /// returns the block_size of the underlying device
@@ -375,12 +396,7 @@ impl Bdev {
 
     /// returns the first bdev in the list
     pub fn bdev_first() -> Option<Bdev> {
-        Self::from_ptr_abc(unsafe { spdk_bdev_first() })
-    }
-
-    /// TODO
-    pub fn as_v2(&self) -> spdk::Bdev<()> {
-        spdk::Bdev::<()>::legacy_from_ptr(self.as_ptr())
+        Self::from_ptr(unsafe { spdk_bdev_first() })
     }
 }
 
@@ -403,14 +419,14 @@ impl Iterator for BdevIter {
         } else {
             let current = self.0;
             self.0 = unsafe { spdk_bdev_next(current) };
-            Bdev::from_ptr_abc(current)
+            Bdev::from_ptr(current)
         }
     }
 }
 
 impl From<*mut spdk_bdev> for Bdev {
     fn from(bdev: *mut spdk_bdev) -> Self {
-        Self::from_ptr_abc(bdev)
+        Self::from_ptr(bdev)
             .expect("nullptr dereference while accessing a bdev")
     }
 }

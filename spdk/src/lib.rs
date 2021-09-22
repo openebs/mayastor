@@ -20,6 +20,7 @@ mod json_write_context;
 mod nvme;
 mod poller;
 mod thread;
+mod uring;
 mod uuid;
 
 pub use crate::{

@@ -612,7 +612,7 @@ impl NvmfSubsystem {
             return None;
         }
 
-        Bdev::from_ptr_abc(unsafe { spdk_nvmf_ns_get_bdev(ns) })
+        Bdev::from_ptr(unsafe { spdk_nvmf_ns_get_bdev(ns) })
     }
 
     fn listeners_to_vec(&self) -> Option<Vec<TransportId>> {

@@ -23,6 +23,9 @@ pub enum SpdkError {
 
     #[snafu(display("SPDK JSON write failed: error code {}", code))]
     JsonWriteFailed { code: i32 },
+
+    #[snafu(display("Failed to create Uring for Bdev '{}'", name))]
+    UringCreateFailed { name: String },
 }
 
 /// TODO
