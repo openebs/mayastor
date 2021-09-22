@@ -11,9 +11,7 @@ use spdk::BdevModule;
 use spdk_sys::{
     bdev_lock_lba_range,
     bdev_unlock_lba_range,
-    spdk_bdev_close,
     spdk_bdev_desc,
-    spdk_bdev_desc_get_bdev,
     spdk_bdev_get_io_channel,
 };
 
@@ -28,17 +26,22 @@ use crate::{
 /// is. Typically, the target, exporting the bdev will claim the device. In the
 /// case of the nexus, we do not claim the children for exclusive access to
 /// allow for the rebuild to happen across multiple cores.
-pub struct Descriptor(*mut spdk_bdev_desc);
+pub struct Descriptor(spdk::BdevDesc<()>);
 
 impl Descriptor {
+    /// TODO
+    pub(crate) fn new(d: spdk::BdevDesc<()>) -> Self {
+        Self(d)
+    }
+
     /// returns the underling ptr
     pub fn as_ptr(&self) -> *mut spdk_bdev_desc {
-        self.0
+        self.0.legacy_as_ptr()
     }
 
     /// Get a channel to the underlying bdev
     pub fn get_channel(&self) -> Option<IoChannel> {
-        let ch = unsafe { spdk_bdev_get_io_channel(self.0) };
+        let ch = unsafe { spdk_bdev_get_io_channel(self.0.legacy_as_ptr()) };
         if ch.is_null() {
             error!(
                 "failed to get IO channel for {} probably low on memory!",
@@ -56,7 +59,7 @@ impl Descriptor {
     /// Conversely, Preexisting writers will not be downgraded.
     pub fn claim(&self) -> bool {
         match BdevModule::find_by_name(NEXUS_NAME) {
-            Ok(m) => match m.claim_bdev(&self.get_bdev().as_v2(), self.0) {
+            Ok(m) => match m.claim_bdev(&self.0.bdev(), &self.0) {
                 Ok(_) => true,
                 Err(_) => false,
             },
@@ -71,7 +74,7 @@ impl Descriptor {
     pub(crate) fn unclaim(&self) {
         match BdevModule::find_by_name(NEXUS_NAME) {
             Ok(m) => {
-                match m.release_bdev(&self.get_bdev().as_v2()) {
+                match m.release_bdev(&self.0.bdev()) {
                     Err(err) => error!("{}", err),
                     _ => (),
                 };
@@ -84,24 +87,13 @@ impl Descriptor {
 
     /// release a previously claimed bdev
     pub fn release(&self) {
-        self.get_bdev().as_v2().release_claim();
+        self.0.bdev().release_claim();
     }
 
     /// Return the bdev associated with this descriptor, a descriptor cannot
     /// exist without a bdev
     pub fn get_bdev(&self) -> Bdev {
-        let bdev = unsafe { spdk_bdev_desc_get_bdev(self.0) };
-        Bdev::from(bdev)
-    }
-
-    /// create a Descriptor from a raw spdk_bdev_desc pointer this is the only
-    /// way to create a new descriptor
-    pub fn from_null_checked(desc: *mut spdk_bdev_desc) -> Option<Descriptor> {
-        if desc.is_null() {
-            None
-        } else {
-            Some(Descriptor(desc))
-        }
+        Bdev::new(self.0.bdev())
     }
 
     /// consumes the descriptor and returns a handle
@@ -176,12 +168,6 @@ impl Descriptor {
     }
 }
 
-extern "C" fn _bdev_close(arg: *mut c_void) {
-    unsafe {
-        spdk_bdev_close(arg as *mut spdk_bdev_desc);
-    }
-}
-
 /// when we get removed we might be asked to close ourselves
 /// however, this request might come from a different thread as
 /// targets (for example) are running on their own thread.
@@ -189,27 +175,21 @@ impl Drop for Descriptor {
     fn drop(&mut self) {
         trace!("[D] {:?}", self);
         if Mthread::current().unwrap() == Mthread::get_init() {
-            unsafe {
-                spdk_bdev_close(self.0);
-            }
+            self.0.close()
         } else {
-            Mthread::get_init().send_msg(_bdev_close, self.0 as *mut _);
+            Mthread::get_init().msg(self.0.clone(), |mut d| d.close());
         }
     }
 }
 
 impl Debug for Descriptor {
     fn fmt(&self, f: &mut Formatter<'_>) -> Result<(), Error> {
-        if !self.0.is_null() {
-            write!(
-                f,
-                "Descriptor {:p} for bdev: {}",
-                self.as_ptr(),
-                self.get_bdev().name()
-            )
-        } else {
-            Ok(())
-        }
+        write!(
+            f,
+            "Descriptor {:p} for bdev: {}",
+            self.as_ptr(),
+            self.0.bdev().name()
+        )
     }
 }
 

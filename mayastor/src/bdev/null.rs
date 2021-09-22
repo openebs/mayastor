@@ -184,7 +184,7 @@ impl CreateDestroy for Null {
     }
 
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
-        if let Some(bdev) = Bdev::lookup_by_name(&self.name) {
+        if let Some(mut bdev) = Bdev::lookup_by_name(&self.name) {
             bdev.remove_alias(&self.alias);
             let (s, r) = oneshot::channel::<ErrnoResult<()>>();
             unsafe {

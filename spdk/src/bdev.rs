@@ -19,7 +19,9 @@ use crate::{
 use crate::ffihelper::{errno_result_from_i32, ErrnoResult};
 use spdk_sys::{
     spdk_bdev,
+    spdk_bdev_alias_del,
     spdk_bdev_fn_table,
+    spdk_bdev_get_aliases,
     spdk_bdev_get_buf_align,
     spdk_bdev_io,
     spdk_bdev_io_type,
@@ -57,8 +59,8 @@ where
         BdevModule::from_ptr(self.as_ref().module)
     }
 
-    /// Returns a Bdev module name for this Bdev.
-    pub fn bdev_module_name(&self) -> &str {
+    /// Returns the name of the module for thos Bdev.
+    pub fn module_name(&self) -> &str {
         unsafe { (*self.as_ref().module).name.as_str() }
     }
 
@@ -91,9 +93,28 @@ where
         self.as_mut().uuid = uuid.into_raw();
     }
 
-    /// Returns the name of the module for thos Bdev.
-    pub fn module_name(&self) -> &str {
-        unsafe { (*self.as_ref().module).name.as_str() }
+    /// Removes the given alias from the Bdev.
+    pub fn remove_alias(&mut self, alias: &str) {
+        unsafe {
+            spdk_bdev_alias_del(
+                self.as_ptr(),
+                alias.into_cstring().as_ptr(),
+            )
+        };
+    }
+
+    /// Returns a list of Bdev aliases.
+    pub fn aliases(&self) -> Vec<String> {
+        let mut aliases = Vec::new();
+        let head = unsafe { &*spdk_bdev_get_aliases(self.as_ptr()) };
+        let mut ent_ptr = head.tqh_first;
+        while !ent_ptr.is_null() {
+            let ent = unsafe { &*ent_ptr };
+            let alias = ent.alias.name.as_str();
+            aliases.push(alias.to_string());
+            ent_ptr = ent.tailq.tqe_next;
+        }
+        aliases
     }
 
     /// Returns the block size of the underlying device.
@@ -175,14 +196,6 @@ where
         Container::<BdevData>::from_ptr(self.as_ref().ctxt)
     }
 
-    /// Creates a new `Bdev` wrapper from an SPDK structure pointer.
-    pub(crate) fn from_ptr(ptr: *mut spdk_bdev) -> Self {
-        Self {
-            inner: NonNull::new(ptr).unwrap(),
-            _data: Default::default(),
-        }
-    }
-
     /// Returns a pointer to the underlying `spdk_bdev` structure.
     pub(crate) fn as_ptr(&self) -> *mut spdk_bdev {
         self.inner.as_ptr()
@@ -201,6 +214,14 @@ where
     /// Returns a pointer to the underlying `spdk_bdev` structure.
     pub fn legacy_as_ptr(&self) -> *mut spdk_bdev {
         self.inner.as_ptr()
+    }
+
+    /// Creates a new `Bdev` wrapper from an SPDK structure pointer.
+    pub(crate) fn from_ptr(ptr: *mut spdk_bdev) -> Self {
+        Self {
+            inner: NonNull::new(ptr).unwrap(),
+            _data: Default::default(),
+        }
     }
 
     /// `from_ptr()` for legacy use.

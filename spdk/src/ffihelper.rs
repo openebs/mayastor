@@ -128,6 +128,11 @@ pub fn errno_result_from_i32<T>(val: T, errno: i32) -> ErrnoResult<T> {
     }
 }
 
+/// TODO
+pub fn errno_error<T>(errno: i32) -> ErrnoResult<T> {
+    Err(Errno::from_i32(errno.abs()))
+}
+
 /// Helper routines to convert from FFI functions
 #[allow(clippy::wrong_self_convention)]
 pub trait FfiResult {

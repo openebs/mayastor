@@ -4,6 +4,7 @@ extern crate serde;
 extern crate serde_json;
 
 mod bdev;
+mod bdev_desc;
 mod bdev_io;
 mod bdev_iter;
 mod bdev_module;
@@ -23,6 +24,7 @@ mod uuid;
 
 pub use crate::{
     bdev::{Bdev, BdevBuilder, BdevOps},
+    bdev_desc::{BdevDesc, BdevEvent},
     bdev_io::BdevIo,
     bdev_iter::BdevIter,
     bdev_module::{

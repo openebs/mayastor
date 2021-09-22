@@ -4,6 +4,7 @@ use crate::{
     ffihelper::{AsStr, IntoCString},
     Bdev,
     BdevBuilder,
+    BdevDesc,
     BdevIter,
     BdevOps,
     JsonWriteContext,
@@ -12,7 +13,6 @@ use crate::{
 };
 
 use spdk_sys::{
-    spdk_bdev_desc,
     spdk_bdev_module,
     spdk_bdev_module___bdev_module_internal_fields,
     spdk_bdev_module_claim_bdev,
@@ -78,13 +78,17 @@ impl BdevModule {
     pub fn claim_bdev<T>(
         &self,
         bdev: &Bdev<T>,
-        desc: *mut spdk_bdev_desc,
+        desc: &BdevDesc<T>,
     ) -> Result<()>
     where
         T: BdevOps,
     {
         let err = unsafe {
-            spdk_bdev_module_claim_bdev(bdev.as_ptr(), desc, self.as_ptr())
+            spdk_bdev_module_claim_bdev(
+                bdev.as_ptr(),
+                desc.as_ptr(),
+                self.as_ptr(),
+            )
         };
 
         if err == 0 {

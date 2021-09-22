@@ -1,6 +1,6 @@
 use std::{
     convert::TryFrom,
-    ffi::{CStr, CString},
+    ffi::CString,
     fmt::{Debug, Display, Formatter},
     os::raw::c_void,
 };
@@ -12,14 +12,11 @@ use snafu::ResultExt;
 
 use spdk_sys::{
     spdk_bdev,
-    spdk_bdev_event_type,
     spdk_bdev_first,
-    spdk_bdev_get_aliases,
     spdk_bdev_get_by_name,
     spdk_bdev_get_device_stat,
     spdk_bdev_io_stat,
     spdk_bdev_next,
-    spdk_bdev_open_ext,
 };
 
 use crate::{
@@ -146,6 +143,11 @@ impl Share for Bdev {
 }
 
 impl Bdev {
+    /// TODO
+    pub(crate) fn new(b: spdk::Bdev<()>) -> Self {
+        Self(b)
+    }
+
     /// open a bdev by its name in read_write mode.
     pub fn open_by_name(
         name: &str,
@@ -161,31 +163,22 @@ impl Bdev {
     }
 
     /// Called by spdk when there is an asynchronous bdev event i.e. removal.
-    extern "C" fn event_cb(
-        event: spdk_bdev_event_type,
-        bdev: *mut spdk_bdev,
-        _ctx: *mut c_void,
-    ) {
-        let bdev = Bdev::from_ptr_abc(bdev).unwrap();
+    fn event_cb(event: spdk::BdevEvent, bdev: spdk::Bdev<()>) {
         let name = bdev.name();
 
         // Translate SPDK events into common device events.
         let event = match event {
-            spdk_sys::SPDK_BDEV_EVENT_REMOVE => {
+            spdk::BdevEvent::Remove => {
                 info!("Received remove event for bdev {}", name);
                 DeviceEventType::DeviceRemoved
             }
-            spdk_sys::SPDK_BDEV_EVENT_RESIZE => {
+            spdk::BdevEvent::Resize => {
                 warn!("Received resize event for bdev {}", name);
                 DeviceEventType::DeviceResized
             }
-            spdk_sys::SPDK_BDEV_EVENT_MEDIA_MANAGEMENT => {
+            spdk::BdevEvent::MediaManagement => {
                 warn!("Received media management event for bdev {}", name,);
                 DeviceEventType::MediaManagement
-            }
-            _ => {
-                error!("Received unknown event {} for bdev {}", event, name,);
-                return;
             }
         };
 
@@ -193,27 +186,19 @@ impl Bdev {
         SpdkBlockDevice::process_device_event(event, &name);
     }
 
-    /// open the current bdev, the bdev can be opened multiple times resulting
-    /// in a new descriptor for each call.
+    /// Opens the current Bdev.
+    /// A Bdev can be opened multiple times resulting in a new descriptor for
+    /// each call.
     pub fn open(&self, read_write: bool) -> Result<Descriptor, CoreError> {
-        let mut descriptor = std::ptr::null_mut();
-        let cname = CString::new(self.name()).unwrap();
-        let rc = unsafe {
-            spdk_bdev_open_ext(
-                cname.as_ptr(),
-                read_write,
-                Some(Self::event_cb),
-                std::ptr::null_mut(),
-                &mut descriptor,
-            )
-        };
-
-        if rc != 0 {
-            Err(CoreError::OpenBdev {
-                source: Errno::from_i32(rc),
-            })
-        } else {
-            Ok(Descriptor::from_null_checked(descriptor).unwrap())
+        match spdk::BdevDesc::<()>::open(
+            self.name(),
+            read_write,
+            Self::event_cb,
+        ) {
+            Ok(d) => Ok(Descriptor::new(d)),
+            Err(err) => Err(CoreError::OpenBdev {
+                source: err,
+            }),
         }
     }
 
@@ -227,17 +212,12 @@ impl Bdev {
         self.0.claimed_by().map(|m| m.name().to_string())
     }
 
-    /// TODO
-    pub fn from_v2(bdev: spdk::Bdev<()>) -> Self {
-        Self(bdev)
-    }
-
     /// construct bdev from raw pointer
     pub fn from_ptr_abc(bdev: *mut spdk_bdev) -> Option<Bdev> {
         if bdev.is_null() {
             None
         } else {
-            Some(Self::from_v2(spdk::Bdev::<()>::legacy_from_ptr(bdev)))
+            Some(Self(spdk::Bdev::<()>::legacy_from_ptr(bdev)))
         }
     }
 
@@ -284,7 +264,7 @@ impl Bdev {
 
     /// returns the name of driver module for the given bdev
     pub fn driver(&self) -> &str {
-        self.0.bdev_module_name()
+        self.0.module_name()
     }
 
     /// returns the bdev name
@@ -324,25 +304,13 @@ impl Bdev {
     }
 
     /// removes the given alias from the bdev
-    pub fn remove_alias(&self, alias: &str) {
-        let alias = alias.into_cstring();
-        unsafe {
-            spdk_sys::spdk_bdev_alias_del(self.as_ptr(), alias.as_ptr())
-        };
+    pub fn remove_alias(&mut self, alias: &str) {
+        self.0.remove_alias(alias)
     }
 
-    /// Get list of bdev aliases
+    /// Get list of bdev aliases.
     pub fn aliases(&self) -> Vec<String> {
-        let mut aliases = Vec::new();
-        let head = unsafe { &*spdk_bdev_get_aliases(self.as_ptr()) };
-        let mut ent_ptr = head.tqh_first;
-        while !ent_ptr.is_null() {
-            let ent = unsafe { &*ent_ptr };
-            let alias = unsafe { CStr::from_ptr(ent.alias.name) };
-            aliases.push(alias.to_str().unwrap().to_string());
-            ent_ptr = ent.tailq.tqe_next;
-        }
-        aliases
+        self.0.aliases()
     }
 
     /// returns whenever the bdev supports the requested IO type
