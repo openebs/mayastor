@@ -440,6 +440,7 @@ async fn nexus_resv_acquire() {
             min_cntl_id: 1,
             max_cntl_id: 0xffef,
             resv_key: resv_key2,
+            preempt_key: 0,
             children: [format!("nvmf://{}:8420/{}:{}", ip0, HOSTNQN, UUID)]
                 .to_vec(),
         })
