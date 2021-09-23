@@ -41,6 +41,13 @@ mod mayastor_grpc;
 mod nexus_grpc;
 mod server;
 
+mod bdev {
+    pub mod v1;
+}
+mod json {
+    pub mod v1;
+}
+
 #[derive(Debug)]
 pub(crate) struct GrpcClientContext {
     pub args: String,

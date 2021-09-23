@@ -38,3 +38,24 @@ pub mod mayastor {
 
     include!(concat!(env!("OUT_DIR"), "/mayastor.rs"));
 }
+
+#[allow(dead_code)]
+#[allow(clippy::type_complexity)]
+#[allow(clippy::unit_arg)]
+#[allow(clippy::redundant_closure)]
+#[allow(clippy::upper_case_acronyms)]
+pub mod mayastorv1 {
+
+    #[derive(Debug)]
+    pub enum Error {
+        ParseError,
+    }
+
+    impl From<()> for Null {
+        fn from(_: ()) -> Self {
+            Self {}
+        }
+    }
+
+    include!(concat!(env!("OUT_DIR"), "/mayastor.v1.rs"));
+}
