@@ -84,11 +84,12 @@ impl CreateDestroy for Uring {
         }
 
         let name = self.get_name();
-        if let Some(mut bdev) =
-            Bdev::create_uring_bdev(&name, &name, self.blk_size)
+
+        if let Ok(mut bdev) =
+            spdk::Bdev::<()>::create_uring_bdev(&name, &name, self.blk_size)
         {
             if let Some(uuid) = self.uuid {
-                unsafe { bdev.set_uuid(uuid) };
+                unsafe { bdev.set_uuid(uuid.into()) };
             }
 
             if !bdev.add_alias(&self.alias) {
@@ -111,10 +112,11 @@ impl CreateDestroy for Uring {
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
         match Bdev::lookup_by_name(&self.name) {
             Some(mut bdev) => {
-                bdev.remove_alias(&self.alias);
+                bdev.as_mut().remove_alias(&self.alias);
                 let (sender, receiver) = oneshot::channel::<ErrnoResult<()>>();
                 unsafe {
-                    bdev.delete_uring_bdev(done_errno_cb, cb_arg(sender));
+                    bdev.as_mut()
+                        .delete_uring_bdev(done_errno_cb, cb_arg(sender));
                 }
                 receiver
                     .await

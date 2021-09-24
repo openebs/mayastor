@@ -254,7 +254,7 @@ impl Iterator for ReplicaIter {
             // Skip all other bdevs which are not lvols (i.e. aio)
             let lvol = unsafe { vbdev_lvol_get_from_bdev(bdev.as_ptr()) };
             if !lvol.is_null() {
-                let mut aliases = bdev.aliases();
+                let mut aliases = bdev.as_ref().aliases();
                 // each lvol has a first alias of form "pool/lvol-name"
                 if !aliases.is_empty() {
                     let alias = aliases.remove(0);

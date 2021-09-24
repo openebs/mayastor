@@ -36,7 +36,7 @@ pub trait IoDevice: Sized {
     ///
     /// TODO: check for register errors (spdk_io_device_register is void).
     /// TODO: check double registeration errors
-    fn io_device_register(&self, name: Option<&str>) {
+    fn register_io_device(&self, name: Option<&str>) {
         // `spdk_io_device_register` copies the name argument internally,
         // so we don't have to keep track on it.
         let name = if let Some(s) = name {
@@ -57,7 +57,7 @@ pub trait IoDevice: Sized {
     }
 
     /// Unregisters this I/O device from SPDK.
-    fn io_device_unregister(&mut self) {
+    fn unregister_io_device(&mut self) {
         unsafe {
             spdk_io_device_unregister(
                 self.get_io_device_id(),

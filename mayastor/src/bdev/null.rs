@@ -164,10 +164,10 @@ impl CreateDestroy for Null {
 
         if let Some(mut bdev) = Bdev::lookup_by_name(&self.name) {
             if let Some(uuid) = self.uuid {
-                unsafe { bdev.set_uuid(uuid) };
+                unsafe { bdev.as_mut().set_uuid(uuid.into()) };
             }
 
-            if !bdev.add_alias(&self.alias) {
+            if !bdev.as_mut().add_alias(&self.alias) {
                 error!(
                     "failed to add alias {} to device {}",
                     self.alias,
@@ -185,7 +185,7 @@ impl CreateDestroy for Null {
 
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
         if let Some(mut bdev) = Bdev::lookup_by_name(&self.name) {
-            bdev.remove_alias(&self.alias);
+            bdev.as_mut().remove_alias(&self.alias);
             let (s, r) = oneshot::channel::<ErrnoResult<()>>();
             unsafe {
                 spdk_sys::bdev_null_delete(

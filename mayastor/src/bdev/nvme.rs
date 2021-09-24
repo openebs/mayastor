@@ -112,7 +112,7 @@ impl CreateDestroy for NVMe {
             })?;
 
         let success = Bdev::lookup_by_name(&self.get_name())
-            .map(|b| b.add_alias(&self.url.to_string()))
+            .map(|mut b| b.as_mut().add_alias(&self.url.to_string()))
             .expect("bdev created but not found!");
 
         if !success {
@@ -127,7 +127,7 @@ impl CreateDestroy for NVMe {
 
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
         if let Some(mut bdev) = Bdev::lookup_by_name(&self.get_name()) {
-            bdev.remove_alias(&self.url.to_string());
+            bdev.as_mut().remove_alias(&self.url.to_string());
             let errno = unsafe {
                 bdev_nvme_delete(
                     self.name.clone().into_cstring().as_ptr(),

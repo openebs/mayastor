@@ -16,7 +16,7 @@ impl Thread {
         if thread.is_null() {
             None
         } else {
-            Some(Self::new(thread))
+            Some(Self::from_ptr(thread))
         }
     }
 
@@ -30,7 +30,7 @@ impl Thread {
     }
 
     /// TODO
-    pub(crate) fn new(ptr: *mut spdk_thread) -> Self {
+    pub(crate) fn from_ptr(ptr: *mut spdk_thread) -> Self {
         Self {
             inner: NonNull::new(ptr).unwrap(),
         }

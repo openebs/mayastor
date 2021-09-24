@@ -3,7 +3,7 @@ use crate::{
     ffihelper::IntoCString,
     Bdev,
     BdevOps,
-    Result,
+    SpdkResult,
 };
 use std::os::raw::c_void;
 
@@ -16,7 +16,7 @@ where
         name: &str,
         filename: &str,
         block_len: u32,
-    ) -> Result<Self> {
+    ) -> SpdkResult<Self> {
         let r = unsafe {
             ::spdk_sys::create_uring_bdev(
                 name.into_cstring().as_ptr(),

@@ -158,7 +158,7 @@ impl TryFrom<Bdev> for url::Url {
     type Error = NexusBdevError;
 
     fn try_from(bdev: Bdev) -> Result<Self, Self::Error> {
-        for alias in bdev.aliases().iter() {
+        for alias in bdev.as_ref().aliases().iter() {
             if let Ok(mut uri) = url::Url::parse(alias) {
                 if bdev == uri {
                     if !uri.query_pairs().any(|e| e.0 == "uuid") {
@@ -172,7 +172,7 @@ impl TryFrom<Bdev> for url::Url {
 
         Err(NexusBdevError::BdevNoUri {
             name: bdev.name().to_string(),
-            aliases: bdev.aliases(),
+            aliases: bdev.as_ref().aliases(),
         })
     }
 }

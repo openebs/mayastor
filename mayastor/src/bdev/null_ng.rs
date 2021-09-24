@@ -83,7 +83,7 @@ impl<'a> BdevOps for NullIoDevice<'a> {
 
     /// TODO
     fn destruct(&mut self) {
-        self.io_device_unregister();
+        self.unregister_io_device();
     }
 
     /// TODO
@@ -134,9 +134,9 @@ impl<'a> NullIoDevice<'a> {
             .with_required_alignment(12)
             .build();
 
-        bdev.data().io_device_register(Some(name));
+        bdev.data().register_io_device(Some(name));
 
-        match bdev.bdev_register() {
+        match bdev.register_bdev() {
             Ok(_) => info!("NullNg Bdev regustered"),
             Err(err) => error!("Failed to register NullNg Bdev: {}", err),
         }

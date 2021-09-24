@@ -497,7 +497,8 @@ impl Lvs {
                 bdev.into_iter()
                     .filter(move |b| {
                         b.driver() == "lvol"
-                            && b.aliases()
+                            && b.as_ref()
+                                .aliases()
                                 .iter()
                                 .any(|a| a.contains(&pool_name))
                     })

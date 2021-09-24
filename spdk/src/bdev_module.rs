@@ -5,10 +5,10 @@ use crate::{
     Bdev,
     BdevBuilder,
     BdevDesc,
-    BdevIter,
+    BdevModuleIter,
     BdevOps,
     JsonWriteContext,
-    Result,
+    SpdkResult,
     SpdkError,
 };
 
@@ -40,7 +40,7 @@ impl BdevModule {
     /// # Parameters
     ///
     /// * `mod_name` - Module name to look up by.
-    pub fn find_by_name(mod_name: &str) -> Result<BdevModule> {
+    pub fn find_by_name(mod_name: &str) -> SpdkResult<BdevModule> {
         let s = mod_name.into_cstring();
         let p = unsafe { spdk_bdev_module_list_find(s.as_ptr()) };
         match NonNull::new(p) {
@@ -62,11 +62,11 @@ impl BdevModule {
     }
 
     /// TODO
-    pub fn iter_bdevs<T>(&self) -> BdevIter<T>
+    pub fn iter_bdevs<T>(&self) -> BdevModuleIter<T>
     where
         T: BdevOps,
     {
-        BdevIter::<T>::new(self)
+        BdevModuleIter::<T>::new(self)
     }
 
     /// Lays exclusive write claim to a Bdev.
@@ -79,7 +79,7 @@ impl BdevModule {
         &self,
         bdev: &Bdev<T>,
         desc: &BdevDesc<T>,
-    ) -> Result<()>
+    ) -> SpdkResult<()>
     where
         T: BdevOps,
     {
@@ -106,7 +106,7 @@ impl BdevModule {
     /// # Parameters
     ///
     /// * `bdev` - Block device to be released.
-    pub fn release_bdev<T>(&self, bdev: &Bdev<T>) -> Result<()>
+    pub fn release_bdev<T>(&self, bdev: &Bdev<T>) -> SpdkResult<()>
     where
         T: BdevOps,
     {

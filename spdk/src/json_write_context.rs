@@ -5,7 +5,7 @@ use std::{
 
 use serde::Serialize;
 
-use crate::{Result, SpdkError};
+use crate::{SpdkResult, SpdkError};
 
 use spdk_sys::{
     spdk_json_write_array_end,
@@ -21,7 +21,7 @@ pub struct JsonWriteContext {
 
 impl JsonWriteContext {
     /// Writes a serializable value.
-    pub fn write<T>(&self, val: &T) -> Result<()>
+    pub fn write<T>(&self, val: &T) -> SpdkResult<()>
     where
         T: ?Sized + Serialize,
     {
@@ -34,7 +34,7 @@ impl JsonWriteContext {
     }
 
     /// Writes a `String`.
-    pub fn write_string(&self, s: &str) -> Result<()> {
+    pub fn write_string(&self, s: &str) -> SpdkResult<()> {
         let t = CString::new(s).unwrap();
         self.write_raw(t.as_ptr() as *const _, t.as_bytes().len() as usize)
     }
@@ -44,7 +44,7 @@ impl JsonWriteContext {
         &self,
         data: *const c_void,
         len: usize,
-    ) -> Result<()> {
+    ) -> SpdkResult<()> {
         let err =
             unsafe { spdk_json_write_val_raw(self.as_ptr(), data, len as u64) };
         if err == 0 {

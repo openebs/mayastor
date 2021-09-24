@@ -4,6 +4,7 @@ extern crate serde;
 extern crate serde_json;
 
 mod bdev;
+mod bdev_async;
 mod bdev_desc;
 mod bdev_io;
 mod bdev_iter;
@@ -25,9 +26,10 @@ mod uuid;
 
 pub use crate::{
     bdev::{Bdev, BdevBuilder, BdevOps},
+    bdev_async::BdevStats,
     bdev_desc::{BdevDesc, BdevEvent},
     bdev_io::BdevIo,
-    bdev_iter::BdevIter,
+    bdev_iter::{BdevModuleIter, BdevGlobalIter},
     bdev_module::{
         BdevModule,
         BdevModuleBuild,
@@ -38,7 +40,7 @@ pub use crate::{
         WithModuleInit,
     },
     dma::{DmaBuf, DmaError},
-    error::{Result, SpdkError},
+    error::{SpdkError, SpdkResult},
     io_channel::IoChannel,
     io_device::IoDevice,
     io_device_traverse::{ChannelTraverseStatus, IoDeviceChannelTraverse},

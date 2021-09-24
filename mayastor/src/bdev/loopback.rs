@@ -66,7 +66,7 @@ impl CreateDestroy for Loopback {
     type Error = NexusBdevError;
 
     async fn create(&self) -> Result<String, Self::Error> {
-        if let Some(bdev) = Bdev::lookup_by_name(&self.name) {
+        if let Some(mut bdev) = Bdev::lookup_by_name(&self.name) {
             if self.uuid.is_some() && Some(bdev.uuid().into()) != self.uuid {
                 return Err(NexusBdevError::BdevWrongUuid {
                     name: self.get_name(),
@@ -74,7 +74,7 @@ impl CreateDestroy for Loopback {
                 });
             }
 
-            if !bdev.add_alias(&self.alias) {
+            if !bdev.as_mut().add_alias(&self.alias) {
                 error!(
                     "failed to add alias {} to device {}",
                     self.alias,
@@ -95,7 +95,7 @@ impl CreateDestroy for Loopback {
             child.remove();
         }
         if let Some(mut bdev) = Bdev::lookup_by_name(&self.name) {
-            bdev.remove_alias(&self.alias);
+            bdev.as_mut().remove_alias(&self.alias);
         }
         Ok(())
     }

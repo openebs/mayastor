@@ -5,8 +5,16 @@ use std::{
     ptr::{null_mut, NonNull},
 };
 
+use nix::errno::Errno;
+
 use crate::{
-    ffihelper::{AsStr, IntoCString},
+    ffihelper::{
+        errno_result_from_i32,
+        AsStr,
+        ErrnoResult,
+        FfiResult,
+        IntoCString,
+    },
     BdevIo,
     BdevModule,
     IoChannel,
@@ -16,18 +24,20 @@ use crate::{
     Uuid,
 };
 
-use crate::ffihelper::{errno_result_from_i32, ErrnoResult};
 use spdk_sys::{
     spdk_bdev,
+    spdk_bdev_alias_add,
     spdk_bdev_alias_del,
     spdk_bdev_fn_table,
     spdk_bdev_get_aliases,
     spdk_bdev_get_buf_align,
+    spdk_bdev_get_by_name,
     spdk_bdev_io,
     spdk_bdev_io_type,
     spdk_bdev_io_type_supported,
     spdk_bdev_module_release_bdev,
     spdk_bdev_register,
+    spdk_bdev_unregister,
     spdk_get_io_channel,
     spdk_io_channel,
     spdk_json_write_ctx,
@@ -46,22 +56,41 @@ impl<BdevData> Bdev<BdevData>
 where
     BdevData: BdevOps,
 {
-    /// Consumes the Bdev and registers it in SPDK.
-    /// TODO ...
-    pub fn bdev_register(&mut self) -> ErrnoResult<()> {
-        // TODO: error check.
+    /// Registers this Bdev in SPDK.
+    /// TODO: comment
+    /// TODO: Error / result
+    pub fn register_bdev(&mut self) -> ErrnoResult<()> {
         let errno = unsafe { spdk_bdev_register(self.as_ptr()) };
         errno_result_from_i32((), errno)
     }
 
+    /// TODO
+    pub fn unregister_bdev(&mut self) {
+        unsafe {
+            spdk_bdev_unregister(self.as_ptr(), None, null_mut::<c_void>());
+        }
+    }
+
     /// Returns a Bdev module for this Bdev.
-    pub fn bdev_module(&self) -> BdevModule {
+    pub fn module(&self) -> BdevModule {
         BdevModule::from_ptr(self.as_ref().module)
     }
 
     /// Returns the name of the module for thos Bdev.
     pub fn module_name(&self) -> &str {
         unsafe { (*self.as_ref().module).name.as_str() }
+    }
+
+    /// TODO
+    /// ... lookup a bdev by its name
+    pub fn lookup_by_name(name: &str) -> Option<Self> {
+        let name = String::from(name).into_cstring();
+        let bdev = unsafe { spdk_bdev_get_by_name(name.as_ptr()) };
+        if bdev.is_null() {
+            None
+        } else {
+            Some(Self::from_ptr(bdev))
+        }
     }
 
     /// Returns by a Bdev module who has claimed this Bdev.
@@ -93,13 +122,31 @@ where
         self.as_mut().uuid = uuid.into_raw();
     }
 
+    /// TODO
+    /// Set a list of aliases on the bdev, used to find the bdev later
+    pub fn add_aliases(&mut self, alias: &[String]) -> bool {
+        alias
+            .iter()
+            .filter(|a| -> bool { !self.add_alias(a) })
+            .count()
+            == 0
+    }
+
+    /// TODO
+    /// Set an alias on the bdev, this alias can be used to find the bdev later.
+    /// If the alias is already present we return true
+    pub fn add_alias(&mut self, alias: &str) -> bool {
+        let alias = alias.into_cstring();
+        let ret = unsafe { spdk_bdev_alias_add(self.as_ptr(), alias.as_ptr()) }
+            .to_result(Errno::from_i32);
+
+        matches!(ret, Err(Errno::EEXIST) | Ok(_))
+    }
+
     /// Removes the given alias from the Bdev.
     pub fn remove_alias(&mut self, alias: &str) {
         unsafe {
-            spdk_bdev_alias_del(
-                self.as_ptr(),
-                alias.into_cstring().as_ptr(),
-            )
+            spdk_bdev_alias_del(self.as_ptr(), alias.into_cstring().as_ptr())
         };
     }
 
@@ -593,9 +640,9 @@ where
             data: self.data.expect("Bdev data must be set"),
         });
 
-        // Consume the container and store pointer to it within the `spdk_bdev`
-        // context field. It will be converted back into Box<> and
-        // dropped later upon Bdev destruction.
+        // Consume the container and store a pointer to it within the
+        // `spdk_bdev` context field. It will be converted back into
+        // Box<> and dropped later upon Bdev destruction.
         let pcont = Box::into_raw(cont);
 
         // Fill the context field (our Container<>) and the function table,

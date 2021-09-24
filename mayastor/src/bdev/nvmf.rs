@@ -207,13 +207,13 @@ impl CreateDestroy for Nvmf {
                 name: self.name.clone(),
             });
         }
-        if let Some(bdev) = Bdev::lookup_by_name(&self.get_name()) {
+        if let Some(mut bdev) = Bdev::lookup_by_name(&self.get_name()) {
             if let Some(u) = self.uuid {
                 if bdev.uuid_as_string() != u.to_hyphenated().to_string() {
                     error!("Connected to device {} but expect to connect to {} instead", bdev.uuid_as_string(), u.to_hyphenated().to_string());
                 }
             };
-            if !bdev.add_alias(&self.alias) {
+            if !bdev.as_mut().add_alias(&self.alias) {
                 error!(
                     "Failed to add alias {} to device {}",
                     self.alias,
@@ -232,7 +232,7 @@ impl CreateDestroy for Nvmf {
     async fn destroy(self: Box<Self>) -> Result<(), Self::Error> {
         match Bdev::lookup_by_name(&self.get_name()) {
             Some(mut bdev) => {
-                bdev.remove_alias(&self.alias);
+                bdev.as_mut().remove_alias(&self.alias);
                 let cname = CString::new(self.name.clone()).unwrap();
 
                 let errno = unsafe {

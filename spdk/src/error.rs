@@ -18,6 +18,9 @@ pub enum SpdkError {
     ))]
     BdevNotClaimed { name: String, mod_name: String },
 
+    #[snafu(display("Failed to unregister Bdev '{}'", name))]
+    BdevUnregisterFailed { name: String },
+
     #[snafu(display("Serde JSON serialization failed: {}", source))]
     SerdeFailed { source: serde_json::Error },
 
@@ -29,4 +32,4 @@ pub enum SpdkError {
 }
 
 /// TODO
-pub type Result<T> = result::Result<T, SpdkError>;
+pub type SpdkResult<T> = result::Result<T, SpdkError>;

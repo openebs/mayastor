@@ -545,7 +545,7 @@ impl mayastor_server::Mayastor for MayastorSvc {
 
             let mut replicas = Vec::new();
             for l in lvols {
-                let stats = l.as_bdev().stats().await;
+                let stats = l.as_bdev().stats_async().await;
                 if stats.is_err() {
                     error!("failed to get stats for lvol: {}", l);
                 }

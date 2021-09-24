@@ -8,16 +8,16 @@ use std::{
     env,
     fmt::{Display, Formatter},
     os::raw::c_void,
+    ptr::NonNull,
 };
 
 use crossbeam::atomic::AtomicCell;
 use futures::channel::oneshot;
 use nix::errno::Errno;
+use rpc::mayastor::NvmeAnaState;
 use serde::Serialize;
 use snafu::{ResultExt, Snafu};
 use tonic::{Code, Status};
-
-use rpc::mayastor::NvmeAnaState;
 
 use crate::{
     bdev::{
@@ -58,8 +58,8 @@ use spdk::{
     IoDeviceChannelTraverse,
     JsonWriteContext,
 };
-use spdk_sys::{spdk_bdev, spdk_bdev_unregister};
-use std::ptr::NonNull;
+
+use spdk_sys::spdk_bdev;
 
 pub static NVME_MIN_CNTLID: u16 = 1;
 pub static NVME_MAX_CNTLID: u16 = 0xffef;
@@ -628,7 +628,7 @@ impl Nexus {
                 info!("{}: Reconfigure completed", self.name);
                 sender.send(status).expect("reconfigure channel gone");
             },
-            sender
+            sender,
         );
 
         let result = recv.await.expect("reconfigure sender already dropped");
@@ -655,11 +655,11 @@ impl Nexus {
 
         // Register the bdev with SPDK and set the callbacks for io channel
         // creation.
-        nex.io_device_register(Some(&nex.name));
+        nex.register_io_device(Some(&nex.name));
 
         debug!("{}: IO device registered at {:p}", nex.name, nex.as_ptr());
 
-        match bdev.bdev_register() {
+        match bdev.register_bdev() {
             Ok(_) => {
                 // Persist the fact that the nexus is now successfully open.
                 // We have to do this before setting the nexus to open so that
@@ -717,17 +717,6 @@ impl Nexus {
     /// Destroy the nexus
     pub async fn destroy(&mut self) -> Result<(), Error> {
         info!("Destroying nexus {}", self.name);
-        // used to synchronize the destroy call
-        extern "C" fn nexus_destroy_cb(arg: *mut c_void, rc: i32) {
-            let s = unsafe { Box::from_raw(arg as *mut oneshot::Sender<bool>) };
-
-            if rc == 0 {
-                let _ = s.send(true);
-            } else {
-                error!("failed to destroy nexus {}", rc);
-                let _ = s.send(false);
-            }
-        }
 
         let _ = self.unshare_nexus().await;
         assert_eq!(self.share_handle, None);
@@ -756,23 +745,11 @@ impl Nexus {
         // Persist the fact that the nexus destruction has completed.
         self.persist(PersistOp::Shutdown).await;
 
-        let (s, r) = oneshot::channel::<bool>();
-
-        unsafe {
-            // This will trigger a callback to destruct() in the fn_table.
-            spdk_bdev_unregister(
-                self.bdev().as_ptr(),
-                Some(nexus_destroy_cb),
-                Box::into_raw(Box::new(s)) as *mut _,
-            );
-        }
-
-        if r.await.unwrap() {
-            Ok(())
-        } else {
-            Err(Error::NexusDestroy {
+        match self.bdev().as_mut().unregister_bdev_async().await {
+            Ok(_) => Ok(()),
+            Err(_) => Err(Error::NexusDestroy {
                 name: self.name.clone(),
-            })
+            }),
         }
     }
 
@@ -1166,7 +1143,7 @@ impl BdevOps for Nexus {
         });
 
         // self.io_device.take();  io_device === self
-        self.io_device_unregister();
+        self.unregister_io_device();
         self.has_io_device = false;
 
         trace!("{}: closed", self.name);

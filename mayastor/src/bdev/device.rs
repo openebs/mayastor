@@ -191,7 +191,7 @@ impl BlockDevice for SpdkBlockDevice {
     }
     /// returns the IO statistics
     async fn io_stats(&self) -> Result<BlockDeviceIoStats, CoreError> {
-        self.bdev.stats().await
+        self.bdev.stats_async().await
     }
     /// returns which module has returned driver
     fn claimed_by(&self) -> Option<String> {
