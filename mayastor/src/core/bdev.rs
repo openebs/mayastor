@@ -187,15 +187,15 @@ impl Bdev {
         // Translate SPDK events into common device events.
         let event = match event {
             spdk::BdevEvent::Remove => {
-                info!("Received remove event for bdev {}", name);
+                info!("Received remove event for Bdev '{}'", name);
                 DeviceEventType::DeviceRemoved
             }
             spdk::BdevEvent::Resize => {
-                warn!("Received resize event for bdev {}", name);
+                warn!("Received resize event for Bdev '{}'", name);
                 DeviceEventType::DeviceResized
             }
             spdk::BdevEvent::MediaManagement => {
-                warn!("Received media management event for bdev {}", name,);
+                warn!("Received media management event for Bdev '{}'", name,);
                 DeviceEventType::MediaManagement
             }
         };

@@ -25,7 +25,7 @@ use crate::{
         nexus::{
             nexus_channel::{DrEvent, NexusChannel},
             nexus_child::{ChildError, ChildState, NexusChild},
-            nexus_instances::{nexus_lookup, NexusInstances},
+            nexus_instances::NexusInstances,
             nexus_io::{nexus_submit_io, NexusBio},
             nexus_label::LabelError,
             nexus_module::NexusModule,
@@ -1114,8 +1114,6 @@ impl BdevOps for Nexus {
 
     /// TODO
     fn destruct(&mut self) {
-        info!("^^^^ destruct");
-
         // A closed operation might already be in progress calling unregister
         // will trip an assertion within the external libraries
         if *self.state.lock() == NexusState::Closed {
@@ -1126,14 +1124,14 @@ impl BdevOps for Nexus {
         trace!("{}: closing, from state: {:?} ", self.name, self.state);
 
         let nexus_name = self.name.clone();
+        let mut children = std::mem::take(&mut self.children);
         Reactor::block_on(async move {
-            let nexus = nexus_lookup(&nexus_name).expect("Nexus not found");
-            for child in &mut nexus.children {
+            for child in &mut children {
                 if child.state() == ChildState::Open {
                     if let Err(e) = child.close().await {
                         error!(
                             "{}: child {} failed to close with error {}",
-                            nexus.name,
+                            nexus_name,
                             child.get_name(),
                             e.verbose()
                         );

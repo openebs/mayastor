@@ -115,6 +115,8 @@ impl<'a> BdevOps for NullIoDevice<'a> {
 
 /// TODO
 impl<'a> NullIoDevice<'a> {
+    /// TODO
+    #[allow(dead_code)]
     fn create(name: &str) {
         let bm = BdevModule::find_by_name(NULL_MODULE_NAME).unwrap();
 
@@ -148,7 +150,7 @@ struct NullBdevModule {}
 
 impl WithModuleInit for NullBdevModule {
     fn module_init() -> i32 {
-        NullIoDevice::create("nullng0");
+        // NullIoDevice::create("nullng0");
         0
     }
 }
