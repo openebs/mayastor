@@ -4,15 +4,16 @@ use tracing::instrument;
 use std::convert::TryFrom;
 use url::Url;
 
-use rpc::mayastorv1::{
-    bdev_rpc_server::BdevRpc,
-    Bdev as RpcBdev,
-    BdevShareReply,
-    BdevShareRequest,
-    BdevUri,
+use rpc::mayastor::v1::{
+    BdevRequest,
+    BdevResponse,
+    BdevRpc,
     Bdevs,
-    CreateReply,
     Null,
+    NullableString,
+    ShareRequest,
+    ShareResponse,
+    UnshareRequest,
 };
 
 use crate::{
@@ -20,9 +21,8 @@ use crate::{
     grpc::{rpc_submit, GrpcResult},
     nexus_uri::{bdev_create, bdev_destroy, NexusBdevError},
 };
-
-impl From<Bdev> for RpcBdev {
-    fn from(b: Bdev) -> Self {
+impl From<Bdev> for BdevResponse {
+    fn from(b: crate::core::Bdev) -> Self {
         Self {
             name: b.name(),
             uuid: b.uuid_as_string(),
@@ -39,32 +39,39 @@ impl From<Bdev> for RpcBdev {
 }
 
 #[derive(Debug)]
-pub struct BdevSvc {}
+pub struct BdevService {}
 
-impl BdevSvc {
+impl BdevService {
     pub fn new() -> Self {
         Self {}
     }
 }
 
-impl Default for BdevSvc {
+impl Default for BdevService {
     fn default() -> Self {
         Self::new()
     }
 }
 
 #[tonic::async_trait]
-impl BdevRpc for BdevSvc {
+impl BdevRpc for BdevService {
     #[instrument(level = "debug", err)]
-    async fn list(&self, _request: Request<Null>) -> GrpcResult<Bdevs> {
+    async fn list(
+        &self,
+        request: Request<NullableString>,
+    ) -> GrpcResult<Bdevs> {
         let rx = rpc_submit::<_, _, NexusBdevError>(async {
-            let mut list: Vec<RpcBdev> = Vec::new();
-            if let Some(bdev) = Bdev::bdev_first() {
-                bdev.into_iter().for_each(|bdev| list.push(bdev.into()))
+            let mut bdevs = Vec::new();
+            let name = request.into_inner().kind;
+
+            if let Some(rpc::mayastor::v1::Kind::Value(name)) = name {
+                Bdev::lookup_by_name(&name).map(|bdev| bdevs.push(bdev.into()));
+            } else {
+                Bdev::bdev_first().into_iter().for_each(|bdev| bdevs.push(bdev.into()));
             }
 
             Ok(Bdevs {
-                bdevs: list,
+                bdevs,
             })
         })?;
 
@@ -77,24 +84,29 @@ impl BdevRpc for BdevSvc {
     #[instrument(level = "debug", err)]
     async fn create(
         &self,
-        request: Request<BdevUri>,
-    ) -> Result<Response<CreateReply>, Status> {
+        request: Request<BdevRequest>,
+    ) -> Result<Response<BdevResponse>, Status> {
         let uri = request.into_inner().uri;
 
-        let rx = rpc_submit(async move { bdev_create(&uri).await })?;
+        let rx = rpc_submit(async move {
+            let name = bdev_create(&uri).await?;
+
+            if let Some(bdev) = Bdev::lookup_by_name(&name) {
+                Ok(Response::new(bdev.into()))
+            } else {
+                Err(NexusBdevError::BdevNotFound {
+                    name,
+                })
+            }
+        })?;
 
         rx.await
             .map_err(|_| Status::cancelled("cancelled"))?
             .map_err(Status::from)
-            .map(|name| {
-                Ok(Response::new(CreateReply {
-                    name,
-                }))
-            })?
     }
 
     #[instrument(level = "debug", err)]
-    async fn destroy(&self, request: Request<BdevUri>) -> GrpcResult<Null> {
+    async fn destroy(&self, request: Request<BdevRequest>) -> GrpcResult<Null> {
         let uri = request.into_inner().uri;
 
         let rx = rpc_submit(async move { bdev_destroy(&uri).await })?;
@@ -108,8 +120,8 @@ impl BdevRpc for BdevSvc {
     #[instrument(level = "debug", err)]
     async fn share(
         &self,
-        request: Request<BdevShareRequest>,
-    ) -> Result<Response<BdevShareReply>, Status> {
+        request: Request<ShareRequest>,
+    ) -> Result<Response<ShareResponse>, Status> {
         let r = request.into_inner();
         let name = r.name;
         let proto = r.proto;
@@ -144,14 +156,17 @@ impl BdevRpc for BdevSvc {
             .map_err(|_| Status::cancelled("cancelled"))?
             .map_err(|e| Status::internal(e.to_string()))
             .map(|uri| {
-                Ok(Response::new(BdevShareReply {
+                Ok(Response::new(ShareResponse {
                     uri,
                 }))
             })?
     }
 
     #[instrument(level = "debug", err)]
-    async fn unshare(&self, request: Request<CreateReply>) -> GrpcResult<Null> {
+    async fn unshare(
+        &self,
+        request: Request<UnshareRequest>,
+    ) -> GrpcResult<Null> {
         let rx = rpc_submit::<_, _, CoreError>(async {
             let name = request.into_inner().name;
             if let Some(bdev) = Bdev::lookup_by_name(&name) {

@@ -1,21 +1,12 @@
-use crate::grpc::{
-    bdev::v1::BdevSvc as BdevSvc_v1, bdev_grpc::BdevSvc,
-    json::v1::JsonRpcSvc as JsonRpcSvc_v1, json_grpc::JsonRpcSvc,
-    mayastor_grpc::MayastorSvc,
-};
-use rpc::mayastor::{
-    bdev_rpc_server::BdevRpcServer,
-    json_rpc_server::JsonRpcServer,
-    mayastor_server::MayastorServer as MayastorRpcServer,
-};
+use crate::grpc::mayastor_grpc::MayastorSvc;
 
-use rpc::mayastorv1::{
-    bdev_rpc_server::BdevRpcServer as BdevRpcServer_v1,
-    json_rpc_server::JsonRpcServer as JsonRpcServer_v1,
-};
+use crate::grpc::{bdev::v1::BdevService, json::v1::JsonService};
+
+use rpc::mayastor::{mayastor_server::MayastorServer as MayastorRpcServer, v1};
+
 use std::time::Duration;
 use tonic::transport::Server;
-
+use tracing::trace;
 pub struct MayastorGrpcServer;
 
 impl MayastorGrpcServer {
@@ -24,21 +15,23 @@ impl MayastorGrpcServer {
         rpc_addr: String,
     ) -> Result<(), ()> {
         info!("gRPC server configured at address {}", endpoint);
-        let address = rpc_addr.clone();
+        let rpc_addr = rpc_addr.clone();
         let svc = Server::builder()
             .add_service(MayastorRpcServer::new(MayastorSvc::new(
                 Duration::from_millis(4),
             )))
-            .add_service(BdevRpcServer::new(BdevSvc::new()))
-            .add_service(BdevRpcServer_v1::new(BdevSvc_v1::new()))
-            .add_service(JsonRpcServer::new(JsonRpcSvc { rpc_addr }))
-            .add_service(JsonRpcServer_v1::new(JsonRpcSvc_v1 {
-                rpc_addr: address,
-            }))
+            .add_service(v1::BdevRpcServer::new(BdevService::new()))
+            .add_service(rpc::mayastor::v1::BdevRpcServer::new(
+                BdevService::new(),
+            ))
+            .add_service(v1::JsonRpcServer::new(JsonService::new(rpc_addr)))
             .serve(endpoint);
 
         match svc.await {
-            Ok(_) => Ok(()),
+            Ok(result) => {
+                trace!(?result);
+                Ok(())
+            }
             Err(e) => {
                 error!("gRPC server failed with error: {}", e);
                 Err(())

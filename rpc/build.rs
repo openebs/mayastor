@@ -1,4 +1,8 @@
-use std::{path::Path, process::Command};
+use std::{
+    env,
+    path::{Path, PathBuf},
+    process::Command,
+};
 
 extern crate tonic_build;
 
@@ -13,8 +17,10 @@ fn main() {
             panic!("submodule checkout failed");
         }
     }
-
+    let reflection_descriptor = PathBuf::from(env::var("OUT_DIR").unwrap())
+        .join("mayastor_reflection.bin");
     tonic_build::configure()
+        .file_descriptor_set_path(&reflection_descriptor)
         .build_server(true)
         .type_attribute(".", "#[derive(serde::Serialize, serde::Deserialize)]")
         .compile(

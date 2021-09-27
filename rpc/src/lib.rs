@@ -1,15 +1,3 @@
-extern crate bytes;
-extern crate prost;
-extern crate prost_derive;
-extern crate serde;
-extern crate serde_derive;
-extern crate serde_json;
-extern crate tonic;
-#[allow(dead_code)]
-#[allow(clippy::type_complexity)]
-#[allow(clippy::unit_arg)]
-#[allow(clippy::redundant_closure)]
-#[allow(clippy::upper_case_acronyms)]
 pub mod mayastor {
     use std::str::FromStr;
 
@@ -37,25 +25,35 @@ pub mod mayastor {
     }
 
     include!(concat!(env!("OUT_DIR"), "/mayastor.rs"));
-}
 
-#[allow(dead_code)]
-#[allow(clippy::type_complexity)]
-#[allow(clippy::unit_arg)]
-#[allow(clippy::redundant_closure)]
-#[allow(clippy::upper_case_acronyms)]
-pub mod mayastorv1 {
+    pub mod v1 {
 
-    #[derive(Debug)]
-    pub enum Error {
-        ParseError,
-    }
+        // dont export the raw pb generated code
+        mod pb {
+            /// covert from Null {} message for the unit type
+            impl From<()> for Null {
+                fn from(_: ()) -> Self {
+                    Self {}
+                }
+            }
 
-    impl From<()> for Null {
-        fn from(_: ()) -> Self {
-            Self {}
+            include!(concat!(env!("OUT_DIR"), "/mayastor.v1.rs"));
         }
-    }
 
-    include!(concat!(env!("OUT_DIR"), "/mayastor.v1.rs"));
+        pub use pb::{
+            bdev_rpc_server::{BdevRpc, BdevRpcServer},
+            json_rpc_server::{JsonRpc, JsonRpcServer},
+            nullable_string::Kind,
+            NullableString,
+            BdevRequest,
+            BdevResponse,
+            Bdevs,
+            JsonRpcRequest,
+            JsonRpcResponse,
+            Null,
+            ShareRequest,
+            ShareResponse,
+            UnshareRequest,
+        };
+    }
 }

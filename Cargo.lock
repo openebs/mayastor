@@ -2311,6 +2311,7 @@ dependencies = [
  "prost",
  "prost-build",
  "prost-derive",
+ "prost-types",
  "serde",
  "serde_derive",
  "serde_json",
