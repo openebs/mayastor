@@ -188,7 +188,10 @@ impl Nexus {
             info!("{}: child opened successfully {}", self.name, name);
 
             if let Err(e) = child
-                .acquire_write_exclusive(self.nvme_params.resv_key)
+                .acquire_write_exclusive(
+                    self.nvme_params.resv_key,
+                    self.nvme_params.preempt_key,
+                )
                 .await
             {
                 child_name = Err(e);
@@ -496,7 +499,10 @@ impl Nexus {
         let mut we_err: Result<(), Error> = Ok(());
         for child in self.children.iter() {
             if let Err(error) = child
-                .acquire_write_exclusive(self.nvme_params.resv_key)
+                .acquire_write_exclusive(
+                    self.nvme_params.resv_key,
+                    self.nvme_params.preempt_key,
+                )
                 .await
             {
                 we_err = Err(Error::ChildWriteExclusiveResvFailed {

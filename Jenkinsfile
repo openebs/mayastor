@@ -284,6 +284,7 @@ pipeline {
           stages {
             stage('checkout') {
               steps {
+                cleanWs()
                 checkout([
                   $class: 'GitSCM',
                   branches: scm.branches,

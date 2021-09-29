@@ -41,6 +41,7 @@ def create_nexus(
         min_cntlid,
         min_cntlid + 9,
         resv_key,
+        0,
         replicas,
     )
     uri = hdls["ms3"].nexus_publish(NEXUS_NAME)
@@ -79,6 +80,7 @@ def create_nexus_2(mayastor_mod, nexus_name, nexus_uuid, min_cntlid_2, resv_key_
         min_cntlid_2,
         min_cntlid_2 + 9,
         resv_key_2,
+        0,
         replicas,
     )
     uri = hdls["ms0"].nexus_publish(NEXUS_NAME)

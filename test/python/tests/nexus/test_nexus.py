@@ -1,5 +1,5 @@
 from common.hdl import MayastorHandle
-from common.command import run_cmd_async_at, run_cmd_async
+from common.command import run_cmd, run_cmd_async
 from common.fio import Fio
 from common.fio_spdk import FioSpdk
 from common.mayastor import containers, mayastors
@@ -9,6 +9,7 @@ import pytest
 import uuid as guid
 import grpc
 import asyncio
+import time
 import mayastor_pb2 as pb
 from common.nvme import (
     nvme_discover,
@@ -56,6 +57,7 @@ def create_nexus_v2(
         min_cntlid,
         min_cntlid + 9,
         resv_key,
+        0,
         replicas,
     )
 
@@ -73,6 +75,43 @@ def create_nexus_v2(
 
 
 @pytest.fixture
+def create_nexus_2_v2(
+    mayastors, nexus_name, nexus_uuid, min_cntlid_2, resv_key, resv_key_2
+):
+    """Create a 2nd nexus on ms0 with the same 2 replicas but with resv_key_2
+    and preempt resv_key"""
+    hdls = mayastors
+    NEXUS_NAME = nexus_name
+
+    replicas = []
+    list = mayastors.get("ms3").nexus_list_v2()
+    nexus = next(n for n in list if n.name == NEXUS_NAME)
+    replicas.append(nexus.children[0].uri)
+    replicas.append(nexus.children[1].uri)
+
+    NEXUS_UUID, size_mb = nexus_uuid
+
+    hdls["ms0"].nexus_create_v2(
+        NEXUS_NAME,
+        NEXUS_UUID,
+        size_mb,
+        min_cntlid_2,
+        min_cntlid_2 + 9,
+        resv_key_2,
+        resv_key,
+        replicas,
+    )
+    uri = hdls["ms0"].nexus_publish(NEXUS_NAME)
+    assert len(hdls["ms0"].bdev_list()) == 1
+    assert len(hdls["ms1"].bdev_list()) == 2
+    assert len(hdls["ms2"].bdev_list()) == 2
+    assert len(hdls["ms3"].bdev_list()) == 1
+
+    yield uri
+    hdls["ms0"].nexus_destroy(nexus_name)
+
+
+@pytest.fixture
 def pool_config():
     """
     The idea is this used to obtain the pool types and names that should be
@@ -86,7 +125,7 @@ def pool_config():
 
 @pytest.fixture
 def replica_uuid():
-    """Replica UUID's to be used."""
+    """Replica UUID to be used."""
     UUID = "0000000-0000-0000-0000-000000000001"
     size_mb = 64 * 1024 * 1024
     return (UUID, size_mb)
@@ -115,9 +154,23 @@ def min_cntlid():
 
 
 @pytest.fixture
+def min_cntlid_2():
+    """NVMe minimum controller ID to be used for 2nd nexus."""
+    min_cntlid = 60
+    return min_cntlid
+
+
+@pytest.fixture
 def resv_key():
     """NVMe reservation key to be used."""
     resv_key = 0xABCDEF0012345678
+    return resv_key
+
+
+@pytest.fixture
+def resv_key_2():
+    """NVMe reservation key to be used for 2nd nexus."""
+    resv_key = 0x1234567890ABCDEF
     return resv_key
 
 
@@ -290,7 +343,7 @@ async def test_nexus_cntlid(create_nexus_v2, min_cntlid):
         assert id_ctrl["cntlid"] == min_cntlid
 
     finally:
-        # disconnect target before we shutdown
+        # disconnect target before we shut down
         nvme_disconnect(uri)
 
 
@@ -310,25 +363,99 @@ def test_nexus_resv_key(create_nexus_v2, nexus_name, nexus_uuid, mayastors, resv
         report = nvme_resv_report(dev)
         print(report)
 
-        # write exclusive reservation
-        assert report["rtype"] == 5
-
-        # 1 registered controller
-        assert report["regctl"] == 1
-
-        # Persist Through Power Loss State
-        assert report["ptpls"] == 0
-
-        # dynamic controller ID
-        assert report["regctlext"][0]["cntlid"] == 0xFFFF
+        assert (
+            report["rtype"] == 5
+        ), "should have write exclusive, all registrants reservation"
+        assert report["regctl"] == 1, "should have 1 registered controller"
+        assert report["ptpls"] == 0, "should have Persist Through Power Loss State of 0"
+        assert (
+            report["regctlext"][0]["cntlid"] == 0xFFFF
+        ), "should have dynamic controller ID"
 
         # reservation status reserved
         assert (report["regctlext"][0]["rcsts"] & 0x1) == 1
         assert report["regctlext"][0]["rkey"] == resv_key
 
     finally:
-        # disconnect target before we shutdown
         nvme_disconnect(child_uri)
+
+
+def test_nexus_preempt_key(
+    create_nexus_v2,
+    create_nexus_2_v2,
+    nexus_name,
+    nexus_uuid,
+    mayastors,
+    resv_key_2,
+):
+    """Create a nexus on ms3 and ms0, with the latter preempting the NVMe
+    reservation key registered by ms3, verify that ms3 is no longer registered.
+    Verify that writes succeed via the nexus on ms0 but not ms3."""
+
+    NEXUS_UUID, _ = nexus_uuid
+
+    list = mayastors.get("ms3").nexus_list_v2()
+    nexus = next(n for n in list if n.name == nexus_name)
+    assert nexus.uuid == NEXUS_UUID
+    child_uri = nexus.children[0].uri
+    assert nexus.state == pb.NEXUS_ONLINE
+    assert nexus.children[0].state == pb.CHILD_ONLINE
+    assert nexus.children[1].state == pb.CHILD_ONLINE
+
+    dev = nvme_connect(child_uri)
+    try:
+        report = nvme_resv_report(dev)
+        print(report)
+
+        assert (
+            report["rtype"] == 5
+        ), "should have write exclusive, all registrants reservation"
+        assert report["regctl"] == 1, "should have 1 registered controller"
+        assert report["ptpls"] == 0, "should have Persist Through Power Loss State of 0"
+        assert (
+            report["regctlext"][0]["cntlid"] == 0xFFFF
+        ), "should have dynamic controller ID"
+
+        # reservation status reserved
+        assert (report["regctlext"][0]["rcsts"] & 0x1) == 1
+        assert report["regctlext"][0]["rkey"] == resv_key_2
+
+    finally:
+        nvme_disconnect(child_uri)
+
+    # verify write with nexus on ms0
+    uri = create_nexus_2_v2
+    dev = nvme_connect(uri)
+    job = "sudo dd if=/dev/urandom of={0} bs=512 count=1".format(dev)
+
+    try:
+        run_cmd(job)
+
+    finally:
+        nvme_disconnect(uri)
+
+    list = mayastors.get("ms0").nexus_list_v2()
+    nexus = next(n for n in list if n.name == nexus_name)
+    assert nexus.state == pb.NEXUS_ONLINE
+    assert nexus.children[0].state == pb.CHILD_ONLINE
+    assert nexus.children[1].state == pb.CHILD_ONLINE
+
+    # verify write error with nexus on ms3
+    uri = create_nexus_v2
+    dev = nvme_connect(uri)
+    job = "sudo dd if=/dev/urandom of={0} bs=512 count=1".format(dev)
+
+    try:
+        run_cmd(job)
+
+    finally:
+        nvme_disconnect(uri)
+
+    list = mayastors.get("ms3").nexus_list_v2()
+    nexus = next(n for n in list if n.name == nexus_name)
+    assert nexus.state == pb.NEXUS_FAULTED
+    assert nexus.children[0].state == pb.CHILD_FAULTED
+    assert nexus.children[1].state == pb.CHILD_FAULTED
 
 
 @pytest.mark.asyncio

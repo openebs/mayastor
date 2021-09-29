@@ -137,10 +137,10 @@ class MayastorHandle(object):
         )
 
     def nexus_create_v2(
-        self, name, uuid, size, min_cntlid, max_cntlid, resv_key, children
+        self, name, uuid, size, min_cntlid, max_cntlid, resv_key, preempt_key, children
     ):
         """Create a nexus with the given name, uuid, size, NVMe controller ID range,
-        and NVMe reservation key for children. The children should be an array
+        NVMe reservation and preempt keys for children. The children should be an array
         of nvmf URIs."""
         return self.ms.CreateNexusV2(
             pb.CreateNexusV2Request(
@@ -150,6 +150,7 @@ class MayastorHandle(object):
                 minCntlId=min_cntlid,
                 maxCntlId=max_cntlid,
                 resvKey=resv_key,
+                preemptKey=preempt_key,
                 children=children,
             )
         )
