@@ -1,6 +1,6 @@
 use std::{convert::TryFrom, num::ParseIntError, str::ParseBoolError};
 
-use crate::{bdev::Uri, core::Bdev};
+use crate::{bdev::uri, core::Bdev};
 use futures::channel::oneshot::Canceled;
 use nix::errno::Errno;
 use snafu::Snafu;
@@ -111,22 +111,22 @@ pub enum NexusBdevError {
 /// Return the bdev name (which can be different from URI).
 pub async fn bdev_create(uri: &str) -> Result<String, NexusBdevError> {
     info!(?uri, "create");
-    Uri::parse(uri)?.create().await
+    uri::parse(uri)?.create().await
 }
 
 /// Parse URI and destroy bdev described in the URI.
 pub async fn bdev_destroy(uri: &str) -> Result<(), NexusBdevError> {
     info!(?uri, "destroy");
-    Uri::parse(uri)?.destroy().await
+    uri::parse(uri)?.destroy().await
 }
 
 pub fn bdev_get_name(uri: &str) -> Result<String, NexusBdevError> {
-    Ok(Uri::parse(uri)?.get_name())
+    Ok(uri::parse(uri)?.get_name())
 }
 
 impl std::cmp::PartialEq<url::Url> for &Bdev {
     fn eq(&self, uri: &url::Url) -> bool {
-        match Uri::parse(&uri.to_string()) {
+        match uri::parse(&uri.to_string()) {
             Ok(device) if device.get_name() == self.name() => {
                 self.driver()
                     == match uri.scheme() {
@@ -141,7 +141,7 @@ impl std::cmp::PartialEq<url::Url> for &Bdev {
 
 impl std::cmp::PartialEq<url::Url> for Bdev {
     fn eq(&self, uri: &url::Url) -> bool {
-        match Uri::parse(&uri.to_string()) {
+        match uri::parse(&uri.to_string()) {
             Ok(device) if device.get_name() == self.name() => {
                 self.driver()
                     == match uri.scheme() {
