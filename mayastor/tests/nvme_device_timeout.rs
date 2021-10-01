@@ -216,9 +216,7 @@ async fn test_io_timeout(action_on_timeout: DeviceTimeoutAction) {
         .spawn(async move {
             let ctx = unsafe { Box::from_raw(io_ctx.into_inner()) };
 
-            device_destroy(&ctx.device_url)
-                .await
-                .expect_err("device should have already been destroyed");
+            device_destroy(&ctx.device_url).await.unwrap();
         })
         .await;
 

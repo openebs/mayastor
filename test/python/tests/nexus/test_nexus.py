@@ -299,7 +299,7 @@ async def test_nexus_2_remote_mirror_kill_one(
         nexus = next(n for n in list if n.uuid == NEXUS_UUID)
 
         assert nexus.state == pb.NEXUS_DEGRADED
-        assert nexus.children[1].state == pb.CHILD_DEGRADED
+        assert nexus.children[1].state == pb.CHILD_FAULTED
 
     finally:
         # disconnect target before we shutdown
@@ -328,7 +328,7 @@ async def test_nexus_2_remote_mirror_kill_one_spdk(
     nexus = next(n for n in list if n.uuid == NEXUS_UUID)
 
     assert nexus.state == pb.NEXUS_DEGRADED
-    assert nexus.children[1].state == pb.CHILD_DEGRADED
+    assert nexus.children[1].state == pb.CHILD_FAULTED
 
 
 @pytest.mark.asyncio
@@ -486,7 +486,7 @@ async def test_nexus_2_remote_mirror_kill_1(
         assert nexus.state == pb.NEXUS_DEGRADED
 
         assert nexus.children[0].state == pb.CHILD_ONLINE
-        assert nexus.children[1].state == pb.CHILD_DEGRADED
+        assert nexus.children[1].state == pb.CHILD_FAULTED
 
 
 @pytest.mark.asyncio
@@ -521,5 +521,5 @@ async def test_nexus_2_remote_mirror_kill_all_fio(
 
         assert nexus.state == pb.NEXUS_FAULTED
 
-        assert nexus.children[0].state == pb.CHILD_DEGRADED
-        assert nexus.children[1].state == pb.CHILD_DEGRADED
+        assert nexus.children[0].state == pb.CHILD_FAULTED
+        assert nexus.children[1].state == pb.CHILD_FAULTED

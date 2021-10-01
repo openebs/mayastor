@@ -15,7 +15,6 @@ use crate::{
             instances,
             nexus_channel::DrEvent,
             nexus_child::ChildState::Faulted,
-            nexus_persistence::PersistOp,
         },
         nexus_lookup,
         Guid,
@@ -659,15 +658,9 @@ impl NexusChild {
         // device-related events directly.
         if state != ChildState::Faulted(Reason::IoError) {
             let nexus_name = self.parent.clone();
-            let child_name = self.get_name().to_string();
-            let child_state = self.state();
             Reactor::block_on(async move {
                 match nexus_lookup(&nexus_name) {
-                    Some(n) => {
-                        n.reconfigure(DrEvent::ChildRemove).await;
-                        n.persist(PersistOp::Update((child_name, child_state)))
-                            .await;
-                    }
+                    Some(n) => n.reconfigure(DrEvent::ChildRemove).await,
                     None => error!("Nexus {} not found", nexus_name),
                 }
             });
