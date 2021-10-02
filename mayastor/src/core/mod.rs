@@ -12,6 +12,7 @@ pub use block_device::{
     BlockDeviceHandle,
     BlockDeviceIoStats,
     DeviceEventListener,
+    DeviceEventListeners,
     DeviceEventType,
     DeviceIoController,
     DeviceTimeoutAction,

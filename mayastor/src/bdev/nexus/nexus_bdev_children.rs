@@ -51,7 +51,7 @@ use crate::{
         Reason,
         VerboseError,
     },
-    core::{DeviceEventType, Reactors},
+    core::{DeviceEventListener, DeviceEventType, Reactors},
     nexus_uri::NexusBdevError,
 };
 
@@ -233,22 +233,25 @@ impl Nexus {
         }
     }
 
+    /// TODO
     fn register_child_event_listener(&self, child: &NexusChild) {
         let dev = child
             .get_device()
             .expect("No block device associated with nexus child");
 
-        dev.add_event_listener(Nexus::child_event_listener)
-            .map_err(|err| {
-                error!(
-                    ?err,
-                    "{}: failed to register event listener for child {}",
-                    self.name,
-                    child.get_name(),
-                );
-                err
-            })
-            .unwrap();
+        dev.add_event_listener(DeviceEventListener::new(
+            Nexus::child_event_listener,
+        ))
+        .map_err(|err| {
+            error!(
+                ?err,
+                "{}: failed to register event listener for child {}",
+                self.name,
+                child.get_name(),
+            );
+            err
+        })
+        .unwrap();
     }
 
     /// Destroy child with given uri.
@@ -565,7 +568,8 @@ impl Nexus {
             if self.bdev().alignment() < alignment {
                 info!("{}: child {} has alignment {}, updating required_alignment from {}", self.name, child.name, alignment, self.bdev().alignment());
                 unsafe {
-                    (*self.bdev().as_ptr()).required_alignment = alignment as u8;
+                    (*self.bdev().as_ptr()).required_alignment =
+                        alignment as u8;
                 }
             }
         }

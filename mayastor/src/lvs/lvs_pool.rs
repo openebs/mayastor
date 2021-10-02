@@ -30,7 +30,7 @@ use url::Url;
 
 use crate::{
     bdev::uri,
-    core::{Bdev, IoType, Share, Uuid},
+    core::{Bdev, IoType, Share},
     ffihelper::{cb_arg, pair, AsStr, ErrnoResult, FfiResult, IntoCString},
     lvs::{Error, Lvol, PropName, PropValue},
     nexus_uri::{bdev_destroy, NexusBdevError},

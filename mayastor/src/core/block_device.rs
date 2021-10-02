@@ -90,11 +90,44 @@ pub trait BlockDeviceDescriptor {
     fn unclaim(&self);
 }
 
-pub type DeviceEventListener = fn(DeviceEventType, &str);
+// pub type DeviceEventListener = fn(DeviceEventType, &str);
+
+type DevEvtCallback = fn(DeviceEventType, &str);
+
+/// TODO
+#[derive(Clone)]
+pub struct DeviceEventListener {
+    callback: DevEvtCallback,
+}
+
+impl DeviceEventListener {
+    /// TODO
+    pub fn new(callback: DevEvtCallback) -> Self {
+        Self {
+            callback
+        }
+    }
+
+    /// TODO
+    pub fn notify(&self, evt: DeviceEventType, device_name: &str) {
+        (self.callback)(evt, device_name)
+    }
+}
+
+/// TODO
+pub type DeviceEventListeners = Vec<DeviceEventListener>;
+
+/// TODO
 pub type IoCompletionCallbackArg = *mut c_void;
+
+/// TODO
 pub type IoCompletionCallback =
     fn(&dyn BlockDevice, IoCompletionStatus, IoCompletionCallbackArg) -> ();
+
+/// TODO
 pub type OpCompletionCallbackArg = *mut c_void;
+
+/// TODO
 pub type OpCompletionCallback = fn(bool, OpCompletionCallbackArg) -> ();
 
 /*

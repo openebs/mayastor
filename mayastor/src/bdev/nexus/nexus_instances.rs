@@ -1,8 +1,8 @@
 use crate::{
-    bdev::Nexus,
+    bdev::{nexus::nexus_module::NexusModule, Nexus},
     core::singleton::{Singleton, SingletonCell},
 };
-use spdk::Thread;
+use spdk::{BdevModuleIter, Thread};
 use std::ptr::NonNull;
 
 /// TODO
@@ -66,7 +66,26 @@ impl NexusInstances {
 
     /// Lookups a nexus by its name and returns a mutable reference to it.
     pub fn lookup_mut(&mut self, name: &str) -> Option<&mut Nexus> {
-        self.iter_mut().find(|n| n.name == name)
+        info!("^^^^ lookup_mut: {}", name);
+        unsafe {
+            for (i, n) in self.nexuses.iter().enumerate() {
+                info!("    -- {} :: {}", i, n.as_ref().name);
+            }
+
+            info!("-- count: {}", self.iter_mut().count());
+
+            let r = self.iter_mut().find(|n| {
+                info!("  -- check {}", n.name);
+                n.name == name
+            });
+
+            match &r {
+                Some(_) => info!("    ++ !"),
+                None => info!("    ++ ?"),
+            }
+
+            r
+        }
     }
 
     /// TODO
@@ -91,17 +110,26 @@ impl NexusInstances {
     }
 }
 
+/// Lookup a nexus by its name (currently used only by test functions).
+pub fn nexus_lookup(name: &str) -> Option<&mut Nexus> {
+    NexusInstances::as_mut().lookup_mut(name)
+}
+
+
+
+//////////////////////////////////////////////////////////////////////////////
+
+
+
 /// TODO
 pub struct NexusIter {
     n: usize,
-    // iter: BdevIter<()>,
 }
 
 impl Iterator for NexusIter {
     type Item = &'static Nexus;
 
     fn next(&mut self) -> Option<&'static Nexus> {
-        // self.iter.next().map(|b| b.legacy_ctxt::<Nexus>())
         let inst = NexusInstances::get_or_init();
         if self.n < inst.nexuses.len() {
             let i = self.n;
@@ -115,9 +143,9 @@ impl Iterator for NexusIter {
 
 impl NexusIter {
     fn new() -> Self {
+        info!("^^^^ new iter");
         Self {
             n: 0,
-            // iter: module().iter_bdevs()
         }
     }
 }
@@ -125,14 +153,12 @@ impl NexusIter {
 /// TODO
 pub struct NexusIterMut {
     n: usize,
-    // iter: BdevIter<()>,
 }
 
 impl Iterator for NexusIterMut {
     type Item = &'static mut Nexus;
 
     fn next(&mut self) -> Option<&'static mut Nexus> {
-        // self.iter.next().map(|b| b.legacy_ctxt_mut::<Nexus>())
         let inst = NexusInstances::get_or_init();
         if self.n < inst.nexuses.len() {
             let i = self.n;
@@ -146,14 +172,59 @@ impl Iterator for NexusIterMut {
 
 impl NexusIterMut {
     fn new() -> Self {
+        info!("^^^^ new iter mut");
         Self {
             n: 0,
-            // iter: module().iter_bdevs()
         }
     }
 }
 
-/// Lookup a nexus by its name (currently used only by test functions).
-pub fn nexus_lookup(name: &str) -> Option<&mut Nexus> {
-    NexusInstances::as_mut().lookup_mut(name)
+//------------------------------------------------------------------------------
+
+/*
+
+/// TODO
+pub struct NexusIter {
+    iter: BdevModuleIter<Nexus>,
 }
+
+impl Iterator for NexusIter {
+    type Item = &'static Nexus;
+
+    fn next(&mut self) -> Option<&'static Nexus> {
+        self.iter.next().map(|b| b.data())
+    }
+}
+
+impl NexusIter {
+    fn new() -> Self {
+        info!("^^^^ new iter");
+        Self {
+            iter: NexusModule::current().iter_bdevs(),
+        }
+    }
+}
+
+/// TODO
+pub struct NexusIterMut {
+    iter: BdevModuleIter<Nexus>,
+}
+
+impl Iterator for NexusIterMut {
+    type Item = &'static mut Nexus;
+
+    fn next(&mut self) -> Option<&'static mut Nexus> {
+        self.iter.next().map(|mut b| b.data_mut())
+    }
+}
+
+impl NexusIterMut {
+    fn new() -> Self {
+        info!("^^^^ new iter mut");
+        Self {
+            iter: NexusModule::current().iter_bdevs(),
+        }
+    }
+}
+
+*/

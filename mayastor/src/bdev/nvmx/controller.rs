@@ -52,6 +52,7 @@ use crate::{
         BlockDeviceIoStats,
         CoreError,
         DeviceEventListener,
+        DeviceEventListeners,
         DeviceEventType,
         IoDevice,
         OpCompletionCallback,
@@ -114,18 +115,15 @@ pub struct NvmeControllerInner<'a> {
     io_device: Arc<IoDevice>,
 }
 
-type EventCallbackList = Vec<DeviceEventListener>;
-
-/*
- * NVME controller implementation.
- */
+/// NVME controller implementation.
+/// TODO
 pub struct NvmeController<'a> {
     pub(crate) name: String,
     id: u64,
     prchk_flags: u32,
     inner: Option<NvmeControllerInner<'a>>,
     state_machine: ControllerStateMachine,
-    event_listeners: Mutex<EventCallbackList>,
+    event_listeners: Mutex<DeviceEventListeners>,
     /// Timeout config is accessed by SPDK-driven timeout callback handlers,
     /// so it needs to be a raw pointer. Mutable members are made atomic to
     /// eliminate lock contention between API path and callback path.
@@ -154,7 +152,7 @@ impl<'a> NvmeController<'a> {
             prchk_flags,
             state_machine: ControllerStateMachine::new(name),
             inner: None,
-            event_listeners: Mutex::new(Vec::<fn(DeviceEventType, &str)>::new()),
+            event_listeners: Mutex::new(DeviceEventListeners::new()),
             timeout_config: NonNull::new(Box::into_raw(Box::new(
                 TimeoutConfig::new(name),
             )))
@@ -269,7 +267,7 @@ impl<'a> NvmeController<'a> {
 
         // Notify listeners in case of namespace removal.
         if notify_listeners {
-            self.notify_event(DeviceEventType::DeviceRemoved);
+            self.notify_listeners(DeviceEventType::DeviceRemoved);
         }
 
         ns_active
@@ -698,9 +696,11 @@ impl<'a> NvmeController<'a> {
         NvmeController::_complete_reset(reset_ctx, status);
     }
 
-    fn notify_event(&self, event: DeviceEventType) -> usize {
-        // Keep a separate copy of all registered listeners in order to not
-        // invoke them with the lock held.
+    /// Notifies all listeners of this controller.
+    ///
+    /// Note: Keep a separate copy of all registered listeners in order to not
+    /// invoke them with the lock held.
+    fn notify_listeners(&self, event: DeviceEventType) -> usize {
         let listeners = {
             let listeners = self
                 .event_listeners
@@ -710,15 +710,15 @@ impl<'a> NvmeController<'a> {
         };
 
         for l in listeners.iter() {
-            (*l)(event, &self.name);
+            l.notify(event, &self.name);
         }
         listeners.len()
     }
 
     /// Register listener to monitor device events related to this controller.
-    pub fn add_event_listener(
+    pub fn register_device_listener(
         &self,
-        listener: fn(DeviceEventType, &str),
+        listener: DeviceEventListener,
     ) -> Result<(), CoreError> {
         let mut listeners = self
             .event_listeners
@@ -928,7 +928,8 @@ pub(crate) async fn destroy_device(name: String) -> Result<(), NexusBdevError> {
     // Notify the listeners.
     debug!(?name, "notifying listeners about device removal");
     let controller = carc.lock();
-    let num_listeners = controller.notify_event(DeviceEventType::DeviceRemoved);
+    let num_listeners =
+        controller.notify_listeners(DeviceEventType::DeviceRemoved);
     debug!(
         ?name,
         ?num_listeners,

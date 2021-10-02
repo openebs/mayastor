@@ -133,20 +133,53 @@ impl SpdkBlockDevice {
         Ok(Box::new(SpdkBlockDeviceDescriptor::from(descr)))
     }
 
-    pub fn process_device_event(event: DeviceEventType, device: &str) {
-        // Keep a separate copy of all registered listeners in order to not
-        // invoke them with the lock held.
-        let listeners = {
-            let map = BDEV_LISTENERS.read().expect("lock poisoned");
-            match map.get(device) {
-                Some(listeners) => listeners.clone(),
-                None => return,
+    /// Called by spdk when there is an asynchronous bdev event i.e. removal.
+    pub(crate) fn bdev_event_callback(
+        event: spdk::BdevEvent,
+        bdev: spdk::Bdev<()>,
+    ) {
+        let dev = SpdkBlockDevice::new(Bdev::new(bdev));
+
+        // Translate SPDK events into common device events.
+        let event = match event {
+            spdk::BdevEvent::Remove => {
+                info!("Received remove event for Bdev '{}'", dev.device_name());
+                DeviceEventType::DeviceRemoved
+            }
+            spdk::BdevEvent::Resize => {
+                warn!("Received resize event for Bdev '{}'", dev.device_name());
+                DeviceEventType::DeviceResized
+            }
+            spdk::BdevEvent::MediaManagement => {
+                warn!(
+                    "Received media management event for Bdev '{}'",
+                    dev.device_name()
+                );
+                DeviceEventType::MediaManagement
             }
         };
 
-        // Notify all listeners of this SPDK bdev.
-        for l in listeners {
-            (l)(event, device);
+        // Forward event to high-level handler.
+        dev.notify_listeners(event);
+    }
+
+    /// Notifies all listeners of this SPDK Bdev.
+    fn notify_listeners(self, event: DeviceEventType) {
+        let name = self.device_name();
+        for l in self.get_listeners() {
+            l.notify(event, &name);
+        }
+    }
+
+    /// Returns a list of this Bdev listeners.
+    ///
+    /// Note: a separate copy of all registered listeners is returned in order
+    /// to not invoke them with the lock held.
+    fn get_listeners(&self) -> Vec<DeviceEventListener> {
+        let map = BDEV_LISTENERS.read().expect("lock poisoned");
+        match map.get(&self.device_name()) {
+            Some(listeners) => listeners.clone(),
+            None => Vec::new(),
         }
     }
 }

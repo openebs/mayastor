@@ -7,9 +7,7 @@ use async_trait::async_trait;
 use nix::errno::Errno;
 use snafu::ResultExt;
 
-use spdk_sys::{
-    spdk_bdev,
-};
+use spdk_sys::spdk_bdev;
 
 use crate::{
     bdev::SpdkBlockDevice,
@@ -18,7 +16,6 @@ use crate::{
         BlockDeviceIoStats,
         CoreError,
         Descriptor,
-        DeviceEventType,
         IoType,
         ShareIscsi,
         ShareNvmf,
@@ -180,30 +177,6 @@ impl Bdev {
         }
     }
 
-    /// Called by spdk when there is an asynchronous bdev event i.e. removal.
-    fn event_cb(event: spdk::BdevEvent, bdev: spdk::Bdev<()>) {
-        let name = bdev.name();
-
-        // Translate SPDK events into common device events.
-        let event = match event {
-            spdk::BdevEvent::Remove => {
-                info!("Received remove event for Bdev '{}'", name);
-                DeviceEventType::DeviceRemoved
-            }
-            spdk::BdevEvent::Resize => {
-                warn!("Received resize event for Bdev '{}'", name);
-                DeviceEventType::DeviceResized
-            }
-            spdk::BdevEvent::MediaManagement => {
-                warn!("Received media management event for Bdev '{}'", name,);
-                DeviceEventType::MediaManagement
-            }
-        };
-
-        // Forward event to high-level handler.
-        SpdkBlockDevice::process_device_event(event, &name);
-    }
-
     /// Opens the current Bdev.
     /// A Bdev can be opened multiple times resulting in a new descriptor for
     /// each call.
@@ -211,7 +184,7 @@ impl Bdev {
         match spdk::BdevDesc::<()>::open(
             self.name(),
             read_write,
-            Self::event_cb,
+            SpdkBlockDevice::bdev_event_callback,
         ) {
             Ok(d) => Ok(Descriptor::new(d)),
             Err(err) => Err(CoreError::OpenBdev {
@@ -341,7 +314,6 @@ impl BdevIter {
         BdevIter(::spdk::Bdev::<()>::iter_all())
     }
 }
-
 
 impl From<*mut spdk_bdev> for Bdev {
     fn from(bdev: *mut spdk_bdev) -> Self {
