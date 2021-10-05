@@ -33,7 +33,6 @@ use spdk_sys::{
     SPDK_RPC_RUNTIME,
 };
 use structopt::StructOpt;
-use tokio::runtime::Builder;
 
 use crate::{
     bdev::{bdev_io_ctx_pool_init, nexus, nvme_io_ctx_pool_init},
@@ -760,12 +759,9 @@ impl MayastorEnvironment {
         let persistent_store_endpoint = self.persistent_store_endpoint.clone();
         let ms = self.init();
 
-        let rt = Builder::new_current_thread().enable_all().build().unwrap();
-
-        rt.block_on(async {
+        Reactors::launch_master();
+        Reactor::block_on(async move {
             PersistentStore::init(persistent_store_endpoint).await;
-            let master = Reactors::current();
-            master.send_future(async { f() });
             let mut futures: Vec<
                 Pin<Box<dyn future::Future<Output = FutureResult>>>,
             > = Vec::new();
@@ -776,7 +772,11 @@ impl MayastorEnvironment {
                 )));
             }
             futures.push(Box::pin(subsys::Registration::run()));
-            futures.push(Box::pin(master));
+            futures.push(Box::pin(async {
+                f();
+
+                FutureResult::Ok(())
+            }));
             let _out = future::try_join_all(futures).await;
             info!("reactors stopped");
             ms.fini();
