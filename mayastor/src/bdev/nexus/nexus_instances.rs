@@ -119,8 +119,6 @@ pub fn nexus_lookup(name: &str) -> Option<&mut Nexus> {
 
 //////////////////////////////////////////////////////////////////////////////
 
-
-
 /// TODO
 pub struct NexusIter {
     n: usize,

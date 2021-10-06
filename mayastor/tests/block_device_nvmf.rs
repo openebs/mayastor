@@ -30,6 +30,7 @@ use std::{
 use spdk_sys::{self, iovec};
 
 pub mod common;
+use mayastor::core::DeviceEventListener;
 use uuid::Uuid;
 
 static MAYASTOR: OnceCell<MayastorTest> = OnceCell::new();
@@ -198,7 +199,9 @@ async fn nvmf_device_events() {
 
         DEVICE_NAME.set(name.clone()).unwrap();
 
-        device.add_event_listener(device_event_cb).unwrap();
+        device
+            .add_event_listener(DeviceEventListener::from_fn(device_event_cb))
+            .unwrap();
     })
     .await;
 
@@ -1811,7 +1814,9 @@ async fn nvmf_device_hot_remove() {
 
         DEVICE_NAME.set(name.clone()).unwrap();
 
-        device.add_event_listener(device_event_cb).unwrap();
+        device
+            .add_event_listener(DeviceEventListener::from_fn(device_event_cb))
+            .unwrap();
     })
     .await;
 

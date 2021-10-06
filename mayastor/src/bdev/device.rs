@@ -48,7 +48,11 @@ use crate::core::{
 
 use spdk::IoType;
 
-static BDEV_LISTENERS: Lazy<RwLock<HashMap<String, Vec<DeviceEventListener>>>> =
+/// TODO
+type DeviceListenerMap = HashMap<String, Vec<DeviceEventListener>>;
+
+/// TODO
+static BDEV_LISTENERS: Lazy<RwLock<DeviceListenerMap>> =
     Lazy::new(|| RwLock::new(HashMap::new()));
 
 // Memory pool for bdev I/O context.
@@ -159,15 +163,15 @@ impl SpdkBlockDevice {
             }
         };
 
-        // Forward event to high-level handler.
+        // Forward event to the high-level handler.
         dev.notify_listeners(event);
     }
 
     /// Notifies all listeners of this SPDK Bdev.
     fn notify_listeners(self, event: DeviceEventType) {
         let name = self.device_name();
-        for l in self.get_listeners() {
-            l.notify(event, &name);
+        for mut dst in self.get_listeners() {
+            dst.notify(event, &name);
         }
     }
 

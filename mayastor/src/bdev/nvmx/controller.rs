@@ -52,7 +52,6 @@ use crate::{
         BlockDeviceIoStats,
         CoreError,
         DeviceEventListener,
-        DeviceEventListeners,
         DeviceEventType,
         IoDevice,
         OpCompletionCallback,
@@ -123,7 +122,7 @@ pub struct NvmeController<'a> {
     prchk_flags: u32,
     inner: Option<NvmeControllerInner<'a>>,
     state_machine: ControllerStateMachine,
-    event_listeners: Mutex<DeviceEventListeners>,
+    event_listeners: Mutex<Vec<DeviceEventListener>>,
     /// Timeout config is accessed by SPDK-driven timeout callback handlers,
     /// so it needs to be a raw pointer. Mutable members are made atomic to
     /// eliminate lock contention between API path and callback path.
@@ -152,7 +151,7 @@ impl<'a> NvmeController<'a> {
             prchk_flags,
             state_machine: ControllerStateMachine::new(name),
             inner: None,
-            event_listeners: Mutex::new(DeviceEventListeners::new()),
+            event_listeners: Mutex::new(Vec::new()),
             timeout_config: NonNull::new(Box::into_raw(Box::new(
                 TimeoutConfig::new(name),
             )))
@@ -709,10 +708,12 @@ impl<'a> NvmeController<'a> {
             listeners.clone()
         };
 
-        for l in listeners.iter() {
-            l.notify(event, &self.name);
+        let sz = listeners.len();
+
+        for mut dst in listeners {
+            dst.notify(event, &self.name);
         }
-        listeners.len()
+        sz
     }
 
     /// Register listener to monitor device events related to this controller.
@@ -856,8 +857,9 @@ pub extern "C" fn nvme_poll_adminq(ctx: *mut c_void) -> i32 {
                 "notifying listeners of admin command completion failure"
             );
             let controller = carc.lock();
-            let num_listeners = controller
-                .notify_event(DeviceEventType::AdminCommandCompletionFailed);
+            let num_listeners = controller.notify_listeners(
+                DeviceEventType::AdminCommandCompletionFailed,
+            );
             debug!(
                 ?dev_name,
                 ?num_listeners,

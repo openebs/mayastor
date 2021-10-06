@@ -2,8 +2,11 @@ use crate::core::{CoreError, DmaBuf, DmaError, IoCompletionStatus, IoType};
 use async_trait::async_trait;
 use merge::Merge;
 use nix::errno::Errno;
-use std::os::raw::c_void;
+use spdk_sys::iovec;
+use std::{cell::RefCell, os::raw::c_void, rc::Rc};
 use uuid::Uuid;
+
+/// TODO
 #[derive(Debug, Default, Clone, Copy, Merge)]
 pub struct BlockDeviceIoStats {
     #[merge(strategy = merge::num::saturating_add)]
@@ -20,12 +23,8 @@ pub struct BlockDeviceIoStats {
     pub bytes_unmapped: u64,
 }
 
-use spdk_sys::iovec;
-
-/*
- * Core trait that represents a block device.
- * TODO: Add text.
- */
+/// Core trait that represents a block device.
+/// TODO: Add text.
 #[async_trait(?Send)]
 pub trait BlockDevice {
     /// Returns total size in bytes of the device.
@@ -77,45 +76,138 @@ pub trait BlockDevice {
     ) -> Result<(), CoreError>;
 }
 
-/*
- * Core trait that represents a descriptor for an opened block device.
- * TODO: Add text.
- */
+/// Core trait that represents a descriptor for an opened block device.
+/// TODO: Add text.
 pub trait BlockDeviceDescriptor {
+    /// TODO
     fn get_device(&self) -> Box<dyn BlockDevice>;
+
+    /// TODO
     fn into_handle(
         self: Box<Self>,
     ) -> Result<Box<dyn BlockDeviceHandle>, CoreError>;
+
+    /// TODO
     fn get_io_handle(&self) -> Result<Box<dyn BlockDeviceHandle>, CoreError>;
+
+    /// TODO
     fn unclaim(&self);
 }
 
+//////////////////////////////////////////////////////////
+
 // pub type DeviceEventListener = fn(DeviceEventType, &str);
 
-type DevEvtCallback = fn(DeviceEventType, &str);
+//////////////////////////////////////////////////////////
+
+/// TODO
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum DeviceEventType {
+    /// TODO
+    DeviceRemoved,
+
+    /// TODO
+    DeviceResized,
+
+    /// TODO
+    MediaManagement,
+
+    /// TODO
+    AdminCommandCompletionFailed,
+}
+
+/// TODO
+pub trait DeviceEventHandler {
+    /// TODO
+    fn handle_device_event(&mut self, evt: DeviceEventType, dev_name: &str);
+}
+
+/// TODO
+trait DeviceEventTarget {
+    /// TODO
+    fn dispatch(&mut self, evt: DeviceEventType, dev_name: &str);
+}
+
+/// TODO
+struct DeviceEventCallbackTarget<'a> {
+    /// TODO
+    callback: Box<dyn Fn(DeviceEventType, &str) + 'a>,
+}
+
+impl DeviceEventTarget for DeviceEventCallbackTarget<'_> {
+    fn dispatch(&mut self, evt: DeviceEventType, dev_name: &str) {
+        (self.callback)(evt, dev_name);
+    }
+}
+
+/// TODO
+struct DeviceEventHandlerTarget<'a> {
+    /// TODO
+    dst: &'a mut dyn DeviceEventHandler,
+}
+
+impl DeviceEventTarget for DeviceEventHandlerTarget<'_> {
+    fn dispatch(&mut self, event: DeviceEventType, device_name: &str) {
+        self.dst.handle_device_event(event, device_name);
+    }
+}
 
 /// TODO
 #[derive(Clone)]
 pub struct DeviceEventListener {
-    callback: DevEvtCallback,
+    tgt: Rc<RefCell<dyn DeviceEventTarget>>,
+}
+
+unsafe impl Send for DeviceEventListener {}
+unsafe impl Sync for DeviceEventListener {}
+
+impl From<&mut dyn DeviceEventHandler> for DeviceEventListener {
+    fn from(dst: &mut dyn DeviceEventHandler) -> Self {
+        // Extend destination's lifetime to match the static lifetime of
+        // listener container(s).
+        // TODO: describe why it is safe to do
+        let dst = unsafe {
+            std::mem::transmute::<_, &'static mut dyn DeviceEventHandler>(dst)
+        };
+
+        Self::new(Rc::new(RefCell::new(DeviceEventHandlerTarget {
+            dst,
+        })))
+    }
 }
 
 impl DeviceEventListener {
     /// TODO
-    pub fn new(callback: DevEvtCallback) -> Self {
+    /// Note: is it possible to have it as From<> implementation?
+    pub fn from_fn(callback: fn(DeviceEventType, &str)) -> Self {
+        // // Extend destination's lifetime to match the static lifetime of
+        // // listeners.
+        // // TODO: describe why it is safe to do
+        // let callback = unsafe {
+        //     std::mem::transmute::<_, &'static dyn Fn(DeviceEventType, &str)>(
+        //         callback,
+        //     )
+        // };
+
+        Self::new(Rc::new(RefCell::new(DeviceEventCallbackTarget {
+            callback: Box::new(callback),
+        })))
+    }
+
+    /// TODO
+    fn new(tgt: Rc<RefCell<dyn DeviceEventTarget>>) -> Self {
         Self {
-            callback
+            tgt,
         }
     }
 
     /// TODO
-    pub fn notify(&self, evt: DeviceEventType, device_name: &str) {
-        (self.callback)(evt, device_name)
+    pub fn notify(&mut self, evt: DeviceEventType, dev_name: &str) {
+        self.tgt.borrow_mut().dispatch(evt, dev_name)
     }
 }
 
-/// TODO
-pub type DeviceEventListeners = Vec<DeviceEventListener>;
+//////////////////////////////////////////////////////////
 
 /// TODO
 pub type IoCompletionCallbackArg = *mut c_void;
@@ -130,23 +222,28 @@ pub type OpCompletionCallbackArg = *mut c_void;
 /// TODO
 pub type OpCompletionCallback = fn(bool, OpCompletionCallbackArg) -> ();
 
-/*
- * Core trait that represents a device I/O handle.
- * TODO: Add text.
- */
+/// Core trait that represents a device I/O handle.
+/// TODO: Add text.
 #[async_trait(?Send)]
 pub trait BlockDeviceHandle {
     // Generic functions.
+
+    /// TODO
     fn get_device(&self) -> &dyn BlockDevice;
+
+    /// TODO
     fn dma_malloc(&self, size: u64) -> Result<DmaBuf, DmaError>;
 
     // Futures-based I/O functions.
+
+    /// TODO
     async fn read_at(
         &self,
         offset: u64,
         buffer: &mut DmaBuf,
     ) -> Result<u64, CoreError>;
 
+    /// TODO
     async fn write_at(
         &self,
         offset: u64,
@@ -154,6 +251,8 @@ pub trait BlockDeviceHandle {
     ) -> Result<u64, CoreError>;
 
     // Callback-based I/O functions.
+
+    /// TODO
     fn readv_blocks(
         &self,
         iov: *mut iovec,
@@ -164,6 +263,7 @@ pub trait BlockDeviceHandle {
         cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError>;
 
+    /// TODO
     fn writev_blocks(
         &self,
         iov: *mut iovec,
@@ -174,12 +274,14 @@ pub trait BlockDeviceHandle {
         cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError>;
 
+    /// TODO
     fn reset(
         &self,
         cb: IoCompletionCallback,
         cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError>;
 
+    /// TODO
     fn unmap_blocks(
         &self,
         offset_blocks: u64,
@@ -188,6 +290,7 @@ pub trait BlockDeviceHandle {
         cb_arg: IoCompletionCallbackArg,
     ) -> Result<(), CoreError>;
 
+    /// TODO
     fn write_zeroes(
         &self,
         offset_blocks: u64,
@@ -197,15 +300,24 @@ pub trait BlockDeviceHandle {
     ) -> Result<(), CoreError>;
 
     // NVMe only.
+
+    /// TODO
     async fn nvme_admin_custom(&self, opcode: u8) -> Result<(), CoreError>;
+
+    /// TODO
     async fn nvme_admin(
         &self,
         nvme_cmd: &spdk_sys::spdk_nvme_cmd,
         buffer: Option<&mut DmaBuf>,
     ) -> Result<(), CoreError>;
+
+    /// TODO
     async fn nvme_identify_ctrlr(&self) -> Result<DmaBuf, CoreError>;
+
+    /// TODO
     async fn create_snapshot(&self) -> Result<u64, CoreError>;
 
+    /// TODO
     async fn nvme_resv_register(
         &self,
         _current_key: u64,
@@ -218,6 +330,7 @@ pub trait BlockDeviceHandle {
         })
     }
 
+    /// TODO
     async fn nvme_resv_acquire(
         &self,
         _current_key: u64,
@@ -230,6 +343,7 @@ pub trait BlockDeviceHandle {
         })
     }
 
+    /// TODO
     async fn nvme_resv_report(
         &self,
         _cdw11: u32,
@@ -240,6 +354,7 @@ pub trait BlockDeviceHandle {
         })
     }
 
+    /// TODO
     async fn io_passthru(
         &self,
         nvme_cmd: &spdk_sys::spdk_nvme_cmd,
@@ -251,6 +366,7 @@ pub trait BlockDeviceHandle {
         })
     }
 
+    /// TODO
     async fn host_id(&self) -> Result<[u8; 16], CoreError> {
         Err(CoreError::NotSupported {
             source: Errno::EOPNOTSUPP,
@@ -258,6 +374,7 @@ pub trait BlockDeviceHandle {
     }
 }
 
+/// TODO
 pub trait LbaRangeController {}
 
 #[derive(Debug, PartialEq, Copy, Clone)]
@@ -284,18 +401,14 @@ impl ToString for DeviceTimeoutAction {
     }
 }
 
+/// TODO
 pub trait DeviceIoController {
+    /// TODO
     fn get_timeout_action(&self) -> Result<DeviceTimeoutAction, CoreError>;
+
+    /// TODO
     fn set_timeout_action(
         &mut self,
         action: DeviceTimeoutAction,
     ) -> Result<(), CoreError>;
-}
-
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum DeviceEventType {
-    DeviceRemoved,
-    DeviceResized,
-    MediaManagement,
-    AdminCommandCompletionFailed,
 }

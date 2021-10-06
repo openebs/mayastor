@@ -230,6 +230,13 @@ impl BlockDevice for NvmeBlockDevice {
         &self,
         listener: DeviceEventListener,
     ) -> Result<(), CoreError> {
+        // // Extend listener's lifetime to match the static lifetime of
+        // // NVME_CONTROLLERS.
+        // // TODO: describe why it is safe to do
+        // let listener = unsafe {
+        //     std::mem::transmute::<_, DeviceEventListener<'static>>(listener)
+        // };
+
         let controller = NVME_CONTROLLERS.lookup_by_name(&self.name).ok_or(
             CoreError::BdevNotFound {
                 name: self.name.clone(),

@@ -933,7 +933,7 @@ impl Nexus {
         debug!(?self, "PAUSE");
         self.pause().await?;
         debug!(?self, "UNPAUSE");
-        if let Some(child) = self.child_lookup(&name) {
+        if let Some(child) = self.lookup_child(&name) {
             let uri = child.name.clone();
             // schedule the deletion of the child eventhough etcd has not been
             // updated yet we do not need to wait for that to
@@ -1053,15 +1053,6 @@ impl Nexus {
             }
         }
     }
-
-    /// Looks up a child based on the underlying block device name and
-    /// returns a mutable reference.
-    pub fn lookup_child_mut(
-        &mut self,
-        bdev_name: &str,
-    ) -> Option<&mut NexusChild> {
-        self.children.iter_mut().find(|c| c.is_me(bdev_name))
-    }
 }
 
 impl Drop for Nexus {
@@ -1125,6 +1116,7 @@ impl BdevOps for Nexus {
 
         let nexus_name = self.name.clone();
         let mut children = std::mem::take(&mut self.children);
+        self.child_count = 0;
         Reactor::block_on(async move {
             for child in &mut children {
                 if child.state() == ChildState::Open {

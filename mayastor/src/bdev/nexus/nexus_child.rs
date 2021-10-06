@@ -779,7 +779,7 @@ impl NexusChild {
     }
 
     /// TODO
-    pub fn is_me(&self, bdev_name: &str) -> bool {
+    pub fn match_device_name(&self, bdev_name: &str) -> bool {
         match &self.device {
             Some(d) => d.device_name() == bdev_name,
             None => false

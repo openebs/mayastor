@@ -33,8 +33,6 @@ use crate::{
         device_create,
         device_destroy,
         device_lookup,
-        lookup_nexus_child,
-        nexus,
         nexus::{
             nexus_bdev::{
                 CreateChild,
@@ -47,11 +45,17 @@ use crate::{
             nexus_channel,
             nexus_channel::DrEvent,
             nexus_child::{ChildState, NexusChild},
+            NexusInstances,
         },
         Reason,
         VerboseError,
     },
-    core::{DeviceEventListener, DeviceEventType, Reactors},
+    core::{
+        DeviceEventHandler,
+        DeviceEventListener,
+        DeviceEventType,
+        Reactors,
+    },
     nexus_uri::NexusBdevError,
 };
 
@@ -168,7 +172,7 @@ impl Nexus {
             }
         };
 
-        if self.child_lookup(&name).is_some() {
+        if self.lookup_child(&name).is_some() {
             return Err(Error::ChildAlreadyExists {
                 child: name,
                 name: self.name.to_owned(),
@@ -180,7 +184,9 @@ impl Nexus {
             self.name.clone(),
             Some(child_bdev),
         );
+
         let mut child_name = child.open(self.size);
+
         if let Ok(ref name) = child_name {
             // we have created the bdev, and created a nexusChild struct. To
             // make use of the device itself the
@@ -199,6 +205,7 @@ impl Nexus {
                 child_name = Err(e);
             }
         }
+
         match child_name {
             Ok(_) => {
                 // it can never take part in the IO path
@@ -206,7 +213,7 @@ impl Nexus {
                 child.fault(Reason::OutOfSync).await;
 
                 // Register event listener for newly added child.
-                self.register_child_event_listener(&child);
+                self.register_child_event_listener(&mut child);
 
                 self.children.push(child);
                 self.child_count += 1;
@@ -234,13 +241,13 @@ impl Nexus {
     }
 
     /// TODO
-    fn register_child_event_listener(&self, child: &NexusChild) {
+    fn register_child_event_listener(&mut self, child: &mut NexusChild) {
         let dev = child
             .get_device()
-            .expect("No block device associated with nexus child");
+            .expect("No block device associated with a Nexus child");
 
-        dev.add_event_listener(DeviceEventListener::new(
-            Nexus::child_event_listener,
+        dev.add_event_listener(DeviceEventListener::from(
+            self as &mut dyn DeviceEventHandler,
         ))
         .map_err(|err| {
             error!(
@@ -406,65 +413,8 @@ impl Nexus {
         }
     }
 
-    /// Listener for nexus child events.
-    fn child_event_listener(event: DeviceEventType, device: &str) {
-        match event {
-            DeviceEventType::DeviceRemoved => {
-                match lookup_nexus_child(device) {
-                    Some(child) => {
-                        info!(
-                            "{}: removing child {} in response to device removal event",
-                            child.get_nexus_name(),
-                            child.get_name(),
-                        );
-                        child.remove();
-                    }
-                    None => {
-                        warn!(
-                            "No nexus child exists for device {}, ignoring device removal event",
-                            device
-                        );
-                    }
-                }
-            }
-            DeviceEventType::AdminCommandCompletionFailed => {
-                let cn = &device;
-                for nexus in nexus::instances() {
-                    if nexus_channel::fault_nexus_child(nexus, cn) {
-                        info!(
-                            "{}: retiring child {} in response to admin command completion failure event",
-                            nexus.name,
-                            device,
-                        );
-
-                        let child_dev = device.to_string();
-                        Reactors::master().send_future(async move {
-                            // Error indicates it is already paused and another
-                            // thread is processing the fault
-                            let child_dev2 = child_dev.clone();
-                            if let Err(e) = nexus.child_retire(child_dev).await
-                            {
-                                warn!(
-                                    "retiring child {} returned {}",
-                                    child_dev2, e
-                                );
-                            }
-                        });
-                        return;
-                    }
-                }
-                warn!(
-                    "No nexus child exists for device {}, ignoring admin command completion failure event",
-                    device
-                );
-            }
-            _ => {
-                info!("Ignoring {:?} event for device {}", event, device);
-            }
-        }
-    }
-
-    /// try to open all the child devices
+    /// Tries to open all the child devices.
+    /// TODO:
     pub(crate) async fn try_open_children(&mut self) -> Result<(), Error> {
         if self.children.is_empty()
             || self.children.iter().any(|c| c.get_device().is_err())
@@ -474,6 +424,7 @@ impl Nexus {
             });
         }
 
+        // Block size.
         let blk_size = self.children[0].get_device().unwrap().block_len();
 
         if self
@@ -490,41 +441,56 @@ impl Nexus {
 
         let size = self.size;
 
-        let (opened, failed): (Vec<usize>, Vec<usize>) = (0 .. self
-            .children
-            .len())
-            .partition(|&i| match self.children[i].open(size) {
+        // Take the child vec, try open and re-add.
+        // NOTE: self.child_count is not affected by this algorithm!
+        let children = std::mem::take(&mut self.children);
+        let mut failed = false;
+
+        for mut child in children {
+            match child.open(size) {
                 Ok(name) => {
-                    info!("{}: opened child {}", self.name, name);
-                    self.register_child_event_listener(&self.children[i]);
-                    true
+                    info!(
+                        "{}: successfully opened child {}",
+                        self.name, name
+                    );
+                    self.register_child_event_listener(&mut child);
                 }
                 Err(error) => {
                     error!(
                         "{}: failed to open child {}: {}",
                         self.name,
-                        self.children[i].name,
+                        child.name,
                         error.verbose()
                     );
-                    false
+                    failed = true;
                 }
-            });
+            };
 
+            self.children.push(child);
+        }
+
+        // TODO:
         // Depending on IO consistency policies, we might be able to go online
         // even if some of the children failed to open. This is work is not
         // completed yet so we fail the registration all together for now.
-        if !failed.is_empty() {
+        if failed {
             // Close any children that WERE succesfully opened.
-            for i in opened {
-                if let Err(error) = self.children[i].close().await {
+            let mut opened = self
+                .children
+                .iter_mut()
+                .filter(|c| c.state() == ChildState::Open);
+
+            for child in &mut opened {
+                if let Err(error) = child.close().await {
                     error!(
                         "{}: failed to close child {}: {}",
                         self.name,
-                        self.children[i].name,
+                        child.name,
                         error.verbose()
                     );
                 }
             }
+
             return Err(Error::NexusIncomplete {
                 name: self.name.clone(),
             });
@@ -549,6 +515,7 @@ impl Nexus {
                 break;
             }
         }
+
         if let Err(error) = we_err {
             for child in &mut self.children {
                 if let Err(error) = child.close().await {
@@ -566,7 +533,14 @@ impl Nexus {
         for child in self.children.iter() {
             let alignment = child.get_device().as_ref().unwrap().alignment();
             if self.bdev().alignment() < alignment {
-                info!("{}: child {} has alignment {}, updating required_alignment from {}", self.name, child.name, alignment, self.bdev().alignment());
+                info!(
+                    "{}: child {} has alignment {}, updating \
+                        required_alignment from {}",
+                    self.name,
+                    child.name,
+                    alignment,
+                    self.bdev().alignment()
+                );
                 unsafe {
                     (*self.bdev().as_ptr()).required_alignment =
                         alignment as u8;
@@ -578,7 +552,7 @@ impl Nexus {
     }
 
     pub async fn destroy_child(&mut self, name: &str) -> Result<(), Error> {
-        if let Some(child) = self.child_lookup(name) {
+        if let Some(child) = self.lookup_child(name) {
             child.destroy().await.map_err(|source| Error::DestroyChild {
                 source,
                 child: name.to_string(),
@@ -603,15 +577,25 @@ impl Nexus {
             .reduce(min)
     }
 
-    /// Lookup a child by its device name.
-    pub fn child_lookup(&self, name: &str) -> Option<&NexusChild> {
+    /// Looks up a child based on the underlying block device name.
+    pub fn lookup_child(&self, device_name: &str) -> Option<&NexusChild> {
         self.children
             .iter()
-            .filter(|c| c.get_device().is_ok())
-            .find(|c| c.get_device().unwrap().device_name() == name)
+            .find(|c| c.match_device_name(device_name))
     }
 
-    // Lookup a child by its URL.
+    /// Looks up a child based on the underlying block device name and
+    /// returns a mutable reference.
+    pub fn lookup_child_mut(
+        &mut self,
+        device_name: &str,
+    ) -> Option<&mut NexusChild> {
+        self.children
+            .iter_mut()
+            .find(|c| c.match_device_name(device_name))
+    }
+
+    /// Looks up a child by its URL.
     pub fn get_child_by_name(
         &mut self,
         name: &str,
@@ -622,6 +606,65 @@ impl Nexus {
                 child: name.to_owned(),
                 name: self.name.clone(),
             }),
+        }
+    }
+}
+
+impl DeviceEventHandler for Nexus {
+    fn handle_device_event(&mut self, evt: DeviceEventType, dev_name: &str) {
+        match evt {
+            DeviceEventType::DeviceRemoved => {
+                match self.lookup_child_mut(dev_name) {
+                    Some(child) => {
+                        info!(
+                            "{}: removing child {} in response to device removal event",
+                            child.get_nexus_name(),
+                            child.get_name(),
+                        );
+                        child.remove();
+                    }
+                    None => {
+                        warn!(
+                            "No nexus child exists for device {}, ignoring device removal event",
+                            dev_name
+                        );
+                    }
+                }
+            }
+            DeviceEventType::AdminCommandCompletionFailed => {
+                let cn = &dev_name;
+                for nexus in NexusInstances::as_mut().iter_mut() {
+                    if nexus_channel::fault_nexus_child(nexus, cn) {
+                        info!(
+                            "{}: retiring child {} in response to admin command completion failure event",
+                            nexus.name,
+                            dev_name,
+                        );
+
+                        let child_dev = dev_name.to_string();
+                        Reactors::master().send_future(async move {
+                            // Error indicates it is already paused and another
+                            // thread is processing the fault
+                            let child_dev2 = child_dev.clone();
+                            if let Err(e) = nexus.child_retire(child_dev).await
+                            {
+                                warn!(
+                                    "retiring child {} returned {}",
+                                    child_dev2, e
+                                );
+                            }
+                        });
+                        return;
+                    }
+                }
+                warn!(
+                    "No nexus child exists for device {}, ignoring admin command completion failure event",
+                    dev_name
+                );
+            }
+            _ => {
+                info!("Ignoring {:?} event for device {}", evt, dev_name);
+            }
         }
     }
 }

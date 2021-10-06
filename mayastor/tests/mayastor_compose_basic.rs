@@ -95,7 +95,7 @@ async fn compose_up_down() {
             Bdev::bdev_first()
                 .unwrap()
                 .into_iter()
-                .map(|b| b.name())
+                .map(|b| b.name().to_string())
                 .collect::<Vec<String>>()
         })
         .await;
