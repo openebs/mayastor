@@ -264,4 +264,5 @@ pub enum DeviceEventType {
     DeviceRemoved,
     DeviceResized,
     MediaManagement,
+    AdminCommandCompletionFailed,
 }

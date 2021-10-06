@@ -34,6 +34,7 @@ use crate::{
         device_destroy,
         device_lookup,
         lookup_nexus_child,
+        nexus,
         nexus::{
             nexus_bdev::{
                 CreateChild,
@@ -43,13 +44,14 @@ use crate::{
                 NexusStatus,
                 OpenChild,
             },
+            nexus_channel,
             nexus_channel::DrEvent,
             nexus_child::{ChildState, NexusChild},
         },
         Reason,
         VerboseError,
     },
-    core::DeviceEventType,
+    core::{DeviceEventType, Reactors},
     nexus_uri::NexusBdevError,
 };
 
@@ -421,6 +423,37 @@ impl Nexus {
                         );
                     }
                 }
+            }
+            DeviceEventType::AdminCommandCompletionFailed => {
+                let cn = &device;
+                for nexus in nexus::instances() {
+                    if nexus_channel::fault_nexus_child(nexus, cn) {
+                        info!(
+                            "{}: retiring child {} in response to admin command completion failure event",
+                            nexus.name,
+                            device,
+                        );
+
+                        let child_dev = device.to_string();
+                        Reactors::master().send_future(async move {
+                            // Error indicates it is already paused and another
+                            // thread is processing the fault
+                            let child_dev2 = child_dev.clone();
+                            if let Err(e) = nexus.child_retire(child_dev).await
+                            {
+                                warn!(
+                                    "retiring child {} returned {}",
+                                    child_dev2, e
+                                );
+                            }
+                        });
+                        return;
+                    }
+                }
+                warn!(
+                    "No nexus child exists for device {}, ignoring admin command completion failure event",
+                    device
+                );
             }
             _ => {
                 info!("Ignoring {:?} event for device {}", event, device);

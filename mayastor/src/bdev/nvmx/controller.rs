@@ -56,7 +56,6 @@ use crate::{
         IoDevice,
         OpCompletionCallback,
         OpCompletionCallbackArg,
-        Reactors,
     },
     ffihelper::{cb_arg, done_cb},
     nexus_uri::NexusBdevError,
@@ -843,19 +842,27 @@ pub extern "C" fn nvme_poll_adminq(ctx: *mut c_void) -> i32 {
     let result = context.process_adminq();
 
     if result < 0 {
-        error!(
-            "process adminq: {}: {}",
-            context.name,
-            Errno::from_i32(result.abs())
-        );
         if context.start_device_destroy() {
-            info!("dispatching device destroy: {}", context.name);
+            error!(
+                "process adminq: {}: {}",
+                context.name,
+                Errno::from_i32(result.abs())
+            );
+            info!("dispatching nexus fault and retire: {}", context.name);
             let dev_name = context.name.to_string();
-            Reactors::master().send_future(async move {
-                let _ = destroy_device(dev_name).await;
-            });
-        } else {
-            warn!("device destroy already dispatched: {}", context.name);
+            let carc = NVME_CONTROLLERS.lookup_by_name(&dev_name).unwrap();
+            debug!(
+                ?dev_name,
+                "notifying listeners of admin command completion failure"
+            );
+            let controller = carc.lock();
+            let num_listeners = controller
+                .notify_event(DeviceEventType::AdminCommandCompletionFailed);
+            debug!(
+                ?dev_name,
+                ?num_listeners,
+                "listeners notified of admin command completion failure"
+            );
         }
         return 1;
     }

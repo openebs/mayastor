@@ -132,12 +132,11 @@ async fn persist_clean_shutdown() {
 
     assert!(nexus_info.clean_shutdown);
 
-    // Children are no longer open, therefore not healthy
     let child = child_info(&nexus_info, &uuid(&child1));
-    assert!(!child.healthy);
+    assert!(child.healthy);
 
     let child = child_info(&nexus_info, &uuid(&child2));
-    assert!(!child.healthy);
+    assert!(child.healthy);
 }
 
 /// This test checks that the state of a child is successfully updated in the
@@ -197,7 +196,7 @@ async fn persist_io_failure() {
     );
     assert_eq!(
         get_child(ms1, nexus_uuid, &child2).await.state,
-        ChildState::ChildDegraded as i32
+        ChildState::ChildFaulted as i32
     );
 
     // Use etcd-client to check the persisted entry.
