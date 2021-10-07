@@ -141,6 +141,16 @@ pub enum CoreError {
         len: u64,
     },
     #[snafu(display(
+        "Failed to dispatch write-zeroes at offset {} length {}",
+        offset,
+        len
+    ))]
+    WriteZeroesDispatch {
+        source: Errno,
+        offset: u64,
+        len: u64,
+    },
+    #[snafu(display(
         "Failed to dispatch NVMe IO passthru command {:x}h: {}",
         opcode,
         source
@@ -161,6 +171,15 @@ pub enum CoreError {
     },
     #[snafu(display("Reset failed"))]
     ResetFailed {},
+    #[snafu(display(
+        "Write zeroes failed at offset {} length {}",
+        offset,
+        len
+    ))]
+    WriteZeroesFailed {
+        offset: u64,
+        len: u64,
+    },
     #[snafu(display("NVMe Admin command {:x}h failed", opcode))]
     NvmeAdminFailed {
         opcode: u16,
