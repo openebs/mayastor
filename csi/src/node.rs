@@ -1,6 +1,7 @@
 use std::{
     boxed::Box,
     collections::HashMap,
+    io::ErrorKind,
     path::Path,
     time::Duration,
     vec::Vec,
@@ -28,6 +29,7 @@ use crate::{
         unpublish_fs_volume,
         unstage_fs_volume,
     },
+    mount,
 };
 
 #[derive(Clone, Debug)]
@@ -298,14 +300,46 @@ impl node_server::Node for Node {
             ));
         }
 
-        // target path will have been created previously in node_publish_volume
-        // and is one of
-        //  1. a directory for filesystem volumes ,
-        //  2. a block special file for block volumes.
-        //
-        // If it does not exist, then a previously unpublish request has
-        // succeeded.
         let target_path = Path::new(&msg.target_path);
+
+        if let Err(error) = target_path.metadata() {
+            if error.kind() != ErrorKind::NotFound {
+                let mount_point = &msg.target_path;
+                error!("failed to stat {}: {}", mount_point, error);
+                if mount::find_mount(None, Some(mount_point)).is_some() {
+                    // We found a mount even though we failed to stat()
+                    // the mount_point. Attempt to unmount anyway.
+                    if let Err(error) = mount::bind_unmount(mount_point) {
+                        return Err(failure!(
+                            Code::Internal,
+                            "Failed to unpublish volume {}: failed to unmount {}: {}",
+                            msg.volume_id,
+                            mount_point,
+                            error
+                        ));
+                    }
+
+                    // If the unmount was successful, there is a good
+                    // chance that stat() would now succeed.
+                    // If so then idempotency ensures that the remaining
+                    // code will clean up correctly. If not, the call to
+                    // target_path.exists() below will return false -
+                    // despite the fact that a mount_point *does* exist -
+                    // and the remaining code will not be executed.
+                    // This effectively means that node_unpublish_volume()
+                    // will end up being called again.
+                }
+            }
+        }
+
+        // target_path will have been created previously
+        // by node_publish_volume(), and may be either:
+        //  1. a directory (for filesystem volumes)
+        //  2. a block special file (for block volumes)
+        //
+        // If target_path does not exist, then presumably there has already
+        // been a successful call to node_unpublish_volume(), in which case
+        // there is nothing to do.
         if target_path.exists() {
             if target_path.is_dir() {
                 unpublish_fs_volume(&msg)?;

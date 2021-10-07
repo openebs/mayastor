@@ -1,0 +1,153 @@
+
+Original Jira ticket CAS-817 is as follows:
+
+Description
+
+We test following scenario:
+
+0. nexus and app are running on different nodes
+1. bring down a node with nexus (nvmf target)
+2. wait for the nvmf initiator to time out
+3. wait for the xfs to give up on filesystem (any access will return IO error after this point without blocking)
+4. delete application pod
+
+What we would expect to happen is that the device is unmounted and unpublish succeeds.
+Instead we see repeated unpublish calls and nothing happens:
+
+```
+[2021-03-30T08:46:20Z TRACE mayastor_csi::node] node_unpublish_volume NodeUnpublishVolumeRequest { volume_id: "2ccacf4c-f5e5-4ce1-87c6-af7d5fae3de4", target_path: "/var/lib/kubelet/pods/97f41524-e00d-4929-9cd6-1247fb27ea81/volumes/kubernetes.io~csi/pvc-2ccacf4c-f5e5-4ce1-87c6-af7d5fae3de4/mount" }
+[2021-03-30T08:46:20Z TRACE mayastor_csi::node] node_unpublish_volume NodeUnpublishVolumeRequest { volume_id: "2ccacf4c-f5e5-4ce1-87c6-af7d5fae3de4", target_path: "/var/lib/kubelet/pods/97f41524-e00d-4929-9cd6-1247fb27ea81/volumes/kubernetes.io~csi/pvc-2ccacf4c-f5e5-4ce1-87c6-af7d5fae3de4/mount" }
+[2021-03-30T08:46:21Z TRACE mayastor_csi::node] node_unpublish_volume NodeUnpublishVolumeRequest { volume_id: "2ccacf4c-f5e5-4ce1-87c6-af7d5fae3de4", target_path: "/var/lib/kubelet/pods/97f41524-e00d-4929-9cd6-1247fb27ea81/volumes/kubernetes.io~csi/pvc-2ccacf4c-f5e5-4ce1-87c6-af7d5fae3de4/mount" }
+[2021-03-30T08:46:23Z TRACE mayastor_csi::node] node_unpublish_volume NodeUnpublishVolumeRequest { volume_id: "2ccacf4c-f5e5-4ce1-87c6-af7d5fae3de4", target_path: "/var/lib/kubelet/pods/97f41524-e00d-4929-9cd6-1247fb27ea81/volumes/kubernetes.io~csi/pvc-2ccacf4c-f5e5-4ce1-87c6-af7d5fae3de4/mount" }
+[2021-03-30T08:46:27Z TRACE mayastor_csi::node] node_unpublish_volume NodeUnpublishVolumeRequest { volume_id: "2ccacf4c-f5e5-4ce1-87c6-af7d5fae3de4", target_path: "/var/lib/kubelet/pods/97f41524-e00d-4929-9cd6-1247fb27ea81/volumes/kubernetes.io~csi/pvc-2ccacf4c-f5e5-4ce1-87c6-af7d5fae3de4/mount" }
+[2021-03-30T08:46:35Z TRACE mayastor_csi::node] node_unpublish_volume NodeUnpublishVolumeRequest { volume_id: "2ccacf4c-f5e5-4ce1-87c6-af7d5fae3de4", target_path: "/var/lib/kubelet/pods/97f41524-e00d-4929-9cd6-1247fb27ea81/volumes/kubernetes.io~csi/pvc-2ccacf4c-f5e5-4ce1-87c6-af7d5fae3de4/mount" }
+[2021-03-30T08:46:51Z TRACE mayastor_csi::node] node_unpublish_volume NodeUnpublishVolumeRequest { volume_id: "2ccacf4c-f5e5-4ce1-87c6-af7d5fae3de4", target_path: "/var/lib/kubelet/pods/97f41524-e00d-4929-9cd6-1247fb27ea81/volumes/kubernetes.io~csi/pvc-2ccacf4c-f5e5-4ce1-87c6-af7d5fae3de4/mount" }
+[2021-03-30T08:47:23Z TRACE mayastor_csi::node] node_unpublish_volume NodeUnpublishVolumeRequest { volume_id: "2ccacf4c-f5e5-4ce1-87c6-af7d5fae3de4", target_path: "/var/lib/kubelet/pods/97f41524-e00d-4929-9cd6-1247fb27ea81/volumes/kubernetes.io~csi/pvc-2ccacf4c-f5e5-4ce1-87c6-af7d5fae3de4/mount" }
+[2021-03-30T08:48:27Z TRACE mayastor_csi::node] node_unpublish_volume NodeUnpublishVolumeRequest { volume_id: "2ccacf4c-f5e5-4ce1-87c6-af7d5fae3de4", target_path: "/var/lib/kubelet/pods/97f41524-e00d-4929-9cd6-1247fb27ea81/volumes/kubernetes.io~csi/pvc-2ccacf4c-f5e5-4ce1-87c6-af7d5fae3de4/mount" }
+[2021-03-30T08:50:29Z TRACE mayastor_csi::node] node_unpublish_volume NodeUnpublishVolumeRequest { volume_id: "2ccacf4c-f5e5-4ce1-87c6-af7d5fae3de4", target_path: "/var/lib/kubelet/pods/97f41524-e00d-4929-9cd6-1247fb27ea81/volumes/kubernetes.io~csi/pvc-2ccacf4c-f5e5-4ce1-87c6-af7d5fae3de4/mount" }
+[2021-03-30T08:52:31Z TRACE mayastor_csi::node] node_unpublish_volume NodeUnpublishVolumeRequest { volume_id: "2ccacf4c-f5e5-4ce1-87c6-af7d5fae3de4", target_path: "/var/lib/kubelet/pods/97f41524-e00d-4929-9cd6-1247fb27ea81/volumes/kubernetes.io~csi/pvc-2ccacf4c-f5e5-4ce1-87c6-af7d5fae3de4/mount" }
+[2021-03-30T08:54:33Z TRACE mayastor_csi::node] node_unpublish_volume NodeUnpublishVolumeRequest { volume_id: "2ccacf4c-f5e5-4ce1-87c6-af7d5fae3de4", target_path: "/var/lib/kubelet/pods/97f41524-e00d-4929-9cd6-1247fb27ea81/volumes/kubernetes.io~csi/pvc-2ccacf4c-f5e5-4ce1-87c6-af7d5fae3de4/mount" }
+[2021-03-30T08:56:35Z TRACE mayastor_csi::node] node_unpublish_volume NodeUnpublishVolumeRequest { volume_id: "2ccacf4c-f5e5-4ce1-87c6-af7d5fae3de4", target_path: "/var/lib/kubelet/pods/97f41524-e00d-4929-9cd6-1247fb27ea81/volumes/kubernetes.io~csi/pvc-2ccacf4c-f5e5-4ce1-87c6-af7d5fae3de4/mount" }
+[2021-03-30T08:58:37Z TRACE mayastor_csi::node] node_unpublish_volume NodeUnpublishVolumeRequest { volume_id: "2ccacf4c-f5e5-4ce1-87c6-af7d5fae3de4", target_path: "/var/lib/kubelet/pods/97f41524-e00d-4929-9cd6-1247fb27ea81/volumes/kubernetes.io~csi/pvc-2ccacf4c-f5e5-4ce1-87c6-af7d5fae3de4/mount" }
+```
+
+Once the fs is manually unmounted (no force flag required) the unpublish proceeds to the end. We must find out why it's blocked in the middle and fix the root cause.
+
+
+Test to reproduce bug CAS-817
+-----------------------------
+
+The following describes the accompanying test to (automatically) reproduce the above bug.
+
+
+Prerequisites
+-------------
+
+The following python packages are required:
+  kubernetes
+  libvirt
+  yaml
+
+Setup
+-----
+
+1. Create "standard" kubernetes cluster.
+   It is assumed that you have a kubernetes cluster
+   set up as per the default terraform configuration:
+    - master node: ksnode-1
+    - worker nodes: ksnode-2 and ksnode-3
+
+2. Label the worker nodes.
+   The test assumes that Mayastor will run on ksnode-2, and the workload (fio) will run on ksnode-3.
+   To this end, labels need to be created on the respective nodes as follows:
+    > kubectl label node ksnode-2 openebs.io/engine=mayastor
+    > kubectl label node ksnode-3 openebs.io/workloads=yes
+
+3. Deploy MayaStor.
+
+4. Run the test:
+    > python node_unpublish_bug.py
+
+   The test will perform the following steps:
+    - create a MayastorPool
+    - create a StroageClass providing storage from the pool
+    - create a PVC requesting storage from the storage class
+    - create a Pod that consumes the PVC and starts running fio
+    - destroy node ksnode-2 (ie. the node running Mayastor)
+    - wait for the fio pod to fail
+    - delete the fio pod
+    - delete the PVC
+    - wait for the corresponding PV to be deleted
+    - restart node ksnode-2
+    - wait until the appropriate MayastorNode object shows the node is back online
+    - delete the storage class
+    - delete the MayastorPool
+
+
+Prior to the fix, a bug in CSI node_unpublish_volume() meant that the unpublish
+operation would never succeed. The observed behaviour in this case is as follows.
+After deleting the PVC, the time it takes for the corresponding PV to be deleted
+is much much longer than would otherwise be expected (10 minutes versus less than a second).
+Even when the PV is eventually deleted (presumably after some time limit somewhere has lapsed),
+the problem has not been resolved with the mayastor-csi log revealing an apparently endless loop,
+with the plugin receiving a call to node_unpublish_volume() about every 2 minutes.
+
+
+Results
+-------
+
+Prior to fix
+------------
+
+Note that it takes around 10 minutes from the point at which the PVC is deleted until the corresponding PV is removed
+
+  > ./node_unpublish_bug.py 
+  created MayastorPool [ksnode-pool-2] in namespace [mayastor] (checks=1 elapsed=1s)
+  created StorageClass [mayastor-1] in namespace [default]
+  created PersistentVolumeClaim [ms-volume-claim] in namespace [default] (checks=0 elapsed=0s)
+  creating Pod [fio] ...
+  created Pod [fio] in namespace [default] (checks=5 elapsed=12s)
+  PersistentVolumeClaim [ms-volume-claim] has associated PersistentVolume [pvc-4875be10-5ad4-4a4b-a38f-59c1e2acf7cf]
+  sleeping for 15s ...
+  destroying Node [ksnode-2]
+  polling Pod [fio] ...
+  Pod [fio] in namespace [default] has failed (checks=8 elapsed=54s)
+  deleted Pod [fio] from namespace [default] (checks=1 elapsed=1s)
+  deleted PersistentVolumeClaim [ms-volume-claim] from namespace [default] (checks=1 elapsed=1s)
+  polling PersistentVolume [pvc-4875be10-5ad4-4a4b-a38f-59c1e2acf7cf] ...
+  PersistentVolume [pvc-4875be10-5ad4-4a4b-a38f-59c1e2acf7cf] has been deleted from namespace [default] (checks=13 elapsed=609s)
+  restarting Node [ksnode-2]
+  polling MayastorNode [ksnode-2] ...
+  MayastorNode [ksnode-2] in namespace [mayastor] is online (checks=10 elapsed=143s)
+  MayastorPool [ksnode-pool-2] in namespace [mayastor] is online (checks=1 elapsed=1s)
+  deleted StorageClass [mayastor-1] from namespace [default] (checks=1 elapsed=1s)
+  deleted MayastorPool [ksnode-pool-2] from namespace [mayastor] (checks=1 elapsed=1s)
+
+After fix (using updated mayastor-csi image)
+--------------------------------------------
+
+Observe that, now, the corresponding PV is removed within 1 second of the PVC being deleted.
+Also, the mayastor-csi container log shows only a single call to node_unpublish_volume()
+
+  > ./node_unpublish_bug.py 
+  created MayastorPool [ksnode-pool-2] in namespace [mayastor] (checks=1 elapsed=1s)
+  created StorageClass [mayastor-1] in namespace [default]
+  created PersistentVolumeClaim [ms-volume-claim] in namespace [default] (checks=0 elapsed=0s)
+  creating Pod [fio] ...
+  created Pod [fio] in namespace [default] (checks=5 elapsed=12s)
+  PersistentVolumeClaim [ms-volume-claim] has associated PersistentVolume [pvc-ded6aacc-e160-4673-b6bd-4b67c268c939]
+  sleeping for 15s ...
+  destroying Node [ksnode-2]
+  polling Pod [fio] ...
+  Pod [fio] in namespace [default] has failed (checks=8 elapsed=54s)
+  deleted Pod [fio] from namespace [default] (checks=1 elapsed=1s)
+  deleted PersistentVolumeClaim [ms-volume-claim] from namespace [default] (checks=1 elapsed=1s)
+  polling PersistentVolume [pvc-ded6aacc-e160-4673-b6bd-4b67c268c939] ...
+  PersistentVolume [pvc-ded6aacc-e160-4673-b6bd-4b67c268c939] has been deleted from namespace [default] (checks=1 elapsed=1s)
+  restarting Node [ksnode-2]
+  polling MayastorNode [ksnode-2] ...
+  MayastorNode [ksnode-2] in namespace [mayastor] is online (checks=9 elapsed=88s)
+  MayastorPool [ksnode-pool-2] in namespace [mayastor] is online (checks=1 elapsed=1s)
+  deleted StorageClass [mayastor-1] from namespace [default] (checks=1 elapsed=1s)
+  deleted MayastorPool [ksnode-pool-2] from namespace [mayastor] (checks=1 elapsed=1s)
+
